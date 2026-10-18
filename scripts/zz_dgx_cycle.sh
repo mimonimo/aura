@@ -25,3 +25,5 @@ fi
 # 서류 갈래 27B 판정 — 새로 처리된 문서만(이미 판정한 판은 건너뜀), 한 번에 15분까지. 전체 일괄이 도는 동안은 잠금으로 건너뛴다.
 # 모델은 이 장비의 Ollama(qwen3.8:27b) — 닿지 않으면 판정 없이 지나간다(규칙 갈래 유지)
 PYTHONPATH=src .venv-parse/bin/python scripts/191_kind_read_all.py --parsed ~/parsed --max-sec 900 --redo all 2>&1 | grep --line-buffered -E "^KIND27B|남음" >> "$log"
+# 학습셋 목록(설명 정보만 — 이름·상태·건수·지문·승인 범위) — VM 데이터·학습 화면이 같은 ~/parsed 길로 받아 보인다. 원문은 DGX 밖으로 나가지 않는다
+python3 scripts/197_trainset_catalog.py 2>&1 | grep --line-buffered "^TRAINSETS" >> "$log"

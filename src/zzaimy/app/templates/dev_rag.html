@@ -129,8 +129,8 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   {# 규정·지침 — 한 목록에 두 탭: 검색에 쓰는 규정(학생 공개/교직원만·빼기), 추가할 수 있는 규정(반입 자료 속 규정). 줄마다 단추, 여럿은 체크 뒤 아래 줄 #}
   <div class="rr-head"><h2>규정·지침</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
   <p class="rg-note" style="margin-top:0;">답변이 조항 단위로 찾는 학교 규정·지침입니다. 학생에게 보일 규정은 「학생 공개」로 둡니다. 새 파일은 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」으로 올립니다.</p>
-  <div class="rr-reindex" id="rrReindex" hidden><span>새로 추가한 규정은 뜻 검색에 들도록 임베딩을 다시 만들어야 합니다(낱말 검색은 바로 됩니다).</span>
-    <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">임베딩 다시 만들기</button></form></div>
+  <div class="rr-reindex" id="rrReindex" hidden><span>새로 추가한 규정은 몇 분 안에 자동으로 뜻 검색에 들어갑니다(낱말 검색은 바로 됩니다).</span>
+    <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">지금 바로 만들기</button></form></div>
   <div class="rr-tabs" role="tablist">
     <button type="button" role="tab" class="rr-tab on" data-tab="reg" aria-selected="true">검색에 쓰는 규정 <span id="rrRegCount"></span></button>
     <button type="button" role="tab" class="rr-tab" data-tab="cand" aria-selected="false">추가할 수 있는 규정 <span id="rrCandCount"></span></button>
@@ -393,7 +393,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     const d = await r.json();
     state.reg = d.registered; state.cand = d.items; state.candTotal = d.total;
     $('rrReindex').hidden = !d.reindex_needed;
-    $('rrReindexBtn').disabled = d.reindex_running; $('rrReindexBtn').textContent = d.reindex_running ? '임베딩 만드는 중…' : '임베딩 다시 만들기';
+    $('rrReindexBtn').disabled = d.reindex_running; $('rrReindexBtn').textContent = d.reindex_running ? '임베딩 만드는 중…' : '지금 바로 만들기';
     paint();
   }
   document.querySelectorAll('.rr-tab').forEach(t => t.addEventListener('click', () => { state.tab = t.dataset.tab; load(); }));

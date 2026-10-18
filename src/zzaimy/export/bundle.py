@@ -41,6 +41,40 @@ def _git_commit() -> str:
         return "unknown"
 
 
+TRAINSETS = Path("data/inbox/parsed/trainsets.json")
+_STATUS = {"sft_approved": "SFT 승인", "approved_for_sft": "학습 전 측정 승인", "candidate_not_sft_approved": "후보(승인 전)",
+           "baseline_responses_unjudged": "측정 채점 전"}
+_SPLIT = {"train": "학습", "eval": "검증", "test": "시험"}
+
+
+def trainsets(path: Path | str | None = None) -> list[dict]:
+    """DGX 학습셋 목록(scripts/197 → ~/parsed/trainsets.json, VM 이 170 --parsed 로 받음) — 설명 정보만. 화면에 보일 한 줄씩."""
+    p = Path(path) if path else TRAINSETS
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for it in data.get("items") or []:
+        if not isinstance(it, dict):
+            continue
+        counts = it.get("counts") or {k: (v or {}).get("rows") for k, v in (it.get("splits") or {}).items()}
+        parts = [f"{_SPLIT.get(k, k)} {int(v):,}" for k, v in counts.items() if isinstance(v, int)]
+        if it.get("kind") == "baseline" and it.get("n_eval"):
+            parts = [f"측정 {it['n_eval']}건 · 통과 {it.get('pass')} · 고칠 것 {it.get('needs_fix')}"]
+        tracks = {}
+        for sp in (it.get("splits") or {}).values():
+            for k, v in ((sp or {}).get("tracks") or {}).items():
+                tracks[k] = tracks.get(k, 0) + int(v or 0)
+        out.append({"kind": it.get("kind"), "name": it.get("name"), "at": it.get("at"),
+                    "status": it.get("status"), "status_label": _STATUS.get(str(it.get("status")), str(it.get("status") or "모름")),
+                    "summary": " · ".join(parts), "tracks": tracks, "scope": it.get("scope") or "",
+                    "training_started": it.get("training_started"), "limitations": it.get("limitations") or "",
+                    "required": it.get("required_before_training") or [], "fetched_at": data.get("at")})
+    order = {"release": 0, "staging": 1, "baseline": 2}
+    return sorted(out, key=lambda x: (order.get(x["kind"], 3), str(x.get("at") or "")), reverse=False)
+
+
 def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
                    model_dir: Path | str | None = None) -> list[dict]:
     """반출에 담길 항목을 그룹·파일·크기 트리로 미리 보여준다(zip 생성 없이).
@@ -78,9 +112,17 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
                 continue
             ds_files.append({"path": f"datasets/{jf.name}",
                              "bytes": jf.stat().st_size})
-    tree.append({"group": "datasets", "label": "학습 데이터",
-                 "desc": f"검수 승인 JSONL {len(ds_files)}개" if ds_files else "승인된 학습 데이터 없음 · 문답 검수 후 결과 반영 필요",
-                 "files": ds_files})
+    remote = trainsets()
+    approved = [x for x in remote if x.get("kind") == "release" and str(x.get("status") or "").endswith("approved")]
+    if ds_files:
+        desc = f"검수 승인 JSONL {len(ds_files)}개"
+    elif approved:
+        desc = f"DGX 에 승인 학습셋 {len(approved)}개 — 원문은 DGX 에만 두고 학습도 DGX 에서 합니다(아래 목록)"
+    elif remote:
+        desc = "DGX 에 학습셋 후보만 있음(승인 전) — 아래 목록"
+    else:
+        desc = "승인된 학습 데이터 없음 · DGX 학습셋 목록도 아직 받지 못함"
+    tree.append({"group": "datasets", "label": "학습 데이터", "desc": desc, "files": ds_files, "sets": remote})
 
     # 모델
     md_files = []

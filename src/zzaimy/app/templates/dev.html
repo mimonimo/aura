@@ -73,20 +73,8 @@
      style="padding:12px 18px; font-size:13px;">{{ request.query_params.get("err") }}</div></div>
 {% endif %}
 
-{% if reindex_needed %}
-<div class="card" style="border-color:#F0D9B8;"><div class="card-in"
-     style="display:flex; align-items:center; gap:12px; padding:14px 18px;">
-  <iconify-icon icon="solar:refresh-circle-linear" style="color:var(--amber); font-size:20px;"></iconify-icon>
-  <span style="font-size:13px;">규정 문서가 바뀌어 검색 색인을 다시 만들어야 합니다.
-    바뀐 조각만 계산하며 앱은 멈추지 않습니다.</span>
-  <form action="/dev/reindex" method="post" style="margin-left:auto;">
-    {% if reindex_running %}
-    <span class="pill processing">재색인 진행 중 · 로그 /tmp/reindex.log</span>
-    {% else %}
-    <button type="submit" class="secondary">재색인 실행</button>
-    {% endif %}
-  </form>
-</div></div>
+{% if reindex_running %}
+<p class="muted" style="font-size:12.5px; margin:0 0 12px;">규정 검색 색인을 바뀐 조각만 다시 만드는 중입니다(자동 · 앱은 그대로 씀)</p>
 {% endif %}
 
 

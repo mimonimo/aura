@@ -5798,13 +5798,36 @@ def create_app(
 
         if _reindex_running():
             return RedirectResponse(f"{back}?err=재색인이 이미 실행 중입니다", status_code=303)
+        _start_reindex()
+        return RedirectResponse(back, status_code=303)
+
+    def _start_reindex() -> None:
+        import subprocess
+
         script = Path(__file__).resolve().parents[3] / "scripts" / "66_reindex.sh"
         with _REINDEX_LOG.open("w") as log_f:
             _reindex_proc["p"] = subprocess.Popen(
                 ["nohup", "bash", str(script)],
                 stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True,
             )
-        return RedirectResponse(back, status_code=303)
+
+    # 재색인 표시가 켜지면 앱이 알아서 돌린다 — 규정이 들어올 때마다 켜지는데 사람이 누르기를 기다리면 표시가 늘 떠 있다.
+    # 바뀐 조각만 계산하고(52) 앱은 멈추지 않는다. 연달아 들어오는 반입이 끝나도록 표시가 몇 분 그대로일 때 돌리고,
+    # 다른 무거운 작업이 돌면(66 의 잠금) 다음 차례에 다시 본다
+    if password is not None and os.environ.get("ZZAIMY_AUTO_REINDEX", "1") != "0":
+        import threading as _th_rx
+
+        def _auto_reindex_loop():
+            flag = Path(db_path).parent / ".reindex-needed"
+            while True:
+                time.sleep(300)
+                try:
+                    if flag.exists() and time.time() - flag.stat().st_mtime > 180 and not _reindex_running():
+                        logging.getLogger(__name__).info("재색인 표시가 남아 있어 자동으로 다시 만든다")
+                        _start_reindex()
+                except Exception as e:
+                    logging.getLogger(__name__).warning("자동 재색인 시작 실패: %s", e)
+        _th_rx.Thread(target=_auto_reindex_loop, name="auto-reindex", daemon=True).start()
 
     def _retrieval_eval_state() -> dict:
         from zzaimy.eval.retrieval_eval import dashboard_state

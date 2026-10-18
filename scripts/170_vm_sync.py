@@ -153,7 +153,7 @@ def import_parsed() -> None:
         return
     dest = ROOT / "data" / "inbox" / "parsed"
     dest.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--include=kind27b-*.jsonl", "--exclude=*",
+    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--include=kind27b-*.jsonl", "--include=trainsets.json", "--exclude=*",
                         REMOTE + "./", str(dest) + "/"], capture_output=True)
     if r.returncode != 0:
         print("DGX 처리 결과 받기 실패:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)

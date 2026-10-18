@@ -148,7 +148,7 @@ def _register_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     rows = _pick(_register_pool(ctx), a.get("documents"))
     plan = (f"반입 자료의 규정 후보 {len(rows)}건을 기준 문서로 등록합니다 — {_names(rows)}. "
             "조문 단위로 잘라 규정 검색에 넣고, 같은 규정의 옛 판이 기준 문서로 있으면 사업 문서로 돌립니다. "
-            "뜻 검색에 들려면 RAG 공간의 「임베딩 다시 만들기」 가 필요합니다.")
+            "몇 분 안에 자동으로 뜻 검색에 들어갑니다.")
     return plan, {"ids": [int(r["id"]) for r in rows]}
 
 
@@ -163,7 +163,7 @@ def _register_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
         msg += f" · 옛 판 {got['replaced']}건은 사업 문서로"
     if got.get("skipped"):
         msg += f" · 건너뜀 {got['skipped']}건(본문 없음 등)"
-    return msg + ". 뜻 검색에 넣으려면 RAG 공간에서 「임베딩 다시 만들기」 를 누릅니다.", done
+    return msg + ". 몇 분 안에 자동으로 뜻 검색에 들어갑니다.", done
 
 
 def _dept_check(ctx: Ctx, a: dict) -> tuple[str, dict]:

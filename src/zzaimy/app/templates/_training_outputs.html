@@ -30,6 +30,10 @@
   .tool-card .tool-entry { margin-top:auto; align-self:flex-start; }
   .tool-card .tool-missing { margin-top:auto; font-size:12px; }
   .output-empty { color:var(--muted); font-size:12px; }
+  .trainset-list { list-style:none; margin:8px 0 4px; padding:0; display:grid; gap:6px; font-size:12.5px; }
+  .trainset-list li { padding:8px 10px; border:1px solid var(--line); border-radius:8px; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
+  .trainset-kind { font-size:11.5px; color:var(--muted); min-width:72px; }
+  .trainset-req { flex-basis:100%; font-size:11.5px; }
   .output-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding-top:14px; }
   .output-footer p { margin:0; font-size:12px; }
 </style>
@@ -44,6 +48,14 @@
         {% if g.files %}<label class="output-selection"><input type="checkbox" name="{{ g.group }}" value="1" checked data-output-pick><b>{{ g.label }}</b><span class="output-count">파일 {{ g.files | length }}개</span></label>
         {% else %}<b>{{ g.label }}</b><span class="output-empty">반출할 파일 없음</span>{% endif %}
         </div><p class="muted">{{ g.desc }}</p>{% if g.note %}<p class="output-note">{{ g.note }}</p>{% endif %}
+        {% if g.sets %}<ul class="trainset-list">{% for t in g.sets %}
+          <li><span class="trainset-kind">{{ {'release': '승인 기록', 'staging': '학습셋', 'baseline': '학습 전 측정'}.get(t.kind, t.kind) }}</span>
+            <b>{{ t.name }}</b> <span class="pill {{ 'ok' if t.status and t.status.endswith('approved') else '' }}">{{ t.status_label }}</span>
+            <span class="muted">{{ t.summary }}{% if t.tracks %} · {% for k, v in t.tracks.items() %}{{ k }} {{ '{:,}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
+              {% if t.training_started is sameas false %} · 학습 시작 전{% elif t.training_started %} · 학습 진행{% endif %} · {{ t.at }}</span>
+            {% if t.required %}<span class="muted trainset-req">학습 전 남은 일: {{ t.required | join(', ') }}</span>{% endif %}
+          </li>{% endfor %}</ul>
+          <p class="output-note">DGX 학습 폴더의 목록(설명 정보만)을 {{ g.sets[0].fetched_at }}에 받았습니다. DGX 주기 처리(30분)마다 새로 받습니다.</p>{% endif %}
         {% if g.files %}<div class="training-files">{% for f in g.files %}<a href="/dev/train/export/file?path={{ f.path | urlencode }}" aria-label="{{ f.path.rsplit('/', 1)[-1] }} 다운로드"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon><span>{{ f.path.rsplit('/', 1)[-1] }}</span></a>{% endfor %}</div>{% endif %}
       </div>
     </div>
