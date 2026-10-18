@@ -110,7 +110,7 @@ def main() -> int:
     ap.add_argument("--redo", default="", help="이 갈래(쉼표)로 판정된 문서 가운데 지금 지시(kind_read.PROMPT_VER)가 아닌 판정을 먼저 다시 본다 — all 이면 갈래와 무관하게 옛 지시 판정 전부")
     ap.add_argument("--redo-model", action="store_true",
                     help="지금 판정 모델과 다른 모델(또는 모델 정보가 없는 예전 줄)이 내린 판정을 먼저 다시 본다")
-    ap.add_argument("--role", default="", help="이 용도의 연결(VllmClient)로 판정한다 — 기본은 --url 의 Ollama")
+    ap.add_argument("--role", default="", help="이 용도의 연결(VllmClient)로 판정한다 — VM 운영은 review(토르 03). 비우면 --url 의 Ollama(대량 일괄 때만)")
     ap.add_argument("--max-sec", type=int, default=0, help="이 시간(초)이 지나면 멈춘다(0 = 끝까지)")
     ap.add_argument("--out-name", default="kind27b-0.jsonl", help="판정을 덧붙일 파일 이름(같은 폴더) — VM 은 kind27b-vm.jsonl")
     args = ap.parse_args()

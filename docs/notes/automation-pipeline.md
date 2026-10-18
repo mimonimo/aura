@@ -13,7 +13,7 @@
    → 분석 (개체 추출·그래프 갱신·연관 문서)
    → 학습 후보 축적 (데이터 공방 — 검토·초안·대화가 쌓임)
    → [임계치 도달] 재학습 제안 (베이스라인 대비 개선 여지 판단)
-   → 사람 승인 후 학습 (Label Studio 검수 → LLaMA Board → TensorBoard)
+   → 사람 승인 후 학습 (Label Studio 검수 → DGX 학습 스크립트(승인 기록·해시 관문) → 학습 상태 화면·TensorBoard)
 ```
 
 ## 현재 위치 (단계별 수동/자동)
@@ -49,7 +49,7 @@
 | 학습 쌍 생성 | 데이터 공방(이미 버튼/함수) | — |
 | Label Studio 검수 태스크 생성·푸시 | LS REST(ls_client.py) — 이미 API로 | 검수(판정) |
 | 검수 결과 회수 | LS REST pull(ls_client.py) | — |
-| SFT/DPO 학습 실행 | LLaMA-Factory CLI/API 호출(예정) | 결과 확인 |
+| SFT/DPO 학습 실행 | DGX 학습 스크립트(scripts/83, TRL·PEFT) — LLaMA Board 는 10-18 걷어냄 | 결과 확인 |
 | 진행 모니터링 | TensorBoard(읽기 전용) | 그래프 확인 |
 | 베이스라인·평가 | eval 하네스 스크립트(이미) | 지표 확인 |
 

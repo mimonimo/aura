@@ -53,7 +53,7 @@ STAGES = (
      "example": "이름 끝이 「…다운로드」 인 파일도 파일 머리로 실제 PDF 인지 보고 처리 대상에 넣는다",
      "nums": [("archive_files", "원본 장부 전체"), ("archive_originals", "학교 원본"), ("audit_targets", "처리 대상 문서")],
      "link": ("/dev/intake", "문서 반입")},
-    {"n": 2, "name": "파싱(글·표·그림 읽기)", "where": ["DGX", "운영 VM"], "state": "운영 중", "every": "DGX 30분 주기",
+    {"n": 2, "name": "파싱(글·표·그림 읽기)", "where": ["DGX", "운영 VM"], "state": "운영 중", "every": "DGX — 원본이 바뀌면 1분 안에(한 시간에 한 번 전체 확인)",
      "does": "원본에서 본문과 구조(제목·표·그림·쪽)를 읽는다. 학교 원본은 DGX 가, 사람이 직접 올린 문서는 VM 이 같은 처리기로 읽는다.",
      "how": ["한글 hwp: kordoc → pyhwp 구조 → hwp5txt 순 · hwpx: 자체 구조 판독기",
              "PDF: 글자층이 있으면 바로 읽기(pypdfium2) · 스캔본은 MinerU OCR",

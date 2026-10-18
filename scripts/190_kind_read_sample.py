@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """서류 갈래 표본 대결 — 27B 판정(app/kind_read)과 제목 낱말 규칙(doc_routing.guess_kind)을 같은 문서로 견준다.
 
-DGX 의 처리 결과(scripts/167 parsed-*.jsonl: 파일 이름·본문·규칙 갈래 doc_kind)에서 표본을 고르고, DGX 의 Ollama 27B 로 판정한다.
+DGX 의 처리 결과(scripts/167 parsed-*.jsonl: 파일 이름·본문·규칙 갈래 doc_kind)에서 표본을 고르고, 27B 로 판정한다
+(--role review 면 운영 연결 — 토르 03, 아니면 --url 의 Ollama. 10-18 부터 운영 판정은 토르 03).
 표본은 두 묶음: 규칙이 갈래를 붙인 문서(27B 가 같은 답을 내는지 — 엉뚱한 판정 점검)와 규칙이 비워 둔 문서(27B 가 얼마나 채우는지).
 운영 데이터는 바꾸지 않는다. 결과 JSONL(문서 경로·제목·두 판정·이유·걸린 시간 — 본문은 남기지 않음)과 요약을 낸다.
 사용(DGX): PYTHONPATH=src python3 scripts/190_kind_read_sample.py --parsed ~/parsed --n 150 --out ~/kind_read/sample.jsonl
