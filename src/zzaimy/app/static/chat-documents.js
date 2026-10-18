@@ -117,7 +117,7 @@
  new MutationObserver(()=>{clearTimeout(locationRefresh);locationRefresh=setTimeout(addLocationButtons,100);}).observe(workspace,{childList:true,subtree:true});
  let fitObserver=null;
  let cancelFormatTransition=null;
- function clearPanel(){finishClose();cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
+ function clearPanel(){docCursorOff();finishClose();cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
  function switchFormatting(event){
    cancelFormatTransition?.();
    const control=event.target, frame=panel.querySelector('iframe');
@@ -596,10 +596,36 @@
  // 에이전트 작업 중 표시 — 대화 쪽 진행 카드(chat-workspace.js 의 폴링)의 현재 단계를 편집기 위 한 줄로
  // 비춘다. 단계 글은 'chat-progress' 사건으로, 대기 시작·끝은 'chat-session-updated' 의 waiting 으로 받는다.
  let agentBusy=workspace.dataset.waiting==='true', busyLabel='', busyWriting=null;
+ // 문서 위 AURA 커서 — 에이전트가 문서에 쓰는 동안 편집기 위에 이름표 달린 커서가 움직인다(함께 편집하는 사람 커서처럼).
+ // 구글 편집기는 교차 출처라 쓰는 줄의 정확한 자리는 알 수 없다 — 편집기 본문 쪽에서 천천히 움직이며 지금 쓰는 절 이름을 보인다
+ let docCursor=null,docCursorTimer=0;
+ function docCursorOff(){
+   clearInterval(docCursorTimer);docCursorTimer=0;
+   if(docCursor){const c=docCursor;docCursor=null;c.classList.add('leaving');setTimeout(()=>c.remove(),450);}
+ }
+ function docCursorOn(label){
+   const frame=panel?.querySelector('iframe');
+   if(!frame||panel.hidden){docCursorOff();return;}
+   const still=window.matchMedia('(prefers-reduced-motion: reduce)').matches;   // 움직임 줄이기 설정이면 한 자리에 둔다
+   if(!docCursor){
+     docCursor=document.createElement('div');docCursor.className='aura-cursor doc-cursor';docCursor.setAttribute('aria-hidden','true');
+     docCursor.innerHTML='<span class="aura-cursor-arrow"></span><span class="aura-cursor-tag"></span>';
+     document.body.append(docCursor);
+   }
+   docCursor.querySelector('.aura-cursor-tag').textContent=label;
+   const step=()=>{
+     const f=panel?.querySelector('iframe');if(!f||!docCursor){docCursorOff();return;}
+     const r=f.getBoundingClientRect();if(r.width<80||r.height<80){docCursor.style.opacity='0';return;}
+     docCursor.style.opacity='';
+     docCursor.style.left=Math.round(r.left+r.width*(0.18+Math.random()*0.45))+'px';
+     docCursor.style.top=Math.round(r.top+r.height*(0.22+Math.random()*0.4))+'px';
+   };
+   if(!docCursorTimer){step();docCursorTimer=still?-1:setInterval(step,1800);}
+ }
  function paintBusy(){
    if(!isEditor())return;
    let strip=panel.querySelector('.chat-doc-busy');
-   if(!agentBusy){strip?.remove();return;}
+   if(!agentBusy){strip?.remove();docCursorOff();return;}
    if(!strip){
      strip=document.createElement('div');strip.className='chat-doc-busy';strip.setAttribute('role','status');strip.setAttribute('aria-live','polite');
      const dot=document.createElement('span');dot.className='chat-doc-busy-dot';dot.setAttribute('aria-hidden','true');
@@ -610,6 +636,7 @@
    const writing=busyWriting&&busyWriting.state==='writing';
    strip.classList.toggle('is-writing',writing);
    const done=(busyWriting?.done||[]).length;
+   if(writing)docCursorOn('AURA · '+(busyWriting.section?`「${busyWriting.section}」 작성 중`:'문서 작성 중'));else docCursorOff();
    strip.lastElementChild.textContent=writing&&busyWriting.section
      ?`AURA가 「${busyWriting.section}」 작성 중`+(done?` · 이번 요청에서 ${done}개 씀`:'')
      :label+(done?` · 이번 요청에서 ${done}개 씀`:'');
