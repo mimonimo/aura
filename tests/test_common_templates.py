@@ -124,3 +124,12 @@ def test_schedule_date_cells_are_not_sections():
         assert not bt.label_ok(bad), bad
     for good in ("1. 추진배경 및 필요성", "Ⅳ 추진일정", "예산 활용계획"):
         assert bt.label_ok(good), good
+
+
+def test_heading_level_follows_numbering():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("bt162", Path(__file__).resolve().parent.parent / "scripts" / "162_business_template.py")
+    bt = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bt)
+    assert [bt.number_level(t) for t in ("Ⅳ 추진일정", "1. 추진배경", "가. 목표", "(1) 세부", "기타")] == [0, 1, 2, 3, None]

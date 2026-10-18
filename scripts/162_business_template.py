@@ -41,6 +41,20 @@ _NUMBERED = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|V
 _DATE_CELL = re.compile(r"^\d{1,2}\s*[./]\s*\d{1,2}\s*[./]?\s*[(（]\s*[월화수목금토일]?\s*[)）]\s*[월화수목금토일]?$")
 
 
+_LEVELS = (re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)[.．])"),       # Ⅰ
+           re.compile(r"^\s*\d{1,2}[.．)]\s"),                                            # 1.
+           re.compile(r"^\s*[가나다라마바사아자차카타파하][.．)]"),                            # 가.
+           re.compile(r"^\s*[(（]\d{1,2}[)）]"))                                           # (1)
+
+
+def number_level(label: str) -> int | None:
+    """제목 앞 번호 꼴의 단계(0부터) — 공문서 항목 순서 Ⅰ → 1. → 가. → (1). 번호가 없으면 None."""
+    for i, pat in enumerate(_LEVELS):
+        if pat.match(label or ""):
+            return i
+    return None
+
+
 def label_ok(label: str) -> bool:
     t = (label or "").strip()
     return (2 <= len(t) <= LABEL_MAX and not _SENTENCE.search(t) and not re.fullmatch(r"[\d\s.~\-]+", t)
@@ -242,6 +256,9 @@ def main() -> int:
                     continue
                 # 제목 단계는 한 번에 한 단계만 내려간다 — 뼈대 문서에서 빠진 중간 절 때문에 ###### 까지 미끄러지지 않게
                 depth = min(x.split(":sec:")[1].count(".") - base, prev_depth + 1)
+                lv = number_level(nodes[x]["label"])
+                if lv is not None:                         # 번호 꼴이 있으면 그 단계(공문서 항목 순서) — 원문 구조 읽기의 어긋남보다 앞선다
+                    depth = min(lv, prev_depth + 1)
                 prev_depth = depth
                 title = re.sub(r"\s+", " ", nodes[x]["label"]).strip()[:LABEL_MAX + 20]
                 title = re.sub(r"\s*[(（]\s*[)）]\s*", " ", title).strip()      # 가림이 남긴 빈 괄호
