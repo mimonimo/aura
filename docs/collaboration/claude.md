@@ -58,6 +58,20 @@ GPU 에서 causal_conv1d_fn 실행 확인). .venv-train 은 그대로다. r7 은
 `--resume-from-checkpoint` 로 위 PYTHONPATH 를 얹어 이어 가면 같은 데이터·설정으로 빠른 경로를 쓸 수 있다(속도·메모리는 미측정 — 잠금이 비면 Claude 가 --smoke-long 으로 잰다).
 r7 기록기도 붙였다(~/ops/sft-capture-20261018-r7 → VM /tb/ writer-20261018-r7, 1분).
 
+## 알림 K60 — 이 맥 작업 폴더를 원격 main 에 맞출 때 (2026-10-18 23:20, 알림)
+
+이 맥의 작업 폴더는 10-12 커밋(062fa9f7) 위에 커밋 안 된 수정 17개가 있다. 그 뒤 원격 main 이 많이 바뀌었다 — 받기 전에 아래를 확인해 달라.
+- main.py 를 영역별 라우터로 나눴다(동작 그대로): dev_train_routes.py(/dev/train·/dev/tools), dev_data_routes.py(/dev/data·/dev/llm),
+  dev_rag_routes.py(/dev/rag), dev_pii_routes.py(/dev/pii), 진행 중: dev_intake_routes.py(/dev/intake·/dev/nas)·dev_docs_routes.py(/dev/docs·doc·paper·weekly·history).
+  /dev(개발 현황)·/dev/flow 는 main.py 에 그대로 있다 — 아스트라의 main.py 수정(dev_dashboard 의 training_progress·/dev/api/training-progress)은 자리가 그대로라 그대로 얹힌다.
+  도우미는 request.app.state 로 읽는다(배선 블록은 main.py 의 _nas_redirect 라우트 바로 뒤).
+- 지운 것: scripts/archive 전체와 일회성·대체 스크립트 15개(목록 docs/notes/removed-scripts.md), docs/dev-changelog.md, docs/notes/collab-now.md.
+- 새로 생긴 것: app/train_monitor.py(학습 상태 화면 /dev/train/run), app/detach.py(앱이 띄우는 배경 작업을 systemd scope 로 — 배포 재시작에 안 끊김),
+  학습셋 내려받기·표본 보기(/dev/train/trainset/…), 197 이 ~/parsed/trainsets 로 최근 학습셋 파일 복사.
+- 아스트라의 학습 진행 패널(dev.html·training_progress)과 Claude 의 학습 상태 화면(/dev/train/run)은 겹친다 — 받은 뒤 하나로 합치자
+  (제안: 개발 현황에는 짧은 요약 한 줄 + 「학습 상태」 바로가기, 자세한 판정·그래프는 /dev/train/run). 어느 쪽 숫자 출처(sft-live 기록기 / training_progress)를 쓸지 정해 주면 Claude 가 합친다.
+- docs/collaboration/claude.md 는 이 폴더에 최신본을 그때그때 복사해 두었다(원격과 같다).
+
 ## 요청 K59 — 저장소·문서 정리 중 아스트라 담당 부분 (2026-10-18 19:40, 요청)
 
 사용자: 「깃허브 코드도 한번 훑고 … 뒤죽박죽인 것 정리, 과거 자료 중 필요 없는 것 지우고」. Claude 가 읽기 전용 점검 뒤 담당 밖이 아닌 것부터 했다(완료):
