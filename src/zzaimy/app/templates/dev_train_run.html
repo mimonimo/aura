@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}학습 상태{% endblock %}
+{% block pagetitle %}학습 상태{% endblock %}
+{% block content %}
+<style>
+  .tr-head { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; justify-content:space-between; }
+  .tr-checks { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:6px; }
+  .tr-checks li { display:flex; gap:10px; align-items:baseline; padding:8px 12px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .tr-key { min-width:64px; font-weight:600; }
+  .tr-lv { font-size:11.5px; padding:1px 8px; border-radius:999px; white-space:nowrap; }
+  .tr-ok { background:#e8f5ec; color:#1d6b3a; } .tr-warn { background:#fff4e0; color:#8a5300; }
+  .tr-bad { background:#fde8e8; color:#a12020; } .tr-info { background:var(--bg-soft, #f2f3f5); color:var(--muted); }
+  .tr-charts { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px; margin-top:12px; }
+  .tr-chart { border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .tr-chart h3 { font-size:13px; margin:0 0 4px; } .tr-chart p { font-size:12px; margin:2px 0 0; }
+  .tr-chart svg { width:100%; height:120px; display:block; }
+  .tr-runs { display:flex; flex-wrap:wrap; gap:6px; }
+</style>
+<section class="card"><div class="card-in">
+  <div class="tr-head">
+    <h2>학습이 잘 되고 있나{% if run %} · {{ run.name }}{% endif %}</h2>
+    <div class="tr-runs">
+      {% for r in runs %}<a class="btn-ghost{% if run and r.name == run.name %} active{% endif %}" href="?run={{ r.name }}">{{ r.name.replace('sft-capture-', '') }}</a>{% endfor %}
+      <a class="btn-ghost" href="{{ tensorboard_url or '/tb/' }}" target="_blank" rel="noopener">TensorBoard 원값</a>
+    </div>
+  </div>
+  {% if not run %}
+  <p class="muted">DGX 학습 기록이 아직 없습니다. 학습이 시작되면 기록기가 붙어 1~2분 안에 여기 나타납니다.</p>
+  {% else %}
+  <p class="muted" style="font-size:12px;">DGX 학습 기록기가 1분마다 남긴 값 · 마지막 갱신 {{ updated }} · 판정은 추세·튐·검증 손실·메모리 여유·멈춤의 일반 기준</p>
+  <ul class="tr-checks">
+    {% for c in checks %}<li><span class="tr-key">{{ c.key }}</span><span class="tr-lv tr-{{ c.level }}">{{ {'ok': '좋음', 'warn': '살펴볼 것', 'bad': '문제', 'info': '아직 모름'}[c.level] }}</span><span>{{ c.text }}</span></li>{% endfor %}
+  </ul>
+  <div class="tr-charts">
+    {% for ch in charts %}
+    <div class="tr-chart"><h3>{{ ch.title }}</h3>
+      {% if ch.points %}<svg viewBox="0 0 560 120" preserveAspectRatio="none" aria-label="{{ ch.title }}"><polyline fill="none" stroke="currentColor" stroke-width="2" points="{{ ch.points }}"/></svg>
+      <p class="muted">{{ ch.note }}</p>{% else %}<p class="muted">값이 아직 2개 미만</p>{% endif %}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div></section>
+{% endblock %}

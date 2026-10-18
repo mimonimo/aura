@@ -73,11 +73,12 @@
   <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>학습·평가</h2>
   <div class="tool-cards">
   {% for name, url, action, description in [
-    ('TensorBoard', tensorboard_url, '학습 그래프 확인', 'DGX 에서 도는 학습의 손실·학습률·GPU 그래프'),
+    ('학습 상태', '/dev/train/run', '잘 되고 있나 보기', '손실 추세·튐·검증 손실·메모리 여유·멈춤을 쉬운 말로 판정'),
+    ('TensorBoard', tensorboard_url, '학습 그래프 확인', 'DGX 에서 도는 학습의 손실·학습률·GPU 원값 그래프'),
     ('품질·성능 측정', '/dev/quality', '평가 결과·측정 열기', '검색 평가 결과 비교와 재측정')
   ] %}
   <div class="tool-card"><b>{{ name }}</b><p class="muted">{{ description }}</p>
-    {% if url %}<a class="btn-ghost tool-entry" href="{{ url }}" {% if name != '품질·성능 측정' %}target="_blank" rel="noopener noreferrer"{% endif %}>{{ action }}</a>
+    {% if url %}<a class="btn-ghost tool-entry" href="{{ url }}" {% if name not in ('품질·성능 측정', '학습 상태') %}target="_blank" rel="noopener noreferrer"{% endif %}>{{ action }}</a>
     {% else %}<a class="tool-missing" href="/dev/train?tab=settings">도구·모델 연결에서 주소 등록 필요</a>{% endif %}
   </div>
   {% endfor %}

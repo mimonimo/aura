@@ -6655,6 +6655,33 @@ def create_app(
         return _Resp(data, media_type="application/octet-stream",
                      headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
+    @app.get("/dev/train/run", response_class=HTMLResponse)
+    def dev_train_run(request: Request, run: str = ""):
+        """학습 상태 — DGX 학습 기록기의 숫자로 손실 추세·튐·검증 손실·메모리 여유·멈춤을 판정한다(app/train_monitor)."""
+        import time as _t
+        from zzaimy.app import train_monitor as tm
+
+        rs = tm.runs()
+        cur = tm.load(run or (rs[0]["name"] if rs else ""))
+        charts, checks, updated = [], [], ""
+        if cur:
+            checks = tm.judge(cur)
+            updated = _t.strftime("%m-%d %H:%M", _t.localtime(cur["mtime"]))
+            loss = cur["loss"]
+            charts = [
+                {"title": "학습 손실", "points": tm.spark([r["loss"] for r in loss]),
+                 "note": f"{len(loss)}개 · 처음 {loss[0]['loss']:.3f} → 최근 {loss[-1]['loss']:.3f}" if loss else ""},
+                {"title": "검증 손실", "points": tm.spark([r["eval_loss"] for r in cur["eval"]]),
+                 "note": f"{len(cur['eval'])}개 · 최저 {min(r['eval_loss'] for r in cur['eval']):.3f}" if cur["eval"] else ""},
+                {"title": "학습률", "points": tm.spark([r["lr"] for r in loss]), "note": f"최근 {loss[-1]['lr']:.2e}" if loss and loss[-1]["lr"] else ""},
+                {"title": "시스템 메모리(GB)", "points": tm.spark([g["mem"] for g in cur["gpu"]]),
+                 "note": (lambda m: f"최고 {max(m) / 1024:.0f}GB · 지금 {m[-1] / 1024:.0f}GB / 전체 {tm.MEM_TOTAL_MIB / 1024:.0f}GB" if m else "")(
+                     [g["mem"] for g in cur["gpu"] if g["mem"] is not None])},
+            ]
+        return templates.TemplateResponse(request, "dev_train_run.html", ctx(request, {
+            "runs": rs, "run": cur, "checks": checks, "charts": charts, "updated": updated,
+            "tensorboard_url": db.get_setting("tensorboard_url", "")}))
+
     @app.get("/dev/train/trainset/{name}/{file}")
     def dev_trainset_file(name: str, file: str):
         """DGX 학습셋 파일 내려받기(개발자만 — /dev 전역 검사). 문답에는 학교 원문 발췌가 들어 있어 내려받은 기록을 남긴다."""
