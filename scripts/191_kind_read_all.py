@@ -3,7 +3,10 @@
 
 판 바뀜(version)까지 같은 문서는 다시 판정하지 않는다(이어 돌기). 규칙이 비워 둔 문서부터 한다.
 VM 이 5분 주기로 이 파일을 받아(170 --parsed) scripts/192 로 문서 갈래에 반영한다. 판정 실패·「모름」 은 적지 않는다(규칙 갈래 유지).
-모델은 DGX 의 Ollama(--url·--model, 기본은 Writer 와 같은 계열의 27B). --max-sec 로 한 번에 돌 시간을 묶어 30분 주기(zz_dgx_cycle)에서 새 문서만 이어 돈다.
+모델은 --role 의 연결(VM 은 review — 토르 03, 반입 검토와 같은 27B) 또는 --url·--model 의 Ollama(대량 일괄 때 DGX).
+VM 은 DGX 처리 결과를 받을 때마다(170 --parsed, 1분) 새 문서만 판정해 kind27b-vm.jsonl 에 쓴다(--out-name). 같은 폴더의
+다른 kind27b-*.jsonl(DGX 일괄 판정)에 이미 있는 판은 다시 하지 않는다. 판정 실패·「모름」은 kind27b-skip-<이름>.json 에 판·지시 판과 함께
+적어 같은 판을 주기마다 되풀이하지 않는다(판이 바뀌거나 지시가 바뀌면 다시 본다).
 판정 줄마다 판정한 모델 정보(llm — 서빙 이름·digest 또는 바탕 가중치, generate.model_info)를 남긴다. 예전 줄(llm 없음)은 「모름」.
 --redo-model 이면 지금 모델과 다른(또는 모르는) 모델이 내린 판정을 앞에서 다시 본다 — 모델을 바꾼 뒤 재판정할 때.
 사용(DGX): PYTHONPATH=src .venv-parse/bin/python scripts/191_kind_read_all.py [--max-sec 900] [--redo evidence] [--redo-model]
@@ -46,8 +49,10 @@ def main() -> int:
                     help="지금 판정 모델과 다른 모델(또는 모델 정보가 없는 예전 줄)이 내린 판정을 먼저 다시 본다")
     ap.add_argument("--role", default="", help="이 용도의 연결(VllmClient)로 판정한다 — 기본은 --url 의 Ollama")
     ap.add_argument("--max-sec", type=int, default=0, help="이 시간(초)이 지나면 멈춘다(0 = 끝까지)")
+    ap.add_argument("--out-name", default="kind27b-0.jsonl", help="판정을 덧붙일 파일 이름(같은 폴더) — VM 은 kind27b-vm.jsonl")
     args = ap.parse_args()
-    out = Path(args.parsed) / "kind27b-0.jsonl"
+    out = Path(args.parsed) / args.out_name
+    skip_path = Path(args.parsed) / f"kind27b-skip-{Path(args.out_name).stem}.json"
     lock = open(Path(args.parsed) / "kind27b.lock", "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -56,16 +61,23 @@ def main() -> int:
         return 0
     done: dict[str, str] = {}
     last: dict[str, dict] = {}
-    if out.exists():
-        for line in out.read_text(encoding="utf-8").splitlines():
+    # 같은 폴더의 판정 파일 전부(DGX 일괄 kind27b-0 + VM kind27b-vm) — 어디서 했든 같은 판은 다시 하지 않는다
+    for f in sorted(Path(args.parsed).glob("kind27b-*.jsonl")):
+        for line in f.read_text(encoding="utf-8").splitlines():
             try:
                 d = json.loads(line)
                 done[d["rel"]] = str(d.get("version") or "")
                 last[d["rel"]] = d
             except (ValueError, KeyError):
                 continue
+    try:
+        skipped: dict[str, str] = json.loads(skip_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        skipped = {}
     docs = s190.latest(args.parsed)
-    todo = [r for r, d in docs.items() if done.get(r) != str(d.get("version") or "")]
+    def _key(d: dict) -> str:
+        return f"{d.get('version') or ''}|{kind_read.PROMPT_VER}"
+    todo = [r for r, d in docs.items() if done.get(r) != str(d.get("version") or "") and skipped.get(r) != _key(d)]
     todo.sort(key=lambda r: (bool(docs[r].get("doc_kind")), r))        # 규칙이 비워 둔 문서부터
     redo_kinds = {k.strip() for k in args.redo.split(",") if k.strip()}
     if redo_kinds:                                                      # 옛 지시로 그 갈래가 된 판정 — 맨 앞에서 다시
@@ -97,6 +109,7 @@ def main() -> int:
                 got = ("", got[1])
             elif not got or not got[0]:
                 n_skip += 1
+                skipped[rel] = _key(d)
                 continue
             fo.write(json.dumps({"rel": rel, "version": str(d.get("version") or ""), "kind": got[0], "why": got[1],
                                  "rule": d.get("doc_kind") or "", "chars": len((d.get("masked_text") or "").strip()), "pv": kind_read.PROMPT_VER,
@@ -105,6 +118,9 @@ def main() -> int:
             n_ok += 1
             if i % 200 == 0:
                 print(f"  {i}/{len(todo)} · 판정 {n_ok} · 모름·실패 {n_skip} · {time.time() - t0:.0f}초", flush=True)
+    tmp = skip_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(skipped, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(skip_path)
     print(f"KIND27B 판정 {n_ok} · 모름·실패 {n_skip} · {time.time() - t0:.0f}초", flush=True)
     return 0
 

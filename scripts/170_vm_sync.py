@@ -170,7 +170,23 @@ def import_parsed() -> None:
     m = re.match(r"들임 (\d+) · 새 판 갱신 (\d+)", last) or re.match(r"들임 (\d+)()", last)
     if m and (int(m.group(1)) or int(m.group(2) or 0)):
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
+    _judge_kinds(dest)
     _apply_kind27b(dest)
+
+
+def _judge_kinds(dest: Path, max_sec: int = 240) -> None:
+    """새로 받은 문서의 서류 갈래를 27B 가 판정한다 — 반입 검토와 같은 연결(review, 토르 03). DGX 는 원본 처리·학습만 맡고
+    상주 27B(Ollama)를 띄우지 않는다. 이미 판정한 판(DGX 일괄 판정 포함)·실패를 적어 둔 판은 건너뛰어 새 문서만 본다.
+    ZZAIMY_KIND_READ=0 이면 끈다(규칙 갈래만)."""
+    if os.environ.get("ZZAIMY_KIND_READ", "1") == "0":
+        return
+    out = subprocess.run([sys.executable, str(ROOT / "scripts" / "191_kind_read_all.py"), "--parsed", str(dest), "--role", "review",
+                          "--out-name", "kind27b-vm.jsonl", "--max-sec", str(max_sec)], cwd=ROOT, capture_output=True)
+    tail = [l for l in out.stdout.decode("utf-8", "replace").splitlines() if l.startswith(("KIND27B", "문서 ", "다른 판정"))]
+    if tail:
+        print("27B 갈래 판정:", " · ".join(tail[-2:])[:300], flush=True)
+    if out.returncode != 0:
+        print(out.stderr.decode("utf-8", "replace")[-300:], flush=True)
 
 
 def _apply_kind27b(dest: Path) -> None:
