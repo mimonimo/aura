@@ -4878,7 +4878,7 @@ def create_app(
         ledger = None
         if tab == "archive":
             from zzaimy.app import intake_status
-            view = dx.archive_tab(db, q=q, page=page)
+            view = dx.archive_tab(db, q=q, page=page, everything=request.query_params.get("all") == "1")
             ledger = intake_status.ledger_breakdown(db)
         elif tab == "docs":
             scope = {"dept": getattr(request.state, "dept", "") or None,

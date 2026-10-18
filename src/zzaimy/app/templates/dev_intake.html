@@ -48,10 +48,8 @@
   <p class="muted" style="font-size:12px;margin:0;">점검 {{ p.at }} 기준 · 맞추기는 매일 04:30 자동 · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다</p>
   <p class="ik-line">
     <span>{{ metric_label("archive_originals", live.at, "학교 원본") }} <b>{{ lg.originals|num }}</b></span>
-    <span>{{ metric_label("archive_files", live.at, "원본 장부 전체(부산물·정리함 포함)") }} <b>{{ lg.total|num }}</b></span>
-    {% if p.dgx_listing is not none %}<span>{{ metric_label("dgx_listing", (p.sync.get("full") or {}).get("at", "")) }} <b>{{ p.dgx_listing|num }}</b></span>{% endif %}
   </p>
-  <p class="muted ik-sum">원본 장부 전체 {{ lg.total|num }} = 학교 원본 {{ lg.originals|num }} + 정리함 {{ lg.cleaned|num }} + 부산물 {{ lg.byproduct|num }}{% if lg.platform %} + 플랫폼 사본 {{ lg.platform|num }}{% endif %}</p>
+  <p class="muted ik-sum">처리하지 않는 파일 {{ (lg.total - lg.originals)|num }}건(정리함 {{ lg.cleaned|num }} · 부산물 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %})은 학교 원본 수에서 뺍니다 — 원본 파일은 DGX 에 그대로 두고 장부에서만 따로 셉니다{% if p.dgx_listing is not none %} · DGX 목록 전체 {{ p.dgx_listing|num }}{% endif %}</p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
   {% endif %}
 </div></section>
@@ -77,9 +75,13 @@
 
 <section class="card"><div class="card-in">
   <h2>{{ metric_label("archive_files", p.at, "원본 장부 구성") }}</h2>
+  <style>.ik-table .ik-quiet td{color:var(--muted);font-size:12px}</style>
   <table class="ik-table">
-    {% for r in p.rows %}
-    <tr><td>{{ r.label }}{% if r.school %}<span class="ik-school">학교 원본</span>{% endif %}</td><td class="n">{{ "{:,}".format(r.n) }}</td></tr>
+    {% for r in p.rows | selectattr("school") %}
+    <tr><td>{{ r.label }}<span class="ik-school">학교 원본</span></td><td class="n">{{ "{:,}".format(r.n) }}</td></tr>
+    {% endfor %}
+    {% for r in p.rows | rejectattr("school") %}
+    <tr class="ik-quiet"><td>{{ r.label }}<span class="muted" style="font-size:11px;"> · 처리하지 않음</span></td><td class="n">{{ "{:,}".format(r.n) }}</td></tr>
     {% endfor %}
   </table>
   <p class="muted" style="font-size:12px;margin:8px 0 0;">합계 {{ (p.composition or {}).values()|sum|num }} · 「학교 원본」 줄 합계 {{ p.school_rows_total|num }}{% if lg.platform %}(플랫폼 사본 포함){% endif %} · 라이브러리·색인·그래프에는 처리 대상 문서만 반영 · 지출·증빙·정산 문서는 이번 범위에서 제외</p>

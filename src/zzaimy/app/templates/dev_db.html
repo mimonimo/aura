@@ -226,10 +226,11 @@ tr.pick[hidden]{display:none}
 <section class="card dx-card"><div class="card-in">
 <div class="dx-head"><h2><iconify-icon icon="solar:database-linear"></iconify-icon>원본 장부 원값</h2>
   <span class="dx-links"><a class="h-link" href="/archive{{ ('?q=' ~ (q|urlencode)) if q else '' }}#archive-list"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>원본 보관소에서 찾기</a></span></div>
-<p class="muted dx-foot" style="margin:0 0 4px;">{% if q %}검색 결과 {{ view.total|num }} · {% endif %}{% if lg %}{{ metric_label("archive_files", "", "원본 장부 전체(부산물·정리함 포함)") }} {{ lg.total|num }} = {{ metric_label("archive_originals", "", "학교 원본") }} {{ lg.originals|num }} + 정리함 {{ lg.cleaned|num }} + 부산물 {{ lg.byproduct|num }}{% if lg.platform %} + 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% else %}{{ metric_label("archive_files", "", "원본 장부 전체(부산물·정리함 포함)") }} {{ view.total|num }}{% endif %}</p>
+<p class="muted dx-foot" style="margin:0 0 4px;">{% if q %}검색 결과 {{ view.total|num }} · {% endif %}{% if lg %}{{ metric_label("archive_originals", "", "학교 원본") }} {{ lg.originals|num }}{% if view.everything %} · 함께 보는 처리하지 않는 파일: 정리함 {{ lg.cleaned|num }} · 부산물 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% else %} · 처리하지 않는 파일 {{ (lg.total - lg.originals)|num }}건(정리함·부산물 — 원본 파일은 DGX 에 그대로)은 빼고 봅니다{% endif %}{% else %}{{ view.total|num }}{% endif %}
+  · <a href="/dev/db?tab=archive{{ ('&q=' ~ (q|urlencode)) if q }}{{ '' if view.everything else '&all=1' }}">{{ '학교 원본만 보기' if view.everything else '정리함·부산물까지 모두 보기' }}</a></p>
 <p class="muted dx-foot" style="margin:0 0 12px;">사업·연도·처리 상태로 훑기는 원본 보관소 · 여기는 장부에 적힌 값 그대로(분류 상태·문서 번호·같은 파일 대표·처리 기록·목록에서 본 때) · <span class="pill dx-pill">정리함</span> 원본 보관소 정리함에 옮긴 원본(보관소 목록·건수에서 빠짐, 되돌릴 수 있음)</p>
 <form method="get" action="/dev/db" class="dx-search dx-search-row">
-  <input type="hidden" name="tab" value="archive">
+  <input type="hidden" name="tab" value="archive">{% if view.everything %}<input type="hidden" name="all" value="1">{% endif %}
   <input type="search" name="q" value="{{ q }}" placeholder="파일 경로 · 장부 사업 이름(여러 낱말 가능)" aria-label="원본 장부 검색" autocomplete="off">
   <button type="submit" class="secondary">찾기</button>
 </form>

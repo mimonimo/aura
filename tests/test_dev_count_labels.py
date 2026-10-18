@@ -73,8 +73,9 @@ def test_intake_page_names_school_originals_and_folds_graph_counts(tmp_path):
     c, db = _client(tmp_path)
     _put(db, [("링크/a.hwp", "hwp", "", None)])
     page = c.get("/dev/intake").text
-    assert "학교 원본" in page and "원본 장부 전체(부산물·정리함 포함)" in page
-    assert "원본 장부 전체 1 = 학교 원본 1 + 정리함 0 + 부산물 0" in page
+    assert "학교 원본" in page
+    # 처리하지 않는 파일(정리함·부산물)은 학교 원본 수에서 빼고 따로 한 줄로 — DGX 파일은 그대로
+    assert "처리하지 않는 파일 0건(정리함 0 · 부산물 0)" in page
     assert page.count('<span class="ik-school">학교 원본</span>') == 2                   # 처리 대상 문서 · 같은 파일 중복
     assert "처리 대상 기준" in page and "(절대 규칙 11)" not in page
     graph = page.split('<details class="chip-toggle"', 1)[1].split("</details>", 1)[0]
