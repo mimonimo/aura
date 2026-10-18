@@ -601,6 +601,13 @@ def main() -> int:
     # 내용이 바뀐 원본 중 문서함에 있는 것 — 같은 문서 번호로 다시 처리(164 의 update 목록)
     updates = [{"rel": rel, "doc_id": did} for rel, did in diff["changed"] if did]
     new.sort(key=lambda c: (PRI.get(c["kind"], 9), c["program"], c["rel"]))
+    backlog = ROOT / "data" / "platform" / ".sync_backlog"      # 이번 회차가 상한에 걸려 남은 반입이 있으면 zz_sync 가 다음 1분에 바로 잇는다
+    if args.dry:
+        pass
+    elif len(new) > args.max:
+        backlog.write_text(str(len(new) - args.max))
+    else:
+        backlog.unlink(missing_ok=True)
     new = new[: args.max]
     print(f"뼈대 {len(chosen)} · 새로 {len(new)}(최대 {args.max})", flush=True)
     if not args.dry:
