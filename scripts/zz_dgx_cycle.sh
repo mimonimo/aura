@@ -11,19 +11,33 @@ flock -n 9 || exit 0
 git pull -q 2>/dev/null
 export PYTHONPATH=src ZZAIMY_LIGHT_PROCESS=1 ZZAIMY_NO_VISION=1 ZZAIMY_MINERU_SLOTS=2 ZZAIMY_MIN_FREE_GB=12 ZZAIMY_WORKER_MAX_RSS_GB=5 MINERU_MODEL_SOURCE=huggingface
 log=~/dgx_cycle.log
+# 원본 보관소가 그대로면(지난 목록 뒤로 바뀐 파일·폴더가 없으면) 16만여 파일 목록·판독을 건너뛴다 — 매분 돌아도 가볍게.
+# 파일을 넣고 빼거나 이름을 바꾸면 폴더 시각이 바뀌어 잡힌다. 혹시 놓친 것은 한 시간에 한 번 전체를 다시 훑어 잡는다.
+stamp=~/parsed/inventory_stamp.json
+changed=1
+if [ -s ~/archive_inventory.jsonl ] && [ -f "$stamp" ] && [ -z "$(find "$stamp" -mmin +60)" ] \
+   && [ -z "$(find ~/data -newer "$stamp" -print -quit 2>/dev/null)" ]; then
+    changed=0
+fi
+if [ "$changed" = 1 ]; then
 echo "== $(date '+%F %T')" >> "$log"
+mkdir -p ~/parsed
+scan_start=~/.cache/zzaimy-locks/scan_start; touch "$scan_start"     # 훑는 동안 새로 든 파일을 다음 회차가 잡도록 시작 시각을 도장으로
 tmp=~/archive_inventory.jsonl.tmp
 # 165 는 파일 사실 장부(~/parsed/archive_facts.jsonl: 내용 지문·실제 형식)를 쌓는다 — VM(170)이 받아 같은 중복 판정을 한다.
 # 옛 오피스·한글 이진 판별(olefile)이 있는 처리용 환경(.venv-parse)으로 돈다
-mkdir -p ~/parsed
 if .venv-parse/bin/python scripts/165_dgx_inventory.py --root ~/data --facts ~/parsed/archive_facts.jsonl > "$tmp" 2>>"$log" && [ -s "$tmp" ]; then
     mv "$tmp" ~/archive_inventory.jsonl
-    echo "원본 목록 $(wc -l < ~/archive_inventory.jsonl)건" >> "$log"
+    n=$(wc -l < ~/archive_inventory.jsonl)
+    echo "원본 목록 ${n}건" >> "$log"
+    # VM 이 이 도장이 바뀐 것을 보고(170 --parsed 가 받음) 원본 장부 동기화(zz_sync)를 바로 돌린다
+    printf '{"at": "%s", "files": %s}\n' "$(date '+%F %T')" "$n" > "$stamp.tmp" && touch -r "$scan_start" "$stamp.tmp" && mv "$stamp.tmp" "$stamp"
 else
     rm -f "$tmp"; echo "원본 목록 갱신 실패 — 지난 목록으로" >> "$log"
 fi
 .venv-parse/bin/python scripts/167_dgx_parse.py --inventory ~/archive_inventory.jsonl --skip ~/ingested.txt --out ~/parsed \
     --workers 4 --exclude '지출|증빙|스캔|영수|정산|집행' --doc-timeout 900 2>&1 | grep --line-buffered -E "^대상|PARSE_|상한" >> "$log"
+fi
 # 167 이 끝난 뒤 남은 MinerU 판독 서버(부모가 끝나 고아가 된 것)를 내린다 — 다음 판독 때 다시 뜬다. 학습과 메모리를 다투지 않게.
 for pid in $(pgrep -u "$USER" -f "mineru.cli.fast_api"); do
     pp=$(ps -o ppid= -p "$pid" | tr -d ' '); pc=$(ps -o comm= -p "$pp" 2>/dev/null)

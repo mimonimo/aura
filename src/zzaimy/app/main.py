@@ -855,7 +855,7 @@ def create_app(
         return out
 
     def ctx(request: Request, extra: dict) -> dict:
-        from zzaimy.app.model_tracks import TRACKS, UPDATED
+        from zzaimy.app.model_tracks import TRACKS, UPDATED, learning_now
         # 작업물(문서함·프로젝트·채팅)은 계정별 분리 — 기준·OCR 저장소는 공용
         owner = getattr(request.state, "user", "zzaimy")
         pending = db.pending_documents(limit=50, owner=owner)
@@ -881,7 +881,7 @@ def create_app(
         except Exception:
             llm_status = {"ok": False, "configured": False, "model": "", "models": [], "error": "확인 실패"}
         return {
-            "model_tracks": TRACKS, "model_tracks_updated": UPDATED,
+            "model_tracks": TRACKS, "model_tracks_updated": UPDATED, "learning_now": learning_now(),
             "llm_status": llm_status,
             "chat_sessions": chat_history.sessions(owner, limit=12),
             "pending_docs": pending[:8],

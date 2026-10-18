@@ -17,9 +17,9 @@
     <h3>학습·평가 순서 <span class="muted">진행 기준</span></h3>
     <ol class="learning-flow">
     {% for name, requirement, output, now in [
-      ('1. 데이터 검수', '사업·문서·목차에 연결된 문답과 원문 근거 대조', '근거·구조·맥락·개인정보 검수를 통과한 승인 데이터', 'writer-v1 보류 — 최종 점검에서 답 결함, 고친 판 재확인 중(10-18)'),
-      ('2. 평가 준비', '학습 데이터와 평가셋 분리, 중복 검사', '학습 전 베이스라인 측정 결과', '시험 세트 분리 · 학습 전 측정 30건 중 25 통과'),
-      ('3. 학습·비교', '승인 데이터와 베이스라인 확보 후 SFT', '같은 평가셋으로 학습 전후 비교 · DPO는 SFT 이후 검토', '학습 시작 전')
+      ('1. 데이터 검수', '사업·문서·목차에 연결된 문답과 원문 근거 대조', '근거·구조·맥락·개인정보 검수를 통과한 승인 데이터', learning_now.data),
+      ('2. 평가 준비', '학습 데이터와 평가셋 분리, 중복 검사', '학습 전 베이스라인 측정 결과', learning_now.eval),
+      ('3. 학습·비교', '승인 데이터와 베이스라인 확보 후 SFT(DGX, bf16 LoRA)', '같은 평가셋·같은 정밀도로 학습 전후 비교 · 진행 그래프는 TensorBoard · DPO는 SFT 이후', learning_now.train)
     ] %}
     <li><b>{{ name }}</b><p>{{ requirement }}</p><p class="muted">{{ output }}</p><p class="learning-now">지금: {{ now }}</p></li>
     {% endfor %}
