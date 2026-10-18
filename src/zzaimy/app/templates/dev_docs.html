@@ -47,6 +47,11 @@
   .docs-search { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
   .docs-search input { flex:1; min-width:140px; }
   .doc-cols.history-view { display:block; }
+  .rec-kinds { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
+  .rec-kind { border:1px solid var(--line); background:#fff; border-radius:999px; padding:4px 11px; font-size:12px; color:var(--muted); cursor:pointer; }
+  .rec-kind span { opacity:.7; font-variant-numeric:tabular-nums; }
+  .rec-kind.on { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .doc-num.rec-tag { width:auto; min-width:5.5em; font-size:11px; font-weight:600; color:var(--muted); }
   .doc-cols.history-view > div:first-child { display:none; }
   .doc-st { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
   .doc-st::before { content: ""; flex:none; width: 6px; height: 6px; border-radius: 50%; background: #CBD5E1; }
@@ -66,9 +71,9 @@
     .doc-go { grid-area: go; align-self: center; }
   }
 </style>
-<p class="muted">지금 구조는 「구현 설명서」 하나에 순서대로 정리돼 있습니다. 9월 설계·계획, 설계 결정, 실험·검토는 이력입니다.</p>
+<p class="muted">핵심 자료는 여기서 바로, 설계 결정은 번호로 찾고, 그 밖의 측정·검토·메모·9월 계획은 「기록·자료 목록」에서 찾습니다.</p>
 <nav class="docs-nav" aria-label="문서 분류">
-{% for key, label in [('current','현재 자료'), ('decisions','설계 결정'), ('records','실험·검토 이력')] %}
+{% for key, label in [('current','핵심 자료'), ('decisions','설계 결정'), ('records','기록·자료 목록')] %}
 <a class="btn-ghost" href="/dev/docs?view={{ key }}" {% if docs_view == key %}aria-current="page"{% endif %}>{{ label }}</a>
 {% endfor %}
 </nav>
@@ -185,30 +190,50 @@
     {% endif %}
 
     {% if docs_view == 'records' %}
+    {% set groups = [('측정 기록', bench_docs), ('모델 카드', card_docs), ('기술 검토', note_docs), ('작업 메모', memo_docs), ('9월 설계·계획', old_plan_docs)] %}
     <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:chart-square-linear"></iconify-icon>측정 기록·모델 카드
-        <span class="doc-cnt">{{ bench_docs|length + card_docs|length }}</span></h2>
-      <div class="doc-sub">측정 기록 (날짜가 곧 유효 범위 — 최신 수치는 품질·성능 화면)</div>
-      {{ rows(bench_docs) }}
-      <div class="doc-sub">모델 카드 (학습본)</div>
-      {{ rows(card_docs) }}
-    </div></div>
-
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:history-linear"></iconify-icon>9월 설계·계획
-        <span class="doc-cnt">{{ old_plan_docs|length }}</span></h2>
-      <p class="muted" style="font-size:12px;">착수 때 세운 설계·계획입니다. 지금 구조는 구현 설명서가 정본입니다.</p>
-      {{ rows(old_plan_docs) }}
-    </div></div>
-
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>기술 검토
-        <span class="doc-cnt">{{ note_docs|length }}</span></h2>
-      {{ rows(note_docs) }}
-      <details class="doc-memo chip-toggle">
-        <summary>작업 메모 {{ memo_docs|length }} — 백로그·용어집·조사 노트</summary>
-        {{ rows(memo_docs) }}
-      </details>
+      <h2><iconify-icon icon="solar:archive-linear"></iconify-icon>기록·자료 목록
+        <span class="doc-cnt" id="recCount">{{ groups | map(attribute=1) | map('length') | sum }}</span></h2>
+      <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 기록·모델 카드, 기술 검토, 작업 메모, 9월 설계·계획을 한 목록에서 찾습니다. 지금 구조의 설명은 「핵심 자료」의 구현 설명서가 정본이고, 여기는 근거·이력입니다. 날짜가 곧 그 기록의 유효 범위입니다.</p>
+      <div class="docs-search" style="margin-bottom:10px;">
+        <input type="search" id="recQ" placeholder="제목·설명으로 찾기 (예: OCR, 리랭커, 개인정보)" aria-label="기록 찾기" autocomplete="off">
+      </div>
+      <div class="rec-kinds" role="group" aria-label="갈래">
+        <button type="button" class="rec-kind on" data-kind="">전체</button>
+        {% for k, items in groups %}<button type="button" class="rec-kind" data-kind="{{ k }}">{{ k }} <span>{{ items | length }}</span></button>{% endfor %}
+      </div>
+      <ul class="doc-list" id="recList">
+        {% for k, items in groups %}{% for d in items | sort(attribute='date', reverse=True) %}
+        <li data-kind="{{ k }}" data-text="{{ (d.title ~ ' ' ~ (d.desc or '') ~ ' ' ~ d.href) | lower }}"><a class="doc-row" href="{{ d.href }}">
+          <span class="doc-num rec-tag">{{ k }}</span>
+          <span class="doc-t">{{ d.title }}{% if d.desc %}<span class="doc-d">{{ d.desc }}</span>{% endif %}</span>
+          {% if d.status or d.date %}<span class="doc-m">{% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}">{{ d.status }}</span>{% endif %}{% if d.date %}<span>{{ d.date }}</span>{% endif %}</span>{% endif %}
+          <iconify-icon class="doc-go" icon="solar:alt-arrow-right-linear"></iconify-icon>
+        </a></li>
+        {% endfor %}{% endfor %}
+      </ul>
+      <p class="muted" id="recNone" hidden>찾는 기록이 없습니다.</p>
+      <script>
+      (function () {
+        var q = document.getElementById('recQ'), kind = '', items = document.querySelectorAll('#recList > li');
+        function paint() {
+          var t = (q.value || '').trim().toLowerCase(), n = 0;
+          items.forEach(function (li) {
+            var ok = (!kind || li.dataset.kind === kind) && (!t || t.split(/\s+/).every(function (w) { return li.dataset.text.indexOf(w) >= 0; }));
+            li.hidden = !ok; if (ok) n++;
+          });
+          document.getElementById('recCount').textContent = n;
+          document.getElementById('recNone').hidden = n > 0;
+        }
+        q.addEventListener('input', paint);
+        document.querySelectorAll('.rec-kind').forEach(function (b) {
+          b.addEventListener('click', function () {
+            document.querySelectorAll('.rec-kind').forEach(function (x) { x.classList.toggle('on', x === b); });
+            kind = b.dataset.kind; paint();
+          });
+        });
+      })();
+      </script>
     </div></div>
     {% endif %}
   </div>

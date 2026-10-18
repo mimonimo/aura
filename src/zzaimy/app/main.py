@@ -5622,6 +5622,15 @@ def create_app(
             if not meta["date"] and not first_date:
                 # 머리에 날짜가 없는 문서는 깃의 마지막 수정일 — 목록의 날짜 칸이 들쭉날쭉하지 않게
                 first_date = _doc_last_changed(rel)
+            desc_auto = ""
+            if not _DOC_DESC.get(rel):
+                for ln in (_DOCS_DIR / rel).read_text(encoding="utf-8").splitlines()[1:30] if (_DOCS_DIR / rel).is_file() else []:
+                    t = ln.strip()
+                    if not t or t[0] in "#->|*`" or re.match(r"^(상태|날짜|작성|기준)\s*[:：]", t) or date_re.fullmatch(t):
+                        continue
+                    t = re.sub(r"[*`]|\[([^\]]+)\]\([^)]*\)", r"\1", t)
+                    desc_auto = t if len(t) <= 90 else t[:88].rstrip() + "…"
+                    break
             status = re.split(r"\s*[(（]", meta["status"], maxsplit=1)[0].strip()
             num = ""
             title = title or rel.rsplit("/", 1)[-1]
@@ -5629,7 +5638,7 @@ def create_app(
             if m := re.match(r"^(?:ADR-)?(\d{4})\s*[.·:]?\s+(.+)$", title):
                 num, title = m.group(1), m.group(2).lstrip("—– ")
             return {"href": href, "title": title, "num": num, "status": status,
-                    "date": meta["date"] or first_date, "desc": _DOC_DESC.get(rel, "")}
+                    "date": meta["date"] or first_date, "desc": _DOC_DESC.get(rel, "") or desc_auto}
 
         from datetime import date as _date, timedelta as _td
 
