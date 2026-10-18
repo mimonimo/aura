@@ -39,14 +39,10 @@
 - `stage_source_templates.py` — 선택한 DGX 원본 서식을 별도 작업 폴더에서 DOCX로 변환하고 구조 통계를 보존한다.
 - `sync_track_candidates.py` — 두 묶음의 새 후보만 Label Studio에 게시. 승인·구버전 자동 복원 없음.
 
-## 측정·대결·점검 (37)
+## 측정·대결·점검 (31)
 
-- `00_env_check.py` — 학습·서빙 장비 환경 점검 스크립트 (W1-W2 TASK-01).
 - `53_eval_retrieval.py` — 규정 검색 품질 측정 CLI — 본체는 zzaimy.eval.retrieval_eval (대시보드 카드의 유일한 수치 출처).
-- `64_hybrid_sweep.py` — 하이브리드 가중 스윕 — RRF의 어휘:임베딩 가중을 격자 실측으로 고른다.
-- `65_rerank_eval.py` — 리랭커 베이스라인 평가 — bge-reranker-v2-m3가 하이브리드 상위 10을 재정렬하면
 - `68_ocr_cer_bench.py` — OCR 글자 오류율(CER) 자동 벤치 — 디지털 PDF의 원문을 정답으로 쓴다.
-- `69_ocr_duel.py` — OCR 대결 벤치 — 현행 인식기 vs 도전자 VLM, 같은 잣대(어절 F1)로.
 - `70_paddle_duel.py` — 도전자 PaddleOCR-VL(0.9B) 대결 — 현행 MinerU와 같은 잣대(어절 F1)로. CPU.
 - `79_ocr_structure_check.py` — OCR 구조 점검 — 문서 1건을 파이프라인으로 다시 읽고 표·그림·캡션 구조를 보고한다 (운영 VM).
 - `84_ingest_audit.py` — 반입 자가 점검 — 문서를 하나하나 열지 않고 반입 상태를 판정한다.
@@ -67,8 +63,6 @@
 - `173_rag_probe.py` — 사업 문서 RAG 실측 — 그래프에서 시험 질문을 뽑아 검색(grant_search)과 답변(AgentResponder, 27B)을 실제로 돌린다.
 - `174_ontology_audit.py` — 온톨로지 점검 — 지식 그래프(kg_nodes·kg_edges)가 지켜야 할 규칙을 기계로 센다. 고치지 않는다(읽기만).
 - `175_pipeline_audit.py` — 반입 연동 점검 — 원본 → 문서함 → 색인 → 그래프까지 단계마다 다음 단계로 넘어가지 못한 수를 센다(읽기만, 고치지 않는다).
-- `176_office_duel.py` — 오피스 파일 읽기 대결 — docling · 형식별 라이브러리(python-docx·openpyxl·python-pptx) · kordoc 을 실제 원본으로 견준다.
-- `178_pgvector_duel.py` — 의미 검색 벡터 저장 대결 — 지금(NumPy 배열 파일, 정확 계산) vs pgvector(PostgreSQL halfvec + HNSW, 근사).
 - `181_fill_gap_report.py` — 못 채운 절 모아 보기 — 절 작성이 비우거나 덜 채운 절을 원인 갈래별로 센다(app/fill_gaps).
 - `184_graph_relation_probe.py` — 그래프 단계 실측 — 관계를 묻는 질문에서 검색(grant_search)이 관계의 양쪽 문서를 근거로 가져오나.
 - `188_graphrag_vs_fulltext.py` — GraphRAG(온톨로지 + RAG) 대 풀텍스트 RAG — 같은 시험지로 검색 정확도·답변 시간·답변 품질을 견준다.
@@ -79,22 +73,14 @@
 - `audit_retrieval_cases.py` — Validate local selection candidates; optionally export independently reviewed gold.
 - `build_graph_retrieval_probes.py` — Build business-scoped self-retrieval probes. These are not gold or SFT data.
 
-## 그 밖(운영·처리·서빙·소급 도구) (83)
+## 그 밖(운영·처리·서빙·소급 도구) (67)
 
-- `10_parser_bakeoff.py` — 파서 bake-off — MinerU ↔ Docling 나란히 비교 (W1-W2 TASK-04).
-- `20_embed_smoke.py` — 임베딩 학습 1-step 스모크 테스트.
-- `21_serving_smoke.py` — vLLM 서빙 스모크 + 간단 처리량 측정.
-- `40_crawl_ync.py` — 교내 공개 웹 자산 수집기 (YNC LLM 지식 자산 확보).
 - `51_synth_queries.py` — 합성 질의 생성 배치 (model-plan §1 Embed 데이터 파이프라인의 축소판).
 - `52_embed_chunks.py` — 규정 조각 임베딩 갱신 (임베딩 RAG 재료).
-- `61_reprocess_all.sh` — 전 문서 재처리 + 점검 체인 (GPU 장비).
 - `66_reindex.sh` — 재색인 — 규정 조각을 등록·해제·재분할한 뒤 조각 임베딩 색인을 맞춘다.
-- `67_ocr_quality.py` — OCR 품질 점검 — 스캔 경로 문서의 의심 신호를 자동으로 훑는다.
 - `68_labelstudio_token.py` — Label Studio 고정 토큰 프로비저닝 보조 — scripts/68_labelstudio_token.sh 가 부른다.
 - `68_labelstudio_token.sh` — Label Studio 고정 토큰 프로비저닝 — 사람이 토큰을 복사해 붙여넣지 않게 한다.
 - `70_extract_entities.py` — 개체 추출 배치 (지식 그래프 2단계, ADR-0010).
-- `72_collect_grant_docs.py` — 공개 국고사업 문서(계획서·서식·공고) 수집기 — 파일럿 RAG 코퍼스용(공개 수집 코퍼스는 지금 운영 범위에서 빠져 있다).
-- `73_crawl_uniall_pbanc.py` — uniall.nrf.re.kr 사업공고(pbanc) 첨부 수집기 — 국고사업 공고 코퍼스.
 - `74_ingest_corpus.py` — 수집 코퍼스 → RAG 기준문서(regulation chunk) 인제스트.
 - `75_embed_corpus.py` — corpus_pilot.db 조각 KURE 임베딩 — /dev/corpus 의미검색용 (CPU).
 - `75_rechunk_regulations.py` — 규정 조각 재분할 — 조각화 규칙이 바뀐 뒤 기존 문서에 소급 적용한다.
@@ -107,7 +93,6 @@
 - `96_embed_on_thor.sh` — . "$(dirname "$0")/_hosts.sh
 - `97_paraphrase_queries.py` — 바꿔 말한 질의 세트 — 규정 문구를 모르는 담당자가 상황으로 묻는 질문을 흉내 낸다.
 - `99_deploy.sh` — 운영 VM 배포 — 정본은 깃허브 하나다. VM 은 원격에서 받아 그 상태 그대로 돌린다.
-- `100_backfill_headings.py` — 표가 본문인 조각에 표제를 채운다 — 이미 적재된 조각에 새 규칙을 소급 적용한다.
 - `102_serve_reranker_on_thor.sh` — . "$(dirname "$0")/_hosts.sh
 - `103_serve_embed_on_thor.sh` — . "$(dirname "$0")/_hosts.sh
 - `104_train_rerank_on_thor.sh` — . "$(dirname "$0")/_hosts.sh
@@ -123,7 +108,6 @@
 - `126_serve_writer.sh` — ③ZZAIMY-Writer(Qwen3.8-27B)를 토르에 올린다 — 어느 토르든, 어느 판(bf16·NVFP4)이든 같은 스크립트로.
 - `127_adr_index.py` — ADR 색인(docs/decisions/README.md 의 표)을 파일에서 만든다 — 손으로 적으면 줄이 빠지기 쉽다.
 - `128_kure2_index_on_thor.sh` — . "$(dirname "$0")/_hosts.sh
-- `129_serve_kure2_on_thor.sh` — . "$(dirname "$0")/_hosts.sh
 - `131_access_scenarios.py` — 권한 밖 질문 시나리오 자가 점검 — 운영 DB 로, 모델 없이, 규칙과 검색 범위만 확인한다.
 - `134_render_pages.py` — 전사(판독) 대상 문서의 쪽을 그림으로 뽑는다 — 사람이 원본을 보고 옮겨 적거나 판독 결과와 대조하기 위한 준비.
 - `138_layout_migrate.py` — 저장 구조 이관 — inbox 에 임의 이름으로 쌓인 원본을 문서 폴더(ADR-0030)로 옮기고 DB(stored_path·doc_assets·files)를 맞춘다.
@@ -131,13 +115,9 @@
 - `140_export_knowledge.py` — 지식 내보내기(ADR-0031) — 문서 목록·조각·개체·문서-개체 간선·조각 임베딩을 외부에서 쓸 수 있는 형식으로 묶는다.
 - `143_read_image_pages.py` — 접수 문서의 그림 쪽(글자층 없는 쪽)을 비전 모델로 판독해 조각으로 더한다 — 운영 서비스 밖에서 한 번에 여러 묶음.
 - `147_kordoc_parity.py` — kordoc 대 우리 파서 대조 — 문서함의 한글 문서를 두 길로 읽어 시간·글자·표·그림을 나란히 (ADR-0033 채택·갱신 근거).
-- `150_docs_row_pitch.py` — 독스·LibreOffice 표 행 간격 측정 실험 — VM 에서 env PYTHONPATH=src .venv/bin/python scripts/150_docs_row_pitch.p
-- `151_docs_page_count.py` — docx 파일들을 독스에 올려 PDF 로 내보내 쪽수를 잰다(148 과 같은 길) — 배포 전에 변환기 변경을 잴 때.
 - `156_intake_files.py` — 고른 파일들을 한 프로젝트로 문서함에 반입한다 — 실문서 파일럿용(ADR-0047).
 - `157_build_kg.py` — 온톨로지 v3 그래프를 만든다 — 사업 → 연차 → 문서 → 절, 관계마다 기준·근거(ADR-0048).
 - `158_kg_judge.py` — 그래프 연결 정밀도 점검 — 이은 절 쌍과 버린 후보 쌍을 표본으로 27B 에 판정시킨다(평가에만, 그래프에는 쓰지 않는다).
-- `159_business_profile.py` — 사업별 문서 구성 조사 — 원본 보관소(DGX ~/data)를 파일 이름·경로만으로 훑어 사업마다 무엇이 있는지 센다.
-- `160_business_catalog.py` — 원본 보관소 전체로 사업 카드를 만들고 파일마다 사업을 매겨 본다 — 사업 분류가 파일럿 밖에서도 서는지 사업별로 잰다.
 - `161_select_core.py` — 사업별 뼈대 문서 고르기 — 원본 보관소에서 사업마다 기본계획·공고·계획서·실적보고서·평가·지침의 최종본만 고른다.
 - `162_business_template.py` — 사업별 공통 양식 — 지식 그래프의 단위(여러 연차 문서에 되풀이되는 절)로 사업 × 문서 갈래(계획서·실적보고서)의 공통 뼈대를 만든다.
 - `164_sync_apply.py` — 170(VM 동기화)이 받은 편지함에 받아 둔 새 뼈대 문서를 반입하고 그래프·양식을 다시 짓는다.
@@ -160,7 +140,5 @@
 - `197_trainset_catalog.py` — 학습셋 목록 — DGX 의 학습 준비 폴더(data/train 의 staging·releases·baselines)에서 설명 정보만 모아 ~/parsed/trainsets.json
 - `198_forms_to_drive.py` — 양식을 드라이브에 맞춘다 — 원본 맞추기(164)가 새로 만든 공통 양식 docx 를 구글 독스로 바꿔 「ZZAIMY/공통 양식」에 올린다.
 - `build_question_tree_review.py` — 실문서 완성본의 질문–정답 후보를 새 Label Studio 검수 묶음으로 생성. 삭제 없음.
-- `migrate_platform_postgres.py` — Stage and verify only. Does not change the running application's database.
 - `publish_authored_qa.py` — 직접 작성한 JSON 문답을 SSH 로 교내 Label Studio 누적 프로젝트에 게시한다.
-- `retire_platform_sqlite.py` — Preserve old SQLite but make legacy direct access fail, not read stale data.
 - `set_platform_database.py` — Set platform DB keys in an existing environment file (service must be stopped).
