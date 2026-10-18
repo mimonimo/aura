@@ -11,7 +11,7 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     ("개요", [("/dev", "개발 현황"), ("/dev/flow", "처리 흐름")]),
     ("문서·데이터", [("/dev/intake", "문서 반입"), ("/dev/db", "원천 데이터")]),
     ("검색·지식", [("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색")]),
-    ("모델", [("/dev/train", "데이터·학습"), ("/dev/tools", "도구·모델 연결")]),
+    ("모델", [("/dev/train", "데이터·학습"), ("/dev/collect", "수집 자료"), ("/dev/tools", "도구·모델 연결")]),
     ("점검", [("/dev/quality", "품질·성능"), ("/dev/pii", "개인정보·반출 점검")]),
     ("관리·기록", [("/dev/users", "사용자·계정"), ("/dev/docs", "논문·설계 문서")]),
 ]
