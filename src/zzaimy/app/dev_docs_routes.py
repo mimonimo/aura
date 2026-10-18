@@ -4,7 +4,8 @@
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - 화면 틀·화면 공통 맥락(page_ctx)과 문서 도우미 묶음(docs — make_docs_helpers 가 앱마다 만든다)은
   main.create_app 이 app.state 에 올려 둔 것을 읽는다. 개발 현황(/dev)과 함께 쓰는 도우미(docs/ 읽기·결정/메모 목록·
-  논문 자료 목록·마지막 변경일·dev-now 나누기·마크다운 렌더)는 main 에 두고 묶음에 넘겨 받는다.
+  논문 자료 목록·마지막 변경일·dev-now 나누기)는 개발 현황 묶음(app/dev_overview_routes)에, 마크다운 렌더는 main 에 두고
+  묶음에 넘겨 받는다.
 """
 from __future__ import annotations
 

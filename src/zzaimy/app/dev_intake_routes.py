@@ -3,7 +3,7 @@
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·DB 경로(db_path)·처리기(processor)·받은 문서 폴더(inbox_dir)·화면 틀·화면 공통 맥락(page_ctx)과
   반입 작업 프로세스 표(intake_proc)는 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
-- 구글 드라이브 연결 라우트(/dev/gdrive/*)는 main 에 있고, 여기 있는 탭 주소·되돌아갈 주소 도우미를 함께 쓴다.
+- 구글 드라이브 연결 라우트(/dev/gdrive/*)는 app/dev_gdrive_routes 에 있고, 여기 있는 탭 주소·되돌아갈 주소 도우미를 함께 쓴다.
 """
 from __future__ import annotations
 
