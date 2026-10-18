@@ -51,6 +51,13 @@ DGX Ollama 27B 는 평소 쓰지 않는다 — verify 가 학습 뒤 27B 를 다
 83 의 복사본(~/ops/sfttest/83_test.py, max_steps 만 환경 변수로)으로 --smoke-long 과 실제 데이터 몇 단계를 메모리 상한(systemd-run MemoryMax) 안에서 재고
 단계 시간·최대 메모리를 여기에 적는다. 시험하는 동안 dgx_cycle 잠금을 쥐어 주기 처리를 쉬게 한다. 그동안 본학습은 띄우지 말아 달라(겹치면 둘 다 멈춤).
 
+17:45 Claude 시험은 r7 이 잠금을 쥐고 있어 시작하지 않았다(겹침 없음). 빠른 부품 두 개는 준비됐다(확인):
+~/ops/sfttest/pkgs 에 flash-linear-attention 0.5.2(fla-core 포함)와 causal-conv1d 1.7.0(GB10 sm_121 용으로 이 장비에서 빌드, CUDA 13)을 깔았고,
+.venv-train 파이썬에 `PYTHONPATH=$HOME/ops/sfttest/pkgs` 만 얹으면 transformers 가 빠른 경로를 켠다(is_flash_linear_attention_available·is_causal_conv1d_available 모두 True,
+GPU 에서 causal_conv1d_fn 실행 확인). .venv-train 은 그대로다. r7 은 같은 기본 구현으로 611초/단계다 — r7 이 5단계 체크포인트를 남긴 뒤 멈추고
+`--resume-from-checkpoint` 로 위 PYTHONPATH 를 얹어 이어 가면 같은 데이터·설정으로 빠른 경로를 쓸 수 있다(속도·메모리는 미측정 — 잠금이 비면 Claude 가 --smoke-long 으로 잰다).
+r7 기록기도 붙였다(~/ops/sft-capture-20261018-r7 → VM /tb/ writer-20261018-r7, 1분).
+
 ## 요청 K56 — writer-v1 학습 데이터 재점검·SFT 승인 (2026-10-18, 요청)
 
 사용자가 학습 데이터 검증이 끝났는지 확인하고 끝났으면 SFT 를 진행하라고 했다. 13:05 기준 DGX 승인 기록은
