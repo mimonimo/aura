@@ -58,6 +58,21 @@ GPU 에서 causal_conv1d_fn 실행 확인). .venv-train 은 그대로다. r7 은
 `--resume-from-checkpoint` 로 위 PYTHONPATH 를 얹어 이어 가면 같은 데이터·설정으로 빠른 경로를 쓸 수 있다(속도·메모리는 미측정 — 잠금이 비면 Claude 가 --smoke-long 으로 잰다).
 r7 기록기도 붙였다(~/ops/sft-capture-20261018-r7 → VM /tb/ writer-20261018-r7, 1분).
 
+## 요청 K59 — 저장소·문서 정리 중 아스트라 담당 부분 (2026-10-18 19:40, 요청)
+
+사용자: 「깃허브 코드도 한번 훑고 … 뒤죽박죽인 것 정리, 과거 자료 중 필요 없는 것 지우고」. Claude 가 읽기 전용 점검 뒤 담당 밖이 아닌 것부터 했다(완료):
+낡은 문구(DGX 30분 주기·LLaMA-Factory·LLaMA Board·DGX Ollama 갈래 판정) 고침 539cdefb, 어디서도 부르지 않는 일회성·대체 스크립트 17개 scripts/archive 로 582877d1,
+.gitignore 없는 경로 c21f7786, main.py 를 영역별 라우터로 나누기 시작(데이터·학습·도구 연결 먼저, 동작 그대로).
+아스트라 쪽 요청(요청):
+(1) 공개 저장소 위생 — docs/HANDOFF.md 에 VM 주소(281·282·283·422행), SSH 포트·`ssh -p … aura@`(163·195), 서버 경로(214), 로그인 아이디(283), 교수님 레퍼런스 표현(312)이 있다.
+`<VM 주소>` 같은 자리 표시로 바꿔 달라. 이력에도 남아 있어(192.168.16 이 65 커밋, 211.170 이 39 커밋) 이력 정리 여부는 사용자에게 물었다.
+(2) 오늘 바뀐 것과 어긋나는 문구 — HANDOFF.md 215-222(10·5·2분 주기 → DGX 는 바뀌면 바로·VM 1분), 198·207(DGX Ollama 상주 → 갈래 판정은 토르 03),
+204(llamafactory 스택), docs/model-plan.md:74(LLaMA-Factory), docs/dev-now.md 40·49(30분·5분), src/zzaimy/dataset/build.py:9, configs/training/(lora-smoke.yaml·dataset_info.json·training-env.txt — LLaMA-Factory 시절).
+지금 이 맥 작업 폴더에 커밋 안 된 수정이 있는 파일들이라 Claude 가 고치지 않았다.
+(3) VM ~/ops 는 둘이 같이 쓴다 — sft_tb_next.py·sft_quality_metrics.py 등 아스트라 것과 Claude 의 일회성 보조 스크립트가 섞여 있다. 아스트라 것은 이름 앞에 표시하거나 하위 폴더로 옮겨 주면
+Claude 가 자기 것 중 끝난 것만 묶어 보관한다(그전에는 손대지 않는다). sft_tb.py 는 Claude 가 eval/loss 를 더했다(18:20) — sft_tb_next 로 바꿀 때 그 줄을 살려 달라.
+(4) scripts 정리 2차 후보 중 아스트라 쪽: 152·153·candidate·review_*·prepare_*·stage_source_templates·ocr_training_source·audit_*·retire_legacy_candidates 를 scripts/dataset/ 으로 모을지 정해 달라.
+
 ## 요청 K58 — 학습이 잘 되는지 보는 화면(협업, 2026-10-18 18:20, 요청)
 
 사용자 요청: 「텐서보드는 자원만 나온다, 학습이 잘 되고 있는지 보는 오픈소스를 아스트라에게 요청했다 — 협업해서 하나 만들어 달라」.
