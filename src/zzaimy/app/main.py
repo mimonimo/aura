@@ -5302,73 +5302,6 @@ def create_app(
             raise HTTPException(500, "반입 현황을 읽지 못했습니다")
         return data
 
-    # RAG 공간 관리(ADR-0053) — 공간별 자료 수·쓰는 계정, 계정별 추가 권한, 폴더→부서 짝, 학생 공개 규정. 개발자만(/dev 미들웨어)
-
-    @app.get("/dev/rag", response_class=HTMLResponse)
-    def dev_rag(request: Request):
-        """RAG 공간 — 검색 공간·규정·기준 문서·계정별 추가 권한·검색 범위 시험(목록은 /dev/rag/regs 로 따로 불러온다).
-        원본 폴더별 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 에서 바꾸고 여기 「RAG 목록」 의 반입 폴더 칸에서 본다."""
-        from zzaimy.app import rag_spaces
-        data_dir = Path(db_path).parent
-        cfg = rag_spaces.config(data_dir)
-        grants = cfg.get("grants", {})
-        accts = [{"id": u, "role": a.get("role", "staff"), "dept": a.get("dept", ""),
-                  "space": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir)["id"],
-                  "all_grant": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir).get("grant_depts") is None,
-                  "grants": grants.get(u, [])} for u, a in sorted(accounts.items())]
-        spaces = rag_spaces.stats(db, data_dir, accounts)
-        return templates.TemplateResponse(request, "dev_rag.html", ctx(request, {
-            "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
-            "dict_grants": {a["id"]: {"space": a["space"], "grants": a["grants"]} for a in accts},
-            "dept_rags": rag_spaces.dept_rag_rows(db, cfg, accounts, _all_depts())}))
-
-    @app.post("/dev/rag/grant")
-    async def dev_rag_grant(request: Request):
-        """계정 × 부서 공간 표 저장 — 화면에서 바뀐 칸만 지금 설정에 반영한다(다른 사람이 그사이 바꾼 칸은 그대로). 학생·관리자 계정은 대상이 아니다."""
-        from zzaimy.app import rag_spaces
-        data_dir = Path(db_path).parent
-        form = await request.form()
-        cfg = dict(rag_spaces.config(data_dir))
-        grants, done, bad = rag_spaces.grant_changes(cfg, accounts, [str(x) for x in form.getlist("cell")],
-                                                     [str(x) for x in form.getlist("was")], [str(x) for x in form.getlist("on")],
-                                                     data_dir)
-        if bad:
-            return RedirectResponse("/dev/rag?" + urlencode({"err": "저장하지 않았습니다 — " + ", ".join(
-                f"{k.replace(chr(9), ' · ')}({why})" for k, why in bad[:5])}) + "#grants", status_code=303)
-        if not done:
-            return RedirectResponse("/dev/rag?" + urlencode({"ok": "바뀐 칸이 없습니다"}) + "#grants", status_code=303)
-        cfg["grants"] = grants
-        rag_spaces.save_config(cfg, data_dir)
-        on = [f"{u} → {sid[5:]}" for u, sid, w in done if w]
-        off = [f"{u} → {sid[5:]}" for u, sid, w in done if not w]
-        msg = f"추가 권한 {len(done)}건 저장" + (f" · 켬: {', '.join(on)}" if on else "") + (f" · 끔: {', '.join(off)}" if off else "")
-        return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#grants", status_code=303)
-
-    @app.post("/dev/rag/dept")
-    async def dev_rag_dept(request: Request):
-        """부서 RAG 만들기·지우기 — action=create(name) | delete(name, 든 문서는 공통 RAG 로)."""
-        from zzaimy.app import rag_spaces
-        data_dir = Path(db_path).parent
-        form = await request.form()
-        action, name = str(form.get("action") or ""), " ".join(str(form.get("name") or "").split())
-        cfg = dict(rag_spaces.config(data_dir))
-        if action == "create":
-            new, err = rag_spaces.create_dept_rag(cfg, name, by=request.state.user or "")
-            if err:
-                return RedirectResponse("/dev/rag?" + urlencode({"err": err}) + "#dept-rags", status_code=303)
-            rag_spaces.save_config(new, data_dir)
-            return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 만들었습니다 — 문서 화면·문서 올리기에서 공개 범위를 「부서만」으로 고르면 들어갑니다"})
-                                    + "#dept-rags", status_code=303)
-        if action == "delete" and name in _all_depts():
-            if any(str(a.get("dept") or "").strip() == name for a in accounts.values()):
-                return RedirectResponse("/dev/rag?" + urlencode({"err": f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 사용자·계정에서 부서를 먼저 바꿉니다"})
-                                        + "#dept-rags", status_code=303)
-            new, moved = rag_spaces.delete_dept_rag(db, cfg, name)
-            rag_spaces.save_config(new, data_dir)
-            return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 지웠습니다 · 문서 {moved}건은 공통 RAG 로"})
-                                    + "#dept-rags", status_code=303)
-        return RedirectResponse("/dev/rag?" + urlencode({"err": "알 수 없는 요청"}) + "#dept-rags", status_code=303)
-
     @app.post("/docs/delete")
     async def docs_delete(request: Request):
         """여러 문서 삭제(JSON {ids}) — 라이브러리 목록에서 고른 문서를 한 번에. 관리자만."""
@@ -5399,63 +5332,6 @@ def create_app(
             raise HTTPException(400, f"없는 부서 RAG: {dept}")
         ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:5000]
         return {"moved": rag_spaces.move_docs(db, ids, dept), "dept": dept}
-
-    # 규정·기준 문서 — 반입한 규정을 골라 기준 문서로 올리고(조문 조각), 학생 공개를 정한다(regulation_register)
-    @app.get("/dev/rag/regs")
-    def dev_rag_regs(q: str = ""):
-        from zzaimy.app import regulation_register
-        got = regulation_register.candidates(db, q)
-        return {**got, "reindex_needed": (Path(db_path).parent / ".reindex-needed").exists(), "reindex_running": _reindex_running()}
-
-    async def _ids_from(request: Request) -> list[int]:
-        body = await request.json()
-        return [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]
-
-    @app.post("/dev/rag/regs/register")
-    async def dev_rag_regs_register(request: Request):
-        from zzaimy.app import regulation_register
-        return regulation_register.register(db, await _ids_from(request), Path(db_path).parent, by=request.state.user or "")
-
-    @app.post("/dev/rag/regs/unregister")
-    async def dev_rag_regs_unregister(request: Request):
-        from zzaimy.app import regulation_register
-        return regulation_register.unregister(db, await _ids_from(request), Path(db_path).parent, by=request.state.user or "")
-
-    @app.post("/dev/rag/regs/audience")
-    async def dev_rag_regs_audience(request: Request):
-        body = await request.json()
-        aud = "student" if body.get("audience") == "student" else "staff"
-        n = 0
-        for did in [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]:
-            d = db.get_document(did)
-            if d and d.get("doc_type") == "regulation":
-                db.set_document_audience(did, aud)
-                n += 1
-        return {"changed": n, "audience": aud}
-
-    @app.get("/dev/rag/try")
-    def dev_rag_try(target: str = "", q: str = "", k: int = 5):
-        """검색 범위 시험 — 공간·계정의 실제 검색 범위(search_scope)로 규정·사업 문서를 찾은 상위 결과. 생성 모델은 부르지 않는다."""
-        from zzaimy.app import rag_spaces
-        got = rag_spaces.target_scope(target, accounts, Path(db_path).parent)
-        if got is None:
-            raise HTTPException(400, "공간이나 계정을 고르세요")
-        term = (q or "").strip()[:200]
-        if not term:
-            raise HTTPException(400, "검색어를 넣으세요")
-        label, sc = got
-        res = rag_spaces.preview_search(db, sc, term, k=max(1, min(int(k), 10)))
-        return {"label": label, "space": sc["space"], "uses_grant": bool(sc.get("grant")), "grant_depts": sc.get("grant_depts"),
-                "student_only": sc.get("levels") == ("student",), **res}
-
-    @app.get("/dev/rag/space")
-    def dev_rag_space(target: str = ""):
-        """공간(또는 계정)의 문서 구성 — 사업별·갈래별 사업 문서 수, 규정 색인 문서별 조각 수 상위."""
-        from zzaimy.app import rag_spaces
-        got = rag_spaces.target_scope(target, accounts, Path(db_path).parent)
-        if got is None:
-            raise HTTPException(400, "공간이나 계정을 고르세요")
-        return {"label": got[0], **rag_spaces.composition(db, got[1])}
 
     # 반입 연동 관리 — 원본 → 문서함 → 색인 → 그래프의 빈틈(scripts/175)과 조치(맞추기·다시 점검). 개발자만(/dev 미들웨어)
     _INTAKE_JOBS = {"reconcile": ("zz_reconcile.sh", Path("/tmp/intake_reconcile.log")),
@@ -5690,87 +5566,6 @@ def create_app(
         }))
 
     _CORPUS_DB = _paths.corpus_db_existing(Path(db_path).parent)
-
-    @app.get("/dev/pii", response_class=HTMLResponse)
-    def dev_pii(request: Request, q: str = "", entity: str = "", page: int = 1, source: str = "platform"):
-        """개인정보 마스킹 감사 — 기록·자가 점검·잔여 검사 (절대 규칙 3).
-
-        플랫폼 DB와, 옆에 있으면 코퍼스 파일럿 DB(스크립트 74 기본 대상)까지
-        본다. 자가 점검 결과는 DB와 무관하므로 플랫폼 DB settings에만 둔다.
-        외부 연결(웹 검색·구독 CLI)은 도구·모델 연결(/dev/tools)로 옮겼다 — 옛 탭 주소는 그리로 보낸다.
-        """
-        if request.query_params.get("view") == "external":
-            return RedirectResponse("/dev/tools#external", status_code=303)
-        from zzaimy.app import access_guard, pii_audit
-
-        sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True, q=q, entity=entity, page=page)]
-        corpus_path = pii_audit.corpus_db_path(db)
-        if corpus_path is not None:
-            sources.append(pii_audit.source_view(
-                Database(corpus_path), name="국고 코퍼스 (별도 DB)", linkable=False, q=q, entity=entity, page=page,
-            ))
-        return templates.TemplateResponse(request, "dev_pii.html", ctx(request, {
-            "internal_policy": privacy_policy.load(db),
-            "masking_entities": privacy_policy.ENTITIES,
-            "history_source": "corpus" if source == "corpus" and len(sources) > 1 else "platform",
-            "history_q": q, "history_entity": entity,
-            "sources": sources,
-            "selftest": pii_audit.load_json(db, pii_audit.SELFTEST_KEY),
-            "policy": pii_audit.MASK_POLICY,
-            "type_names": {t: name for t, name, *_ in pii_audit.MASK_POLICY},
-            "entity_labels": pii_audit.ENTITY_LABELS,
-            # 권한 밖 시도(개인정보 요청·범위 밖 자료·유도 질문) — 최근 24시간
-            "access_audit": [
-                {**r, "kind_label": access_guard.KIND_LABELS.get(r.get("kind"), r.get("kind"))}
-                for r in access_guard.recent(Path(db_path).parent, hours=24)
-            ],
-            "accounts_scope": [
-                {"user": u, "name": a.get("name", ""), "role": a.get("role", "staff"),
-                 "role_label": access_guard.ROLES.get(a.get("role", "staff"), a.get("role", "staff")),
-                 "dept": a.get("dept", "")}
-                for u, a in sorted(accounts.items())
-            ],
-            "role_choices": access_guard.ROLES,
-            "dept_choices": [d.get("dept") for d in db.department_counts() if d.get("dept")],
-        }))
-
-    @app.post("/dev/pii/subscriptions/check")
-    def dev_subscription_check():
-        from zzaimy.app.subscription_status import probe
-        from datetime import datetime, timezone
-        checks = {name: probe(name) for name in ("claude", "codex")}
-        checks["at"] = datetime.now(timezone.utc).isoformat()
-        db.set_setting("subscription_checks", _aj.dumps(checks))
-        return RedirectResponse("/dev/tools#external", status_code=303)
-
-    @app.post("/dev/pii/policy")
-    def dev_privacy_policy(request: Request, enabled: str = Form(...), entities: list[str] = Form([])):
-        if enabled not in {"on", "off"}:
-            raise HTTPException(400, "켜짐 또는 꺼짐을 선택하세요.")
-        try:
-            privacy_policy.save(db, enabled == "on", entities, request.state.user)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-        return RedirectResponse("/dev/pii?view=policy&saved=1", status_code=303)
-
-    @app.post("/dev/pii/selftest")
-    def dev_pii_selftest():
-        """합성 표본으로 실제 마스커를 검증 — 결과는 settings에 남는다."""
-        from zzaimy.app import pii_audit
-
-        pii_audit.run_selftest(db)
-        return RedirectResponse("/dev/pii?view=checks", status_code=303)
-
-    @app.post("/dev/pii/scan")
-    def dev_pii_scan():
-        """저장·색인된 본문에 탐지 정규식을 독립 실행 — 잔여 개인정보 검사."""
-        from zzaimy.app import pii_audit
-
-        pii_audit.run_scan(db)
-        corpus_path = pii_audit.corpus_db_path(db)
-        if corpus_path is not None:
-            pii_audit.run_scan(Database(corpus_path))
-        return RedirectResponse("/dev/pii?view=checks", status_code=303)
 
     _REINDEX_LOG = Path("/tmp/reindex.log")
     _reindex_proc: dict = {"p": None}
@@ -6369,7 +6164,8 @@ def create_app(
 
     # LLM 연결 관리(/dev/llm/*)·데이터 공방(/dev/data*) — 독립 라우터(app/dev_data_routes). Label Studio 도우미는 앱마다 만든다
     # 데이터·학습(/dev/train)·도구·모델 연결(/dev/tools) — 독립 라우터(app/dev_train_routes). 함께 쓰는 도우미를 넘긴다
-    from zzaimy.app import dev_data_routes, dev_train_routes
+    # RAG 공간 관리(/dev/rag*) — 독립 라우터(app/dev_rag_routes). 개인정보 점검(/dev/pii*) — 독립 라우터(app/dev_pii_routes)
+    from zzaimy.app import dev_data_routes, dev_pii_routes, dev_rag_routes, dev_train_routes
     _ls = dev_data_routes.make_ls_helpers(db)
     app.state.llm_redirect = dev_data_routes._llm_redirect
     app.state.ls_client = _ls.ls_client
@@ -6381,6 +6177,10 @@ def create_app(
     app.state.dev_slow = dev_train_routes.make_dev_slow()
     app.include_router(dev_data_routes.router)
     app.include_router(dev_train_routes.router)
+    app.state.all_depts = lambda: _all_depts()     # 부서 목록 — 아래(라이브러리 폴더)에서 정의되므로 부를 때 찾는다
+    app.state.reindex_running = _reindex_running
+    app.include_router(dev_rag_routes.router)
+    app.include_router(dev_pii_routes.router)
 
     # ---- 추출 품질 신고 루프 (품질 체계 5계층, docs/quality-system.md) ----
 
