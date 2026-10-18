@@ -63,7 +63,8 @@ r7 기록기도 붙였다(~/ops/sft-capture-20261018-r7 → VM /tb/ writer-20261
 이 맥의 작업 폴더는 10-12 커밋(062fa9f7) 위에 커밋 안 된 수정 17개가 있다. 그 뒤 원격 main 이 많이 바뀌었다 — 받기 전에 아래를 확인해 달라.
 - main.py 를 영역별 라우터로 나눴다(동작 그대로): dev_train_routes.py(/dev/train·/dev/tools), dev_data_routes.py(/dev/data·/dev/llm),
   dev_rag_routes.py(/dev/rag), dev_pii_routes.py(/dev/pii), 진행 중: dev_intake_routes.py(/dev/intake·/dev/nas)·dev_docs_routes.py(/dev/docs·doc·paper·weekly·history).
-  /dev(개발 현황)·/dev/flow 는 main.py 에 그대로 있다 — 아스트라의 main.py 수정(dev_dashboard 의 training_progress·/dev/api/training-progress)은 자리가 그대로라 그대로 얹힌다.
+  23:50 갱신: /dev 라우트는 모두 main.py 밖이다 — dev_overview_routes.py(/dev·/dev/flow·/dev/db·/dev/quality·/dev/eval·/dev/reindex·/dev/route-all·/dev/api/intake), dev_gdrive_routes.py(/dev/gdrive).
+  아스트라의 dev_dashboard 수정은 dev_overview_routes.py 의 dev_dashboard 맥락 dict 에 "training_progress" 한 줄, 같은 모듈에 @router.get("/dev/api/training-progress") 하나로 옮겨 얹으면 된다.
   도우미는 request.app.state 로 읽는다(배선 블록은 main.py 의 _nas_redirect 라우트 바로 뒤).
 - 지운 것: scripts/archive 전체와 일회성·대체 스크립트 15개(목록 docs/notes/removed-scripts.md), docs/dev-changelog.md, docs/notes/collab-now.md.
 - 새로 생긴 것: app/train_monitor.py(학습 상태 화면 /dev/train/run), app/detach.py(앱이 띄우는 배경 작업을 systemd scope 로 — 배포 재시작에 안 끊김),
