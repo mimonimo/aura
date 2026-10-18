@@ -43,6 +43,6 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 ## 운영과 작업 기록
 
 - [인수인계](HANDOFF.md): 운영 구성, 실행 절차, 남은 일
-- [현재 작업](dev-now.md), [변경 기록](dev-changelog.md)
+- [현재 작업](dev-now.md) · 변경 기록은 깃 커밋(개발 현황 › 변경 이력)
 - [기술 노트](notes/), [작업 맥락](context/working-notes.md), [1~2주차 계획](instructions/W1-W2.md)
 - [착수 단계 기술 조사](../research/README.md)

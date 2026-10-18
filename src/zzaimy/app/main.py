@@ -5006,7 +5006,7 @@ def create_app(
 
     def _git_history() -> list[dict]:
         """커밋 이력을 깃에서 직접 읽는다 — 한 줄 = {day, time, subject, hash, areas, files}.
-        저장소 사본(dev-changelog.md)은 손으로 다시 만들어야 해 낡기 쉬우므로 깃이 정본이다.
+        깃이 정본이다(손으로 쓰던 사본은 낡아 지웠다).
         HEAD 가 같으면 캐시를 쓴다."""
         import subprocess
 
@@ -5038,25 +5038,13 @@ def create_app(
         return items
 
     def _dev_history() -> list[dict]:
-        """변경 이력 — 커밋을 날짜별로 묶는다. 깃이 없으면 저장소 사본(dev-changelog.md)으로 물러난다."""
+        """변경 이력 — 커밋을 날짜별로 묶는다(깃이 정본 — 손으로 쓰던 사본 dev-changelog.md 는 09-21 에 멈춰 10-18 지웠다)."""
         from collections import OrderedDict
 
         days: OrderedDict[str, list[dict]] = OrderedDict()
         items = _git_history()
-        if items:
-            for it in items:
-                days.setdefault(it["day"], []).append(it)
-        else:
-            for ln in _dev_read("dev-changelog.md").splitlines():
-                ln = ln.strip()
-                if not ln.startswith("- "):
-                    continue
-                parts = ln[2:].split(" ", 2)
-                if len(parts) < 3:
-                    continue
-                day, time, subject = parts
-                days.setdefault(day, []).append({"day": day, "time": time, "subject": subject,
-                                                 "hash": "", "files": 0, "areas": []})
+        for it in items:
+            days.setdefault(it["day"], []).append(it)
         return [{"day": d, "items": items} for d, items in days.items()]
 
     # 문서 한 줄 설명 — 목록에서 제목 아래에 보인다. 없는 파일은 설명 없이 제목만.
@@ -5101,10 +5089,9 @@ def create_app(
         "notes/uiux-audit.md": "UI/UX 전수 조사",
         "notes/ui-glossary.md": "화면 문구 용어집",
         "notes/hwpx-agent-skills.md": "한글 에이전트 스킬 수집 노트",
-        "notes/collab-now.md": "협업 분담(현재)",
     }
     # 기술 검토(조사·판단 기록)와 작업 메모(백로그·용어집 같은 내부 메모)를 나눈다
-    _NOTE_MEMO = {"backlog.md", "collab-now.md", "ui-glossary.md", "uiux-audit.md", "hwpx-agent-skills.md",
+    _NOTE_MEMO = {"backlog.md", "ui-glossary.md", "uiux-audit.md", "hwpx-agent-skills.md",
                   "automation-pipeline.md"}
 
     _PAPER_LABELS = {
@@ -5621,9 +5608,10 @@ def create_app(
                 meta["status"] = "대체됨"
             if meta["date"] and (d := date_re.search(meta["date"])):
                 meta["date"] = d.group(0)
-            if not meta["date"] and not first_date:
-                # 머리에 날짜가 없는 문서는 깃의 마지막 수정일 — 목록의 날짜 칸이 들쭉날쭉하지 않게
-                first_date = _doc_last_changed(rel)
+            if not meta["date"]:
+                # 계속 고쳐 쓰는 문서(인수인계·계획·진행 현황 …)는 머리에 적힌 옛 날짜가 아니라 마지막으로 바뀐 날 —
+                # 머리 날짜를 쓰면 10-09 에 고친 문서가 「10-01」 로 보였다. 결정 기록(ADR)은 머리의 「날짜:」 를 그대로 쓴다
+                first_date = _doc_last_changed(rel) or first_date
             desc_auto = ""
             if not _DOC_DESC.get(rel):
                 for ln in (_DOCS_DIR / rel).read_text(encoding="utf-8").splitlines()[1:30] if (_DOCS_DIR / rel).is_file() else []:
@@ -5697,7 +5685,7 @@ def create_app(
             "history": history,
             "history_count": sum(len(d["items"]) for d in history),
             "history_areas": sorted(area_count.items(), key=lambda kv: -kv[1]),
-            "history_source": "깃 커밋" if _git_history() else "저장소 사본(dev-changelog.md)",
+            "history_source": "깃 커밋" if _git_history() else "깃 기록 없음",
             "dev_now_days": days,
         }))
 
@@ -6592,9 +6580,6 @@ def create_app(
         frame = (_section(plan_doc, "## 개발 내용")[:2500]
                  + "\n\n[추진 일정]\n" + _section(plan_doc, "## 추진 일정")[:1200])   # 일정 질문에도 답할 수 있게
         week_lines = [f"- {it['day'][5:]} {it['subject']}" for it in _git_history() if it["day"] >= monday]
-        if not week_lines:                   # 깃이 없으면 저장소 사본
-            week_lines = [ln for ln in _dev_read("dev-changelog.md").splitlines()
-                          if ln.startswith("- ") and ln[2:7] >= f"{monday[5:7]}-{monday[8:10]}"]
         changelog = "\n".join(week_lines[:60])[:3000]
         body: str | None = None
         try:
