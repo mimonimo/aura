@@ -25,3 +25,22 @@
 - `88_remask_documents.py` — 이미 적재된 문서를 지금 규칙으로 다시 가린다.
 - `92_backfill_chat_topics.py` — 근거 기록이 없는 예전 대화에 근거를 채운다 — 대화 주제(chat_topics.py)를 정하기 위해.
 - `serve-paddleocr-vl.sh` — PaddleOCR-VL 0.9B 도전자 서빙 — 학습 장비에서 실행.
+
+## 2026-10-18 2차 — 대체된 서빙·반출 점검, 끝난 재반입·소급, 옛 임베딩 학습 사슬
+되살리려면: `git show 72313f72:scripts/<파일 이름> > scripts/<파일 이름>`
+
+- `85_ship_adapter.sh` — 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+- `86_serving_selftest.sh` — 학습→서빙 경로 자가 점검 (토르에서) — 실제 학습 없이 82·85 가 도는지 확인한다.
+- `86_text_repair_check.py` — 글자 분해 복원 효과 측정 — 실제 적재 자료에 대고 얼마나 고쳐지는지 센다.
+- `95_serving_selftest.sh` — 학습→서빙 경로 자가 점검 (토르에서) — 실제 학습 없이 82·94 가 도는지 확인한다.
+- `98_train_embed_on_thor.sh` — 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+- `98_ui_check.sh` — UI 시각 검수 — 배포 전 필수.
+- `115_reingest_all.py` — 문서함을 비우고 원본 파일에서 반입을 처음부터 다시 돌린다.
+- `136_family_backfill.py` — 판본·갈래 소급 — 새 열(family·version_of·kind)이 생긴 뒤 기존 문서에 반입 규칙을 적용한다.
+- `55_register_scraped.py` — 수집한 교내 문서를 선별해 기준 저장소에 일괄 등록한다.
+- `56_clean_pages.py` — 긁어온 페이지 텍스트에서 사이트 공통 보일러플레이트를 걷어낸다.
+- `89_backfill_titles.py` — 이미 적재된 문서에 정식 이름·기준 날짜를 채운다.
+- `91_reprocess_docs.py` — 지정한 문서만 다시 처리한다 — 추출기를 고친 뒤 해당 문서에만 소급 적용할 때.
+- `93_identify_all.py` — 사업 정보(문서 정체)를 아직 읽지 않은 문서를 한꺼번에 읽는다.
+- `57_criteria_refresh_chain.sh` — 기준 저장소 갱신 체인 (GPU 장비에서 실행).
+- `54_train_embed.py` — ZZAIMY-Embed v0.0 시험 파인튜닝 — 축 B 사이클 리허설.
