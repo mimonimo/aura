@@ -101,6 +101,7 @@ def main() -> int:
         data, rep = md_docx.convert(f.read_text(encoding="utf-8"))
         f.with_suffix(".docx").write_bytes(data)
         print(f"양식 {f.name}: 절 {rep['headings']} · 표 {rep['tables']}", flush=True)
+    sh([PY, "scripts/198_forms_to_drive.py"])             # 바뀐 양식만 드라이브 「ZZAIMY/공통 양식」에(계정 설정이 있을 때)
     if man.is_file() and not post_only:
         man.rename(man.with_suffix(".done.json"))
     print("SYNC_DONE", env_conn and "(분석 서버 지정)", flush=True)

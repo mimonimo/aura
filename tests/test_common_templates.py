@@ -111,3 +111,16 @@ def test_shared_table_needs_two_programs_and_no_dated_heads():
     assert m.shared_table([a, b, None]) == a
     assert m.shared_table([a, None]) is None
     assert m.shared_table([dated, dated]) is None
+
+
+def test_schedule_date_cells_are_not_sections():
+    """일정표 날짜 칸(요일이 가려진 꼴 포함)은 절 제목이 아니다."""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("bt162", Path(__file__).resolve().parent.parent / "scripts" / "162_business_template.py")
+    bt = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bt)
+    for bad in ("3.10.( ) 목", "3.11.( ) 금", "3.10.(목)", "12/3(화)"):
+        assert not bt.label_ok(bad), bad
+    for good in ("1. 추진배경 및 필요성", "Ⅳ 추진일정", "예산 활용계획"):
+        assert bt.label_ok(good), good

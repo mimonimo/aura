@@ -37,9 +37,14 @@ _FRONT = re.compile(r"동의서|서약|확약|귀하|개인\s*정보|청렴|보�
 _NUMBERED = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)[.．]|\d{1,2}(?:[.\-]\d{1,2})*[.．)]|[가나다라마바사아자차카타파하][.．)]|\(\d{1,2}\))")
 
 
+# 일정표 날짜 칸(「3.10.(목)」 — 요일이 가려져 「3.10.( ) 목」 꼴로도 남는다)이 개요 번호처럼 보여 절로 잡힌 것
+_DATE_CELL = re.compile(r"^\d{1,2}\s*[./]\s*\d{1,2}\s*[./]?\s*[(（]\s*[월화수목금토일]?\s*[)）]\s*[월화수목금토일]?$")
+
+
 def label_ok(label: str) -> bool:
     t = (label or "").strip()
-    return 2 <= len(t) <= LABEL_MAX and not _SENTENCE.search(t) and not re.fullmatch(r"[\d\s.~\-]+", t)
+    return (2 <= len(t) <= LABEL_MAX and not _SENTENCE.search(t) and not re.fullmatch(r"[\d\s.~\-]+", t)
+            and not _DATE_CELL.match(t))
 
 
 _CONTENT_MARK = re.compile(r"[☒☐□■▪◦○●◆▶※]")
@@ -226,14 +231,20 @@ def main() -> int:
                             skip.update(y for y in ids if y == c or y.startswith(c + "."))
             n_sec = 0
             last_title = ""
+            prev_depth = -1
             for x in ids:
                 if x not in keep or x in skip:
                     continue
                 if nodes[x]["label"] == last_title:
                     continue                              # 같은 제목이 잇달아 나오면(목차·간지 되풀이) 한 번만
                 last_title = nodes[x]["label"]
-                depth = x.split(":sec:")[1].count(".") - base
+                if not label_ok(nodes[x]["label"]):
+                    continue
+                # 제목 단계는 한 번에 한 단계만 내려간다 — 뼈대 문서에서 빠진 중간 절 때문에 ###### 까지 미끄러지지 않게
+                depth = min(x.split(":sec:")[1].count(".") - base, prev_depth + 1)
+                prev_depth = depth
                 title = re.sub(r"\s+", " ", nodes[x]["label"]).strip()[:LABEL_MAX + 20]
+                title = re.sub(r"\s*[(（]\s*[)）]\s*", " ", title).strip()      # 가림이 남긴 빈 괄호
                 # 연차 표기는 떼고(「사업 예산집행(1차년도)」 → 「사업 예산집행」) 사례 대표는 자리 표시로
                 title = re.sub(r"\s*[(（]\s*(?:\d{1,2}\s*차\s*년도|(?:19|20)\d{2}(?:\s*학?년도?)?)\s*[)）]", "", title).strip()
                 if x in collapse_rep:
