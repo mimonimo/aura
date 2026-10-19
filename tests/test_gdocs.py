@@ -1733,3 +1733,37 @@ def test_section_end_stops_before_page_break_followed_by_tables_only():
                                  para(80, "1. 대학의 여건 분석"), para(100, "본문.")]}}
     sec = next(s for s in gdocs.outline(doc)["sections"] if s["heading"].startswith("【대표과제"))
     assert sec["end"] == 20 + len("상자 아래 글.") + 1 and sec["table_end"] == 0
+
+
+def test_fill_table_keeps_shaded_label_cells(monkeypatch, tmp_path):
+    """바탕색이 칠해진 라벨 칸(양식의 「국비」)은 모델이 잘못 짚어도 덮지 않는다 — 빈 값 칸은 채운다."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text}}]}}
+
+    shade = {"backgroundColor": {"color": {"rgbColor": {"red": 0.95, "green": 0.96, "blue": 0.97}}}}
+    idx, trs = 21, []
+    for r in [[("재원 구성", True), ("국비", True)], [("", False), ("", False)]]:
+        tcs = []
+        for c, lab in r:
+            tcs.append({"content": [para(idx, idx + len(c) + 1, c + "\n")], **({"tableCellStyle": shade} if lab else {})})
+            idx += len(c) + 2
+        trs.append({"tableCells": tcs})
+    grid = {"startIndex": 20, "endIndex": idx + 1, "table": {"tableRows": trs}}
+    body = [para(1, 20, "사업 개요\n", "HEADING_1"), grid, para(idx + 1, idx + 10, "사업 요약\n", "HEADING_1")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"title": "t", "body": {"content": body}})
+        sent.append(json.loads(req.content)["requests"]); return httpx.Response(200, json={"documentId": "d"})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    info = gdocs.get("a@b", "d", http)
+    sec = next(s for s in info["sections"] if s["heading"] == "사업 개요")
+    r = gdocs.fill_table("a@b", "d", sec["index"], 1, [{"row": 0, "col": 1, "text": "○○○"}, {"row": 1, "col": 1, "text": "확인 필요"}],
+                         user="u", data_dir=tmp_path, http=http)
+    assert r["kept_labels"] == 1 and r["cells"] == 1
+    texts = [q["insertText"]["text"] for q in sent[0] if "insertText" in q]
+    assert texts == ["확인 필요"]

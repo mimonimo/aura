@@ -591,7 +591,9 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     masked = mask_ops_numbers(p["ops"], ev_texts)
     if masked:
         # 절대 규칙 1(수치는 인출만). 근거에 없는 수치는 경고만 붙이지 않고 문서에 넣기 전에 「○○」로 가린 뒤 확인할 값으로 알린다
-        p["reply"] = (p["reply"] + "\n근거에 없는 수치는 ○○로 비워 두었습니다(확인 필요): " + ", ".join(masked[:8])).strip()
+        p["reply"] = (p["reply"] + "\n근거에 없는 수치는 비워 두었습니다(표 칸은 「확인 필요」, 본문은 ○○): " + ", ".join(masked[:8])).strip()
+    from zzaimy.app import institution
+    settle_placeholders(p["ops"], institution.facts(db))
     stray = source_check(p["ops"], [materials, command] + [str(c.get("reg_title") or "") + " " + str(c.get("content") or "") for c in (evidence or [])])
     if stray:
         p["reply"] = (p["reply"] + "\n재료에 없는 출처(확인 필요): " + ", ".join(stray[:6])).strip()
@@ -665,6 +667,37 @@ def _replace_in_cell(old: str, new: str, account: str, doc: str, *, user: str, d
     except Exception:
         return 0
     return 0
+
+
+_PH = r"[○◯ＯO]{2,}"
+_PH_ONLY = re.compile(r"^[\s○◯ＯO0-9.,·~\-()（）]*[○◯ＯO]{2,}[\s○◯ＯO.,·~\-()（）]*(?:[가-힣]{0,3})?[\s.,)）]*$")
+_PH_SCHOOL = re.compile(_PH + r"\s*대학교")
+UNKNOWN = "확인 필요"
+
+
+def settle_placeholders(ops: list[dict], facts: dict | None = None) -> int:
+    """계획 속 자리 표시(○○)를 정리한다(제자리) — 양식 지침대로 모르는 값은 「확인 필요」, 아는 기관 값은 그 값으로.
+    - 본문의 「○○대학교」 꼴은 기관 정보(institution.facts)의 대학명을 안다면 그 이름으로
+    - 표 칸 값에 자리 표시가 들어 있으면(「○○○」「○○명」「○○○대학교」 — 근거에 없는 수치를 가린 결과 포함) 칸에 「확인 필요」.
+      칸에는 대학명도 대신 넣지 않는다 — 모델이 자리 표시를 쓴 칸은 엉뚱한 칸일 수 있다(10-12 사업 개요 표: 사업 기간 칸에 「○○○대학교」)
+    본문 문장 속 「○○명」은 그대로 둔다(문장이 빈자리를 보여 준다). 바꾼 수를 돌려준다."""
+    school = ((facts or {}).get("대학명") or "").strip()
+    n = 0
+
+    def fix_school(t: str) -> str:
+        nonlocal n
+        if school and _PH_SCHOOL.search(t):
+            n += 1
+            return _PH_SCHOOL.sub(school, t)
+        return t
+    for o in ops:
+        if o.get("text"):
+            o["text"] = fix_school(str(o["text"]))
+        if o.get("op") == "fill":
+            for c in o.get("cells") or []:
+                if isinstance(c, dict) and c.get("text") and _PH_ONLY.match(str(c["text"]).strip()):
+                    c["text"], n = UNKNOWN, n + 1
+    return n
 
 
 def mask_ops_numbers(ops: list[dict], evidence_texts: list[str]) -> list[str]:

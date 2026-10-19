@@ -664,6 +664,26 @@ def record_fills(data_dir: Path, doc: str, section: str, table_n: int, cells: li
     p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
+def recorded_fills(data_dir: Path, doc: str, section: str, table_n: int) -> set[tuple[int, int]]:
+    """이 표에서 우리가(에이전트가) 채운 칸."""
+    try:
+        data = json.loads(_fills_path(data_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return {tuple(x) for x in data.get(f"{doc_id(doc)}|{_norm_heading(section)}|{int(table_n)}", [])}
+
+
+def _shaded(cell: dict) -> bool:
+    """칸에 바탕색이 칠해졌나(흰색 제외) — 공통 양식·변환 서식 모두 미리 적힌 라벨·머리 칸에 바탕색을 둔다."""
+    rgb = (((cell.get("tableCellStyle") or {}).get("backgroundColor") or {}).get("color") or {}).get("rgbColor") or {}
+    if not rgb:
+        return False
+    return not all(float(rgb.get(k, 0)) >= 0.99 for k in ("red", "green", "blue"))
+
+
+_BLANK_CELL = re.compile(r"^[\s_○◯ＯO·.\-]*(?:확인\s*필요)?[\s_○◯ＯO·.\-()]*$")
+
+
 def clear_recorded_fills(email: str, doc: str, section_index: int, *, data_dir: Path, http=None) -> int:
     """기록된 채운 칸을 비운다(다시 쓰기 전). 비운 칸 수를 돌려준다."""
     p = _fills_path(data_dir)
@@ -986,6 +1006,8 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         rows = t["el"]["table"].get("tableRows", [])
     covered = _covered_cells(t["el"]["table"])
     cells = redirect_total_row(cells, [_first_cell_text(r) for r in rows])
+    ours = recorded_fills(data_dir, doc, t["sec"]["heading"], int(table_n))
+    kept_labels = 0
     edits: list[tuple[int, int, str]] = []          # (start, end(지울 끝, 없으면 start), 글)
     skipped = 0
     seen: set[tuple[int, int]] = set()
@@ -1019,6 +1041,12 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
             continue
         start = int(content[0]["startIndex"])
         existing = " ".join(_para_text(e["paragraph"]) for e in content).strip()
+        if existing and (ri, ci) not in ours and _shaded(tcs[ci]) and not _BLANK_CELL.match(existing) and existing != text:
+            # 바탕색이 칠해진 라벨 칸(양식의 「국비」「주관 기관」)에 우리가 채우지 않은 글이 있다 — 덮지 않는다
+            # (10-12 사업 개요 표: 모델이 라벨 칸 「국비」를 값 칸으로 잘못 짚어 「○○○」로 덮었다)
+            kept_labels += 1
+            skipped += 1
+            continue
         end = int(content[-1]["endIndex"]) - 1 if existing else start        # 마지막 줄바꿈은 칸의 것 — 지우지 않는다
         if not text and not existing:
             continue                                          # 빈 칸을 비우라는 것(근거 없는 값은 비워 둠) — 할 일이 없고 잘못도 아니다
@@ -1047,8 +1075,9 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     n_written = sum(1 for _s, _e, tx in edits if tx)
     n_cleared = sum(1 for _s, e_, tx in edits if not tx and e_ > _s)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "fill", "section": t["sec"]["heading"], "table": int(table_n),
-                      "cells": n_written, "cleared": n_cleared, "skipped": skipped})
-    return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": n_written, "cleared": n_cleared, "skipped": skipped}
+                      "cells": n_written, "cleared": n_cleared, "skipped": skipped, "kept_labels": kept_labels})
+    return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": n_written, "cleared": n_cleared, "skipped": skipped,
+            "kept_labels": kept_labels}
 
 
 def insert_image(email: str, doc: str, section_index: int, uri: str, *, user: str, data_dir: Path, width_pt: float = 450.0,
