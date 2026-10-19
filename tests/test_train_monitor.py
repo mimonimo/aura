@@ -36,3 +36,14 @@ def test_rising_loss_spike_overfit_memory_stall(tmp_path):
 
 def test_path_guard_and_spark():
     assert tm.load("../x") is None and tm.spark([1.0]) == "" and len(tm.spark([1.0, 2.0, None, 3.0]).split()) == 3
+
+
+def test_stopped_run_continued_by_resume():
+    """같은 결과 폴더로 나중에 시작한 기록이 있으면 멈춤이 아니라 「이어 돌림」 으로 본다."""
+    from zzaimy.app import train_monitor as tm
+    a = {"name": "r7", "status": {"out": "/x/adapter", "started": "2026-10-18 18:03", "running": False, "ended": "2026-10-19 11:19",
+                                  "progress": {"step": 113, "total": 556}}, "loss": [], "eval": [], "gpu": [], "mtime": 0}
+    b = {"name": "r7-resume-110", "status": {"out": "/x/adapter", "started": "2026-10-19 18:43", "running": True}}
+    got = tm.judge(a, now=1.0, all_runs=[b, a])
+    assert got[0]["level"] == "ok" and "r7-resume-110" in got[0]["text"]
+    assert tm.continued_by(a, [a]) == ""

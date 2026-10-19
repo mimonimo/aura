@@ -70,16 +70,29 @@ def load(name: str, live: Path | None = None) -> dict | None:
     return {"name": name, "status": st, "loss": loss, "eval": ev, "gpu": gpu, "mtime": mt}
 
 
-def judge(run: dict, now: float | None = None) -> list[dict]:
+def continued_by(run: dict, all_runs: list[dict]) -> str:
+    """같은 결과 폴더(--out)로 나중에 시작한 기록 — 멈춘 학습을 중간 저장에서 이어 돌린 것이다. 없으면 빈 문자열."""
+    out, started = (run.get("status") or {}).get("out"), (run.get("status") or {}).get("started", "")
+    if not out:
+        return ""
+    later = [r for r in all_runs if r["name"] != run["name"] and (r.get("status") or {}).get("out") == out
+             and (r.get("status") or {}).get("started", "") > started]
+    return min(later, key=lambda r: r["status"]["started"])["name"] if later else ""
+
+
+def judge(run: dict, now: float | None = None, all_runs: list[dict] | None = None) -> list[dict]:
     """판정 줄 — level: ok(좋음)·warn(살펴볼 것)·bad(문제)·info(아직 모름)."""
     now = now or time.time()
     st, loss, ev, gpu = run["status"], run["loss"], run["eval"], run["gpu"]
     out: list[dict] = []
     prog = st.get("progress") or {}
     running = st.get("running", False)
+    nxt = "" if running else continued_by(run, all_runs or [])
 
     # 1. 진행·멈춤
-    if running and now - run["mtime"] > 10 * 60:
+    if nxt:
+        out.append({"key": "진행", "level": "ok", "text": f"{prog.get('step', '?')}/{prog.get('total', '?')}단계에서 멈춘 뒤 중간 저장에서 이어 돌렸다 — 「{nxt}」"})
+    elif running and now - run["mtime"] > 10 * 60:
         out.append({"key": "진행", "level": "bad", "text": f"기록이 {int((now - run['mtime']) // 60)}분째 갱신되지 않음 — 학습기나 장비가 멈췄는지 확인"})
     elif prog.get("step") is not None:
         txt = f"{prog['step']}/{prog['total']}단계 · 단계당 {prog.get('sec_per_step')}초 · 남은 시간 약 {prog.get('remain')}"

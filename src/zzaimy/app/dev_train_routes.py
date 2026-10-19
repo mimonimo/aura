@@ -184,7 +184,7 @@ def dev_train_run(request: Request, run: str = ""):
     cur = tm.load(run or (rs[0]["name"] if rs else ""))
     charts, checks, updated = [], [], ""
     if cur:
-        checks = tm.judge(cur)
+        checks = tm.judge(cur, all_runs=rs)
         updated = _t.strftime("%m-%d %H:%M", _t.localtime(cur["mtime"]))
         loss = cur["loss"]
         charts = [
