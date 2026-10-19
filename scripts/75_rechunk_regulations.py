@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 DB = Path("data/platform/platform.db")
-BACKUP_DIR = Path("data/platform/backup")
+BACKUP_DIR = Path("data/platform/backups")
 
 
 def _source_text(row: dict, old_chunks: list[dict]) -> tuple[str, str]:

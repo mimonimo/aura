@@ -52,7 +52,7 @@ def main() -> int:
     if not args.apply:
         print("미리보기입니다. 적용하려면 --apply")
         return 0
-    backup = base / "backup" / f"platform-{datetime.now():%Y%m%d-%H%M%S}-before138.db"
+    backup = base / "backups" / f"platform-{datetime.now():%Y%m%d-%H%M%S}-before138.db"
     backup.parent.mkdir(exist_ok=True)
     shutil.copy2(args.db, backup)
     print("백업:", backup)

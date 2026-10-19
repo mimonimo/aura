@@ -9,7 +9,7 @@
 
 정답은 조각 id가 아니라 본문으로 잇는다. 조각을 재분할하면 id가 전부 바뀌므로 질의 세트에
 정답 본문(gold_text)을 같이 두고, 측정 때 현재 조각 중 본문이 가장 많이 겹치는 조각(들)로
-다시 맞춘다. 본문이 없는 옛 세트는 재분할 전 스냅샷(data/platform/backup/
+다시 맞춘다. 본문이 없는 옛 세트는 재분할 전 스냅샷(data/platform/backups/
 regulation_chunks-*.json.gz)이나 현재 DB에서 채운다(--backfill-gold).
 
 합성 질의 자가 검색이라 절대치는 낙관적이다 — 방식 간 비교·회귀 감지용.
@@ -39,7 +39,7 @@ QUERIES_PATH = Path("data/interim/synth_queries.jsonl")
 from zzaimy.app import paths as _paths
 
 EVAL_DIR = _paths.eval_dir()
-BACKUP_DIR = Path("data/platform/backup")
+BACKUP_DIR = Path("data/platform/backups")
 # 사람이 읽는 사본. 기본은 산출물 폴더에 둔다 — 평가는 임베딩·색인이 있는 운영 VM 에서 돌리는데
 # 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다.
 # 저장소에 남길 판이면 --report 로 명시한다(맥에서 커밋할 때).
@@ -808,7 +808,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=None, help="산출물 폴더 (기본: DB 옆 eval/)")
     ap.add_argument("--snapshot", default=None,
                     help="재분할 전 조각 스냅샷(.json.gz) — gold_text 없는 옛 세트용. "
-                         "미지정 시 data/platform/backup/ 최신본")
+                         "미지정 시 data/platform/backups/ 최신본")
     ap.add_argument("--limit", type=int, default=None,
                     help="질의 N건만(고정 시드 표본) — 연기 시험")
     ap.add_argument("--no-rerank", action="store_true", help="운영 구성(리랭커) 행 생략")

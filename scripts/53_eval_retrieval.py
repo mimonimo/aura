@@ -7,7 +7,7 @@
   정답 본문 채우기 — 조각 재분할 전에 1회. 이미 재분할됐으면 --snapshot으로 옛 조각 스냅샷을 준다:
     env PYTHONPATH=src .venv/bin/python scripts/53_eval_retrieval.py --backfill-gold
     env PYTHONPATH=src .venv/bin/python scripts/53_eval_retrieval.py --backfill-gold \\
-        --snapshot data/platform/backup/regulation_chunks-<stamp>.json.gz
+        --snapshot data/platform/backups/regulation_chunks-<stamp>.json.gz
   측정 (대시보드 "재측정" 버튼과 같은 명령):
     env PYTHONPATH=src nohup .venv/bin/python scripts/53_eval_retrieval.py > /tmp/eval.log 2>&1 &
   옵션: --no-rerank (운영 구성 행 생략) · --limit N (질의 표본) · --rerank-sample N (기본 300)

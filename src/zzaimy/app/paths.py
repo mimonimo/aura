@@ -140,11 +140,11 @@ LAYOUT = {
     "knowledge/exports": "2층 지식 — 외부 이용 묶음",
     "knowledge/corpus_pilot": "2층 지식 — 옛 국고 파일럿(참고)",
     "cache": "재생성 가능한 캐시",
-    "backup": "DB·조각·색인 백업",
+    "backups": "백업 한 곳 — 조각·색인 스냅샷과 일괄 정리·소급의 되돌리기 기록(옛 backup/ 를 10-19 합침)",
 }
 
 
 def ensure_layout(base: Path | None = None) -> None:
     for rel in ("documents", "knowledge/index", "knowledge/eval", "knowledge/exports", "cache/lines",
-                "cache/pagecache", "cache/restored", "backup"):
+                "cache/pagecache", "cache/restored", "backups"):
         (platform_dir(base) / rel).mkdir(parents=True, exist_ok=True)
