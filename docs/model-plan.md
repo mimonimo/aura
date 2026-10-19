@@ -6,7 +6,7 @@
 ## 0. 범위
 
 - 모델 4종을 모두 수행한다(capstone-plan §2).
-- 생성 모델의 학습 절차는 SFT → DPO이고, 선호 학습에는 담당자의 판정·재작성 이력을 쓴다.
+- 생성 모델의 학습 절차는 SFT 다. 선호 학습(DPO)은 10-20 범위에서 뺐다 — 선호쌍(수백 쌍)을 모을 실사용 기간이 없고, SFT 전후 비교로 판단한다. 재작성 이력은 계속 쌓는다.
 - 베이스 모델은 모두 Apache 2.0·MIT 라이선스라 `ZZAIMY-*` 이름을 붙일 수 있다. Writer 베이스는 Qwen3.8-27B로 정했다.
 - 생성 모델 파인튜닝은 컨텍스트 구성 추론으로 좁혔다(ADR-0047). SFT 데이터는 규정·발전계획 묶음과 사업 구조·검색 활용
   묶음으로 나눈다(ADR-0052). 사실과 수치는 검색으로 공급한다.
@@ -71,7 +71,7 @@ R@1이 0.649에서 0.711로 올랐다. 서빙은 토르 03 GPU에서 질의당 0
  → (입력, 출력 = 실제 제출 절 원문) 쌍 + 사업 단위 홀드아웃 분리
 ```
 
-학습은 DGX에서 bf16 LoRA SFT → DPO로 하고 LLaMA-Factory를 쓴다. QLoRA 4bit는 bitsandbytes의 aarch64·CUDA 13 지원을
+학습은 DGX에서 bf16 LoRA SFT로 하고 TRL·PEFT 학습 스크립트를 쓴다(LLaMA-Factory 는 10-18 걷어냄). QLoRA 4bit는 bitsandbytes의 aarch64·CUDA 13 지원을
 확인한 뒤 고를 수 있는 대안이다. 학습본은 bf16 병합 → NVFP4 양자화를 거쳐 `scripts/116_ship_and_serve.sh writer`로
 두 토르에 올린다(ADR-0023).
 
@@ -113,7 +113,7 @@ dense 27B를 고른 이유: LoRA 어댑터, DPO, vLLM LoRA 서빙이 dense 모�
 | W3~W5 | 검색 베이스라인 측정 → Embed·Rerank 학습 | 검색은 베이스라인이 먼저 있어 앞당김 | Embed v2·Rerank v1 채택 |
 | W6~W8 | Writer·Extract 베이스라인 측정(베이스 모델 그대로) | 베이스라인 보고서 확정 | 실문서 문답 검수·평가셋 준비 중 |
 | W9~W10 | 역구성 배치와 정제, Extract 교사 추출·검수 | | |
-| W11~W12 | Writer LoRA v0.1 → 사람 평가 → v0.2 → DPO, Extract SFT·처리량 측정 | | |
+| W11~W12 | Writer LoRA v0.1 → 사람 평가 → v0.2, Extract SFT·처리량 측정 | | |
 | W12 | 모델 카드 4종과 평가 보고서 확정 | | 카드 2종 작성 |
 
 GPU 시간: 검색 모델은 토르 03에서 2에폭 20~21분으로 측정했다(모델 카드). Writer 회당 24~72시간, Extract 회당
