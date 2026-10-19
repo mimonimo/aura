@@ -4,7 +4,7 @@
 왜: 폴더 단위 「사업 아님」 판정(class_review.jsonl)은 그 폴더에 섞인 사업 문서(「2020 P-TECH사업 결과보고서」)까지
 기관 일반 업무로 보내고, 파일 이름 뽑기는 「3차년도 지방보조사업」「수익 비수익 사업」 같은 일반어를 사업 묶음으로 세운다.
 코드가 낱말로 사업을 정하지 않는다 — 코드는 다시 볼 후보를 고르고(장부 이름이 제목·본문에 나오는 「사업 아님」 원본,
-사업 이름이 아닌 묶음에 든 원본), 27B 가 제목·폴더·본문 첫머리와 외부 확인 장부(kg_external.json)의 사업 목록을 보고 정한다.
+사업 이름이 아닌 묶음에 든 원본, 폴더째 한 사업으로 잡혔는데 파일 제목에는 다른 장부 사업 이름만 나오는 원본), 27B 가 제목·폴더·본문 첫머리와 외부 확인 장부(kg_external.json)의 사업 목록을 보고 정한다.
 
 판정은 같은 검토 장부에 파일 단위 줄(「file」)로 덧붙인다 — 원본 장부 맞추기(170)와 그래프(157)가 폴더 판정보다 먼저 쓴다
 (graph.programs.apply_reviews). 답이 장부에 없는 이름이거나 「모름」·확신 낮음이면 적지 않는다. 줄마다 판정 모델을 남긴다.
@@ -87,6 +87,15 @@ def candidates(db, lg: pt.Ledger, entries: list[dict], done: set[str]) -> list[d
         elif r.get("program") and not_name(r.get("program_name") or "", lg):
             why = "not_name"
             hint = mentioned(title, entries) or mentioned(head, entries)
+        elif r.get("program"):
+            # 폴더째 한 사업으로 잡혔는데 파일 제목에는 다른 장부 사업 이름만 나오는 원본 — 폴더 판정이 섞인 폴더를 덮은 경우(10-19:
+            # 「대학통합컨설팅 실무지원자료」 폴더의 맞춤형인력양성사업 계획서들이 LINC 로). 제목만 본다 — 본문에 지나가듯 나온 이름은 후보로 삼지 않는다
+            cur = lg.find(r.get("program_name") or "")
+            hint = mentioned(title, entries)
+            if not hint or cur is None or cur.get("name") in hint:
+                continue
+            why = "mismatch"
+            r = {**r, "cur": cur.get("name")}
         else:
             continue
         out.append({**r, "why": why, "title": title, "head": head, "hint": hint[:6]})
@@ -170,7 +179,7 @@ def main() -> int:
                 tally["버림"] += 1
                 print(f"[{i}] 버림({(got or {}).get('label')}·{conf}) {c['title'][:60]}", flush=True)
                 return
-            same = (label == NOT_PROGRAM and c["why"] == "nonprogram")
+            same = (label == NOT_PROGRAM and c["why"] == "nonprogram") or (c["why"] == "mismatch" and label == c.get("cur"))
             tally["그대로" if same else "바뀜"] += 1
             print(f"[{i}] {'그대로' if same else '→ ' + label} ({conf}) {c['title'][:60]} — {str(got.get('reason') or '')[:60]}", flush=True)
             if args.dry:
