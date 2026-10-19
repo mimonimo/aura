@@ -228,12 +228,13 @@ def compose_system(profile: dict, audience: str = "staff") -> str:
 class AgentResponder:
     @staticmethod
     def _stream(client, messages, limit, cuts, on_fitted, on_partial, gen: dict | None = None,
-                usage_out: list | None = None) -> tuple[str, str]:
+                usage_out: list | None = None, timing: dict | None = None) -> tuple[str, str]:
         """조각 응답으로 답 생성 — (글, 끝난 까닭). 0.4초마다 지금까지 쓴 글을 on_partial 로 넘긴다.
         gen: 생성 추가 인자(answer_gen_options) — 없으면 client._extra. 생각 글(delta.reasoning_content)은 답에 넣지 않는다.
-        usage_out: 주면 마지막 사용량(usage)을 덧붙인다(측정용)."""
+        usage_out: 주면 마지막 사용량(usage)을 덧붙인다(측정용). timing: 주면 첫 글자까지 걸린 초(first_token_sec)를 적는다."""
         import time as _time
 
+        t_start = _time.monotonic()
         from zzaimy.generate import model_config
 
         gen = gen if gen is not None else {"extra_body": getattr(client, "_extra", {})}
@@ -247,6 +248,8 @@ class AgentResponder:
             for ch in getattr(chunk, "choices", None) or []:
                 piece = getattr(getattr(ch, "delta", None), "content", None)
                 if piece:
+                    if not parts and timing is not None:
+                        timing["first_token_sec"] = round(_time.monotonic() - t_start, 2)   # 담당자가 첫 글자를 보기까지(읽기 + 첫 토큰)
                     parts.append(piece)
                 if getattr(ch, "finish_reason", None):
                     finish = ch.finish_reason
@@ -464,7 +467,8 @@ class AgentResponder:
         if on_partial is not None:
             # 쓰는 대로 화면에 — 답 생성(초당 10토큰 안팎)이 끝날 때까지 기다리지 않게. 조각 응답을 못 하는 서버면 아래 한 번에 받기로
             try:
-                text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages)
+                text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages,
+                                            timing=self.last_timing)
             except Exception:
                 text, finish = "", ""
         if not text:
@@ -486,7 +490,10 @@ class AgentResponder:
                 text = text.rstrip() + "\n" + (more.choices[0].message.content or "").lstrip()
             except Exception:
                 pass
+        _t_han = _time.time()
         out = strip_emoji(fix_foreign_han(text.strip(), user_content, client))
+        if _time.time() - _t_han > 0.05:
+            self.last_timing["han_fix_sec"] = round(_time.time() - _t_han, 2)   # 중국어 낱말 고치기 호출이 돈 경우만
         try:
             from zzaimy.generate import model_info as _mi
             self.last_model = _mi.stamp(client)              # 답 실행 기록(answer_runs)에 — 어느 모델이 썼나
@@ -502,5 +509,8 @@ class AgentResponder:
         toks = [getattr(u, "completion_tokens", None) for u in usages if u is not None]
         if any(isinstance(t, int) for t in toks):
             self.last_timing["completion_tokens"] = sum(t for t in toks if isinstance(t, int))
+        ptoks = [getattr(u, "prompt_tokens", None) for u in usages if u is not None]
+        if any(isinstance(t, int) for t in ptoks):
+            self.last_timing["prompt_tokens"] = sum(t for t in ptoks if isinstance(t, int))   # 근거가 길면 읽기(prefill)가 첫 글자를 늦춘다
         self.last_timing["total_sec"] = round(_time.time() - _t0, 2)
         return out
