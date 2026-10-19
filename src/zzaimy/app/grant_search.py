@@ -805,6 +805,33 @@ def build_increment(db, batch: int = 128, limit: int = 20000) -> dict:
         lockf.close()
 
 
+def _renamed_chunks(db, live: set[int]) -> set[int]:
+    """임베딩한 글은 「문서 이름 + 본문」이다 — 이름이 바뀐 문서의 조각은 옛 이름으로 임베딩돼 있으니 다시 계산할 대상으로 낸다.
+    문서마다 임베딩 때의 이름을 옆 파일(grant_embeddings.names.json)에 두고 지금 이름과 견준다. 처음에는 지금 이름을 적기만 한다."""
+    names_f = INDEX.with_suffix(".names.json")
+    try:
+        old = {int(k): v for k, v in json.loads(names_f.read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError):
+        old = None
+    with db._conn() as conn:
+        now = {int(r[0]): r[1] or "" for r in conn.execute(
+            "SELECT id, filename FROM documents WHERE doc_type IN ('grant', 'auto') AND status = 'reviewed'").fetchall()}
+        changed = {d for d, n in now.items() if old is not None and d in old and old[d] != n}
+        hit = set()
+        if changed:
+            ids = sorted(changed)
+            for i in range(0, len(ids), 1000):
+                part = ids[i:i + 1000]
+                hit |= {int(r[0]) for r in conn.execute(
+                    f"SELECT id FROM doc_chunks WHERE doc_id IN ({','.join('?' * len(part))})", part).fetchall()}
+    if old != now:
+        INDEX.parent.mkdir(parents=True, exist_ok=True)
+        tmp = names_f.with_suffix(".tmp")
+        tmp.write_text(json.dumps(now, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(names_f)
+    return hit & live
+
+
 def _build_increment_pg(db, batch: int, limit: int) -> dict:
     """pgvector 표(grant_vec)만 보고 색인을 따라잡는다(ADR-0057) — 표에 없는 살아 있는 조각을 임베딩해 넣고, 사라진 조각은 뺀다.
     배열 파일(npz)은 쓰지 않는다. 화면·점검이 읽는 메타(grant_embeddings.json)는 그대로 적는다."""
@@ -813,8 +840,10 @@ def _build_increment_pg(db, batch: int, limit: int) -> dict:
             "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
             " WHERE d.doc_type IN ('grant', 'auto') AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
         have = {int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_vec").fetchall()}
+    renamed = _renamed_chunks(db, live) & have           # 이름이 바뀐 문서의 조각 — 빼고 새 이름으로 다시 넣는다
+    have -= renamed
     todo = sorted(live - have)
-    gone = sorted(have - live)
+    gone = sorted((have | renamed) - live) + sorted(renamed)
     removed = pg_drop(db, gone)
     added = failed = 0
     new = _fetch(db, todo[:limit])
@@ -828,9 +857,10 @@ def _build_increment_pg(db, batch: int, limit: int) -> dict:
                 raise RuntimeError("임베딩 서비스 없음")
             continue
         added += pg_put(db, [(c["id"], c["doc_id"], x) for c, x in keep])
-    total = len(have) - removed + added
+    total = len(have) + len(renamed) - removed + added       # have 에서 이미 뺀 이름 바뀜 조각은 removed 에도 들어 있다
     INDEX.parent.mkdir(parents=True, exist_ok=True)
-    INDEX.with_suffix(".json").write_text(json.dumps({"n_chunks": total, "added": added, "removed": removed, "backend": "pgvector"},
+    INDEX.with_suffix(".json").write_text(json.dumps({"n_chunks": total, "added": added, "removed": removed, "renamed": len(renamed),
+                                                      "backend": "pgvector"},
                                                      ensure_ascii=False), encoding="utf-8")
     return {"added": added, "removed": removed, "total": total, "pending": max(0, len(todo) - limit)}
 

@@ -15,10 +15,20 @@ _ids = None
 _vecs = None
 _failed = False
 _floor = None
+_mtime = None
 
 
 def _load():
-    global _ids, _vecs, _failed
+    global _ids, _vecs, _failed, _floor, _mtime
+    # 색인 파일이 바뀌거나 새로 생기면 재시작 없이 다시 읽는다(없음은 -1)
+    try:
+        now = _CORPUS_NPZ.stat().st_mtime
+    except OSError:
+        now = -1.0
+    if _mtime is not None and now != _mtime:
+        _ids = _vecs = _floor = None
+        _failed = False
+    _mtime = now
     if _failed:
         return False
     if _vecs is not None:

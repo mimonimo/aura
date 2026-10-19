@@ -256,3 +256,22 @@ def test_section_axis_respects_access(tmp_path, monkeypatch):
     monkeypatch.setattr(grant_lex, "rank", lambda *a, **kw: [])
     got = gs.search(db, "계획서의 「행사 개요」 내용", k=5, user="zzaimy")
     assert sec not in {h["doc_id"] for h in got["hits"]} and pub in {h["doc_id"] for h in got["hits"]}
+
+
+def test_renamed_document_chunks_are_reembedded(tmp_path, monkeypatch):
+    """임베딩 글은 「문서 이름 + 본문」 — 이름이 바뀐 문서의 조각은 다시 계산할 대상으로 나온다(처음에는 이름만 적는다)."""
+    from zzaimy.app import grant_search as gs
+    from zzaimy.app.db import Database
+    monkeypatch.setattr(gs, "INDEX", tmp_path / "grant_embeddings.npz")
+    db = Database(tmp_path / "t.db")
+    did = db.add_document("옛 이름.pdf", "x", doc_type="grant")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET status = 'reviewed' WHERE id = ?", (did,))
+        conn.execute("INSERT INTO doc_chunks (doc_id, seq, content) VALUES (?, 0, '본문')", (did,))
+        cid = conn.execute("SELECT id FROM doc_chunks WHERE doc_id = ?", (did,)).fetchone()[0]
+    assert gs._renamed_chunks(db, {cid}) == set()            # 처음 — 이름만 적는다
+    assert gs._renamed_chunks(db, {cid}) == set()            # 그대로
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET filename = '새 이름.pdf' WHERE id = ?", (did,))
+    assert gs._renamed_chunks(db, {cid}) == {cid}
+    assert gs._renamed_chunks(db, {cid}) == set()            # 새 이름을 적었다

@@ -139,7 +139,7 @@ def test_kind_change_alone_triggers_graph_rebuild(sync_job, monkeypatch):
     with db._conn() as conn:
         conn.execute("UPDATE documents SET status = 'reviewed' WHERE id = ?", (did,))
     calls = []
-    monkeypatch.setattr(job.subprocess, "call", lambda *a, **k: calls.append(a) or 0)
+    monkeypatch.setattr(job.subprocess, "call", lambda *a, **k: ("164" in str(a) and calls.append(a)) or 0)
     monkeypatch.setattr(job, "mark", lambda *a, **k: None, raising=False)
     job.post_if_changed(db)
     assert len(calls) == 1
@@ -159,7 +159,7 @@ def test_program_or_ledger_change_alone_triggers_graph_rebuild(sync_job, monkeyp
     job, db, data, lock = sync_job
     archive.sync(db, [dict(rel="a/plan.pdf", size=1, mtime=1)])
     calls = []
-    monkeypatch.setattr(job.subprocess, "call", lambda *a, **k: calls.append(a) or 0)
+    monkeypatch.setattr(job.subprocess, "call", lambda *a, **k: ("164" in str(a) and calls.append(a)) or 0)
     monkeypatch.setattr(job, "mark", lambda *a, **k: None, raising=False)
     m = data / "kg_marker.json"
 

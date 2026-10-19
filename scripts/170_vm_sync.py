@@ -393,6 +393,8 @@ def post_if_changed(db, dirty: bool = True) -> int:
     if rc == 0:
         mpath.write_text(json.dumps(now), encoding="utf-8")
         mark("graph", f"문서 {now['docs']} · 조각 {now['chunks']}")
+        # 연동 점검(원본 → 문서함 → 색인 → 그래프 빈틈)도 같은 때로 — 화면의 연동 수치가 다음 장부 동기화까지 옛것으로 남지 않게
+        subprocess.call([sys.executable, str(ROOT / "scripts" / "175_pipeline_audit.py")], cwd=ROOT)
     else:
         print(f"그래프·양식 다시 짓기 실패(종료 코드 {rc}) — 다음 회차에 다시", flush=True)
         (Path(db.path).parent / ".kg-dirty").touch()

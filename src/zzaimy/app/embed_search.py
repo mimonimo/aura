@@ -81,6 +81,14 @@ def remote_vectors(texts: list[str], timeout: float | None = None):
     return None
 
 
+
+def _file_mtime(p: Path) -> float:
+    """파일 시각 — 없으면 -1(나중에 생기면 달라져 다시 읽는다)."""
+    try:
+        return p.stat().st_mtime
+    except OSError:
+        return -1.0
+
 class EmbedIndex:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -93,11 +101,9 @@ class EmbedIndex:
         self._mtime: float | None = None
 
     def _stale(self) -> bool:
-        """색인 파일이 읽은 뒤에 바뀌었는가 — 52 가 새로 쓰면 앱을 재시작하지 않고 다음 검색에서 다시 읽는다."""
-        try:
-            return self._mtime is not None and INDEX_PATH.stat().st_mtime != self._mtime
-        except OSError:
-            return False
+        """색인 파일이 읽은(또는 읽기에 실패한) 뒤에 바뀌었는가 — 52 가 새로 쓰면 앱을 재시작하지 않고 다음 검색에서 다시 읽는다.
+        처음에 파일이 없어 실패했어도 나중에 생기면 다시 읽는다(없음은 -1)."""
+        return self._mtime is not None and _file_mtime(INDEX_PATH) != self._mtime
 
     def _load(self) -> bool:
         if self._stale():
@@ -143,6 +149,7 @@ class EmbedIndex:
             except Exception as e:
                 log.warning("임베딩 검색 비활성 (%s: %s) — 키위 검색만 사용", type(e).__name__, e)
                 self._failed = True
+                self._mtime = _file_mtime(INDEX_PATH)      # 파일이 바뀌거나 생기면 다시 시도
                 return False
 
     def _encode(self, texts: list[str]):
@@ -243,8 +250,20 @@ class QuestionIndex:
         self._chunks: object = None
         self._vectors: object = None
         self._failed = False
+        self._mtime: float | None = None
+
+    @staticmethod
+    def _path() -> Path:
+        return (Path(os.environ["ZZAIMY_QUESTION_INDEX"]) if os.environ.get("ZZAIMY_QUESTION_INDEX")
+                else _paths.question_index_npz())
 
     def _load(self) -> bool:
+        # 질문 색인 파일이 바뀌거나 새로 생기면(112) 재시작 없이 다시 읽는다 — 읽은·실패한 때의 파일 시각과 견준다
+        if self._mtime is not None and _file_mtime(self._path()) != self._mtime:
+            with self._lock:
+                self._chunks = self._vectors = None
+                self._failed = False
+                self._mtime = None
         if self._failed:
             return False
         if self._vectors is not None:
@@ -252,11 +271,11 @@ class QuestionIndex:
         with self._lock:
             if self._vectors is not None:
                 return True
+            path = self._path()
+            self._mtime = _file_mtime(path)
             try:
                 import numpy as np
 
-                path = (Path(os.environ["ZZAIMY_QUESTION_INDEX"]) if os.environ.get("ZZAIMY_QUESTION_INDEX")
-                        else _paths.question_index_npz())
                 if not path.exists():
                     raise FileNotFoundError(path)
                 data = np.load(path)
