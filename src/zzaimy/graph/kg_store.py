@@ -25,6 +25,28 @@ _SCHEMA = (
 _READY: set[str] = set()
 
 
+def _stamp(db):
+    from pathlib import Path
+    return Path(getattr(db, "path", "")).parent / "kg_built.stamp"
+
+
+def mark_built(db) -> None:
+    """그래프를 다 썼다는 표시 — 157 이 쓰기를 마칠 때 남긴다. 앱 안 캐시가 이 시각으로 재구축을 알아챈다."""
+    try:
+        _stamp(db).touch()
+    except OSError:
+        pass
+
+
+def version(db) -> float:
+    """그래프를 마지막으로 다시 쓴 시각 — 앱 안 캐시(사업 목록·문서 집합·구조도·관계 수)의 열쇠.
+    다른 프로세스(157)가 다시 지어도 캐시가 시간 만료를 기다리지 않고 바로 새 그래프를 읽는다."""
+    try:
+        return _stamp(db).stat().st_mtime
+    except (OSError, TypeError, ValueError):
+        return 0.0
+
+
 def ensure(db) -> None:
     """표·색인이 없을 때만 만든다(프로세스마다 한 번 확인).
 

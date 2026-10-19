@@ -57,6 +57,14 @@ def _public_evidence(kind: str, src: str) -> bool:
 _cache: dict = {}
 
 
+def _fresh(db) -> None:
+    """그래프가 다시 지어졌으면 캐시를 비운다(시간 만료는 안전장치)."""
+    v = kg_store.version(db)
+    if _cache.get("_ver") != v:
+        _cache.clear()
+        _cache["_ver"] = v
+
+
 def _kind_ko() -> dict:
     from zzaimy.app.doc_routing import KINDS
     return {**KINDS, "report": "실적보고서", "evaluation": "평가 결과", "criteria": "평가 기준"}
@@ -303,6 +311,7 @@ def program_doc_sets(db, scope: dict | None = None) -> dict[str, set[int]]:
 
     정의: 그래프가 그 사업(바로 아래 + 연차 아래, 묶음은 묶인 사업들의 합집합)으로 분류한 문서 가운데 문서함에 지금 있고
     보는 사람이 열람할 수 있는 등록 문서. 원본 파일 수·조각 수가 아니다. 보는 사람 범위마다 5분 캐시."""
+    _fresh(db)
     key = ("docsets", str(getattr(db, "path", id(db)))) + _scope_key(scope)
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < 300:
@@ -378,6 +387,7 @@ def programs(db, scope: dict | None = None) -> list[dict]:
 
 def schema(db) -> dict:
     """온톨로지 구조도 — 노드 종류별 수와 (종류 → 종류, 관계, 기준)별 관계 수. 그래프 재구축 주기보다 짧게 10분 캐시."""
+    _fresh(db)
     hit = _cache.get("schema")
     if hit and time.time() - hit[0] < 600:
         return hit[1]

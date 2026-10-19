@@ -334,18 +334,15 @@ def _prune_outscope(db) -> None:
         print("범위 밖 정리 실패:", type(e).__name__, str(e)[:120], flush=True)
 
 
-def _graph_input_sig(conn) -> str:
-    """그래프가 읽는 문서 칸(이름·프로젝트·갈래)의 지문 — 수가 같아도 갈래만 바뀐 경우(27B 갈래 반영·담당자 수정)를 잡는다."""
-    import hashlib
-    h = hashlib.sha1()
-    for r in conn.execute("SELECT id, filename, project_id, kind FROM documents WHERE status = 'reviewed' ORDER BY id"):
-        h.update("\x1f".join(str(x or "") for x in r).encode("utf-8"))
-        h.update(b"\x1e")
-    return h.hexdigest()[:16]
+def graph_inputs(conn) -> dict:
+    """그래프 입력 지문 — 목록은 graph/inputs.py 한 곳(157 이 읽는 것 전부)."""
+    from zzaimy.graph import inputs
+    return inputs.fingerprint(conn, ROOT / "data" / "platform")
 
 
-def post_if_changed(db) -> int:
-    """문서함이 바뀌었으면(어느 길로 들어왔든 — DGX 동기화·문서함 업로드·채팅 첨부) 그래프·양식·색인을 다시 짓는다.
+def post_if_changed(db, dirty: bool = True) -> int:
+    """그래프 입력(graph_inputs)이 지난번 지은 때와 다르면 그래프·양식·색인을 다시 짓는다 — 1분마다 지문만 비교한다.
+    dirty 는 「따로 남은 일이 있다」(업로드 원본·밀린 색인) — 지문이 같아도 색인 증분은 돈다.
 
     후속 잠금(/tmp/zz_post.lock)은 반입 잠금과 따로다 — 몇 시간 걸리는 반입 중에도 1분 주기가 그래프·색인을 따라 맞춘다."""
     import fcntl
@@ -355,14 +352,14 @@ def post_if_changed(db) -> int:
     except OSError:
         (Path(db.path).parent / ".kg-dirty").touch()     # 다른 후속 처리가 돌고 있다 — 다음 회차에
         return 0
-    _prune_outscope(db)
     with db._conn() as conn:
-        n, hi = conn.execute("SELECT COUNT(*), MAX(id) FROM documents WHERE status = 'reviewed'").fetchone()
-        nc = conn.execute("SELECT COUNT(*) FROM doc_chunks").fetchone()[0]
-        sig = _graph_input_sig(conn)
-    now = {"docs": int(n or 0), "max_id": int(hi or 0), "chunks": int(nc or 0), "sig": sig}
+        now = graph_inputs(conn)
     mpath = ROOT / "data" / "platform" / "kg_marker.json"
     old = json.loads(mpath.read_text(encoding="utf-8")) if mpath.is_file() else {}
+    same = {k: v for k, v in old.items() if k != "at"} == now
+    if same and not dirty:
+        return 0
+    _prune_outscope(db)
     # 사업 문서 색인은 매번(새 조각만) — 색인 전용 주기(--index)가 돌고 있으면 그쪽에 맡긴다(npz 를 둘이 동시에 쓰지 않게)
     try:
         from zzaimy.app import grant_search
@@ -382,13 +379,10 @@ def post_if_changed(db) -> int:
     except Exception as e:
         print("사업 문서 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
         (Path(db.path).parent / ".kg-dirty").touch()     # 임베딩 서비스가 돌아오면 다음 회차에 다시
-    if {k: v for k, v in old.items() if k != "at"} == now:
+    if same:
         return 0
-    # 그래프 전체 재구축은 15분에 한 번까지 — 1분마다 다시 지으면 쉬지 않고 돈다. 그 사이 바뀐 것은 다음 회차에 모아서
-    # 갈래만 바뀐 것(27B 갈래 반영이 5분마다 조금씩)은 한 시간에 한 번까지 — 문서가 들고 난 것은 15분
-    only_sig = all(old.get(k) == now[k] for k in ("docs", "max_id", "chunks"))
-    if time.time() - float(old.get("at", 0)) < (60 if only_sig else 15) * 60:
-        (Path(db.path).parent / ".kg-dirty").touch()
+    # 그래프 전체 재구축은 15분에 한 번까지 — 1분마다 다시 지으면 쉬지 않고 돈다. 그 사이 바뀐 것은 지문이 계속 다르니 다음 회차가 모아서
+    if time.time() - float(old.get("at", 0)) < 15 * 60:
         return 0
     now["at"] = time.time()
     print(f"문서함 바뀜 {old} → {now} — 그래프·양식 다시 짓기", flush=True)
@@ -425,7 +419,7 @@ def main() -> int:
     if args.quick:
         dirty = Path(db.path).parent / ".kg-dirty"
         if not dirty.exists():
-            return 0
+            return post_if_changed(db, dirty=False)        # 남은 일 없음 — 그래프 입력 지문만 본다
         dirty.unlink()
         origins = {}
         led = ROOT / "data" / "platform" / "origins.jsonl"

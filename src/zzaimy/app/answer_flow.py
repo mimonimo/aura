@@ -23,7 +23,8 @@ _cache: dict = {"at": 0.0, "edges": None}
 
 
 def _edge_counts(db) -> dict[str, int]:
-    if _cache["edges"] is not None and time.time() - _cache["at"] < 600:
+    from zzaimy.graph import kg_store
+    if _cache["edges"] is not None and time.time() - _cache["at"] < 600 and _cache.get("ver") == kg_store.version(db):
         return _cache["edges"]
     out: dict[str, int] = {}
     try:
@@ -33,7 +34,7 @@ def _edge_counts(db) -> dict[str, int]:
                 out[kind] = int(conn.execute(sql, (kind,)).fetchone()[0])
     except Exception:
         out = {}
-    _cache.update(at=time.time(), edges=out)
+    _cache.update(at=time.time(), edges=out, ver=kg_store.version(db))
     return out
 
 

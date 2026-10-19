@@ -1143,7 +1143,10 @@ def create_app(
     def _program_groups() -> tuple[dict, dict]:
         """그래프의 사업 이름 묶음 — (사업 id → 대표 id, 대표 id → 묶인 id 들). 10분 재사용, 그래프가 없으면 빈 묶음."""
         import time as _t
-        if _t.time() - _pg_cache["at"] > 600:
+        from zzaimy.graph import kg_store as _ks
+        _ver = _ks.version(db)
+        if _t.time() - _pg_cache["at"] > 600 or _pg_cache.get("ver") != _ver:
+            _pg_cache["ver"] = _ver
             try:
                 from zzaimy.app.kg_explore import programs as _progs
                 rows = [p for p in _progs(db, None) if p["type"] == "program"]
@@ -1184,7 +1187,10 @@ def create_app(
     def _program_options() -> list[dict]:
         """사업 고르기 목록 — 사업 목록 나무(program_tree)의 정식 이름, 대분류로 묶음(10분 재사용)."""
         import time as _t
-        if _t.time() - _popt_cache["at"] > 600:
+        from zzaimy.graph import kg_store as _ks
+        _ver = _ks.version(db)
+        if _t.time() - _popt_cache["at"] > 600 or _popt_cache.get("ver") != _ver:
+            _popt_cache["ver"] = _ver
             try:
                 from zzaimy.app import program_tree as _pt
                 from zzaimy.app.kg_explore import programs as _progs
@@ -3994,12 +4000,18 @@ def create_app(
         import threading as _th_rx
 
         def _auto_reindex_loop():
-            flag = Path(db_path).parent / ".reindex-needed"
+            from zzaimy.app import reindex_state
+            seen_at: dict = {}
             while True:
                 time.sleep(300)
                 try:
-                    if flag.exists() and time.time() - flag.stat().st_mtime > 180 and not app.state.overview.reindex_running():
-                        logging.getLogger(__name__).info("재색인 표시가 남아 있어 자동으로 다시 만든다")
+                    # 규정 조각 지문이 색인과 다르면 다시 만든다 — 연달아 바뀌는 중이면 한 차례(5분) 더 기다려 모아서
+                    if not reindex_state.needed(db):
+                        seen_at.clear()
+                        continue
+                    first = seen_at.setdefault("at", time.time())
+                    if time.time() - first >= 180 and not app.state.overview.reindex_running():
+                        logging.getLogger(__name__).info("규정 조각이 색인과 달라 자동으로 다시 만든다")
                         app.state.overview.start_reindex()
                 except Exception as e:
                     logging.getLogger(__name__).warning("자동 재색인 시작 실패: %s", e)

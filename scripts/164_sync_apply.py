@@ -91,10 +91,12 @@ def main() -> int:
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     with db._conn() as c:
         lo, hi = c.execute("select min(id), max(id) from documents where id >= 557").fetchone()
-    sh([PY, "scripts/157_build_kg.py", "--docs", f"{lo}-{hi}", "--apply", "--full"])
+    # 그래프(157)·온톨로지 검사(177)가 실패하면 0 이 아닌 값으로 끝낸다 — 성공으로 적히면 입력 지문이 같아져 다시 짓지 않는다.
+    # 양식(162·172)·드라이브 올리기(198)는 곁가지라 실패해도 그래프 재구축을 되풀이시키지 않는다(기록만)
+    rc = sh([PY, "scripts/157_build_kg.py", "--docs", f"{lo}-{hi}", "--apply", "--full"])
     sh([PY, "scripts/162_business_template.py"])
     sh([PY, "scripts/172_common_templates.py"])          # 문서 갈래별 공통 양식(사업 공통) — 드라이브 「ZZAIMY/공통 양식」
-    sh([PY, "scripts/177_ontology_export.py"])           # 온톨로지 내보내기·SHACL 검사 — 내려받기·미분류 경고가 그래프와 같은 때를 본다
+    rc = rc or sh([PY, "scripts/177_ontology_export.py"])  # 온톨로지 내보내기·SHACL 검사 — 내려받기·미분류 경고가 그래프와 같은 때를 본다
     from zzaimy.ingest import md_docx
     tpl = ROOT / "data" / "generated" / "templates"
     for f in sorted([*tpl.glob("*.md"), *(tpl / "common").glob("*.md")]):
@@ -104,6 +106,9 @@ def main() -> int:
     sh([PY, "scripts/198_forms_to_drive.py"])             # 바뀐 양식만 드라이브 「ZZAIMY/공통 양식」에(계정 설정이 있을 때)
     if man.is_file() and not post_only:
         man.rename(man.with_suffix(".done.json"))
+    if rc:
+        print(f"그래프·온톨로지 다시 짓기 실패(종료 코드 {rc})", flush=True)
+        return rc
     print("SYNC_DONE", env_conn and "(분석 서버 지정)", flush=True)
     return 0
 

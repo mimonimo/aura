@@ -151,3 +151,30 @@ def test_kind_change_alone_triggers_graph_rebuild(sync_job, monkeypatch):
     db.set_document_kind(did, "agreement")
     job.post_if_changed(db)
     assert len(calls) == 2
+
+
+def test_program_or_ledger_change_alone_triggers_graph_rebuild(sync_job, monkeypatch):
+    """문서가 그대로여도 원본의 사업 분류나 사업 장부가 바뀌면 다음 1분 주기가 스스로 다시 짓는다 — 바꾼 쪽이 알릴 필요 없다."""
+    import json
+    job, db, data, lock = sync_job
+    archive.sync(db, [dict(rel="a/plan.pdf", size=1, mtime=1)])
+    calls = []
+    monkeypatch.setattr(job.subprocess, "call", lambda *a, **k: calls.append(a) or 0)
+    monkeypatch.setattr(job, "mark", lambda *a, **k: None, raising=False)
+    m = data / "kg_marker.json"
+
+    def unthrottle():
+        m.write_text(json.dumps({**json.loads(m.read_text(encoding="utf-8")), "at": 0}), encoding="utf-8")
+
+    job.post_if_changed(db, dirty=False)
+    assert len(calls) == 1
+    assert job.post_if_changed(db, dirty=False) == 0 and len(calls) == 1
+    unthrottle()
+    with db._conn() as conn:
+        conn.execute("UPDATE archive_files SET program = 'program:x' WHERE rel = 'a/plan.pdf'")
+    job.post_if_changed(db, dirty=False)
+    assert len(calls) == 2
+    unthrottle()
+    (data / "kg_external.json").write_text('{"programs": {}}', encoding="utf-8")
+    job.post_if_changed(db, dirty=False)
+    assert len(calls) == 3

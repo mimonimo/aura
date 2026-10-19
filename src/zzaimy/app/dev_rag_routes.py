@@ -93,7 +93,8 @@ def dev_rag_regs(request: Request, q: str = ""):
     from zzaimy.app import regulation_register
     st = request.app.state
     got = regulation_register.candidates(st.db, q)
-    return {**got, "reindex_needed": (st.data_dir / ".reindex-needed").exists(), "reindex_running": st.reindex_running()}
+    from zzaimy.app import reindex_state
+    return {**got, "reindex_needed": reindex_state.needed(st.db), "reindex_running": st.reindex_running()}
 
 async def _ids_from(request: Request) -> list[int]:
     body = await request.json()

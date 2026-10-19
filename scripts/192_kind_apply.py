@@ -6,7 +6,7 @@
 - 바꾸기 전 갈래를 백업 파일(data/platform/backups/kind27b-YYYYMMDD.jsonl)에 덧붙인다 — --restore 로 되돌린다.
 - 검색에서 빠지는 갈래(doc_routing.excluded_kinds — 기본 증빙)는 본문이 얇은(kind_read.THIN 자 미만) 문서에서 규칙과 엇갈리면 적용하지 않는다.
   제목만 보고 내린 판정으로 문서를 정리함에 옮기지 않기 위해서다(본문 길이를 모르는 옛 판정은 그대로 적용).
-- 같은 판정은 다시 적용해도 그대로다(이미 같으면 건너뜀). 바뀐 문서가 있으면 그래프를 다시 짓게 .kg-dirty 를 남긴다.
+- 같은 판정은 다시 적용해도 그대로다(이미 같으면 건너뜀). 그래프는 1분 주기가 갈래 지문으로 알아서 다시 짓는다.
 사용(VM): env PYTHONPATH=src .venv/bin/python scripts/192_kind_apply.py data/inbox/parsed/kind27b-0.jsonl [--apply]
           env PYTHONPATH=src .venv/bin/python scripts/192_kind_apply.py --restore data/platform/backups/kind27b-20261014.jsonl
 """
@@ -95,7 +95,6 @@ def main() -> int:
         for did, old, new in changes:
             fo.write(json.dumps({"id": did, "old": old, "new": new, "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
             conn.execute("UPDATE documents SET kind = ? WHERE id = ?", (new or None, did))
-    (Path(db.path).parent / ".kg-dirty").touch()
     print(f"  적용 {len(changes)}건 · 되돌리기: scripts/192_kind_apply.py --restore {bak}", flush=True)
     return 0
 

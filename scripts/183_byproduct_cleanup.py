@@ -7,7 +7,7 @@
 하는 일(--apply 때만)
 1. 부산물 폴더 원본에 이어진 문서함 문서를 라이브러리 삭제와 같은 함수로 지운다 — db.delete_document(문서·조각·검토·개체 등)
    + storage.remove_intake_dir(파일 장부). 학생 명단처럼 개인정보가 든 부속 표가 있어 숨김이 아니라 지운다.
-   사업 문서 색인·어휘 색인은 다음 주기(170 --quick·--index)가 지워진 조각을 빼고, 그래프는 문서 수가 바뀌어 다시 짓는다(.kg-dirty).
+   사업 문서 색인·어휘 색인은 다음 주기(170 --quick·--index)가 지워진 조각을 빼고, 그래프는 문서 수가 바뀌어 다시 짓는다(1분 주기의 입력 지문).
    같은 문서가 부산물이 아닌 원본에도 이어져 있으면 지우지 않고 「건너뜀」으로 보인다.
 2. 원본 장부(archive_files)의 부산물 줄은 남기되 문서 연결을 풀고 처리 기록을 「부산물」로 바꾼다(처리 실패·가벼운 처리 → 부산물).
 3. 원본 경로 장부(origins.jsonl)에서 지운 문서를 가리키는 부산물 줄을 뺀다 — 남기면 다음 동기화(170)가 장부에 지운 문서 번호를 다시 잇는다.
@@ -156,8 +156,6 @@ def apply(db, p: dict, origins_path: Path) -> dict:
         tmp = origins_path.with_suffix(".jsonl.tmp")
         tmp.write_text("".join(line + "\n" for line in keep), encoding="utf-8")
         tmp.replace(origins_path)
-    if n_del:
-        (Path(db.path).parent / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
     return {"deleted": n_del, "ledger": len(p["ledger"]), "origins": len(drop)}
 
 

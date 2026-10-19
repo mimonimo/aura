@@ -161,10 +161,11 @@ def _programs(db) -> list[dict]:
     """사업 노드(백여 개) — 5분 캐시. 질의마다 그래프 전체를 읽지 않는다."""
     import json
     import time
-    if _PROG_CACHE["rows"] is None or time.time() - _PROG_CACHE["at"] > 300:
+    ver = kg_store.version(db)
+    if _PROG_CACHE["rows"] is None or time.time() - _PROG_CACHE["at"] > 300 or _PROG_CACHE.get("ver") != ver:
         with db._conn() as conn:
             rows = conn.execute("SELECT id, label, props FROM kg_nodes WHERE type = 'program'").fetchall()
-        _PROG_CACHE.update(at=time.time(), rows=[{"id": r[0], "label": r[1], "props": json.loads(r[2] or "{}")} for r in rows])
+        _PROG_CACHE.update(at=time.time(), ver=ver, rows=[{"id": r[0], "label": r[1], "props": json.loads(r[2] or "{}")} for r in rows])
     return _PROG_CACHE["rows"]
 
 

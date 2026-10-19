@@ -577,6 +577,7 @@ def main() -> int:
                 conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (f"doc:{did}", f"doc:{did}"))
         kg_store.put_nodes(conn, nodes)
         kg_store.put_edges(conn, edges)
+    kg_store.mark_built(db)
     # 같은 노드·관계가 목록에 여러 번 들어가도 DB 에는 하나(덮어쓰기) — 목록 길이가 아니라 고유 수를 찍는다
     n_nodes, n_edges = len({n[0] for n in nodes}), len({(e[0], e[1], e[2]) for e in edges})
     print(f"썼다 — 노드 {n_nodes} · 관계 {n_edges}" + (f" · 범위 밖 갈래로 뺀 문서 {len(dropped)}" if dropped else ""))

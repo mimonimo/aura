@@ -127,7 +127,9 @@ def main() -> None:
     tmp.replace(OUT)            # 읽는 쪽(앱)이 반쯤 쓴 파일을 보지 않게 다 쓴 뒤 바꿔 끼운다
     META.write_text(json.dumps({"model": model, "n_chunks": len(rows), "dim": int(mat.shape[1]),
                                 "device": "serving" if remote_model else os.environ.get("ZZAIMY_EMBED_DEVICE", "cpu"),
-                                "reused": len(rows) - len(todo)}, ensure_ascii=False), encoding="utf-8")
+                                "reused": len(rows) - len(todo),
+                                # 이 색인을 만든 조각 지문 — 앱이 지금 조각과 견주어 바뀌면 다시 만든다(app/reindex_state)
+                                "chunks_sig": f"{len(rows)}|{max((r['id'] for r in rows), default=0)}|{sum(r['id'] for r in rows)}"}, ensure_ascii=False), encoding="utf-8")
     print(f"저장: {OUT} ({mat.shape})", flush=True)
 
     if not len(mat):
