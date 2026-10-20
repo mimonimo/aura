@@ -158,10 +158,22 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
     c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
     assert gdrive.allowed_domain() == "ync.ac.kr"
     assert "err=" in c.post("/dev/google/settings", data={"domain": "not a domain"}, follow_redirects=False).headers["location"]
-    # 부서 공용 계정·공유 드라이브(주소에서 id 를 뽑는다)
-    c.post("/dev/google/dept", data={"dept": "산학협력단", "account": "dev@ync.ac.kr",
+    # 부서 드라이브 연결 — 고른 위치(주소에서 id 를 뽑는다) 아래에 부서 폴더를 새로 만들고, 연결 계정이 부서 공용 계정이 된다
+    from zzaimy.ingest import dept_drive
+    made = []
+
+    def fake_connect(db_, dept, account, parent, http=None):
+        made.append((dept, account, parent))
+        for k, v in (("google_root", "NEWFOLDER1"), ("google_root_by", account), ("google_account_dept", account)):
+            db_.set_setting(f"{k}:{dept}", v)
+        return "NEWFOLDER1"
+    monkeypatch.setattr(dept_drive, "connect", fake_connect)
+    monkeypatch.setattr(dept_drive, "sync", lambda *a, **k: {"added": 0, "removed": 0, "error": ""})
+    c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})
+    c.post("/dev/google/dept", data={"dept": "산학협력단",
                                      "root": "https://drive.google.com/drive/folders/0AbCdEfGhIjKlMnOp?usp=sharing"})
-    assert db.get_setting("google_account_dept:산학협력단") == "dev@ync.ac.kr" and db.get_setting("google_root:산학협력단") == "0AbCdEfGhIjKlMnOp"
+    assert made == [("산학협력단", "dev@ync.ac.kr", "0AbCdEfGhIjKlMnOp")]
+    assert db.get_setting("google_account_dept:산학협력단") == "dev@ync.ac.kr" and db.get_setting("google_root:산학협력단") == "NEWFOLDER1"
     # 연결 삭제는 토큰과 사용자·부서 이음을 함께 푼다
     db.set_setting("google_account:zzaimy", "dev@ync.ac.kr")
     c.post("/dev/google/revoke", data={"email": "dev@ync.ac.kr"})
@@ -305,14 +317,14 @@ def test_disconnect_refuses_when_share_revocation_fails(tmp_path, monkeypatch):
 
 
 def test_dept_card_has_only_working_buttons(tmp_path, monkeypatch):
-    """부서 카드 — 라이브러리로 옮겨만 가던 「문서 넣기」는 없고, 드라이브 폴더 정하기·지우기·부서 추가만 남는다."""
+    """부서 카드 — 라이브러리로 옮겨만 가던 「문서 넣기」는 없고, 드라이브 연결·지우기·부서 추가만 남는다."""
     _fake_google(monkeypatch)
     c = _dev(tmp_path)
     c.post("/dev/rag/dept", data={"action": "create", "name": "교무처"})
     page = c.get("/dev/users").text
     card = page[page.index('id="depts"'):page.index('id="deptCreate"')]
     assert "문서 넣기" not in card and 'href="/?type=all"' not in card
-    assert "드라이브 폴더 정하기" in card and 'data-modal-open="#deptEdit"' in card
+    assert "드라이브 연결" in card and "연결 전" in card and 'data-modal-open="#deptEdit"' in card
     assert "/?type=all&amp;scope=%EA%B5%90%EB%AC%B4%EC%B2%98" in card                  # 문서 수 → 그 부서 문서 목록
     assert "ua-steps" not in card and card.count('class="ua-lead"') == 1               # 설명은 한 줄
     assert 'name="action" value="delete"' in card and "부서 추가" in card

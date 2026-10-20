@@ -154,8 +154,8 @@ def test_open_project_document_links_a_working_copy(agent_app, tmp_path, monkeyp
 # ---------------------------------------------------------------- 보안: 값 기억·문서 전환·열람 범위
 
 
-def _project_with_form(db, tmp_path, *, dept=None, level=None):
-    pid = db.create_project("grant", "지역혁신 사업")
+def _project_with_form(db, tmp_path, *, dept=None, level=None, owner=None):
+    pid = db.create_project("grant", "지역혁신 사업", **({"owner": owner} if owner else {}))
     did = db.add_document(filename="지역혁신 작성서식.hwpx", stored_path=str(tmp_path / "f.hwpx"), doc_type="grant",
                           sector="grant", project_id=pid, dept=dept, access_level=level)
     db.update_document(did, status="reviewed")
@@ -249,7 +249,7 @@ def test_documents_outside_scope_are_hidden_from_agent_and_fallback(tmp_path, mo
     app, client = _password_app(tmp_path, monkeypatch, {"staffer": {"pw": "pw-staff-1", "role": "staff", "dept": "기획"}})
     _login(client, "staffer", "pw-staff-1")
     db = app.state.db
-    pid, did = _project_with_form(db, tmp_path, dept="입학", level="dept")
+    pid, did = _project_with_form(db, tmp_path, dept="입학", level="dept", owner="staffer")   # 자기 프로젝트의 대화(남의 프로젝트는 공유받아야 쓴다)
     sid = db.create_chat_session("문서 대화", project_id=pid, owner="staffer")
     copied: list = []
     _fake_drive(monkeypatch, copied)

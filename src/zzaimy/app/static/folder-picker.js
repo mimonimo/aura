@@ -52,10 +52,10 @@
   el('select').addEventListener('click', () => {
     if (!current?.writable) return;
     modal.querySelector('[name=root]').value = current.id;
-    el('selection').textContent = '저장 위치: ' + path.map(x => x.name).join(' / ');
+    el('selection').textContent = '위치: ' + path.map(x => x.name).join(' / ') + ' — 이 아래에 부서 폴더를 만듭니다';
   });
   el('clear').addEventListener('click', () => {
     modal.querySelector('[name=root]').value = '';
-    el('selection').textContent = '저장 위치: 각자 내 드라이브';
+    el('selection').textContent = '위치: 내 드라이브 최상위';
   });
 })();

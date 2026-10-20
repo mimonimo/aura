@@ -102,8 +102,10 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
         with db._conn() as c:
             n_docs = {str(r[0]): int(r[1]) for r in c.execute(
                 f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
+    from zzaimy.ingest import dept_drive
     dept_rows = [{"dept": d, "account": (settings.get(f"google_account_dept:{d}") or "").strip(),
                   "root": (settings.get(f"google_root:{d}") or "").strip(),
+                  "drive": dept_drive.state(db, d, accounts, data_dir),
                   "members": sorted(u for u, a in accounts.items() if (a.get("dept") or "").strip() == d),
                   "docs": n_docs.get(d, 0)} for d in depts]
     owners: dict[str, list[str]] = {}
@@ -261,6 +263,13 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
             grants[uid] = others + [f"dept:{d}" for d in want]
             cfg["grants"] = {u: v for u, v in grants.items() if v}
             rag_spaces.save_config(cfg, data_dir)
+    # 부서 드라이브 권한 — 이 사람이 들고 난 부서들을 뒤에서 맞춘다(소속·추가 부서가 바뀌었거나 계정을 껐을 때)
+    import threading
+    from zzaimy.ingest import dept_drive
+    touched = {d for d in known_depts(st.db, accounts, data_dir)
+               if (st.db.get_setting(f"google_root_by:{d}", "") or "").strip()}
+    threading.Thread(target=lambda: [dept_drive.sync(st.db, d, accounts, data_dir) for d in sorted(touched)],
+                     name="dept-drive-sync", daemon=True).start()
     old = (st.db.get_setting(f"google_account:{uid}", "") or "").strip()
     if google != old:
         st.db.set_setting(f"google_account:{uid}", google)
@@ -282,34 +291,44 @@ def dev_google_settings(request: Request, domain: str = Form("")):
 
 
 @router.post("/dev/google/dept")
-def dev_google_dept(request: Request, dept: str = Form(""), account: str = Form(""), root: str = Form("")):
-    """부서 공용 계정(미연결 담당자가 쓰는 계정)과 부서 공유 드라이브 자리(폴더 주소나 id)."""
-    db = request.app.state.db
-    dept, account, root = dept.strip(), account.strip(), root.strip()
-    if not dept:
-        return _back("부서 이름을 적어 주세요", ok=False)
-    if account and account not in connected_emails():
-        return _back("연결(허용)된 구글 계정만 부서 공용으로 지정할 수 있습니다", ok=False)
-    folder = ""
-    if root:
-        m = _FOLDER_ID.search(root)
-        if not m:
-            return _back("공유 드라이브는 폴더 주소나 폴더 id 로 적어 주세요", ok=False)
-        folder = m.group(1) or m.group(2)
-        from zzaimy.ingest.folder_picker import folder as check_folder
-        email = (db.get_setting(f"google_account:{_user(request)}", "") or "").strip()
-        if not email or email not in connected_emails():
-            return _back("먼저 본인의 학교 계정을 연결해 주세요", ok=False)
+def dev_google_dept(request: Request, dept: str = Form(""), root: str = Form(""), action: str = Form("connect")):
+    """부서 드라이브 연결 — 고른 위치(내 드라이브·공유 드라이브의 폴더) 아래에 「AURA · <부서>」 폴더를 새로 만들고, 그 부서 사람의
+    학교 구글 계정에만 편집 권한을 준다(ingest/dept_drive). 연결 계정은 지금 로그인한 관리자의 학교 계정 — 그 계정이 폴더를 만든다.
+    action=sync 는 권한만 다시 맞춘다."""
+    from zzaimy.ingest import dept_drive
+    st = request.app.state
+    db = st.db
+    dept = dept.strip()
+    if not dept or dept not in known_depts(db, _accounts(request), getattr(st, "data_dir", None)):
+        return _back("부서를 목록에서 골라 주세요", ok=False)
+    if action == "sync":
+        got = dept_drive.sync(db, dept, _accounts(request), getattr(st, "data_dir", None))
+        return _back(f"부서 {dept} 드라이브 권한을 맞췄습니다 — 줌 {got['added']} · 거둠 {got['removed']}"
+                     + (f" ({got['error']})" if got["error"] else ""), ok=not got["error"])
+    email = (db.get_setting(f"google_account:{_user(request)}", "") or "").strip()
+    if not email or email not in connected_emails():
+        return _back("먼저 본인의 학교 계정을 연결해 주세요 — 그 계정이 부서 폴더를 만듭니다", ok=False)
+    m = _FOLDER_ID.search(root.strip()) if root.strip() else None
+    parent = (m.group(1) or m.group(2)) if m else "root"
+    from zzaimy.ingest.folder_picker import folder as check_folder
+    if parent != "root":
         try:
-            selected = check_folder(email, folder)
-            if not selected['writable']:
-                return _back("이 폴더에 문서를 저장할 권한이 없습니다", ok=False)
+            if not check_folder(email, parent)["writable"]:
+                return _back("고른 위치에 폴더를 만들 권한이 없습니다", ok=False)
         except (ValueError, httpx.HTTPError):
-            return _back("저장 위치를 확인하지 못했습니다. 계정 연결과 쓰기 권한을 확인해 주세요", ok=False)
-        db.set_setting(f"google_root_name:{dept}", selected['name'])
-    db.set_setting(f"google_account_dept:{dept}", account)
-    db.set_setting(f"google_root:{dept}", folder)
-    return _back(f"부서 {dept} 설정을 저장했습니다")
+            return _back("고른 위치를 확인하지 못했습니다. 계정 연결과 쓰기 권한을 확인해 주세요", ok=False)
+    try:
+        dept_drive.connect(db, dept, email, parent)
+    except Exception as e:
+        return _back(str(e)[:200], ok=False)
+    got = dept_drive.sync(db, dept, _accounts(request), getattr(st, "data_dir", None))
+    s_ = dept_drive.state(db, dept, _accounts(request), getattr(st, "data_dir", None))
+    msg = f"부서 {dept} 드라이브를 연결했습니다 — 「{dept_drive.folder_name(dept)}」 폴더, 접근 {s_['granted']}명"
+    if s_["unlinked"]:
+        msg += f" · 구글 미연결 {len(s_['unlinked'])}명({', '.join(s_['unlinked'][:5])}) — 연결하면 다음 맞추기에서 받습니다"
+    if got["error"]:
+        msg += f" ({got['error']})"
+    return _back(msg, ok=not got["error"])
 
 
 @router.post("/dev/users/dept")

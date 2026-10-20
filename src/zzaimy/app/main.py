@@ -386,6 +386,20 @@ def create_app(
                                                   (me,)).fetchall()]
         return [int(p["id"]) for p in rows if _project_access(request, p)]
 
+    def _covers(viewer: str, other: str) -> bool:
+        """viewer 의 검색 범위가 other 의 범위를 다 덮는가 — other 의 대화·작업 문서에는 other 가 볼 수 있는 자료가 근거 기록 없이 섞일 수
+        있어, 그것을 볼 수 없는 사람에게는 공유로도 열지 않는다(10-16·10-21 보안 검토). 관리자(전부)의 것은 관리자만."""
+        a, b = accounts.get(viewer) or {}, accounts.get(other) or {}
+        if not viewer or not other:
+            return False
+        if b.get("role", "staff") == "dev":
+            return a.get("role", "staff") == "dev"
+        if a.get("role", "staff") == "dev":
+            return True
+        mine = {(a.get("dept") or "").strip(), *_extra_depts(viewer)} - {""}
+        theirs = {(b.get("dept") or "").strip(), *_extra_depts(other)} - {""}
+        return theirs <= mine
+
     def _peer_of(viewer: str, other: str) -> bool:
         """other 가 viewer 의 같은 부서 동료인가(대화 읽기·작업 문서 공유 같은 기준) — 둘 다 교직원 계열, 같은 부서, 첫 비밀번호를
         바꾼(쓰기 시작한) 계정, other 가 받은 추가 권한 부서를 viewer 도 볼 수 있을 때."""
@@ -428,8 +442,8 @@ def create_app(
         share = _pa.shares(db, project, owner_dept)
         if share.get("implicit"):                       # 정하지 않은 기본값 — 예전 동료 규칙(보는 범위가 담당자보다 좁지 않은 같은 부서 교직원)
             levels = {u: "view" for u in accounts if _peer_of(u, owner)}
-        else:
-            levels = _pa.recipients(share, accounts, owner)
+        else:                                           # 작업 문서도 대화 읽기와 같은 범위 규칙 — 담당자 범위를 다 덮는 사람만 받는다
+            levels = {u: lv for u, lv in _pa.recipients(share, accounts, owner).items() if _covers(u, owner)}
         peers = [u for u in levels if u in accounts]
         emails = {u: (db.get_setting(f"google_account:{u}", "") or "").strip() for u in peers}
         missing = sum(1 for e in emails.values() if not e)
@@ -1296,10 +1310,8 @@ def create_app(
         # 누가 쓴 대화인가 — 담당자가 직접 공유 범위를 정해 나에게 연 프로젝트의 담당자 대화는 담당자의 뜻으로 연다.
         # 그 밖(함께 작업하는 다른 사람의 대화, 정하지 않은 기본 공유)은 예전 동료 규칙 — 쓴 사람의 검색 범위가 나보다 넓지 않을 때만
         # (그 사람 답에는 근거 기록에 남지 않은 자료가 섞일 수 있다, 10-16·10-21 보안 검토)
-        from zzaimy.app import project_access as _pa
-        owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
-        explicit = not _pa.shares(db, proj, owner_dept).get("implicit")
-        if not (explicit and session.get("owner") == proj.get("owner")) and not _peer_of(me, session.get("owner") or ""):
+        # 공유로 프로젝트를 봐도 남의 대화는 쓴 사람의 검색 범위를 내가 다 덮을 때만 — 근거 기록 밖 자료가 섞일 수 있다
+        if not _covers(me, session.get("owner") or ""):
             return False
         # 대화가 근거로 쓴 문서·첨부가 모두 내가 볼 수 있는 것일 때만 — 만든 사람만 보는 문서(열람 등급 owner 등)의 내용이 답에 섞였을 수 있다
         return _chat_open_to(session, _req_viewer(request))
@@ -4416,6 +4428,11 @@ def create_app(
                                 continue
                             if _ds_sweep.enabled(db, int(pj["id"])) or _ds_sweep.has_grants(db, int(pj["id"])):
                                 _share_sync(pj, wait=True)
+                        # 부서 드라이브 — 연결된 부서마다 부서 사람에게만 권한(구글을 새로 연결한 사람도 여기서 받는다)
+                        from zzaimy.ingest import dept_drive as _dd
+                        for _k, _v in db.all_settings().items():
+                            if _k.startswith("google_root_by:") and (_v or "").strip():
+                                _dd.sync(db, _k.split(":", 1)[1], accounts, Path(db_path).parent)
                     except Exception as e:
                         logging.getLogger(__name__).warning("작업 문서 공유 점검 실패: %s", e)
                     time.sleep(600)

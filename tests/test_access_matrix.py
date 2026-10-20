@@ -555,7 +555,8 @@ def test_dept_staff_cannot_publish_dept_regulation_to_students(world):
 
 
 def test_project_share_to_user_with_edit_lets_them_open_their_own_chat(world, monkeypatch):
-    """지정 사용자에게 「함께 작업」으로 공유하면 다른 부서여도 프로젝트를 보고 그 안에 자기 대화를 연다 — 작업 문서는 편집 권한.
+    """지정 사용자에게 「함께 작업」으로 공유하면 다른 부서여도 프로젝트를 보고 그 안에 자기 대화를 연다.
+    담당자 대화·작업 문서는 담당자 검색 범위를 덮는 사람만(같은 부서 등) — 그때 작업 문서는 편집 권한.
     「보기」 공유는 대화를 열 수 없다. 공유 설정·프로젝트 관리는 담당자만(10-21)."""
     from zzaimy.ingest import drive_share
     app, ids, tmp = world
@@ -571,7 +572,8 @@ def test_project_share_to_user_with_edit_lets_them_open_their_own_chat(world, mo
     other = _client(app, "sanhak")
     assert other.get(f"/project/{pid}").status_code == 404                 # 다른 부서 — 공유 전에는 안 보인다
     owner.post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:sanhak", "level": "edit"}, follow_redirects=False)
-    assert calls[-1] == {"DOCTOGETHER1": {"sanhak@ync.ac.kr": "writer"}}
+    # 담당자(기획처) 범위를 덮지 못하는 다른 부서 사람에게는 담당자 대화의 작업 문서를 주지 않는다 — 근거 기록 밖 자료가 섞일 수 있다
+    assert calls[-1] == {}
     page = other.get(f"/project/{pid}")
     assert page.status_code == 200 and "함께 작업하도록 공유한" in page.text and 'name="project_id"' in page.text
     assert "공유받은 프로젝트" in page.text                                 # 사이드바에 따로
@@ -624,3 +626,24 @@ def test_writer_grant_turns_off_resharing():
         gdrive_files.has_file_scope, gdrive_files._headers = orig
     assert any(m == "POST" and b.get("role") == "writer" for m, _p, b in sent)
     assert any(m == "PATCH" and b == {"writersCanShare": False} for m, _p, b in sent)
+
+
+def test_same_dept_collaborator_gets_writer_on_owner_work_docs(world, monkeypatch):
+    """같은 부서(범위를 덮는) 사람에게 함께 작업으로 공유하면 담당자 작업 문서에 편집 권한."""
+    from zzaimy.ingest import drive_share
+    app, ids, tmp = world
+    db = app.state.db
+    accounts = json.loads((tmp / "accounts.json").read_text())
+    accounts["plan7"] = {"pw": "p7", "role": "staff", "dept": "기획처"}
+    (tmp / "accounts.json").write_text(json.dumps(accounts))
+    PW["plan7"] = "p7"
+    app2 = create_app(db_path=tmp / "t.db", inbox_dir=tmp / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
+    calls = []
+    monkeypatch.setattr(drive_share, "sync", lambda db_, pid_, e, want, http=None, missing=0:
+                        calls.append(want()[0] if callable(want) else want) or {"added": [], "removed": [], "shared": 0, "error": ""})
+    pid = db.create_project("grant", "같은부서함께", owner="plan")
+    cs = db.create_chat_session("담당자작업", owner="plan", project_id=pid)
+    db.set_setting(f"chat_google_doc:{cs}", json.dumps({"doc": "DOCSAME0001", "account": "plan@ync.ac.kr"}))
+    db.set_setting("google_account:plan7", "plan7@ync.ac.kr")
+    _client(app2, "plan").post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:plan7", "level": "edit"}, follow_redirects=False)
+    assert calls[-1] == {"DOCSAME0001": {"plan7@ync.ac.kr": "writer"}}

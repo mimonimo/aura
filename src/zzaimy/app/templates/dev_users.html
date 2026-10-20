@@ -24,6 +24,7 @@
   #deptEdit .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 32px); }
   #deptEdit .modal-head { padding:20px; margin:0; flex:none; border-bottom:1px solid var(--line); }
   #deptEdit .ua-form { padding:20px; min-height:0; overflow:auto; }
+  #deptEdit .dept-steps { margin:0 0 12px; padding-left:18px; font-size:13px; line-height:1.6; color:var(--muted); }
   #deptEdit .ua-footer { flex:none; display:flex; gap:8px; justify-content:flex-end; padding:16px 20px; border-top:1px solid var(--line); }
   .folder-toolbar { display:flex; flex-wrap:wrap; gap:8px; }
   .folder-list { border:1px solid var(--line); border-radius:10px; max-height:220px; overflow:auto; }
@@ -101,20 +102,24 @@
   <h2 class="ua-head"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
     <button type="button" class="secondary spacer" data-modal-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
-  <p class="ua-lead">부서를 만들면 부서 RAG 가 함께 생깁니다 · 사람은 사용자 「편집」에서, 문서는 라이브러리의 공개 범위에서 부서를 고릅니다.</p>
+  <p class="ua-lead">부서마다 드라이브를 먼저 연결합니다 — 그 부서 사람(소속·추가 부서)의 학교 계정만 부서 폴더에 접근합니다.</p>
   {% if depts %}
   <div class="table-scroll">
   <table class="ua-table">
-    <tr><th>부서</th><th>계정</th><th>부서 RAG 문서</th><th>공용 계정</th><th>공유 드라이브</th><th></th></tr>
+    <tr><th>부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
     {% for d in depts %}
     <tr>
       <td><b>{{ d.dept }}</b></td>
-      <td>{{ d.members | join(", ") if d.members else '—' }}</td>
+      <td>{{ d.drive.members | join(", ") if d.drive.members else '—' }}</td>
       <td><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="라이브러리에서 이 부서 문서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
-      <td>{{ d.account or '—' }}</td>
-      <td style="white-space:nowrap;">{% if d.root %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>폴더 열기</a>{% else %}<span class="muted">각자 내 드라이브</span>{% endif %}</td>
+      <td>{% if d.drive.connected %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>{{ d.drive.name or '부서 폴더' }}</a>
+          <span class="ua-sub">연결 계정 {{ d.drive.by }} · 접근 {{ d.drive.granted }}명{% if d.drive.unlinked %} · 구글 미연결 {{ d.drive.unlinked | join(', ') }}{% endif %}{% if d.drive.error %} · <span style="color:var(--red);">{{ d.drive.error }}</span>{% endif %}</span>
+        {% elif d.drive.legacy %}<span class="muted">예전 방식(폴더만 지정) — 다시 연결하면 부서원만 접근합니다</span>
+        {% else %}<span class="muted">연결 전 — 문서는 작업하는 사람 본인 드라이브에 만들어집니다</span>{% endif %}</td>
       <td class="act" style="white-space:nowrap;"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
-            data-dept="{{ d.dept }}" data-account="{{ d.account }}" data-root="{{ d.root }}" aria-label="{{ d.dept }} 드라이브 폴더 정하기" title="이 부서 문서를 만들 구글 드라이브 폴더">드라이브 폴더 정하기</button>
+            data-dept="{{ d.dept }}" data-connected="{{ '1' if d.drive.connected else '' }}" aria-label="{{ d.dept }} 부서 드라이브 연결">{{ '다시 연결' if d.drive.connected else '드라이브 연결' }}</button>
+        {% if d.drive.connected %}<form method="post" action="/dev/google/dept" style="display:inline; margin:0;"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="sync">
+          <button type="submit" class="secondary" style="padding:5px 11px; font-size:12px;" title="부서 사람이 바뀌었거나 구글을 새로 연결했을 때 — 보통은 저절로 맞춥니다">권한 맞추기</button></form>{% endif %}
         {% if not d.members %}<form method="post" action="/dev/users/dept" style="display:inline; margin:0;" data-confirm="부서 「{{ d.dept }}」을 지웁니다. 부서 RAG 문서 {{ '{:,}'.format(d.docs) }}건은 공통 RAG 로 돌아갑니다.">
           <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ d.dept }}">
           <button type="submit" class="btn-ghost" style="padding:5px 9px; font-size:12px; color:var(--red);">지우기</button></form>{% endif %}</td>
@@ -214,13 +219,16 @@
 
 <div class="modal-back" id="deptEdit">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:17px;" data-dept-title>드라이브 폴더</h2>
+    <div class="modal-head"><h2 style="font-size:17px;" data-dept-title>부서 드라이브 연결</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form id="departmentFolderForm" action="/dev/google/dept" method="post" class="ua-form">
-      <label>부서<input type="text" name="dept" list="uaDepts" required autocomplete="off" readonly></label>
+      <input type="hidden" name="dept" value="">
       <input type="hidden" name="account" value="">
       <input type="hidden" name="root" value="">
-      <p class="muted" style="margin:0; font-size:13px;">부서 문서의 저장 위치를 선택하세요. 각 사용자는 본인의 학교 계정으로 작성하며, 해당 폴더의 쓰기 권한이 필요합니다.</p>
+      <ol class="dept-steps">
+        <li>위치를 고릅니다 — 내 드라이브 또는 공유 드라이브의 폴더. 공유 드라이브는 그 구성원이 모두 보므로 부서원만 보게 하려면 관리자만 구성원인 곳을 고릅니다.</li>
+        <li>「연결」을 누르면 그 아래에 <b data-dept-folder>AURA · 부서</b> 폴더를 새로 만들고, 이 부서 사람의 학교 계정에만 편집 권한을 줍니다.</li>
+      </ol>
       <div class="folder-toolbar"><button type="button" class="secondary" data-folder-home="root">내 드라이브</button><button type="button" class="secondary" data-folder-home="drives">공유 드라이브</button></div>
       <div class="folder-toolbar"><button type="button" class="secondary" data-folder-back>상위 폴더</button><input type="search" data-folder-search aria-label="현재 위치에서 폴더 검색" placeholder="현재 위치에서 폴더 검색" style="min-width:0; flex:1;"><button type="button" class="secondary" data-folder-find>검색</button></div>
       <p data-folder-path class="muted" style="margin:0; font-size:12px; overflow-wrap:anywhere;"></p>
@@ -228,10 +236,10 @@
       <a href="/account/google/connect" data-folder-connect hidden>학교 계정 연결</a>
       <div class="folder-list" data-folder-list></div>
       <div class="folder-toolbar"><button type="button" class="secondary" data-folder-more hidden>더 보기</button><button type="button" data-folder-select disabled>현재 폴더 선택</button></div>
-      <div class="folder-selection" data-folder-selection>저장 위치: 각자 내 드라이브</div>
-      <button type="button" class="secondary" data-folder-clear>각자 내 드라이브 사용</button>
+      <div class="folder-selection" data-folder-selection>위치: 내 드라이브 최상위</div>
+      <button type="button" class="secondary" data-folder-clear hidden>위치 지우기</button>
     </form>
-    <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="departmentFolderForm">저장 위치 적용</button></footer>
+    <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="departmentFolderForm">연결</button></footer>
   </div></div>
 </div>
 
@@ -309,12 +317,11 @@
   document.querySelectorAll('[data-modal-open="#deptEdit"]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var f = document.querySelector('#deptEdit form'), isNew = btn.hasAttribute('data-dept-new');
-      f.dept.value = isNew ? '' : btn.dataset.dept;
-      f.dept.readOnly = !isNew;
-      f.account.value = isNew ? '' : (btn.dataset.account || '');
-      f.root.value = isNew ? '' : (btn.dataset.root || '');
-      document.querySelector('#deptEdit [data-dept-title]').textContent = isNew ? '부서 추가' : btn.dataset.dept + ' 드라이브 폴더';
-      document.querySelector('[data-folder-selection]').textContent = f.root.value ? '기존 저장 위치 유지 · 변경하려면 폴더를 선택하세요' : '저장 위치: 각자 내 드라이브';
+      f.dept.value = btn.dataset.dept || '';
+      f.root.value = '';
+      document.querySelector('#deptEdit [data-dept-title]').textContent = btn.dataset.dept + ' 부서 드라이브 ' + (btn.dataset.connected ? '다시 연결' : '연결');
+      document.querySelector('#deptEdit [data-dept-folder]').textContent = 'AURA · ' + btn.dataset.dept;
+      document.querySelector('[data-folder-selection]').textContent = '위치: 내 드라이브 최상위';
       window.openDepartmentFolders();
     });
   });

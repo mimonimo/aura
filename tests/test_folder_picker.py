@@ -39,6 +39,12 @@ def test_browser_uses_current_user_only_and_save_rechecks(tmp_path, monkeypatch)
     monkeypatch.setattr(fp, 'browse', lambda email, *args: seen.append(email) or {'items':[], 'next':'', 'current':None})
     assert c.get('/dev/google/folders?email=kim@ync.ac.kr').status_code == 200
     assert seen == ['dev@ync.ac.kr']
+    c.post('/dev/rag/dept', data={'action': 'create', 'name': '행정'})
+    from zzaimy.ingest import dept_drive
+    monkeypatch.setattr(dept_drive, 'connect', lambda db_, dept, account, parent, http=None:
+                        db_.set_setting(f'google_root:{dept}', f'AURA-under-{parent}') or f'AURA-under-{parent}')
+    monkeypatch.setattr(dept_drive, 'sync', lambda *a, **k: {'added': 0, 'removed': 0, 'error': ''})
+    monkeypatch.setattr(dept_drive, 'state', lambda *a, **k: {'granted': 0, 'unlinked': [], 'connected': True})
     db.set_setting('google_root:행정', 'old-folder')
     monkeypatch.setattr(fp, 'folder', lambda *a: {'id':'readonly-folder', 'name':'읽기 전용', 'writable':False})
     r = c.post('/dev/google/dept', data={'dept':'행정','root':'readonly-folder'}, follow_redirects=False)
@@ -47,4 +53,4 @@ def test_browser_uses_current_user_only_and_save_rechecks(tmp_path, monkeypatch)
     monkeypatch.setattr(fp, 'folder', lambda *a: {'id':'writable-folder', 'name':'행정 자료', 'writable':True})
     r = c.post('/dev/google/dept', data={'dept':'행정','root':'writable-folder'}, follow_redirects=False)
     assert 'ok=' in r.headers['location']
-    assert db.get_setting('google_root:행정') == 'writable-folder'
+    assert db.get_setting('google_root:행정') == 'AURA-under-writable-folder'      # 고른 폴더 아래에 부서 폴더를 새로 만든다
