@@ -352,6 +352,14 @@ def post_if_changed(db, dirty: bool = True) -> int:
     except OSError:
         (Path(db.path).parent / ".kg-dirty").touch()     # 다른 후속 처리가 돌고 있다 — 다음 회차에
         return 0
+    # 반입 자료의 새 판·미등록 규정을 기준 문서로(1분마다 — 후보 고르기 1초 안팎, 올릴 것이 없으면 아무것도 하지 않는다). 규정 색인은 조각 지문으로 저절로 다시 만든다
+    try:
+        from zzaimy.app import regulation_register
+        got = regulation_register.auto_register(db, Path(db.path).parent)
+        if got["registered"]:
+            print(f"규정 자동 등록: {got['registered']}건(옛 판 대체 {got['replaced']}) · 조각 {got['chunks']}", flush=True)
+    except Exception as e:
+        print("규정 자동 등록 실패:", type(e).__name__, str(e)[:120], flush=True)
     with db._conn() as conn:
         now = graph_inputs(conn)
     mpath = ROOT / "data" / "platform" / "kg_marker.json"
@@ -381,14 +389,6 @@ def post_if_changed(db, dirty: bool = True) -> int:
         (Path(db.path).parent / ".kg-dirty").touch()     # 임베딩 서비스가 돌아오면 다음 회차에 다시
     if same:
         return 0
-    # 반입 자료의 새 판·미등록 규정을 기준 문서로(문서가 바뀌었을 때만 — 후보 고르기 1초 안팎). 규정 색인은 조각 지문으로 저절로 다시 만든다
-    try:
-        from zzaimy.app import regulation_register
-        got = regulation_register.auto_register(db, Path(db.path).parent)
-        if got["registered"]:
-            print(f"규정 자동 등록: {got['registered']}건(옛 판 대체 {got['replaced']}) · 조각 {got['chunks']}", flush=True)
-    except Exception as e:
-        print("규정 자동 등록 실패:", type(e).__name__, str(e)[:120], flush=True)
     # 그래프 전체 재구축은 15분에 한 번까지 — 1분마다 다시 지으면 쉬지 않고 돈다. 그 사이 바뀐 것은 지문이 계속 다르니 다음 회차가 모아서
     if time.time() - float(old.get("at", 0)) < 15 * 60:
         return 0
