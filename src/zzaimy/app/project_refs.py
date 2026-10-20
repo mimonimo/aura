@@ -279,7 +279,7 @@ def ongoing(period: tuple[int, int | None] | None, years: set[int], this_year: i
 
 def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: str = "", unit: str = "",
            for_project: int | None = None, limit: int = 200, sort: str = "", names: list[str] | None = None,
-           peers: tuple[str, ...] = ()) -> dict:
+           peers: tuple[str, ...] = (), shared: tuple[int, ...] | list[int] = ()) -> dict:
     """통합 프로젝트 찾기 — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
 
     돌려주는 것 {"items": [{id, name, status, year, round, when, group, group_name, program, units, n_docs, why, linked}],
@@ -332,7 +332,7 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
         st = "archived" if r["archived"] else "active"
         if status in ("archived", "active") and st != status:
             continue
-        if st == "active" and not dev and r["owner"] != user and r["owner"] not in peers:
+        if st == "active" and not dev and r["owner"] != user and r["owner"] not in peers and int(r["id"]) not in set(shared):
             continue
         r["readonly"] = st == "active" and not dev and r["owner"] != user
         flat = ((r["name"] or "") + " " + aliases.get((r.get("program") or "").split("|", 1)[0], "")).replace(" ", "").lower()

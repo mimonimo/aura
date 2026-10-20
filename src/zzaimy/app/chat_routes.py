@@ -339,7 +339,8 @@ def chat_new(request: Request, project: int | None = None):
     db, templates, ctx, _criteria_docs = h.db, h.templates, h.ctx, h._criteria_docs
     _scope_label = h._scope_label
     chat_project = db.get_project(project) if project else None
-    if project and (not chat_project or chat_project.get("owner") != request.state.user):
+    # 프로젝트 안 새 대화는 담당자와 「함께 작업」으로 공유받은 사람(project_access)
+    if project and (not chat_project or request.app.state.project_access(request, chat_project) != "edit"):
         raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
     return templates.TemplateResponse(
         request,
@@ -507,7 +508,7 @@ def chat_send(
     if session_id is None:
         title = q
         if project_id and (proj := db.get_project(project_id)):
-            if proj.get("owner") != request.state.user:
+            if request.app.state.project_access(request, proj) != "edit":
                 raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
             title = f"[{proj['name'][:14]}] {q}"
         elif len(files) >= 2:

@@ -359,6 +359,33 @@ def create_app(
                      if u != me and ((a or {}).get("dept") or "").strip() == dept and not (a or {}).get("must_change")
                      and (a or {}).get("role", "staff") in _ap.STAFF_ROLES and set(_extra_depts(u)) <= mine)
 
+    def _project_access(request: Request, proj: dict | None) -> str:
+        """이 요청의 사람이 프로젝트에 갖는 권한 — "edit"(담당자·함께 작업)·"view"·""(못 봄). 관리자는 "edit".
+        공유 범위는 프로젝트마다 담당자가 정한다(app/project_access) — 정하지 않은 옛 프로젝트는 담당자 부서에 보기."""
+        from zzaimy.app import project_access as _pa
+        if not proj:
+            return ""
+        if getattr(request.state, "role", "") == "dev" and not getattr(request.state, "view_as", None):
+            return "edit"
+        me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+        owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
+        share = _pa.shares(db, proj, owner_dept)
+        if share.get("implicit") and me and proj.get("owner") != me:
+            # 담당자가 공유 범위를 정하지 않은 프로젝트 — 예전 동료 규칙 그대로(관리자·나보다 넓은 범위의 담당자 것은 열지 않는다, 10-16 보안 검토)
+            return "view" if proj.get("owner") in _dept_peers(request) else ""
+        return _pa.access(proj, user=me, role=getattr(request.state, "role", ""), dept=getattr(request.state, "dept", "") or "",
+                          also=tuple(_extra_depts(me)) if me else (), share=share)
+
+    def _shared_project_ids(request: Request) -> list[int]:
+        """나에게 공유된 진행 중 프로젝트(내 것 제외) — 사이드바 「공유받은 프로젝트」·프로젝트 찾기."""
+        me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+        if getattr(request.state, "role", "") not in _ap.STAFF_ROLES:
+            return []
+        with db._conn() as conn:
+            rows = [dict(r) for r in conn.execute("SELECT * FROM projects WHERE archived = 0 AND owner <> ? ORDER BY id DESC",
+                                                  (me,)).fetchall()]
+        return [int(p["id"]) for p in rows if _project_access(request, p)]
+
     def _peer_of(viewer: str, other: str) -> bool:
         """other 가 viewer 의 같은 부서 동료인가(대화 읽기·작업 문서 공유 같은 기준) — 둘 다 교직원 계열, 같은 부서, 첫 비밀번호를
         바꾼(쓰기 시작한) 계정, other 가 받은 추가 권한 부서를 viewer 도 볼 수 있을 때."""
@@ -394,13 +421,21 @@ def create_app(
     def _share_plan(project: dict) -> tuple[dict[str, set[str]], int]:
         """작업 문서별로 보기 권한을 줄 동료 메일 — 대화 읽기와 같은 규칙(비공개·업무 상담·못 보는 근거를 쓴 대화의 문서는 주지 않는다).
         돌려주는 것 ({구글 파일 id: {메일}}, 구글을 잇지 않아 못 받는 동료 수)."""
+        from zzaimy.app import project_access as _pa
         owner = project.get("owner") or ""
-        peers = [u for u in accounts if _peer_of(u, owner)]
+        owner_dept = ((accounts.get(owner, {}) or {}).get("dept") or "").strip()
+        # 받는 사람 = 프로젝트 공유 범위(나만·부서·지정 사용자) — 보기는 보기 권한, 함께 작업은 편집 권한
+        share = _pa.shares(db, project, owner_dept)
+        if share.get("implicit"):                       # 정하지 않은 기본값 — 예전 동료 규칙(보는 범위가 담당자보다 좁지 않은 같은 부서 교직원)
+            levels = {u: "view" for u in accounts if _peer_of(u, owner)}
+        else:
+            levels = _pa.recipients(share, accounts, owner)
+        peers = [u for u in levels if u in accounts]
         emails = {u: (db.get_setting(f"google_account:{u}", "") or "").strip() for u in peers}
         missing = sum(1 for e in emails.values() if not e)
         viewers = {u: _ap.viewer((accounts.get(u) or {}).get("role", "staff"), (accounts.get(u) or {}).get("dept") or None, u,
                                  Path(db_path).parent) for u, e in emails.items() if e}
-        want: dict[str, set[str]] = {}
+        want: dict[str, dict[str, str]] = {}             # {파일: {메일: reader|writer}}
         if not viewers:
             return want, missing
         with db._conn() as conn:
@@ -423,7 +458,7 @@ def create_app(
             for u, v in viewers.items():
                 if _chat_open_to(cs, v):
                     for fid in files:
-                        want.setdefault(fid, set()).add(emails[u])
+                        want.setdefault(fid, {})[emails[u]] = "writer" if levels.get(u) == "edit" else "reader"
         return want, missing
 
     def _share_sync(project: dict | None, wait: bool = False) -> None:
@@ -517,8 +552,8 @@ def create_app(
                         _pr._visible_counts(db, [int(proj["id"])], _req_viewer(request)).get(int(proj["id"])))
                     if request.method == "POST":
                         shared = shared and proj.get("owner") == "zzdev" and request.url.path.endswith("/unarchive")
-                    elif proj.get("owner") in _dept_peers(request):
-                        shared = True                     # 같은 부서 동료의 프로젝트 — 읽기 전용(POST 는 위에서 막힌다)
+                    elif _project_access(request, proj):
+                        shared = True                     # 공유받은 프로젝트(project_access) — 화면은 읽기, 프로젝트를 바꾸는 POST 는 위에서 막힌다
                     if not shared:
                         raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
             # 기관 정보(대학명·총장 등)는 모든 사용자 문서에 함께 쓰인다 — 관리자만 바꾼다
@@ -538,6 +573,8 @@ def create_app(
         dependencies = [Depends(open_auth)]
 
     app = FastAPI(title="AURA", dependencies=dependencies)
+    app.state.project_access = _project_access     # 프로젝트 권한(보기·함께 작업) — 대화 라우터가 프로젝트 안 새 대화를 열 때
+    app.state.shared_project_ids = _shared_project_ids
     app.state.dept_peers = _dept_peers           # 같은 부서 동료 — 프로젝트 찾기(project_search)가 읽기 전용으로 함께 보인다
 
     from fastapi import status as _status
@@ -1245,7 +1282,8 @@ def create_app(
         if getattr(request.state, "role", "") == "dev":
             return True
         proj = db.get_project(int(session["project_id"]))
-        if not (bool(proj) and session.get("owner") in _dept_peers(request) and proj.get("owner") in (*_dept_peers(request), me)):
+        # 공유받은 프로젝트의 공개 대화 — 담당자의 대화든 함께 작업하는 사람의 대화든(project_access)
+        if not (bool(proj) and _project_access(request, proj)):
             return False
         # 대화가 근거로 쓴 문서·첨부가 모두 내가 볼 수 있는 것일 때만 — 만든 사람만 보는 문서(열람 등급 owner 등)의 내용이 답에 섞였을 수 있다
         return _chat_open_to(session, _req_viewer(request))
@@ -4134,7 +4172,7 @@ def create_app(
             if fp is None or (fp.get("owner") != request.state.user and request.state.role != "dev"):
                 raise HTTPException(404)
         return project_refs.browse(db, _ref_scope(request), q, status if status in ("archived", "active", "all") else "archived",
-                                   year, unit, for_project, sort=sort, peers=_dept_peers(request))
+                                   year, unit, for_project, sort=sort, shared=_shared_project_ids(request))
 
     def _can_edit_doc(request: Request, doc: dict | None) -> bool:
         return _may_edit_doc(request, doc)

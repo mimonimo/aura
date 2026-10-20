@@ -217,6 +217,7 @@ def project_page(request: Request, project_id: int, refq: str = ""):
             "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
             "project_chats": project_chats, "can_edit": can_edit,
             "drive_share": {**_ds.state(db, project_id)},
+            **_share_ctx(request, proj),
             "owner_label": proj.get("owner") or "",
             "work_docs": work_docs, "work_sessions": work_sessions,
             "project_notes": db.list_project_notes(project_id),
@@ -271,7 +272,7 @@ def projects_archived(request: Request, q: str = "", status: str = "all", year: 
     q = (q or "").strip()[:200]
     names = _ref_names(_doc_groups(request, fp)) if for_project is not None else None
     data = project_refs.browse(db, _ref_scope(request), q, status, year, unit, for_project, sort=sort, names=names,
-                               peers=_dept_peers(request))
+                               shared=request.app.state.shared_project_ids(request))
     y, r, none = project_refs.year_option(year)
     year = "none" if none else (f"r{r}" if r is not None else y)
     year_label = "연도 미상" if none else (f"{r}차년도" if r is not None else y)
@@ -310,22 +311,51 @@ def project_archive(request: Request, project_id: int):
     return RedirectResponse("/projects/archived", status_code=303)
 
 
-@router.post("/project/{project_id}/drive-share")
-def project_drive_share(request: Request, project_id: int, on: str = Form("1")):
-    """작업 폴더의 부서 보기 공유 켜기·끄기 — 담당자·관리자만(로그인 검사가 프로젝트 POST 를 거른다). 끄면 이 기능이 준 권한만 거둔다."""
+def _share_ctx(request: Request, proj: dict) -> dict:
+    """공유 창 — 지금 범위, 고를 수 있는 부서·사용자, 이 사람의 권한."""
+    from zzaimy.app import project_access as pa
+    from zzaimy.app.user_admin import known_depts
+    st = request.app.state
+    accounts = st.accounts
+    owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
+    share = pa.shares(st.db, proj, owner_dept)
+    return {"share": share, "share_label": pa.describe(share), "share_levels": pa.LEVEL_LABEL,
+            "share_depts": known_depts(st.db, accounts, getattr(st, "data_dir", None)),
+            "share_users": sorted(u for u, a in accounts.items() if (a or {}).get("role", "staff") in ("staff", "professor", "head")
+                                  and u != proj.get("owner") and (a or {}).get("active", True)),
+            "my_access": st.project_access(request, proj)}
+
+
+@router.post("/project/{project_id}/shares")
+async def project_set_shares(request: Request, project_id: int):
+    """프로젝트 공유 범위 — 나만 · 공유(부서 일괄·지정 사용자, 각각 보기/함께 작업). 담당자·관리자만(로그인 검사가 남의 프로젝트 POST 를 거른다).
+    저장 뒤 작업 문서의 구글 권한을 바로 맞춘다(거두는 일은 기다린다)."""
     h = request.app.state.project
     db, _share_sync = h.db, h._share_sync
-    from zzaimy.ingest import drive_share as _ds
+    from zzaimy.app import project_access as pa
+    from zzaimy.app.user_admin import known_depts
     proj = db.get_project(project_id)
-    if proj is None:
+    if proj is None or proj.get("archived"):
         raise HTTPException(404)
-    _ds.set_enabled(db, project_id, on == "1")
+    form = await request.form()
+    accounts = request.app.state.accounts
+    depts = set(known_depts(db, accounts, getattr(request.app.state, "data_dir", None)))
+    staff = {u for u, a in accounts.items() if (a or {}).get("role", "staff") in ("staff", "professor", "head")}
+    items = []
+    for to, lv in zip(form.getlist("to"), form.getlist("level")):
+        to = str(to).strip()
+        if (to.startswith("dept:") and to[5:] in depts) or (to.startswith("user:") and to[5:] in staff and to[5:] != proj.get("owner")):
+            items.append({"to": to, "level": lv if lv in pa.LEVELS else "view"})
+    got = pa.set_shares(db, project_id, str(form.get("mode") or ""), items)
     _share_sync(proj, wait=True)
+    from zzaimy.ingest import drive_share as _ds
     st = _ds.state(db, project_id)
-    msg = (f"부서 공유를 켰습니다 — 동료 {st['shared']}명이 작업 폴더를 볼 수 있습니다" if on == "1" else "부서 공유를 껐습니다")
+    msg = f"공유 범위를 「{pa.describe(got)}」로 저장했습니다" + (f" — 작업 문서 권한 {st['shared']}명" if st.get("shared") else "")
+    if st.get("missing"):
+        msg += f" · 구글 미연결 {st['missing']}명(연결하면 작업 문서도 받음)"
     if st.get("error"):
         msg += f" (구글: {st['error']})"
-    return RedirectResponse(f"/project/{project_id}?" + urlencode({"ok": msg}) + "#projectChatList", status_code=303)
+    return RedirectResponse(f"/project/{project_id}?" + urlencode({"ok": msg}), status_code=303)
 
 
 @router.post("/project/{project_id}/meta")

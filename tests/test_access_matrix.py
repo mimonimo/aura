@@ -521,18 +521,22 @@ def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatc
     db.set_setting("google_account:plan", "plan@ync.ac.kr")
     db.set_setting("google_account:plan6", "plan6@ync.ac.kr")
     plan = _client(app2, "plan")
-    assert plan.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False).status_code == 404   # 동료는 못 바꾼다
+    assert plan.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False).status_code == 404   # 동료는 못 바꾼다
     page = plan.get(f"/project/{pid}").text
     assert "공개작업의 작업 문서" in page and "비공개작업" not in page and "못보는근거작업" not in page and "못보는원본복제작업" not in page
     assert plan.get(f"/chat/{copyc}/read").status_code == 404                # 못 보는 문서의 복제본이 든 대화는 읽지도 못한다
     owner = _client(app2, "plan5")
-    owner.post(f"/project/{pid}/drive-share", data={"on": "1"}, follow_redirects=False)
+    owner.get(f"/project/{pid}")
+    from zzaimy.app import project_access
+    owner.post(f"/project/{pid}/shares", data={"mode": "shared", "to": "dept:기획처", "level": "view"}, follow_redirects=False)
     assert calls[-1] == {"DOCPUB0001": ["plan@ync.ac.kr"]}                 # 공개·근거 열람 가능한 대화의 문서만, 첫 비번 계정 제외
     owner.post(f"/chat/{pub}/private", data={"private": "1"}, follow_redirects=False)
     assert calls[-1] == {}                                                # 비공개로 돌리면 바로 다시 맞춘다(목표가 비어 거둔다)
-    r = owner.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False)
-    assert r.status_code == 303 and drive_share.enabled(db, pid) is False
-    assert "부서 공유 끔" in owner.get(f"/project/{pid}").text
+    owner.post(f"/chat/{pub}/private", data={"private": "0"}, follow_redirects=False)
+    r = owner.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False)
+    assert r.status_code == 303 and calls[-1] == {}                        # 나만으로 돌리면 준 권한을 거둔다
+    assert "공유 · 나만" in owner.get(f"/project/{pid}").text
+    assert plan.get(f"/project/{pid}").status_code == 404                  # 같은 부서여도 이제 안 보인다
 
 
 def test_dept_staff_cannot_publish_dept_regulation_to_students(world):
@@ -548,3 +552,29 @@ def test_dept_staff_cannot_publish_dept_regulation_to_students(world):
     assert (db.get_document(did).get("audience") or "staff") != "student"
     r = plan.post(f"/doc/{did}/scope", data={"dept": "기획처", "access_level": "dept"}, follow_redirects=False)
     assert r.status_code == 303                                  # 같은 부서 문서의 범위 작업은 된다
+
+
+def test_project_share_to_user_with_edit_lets_them_open_their_own_chat(world, monkeypatch):
+    """지정 사용자에게 「함께 작업」으로 공유하면 다른 부서여도 프로젝트를 보고 그 안에 자기 대화를 연다 — 작업 문서는 편집 권한.
+    「보기」 공유는 대화를 열 수 없다. 공유 설정·프로젝트 관리는 담당자만(10-21)."""
+    from zzaimy.ingest import drive_share
+    app, ids, tmp = world
+    db = app.state.db
+    calls = []
+    monkeypatch.setattr(drive_share, "sync", lambda db_, pid_, e, want, http=None, missing=0:
+                        calls.append(want()[0] if callable(want) else want) or {"added": [], "removed": [], "shared": 0, "error": ""})
+    pid = db.create_project("grant", "함께작업사업", owner="plan")
+    cs = db.create_chat_session("담당자작업", owner="plan", project_id=pid)
+    db.set_setting(f"chat_google_doc:{cs}", json.dumps({"doc": "DOCTOGETHER1", "account": "plan@ync.ac.kr"}))
+    db.set_setting("google_account:sanhak", "sanhak@ync.ac.kr")
+    owner = _client(app, "plan")
+    other = _client(app, "sanhak")
+    assert other.get(f"/project/{pid}").status_code == 404                 # 다른 부서 — 공유 전에는 안 보인다
+    owner.post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:sanhak", "level": "edit"}, follow_redirects=False)
+    assert calls[-1] == {"DOCTOGETHER1": {"sanhak@ync.ac.kr": "writer"}}
+    page = other.get(f"/project/{pid}")
+    assert page.status_code == 200 and "함께 작업하도록 공유한" in page.text and 'name="project_id"' in page.text
+    assert other.get(f"/chat?project={pid}").status_code == 200
+    assert other.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False).status_code == 404
+    owner.post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:sanhak", "level": "view"}, follow_redirects=False)
+    assert other.get(f"/chat?project={pid}").status_code == 404           # 보기만 — 새 대화는 못 연다

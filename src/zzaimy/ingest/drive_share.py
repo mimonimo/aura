@@ -1,4 +1,5 @@
-"""프로젝트 작업 문서의 부서 공유 — 같은 부서 동료의 학교 구글 계정에 작업 문서마다 「보기」 권한을 주고 거둔다.
+"""프로젝트 작업 문서의 공유 — 프로젝트를 공유받은 사람(app/project_access)의 학교 구글 계정에 작업 문서마다
+「보기」(공유 보기) 또는 「편집」(함께 작업) 권한을 주고 거둔다.
 
 폴더째 공유하지 않는다 — 한 폴더에 비공개 대화의 작업 문서, 동료가 못 보는 자료를 근거로 쓴 작업 문서가 함께 있기 때문이다.
 어떤 문서를 누구에게 줄지는 호출하는 쪽(main._share_plan)이 대화 읽기와 같은 규칙으로 정해 {구글 파일 id: {메일}} 로 넘긴다.
@@ -44,6 +45,11 @@ def _granted(db, project_id: int) -> dict[str, dict]:
     return {k: (v if isinstance(v, dict) else {"id": str(v), "by": ""}) for k, v in raw.items()}
 
 
+def _email_of(key: str) -> str:
+    """기록 열쇠 「파일|메일」(보기) 또는 「파일|메일|writer」(편집)의 메일."""
+    return key.split("|", 2)[1] if "|" in key else key
+
+
 def has_grants(db, project_id: int) -> bool:
     return bool(_granted(db, project_id))
 
@@ -55,7 +61,7 @@ def state(db, project_id: int) -> dict:
     except ValueError:
         last = {}
     g = _granted(db, project_id)
-    return {"on": enabled(db, project_id), "shared": len({k.split("|", 1)[1] for k in g}), "files": len({k.split("|", 1)[0] for k in g}),
+    return {"on": enabled(db, project_id), "shared": len({_email_of(k) for k in g}), "files": len({k.split("|", 1)[0] for k in g}),
             **last}
 
 
@@ -84,7 +90,7 @@ def _revoke(db, pid: int, granted: dict[str, dict], keys: list[str], fallback_by
 
 
 def sync(db, project_id: int, owner_email: str, want, http=None, missing: int = 0) -> dict:
-    """목표와 이 기능이 준 권한을 맞춘다. want 는 {파일 id: {메일}} 또는 (목표, 못 받는 동료 수)를 돌려주는 함수 —
+    """목표와 이 기능이 준 권한을 맞춘다. want 는 {파일 id: {메일}} 또는 {파일 id: {메일: "reader"|"writer"}} 또는 (목표, 못 받는 사람 수)를 돌려주는 함수 —
     함수면 잠금 안에서 불러 그때 상태로 정한다(계획과 맞추기 사이에 비공개로 바뀐 것이 끼지 않게). 꺼져 있으면 목표는 비고 준 것을 모두 거둔다.
     거두기를 먼저, 준 계정으로 한다 — 못 거둔 권한은 기록에 남아 다음 맞추기·점검에서 다시 거둔다.
     돌려주는 것 {added, removed, shared, error}. 실패는 gshare_status 에 남기고 예외를 올리지 않는다."""
@@ -95,8 +101,12 @@ def sync(db, project_id: int, owner_email: str, want, http=None, missing: int = 
         owner = (owner_email or "").lower()
         target = set()
         if enabled(db, pid):
-            target = {f"{fid}|{e.strip().lower()}" for fid, emails in (want or {}).items() if fid
-                      for e in emails if e and e.strip() and e.strip().lower() != owner}
+            for fid, emails in (want or {}).items():
+                roles = emails if isinstance(emails, dict) else {e: "reader" for e in emails}
+                for e, role in roles.items():
+                    e = (e or "").strip().lower()
+                    if fid and e and e != owner:
+                        target.add(f"{fid}|{e}|writer" if role == "writer" else f"{fid}|{e}")
         granted = _granted(db, pid)
         added, removed, err = [], [], ""
         stale = [k for k in list(granted) if k not in target]
@@ -110,10 +120,10 @@ def sync(db, project_id: int, owner_email: str, want, http=None, missing: int = 
                 http = http or gdrive._http()
                 h = gdrive_files._headers(owner_email, http)
                 for key in todo:
-                    fid, email = key.split("|", 1)
+                    fid, email, role = (key.split("|") + ["reader"])[:3]
                     r = http.post(f"{gdrive.API}/files/{fid}/permissions", headers=h,
                                   params={"sendNotificationEmail": "false", "supportsAllDrives": "true", "fields": "id"},
-                                  json={"role": "reader", "type": "user", "emailAddress": email})
+                                  json={"role": "writer" if role == "writer" else "reader", "type": "user", "emailAddress": email})
                     if r.status_code != 200:
                         raise RuntimeError(f"보기 권한을 주지 못했습니다({r.status_code})")
                     granted[key] = {"id": r.json()["id"], "by": owner}
@@ -125,7 +135,7 @@ def sync(db, project_id: int, owner_email: str, want, http=None, missing: int = 
             log.warning("프로젝트 %s 작업 문서 공유 맞추기: %s", pid, err)
         db.set_setting(f"gshare:{pid}", json.dumps(granted))
         db.set_setting(f"gshare_status:{pid}", json.dumps({"at": time.time(), "error": err, "missing": int(missing)}, ensure_ascii=False))
-        return {"added": added, "removed": removed, "shared": len({k.split("|", 1)[1] for k in granted}), "error": err}
+        return {"added": added, "removed": removed, "shared": len({_email_of(k) for k in granted}), "error": err}
 
 
 def revoke_by(db, project_id: int, email: str, http=None) -> bool:

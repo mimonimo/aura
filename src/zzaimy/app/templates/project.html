@@ -36,6 +36,10 @@
     <form action="/project/{{ project.id }}/unarchive" method="post" style="margin:0;">
       <button type="submit" class="secondary">보관 해제</button></form>
     {% endif %}
+    {% if can_edit and not project.archived %}
+    <button type="button" class="secondary" data-modal-open="#shareModal" title="이 프로젝트를 볼 수 있는 사람 — {{ share_label }}">
+      <iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>공유 · {{ share_label }}</button>
+    {% endif %}
     {% if can_edit %}
     <button type="button" class="secondary" data-modal-open="#manageModal"
             style="font-family:inherit; cursor:pointer;">
@@ -43,8 +47,10 @@
     {% endif %}
   </div>
 </div>
-{% if not can_edit and not project.archived %}
-<p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:eye-linear"></iconify-icon><span>읽기 전용 — 같은 부서 {{ owner_label }} 님의 프로젝트입니다. 공개된 대화는 읽을 수 있고, 대화와 고치기는 담당자만 합니다.</span></p>
+{% if not can_edit and not project.archived and my_access == 'edit' %}
+<p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon><span>{{ owner_label }} 님이 함께 작업하도록 공유한 프로젝트입니다 — 내 대화를 열어 묻고 문서를 씁니다. 프로젝트 설정은 담당자가 합니다.</span></p>
+{% elif not can_edit and not project.archived %}
+<p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:eye-linear"></iconify-icon><span>보기로 공유된 {{ owner_label }} 님의 프로젝트입니다 — 공개된 대화와 작업 문서를 읽을 수 있습니다.</span></p>
 {% elif project.archived %}
 <p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:archive-linear"></iconify-icon><span>지난 사업 자료입니다. 다른 프로젝트에서 참조로 연결해 근거로 쓸 수 있고, 다시 진행하려면 「보관 해제」를 누릅니다.</span></p>
 {% elif flow_hints.get(project.sector) %}
@@ -69,7 +75,7 @@
 <p class="muted" id="intakeStatus" role="status" hidden>문서를 등록하는 중입니다…</p>
 {% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 첨부 문서 {{ received[-1] }}건. 본문을 읽고 열람 화면을 준비하는 중이며, 끝나면 상태가 「처리 완료」로 바뀝니다.</span></p>{% endif %}
 <section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
-{% if can_edit and not project.archived %}
+{% if (can_edit or my_access == 'edit') and not project.archived %}
 <div class="project-chat-row project-start">
   <form action="/chat/send" method="post">
     <input type="hidden" name="project_id" value="{{ project.id }}">
@@ -124,19 +130,14 @@
       {% set cs_title = cs.title | chat_title(project.name) %}{% set own_chat = cs.owner == request.state.user %}<div class="project-conversation-row"><a class="project-conversation" href="/chat/{{ cs.id }}{{ '' if own_chat else '/read' }}" title="{{ cs_title }}"><iconify-icon icon="solar:{{ 'lock-keyhole' if cs.is_private else 'chat-line' }}-linear"{% if cs.is_private %} title="비공개 — 본인만 봅니다"{% endif %}></iconify-icon><span>{{ cs_title }}</span>{% if not own_chat %}<span class="muted" style="font-size:12px; flex:none;">{{ cs.owner }} · 읽기 전용</span>{% endif %}<iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>{% if own_chat %}<form action="/chat/{{ cs.id }}/private" method="post" class="project-conversation-share"><input type="hidden" name="private" value="{{ '0' if cs.is_private else '1' }}"><input type="hidden" name="back" value="/project/{{ project.id }}"><button type="submit" class="secondary" title="{{ '같은 부서 동료도 읽을 수 있게 합니다' if cs.is_private else '본인만 보게 합니다' }}">{{ '공개로' if cs.is_private else '비공개로' }}</button></form>{% endif %}</div>
       {% endfor %}
     </div>
-    {% else %}<p class="project-empty">{% if project.archived %}대화가 없습니다. 보관 해제 뒤 대화를 시작할 수 있습니다.{% elif not can_edit %}공개된 대화가 없습니다. 대화는 담당자만 시작합니다.{% else %}대화가 없습니다. 위 입력줄에서 첫 대화를 시작합니다.{% endif %}</p>{% endif %}
+    {% else %}<p class="project-empty">{% if project.archived %}대화가 없습니다. 보관 해제 뒤 대화를 시작할 수 있습니다.{% elif not can_edit and my_access != 'edit' %}공개된 대화가 없습니다.{% else %}대화가 없습니다. 위 입력줄에서 첫 대화를 시작합니다.{% endif %}</p>{% endif %}
   </div>
 </div>
-{% if can_edit or (drive_share.on and work_docs) %}<div class="card project-chat-card">
+{% if can_edit or work_docs %}<div class="card project-chat-card">
   <div class="card-in">
     <div class="project-history-heading"><h3>작업 문서 <span class="project-doc-count" id="workDocCount">{{ work_docs|length }}</span></h3>
-    {% if can_edit and not project.archived %}{# 작업 폴더(구글 드라이브)의 부서 보기 공유 — 담당자가 켜고 끈다 #}
-    <form action="/project/{{ project.id }}/drive-share" method="post" class="project-drive-share">
-      <input type="hidden" name="on" value="{{ '0' if drive_share.on else '1' }}">
-      <span class="muted" title="같은 부서 동료의 학교 구글 계정에 작업 폴더 보기 권한을 줍니다. 끄면 이 기능이 준 권한만 거둡니다.">{% if drive_share.on %}부서 공유 켬 · 동료 {{ drive_share.shared }}명 볼 수 있음{% if drive_share.missing %} · 구글 미연결 {{ drive_share.missing }}명{% endif %}{% else %}부서 공유 끔{% endif %}{% if drive_share.error %} · 확인 필요{% endif %}</span>
-      <button type="submit" class="secondary">{{ '끄기' if drive_share.on else '켜기' }}</button>
-    </form>
-    {% elif not can_edit %}<span class="muted" style="font-size:12px;">부서 공유 — 구글에서 보기</span>{% endif %}</div>
+    {% if can_edit and drive_share.shared %}<span class="muted" style="font-size:12px;">작업 문서 공유 {{ drive_share.shared }}명{% if drive_share.missing %} · 구글 미연결 {{ drive_share.missing }}명{% endif %}{% if drive_share.error %} · 확인 필요{% endif %}</span>
+    {% elif not can_edit %}<span class="muted" style="font-size:12px;">공유받은 작업 문서 — 구글에서 열기</span>{% endif %}</div>
     {# 처음엔 서버 기록으로 그리고, 구글 문서가 연결된 대화마다 문서 패널과 같은 목록(드라이브 폴더)을 불러와 바꾼다 #}
     <div class="project-conversations" id="workDocs" data-sessions="{{ work_sessions|join(',') }}">
       {% for w in work_docs %}
@@ -302,6 +303,56 @@
   </div>
 </div>
 
+{% if can_edit and not project.archived %}
+{# 프로젝트 공유 — 나만 / 공유(부서 일괄·지정 사용자, 보기·함께 작업). 저장하면 작업 문서의 구글 권한도 따라간다(app/project_access) #}
+<div id="shareModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
+  <div class="card share-modal"><div class="card-in">
+    <div class="modal-head"><h2 id="shareModalTitle"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>프로젝트 공유</h2>
+      <button type="button" data-modal-close class="icon-btn" title="닫기" aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/project/{{ project.id }}/shares" method="post" id="shareForm">
+      <div class="share-mode">
+        <label><input type="radio" name="mode" value="private" {{ 'checked' if share.mode == 'private' }}> 나만</label>
+        <label><input type="radio" name="mode" value="shared" {{ 'checked' if share.mode == 'shared' }}> 공유</label>
+      </div>
+      <div class="share-rows" data-share-rows {{ 'hidden' if share.mode == 'private' }}>
+        {% for it in share['items'] %}<div class="share-row"><select name="to" aria-label="받는 부서·사람">
+          <optgroup label="부서 전체">{% for d in share_depts %}<option value="dept:{{ d }}" {{ 'selected' if it.to == 'dept:' ~ d }}>{{ d }}</option>{% endfor %}</optgroup>
+          <optgroup label="사용자">{% for u in share_users %}<option value="user:{{ u }}" {{ 'selected' if it.to == 'user:' ~ u }}>{{ u }}</option>{% endfor %}</optgroup></select>
+          <select name="level" aria-label="권한">{% for k, v in share_levels.items() %}<option value="{{ k }}" {{ 'selected' if it.level == k }}>{{ v }}</option>{% endfor %}</select>
+          <button type="button" class="secondary" data-share-remove aria-label="빼기">빼기</button></div>{% endfor %}
+        <template data-share-template><div class="share-row"><select name="to" aria-label="받는 부서·사람">
+          <optgroup label="부서 전체">{% for d in share_depts %}<option value="dept:{{ d }}">{{ d }}</option>{% endfor %}</optgroup>
+          <optgroup label="사용자">{% for u in share_users %}<option value="user:{{ u }}">{{ u }}</option>{% endfor %}</optgroup></select>
+          <select name="level" aria-label="권한">{% for k, v in share_levels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+          <button type="button" class="secondary" data-share-remove aria-label="빼기">빼기</button></div></template>
+        <button type="button" class="secondary" data-share-add><iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서·사람 더하기</button>
+      </div>
+      <p class="muted share-help">보기 — 공개된 대화·작업 문서를 읽기 · 함께 작업 — 이 프로젝트에서 자기 대화를 열고 문서를 씀(작업 문서 편집). 비공개로 둔 대화는 공유돼도 나만 봅니다.</p>
+      <div class="share-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">저장</button></div>
+    </form>
+  </div></div>
+</div>
+<style>
+  .share-modal { width:520px; max-width:100%; }
+  .share-mode { display:flex; gap:18px; margin:4px 0 12px; }
+  .share-mode label { display:flex; align-items:center; gap:6px; font-weight:600; }
+  .share-rows { display:flex; flex-direction:column; gap:8px; }
+  .share-row { display:grid; grid-template-columns:minmax(0,1fr) 120px auto; gap:8px; align-items:center; }
+  .share-help { font-size:12px; margin:12px 0 0; line-height:1.6; }
+  .share-foot { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+</style>
+<script>
+(function () {
+  var form = document.getElementById('shareForm'); if (!form) return;
+  var rows = form.querySelector('[data-share-rows]'), tpl = form.querySelector('[data-share-template]');
+  form.addEventListener('change', function (e) { if (e.target.name === 'mode') rows.hidden = e.target.value !== 'shared'; });
+  form.querySelector('[data-share-add]').addEventListener('click', function () {
+    rows.insertBefore(tpl.content.firstElementChild.cloneNode(true), form.querySelector('[data-share-add]'));
+  });
+  rows.addEventListener('click', function (e) { var b = e.target.closest('[data-share-remove]'); if (b) b.closest('.share-row').remove(); });
+})();
+</script>
+{% endif %}
 <div id="manageModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="manageModalTitle">
   <div class="card">
     <div class="card-in">
