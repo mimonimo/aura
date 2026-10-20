@@ -574,7 +574,53 @@ def test_project_share_to_user_with_edit_lets_them_open_their_own_chat(world, mo
     assert calls[-1] == {"DOCTOGETHER1": {"sanhak@ync.ac.kr": "writer"}}
     page = other.get(f"/project/{pid}")
     assert page.status_code == 200 and "함께 작업하도록 공유한" in page.text and 'name="project_id"' in page.text
+    assert "공유받은 프로젝트" in page.text                                 # 사이드바에 따로
     assert other.get(f"/chat?project={pid}").status_code == 200
     assert other.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False).status_code == 404
     owner.post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:sanhak", "level": "view"}, follow_redirects=False)
     assert other.get(f"/chat?project={pid}").status_code == 404           # 보기만 — 새 대화는 못 연다
+
+
+def test_collaborator_cannot_continue_project_chat_after_share_is_revoked(world, monkeypatch):
+    """함께 작업 공유가 풀리면 그 프로젝트 안에서 연 내 대화도 이어 쓰지 못한다 — 읽기는 된다(10-21 보안 검토)."""
+    from zzaimy.ingest import drive_share
+    app, ids, tmp = world
+    db = app.state.db
+    monkeypatch.setattr(drive_share, "sync", lambda *a, **k: {"added": [], "removed": [], "shared": 0, "error": ""})
+    pid = db.create_project("grant", "거둘사업", owner="plan")
+    owner, other = _client(app, "plan"), _client(app, "sanhak")
+    owner.post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:sanhak", "level": "edit"}, follow_redirects=False)
+    mine = db.create_chat_session("내작업", owner="sanhak", project_id=pid)
+    owner.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False)
+    r = other.post("/chat/send", data={"question": "계속 써 줘", "session_id": mine}, follow_redirects=False)
+    assert r.status_code == 403
+    assert other.get(f"/chat/{mine}").status_code == 200
+
+
+def test_writer_grant_turns_off_resharing():
+    """함께 작업(편집) 권한을 줄 때 편집자가 다시 공유하지 못하게 한다 — 기록 밖 권한이 생기면 거둘 수 없다."""
+    import httpx
+    from zzaimy.ingest import drive_share, gdrive, gdrive_files
+
+    class FakeDB:
+        def __init__(self):
+            self.s = {}
+        def get_setting(self, k, d=""):
+            return self.s.get(k, d)
+        def set_setting(self, k, v):
+            self.s[k] = v
+    sent = []
+
+    def handler(req):
+        sent.append((req.method, str(req.url.path), json.loads(req.content or b"{}")))
+        return httpx.Response(200, json={"id": "perm1"})
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    orig = (gdrive_files.has_file_scope, gdrive_files._headers)
+    gdrive_files.has_file_scope = lambda e: True
+    gdrive_files._headers = lambda e, h: {"Authorization": "Bearer x"}
+    try:
+        drive_share.sync(FakeDB(), 1, "owner@ync.ac.kr", {"F1": {"col@ync.ac.kr": "writer"}}, http=http)
+    finally:
+        gdrive_files.has_file_scope, gdrive_files._headers = orig
+    assert any(m == "POST" and b.get("role") == "writer" for m, _p, b in sent)
+    assert any(m == "PATCH" and b == {"writersCanShare": False} for m, _p, b in sent)

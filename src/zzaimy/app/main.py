@@ -924,6 +924,9 @@ def create_app(
             "drive_new": drive_new,
             "alert_count": len(actionable) + len(failed) + len(drive_new),
             "side_projects": db.list_all_projects(owner=owner),
+            # 공유받은 프로젝트 — 내 것 아래 따로(project_access). 학생·관리자 화면에는 없다
+            "side_shared": [p for p in (db.get_project(i) for i in _shared_project_ids(request)[:20]) if p]
+                           if getattr(request.state, "role", "") in _ap.STAFF_ROLES else [],
             "profile_name": db.profile_for(getattr(request.state, "user", None)).get("name", ""),
             "profile_dept": (accounts.get(getattr(request.state, "user", "") or "", {}) or {}).get("dept", ""),
             **extra,
@@ -1266,6 +1269,12 @@ def create_app(
         session = db.get_chat_session(session_id)
         if not session or session.get("owner") != request.state.user:
             raise HTTPException(404, "대화를 찾을 수 없습니다.")
+        # 남의 프로젝트 안에서 연 내 대화 — 그 프로젝트를 「함께 작업」으로 받고 있을 때만 이어 쓴다. 공유가 풀리면 읽기만(10-21 보안 검토:
+        # 공유를 거둬도 프로젝트 맥락으로 계속 묻지 못하게)
+        if request.method == "POST" and session.get("project_id"):
+            proj = db.get_project(int(session["project_id"]))
+            if proj and proj.get("owner") != request.state.user and _project_access(request, proj) != "edit":
+                raise HTTPException(403, "이 프로젝트의 함께 작업 공유가 풀려 이 대화를 이어 쓸 수 없습니다")
         return session
 
     def _can_read_chat(request, session: dict | None) -> bool:
@@ -1282,8 +1291,15 @@ def create_app(
         if getattr(request.state, "role", "") == "dev":
             return True
         proj = db.get_project(int(session["project_id"]))
-        # 공유받은 프로젝트의 공개 대화 — 담당자의 대화든 함께 작업하는 사람의 대화든(project_access)
         if not (bool(proj) and _project_access(request, proj)):
+            return False
+        # 누가 쓴 대화인가 — 담당자가 직접 공유 범위를 정해 나에게 연 프로젝트의 담당자 대화는 담당자의 뜻으로 연다.
+        # 그 밖(함께 작업하는 다른 사람의 대화, 정하지 않은 기본 공유)은 예전 동료 규칙 — 쓴 사람의 검색 범위가 나보다 넓지 않을 때만
+        # (그 사람 답에는 근거 기록에 남지 않은 자료가 섞일 수 있다, 10-16·10-21 보안 검토)
+        from zzaimy.app import project_access as _pa
+        owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
+        explicit = not _pa.shares(db, proj, owner_dept).get("implicit")
+        if not (explicit and session.get("owner") == proj.get("owner")) and not _peer_of(me, session.get("owner") or ""):
             return False
         # 대화가 근거로 쓴 문서·첨부가 모두 내가 볼 수 있는 것일 때만 — 만든 사람만 보는 문서(열람 등급 owner 등)의 내용이 답에 섞였을 수 있다
         return _chat_open_to(session, _req_viewer(request))

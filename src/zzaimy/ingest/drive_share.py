@@ -128,6 +128,10 @@ def sync(db, project_id: int, owner_email: str, want, http=None, missing: int = 
                         raise RuntimeError(f"보기 권한을 주지 못했습니다({r.status_code})")
                     granted[key] = {"id": r.json()["id"], "by": owner}
                     added.append(key)
+                    if role == "writer":
+                        # 편집자가 다른 사람에게 다시 공유하지 못하게 — 이 기능이 기록하지 않는 권한이 생기면 거둘 수 없다(10-21 보안 검토)
+                        http.patch(f"{gdrive.API}/files/{fid}", headers=h, params={"supportsAllDrives": "true"},
+                                   json={"writersCanShare": False})
                     db.set_setting(f"gshare:{pid}", json.dumps(granted))
             except Exception as e:                                     # 주기 실패는 문서 작업을 막지 않는다 — 다음 맞추기에서 다시
                 err = err or str(e)[:200]
