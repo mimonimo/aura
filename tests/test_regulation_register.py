@@ -135,3 +135,18 @@ def test_patterns_and_query_stay_cheap_on_hostile_input(tmp_path):
     t0 = time.perf_counter()
     got = rr.candidates(db, "가 " * 100000)
     assert time.perf_counter() - t0 < 2.0 and got["total"] <= 1
+
+
+def test_auto_register_takes_new_versions_but_respects_manual_unregister(tmp_path):
+    """반입 자료의 새 판은 저절로 기준 문서가 되고 옛 판은 물러난다 — 사람이 해제한 문서는 다시 올리지 않는다(10-21)."""
+    db = Database(tmp_path / "r.db")
+    old = _doc(db, "가상 연구비 규정 · 2023년 3월 1일", family="연구비")
+    rr.register(db, [old], tmp_path)
+    new = _doc(db, "가상 연구비 규정 · 2025년 3월 1일", family="연구비")
+    got = rr.auto_register(db, tmp_path)
+    assert got["registered"] == 1 and got["replaced"] == 1
+    assert db.get_document(new)["doc_type"] == "regulation" and db.get_document(old)["doc_type"] == "grant"
+    other = _doc(db, "가상 장학 규정")
+    rr.register(db, [other], tmp_path)
+    rr.unregister(db, [other], tmp_path, by="dev")                     # 사람이 뺐다
+    assert rr.auto_register(db, tmp_path)["registered"] == 0 and db.get_document(other)["doc_type"] == "grant"

@@ -12,3 +12,5 @@ if [ "$n" -gt 0 ]; then
     scripts/zz_run.sh 12G env PYTHONPATH=src .venv/bin/python scripts/168_import_parsed.py --rels data/platform/reimport_rels.json data/inbox/parsed/parsed-*.jsonl >> /tmp/zz_sync.log 2>&1
     scripts/zz_run.sh 4G env PYTHONPATH=src .venv/bin/python scripts/175_pipeline_audit.py >> /tmp/zz_sync.log 2>&1
 fi
+# 처리 실패 문서 정리(199) — 지금 읽기 도구로 한 번 더 읽어 보고, 그래도 못 읽으면 문서함에서 뺀다(원본은 원본 보관소에 남음)
+scripts/zz_run.sh 8G env PYTHONPATH=src .venv/bin/python scripts/199_settle_failed.py >> /tmp/zz_sync.log 2>&1

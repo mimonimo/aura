@@ -250,6 +250,32 @@ def register(db, doc_ids: list[int], data_dir: Path, by: str = "") -> dict:
     return {"registered": len(done), "skipped": len(skipped), "chunks": made, "replaced": len(replaced)}
 
 
+def manual_unregistered(data_dir: Path) -> set[int]:
+    """사람이(화면·도우미에서) 등록 해제한 문서 — 자동 등록이 다시 올리지 않는다. 판 정리(reason 이 있는 해제)·스크립트 해제는 뺀다."""
+    out: set[int] = set()
+    log = Path(data_dir) / "regulation_register.jsonl"
+    if log.is_file():
+        for line in log.read_text(encoding="utf-8").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if rec.get("action") == "unregister" and not rec.get("reason") and not str(rec.get("by") or "").startswith(("scripts/", "auto")):
+                out |= {int(x) for x in rec.get("docs") or []}
+    return out
+
+
+def auto_register(db, data_dir: Path) -> dict:
+    """반입 자료에서 찾은 새 판·미등록 규정을 기준 문서로 저절로 올린다(10-21 사용자: 반입할 때 알아서 등록돼야).
+    후보 고르기(candidates)는 화면과 같은 규칙 — 기준 문서보다 새 판일 때만 후보이고, 올리면 옛 판은 사업 문서로 돌아간다(register).
+    사람이 등록 해제한 문서는 다시 올리지 않는다."""
+    skip = manual_unregistered(data_dir)
+    ids = [x["id"] for x in candidates(db)["items"] if int(x["id"]) not in skip]
+    if not ids:
+        return {"registered": 0, "skipped": 0, "chunks": 0, "replaced": 0}
+    return register(db, ids, data_dir, by="auto")
+
+
 def current_groups(db) -> dict[str, list[dict]]:
     """기준 문서를 규정(rule_key)마다 묶는다 — {열쇠: [{id,title,family,text,chunks}]}."""
     with db._conn() as conn:

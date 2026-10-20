@@ -15,7 +15,7 @@
 - `zz_logcap.sh` — 주기 작업 기록 파일이 상한(기본 200MB)을 넘으면 직전 판 하나(.1)만 남기고 새로 시작한다.
 - `zz_parsed.sh` — DGX 가 가볍게 처리한 결과(~/parsed)를 1분마다 받아 문서함에 들이고 새 문서의 서류 갈래를 27B(토르 03, review)로 판정한다(170 --parsed).
 - `zz_quick.sh` — 1분마다 그래프 입력 지문을 견주어 바뀌었으면 그래프·양식·색인을 다시 짓는다(170 --quick). 바꾼 쪽이 따로 알릴 필요 없음.
-- `zz_reconcile.sh` — 하루 한 번 맞추기 — 연동 점검(175 --find-reimport)이 「DGX 에서 정상 처리됐는데 문서함에 없는 원본」을 찾아 168 --rels 로 다시 들인다.
+- `zz_reconcile.sh` — 하루 한 번 맞추기 — 연동 점검(175 --find-reimport)이 「DGX 에서 정상 처리됐는데 문서함에 없는 원본」을 찾아 168 --rels 로 다시 들인다.  처리 실패 문서도 정리한다(199).
 - `zz_run.sh` — 배치 작업 실행기 — 메모리 상한(넘으면 그 작업만 죽는다)과 강제 종료 우선순위(웹·DB 보다 먼저)를 건다.
 - `zz_sync.sh` — DGX 원본 → VM 갱신(170). cron 과 수동 실행이 겹치지 않게 flock.
 - `zz_tracks_ls.sh` — 학습 후보(두 묶음) → Label Studio 올리기를 주기로. 후보는 생성 타이머(zzaimy-track-generation, 5분)가 만들고,
