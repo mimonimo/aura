@@ -266,7 +266,7 @@
         <div class="use-now">
           {% if srv %}
             <strong>{{ srv.name }}</strong>
-            <span class="use-model">{{ (r.model if own else none) or srv.model or "자동" }}</span>
+            <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 기본 모델" }}</span>
             {% if not own %}<span class="pill use-tag">자동</span>{% endif %}
           {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
         </div>
@@ -329,9 +329,10 @@
   <p class="muted" style="font-size:12.5px; margin:0;">서버를 먼저 등록하세요.</p>
   {% endif %}
 
-  {# 계획서 모델 4종이 지금 어디서 도는지 — 계획과 다르면 그 자리에서 보이게 #}
-  <div class="srv-head muted">계획 모델과 현재 서빙 연결</div>
-  <p class="muted">서버 응답 여부를 표시합니다. 정상 연결은 SFT 완료나 품질 검증 완료를 뜻하지 않습니다.</p>
+  {# 계획서 모델이 지금 어디서 도는지 — 개발 확인용이라 연결 작업 화면에서는 접어 둔다(학습 진행은 개발 현황 「모델 개발·학습 현황」) #}
+  <button type="button" class="addr-toggle" data-plan-toggle aria-expanded="false" aria-controls="planBox">계획 모델과 현재 서빙 연결</button>
+  <div id="planBox" hidden>
+  <p class="muted" style="font-size:12px; margin:8px 0 4px;">서버 응답 여부만 표시 · 연결됨이 학습·품질 검증 완료를 뜻하지는 않음</p>
   <div class="plan-list">
     {% for p in serving_plan %}
     <div class="plan-row">
@@ -356,6 +357,7 @@
   <button type="button" class="addr-toggle" data-addr-toggle aria-expanded="false">연결 주소 보기</button>
   {% endif %}
   <p class="muted" style="font-size:11.5px; margin:10px 0 0;">학습은 {{ train_host }}, 서빙은 토르가 맡습니다. 임베딩 모델을 바꾸면 전체 재색인이 필요합니다.</p>
+  </div>
 </div></div>
 
 {# 연결별 설정 — 수정·확인·용도·삭제를 톱니 하나에 모은다 #}
@@ -424,6 +426,15 @@ document.addEventListener("DOMContentLoaded", function () {
       var open = btn.getAttribute("aria-expanded") !== "true";
       btn.closest(".card-in").querySelectorAll("[data-addr]").forEach(function (el) { el.hidden = !open; });
       btn.setAttribute("aria-expanded", String(open));
+    });
+  });
+  // 계획 모델 표 — 개발 확인용이라 접어 두고 펼치기/접기 단추로 연다
+  document.querySelectorAll("[data-plan-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var box = document.getElementById(btn.getAttribute("aria-controls"));
+      if (!box) return;
+      box.hidden = !box.hidden;
+      btn.setAttribute("aria-expanded", String(!box.hidden));
     });
   });
   // 그 자리에서 펼치기 — 모델 목록처럼 가끔 보는 것에 팝업까지 둘 이유가 없다
@@ -495,7 +506,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var label = selected ? selected.cloneNode(true) : null;
         if (label) label.querySelectorAll('.chip-n').forEach(function(n) { n.remove(); });
         var name = document.createElement('strong'); name.textContent = label ? label.textContent.trim() : '자동';
-        var value = document.createElement('span'); value.className = 'use-model'; value.textContent = model || '자동';
+        var value = document.createElement('span'); value.className = 'use-model'; value.textContent = model || '서버 기본 모델';
         now.replaceChildren(name, value);
       }
       row._paintSummary = summary;

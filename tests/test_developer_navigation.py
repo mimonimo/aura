@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from tests.test_accounts import _app, _login
 
 
-@pytest.mark.parametrize('url,active', [('/dev/users','사용자·계정'),('/dev/db','원천 데이터'),('/dev/docs','논문·설계 문서')])
+@pytest.mark.parametrize('url,active', [('/dev/users','사용자·계정'),('/dev/db','데이터 현황'),('/dev/docs','논문·설계 문서')])
 def test_developer_sidebar_replaces_workspace_menu(tmp_path, url, active):
     c = TestClient(_app(tmp_path))
     assert _login(c, 'zzdev', 'devpass')

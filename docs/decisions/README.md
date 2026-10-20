@@ -14,8 +14,136 @@
 - 파일명 `NNNN-짧은-제목.md`, 번호는 증가만 한다
 - 기존 기록을 고쳐 쓰지 않는다. 결정이 바뀌면 새 번호로 쓰고 옛 것을 `대체됨`으로 표시
 - 승인 전 결정은 `제안`으로 표시한다
+- 새 기록을 쓰면 아래 「주제별 묶음」의 맞는 표에도 한 줄 넣고, 옛 기록이 대체되면 그 줄의 「지금」 칸을 고친다
 - 번호가 겹치면 안 된다. 새 번호는 `python scripts/127_adr_index.py --next` 로 받고, `--check` 가 겹침을 잡는다.
   옛 겹침 0037(초안 구성·PostgreSQL 전환)과 0052(학생 학사 규정·SFT 두 묶음)는 이미 그 번호로 불리고 있어 그대로 둔다
+
+## 주제별 묶음
+
+같은 주제의 결정을 한곳에 모았다. 「지금」 칸은 유효·일부 대체·대체됨·제안 가운데 하나이고, 대체된 경우 이어받은 번호를 적는다.
+원문은 고쳐 쓰지 않으므로 바뀐 사정은 이 칸과 새 번호의 기록에서 본다. 개발자 화면의 설계 결정 목록도 이 묶음 이름을 함께 보인다.
+
+### 문서 반입·판독
+
+원천 연결, 반입 계약, OCR·한글 읽기, 기준 문서 규칙
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0003](0003-domain-neutral-ingest.md) | 인제스트 공통 계층의 도메인 중립화 | 제안 |
+| [0006](0006-criteria-no-masking.md) | 기준 문서는 마스킹하지 않는다 | 유효 |
+| [0007](0007-ocr-extraction-standard.md) | 문서 추출(OCR) 표준 파이프라인 | 일부 대체 — docling 폴백은 0050 |
+| [0016](0016-table-text-figure-ocr-captions.md) | 표 평문·그림 속 글자·캡션 추출 계약 | 유효 |
+| [0018](0018-nas-readonly-ingest.md) | 교내 NAS 읽기 전용 가져오기 | 유효 |
+| [0027](0027-criteria-versions-kinds-table-text.md) | 기준 문서의 판본·서류 갈래·표 평문 규칙 | 유효 |
+| [0028](0028-google-drive-source.md) | 구글 드라이브를 읽기 전용 원천으로 | 유효 |
+| [0033](0033-kordoc-as-reader-adapter.md) | kordoc 을 한글 읽기 어댑터로 | 유효 |
+| [0049](0049-grant-series-index-and-unified-intake.md) | 사업 문서 계열 색인과 반입 경로 하나로 | 유효 |
+| [0050](0050-drop-docling-from-ocr.md) | docling 을 판독 경로에서 뺀다 | 일부 대체 — 3항은 0051 |
+| [0051](0051-office-files-without-docling.md) | 오피스 파일 읽기에서 docling 을 뺀다 | 유효 |
+| [0064](0064-intake-regulations-as-criteria.md) | 반입 자료의 교내 규정을 기준 문서로 | 유효 |
+
+### 저장·데이터 체계
+
+DB·폴더 구조, 데이터 층, 문서 맥락 계약
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0030](0030-document-storage-layout.md) | 문서 저장 구조 — DB 가 원본 | 유효 |
+| [0031](0031-data-tiers.md) | 데이터 체계 — 문서·지식·모델 세 층 | 유효 |
+| [0037](0037-postgresql-migration.md) | 플랫폼 PostgreSQL 전환 | 유효 |
+| [0041](0041-portable-document-context.md) | 이식 가능한 문서 맥락 계약 | 유효 |
+
+### 검색(RAG)
+
+임베딩·리랭커·검색 경로·검색 모드
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0015](0015-learned-relatedness-over-rules.md) | 연관 판정은 학습된 의미 표현으로 | 유효 |
+| [0020](0020-rerank-on-serving-gpu-and-v1-adoption.md) | 리랭커를 서빙 GPU 로, Rerank v1 운영 | 유효 |
+| [0021](0021-embed-v2-adoption.md) | 조밀 검색을 Embed v2 로 | 유효 |
+| [0022](0022-kure-v2-and-mineru-vlm.md) | KURE-v2·MinerU GPU 백엔드 보류 | 제안 — KURE-v2 부분은 0025 로 결론 |
+| [0025](0025-kure-v2-multivector-measured.md) | KURE-v2 다중 벡터를 채택하지 않는다 | 유효 |
+| [0038](0038-external-web-search-mode.md) | 외부 검색 모드 | 유효 |
+| [0057](0057-pgvector-dense-search.md) | 의미 검색 벡터는 pgvector 로 | 유효 |
+
+### 지식그래프·온톨로지
+
+온톨로지 판, 그래프 단계, 시각화
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0009](0009-knowledge-graph-ontology.md) | 지식 그래프 — 경량 온톨로지와 단계 도입 | 유효 |
+| [0010](0010-entity-layer.md) | 개체 계층 — 온톨로지 v2 | 유효 |
+| [0047](0047-ontology-rag-reasoning-finetune.md) | 실문서는 온톨로지·그래프로 RAG 에, 파인튜닝은 리즈닝만 | 유효 |
+| [0048](0048-ontology-v3-section-graph.md) | 온톨로지 v3 — 절 단위 사업 그래프 | 제안 |
+| [0054](0054-graph-visualization-cytoscape.md) | 그래프 시각화는 Cytoscape.js | 유효 |
+| [0055](0055-ontology-orgs-and-document-kinds.md) | 기관 노드와 서류 갈래 확장 | 유효 |
+| [0056](0056-ontology-owl-shacl.md) | 온톨로지 OWL·RDF 내보내기와 SHACL 검사 | 유효 |
+| [0063](0063-graph-stage-model-reading.md) | 그래프 단계 — 질문을 온톨로지 말로 읽는다 | 제안 |
+
+### 모델·학습·서빙
+
+학습 스택, 학습 데이터, 서빙 장비와 정밀도
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0001](0001-training-stack.md) | 학습 스택 선정과 venv 분리 | 일부 변경 — LLaMA-Factory 는 10-18 걷어냄, 학습은 DGX TRL·PEFT 스크립트(bf16 LoRA) |
+| [0004](0004-serving-stack.md) | vLLM 서빙 이미지 고정 | 유효 |
+| [0011](0011-oss-mlops-integration.md) | 학습·데이터 도구 — 기성 오픈소스 통합 | 제안 — LLaMA Board 는 10-18 걷어냄, Label Studio·TensorBoard 는 사용 |
+| [0012](0012-artifact-portability.md) | 학습 산출물 반출성 | 유효 |
+| [0023](0023-writer-serving-precision-two-thors.md) | Writer 서빙을 두 토르에, FP4 우선 | 유효 |
+| [0026](0026-extract-on-writer-27b.md) | 실적 추출도 Writer(27B) 하나로 | 제안 |
+| [0039](0039-real-document-training-pairs.md) | 실문서 학습쌍 — 양식 × 완성본 | 유효 — 안의 DPO 쌍은 10-20 범위에서 뺌 |
+| [0040](0040-structure-chain-cot-pairs.md) | 문서 구조 단계 문답(CoT) | 유효 — 끝의 DPO 단계는 10-20 범위에서 뺌 |
+| [0052](0052-two-sft-tracks.md) | SFT 데이터 두 묶음 | 유효 |
+
+### 문서 작성·화면
+
+독스 작업본, 한글 산출, 양식, 에이전트, 라이브러리 화면
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0002](0002-agent-layer-and-dashboard.md) | 에이전트 계층과 검수 대시보드 | 제안 |
+| [0013](0013-hwpx-engine-rhwp.md) | 웹 한글 기안기 엔진 rhwp | 대체됨 — 0014 |
+| [0014](0014-hwp-authoring-com-agent-md-ir.md) | 한글 문서 = COM 에이전트 생성 | 대체됨 — 0034 |
+| [0029](0029-google-docs-agent-editing.md) | 구글 독스를 화면 안에서 에이전트와 함께 | 유효 |
+| [0032](0032-office-files-view-via-google.md) | 오피스·한글 열람은 구글 변환본으로 | 유효 |
+| [0034](0034-drop-com-agent-use-mcp.md) | COM 한글 에이전트 폐기, 필요하면 MCP | 유효 |
+| [0035](0035-hwpx-format-preserving-fill.md) | 최종 한글본은 원본 서식에 채워 만든다 | 유효 |
+| [0036](0036-line-spacing-per-renderer.md) | 줄 간격·행 높이는 렌더러마다 | 유효 |
+| [0037](0037-draft-layout-tables-figures.md) | 초안은 완성본과 같은 구성으로 | 유효 |
+| [0045](0045-docs-gothic-font-nanum-gothic.md) | 독스 고딕 글꼴은 Nanum Gothic | 유효 |
+| [0046](0046-docs-width-emulation-default-on.md) | 독스 장평 흉내 기본 켬 | 유효 |
+| [0058](0058-gdocs-common-templates-and-drafting-flow.md) | 독스 공통 양식과 절 단위 작성 흐름 | 일부 대체 — 「병합 없는 표」는 0059 |
+| [0059](0059-gdocs-templates-real-form-layout.md) | 공통 양식은 실제 서식 모양으로 | 유효 |
+| [0060](0060-writer-picks-document-form.md) | 문서 양식은 Writer 가 고른다 | 유효 |
+| [0062](0062-library-one-list-criteria-chip.md) | 라이브러리는 한 목록, 기준은 쓰임새 칩 | 유효 |
+
+### 권한·외부 전송
+
+열람 범위, 외부 연결과 전송 통제, 학습 반출
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0008](0008-external-egress-gateway.md) | 외부 참조 이그레스 게이트웨이 | 제안 — 전송 구현 경로는 0042·0043 |
+| [0017](0017-llm-connections-external-scope.md) | LLM 연결 관리 — 상용 클라우드 API 불사용 | 유효 |
+| [0019](0019-reversible-tokenization-egress.md) | 외부 처리용 가역 토큰화 | 유효 |
+| [0024](0024-public-doc-external-reader.md) | 공개 수집 문서 판독에 상용 API 허용 | 대체됨 — 0061 |
+| [0042](0042-subscription-session-reference.md) | 외부 참조 AI는 구독 로그인 작업 세션으로 | 유효 — API 경로 처리는 0043 |
+| [0043](0043-remove-legacy-external-api.md) | 기존 외부 참조 API 기능 제거 | 유효 |
+| [0044](0044-internal-privacy-training-boundary.md) | 내부 원문 활용과 학습 반출 보호 분리 | 유효 |
+| [0052](0052-student-academic-regulation-corpus.md) | 학생은 학사 규정 RAG 만 | 유효 |
+| [0053](0053-rag-spaces-per-department.md) | RAG 공간 — 학생·부서별 검색 범위 | 유효 |
+| [0061](0061-retire-public-doc-external-reader.md) | 공개 자료 외부 판독 경로 폐기 | 유효 |
+
+### 계획·작업 방식
+
+저장소와 협업 절차
+
+| 번호 | 결정 | 지금 |
+|---|---|---|
+| [0005](0005-solo-workflow.md) | 단독 워크플로 — PR 절차 생략 | 유효 |
 
 ## 색인
 

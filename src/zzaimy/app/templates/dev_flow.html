@@ -28,9 +28,6 @@
 .pf-nums{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:12.5px;}
 .pf-nums span b{font-variant-numeric:tabular-nums;}
 .pf-link{font-size:12px;margin-top:8px;display:inline-block;}
-.pf-path{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px;counter-reset:pf;}
-.pf-path div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.55;}
-.pf-path div b{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:2px;}
 .pf-cycles{width:100%;font-size:12.5px;border-collapse:collapse;}
 .pf-cycles td,.pf-cycles th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
 @media(max-width:760px){.pf-stage{grid-template-columns:minmax(0,1fr);}}
@@ -42,7 +39,7 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>낱말 다섯</h2>
+  <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>핵심 용어</h2>
   <div class="pf-grid">
     {% for t in terms %}
     <article class="pf-term">
@@ -95,15 +92,10 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:question-circle-linear"></iconify-icon>질문 하나의 길</h2>
-  <div class="pf-path">{% for k, v in question_path %}<div><b>{{ loop.index }}. {{ k }}</b>{{ v }}</div>{% endfor %}</div>
-</div></div>
-
-<div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:clock-circle-linear"></iconify-icon>주기 작업</h2>
   <div class="table-scroll"><table class="pf-cycles">
-    <tr><th>주기</th><th>장비</th><th>하는 일</th></tr>
-    {% for every, host, what in cycles %}<tr><td style="white-space:nowrap;">{{ every }}</td><td style="white-space:nowrap;">{{ host }}</td><td>{{ what }}</td></tr>{% endfor %}
+    <tr><th>언제</th><th>어디서</th><th>하는 일</th></tr>
+    {% for every, host, what in cycles %}<tr><td>{{ every }}</td><td style="white-space:nowrap;">{{ host }}</td><td>{{ what }}</td></tr>{% endfor %}
   </table></div>
 </div></div>
 <div class="card reveal"><div class="card-in">

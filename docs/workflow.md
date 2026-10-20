@@ -11,7 +11,7 @@
 | `docs/HANDOFF.md` · `docs/dev-now.md` | 현재 상태 | 새 것을 넣을 때마다 |
 | `docs/decisions/` | 결정과 근거 | 새 번호로 추가, 옛 것은 `대체됨` |
 | `docs/architecture.md` 등 설계 5종 | 설계 기록 | 구현이 달라지면 현황 주석을 붙이고 본문은 그대로 |
-| `research/` · `docs/business-plan.md` · `docs/proposal/기획서-초안.md` | 원안·조사 기록(참고) | 고치지 않는다 |
+| `research/` · `docs/business-plan.md` | 원안·조사 기록(참고) | 고치지 않는다 |
 | `docs/paper/` | 논문·기획서·발표 원고 | 수치는 기계 산출물과 실험-로그에서만 |
 
 ## 2. 결정이 갈릴 때

@@ -21,7 +21,7 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 - [파일럿 계획](pilot-plan.md): 파일럿 범위와 마일스톤
 - [위험 관리](risks.md): 개인정보, 수치 환각, 파싱, 운영 위험과 대응
 - [작업 방식](workflow.md): 저장소·결정·보고 규칙
-- [결정 기록(ADR)](decisions/README.md): 구조·기술 선택과 그 근거
+- [결정 기록(ADR)](decisions/README.md): 구조·기술 선택과 그 근거. 주제별 묶음과 지금 유효한지가 맨 앞에 있다
 
 ## 모델 카드
 
@@ -31,18 +31,19 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 ## 측정 보고서
 
 - 검색: [리랭커 평가](llm-rerank-eval.md), [리랭커 베이스라인](rerank-baseline.md), [하이브리드 가중치 탐색](retrieval-weight-sweep.md),
-  [검색 미니 베이스라인](retrieval-baseline-mini.md), [Embed v0 시험 학습](embed-v0-report.md), [이전 보고서](archive/README.md)
+  [검색 미니 베이스라인](retrieval-baseline-mini.md), [Embed v0 시험 학습](embed-v0-report.md), [리랭킹·질의 확장 회차별 결과](archive/README.md)
 - 문서 판독: [OCR 문자 오류율](ocr-cer-bench.md), [OCR 엔진 비교](ocr-duel.md), [OCR 시각 비교](ocr-visual-review.md)
 - 환경: [학습 장비 점검](env-report.md)
 
 ## 일정과 보고
 
 - [캡스톤 실행계획](capstone-plan.md), [주간 보고](weekly/), [논문 자료](paper/)
-- [원안 사업계획서(참고 자료)](business-plan.md), [기획서 초안](proposal/기획서-초안.md): 착수 시점 원안. 지금 계획이 아니며 현재 목표·범위는 브리프가 기준이다
+- [원안 사업계획서(참고 자료)](business-plan.md): 착수 시점 원안. 지금 계획이 아니며 현재 목표·범위는 브리프가 기준이다. 제출용 기획서는 논문 자료의 프로젝트 기획서다
 
 ## 운영과 작업 기록
 
 - [인수인계](HANDOFF.md): 운영 구성, 실행 절차, 남은 일
 - [현재 작업](dev-now.md) · 변경 기록은 깃 커밋(개발 현황 › 변경 이력)
-- [기술 노트](notes/), [작업 맥락](context/working-notes.md), [1~2주차 계획](instructions/W1-W2.md)
+- [기록 자료 주제별 색인](notes/README.md): 기술 검토·작업 메모·측정·모델 카드를 결정 기록과 같은 주제로 묶었다
+- [작업 맥락](context/working-notes.md), [1~2주차 계획](instructions/W1-W2.md)
 - [착수 단계 기술 조사](../research/README.md)

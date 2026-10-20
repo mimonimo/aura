@@ -138,7 +138,7 @@ def test_shared_confirm_covers_any_form_with_data_confirm():
 # ---- 이름표 ----
 
 def test_dev_titles_match_sidebar_names(client):
-    for href, name in [("/dev/db", "원천 데이터"), ("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검"),
+    for href, name in [("/dev/db", "데이터 현황"), ("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검"),
                        ("/dev/nas", "문서 반입"), ("/dev/intake", "문서 반입"), ("/dev", "개발 현황")]:
         page = client.get(href).text
         assert f"<title>{name}" in page, href

@@ -46,7 +46,7 @@
 
 ### 모델 학습 화면·문구 (9/15)
 
-- /dev/train: 데이터 공방·Label Studio·LLaMA Board·TensorBoard 를 같은 구조·같은 높이 카드로. 각 카드의 설정 창에 주소·상태·키·계정.
+- /dev/train: 데이터 공방·Label Studio·TensorBoard 를 같은 구조·같은 높이 카드로(LLaMA Board 카드는 10-18 걷어냄). 각 카드의 설정 창에 주소·상태·키·계정.
   별도 계정 페이지(/dev/accounts)는 지우고 /dev/train 으로 301.
 - 설명 단락은 한두 문장·명사구로 줄였다. 교내 장비 처리·개인정보 안내는 화면마다 적지 않고 사이드바 하단 한 줄(.side-note)로.
 - /dev 진행 현황은 최신 날짜만, 전체는 /dev/history 「작업 기록」.

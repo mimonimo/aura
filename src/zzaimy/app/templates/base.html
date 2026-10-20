@@ -347,7 +347,9 @@
   .h-link { margin-left: auto; }
   .mini-btn:hover, .h-link:hover { color: var(--ink); border-color: #94A3B8; background: var(--panel); }
   .mini-btn:focus-visible, .h-link:focus-visible { outline: 2px solid #607C9E; outline-offset: 2px; }
-  .mini-btn iconify-icon, .h-link iconify-icon { font-size: 14px; color: inherit; }
+  /* 아이콘 칸은 글자 크기와 같은 정사각으로 고정 — 아이콘이 늦게 그려져도 글자가 밀리거나 빈 칸이 커지지 않게 */
+  .mini-btn iconify-icon, .h-link iconify-icon { flex: none; display: inline-block; width: 14px; height: 14px;
+            font-size: 14px; line-height: 1; vertical-align: middle; color: inherit; }
   a.pill { text-decoration: none; }
   /* 화면 머리 줄 — 제목(과 한 줄 설명)은 왼쪽, 동작 단추는 오른쪽 끝. 좁으면 단추가 다음 줄 오른쪽으로 */
   .page-head { display: flex; align-items: center; justify-content: space-between;
@@ -409,6 +411,11 @@
   .modal-head { display: flex; align-items: center; justify-content: space-between;
                 margin-bottom: 14px; }
   .modal-head h2 { margin: 0; }
+  /* 모달 아래 줄 — 상태 글은 왼쪽, 단추는 오른쪽(취소=secondary, 저장=기본). 단추 사이 간격은 고정 */
+  .modal-foot { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px;
+               margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .modal-foot-note { flex: 1 1 140px; min-width: 0; color: var(--muted); font-size: 12.5px; }
+  .modal-foot button { min-height: 38px; padding: 8px 18px; }
   /* 창 닫기는 한 모양 — 머리 오른쪽 아이콘 하나(모달·검색 창 공용). 글자 「×」로 쓴 창도 같은 모양으로 맞춘다 */
   .dialog-close, .modal-head [data-modal-close] { flex: none; width: 32px; height: 32px; padding: 0;
     border: 0; border-radius: 8px; background: transparent; color: var(--muted); box-shadow: none;
@@ -554,6 +561,18 @@ document.addEventListener('submit', function(event) {
       <iconify-icon icon="solar:folder-2-linear"></iconify-icon>
       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pj.name }}</span>
       <span class="muted" style="margin-left:auto; font-size:11.5px;" title="프로젝트에 등록된 문서 {{ pj.n_docs }}건"><span class="sr-only">프로젝트에 등록된 문서 </span>{{ pj.n_docs }}<span class="sr-only">건</span></span></a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+  {% if side_shared %}
+  <div class="side-label">공유받은 프로젝트</div>
+  <nav class="side-nav" style="max-height:140px; overflow-y:auto;">
+    {% for pj in side_shared %}
+    <a href="/project/{{ pj.id }}" style="font-size:13.5px; padding:8px 12px;"
+       class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }} — {{ pj.owner }} 님이 공유">
+      <iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pj.name }}</span>
+      <span class="muted" style="margin-left:auto; font-size:11.5px;">{{ pj.owner }}</span></a>
     {% endfor %}
   </nav>
   {% endif %}

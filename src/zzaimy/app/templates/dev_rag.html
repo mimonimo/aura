@@ -88,7 +88,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 .rr-row .m{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:11.5px;white-space:nowrap}
 .rr-tag{padding:1px 7px;border-radius:999px;background:#EEF1F5;color:#53647B;font-size:11px}.rr-tag.stu{background:#E5F3EA;color:#22663F}
 .rr-empty{padding:18px;color:var(--muted);font-size:12.5px;text-align:center}
-.rr-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}.rr-bar .btn{min-height:32px;font-size:12.5px}
+.rr-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}.rr-bar [data-for]:not([hidden]){display:inline-flex;gap:8px;flex-wrap:wrap}.rr-bar .btn{min-height:32px;font-size:12.5px}
 .rr-all{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer}.rr-picked{flex:1;font-size:12px;color:#3F5F8A}
 .rr-status{min-height:18px;margin:10px 0 0;font-size:12.5px;color:#3F5F8A}
 @media (max-width:900px){.rr-grid{grid-template-columns:1fr}}
@@ -145,14 +145,14 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">
-  {# 규정·지침 — 두 탭(검색에 쓰는 규정 = 기준 문서, 추가할 수 있는 규정 = 반입 자료 속 규정 후보). 20건씩 쪽 나눔, 줄마다 「관리」, 여럿은 체크 뒤 아래 줄 #}
+  {# 규정·지침 — 두 탭(검색에 쓰는 규정 = 조항 단위로 찾는 기준 문서, 새 판·미등록 규정 = 반입 자료에서 찾은 규정 후보). 20건씩 쪽 나눔, 줄마다 「관리」, 여럿은 체크 뒤 아래 줄 #}
   <div class="rr-head"><h2>규정·지침</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
   <p class="rg-sub" style="margin:4px 0 0;">새 규정 파일 올리기는 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」</p>
-  <div class="rr-reindex" id="rrReindex" hidden><span>새로 추가한 규정은 몇 분 안에 자동으로 뜻 검색에 들어갑니다(낱말 검색은 바로 됩니다).</span>
+  <div class="rr-reindex" id="rrReindex" hidden><span>새로 추가한 규정은 몇 분 안에 자동으로 뜻 검색에 들어갑니다(키워드 검색은 바로 됩니다).</span>
     <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">지금 바로 만들기</button></form></div>
   <div class="rr-tabs" role="tablist">
     <button type="button" role="tab" class="rr-tab on" data-tab="reg" aria-selected="true">검색에 쓰는 규정 <span id="rrRegCount"></span></button>
-    <button type="button" role="tab" class="rr-tab" data-tab="cand" aria-selected="false">추가할 수 있는 규정 <span id="rrCandCount"></span></button>
+    <button type="button" role="tab" class="rr-tab" data-tab="cand" aria-selected="false">새 판·미등록 규정 <span id="rrCandCount"></span></button>
   </div>
   <p class="rg-sub rr-hint" id="rrHint"></p>
   <div class="rr-tools">
@@ -175,7 +175,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   <h2>계정별 추가 권한</h2>
   {% set ns = namespace(fixed=[], open=[]) %}
   {% for a in accts %}{% if a.role in ("student", "dev") or a.all_grant %}{% set ns.fixed = ns.fixed + [a] %}{% else %}{% set ns.open = ns.open + [a] %}{% endif %}{% endfor %}
-  <p class="rg-sub" style="margin:0 0 10px;">부서가 정해진 교직원 계정에 다른 부서의 사업 문서 검색을 더해 줍니다.
+  <p class="rg-sub" style="margin:0 0 10px;">추가 부서의 사업 문서도 검색·편집할 수 있습니다(사용자·계정 편집 창의 「추가 부서」와 같은 값).
     {% if ns.fixed %}범위가 정해진 계정 {{ ns.fixed|length }}개({% for a in ns.fixed %}{{ a.id }} — {% if a.role == "student" %}학생 공개 규정만{% elif a.role == "dev" %}관리자, 전부{% else %}부서 없음, 사업 문서 전부{% endif %}{{ ", " if not loop.last }}{% endfor %})는 더할 것이 없어 표에서 뺐습니다.{% endif %}</p>
   {% if not dept_spaces or not ns.open %}
   <p class="rg-sub" style="margin:0;">추가 권한을 줄 계정이 없습니다 — <a href="/dev/users">사용자·계정</a>에서 교직원 계정에 부서를 정하면 여기에 나옵니다.</p>
@@ -186,7 +186,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   </div>{% endif %}
   <div class="rg-scroll">
   <table class="rg-table" id="rgGrantTable">
-    <thead><tr><th>계정</th><th>지금 찾는 범위</th><th>더해 찾는 부서</th><th></th></tr></thead>
+    <thead><tr><th>계정</th><th>검색 범위</th><th>추가 부서</th><th></th></tr></thead>
     <tbody>
     {% for a in ns.open %}
     <tr data-find="{{ (a.id ~ ' ' ~ a.role ~ ' ' ~ a.dept ~ ' ' ~ (a.grants|join(' ')))|lower }}">
@@ -199,18 +199,18 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     </tbody>
   </table>
   </div>
-  <p class="rg-sub" style="margin:8px 0 0;">「설정」 에서 선택한 부서의 사업 문서가 그 계정의 검색 범위에 더해집니다. 부서가 늘어도 표는 계정마다 한 줄.</p>
   <script type="application/json" id="rgGrantData">{{ {"spaces": dept_spaces, "accts": ns.open | map(attribute='id') | list} | tojson }}</script>
   <script type="application/json" id="rgGrantAcct">{{ dict_grants | tojson }}</script>
   <div class="modal-back" id="rgGrantModal">
     <div class="card"><div class="card-in">
-      <div class="modal-head"><h2 style="font-size:17px;" id="rgGrantTitle">더해 찾을 부서</h2>
+      <div class="modal-head"><h2 style="font-size:17px;" id="rgGrantTitle">추가 부서</h2>
         <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
       <form method="post" action="/dev/rag/grant" id="rgGrant">
-        <input type="search" id="rgDeptFind" placeholder="부서 찾기" aria-label="부서 찾기" style="width:100%; margin:0 0 8px;">
+        <input type="search" id="rgDeptFind" class="rr-find" placeholder="부서 찾기" aria-label="부서 찾기">
         <div class="rg-dept-list" id="rgDeptList"></div>
-        <footer class="ua-footer" style="padding:0; border:0; margin-top:12px;"><span class="rg-sub" id="rgGrantNote"></span>
-          <button type="button" class="secondary" data-modal-close>취소</button><button type="submit" id="rgGrantSave">저장</button></footer>
+        <footer class="modal-foot"><span class="modal-foot-note" id="rgGrantNote" role="status"></span>
+          <button type="button" class="secondary" data-modal-close>취소</button>
+          <button type="submit" id="rgGrantSave">저장</button></footer>
       </form>
     </div></div>
   </div>
@@ -276,12 +276,12 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     let who = null;
     const syncNote = () => {
       const n = [...list.querySelectorAll('input[name=on]:not(:disabled)')].filter(b => b.checked !== (b.dataset.was === '1')).length;
-      note.textContent = n ? `바뀐 부서 ${n}곳` : '';
+      note.textContent = n ? `변경 ${n}곳 · 저장해야 반영됩니다` : '';
     };
     document.querySelectorAll('[data-grant-edit]').forEach(btn => btn.addEventListener('click', () => {
       who = btn.dataset.grantEdit;
       const a = acct[who] || {space: '', grants: []};
-      title.textContent = `${who} — 더해 찾을 부서`;
+      title.textContent = `${who} — 추가 부서`;
       list.replaceChildren();
       meta.spaces.forEach(sp => {
         const own = a.space === sp, on = own || a.grants.includes(sp), key = who + '\t' + sp;
@@ -289,7 +289,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
         row.className = 'rg-dept-row'; row.dataset.find = sp.slice(5).toLowerCase();
         row.innerHTML = `<input type="checkbox" name="on" value="" ${on ? 'checked' : ''} ${own ? 'disabled' : ''}><span></span>`;
         const box = row.querySelector('input'); box.value = key; box.dataset.was = (on && !own) ? '1' : '0';
-        row.querySelector('span').textContent = sp.slice(5) + (own ? ' (기본 — 늘 찾음)' : '');
+        row.querySelector('span').textContent = sp.slice(5) + (own ? ' (소속 부서)' : '');
         if (!own) {
           const cell = document.createElement('input'); cell.type = 'hidden'; cell.name = 'cell'; cell.value = key; row.append(cell);
           if (box.dataset.was === '1') { const was = document.createElement('input'); was.type = 'hidden'; was.name = 'was'; was.value = key; row.append(was); }
@@ -408,8 +408,8 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   const esc = t => String(t || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const num = n => Number(n || 0).toLocaleString('ko-KR');
   const KIND = {regulation: '규정', guideline: '지침'};
-  const HINT = {reg: '답변이 지금 조항 단위로 찾는 규정(기준 문서) · 학생 공개는 학생 RAG 에도 들어감',
-                cand: '반입 자료 속 규정 가운데 아직 조항 검색에 넣지 않은 것 · 지금은 일반 사업 문서로만 검색됨'};
+  const HINT = {reg: '조항 단위로 검색되는 규정(기준 문서) · 학생 공개는 학생 RAG 에도 들어감',
+                cand: '반입 자료에서 찾은 새 판·미등록 규정 · 「검색에 추가」 전에는 일반 문서로만 검색됨'};
   const flat = t => String(t || '').replace(/\s+/g, '').toLowerCase();
   const aud = d => d.audience === 'student' ? 'student' : 'staff';
   function filtered() {
@@ -446,7 +446,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     document.querySelectorAll('.rr-chip').forEach(c => c.classList.toggle('on', c.dataset.aud === state.aud));
     document.querySelectorAll('[data-for]').forEach(x => { x.hidden = x.dataset.for !== state.tab; });
     $('rrHint').textContent = HINT[state.tab];
-    $('rrList').innerHTML = shown.map(row).join('') || `<p class="rr-empty">${state.tab === 'reg' ? '맞는 규정 없음' : '추가할 수 있는 규정 없음'}</p>`;
+    $('rrList').innerHTML = shown.map(row).join('') || `<p class="rr-empty">${state.tab === 'reg' ? '맞는 규정 없음' : '새 판·미등록 규정 없음'}</p>`;
     $('rrPager').hidden = rows.length <= PER;
     $('rrPageInfo').textContent = rows.length ? `${num(at + 1)}–${num(at + shown.length)} / ${num(rows.length)}건` : '';
     $('rrPager').querySelector('[data-page="-1"]').disabled = state.page[state.tab] <= 0;

@@ -54,9 +54,7 @@ _DOC_DESC = {
     "notes/2026-09-22-vllm-vs-ollama.md": "서빙 엔진 비교 — 실측과 vLLM 통일 이유",
     "notes/2026-09-22-access-controlled-knowledge-base.md": "권한별 지식 베이스 — 권한 밖 질문(학생·타 부서 개인정보)에 어떻게 응답하나, 열람 등급·부서 범위",
     "notes/meeting-w2-20260908.md": "2주차 미팅 메모와 정합 분석",
-    "notes/2026-09-02-ocr-engine-refs.md": "OCR 엔진 후보 조사",
-    "notes/2026-09-02-ocr-preprocessing-refs.md": "스캔 전처리·복원 후보 조사",
-    "notes/2026-09-02-ocr-upgrade-refs.md": "OCR·문서이해 고도화 레퍼런스",
+    "notes/2026-09-02-ocr-refs.md": "OCR 엔진 후보·스캔 전처리·고도화 레퍼런스 조사",
     "notes/2026-09-02-external-doc-sources.md": "공개 문서 소스 조사",
     "notes/table-layout.md": "표·레이아웃 원본 불일치 원인 진단",
     "notes/automation-pipeline.md": "자동화 파이프라인 목표와 현재 위치",
@@ -68,6 +66,34 @@ _DOC_DESC = {
 # 기술 검토(조사·판단 기록)와 작업 메모(백로그·용어집 같은 내부 메모)를 나눈다
 _NOTE_MEMO = {"backlog.md", "ui-glossary.md", "uiux-audit.md", "hwpx-agent-skills.md",
               "automation-pipeline.md"}
+
+
+def _doc_topics(docs_dir: Path) -> dict[str, tuple[str, str]]:
+    """주제별 묶음 — docs/ 기준 경로 → (주제, 지금 상태).
+
+    원본은 결정 기록 색인(decisions/README.md 의 「주제별 묶음」, 표의 셋째 칸이 지금 상태)과
+    기록 자료 색인(notes/README.md). 두 색인의 「### 주제」 아래 링크를 읽는다 — 목록 화면은 묶음 이름을 설명 앞에 붙인다.
+    """
+    out: dict[str, tuple[str, str]] = {}
+    for sub in ("decisions", "notes"):
+        try:
+            text = (docs_dir / sub / "README.md").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        topic = ""
+        for ln in text.splitlines():
+            if ln.startswith("### "):
+                topic = ln[4:].strip()
+                continue
+            if ln.startswith("## "):
+                topic = ""
+            if not topic:
+                continue
+            for link in re.findall(r"\]\(([^)#\s]+\.md)\)", ln):
+                rel = os.path.normpath(f"{sub}/{link}").replace(os.sep, "/")
+                cells = [c.strip() for c in ln.strip().strip("|").split("|")] if ln.lstrip().startswith("|") else []
+                out.setdefault(rel, (topic, cells[2] if len(cells) >= 3 else ""))
+    return out
 
 
 _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼)의 주간 업무 보고를 쓴다. 독자는 지도교수이고
@@ -639,6 +665,7 @@ def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1
     page = max(1, page)
     date_re = re.compile(r"\d{4}-\d{2}-\d{2}")
     head_re = re.compile(r"^-\s*\**(상태|날짜)\**\s*:\s*(.+)$")
+    topics = _doc_topics(h.docs_dir)
 
     def entry(rel: str, href: str, title: str | None = None) -> dict:
         """문서 머리(첫 8줄)에서 뽑은 한 줄 정보 — ADR 은 '- 상태:'·'- 날짜:' 줄,
@@ -685,8 +712,18 @@ def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1
         # ADR 제목은 '# NNNN. 제목' 이 규칙이지만 'ADR-NNNN' · 'NNNN ·' 꼴도 번호로 읽는다
         if m := re.match(r"^(?:ADR-)?(\d{4})\s*[.·:]?\s+(.+)$", title):
             num, title = m.group(1), m.group(2).lstrip("—– ")
+        desc = _DOC_DESC.get(rel, "") or desc_auto
+        # 주제별 묶음 — ADR 은 「주제 · 지금 상태(유효가 아닐 때)」, 기록 자료는 「주제 · 설명」
+        if rel in topics:
+            topic, now = topics[rel]
+            if rel.startswith("decisions/"):
+                desc = topic + (f" · {now}" if now and now != "유효" else "")
+                if now.startswith("대체됨"):
+                    status = "대체됨"
+            else:
+                desc = f"{topic} · {desc}" if desc else topic
         return {"href": href, "title": title, "num": num, "status": status,
-                "date": meta["date"] or first_date, "desc": _DOC_DESC.get(rel, "") or desc_auto}
+                "date": meta["date"] or first_date, "desc": desc}
 
     from datetime import date as _date, timedelta as _td
 

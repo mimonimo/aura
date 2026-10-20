@@ -1,4 +1,4 @@
-"""개발 현황(/dev) — 허브와 그 아래 화면: 처리 흐름(/dev/flow)·원천 데이터(/dev/db)·품질·성능(/dev/quality*)·
+"""개발 현황(/dev) — 허브와 그 아래 화면: 처리 흐름(/dev/flow)·데이터 현황(/dev/db)·품질·성능(/dev/quality*)·
 규정 검색 재측정(/dev/eval/*)·재색인(/dev/reindex)·반입 현황 JSON(/dev/api/intake)·문서 갈래 일괄 다시 정하기(/dev/route-all).
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
@@ -397,7 +397,7 @@ def dev_flow(request: Request):
     st = request.app.state
     db = st.db
     return st.templates.TemplateResponse(request, "dev_flow.html", st.page_ctx(request, {
-        "terms": pf.TERMS, "hosts": pf.HOSTS, "stages": pf.STAGES, "question_path": pf.QUESTION_PATH,
+        "terms": pf.TERMS, "hosts": pf.HOSTS, "stages": pf.STAGES,
         "cycles": pf.CYCLES, "flow": pf.snapshot(db),
         "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
     }))

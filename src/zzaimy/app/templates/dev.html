@@ -84,16 +84,15 @@
     <a href="/dev/history" class="h-link"><iconify-icon icon="solar:history-linear"></iconify-icon>변경 이력</a></h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
     행정 문서의 검색·검토와 국고사업 계획서 초안 작성을 지원합니다. 최종 내용과 수치는 담당자가 근거 문서와 대조해 확인합니다.</p>
-  {# 규모 요약 — 큰 숫자 블록 대신 한 줄. 원천은 데이터 열람과 같은 _data_overview() #}
+  {# 규모 요약 — 큰 숫자 블록 대신 한 줄. 수치는 데이터 현황(/dev/db)과 같은 _data_overview() #}
   <div style="display:flex; gap:6px 8px; flex-wrap:wrap; align-items:center; margin-top:12px; font-size:12.5px;">
     <span class="muted" style="font-weight:600;">현재 규모</span>
     {% for t in overview.tiles %}
     <span class="pill" title="{{ t.sub }}{% if t.metric %} — {{ metric_tip(t.metric) }}{% endif %}" style="font-variant-numeric:tabular-nums;">{{ t.label }} {{ "{:,}".format(t.value) }}</span>
     {% endfor %}
-    <a href="/dev/db" class="btn-ghost" style="padding:3px 9px; font-size:11.5px;">{{ dev_page_name('/dev/db') }}</a>
   </div>
 
-  <h3 style="font-size:13.5px; margin:16px 0 0;">문서 흐름 <a href="/dev/intake" class="btn-ghost" style="padding:2px 8px; font-size:11.5px; margin-left:6px;">문서 반입</a></h3>
+  <h3 style="font-size:13.5px; margin:16px 0 0;">문서 흐름</h3>
   {% include "_doc_flow.html" %}
 
   {% include "dev-topology.html" %}
