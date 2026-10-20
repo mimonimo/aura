@@ -4194,7 +4194,7 @@ def create_app(
         fid, err = lf.create(db, Path(db_path).parent, name, dept, by=request.state.user or "", allowed=_all_depts())
         if err:
             return _lib_back(err=err)
-        return _lib_back(f"{lf.MADE}{fid}", ok=f"「{' '.join(name.split())}」 폴더를 만들었습니다 · 공개 {dept + '만' if dept != '공통' else '전체'}")
+        return _lib_back(f"{lf.MADE}{fid}", ok=f"「{' '.join(name.split())}」 폴더를 만들었습니다 · 공개 {dept if dept != '공통' else '전체'}")
 
     @app.post("/library/folders/scope")
     def library_folder_scope(request: Request, key: str = Form(""), dept: str = Form("공통")):
@@ -4205,7 +4205,7 @@ def create_app(
         n, err = lf.set_dept(db, Path(db_path).parent, key, dept, allowed=_all_depts())
         if err:
             return _lib_back(key, err=err)
-        return _lib_back(key, ok=f"공개 범위를 「{dept + '만' if dept != '공통' else '전체 공개'}」로 바꿨습니다 · 문서 {n:,}건")
+        return _lib_back(key, ok=f"공개 범위를 「{dept if dept != '공통' else '전체 공개'}」로 바꿨습니다 · 문서 {n:,}건")
 
     @app.post("/library/folders/delete")
     def library_folder_delete(request: Request, key: str = Form("")):
@@ -4276,7 +4276,7 @@ def create_app(
             made.append(doc_id)
         if folder.startswith(lf.MADE):
             lf.put(db, folder, made)
-        msg = f"{len(made)}건을 올렸습니다 · 공개 {scope + '만' if scope != '공통' else '전체'}" + \
+        msg = f"{len(made)}건을 올렸습니다 · 공개 {scope if scope != '공통' else '전체'}" + \
             (f" · 사업 {prog_label}" if prog_label else "") + " · 처리가 끝나면 검색에 들어갑니다"
         if skipped:
             msg += f" · 형식이 맞지 않아 건너뜀 {len(skipped)}건"

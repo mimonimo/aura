@@ -125,7 +125,7 @@
         <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}{{ "…" if sc.title|length > 24 else "" }}</a>
       {% endfor %}
       <span class="muted">접수번호 {{ receipt_label(doc.receipt_no) or '미지정' }} · 등록 {{ doc.created_at[:16].replace("T", " ") }}</span>
-      {% set _sc = doc.dept or '공통' %}<span class="pill" title="이 문서를 찾고 볼 수 있는 사람" style="{{ 'background:#FFF4E0; color:#8A5A00;' if _sc != '공통' }}">{{ '전체 공개' if _sc == '공통' else _sc ~ '만 공개' }}</span>
+      {% set _sc = doc.dept or '공통' %}<span class="pill" title="이 문서를 찾고 볼 수 있는 사람" style="{{ 'background:#FFF4E0; color:#8A5A00;' if _sc != '공통' }}">{{ '전체 공개' if _sc == '공통' else _sc }}</span>
     </div>
     {# 문서 동작 — 같은 동작은 이 줄에만 둔다 #}
     <div class="doc-actions control-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
@@ -164,18 +164,18 @@
         <span class="doc-manage-v">{{ doc.filename }}{{ original_ext if original_ext and not doc.filename.lower().endswith(original_ext) else '' }}</span></div>
       {% if can_edit and made_folders %}
       <form action="/doc/{{ doc.id }}/folder" method="post" class="doc-manage-row"><label class="doc-manage-k" for="dmFolder">폴더</label>
-        <select id="dmFolder" name="folder"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept ~ '만' }}</option>{% endfor %}</select>
+        <select id="dmFolder" name="folder"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept }}</option>{% endfor %}</select>
         <button type="submit" class="secondary">담기</button>
       </form>{% endif %}
       {% if can_edit and (scope_choices | length > 1 or (doc.dept or '공통') != '공통') %}
       <form action="/doc/{{ doc.id }}/scope" method="post" class="doc-manage-row"><label class="doc-manage-k" for="dmScope">공개 범위</label>
         <input type="hidden" name="back" value="/doc/{{ doc.id }}">
-        <select id="dmScope" name="dept">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == (doc.dept or '공통') }}>{{ '전체 공개' if d == '공통' else d ~ '만' }}</option>{% endfor %}</select>
+        <select id="dmScope" name="dept">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == (doc.dept or '공통') }}>{{ '전체 공개' if d == '공통' else d }}</option>{% endfor %}</select>
         <button type="submit" class="secondary">바꾸기</button>
       </form>
       {% else %}
       <div class="doc-manage-row"><span class="doc-manage-k">공개 범위</span>
-        <span class="doc-manage-v">{{ '전체 공개 — 모든 교직원이 찾고 봄' if (doc.dept or '공통') == '공통' else doc.dept ~ '만 — 그 부서 사람과 관리자만' }}</span></div>
+        <span class="doc-manage-v">{{ '전체 공개 — 모든 교직원이 찾고 봄' if (doc.dept or '공통') == '공통' else doc.dept ~ ' — 그 부서 사람과 관리자만' }}</span></div>
       {% endif %}
     </div>
     <div class="document-form-actions doc-manage-actions">
