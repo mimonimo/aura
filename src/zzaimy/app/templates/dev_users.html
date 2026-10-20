@@ -184,7 +184,7 @@
         <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
           {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
       </div>
-      {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>추가 부서 <span class="ua-hint">— 이 부서 문서도 찾고 작업(고치기·공개 범위·폴더)합니다 · 교직원만</span></legend>
+      {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>추가 부서 <span class="ua-hint">— 소속 부서처럼 문서를 찾고 작업합니다</span></legend>
         <div class="ua-extra-list">{% for d in dept_choices %}<label class="check"><input type="checkbox" name="extra" value="{{ d }}">{{ d }}</label>{% endfor %}</div></fieldset>{% endif %}
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
       <label>본인 구글 계정<select name="google"><option value="">본인 연결 없음</option>
@@ -288,8 +288,19 @@
       var extra = isNew ? [] : (btn.dataset.extra || '').split('|').filter(Boolean);
       document.querySelectorAll('#userEdit input[name="extra"]').forEach(function (cb) { cb.checked = extra.indexOf(cb.value) >= 0; });
       var extraBox = document.querySelector('#userEdit [data-extra-depts]');
-      var syncExtra = function () { if (extraBox) extraBox.hidden = f.role.value !== 'staff'; };
-      f.role.onchange = syncExtra; syncExtra();
+      // 소속 부서는 추가 부서 목록에서 뺀다(부서를 바꾸면 바로 다시 맞춘다) — 고를 다른 부서가 없으면 칸을 숨긴다
+      var syncExtra = function () {
+        if (!extraBox) return;
+        var left = 0;
+        document.querySelectorAll('#userEdit input[name="extra"]').forEach(function (cb) {
+          var mine = cb.value === f.dept.value;
+          if (mine) cb.checked = false;
+          cb.closest('label').hidden = mine;
+          if (!mine) left++;
+        });
+        extraBox.hidden = f.role.value !== 'staff' || !left;
+      };
+      f.role.onchange = syncExtra; f.dept.onchange = syncExtra; syncExtra();
       f.google.value = isNew ? '' : (btn.dataset.google || '');
       // 본인 연결이 없어도 부서 공용·공용 계정으로 문서를 쓰는 사용자 — 표의 「문서 작업 계정」과 같은 말을 창에서도 한다
       var eff = document.querySelector('#userEdit [data-effective-hint]');

@@ -551,7 +551,7 @@ document.addEventListener('submit', function(event) {
     {% endif %}
   </nav>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
-  <div class="side-label side-label-row">프로젝트
+  <div class="side-label side-label-row">내 프로젝트
     <button type="button" class="side-label-add" data-modal-open="#projectModal" aria-label="프로젝트 추가" title="프로젝트 추가"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon></button></div>
   {% if side_projects %}
   <nav class="side-nav" style="max-height:180px; overflow-y:auto;">
