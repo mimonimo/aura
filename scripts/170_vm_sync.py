@@ -345,14 +345,7 @@ def post_if_changed(db, dirty: bool = True) -> int:
     dirty 는 「따로 남은 일이 있다」(업로드 원본·밀린 색인) — 지문이 같아도 색인 증분은 돈다.
 
     후속 잠금(/tmp/zz_post.lock)은 반입 잠금과 따로다 — 몇 시간 걸리는 반입 중에도 1분 주기가 그래프·색인을 따라 맞춘다."""
-    import fcntl
-    lockf = open("/tmp/zz_post.lock", "w")
-    try:
-        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        (Path(db.path).parent / ".kg-dirty").touch()     # 다른 후속 처리가 돌고 있다 — 다음 회차에
-        return 0
-    # 반입 자료의 새 판·미등록 규정을 기준 문서로(1분마다 — 후보 고르기 1초 안팎, 올릴 것이 없으면 아무것도 하지 않는다). 규정 색인은 조각 지문으로 저절로 다시 만든다
+    # 반입 자료의 새 판·미등록 규정을 기준 문서로(후속 잠금 밖 — 그래프 재구축이 몇십 분 걸려도 기다리지 않게. 1분마다 — 후보 고르기 1초 안팎, 올릴 것이 없으면 아무것도 하지 않는다). 규정 색인은 조각 지문으로 저절로 다시 만든다
     try:
         from zzaimy.app import regulation_register
         got = regulation_register.auto_register(db, Path(db.path).parent)
@@ -360,6 +353,13 @@ def post_if_changed(db, dirty: bool = True) -> int:
             print(f"규정 자동 등록: {got['registered']}건(옛 판 대체 {got['replaced']}) · 조각 {got['chunks']}", flush=True)
     except Exception as e:
         print("규정 자동 등록 실패:", type(e).__name__, str(e)[:120], flush=True)
+    import fcntl
+    lockf = open("/tmp/zz_post.lock", "w")
+    try:
+        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        (Path(db.path).parent / ".kg-dirty").touch()     # 다른 후속 처리가 돌고 있다 — 다음 회차에
+        return 0
     with db._conn() as conn:
         now = graph_inputs(conn)
     mpath = ROOT / "data" / "platform" / "kg_marker.json"
