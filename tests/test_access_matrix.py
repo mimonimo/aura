@@ -533,3 +533,18 @@ def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatc
     r = owner.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False)
     assert r.status_code == 303 and drive_share.enabled(db, pid) is False
     assert "부서 공유 끔" in owner.get(f"/project/{pid}").text
+
+
+def test_dept_staff_cannot_publish_dept_regulation_to_students(world):
+    """부서 교직원은 그 부서 문서를 작업(공개 범위 등)할 수 있어도 학생 공개는 못 한다 — 올린 사람·관리자만(10-21 보안 검토)."""
+    app, ids, tmp = world
+    db = app.state.db
+    did = db.add_document("기획처 내부 규정.pdf", "x", doc_type="regulation")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET owner='someone', dept='기획처', access_level='dept' WHERE id=?", (did,))
+    plan = _client(app, "plan")
+    r = plan.post(f"/doc/{did}/audience", data={"audience": "student"}, follow_redirects=False)
+    assert r.status_code == 403
+    assert (db.get_document(did).get("audience") or "staff") != "student"
+    r = plan.post(f"/doc/{did}/scope", data={"dept": "기획처", "access_level": "dept"}, follow_redirects=False)
+    assert r.status_code == 303                                  # 같은 부서 문서의 범위 작업은 된다

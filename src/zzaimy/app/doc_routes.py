@@ -170,14 +170,16 @@ def doc_set_scope(request: Request, doc_id: int, dept: str = Form(""), access_le
 
 @router.post("/doc/{doc_id}/audience")
 def doc_set_audience(request: Request, doc_id: int, audience: str = Form("staff"), back: str = Form("")):
-    """규정 문서의 학생 공개 켜기·끄기(ADR-0052) — 관리자, 올린 사람, 또는 그 문서 부서의 교직원. 규정이 아니면 학생 공개가 되지 않는다."""
+    """규정 문서의 학생 공개 켜기·끄기(ADR-0052) — 관리자, 또는 그 문서를 올린 사람만. 규정이 아니면 학생 공개가 되지 않는다.
+    부서 교직원의 문서 작업 권한(can_edit)에는 넣지 않는다 — 학생 공개는 열람 범위를 학생 전체로 넓히는 일이라(10-21 보안 검토)."""
     h = request.app.state.doc_page
     db, _local_back = h.db, h._local_back
     doc = db.get_document(doc_id)
     if doc is None:
         raise HTTPException(404)
-    if not request.app.state.may_edit_doc(request, doc):
-        raise HTTPException(403, "문서를 올린 담당자, 그 부서 교직원, 관리자만 바꿀 수 있습니다")
+    me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+    if getattr(request.state, "role", "") != "dev" and not (me and doc.get("owner") == me):
+        raise HTTPException(403, "학생 공개는 문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
     if audience not in ("staff", "student") or (audience == "student" and doc.get("doc_type") != "regulation"):
         raise HTTPException(400, "학생 공개는 규정 문서만 할 수 있습니다")
     db.set_document_audience(doc_id, audience)
