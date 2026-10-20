@@ -366,3 +366,26 @@ def rrf_merge(
         for rank, cid in enumerate(ranking):
             scores[cid] = scores.get(cid, 0.0) + w / (k + rank + 1)
     return sorted(scores, key=lambda c: -scores[c])
+
+
+_served_cache: dict = {"at": 0.0, "name": None}
+
+
+def served_model_name(ttl: float = 300.0) -> str | None:
+    """임베딩 서비스가 올린 모델 이름(경로 끝 이름, 5분 캐시) — 서비스가 없거나 답이 없으면 None.
+    색인 메타에 적어, 서비스의 모델이 바뀌면 다른 벡터 공간을 몰래 섞지 않게 한다(scripts/52 와 같은 물음)."""
+    import json as _json
+    import time as _t
+    import urllib.request
+    if _t.time() - _served_cache["at"] < ttl:
+        return _served_cache["name"]
+    url = os.environ.get("ZZAIMY_EMBED_URL", "").strip()
+    name = None
+    if url:
+        try:
+            with urllib.request.urlopen(url.rsplit("/", 1)[0] + "/health", timeout=10) as r:
+                name = Path(str(_json.loads(r.read().decode("utf-8")).get("model") or "")).name or None
+        except (OSError, ValueError):
+            name = None
+    _served_cache.update(at=_t.time(), name=name)
+    return name

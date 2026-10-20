@@ -840,6 +840,18 @@ def _build_increment_pg(db, batch: int, limit: int) -> dict:
             "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
             " WHERE d.doc_type IN ('grant', 'auto') AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
         have = {int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_vec").fetchall()}
+    # 색인을 만든 임베딩 모델 — 서비스의 모델이 바뀌었으면 새 벡터를 옛 공간에 섞지 않고 멈춘다(전체를 다시 만들 일, 계획해서)
+    from zzaimy.app.embed_search import served_model_name
+    try:
+        old_meta = json.loads(INDEX.with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        old_meta = {}
+    model = served_model_name()
+    if model and old_meta.get("model") and old_meta["model"] != model:
+        INDEX.with_suffix(".json").write_text(json.dumps({**old_meta, "model_mismatch": {"index": old_meta["model"], "now": model}},
+                                                         ensure_ascii=False), encoding="utf-8")
+        log.warning("사업 문서 색인 모델(%s)과 지금 임베딩 서비스 모델(%s)이 달라 증분을 멈춘다 — 전체 재색인 필요", old_meta["model"], model)
+        return {"added": 0, "removed": 0, "total": len(have), "pending": 0, "model_mismatch": True}
     renamed = _renamed_chunks(db, live) & have           # 이름이 바뀐 문서의 조각 — 빼고 새 이름으로 다시 넣는다
     have -= renamed
     todo = sorted(live - have)
@@ -860,7 +872,7 @@ def _build_increment_pg(db, batch: int, limit: int) -> dict:
     total = len(have) + len(renamed) - removed + added       # have 에서 이미 뺀 이름 바뀜 조각은 removed 에도 들어 있다
     INDEX.parent.mkdir(parents=True, exist_ok=True)
     INDEX.with_suffix(".json").write_text(json.dumps({"n_chunks": total, "added": added, "removed": removed, "renamed": len(renamed),
-                                                      "backend": "pgvector"},
+                                                      "backend": "pgvector", "model": model or old_meta.get("model") or ""},
                                                      ensure_ascii=False), encoding="utf-8")
     return {"added": added, "removed": removed, "total": total, "pending": max(0, len(todo) - limit)}
 
