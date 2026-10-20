@@ -37,13 +37,14 @@ def classify(doc_type: str | None, *, owner: str | None = None, dept: str | None
     return DEFAULT_DEPT, "owner" if access_level == "owner" else "public"
 
 
-# 교직원 범위로 보는 역할 — 교직원(staff)·교수(professor)·부서장(head). 지금은 같은 범위(공통 + 자기 부서 + 추가 권한 부서 + 자기 문서),
-# 같은 부서 안의 등급(부서장만 보는 문서 등)은 나중에 정한다(2026-10-15 사용자)
-STAFF_ROLES = ("staff", "professor", "head")
+# 계정 역할은 교직원(staff)·학생(student)·관리자(dev) 셋(10-21). 교수·부서장은 교직원과 같은 범위라 합쳤다 —
+# 예전에 그 역할로 저장된 계정이 남아 있어도 교직원으로 본다(LEGACY_STAFF). 부서 안 관리(부서장)는 필요해지면 다시 정한다
+LEGACY_STAFF = ("professor", "head")
+STAFF_ROLES = ("staff", *LEGACY_STAFF)
 
 
 def role_class(role: str | None) -> str:
-    """화면·도우미가 쓰는 계정 갈래 — 교직원 범위 역할(교직원·교수·부서장)은 「staff」 하나로 본다."""
+    """화면·도우미가 쓰는 계정 갈래 — 예전 교수·부서장 역할도 「staff」 로 본다."""
     return "staff" if role in STAFF_ROLES else (role or "")
 
 
@@ -73,6 +74,22 @@ def extra_depts(user: str | None, data_dir=None) -> list[str]:
         return []
     from zzaimy.app import rag_spaces
     return [s[5:] for s in rag_spaces.config(data_dir).get("grants", {}).get(user, []) if str(s).startswith("dept:")]
+
+
+def can_edit(doc: dict, *, role: str, dept: str | None, user: str | None, also: tuple | list = ()) -> bool:
+    """이 문서를 바꿀(작업할) 수 있는가 — 관리자, 올린 사람, 또는 문서 부서가 이 교직원의 부서(소속 + 추가로 받은 부서)인 경우.
+    공통(전체 공개) 문서는 올린 사람·관리자만 — 교직원 누구나 공통 문서를 바꾸지 않게. 담당자 한정(owner) 문서는 올린 사람만(10-21)."""
+    if not doc:
+        return False
+    if role == "dev":
+        return True
+    if user and doc.get("owner") == user:
+        return True
+    if role not in STAFF_ROLES or (doc.get("access_level") or "") == "owner":
+        return False
+    d = (doc.get("dept") or DEFAULT_DEPT).strip()
+    mine = {x for x in ((dept or "").strip(), *also) if x}
+    return d != DEFAULT_DEPT and d in mine
 
 
 def viewer(role: str | None, dept: str | None, user: str | None, data_dir=None) -> dict:

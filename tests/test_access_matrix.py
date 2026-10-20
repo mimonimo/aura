@@ -227,18 +227,33 @@ def test_rag_space_grants_reach_regulations(world):
     assert sc["reg_depts"] == ["산학협력단", "기획처"] and "기획처" in sc["grant_depts"]
 
 
-def test_professor_sees_like_staff_of_same_dept():
-    """교수 계정은 교직원과 같은 범위(공통 + 자기 부서 + 자기 문서) — 같은 부서 안의 등급은 나중에(2026-10-15)."""
+def test_legacy_professor_head_roles_count_as_staff():
+    """역할은 교직원·학생·관리자 셋(10-21). 예전 교수·부서장으로 저장된 계정은 교직원과 같은 범위로 본다."""
     from zzaimy.app import access_policy as ap
+    from zzaimy.app.access_guard import ROLES
+    assert set(ROLES) == {"staff", "student", "dev"}
     docs = [{"access_level": "public", "dept": "공통"},
             {"access_level": "dept", "dept": "기획처"},
-            {"access_level": "dept", "dept": "산학협력단"},
-            {"access_level": "public", "doc_type": "regulation", "audience": "student"}]
-    for d in docs:
-        assert ap.visible(d, dept="기획처", user="p", role="professor") == ap.visible(d, dept="기획처", user="s", role="staff")
-    assert not ap.visible(docs[2], dept="기획처", user="p", role="professor")
-    assert ap.viewer("professor", "기획처", "p")["role"] == "professor" and ap.can_browse("professor")
-    assert ap.role_class("professor") == "staff" and ap.role_class("student") == "student"
+            {"access_level": "dept", "dept": "산학협력단"}]
+    for legacy in ("professor", "head"):
+        for d in docs:
+            assert ap.visible(d, dept="기획처", user="p", role=legacy) == ap.visible(d, dept="기획처", user="s", role="staff")
+        assert ap.role_class(legacy) == "staff"
+
+
+def test_staff_can_work_on_docs_of_assigned_depts():
+    """교직원은 소속 부서와 추가로 받은 부서(여럿)의 문서를 작업(고치기)한다 — 공통 문서·다른 부서·담당자 한정 문서는 못 고친다."""
+    from zzaimy.app import access_policy as ap
+    me = {"role": "staff", "dept": "기획처", "user": "s", "also": ("산학협력단", "교무처")}
+    assert ap.can_edit({"dept": "기획처", "access_level": "dept", "owner": "x"}, **me)
+    assert ap.can_edit({"dept": "산학협력단", "access_level": "dept", "owner": "x"}, **me)
+    assert ap.can_edit({"dept": "교무처", "access_level": "dept", "owner": "x"}, **me)
+    assert not ap.can_edit({"dept": "학생처", "access_level": "dept", "owner": "x"}, **me)
+    assert not ap.can_edit({"dept": "공통", "access_level": "public", "owner": "x"}, **me)
+    assert ap.can_edit({"dept": "공통", "access_level": "public", "owner": "s"}, **me)          # 자기가 올린 문서
+    assert not ap.can_edit({"dept": "기획처", "access_level": "owner", "owner": "x"}, **me)   # 담당자 한정
+    assert not ap.can_edit({"dept": "기획처", "access_level": "dept", "owner": "x"}, role="student", dept="기획처", user="t")
+    assert ap.can_edit({"dept": "학생처", "access_level": "dept", "owner": "x"}, role="dev", dept="", user="d")
 
 
 def test_student_chat_is_academic_qa():

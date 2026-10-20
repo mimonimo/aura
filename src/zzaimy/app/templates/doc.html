@@ -272,7 +272,7 @@
   {# 참고자료에는 결재를 요구하지 않는다. 채용·입학 서류의 기존 판정 흐름만 유지. #}
   {% if doc.status == "reviewed" and doc.doc_type in ('recruit', 'admission') %}
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:gavel-linear"></iconify-icon>담당자 판정
+    <h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>담당자 판정
       {% if doc.decision and doc.decision != "pending" %}
       <span class="pill {{ doc.decision }}" style="margin-left:6px;">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
       {% endif %}</h2>

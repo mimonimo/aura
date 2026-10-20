@@ -144,7 +144,7 @@ def doc_revise(request: Request, background: BackgroundTasks, doc_id: int, want:
 def doc_set_scope(request: Request, doc_id: int, dept: str = Form(""), access_level: str = Form(""),
                   back: str = Form("")):
     """문서의 부서·열람 등급 바꾸기 — 조각에도 즉시 옮겨져 검색 범위가 따라간다(문서 화면이 부른다).
-        관리자, 또는 그 문서를 올린 사람만."""
+        관리자, 올린 사람, 또는 그 문서 부서의 교직원."""
     h = request.app.state.doc_page
     db, _scope_choices, _all_depts, _local_back = h.db, h._scope_choices, h._all_depts, h._local_back
     from zzaimy.app.access_policy import LEVELS
@@ -152,15 +152,14 @@ def doc_set_scope(request: Request, doc_id: int, dept: str = Form(""), access_le
     doc = db.get_document(doc_id)
     if doc is None:
         raise HTTPException(404)
-    user = getattr(request.state, "user", "")
-    if getattr(request.state, "role", "") != "dev" and doc.get("owner") != user:
-        raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+    if not request.app.state.may_edit_doc(request, doc):
+        raise HTTPException(403, "문서를 올린 담당자, 그 부서 교직원, 관리자만 바꿀 수 있습니다")
     d = dept.strip()
     if d:                                            # 검색 범위 — 공통 RAG(전체 공개) 또는 부서 RAG(부서 제한)
         from zzaimy.app import rag_spaces
         if d != "공통" and d not in _all_depts():
             raise HTTPException(400, f"없는 부서 RAG: {d}")
-        if d not in _scope_choices(request):           # 올린 사람은 공통·자기 부서만 — 다른 부서 RAG 로는 관리자만
+        if d not in _scope_choices(request):           # 교직원은 공통·소속·추가로 받은 부서만 — 그 밖의 부서 RAG 로는 관리자만
             raise HTTPException(403, f"이 계정은 「{d}」 부서 RAG 로 옮길 수 없습니다")
         rag_spaces.move_docs(db, [doc_id], d)
     if access_level in LEVELS:
@@ -171,14 +170,14 @@ def doc_set_scope(request: Request, doc_id: int, dept: str = Form(""), access_le
 
 @router.post("/doc/{doc_id}/audience")
 def doc_set_audience(request: Request, doc_id: int, audience: str = Form("staff"), back: str = Form("")):
-    """규정 문서의 학생 공개 켜기·끄기(ADR-0052) — 관리자, 또는 그 문서를 올린 사람만. 규정이 아니면 학생 공개가 되지 않는다."""
+    """규정 문서의 학생 공개 켜기·끄기(ADR-0052) — 관리자, 올린 사람, 또는 그 문서 부서의 교직원. 규정이 아니면 학생 공개가 되지 않는다."""
     h = request.app.state.doc_page
     db, _local_back = h.db, h._local_back
     doc = db.get_document(doc_id)
     if doc is None:
         raise HTTPException(404)
-    if getattr(request.state, "role", "") != "dev" and doc.get("owner") != getattr(request.state, "user", ""):
-        raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+    if not request.app.state.may_edit_doc(request, doc):
+        raise HTTPException(403, "문서를 올린 담당자, 그 부서 교직원, 관리자만 바꿀 수 있습니다")
     if audience not in ("staff", "student") or (audience == "student" and doc.get("doc_type") != "regulation"):
         raise HTTPException(400, "학생 공개는 규정 문서만 할 수 있습니다")
     db.set_document_audience(doc_id, audience)
@@ -286,7 +285,7 @@ def doc_set_folder(request: Request, doc_id: int, folder: str = Form("")):
     from zzaimy.app import library_folders as lf, rag_spaces
     doc = db.get_document(doc_id)
     if not _can_edit_doc(request, doc):
-        raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+        raise HTTPException(403, "문서를 올린 담당자, 그 부서 교직원, 관리자만 바꿀 수 있습니다")
     n = move_to_folder(request, [doc_id], folder)
     if n is None:
         raise HTTPException(400, "없는 폴더이거나 이 계정이 쓸 수 없는 범위의 폴더입니다")

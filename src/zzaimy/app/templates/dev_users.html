@@ -62,6 +62,10 @@
   #userEdit .ua-footer { flex:none; display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid var(--line); background:var(--bg); }
   #userEdit .ua-footer button { min-height:40px; border-radius:8px; padding:8px 18px; }
   #userEdit [hidden] { display:none !important; }
+  #userEdit .ua-extra { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0; }
+  #userEdit .ua-extra legend { font-size:12px; font-weight:600; padding:0 4px; }
+  #userEdit .ua-extra-list { display:flex; flex-wrap:wrap; gap:6px 14px; }
+  #userEdit .ua-extra-list label.check { flex-direction:row; align-items:center; gap:6px; margin:0; font-weight:400; font-size:13px; }
   @media (max-width:640px) { #userEdit { padding:12px; } #userEdit > .card, #userEdit > .card > .card-in { max-height:calc(100dvh - 24px); } #userEdit .modal-head, #userEdit .ua-form, #userEdit .ua-footer { padding:18px; } }
   @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } .ua-table .wide { display:none; } }
 </style>
@@ -81,10 +85,10 @@
     <tr class="{{ '' if u.active else 'off' }}">
       <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
       <td>{{ u.role_label }}</td>
-      <td>{% if u.dept %}{{ u.dept }}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}</td>
+      <td>{% if u.dept %}{{ u.dept }}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}{% if u.extra %}<span class="ua-sub" title="추가 부서 — 이 부서 문서도 찾고 작업합니다">+ {{ u.extra | join(', ') }}</span>{% endif %}</td>
       <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
-            data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}"
+            data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}"
             data-effective="{{ (u.effective ~ ' · ' ~ u.via) if u.effective and u.via != '본인' else '' }}" aria-label="{{ u.user }} 사용자 편집">편집</button></td>
     </tr>
@@ -175,6 +179,8 @@
         <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
           {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
       </div>
+      {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>추가 부서 <span class="ua-hint">— 이 부서 문서도 찾고 작업(고치기·공개 범위·폴더)합니다 · 교직원만</span></legend>
+        <div class="ua-extra-list">{% for d in dept_choices %}<label class="check"><input type="checkbox" name="extra" value="{{ d }}">{{ d }}</label>{% endfor %}</div></fieldset>{% endif %}
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
       <label>본인 구글 계정<select name="google"><option value="">본인 연결 없음</option>
         {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}</option>{% endfor %}</select></label>
@@ -270,6 +276,12 @@
         f.dept.add(oldDept);
       }
       f.dept.value = dept;
+      // 추가 부서(여러 개) — 표의 data-extra 로 체크. 교직원만 받으므로 역할이 교직원이 아니면 칸을 숨긴다
+      var extra = isNew ? [] : (btn.dataset.extra || '').split('|').filter(Boolean);
+      document.querySelectorAll('#userEdit input[name="extra"]').forEach(function (cb) { cb.checked = extra.indexOf(cb.value) >= 0; });
+      var extraBox = document.querySelector('#userEdit [data-extra-depts]');
+      var syncExtra = function () { if (extraBox) extraBox.hidden = f.role.value !== 'staff'; };
+      f.role.onchange = syncExtra; syncExtra();
       f.google.value = isNew ? '' : (btn.dataset.google || '');
       // 본인 연결이 없어도 부서 공용·공용 계정으로 문서를 쓰는 사용자 — 표의 「문서 작업 계정」과 같은 말을 창에서도 한다
       var eff = document.querySelector('#userEdit [data-effective-hint]');

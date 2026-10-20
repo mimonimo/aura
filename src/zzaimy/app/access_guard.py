@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # 역할 — 계정에 붙는 값. staff·head 는 부서 범위, student 는 공통 공개 자료만, dev 는 관리 화면.
-ROLES = {"staff": "교직원", "professor": "교수", "head": "부서장", "student": "학생", "dev": "관리자"}
+ROLES = {"staff": "교직원", "student": "학생", "dev": "관리자"}   # 교수·부서장은 교직원과 권한이 같아 10-21 하나로 합침
 
 # 개인정보 유형 낱말 — 이 낱말과 '특정인 지칭'이 함께 있으면 개인정보 요청으로 본다.
 _PII_WORDS = (
@@ -78,7 +78,7 @@ def scope_note(question: str, dept: str | None, role: str, depts: list[str], als
     """
     q = question or ""
     mentioned = [d for d in _dept_words(depts) if d in q]
-    if role == "student" or role not in ("staff", "professor", "head", "dev"):
+    if role == "student" or role not in ("staff", "dev"):
         # 부서명이 자료에 없어도 업무 자료를 가리키는 말이면 안내한다(사업계획서·접수 서류·지원자…)
         if mentioned or _STAFF_MATERIAL.search(q):
             return ("학생 계정에서는 부서 업무 자료를 볼 수 없습니다. 공개된 규정과 학사 안내만 답할 수 있으며, "

@@ -30,7 +30,7 @@ from zzaimy.ingest import gdocs, gdrive, gdrive_files
 router = APIRouter()
 
 _UID = re.compile(r"^[a-z0-9][a-z0-9_-]{2,31}$")          # 점은 안 된다 — 세션 토큰이 '만료.아이디.서명' 꼴
-ASSIGNABLE_ROLES = {key: ROLES[key] for key in ("staff", "professor", "head", "dev")}
+ASSIGNABLE_ROLES = {key: ROLES[key] for key in ("staff", "dev")}
 _FOLDER_ID = re.compile(r"(?:/folders/|[?&]id=)([A-Za-z0-9_-]{10,})|^([A-Za-z0-9_-]{10,})$")
 
 
@@ -89,10 +89,11 @@ def known_depts(db, accounts: dict, data_dir=None) -> list[str]:
 def overview(db, accounts: dict, data_dir=None) -> dict:
     conn = connected_emails()
     users = []
+    from zzaimy.app import access_policy
     for uid, a in sorted(accounts.items(), key=lambda kv: (not kv[1].get("active", True), kv[1].get("dept") or "", kv[0])):
         st = user_status(db, uid, a.get("dept") or None)
         users.append({**st, "name": a.get("name", ""), "role": a.get("role", "staff"), "role_label": ROLES.get(a.get("role", "staff"), ""),
-                      "dept": a.get("dept", ""), "active": a.get("active", True), "created_at": (a.get("created_at") or "")[:10]})
+                      "dept": a.get("dept", ""), "extra": access_policy.extra_depts(uid, data_dir) if data_dir else [], "active": a.get("active", True), "created_at": (a.get("created_at") or "")[:10]})
     settings = db.all_settings()
     # 부서 목록은 한 곳(known_depts) — 여기서 만든 부서가 RAG 공간의 부서 RAG·검색 범위·폴더 범위에 그대로 쓰인다
     depts = known_depts(db, accounts, data_dir)
@@ -198,7 +199,7 @@ def dev_google_moved():
 @router.post("/dev/users/save")
 def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
                    role: str = Form("staff"), dept: str = Form(""), active: str = Form(""), new_pw: str = Form(""),
-                   google: str = Form("")):
+                   google: str = Form(""), extra: list[str] = Form([])):
     """사용자 추가·수정 — 역할·부서·사용 여부, 임시 비밀번호(새 계정은 필수, 기존 계정은 왔을 때만 초기화), 구글 계정 이음.
     관리자가 넣은 비밀번호는 임시다 — 계정에 must_change 를 달아 다음 로그인 때 본인이 바꾸게 한다. 값은 응답에 싣지 않는다."""
     st = request.app.state
@@ -247,6 +248,19 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
         accounts[uid]["must_change"] = True
     accounts[uid].update(role=role, dept=dept, active=on, updated_at=__import__("datetime").datetime.now().isoformat(timespec="seconds"))
     st.save_accounts()
+    # 추가 부서(여러 개) — RAG 공간의 계정별 추가 권한(grants)과 같은 값. 교직원만 받는다(학생·관리자는 비운다). 소속 부서는 빼고 저장
+    data_dir = getattr(st, "data_dir", None)
+    if data_dir is not None:
+        from zzaimy.app import rag_spaces
+        known = set(known_depts(st.db, accounts, data_dir))
+        want = sorted({d.strip() for d in extra if d.strip() in known and d.strip() != dept}) if role == "staff" else []
+        cfg = rag_spaces.config(data_dir)
+        grants = dict(cfg.get("grants", {}))
+        if sorted(s[5:] for s in grants.get(uid, []) if str(s).startswith("dept:")) != want:
+            others = [s for s in grants.get(uid, []) if not str(s).startswith("dept:")]
+            grants[uid] = others + [f"dept:{d}" for d in want]
+            cfg["grants"] = {u: v for u, v in grants.items() if v}
+            rag_spaces.save_config(cfg, data_dir)
     old = (st.db.get_setting(f"google_account:{uid}", "") or "").strip()
     if google != old:
         st.db.set_setting(f"google_account:{uid}", google)

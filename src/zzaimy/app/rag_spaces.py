@@ -22,7 +22,7 @@ DEFAULT = {
     "spaces": [
         {"id": "student", "label": "학생 — 학사 규정", "roles": ["student"],
          "regulation": {"audience": "student"}, "grant": False},
-        {"id": "staff", "label": "교직원 — 공통 RAG", "roles": ["staff", "professor", "head"], "depts": [""],
+        {"id": "staff", "label": "교직원 — 공통 RAG", "roles": ["staff"], "depts": [""],
          "regulation": {}, "grant": True, "grant_depts": ["공통"]},
     ],
     # 부서가 정해진 교직원은 공간을 따로 적지 않아도 dept:<부서> 공간을 받는다 — 그 부서 사업 문서 + 공통·그 부서 규정
@@ -58,7 +58,8 @@ def resolve(role: str, dept: str | None, data_dir: str | Path | None = None) -> 
     for sp in cfg["spaces"]:
         if role in sp.get("roles", []) and ("depts" not in sp or dept in sp["depts"]):
             return {**sp, "grant_depts": sp.get("grant_depts")}
-    if dept and role in ("staff", "professor", "head"):
+    from zzaimy.app import access_policy
+    if dept and role in access_policy.STAFF_ROLES:
         d = cfg.get("dept_default", {})
         return {"id": f"dept:{dept}", "label": f"{dept} — 공통 RAG + 부서 RAG", "regulation": d.get("regulation", {}),
                 "grant": d.get("grant", True), "grant_depts": [dept, "공통"]}

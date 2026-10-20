@@ -288,7 +288,7 @@ class Database:
         "ALTER TABLE projects ADD COLUMN archive_source TEXT NOT NULL DEFAULT ''",
         # 사업단 — 담당자가 프로젝트를 만들 때 고른다(링크·앵커·산단 …, 원본 최상위 폴더와 같은 이름)
         "ALTER TABLE projects ADD COLUMN unit TEXT NOT NULL DEFAULT ''",
-        # 공개 대상 — staff(교직원·교수, 기본) · student(학생에게도 공개하는 학사 규정). 학생 검색은 student 규정만(ADR-0052)
+        # 공개 대상 — staff(교직원, 기본) · student(학생에게도 공개하는 학사 규정). 학생 검색은 student 규정만(ADR-0052)
         "ALTER TABLE documents ADD COLUMN audience TEXT NOT NULL DEFAULT 'staff'",
         # 대화 갈래 — chat(에이전트 대화: 문서 작성·업무) · helper(떠 있는 창의 플랫폼 업무 도우미). 사이드바는 chat 만
         "ALTER TABLE chat_sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'chat'",
@@ -820,7 +820,7 @@ class Database:
             conn.execute("UPDATE documents SET receipt_no = ? WHERE id = ?", (receipt_no, doc_id))
 
     def set_document_audience(self, doc_id: int, audience: str) -> None:
-        """공개 대상 — staff(교직원·교수) 또는 student(학생에게도 공개하는 학사 규정, 규정 문서만)."""
+        """공개 대상 — staff(교직원) 또는 student(학생에게도 공개하는 학사 규정, 규정 문서만)."""
         if audience not in ("staff", "student"):
             raise ValueError(f"공개 대상은 staff·student 중 하나: {audience}")
         with self._conn() as conn:

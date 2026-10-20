@@ -284,7 +284,7 @@ def create_app(
         back = (back or "").strip()
         return back if _LOCAL_PATH.fullmatch(back) else default
 
-    VIEW_AS_ROLES = ("student", "staff", "professor", "head")      # 개발자 「테스트 보기」로 고를 수 있는 역할 — 권한을 좁히기만 한다
+    VIEW_AS_ROLES = ("student", "staff")      # 개발자 「테스트 보기」로 고를 수 있는 역할 — 권한을 좁히기만 한다
 
     def _view_as(user: str) -> dict | None:
         """개발자 계정의 「테스트 보기」 — 고른 역할·부서로 화면·검색·대화 범위를 본다(db 설정 view_as:<계정>). 개발자만, 좁히기만."""
@@ -447,13 +447,9 @@ def create_app(
             _th.Thread(target=work, name="drive-share", daemon=True).start()
 
     def _may_edit_doc(request: Request, doc: dict | None) -> bool:
-        """문서를 바꿀 수 있는가 — 관리자, 또는 그 문서를 올린 사람. 「테스트 보기」 중에는 고른 계정처럼(개발자가 올린 문서도 남의 문서)."""
-        if not doc:
-            return False
-        if getattr(request.state, "role", "") == "dev":
-            return True
-        user = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
-        return bool(user) and doc.get("owner") == user
+        """문서를 바꿀 수 있는가 — 관리자, 올린 사람, 또는 그 문서 부서에 속한(추가로 받은 부서 포함) 교직원(access_policy.can_edit).
+        「테스트 보기」 중에는 고른 계정처럼(개발자가 올린 문서도 남의 문서)."""
+        return _ap.can_edit(doc, **_req_viewer(request)) if doc else False
 
     if password is not None:
         basic = HTTPBasic(auto_error=False)
@@ -476,7 +472,7 @@ def create_app(
             if user is None:
                 # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
                 raise HTTPException(401, detail="login-required")
-            request.state.real_role = accounts.get(user, {}).get("role", "staff")
+            request.state.real_role = _ap.role_class(accounts.get(user, {}).get("role", "staff"))   # 예전 교수·부서장 → 교직원
             request.state.role = request.state.real_role
             request.state.dept = accounts.get(user, {}).get("dept", "")     # 검색·대화 범위(부서). 비면 전체
             request.state.user = user
@@ -506,7 +502,7 @@ def create_app(
                 if (doc is not None and request.method == "POST" and request.url.path.startswith("/doc/")
                         and not _DOC_ANYONE_POST.match(request.url.path)
                         and not _may_edit_doc(request, doc)):
-                    raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+                    raise HTTPException(403, "문서를 올린 담당자, 그 부서 교직원, 관리자만 바꿀 수 있습니다")
             # 프로젝트를 바꾸는 일(보관·지침·메모·기준 문서·참고 연결·이름·지우기 …)도 그 프로젝트 담당자와 관리자만.
             # 「불러오기」 는 보관된 과거 사업 묶음(관리자 계정 소유)을 가져오는 길이라 그것만 볼 수 있는 사람 누구나
             # 보기도 같은 규칙(프로젝트 찾기 project_refs.browse 와 같게) — 다른 부서의 진행 중 프로젝트는 보이지 않고, 같은 부서
@@ -1362,7 +1358,7 @@ def create_app(
         if ag.injection_like(q):
             ag.audit(data_dir, owner, "injection", q, dept, role)
         depts = sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()})
-        scope_msg = ag.scope_note(q, dept, role, depts, _extra_depts(owner) if role in ("staff", "professor", "head") else ())
+        scope_msg = ag.scope_note(q, dept, role, depts, _extra_depts(owner) if role in _ap.STAFF_ROLES else ())
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
@@ -3868,7 +3864,7 @@ def create_app(
             answer = r_.answer(db, q, **kw)
             # 범위 밖 부서 자료를 가리키는 질문 — 대화 화면과 같은 안내(검색은 원래 범위 안에서만 돈다)
             scope_msg = ag.scope_note(q, dept, role, sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()}),
-                                      _extra_depts(owner) if role in ("staff", "professor", "head") else ())
+                                      _extra_depts(owner) if role in _ap.STAFF_ROLES else ())
             if scope_msg:
                 ag.audit(Path(db_path).parent, owner, "scope", q, dept, role)
                 answer = scope_msg + "\n\n" + answer
@@ -4179,11 +4175,14 @@ def create_app(
         return _ua.known_depts(db, accounts, Path(db_path).parent)
 
     def _scope_choices(request: Request) -> list[str]:
-        """이 계정이 고를 수 있는 검색 범위 — 공통 RAG, 관리자는 모든 부서 RAG, 교직원은 자기 부서 RAG."""
+        """이 계정이 고를 수 있는 검색 범위 — 공통 RAG, 관리자는 모든 부서 RAG, 교직원은 소속 부서와 추가로 받은 부서의 RAG."""
         if request.state.role == "dev":
             return ["공통", *_all_depts()]
         mine = (getattr(request.state, "dept", "") or "").strip()
-        return ["공통", *([mine] if mine else [])]
+        out = ["공통", *([mine] if mine else [])]
+        if request.state.role in _ap.STAFF_ROLES and not getattr(request.state, "view_as", None):
+            out += [d for d in _extra_depts(getattr(request.state, "user", "")) if d not in out]
+        return out
 
     @app.post("/library/folders")
     def library_folder_create(request: Request, name: str = Form(""), dept: str = Form("공통")):
@@ -4344,7 +4343,7 @@ def create_app(
     # 구글 드라이브 자동 가져오기(「ZZAIMY 가져오기」 폴더, 10분마다) — 구글 앱이 등록된 운영에서만 돈다
     if password is not None:
         _gimport.ensure_scheduler(db, processor, inbox_dir, dept_of=lambda u: (accounts.get(u, {}) or {}).get("dept", ""),
-                                  rank=lambda u: {"staff": 0, "professor": 0, "head": 0, "dev": 1}.get((accounts.get(u, {}) or {}).get("role", ""), 2))
+                                  rank=lambda u: {"staff": 0, "dev": 1}.get((accounts.get(u, {}) or {}).get("role", ""), 2))
     # 작업 문서 공유 점검 — 10분마다 공유가 켜졌거나 준 권한이 남은 프로젝트를 다시 맞춘다. 동료의 부서·역할이 바뀌거나 계정이 지워지고,
     # 근거 문서의 열람 등급이 바뀐 것도 여기서 거둔다(담당자가 화면을 열기만 기다리지 않게). 구글 앱이 등록된 운영에서만
     if password is not None:
@@ -4448,6 +4447,7 @@ def create_app(
     # 문서 화면(/doc/{id})·문서 고치기·여러 문서(/docs/*) — 독립 라우터(app/doc_routes). 열람 범위·검색 범위·갈래 다시 정하기 같은
     # 함께 쓰는 도우미는 여기(앱마다)에서 만들어 문서 화면 묶음(app.state.doc_page)으로 넘긴다. 다 정의된 뒤라 맨 끝에 둔다
     from zzaimy.app import doc_routes
+    app.state.may_edit_doc = _may_edit_doc          # 문서 고치기 권한(access_policy.can_edit) — 문서 라우터가 같은 판정을 쓴다
     app.state.doc_page = doc_routes.make_doc_page_helpers(
         db=db,
         db_path=db_path,
