@@ -7,8 +7,8 @@ from zzaimy.app.db import Database
 BODY = "\n".join(f"제{i}조(목적) 이 규정은 산학협력단의 운영에 관한 사항을 정한다. 세부 사항은 따로 정한다." for i in range(1, 6))
 
 
-def _doc(db, name, kind="regulation", family=None, text=BODY):
-    did = db.add_document(name, "x", "grant")
+def _doc(db, name, kind="regulation", family=None, text=BODY, stored="x"):
+    did = db.add_document(name, stored, "grant")
     with db._conn() as conn:
         conn.execute("UPDATE documents SET status = 'reviewed', kind = ?, family = ?, masked_text = ? WHERE id = ?",
                      (kind, family, text, did))
@@ -140,13 +140,15 @@ def test_patterns_and_query_stay_cheap_on_hostile_input(tmp_path):
 def test_auto_register_takes_new_versions_but_respects_manual_unregister(tmp_path):
     """반입 자료의 새 판은 저절로 기준 문서가 되고 옛 판은 물러난다 — 사람이 해제한 문서는 다시 올리지 않는다(10-21)."""
     db = Database(tmp_path / "r.db")
-    old = _doc(db, "가상 연구비 규정 · 2023년 3월 1일", family="연구비")
+    old = _doc(db, "가상 연구비 규정 · 2023년 3월 1일", family="연구비", stored="dgx://규정/2023.hwp")
     rr.register(db, [old], tmp_path)
-    new = _doc(db, "가상 연구비 규정 · 2025년 3월 1일", family="연구비")
+    upload = _doc(db, "가상 출장 규정", stored="data/platform/documents/x.hwp")      # 사용자가 올린 문서 — 저절로 올리지 않는다
+    new = _doc(db, "가상 연구비 규정 · 2025년 3월 1일", family="연구비", stored="dgx://규정/2025.hwp")
     got = rr.auto_register(db, tmp_path)
     assert got["registered"] == 1 and got["replaced"] == 1
     assert db.get_document(new)["doc_type"] == "regulation" and db.get_document(old)["doc_type"] == "grant"
-    other = _doc(db, "가상 장학 규정")
+    assert db.get_document(upload)["doc_type"] == "grant"
+    other = _doc(db, "가상 장학 규정", stored="dgx://규정/장학.hwp")
     rr.register(db, [other], tmp_path)
     rr.unregister(db, [other], tmp_path, by="dev")                     # 사람이 뺐다
     assert rr.auto_register(db, tmp_path)["registered"] == 0 and db.get_document(other)["doc_type"] == "grant"
