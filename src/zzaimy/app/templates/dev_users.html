@@ -110,7 +110,9 @@
     {% for d in depts %}
     <tr>
       <td><b>{{ d.dept }}</b></td>
-      <td>{{ d.drive.members | join(", ") if d.drive.members else '—' }}</td>
+      {# 드라이브 권한을 받는 사람(drive.members — 추가 부서 포함, 첫 비밀번호를 바꾼 계정)과 아직 첫 로그인 전인 소속 계정을 함께 보인다 #}
+      {% set waiting = d.members | reject('in', d.drive.members) | list %}
+      <td>{{ d.drive.members | join(", ") }}{% if waiting %}{% if d.drive.members %}, {% endif %}<span class="muted" title="첫 로그인에서 비밀번호를 바꾸면 부서 드라이브 권한을 받습니다">{{ waiting | join(", ") }}(첫 로그인 전)</span>{% endif %}{% if not d.drive.members and not waiting %}—{% endif %}</td>
       <td><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="라이브러리에서 이 부서 문서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
       <td>{% if d.drive.connected %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>{{ d.drive.name or '부서 폴더' }}</a>
           <span class="ua-sub">연결 계정 {{ d.drive.by }} · 접근 {{ d.drive.granted }}명{% if d.drive.unlinked %} · 구글 미연결 {{ d.drive.unlinked | join(', ') }}{% endif %}{% if d.drive.error %} · <span style="color:var(--red);">{{ d.drive.error }}</span>{% endif %}</span>
