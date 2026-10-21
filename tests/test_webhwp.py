@@ -284,3 +284,26 @@ def test_common_templates_are_locked_and_copyable(tmp_path, monkeypatch):
     assert wt.path_for(db, "plan") is None
     wt.ensure_all(db, base)
     assert wt.path_for(db, "plan") == tp and tp.read_bytes() != _hwpx("몰래 바꿈")
+
+
+def test_edit_lock_blocks_concurrent_overwrite(tmp_path, monkeypatch):
+    """같은 문서를 두 사람이 고칠 때 — 먼저 연 사람이 잠금을 잡고, 다른 사람의 저장은 409. 잠금은 풀거나 시간이 지나면 풀린다."""
+    app = _setup(tmp_path, monkeypatch)
+    from zzaimy.app import rag_spaces
+    cfg = rag_spaces.config(app.state.data_dir)
+    cfg["grants"] = {"lee": ["dept:기획처"]}
+    rag_spaces.save_config(cfg, app.state.data_dir)
+    kim, lee = TestClient(app), TestClient(app)
+    assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
+    fid = _up(kim, app, "기획처", "공동.hwpx", _hwpx())
+    assert kim.post(f"/hwp/{fid}/lock").json()["ok"]
+    j = lee.post(f"/hwp/{fid}/lock").json()
+    assert j["ok"] is False and j["by"] == "kim"
+    r = lee.post(f"/hwp/{fid}/save", content=_hwpx("lee"))
+    assert r.status_code == 409 and "kim" in r.json()["detail"]
+    assert "kim 편집 중" in lee.get("/hwp?dept=기획처").text
+    assert kim.post(f"/hwp/{fid}/save", content=_hwpx("kim")).status_code == 200
+    kim.post(f"/hwp/{fid}/unlock")
+    assert lee.post(f"/hwp/{fid}/lock").json()["ok"]
+    monkeypatch.setattr(webhwp, "LOCK_TTL", -1)              # 창이 끊겨 늘리지 못하면 저절로 풀린다
+    assert kim.post(f"/hwp/{fid}/lock").json()["ok"]

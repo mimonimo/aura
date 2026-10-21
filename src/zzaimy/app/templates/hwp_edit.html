@@ -89,11 +89,30 @@
     }).then(function (blob) {
       ctrl.Open(new File([blob], name), '', '', function (res) {
         if (res && res.result === false) { say('문서를 열지 못했습니다', 'bad'); return; }
-        ready = true; saveBtn.disabled = false; say({{ "'공통 양식 — 보기 전용'" if readonly else "'열었습니다'" }}, 'ok');
+        {% if readonly %}say('공통 양식 — 보기 전용', 'ok');{% else %}holdLock();{% endif %}
       });
     }).catch(function (e) { say(e.message, 'bad'); });
   });
   setTimeout(fit, 300);
+  // 편집 잠금 — 같은 문서를 두 사람이 동시에 고쳐 서로 덮어쓰지 않게. 잡으면 45초마다 늘리고, 남이 쓰는 중이면 보기 전용으로 두고 기다린다
+  var lockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/lock') : '', unlockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/unlock') : '';
+  var holding = false, beat = null, waitedFor = '';
+  function holdLock() {
+    if (!lockUrl) return;
+    fetch(lockUrl, {method: 'POST', credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.ok) {
+        if (!holding && waitedFor) { say(waitedFor + ' 님 편집이 끝났습니다 — 최신 내용을 보려면 다시 열어 주세요', 'busy'); }
+        else if (!holding) { say('열었습니다', 'ok'); }
+        holding = true; ready = !waitedFor; saveBtn.disabled = !!waitedFor;
+        if (waitedFor) { saveBtn.textContent = '다시 열기'; saveBtn.disabled = false; saveBtn.onclick = function () { location.reload(); }; }
+      } else {
+        holding = false; ready = false; saveBtn.disabled = true; waitedFor = j.by || '다른 사람';
+        say(waitedFor + ' 님이 편집 중 — 보기 전용', 'busy');
+      }
+    }).catch(function () {});
+  }
+  beat = setInterval(function () { if (!isNew && fileUrl) holdLock(); }, 45000);
+  window.addEventListener('pagehide', function () { if (holding && unlockUrl) navigator.sendBeacon(unlockUrl); });
   function save() {
     if (!ready || saving || {{ 'true' if readonly else 'false' }}) return;
     saving = true; saveBtn.disabled = true; say('저장하는 중', 'busy');
@@ -109,6 +128,7 @@
         .then(function (j) {
           if (isNew && j.id) {
             isNew = false; saveUrl = '/hwp/' + j.id + '/save'; history.replaceState(null, '', j.url);
+            fileUrl = '/hwp/' + j.id + '/file'; lockUrl = '/hwp/' + j.id + '/lock'; unlockUrl = '/hwp/' + j.id + '/unlock'; holdLock();
             var inp = document.querySelector('[data-title]'); if (inp) inp.readOnly = true;
           }
           say('저장됨 · ' + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');

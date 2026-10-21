@@ -220,6 +220,7 @@ def browse(db, base: Path, dept: str, folder: str = "") -> dict:
         m = meta(db, r["id"])
         files.append({"id": r["id"], "name": r["name"], "size": r["size"], "owner": m.get("owner", ""),
                       "locked": str(m.get("source", "")).startswith("양식:"),
+                      "editing": lock_holder(db, r["id"]).get("user", ""),
                       "saved": (m.get("saved") or m.get("created") or r.get("created_at") or "")[:16].replace("T", " "),
                       "saved_by": m.get("saved_by", "")})
     files.sort(key=lambda x: x["saved"], reverse=True)
@@ -241,6 +242,34 @@ def trash(db, base: Path, fid: int, *, user: str) -> None:
         t.mkdir(parents=True, exist_ok=True)
         shutil.move(str(p), str(t / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S} {user}{p.suffix}"))
     db.remove_files(path=f["path"])
+
+
+LOCK_TTL = 120     # 편집 잠금 유지 시간(초) — 편집 화면이 45초마다 늘린다. 창을 닫거나 끊기면 2분 뒤 저절로 풀린다
+
+
+def lock_holder(db, fid: int) -> dict:
+    """지금 이 문서를 편집 중인 사람 — {"user", "at"} 또는 {}(아무도 없거나 시간이 지남)."""
+    try:
+        cur = json.loads(db.get_setting(f"webhwp_lock:{int(fid)}", "{}") or "{}")
+    except ValueError:
+        return {}
+    return cur if cur.get("user") and time.time() - float(cur.get("at") or 0) < LOCK_TTL else {}
+
+
+def take_lock(db, fid: int, user: str) -> dict:
+    """편집 잠금 잡기·늘리기 — 다른 사람이 잡고 있으면 {"ok": False, "by": 그 사람}. 여럿이 같은 문서를 동시에 고쳐 서로 덮어쓰지 않게."""
+    cur = lock_holder(db, fid)
+    if cur and cur["user"] != user:
+        return {"ok": False, "by": cur["user"], "since": cur.get("since", cur["at"])}
+    since = cur.get("since") if cur else time.time()
+    db.set_setting(f"webhwp_lock:{int(fid)}", json.dumps({"user": user, "at": time.time(), "since": since}))
+    return {"ok": True, "by": user}
+
+
+def release_lock(db, fid: int, user: str) -> None:
+    cur = lock_holder(db, fid)
+    if cur and cur["user"] == user:
+        db.set_setting(f"webhwp_lock:{int(fid)}", "{}")
 
 
 def locked(db, fid: int) -> bool:

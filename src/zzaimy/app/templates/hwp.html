@@ -68,7 +68,7 @@
       {% endfor %}
       {% for f in here.files %}
       <tr><td>{% if status.ok %}<a class="name" href="/hwp/{{ f.id }}/edit" title="기안기로 열기">{% else %}<span class="name">{% endif %}<iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>{{ f.name }}{% if status.ok %}</a>{% else %}</span>{% endif %}</td>
-        <td class="meta">{{ f.saved }}</td><td class="meta">{{ f.saved_by or f.owner }}</td>
+        <td class="meta">{{ f.saved }}</td><td class="meta">{% if f.editing %}<span class="pill" title="편집 잠금 — 그 사람이 닫으면 풀립니다" style="background:#FEF3C7; color:#92400E;">{{ f.editing }} 편집 중</span>{% else %}{{ f.saved_by or f.owner }}{% endif %}</td>
         <td><div class="hw-act">
           {% if status.ok %}<a class="mini-btn" href="/hwp/{{ f.id }}/edit">열기</a>{% endif %}
           <a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a>

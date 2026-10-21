@@ -134,6 +134,24 @@ def hwp_folder(request: Request, dept: str = Form(""), folder: str = Form(""), n
     return _back(f"「{sub.split('/')[-1]}」 폴더를 만들었습니다", dept=dept, folder=sub)
 
 
+@router.post("/hwp/{fid}/lock")
+def hwp_lock(request: Request, fid: int):
+    """편집 잠금 잡기·늘리기(편집 화면이 45초마다) — 다른 사람이 편집 중이면 ok=false 와 그 사람."""
+    _need_staff(request)
+    _file(request, fid)
+    if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
+        return {"ok": False, "by": "", "readonly": True}
+    return webhwp.take_lock(request.app.state.db, fid, getattr(request.state, "user", ""))
+
+
+@router.post("/hwp/{fid}/unlock")
+def hwp_unlock(request: Request, fid: int):
+    _need_staff(request)
+    _file(request, fid)
+    webhwp.release_lock(request.app.state.db, fid, getattr(request.state, "user", ""))
+    return {"ok": True}
+
+
 @router.post("/hwp/{fid}/copy")
 def hwp_copy(request: Request, fid: int, dept: str = Form(""), folder: str = Form("")):
     """복사해 쓰기 — 공통 양식(또는 볼 수 있는 문서)을 내 부서 디렉터리(폴더)에 복사하고 기안기로 연다."""
@@ -249,6 +267,9 @@ async def hwp_save(request: Request, fid: int):
     _need_staff(request)
     _file(request, fid)
     _writable(request, fid)
+    held = webhwp.lock_holder(request.app.state.db, fid)
+    if held and held["user"] != getattr(request.state, "user", ""):
+        raise HTTPException(409, f"{held['user']} 님이 편집 중이라 저장하지 않았습니다 — 끝난 뒤 다시 열어 고쳐 주세요")
     data = await _body(request)
     try:
         p = webhwp.save(request.app.state.db, _base(request), fid, data, user=getattr(request.state, "user", ""))
