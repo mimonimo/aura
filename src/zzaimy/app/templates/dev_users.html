@@ -46,7 +46,7 @@
   #userEdit .ua-options { border-top:1px solid var(--line); padding-top:16px; }
   #userEdit .ua-temp-pw { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
   #userEdit .ua-temp-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  #userEdit .ua-temp-row .mini-btn { min-height:40px; padding:6px 12px; }
+  #userEdit .ua-temp-row .mini-btn { min-height:40px; padding:6px 14px; min-width:72px; }
   #userEdit .ua-temp-row input { flex:1 1 180px; min-width:0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.04em; background:var(--panel); }
   #userPasswordFields { margin-top:16px; }
   #userEdit .ua-options label.check { margin-top:18px; }
@@ -188,9 +188,9 @@
         <div class="ua-extra-list">{% for d in dept_choices %}<label class="check"><input type="checkbox" name="extra" value="{{ d }}">{{ d }}</label>{% endfor %}</div></fieldset>{% endif %}
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
       <label>본인 구글 계정<select name="google"><option value="">본인 연결 없음</option>
-        {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}</option>{% endfor %}</select></label>
+        {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}{% if e.users %} — {{ e.users | join(", ") }} 사용 중{% endif %}</option>{% endfor %}</select></label>
       <p class="ua-hint" data-effective-hint hidden></p>
-      <p class="ua-hint">사용자가 로그인 후 설정에서 본인 계정을 연결할 수 있습니다.</p>
+      <p class="ua-hint">학교에서 연결된 계정 전체가 관리자에게만 보입니다 — 사용자 본인 설정에는 자기 연결만 보이고, 보통은 본인이 설정에서 연결합니다.</p>
       <div data-initial-password></div>
       <input type="hidden" name="active" value="1">
       <section class="ua-options" data-account-options hidden>
@@ -201,8 +201,8 @@
           <label for="uaTempPw"><span data-pw-label>임시 비밀번호</span></label>
           <div class="ua-temp-row">
             <input id="uaTempPw" type="text" name="new_pw" readonly autocomplete="off" spellcheck="false" minlength="{{ password_rules.min_length }}" aria-describedby="uaTempHelp">
-            <button type="button" class="mini-btn" data-temp-new><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>다시 만들기</button>
-            <button type="button" class="mini-btn" data-temp-copy><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon><span>복사</span></button>
+            <button type="button" class="mini-btn" data-temp-new>다시 만들기</button>
+            <button type="button" class="mini-btn" data-temp-copy><span>복사</span></button>
           </div>
           <p class="ua-hint" id="uaTempHelp">저장하면 이 비밀번호로 바뀝니다 · 사용자에게 전달 · 다음 로그인 때 본인이 새 비밀번호로 변경</p>
         </div>
