@@ -20,6 +20,22 @@ _HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
 MAX_BYTES = 100 * 1024 * 1024
 
 
+async def _body(request: Request, limit: int | None = None) -> bytes:
+    """본문을 한도까지만 읽는다 — 큰 본문을 다 받아 놓고 재지 않게(Content-Length 를 먼저 보고, 흘려 받으며 센다)."""
+    limit = MAX_BYTES if limit is None else limit
+    try:
+        if int(request.headers.get("content-length") or 0) > limit:
+            raise HTTPException(413, "파일이 너무 큽니다")
+    except ValueError:
+        raise HTTPException(400, "Content-Length 가 올바르지 않습니다")
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > limit:
+            raise HTTPException(413, "파일이 너무 큽니다")
+    return bytes(buf)
+
+
 def _base(request: Request) -> Path:
     return Path(request.app.state.data_dir)
 
@@ -87,14 +103,52 @@ async def hwp_upload(request: Request, dept: str = Form(""), file: UploadFile = 
     return RedirectResponse(f"/hwp/{fid}/edit", status_code=303)
 
 
-@router.get("/hwp/{fid}/edit", response_class=HTMLResponse)
+EDIT_PAGE = "/webhwpctrl/aura-edit"     # 기안기 스크립트는 「지금 페이지의 폴더」 + hwpctrlmain.html 로 편집 틀을 연다 — 그래서 /webhwpctrl/ 바로 아래
+
+
+@router.get("/hwp/new")
+def hwp_new(request: Request, dept: str = ""):
+    """빈 문서로 기안기 열기 — 처음 저장할 때 부서 디렉터리에 파일이 생긴다."""
+    _need_staff(request)
+    if dept not in _depts(request):
+        raise HTTPException(403, "이 부서 디렉터리에는 만들 수 없습니다")
+    return RedirectResponse(f"{EDIT_PAGE}?dept={_q(dept)}", status_code=303)
+
+
+@router.get(EDIT_PAGE, response_class=HTMLResponse)
+def hwp_edit_page(request: Request, id: int | None = None, dept: str = ""):
+    """기안기 편집 화면 — id 가 있으면 그 문서, 없으면 dept 부서의 새 문서."""
+    _need_staff(request)
+    st = request.app.state
+    if id is not None:
+        f = _file(request, id)
+        ctx = {"f": f, "dept": webhwp.dept_of_path(_base(request), f["path"]), "meta": webhwp.meta(st.db, id)}
+    else:
+        if dept not in _depts(request):
+            raise HTTPException(403, "이 부서 디렉터리에는 만들 수 없습니다")
+        ctx = {"f": None, "dept": dept, "meta": {}}
+    return st.templates.TemplateResponse(request, "hwp_edit.html", st.ctx(request, {**ctx, "status": webhwp.status()}))
+
+
+@router.post("/hwp/new")
+async def hwp_new_save(request: Request, dept: str = "", title: str = ""):
+    """새 문서 첫 저장 — 본문 바이트(HWPX)를 부서 디렉터리에 들이고 id 를 돌려준다."""
+    _need_staff(request)
+    if dept not in _depts(request):
+        raise HTTPException(403, "이 부서 디렉터리에는 만들 수 없습니다")
+    data = await _body(request)
+    if data[:2] != b"PK":
+        raise HTTPException(400, "한글(HWPX) 파일이 아닙니다")
+    fid = webhwp.add(request.app.state.db, _base(request), dept, f"{(title or '새 문서').strip()[:60]}.hwpx", data,
+                     owner=getattr(request.state, "user", ""), source="new")
+    return {"ok": True, "id": fid, "url": f"{EDIT_PAGE}?id={fid}"}
+
+
+@router.get("/hwp/{fid}/edit")
 def hwp_edit(request: Request, fid: int):
     _need_staff(request)
-    f = _file(request, fid)
-    st = request.app.state
-    return st.templates.TemplateResponse(request, "hwp_edit.html", st.ctx(request, {
-        "f": f, "dept": webhwp.dept_of_path(_base(request), f["path"]), "meta": webhwp.meta(st.db, fid),
-        "status": webhwp.status()}))
+    _file(request, fid)
+    return RedirectResponse(f"{EDIT_PAGE}?id={int(fid)}", status_code=303)
 
 
 @router.get("/hwp/{fid}/file")
@@ -113,9 +167,7 @@ async def hwp_save(request: Request, fid: int):
     """기안기에서 받은 HWPX 를 그대로(본문 바이트) 저장 — 앞 판은 .판/ 으로."""
     _need_staff(request)
     _file(request, fid)
-    data = await request.body()
-    if len(data) > MAX_BYTES:
-        raise HTTPException(413, "파일이 너무 큽니다")
+    data = await _body(request)
     try:
         p = webhwp.save(request.app.state.db, _base(request), fid, data, user=getattr(request.state, "user", ""))
     except ValueError as e:
@@ -128,13 +180,18 @@ async def webhwp_proxy(request: Request, path: str):
     """기안기 서버로 그대로 넘긴다 — 교직원·관리자만(인증은 앱 단계에서 이미)."""
     _need_staff(request)
     import httpx
-    url = f"{webhwp.base_url()}/webhwpctrl/{path}"
+    from urllib.parse import quote, unquote
+    # 기안기 앱(/webhwpctrl/) 밖으로 나가지 못하게 — ../ 나 인코딩한 ../, 역슬래시로 관리 화면·다른 앱에 닿는 길을 막는다
+    raw = unquote(path)
+    if raw.startswith("/") or "\\" in raw or any(seg in ("..", ".") for seg in raw.split("/")):
+        raise HTTPException(400, "올바르지 않은 경로입니다")
+    url = f"{webhwp.base_url()}/webhwpctrl/{quote(raw, safe='/-._~')}"
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP}
     # 플랫폼 로그인 쿠키(zz_session)는 기안기 서버에 넘기지 않는다 — 기안기 자기 세션 쿠키만
     jar = "; ".join(f"{k}={v}" for k, v in request.cookies.items() if k != "zz_session")
     if jar:
         headers["cookie"] = jar
-    body = await request.body()
+    body = await _body(request)
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             r = await client.request(request.method, url, params=list(request.query_params.multi_items()),

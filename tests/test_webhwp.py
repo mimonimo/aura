@@ -153,3 +153,51 @@ def test_proxy_forwards_without_platform_session_cookie(tmp_path, monkeypatch):
     assert seen["url"].endswith("/webhwpctrl/version.txt")
     assert "zz_session" not in seen["headers"].get("cookie", "")
     assert "JSESSIONID" in r.headers.get("set-cookie", "")
+
+
+def test_editor_page_lives_under_webhwpctrl_and_new_document_saves(tmp_path, monkeypatch):
+    """기안기 스크립트는 페이지 폴더 기준으로 편집 틀을 연다 — 편집 화면은 /webhwpctrl/ 바로 아래. 새 문서는 첫 저장에 생긴다."""
+    app = _setup(tmp_path, monkeypatch)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    r = kim.get("/hwp/new?dept=" + "기획처", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/webhwpctrl/aura-edit?dept=")
+    assert "새 한글 문서" in kim.get(r.headers["location"]).text
+    assert kim.get("/hwp/new?dept=" + "산학협력단", follow_redirects=False).status_code == 403
+    j = kim.post("/hwp/new?dept=기획처&title=회의록", content=_hwpx("회의")).json()
+    assert j["ok"] and j["url"] == f"/webhwpctrl/aura-edit?id={j['id']}"
+    assert Path(webhwp.get(app.state.db, j["id"])["path"]).name == "회의록.hwpx"
+    r = kim.get(f"/hwp/{j['id']}/edit", follow_redirects=False)
+    assert r.headers["location"] == f"/webhwpctrl/aura-edit?id={j['id']}"
+    assert "회의록.hwpx" in kim.get(r.headers["location"]).text
+
+
+def test_proxy_refuses_paths_outside_editor_app(tmp_path, monkeypatch):
+    app = _setup(tmp_path, monkeypatch)
+    called = []
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def request(self, *a, **k):
+            called.append(a)
+            raise AssertionError("나가면 안 된다")
+
+    monkeypatch.setattr("httpx.AsyncClient", _Client)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    for p in ("/webhwpctrl/..%2Fwebhwpctrl-admin%2F", "/webhwpctrl/js/..%2F..%2Fmanager", "/webhwpctrl/%2E%2E/filterserver",
+              "/webhwpctrl/a%5C..%5Cb"):
+        assert kim.get(p).status_code == 400, p
+    assert called == []
+
+
+def test_upload_and_save_bodies_are_capped(tmp_path, monkeypatch):
+    app = _setup(tmp_path, monkeypatch)
+    from zzaimy.app import webhwp_routes
+    monkeypatch.setattr(webhwp_routes, "MAX_BYTES", 1000)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    big = b"PK" + b"0" * 5000
+    assert kim.post("/hwp/new?dept=기획처", content=big).status_code == 413

@@ -45,6 +45,7 @@
     <input type="hidden" name="dept" value="{{ g.dept }}">
     <input type="file" name="file" accept=".hwp,.hwpx" required aria-label="{{ g.dept }}에 올릴 한글 파일">
     <button type="submit" class="secondary">{{ g.dept }}에 올리기</button>
+    {% if status.ok %}<a class="mini-btn" href="/hwp/new?dept={{ g.dept|urlencode }}" style="min-height:38px;">새 문서</a>{% endif %}
   </form>
   {% endfor %}
 </div></section>

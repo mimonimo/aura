@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ f.name }} · 기안기{% endblock %}
-{% block pagetitle %}{{ f.name }}{% endblock %}
+{% block title %}{{ f.name if f else '새 한글 문서' }} · 기안기{% endblock %}
+{% block pagetitle %}{{ f.name if f else '새 한글 문서' }}{% endblock %}
 {% block content %}
 <style>
   .he-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
@@ -9,26 +9,29 @@
   #hwpctrl { width:100%; height:calc(100vh - 190px); min-height:520px; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
 </style>
 <div class="he-bar">
-  <span class="he-info">{{ dept }} · {% if meta.saved %}마지막 저장 {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }}{% else %}올린 사람 {{ meta.owner }}{% endif %}</span>
+  {% if f %}<span class="he-info">{{ dept }} · {% if meta.saved %}마지막 저장 {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }}{% else %}올린 사람 {{ meta.owner }}{% endif %}</span>
+  {% else %}<span class="he-info">{{ dept }} · <label for="heTitle" class="sr-only">문서 이름</label><input id="heTitle" data-title placeholder="문서 이름" value="새 문서" style="width:220px; display:inline-block; margin-left:4px;"></span>{% endif %}
   <span class="he-msg" data-msg role="status" aria-live="polite">기안기를 불러오는 중…</span>
   <button type="button" data-save disabled>저장</button>
-  <a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a>
+  {% if f %}<a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a>{% endif %}
   <a class="mini-btn" href="/hwp#d-{{ dept }}">한글 문서함</a>
 </div>
 {% if not status.ok %}<p class="notice" role="alert">웹 한글 기안기 서버에 연결하지 못했습니다 — 관리자에게 알려 주세요.</p>{% endif %}
 <div id="hwpctrl"></div>
-<script src="/webhwpctrl/js/libs/jquery/jquery-min.js"></script>
 <script src="/webhwpctrl/js/hwpctrlapp/utils/util.js"></script>
 <script src="/webhwpctrl/js/hwpctrlapp/hwpCtrlApp.js"></script>
 <script src="/webhwpctrl/js/webhwpctrl.js"></script>
 <script>
 (function () {
   var msg = document.querySelector('[data-msg]'), saveBtn = document.querySelector('[data-save]');
-  var fileUrl = '/hwp/{{ f.id }}/file', saveUrl = '/hwp/{{ f.id }}/save', name = {{ f.name|tojson }};
+  var isNew = {{ 'false' if f else 'true' }};
+  var fileUrl = {{ (('/hwp/' ~ f.id ~ '/file') if f else '') | tojson }}, saveUrl = {{ (('/hwp/' ~ f.id ~ '/save') if f else '') | tojson }};
+  var name = {{ (f.name if f else '새 문서.hwpx') | tojson }}, dept = {{ dept | tojson }};
   var dirty = false;
   function say(t) { msg.textContent = t; }
   function b64ToBytes(s) { var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
   var ctrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
+    if (isNew) { say('빈 문서입니다 — 쓰고 저장하면 ' + dept + ' 문서함에 생깁니다'); saveBtn.disabled = false; return; }
     fetch(fileUrl, {credentials: 'same-origin'}).then(function (r) {
       if (!r.ok) throw new Error('파일을 받지 못했습니다(' + r.status + ')');
       return r.blob();
@@ -46,9 +49,18 @@
     saveBtn.disabled = true; say('저장하는 중…');
     ctrl.GetTextFile('HWPX', '', function (data) {
       var bytes = (typeof data === 'string') ? b64ToBytes(data) : data;
-      fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
+      var url = saveUrl;
+      if (isNew) {
+        var t = (document.querySelector('[data-title]').value || '새 문서').trim();
+        url = '/hwp/new?dept=' + encodeURIComponent(dept) + '&title=' + encodeURIComponent(t);
+      }
+      fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
         .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('저장 실패 ' + r.status)); return j; }); })
-        .then(function (j) { dirty = false; say('저장했습니다 · ' + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'})); })
+        .then(function (j) {
+          dirty = false;
+          if (isNew && j.id) { isNew = false; saveUrl = '/hwp/' + j.id + '/save'; history.replaceState(null, '', j.url); }
+          say('저장했습니다 · ' + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}));
+        })
         .catch(function (e) { say(e.message); })
         .finally(function () { saveBtn.disabled = false; });
     });
