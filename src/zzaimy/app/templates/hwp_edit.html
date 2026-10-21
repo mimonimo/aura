@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ f.name }} · 기안기{% endblock %}
+{% block pagetitle %}{{ f.name }}{% endblock %}
+{% block content %}
+<style>
+  .he-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
+  .he-bar .he-info { color:var(--muted); font-size:13px; margin-right:auto; }
+  .he-msg { font-size:13px; color:var(--muted); }
+  #hwpctrl { width:100%; height:calc(100vh - 190px); min-height:520px; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
+</style>
+<div class="he-bar">
+  <span class="he-info">{{ dept }} · {% if meta.saved %}마지막 저장 {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }}{% else %}올린 사람 {{ meta.owner }}{% endif %}</span>
+  <span class="he-msg" data-msg role="status" aria-live="polite">기안기를 불러오는 중…</span>
+  <button type="button" data-save disabled>저장</button>
+  <a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a>
+  <a class="mini-btn" href="/hwp#d-{{ dept }}">한글 문서함</a>
+</div>
+{% if not status.ok %}<p class="notice" role="alert">웹 한글 기안기 서버에 연결하지 못했습니다 — 관리자에게 알려 주세요.</p>{% endif %}
+<div id="hwpctrl"></div>
+<script src="/webhwpctrl/js/libs/jquery/jquery-min.js"></script>
+<script src="/webhwpctrl/js/hwpctrlapp/utils/util.js"></script>
+<script src="/webhwpctrl/js/hwpctrlapp/hwpCtrlApp.js"></script>
+<script src="/webhwpctrl/js/webhwpctrl.js"></script>
+<script>
+(function () {
+  var msg = document.querySelector('[data-msg]'), saveBtn = document.querySelector('[data-save]');
+  var fileUrl = '/hwp/{{ f.id }}/file', saveUrl = '/hwp/{{ f.id }}/save', name = {{ f.name|tojson }};
+  var dirty = false;
+  function say(t) { msg.textContent = t; }
+  function b64ToBytes(s) { var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+  var ctrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
+    fetch(fileUrl, {credentials: 'same-origin'}).then(function (r) {
+      if (!r.ok) throw new Error('파일을 받지 못했습니다(' + r.status + ')');
+      return r.blob();
+    }).then(function (blob) {
+      var file = new File([blob], name);
+      ctrl.Open(file, '', '', function (res) {
+        if (res && res.result === false) { say('문서를 열지 못했습니다'); return; }
+        say('열었습니다'); saveBtn.disabled = false;
+      });
+    }).catch(function (e) { say(e.message); });
+  });
+  window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  // 기안기 화면 안에서 고치면 저장 전 표시 — 기안기 이벤트를 모르면 저장 단추를 누를 때까지 「저장 안 함」 으로 둔다
+  saveBtn.addEventListener('click', function () {
+    saveBtn.disabled = true; say('저장하는 중…');
+    ctrl.GetTextFile('HWPX', '', function (data) {
+      var bytes = (typeof data === 'string') ? b64ToBytes(data) : data;
+      fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('저장 실패 ' + r.status)); return j; }); })
+        .then(function (j) { dirty = false; say('저장했습니다 · ' + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'})); })
+        .catch(function (e) { say(e.message); })
+        .finally(function () { saveBtn.disabled = false; });
+    });
+  });
+})();
+</script>
+{% endblock %}

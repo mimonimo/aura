@@ -741,6 +741,9 @@ def create_app(
     app.state.set_pw = _set_pw
     app.state.new_account = _new_account
     app.include_router(user_admin_router)
+    # 웹 한글 기안기 — 부서 한글 문서함·기안기로 열기·기안기 서버 프록시(/webhwpctrl/)
+    from zzaimy.app.webhwp_routes import router as webhwp_router
+    app.include_router(webhwp_router)
     # 사업 중심 그래프(온톨로지 v3, ADR-0048) — kg_nodes·kg_edges 를 사업 하나 기준으로 펼친다
     from zzaimy.app.kg_view import router as kg_view_router
     app.include_router(kg_view_router)
@@ -950,6 +953,8 @@ def create_app(
             "profile_dept": (accounts.get(getattr(request.state, "user", "") or "", {}) or {}).get("dept", ""),
             **extra,
         }
+
+    app.state.ctx = ctx                              # 화면 틀 — 따로 둔 라우터(webhwp_routes 등)도 같은 틀로 그린다
 
     @app.get("/inbox")
     def inbox(request: Request):
@@ -2834,15 +2839,24 @@ def create_app(
             storage.save_generated(db, data, ref=src.get("receipt_no") or f"대화-{session_id}", kind="한글 완성본", ext="hwpx",
                                    doc_id=int(src["id"]), session_id=session_id)
             acct_ = accounts.get(owner, {}) if password is not None else {}
-            folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
-            try:                                        # 같은 서식의 옛 완성본은 휴지통으로 — 드라이브에 판이 쌓이지 않게(되돌릴 수 있음)
-                _gf.trash_older(email, folder, f"{title} 완성본 ", ".hwpx")
-            except Exception:
-                logging.getLogger("zzaimy.app.gdocs").warning("옛 완성본 정리 실패 (대화 %s)", session_id)
-            up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
-            db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
+            if _webhwp.editor_of(db, owner) == "webhwp":
+                # 편집기를 웹 한글 기안기로 고른 사람 — 부서 한글 문서함에 두고 기안기 링크를 준다(드라이브에는 올리지 않는다)
+                fid_ = _webhwp.add(db, Path(db.path).parent, acct_.get("dept") or _webhwp.COMMON, name, data,
+                                   owner=owner, source=f"대화-{session_id}")
+                where = f"부서 한글 문서함({acct_.get('dept') or _webhwp.COMMON})에 두었습니다 — 기안기로 열기: /hwp/{fid_}/edit"
+                if not _webhwp.status()["ok"]:
+                    where += " (지금은 기안기 서버에 연결되지 않아 내려받기만 됩니다)"
+            else:
+                folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
+                try:                                        # 같은 서식의 옛 완성본은 휴지통으로 — 드라이브에 판이 쌓이지 않게(되돌릴 수 있음)
+                    _gf.trash_older(email, folder, f"{title} 완성본 ", ".hwpx")
+                except Exception:
+                    logging.getLogger("zzaimy.app.gdocs").warning("옛 완성본 정리 실패 (대화 %s)", session_id)
+                up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
+                db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
+                where = up["url"]
             text = (f"{_ko.quote(name, '을')} 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
-                    f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {up['url']}")
+                    f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {where}")
             if rep["folded"]:
                 text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
             real_skipped = [h for h in rep["skipped"] if drafting.has_words(h)]   # '2cm' 같은 변환 찌꺼기 제목은 알릴 것이 아니다(쓸 절 판정과 같은 기준)
@@ -4147,6 +4161,8 @@ def create_app(
         uid = getattr(request.state, "user", "")
         return user_status(db, uid, accounts.get(uid, {}).get("dept") or None)
 
+    from zzaimy.app import webhwp as _webhwp
+
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, ok: str = "", err: str = ""):
         """내 설정 — 프로필·응답 지침·비밀번호·구글 계정을 한 화면에서."""
@@ -4160,7 +4176,11 @@ def create_app(
                           "has_password": password is not None,
                           "google": _user_admin_status(request), "ok": ok, "err": err,
                           "gimport": gst, "gimport_folder": _gimport.FOLDER_NAME,
-                          "gimport_minutes": _gimport.interval_minutes(), "gimport_stalled": _gimport.stalled(gst)}),
+                          "gimport_minutes": _gimport.interval_minutes(), "gimport_stalled": _gimport.stalled(gst),
+                          # 문서 편집기 고르기(구글 문서 · 웹 한글 기안기) — 교직원·관리자만
+                          **({"editor": _webhwp.editor_of(db, uid), "editors": _webhwp.EDITORS,
+                              "editor_ok": _webhwp.status()["ok"]}
+                             if request.state.role in ("dev", *_ap.STAFF_ROLES) else {})}),
         )
 
     @app.post("/account/google/import")

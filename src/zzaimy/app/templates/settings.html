@@ -152,6 +152,17 @@
 </script>
 {% endif %}
 
+{% if editor %}
+<section class="card reveal" id="myEditor"><div class="card-in">
+  <h2><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>문서 편집기</h2>
+  <form action="/hwp/editor" method="post" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+    <input type="hidden" name="back" value="/settings#myEditor">
+    {% for k, label in editors.items() %}<label style="display:inline-flex; align-items:center; gap:6px; margin:0; font-weight:500;"><input type="radio" name="editor" value="{{ k }}" {% if editor == k %}checked{% endif %} onchange="this.form.submit()">{{ label }}</label>{% endfor %}
+  </form>
+  <p class="ms-desc" style="margin:8px 0 0;">한글 완성본을 열 곳 — 구글 문서는 내 드라이브, 웹 한글 기안기는 부서 한글 문서함{% if not editor_ok %} (기안기 서버 연결 안 됨){% endif %}</p>
+</div></section>
+{% endif %}
+
 {% if google %}
 <section class="card reveal" id="myGoogle"><div class="card-in">
   <h2><iconify-icon icon="solar:link-circle-linear"></iconify-icon>구글 계정</h2>

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}한글 문서함{% endblock %}
+{% block pagetitle %}한글 문서함{% endblock %}
+{% block content %}
+<style>
+  .hw-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 16px; margin:0 0 14px; }
+  .hw-state { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
+  .hw-dot { width:8px; height:8px; border-radius:50%; background:#C0392B; }
+  .hw-dot.on { background:#2E7D4F; }
+  .hw-editor { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; }
+  .hw-editor label { display:inline-flex; align-items:center; gap:5px; margin:0; font-weight:500; }
+  .hw-table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  .hw-table th, .hw-table td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .hw-table th { font-size:12px; color:var(--muted); font-weight:600; }
+  .hw-table td.num { color:var(--muted); white-space:nowrap; }
+  .hw-up { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .hw-up input[type=file] { font-size:13px; max-width:100%; }
+  .hw-empty { color:var(--muted); font-size:13px; padding:8px 0; }
+  .hw-actions { display:flex; gap:6px; justify-content:flex-end; }
+</style>
+{% if ok %}<p class="notice ok" role="status">{{ ok }}</p>{% endif %}
+{% if err %}<p class="notice" role="alert">{{ err }}</p>{% endif %}
+<section class="card"><div class="card-in">
+  <div class="hw-head">
+    <span class="hw-state"><span class="hw-dot {{ 'on' if status.ok }}"></span>{% if status.ok %}웹 한글 기안기 {{ status.version }}{% else %}웹 한글 기안기 연결 안 됨{% endif %}</span>
+    <form class="hw-editor" action="/hwp/editor" method="post">
+      <input type="hidden" name="back" value="/hwp">
+      <span>문서 편집기</span>
+      {% for k, label in editors.items() %}<label><input type="radio" name="editor" value="{{ k }}" {% if editor == k %}checked{% endif %} onchange="this.form.submit()">{{ label }}</label>{% endfor %}
+    </form>
+  </div>
+  {% for g in groups %}
+  <h2 id="d-{{ g.dept }}" style="font-size:16px; margin:18px 0 6px;">{{ g.dept }}</h2>
+  {% if g.files %}
+  <table class="hw-table">
+    <tr><th>문서</th><th>고친 때</th><th>고친 사람</th><th></th></tr>
+    {% for f in g.files %}
+    <tr><td>{{ f.name }}</td><td class="num">{{ f.saved }}</td><td class="num">{{ f.saved_by or f.owner }}</td>
+      <td><div class="hw-actions">{% if status.ok %}<a class="mini-btn" href="/hwp/{{ f.id }}/edit">기안기로 열기</a>{% endif %}
+        <a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a></div></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="hw-empty">문서가 없습니다.</p>{% endif %}
+  <form class="hw-up" action="/hwp/upload" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="dept" value="{{ g.dept }}">
+    <input type="file" name="file" accept=".hwp,.hwpx" required aria-label="{{ g.dept }}에 올릴 한글 파일">
+    <button type="submit" class="secondary">{{ g.dept }}에 올리기</button>
+  </form>
+  {% endfor %}
+</div></section>
+{% endblock %}

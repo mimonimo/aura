@@ -548,6 +548,8 @@ document.addEventListener('submit', function(event) {
     <button type="button" class="side-search" data-project-search title="진행 중·같은 부서·보관된 사업까지 이름·문서·대화 제목으로"><iconify-icon icon="solar:magnifer-linear"></iconify-icon>프로젝트 찾기</button>
     <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox', '/criteria') or request.url.path.startswith('/archive') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
+    <a href="/hwp" class="{{ 'active' if request.url.path.startswith('/hwp') else '' }}" title="부서별 한글 파일 — 웹 한글 기안기로 열고 고치기">
+      <iconify-icon icon="solar:document-text-linear"></iconify-icon>한글 문서함</a>
     {% endif %}
   </nav>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
