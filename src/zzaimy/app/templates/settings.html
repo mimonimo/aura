@@ -29,7 +29,10 @@
 .ms-google-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; font-size:14px; }
 .ms-google-row form { margin:0; }
 .pw-dialog { border:0; border-radius:16px; padding:0; width:min(520px, calc(100vw - 32px)); box-shadow:0 20px 60px rgba(15,30,60,.25); }
-.pw-dialog .card-in { padding:22px; }
+.pw-dialog .card-in { padding:20px 22px; }
+.pw-dialog .modal-head h2 { font-size:17px; }
+.pw-dialog .ms-field label { font-size:13px; font-weight:600; color:var(--ink); }
+.pw-dialog::backdrop { background:rgba(15,23,42,.45); }
 .pw-dialog .ms-fields { grid-template-columns:1fr; }
 .pw-wrap { position:relative; }
 .pw-wrap input { padding-right:84px; }
@@ -80,7 +83,9 @@
 
 {% if has_password and uid %}
 <dialog id="pwDialog" class="pw-dialog" aria-labelledby="pwTitle"><div class="card-in">
-  <h2 id="pwTitle"><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호 변경</h2>
+  {# 다른 관리 창과 같은 꼴 — 머리(제목·닫기)·밑줄 단추 줄(modal-head·modal-foot, base.html) #}
+  <div class="modal-head"><h2 id="pwTitle">비밀번호 변경</h2>
+    <button type="button" class="dialog-close" onclick="this.closest('dialog').close()" aria-label="닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button></div>
   {# 확인 칸 대신 「보기」 토글 — 브라우저 비밀번호 관리자가 username·current-password·new-password 로 알아보고 강한 비밀번호를 제안한다.
      규칙 체크는 화면 표시용, 받아들일지는 서버(passwords.problem)가 같은 값으로 정한다 #}
   <form action="/account/password" method="post" data-pw-form data-min="{{ password_rules.min_length }}">
@@ -105,7 +110,7 @@
         </ul>
       </div>
     </div>
-    <div class="ms-actions"><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit" data-pw-submit>변경</button></div>
+    <div class="modal-foot"><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit" data-pw-submit>변경</button></div>
   </form>
 </div></dialog>
 <script>
