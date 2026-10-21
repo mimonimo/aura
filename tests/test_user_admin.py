@@ -154,7 +154,7 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
     c2 = TestClient(c.app)
     _login(c2, "zzaimy", "boot-pass-1")
     assert c2.get("/account/google").json()["effective"] == ""
-    assert "본인 연결 필요" in c.get("/dev/users").text
+    assert "연결 전" in c.get("/dev/users").text
     c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
     assert gdrive.allowed_domain() == "ync.ac.kr"
     assert "err=" in c.post("/dev/google/settings", data={"domain": "not a domain"}, follow_redirects=False).headers["location"]
