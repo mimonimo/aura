@@ -328,3 +328,14 @@ def test_dept_card_has_only_working_buttons(tmp_path, monkeypatch):
     assert "/?type=all&amp;scope=%EA%B5%90%EB%AC%B4%EC%B2%98" in card                  # 문서 수 → 그 부서 문서 목록
     assert "ua-steps" not in card and card.count('class="ua-lead"') == 1               # 설명은 한 줄
     assert 'name="action" value="delete"' in card and "부서 추가" in card
+
+
+def test_login_mode_turns_off_shared_google_fallback(tmp_path):
+    """로컬 모드(비밀번호 없음)로 한 번 띄운 DB 를 로그인 모드로 띄우면 공용 계정 대신 쓰기가 꺼진다 —
+    연결 안 한 사람이 남의 학교 계정(드라이브)으로 문서를 만들지 않게(10-21)."""
+    from tests.test_app import FakeDrafter, FakeProcessor
+    from zzaimy.app.main import create_app
+    local = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter())
+    assert local.state.db.get_setting("google_fallback_shared", "") == "1"
+    app = _app(tmp_path)
+    assert app.state.db.get_setting("google_fallback_shared", "") == "0"

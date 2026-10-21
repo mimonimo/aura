@@ -728,6 +728,11 @@ def create_app(
     if password is None and not db.get_setting("google_fallback_shared", ""):
         # 인증 없는 로컬 모드는 사용자가 한 사람뿐 — 연결된 계정 하나를 그대로 쓴다(운영은 각자 연결, gdrive_files.account_for)
         db.set_setting("google_fallback_shared", "1")
+    elif password is not None and db.get_setting("google_fallback_shared", "") == "1":
+        # 로그인 있는 운영에서는 끈다 — 로컬 모드로 한 번 띄운 DB 에 켜진 값이 남으면 연결 안 한 사람이 남의 계정(드라이브)으로
+        # 문서를 만든다(10-21 사용자: 「공용 계정 사용」 표시로 발견). 부서 드라이브·공유는 각자 연결한 계정 기준이다
+        db.set_setting("google_fallback_shared", "0")
+        logging.getLogger("zzaimy.app").warning("google_fallback_shared 를 껐습니다 — 로그인 모드에서는 각자 연결한 학교 계정만 씁니다")
     # 사용자 관리·사용자별 구글 계정 연결(/dev/users, /account/google) — 계정 표와 저장 함수를 라우터에 넘긴다
     from zzaimy.app.user_admin import router as user_admin_router
     app.state.accounts = accounts

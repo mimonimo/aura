@@ -87,7 +87,7 @@
       <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
       <td>{{ u.role_label }}</td>
       <td>{% if u.dept %}{{ u.dept }}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}{% if u.extra %}<span class="ua-sub" title="추가 부서 — 이 부서 문서도 찾고 작업합니다">+ {{ u.extra | join(', ') }}</span>{% endif %}</td>
-      <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
+      <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted" title="로그인 뒤 설정에서 「내 학교 계정 연결」">연결 전</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
             data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}"
