@@ -4,7 +4,6 @@
 {% block content %}
 
 <style>
-  .review-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:16px 0 12px; }
   .review-actions form { display:flex; margin:0; }
   .review-actions .review-primary { background:var(--navy); border-color:var(--navy); color:white; }
   .review-actions .review-primary:hover { background:#244b89; color:white; }
@@ -29,8 +28,12 @@
     padding:9px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }
   .src-list label:hover { background:var(--panel); }
   .src-list .s-desc, .src-table .s-desc { color:var(--muted); font-size:11.5px; margin-top:1px; }
-  .review-status { display:flex; align-items:center; gap:8px 10px; flex-wrap:wrap; margin:0; font-size:13px; color:var(--muted); }
-  .review-status span { margin-right:auto; }
+  .review-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 10px; }
+  .review-bar > .review-status, .review-bar > .review-actions { display:contents; }
+  .review-chips { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px; }
+  .review-bar .btn-ghost { min-height:36px; box-sizing:border-box; }
+  .review-bar button.btn-ghost:disabled { cursor:not-allowed; }
+  .review-hint { font-size:12px; margin:0; line-height:1.6; }
   .guide-fold { margin-bottom:20px; }
   .guide-toggle { width:100%; justify-content:flex-start; gap:9px; background:#fff; color:var(--ink);
     border:1px solid var(--line); border-radius:14px; padding:14px 20px; font-size:14px; }
@@ -61,15 +64,19 @@
 
 <section class="card"><div class="card-in"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수
 <a class="h-link" href="/dev/train?tab=data&amp;view={{ 'main' if request.query_params.get('view') == 'legacy' else 'legacy' }}">{{ '검수로 돌아가기' if request.query_params.get('view') == 'legacy' else '이전 기록·이력' }}</a></h2>
-{% if grounded_ls.ok and grounded_ls.project_id %}<div class="review-summary"><span>전체 기록 <strong>{{ grounded_ls.total }}</strong> <small>이전 버전 포함</small></span><span>사람 검수 주석 <strong>{{ grounded_ls.done }}</strong></span></div>
-{% else %}{% set view = request.query_params.get('view') %}<p class="review-status" role="status"><span>검수 현황 미확인 · {{ grounded_note.what if grounded_note else (grounded_ls.error or '응답 오류') }}</span>
+{% set review_ready = grounded_ls.ok and grounded_ls.project_id %}
+{% if review_ready %}<div class="review-summary"><span>전체 기록 <strong>{{ grounded_ls.total }}</strong> <small>이전 버전 포함</small></span><span>사람 검수 주석 <strong>{{ grounded_ls.done }}</strong></span></div>{% endif %}
+{# 상태 표시는 한 줄, 단추는 그 아래 한 줄로 모은다 — p·div 는 자리만 잡고(display:contents) 실제 줄은 .review-bar 가 만든다 #}
+<div class="review-bar">
+{% if not review_ready %}{% set view = request.query_params.get('view') %}<p class="review-status"><span class="review-chips" role="status"><span class="pill">검수 현황 미확인</span>{% if grounded_note %}{% for c in grounded_note.chips %}<span class="pill {{ c.level }}"{% if c.title %} title="{{ c.title }}"{% endif %}>{{ c.text }}</span>{% endfor %}{% else %}<span class="pill processing">{{ grounded_ls.error or '응답 오류' }}</span>{% endif %}</span>
 {% if grounded_note %}<a class="btn-ghost" href="{{ grounded_note.href }}"{% if grounded_note.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ grounded_note.action }}{% if grounded_note.external %} <span aria-hidden="true">↗</span>{% endif %}</a>{% endif %}
 <a class="btn-ghost" href="/dev/train?tab=data{% if view %}&amp;view={{ view | urlencode }}{% endif %}&amp;recheck=1"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>다시 확인</a></p>{% endif %}
 <div class="review-actions">
-{% if grounded_ls.ok and grounded_ls.project_id %}<a class="btn-ghost review-primary" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 <span aria-hidden="true">↗</span></a>{% endif %}
-<form method="post" action="/dev/data/grounded-pull"><button class="secondary" type="submit" {% if not grounded_ls.ok or not grounded_ls.project_id %}disabled{% endif %}><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>
+{% if review_ready %}<a class="btn-ghost review-primary" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 <span aria-hidden="true">↗</span></a>{% endif %}
+<form method="post" action="/dev/data/grounded-pull"><button class="btn-ghost" type="submit" {% if not review_ready %}disabled title="검수 프로젝트가 생기면 사용"{% endif %}><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>
 </div>
-<p class="muted">근거·구조·맥락·개인정보를 확인한 뒤 결과를 반영합니다. 주석 작성·AI 자체 검수는 학습 승인이 아닙니다.</p>
+</div>
+<p class="muted review-hint">{% if grounded_note and grounded_note.hint %}{{ grounded_note.hint }}<br>{% endif %}반영 전 근거·맥락·개인정보 확인 · 주석이나 AI 자체 검수만으로는 학습 승인 아님</p>
 {% if grounded_review_report %}
 <div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
 <strong>최근 검수 반영</strong>

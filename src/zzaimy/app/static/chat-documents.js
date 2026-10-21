@@ -265,9 +265,41 @@
  if(!d.isConnected)return;submit.disabled=!linked.sections.length;f.dataset.ready='true';
  let confirmed=false;f.addEventListener('input',()=>{confirmed=false;fields.querySelector('[data-confirmation]').hidden=true;submit.textContent='내용 확인';});
  f.onsubmit=async e=>{e.preventDefault();if(!confirmed){confirmed=true;const p=fields.querySelector('[data-confirmation]');p.textContent='「'+f.elements.section.selectedOptions[0].textContent+'」 아래에 '+f.elements.text.value.length+'자를 삽입합니다.';p.hidden=false;submit.textContent='삽입 확정';return;}submit.disabled=true;status.textContent='삽입 중…';const body=new FormData(f);body.set('confirmed','true');try{await api('/api/chat-documents/'+sid+'/insert',{method:'POST',body});status.textContent='삽입했습니다. 문서에서 확인하세요.';submit.hidden=true;f.querySelector('[data-cancel]').textContent='닫기';f.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);}catch(error){status.textContent=error.message;submit.disabled=false;confirmed=false;submit.textContent='내용 확인';}};}
- function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 구글 문서');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 구글 서식 도구 보기</label><a class="mini-btn" target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="구글 문서 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
+ function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 구글 문서');panel.innerHTML='<header><strong></strong><div class="chat-doc-switch" role="group" aria-label="편집기"><button type="button" data-ed="gdocs" aria-pressed="true">구글 문서</button><button type="button" data-ed="webhwp" aria-pressed="false">한글 기안기</button></div><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 구글 서식 도구 보기</label><a class="mini-btn" target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="구글 문서 편집기"></iframe><div class="chat-doc-hwp" data-hwp hidden></div><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
  panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').dataset.pendingSrc=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=switchFormatting;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
- panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;currentDoc=null;opener.hidden=false;opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
+ panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;currentDoc=null;opener.hidden=false;opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);initEditorSwitch();}
+ // 문서 창 편집기 고르기 — 구글 문서(작업본) 또는 한글 기안기(작업본을 원본 서식 hwpx 에 채운 한글 완성본, 부서 한글 문서함).
+ // 고른 것은 계정 설정(editor)으로 남아 다음에도 그쪽으로 열고, 에이전트의 「한글로 내보내기」 도 그 자리로 간다
+ async function initEditorSwitch(){
+   const sw=panel?.querySelector('.chat-doc-switch');if(!sw)return;
+   let st=null;try{st=await api('/api/chat/'+sid+'/hwp');}catch(_){sw.hidden=true;return;}
+   if(!st.ok){sw.querySelector('[data-ed=webhwp]').disabled=true;sw.querySelector('[data-ed=webhwp]').title='웹 한글 기안기 서버에 연결되지 않았습니다';}
+   sw.querySelectorAll('button').forEach(b=>b.onclick=()=>pickEditor(b.dataset.ed));
+   if(st.editor==='webhwp'&&st.ok)pickEditor('webhwp',st);
+ }
+ let hwpPoll=null;
+ async function pickEditor(kind,st){
+   if(!panel)return;
+   const sw=panel.querySelector('.chat-doc-switch'), frame=panel.querySelector('iframe'), box=panel.querySelector('[data-hwp]');
+   sw.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.ed===kind)));
+   panel.querySelector('.chat-doc-toolbar').hidden=kind!=='gdocs';
+   clearInterval(hwpPoll);hwpPoll=null;
+   const body=new URLSearchParams({editor:kind,back:'/'});fetch('/hwp/editor',{method:'POST',body,redirect:'manual'}).catch(()=>{});
+   if(kind==='gdocs'){box.hidden=true;frame.hidden=false;if(frame.dataset.gsrc){frame.src=frame.dataset.gsrc;delete frame.dataset.gsrc;}panel.querySelector('header a').href=linked.embed_url_toolbar||linked.embed_url;return;}
+   st=st||await api('/api/chat/'+sid+'/hwp').catch(()=>null);
+   if(st&&st.file){
+     box.hidden=true;frame.hidden=false;
+     if(!frame.dataset.gsrc)frame.dataset.gsrc=frame.src||linked.embed_url;
+     frame.title='한글 기안기';frame.src=st.file.url;panel.querySelector('header a').href=st.file.url;
+     return;
+   }
+   frame.hidden=true;box.hidden=false;
+   box.innerHTML='<div class="chat-doc-hwp-card"><strong>한글 기안기로 열 완성본이 아직 없습니다</strong><p>작업본에 쓴 절을 원본 서식(한글)에 그대로 채워 부서 한글 문서함에 두고 여기서 엽니다.</p><button type="button" data-hwp-make>한글 완성본 만들어 열기</button><p role="status" data-hwp-msg></p></div>';
+   const btn=box.querySelector('[data-hwp-make]'), msg=box.querySelector('[data-hwp-msg]');
+   const wait=()=>{msg.textContent='만드는 중… 끝나면 대화에도 결과가 남습니다';btn.disabled=true;hwpPoll=setInterval(async()=>{const s2=await api('/api/chat/'+sid+'/hwp').catch(()=>null);if(s2&&s2.file){clearInterval(hwpPoll);hwpPoll=null;pickEditor('webhwp',s2);}else if(s2&&!s2.busy){clearInterval(hwpPoll);hwpPoll=null;btn.disabled=false;msg.textContent='만들지 못했습니다 — 대화의 안내를 확인해 주세요';}},3000);};
+   if(st&&st.busy)wait();
+   btn.onclick=async()=>{try{await api('/api/chat/'+sid+'/hwp/export',{method:'POST'});wait();}catch(e){msg.textContent=e.message;}};
+ }
  // 플랫폼 문서(첨부·접수·기준)의 구글 열람본을 같은 자리(iframe)에 연다 — 연결 문서와 달리 에이전트 편집 대상은 아니다
  function showViewer(v){
    clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-viewer';panel.setAttribute('aria-label','문서 열람');

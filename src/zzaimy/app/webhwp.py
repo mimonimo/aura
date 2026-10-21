@@ -98,13 +98,55 @@ def meta(db, fid: int) -> dict:
         return {}
 
 
-def add(db, base: Path, dept: str, filename: str, data: bytes, *, owner: str, source: str = "") -> int:
-    """부서 디렉터리에 한글 파일 하나를 들인다 — 같은 이름이 있으면 「(2)」 를 붙여 따로 둔다. 돌려주는 것은 files.id."""
+HIDDEN = (".판", ".휴지통")
+
+
+def clean_folder(folder: str) -> str:
+    """부서 안 폴더 경로(「2026/공문」)를 안전한 꼴로 — 이름마다 safe_name, 빈 칸·. ·.. ·숨김 폴더는 버린다. 잘못된 길은 ValueError."""
+    parts = []
+    for seg in (folder or "").replace("\\", "/").split("/"):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if seg in (".", "..") or seg.startswith("."):
+            raise ValueError("폴더 이름이 올바르지 않습니다")
+        parts.append(storage.safe_name(seg) or "폴더")
+    if len(parts) > 6:
+        raise ValueError("폴더는 여섯 단계까지 만들 수 있습니다")
+    return "/".join(parts)
+
+
+def folder_dir(base: Path, dept: str, folder: str = "") -> Path:
+    d = dept_dir(base, dept)
+    f = clean_folder(folder)
+    return d / f if f else d
+
+
+def folder_of(base: Path, path: str) -> str:
+    """파일이 부서 안 어느 폴더에 있나 — 부서 바로 아래면 빈 문자열."""
+    try:
+        rel = Path(path).resolve().relative_to(root(base).resolve())
+    except (ValueError, OSError):
+        return ""
+    return "/".join(rel.parts[1:-1])
+
+
+def make_folder(base: Path, dept: str, parent: str, name: str) -> str:
+    sub = clean_folder(f"{parent}/{name}")
+    if not sub or sub == clean_folder(parent):
+        raise ValueError("폴더 이름을 적어 주세요")
+    folder_dir(base, dept, sub).mkdir(parents=True, exist_ok=True)
+    return sub
+
+
+def add(db, base: Path, dept: str, filename: str, data: bytes, *, owner: str, source: str = "", folder: str = "") -> int:
+    """부서 디렉터리(그 안 폴더)에 한글 파일 하나를 들인다 — 같은 이름이 있으면 「(2)」 를 붙여 따로 둔다. 돌려주는 것은 files.id."""
     ext = Path(filename or "").suffix.lower()
     if ext not in SUFFIXES:
         raise ValueError("한글 파일(.hwp·.hwpx)만 올릴 수 있습니다")
     stem = storage.safe_name(storage.title_of(filename)) or "문서"
-    d = dept_dir(base, dept)
+    d = folder_dir(base, dept, folder)
+    d.mkdir(parents=True, exist_ok=True)
     p, n = d / f"{stem}{ext}", 2
     while p.exists():
         p, n = d / f"{stem} ({n}){ext}", n + 1
@@ -151,20 +193,53 @@ def get(db, fid: int) -> dict | None:
 
 
 def listing(db, base: Path, depts: list[str]) -> list[dict]:
-    """부서마다 문서 목록 — [{"dept", "files": [{id, name, size, owner, saved, saved_by}]}]. 디스크에 없는 장부 줄은 뺀다."""
-    rows = db.list_files(kind="webhwp", limit=2000)
-    by: dict[str, list[dict]] = {d: [] for d in depts}
+    """부서마다 문서 수 — 화면 왼쪽 부서 목록용. [{"dept", "count"}]."""
+    rows = db.list_files(kind="webhwp", limit=5000)
+    count = {d: 0 for d in depts}
     for r in rows:
         d = dept_of_path(base, r["path"])
-        if d not in by or not Path(r["path"]).exists():
+        if d in count and Path(r["path"]).exists():
+            count[d] += 1
+    return [{"dept": d, "count": count[d]} for d in depts]
+
+
+def browse(db, base: Path, dept: str, folder: str = "") -> dict:
+    """부서 안 한 폴더 — 하위 폴더(빈 폴더도)와 그 폴더의 문서. 디스크에 없는 장부 줄은 뺀다."""
+    here = folder_dir(base, dept, folder)
+    folders = []
+    if here.is_dir():
+        for c in sorted(here.iterdir(), key=lambda x: x.name):
+            if c.is_dir() and c.name not in HIDDEN and not c.name.startswith("."):
+                n = sum(1 for x in c.rglob("*") if x.suffix.lower() in SUFFIXES and not any(p in HIDDEN for p in x.parts))
+                folders.append({"name": c.name, "path": clean_folder(f"{folder}/{c.name}"), "count": n})
+    files = []
+    for r in db.list_files(kind="webhwp", limit=5000):
+        p = Path(r["path"])
+        if dept_of_path(base, r["path"]) != dept or folder_of(base, r["path"]) != clean_folder(folder) or not p.exists():
             continue
         m = meta(db, r["id"])
-        by[d].append({"id": r["id"], "name": r["name"], "size": r["size"], "owner": m.get("owner", ""),
+        files.append({"id": r["id"], "name": r["name"], "size": r["size"], "owner": m.get("owner", ""),
                       "saved": (m.get("saved") or m.get("created") or r.get("created_at") or "")[:16].replace("T", " "),
                       "saved_by": m.get("saved_by", "")})
-    for files in by.values():
-        files.sort(key=lambda x: x["saved"], reverse=True)
-    return [{"dept": d, "files": by[d]} for d in depts]
+    files.sort(key=lambda x: x["saved"], reverse=True)
+    crumbs, acc = [], []
+    for seg in [x for x in clean_folder(folder).split("/") if x]:
+        acc.append(seg)
+        crumbs.append({"name": seg, "path": "/".join(acc)})
+    return {"dept": dept, "folder": clean_folder(folder), "folders": folders, "files": files, "crumbs": crumbs}
+
+
+def trash(db, base: Path, fid: int, *, user: str) -> None:
+    """문서 지우기 — 부서의 .휴지통/ 으로 옮긴다(되살릴 수 있게). 장부에서는 뺀다."""
+    f = get(db, fid)
+    if not f:
+        raise FileNotFoundError("문서가 없습니다")
+    p = Path(f["path"])
+    if p.exists():
+        t = root(base) / dept_of_path(base, f["path"]) / ".휴지통"
+        t.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(p), str(t / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S} {user}{p.suffix}"))
+    db.remove_files(path=f["path"])
 
 
 def may_open(base: Path, f: dict | None, depts: list[str]) -> bool:

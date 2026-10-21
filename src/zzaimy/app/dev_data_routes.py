@@ -233,17 +233,20 @@ def make_ls_helpers(db) -> SimpleNamespace:
 
 
 def _grounded_status_note(st: dict, ls_url: str | None) -> dict | None:
-    """검수 현황을 못 보일 때 무엇이 안 됐는지(한 줄)와 어디서 확인하는지.
-    연결은 됐는데 프로젝트가 없는 경우와 연결 자체가 안 된 경우를 나눈다."""
+    """검수 현황을 못 보일 때 무엇이 안 됐는지(짧은 상태 표시 몇 개)와 어디서 확인하는지.
+    연결은 됐는데 프로젝트가 없는 경우와 연결 자체가 안 된 경우를 나눈다.
+    chips: {text, level, title} — level 은 화면 pill 색(reviewed=정상·processing=확인 필요), title 은 마우스를 올리면 보이는 설명."""
     if st.get("ok") and st.get("project_id"):
         return None
     if st.get("ok"):
-        return {"what": f"Label Studio 연결됨 · 「{_GROUNDED_PROJECT}」 프로젝트 없음 — 사람 검수를 시작할 때 만든다. "
-                        "지금 SFT 학습셋은 모델 전수 점검·경고 직접 판정으로 승인했다(아래 학습 데이터)",
+        return {"chips": [{"text": "Label Studio 연결됨", "level": "reviewed", "title": ""},
+                          {"text": "검수 프로젝트 없음", "level": "processing", "title": f"프로젝트 이름: {_GROUNDED_PROJECT}"}],
+                "hint": "프로젝트는 사람 검수 시작 때 생성 · 지금 학습셋은 모델 전수 점검으로 승인",
                 "href": f"{ls_url.rstrip('/')}/projects" if ls_url else "/dev/train?tab=settings",
                 "action": "Label Studio 프로젝트 목록" if ls_url else "도구·모델 연결",
                 "external": bool(ls_url)}
-    return {"what": f"Label Studio 미연결({st.get('error') or '응답 오류'})",
+    return {"chips": [{"text": f"Label Studio 미연결({st.get('error') or '응답 오류'})", "level": "processing", "title": ""}],
+            "hint": "",
             "href": "/dev/train?tab=settings", "action": "도구·모델 연결", "external": False}
 
 

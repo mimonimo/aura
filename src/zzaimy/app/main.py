@@ -2810,13 +2810,25 @@ def create_app(
                 return f"Word 로 내보내지 못했습니다({_ko.reason(e)}). 작업본은 그대로입니다."
 
         if link.get("template"):
-            # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보낸다
-            text = _word_export("이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다.")
-            if not text.startswith("Word 로 내보내지 못했"):
-                text += "\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」으로 다시 쓰면 서식 그대로 채웁니다."
-            db.add_chat(session_id, "assistant", _scrub_internal(text))
-            return
-        src = _working_copy_source(session_id, session_, request, "한글 완성본을 만들")
+            # 공통 양식으로 쓴 문서 — 같은 정의로 만든 한글 공통 양식(webhwp_templates, 한글 문서함 「공통/공통 양식」)에 채운다.
+            # 그 양식을 만들 수 없을 때(라이브러리·정의 문제)만 Word(docx)로 내보낸다
+            from zzaimy.app import webhwp_templates as _wt
+            tpl_path = None
+            try:
+                _wt.ensure_all(db, Path(db.path).parent)
+                tpl_path = _wt.path_for(db, link["template"])
+            except Exception:
+                logging.getLogger("zzaimy.app.gdocs").exception("한글 공통 양식 준비 실패 (대화 %s)", session_id)
+            if tpl_path is None:
+                text = _word_export("이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다.")
+                if not text.startswith("Word 로 내보내지 못했"):
+                    text += "\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」으로 다시 쓰면 서식 그대로 채웁니다."
+                db.add_chat(session_id, "assistant", _scrub_internal(text))
+                return
+            src = {"id": None, "stored_path": str(tpl_path), "receipt_no": "",
+                   "filename": (session_.get("title") or tpl_path.stem.replace(" 공통 양식", "")) + ".hwpx"}
+        else:
+            src = _working_copy_source(session_id, session_, request, "한글 완성본을 만들")
         if not src:
             return
         src_path = Path(src.get("stored_path") or "")
@@ -2837,7 +2849,7 @@ def create_app(
             title = storage.title_of(src.get("filename") or "")
             name = f"{title} 완성본 {_date.today().isoformat()}.hwpx"
             storage.save_generated(db, data, ref=src.get("receipt_no") or f"대화-{session_id}", kind="한글 완성본", ext="hwpx",
-                                   doc_id=int(src["id"]), session_id=session_id)
+                                   doc_id=int(src["id"]) if src.get("id") else None, session_id=session_id)
             acct_ = accounts.get(owner, {}) if password is not None else {}
             if _webhwp.editor_of(db, owner) == "webhwp":
                 # 편집기를 웹 한글 기안기로 고른 사람 — 부서 한글 문서함에 두고 기안기 링크를 준다(드라이브에는 올리지 않는다)
@@ -2853,7 +2865,7 @@ def create_app(
                 except Exception:
                     logging.getLogger("zzaimy.app.gdocs").warning("옛 완성본 정리 실패 (대화 %s)", session_id)
                 up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
-                db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
+                db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]) if src.get("id") else None)
                 where = up["url"]
             text = (f"{_ko.quote(name, '을')} 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
                     f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {where}")
@@ -3581,6 +3593,56 @@ def create_app(
         from zzaimy.app import project_documents
 
         return project_documents.collect(db, project, session_id, **_viewer(request))
+
+    # 대화 문서 창의 「한글 기안기」 — 이 대화에서 만든 한글 완성본(부서 한글 문서함)을 기안기로 연다. 없으면 만들기를 건다
+    _hwp_busy: dict[int, float] = {}
+
+    def _chat_owned(request: Request, session_id: int) -> tuple[dict, str]:
+        session_ = db.get_chat_session(session_id)
+        owner = getattr(request.state, "user", "zzaimy")
+        if session_ is None or session_.get("owner") not in (None, owner):
+            raise HTTPException(404)
+        return session_, owner
+
+    def _chat_hwp_file(session_id: int) -> dict | None:
+        best = None
+        for r in db.list_files(kind="webhwp", limit=5000):
+            if _webhwp.meta(db, r["id"]).get("source") == f"대화-{session_id}" and Path(r["path"]).exists():
+                if best is None or r["id"] > best["id"]:
+                    best = r
+        return best
+
+    @app.get("/api/chat/{session_id}/hwp")
+    def chat_hwp_state(request: Request, session_id: int):
+        _chat_owned(request, session_id)
+        from zzaimy.app.webhwp_routes import EDIT_PAGE
+        f = _chat_hwp_file(session_id)
+        busy = time.time() - _hwp_busy.get(session_id, 0) < 300
+        return {"editor": _webhwp.editor_of(db, getattr(request.state, "user", "")), "ok": _webhwp.status()["ok"], "busy": busy,
+                "file": ({"id": f["id"], "name": f["name"], "url": f"{EDIT_PAGE}?id={f['id']}"} if f else None)}
+
+    @app.post("/api/chat/{session_id}/hwp/export")
+    def chat_hwp_export(request: Request, session_id: int):
+        """작업본을 원본 서식(hwpx)에 채워 부서 한글 문서함에 두기 — 끝나면 대화에 결과가 남고 위 상태에 파일이 선다."""
+        _, owner = _chat_owned(request, session_id)
+        if request.state.role not in ("dev", *_ap.STAFF_ROLES):
+            raise HTTPException(403)
+        if time.time() - _hwp_busy.get(session_id, 0) < 300:
+            return {"started": False, "busy": True}
+        _webhwp.set_editor(db, owner, "webhwp")
+        _hwp_busy[session_id] = time.time()
+
+        def _run():
+            try:
+                _export_hwp(session_id, owner, Path(db_path).parent, remove_boxes=False, request="한글 기안기로 열기")
+            except Exception:
+                logging.getLogger("zzaimy.app.gdocs").exception("기안기용 한글 완성본 만들기 실패 (대화 %s)", session_id)
+            finally:
+                _hwp_busy.pop(session_id, None)
+
+        import threading as _th
+        _th.Thread(target=_run, daemon=True, name=f"hwp-export-{session_id}").start()
+        return {"started": True}
 
     @app.get("/api/chat/{session_id}/documents")
     def chat_project_documents(request: Request, session_id: int):

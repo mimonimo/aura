@@ -33,14 +33,16 @@ DEFAULT = {
 
 
 def config(data_dir: str | Path | None = None) -> dict:
+    # 늘 새 사본을 돌려준다 — 받은 쪽이 고쳐도(예: grants 바꾸고 저장) 모듈 기본값 DEFAULT 가 바뀌어 다른 계정·요청에 번지지 않게
+    import copy
     if data_dir is not None:
         p = Path(data_dir) / "rag_spaces.json"
         try:
             got = json.loads(p.read_text(encoding="utf-8"))
-            return {**DEFAULT, **got}
+            return {**copy.deepcopy(DEFAULT), **got}
         except (OSError, ValueError):
             pass
-    return DEFAULT
+    return copy.deepcopy(DEFAULT)
 
 
 def dept_of_rel(rel: str, data_dir: str | Path | None = None) -> str:

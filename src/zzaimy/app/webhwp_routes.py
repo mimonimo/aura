@@ -62,20 +62,81 @@ def _file(request: Request, fid: int) -> dict:
     return f
 
 
-def _back(msg: str, ok: bool = True, dept: str = "") -> RedirectResponse:
-    return RedirectResponse(f"/hwp?{'ok' if ok else 'err'}={_q(msg)}" + (f"#d-{_q(dept)}" if dept else ""), status_code=303)
+def _where(dept: str = "", folder: str = "") -> str:
+    q = []
+    if dept:
+        q.append(f"dept={_q(dept)}")
+    if folder:
+        q.append(f"folder={_q(folder)}")
+    return "/hwp" + ("?" + "&".join(q) if q else "")
+
+
+def _back(msg: str, ok: bool = True, dept: str = "", folder: str = "") -> RedirectResponse:
+    url = _where(dept, folder)
+    return RedirectResponse(f"{url}{'&' if '?' in url else '?'}{'ok' if ok else 'err'}={_q(msg)}", status_code=303)
+
+
+def _check_dept(request: Request, dept: str, folder: str = "") -> str:
+    if dept not in _depts(request):
+        raise HTTPException(403, "이 부서 디렉터리는 쓸 수 없습니다")
+    try:
+        return webhwp.clean_folder(folder)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+_TEMPLATES_READY: set[str] = set()
+
+
+def _ensure_templates(db, base: Path) -> None:
+    """한글 공통 양식(공통/공통 양식)을 프로세스마다 한 번 맞춘다 — 정의가 바뀐 것만 새로 만든다."""
+    key = str(base)
+    if key in _TEMPLATES_READY:
+        return
+    _TEMPLATES_READY.add(key)
+    try:
+        from zzaimy.app import webhwp_templates
+        webhwp_templates.ensure_all(db, base)
+    except Exception:
+        import logging
+        logging.getLogger("zzaimy.app.webhwp").exception("한글 공통 양식 만들기 실패")
 
 
 @router.get("/hwp", response_class=HTMLResponse)
-def hwp_home(request: Request, ok: str = "", err: str = ""):
-    """부서 한글 문서함 — 내가 쓰는 부서 디렉터리의 한글 파일과 올리기, 편집기 고르기."""
+def hwp_home(request: Request, dept: str = "", folder: str = "", ok: str = "", err: str = ""):
+    """부서 한글 문서함 — 왼쪽 부서 목록, 오른쪽 고른 부서의 폴더·문서(폴더 만들기·올리기·새 문서·지우기), 편집기 고르기."""
     _need_staff(request)
     st = request.app.state
+    _ensure_templates(st.db, _base(request))
     depts = _depts(request)
+    mine = getattr(request.state, "dept", "") or webhwp.COMMON
+    dept = dept if dept in depts else (mine if mine in depts else (depts[0] if depts else ""))
+    folder = _check_dept(request, dept, folder) if dept else ""
     return st.templates.TemplateResponse(request, "hwp.html", st.ctx(request, {
-        "groups": webhwp.listing(st.db, _base(request), depts), "status": webhwp.status(),
-        "editor": webhwp.editor_of(st.db, getattr(request.state, "user", "")), "editors": webhwp.EDITORS,
-        "my_dept": getattr(request.state, "dept", "") or webhwp.COMMON, "ok": ok, "err": err}))
+        "depts": webhwp.listing(st.db, _base(request), depts), "here": webhwp.browse(st.db, _base(request), dept, folder) if dept else None,
+        "status": webhwp.status(), "editor": webhwp.editor_of(st.db, getattr(request.state, "user", "")),
+        "editors": webhwp.EDITORS, "ok": ok, "err": err}))
+
+
+@router.post("/hwp/folder")
+def hwp_folder(request: Request, dept: str = Form(""), folder: str = Form(""), name: str = Form("")):
+    _need_staff(request)
+    folder = _check_dept(request, dept, folder)
+    try:
+        sub = webhwp.make_folder(_base(request), dept, folder, name)
+    except ValueError as e:
+        return _back(str(e), ok=False, dept=dept, folder=folder)
+    return _back(f"「{sub.split('/')[-1]}」 폴더를 만들었습니다", dept=dept, folder=sub)
+
+
+@router.post("/hwp/{fid}/delete")
+def hwp_delete(request: Request, fid: int):
+    """지우기 — 부서 휴지통으로 옮긴다(관리자가 되살릴 수 있다)."""
+    _need_staff(request)
+    f = _file(request, fid)
+    dept, folder = webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"])
+    webhwp.trash(request.app.state.db, _base(request), fid, user=getattr(request.state, "user", ""))
+    return _back(f"「{f['name']}」 을(를) 휴지통으로 옮겼습니다", dept=dept, folder=folder)
 
 
 @router.post("/hwp/editor")
@@ -88,59 +149,57 @@ def hwp_editor(request: Request, editor: str = Form("gdocs"), back: str = Form("
 
 
 @router.post("/hwp/upload")
-async def hwp_upload(request: Request, dept: str = Form(""), file: UploadFile = File(...)):
+async def hwp_upload(request: Request, dept: str = Form(""), folder: str = Form(""), file: UploadFile = File(...)):
     _need_staff(request)
-    if dept not in _depts(request):
-        raise HTTPException(403, "이 부서 디렉터리에는 올릴 수 없습니다")
+    folder = _check_dept(request, dept, folder)
     data = await file.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
-        return _back("100MB 보다 큰 파일은 올릴 수 없습니다", ok=False, dept=dept)
+        return _back("100MB 보다 큰 파일은 올릴 수 없습니다", ok=False, dept=dept, folder=folder)
     try:
-        fid = webhwp.add(request.app.state.db, _base(request), dept, file.filename or "", data,
-                         owner=getattr(request.state, "user", ""), source="upload")
+        webhwp.add(request.app.state.db, _base(request), dept, file.filename or "", data,
+                   owner=getattr(request.state, "user", ""), source="upload", folder=folder)
     except ValueError as e:
-        return _back(str(e), ok=False, dept=dept)
-    return RedirectResponse(f"/hwp/{fid}/edit", status_code=303)
+        return _back(str(e), ok=False, dept=dept, folder=folder)
+    return _back(f"「{file.filename}」 을(를) 올렸습니다", dept=dept, folder=folder)
 
 
 EDIT_PAGE = "/webhwpctrl/aura-edit"     # 기안기 스크립트는 「지금 페이지의 폴더」 + hwpctrlmain.html 로 편집 틀을 연다 — 그래서 /webhwpctrl/ 바로 아래
 
 
 @router.get("/hwp/new")
-def hwp_new(request: Request, dept: str = ""):
-    """빈 문서로 기안기 열기 — 처음 저장할 때 부서 디렉터리에 파일이 생긴다."""
+def hwp_new(request: Request, dept: str = "", folder: str = ""):
+    """빈 문서로 기안기 열기 — 처음 저장할 때 부서 디렉터리(그 폴더)에 파일이 생긴다."""
     _need_staff(request)
-    if dept not in _depts(request):
-        raise HTTPException(403, "이 부서 디렉터리에는 만들 수 없습니다")
-    return RedirectResponse(f"{EDIT_PAGE}?dept={_q(dept)}", status_code=303)
+    folder = _check_dept(request, dept, folder)
+    return RedirectResponse(f"{EDIT_PAGE}?dept={_q(dept)}" + (f"&folder={_q(folder)}" if folder else ""), status_code=303)
 
 
 @router.get(EDIT_PAGE, response_class=HTMLResponse)
-def hwp_edit_page(request: Request, id: int | None = None, dept: str = ""):
-    """기안기 편집 화면 — id 가 있으면 그 문서, 없으면 dept 부서의 새 문서."""
+def hwp_edit_page(request: Request, id: int | None = None, dept: str = "", folder: str = ""):
+    """기안기 편집 화면(전체 화면, 사이드바 없이) — id 가 있으면 그 문서, 없으면 dept 부서(folder 폴더)의 새 문서."""
     _need_staff(request)
     st = request.app.state
     if id is not None:
         f = _file(request, id)
-        ctx = {"f": f, "dept": webhwp.dept_of_path(_base(request), f["path"]), "meta": webhwp.meta(st.db, id)}
+        ctx = {"f": f, "dept": webhwp.dept_of_path(_base(request), f["path"]),
+               "folder": webhwp.folder_of(_base(request), f["path"]), "meta": webhwp.meta(st.db, id)}
     else:
-        if dept not in _depts(request):
-            raise HTTPException(403, "이 부서 디렉터리에는 만들 수 없습니다")
-        ctx = {"f": None, "dept": dept, "meta": {}}
-    return st.templates.TemplateResponse(request, "hwp_edit.html", st.ctx(request, {**ctx, "status": webhwp.status()}))
+        folder = _check_dept(request, dept, folder)
+        ctx = {"f": None, "dept": dept, "folder": folder, "meta": {}}
+    ctx["back"] = _where(ctx["dept"], ctx["folder"])
+    return st.templates.TemplateResponse(request, "hwp_edit.html", {"request": request, **ctx, "status": webhwp.status()})
 
 
 @router.post("/hwp/new")
-async def hwp_new_save(request: Request, dept: str = "", title: str = ""):
+async def hwp_new_save(request: Request, dept: str = "", title: str = "", folder: str = ""):
     """새 문서 첫 저장 — 본문 바이트(HWPX)를 부서 디렉터리에 들이고 id 를 돌려준다."""
     _need_staff(request)
-    if dept not in _depts(request):
-        raise HTTPException(403, "이 부서 디렉터리에는 만들 수 없습니다")
+    folder = _check_dept(request, dept, folder)
     data = await _body(request)
     if data[:2] != b"PK":
         raise HTTPException(400, "한글(HWPX) 파일이 아닙니다")
     fid = webhwp.add(request.app.state.db, _base(request), dept, f"{(title or '새 문서').strip()[:60]}.hwpx", data,
-                     owner=getattr(request.state, "user", ""), source="new")
+                     owner=getattr(request.state, "user", ""), source="new", folder=folder)
     return {"ok": True, "id": fid, "url": f"{EDIT_PAGE}?id={fid}"}
 
 

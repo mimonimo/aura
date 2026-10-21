@@ -3,50 +3,111 @@
 {% block pagetitle %}한글 문서함{% endblock %}
 {% block content %}
 <style>
-  .hw-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 16px; margin:0 0 14px; }
-  .hw-state { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
-  .hw-dot { width:8px; height:8px; border-radius:50%; background:#C0392B; }
+  .hw { display:grid; grid-template-columns:200px minmax(0,1fr); gap:16px; align-items:start; }
+  @media (max-width:760px) { .hw { grid-template-columns:1fr; } }
+  .hw-depts { display:flex; flex-direction:column; gap:2px; }
+  .hw-depts a { display:flex; justify-content:space-between; gap:8px; padding:9px 12px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:14px; }
+  .hw-depts a:hover { background:var(--panel); }
+  .hw-depts a.on { background:#E8EEF7; color:var(--navy); font-weight:600; }
+  .hw-depts .n { color:var(--muted); font-size:12px; }
+  .hw-top { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:0 0 12px; }
+  .hw-crumb { display:flex; align-items:center; flex-wrap:wrap; gap:4px; font-size:15px; }
+  .hw-crumb a { color:var(--muted); text-decoration:none; }
+  .hw-crumb a:hover { color:var(--ink); }
+  .hw-crumb b { color:var(--ink); }
+  .hw-crumb .sep { color:var(--faint); }
+  .hw-tools { display:flex; gap:6px; flex-wrap:wrap; }
+  .hw-tools .mini-btn { min-height:34px; padding:6px 12px; font-size:13px; }
+  .hw-tools .mini-btn.primary { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .hw-list { width:100%; border-collapse:collapse; font-size:14px; }
+  .hw-list th, .hw-list td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .hw-list th { font-size:12px; color:var(--muted); font-weight:600; }
+  .hw-list td.meta { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .hw-list a.name { color:var(--ink); text-decoration:none; display:inline-flex; align-items:center; gap:8px; }
+  .hw-list a.name:hover { color:var(--navy); text-decoration:underline; }
+  .hw-list iconify-icon { font-size:18px; color:var(--faint); flex:none; }
+  .hw-list .folder iconify-icon { color:#C9A227; }
+  .hw-act { display:flex; gap:6px; justify-content:flex-end; }
+  .hw-act form { margin:0; }
+  .hw-empty { color:var(--muted); font-size:13px; padding:18px 8px; }
+  .hw-foot { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-top:14px; font-size:12.5px; color:var(--muted); }
+  .hw-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#C0392B; margin-right:6px; vertical-align:1px; }
   .hw-dot.on { background:#2E7D4F; }
-  .hw-editor { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; }
+  .hw-editor { display:flex; align-items:center; gap:10px; }
   .hw-editor label { display:inline-flex; align-items:center; gap:5px; margin:0; font-weight:500; }
-  .hw-table { width:100%; border-collapse:collapse; font-size:13.5px; }
-  .hw-table th, .hw-table td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
-  .hw-table th { font-size:12px; color:var(--muted); font-weight:600; }
-  .hw-table td.num { color:var(--muted); white-space:nowrap; }
-  .hw-up { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px; }
-  .hw-up input[type=file] { font-size:13px; max-width:100%; }
-  .hw-empty { color:var(--muted); font-size:13px; padding:8px 0; }
-  .hw-actions { display:flex; gap:6px; justify-content:flex-end; }
 </style>
 {% if ok %}<p class="notice ok" role="status">{{ ok }}</p>{% endif %}
 {% if err %}<p class="notice" role="alert">{{ err }}</p>{% endif %}
-<section class="card"><div class="card-in">
-  <div class="hw-head">
-    <span class="hw-state"><span class="hw-dot {{ 'on' if status.ok }}"></span>{% if status.ok %}웹 한글 기안기 {{ status.version }}{% else %}웹 한글 기안기 연결 안 됨{% endif %}</span>
-    <form class="hw-editor" action="/hwp/editor" method="post">
-      <input type="hidden" name="back" value="/hwp">
-      <span>문서 편집기</span>
-      {% for k, label in editors.items() %}<label><input type="radio" name="editor" value="{{ k }}" {% if editor == k %}checked{% endif %} onchange="this.form.submit()">{{ label }}</label>{% endfor %}
+<div class="hw">
+  <nav class="card hw-depts" aria-label="부서"><div class="card-in" style="padding:10px;">
+    {% for d in depts %}<a href="/hwp?dept={{ d.dept|urlencode }}" class="{{ 'on' if here and here.dept == d.dept }}">{{ d.dept }}<span class="n">{{ d.count }}</span></a>{% endfor %}
+  </div></nav>
+  <section class="card"><div class="card-in">
+    {% if here %}
+    <div class="hw-top">
+      <div class="hw-crumb" aria-label="위치">
+        {% if here.crumbs %}<a href="/hwp?dept={{ here.dept|urlencode }}">{{ here.dept }}</a>{% else %}<b>{{ here.dept }}</b>{% endif %}
+        {% for c in here.crumbs %}<span class="sep">/</span>{% if loop.last %}<b>{{ c.name }}</b>{% else %}<a href="/hwp?dept={{ here.dept|urlencode }}&folder={{ c.path|urlencode }}">{{ c.name }}</a>{% endif %}{% endfor %}
+      </div>
+      <div class="hw-tools">
+        {% if status.ok %}<a class="mini-btn primary" href="/hwp/new?dept={{ here.dept|urlencode }}{% if here.folder %}&folder={{ here.folder|urlencode }}{% endif %}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</a>{% endif %}
+        <button type="button" class="mini-btn" data-pick-file><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon>올리기</button>
+        <button type="button" class="mini-btn" data-modal-open="#hwFolder"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>새 폴더</button>
+      </div>
+    </div>
+    <form action="/hwp/upload" method="post" enctype="multipart/form-data" data-upload hidden>
+      <input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}">
+      <input type="file" name="file" accept=".hwp,.hwpx" aria-label="올릴 한글 파일">
     </form>
-  </div>
-  {% for g in groups %}
-  <h2 id="d-{{ g.dept }}" style="font-size:16px; margin:18px 0 6px;">{{ g.dept }}</h2>
-  {% if g.files %}
-  <table class="hw-table">
-    <tr><th>문서</th><th>고친 때</th><th>고친 사람</th><th></th></tr>
-    {% for f in g.files %}
-    <tr><td>{{ f.name }}</td><td class="num">{{ f.saved }}</td><td class="num">{{ f.saved_by or f.owner }}</td>
-      <td><div class="hw-actions">{% if status.ok %}<a class="mini-btn" href="/hwp/{{ f.id }}/edit">기안기로 열기</a>{% endif %}
-        <a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a></div></td></tr>
-    {% endfor %}
-  </table>
-  {% else %}<p class="hw-empty">문서가 없습니다.</p>{% endif %}
-  <form class="hw-up" action="/hwp/upload" method="post" enctype="multipart/form-data">
-    <input type="hidden" name="dept" value="{{ g.dept }}">
-    <input type="file" name="file" accept=".hwp,.hwpx" required aria-label="{{ g.dept }}에 올릴 한글 파일">
-    <button type="submit" class="secondary">{{ g.dept }}에 올리기</button>
-    {% if status.ok %}<a class="mini-btn" href="/hwp/new?dept={{ g.dept|urlencode }}" style="min-height:38px;">새 문서</a>{% endif %}
+    {% if here.folders or here.files %}
+    <table class="hw-list">
+      <tr><th>이름</th><th>고친 때</th><th>고친 사람</th><th></th></tr>
+      {% for d in here.folders %}
+      <tr class="folder"><td><a class="name" href="/hwp?dept={{ here.dept|urlencode }}&folder={{ d.path|urlencode }}"><iconify-icon icon="solar:folder-bold" aria-hidden="true"></iconify-icon>{{ d.name }}</a></td>
+        <td class="meta">문서 {{ d.count }}</td><td class="meta"></td><td></td></tr>
+      {% endfor %}
+      {% for f in here.files %}
+      <tr><td>{% if status.ok %}<a class="name" href="/hwp/{{ f.id }}/edit" title="기안기로 열기">{% else %}<span class="name">{% endif %}<iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>{{ f.name }}{% if status.ok %}</a>{% else %}</span>{% endif %}</td>
+        <td class="meta">{{ f.saved }}</td><td class="meta">{{ f.saved_by or f.owner }}</td>
+        <td><div class="hw-act">
+          {% if status.ok %}<a class="mini-btn" href="/hwp/{{ f.id }}/edit">열기</a>{% endif %}
+          <a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a>
+          <form action="/hwp/{{ f.id }}/delete" method="post" data-confirm="「{{ f.name }}」 을(를) 지울까요? 부서 휴지통으로 옮겨 두어 관리자가 되살릴 수 있습니다."><button type="submit" class="mini-btn">지우기</button></form>
+        </div></td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="hw-empty">이 폴더에 문서가 없습니다 — 「새 문서」 로 쓰거나 한글 파일을 올리세요.</p>{% endif %}
+    {% else %}<p class="hw-empty">쓸 수 있는 부서 디렉터리가 없습니다.</p>{% endif %}
+    <div class="hw-foot">
+      <span><span class="hw-dot {{ 'on' if status.ok }}"></span>{% if status.ok %}웹 한글 기안기 {{ status.version }}{% else %}웹 한글 기안기 연결 안 됨 — 내려받기만 됩니다{% endif %}</span>
+      <form class="hw-editor" action="/hwp/editor" method="post">
+        <input type="hidden" name="back" value="/hwp{% if here %}?dept={{ here.dept|urlencode }}{% endif %}">
+        <span>한글 완성본 열 곳</span>
+        {% for k, label in editors.items() %}<label><input type="radio" name="editor" value="{{ k }}" {% if editor == k %}checked{% endif %} onchange="this.form.submit()">{{ label }}</label>{% endfor %}
+      </form>
+    </div>
+  </div></section>
+</div>
+{% if here %}
+<div class="modal-back" id="hwFolder"><div class="card"><div class="card-in">
+  <div class="modal-head"><h2 style="font-size:17px;">새 폴더</h2>
+    <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+  <form action="/hwp/folder" method="post">
+    <input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}">
+    <label>폴더 이름<input name="name" required maxlength="60" placeholder="예: 2026 공문" autocomplete="off"></label>
+    <p class="muted" style="font-size:12.5px; margin:6px 0 0;">{{ here.dept }}{% if here.folder %} / {{ here.folder }}{% endif %} 안에 만듭니다</p>
+    <div class="modal-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">만들기</button></div>
   </form>
-  {% endfor %}
-</div></section>
+</div></div></div>
+<script>
+(function () {
+  var form = document.querySelector('[data-upload]'), input = form && form.querySelector('input[type=file]');
+  var pick = document.querySelector('[data-pick-file]');
+  if (pick && input) {
+    pick.addEventListener('click', function () { input.click(); });
+    input.addEventListener('change', function () { if (input.files.length) form.submit(); });
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}

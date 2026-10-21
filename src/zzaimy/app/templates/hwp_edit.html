@@ -1,70 +1,126 @@
-{% extends "base.html" %}
-{% block title %}{{ f.name if f else '새 한글 문서' }} · 기안기{% endblock %}
-{% block pagetitle %}{{ f.name if f else '새 한글 문서' }}{% endblock %}
-{% block content %}
+<!doctype html>
+{# 기안기 편집 화면 — 플랫폼 틀(사이드바) 없이 화면 전체를 편집기에. 기안기 스크립트는 이 페이지의 폴더(/webhwpctrl/)를 기준으로
+   편집 틀(hwpctrlmain.html)을 열기 때문에 주소는 /webhwpctrl/aura-edit 이다(webhwp_routes.EDIT_PAGE). #}
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ f.name if f else '새 한글 문서' }} · 기안기 · AURA</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
 <style>
-  .he-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
-  .he-bar .he-info { color:var(--muted); font-size:13px; margin-right:auto; }
-  .he-msg { font-size:13px; color:var(--muted); }
-  #hwpctrl { width:100%; height:calc(100vh - 190px); min-height:520px; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
+  :root { --navy:#1B3B75; --ink:#1F2937; --muted:#64748B; --faint:#94A3B8; --bg:#F1F5F9; --panel:#F8FAFC; --line:#E2E8F0; --ok:#2E7D4F; --warn:#B45309; --bad:#B91C1C; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { font-family:"Pretendard Variable", Pretendard, system-ui, sans-serif; color:var(--ink); background:var(--bg); display:flex; flex-direction:column; overflow:hidden; }
+  .bar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 16px; background:#fff; border-bottom:1px solid var(--line); }
+  .back { display:inline-flex; align-items:center; gap:4px; color:var(--muted); text-decoration:none; font-size:13.5px; padding:6px 8px; border-radius:8px; white-space:nowrap; }
+  .back:hover { background:var(--panel); color:var(--ink); }
+  .back iconify-icon { font-size:18px; }
+  .doc { display:flex; flex-direction:column; min-width:0; flex:1; }
+  .doc .name { font-size:15.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .doc input.name { border:1px solid transparent; border-radius:6px; padding:2px 6px; margin-left:-7px; font:inherit; font-size:15.5px; font-weight:600; width:min(360px, 100%); background:transparent; }
+  .doc input.name:hover, .doc input.name:focus { border-color:var(--line); background:var(--panel); outline:none; }
+  .doc .where { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .state { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); white-space:nowrap; }
+  .state .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+  .state[data-kind=ok] .dot { background:var(--ok); }
+  .state[data-kind=busy] .dot { background:var(--warn); }
+  .state[data-kind=bad] { color:var(--bad); }
+  .state[data-kind=bad] .dot { background:var(--bad); }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:36px; padding:0 14px; border-radius:8px; border:1px solid #D6DEE8; background:#fff; color:#36465B; font:inherit; font-size:13.5px; font-weight:600; text-decoration:none; cursor:pointer; white-space:nowrap; }
+  .btn:hover { border-color:#94A3B8; background:var(--panel); }
+  .btn.primary { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .btn.primary:hover { background:#14325A; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .btn iconify-icon { font-size:16px; }
+  .btn kbd { font:inherit; font-size:11px; font-weight:500; opacity:.75; }
+  .sr-only { position:absolute; left:-9999px; }
+  #hwpctrl { flex:1; min-height:0; background:#fff; }
+  #hwpctrl iframe { display:block; border:0; }
+  .alert { flex:none; margin:0; padding:10px 16px; background:#FEF2F2; color:var(--bad); font-size:13.5px; border-bottom:1px solid #FECACA; }
+  @media (max-width:640px) { .doc .where, .btn .label-long, .btn kbd { display:none; } .bar { gap:8px; padding:0 10px; } }
 </style>
-<div class="he-bar">
-  {% if f %}<span class="he-info">{{ dept }} · {% if meta.saved %}마지막 저장 {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }}{% else %}올린 사람 {{ meta.owner }}{% endif %}</span>
-  {% else %}<span class="he-info">{{ dept }} · <label for="heTitle" class="sr-only">문서 이름</label><input id="heTitle" data-title placeholder="문서 이름" value="새 문서" style="width:220px; display:inline-block; margin-left:4px;"></span>{% endif %}
-  <span class="he-msg" data-msg role="status" aria-live="polite">기안기를 불러오는 중…</span>
-  <button type="button" data-save disabled>저장</button>
-  {% if f %}<a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a>{% endif %}
-  <a class="mini-btn" href="/hwp#d-{{ dept }}">한글 문서함</a>
-</div>
-{% if not status.ok %}<p class="notice" role="alert">웹 한글 기안기 서버에 연결하지 못했습니다 — 관리자에게 알려 주세요.</p>{% endif %}
+</head>
+<body>
+<header class="bar">
+  <a class="back" href="{{ back }}" title="한글 문서함으로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>문서함</a>
+  <div class="doc">
+    {% if f %}<span class="name" title="{{ f.name }}">{{ f.name }}</span>
+    {% else %}<label class="sr-only" for="heTitle">문서 이름</label><input id="heTitle" class="name" data-title value="새 문서" maxlength="60" autocomplete="off">{% endif %}
+    <span class="where">{{ dept }}{% if folder %} / {{ folder }}{% endif %}{% if meta.saved %} · {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }} 저장{% elif meta.owner %} · {{ meta.owner }} 올림{% endif %}</span>
+  </div>
+  <span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>기안기를 불러오는 중</span></span>
+  {% if f %}<a class="btn" href="/hwp/{{ f.id }}/file" title="지금 저장된 판을 내려받기"><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon><span class="label-long">내려받기</span></a>{% endif %}
+  <button type="button" class="btn primary" data-save disabled title="저장 (Ctrl+S)"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon>저장 <kbd>Ctrl+S</kbd></button>
+</header>
+{% if not status.ok %}<p class="alert" role="alert">웹 한글 기안기 서버에 연결하지 못했습니다 — 관리자에게 알려 주세요.</p>{% endif %}
 <div id="hwpctrl"></div>
 <script src="/webhwpctrl/js/hwpctrlapp/utils/util.js"></script>
 <script src="/webhwpctrl/js/hwpctrlapp/hwpCtrlApp.js"></script>
 <script src="/webhwpctrl/js/webhwpctrl.js"></script>
 <script>
 (function () {
-  var msg = document.querySelector('[data-msg]'), saveBtn = document.querySelector('[data-save]');
+  var state = document.querySelector('[data-state]'), msg = document.querySelector('[data-msg]'), saveBtn = document.querySelector('[data-save]');
+  var box = document.getElementById('hwpctrl');
   var isNew = {{ 'false' if f else 'true' }};
   var fileUrl = {{ (('/hwp/' ~ f.id ~ '/file') if f else '') | tojson }}, saveUrl = {{ (('/hwp/' ~ f.id ~ '/save') if f else '') | tojson }};
-  var name = {{ (f.name if f else '새 문서.hwpx') | tojson }}, dept = {{ dept | tojson }};
-  var dirty = false;
-  function say(t) { msg.textContent = t; }
+  var name = {{ (f.name if f else '새 문서.hwpx') | tojson }}, dept = {{ dept | tojson }}, folder = {{ (folder or '') | tojson }};
+  var ready = false, saving = false;
+  function say(t, kind) { msg.textContent = t; state.setAttribute('data-kind', kind || ''); }
   function b64ToBytes(s) { var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+  // 편집 틀(iframe)이 화면 남은 자리를 꽉 채우게 — 기안기는 만들 때 크기를 한 번 정하므로 창 크기가 바뀔 때마다 맞춘다
+  function fit() {
+    var fr = box.querySelector('iframe');
+    if (!fr) return;
+    fr.width = box.clientWidth; fr.height = box.clientHeight;
+    fr.style.width = box.clientWidth + 'px'; fr.style.height = box.clientHeight + 'px';
+    try { if (window.HwpCtrlApp && HwpCtrlApp.UpdateLayout) HwpCtrlApp.UpdateLayout(); } catch (e) {}
+  }
+  window.addEventListener('resize', fit);
   var ctrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
-    if (isNew) { say('빈 문서입니다 — 쓰고 저장하면 ' + dept + ' 문서함에 생깁니다'); saveBtn.disabled = false; return; }
+    fit();
+    if (isNew) { ready = true; saveBtn.disabled = false; say('새 문서 — 저장하면 ' + dept + (folder ? ' / ' + folder : '') + '에 생깁니다', ''); return; }
     fetch(fileUrl, {credentials: 'same-origin'}).then(function (r) {
       if (!r.ok) throw new Error('파일을 받지 못했습니다(' + r.status + ')');
       return r.blob();
     }).then(function (blob) {
-      var file = new File([blob], name);
-      ctrl.Open(file, '', '', function (res) {
-        if (res && res.result === false) { say('문서를 열지 못했습니다'); return; }
-        say('열었습니다'); saveBtn.disabled = false;
+      ctrl.Open(new File([blob], name), '', '', function (res) {
+        if (res && res.result === false) { say('문서를 열지 못했습니다', 'bad'); return; }
+        ready = true; saveBtn.disabled = false; say('열었습니다', 'ok');
       });
-    }).catch(function (e) { say(e.message); });
+    }).catch(function (e) { say(e.message, 'bad'); });
   });
-  window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
-  // 기안기 화면 안에서 고치면 저장 전 표시 — 기안기 이벤트를 모르면 저장 단추를 누를 때까지 「저장 안 함」 으로 둔다
-  saveBtn.addEventListener('click', function () {
-    saveBtn.disabled = true; say('저장하는 중…');
+  setTimeout(fit, 300);
+  function save() {
+    if (!ready || saving) return;
+    saving = true; saveBtn.disabled = true; say('저장하는 중', 'busy');
     ctrl.GetTextFile('HWPX', '', function (data) {
       var bytes = (typeof data === 'string') ? b64ToBytes(data) : data;
       var url = saveUrl;
       if (isNew) {
         var t = (document.querySelector('[data-title]').value || '새 문서').trim();
-        url = '/hwp/new?dept=' + encodeURIComponent(dept) + '&title=' + encodeURIComponent(t);
+        url = '/hwp/new?dept=' + encodeURIComponent(dept) + '&folder=' + encodeURIComponent(folder) + '&title=' + encodeURIComponent(t);
       }
       fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
-        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('저장 실패 ' + r.status)); return j; }); })
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('저장하지 못했습니다(' + r.status + ')')); return j; }); })
         .then(function (j) {
-          dirty = false;
-          if (isNew && j.id) { isNew = false; saveUrl = '/hwp/' + j.id + '/save'; history.replaceState(null, '', j.url); }
-          say('저장했습니다 · ' + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}));
+          if (isNew && j.id) {
+            isNew = false; saveUrl = '/hwp/' + j.id + '/save'; history.replaceState(null, '', j.url);
+            var inp = document.querySelector('[data-title]'); if (inp) inp.readOnly = true;
+          }
+          say('저장됨 · ' + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
         })
-        .catch(function (e) { say(e.message); })
-        .finally(function () { saveBtn.disabled = false; });
+        .catch(function (e) { say(e.message, 'bad'); })
+        .finally(function () { saving = false; saveBtn.disabled = false; });
     });
+  }
+  saveBtn.addEventListener('click', save);
+  // Ctrl+S(맥은 ⌘+S) — 바깥 틀에 포커스가 있을 때. 편집 틀 안에서 누르면 기안기 자체 동작이라 위 「저장」 단추를 쓴다
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(); }
   });
 })();
 </script>
-{% endblock %}
+</body>
+</html>

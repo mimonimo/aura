@@ -24,6 +24,13 @@ def _staff(app, uid: str, dept: str) -> None:
     app.state.accounts[uid]["dept"] = dept
 
 
+def _up(c, app, dept, name, data, folder=""):
+    """올리고 그 문서 id — 올리기는 문서함으로 돌아간다."""
+    r = c.post("/hwp/upload", data={"dept": dept, "folder": folder}, files={"file": (name, data, "x")}, follow_redirects=False)
+    assert r.status_code == 303 and "ok=" in r.headers["location"], r.headers.get("location")
+    return max(f["id"] for f in app.state.db.list_files(kind="webhwp"))
+
+
 def _setup(tmp_path, monkeypatch):
     monkeypatch.setattr(webhwp, "status", lambda *a, **k: {"ok": True, "version": "13.82.0.208", "error": ""})
     app = _app(tmp_path)
@@ -43,10 +50,7 @@ def test_upload_lands_in_department_directory_and_other_department_cannot_open(t
     app = _setup(tmp_path, monkeypatch)
     kim, lee = TestClient(app), TestClient(app)
     assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
-    r = kim.post("/hwp/upload", data={"dept": "기획처"}, files={"file": ("사업계획서.hwpx", _hwpx(), "application/octet-stream")},
-                 follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].endswith("/edit")
-    fid = int(r.headers["location"].split("/")[2])
+    fid = _up(kim, app, "기획처", "사업계획서.hwpx", _hwpx())
     f = webhwp.get(app.state.db, fid)
     assert Path(f["path"]).parent.name == "기획처" and Path(f["path"]).parent.parent.name == "기안기"
     assert kim.get(f"/hwp/{fid}/file").content == _hwpx()
@@ -68,10 +72,8 @@ def test_extra_department_and_common_are_shared(tmp_path, monkeypatch):
     rag_spaces.save_config(cfg, app.state.data_dir)
     kim, lee = TestClient(app), TestClient(app)
     assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
-    a = int(kim.post("/hwp/upload", data={"dept": "기획처"}, files={"file": ("공문.hwpx", _hwpx(), "x")},
-                     follow_redirects=False).headers["location"].split("/")[2])
-    b = int(kim.post("/hwp/upload", data={"dept": "공통"}, files={"file": ("안내.hwpx", _hwpx(), "x")},
-                     follow_redirects=False).headers["location"].split("/")[2])
+    a = _up(kim, app, "기획처", "공문.hwpx", _hwpx())
+    b = _up(kim, app, "공통", "안내.hwpx", _hwpx())
     assert lee.get(f"/hwp/{a}/file").status_code == 200          # 추가 부서로 받은 기획처
     assert lee.get(f"/hwp/{b}/file").status_code == 200          # 공통
 
@@ -80,8 +82,7 @@ def test_save_keeps_previous_version(tmp_path, monkeypatch):
     app = _setup(tmp_path, monkeypatch)
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
-    fid = int(kim.post("/hwp/upload", data={"dept": "기획처"}, files={"file": ("보고.hwpx", _hwpx("처음"), "x")},
-                       follow_redirects=False).headers["location"].split("/")[2])
+    fid = _up(kim, app, "기획처", "보고.hwpx", _hwpx("처음"))
     r = kim.post(f"/hwp/{fid}/save", content=_hwpx("고침"))
     assert r.status_code == 200 and r.json()["ok"]
     p = Path(webhwp.get(app.state.db, fid)["path"])
@@ -97,8 +98,7 @@ def test_old_hwp_becomes_hwpx_on_save(tmp_path, monkeypatch):
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
     ole = b"\xd0\xcf\x11\xe0" + b"\0" * 60
-    fid = int(kim.post("/hwp/upload", data={"dept": "기획처"}, files={"file": ("옛문서.hwp", ole, "x")},
-                       follow_redirects=False).headers["location"].split("/")[2])
+    fid = _up(kim, app, "기획처", "옛문서.hwp", ole)
     assert kim.post(f"/hwp/{fid}/save", content=_hwpx()).status_code == 200
     f = webhwp.get(app.state.db, fid)
     assert f["path"].endswith("옛문서.hwpx") and f["name"] == "옛문서.hwpx"
@@ -201,3 +201,62 @@ def test_upload_and_save_bodies_are_capped(tmp_path, monkeypatch):
     assert _login(kim, "kim", "pass-12345678")
     big = b"PK" + b"0" * 5000
     assert kim.post("/hwp/new?dept=기획처", content=big).status_code == 413
+
+
+def test_department_folders_browse_and_trash(tmp_path, monkeypatch):
+    app = _setup(tmp_path, monkeypatch)
+    kim, lee = TestClient(app), TestClient(app)
+    assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
+    r = kim.post("/hwp/folder", data={"dept": "기획처", "folder": "", "name": "2026 공문"}, follow_redirects=False)
+    assert r.status_code == 303 and "folder=" in r.headers["location"]
+    kim.post("/hwp/folder", data={"dept": "기획처", "folder": "2026 공문", "name": "10월"})
+    fid = _up(kim, app, "기획처", "협조문.hwpx", _hwpx(), folder="2026 공문/10월")
+    p = Path(webhwp.get(app.state.db, fid)["path"])
+    assert p.parent.name == "10월" and p.parent.parent.name == "2026 공문" and p.parent.parent.parent.name == "기획처"
+    top = kim.get("/hwp?dept=기획처").text
+    assert "folder=2026" in top and "협조문.hwpx" not in top            # 폴더 안 문서는 그 폴더에서만
+    inside = kim.get("/hwp?dept=기획처&folder=2026 공문/10월").text
+    assert "협조문.hwpx" in inside and "10월" in inside
+    # 폴더로 부서 밖·숨김 폴더에 나가지 못한다
+    for bad in ("../산학협력단", ".판", "a/../../x"):
+        assert kim.get("/hwp?dept=기획처&folder=" + bad).status_code == 400, bad
+        assert kim.post("/hwp/folder", data={"dept": "기획처", "folder": bad, "name": "x"}).status_code == 400, bad
+    seen = lee.get("/hwp?dept=기획처")                    # 못 쓰는 부서를 고르면 자기 부서를 보여 준다
+    assert seen.status_code == 200 and "folder=2026" not in seen.text and "<b>산학협력단</b>" in seen.text
+    assert lee.post("/hwp/folder", data={"dept": "기획처", "folder": "", "name": "남의 것"}).status_code == 403
+    # 지우기 — 부서 휴지통으로, 목록·장부에서 빠진다
+    assert lee.post(f"/hwp/{fid}/delete").status_code == 404
+    r = kim.post(f"/hwp/{fid}/delete", follow_redirects=False)
+    assert r.status_code == 303 and webhwp.get(app.state.db, fid) is None and not p.exists()
+    assert list((p.parents[2] / ".휴지통").glob("협조문 *.hwpx"))
+    assert "협조문.hwpx" not in kim.get("/hwp?dept=기획처&folder=2026 공문/10월").text
+
+
+def test_rag_spaces_config_returns_a_copy(tmp_path):
+    """설정 파일이 없을 때 받은 기본값을 고쳐도 다음 호출에 번지지 않는다(시험 사이 권한이 새던 버그)."""
+    from zzaimy.app import rag_spaces
+    a = rag_spaces.config(tmp_path)
+    a["grants"] = {"x": ["dept:기획처"]}
+    a.setdefault("dept_of_area", {})["가"] = "나"
+    b = rag_spaces.config(tmp_path)
+    assert b.get("grants", {}).get("x") is None and "가" not in b.get("dept_of_area", {})
+
+
+def test_common_templates_built_once_and_fillable(tmp_path, monkeypatch):
+    """구글 공통 양식 정의 → 한글 공통 양식(공통/공통 양식). 다시 불러도 새로 만들지 않고, 작업본 절이 그대로 채워진다."""
+    from zzaimy.app import webhwp_templates as wt
+    from zzaimy.ingest import hwpx_fill
+    from zzaimy.ingest.gdocs_templates import SPECS
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    first = wt.ensure_all(db, base)
+    assert len(first) == len(SPECS) and all(x["made"] for x in first)
+    assert all(Path(webhwp.get(db, x["id"])["path"]).parent.name == "공통 양식" for x in first)
+    assert not any(x["made"] for x in wt.ensure_all(db, base))
+    src = wt.path_for(db, "minutes")
+    heads = [b["text"] for b in SPECS["minutes"]["blocks"] if "h" in b]
+    rep = hwpx_fill.fill(src, [{"heading": heads[0], "items": [("text", "시험 회의 개요")]}], tmp_path / "out.hwpx", remove_boxes=True)
+    assert rep["filled"] == [heads[0]] and not rep["checks"] and rep["boxes_removed"] > 0
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    assert "회의록" in kim.get("/hwp?dept=공통&folder=공통 양식").text
