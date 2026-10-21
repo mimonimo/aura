@@ -1892,6 +1892,22 @@ def create_app(
         """이 답변에 딸린 선택지 — 담당자의 선택이 필요할 때 답 아래에 띄운다. 다음 질문이 오면 지운다."""
         db.set_setting(f"chat_options:{session_id}", _aj.dumps(options[:4], ensure_ascii=False) if options else "")
 
+    _OLD_LABELS = ((re.compile(r"^이어서 다음 절 작성\s*\(남은 절 (\d+)개\)$"), r"다음 절 쓰기 (\1개 남음)"),
+                   (re.compile(r"^방금 쓴 절 검토$"), "쓴 절 검토"),
+                   (re.compile(r"^(.*?)\s*다시 써 줘$"), r"\1 다시 쓰기"),
+                   (re.compile(r"^(.*?)\s*써 줘$"), r"\1 쓰기"))
+
+    def _relabel_option(o):
+        """예전에 저장된 선택지 단추 글을 지금 말투로 — 「다시 써 줘」 같은 말 대신 「다시 쓰기」(보낼 질문은 그대로)."""
+        if not isinstance(o, dict) or not isinstance(o.get("text"), str):
+            return o
+        t = o["text"].strip()
+        for pat, rep in _OLD_LABELS:
+            if pat.search(t):
+                t = pat.sub(rep, t).strip()
+                break
+        return {**o, "text": t or "다시 쓰기"}
+
     def _chat_suggestions(session_: dict | None, owner: str) -> list[dict]:
         """대화 안에 선택지로 띄우는 다음 작업 — 작업 맥락에서 입력이 필요할 때만.
 
@@ -1911,6 +1927,7 @@ def create_app(
         # — 미리 채운 값·출처 안내·「확인」 단추가 답을 만들 때와 같다
         # (받을 값이 없으면 저장된 옛 칸도 내리지 않는다)
         opts = [o for o in opts if not (isinstance(o, dict) and o.get("kind") == "form" and o.get("text") == "필요한 값 입력")]
+        opts = [_relabel_option(o) for o in opts]
         if pend:
             opts = [_asks_ui.form_option(pend, _asks_ui.suggestions(db, session_))] + opts
         return opts[:4]

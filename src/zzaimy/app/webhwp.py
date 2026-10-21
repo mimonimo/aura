@@ -219,6 +219,7 @@ def browse(db, base: Path, dept: str, folder: str = "") -> dict:
             continue
         m = meta(db, r["id"])
         files.append({"id": r["id"], "name": r["name"], "size": r["size"], "owner": m.get("owner", ""),
+                      "locked": str(m.get("source", "")).startswith("양식:"),
                       "saved": (m.get("saved") or m.get("created") or r.get("created_at") or "")[:16].replace("T", " "),
                       "saved_by": m.get("saved_by", "")})
     files.sort(key=lambda x: x["saved"], reverse=True)
@@ -240,6 +241,11 @@ def trash(db, base: Path, fid: int, *, user: str) -> None:
         t.mkdir(parents=True, exist_ok=True)
         shutil.move(str(p), str(t / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S} {user}{p.suffix}"))
     db.remove_files(path=f["path"])
+
+
+def locked(db, fid: int) -> bool:
+    """플랫폼이 만든 공통 양식(source 「양식:」) — 모두의 한글 완성본이 이 파일을 원본 서식으로 쓰므로 관리자만 고치고 지운다."""
+    return str(meta(db, fid).get("source", "")).startswith("양식:")
 
 
 def may_open(base: Path, f: dict | None, depts: list[str]) -> bool:

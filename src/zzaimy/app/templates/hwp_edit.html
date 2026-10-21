@@ -52,7 +52,8 @@
   </div>
   <span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>기안기를 불러오는 중</span></span>
   {% if f %}<a class="btn" href="/hwp/{{ f.id }}/file" title="지금 저장된 판을 내려받기"><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon><span class="label-long">내려받기</span></a>{% endif %}
-  <button type="button" class="btn primary" data-save disabled title="저장 (Ctrl+S)"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon>저장 <kbd>Ctrl+S</kbd></button>
+  {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;"><button type="submit" class="btn primary" title="내 부서 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
+  {% else %}<button type="button" class="btn primary" data-save disabled title="저장 (Ctrl+S)"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon>저장 <kbd>Ctrl+S</kbd></button>{% endif %}
 </header>
 {% if not status.ok %}<p class="alert" role="alert">웹 한글 기안기 서버에 연결하지 못했습니다 — 관리자에게 알려 주세요.</p>{% endif %}
 <div id="hwpctrl"></div>
@@ -61,7 +62,8 @@
 <script src="/webhwpctrl/js/webhwpctrl.js"></script>
 <script>
 (function () {
-  var state = document.querySelector('[data-state]'), msg = document.querySelector('[data-msg]'), saveBtn = document.querySelector('[data-save]');
+  var state = document.querySelector('[data-state]'), msg = document.querySelector('[data-msg]');
+  var saveBtn = document.querySelector('[data-save]') || document.createElement('button');   // 공통 양식(읽기 전용)은 저장 단추 대신 「복사해 쓰기」
   var box = document.getElementById('hwpctrl');
   var isNew = {{ 'false' if f else 'true' }};
   var fileUrl = {{ (('/hwp/' ~ f.id ~ '/file') if f else '') | tojson }}, saveUrl = {{ (('/hwp/' ~ f.id ~ '/save') if f else '') | tojson }};
@@ -87,13 +89,13 @@
     }).then(function (blob) {
       ctrl.Open(new File([blob], name), '', '', function (res) {
         if (res && res.result === false) { say('문서를 열지 못했습니다', 'bad'); return; }
-        ready = true; saveBtn.disabled = false; say('열었습니다', 'ok');
+        ready = true; saveBtn.disabled = false; say({{ "'공통 양식 — 보기 전용'" if readonly else "'열었습니다'" }}, 'ok');
       });
     }).catch(function (e) { say(e.message, 'bad'); });
   });
   setTimeout(fit, 300);
   function save() {
-    if (!ready || saving) return;
+    if (!ready || saving || {{ 'true' if readonly else 'false' }}) return;
     saving = true; saveBtn.disabled = true; say('저장하는 중', 'busy');
     ctrl.GetTextFile('HWPX', '', function (data) {
       var bytes = (typeof data === 'string') ? b64ToBytes(data) : data;

@@ -21,6 +21,10 @@ def _title(spec: dict) -> str:
     return spec["title"].replace("(구글 독스)", "").replace("공통 양식", "").strip() + " 공통 양식"
 
 
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
 def fingerprint(spec: dict) -> str:
     return hashlib.sha256(json.dumps(spec, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
@@ -93,7 +97,9 @@ def ensure_all(db, base: Path, *, owner: str = "zzaimy") -> list[dict]:
         except ValueError:
             cur = {}
         f = webhwp.get(db, int(cur["id"])) if cur.get("id") else None
-        if f and cur.get("fp") == fp and Path(f["path"]).exists():
+        # 정의가 같고 파일 내용도 만든 그대로일 때만 둔다 — 누가 덮어썼으면(지문이 다르면) 정의대로 다시 만든다
+        same = f and Path(f["path"]).exists() and cur.get("fp") == fp and cur.get("sha") == _sha(Path(f["path"]).read_bytes())
+        if same:
             out.append({"id": f["id"], "spec": sid, "name": f["name"], "made": False})
             continue
         data = build(spec)
@@ -103,7 +109,7 @@ def ensure_all(db, base: Path, *, owner: str = "zzaimy") -> list[dict]:
         else:
             fid = webhwp.add(db, base, webhwp.COMMON, f"{_title(spec)}.hwpx", data, owner=owner, source=f"양식:{sid}",
                              folder=FOLDER)
-        db.set_setting(key, json.dumps({"id": fid, "fp": fp}))
+        db.set_setting(key, json.dumps({"id": fid, "fp": fp, "sha": _sha(data)}))
         out.append({"id": fid, "spec": sid, "name": webhwp.get(db, fid)["name"], "made": True})
     return out
 
@@ -116,4 +122,6 @@ def path_for(db, spec_id: str) -> Path | None:
     except ValueError:
         return None
     f = webhwp.get(db, int(cur["id"])) if cur.get("id") else None
-    return Path(f["path"]) if f and Path(f["path"]).exists() else None
+    if not f or not Path(f["path"]).exists() or cur.get("sha") != _sha(Path(f["path"]).read_bytes()):
+        return None                                   # 만든 그대로가 아니면 쓰지 않는다(호출부가 ensure_all 로 다시 만든 뒤 부른다)
+    return Path(f["path"])

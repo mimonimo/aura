@@ -260,3 +260,27 @@ def test_common_templates_built_once_and_fillable(tmp_path, monkeypatch):
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
     assert "회의록" in kim.get("/hwp?dept=공통&folder=공통 양식").text
+
+
+def test_common_templates_are_locked_and_copyable(tmp_path, monkeypatch):
+    """공통 양식은 모두의 한글 완성본이 원본으로 쓴다 — 교직원은 고치거나 지우지 못하고 복사해 쓴다. 덮어쓴 파일은 정의대로 다시 만든다."""
+    from zzaimy.app import webhwp_templates as wt
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    tid = {x["spec"]: x["id"] for x in wt.ensure_all(db, base)}["plan"]
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    assert kim.post(f"/hwp/{tid}/save", content=_hwpx("바꿈")).status_code == 403
+    assert kim.post(f"/hwp/{tid}/delete").status_code == 403
+    r = kim.post(f"/hwp/{tid}/copy", data={}, follow_redirects=False)
+    assert r.status_code == 303 and "aura-edit?id=" in r.headers["location"]
+    new = int(r.headers["location"].split("=")[-1])
+    p = Path(webhwp.get(db, new)["path"])
+    assert p.parent.name == "기획처" and p.name == "사업계획서.hwpx"
+    assert kim.post(f"/hwp/{new}/save", content=_hwpx("내 것")).status_code == 200
+    # 디스크에서 양식이 바뀌면 원본 서식으로 쓰지 않고, 다시 맞추면 정의대로 돌아온다
+    tp = Path(webhwp.get(db, tid)["path"])
+    tp.write_bytes(_hwpx("몰래 바꿈"))
+    assert wt.path_for(db, "plan") is None
+    wt.ensure_all(db, base)
+    assert wt.path_for(db, "plan") == tp and tp.read_bytes() != _hwpx("몰래 바꿈")

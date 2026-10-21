@@ -72,7 +72,8 @@
         <td><div class="hw-act">
           {% if status.ok %}<a class="mini-btn" href="/hwp/{{ f.id }}/edit">열기</a>{% endif %}
           <a class="mini-btn" href="/hwp/{{ f.id }}/file">내려받기</a>
-          <form action="/hwp/{{ f.id }}/delete" method="post" data-confirm="「{{ f.name }}」 을(를) 지울까요? 부서 휴지통으로 옮겨 두어 관리자가 되살릴 수 있습니다."><button type="submit" class="mini-btn">지우기</button></form>
+          {% if not f.locked or request.state.role == 'dev' %}<form action="/hwp/{{ f.id }}/delete" method="post" data-confirm="「{{ f.name }}」 을(를) 지울까요? 부서 휴지통으로 옮겨 두어 관리자가 되살릴 수 있습니다."><button type="submit" class="mini-btn">지우기</button></form>{% endif %}
+          {% if f.locked %}<form action="/hwp/{{ f.id }}/copy" method="post" title="내 부서 폴더에 복사해 기안기로 열기"><button type="submit" class="mini-btn">복사해 쓰기</button></form>{% endif %}
         </div></td></tr>
       {% endfor %}
     </table>

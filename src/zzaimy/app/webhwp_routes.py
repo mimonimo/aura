@@ -55,6 +55,11 @@ def _need_staff(request: Request) -> None:
         raise HTTPException(403, "교직원·관리자만 쓸 수 있습니다")
 
 
+def _writable(request: Request, fid: int) -> None:
+    if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
+        raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다 — 「복사해 쓰기」로 내 부서 폴더에 복사해 쓰세요")
+
+
 def _file(request: Request, fid: int) -> dict:
     f = webhwp.get(request.app.state.db, fid)
     if not webhwp.may_open(_base(request), f, _depts(request)):
@@ -129,11 +134,27 @@ def hwp_folder(request: Request, dept: str = Form(""), folder: str = Form(""), n
     return _back(f"「{sub.split('/')[-1]}」 폴더를 만들었습니다", dept=dept, folder=sub)
 
 
+@router.post("/hwp/{fid}/copy")
+def hwp_copy(request: Request, fid: int, dept: str = Form(""), folder: str = Form("")):
+    """복사해 쓰기 — 공통 양식(또는 볼 수 있는 문서)을 내 부서 디렉터리(폴더)에 복사하고 기안기로 연다."""
+    _need_staff(request)
+    f = _file(request, fid)
+    mine = getattr(request.state, "dept", "") or webhwp.COMMON
+    dept = dept or (mine if mine in _depts(request) else webhwp.COMMON)
+    folder = _check_dept(request, dept, folder)
+    p = Path(f["path"])
+    name = p.name.replace(" 공통 양식", "")
+    new = webhwp.add(request.app.state.db, _base(request), dept, name, p.read_bytes(),
+                     owner=getattr(request.state, "user", ""), source=f"복사:{fid}", folder=folder)
+    return RedirectResponse(f"{EDIT_PAGE}?id={new}", status_code=303)
+
+
 @router.post("/hwp/{fid}/delete")
 def hwp_delete(request: Request, fid: int):
     """지우기 — 부서 휴지통으로 옮긴다(관리자가 되살릴 수 있다)."""
     _need_staff(request)
     f = _file(request, fid)
+    _writable(request, fid)
     dept, folder = webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"])
     webhwp.trash(request.app.state.db, _base(request), fid, user=getattr(request.state, "user", ""))
     return _back(f"「{f['name']}」 을(를) 휴지통으로 옮겼습니다", dept=dept, folder=folder)
@@ -182,10 +203,11 @@ def hwp_edit_page(request: Request, id: int | None = None, dept: str = "", folde
     if id is not None:
         f = _file(request, id)
         ctx = {"f": f, "dept": webhwp.dept_of_path(_base(request), f["path"]),
-               "folder": webhwp.folder_of(_base(request), f["path"]), "meta": webhwp.meta(st.db, id)}
+               "folder": webhwp.folder_of(_base(request), f["path"]), "meta": webhwp.meta(st.db, id),
+               "readonly": webhwp.locked(st.db, id) and getattr(request.state, "role", "") != "dev"}
     else:
         folder = _check_dept(request, dept, folder)
-        ctx = {"f": None, "dept": dept, "folder": folder, "meta": {}}
+        ctx = {"f": None, "dept": dept, "folder": folder, "meta": {}, "readonly": False}
     ctx["back"] = _where(ctx["dept"], ctx["folder"])
     return st.templates.TemplateResponse(request, "hwp_edit.html", {"request": request, **ctx, "status": webhwp.status()})
 
@@ -226,6 +248,7 @@ async def hwp_save(request: Request, fid: int):
     """기안기에서 받은 HWPX 를 그대로(본문 바이트) 저장 — 앞 판은 .판/ 으로."""
     _need_staff(request)
     _file(request, fid)
+    _writable(request, fid)
     data = await _body(request)
     try:
         p = webhwp.save(request.app.state.db, _base(request), fid, data, user=getattr(request.state, "user", ""))

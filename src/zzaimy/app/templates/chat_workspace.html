@@ -234,7 +234,7 @@
         <div class="chat-form-state"><span class="chat-form-done">채움</span></div>
       </li>{% endfor %}
     </ol>
-    <div class="chat-form-foot"><span class="chat-form-tip">비운 칸은 다음 차례에 다시 물음 · Enter 다음 칸 · Shift+Enter 줄바꿈 · 「이름: 값」 여러 줄 붙여 넣기</span><span class="chat-form-status" role="status" data-form-status></span><button type="submit" class="primary" data-form-submit>{{ sg.submit or '저장' }}</button></div></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion{% if sg.kind %} chat-sg-{{ sg.kind }}{% endif %}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="{{ 'primary' if sg.kind == 'continue' else 'secondary' }}" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
+    <div class="chat-form-foot"><span class="chat-form-tip">빈 칸은 다음에 다시 묻습니다 · Enter 다음 칸 · Shift+Enter 줄바꿈</span><span class="chat-form-status" role="status" data-form-status></span><button type="submit" class="primary" data-form-submit>{{ sg.submit or '저장' }}</button></div></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion{% if sg.kind %} chat-sg-{{ sg.kind }}{% endif %}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="{{ 'primary' if sg.kind == 'continue' else 'secondary' }}" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
   </div>
   {% endif %}
     </div>
