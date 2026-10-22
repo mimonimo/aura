@@ -47,6 +47,19 @@
   .notice-bar button { height:28px; padding:0 10px; border-radius:6px; border:1px solid #E5C77A; background:#fff; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
   #hwpctrl { flex:1; min-height:0; background:#fff; }
   #hwpctrl iframe { display:block; border:0; }
+  .avatars { display:flex; align-items:center; }
+  .avatars .av2 { width:28px; height:28px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; color:#fff; font-size:12px; font-weight:700;
+                  border:2px solid #fff; margin-left:-8px; cursor:default; position:relative; }
+  .avatars .av2:first-child { margin-left:0; }
+  .avatars .more { background:#94A3B8; }
+  .menu-wrap { position:relative; }
+  .menu { position:absolute; right:0; top:42px; min-width:220px; background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 32px rgba(15,23,42,.14); padding:6px; z-index:20; }
+  .menu[hidden] { display:none; }
+  .menu button, .menu a { display:flex; align-items:center; gap:8px; width:100%; padding:9px 10px; border:0; background:none; border-radius:6px; color:var(--ink); font:inherit; font-size:13.5px; text-decoration:none; cursor:pointer; text-align:left; }
+  .menu button:hover, .menu a:hover { background:var(--panel); }
+  .menu .sep { height:1px; background:var(--line); margin:4px 2px; }
+  .menu .hint { font-size:11.5px; color:var(--muted); margin-left:auto; }
+  .btn.icon { width:36px; padding:0; }
   .alert { flex:none; margin:0; padding:10px 16px; background:#FEF2F2; color:var(--bad); font-size:13.5px; border-bottom:1px solid #FECACA; }
   @media (max-width:640px) { .doc .where, .btn .label-long, .btn kbd { display:none; } .bar { gap:8px; padding:0 10px; } }
 </style>
@@ -59,12 +72,20 @@
     {% else %}<label class="sr-only" for="heTitle">문서 이름</label><input id="heTitle" class="name" data-title value="새 문서" maxlength="60" autocomplete="off">{% endif %}
     <span class="where">{{ dept }}{% if folder %} / {{ folder }}{% endif %}{% if meta.saved %} · {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }} 저장{% elif meta.owner %} · {{ meta.owner }} 올림{% endif %}</span>
   </div>
-  <span class="people" data-people aria-label="같이 보는 사람"></span>
-  <span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>기안기를 불러오는 중</span></span>
-  {% if f %}<button type="button" class="btn" data-to-drive title="지금 저장된 판을 내 구글 드라이브에 최종본으로 올리기"><iconify-icon icon="solar:cloud-upload-linear" aria-hidden="true"></iconify-icon><span class="label-long">드라이브에 올리기</span></button>{% endif %}
-  {% if f %}<a class="btn" href="/hwp/{{ f.id }}/file" title="지금 저장된 판을 내려받기"><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon><span class="label-long">내려받기</span></a>{% endif %}
+  <span class="people" data-aura aria-live="polite"></span>
+  <span class="avatars" data-people aria-label="같이 보는 사람"></span>
+  <span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span>
   {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;"><button type="submit" class="btn primary" title="내 부서 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
-  {% else %}<button type="button" class="btn primary" data-save disabled title="저장 (Ctrl+S)"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon>저장 <kbd>Ctrl+S</kbd></button>{% endif %}
+  {% else %}<button type="button" class="btn" data-save disabled title="지금 저장 (Ctrl+S) — 고친 내용은 자동으로 저장됩니다"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">저장</span></button>{% endif %}
+  {% if f %}<span class="menu-wrap">
+    <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="내려받기·공유"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
+    <div class="menu" role="menu" data-menu hidden>
+      <a role="menuitem" href="/hwp/{{ f.id }}/file"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기<span class="hint">한글(hwpx)</span></a>
+      <button type="button" role="menuitem" data-to-drive><iconify-icon icon="solar:cloud-upload-linear"></iconify-icon>구글 드라이브에 올리기<span class="hint">최종본</span></button>
+      <div class="sep"></div>
+      {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>문서함에서 보기</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
+    </div>
+  </span>{% endif %}
 </header>
 <div class="notice-bar" data-notice hidden><span data-notice-text></span><button type="button" data-reload>다시 불러오기</button></div>
 {% if not status.ok %}<p class="alert" role="alert">웹 한글 기안기 서버에 연결하지 못했습니다 — 관리자에게 알려 주세요.</p>{% endif %}
@@ -113,21 +134,23 @@
     if (!lockUrl) return;
     fetch(lockUrl, {method: 'POST', credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (j) {
       if (j.ok) {
-        if (!holding && waitedFor) { say(waitedFor + ' 님 편집이 끝났습니다 — 최신 내용을 보려면 다시 열어 주세요', 'busy'); }
-        else if (!holding) { say('열었습니다', 'ok'); }
+        if (!holding && waitedFor) { say(waitedFor + ' 님 편집 끝남 — 다시 열면 최신', 'busy'); }
+        else if (!holding) { say('최신 상태', 'ok'); }
         holding = true; ready = !waitedFor; saveBtn.disabled = !!waitedFor;
         if (waitedFor) { saveBtn.textContent = '다시 열기'; saveBtn.disabled = false; saveBtn.onclick = function () { location.reload(); }; }
       } else {
         holding = false; ready = false; saveBtn.disabled = true; waitedFor = j.by || '다른 사람';
-        say(waitedFor + ' 님이 편집 중 — 보기 전용', 'busy');
+        say(waitedFor + ' 님 편집 중 · 보기만', 'busy');
       }
     }).catch(function () {});
   }
   beat = setInterval(function () { if (!isNew && fileUrl) holdLock(); }, 45000);
   window.addEventListener('pagehide', function () { if (holding && unlockUrl) navigator.sendBeacon(unlockUrl); });
-  function save() {
+  var auto = false;
+  function save(isAuto) {
+    auto = isAuto === true;
     if (!ready || saving || {{ 'true' if readonly else 'false' }}) return;
-    saving = true; saveBtn.disabled = true; say('저장하는 중', 'busy');
+    saving = true; saveBtn.disabled = true; say('저장 중', 'busy');
     ctrl.GetTextFile('HWPX', '', function (data) {
       var bytes = (typeof data === 'string') ? b64ToBytes(data) : data;
       var url = saveUrl;
@@ -144,13 +167,26 @@
             var inp = document.querySelector('[data-title]'); if (inp) inp.readOnly = true;
           }
           dirty = false; lastSaved = null;
-          say('저장됨 · ' + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
+          say((auto ? '자동 저장됨 · ' : '저장됨 · ') + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
         })
         .catch(function (e) { say(e.message, 'bad'); })
         .finally(function () { saving = false; saveBtn.disabled = false; });
     });
   }
-  saveBtn.addEventListener('click', save);
+  saveBtn.addEventListener('click', function () { save(false); });
+  // 자동 저장 — 고친 뒤 8초 손을 멈추면, 창을 벗어나면 저장(새 문서는 이름을 정해 첫 저장을 해야 자동 저장이 이어진다)
+  var idleTimer = null;
+  function touched() {
+    dirty = true; say('저장 안 된 내용 있음', '');
+    clearTimeout(idleTimer);
+    if (!isNew) idleTimer = setTimeout(function () { if (dirty && holding) save(true); }, 8000);
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden && dirty && !isNew && holding) save(true); });
+  var mbtn = document.querySelector('[data-menu-btn]'), menu = document.querySelector('[data-menu]');
+  if (mbtn) {
+    mbtn.addEventListener('click', function (e) { e.stopPropagation(); menu.hidden = !menu.hidden; mbtn.setAttribute('aria-expanded', String(!menu.hidden)); });
+    document.addEventListener('click', function () { menu.hidden = true; mbtn.setAttribute('aria-expanded', 'false'); });
+  }
   // ── 같이 쓰기 ── 몇 초마다 문서 상태를 묻는다: 에이전트(AURA) 작성 중이면 그 필드에 AURA 표시, 같은 문서를 연 사람은 「이름 · 필드」 이름표,
   // 다른 사람·AURA 가 저장했으면 내가 고친 것이 없을 때 바로 다시 불러오고, 고친 것이 있으면 안내만 한다(내 글을 덮지 않게)
   var stateUrl = function () { return fileUrl ? fileUrl.replace(/\/file$/, '/state') : ''; };
@@ -159,19 +195,39 @@
   var people = document.querySelector('[data-people]'), notice = document.querySelector('[data-notice]');
   function watchKeys() {                                    // 편집 틀(같은 출처)에서 글을 고치면 「고침」 으로 표시
     var fr = box.querySelector('iframe');
-    try { fr.contentDocument.addEventListener('keydown', function (e) { if (!e.ctrlKey && !e.metaKey) dirty = true; }, true); } catch (e) {}
+    try {
+      var doc_ = fr.contentDocument;
+      doc_.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(false); return; }
+        if (!e.ctrlKey && !e.metaKey && e.key.length <= 2 || e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter') touched();
+      }, true);
+      ['paste', 'drop', 'cut'].forEach(function (t) { doc_.addEventListener(t, touched, true); });
+    } catch (e) {}
   }
   setTimeout(watchKeys, 1500);
-  function chip(label, field, cls) {
-    var c = document.createElement('span'); c.className = 'chip ' + (cls || '');
-    var av = document.createElement('span'); av.className = 'av'; av.textContent = (label || '?').slice(0, 1);
-    c.append(av, document.createTextNode(label + (field ? ' · ' + field.replace(/^(절|칸):/, '') : '')));
-    c.title = field ? label + ' — ' + field : label;
-    return c;
+  var PALETTE = ['#2563EB', '#16A34A', '#D97706', '#DB2777', '#7C3AED', '#0891B2', '#DC2626', '#4D7C0F'];
+  function colorOf(u) { var h = 0; for (var i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]; }
+  function where(f) { return f ? f.replace(/^(절|칸):/, '').replace(/^표\d+:/, '표 · ') : '문서 보는 중'; }
+  var auraBox = document.querySelector('[data-aura]');
+  function drawPeople(list, aura) {
+    people.innerHTML = '';
+    list.slice(0, 4).forEach(function (p) {
+      var a = document.createElement('span'); a.className = 'av2'; a.style.background = colorOf(p.user);
+      a.textContent = (p.name || p.user).slice(0, 1); a.title = (p.name || p.user) + ' · ' + where(p.field);
+      people.append(a);
+    });
+    if (list.length > 4) { var m = document.createElement('span'); m.className = 'av2 more'; m.textContent = '+' + (list.length - 4); m.title = list.slice(4).map(function (p) { return p.name; }).join(', '); people.append(m); }
+    auraBox.innerHTML = '';
+    if (aura && aura.field) {
+      var c = document.createElement('span'); c.className = 'chip aura';
+      var av = document.createElement('span'); av.className = 'av'; av.textContent = 'A';
+      c.append(av, document.createTextNode('AURA 작성 중 · ' + where(aura.field)));
+      auraBox.append(c);
+    }
   }
   function reopen() {
     fetch(fileUrl, {credentials: 'same-origin', cache: 'no-store'}).then(function (r) { return r.blob(); }).then(function (blob) {
-      ctrl.Open(new File([blob], name), '', '', function () { dirty = false; notice.hidden = true; say('최신 내용으로 다시 불렀습니다', 'ok'); });
+      ctrl.Open(new File([blob], name), '', '', function () { dirty = false; notice.hidden = true; say('최신 상태', 'ok'); setTimeout(watchKeys, 800); });
     });
   }
   document.querySelector('[data-reload]').addEventListener('click', reopen);
@@ -181,17 +237,12 @@
     try { field = ctrl.GetCurFieldName(0) || ''; } catch (e) {}
     fetch(presUrl(), {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({field: field})}).catch(function () {});
     fetch(stateUrl(), {credentials: 'same-origin', cache: 'no-store'}).then(function (r) { return r.json(); }).then(function (st) {
-      people.innerHTML = '';
-      if (st.aura && st.aura.field) {
-        people.append(chip('AURA', st.aura.field, 'aura'));
-        say('AURA 가 쓰는 중', 'busy');
-      }
-      (st.people || []).forEach(function (p) { people.append(chip(p.name, p.field)); });
+      drawPeople(st.people || [], st.aura);
       if (lastSaved === null) { lastSaved = st.saved; return; }
       if (st.saved && st.saved !== lastSaved && st.saved_by !== me) {
         lastSaved = st.saved;
         if (!dirty) { reopen(); }
-        else { notice.querySelector('[data-notice-text]').textContent = (st.saved_by === 'AURA' ? 'AURA' : st.saved_by + ' 님') + '가 새로 저장했습니다 — 내가 고친 것을 먼저 저장하거나, 버리고 다시 불러오세요'; notice.hidden = false; }
+        else { notice.querySelector('[data-notice-text]').textContent = (st.saved_by === 'AURA' ? 'AURA' : st.saved_by + ' 님') + '가 이 문서를 새로 저장했습니다. 내 변경을 저장하면 덮어쓰고, 다시 불러오면 내 변경은 사라집니다.'; notice.hidden = false; }
       }
     }).catch(function () {});
   }
@@ -200,10 +251,10 @@
   var drv = document.querySelector('[data-to-drive]');
   if (drv) drv.addEventListener('click', function () {
     if (!fileUrl) return;
-    drv.disabled = true; say('드라이브에 올리는 중', 'busy');
+    drv.disabled = true; menu.hidden = true; say('드라이브에 올리는 중', 'busy');
     fetch(fileUrl.replace(/\/file$/, '/to-drive'), {method: 'POST', credentials: 'same-origin'})
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('올리지 못했습니다(' + r.status + ')')); return j; }); })
-      .then(function (j) { say('드라이브에 올렸습니다', 'ok'); window.open(j.url, '_blank', 'noopener'); })
+      .then(function (j) { say('드라이브에 올림', 'ok'); window.open(j.url, '_blank', 'noopener'); })
       .catch(function (e) { say(e.message, 'bad'); })
       .finally(function () { drv.disabled = false; });
   });

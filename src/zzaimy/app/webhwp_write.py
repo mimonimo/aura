@@ -118,6 +118,12 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     header = zin.read("Contents/header.xml").decode("utf-8")
     pp, cp = hf._default_refs(header)
     solid = hf._solid_border_ids(header)
+    # 서식 보존 채우기와 같은 서식 고르기 — 양식 본문 문단의 부호별 모양(1)·가) 단계 들여쓰기·글자), 두 줄 넘는 부호 문단의
+    # 내어쓰기(새 paraPr 등록), 표는 양식 표의 머리 행·라벨 열·본문 칸 모양(테두리·음영·정렬·글자)
+    sec_objs = [hf._Section(n, secs[n], solid) for n in sorted(secs)]
+    roles = hf._role_styles(sec_objs, header)
+    para_styles = hf._ParaStyles(sec_objs, header)
+    hangs = hf._HangRegistry(header)
     old_ids = set((written or {}).get(name, []))
     ids = wf._Ids([header, *secs.values()])
     new: dict[str, str] = {}
@@ -163,15 +169,29 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
             if kind == "text":
                 for line in (hf.split_lines(str(val)) if str(val).strip() else []):
                     pid = ids.new()
-                    chunks.append(hf.paragraph_xml(line, pp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
+                    lp, lc = para_styles.pick(line) or (pp, cp)
+                    if hf.marker_of(line) and len(line) > hf._ParaStyles.SHORT:
+                        lp, tab_hu = hangs.hanging(lp, lc, line[:hf._MARK.match(line).end()].strip())
+                        px = hf.marker_paragraph_xml(line, lp, lc, tab_hu)
+                    else:
+                        px = hf.paragraph_xml(line, lp, lc)
+                    chunks.append(px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                     put.append(pid)
             elif kind == "table" and isinstance(val, list) and val:
                 rows = [[str(c) for c in r] for r in val]
                 pid = ids.new()
-                chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new())).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
+                chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), None, roles)
+                              .replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                 put.append(pid)
-        new[n] = xml[:pb[1]] + "".join(chunks) + xml[pb[1]:]
+        new[n] = hf.strip_linesegs(xml[:pb[1]] + "".join(chunks) + xml[pb[1]:])[0]
         break
+    if hangs.changed:                                     # 내어쓰기 문단 모양을 header 에 등록(채우기와 같은 방식)
+        for body in re.findall(r'<hh:paraPr\b[^>]*\bid="(?:%s)"[^>]*>.*?</hh:paraPr>' % "|".join(hangs.cache.values()), hangs.header, re.S):
+            close = header.find("</hh:paraProperties>")
+            header = header[:close] + body + header[close:]
+        cnt = re.search(r'(<hh:paraProperties\b[^>]*\bitemCnt=")(\d+)(")', header)
+        if cnt:
+            header = header[:cnt.start(2)] + str(int(cnt.group(2)) + len(hangs.cache)) + header[cnt.end(2):]
     if not new:
         raise KeyError(f"절 필드 「{name}」 을 찾지 못했습니다")
     out = _pack(zin, new)
