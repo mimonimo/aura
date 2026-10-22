@@ -52,6 +52,7 @@
       <div class="hw-tools">
         {% if status.ok %}<a class="mini-btn primary" href="/hwp/new?dept={{ here.dept|urlencode }}{% if here.folder %}&folder={{ here.folder|urlencode }}{% endif %}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</a>{% endif %}
         <button type="button" class="mini-btn" data-pick-file><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon>올리기</button>
+        <button type="button" class="mini-btn" data-modal-open="#hwDrive" data-drive-open><iconify-icon icon="solar:cloud-download-linear" aria-hidden="true"></iconify-icon>드라이브에서 가져오기</button>
         <button type="button" class="mini-btn" data-modal-open="#hwFolder"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>새 폴더</button>
       </div>
     </div>
@@ -100,7 +101,44 @@
     <div class="modal-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">만들기</button></div>
   </form>
 </div></div></div>
+<div class="modal-back" id="hwDrive"><div class="card" style="width:620px;"><div class="card-in">
+  <div class="modal-head"><h2 style="font-size:17px;">드라이브에서 가져오기</h2>
+    <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+  <form data-drive-search style="display:flex; gap:8px; margin:0 0 10px;"><input name="q" placeholder="파일 이름 검색" autocomplete="off" style="flex:1;"><button type="submit" class="secondary">검색</button></form>
+  <p class="muted" data-drive-msg style="font-size:12.5px; margin:0 0 8px;">내 학교 구글 계정의 한글 파일(hwp·hwpx) — {{ here.dept }}{% if here.folder %} / {{ here.folder }}{% endif %} 에 받아 기안기로 엽니다</p>
+  <div data-drive-list style="max-height:360px; overflow:auto; border:1px solid var(--line); border-radius:8px;"></div>
+  <form action="/hwp/drive/import" method="post" data-drive-import hidden>
+    <input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}"><input type="hidden" name="file_id">
+  </form>
+</div></div></div>
 <script>
+(function () {
+  var box = document.querySelector('[data-drive-list]'), msg = document.querySelector('[data-drive-msg]');
+  var imp = document.querySelector('[data-drive-import]'), srch = document.querySelector('[data-drive-search]');
+  function load(q) {
+    box.innerHTML = '<p class="muted" style="padding:12px; margin:0;">불러오는 중…</p>';
+    fetch('/api/hwp/drive?q=' + encodeURIComponent(q || ''), {credentials: 'same-origin'})
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || r.status); return j; }); })
+      .then(function (j) {
+        if (!j.files.length) { box.innerHTML = '<p class="muted" style="padding:12px; margin:0;">한글 파일이 없습니다</p>'; return; }
+        box.innerHTML = '';
+        j.files.forEach(function (f) {
+          var row = document.createElement('button');
+          row.type = 'button'; row.className = 'folder-row';
+          row.style.cssText = 'display:flex; width:100%; justify-content:space-between; gap:10px; text-align:left; border:0; border-bottom:1px solid var(--line); border-radius:0; background:#fff; padding:10px 12px; font-size:13.5px;';
+          var a = document.createElement('span'); a.textContent = f.name;
+          var b = document.createElement('span'); b.className = 'muted'; b.style.fontSize = '12px'; b.textContent = (f.modifiedTime || '').slice(0, 10);
+          row.append(a, b);
+          row.onclick = function () { msg.textContent = '「' + f.name + '」 가져오는 중…'; imp.elements.file_id.value = f.id; imp.submit(); };
+          box.append(row);
+        });
+      })
+      .catch(function (e) { box.innerHTML = ''; msg.textContent = e.message; });
+  }
+  var opener = document.querySelector('[data-drive-open]');
+  if (opener) opener.addEventListener('click', function () { load(''); });
+  if (srch) srch.addEventListener('submit', function (e) { e.preventDefault(); load(srch.elements.q.value); });
+})();
 (function () {
   var form = document.querySelector('[data-upload]'), input = form && form.querySelector('input[type=file]');
   var pick = document.querySelector('[data-pick-file]');

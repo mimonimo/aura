@@ -51,6 +51,7 @@
     <span class="where">{{ dept }}{% if folder %} / {{ folder }}{% endif %}{% if meta.saved %} · {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }} 저장{% elif meta.owner %} · {{ meta.owner }} 올림{% endif %}</span>
   </div>
   <span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>기안기를 불러오는 중</span></span>
+  {% if f %}<button type="button" class="btn" data-to-drive title="지금 저장된 판을 내 구글 드라이브에 최종본으로 올리기"><iconify-icon icon="solar:cloud-upload-linear" aria-hidden="true"></iconify-icon><span class="label-long">드라이브에 올리기</span></button>{% endif %}
   {% if f %}<a class="btn" href="/hwp/{{ f.id }}/file" title="지금 저장된 판을 내려받기"><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon><span class="label-long">내려받기</span></a>{% endif %}
   {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;"><button type="submit" class="btn primary" title="내 부서 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
   {% else %}<button type="button" class="btn primary" data-save disabled title="저장 (Ctrl+S)"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon>저장 <kbd>Ctrl+S</kbd></button>{% endif %}
@@ -138,6 +139,17 @@
     });
   }
   saveBtn.addEventListener('click', save);
+  // 드라이브에 올리기 — 저장된 판을 올린다(고친 뒤면 먼저 저장)
+  var drv = document.querySelector('[data-to-drive]');
+  if (drv) drv.addEventListener('click', function () {
+    if (!fileUrl) return;
+    drv.disabled = true; say('드라이브에 올리는 중', 'busy');
+    fetch(fileUrl.replace(/\/file$/, '/to-drive'), {method: 'POST', credentials: 'same-origin'})
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('올리지 못했습니다(' + r.status + ')')); return j; }); })
+      .then(function (j) { say('드라이브에 올렸습니다', 'ok'); window.open(j.url, '_blank', 'noopener'); })
+      .catch(function (e) { say(e.message, 'bad'); })
+      .finally(function () { drv.disabled = false; });
+  });
   // Ctrl+S(맥은 ⌘+S) — 바깥 틀에 포커스가 있을 때. 편집 틀 안에서 누르면 기안기 자체 동작이라 위 「저장」 단추를 쓴다
   document.addEventListener('keydown', function (e) {
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(); }

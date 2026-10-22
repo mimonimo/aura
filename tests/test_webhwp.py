@@ -307,3 +307,59 @@ def test_edit_lock_blocks_concurrent_overwrite(tmp_path, monkeypatch):
     assert lee.post(f"/hwp/{fid}/lock").json()["ok"]
     monkeypatch.setattr(webhwp, "LOCK_TTL", -1)              # 창이 끊겨 늘리지 못하면 저절로 풀린다
     assert kim.post(f"/hwp/{fid}/lock").json()["ok"]
+
+
+def test_drive_import_and_upload_final(tmp_path, monkeypatch):
+    """드라이브 → 부서 디렉터리로 받아 기안기 편집 → 최종본을 드라이브에(앞서 올린 판은 휴지통). 계정이 없으면 409."""
+    app = _setup(tmp_path, monkeypatch)
+    from zzaimy.app import webhwp_drive
+    from zzaimy.ingest import gdrive_files
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    monkeypatch.setattr(gdrive_files, "account_for", lambda db, u, d=None: "")
+    assert kim.get("/api/hwp/drive").status_code == 409
+    monkeypatch.setattr(gdrive_files, "account_for", lambda db, u, d=None: "kim@ync.ac.kr")
+    monkeypatch.setattr(gdrive_files, "_headers", lambda e, h: {})
+    calls = []
+
+    class _R:
+        def __init__(self, code=200, j=None, content=b""):
+            self.status_code, self._j, self.content = code, j or {}, content
+        def json(self):
+            return self._j
+
+    class _H:
+        def get(self, url, headers=None, params=None):
+            if params and params.get("alt") == "media":
+                return _R(content=_hwpx("드라이브"))
+            if url.endswith("/files"):
+                return _R(j={"files": [{"id": "F1aaaaaaaaaa", "name": "계획서.hwpx", "modifiedTime": "2026-10-21T00:00:00Z"},
+                                       {"id": "F2", "name": "그림.png"}]})
+            return _R(j={"id": "F1aaaaaaaaaa", "name": "계획서.hwpx", "parents": ["P1"], "size": "100"})
+        def patch(self, url, **k):
+            calls.append(("trash", url))
+            return _R()
+
+    monkeypatch.setattr(webhwp_drive, "_http", lambda: _H())
+    j = kim.get("/api/hwp/drive").json()
+    assert [f["name"] for f in j["files"]] == ["계획서.hwpx"]                     # 한글 파일만
+    r = kim.post("/hwp/drive/import", data={"file_id": "F1aaaaaaaaaa", "dept": "기획처", "folder": ""}, follow_redirects=False)
+    assert r.status_code == 303 and "aura-edit?id=" in r.headers["location"]
+    fid = int(r.headers["location"].split("=")[-1])
+    assert Path(webhwp.get(app.state.db, fid)["path"]).parent.name == "기획처"
+    assert webhwp.meta(app.state.db, fid)["drive"]["parent"] == "P1"
+    assert kim.post("/hwp/drive/import", data={"file_id": "../x?alt=media", "dept": "기획처"}).status_code == 400
+    ups = []
+
+    def _up(email, data, name, mime, folder, http=None, reuse=True):
+        ups.append(folder)
+        if folder == "P1":
+            raise PermissionError("남의 폴더")
+        return {"id": f"U{len(ups)}", "url": f"https://drive/U{len(ups)}", "name": name}
+
+    monkeypatch.setattr(gdrive_files, "upload_file", _up)
+    monkeypatch.setattr(gdrive_files, "ensure_folder", lambda e, parts, http=None: "AURA")
+    a = kim.post(f"/hwp/{fid}/to-drive").json()
+    assert a["ok"] and ups == ["P1", "AURA"]                                    # 원본 폴더 먼저, 안 되면 우리 폴더
+    b = kim.post(f"/hwp/{fid}/to-drive").json()
+    assert b["url"] != a["url"] and any(c[0] == "trash" for c in calls)         # 앞서 올린 판은 휴지통

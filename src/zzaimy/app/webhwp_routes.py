@@ -152,6 +152,60 @@ def hwp_unlock(request: Request, fid: int):
     return {"ok": True}
 
 
+def _google(request: Request) -> str:
+    """이 사람이 연결한 학교 구글 계정 — 없으면 409(설정에서 연결하라고)."""
+    from zzaimy.ingest import gdrive_files
+    st = request.app.state
+    user = getattr(request.state, "user", "")
+    email = gdrive_files.account_for(st.db, user, getattr(request.state, "dept", "") or None)
+    if not email:
+        raise HTTPException(409, "학교 구글 계정이 연결되어 있지 않습니다 — 설정에서 「내 학교 계정 연결」 뒤 다시 해 주세요")
+    return email
+
+
+@router.get("/api/hwp/drive")
+def hwp_drive_list(request: Request, q: str = "", page: str = ""):
+    """내 드라이브의 한글 파일 목록(가져오기 창)."""
+    _need_staff(request)
+    from zzaimy.app import webhwp_drive
+    try:
+        return {"account": (email := _google(request)), **webhwp_drive.list_files(email, q, page)}
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/hwp/drive/import")
+def hwp_drive_import(request: Request, file_id: str = Form(...), dept: str = Form(""), folder: str = Form("")):
+    """드라이브 → 부서 디렉터리로 받아 기안기로 연다."""
+    _need_staff(request)
+    from zzaimy.app import webhwp_drive
+    folder = _check_dept(request, dept, folder)
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9_-]{10,128}", file_id.strip()):          # 드라이브 파일 id 꼴만 — 주소 조각을 끼워 넣지 못하게
+        raise HTTPException(400, "드라이브 파일 id 가 올바르지 않습니다")
+    email = _google(request)
+    try:
+        fid = webhwp_drive.import_file(request.app.state.db, _base(request), email, file_id.strip(), dept=dept, folder=folder,
+                                       owner=getattr(request.state, "user", ""))
+    except (RuntimeError, ValueError) as e:
+        return _back(str(e), ok=False, dept=dept, folder=folder)
+    return RedirectResponse(f"{EDIT_PAGE}?id={fid}", status_code=303)
+
+
+@router.post("/hwp/{fid}/to-drive")
+def hwp_to_drive(request: Request, fid: int):
+    """지금 저장된 판을 드라이브에 최종본으로 올린다."""
+    _need_staff(request)
+    f = _file(request, fid)
+    from zzaimy.app import webhwp_drive
+    email = _google(request)
+    try:
+        up = webhwp_drive.upload_final(request.app.state.db, fid, email, dept=webhwp.dept_of_path(_base(request), f["path"]))
+    except (RuntimeError, PermissionError) as e:
+        raise HTTPException(502, str(e))
+    return {"ok": True, "url": up["url"], "name": up["name"]}
+
+
 @router.post("/hwp/{fid}/copy")
 def hwp_copy(request: Request, fid: int, dept: str = Form(""), folder: str = Form("")):
     """복사해 쓰기 — 공통 양식(또는 볼 수 있는 문서)을 내 부서 디렉터리(폴더)에 복사하고 기안기로 연다."""
