@@ -762,6 +762,10 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     return {"ok": True, "rows": len(rows), "cols": n_cols, "section": sec["heading"]}
 
 
+# 표 머리줄 음영 — 한글 기안기 표 기본(webhwp_style.HOUSE, 학교 서식 표에서 가장 흔한 #E5E5E5)과 같은 색. 두 편집기 결과가 같은 모양이게
+HEAD_GRAY = {"red": 0.898, "green": 0.898, "blue": 0.898}
+
+
 def _style_table_header(email: str, doc: str, at: int, n_cols: int, http) -> None:
     """방금 넣은 표(위치 at 이후 첫 표)의 머리 행에 음영·굵게."""
     r = _read(email, doc, http)
@@ -773,7 +777,7 @@ def _style_table_header(email: str, doc: str, at: int, n_cols: int, http) -> Non
     reqs: list[dict] = [{"updateTableCellStyle": {
         "tableRange": {"tableCellLocation": {"tableStartLocation": {"index": int(el["startIndex"])}, "rowIndex": 0, "columnIndex": 0},
                        "rowSpan": 1, "columnSpan": n_cols},
-        "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": {"red": 0.93, "green": 0.93, "blue": 0.93}}}},
+        "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": HEAD_GRAY}}},
         "fields": "backgroundColor"}}]
     head = (el["table"].get("tableRows") or [{}])[0]
     for cell in head.get("tableCells", []):
@@ -782,6 +786,8 @@ def _style_table_header(email: str, doc: str, at: int, n_cols: int, http) -> Non
             a, b = int(paras[0]["startIndex"]), int(paras[-1]["endIndex"]) - 1
             if b > a:
                 reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": b}, "textStyle": {"bold": True}, "fields": "bold"}})
+                reqs.append({"updateParagraphStyle": {"range": {"startIndex": a, "endIndex": b},
+                                                      "paragraphStyle": {"alignment": "CENTER"}, "fields": "alignment"}})
     _batch(email, doc, reqs, http)
 
 
@@ -1385,7 +1391,7 @@ def _section_append_requests(sec: dict, doc_end: int, items: list[tuple[str, obj
             reqs.append({"updateTableCellStyle": {
                 "tableRange": {"tableCellLocation": {"tableStartLocation": {"index": start}, "rowIndex": 0, "columnIndex": 0},
                                "rowSpan": 1, "columnSpan": n_cols},
-                "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": {"red": 0.93, "green": 0.93, "blue": 0.93}}}},
+                "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": HEAD_GRAY}}},
                 "fields": "backgroundColor"}})
             shift = 0                                                  # 머리 행 칸마다 굵게 — 앞 칸에 넣은 글만큼 밀린 자리
             for ci in range(n_cols):
@@ -1394,6 +1400,8 @@ def _section_append_requests(sec: dict, doc_end: int, items: list[tuple[str, obj
                 if t:
                     reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": a + u(t)},
                                                      "textStyle": {"bold": True}, "fields": "bold"}})
+                    reqs.append({"updateParagraphStyle": {"range": {"startIndex": a, "endIndex": a + u(t)},
+                                                          "paragraphStyle": {"alignment": "CENTER"}, "fields": "alignment"}})
                 shift += u(t)
             table_len = 2 + n_rows * (2 * n_cols + 1) + sum(u(t) for _i, t in fills)
             cur = start + table_len                                    # 표 뒤 문단(줄바꿈 앞)

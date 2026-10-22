@@ -61,6 +61,9 @@ def _is_heading(t: str) -> bool:
 _NOTE = re.compile(r"(기재|가능|작성|기입|삭제|추가|반올림|생략|제출|첨부|유의|참고)\s*(할\s*것|하시오|함|바람|합니다|\))?\s*[.)]?\s*$")
 
 
+_INSTRUCT = re.compile(r"작성|기재|기입|제출|유의|참고|하여야|해야|바랍니다|할\s*것|하시오|가능하|불가|해당\s*시|경우에는|으로\s*한다")
+
+
 def _real_label(t: str) -> bool:
     """칸 라벨다운 글 — 한글 낱말이 있고, 숫자·퍼센트·예시 기호(ㅇㅇ·OO·○○·000)만이 아닌 것."""
     if not t or len(t) > 15 or not re.search(r"[가-힣]{2,}", t):
@@ -224,7 +227,7 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
                 return True
             if _is_heading(t):
                 return True
-            if len(t) >= 20:
+            if len(t) >= 20 and _INSTRUCT.search(t):            # 작성·제출 지시 글이 먼저 오면 서식 안내의 번호 줄이다
                 return False
         return True
 

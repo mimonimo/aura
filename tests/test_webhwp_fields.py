@@ -83,7 +83,7 @@ def test_guide_boxes_toc_and_notes_are_not_slots():
            + _p("2) 지표값 산정 시 소수점 첫째자리까지 기재", 12)                 # 안내 문장
            + _table([["【작성방법】"], ["1. 추진 배경을 쓴다"]], 100)              # 작성 안내 상자
            + _p("1. 추진 배경", 13) + _p("", 14)                                # 진짜 제목 + 빈 자리
-           + _p("2. 추진 내용", 15) + _p("이 사업은 지역과 대학이 함께 인재를 기르는 사업으로 다음과 같이 운영한다는 안내 문장입니다.", 16)
+           + _p("2. 추진 내용", 15) + _p("이 사업은 지역과 대학이 함께 인재를 기르는 사업으로 다음 사항을 빠짐없이 작성하여 제출하여야 합니다.", 16)
            + _table([["98.0%", ""], ["ㅇㅇ학부(과)", ""], ["사업계획서 목차", ""], ["담당자", ""]], 300))
     names = _names(wf.fieldize(_hwpx(sec))[0])
     assert "절:1. 추진 배경" in names
@@ -98,3 +98,9 @@ def test_body_slot_goes_below_guide_box():
     data, _ = wf.fieldize(_hwpx(sec))
     x = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
     assert x.find("【작성방법】") < x.find('name="절:1. 추진 배경"') < x.find("2. 추진 내용")
+
+
+def test_heading_followed_by_plain_line_keeps_slot():
+    # 기안문 「2. 추진 내용」 뒤 「붙임 … 끝.」 — 작성 지시가 아닌 긴 줄이 와도 쓸 자리다
+    sec = _p("2. 추진 내용", 11) + _p("붙임  1. (붙임 문서 이름) 1부.  끝.", 12) + _p("", 13)
+    assert "절:2. 추진 내용" in _names(wf.fieldize(_hwpx(sec))[0])
