@@ -78,6 +78,23 @@ class HwpTools:
                          "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
         return lines
 
+    def step_budget(self) -> int:
+        """이번 요청의 걸음 한도 — 기본 20, 작업본의 빈 절이 많으면 늘린다(절 하나에 쓰기 한 걸음 + 가끔 찾기), 최대 48."""
+        try:
+            empty = sum(1 for x in self._fields() if x["kind"] == "절" and not x["text"]) if self.fid() else 20
+        except Exception:
+            empty = 12
+        return max(20, min(48, 12 + empty))
+
+    def resolve(self, name: str, kinds: tuple[str, ...] = ("칸", "표", "절")) -> str | None:
+        """에이전트가 쓴 필드 이름 → 작업본의 실제 이름. 접두사(칸:·절:·표n:)를 빠뜨렸거나 띄어쓰기가 달라도 하나로 맞으면 그것."""
+        fl = [x["name"] for x in self._fields()]
+        if name in fl:
+            return name
+        key = lambda n: re.sub(r"\s+", "", re.sub(r"^(칸|절|표\d+):", "", n))
+        hits = [n for n in fl if key(n) == key(name) and (n.split(":")[0].rstrip("0123456789") in kinds)]
+        return hits[0] if len(hits) == 1 else None
+
     # ── 도구 ──
     def forms(self, a: dict) -> str:
         q = str(a.get("query") or "").strip()
@@ -166,7 +183,8 @@ class HwpTools:
             return g
         fid, f = g
         values = a.get("values") if isinstance(a.get("values"), dict) else {}
-        values = {str(k): str(v)[:2000] for k, v in values.items() if not str(k).startswith("절:")}
+        values = {(self.resolve(str(k)) or str(k)): str(v)[:2000] for k, v in values.items()}
+        values = {k: v for k, v in values.items() if not k.startswith("절:")}
         long_, fake = {}, []
         for k, v in list(values.items()):
             if _too_long(v):                                # 여러 줄·표·긴 글은 칸 값이 아니다 — 절 쓰기로(칸 안에 문단·표로 들어간다)
@@ -199,8 +217,7 @@ class HwpTools:
         fid, f = g
         field = str(a.get("field") or "").strip()
         text = str(a.get("text") or "").strip()
-        if not field.startswith("절:"):
-            field = "절:" + field if not field.startswith(("칸:", "표")) else field
+        field = self.resolve(field) or (field if field.startswith(("절:", "칸:", "표")) else "절:" + field)
         if not text:
             return "text 가 비었다."
         m = webhwp.meta(self.db, fid)

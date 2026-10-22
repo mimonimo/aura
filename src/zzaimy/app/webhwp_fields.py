@@ -235,9 +235,20 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
             continue
         name = names(f"절:{t}")
         out.append({"name": name, "kind": "절"})
-        buf.append(xml[pos:b])
+        at = b
+        # 제목 바로 뒤 작성방법 상자가 있으면 쓸 자리는 그 상자 아래 — 읽는 차례가 「제목 → 안내 → 본문」
+        while True:
+            nxt = re.match(r"\s*<hp:p\b[^>]*>\s*<hp:run\b[^>]*>\s*<hp:tbl\b", xml[at:])
+            g = next(((ga, gb) for ga, gb in guides if nxt and ga == at + nxt.end() - len("<hp:tbl")), None)
+            if not g:
+                break
+            close = xml.find("</hp:p>", g[1])
+            if close < 0:
+                break
+            at = close + len("</hp:p>")
+        buf.append(xml[pos:at])
         buf.append(_empty_para_after(p, field_xml(name, "본문 입력", ids), ids, body_cp))
-        pos = b
+        pos = at
     buf.append(xml[pos:])
     return "".join(buf), out
 

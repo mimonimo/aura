@@ -2297,7 +2297,8 @@ def create_app(
             fd["reads"] = fd.get("reads", 0) + 1
             if fd["reads"] > doc_agent.READ_PER_DOC:
                 raise doc_agent.Retry(f"이 문서는 이번 요청에서 이미 {doc_agent.READ_PER_DOC}번 읽었다 — 찾는 내용이 여기 없으면 다른 걸음을 고른다"
-                                      "(절을 쓰는 일이면 write_section 이 그 절의 작성방법·평가 기준·지난 자료를 모아 쓴다).")
+                                      + ("(근거는 이만하면 됐다 — 이제 hwp_write 로 절을 쓴다)." if hw is not None else
+                                         "(절을 쓰는 일이면 write_section 이 그 절의 작성방법·평가 기준·지난 자료를 모아 쓴다)."))
             texts, ids = found_texts(did)
             if not texts:
                 raise doc_agent.Retry("고른 문서에 읽을 글이 없다 — 다른 걸음을 고른다.")
@@ -2595,7 +2596,9 @@ def create_app(
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json,
                            on_act=lambda n, a, ph: _chat_act(session_id, n, a, ph),
                            # 한글 기안기는 칸 채우기가 가볍고 여러 번이다 — 한 요청에서 작업본 만들기·칸·절을 끝까지 쓰게 한도를 넉넉히
-                           max_writes=(12 if hw is not None else doc_agent.MAX_WRITES))
+                           # 서식이 길면(절 수십 개) 근거 읽기·칸·절 쓰기에 걸음이 많다 — 한글 작업본이 있을 때 한도를 절 수에 맞춰 늘린다
+                           max_writes=(30 if hw is not None else doc_agent.MAX_WRITES),
+                           **({"max_steps": hw.step_budget()} if hw is not None else {}))
         doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps,
                                     "llm": _model_info.stamp(client),
                                     "answer_timing": answer_timing, "graph_read": os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1"})

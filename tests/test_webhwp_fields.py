@@ -91,3 +91,10 @@ def test_guide_boxes_toc_and_notes_are_not_slots():
     assert "절:2. 추진 내용" not in names                                       # 뒤에 긴 안내 글 — 쓸 자리가 아니다
     assert "칸:담당자" in names
     assert not any(n in names for n in ("칸:98.0%", "칸:ㅇㅇ학부(과)", "칸:사업계획서 목차"))
+
+
+def test_body_slot_goes_below_guide_box():
+    sec = _p("1. 추진 배경", 11) + _table([["【작성방법】 배경을 쓴다"]], 100) + _p("2. 추진 내용", 15) + _p("", 16)
+    data, _ = wf.fieldize(_hwpx(sec))
+    x = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
+    assert x.find("【작성방법】") < x.find('name="절:1. 추진 배경"') < x.find("2. 추진 내용")

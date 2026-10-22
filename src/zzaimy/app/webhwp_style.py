@@ -31,6 +31,12 @@ def _text(x: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", x)).strip()
 
 
+def _short(t: str) -> bool:
+    """가운데에 둘 값 — 기호(●○◎-), 숫자·금액·비율·날짜, 여섯 글자 이하."""
+    t = (t or "").strip()
+    return bool(t) and (len(t) <= 6 or bool(re.fullmatch(r"[\d\s,.%~\-–()/:·년월일천백만억원명개건회점]+", t)))
+
+
 def _width(w: str) -> str:
     """'0.4', '0.4mm', 0.4 → 한글이 아는 가장 가까운 굵기('0.4 mm')."""
     try:
@@ -209,6 +215,11 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
                 bottom, bk = "0.5 mm", "DOUBLE_SLIM"
             bf = hdr.border(left, right, top, bottom, _color(fill), "SOLID", bk)
             align = o["head_align"] if role in ("head", "label") else o.get("body_align") or ""
+            if role == "body" and not align and _short(c["text"]):   # 기호·숫자·짧은 값은 가운데(학교 표의 거의 모든 값 칸)
+                align = "CENTER"
+            # 칸 여백 — 학교 표의 절반이 510/510/141/141(좌우 1.8mm). 좁으면 글이 선에 붙는다
+            x = re.sub(r'(<hp:tc\b[^>]*\bhasMargin=")0', r"\g<1>1", x, count=1)
+            x = re.sub(r'<hp:cellMargin [^>]*/>', '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>', x, count=1)
         x = re.sub(r'(<hp:tc\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{bf}", x, count=1)
         bold = bool(o["head_bold"]) if role == "head" else None
         pt = float(o["font_pt"]) if o.get("font_pt") else None

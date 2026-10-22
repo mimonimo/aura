@@ -163,10 +163,12 @@ class _LevelStyles:
         self.cache[key] = new_id
         return new_id
 
-    def for_lines(self, lines: list[str], base_level: int) -> list[tuple[str, str]]:
-        """줄마다 (문단 모양 id, 글) — 단계는 절 제목(base_level) 아래부터 센다."""
+    def for_lines(self, lines: list[str], base_level: int, rel_min: int | None = None) -> list[tuple[str, str]]:
+        """줄마다 (문단 모양 id, 글) — 단계는 절 제목(base_level) 아래부터 센다. rel_min 은 본문 전체의 가장 얕은 단계
+        (표·도식으로 끊긴 글 덩이마다 따로 세면 같은 「2)」 가 덩이마다 다르게 들여써진다)."""
         out, cont_left = [], 0
-        rel_min = min((lv for lv in (marker_level(x) for x in lines) if lv is not None), default=base_level + 1)
+        if rel_min is None:
+            rel_min = min((lv for lv in (marker_level(x) for x in lines) if lv is not None), default=base_level + 1)
         for ln in lines:
             lv = marker_level(ln)
             if lv is None:
@@ -240,10 +242,21 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
             margin = margin or '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>'
         width = _cell_width(xml, hit.start()) or hf._text_width_hu(xml)
         chunks = []
+        form_marks = bool(para_styles.pick("1) 예") or para_styles.pick("가) 예"))
+        all_lines = ([first] if first else []) + [ln for k, v in items if k == "text" for ln in hf.split_lines(str(v))]
+        rel = min((lv for lv in (marker_level(x) for x in all_lines) if lv is not None), default=head_level + 1)
+        if first and not form_marks and pb:
+            # 필드 안의 첫 줄도 뒤 줄과 같은 단계 모양으로(첫 줄만 왼쪽에 붙어 보이지 않게)
+            lp0, line0 = levels.for_lines([first], head_level, rel)[0]
+            p_open = re.match(r"<hp:p\b[^>]*>", xml[pb[0]:])
+            if p_open:
+                new_open = re.sub(r'paraPrIDRef="\d+"', f'paraPrIDRef="{lp0}"', p_open.group(0), count=1)
+                xml = xml[:pb[0]] + new_open + xml[pb[0] + len(p_open.group(0)):]
+                pb = (pb[0], pb[1] + len(new_open) - len(p_open.group(0)))
         for kind, val in items:
             if kind == "text":
                 lines = hf.split_lines(str(val)) if str(val).strip() else []
-                if para_styles.pick("1) 예") or para_styles.pick("가) 예"):
+                if form_marks:
                     # 양식에 단계별 본문 예시가 있으면 그 모양(서식 작성자의 뜻)을 따른다
                     for line in lines:
                         pid = ids.new()
@@ -257,7 +270,7 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                         put.append(pid)
                 else:
                     # 예시가 없는 양식 — 공문서 단계 규칙으로 들여쓰기·내어쓰기
-                    for lp, line in levels.for_lines(lines, head_level):
+                    for lp, line in levels.for_lines(lines, head_level, rel):
                         pid = ids.new()
                         chunks.append(hf.paragraph_xml(line, lp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                         put.append(pid)

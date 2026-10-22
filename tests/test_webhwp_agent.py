@@ -41,6 +41,10 @@ def test_agent_tools_start_fill_write(tmp_path, monkeypatch):
     v, ch = webhwp.live_since(db, fid, 0, "lee")
     assert any(c["field"] == "칸:담당자" and c["by"] == "AURA" for c in ch)
     assert any("lee 님도" in line for line in hw.state_lines())
+    # 접두사를 빠뜨린 필드 이름도 하나로 맞으면 그 필드에(에이전트가 「칸:」 없이 쓰는 일이 잦다)
+    assert "채웠다: 칸:사업명" in hw.fill({"values": {"사업명": "AI 인재"}})
+    assert hw.resolve("1. 변경사유") == "절:1. 변경 사유"
+    assert 20 <= hw.step_budget() <= 48
 
 
 def test_editor_state_and_presence(tmp_path, monkeypatch):
