@@ -925,7 +925,7 @@
     dlg.querySelector('[data-pa-d-meta]').innerHTML = '<span class="pa-src src-' + esc(tr.dataset.src) + '">' + esc(d.origin) + '</span>'
       + esc([d.l1, d.l2, d.l3].filter(Boolean).join(' · ') || '분류 없음') + (d.stage === 'past' ? ' · 지난 사업(읽기만)' : '');
     var h = '<section><h3>기본 정보</h3><dl class="pa-dl"><dt>주관 부서</dt><dd>' + esc(d.dept || '—') + '</dd><dt>기간</dt><dd>' + esc(d.period || '—') + '</dd>'
-      + '<dt>예산</dt><dd>' + esc(d.budget || '—') + '</dd><dt>책임자 이름</dt><dd>' + esc(d.manager || '—') + '</dd>'
+      + '<dt>예산</dt><dd>' + (function (b) { var n = Number(String(b || '').replace(/[^0-9.\-]/g, '')); return b && isFinite(n) && n ? '<span title="' + esc(String(b)) + '">' + esc(money(n)) + '</span>' : esc(b || '—'); })(d.budget) + '</dd><dt>책임자 이름</dt><dd>' + esc(d.manager || '—') + '</dd>'
       + (d.terms && d.terms.length > 1 ? '<dt>별칭</dt><dd>' + esc(d.terms.slice(1).join(', ')) + '</dd>' : '') + '</dl></section>';
     h += '<section><h3>연도별 값</h3>';
     if (d.years.length) {
