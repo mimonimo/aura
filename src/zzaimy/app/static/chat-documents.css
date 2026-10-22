@@ -247,3 +247,14 @@ body .doc-title-row .doc-ed-switch button{min-height:28px;padding:4px 10px;font-
  .chat-doc-open #chatWorkspace .table-scroll{max-width:100%}
  .chat-doc-open #chatWorkspace .table-scroll table{font-size:12px}
 }
+/* 전체 보기 — 문서 칸이 대화 칸 자리까지 */
+@media(min-width:951px){
+ main.chat-doc-open.chat-doc-full>#chatWorkspace{visibility:hidden}
+ main.chat-doc-open.chat-doc-full>.chat-doc-editor{width:100%!important;flex-basis:100%!important;left:0}
+ main.chat-doc-open.chat-doc-full>.chat-doc-divider{display:none}
+}
+main.chat-doc-full>.chat-doc-editor{border-left:0}
+body .doc-title-row .doc-full-btn{flex:none;min-height:28px;padding:3px 10px;font-size:12px;border:1px solid #dfe5ed;background:#fff;color:#526176;box-shadow:none}
+body .doc-title-row .doc-full-btn[aria-pressed=true]{background:#edf3fb;color:#244770;border-color:#c9d7ea}
+/* 사이드바 검색 칸 — 얇게 */
+.sidebar .side-searchbox{padding:6px 11px;border-radius:9px;min-height:0}

@@ -117,7 +117,7 @@
  new MutationObserver(()=>{clearTimeout(locationRefresh);locationRefresh=setTimeout(addLocationButtons,100);}).observe(workspace,{childList:true,subtree:true});
  let fitObserver=null;
  let cancelFormatTransition=null;
- function clearPanel(){docCursorOff();finishClose();cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
+ function clearPanel(){main.classList.remove('chat-doc-full');docCursorOff();finishClose();cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
  function switchFormatting(event){
    cancelFormatTransition?.();
    const control=event.target, frame=panel.querySelector('iframe');
@@ -224,7 +224,7 @@
      const close=panel.querySelector('header [data-hide],header [data-close]');
      if(close){close.textContent='×';close.title='문서 패널 닫기';close.setAttribute('aria-label','문서 패널 닫기');close.classList.add('doc-icon-button');}
    }
-   if(visible)reveal();else conceal();
+   if(visible)reveal();else{toggleFull(false);conceal();}
    if(!visible)stopResize();
    opener.setAttribute('aria-expanded',String(visible));opener.hidden=visible;
    opener.title='문서 패널 열기';opener.setAttribute('aria-label',opener.title);
@@ -356,6 +356,8 @@
    more.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();more.open=false;summary.focus();}});
    menu.addEventListener('click',e=>{if(e.target.closest('a,button'))more.open=false;});
    const formatting=header.querySelector('.chat-doc-toolbar');if(formatting)tools.append(formatting);
+   const full=document.createElement('button');full.type='button';full.className='secondary doc-full-btn';full.dataset.full='';full.textContent='전체 보기';full.title='전체 보기';full.setAttribute('aria-pressed','false');full.onclick=()=>toggleFull();
+   titleRow.insertBefore(full,close);
    const edSwitch=header.querySelector('.chat-doc-switch');if(edSwitch){edSwitch.classList.add('doc-ed-switch');titleRow.insertBefore(edSwitch,close);}   // 편집기 고르기는 제목 줄 오른쪽(닫기 앞)
    tools.append(more);
    buildSectionJump(tools);
@@ -738,10 +740,19 @@
    panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
    main.prepend(panel);visibility(true);
  }
+ // 전체 보기 — 문서 칸을 대화 칸 자리까지 넓힌다(다시 누르거나 Esc 로 나란히 보기). 한글 기안기·구글 문서 같이 쓴다
+ function toggleFull(on){
+   const next=on===undefined?!main.classList.contains('chat-doc-full'):Boolean(on);
+   main.classList.toggle('chat-doc-full',next);
+   panel?.querySelectorAll('[data-full]').forEach(b=>{b.setAttribute('aria-pressed',String(next));b.title=next?'나란히 보기':'전체 보기';b.setAttribute('aria-label',b.title);b.textContent=next?'나란히':'전체 보기';});
+   try{panel?.querySelector('iframe')?.contentWindow?.postMessage({aura:'hwp-full',on:next},location.origin);}catch(_){}
+ }
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&main.classList.contains('chat-doc-full')&&!document.querySelector('dialog[open]'))toggleFull(false);});
  // 기안기 화면(embed) 머리줄의 「목록」·「닫기」
  window.addEventListener('message',e=>{
    if(e.origin!==location.origin||!e.data||e.data.aura!=='hwp'||!panel?.classList.contains('chat-doc-hwp-panel'))return;
    if(e.source!==panel.querySelector('iframe')?.contentWindow)return;
+   if(e.data.act==='full'){toggleFull();return;}
    if(e.data.act==='list')showFiles();
    else if(e.data.act==='close'){visibility(false);opener.focus();}
  });

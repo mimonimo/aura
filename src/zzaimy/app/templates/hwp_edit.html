@@ -95,6 +95,7 @@
       {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>문서함에서 보기</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
     </div>
   </span>{% endif %}
+  {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="close" title="문서 패널 닫기" aria-label="문서 패널 닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
 </header>
 <div class="notice-bar" data-notice hidden><span data-notice-text></span><button type="button" data-reload>다시 불러오기</button></div>
@@ -125,6 +126,14 @@
   window.addEventListener('resize', fit);
   // 기본 배율은 「폭 맞춤」 — 패널이 좁아도 쪽 전체 폭이 보이고 좌우 여백이 남는다(사용자가 배율을 바꾸면 그대로)
   function fitWidth() { try { var vp = ctrl.ViewProperties; vp.SetItem('ZoomType', 2); ctrl.ViewProperties = vp; } catch (e) {} }
+  // 바깥(대화 화면)이 전체 보기 상태를 알려 주면 단추 모양을 바꾼다
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data || e.data.aura !== 'hwp-full') return;
+    var b = document.querySelector('[data-embed=full]'); if (!b) return;
+    b.setAttribute('aria-pressed', String(!!e.data.on)); b.title = e.data.on ? '나란히 보기' : '전체 보기'; b.setAttribute('aria-label', b.title);
+    b.querySelector('iconify-icon').setAttribute('icon', e.data.on ? 'solar:minimize-square-minimalistic-linear' : 'solar:maximize-square-minimalistic-linear');
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.querySelector('[data-embed=full][aria-pressed=true]')) { try { parent.postMessage({aura: 'hwp', act: 'full'}, location.origin); } catch (x) {} } });
   document.querySelectorAll('[data-embed]').forEach(function (b) {
     b.onclick = function () { try { parent.postMessage({aura: 'hwp', act: b.getAttribute('data-embed')}, location.origin); } catch (e) {} };
   });
