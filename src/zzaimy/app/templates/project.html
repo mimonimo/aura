@@ -49,6 +49,8 @@
     {% set gid = (project.program or '').split('|')[0] %}
     {% if gid.startswith('program:') %}<a class="btn secondary" href="/graph/explore?id={{ gid|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로">
       <iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>{% endif %}
+    {% if gid.startswith('program:') and program_scope is defined and program_scope(request) %}<a class="btn secondary" href="/programs/admin?tab=all&q={{ (project.program_name or gid[8:]) | urlencode }}" title="사업 관리에서 이 사업 보기">
+      <iconify-icon icon="solar:clipboard-list-linear" aria-hidden="true"></iconify-icon>사업 관리</a>{% endif %}
     {% if project.archived and (can_edit or project.owner == 'zzdev') %}
     <form action="/project/{{ project.id }}/unarchive" method="post" style="margin:0;">
       <button type="submit" class="secondary">보관 해제</button></form>
@@ -445,7 +447,8 @@
           <label class="form-row"><span class="muted">지원기관</span><input type="text" name="new_ministry" maxlength="40" list="projMinistries" placeholder="예: 교육부, 대구광역시"></label>
           <datalist id="projMinistries">{% for m in ministries %}<option value="{{ m }}">{% endfor %}</datalist>
         </div>
-        <label class="form-row"><span class="muted">사업 연도(선택)</span><input type="text" name="program_year" inputmode="numeric" maxlength="4" value="{{ project_program_year if project_program_year != '?' else '' }}" placeholder="예: 2026"></label>
+        <label class="form-row"><span class="muted">사업 연도(선택)</span><input type="text" name="program_year" inputmode="numeric" pattern="(19|20)[0-9]{2}" maxlength="4" list="projYears" autocomplete="off" value="{{ project_program_year if project_program_year != '?' else '' }}" placeholder="연도 고르기 또는 입력"></label>
+        {% set _y = (project.created_at or '2026')[:4] | int %}<datalist id="projYears">{% for y in range(_y + 2, 2009, -1) %}<option value="{{ y }}">{% endfor %}</datalist>
         <script>(function () { var p = document.getElementById("projProg"), n = document.getElementById("projProgNew");
           var f = function () { n.hidden = p.value !== "_new"; n.querySelector("[name=new_program]").required = p.value === "_new"; };
           p.addEventListener("change", f); f(); })();</script>
