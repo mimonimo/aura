@@ -66,6 +66,8 @@
   body.embed .back { border:0; background:none; font:inherit; font-size:13px; cursor:pointer; }
   body.embed .btn { height:32px; }
   body.embed .btn.icon { width:32px; }
+  .tools-btn { border-color:transparent; background:transparent; color:var(--muted); font-weight:500; }
+  .tools-btn[aria-pressed=true] { background:#EDF3FB; color:#244770; border-color:#D6E2F2; }
   .btn.ghost { border-color:transparent; background:transparent; color:var(--muted); }
   .btn.ghost iconify-icon { font-size:20px; }
   .alert { flex:none; margin:0; padding:10px 16px; background:#FEF2F2; color:var(--bad); font-size:13.5px; border-bottom:1px solid #FECACA; }
@@ -95,6 +97,7 @@
       {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>문서함에서 보기</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
     </div>
   </span>{% endif %}
+  <button type="button" class="btn tools-btn" data-tools aria-pressed="false" title="편집 도구 펼치기 — 직접 고칠 때"><iconify-icon icon="solar:pen-2-linear" aria-hidden="true"></iconify-icon><span class="label-long">편집 도구</span></button>
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="close" title="문서 패널 닫기" aria-label="문서 패널 닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
 </header>
@@ -125,6 +128,17 @@
   }
   window.addEventListener('resize', fit);
   // 기본 배율은 「폭 맞춤」 — 패널이 좁아도 쪽 전체 폭이 보이고 좌우 여백이 남는다(사용자가 배율을 바꾸면 그대로)
+  // 편집 도구(메뉴·리본·서식줄) — AI 가 쓰거나 검토할 때는 접어 문서만, 직접 고칠 때 펼친다. 고른 것은 기억(대화 패널·새 창 따로)
+  var toolsKey = 'hwpTools:' + ({{ 'true' if embed else 'false' }} ? 'embed' : 'page');
+  function toolsOn() { try { var v = localStorage.getItem(toolsKey); return v === null ? !{{ 'true' if embed else 'false' }} : v === '1'; } catch (e) { return true; } }
+  function setTools(on, remember) {
+    try { ctrl.ShowRibbon(on); ctrl.ShowToolBar(on); } catch (e) {}
+    var b = document.querySelector('[data-tools]');
+    if (b) { b.setAttribute('aria-pressed', String(on)); b.title = on ? '편집 도구 접기 — 문서만 보기' : '편집 도구 펼치기 — 직접 고칠 때'; }
+    if (remember) { try { localStorage.setItem(toolsKey, on ? '1' : '0'); } catch (e) {} }
+    setTimeout(fit, 50);
+  }
+  document.querySelector('[data-tools]').onclick = function () { setTools(this.getAttribute('aria-pressed') !== 'true', true); };
   function fitWidth() { try { var vp = ctrl.ViewProperties; vp.SetItem('ZoomType', 2); ctrl.ViewProperties = vp; } catch (e) {} }
   // 바깥(대화 화면)이 전체 보기 상태를 알려 주면 단추 모양을 바꾼다
   window.addEventListener('message', function (e) {
@@ -139,14 +153,14 @@
   });
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     fit();
-    if (isNew) { fitWidth(); ready = true; saveBtn.disabled = false; say('새 문서 — 저장하면 ' + dept + (folder ? ' / ' + folder : '') + '에 생깁니다', ''); return; }
+    if (isNew) { fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; say('새 문서 — 저장하면 ' + dept + (folder ? ' / ' + folder : '') + '에 생깁니다', ''); return; }
     fetch(fileUrl, {credentials: 'same-origin'}).then(function (r) {
       if (!r.ok) throw new Error('파일을 받지 못했습니다(' + r.status + ')');
       return r.blob();
     }).then(function (blob) {
       ctrl.Open(new File([blob], name), '', '', function (res) {
         if (res && res.result === false) { say('문서를 열지 못했습니다', 'bad'); return; }
-        fitWidth();
+        fitWidth(); setTools(toolsOn());
         {% if readonly %}say('공통 양식 — 보기 전용', 'ok');{% else %}holdLock();{% endif %}
       });
     }).catch(function (e) { say(e.message, 'bad'); });

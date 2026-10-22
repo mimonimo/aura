@@ -93,7 +93,9 @@
   .side-user .user-chip { width: 100%; border: 0; background: transparent; box-shadow: none; border-radius: 9px; padding: 6px 8px;
                           font-size: 13px; font-weight: 500; color: var(--ink); justify-content: flex-start; max-width: none; }
   .side-user .user-chip:hover { background: var(--panel); }
-  .side-user .user-chip .avatar { width: 24px; height: 24px; }
+  .side-user .user-chip .avatar, .side-user .pop-avatar { width: 26px; height: 26px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
+                          background: #e7edf6; color: #2b4a78; font-size: 12px; font-weight: 600; letter-spacing: 0; border: 0; box-shadow: none; }
+  .side-user .pop-avatar { width: 34px; height: 34px; font-size: 14px; }
   .side-user .user-chip iconify-icon[icon*="arrow"] { margin-left: auto; }
   .side-user .icon-btn { width: 32px; height: 32px; border: 0; background: transparent; font-size: 17px; }
   .side-user .icon-btn:hover { background: var(--panel); }
@@ -558,7 +560,7 @@ document.addEventListener('submit', function(event) {
     {% if request.state.role != 'student' %}{# 학생은 검색 화면을 쓰지 않는다 — 서버도 막는다(check_auth) #}
     <form class="searchbox side-searchbox" action="/search" method="get" role="search" aria-label="문서·대화 검색">
       <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-      <input type="search" name="q" placeholder="문서·대화 검색" value="{{ q if q is defined and request.url.path == '/search' else '' }}">
+      <input type="search" name="q" placeholder="검색" value="{{ q if q is defined and request.url.path == '/search' else '' }}">
     </form>
     {% endif %}
   {% set developer_space = dev_space(request.url.path, request.state.role) %}
@@ -569,7 +571,6 @@ document.addEventListener('submit', function(event) {
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
     {% if request.state.role != 'student' %}
-    <button type="button" class="side-search" data-project-search title="진행 중·같은 부서·보관된 사업까지 이름·문서·대화 제목으로"><iconify-icon icon="solar:magnifer-linear"></iconify-icon>프로젝트 찾기</button>
     <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox', '/criteria') or request.url.path.startswith('/archive') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
     <a href="/hwp" class="{{ 'active' if request.url.path.startswith('/hwp') else '' }}" title="부서별 한글 파일 — 웹 한글 기안기로 열고 고치기">
@@ -702,12 +703,12 @@ document.addEventListener('submit', function(event) {
     </div>
     <div class="menu-wrap">
       <button type="button" class="user-chip" data-pop="userPop">
-        <span class="avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
+        <span class="avatar" aria-hidden="true">{{ (profile_name or request.state.user or "담")[:1] | upper }}</span>
         {{ profile_name or request.state.user or "담당자" }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
       </button>
       <div class="popover" id="userPop">
         <div class="pop-head">
-          <span class="pop-avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
+          <span class="pop-avatar" aria-hidden="true">{{ (profile_name or request.state.user or "담")[:1] | upper }}</span>
           <div style="min-width:0;">
             <div class="pop-name">{{ profile_name or request.state.user or "담당자" }}</div>
             {% set sub = [request.state.user if profile_name and profile_name != request.state.user else "", role_labels.get(request.state.role, "담당자"), profile_dept or ""] | select | list %}
