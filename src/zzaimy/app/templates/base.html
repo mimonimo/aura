@@ -689,6 +689,7 @@ document.addEventListener('submit', function(event) {
         {% if alert_count %}<p class="notification-help">열어 본 알림은 정리됩니다. 문서의 업무 상태는 바뀌지 않습니다.</p>
         <button type="button" class="btn-ghost" id="notificationReadAll">모두 확인</button>
         {% else %}<div class="pop-empty">새로 확인할 문서가 없습니다.</div>{% endif %}
+        <div data-notice-list hidden></div>{# 업무 알림(사업 관리 신청 등, notifications.notify) — 아래 스크립트가 채운다 #}
         {% if drive_new %}<h6 class="notification-section">드라이브에서 가져옴</h6>{% endif %}
         {% for d in drive_new %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
@@ -896,10 +897,33 @@ document.addEventListener('submit', function(event) {
       box.append(text, go, close); document.body.appendChild(box);
       setTimeout(() => box.remove(), 15000);
     }
+    // 업무 알림 — 문서 밖 일(사업 관리 신청·처리). 누르면 확인으로 적고 그 화면으로 간다
+    const noticeBox = bell.querySelector('[data-notice-list]');
+    if (noticeBox) fetch('/api/notifications/notices', {cache:'no-store', headers:{Accept:'application/json'}}).then(r => r.ok ? r.json() : null).then(d => {
+      if (!d || !d.items || !d.items.length) return;
+      const h = document.createElement('h6'); h.className = 'notification-section'; h.textContent = '업무 알림';
+      noticeBox.append(h);
+      d.items.forEach(n => {
+        const a = document.createElement('a'); a.className = 'pop-item'; a.href = n.href || '#'; a.setAttribute('data-notice-id', n.id);
+        const ic = document.createElement('iconify-icon'); ic.setAttribute('icon', 'solar:inbox-linear'); ic.setAttribute('aria-hidden', 'true');
+        const copy = document.createElement('span'); copy.className = 'notification-copy';
+        const st = document.createElement('strong'); st.textContent = n.text; const sm = document.createElement('small'); sm.textContent = n.at || '';
+        copy.append(st, sm); a.append(ic, copy);
+        a.addEventListener('click', () => { const b = new FormData(); b.append('id', n.id); fetch('/api/notifications/notices/read', {method:'POST', body:b, keepalive:true}).catch(() => {}); });
+        noticeBox.append(a);
+      });
+      noticeBox.hidden = false;
+      bell.querySelector('.pop-empty')?.remove();
+      const btn = document.querySelector('[data-pop="bellPop"]');
+      let badge = btn && btn.querySelector('.badge-n');
+      if (btn && !badge) { badge = document.createElement('span'); badge.className = 'badge-n'; badge.textContent = '0'; btn.append(badge); }
+      if (badge) badge.textContent = String((parseInt(badge.textContent, 10) || 0) + d.count);
+    }).catch(() => {});
     document.getElementById('notificationReadAll')?.addEventListener('click', async function() {
       this.disabled = true;
       try {
         await acknowledge(links());
+        if (bell.querySelector('[data-notice-id]')) await fetch('/api/notifications/notices/read', {method:'POST', body:new FormData()});
         bell.querySelectorAll('.pop-item,.notification-section,h5[style],#notificationReadAll').forEach(e => e.remove());
         bell.querySelector('h5 span')?.remove();
         document.querySelector('[data-pop="bellPop"] .badge-n')?.remove();

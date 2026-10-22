@@ -25,6 +25,16 @@
   .tm-perms label:has(input:focus-visible) { box-shadow:0 0 0 3px #1b3b7522; }
   .tm-fixed { color:var(--muted); font-size:12px; }
   .tm-by { color:var(--faint, #94a3b8); font-size:11.5px; white-space:nowrap; }
+  /* 찾기 칸·등급 묶음 머리 — 부서 사람이 많을 때 */
+  .tm-find { margin-left:auto; display:flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .tm-find:focus-within { border-color:#9fb3cf; box-shadow:0 0 0 3px #1b3b7518; }
+  .tm-find iconify-icon { color:var(--faint, #94a3b8); flex:none; }
+  .tm-find input { width:180px; border:0 !important; outline:0; box-shadow:none !important; background:transparent; padding:0 !important; font:inherit; font-size:13px; }
+  .tm-group { display:flex; align-items:baseline; gap:6px; padding:12px 14px 5px; border-bottom:1px solid var(--line); font-size:12px; font-weight:600; color:var(--ink); background:#fff; }
+  .tm-group small { font-weight:400; color:var(--faint, #94a3b8); font-size:11.5px; }
+  .tm-row[hidden], .tm-group[hidden] { display:none; }
+  .tm-none { padding:14px; margin:0; font-size:12.5px; color:var(--muted); }
+  @media (max-width:760px) { .tm-find { margin-left:0; } .tm-find input { width:100%; } .tm-head { flex-wrap:wrap; } }
   @media (max-width:760px) { .tm-row { grid-template-columns:1fr; } .tm-row.head { display:none; } }
 </style>
 {% if err %}<p class="notice" role="alert"><span>{{ err }}</span></p>{% endif %}
@@ -32,11 +42,17 @@
 <div class="tm-head">
   {% if depts|length > 1 %}<form method="get"><select name="dept" aria-label="부서" onchange="this.form.submit()">{% for d in depts %}<option value="{{ d }}"{% if d == dept %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></form>{% else %}<strong>{{ dept }}</strong>{% endif %}
   <p>{% if actor_grade == 'lead' %}일반 직원의 추가 권한 · 바꾸면 바로 저장{% else %}같은 부서 직원의 등급과 추가 권한 · 바꾸면 바로 저장{% endif %}</p>
+  {% if rows %}<label class="tm-find"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" data-tm-find placeholder="이름·아이디로 찾기" aria-label="이름·아이디로 찾기" autocomplete="off"></label>{% endif %}
 </div>
 <div class="tm-list" role="table" aria-label="{{ dept }} 사람">
   <div class="tm-row head" role="row"><span>사람</span><span>등급</span><span>추가 권한</span><span></span></div>
-  {% for r in rows %}
-  <form class="tm-row" role="row" method="post" action="/team/save">
+  {# 등급별 묶음 — 총괄 책임자 · 사업 책임자 · 행정 담당자 · 일반(같은 묶음 안은 소속·이름 차례 그대로) #}
+  {% for g, glabel in [('head', '총괄 책임자'), ('lead', '사업 책임자'), ('clerk', '행정 담당자'), ('member', '일반')] %}
+  {% set grp = rows|selectattr('grade', 'equalto', g)|list if g != 'member' else rows|rejectattr('grade', 'in', ['head', 'lead', 'clerk'])|list %}
+  {% if grp %}
+  <div class="tm-group" role="row" data-tm-group><span>{{ glabel }}</span><small data-tm-count>{{ grp|length }}명</small></div>
+  {% for r in grp %}
+  <form class="tm-row" role="row" method="post" action="/team/save" data-tm-row data-tm-key="{{ (r.name ~ ' ' ~ r.uid)|lower }}">
     <input type="hidden" name="uid" value="{{ r.uid }}"><input type="hidden" name="dept" value="{{ dept }}">
     <span class="tm-name">{{ r.name }}<small>{{ r.uid }}{% if r.home %} · 겸직(소속 {{ r.home }}){% endif %}</small></span>
     {% if r.editable %}
@@ -47,8 +63,30 @@
     {% endif %}
     <span class="tm-by">{% if r.by %}{{ r.by }} 님이 정함{% endif %}</span>
   </form>
-  {% else %}
-  <p class="tm-fixed" style="padding:14px">이 부서에 사용 중인 교직원 계정이 없습니다</p>
   {% endfor %}
+  {% endif %}
+  {% endfor %}
+  {% if not rows %}<p class="tm-fixed" style="padding:14px">이 부서에 사용 중인 교직원 계정이 없습니다</p>{% endif %}
+  <p class="tm-none" data-tm-none hidden>찾는 사람이 없습니다</p>
 </div>
+<script>
+(function () {
+  // 찾기 — 이름·아이디로 줄을 거르고, 다 숨은 묶음은 머리도 숨긴다(글자는 textContent 로만 다룬다)
+  var box = document.querySelector('[data-tm-find]'); if (!box) return;
+  var none = document.querySelector('[data-tm-none]');
+  box.addEventListener('input', function () {
+    var words = box.value.trim().toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
+    document.querySelectorAll('[data-tm-group]').forEach(function (head) {
+      var n = 0, el = head.nextElementSibling;
+      while (el && el.hasAttribute('data-tm-row')) {
+        var key = el.getAttribute('data-tm-key') || '', hit = words.every(function (w) { return key.indexOf(w) >= 0; });
+        el.hidden = !hit; if (hit) n++;
+        el = el.nextElementSibling;
+      }
+      head.hidden = !n; head.querySelector('[data-tm-count]').textContent = n + '명'; shown += n;
+    });
+    if (none) none.hidden = !!shown;
+  });
+})();
+</script>
 {% endblock %}

@@ -73,9 +73,10 @@ def test_share_button_and_dialog_wording(tmp_path, monkeypatch):
     assert 'class="share-owner"' in page and ">소유<" in page
     assert "비공개 대화는 공유해도 다른 사람에게 보이지 않습니다" in page
     assert 'data-share-quick="dept:기획처"' in page                    # 우리 부서 전체 바로 더하기
-    choices = json.loads(page.split("data-share-choices>", 1)[1].split("</script>", 1)[0])
-    assert {"to": "user:lee", "label": "lee", "hint": "산학협력단"} in choices
-    assert any(c["to"] == "dept:산학협력단" for c in choices)
+    assert 'data-people-picker data-pass data-kind="dept" data-purpose="share"' in page   # 찾기는 사람 고르기 부품이 서버에 묻는다
+    found = kim.get("/api/people", params={"purpose": "share", "q": "lee"}).json()["people"]
+    assert {"user": "lee", "name": "lee", "dept": "산학협력단"} in found
+    assert any(d["user"] == "dept:산학협력단" for d in kim.get("/api/people", params={"purpose": "share", "kind": "dept"}).json()["depts"])
     kim.post(f"/project/{pid}/shares", data={"mode": "shared", "to": ["dept:기획처", "user:lee"], "level": ["view", "edit"]},
              follow_redirects=False)
     page = kim.get(f"/project/{pid}").text

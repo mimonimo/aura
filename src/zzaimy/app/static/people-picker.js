@@ -12,11 +12,17 @@
  *   data-single   한 사람만
  *   data-endpoint 찾기 주소(기본 /api/people) — 응답 {people:[{user,name,dept,grade_label}], depts:[…], my_dept}
  *   data-kind     dept 를 넣으면 부서도 고른다(값 「dept:부서」, 칩은 「부서(부서)」) — 그 부서와 상위 부서의 총괄 책임자들을 뜻한다
+ *   data-purpose  찾기 용도(share 면 프로젝트 공유 — 같은 학교 교직원 전체, 아이디·이름·부서만)
+ *   data-pass     고른 사람을 칩으로 두지 않고 pp:pick 이벤트(detail = {user,name,dept,kind})로 넘긴다 — 공유 창처럼
+ *                 고른 뒤 줄마다 권한을 따로 둘 때. 이미 고른 사람을 목록에서 빼려면 el.ppTaken = function () { return [아이디…] }
  * 고른 사람은 저장할 때 서버가 등급·부서를 다시 검사한다. 최근 고른 사람은 브라우저에 기억한다(막혀 있으면 건너뜀).
  */
 (function () {
   var RECENT = 'pp.recent';
-  function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+  // 글자·속성 어디에 넣어도 안전하게 — & < > " ' 를 모두 바꾼다
+  function esc(t) {
+    return (t == null ? '' : String(t)).replace(/[&<>"']/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]; });
+  }
   function recent() { try { return JSON.parse(localStorage.getItem(RECENT) || '[]') || []; } catch (e) { return []; } }
   function remember(p) {
     try {
@@ -29,7 +35,7 @@
 
   function mount(el) {
     if (el._pp) return el._pp;
-    var name = el.dataset.name || 'people', grade = el.dataset.grade || '', single = el.hasAttribute('data-single');
+    var name = el.dataset.name || 'people', grade = el.dataset.grade || '', single = el.hasAttribute('data-single'), pass = el.hasAttribute('data-pass');
     var endpoint = el.dataset.endpoint || '/api/people';
     var mineOnly = el.dataset.scope === 'dept', myDept = '';
     var sel = [];
@@ -53,6 +59,11 @@
     }
     function close() { pop.hidden = true; input.setAttribute('aria-expanded', 'false'); cur = -1; }
     function add(p) {
+      if (pass) {
+        remember(p); input.value = ''; close(); input.focus();
+        el.dispatchEvent(new CustomEvent('pp:pick', {bubbles: true, detail: {user: p.user, name: p.name, dept: p.dept, kind: p.kind || 'user'}}));
+        return;
+      }
       if (!sel.some(function (x) { return x.user === p.user; })) {
         if (single) sel = [];
         sel.push({user: p.user, label: p.kind === 'dept' ? p.name + '(부서)' : (p.name || p.user), dept: p.dept, grade_label: p.grade_label});
@@ -62,10 +73,10 @@
     }
     function row(p, i) {
       return '<div class="pp-opt' + (i === cur ? ' on' : '') + '" role="option" data-i="' + i + '"><span class="pp-av">' + esc(initial(p.name)) + '</span>'
-        + '<span class="pp-nm">' + esc(p.name) + '</span><span class="pp-meta">' + esc([p.dept || '부서 없음', p.grade_label].filter(Boolean).join(' · ')) + '</span></div>';
+        + '<span class="pp-nm">' + esc(p.name) + '</span><span class="pp-meta">' + esc([p.kind === 'dept' ? '' : (p.dept || '부서 없음'), p.grade_label].filter(Boolean).join(' · ')) + '</span></div>';
     }
     function render(list, q) {
-      var taken = sel.map(function (x) { return x.user; });
+      var taken = sel.map(function (x) { return x.user; }).concat(typeof el.ppTaken === 'function' ? el.ppTaken() || [] : []);
       items = list.filter(function (p) { return taken.indexOf(p.user) < 0; });
       var h = '<div class="pp-quick">' + (myDept ? '<button type="button" class="pp-q' + (mineOnly ? ' on' : '') + '" data-q="mine">우리 부서</button>'
         + '<button type="button" class="pp-q' + (!mineOnly ? ' on' : '') + '" data-q="all">모든 부서</button>' : '')
@@ -79,13 +90,14 @@
       items.forEach(function (p, i) {
         var d = p.dept || '부서 없음';
         if (d !== last) { h += '<div class="pp-group">' + esc(d) + '</div>'; last = d; }
-        h += p.kind === 'dept' ? row({name: p.name, dept: '', grade_label: '부서 지정'}, i).replace('pp-av">', 'pp-av" style="border-radius:5px;">') : row(p, i);
+        h += p.kind === 'dept' ? row({name: p.name, kind: 'dept', grade_label: p.grade_label || '부서 지정'}, i).replace('pp-av">', 'pp-av" style="border-radius:5px;">') : row(p, i);
       });
       pop.innerHTML = h; pop.hidden = false; input.setAttribute('aria-expanded', 'true');
     }
     function search() {
       var q = input.value.trim(), my = ++seq;
       var u = endpoint + '?limit=30&q=' + encodeURIComponent(q) + (grade ? '&grade=' + encodeURIComponent(grade) : '') + (el.dataset.kind ? '&kind=' + encodeURIComponent(el.dataset.kind) : '')
+        + (el.dataset.purpose ? '&purpose=' + encodeURIComponent(el.dataset.purpose) : '')
         + (mineOnly && myDept ? '&dept=' + encodeURIComponent(myDept) : '');
       fetch(u, {headers: {Accept: 'application/json'}}).then(function (r) { if (!r.ok) throw r; return r.json(); }).then(function (d) {
         if (my !== seq) return;
@@ -102,7 +114,8 @@
         cur = Math.max(0, Math.min(items.length - 1, cur + (e.key === 'ArrowDown' ? 1 : -1)));
         pop.querySelectorAll('.pp-opt').forEach(function (o) { o.classList.toggle('on', +o.dataset.i === cur); if (+o.dataset.i === cur) o.scrollIntoView({block: 'nearest'}); });
       } else if (e.key === 'Enter') {
-        if (!pop.hidden && items[cur]) { e.preventDefault(); e.stopPropagation(); add(items[cur]); }
+        e.preventDefault();                                   // 찾기 칸의 Enter 는 폼을 보내지 않는다
+        if (!pop.hidden && items[cur]) { e.stopPropagation(); add(items[cur]); }
       } else if (e.key === 'Backspace' && !input.value && sel.length) {
         sel.pop(); paint();
       } else if (e.key === 'Escape' && !pop.hidden) {

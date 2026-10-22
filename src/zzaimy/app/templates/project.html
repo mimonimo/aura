@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }}{% endblock %}
 {% block pagetitle %}프로젝트{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/project-workspace.css?v={{ asset_v }}"><script src="/static/project-workspace.js?v={{ asset_v }}" defer></script><link rel="stylesheet" href="/static/aura-finder.css?v={{ asset_v }}"><script src="/static/aura-finder.js?v={{ asset_v }}" defer></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/project-workspace.css?v={{ asset_v }}"><script src="/static/project-workspace.js?v={{ asset_v }}" defer></script><link rel="stylesheet" href="/static/aura-finder.css?v={{ asset_v }}"><script src="/static/aura-finder.js?v={{ asset_v }}" defer></script><link rel="stylesheet" href="/static/people-picker.css?v={{ asset_v }}"><script src="/static/people-picker.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 {% set flow_hints = {
   "grant": "공고·지침을 기준 문서로 연결하고, 대화에서 공고 항목에 맞춘 계획서 초안을 작성합니다.",
@@ -287,11 +287,9 @@
         <label><input type="radio" name="mode" value="shared" {{ 'checked' if shared_on }}><span><span class="share-mode-name">함께 쓰기</span><small>고른 부서·사람과 나눕니다</small></span></label>
       </div>
       <div class="share-body" data-share-body {{ 'hidden' if not shared_on }}>
-        <div class="share-find">
-          <iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
-          <input type="search" data-share-search placeholder="부서나 사람 이름으로 찾기" aria-label="공유할 부서·사람 찾기" autocomplete="off">
-          <div class="share-suggest" data-share-suggest role="listbox" hidden></div>
-        </div>
+        {# 사람·부서 찾기 — 공용 사람 고르기 부품(people-picker, /api/people?purpose=share). 고르면 아래 줄로 옮겨 권한을 정한다 #}
+        <div class="share-find" data-people-picker data-pass data-kind="dept" data-purpose="share" data-share-picker
+             data-owner="{{ project.owner or '' }}" data-placeholder="이름·아이디·부서로 찾기"></div>
         {% if share_own_dept %}<button type="button" class="share-quick" data-share-quick="dept:{{ share_own_dept }}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>우리 부서 전체({{ share_own_dept }})</button>{% endif %}
         <div class="share-owner"><iconify-icon icon="solar:crown-minimalistic-linear" aria-hidden="true"></iconify-icon><span class="share-who">{{ owner_label }}<small>만든 사람</small></span><span class="share-owner-level">소유</span></div>
         <div class="share-rows" data-share-rows>
@@ -308,7 +306,6 @@
           <li>비공개 대화는 공유해도 다른 사람에게 보이지 않습니다</li>
         </ul>
       </div>
-      <script type="application/json" data-share-choices>{{ share_choices|tojson }}</script>
       <template data-share-template><div class="share-row"><input type="hidden" name="to" value="">
         <iconify-icon aria-hidden="true"></iconify-icon><span class="share-who"><small></small></span>
         <select name="level" aria-label="권한">{% for k, v in share_levels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
@@ -325,15 +322,7 @@
   .share-mode input { margin:3px 0 0; accent-color:#1f2937; }
   .share-mode .share-mode-name { display:block; font-size:13.5px; font-weight:600; }
   .share-mode small { display:block; margin-top:2px; font-size:12px; color:var(--muted); }
-  .share-find { position:relative; display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid #d6dee8; border-radius:8px; background:#fff; }
-  .share-find:focus-within { border-color:#8092a9; }
-  .share-find iconify-icon { color:var(--faint); flex:none; }
-  .share-find input { flex:1; min-width:0; height:34px; border:0 !important; outline:none !important; box-shadow:none !important; background:transparent; padding:0; font:inherit; font-size:13px; }
-  .share-suggest { position:absolute; left:-1px; right:-1px; top:calc(100% + 4px); z-index:5; max-height:220px; overflow-y:auto; padding:4px; background:#fff; border:1px solid #d9e0ea; border-radius:8px; box-shadow:0 8px 24px #15243c1f; }
-  .share-suggest button { display:flex; align-items:center; gap:8px; width:100%; padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--ink); font:inherit; font-size:13px; text-align:left; box-shadow:none; cursor:pointer; }
-  .share-suggest button:hover, .share-suggest button.on { background:#f1f4f8; }
-  .share-suggest small { margin-left:auto; color:var(--faint); font-size:11.5px; }
-  .share-suggest p { margin:6px 8px; font-size:12.5px; color:var(--muted); }
+  .share-find .pp-box { min-height:36px; border-color:#d6dee8; }
   .share-quick { margin:8px 0 0; padding:4px 10px; min-height:28px; font-size:12px; font-weight:500; border:1px solid #dde1e6; border-radius:7px; background:#fff; color:#414b58; box-shadow:none; gap:5px; }
   .share-quick:hover { background:#f4f5f7; border-color:#bfc7d2; }
   .share-rows { display:flex; flex-direction:column; margin-top:10px; }
@@ -362,9 +351,7 @@
   var form = document.getElementById('shareForm'); if (!form) return;
   var body = form.querySelector('[data-share-body]'), rows = form.querySelector('[data-share-rows]');
   var tpl = form.querySelector('[data-share-template]'), empty = form.querySelector('[data-share-empty]');
-  var search = form.querySelector('[data-share-search]'), sug = form.querySelector('[data-share-suggest]');
-  var quick = form.querySelector('[data-share-quick]');
-  var choices = []; try { choices = JSON.parse(form.querySelector('[data-share-choices]').textContent) || []; } catch (_) {}
+  var picker = form.querySelector('[data-share-picker]'), quick = form.querySelector('[data-share-quick]');
   function has(to) { return !!rows.querySelector('.share-row[data-to="' + CSS.escape(to) + '"]'); }
   function sync() {
     empty.hidden = !!rows.children.length;
@@ -381,34 +368,19 @@
     row.querySelector('[data-share-remove]').setAttribute('aria-label', c.label + ' 빼기');
     rows.appendChild(row); sync();
   }
-  function matches() {
-    var q = search.value.trim().toLocaleLowerCase();
-    if (!q) return [];
-    return choices.filter(function (c) { return !has(c.to) && (c.label + ' ' + c.hint).toLocaleLowerCase().indexOf(q) >= 0; }).slice(0, 8);
-  }
-  function paint() {
-    var list = matches(); sug.replaceChildren();
-    if (!search.value.trim()) { sug.hidden = true; return; }
-    if (!list.length) { var p = document.createElement('p'); p.textContent = '맞는 부서·사람이 없습니다'; sug.appendChild(p); }
-    list.forEach(function (c, i) {
-      var b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'option'); if (!i) b.className = 'on';
-      var ic = document.createElement('iconify-icon'); ic.setAttribute('icon', c.to.indexOf('dept:') === 0 ? 'solar:buildings-2-linear' : 'solar:user-linear');
-      var t = document.createElement('span'); t.textContent = c.label;
-      var h = document.createElement('small'); h.textContent = c.hint;
-      b.append(ic, t, h);
-      b.addEventListener('click', function () { add(c); search.value = ''; paint(); search.focus(); });
-      sug.appendChild(b);
-    });
-    sug.hidden = false;
-  }
-  search.addEventListener('input', paint);
-  search.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); var m = matches(); if (m.length) { add(m[0]); search.value = ''; paint(); } }
-    else if (e.key === 'Escape' && !sug.hidden) { e.stopPropagation(); search.value = ''; paint(); }
+  // 이미 줄에 있는 사람·부서와 만든 사람은 찾기 목록에서 뺀다(사람 고르기 부품의 값: 사람은 아이디, 부서는 dept:부서)
+  picker.ppTaken = function () {
+    return [].map.call(rows.querySelectorAll('.share-row'), function (r) { var t = r.dataset.to; return t.indexOf('user:') === 0 ? t.slice(5) : t; })
+      .concat(picker.dataset.owner ? [picker.dataset.owner] : []);
+  };
+  picker.addEventListener('pp:pick', function (e) {
+    var p = e.detail || {}, dept = p.kind === 'dept';
+    if (!dept && p.user === picker.dataset.owner) return;
+    add({to: dept ? p.user : 'user:' + p.user, label: dept ? p.name : (p.name && p.name !== p.user ? p.name + ' (' + p.user + ')' : p.user), hint: dept ? '부서 전체' : (p.dept || '사람')});
   });
-  search.addEventListener('blur', function () { setTimeout(function () { if (!sug.contains(document.activeElement)) sug.hidden = true; }, 150); });
-  if (quick) quick.addEventListener('click', function () { add(choices.find(function (c) { return c.to === quick.dataset.shareQuick; })); });
-  form.addEventListener('change', function (e) { if (e.target.name === 'mode') { body.hidden = e.target.value !== 'shared'; if (!body.hidden && !rows.children.length) search.focus(); } });
+  if (quick) quick.addEventListener('click', function () { var d = quick.dataset.shareQuick; add({to: d, label: d.slice(5), hint: '부서 전체'}); });
+  function focusPicker() { var i = picker.querySelector('input'); if (i) i.focus(); }
+  form.addEventListener('change', function (e) { if (e.target.name === 'mode') { body.hidden = e.target.value !== 'shared'; if (!body.hidden && !rows.children.length) focusPicker(); } });
   rows.addEventListener('click', function (e) { var b = e.target.closest('[data-share-remove]'); if (b) { b.closest('.share-row').remove(); sync(); } });
   sync();
 })();

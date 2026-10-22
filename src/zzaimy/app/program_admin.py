@@ -1251,6 +1251,9 @@ async def programs_admin_request(request: Request):
     reqs.append(q)
     add_note(store, admin_users(accounts), f"새 신청 #{q['id']} — 「{r['name']}」 {'지정' if kind == 'assign' else '수정'} 신청", q["id"])
     save_store(store, st.data_dir)
+    from zzaimy.app.notifications import notify                # 종(알림)에도 — 관리자에게
+    notify(getattr(st, "db", None), admin_users(accounts),
+           f"사업 관리 신청: {r['name']} — {'지정' if kind == 'assign' else '수정'} 신청", "/programs/admin?view=requests")
     return _back(f"신청 #{q['id']}을 보냈습니다 — 관리자가 승인하면 반영됩니다")
 
 
@@ -1312,6 +1315,9 @@ def programs_admin_decide(request: Request, id: str = Form(""), decision: str = 
     q.update({"status": decision, "done_by": user, "done_at": time.strftime("%Y-%m-%d %H:%M"), "note": note})
     add_note(store, [q["by"]], f"신청 #{q['id']} 「{q['name']}」 {'승인' if decision == 'ok' else '반려'}" + (f" — {note}" if note else ""), q["id"])
     save_store(store, st.data_dir)
+    from zzaimy.app.notifications import notify                # 종(알림)에도 — 신청자에게
+    notify(getattr(st, "db", None), [q["by"]],
+           f"사업 관리 신청 {'승인' if decision == 'ok' else '반려'}: {q['name']}" + (f" — {note}" if note else ""), "/programs/admin?view=requests")
     return RedirectResponse(f"/programs/admin?view=requests&ok={quote('신청 #' + str(q['id']) + (' 승인' if decision == 'ok' else ' 반려'))}",
                             status_code=303)
 
@@ -1333,9 +1339,12 @@ _PICK_RANK = {"member": 0, "clerk": 1, "lead": 2, "head": 3, "admin": 4}     # �
 
 
 @router.get("/api/people")
-def api_people(request: Request, q: str = "", dept: str = "", grade: str = "", limit: int = 20):
+def api_people(request: Request, q: str = "", dept: str = "", grade: str = "", limit: int = 20, purpose: str = ""):
     """사람 찾기 — 사업 관리에서 지정할 수 있는 사람(관리자·총괄 책임자만 부른다). 사용 중인 교직원 계정만, 이름·아이디·부서로 찾는다.
-    grade 는 그 등급 이상(clerk·lead·head). 돌려주는 값은 아이디·이름·부서·등급뿐(이메일·전화 같은 개인정보 없음)."""
+    grade 는 그 등급 이상(clerk·lead·head). 돌려주는 값은 아이디·이름·부서·등급뿐(이메일·전화 같은 개인정보 없음).
+    purpose=share 는 프로젝트 공유 창 — 교직원 누구나 부르고, 같은 학교 사용 중인 교직원 전체를 아이디·이름·부서만 돌려준다."""
+    if purpose == "share":
+        return _people_for_share(request, q, dept, limit)
     scope, user, acct = _scope_or_403(request)
     if scope not in ("all", "dept"):
         raise HTTPException(403, "사람 찾기는 총괄 책임자와 관리자만 합니다")
@@ -1374,6 +1383,47 @@ def api_people(request: Request, q: str = "", dept: str = "", grade: str = "", l
         depts_out = [{"user": f"dept:{d}", "name": d, "dept": "부서", "grade_label": "부서 지정", "kind": "dept"}
                      for d in sorted(names) if not words or all(w in d.lower() for w in words)][:10]
     return {"people": out, "depts": depts_out if kind_dept else [], "my_dept": my_dept(acct)}
+
+
+def _people_for_share(request: Request, q: str, dept: str, limit: int) -> dict:
+    """공유 창의 사람·부서 찾기. 사람은 공유 저장(project_routes.project_set_shares)이 받는 계정과 같은 범위,
+    부서는 저장이 받는 부서(known_depts) 가운데 이름이나 부서 사전(별칭 포함)이 맞는 것."""
+    if getattr(request.state, "role", "") not in ("staff", "dev", "professor", "head"):
+        raise HTTPException(403, "교직원 계정에서 쓸 수 있습니다")
+    st = request.app.state
+    accounts = getattr(st, "accounts", None) or {}
+    me = getattr(request.state, "user", "") or ""
+    words = [w for w in (q or "").lower().split() if w]
+    cap = max(1, min(int(limit or 20), 50))
+    out = []
+    for u, a in sorted(accounts.items()):
+        a = a or {}
+        if not a.get("active", True) or a.get("role", "staff") not in grades.STAFF:
+            continue
+        d = (a.get("dept") or "").strip()
+        if dept and d != dept:
+            continue
+        name = (a.get("name") or "").strip() or u
+        if words and not all(w in f"{u} {name} {d}".lower() for w in words):
+            continue
+        out.append({"user": u, "name": name, "dept": d})
+        if len(out) >= cap:
+            break
+    depts_out = []
+    if "dept" in (request.query_params.get("kind") or ""):
+        from zzaimy.app.user_admin import known_depts
+        known = known_depts(getattr(st, "db", None), accounts, getattr(st, "data_dir", None))
+        hit = [d for d in known if not words or all(w in d.lower() for w in words)]
+        if q.strip():
+            try:                                                   # 부서 사전 — 별칭·줄임말로도 찾는다
+                from zzaimy.app import dept_dictionary as _dd
+                for it in _dd.current(getattr(st, "db", None), getattr(st, "data_dir", None)).suggest(q, None, 20):
+                    if it["name"] in known and it["name"] not in hit:
+                        hit.append(it["name"])
+            except Exception:
+                pass
+        depts_out = [{"user": f"dept:{d}", "name": d, "dept": "부서", "grade_label": "부서 전체", "kind": "dept"} for d in hit[:10]]
+    return {"people": out, "depts": depts_out, "my_dept": ((accounts.get(me) or {}).get("dept") or "").strip()}
 
 
 # ---------------------------------------------------------------- 엑셀에서 채우기(관리자)
