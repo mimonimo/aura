@@ -68,6 +68,11 @@ class HwpTools:
     # ── 도구 ──
     def forms(self, a: dict) -> str:
         q = str(a.get("query") or "").strip()
+        try:                                                # 공통 양식이 아직 없으면 먼저 만든다(정의가 같으면 그대로 — 빠르다)
+            from zzaimy.app import webhwp_templates
+            webhwp_templates.ensure_all(self.db, self.base)
+        except Exception:
+            pass
         out = []
         for d in self.project_docs() or []:
             if storage.original_ext(d) in (".hwp", ".hwpx"):
