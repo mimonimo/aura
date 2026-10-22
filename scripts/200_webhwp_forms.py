@@ -202,7 +202,32 @@ def check_one(path: Path, http) -> dict:
         out["problems"].append(f"기안기에서 열기 실패({type(e).__name__})")
     if not out["opens"]:
         out["ok"] = False
-    # 2) 채우기 시험 — 첫 절 제목 아래 문단과 새 표, 서식 표(머리행 + 빈 행) 칸 채우기·행 늘리기
+    # 2) 칸 양식 시험 — 라벨 칸 오른쪽 빈 칸(값 칸)을 채워 기안기에서 다시 열리는가(신청서·서명부·이력서 같은 칸만 있는 양식)
+    labels = []
+    for tr in re.findall(r"<hp:tr\b.*?</hp:tr>", xml, re.S):
+        cells = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<hp:tc\b.*?</hp:tc>", tr, re.S)]
+        for a, b in zip(cells, cells[1:]):
+            if a and not b and 1 < len(a) <= 15 and a not in labels:
+                labels.append(a)
+    out["label_cells"] = len(labels)
+    out["kind"] = "절 양식" if heads else "칸 양식"
+    if labels:
+        try:
+            from hwpx import HwpxDocument
+            doc = HwpxDocument.open(path.read_bytes())
+            res = doc.fill_by_path({f"{lb} > right": "점검값" for lb in labels[:6]})
+            filled = getattr(res, "filled", None) or getattr(res, "applied", None)
+            out["label_fill"] = len(filled) if isinstance(filled, (list, tuple, dict)) else str(res)[:60]
+            data = doc.to_bytes()
+            r2 = http.post(f"{webhwp.base_url()}/webhwpctrl/open", files={"openFile": ("y.hwpx", data)},
+                           data={"format": "HWPX", "args": ""}, timeout=180)
+            out["label_fill_opens"] = bool(r2.status_code == 200 and r2.json().get("json"))
+            if not out["label_fill_opens"]:
+                out["problems"].append("칸을 채운 파일이 기안기에서 열리지 않음")
+                out["ok"] = False
+        except Exception as e:
+            out["problems"].append(f"칸 채우기 실패({type(e).__name__}: {str(e)[:60]})")
+    # 3) 절 양식 시험 — 절 제목 아래 문단과 새 표, 서식 표(머리행 + 빈 행) 칸 채우기·행 늘리기. 제목 후보를 차례로(목차 줄은 건너뜀)
     if heads:
         tbl_head = None
         for m in re.finditer(r"<hp:tbl\b.*?</hp:tbl>", xml, re.S):
@@ -216,11 +241,15 @@ def check_one(path: Path, http) -> dict:
         if tbl_head:
             items.append(("table", [tbl_head] + [[f"값{r}-{c}" for c in range(len(tbl_head))] for r in range(1, 6)]))
         try:
-            rep = hf.fill(path, [{"heading": heads[0], "items": items}], path.with_suffix(".filled.hwpx"))
+            rep = {}
+            for h in heads[:8]:
+                rep = hf.fill(path, [{"heading": h, "items": items}], path.with_suffix(".filled.hwpx"))
+                if rep.get("filled"):
+                    break
             out["fill"] = {k: rep.get(k) for k in ("filled", "skipped", "paragraphs", "tables", "tables_updated", "tables_grown", "checks")}
             out["form_table"] = bool(tbl_head)
             if not rep.get("filled"):
-                out["problems"].append("첫 절 제목을 서식에서 찾지 못함")
+                out["problems"].append("절 제목 후보 8개 모두 서식에서 찾지 못함")
             if rep.get("checks"):
                 out["problems"].append("자가 점검: " + "; ".join(rep["checks"][:3]))
                 out["ok"] = False
@@ -230,8 +259,8 @@ def check_one(path: Path, http) -> dict:
         except Exception as e:
             out["problems"].append(f"채우기 실패({type(e).__name__}: {str(e)[:80]})")
             out["ok"] = False
-    else:
-        out["problems"].append("절 제목(번호 붙은 제목)을 찾지 못함 — 표·칸 양식")
+    elif not labels:
+        out["problems"].append("절 제목도 라벨 칸도 찾지 못함")
     return out
 
 
@@ -278,6 +307,7 @@ def report(picked: list[dict]) -> None:
             continue
         state = "통과" if r["ok"] and not r["problems"] else ("확인 필요" if r["ok"] else "문제")
         cnt[state] += 1
+        cnt[r.get("kind", "?")] += 1
         if state != "통과":
             lines.append(f"- {state} · doc {k} {p['title']} (표 {r.get('tables')}, 제목 {r.get('n_headings')}) — {'; '.join(r['problems'])}")
     head = ["", f"묶음 {len(picked)}개 · " + " · ".join(f"{k} {v}" for k, v in cnt.most_common()), ""]
