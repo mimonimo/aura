@@ -680,15 +680,15 @@ document.addEventListener('submit', function(event) {
   </div>
   <div class="side-user">
     <div class="menu-wrap">
-      <button type="button" class="icon-btn" data-pop="bellPop" title="확인할 문서" aria-label="확인할 문서">
+      <button type="button" class="icon-btn" data-pop="bellPop" title="알림" aria-label="알림">
         <iconify-icon icon="solar:bell-linear"></iconify-icon>
         {% if alert_count %}<span class="badge-n">{{ alert_count }}</span>{% endif %}
       </button>
       <div class="popover" id="bellPop">
-        <h5>확인할 문서{% if alert_count %} <span>{{ alert_count }}</span>{% endif %}</h5>
+        <h5>알림{% if alert_count %} <span>{{ alert_count }}</span>{% endif %}</h5>
         {% if alert_count %}<p class="notification-help">열어 본 알림은 정리됩니다. 문서의 업무 상태는 바뀌지 않습니다.</p>
         <button type="button" class="btn-ghost" id="notificationReadAll">모두 확인</button>
-        {% else %}<div class="pop-empty">새로 확인할 문서가 없습니다.</div>{% endif %}
+        {% else %}<div class="pop-empty">새 알림이 없습니다.</div>{% endif %}
         <div data-notice-list hidden></div>{# 업무 알림(사업 관리 신청 등, notifications.notify) — 아래 스크립트가 채운다 #}
         {% if drive_new %}<h6 class="notification-section">드라이브에서 가져옴</h6>{% endif %}
         {% for d in drive_new %}

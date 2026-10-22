@@ -113,7 +113,7 @@ def test_shell_names_service_hides_server_details_from_staff_and_quiet_bell(tmp_
     page = c.get("/?type=all").text
     assert "<title>문서 · AURA</title>" in page and "행정 에이전트" not in page
     assert "기본 AI 서버" not in page                                  # 업무 사용자에게는 연결 여부만
-    assert "새로 확인할 문서가 없습니다" in page and 'id="notificationReadAll"' not in page
+    assert "새 알림이 없습니다" in page and 'id="notificationReadAll"' not in page
     assert 'var KEY = "chatWidgetSession"' in page                       # 위젯은 채팅 화면의 마지막 대화를 잇지 않는다
     assert "side-hwp-box" in page and "검색 범위:" in c.get("/chat").text
 
