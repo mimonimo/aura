@@ -299,6 +299,11 @@ def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = 
         r["stage"] = stage(r, this_year)
     n_cur = sum(1 for r in shown if r["stage"] != "past")
     n_past = len(shown) - n_cur
+    if tab == "past" and scope == "dept":                 # 총괄 책임자는 지난 사업 전체를 확인용으로(숨긴 줄 빼고, 읽기만)
+        shown = visible_rows(rows, "all", user, acct)
+        for r in shown:
+            r["stage"] = stage(r, this_year)
+        n_past = sum(1 for r in shown if r["stage"] == "past")
     in_tab = [r for r in shown if (r["stage"] == "past") == (tab == "past")]
     ys: set[int] = set()
     for r in in_tab:                                       # 이 갈래 사업이 진행한 연도들 — 연도 고르기 목록

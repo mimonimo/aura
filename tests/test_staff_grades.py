@@ -299,3 +299,12 @@ def test_program_span_and_stage():
     assert program_admin.stage({"period": "2025~"}, 2026) == "current"
     assert program_admin.stage({"period": ""}, 2026) == "unknown"
     assert program_admin.runs_in({"period": "2017~2022"}, 2019) and not program_admin.runs_in({"period": "2017~2022"}, 2023)
+
+
+def test_head_sees_all_past_programs(world):
+    """총괄 책임자는 지난 사업 전체를 확인용으로 본다(다른 부서 사업 포함, 읽기만)."""
+    app, tmp_path, pid = world
+    boss = _client(app, "boss")
+    assert "라마바 지원사업" not in boss.get("/programs/admin").text          # 현행은 자기 부서
+    past = boss.get("/programs/admin?tab=past").text
+    assert "라마바 지원사업" in past and "편집" not in past.split("<tbody>")[1].split("</tbody>")[0]
