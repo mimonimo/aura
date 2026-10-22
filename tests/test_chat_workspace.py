@@ -247,7 +247,7 @@ def test_search_page_finds_documents_chats_and_chunks(tmp_path):
     assert f'href="/doc/{did}"' in page                 # 문서(본문에서 찾음)
     assert f'href="/chat/{sid}"' in page                # 대화(주고받은 글에서 찾음)
     assert "제19조(휴학)" in page                        # 근거 조각
-    assert 'action="/search"' in c.get("/chat").text     # 상단 검색창이 이 화면으로 온다
+    assert 'href="/search" data-quick-search' in c.get("/chat").text     # 사이드바 검색(빠른 찾기)이 이 화면으로 이어진다
 
 
 def test_chat_history_search_can_look_inside_messages(tmp_path):

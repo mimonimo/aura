@@ -567,7 +567,10 @@ def create_app(
                     from zzaimy.app import project_refs as _pr
                     shared = bool(proj.get("archived")) and bool(
                         _pr._visible_counts(db, [int(proj["id"])], _req_viewer(request)).get(int(proj["id"])))
-                    if request.method == "POST":
+                    if request.method == "POST" and re.fullmatch(r"/project/\d+/(bundle|documents/import|notes(/[^/]+)*|criteria/(link|unlink))",
+                                                                 request.url.path):
+                        shared = _project_access(request, proj) == "edit"   # 「함께 작업」 은 문서 추가·원칙·기준 연결까지(참조는 막힘)
+                    elif request.method == "POST":
                         shared = shared and proj.get("owner") == "zzdev" and request.url.path.endswith("/unarchive")
                     elif _project_access(request, proj):
                         shared = True                     # 공유받은 프로젝트(project_access) — 화면은 읽기, 프로젝트를 바꾸는 POST 는 위에서 막힌다
@@ -749,6 +752,10 @@ def create_app(
     # 웹 한글 기안기 — 부서 한글 문서함·기안기로 열기·기안기 서버 프록시(/webhwpctrl/)
     from zzaimy.app.webhwp_routes import router as webhwp_router
     app.include_router(webhwp_router)
+    from zzaimy.app.webhwp_export_routes import router as webhwp_export_router   # 기안기 내려받기 형식·다른 이름으로 저장·이름 바꾸기
+    app.include_router(webhwp_export_router)
+    from zzaimy.app.finder_routes import router as finder_router            # 공용 디렉터리 창(부서 폴더·드라이브 고르기·전체 찾기)
+    app.include_router(finder_router)
     # 사업 중심 그래프(온톨로지 v3, ADR-0048) — kg_nodes·kg_edges 를 사업 하나 기준으로 펼친다
     from zzaimy.app.kg_view import router as kg_view_router
     app.include_router(kg_view_router)
@@ -3572,6 +3579,47 @@ def create_app(
             "q": term, "docs": docs, "docs_more": docs_more, "chats": chats, "chunks": chunks, "projects": projects,
         }))
 
+    @app.get("/api/quick-search")
+    def quick_search(request: Request, q: str = ""):
+        """빠른 찾기 창(Ctrl+K) — 이름·제목만 바로(본문 색인·모델은 쓰지 않는다). 권한은 /search 와 같은 조건.
+        대화·프로젝트·문서(라이브러리)·한글 문서(쓸 수 있는 부서 폴더) 각 몇 개, 본문까지는 「모든 결과 보기」(/search)."""
+        from zzaimy.app import project_search as _ps
+        term = (q or "").strip()[:100]
+        out: dict = {"q": term, "chats": [], "projects": [], "docs": [], "hwp": []}
+        if not term:
+            return out
+        owner = getattr(request.state, "user", "zzaimy")
+        role = request.state.role
+        rows = chat_history.sessions(owner, term, False, 0, 6, chat_topics.match_clause(term), 'all')
+        out["chats"] = [{"id": r["id"], "title": r.get("title") or "제목 없는 대화", "at": str(r.get("updated_at") or r.get("created_at") or "")[:10],
+                         "project": r.get("project_name") or ""} for r in rows]
+        if not _ap.can_browse(role):                         # 학생은 대화만
+            return out
+        out["projects"] = [{"id": p["id"], "name": p["name"], "at": str(p.get("last_activity") or "")[:10]}
+                           for p in _ps.search(db, owner, term)["projects"][:5]]
+        acc, acc_args = _doc_access_sql(request)
+        pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        with db._conn() as conn:
+            out["docs"] = [{"id": r["id"], "name": r["filename"], "at": str(r["created_at"] or "")[:10]} for r in conn.execute(
+                f"SELECT d.id, d.filename, d.created_at FROM documents d WHERE d.filename LIKE ? ESCAPE '\\'{acc}"
+                " ORDER BY d.id DESC LIMIT 6", [pattern, *acc_args]).fetchall()]
+        try:
+            from zzaimy.app import webhwp
+            from zzaimy.app.webhwp_routes import _base, _depts
+            depts, base, words = set(_depts(request)), _base(request), term.lower().split()
+            for r in db.list_files(kind="webhwp", limit=8000):
+                name = str(r["name"] or "")
+                if not all(w in name.lower() for w in words):
+                    continue
+                d = webhwp.dept_of_path(base, r["path"])
+                if d in depts and not any(x in webhwp.HIDDEN for x in Path(r["path"]).parts) and Path(r["path"]).exists():
+                    out["hwp"].append({"id": r["id"], "name": name, "where": " › ".join([d, *[x for x in webhwp.folder_of(base, r["path"]).split("/") if x]])})
+                if len(out["hwp"]) >= 6:
+                    break
+        except Exception:
+            pass
+        return out
+
     CRITERIA_LIST = "/?type=all&use=criteria"     # 기준 문서 목록 — 라이브러리 한 목록의 「기준」 칩(ADR-0062)
 
     @app.get("/criteria")
@@ -4541,6 +4589,8 @@ def create_app(
 
     templates.env.globals["view_as_roles"] = {r: _ROLES.get(r, r) for r in VIEW_AS_ROLES}
     templates.env.globals["view_as_depts"] = lambda: _all_depts()
+    templates.env.globals["program_scope"] = lambda request: {"admin": "all", "head": "dept", "lead": "own"}.get(_gr.request_grade(request), "")   # 사이드바 「사업 관리」(일반·학생은 안 보임)
+    templates.env.globals["view_as_grades"] = dict(_gr.GRADES)      # 테스트 보기의 교직원 등급(select name="grade", 비우면 기본 등급)
 
     def _all_depts() -> list[str]:
         """부서 목록 한 곳 — 부서 RAG·폴더 짝·계정·사용자 관리의 부서 공용(user_admin.known_depts)."""
@@ -4589,7 +4639,6 @@ def create_app(
         if n < 0:
             return _lib_back(err="원본 폴더는 지울 수 없습니다 — 원본 보관소의 폴더입니다")
         return _lib_back(ok=f"폴더를 지웠습니다 · 문서 {n:,}건은 라이브러리에 그대로 있습니다")
-    templates.env.globals["view_as_grades"] = dict(_gr.GRADES)      # 테스트 보기의 교직원 등급(select name="grade", 비우면 기본 등급)
 
     @app.post("/library/upload")
     def library_upload(request: Request, background: BackgroundTasks, files: list[UploadFile] = File(...),

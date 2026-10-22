@@ -588,17 +588,21 @@ document.addEventListener('submit', function(event) {
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
     <a href="/hwp" data-nav="side-hwp-box" class="{{ 'active' if request.url.path.startswith('/hwp') else '' }}" title="부서 폴더·구글 드라이브의 문서 — 한글은 웹 기안기로 열기">
       <iconify-icon icon="solar:document-text-linear"></iconify-icon>문서함</a>
+    {% if program_scope is defined and program_scope(request) %}
+    <a href="/programs/admin" class="{{ 'active' if request.url.path.startswith('/programs/admin') else '' }}" title="교내 사업 장부 — 분류·부서·기간·예산·총괄·사업 책임자">
+      <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
+    {% endif %}
     {% endif %}
   </nav>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
   <div class="side-label side-label-row">내 프로젝트
-    <button type="button" class="side-label-add" data-modal-open="#projectModal" aria-label="프로젝트 추가" title="프로젝트 추가"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon></button></div>
+    {% if can_create_project is not defined or can_create_project(request) %}<button type="button" class="side-label-add" data-modal-open="#projectModal" aria-label="프로젝트 추가" title="프로젝트 추가"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon></button>{% endif %}</div>
   {% if side_projects %}
   <nav class="side-nav" style="max-height:180px; overflow-y:auto;">
     {% for pj in side_projects %}
     <a href="/project/{{ pj.id }}" style="font-size:13.5px; padding:8px 12px;"
        class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }}">
-      <iconify-icon icon="solar:folder-2-linear"></iconify-icon>
+      <iconify-icon icon="solar:folder-2-linear"{% if project_color is defined %} style="color:{{ project_color(pj.id) }}"{% endif %}></iconify-icon>
       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pj.name }}</span>
       <span class="muted" style="margin-left:auto; font-size:11.5px;" title="프로젝트에 등록된 문서 {{ pj.n_docs }}건"><span class="sr-only">프로젝트에 등록된 문서 </span>{{ pj.n_docs }}<span class="sr-only">건</span></span></a>
     {% endfor %}
@@ -610,7 +614,7 @@ document.addEventListener('submit', function(event) {
     {% for pj in side_shared %}
     <a href="/project/{{ pj.id }}" style="font-size:13.5px; padding:8px 12px;"
        class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }} — {{ pj.owner }} 님이 공유">
-      <iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>
+      <iconify-icon icon="solar:users-group-rounded-linear"{% if project_color is defined %} style="color:{{ project_color(pj.id) }}"{% endif %}></iconify-icon>
       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pj.name }}</span>
       <span class="muted" style="margin-left:auto; font-size:11.5px;">{{ pj.owner }}</span></a>
     {% endfor %}
@@ -644,6 +648,8 @@ document.addEventListener('submit', function(event) {
         <p class="muted">고른 계정이 보는 화면·검색·답변 범위로 바꿉니다. 맨 위 띠의 「원래대로」로 돌아옵니다.</p>
         <input type="hidden" name="back" value="{{ request.url.path }}">
         <label>역할<select name="role">{% for k, v in view_as_roles.items() %}<option value="{{ k }}"{% if k == 'staff' %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+        {% if view_as_grades is defined %}<label data-grade-row>등급(교직원)<select name="grade"><option value="">기본(사업 책임)</option>{% for k, v in view_as_grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+        <script>(function(){var f=document.currentScript.closest('form'),r=f.querySelector('[name=role]'),g=f.querySelector('[data-grade-row]');var s=function(){g.hidden=r.value!=='staff';};r.addEventListener('change',s);s();})();</script>{% endif %}
         <label>부서<select name="dept"><option value="">부서 없음(공통)</option>{% for d in view_as_depts() %}{% if d and d != '공통' %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}</select></label>
         <footer><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit">적용</button></footer>
       </form>
