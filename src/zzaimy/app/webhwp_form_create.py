@@ -335,7 +335,7 @@ def outline_chunks(db, doc_id: int, limit_heads: int = 40) -> dict:
     return {"heads": heads[:limit_heads], "tables": [], "guides": [], "labels": []}
 
 
-def form_sources(db, base, visible=None, cap: int = DICT_INPUT_MAX, docs: bool = True) -> list[dict]:
+def form_sources(db, base, visible=None, cap: int = DICT_INPUT_MAX, docs: bool = True, depts=None) -> list[dict]:
     """참고·사전에 쓰는 실물 양식 목록 — 문서함의 잠긴 양식(공통 양식·공고 서식), 반입 문서 가운데 양식(kind=form 또는 이름에 서식·양식).
     반입 문서는 visible(doc) 가 참인 것만(열람 범위, None 이면 모두 — 갈래 사전처럼 이름을 보이지 않고 세기만 할 때).
     작업본(잠기지 않은 파일)은 쓴 내용이 든 문서라 넣지 않는다."""
@@ -343,6 +343,11 @@ def form_sources(db, base, visible=None, cap: int = DICT_INPUT_MAX, docs: bool =
     out = []
     for r in db.list_files(kind="webhwp", limit=8000):
         if not webhwp.locked(db, r["id"]) or not Path(r["path"]).exists():
+            continue
+        # 보안: 부서 폴더의 양식은 그 부서를 열 수 있는 사람에게만 — depts 를 주면 그 부서(와 공통)만, 공용 사전은 공통만
+        dpt = webhwp.dept_of_path(Path(base), r["path"]) if base is not None else ""
+        allow = set(depts) if depts is not None else {webhwp.COMMON}
+        if dpt and dpt not in allow and dpt != webhwp.COMMON:
             continue
         st = Path(r["path"]).stat()
         out.append({"key": f"tpl:{r['id']}", "name": Path(r["name"]).stem, "path": r["path"], "fp": f"{st.st_size}:{int(st.st_mtime)}"})
@@ -360,6 +365,8 @@ def form_sources(db, base, visible=None, cap: int = DICT_INPUT_MAX, docs: bool =
                         continue
                 except Exception:
                     continue
+            elif (d.get("access_level") or "") != "public":
+                continue                                     # 보안: 공용 사전(열람 범위 모름)은 전체 공개 문서만 센다
             out.append({"key": f"doc:{d['id']}", "name": storage.title_of(d.get("filename") or "")[:60], "doc": d,
                         "fp": str(d.get("content_sha256") or d.get("id"))})
     return out[:cap]
@@ -378,12 +385,12 @@ def outline_of(db, src: dict) -> dict:
         return {"heads": [], "tables": [], "guides": [], "labels": []}
 
 
-def find_references(db, base, purpose: str, kind: str, visible=None, n: int = REF_COUNT) -> list[dict]:
+def find_references(db, base, purpose: str, kind: str, visible=None, n: int = REF_COUNT, depts=None) -> list[dict]:
     """목적이 비슷한 실물 양식 n 개 — 이름에 요청 낱말이 겹치는 수 + 같은 갈래 낱말이면 더 높게. 절 제목이 없는 것은 뺀다."""
     want = kind_noun(f"{kind} {purpose}")
     words = _words(f"{kind} {purpose}")
     scored = []
-    for src in form_sources(db, base, visible, docs=visible is not None):   # 이름을 보이므로 반입 문서는 열람 범위를 알 때만
+    for src in form_sources(db, base, visible, docs=visible is not None, depts=depts):   # 이름을 보이므로 반입 문서는 열람 범위를 알 때만
         hit = sum(1 for w in words if w in src["name"])
         same = bool(want) and kind_noun(src["name"]) == want
         if not hit and not same:
@@ -501,6 +508,13 @@ class FormCreator:
         self.refs: list[dict] = []
         self.kind = ""
 
+    def _depts(self) -> list[str]:
+        """참고 양식으로 볼 수 있는 부서 폴더 — 작업본 부서(그 사람이 쓸 수 있는 부서)와 공통. 모르면 공통만."""
+        from zzaimy.app import webhwp
+        d = getattr(self.hw, "dept", "") or webhwp.COMMON
+        extra = getattr(self.hw, "depts", None) or []
+        return sorted({d, webhwp.COMMON, *extra})
+
     def limit(self) -> int:
         try:
             return llm_budget.context_len(self.client)
@@ -531,7 +545,8 @@ class FormCreator:
             purpose = f"{a.get('purpose') or ''} {self.request}"
             self.kind = kind_noun(f"{a.get('kind') or ''} {purpose}")
             try:
-                self.refs = find_references(self.db, self.hw.base, purpose, str(a.get("kind") or ""), self.visible)
+                self.refs = find_references(self.db, self.hw.base, purpose, str(a.get("kind") or ""), self.visible,
+                                            depts=self._depts())
                 ref_txt = _clip(render_refs(self.refs), int(limit * REF_SHARE))
             except Exception:
                 self.refs = []

@@ -267,3 +267,21 @@ def test_model_trial_sets_and_hides_candidate(monkeypatch):
     assert os.environ["ZZAIMY_LLM_TRY_MODEL"] == "writer-lora"
     assert model_trial._no_address({"name": "m", "base_url": "http://x", "api_key": "k", "base": "b"}) == {"name": "m", "base": "b"}
     model_trial.apply("", "")
+
+
+def test_form_sources_scope(tmp_path):
+    """보안: 공용 갈래 사전은 전체 공개 문서만, 참고 양식은 쓸 수 있는 부서 폴더(와 공통)만."""
+    from zzaimy.app import webhwp_form_create as fc
+
+    class DB:
+        def list_files(self, kind=None, limit=0):
+            return []
+
+        def list_documents(self, q=None, light=False):
+            return [{"id": 1, "filename": "가 서식.hwpx", "kind": "form", "access_level": "dept"},
+                    {"id": 2, "filename": "나 서식.hwpx", "kind": "form", "access_level": "public"},
+                    {"id": 3, "filename": "다 서식.hwpx", "kind": "form", "access_level": None}]
+    keys = [s["key"] for s in fc.form_sources(DB(), tmp_path)]
+    assert keys == ["doc:2"]
+    keys = [s["key"] for s in fc.form_sources(DB(), tmp_path, visible=lambda d: d["id"] != 2)]
+    assert keys == ["doc:1", "doc:3"]
