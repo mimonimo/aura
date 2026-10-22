@@ -38,11 +38,11 @@
       {{ sector_name }} 업무 · 첨부 {{ doc_groups.attached|length }}건 ·
       참고 {{ doc_groups.reference|length }}건 · 기준 문서 {{ doc_groups.rules|length }}건
       {% if project.due_date %} · <b style="color:#C05621;">마감 {{ project.due_date }}</b>{% endif %}
-      · {% if can_edit and not project.archived %}<span class="project-lead-wrap"><button type="button" class="project-lead-chip" id="projectLead" aria-haspopup="true" aria-expanded="false" aria-controls="projectLeadPop" title="사업 책임자 바꾸기">책임 {{ lead_label }}</button>
-        <form class="project-pop project-lead-pop" id="projectLeadPop" action="/project/{{ project.id }}/lead" method="post" hidden aria-label="사업 책임자">
+      · {% if can_edit and not project.archived %}<span class="project-lead-wrap"><button type="button" class="project-lead-chip" id="projectLead" aria-haspopup="true" aria-expanded="false" aria-controls="projectLeadPop" title="사업 담당자 바꾸기">담당 {{ lead_label }}</button>
+        <form class="project-pop project-lead-pop" id="projectLeadPop" action="/project/{{ project.id }}/lead" method="post" hidden aria-label="사업 담당자">
           {% for c in lead_choices %}<button type="submit" name="user" value="{{ c.user }}" aria-pressed="{{ 'true' if c.user == lead else 'false' }}">{{ c.label }}{% if c.user == project.owner %}<small>만든 사람</small>{% endif %}</button>{% endfor %}
-          {% if lead_choices|length < 2 %}<p>함께 작업으로 공유한 사람을 사업 책임자로 고를 수 있습니다</p>{% endif %}
-        </form></span>{% else %}<span class="project-lead-text">책임 {{ lead_label }}</span>{% endif %}
+          {% if lead_choices|length < 2 %}<p>함께 작업으로 공유한 사람을 사업 담당자로 고를 수 있습니다</p>{% endif %}
+        </form></span>{% else %}<span class="project-lead-text">담당 {{ lead_label }}</span>{% endif %}
       · 만든 날 {{ project.created_at[:10] }}</div>
   </div>
   <div class="page-head-actions" style="flex:none;">

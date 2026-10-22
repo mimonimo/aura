@@ -1,14 +1,14 @@
-"""사업 관리 — 교내 사업 장부를 표로 관리하고 사업마다 총괄·사업 책임자를 정한다(ADR-0066).
+"""사업 관리 — 교내 사업 장부를 표로 관리하고 사업마다 총괄 책임자·사업 담당자를 정한다(ADR-0066).
 
 바탕은 외부 확인 장부(kg_external.json)의 사업 항목이다. 장부는 학교의 재정지원사업 현황(연도별 엑셀, scripts/186)과
 공개 출처로 채워져 있고 그래프·사업 목록 나무(program_tree)가 같이 읽으므로 여기서 고치지 않는다. 관리 화면에서 바꾼 값
-(분류·이름·주관 부서·기간·예산·총괄·사업 책임자·숨김)과 새로 더한 줄은 따로 program_admin.json 에 둔다 — 장부 값 위에 덮어 보인다.
+(분류·이름·주관 부서·기간·예산·총괄 책임자·사업 담당자·숨김)과 새로 더한 줄은 따로 program_admin.json 에 둔다 — 장부 값 위에 덮어 보인다.
 
 - 대·중분류: 장부 항목의 지원 주체·체계 갈래(program_tree.place). 소분류는 관리자가 적는다(기본 빈칸)
-- 주관 부서: 학교 표의 업무 부서(school.depts). 총괄 범위 판정에 쓰이므로 계정의 부서 이름과 같게 고쳐 둘 수 있다
+- 주관 부서: 학교 표의 업무 부서(school.depts). 총괄 책임자 범위 판정에 쓰이므로 계정의 부서 이름과 같게 고쳐 둘 수 있다
 - 이어진 프로젝트: projects.program(「program:<열쇠>|<연도>」)의 열쇠가 그 사업의 이름·별칭 열쇠와 같은 것
-- 권한: 관리자 전부(편집·추가·숨기기), 총괄은 자기 부서·총괄로 지정된 사업 읽기 + 사업 책임자 지정, 사업 책임은 자기 사업 읽기
-- 사업의 총괄·사업 책임자 지정은 그 사업에 이어진 프로젝트의 진행 현황 권한으로 이어진다(grades.can_view_activity)
+- 권한: 관리자 전부(편집·추가·숨기기), 총괄 책임자은 자기 부서·총괄 책임자로 지정된 사업 읽기 + 사업 담당자 지정, 사업 담당자은 자기 사업 읽기
+- 사업의 총괄 책임자·사업 담당자 지정은 그 사업에 이어진 프로젝트의 진행 현황 권한으로 이어진다(grades.can_view_activity)
 
 화면: GET /programs/admin · 내려받기 GET /programs/admin.csv · 저장 POST /programs/admin/save · 숨기기 POST /programs/admin/hide
 """
@@ -35,7 +35,7 @@ router = APIRouter()
 STORE = "program_admin.json"
 TEXT_FIELDS = ("l1", "l2", "l3", "name", "dept", "period", "budget")
 COLUMNS = (("l1", "대분류"), ("l2", "중분류"), ("l3", "소분류"), ("name", "사업"), ("dept", "주관 부서"), ("period", "기간"),
-           ("budget", "예산"), ("heads", "총괄"), ("leads", "사업 책임자"), ("projects", "진행 프로젝트"), ("archived", "보관 묶음"))
+           ("budget", "예산"), ("heads", "총괄 책임자"), ("leads", "사업 담당자"), ("projects", "진행 프로젝트"), ("archived", "보관 묶음"))
 _SPLIT = re.compile(r"\s*[,/·]\s*")
 
 
@@ -213,8 +213,8 @@ def visible_rows(rows: list[dict], scope: str, user: str, acct: dict, show_hidde
 
 
 def _choices(accounts: dict, scope: str, acct: dict) -> tuple[list[dict], list[dict]]:
-    """(총괄 후보, 사업 책임자 후보) — 사용 중인 교직원 가운데 총괄은 총괄 등급, 사업 책임자는 사업 책임 이상.
-    총괄이 고르는 사업 책임자는 자기 부서 사람만."""
+    """(총괄 책임자 후보, 사업 담당자 후보) — 사용 중인 교직원 가운데 총괄 책임자은 총괄 책임자 등급, 사업 담당자는 사업 담당자 이상.
+    총괄 책임자이 고르는 사업 담당자는 자기 부서 사람만."""
     heads, leads = [], []
     mine = str(acct.get("dept") or "").strip()
     for u, a in sorted(accounts.items()):
@@ -237,7 +237,7 @@ def _scope_or_403(request: Request) -> tuple[str, str, dict]:
     user, acct = _me(request)
     scope = grades.program_scope(acct)
     if not scope:
-        raise HTTPException(403, "사업 관리는 사업 책임 이상만 볼 수 있습니다")
+        raise HTTPException(403, "사업 관리는 사업 담당자 이상만 볼 수 있습니다")
     return scope, user, acct
 
 
@@ -302,10 +302,10 @@ def programs_admin_csv(request: Request, q: str = "", dept: str = "", l1: str = 
 
 @router.post("/programs/admin/save")
 async def programs_admin_save(request: Request):
-    """줄 저장 — 관리자는 모든 칸과 새 줄(key 비움), 총괄은 보이는 줄의 사업 책임자만. 장부 값과 같은 칸은 따로 적지 않는다."""
+    """줄 저장 — 관리자는 모든 칸과 새 줄(key 비움), 총괄 책임자은 보이는 줄의 사업 담당자만. 장부 값과 같은 칸은 따로 적지 않는다."""
     scope, user, acct = _scope_or_403(request)
     if scope not in ("all", "dept"):
-        raise HTTPException(403, "사업 책임자 지정은 총괄과 관리자만 합니다")
+        raise HTTPException(403, "사업 담당자 지정은 총괄 책임자과 관리자만 합니다")
     st = request.app.state
     accounts = getattr(st, "accounts", None) or {}
     form = await request.form()
@@ -323,10 +323,10 @@ async def programs_admin_save(request: Request):
         keep = [u for u in r["leads"] if u not in leads_ok]          # 다른 부서 사람이 이미 지정돼 있으면 그대로 둔다
         bad = [u for u in want_leads if u not in leads_ok and u not in r["leads"]]
         if bad:
-            return _back("사업 책임자는 같은 부서의 사업 책임 이상 계정에서 고릅니다", ok=False)
+            return _back("사업 담당자는 같은 부서의 사업 담당자 이상 계정에서 고릅니다", ok=False)
         store["rows"].setdefault(key, {})["leads"] = list(dict.fromkeys(keep + want_leads))
         save_store(store, st.data_dir)
-        return _back(f"「{r['name']}」 사업 책임자를 저장했습니다")
+        return _back(f"「{r['name']}」 사업 담당자를 저장했습니다")
     vals = {f: " ".join(str(form.get(f) or "").split())[:120] for f in TEXT_FIELDS}
     if len(vals["name"]) < 2:
         return _back("사업 이름을 적어 주세요", ok=False)
@@ -335,7 +335,7 @@ async def programs_admin_save(request: Request):
     bad = [u for u in want_heads if u not in heads_ok and u not in (old or {}).get("heads", [])] + \
           [u for u in want_leads if u not in leads_ok and u not in (old or {}).get("leads", [])]
     if bad:
-        return _back(f"지정할 수 없는 계정입니다: {', '.join(bad[:5])} — 총괄은 총괄 등급, 사업 책임자는 사업 책임 이상 교직원", ok=False)
+        return _back(f"지정할 수 없는 계정입니다: {', '.join(bad[:5])} — 총괄 책임자은 총괄 책임자 등급, 사업 담당자는 사업 담당자 이상 교직원", ok=False)
     if not key:
         key = slug(vals["name"])
         if key in by_key:

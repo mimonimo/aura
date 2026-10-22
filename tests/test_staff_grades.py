@@ -42,7 +42,7 @@ def _dev(tmp_path):
 # ---------------------------------------------------------------- grades 기본
 
 def test_grade_defaults_and_ranks():
-    assert grades.grade_of({"role": "staff"}) == "lead"                 # 기존 계정은 사업 책임
+    assert grades.grade_of({"role": "staff"}) == "lead"                 # 기존 계정은 사업 담당자
     assert grades.grade_of({"role": "staff", "grade": "member"}) == "member"
     assert grades.grade_of({"role": "professor", "grade": "head"}) == "head"
     assert grades.grade_of({"role": "dev"}) == "admin" and grades.grade_of({"role": "student"}) == ""
@@ -62,7 +62,7 @@ def test_view_activity_follows_program_designation():
     assert not grades.can_view_activity(proj, user="l2", account=lead, program_roles=roles)
     assert grades.can_view_activity(proj, user="h1", account=head, program_roles=roles)
     assert not grades.can_view_activity(proj, user="l1", account=member, program_roles=roles)
-    assert not grades.can_view_activity(proj, user="h1", account=lead, program_roles=roles)   # 총괄 지정은 총괄 등급만
+    assert not grades.can_view_activity(proj, user="h1", account=lead, program_roles=roles)   # 총괄 책임자 지정은 총괄 책임자 등급만
     # 예전 호출 모양 그대로
     assert grades.can_view_activity(proj, user="x", account=lead)
     assert grades.can_view_activity(proj, user="h9", account=head, project_dept="교무처")
@@ -79,13 +79,13 @@ def test_grade_saved_only_for_staff_and_shown(tmp_path):
     assert "ok=" in r.headers["location"]
     data = json.loads((tmp_path / "accounts.json").read_text())
     assert data["kimhead"]["grade"] == "head"
-    assert "교직원 · 총괄" in c.get("/dev/users").text
+    assert "교직원 · 총괄 책임자" in c.get("/dev/users").text
     # 등급을 보내지 않으면 지금 값 유지
     c.post("/dev/users/save", data={"uid": "kimhead", "role": "staff", "active": "1"})
     assert json.loads((tmp_path / "accounts.json").read_text())["kimhead"]["grade"] == "head"
     r = c.post("/dev/users/save", data={"uid": "kimhead", "role": "staff", "grade": "boss", "active": "1"}, follow_redirects=False)
     assert "err=" in r.headers["location"]
-    # 새 계정 기본은 사업 책임
+    # 새 계정 기본은 사업 담당자
     c.post("/dev/users/save", data={"uid": "newbie", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})
     assert json.loads((tmp_path / "accounts.json").read_text())["newbie"]["grade"] == "lead"
 
@@ -199,13 +199,13 @@ def test_program_admin_permissions(world):
     assert "data-pa-new>" in page and "교육부 재정지원" in page
     assert _client(app, "plain").get("/programs/admin").status_code == 403
     assert _client(app, "plain").post("/programs/admin/save", data={"key": "x"}).status_code == 403
-    # 총괄은 자기 부서 사업만 읽기
+    # 총괄 책임자은 자기 부서 사업만 읽기
     boss = _client(app, "boss")
     page = boss.get("/programs/admin").text
     assert "가나다 혁신사업" in page and "라마바 지원사업" not in page and "data-pa-new>" not in page
-    # 사업 책임은 지정된 사업만 — 아직 없음
+    # 사업 담당자은 지정된 사업만 — 아직 없음
     assert "가나다 혁신사업" not in _client(app, "lead1").get("/programs/admin").text
-    # 총괄이 같은 부서 사람을 사업 책임자로
+    # 총괄 책임자이 같은 부서 사람을 사업 담당자로
     key = "program:가나다혁신사업"
     r = boss.post("/programs/admin/save", data={"key": key, "leads": ["lead1"]}, follow_redirects=False)
     assert "ok=" in r.headers["location"]

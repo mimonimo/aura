@@ -40,9 +40,9 @@
 
 <div class="card reveal"><div class="card-in">
   <p class="muted" style="margin:0 0 12px; font-size:12.5px;">
-    {% if scope == 'all' %}교내 사업 장부 · 줄을 고치면 장부 위에 덮어 보이고, 총괄·사업 책임자 지정은 그 사업 프로젝트의 진행 현황 권한이 됩니다
-    {% elif scope == 'dept' %}{{ me_dept or '내 부서' }} 사업과 총괄로 지정된 사업 · 사업 책임자를 정할 수 있습니다
-    {% else %}사업 책임자로 지정된 사업{% endif %}</p>
+    {% if scope == 'all' %}교내 사업 장부 · 줄을 고치면 장부 위에 덮어 보이고, 총괄 책임자·사업 담당자 지정은 그 사업 프로젝트의 진행 현황 권한이 됩니다
+    {% elif scope == 'dept' %}{{ me_dept or '내 부서' }} 사업과 총괄 책임자로 지정된 사업 · 사업 담당자를 정할 수 있습니다
+    {% else %}사업 담당자로 지정된 사업{% endif %}</p>
   <form class="pa-bar" data-pa-filter onsubmit="return false">
     <input type="search" name="q" placeholder="사업 이름·별칭·부서 찾기" aria-label="사업 찾기">
     <select name="dept" aria-label="부서로 거르기"><option value="">부서 전체</option>{% for d in depts %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select>
@@ -55,7 +55,7 @@
   {% if rows %}
   <div class="pa-wrap">
   <table class="pa-table">
-    <thead><tr><th>대분류</th><th>중분류</th><th>소분류</th><th>사업</th><th>주관 부서</th><th>기간</th><th>예산</th><th>총괄</th><th>사업 책임자</th><th title="진행 중인 프로젝트 · 보관 묶음">프로젝트</th>{% if can_assign %}<th></th>{% endif %}</tr></thead>
+    <thead><tr><th>대분류</th><th>중분류</th><th>소분류</th><th>사업</th><th>주관 부서</th><th>기간</th><th>예산</th><th>총괄 책임자</th><th>사업 담당자</th><th title="진행 중인 프로젝트 · 보관 묶음">프로젝트</th>{% if can_assign %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for r in rows %}
     <tr class="{{ 'off' if r.hidden else '' }}" data-pa-row data-q="{{ ([r.name] + r.terms + [r.dept, r.l2, r.l3]) | join(' ') | lower }}" data-dept="{{ r.depts | join('|') }}" data-l1="{{ r.l1 }}">
@@ -80,7 +80,7 @@
   </table>
   </div>
   {% else %}
-  <p class="pa-empty">{% if scope == 'all' %}장부에 사업이 없습니다. 「줄 추가」로 사업을 더할 수 있습니다.{% elif scope == 'dept' %}내 부서로 적힌 사업이나 총괄로 지정된 사업이 없습니다.{% else %}사업 책임자로 지정된 사업이 없습니다.{% endif %}</p>
+  <p class="pa-empty">{% if scope == 'all' %}장부에 사업이 없습니다. 「줄 추가」로 사업을 더할 수 있습니다.{% elif scope == 'dept' %}내 부서로 적힌 사업이나 총괄 책임자로 지정된 사업이 없습니다.{% else %}사업 담당자로 지정된 사업이 없습니다.{% endif %}</p>
   {% endif %}
 </div></div>
 
@@ -104,15 +104,15 @@
         <label>기간<input type="text" name="period" maxlength="120" autocomplete="off" placeholder="예: 2025~2027"></label>
         <label>예산<input type="text" name="budget" maxlength="120" autocomplete="off" placeholder="예: 12억 원"></label>
       </div>
-      <fieldset class="pa-pick"><legend>총괄</legend>
+      <fieldset class="pa-pick"><legend>총괄 책임자</legend>
         {% for c in head_choices %}<label><input type="checkbox" name="heads" value="{{ c.user }}">{{ c.label }}<span class="pa-sub">{{ c.dept or '부서 없음' }}</span></label>
-        {% else %}<p class="pa-empty">총괄 등급 계정이 없습니다 — 사용자·계정에서 등급을 정합니다</p>{% endfor %}</fieldset>
+        {% else %}<p class="pa-empty">총괄 책임자 등급 계정이 없습니다 — 사용자·계정에서 등급을 정합니다</p>{% endfor %}</fieldset>
       {% else %}
       <p class="pa-empty" data-pa-name></p>
       {% endif %}
-      <fieldset class="pa-pick"><legend>사업 책임자</legend>
+      <fieldset class="pa-pick"><legend>사업 담당자</legend>
         {% for c in lead_choices %}<label><input type="checkbox" name="leads" value="{{ c.user }}">{{ c.label }}<span class="pa-sub">{{ c.dept or '부서 없음' }} · {{ c.grade }}</span></label>
-        {% else %}<p class="pa-empty">고를 수 있는 사업 책임 이상 계정이 없습니다</p>{% endfor %}</fieldset>
+        {% else %}<p class="pa-empty">고를 수 있는 사업 담당자 이상 계정이 없습니다</p>{% endfor %}</fieldset>
       <p class="pa-empty">지정한 사람은 이 사업에 이어진 프로젝트의 진행 현황을 봅니다</p>
     </form>
     <footer class="modal-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="paForm" data-pa-save>저장</button></footer>
@@ -148,7 +148,7 @@
     form.querySelectorAll('input[name="heads"]').forEach(function (cb) { cb.checked = (r.heads || []).indexOf(cb.value) >= 0; });
     form.querySelectorAll('input[name="leads"]').forEach(function (cb) { cb.checked = (r.leads || []).indexOf(cb.value) >= 0; });
     var nm = form.querySelector('[data-pa-name]'); if (nm) nm.textContent = r.name || '';
-    document.querySelector('[data-pa-title]').textContent = r.key ? (form.name ? '사업 편집' : '사업 책임자 지정') : '줄 추가';
+    document.querySelector('[data-pa-title]').textContent = r.key ? (form.name ? '사업 편집' : '사업 담당자 지정') : '줄 추가';
   }
   document.querySelectorAll('[data-pa-edit]').forEach(function (btn) {
     btn.addEventListener('click', function () { fill(JSON.parse(btn.dataset.paEdit)); });

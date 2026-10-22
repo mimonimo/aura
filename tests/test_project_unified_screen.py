@@ -1,5 +1,5 @@
 """프로젝트 화면 한 장(대화·문서) — 옛 「작성 원칙·기준 문서」 탭을 합친 화면, 끌어 놓기 자리, 문서함·드라이브에서 가져오기,
-아이콘 색·사업 책임자, 참조(읽기 전용) 공유, 등급별 만들기·진행 현황."""
+아이콘 색·사업 담당자, 참조(읽기 전용) 공유, 등급별 만들기·진행 현황."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -165,8 +165,8 @@ def test_icon_color_and_project_lead(tmp_path, monkeypatch):
     page = kim.get(f"/project/{pid}").text
     assert "--pc:#0F766E" in page and 'value="teal" class="project-swatch" style="--sw:#0F766E;"\n        aria-label="청록" title="청록" aria-pressed="true"' in page
     assert app.state.templates.env.globals["project_color"](pid) == "#0F766E"   # 목록·사이드바가 같은 색으로
-    # 사업 책임자 — 기본은 만든 사람, 「함께 작업」으로 받는 사람 가운데서 고른다
-    assert "책임 kim" in page
+    # 사업 담당자 — 기본은 만든 사람, 「함께 작업」으로 받는 사람 가운데서 고른다
+    assert "담당 kim" in page
     assert kim.post(f"/project/{pid}/lead", data={"user": "lee"}, follow_redirects=False).status_code == 400
     pa.set_shares(db, pid, "shared", [{"to": "user:lee", "level": "edit"}])
     assert kim.post(f"/project/{pid}/lead", data={"user": "lee"}, follow_redirects=False).status_code == 303
@@ -178,7 +178,7 @@ def test_icon_color_and_project_lead(tmp_path, monkeypatch):
 
 def test_grades_gate_project_creation_and_activity_tab(tmp_path, monkeypatch):
     app, pid, kim, _ = _world(tmp_path, monkeypatch)
-    assert 'id="projectTabActivity"' in kim.get(f"/project/{pid}").text            # 등급 없는 교직원 = 사업 책임, 만든 사람
+    assert 'id="projectTabActivity"' in kim.get(f"/project/{pid}").text            # 등급 없는 교직원 = 사업 담당자, 만든 사람
     app.state.accounts["kim"]["grade"] = "member"
     r = kim.post("/projects", data={"sector": "grant", "name": "일반 등급 프로젝트"}, follow_redirects=False)
     assert r.status_code == 403

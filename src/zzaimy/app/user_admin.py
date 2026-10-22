@@ -261,7 +261,7 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
     if new_pw:
         accounts[uid]["must_change"] = True
     accounts[uid].update(role=role, dept=dept, active=on, updated_at=__import__("datetime").datetime.now().isoformat(timespec="seconds"))
-    # 교직원 등급 — 교직원만 받는다. 고르지 않으면 지금 값 유지(새 계정은 기본 등급 사업 책임), 교직원이 아니면 지운다
+    # 교직원 등급 — 교직원만 받는다. 고르지 않으면 지금 값 유지(새 계정은 기본 등급 사업 담당자), 교직원이 아니면 지운다
     if role in grades.STAFF:
         accounts[uid]["grade"] = grade or accounts[uid].get("grade") or grades.DEFAULT_GRADE
         if accounts[uid]["grade"] not in grades.GRADES:

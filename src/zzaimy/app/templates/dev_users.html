@@ -187,7 +187,7 @@
           {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
       </div>
       <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
-        <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업 · 사업 책임은 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄은 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
+        <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업 · 사업 담당자은 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자은 부서 프로젝트 진행 현황을 모두 보고 사업 담당자를 정함</span></label>
       <p class="ua-hint" data-admin-hint hidden>관리자는 최대 {{ admin_max }}명 · 지금 {{ admin_n }}명</p>
       {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>추가 부서 <span class="ua-hint">— 소속 부서처럼 문서를 찾고 작업합니다</span></legend>
         <div class="ua-extra-list">{% for d in dept_choices %}<label class="check"><input type="checkbox" name="extra" value="{{ d }}">{{ d }}</label>{% endfor %}</div></fieldset>{% endif %}

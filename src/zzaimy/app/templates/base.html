@@ -589,7 +589,7 @@ document.addEventListener('submit', function(event) {
     <a href="/hwp" data-nav="side-hwp-box" class="{{ 'active' if request.url.path.startswith('/hwp') else '' }}" title="부서 폴더·구글 드라이브의 문서 — 한글은 웹 기안기로 열기">
       <iconify-icon icon="solar:document-text-linear"></iconify-icon>문서함</a>
     {% if program_scope is defined and program_scope(request) %}
-    <a href="/programs/admin" class="{{ 'active' if request.url.path.startswith('/programs/admin') else '' }}" title="교내 사업 장부 — 분류·부서·기간·예산·총괄·사업 책임자">
+    <a href="/programs/admin" class="{{ 'active' if request.url.path.startswith('/programs/admin') else '' }}" title="교내 사업 장부 — 분류·부서·기간·예산·총괄 책임자·사업 담당자">
       <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
     {% endif %}
     {% endif %}
@@ -648,7 +648,7 @@ document.addEventListener('submit', function(event) {
         <p class="muted">고른 계정이 보는 화면·검색·답변 범위로 바꿉니다. 맨 위 띠의 「원래대로」로 돌아옵니다.</p>
         <input type="hidden" name="back" value="{{ request.url.path }}">
         <label>역할<select name="role">{% for k, v in view_as_roles.items() %}<option value="{{ k }}"{% if k == 'staff' %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
-        {% if view_as_grades is defined %}<label data-grade-row>등급(교직원)<select name="grade"><option value="">기본(사업 책임)</option>{% for k, v in view_as_grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+        {% if view_as_grades is defined %}<label data-grade-row>등급(교직원)<select name="grade"><option value="">기본(사업 담당자)</option>{% for k, v in view_as_grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
         <script>(function(){var f=document.currentScript.closest('form'),r=f.querySelector('[name=role]'),g=f.querySelector('[data-grade-row]');var s=function(){g.hidden=r.value!=='staff';};r.addEventListener('change',s);s();})();</script>{% endif %}
         <label>부서<select name="dept"><option value="">부서 없음(공통)</option>{% for d in view_as_depts() %}{% if d and d != '공통' %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}</select></label>
         <footer><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit">적용</button></footer>
