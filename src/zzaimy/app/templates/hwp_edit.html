@@ -96,6 +96,58 @@
   .alert { flex:none; margin:0; padding:9px 16px; background:#FFF8EC; color:#8A5A00; font-size:13px; border-bottom:1px solid #F5E2BD; display:flex; align-items:center; gap:10px; }
   .alert[hidden] { display:none; }
   .alert button { height:26px; padding:0 10px; border-radius:6px; border:1px solid #E5C77A; background:#fff; font:inherit; font-size:12.5px; cursor:pointer; }
+  /* 이름 — 눌러 바로 바꾸기(Enter 저장, Esc 취소). 확장자는 서버가 그대로 둔다 */
+  .doc button.name { border:1px solid transparent; border-radius:6px; padding:1px 6px; margin-left:-7px; background:transparent; font:inherit; font-size:15.5px; font-weight:600; color:var(--ink); text-align:left; cursor:text; max-width:100%; }
+  .doc button.name:hover { border-color:var(--line); background:var(--panel); }
+  .doc input.name.renaming { width:min(420px, 100%); border-color:#B9C7DA; background:#fff; }
+  /* 저장 위치 — 부서 › 폴더 › 하위 폴더, 누르면 문서함의 그 폴더 */
+  .doc a.where { display:inline-flex; align-items:center; gap:4px; color:var(--muted); text-decoration:none; border-radius:4px; min-width:0; }
+  .doc a.where:hover { color:var(--navy); text-decoration:underline; text-underline-offset:2px; }
+  .doc a.where iconify-icon { font-size:13px; flex:none; }
+  .doc a.where span { overflow:hidden; text-overflow:ellipsis; }
+  .menu .mlabel { padding:6px 10px 2px; font-size:11.5px; color:var(--faint); }
+  .menu .mnote { padding:6px 10px 4px; font-size:11.5px; color:var(--faint); }
+  /* 저장 창(다른 이름으로 저장·새 문서 만들기) — 왼쪽 자리, 오른쪽 폴더, 아래 이름 */
+  dialog.sa { width:min(680px, calc(100vw - 32px)); padding:0; border:1px solid var(--line); border-radius:12px; box-shadow:0 24px 60px rgba(15,23,42,.22); color:var(--ink); }
+  dialog.sa::backdrop { background:rgba(15,23,42,.28); }
+  .sa-in { display:flex; flex-direction:column; height:min(460px, calc(100vh - 64px)); margin:0; }
+  .sa-head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 10px 18px; border-bottom:1px solid var(--line); }
+  .sa-head h2 { margin:0; font-size:15px; font-weight:600; }
+  .sa-x { width:30px; height:30px; border:0; background:none; border-radius:6px; color:var(--muted); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .sa-x:hover { background:var(--panel); }
+  .sa-x iconify-icon { font-size:18px; }
+  .sa-body { flex:1; min-height:0; display:grid; grid-template-columns:168px 1fr; }
+  .sa-places { border-right:1px solid var(--line); background:var(--panel); padding:8px 6px; overflow:auto; }
+  .sa-places .grp { padding:8px 8px 4px; font-size:11.5px; color:var(--faint); }
+  .sa-places button { display:flex; align-items:center; gap:7px; width:100%; padding:6px 8px; border:0; background:none; border-radius:6px; font:inherit; font-size:13px; color:var(--ink); text-align:left; cursor:pointer; }
+  .sa-places button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sa-places button:hover { background:#EEF2F7; }
+  .sa-places button[aria-current=true] { background:#E4ECF7; color:var(--navy); font-weight:600; }
+  .sa-places iconify-icon { font-size:15px; color:var(--muted); flex:none; }
+  .sa-main { display:flex; flex-direction:column; min-width:0; }
+  .sa-crumbs { display:flex; align-items:center; flex-wrap:wrap; gap:2px; padding:9px 12px; border-bottom:1px solid var(--line); font-size:12.5px; color:var(--muted); }
+  .sa-crumbs button { border:0; background:none; padding:2px 5px; border-radius:4px; font:inherit; color:var(--muted); cursor:pointer; }
+  .sa-crumbs button:hover { background:var(--panel); color:var(--ink); }
+  .sa-crumbs button:last-child { color:var(--ink); font-weight:600; }
+  .sa-crumbs .sep { color:var(--faint); }
+  .sa-list { list-style:none; margin:0; padding:4px 6px; overflow:auto; flex:1; }
+  .sa-list li button { display:flex; align-items:center; gap:8px; width:100%; padding:7px 8px; border:0; background:none; border-radius:6px; font:inherit; font-size:13px; color:var(--ink); text-align:left; cursor:pointer; }
+  .sa-list li button:hover, .sa-list li button:focus-visible { background:var(--panel); outline:none; }
+  .sa-list li button iconify-icon { font-size:16px; color:#7C8DA6; flex:none; }
+  .sa-list li button .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sa-list li button .c { font-size:11.5px; color:var(--faint); }
+  .sa-list li.file button { color:var(--muted); }
+  .sa-list .empty { padding:18px 10px; font-size:12.5px; color:var(--faint); }
+  .sa-foot { display:flex; align-items:center; gap:8px; padding:12px 14px; border-top:1px solid var(--line); flex-wrap:wrap; }
+  .sa-foot label { font-size:13px; color:var(--muted); }
+  .sa-foot .nm { display:flex; align-items:center; flex:1; min-width:180px; height:36px; border:1px solid #D6DEE8; border-radius:8px; padding:0 10px; background:#fff; }
+  .sa-foot .nm:focus-within { border-color:#8FA6C6; }
+  .sa-foot .nm input { flex:1; min-width:0; border:0; outline:none; font:inherit; font-size:13.5px; background:none; }
+  .sa-foot .nm span { font-size:12.5px; color:var(--faint); }
+  .sa-note { width:100%; font-size:12px; color:var(--muted); min-height:0; }
+  .sa-note:empty { display:none; }
+  .sa-note[data-kind=bad] { color:var(--bad); }
+  @media (max-width:560px) { .sa-body { grid-template-columns:1fr; grid-template-rows:auto 1fr; } .sa-places { display:flex; overflow-x:auto; border-right:0; border-bottom:1px solid var(--line); padding:6px; } .sa-places .grp { display:none; } .sa-places button { width:auto; white-space:nowrap; } }
   @media (max-width:640px) { .doc .where, .btn .label-long, .btn kbd { display:none; } .bar { gap:8px; padding:0 10px; } }
 </style>
 </head>
@@ -104,24 +156,30 @@
   {% if embed %}<button type="button" class="back" data-embed="list" title="대화의 문서 목록으로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>목록</button>{% endif %}
   {% if not embed %}<a class="back" href="{{ back }}" title="한글 문서함으로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>문서함</a>{% endif %}
   <div class="doc">
-    {% if f %}<span class="name" title="{{ f.name }}">{{ f.name }}</span>
-    {% else %}<label class="sr-only" for="heTitle">문서 이름</label><input id="heTitle" class="name" data-title value="새 문서" maxlength="60" autocomplete="off">{% endif %}
-    <span class="sub"><span class="where">{{ dept }}{% if folder %} / {{ folder }}{% endif %}</span><span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
+    {% if f and not readonly %}<button type="button" class="name" data-name title="눌러서 이름 바꾸기">{{ f.name }}</button>
+    {% elif f %}<span class="name" data-name title="{{ f.name }}">{{ f.name }}</span>
+    {% else %}<span class="name" data-name>새 문서</span>{% endif %}
+    <span class="sub">{% if f %}<a class="where" href="{{ back }}"{% if embed %} target="_blank" rel="noopener"{% endif %} title="문서함에서 이 폴더 열기"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ ([dept] + (folder.split('/') if folder else [])) | join(' › ') }}</span></a>{% endif %}<span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
   </div>
   <span class="people" data-aura aria-live="polite"></span>
   <span class="avatars" data-people aria-label="같이 보는 사람"></span>
   {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;"><button type="submit" class="btn primary" title="내 부서 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
-  {% else %}{% if not f %}<button type="button" class="btn" data-save disabled title="새 문서를 부서 폴더에 만들기 — 그 뒤로는 자동 저장"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">만들기</span></button>{% endif %}{% endif %}
+  {% else %}{% if not f %}<button type="button" class="btn primary" data-save disabled title="저장할 곳과 이름을 정해 만들기 — 그 뒤로는 자동 저장"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">만들기</span></button>{% endif %}{% endif %}
   <button type="button" class="btn tools-btn" data-tools aria-pressed="false" title="편집 도구 펼치기 — 직접 고칠 때"><iconify-icon icon="solar:pen-2-linear" aria-hidden="true"></iconify-icon><span class="label-long">편집 도구</span></button>
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
   {% if f %}<span class="menu-wrap">
-    <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="내려받기·공유"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
+    <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="저장·내려받기·공유"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
     <div class="menu" role="menu" data-menu hidden>
-      {% if not readonly %}<button type="button" role="menuitem" data-save-now><iconify-icon icon="solar:diskette-linear"></iconify-icon>지금 저장<span class="hint">Ctrl+S</span></button>{% endif %}
-      <a role="menuitem" href="/hwp/{{ f.id }}/file"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기<span class="hint">한글(hwpx)</span></a>
+      <button type="button" role="menuitem" data-save-as><iconify-icon icon="solar:diskette-linear"></iconify-icon>다른 이름으로 저장</button>
+      <div class="sep"></div>
+      <div class="mlabel">내려받기</div>
+      {# 형식은 webhwp_export.FORMATS 와 같게(필터 서버로 확인한 것만) — tests/test_webhwp_export 가 맞춰 본다 #}
+      {% for key, label in [('hwpx', '한글(hwpx)'), ('hwp', '한글(hwp)'), ('pdf', 'PDF'), ('docx', 'Word(docx)')] %}<a role="menuitem" href="/hwp/{{ f.id }}/export?fmt={{ key }}" data-export="{{ key }}" data-label="{{ label }}"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>{{ label }}</a>
+      {% endfor %}<div class="sep"></div>
       <button type="button" role="menuitem" data-to-drive><iconify-icon icon="solar:cloud-upload-linear"></iconify-icon>구글 드라이브에 올리기<span class="hint">최종본</span></button>
       <div class="sep"></div>
       {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>문서함에서 보기</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
+      {% if not readonly %}<div class="mnote">고치면 바로 자동 저장됩니다 · Ctrl+S 로 즉시 저장</div>{% endif %}
     </div>
   </span>{% endif %}
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="close" title="문서 패널 닫기" aria-label="문서 패널 닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
@@ -129,6 +187,22 @@
 <div class="notice-bar" data-notice hidden><span data-notice-text></span><button type="button" data-reload>다시 불러오기</button></div>
 <p class="alert" role="alert" data-load-fail hidden>한글 편집기를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요. <button type="button" onclick="location.reload()">다시 열기</button></p>
 <div id="hwpctrl"></div>
+<dialog class="sa" data-sa aria-labelledby="saTitle">
+  <form method="dialog" class="sa-in" data-sa-form>
+    <div class="sa-head"><h2 id="saTitle" data-sa-title>다른 이름으로 저장</h2><button type="button" class="sa-x" data-sa-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button></div>
+    <div class="sa-body">
+      <nav class="sa-places" data-sa-places aria-label="저장할 곳"></nav>
+      <div class="sa-main"><div class="sa-crumbs" data-sa-crumbs></div><ul class="sa-list" data-sa-list></ul></div>
+    </div>
+    <div class="sa-foot">
+      <label for="saName">이름</label>
+      <span class="nm"><input id="saName" data-sa-name maxlength="80" autocomplete="off"><span>.hwpx</span></span>
+      <button type="button" class="btn" data-sa-close>취소</button>
+      <button type="submit" class="btn primary" data-sa-ok>저장</button>
+      <p class="sa-note" data-sa-note role="status" aria-live="polite"></p>
+    </div>
+  </form>
+</dialog>
 <div class="aura-cursor" data-aura-cursor hidden aria-hidden="true"><svg class="ac-svg" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="acg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B3B75"/><stop offset="1" stop-color="#3D6FD6"/></linearGradient></defs><path d="M4.6 3.1 19.7 10.8c.8.4.7 1.5-.2 1.7l-6 1.6-2.7 5.8c-.4.8-1.5.7-1.7-.1L4.6 3.1Z" fill="url(#acg)" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg><span class="tag"><svg class="ac-star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l1.4 4.1 4.1 1.4-4.1 1.4L8 12.5 6.6 8.4 2.5 7l4.1-1.4z" fill="currentColor"/></svg><span class="ac-text"></span><span class="ac-dots"><i></i><i></i><i></i></span></span></div>
 <script src="/webhwpctrl/js/hwpctrlapp/utils/util.js"></script>
 <script src="/webhwpctrl/js/hwpctrlapp/hwpCtrlApp.js"></script>
@@ -141,6 +215,7 @@
   var isNew = {{ 'false' if f else 'true' }};
   var fileUrl = {{ (('/hwp/' ~ f.id ~ '/file') if f else '') | tojson }}, saveUrl = {{ (('/hwp/' ~ f.id ~ '/save') if f else '') | tojson }};
   var name = {{ (f.name if f else '새 문서.hwpx') | tojson }}, dept = {{ dept | tojson }}, folder = {{ (folder or '') | tojson }};
+  var fid = {{ f.id if f else 'null' }}, readonly = {{ 'true' if readonly else 'false' }};
   var ready = false, saving = false;
   function say(t, kind) { msg.textContent = t; state.setAttribute('data-kind', kind || ''); }
   function b64ToBytes(s) { var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
@@ -183,7 +258,7 @@
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     built = true; document.querySelector('[data-load-fail]').hidden = true;
     fit();
-    if (isNew) { fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; say('새 문서 — 저장하면 ' + dept + (folder ? ' / ' + folder : '') + '에 생깁니다', ''); return; }
+    if (isNew) { fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; say('저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요', ''); return; }
     fetch(fileUrl, {credentials: 'same-origin'}).then(function (r) {
       if (!r.ok) throw new Error('파일을 받지 못했습니다(' + r.status + ')');
       return r.blob();
@@ -220,38 +295,31 @@
   beat = setInterval(function () { if (!isNew && fileUrl) holdLock(); }, 45000);
   window.addEventListener('pagehide', function () { if (holding && unlockUrl) navigator.sendBeacon(unlockUrl); });
   var auto = false;
-  function save(isAuto) {
+  function hwpxBytes(cb) {                                  // 편집 중인 문서를 HWPX 바이트로(저장·다른 이름으로 저장이 같이 쓴다)
+    ctrl.GetTextFile('HWPX', '', function (data) { cb((typeof data === 'string') ? b64ToBytes(data) : data); });
+  }
+  function save(isAuto, then) {
     auto = isAuto === true;
-    if (!ready || saving || {{ 'true' if readonly else 'false' }}) return;
+    if (isNew) { if (!auto && ready) openSaveAs('create'); return; }   // 새 문서는 저장 창에서 곳·이름을 정해 만든다
+    if (!ready || saving || readonly) { if (then && !saving) then(); return; }
     saving = true; saveBtn.disabled = true; say('저장 중', 'busy');
-    ctrl.GetTextFile('HWPX', '', function (data) {
-      var bytes = (typeof data === 'string') ? b64ToBytes(data) : data;
-      var url = saveUrl;
-      if (isNew) {
-        var t = (document.querySelector('[data-title]').value || '새 문서').trim();
-        url = '/hwp/new?dept=' + encodeURIComponent(dept) + '&folder=' + encodeURIComponent(folder) + '&title=' + encodeURIComponent(t);
-      }
-      fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
+    hwpxBytes(function (bytes) {
+      fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
         .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('저장하지 못했습니다(' + r.status + ')')); return j; }); })
         .then(function (j) {
-          if (isNew && j.id) {
-            isNew = false; saveUrl = '/hwp/' + j.id + '/save'; history.replaceState(null, '', j.url);
-            fileUrl = '/hwp/' + j.id + '/file'; lockUrl = '/hwp/' + j.id + '/lock'; unlockUrl = '/hwp/' + j.id + '/unlock'; holdLock();
-            var inp = document.querySelector('[data-title]'); if (inp) inp.readOnly = true;
-          }
           dirty = false; lastSaved = null;
           say((auto ? '자동 저장됨 · ' : '저장됨 · ') + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
+          if (then) then();
         })
         .catch(function (e) { say(e.message, 'bad'); })
         .finally(function () { saving = false; saveBtn.disabled = false; });
     });
   }
-  saveBtn.addEventListener('click', function () { save(false); });
-  var saveNow = document.querySelector('[data-save-now]'); if (saveNow) saveNow.addEventListener('click', function () { save(false); });
+  saveBtn.addEventListener('click', function () { if (isNew) openSaveAs('create'); else save(false); });
   // 자동 저장 — 고친 뒤 8초 손을 멈추면, 창을 벗어나면 저장(새 문서는 이름을 정해 첫 저장을 해야 자동 저장이 이어진다)
   var idleTimer = null;
   function touched() {
-    dirty = true; if (!saving) say(isNew ? '저장 전 — 「만들기」 를 누르면 부서 폴더에 생깁니다' : '고치는 중', '');
+    dirty = true; if (!saving) say(isNew ? '저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요' : '고치는 중', '');
     clearTimeout(idleTimer);
     // 손을 멈추고 2초 뒤 자동 저장(서버는 바뀐 것이 없으면 쓰지 않고, 앞 판은 10분에 하나만 남긴다)
     if (!isNew) idleTimer = setTimeout(function () { if (dirty && ready) { if (saving) touched(); else save(true); } }, 2000);
@@ -396,10 +464,175 @@
       .catch(function (e) { say(e.message, 'bad'); })
       .finally(function () { drv.disabled = false; });
   });
-  // Ctrl+S(맥은 ⌘+S) — 바깥 틀에 포커스가 있을 때. 편집 틀 안에서 누르면 기안기 자체 동작이라 위 「저장」 단추를 쓴다
+  // Ctrl+S(맥은 ⌘+S) — 바로 저장(새 문서면 저장 창). 편집 틀 안의 Ctrl+S 는 watchKeys 가 같은 일을 한다
   document.addEventListener('keydown', function (e) {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S') && !sa.open) { e.preventDefault(); save(false); }
   });
+  // ── 내려받기 ── 고친 것이 있으면 먼저 저장하고, 서버가 고른 형식으로 바꾼 파일을 받는다(PDF·hwp·docx 는 기안기 서버 변환)
+  function fileNameOf(cd, fallback) {
+    var m = /filename\*=UTF-8''([^;]+)/i.exec(cd || '');
+    try { return m ? decodeURIComponent(m[1]) : fallback; } catch (e) { return fallback; }
+  }
+  document.querySelectorAll('[data-export]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault(); menu.hidden = true;
+      var label = a.getAttribute('data-label'), url = a.getAttribute('href');
+      var go = function () {
+        say(label + ' 만드는 중', 'busy');
+        fetch(url, {credentials: 'same-origin', cache: 'no-store'}).then(function (r) {
+          if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.detail || ('내려받지 못했습니다(' + r.status + ')')); });
+          return r.blob().then(function (b) { return {blob: b, name: fileNameOf(r.headers.get('content-disposition'), name)}; });
+        }).then(function (x) {
+          var u = URL.createObjectURL(x.blob), link = document.createElement('a');
+          link.href = u; link.download = x.name; document.body.appendChild(link); link.click(); link.remove();
+          setTimeout(function () { URL.revokeObjectURL(u); }, 30000);
+          say('내려받음 · ' + label, 'ok');
+        }).catch(function (err) { say(err.message, 'bad'); });
+      };
+      if (dirty && !readonly) save(false, go); else go();
+    });
+  });
+  // ── 이름 바꾸기 ── 머리줄 이름을 누르면 그 자리에서 고친다(Enter 저장, Esc 취소). 확장자는 서버가 그대로 둔다
+  var nameBtn = document.querySelector('button[data-name]');
+  if (nameBtn && fid) nameBtn.addEventListener('click', function () {
+    var ext = (/\.[^.]+$/.exec(name) || [''])[0], stem = name.slice(0, name.length - ext.length);
+    var inp = document.createElement('input'); inp.className = 'name renaming'; inp.value = stem; inp.maxLength = 80;
+    inp.setAttribute('aria-label', '문서 이름');
+    nameBtn.hidden = true; nameBtn.parentNode.insertBefore(inp, nameBtn); inp.focus(); inp.select();
+    var done = false;
+    function end(newName) { if (done) return; done = true; inp.remove(); nameBtn.hidden = false; if (newName) { name = newName; nameBtn.textContent = newName; document.title = newName + ' · 기안기 · AURA'; } }
+    function commit() {
+      var v = inp.value.trim();
+      if (!v || v === stem) { end(); return; }
+      inp.disabled = true;
+      fetch('/hwp/' + fid + '/rename', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: v})})
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('이름을 바꾸지 못했습니다(' + r.status + ')')); return j; }); })
+        .then(function (j) { end(j.name); say('이름을 바꿨습니다', 'ok'); })
+        .catch(function (err) { end(); say(err.message, 'bad'); });
+    }
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); end(); }
+    });
+    inp.addEventListener('blur', function () { if (!done && !inp.disabled) commit(); });
+  });
+  // ── 저장 창 ── 「만들기」(새 문서)와 「다른 이름으로 저장」 이 같이 쓴다. 왼쪽은 부서 폴더·구글 드라이브, 오른쪽은 폴더, 아래는 이름
+  var sa = document.querySelector('[data-sa]'), saPlaces = sa.querySelector('[data-sa-places]'), saCrumbs = sa.querySelector('[data-sa-crumbs]');
+  var saList = sa.querySelector('[data-sa-list]'), saName = sa.querySelector('[data-sa-name]'), saNote = sa.querySelector('[data-sa-note]');
+  var saOk = sa.querySelector('[data-sa-ok]'), saMode = 'copy', saAt = null, saDepts = [], saDrives = null, saBusy = false;
+  function note(t, bad) { saNote.textContent = t || ''; saNote.setAttribute('data-kind', bad ? 'bad' : ''); }
+  function icon(n) { var i = document.createElement('iconify-icon'); i.setAttribute('icon', n); i.setAttribute('aria-hidden', 'true'); return i; }
+  function placeBtn(label, ic, on, cur) {
+    var b = document.createElement('button'); b.type = 'button'; b.append(icon(ic));
+    var t = document.createElement('span'); t.textContent = label; b.append(t); b.title = label;
+    if (cur) b.setAttribute('aria-current', 'true');
+    b.onclick = on; saPlaces.append(b);
+  }
+  function drawPlaces() {
+    saPlaces.innerHTML = '';
+    var g = document.createElement('div'); g.className = 'grp'; g.textContent = '부서 폴더'; saPlaces.append(g);
+    saDepts.forEach(function (d) {
+      placeBtn(d, 'solar:folder-with-files-linear', function () { goDept(d, ''); }, saAt && saAt.kind === 'dept' && saAt.dept === d);
+    });
+    var g2 = document.createElement('div'); g2.className = 'grp'; g2.textContent = '구글 드라이브'; saPlaces.append(g2);
+    placeBtn('내 드라이브', 'solar:cloud-linear', function () { goDrive('', '', []); }, saAt && saAt.kind === 'drive' && !saAt.drive);
+    (saDrives || []).forEach(function (d) {
+      placeBtn(d.name, 'solar:cloud-linear', function () { goDrive(d.id, '', [], d.name); }, saAt && saAt.kind === 'drive' && saAt.drive === d.id);
+    });
+  }
+  function crumb(label, on) {
+    if (saCrumbs.childNodes.length) { var s_ = document.createElement('span'); s_.className = 'sep'; s_.textContent = '›'; saCrumbs.append(s_); }
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = on; saCrumbs.append(b);
+  }
+  function row(label, ic, extra, on, isFile) {
+    var li = document.createElement('li'); if (isFile) li.className = 'file';
+    var b = document.createElement('button'); b.type = 'button'; b.append(icon(ic));
+    var n = document.createElement('span'); n.className = 'n'; n.textContent = label; b.append(n);
+    if (extra) { var c = document.createElement('span'); c.className = 'c'; c.textContent = extra; b.append(c); }
+    b.onclick = on; li.append(b); saList.append(li);
+  }
+  function empty(t) { var li = document.createElement('li'); li.className = 'empty'; li.textContent = t; saList.append(li); }
+  function stemOf(n) { return n.replace(/\.(hwpx|hwp)$/i, ''); }
+  function fail(r) { return r.json().catch(function () { return {}; }).then(function (j) { var e = new Error(j.detail || ('읽지 못했습니다(' + r.status + ')')); e.status = r.status; throw e; }); }
+  function goDept(d, f) {
+    saAt = {kind: 'dept', dept: d, folder: f}; note(''); drawPlaces();
+    saList.innerHTML = ''; empty('불러오는 중');
+    fetch('/api/hwp/browse?dept=' + encodeURIComponent(d) + '&folder=' + encodeURIComponent(f), {credentials: 'same-origin', cache: 'no-store'})
+      .then(function (r) { return r.ok ? r.json() : fail(r); })
+      .then(function (j) {
+        if (!saDepts.length) { saDepts = (j.depts || []).map(function (x) { return x.dept; }); }
+        var h = j.here || {dept: d, folder: f, folders: [], files: [], crumbs: []};
+        saAt = {kind: 'dept', dept: h.dept, folder: h.folder}; drawPlaces();
+        saCrumbs.innerHTML = ''; crumb(h.dept, function () { goDept(h.dept, ''); });
+        (h.crumbs || []).forEach(function (c) { crumb(c.name, function () { goDept(h.dept, c.path); }); });
+        saList.innerHTML = '';
+        (h.folders || []).forEach(function (x) { row(x.name, 'solar:folder-linear', x.count ? String(x.count) : '', function () { goDept(h.dept, x.path); }); });
+        (h.files || []).forEach(function (x) { row(x.name, 'solar:document-text-linear', '', function () { saName.value = stemOf(x.name); saName.focus(); }, true); });
+        if (!(h.folders || []).length && !(h.files || []).length) empty('빈 폴더');
+        if (saMode === 'create') note('');
+      })
+      .catch(function (e) { saList.innerHTML = ''; empty(e.message); });
+  }
+  function goDrive(drive, f, trail, driveName) {
+    saAt = {kind: 'drive', drive: drive, folder: f, trail: trail, driveName: driveName || (saAt && saAt.driveName) || ''}; drawPlaces();
+    saList.innerHTML = ''; empty('불러오는 중');
+    note(saMode === 'create' ? '드라이브에 만들면 작업본은 ' + [dept].concat(folder ? folder.split('/') : []).join(' › ') + ' 폴더에 두고 자동 저장합니다' : '');
+    fetch('/api/hwp/drive/browse?folder=' + encodeURIComponent(f) + '&drive=' + encodeURIComponent(drive), {credentials: 'same-origin', cache: 'no-store'})
+      .then(function (r) { return r.ok ? r.json() : fail(r); })
+      .then(function (j) {
+        if (j.drives && saDrives === null) { saDrives = j.drives; drawPlaces(); }
+        var top = drive ? (saAt.driveName || '공유 드라이브') : '내 드라이브';
+        saCrumbs.innerHTML = ''; crumb(top, function () { goDrive(drive, '', [], saAt.driveName); });
+        trail.forEach(function (t, i) { crumb(t.name, function () { goDrive(drive, t.id, trail.slice(0, i + 1)); }); });
+        saList.innerHTML = '';
+        (j.folders || []).forEach(function (x) { row(x.name, 'solar:folder-linear', '', function () { goDrive(drive, x.id, trail.concat([{id: x.id, name: x.name}])); }); });
+        (j.files || []).forEach(function (x) { row(x.name, 'solar:document-text-linear', '', function () { saName.value = stemOf(x.name); saName.focus(); }, true); });
+        if (!(j.folders || []).length && !(j.files || []).length) empty('빈 폴더');
+      })
+      .catch(function (e) { saList.innerHTML = ''; saCrumbs.innerHTML = ''; empty(e.status === 409 ? '학교 구글 계정이 연결되어 있지 않습니다. 설정에서 「내 학교 계정 연결」 뒤 다시 열어 주세요.' : e.message); });
+  }
+  function openSaveAs(mode) {
+    if (!ready && mode === 'create') return;
+    saMode = mode; saBusy = false; note('');
+    sa.querySelector('[data-sa-title]').textContent = mode === 'create' ? '새 문서 만들기' : '다른 이름으로 저장';
+    saOk.textContent = mode === 'create' ? '만들기' : '저장'; saOk.disabled = false;
+    saName.value = mode === 'create' ? '새 문서' : stemOf(name);
+    if (menu) menu.hidden = true;
+    sa.showModal(); goDept(dept, folder || '');
+    setTimeout(function () { saName.focus(); saName.select(); }, 30);
+  }
+  sa.querySelectorAll('[data-sa-close]').forEach(function (b) { b.onclick = function () { if (!saBusy) sa.close(); }; });
+  sa.addEventListener('cancel', function (e) { if (saBusy) e.preventDefault(); });
+  sa.querySelector('[data-sa-form]').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (saBusy || !saAt) return;
+    var nm = saName.value.trim();
+    if (!nm) { note('이름을 적어 주세요', true); saName.focus(); return; }
+    saBusy = true; saOk.disabled = true; note(saAt.kind === 'drive' ? '드라이브에 올리는 중' : '저장하는 중');
+    var at = saAt, url;
+    if (at.kind === 'dept') {
+      url = '/hwp/save-as?dept=' + encodeURIComponent(at.dept) + '&folder=' + encodeURIComponent(at.folder) + '&name=' + encodeURIComponent(nm) + (fid ? '&src=' + fid : '');
+    } else {
+      url = '/hwp/save-as/drive?name=' + encodeURIComponent(nm) + '&folder=' + encodeURIComponent(at.folder) + '&drive=' + encodeURIComponent(at.drive)
+          + (saMode === 'create' ? '&keep=1&dept=' + encodeURIComponent(dept) + '&dept_folder=' + encodeURIComponent(folder || '') : '');
+    }
+    hwpxBytes(function (bytes) {
+      fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
+        .then(function (r) { return r.ok ? r.json() : fail(r); })
+        .then(function (j) {
+          if (j.url) {                                    // 새 파일로 옮겨 간다 — 그 파일에서 자동 저장이 이어진다
+            dirty = false; clearTimeout(idleTimer); note('열고 있습니다');
+            if (saMode === 'create') location.replace(j.url); else location.href = j.url;
+            return;
+          }
+          saBusy = false; sa.close(); say('드라이브에 저장했습니다 · ' + j.name, 'ok');
+          if (j.drive_url) window.open(j.drive_url, '_blank', 'noopener');
+        })
+        .catch(function (err) { saBusy = false; saOk.disabled = false; note(err.message, true); });
+    });
+  });
+  var saveAsBtn = document.querySelector('[data-save-as]');
+  if (saveAsBtn) saveAsBtn.addEventListener('click', function () { openSaveAs('copy'); });
 })();
 </script>
 </body>
