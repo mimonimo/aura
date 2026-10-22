@@ -84,10 +84,12 @@
   [hidden] { display: none !important; }
 
   /* 검색은 사이드바 위, 사용자·알림은 사이드바 아래(10-22) — 옅고 얇게, 사이드바 항목과 같은 결 */
-  .side-searchbox { margin: 0 2px 10px; padding: 7px 12px; border-radius: 10px; background: #f6f7f9; border: 1px solid transparent; box-shadow: none; }
-  .side-searchbox:focus-within { background: #fff; border-color: #d6dee8; box-shadow: none; }
-  .side-searchbox input { width: 100%; font-size: 13px; }
+  .side-searchbox { display: flex; align-items: center; gap: 8px; margin: 0 2px 8px; padding: 5px 10px; border-radius: 8px; background: transparent;
+                    border: 1px solid transparent; color: var(--muted, #6b778a); font-size: 13px; text-decoration: none; }
+  .side-searchbox:hover, .side-searchbox:focus-visible { background: #f1f3f6; color: var(--ink); }
+  .side-searchbox span { flex: 1; }
   .side-searchbox iconify-icon { font-size: 15px; }
+  .side-kbd { padding: 0 5px; border: 1px solid #e3e7ed; border-radius: 5px; background: #fff; color: #8d98a7; font: 500 10.5px/1.6 inherit; }
   .side-user { display: flex; align-items: center; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
   .side-user .menu-wrap:last-child { order: -1; flex: 1; min-width: 0; }
   .side-user .user-chip { width: 100%; border: 0; background: transparent; box-shadow: none; border-radius: 9px; padding: 6px 8px;
@@ -514,6 +516,8 @@
 <link rel="stylesheet" href="/static/project-search.css?v={{ asset_v }}">
 <script src="/static/project-search.js?v={{ asset_v }}" defer></script>
 <script src="/static/workspace-navigation.js?v={{ asset_v }}" defer></script>
+<link rel="stylesheet" href="/static/quick-search.css?v={{ asset_v }}">
+<script src="/static/quick-search.js?v={{ asset_v }}" defer></script>
 <script>try { document.documentElement.classList.toggle('sidebar-collapsed', localStorage.getItem('workspaceSidebarCollapsed') === '1'); } catch (_) {}</script>
 <script>
 // 공용 PC에서 계정이 바뀌면 이전 계정의 대화 포인터·임시 초안을 넘기지 않는다.
@@ -568,10 +572,9 @@ document.addEventListener('submit', function(event) {
   <p class="sidebar-service-name">AURA</p>
   </div>
     {% if request.state.role != 'student' %}{# 학생은 검색 화면을 쓰지 않는다 — 서버도 막는다(check_auth) #}
-    <form class="searchbox side-searchbox" action="/search" method="get" role="search" aria-label="문서·대화 검색">
-      <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-      <input type="search" name="q" placeholder="검색" value="{{ q if q is defined and request.url.path == '/search' else '' }}">
-    </form>
+    <a class="side-searchbox" href="/search" data-quick-search aria-label="빠른 찾기 열기(Ctrl+K)">
+      <iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><span>검색</span><kbd class="side-kbd">Ctrl K</kbd>
+    </a>
     {% endif %}
   {% set developer_space = dev_space(request.url.path, request.state.role) %}
   {% if developer_space %}
