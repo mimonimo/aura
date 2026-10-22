@@ -592,6 +592,10 @@ document.addEventListener('submit', function(event) {
     <a href="/programs/admin" class="{{ 'active' if request.url.path.startswith('/programs/admin') else '' }}" title="교내 사업 장부 — 분류·부서·기간·예산·총괄 책임자·사업 담당자">
       <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
     {% endif %}
+    {% if program_scope is defined and program_scope(request) in ('all', 'dept') %}
+    <a href="/team" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="같은 부서 직원의 등급·추가 권한">
+      <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>부서 사람</a>
+    {% endif %}
     {% endif %}
   </nav>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}

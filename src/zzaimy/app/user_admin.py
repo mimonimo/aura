@@ -419,3 +419,72 @@ def dev_google_revoke(request: Request, email: str = Form("")):
         return _back("계정을 골라 주세요", ok=False)
     unlink_google(request.app.state.db, _accounts(request), email)
     return _back(f"{email} 연결을 지웠습니다(구글 쪽 권한은 그 계정의 보안 설정에서 따로 지울 수 있습니다)")
+
+
+# ---------------- 부서 사람: 총괄 책임자가 자기 부서 직원에게 등급·추가 권한을 준다 ----------------
+# 권한은 본인이 고르는 게 아니라 같은 부서의 총괄 책임자(부서장)나 관리자가 준다(10-22 사용자). 총괄 책임자는 자기 부서의
+# 일반·사업 담당자만 바꾸고(다른 총괄 책임자·관리자는 못 바꿈), 등급은 일반↔사업 담당자까지만 — 총괄 책임자 지정은 관리자가.
+TEAM_GRADES = ("member", "lead")
+
+
+def _team_actor(request: Request) -> tuple[str, dict, str]:
+    """(나, 내 계정, 다룰 부서) — 총괄 책임자는 자기 부서, 관리자는 아무 부서. 그 밖은 403."""
+    accounts = _accounts(request)
+    me = _user(request)
+    mine = accounts.get(me) or {}
+    g = grades.request_grade(request)
+    if g == "admin":
+        return me, mine, ""
+    if g != "head" or not str(mine.get("dept") or "").strip():
+        raise HTTPException(403, "부서 사람 권한은 그 부서의 총괄 책임자와 관리자가 정합니다")
+    return me, mine, str(mine["dept"]).strip()
+
+
+def _team_rows(accounts: dict, dept: str) -> list[dict]:
+    rows = []
+    for uid, a in sorted(accounts.items()):
+        if a.get("role") not in grades.STAFF or not a.get("active", True) or str(a.get("dept") or "").strip() != dept:
+            continue
+        g = grades.grade_of(a)
+        rows.append({"uid": uid, "name": a.get("name") or uid, "grade": g, "grade_label": grades.label(g),
+                     "perms": [k for k in grades.PERMS if k in (a.get("perms") or ())], "editable": g in TEAM_GRADES,
+                     "by": a.get("perms_by") or ""})
+    return rows
+
+
+@router.get("/team", response_class=HTMLResponse)
+def team_page(request: Request, dept: str = "", ok: str = "", err: str = ""):
+    st = request.app.state
+    me, _, mine = _team_actor(request)
+    choices = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None)) if not mine else [mine]
+    dept = mine or (dept if dept in choices else (choices[0] if choices else ""))
+    return st.templates.TemplateResponse(request, "team.html", st.page_ctx(request, {
+        "rows": _team_rows(_accounts(request), dept), "dept": dept, "depts": choices, "me": me,
+        "perms": grades.PERMS, "team_grades": {k: grades.GRADES[k] for k in TEAM_GRADES}, "ok": ok, "err": err}))
+
+
+@router.post("/team/save")
+def team_save(request: Request, uid: str = Form(...), grade: str = Form(""), perm: list[str] = Form([]), dept: str = Form("")):
+    st = request.app.state
+    me, _, mine = _team_actor(request)
+    accounts = _accounts(request)
+    a = accounts.get(uid.strip().lower())
+    target_dept = str((a or {}).get("dept") or "").strip()
+    back = lambda m, good=True: RedirectResponse(f"/team?dept={quote(target_dept or dept)}&{'ok' if good else 'err'}={quote(m)}", status_code=303)
+    if not a or a.get("role") not in grades.STAFF or not a.get("active", True):
+        return back("바꿀 수 있는 교직원 계정이 아닙니다", False)
+    if mine and target_dept != mine:
+        raise HTTPException(403, "다른 부서 사람의 권한은 바꿀 수 없습니다")
+    if grades.grade_of(a) not in TEAM_GRADES:
+        return back("총괄 책임자·관리자 계정은 관리자가 사용자·계정 화면에서 바꿉니다", False)
+    if grade and grade not in TEAM_GRADES:
+        return back("여기서는 일반·사업 담당자까지만 정할 수 있습니다", False)
+    if grade:
+        a["grade"] = grade
+    a["perms"] = [k for k in grades.PERMS if k in set(perm)]
+    if not a["perms"]:
+        a.pop("perms", None)
+    a["perms_by"] = me
+    a["updated_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+    st.save_accounts()
+    return back(f"{a.get('name') or uid} 님의 권한을 저장했습니다")

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}부서 사람{% endblock %}
+{% block pagetitle %}부서 사람{% endblock %}
+{% block content %}
+<style>
+  .tm-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
+  .tm-head p { margin:0; font-size:12.5px; color:var(--muted); }
+  .tm-head select { font:inherit; font-size:13px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; }
+  .tm-list { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .tm-row { display:grid; grid-template-columns:minmax(150px,1.2fr) 150px minmax(260px,2fr) auto; align-items:center; gap:12px; padding:9px 14px; border-bottom:1px solid var(--line); font-size:13px; }
+  .tm-row:last-child { border-bottom:0; }
+  .tm-row.head { background:var(--panel, #f7f9fb); font-size:11.5px; color:var(--muted); font-weight:600; padding:7px 14px; }
+  .tm-name small { display:block; color:var(--muted); font-size:11.5px; }
+  .tm-row select { font:inherit; font-size:12.5px; padding:4px 8px; border:1px solid var(--line); border-radius:7px; background:transparent; }
+  .tm-perms { display:flex; flex-wrap:wrap; gap:6px 14px; }
+  .tm-perms label { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; }
+  .tm-fixed { color:var(--muted); font-size:12px; }
+  .tm-by { color:var(--faint, #94a3b8); font-size:11.5px; white-space:nowrap; }
+  @media (max-width:760px) { .tm-row { grid-template-columns:1fr; } .tm-row.head { display:none; } }
+</style>
+{% if err %}<p class="notice" role="alert"><span>{{ err }}</span></p>{% endif %}
+{% if ok %}<p class="notice" role="status"><span>{{ ok }}</span></p>{% endif %}
+<div class="tm-head">
+  {% if depts|length > 1 %}<form method="get"><select name="dept" aria-label="부서" onchange="this.form.submit()">{% for d in depts %}<option value="{{ d }}"{% if d == dept %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></form>{% else %}<strong>{{ dept }}</strong>{% endif %}
+  <p>같은 부서 직원의 등급과 추가 권한 · 바꾸면 바로 저장</p>
+</div>
+<div class="tm-list" role="table" aria-label="{{ dept }} 사람">
+  <div class="tm-row head" role="row"><span>사람</span><span>등급</span><span>추가 권한</span><span></span></div>
+  {% for r in rows %}
+  <form class="tm-row" role="row" method="post" action="/team/save">
+    <input type="hidden" name="uid" value="{{ r.uid }}"><input type="hidden" name="dept" value="{{ dept }}">
+    <span class="tm-name">{{ r.name }}<small>{{ r.uid }}</small></span>
+    {% if r.editable %}
+    <select name="grade" aria-label="{{ r.name }} 등급" onchange="this.form.requestSubmit()">{% for k, v in team_grades.items() %}<option value="{{ k }}"{% if r.grade == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+    <span class="tm-perms">{% for k, v in perms.items() %}<label><input type="checkbox" name="perm" value="{{ k }}"{% if k in r.perms %} checked{% endif %} onchange="this.form.requestSubmit()"> {{ v }}</label>{% endfor %}</span>
+    {% else %}
+    <span class="tm-fixed">{{ r.grade_label }}</span><span class="tm-fixed">관리자가 정합니다</span>
+    {% endif %}
+    <span class="tm-by">{% if r.by %}{{ r.by }} 님이 정함{% endif %}</span>
+  </form>
+  {% else %}
+  <p class="tm-fixed" style="padding:14px">이 부서에 사용 중인 교직원 계정이 없습니다</p>
+  {% endfor %}
+</div>
+{% endblock %}

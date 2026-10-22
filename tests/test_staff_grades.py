@@ -261,3 +261,27 @@ def test_extra_perms_open_create_and_activity_for_member():
     assert grades.can_view_activity(proj, user="lee", account=m, project_dept="기획처", program_roles={})
     assert not grades.can_view_activity(proj, user="lee", account=m, project_dept="교무처", program_roles={})
     assert not grades.has_perm({"role": "student", "perms": ["create_project"]}, "create_project")
+
+
+def test_team_page_head_grants_same_dept_only(tmp_path):
+    """권한은 본인이 아니라 같은 부서 총괄 책임자(또는 관리자)가 준다 — 다른 부서·총괄 책임자는 못 바꾼다."""
+    app, dev = _dev(tmp_path)
+    _add(app, "boss", dept="기획처", grade="head")
+    _add(app, "kim", dept="기획처", grade="member")
+    _add(app, "park", dept="교무처", grade="member")
+    _add(app, "boss2", dept="기획처", grade="head")
+    boss = _client(app, "boss")
+    page = boss.get("/team").text
+    assert "kim" in page and "park" not in page
+    r = boss.post("/team/save", data={"uid": "kim", "grade": "member", "perm": ["create_project"]}, follow_redirects=False)
+    assert r.status_code == 303 and app.state.accounts["kim"]["perms"] == ["create_project"]
+    assert app.state.accounts["kim"]["perms_by"] == "boss" and grades.can_create_project(app.state.accounts["kim"])
+    assert boss.post("/team/save", data={"uid": "park", "perm": ["create_project"]}, follow_redirects=False).status_code == 403
+    boss.post("/team/save", data={"uid": "boss2", "grade": "member"}, follow_redirects=False)
+    assert app.state.accounts["boss2"]["grade"] == "head"                 # 다른 총괄 책임자는 못 바꿈
+    boss.post("/team/save", data={"uid": "kim", "grade": "head"}, follow_redirects=False)
+    assert app.state.accounts["kim"]["grade"] == "member"                 # 총괄 책임자 지정은 관리자만
+    kim = _client(app, "kim")
+    assert kim.get("/team").status_code == 403                             # 본인이 권한을 고르지 못한다
+    assert "/team" in boss.get("/chat").text and 'href="/team"' not in kim.get("/chat").text
+    assert dev.get("/team?dept=교무처").status_code == 200
