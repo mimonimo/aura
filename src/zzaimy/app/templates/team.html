@@ -41,7 +41,7 @@
     <span class="tm-name">{{ r.name }}<small>{{ r.uid }}</small></span>
     {% if r.editable %}
     {% if r.grade_editable %}<select name="grade" aria-label="{{ r.name }} 등급" onchange="this.form.requestSubmit()">{% for k, v in team_grades.items() %}<option value="{{ k }}"{% if r.grade == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>{% else %}<span class="tm-fixed">{{ r.grade_label }}</span>{% endif %}
-    <span class="tm-perms">{% for k, v in perms.items() %}<label><input type="checkbox" name="perm" value="{{ k }}"{% if k in r.perms %} checked{% endif %} onchange="this.form.requestSubmit()"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% endfor %}</span>
+    <span class="tm-perms">{% for k, v in perms.items() %}{% if actor_grade != 'lead' or k in lead_grantable %}<label><input type="checkbox" name="perm" value="{{ k }}"{% if k in r.perms %} checked{% endif %} onchange="this.form.requestSubmit()"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% elif k in r.perms %}<span class="tm-fixed">{{ v }}</span>{% endif %}{% endfor %}</span>
     {% else %}
     <span class="tm-fixed">{{ r.grade_label }}</span><span class="tm-fixed">{{ '총괄 책임자가 정합니다' if actor_grade == 'lead' else '관리자가 정합니다' }}</span>
     {% endif %}

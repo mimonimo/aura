@@ -329,3 +329,17 @@ def test_lead_grants_perms_to_members_only_and_head_sets_grades(tmp_path):
     boss.post("/team/save", data={"uid": "kim", "grade": "clerk"}, follow_redirects=False)
     assert app.state.accounts["kim"]["grade"] == "clerk" and grades.label("clerk") == "행정 담당자"
     assert grades.can_create_project(app.state.accounts["kim"])
+
+
+def test_lead_cannot_grant_what_it_lacks(tmp_path):
+    """보안: 사업 책임자는 부서 전체 진행 현황 보기 같은 자기에게 없는 권한을 줄 수도, 총괄 책임자가 준 것을 뺄 수도 없다."""
+    app, _ = _dev(tmp_path)
+    _add(app, "boss", dept="기획처", grade="head")
+    _add(app, "lead1", dept="기획처", grade="lead")
+    _add(app, "kim", dept="기획처", grade="member")
+    lead = _client(app, "lead1")
+    lead.post("/team/save", data={"uid": "kim", "perm": ["create_project", "view_activity"]}, follow_redirects=False)
+    assert app.state.accounts["kim"]["perms"] == ["create_project"]
+    _client(app, "boss").post("/team/save", data={"uid": "kim", "perm": ["create_project", "view_activity"]}, follow_redirects=False)
+    lead.post("/team/save", data={"uid": "kim", "perm": []}, follow_redirects=False)
+    assert app.state.accounts["kim"]["perms"] == ["view_activity"]           # 총괄 책임자가 준 권한은 남는다

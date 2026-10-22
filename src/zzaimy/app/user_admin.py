@@ -425,6 +425,7 @@ def dev_google_revoke(request: Request, email: str = Form("")):
 # 권한은 본인이 고르지 않는다(10-22 사용자). 총괄 책임자(부서장)는 자기 부서 직원의 등급(일반·행정 담당자·사업 책임자)과
 # 추가 권한을 정하고, 사업 책임자는 자기 부서 일반 직원에게 추가 권한만 준다(등급은 못 바꿈). 총괄 책임자 지정은 관리자가.
 TEAM_GRADES = ("member", "clerk", "lead")
+LEAD_GRANTABLE = ("create_project",)          # 사업 책임자가 일반 직원에게 줄 수 있는 추가 권한
 
 
 def _team_actor(request: Request) -> tuple[str, dict, str, str]:
@@ -469,7 +470,7 @@ def team_page(request: Request, dept: str = "", ok: str = "", err: str = ""):
     choices = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None)) if not mine else [mine]
     dept = mine or (dept if dept in choices else (choices[0] if choices else ""))
     return st.templates.TemplateResponse(request, "team.html", st.page_ctx(request, {
-        "rows": _team_rows(_accounts(request), dept, ag), "dept": dept, "actor_grade": ag, "depts": choices, "me": me,
+        "rows": _team_rows(_accounts(request), dept, ag), "dept": dept, "actor_grade": ag, "lead_grantable": LEAD_GRANTABLE, "depts": choices, "me": me,
         "perms": grades.PERMS, "team_grades": {k: grades.GRADES[k] for k in TEAM_GRADES}, "ok": ok, "err": err}))
 
 
@@ -492,7 +493,10 @@ def team_save(request: Request, uid: str = Form(...), grade: str = Form(""), per
         if not grade_ok or grade not in TEAM_GRADES:
             return back("등급(사업 책임자·행정 담당자 지정)은 총괄 책임자가 정합니다", False)
         a["grade"] = grade
-    a["perms"] = [k for k in grades.PERMS if k in set(perm)]
+    # 사업 책임자는 자기가 가진 권한만 나눠 준다(프로젝트 만들기) — 부서 전체 진행 현황 보기처럼 자기에게 없는 권한은 줄 수도 뺄 수도 없다
+    grantable = set(grades.PERMS) if ag in ("admin", "head") else set(LEAD_GRANTABLE)
+    keep = {k for k in (a.get("perms") or ()) if k not in grantable}
+    a["perms"] = [k for k in grades.PERMS if k in keep or (k in grantable and k in set(perm))]
     if not a["perms"]:
         a.pop("perms", None)
     a["perms_by"] = me
