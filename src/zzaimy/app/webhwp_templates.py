@@ -25,7 +25,7 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-BUILD = 5          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
+BUILD = 7          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
 
 
 def fingerprint(spec: dict) -> str:
@@ -69,21 +69,16 @@ def build(spec: dict) -> bytes:
     from hwpx import HwpxDocument
 
     doc = HwpxDocument.new()
-    # 글자 모양 — 표지 제목·절 제목은 굵게 크기 차례로, 작성 지침은 작고 회색(구글 공통 양식과 같은 위계)
-    try:
-        cover_cp = doc.ensure_run_style(bold=True, size=18)
-        head_cp = {1: doc.ensure_run_style(bold=True, size=14), 2: doc.ensure_run_style(bold=True, size=12),
-                   3: doc.ensure_run_style(bold=True, size=11)}
-    except Exception:                                  # 라이브러리 판이 달라 글자 모양을 못 만들면 바탕글 그대로
-        cover_cp, head_cp = None, {}
+    plan = []                                          # 글 갈래별 모양은 다 만든 뒤 webhwp_style.dress 가 입힌다(크기·굵게·가운데)
     for i, line in enumerate(spec.get("cover") or []):
-        doc.add_paragraph(line, style="바탕글", **({"char_pr_id_ref": cover_cp} if cover_cp and i == 0 else {}))
+        plan.append((line, "cover" if i == 0 else "cover_sub"))
+        doc.add_paragraph(line, style="바탕글")
     doc.add_paragraph("", style="바탕글")
     for b in spec["blocks"]:
         if "h" in b:
             doc.add_paragraph("", style="바탕글")
-            cp = head_cp.get(min(int(b["h"]), 3))
-            doc.add_paragraph(b["text"], style="바탕글", **({"char_pr_id_ref": cp} if cp else {}))
+            plan.append((b["text"], f"h{min(int(b['h']), 3)}"))
+            doc.add_paragraph(b["text"], style="바탕글")
         elif "guide" in b:
             box = doc.add_table(1, 1)
             box.set_cell_text(0, 0, f"【작성방법】 {b['guide']}")
@@ -94,7 +89,7 @@ def build(spec: dict) -> bytes:
     # 쓸 자리(절 다음 빈 문단·라벨 칸·목록표)에 누름틀 — 기안기에서 사람·에이전트가 같은 이름으로 짚는다(webhwp_fields)
     # 표 모양은 학교 서식에서 캔 기본(머리줄·라벨 음영·굵게, 바깥 0.4mm·안쪽 0.12mm, 10pt — webhwp_style.HOUSE)
     from zzaimy.app import webhwp_fields, webhwp_style
-    return webhwp_style.apply(webhwp_fields.fieldize(doc.to_bytes())[0])
+    return webhwp_style.dress(webhwp_style.apply(webhwp_fields.fieldize(doc.to_bytes())[0]), plan)
 
 
 # ── 기안기용 공통 공문 ── 행정업무규정 공문서 구성(두문·본문·결문)을 따른 학교 공문 서식. 쓸 자리는 build 가 누름틀로 박는다

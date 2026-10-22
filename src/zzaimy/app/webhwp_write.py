@@ -198,6 +198,8 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     ids = wf._Ids([header, *secs.values()])
     new: dict[str, str] = {}
     put: list[str] = []
+    diagrams: list[str] = []
+    diagram_pids: set[str] = set()
     for n, xml in secs.items():
         hit = next((m for m in _BEGIN.finditer(xml) if _unq(m.group(2)) == name), None)
         if not hit:
@@ -259,6 +261,13 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                         pid = ids.new()
                         chunks.append(hf.paragraph_xml(line, lp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                         put.append(pid)
+            elif kind == "diagram" and str(val).strip():
+                # 도식은 표시 문단으로 넣고 다 쓴 뒤 그 자리를 도식 표로 바꾼다(webhwp_style.diagram_table — header 모양 등록이 한 곳에서)
+                pid = ids.new()
+                diagrams.append(str(val))
+                diagram_pids.add(pid)
+                chunks.append(hf.paragraph_xml(f"⟦도식{len(diagrams) - 1}⟧", pp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
+                put.append(pid)
             elif kind == "table" and isinstance(val, list) and val:
                 rows = [[str(c) for c in r] for r in val]
                 pid = ids.new()
@@ -287,18 +296,22 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                 body = header.encode("utf-8") if info.filename == "Contents/header.xml" else zin2.read(info.filename)
                 zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
         out = buf.getvalue()
+    if diagrams:
+        from zzaimy.app import webhwp_style
+        out = webhwp_style.place_diagrams(out, diagrams, width)
     if "head" not in roles and put:                          # 양식에 음영 있는 표가 없으면 학교 표 기본 모양(webhwp_style.HOUSE)으로
         from zzaimy.app import webhwp_style
-        out = webhwp_style.apply(out, only_paras=set(put))
+        out = webhwp_style.apply(out, only_paras=set(put) - diagram_pids)
     return out, put
 
 
 def parse_body(text: str) -> list[tuple[str, object]]:
-    """에이전트가 쓴 절 본문(글 + 마크다운 표 | a | b |) → items. 표 구분 줄(|---|)은 버린다."""
+    """에이전트가 쓴 절 본문(글 + 마크다운 표 | a | b | + ```도식 블록) → items. 표 구분 줄(|---|)은 버린다."""
     items: list[tuple[str, object]] = []
     lines = str(text or "").replace("\r", "").split("\n")
     buf: list[str] = []
     table: list[list[str]] = []
+    fence: list[str] | None = None
 
     def flush_text():
         if buf and any(x.strip() for x in buf):
@@ -307,6 +320,20 @@ def parse_body(text: str) -> list[tuple[str, object]]:
 
     for ln in lines:
         s = ln.strip()
+        if fence is not None:                               # ```도식 … ``` 블록
+            if s.startswith("```"):
+                items.append(("diagram", "\n".join(fence)))
+                fence = None
+            else:
+                fence.append(ln)
+            continue
+        if re.match(r"^```\s*(도식|diagram|flow)", s):
+            flush_text()
+            if table:
+                items.append(("table", table))
+                table = []
+            fence = []
+            continue
         if s.startswith("|") and s.endswith("|") and s.count("|") >= 2:
             flush_text()
             if re.fullmatch(r"\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?", s):
@@ -319,5 +346,7 @@ def parse_body(text: str) -> list[tuple[str, object]]:
         buf.append(ln)
     if table:
         items.append(("table", table))
+    if fence:
+        items.append(("diagram", "\n".join(fence)))
     flush_text()
     return items

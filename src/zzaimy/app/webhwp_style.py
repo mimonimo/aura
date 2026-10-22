@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from xml.sax.saxutils import escape
 
 HOUSE = {"head_fill": "#E5E5E5", "label_fill": "#E5E5E5", "outer": "0.4 mm", "inner": "0.12 mm",
          "head_bottom": "SOLID", "font_pt": 10.0, "head_bold": True, "head_align": "CENTER", "body_align": ""}
@@ -56,14 +57,17 @@ class _Header:
         self.cache: dict[tuple, str] = {}
 
     def _next_id(self, tag: str) -> int:
-        return max([int(x) for x in re.findall(rf'<hh:{tag} id="(\d+)"', self.xml)] or [0]) + 1
+        return max([int(x) for x in re.findall(rf'<hh:{tag}\b[^>]*?\bid="(\d+)"', self.xml)] or [0]) + 1
 
     def _append(self, group: str, body: str) -> None:
         close = self.xml.find(f"</hh:{group}>")
         self.xml = self.xml[:close] + body + self.xml[close:]
+        item = {"borderFills": "borderFill", "charProperties": "charPr", "paraProperties": "paraPr"}[group]
+        blk = re.search(rf"<hh:{group}\b.*?</hh:{group}>", self.xml, re.S)
+        n = len(re.findall(rf"<hh:{item}\b", blk.group(0)))            # 실제 항목 수로(앞선 도구가 틀리게 적은 수도 바로잡힘)
         m = re.search(rf'(<hh:{group}\b[^>]*\bitemCnt=")(\d+)(")', self.xml)
         if m:
-            self.xml = self.xml[:m.start(2)] + str(int(m.group(2)) + 1) + self.xml[m.end(2):]
+            self.xml = self.xml[:m.start(2)] + str(n) + self.xml[m.end(2):]
 
     def border(self, left: str, right: str, top: str, bottom: str, fill: str, kind: str = "SOLID",
                bottom_kind: str = "") -> str:
@@ -85,18 +89,20 @@ class _Header:
         self.cache[key] = i
         return i
 
-    def char(self, base: str, *, bold: bool | None = None, pt: float | None = None) -> str:
-        key = ("cp", base, bold, pt)
+    def char(self, base: str, *, bold: bool | None = None, pt: float | None = None, color: str = "") -> str:
+        key = ("cp", base, bold, pt, color)
         if key in self.cache:
             return self.cache[key]
-        m = re.search(rf'<hh:charPr id="{base}"[^>]*>.*?</hh:charPr>', self.xml, re.S)
+        m = re.search(rf'<hh:charPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:charPr>', self.xml, re.S)
         if not m:
             return base
         body = m.group(0)
         i = str(self._next_id("charPr"))
-        body = re.sub(r'id="\d+"', f'id="{i}"', body, count=1)
+        body = re.sub(r'\bid="\d+"', f'id="{i}"', body, count=1)
         if pt:
             body = re.sub(r'\bheight="\d+"', f'height="{int(round(pt * 100))}"', body, count=1)
+        if color:
+            body = re.sub(r'\btextColor="[^"]*"', f'textColor="{color}"', body, count=1)
         if bold is True and "<hh:bold/>" not in body:
             body = body.replace("<hh:underline", "<hh:bold/><hh:underline", 1)
         elif bold is False:
@@ -109,7 +115,7 @@ class _Header:
         key = ("pp", base, align)
         if key in self.cache:
             return self.cache[key]
-        m = re.search(rf'<hh:paraPr id="{base}"[^>]*>.*?</hh:paraPr>', self.xml, re.S)
+        m = re.search(rf'<hh:paraPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:paraPr>', self.xml, re.S)
         if not m or not align:
             return base
         body = m.group(0)
@@ -117,7 +123,7 @@ class _Header:
             self.cache[key] = base
             return base
         i = str(self._next_id("paraPr"))
-        body = re.sub(r'id="\d+"', f'id="{i}"', body, count=1)
+        body = re.sub(r'\bid="\d+"', f'id="{i}"', body, count=1)
         body = re.sub(r'(<hh:align horizontal=")[A-Z_]+', rf"\g<1>{align}", body, count=1)
         self._append("paraProperties", body)
         self.cache[key] = i
@@ -163,9 +169,12 @@ def roles(tbl: str) -> dict[tuple[int, int], str]:
             out[(c["r"], c["c"])] = "head"
             continue
         right = at.get((c["r"], c["c"] + c["cs"]))
+        below = at.get((c["r"] + c["rs"], c["c"]))
         is_label = bool(c["text"]) and not c["field"] and len(c["text"]) <= 20 and (
             (right is not None and (not right["text"] or right["field"]))
-            or (c["c"] == 0 and not head_rows and ncols >= 2))
+            or (c["c"] == 0 and not head_rows and ncols >= 2)
+            # 표 안 소머리(아래 칸이 비었거나 필드이고 오른쪽도 글인 칸 — 「국비 | 지방비 | 대응자금」 줄)
+            or (below is not None and (not below["text"] or below["field"]) and c["c"] > 0))
         out[(c["r"], c["c"])] = "label" if is_label else "body"
     return out
 
@@ -186,9 +195,9 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
     for c in cells:
         role = rl.get((c["r"], c["c"]), "body")
         x = c["xml"]
-        if role == "box":
+        if role == "box":                                   # 작성 안내 상자 — 점선, 작은 회색 글, 왼쪽 정렬(본문과 구별)
             bf = hdr.border(o["inner"], o["inner"], o["inner"], o["inner"], "none", "DASH")
-            align = "JUSTIFY"
+            align = "LEFT"
         else:
             left = o["outer"] if c["c"] == 0 else o["inner"]
             right = o["outer"] if c["c"] + c["cs"] >= ncols else o["inner"]
@@ -203,9 +212,12 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
         x = re.sub(r'(<hp:tc\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{bf}", x, count=1)
         bold = bool(o["head_bold"]) if role == "head" else None
         pt = float(o["font_pt"]) if o.get("font_pt") else None
+        color = ""
+        if role == "box":
+            pt, color = (pt or 10.0) - 1, "#555555"
 
         def run(m: re.Match) -> str:
-            return f'{m.group(1)}{hdr.char(m.group(2), bold=bold, pt=pt)}{m.group(3)}'
+            return f'{m.group(1)}{hdr.char(m.group(2), bold=bold, pt=pt, color=color)}{m.group(3)}'
         x = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")', run, x)
         if align:
             x = re.sub(r'(<hp:p\b[^>]*\bparaPrIDRef=")(\d+)(")', lambda m: f"{m.group(1)}{hdr.para(m.group(2), align)}{m.group(3)}", x)
@@ -275,4 +287,129 @@ def apply(data: bytes, which: list[int] | None = None, opts: dict | None = None,
                 return m.group(0)
             return style_table(m.group(0), hdr, opts)
         return _TBL.sub(sub, xml)
+    return _rewrite(data, fn)
+
+
+DRESS = {"cover": {"pt": 18, "bold": True, "align": "CENTER"}, "cover_sub": {"pt": 12, "align": "CENTER"},
+         "h1": {"pt": 14, "bold": True}, "h2": {"pt": 12, "bold": True}, "h3": {"pt": 11, "bold": True}}
+
+
+def dress(data: bytes, plan: list[tuple[str, str]]) -> bytes:
+    """표 밖 문단에 글 갈래별 모양(표지 제목·부제·절 제목 단계) — plan 은 문서 차례의 (글, 갈래). 글이 같은 문단을 차례로 짚는다."""
+    want = [(re.sub(r"\s+", " ", t).strip(), DRESS[k]) for t, k in plan if t.strip() and k in DRESS]
+
+    def fn(xml: str, hdr: _Header, _n: str) -> str:
+        spans = [(m.start(), m.end()) for m in re.finditer(r"<hp:tbl\b.*?</hp:tbl>", xml, re.S)]
+        out, pos, i = [], 0, 0
+        for m in re.finditer(r"<hp:p\b[^>]*>(?:(?!<hp:p\b).)*?</hp:p>", xml, re.S):
+            if i >= len(want):
+                break
+            if any(a <= m.start() < b for a, b in spans):
+                continue
+            if _text(m.group(0)) != want[i][0]:
+                continue
+            st = want[i][1]
+            i += 1
+            x = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")',
+                       lambda r: f'{r.group(1)}{hdr.char(r.group(2), bold=st.get("bold"), pt=st.get("pt"))}{r.group(3)}', m.group(0))
+            if st.get("align"):
+                x = re.sub(r'(<hp:p\b[^>]*\bparaPrIDRef=")(\d+)(")', lambda r: f'{r.group(1)}{hdr.para(r.group(2), st["align"])}{r.group(3)}', x, count=1)
+            out.append(xml[pos:m.start()] + x)
+            pos = m.end()
+        out.append(xml[pos:])
+        return "".join(out)
+    return _rewrite(data, fn)
+
+
+# ── 도식 ── 학교 문서의 추진체계도·흐름도는 대부분 표 칸 상자 + 화살표로 그린다(그리기 개체보다 편집·이동이 쉽고 기안기에서 그대로 고친다).
+# 에이전트는 본문에 「```도식」 블록으로 줄마다 「상자 → 상자 → 상자」 를 쓰고, 줄 사이는 아래 화살표(↓)로 잇는다. 상자 하나뿐인 줄은 가로로 꽉.
+DIAGRAM_FILLS = ("#DFEAF5", "#F2F2F2")          # 첫 줄(상위·출발) 상자는 연파랑, 나머지는 연회색 — 채굴한 머리줄 색 계열
+
+
+def diagram_lines(text: str) -> list[list[str]]:
+    out = []
+    for ln in str(text or "").split("\n"):
+        boxes = [b.strip() for b in re.split(r"\s*(?:→|->|⇒|=>)\s*", ln.strip()) if b.strip()]
+        if boxes and not re.fullmatch(r"[↓|]+", ln.strip()):
+            out.append(boxes)
+    return out[:12]
+
+
+def diagram_table(lines: list[list[str]], hdr: _Header, pp: str, cp: str, width: int, table_id: int) -> str:
+    """상자 줄 목록 → 표 XML(병합 칸·화살표 칸 테두리 없음). 열 = 상자 칸·화살표 칸 번갈아(2n-1)."""
+    n = max(len(b) for b in lines)
+    cols = max(2 * n - 1, 1)
+    weights = [4 if c % 2 == 0 else 1 for c in range(cols)]
+    col_w = [max(int(width * w / sum(weights)), 600) for w in weights]
+    none_bf = hdr.border("", "", "", "", "none")
+    pc = hdr.para(pp, "CENTER")
+    bold = hdr.char(cp, bold=True)
+    rows, r = [], 0
+
+    def cell(text, c, r, span, bf, char, h=1800):
+        w = sum(col_w[c:c + span])
+        body = f'<hp:p id="0" paraPrIDRef="{pc}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="{char}"><hp:t>{escape(text)}</hp:t></hp:run></hp:p>'
+        return (f'<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{bf}">'
+                f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" '
+                f'textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">{body}</hp:subList>'
+                f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="{span}" rowSpan="1"/>'
+                f'<hp:cellSz width="{w}" height="{h}"/><hp:cellMargin left="283" right="283" top="283" bottom="283"/></hp:tc>')
+    heights = 0
+    for i, boxes in enumerate(lines):
+        if i:                                                # 줄 사이 아래 화살표
+            rows.append("<hp:tr>" + cell("↓", 0, r, cols, none_bf, cp, 900) + "</hp:tr>")
+            r += 1
+            heights += 900
+        fill = DIAGRAM_FILLS[0] if i == 0 else DIAGRAM_FILLS[1]
+        box_bf = hdr.border("0.12 mm", "0.12 mm", "0.12 mm", "0.12 mm", fill)
+        tcs = []
+        if len(boxes) == 1:
+            tcs.append(cell(boxes[0], 0, r, cols, box_bf, bold))
+        else:
+            # 상자 k 개를 n 칸 가운데에 — 남는 칸은 양옆 빈 칸(테두리 없음)으로
+            k = len(boxes)
+            lead = (n - k)                                   # 화살표 칸 포함 앞쪽 빈 열 수(상자 칸 단위로 반씩)
+            c = 0
+            if lead:
+                tcs.append(cell("", 0, r, lead, none_bf, cp))
+                c = lead
+            for j, b in enumerate(boxes):
+                tcs.append(cell(b, c, r, 1, box_bf, bold if i == 0 else cp))
+                c += 1
+                if j < k - 1:
+                    tcs.append(cell("→", c, r, 1, none_bf, cp))
+                    c += 1
+            if c < cols:
+                tcs.append(cell("", c, r, cols - c, none_bf, cp))
+        rows.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
+        r += 1
+        heights += 1800
+    tbl = (f'<hp:tbl id="{table_id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
+           f'pageBreak="CELL" repeatHeader="0" rowCnt="{r}" colCnt="{cols}" cellSpacing="0" borderFillIDRef="{none_bf}" noAdjust="0">'
+           f'<hp:sz width="{sum(col_w)}" widthRelTo="ABSOLUTE" height="{heights}" heightRelTo="ABSOLUTE" protect="0"/>'
+           f'<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" '
+           f'vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'
+           f'<hp:outMargin left="0" right="0" top="283" bottom="283"/><hp:inMargin left="141" right="141" top="141" bottom="141"/>'
+           + "".join(rows) + "</hp:tbl>")
+    return (f'<hp:p id="0" paraPrIDRef="{pc}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+            f'<hp:run charPrIDRef="{cp}">{tbl}</hp:run><hp:run charPrIDRef="{cp}"><hp:t/></hp:run></hp:p>')
+
+
+def place_diagrams(data: bytes, diagrams: list[str], width: int) -> bytes:
+    """write_section 이 남긴 표시 문단(⟦도식n⟧)을 도식 표로 바꾼다 — 문단 id 는 그대로(다시 쓰면 지울 수 있게)."""
+    def fn(xml: str, hdr: _Header, _n: str) -> str:
+        def sub(m: re.Match) -> str:
+            p = m.group(0)
+            k = re.search(r"⟦도식(\d+)⟧", p)
+            if not k or int(k.group(1)) >= len(diagrams):
+                return p
+            lines = diagram_lines(diagrams[int(k.group(1))])
+            if not lines:
+                return ""
+            pid = re.search(r'\bid="(\d+)"', p).group(1)
+            pp = re.search(r'paraPrIDRef="(\d+)"', p).group(1)
+            cp = re.search(r'charPrIDRef="(\d+)"', p).group(1)
+            tid = int(pid) + 7
+            return diagram_table(lines, hdr, pp, cp, width, tid).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1)
+        return re.sub(r"<hp:p\b[^>]*>(?:(?!<hp:p\b).)*?⟦도식\d+⟧(?:(?!<hp:p\b).)*?</hp:p>", sub, xml, flags=re.S)
     return _rewrite(data, fn)

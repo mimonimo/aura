@@ -61,3 +61,20 @@ def test_house_table_style_and_restyle():
     r = st.roles(tbl[0])
     assert r[(0, 0)] == "label" and r[(0, 1)] == "body"
     assert set(st.roles(tbl[1])[(0, c)] for c in range(6)) == {"head"}
+
+
+def test_diagram_block_becomes_box_table():
+    import io, re, zipfile
+    from zzaimy.app import webhwp_templates as t, webhwp_write as ww
+    data = t.build(t.GRANT["budget_change"])
+    name = next(f["name"] for f in ww.fields(data) if f["kind"] == "절")
+    body = "1) 추진 체계\n```도식\n총장\n사업단 → 운영위원회 → 성과관리센터\n```\n2) 운영 방식"
+    items = ww.parse_body(body)
+    assert [k for k, _ in items] == ["text", "diagram", "text"]
+    out, put = ww.write_section(data, name, items, {})
+    x = zipfile.ZipFile(io.BytesIO(out)).read("Contents/section0.xml").decode()
+    assert "⟦도식" not in x and "운영위원회" in x and "↓" in x and "→" in x
+    assert re.search(r'colSpan="5"', x)                          # 상자 하나뿐인 줄은 가로로 꽉
+    again, _ = ww.write_section(out, name, ww.parse_body("1) 새 본문"), {name: put})
+    y = zipfile.ZipFile(io.BytesIO(again)).read("Contents/section0.xml").decode()
+    assert "운영위원회" not in y                                   # 다시 쓰면 도식도 지워진다

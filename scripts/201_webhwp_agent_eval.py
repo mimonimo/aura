@@ -111,6 +111,15 @@ def run_case(case: dict, tmp: Path) -> dict:
     out: dict = {"name": case["name"], "sec": 0, "sid": sid}
     msgs = [x for x in db.list_chats(sid)] if sid else []
     out["sec"] = round(time.time() - t0, 1)
+    eps = list(d.rglob("doc_agent_episodes.jsonl"))              # 에이전트 걸음 기록(어떤 도구를 왜 골랐는지) — 결과에 함께 남긴다
+    if eps:
+        try:
+            last = json.loads(eps[0].read_text(encoding="utf-8").strip().splitlines()[-1])
+            out["steps"] = last.get("steps")
+            out["stop"] = last.get("stop")
+            out["writes"] = last.get("writes")
+        except (ValueError, IndexError):
+            pass
     out["assistant"] = [(x.get("content") or "")[:600] for x in msgs if x.get("role") == "assistant"]
     fid = webhwp_agent.bound(db, sid) if sid else None
     out["form"] = webhwp.get(db, fid)["name"] if fid and webhwp.get(db, fid) else ""
@@ -158,7 +167,7 @@ def main() -> int:
             r = run_case(case, tmp)
         except Exception as e:
             r = {"name": case["name"], "error": f"{type(e).__name__}: {e}"[:300]}
-        print(json.dumps({k: v for k, v in r.items() if k not in ("assistant", "filled_fields")}, ensure_ascii=False), flush=True)
+        print(json.dumps({k: v for k, v in r.items() if k not in ("assistant", "filled_fields", "steps")}, ensure_ascii=False), flush=True)
         res.append(r)
     out = ROOT / "data" / "eval" / "webhwp_agent"
     out.mkdir(parents=True, exist_ok=True)
