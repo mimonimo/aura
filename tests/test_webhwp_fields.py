@@ -104,3 +104,13 @@ def test_heading_followed_by_plain_line_keeps_slot():
     # 기안문 「2. 추진 내용」 뒤 「붙임 … 끝.」 — 작성 지시가 아닌 긴 줄이 와도 쓸 자리다
     sec = _p("2. 추진 내용", 11) + _p("붙임  1. (붙임 문서 이름) 1부.  끝.", 12) + _p("", 13)
     assert "절:2. 추진 내용" in _names(wf.fieldize(_hwpx(sec))[0])
+
+
+def test_lineseg_kept_outside_edited_paragraphs():
+    seg = '<hp:linesegarray><hp:lineseg textpos="0" vertpos="0" vertsize="1000" textheight="1000" baseline="850" spacing="600" horzpos="0" horzsize="42520" flags="393216"/></hp:linesegarray>'
+    keep = f'<hp:p id="20" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>그대로 둘 문단</hp:t></hp:run>{seg}</hp:p>'
+    sec = _p("1. 추진 배경", 11) + _p("", 12) + keep
+    data, _ = wf.fieldize(_hwpx(sec))
+    x = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
+    i = x.find("그대로 둘 문단")
+    assert "<hp:linesegarray>" in x[i:i + 600]                    # 글을 바꾸지 않은 문단의 배치는 남긴다

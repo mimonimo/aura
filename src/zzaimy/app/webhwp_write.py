@@ -89,7 +89,9 @@ def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
             done.append(name)
         if buf:
             buf.append(xml[pos:])
-            new[n] = "".join(buf)
+            names = set(done)
+            # 값이 바뀐 필드의 문단만 줄 배치 캐시를 지운다(편집기가 그 문단만 다시 배치)
+            new[n] = wf.strip_lineseg_in("".join(buf), lambda p: any(_unq(b.group(2)) in names for b in _BEGIN.finditer(p)))
     return (_pack(zin, new) if new else data), done
 
 
@@ -290,7 +292,9 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                 chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), None, roles)
                               .replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                 put.append(pid)
-        new[n] = hf.strip_linesegs(xml[:pb[1]] + "".join(chunks) + xml[pb[1]:])[0]
+        # 줄 배치 캐시는 글이 바뀐 필드 문단에서만 지운다(새 문단·표는 처음부터 없다). 문서 전체에서 지우면 상자 밖으로 글이 넘친다
+        field_p = hf.strip_linesegs(xml[pb[0]:pb[1]])[0]
+        new[n] = xml[:pb[0]] + field_p + "".join(chunks) + xml[pb[1]:]
         if levels.cache:
             header = levels.header
         break

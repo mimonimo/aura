@@ -27,6 +27,26 @@ _TR = re.compile(r"<hp:tr\b.*?</hp:tr>", re.S)
 _TBL_OPEN = re.compile(r"<hp:tbl\b")
 
 
+MIN_SLOT_W = 2800        # 쓸 자리로 볼 칸의 최소 폭(HWPUNIT, 약 10mm) — 이보다 좁은 칸은 도식·차트의 여백 칸
+
+_LINESEG = re.compile(r"<hp:linesegarray>.*?</hp:linesegarray>", re.S)
+
+
+def strip_lineseg_in(xml: str, pred) -> str:
+    """pred(문단 xml) 가 참인 가장 안쪽 문단에서만 줄 배치 캐시(linesegarray)를 지운다.
+    문서 전체에서 지우면 기안기가 상자·표·그림 둘레를 다시 배치하면서 글이 상자 밖으로 넘치고 그림 표가 늘어난다(10-22 실물 확인).
+    글을 바꾸지 않은 문단은 원본 배치를 그대로 둔다."""
+    out, pos = [], 0
+    for m in _LEAF_P.finditer(xml):
+        p = m.group(0)
+        if "<hp:linesegarray>" in p and pred(p):
+            out.append(xml[pos:m.start()])
+            out.append(_LINESEG.sub("", p))
+            pos = m.end()
+    out.append(xml[pos:])
+    return "".join(out)
+
+
 def _text(frag: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", frag)).strip()
 
@@ -168,6 +188,9 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
             for ci, c in enumerate(cells):
                 if "<hp:tbl" in c or "fieldBegin" in c:
                     continue
+                w = re.search(r'<hp:cellSz width="(\d+)"', c)
+                if w and int(w.group(1)) < MIN_SLOT_W:            # 그림처럼 짠 표의 좁은 여백 칸 — 필드를 박으면 표가 늘어난다
+                    continue
                 target = None
                 if listlike and ri == 1:
                     target = (names(f"표{tno}:{texts[0][ci] if ci < len(texts[0]) else ci + 1}"), texts[0][ci] if ci < len(texts[0]) else "")
@@ -289,7 +312,7 @@ def fieldize(data: bytes) -> tuple[bytes, list[dict]]:
     new = {}
     for n in sorted(secs, key=lambda s: int(re.search(r"(\d+)", s.rsplit("/", 1)[-1]).group(1))):
         x, f = fieldize_xml(xmls[n], ids, names)
-        new[n] = re.sub(r"<hp:linesegarray>.*?</hp:linesegarray>", "", x, flags=re.S)   # 줄 배치 정보는 편집기가 다시 계산
+        new[n] = strip_lineseg_in(x, lambda p: "fieldBegin" in p)    # 줄 배치 정보는 필드를 박은 문단만 지운다
         fields += f
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zout:
