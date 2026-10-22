@@ -199,13 +199,13 @@ def test_program_admin_permissions(world):
     assert "data-pa-new>" in page and "교육부 재정지원" in page
     assert _client(app, "plain").get("/programs/admin").status_code == 403
     assert _client(app, "plain").post("/programs/admin/save", data={"key": "x"}).status_code == 403
-    # 총괄 책임자은 자기 부서 사업만 읽기
+    # 총괄 책임자는 자기 부서 사업만 읽기
     boss = _client(app, "boss")
     page = boss.get("/programs/admin").text
     assert "가나다 혁신사업" in page and "라마바 지원사업" not in page and "data-pa-new>" not in page
-    # 사업 담당자은 지정된 사업만 — 아직 없음
+    # 사업 담당자는 지정된 사업만 — 아직 없음
     assert "가나다 혁신사업" not in _client(app, "lead1").get("/programs/admin").text
-    # 총괄 책임자이 같은 부서 사람을 사업 담당자로
+    # 총괄 책임자가 같은 부서 사람을 사업 담당자로
     key = "program:가나다혁신사업"
     r = boss.post("/programs/admin/save", data={"key": key, "leads": ["lead1"]}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
@@ -246,3 +246,18 @@ def test_program_admin_edit_add_hide_csv(world):
     assert grades.can_view_activity(proj, user="boss", account={"role": "staff", "grade": "head", "dept": "교무처"}, data_dir=tmp_path)
     assert not grades.can_view_activity(proj, user="plain", account=app.state.accounts["plain"], data_dir=tmp_path)
     assert program_admin.roles_for_project({"program": ""}, tmp_path) == {}
+
+
+def test_extra_perms_open_create_and_activity_for_member():
+    """일반 직원도 계정 화면의 추가 권한으로 프로젝트 만들기·부서 진행 현황 보기를 받는다."""
+    from zzaimy.app import grades
+    m = {"role": "staff", "grade": "member", "dept": "기획처"}
+    assert not grades.can_create_project(m)
+    m["perms"] = ["create_project"]
+    assert grades.can_create_project(m)
+    proj = {"id": 1, "owner": "kim"}
+    assert not grades.can_view_activity(proj, user="lee", account=m, project_dept="기획처", program_roles={})
+    m["perms"].append("view_activity")
+    assert grades.can_view_activity(proj, user="lee", account=m, project_dept="기획처", program_roles={})
+    assert not grades.can_view_activity(proj, user="lee", account=m, project_dept="교무처", program_roles={})
+    assert not grades.has_perm({"role": "student", "perms": ["create_project"]}, "create_project")

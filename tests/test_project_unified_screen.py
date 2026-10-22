@@ -171,7 +171,7 @@ def test_icon_color_and_project_lead(tmp_path, monkeypatch):
     pa.set_shares(db, pid, "shared", [{"to": "user:lee", "level": "edit"}])
     assert kim.post(f"/project/{pid}/lead", data={"user": "lee"}, follow_redirects=False).status_code == 303
     assert db.get_setting(f"project_lead:{pid}") == "lee" and pa.lead(db, db.get_project(pid)) == "lee"
-    assert "책임 lee" in kim.get(f"/project/{pid}").text
+    assert "담당 lee" in kim.get(f"/project/{pid}").text
     lee = _lee(app)
     assert lee.post(f"/project/{pid}/color", data={"color": "red"}, follow_redirects=False).status_code in (403, 404)
 

@@ -96,6 +96,7 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
         g = grades.grade_of(a)
         users.append({**st, "name": a.get("name", ""), "role": a.get("role", "staff"), "role_label": ROLES.get(a.get("role", "staff"), ""),
                       "grade": g if g in grades.GRADES else "", "grade_label": grades.GRADES.get(g, ""),
+                      "perms": [k for k in grades.PERMS if k in (a.get("perms") or ())] if a.get("role") in grades.STAFF else [],
                       "dept": a.get("dept", ""), "extra": access_policy.extra_depts(uid, data_dir) if data_dir else [], "active": a.get("active", True), "created_at": (a.get("created_at") or "")[:10]})
     settings = db.all_settings()
     # 부서 목록은 한 곳(known_depts) — 여기서 만든 부서가 RAG 공간의 부서 RAG·검색 범위·폴더 범위에 그대로 쓰인다
@@ -121,7 +122,7 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
     emails = [{"email": e, "users": owners.get(e, []), "shared": sharers.get(e, []), "docs_ok": gdocs.has_docs_scope(e),
                "granted_at": conn[e].get("granted_at", "")} for e in sorted(conn)]
     return {"users": users, "depts": dept_rows, "emails": emails, "domain": gdrive.allowed_domain(),
-            "app": gdrive.public_status(), "roles": ASSIGNABLE_ROLES, "grades": grades.GRADES,
+            "app": gdrive.public_status(), "roles": ASSIGNABLE_ROLES, "grades": grades.GRADES, "perms": grades.PERMS,
             "default_grade": grades.DEFAULT_GRADE, "admin_max": grades.ADMIN_MAX,
             "admin_n": grades.admin_count(accounts), "me": ""}
 
@@ -205,7 +206,8 @@ def dev_google_moved():
 @router.post("/dev/users/save")
 def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
                    role: str = Form("staff"), dept: str = Form(""), active: str = Form(""), new_pw: str = Form(""),
-                   google: str = Form(""), extra: list[str] = Form([]), grade: str = Form("")):
+                   google: str = Form(""), extra: list[str] = Form([]), grade: str = Form(""),
+                   perm: list[str] = Form([])):
     """사용자 추가·수정 — 역할·부서·사용 여부, 임시 비밀번호(새 계정은 필수, 기존 계정은 왔을 때만 초기화), 구글 계정 이음.
     관리자가 넣은 비밀번호는 임시다 — 계정에 must_change 를 달아 다음 로그인 때 본인이 바꾸게 한다. 값은 응답에 싣지 않는다."""
     st = request.app.state
@@ -266,8 +268,13 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
         accounts[uid]["grade"] = grade or accounts[uid].get("grade") or grades.DEFAULT_GRADE
         if accounts[uid]["grade"] not in grades.GRADES:
             accounts[uid]["grade"] = grades.DEFAULT_GRADE
+        # 등급과 따로 더 주는 권한(예: 일반 직원에게 프로젝트 만들기) — 아는 값만, 등급이 이미 주는 권한도 그대로 적어 둔다
+        accounts[uid]["perms"] = [k for k in grades.PERMS if k in set(perm)]
+        if not accounts[uid]["perms"]:
+            accounts[uid].pop("perms", None)
     else:
         accounts[uid].pop("grade", None)
+        accounts[uid].pop("perms", None)
     st.save_accounts()
     # 추가 부서(여러 개) — RAG 공간의 계정별 추가 권한(grants)과 같은 값. 교직원만 받는다(학생·관리자는 비운다). 소속 부서는 빼고 저장
     data_dir = getattr(st, "data_dir", None)
