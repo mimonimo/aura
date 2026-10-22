@@ -51,6 +51,7 @@
       </div>
       <div class="hw-tools">
         {% if status.ok %}<a class="mini-btn primary" href="/hwp/new?dept={{ here.dept|urlencode }}{% if here.folder %}&folder={{ here.folder|urlencode }}{% endif %}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</a>{% endif %}
+        {% if status.ok %}<button type="button" class="mini-btn" data-modal-open="#hwTpl" data-tpl-open><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon>양식으로 시작</button>{% endif %}
         <button type="button" class="mini-btn" data-pick-file><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon>올리기</button>
         <button type="button" class="mini-btn" data-modal-open="#hwDrive" data-drive-open><iconify-icon icon="solar:cloud-download-linear" aria-hidden="true"></iconify-icon>드라이브에서 가져오기</button>
         <button type="button" class="mini-btn" data-modal-open="#hwFolder"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>새 폴더</button>
@@ -101,6 +102,14 @@
     <div class="modal-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">만들기</button></div>
   </form>
 </div></div></div>
+<div class="modal-back" id="hwTpl"><div class="card" style="width:640px;"><div class="card-in">
+  <div class="modal-head"><h2 style="font-size:17px;">양식으로 시작</h2>
+    <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+  <form data-tpl-search style="display:flex; gap:8px; margin:0 0 10px;"><input name="q" placeholder="양식 이름 검색" autocomplete="off" style="flex:1;"></form>
+  <p class="muted" style="font-size:12.5px; margin:0 0 8px;">고른 양식을 {{ here.dept }}{% if here.folder %} / {{ here.folder }}{% endif %} 에 복사해 기안기로 엽니다</p>
+  <div data-tpl-list style="max-height:400px; overflow:auto; border:1px solid var(--line); border-radius:8px;"></div>
+  <form method="post" data-tpl-copy hidden><input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}"></form>
+</div></div></div>
 <div class="modal-back" id="hwDrive"><div class="card" style="width:620px;"><div class="card-in">
   <div class="modal-head"><h2 style="font-size:17px;">드라이브에서 가져오기</h2>
     <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
@@ -112,6 +121,38 @@
   </form>
 </div></div></div>
 <script>
+(function () {
+  var list = document.querySelector('[data-tpl-list]'), copy = document.querySelector('[data-tpl-copy]'), q = document.querySelector('[data-tpl-search]');
+  var groups = [];
+  function draw(word) {
+    list.innerHTML = '';
+    var w = (word || '').trim(), n = 0;
+    groups.forEach(function (g) {
+      var items = g.items.filter(function (x) { return !w || x.name.indexOf(w) >= 0; });
+      if (!items.length) return;
+      var h = document.createElement('div');
+      h.textContent = g.group.replace(/^공통 양식\/?/, '공통 양식 · ').replace(/^양식\//, '학교 양식 · ').replace(/ · $/, '');
+      h.style.cssText = 'padding:8px 12px; font-size:12px; font-weight:600; color:var(--muted); background:var(--panel); border-bottom:1px solid var(--line);';
+      list.append(h);
+      items.forEach(function (x) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = x.name; n++;
+        b.style.cssText = 'display:block; width:100%; text-align:left; border:0; border-bottom:1px solid var(--line); border-radius:0; background:#fff; padding:10px 14px; font-size:13.5px; cursor:pointer;';
+        b.onclick = function () { copy.action = '/hwp/' + x.id + '/copy'; copy.submit(); };
+        list.append(b);
+      });
+    });
+    if (!n) list.innerHTML = '<p class="muted" style="padding:12px; margin:0;">맞는 양식이 없습니다</p>';
+  }
+  var opener = document.querySelector('[data-tpl-open]');
+  if (opener) opener.addEventListener('click', function () {
+    list.innerHTML = '<p class="muted" style="padding:12px; margin:0;">불러오는 중…</p>';
+    fetch('/api/hwp/templates', {credentials: 'same-origin'}).then(function (r) { return r.json(); })
+      .then(function (j) { groups = j.groups || []; draw(''); });
+  });
+  if (q) q.addEventListener('input', function () { draw(q.elements.q.value); });
+  if (q) q.addEventListener('submit', function (e) { e.preventDefault(); });
+})();
 (function () {
   var box = document.querySelector('[data-drive-list]'), msg = document.querySelector('[data-drive-msg]');
   var imp = document.querySelector('[data-drive-import]'), srch = document.querySelector('[data-drive-search]');

@@ -135,12 +135,17 @@
         <iconify-icon icon="solar:file-download-linear"></iconify-icon>내려받기</a>
       <a class="btn secondary" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 구글 시트·슬라이드·문서로, 한글 파일은 구글 문서로 바꿔 엽니다. PDF·그림은 드라이브 미리보기로 엽니다. 구글에서 고친 내용은 이 화면의 본문에 반영되지 않습니다.">
         <iconify-icon icon="solar:square-top-up-linear"></iconify-icon>구글에서 열기</a>
+      {% if hwp_work %}
+      <form action="/doc/{{ doc.id }}/webhwp" method="post" style="margin:0;"><button type="submit" class="btn secondary" title="이 한글 양식을 기안기 작업본으로 — 부서 한글 문서함에 복사하고 쓸 자리를 잡아 기안기로 엽니다">
+        <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>기안기로 작업</button></form>
+      {% endif %}
       {% if doc.doc_type == 'grant' %}
       <a class="btn secondary" href="/graph/explore?id=doc:{{ doc.id }}" title="이 문서와 이어진 사업·문서를 봅니다">
         <iconify-icon icon="solar:graph-new-linear"></iconify-icon>관계 보기</a>
       {% endif %}
       <button type="button" class="secondary" data-modal-open="#documentManageModal" style="margin-left:auto;">관리</button>
     </div>
+    {% if request.query_params.get('err') == 'webhwp' %}<p class="notice" role="alert">기안기 작업본을 만들지 못했습니다 — {{ request.query_params.get('msg', '') }}</p>{% endif %}
     {% if request.query_params.get('err') in ('receipt', 'receipt_dup') %}
     <p class="notice" role="alert">{{ '이미 사용하는 접수번호입니다.' if request.query_params.get('err') == 'receipt_dup' else '접수번호 형식을 확인해 주세요. 예: 2026-국고-0004' }} <button type="button" class="btn-ghost" data-modal-open="#receiptEditModal">다시 수정</button></p>
     {% endif %}

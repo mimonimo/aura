@@ -328,7 +328,7 @@ def create_app(
     _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|logout)$")
 
     _PROJECT_PATH = re.compile(r"^/projects?/(\d+)(?:/|$)")
-    _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/quality-report$")      # 문서를 볼 수 있는 누구나 하는 POST
+    _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/(?:quality-report|webhwp)$")   # 문서를 볼 수 있는 누구나 하는 POST(품질 신고·기안기 작업본 만들기)
 
     def _student_allowed(method: str, path: str) -> bool:
         return bool((_STUDENT_POST if method == "POST" else _STUDENT_GET).match(path))

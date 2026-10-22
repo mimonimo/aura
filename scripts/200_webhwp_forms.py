@@ -89,29 +89,8 @@ def _archive_row(db, sp: str) -> dict | None:
 
 
 def to_hwpx(src: Path, ext: str, http) -> bytes:
-    """hwpx 는 그대로, hwp 는 기안기 서버로 — open(파일→문서 데이터) → save(HWPX) → 받기."""
-    data = src.read_bytes()
-    if ext == ".hwpx":
-        return data
-    from zzaimy.app import webhwp
-    base = webhwp.base_url()
-    r = http.post(f"{base}/webhwpctrl/open", files={"openFile": (f"x{ext}", data)}, data={"format": "HWP", "args": ""}, timeout=180)
-    r.raise_for_status()
-    j = r.json()
-    if not j.get("json"):
-        raise RuntimeError(f"기안기 열기 실패 {j.get('resultCode')}")
-    s = http.post(f"{base}/webhwpctrl/save", headers={"AJAX": "true"},
-                  files={"hwpj": ("hwpj.data", j["json"].encode("utf-8"))},
-                  data={"id": j["id"], "filename": "x.hwpx", "format": "HWPX", "args": ""}, timeout=180)
-    s.raise_for_status()
-    sj = s.json()
-    if not sj.get("result"):
-        raise RuntimeError(f"기안기 저장 실패 {sj.get('resultCode')}")
-    g = http.get(f"{base}/filterserver/get/{j['id']}/{sj['fileName']}", timeout=120)
-    g.raise_for_status()
-    if g.content[:2] != b"PK":
-        raise RuntimeError("변환 결과가 hwpx 가 아님")
-    return g.content
+    from zzaimy.app import webhwp_convert
+    return webhwp_convert.to_hwpx(src.read_bytes(), ext, http)
 
 
 def convert(db, picked: list[dict], limit: int | None) -> None:

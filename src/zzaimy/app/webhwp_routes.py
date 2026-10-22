@@ -206,6 +206,73 @@ def hwp_to_drive(request: Request, fid: int):
     return {"ok": True, "url": up["url"], "name": up["name"]}
 
 
+@router.get("/api/hwp/templates")
+def hwp_templates(request: Request):
+    """양식으로 새 문서 — 한글 문서함의 잠긴 양식(공통 양식·공문·학교 양식) 목록을 묶음별로."""
+    _need_staff(request)
+    st = request.app.state
+    _ensure_templates(st.db, _base(request))
+    groups: dict[str, list[dict]] = {}
+    for r in st.db.list_files(kind="webhwp", limit=8000):
+        if not webhwp.locked(st.db, r["id"]) or not Path(r["path"]).exists():
+            continue
+        folder = webhwp.folder_of(_base(request), r["path"]) or "기타"
+        groups.setdefault(folder, []).append({"id": r["id"], "name": Path(r["name"]).stem})
+    order = sorted(groups, key=lambda g: (not g.startswith("공통 양식/공문"), not g.startswith("공통 양식"), g))
+    return {"groups": [{"group": g, "items": sorted(groups[g], key=lambda x: x["name"])} for g in order]}
+
+
+@router.post("/doc/{doc_id}/webhwp")
+def doc_to_webhwp(request: Request, doc_id: int, dept: str = Form(""), folder: str = Form("")):
+    """사업 양식으로 작업 — 문서함·프로젝트의 한글 원본(hwp·hwpx)을 hwpx 로 바꾸고 쓸 자리 필드를 박아 부서 디렉터리에 작업본으로.
+    열람 권한은 앱 인증 단계(/doc/{id} 경로 검사)가 이미 확인했다."""
+    _need_staff(request)
+    from zzaimy.app import storage, webhwp_convert
+    st = request.app.state
+    doc = st.db.get_document(doc_id)
+    if not doc:
+        raise HTTPException(404, "문서를 찾을 수 없습니다")
+    ext = storage.original_ext(doc)
+    if ext not in (".hwp", ".hwpx"):
+        raise HTTPException(400, "한글 파일(hwp·hwpx)만 기안기로 작업할 수 있습니다")
+    mine = getattr(request.state, "dept", "") or webhwp.COMMON
+    dept = dept or (mine if mine in _depts(request) else webhwp.COMMON)
+    project = st.db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
+    folder = _check_dept(request, dept, folder or (f"작업/{storage.safe_name(project['name'])[:40]}" if project else "작업"))
+    try:
+        data = _original_bytes(st, doc)
+        work, fields = webhwp_convert.work_form(data, ext)
+    except (RuntimeError, ValueError, FileNotFoundError) as e:
+        return RedirectResponse(f"/doc/{doc_id}?err=webhwp&msg={_q(str(e)[:120])}", status_code=303)
+    title = storage.title_of(doc.get("filename") or "") or "양식"
+    fid = webhwp.add(st.db, _base(request), dept, f"{title} 작업본.hwpx", work, owner=getattr(request.state, "user", ""),
+                     source=f"doc:{doc_id}", folder=folder)
+    m = webhwp.meta(st.db, fid)
+    m["fields"] = [f["name"] for f in fields][:400]
+    import json as _json
+    st.db.set_setting(f"webhwp_meta:{fid}", _json.dumps(m, ensure_ascii=False))
+    return RedirectResponse(f"{EDIT_PAGE}?id={fid}", status_code=303)
+
+
+def _original_bytes(st, doc: dict) -> bytes:
+    """문서 원본 바이트 — 플랫폼에 있으면 그것, DGX 원본(dgx://)이면 원본 보관소에서 하나 받아 온다."""
+    sp = str(doc.get("stored_path") or "")
+    if sp and not sp.startswith("dgx://") and Path(sp).exists():
+        return Path(sp).read_bytes()
+    if sp.startswith("dgx://"):
+        from zzaimy.app import archive, archive_original
+        archive.ensure(st.db)
+        with st.db._conn() as conn:
+            row = conn.execute("SELECT rel, size, mtime FROM archive_files WHERE rel = ? AND removed_at = ''", (sp[6:],)).fetchone()
+        if row:
+            p = archive_original.fetch(dict(zip(("rel", "size", "mtime"), row)))
+            try:
+                return Path(p).read_bytes()
+            finally:
+                Path(p).unlink(missing_ok=True)
+    raise FileNotFoundError("원본 파일을 찾을 수 없습니다")
+
+
 @router.post("/hwp/{fid}/copy")
 def hwp_copy(request: Request, fid: int, dept: str = Form(""), folder: str = Form("")):
     """복사해 쓰기 — 공통 양식(또는 볼 수 있는 문서)을 내 부서 디렉터리(폴더)에 복사하고 기안기로 연다."""

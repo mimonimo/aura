@@ -250,8 +250,8 @@ def test_common_templates_built_once_and_fillable(tmp_path, monkeypatch):
     app = _setup(tmp_path, monkeypatch)
     db, base = app.state.db, Path(app.state.data_dir)
     first = wt.ensure_all(db, base)
-    assert len(first) == len(SPECS) and all(x["made"] for x in first)
-    assert all(Path(webhwp.get(db, x["id"])["path"]).parent.name == "공통 양식" for x in first)
+    assert len(first) == len(SPECS) + len(wt.OFFICIAL) and all(x["made"] for x in first)
+    assert all(Path(webhwp.get(db, x["id"])["path"]).parent.name in ("공통 양식", "공문") for x in first)
     assert not any(x["made"] for x in wt.ensure_all(db, base))
     src = wt.path_for(db, "minutes")
     heads = [b["text"] for b in SPECS["minutes"]["blocks"] if "h" in b]
@@ -363,3 +363,40 @@ def test_drive_import_and_upload_final(tmp_path, monkeypatch):
     assert a["ok"] and ups == ["P1", "AURA"]                                    # 원본 폴더 먼저, 안 되면 우리 폴더
     b = kim.post(f"/hwp/{fid}/to-drive").json()
     assert b["url"] != a["url"] and any(c[0] == "trash" for c in calls)         # 앞서 올린 판은 휴지통
+
+
+def test_start_from_template_and_project_form(tmp_path, monkeypatch):
+    """양식으로 시작(잠긴 양식 목록 → 내 부서 폴더에 복사) · 문서함의 한글 양식을 기안기 작업본으로(필드 박기)."""
+    app = _setup(tmp_path, monkeypatch)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    groups = kim.get("/api/hwp/templates").json()["groups"]
+    names = [x["name"] for g in groups for x in g["items"]]
+    assert any("기안문" in n for n in names) and any("사업계획서" in n for n in names)
+    assert groups[0]["group"].startswith("공통 양식/공문")                       # 공문이 먼저
+    tid = next(x["id"] for g in groups for x in g["items"] if "기안문" in x["name"])
+    r = kim.post(f"/hwp/{tid}/copy", data={"dept": "기획처", "folder": ""}, follow_redirects=False)
+    new = int(r.headers["location"].split("=")[-1])
+    assert Path(webhwp.get(app.state.db, new)["path"]).parent.name == "기획처"
+    # 문서함의 한글 양식 → 작업본(hwpx 는 변환 없이, 쓸 자리 필드를 박는다)
+    from zzaimy.app import webhwp_templates as wt
+    form = wt.build({"id": "x", "title": "x", "cover": ["시험 양식"], "blocks": [
+        {"table": {"columns": ["항목", "내용"], "rows": [["기관명", ""]], "widths": [1, 3]}}, {"h": 1, "text": "1. 추진 계획"}]})
+    import zipfile, io, re as _re
+    plain = io.BytesIO()                                                          # 필드 없는 원본처럼 — 필드를 지운 사본
+    with zipfile.ZipFile(io.BytesIO(form)) as zin, zipfile.ZipFile(plain, "w") as zout:
+        for info in zin.infolist():
+            b = zin.read(info.filename)
+            if info.filename.startswith("Contents/section"):
+                b = _re.sub(r"<hp:ctrl><hp:fieldBegin.*?</hp:fieldBegin></hp:ctrl>|<hp:ctrl><hp:fieldEnd[^>]*/></hp:ctrl>", "", b.decode()).encode()
+            zout.writestr(info, b)
+    src = tmp_path / "사업 양식.hwpx"
+    src.write_bytes(plain.getvalue())
+    db = app.state.db
+    did = db.add_document("사업 양식.hwpx", str(src), owner="kim", dept="기획처")
+    db.update_document(did, status="reviewed")
+    r = kim.post(f"/doc/{did}/webhwp", data={}, follow_redirects=False)
+    assert r.status_code == 303 and "aura-edit?id=" in r.headers["location"], r.headers.get("location")
+    wid = int(r.headers["location"].split("=")[-1])
+    m = webhwp.meta(db, wid)
+    assert m["source"] == f"doc:{did}" and "칸:기관명" in m["fields"] and "절:1. 추진 계획" in m["fields"]

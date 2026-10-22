@@ -504,6 +504,9 @@ def detail(request: Request, doc_id: int):
         "doc.html",
         ctx(request, {
             "doc": doc, "reviews": db.get_reviews(doc_id), "related": related, "scope_choices": _scope_choices(request),
+            # 한글 양식이면 「기안기로 작업」 — 교직원·관리자, 기안기 서버가 떠 있을 때
+            "hwp_work": (storage.original_ext(doc) in (".hwp", ".hwpx") and request.state.role in ("dev", "staff", "professor", "head")
+                         and __import__("zzaimy.app.webhwp", fromlist=["status"]).status()["ok"]),
             **_doc_folder_ctx(doc_id, request),
             "assets": assets,
             "extract_blocks": blocks, "layout_pages": layout,

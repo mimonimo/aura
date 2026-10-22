@@ -96,13 +96,61 @@ def build(spec: dict) -> bytes:
     return webhwp_fields.fieldize(doc.to_bytes())[0]
 
 
+# ── 기안기용 공통 공문 ── 행정업무규정 공문서 구성(두문·본문·결문)을 따른 학교 공문 서식. 쓸 자리는 build 가 누름틀로 박는다
+# (표 라벨 칸 → 「칸:<라벨>」, 결재란 머리행 → 「표n:<직위>」, 번호 붙은 본문 항목 → 「절:<항목>」). 모르는 값(주소·전화)은 빈칸.
+def _kv(rows):
+    return {"table": {"columns": ["항목", "내용"], "rows": [list(r) for r in rows], "widths": [1, 4]}}
+
+
+def _grid(rows, widths):
+    return {"table": {"columns": list(rows[0]), "form": True, "rows": [list(r) for r in rows], "widths": widths}}
+
+
+def _list(head, n=1, widths=None):
+    return {"table": {"columns": head, "rows": [[""] * len(head) for _ in range(n)], "widths": widths or [1] * len(head)}}
+
+
+_SIGN = _list(["기안자", "검토자", "결재권자"], 1)                       # 결재란 — 직위 머리행 + 서명 칸
+_FOOT = _grid([["시행", "", "접수", ""], ["우편번호", "", "주소", ""], ["전화", "", "전송", ""],
+               ["전자우편", "", "공개구분", ""]], [1, 2, 1, 2])
+
+OFFICIAL = {
+    "draft": {"id": "draft", "title": "기안문(내부결재) 공통 양식", "cover": ["영남이공대학교"], "blocks": [
+        _kv([["수신", "내부결재"], ["(경유)", ""], ["제목", ""]]),
+        {"p": ""},
+        {"h": 1, "text": "1. 관련"}, {"h": 1, "text": "2. 추진 내용"},
+        {"p": "붙임  1. (붙임 문서 이름) 1부.  끝."},
+        {"p": ""}, _SIGN, {"p": ""}, _FOOT]},
+    "outgoing": {"id": "outgoing", "title": "시행문(대외 발송) 공통 양식", "cover": ["영남이공대학교"], "blocks": [
+        _kv([["수신", ""], ["(경유)", ""], ["제목", ""]]),
+        {"p": ""},
+        {"h": 1, "text": "1. 관련"}, {"h": 1, "text": "2. 요청 사항"},
+        {"p": "붙임  1. (붙임 문서 이름) 1부.  끝."},
+        {"p": ""}, {"p": "영남이공대학교총장"}, {"p": ""}, _SIGN, {"p": ""}, _FOOT]},
+    "cooperation": {"id": "cooperation", "title": "협조문(부서 간) 공통 양식", "cover": ["업무 협조 요청"], "blocks": [
+        _kv([["수신", ""], ["발신", ""], ["제목", ""], ["회신 기한", ""]]),
+        {"p": ""},
+        {"h": 1, "text": "1. 협조 배경"}, {"h": 1, "text": "2. 협조 요청 사항"},
+        _list(["구분", "요청 내용", "기한", "담당"], 3, [1, 3, 1, 1]),
+        {"h": 1, "text": "3. 문의"},
+        {"p": "끝."}]},
+    "brief": {"id": "brief", "title": "1쪽 요약 보고서 공통 양식", "cover": ["(보고서 제목)"], "blocks": [
+        _kv([["보고 일자", ""], ["보고 부서", ""], ["보고자", ""]]),
+        {"h": 1, "text": "1. 개요"}, {"h": 1, "text": "2. 현황"}, {"h": 1, "text": "3. 문제점 및 개선 방안"},
+        {"h": 1, "text": "4. 향후 계획"},
+        _list(["추진 과제", "일정", "담당"], 3, [3, 1, 1])]},
+}
+
+
 def ensure_all(db, base: Path, *, owner: str = "zzaimy") -> list[dict]:
-    """공통 양식 hwpx 를 한글 문서함 「공통/공통 양식」 에 둔다 — 없거나 정의가 바뀐 것만 새로 만든다(앞 판은 .판/ 으로)."""
+    """공통 양식 hwpx 를 한글 문서함 「공통/공통 양식」 에 둔다 — 없거나 정의가 바뀐 것만 새로 만든다(앞 판은 .판/ 으로).
+    사업 문서(구글 공통 양식과 같은 정의)는 「공통 양식」, 기안기용 공문은 「공통 양식/공문」."""
     from zzaimy.app import webhwp
     from zzaimy.ingest.gdocs_templates import SPECS
 
     out = []
-    for sid, spec in SPECS.items():
+    for sid, spec in [*SPECS.items(), *OFFICIAL.items()]:
+        folder = f"{FOLDER}/공문" if sid in OFFICIAL else FOLDER
         fp = fingerprint(spec)
         key = f"webhwp_template:{sid}"
         try:
@@ -121,7 +169,7 @@ def ensure_all(db, base: Path, *, owner: str = "zzaimy") -> list[dict]:
             fid = f["id"]
         else:
             fid = webhwp.add(db, base, webhwp.COMMON, f"{_title(spec)}.hwpx", data, owner=owner, source=f"양식:{sid}",
-                             folder=FOLDER)
+                             folder=folder)
         db.set_setting(key, json.dumps({"id": fid, "fp": fp, "sha": _sha(data)}))
         out.append({"id": fid, "spec": sid, "name": webhwp.get(db, fid)["name"], "made": True})
     return out
