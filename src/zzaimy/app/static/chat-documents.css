@@ -180,49 +180,6 @@ body .chat-location-button::before{content:'↗';color:#497bfb}
 .chat-file-library .chat-file-editor button{flex:1;min-height:34px;font-size:13px}
 
 /* 파일 가져오기 — 파인더 꼴 */
-.hwp-finder{width:min(880px,calc(100vw - 32px));height:min(600px,calc(100dvh - 48px));padding:0;border:1px solid #d9e0ea;border-radius:14px;box-shadow:0 24px 64px #15243c33;overflow:hidden;color:var(--ink)}
-.hwp-finder[open]{display:flex;flex-direction:column}
-.hwp-finder::backdrop{background:#15243c55}
-.hwp-finder>header{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #e3e8ef;background:#f7f9fb}
-.hwp-finder h2{margin:0;font-size:15px;font-weight:650;flex:none}
-.hf-search{flex:1;display:flex;justify-content:flex-end}
-.hf-search input{width:min(320px,100%);height:32px;box-sizing:border-box;border:1px solid #d6dee8;border-radius:8px;padding:0 10px;font:inherit;font-size:13px;background:#fff}
-.hf-x{width:30px;height:30px;padding:0;border:0;border-radius:7px;background:transparent;color:#6b778a;font-size:20px;box-shadow:none;cursor:pointer}
-.hf-x:hover{background:#e9eef4}
-.hf-body{flex:1;min-height:0;display:grid;grid-template-columns:200px 1fr}
-.hf-side{overflow-y:auto;padding:10px 8px;background:#f3f5f8;border-right:1px solid #e3e8ef;display:flex;flex-direction:column;gap:2px}
-.hf-group{margin:10px 8px 4px;font-size:11px;font-weight:650;color:#8a96a6}
-.hf-group:first-child{margin-top:2px}
-.hf-place{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:#2f3d51;font:inherit;font-size:13px;text-align:left;box-shadow:none;cursor:pointer;text-decoration:none}
-.hf-place iconify-icon{font-size:16px;color:#5b7aa3;flex:none}
-.hf-place span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hf-place:hover{background:#e6ebf2}
-.hf-place.on{background:#dce6f3;color:#1b3b75;font-weight:600}
-.hf-link{margin-top:auto;color:#45658f;font-size:12px}
-.hf-main{display:flex;flex-direction:column;min-width:0;min-height:0}
-.hf-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #edf0f4}
-.hf-back{width:28px;height:28px;padding:0;border:1px solid #dfe5ed;border-radius:7px;background:#fff;color:#526176;font-size:18px;line-height:24px;box-shadow:none;cursor:pointer}
-.hf-back:disabled{opacity:.4;cursor:default}
-.hf-path{display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-width:0;font-size:13px}
-.hf-path button{border:0;background:none;padding:3px 6px;border-radius:6px;color:#45658f;font:inherit;box-shadow:none;cursor:pointer}
-.hf-path button:hover:not(:disabled){background:#eef2f7}
-.hf-path button:disabled{color:#1f2a3a;font-weight:600;cursor:default}
-.hf-sep{color:#a3adba}
-.hf-list{flex:1;overflow-y:auto;padding:6px}
-.hf-row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:#1f2a3a;font:inherit;font-size:13px;text-align:left;box-shadow:none;cursor:pointer}
-.hf-row iconify-icon{font-size:20px;color:#476d9e}
-.hf-row[data-kind=folder] iconify-icon{color:#C9A227}
-.hf-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hf-meta{font-size:11.5px;color:#8a96a6;white-space:nowrap}
-.hf-row:hover{background:#f1f4f8}
-.hf-row.on{background:#1b3b75;color:#fff}
-.hf-row.on .hf-meta,.hf-row.on iconify-icon{color:#dfe7f3}
-.hf-empty{margin:24px;color:#8a96a6;font-size:13px;text-align:center;line-height:1.7}
-.hwp-finder>footer{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #e3e8ef;background:#f7f9fb}
-.hf-sel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#36465b}
-.hf-msg{font-size:12px;color:#8a5a00}
-.hwp-finder>footer button{min-height:32px;padding:0 16px;font-size:13px}
-@media(max-width:700px){.hf-body{grid-template-columns:1fr}.hf-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid #e3e8ef;max-height:140px}.hf-group{width:100%}}
 
 /* 구글 문서 창에서 한글 쪽을 고른 때 — 목차 이동·서식 도구 감춤, 안내 카드 */
 .chat-doc-editor.is-hwp :is([data-section-jump],[data-section-chapter],.chat-doc-toolbar){display:none!important}
@@ -239,9 +196,6 @@ body .doc-title-row .doc-ed-switch button{min-height:28px;padding:4px 10px;font-
 .hwp-panel-head .doc-icon-button{width:30px;padding:0;border:0;background:transparent;box-shadow:none;color:var(--muted);font-size:20px}
 .hwp-panel-head .hwp-panel-gap{flex:1}
 .chat-doc-hwp-panel>header.hwp-panel-head{padding:6px 10px;min-height:44px;border-bottom:0}
-.hwp-finder .hf-place,.hwp-finder .hf-row{justify-content:flex-start!important;min-height:0}
-.hwp-finder .hf-row{justify-items:start}
-.hwp-finder .hf-row .hf-meta{justify-self:end}
 /* 편집기 원형 토글 — 머리줄 제목 옆, 작게 */
 .chat-file-library>header .chat-ed-pill{display:inline-flex;flex:none;padding:2px;border-radius:999px;background:#eef2f7;border:1px solid #e0e6ee;margin-right:auto}
 .chat-file-library>header .chat-ed-pill button{min-height:24px;height:24px;padding:0 11px;border:0;border-radius:999px;background:transparent;color:#5c6a7e;font-size:12px;font-weight:600;box-shadow:none;width:auto}

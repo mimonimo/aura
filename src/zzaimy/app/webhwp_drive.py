@@ -20,12 +20,25 @@ def _http():
     return httpx.Client(timeout=httpx.Timeout(300, connect=20))
 
 
-def list_files(email: str, q: str = "", page: str = "", http=None) -> dict:
-    """내 드라이브의 한글 파일 — 최근 고친 순 50개. q 는 이름 낱말."""
+# accept="docs" — 프로젝트 문서로 들일 수 있는 갈래(한글·PDF·오피스·글, 구글 문서·시트·슬라이드)
+DOC_EXTS = {".hwp", ".hwpx", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".txt", ".md", ".csv"}
+GOOGLE_DOCS = {"application/vnd.google-apps.document", "application/vnd.google-apps.spreadsheet",
+               "application/vnd.google-apps.presentation"}
+
+
+def accepts(f: dict, accept: str = "hwp") -> bool:
+    if accept == "docs":
+        return f.get("mimeType") in GOOGLE_DOCS or Path(f.get("name") or "").suffix.lower() in DOC_EXTS
+    return Path(f.get("name") or "").suffix.lower() in HWP_MIME
+
+
+def list_files(email: str, q: str = "", page: str = "", http=None, accept: str = "hwp") -> dict:
+    """내 드라이브의 한글 파일(accept="docs" 면 문서 갈래 전부) — 최근 고친 순 50개. q 는 이름 낱말."""
     from zzaimy.ingest import gdrive, gdrive_files
     http = http or _http()
-    cond = ["trashed = false", "(name contains '.hwp' or name contains '.hwpx' or mimeType = 'application/x-hwp' "
-                               "or mimeType = 'application/haansofthwp' or mimeType = 'application/hwp+zip')"]
+    cond = ["trashed = false", "mimeType != 'application/vnd.google-apps.folder'"] if accept == "docs" else \
+        ["trashed = false", "(name contains '.hwp' or name contains '.hwpx' or mimeType = 'application/x-hwp' "
+                            "or mimeType = 'application/haansofthwp' or mimeType = 'application/hwp+zip')"]
     if q.strip():
         cond.append("name contains '" + q.strip().replace("\\", "").replace("'", "\\'")[:60] + "'")
     params = {"q": " and ".join(cond), "pageSize": 50, "orderBy": "modifiedTime desc", "supportsAllDrives": "true",
@@ -36,7 +49,7 @@ def list_files(email: str, q: str = "", page: str = "", http=None) -> dict:
     if r.status_code != 200:
         raise RuntimeError(f"드라이브 목록을 읽지 못했습니다({r.status_code})")
     body = r.json()
-    files = [f for f in body.get("files") or [] if Path(f["name"]).suffix.lower() in HWP_MIME]
+    files = [f for f in body.get("files") or [] if accepts(f, accept)]
     return {"files": files, "next": body.get("nextPageToken", "")}
 
 
@@ -54,7 +67,7 @@ def drives(email: str, http=None) -> list[dict]:
     return [{"id": d["id"], "name": d["name"]} for d in r.json().get("drives") or []]
 
 
-def browse(email: str, folder: str = "", drive: str = "", q: str = "", http=None) -> dict:
+def browse(email: str, folder: str = "", drive: str = "", q: str = "", http=None, accept: str = "hwp") -> dict:
     """드라이브 폴더 하나의 하위 폴더와 한글 파일(파인더처럼 폴더를 따라 내려간다).
     folder 가 없으면 내 드라이브 맨 위(root) 또는 공유 드라이브 맨 위. q 가 있으면 폴더와 상관없이 이름 검색(한글 파일만)."""
     from zzaimy.ingest import gdrive, gdrive_files
@@ -63,7 +76,7 @@ def browse(email: str, folder: str = "", drive: str = "", q: str = "", http=None
         if v and not _ID.fullmatch(v):
             raise ValueError("드라이브 id 가 올바르지 않습니다")
     if q.strip():
-        return {"folders": [], **list_files(email, q, http=http)}
+        return {"folders": [], **list_files(email, q, http=http, accept=accept)}
     parent = folder or drive or "root"
     params = {"q": f"'{parent}' in parents and trashed = false", "pageSize": 200, "orderBy": "folder,name",
               "supportsAllDrives": "true", "includeItemsFromAllDrives": "true",
@@ -75,7 +88,7 @@ def browse(email: str, folder: str = "", drive: str = "", q: str = "", http=None
         raise RuntimeError(f"드라이브 폴더를 읽지 못했습니다({r.status_code})")
     items = r.json().get("files") or []
     return {"folders": [{"id": f["id"], "name": f["name"]} for f in items if f.get("mimeType") == FOLDER_MIME],
-            "files": [f for f in items if Path(f["name"]).suffix.lower() in HWP_MIME]}
+            "files": [f for f in items if accepts(f, accept)]}
 
 
 def import_file(db, base: Path, email: str, file_id: str, *, dept: str, folder: str, owner: str, http=None) -> int:

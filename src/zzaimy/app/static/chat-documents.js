@@ -536,76 +536,12 @@
  // 잠긴 공통 양식은 내 부서 폴더로 복사해서 연다(원본 양식은 그대로).
  let finderFolderUrl='';
  async function openFinder(){
-   const d=elx('dialog','hwp-finder');d.setAttribute('aria-label','파일 가져오기');
-   d.innerHTML='<header><h2>파일 가져오기</h2><form class="hf-search" role="search"><input type="search" name="q" placeholder="구글 드라이브에서 한글 파일 검색" aria-label="구글 드라이브에서 한글 파일 검색"></form><button type="button" class="hf-x" aria-label="닫기">×</button></header>'
-     +'<div class="hf-body"><nav class="hf-side" aria-label="위치"></nav><section class="hf-main"><div class="hf-bar"><button type="button" class="hf-back" aria-label="뒤로" disabled>‹</button><div class="hf-path"></div></div><div class="hf-list" role="listbox" aria-label="폴더와 파일"></div></section></div>'
-     +'<footer><span class="hf-sel">파일을 고르세요</span><span class="hf-msg" role="status"></span><button type="button" class="secondary" data-cancel>취소</button><button type="button" data-open disabled>열기</button></footer>';
-   document.body.append(d);d.showModal();
-   const side=d.querySelector('.hf-side'),list=d.querySelector('.hf-list'),path=d.querySelector('.hf-path'),back=d.querySelector('.hf-back');
-   const sel=d.querySelector('.hf-sel'),msg=d.querySelector('.hf-msg'),openBtn=d.querySelector('[data-open]'),q=d.querySelector('input');
-   const close=()=>d.close();d.querySelector('.hf-x').onclick=close;d.querySelector('[data-cancel]').onclick=close;
-   d.addEventListener('close',()=>d.remove());d.addEventListener('click',e=>{if(e.target===d)close();});
-   let loc=null,hist=[],picked=null,drives=[];
-   const sideBtn=(label,icon,go,key)=>{const b=elx('button','hf-place');b.type='button';b.dataset.key=key;const i=document.createElement('iconify-icon');i.setAttribute('icon',icon);i.setAttribute('aria-hidden','true');b.append(i,elx('span',null,label));b.onclick=()=>{hist=[];go();};return b;};
-   const markSide=key=>side.querySelectorAll('.hf-place').forEach(b=>b.classList.toggle('on',b.dataset.key===key));
-   const pick=(row,item)=>{list.querySelectorAll('.hf-row.on').forEach(r=>r.classList.remove('on'));row.classList.add('on');picked=item;sel.textContent=item.name;openBtn.disabled=false;};
-   const row=(kind,name,meta,onOpen,item)=>{const r=elx('button','hf-row');r.type='button';r.setAttribute('role','option');r.dataset.kind=kind;
-     const i=document.createElement('iconify-icon');i.setAttribute('icon',kind==='folder'?'solar:folder-bold':'solar:document-text-bold');i.setAttribute('aria-hidden','true');
-     const nm=elx('span','hf-name',name),mt=elx('span','hf-meta',meta||'');r.append(i,nm,mt);
-     if(kind==='folder'){r.onclick=onOpen;}else{r.onclick=()=>pick(r,item);r.ondblclick=()=>{pick(r,item);openPicked();};}
-     list.append(r);};
-   const crumbs=parts=>{path.replaceChildren();parts.forEach((p,i)=>{if(i)path.append(elx('span','hf-sep','›'));const b=elx('button',null,p.name);b.type='button';b.disabled=!p.go||i===parts.length-1;if(p.go)b.onclick=()=>{hist.push(loc);p.go();};path.append(b);});};
-   const busy=t=>{list.replaceChildren(elx('p','hf-empty',t));picked=null;openBtn.disabled=true;sel.textContent='파일을 고르세요';};
-   async function goDept(dept,folder){
-     loc={src:'dept',dept,folder};back.disabled=!hist.length;markSide('dept:'+dept);busy('불러오는 중…');if(dept)crumbs([{name:dept}]);
-     let j;try{j=await api('/api/hwp/browse?dept='+encodeURIComponent(dept||'')+'&folder='+encodeURIComponent(folder||''));}catch(e){busy(e.message);return;}
-     if(!d.open)return;const here=j.here;if(!here){busy('쓸 수 있는 부서 폴더가 없습니다');return;}
-     if(!dept){loc.dept=here.dept;markSide('dept:'+here.dept);}
-     crumbs([{name:here.dept,go:()=>goDept(here.dept,'')},...(here.crumbs||[]).map(c=>({name:c.name,go:()=>goDept(here.dept,c.path)}))]);
-     list.replaceChildren();
-     here.folders.forEach(f=>row('folder',f.name,'문서 '+f.count,()=>{hist.push(loc);goDept(here.dept,f.path);}));
-     here.files.forEach(f=>row('file',f.name.replace(/\.hwpx?$/i,''),[f.saved,f.saved_by||f.owner].filter(Boolean).join(' · '),null,{id:f.id,name:f.name}));
-     if(!here.folders.length&&!here.files.length)busy('이 폴더는 비어 있습니다');
-     return j;
-   }
-   async function goDrive(drive,folder,trail){
-     loc={src:'drive',drive,folder,trail};back.disabled=!hist.length;markSide('drive:'+(drive||'my'));busy('불러오는 중…');
-     const root=drive?(drives.find(x=>x.id===drive)||{name:'공유 드라이브'}).name:'내 드라이브';
-     crumbs([{name:root,go:()=>goDrive(drive,'',[])},...trail.map((t,i)=>({name:t.name,go:()=>goDrive(drive,t.id,trail.slice(0,i+1))}))]);
-     let j;try{j=await api('/api/hwp/drive/browse?drive='+encodeURIComponent(drive||'')+'&folder='+encodeURIComponent(folder||''));}
-     catch(e){busy(e.status===409?'학교 구글 계정을 연결하면 드라이브 파일을 고를 수 있습니다 — 설정 › 내 학교 계정 연결':e.message);return;}
-     if(!d.open)return;
-     list.replaceChildren();
-     j.folders.forEach(f=>row('folder',f.name,'폴더',()=>{hist.push(loc);goDrive(drive,f.id,[...trail,f]);}));
-     j.files.forEach(f=>row('file',f.name.replace(/\.hwpx?$/i,''),'드라이브 · '+(f.modifiedTime||'').slice(0,10),null,{drive_id:f.id,name:f.name}));
-     if(!j.folders.length&&!j.files.length)busy('이 폴더에 한글 파일이 없습니다');
-   }
-   async function search(text){
-     loc={src:'search',text};back.disabled=!hist.length;markSide('');busy('찾는 중…');crumbs([{name:'「'+text+'」 검색 결과'}]);
-     let j;try{j=await api('/api/hwp/drive/browse?q='+encodeURIComponent(text));}catch(e){busy(e.status===409?'학교 구글 계정을 연결하면 드라이브에서 찾을 수 있습니다':e.message);return;}
-     list.replaceChildren();j.files.forEach(f=>row('file',f.name.replace(/\.hwpx?$/i,''),'드라이브 · '+(f.modifiedTime||'').slice(0,10),null,{drive_id:f.id,name:f.name}));
-     if(!j.files.length)busy('맞는 한글 파일이 없습니다');
-   }
-   const goLoc=l=>l.src==='dept'?goDept(l.dept,l.folder):l.src==='drive'?goDrive(l.drive,l.folder,l.trail):search(l.text);
-   back.onclick=()=>{const l=hist.pop();if(l)goLoc(l);};
-   d.querySelector('.hf-search').onsubmit=e=>{e.preventDefault();const t=q.value.trim();if(t){hist.push(loc);search(t);}};
-   async function openPicked(){
-     if(!picked)return;openBtn.disabled=true;msg.textContent=picked.drive_id?'드라이브에서 받아 여는 중…':'여는 중…';
-     const payload=picked.drive_id?{drive_id:picked.drive_id}:{id:picked.id};
-     try{const r=await api('/api/chat/'+sid+'/hwp/bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});close();showHwp(r.file);}
-     catch(e){msg.textContent=e.message;openBtn.disabled=false;}
-   }
-   openBtn.onclick=openPicked;
-   // 왼쪽 목록 — 부서 폴더(쓸 수 있는 부서), 구글 드라이브(내 드라이브·공유 드라이브), 이 프로젝트의 드라이브 폴더(새 창)
-   side.append(elx('p','hf-group','부서 폴더'));
-   const first=await goDept('','');
-   ((first&&first.depts)||[]).forEach(x=>side.append(sideBtn(x.dept,'solar:folder-with-files-linear',()=>goDept(x.dept,''),'dept:'+x.dept)));
-   if(first&&first.here)markSide('dept:'+first.here.dept);
-   side.append(elx('p','hf-group','구글 드라이브'));
-   side.append(sideBtn('내 드라이브','solar:cloud-linear',()=>goDrive('','',[]),'drive:my'));
-   api('/api/hwp/drive/browse').then(j=>{drives=j.drives||[];const anchor=side.querySelector('[data-key="drive:my"]');
-     drives.slice().reverse().forEach(x=>anchor.after(sideBtn(x.name,'solar:users-group-rounded-linear',()=>goDrive(x.id,'',[]),'drive:'+x.id)));}).catch(()=>{});
-   if(finderFolderUrl){const a=elx('a','hf-place hf-link','프로젝트 드라이브 폴더 ↗');a.href=finderFolderUrl;a.target='_blank';a.rel='noopener';side.append(a);}
+   if(!window.AuraFinder)return;
+   const got=await window.AuraFinder.open({title:'파일 가져오기',accept:'hwp',openLabel:'열기',projectFolder:{url:finderFolderUrl}});
+   if(!got||!got.length)return;
+   const it=got[0],payload=it.source==='drive'?{drive_id:it.drive_id}:{id:it.id};
+   try{const r=await api('/api/chat/'+sid+'/hwp/bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});showHwp(r.file);}
+   catch(e){const p=elx('p','chat-file-error',e.message);p.setAttribute('role','alert');(panel.querySelector('.chat-doc-files')||panel).prepend(p);setTimeout(()=>p.remove(),6000);}
  }
  async function showFiles(){
    // 문서 목록은 좁게 연다(목록 폭, 기본 패널 30%) — 문서를 열면 편집기·열람 폭으로 넓어진다
