@@ -235,6 +235,9 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
             continue
         head_text = re.sub(r"<[^>]+>", "", name)[2:] if name.startswith("절:") else ""
         head_level = marker_level(head_text) if marker_level(head_text) is not None else 0
+        # 새 문단의 글자는 그 자리(필드가 든 문단)의 글자 모양을 잇는다 — 양식 칸이 11pt 면 덧붙는 줄도 11pt
+        here = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', xml[pb[0]:pb[1]])
+        cp = here.group(1) if here else cp
         levels = _LevelStyles(header, pp, hangs.char_height(cp))
         bf, margin = hf._table_template(xml, solid)
         if bf is None:
@@ -312,9 +315,12 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     if diagrams:
         from zzaimy.app import webhwp_style
         out = webhwp_style.place_diagrams(out, diagrams, width)
-    if "head" not in roles and put:                          # 양식에 음영 있는 표가 없으면 학교 표 기본 모양(webhwp_style.HOUSE)으로
+    if put and set(put) - diagram_pids:
+        # 새 표 — 양식에 음영 있는 표가 없으면 학교 표 기본 모양(webhwp_style.HOUSE) 통째로, 있으면 양식 선·음영은 두고
+        # 머리줄 굵게·짧은 값 가운데·칸 여백만(양식을 따른 표도 글이 선에 붙지 않게)
         from zzaimy.app import webhwp_style
-        out = webhwp_style.apply(out, only_paras=set(put) - diagram_pids)
+        out = webhwp_style.apply(out, only_paras=set(put) - diagram_pids,
+                                 opts=None if "head" not in roles else {"keep_borders": True})
     return out, put
 
 

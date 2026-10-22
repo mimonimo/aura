@@ -2613,7 +2613,21 @@ def create_app(
                 msg_ += " 남은 값: " + ", ".join(f"「{n_}」" for n_ in rest_) + " — 직접 적어 주시거나 다시 찾아 달라고 해 주세요."
             if not ep.writes:
                 db.add_chat(session_id, "assistant", _scrub_internal(msg_))
-        if not ep.finished and ep.writes:
+        if not ep.finished and ep.writes and hw is not None and hw.fid():
+            # 한글 작업본 — 쓴 절·칸, 남은 빈 절, 담당자가 알려 줘야 할 빈 칸을 알린다(긴 서식은 한 번에 다 못 쓴다)
+            ok_ = [s_ for s_ in ep.steps if s_.get("action") in ("hwp_write", "hwp_fill")
+                   and str(s_.get("observation", "")).startswith(("「", "채웠다"))]
+            fl_ = hw._fields()
+            left_s = [x["name"][2:] for x in fl_ if x["kind"] == "절" and not x["text"]]
+            left_c = [re.sub(r"^(칸|표\d+):", "", x["name"]) for x in fl_ if x["kind"] != "절" and not x["text"]]
+            msg = f"이번 요청에서 절·칸 {len(ok_)}곳을 썼습니다."
+            if left_s:
+                msg += f" 남은 빈 절은 {len(left_s)}개이고, 다음은 「{left_s[0]}」입니다 — 「계속 써 줘」라고 하면 이어 씁니다."
+            if left_c:
+                msg += (f" 자료에 없어 비워 둔 칸 {len(left_c)}개(" + ", ".join(f"「{c_}」" for c_ in left_c[:6])
+                        + (" 등" if len(left_c) > 6 else "") + ")는 값을 알려 주시면 채웁니다.")
+            db.add_chat(session_id, "assistant", _scrub_internal(msg))
+        elif not ep.finished and ep.writes:
             # 단계 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
             done = [str(s_.get("args", {}).get("section") or "") for s_ in ep.steps
                     if s_.get("action") in ("write_section", "rewrite_section") and not str(s_.get("observation", "")).startswith(("그런 절", "담당자 요청에", "이번 요청의", "연결된 문서가 없다"))]

@@ -144,7 +144,14 @@ def run_case(case: dict, tmp: Path) -> dict:
     norm = re.sub(r"\s+", "", text)
     out["facts"] = round(sum(1 for f in case["facts"] if re.sub(r"\s+", "", f) in norm) / len(case["facts"]), 2)
     given = _nums(case["q"]) | {"2026", "2027", "2025"}
-    tpl_nums = set()
+    tpl_nums = set()                                              # 양식·근거 문서에 원래 있던 숫자는 지어낸 것이 아니다
+    for name in case.get("docs") or []:
+        try:
+            z = zipfile.ZipFile(EVALDOCS / name)
+            tpl_nums |= _nums(re.sub(r"<[^>]+>", " ", "".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist()
+                                                            if re.match(r"Contents/section\d+\.xml$", n))))
+        except (OSError, zipfile.BadZipFile):
+            pass
     out["invented"] = sorted(n for n in _nums(text) - given - tpl_nums if not n.startswith("20"))[:20]
     body = " ".join(x["text"] for x in secs)
     out["style"] = bool(re.search(r"(^|\s)(\d\)|[가-하]\)|\(\d\))", body)) or "1)" in text

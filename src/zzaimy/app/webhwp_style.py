@@ -220,7 +220,12 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
             # 칸 여백 — 학교 표의 절반이 510/510/141/141(좌우 1.8mm). 좁으면 글이 선에 붙는다
             x = re.sub(r'(<hp:tc\b[^>]*\bhasMargin=")0', r"\g<1>1", x, count=1)
             x = re.sub(r'<hp:cellMargin [^>]*/>', '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>', x, count=1)
-        x = re.sub(r'(<hp:tc\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{bf}", x, count=1)
+            # 줄 높이 — 10pt 한 줄 + 여백이 들어가게 최소 1,900(약 6.7mm). 1,200 이면 글이 위아래 선에 닿는다
+            x = re.sub(r'(<hp:cellSz width="\d+" height=")(\d+)"', lambda m: f'{m.group(1)}{max(int(m.group(2)), 1900)}"', x, count=1)
+            # 기안기는 「제목 칸」(header="1")의 글자 굵기를 무시한다 — 머리줄 굵게가 보이도록 끈다
+            x = re.sub(r'(<hp:tc\b[^>]*\bheader=")1', r"\g<1>0", x, count=1)
+        if not o.get("keep_borders"):                        # 양식 표 모양을 따른 표는 선·음영을 그대로 두고 글·정렬·여백만
+            x = re.sub(r'(<hp:tc\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{bf}", x, count=1)
         bold = bool(o["head_bold"]) if role == "head" else None
         pt = float(o["font_pt"]) if o.get("font_pt") else None
         color = ""
@@ -236,6 +241,8 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
         pos = c["e"]
     out.append(tbl[pos:])
     t = "".join(out)
+    if o.get("keep_borders"):
+        return t
     outer_bf = hdr.border(o["outer"], o["outer"], o["outer"], o["outer"], "none")
     return re.sub(r'(<hp:tbl\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{outer_bf}", t, count=1)
 
