@@ -6,7 +6,7 @@
 - 참조(level "view", 옛 이름 「보기」): 프로젝트 화면·공개 대화·작업 문서를 읽기 전용으로(드라이브 작업 문서는 보기 권한).
   대화 시작·문서 추가·원칙 수정·작업본 쓰기는 막힌다
 저장 값 "view"·"edit" 는 예전 그대로다(이름만 「보기」→「참조」) — 옛 기록을 옮길 일이 없다.
-사업 담당자(메인 담당자)는 설정 project_lead:<프로젝트 id> = 계정(없으면 만든 사람), 머리 아이콘 색은 project_color:<프로젝트 id> = 팔레트 열쇠.
+사업 책임자(메인 담당자)는 설정 project_lead:<프로젝트 id> = 계정(없으면 만든 사람), 머리 아이콘 색은 project_color:<프로젝트 id> = 팔레트 열쇠.
 저장은 설정 project_shares:<프로젝트 id> = {"mode": "private"|"shared", "items": [{"to": "dept:<부서>"|"user:<계정>", "level": "view"|"edit"}]}.
 설정이 없는 옛 프로젝트는 지금까지와 같게 — 담당자 부서에 「보기」(10-16 같은 부서 동료 읽기 전용).
 받는 사람은 교직원 계정만(학생은 프로젝트를 쓰지 않는다). 대화 하나하나의 공개는 따로(비공개 대화는 만든 사람만 — chat_sessions.is_private).
@@ -47,7 +47,7 @@ def set_color(db, project_id: int, key: str) -> str:
 
 
 def lead(db, project: dict, accounts: dict | None = None) -> str:
-    """사업 담당자 계정 — 정하지 않았으면 만든 사람. accounts 를 주면 지금도 「함께 작업」 대상(활성 계정)인지 다시 본다 —
+    """사업 책임자 계정 — 정하지 않았으면 만든 사람. accounts 를 주면 지금도 「함께 작업」 대상(활성 계정)인지 다시 본다 —
     공유에서 빠졌거나 부서를 옮겼거나 계정이 꺼진 사람의 옛 지정이 권한(진행 현황 등)으로 남지 않게 만든 사람으로 돌린다."""
     owner = project.get("owner") or ""
     v = (db.get_setting(f"project_lead:{int(project['id'])}", "") or "").strip()
@@ -61,7 +61,7 @@ def lead(db, project: dict, accounts: dict | None = None) -> str:
 
 
 def lead_choices(project: dict, share: dict, accounts: dict) -> list[str]:
-    """사업 담당자로 고를 수 있는 사람 — 만든 사람과 「함께 작업」으로 받는 교직원(참조는 읽기 전용이라 뺀다)."""
+    """사업 책임자로 고를 수 있는 사람 — 만든 사람과 「함께 작업」으로 받는 교직원(참조는 읽기 전용이라 뺀다)."""
     owner = project.get("owner") or ""
     rec = recipients(share, accounts, owner) if share.get("mode") == "shared" else {}
     return [owner, *sorted(u for u, lv in rec.items() if lv == "edit")] if owner else sorted(u for u, lv in rec.items() if lv == "edit")

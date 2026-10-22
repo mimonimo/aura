@@ -56,7 +56,7 @@ def _strip_attach_prefix(text: str) -> str:
     return "\n".join(lines)
 
 
-PROJECT_GRADE_NOTE = "프로젝트는 사업 담당자 이상이 만듭니다"
+PROJECT_GRADE_NOTE = "프로젝트는 사업 책임자 이상이 만듭니다"
 
 
 def make_chat_helpers(
@@ -123,7 +123,7 @@ def make_chat_helpers(
         _link_criteria_kind(db, doc_id)
 
     def _may_create_project(user: str, role: str) -> bool:
-        """새 프로젝트를 만들 수 있는 계정인가 — 사업 담당자 이상(grades.can_create_project). 프로젝트 화면의 만들기 단추와 같은 판정."""
+        """새 프로젝트를 만들 수 있는 계정인가 — 사업 책임자 이상(grades.can_create_project). 프로젝트 화면의 만들기 단추와 같은 판정."""
         from zzaimy.app import grades
         acc = dict((accounts or {}).get(user or "") or {})
         acc.setdefault("role", role or "")

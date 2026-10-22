@@ -42,7 +42,7 @@ def _dev(tmp_path):
 # ---------------------------------------------------------------- grades 기본
 
 def test_grade_defaults_and_ranks():
-    assert grades.grade_of({"role": "staff"}) == "lead"                 # 기존 계정은 사업 담당자
+    assert grades.grade_of({"role": "staff"}) == "lead"                 # 기존 계정은 사업 책임자
     assert grades.grade_of({"role": "staff", "grade": "member"}) == "member"
     assert grades.grade_of({"role": "professor", "grade": "head"}) == "head"
     assert grades.grade_of({"role": "dev"}) == "admin" and grades.grade_of({"role": "student"}) == ""
@@ -85,7 +85,7 @@ def test_grade_saved_only_for_staff_and_shown(tmp_path):
     assert json.loads((tmp_path / "accounts.json").read_text())["kimhead"]["grade"] == "head"
     r = c.post("/dev/users/save", data={"uid": "kimhead", "role": "staff", "grade": "boss", "active": "1"}, follow_redirects=False)
     assert "err=" in r.headers["location"]
-    # 새 계정 기본은 사업 담당자
+    # 새 계정 기본은 사업 책임자
     c.post("/dev/users/save", data={"uid": "newbie", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})
     assert json.loads((tmp_path / "accounts.json").read_text())["newbie"]["grade"] == "lead"
 
@@ -205,9 +205,9 @@ def test_program_admin_permissions(world):
     boss = _client(app, "boss")
     page = boss.get("/programs/admin").text
     assert "가나다 혁신사업" in page and "라마바 지원사업" not in page and "data-pa-new>" not in page
-    # 사업 담당자는 지정된 사업만 — 아직 없음
+    # 사업 책임자는 지정된 사업만 — 아직 없음
     assert "가나다 혁신사업" not in _client(app, "lead1").get("/programs/admin").text
-    # 총괄 책임자가 같은 부서 사람을 사업 담당자로
+    # 총괄 책임자가 같은 부서 사람을 사업 책임자로
     key = "program:가나다혁신사업"
     r = boss.post("/programs/admin/save", data={"key": key, "leads": ["lead1"]}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
@@ -308,3 +308,24 @@ def test_head_sees_all_past_programs(world):
     assert "라마바 지원사업" not in boss.get("/programs/admin").text          # 현행은 자기 부서
     past = boss.get("/programs/admin?tab=past").text
     assert "라마바 지원사업" in past and "편집" not in past.split("<tbody>")[1].split("</tbody>")[0]
+
+
+def test_lead_grants_perms_to_members_only_and_head_sets_grades(tmp_path):
+    """사업 책임자도 같은 부서 일반 직원에게 추가 권한을 준다(등급은 못 바꿈). 사업 책임자·행정 담당자 지정은 총괄 책임자가."""
+    app, _ = _dev(tmp_path)
+    _add(app, "boss", dept="기획처", grade="head")
+    _add(app, "lead1", dept="기획처", grade="lead")
+    _add(app, "kim", dept="기획처", grade="member")
+    _add(app, "lead2", dept="기획처", grade="lead")
+    lead = _client(app, "lead1")
+    assert lead.get("/team").status_code == 200
+    lead.post("/team/save", data={"uid": "kim", "perm": ["create_project"]}, follow_redirects=False)
+    assert app.state.accounts["kim"]["perms"] == ["create_project"] and app.state.accounts["kim"]["perms_by"] == "lead1"
+    lead.post("/team/save", data={"uid": "kim", "grade": "lead", "perm": ["create_project"]}, follow_redirects=False)
+    assert app.state.accounts["kim"]["grade"] == "member"                  # 등급은 총괄 책임자가
+    lead.post("/team/save", data={"uid": "lead2", "perm": ["view_activity"]}, follow_redirects=False)
+    assert "perms" not in app.state.accounts["lead2"]                      # 다른 사업 책임자는 못 바꿈
+    boss = _client(app, "boss")
+    boss.post("/team/save", data={"uid": "kim", "grade": "clerk"}, follow_redirects=False)
+    assert app.state.accounts["kim"]["grade"] == "clerk" and grades.label("clerk") == "행정 담당자"
+    assert grades.can_create_project(app.state.accounts["kim"])

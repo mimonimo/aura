@@ -40,7 +40,7 @@ class Ctx:
     sectors: dict = field(default_factory=dict)                       # 업무 영역 {키: 이름} — 프로젝트 만들기
     start_chat: Callable[[int | None, str], int] | None = None        # (프로젝트, 첫 요청) → 새 에이전트 대화 번호(답은 뒤에서 만든다)
     after: dict = field(default_factory=dict)                         # 실행 뒤 화면이 할 일(go: 옮겨 갈 주소)
-    may_create_project: bool = True                                  # 새 프로젝트를 만들 수 있는 등급인가(사업 담당자 이상 — grades.can_create_project)
+    may_create_project: bool = True                                  # 새 프로젝트를 만들 수 있는 등급인가(사업 책임자 이상 — grades.can_create_project)
 
 
 @dataclass(frozen=True)
@@ -193,7 +193,7 @@ def _clip(t, n: int) -> str:
 
 def _project_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     if not ctx.may_create_project:
-        raise OpRefused("프로젝트는 사업 담당자 이상이 만듭니다 — 공유받은 프로젝트에서 이어 가거나 사업 담당자에게 만들어 달라고 한다.")
+        raise OpRefused("프로젝트는 사업 책임자 이상이 만듭니다 — 공유받은 프로젝트에서 이어 가거나 사업 책임자에게 만들어 달라고 한다.")
     name, first = _clip(a.get("name"), 60), _clip(a.get("first_request"), 600)
     sector = str(a.get("sector") or "")
     if sector not in ctx.sectors:

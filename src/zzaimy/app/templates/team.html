@@ -31,7 +31,7 @@
 {% if ok %}<p class="notice" role="status"><span>{{ ok }}</span></p>{% endif %}
 <div class="tm-head">
   {% if depts|length > 1 %}<form method="get"><select name="dept" aria-label="부서" onchange="this.form.submit()">{% for d in depts %}<option value="{{ d }}"{% if d == dept %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></form>{% else %}<strong>{{ dept }}</strong>{% endif %}
-  <p>같은 부서 직원의 등급과 추가 권한 · 바꾸면 바로 저장</p>
+  <p>{% if actor_grade == 'lead' %}일반 직원의 추가 권한 · 바꾸면 바로 저장{% else %}같은 부서 직원의 등급과 추가 권한 · 바꾸면 바로 저장{% endif %}</p>
 </div>
 <div class="tm-list" role="table" aria-label="{{ dept }} 사람">
   <div class="tm-row head" role="row"><span>사람</span><span>등급</span><span>추가 권한</span><span></span></div>
@@ -40,10 +40,10 @@
     <input type="hidden" name="uid" value="{{ r.uid }}"><input type="hidden" name="dept" value="{{ dept }}">
     <span class="tm-name">{{ r.name }}<small>{{ r.uid }}</small></span>
     {% if r.editable %}
-    <select name="grade" aria-label="{{ r.name }} 등급" onchange="this.form.requestSubmit()">{% for k, v in team_grades.items() %}<option value="{{ k }}"{% if r.grade == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+    {% if r.grade_editable %}<select name="grade" aria-label="{{ r.name }} 등급" onchange="this.form.requestSubmit()">{% for k, v in team_grades.items() %}<option value="{{ k }}"{% if r.grade == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>{% else %}<span class="tm-fixed">{{ r.grade_label }}</span>{% endif %}
     <span class="tm-perms">{% for k, v in perms.items() %}<label><input type="checkbox" name="perm" value="{{ k }}"{% if k in r.perms %} checked{% endif %} onchange="this.form.requestSubmit()"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% endfor %}</span>
     {% else %}
-    <span class="tm-fixed">{{ r.grade_label }}</span><span class="tm-fixed">관리자가 정합니다</span>
+    <span class="tm-fixed">{{ r.grade_label }}</span><span class="tm-fixed">{{ '총괄 책임자가 정합니다' if actor_grade == 'lead' else '관리자가 정합니다' }}</span>
     {% endif %}
     <span class="tm-by">{% if r.by %}{{ r.by }} 님이 정함{% endif %}</span>
   </form>

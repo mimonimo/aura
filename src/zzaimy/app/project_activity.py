@@ -1,6 +1,6 @@
 """프로젝트 진행 현황(/project/{id}/activity) — 프로젝트 화면의 탭 하나. 하위 탭 넷: 참여자 · 요청 기록 · 문맥·토큰 · 작업 요약.
 
-- 볼 수 있는 사람: may_view → grades.can_view_activity(관리자 전부, 총괄 책임자=자기 부서 프로젝트, 사업 담당자=만든·책임자 지정 프로젝트).
+- 볼 수 있는 사람: may_view → grades.can_view_activity(관리자 전부, 총괄 책임자=자기 부서 프로젝트, 사업 책임자=만든·책임자 지정 프로젝트).
   일반 등급·학생은 열지 않는다.
 - 대화는 보는 사람이 읽을 수 있는 것만 센다(main._can_read_chat — 비공개 대화·업무 상담·범위 밖 동료의 대화는 빠진다).
 - 사용량: 답마다 설정 chat_ctx_msg:<답 메시지 id>(main._answer_task 가 chat_ctx 와 같은 자리에서 저장). 그 전에 쓴 대화는
@@ -32,7 +32,7 @@ def _me(request: Request) -> str:
 
 def may_view(request: Request, proj: dict | None) -> bool:
     """이 요청의 사람이 프로젝트 진행 현황을 볼 수 있는가 — grades.can_view_activity(관리자 전부, 총괄 책임자는 자기 부서 프로젝트,
-    사업 담당자는 자기가 만든·책임자로 지정된 프로젝트, 일반·학생 불가). 프로젝트 화면이 「진행 현황」 탭을 숨길 때도 쓴다."""
+    사업 책임자는 자기가 만든·책임자로 지정된 프로젝트, 일반·학생 불가). 프로젝트 화면이 「진행 현황」 탭을 숨길 때도 쓴다."""
     if not proj:
         return False
     st = request.app.state

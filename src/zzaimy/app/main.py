@@ -4625,7 +4625,8 @@ def create_app(
 
     templates.env.globals["view_as_roles"] = {r: _ROLES.get(r, r) for r in VIEW_AS_ROLES}
     templates.env.globals["view_as_depts"] = lambda: _all_depts()
-    templates.env.globals["program_scope"] = lambda request: {"admin": "all", "head": "dept", "lead": "own"}.get(_gr.request_grade(request), "")   # 사이드바 「사업 관리」(일반·학생은 안 보임)
+    templates.env.globals["request_grade"] = _gr.request_grade
+    templates.env.globals["program_scope"] = lambda request: {"admin": "all", "head": "dept", "lead": "own", "clerk": "own"}.get(_gr.request_grade(request), "")   # 사이드바 「사업 관리」(일반·학생은 안 보임)
     templates.env.globals["view_as_grades"] = dict(_gr.GRADES)      # 테스트 보기의 교직원 등급(select name="grade", 비우면 기본 등급)
 
     def _all_depts() -> list[str]:

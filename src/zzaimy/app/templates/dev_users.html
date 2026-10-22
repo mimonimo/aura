@@ -194,7 +194,7 @@
           {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
       </div>
       <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
-        <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업(추가 권한은 여기 또는 그 부서 총괄 책임자의 「부서 사람」 화면에서) · 사업 담당자는 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자는 부서 프로젝트 진행 현황을 모두 보고 사업 담당자를 정함</span></label>
+        <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업(추가 권한은 여기 또는 그 부서 총괄 책임자의 「부서 사람」 화면에서) · 사업 책임자는 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자는 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
       <fieldset class="ua-extra" data-perm-field><legend>추가 권한 <span class="ua-hint">— 등급과 따로 이 사람에게만</span></legend>
         <span class="tm-perms">{% for k, v in perms.items() %}<label><input type="checkbox" name="perm" value="{{ k }}"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% endfor %}</span>
       </fieldset>

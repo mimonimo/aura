@@ -53,11 +53,11 @@ def _client(app, uid):
 def test_only_graded_people_can_see_activity(tmp_path):
     app, pid, _ = _world(tmp_path)
     db = app.state.db
-    assert _client(app, "kim").get(f"/api/project/{pid}/activity").status_code == 200            # 만든 사람(사업 담당자)
+    assert _client(app, "kim").get(f"/api/project/{pid}/activity").status_code == 200            # 만든 사람(사업 책임자)
     assert _client(app, "park").get(f"/api/project/{pid}/activity").status_code == 403          # 남의 부서 프로젝트
     assert _client(app, "park").post(f"/api/project/{pid}/activity/summary", json={"user": "kim"}).status_code == 403
     assert _client(app, "lee").get(f"/api/project/{pid}/activity").status_code == 403           # 함께 작업이어도 책임자가 아니면
-    db.set_setting(f"project_lead:{pid}", "lee")                                                 # 사업 담당자로 지정되면 본다
+    db.set_setting(f"project_lead:{pid}", "lee")                                                 # 사업 책임자로 지정되면 본다
     assert _client(app, "lee").get(f"/api/project/{pid}/activity").status_code == 200
     _staff(app, "boss", "기획처", grade="head")                                                   # 총괄 책임자 — 자기 부서 프로젝트
     assert _client(app, "boss").get(f"/api/project/{pid}/activity").status_code == 200

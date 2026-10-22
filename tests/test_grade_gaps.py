@@ -55,7 +55,7 @@ def test_member_bundle_in_chat_stays_attachment(tmp_path):
     assert msgs[0]["role"] == "assistant" and msgs[0]["content"].startswith(chat_routes.PROJECT_GRADE_NOTE)
     user = [m for m in msgs if m["role"] == "user"][0]
     assert user["content"].count("[첨부#") == 2 and user["content"].endswith("검토해 줘")
-    # 사업 담당자(등급 없는 기존 교직원)은 그대로 프로젝트가 생긴다
+    # 사업 책임자(등급 없는 기존 교직원)은 그대로 프로젝트가 생긴다
     kim = _client(app, "kim")
     r2 = kim.post("/chat/send", data={"question": "검토해 줘"}, files=_two(), follow_redirects=False)
     assert db.get_chat_session(int(r2.headers["location"].rsplit("/", 1)[-1]))["project_id"] is not None
