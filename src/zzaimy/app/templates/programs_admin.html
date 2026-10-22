@@ -637,7 +637,8 @@
   var tab = {{ tab | tojson }}, year = {{ year | tojson }}, unit = {{ unit | tojson }}, scope = {{ scope | tojson }};
   var thisYear = {{ this_year | tojson }}, labels = {{ labels | tojson }}, split = {{ split | list | tojson }};
   var here = new URLSearchParams(location.search);
-  function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+  // 보안: 따옴표까지 바꾼다 — 속성값(title="…")에 넣어도 속성을 깨고 나가지 못하게
+  function esc(t) { return (t == null ? '' : String(t)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
   function ls(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k) || 'null'); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
 
   // ---------- 금액 — 서버 program_sheet.fmt_unit 과 같은 규칙
