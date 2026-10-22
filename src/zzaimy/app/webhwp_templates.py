@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
+
+from zzaimy.export import house_style as hs
 
 FOLDER = "공통 양식"
 
@@ -25,20 +28,70 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-BUILD = 11          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
+BUILD = 12          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
+TEXT_W = 42520      # A4 본문 폭(HWPUNIT, 약 150mm — 새 문서 기본 여백)
+TOC_LEADER = " " + "·" * 24      # 목차 줄 끝 점선 — 절 필드 박기(webhwp_fields)가 목차 줄을 제목으로 보지 않는 표시이기도 하다
 
 
 def fingerprint(spec: dict) -> str:
     return hashlib.sha256((str(BUILD) + json.dumps(spec, ensure_ascii=False, sort_keys=True, default=str)).encode()).hexdigest()[:16]
 
 
-def _table(doc, t: dict) -> None:
+# ── 표 갈래 빌더 ── 27B(또는 양식 정의)가 갈래와 내용만 정하면 모양(머리줄·라벨·합계·음영·열 폭·정렬)은 house_style 이 짠다
+def summary_table(pairs, cols: int = 2) -> dict:
+    """요약 표 블록 — 라벨·값 2열 또는 4열. pairs = [[라벨, 값]…] 또는 [라벨…]."""
+    return {"table": {"kind": "summary", "pairs": [list(p) if isinstance(p, (list, tuple)) else [p, ""] for p in pairs], "cols": cols}}
+
+
+def schedule_table(tasks, months=None, marks: dict | None = None) -> dict:
+    """일정표 블록(간트 꼴) — months 기본은 1~12월, marks = {과제: [달…]} 이면 그 달 칸 음영."""
+    return {"table": {"kind": "schedule", "tasks": list(tasks), "months": list(months or [f"{m}월" for m in range(1, 13)]),
+                      "marks": dict(marks or {})}}
+
+
+def budget_table(items, unit: str = "천원", total: str | None = None) -> dict:
+    """예산표 블록 — items = [[비목, 금액, 비고]…] 또는 [비목…]. 끝에 합계 줄(total 을 주면 그 값, 계산하지 않음)."""
+    return {"table": {"kind": "budget", "items": [list(i) if isinstance(i, (list, tuple)) else [i] for i in items], "unit": unit,
+                      "total": total}}
+
+
+def table_grid(t: dict) -> dict:
+    """표 블록 → 격자 {rows, head_rows, weights, merges, marks, labels, min_w, tall}. 갈래(kind)가 있으면 house_style 의 갈래 빌더,
+    없으면 정의의 columns·rows(·head·merges·form)를 그대로."""
+    kind = t.get("kind") or ""
+    if kind == "summary":
+        g = hs.summary_grid(t.get("pairs") or t.get("labels") or [], int(t.get("cols") or 2))
+        step = 2 if int(t.get("cols") or 2) == 2 else 4
+        g["labels"] = [(r, c) for r in range(len(g["rows"])) for c in range(0, step, 2) if g["rows"][r][c]]
+        return g
+    if kind == "schedule":
+        g = hs.schedule_grid(t.get("tasks") or [], t.get("months") or [], t.get("marks") or {})
+        g["labels"] = [(r, 0) for r in range(1, len(g["rows"]))]          # 과제 열은 라벨
+        return g
+    if kind == "budget":
+        g = hs.budget_grid(t.get("items") or [], t.get("unit", "천원"), t.get("total"))
+        g["labels"] = []
+        return g
     head = t.get("head") or ([] if t.get("form") or t.get("columns") == ["항목", "내용"] else [t["columns"]])
-    rows = [*head, *t.get("rows", [])]
+    rows = [[str(c) for c in r] for r in [*head, *t.get("rows", [])]]
+    n = max((len(r) for r in rows), default=0)
+    rows = [r + [""] * (n - len(r)) for r in rows]
+    labels = [tuple(x) for x in t.get("labels") or []]
+    tall = {int(k): int(float(v) * 100) for k, v in (t.get("tall") or {}).items()}      # 정의의 tall 은 pt — HWPUNIT 로
+    weights = t.get("widths") if t.get("widths") and len(t["widths"]) == n else None
+    return {"rows": rows, "head_rows": len(head), "weights": weights, "merges": [tuple(m) for m in t.get("merges") or []],
+            "marks": [], "labels": labels, "min_w": None, "tall": tall,
+            "gantt": bool(t.get("gantt"))}
+
+
+def _table(doc, t: dict) -> dict | None:
+    """표 하나를 만들고 그 표의 서식 값(webhwp_style.apply 의 per_table)을 돌려준다."""
+    g = table_grid(t)
+    rows = g["rows"]
     if not rows:
-        return
+        return None
     n = max(len(r) for r in rows)
-    tbl = doc.add_table(len(rows), n)
+    tbl = doc.add_table(len(rows), n, width=TEXT_W)
     for ri, row in enumerate(rows):
         for ci in range(n):
             text = row[ci] if ci < len(row) else ""
@@ -47,49 +100,132 @@ def _table(doc, t: dict) -> None:
                     tbl.set_cell_text(ri, ci, str(text), logical=True)
                 except TypeError:
                     tbl.set_cell_text(ri, ci, str(text))
-    # TG 의 merges 는 머리행 포함 격자 좌표, FORM 도 같은 격자 — (행, 열, 행 수, 열 수)
-    for (r, c, nr, nc) in t.get("merges") or []:
+    for (r, c, nr, nc) in g.get("merges") or []:             # (행, 열, 행 수, 열 수) — 머리행 포함 격자 좌표
         if nr <= 1 and nc <= 1:
             continue
         try:
             tbl.merge_cells(r, c, r + nr - 1, c + nc - 1)
         except Exception:
             pass
+    # 열 폭 — 칸 글 길이로 나누고(하한: 머리 낱말이 한 줄에 드는 폭, 상한: 표 폭의 일부) 합은 본문 폭 그대로
+    cols = [[r[c] for r in rows if c < len(r)] for c in range(n)]
+    if g["head_rows"] and len(rows) > g["head_rows"] and not any(x for r in rows[g["head_rows"]:] for x in r):
+        # 빈 목록표 — 첫 빈 행에 누름틀 안내 글(「<머리> 입력」, webhwp_fields)이 들어가므로 그 길이도 열 폭에 센다
+        cols = [col + [f"{col[g['head_rows'] - 1]} 입력"] for col in cols]
+    widths = hs.fit_widths(cols, TEXT_W, g.get("weights"), pt=hs.TYPE["table"]["pt"], min_w=g.get("min_w"))
     try:
-        w = [float(x) for x in t.get("widths") or []]
-        if len(w) == n and sum(w) > 0:
-            total = 42520                      # A4 본문 폭(HWPUNIT, 약 150mm)
-            tbl.set_column_widths([int(total * x / sum(w)) for x in w])
+        tbl.set_column_widths(widths)
     except Exception:
         pass
+    marks = list(g.get("marks") or [])
+    if g.get("gantt"):                                        # 정의의 간트 표 — 달 머리 칸만 연남색(빈 일정표에서도 달 칸이 보이게)
+        marks += [(0, c) for c, h in enumerate(rows[0]) if re.fullmatch(r"\d{1,2}(월)?", h.strip())]
+    opts = {"row_height": hs.MIN_ROW_HEIGHT, "marks": marks, "labels": g.get("labels") or [], "tall": g.get("tall") or {},
+            "line": hs.TYPE["table"]["line"]}
+    if t.get("kind") in ("summary", "schedule", "budget"):     # 갈래 표는 머리줄·라벨을 빌더가 안다 — 짐작을 끈다
+        opts.update(head_rows=g["head_rows"], labels_only=True)
+    return opts
+
+
+def _cover(doc, cover, plan: list) -> bool:
+    """표지 — 글 목록(옛 꼴: 첫 줄 제목, 나머지 부제)은 문서 머리에, 사전 {title, subtitle, date, org, page} 은 한 쪽 표지로
+    (제목을 쪽 위 약 1/4 에, 날짜·기관은 아래쪽에). 돌려주는 것: 다음 문단에서 쪽을 나눌지."""
+    if isinstance(cover, dict):
+        title = str(cover.get("title") or "").strip()
+        if not title:
+            return False
+        page = cover.get("page", True) is not False
+        for _ in range(7 if page else 0):
+            doc.add_paragraph("", style="바탕글")
+        plan.append((title, "cover_title"))
+        doc.add_paragraph(title, style="바탕글")
+        if cover.get("subtitle"):
+            doc.add_paragraph("", style="바탕글")
+            plan.append((str(cover["subtitle"]), "cover_sub"))
+            doc.add_paragraph(str(cover["subtitle"]), style="바탕글")
+        for _ in range(15 if page else 1):
+            doc.add_paragraph("", style="바탕글")
+        if cover.get("date"):
+            plan.append((str(cover["date"]), "cover_date"))
+            doc.add_paragraph(str(cover["date"]), style="바탕글")
+            doc.add_paragraph("", style="바탕글")
+        if cover.get("org"):
+            plan.append((str(cover["org"]), "cover_org"))
+            doc.add_paragraph(str(cover["org"]), style="바탕글")
+        return page
+    for i, line in enumerate(cover or []):
+        plan.append((line, "cover_title" if i == 0 else "cover_sub"))
+        doc.add_paragraph(line, style="바탕글")
+    return False
 
 
 def build(spec: dict) -> bytes:
-    """공통 양식 정의 하나 → hwpx 바이트."""
+    """양식 정의 하나 → hwpx 바이트. 정의 꼴(공통 양식·양식 만들기가 같이 쓴다):
+    cover: [제목, 부제…] 또는 {title, subtitle, date, org, page(한 쪽 표지, 기본 참)}
+    blocks: {"h": 단계, "text"} 제목 · {"guide"} 작성방법 상자 · {"p"} 문단 · {"toc": true} 목차 자리 · {"page_break": true} 쪽 나눔 ·
+            {"table": {columns, rows, widths, head, merges, form, labels, tall, gantt}} 또는 갈래 표
+            {"table": {"kind": "summary"|"schedule"|"budget", …}} (summary_table·schedule_table·budget_table 이 만든다).
+    모양은 house_style 한 곳 — 글자 체계(TYPE)·표 디자인(TABLE·HOUSE)·색(PALETTE)."""
     from hwpx import HwpxDocument
 
     doc = HwpxDocument.new()
-    plan = []                                          # 글 갈래별 모양은 다 만든 뒤 webhwp_style.dress 가 입힌다(크기·굵게·가운데)
-    for i, line in enumerate(spec.get("cover") or []):
-        plan.append((line, "cover" if i == 0 else "cover_sub"))
-        doc.add_paragraph(line, style="바탕글")
-    doc.add_paragraph("", style="바탕글")
-    for b in spec["blocks"]:
+    plan: list[tuple[str, str]] = []                   # 글 갈래별 모양은 다 만든 뒤 webhwp_style.dress 가 입힌다
+    blocks = spec.get("blocks") or []
+    chapter_mode = any("h" in b and int(b["h"]) == 1 and re.match(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.?\s", str(b["text"])) for b in blocks)
+    page_next = _cover(doc, spec.get("cover"), plan)
+    if not page_next:
+        doc.add_paragraph("", style="바탕글")
+    per_table: dict[int, dict] = {}
+    n_tables = 0
+
+    def para(text: str):
+        nonlocal page_next
+        p = doc.add_paragraph(text, style="바탕글")
+        if page_next:
+            p.element.set("pageBreak", "1")
+            page_next = False
+        return p
+    for b in blocks:
         if "h" in b:
-            doc.add_paragraph("", style="바탕글")
-            plan.append((b["text"], f"h{min(int(b['h']), 3)}"))
-            doc.add_paragraph(b["text"], style="바탕글")
+            if not page_next:
+                doc.add_paragraph("", style="바탕글")
+            lv = min(int(b["h"]), 3)
+            plan.append((b["text"], hs.heading_type(b["text"], lv, chapter_mode)))
+            para(b["text"])
+        elif b.get("toc"):
+            plan.append(("목 차", "toc_title"))
+            para("목 차")
+            for x in blocks:
+                if "h" in x and (int(x["h"]) == 1 or chapter_mode and int(x["h"]) == 2):
+                    line = ("    " if chapter_mode and int(x["h"]) == 2 else "") + str(x["text"]) + TOC_LEADER
+                    plan.append((line, "toc"))
+                    doc.add_paragraph(line, style="바탕글")
+            page_next = True
+        elif b.get("page_break"):
+            page_next = True
         elif "guide" in b:
-            box = doc.add_table(1, 1)
+            if page_next:
+                para("")
+            box = doc.add_table(1, 1, width=TEXT_W)
             box.set_cell_text(0, 0, f"【작성방법】 {b['guide']}")
+            n_tables += 1
+            per_table[n_tables] = {"row_height": hs.MIN_ROW_HEIGHT}
         elif "p" in b:
-            doc.add_paragraph(b["p"], style="바탕글")
+            para(b["p"])
         elif "table" in b:
-            _table(doc, b["table"])
+            if page_next:
+                para("")
+            opts = _table(doc, b["table"])
+            if opts is not None:
+                n_tables += 1
+                per_table[n_tables] = opts
     # 쓸 자리(절 다음 빈 문단·라벨 칸·목록표)에 누름틀 — 기안기에서 사람·에이전트가 같은 이름으로 짚는다(webhwp_fields)
-    # 표 모양은 학교 서식에서 캔 기본(머리줄·라벨 음영·굵게, 바깥 0.4mm·안쪽 0.12mm, 10pt — webhwp_style.HOUSE)
+    # 표 모양은 학교 서식에서 캔 기본(house_style.HOUSE·TABLE), 글 모양은 TYPE(바탕글 = 본문)
     from zzaimy.app import webhwp_fields, webhwp_style
-    return webhwp_style.dress(webhwp_style.apply(webhwp_fields.fieldize(doc.to_bytes())[0]), plan)
+    data = webhwp_style.body_base(doc.to_bytes())
+    data = webhwp_fields.fieldize(data)[0]
+    data = webhwp_style.apply(data, per_table=per_table)
+    return webhwp_style.dress(data, plan)
 
 
 # ── 기안기용 공통 공문 ── 행정업무규정 공문서 구성(두문·본문·결문)을 따른 학교 공문 서식. 쓸 자리는 build 가 누름틀로 박는다
@@ -106,7 +242,8 @@ def _list(head, n=1, widths=None):
     return {"table": {"columns": head, "rows": [[""] * len(head) for _ in range(n)], "widths": widths or [1] * len(head)}}
 
 
-_SIGN = _list(["기안자", "검토자", "결재권자"], 1)                       # 결재란 — 직위 머리행 + 서명 칸
+_SIGN = _list(["기안자", "검토자", "결재권자"], 1)                       # 결재란 — 직위 머리행 + 서명 칸(서명이 들어갈 높이)
+_SIGN["table"]["tall"] = {1: 36}
 _FOOT = _grid([["시행(번호·일자)", "", "접수(번호·일자)", ""], ["우편번호", "", "주소", ""], ["전화", "", "전송", ""],
                ["전자우편", "", "공개구분", ""]], [1, 2, 1, 2])
 

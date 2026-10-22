@@ -44,6 +44,40 @@ class EditError(ValueError):
     """에이전트에게 돌려줄 까닭 — 파일은 바꾸지 않는다."""
 
 
+class ArgError(EditError):
+    """인자를 읽다가 생각지 못한 꼴(글 자리에 사전, 숫자 자리에 글 등)을 만났다 — 까닭을 돌려주고 파일은 그대로. 무작위 시험이 이것을 고장으로 센다."""
+
+
+def _guarded(fn):
+    """연산 입구 — 인자 안의 글을 문서에 넣을 수 있는 꼴로(webhwp_fields.clean_args), 생각지 못한 예외는 ArgError 로.
+    연산은 바이트 → 바이트라 실패하면 들어온 파일이 그대로 남는다."""
+    import functools
+
+    @functools.wraps(fn)
+    def run(data, *args):
+        args = tuple(wf.clean_args(x) if isinstance(x, (dict, list, str)) else x for x in args)
+        try:
+            return fn(data, *args)
+        except EditError:
+            raise
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError, zipfile.BadZipFile) as e:
+            raise ArgError(f"인자를 읽지 못했다({type(e).__name__}: {str(e)[:80]}) — 도구 설명의 꼴대로 다시 준다.") from e
+    return run
+
+
+def _int(v, name: str, lo: int, hi: int, default: int | None = None) -> int:
+    """숫자 인자 — 비었으면 default, 글·소수·범위 밖이면 까닭."""
+    if v in (None, "") and default is not None:
+        return default
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        raise EditError(f"{name} 는 숫자다({lo}~{hi}).")
+    if f != int(f) or not lo <= int(f) <= hi:
+        raise EditError(f"{name} 는 {lo}~{hi} 사이의 정수다.")
+    return int(f)
+
+
 # ── 용지·여백 ──
 PAPERS = {"A4": (210, 297), "A3": (297, 420), "A5": (148, 210), "B4": (257, 364), "B5": (182, 257),
           "Letter": (215.9, 279.4), "Legal": (215.9, 355.6)}
@@ -123,8 +157,7 @@ class _Hdr(ws._Header):
             body = body.replace("<hh:underline", "<hh:bold/><hh:underline", 1)
         elif bold is False:
             body = body.replace("<hh:bold/>", "")
-        new_id = re.search(r'\bid="(\d+)"', body).group(1)
-        self._append("charProperties", body)
+        new_id = self._append("charProperties", body)
         self.cache[key] = new_id
         return new_id
 
@@ -158,8 +191,7 @@ class _Hdr(ws._Header):
             body = body[:dflt.start()] + fix(dflt.group(0), 1) + body[dflt.end():]
         if not case and not dflt:
             body = fix(body, 1)
-        new_id = re.search(r'\bid="(\d+)"', body).group(1)
-        self._append("paraProperties", body)
+        new_id = self._append("paraProperties", body)
         self.cache[key] = new_id
         return new_id
 
@@ -175,8 +207,7 @@ class _Hdr(ws._Header):
         body = re.sub(r"<hc:fillBrush>.*?</hc:fillBrush>|<hh:fillInfo>.*?</hh:fillInfo>|<hh:fillInfo/>", "", body, flags=re.S)
         if color and color != "none":
             body = body.replace("</hh:borderFill>", f'<hc:fillBrush><hc:winBrush faceColor="{color}" hatchColor="#999999" alpha="0"/></hc:fillBrush></hh:borderFill>')
-        new_id = re.search(r'\bid="(\d+)"', body).group(1)
-        self._append("borderFills", body)
+        new_id = self._append("borderFills", body)
         self.cache[key] = new_id
         return new_id
 
@@ -189,7 +220,10 @@ class _Doc:
             self.zin = zipfile.ZipFile(io.BytesIO(data))
         except zipfile.BadZipFile:
             raise EditError("hwpx 파일이 아니다(옛 hwp 는 기안기에서 한 번 저장하면 hwpx 가 된다).")
-        wf.check_zip(self.zin)
+        try:
+            wf.check_zip(self.zin)
+        except ValueError as e:
+            raise EditError(str(e))
         names = self.zin.namelist()
         self.sec_names = sorted((n for n in names if _SEC.search(n)), key=lambda n: int(_SEC.search(n).group(1)))
         if not self.sec_names or "Contents/header.xml" not in names:
@@ -565,7 +599,11 @@ class _Table:
         self.col_w = [max(int(self.total_w * w / s), 600) for w in self.col_w]
 
     def set_widths(self, ratios: list[float]) -> None:
-        if len(ratios) != self.nc or any(float(x) <= 0 for x in ratios):
+        try:
+            ratios = [float(x) for x in ratios] if isinstance(ratios, (list, tuple)) else []
+        except (TypeError, ValueError):
+            ratios = []
+        if len(ratios) != self.nc or any(x <= 0 or x != x or x == float("inf") for x in ratios):
             raise EditError(f"열 폭 비율은 열 수({self.nc})만큼의 양수다.")
         s = sum(float(x) for x in ratios)
         self.col_w = [max(int(self.total_w * float(x) / s), 600) for x in ratios]
@@ -632,8 +670,8 @@ class _Table:
     def split(self, r: int, c: int, rows: int | None, cols: int | None, ids) -> None:
         self._check_rc(r, c)
         t = self.covering(r, c)
-        R = int(rows) if rows else (1 if cols else t["rs"])
-        C = int(cols) if cols else (1 if rows else t["cs"])
+        R = _int(rows, "rows", 1, 50) if rows not in (None, "", 0) else (1 if cols else t["rs"])
+        C = _int(cols, "cols", 1, 30) if cols not in (None, "", 0) else (1 if rows else t["cs"])
         if R < 1 or C < 1 or R * C == 1 and t["rs"] * t["cs"] == 1:
             raise EditError("나눌 행·열 수(rows·cols)를 준다 — 합친 칸을 풀 때는 둘 다 비운다.")
         if C > t["cs"]:                                      # 열이 모자라면 격자에 열을 더한다(다른 행의 같은 자리 칸은 넓힌다)
@@ -786,6 +824,7 @@ def _color(c) -> str:
 
 
 # ── 연산(바이트 → 바이트, 요약) ──
+@_guarded
 def page_setup(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     paper = str(a.get("paper") or "").strip()
@@ -794,6 +833,8 @@ def page_setup(data: bytes, a: dict) -> tuple[bytes, str]:
     mm = dict(MARGIN_PRESETS.get(preset, {})) if preset else {}
     if preset and not mm:
         raise EditError(f"여백 프리셋은 {', '.join(MARGIN_PRESETS)} 가운데 하나다.")
+    if a.get("margins_mm") not in (None, "") and not isinstance(a.get("margins_mm"), dict):
+        raise EditError("margins_mm 는 {top, bottom, left, right, header, footer, gutter: mm} 꼴이다.")
     for k, v in (a.get("margins_mm") or {}).items():
         if k in _MARGIN_KEYS and v not in (None, ""):
             try:
@@ -843,6 +884,7 @@ def page_setup(data: bytes, a: dict) -> tuple[bytes, str]:
                         f"왼쪽 {mg.get('left')}·오른쪽 {mg.get('right')}·머리말 {mg.get('header')}·꼬리말 {mg.get('footer')}·제본 {mg.get('gutter')}mm.")
 
 
+@_guarded
 def current_page(data: bytes) -> dict:
     """첫 구역의 페이지 설정(mm) — 편집 화면의 「페이지 설정」 창이 처음 값으로 쓴다."""
     doc = _Doc(data)
@@ -855,6 +897,7 @@ def current_page(data: bytes) -> dict:
             "margins_mm": {k: mm_of(int(v)) for k, v in re.findall(r'\b(top|bottom|left|right|header|footer|gutter)="(\d+)"', pp.group(0))}}
 
 
+@_guarded
 def table_insert(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     values = a.get("values") if isinstance(a.get("values"), list) else []
@@ -864,24 +907,31 @@ def table_insert(data: bytes, a: dict) -> tuple[bytes, str]:
         nc = int(a.get("cols") or max((len(r) for r in values), default=0))
     except (TypeError, ValueError):
         raise EditError("rows·cols 는 숫자다.")
-    if not (1 <= nr <= 200 and 1 <= nc <= 30):
-        raise EditError("표는 1~200행, 1~30열로 만든다(rows·cols 또는 values 를 준다).")
     head = a.get("head")
     if isinstance(head, list) and head:                          # 머리줄 글을 따로 주면 첫 행으로
         values = [[str(x) for x in head]] + values
         nr = max(nr, len(values))
         nc = max(nc, len(head))
+    if not (1 <= nr <= 200 and 1 <= nc <= 30):
+        raise EditError("표는 1~200행, 1~30열로 만든다(rows·cols 또는 values 를 준다).")
     grid = [[(values[r][c] if r < len(values) and c < len(values[r]) else "") for c in range(nc)] for r in range(nr)]
     widths = a.get("widths")
-    if widths is not None and (not isinstance(widths, list) or len(widths) != nc):
-        raise EditError(f"widths 는 열 수({nc})만큼의 비율이다.")
+    if widths is not None:
+        try:
+            widths = [float(x) for x in widths] if isinstance(widths, list) and len(widths) == nc else None
+        except (TypeError, ValueError):
+            widths = None
+        if not widths or any(x <= 0 or x != x or x == float("inf") for x in widths):
+            raise EditError(f"widths 는 열 수({nc})만큼의 양수 비율이다.")
     n, pos, width = _anchor(doc, a.get("at"))
     pp, cp = doc.refs()
     bf = next(iter(re.findall(r'<hh:borderFill\b[^>]*\bid="(\d+)"', doc.hdr.xml)), "1")
     m = hs.CELL_MARGIN
     margin = f'<hp:cellMargin left="{m["left"]}" right="{m["right"]}" top="{m["top"]}" bottom="{m["bottom"]}"/>'
     pid = doc.ids.new()
-    px = hf.table_xml(grid, pp, cp, width, bf, margin, int(doc.ids.new()), [float(x) for x in widths] if widths else None, None)
+    if not widths:                                               # 열 폭은 칸 글 길이로(하한·상한 — house_style.fit_widths)
+        widths = [float(w) for w in hs.fit_widths([[r[c] for r in grid] for c in range(nc)], width)]
+    px = hf.table_xml(grid, pp, cp, width, bf, margin, int(doc.ids.new()), widths, None)
     px = px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1)
     px = re.sub(r'<hp:p id="0"', lambda _m: f'<hp:p id="{doc.ids.new()}"', px)
     # 학교 표 기본 모양(webhwp_style.HOUSE) — 머리줄은 첫 행이 모두 글이면 저절로. head=false 면 머리줄 모양을 빼고
@@ -920,6 +970,7 @@ def _range(a: dict, tb: _Table) -> dict | None:
     return None
 
 
+@_guarded
 def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     op = str(a.get("op") or "").strip()
@@ -928,9 +979,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
     t = _pick_table(doc, a.get("table"))
     xml = doc.secs[t["sec"]][t["s"]:t["e"]]
     tb = _Table(xml)
-    count = int(a.get("count") or 1)
-    if not 1 <= count <= 100:
-        raise EditError("count 는 1~100 이다.")
+    count = _int(a.get("count"), "count", 1, 100, default=1)
     msg = ""
     if op == "add_rows":
         r = _idx(a.get("row") or tb.nr, "row")
@@ -955,6 +1004,8 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         if not isinstance(values, list) or not values:
             raise EditError("values 는 2차원 배열이다(start 칸부터 채운다).")
         start = a.get("start") or [1, 1]
+        if not isinstance(start, (list, tuple)) or len(start) != 2:
+            raise EditError("start 는 [행, 열](1부터)이다.")
         r0, c0 = _idx(start[0], "start 행"), _idx(start[1], "start 열")
         n = 0
         for i, row in enumerate(values):
@@ -994,9 +1045,7 @@ def _restyle(tb: _Table, tbl: str, op: str, a: dict, doc: _Doc) -> str:
     tb2 = _Table(tbl)
     hdr = doc.hdr
     if op == "head":
-        n = int(a.get("rows") if a.get("rows") is not None else 1)
-        if not 0 <= n < tb2.nr:
-            raise EditError("머리줄 행 수(rows)는 0 이상, 표 행 수보다 작다.")
+        n = _int(a.get("rows"), "rows(머리줄 행 수)", 0, max(tb2.nr - 1, 0), default=1)
         fill = _color(a.get("fill") or hs.HOUSE["head_fill"])
         targets = [(x, x["r"] < n) for x in tb2.cells if x["r"] < max(n, 1)]
     else:
@@ -1025,10 +1074,11 @@ def _restyle(tb: _Table, tbl: str, op: str, a: dict, doc: _Doc) -> str:
         x["xml"] = y
     out = tb2.to_xml()
     if op == "head":
-        out = re.sub(r'\brepeatHeader="\d"', f'repeatHeader="{1 if int(a.get("rows") or 1) else 0}"', out, count=1)
+        out = re.sub(r'\brepeatHeader="\d"', f'repeatHeader="{1 if n else 0}"', out, count=1)
     return out
 
 
+@_guarded
 def table_view(data: bytes, a: dict) -> str:
     """표 하나의 칸 글 — 행마다 「r행: 칸 | 칸」, 합친 칸은 [합침 r×c] 로. 고칠 행·열 번호를 정하는 데 쓴다."""
     doc = _Doc(data)
@@ -1063,6 +1113,7 @@ def _first_run_insert(xml: str, ctrl: str, drop: str) -> str:
     return xml[:m.end()] + ctrl + xml[m.end():]
 
 
+@_guarded
 def page_number(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     pos_in = str(a.get("position") or "아래 가운데")
@@ -1091,6 +1142,7 @@ def page_number(data: bytes, a: dict) -> tuple[bytes, str]:
                         + (f" · {a['start']}쪽부터" if a.get("start") not in (None, "") else "") + ".")
 
 
+@_guarded
 def header_footer(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     n = doc.sec_names[0]
@@ -1140,6 +1192,7 @@ def _target_para(doc: _Doc, a: dict) -> tuple[str, int, int]:
     raise EditError("field 나 text 로 문단을 짚는다.")
 
 
+@_guarded
 def page_break(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     n, s, e = _target_para(doc, a)
@@ -1171,6 +1224,7 @@ def _in_table(xml: str, pos: int) -> bool:
     return xml.rfind("<hp:tbl", 0, pos) > xml.rfind("</hp:tbl>", 0, pos)
 
 
+@_guarded
 def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
     """글꼴·글자 크기·굵게(글자 모양)와 줄 간격·정렬·들여쓰기(문단 모양)를 범위에 한꺼번에."""
     doc = _Doc(data)
@@ -1197,7 +1251,7 @@ def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
     if not (face or pt or bold is not None or line or al or left is not None or indent is not None):
         raise EditError("바꿀 것(font·pt·bold·line_spacing·align·left_mm·indent_mm)을 하나 이상 준다.")
     tables = a.get("tables") is True
-    changed = 0
+    changed = seen = 0
     for n, s, e in _scope_spans(doc, a):
         xml = doc.secs[n]
         out, pos = [], 0
@@ -1213,6 +1267,7 @@ def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
                 continue                                      # 구역 첫 문단·머리말 안은 그대로
             p = xml[ps:pe]
             q = p
+            seen += 1
             if face or pt or bold is not None:
                 q = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")',
                            lambda m: f"{m.group(1)}{doc.hdr.char_ex(m.group(2), pt=pt, face=face, bold=bold)}{m.group(3)}", q)
@@ -1228,6 +1283,8 @@ def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
         out.append(xml[pos:])
         doc.secs[n] = "".join(out)
     if not changed:
+        if seen:                                              # 같은 연산을 두 번 — 이미 그 모양이면 바꾸지 않고 그대로(멱등)
+            return data, f"문단 {seen}개가 이미 그 모양이다(바꾼 것 없음)."
         raise EditError("범위 안에 바꿀 문단이 없다.")
     what = [x for x in (f"글꼴 {face}" if face else "", f"{pt:g}pt" if pt else "", "굵게" if bold else ("굵게 끔" if bold is False else ""),
                         f"줄 간격 {line}%" if line else "", f"정렬 {a.get('align')}" if al else "",
@@ -1235,6 +1292,7 @@ def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
     return doc.pack(), f"문단 {changed}개에 {', '.join(what)} 을 입혔다."
 
 
+@_guarded
 def footnote(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     text = str(a.get("text") or "").strip()
@@ -1279,6 +1337,7 @@ def footnote(data: bytes, a: dict) -> tuple[bytes, str]:
     return doc.pack(), f"「{label}」 뒤에 각주 {num}) 을 달았다."
 
 
+@_guarded
 def picture(data: bytes, img: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
     kind = hf.image_kind(img or b"")
@@ -1312,6 +1371,7 @@ def picture(data: bytes, img: bytes, a: dict) -> tuple[bytes, str]:
     return doc.pack(), f"그림을 넣었다(폭 {mm_of(w)}mm)."
 
 
+@_guarded
 def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
     """문서 전체(또는 범위)에서 낱말 바꾸기 — 글 조각(<hp:t>) 안의 글만 바꾼다. 필드 이름·안내 글(parameters)은 건드리지 않는다.
     글이 글자 모양 경계로 쪼개져 있으면(한 낱말에 두 모양) 그 자리는 찾지 못한다 — 찾은 곳 수를 돌려준다."""
@@ -1382,11 +1442,60 @@ def _snapshot(db, base: Path, fid: int) -> str:
 
 
 def check_bytes(data: bytes) -> list[str]:
-    """고친 결과의 자가 점검(hwpx_fill.check — ZIP·웰폼드·참조 id·itemCnt·표 격자)."""
+    """고친 결과의 자가 점검 — hwpx_fill.check(ZIP·웰폼드·참조 id·itemCnt·표 rowCnt·덮개 합)에 더해
+    누름틀 쌍(여는 것마다 닫는 것 하나, id 겹침 없음)과 표 격자(칸 주소·합침으로 모든 자리를 꼭 한 칸이 덮는지)."""
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "x.hwpx"
         p.write_bytes(data)
-        return hf.check(p)
+        probs = hf.check(p)
+    if probs:
+        return probs
+    return structure_problems(data)
+
+
+def structure_problems(data: bytes) -> list[str]:
+    """누름틀 쌍과 표 격자(칸 주소 기준) 점검 — 문제 목록(비면 통과)."""
+    import xml.etree.ElementTree as ET
+    hp = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+    probs: list[str] = []
+    z = zipfile.ZipFile(io.BytesIO(data))
+    for n in z.namelist():
+        if not _SEC.search(n):
+            continue
+        x = z.read(n).decode("utf-8")
+        begins = re.findall(r'<hp:fieldBegin\b[^>]*\bid="(\d+)"', x)
+        ends = re.findall(r'<hp:fieldEnd\b[^>]*\bbeginIDRef="(\d+)"', x)
+        if len(set(begins)) != len(begins):
+            probs.append(f"{n}: 누름틀 id 가 겹친다")
+        if sorted(begins) != sorted(ends):
+            probs.append(f"{n}: 누름틀 여닫이가 맞지 않는다(여는 것 {len(begins)}, 닫는 것 {len(ends)})")
+        try:
+            root = ET.fromstring(x.encode("utf-8"))
+        except ET.ParseError as e:
+            probs.append(f"{n}: 웰폼드 아님 {e}")
+            continue
+        for tbl in root.iter(hp + "tbl"):
+            rc, cc = int(tbl.get("rowCnt") or 0), int(tbl.get("colCnt") or 0)
+            cover = [[0] * cc for _ in range(rc)]
+            bad = False
+            for tr in (e for e in tbl if e.tag == hp + "tr"):
+                for tc in (e for e in tr if e.tag == hp + "tc"):
+                    a, sp = tc.find(hp + "cellAddr"), tc.find(hp + "cellSpan")
+                    if a is None:
+                        bad = True
+                        continue
+                    r0, c0 = int(a.get("rowAddr") or 0), int(a.get("colAddr") or 0)
+                    rs = int(sp.get("rowSpan") or 1) if sp is not None else 1
+                    cs = int(sp.get("colSpan") or 1) if sp is not None else 1
+                    if rs < 1 or cs < 1 or r0 + rs > rc or c0 + cs > cc:
+                        bad = True
+                        continue
+                    for i in range(r0, r0 + rs):
+                        for j in range(c0, c0 + cs):
+                            cover[i][j] += 1
+            if bad or any(v != 1 for row in cover for v in row):
+                probs.append(f"{n}: 표 {tbl.get('id')} 격자가 어긋났다(빈 자리·겹친 칸·표 밖 칸)")
+    return probs
 
 
 def apply(db, base: Path, fid: int, fn, *, user: str = "AURA") -> str:
@@ -1401,6 +1510,8 @@ def apply(db, base: Path, fid: int, fn, *, user: str = "AURA") -> str:
         new, summary = fn(data)
     except EditError as e:
         return "바꾸지 않았다 — " + str(e)
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError) as e:     # 도구 밖 연산(쓰기·서식)도 파일은 그대로
+        return f"바꾸지 않았다 — 인자를 읽지 못했다({type(e).__name__}: {str(e)[:80]})"
     if new == data:
         return "바뀐 것이 없다."
     probs = check_bytes(new)

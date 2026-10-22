@@ -1775,8 +1775,8 @@ def _cell_styles(reqs):
 
 
 def test_docs_table_uses_house_style_values():
-    """독스 표도 한글 표 기본과 같은 값 — 머리줄 #E5E5E5 음영·굵게·가운데, 바깥 0.4mm·안쪽 0.12mm 실선(pt 로 바꿔), 10pt, 칸 여백,
-    행 최소 높이, 라벨 칸 음영, 짧은 값 가운데. 값은 house_style 한 곳에서 읽는다."""
+    """독스 표도 한글 표 기본과 같은 값 — 머리줄 #E5E5E5 음영·굵게·가운데, 바깥 0.4mm·안쪽 0.12mm 실선(pt 로 바꿔), 머리줄 아래 0.25mm,
+    10pt, 칸 여백, 행 최소 높이, 라벨 칸 음영, 짧은 값 가운데·금액 오른쪽. 값은 house_style 한 곳에서 읽는다."""
     from zzaimy.app import webhwp_style
     from zzaimy.export import house_style as hs
 
@@ -1807,7 +1807,11 @@ def test_docs_table_uses_house_style_values():
     centers = [r["updateParagraphStyle"]["range"]["startIndex"] for r in reqs
                if r.get("updateParagraphStyle", {}).get("paragraphStyle", {}).get("alignment") == "CENTER"]
     long_at = 29 + 4 + 7 + 2 + len("구분내용금액국비")                              # 긴 본문 칸(1,1)은 가운데가 아니다
-    assert len(centers) == 5 and long_at not in centers
+    assert len(centers) == 4 and long_at not in centers                            # 머리 셋 + 라벨 「국비」
+    ends = [r for r in reqs if r.get("updateParagraphStyle", {}).get("paragraphStyle", {}).get("alignment") == "END"]
+    assert len(ends) == 1                                                           # 금액 칸 「1,000」은 오른쪽(house_style.value_align)
+    rule = [c for c in cs if set(c["tableCellStyle"]) == {"borderBottom"} and c["tableRange"]["tableCellLocation"]["rowIndex"] == 0]
+    assert rule and rule[0]["tableRange"]["rowSpan"] == 1 and rule[0]["tableCellStyle"]["borderBottom"]["width"]["magnitude"] == round(0.25 * 72 / 25.4, 3)
 
 
 def test_docs_table_label_cells_and_box():

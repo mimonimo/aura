@@ -64,14 +64,16 @@ def fields(data: bytes) -> list[dict]:
 
 
 def _value_xml(text: str) -> str:
-    lines = str(text or "").replace("\r", "").split("\n")
+    lines = wf.clean_text(text).split("\n")
     return "<hp:t>" + "<hp:lineBreak/>".join(escape(x) for x in lines) + "</hp:t>"
 
 
 def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
     """칸·표 필드 값 바꾸기 — 돌려주는 것은 (새 바이트, 넣은 필드 이름). 없는 이름은 건너뛴다."""
     zin, secs = _open(data)
-    want = {k: v for k, v in values.items() if k}
+    if not isinstance(values, dict):
+        raise ValueError("values 는 {필드 이름: 값} 이다")
+    want = {str(k): ("" if v is None else wf.clean_text(v)) for k, v in values.items() if k}
     done: list[str] = []
     new = {}
     for n, xml in secs.items():
@@ -189,6 +191,7 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                   ) -> tuple[bytes, list[str]]:
     """절 필드 다음에 문단·표를 넣는다 — (새 바이트, 넣은 문단 id). 앞서 넣은 것은 지운다."""
     zin, secs = _open(data)
+    items = [(k, wf.clean_args(v)) for k, v in (items or []) if k in ("text", "table", "diagram")]
     header = zin.read("Contents/header.xml").decode("utf-8")
     pp, cp = hf._default_refs(header)
     solid = hf._solid_border_ids(header)
@@ -331,7 +334,7 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
 def parse_body(text: str) -> list[tuple[str, object]]:
     """에이전트가 쓴 절 본문(글 + 마크다운 표 | a | b | + ```도식 블록) → items. 표 구분 줄(|---|)은 버린다."""
     items: list[tuple[str, object]] = []
-    lines = str(text or "").replace("\r", "").split("\n")
+    lines = wf.clean_text(text).split("\n")
     buf: list[str] = []
     table: list[list[str]] = []
     fence: list[str] | None = None

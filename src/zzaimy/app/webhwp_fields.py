@@ -31,6 +31,28 @@ MIN_SLOT_W = 2800        # 쓸 자리로 볼 칸의 최소 폭(HWPUNIT, 약 10mm
 
 _LINESEG = re.compile(r"<hp:linesegarray>.*?</hp:linesegarray>", re.S)
 
+# XML 1.0 이 받지 않는 글자 — 제어 문자(탭·줄바꿈 빼고)·짝 없는 대리 쌍·U+FFFE/FFFF. 하나라도 들어가면 한글이 파일을 열지 못한다
+_BAD_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+TEXT_MAX = 50_000                       # 한 번에 넣는 글의 상한(절 본문 여러 쪽 분량) — 넘는 글은 자른다
+
+
+def clean_text(value, limit: int | None = TEXT_MAX) -> str:
+    """문서에 넣을 글 — XML 이 받지 않는 글자를 빼고 줄바꿈을 \\n 하나로, 너무 길면 자른다. 이모지·특수문자는 그대로(이스케이프는 넣는 쪽이)."""
+    s = "" if value is None else str(value)
+    s = _BAD_XML.sub("", s.replace("\r\n", "\n").replace("\r", "\n"))
+    return s[:limit] if limit else s
+
+
+def clean_args(v, limit: int | None = TEXT_MAX):
+    """도구 인자(사전·목록·글) 안의 글을 모두 clean_text 로 — 숫자·참거짓·None 은 그대로."""
+    if isinstance(v, str):
+        return clean_text(v, limit)
+    if isinstance(v, dict):
+        return {(clean_text(k, 200) if isinstance(k, str) else k): clean_args(x, limit) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return type(v)(clean_args(x, limit) for x in v)
+    return v
+
 
 def strip_lineseg_in(xml: str, pred) -> str:
     """pred(문단 xml) 가 참인 가장 안쪽 문단에서만 줄 배치 캐시(linesegarray)를 지운다.

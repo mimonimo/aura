@@ -833,6 +833,9 @@ def house_table_requests(start: int, cells: dict[tuple[int, int], tuple[str, int
     grid = [[cells.get((r, c), ("", 0))[0] for c in range(n_cols)] for r in range(n_rows)]
     rl = hs.cell_roles(hs.grid_cells(grid))
     box = n_cols == 1
+    head_last = max([r + 1 for (r, _c), role in rl.items() if role == "head"] or [0])
+    heads = {c: " ".join(grid[r][c] for r in range(head_last)).strip() for c in range(n_cols)}
+    totals = [r for r in range(head_last, n_rows) if not box and hs.is_total(grid[r][0])]
     pads = {k: _pt(v["padding"][side]) for k, side in _PADS.items()}
     if box:
         line = _border(v["inner_pt"], v["box_dash"])
@@ -848,9 +851,15 @@ def house_table_requests(start: int, cells: dict[tuple[int, int], tuple[str, int
         head_rows = sum(1 for r in range(n_rows) if rl.get((r, 0)) == "head")
         if head_rows and v["head_rgb"]:
             reqs.append(_cell_style(start, 0, 0, head_rows, n_cols, {"backgroundColor": {"color": {"rgbColor": v["head_rgb"]}}}))
+        if head_rows and head_rows < n_rows and v["head_rule"] != "THIN":     # 머리줄 아래 선 — 선 굵기 위계(바깥 > 머리줄 아래 > 안쪽)
+            rule = _border(v["head_rule_pt"] * (2 if v["head_rule"] == "DOUBLE" else 1))
+            reqs.append(_cell_style(start, head_rows - 1, 0, 1, n_cols, {"borderBottom": rule}))
         if v["label_rgb"]:
             reqs += [_cell_style(start, r, c, 1, 1, {"backgroundColor": {"color": {"rgbColor": v["label_rgb"]}}})
                      for (r, c), role in sorted(rl.items()) if role == "label"]
+        for r in totals:                                     # 합계 줄 — 연회색·위 선 굵게(글은 아래에서 굵게)
+            reqs.append(_cell_style(start, r, 0, 1, n_cols, {"backgroundColor": {"color": {"rgbColor": v["total_rgb"]}},
+                                                             "borderTop": _border(v["total_rule_pt"])}))
     reqs.append({"updateTableRowStyle": {"tableStartLocation": {"index": start}, "rowIndices": list(range(n_rows)),
                                          "tableRowStyle": {"minRowHeight": _pt(v["min_row_pt"])}, "fields": "minRowHeight"}})
     for (r, c), (text, at) in sorted(cells.items()):
@@ -861,6 +870,8 @@ def house_table_requests(start: int, cells: dict[tuple[int, int], tuple[str, int
         ts: dict = {"fontSize": _pt(v["box_font_pt"] if role == "box" else v["font_pt"])}
         if role == "head":
             ts["bold"] = v["head_bold"]
+        elif r in totals and v["total_bold"]:
+            ts["bold"] = True
         if role == "box" and v["box_rgb"]:
             ts["foregroundColor"] = {"color": {"rgbColor": v["box_rgb"]}}
         reqs.append({"updateTextStyle": {"range": rng, "textStyle": ts, "fields": ",".join(ts)}})
@@ -868,8 +879,10 @@ def house_table_requests(start: int, cells: dict[tuple[int, int], tuple[str, int
             align = v["box_align"]
         elif role in ("head", "label"):
             align = v["head_align"]
+        elif r in totals and c == 0:
+            align = "CENTER"
         else:
-            align = v["body_align"] or ("CENTER" if hs.short_value(text) else "")
+            align = v["body_align"] or hs.value_align(text, heads.get(c, ""))     # 금액·큰 수 오른쪽, 짧은 값 가운데
         if align:
             reqs.append({"updateParagraphStyle": {"range": rng, "paragraphStyle": {"alignment": _DOCS_ALIGN.get(align, align)},
                                                   "fields": "alignment"}})
