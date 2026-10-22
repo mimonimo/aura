@@ -152,10 +152,12 @@ def test_preview_apply_and_year_view(world):
     store = json.loads((tmp_path / "program_admin.json").read_text())
     assert set(store["rows"]["program:가나다혁신사업"]["years"]) == {"2024", "2025"}
     # 연도를 고르면 그해 진행한 사업만, 칸은 그해 값
-    p24 = dev.get("/programs/admin?tab=all&year=2024").text
+    p24 = dev.get("/programs/admin?tab=all&year=2024&unit=won").text
+    p25 = dev.get("/programs/admin?tab=all&year=2025&unit=won").text
+    assert ">1,500<" in p25
     assert ">1,200<" in p24 and ">1,500<" not in p24 and "라마바 지원사업" in p24          # 연도별 표의 합계 칸(원, 쉼표)
     p25 = dev.get("/programs/admin?tab=all&year=2025").text
-    assert ">1,500<" in p25 and "새로운 교육 프로젝트 사업" in p25 and "엑셀에서 온 줄" in p25
+    assert "새로운 교육 프로젝트 사업" in p25 and 'class="pa-src src-excel"' in p25
     assert "계정 있음" in p25                                        # 책임자 이름 BOSS = 계정 이름
     assert "lead1" not in json.dumps(store["rows"]["program:가나다혁신사업"].get("heads", []))   # 권한은 주지 않는다
     assert "BOSS" not in program_admin.load_store(tmp_path)["rows"]["program:가나다혁신사업"].get("heads", [])
@@ -165,13 +167,13 @@ def test_three_tabs_and_past_read_only(world):
     app, tmp_path, *_ = world
     dev = _client(app, "zzdev", "devpass")
     allp = dev.get("/programs/admin?tab=all").text
-    assert "가나다 혁신사업" in allp and "라마바 지원사업" in allp and "지난 사업</span>" in allp
+    assert "가나다 혁신사업" in allp and "라마바 지원사업" in allp and 'class="pa-past">지난</span>' in allp
     body = allp.split("<tbody>")[1].split("</tbody>")[0]
     lamaba = [tr for tr in body.split("<tr") if "라마바 지원사업" in tr][0]
-    assert "편집" not in lamaba and "숨기기" not in lamaba                 # 전체 갈래에서도 지난 사업 줄은 읽기만
+    assert "data-pa-edit-open" not in lamaba and '"edit": false' in lamaba   # 전체 갈래에서도 지난 사업 줄은 읽기만
     assert "현행 사업 <span>" in allp and "전체 <span>" in allp
     past = dev.get("/programs/admin?tab=past").text
-    assert "편집" not in past.split("<tbody>")[1].split("</tbody>")[0] and "data-pa-sheet" not in past
+    assert "data-pa-edit-open" not in past.split("<tbody>")[1].split("</tbody>")[0] and "data-pa-sheet" not in past
     r = dev.post("/programs/admin/save", data={"key": "program:라마바지원사업", "name": "라마바 지원사업", "budget": "1원"},
                  follow_redirects=False)
     assert "err=" in r.headers["location"]                            # 지난 사업은 저장도 막는다
@@ -200,14 +202,23 @@ def test_hand_edit_not_overwritten_by_default(world):
     assert "3억 원" in dev.get("/programs/admin?year=2026").text
 
 
-def test_sheet_fill_admin_only(world):
+def test_sheet_fill_scope(world):
+    """가져오기 — 관리자는 전체, 총괄 책임자는 자기 부서 사업 줄만(다른 부서·새 사업은 건너뜀), 사업 책임자는 못 한다."""
     app, tmp_path, x24, _ = world
-    for uid in ("boss", "lead1"):
-        c = _client(app, uid)
-        assert _upload(c, x24).status_code == 403
-        assert c.post("/programs/admin/sheet/apply", data={"doc_ids": "1"}).status_code == 403
-        assert "data-pa-sheet" not in c.get("/programs/admin").text
+    lead = _client(app, "lead1")
+    assert _upload(lead, x24).status_code == 403
+    assert lead.post("/programs/admin/sheet/apply", data={"doc_ids": "1"}).status_code == 403
+    assert "data-pa-sheet" not in lead.get("/programs/admin").text
     assert not (tmp_path / "program_admin.json").exists()
+    boss = _client(app, "boss")                                   # 기획처 총괄 책임자
+    assert "data-pa-sheet" in boss.get("/programs/admin").text
+    r = _upload(boss, x24)
+    assert r.status_code == 200 and "다른 부서 사업 — 건너뜀" in r.text and "우리 부서 사업 줄만" in r.text
+    token = r.text.split('name="token" value="')[1].split('"')[0]
+    loc = boss.post("/programs/admin/sheet/apply", data={"token": token}, follow_redirects=False).headers["location"]
+    assert "done=" not in loc                                     # 되돌리기는 관리자만
+    store = program_admin.load_store(tmp_path)
+    assert set(store["rows"]) == {"program:가나다혁신사업"} and not store["added"]   # 기획처 사업만, 새 줄 없음
 
 
 def test_clerks_link_projects_and_detail(world):
@@ -404,11 +415,10 @@ def test_year_view_table_units_and_summary(full):
     app, tmp_path, books = full
     dev = _client(app, "zzdev", "devpass")
     assert "ok=" in _apply(dev, books[2025][0], books[2026][0]).headers["location"]
-    page = dev.get("/programs/admin?tab=all&year=2025").text
+    page = dev.get("/programs/admin?tab=all&year=2025&unit=won").text
     body = page.split("<tbody>")[1].split("</tbody>")[0]
-    names = [n for n in ("가나다 혁신사업", "마바사 지원사업", "아자차 연계사업") if n in body]
-    assert names == ["가나다 혁신사업", "마바사 지원사업", "아자차 연계사업"]
-    assert body.index("가나다 혁신사업") < body.index("마바사 지원사업") < body.index("아자차 연계사업")   # 엑셀 순서
+    assert body.index("가나다 혁신사업") < body.index("아자차 연계사업") < body.index("마바사 지원사업")   # 기본은 합계 큰 순
+    assert 'data-o="1"' in body and 'data-o="3"' in body                                   # 엑셀 순서는 「순」 머리로 정렬
     assert "세부 과제 2개 펼치기" in body and body.count('class="pa-task"') == 2              # 세부 과제 줄(접힌 채)
     assert '<span class="pa-st st-new">신규</span>' in body and '<span class="pa-st st-end">종료</span>' in body
     assert 'data-pa-group="org"' in page and 'data-pa-group="money"' in page and "기준일 2025.08.19" in page
@@ -424,7 +434,7 @@ def test_year_view_table_units_and_summary(full):
     assert f">{total25 / 1e6:,.1f}<" in mm.split("<tfoot>")[1] and '>백만원</a>' in mm
     assert program_sheet.fmt_unit(1_234_567_000, "thousand") == "1,234,567" and program_sheet.fmt_unit(1_234_567_000, "million") == "1,234.6"
     # 지난해 대비(2026 ← 2025) · 전체 연도 막대
-    p26 = dev.get("/programs/admin?tab=all&year=2026").text.split("data-pa-ysum")[1].split("</div>\n</div>")[0]
+    p26 = dev.get("/programs/admin?tab=all&year=2026&unit=won").text.split("data-pa-ysum")[1].split("</div>\n</div>")[0]
     delta = sum(books[2026][1][-1:]) - total25
     assert f"{delta:,}" in p26 and "사업 -1" in p26
     allp = dev.get("/programs/admin?tab=all&year=0").text
@@ -469,12 +479,14 @@ def test_xlsx_download_same_scope_as_page(full):
         out.write_bytes(r.content)
         ws = openpyxl.load_workbook(out).active
         return [ws.cell(i, 4).value for i in range(5, ws.max_row) if ws.cell(i, 4).value]
-    boss = subs(_client(app, "boss"))                                   # 기획처 사업 + 지난 사업(확인용)
-    assert "1단계 과제" in boss and "아자차 과제" in boss and "마바사 지원사업" not in boss
+    boss = subs(_client(app, "boss"))                                   # 총괄 책임자는 모든 사업을 읽는다
+    assert "1단계 과제" in boss and "아자차 과제" in boss and "마바사 지원사업" in boss
     assert subs(_client(app, "lead1")) == []                            # 지정된 사업이 없다
     assert _client(app, "plain").get("/programs/admin.xlsx", params={"year": "2025"}).status_code == 403
     page = _client(app, "boss").get("/programs/admin?tab=all&year=2025").text
-    assert "마바사 지원사업" not in page and "1단계 과제" in page
+    assert "마바사 지원사업" in page and "1단계 과제" in page
+    lead = _client(app, "lead1")
+    assert "마바사 지원사업" not in lead.get("/programs/admin?tab=all&year=2025").text
 
 
 def test_reapply_fills_new_cells_and_keeps_hand(full):

@@ -212,7 +212,7 @@ def test_program_admin_permissions(world):
     r = boss.post("/programs/admin/save", data={"key": key, "leads": ["lead1"]}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     assert "err=" in boss.post("/programs/admin/save", data={"key": key, "leads": ["lead2"]}, follow_redirects=False).headers["location"]
-    assert boss.post("/programs/admin/save", data={"key": "program:라마바지원사업", "leads": ["lead1"]}).status_code == 404
+    assert boss.post("/programs/admin/save", data={"key": "program:라마바지원사업", "leads": ["lead1"]}).status_code == 403   # 다른 부서 사업은 신청으로
     assert boss.post("/programs/admin/hide", data={"key": key}).status_code == 403
     assert "가나다 혁신사업" in _client(app, "lead1").get("/programs/admin").text
     assert _client(app, "lead1").post("/programs/admin/save", data={"key": key, "leads": ["lead1"]}).status_code == 403

@@ -1,0 +1,28 @@
+/* 사람 고르기(people-picker.js) — 입력칸 하나 + 칩, 아래로 펼치는 찾기 목록 */
+.pp { position: relative; }
+.pp-box { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 36px; padding: 3px 6px;
+  border: 1px solid var(--line, #E2E8F0); border-radius: 8px; background: #fff; cursor: text; }
+.pp-box:focus-within { border-color: var(--blue, #497BFB); box-shadow: 0 0 0 3px rgba(73,123,251,.12); }
+.pp-chips { display: contents; }
+.pp-chip { display: inline-flex; align-items: center; gap: 2px; height: 24px; padding: 0 4px 0 9px; border-radius: 999px;
+  background: #EEF2F8; color: var(--ink, #1F2937); font-size: 12.5px; white-space: nowrap; }
+.pp-chip button { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted, #64748B);
+  font-size: 13px; line-height: 1; cursor: pointer; box-shadow: none; }
+.pp-chip button:hover { background: rgba(100,116,139,.18); color: var(--ink, #1F2937); }
+.pp-in { flex: 1 1 120px; min-width: 100px; height: 28px; border: 0 !important; outline: 0; background: transparent;
+  font: inherit; font-size: 13px; padding: 0 4px !important; box-shadow: none !important; }
+.pp-pop { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 90; max-height: 280px; overflow: auto; padding: 4px;
+  background: #fff; border: 1px solid #E3E8EF; border-radius: 10px; box-shadow: 0 12px 32px rgba(15,23,42,.12); }
+.pp-quick { display: flex; align-items: center; gap: 4px; padding: 4px 4px 6px; border-bottom: 1px solid var(--line, #E2E8F0); margin-bottom: 4px; }
+.pp-q { height: 22px; padding: 0 9px; border: 1px solid var(--line, #E2E8F0); border-radius: 999px; background: transparent;
+  color: var(--muted, #64748B); font: inherit; font-size: 11.5px; cursor: pointer; box-shadow: none; }
+.pp-q.on { border-color: var(--ink, #1F2937); color: var(--ink, #1F2937); }
+.pp-rule { margin-left: auto; font-size: 11px; color: var(--faint, #94A3B8); }
+.pp-group { padding: 6px 8px 2px; font-size: 11px; color: var(--faint, #94A3B8); }
+.pp-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+.pp-opt.on, .pp-opt:hover { background: #F1F5FB; }
+.pp-av { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #E3ECFB; color: var(--navy, #1B3B75);
+  font-size: 11px; line-height: 22px; text-align: center; }
+.pp-nm { color: var(--ink, #1F2937); }
+.pp-meta { margin-left: auto; font-size: 11.5px; color: var(--muted, #64748B); white-space: nowrap; }
+.pp-none { margin: 6px 8px; font-size: 12px; color: var(--muted, #64748B); }

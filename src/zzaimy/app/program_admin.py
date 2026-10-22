@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import re
@@ -70,28 +71,44 @@ def _dir(data_dir) -> Path:
 
 
 def load_store(data_dir=None) -> dict:
+    """관리 저장값 — rows·added 와(있으면) sheets(해마다의 엑셀 정보)·requests(신청)·notes(사업 관리 알림)."""
     try:
         got = json.loads((_dir(data_dir) / STORE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         got = {}
     out = {"rows": dict(got.get("rows") or {}), "added": dict(got.get("added") or {})}
-    if got.get("sheets"):                                  # 해마다의 엑셀 정보(기준일·대상기간·열 순서·합계 줄)
-        out["sheets"] = dict(got["sheets"])
+    for k in ("sheets", "requests", "notes"):
+        if got.get(k):
+            out[k] = got[k]
     return out
 
 
-def save_store(store: dict, data_dir=None) -> None:
-    """저장 — 이전 판은 history/program_admin.<시각>.json 으로 남긴다."""
+def save_store(store: dict, data_dir=None) -> str:
+    """저장 — 이전 판은 history/program_admin.<시각>.json 으로 남기고 그 이름의 시각 부분을 돌려준다(가져오기 되돌리기에 쓴다)."""
     d = _dir(data_dir)
     p = d / STORE
+    hist = d / "history"
+    hist.mkdir(parents=True, exist_ok=True)
+    base = time.strftime("%Y%m%d%H%M%S")
+    stamp, n = base, 1
+    while (hist / f"program_admin.{stamp}.json").exists():
+        stamp, n = f"{base}-{n}", n + 1
     if p.is_file():
-        hist = d / "history"
-        hist.mkdir(exist_ok=True)
-        shutil.copy2(p, hist / f"program_admin.{time.strftime('%Y%m%d%H%M%S')}.json")
+        shutil.copy2(p, hist / f"program_admin.{stamp}.json")
+    else:                                                  # 첫 저장 — 빈 판을 남겨 되돌릴 자리를 만든다
+        (hist / f"program_admin.{stamp}.json").write_text('{"rows": {}, "added": {}}', encoding="utf-8")
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(store, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(p)
     _CACHE.clear()
+    return stamp
+
+
+def store_hash(data_dir=None) -> str:
+    try:
+        return hashlib.sha256((_dir(data_dir) / STORE).read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ""
 
 
 def load_ledger(data_dir=None) -> dict:
@@ -129,7 +146,8 @@ def base_rows(ledger: dict) -> list[dict]:
 
 
 def merged_rows(data_dir=None, ledger: dict | None = None, store: dict | None = None) -> list[dict]:
-    """장부 줄 + 관리 화면에서 고친 값 + 더한 줄. 줄마다 ids(이 사업으로 보는 projects.program 열쇠)를 단다."""
+    """장부 줄 + 관리 화면에서 고친 값 + 더한 줄. 줄마다 ids(이 사업으로 보는 projects.program 열쇠)·origin(출처 칩)을 단다.
+    합친 줄(merged_into)은 숨기고, 합쳐 받은 이름은 별칭(terms_add)으로 붙는다."""
     ledger = load_ledger(data_dir) if ledger is None else ledger
     store = load_store(data_dir) if store is None else store
     rows = base_rows(ledger)
@@ -144,12 +162,21 @@ def merged_rows(data_dir=None, ledger: dict | None = None, store: dict | None = 
         for f in ROLES:
             if f in o:
                 r[f] = list(o[f] or [])
+        r["terms"] = list(dict.fromkeys([*(r.get("terms") or []), *(o.get("terms_add") or [])]))
         r["hidden"] = bool(o.get("hidden", r.get("hidden")))
+        r["merged_into"] = o.get("merged_into") or ""
+        r["not_program"] = bool(o.get("not_program"))
+        r["log"] = list(o.get("log") or [])
         r["years"] = {str(y): dict(v) for y, v in (o.get("years") or {}).items() if str(y).isdigit() and isinstance(v, dict)}
         r["period"] = re.sub(r"(\d{4})-(\d{2})-(\d{2})(?:[ T]00:00(?::00)?)?", r"\1.\2.\3", str(r.get("period") or "")).strip()   # 엑셀 날짜 값(… 00:00:00)은 날짜만
         r["ids"] = {r["key"], *("program:" + k for t in [r["name"], *r["terms"]] if (k := _norm(t)))}
         r["depts"] = [d for d in _SPLIT.split(r.get("dept") or "") if d]
+        excel = r["source"] == "엑셀" or any(v.get("from") for v in r["years"].values())
+        r["origin"] = "excel" if excel else ("ledger" if r["source"] == "장부" else "added")
     return rows
+
+
+ORIGIN = {"excel": "엑셀", "ledger": "문서에서 찾음", "added": "직접 더함"}
 
 
 def link_projects(db, rows: list[dict]) -> None:
@@ -223,26 +250,52 @@ def _me(request: Request) -> tuple[str, dict]:
 
 
 def visible_rows(rows: list[dict], scope: str, user: str, acct: dict, show_hidden: bool = False) -> list[dict]:
+    """볼 수 있는 줄 — 관리자·총괄 책임자는 전부(숨긴 줄은 관리자가 고를 때만), 사업 책임자·행정 담당자는 지정된 사업만."""
     if scope == "all":
         return [r for r in rows if show_hidden or not r["hidden"]]
-    mine = str(acct.get("dept") or "").strip()
-    out = []
-    for r in rows:
-        if r["hidden"]:
-            continue
-        named = any(user in r[f] for f in ROLES)
-        if scope == "dept" and ((mine and mine in r["depts"]) or named):
-            out.append(r)
-        elif scope == "own" and named:
-            out.append(r)
-    return out
+    if scope == "dept":
+        return [r for r in rows if not r["hidden"]]
+    return [r for r in rows if not r["hidden"] and any(user in r[f] for f in ROLES)]
+
+
+def my_dept(acct: dict) -> str:
+    return str((acct or {}).get("dept") or "").strip()
+
+
+def owns(r: dict, scope: str, user: str, acct: dict) -> bool:
+    """이 줄을 직접 고칠 수 있나(지난 사업 여부는 따로) — 관리자는 전부, 총괄 책임자는 주관 부서가 자기 부서이거나
+    총괄 책임자로 지정된 사업. 그 밖은 신청으로."""
+    if scope == "all":
+        return True
+    if scope != "dept":
+        return False
+    cov = covered(acct)
+    return bool(cov & set(r["depts"])) or user in r["heads"] or any(h[5:] in cov for h in r["heads"] if h.startswith("dept:"))
+
+
+def covered(acct: dict) -> set[str]:
+    """총괄 책임자가 맡는 부서들 — _scope_or_403 이 채운 값(없으면 소속 부서 하나)."""
+    return set((acct or {}).get("_cov") or ())
+
+
+def admin_users(accounts: dict) -> list[str]:
+    return sorted(u for u, a in (accounts or {}).items() if a.get("active", True) and grades.program_scope(a) == "all")
+
+
+def add_note(store: dict, users, text: str, req: int | None = None) -> None:
+    """사업 관리 알림 — 받는 사람마다 쌓고(최근 50개) 사업 관리 화면 위 띠로 보인다."""
+    notes = store.setdefault("notes", {})
+    for u in dict.fromkeys(users):
+        lst = notes.setdefault(u, [])
+        lst.append({"at": time.strftime("%Y-%m-%d %H:%M"), "text": text, "req": req, "seen": False})
+        del lst[:-50]
 
 
 def _choices(accounts: dict, scope: str, acct: dict) -> tuple[list[dict], list[dict], list[dict]]:
     """(총괄 책임자 후보, 사업 책임자 후보, 행정 담당자 후보) — 사용 중인 교직원 가운데 총괄 책임자는 총괄 책임자 등급,
-    사업 책임자는 사업 책임자·총괄 책임자 등급, 행정 담당자는 행정 담당자 이상. 총괄 책임자가 고르는 두 칸은 자기 부서 사람만."""
+    사업 책임자는 사업 책임자·총괄 책임자 등급, 행정 담당자는 행정 담당자 이상. 총괄 책임자가 고르는 두 칸은 맡은 부서(겸직·하위 부서 포함) 사람만."""
     heads, leads, clerks = [], [], []
-    mine = str(acct.get("dept") or "").strip()
+    cov = covered(acct) if scope != "all" else set()
     for u, a in sorted(accounts.items()):
         if not a.get("active", True) or a.get("role") not in grades.STAFF:
             continue
@@ -250,7 +303,7 @@ def _choices(accounts: dict, scope: str, acct: dict) -> tuple[list[dict], list[d
         item = {"user": u, "label": (a.get("name") or "").strip() or u, "dept": a.get("dept") or "", "grade": grades.label(g)}
         if g == "head":
             heads.append(item)
-        same = scope == "all" or (mine and (a.get("dept") or "").strip() == mine)
+        same = scope == "all" or (a.get("dept") or "").strip() in cov
         if g in ("lead", "head") and same:
             leads.append(item)
         if g in ("clerk", "lead", "head") and same:
@@ -263,10 +316,26 @@ def _back(msg: str, ok: bool = True, anchor: str = "") -> RedirectResponse:
 
 
 def _scope_or_403(request: Request) -> tuple[str, str, dict]:
+    """(scope, 계정, 판정용 계정 값). scope 는 소속 부서 등급(grades.program_scope). 총괄 책임자가 맡는 부서는 반드시
+    grades.covered_depts(…, "head") 로 정하고 acct["_cov"] 에 둔다 — 겸직으로 어떤 부서의 총괄 책임자이면(소속 등급이 낮아도)
+    그 부서 범위의 「dept」 로 연다. 테스트 보기 중에는 고른 등급·부서만 쓴다."""
     user, acct = _me(request)
+    data_dir = getattr(request.app.state, "data_dir", None)
     scope = grades.program_scope(acct)
+    cov: set[str] = set()
+    if getattr(request.state, "view_as", None):
+        if scope == "dept" and my_dept(acct):
+            cov = {my_dept(acct)}
+    else:
+        try:
+            cov = set(grades.covered_depts(user, acct, data_dir, "head"))
+        except Exception:
+            cov = {my_dept(acct)} if scope == "dept" and my_dept(acct) else set()
+        if scope in ("own", "") and cov:
+            scope = "dept"                                     # 겸직 총괄 책임자
     if not scope:
         raise HTTPException(403, "사업 관리는 사업 책임자 이상만 볼 수 있습니다")
+    acct["_cov"] = cov
     return scope, user, acct
 
 
@@ -339,46 +408,88 @@ def view(r: dict, year: int = 0) -> dict:
     return out
 
 
-def _filter(rows: list[dict], q: str = "", dept: str = "", l1: str = "") -> list[dict]:
+def _filter(rows: list[dict], q: str = "", dept=None, l1=None, st=None, mi=None, src: str = "", year: int = 0) -> list[dict]:
+    """화면의 거르기와 같은 규칙 — 찾기 글, 부서·대분류·구분·지원기관(여럿 고르면 그 가운데 하나), 출처(엑셀에 없는 사업만)."""
+    as_list = lambda v: [x for x in ([v] if isinstance(v, str) else (v or [])) if x]
+    dept, l1, st, mi = as_list(dept), as_list(l1), as_list(st), as_list(mi)
     q = (q or "").strip().lower()
     out = []
     for r in rows:
-        if dept and dept not in r["depts"]:
+        yv = (r.get("years") or {}).get(str(year)) or {} if year else program_sheet.latest(r.get("years") or {})
+        if dept and not set(dept) & set(r["depts"]):
             continue
-        if l1 and r["l1"] != l1:
+        if l1 and r["l1"] not in l1:
             continue
-        if q and q not in " ".join([r["name"], *r["terms"], r["dept"], r["l2"], r["l3"]]).lower():
+        if st and not set(st) & set(program_sheet.chips(yv.get("status") or "")):
+            continue
+        if mi and not set(mi) & set(program_sheet.chips(yv.get("ministry") or "")):
+            continue
+        if src == "noexcel" and r["origin"] == "excel":
+            continue
+        if q and q not in " ".join([r["name"], *r["terms"], r["dept"], r["l2"], r["l3"], yv.get("manager") or "",
+                                    yv.get("officer") or ""]).lower():
             continue
         out.append(r)
     return out
 
 
-# ---------------------------------------------------------------- 화면
+def _filters(request: Request) -> dict:
+    qp = request.query_params
+    return {"q": qp.get("q") or "", "dept": qp.getlist("dept"), "l1": qp.getlist("l1"), "st": qp.getlist("st"),
+            "mi": qp.getlist("mi"), "src": qp.get("src") or ""}
+
 
 TABS = ("all", "current", "past")
+PROBE_CACHE = "program_sheet_probe.json"
 
 
-def sheet_docs(db, limit: int = 40) -> list[dict]:
-    """엑셀에서 채우기에 고를 수 있는 문서 — 문서함·반입 문서 가운데 엑셀 원본이 디스크에 있는 것(최근 순)."""
+def sheet_docs(db, data_dir=None, limit: int = 80) -> tuple[list[dict], list[dict]]:
+    """가져오기 창의 문서함 목록 — (사업 현황 엑셀, 다른 엑셀). 「사업명」 머리줄이 있는가는 문서마다 판정해 두고
+    파일 지문(크기·수정 시각)이 바뀔 때만 다시 본다(cache/program_sheet_probe.json)."""
     if db is None:
-        return []
+        return [], []
     try:
         with db._conn() as conn:
-            got = conn.execute("SELECT id, filename, stored_path FROM documents WHERE " + " OR ".join("stored_path LIKE ?" for _ in SHEET_EXT)
-                               + " ORDER BY id DESC", tuple("%" + e for e in SHEET_EXT)).fetchall()
+            got = conn.execute("SELECT id, filename, stored_path, created_at FROM documents WHERE "
+                               + " OR ".join("lower(stored_path) LIKE ?" for _ in SHEET_EXT) + " ORDER BY id DESC",
+                               tuple("%" + e for e in SHEET_EXT)).fetchall()
     except Exception:
-        return []
-    out = []
-    for i, name, path in got:
-        if path and Path(str(path)).is_file():
-            out.append({"id": int(i), "name": str(name or "")})
-            if len(out) >= limit:
-                break
-    return out
+        return [], []
+    cpath = _dir(data_dir) / "cache" / PROBE_CACHE
+    try:
+        cache = json.loads(cpath.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    changed = False
+    good, other = [], []
+    for i, name, path, at in got:
+        p = Path(str(path or ""))
+        if not p.is_file() or p.name.startswith("~$"):
+            continue
+        stt = p.stat()
+        fp = f"{stt.st_size}:{int(stt.st_mtime)}"
+        c = cache.get(str(i))
+        if not c or c.get("fp") != fp:
+            c = {"fp": fp, **program_sheet.probe(p)}
+            cache[str(i)] = c
+            changed = True
+        item = {"id": int(i), "name": str(name or ""), "year": c.get("year"), "at": str(at or "")[:10]}
+        (good if c.get("ok") else other).append(item)
+        if len(good) + len(other) >= limit:
+            break
+    if changed:
+        try:
+            cpath.parent.mkdir(parents=True, exist_ok=True)
+            cpath.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+    good.sort(key=lambda d: (-(d["year"] or 0), -d["id"]))
+    return good, other
 
 
 def _select(request: Request, tab: str = "current", year: str = "", hidden: str = "") -> dict:
-    """화면·내려받기가 같이 쓰는 줄 고르기 — 권한 범위(scope) 안의 줄, 갈래(tab), 연도(그해 진행한 사업만)."""
+    """화면·내려받기가 같이 쓰는 줄 고르기 — 권한 범위(scope) 안의 줄, 갈래(tab), 연도(그해 진행한 사업만).
+    정렬 기본: 연도 보기는 그해 합계 큰 순, 전체 연도는 이름 순(화면에서 머리를 눌러 바꾼다)."""
     scope, user, acct = _scope_or_403(request)
     st = request.app.state
     store = load_store(st.data_dir)
@@ -391,34 +502,31 @@ def _select(request: Request, tab: str = "current", year: str = "", hidden: str 
     tab = tab if tab in TABS else "current"
     for r in rows:
         r["stage"] = stage(r, this_year)
-    if scope == "dept":                                    # 총괄 책임자는 지난 사업 전체를 확인용으로(숨긴 줄 빼고, 읽기만)
-        have = {r["key"] for r in shown}
-        shown = shown + [r for r in visible_rows(rows, "all", user, acct) if r["stage"] == "past" and r["key"] not in have]
     n_all = len(shown)
     n_past = sum(1 for r in shown if r["stage"] == "past")
     in_tab = [r for r in shown if tab == "all" or (r["stage"] == "past") == (tab == "past")]
-    ys: set[int] = set()
-    for r in in_tab:                                       # 이 갈래 사업이 진행한 연도들 — 연도 고르기 목록
-        a, b = row_span(r)
-        if a:
-            ys.update(range(max(a, 1990), min(b or this_year, this_year + 5) + 1))
+    ys = {int(y) for r in in_tab for y in r["years"] if str(y).isdigit()} | {this_year}
     sel = int(year) if str(year).isdigit() else (this_year if tab == "current" else 0)
+    if sel:
+        ys.add(sel)
     picked = [r for r in in_tab if not sel or runs_in(r, sel) or (tab == "current" and r["stage"] == "unknown")]
-    if sel:                                                # 엑셀과 같은 순서 — 그해 값이 있는 줄을 엑셀 줄 순서로, 나머지는 뒤에
+    if sel:
         def order(r):
             yv = r["years"].get(str(sel)) or {}
-            return (not yv, int(yv.get("order") or 10 ** 6) if yv else 0, r["name"])
+            return (not yv, -(program_sheet.year_money(yv)["budget"] or 0), r["name"])
         picked.sort(key=order)
+    else:
+        picked.sort(key=lambda r: r["name"])
     return {"scope": scope, "user": user, "acct": acct, "store": store, "rows": rows, "in_tab": in_tab, "shown": picked,
-            "tab": tab, "sel": sel, "this_year": this_year, "years": sorted(ys, reverse=True),
+            "tab": tab, "sel": sel, "this_year": this_year, "years": sorted(ys),
             "n_all": n_all, "n_past": n_past, "n_cur": n_all - n_past}
 
 
 def _unit(unit: str) -> str:
-    return unit if unit in program_sheet.UNITS else "won"
+    return unit if unit in program_sheet.UNITS else "auto"
 
 
-def year_cells(r: dict, year: int, unit: str = "won") -> dict:
+def year_cells(r: dict, year: int, unit: str = "auto") -> dict:
     """연도별 보기의 한 줄 — 그해 값(없으면 줄 값), 예산 6갈래·합계(원과 고른 단위 글), 세부 과제 줄."""
     yv = (r.get("years") or {}).get(str(year)) or {}
     m = program_sheet.year_money(yv)
@@ -435,6 +543,24 @@ def year_cells(r: dict, year: int, unit: str = "won") -> dict:
             "dept": yv.get("dept") or r.get("dept") or "", "account_dept": yv.get("account_dept") or "", "majors": yv.get("majors") or "",
             "m": m, "mf": fmt(m), "tasks": tasks, "hand_budget": "budget" in (yv.get("by_hand") or []),
             "budget_text": yv.get("budget") or ""}
+
+
+def _dept_name(d: str) -> str:
+    """부서 이름 — 부서 사전(dept_dictionary.normalize)이 있으면 별칭을 정식 이름으로, 없으면 그대로(원래 글은 칸 툴팁)."""
+    try:
+        from zzaimy.app import dept_dictionary   # 다른 작업자가 여는 모듈 — 아직 없을 수 있다
+        return dept_dictionary.normalize(d) or d
+    except Exception:
+        return d
+
+
+class _NameOf(dict):
+    """계정 → 보이는 이름. 「dept:부서」 값은 「부서(부서)」."""
+
+    def get(self, k, default=None):
+        if isinstance(k, str) and k.startswith("dept:"):
+            return f"{k[5:]}(부서)"
+        return super().get(k, default if default is not None else k)
 
 
 def _share(a: int, b: int) -> str:
@@ -473,70 +599,125 @@ def year_trend(in_tab: list[dict]) -> list[dict]:
             for y, (n, b) in sorted(agg.items())]
 
 
+EDIT_YEAR = ("status", "year_period", "manager", "officer", "dept", *program_sheet.SPLIT, "budget")
+
+
+def _edit_years(r: dict) -> dict:
+    """편집 창의 연도별 표 — 해마다 구분·당해 기간·책임자·행정 담당자·업무부서·예산 6갈래(원)·합계·세부 과제, 어느 칸이 엑셀에서 왔고 어느 칸을 손으로 고쳤나."""
+    out = {}
+    for y, v in sorted(r["years"].items()):
+        m = program_sheet.year_money(v)
+        out[y] = {"status": v.get("status", ""), "year_period": v.get("year_period", ""), "manager": v.get("manager", ""),
+                  "officer": v.get("officer", ""), "dept": v.get("dept", ""), "period": v.get("period", ""),
+                  "money": {f: m[f] for f in (*program_sheet.SPLIT, "budget")}, "budget_text": v.get("budget", ""),
+                  "excel": bool(v.get("from")), "hand": list(v.get("by_hand") or []),
+                  "tasks": [{"sub": t.get("sub", ""), "status": t.get("status", ""), "year_period": t.get("year_period", ""),
+                             "manager": t.get("manager", ""), "officer": t.get("officer", ""), "dept": t.get("dept", ""),
+                             "money": {f: t.get(f + "_won") for f in program_sheet.SPLIT}} for t in v.get("tasks") or []]}
+    return out
+
+
 def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str = "", ok: str = "", err: str = "",
-          sheet: dict | None = None, unit: str = "won"):
-    """사업 관리 — 세 갈래: 전체 / 현행 사업(올해 진행 중·기간 모름 포함, 고치고 지정) / 지난 사업(끝난 사업, 확인용 읽기).
-    연도를 고르면 그해 진행한 사업만, 엑셀과 같은 순서·묶음의 연도별 표로 보인다."""
+          sheet: dict | None = None, unit: str = "auto", view_: str = "", done: dict | None = None):
+    """사업 관리 — 세 갈래(전체·현행·지난)와 연도 알약. 연도를 고르면 그해 진행한 사업만, 엑셀과 같은 묶음의 연도별 표로 보인다.
+    view_="requests" 면 신청 목록(관리자는 전체, 그 밖은 내 신청)."""
     S = _select(request, tab, year, hidden)
     scope, user, acct, rows, shown, sel, tab = S["scope"], S["user"], S["acct"], S["rows"], S["shown"], S["sel"], S["tab"]
     unit = _unit(unit)
     st = request.app.state
+    store = S["store"]
     accounts = getattr(st, "accounts", None) or {}
     heads, leads, clerks = _choices(accounts, scope, acct)
     may_create = grades.can_create_project(acct)
-    name_of = {u: ((a.get("name") or "").strip() or u) for u, a in accounts.items()}
+    name_of = _NameOf({u: ((a.get("name") or "").strip() or u) for u, a in accounts.items()})
     people = {(a.get("name") or "").strip() for a in accounts.values() if a.get("active", True) and (a.get("name") or "").strip()}
     for r in shown:
         r["v"] = view(r, sel)
         r["v"]["has_account"] = any(p in people for p in _SPLIT.split(r["v"]["manager"]) if p)
+        bw = program_sheet.parse_won(r["v"]["budget"])
+        r["v"]["budget_short"] = program_sheet.short_money(bw) if bw is not None else r["v"]["budget"]
+        r["v"]["budget_full"] = program_sheet.won(bw) if bw is not None else r["v"]["budget"]
+        r["v"]["budget_won"] = bw
+        r["v"]["period_short"] = program_sheet.short_period(r["v"]["period"])
+        ds = [_dept_name(d) for d in _SPLIT.split(r["v"]["dept"] or "") if d]
+        r["v"]["dept_short"] = (ds[0] + (f" 외 {len(ds) - 1}" if len(ds) > 1 else "")) if ds else ""
+        r["v"]["start"] = (row_span(r)[0] or 0)
         if sel:
             r["y"] = year_cells(r, sel, unit)
             r["y"]["money_json"] = {f: r["y"]["m"][f] for f in ("budget", *program_sheet.SPLIT)}
         live = r["stage"] != "past"
-        r["can_edit"] = scope == "all" and live
-        r["can_assign"] = scope in ("all", "dept") and live and (scope == "all" or r in visible_rows([r], "dept", user, acct))
-        r["can_link"] = live and (scope == "all" or r in visible_rows([r], scope, user, acct))
+        mine = owns(r, scope, user, acct)
+        r["can_edit"] = live and mine
+        r["can_assign"] = r["can_edit"]
+        r["can_request"] = live and scope == "dept" and not mine
+        r["can_link"] = live and (scope in ("all", "dept") and mine or r in visible_rows([r], "own", user, acct))
         r["can_new"] = r["can_link"] and may_create
         r["who"] = {f: [name_of.get(u, u) for u in r[f]] for f in ROLES}
-        r["edit"] = {k: r.get(k) for k in ("key", *TEXT_FIELDS, *ROLES, "source")}
+        r["edit"] = {k: r.get(k) for k in ("key", *TEXT_FIELDS, *ROLES, "source", "origin")}
+        r["edit"]["who"] = {f: [{"user": u, "label": name_of.get(u, u)} for u in r[f]] for f in ROLES}
         r["edit"]["plist"] = [p for p in r.get("plist", []) if not p["archived"]]
-        r["edit"]["years"] = {y: {f: v.get(f, "") for f in YEAR_EDIT} for y, v in r["years"].items()}
+        r["edit"]["years"] = _edit_years(r) if r["can_edit"] else {}
+        a, b = row_span(r)
+        r["edit"]["span"] = [a, b]
+        r["status_chips"] = (r["y"]["chips"] if sel else program_sheet.chips(program_sheet.latest(r["years"]).get("status") or ""))
+        r["ministries"] = program_sheet.chips(((r["years"].get(str(sel)) or {}) if sel else program_sheet.latest(r["years"])).get("ministry") or "")
     ysum, foot, basis = None, {}, {}
     if sel:
         ysum = year_summary(shown, S["in_tab"], sel, unit)
         for f in ("budget", *program_sheet.SPLIT):
             foot[f] = program_sheet.fmt_unit(sum(r["y"]["m"][f] or 0 for r in shown), unit)
-        basis = dict((S["store"].get("sheets") or {}).get(str(sel)) or {})
+        basis = dict((store.get("sheets") or {}).get(str(sel)) or {})
     from zzaimy.app.program_tree import ORDER
     l1s = [x for x in ORDER if any(r["l1"] == x for r in shown)] + sorted({r["l1"] for r in shown if r["l1"] and r["l1"] not in ORDER})
     depts = sorted({d for r in shown for d in r["depts"]})
+    sts = [x for x in ("기존", "신규", "종료", "추가") if any(x in r["status_chips"] for r in shown)] + \
+        sorted({c for r in shown for c in r["status_chips"]} - {"기존", "신규", "종료", "추가"})
+    mis = sorted({c for r in shown for c in r["ministries"]})
+    reqs = list(store.get("requests") or [])
+    if scope == "all":
+        my_reqs = sorted(reqs, key=lambda q: (q["status"] != "wait", -q["id"]))
+    else:
+        my_reqs = sorted([q for q in reqs if q.get("by") == user], key=lambda q: -q["id"])
+    by_key = {r["key"]: r for r in rows}
+    for q in my_reqs:
+        r = by_key.get(q["key"]) or {}
+        q["before"] = _req_before(r, q, name_of)
+        q["after"] = _req_after(q, name_of)
+        q["by_label"] = name_of.get(q.get("by"), q.get("by"))
+    notes = [n for n in (store.get("notes") or {}).get(user, []) if not n.get("seen")]
+    may_import = scope == "all" or (scope == "dept" and bool(covered(acct)))
+    good_docs, other_docs = (sheet_docs(st.db, st.data_dir) if may_import else ([], []))
     return st.templates.TemplateResponse(request, "programs_admin.html", st.page_ctx(request, {
-        "rows": shown, "scope": scope, "can_edit": scope == "all" and tab != "past",
-        "can_assign": scope in ("all", "dept") and tab != "past", "any_action": any(r["can_link"] for r in shown),
+        "rows": shown, "scope": scope, "can_add": scope == "all" and tab != "past", "any_action": any(r["can_link"] or r["can_request"] or r["can_edit"] for r in shown),
         "clerk_choices": clerks, "my_projects": _linkable_projects(st.db, scope, user) if any(r["can_link"] for r in shown) else [],
         "tab": tab, "year": sel, "years": S["years"], "this_year": S["this_year"], "n_all": S["n_all"], "n_cur": S["n_cur"],
         "n_past": S["n_past"], "head_choices": heads, "lead_choices": leads, "name_of": name_of, "l1s": l1s, "depts": depts,
-        "show_hidden": bool(hidden), "n_hidden": sum(1 for r in rows if r["hidden"]) if scope == "all" else 0,
-        "sheet_docs": sheet_docs(st.db) if scope == "all" else [], "sheet": sheet, "labels": program_sheet.LABELS,
-        "unit": unit, "units": [(k, v[1]) for k, v in program_sheet.UNITS.items()], "unit_div": program_sheet.UNITS[unit][0],
-        "unit_label": program_sheet.UNITS[unit][1],
+        "sts": sts, "mis": mis, "origin_labels": ORIGIN,
+        "show_hidden": bool(hidden), "n_hidden": sum(1 for r in rows if r["hidden"] and not r["merged_into"]) if scope == "all" else 0,
+        "may_import": may_import, "good_docs": good_docs, "other_docs": other_docs, "sheet": sheet, "done": done,
+        "labels": program_sheet.LABELS, "unit": unit, "units": [(k, v[1]) for k, v in program_sheet.UNITS.items()],
+        "unit_div": program_sheet.UNITS[unit][0], "unit_label": program_sheet.UNITS[unit][1],
         "ysum": ysum, "foot": foot, "basis": basis, "trend": [] if sel else year_trend(S["in_tab"]),
-        "split": program_sheet.SPLIT, "ok": ok, "err": err, "me_dept": acct.get("dept") or ""}))
+        "split": program_sheet.SPLIT, "view": view_, "reqs": my_reqs, "n_wait": sum(1 for q in reqs if q["status"] == "wait"),
+        "n_mine": sum(1 for q in reqs if q.get("by") == user), "notes": notes, "req_fields": REQ_FIELDS,
+        "all_rows": [{"key": x["key"], "name": x["name"]} for x in sorted(S["in_tab"], key=lambda x: x["name"]) if not x["hidden"]] if scope == "all" else [],
+        "me": user, "ok": ok, "err": err, "me_dept": my_dept(acct)}))
 
 
 @router.get("/programs/admin", response_class=HTMLResponse)
 def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = "", tab: str = "current", year: str = "",
-                   unit: str = "won"):
-    return _page(request, tab=tab, year=year, hidden=hidden, ok=ok, err=err, unit=unit)
+                   unit: str = "auto", view: str = "", done: str = "", h: str = ""):
+    d = {"stamp": done, "h": h} if done and h else None
+    return _page(request, tab=tab, year=year, hidden=hidden, ok=ok, err=err, unit=unit, view_=view, done=d)
 
 
 def year_lines(rows: list[dict], year: int) -> list[dict]:
-    """연도 엑셀에 쓸 줄 — 그해 값이 있는 사업마다 세부 과제 줄(없으면 사업 줄 하나), 화면과 같은 순서."""
+    """연도 엑셀에 쓸 줄 — 그해 값이 있는 사업마다 세부 과제 줄(없으면 사업 줄 하나), 원본 엑셀 줄 순서."""
     out = []
-    for r in rows:
-        yv = (r.get("years") or {}).get(str(year)) or {}
-        if not yv:
-            continue
+    have = [r for r in rows if (r.get("years") or {}).get(str(year))]
+    have.sort(key=lambda r: (int(r["years"][str(year)].get("order") or 10 ** 6), r["name"]))
+    for r in have:
+        yv = r["years"][str(year)]
         if yv.get("tasks"):
             out.extend({"name": r["name"], **t} for t in yv["tasks"])
             continue
@@ -546,52 +727,242 @@ def year_lines(rows: list[dict], year: int) -> list[dict]:
     return out
 
 
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _download(data: bytes, name: str, media: str) -> Response:
+    return Response(data, media_type=media, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
 @router.get("/programs/admin.xlsx")
-def programs_admin_xlsx(request: Request, year: str = "", tab: str = "current", hidden: str = "", q: str = "", dept: str = "",
-                        l1: str = ""):
-    """연도 보기의 엑셀 — 원본 현황 표와 같은 머리줄·열 순서, 맨 아래 합계 줄. 화면과 같은 권한·갈래·거르기."""
+def programs_admin_xlsx(request: Request, year: str = "", tab: str = "current", hidden: str = "", all: str = ""):
+    """내보내기 — 엑셀(원본 양식, 연도 하나) 또는 all=1 이면 전체 연도(연도마다 시트). 화면과 같은 권한·갈래·거르기(찾기·부서·대분류·구분·지원기관·출처)."""
+    F = _filters(request)
+    if all:
+        S = _select(request, tab, "0", hidden)
+        years = sorted({int(y) for r in S["in_tab"] for y in r["years"] if str(y).isdigit()})
+        books = []
+        for y in years:
+            rows = _filter([r for r in S["in_tab"] if str(y) in r["years"]], year=y, **F)
+            books.append((y, year_lines(rows, y), (S["store"].get("sheets") or {}).get(str(y))))
+        span_ = f"{years[0]}~{years[-1]}" if years else "빈"
+        return _download(program_sheet.write_books(books), f"재정지원사업현황({span_}).xlsx", XLSX)
     if not re.fullmatch(r"(19|20)\d{2}", year or ""):
         raise HTTPException(400, "연도를 골라 주세요")
     S = _select(request, tab, year, hidden)
-    rows = _filter(S["shown"], q, dept, l1)
+    rows = _filter(S["shown"], year=int(year), **F)
     meta = (S["store"].get("sheets") or {}).get(year)
-    data = program_sheet.write_book(int(year), year_lines(rows, int(year)), meta)
-    fname = quote(f"재정지원사업현황({year}).xlsx")
-    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
+    return _download(program_sheet.write_book(int(year), year_lines(rows, int(year)), meta), f"재정지원사업현황({year}).xlsx", XLSX)
 
 
 @router.get("/programs/admin.csv")
-def programs_admin_csv(request: Request, q: str = "", dept: str = "", l1: str = "", hidden: str = ""):
-    """보이는 줄을 CSV 로(엑셀에서 바로 열리게 BOM 포함). 화면과 같은 권한·거르기."""
-    scope, user, acct = _scope_or_403(request)
-    st = request.app.state
-    accounts = getattr(st, "accounts", None) or {}
-    rows = merged_rows(st.data_dir)
-    link_projects(st.db, rows)
-    if scope != "all":
-        trim_projects(request, rows, user, acct)
-    rows = _filter(visible_rows(rows, scope, user, acct, show_hidden=bool(hidden) and scope == "all"), q, dept, l1)
+def programs_admin_csv(request: Request, hidden: str = "", tab: str = "all", year: str = ""):
+    """내보내기 — CSV(지금 보이는 목록, 엑셀에서 바로 열리게 BOM 포함). 화면과 같은 권한·갈래·연도·거르기.
+    수식으로 읽힐 글(= + - @ …)은 앞에 작은따옴표를 붙인다."""
+    S = _select(request, tab, year or "0", hidden)
+    scope, accounts = S["scope"], getattr(request.app.state, "accounts", None) or {}
+    rows = _filter(S["shown"], year=S["sel"], **_filters(request))
     name_of = lambda u: f"{(accounts.get(u) or {}).get('name') or u}({u})"
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow([label for _, label in COLUMNS] + (["숨김"] if scope == "all" else []))
+    w.writerow([label for _, label in COLUMNS] + ["출처"] + (["숨김"] if scope == "all" else []))
     for r in rows:
-        v = view(r)
+        v = view(r, S["sel"])
         vals = [", ".join(name_of(u) for u in r[k]) if k in ROLES else v[k] if k in v else r.get(k, "")
                 for k, _ in COLUMNS]
-        w.writerow(vals + (["숨김" if r["hidden"] else ""] if scope == "all" else []))
-    fname = quote(f"사업 관리 {time.strftime('%Y-%m-%d')}.csv")
-    return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
+        vals += [ORIGIN[r["origin"]]] + (["숨김" if r["hidden"] else ""] if scope == "all" else [])
+        w.writerow([program_sheet.csv_safe(x) for x in vals])
+    return _download(("﻿" + buf.getvalue()).encode("utf-8"), f"사업 관리 {time.strftime('%Y-%m-%d')}.csv", "text/csv; charset=utf-8")
+
+
+# ---------------------------------------------------------------- 고치기·변경 기록
+
+YEAR_EDIT = ("budget", "manager", "dept", "period")         # 예전 편집 창의 연도별 칸(y_year·y_<칸>) — 그대로 받는다
+REQ_FIELDS = [("dept", "주관 부서"), ("period", "기간"), ("budget", "예산"), ("manager", "책임자 이름"), ("l3", "소분류"),
+              ("y:manager", "그해 사업 책임자"), ("y:officer", "그해 행정 담당자"), ("y:dept", "그해 업무진행부서"),
+              ("y:year_period", "그해 당해 기간"), ("y:status", "그해 구분"), ("y:budget", "그해 예산")]
+ROLE_LABEL = {"heads": "총괄 책임자", "leads": "사업 책임자", "clerks": "행정 담당자"}
+
+
+def _clean(t, n: int = 120) -> str:
+    return " ".join(str(t or "").split())[:n]
+
+
+def current_value(r: dict, field: str, year: str = ""):
+    if field in ROLES:
+        return list(r.get(field) or [])
+    if year:
+        return ((r.get("years") or {}).get(str(year)) or {}).get(field, "")
+    return r.get(field, "")
+
+
+def set_field(store: dict, r: dict, field: str, value, by: str, via: str, year: str = "") -> None:
+    """한 칸 바꾸기(신청 승인·되돌리기가 쓴다) — 장부 줄은 관리 값으로 덮고, 더한 줄은 그 줄 값을, 연도 칸은 years 에 손 칸으로. 기록을 남긴다."""
+    key = r["key"]
+    o = store["rows"].setdefault(key, {})
+    before = current_value(r, field, year)
+    if field in ROLES:
+        o[field] = list(value or [])
+        r[field] = list(value or [])
+    elif year:
+        cur = o.setdefault("years", {}).setdefault(str(year), {})
+        if value:
+            cur[field] = value
+        else:
+            cur.pop(field, None)
+        if field in program_sheet.MONEY:
+            n = program_sheet.parse_won(value)
+            if n is None:
+                cur.pop(field + "_won", None)
+            else:
+                cur[field + "_won"] = n
+        cur["by_hand"] = sorted(set(cur.get("by_hand") or []) | {field})
+        r.setdefault("years", {})[str(year)] = cur
+    elif r.get("source") in ("추가", "엑셀"):
+        store["added"].setdefault(key, {})[field] = value
+        r[field] = value
+    else:
+        o[field] = value
+        r[field] = value
+    program_sheet.add_log(o, by, field, before, value, via, year)
+
+
+def _date_pair(text: str) -> tuple[str, str]:
+    return program_sheet.norm_period(text)
+
+
+def apply_year_table(cur_years: dict, payload: dict, by: str, o: dict) -> tuple[dict, str]:
+    """편집 창의 연도별 표(JSON) → years. 바뀐 칸만 적고 손 칸(by_hand)으로 표시, 기록을 남긴다. (새 years, 오류 한 줄).
+    payload: {연도: {status, year_period, manager, officer, dept, money{국고…인센티브: 원 또는 「1.2억」}, tasks[…]|null, remove}}.
+    세부 과제가 있으면 사업 금액 칸은 과제 합으로, 없으면 6갈래 합을 합계로."""
+    ys = {y: dict(v) for y, v in (cur_years or {}).items()}
+    this_year = int(time.strftime("%Y"))
+    for y, p in (payload or {}).items():
+        y = str(y)
+        if not re.fullmatch(r"(19|20)\d{2}", y) or not (2000 <= int(y) <= this_year + 5):
+            return ys, f"연도가 올바르지 않습니다: {y[:8]}"
+        if not isinstance(p, dict):
+            continue
+        if p.get("remove"):
+            if y in ys:
+                program_sheet.add_log(o, by, "", y, "", "직접 — 연도 지움", y)
+                ys.pop(y)
+            continue
+        cur = ys.setdefault(y, {})
+        hand = set(cur.get("by_hand") or [])
+
+        def put(f, v):
+            old = cur.get(f, "")
+            if (v or "") == (old or ""):
+                return
+            if v:
+                cur[f] = v
+            else:
+                cur.pop(f, None)
+            hand.add(f)
+            program_sheet.add_log(o, by, f, old, v, "직접", y)
+        for f in ("status", "manager", "officer", "dept"):
+            if f in p:
+                put(f, _clean(p.get(f)))
+        if "year_period" in p:
+            v, e = _date_pair(p.get("year_period") or "")
+            if e:
+                return ys, f"{y}년 당해 기간: {e}"
+            put("year_period", v)
+        tasks = p.get("tasks")
+        sums: dict[str, int] = {}
+        if isinstance(tasks, list):
+            clean_tasks = []
+            for n, t in enumerate(tasks[:200], 1):
+                if not isinstance(t, dict):
+                    continue
+                tt = {k: _clean(t.get(k)) for k in ("sub", "status", "manager", "officer", "dept") if _clean(t.get(k))}
+                if t.get("year_period"):
+                    v, e = _date_pair(t["year_period"])
+                    if e:
+                        return ys, f"{y}년 세부 과제 {n}: {e}"
+                    tt["year_period"] = v
+                for f in program_sheet.SPLIT:
+                    raw = (t.get("money") or {}).get(f)
+                    if raw in (None, ""):
+                        continue
+                    w = program_sheet.parse_won(raw)
+                    if w is None or w < 0:
+                        return ys, f"{y}년 세부 과제 {n}: 금액을 읽지 못했습니다({str(raw)[:20]})"
+                    tt[f + "_won"] = w
+                ws_ = [tt.get(f + "_won") for f in program_sheet.SPLIT if tt.get(f + "_won") is not None]
+                if ws_:
+                    tt["budget_won"] = sum(ws_)
+                tt["seq"] = str(n)
+                clean_tasks.append(tt)
+            old_tasks = [{k: v for k, v in t.items() if k not in ("line", "extra", "name", "period", "fiscal_year", "agency",
+                                                                   "ministry", "majors", "account_dept")} for t in cur.get("tasks") or []]
+            if clean_tasks != old_tasks:
+                cur["tasks"] = clean_tasks
+                hand.add("tasks")
+                program_sheet.add_log(o, by, "tasks", f"{len(old_tasks)}줄", f"{len(clean_tasks)}줄", "직접", y)
+            for f in program_sheet.SPLIT:
+                got = [t[f + "_won"] for t in clean_tasks if t.get(f + "_won") is not None]
+                if got:
+                    sums[f] = sum(got)
+        elif isinstance(p.get("money"), dict):
+            for f in program_sheet.SPLIT:
+                raw = p["money"].get(f)
+                if raw in (None, ""):
+                    if cur.get(f + "_won") is not None and f in p["money"]:
+                        sums[f] = None                         # 비운 칸
+                    continue
+                w = program_sheet.parse_won(raw)
+                if w is None or w < 0:
+                    return ys, f"{y}년 {program_sheet.LABELS[f]}: 금액을 읽지 못했습니다({str(raw)[:20]})"
+                sums[f] = w
+        if sums:
+            for f, w in sums.items():
+                if w == cur.get(f + "_won") and (w is not None):
+                    continue
+                program_sheet.add_log(o, by, f, cur.get(f, ""), program_sheet.won(w), "직접", y)
+                if w is None:
+                    cur.pop(f, None)
+                    cur.pop(f + "_won", None)
+                else:
+                    cur[f], cur[f + "_won"] = program_sheet.won(w), w
+                hand.add(f)
+            tot = [cur.get(f + "_won") for f in program_sheet.SPLIT if cur.get(f + "_won") is not None]
+            if tot and sum(tot) != cur.get("budget_won"):
+                program_sheet.add_log(o, by, "budget", cur.get("budget", ""), program_sheet.won(sum(tot)), "직접", y)
+                cur["budget"], cur["budget_won"] = program_sheet.won(sum(tot)), sum(tot)
+                hand.add("budget")
+        if hand:
+            cur["by_hand"] = sorted(hand)
+        if not any(k for k in cur if k not in ("by_hand",)):
+            ys.pop(y, None)
+    return ys, ""
+
+
+def _check_people(want: dict, allowed: dict, old: dict, accounts: dict) -> str:
+    """지정 후보 다시 검사 — 등급·부서가 맞지 않으면 거절 이유 한 줄(이미 지정돼 있던 사람은 그대로 둔다)."""
+    for f, users in want.items():
+        for u in users:
+            if u in allowed[f] or u in (old.get(f) or []):
+                continue
+            if f == "heads" and u.startswith("dept:") and len(u) > 5:
+                continue                                       # 부서 지정 — 그 부서(와 상위)의 총괄 책임자들
+            a = accounts.get(u) or {}
+            name = (a.get("name") or "").strip() or u
+            if not a or not a.get("active", True):
+                return f"{name}: 사용 중인 계정이 아닙니다"
+            return (f"{name}: {ROLE_LABEL[f]}로 지정할 수 없습니다 — "
+                    + {"heads": "총괄 책임자 등급만", "leads": "사업 책임자 이상이고 같은 부서", "clerks": "행정 담당자 이상이고 같은 부서"}[f])
+    return ""
 
 
 @router.post("/programs/admin/save")
 async def programs_admin_save(request: Request):
-    """줄 저장 — 관리자는 모든 칸과 새 줄(key 비움), 총괄 책임자는 보이는 줄의 사업 책임자·행정 담당자만. 장부 값과 같은 칸은 따로 적지 않는다."""
+    """줄 저장 — 관리자는 모든 줄·새 줄(key 비움), 총괄 책임자는 주관 부서가 자기 부서인 사업(값·사업 책임자·행정 담당자, 같은 부서 사람만).
+    다른 부서 사업은 403(신청으로). 연도별 값은 표(years_json) 또는 예전 칸(y_year·y_<칸>). 바뀐 칸은 변경 기록에 「직접」으로."""
     scope, user, acct = _scope_or_403(request)
     if scope not in ("all", "dept"):
-        raise HTTPException(403, "사업 책임자·행정 담당자 지정은 총괄 책임자와 관리자만 합니다")
+        raise HTTPException(403, "사업 고치기는 총괄 책임자와 관리자만 합니다")
     st = request.app.state
     accounts = getattr(st, "accounts", None) or {}
     form = await request.form()
@@ -599,94 +970,119 @@ async def programs_admin_save(request: Request):
     store = load_store(st.data_dir)
     rows = merged_rows(st.data_dir, store=store)
     by_key = {r["key"]: r for r in rows}
-    ok_sets = dict(zip(ROLES, ({c["user"] for c in cs} for cs in _choices(accounts, scope, acct))))
-    heads_ok, leads_ok, clerks_ok = ok_sets["heads"], ok_sets["leads"], ok_sets["clerks"]
-    want_leads = list(dict.fromkeys(str(x) for x in form.getlist("leads") if str(x)))
-    want_clerks = list(dict.fromkeys(str(x) for x in form.getlist("clerks") if str(x)))
-    if scope == "dept":
-        r = by_key.get(key)
-        if r is None or r not in visible_rows(rows, scope, user, acct):
-            raise HTTPException(404, "사업을 찾을 수 없습니다")
-        if stage(r, int(time.strftime("%Y"))) == "past":
-            return _back("지난 사업은 확인용입니다 — 고치지 않습니다", ok=False)
-        o = store["rows"].setdefault(key, {})
-        for f, want, allowed in (("leads", want_leads, leads_ok), ("clerks", want_clerks, clerks_ok)):
-            keep = [u for u in r[f] if u not in allowed]              # 다른 부서 사람이 이미 지정돼 있으면 그대로 둔다
-            if [u for u in want if u not in allowed and u not in r[f]]:
-                return _back("사업 책임자·행정 담당자는 같은 부서의 해당 등급 계정에서 고릅니다", ok=False)
-            o[f] = list(dict.fromkeys(keep + want))
-        save_store(store, st.data_dir)
-        return _back(f"「{r['name']}」 사업 책임자·행정 담당자를 저장했습니다")
-    vals = {f: " ".join(str(form.get(f) or "").split())[:120] for f in TEXT_FIELDS}
-    if len(vals["name"]) < 2:
-        return _back("사업 이름을 적어 주세요", ok=False)
-    want_heads = list(dict.fromkeys(str(x) for x in form.getlist("heads") if str(x)))
     old = by_key.get(key)
+    if key and old is None:
+        raise HTTPException(404, "사업을 찾을 수 없습니다")
+    if scope == "dept":
+        if old is None:
+            raise HTTPException(403, "줄 추가는 관리자만 합니다")
+        if old["hidden"]:
+            raise HTTPException(404, "사업을 찾을 수 없습니다")
+        if not owns(old, scope, user, acct):
+            raise HTTPException(403, "다른 부서 사업은 고칠 수 없습니다 — 「수정 신청」으로 관리자에게 요청합니다")
     if old is not None and stage(old, int(time.strftime("%Y"))) == "past":
         return _back("지난 사업은 확인용입니다 — 고치지 않습니다", ok=False)
+    ok_sets = dict(zip(ROLES, ({c["user"] for c in cs} for cs in _choices(accounts, scope, acct))))
+    want = {f: list(dict.fromkeys(str(x) for x in form.getlist(f) if str(x))) for f in ROLES}
+    if scope == "dept":
+        want["heads"] = list(old["heads"])                     # 총괄 책임자 지정은 관리자만
+    bad = _check_people(want, ok_sets, old or {}, accounts)
+    if bad:
+        return _back(bad, ok=False)
+    full = "name" in form                                      # 값 칸이 있는 창(지정만 보내면 값은 그대로)
+    vals = {f: _clean(form.get(f)) for f in TEXT_FIELDS} if full else {f: (old or {}).get(f, "") for f in TEXT_FIELDS}
+    if len(vals["name"]) < 2:
+        return _back("사업 이름을 적어 주세요", ok=False)
+    if vals.get("period"):
+        v, e = program_sheet.norm_period(vals["period"])
+        if e:
+            return _back(f"기간: {e}", ok=False)
+        vals["period"] = v
     y_year = str(form.get("y_year") or "").strip()
-    y_vals = {f: " ".join(str(form.get("y_" + f) or "").split())[:120] for f in YEAR_EDIT}
+    y_vals = {f: _clean(form.get("y_" + f)) for f in YEAR_EDIT}
     if y_year and not re.fullmatch(r"(19|20)\d{2}", y_year):
         return _back("연도는 네 자리 숫자로 적어 주세요(예: 2026)", ok=False)
+    table = None
+    if form.get("years_json"):
+        try:
+            table = json.loads(str(form.get("years_json")))
+            assert isinstance(table, dict)
+        except (ValueError, AssertionError):
+            return _back("연도별 값을 읽지 못했습니다", ok=False)
 
-    def years_with_hand(ys: dict) -> dict:
-        """편집 창의 연도별 값을 years 에 — 바뀐 칸만 적고 손으로 고친 칸(by_hand)으로 표시한다."""
+    def years_with_hand(ys: dict, o: dict) -> tuple[dict, str]:
         ys = {y: dict(v) for y, v in (ys or {}).items()}
-        if not y_year:
-            return ys
-        cur = ys.setdefault(y_year, {})
-        hand = set(cur.get("by_hand") or [])
-        for f, v in y_vals.items():
-            if v == (cur.get(f) or ""):
-                continue
-            if v:
-                cur[f] = v
-            else:
-                cur.pop(f, None)
-            if f == "budget":
-                cur.pop("budget_won", None)
-            hand.add(f)
-        if hand:
-            cur["by_hand"] = sorted(hand)
-        if not any(k for k in cur if k != "by_hand"):
-            ys.pop(y_year, None)
-        return ys
+        if table is not None:
+            ys, e = apply_year_table(ys, table, user, o)
+            if e:
+                return ys, e
+        if y_year:
+            cur = ys.setdefault(y_year, {})
+            hand = set(cur.get("by_hand") or [])
+            for f, v in y_vals.items():
+                if v == (cur.get(f) or ""):
+                    continue
+                program_sheet.add_log(o, user, f, cur.get(f, ""), v, "직접", y_year)
+                if v:
+                    cur[f] = v
+                else:
+                    cur.pop(f, None)
+                if f == "budget":
+                    cur.pop("budget_won", None)
+                hand.add(f)
+            if hand:
+                cur["by_hand"] = sorted(hand)
+            if not any(k for k in cur if k != "by_hand"):
+                ys.pop(y_year, None)
+        return ys, ""
 
-    bad = [u for u in want_heads if u not in heads_ok and u not in (old or {}).get("heads", [])] + \
-          [u for u in want_leads if u not in leads_ok and u not in (old or {}).get("leads", [])] + \
-          [u for u in want_clerks if u not in clerks_ok and u not in (old or {}).get("clerks", [])]
-    if bad:
-        return _back(f"지정할 수 없는 계정입니다: {', '.join(bad[:5])} — 총괄 책임자는 총괄 책임자 등급, 사업 책임자는 사업 책임자 이상, "
-                     "행정 담당자는 행정 담당자 이상 교직원", ok=False)
     if not key:
         key = slug(vals["name"])
         if key in by_key:
             return _back(f"「{vals['name']}」 사업은 이미 있습니다", ok=False)
+        o: dict = {}
+        ys, e = years_with_hand({}, o)
+        if e:
+            return _back(e, ok=False)
+        program_sheet.add_log(o, user, "", "", "줄 추가", "직접")
         store["added"][key] = {**vals, "added_by": user, "added_at": time.strftime("%Y-%m-%d")}
-        store["rows"][key] = {k: v for k, v in {"heads": want_heads, "leads": want_leads, "clerks": want_clerks,
-                                                    "years": years_with_hand({})}.items() if v}
+        store["rows"][key] = {k: v for k, v in {**want, "years": ys, "log": o.get("log")}.items() if v}
         save_store(store, st.data_dir)
         return _back(f"「{vals['name']}」 줄을 더했습니다")
-    if old is None:
-        raise HTTPException(404, "사업을 찾을 수 없습니다")
     base = next((r for r in base_rows(load_ledger(st.data_dir)) if r["key"] == key), None)
-    o = {k: v for k, v in (store["rows"].get(key) or {}).items() if k in ("hidden",)}
-    o["years"] = years_with_hand((store["rows"].get(key) or {}).get("years") or {})
+    prev = store["rows"].get(key) or {}
+    o = {k: v for k, v in prev.items() if k not in TEXT_FIELDS and k not in ROLES}
+    ys, e = years_with_hand(prev.get("years") or {}, o)
+    if e:
+        return _back(e, ok=False)
+    o["years"] = ys
+    for f in TEXT_FIELDS:
+        if vals[f] != (old.get(f) or ""):
+            program_sheet.add_log(o, user, f, old.get(f) or "", vals[f], "직접")
+    for f in ROLES:
+        if want[f] != old[f]:
+            program_sheet.add_log(o, user, f, old[f], want[f], "직접")
     if old["source"] in ("추가", "엑셀"):
         store["added"][key] = {**store["added"].get(key, {}), **vals}
     else:
         o.update({f: v for f, v in vals.items() if base is None or v != base.get(f, "")})
-    o["heads"], o["leads"], o["clerks"] = want_heads, want_leads, want_clerks
+    o.update(want)
     store["rows"][key] = {k: v for k, v in o.items() if v}
     save_store(store, st.data_dir)
-    return _back(f"「{vals['name']}」 줄을 저장했습니다")
+    return _back(f"「{vals['name']}」 줄을 저장했습니다", anchor=f"&row={quote(key)}")
+
+
+def _admin(request: Request) -> tuple[str, dict]:
+    scope, user, acct = _scope_or_403(request)
+    if scope != "all":
+        raise HTTPException(403, "관리자만 합니다")
+    return user, acct
 
 
 @router.post("/programs/admin/hide")
-def programs_admin_hide(request: Request, key: str = Form(""), hidden: str = Form("1")):
-    scope, _, _ = _scope_or_403(request)
-    if scope != "all":
-        raise HTTPException(403, "줄 숨기기는 관리자만 합니다")
+def programs_admin_hide(request: Request, key: str = Form(""), hidden: str = Form("1"), not_program: str = Form("")):
+    """숨기기·다시 보이기(관리자). not_program=1 이면 「사업 아님」으로 숨긴다 — 그 이름은 다음 가져오기에서도 건너뛴다."""
+    user, _ = _admin(request)
     st = request.app.state
     store = load_store(st.data_dir)
     rows = {r["key"]: r for r in merged_rows(st.data_dir, store=store)}
@@ -695,37 +1091,283 @@ def programs_admin_hide(request: Request, key: str = Form(""), hidden: str = For
     o = store["rows"].setdefault(key, {})
     if hidden == "1":
         o["hidden"] = True
+        if not_program:
+            o["not_program"] = True
+        program_sheet.add_log(o, user, "hidden", "", "사업 아님으로 숨김" if not_program else "숨김", "직접")
     else:
         o.pop("hidden", None)
-    if not o:
-        store["rows"].pop(key, None)
+        o.pop("not_program", None)
+        program_sheet.add_log(o, user, "hidden", "숨김", "보임", "직접")
     save_store(store, st.data_dir)
-    return _back(f"「{rows[key]['name']}」 줄을 {'숨겼습니다' if hidden == '1' else '다시 보이게 했습니다'}",
-                 anchor="")
+    what = "사업 아님으로 숨겼습니다" if hidden == "1" and not_program else ("숨겼습니다" if hidden == "1" else "다시 보이게 했습니다")
+    return _back(f"「{rows[key]['name']}」 줄을 {what}")
+
+
+@router.post("/programs/admin/merge")
+def programs_admin_merge(request: Request, key: str = Form(""), into: str = Form("")):
+    """같은 사업으로 합치기(관리자) — key 줄을 into 줄의 별칭으로: 연도 값(없는 해는 옮기고, 겹치는 해는 세부 과제를 잇고 금액을 더함)·
+    지정·이은 프로젝트를 옮기고 원래 줄은 숨긴다. 두 줄 모두 변경 기록에 남긴다."""
+    user, _ = _admin(request)
+    st = request.app.state
+    store = load_store(st.data_dir)
+    rows = {r["key"]: r for r in merged_rows(st.data_dir, store=store)}
+    src, dst = rows.get(key), rows.get(into)
+    if src is None or dst is None or key == into:
+        return _back("합칠 두 사업을 골라 주세요", ok=False)
+    if dst["merged_into"]:
+        return _back("이미 다른 줄에 합쳐진 줄로는 합치지 않습니다", ok=False)
+    so, do = store["rows"].setdefault(key, {}), store["rows"].setdefault(into, {})
+    do["terms_add"] = list(dict.fromkeys([*(do.get("terms_add") or []), src["name"], *src["terms"]]))
+    dys = do.setdefault("years", {})
+    for y, v in (so.get("years") or {}).items():
+        if y not in dys:
+            dys[y] = v
+            continue
+        cur = dys[y]
+        cur["tasks"] = list(cur.get("tasks") or []) + list(v.get("tasks") or [])
+        for f in program_sheet.MONEY:
+            a, b = cur.get(f + "_won"), v.get(f + "_won")
+            if b is not None:
+                cur[f + "_won"] = (a or 0) + b
+                cur[f] = program_sheet.won(cur[f + "_won"])
+        for f in ("manager", "officer", "dept", "status", "sub", "ministry", "agency"):
+            if v.get(f):
+                cur[f] = ", ".join(dict.fromkeys([p for p in re.split(r"\s*,\s*", cur.get(f, "") + "," + v[f]) if p]))
+    for f in ROLES:
+        do[f] = list(dict.fromkeys([*dst[f], *src[f]]))
+    moved = 0
+    if st.db is not None:
+        link_projects(st.db, [src])
+        for p_ in src.get("plist") or []:
+            st.db.set_project_program(int(p_["id"]), program_value(into, p_.get("year") or ""))
+            moved += 1
+    so["hidden"], so["merged_into"] = True, into
+    so.pop("years", None)
+    program_sheet.add_log(so, user, "합치기", src["name"], dst["name"], "합치기")
+    program_sheet.add_log(do, user, "합치기", src["name"], dst["name"], "합치기")
+    save_store(store, st.data_dir)
+    return _back(f"「{src['name']}」을 「{dst['name']}」에 합쳤습니다 — 연도 값·지정을 옮기고 프로젝트 {moved}개를 다시 이었습니다")
+
+
+@router.post("/programs/admin/revert")
+def programs_admin_revert(request: Request, key: str = Form(""), i: str = Form("")):
+    """변경 기록 한 줄 되돌리기(관리자) — 지금 값이 그 기록의 「후」 값과 같을 때만 「전」 값으로."""
+    user, _ = _admin(request)
+    st = request.app.state
+    store = load_store(st.data_dir)
+    rows = {r["key"]: r for r in merged_rows(st.data_dir, store=store)}
+    r = rows.get(key)
+    log = (store["rows"].get(key) or {}).get("log") or []
+    if r is None or not i.isdigit() or int(i) >= len(log):
+        raise HTTPException(404, "기록을 찾을 수 없습니다")
+    e = log[int(i)]
+    f, y = e.get("field") or "", e.get("year") or ""
+    if not revertible(e):
+        return _back("이 기록은 되돌릴 수 없습니다", ok=False)
+    if current_value(r, f, y) != e.get("after"):
+        return _back("그 뒤 다시 바뀐 칸이라 되돌리지 않습니다", ok=False)
+    set_field(store, r, f, e.get("before"), user, f"되돌리기({e.get('at')})", y)
+    save_store(store, st.data_dir)
+    return _back(f"「{r['name']}」 {program_sheet.LABELS.get(f, ROLE_LABEL.get(f, f))} 칸을 되돌렸습니다")
+
+
+def revertible(e: dict) -> bool:
+    f = e.get("field") or ""
+    return bool(f) and (f in TEXT_FIELDS or f in ROLES or (e.get("year") and f in program_sheet.YEAR_FIELDS))
+
+
+# ---------------------------------------------------------------- 신청·승인
+
+def _req_before(r: dict, q: dict, name_of: dict):
+    if q["kind"] == "assign":
+        return ", ".join(name_of.get(u, u) for u in (r.get(q["role"]) or [])) or "—"
+    return current_value(r, q["field"], q.get("year", "")) or "—"
+
+
+def _req_after(q: dict, name_of: dict):
+    if q["kind"] == "assign":
+        return ", ".join(name_of.get(u, u) for u in q.get("users") or []) or "—"
+    return q.get("value") or "(비움)"
+
+
+@router.post("/programs/admin/request")
+async def programs_admin_request(request: Request):
+    """신청(총괄 책임자 → 관리자) — 고칠 수 없는 다른 부서 사업에 「지정 신청」(자기를 총괄 책임자로·자기 부서 사람을 사업 책임자/행정 담당자로)
+    또는 「수정 신청」(칸·새 값·사유). 관리자에게 알림."""
+    scope, user, acct = _scope_or_403(request)
+    if scope != "dept":
+        raise HTTPException(403, "신청은 총괄 책임자가 합니다")
+    st = request.app.state
+    accounts = getattr(st, "accounts", None) or {}
+    form = await request.form()
+    key = str(form.get("key") or "")
+    store = load_store(st.data_dir)
+    r = next((x for x in merged_rows(st.data_dir, store=store) if x["key"] == key and not x["hidden"]), None)
+    if r is None:
+        raise HTTPException(404, "사업을 찾을 수 없습니다")
+    if stage(r, int(time.strftime("%Y"))) == "past":
+        return _back("지난 사업은 확인용입니다", ok=False)
+    kind = str(form.get("kind") or "")
+    reason = _clean(form.get("reason"), 300)
+    q = {"kind": kind, "key": key, "name": r["name"], "by": user, "at": time.strftime("%Y-%m-%d %H:%M"), "reason": reason, "status": "wait"}
+    if kind == "assign":
+        role = str(form.get("role") or "")
+        users = list(dict.fromkeys(str(x) for x in form.getlist("users") if str(x)))
+        if role == "heads":
+            users = [user]
+        elif role in ("leads", "clerks"):
+            _, leads, clerks = _choices(accounts, "dept", acct)
+            ok_ = {c["user"] for c in (leads if role == "leads" else clerks)}
+            bad = [u for u in users if u not in ok_]
+            if bad or not users:
+                return _back(f"{ROLE_LABEL[role]}는 우리 부서의 해당 등급 계정에서 고릅니다", ok=False)
+        else:
+            return _back("지정할 자리를 골라 주세요", ok=False)
+        q.update({"role": role, "users": users})
+    elif kind == "edit":
+        field = str(form.get("field") or "")
+        if field not in dict(REQ_FIELDS):
+            return _back("바꿀 칸을 골라 주세요", ok=False)
+        year = ""
+        if field.startswith("y:"):
+            field, year = field[2:], str(form.get("year") or "").strip()
+            if not re.fullmatch(r"(19|20)\d{2}", year):
+                return _back("그해 칸은 연도를 골라 주세요", ok=False)
+        value = _clean(form.get("value"))
+        if field in ("period", "year_period") and value:
+            value, e = program_sheet.norm_period(value)
+            if e:
+                return _back(e, ok=False)
+        if not reason:
+            return _back("수정 신청에는 사유를 적어 주세요", ok=False)
+        q.update({"field": field, "year": year, "value": value})
+    else:
+        return _back("신청 갈래를 골라 주세요", ok=False)
+    reqs = store.setdefault("requests", [])
+    q["id"] = max((x["id"] for x in reqs), default=0) + 1
+    reqs.append(q)
+    add_note(store, admin_users(accounts), f"새 신청 #{q['id']} — 「{r['name']}」 {'지정' if kind == 'assign' else '수정'} 신청", q["id"])
+    save_store(store, st.data_dir)
+    return _back(f"신청 #{q['id']}을 보냈습니다 — 관리자가 승인하면 반영됩니다")
+
+
+@router.post("/programs/admin/request/decide")
+def programs_admin_decide(request: Request, id: str = Form(""), decision: str = Form(""), note: str = Form("")):
+    """신청 처리(관리자) — 승인하면 그대로 반영(변경 기록에 「신청 #n 승인」), 반려하면 사유와 함께 신청자에게 알림."""
+    user, _ = _admin(request)
+    st = request.app.state
+    store = load_store(st.data_dir)
+    q = next((x for x in store.get("requests") or [] if str(x["id"]) == id), None)
+    if q is None:
+        raise HTTPException(404, "신청을 찾을 수 없습니다")
+    if q["status"] != "wait":
+        return _back(f"신청 #{q['id']}은 이미 처리했습니다", ok=False)
+    if decision not in ("ok", "no"):
+        return _back("승인·반려를 골라 주세요", ok=False)
+    note = _clean(note, 300)
+    if decision == "no" and not note:
+        return _back("반려 사유를 적어 주세요", ok=False)
+    if decision == "ok":
+        r = next((x for x in merged_rows(st.data_dir, store=store) if x["key"] == q["key"]), None)
+        if r is None:
+            return _back("사업이 없어졌습니다", ok=False)
+        via = f"신청 #{q['id']} 승인"
+        if q["kind"] == "assign":
+            set_field(store, r, q["role"], list(dict.fromkeys([*r[q["role"]], *q["users"]])), user, via)
+        else:
+            set_field(store, r, q["field"], q.get("value") or "", user, via, q.get("year") or "")
+    q.update({"status": decision, "done_by": user, "done_at": time.strftime("%Y-%m-%d %H:%M"), "note": note})
+    add_note(store, [q["by"]], f"신청 #{q['id']} 「{q['name']}」 {'승인' if decision == 'ok' else '반려'}" + (f" — {note}" if note else ""), q["id"])
+    save_store(store, st.data_dir)
+    return RedirectResponse(f"/programs/admin?view=requests&ok={quote('신청 #' + str(q['id']) + (' 승인' if decision == 'ok' else ' 반려'))}",
+                            status_code=303)
+
+
+@router.post("/programs/admin/notes/read")
+def programs_admin_notes_read(request: Request):
+    _, user, _ = _scope_or_403(request)
+    st = request.app.state
+    store = load_store(st.data_dir)
+    for n in (store.get("notes") or {}).get(user, []):
+        n["seen"] = True
+    save_store(store, st.data_dir)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- 사람 찾기(지정 칸의 사람 고르기 부품이 쓴다)
+
+_PICK_RANK = {"member": 0, "clerk": 1, "lead": 2, "head": 3, "admin": 4}     # 지정 칸의 「그 등급 이상」(행정 담당자 < 사업 책임자)
+
+
+@router.get("/api/people")
+def api_people(request: Request, q: str = "", dept: str = "", grade: str = "", limit: int = 20):
+    """사람 찾기 — 사업 관리에서 지정할 수 있는 사람(관리자·총괄 책임자만 부른다). 사용 중인 교직원 계정만, 이름·아이디·부서로 찾는다.
+    grade 는 그 등급 이상(clerk·lead·head). 돌려주는 값은 아이디·이름·부서·등급뿐(이메일·전화 같은 개인정보 없음)."""
+    scope, user, acct = _scope_or_403(request)
+    if scope not in ("all", "dept"):
+        raise HTTPException(403, "사람 찾기는 총괄 책임자와 관리자만 합니다")
+    accounts = getattr(request.app.state, "accounts", None) or {}
+    words = [w for w in (q or "").lower().split() if w]
+    out = []
+    for u, a in sorted(accounts.items()):
+        if not a.get("active", True) or a.get("role") not in grades.STAFF:
+            continue
+        g = grades.grade_of(a)
+        if grade and _PICK_RANK.get(g, 0) < _PICK_RANK.get(grade, 99):
+            continue
+        d = (a.get("dept") or "").strip()
+        if dept and d != dept:
+            continue
+        name = (a.get("name") or "").strip() or u
+        hay = f"{u} {name} {d}".lower()
+        if words and not all(w in hay for w in words):
+            continue
+        out.append({"user": u, "name": name, "dept": d, "grade": g, "grade_label": grades.label(g)})
+        if len(out) >= max(1, min(int(limit or 20), 50)):
+            break
+    depts_out = []
+    if kind_dept := ("dept" in (request.query_params.get("kind") or "")):
+        names = set()
+        for a in accounts.values():
+            if (a.get("dept") or "").strip():
+                names.add(a["dept"].strip())
+        try:
+            for r in merged_rows(request.app.state.data_dir):
+                names.update(r["depts"])
+        except Exception:
+            pass
+        depts_out = [{"user": f"dept:{d}", "name": d, "dept": "부서", "grade_label": "부서 지정", "kind": "dept"}
+                     for d in sorted(names) if not words or all(w in d.lower() for w in words)][:10]
+    return {"people": out, "depts": depts_out if kind_dept else [], "my_dept": my_dept(acct)}
 
 
 # ---------------------------------------------------------------- 엑셀에서 채우기(관리자)
 
 _TOKEN = re.compile(r"[0-9a-f]{16}")
 SHEET_EXT = (".xlsx", ".xlsm", ".xls", ".htm", ".html", ".mht", ".mhtml", ".xml")   # 꼴은 파일 앞머리로 다시 가린다(program_sheet.file_kind)
-MAX_UPLOAD = 20 * 1024 * 1024
+MAX_UPLOAD = program_sheet.MAX_BYTES
 
 
 def _tmp(data_dir) -> Path:
     return _dir(data_dir) / "tmp" / "program_sheet"
 
 
-def _admin_only(request: Request) -> str:
-    scope, user, _ = _scope_or_403(request)
-    if scope != "all":
-        raise HTTPException(403, "엑셀에서 채우기는 관리자만 합니다")
-    return user
+def _importer(request: Request) -> tuple[str, str, dict]:
+    """가져오기 — 관리자는 전체, 총괄 책임자는 자기 부서 사업 줄만(나머지는 건너뜀). 그 밖은 403."""
+    scope, user, acct = _scope_or_403(request)
+    if scope == "all" or (scope == "dept" and covered(acct)):
+        return scope, user, acct
+    raise HTTPException(403, "가져오기는 관리자와 총괄 책임자만 합니다")
 
 
-def not_program_keys(ledger: dict) -> set[str]:
-    """장부가 「사업 아님」으로 확인한 이름의 열쇠 — 엑셀에 있어도 새 줄로 더하지 않는다."""
-    return {k for e in ledger.get("programs") or [] if e.get("category") == "사업 아님"
+def not_program_keys(ledger: dict, rows: list[dict] | None = None) -> set[str]:
+    """「사업 아님」 이름의 열쇠 — 장부가 그렇게 확인한 이름과 관리 화면에서 「사업 아님으로 숨기기」 한 줄. 엑셀에 있어도 새 줄로 더하지 않는다."""
+    keys = {k for e in ledger.get("programs") or [] if e.get("category") == "사업 아님"
             for t in [e.get("name") or "", *(e.get("terms") or [])] if (k := group_key(t))}
+    for r in rows or []:
+        if r.get("not_program"):
+            keys |= {k for t in [r["name"], *r["terms"]] if (k := group_key(t))}
+    return keys
 
 
 async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path, str]], list[str], list[int], str]:
@@ -763,9 +1405,9 @@ async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path,
             if Path(name).suffix.lower() not in SHEET_EXT or name.startswith("~$"):
                 errs.append(f"{name}: 엑셀 파일(.xlsx·.xls·웹 페이지로 저장한 .html)만 읽습니다")
                 continue
-            data = await f.read()
+            data = await f.read(MAX_UPLOAD + 1)
             if len(data) > MAX_UPLOAD:
-                errs.append(f"{name}: 20MB 보다 큽니다")
+                errs.append(f"{name}: {MAX_UPLOAD // (1024 * 1024)}MB 보다 큽니다 — 필요한 시트만 남겨 다시 올려 주세요")
                 continue
             (tmp / f"{token}-{n}-{name}").write_bytes(data)
     if token and _TOKEN.fullmatch(token):
@@ -776,65 +1418,98 @@ async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path,
     return out, errs, ids, token
 
 
-def _plan(request: Request, form, sources, overwrite: bool, user: str):
+def _plan(request: Request, sources, overwrite: bool, user: str, scope: str = "all", acct: dict | None = None):
+    """미리보기·적용이 같이 쓰는 계산 — (요약, 새 저장값, 파일 오류). 사업 현황 표가 아닌 파일은 그 파일만 빼고 알린다."""
     st = request.app.state
     items, metas, errs = [], [], []
     for p, label in sources:
         try:
             got, meta = program_sheet.read_sheets(p, hint=label)
-        except ValueError as e:                            # 옛 xls·잠금 파일 같은 꼴 안내
+        except ValueError as e:                            # 상한·옛 xls·잠금 파일 같은 꼴 안내
             errs.append(f"{label}: {e}")
             continue
         except Exception as e:                             # 깨진 파일·암호 걸린 파일
             errs.append(f"{label}: 읽지 못했습니다({type(e).__name__})")
             continue
+        if not meta:
+            errs.append(f"{label}: {program_sheet.NOT_SHEET}")
+            continue
         if not got:
-            errs.append(f"{label}: 「사업명」 머리줄이나 연도를 찾지 못했습니다")
+            errs.append(f"{label}: 사업 줄을 찾지 못했습니다")
         items.extend(got)
         metas.extend(meta)
     store = load_store(st.data_dir)
     ledger = load_ledger(st.data_dir)
     rows = merged_rows(st.data_dir, ledger=ledger, store=store)
-    summary, new_store = program_sheet.plan(items, rows, store, overwrite=overwrite, not_program=not_program_keys(ledger), by=user,
-                                            sheets=metas)
+    live = [r for r in rows if not r["merged_into"] and not r["not_program"]]   # 합쳐진 줄 이름은 받은 줄의 별칭으로, 사업 아님은 건너뜀
+    allow, allow_new = None, True
+    if scope != "all":
+        by_key = {r["key"]: r for r in live}
+        allow = lambda k: k in by_key and owns(by_key[k], scope, user, acct or {}) and not by_key[k]["hidden"]
+        allow_new = False
+    summary, new_store = program_sheet.plan(items, live, store, overwrite=overwrite, not_program=not_program_keys(ledger, rows),
+                                            by=user, sheets=metas, allow=allow, allow_new=allow_new)
     return summary, new_store, errs
 
 
 @router.post("/programs/admin/sheet/preview", response_class=HTMLResponse)
 async def programs_admin_sheet_preview(request: Request):
-    """엑셀에서 채우기 미리보기 — 저장하지 않고 맞춘 사업·새 줄·모호·채울 칸 수를 보인다."""
-    user = _admin_only(request)
+    """가져오기 2단계(미리보기) — 저장하지 않고 연도별로 맞춘 사업·새 사업·애매함·채울 칸 수를 보인다."""
+    scope, user, acct = _importer(request)
     form = await request.form()
     sources, errs, ids, token = await _sources(request, form, str(form.get("token") or ""))
     if not sources:
         return _back(" · ".join(errs) or "문서를 고르거나 엑셀 파일을 올려 주세요", ok=False)
     overwrite = bool(form.get("overwrite"))
-    summary, _, errs2 = _plan(request, form, sources, overwrite, user)
-    sheet = {"summary": summary, "errors": errs + errs2, "ids": ids, "token": token, "names": [n for _, n in sources]}
+    summary, _, errs2 = _plan(request, sources, overwrite, user, scope, acct)
+    sheet = {"summary": summary, "errors": errs + errs2, "ids": ids, "token": token, "names": [n for _, n in sources],
+             "dept_only": scope != "all"}
     return _page(request, tab="all", year="0", sheet=sheet)
 
 
 @router.post("/programs/admin/sheet/apply")
 async def programs_admin_sheet_apply(request: Request):
-    """엑셀에서 채우기 적용 — 미리보기와 같은 계산을 다시 해서 program_admin.json 에 쓴다(이전 판은 history 에). 장부·그래프는 그대로."""
-    user = _admin_only(request)
+    """가져오기 3단계(적용) — 미리보기와 같은 계산을 다시 해서 program_admin.json 에 쓴다(이전 판은 history 에). 장부·그래프는 그대로.
+    끝나면 완료 요약과 되돌리기(관리자: 바로 앞 판으로) 단추가 보인다."""
+    scope, user, acct = _importer(request)
     form = await request.form()
     sources, errs, _, token = await _sources(request, form, str(form.get("token") or ""))
     if not sources:
         return _back(" · ".join(errs) or "고른 문서가 없습니다", ok=False)
-    summary, new_store, _ = _plan(request, form, sources, bool(form.get("overwrite")), user)
-    save_store(new_store, request.app.state.data_dir)
+    summary, new_store, _ = _plan(request, sources, bool(form.get("overwrite")), user, scope, acct)
+    stamp = save_store(new_store, request.app.state.data_dir)
     if token:
         for p in _tmp(request.app.state.data_dir).glob(f"{token}-*"):
             p.unlink(missing_ok=True)
     c = summary["cells"]
-    msg = (f"엑셀에서 채웠습니다 — 맞춘 사업 {len(summary['matched'])}개 · 새 줄 {len(summary['new'])}개 · "
+    msg = (f"가져왔습니다 — 맞춘 사업 {len(summary['matched'])}개 · 새 줄 {len(summary['new'])}개 · 세부 과제 {summary['tasks']}줄 · "
            f"채운 칸 {c['fill']}개 · 바뀐 칸 {c['change']}개")
     if c["kept"]:
         msg += f" · 손으로 고친 칸 {c['kept']}개는 그대로"
     if summary["ambiguous"]:
-        msg += f" · 모호해서 건너뛴 이름 {len(summary['ambiguous'])}개"
-    return RedirectResponse(f"/programs/admin?tab=all&year=0&ok={quote(msg)}", status_code=303)
+        msg += f" · 애매해서 건너뛴 이름 {len(summary['ambiguous'])}개"
+    if summary["skipped"]:
+        msg += f" · 다른 부서 사업 {len(summary['skipped'])}개는 건너뜀"
+    extra = f"&done={stamp}&h={store_hash(request.app.state.data_dir)}" if stamp and scope == "all" else ""
+    return RedirectResponse(f"/programs/admin?tab=all&year=0&ok={quote(msg)}{extra}", status_code=303)
+
+
+@router.post("/programs/admin/sheet/undo")
+def programs_admin_sheet_undo(request: Request, stamp: str = Form(""), h: str = Form("")):
+    """가져오기 되돌리기(관리자) — 적용 바로 앞 판(history/program_admin.<stamp>.json)으로. 그 뒤 다른 저장이 있었으면 하지 않는다."""
+    _admin(request)
+    d = _dir(request.app.state.data_dir)
+    src = d / "history" / f"program_admin.{stamp}.json"
+    if not re.fullmatch(r"\d{14}(?:-\d+)?", stamp or "") or not src.is_file():
+        return _back("되돌릴 판을 찾지 못했습니다", ok=False)
+    if store_hash(d) != h:
+        return _back("가져온 뒤 다른 저장이 있어 되돌리지 않습니다 — 줄의 변경 기록에서 칸별로 되돌립니다", ok=False)
+    try:
+        old = json.loads(src.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _back("되돌릴 판을 읽지 못했습니다", ok=False)
+    save_store(old, d)
+    return _back("가져오기를 되돌렸습니다 — 가져오기 앞 판으로 돌아갔습니다(지금 판은 history 에 남겼습니다)")
 
 
 # ---------------------------------------------------------------- 프로젝트 연결
@@ -880,16 +1555,13 @@ def _linkable_projects(db, scope: str, user: str, limit: int = 300) -> list[dict
 
 
 def _row_for(request: Request, key: str, live_only: bool = True) -> tuple[dict, str, str, dict]:
-    """열쇠 → (이 사람이 볼 수 있는 줄, scope, user, acct). 총괄 책임자는 지난 사업도 읽기로 본다."""
+    """열쇠 → (이 사람이 볼 수 있는 줄, scope, user, acct). 총괄 책임자는 모든 사업을 읽기로 본다."""
     scope, user, acct = _scope_or_403(request)
     rows = merged_rows(request.app.state.data_dir)
     r = next((x for x in rows if x["key"] == key), None)
-    if r is None:
+    if r is None or r not in visible_rows([r], scope, user, acct, show_hidden=scope == "all"):
         raise HTTPException(404, "사업을 찾을 수 없습니다")
     past = stage(r, int(time.strftime("%Y"))) == "past"
-    seen = scope == "all" or r in visible_rows([r], scope, user, acct) or (scope == "dept" and past and not r["hidden"])
-    if not seen:
-        raise HTTPException(404, "사업을 찾을 수 없습니다")
     if live_only and past:
         raise HTTPException(409, "지난 사업은 확인용입니다")
     return r, scope, user, acct
@@ -931,7 +1603,7 @@ def programs_admin_row(request: Request, key: str = ""):
     st = request.app.state
     link_projects(st.db, [r])
     accounts = getattr(st, "accounts", None) or {}
-    label = lambda u: ((accounts.get(u) or {}).get("name") or "").strip() or u
+    label = lambda u: f"{u[5:]}(부서)" if u.startswith("dept:") else (((accounts.get(u) or {}).get("name") or "").strip() or u)
     docs = []
     if scope != "all":
         trim_projects(request, [r], user, acct)
@@ -960,13 +1632,23 @@ def programs_admin_row(request: Request, key: str = ""):
                       "by_hand": list(v.get("by_hand") or [])})
     for a, b in zip(years, years[1:]):                     # 책임자·행정 담당자가 지난해와 달라졌나(앞 해 값이 있을 때만)
         a["changed"] = [f for f in ("manager", "officer", "dept") if a.get(f) and b.get(f) and a[f] != b[f]]
+    log = [{**e, "i": n, "label": program_sheet.LABELS.get(e.get("field") or "", ROLE_LABEL.get(e.get("field") or "", e.get("field") or "")),
+            "before": _fmt_log(e.get("before"), label), "after": _fmt_log(e.get("after"), label),
+            "can_revert": scope == "all" and revertible(e)} for n, e in enumerate(r.get("log") or [])][::-1][:60]
     latest = years[0] if years else {}                     # 위쪽 요약도 표와 같게 — 빈칸이면 가장 최근 해의 값
     pick = lambda f: r.get(f) or latest.get(f, "")
     return {"key": r["key"], "name": r["name"], "l1": r["l1"], "l2": r["l2"], "l3": r["l3"], "dept": pick("dept"),
             "period": pick("period"), "budget": pick("budget"), "manager": pick("manager"), "source": r["source"], "terms": r["terms"][:12],
             "stage": stage(r, int(time.strftime("%Y"))), "years": years,
             "roles": {f: [label(u) for u in r[f]] for f in ROLES},
-            "projects": r["plist"], "hidden_projects": r.get("hidden_projects", 0), "docs": docs}
+            "projects": r["plist"], "hidden_projects": r.get("hidden_projects", 0), "docs": docs, "log": log,
+            "origin": ORIGIN[r["origin"]], "can_edit": owns(r, scope, user, acct) and stage(r, int(time.strftime("%Y"))) != "past"}
+
+
+def _fmt_log(v, label) -> str:
+    if isinstance(v, list):
+        return ", ".join(label(u) for u in v) or "—"
+    return str(v) if v not in (None, "") else "—"
 
 
 @router.post("/programs/admin/link")
