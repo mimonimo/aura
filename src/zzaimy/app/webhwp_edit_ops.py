@@ -65,6 +65,14 @@ def _guarded(fn):
     return run
 
 
+# 보안(자원): 한 표·한 파일의 크기 상한 — 도구를 되풀이 불러 표나 파일을 끝없이 키우지 못하게
+MAX_ROWS = 300            # 표 하나의 행
+MAX_COLS = 30             # 표 하나의 열
+MAX_CELLS = 3000          # 표 하나의 칸
+MAX_FILE = 30 * 1024 * 1024   # 고친 뒤 hwpx 크기
+MAX_UNZIPPED = 120 * 1024 * 1024  # 열 때 풀린 전체 크기
+
+
 def _int(v, name: str, lo: int, hi: int, default: int | None = None) -> int:
     """숫자 인자 — 비었으면 default, 글·소수·범위 밖이면 까닭."""
     if v in (None, "") and default is not None:
@@ -220,6 +228,8 @@ class _Doc:
             self.zin = zipfile.ZipFile(io.BytesIO(data))
         except zipfile.BadZipFile:
             raise EditError("hwpx 파일이 아니다(옛 hwp 는 기안기에서 한 번 저장하면 hwpx 가 된다).")
+        if len(data) > MAX_FILE or sum(i.file_size for i in self.zin.infolist()) > MAX_UNZIPPED:
+            raise EditError("문서가 너무 커서 이 도구로 고치지 않는다(상한 초과).")
         try:
             wf.check_zip(self.zin)
         except ValueError as e:
@@ -255,7 +265,10 @@ class _Doc:
                            compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
             for name, body in self.added.items():
                 z.writestr(name, body, compress_type=zipfile.ZIP_STORED)
-        return buf.getvalue()
+        out = buf.getvalue()
+        if len(out) > MAX_FILE:
+            raise EditError("고친 결과가 너무 커서 저장하지 않는다(상한 초과).")
+        return out
 
     def refs(self) -> tuple[str, str]:
         return hf._default_refs(self.hdr.xml)
@@ -491,6 +504,8 @@ class _Table:
 
     # 행·열
     def insert_rows(self, r: int, count: int, below: bool, ids) -> None:
+        if self.nr + count > MAX_ROWS or (self.nr + count) * self.nc > MAX_CELLS:
+            raise EditError(f"표가 너무 커진다(행 {MAX_ROWS}·칸 {MAX_CELLS} 상한) — 표를 나누어 넣는다.")
         self._check_rc(r)
         # 머리줄(첫 행) 아래에 넣으면 모양은 본문 행(둘째 행)을 따른다 — 새 행이 머리줄 음영·굵게를 물려받지 않게
         src = 1 if r == 0 and below and self.nr > 1 else r
@@ -543,6 +558,8 @@ class _Table:
             self.nr -= 1
 
     def insert_cols(self, c: int, count: int, right: bool, ids) -> None:
+        if self.nc + count > MAX_COLS or self.nr * (self.nc + count) > MAX_CELLS:
+            raise EditError(f"표가 너무 넓어진다(열 {MAX_COLS}·칸 {MAX_CELLS} 상한).")
         self._check_rc(0, c)
         ref_col = {r: self.covering(r, c) for r in range(self.nr)}
         new = c + 1 if right else c
@@ -672,6 +689,8 @@ class _Table:
         t = self.covering(r, c)
         R = _int(rows, "rows", 1, 50) if rows not in (None, "", 0) else (1 if cols else t["rs"])
         C = _int(cols, "cols", 1, 30) if cols not in (None, "", 0) else (1 if rows else t["cs"])
+        if self.nr + R > MAX_ROWS + t["rs"] or self.nc + C > MAX_COLS + t["cs"] or (self.nr + R) * (self.nc + C) > MAX_CELLS:
+            raise EditError("칸을 그만큼 나누면 표가 상한을 넘는다.")
         if R < 1 or C < 1 or R * C == 1 and t["rs"] * t["cs"] == 1:
             raise EditError("나눌 행·열 수(rows·cols)를 준다 — 합친 칸을 풀 때는 둘 다 비운다.")
         if C > t["cs"]:                                      # 열이 모자라면 격자에 열을 더한다(다른 행의 같은 자리 칸은 넓힌다)

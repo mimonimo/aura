@@ -324,3 +324,16 @@ def test_fit_widths_bounds():
     assert sum(w) == 42520 and max(w) <= int(42520 * hs.TABLE["col_max_share"]) + 3
     w = hs.fit_widths([[f"머리{i}"] for i in range(30)], 42520)             # 하한 합이 표 폭을 넘으면 비율로
     assert sum(w) == 42520 and len(w) == 30
+
+
+def test_table_growth_caps():
+    """보안(자원): 행·열 넣기를 되풀이해도 표 상한을 넘지 못하고, 넘으면 파일은 그대로."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    t = eo._Table.__new__(eo._Table)
+    t.nr, t.nc = eo.MAX_ROWS - 1, 5
+    import pytest
+    with pytest.raises(eo.EditError):
+        eo._Table.insert_rows(t, 0, 5, True, None)
+    t.nr, t.nc = 10, eo.MAX_COLS
+    with pytest.raises(eo.EditError):
+        eo._Table.insert_cols(t, 0, 1, True, None)
