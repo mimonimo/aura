@@ -14,7 +14,7 @@
   function open(){
     if(d){d.querySelector('input').focus();return;}
     d=el('dialog','qs');d.setAttribute('aria-label','빠른 찾기');
-    d.innerHTML='<div class="qs-top"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" placeholder="대화·프로젝트·문서 찾기" aria-label="찾을 말" autocomplete="off"><kbd>Esc</kbd></div><div class="qs-tabs" role="tablist"></div><div class="qs-list" role="listbox"></div><div class="qs-foot"><span><kbd>↑</kbd><kbd>↓</kbd> 고르기 <kbd>↵</kbd> 열기 <kbd>Tab</kbd> 갈래</span><a class="qs-all" href="/search">모든 결과 보기</a></div>';
+    d.innerHTML='<div class="qs-top"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" placeholder="대화·프로젝트·문서 찾기" aria-label="찾을 말" autocomplete="off"></div><div class="qs-tabs" role="tablist"></div><div class="qs-list" role="listbox"></div><div class="qs-foot"><a class="qs-all" href="/search">본문까지 모든 결과 보기</a></div>';
     document.body.append(d);d.showModal();
     const input=d.querySelector('input'),tabs=d.querySelector('.qs-tabs'),list=d.querySelector('.qs-list'),all=d.querySelector('.qs-all');
     let tab='all',data=null,cur=-1,seq=0,timer=0;
@@ -33,30 +33,27 @@
         b.textContent=TABS.find(t=>t[0]===k)[1]+(n?' '+n:'');});
       list.replaceChildren();
       const term=input.value.trim();all.href='/search'+(term?'?q='+encodeURIComponent(term):'');
-      if(!term){const r=recent();tabs.hidden=true;
-        if(!r.length){list.append(el('p','qs-empty','이름이나 제목 일부를 입력하세요'));return;}
-        list.append(el('p','qs-sect','최근 연 것'));r.forEach(x=>row(x.k,{id:x.id},x.title,x.meta));mark(0);return;}
-      tabs.hidden=false;
-      if(!data){list.append(el('p','qs-empty','찾는 중…'));return;}
+      if(!data){list.append(el('p','qs-empty',term?'찾는 중…':'불러오는 중…'));return;}
+      if(!term&&tab==='all'){const r=recent().slice(0,4);if(r.length){list.append(el('p','qs-sect','최근 연 것'));r.forEach(x=>row(x.k,{id:x.id},x.title,x.meta));}}
       const ks=tab==='all'?['chats','projects','docs','hwp']:[tab];let n=0;
-      ks.forEach(k=>{const xs=data[k]||[];if(!xs.length)return;if(tab==='all')list.append(el('p','qs-sect',NAME[k]));
+      ks.forEach(k=>{const xs=data[k]||[];if(!xs.length)return;if(tab==='all')list.append(el('p','qs-sect',(term?'':'최근 ')+NAME[k]));
         xs.forEach(it=>{n++;row(k,it,k==='projects'?it.name:k==='chats'?it.title:String(it.name).replace(/\.hwpx?$/i,''),k==='chats'?(it.project||it.at):k==='hwp'?it.where:it.at);});});
-      if(!n)list.append(el('p','qs-empty','이름·제목에서 찾지 못했습니다. 본문까지 찾으려면 Enter'));
+      if(!n)list.append(el('p','qs-empty',term?'이름·제목에서 찾지 못했습니다. 본문까지 찾으려면 Enter':'아직 없습니다'));
       mark(0);
     }
-    async function load(){const term=input.value.trim(),my=++seq;if(!term){data=null;paint();return;}
+    async function load(){const term=input.value.trim(),my=++seq;
       try{const r=await fetch('/api/quick-search?q='+encodeURIComponent(term),{headers:{Accept:'application/json'}});const j=await r.json();if(my!==seq)return;data=j;}catch(_){if(my!==seq)return;data={chats:[],projects:[],docs:[],hwp:[]};}
       paint();}
-    input.oninput=()=>{clearTimeout(timer);data=null;timer=setTimeout(load,140);};
+    input.oninput=()=>{clearTimeout(timer);timer=setTimeout(load,120);};
     input.onkeydown=e=>{
       if(e.key==='ArrowDown'){e.preventDefault();mark(cur+1);}
       else if(e.key==='ArrowUp'){e.preventDefault();mark(cur-1);}
-      else if(e.key==='Tab'&&!tabs.hidden){e.preventDefault();const i=TABS.findIndex(t=>t[0]===tab);tab=TABS[(i+(e.shiftKey?TABS.length-1:1))%TABS.length][0];paint();}
+      else if(e.key==='Tab'){e.preventDefault();const i=TABS.findIndex(t=>t[0]===tab);tab=TABS[(i+(e.shiftKey?TABS.length-1:1))%TABS.length][0];paint();}
       else if(e.key==='Enter'){e.preventDefault();const r=items()[cur];if(r){r.click();location.href=r.href;}else if(input.value.trim())location.href=all.href;}
     };
     d.addEventListener('click',e=>{if(e.target===d)d.close();});
     d.addEventListener('close',()=>{d.remove();d=null;});
-    paint();input.focus();
+    paint();load();input.focus();
   }
   document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&!e.altKey&&e.key.toLowerCase()==='k'){e.preventDefault();open();}});
   document.addEventListener('click',e=>{const t=e.target.closest('[data-quick-search]');if(t){e.preventDefault();open();}});

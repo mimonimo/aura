@@ -3585,12 +3585,12 @@ def create_app(
         대화·프로젝트·문서(라이브러리)·한글 문서(쓸 수 있는 부서 폴더) 각 몇 개, 본문까지는 「모든 결과 보기」(/search)."""
         from zzaimy.app import project_search as _ps
         term = (q or "").strip()[:100]
-        out: dict = {"q": term, "chats": [], "projects": [], "docs": [], "hwp": []}
-        if not term:
-            return out
+        out: dict = {"q": term, "recent": not term, "chats": [], "projects": [], "docs": [], "hwp": []}
         owner = getattr(request.state, "user", "zzaimy")
         role = request.state.role
-        rows = chat_history.sessions(owner, term, False, 0, 6, chat_topics.match_clause(term), 'all')
+        # 찾을 말이 없으면 최근 것(최근 대화·내 프로젝트·최근 문서·최근 고친 한글 문서) — 창을 열자마자 바로 고를 수 있게
+        rows = (chat_history.sessions(owner, term, False, 0, 6, chat_topics.match_clause(term), 'all') if term
+                else chat_history.sessions(owner, '', False, 0, 6))
         out["chats"] = [{"id": r["id"], "title": r.get("title") or "제목 없는 대화", "at": str(r.get("updated_at") or r.get("created_at") or "")[:10],
                          "project": r.get("project_name") or ""} for r in rows]
         if not _ap.can_browse(role):                         # 학생은 대화만
@@ -3607,7 +3607,10 @@ def create_app(
             from zzaimy.app import webhwp
             from zzaimy.app.webhwp_routes import _base, _depts
             depts, base, words = set(_depts(request)), _base(request), term.lower().split()
-            for r in db.list_files(kind="webhwp", limit=8000):
+            files = db.list_files(kind="webhwp", limit=8000)
+            if not term:                                   # 최근 고친 것부터
+                files = sorted(files, key=lambda r: str(webhwp.meta(db, r["id"]).get("saved") or r.get("created_at") or ""), reverse=True)
+            for r in files:
                 name = str(r["name"] or "")
                 if not all(w in name.lower() for w in words):
                     continue
