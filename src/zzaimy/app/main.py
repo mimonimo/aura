@@ -3663,6 +3663,42 @@ def create_app(
         return {"editor": _webhwp.editor_of(db, getattr(request.state, "user", "")), "ok": _webhwp.status()["ok"], "busy": busy,
                 "file": ({"id": f["id"], "name": f["name"], "url": f"{EDIT_PAGE}?id={f['id']}"} if f else None)}
 
+    @app.post("/api/chat/{session_id}/hwp/bind")
+    async def chat_hwp_bind(request: Request, session_id: int):
+        """문서 패널에서 고른 한글 파일을 이 대화의 작업 문서로 — 부서 폴더 파일(id) 또는 드라이브 파일(drive_id, 부서 폴더로 받아서)."""
+        _, owner = _chat_owned(request, session_id)
+        if request.state.role not in ("dev", *_ap.STAFF_ROLES):
+            raise HTTPException(403)
+        from zzaimy.app import webhwp_routes as _wr
+        from zzaimy.app.webhwp_routes import EDIT_PAGE
+        body = await request.json()
+        fid = None
+        if body.get("id"):
+            f = _webhwp.get(db, int(body["id"]))
+            if not _webhwp.may_open(Path(db_path).parent, f, _wr._depts(request)):
+                raise HTTPException(404, "문서를 찾을 수 없습니다")
+            fid = int(f["id"])
+            if _webhwp.locked(db, fid):                       # 잠긴 양식은 내 부서 폴더에 복사해 잇는다
+                p_ = Path(f["path"])
+                fid = _webhwp.add(db, Path(db_path).parent, getattr(request.state, "dept", "") or _webhwp.COMMON,
+                                  p_.name.replace(" 공통 양식", ""), p_.read_bytes(), owner=owner, source=f"양식복사:{f['id']}", folder="작업")
+        elif body.get("drive_id"):
+            import re as _re2
+            from zzaimy.app import webhwp_drive
+            if not _re2.fullmatch(r"[A-Za-z0-9_-]{10,128}", str(body["drive_id"])):
+                raise HTTPException(400, "드라이브 파일 id 가 올바르지 않습니다")
+            email = _wr._google(request)
+            dept_ = getattr(request.state, "dept", "") or _webhwp.COMMON
+            try:
+                fid = webhwp_drive.import_file(db, Path(db_path).parent, email, str(body["drive_id"]), dept=dept_, folder="작업", owner=owner)
+            except (RuntimeError, ValueError) as e:
+                raise HTTPException(502, str(e))
+        else:
+            raise HTTPException(400, "id 또는 drive_id 가 필요합니다")
+        db.set_setting(f"chat_hwp:{session_id}", str(fid))
+        f = _webhwp.get(db, fid)
+        return {"file": {"id": fid, "name": f["name"], "url": f"{EDIT_PAGE}?id={fid}"}}
+
     @app.post("/api/chat/{session_id}/hwp/export")
     def chat_hwp_export(request: Request, session_id: int):
         """작업본을 원본 서식(hwpx)에 채워 부서 한글 문서함에 두기 — 끝나면 대화에 결과가 남고 위 상태에 파일이 선다."""

@@ -149,3 +149,13 @@ body .chat-location-button::before{content:'↗';color:#497bfb}
 .chat-doc-hwp-card strong{display:block;font-size:15px;margin-bottom:6px}
 .chat-doc-hwp-card p{font-size:13px;color:var(--muted);margin:0 0 14px;line-height:1.6}
 .chat-doc-hwp-card [role=status]{margin:10px 0 0}
+
+/* 문서 패널 — 한글 문서 영역(편집기 고르기·부서 폴더·드라이브) */
+.chat-file-editor{margin:0 0 12px}
+.chat-hwp-depts{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.chat-hwp-chip{border:1px solid #D6DEE8;background:#fff;border-radius:14px;padding:4px 10px;font-size:12px;font-weight:600;color:#36465B;cursor:pointer}
+.chat-hwp-chip.on{background:var(--navy,#1B3B75);border-color:var(--navy,#1B3B75);color:#fff}
+.chat-hwp-path{font-size:12.5px;color:var(--muted);margin:0 0 6px}
+.chat-hwp-path button{border:0;background:none;padding:0;color:var(--navy,#1B3B75);font:inherit;cursor:pointer}
+.chat-hwp-search{display:flex;margin:0 0 8px}
+.chat-hwp-search input{flex:1;height:32px;border:1px solid var(--line);border-radius:8px;padding:0 10px;font:inherit;font-size:13px}

@@ -253,6 +253,19 @@ def hwp_to_drive(request: Request, fid: int):
     return {"ok": True, "url": up["url"], "name": up["name"]}
 
 
+@router.get("/api/hwp/browse")
+def hwp_browse_api(request: Request, dept: str = "", folder: str = ""):
+    """문서 패널의 부서 폴더 — 쓸 수 있는 부서 목록과 고른 부서·폴더의 하위 폴더·한글 파일(JSON)."""
+    _need_staff(request)
+    st = request.app.state
+    depts = _depts(request)
+    mine = getattr(request.state, "dept", "") or webhwp.COMMON
+    dept = dept if dept in depts else (mine if mine in depts else (depts[0] if depts else ""))
+    folder = _check_dept(request, dept, folder) if dept else ""
+    here = webhwp.browse(st.db, _base(request), dept, folder) if dept else None
+    return {"depts": webhwp.listing(st.db, _base(request), depts), "here": here}
+
+
 @router.get("/api/hwp/templates")
 def hwp_templates(request: Request):
     """양식으로 새 문서 — 한글 문서함의 잠긴 양식(공통 양식·공문·학교 양식) 목록을 묶음별로."""

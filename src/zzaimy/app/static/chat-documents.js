@@ -451,6 +451,7 @@
    button.classList.add('chat-file-card');if(!button.title)button.title=name;button.replaceChildren();
    const visual=document.createElement('span');visual.className='chat-file-visual';
    const format=originalLabel(originalFormat||name.match(/\.([a-z0-9]+)$/i)?.[1]);visual.textContent=format.replace('한글 (','').replace(')','');
+   if(originalFormat==='folder'){visual.textContent='';const icon=document.createElement('iconify-icon');icon.setAttribute('icon','solar:folder-bold');icon.setAttribute('aria-hidden','true');icon.style.color='#C9A227';visual.append(icon);}
    if(originalFormat==='Google Docs'){
      visual.textContent='';const icon=document.createElement('iconify-icon');icon.setAttribute('icon','solar:document-text-linear');icon.setAttribute('aria-hidden','true');visual.append(icon);
    }
@@ -494,6 +495,59 @@
    chat:{attached:'아직 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'첨부한 공고·지침이 없습니다.'}};
  const inProject=()=>Boolean(document.querySelector('#chatForm [name=project_id]'));
  let refreshLibrary=null;
+ // 문서 패널의 한글 문서 영역 — 편집기 고르기(한글 문서 · 구글 문서), 이 대화의 한글 작업본, 부서 폴더(디렉터리), 구글 드라이브.
+ // 부서 폴더·드라이브에서 파일을 고르면 이 대화의 작업 문서로 이어 기안기로 연다(드라이브 파일은 부서 폴더 「작업」 으로 받아서)
+ function hwpSections(body,current,workDocs,status){
+   const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
+   const sw=el('div','chat-doc-switch chat-file-editor');sw.setAttribute('role','group');sw.setAttribute('aria-label','문서 편집기');
+   const bH=el('button',null,'한글 문서'),bG=el('button',null,'구글 문서');bH.type=bG.type='button';bH.dataset.ed='webhwp';bG.dataset.ed='gdocs';
+   sw.append(bH,bG);body.insertBefore(sw,body.firstChild.nextSibling);
+   const mark=ed=>[bH,bG].forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.ed===ed)));
+   api('/api/chat/'+sid+'/hwp').then(st=>{mark(st.editor||'gdocs');if(!st.ok)bH.title='웹 한글 기안기 서버 연결 안 됨';
+     if(st.file&&panel===current){const a=el('button','chat-doc-file');a.type='button';fileCard(a,st.file.name.replace(/\.hwpx?$/,''),'현재 작업 중 · 한글 문서',null,'hwpx');a.onclick=()=>showHwp(st.file);workDocs.prepend(a);}
+   }).catch(()=>{});
+   [bH,bG].forEach(b=>b.onclick=()=>{mark(b.dataset.ed);fetch('/hwp/editor',{method:'POST',body:new URLSearchParams({editor:b.dataset.ed,back:'/'}),redirect:'manual'}).catch(()=>{});});
+   async function bind(payload,label){
+     status.textContent=label+' 여는 중…';
+     try{const r=await api('/api/chat/'+sid+'/hwp/bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});status.textContent='';showHwp(r.file);}
+     catch(e){status.textContent=e.message;}
+   }
+   // 부서 폴더
+   const dH=el('h3',null,'부서 폴더'),dNote=el('p','chat-file-section-note','부서 한글 문서함 — 파일을 고르면 이 대화에서 기안기로 엽니다');
+   const crumb=el('div','chat-hwp-crumb'),dList=el('div','chat-file-list chat-hwp-dir');
+   body.append(dH,dNote,crumb,dList);
+   async function openDir(dept,folder){
+     dList.replaceChildren(el('p','chat-file-empty','불러오는 중…'));
+     let j;try{j=await api('/api/hwp/browse?dept='+encodeURIComponent(dept||'')+'&folder='+encodeURIComponent(folder||''));}catch(e){dList.replaceChildren(el('p','chat-file-empty',e.message));return;}
+     if(panel!==current)return;
+     crumb.replaceChildren();
+     const depts=el('div','chat-hwp-depts');
+     (j.depts||[]).forEach(d=>{const b=el('button','chat-hwp-chip'+(j.here&&j.here.dept===d.dept?' on':''),d.dept);b.type='button';b.onclick=()=>openDir(d.dept,'');depts.append(b);});
+     crumb.append(depts);
+     const here=j.here;if(!here){dList.replaceChildren(el('p','chat-file-empty','쓸 수 있는 부서 폴더가 없습니다'));return;}
+     if(here.folder){const path=el('div','chat-hwp-path');const up=el('button',null,'‹ '+here.dept);up.type='button';up.onclick=()=>openDir(here.dept,'');path.append(up);
+       here.crumbs.forEach((c,i)=>{path.append(document.createTextNode(' / '));const b=el('button',null,c.name);b.type='button';b.onclick=()=>openDir(here.dept,c.path);path.append(b);});crumb.append(path);}
+     dList.replaceChildren();
+     here.folders.forEach(f=>{const b=el('button','chat-doc-file chat-hwp-folder');b.type='button';fileCard(b,f.name,'폴더 · 문서 '+f.count,null,'folder');b.onclick=()=>openDir(here.dept,f.path);dList.append(b);});
+     here.files.forEach(f=>{const b=el('button','chat-doc-file');b.type='button';fileCard(b,f.name.replace(/\.hwpx?$/,''),[f.saved,f.saved_by||f.owner].filter(Boolean).join(' · '),null,'hwpx');b.onclick=()=>bind({id:f.id},f.name);dList.append(b);});
+     if(!here.folders.length&&!here.files.length)dList.append(el('p','chat-file-empty','이 폴더에 문서가 없습니다'));
+   }
+   openDir('','');
+   // 구글 드라이브(내 드라이브·공유 드라이브의 한글 파일)
+   const gH=el('h3',null,'구글 드라이브'),gNote=el('p','chat-file-section-note','연결된 학교 계정의 한글 파일 — 고르면 부서 폴더 「작업」 에 받아 기안기로 엽니다');
+   const gForm=el('form','chat-hwp-search');const gq=el('input');gq.placeholder='파일 이름 검색';gq.name='q';gForm.append(gq);
+   const gList=el('div','chat-file-list chat-hwp-drive');
+   body.append(gH,gNote,gForm,gList);
+   async function loadDrive(q){
+     gList.replaceChildren(el('p','chat-file-empty','불러오는 중…'));
+     try{const j=await api('/api/hwp/drive?q='+encodeURIComponent(q||''));if(panel!==current)return;gList.replaceChildren();
+       if(!j.files.length)gList.append(el('p','chat-file-empty','한글 파일이 없습니다'));
+       j.files.forEach(f=>{const b=el('button','chat-doc-file');b.type='button';fileCard(b,f.name.replace(/\.hwpx?$/i,''),'드라이브 · '+(f.modifiedTime||'').slice(0,10),null,f.name.split('.').pop());b.onclick=()=>bind({drive_id:f.id},f.name);gList.append(b);});}
+     catch(e){gList.replaceChildren(el('p','chat-file-empty',e.status===409?'학교 구글 계정을 연결하면 여기에서 고를 수 있습니다':e.message));}
+   }
+   gForm.onsubmit=e=>{e.preventDefault();loadDrive(gq.value);};
+   loadDrive('');
+ }
  async function showFiles(){
    // 문서 목록은 좁게 연다(목록 폭, 기본 패널 30%) — 문서를 열면 편집기·열람 폭으로 넓어진다
    clearPanel();showEmpty();
@@ -507,6 +561,7 @@
    const workDocs=document.createElement('div');workDocs.className='chat-file-list chat-work-files';
    const workNote=document.createElement('p');workNote.className='chat-file-section-note';workNote.textContent='채팅과 함께 편집하는 문서';
    body.append(workHeading,workNote,workDocs);
+   hwpSections(body,current,workDocs,status);
    const groups={};
    let scope=inProject()?'project':'chat';
    for(const [key,label] of DOC_GROUPS){

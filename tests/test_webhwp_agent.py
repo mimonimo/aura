@@ -57,3 +57,25 @@ def test_editor_state_and_presence(tmp_path, monkeypatch):
     st = kim.get(f"/hwp/{fid}/state").json()
     assert st["people"][0]["user"] == "lee" and st["people"][0]["field"] == "절:1. 개요"
     assert st["aura"]["field"] == "절:2. 현황" and st["lock"]["user"] == "kim"
+
+
+def test_chat_bind_from_department_folder_and_template(tmp_path, monkeypatch):
+    """문서 패널 — 부서 폴더 파일을 이 대화 작업 문서로 잇기, 잠긴 양식은 복사해 잇기, 남의 부서 파일은 못 잇기."""
+    app = _setup(tmp_path, monkeypatch)
+    from tests.test_webhwp import _hwpx, _up
+    kim, lee = TestClient(app), TestClient(app)
+    assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
+    db = app.state.db
+    sid = db.create_chat_session("시험", owner="kim")
+    fid = _up(kim, app, "기획처", "계획.hwpx", _hwpx())
+    j = kim.get("/api/hwp/browse?dept=기획처").json()
+    assert j["here"]["dept"] == "기획처" and any(f["id"] == fid for f in j["here"]["files"])
+    r = kim.post(f"/api/chat/{sid}/hwp/bind", json={"id": fid}).json()
+    assert r["file"]["id"] == fid and wa.bound(db, sid) == fid
+    assert kim.get(f"/api/chat/{sid}/hwp").json()["file"]["id"] == fid
+    tid = next(x["id"] for g in kim.get("/api/hwp/templates").json()["groups"] for x in g["items"] if "기안문" in x["name"])
+    r = kim.post(f"/api/chat/{sid}/hwp/bind", json={"id": tid}).json()
+    assert r["file"]["id"] != tid and not webhwp.locked(db, r["file"]["id"])        # 양식은 복사본으로
+    sid2 = db.create_chat_session("시험2", owner="lee")
+    assert lee.post(f"/api/chat/{sid2}/hwp/bind", json={"id": fid}).status_code == 404   # 남의 부서 파일
+    assert kim.post(f"/api/chat/{sid2}/hwp/bind", json={"id": fid}).status_code == 404   # 남의 대화
