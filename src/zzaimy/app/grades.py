@@ -62,8 +62,20 @@ def request_grade(request) -> str:
     va = getattr(st, "view_as", None)
     if va:
         return user_grade(None, va)
+    # 보안: 소속 부서 등급만 — 겸직 부서의 등급은 그 부서 안에서만 쓴다(grade_in·covered_depts). 여기서 높이면 소속 부서 범위
+    # (RAG 최소 등급·사업 관리 부서 범위)가 겸직 등급으로 넓어진다. 메뉴를 보일지만 request_top_grade 로
+    return grade_of({**(accounts.get(user) or {}), "role": getattr(st, "role", "") or ""})
+
+
+def request_top_grade(request) -> str:
+    """메뉴(사업 관리·부서 사람)를 보일지 — 겸직 부서의 등급까지 본 가장 높은 등급. 권한 판단에는 쓰지 않는다."""
+    st = request.state
+    if getattr(st, "view_as", None):
+        return request_grade(request)
+    user = getattr(st, "user", "") or ""
+    accounts = getattr(request.app.state, "accounts", None) or {}
     acct = {**(accounts.get(user) or {}), "role": getattr(st, "role", "") or ""}
-    return top_grade(user, acct, getattr(request.app.state, "data_dir", None))     # 겸직 부서의 등급 가운데 가장 높은 것
+    return top_grade(user, acct, getattr(request.app.state, "data_dir", None))
 
 
 def label(grade: str) -> str:
@@ -245,7 +257,6 @@ def program_scope(account: dict | None) -> str:
     """사업 관리 화면을 어디까지 보나 — all(관리자: 전부·편집) · dept(총괄 책임자: 자기 부서·총괄 책임자 지정 사업 읽기, 책임자 지정) ·
     own(사업 책임자: 자기가 책임자인 사업 읽기) · 빈 값(일반·학생: 열지 못함)."""
     g = grade_of(account)
-    for x in dept_grades(account).values():              # 겸직 부서에서의 등급도(가장 높은 것)
-        if g != "admin" and RANK.get(x, 0) > RANK.get(g, 0):
-            g = x
+    if g not in ("admin", "head") and any(x in ("head", "lead", "clerk") for x in dept_grades(account).values()):
+        g = "lead"                                       # 보안: 겸직 등급으로는 「자기가 지정된 사업」 범위(own)까지만 — 부서 범위는 covered_depts 로 따로
     return {"admin": "all", "head": "dept", "lead": "own", "clerk": "own"}.get(g, "")

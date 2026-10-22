@@ -352,7 +352,7 @@ def test_multi_dept_grades_and_hierarchy(monkeypatch):
     kim = {"role": "staff", "grade": "member", "dept": "기획처", "dept_grades": {"가나사업단": "head"}}
     assert grades.grade_in("kim", kim, "기획처") == "member" and grades.grade_in("kim", kim, "가나사업단") == "head"
     assert grades.covered_depts("kim", kim) == {"가나사업단"} and grades.top_grade("kim", kim) == "head"
-    assert grades.program_scope(kim) == "dept" and grades.can_create_project(kim)
+    assert grades.program_scope(kim) == "own" and grades.can_create_project(kim)          # 보안: 겸직 등급으로 소속 부서 범위가 넓어지지 않음
     proj = {"id": 1, "owner": "x", "program": ""}
     assert grades.can_view_activity(proj, user="kim", account=kim, project_dept="가나사업단", program_roles={})
     assert not grades.can_view_activity(proj, user="kim", account=kim, project_dept="교무처", program_roles={})
