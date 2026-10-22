@@ -569,6 +569,8 @@ def create_app(
                         shared = shared and proj.get("owner") == "zzdev" and request.url.path.endswith("/unarchive")
                     elif _project_access(request, proj):
                         shared = True                     # 공유받은 프로젝트(project_access) — 화면은 읽기, 프로젝트를 바꾸는 POST 는 위에서 막힌다
+                    elif re.fullmatch(r"/project/\d+/activity", request.url.path):
+                        shared = True                     # 진행 현황은 등급으로 따로 판단(project_activity.may_view — 총괄은 공유 대상이 아니어도 부서 프로젝트)
                     if not shared:
                         raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
             # 기관 정보(대학명·총장 등)는 모든 사용자 문서에 함께 쓰인다 — 관리자만 바꾼다
@@ -756,6 +758,8 @@ def create_app(
     app.include_router(collect_router)
     from zzaimy.app.archive_view import router as archive_view_router   # DGX 원본 보관소(원본 목록 장부)
     app.include_router(archive_view_router)
+    from zzaimy.app.project_activity import router as project_activity_router   # 프로젝트 진행 현황(참여·요청·문맥 사용·작업 요약)
+    app.include_router(project_activity_router)
 
     @app.on_event("startup")
     def _warm_regulation_nouns() -> None:
@@ -3280,6 +3284,10 @@ def create_app(
             _chat_usage_live.pop(session_id, None)
             if usage_["calls"]:
                 db.set_setting(f"chat_ctx:{int(session_id)}", json.dumps({**usage_, "at": time.time()}))
+                # 답마다 남긴다(chat_ctx 는 마지막 답만) — 프로젝트 「진행 현황」의 문맥·토큰 집계(app/project_activity)
+                _last = next((m for m in reversed(db.list_chats(session_id, limit=4)) if m.get("role") == "assistant"), None)
+                if _last:
+                    db.set_setting(f"chat_ctx_msg:{int(_last['id'])}", json.dumps({**usage_, "at": time.time()}))
                 from zzaimy.app import chat_memory as _cm2
                 _cm2.compact_later(db, session_id)                   # 답을 보낸 뒤 작업 메모 고치기(배경)
             _chat_running.discard(session_id)
