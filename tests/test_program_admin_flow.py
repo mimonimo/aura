@@ -359,3 +359,116 @@ def test_money_and_period_formats():
     assert n("2025-03-01 ~ 2026-02-28")[0] == "2025.03.01~2026.02.28" and n("2025~")[0] == "2025~" and n("2025~2027")[0] == "2025~2027"
     assert n("2026.03.01~2025.01.01")[1] and n("2025.02.30")[1] and n("2027~2025")[1]
     assert program_sheet.short_period("2025.03.01~2030.02.28") == "2025.03~2030.02"
+
+
+# ---------------------------------------------------------------- 보안 점검(권한 범위·상한 우회)
+
+def test_link_and_new_project_need_write_scope(filled):
+    """총괄 책임자는 다른 부서 사업을 읽기만 — 프로젝트 잇기·새 프로젝트도 403."""
+    app, tmp_path, dev, *_ = filled
+    boss = _client(app, "boss")
+    pid = app.state.db.create_project("grant", "내 프로젝트", owner="boss")
+    assert boss.post("/programs/admin/link", data={"key": OTHER, "project_id": str(pid), "year": "2026"}).status_code == 403
+    assert boss.post("/programs/admin/new-project", data={"key": OTHER, "year": "2026"}).status_code == 403
+    assert app.state.db.get_project(pid)["program"] == ""
+    r = boss.post("/programs/admin/link", data={"key": KEY, "project_id": str(pid), "year": "2026"}, follow_redirects=False)
+    assert r.status_code == 303 and app.state.db.get_project(pid)["program"] == KEY + "|2026"
+    row = [tr for tr in boss.get("/programs/admin?tab=all&year=2026").text.split("<tr") if f'data-key="{OTHER}"' in tr][0]
+    assert "data-pa-link-open" not in row
+
+
+def test_head_import_cannot_touch_meta_or_other_rows(filled):
+    """총괄 책임자 가져오기 — 연도 정보(sheets)·다른 부서 줄·새 줄을 쓰지 못한다."""
+    app, tmp_path, dev, x25, _ = filled
+    before = program_admin.load_store(tmp_path)
+    fake = tmp_path / "f25b.xlsx"
+    rows = [list(r) for r in R25]
+    rows[2][7] = "바뀐사람"                                              # 교무처 사업의 책임자
+    rows.append(("신규", "완전히 새 사업", "새 과제", "교육부", "x", "", "", "누군가", "", "", "기획처", "", [1, 0, 0, 0, 0, 0]))
+    book_full(fake, 2025, [tuple(r) for r in rows])
+    boss = _client(app, "boss")
+    boss.post("/programs/admin/sheet/apply", data={"token": _token(_preview(boss, fake))})
+    after = program_admin.load_store(tmp_path)
+    assert after["sheets"] == before["sheets"]
+    assert after["rows"][OTHER]["years"]["2025"]["manager"] == before["rows"][OTHER]["years"]["2025"]["manager"]
+    assert set(after["added"]) == set(before["added"])
+
+
+def test_import_doc_ids_respect_visibility_and_token_owner(filled):
+    app, tmp_path, dev, x25, _ = filled
+    db = app.state.db
+    hidden = db.add_document("남의 부서 현황", str(x25), doc_type="grant")
+    with db._conn() as conn:                                            # 산학협력단 부서 제한 문서로
+        conn.execute("UPDATE documents SET dept = ?, owner = ?, access_level = ? WHERE id = ?", ("산학협력단", "zzdev", "dept", hidden))
+    from zzaimy.app import access_policy as _ap
+    assert not _ap.visible(db.get_document(hidden), dept="기획처", user="boss", role="staff")
+    boss = _client(app, "boss")
+    r = boss.post("/programs/admin/sheet/preview", data={"doc_ids": str(hidden)}, follow_redirects=False)
+    assert r.status_code == 303 and "err=" in r.headers["location"]
+    assert "남의 부서 현황" not in boss.get("/programs/admin").text
+    # 남이 올린 파일 열쇠로는 읽지 못한다
+    token = _token(_preview(dev, x25))
+    r = boss.post("/programs/admin/sheet/preview", data={"token": token}, follow_redirects=False)
+    assert r.status_code == 303 and "err=" in r.headers["location"]
+
+
+def test_approval_rechecks_at_decision_time(filled):
+    app, tmp_path, dev, *_ = filled
+    boss = _client(app, "boss")
+    boss.post("/programs/admin/request", data={"key": OTHER, "kind": "assign", "role": "leads", "users": ["lead1"], "reason": "공동"})
+    app.state.accounts["lead1"]["active"] = False                       # 신청 뒤 계정이 멈춤
+    r = dev.post("/programs/admin/request/decide", data={"id": "1", "decision": "ok"}, follow_redirects=False)
+    assert "err=" in r.headers["location"]
+    st = program_admin.load_store(tmp_path)
+    assert st["requests"][0]["status"] == "wait" and "lead1" not in (st["rows"][OTHER].get("leads") or [])
+    app.state.accounts["lead1"]["active"] = True
+    app.state.accounts["boss"]["grade"] = "member"                      # 신청자가 더는 총괄 책임자가 아님
+    r = dev.post("/programs/admin/request/decide", data={"id": "1", "decision": "ok"}, follow_redirects=False)
+    assert "err=" in r.headers["location"]
+    assert dev.post("/programs/admin/request/decide", data={"id": "99", "decision": "ok"}).status_code == 404
+
+
+def test_people_api_head_sees_covered_depts_only(filled):
+    app, tmp_path, dev, *_ = filled
+    got = {p["user"] for p in _client(app, "boss").get("/api/people").json()["people"]}
+    assert "boss2" not in got and {"lead1", "clerk1"} <= got
+
+
+def test_reader_caps_merges_spans_entities(tmp_path):
+    html = "<table><tr><td>사업명</td></tr>" + "".join(f'<tr><td rowspan="5000" colspan="200">x{i}</td></tr>' for i in range(40)) + "</table>"
+    p = tmp_path / "span.html"
+    p.write_text(html, encoding="utf-8")
+    with pytest.raises(program_sheet.SheetError):
+        program_sheet.read_sheets(p)
+    x = tmp_path / "ent.xml"
+    x.write_text('<?xml version="1.0"?><!DOCTYPE a [<!ENTITY e "x">]><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"></Workbook>')
+    with pytest.raises(program_sheet.SheetError, match="DOCTYPE"):
+        program_sheet.read_sheets(x)
+    m = tmp_path / "merge.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "사업명"
+    ws.cell(1, 150, "끝 열")
+    for n in range(20):
+        ws.merge_cells(start_row=2 + n * 300, start_column=1, end_row=301 + n * 300, end_column=150)
+    ws.cell(6100, 150, 1)
+    wb.save(m)
+    with pytest.raises(program_sheet.SheetError, match="병합"):
+        program_sheet.read_sheets(m)
+
+
+def test_upload_count_and_total_caps(world, monkeypatch):
+    app, tmp_path, *_ = world
+    dev = _client(app, "zzdev", "devpass")
+    p = tmp_path / "f25.xlsx"
+    book_full(p, 2025, R25)
+    monkeypatch.setattr(program_admin, "MAX_FILES", 2)
+    r = _preview(dev, p, p, p)
+    assert "한 번에 2개까지" in r.text
+    monkeypatch.setattr(program_admin, "MAX_TOTAL", p.stat().st_size + 10)
+    r = _preview(dev, p, p)
+    assert "합계가 너무 큽니다" in r.text
+    tmp = tmp_path / "tmp" / "program_sheet"
+    _preview(dev, p)
+    _preview(dev, p)                                                    # 거듭 불러도 앞 미리보기 파일은 지운다
+    assert len(list(tmp.glob("*.who"))) == 1

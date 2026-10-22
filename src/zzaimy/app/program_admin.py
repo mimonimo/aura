@@ -650,7 +650,7 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
         r["can_edit"] = live and mine
         r["can_assign"] = r["can_edit"]
         r["can_request"] = live and scope == "dept" and not mine
-        r["can_link"] = live and (scope in ("all", "dept") and mine or r in visible_rows([r], "own", user, acct))
+        r["can_link"] = live and (mine or any(user in r[f] for f in ROLES))
         r["can_new"] = r["can_link"] and may_create
         r["who"] = {f: [name_of.get(u, u) for u in r[f]] for f in ROLES}
         r["edit"] = {k: r.get(k) for k in ("key", *TEXT_FIELDS, *ROLES, "source", "origin")}
@@ -687,6 +687,9 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
     notes = [n for n in (store.get("notes") or {}).get(user, []) if not n.get("seen")]
     may_import = scope == "all" or (scope == "dept" and bool(covered(acct)))
     good_docs, other_docs = (sheet_docs(st.db, st.data_dir) if may_import else ([], []))
+    if may_import and scope != "all":
+        seen = lambda d: _doc_ok(request, scope, st.db.get_document(d["id"]) or {})
+        good_docs, other_docs = [d for d in good_docs if seen(d)], [d for d in other_docs if seen(d)]
     return st.templates.TemplateResponse(request, "programs_admin.html", st.page_ctx(request, {
         "rows": shown, "scope": scope, "can_add": scope == "all" and tab != "past", "any_action": any(r["can_link"] or r["can_request"] or r["can_edit"] for r in shown),
         "clerk_choices": clerks, "my_projects": _linkable_projects(st.db, scope, user) if any(r["can_link"] for r in shown) else [],
@@ -1251,6 +1254,31 @@ async def programs_admin_request(request: Request):
     return _back(f"신청 #{q['id']}을 보냈습니다 — 관리자가 승인하면 반영됩니다")
 
 
+def _recheck(q: dict, accounts: dict, data_dir) -> str:
+    """승인 시점 다시 검사 — 신청자가 아직 총괄 책임자인가, 지정할 사람이 아직 사용 중이고 등급·부서가 맞는가."""
+    by = accounts.get(q.get("by") or "") or {}
+    if not by.get("active", True):
+        return "신청자 계정이 사용 중이 아닙니다"
+    try:
+        cov = set(grades.covered_depts(q["by"], by, data_dir, "head"))
+    except Exception:
+        cov = set()
+    if grades.program_scope(by) == "dept" and (by.get("dept") or "").strip():
+        cov.add(by["dept"].strip())
+    if not cov:
+        return "신청자가 이제 총괄 책임자가 아닙니다"
+    if q.get("kind") != "assign":
+        return ""
+    need = {"heads": "head", "leads": "lead", "clerks": "clerk"}[q["role"]]
+    for u in q.get("users") or []:
+        a = accounts.get(u) or {}
+        if not a.get("active", True) or a.get("role") not in grades.STAFF or _PICK_RANK.get(grades.grade_of(a), 0) < _PICK_RANK[need]:
+            return f"{(a.get('name') or u)}: 이제 지정할 수 없는 계정입니다"
+        if q["role"] != "heads" and (a.get("dept") or "").strip() not in cov:
+            return f"{(a.get('name') or u)}: 신청자가 맡은 부서 사람이 아닙니다"
+    return ""
+
+
 @router.post("/programs/admin/request/decide")
 def programs_admin_decide(request: Request, id: str = Form(""), decision: str = Form(""), note: str = Form("")):
     """신청 처리(관리자) — 승인하면 그대로 반영(변경 기록에 「신청 #n 승인」), 반려하면 사유와 함께 신청자에게 알림."""
@@ -1271,6 +1299,11 @@ def programs_admin_decide(request: Request, id: str = Form(""), decision: str = 
         r = next((x for x in merged_rows(st.data_dir, store=store) if x["key"] == q["key"]), None)
         if r is None:
             return _back("사업이 없어졌습니다", ok=False)
+        if r["hidden"] or stage(r, int(time.strftime("%Y"))) == "past":
+            return _back(f"신청 #{q['id']}: 사업이 숨겨졌거나 끝나 반영하지 않습니다 — 반려로 처리해 주세요", ok=False)
+        bad = _recheck(q, accounts=getattr(st, "accounts", None) or {}, data_dir=st.data_dir)
+        if bad:
+            return _back(f"신청 #{q['id']}: {bad} — 반려로 처리해 주세요", ok=False)
         via = f"신청 #{q['id']} 승인"
         if q["kind"] == "assign":
             set_field(store, r, q["role"], list(dict.fromkeys([*r[q["role"]], *q["users"]])), user, via)
@@ -1316,6 +1349,8 @@ def api_people(request: Request, q: str = "", dept: str = "", grade: str = "", l
         if grade and _PICK_RANK.get(g, 0) < _PICK_RANK.get(grade, 99):
             continue
         d = (a.get("dept") or "").strip()
+        if scope != "all" and d not in covered(acct):
+            continue                                           # 총괄 책임자는 맡은 부서 사람만
         if dept and d != dept:
             continue
         name = (a.get("name") or "").strip() or u
@@ -1370,8 +1405,29 @@ def not_program_keys(ledger: dict, rows: list[dict] | None = None) -> set[str]:
     return keys
 
 
-async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path, str]], list[str], list[int], str]:
-    """고른 문서(문서 id)와 올린 파일 → ([(경로, 이름)], 오류, 문서 id, 올린 파일 열쇠). 올린 파일은 data 의 tmp 에 잠시 둔다."""
+MAX_FILES = 10                       # 한 번에 고르는 파일·문서 수
+MAX_TOTAL = 30 * 1024 * 1024         # 한 번에 읽는 파일 합계
+MAX_TMP = 200 * 1024 * 1024          # 올린 임시 파일 전체(미리보기를 거듭 불러도)
+
+
+def _doc_ok(request: Request, scope: str, doc: dict) -> bool:
+    """문서함에서 고른 엑셀 — 관리자 밖은 그 사람이 볼 수 있는 문서만(access_policy.visible)."""
+    if scope == "all":
+        return True
+    from zzaimy.app import access_policy as _ap
+    try:
+        return bool(_ap.visible(doc, **_ap.request_viewer(request)))
+    except Exception:
+        return False
+
+
+def _tmp_size(tmp: Path) -> int:
+    return sum(p.stat().st_size for p in tmp.glob("*") if p.is_file())
+
+
+async def _sources(request: Request, form, token: str, scope: str = "all", user: str = "") -> tuple[list[tuple[Path, str]], list[str], list[int], str]:
+    """고른 문서(문서 id)와 올린 파일 → ([(경로, 이름)], 오류, 문서 id, 올린 파일 열쇠). 올린 파일은 data 의 tmp 에 잠시 둔다.
+    상한은 읽기 전에 — 파일·문서 수, 파일마다 크기, 합계, 임시 폴더 전체. 올린 파일 열쇠는 올린 사람에게만 쓰인다(<열쇠>.who)."""
     st = request.app.state
     errs: list[str] = []
     ids: list[int] = []
@@ -1382,24 +1438,44 @@ async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path,
             ids.append(int(x))
         elif x:
             errs.append(f"문서 번호가 아닙니다: {x[:20]}")
+    if len(ids) > MAX_FILES:
+        errs.append(f"문서는 한 번에 {MAX_FILES}개까지 고릅니다")
+        ids = ids[:MAX_FILES]
     out: list[tuple[Path, str]] = []
+    total = 0
     for i in ids:
         d = st.db.get_document(i) if st.db is not None else None
         p = Path(str((d or {}).get("stored_path") or ""))
-        if not d:
-            errs.append(f"문서 {i}: 없습니다")
-        elif p.suffix.lower() not in SHEET_EXT or not p.is_file():
+        if not d or not _doc_ok(request, scope, d):
+            errs.append(f"문서 {i}: 없습니다")                       # 볼 수 없는 문서는 있는지도 알리지 않는다
+        elif p.suffix.lower() not in SHEET_EXT or not p.is_file() or p.name.startswith("~$"):
             errs.append(f"문서 {i}: 엑셀 원본 파일을 열 수 없습니다")
+        elif p.stat().st_size > MAX_UPLOAD:
+            errs.append(f"문서 {i}: {MAX_UPLOAD // (1024 * 1024)}MB 보다 큽니다")
+        elif total + p.stat().st_size > MAX_TOTAL:
+            errs.append(f"문서 {i}: 한 번에 읽는 파일 합계가 {MAX_TOTAL // (1024 * 1024)}MB 를 넘습니다")
         else:
+            total += p.stat().st_size
             out.append((p, f"{d.get('filename') or p.name}"))
     tmp = _tmp(st.data_dir)
     ups = [f for f in form.getlist("files") if getattr(f, "filename", "")]
+    who = hashlib.sha256(user.encode()).hexdigest()[:16]
     if ups:
-        token = secrets.token_hex(8)
         tmp.mkdir(parents=True, exist_ok=True)
-        for old in tmp.glob("*"):                          # 하루 지난 임시 파일은 지운다
+        for old in tmp.glob("*"):                          # 하루 지난 임시 파일과 이 사람의 앞 미리보기 파일은 지운다
             if time.time() - old.stat().st_mtime > 86400:
                 old.unlink(missing_ok=True)
+        for w in tmp.glob("*.who"):
+            if w.read_text().strip() == who:
+                for q in tmp.glob(w.stem + "-*"):
+                    q.unlink(missing_ok=True)
+                w.unlink(missing_ok=True)
+        if len(ups) + len(out) > MAX_FILES:
+            errs.append(f"파일은 한 번에 {MAX_FILES}개까지 읽습니다")
+            ups = ups[:max(0, MAX_FILES - len(out))]
+        token = secrets.token_hex(8)
+        (tmp / f"{token}.who").write_text(who)
+        room = MAX_TMP - _tmp_size(tmp)
         for n, f in enumerate(ups):
             name = Path(f.filename).name
             if Path(name).suffix.lower() not in SHEET_EXT or name.startswith("~$"):
@@ -1409,9 +1485,14 @@ async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path,
             if len(data) > MAX_UPLOAD:
                 errs.append(f"{name}: {MAX_UPLOAD // (1024 * 1024)}MB 보다 큽니다 — 필요한 시트만 남겨 다시 올려 주세요")
                 continue
+            if total + len(data) > MAX_TOTAL or len(data) > room:
+                errs.append(f"{name}: 한 번에 읽는 파일 합계가 너무 큽니다 — 나눠서 올려 주세요")
+                continue
+            total += len(data)
+            room -= len(data)
             (tmp / f"{token}-{n}-{name}").write_bytes(data)
-    if token and _TOKEN.fullmatch(token):
-        for p in sorted(tmp.glob(f"{token}-*")):
+    if token and _TOKEN.fullmatch(token) and (tmp / f"{token}.who").is_file() and (tmp / f"{token}.who").read_text().strip() == who:
+        for p in sorted(tmp.glob(f"{token}-*"))[:MAX_FILES]:
             out.append((p, p.name.split("-", 2)[-1]))
     else:
         token = ""
@@ -1445,10 +1526,12 @@ def _plan(request: Request, sources, overwrite: bool, user: str, scope: str = "a
     allow, allow_new = None, True
     if scope != "all":
         by_key = {r["key"]: r for r in live}
-        allow = lambda k: k in by_key and owns(by_key[k], scope, user, acct or {}) and not by_key[k]["hidden"]
+        this_year = int(time.strftime("%Y"))
+        allow = lambda k: (k in by_key and owns(by_key[k], scope, user, acct or {}) and not by_key[k]["hidden"]
+                           and stage(by_key[k], this_year) != "past")
         allow_new = False
     summary, new_store = program_sheet.plan(items, live, store, overwrite=overwrite, not_program=not_program_keys(ledger, rows),
-                                            by=user, sheets=metas, allow=allow, allow_new=allow_new)
+                                            by=user, sheets=metas if scope == "all" else None, allow=allow, allow_new=allow_new)
     return summary, new_store, errs
 
 
@@ -1457,7 +1540,7 @@ async def programs_admin_sheet_preview(request: Request):
     """가져오기 2단계(미리보기) — 저장하지 않고 연도별로 맞춘 사업·새 사업·애매함·채울 칸 수를 보인다."""
     scope, user, acct = _importer(request)
     form = await request.form()
-    sources, errs, ids, token = await _sources(request, form, str(form.get("token") or ""))
+    sources, errs, ids, token = await _sources(request, form, str(form.get("token") or ""), scope, user)
     if not sources:
         return _back(" · ".join(errs) or "문서를 고르거나 엑셀 파일을 올려 주세요", ok=False)
     overwrite = bool(form.get("overwrite"))
@@ -1473,13 +1556,13 @@ async def programs_admin_sheet_apply(request: Request):
     끝나면 완료 요약과 되돌리기(관리자: 바로 앞 판으로) 단추가 보인다."""
     scope, user, acct = _importer(request)
     form = await request.form()
-    sources, errs, _, token = await _sources(request, form, str(form.get("token") or ""))
+    sources, errs, _, token = await _sources(request, form, str(form.get("token") or ""), scope, user)
     if not sources:
         return _back(" · ".join(errs) or "고른 문서가 없습니다", ok=False)
     summary, new_store, _ = _plan(request, sources, bool(form.get("overwrite")), user, scope, acct)
     stamp = save_store(new_store, request.app.state.data_dir)
     if token:
-        for p in _tmp(request.app.state.data_dir).glob(f"{token}-*"):
+        for p in [*_tmp(request.app.state.data_dir).glob(f"{token}-*"), _tmp(request.app.state.data_dir) / f"{token}.who"]:
             p.unlink(missing_ok=True)
     c = summary["cells"]
     msg = (f"가져왔습니다 — 맞춘 사업 {len(summary['matched'])}개 · 새 줄 {len(summary['new'])}개 · 세부 과제 {summary['tasks']}줄 · "
@@ -1565,6 +1648,13 @@ def _row_for(request: Request, key: str, live_only: bool = True) -> tuple[dict, 
     if live_only and past:
         raise HTTPException(409, "지난 사업은 확인용입니다")
     return r, scope, user, acct
+
+
+def _may_link(r: dict, scope: str, user: str, acct: dict) -> None:
+    """프로젝트 잇기·새 프로젝트 — 고칠 수 있는 사업(관리자·맡은 부서 총괄 책임자) 또는 지정된 사업만. 읽기만 하는 사업은 403."""
+    if owns(r, scope, user, acct) or any(user in r[f] for f in ROLES):
+        return
+    raise HTTPException(403, "이 사업에는 프로젝트를 잇지 못합니다 — 맡은 부서 사업이나 지정된 사업만")
 
 
 def trim_projects(request: Request, rows: list[dict], user: str, acct: dict) -> None:
@@ -1656,7 +1746,8 @@ def programs_admin_link(request: Request, key: str = Form(""), project_id: str =
                         unlink: str = Form("")):
     """프로젝트 잇기·끊기 — projects.program 을 「<사업 열쇠>|<연도>」로(끊으면 빈 값). 관리자는 아무 프로젝트나,
     그 밖에는 볼 수 있는 현행 사업에 자기가 만든 프로젝트만."""
-    r, scope, user, _ = _row_for(request, key)
+    r, scope, user, acct = _row_for(request, key)
+    _may_link(r, scope, user, acct)
     st = request.app.state
     if not project_id.isdigit():
         return _back("프로젝트를 골라 주세요", ok=False)
@@ -1681,6 +1772,7 @@ def programs_admin_link(request: Request, key: str = Form(""), project_id: str =
 def programs_admin_new_project(request: Request, key: str = Form(""), year: str = Form(""), name: str = Form("")):
     """이 사업·연도로 새 프로젝트 — 만들 수 있는 계정(grades.can_create_project)만. 만든 사람이 주인이 된다."""
     r, scope, user, acct = _row_for(request, key)
+    _may_link(r, scope, user, acct)
     if not grades.can_create_project(acct):
         raise HTTPException(403, "프로젝트를 만들 수 있는 등급이 아닙니다")
     y = year.strip() or time.strftime("%Y")

@@ -232,7 +232,8 @@ MAX_SHEETS = 20                       # 시트 수
 MAX_ROWS = 5000                       # 시트마다 읽는 줄
 MAX_COLS = 200                        # 머리줄 기준으로 실제 쓰는 열까지만, 그래도 이 넘으면 자른다
 MAX_ZIP_ITEMS = 2000                  # xlsx(zip) 안 항목 수
-MAX_ZIP_TOTAL = 150 * 1024 * 1024     # xlsx(zip) 풀린 전체 크기
+MAX_ZIP_TOTAL = 80 * 1024 * 1024      # xlsx(zip) 풀린 전체 크기
+MAX_CELLS = 400_000                   # 병합으로 채우는 칸 수 합계(시트마다) — 큰 병합 범위를 여러 개 넣어 늘리는 것을 막는다
 MAX_ZIP_RATIO = 200                   # 항목 하나의 압축률(압축 폭탄)
 
 
@@ -268,7 +269,8 @@ def file_kind(path) -> str:
     p = Path(path)
     if p.name.startswith("~$"):
         return "lock"
-    head = p.read_bytes()[:4096]
+    with open(p, "rb") as f:                              # 앞머리만 — 큰 파일을 통째로 올리지 않는다
+        head = f.read(4096)
     if head[:4] == b"PK\x03\x04" and zipfile.is_zipfile(p):
         return "xlsx"
     if head[:8] == bytes.fromhex("D0CF11E0A1B11AE1"):
@@ -303,6 +305,8 @@ def _xlsx_merges(p: Path, member: str | None) -> list[tuple[int, int, int, int]]
                 if not chunk:
                     break
                 buf = tail + chunk
+                if len(out) > 20000:
+                    raise _too_big("시트의 병합 칸이 너무 많습니다")
                 for m in _MERGE.finditer(buf):
                     ref = m.group(1).decode()
                     c0, r0, c1, r1 = range_boundaries(ref if ":" in ref else f"{ref}:{ref}")
@@ -412,11 +416,17 @@ class _TableParser(HTMLParser):
             i = len(self._rows) - 1
             row = self._rows[i]
             j = len(row)
-            while self._busy.get((i, j)):
+            while self._busy.get((i, j)) and j < MAX_COLS:
                 row.append(None)
                 j += 1
+            if j >= MAX_COLS:
+                self._cell = None
+                return
             rs, cs = self._span
-            row.append("".join(self._cell).strip() or None)
+            rs, cs = max(1, min(rs, MAX_ROWS - i)), max(1, min(cs, MAX_COLS - j))
+            if (rs - 1) * cs + cs > MAX_CELLS - len(self._busy):     # 병합 칸 합계 상한
+                raise _too_big("표의 병합 칸이 너무 많습니다")
+            row.append("".join(self._cell)[:2000].strip() or None)
             for dj in range(1, cs):
                 row.append(None)
             for di in range(rs):
@@ -465,7 +475,9 @@ def _load_mht(p: Path) -> list[Sheet]:
     import email
     msg = email.message_from_bytes(p.read_bytes())
     out = []
-    for part in msg.walk():
+    for n, part in enumerate(msg.walk()):
+        if n > 200 or len(out) > MAX_SHEETS:
+            raise _too_big("웹 페이지 파일 안 조각이 너무 많습니다")
         if part.get_content_type() == "text/html":
             raw = part.get_payload(decode=True) or b""
             cs = part.get_content_charset()
@@ -478,7 +490,12 @@ def _load_xmlss(p: Path) -> list[Sheet]:
     """XML 스프레드시트(엑셀 2003 XML) — Worksheet/Table/Row/Cell(ss:Index·MergeAcross·MergeDown)."""
     import xml.etree.ElementTree as ET
     ns = "{urn:schemas-microsoft-com:office:spreadsheet}"
-    root = ET.fromstring(p.read_bytes())
+    raw = p.read_bytes()
+    if re.search(rb"<!(?:DOCTYPE|ENTITY)", raw[:65536], re.I):
+        raise SheetError("XML 안에 DOCTYPE·ENTITY 선언이 있어 읽지 않습니다 — xlsx 로 저장해 올려 주세요")
+    root = ET.fromstring(raw)
+    if sum(1 for _ in root.iter(ns + "Worksheet")) > MAX_SHEETS:
+        raise _too_big("시트가 너무 많습니다")
     out = []
     for ws in root.iter(ns + "Worksheet"):
         rows: list[list] = []
@@ -522,6 +539,9 @@ def _load_xmlss(p: Path) -> list[Sheet]:
                 r[j] = v
                 a, dn = min(int(cell.get(ns + "MergeAcross") or 0), MAX_COLS), min(int(cell.get(ns + "MergeDown") or 0), MAX_ROWS)
                 if a or dn:
+                    a, dn = min(a, MAX_COLS - 1 - j), min(dn, MAX_ROWS - 1 - i)
+                    if len(busy) + (a + 1) * (dn + 1) > MAX_CELLS:
+                        raise _too_big("표의 병합 칸이 너무 많습니다")
                     merges.append((i, j, i + dn, j + a))
                     for di in range(dn + 1):
                         for dj in range(a + 1):
@@ -594,9 +614,14 @@ def _grid(sh: Sheet) -> tuple[list[list], set[tuple[int, int]], dict[tuple[int, 
     rows = [(r + [None] * width)[:width] for r in rows]
     filled: set[tuple[int, int]] = set()
     span: dict[tuple[int, int], int] = {}
-    for r0, c0, r1, c1 in sh.merges:
+    budget = MAX_CELLS
+    for r0, c0, r1, c1 in sh.merges[:20000]:
         if r0 >= len(rows) or c0 >= width:
             continue
+        r1, c1 = min(r1, len(rows) - 1), min(c1, width - 1)
+        budget -= (r1 - r0 + 1) * (c1 - c0 + 1)
+        if budget < 0:
+            raise _too_big("시트의 병합 칸이 너무 많습니다")
         v = rows[r0][c0]
         for i in range(r0, min(r1, len(rows) - 1) + 1):
             for j in range(c0, min(c1, width - 1) + 1):
