@@ -80,7 +80,7 @@
     try { if (window.HwpCtrlApp && HwpCtrlApp.UpdateLayout) HwpCtrlApp.UpdateLayout(); } catch (e) {}
   }
   window.addEventListener('resize', fit);
-  var ctrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
+  var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     fit();
     if (isNew) { ready = true; saveBtn.disabled = false; say('새 문서 — 저장하면 ' + dept + (folder ? ' / ' + folder : '') + '에 생깁니다', ''); return; }
     fetch(fileUrl, {credentials: 'same-origin'}).then(function (r) {
