@@ -427,3 +427,19 @@ def test_autosave_skips_unchanged_and_keeps_one_version_per_gap(tmp_path, monkey
     monkeypatch.setattr(webhwp, "VERSION_GAP", 0)
     webhwp.save(db, tmp_path, fid, _hwpx() + b"x", user="kim")
     assert len(list(vdir.iterdir())) == 2
+
+
+def test_version_pruning_does_not_touch_files_sharing_a_name_prefix(tmp_path, monkeypatch):
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    a = webhwp.add(db, tmp_path, "기획처", "계획.hwpx", _hwpx(), owner="kim")
+    b = webhwp.add(db, tmp_path, "기획처", "계획 2.hwpx", _hwpx(), owner="kim")
+    monkeypatch.setattr(webhwp, "VERSION_GAP", 0)
+    monkeypatch.setattr(webhwp, "VERSION_KEEP", 1)
+    for i in range(3):
+        webhwp.save(db, tmp_path, b, _hwpx() + bytes([i]), user="kim")
+    vdir = Path(webhwp.get(db, b)["path"]).parent / ".판"
+    before = sorted(x.name for x in vdir.iterdir() if x.name.startswith("계획 2 "))
+    for i in range(3):
+        webhwp.save(db, tmp_path, a, _hwpx() + bytes([i]), user="kim")
+    assert sorted(x.name for x in vdir.iterdir() if x.name.startswith("계획 2 ")) == before

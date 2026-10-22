@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import time
@@ -158,6 +159,12 @@ def add(db, base: Path, dept: str, filename: str, data: bytes, *, owner: str, so
     return fid
 
 
+def _versions(vdir: Path, p: Path) -> list[Path]:
+    """이 파일의 앞 판만 — 「<이름> YYYYMMDD-HHMMSS[-n].<확장자>」. 이름이 앞부분만 같은 다른 파일(「계획」 과 「계획 2」)의 판은 잡지 않는다."""
+    pat = re.compile(re.escape(p.stem) + r" \d{8}-\d{6}(?:-\d+)?" + re.escape(p.suffix) + "$")
+    return sorted((x for x in vdir.iterdir() if pat.fullmatch(x.name)), key=lambda x: x.stat().st_mtime)
+
+
 VERSION_GAP = 600        # 앞 판을 따로 남기는 최소 간격(초)
 VERSION_KEEP = 30        # 파일마다 남기는 앞 판 수
 
@@ -175,7 +182,7 @@ def save(db, base: Path, fid: int, data: bytes, *, user: str) -> Path:
             return p
         vdir = p.parent / ".판"
         vdir.mkdir(exist_ok=True)
-        olds = sorted(vdir.glob(f"{p.stem} *{p.suffix}"))
+        olds = _versions(vdir, p)
         # 자동 저장은 몇 초마다 돌므로 판은 VERSION_GAP 마다 하나만 남긴다(그 사이 저장은 같은 자리에 덮어쓴다), 판은 최근 VERSION_KEEP 개
         recent = olds and (datetime.now() - datetime.fromtimestamp(olds[-1].stat().st_mtime)).total_seconds() < VERSION_GAP
         if recent:
@@ -187,7 +194,7 @@ def save(db, base: Path, fid: int, data: bytes, *, user: str) -> Path:
                 n += 1
                 dest = vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}-{n}{p.suffix}"
             shutil.move(str(p), str(dest))
-            for old in sorted(vdir.glob(f"{p.stem} *{p.suffix}"))[:-VERSION_KEEP]:
+            for old in _versions(vdir, p)[:-VERSION_KEEP]:
                 old.unlink(missing_ok=True)
     # 기안기는 HWPX 로 돌려준다 — 옛 hwp 를 고쳤으면 확장자를 hwpx 로 바꿔 쓴다(장부도 따라)
     if data[:2] == b"PK" and p.suffix.lower() == ".hwp":
