@@ -1,4 +1,5 @@
-"""사업 관리 — 사업 현황 엑셀에서 연도별 값 채우기(program_sheet)와 전체·현행·지난 세 갈래, 연도별 표시. 엑셀은 가짜 값으로 만든다."""
+"""사업 관리 — 사업 현황 엑셀에서 연도별 값 채우기(program_sheet)와 전체·현행·지난 세 갈래, 연도별 보기·엑셀 내려받기.
+엑셀은 모두 가짜 값으로 만든다(실제 현황 표의 이름·금액을 쓰지 않는다)."""
 
 from __future__ import annotations
 
@@ -103,7 +104,7 @@ def test_read_book_matches_columns_by_header_words(world):
     assert g["name"] == "가나다혁신사업" and g["manager"] == "BOSS" and g["dept"] == "기획처"
     assert g["period"] == "2024.03.01~2027.02.28"                  # 가로 병합 머리줄 = 시작·끝 두 칸
     assert g["budget_won"] == 1500                                 # 맨 왼쪽 합계(그해 합계)
-    assert g["status"] == "기존" and g["extra"].get("이월금(G)") == "100"
+    assert g["status"] == "기존" and g["carry_won"] == 100 and g["budget_all_won"] == 1600   # 이월금·이월 포함 합계도 제 열쇠로
     assert len(b) == 2                                             # ※ 메모 줄·합계 줄 빠짐
 
 
@@ -152,9 +153,9 @@ def test_preview_apply_and_year_view(world):
     assert set(store["rows"]["program:가나다혁신사업"]["years"]) == {"2024", "2025"}
     # 연도를 고르면 그해 진행한 사업만, 칸은 그해 값
     p24 = dev.get("/programs/admin?tab=all&year=2024").text
-    assert "1,200원" in p24 and "1,500원" not in p24 and "라마바 지원사업" in p24
+    assert ">1,200<" in p24 and ">1,500<" not in p24 and "라마바 지원사업" in p24          # 연도별 표의 합계 칸(원, 쉼표)
     p25 = dev.get("/programs/admin?tab=all&year=2025").text
-    assert "1,500원" in p25 and "새로운 교육 프로젝트 사업" in p25 and "엑셀에서 온 줄" in p25
+    assert ">1,500<" in p25 and "새로운 교육 프로젝트 사업" in p25 and "엑셀에서 온 줄" in p25
     assert "계정 있음" in p25                                        # 책임자 이름 BOSS = 계정 이름
     assert "lead1" not in json.dumps(store["rows"]["program:가나다혁신사업"].get("heads", []))   # 권한은 주지 않는다
     assert "BOSS" not in program_admin.load_store(tmp_path)["rows"]["program:가나다혁신사업"].get("heads", [])
@@ -261,3 +262,272 @@ def test_trim_projects_hides_unviewable_names():
     from zzaimy.app import program_admin as pa_
     src = inspect.getsource(pa_.programs_admin_row)
     assert "trim_projects" in src and "visible(" in src
+
+
+# ---------------------------------------------------------------- 원본 꼴 전체 열(2단 머리줄·세부 과제·합계 줄)
+
+MONEY_HEAD = ["국고(A)", "지자체(B)\n(대구/경북)", "기업체(C)", "교비대응(D)", "기타(E)\n(교육청 등)"]
+
+
+def book_full(path, year, rows, *, status=True, account=True, incentive=True, fiscal=False, label_total=True):
+    """원본 현황 표 꼴 — 제목, ▣ 대상기간·기준일 줄, 2단 머리줄(사업현황 / OOOO년 사업예산(원)), 세부 과제 줄, 맨 아래 합계 줄.
+    rows: [(구분, 사업명, 과제명, 지원기관, 주관기관, 총기간, 당해 기간, 책임자, 참여학과, 행정 담당자, 업무부서, 회계부서, [국고, 지자체, 기업체, 교비, 기타, 인센티브])]."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "시트1"
+    head = (["기존,신규,종료"] if status else []) + ["순"] + (["회계연도"] if fiscal else []) + \
+        ["사업명", "세부 사업(과제)명", "지원기관", "주관(업무)기관", "총사업기간", "당해연도\n사업기간", "사업\n책임자",
+         "사업 참여학과\n(대상학과)", "행정\n 담당자", "기타사항\n(업무진행부서)"] + (["회계처리부서"] if account else [])
+    money_head = MONEY_HEAD + (["인센티브(F)"] if incentive else []) + ["합계"]
+    fm = len(head) + 1
+    head += money_head
+    ws.cell(1, 1, f"{year}학년도 재정지원사업 수혜 현황")
+    ws.cell(2, 1, f"▣ 사업선정 대상기간 : {year}.01.01. ~ {year}.10.08.\n▣ 안내 문구")
+    ws.cell(2, len(head), f"{year}.08.19.기준")
+    if status:
+        ws.cell(3, 1, "구분(예)")
+    ws.cell(3, 2 if status else 1, "사업현황")
+    ws.merge_cells(start_row=3, start_column=2 if status else 1, end_row=3, end_column=fm - 1)
+    ws.cell(3, fm, f" {year}년 사업예산(원)")
+    ws.merge_cells(start_row=3, start_column=fm, end_row=3, end_column=len(head))
+    for j, h in enumerate(head, 1):
+        ws.cell(4, j, h)
+    sums = [0] * (len(money_head))
+    for i, (st, name, sub, mi, ag, per, yp, man, maj, off, dept, acc, ns) in enumerate(rows, 1):
+        vals = ([st] if status else []) + [i] + ([year] if fiscal else []) + [name, sub, mi, ag, per, yp, man, maj, off, dept] + \
+            ([acc] if account else [])
+        ns = list(ns[:5]) + (list(ns[5:6]) if incentive else [])
+        ns.append(sum(ns))
+        for j, v in enumerate(vals + ns, 1):
+            ws.cell(4 + i, j, v)
+        sums = [a + b for a, b in zip(sums, ns)]
+    tr = 5 + len(rows)
+    if label_total:
+        ws.cell(tr, 1, "합계")
+    ws.merge_cells(start_row=tr, start_column=1, end_row=tr, end_column=fm - 1)
+    for j, v in enumerate(sums, fm):
+        ws.cell(tr, j, v)
+    ws.cell(tr + 2, 1, "※ 금액 단위 원")
+    wb.save(path)
+    return sums
+
+
+R25 = [
+    ("기존", "가나다 혁신사업", "1단계 과제", "교육부", "가재단", "20250301-20280229", "20250301-\n20260228", "홍길순", "전체 학과",
+     "김행정", "기획처", "산학협력단회계", [1_234_567_000, 100_000_000, 0, 50_000_000, 0, 0]),
+    ("기존", "가나다 혁신사업", "2단계 과제", "교육부", "가재단", "20250301-20280229", "20250301-\n20260228", "이책임", "가나과",
+     "박행정", "기획처", "산학협력단회계", [500_000_000, 0, 0, 0, 0, 20_000_000]),
+    ("신규", "마바사 지원사업", "마바사 지원사업", "노동부", "나센터", "20250301-20270228", "20250301-20260228", "최새로", "다라과",
+     "정행정", "교무처", "교비회계", [0, 0, 30_000_000, 0, 10_000_000, 0]),
+    ("종료", "아자차 연계사업", "아자차 과제", "대구광역시", "다진흥원", "20250101-20251231", "20250101-20251231", "윤책임", "",
+     "", "산학협력단", "산학협력단회계", [200_000_000, 0, 0, 0, 0, 0]),
+]
+R26 = [
+    ("기존", "가나다 혁신사업", "1단계 과제", "교육부", "가재단", "20250301-20280229", "20260301-20270228", "홍길순", "전체 학과",
+     "강행정", "기획처", "산학협력단회계", [2_000_000_000, 0, 0, 0, 0, 0]),
+    ("기존", "마바사 지원사업", "마바사 지원사업", "노동부", "나센터", "20250301-20270228", "20260301-20270228", "최새로", "다라과",
+     "정행정", "교무처", "교비회계", [0, 0, 40_000_000, 0, 0, 0]),
+]
+R22 = [
+    ("", "가나다 혁신사업", "옛 과제", "교육부", "가재단", "20220301-20250228", "20220301-20230228", "홍길순", "", "김행정", "기획처", "",
+     [300_000_000, 0, 0, 0, 0, 0]),
+]
+
+
+@pytest.fixture()
+def full(tmp_path, world):
+    app, tmp_path, *_ = world
+    x22, x25, x26 = tmp_path / "f22.xlsx", tmp_path / "f25.xlsx", tmp_path / "f26.xlsx"
+    s22 = book_full(x22, 2022, R22, status=False, account=False, incentive=False, label_total=True)
+    s25 = book_full(x25, 2025, R25, label_total=False)                 # 합계 줄에 글이 없는 꼴(병합만)
+    s26 = book_full(x26, 2026, R26, fiscal=True)
+    return app, tmp_path, {2022: (x22, s22), 2025: (x25, s25), 2026: (x26, s26)}
+
+
+def _apply(dev, *paths, overwrite=False):
+    files = [("files", (p.name, p.read_bytes(), "application/octet-stream")) for p in paths]
+    r = dev.post("/programs/admin/sheet/preview", files=files)
+    assert r.status_code == 200, r.text[:300]
+    token = r.text.split('name="token" value="')[1].split('"')[0]
+    data = {"token": token}
+    if overwrite:
+        data["overwrite"] = "1"
+    return dev.post("/programs/admin/sheet/apply", data=data, follow_redirects=False)
+
+
+def test_read_sheets_all_columns_and_total(full):
+    _, _, books = full
+    items, metas = program_sheet.read_sheets(books[2025][0])
+    m = metas[0]
+    keys = [k for k, _ in m["columns"]]
+    assert keys == ["status", "seq", "name", "sub", "ministry", "agency", "period", "year_period", "manager", "majors", "officer",
+                    "dept", "account_dept", "national", "local", "company", "school", "other", "incentive", "budget"]
+    assert m["base_date"] == "2025.08.19" and m["target"] == "2025.01.01. ~ 2025.10.08"
+    assert m["heads"] == {"info": "사업현황", "money": "2025년 사업예산(원)", "status": "구분(예)"}
+    assert dict(m["columns"])["local"] == "지자체(B)\n(대구/경북)"               # 원본 머리줄 글(줄바꿈 포함)
+    assert len(items) == 4 and m["lines"] == 4                            # ※ 메모 줄·합계 줄은 줄이 아니다
+    a = items[0]
+    assert (a["status"], a["seq"], a["sub"], a["agency"], a["officer"], a["account_dept"], a["majors"]) == \
+        ("기존", "1", "1단계 과제", "가재단", "김행정", "산학협력단회계", "전체 학과")
+    assert a["year_period"] == "2025.03.01~2026.02.28" and a["local_won"] == 100_000_000 and a["school_won"] == 50_000_000
+    assert items[1]["incentive_won"] == 20_000_000 and items[2]["company_won"] == 30_000_000 and items[2]["other_won"] == 10_000_000
+    total = m["total"]                                                    # 글 없는 합계 줄도 합계로 읽는다
+    for k, v in zip(("national", "local", "company", "school", "other", "incentive", "budget"), books[2025][1]):
+        assert total[k + "_won"] == v == sum(it[k + "_won"] for it in items)
+    # 구분·회계처리부서·인센티브가 없는 해, 회계연도가 있는 해
+    i22, m22 = program_sheet.read_sheets(books[2022][0])
+    k22 = [k for k, _ in m22[0]["columns"]]
+    assert "status" not in k22 and "account_dept" not in k22 and "incentive" not in k22 and "status" not in m22[0]["heads"]
+    assert i22[0]["status"] == "" and i22[0]["incentive_won"] is None and m22[0]["total"]["budget_won"] == 300_000_000
+    i26, m26 = program_sheet.read_sheets(books[2026][0])
+    assert "fiscal_year" in [k for k, _ in m26[0]["columns"]] and i26[0]["fiscal_year"] == "2026" and i26[0]["name"] == "가나다 혁신사업"
+
+
+def test_tasks_preserved_and_folded(full, tmp_path):
+    app, tmp_path, books = full
+    items, metas = program_sheet.read_sheets(books[2025][0])
+    rows = program_admin.merged_rows(tmp_path)
+    sm, new = program_sheet.plan(items, rows, program_admin.load_store(tmp_path), sheets=metas,
+                                 not_program=program_admin.not_program_keys(LEDGER))
+    y = new["rows"]["program:가나다혁신사업"]["years"]["2025"]
+    assert [t["sub"] for t in y["tasks"]] == ["1단계 과제", "2단계 과제"] and sm["tasks"] == 4
+    assert y["tasks"][1]["incentive_won"] == 20_000_000 and y["tasks"][0]["officer"] == "김행정"
+    assert y["budget_won"] == 1_384_567_000 + 520_000_000 and y["national_won"] == 1_734_567_000
+    assert y["local_won"] == 100_000_000 and y["incentive_won"] == 20_000_000 and y["officer"] == "김행정, 박행정"
+    assert y["status"] == "기존" and y["account_dept"] == "산학협력단회계" and y["seq"] == "1" and y["order"] == 5
+    assert new["sheets"]["2025"]["base_date"] == "2025.08.19" and new["sheets"]["2025"]["total"]["budget_won"] == sum(books[2025][1][-1:])
+    assert y["budget"] == "1,904,567,000원"                               # 옛 칸(budget·manager·dept·period)도 계속 채운다
+    assert y["manager"] == "홍길순, 이책임" and y["dept"] == "기획처" and y["period"] == "2025.03.01~2028.02.29"
+
+
+def test_year_view_table_units_and_summary(full):
+    app, tmp_path, books = full
+    dev = _client(app, "zzdev", "devpass")
+    assert "ok=" in _apply(dev, books[2025][0], books[2026][0]).headers["location"]
+    page = dev.get("/programs/admin?tab=all&year=2025").text
+    body = page.split("<tbody>")[1].split("</tbody>")[0]
+    names = [n for n in ("가나다 혁신사업", "마바사 지원사업", "아자차 연계사업") if n in body]
+    assert names == ["가나다 혁신사업", "마바사 지원사업", "아자차 연계사업"]
+    assert body.index("가나다 혁신사업") < body.index("마바사 지원사업") < body.index("아자차 연계사업")   # 엑셀 순서
+    assert "세부 과제 2개 펼치기" in body and body.count('class="pa-task"') == 2              # 세부 과제 줄(접힌 채)
+    assert '<span class="pa-st st-new">신규</span>' in body and '<span class="pa-st st-end">종료</span>' in body
+    assert 'data-pa-group="org"' in page and 'data-pa-group="money"' in page and "기준일 2025.08.19" in page
+    foot = page.split("<tfoot>")[1].split("</tfoot>")[0]
+    total25 = books[2025][1][-1]
+    assert f">{total25:,}<" in foot and f">{books[2025][1][0]:,}<" in foot                 # 맨 아래 합계 줄(합계·국고)
+    ysum = page.split("data-pa-ysum")[1].split("</div>\n</div>")[0]
+    assert f"{total25:,}" in ysum and "신규 · 종료" in ysum and ">1 · 1<" in ysum and "2024년 대비" in ysum
+    # 단위 바꾸기 — 천원은 정수, 백만원은 소수 첫째 자리
+    k = dev.get("/programs/admin?tab=all&year=2025&unit=thousand").text.split("<tfoot>")[1]
+    assert f">{round(total25 / 1000):,}<" in k
+    mm = dev.get("/programs/admin?tab=all&year=2025&unit=million").text
+    assert f">{total25 / 1e6:,.1f}<" in mm.split("<tfoot>")[1] and '>백만원</a>' in mm
+    assert program_sheet.fmt_unit(1_234_567_000, "thousand") == "1,234,567" and program_sheet.fmt_unit(1_234_567_000, "million") == "1,234.6"
+    # 지난해 대비(2026 ← 2025) · 전체 연도 막대
+    p26 = dev.get("/programs/admin?tab=all&year=2026").text.split("data-pa-ysum")[1].split("</div>\n</div>")[0]
+    delta = sum(books[2026][1][-1:]) - total25
+    assert f"{delta:,}" in p26 and "사업 -1" in p26
+    allp = dev.get("/programs/admin?tab=all&year=0").text
+    assert "data-pa-trend" in allp and "2025</span>" in allp and "data-pa-ytable>" not in allp
+
+
+def test_xlsx_download_matches_original_layout(full):
+    app, tmp_path, books = full
+    dev = _client(app, "zzdev", "devpass")
+    _apply(dev, books[2025][0])
+    assert dev.get("/programs/admin.xlsx").status_code == 400
+    r = dev.get("/programs/admin.xlsx", params={"year": "2025", "tab": "all"})
+    assert r.status_code == 200 and "spreadsheetml" in r.headers["content-type"]
+    out = tmp_path / "down.xlsx"
+    out.write_bytes(r.content)
+    ws = openpyxl.load_workbook(out).active
+    src = openpyxl.load_workbook(books[2025][0]).active
+    n = src.max_column
+    flat = lambda v: "".join(str(v or "").split())
+    assert [flat(ws.cell(4, j).value) for j in range(1, n + 1)] == [flat(src.cell(4, j).value) for j in range(1, n + 1)]   # 머리줄·열 순서
+    assert ws.cell(4, 15).value == "지자체(B)\n(대구/경북)"                  # 줄바꿈도 원본대로
+    assert ws.cell(3, 1).value == "구분(예)" and ws.cell(3, 2).value == "사업현황" and ws.cell(3, n - 6).value == "2025년 사업예산(원)"
+    assert "2025.08.19" in ws.cell(2, n).value and "대상기간" in ws.cell(2, 1).value
+    assert [ws.cell(i, 4).value for i in range(5, 9)] == ["1단계 과제", "2단계 과제", "마바사 지원사업", "아자차 과제"]
+    assert ws.cell(9, 1).value == "합계" and [ws.cell(9, j).value for j in range(n - 6, n + 1)] == books[2025][1]
+    assert ws.cell(5, n).number_format == "#,##0" and ws.cell(9, n).number_format == "#,##0"
+    # 다시 읽어도 같은 값(내려받은 파일을 그대로 다시 채울 수 있다)
+    again, meta = program_sheet.read_sheets(out)
+    assert len(again) == 4 and meta[0]["total"]["budget_won"] == books[2025][1][-1]
+
+
+def test_xlsx_download_same_scope_as_page(full):
+    app, tmp_path, books = full
+    dev = _client(app, "zzdev", "devpass")
+    _apply(dev, books[2025][0])
+    _add(app, "plain", dept="기획처", grade="member")
+
+    def subs(c):
+        r = c.get("/programs/admin.xlsx", params={"year": "2025", "tab": "all"})
+        assert r.status_code == 200
+        out = tmp_path / "s.xlsx"
+        out.write_bytes(r.content)
+        ws = openpyxl.load_workbook(out).active
+        return [ws.cell(i, 4).value for i in range(5, ws.max_row) if ws.cell(i, 4).value]
+    boss = subs(_client(app, "boss"))                                   # 기획처 사업 + 지난 사업(확인용)
+    assert "1단계 과제" in boss and "아자차 과제" in boss and "마바사 지원사업" not in boss
+    assert subs(_client(app, "lead1")) == []                            # 지정된 사업이 없다
+    assert _client(app, "plain").get("/programs/admin.xlsx", params={"year": "2025"}).status_code == 403
+    page = _client(app, "boss").get("/programs/admin?tab=all&year=2025").text
+    assert "마바사 지원사업" not in page and "1단계 과제" in page
+
+
+def test_reapply_fills_new_cells_and_keeps_hand(full):
+    """예전 저장값(세부 과제·예산 6갈래 없음)에 다시 적용하면 새 칸만 채워지고 손으로 고친 칸은 그대로."""
+    app, tmp_path, books = full
+    dev = _client(app, "zzdev", "devpass")
+    _apply(dev, books[2025][0])
+    key = "program:가나다혁신사업"
+    store = json.loads((tmp_path / "program_admin.json").read_text())
+    y = store["rows"][key]["years"]["2025"]
+    for f in ("tasks", "local", "local_won", "officer", "account_dept", "incentive", "incentive_won"):
+        y.pop(f, None)
+    y["manager"], y["by_hand"] = "손입력", ["manager"]
+    store.pop("sheets")
+    (tmp_path / "program_admin.json").write_text(json.dumps(store, ensure_ascii=False))
+    loc = _apply(dev, books[2025][0]).headers["location"]
+    assert "ok=" in loc
+    y = program_admin.load_store(tmp_path)["rows"][key]["years"]["2025"]
+    assert y["manager"] == "손입력" and y["by_hand"] == ["manager"]          # 손 칸은 그대로
+    assert len(y["tasks"]) == 2 and y["local_won"] == 100_000_000 and y["officer"] == "김행정, 박행정"
+    assert program_admin.load_store(tmp_path)["sheets"]["2025"]["base_date"] == "2025.08.19"
+
+
+def test_file_kinds_html_and_lock(tmp_path):
+    """엑셀이 웹 페이지로 저장한 html(.xls 이름) — colspan·rowspan 머리줄도 읽는다. 잠금 파일·옛 xls 는 안내."""
+    html = """<html><head><meta charset="utf-8"></head><body><table>
+    <tr><td colspan="6">2024학년도 재정지원사업 수혜 현황</td></tr>
+    <tr><td colspan="5">▣ 사업선정 대상기간 : 2024.1.1~12.31</td><td>2024.12.31기준</td></tr>
+    <tr><td colspan="3">사업현황</td><td colspan="3"> 2024년 사업예산(원)</td></tr>
+    <tr><td>순</td><td>사업명</td><td>사업<br>책임자</td><td>국고(A)</td><td>교비대응(D)</td><td>합계</td></tr>
+    <tr><td>1</td><td>가나다 혁신사업</td><td>홍길순</td><td>1,000</td><td>200</td><td>1,200</td></tr>
+    <tr><td>2</td><td rowspan="2">라마바 지원사업</td><td>박책임</td><td>300</td><td>0</td><td>300</td></tr>
+    <tr><td>3</td><td>이책임</td><td>50</td><td>0</td><td>50</td></tr>
+    <tr><td colspan="3">합계</td><td>1,350</td><td>200</td><td>1,550</td></tr></table></body></html>"""
+    p = tmp_path / "현황.xls"
+    p.write_text(html, encoding="utf-8")
+    assert program_sheet.file_kind(p) == "html"
+    items, metas = program_sheet.read_sheets(p)
+    assert [(i["name"], i["manager"], i["budget_won"]) for i in items] == [
+        ("가나다 혁신사업", "홍길순", 1200), ("라마바 지원사업", "박책임", 300), ("라마바 지원사업", "이책임", 50)]
+    assert metas[0]["total"]["budget_won"] == 1550 and metas[0]["base_date"] == "2024.12.31" and items[0]["year"] == 2024
+    lock = tmp_path / "~$현황.xlsx"
+    lock.write_bytes(b"\x00" * 165)
+    with pytest.raises(ValueError):
+        program_sheet.read_sheets(lock)
+    ole = tmp_path / "옛.xls"
+    ole.write_bytes(bytes.fromhex("D0CF11E0A1B11AE1") + b"\x00" * 504)
+    assert program_sheet.file_kind(ole) == "xls"
+    try:
+        import xlrd  # noqa: F401
+    except ImportError:
+        with pytest.raises(ValueError, match="xlsx"):
+            program_sheet.read_sheets(ole)
+    assert program_sheet.parse_won("12억 3,000만 원") == 1_230_000_000 and program_sheet.parse_won("1,200원") == 1200
+    assert program_sheet.parse_won("미정") is None
+

@@ -2,6 +2,17 @@
 {% block title %}사업 관리{% endblock %}
 {% block pagetitle %}사업 관리{% endblock %}
 {% block content %}
+{% macro menu(r) %}<td class="act">{% if r.can_link %}
+      <button type="button" class="pa-more" data-pa-more aria-haspopup="true" aria-expanded="false" aria-label="{{ r.name }} 메뉴">⋯</button>
+      <div class="pa-menu" role="menu" hidden>
+        {% if r.can_edit %}<button type="button" role="menuitem" data-modal-open="#paEdit" data-pa-edit='{{ r.edit | tojson }}'>편집</button>
+        {% elif r.can_assign %}<button type="button" role="menuitem" data-modal-open="#paEdit" data-pa-edit='{{ r.edit | tojson }}'>책임자 지정</button>{% endif %}
+        <button type="button" role="menuitem" data-modal-open="#paLink" data-pa-link='{{ {"key": r.key, "name": r.name, "plist": r.edit.plist, "can_new": r.can_new} | tojson }}'>프로젝트 연결</button>
+        {% if r.can_edit %}<form method="post" action="/programs/admin/hide"><input type="hidden" name="key" value="{{ r.key }}"><input type="hidden" name="hidden" value="{{ '0' if r.hidden else '1' }}">
+          <button type="submit" role="menuitem">{{ '다시 보이기' if r.hidden else '숨기기' }}</button></form>{% endif %}
+      </div>{% endif %}
+    </td>{% endmacro %}
+{% macro stchips(cs) %}{% for c in cs %}<span class="pa-st{% if '신규' in c %} st-new{% elif '종료' in c %} st-end{% endif %}">{{ c }}</span>{% endfor %}{% endmacro %}
 <style>
   .pa-tabs { display:flex; align-items:center; gap:2px; margin:0 0 10px; border-bottom:1px solid var(--line); }
   .pa-tabs a { padding:8px 12px; margin-bottom:-1px; border-bottom:2px solid transparent; color:var(--muted); text-decoration:none; font-size:13.5px; }
@@ -48,7 +59,7 @@
   .pa-plist a { color:var(--ink); }
   .pa-empty { margin:0; font-size:12.5px; color:var(--muted); }
   /* 상세 패널 */
-  .pa-side { position:fixed; top:0; right:0; bottom:0; z-index:60; width:400px; max-width:100vw; background:var(--card, #fff); border-left:1px solid var(--line); box-shadow:-8px 0 24px rgba(15,23,42,.06); overflow-y:auto; padding:18px 18px 24px; transform:translateX(100%); transition:transform .2s ease; }
+  .pa-side { position:fixed; top:0; right:0; bottom:0; z-index:60; width:480px; max-width:100vw; background:var(--card, #fff); border-left:1px solid var(--line); box-shadow:-8px 0 24px rgba(15,23,42,.06); overflow-y:auto; padding:18px 18px 24px; transform:translateX(100%); transition:transform .2s ease; }
   .pa-side.open { transform:none; }
   .pa-side h2 { font-size:16px; margin:0 32px 2px 0; line-height:1.35; }
   .pa-side h3 { font-size:12px; font-weight:500; color:var(--muted); margin:16px 0 6px; }
@@ -80,6 +91,49 @@
   .pa-linked { margin:0; padding:0; list-style:none; font-size:12.5px; }
   .pa-linked li { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--line); }
   .pa-linked li a { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* 연도별 보기 */
+  .pa-ysum { display:flex; flex-wrap:wrap; gap:0; margin:0 0 6px; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .pa-ysum > div { flex:1 1 150px; padding:9px 14px; border-right:1px solid var(--line); min-width:0; }
+  .pa-ysum > div:last-child { border-right:0; }
+  .pa-ysum .k { display:block; font-size:11.5px; color:var(--muted); }
+  .pa-ysum .v { font-size:16px; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  .pa-ysum .u { margin-left:4px; font-size:11.5px; color:var(--muted); }
+  .pa-basis { margin:0 0 10px; font-size:12px; color:var(--muted); }
+  .pa-ytools { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 8px; }
+  .pa-toggle { height:26px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--muted); font:inherit; font-size:12px; cursor:pointer; box-shadow:none; }
+  .pa-toggle[aria-pressed=true] { border-color:var(--ink); color:var(--ink); background:rgba(100,116,139,.08); }
+  .pa-seg { display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden; margin-left:6px; }
+  .pa-seg a { padding:0 10px; height:24px; line-height:24px; font-size:12px; color:var(--muted); text-decoration:none; }
+  .pa-seg a[aria-current] { background:rgba(100,116,139,.12); color:var(--ink); }
+  .pa-ytools .sp { flex:1; }
+  .pa-yt { min-width:1000px; }                       /* 고정 폭 열 합 + 사업명 300px 안팎 */
+  .pa-yt.show-org { min-width:1464px; } .pa-yt.show-money { min-width:1710px; } .pa-yt.show-org.show-money { min-width:2174px; }
+  .pa-yt .g-org, .pa-yt .g-money { display:none; }
+  .pa-yt.show-org .g-org, .pa-yt.show-money .g-money { display:table-cell; }
+  .pa-yt th.c-seq { width:44px; } .pa-yt th.c-st { width:66px; } .pa-yt th.c-org { width:116px; } .pa-yt th.c-per { width:172px; }
+  .pa-yt th.c-man { width:92px; } .pa-yt th.c-dept { width:128px; } .pa-yt th.c-m { width:118px; } .pa-yt th.c-act { width:44px; }
+  .pa-yt th.n, .pa-yt td.n { text-align:right; }
+  .pa-yt td.c-seq { text-align:center; color:var(--muted); }
+  .pa-yt td > span.l1 { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pa-yt tr.nodata td { color:var(--faint, #94a3b8); }
+  .pa-yt tr.pa-task td { height:40px; font-size:12px; background:rgba(100,116,139,.035); cursor:default; }
+  .pa-yt tr.pa-task td.name { padding-left:22px; }
+  .pa-yt tfoot td { position:sticky; bottom:0; z-index:1; background:var(--card, #fff); border-top:1px solid var(--line); height:40px; padding:0 10px; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .pa-st { display:inline-block; margin:1px 2px 1px 0; padding:0 7px; border:1px solid var(--line); border-radius:999px; font-size:11px; line-height:17px; color:var(--muted); white-space:nowrap; }
+  .pa-st.st-new { border-color:rgba(73,123,251,.45); color:var(--blue, #497bfb); }
+  .pa-st.st-end { background:rgba(100,116,139,.1); border-color:transparent; }
+  .pa-trend { margin:0 0 12px; padding:8px 12px; border:1px solid var(--line); border-radius:10px; }
+  .pa-tr { display:grid; grid-template-columns:44px 1fr 170px; align-items:center; gap:10px; padding:3px 0; color:var(--ink); text-decoration:none; font-size:12px; }
+  .pa-tr:hover .t { color:var(--ink); }
+  .pa-tr .y { font-variant-numeric:tabular-nums; color:var(--muted); }
+  .pa-tr .bars { display:flex; flex-direction:column; gap:2px; }
+  .pa-tr .bars span { display:block; height:4px; border-radius:2px; }
+  .pa-tr .b1 { background:var(--blue, #497bfb); opacity:.75; } .pa-tr .b2 { background:rgba(100,116,139,.35); }
+  .pa-tr .t { text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .pa-trend .legend { margin:4px 0 0; font-size:11px; color:var(--muted); }
+  .pa-side .chg { margin-left:4px; padding:0 5px; border-radius:5px; background:rgba(73,123,251,.1); color:var(--blue, #497bfb); font-size:10.5px; }
+  .pa-side td.n, .pa-side th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .pa-side .yrs { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 6px; }
   @media (max-width:760px) {
     .pa-table { min-width:0; } .pa-table .hide-sm { display:none; }
     .pa-wrap { max-height:none; } .pa-form .row { grid-template-columns:1fr; } .pa-form .row4 { grid-template-columns:1fr 1fr; }
@@ -95,7 +149,7 @@
   <h3>엑셀에서 채우기 · 미리보기</h3>
   <p class="pa-lead">{{ sheet.names | join(', ') }} · {{ sm.years | join(', ') }}년 · 엑셀 {{ sm.lines }}줄 · 아직 저장하지 않았습니다</p>
   <div class="pa-nums"><span>맞춘 사업<b>{{ sm.matched | length }}</b></span><span>새 줄<b>{{ sm.new | length }}</b></span><span>모호<b>{{ sm.ambiguous | length }}</b></span>
-    <span>채울 칸<b>{{ sm.cells.fill }}</b></span><span>바뀔 칸<b>{{ sm.cells.change }}</b></span><span>손으로 고친 칸 그대로<b>{{ sm.cells.kept }}</b></span><span>표의 빈칸이 채워짐<b>{{ sm.blank_top }}</b></span></div>
+    <span>세부 과제 줄<b>{{ sm.tasks }}</b></span><span>채울 칸<b>{{ sm.cells.fill }}</b></span><span>바뀔 칸<b>{{ sm.cells.change }}</b></span><span>손으로 고친 칸 그대로<b>{{ sm.cells.kept }}</b></span><span>표의 빈칸이 채워짐<b>{{ sm.blank_top }}</b></span></div>
   {% for e in sheet.errors %}<p class="pa-empty" role="alert">{{ e }}</p>{% endfor %}
   {% if sm.new %}<p class="pa-empty">장부에 없어 「엑셀에서 온 줄」로 더할 사업</p><ul>{% for n in sm.new %}<li>{{ n.name }} <span class="muted">{{ n.years | join(', ') }}</span></li>{% endfor %}</ul>{% endif %}
   {% if sm.ambiguous %}<p class="pa-empty">여러 사업과 이름이 겹쳐 채우지 않을 이름 — 장부 별칭을 정리한 뒤 다시 채웁니다</p><ul>{% for n, c in sm.ambiguous %}<li>{{ n }} <span class="muted">→ {{ c | join(' / ') }}</span></li>{% endfor %}</ul>{% endif %}
@@ -133,13 +187,88 @@
   </select>
   {% if scope == 'all' and n_hidden %}<label class="check"><input type="checkbox" data-pa-hidden {% if show_hidden %}checked{% endif %}>숨긴 줄 {{ n_hidden }}</label>{% endif %}
   <span class="pa-n" data-pa-count>{{ rows | length }}개</span>
-  <button type="button" class="btn-ghost pa-btn" data-pa-l3 aria-pressed="false">소분류 펼치기</button>
-  <a class="btn-ghost pa-btn" href="/programs/admin.csv" data-pa-csv><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>CSV</a>
+  {% if not year %}<button type="button" class="btn-ghost pa-btn" data-pa-l3 aria-pressed="false">소분류 펼치기</button>
+  <a class="btn-ghost pa-btn" href="/programs/admin.csv" data-pa-csv><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>CSV</a>{% endif %}
   {% if scope == 'all' and tab != 'past' %}<button type="button" class="btn-ghost pa-btn" data-modal-open="#paSheet" data-pa-sheet><iconify-icon icon="solar:file-download-linear" aria-hidden="true"></iconify-icon>엑셀에서 채우기</button>{% endif %}
   {% if can_edit %}<button type="button" class="secondary pa-btn" data-modal-open="#paEdit" data-pa-new><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>줄 추가</button>{% endif %}
 </form>
 
-{% if rows %}
+{% if year and ysum %}
+<div class="pa-ysum" data-pa-ysum aria-label="{{ year }}년 요약">
+  <div><span class="k">사업</span><span class="v">{{ ysum.n }}</span><span class="u">개</span></div>
+  <div><span class="k">총 예산</span><span class="v">{{ ysum.total }}</span><span class="u">{{ ysum.unit }}</span></div>
+  <div><span class="k">국고 비중</span><span class="v">{{ ysum.national_share }}</span></div>
+  <div><span class="k">신규 · 종료</span><span class="v">{{ ysum.n_new }} · {{ ysum.n_end }}</span></div>
+  <div><span class="k">{{ year - 1 }}년 대비</span>{% if ysum.prev %}<span class="v">{{ ysum.delta }}</span><span class="u">{{ ysum.unit }}{% if ysum.delta_pct %} · {{ ysum.delta_pct }}{% endif %} · 사업 {{ '%+d' | format(ysum.dn) }}</span>{% else %}<span class="v muted">—</span>{% endif %}</div>
+</div>
+<p class="pa-basis" data-pa-basis>{% if basis %}{{ ['기준일 ' ~ basis.base_date if basis.base_date else '', '대상기간 ' ~ basis.target if basis.target else '', basis.file or ''] | select | join(' · ') }}{% else %}{{ year }}년 현황 엑셀을 아직 채우지 않았습니다{% endif %}</p>
+{% elif trend %}
+<div class="pa-trend" data-pa-trend aria-label="연도별 사업 수와 총 예산">
+  {% for t in trend %}<a class="pa-tr" href="/programs/admin?tab={{ tab }}&year={{ t.year }}"><span class="y">{{ t.year }}</span>
+    <span class="bars"><span class="b1" style="width:{{ t.wb }}%"></span><span class="b2" style="width:{{ t.wn }}%"></span></span>
+    <span class="t">{{ t.n }}개 · {{ t.eok }}</span></a>{% endfor %}
+  <p class="legend">위 막대 총 예산 · 아래 막대 사업 수 · 연도를 누르면 그해 표</p>
+</div>
+{% endif %}
+
+{% if rows and year %}
+<div class="pa-ytools">
+  <button type="button" class="pa-toggle" data-pa-group="org" aria-pressed="false">기관·기간</button>
+  <button type="button" class="pa-toggle" data-pa-group="money" aria-pressed="false">예산 내역</button>
+  <span class="pa-seg" role="group" aria-label="금액 단위">{% for k, lab in units %}<a href="/programs/admin?tab={{ tab }}&year={{ year }}&unit={{ k }}{% if show_hidden %}&hidden=1{% endif %}"{% if k == unit %} aria-current="true"{% endif %}>{{ lab }}</a>{% endfor %}</span>
+  <span class="sp"></span>
+  <a class="btn-ghost pa-btn" href="/programs/admin.xlsx?year={{ year }}&tab={{ tab }}" data-pa-xlsx><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>엑셀로 내려받기</a>
+</div>
+<div class="pa-wrap">
+<table class="pa-table pa-yt" data-pa-table data-pa-ytable>
+  <thead><tr><th class="c-seq">순</th><th class="c-st">구분</th><th>사업명</th><th class="c-org">지원기관</th>
+    <th class="c-org g-org">주관기관</th><th class="c-per g-org">총사업기간</th><th class="c-per g-org">당해 기간</th>
+    <th class="c-man">사업 책임자</th><th class="c-man">행정 담당자</th><th class="c-dept">업무진행부서</th>
+    {% for f in split %}<th class="c-m n g-money">{{ labels[f] }}</th>{% endfor %}<th class="c-m n">합계</th>
+    {% if any_action %}<th class="c-act"><span class="sr-only">메뉴</span></th>{% endif %}</tr></thead>
+  <tbody>
+  {% for r in rows %}{% set y = r.y %}
+  <tr class="{{ 'off' if r.hidden else '' }}{{ ' nodata' if not y.has else '' }}" data-pa-row data-key="{{ r.key }}" data-q="{{ ([r.name] + r.terms + [r.dept, r.l2, r.l3, y.manager, y.officer, y.dept]) | join(' ') | lower }}" data-dept="{{ r.depts | join('|') }}" data-l1="{{ r.l1 }}" data-m='{{ y.money_json | tojson }}'>
+    <td class="c-seq">{{ y.seq }}</td>
+    <td>{{ stchips(y.chips) }}</td>
+    <td class="name"><span class="l1" title="{{ r.name }}">{{ r.name }}{% if tab == 'all' and r.stage == 'past' %}<span class="pa-tag">지난 사업</span>{% endif %}</span>
+      <span class="l2">{% if y.tasks | length > 1 %}<button type="button" class="pa-plink" data-pa-tasks aria-expanded="false" data-n="{{ y.tasks | length }}">세부 과제 {{ y.tasks | length }}개 펼치기</button>{% elif y.tasks and y.tasks[0].sub and y.tasks[0].sub != r.name %}{{ y.tasks[0].sub }}{% elif not y.has %}그해 값 없음{% endif %}{% set lead = y.tasks | length > 1 or (y.tasks and y.tasks[0].sub and y.tasks[0].sub != r.name) or not y.has %}{% if r.source == '추가' %}{{ ' · ' if lead }}직접 더한 줄{% elif r.source == '엑셀' %}{{ ' · ' if lead }}엑셀에서 온 줄{% endif %}{% if r.hidden %} · 숨김{% endif %}</span></td>
+    <td><span class="l1" title="{{ y.ministry }}">{{ y.ministry or '—' }}</span></td>
+    <td class="g-org"><span class="l1" title="{{ y.agency }}">{{ y.agency or '—' }}</span></td>
+    <td class="g-org n"><span class="l1">{{ y.period or '—' }}</span></td>
+    <td class="g-org n"><span class="l1">{{ y.year_period or '—' }}</span></td>
+    <td><span class="l1" title="{{ y.manager }}">{{ y.manager or '—' }}</span>{% if r.v.has_account %}<span class="l2">계정 있음</span>{% endif %}</td>
+    <td><span class="l1" title="{{ y.officer }}">{{ y.officer or '—' }}</span></td>
+    <td><span class="l1" title="{{ y.dept }}">{{ y.dept or '—' }}</span>{% if y.account_dept %}<span class="l2">회계 {{ y.account_dept }}</span>{% endif %}</td>
+    {% for f in split %}<td class="n g-money">{{ y.mf[f] }}</td>{% endfor %}
+    <td class="n"{% if y.hand_budget %} title="직접 적은 값: {{ y.budget_text }}"{% endif %}>{{ y.mf.budget or '—' }}</td>
+    {% if any_action %}{{ menu(r) }}{% endif %}
+  </tr>
+  {% if y.tasks | length > 1 %}{% for t in y.tasks %}
+  <tr class="pa-task" data-pa-task hidden>
+    <td class="c-seq">{{ t.seq or '' }}</td>
+    <td>{{ stchips(t.chips) }}</td>
+    <td class="name"><span class="l1" title="{{ t.sub or t.name }}">{{ t.sub or t.name }}</span>{% if t.majors %}<span class="l2" title="{{ t.majors }}">참여 {{ t.majors }}</span>{% endif %}</td>
+    <td><span class="l1">{{ t.ministry or '' }}</span></td>
+    <td class="g-org"><span class="l1">{{ t.agency or '' }}</span></td>
+    <td class="g-org n"><span class="l1">{{ t.period or '' }}</span></td>
+    <td class="g-org n"><span class="l1">{{ t.year_period or '' }}</span></td>
+    <td><span class="l1">{{ t.manager or '' }}</span></td>
+    <td><span class="l1">{{ t.officer or '' }}</span></td>
+    <td><span class="l1">{{ t.dept or '' }}</span>{% if t.account_dept %}<span class="l2">회계 {{ t.account_dept }}</span>{% endif %}</td>
+    {% for f in split %}<td class="n g-money">{{ t.mf[f] }}</td>{% endfor %}
+    <td class="n">{{ t.mf.budget }}</td>
+    {% if any_action %}<td></td>{% endif %}
+  </tr>{% endfor %}{% endif %}
+  {% endfor %}
+  </tbody>
+  <tfoot><tr data-pa-foot><td></td><td></td><td>합계 <span class="muted" data-pa-foot-n>{{ ysum.n }}개 사업</span></td><td></td>
+    <td class="g-org"></td><td class="g-org"></td><td class="g-org"></td><td></td><td></td><td></td>
+    {% for f in split %}<td class="n g-money" data-foot="{{ f }}">{{ foot[f] }}</td>{% endfor %}<td class="n" data-foot="budget">{{ foot.budget }}</td>
+    {% if any_action %}<td></td>{% endif %}</tr></tfoot>
+</table>
+</div>
+{% elif rows %}
 <div class="pa-wrap">
 <table class="pa-table" data-pa-table>
   <colgroup><col class="c-cat hide-sm"><col class="c-name"><col class="c-dept hide-sm"><col class="c-per hide-sm"><col class="c-bud"><col class="c-man">
@@ -162,16 +291,7 @@
     <td>{% if r.plist %}<button type="button" class="pa-plink" data-pa-ptoggle aria-expanded="false">{{ r.projects }}개{% if r.archived %} · 보관 {{ r.archived }}{% endif %}</button>
       <ul class="pa-plist" hidden>{% for p in r.plist %}<li><a href="/project/{{ p.id }}">{{ p.name }}</a>{% if p.year %} <span class="muted">{{ p.year }}</span>{% endif %}{% if p.archived %} <span class="muted">보관</span>{% endif %}</li>{% endfor %}</ul>
       {% else %}<span class="muted">—</span>{% endif %}</td>
-    {% if any_action %}<td class="act">{% if r.can_link %}
-      <button type="button" class="pa-more" data-pa-more aria-haspopup="true" aria-expanded="false" aria-label="{{ r.name }} 메뉴">⋯</button>
-      <div class="pa-menu" role="menu" hidden>
-        {% if r.can_edit %}<button type="button" role="menuitem" data-modal-open="#paEdit" data-pa-edit='{{ r.edit | tojson }}'>편집</button>
-        {% elif r.can_assign %}<button type="button" role="menuitem" data-modal-open="#paEdit" data-pa-edit='{{ r.edit | tojson }}'>책임자 지정</button>{% endif %}
-        <button type="button" role="menuitem" data-modal-open="#paLink" data-pa-link='{{ {"key": r.key, "name": r.name, "plist": r.edit.plist, "can_new": r.can_new} | tojson }}'>프로젝트 연결</button>
-        {% if r.can_edit %}<form method="post" action="/programs/admin/hide"><input type="hidden" name="key" value="{{ r.key }}"><input type="hidden" name="hidden" value="{{ '0' if r.hidden else '1' }}">
-          <button type="submit" role="menuitem">{{ '다시 보이기' if r.hidden else '숨기기' }}</button></form>{% endif %}
-      </div>{% endif %}
-    </td>{% endif %}
+    {% if any_action %}{{ menu(r) }}{% endif %}
   </tr>
   {% endfor %}
   </tbody>
@@ -274,12 +394,12 @@
     <div class="modal-head"><h2 style="font-size:17px;">엑셀에서 채우기</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form id="paSheetForm" action="/programs/admin/sheet/preview" method="post" enctype="multipart/form-data" class="pa-form">
-      <p class="pa-empty">사업 현황 엑셀(한 줄에 사업 하나, 「사업명」 머리줄)을 읽어 연도별 예산·책임자 이름·부서·기간을 채웁니다. 미리보기를 보고 적용합니다.</p>
+      <p class="pa-empty">재정지원사업 현황 엑셀(「사업명」 머리줄, 한 줄에 세부 과제 하나)을 읽어 연도별 예산 6갈래·책임자·행정 담당자·부서·기간과 세부 과제 줄을 채웁니다. 미리보기를 보고 적용합니다.</p>
       {% if sheet_docs %}<div class="pa-docs" role="group" aria-label="문서함의 엑셀 문서">
         {% for d in sheet_docs %}<label><input type="checkbox" name="doc" value="{{ d.id }}">{{ d.name }}<span class="pa-sub">문서 {{ d.id }}</span></label>{% endfor %}
       </div>{% endif %}
       <label>문서 번호<input type="text" name="doc_ids" autocomplete="off" placeholder="쉼표로 여럿 · 예: 101, 102"></label>
-      <label>파일 올리기<input type="file" name="files" accept=".xlsx,.xlsm" multiple></label>
+      <label>파일 올리기<input type="file" name="files" accept=".xlsx,.xlsm,.xls,.htm,.html,.mht,.xml" multiple></label>
       <label style="flex-direction:row; align-items:center; gap:7px; color:var(--ink); font-size:13px;"><input type="checkbox" name="overwrite" value="1">손으로 고친 칸도 덮기</label>
     </form>
     <footer class="modal-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="paSheetForm">미리보기</button></footer>
@@ -292,24 +412,69 @@
   var tab = {{ tab | tojson }}, here = new URLSearchParams(location.search);
   var bar = document.querySelector('[data-pa-filter]');
   var rows = Array.prototype.slice.call(document.querySelectorAll('[data-pa-row]'));
-  var count = document.querySelector('[data-pa-count]'), csv = document.querySelector('[data-pa-csv]');
+  var count = document.querySelector('[data-pa-count]'), csv = document.querySelector('[data-pa-csv]'), xlsx = document.querySelector('[data-pa-xlsx]');
+  var year = {{ year | tojson }}, unitDiv = {{ unit_div | tojson }};
+  function money(n) {                                   // 화면 단위로 — 서버의 fmt_unit 과 같은 꼴
+    if (unitDiv === 1) return n.toLocaleString('en-US');
+    if (unitDiv === 1000) return Math.round(n / 1000).toLocaleString('en-US');
+    return (n / unitDiv).toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+  }
+  function tasksOf(tr) {
+    var out = [], x = tr.nextElementSibling;
+    while (x && x.hasAttribute('data-pa-task')) { out.push(x); x = x.nextElementSibling; }
+    return out;
+  }
   function apply() {
-    var q = bar.q.value.trim().toLowerCase(), d = bar.dept.value, l1 = bar.l1.value, n = 0;
+    var q = bar.q.value.trim().toLowerCase(), d = bar.dept.value, l1 = bar.l1.value, n = 0, sums = {}, nY = 0;
     rows.forEach(function (tr) {
       var on = (!q || tr.dataset.q.indexOf(q) >= 0) && (!d || tr.dataset.dept.split('|').indexOf(d) >= 0) && (!l1 || tr.dataset.l1 === l1);
       tr.hidden = !on; if (on) n++;
+      var b = tr.querySelector('[data-pa-tasks]'), open = b && b.getAttribute('aria-expanded') === 'true';
+      tasksOf(tr).forEach(function (t) { t.hidden = !(on && open); });
+      if (on && tr.dataset.m) {
+        var m = JSON.parse(tr.dataset.m), has = false;
+        Object.keys(m).forEach(function (k) { if (m[k] != null) { sums[k] = (sums[k] || 0) + m[k]; has = true; } });
+        if (!tr.classList.contains('nodata')) nY++;
+      }
     });
     count.textContent = n + '개';
+    document.querySelectorAll('[data-foot]').forEach(function (td) { td.textContent = money(sums[td.dataset.foot] || 0); });
+    var fn = document.querySelector('[data-pa-foot-n]'); if (fn) fn.textContent = nY + '개 사업';
     var p = new URLSearchParams();
     if (q) p.set('q', q); if (d) p.set('dept', d); if (l1) p.set('l1', l1);
     var hid = document.querySelector('[data-pa-hidden]'); if (hid && hid.checked) p.set('hidden', '1');
-    csv.href = '/programs/admin.csv' + (p.toString() ? '?' + p.toString() : '');
+    if (csv) csv.href = '/programs/admin.csv' + (p.toString() ? '?' + p.toString() : '');
+    if (xlsx) { p.set('year', year); p.set('tab', tab); xlsx.href = '/programs/admin.xlsx?' + p.toString(); }
   }
+  document.querySelectorAll('[data-pa-tasks]').forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = b.getAttribute('aria-expanded') !== 'true';
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      b.textContent = '세부 과제 ' + b.dataset.n + '개 ' + (open ? '접기' : '펼치기');
+      tasksOf(b.closest('tr')).forEach(function (t) { t.hidden = !open; });
+    });
+  });
+  var yt = document.querySelector('[data-pa-ytable]'), groups = {};
+  try { groups = JSON.parse(localStorage.getItem('pa.groups') || '{}') || {}; } catch (e) { groups = {}; }
+  document.querySelectorAll('[data-pa-group]').forEach(function (b) {
+    var g = b.dataset.paGroup;
+    function set(on) {
+      if (yt) yt.classList.toggle('show-' + g, on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    set(!!groups[g]);
+    b.addEventListener('click', function () {
+      groups[g] = b.getAttribute('aria-pressed') !== 'true'; set(groups[g]);
+      try { localStorage.setItem('pa.groups', JSON.stringify(groups)); } catch (e) {}
+    });
+  });
   bar.addEventListener('input', apply); bar.addEventListener('change', apply); apply();
   function go(extra) {
     var p = new URLSearchParams();
     if (tab !== 'current') p.set('tab', tab);
     if (here.get('hidden')) p.set('hidden', '1');
+    if (here.get('unit')) p.set('unit', here.get('unit'));
     Object.keys(extra).forEach(function (k) { if (extra[k]) p.set(k, extra[k]); else p.delete(k); });
     location.href = '/programs/admin' + (p.toString() ? '?' + p.toString() : '');
   }
@@ -355,14 +520,33 @@
       + '<dt>예산</dt><dd>' + esc(d.budget || '—') + '</dd><dt>책임자 이름</dt><dd>' + esc(d.manager || '—') + '</dd>'
       + '<dt>총괄 책임자</dt><dd>' + list(d.roles.heads) + '</dd><dt>사업 책임자</dt><dd>' + list(d.roles.leads) + '</dd>'
       + '<dt>행정 담당자</dt><dd>' + list(d.roles.clerks) + '</dd></dl>';
-    h += '<h3>연도별 값</h3>';
+    h += '<h3>연도별 예산 <span class="muted">(' + {{ unit_label | tojson }} + ')</span></h3>';
     if (d.years.length) {
-      h += '<table><thead><tr><th>연도</th><th>예산</th><th>책임자 이름</th><th>부서</th></tr></thead><tbody>';
+      var labs = {{ labels | tojson }}, split = {{ split | list | tojson }};
+      var used = split.filter(function (f) { return d.years.some(function (y) { return y.money && y.money[f]; }); });
+      h += '<table><thead><tr><th>연도</th>' + used.map(function (f) { return '<th class="n">' + esc(labs[f]) + '</th>'; }).join('') + '<th class="n">합계</th></tr></thead><tbody>';
       d.years.forEach(function (y) {
-        h += '<tr><td>' + esc(y.year) + '</td><td>' + esc(y.budget || '—') + '</td><td>' + esc(y.manager || '—') + '</td><td>' + esc(y.dept || '—')
-          + (y.sub ? '<div class="muted" style="font-size:11px;">' + esc(y.sub) + '</div>' : '') + '</td></tr>';
+        var m = y.money || {};
+        h += '<tr><td>' + esc(y.year) + (y.status ? ' <span class="muted" style="font-size:11px;">' + esc(y.status) + '</span>' : '') + '</td>'
+          + used.map(function (f) { return '<td class="n">' + (m[f] != null ? money(m[f]) : '') + '</td>'; }).join('')
+          + '<td class="n">' + (m.budget != null ? money(m.budget) : esc(y.budget || '—')) + '</td></tr>';
       });
       h += '</tbody></table>';
+      h += '<h3>책임자 · 행정 담당자</h3><table><thead><tr><th>연도</th><th>사업 책임자</th><th>행정 담당자</th><th>업무진행부서</th></tr></thead><tbody>';
+      d.years.forEach(function (y) {
+        var ch = y.changed || [];
+        function cell(f) { return esc(y[f] || '—') + (ch.indexOf(f) >= 0 ? '<span class="chg">바뀜</span>' : ''); }
+        h += '<tr><td>' + esc(y.year) + '</td><td>' + cell('manager') + '</td><td>' + cell('officer') + '</td><td>' + cell('dept') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+      var withTasks = d.years.filter(function (y) { return y.tasks && y.tasks.length; });
+      if (withTasks.length) {
+        var pick = withTasks.filter(function (y) { return String(y.year) === String(year); })[0] || withTasks[0];
+        h += '<h3>세부 과제</h3><div class="yrs" data-pa-tyears>' + withTasks.map(function (y) {
+          return '<button type="button" class="pa-toggle" data-y="' + esc(y.year) + '" aria-pressed="' + (y === pick ? 'true' : 'false') + '">' + esc(y.year) + ' · ' + y.tasks.length + '</button>';
+        }).join('') + '</div><div data-pa-tlist></div>';
+        side._tasks = withTasks; side._pick = pick.year;
+      }
       var src = d.years.map(function (y) { return y.from; }).filter(Boolean);
       if (src.length) h += '<p class="pa-empty" style="margin-top:6px; font-size:11.5px;">출처 ' + esc(Array.from(new Set(src)).join(', ')) + '</p>';
     } else h += '<p class="pa-empty">아직 없습니다</p>';
@@ -374,6 +558,21 @@
     h += d.docs.length ? '<ul>' + d.docs.map(function (x) { return '<li><a href="/doc/' + x.id + '">' + esc(x.name) + '</a></li>'; }).join('') + '</ul>' : '<p class="pa-empty">없습니다</p>';
     if (d.terms && d.terms.length > 1) h += '<h3>별칭</h3><p class="pa-empty">' + esc(d.terms.slice(1).join(', ')) + '</p>';
     body.innerHTML = h;
+    var ty = body.querySelector('[data-pa-tyears]');
+    if (ty) {
+      function showTasks(yr) {
+        var y = side._tasks.filter(function (x) { return String(x.year) === String(yr); })[0];
+        ty.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.y === String(yr) ? 'true' : 'false'); });
+        body.querySelector('[data-pa-tlist]').innerHTML = '<table><thead><tr><th>순</th><th>과제</th><th>책임자 · 담당</th><th class="n">합계</th></tr></thead><tbody>'
+          + y.tasks.map(function (t) {
+            return '<tr><td>' + esc(t.seq) + '</td><td>' + esc(t.sub || '—') + (t.status ? ' <span class="muted" style="font-size:11px;">' + esc(t.status) + '</span>' : '')
+              + (t.dept ? '<div class="muted" style="font-size:11px;">' + esc(t.dept) + '</div>' : '') + '</td><td>' + esc(t.manager || '—')
+              + (t.officer ? '<div class="muted" style="font-size:11px;">' + esc(t.officer) + '</div>' : '') + '</td><td class="n">' + (t.budget != null ? money(t.budget) : '') + '</td></tr>';
+          }).join('') + '</tbody></table>';
+      }
+      ty.querySelectorAll('button').forEach(function (b) { b.addEventListener('click', function () { showTasks(b.dataset.y); }); });
+      showTasks(side._pick);
+    }
   }
   function openSide(tr) {
     rows.forEach(function (x) { x.classList.toggle('sel', x === tr); });

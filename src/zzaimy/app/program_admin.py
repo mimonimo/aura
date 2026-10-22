@@ -14,11 +14,15 @@
 - 프로젝트 연결: 사업 줄에서 이미 있는 프로젝트를 잇거나(projects.program = 「<사업 열쇠>|<연도>」) 그 사업·연도로 새 프로젝트를 만든다.
   프로젝트 화면에서 사업을 고를 때는 choices() 목록과 program_value() 를 쓴다
 
-- 연도별 값: 줄마다 years{연도: {예산·책임자·주관 부서·기간 …}}. 연도를 고르면 그해 진행한 사업만, 칸은 그해 값으로 보인다.
-  사업 현황 엑셀(program_sheet)에서 채우거나 편집 창에서 손으로 적는다. 손으로 적은 칸(by_hand)은 엑셀 채우기가 기본으로 덮지 않는다
+- 연도별 값: 줄마다 years{연도: {예산 6갈래·합계·책임자·행정 담당자·부서·기간 …, tasks(세부 과제 줄), order(엑셀 줄 순서)}}.
+  사업 현황 엑셀(program_sheet)에서 채우거나 편집 창에서 손으로 적는다. 손으로 적은 칸(by_hand)은 엑셀 채우기가 기본으로 덮지 않는다.
+  해마다의 기준일·대상기간·원본 열 순서·합계 줄은 저장값의 sheets{연도} 에 둔다
+- 연도별 보기: 연도를 고르면 그해 진행한 사업만, 엑셀과 같은 순서·묶음의 표(구분·순·사업명·지원기관·책임자·행정 담당자·업무부서·합계,
+  「기관·기간」「예산 내역」 열 묶음은 켜고 끔, 금액 단위 원·천원·백만원, 맨 아래 합계 줄)와 위쪽 요약 띠. 전체 연도 보기에는 연도별 막대
 - 책임자 이름: 엑셀에 적힌 사람 이름(글). 계정 지정 칸(총괄 책임자·사업 책임자·행정 담당자)과 다르며, 이름이 계정 이름과 같으면 「계정 있음」만 표시한다
 
-화면: GET /programs/admin · 줄 상세 GET /programs/admin/row · 내려받기 GET /programs/admin.csv · 저장 POST /programs/admin/save ·
+화면: GET /programs/admin · 줄 상세 GET /programs/admin/row · 내려받기 GET /programs/admin.csv · 연도 엑셀 GET /programs/admin.xlsx ·
+저장 POST /programs/admin/save ·
 숨기기 POST /programs/admin/hide · 프로젝트 잇기·끊기 POST /programs/admin/link · 새 프로젝트 POST /programs/admin/new-project
 엑셀에서 채우기(관리자): 미리보기 POST /programs/admin/sheet/preview · 적용 POST /programs/admin/sheet/apply
 """
@@ -70,7 +74,10 @@ def load_store(data_dir=None) -> dict:
         got = json.loads((_dir(data_dir) / STORE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         got = {}
-    return {"rows": dict(got.get("rows") or {}), "added": dict(got.get("added") or {})}
+    out = {"rows": dict(got.get("rows") or {}), "added": dict(got.get("added") or {})}
+    if got.get("sheets"):                                  # 해마다의 엑셀 정보(기준일·대상기간·열 순서·합계 줄)
+        out["sheets"] = dict(got["sheets"])
+    return out
 
 
 def save_store(store: dict, data_dir=None) -> None:
@@ -357,8 +364,8 @@ def sheet_docs(db, limit: int = 40) -> list[dict]:
         return []
     try:
         with db._conn() as conn:
-            got = conn.execute("SELECT id, filename, stored_path FROM documents WHERE stored_path LIKE ? OR stored_path LIKE ?"
-                               " ORDER BY id DESC", ("%.xlsx", "%.xlsm")).fetchall()
+            got = conn.execute("SELECT id, filename, stored_path FROM documents WHERE " + " OR ".join("stored_path LIKE ?" for _ in SHEET_EXT)
+                               + " ORDER BY id DESC", tuple("%" + e for e in SHEET_EXT)).fetchall()
     except Exception:
         return []
     out = []
@@ -370,14 +377,12 @@ def sheet_docs(db, limit: int = 40) -> list[dict]:
     return out
 
 
-def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str = "", ok: str = "", err: str = "",
-          sheet: dict | None = None):
-    """사업 관리 — 세 갈래: 전체 / 현행 사업(올해 진행 중·기간 모름 포함, 고치고 지정) / 지난 사업(끝난 사업, 확인용 읽기).
-    연도를 고르면 그해 진행한 사업만, 칸은 그해 값으로 보인다."""
+def _select(request: Request, tab: str = "current", year: str = "", hidden: str = "") -> dict:
+    """화면·내려받기가 같이 쓰는 줄 고르기 — 권한 범위(scope) 안의 줄, 갈래(tab), 연도(그해 진행한 사업만)."""
     scope, user, acct = _scope_or_403(request)
     st = request.app.state
-    accounts = getattr(st, "accounts", None) or {}
-    rows = merged_rows(st.data_dir)
+    store = load_store(st.data_dir)
+    rows = merged_rows(st.data_dir, store=store)
     link_projects(st.db, rows)
     if scope != "all":
         trim_projects(request, rows, user, acct)        # 볼 수 없는 프로젝트 이름은 보이지 않게
@@ -391,16 +396,92 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
         shown = shown + [r for r in visible_rows(rows, "all", user, acct) if r["stage"] == "past" and r["key"] not in have]
     n_all = len(shown)
     n_past = sum(1 for r in shown if r["stage"] == "past")
-    n_cur = n_all - n_past
     in_tab = [r for r in shown if tab == "all" or (r["stage"] == "past") == (tab == "past")]
     ys: set[int] = set()
     for r in in_tab:                                       # 이 갈래 사업이 진행한 연도들 — 연도 고르기 목록
         a, b = row_span(r)
         if a:
             ys.update(range(max(a, 1990), min(b or this_year, this_year + 5) + 1))
-    years = sorted(ys, reverse=True)
     sel = int(year) if str(year).isdigit() else (this_year if tab == "current" else 0)
-    shown = [r for r in in_tab if not sel or runs_in(r, sel) or (tab == "current" and r["stage"] == "unknown")]
+    picked = [r for r in in_tab if not sel or runs_in(r, sel) or (tab == "current" and r["stage"] == "unknown")]
+    if sel:                                                # 엑셀과 같은 순서 — 그해 값이 있는 줄을 엑셀 줄 순서로, 나머지는 뒤에
+        def order(r):
+            yv = r["years"].get(str(sel)) or {}
+            return (not yv, int(yv.get("order") or 10 ** 6) if yv else 0, r["name"])
+        picked.sort(key=order)
+    return {"scope": scope, "user": user, "acct": acct, "store": store, "rows": rows, "in_tab": in_tab, "shown": picked,
+            "tab": tab, "sel": sel, "this_year": this_year, "years": sorted(ys, reverse=True),
+            "n_all": n_all, "n_past": n_past, "n_cur": n_all - n_past}
+
+
+def _unit(unit: str) -> str:
+    return unit if unit in program_sheet.UNITS else "won"
+
+
+def year_cells(r: dict, year: int, unit: str = "won") -> dict:
+    """연도별 보기의 한 줄 — 그해 값(없으면 줄 값), 예산 6갈래·합계(원과 고른 단위 글), 세부 과제 줄."""
+    yv = (r.get("years") or {}).get(str(year)) or {}
+    m = program_sheet.year_money(yv)
+    fmt = lambda d: {f: program_sheet.fmt_unit(d.get(f), unit) for f in program_sheet.MONEY}
+    tasks = []
+    for t in yv.get("tasks") or []:
+        tm = {f: t.get(f + "_won") for f in program_sheet.MONEY}
+        tasks.append({**{k: v for k, v in t.items() if not k.endswith("_won")}, "m": tm, "mf": fmt(tm),
+                      "chips": program_sheet.chips(t.get("status") or "")})
+    pick = lambda f: yv.get(f) or ("" if yv else r.get(f) or "")
+    return {"has": bool(yv), "seq": str(yv.get("seq") or ""), "chips": program_sheet.chips(yv.get("status") or ""),
+            "ministry": yv.get("ministry") or "", "agency": yv.get("agency") or "", "period": yv.get("period") or r.get("period") or "",
+            "year_period": yv.get("year_period") or "", "manager": pick("manager"), "officer": yv.get("officer") or "",
+            "dept": yv.get("dept") or r.get("dept") or "", "account_dept": yv.get("account_dept") or "", "majors": yv.get("majors") or "",
+            "m": m, "mf": fmt(m), "tasks": tasks, "hand_budget": "budget" in (yv.get("by_hand") or []),
+            "budget_text": yv.get("budget") or ""}
+
+
+def _share(a: int, b: int) -> str:
+    return f"{a / b * 100:.1f}%" if b else "—"
+
+
+def year_summary(picked: list[dict], in_tab: list[dict], year: int, unit: str) -> dict:
+    """요약 띠 — 그해 값이 있는 사업 수, 총 예산, 국고 비중, 신규·종료 수, 지난해 대비 증감(같은 권한·갈래 안의 줄로)."""
+    cur = [r for r in picked if r["y"]["has"]]
+    total = sum(r["y"]["m"]["budget"] or 0 for r in cur)
+    nat = sum(r["y"]["m"]["national"] or 0 for r in cur)
+    prev = [r for r in in_tab if str(year - 1) in (r.get("years") or {})]
+    p_total = sum(program_sheet.year_money(r["years"][str(year - 1)])["budget"] or 0 for r in prev)
+    delta = total - p_total
+    f = lambda n: program_sheet.fmt_unit(n, unit)
+    return {"n": len(cur), "total": f(total), "national_share": _share(nat, total),
+            "n_new": sum(1 for r in cur if "신규" in r["y"]["chips"]), "n_end": sum(1 for r in cur if "종료" in r["y"]["chips"]),
+            "prev": bool(prev), "prev_n": len(prev), "dn": len(cur) - len(prev),
+            "delta": ("+" if delta > 0 else "") + f(delta), "delta_pct": (f"{delta / p_total * 100:+.1f}%" if p_total else ""),
+            "unit": program_sheet.UNITS[unit][1]}
+
+
+def year_trend(in_tab: list[dict]) -> list[dict]:
+    """전체 연도 보기의 연도별 막대 — 해마다 그해 값이 있는 사업 수와 총 예산(막대 길이는 가장 큰 해 대비 %)."""
+    agg: dict[int, list[int]] = {}
+    for r in in_tab:
+        for y, v in (r.get("years") or {}).items():
+            if str(y).isdigit():
+                a = agg.setdefault(int(y), [0, 0])
+                a[0] += 1
+                a[1] += program_sheet.year_money(v)["budget"] or 0
+    if not agg:
+        return []
+    mn, mb = max(a[0] for a in agg.values()) or 1, max(a[1] for a in agg.values()) or 1
+    return [{"year": y, "n": n, "total": b, "eok": f"{b / 10 ** 8:,.1f}억 원", "wn": round(n / mn * 100), "wb": round(b / mb * 100)}
+            for y, (n, b) in sorted(agg.items())]
+
+
+def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str = "", ok: str = "", err: str = "",
+          sheet: dict | None = None, unit: str = "won"):
+    """사업 관리 — 세 갈래: 전체 / 현행 사업(올해 진행 중·기간 모름 포함, 고치고 지정) / 지난 사업(끝난 사업, 확인용 읽기).
+    연도를 고르면 그해 진행한 사업만, 엑셀과 같은 순서·묶음의 연도별 표로 보인다."""
+    S = _select(request, tab, year, hidden)
+    scope, user, acct, rows, shown, sel, tab = S["scope"], S["user"], S["acct"], S["rows"], S["shown"], S["sel"], S["tab"]
+    unit = _unit(unit)
+    st = request.app.state
+    accounts = getattr(st, "accounts", None) or {}
     heads, leads, clerks = _choices(accounts, scope, acct)
     may_create = grades.can_create_project(acct)
     name_of = {u: ((a.get("name") or "").strip() or u) for u, a in accounts.items()}
@@ -408,6 +489,9 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
     for r in shown:
         r["v"] = view(r, sel)
         r["v"]["has_account"] = any(p in people for p in _SPLIT.split(r["v"]["manager"]) if p)
+        if sel:
+            r["y"] = year_cells(r, sel, unit)
+            r["y"]["money_json"] = {f: r["y"]["m"][f] for f in ("budget", *program_sheet.SPLIT)}
         live = r["stage"] != "past"
         r["can_edit"] = scope == "all" and live
         r["can_assign"] = scope in ("all", "dept") and live and (scope == "all" or r in visible_rows([r], "dept", user, acct))
@@ -417,6 +501,12 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
         r["edit"] = {k: r.get(k) for k in ("key", *TEXT_FIELDS, *ROLES, "source")}
         r["edit"]["plist"] = [p for p in r.get("plist", []) if not p["archived"]]
         r["edit"]["years"] = {y: {f: v.get(f, "") for f in YEAR_EDIT} for y, v in r["years"].items()}
+    ysum, foot, basis = None, {}, {}
+    if sel:
+        ysum = year_summary(shown, S["in_tab"], sel, unit)
+        for f in ("budget", *program_sheet.SPLIT):
+            foot[f] = program_sheet.fmt_unit(sum(r["y"]["m"][f] or 0 for r in shown), unit)
+        basis = dict((S["store"].get("sheets") or {}).get(str(sel)) or {})
     from zzaimy.app.program_tree import ORDER
     l1s = [x for x in ORDER if any(r["l1"] == x for r in shown)] + sorted({r["l1"] for r in shown if r["l1"] and r["l1"] not in ORDER})
     depts = sorted({d for r in shown for d in r["depts"]})
@@ -424,16 +514,51 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
         "rows": shown, "scope": scope, "can_edit": scope == "all" and tab != "past",
         "can_assign": scope in ("all", "dept") and tab != "past", "any_action": any(r["can_link"] for r in shown),
         "clerk_choices": clerks, "my_projects": _linkable_projects(st.db, scope, user) if any(r["can_link"] for r in shown) else [],
-        "tab": tab, "year": sel, "years": years, "this_year": this_year, "n_all": n_all, "n_cur": n_cur, "n_past": n_past,
-        "head_choices": heads, "lead_choices": leads, "name_of": name_of, "l1s": l1s, "depts": depts,
+        "tab": tab, "year": sel, "years": S["years"], "this_year": S["this_year"], "n_all": S["n_all"], "n_cur": S["n_cur"],
+        "n_past": S["n_past"], "head_choices": heads, "lead_choices": leads, "name_of": name_of, "l1s": l1s, "depts": depts,
         "show_hidden": bool(hidden), "n_hidden": sum(1 for r in rows if r["hidden"]) if scope == "all" else 0,
         "sheet_docs": sheet_docs(st.db) if scope == "all" else [], "sheet": sheet, "labels": program_sheet.LABELS,
-        "ok": ok, "err": err, "me_dept": acct.get("dept") or ""}))
+        "unit": unit, "units": [(k, v[1]) for k, v in program_sheet.UNITS.items()], "unit_div": program_sheet.UNITS[unit][0],
+        "unit_label": program_sheet.UNITS[unit][1],
+        "ysum": ysum, "foot": foot, "basis": basis, "trend": [] if sel else year_trend(S["in_tab"]),
+        "split": program_sheet.SPLIT, "ok": ok, "err": err, "me_dept": acct.get("dept") or ""}))
 
 
 @router.get("/programs/admin", response_class=HTMLResponse)
-def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = "", tab: str = "current", year: str = ""):
-    return _page(request, tab=tab, year=year, hidden=hidden, ok=ok, err=err)
+def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = "", tab: str = "current", year: str = "",
+                   unit: str = "won"):
+    return _page(request, tab=tab, year=year, hidden=hidden, ok=ok, err=err, unit=unit)
+
+
+def year_lines(rows: list[dict], year: int) -> list[dict]:
+    """연도 엑셀에 쓸 줄 — 그해 값이 있는 사업마다 세부 과제 줄(없으면 사업 줄 하나), 화면과 같은 순서."""
+    out = []
+    for r in rows:
+        yv = (r.get("years") or {}).get(str(year)) or {}
+        if not yv:
+            continue
+        if yv.get("tasks"):
+            out.extend({"name": r["name"], **t} for t in yv["tasks"])
+            continue
+        m = program_sheet.year_money(yv)
+        out.append({"name": r["name"], **{f: yv.get(f) or "" for f in program_sheet.TASK_TEXT if f != "name"},
+                    **{f + "_won": m[f] for f in program_sheet.MONEY if m[f] is not None}})
+    return out
+
+
+@router.get("/programs/admin.xlsx")
+def programs_admin_xlsx(request: Request, year: str = "", tab: str = "current", hidden: str = "", q: str = "", dept: str = "",
+                        l1: str = ""):
+    """연도 보기의 엑셀 — 원본 현황 표와 같은 머리줄·열 순서, 맨 아래 합계 줄. 화면과 같은 권한·갈래·거르기."""
+    if not re.fullmatch(r"(19|20)\d{2}", year or ""):
+        raise HTTPException(400, "연도를 골라 주세요")
+    S = _select(request, tab, year, hidden)
+    rows = _filter(S["shown"], q, dept, l1)
+    meta = (S["store"].get("sheets") or {}).get(year)
+    data = program_sheet.write_book(int(year), year_lines(rows, int(year)), meta)
+    fname = quote(f"재정지원사업현황({year}).xlsx")
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
 
 
 @router.get("/programs/admin.csv")
@@ -582,6 +707,7 @@ def programs_admin_hide(request: Request, key: str = Form(""), hidden: str = For
 # ---------------------------------------------------------------- 엑셀에서 채우기(관리자)
 
 _TOKEN = re.compile(r"[0-9a-f]{16}")
+SHEET_EXT = (".xlsx", ".xlsm", ".xls", ".htm", ".html", ".mht", ".mhtml", ".xml")   # 꼴은 파일 앞머리로 다시 가린다(program_sheet.file_kind)
 MAX_UPLOAD = 20 * 1024 * 1024
 
 
@@ -620,7 +746,7 @@ async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path,
         p = Path(str((d or {}).get("stored_path") or ""))
         if not d:
             errs.append(f"문서 {i}: 없습니다")
-        elif p.suffix.lower() not in (".xlsx", ".xlsm") or not p.is_file():
+        elif p.suffix.lower() not in SHEET_EXT or not p.is_file():
             errs.append(f"문서 {i}: 엑셀 원본 파일을 열 수 없습니다")
         else:
             out.append((p, f"{d.get('filename') or p.name}"))
@@ -634,8 +760,8 @@ async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path,
                 old.unlink(missing_ok=True)
         for n, f in enumerate(ups):
             name = Path(f.filename).name
-            if Path(name).suffix.lower() not in (".xlsx", ".xlsm"):
-                errs.append(f"{name}: 엑셀(.xlsx) 파일만 읽습니다")
+            if Path(name).suffix.lower() not in SHEET_EXT or name.startswith("~$"):
+                errs.append(f"{name}: 엑셀 파일(.xlsx·.xls·웹 페이지로 저장한 .html)만 읽습니다")
                 continue
             data = await f.read()
             if len(data) > MAX_UPLOAD:
@@ -652,20 +778,25 @@ async def _sources(request: Request, form, token: str) -> tuple[list[tuple[Path,
 
 def _plan(request: Request, form, sources, overwrite: bool, user: str):
     st = request.app.state
-    items, errs = [], []
+    items, metas, errs = [], [], []
     for p, label in sources:
         try:
-            got = program_sheet.read_book(p, hint=label)
+            got, meta = program_sheet.read_sheets(p, hint=label)
+        except ValueError as e:                            # 옛 xls·잠금 파일 같은 꼴 안내
+            errs.append(f"{label}: {e}")
+            continue
         except Exception as e:                             # 깨진 파일·암호 걸린 파일
             errs.append(f"{label}: 읽지 못했습니다({type(e).__name__})")
             continue
         if not got:
             errs.append(f"{label}: 「사업명」 머리줄이나 연도를 찾지 못했습니다")
         items.extend(got)
+        metas.extend(meta)
     store = load_store(st.data_dir)
     ledger = load_ledger(st.data_dir)
     rows = merged_rows(st.data_dir, ledger=ledger, store=store)
-    summary, new_store = program_sheet.plan(items, rows, store, overwrite=overwrite, not_program=not_program_keys(ledger), by=user)
+    summary, new_store = program_sheet.plan(items, rows, store, overwrite=overwrite, not_program=not_program_keys(ledger), by=user,
+                                            sheets=metas)
     return summary, new_store, errs
 
 
@@ -818,9 +949,17 @@ def programs_admin_row(request: Request, key: str = ""):
                 docs = [d for d in docs if _ap2.visible(st.db.get_document(d["id"]) or {}, **vv)]
         except Exception:
             docs = []
-    years = [{"year": y, **{f: v.get(f, "") for f in ("budget", "manager", "dept", "period", "sub", "status", "from")},
-              "by_hand": list(v.get("by_hand") or [])}
-             for y, v in sorted(r["years"].items(), key=lambda kv: kv[0], reverse=True)]
+    years = []
+    for y, v in sorted(r["years"].items(), key=lambda kv: kv[0], reverse=True):
+        m = program_sheet.year_money(v)
+        years.append({"year": y, **{f: v.get(f, "") for f in ("budget", "manager", "officer", "dept", "account_dept", "period",
+                                                                "year_period", "sub", "status", "ministry", "agency", "from")},
+                      "money": {f: m[f] for f in ("budget", *program_sheet.SPLIT)},
+                      "tasks": [{f: t.get(f, "") for f in ("seq", "sub", "manager", "officer", "dept", "status", "year_period")}
+                                | {"budget": t.get("budget_won")} for t in v.get("tasks") or []],
+                      "by_hand": list(v.get("by_hand") or [])})
+    for a, b in zip(years, years[1:]):                     # 책임자·행정 담당자가 지난해와 달라졌나(앞 해 값이 있을 때만)
+        a["changed"] = [f for f in ("manager", "officer", "dept") if a.get(f) and b.get(f) and a[f] != b[f]]
     latest = years[0] if years else {}                     # 위쪽 요약도 표와 같게 — 빈칸이면 가장 최근 해의 값
     pick = lambda f: r.get(f) or latest.get(f, "")
     return {"key": r["key"], "name": r["name"], "l1": r["l1"], "l2": r["l2"], "l3": r["l3"], "dept": pick("dept"),
