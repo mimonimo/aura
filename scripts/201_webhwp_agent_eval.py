@@ -93,7 +93,7 @@ def run_case(case: dict, tmp: Path) -> dict:
             did = db.add_document(name, str(dst), doc_type="grant", project_id=pid, owner="zzaimy")
             proc.process(db, did, dst, defer_review=True)
             if kind:
-                db.update_document(did, kind=kind)
+                db.set_kind(did, kind)
         print(f"  프로젝트 문서 {len(case['docs'])}건 처리", flush=True)
     c = TestClient(app)
     r = c.post("/login", data={"username": "zzaimy", "pw": "eval-pass-123"}, follow_redirects=False)
