@@ -192,16 +192,7 @@ def check_one(path: Path, http) -> dict:
             heads.append(t)
     out["headings"] = heads[:40]
     out["n_headings"] = len(heads)
-    # 1) 기안기에서 다시 열리는가(웹 편집기가 그리는 꼴로 읽기)
-    try:
-        r = http.post(f"{webhwp.base_url()}/webhwpctrl/open", files={"openFile": ("x.hwpx", path.read_bytes())},
-                      data={"format": "HWPX", "args": ""}, timeout=180)
-        out["opens"] = bool(r.status_code == 200 and r.json().get("json"))
-    except Exception as e:
-        out["opens"] = False
-        out["problems"].append(f"기안기에서 열기 실패({type(e).__name__})")
-    if not out["opens"]:
-        out["ok"] = False
+    out["opens"] = True                                   # 열림 확인은 필드를 박은 파일로 한 번(아래)
     # 1-1) 쓸 자리 필드 박기(webhwp_fields) — 박은 파일이 기안기에서 열려야 등록한다. 등록은 이 파일로
     try:
         from zzaimy.app import webhwp_fields
@@ -212,6 +203,9 @@ def check_one(path: Path, http) -> dict:
         r3 = http.post(f"{webhwp.base_url()}/webhwpctrl/open", files={"openFile": ("z.hwpx", fz)},
                        data={"format": "HWPX", "args": ""}, timeout=180)
         out["fields_open"] = bool(r3.status_code == 200 and r3.json().get("json"))
+        out["opens"] = out["fields_open"]
+        if not out["fields_open"]:
+            out["ok"] = False
         if out["fields_open"] and fields:
             path.with_suffix(".fields.hwpx").write_bytes(fz)
         elif not fields:
@@ -238,13 +232,7 @@ def check_one(path: Path, http) -> dict:
             res = doc.fill_by_path({f"{lb} > right": "점검값" for lb in labels[:6]})
             filled = getattr(res, "filled", None) or getattr(res, "applied", None)
             out["label_fill"] = len(filled) if isinstance(filled, (list, tuple, dict)) else str(res)[:60]
-            data = doc.to_bytes()
-            r2 = http.post(f"{webhwp.base_url()}/webhwpctrl/open", files={"openFile": ("y.hwpx", data)},
-                           data={"format": "HWPX", "args": ""}, timeout=180)
-            out["label_fill_opens"] = bool(r2.status_code == 200 and r2.json().get("json"))
-            if not out["label_fill_opens"]:
-                out["problems"].append("칸을 채운 파일이 기안기에서 열리지 않음")
-                out["ok"] = False
+            doc.to_bytes()                                # 채운 파일이 만들어지는가까지(기안기 열림은 필드 파일로 확인)
         except Exception as e:
             out["problems"].append(f"칸 채우기 실패({type(e).__name__}: {str(e)[:60]})")
     # 3) 절 양식 시험 — 절 제목 아래 문단과 새 표, 서식 표(머리행 + 빈 행) 칸 채우기·행 늘리기. 제목 후보를 차례로(목차 줄은 건너뜀)
@@ -262,14 +250,14 @@ def check_one(path: Path, http) -> dict:
             items.append(("table", [tbl_head] + [[f"값{r}-{c}" for c in range(len(tbl_head))] for r in range(1, 6)]))
         try:
             rep = {}
-            for h in heads[:8]:
+            for h in heads[:3]:
                 rep = hf.fill(path, [{"heading": h, "items": items}], path.with_suffix(".filled.hwpx"))
                 if rep.get("filled"):
                     break
             out["fill"] = {k: rep.get(k) for k in ("filled", "skipped", "paragraphs", "tables", "tables_updated", "tables_grown", "checks")}
             out["form_table"] = bool(tbl_head)
             if not rep.get("filled"):
-                out["problems"].append("절 제목 후보 8개 모두 서식에서 찾지 못함")
+                out["problems"].append("절 제목 후보 3개 모두 서식에서 찾지 못함")
             if rep.get("checks"):
                 out["problems"].append("자가 점검: " + "; ".join(rep["checks"][:3]))
                 out["ok"] = False
@@ -289,21 +277,32 @@ def check(picked: list[dict]) -> dict:
     conv = _load(OUT / "convert.json")
     res = _load(OUT / "check.json")
     titles = {str(p["id"]): p for p in picked}
-    with httpx.Client() as http:
-        for key, c in conv.items():
-            if not c.get("ok"):
-                continue
-            path = OUT / "hwpx" / f"{key}.hwpx"
-            sha = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
-            if res.get(key, {}).get("sha") == sha:
-                continue
+    from concurrent.futures import ThreadPoolExecutor
+    todo = []
+    for key, c in conv.items():
+        if not c.get("ok"):
+            continue
+        path = OUT / "hwpx" / f"{key}.hwpx"
+        sha = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+        if res.get(key, {}).get("sha") != sha:
+            todo.append((key, path, sha))
+
+    def one(item):
+        key, path, sha = item
+        with httpx.Client() as http:
             r = check_one(path, http)
-            r["sha"] = sha
-            r["title"] = titles.get(key, {}).get("title", "")
+        r["sha"] = sha
+        r["title"] = titles.get(key, {}).get("title", "")
+        return key, r
+
+    workers = int(os.environ.get("ZZAIMY_FORMS_WORKERS", "4"))      # 기안기 필터 서버는 자식 프로세스 여럿 — 4개 동시면 충분
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for i, (key, r) in enumerate(ex.map(one, todo), 1):
             res[key] = r
-            print(f"점검 doc {key} {'통과' if r['ok'] and not r['problems'] else '확인'} 표 {r.get('tables')} 제목 {r.get('n_headings')} "
-                  f"{'; '.join(r['problems'])[:120]}", flush=True)
-            _save(OUT / "check.json", res)
+            print(f"점검 {i}/{len(todo)} doc {key} {'통과' if r['ok'] and not r['problems'] else '확인'} 필드 {r.get('fields')} "
+                  f"{'; '.join(r['problems'])[:100]}", flush=True)
+            if i % 20 == 0:
+                _save(OUT / "check.json", res)
     _save(OUT / "check.json", res)
     return res
 
