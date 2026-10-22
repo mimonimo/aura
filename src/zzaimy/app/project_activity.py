@@ -45,7 +45,7 @@ def may_view(request: Request, proj: dict | None) -> bool:
     accounts = getattr(st, "accounts", {}) or {}
     user = _me(request)
     owner_dept = ((accounts.get(proj.get("owner") or "") or {}).get("dept") or "").strip()
-    return grades.can_view_activity(proj, user=user, account=accounts.get(user), lead=_pa.lead(st.db, proj),
+    return grades.can_view_activity(proj, user=user, account=accounts.get(user), lead=_pa.lead(st.db, proj, accounts),
                                     project_dept=owner_dept)
 
 

@@ -46,10 +46,18 @@ def set_color(db, project_id: int, key: str) -> str:
     return key
 
 
-def lead(db, project: dict) -> str:
-    """사업 책임자 계정 — 정하지 않았으면 만든 사람."""
+def lead(db, project: dict, accounts: dict | None = None) -> str:
+    """사업 책임자 계정 — 정하지 않았으면 만든 사람. accounts 를 주면 지금도 「함께 작업」 대상(활성 계정)인지 다시 본다 —
+    공유에서 빠졌거나 부서를 옮겼거나 계정이 꺼진 사람의 옛 지정이 권한(진행 현황 등)으로 남지 않게 만든 사람으로 돌린다."""
+    owner = project.get("owner") or ""
     v = (db.get_setting(f"project_lead:{int(project['id'])}", "") or "").strip()
-    return v or (project.get("owner") or "")
+    if not v:
+        return owner
+    if accounts is not None:
+        a = accounts.get(v) or {}
+        if not a or not a.get("active", True) or v not in lead_choices(project, shares(db, project), accounts):
+            return owner
+    return v
 
 
 def lead_choices(project: dict, share: dict, accounts: dict) -> list[str]:

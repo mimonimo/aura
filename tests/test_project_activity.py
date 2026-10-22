@@ -83,7 +83,7 @@ def test_people_and_requests_per_person(tmp_path):
     assert d["requests"][-1]["head"] == "사업 개요 절을 써 줘\n예산은 빼고"
     page = _client(app, "kim").get(f"/project/{pid}/activity").text
     assert "진행 현황" in page and f'href="/chat/{ids["s1"]}"' in page and 'class="project-tabs pa-tabs"' in page
-    assert f'href="/project/{pid}?tab=chat"' in page and 'data-pa-tab="usage"' in page
+    assert f'href="/project/{pid}"' in page and 'data-pa-tab="usage"' in page
 
 
 def test_usage_totals_per_answer_and_legacy(tmp_path):
@@ -145,3 +145,30 @@ def test_head_sees_department_project_page_and_chats(tmp_path):
     assert {p["user"]: p["requests"] for p in d["people"]}.get("kim") == 2                      # 공유 대상이 아니어도 비공개 아닌 대화는 센다
     assert all("숨긴" not in r["text"] for r in d["requests"])
     assert boss.get(f"/project/{pid}/activity").status_code == 200
+
+
+def test_stale_lead_falls_back_to_owner():
+    """공유에서 빠진·꺼진 계정의 옛 책임자 지정은 권한으로 남지 않는다(만든 사람으로 돌아감)."""
+    from zzaimy.app import project_access as pa
+
+    class DB:
+        def __init__(self):
+            self.s = {}
+
+        def get_setting(self, k, d=""):
+            return self.s.get(k, d)
+
+        def set_setting(self, k, v):
+            self.s[k] = v
+
+    db, proj = DB(), {"id": 7, "owner": "kim"}
+    accounts = {"kim": {"role": "staff", "dept": "기획처"}, "lee": {"role": "staff", "dept": "기획처"}}
+    pa.set_shares(db, 7, "shared", [{"to": "user:lee", "level": "edit"}])
+    choices = pa.lead_choices(proj, pa.shares(db, proj), accounts)
+    pa.set_lead(db, proj, "lee", choices)
+    assert pa.lead(db, proj, accounts) == "lee"
+    pa.set_shares(db, 7, "shared", [{"to": "user:lee", "level": "view"}])      # 참조로 낮춤
+    assert pa.lead(db, proj, accounts) == "kim"
+    pa.set_shares(db, 7, "shared", [{"to": "user:lee", "level": "edit"}])
+    accounts["lee"]["active"] = False                                                         # 계정 끔
+    assert pa.lead(db, proj, accounts) == "kim"

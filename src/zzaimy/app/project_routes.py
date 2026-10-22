@@ -422,7 +422,7 @@ def project_page(request: Request, project_id: int, refq: str = "", tab: str = "
     work_docs.sort(key=lambda w: (w["created_at"] or "").replace("T", " "), reverse=True)
     from zzaimy.app import project_access as pa
     accounts = request.app.state.accounts or {}
-    lead = pa.lead(db, proj)
+    lead = pa.lead(db, proj, accounts)
     _nm = lambda u: ((accounts.get(u) or {}).get("name") or "").strip() or u
     from zzaimy.app import grades
     owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()

@@ -44,3 +44,14 @@ def test_chat_page_loads_shared_finder(tmp_path):
     _, c = _app(tmp_path)
     page = c.get("/chat").text
     assert "/static/aura-finder.js" in page
+
+
+def test_quick_search_lists_titles_by_kind(tmp_path):
+    app, c = _app(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AI 교육 혁신 사업", owner="zzaimy")
+    j = c.get("/api/quick-search", params={"q": "교육 혁신"}).json()
+    assert any(p["id"] == pid for p in j["projects"]) and set(j) >= {"chats", "projects", "docs", "hwp"}
+    assert c.get("/api/quick-search").json()["projects"] == []
+    page = c.get("/chat").text
+    assert "data-quick-search" in page and "/static/quick-search.js" in page
