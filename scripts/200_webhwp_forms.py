@@ -202,6 +202,26 @@ def check_one(path: Path, http) -> dict:
         out["problems"].append(f"기안기에서 열기 실패({type(e).__name__})")
     if not out["opens"]:
         out["ok"] = False
+    # 1-1) 쓸 자리 필드 박기(webhwp_fields) — 박은 파일이 기안기에서 열려야 등록한다. 등록은 이 파일로
+    try:
+        from zzaimy.app import webhwp_fields
+        fz, fields = webhwp_fields.fieldize(path.read_bytes())
+        out["fields"] = len(fields)
+        out["field_kinds"] = dict(Counter(f["kind"] for f in fields))
+        out["field_names"] = [f["name"] for f in fields][:30]
+        r3 = http.post(f"{webhwp.base_url()}/webhwpctrl/open", files={"openFile": ("z.hwpx", fz)},
+                       data={"format": "HWPX", "args": ""}, timeout=180)
+        out["fields_open"] = bool(r3.status_code == 200 and r3.json().get("json"))
+        if out["fields_open"] and fields:
+            path.with_suffix(".fields.hwpx").write_bytes(fz)
+        elif not fields:
+            out["problems"].append("쓸 자리(절·칸·목록표)를 찾지 못해 필드를 박지 못함")
+        else:
+            out["problems"].append("필드를 박은 파일이 기안기에서 열리지 않음")
+            out["ok"] = False
+    except Exception as e:
+        out["problems"].append(f"필드 박기 실패({type(e).__name__}: {str(e)[:60]})")
+        out["ok"] = False
     # 2) 칸 양식 시험 — 라벨 칸 오른쪽 빈 칸(값 칸)을 채워 기안기에서 다시 열리는가(신청서·서명부·이력서 같은 칸만 있는 양식)
     labels = []
     for tr in re.findall(r"<hp:tr\b.*?</hp:tr>", xml, re.S):
@@ -308,6 +328,7 @@ def report(picked: list[dict]) -> None:
         state = "통과" if r["ok"] and not r["problems"] else ("확인 필요" if r["ok"] else "문제")
         cnt[state] += 1
         cnt[r.get("kind", "?")] += 1
+        cnt["필드 있음" if r.get("fields") else "필드 없음"] += 1
         if state != "통과":
             lines.append(f"- {state} · doc {k} {p['title']} (표 {r.get('tables')}, 제목 {r.get('n_headings')}) — {'; '.join(r['problems'])}")
     head = ["", f"묶음 {len(picked)}개 · " + " · ".join(f"{k} {v}" for k, v in cnt.most_common()), ""]
@@ -328,7 +349,10 @@ def register(db, picked: list[dict]) -> None:
         r = res.get(k)
         if not r or not r.get("ok"):
             continue
-        data = (OUT / "hwpx" / f"{k}.hwpx").read_bytes()
+        fz = OUT / "hwpx" / f"{k}.fields.hwpx"
+        if not fz.exists():                              # 쓸 자리 필드가 없는 양식은 기안기 작업 양식으로 두지 않는다
+            continue
+        data = fz.read_bytes()
         sha = hashlib.sha256(data).hexdigest()[:16]
         if placed.get(k, {}).get("sha") == sha and webhwp.get(db, int(placed[k]["fid"])):
             continue

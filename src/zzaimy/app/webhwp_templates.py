@@ -25,7 +25,7 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-BUILD = 2          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
+BUILD = 3          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
 
 
 def fingerprint(spec: dict) -> str:
@@ -91,7 +91,9 @@ def build(spec: dict) -> bytes:
             doc.add_paragraph(b["p"], style="바탕글")
         elif "table" in b:
             _table(doc, b["table"])
-    return doc.to_bytes()
+    # 쓸 자리(절 다음 빈 문단·라벨 칸·목록표)에 누름틀 — 기안기에서 사람·에이전트가 같은 이름으로 짚는다(webhwp_fields)
+    from zzaimy.app import webhwp_fields
+    return webhwp_fields.fieldize(doc.to_bytes())[0]
 
 
 def ensure_all(db, base: Path, *, owner: str = "zzaimy") -> list[dict]:

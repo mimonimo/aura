@@ -1,0 +1,212 @@
+"""한글 양식에 누름틀 필드 박기 — 기안기에서 사람과 에이전트가 「어디에 쓸지」를 같은 이름으로 짚게 한다.
+
+왜(10-22). 학교 양식은 서식 전체가 큰 테두리 표 안에 들어 있거나(절 제목이 표 칸 안), 번호 절 없이 라벨 칸만 있는 신청서·서명부가 많다.
+문단 위치로 절을 찾는 채우기(hwpx_fill)는 이런 양식을 놓친다. 쓸 자리에 이름 붙은 누름틀을 미리 박아 두면
+기안기 API(MoveToField·PutFieldText·Insert)로 표 안 제목 아래든 칸이든 같은 방법으로 쓴다.
+
+필드 이름(사람이 읽는 꼴, 같은 이름이 겹치면 뒤에 「#2」):
+- 「절:<제목>」 — 번호 붙은 절 제목 문단(표 칸 안 포함) 바로 다음에 새 빈 문단을 넣고 그 안에 필드. 본문·표·그림은 여기에 끼워 넣는다.
+- 「칸:<라벨>」 — 같은 행에서 라벨 칸 바로 오른쪽의 빈 칸 첫 문단.
+- 「표<n>:<머리 칸>」 — 머리행 + 빈 행으로 된 목록표의 첫 빈 행 칸(행 늘리기는 기안기 표 동작으로).
+필드 XML 꼴은 기안기가 저장한 것을 그대로 따른다(CLICK_HERE, Direction = 안내 글). 이미 필드가 있는 양식은 그 필드를 그대로 두고 더하지 않는다.
+"""
+from __future__ import annotations
+
+import io
+import random
+import re
+import zipfile
+from xml.sax.saxutils import escape
+
+from zzaimy.app import section_context as sc
+
+_SEC = re.compile(r"Contents/section\d+\.xml$")
+_LEAF_P = re.compile(r"<hp:p\b[^>]*>(?:(?!<hp:p\b).)*?</hp:p>", re.S)
+_TC = re.compile(r"<hp:tc\b.*?</hp:tc>", re.S)
+_TR = re.compile(r"<hp:tr\b.*?</hp:tr>", re.S)
+_TBL_OPEN = re.compile(r"<hp:tbl\b")
+
+
+def _text(frag: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", frag)).strip()
+
+
+_PLACEHOLDER = re.compile(r"[ㅇ○◯0OoＯ\-/·.,:()\s원년월일시분명건개%~]*")
+
+
+def _blankish(t: str) -> bool:
+    """비었거나 예시 글자(ㅇㅇ·○○·000-00·0000. 00. 00.)만 있는 칸 — 쓸 자리로 본다."""
+    return not t or bool(_PLACEHOLDER.fullmatch(t)) and bool(re.search(r"[ㅇ○◯0]", t))
+
+
+def _wrap_placeholder(p: str, fxml_begin: str, fxml_end: str) -> str | None:
+    """예시 글자가 한 run 의 한 <hp:t> 에만 있을 때 그 글자를 필드로 감싼다(필드에 쓰면 예시 글자가 바뀐다)."""
+    ts = re.findall(r"<hp:t>[^<]*</hp:t>", p)
+    if len(ts) != 1:
+        return None
+    return p.replace(ts[0], f"{fxml_begin}{ts[0]}{fxml_end}", 1)
+
+
+def _is_heading(t: str) -> bool:
+    num, title = sc.split_number(t)
+    return bool(num) and 2 <= len(title) <= 40 and not re.search(r"\d{4}\.\s*\d", t)
+
+
+class _Ids:
+    def __init__(self, xmls: list[str]):
+        used = set(re.findall(r'\bid="(\d+)"', "".join(xmls)))
+        self.used = used
+
+    def new(self) -> str:
+        while True:
+            v = str(random.randint(1_000_000_000, 2_147_000_000))
+            if v not in self.used:
+                self.used.add(v)
+                return v
+
+
+def field_parts(name: str, hint: str, ids: _Ids) -> tuple[str, str]:
+    """필드 여는 조각과 닫는 조각 — 사이에 글(<hp:t>)을 둔다."""
+    whole = field_xml(name, hint, ids)
+    a, b = whole.split("<hp:t/>", 1)
+    return a, b
+
+
+def field_xml(name: str, hint: str, ids: _Ids) -> str:
+    bid, fid = ids.new(), ids.new()
+    hint = hint[:60]
+    cmd = f"Clickhere:set:{len(hint) + 42}:Direction:wstring:{len(hint)}:{hint} HelpState:wstring:0:  "
+    return (f'<hp:ctrl><hp:fieldBegin id="{bid}" type="CLICK_HERE" name="{escape(name, {chr(34): "&quot;"})}" editable="1" dirty="0" '
+            f'zorder="-1" fieldid="{fid}"><hp:parameters cnt="3" name=""><hp:integerParam name="Prop">9</hp:integerParam>'
+            f'<hp:stringParam name="Command" xml:space="preserve">{escape(cmd)}</hp:stringParam>'
+            f'<hp:stringParam name="Direction">{escape(hint)}</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl>'
+            f'<hp:t/><hp:ctrl><hp:fieldEnd beginIDRef="{bid}" fieldid="{fid}"/></hp:ctrl>')
+
+
+def _inject_into_para(p: str, fxml: str) -> str:
+    """빈 문단의 첫 run 안에 필드를 넣는다(run 이 없거나 닫힌 꼴이면 run 을 만든다)."""
+    m = re.search(r"<hp:run\b([^>]*?)/>", p)
+    if m and p.find("<hp:run") == m.start():
+        return p[:m.start()] + f"<hp:run{m.group(1)}>{fxml}</hp:run>" + p[m.end():]
+    m = re.search(r"<hp:run\b[^>]*>", p)
+    if m:
+        return p[:m.end()] + fxml + p[m.end():]
+    m = re.search(r"<hp:p\b[^>]*>", p)
+    return p[:m.end()] + f'<hp:run charPrIDRef="0">{fxml}</hp:run>' + p[m.end():]
+
+
+def _empty_para_after(p: str, fxml: str, ids: _Ids) -> str:
+    """제목 문단과 같은 문단 모양의 새 빈 문단(글자 모양은 제목의 첫 run) + 필드."""
+    head = re.match(r"<hp:p\b[^>]*>", p).group(0)
+    head = re.sub(r'\bid="\d+"', f'id="{ids.new()}"', head, count=1)
+    head = re.sub(r'\bpageBreak="1"', 'pageBreak="0"', head)
+    cp = re.search(r'<hp:run\b[^>]*charPrIDRef="(\d+)"', p)
+    return f'{head}<hp:run charPrIDRef="{cp.group(1) if cp else 0}">{fxml}</hp:run></hp:p>'
+
+
+class _Names:
+    def __init__(self):
+        self.seen: dict[str, int] = {}
+
+    def __call__(self, base: str) -> str:
+        base = re.sub(r"\s+", " ", base).strip()[:40] or "칸"
+        n = self.seen.get(base, 0) + 1
+        self.seen[base] = n
+        return base if n == 1 else f"{base}#{n}"
+
+
+def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
+    out: list[dict] = []
+    # 1) 표 — 라벨 칸 오른쪽 빈 칸, 목록표(머리행 + 빈 행) 첫 빈 행
+    def do_table_rows(tbl_xml: str, tno: int) -> str:
+        rows = _TR.findall(tbl_xml)
+        texts = [[_text(c) for c in _TC.findall(r)] for r in rows]
+        # 목록표 — 머리행(짧은 이름 칸)과 그 아래 빈 행 또는 예시 행(ㅇㅇ·○○·000 이 든 행)
+        def example_row(r):
+            return all(_blankish(c) for c in r) or any(re.search(r"ㅇㅇ|○○|◯◯|000", c) for c in r)
+        listlike = (len(rows) >= 2 and len(texts[0]) >= 2 and all(texts[0]) and all(len(t) <= 12 for t in texts[0])
+                    and not any(_blankish(t) and t for t in texts[0]) and all(example_row(r) for r in texts[1:]))
+        new_rows = []
+        for ri, r in enumerate(rows):
+            cells = _TC.findall(r)
+            ctexts = texts[ri]
+            r2 = r
+            for ci, c in enumerate(cells):
+                if "<hp:tbl" in c or "fieldBegin" in c:
+                    continue
+                target = None
+                if listlike and ri == 1:
+                    target = (names(f"표{tno}:{texts[0][ci] if ci < len(texts[0]) else ci + 1}"), texts[0][ci] if ci < len(texts[0]) else "")
+                elif not ctexts[ci] and ci > 0 and ctexts[ci - 1] and 1 < len(ctexts[ci - 1]) <= 15 and not listlike:
+                    target = (names(f"칸:{ctexts[ci - 1]}"), ctexts[ci - 1])
+                if target:
+                    pm = _LEAF_P.search(c)
+                    if pm:
+                        para = pm.group(0)
+                        if ctexts[ci]:                       # 예시 글자(ㅇㅇㅇ) 칸 — 그 글자를 필드로 감싼다
+                            a, b = field_parts(target[0], f"{target[1]} 입력", ids)
+                            np_ = _wrap_placeholder(para, a, b)
+                            if np_ is None:
+                                continue
+                        else:
+                            np_ = _inject_into_para(para, field_xml(target[0], f"{target[1]} 입력", ids))
+                        c2 = c[:pm.start()] + np_ + c[pm.end():]
+                        r2 = r2.replace(c, c2, 1)
+                        out.append({"name": target[0], "kind": "칸" if target[0].startswith("칸:") else "표"})
+            new_rows.append((r, r2))
+        for a, b in new_rows:
+            if a != b:
+                tbl_xml = tbl_xml.replace(a, b, 1)
+        return tbl_xml
+
+    # 가장 안쪽 표부터(표 안의 표) — 중첩 없는 표 조각만 골라 바꾼다
+    tno = 0
+    pos = 0
+    pieces = []
+    for m in re.finditer(r"<hp:tbl\b(?:(?!<hp:tbl\b).)*?</hp:tbl>", xml, re.S):
+        tno += 1
+        pieces.append((m.start(), m.end(), do_table_rows(m.group(0), tno)))
+    if pieces:
+        buf = []
+        for a, b, rep in pieces:
+            buf.append(xml[pos:a])
+            buf.append(rep)
+            pos = b
+        buf.append(xml[pos:])
+        xml = "".join(buf)
+    # 2) 절 제목 — 번호 붙은 제목 문단(어디에 있든) 다음에 빈 문단 + 필드
+    def head_sub(m: re.Match) -> str:
+        p = m.group(0)
+        t = _text(p)
+        if "fieldBegin" in p or "<hp:tbl" in p or not _is_heading(t):
+            return p
+        name = names(f"절:{t}")
+        out.append({"name": name, "kind": "절"})
+        return p + _empty_para_after(p, field_xml(name, "본문 입력", ids), ids)
+    xml = _LEAF_P.sub(head_sub, xml)
+    return xml, out
+
+
+def fieldize(data: bytes) -> tuple[bytes, list[dict]]:
+    """hwpx 바이트 → 필드를 박은 hwpx 바이트와 필드 목록. 이미 필드가 있으면 손대지 않는다(그 목록만)."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    names_ = zin.namelist()
+    secs = [n for n in names_ if _SEC.search(n)]
+    xmls = {n: zin.read(n).decode("utf-8") for n in secs}
+    existing = re.findall(r'<hp:fieldBegin\b[^>]*type="CLICK_HERE"[^>]*name="([^"]*)"', "".join(xmls.values()))
+    if existing:
+        return data, [{"name": n, "kind": "기존"} for n in existing]
+    ids, names = _Ids(list(xmls.values())), _Names()
+    fields: list[dict] = []
+    new = {}
+    for n in sorted(secs, key=lambda s: int(re.search(r"(\d+)", s.rsplit("/", 1)[-1]).group(1))):
+        x, f = fieldize_xml(xmls[n], ids, names)
+        new[n] = re.sub(r"<hp:linesegarray>.*?</hp:linesegarray>", "", x, flags=re.S)   # 줄 배치 정보는 편집기가 다시 계산
+        fields += f
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zout:
+        for info in zin.infolist():
+            body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
+            ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
+            zout.writestr(info, body, compress_type=ct)
+    return buf.getvalue(), fields
