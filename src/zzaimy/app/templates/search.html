@@ -20,12 +20,20 @@
   .sr-group { scroll-margin-top:120px; }
   .sr-more { margin:12px 0 0; font-size:12.5px; }
   .sr-empty { color:var(--muted); font-size:12.5px; margin:0; }
+  .sr-box { display:flex; align-items:center; gap:8px; max-width:640px; margin:0 0 18px; padding:8px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  .sr-box:focus-within { border-color:#b9c8dc; box-shadow:0 0 0 3px #1b3b7514; }
+  .sr-box input { flex:1; min-width:0; border:0; outline:0; box-shadow:none; background:none; padding:0; font:inherit; font-size:14px; }
+  .sr-box iconify-icon { color:#8a96a6; }
 </style>
+<form class="sr-box" action="/search" method="get" role="search" aria-label="문서·대화 검색">
+  <iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
+  <input type="search" name="q" placeholder="문서 제목·본문, 프로젝트, 대화에서 찾기" value="{{ q }}" aria-label="찾을 말">
+</form>
 
 {% if not q %}
 <h1 class="sr-head">검색</h1>
 <div class="card"><div class="card-in">
-  <p class="sr-empty">검색창에 찾을 말을 입력하세요. 문서 제목·본문, 프로젝트, 대화를 한 번에 찾습니다.</p>
+  <p class="sr-empty">찾을 말을 입력하세요. 문서 제목·본문, 프로젝트, 대화를 한 번에 찾습니다. 어느 화면에서나 Ctrl+K 로 빠르게 찾을 수 있습니다.</p>
 </div></div>
 {% else %}
 <h1 class="sr-head">「{{ q }}」 검색 결과</h1>

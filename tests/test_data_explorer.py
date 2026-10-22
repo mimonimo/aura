@@ -350,13 +350,13 @@ def test_ledger_tab_shows_raw_values_and_points_to_archive(client, tmp_path):
     assert 'title="가상사업/폴더/아주긴이름의계획서.hwp"' in page and 'title="가상사업/대표.hwp"' in page
     assert ">규칙으로 확정<" in page and '장부 코드 auto"' in page                  # 분류 상태는 코드 대신 이름(코드는 툴팁)
     assert "2031-01-02 03:04" in page and "처리 실패: 시험" in page
-    top = page.split('class="searchbox side-searchbox"', 1)[1].split("</form>", 1)[0]
-    assert 'value=""' in top                                   # 화면 안 검색어가 상단 전역 검색창에 들어가지 않는다
+    top = page.split('class="side-searchbox"', 1)[1].split("</a>", 1)[0]
+    assert "가상" not in top and "data-quick-search" in top      # 사이드바 검색은 빠른 찾기 창을 여는 단추 — 화면 안 검색어가 들어가지 않는다
     assert "사본·부산물" in client.get("/dev/db?tab=archive&q=반입").text
     assert dx.archive_tab(db, q='가상 계획서')['total'] == 1 and dx.archive_tab(db, q='100%')['total'] == 0
 
 
 def test_global_search_box_keeps_query_only_on_search_page(client):
     page = client.get("/search?q=가상검색어").text
-    top = page.split('class="searchbox side-searchbox"', 1)[1].split("</form>", 1)[0]
-    assert 'value="가상검색어"' in top
+    top = page.split('class="side-searchbox"', 1)[1].split("</a>", 1)[0]
+    assert "data-quick-search" in top and 'value="가상검색어"' in page      # 검색어는 검색 화면 안 입력칸에 남는다
