@@ -754,6 +754,8 @@ def create_app(
     app.include_router(webhwp_router)
     from zzaimy.app.webhwp_export_routes import router as webhwp_export_router   # 기안기 내려받기 형식·다른 이름으로 저장·이름 바꾸기
     app.include_router(webhwp_export_router)
+    from zzaimy.app.webhwp_live_routes import router as webhwp_live_router   # 열린 기안기 명령 줄·페이지 설정 값(webhwp_edit_ops)
+    app.include_router(webhwp_live_router)
     from zzaimy.app.finder_routes import router as finder_router            # 공용 디렉터리 창(부서 폴더·드라이브 고르기·전체 찾기)
     app.include_router(finder_router)
     # 사업 중심 그래프(온톨로지 v3, ADR-0048) — kg_nodes·kg_edges 를 사업 하나 기준으로 펼친다
@@ -2640,6 +2642,9 @@ def create_app(
                                "label_fill, outer: 바깥 선 mm, inner: 안쪽 선 mm, head_bottom: 실선|이중선, font_pt, head_bold: true|false, "
                                "head_align·body_align: 가운데|왼쪽|오른쪽|양쪽}", hw.style, writes=True),
             ]
+            from zzaimy.app import webhwp_edit_ops as _weo           # 기안기 편집 도구(페이지 설정·표 만들기·표 고치기·쪽 번호·…·열린 기안기 명령)
+            tools += _weo.doc_tools(hw, doc_agent.Tool)
+            _TOOL_LABELS.update(_weo.LABELS)
         if hw is not None:
             # 절 본문 관문(webhwp_agent.check_body)의 근거 — 이번 요청 글, 찾은 근거, 담당자가 이 대화에 쓴 글. 작업 메모는 맥락일 뿐 근거가 아니다
             hw.client = client
