@@ -59,6 +59,12 @@ def run_case(case: dict, tmp: Path) -> dict:
 
     d = tmp / case["name"]
     d.mkdir(parents=True, exist_ok=True)
+    # 모델 연결 설정은 앱 데이터 폴더의 llm_connections.json 에서 읽는다 — 임시 폴더에 운영 설정을 복사(0600, 끝나면 지운다)
+    import shutil
+    src_conn = ROOT / "data" / "platform" / "llm_connections.json"
+    if src_conn.exists():
+        shutil.copy(src_conn, d / "llm_connections.json")
+        os.chmod(d / "llm_connections.json", 0o600)
     app = create_app(db_path=d / "eval.db", inbox_dir=d / "inbox", processor=DocumentProcessor(), drafter=SliceDrafter(),
                      password="eval-pass-123")
     acc = app.state.accounts["zzaimy"]
@@ -133,6 +139,8 @@ def main() -> int:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     (out / f"{stamp}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"결과 {out / (stamp + '.json')}", flush=True)
+    import shutil
+    shutil.rmtree(tmp, ignore_errors=True)                     # 임시 DB·복사한 연결 설정을 지운다
     print("EVAL_DONE", flush=True)
     return 0
 
