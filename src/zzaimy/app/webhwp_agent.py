@@ -2,6 +2,8 @@
 
 도구(판단은 에이전트, 코드는 실행·관문·기록 — agent-not-pipeline):
 - hwp_forms {query}: 쓸 양식 후보 — 이 프로젝트의 한글 양식(사업이 준 서식)이 먼저, 그다음 한글 문서함의 잠긴 양식(공문·국고 사업·학교 양식).
+- hwp_form_create {purpose, kind, must, title, cover}: 맞는 양식이 없을 때만 — 같은 모델이 목적에 맞는 양식을 설계하고 코드가 공통 양식과 같은
+  빌더로 만들어 작업본으로 연다(app/webhwp_form_create). 이 대화에서 hwp_forms 로 먼저 찾아본 뒤에만 돈다.
 - hwp_start {form, title}: 고른 양식으로 작업본을 부서 디렉터리(「작업/<프로젝트>」)에 만들고 이 대화에 잇는다. 한글 원본은 hwpx 로 바꾸고 쓸 자리 필드를 박는다.
 - hwp_fields {}: 작업본의 필드와 채움 상태(빈 필드가 먼저).
 - hwp_fill {values: {필드: 값}}: 칸·표 필드 값 넣기.
@@ -101,8 +103,12 @@ def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
     if evidence is not None:
         _, bad = mask_unsupported(text, [e for e in evidence if e])
         if bad:
+            # 막힌 수치가 든 줄을 함께 보여 준다 — 같은 본문을 되풀이하지 않고 그 줄만 고치게(일정이면 기간 안의 날짜를 지어내지 않고 단계 이름으로)
+            lines = [ln.strip()[:70] for ln in (text or "").splitlines() if any(b in ln for b in bad[:8])][:3]
             return ("근거에 없는 수치: " + ", ".join(dict.fromkeys(bad[:8]))
-                    + " — 찾은 근거·담당자가 알려 준 값에 있는 수치만 쓴다. 모르는 값은 빼고 「확인 필요」 로 남긴다.")
+                    + (" (든 줄: " + " / ".join(lines) + ")" if lines else "")
+                    + " — 찾은 근거·담당자가 알려 준 값에 있는 수치만 쓴다. 그 줄만 고쳐 다시 쓴다: 모르는 값은 「확인 필요」 로 바꾸고, "
+                      "일정은 담당자가 준 시작·끝만 날짜로 쓰고 그 사이는 단계 이름(준비·운영·평가 등)으로 나눈다. 같은 본문을 그대로 다시 내지 않는다.")
     return None
 
 
@@ -158,6 +164,9 @@ class HwpTools:
         self.client = None                          # 문맥 한도를 읽을 연결(관문의 길이 상한) — None 이면 기본 한도
         self.delegating = False                     # 절 맡기기 도구가 켜졌는가(상태 글·직접 쓰기 관문의 안내)
         self.need_notes: dict[str, int] = {}        # 요구 요소 빠짐을 알린 횟수(필드마다 한 번만 — 고쳐 쓰기 1회)
+        self.form_search = None                     # (query) -> [{"title","text"}] — 양식 설계 재료(공고의 작성·평가 항목) 찾기
+        self.request = ""                           # 이번 요청 글(양식 설계의 담당자 인용)
+        self.doc_visible = None                     # (doc) -> bool — 참고 양식으로 볼 반입 문서의 열람 범위(없으면 반입 문서는 참고하지 않음)
 
     def limit(self) -> int:
         from zzaimy.app import llm_budget
@@ -180,7 +189,8 @@ class HwpTools:
         fid = self.fid()
         if not fid:
             return ["편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 없음. 담당자가 문서를 쓰자고 하면 hwp_forms 로 양식을 고르고 hwp_start 로 만든다"
-                    "(프로젝트에 사업이 준 한글 양식이 있으면 그것을 쓴다. 후보가 여럿이라 정하기 어렵거나 담당자가 정할 일이면 ask_user 로 묻는다)."]
+                    "(프로젝트에 사업이 준 한글 양식이 있으면 그것을 쓴다. 후보가 여럿이라 정하기 어렵거나 담당자가 정할 일이면 ask_user 로 묻는다). "
+                    "찾아본 양식 가운데 목적에 맞는 것이 없으면 hwp_form_create 로 양식부터 설계해 만든다."]
         f = webhwp.get(self.db, fid)
         fl = self._fields()
         empty = [x["name"] for x in fl if not x["text"]]
@@ -195,6 +205,9 @@ class HwpTools:
         if empty:
             lines.append("작성 순서: ① 담당자가 알려 준 값·프로젝트 정보(프로젝트 이름은 사업명 칸)로 채울 수 있는 칸을 hwp_fill 한 번에 모두 채운다 "
                          "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
+        lines.append("쓰기·고쳐 쓰기 요청(「채워」「계속 써」「더 구체적으로」「표로」)이면 이번 요청에서 먼저 쓴다: 지금 있는 근거·담당자 값으로 hwp_write(또는 "
+                     "delegate_section)를 하고, 모르는 값은 본문에 「확인 필요」 로 남긴 뒤 묻는다 — 값이 모자라다는 까닭으로 쓰지 않고 묻기만 하고 끝내지 않는다. "
+                     "고쳐 쓰기는 같은 field 로 다시 쓰면 앞 내용이 바뀐다(「N번 절」 은 필드 이름의 번호로 짚는다).")
         if self.delegating:
             lines += self.budget_lines(fl)
         lines.append("모양 고치기(페이지 설정·표 만들기·행·열·칸 합치기·쪽 번호·머리말·글꼴·각주·그림·찾아 바꾸기)는 hwp_page_setup·hwp_table_* 같은 "
@@ -258,7 +271,9 @@ class HwpTools:
 
     # ── 도구 ──
     def forms(self, a: dict) -> str:
+        from zzaimy.app import webhwp_form_create
         q = str(a.get("query") or "").strip()
+        webhwp_form_create.mark_seen(self.db, self.sid)
         try:                                                # 공통 양식이 아직 없으면 먼저 만든다(정의가 같으면 그대로 — 빠르다)
             from zzaimy.app import webhwp_templates
             webhwp_templates.ensure_all(self.db, self.base)
@@ -282,7 +297,14 @@ class HwpTools:
             scored.append((-hit, pri, name, f"tpl:{r['id']} 「{name}」({group})"))
         scored.sort()
         out += [x[3] for x in scored[:15]]
-        return ("양식 후보(form 에 앞의 id 를 쓴다):\n" + "\n".join(out)) if out else "맞는 양식이 없다 — 검색어를 바꾸거나 담당자에게 묻는다."
+        return (("양식 후보(form 에 앞의 id 를 쓴다 — 목적에 맞는 것이 없으면 hwp_form_create 로 새로 설계한다):\n" + "\n".join(out)) if out
+                else "맞는 양식이 없다 — 검색어를 바꿔 한 번 더 찾거나, 목적에 맞는 양식을 hwp_form_create 로 설계해 만든다.")
+
+    def form_create(self, a: dict) -> str:
+        """맞는 양식이 없을 때 양식 설계·만들기(app/webhwp_form_create) — 설계는 같은 모델, 관문·빌드·기록은 코드."""
+        from zzaimy.app import webhwp_form_create
+        return webhwp_form_create.FormCreator(self.client, self.db, self.sid, self, self.request, search=self.form_search,
+                                              visible=self.doc_visible).run(a)
 
     def start(self, a: dict) -> str:
         from zzaimy.app import webhwp_convert

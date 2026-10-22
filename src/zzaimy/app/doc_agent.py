@@ -474,6 +474,7 @@ def _step_label(name: str, args: dict) -> str:
               "rewrite_section": lambda a: f"절 다시 쓰는 중 — 「{a.get('section', '')[:30]}」",
               "review_section": lambda a: f"절 검토 중 — 「{a.get('section', '')[:30]}」",
               "create_document": lambda a: "문서 만드는 중",
+              "hwp_form_create": lambda a: f"양식 설계 중 — 「{str(a.get('title') or a.get('kind') or '')[:30]}」(참고 양식 찾기 → 설계 → 검토)",
               "open_project_document": lambda a: f"작업본 여는 중 — 「{str(a.get('document', ''))[:30]}」",
               "read_document": lambda a: f"그림 쪽 판독 중 — 「{str(a.get('document', ''))[:30]}」",
               "remember_values": lambda a: "알려 준 값 기억하는 중",

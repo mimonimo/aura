@@ -2091,7 +2091,7 @@ def create_app(
     _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
 
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
-                    "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
+                    "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_form_create": "양식 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
                     "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기",
                     "delegate_section": "절 맡기기"}
 
@@ -2238,7 +2238,8 @@ def create_app(
             targets = asks_in(query)
             if targets and all(_asks.norm_kind(x.get("kind")) == _asks.DECISION for x in targets):
                 raise doc_agent.Retry("이 검색어는 결정 값(" + ", ".join(f"「{x['name']}」" for x in targets)
-                                      + ")을 찾는다 — 결정 값은 담당자가 정하므로 자료에서 찾지 않는다. ask_user 로 묻거나 다른 걸음을 고른다.")
+                                      + ")을 찾는다 — 결정 값은 담당자가 정하므로 자료에서 찾지 않는다. 쓰기·고쳐 쓰기 요청이면 그 값 자리만 「확인 필요」 로 두고 "
+                                      "지금 근거로 절을 쓴다(hwp_write·delegate_section). 아니면 ask_user 로 묻거나 다른 걸음을 고른다.")
             if targets and all(x["name"] in gave_up for x in targets):
                 raise doc_agent.Retry("이 값(" + ", ".join(f"「{x['name']}」" for x in targets)
                                       + ")은 이번 요청에서 세 번 찾아도 자료에 없었다 — 더 찾지 말고 다른 값으로 넘어가거나 ask_user·finish.")
@@ -2621,12 +2622,14 @@ def create_app(
         ]
         if hw is not None:
             # 한글 기안기 — 구글 문서 쓰기 도구를 한글 도구로 바꾼다(찾기·읽기·값 기억·묻기·답하기·마치기는 같다)
+            from zzaimy.app import webhwp_form_create as _wfc       # 맞는 양식이 없을 때 양식 설계·만들기
             _docs_only = {"read_section", "create_document", "write_section", "open_project_document", "rewrite_section",
                           "review_section", "edit_document", "remove_guide_boxes", "export_hwp", "new_work_copy"}
             tools = [t_ for t_ in tools if t_.name not in _docs_only] + [
                 doc_agent.Tool("hwp_forms", "쓸 한글 양식 찾기 — 이 프로젝트의 한글 양식(사업이 준 서식)이 먼저, 그다음 공문·국고 사업·학교 양식. args {query: 문서 갈래 낱말}", hw.forms),
                 doc_agent.Tool("hwp_start", "고른 양식으로 한글 작업본을 만들어 이 대화에 잇기(담당자가 문서를 쓰자고 했을 때). args {form: hwp_forms 의 id, title: 문서 제목}",
                                hw.start, writes=True),
+                doc_agent.Tool("hwp_form_create", _wfc.TOOL_DESC, hw.form_create, writes=True),
                 doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태 보기. args {}", hw.fields),
                 doc_agent.Tool("hwp_fill", "칸·표 필드에 짧은 값 넣기(이름·날짜·금액·한 줄 요약 — 근거로 찾았거나 담당자가 알려 준 값만, 양식 예시 글자 ○○·000 은 넣지 않음). "
                                "여러 줄 글·표가 들어갈 큰 칸은 hwp_write 로. args {values: {필드 이름: 값}}", hw.fill, writes=True),
@@ -2648,7 +2651,9 @@ def create_app(
             _TOOL_LABELS.update(_weo.LABELS)
         if hw is not None:
             # 절 본문 관문(webhwp_agent.check_body)의 근거 — 이번 요청 글, 찾은 근거, 담당자가 이 대화에 쓴 글. 작업 메모는 맥락일 뿐 근거가 아니다
-            hw.client = client
+            hw.client, hw.request = client, q
+            hw.doc_visible = lambda d_: _viewer_sees(session_id, d_)
+            hw.form_search = lambda query_: list(mats().search_project(query_) or [])[:3] + (list(mats().search_criteria(query_) or [])[:3] if crit_ids else [])
             hw.evidence = lambda: [q, *notes, *[str(m_.get("content") or "") for m_ in db.list_chats(session_id, limit=400) if m_.get("role") == "user"]]
             from zzaimy.app import delegate as _dg
             if _dg.enabled():

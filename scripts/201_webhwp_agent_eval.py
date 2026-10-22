@@ -25,6 +25,8 @@
 사용(VM, 모델 주소가 든 .env.local 을 읽고): set -a; . ./.env.local; set +a;
   PYTHONPATH=src .venv/bin/python scripts/201_webhwp_agent_eval.py [--only 이름] [--delegate off|auto]
 모델 연결 설정은 data/platform/llm_connections.json — 다른 폴더에서 돌리면 ZZAIMY_EVAL_CONN 으로 그 파일을 짚는다(임시 폴더에 복사, 끝나면 지운다).
+후보 모델 견주기(scripts/195 와 같은 방식): --candidate-conn <연결 id> --candidate-model <서빙 이름> — 이 프로세스에서만 answer·review 를 후보로
+(zzaimy.eval.model_trial). 결과에 모델 정보·연결 이름(주소 없이)을 남기고, --label·--out 으로 결과 파일 이름·폴더를 정한다(scripts/203 이 모은다).
 """
 from __future__ import annotations
 
@@ -92,6 +94,8 @@ def run_case(case: dict, tmp: Path) -> dict:
         os.chmod(d / "llm_connections.json", 0o600)
     app = create_app(db_path=d / "eval.db", inbox_dir=d / "inbox", processor=DocumentProcessor(), drafter=SliceDrafter(),
                      password="eval-pass-123")
+    from zzaimy.eval import model_trial
+    models = model_trial.snapshot()
     acc = app.state.accounts["zzaimy"]
     acc["dept"] = "기획처"
     db = app.state.db
@@ -124,7 +128,7 @@ def run_case(case: dict, tmp: Path) -> dict:
     if sid is None:
         rows = db.list_chat_sessions(owner="zzaimy") if hasattr(db, "list_chat_sessions") else []
         sid = max((int(x["id"]) for x in rows), default=None)
-    out: dict = {"name": case["name"], "sec": 0, "sid": sid}
+    out: dict = {"name": case["name"], "sec": 0, "sid": sid, "models": models}
     msgs = [x for x in db.list_chats(sid)] if sid else []
     out["sec"] = round(time.time() - t0, 1)
     eps = list(d.rglob("doc_agent_episodes.jsonl"))              # 에이전트 걸음 기록(어떤 도구를 왜 골랐는지) — 결과에 함께 남긴다
@@ -146,7 +150,8 @@ def run_case(case: dict, tmp: Path) -> dict:
     data = Path(webhwp.get(db, fid)["path"]).read_bytes()
     keep = ROOT / "data" / "eval" / "webhwp_agent" / "files"            # 결과 한글 파일 — 기안기로 열어 서식을 눈으로 본다
     keep.mkdir(parents=True, exist_ok=True)
-    out["file"] = str(keep / f"{case['name']}-{os.environ.get('ZZAIMY_DELEGATE', 'auto')}.hwpx")
+    out["file"] = str(keep / (f"{case['name']}-{os.environ.get('ZZAIMY_DELEGATE', 'auto')}"
+                             + (f"-{os.environ['ZZAIMY_EVAL_LABEL']}" if os.environ.get("ZZAIMY_EVAL_LABEL") else "") + ".hwpx"))
     Path(out["file"]).write_bytes(data)
     fl = ww.fields(data)
     cells = [x for x in fl if x["kind"] in ("칸", "표")]
@@ -263,8 +268,15 @@ def main() -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--delegate", choices=("off", "auto"), default=os.environ.get("ZZAIMY_DELEGATE", "auto") or "auto",
                     help="절 맡기기 — off: 항상 직접, auto: 에이전트가 판단(ZZAIMY_DELEGATE)")
+    ap.add_argument("--candidate-conn", default="", help="후보 연결 id(운영 용도 지정은 바꾸지 않는다)")
+    ap.add_argument("--candidate-model", default="", help="후보 서빙 이름(LoRA 어댑터 이름 등)")
+    ap.add_argument("--label", default="", help="결과 파일 이름에 붙일 이름(예: 운영·후보)")
+    ap.add_argument("--out", default=str(ROOT / "data" / "eval" / "webhwp_agent"))
     a = ap.parse_args()
+    from zzaimy.eval import model_trial
+    model_trial.apply(a.candidate_conn.strip(), a.candidate_model.strip())
     os.environ["ZZAIMY_DELEGATE"] = a.delegate
+    os.environ["ZZAIMY_EVAL_LABEL"] = a.label
     os.environ.pop("ZZAIMY_PLATFORM_SQLITE_PATH", None)        # 임시 DB 경로라 운영 PostgreSQL 로 가지 않는다(database_backend)
     tmp = Path(tempfile.mkdtemp(prefix="webhwp-eval-"))
     res = []
@@ -277,9 +289,9 @@ def main() -> int:
             r = {"name": case["name"], "error": f"{type(e).__name__}: {e}"[:300]}
         print(json.dumps({k: v for k, v in r.items() if k not in ("assistant", "filled_fields", "steps", "delegate_log")}, ensure_ascii=False), flush=True)
         res.append(r)
-    out = ROOT / "data" / "eval" / "webhwp_agent"
+    out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{a.delegate}"
+    stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{a.delegate}" + (f"-{a.label}" if a.label else "")
     (out / f"{stamp}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     rows = ["| 요청 | 절 맡기기 | 쓴 절 | 본문 쓴 자리 | 맡겨 쓴 절 | 사실 반영 | 지어낸 숫자 | 절별 분량(평균 자) | 일관성 어긋남 | 확인 필요+물은 값 | 걸린 시간(초) | 가장 큰 호출/한도 | 호출(서브) | 근거 압축(토큰) | 표 | 도식 | 번호 체계 | 요구 요소 반영 |",
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
