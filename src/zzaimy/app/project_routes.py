@@ -144,8 +144,10 @@ def _drive_fetch(email: str, drive_id: str, http=None) -> tuple[bytes, str]:
 def project_criteria_unlink(request: Request, project_id: int, criteria_doc_id: int = Form(...)):
     h = request.app.state.project
     db = h.db
-    if db.get_project(project_id) is None:
+    proj = db.get_project(project_id)
+    if proj is None:
         raise HTTPException(404)
+    _require_write(request, proj)                       # 참조(읽기 전용)는 기준 문서를 빼지 못한다
     db.remove_project_criterion(project_id, criteria_doc_id)
     return RedirectResponse(f"/project/{project_id}#projectDocuments", status_code=303)
 
