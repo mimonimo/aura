@@ -76,3 +76,18 @@ def test_zip_bomb_is_refused():
         wf.fieldize(buf.getvalue())
     with pytest.raises(ValueError):
         wf.fieldize(b"not a zip")
+
+
+def test_guide_boxes_toc_and_notes_are_not_slots():
+    sec = (_p("1. 사업 개요 3", 11)                                            # 목차 줄(끝에 쪽 번호)
+           + _p("2) 지표값 산정 시 소수점 첫째자리까지 기재", 12)                 # 안내 문장
+           + _table([["【작성방법】"], ["1. 추진 배경을 쓴다"]], 100)              # 작성 안내 상자
+           + _p("1. 추진 배경", 13) + _p("", 14)                                # 진짜 제목 + 빈 자리
+           + _p("2. 추진 내용", 15) + _p("이 사업은 지역과 대학이 함께 인재를 기르는 사업으로 다음과 같이 운영한다는 안내 문장입니다.", 16)
+           + _table([["98.0%", ""], ["ㅇㅇ학부(과)", ""], ["사업계획서 목차", ""], ["담당자", ""]], 300))
+    names = _names(wf.fieldize(_hwpx(sec))[0])
+    assert "절:1. 추진 배경" in names
+    assert not any(n.startswith(("절:1. 사업 개요", "절:2) 지표값", "절:1. 추진 배경을")) for n in names)
+    assert "절:2. 추진 내용" not in names                                       # 뒤에 긴 안내 글 — 쓸 자리가 아니다
+    assert "칸:담당자" in names
+    assert not any(n in names for n in ("칸:98.0%", "칸:ㅇㅇ학부(과)", "칸:사업계획서 목차"))

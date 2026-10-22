@@ -81,3 +81,12 @@ def test_chat_bind_from_department_folder_and_template(tmp_path, monkeypatch):
     sid2 = db.create_chat_session("시험2", owner="lee")
     assert lee.post(f"/api/chat/{sid2}/hwp/bind", json={"id": fid}).status_code == 404   # 남의 부서 파일
     assert kim.post(f"/api/chat/{sid2}/hwp/bind", json={"id": fid}).status_code == 404   # 남의 대화
+
+
+def test_fill_rejects_long_text_and_placeholders():
+    from zzaimy.app import webhwp_agent as wa
+    assert wa._too_long("| 구분 | 내용 |\n|---|---|\n| 가 | 나 |")
+    assert wa._too_long("1) 첫째\n2) 둘째\n3) 셋째")
+    assert not wa._too_long("2026. 3. 1. ~ 2027. 2. 28.")
+    assert wa._placeholder("○○대학교 총장") and wa._placeholder("000명")
+    assert not wa._placeholder("120,000천원") and not wa._placeholder("홍길동")

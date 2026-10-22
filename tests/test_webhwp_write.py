@@ -44,3 +44,20 @@ def test_write_section_inside_table_cell():
     out, put = ww.write_section(data, "절:1. 기술지도 내역", [("text", "1) 내역"), ("table", [["회차", "내용"], ["1", "진단"]])])
     x = _xml(out)
     assert "진단" in x and x.count("<hp:tbl") == 2 and put
+
+
+def test_house_table_style_and_restyle():
+    import io, re, zipfile
+    from zzaimy.app import webhwp_style as st, webhwp_templates as t
+    data = t.build(t.GRANT["budget_change"])
+    tl = st.tables(data)
+    assert tl and tl[1]["head"].startswith("비목")
+    hdr = zipfile.ZipFile(io.BytesIO(data)).read("Contents/header.xml").decode()
+    assert 'faceColor="#E5E5E5"' in hdr and 'width="0.4 mm"' in hdr and "<hh:bold/>" in hdr
+    again = st.apply(data, [2], {"head_fill": "연파랑", "head_bottom": "DOUBLE", "font_pt": 11})
+    h2 = zipfile.ZipFile(io.BytesIO(again)).read("Contents/header.xml").decode()
+    assert 'faceColor="#DFEAF5"' in h2 and "DOUBLE_SLIM" in h2 and 'height="1100"' in h2
+    tbl = st._TBL.findall(zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode())
+    r = st.roles(tbl[0])
+    assert r[(0, 0)] == "label" and r[(0, 1)] == "body"
+    assert set(st.roles(tbl[1])[(0, c)] for c in range(6)) == {"head"}

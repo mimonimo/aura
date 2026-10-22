@@ -32,6 +32,16 @@ def activity(db, fid: int) -> dict:
     return a if a and time.time() - float(a.get("at") or 0) < 120 else {}
 
 
+def _too_long(v: str) -> bool:
+    v = v.strip()
+    return v.count("\n") >= 2 or bool(re.search(r"^\s*\|.*\|\s*$", v, re.M)) or len(v) > 150
+
+
+def _placeholder(v: str) -> bool:
+    """양식 예시 글자 — ○○·OO·ㅇㅇ·000·□□ 가 든 값(「○○대학교 총장」 같은)."""
+    return bool(re.search(r"○○|OO|ㅇㅇ|□□|◯◯|(?<![\d,])000(?![\d,])|XXX|xxx", v))
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -157,8 +167,17 @@ class HwpTools:
         fid, f = g
         values = a.get("values") if isinstance(a.get("values"), dict) else {}
         values = {str(k): str(v)[:2000] for k, v in values.items() if not str(k).startswith("절:")}
+        long_, fake = {}, []
+        for k, v in list(values.items()):
+            if _too_long(v):                                # 여러 줄·표·긴 글은 칸 값이 아니다 — 절 쓰기로(칸 안에 문단·표로 들어간다)
+                long_[k] = values.pop(k)
+            elif _placeholder(v):                           # 양식의 예시 글자(○○·000)를 그대로 넣지 않는다 — 모르면 비워 두고 묻는다
+                fake.append(k)
+                values.pop(k)
         if not values:
-            return "values 가 비었다(절 필드는 hwp_write 로 쓴다)."
+            return ("넣은 것 없음." + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
+                    + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "")
+                    + ("" if long_ or fake else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         self._mark(fid, next(iter(values)))
         data, done = ww.set_fields(Path(f["path"]).read_bytes(), values)
         if not done:
@@ -168,7 +187,9 @@ class HwpTools:
             webhwp.live_put(self.db, fid, "AURA", k, values[k])
         self.writes += 1
         miss = [k for k in values if k not in done]
-        return f"채웠다: {', '.join(done)}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")
+        return (f"채웠다: {', '.join(done)}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")
+                + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
+                + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else ""))
 
     def write(self, a: dict) -> str:
         from zzaimy.app import webhwp_write as ww
@@ -197,3 +218,33 @@ class HwpTools:
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
         self.writes += 1
         return f"「{field[2:]}」 을 썼다(문단·표 {len(put) + 1}개)."
+
+    def tables(self, a: dict) -> str:
+        from zzaimy.app import webhwp_style
+        if not self.fid():
+            return "이 대화에 한글 작업본이 없다 — hwp_forms → hwp_start."
+        f = webhwp.get(self.db, self.fid())
+        tl = webhwp_style.tables(Path(f["path"]).read_bytes())
+        return "\n".join(f"표{t['no']} — {t['rows']}행×{t['cols']}열 · 첫 행: {t['head'] or '(빈 칸)'}" for t in tl[:80]) or "표가 없다."
+
+    def style(self, a: dict) -> str:
+        """담당자의 표 서식 요청(음영·선 굵기·이중선·글자 크기·굵게·정렬)을 작업본 표에 입힌다."""
+        from zzaimy.app import webhwp_style
+        g = self._guard()
+        if isinstance(g, str):
+            return g
+        fid, f = g
+        which = [int(x) for x in (a.get("tables") or []) if str(x).isdigit()]
+        keys = ("head_fill", "label_fill", "outer", "inner", "head_bottom", "font_pt", "head_bold", "head_align", "body_align")
+        opts = {k: a[k] for k in keys if k in a and a[k] not in (None, "")}
+        for k in ("head_align", "body_align"):
+            if k in opts:
+                opts[k] = webhwp_style.ALIGNS.get(str(opts[k]), "")
+        if "head_bottom" in opts:
+            opts["head_bottom"] = "DOUBLE" if "이중" in str(opts["head_bottom"]) or str(opts["head_bottom"]).upper() == "DOUBLE" else "SOLID"
+        self._mark(fid, f"표 서식 {', '.join(map(str, which)) or '전부'}")
+        data = webhwp_style.apply(Path(f["path"]).read_bytes(), which or None, opts)
+        webhwp.save(self.db, self.base, fid, data, user="AURA")
+        self.writes += 1
+        return f"표 서식을 입혔다({'표 ' + ', '.join(map(str, which)) if which else '모든 표'}; " + \
+            (", ".join(f"{k}={v}" for k, v in opts.items()) or "학교 표 기본 모양") + ")."

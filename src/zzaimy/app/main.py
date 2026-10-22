@@ -2576,10 +2576,16 @@ def create_app(
                 doc_agent.Tool("hwp_start", "고른 양식으로 한글 작업본을 만들어 이 대화에 잇기(담당자가 문서를 쓰자고 했을 때). args {form: hwp_forms 의 id, title: 문서 제목}",
                                hw.start, writes=True),
                 doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태 보기. args {}", hw.fields),
-                doc_agent.Tool("hwp_fill", "칸·표 필드에 값 넣기(근거로 찾았거나 담당자가 알려 준 값만). args {values: {필드 이름: 값}}", hw.fill, writes=True),
+                doc_agent.Tool("hwp_fill", "칸·표 필드에 짧은 값 넣기(이름·날짜·금액·한 줄 요약 — 근거로 찾았거나 담당자가 알려 준 값만, 양식 예시 글자 ○○·000 은 넣지 않음). "
+                               "여러 줄 글·표가 들어갈 큰 칸은 hwp_write 로. args {values: {필드 이름: 값}}", hw.fill, writes=True),
                 doc_agent.Tool("hwp_write", "절 필드에 본문 쓰기 — 개조식 번호 문단으로 쓴다: 1) → 가) → (1) 단계, 한 줄에 한 항목, 문장 끝은 「~함」「~임」 "
                                "(서술형 「~하였다」 금지). 수치·일정·내역은 마크다운 표(| 머리 | … |, 머리글 구분 줄 포함)로. "
-                               "담당자가 이번 요청에서 알려 준 사실과 search 로 찾은 근거만 쓰고 지어내지 않는다. args {field: 절 필드 이름, text: 본문}", hw.write, writes=True),
+                               "담당자가 이번 요청에서 알려 준 사실과 search 로 찾은 근거만 쓰고 지어내지 않는다. 큰 칸(사업 추진계획 같은 요약 표의 본문 칸)도 field 에 칸 이름을 주면 그 칸 안에 쓴다. args {field: 절 또는 칸 필드 이름, text: 본문}", hw.write, writes=True),
+                doc_agent.Tool("hwp_tables", "작업본의 표 목록(번호·크기·첫 행) — 서식을 고칠 표를 짚을 때. args {}", hw.tables),
+                doc_agent.Tool("hwp_style", "표 서식 고치기(담당자가 표 모양을 바꿔 달라고 할 때). 주지 않은 값은 학교 표 기본(머리줄·라벨 칸 회색 #E5E5E5·굵게·가운데, "
+                               "바깥 0.4mm·안쪽 0.12mm 실선, 10pt). args {tables: [hwp_tables 번호, 비우면 전부], head_fill: 색(#RRGGBB·회색·연파랑·없음), "
+                               "label_fill, outer: 바깥 선 mm, inner: 안쪽 선 mm, head_bottom: 실선|이중선, font_pt, head_bold: true|false, "
+                               "head_align·body_align: 가운데|왼쪽|오른쪽|양쪽}", hw.style, writes=True),
             ]
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):

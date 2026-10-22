@@ -287,6 +287,9 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                 body = header.encode("utf-8") if info.filename == "Contents/header.xml" else zin2.read(info.filename)
                 zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
         out = buf.getvalue()
+    if "head" not in roles and put:                          # 양식에 음영 있는 표가 없으면 학교 표 기본 모양(webhwp_style.HOUSE)으로
+        from zzaimy.app import webhwp_style
+        out = webhwp_style.apply(out, only_paras=set(put))
     return out, put
 
 

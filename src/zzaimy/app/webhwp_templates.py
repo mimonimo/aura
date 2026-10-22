@@ -25,7 +25,7 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-BUILD = 4          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
+BUILD = 5          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
 
 
 def fingerprint(spec: dict) -> str:
@@ -92,8 +92,9 @@ def build(spec: dict) -> bytes:
         elif "table" in b:
             _table(doc, b["table"])
     # 쓸 자리(절 다음 빈 문단·라벨 칸·목록표)에 누름틀 — 기안기에서 사람·에이전트가 같은 이름으로 짚는다(webhwp_fields)
-    from zzaimy.app import webhwp_fields
-    return webhwp_fields.fieldize(doc.to_bytes())[0]
+    # 표 모양은 학교 서식에서 캔 기본(머리줄·라벨 음영·굵게, 바깥 0.4mm·안쪽 0.12mm, 10pt — webhwp_style.HOUSE)
+    from zzaimy.app import webhwp_fields, webhwp_style
+    return webhwp_style.apply(webhwp_fields.fieldize(doc.to_bytes())[0])
 
 
 # ── 기안기용 공통 공문 ── 행정업무규정 공문서 구성(두문·본문·결문)을 따른 학교 공문 서식. 쓸 자리는 build 가 누름틀로 박는다

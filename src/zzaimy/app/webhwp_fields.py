@@ -47,9 +47,40 @@ def _wrap_placeholder(p: str, fxml_begin: str, fxml_end: str) -> str | None:
     return p.replace(ts[0], f"{fxml_begin}{ts[0]}{fxml_end}", 1)
 
 
+_GUIDE = re.compile(r"【\s*(작성\s*방법|작성\s*요령|작성\s*가이드|증빙\s*자료|유의\s*사항|작성\s*예시)|작성\s*요령|작성\s*예시|※\s*작성|\(예시\)|<예시>")
+_TOC = re.compile(r"(\s\d{1,3}$|·{3,}|…{2,}|\.{4,}|-{4,})")
+
+
 def _is_heading(t: str) -> bool:
     num, title = sc.split_number(t)
-    return bool(num) and 2 <= len(title) <= 40 and not re.search(r"\d{4}\.\s*\d", t)
+    return (bool(num) and 2 <= len(title) <= 40 and not re.search(r"\d{4}\.\s*\d", t)
+            and not _TOC.search(t) and not re.match(r"^\s*예\s*\)", t) and not _NOTE.search(title))
+
+
+# 작성 안내 문장 — 「~기재」「~가능」「~작성」「~(반올림)」 으로 끝나는 번호 줄은 제목이 아니라 서식의 안내다
+_NOTE = re.compile(r"(기재|가능|작성|기입|삭제|추가|반올림|생략|제출|첨부|유의|참고)\s*(할\s*것|하시오|함|바람|합니다|\))?\s*[.)]?\s*$")
+
+
+def _real_label(t: str) -> bool:
+    """칸 라벨다운 글 — 한글 낱말이 있고, 숫자·퍼센트·예시 기호(ㅇㅇ·OO·○○·000)만이 아닌 것."""
+    if not t or len(t) > 15 or not re.search(r"[가-힣]{2,}", t):
+        return False
+    core = re.sub(r"[\s\d.,%()\-·:~/]", "", t)
+    return (not re.fullmatch(r"[ㅇOo○◯ㅁ0명원개년월일]*", core) and not re.search(r"ㅇㅇ|OO|○○|ㅁㅁ", t)
+            and not re.search(r"목차|차례", t))
+
+
+def _guide_spans(xml: str) -> list[tuple[int, int]]:
+    """작성방법·작성요령·예시 상자(표) 범위 — 그 안의 번호 줄·칸은 쓸 자리가 아니다."""
+    out = []
+    for m in re.finditer(r"<hp:tbl\b(?:(?!<hp:tbl\b).)*?</hp:tbl>", xml, re.S):
+        if _GUIDE.search(_text(m.group(0))):
+            out.append((m.start(), m.end()))
+    return out
+
+
+def _inside(pos: int, spans: list[tuple[int, int]]) -> bool:
+    return any(a <= pos < b for a, b in spans)
 
 
 class _Ids:
@@ -137,7 +168,7 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
                 target = None
                 if listlike and ri == 1:
                     target = (names(f"표{tno}:{texts[0][ci] if ci < len(texts[0]) else ci + 1}"), texts[0][ci] if ci < len(texts[0]) else "")
-                elif not ctexts[ci] and ci > 0 and ctexts[ci - 1] and 1 < len(ctexts[ci - 1]) <= 15 and not listlike:
+                elif not ctexts[ci] and ci > 0 and _real_label(ctexts[ci - 1]) and not listlike:
                     target = (names(f"칸:{ctexts[ci - 1]}"), ctexts[ci - 1])
                 if target:
                     pm = _LEAF_P.search(c)
@@ -165,6 +196,8 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
     pieces = []
     for m in re.finditer(r"<hp:tbl\b(?:(?!<hp:tbl\b).)*?</hp:tbl>", xml, re.S):
         tno += 1
+        if _GUIDE.search(_text(m.group(0))):            # 작성방법·예시 상자 — 칸을 박지 않는다
+            continue
         pieces.append((m.start(), m.end(), do_table_rows(m.group(0), tno)))
     if pieces:
         buf = []
@@ -180,16 +213,33 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
              if 'charPrIDRef="' in p and _text(p) and not _is_heading(_text(p)))
     body_cp = cps.most_common(1)[0][0] if cps else "0"
 
-    def head_sub(m: re.Match) -> str:
-        p = m.group(0)
-        t = _text(p)
-        if "fieldBegin" in p or "<hp:tbl" in p or not _is_heading(t):
-            return p
+    guides = _guide_spans(xml)
+    leaves = [(m.start(), m.end(), "" if "fieldBegin" in m.group(0) else _text(m.group(0)), "<hp:tbl" in m.group(0))
+              for m in _LEAF_P.finditer(xml)]             # 이미 필드를 박은 칸은 빈 자리로 본다
+
+    def slot_follows(i: int) -> bool:
+        """제목 뒤가 쓸 자리인가 — 빈 문단·작성방법 상자·빈 표·다음 제목이 먼저 오면 쓸 자리, 긴 설명 글이 먼저 오면 안내문."""
+        for a, b, t, _ in leaves[i + 1:i + 6]:
+            if _inside(a, guides) or not t:
+                return True
+            if _is_heading(t):
+                return True
+            if len(t) >= 20:
+                return False
+        return True
+
+    buf, pos = [], 0
+    for i, (a, b, t, has_tbl) in enumerate(leaves):
+        p = xml[a:b]
+        if "fieldBegin" in p or has_tbl or not _is_heading(t) or _inside(a, guides) or not slot_follows(i):
+            continue
         name = names(f"절:{t}")
         out.append({"name": name, "kind": "절"})
-        return p + _empty_para_after(p, field_xml(name, "본문 입력", ids), ids, body_cp)
-    xml = _LEAF_P.sub(head_sub, xml)
-    return xml, out
+        buf.append(xml[pos:b])
+        buf.append(_empty_para_after(p, field_xml(name, "본문 입력", ids), ids, body_cp))
+        pos = b
+    buf.append(xml[pos:])
+    return "".join(buf), out
 
 
 MAX_UNZIPPED = 300 * 1024 * 1024        # 풀었을 때 전체 크기 한도 — 압축 폭탄 막기
