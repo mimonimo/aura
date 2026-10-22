@@ -811,6 +811,17 @@ def set_parent(data_dir, dept: str, parent: str) -> str:
     return ""
 
 
+def forget_dept(data_dir, name: str) -> None:
+    """부서를 지울 때 확정 위계에서 그 부서를 뺀다(하위로든 상위로든) — 지운 부서 이름으로 권한이 이어지지 않게."""
+    if data_dir is None:
+        return
+    name = " ".join((name or "").split())
+    over = parents_override(data_dir)
+    new = {c: p for c, p in over.items() if c != name and p != name}
+    if new != over:
+        _write(Path(data_dir) / PARENTS_FILE, new)
+
+
 def parent_of(name: str, data_dir=None) -> str:
     """확정된 상위 부서(관리자가 저장한 것)만 — 권한 판정용. 규정 제안은 suggested_parents."""
     return parents_override(data_dir).get(" ".join((name or "").split()), "") if data_dir is not None else ""

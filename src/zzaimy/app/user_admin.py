@@ -445,6 +445,23 @@ def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""
         rag_spaces.save_config(new, data_dir)
         for k in (f"google_account_dept:{name}", f"google_root:{name}", f"google_root_name:{name}"):
             st.db.set_setting(k, "")
+        # 보안: 지운 부서에 걸린 권한 흔적도 지운다 — 같은 이름으로 다시 만들었을 때 옛 겸직 등급·위계가 되살아나지 않게
+        accounts = _accounts(request)
+        touched = False
+        for a_ in accounts.values():
+            dg = a_.get("dept_grades") or {}
+            if name in dg:
+                dg.pop(name, None)
+                if not dg:
+                    a_.pop("dept_grades", None)
+                touched = True
+        if touched:
+            st.save_accounts()
+        try:
+            from zzaimy.app import dept_dictionary as _dd
+            _dd.forget_dept(data_dir, name)
+        except Exception:
+            pass
         return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 지웠습니다 · 문서 {moved}건은 공통 RAG 로')}#depts", status_code=303)
     return _back("알 수 없는 요청", ok=False)
 

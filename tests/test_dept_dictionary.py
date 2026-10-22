@@ -265,3 +265,11 @@ def test_dual_post_rows_save_grants_and_grades(tmp_path):
     a = app.state.accounts["zzaimy"]
     assert a["dept_grades"] == {"학생처": "clerk"}
     assert rag_spaces.config(tmp_path)["grants"]["zzaimy"] == ["dept:학생처"]
+
+
+def test_deleting_dept_clears_stale_grants(tmp_path):
+    """보안: 부서를 지우면 확정 위계와 계정의 겸직 등급에서도 빠진다(같은 이름으로 다시 만들어도 옛 권한이 되살아나지 않게)."""
+    from zzaimy.app import dept_dictionary as dd
+    (tmp_path / dd.PARENTS_FILE).write_text('{"가나사업단": "산학협력단", "다라팀": "가나사업단"}', encoding="utf-8")
+    dd.forget_dept(tmp_path, "가나사업단")
+    assert dd.parents_override(tmp_path) == {}

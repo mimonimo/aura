@@ -136,9 +136,29 @@ def _children(data_dir=None) -> dict:
         return {}
 
 
+def _live_depts(data_dir=None) -> set[str] | None:
+    """지금 있는 부서(부서 RAG·폴더 짝·공간 설정) — 지운 부서의 옛 기록으로 권한이 남지 않게. 알 수 없으면 None(거르지 않음)."""
+    if data_dir is None:
+        return None
+    try:
+        from zzaimy.app import rag_spaces
+        cfg = rag_spaces.config(data_dir)
+        out = {str(r.get("dept") or "").strip() for r in cfg.get("dept_rags", [])}
+        out |= set(cfg.get("dept_of_area", {}).values())
+        for sp in cfg.get("spaces", []):
+            out |= {d for d in sp.get("depts", []) if d}
+        return {d for d in out if d} or None
+    except Exception:
+        return None
+
+
 def covered_depts(user: str, account: dict | None, data_dir=None, need: str = "head") -> set[str]:
-    """need 등급 이상으로 맡는 부서 — 부서별 등급과 부서 위계(하위 부서까지)를 따른다. 관리자는 빈 집합(전부라는 뜻은 호출부가)."""
-    roots = {d for d in depts_of(user, account, data_dir) if at_least(grade_in(user, account, d, data_dir), need)}
+    """need 등급 이상으로 맡는 부서 — 부서별 등급과 부서 위계(하위 부서까지)를 따른다. 관리자는 빈 집합(전부라는 뜻은 호출부가).
+    보안: 겸직 등급(dept_grades)은 지금 있는 부서에만(지운 부서의 옛 기록은 무시)."""
+    live = _live_depts(data_dir)
+    primary = str((account or {}).get("dept") or "").strip()
+    roots = {d for d in depts_of(user, account, data_dir) if at_least(grade_in(user, account, d, data_dir), need)
+             and (live is None or d == primary or d in live)}
     kids = _children(data_dir)
     out, stack = set(), list(roots)
     while stack:
