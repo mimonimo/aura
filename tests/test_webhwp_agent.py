@@ -35,10 +35,12 @@ def test_agent_tools_start_fill_write(tmp_path, monkeypatch):
     hw.write({"field": "절:1. 변경 사유", "text": "1) 일정 조정"})
     x = ww.fields(Path(webhwp.get(db, fid)["path"]).read_bytes())
     assert {f_["name"]: f_["text"] for f_ in x}["절:1. 변경 사유"] == "1) 일정 조정"
-    # 사람이 편집 중이면 쓰지 않는다
+    # 사람이 편집 중이어도 쓰고, 칸 글은 실시간 공유로 그 화면에 넘긴다
     webhwp.take_lock(db, fid, "lee")
-    assert "lee 님이 이 작업본을 편집 중" in hw.fill({"values": {"칸:담당자": "x"}})
-    assert any("lee 님이" in line for line in hw.state_lines())
+    assert "채웠다: 칸:담당자" in hw.fill({"values": {"칸:담당자": "홍길동"}})
+    v, ch = webhwp.live_since(db, fid, 0, "lee")
+    assert any(c["field"] == "칸:담당자" and c["by"] == "AURA" for c in ch)
+    assert any("lee 님도" in line for line in hw.state_lines())
 
 
 def test_editor_state_and_presence(tmp_path, monkeypatch):

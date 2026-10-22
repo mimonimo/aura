@@ -62,7 +62,7 @@ class HwpTools:
         lines.append("필드(이름 — 상태): " + "; ".join(f"{x['name']} — {'비어 있음' if not x['text'] else '채움'}" for x in fl[:80]))
         held = webhwp.lock_holder(self.db, fid)
         if held and held["user"] != "AURA":
-            lines.append(f"지금 {held['user']} 님이 이 작업본을 편집 중이다 — 쓰기 도구는 기다리라고 알린다.")
+            lines.append(f"지금 {held['user']} 님도 이 작업본을 편집 중이다 — 칸은 그 화면에 바로 들어가니 그대로 쓴다.")
         if empty:
             lines.append("작성 순서: ① 담당자가 알려 준 값·프로젝트 정보(프로젝트 이름은 사업명 칸)로 채울 수 있는 칸을 hwp_fill 한 번에 모두 채운다 "
                          "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
@@ -143,9 +143,7 @@ class HwpTools:
         fid = self.fid()
         if not fid:
             return "이 대화에 한글 작업본이 없다 — hwp_forms → hwp_start."
-        held = webhwp.lock_holder(self.db, fid)
-        if held and held["user"] not in ("AURA", self.owner):
-            return f"{held['user']} 님이 이 작업본을 편집 중이라 쓰지 않았다 — 담당자에게 편집이 끝난 뒤 다시 하자고 알린다."
+        # 사람이 같은 문서를 편집 중이어도 쓴다 — 칸 글은 실시간 공유로 그 화면에 바로 들어가고(live_put), 저장 때 서로 합친다
         return fid, webhwp.get(self.db, fid)
 
     def _mark(self, fid: int, field: str) -> None:
@@ -166,6 +164,8 @@ class HwpTools:
         if not done:
             return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓴다."
         webhwp.save(self.db, self.base, fid, data, user="AURA")
+        for k in done:                                      # 열린 편집 화면의 같은 칸에 바로(다시 불러오지 않고)
+            webhwp.live_put(self.db, fid, "AURA", k, values[k])
         self.writes += 1
         miss = [k for k in values if k not in done]
         return f"채웠다: {', '.join(done)}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")

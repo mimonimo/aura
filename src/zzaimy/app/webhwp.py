@@ -272,6 +272,60 @@ def release_lock(db, fid: int, user: str) -> None:
         db.set_setting(f"webhwp_lock:{int(fid)}", "{}")
 
 
+# ── 칸 단위 실시간 공유 ── 여러 사람이 같은 문서를 열면 각자 커서가 있는 필드(칸·표·절 첫 줄)의 글을 몇 초마다 올리고,
+# 다른 사람의 바뀐 필드 글을 받아 자기 화면의 같은 필드에 넣는다. 저장할 때는 다른 사람이 올린 최신 필드 글을 합쳐 저장한다(merge_live).
+LIVE_KEEP = 1800      # 30분 지난 필드 글은 버린다
+
+
+def live_get(db, fid: int) -> dict:
+    try:
+        cur = json.loads(db.get_setting(f"webhwp_live:{int(fid)}", "{}") or "{}")
+    except ValueError:
+        cur = {}
+    cur.setdefault("v", 0)
+    cur.setdefault("fields", {})
+    return cur
+
+
+def live_put(db, fid: int, user: str, field: str, text: str) -> int:
+    cur = live_get(db, fid)
+    now = time.time()
+    cur["fields"] = {k: v for k, v in cur["fields"].items() if now - float(v.get("at") or 0) < LIVE_KEEP}
+    old = cur["fields"].get(field)
+    if old and old.get("text") == text and old.get("by") == user:
+        return int(cur["v"])
+    cur["v"] = int(cur["v"]) + 1
+    cur["fields"][field] = {"text": text[:5000], "by": user, "at": now, "v": cur["v"]}
+    db.set_setting(f"webhwp_live:{int(fid)}", json.dumps(cur, ensure_ascii=False))
+    return int(cur["v"])
+
+
+def live_since(db, fid: int, since: int, user: str) -> tuple[int, list[dict]]:
+    cur = live_get(db, fid)
+    out = [{"field": k, "text": v["text"], "by": v["by"], "v": v["v"]} for k, v in cur["fields"].items()
+           if int(v.get("v") or 0) > int(since) and v.get("by") != user]
+    return int(cur["v"]), sorted(out, key=lambda x: x["v"])
+
+
+def merge_live(db, fid: int, data: bytes, user: str) -> tuple[bytes, list[str]]:
+    """저장하려는 판에 다른 사람이 올린 최신 필드 글을 합친다 — 동시에 다른 칸을 쓴 사람의 글이 사라지지 않게."""
+    from zzaimy.app import webhwp_write as ww
+    cur = live_get(db, fid)
+    saved_at = 0.0
+    m = meta(db, fid)
+    try:
+        saved_at = datetime.fromisoformat(m.get("saved") or m.get("created") or "1970-01-01").timestamp()
+    except ValueError:
+        pass
+    others = {k: v["text"] for k, v in cur["fields"].items() if v.get("by") != user and float(v.get("at") or 0) >= saved_at - 5}
+    if not others or data[:2] != b"PK":
+        return data, []
+    try:
+        return ww.set_fields(data, others)
+    except Exception:
+        return data, []
+
+
 def locked(db, fid: int) -> bool:
     """플랫폼이 만든 공통 양식(source 「양식:」) — 모두의 한글 완성본이 이 파일을 원본 서식으로 쓰므로 관리자만 고치고 지운다."""
     return str(meta(db, fid).get("source", "")).startswith("양식:")

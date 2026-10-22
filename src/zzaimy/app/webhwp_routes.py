@@ -158,6 +158,30 @@ async def hwp_presence(request: Request, fid: int):
     return {"ok": True}
 
 
+@router.post("/hwp/{fid}/live")
+async def hwp_live(request: Request, fid: int):
+    """칸 단위 실시간 공유 — 내 커서 필드의 글을 올리고(field·text), since 뒤에 다른 사람이 바꾼 필드 글을 받는다."""
+    _need_staff(request)
+    _file(request, fid)
+    if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
+        return {"v": 0, "changes": []}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    st = request.app.state
+    user = getattr(request.state, "user", "")
+    field = str(body.get("field") or "")[:80]
+    if field and isinstance(body.get("text"), str):
+        webhwp.live_put(st.db, fid, user, field, body["text"])
+    v, changes = webhwp.live_since(st.db, fid, int(body.get("since") or 0), user)
+    names = {}
+    for c in changes:
+        names.setdefault(c["by"], (st.db.profile_for(c["by"]) or {}).get("name") or c["by"])
+        c["name"] = names[c["by"]]
+    return {"v": v, "changes": changes}
+
+
 @router.get("/hwp/{fid}/state")
 def hwp_state(request: Request, fid: int):
     """편집 화면이 몇 초마다 묻는 문서 상태 — 마지막 저장(누가), 에이전트 작성 중(AURA 커서), 같이 보는 사람."""
@@ -449,15 +473,14 @@ async def hwp_save(request: Request, fid: int):
     _need_staff(request)
     _file(request, fid)
     _writable(request, fid)
-    held = webhwp.lock_holder(request.app.state.db, fid)
-    if held and held["user"] != getattr(request.state, "user", ""):
-        raise HTTPException(409, f"{held['user']} 님이 편집 중이라 저장하지 않았습니다 — 끝난 뒤 다시 열어 고쳐 주세요")
     data = await _body(request)
+    # 동시 편집 — 다른 사람이 칸(필드)에 올린 최신 글을 이 판에 합쳐 저장한다(서로 덮어쓰지 않게)
+    data, merged = webhwp.merge_live(request.app.state.db, fid, data, getattr(request.state, "user", ""))
     try:
         p = webhwp.save(request.app.state.db, _base(request), fid, data, user=getattr(request.state, "user", ""))
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"ok": True, "name": p.name, "size": len(data)}
+    return {"ok": True, "name": p.name, "size": len(data), "merged": merged}
 
 
 @router.api_route("/webhwpctrl/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"])

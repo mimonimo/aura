@@ -286,23 +286,33 @@ def test_common_templates_are_locked_and_copyable(tmp_path, monkeypatch):
     assert wt.path_for(db, "plan") == tp and tp.read_bytes() != _hwpx("몰래 바꿈")
 
 
-def test_edit_lock_blocks_concurrent_overwrite(tmp_path, monkeypatch):
-    """같은 문서를 두 사람이 고칠 때 — 먼저 연 사람이 잠금을 잡고, 다른 사람의 저장은 409. 잠금은 풀거나 시간이 지나면 풀린다."""
+def test_concurrent_editing_shares_fields_and_merges_on_save(tmp_path, monkeypatch):
+    """같은 문서를 둘이 동시에 — 둘 다 편집·저장할 수 있고, 각자 칸에 쓴 글은 서로 받으며, 저장 때 상대 칸 글을 합친다."""
     app = _setup(tmp_path, monkeypatch)
-    from zzaimy.app import rag_spaces
+    from zzaimy.app import rag_spaces, webhwp_templates as wt, webhwp_write as ww
     cfg = rag_spaces.config(app.state.data_dir)
     cfg["grants"] = {"lee": ["dept:기획처"]}
     rag_spaces.save_config(cfg, app.state.data_dir)
     kim, lee = TestClient(app), TestClient(app)
     assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
-    fid = _up(kim, app, "기획처", "공동.hwpx", _hwpx())
+    form = wt.build(wt.GRANT["budget_change"])
+    fid = _up(kim, app, "기획처", "공동.hwpx", form)
     assert kim.post(f"/hwp/{fid}/lock").json()["ok"]
     j = lee.post(f"/hwp/{fid}/lock").json()
-    assert j["ok"] is False and j["by"] == "kim"
-    r = lee.post(f"/hwp/{fid}/save", content=_hwpx("lee"))
-    assert r.status_code == 409 and "kim" in r.json()["detail"]
+    assert j["ok"] is False and j["by"] == "kim" and not j.get("readonly")       # 먼저 연 사람 표시(막지는 않는다)
     assert "kim 편집 중" in lee.get("/hwp?dept=기획처").text
-    assert kim.post(f"/hwp/{fid}/save", content=_hwpx("kim")).status_code == 200
+    # kim 은 사업명, lee 는 담당자 칸을 쓴다 — 서로 받는다
+    kim.post(f"/hwp/{fid}/live", json={"field": "칸:사업명", "text": "AI 사업", "since": 0})
+    r = lee.post(f"/hwp/{fid}/live", json={"field": "칸:담당자", "text": "이몽룡", "since": 0}).json()
+    assert [c["field"] for c in r["changes"]] == ["칸:사업명"] and r["changes"][0]["text"] == "AI 사업"
+    r2 = kim.post(f"/hwp/{fid}/live", json={"since": 1}).json()
+    assert [c["field"] for c in r2["changes"]] == ["칸:담당자"]
+    # lee 가 자기 판(사업명은 아직 비어 있음)을 저장해도 kim 의 사업명이 합쳐진다
+    lee_copy, _ = ww.set_fields(form, {"칸:담당자": "이몽룡"})
+    out = lee.post(f"/hwp/{fid}/save", content=lee_copy).json()
+    assert out["ok"] and out["merged"] == ["칸:사업명"]
+    vals = {x["name"]: x["text"] for x in ww.fields(Path(webhwp.get(app.state.db, fid)["path"]).read_bytes())}
+    assert vals["칸:사업명"] == "AI 사업" and vals["칸:담당자"] == "이몽룡"
     kim.post(f"/hwp/{fid}/unlock")
     assert lee.post(f"/hwp/{fid}/lock").json()["ok"]
     monkeypatch.setattr(webhwp, "LOCK_TTL", -1)              # 창이 끊겨 늘리지 못하면 저절로 풀린다

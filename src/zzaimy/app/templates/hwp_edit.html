@@ -129,7 +129,7 @@
   setTimeout(fit, 300);
   // 편집 잠금 — 같은 문서를 두 사람이 동시에 고쳐 서로 덮어쓰지 않게. 잡으면 45초마다 늘리고, 남이 쓰는 중이면 보기 전용으로 두고 기다린다
   var lockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/lock') : '', unlockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/unlock') : '';
-  var holding = false, beat = null, waitedFor = '';
+  var holding = false, beat = null, waitedFor = '', together = false;
   function holdLock() {
     if (!lockUrl) return;
     fetch(lockUrl, {method: 'POST', credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (j) {
@@ -138,9 +138,13 @@
         else if (!holding) { say('최신 상태', 'ok'); }
         holding = true; ready = !waitedFor; saveBtn.disabled = !!waitedFor;
         if (waitedFor) { saveBtn.textContent = '다시 열기'; saveBtn.disabled = false; saveBtn.onclick = function () { location.reload(); }; }
+      } else if (j.readonly) {
+        holding = false; ready = false; saveBtn.disabled = true;
       } else {
-        holding = false; ready = false; saveBtn.disabled = true; waitedFor = j.by || '다른 사람';
-        say(waitedFor + ' 님 편집 중 · 보기만', 'busy');
+        // 다른 사람이 먼저 열었어도 함께 편집한다 — 칸(필드) 글은 서로 실시간으로 넣고, 저장할 때 서버가 합친다
+        holding = true; ready = true; saveBtn.disabled = false; waitedFor = '';
+        if (!together) say((j.by || '다른 사람') + ' 님과 함께 편집 중', '');
+        together = true;
       }
     }).catch(function () {});
   }
@@ -179,9 +183,9 @@
   function touched() {
     dirty = true; say('저장 안 된 내용 있음', '');
     clearTimeout(idleTimer);
-    if (!isNew) idleTimer = setTimeout(function () { if (dirty && holding) save(true); }, 8000);
+    if (!isNew) idleTimer = setTimeout(function () { if (dirty && ready) save(true); }, 8000);
   }
-  document.addEventListener('visibilitychange', function () { if (document.hidden && dirty && !isNew && holding) save(true); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && dirty && !isNew && ready) save(true); });
   var mbtn = document.querySelector('[data-menu-btn]'), menu = document.querySelector('[data-menu]');
   if (mbtn) {
     mbtn.addEventListener('click', function (e) { e.stopPropagation(); menu.hidden = !menu.hidden; mbtn.setAttribute('aria-expanded', String(!menu.hidden)); });
@@ -247,6 +251,29 @@
     }).catch(function () {});
   }
   setInterval(tick, 4000);
+  // ── 칸 단위 실시간 공유 ── 2초마다 내 커서가 있는 필드의 글을 올리고, 다른 사람이 바꾼 필드 글을 내 화면의 같은 필드에 넣는다
+  var liveV = 0, sent = {}, liveBusy = false;
+  function live() {
+    if (!fileUrl || !ready || liveBusy || isNew) return;
+    var field = '', text = null;
+    try { field = ctrl.GetCurFieldName(0) || ''; if (field) text = ctrl.GetFieldText(field); } catch (e) {}
+    var body = {since: liveV};
+    if (field && typeof text === 'string' && sent[field] !== text) { body.field = field; body.text = text; }
+    liveBusy = true;
+    fetch(fileUrl.replace(/\/file$/, '/live'), {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (body.field) sent[body.field] = body.text;
+        (j.changes || []).forEach(function (c) {
+          if (c.field === field) return;                 // 내가 지금 쓰는 칸은 덮지 않는다
+          try { if (ctrl.GetFieldText(c.field) !== c.text) ctrl.PutFieldText(c.field, c.text); sent[c.field] = c.text; } catch (e) {}
+        });
+        liveV = j.v || liveV;
+      })
+      .catch(function () {})
+      .finally(function () { liveBusy = false; });
+  }
+  setInterval(live, 2000);
   // 드라이브에 올리기 — 저장된 판을 올린다(고친 뒤면 먼저 저장)
   var drv = document.querySelector('[data-to-drive]');
   if (drv) drv.addEventListener('click', function () {
