@@ -87,10 +87,11 @@
   <span class="avatars" data-people aria-label="같이 보는 사람"></span>
   <span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span>
   {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;"><button type="submit" class="btn primary" title="내 부서 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
-  {% else %}<button type="button" class="btn" data-save disabled title="지금 저장 (Ctrl+S) — 고친 내용은 자동으로 저장됩니다"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">저장</span></button>{% endif %}
+  {% else %}{% if not f %}<button type="button" class="btn" data-save disabled title="새 문서를 부서 폴더에 만들기 — 그 뒤로는 자동 저장"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">만들기</span></button>{% endif %}{% endif %}
   {% if f %}<span class="menu-wrap">
     <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="내려받기·공유"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
     <div class="menu" role="menu" data-menu hidden>
+      {% if not readonly %}<button type="button" role="menuitem" data-save-now><iconify-icon icon="solar:diskette-linear"></iconify-icon>지금 저장<span class="hint">Ctrl+S</span></button>{% endif %}
       <a role="menuitem" href="/hwp/{{ f.id }}/file"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기<span class="hint">한글(hwpx)</span></a>
       <button type="button" role="menuitem" data-to-drive><iconify-icon icon="solar:cloud-upload-linear"></iconify-icon>구글 드라이브에 올리기<span class="hint">최종본</span></button>
       <div class="sep"></div>
@@ -217,12 +218,14 @@
     });
   }
   saveBtn.addEventListener('click', function () { save(false); });
+  var saveNow = document.querySelector('[data-save-now]'); if (saveNow) saveNow.addEventListener('click', function () { save(false); });
   // 자동 저장 — 고친 뒤 8초 손을 멈추면, 창을 벗어나면 저장(새 문서는 이름을 정해 첫 저장을 해야 자동 저장이 이어진다)
   var idleTimer = null;
   function touched() {
-    dirty = true; say('저장 안 된 내용 있음', '');
+    dirty = true; if (!saving) say(isNew ? '저장 전 — 「만들기」 를 누르면 부서 폴더에 생깁니다' : '고치는 중', '');
     clearTimeout(idleTimer);
-    if (!isNew) idleTimer = setTimeout(function () { if (dirty && ready) save(true); }, 8000);
+    // 손을 멈추고 2초 뒤 자동 저장(서버는 바뀐 것이 없으면 쓰지 않고, 앞 판은 10분에 하나만 남긴다)
+    if (!isNew) idleTimer = setTimeout(function () { if (dirty && ready) { if (saving) touched(); else save(true); } }, 2000);
   }
   document.addEventListener('visibilitychange', function () { if (document.hidden && dirty && !isNew && ready) save(true); });
   var mbtn = document.querySelector('[data-menu-btn]'), menu = document.querySelector('[data-menu]');
@@ -242,9 +245,11 @@
       var doc_ = fr.contentDocument;
       doc_.addEventListener('keydown', function (e) {
         if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(false); return; }
-        if (!e.ctrlKey && !e.metaKey && e.key.length <= 2 || e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter') touched();
+        if (!e.ctrlKey && !e.metaKey && e.key.length <= 2 || e.key === 'Process' || e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter' || e.key === 'Tab') touched();
       }, true);
-      ['paste', 'drop', 'cut'].forEach(function (t) { doc_.addEventListener(t, touched, true); });
+      // 한글 입력(조합)·붙여넣기·끌어 놓기, 그리고 마우스로 고친 것(표·서식 단추) — 마우스는 누른 뒤 저장해 보고, 바뀐 것이 없으면 서버가 버린다
+      ['paste', 'drop', 'cut', 'compositionend', 'input'].forEach(function (t) { doc_.addEventListener(t, touched, true); });
+      doc_.addEventListener('pointerup', function () { if (ready && !isNew) touched(); }, true);
     } catch (e) {}
   }
   setTimeout(watchKeys, 1500);

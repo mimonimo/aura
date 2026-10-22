@@ -158,6 +158,10 @@ def add(db, base: Path, dept: str, filename: str, data: bytes, *, owner: str, so
     return fid
 
 
+VERSION_GAP = 600        # 앞 판을 따로 남기는 최소 간격(초)
+VERSION_KEEP = 30        # 파일마다 남기는 앞 판 수
+
+
 def save(db, base: Path, fid: int, data: bytes, *, user: str) -> Path:
     """기안기에서 고친 내용을 저장 — 앞 판은 .판/ 으로 옮기고 같은 자리에 쓴다. 고친 사람·시각을 남긴다."""
     f = get(db, fid)
@@ -167,9 +171,24 @@ def save(db, base: Path, fid: int, data: bytes, *, user: str) -> Path:
     if not data or data[:2] != b"PK" and data[:4] != b"\xd0\xcf\x11\xe0":
         raise ValueError("한글 파일 형식이 아닙니다")
     if p.exists():
+        if p.read_bytes() == data:                          # 바뀐 것이 없는 자동 저장 — 쓰지도, 판을 남기지도 않는다
+            return p
         vdir = p.parent / ".판"
         vdir.mkdir(exist_ok=True)
-        shutil.move(str(p), str(vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}{p.suffix}"))
+        olds = sorted(vdir.glob(f"{p.stem} *{p.suffix}"))
+        # 자동 저장은 몇 초마다 돌므로 판은 VERSION_GAP 마다 하나만 남긴다(그 사이 저장은 같은 자리에 덮어쓴다), 판은 최근 VERSION_KEEP 개
+        recent = olds and (datetime.now() - datetime.fromtimestamp(olds[-1].stat().st_mtime)).total_seconds() < VERSION_GAP
+        if recent:
+            p.unlink()
+        else:
+            dest = vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}{p.suffix}"
+            n = 1
+            while dest.exists():                            # 같은 초에 두 번 — 앞 판을 덮지 않게
+                n += 1
+                dest = vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}-{n}{p.suffix}"
+            shutil.move(str(p), str(dest))
+            for old in sorted(vdir.glob(f"{p.stem} *{p.suffix}"))[:-VERSION_KEEP]:
+                old.unlink(missing_ok=True)
     # 기안기는 HWPX 로 돌려준다 — 옛 hwp 를 고쳤으면 확장자를 hwpx 로 바꿔 쓴다(장부도 따라)
     if data[:2] == b"PK" and p.suffix.lower() == ".hwp":
         p = p.with_suffix(".hwpx")

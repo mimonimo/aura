@@ -410,3 +410,20 @@ def test_start_from_template_and_project_form(tmp_path, monkeypatch):
     wid = int(r.headers["location"].split("=")[-1])
     m = webhwp.meta(db, wid)
     assert m["source"] == f"doc:{did}" and "칸:기관명" in m["fields"] and "절:1. 추진 계획" in m["fields"]
+
+
+def test_autosave_skips_unchanged_and_keeps_one_version_per_gap(tmp_path, monkeypatch):
+    """자동 저장이 몇 초마다 돌아도 — 같은 내용은 쓰지 않고, 앞 판은 VERSION_GAP 안에 하나만 남는다."""
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    fid = webhwp.add(db, tmp_path, "기획처", "가.hwpx", _hwpx(), owner="kim")
+    p = Path(webhwp.get(db, fid)["path"])
+    vdir = p.parent / ".판"
+    webhwp.save(db, tmp_path, fid, p.read_bytes(), user="kim")                     # 바뀐 것 없음
+    assert not vdir.exists() or not list(vdir.iterdir())
+    for i in range(3):
+        webhwp.save(db, tmp_path, fid, _hwpx() + bytes([i]), user="kim")
+    assert len(list(vdir.iterdir())) == 1 and p.read_bytes().endswith(bytes([2]))
+    monkeypatch.setattr(webhwp, "VERSION_GAP", 0)
+    webhwp.save(db, tmp_path, fid, _hwpx() + b"x", user="kim")
+    assert len(list(vdir.iterdir())) == 2
