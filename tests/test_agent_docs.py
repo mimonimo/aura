@@ -11,7 +11,11 @@ FLOW = (ROOT / "docs" / "document-work-flow.md").read_text(encoding="utf-8")
 
 def _code_tools() -> set[str]:
     main = (ROOT / "src" / "zzaimy" / "app" / "main.py").read_text(encoding="utf-8")
-    return set(re.findall(r'doc_agent\.Tool\(\s*"([a-z_]+)"', main))
+    names = set(re.findall(r'doc_agent\.Tool\(\s*"([a-z_]+)"', main))
+    if "_weo.doc_tools(" in main:                    # 기안기 편집 도구는 목록(webhwp_edit_ops.TOOLS)으로 한 번에 잇는다
+        from zzaimy.app import webhwp_edit_ops
+        names |= {t["name"] for t in webhwp_edit_ops.TOOLS}
+    return names
 
 
 def _doc_tools() -> set[str]:

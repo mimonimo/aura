@@ -1,0 +1,1868 @@
+"""한글 작업본 편집 도구 — 대화 에이전트가 기안기 기능(페이지 설정·표 만들기·표 편집·쪽 번호·머리말·글자·문단·각주·그림)을 쓰게 한다.
+
+두 갈래.
+- 파일 직접 고치기(A): 서버가 hwpx XML 을 고친다. 기안기가 열려 있지 않아도 된다. 고친 문단만 줄 배치 캐시(linesegarray)를 지우고
+  (webhwp_fields.strip_lineseg_in 과 같은 규칙), header 의 모양 목록은 실제 항목 수로 itemCnt 를 다시 센다(webhwp_style._Header).
+  고치기 전에 지금 파일을 판(.판/)으로 남기고, 고친 결과가 자가 점검(hwpx_fill.check)을 통과할 때만 저장한다 — 실패하면 파일은 그대로.
+- 열린 기안기에 명령 보내기(B): 명령 줄(설정 webhwp_cmd:<id>)에 넣으면 편집 화면이 1~2초마다 가져가 기안기 동작(CreateAction·Run)으로
+  실행하고 결과를 돌려준다. 동작은 기안기에서 실제로 확인한 허용 목록(LIVE_ACTIONS)만 — 파일 열기·저장·인쇄·외부 주소는 없다.
+
+판단(무엇을 어디에 얼마나)은 에이전트가 하고, 이 모듈은 실행·관문·기록만 한다. 단위는 사람 기준 — 표의 행·열은 1부터, 길이는 mm.
+HWPUNIT = mm × 283.465.
+"""
+from __future__ import annotations
+
+import io
+import json
+import re
+import shutil
+import tempfile
+import time
+import zipfile
+from datetime import datetime
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+from zzaimy.app import webhwp
+from zzaimy.app import webhwp_fields as wf
+from zzaimy.app import webhwp_style as ws
+from zzaimy.export import house_style as hs
+from zzaimy.ingest import hwpx_fill as hf
+
+MM = 283.465                                      # HWPUNIT / mm
+
+
+def hu(mm: float) -> int:
+    return int(round(float(mm) * MM))
+
+
+def mm_of(v: int) -> float:
+    return round(int(v) / MM, 1)
+
+
+class EditError(ValueError):
+    """에이전트에게 돌려줄 까닭 — 파일은 바꾸지 않는다."""
+
+
+# ── 용지·여백 ──
+PAPERS = {"A4": (210, 297), "A3": (297, 420), "A5": (148, 210), "B4": (257, 364), "B5": (182, 257),
+          "Letter": (215.9, 279.4), "Legal": (215.9, 355.6)}
+# 여백 프리셋(mm) — 보통은 한글 새 문서 기본값, 좁게·넓게는 학교 문서에서 흔한 두 꼴
+MARGIN_PRESETS = {
+    "보통": {"top": 20, "bottom": 15, "left": 30, "right": 30, "header": 15, "footer": 15},
+    "좁게": {"top": 10, "bottom": 10, "left": 15, "right": 15, "header": 10, "footer": 10},
+    "넓게": {"top": 25, "bottom": 20, "left": 35, "right": 35, "header": 15, "footer": 15},
+}
+_MARGIN_KEYS = ("top", "bottom", "left", "right", "header", "footer", "gutter")
+_GUTTER_TYPES = {"왼쪽": "LEFT_ONLY", "맞쪽": "LEFT_RIGHT", "위쪽": "TOP_BOTTOM", "LEFT_ONLY": "LEFT_ONLY",
+                 "LEFT_RIGHT": "LEFT_RIGHT", "TOP_BOTTOM": "TOP_BOTTOM"}
+ALIGNS = {"가운데": "CENTER", "왼쪽": "LEFT", "오른쪽": "RIGHT", "양쪽": "JUSTIFY", "배분": "DISTRIBUTE",
+          "CENTER": "CENTER", "LEFT": "LEFT", "RIGHT": "RIGHT", "JUSTIFY": "JUSTIFY", "DISTRIBUTE": "DISTRIBUTE"}
+VALIGNS = {"위": "TOP", "가운데": "CENTER", "아래": "BOTTOM", "TOP": "TOP", "CENTER": "CENTER", "BOTTOM": "BOTTOM"}
+PAGE_NUM_POS = {"위 왼쪽": "TOP_LEFT", "위 가운데": "TOP_CENTER", "위 오른쪽": "TOP_RIGHT",
+                "아래 왼쪽": "BOTTOM_LEFT", "아래 가운데": "BOTTOM_CENTER", "아래 오른쪽": "BOTTOM_RIGHT",
+                "바깥 위": "OUTSIDE_TOP", "바깥 아래": "OUTSIDE_BOTTOM", "안쪽 위": "INSIDE_TOP", "안쪽 아래": "INSIDE_BOTTOM"}
+PAGE_NUM_FMT = {"1": "DIGIT", "①": "CIRCLED_DIGIT", "I": "ROMAN_CAPITAL", "i": "ROMAN_SMALL", "A": "LATIN_CAPITAL",
+                "a": "LATIN_SMALL", "가": "HANGUL_SYLLABLE", "一": "IDEOGRAPH"}
+
+
+# ── 문서 열기·담기 ──
+_SEC = re.compile(r"Contents/section(\d+)\.xml$")
+
+
+class _Hdr(ws._Header):
+    """webhwp_style 의 header 더하기(같은 모양은 한 번만) + 글꼴·줄 간격·여백·채움 복제."""
+
+    def font_id(self, face: str) -> str:
+        """글꼴 이름 → 글꼴 id(언어 묶음마다 같은 번호가 되게 없으면 모든 묶음에 더한다)."""
+        key = ("font", face)
+        if key in self.cache:
+            return self.cache[key]
+        groups = list(re.finditer(r'<hh:fontface\b[^>]*>.*?</hh:fontface>', self.xml, re.S))
+        hit = None
+        for g in groups:
+            m = re.search(rf'<hh:font\b[^>]*\bid="(\d+)"[^>]*\bface="{re.escape(escape(face, {chr(34): "&quot;"}))}"', g.group(0))
+            if m:
+                hit = m.group(1)
+                break
+        if hit is not None and all(re.search(rf'<hh:font\b[^>]*\bid="{hit}"[^>]*\bface="{re.escape(face)}"', g.group(0)) for g in groups):
+            self.cache[key] = hit
+            return hit
+        new_id = str(max([int(x) for g in groups for x in re.findall(r'<hh:font\b[^>]*\bid="(\d+)"', g.group(0))] or [-1]) + 1)
+        out, pos = [], 0
+        for g in groups:
+            body = g.group(0)
+            font = (f'<hh:font id="{new_id}" face="{escape(face, {chr(34): "&quot;"})}" type="TTF" isEmbedded="0">'
+                    '<hh:typeInfo familyType="FCAT_GOTHIC" weight="6" proportion="4" contrast="0" strokeVariation="1" armStyle="1" '
+                    'letterform="1" midline="1" xHeight="1"/></hh:font>')
+            body = body.replace("</hh:fontface>", font + "</hh:fontface>")
+            n = len(re.findall(r"<hh:font\b", body))
+            body = re.sub(r'(<hh:fontface\b[^>]*\bfontCnt=")\d+', rf"\g<1>{n}", body, count=1)
+            out.append(self.xml[pos:g.start()] + body)
+            pos = g.end()
+        out.append(self.xml[pos:])
+        self.xml = "".join(out)
+        self.cache[key] = new_id
+        return new_id
+
+    def char_ex(self, base: str, *, pt: float | None = None, face: str = "", bold: bool | None = None) -> str:
+        key = ("cpx", base, pt, face, bold)
+        if key in self.cache:
+            return self.cache[key]
+        m = re.search(rf'<hh:charPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:charPr>', self.xml, re.S)
+        if not m:
+            return base
+        fid = self.font_id(face) if face else ""
+        body = re.sub(r'\bid="\d+"', f'id="{self._next_id("charPr")}"', m.group(0), count=1)
+        if pt:
+            body = re.sub(r'\bheight="\d+"', f'height="{int(round(float(pt) * 100))}"', body, count=1)
+        if fid:
+            body = re.sub(r"<hh:fontRef\b[^>]*/>", f'<hh:fontRef hangul="{fid}" latin="{fid}" hanja="{fid}" japanese="{fid}" '
+                          f'other="{fid}" symbol="{fid}" user="{fid}"/>', body, count=1)
+        if bold is True and "<hh:bold/>" not in body:
+            body = body.replace("<hh:underline", "<hh:bold/><hh:underline", 1)
+        elif bold is False:
+            body = body.replace("<hh:bold/>", "")
+        new_id = re.search(r'\bid="(\d+)"', body).group(1)
+        self._append("charProperties", body)
+        self.cache[key] = new_id
+        return new_id
+
+    def para_ex(self, base: str, *, align: str = "", line: int | None = None, left: int | None = None,
+                indent: int | None = None) -> str:
+        """문단 모양 복제 — align(가로 정렬), line(줄 간격 %), left·indent(HWPUNIT, 내어쓰기는 음수)."""
+        key = ("ppx", base, align, line, left, indent)
+        if key in self.cache:
+            return self.cache[key]
+        m = re.search(rf'<hh:paraPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:paraPr>', self.xml, re.S)
+        if not m:
+            return base
+        body = re.sub(r'\bid="\d+"', f'id="{self._next_id("paraPr")}"', m.group(0), count=1)
+        if align:
+            body = re.sub(r'(<hh:align horizontal=")[A-Z_]+', rf"\g<1>{align}", body, count=1)
+
+        def fix(block: str, div: int) -> str:
+            if line is not None:
+                block = re.sub(r'(<hh:lineSpacing type=")[A-Z_]+(" value=")-?\d+', rf"\g<1>PERCENT\g<2>{int(line)}", block, count=1)
+            if left is not None:
+                block = re.sub(r'(<hc:left value=")-?\d+', rf"\g<1>{int(left) // div}", block, count=1)
+            if indent is not None:
+                block = re.sub(r'(<hc:intent value=")-?\d+', rf"\g<1>{int(indent) // div}", block, count=1)
+            return block
+        # 한글은 HwpUnitChar 판(case)에 반값을, 기본(default)에 온값을 쓴다(webhwp_write._LevelStyles 와 같은 규칙)
+        case = re.search(r"<hp:case\b.*?</hp:case>", body, re.S)
+        if case:
+            body = body[:case.start()] + fix(case.group(0), 2) + body[case.end():]
+        dflt = re.search(r"<hp:default>.*?</hp:default>", body, re.S)
+        if dflt:
+            body = body[:dflt.start()] + fix(dflt.group(0), 1) + body[dflt.end():]
+        if not case and not dflt:
+            body = fix(body, 1)
+        new_id = re.search(r'\bid="(\d+)"', body).group(1)
+        self._append("paraProperties", body)
+        self.cache[key] = new_id
+        return new_id
+
+    def fill_clone(self, base: str, color: str) -> str:
+        """테두리 모양 복제에 음영만 바꾼다(color 'none' 이면 음영 없앰)."""
+        key = ("fill", base, color)
+        if key in self.cache:
+            return self.cache[key]
+        m = re.search(rf'<hh:borderFill\b[^>]*?\bid="{base}"[^>]*>.*?</hh:borderFill>', self.xml, re.S)
+        if not m:
+            return self.border(ws.HOUSE["inner"], ws.HOUSE["inner"], ws.HOUSE["inner"], ws.HOUSE["inner"], color)
+        body = re.sub(r'\bid="\d+"', f'id="{self._next_id("borderFill")}"', m.group(0), count=1)
+        body = re.sub(r"<hc:fillBrush>.*?</hc:fillBrush>|<hh:fillInfo>.*?</hh:fillInfo>|<hh:fillInfo/>", "", body, flags=re.S)
+        if color and color != "none":
+            body = body.replace("</hh:borderFill>", f'<hc:fillBrush><hc:winBrush faceColor="{color}" hatchColor="#999999" alpha="0"/></hc:fillBrush></hh:borderFill>')
+        new_id = re.search(r'\bid="(\d+)"', body).group(1)
+        self._append("borderFills", body)
+        self.cache[key] = new_id
+        return new_id
+
+
+class _Doc:
+    """hwpx 하나 — 구역 XML·header·매니페스트를 열고, 바뀐 것만 다시 담는다(항목 순서·압축 방식 유지)."""
+
+    def __init__(self, data: bytes):
+        try:
+            self.zin = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile:
+            raise EditError("hwpx 파일이 아니다(옛 hwp 는 기안기에서 한 번 저장하면 hwpx 가 된다).")
+        wf.check_zip(self.zin)
+        names = self.zin.namelist()
+        self.sec_names = sorted((n for n in names if _SEC.search(n)), key=lambda n: int(_SEC.search(n).group(1)))
+        if not self.sec_names or "Contents/header.xml" not in names:
+            raise EditError("한글 본문(section)·header 가 없는 파일이다.")
+        self.secs = {n: self.zin.read(n).decode("utf-8") for n in self.sec_names}
+        self._orig = dict(self.secs)
+        self.hdr = _Hdr(self.zin.read("Contents/header.xml").decode("utf-8"))
+        self._hdr0 = self.hdr.xml
+        self.hpf_name = next((n for n in names if n.endswith("content.hpf")), None)
+        self.hpf = self.zin.read(self.hpf_name).decode("utf-8") if self.hpf_name else None
+        self._hpf0 = self.hpf
+        self.added: dict[str, bytes] = {}
+        self.ids = wf._Ids([self.hdr.xml, *self.secs.values()])
+
+    def changed(self) -> bool:
+        return self.secs != self._orig or self.hdr.xml != self._hdr0 or self.hpf != self._hpf0 or bool(self.added)
+
+    def pack(self) -> bytes:
+        repl = {n: x.encode("utf-8") for n, x in self.secs.items() if x != self._orig[n]}
+        if self.hdr.xml != self._hdr0:
+            repl["Contents/header.xml"] = self.hdr.xml.encode("utf-8")
+        if self.hpf_name and self.hpf != self._hpf0:
+            repl[self.hpf_name] = self.hpf.encode("utf-8")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for info in self.zin.infolist():
+                body = repl.get(info.filename)
+                z.writestr(info, body if body is not None else self.zin.read(info.filename),
+                           compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            for name, body in self.added.items():
+                z.writestr(name, body, compress_type=zipfile.ZIP_STORED)
+        return buf.getvalue()
+
+    def refs(self) -> tuple[str, str]:
+        return hf._default_refs(self.hdr.xml)
+
+
+# ── 문단 찾기 ──
+_P_TOK = re.compile(r"<hp:p\b[^>]*>|</hp:p>")
+_FIELD = re.compile(r'<hp:fieldBegin\b[^>]*\bid="(\d+)"[^>]*type="CLICK_HERE"[^>]*\bname="([^"]*)"')
+
+
+def _paras(xml: str) -> list[tuple[int, int, int]]:
+    """문단 (시작, 끝, 깊이) — 깊이 0 이 본문 문단, 표 칸·머리말 안 문단은 1 이상."""
+    out, stack = [], []
+    for t in _P_TOK.finditer(xml):
+        if t.group(0) == "</hp:p>":
+            if stack:
+                s = stack.pop()
+                out.append((s, t.end(), len(stack)))
+        elif not t.group(0).endswith("/>"):
+            stack.append(t.start())
+    return sorted(out)
+
+
+def _container(xml: str, pos: int) -> tuple[int, int]:
+    """pos 를 품은 가장 안쪽 subList(표 칸·머리말·각주) 범위 — 없으면 문서 전체."""
+    best = (0, len(xml))
+    starts = []
+    for t in re.finditer(r"<hp:subList\b[^>]*>|</hp:subList>", xml):
+        if t.group(0).startswith("</"):
+            if starts:
+                s = starts.pop()
+                if s <= pos < t.end() and (t.end() - s) < (best[1] - best[0]):
+                    best = (s, t.end())
+        else:
+            starts.append(t.start())
+    return best
+
+
+def _siblings(xml: str, at: int) -> tuple[tuple[int, int, int], list[tuple[int, int, int]]]:
+    """at 을 품은 가장 안쪽 문단과, 같은 칸(본문) 같은 깊이에서 그 뒤에 오는 문단들."""
+    ps = _paras(xml)
+    mine = [p for p in ps if p[0] <= at < p[1]]
+    if not mine:
+        raise EditError("그 자리의 문단을 찾지 못했다.")
+    me = max(mine, key=lambda p: p[2])
+    box = _container(xml, at)
+    return me, [p for p in ps if p[2] == me[2] and p[0] >= me[1] and box[0] <= p[0] < box[1]]
+
+
+def _text(frag: str) -> str:
+    frag = re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", frag, flags=re.S)
+    t = re.sub(r"<[^>]+>", "", frag)
+    return re.sub(r"\s+", " ", t.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").replace("&quot;", '"')).strip()
+
+
+def _unq(name: str) -> str:
+    return name.replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
+def field_names(doc: _Doc) -> list[str]:
+    return [_unq(m.group(2)) for n in doc.sec_names for m in _FIELD.finditer(doc.secs[n])]
+
+
+def _resolve_field(doc: _Doc, name: str) -> str:
+    """에이전트가 쓴 필드 이름 → 실제 이름(접두사·띄어쓰기 달라도 하나로 맞으면)."""
+    names = field_names(doc)
+    if name in names:
+        return name
+    key = lambda n: re.sub(r"\s+", "", re.sub(r"^(칸|절|표\d+):", "", n))
+    hits = [n for n in names if key(n) == key(name)]
+    if len(hits) == 1:
+        return hits[0]
+    raise EditError(f"필드 「{name}」 이 없다" + (f"(비슷한 것이 여럿: {', '.join(hits[:5])})" if hits else "") + " — hwp_fields 의 이름을 쓴다.")
+
+
+def _find_field(doc: _Doc, name: str) -> tuple[str, int]:
+    name = _resolve_field(doc, name)
+    for n in doc.sec_names:
+        for m in _FIELD.finditer(doc.secs[n]):
+            if _unq(m.group(2)) == name:
+                return n, m.start()
+    raise EditError(f"필드 「{name}」 이 없다.")
+
+
+def _find_text(doc: _Doc, text: str) -> tuple[str, int, int]:
+    """글이 든 가장 안쪽 문단 (구역, 시작, 끝) — 본문 문단을 먼저, 없으면 표 칸 안."""
+    want = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not want:
+        raise EditError("찾을 글(after_text·text)이 비었다.")
+    best = None
+    for n in doc.sec_names:
+        xml = doc.secs[n]
+        for s, e, d in _paras(xml):
+            seg = xml[s:e]
+            if re.search(r"<hp:p\b", seg[1:]):                # 안쪽 문단이 있는 문단(표 문단)은 건너뛴다
+                continue
+            if want in _text(seg) and (best is None or d < best[3]):
+                best = (n, s, e, d)
+        if best and best[3] == 0:
+            break
+    if not best:
+        raise EditError(f"「{want[:30]}」 이 든 문단을 찾지 못했다.")
+    return best[0], best[1], best[2]
+
+
+def _section_span(doc: _Doc, field: str) -> tuple[str, int, int]:
+    """절 필드의 범위 — 필드 문단부터, 같은 칸의 뒤 문단 가운데 다음 절 제목(다음 절 필드 문단의 바로 앞) 전까지."""
+    n, at = _find_field(doc, field)
+    xml = doc.secs[n]
+    me, sibs = _siblings(xml, at)
+    end = me[1]
+    for i, p in enumerate(sibs):
+        seg = xml[p[0]:p[1]]
+        nxt = xml[sibs[i + 1][0]:sibs[i + 1][1]] if i + 1 < len(sibs) else ""
+        if re.search(r'name="절:', seg) or re.search(r'name="절:', nxt):
+            break
+        end = p[1]
+    return n, me[0], end
+
+
+def _anchor(doc: _Doc, at: dict | None) -> tuple[str, int, int]:
+    """넣을 자리 (구역, 위치, 쓸 폭 HWPUNIT). at = {field, where: start|end} | {after_text} | {} (문서 끝)."""
+    at = at if isinstance(at, dict) else {}
+    if at.get("field"):
+        if str(at.get("where") or "start") == "end":
+            n, _s, e = _section_span(doc, str(at["field"]))
+        else:
+            n, pos = _find_field(doc, str(at["field"]))
+            me, _ = _siblings(doc.secs[n], pos)
+            e = me[1]
+        return n, e, _width_at(doc.secs[n], e - 1)
+    if at.get("after_text"):
+        n, _s, e = _find_text(doc, str(at["after_text"]))
+        return n, e, _width_at(doc.secs[n], e - 1)
+    n = doc.sec_names[-1]
+    xml = doc.secs[n]
+    return n, xml.rfind("</hs:sec>"), hf._text_width_hu(doc.secs[doc.sec_names[0]])
+
+
+def _width_at(xml: str, at: int) -> int:
+    """그 자리의 쓸 폭 — 표 칸 안이면 칸 폭, 아니면 본문 폭."""
+    tc = xml.rfind("<hp:tc", 0, at)
+    end = xml.rfind("</hp:tc>", 0, at)
+    if tc != -1 and end < tc:
+        m = re.search(r'<hp:cellSz width="(\d+)"', xml[tc:xml.find("</hp:tc>", at) + 8])
+        if m:
+            return max(int(m.group(1)) - 1200, 3000)
+    first = re.search(r"<hp:pagePr\b.*?</hp:pagePr>", xml, re.S)
+    return hf._text_width_hu(first.group(0)) if first else 42520
+
+
+def _strip_ls(p: str) -> str:
+    """한 문단(표를 품은 문단 포함)의 자기 줄 배치 캐시만 지운다 — 안쪽 문단의 것은 그대로."""
+    inner_end = p.rfind("</hp:p>", 0, len(p) - len("</hp:p>"))
+    tail_from = max(inner_end + 7 if inner_end != -1 else 0, p.rfind("</hp:tbl>") + 9 if "</hp:tbl>" in p else 0)
+    tail = p[tail_from:]
+    return p[:tail_from] + wf._LINESEG.sub("", tail)
+
+
+# ── 표 ──
+class _Table:
+    """표 하나의 격자 모델 — 칸(행·열·합침)과 열 폭·행 높이. 바꾼 뒤 to_xml 로 XML 을 다시 만든다."""
+
+    def __init__(self, xml: str):
+        self.xml = xml
+        first_tr = xml.find("<hp:tr")
+        self.head = xml[:first_tr]
+        self.tail = xml[xml.rfind("</hp:tr>") + len("</hp:tr>"):]
+        self.cells: list[dict] = []
+        for m in ws._TC.finditer(xml):
+            x = m.group(0)
+            a = re.search(r'<hp:cellAddr colAddr="(\d+)" rowAddr="(\d+)"', x)
+            sp = re.search(r'<hp:cellSpan colSpan="(\d+)" rowSpan="(\d+)"', x)
+            sz = re.search(r'<hp:cellSz width="(\d+)" height="(\d+)"', x)
+            if not a:
+                continue
+            self.cells.append({"r": int(a.group(2)), "c": int(a.group(1)), "cs": int(sp.group(1)) if sp else 1,
+                               "rs": int(sp.group(2)) if sp else 1, "w": int(sz.group(1)) if sz else 0,
+                               "h": int(sz.group(2)) if sz else hs.MIN_ROW_HEIGHT, "xml": x})
+        if not self.cells:
+            raise EditError("칸이 없는 표다.")
+        self.nr = max(c["r"] + c["rs"] for c in self.cells)
+        self.nc = max(c["c"] + c["cs"] for c in self.cells)
+        tw = re.search(r'<hp:sz width="(\d+)"', self.head)
+        self.total_w = int(tw.group(1)) if tw else sum(c["w"] for c in self.cells if c["r"] == 0)
+        self.col_w = self._solve([(c["c"], c["cs"], c["w"]) for c in self.cells], self.nc, self.total_w)
+        self.row_h = self._solve([(c["r"], c["rs"], c["h"]) for c in self.cells], self.nr, None, hs.MIN_ROW_HEIGHT)
+
+    @staticmethod
+    def _solve(spans, n, total, floor=600):
+        """칸 폭(합친 칸 포함)에서 열마다 폭을 푼다 — 한 칸짜리를 먼저, 합친 칸은 모르는 열이 하나 남을 때."""
+        val: list[int | None] = [None] * n
+        for i, k, w in spans:
+            if k == 1 and val[i] is None:
+                val[i] = w
+        for _ in range(n):
+            for i, k, w in spans:
+                unknown = [j for j in range(i, i + k) if val[j] is None]
+                if len(unknown) == 1:
+                    val[unknown[0]] = max(w - sum(val[j] or 0 for j in range(i, i + k) if j != unknown[0]), floor)
+        rest = [j for j in range(n) if val[j] is None]
+        if rest:
+            known = sum(v for v in val if v)
+            share = max(((total or 0) - known) // len(rest), floor) if total else floor
+            for j in rest:
+                val[j] = share
+        return [int(v) for v in val]
+
+    def covering(self, r: int, c: int) -> dict | None:
+        return next((x for x in self.cells if x["r"] <= r < x["r"] + x["rs"] and x["c"] <= c < x["c"] + x["cs"]), None)
+
+    def _check_rc(self, r: int, c: int | None = None) -> None:
+        if not 0 <= r < self.nr or (c is not None and not 0 <= c < self.nc):
+            raise EditError(f"표는 {self.nr}행×{self.nc}열이다 — 행·열 번호는 1부터 그 안에서.")
+
+    def new_cell(self, like: dict, text: str = "", ids=None) -> dict:
+        """like 칸의 모양(테두리·문단·글자·세로 정렬)을 따른 빈 칸."""
+        x = like["xml"]
+        tc_open = re.match(r"<hp:tc\b[^>]*>", x).group(0)
+        sub_open = re.search(r"<hp:subList\b[^>]*>", x).group(0)
+        p_open = re.search(r"<hp:p\b[^>]*>", x)
+        pp = re.search(r'paraPrIDRef="(\d+)"', p_open.group(0)).group(1) if p_open else "0"
+        cp = re.search(r'charPrIDRef="(\d+)"', x)
+        cp = cp.group(1) if cp else "0"
+        margin = re.search(r"<hp:cellMargin\b[^>]*/>", x)
+        body = "".join(hf.paragraph_xml(ln, pp, cp).replace('<hp:p id="0"', f'<hp:p id="{ids.new() if ids else "0"}"', 1)
+                       for ln in (hf.split_lines(text) if text else [""]))
+        tc_open = re.sub(r'\bname="[^"]*"', 'name=""', tc_open, count=1)
+        xml = (f"{tc_open}{sub_open}{body}</hp:subList>"
+               f'<hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/>'
+               f'<hp:cellSz width="0" height="0"/>{margin.group(0) if margin else ""}</hp:tc>')
+        return {"r": 0, "c": 0, "cs": 1, "rs": 1, "w": 0, "h": 0, "xml": xml}
+
+    # 행·열
+    def insert_rows(self, r: int, count: int, below: bool, ids) -> None:
+        self._check_rc(r)
+        # 머리줄(첫 행) 아래에 넣으면 모양은 본문 행(둘째 행)을 따른다 — 새 행이 머리줄 음영·굵게를 물려받지 않게
+        src = 1 if r == 0 and below and self.nr > 1 else r
+        ref_row = [(c, self.covering(r, c)) for c in range(self.nc)]
+        look = {c: self.covering(src, c) for c in range(self.nc)}
+        new = r + 1 if below else r
+        for x in self.cells:
+            if x["r"] >= new:
+                x["r"] += count
+            elif x["r"] < new < x["r"] + x["rs"]:
+                x["rs"] += count                             # 위아래로 합친 칸이 새 행을 지나가면 그 칸을 늘린다
+        for k in range(count):
+            c = 0
+            while c < self.nc:
+                ref = dict(ref_row)[c]
+                if ref is None:
+                    c += 1
+                    continue
+                if ref["r"] <= new + k < ref["r"] + ref["rs"]:      # 위아래로 합친 칸이 이미 새 행을 덮는다
+                    c = ref["c"] + ref["cs"]
+                    continue
+                cell = self.new_cell(look.get(c) or ref, ids=ids)
+                cell.update(r=new + k, c=c, cs=max(1, min(ref["cs"] - (c - ref["c"]), self.nc - c)))
+                self.cells.append(cell)
+                c += cell["cs"]
+        self.row_h[new:new] = [self.row_h[r]] * count
+        self.nr += count
+
+    def delete_rows(self, r: int, count: int) -> None:
+        self._check_rc(r)
+        count = min(count, self.nr - r)
+        if count >= self.nr:
+            raise EditError("표의 모든 행을 지울 수는 없다 — 표를 지우려면 기안기에서 지운다.")
+        for _ in range(count):
+            keep = []
+            for x in self.cells:
+                if x["r"] == r:
+                    if x["rs"] > 1:
+                        x["rs"] -= 1                          # 합친 칸은 남은 행으로 줄인다(글은 그대로)
+                        keep.append(x)
+                elif x["r"] < r < x["r"] + x["rs"]:
+                    x["rs"] -= 1
+                    keep.append(x)
+                else:
+                    if x["r"] > r:
+                        x["r"] -= 1
+                    keep.append(x)
+            self.cells = keep
+            self.row_h.pop(r)
+            self.nr -= 1
+
+    def insert_cols(self, c: int, count: int, right: bool, ids) -> None:
+        self._check_rc(0, c)
+        ref_col = {r: self.covering(r, c) for r in range(self.nr)}
+        new = c + 1 if right else c
+        for x in self.cells:
+            if x["c"] >= new:
+                x["c"] += count
+            elif x["c"] < new < x["c"] + x["cs"]:
+                x["cs"] += count
+        for k in range(count):
+            r = 0
+            while r < self.nr:
+                ref = ref_col[r]
+                if ref is None:
+                    r += 1
+                    continue
+                if ref["c"] <= new + k < ref["c"] + ref["cs"]:
+                    r = ref["r"] + ref["rs"]
+                    continue
+                cell = self.new_cell(ref, ids=ids)
+                cell.update(r=r, c=new + k, rs=max(1, min(ref["rs"] - (r - ref["r"]), self.nr - r)))
+                self.cells.append(cell)
+                r += cell["rs"]
+        self.col_w[new:new] = [self.col_w[c]] * count
+        self.nc += count
+        self._fit_width()
+
+    def delete_cols(self, c: int, count: int) -> None:
+        self._check_rc(0, c)
+        count = min(count, self.nc - c)
+        if count >= self.nc:
+            raise EditError("표의 모든 열을 지울 수는 없다.")
+        for _ in range(count):
+            keep = []
+            for x in self.cells:
+                if x["c"] == c:
+                    if x["cs"] > 1:
+                        x["cs"] -= 1
+                        keep.append(x)
+                elif x["c"] < c < x["c"] + x["cs"]:
+                    x["cs"] -= 1
+                    keep.append(x)
+                else:
+                    if x["c"] > c:
+                        x["c"] -= 1
+                    keep.append(x)
+            self.cells = keep
+            self.col_w.pop(c)
+            self.nc -= 1
+        self._fit_width()
+
+    def _fit_width(self) -> None:
+        """열을 넣거나 지워도 표 전체 폭은 그대로(본문 폭을 넘지 않게) — 열 폭을 비율대로 맞춘다."""
+        s = sum(self.col_w) or 1
+        self.col_w = [max(int(self.total_w * w / s), 600) for w in self.col_w]
+
+    def set_widths(self, ratios: list[float]) -> None:
+        if len(ratios) != self.nc or any(float(x) <= 0 for x in ratios):
+            raise EditError(f"열 폭 비율은 열 수({self.nc})만큼의 양수다.")
+        s = sum(float(x) for x in ratios)
+        self.col_w = [max(int(self.total_w * float(x) / s), 600) for x in ratios]
+
+    # 칸
+    def set_text(self, r: int, c: int, text: str, ids) -> None:
+        self._check_rc(r, c)
+        cell = self.covering(r, c)
+        x = cell["xml"]
+        fb = re.search(r'<hp:fieldBegin\b[^>]*\bid="(\d+)"', x)
+        if fb:                                               # 칸에 누름틀이 있으면 그 안에 — 필드 이름은 그대로 둔다
+            end = re.search(rf'<hp:ctrl><hp:fieldEnd\b[^>]*beginIDRef="{fb.group(1)}"[^>]*/></hp:ctrl>', x)
+            open_end = x.find("</hp:ctrl>", fb.end()) + len("</hp:ctrl>")
+            if end and open_end <= end.start():
+                vx = "<hp:t>" + "<hp:lineBreak/>".join(escape(t) for t in str(text).replace("\r", "").split("\n")) + "</hp:t>"
+                x = x[:open_end] + vx + x[end.start():]
+                cell["xml"] = wf.strip_lineseg_in(x, lambda p: "fieldBegin" in p)
+                return
+        sub = re.search(r"(<hp:subList\b[^>]*>)(.*)(</hp:subList>)", x, re.S)
+        p_open = re.search(r"<hp:p\b[^>]*>", sub.group(2))
+        pp = re.search(r'paraPrIDRef="(\d+)"', p_open.group(0)).group(1) if p_open else "0"
+        cp = re.search(r'charPrIDRef="(\d+)"', sub.group(2))
+        cp = cp.group(1) if cp else "0"
+        body = "".join(hf.paragraph_xml(ln, pp, cp).replace('<hp:p id="0"', f'<hp:p id="{ids.new()}"', 1)
+                       for ln in (hf.split_lines(str(text)) or [""]))
+        cell["xml"] = x[:sub.start(2)] + body + x[sub.end(2):]
+
+    def merge(self, r1: int, c1: int, r2: int, c2: int) -> None:
+        r1, r2 = sorted((r1, r2))
+        c1, c2 = sorted((c1, c2))
+        self._check_rc(r1, c1)
+        self._check_rc(r2, c2)
+        inside = []
+        for x in self.cells:
+            xr2, xc2 = x["r"] + x["rs"] - 1, x["c"] + x["cs"] - 1
+            overlap = not (xr2 < r1 or x["r"] > r2 or xc2 < c1 or x["c"] > c2)
+            if not overlap:
+                continue
+            if x["r"] < r1 or xr2 > r2 or x["c"] < c1 or xc2 > c2:
+                raise EditError("합칠 범위가 이미 합친 칸에 걸친다 — 범위를 그 칸까지 넓히거나 먼저 나눈다.")
+            inside.append(x)
+        anchor = next((x for x in inside if x["r"] == r1 and x["c"] == c1), None)
+        if anchor is None or len(inside) < 2:
+            raise EditError("합칠 칸이 둘 이상이어야 한다.")
+        # 글이 있는 다른 칸의 문단을 첫 칸 뒤에 잇는다(한글의 칸 합치기와 같다)
+        extra = []
+        for x in sorted(inside, key=lambda x: (x["r"], x["c"])):
+            if x is anchor:
+                continue
+            sub = re.search(r"<hp:subList\b[^>]*>(.*)</hp:subList>", x["xml"], re.S)
+            if sub and _text(sub.group(1)):
+                extra.append(sub.group(1))
+        if extra:
+            ax = anchor["xml"]
+            close = ax.rfind("</hp:subList>")
+            body = ax[:close]
+            if not _text(re.search(r"<hp:subList\b[^>]*>(.*)", body, re.S).group(1)):
+                sub_open = re.search(r"<hp:subList\b[^>]*>", body)
+                body = body[:sub_open.end()]
+            anchor["xml"] = body + "".join(extra) + ax[close:]
+        self.cells = [x for x in self.cells if x is anchor or x not in inside]
+        anchor["rs"], anchor["cs"] = r2 - r1 + 1, c2 - c1 + 1
+
+    def split(self, r: int, c: int, rows: int | None, cols: int | None, ids) -> None:
+        self._check_rc(r, c)
+        t = self.covering(r, c)
+        R = int(rows) if rows else (1 if cols else t["rs"])
+        C = int(cols) if cols else (1 if rows else t["cs"])
+        if R < 1 or C < 1 or R * C == 1 and t["rs"] * t["cs"] == 1:
+            raise EditError("나눌 행·열 수(rows·cols)를 준다 — 합친 칸을 풀 때는 둘 다 비운다.")
+        if C > t["cs"]:                                      # 열이 모자라면 격자에 열을 더한다(다른 행의 같은 자리 칸은 넓힌다)
+            n = C - t["cs"]
+            last = t["c"] + t["cs"] - 1
+            width = sum(self.col_w[t["c"]:last + 1])
+            for x in self.cells:
+                if x is t:
+                    continue
+                if x["c"] <= last < x["c"] + x["cs"]:
+                    x["cs"] += n
+                elif x["c"] > last:
+                    x["c"] += n
+            t["cs"] = C
+            self.col_w[t["c"]:last + 1] = [width // C] * C
+            self.nc += n
+        if R > t["rs"]:
+            n = R - t["rs"]
+            last = t["r"] + t["rs"] - 1
+            height = sum(self.row_h[t["r"]:last + 1])
+            for x in self.cells:
+                if x is t:
+                    continue
+                if x["r"] <= last < x["r"] + x["rs"]:
+                    x["rs"] += n
+                elif x["r"] > last:
+                    x["r"] += n
+            t["rs"] = R
+            self.row_h[t["r"]:last + 1] = [max(height // R, hs.MIN_ROW_HEIGHT)] * R
+            self.nr += n
+        if t["rs"] % R or t["cs"] % C:
+            raise EditError(f"이 칸({t['rs']}행×{t['cs']}열 합침)은 {R}×{C} 로 고르게 나눌 수 없다.")
+        pr, pc = t["rs"] // R, t["cs"] // C
+        top, left = t["r"], t["c"]
+        t["rs"], t["cs"] = pr, pc
+        for i in range(R):
+            for j in range(C):
+                if i == 0 and j == 0:
+                    continue
+                cell = self.new_cell(t, ids=ids)
+                cell.update(r=top + i * pr, c=left + j * pc, rs=pr, cs=pc)
+                self.cells.append(cell)
+
+    def cells_in(self, rng: dict | None) -> list[dict]:
+        """범위 {rows: [첫, 끝], cols: [첫, 끝]}(0부터) 에 든 칸 — 없으면 표 전체."""
+        if not rng:
+            return list(self.cells)
+        r1, r2 = rng.get("rows") or (0, self.nr - 1)
+        c1, c2 = rng.get("cols") or (0, self.nc - 1)
+        return [x for x in self.cells if r1 <= x["r"] <= r2 and c1 <= x["c"] <= c2]
+
+    def to_xml(self) -> str:
+        self.cells.sort(key=lambda x: (x["r"], x["c"]))
+        # 덮개 검사 — 모든 자리를 꼭 한 칸이 덮어야 한다(한글이 깨진 표를 열지 못한다)
+        cover = [[0] * self.nc for _ in range(self.nr)]
+        for x in self.cells:
+            for i in range(x["r"], x["r"] + x["rs"]):
+                for j in range(x["c"], x["c"] + x["cs"]):
+                    if i >= self.nr or j >= self.nc:
+                        raise EditError("표 격자가 어긋났다(칸이 표 밖으로 나감).")
+                    cover[i][j] += 1
+        if any(v != 1 for row in cover for v in row):
+            raise EditError("표 격자가 어긋났다(빈 자리나 겹친 칸).")
+        rows = []
+        for r in range(self.nr):
+            tcs = []
+            for x in (x for x in self.cells if x["r"] == r):
+                w = sum(self.col_w[x["c"]:x["c"] + x["cs"]])
+                h = sum(self.row_h[x["r"]:x["r"] + x["rs"]])
+                y = re.sub(r'<hp:cellAddr colAddr="\d+" rowAddr="\d+"/>', f'<hp:cellAddr colAddr="{x["c"]}" rowAddr="{x["r"]}"/>', x["xml"], count=1)
+                y = re.sub(r'<hp:cellSpan colSpan="\d+" rowSpan="\d+"/>', f'<hp:cellSpan colSpan="{x["cs"]}" rowSpan="{x["rs"]}"/>', y, count=1)
+                y = re.sub(r'<hp:cellSz width="\d+" height="\d+"/>', f'<hp:cellSz width="{w}" height="{h}"/>', y, count=1)
+                tcs.append(y)
+            rows.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
+        head = re.sub(r'\browCnt="\d+"', f'rowCnt="{self.nr}"', self.head, count=1)
+        head = re.sub(r'\bcolCnt="\d+"', f'colCnt="{self.nc}"', head, count=1)
+        head = re.sub(r'(<hp:sz width=")\d+(" widthRelTo="\w+" height=")\d+', rf"\g<1>{sum(self.col_w)}\g<2>{sum(self.row_h)}", head, count=1)
+        body = head + "".join(rows) + self.tail
+        # 바뀐 표 안의 줄 배치 캐시는 지운다(칸 폭·글이 바뀌었다) — 표 밖 문단은 그대로
+        return wf._LINESEG.sub("", body)
+
+
+def list_tables(doc: _Doc) -> list[dict]:
+    """표 목록 — 번호는 hwp_tables·hwp_style 과 같은 차례(안쪽 표, 문서 차례). 필드 이름도 함께."""
+    out = []
+    for n in doc.sec_names:
+        for m in ws._TBL.finditer(doc.secs[n]):
+            cells = ws._cells(m.group(0))
+            if not cells:
+                continue
+            first = [c["text"] for c in sorted(cells, key=lambda c: (c["r"], c["c"])) if c["r"] == 0]
+            out.append({"no": len(out) + 1, "sec": n, "s": m.start(), "e": m.end(),
+                        "rows": max(c["r"] + c["rs"] for c in cells), "cols": max(c["c"] + c["cs"] for c in cells),
+                        "head": " | ".join(first)[:80], "fields": [_unq(f.group(2)) for f in _FIELD.finditer(m.group(0))]})
+    return out
+
+
+def _pick_table(doc: _Doc, table) -> dict:
+    tl = list_tables(doc)
+    if not tl:
+        raise EditError("문서에 표가 없다.")
+    if isinstance(table, dict):
+        if table.get("no") is not None:
+            table = table["no"]
+        elif table.get("field"):
+            name = _resolve_field(doc, str(table["field"]))
+            hit = [t for t in tl if name in t["fields"]]
+            if not hit:
+                raise EditError(f"필드 「{name}」 이 든 표가 없다.")
+            return hit[0]
+        elif table.get("head"):
+            want = re.sub(r"\s+", "", str(table["head"]))
+            hit = [t for t in tl if want in re.sub(r"\s+", "", t["head"])]
+            if len(hit) != 1:
+                raise EditError(f"머리줄에 「{table['head']}」 이 든 표가 {len(hit)}개다 — 번호(no)로 고른다.")
+            return hit[0]
+    m = re.search(r"\d+", str(table if table is not None else ""))
+    if not m:
+        raise EditError("table 은 표 번호(hwp_tables 의 번호)나 {head: 머리줄 글} · {field: 필드 이름} 이다.")
+    no = int(m.group(0))
+    if not 1 <= no <= len(tl):
+        raise EditError(f"표 번호는 1~{len(tl)} 이다.")
+    return tl[no - 1]
+
+
+def _replace_table(doc: _Doc, t: dict, new_tbl: str) -> None:
+    xml = doc.secs[t["sec"]]
+    xml = xml[:t["s"]] + new_tbl + xml[t["e"]:]
+    # 표를 품은 문단(바깥 문단)의 자기 줄 배치는 지운다 — 표 높이가 바뀌었다
+    ps = [p for p in _paras(xml) if p[0] < t["s"] < p[1]]
+    if ps:
+        p = max(ps, key=lambda p: p[2])
+        xml = xml[:p[0]] + _strip_ls(xml[p[0]:p[1]]) + xml[p[1]:]
+    doc.secs[t["sec"]] = xml
+
+
+def _idx(v, name: str) -> int:
+    try:
+        i = int(v)
+    except (TypeError, ValueError):
+        raise EditError(f"{name} 는 1부터 세는 번호다.")
+    if i < 1:
+        raise EditError(f"{name} 는 1부터 센다.")
+    return i - 1
+
+
+def _color(c) -> str:
+    v = ws._color(str(c or ""))
+    return v
+
+
+# ── 연산(바이트 → 바이트, 요약) ──
+def page_setup(data: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    paper = str(a.get("paper") or "").strip()
+    orient = str(a.get("orientation") or "").strip()
+    preset = str(a.get("margin") or "").strip()
+    mm = dict(MARGIN_PRESETS.get(preset, {})) if preset else {}
+    if preset and not mm:
+        raise EditError(f"여백 프리셋은 {', '.join(MARGIN_PRESETS)} 가운데 하나다.")
+    for k, v in (a.get("margins_mm") or {}).items():
+        if k in _MARGIN_KEYS and v not in (None, ""):
+            try:
+                mm[k] = float(v)
+            except (TypeError, ValueError):
+                raise EditError(f"여백 {k} 는 mm 숫자다.")
+    if any(v < 0 or v > 100 for v in mm.values()):
+        raise EditError("여백은 0~100mm 다.")
+    size = None
+    if paper:
+        key = next((k for k in PAPERS if k.lower() == paper.lower().replace(" ", "")), None)
+        if not key:
+            raise EditError(f"용지는 {', '.join(PAPERS)} 가운데 하나다.")
+        size = PAPERS[key]
+    land = None
+    if orient:
+        land = orient in ("가로", "landscape", "LANDSCAPE", "NARROWLY")
+        if not land and orient not in ("세로", "portrait", "PORTRAIT", "WIDELY"):
+            raise EditError("orientation 은 세로|가로 다.")
+    gtype = _GUTTER_TYPES.get(str(a.get("gutter_type") or ""), "")
+    if not (size or land is not None or mm or gtype):
+        raise EditError("바꿀 것(paper·orientation·margin·margins_mm·gutter_type)을 하나 이상 준다.")
+    done = 0
+    for n in doc.sec_names:
+        def sub(m: re.Match) -> str:
+            p = m.group(0)
+            if size:
+                p = re.sub(r'\bwidth="\d+"', f'width="{hu(size[0])}"', p, count=1)
+                p = re.sub(r'\bheight="\d+"', f'height="{hu(size[1])}"', p, count=1)
+            if land is not None:                        # 한글은 너비·높이를 세로 기준으로 두고 방향만 바꾼다(기안기 저장본으로 확인)
+                p = re.sub(r'\blandscape="\w+"', f'landscape="{"NARROWLY" if land else "WIDELY"}"', p, count=1)
+            if gtype:
+                p = re.sub(r'\bgutterType="\w+"', f'gutterType="{gtype}"', p, count=1)
+            for k, v in mm.items():
+                p = re.sub(rf'(<hp:margin\b[^>]*\b{k}=")\d+', rf"\g<1>{hu(v)}", p, count=1)
+            return p
+        new, k = re.subn(r"<hp:pagePr\b.*?</hp:pagePr>", sub, doc.secs[n], flags=re.S)
+        doc.secs[n] = new
+        done += k
+    if not done:
+        raise EditError("페이지 설정(pagePr)이 없는 문서다.")
+    pp = re.search(r"<hp:pagePr\b.*?</hp:pagePr>", doc.secs[doc.sec_names[0]], re.S).group(0)
+    w, h = (int(x) for x in re.search(r'width="(\d+)" height="(\d+)"', pp).groups())
+    mg = {k: mm_of(int(v)) for k, v in re.findall(r'\b(top|bottom|left|right|header|footer|gutter)="(\d+)"', pp)}
+    is_land = 'landscape="NARROWLY"' in pp
+    return doc.pack(), (f"페이지 설정: {mm_of(w)}×{mm_of(h)}mm {'가로' if is_land else '세로'}, 여백 위 {mg.get('top')}·아래 {mg.get('bottom')}·"
+                        f"왼쪽 {mg.get('left')}·오른쪽 {mg.get('right')}·머리말 {mg.get('header')}·꼬리말 {mg.get('footer')}·제본 {mg.get('gutter')}mm.")
+
+
+def current_page(data: bytes) -> dict:
+    """첫 구역의 페이지 설정(mm) — 편집 화면의 「페이지 설정」 창이 처음 값으로 쓴다."""
+    doc = _Doc(data)
+    pp = re.search(r"<hp:pagePr\b.*?</hp:pagePr>", doc.secs[doc.sec_names[0]], re.S)
+    if not pp:
+        return {}
+    w, h = (int(x) for x in re.search(r'width="(\d+)" height="(\d+)"', pp.group(0)).groups())
+    paper = next((k for k, (pw, ph) in PAPERS.items() if abs(hu(pw) - w) < 60 and abs(hu(ph) - h) < 60), "")
+    return {"paper": paper, "orientation": "가로" if 'landscape="NARROWLY"' in pp.group(0) else "세로",
+            "margins_mm": {k: mm_of(int(v)) for k, v in re.findall(r'\b(top|bottom|left|right|header|footer|gutter)="(\d+)"', pp.group(0))}}
+
+
+def table_insert(data: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    values = a.get("values") if isinstance(a.get("values"), list) else []
+    values = [[str(c) if c is not None else "" for c in (r if isinstance(r, list) else [r])] for r in values]
+    try:
+        nr = int(a.get("rows") or len(values) or 0)
+        nc = int(a.get("cols") or max((len(r) for r in values), default=0))
+    except (TypeError, ValueError):
+        raise EditError("rows·cols 는 숫자다.")
+    if not (1 <= nr <= 200 and 1 <= nc <= 30):
+        raise EditError("표는 1~200행, 1~30열로 만든다(rows·cols 또는 values 를 준다).")
+    head = a.get("head")
+    if isinstance(head, list) and head:                          # 머리줄 글을 따로 주면 첫 행으로
+        values = [[str(x) for x in head]] + values
+        nr = max(nr, len(values))
+        nc = max(nc, len(head))
+    grid = [[(values[r][c] if r < len(values) and c < len(values[r]) else "") for c in range(nc)] for r in range(nr)]
+    widths = a.get("widths")
+    if widths is not None and (not isinstance(widths, list) or len(widths) != nc):
+        raise EditError(f"widths 는 열 수({nc})만큼의 비율이다.")
+    n, pos, width = _anchor(doc, a.get("at"))
+    pp, cp = doc.refs()
+    bf = next(iter(re.findall(r'<hh:borderFill\b[^>]*\bid="(\d+)"', doc.hdr.xml)), "1")
+    m = hs.CELL_MARGIN
+    margin = f'<hp:cellMargin left="{m["left"]}" right="{m["right"]}" top="{m["top"]}" bottom="{m["bottom"]}"/>'
+    pid = doc.ids.new()
+    px = hf.table_xml(grid, pp, cp, width, bf, margin, int(doc.ids.new()), [float(x) for x in widths] if widths else None, None)
+    px = px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1)
+    px = re.sub(r'<hp:p id="0"', lambda _m: f'<hp:p id="{doc.ids.new()}"', px)
+    # 학교 표 기본 모양(webhwp_style.HOUSE) — 머리줄은 첫 행이 모두 글이면 저절로. head=false 면 머리줄 모양을 빼고
+    # 머리줄이 있는 자료 표는 본문 칸에 라벨 음영을 두지 않는다(오른쪽이 빈 값 칸을 라벨로 잘못 보지 않게)
+    opts = ({"head_fill": "none", "head_bold": False, "head_align": ""} if head is False
+            else {"label_fill": "none"} if all(grid[0]) and nr > 1 else None)
+    tbl = ws._TBL.search(px)
+    px = px[:tbl.start()] + ws.style_table(tbl.group(0), doc.hdr, opts) + px[tbl.end():]
+    if head is not False and all(grid[0]):
+        px = px.replace('repeatHeader="1"', 'repeatHeader="1"', 1)
+    xml = doc.secs[n]
+    doc.secs[n] = xml[:pos] + px + xml[pos:]
+    no = next((t["no"] for t in list_tables(doc) if t["sec"] == n and t["s"] >= pos), "?")
+    return doc.pack(), f"표{no} 을 만들었다({nr}행×{nc}열{', 머리줄 있음' if head is not False and all(grid[0]) else ''})."
+
+
+TABLE_OPS = ("add_rows", "delete_rows", "add_cols", "delete_cols", "set_cells", "merge", "split", "widths", "head",
+             "align", "shade", "valign")
+
+
+def _range(a: dict, tb: _Table) -> dict | None:
+    """범위 인자(cells: [첫 행, 첫 열, 끝 행, 끝 열] | row | col, 1부터) → 0부터 범위. 없으면 None(표 전체)."""
+    if a.get("cells"):
+        v = a["cells"]
+        if not isinstance(v, list) or len(v) not in (2, 4):
+            raise EditError("cells 는 [행, 열] 또는 [첫 행, 첫 열, 끝 행, 끝 열](1부터)이다.")
+        r1, c1 = _idx(v[0], "행"), _idx(v[1], "열")
+        r2, c2 = (_idx(v[2], "행"), _idx(v[3], "열")) if len(v) == 4 else (r1, c1)
+        return {"rows": sorted((r1, r2)), "cols": sorted((c1, c2))}
+    if a.get("row") is not None:
+        r = _idx(a["row"], "row")
+        return {"rows": [r, r], "cols": [0, tb.nc - 1]}
+    if a.get("col") is not None:
+        c = _idx(a["col"], "col")
+        return {"rows": [0, tb.nr - 1], "cols": [c, c]}
+    return None
+
+
+def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    op = str(a.get("op") or "").strip()
+    if op not in TABLE_OPS:
+        raise EditError(f"op 는 {', '.join(TABLE_OPS)} 가운데 하나다.")
+    t = _pick_table(doc, a.get("table"))
+    xml = doc.secs[t["sec"]][t["s"]:t["e"]]
+    tb = _Table(xml)
+    count = int(a.get("count") or 1)
+    if not 1 <= count <= 100:
+        raise EditError("count 는 1~100 이다.")
+    msg = ""
+    if op == "add_rows":
+        r = _idx(a.get("row") or tb.nr, "row")
+        below = str(a.get("where") or "below") != "above"
+        tb.insert_rows(r, count, below, doc.ids)
+        msg = f"{r + 1}행 {'아래' if below else '위'}에 {count}행을 넣었다"
+    elif op == "delete_rows":
+        r = _idx(a.get("row"), "row")
+        tb.delete_rows(r, count)
+        msg = f"{r + 1}행부터 {count}행을 지웠다"
+    elif op == "add_cols":
+        c = _idx(a.get("col") or tb.nc, "col")
+        right = str(a.get("where") or "right") != "left"
+        tb.insert_cols(c, count, right, doc.ids)
+        msg = f"{c + 1}열 {'오른쪽' if right else '왼쪽'}에 {count}열을 넣었다"
+    elif op == "delete_cols":
+        c = _idx(a.get("col"), "col")
+        tb.delete_cols(c, count)
+        msg = f"{c + 1}열부터 {count}열을 지웠다"
+    elif op == "set_cells":
+        values = a.get("values")
+        if not isinstance(values, list) or not values:
+            raise EditError("values 는 2차원 배열이다(start 칸부터 채운다).")
+        start = a.get("start") or [1, 1]
+        r0, c0 = _idx(start[0], "start 행"), _idx(start[1], "start 열")
+        n = 0
+        for i, row in enumerate(values):
+            for j, v in enumerate(row if isinstance(row, list) else [row]):
+                if v is None:
+                    continue
+                if r0 + i >= tb.nr or c0 + j >= tb.nc:
+                    raise EditError(f"값이 표({tb.nr}행×{tb.nc}열) 밖으로 나간다 — 먼저 add_rows·add_cols 로 늘린다.")
+                tb.set_text(r0 + i, c0 + j, str(v), doc.ids)
+                n += 1
+        msg = f"칸 {n}개에 값을 넣었다"
+    elif op in ("merge", "split"):
+        rng = _range(a, tb)
+        if not rng:
+            raise EditError("cells 로 칸을 짚는다 — merge 는 [첫 행, 첫 열, 끝 행, 끝 열], split 은 [행, 열].")
+        if op == "merge":
+            tb.merge(rng["rows"][0], rng["cols"][0], rng["rows"][1], rng["cols"][1])
+            msg = f"{rng['rows'][0] + 1}행 {rng['cols'][0] + 1}열 ~ {rng['rows'][1] + 1}행 {rng['cols'][1] + 1}열을 합쳤다"
+        else:
+            tb.split(rng["rows"][0], rng["cols"][0], a.get("rows"), a.get("cols"), doc.ids)
+            msg = f"{rng['rows'][0] + 1}행 {rng['cols'][0] + 1}열을 나눴다"
+    elif op == "widths":
+        tb.set_widths(a.get("widths") or [])
+        msg = "열 폭을 " + ":".join(str(x) for x in a.get("widths")) + " 로 맞췄다"
+    new_tbl = tb.to_xml()
+    if op in ("head", "align", "shade", "valign"):
+        new_tbl = _restyle(tb, new_tbl, op, a, doc)
+        msg = {"head": f"머리줄을 {a.get('rows', 1)}행으로 했다", "align": "정렬을 바꿨다", "shade": "음영을 바꿨다",
+               "valign": "세로 정렬을 바꿨다"}[op]
+    _replace_table(doc, t, new_tbl)
+    after = _Table(new_tbl)
+    return doc.pack(), f"표{t['no']}: {msg} — 지금 {after.nr}행×{after.nc}열."
+
+
+def _restyle(tb: _Table, tbl: str, op: str, a: dict, doc: _Doc) -> str:
+    """칸 범위의 모양 — 머리줄(음영·굵게·가운데·제목 줄 반복), 정렬, 음영, 세로 정렬."""
+    tb2 = _Table(tbl)
+    hdr = doc.hdr
+    if op == "head":
+        n = int(a.get("rows") if a.get("rows") is not None else 1)
+        if not 0 <= n < tb2.nr:
+            raise EditError("머리줄 행 수(rows)는 0 이상, 표 행 수보다 작다.")
+        fill = _color(a.get("fill") or hs.HOUSE["head_fill"])
+        targets = [(x, x["r"] < n) for x in tb2.cells if x["r"] < max(n, 1)]
+    else:
+        targets = [(x, True) for x in tb2.cells_in(_range(a, tb2))]
+    for x, on in targets:
+        y = x["xml"]
+        if op == "head":
+            bf = re.search(r'borderFillIDRef="(\d+)"', y).group(1)
+            y = re.sub(r'(<hp:tc\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{hdr.fill_clone(bf, fill if on else 'none')}", y, count=1)
+            y = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")', lambda m: f"{m.group(1)}{hdr.char(m.group(2), bold=on)}{m.group(3)}", y)
+            if on:
+                y = re.sub(r'(<hp:p\b[^>]*\bparaPrIDRef=")(\d+)(")', lambda m: f"{m.group(1)}{hdr.para(m.group(2), 'CENTER')}{m.group(3)}", y)
+        elif op == "align":
+            al = ALIGNS.get(str(a.get("align") or ""), "")
+            if not al:
+                raise EditError("align 은 가운데|왼쪽|오른쪽|양쪽 이다.")
+            y = re.sub(r'(<hp:p\b[^>]*\bparaPrIDRef=")(\d+)(")', lambda m: f"{m.group(1)}{hdr.para(m.group(2), al)}{m.group(3)}", y)
+        elif op == "valign":
+            va = VALIGNS.get(str(a.get("valign") or a.get("align") or ""), "")
+            if not va:
+                raise EditError("valign 은 위|가운데|아래 다.")
+            y = re.sub(r'(<hp:subList\b[^>]*\bvertAlign=")\w+', rf"\g<1>{va}", y, count=1)
+        elif op == "shade":
+            bf = re.search(r'borderFillIDRef="(\d+)"', y).group(1)
+            y = re.sub(r'(<hp:tc\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{hdr.fill_clone(bf, _color(a.get('fill') or a.get('color') or '회색'))}", y, count=1)
+        x["xml"] = y
+    out = tb2.to_xml()
+    if op == "head":
+        out = re.sub(r'\brepeatHeader="\d"', f'repeatHeader="{1 if int(a.get("rows") or 1) else 0}"', out, count=1)
+    return out
+
+
+def table_view(data: bytes, a: dict) -> str:
+    """표 하나의 칸 글 — 행마다 「r행: 칸 | 칸」, 합친 칸은 [합침 r×c] 로. 고칠 행·열 번호를 정하는 데 쓴다."""
+    doc = _Doc(data)
+    t = _pick_table(doc, a.get("table"))
+    tb = _Table(doc.secs[t["sec"]][t["s"]:t["e"]])
+    lines = [f"표{t['no']} — {tb.nr}행×{tb.nc}열" + (f", 필드: {', '.join(t['fields'][:8])}" if t["fields"] else "")]
+    for r in range(min(tb.nr, 60)):
+        parts = []
+        c = 0
+        while c < tb.nc:
+            x = tb.covering(r, c)
+            if x is None:
+                parts.append("?")
+                c += 1
+                continue
+            if x["r"] != r:
+                parts.append("↑")
+            else:
+                tag = f"[합침 {x['rs']}×{x['cs']}]" if x["rs"] * x["cs"] > 1 else ""
+                parts.append((_text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", x["xml"], flags=re.S)) or "(빈 칸)")[:30] + tag)
+            c = x["c"] + x["cs"]
+        lines.append(f"{r + 1}행: " + " | ".join(parts))
+    return "\n".join(lines)
+
+
+def _first_run_insert(xml: str, ctrl: str, drop: str) -> str:
+    """구역 첫 문단(secPr 가 든 문단)에 조종 개체(쪽 번호·머리말)를 넣는다. drop 꼴의 옛 것은 지운다."""
+    xml = re.sub(drop, "", xml, flags=re.S)
+    m = re.search(r"</hp:secPr>(?:\s*<hp:ctrl>\s*<hp:colPr\b[^>]*/>\s*</hp:ctrl>)?", xml)
+    if not m:
+        raise EditError("구역 정의(secPr)를 찾지 못했다.")
+    return xml[:m.end()] + ctrl + xml[m.end():]
+
+
+def page_number(data: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    pos_in = str(a.get("position") or "아래 가운데")
+    pos = PAGE_NUM_POS.get(pos_in) or (pos_in if pos_in in PAGE_NUM_POS.values() else "")
+    off = pos_in in ("없음", "none", "NONE")
+    if not pos and not off:
+        raise EditError(f"position 은 {', '.join(PAGE_NUM_POS)} 또는 없음 이다.")
+    fmt_in = str(a.get("format") or "1")
+    fmt = PAGE_NUM_FMT.get(fmt_in) or (fmt_in if fmt_in in PAGE_NUM_FMT.values() else "")
+    if not fmt:
+        raise EditError(f"format 은 {', '.join(PAGE_NUM_FMT)} 가운데 하나다.")
+    side = "-" if a.get("dash") in (True, "true", "1", 1, "-") else ""
+    n = doc.sec_names[0]
+    ctrl = "" if off else f'<hp:ctrl><hp:pageNum pos="{pos}" formatType="{fmt}" sideChar="{side}"/></hp:ctrl>'
+    xml = _first_run_insert(doc.secs[n], ctrl, r"<hp:ctrl><hp:pageNum\b[^>]*/></hp:ctrl>")
+    for other in doc.sec_names[1:]:
+        doc.secs[other] = re.sub(r"<hp:ctrl><hp:pageNum\b[^>]*/></hp:ctrl>", "", doc.secs[other])
+    if a.get("start") not in (None, ""):
+        try:
+            start = int(a["start"])
+        except (TypeError, ValueError):
+            raise EditError("start 는 시작 쪽 번호(숫자)다.")
+        xml = re.sub(r'(<hp:startNum\b[^>]*\bpage=")\d+', rf"\g<1>{max(0, start)}", xml, count=1)
+    doc.secs[n] = xml
+    return doc.pack(), ("쪽 번호를 뺐다." if off else f"쪽 번호: {pos_in} · 꼴 {fmt_in}{' · 줄표' if side else ''}"
+                        + (f" · {a['start']}쪽부터" if a.get("start") not in (None, "") else "") + ".")
+
+
+def header_footer(data: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    n = doc.sec_names[0]
+    xml = doc.secs[n]
+    pp, cp = doc.refs()
+    out = []
+    width = _width_at(xml, 0)
+    al = ALIGNS.get(str(a.get("align") or ""), "")
+    pp2 = doc.hdr.para_ex(pp, align=al) if al else pp
+    for kind, valign, mkey in (("header", "TOP", "header"), ("footer", "BOTTOM", "footer")):
+        if kind not in a or a.get(kind) is None:
+            continue
+        text = str(a.get(kind) or "")
+        drop = rf'<hp:ctrl><hp:{kind}\b[^>]*applyPageType="BOTH"[^>]*>.*?</hp:{kind}></hp:ctrl>'
+        if not text.strip():
+            xml = re.sub(drop, "", xml, flags=re.S)
+            out.append(f"{'머리말' if kind == 'header' else '꼬리말'}을 뺐다")
+            continue
+        h = re.search(rf'<hp:margin\b[^>]*\b{mkey}="(\d+)"', xml)
+        paras = "".join(hf.paragraph_xml(ln, pp2, cp).replace('<hp:p id="0"', f'<hp:p id="{doc.ids.new()}"', 1)
+                        for ln in hf.split_lines(text)[:5])
+        ctrl = (f'<hp:ctrl><hp:{kind} id="{doc.ids.new()}" applyPageType="BOTH"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" '
+                f'vertAlign="{valign}" linkListIDRef="0" linkListNextIDRef="0" textWidth="{width}" textHeight="{h.group(1) if h else 4252}" '
+                f'hasTextRef="0" hasNumRef="0">{paras}</hp:subList></hp:{kind}></hp:ctrl>')
+        xml = _first_run_insert(xml, ctrl, drop)
+        out.append(f"{'머리말' if kind == 'header' else '꼬리말'} 「{text[:30]}」")
+    if not out:
+        raise EditError("header·footer 가운데 하나를 준다(빈 글이면 그것을 뺀다).")
+    doc.secs[n] = xml
+    return doc.pack(), ", ".join(out) + "."
+
+
+def _target_para(doc: _Doc, a: dict) -> tuple[str, int, int]:
+    """짚은 문단 — field(절이면 그 제목 문단, 칸이면 필드 문단) 또는 text(그 글이 든 문단)."""
+    if a.get("field"):
+        n, pos = _find_field(doc, str(a["field"]))
+        xml = doc.secs[n]
+        me, _ = _siblings(xml, pos)
+        name = _resolve_field(doc, str(a["field"]))
+        if name.startswith("절:"):                         # 절 필드는 제목 바로 아래 문단 — 제목 문단을 짚는다
+            ps = [p for p in _paras(xml) if p[2] == me[2] and p[1] <= me[0]]
+            if ps:
+                return n, ps[-1][0], ps[-1][1]
+        return n, me[0], me[1]
+    if a.get("text"):
+        return _find_text(doc, str(a["text"]))
+    raise EditError("field 나 text 로 문단을 짚는다.")
+
+
+def page_break(data: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    n, s, e = _target_para(doc, a)
+    on = a.get("on", True) not in (False, "false", "0", 0)
+    xml = doc.secs[n]
+    p = xml[s:e]
+    p2 = re.sub(r'(<hp:p\b[^>]*\bpageBreak=")\d', rf"\g<1>{1 if on else 0}", p, count=1)
+    doc.secs[n] = xml[:s] + _strip_ls(p2) + xml[e:]
+    return doc.pack(), f"「{_text(p)[:30]}」 앞에서 쪽을 {'나눴다' if on else '나누지 않게 했다'}."
+
+
+def _scope_spans(doc: _Doc, a: dict) -> list[tuple[str, int, int]]:
+    scope = a.get("scope") or "all"
+    if scope == "all":
+        return [(n, 0, len(doc.secs[n])) for n in doc.sec_names]
+    if isinstance(scope, dict) and scope.get("field") or isinstance(scope, str) and scope.startswith(("절:", "칸:")):
+        name = scope["field"] if isinstance(scope, dict) else scope
+        if _resolve_field(doc, name).startswith("절:"):
+            return [_section_span(doc, name)]
+        n, pos = _find_field(doc, name)
+        me, _ = _siblings(doc.secs[n], pos)
+        return [(n, me[0], me[1])]
+    if isinstance(scope, dict) and scope.get("text"):
+        return [_find_text(doc, scope["text"])]
+    raise EditError("scope 는 all | {field: 절·칸 필드 이름} | {text: 문단 글} 이다.")
+
+
+def _in_table(xml: str, pos: int) -> bool:
+    return xml.rfind("<hp:tbl", 0, pos) > xml.rfind("</hp:tbl>", 0, pos)
+
+
+def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
+    """글꼴·글자 크기·굵게(글자 모양)와 줄 간격·정렬·들여쓰기(문단 모양)를 범위에 한꺼번에."""
+    doc = _Doc(data)
+    face = str(a.get("font") or "").strip()[:40]
+    pt = a.get("pt")
+    bold = a.get("bold") if isinstance(a.get("bold"), bool) else None
+    line = a.get("line_spacing")
+    al = ALIGNS.get(str(a.get("align") or ""), "")
+    left = a.get("left_mm")
+    indent = a.get("indent_mm")
+    try:
+        pt = float(pt) if pt not in (None, "") else None
+        line = int(float(line)) if line not in (None, "") else None
+        left = hu(float(left)) if left not in (None, "") else None
+        indent = hu(float(indent)) if indent not in (None, "") else None
+    except (TypeError, ValueError):
+        raise EditError("pt·line_spacing·left_mm·indent_mm 는 숫자다.")
+    if pt is not None and not 4 <= pt <= 72:
+        raise EditError("글자 크기는 4~72pt 다.")
+    if line is not None and not 50 <= line <= 500:
+        raise EditError("줄 간격은 50~500% 다.")
+    if a.get("align") and not al:
+        raise EditError("align 은 가운데|왼쪽|오른쪽|양쪽|배분 이다.")
+    if not (face or pt or bold is not None or line or al or left is not None or indent is not None):
+        raise EditError("바꿀 것(font·pt·bold·line_spacing·align·left_mm·indent_mm)을 하나 이상 준다.")
+    tables = a.get("tables") is True
+    changed = 0
+    for n, s, e in _scope_spans(doc, a):
+        xml = doc.secs[n]
+        out, pos = [], 0
+        for ps, pe, _d in _paras(xml):
+            if ps < s or pe > e or re.search(r"<hp:p\b", xml[ps + 1:pe]):
+                continue                                      # 범위 밖, 표를 품은 문단(안쪽 문단이 따로 잡힌다)
+            if ps < pos:
+                continue
+            if not tables and _in_table(xml, ps):
+                continue
+            if "<hp:secPr" in xml[ps:pe] or re.search(r"<hp:(header|footer|footNote)\b", xml[max(0, ps - 2000):ps]) and \
+                    xml.rfind("<hp:subList", 0, ps) > xml.rfind("</hp:subList>", 0, ps) and not _in_table(xml, ps):
+                continue                                      # 구역 첫 문단·머리말 안은 그대로
+            p = xml[ps:pe]
+            q = p
+            if face or pt or bold is not None:
+                q = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")',
+                           lambda m: f"{m.group(1)}{doc.hdr.char_ex(m.group(2), pt=pt, face=face, bold=bold)}{m.group(3)}", q)
+            if line or al or left is not None or indent is not None:
+                q = re.sub(r'(<hp:p\b[^>]*\bparaPrIDRef=")(\d+)(")',
+                           lambda m: f"{m.group(1)}{doc.hdr.para_ex(m.group(2), align=al, line=line, left=left, indent=indent)}{m.group(3)}",
+                           q, count=1)
+            if q != p:
+                out.append(xml[pos:ps])
+                out.append(wf._LINESEG.sub("", q))
+                pos = pe
+                changed += 1
+        out.append(xml[pos:])
+        doc.secs[n] = "".join(out)
+    if not changed:
+        raise EditError("범위 안에 바꿀 문단이 없다.")
+    what = [x for x in (f"글꼴 {face}" if face else "", f"{pt:g}pt" if pt else "", "굵게" if bold else ("굵게 끔" if bold is False else ""),
+                        f"줄 간격 {line}%" if line else "", f"정렬 {a.get('align')}" if al else "",
+                        f"왼쪽 여백 {a.get('left_mm')}mm" if left is not None else "", f"첫 줄 {a.get('indent_mm')}mm" if indent is not None else "") if x]
+    return doc.pack(), f"문단 {changed}개에 {', '.join(what)} 을 입혔다."
+
+
+def footnote(data: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    text = str(a.get("text") or "").strip()
+    if not text:
+        raise EditError("text(각주 글)가 비었다.")
+    pp, cp = doc.refs()
+    if a.get("field"):
+        n, pos = _find_field(doc, str(a["field"]))
+        name = _resolve_field(doc, str(a["field"]))
+        xml = doc.secs[n]
+        fb = _FIELD.search(xml, pos)
+        end = re.search(rf'<hp:ctrl><hp:fieldEnd\b[^>]*beginIDRef="{fb.group(1)}"[^>]*/></hp:ctrl>', xml[pos:])
+        at = pos + end.end() if end else None
+        label = name
+    else:
+        want = re.sub(r"\s+", " ", str(a.get("after_text") or "")).strip()
+        n, s, e = _find_text(doc, want)
+        xml = doc.secs[n]
+        at = None
+        for t in re.finditer(r"<hp:t>([^<]*)</hp:t>", xml[s:e]):     # 그 글이 끝나는 run 글 바로 뒤
+            if want[-6:].strip() and want[-6:].strip() in _unq(t.group(1)):
+                at = s + t.end()
+        if at is None:
+            close = xml.rfind("</hp:run>", s, e)
+            at = close if close != -1 else None
+        label = want[:30]
+    if at is None:
+        raise EditError("각주를 달 자리를 찾지 못했다.")
+    num = len(re.findall(r"<hp:footNote\b", "".join(doc.secs.values()))) + 1
+    body = (f'<hp:p id="{doc.ids.new()}" paraPrIDRef="{pp}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="{cp}">'
+            f'<hp:ctrl><hp:autoNum num="{num}" numType="FOOTNOTE"><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar=")" supscript="0"/>'
+            f'</hp:autoNum></hp:ctrl><hp:t> {escape(text[:500])}</hp:t></hp:run></hp:p>')
+    ctrl = (f'<hp:ctrl><hp:footNote number="{num}" suffixChar="41" instId="{doc.ids.new()}"><hp:subList id="" textDirection="HORIZONTAL" '
+            f'lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" '
+            f'hasNumRef="0">{body}</hp:subList></hp:footNote></hp:ctrl>')
+    xml = xml[:at] + ctrl + xml[at:]
+    ps = [p for p in _paras(xml) if p[0] < at < p[1]]
+    if ps:
+        p = min(ps, key=lambda p: p[1] - p[0])
+        xml = xml[:p[0]] + _strip_ls(xml[p[0]:p[1]]) + xml[p[1]:]
+    doc.secs[n] = xml
+    return doc.pack(), f"「{label}」 뒤에 각주 {num}) 을 달았다."
+
+
+def picture(data: bytes, img: bytes, a: dict) -> tuple[bytes, str]:
+    doc = _Doc(data)
+    kind = hf.image_kind(img or b"")
+    if not kind:
+        raise EditError("그림 파일(png·jpg·gif·bmp)이 아니다.")
+    if doc.hpf is None:
+        raise EditError("매니페스트(content.hpf)가 없는 파일이라 그림을 넣을 수 없다.")
+    ext, media = kind
+    used = set(hf._MANIFEST_ID.findall(doc.hpf)) | {Path(x).stem for x in doc.zin.namelist() if x.startswith("BinData/")}
+    k = 1
+    while f"image{k}" in used:
+        k += 1
+    bin_id = f"image{k}"
+    doc.added[f"BinData/{bin_id}.{ext}"] = img
+    doc.hpf = doc.hpf.replace("</opf:manifest>", f'<opf:item id="{bin_id}" href="BinData/{bin_id}.{ext}" media-type="{media}" isEmbeded="1"/></opf:manifest>', 1)
+    n, pos, width = _anchor(doc, a.get("at"))
+    px = hf._image_px(img)
+    org_w, org_h = (px[0] * 75, px[1] * 75) if px else (width, width // 2)
+    try:
+        w = hu(float(a["width_mm"])) if a.get("width_mm") not in (None, "") else min(org_w, width)
+    except (TypeError, ValueError):
+        raise EditError("width_mm 는 숫자다.")
+    w = max(min(w, width), hu(10))
+    h = int(w * org_h / org_w)
+    pp, cp = doc.refs()
+    al = ALIGNS.get(str(a.get("align") or "가운데"), "CENTER")
+    pxml = hf.picture_xml(bin_id, int(doc.ids.new()), w, h, org_w, org_h, doc.hdr.para(pp, al), cp)
+    pxml = pxml.replace('<hp:p id="0"', f'<hp:p id="{doc.ids.new()}"', 1)
+    xml = doc.secs[n]
+    doc.secs[n] = xml[:pos] + pxml + xml[pos:]
+    return doc.pack(), f"그림을 넣었다(폭 {mm_of(w)}mm)."
+
+
+def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
+    """문서 전체(또는 범위)에서 낱말 바꾸기 — 글 조각(<hp:t>) 안의 글만 바꾼다. 필드 이름·안내 글(parameters)은 건드리지 않는다.
+    글이 글자 모양 경계로 쪼개져 있으면(한 낱말에 두 모양) 그 자리는 찾지 못한다 — 찾은 곳 수를 돌려준다."""
+    doc = _Doc(data)
+    find = str(a.get("find") or "")
+    if not find.strip():
+        raise EditError("find(찾을 글)가 비었다.")
+    if len(find) > 200:
+        raise EditError("찾을 글은 200자까지다.")
+    rep = str(a.get("replace") if a.get("replace") is not None else "")[:2000]
+    want = escape(find)
+    total = 0
+    for n, s, e in _scope_spans(doc, a):
+        xml = doc.secs[n]
+        out, pos = [], 0
+        for ps, pe, _d in _paras(xml):
+            if ps < s or pe > e or ps < pos or re.search(r"<hp:p\b", xml[ps + 1:pe]):
+                continue
+            p = xml[ps:pe]
+            k = [0]
+
+            def sub(m: re.Match) -> str:
+                body = m.group(2)
+                c = body.count(want)
+                if not c:
+                    return m.group(0)
+                k[0] += c
+                return m.group(1) + body.replace(want, escape(rep)) + m.group(3)
+            q = re.sub(r"(<hp:t>)([^<]*)(</hp:t>)", sub, p)
+            if k[0]:
+                out.append(xml[pos:ps])
+                out.append(wf._LINESEG.sub("", q))
+                pos = pe
+                total += k[0]
+        out.append(xml[pos:])
+        doc.secs[n] = "".join(out)
+    if not total:
+        raise EditError(f"「{find[:30]}」 을 찾지 못했다(0곳).")
+    return doc.pack(), f"「{find[:30]}」 → 「{rep[:30]}」 {total}곳을 바꿨다."
+
+
+def count_text(data: bytes, find: str) -> int:
+    doc = _Doc(data)
+    want = escape(find)
+    return sum(m.group(1).count(want) for n in doc.sec_names for m in re.finditer(r"<hp:t>([^<]*)</hp:t>", doc.secs[n])) if find else 0
+
+
+# ── 저장(판 남기기 · 점검 · 되돌리기) ──
+UNDO_KEEP = 10
+
+
+def _snapshot(db, base: Path, fid: int) -> str:
+    """고치기 전 파일을 판(.판/)으로 남긴다 — webhwp._versions 이름 꼴 그대로(문서함 「앞 판」 에 같이 나온다)."""
+    f = webhwp.get(db, fid)
+    p = Path(f["path"])
+    vdir = p.parent / ".판"
+    vdir.mkdir(exist_ok=True)
+    olds = webhwp._versions(vdir, p)
+    if olds and olds[-1].read_bytes() == p.read_bytes():
+        return str(olds[-1])
+    dest = vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}{p.suffix}"
+    k = 1
+    while dest.exists():
+        k += 1
+        dest = vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}-{k}{p.suffix}"
+    shutil.copy2(p, dest)
+    return str(dest)
+
+
+def check_bytes(data: bytes) -> list[str]:
+    """고친 결과의 자가 점검(hwpx_fill.check — ZIP·웰폼드·참조 id·itemCnt·표 격자)."""
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "x.hwpx"
+        p.write_bytes(data)
+        return hf.check(p)
+
+
+def apply(db, base: Path, fid: int, fn, *, user: str = "AURA") -> str:
+    """연산 하나를 파일에 — 고치기 전 판을 남기고, 점검을 통과할 때만 저장한다. 실패면 까닭 글(파일 그대로)."""
+    f = webhwp.get(db, fid)
+    if not f or not Path(f["path"]).exists():
+        return "작업본 파일이 없다."
+    if webhwp.locked(db, fid):
+        return "공통 양식은 고칠 수 없다 — 복사해 쓴다."
+    data = Path(f["path"]).read_bytes()
+    try:
+        new, summary = fn(data)
+    except EditError as e:
+        return "바꾸지 않았다 — " + str(e)
+    if new == data:
+        return "바뀐 것이 없다."
+    probs = check_bytes(new)
+    if probs:
+        return "바꾸지 않았다 — 고친 파일이 점검을 통과하지 못했다: " + "; ".join(probs[:3])
+    snap = _snapshot(db, base, fid)
+    webhwp.save(db, base, fid, new, user=user)
+    m = webhwp.meta(db, fid)
+    undo = [x for x in (m.get("aura_undo") or []) if Path(x).exists()]
+    m["aura_undo"] = (undo + [snap])[-UNDO_KEEP:]
+    db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+    return summary
+
+
+def remember(db, base: Path, fid: int) -> None:
+    """열린 기안기에 명령을 넘기기 전 — 지금 파일을 판으로 남기고 되돌리기 목록에 올린다(hwp_undo 가 이 판으로 돌아간다)."""
+    if not webhwp.get(db, fid):
+        return
+    snap = _snapshot(db, base, fid)
+    m = webhwp.meta(db, fid)
+    undo_ = [x for x in (m.get("aura_undo") or []) if Path(x).exists() and x != snap]
+    m["aura_undo"] = (undo_ + [snap])[-UNDO_KEEP:]
+    db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+
+
+def undo(db, base: Path, fid: int, *, user: str = "AURA") -> str:
+    """AURA 가 마지막으로 고치기 전 판으로 되돌린다(지금 것도 판으로 남는다)."""
+    m = webhwp.meta(db, fid)
+    stack = [x for x in (m.get("aura_undo") or []) if Path(x).exists()]
+    if not stack:
+        return "되돌릴 AURA 의 고침이 없다(문서함의 「앞 판」 에서 고른다)."
+    prev = Path(stack.pop())
+    _snapshot(db, base, fid)
+    webhwp.save(db, base, fid, prev.read_bytes(), user=user)
+    m = webhwp.meta(db, fid)
+    m["aura_undo"] = stack
+    db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+    return f"AURA 가 고치기 전({prev.stem.rsplit(' ', 1)[-1]})으로 되돌렸다."
+
+
+# ── 열린 기안기에 명령(B) ──
+# 허용 목록 — 기안기(13.82)에서 동작을 하나씩 돌려 결과 XML 로 확인한 것만(10-22). 단계는 편집 화면이 그대로 실행한다:
+#   ["run", 이름] = ctrl.Run, ["exec", 이름, {항목: 값}] = CreateAction → CreateSet → GetDefault → SetItem → Execute,
+#   ["text", 글] = InsertText, ["field", 이름, 고르기] = MoveToField.
+# 파일 열기·저장·다른 이름·인쇄·끼워 넣기 파일·하이퍼링크·대화 상자(PopupDialog)는 없다. 되돌리기(Undo)는 API 로 듣지 않아 뺐다 —
+# 되돌릴 때는 명령 전에 남긴 판을 쓴다(hwp_undo).
+LIVE_ACTIONS: dict[str, dict] = {
+    "page_setup": {"desc": "용지·방향·여백(mm)", "params": ["paper", "orientation", "margin", "margins_mm"]},
+    "page_number": {"desc": "쪽 번호 위치·꼴", "params": ["position", "format", "dash"]},
+    "header": {"desc": "머리말 글", "params": ["text"]},
+    "footer": {"desc": "꼬리말 글", "params": ["text"]},
+    "footnote": {"desc": "커서 자리(field 끝)에 각주", "params": ["field", "text"]},
+    "insert_text": {"desc": "커서 자리(field)에 글 넣기", "params": ["field", "text"]},
+    "page_break": {"desc": "커서 자리(field)에서 쪽 나누기", "params": ["field"]},
+    "bold": {"desc": "필드 글 굵게(다시 하면 끔)", "params": ["field"]},
+    "italic": {"desc": "필드 글 기울임", "params": ["field"]},
+    "underline": {"desc": "필드 글 밑줄", "params": ["field"]},
+    "text_color": {"desc": "필드 글 색(빨강·파랑·검정)", "params": ["field", "color"]},
+    "char_shape": {"desc": "필드 글 글꼴·크기(pt)", "params": ["field", "font", "pt"]},
+    "paragraph": {"desc": "필드 문단 정렬·줄 간격·왼쪽 여백(mm)", "params": ["field", "align", "line_spacing", "left_mm"]},
+    "indent": {"desc": "필드 문단 들여쓰기 한 단계", "params": ["field"]},
+    "table_create": {"desc": "필드 자리 뒤에 행×열 표", "params": ["field", "rows", "cols"]},
+    "table_row": {"desc": "필드가 든 칸 위·아래에 행 넣기 / 그 행 지우기", "params": ["field", "where"]},
+    "table_col": {"desc": "필드가 든 칸 왼쪽·오른쪽에 열 넣기 / 그 열 지우기", "params": ["field", "where"]},
+    "table_append_row": {"desc": "필드가 든 표 끝에 행 더하기", "params": ["field"]},
+    "table_merge": {"desc": "필드가 든 칸부터 오른쪽 right 칸·아래 down 칸까지 합치기", "params": ["field", "right", "down"]},
+    "table_split": {"desc": "필드가 든 칸을 rows×cols 로 나누기", "params": ["field", "rows", "cols"]},
+    "table_distribute": {"desc": "필드가 든 표의 칸 폭·높이 고르게", "params": ["field", "what"]},
+    "cell_fill": {"desc": "필드가 든 칸 음영 색", "params": ["field", "color"]},
+}
+_PRIMS = {"run": {"CharShapeBold", "CharShapeItalic", "CharShapeUnderline", "CharShapeTextColorRed", "CharShapeTextColorBlue",
+                  "CharShapeTextColorBlack", "ParagraphShapeIncreaseLeftMargin", "BreakPage", "TableInsertUpperRow", "TableInsertLowerRow",
+                  "TableInsertLeftColumn", "TableInsertRightColumn", "TableDeleteRow", "TableDeleteColumn", "TableAppendRow",
+                  "TableCellBlock", "TableCellBlockExtend", "TableRightCell", "TableLowerCell", "TableMergeCell",
+                  "TableDistributeCellWidth", "TableDistributeCellHeight", "MoveLineEnd", "MoveLineBegin", "MoveSelLineBegin",
+                  "MoveSelLineEnd", "InsertFootnote", "CloseEx", "Cancel"},
+          "exec": {"PageSetup", "PageNumPos", "HeaderFooter", "InsertText", "CharShape", "ParagraphShape", "TableCreate",
+                   "TableSplitCell", "CellBorderFill"}}
+_PN_DRAW = {"TOP_LEFT": 1, "TOP_CENTER": 2, "TOP_RIGHT": 3, "BOTTOM_LEFT": 4, "BOTTOM_CENTER": 5, "BOTTOM_RIGHT": 6,
+            "OUTSIDE_TOP": 7, "OUTSIDE_BOTTOM": 8, "INSIDE_TOP": 9, "INSIDE_BOTTOM": 10}
+_PN_FMT = {"DIGIT": 0, "CIRCLED_DIGIT": 1, "ROMAN_CAPITAL": 2, "ROMAN_SMALL": 3, "LATIN_CAPITAL": 4, "LATIN_SMALL": 5}
+_ALIGN_TYPE = {"JUSTIFY": 0, "LEFT": 1, "RIGHT": 2, "CENTER": 3, "DISTRIBUTE": 4}
+
+
+def _bgr(color: str) -> int:
+    """#RRGGBB → 기안기 색 값(0xBBGGRR)."""
+    c = _color(color)
+    if not re.fullmatch(r"#[0-9A-F]{6}", c):
+        c = "#E5E5E5"
+    r, g, b = int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16)
+    return (b << 16) | (g << 8) | r
+
+
+def live_steps(action: str, p: dict) -> list[list]:
+    """허용 동작 + 인자 → 편집 화면이 실행할 단계. 모르는 동작·인자는 EditError."""
+    if action not in LIVE_ACTIONS:
+        raise EditError(f"기안기에서 쓸 수 있는 동작이 아니다 — {', '.join(LIVE_ACTIONS)}.")
+    p = {k: v for k, v in (p or {}).items() if k in LIVE_ACTIONS[action]["params"]}
+    field = str(p.get("field") or "")
+    at = [["field", field, False]] if field else []
+    sel = [["field", field, True]] if field else []
+    num = lambda k, d, lo, hi: max(lo, min(hi, int(float(p.get(k) if p.get(k) not in (None, "") else d))))
+    try:
+        if action == "page_setup":
+            items = {}
+            if p.get("paper"):
+                key = next((k for k in PAPERS if k.lower() == str(p["paper"]).lower()), None)
+                if not key:
+                    raise EditError(f"용지는 {', '.join(PAPERS)} 가운데 하나다.")
+                items["PageDef.PaperWidth"], items["PageDef.PaperHeight"] = hu(PAPERS[key][0]), hu(PAPERS[key][1])
+            if p.get("orientation"):
+                items["PageDef.Landscape"] = 1 if str(p["orientation"]) in ("가로", "landscape") else 0
+            mm = dict(MARGIN_PRESETS.get(str(p.get("margin") or ""), {}))
+            mm.update({k: float(v) for k, v in (p.get("margins_mm") or {}).items() if k in _MARGIN_KEYS and v not in (None, "")})
+            names = {"top": "TopMargin", "bottom": "BottomMargin", "left": "LeftMargin", "right": "RightMargin",
+                     "header": "HeaderLen", "footer": "FooterLen", "gutter": "GutterLen"}
+            for k, v in mm.items():
+                if not 0 <= v <= 100:
+                    raise EditError("여백은 0~100mm 다.")
+                items[f"PageDef.{names[k]}"] = hu(v)
+            if not items:
+                raise EditError("바꿀 것(paper·orientation·margin·margins_mm)을 준다.")
+            return [["exec", "PageSetup", items]]
+        if action == "page_number":
+            pos = PAGE_NUM_POS.get(str(p.get("position") or "아래 가운데"))
+            fmt = PAGE_NUM_FMT.get(str(p.get("format") or "1"))
+            if not pos or fmt not in _PN_FMT:
+                raise EditError("position·format 이 허용 값이 아니다.")
+            items = {"DrawPos": _PN_DRAW[pos], "NumberFormat": _PN_FMT[fmt]}
+            if p.get("dash"):
+                items["SideChar"] = 0x2D
+            return [["exec", "PageNumPos", items]]
+        if action in ("header", "footer"):
+            text = str(p.get("text") or "").strip()[:200]
+            if not text:
+                raise EditError("text 가 비었다.")
+            return [["exec", "HeaderFooter", {"HeaderFooterCtrlType": 0 if action == "header" else 1, "Type": 0}],
+                    ["text", text], ["run", "CloseEx"]]
+        if action == "footnote":
+            text = str(p.get("text") or "").strip()[:500]
+            if not text or not field:
+                raise EditError("field 와 text 를 준다.")
+            return [["field", field, False], ["run", "MoveLineEnd"], ["run", "InsertFootnote"], ["text", text], ["run", "CloseEx"]]
+        if action == "insert_text":
+            text = str(p.get("text") or "")[:2000]
+            if not text or not field:
+                raise EditError("field 와 text 를 준다.")
+            return at + [["text", text]]
+        if action == "page_break":
+            return at + [["run", "BreakPage"]]
+        if action in ("bold", "italic", "underline"):
+            return sel + [["run", {"bold": "CharShapeBold", "italic": "CharShapeItalic", "underline": "CharShapeUnderline"}[action]], ["run", "Cancel"]]
+        if action == "text_color":
+            name = {"빨강": "Red", "파랑": "Blue", "검정": "Black"}.get(str(p.get("color") or ""), "")
+            if not name:
+                raise EditError("color 는 빨강|파랑|검정 이다.")
+            return sel + [["run", f"CharShapeTextColor{name}"], ["run", "Cancel"]]
+        if action == "char_shape":
+            items = {}
+            if p.get("pt") not in (None, ""):
+                items["Height"] = int(round(max(4.0, min(72.0, float(p["pt"]))) * 100))
+            if p.get("font"):
+                items["FaceNameHangul"], items["FontTypeHangul"] = str(p["font"])[:40], 1
+            if not items:
+                raise EditError("font·pt 가운데 하나를 준다.")
+            return sel + [["exec", "CharShape", items], ["run", "Cancel"]]
+        if action == "paragraph":
+            items = {}
+            if p.get("align"):
+                al = ALIGNS.get(str(p["align"]))
+                if al not in _ALIGN_TYPE:
+                    raise EditError("align 은 가운데|왼쪽|오른쪽|양쪽|배분 이다.")
+                items["AlignType"] = _ALIGN_TYPE[al]
+            if p.get("line_spacing") not in (None, ""):
+                items["LineSpacing"] = num("line_spacing", 160, 50, 500)
+            if p.get("left_mm") not in (None, ""):
+                items["LeftMargin"] = hu(max(0.0, min(100.0, float(p["left_mm"]))))
+            if not items:
+                raise EditError("align·line_spacing·left_mm 가운데 하나를 준다.")
+            return at + [["exec", "ParagraphShape", items]]
+        if action == "indent":
+            return at + [["run", "ParagraphShapeIncreaseLeftMargin"]]
+        if not field:
+            raise EditError("표 동작은 field(그 표 칸의 필드)를 준다.")
+        if action == "table_create":
+            return at + [["run", "MoveLineEnd"], ["exec", "TableCreate", {"Rows": num("rows", 2, 1, 100), "Cols": num("cols", 2, 1, 30)}]]
+        if action == "table_row":
+            w = str(p.get("where") or "아래")
+            run = {"위": "TableInsertUpperRow", "아래": "TableInsertLowerRow", "지우기": "TableDeleteRow"}.get(w)
+            if not run:
+                raise EditError("where 는 위|아래|지우기 다.")
+            return at + [["run", run]]
+        if action == "table_col":
+            w = str(p.get("where") or "오른쪽")
+            run = {"왼쪽": "TableInsertLeftColumn", "오른쪽": "TableInsertRightColumn", "지우기": "TableDeleteColumn"}.get(w)
+            if not run:
+                raise EditError("where 는 왼쪽|오른쪽|지우기 다.")
+            return at + [["run", run]]
+        if action == "table_append_row":
+            return at + [["run", "TableAppendRow"]]
+        if action == "table_merge":
+            right, down = num("right", 0, 0, 30), num("down", 0, 0, 100)
+            if not right and not down:
+                raise EditError("right·down 가운데 하나는 1 이상.")
+            return at + [["run", "TableCellBlock"], ["run", "TableCellBlockExtend"]] + [["run", "TableRightCell"]] * right \
+                + [["run", "TableLowerCell"]] * down + [["run", "TableMergeCell"], ["run", "Cancel"]]
+        if action == "table_split":
+            return at + [["exec", "TableSplitCell", {"Rows": num("rows", 1, 1, 20), "Cols": num("cols", 2, 1, 20)}]]
+        if action == "table_distribute":
+            w = str(p.get("what") or "폭")
+            return at + [["run", "TableDistributeCellHeight" if w == "높이" else "TableDistributeCellWidth"]]
+        if action == "cell_fill":
+            return at + [["exec", "CellBorderFill", {"FillAttr.Type": 1, "FillAttr.WinBrushFaceColor": _bgr(str(p.get("color") or "회색")),
+                                                     "FillAttr.WinBrushHatchColor": 0, "FillAttr.WinBrushFaceStyle": -1}]]
+    except (TypeError, ValueError):
+        raise EditError("숫자 인자가 숫자가 아니다.")
+    raise EditError("알 수 없는 동작.")
+
+
+def steps_allowed(steps: list) -> bool:
+    """단계가 모두 허용 원소인가 — 편집 화면에 넘기기 전 마지막 관문(명령 줄에 직접 쓴 것도 여기서 막는다)."""
+    for st in steps or []:
+        if not isinstance(st, list) or not st:
+            return False
+        k = st[0]
+        if k in ("run", "exec") and (len(st) < 2 or st[1] not in _PRIMS[k]):
+            return False
+        if k == "exec" and (len(st) < 3 or not isinstance(st[2], dict)):
+            return False
+        if k not in ("run", "exec", "text", "field"):
+            return False
+    return True
+
+
+CMD_TTL = 600            # 명령은 10분 안에 열린 기안기가 가져가지 않으면 버린다
+SEEN_TTL = 8             # 편집 화면이 이 초 안에 명령 줄을 물었으면 「열려 있음」
+
+
+def _cmds(db, fid: int) -> dict:
+    try:
+        v = json.loads(db.get_setting(f"webhwp_cmd:{int(fid)}", "{}") or "{}")
+    except ValueError:
+        v = {}
+    v.setdefault("seq", 0)
+    v.setdefault("items", [])
+    return v
+
+
+def _put_cmds(db, fid: int, v: dict) -> None:
+    now = time.time()
+    v["items"] = [c for c in v["items"] if now - float(c.get("at") or 0) < CMD_TTL * 3][-50:]
+    db.set_setting(f"webhwp_cmd:{int(fid)}", json.dumps(v, ensure_ascii=False))
+
+
+def push(db, fid: int, action: str, params: dict, by: str = "AURA") -> dict:
+    """명령 줄에 넣는다 — {id, action, params, steps, by, at, status:new}. 허용 목록 밖이면 EditError."""
+    steps = live_steps(action, params)
+    if not steps_allowed(steps):
+        raise EditError("허용 목록 밖의 단계가 있다.")
+    v = _cmds(db, fid)
+    v["seq"] += 1
+    c = {"id": v["seq"], "action": action, "label": LIVE_ACTIONS[action]["desc"], "params": params or {}, "steps": steps,
+         "by": by, "at": time.time(), "status": "new"}
+    v["items"].append(c)
+    _put_cmds(db, fid, v)
+    return c
+
+
+def take(db, fid: int, user: str) -> list[dict]:
+    """편집 화면이 가져갈 새 명령 — 가져간 것은 running 으로(두 창이 같은 명령을 두 번 하지 않게). 묻는 시각도 남긴다."""
+    db.set_setting(f"webhwp_cmd_seen:{int(fid)}", json.dumps({"at": time.time(), "user": user}))
+    v = _cmds(db, fid)
+    now = time.time()
+    out = []
+    for c in v["items"]:
+        if c["status"] == "new" and now - float(c["at"]) > CMD_TTL:
+            c["status"], c["result"] = "error", "기한(10분)이 지나 버렸다"
+        elif c["status"] == "new" and steps_allowed(c.get("steps")):
+            c["status"], c["taken_by"], c["taken"] = "running", user, now
+            out.append({k: c[k] for k in ("id", "action", "label", "steps", "by")})
+    if out or v["items"]:
+        _put_cmds(db, fid, v)
+    return out
+
+
+def report(db, fid: int, cid: int, ok: bool, message: str) -> bool:
+    v = _cmds(db, fid)
+    for c in v["items"]:
+        if int(c["id"]) == int(cid) and c["status"] == "running":
+            c["status"], c["result"], c["done"] = ("done" if ok else "error"), str(message or "")[:300], time.time()
+            _put_cmds(db, fid, v)
+            return True
+    return False
+
+
+def status(db, fid: int, cid: int) -> dict:
+    return next((c for c in _cmds(db, fid)["items"] if int(c["id"]) == int(cid)), {})
+
+
+def editor_open(db, fid: int) -> bool:
+    try:
+        s = json.loads(db.get_setting(f"webhwp_cmd_seen:{int(fid)}", "{}") or "{}")
+    except ValueError:
+        return False
+    return time.time() - float(s.get("at") or 0) < SEEN_TTL
+
+
+# ── 에이전트 도구 ──
+# 이름·설명·인자 꼴을 한 곳에 — main.py 는 이 목록을 그대로 doc_agent.Tool 로 잇는다(tests/test_agent_docs 가 문서 표와 맞춰 본다)
+_AT = "at: {field: 절 필드 이름, where: start(절 맨 앞)|end(절 끝)} 또는 {after_text: 이 글이 든 문단 뒤} 또는 비우면 문서 끝"
+TOOLS: list[dict] = [
+    {"name": "hwp_page_setup", "writes": True, "label": "페이지 설정",
+     "desc": "작업본 페이지 설정(파일을 바로 고침). args {paper: A4|A3|A5|B4|B5|Letter|Legal, orientation: 세로|가로, "
+             "margin: 보통|좁게|넓게, margins_mm: {top, bottom, left, right, header, footer, gutter}(주면 프리셋 위에 덮음), gutter_type: 왼쪽|맞쪽|위쪽}",
+     "args": {"paper": "str", "orientation": "str", "margin": "str", "margins_mm": "dict", "gutter_type": "str"}},
+    {"name": "hwp_table_insert", "writes": True, "label": "표 만들기",
+     "desc": "새 표 넣기(학교 표 기본 모양). args {" + _AT + ", rows, cols, values: [[행1 칸들], …], head: true|false|[머리줄 글], "
+             "widths: [열 폭 비율]} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄",
+     "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list"}},
+    {"name": "hwp_table_view", "writes": False, "label": "표 보기",
+     "desc": "표 하나의 칸 글과 합친 칸을 행마다 보기 — 고칠 행·열 번호를 정할 때. args {table: hwp_tables 번호 | {head: 머리줄 글} | {field: 필드 이름}}",
+     "args": {"table": "any"}},
+    {"name": "hwp_table_edit", "writes": True, "label": "표 고치기",
+     "desc": "표 고치기(행·열 번호는 1부터). args {table, op, …}: add_rows {row, where: above|below, count} · delete_rows {row, count} · "
+             "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]} · "
+             "merge {cells: [첫 행, 첫 열, 끝 행, 끝 열]} · split {cells: [행, 열], rows, cols}(둘 다 비우면 합친 칸 풀기) · "
+             "widths {widths: [비율…]} · head {rows: 머리줄 행 수, fill} · align {align: 가운데|왼쪽|오른쪽|양쪽, cells|row|col} · "
+             "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col}",
+     "args": {"table": "any", "op": "str"}},
+    {"name": "hwp_page_number", "writes": True, "label": "쪽 번호",
+     "desc": "쪽 번호 넣기·빼기. args {position: 아래 가운데|아래 오른쪽|위 오른쪽|바깥 아래|…|없음, format: 1|①|I|i|A|a|가, dash: true(- 1 -), start: 시작 번호}",
+     "args": {"position": "str", "format": "str", "dash": "bool", "start": "int"}},
+    {"name": "hwp_header_footer", "writes": True, "label": "머리말·꼬리말",
+     "desc": "머리말·꼬리말 글(빈 글이면 뺌). args {header: 글, footer: 글, align: 가운데|왼쪽|오른쪽}",
+     "args": {"header": "str", "footer": "str", "align": "str"}},
+    {"name": "hwp_page_break", "writes": True, "label": "쪽 나누기",
+     "desc": "그 문단 앞에서 새 쪽으로(절 필드면 그 절 제목 앞). args {field | text: 문단 글, on: true|false}",
+     "args": {"field": "str", "text": "str", "on": "bool"}},
+    {"name": "hwp_text_style", "writes": True, "label": "글자·문단 모양",
+     "desc": "글꼴·글자 크기·굵게·줄 간격·정렬·들여쓰기를 범위에 한꺼번에. args {scope: all | {field: 절·칸 필드} | {text: 문단 글}, "
+             "font: 글꼴 이름, pt, bold: true|false, line_spacing: %, align: 가운데|왼쪽|오른쪽|양쪽, left_mm, indent_mm(내어쓰기는 음수), "
+             "tables: true(표 칸 글도)}",
+     "args": {"scope": "any", "font": "str", "pt": "float", "bold": "bool", "line_spacing": "int", "align": "str",
+              "left_mm": "float", "indent_mm": "float", "tables": "bool"}},
+    {"name": "hwp_footnote", "writes": True, "label": "각주",
+     "desc": "각주 달기 — 근거·출처를 밝힐 때. args {field: 필드(그 값 끝에) | after_text: 이 글 뒤에, text: 각주 글}",
+     "args": {"field": "str", "after_text": "str", "text": "str"}},
+    {"name": "hwp_picture", "writes": True, "label": "그림 넣기",
+     "desc": "그림 넣기. args {image: doc:<문서 id>(이 대화·프로젝트 문서의 그림 파일) | file:<파일 id>(이 대화에 올린 그림), width_mm, "
+             "align: 가운데|왼쪽|오른쪽, " + _AT + "}",
+     "args": {"image": "str", "width_mm": "float", "align": "str", "at": "dict"}},
+    {"name": "hwp_replace", "writes": True, "label": "찾아 바꾸기",
+     "desc": "문서에서 낱말을 찾아 바꾸기(몇 곳 바뀌었는지 돌려줌, 바꾸기 전 판을 남김). replace 를 빼면 찾은 곳 수만 센다. "
+             "args {find, replace, scope: all | {field: 절·칸 필드} | {text: 문단 글}}",
+     "args": {"find": "str", "replace": "str", "scope": "any"}},
+    {"name": "hwp_undo", "writes": True, "label": "되돌리기",
+     "desc": "AURA 가 마지막으로 고치기 전 판으로 작업본을 되돌리기(담당자가 되돌려 달라고 할 때). args {}", "args": {}},
+    {"name": "hwp_live", "writes": True, "label": "기안기 명령",
+     "desc": "열려 있는 기안기 화면에서 바로 하기(화면에 고친 것이 남아 있어 파일 고치기보다 나을 때). args {action, params}. action: "
+             + "; ".join(f"{k}({v['desc']}: {', '.join(v['params'])})" for k, v in LIVE_ACTIONS.items())
+             + ". field 는 hwp_fields 의 이름. 기안기가 닫혀 있으면 명령을 두었다가 열면 이어서 한다 — 바로 해야 하면 위 파일 도구를 쓴다",
+     "args": {"action": "str", "params": "dict"}},
+]
+LABELS = {t["name"]: t["label"] for t in TOOLS}
+
+
+class EditTools:
+    """HwpTools(이 대화의 작업본) 위에서 도는 편집 도구 실행부."""
+
+    LIVE_WAIT = 12.0
+
+    def __init__(self, hw):
+        self.hw = hw
+
+    def _fid(self) -> int | None:
+        return self.hw.fid()
+
+    def run(self, name: str, a: dict) -> str:
+        a = a if isinstance(a, dict) else {}
+        fid = self._fid()
+        if not fid:
+            return "이 대화에 한글 작업본이 없다 — hwp_forms → hwp_start."
+        db, base = self.hw.db, self.hw.base
+        ops = {"hwp_page_setup": page_setup, "hwp_table_insert": table_insert, "hwp_table_edit": table_edit,
+               "hwp_page_number": page_number, "hwp_header_footer": header_footer, "hwp_page_break": page_break,
+               "hwp_text_style": text_style, "hwp_footnote": footnote}
+        if name == "hwp_table_view":
+            try:
+                return table_view(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)
+            except EditError as e:
+                return str(e)
+        if name == "hwp_replace" and a.get("replace") is None:
+            try:
+                k = count_text(Path(webhwp.get(db, fid)["path"]).read_bytes(), str(a.get("find") or ""))
+            except EditError as e:
+                return str(e)
+            return f"「{str(a.get('find') or '')[:30]}」 {k}곳(글 조각 안에서 센 수)."
+        ops["hwp_replace"] = replace_text
+        if name == "hwp_undo":
+            out = undo(db, base, fid)
+            self.hw.writes += 1
+            return out
+        if name == "hwp_live":
+            return self.live(fid, a)
+        if name == "hwp_picture":
+            try:
+                img = self._image(str(a.get("image") or ""))
+            except EditError as e:
+                return "넣지 않았다 — " + str(e)
+            fn = lambda d: picture(d, img, a)
+        elif name in ops:
+            fn = lambda d: ops[name](d, a)
+        else:
+            return "모르는 도구."
+        self.hw._mark(fid, LABELS.get(name, name))
+        out = apply(db, base, fid, fn)
+        if not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "작업본 파일", "공통 양식")):
+            self.hw.writes += 1
+        return out
+
+    def _image(self, ref: str) -> bytes:
+        db = self.hw.db
+        m = re.fullmatch(r"(doc|file):(\d+)", ref.strip())
+        if not m:
+            raise EditError("image 는 doc:<문서 id> 또는 file:<파일 id> 다.")
+        if m.group(1) == "file":
+            row = next((r for r in db.list_files(session_id=self.hw.sid, limit=500) if int(r["id"]) == int(m.group(2))), None)
+            if not row or not Path(row["path"]).exists():
+                raise EditError("이 대화에 올린 파일이 아니다.")
+            return Path(row["path"]).read_bytes()
+        d = next((x for x in self.hw.project_docs() or [] if int(x["id"]) == int(m.group(2))), None)
+        if not d:
+            raise EditError("이 대화에서 볼 수 있는 문서가 아니다.")
+        from zzaimy.app.webhwp_routes import _original_bytes
+
+        class _St:
+            pass
+        _St.db = db
+        return _original_bytes(_St, d)
+
+    def live(self, fid: int, a: dict) -> str:
+        db = self.hw.db
+        try:
+            c = push(db, fid, str(a.get("action") or ""), a.get("params") if isinstance(a.get("params"), dict) else {})
+        except EditError as e:
+            return "보내지 않았다 — " + str(e)
+        self.hw._mark(fid, f"기안기 · {c['label']}")
+        if not editor_open(db, fid):
+            return (f"기안기를 열면 이어서 합니다 — 「{c['label']}」 명령을 줄에 두었다(10분 안에 열면 실행). "
+                    "지금 바로 파일에 반영해야 하면 hwp_page_setup·hwp_table_edit 같은 파일 도구를 쓴다.")
+        end = time.time() + self.LIVE_WAIT
+        while time.time() < end:
+            st = status(db, fid, c["id"])
+            if st.get("status") in ("done", "error"):
+                self.hw.writes += 1
+                return (f"기안기에서 「{c['label']}」 을 했다" if st["status"] == "done" else f"기안기에서 「{c['label']}」 이 안 됐다") + \
+                    (f" — {st.get('result')}" if st.get("result") else "") + "."
+            time.sleep(0.5)
+        return f"기안기에 「{c['label']}」 명령을 보냈다 — 아직 결과가 오지 않았다(화면이 바쁘면 곧 실행된다)."
+
+
+def doc_tools(hw, Tool) -> list:
+    """main.py 의 문서 에이전트 도구 목록에 붙일 Tool 들 — Tool 은 doc_agent.Tool."""
+    et = EditTools(hw)
+    return [Tool(t["name"], t["desc"], (lambda n: lambda a: et.run(n, a))(t["name"]), writes=t["writes"]) for t in TOOLS]
