@@ -589,6 +589,13 @@ class Database:
             if conn.execute("SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)).fetchone() is None:
                 return False
             names = table_names(conn)
+            # 답마다 남긴 설정(문맥 사용량 chat_ctx_msg·앞 단계 추론 chat_cot)은 메시지를 지우기 전에 id 를 모아 함께 지운다
+            mids = [int(r[0]) for r in conn.execute("SELECT id FROM chat_messages WHERE session_id = ?", (session_id,)).fetchall()]
+            keys = [f"{p}:{m}" for m in mids for p in ("chat_ctx_msg", "chat_cot")]
+            keys += [f"chat_ctx:{int(session_id)}", f"chat_summary:{int(session_id)}"]
+            for i in range(0, len(keys), 500):
+                part = keys[i:i + 500]
+                conn.execute(f"DELETE FROM settings WHERE key IN ({','.join('?' * len(part))})", tuple(part))
             for t in ("chat_messages", "chat_message_context", "chat_revisions", "chat_session_preferences", "chat_sources"):
                 if t in names:
                     cols = column_names(conn, t)
@@ -997,6 +1004,10 @@ class Database:
                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    def delete_setting(self, key: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
     def get_setting(self, key: str, default: str = "") -> str:
         with self._conn() as conn:

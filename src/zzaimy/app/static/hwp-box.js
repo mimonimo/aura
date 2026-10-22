@@ -136,8 +136,20 @@
   if (driveView) {
     var my = box.querySelector('[data-drive-place=""]');
     if (my) my.onclick = openMyDrive;
+    // 「드라이브에서 가져오기」 — 공용 파일 창(AuraFinder)을 드라이브에서 연다. 드라이브 파일은 지금 폴더로 받아 기안기로,
+    // 부서 폴더 파일은 그 자리의 파일을 바로 연다(창 모듈이 없으면 예전처럼 오른쪽에 드라이브 목록)
     var opener = document.querySelector('[data-drive-open]');
-    if (opener) opener.onclick = openMyDrive;
+    if (opener) opener.onclick = function () {
+      if (!window.AuraFinder || typeof window.AuraFinder.open !== 'function') { openMyDrive(); return; }
+      window.AuraFinder.open({title: '드라이브에서 가져오기', accept: 'hwp', openLabel: '가져오기', start: 'drive',
+                              at: {dept: box.dataset.dept || '', folder: box.dataset.folder || ''}, note: noteText})
+        .then(function (got) {
+          var it = got && got[0];
+          if (!it) return;
+          if (it.source === 'drive') { dImport.elements.file_id.value = it.drive_id; dImport.submit(); return; }
+          location.href = box.dataset.editor ? '/hwp/' + encodeURIComponent(it.id) + '/edit' : '/hwp/' + encodeURIComponent(it.id) + '/file';
+        });
+    };
     dBack.onclick = function () { var l = hist.pop(); if (l) go(l, false); };
     // 공유 드라이브는 왼쪽 목록에 미리 — 계정이 없으면 한 줄 안내만
     getJSON('/api/hwp/drive/browse').then(function (j) { addDrives(j.drives || []); })

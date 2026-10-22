@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}문서함{% endblock %}
 {% block pagetitle %}문서함{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/hwp-box.css?v={{ asset_v }}">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/hwp-box.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/aura-finder.css?v={{ asset_v }}"><script src="/static/aura-finder.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 {% if ok %}<p class="notice ok" role="status">{{ ok }}</p>{% endif %}
 {% if err %}<p class="notice" role="alert">{{ err }}</p>{% endif %}
-<div class="hb" data-hwp-box data-dept="{{ here.dept if here else '' }}" data-folder="{{ here.folder if here else '' }}">
+<div class="hb" data-hwp-box data-dept="{{ here.dept if here else '' }}" data-folder="{{ here.folder if here else '' }}" data-editor="{{ 'on' if status.ok else '' }}">
   <nav class="hb-side" aria-label="위치">
     <p class="hb-group">부서 폴더</p>
     {% for d in depts %}<a class="hb-place {{ 'on' if here and here.dept == d.dept }}" href="/hwp?dept={{ d.dept|urlencode }}" data-place="dept"{% if here and here.dept == d.dept %} aria-current="page"{% endif %}><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="t">{{ d.dept }}</span><span class="n">{{ d.count }}</span></a>{% endfor %}

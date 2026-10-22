@@ -160,7 +160,7 @@ def test_editor_page_offers_save_dialog_and_folder_path(tmp_path, monkeypatch):
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
     new = kim.get("/webhwpctrl/aura-edit?dept=기획처").text
-    assert "만들기" in new and "data-sa" in new and "에 생깁니다" not in new and "data-title" not in new
+    assert "만들기" in new and "AuraFinder.save(" in new and "에 생깁니다" not in new and "data-title" not in new
     webhwp.make_folder(Path(app.state.data_dir), "기획처", "", "작업")
     j = kim.post("/hwp/save-as?dept=기획처&folder=작업&name=계획", content=_hwpx()).json()
     page = kim.get(j["url"]).text

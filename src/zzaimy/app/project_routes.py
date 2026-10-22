@@ -1,7 +1,7 @@
 """프로젝트(/project*·/projects*) — 프로젝트 만들기(이름만·자료 묶음으로), 프로젝트 화면(/project/{id}),
 자료 더 넣기(/project/{id}/bundle — 끌어 놓기·파일 고르기), 문서함·드라이브에서 가져오기(/project/{id}/documents/import),
 기준 문서 고르기·한 건 잇기·빼기, 관련 보관 사업 잇기·풀기, 프로젝트 검색(/projects/archived),
-보관·불러오기, 작업 폴더 부서 공유, 작성 원칙, 아이콘 색·사업 책임자, 이름·기한·사업단·사업 바꾸기, 지우기.
+보관·불러오기, 작업 폴더 부서 공유, 작성 원칙, 아이콘 색·사업 담당자, 이름·기한·사업단·사업 바꾸기, 지우기.
 
 프로젝트 화면은 탭 하나(「대화·문서」)에 대화·작업 문서(왼쪽)와 프로젝트 문서·작성 원칙·관련 지난 사업(오른쪽)을 함께 둔다.
 옛 「작성 원칙·기준 문서」 탭 주소(?tab=context)는 같은 화면의 작성 원칙 자리(#projectContext)로 이어진다.
@@ -67,7 +67,7 @@ def make_project_helpers(
     from zzaimy.app import project_access as _pa
     try:
         templates.env.globals["project_color"] = lambda pid: _pa.color(db, int(pid)) if pid else _pa.PALETTE[_pa.DEFAULT_COLOR][0]
-        # 새 프로젝트 만들기 단추 — 사업 책임 이상에게만(grades.can_create_project). 화면은 can_create_project(request) 로 묻는다
+        # 새 프로젝트 만들기 단추 — 사업 담당자 이상에게만(grades.can_create_project). 화면은 can_create_project(request) 로 묻는다
         templates.env.globals["can_create_project"] = _may_create
     except AttributeError:                                # 테스트용 가짜 템플릿
         pass
@@ -94,7 +94,7 @@ def _may_create(request: Request) -> bool:
 
 def _require_create(request: Request) -> None:
     if not _may_create(request):
-        raise HTTPException(403, "사업 책임 이상만 프로젝트를 만들 수 있습니다")
+        raise HTTPException(403, "사업 담당자 이상만 프로젝트를 만들 수 있습니다")
 
 
 def _wants_json(request: Request) -> bool:
@@ -188,7 +188,7 @@ def project_set_color(request: Request, project_id: int, color: str = Form(...))
 
 @router.post("/project/{project_id}/lead")
 def project_set_lead(request: Request, project_id: int, user: str = Form(...)):
-    """사업 책임자(메인 담당자) — 만든 사람과 「함께 작업」으로 받는 사람 가운데서."""
+    """사업 담당자(메인 담당자) — 만든 사람과 「함께 작업」으로 받는 사람 가운데서."""
     from zzaimy.app import project_access as pa
     db = request.app.state.db
     proj = db.get_project(project_id)
@@ -256,7 +256,9 @@ def project_bundle(request: Request, background: BackgroundTasks, project_id: in
     h = request.app.state.project
     db, _intake_bundle = h.db, h._intake_bundle
     project = db.get_project(project_id)
-    if project is None or project.get("owner") != getattr(request.state, "user", "zzaimy"):
+    # 소유자·관리자·함께 작업은 올릴 수 있고 참조(읽기 전용)는 403, 못 보는 프로젝트는 404. 올린 문서의 owner 는 문서함·드라이브에서
+    # 가져오기(/documents/import)와 같이 올린 사람이다(_intake_bundle — 부서·등급도 올린 사람 기준)
+    if project is None or not request.app.state.project_access(request, project):
         raise HTTPException(404)
     _require_write(request, project)
     files = [f for f in file if f and f.filename]

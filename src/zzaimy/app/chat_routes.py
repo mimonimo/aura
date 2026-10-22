@@ -56,6 +56,9 @@ def _strip_attach_prefix(text: str) -> str:
     return "\n".join(lines)
 
 
+PROJECT_GRADE_NOTE = "프로젝트는 사업 담당자 이상이 만듭니다"
+
+
 def make_chat_helpers(
     *,
     db, db_path, processor, drafter, templates, ctx,
@@ -119,6 +122,13 @@ def make_chat_helpers(
             processor.process(db, doc_id, stored)
         _link_criteria_kind(db, doc_id)
 
+    def _may_create_project(user: str, role: str) -> bool:
+        """새 프로젝트를 만들 수 있는 계정인가 — 사업 담당자 이상(grades.can_create_project). 프로젝트 화면의 만들기 단추와 같은 판정."""
+        from zzaimy.app import grades
+        acc = dict((accounts or {}).get(user or "") or {})
+        acc.setdefault("role", role or "")
+        return grades.can_create_project(acc)
+
     def _ops_ctx(user: str, role: str, background: BackgroundTasks | None = None) -> "platform_ops.Ctx":
         """플랫폼 동작에 넘기는 맥락 — background 가 있으면(실행 때) 새 에이전트 대화를 열고 첫 요청의 답을 뒤에서 만든다."""
         def start_chat(project_id: int | None, question: str) -> int:
@@ -127,7 +137,8 @@ def make_chat_helpers(
             _schedule_answer(background, sid_, question, None, [])
             return sid_
         return platform_ops.Ctx(db=db, data_dir=Path(db_path).parent, user=user or "", role=_ap.role_class(role), depts=_all_depts,
-                                sectors=dict(INBOX_TYPES), start_chat=start_chat if background is not None else None)
+                                sectors=dict(INBOX_TYPES), start_chat=start_chat if background is not None else None,
+                                may_create_project=_may_create_project(user, role))
 
     def _helper_search(owner: str, role: str, dept: str | None):
         """도우미의 문서 찾기 — 에이전트 대화와 같은 열람 범위(search_scope): 사업 문서(grant_search)와 규정(find_relevant)."""
@@ -268,6 +279,8 @@ def make_chat_helpers(
                 line = _auto_route(db, doc_id, user_chose_type=False)
                 return line or "지금 값이 알맞아 그대로 두었습니다"
             if key == "plan.start":
+                if not ctx.get("may_create_project", True):
+                    return PROJECT_GRADE_NOTE
                 doc_id = int(ctx["doc_id"])
                 doc = db.get_document(doc_id)
                 if doc is None:
@@ -332,7 +345,7 @@ def make_chat_helpers(
     return SimpleNamespace(**deps,
                            _scope_label=_scope_label, _recommended_criteria=_recommended_criteria, _process_attachment=_process_attachment, _ops_ctx=_ops_ctx,
                            _helper_search=_helper_search, _helper_task=_helper_task, doc_agent_failure=doc_agent_failure, _find_document=_find_document,
-                           _run_action=_run_action, _page_actions=_page_actions)
+                           _run_action=_run_action, _page_actions=_page_actions, _may_create_project=_may_create_project)
 
 
 @router.get("/chat", response_class=HTMLResponse)
@@ -507,12 +520,17 @@ def chat_send(
         if Path(f.filename).suffix.lower() not in ALLOWED_EXTENSIONS:
             raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {Path(f.filename).suffix.lower()}")
     made_project: dict | None = None
+    grade_note = False
     if session_id is None:
         title = q
         if project_id and (proj := db.get_project(project_id)):
             if request.app.state.project_access(request, proj) != "edit":
                 raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
             title = f"[{proj['name'][:14]}] {q}"
+        elif len(files) >= 2 and not h._may_create_project(getattr(request.state, "user", ""), getattr(request.state, "role", "")):
+            # 일반 등급은 프로젝트를 만들지 않는다 — 막지 않고 대화 첨부로만 읽는다(안내 한 줄은 대화를 연 뒤에)
+            project_id = None
+            grade_note = True
         elif len(files) >= 2:
             # 새 대화에 문서 세트를 던지면 프로젝트가 생긴다 — 이름은 묶음에서, 기준/접수로 나눠 들인다
             pname = _title_from_bundle(files)
@@ -526,6 +544,8 @@ def chat_send(
             title=title, project_id=project_id,
             owner=getattr(request.state, "user", "zzaimy"),
         )
+        if grade_note:
+            db.add_chat(session_id, "assistant", PROJECT_GRADE_NOTE + " — 올린 파일은 이 대화의 첨부로 읽습니다.")
     else:
         _owned_chat(request, session_id)
     if made_project is not None:
@@ -743,7 +763,9 @@ def chat_ask(
     found = [a for a in found if _may(a)]
     done: list[str] = []
     for a in [x for x in found if x.get("auto")][:1]:
-        line = _run_action(a["key"], {**(a.get("ctx") or {}), "owner": getattr(request.state, "user", "") or "zzaimy"})
+        line = _run_action(a["key"], {**(a.get("ctx") or {}), "owner": getattr(request.state, "user", "") or "zzaimy",
+                                      "may_create_project": h._may_create_project(getattr(request.state, "user", ""),
+                                                                                  getattr(request.state, "role", ""))})
         if line:
             done.append(line)
             db.add_chat(session_id, "assistant", line)

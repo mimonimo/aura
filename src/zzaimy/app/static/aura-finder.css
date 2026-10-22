@@ -56,5 +56,30 @@
 .af-sel-where:empty{display:none}
 .af-clear{min-height:0;padding:0 2px;border:0;background:none;color:#45658f;font:inherit;font-size:11.5px;box-shadow:none;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .af-msg{font-size:12px;color:#8a5a00}
-.aura-finder>footer>button{min-height:32px;padding:0 16px;font-size:13px;border-radius:8px}
+.aura-finder .af-btn{min-height:32px;height:32px;padding:0 16px;border:1px solid #d6dee8;border-radius:8px;background:#fff;color:#36465b;font:inherit;font-size:13px;font-weight:500;box-shadow:none;cursor:pointer;flex:none}
+.aura-finder .af-btn:hover:not(:disabled){background:#f3f6fa;border-color:#aebbcd}
+.aura-finder .af-btn.primary{background:#1b3b75;border-color:#1b3b75;color:#fff}
+.aura-finder .af-btn.primary:hover:not(:disabled){background:#163266;border-color:#163266}
+.aura-finder .af-btn:disabled{opacity:.45;cursor:default}
+.af-msg.bad{color:#b91c1c}
+.af-grow{flex:1}
+/* 저장 창 — 폴더만 고르고 아래 이름 칸, 부서 폴더에는 새 폴더 */
+.af-newfolder{margin-left:auto;display:inline-flex;align-items:center;gap:5px;min-height:0;height:26px;padding:0 9px;border:1px solid #e3e8ee;border-radius:7px;background:#fff;color:#45658f;font:inherit;font-size:12.5px;box-shadow:none;cursor:pointer;flex:none}
+.af-newfolder:hover{background:#eef2f7}
+.af-newfolder iconify-icon{font-size:15px}
+.af-row.af-dim{color:#7d8899}
+.af-row.af-dim>iconify-icon{color:#a3b0c2}
+.af-newrow{cursor:default;background:#f3f6fa}
+.af-newrow input{min-width:0;width:100%;height:26px;box-sizing:border-box;border:1px solid #b9c8dc;border-radius:6px;padding:0 8px;font:inherit;font-size:13px;background:#fff;outline:0}
+.af-newrow input:focus{box-shadow:0 0 0 3px #1b3b7514}
+.af-saving>footer{flex-wrap:wrap}
+.af-namebox{flex:1;min-width:200px;display:flex;align-items:center;gap:10px;margin:0}
+.af-nm-label{font-size:13px;color:#526176;flex:none}
+.af-nm{flex:1;min-width:0;display:flex;align-items:center;height:32px;box-sizing:border-box;border:1px solid #d6dee8;border-radius:8px;padding:0 10px;background:#fff}
+.af-nm:focus-within{border-color:#8fa6c6;box-shadow:0 0 0 3px #1b3b7514}
+.af-nm input{flex:1;min-width:0;border:0;outline:0;padding:0;font:inherit;font-size:13.5px;background:none;box-shadow:none;height:auto;min-height:0}
+.af-ext{font-size:12.5px;color:#8d98a7}
+.af-ext:empty{display:none}
+.af-saving .af-msg{width:100%;min-height:0}
+.af-saving .af-msg:empty{display:none}
 @media(max-width:700px){.af-body{grid-template-columns:1fr}.af-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid #e8ecf1;max-height:140px}.af-group{width:100%}.af-place{width:auto}}
