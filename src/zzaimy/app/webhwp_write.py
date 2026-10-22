@@ -111,6 +111,76 @@ def _cell_width(xml: str, at: int) -> int | None:
     return int(m.group(1)) - 600 if m else None
 
 
+# 공문서 항목 단계 — 1. → 가. → 1) → 가) → (1) → (가) → ① . 한 단계 내려갈 때마다 한 글자씩 들여 쓴다(행정업무운영 편람의 항목 구분)
+_LEVELS = (r"\d+\.", r"[가-하]\.", r"\d+\)", r"[가-하]\)", r"\(\d+\)", r"\([가-하]\)", r"[①-⑳]")
+_LEVEL_RE = [re.compile(r"^\s*" + p + r"\s") for p in _LEVELS]
+
+
+def marker_level(line: str) -> int | None:
+    for i, rx in enumerate(_LEVEL_RE):
+        if rx.match(line + " "):
+            return i
+    return None
+
+
+class _LevelStyles:
+    """항목 단계별 문단 모양 — 바탕 문단 모양을 복제해 왼쪽 여백(단계 × 한 글자)과 내어쓰기(부호 + 빈칸 폭)를 준 paraPr 를 header 에
+    한 번씩 등록한다. 둘째 줄은 내용 시작 자리에 맞는다. 부호 없는 줄은 바로 앞 항목의 내용 자리에서 시작한다."""
+
+    def __init__(self, header: str, base_pp: str, char_hu: int):
+        self.header, self.base, self.ch = header, base_pp, max(char_hu, 800)
+        self.cache: dict[tuple[int, int], str] = {}
+        self.added: list[str] = []
+
+    def pp(self, left: int, hang: int) -> str:
+        key = (left, hang)
+        if key in self.cache:
+            return self.cache[key]
+        m = re.search(rf'<hh:paraPr\b[^>]*\bid="{self.base}"[^>]*>.*?</hh:paraPr>', self.header, re.S)
+        if not m:
+            return self.base
+        ids = [int(x) for x in re.findall(r'<hh:paraPr\b[^>]*\bid="(\d+)"', self.header)]
+        new_id = str(max(ids) + 1)
+        body = re.sub(r'(<hh:paraPr\b[^>]*\bid=")\d+(")', rf"\g<1>{new_id}\2", m.group(0), count=1)
+        body = re.sub(r'<hh:align horizontal="[A-Z]+"', '<hh:align horizontal="JUSTIFY"', body, count=1)
+
+        def margins(block: str, div: int) -> str:
+            block = re.sub(r'<hc:intent value="-?\d+"', f'<hc:intent value="{-(hang // div)}"', block, count=1)
+            return re.sub(r'<hc:left value="-?\d+"', f'<hc:left value="{(left + hang) // div}"', block, count=1)
+        case = re.search(r"<hp:case\b.*?</hp:case>", body, re.S)
+        if case:
+            body = body[:case.start()] + margins(case.group(0), 2) + body[case.end():]
+        dflt = re.search(r"<hp:default>.*?</hp:default>", body, re.S)
+        if dflt:
+            body = body[:dflt.start()] + margins(dflt.group(0), 1) + body[dflt.end():]
+        if not case and not dflt:
+            body = margins(body, 1)
+        close = self.header.find("</hh:paraProperties>")
+        self.header = self.header[:close] + body + self.header[close:]
+        cnt = re.search(r'(<hh:paraProperties\b[^>]*\bitemCnt=")(\d+)(")', self.header)
+        if cnt:
+            self.header = self.header[:cnt.start(2)] + str(int(cnt.group(2)) + 1) + self.header[cnt.end(2):]
+        self.cache[key] = new_id
+        return new_id
+
+    def for_lines(self, lines: list[str], base_level: int) -> list[tuple[str, str]]:
+        """줄마다 (문단 모양 id, 글) — 단계는 절 제목(base_level) 아래부터 센다."""
+        out, cont_left = [], 0
+        rel_min = min((lv for lv in (marker_level(x) for x in lines) if lv is not None), default=base_level + 1)
+        for ln in lines:
+            lv = marker_level(ln)
+            if lv is None:
+                out.append((self.pp(cont_left, 0) if cont_left else self.base, ln.strip()))
+                continue
+            depth = max(0, lv - min(rel_min, base_level + 1)) + 1          # 절 제목 바로 아래 단계가 한 글자 들여쓰기
+            mk = re.match(r"^\s*(\S+)", ln).group(1)
+            hang = int(self.ch * (len(mk) * 0.55 + 0.5))                 # 부호 폭(대략 반각 글자) + 빈칸
+            left = depth * self.ch
+            cont_left = left + hang
+            out.append((self.pp(left, hang), mk + " " + ln.strip()[len(mk):].strip()))
+        return out
+
+
 def write_section(data: bytes, name: str, items: list[tuple[str, object]], written: dict[str, list[str]] | None = None
                   ) -> tuple[bytes, list[str]]:
     """절 필드 다음에 문단·표를 넣는다 — (새 바이트, 넣은 문단 id). 앞서 넣은 것은 지운다."""
@@ -159,6 +229,9 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         pb = _para_bounds(xml, hit.start())
         if not pb:
             continue
+        head_text = re.sub(r"<[^>]+>", "", name)[2:] if name.startswith("절:") else ""
+        head_level = marker_level(head_text) if marker_level(head_text) is not None else 0
+        levels = _LevelStyles(header, pp, hangs.char_height(cp))
         bf, margin = hf._table_template(xml, solid)
         if bf is None:
             header, bf = hf._inject_border_fill(header)
@@ -167,16 +240,25 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         chunks = []
         for kind, val in items:
             if kind == "text":
-                for line in (hf.split_lines(str(val)) if str(val).strip() else []):
-                    pid = ids.new()
-                    lp, lc = para_styles.pick(line) or (pp, cp)
-                    if hf.marker_of(line) and len(line) > hf._ParaStyles.SHORT:
-                        lp, tab_hu = hangs.hanging(lp, lc, line[:hf._MARK.match(line).end()].strip())
-                        px = hf.marker_paragraph_xml(line, lp, lc, tab_hu)
-                    else:
-                        px = hf.paragraph_xml(line, lp, lc)
-                    chunks.append(px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
-                    put.append(pid)
+                lines = hf.split_lines(str(val)) if str(val).strip() else []
+                if para_styles.pick("1) 예") or para_styles.pick("가) 예"):
+                    # 양식에 단계별 본문 예시가 있으면 그 모양(서식 작성자의 뜻)을 따른다
+                    for line in lines:
+                        pid = ids.new()
+                        lp, lc = para_styles.pick(line) or (pp, cp)
+                        if hf.marker_of(line) and len(line) > hf._ParaStyles.SHORT:
+                            lp, tab_hu = hangs.hanging(lp, lc, line[:hf._MARK.match(line).end()].strip())
+                            px = hf.marker_paragraph_xml(line, lp, lc, tab_hu)
+                        else:
+                            px = hf.paragraph_xml(line, lp, lc)
+                        chunks.append(px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
+                        put.append(pid)
+                else:
+                    # 예시가 없는 양식 — 공문서 단계 규칙으로 들여쓰기·내어쓰기
+                    for lp, line in levels.for_lines(lines, head_level):
+                        pid = ids.new()
+                        chunks.append(hf.paragraph_xml(line, lp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
+                        put.append(pid)
             elif kind == "table" and isinstance(val, list) and val:
                 rows = [[str(c) for c in r] for r in val]
                 pid = ids.new()
@@ -184,6 +266,8 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                               .replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                 put.append(pid)
         new[n] = hf.strip_linesegs(xml[:pb[1]] + "".join(chunks) + xml[pb[1]:])[0]
+        if levels.cache:
+            header = levels.header
         break
     if hangs.changed:                                     # 내어쓰기 문단 모양을 header 에 등록(채우기와 같은 방식)
         for body in re.findall(r'<hh:paraPr\b[^>]*\bid="(?:%s)"[^>]*>.*?</hh:paraPr>' % "|".join(hangs.cache.values()), hangs.header, re.S):

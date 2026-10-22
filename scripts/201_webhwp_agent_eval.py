@@ -29,7 +29,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+EVALDOCS = Path.home() / "ops" / "evaldocs"          # 공개 공고·기본계획·사업 서식(VM 에만, 저장소 밖)
+
 CASES = [
+    {"name": "사업계획서", "expect": ["사업계획서"], "project": "2026 지방대학 특성화 선도대학 육성사업",
+     "docs": ["(공고문) 2026년 지방대학 특성화 선도대학 육성사업 공고.hwpx",
+              "(붙임) 2026년 지방대학 특성화 선도대학 육성사업 기본계획.hwpx",
+              "(서식2-1) 2026년 지방대학 특성화 선도대학 육성사업 사업계획서 서식(단독형).hwpx"],
+     "q": "사업계획서 서식(단독형)으로 사업계획서 초안을 작성해 줘. 공고와 기본계획의 사업 목적·추진 방향·평가 기준을 근거로 쓰고, "
+          "추진 일정과 예산은 표로 정리해 줘. 우리 대학 현황처럼 자료에 없는 값은 비워 두고 마지막에 물어봐.",
+     "facts": ["지방대학", "특성화"]},
     {"name": "예산변경", "expect": ["예산 변경"],
      "q": "2차년도 예산 변경 신청서 써 줘. 기자재 비목을 100,000천원에서 120,000천원으로 늘리고, 홍보비를 30,000천원에서 10,000천원으로 줄이는 내용이야. "
           "사유는 장비 단가 상승과 홍보의 온라인 전환이야. 신청 부서는 기획처, 담당자는 홍길동.",
@@ -71,7 +80,21 @@ def run_case(case: dict, tmp: Path) -> dict:
     acc["dept"] = "기획처"
     db = app.state.db
     webhwp.set_editor(db, "zzaimy", "webhwp")
-    pid = db.create_project("grant", "2026 AI 융합 인재 양성 사업", owner="zzaimy")
+    pid = db.create_project("grant", case.get("project") or "2026 AI 융합 인재 양성 사업", owner="zzaimy")
+    if case.get("docs"):                                  # 프로젝트 문서(공고·기본계획·사업 서식)를 들인다 — 처리기는 운영과 같은 것
+        import shutil
+        proc = app.state.processor if hasattr(app.state, "processor") else DocumentProcessor()
+        for name in case["docs"]:
+            src = EVALDOCS / name
+            dst = d / "inbox" / name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, dst)
+            kind = "form" if "서식" in name else None
+            did = db.add_document(name, str(dst), doc_type="grant", project_id=pid, owner="zzaimy")
+            proc.process(db, did, dst, defer_review=True)
+            if kind:
+                db.update_document(did, kind=kind)
+        print(f"  프로젝트 문서 {len(case['docs'])}건 처리", flush=True)
     c = TestClient(app)
     r = c.post("/login", data={"username": "zzaimy", "pw": "eval-pass-123"}, follow_redirects=False)
     assert r.status_code == 303, "로그인 실패"
