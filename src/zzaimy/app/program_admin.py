@@ -241,6 +241,32 @@ def _scope_or_403(request: Request) -> tuple[str, str, dict]:
     return scope, user, acct
 
 
+_YEAR = re.compile(r"(19|20)\d{2}")
+
+
+def span(period: str) -> tuple[int | None, int | None, bool]:
+    """기간 글 → (시작 연도, 끝 연도, 끝이 열려 있나). 「2022~2027」「2025~」「2026.5~2028.2」「2017」 꼴."""
+    t = str(period or "")
+    ys = [int(m.group(0)) for m in _YEAR.finditer(t)]
+    if not ys:
+        return None, None, False
+    open_end = bool(re.search(r"[~∼\-–]\s*$", t.strip())) and len(ys) == 1
+    return ys[0], (None if open_end else ys[-1]), open_end
+
+
+def stage(r: dict, year: int) -> str:
+    """현행(current) · 지난(past) · 기간 모름(unknown) — 끝 연도가 올해보다 앞이면 지난 사업."""
+    a, b, _ = span(r.get("period") or "")
+    if a is None:
+        return "unknown"
+    return "past" if (b is not None and b < year) else "current"
+
+
+def runs_in(r: dict, year: int) -> bool:
+    a, b, _ = span(r.get("period") or "")
+    return a is not None and a <= year and (b is None or b >= year)
+
+
 def _filter(rows: list[dict], q: str = "", dept: str = "", l1: str = "") -> list[dict]:
     q = (q or "").strip().lower()
     out = []
@@ -258,13 +284,29 @@ def _filter(rows: list[dict], q: str = "", dept: str = "", l1: str = "") -> list
 # ---------------------------------------------------------------- 화면
 
 @router.get("/programs/admin", response_class=HTMLResponse)
-def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = ""):
+def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = "", tab: str = "current", year: str = ""):
+    """사업 관리 — 연도 기준 두 갈래: 현행 사업(올해 진행 중·기간 모름 포함, 고치고 지정) / 지난 사업(끝난 사업, 확인용 읽기)."""
     scope, user, acct = _scope_or_403(request)
     st = request.app.state
     accounts = getattr(st, "accounts", None) or {}
     rows = merged_rows(st.data_dir)
     link_projects(st.db, rows)
     shown = visible_rows(rows, scope, user, acct, show_hidden=bool(hidden) and scope == "all")
+    this_year = int(time.strftime("%Y"))
+    tab = "past" if tab == "past" else "current"
+    for r in shown:
+        r["stage"] = stage(r, this_year)
+    n_cur = sum(1 for r in shown if r["stage"] != "past")
+    n_past = len(shown) - n_cur
+    in_tab = [r for r in shown if (r["stage"] == "past") == (tab == "past")]
+    ys: set[int] = set()
+    for r in in_tab:                                       # 이 갈래 사업이 진행한 연도들 — 연도 고르기 목록
+        a, b, _ = span(r.get("period") or "")
+        if a:
+            ys.update(range(max(a, 1990), min(b or this_year, this_year + 5) + 1))
+    years = sorted(ys, reverse=True)
+    sel = int(year) if str(year).isdigit() else (this_year if tab == "current" else 0)
+    shown = [r for r in in_tab if not sel or runs_in(r, sel) or (tab == "current" and r["stage"] == "unknown")]
     heads, leads = _choices(accounts, scope, acct)
     name_of = {u: ((a.get("name") or "").strip() or u) for u, a in accounts.items()}
     for r in shown:
@@ -273,7 +315,9 @@ def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = 
     l1s = [x for x in ORDER if any(r["l1"] == x for r in shown)] + sorted({r["l1"] for r in shown if r["l1"] and r["l1"] not in ORDER})
     depts = sorted({d for r in shown for d in r["depts"]})
     return st.templates.TemplateResponse(request, "programs_admin.html", st.page_ctx(request, {
-        "rows": shown, "scope": scope, "can_edit": scope == "all", "can_assign": scope in ("all", "dept"),
+        "rows": shown, "scope": scope, "can_edit": scope == "all" and tab == "current",
+        "can_assign": scope in ("all", "dept") and tab == "current",
+        "tab": tab, "year": sel, "years": years, "this_year": this_year, "n_cur": n_cur, "n_past": n_past,
         "head_choices": heads, "lead_choices": leads, "name_of": name_of, "l1s": l1s, "depts": depts,
         "show_hidden": bool(hidden), "n_hidden": sum(1 for r in rows if r["hidden"]) if scope == "all" else 0,
         "ok": ok, "err": err, "me_dept": acct.get("dept") or ""}))

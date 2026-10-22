@@ -7,6 +7,12 @@
   .pa-bar input[type=search], .pa-bar select { font:inherit; font-size:13px; min-height:34px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--ink); }
   .pa-bar input[type=search] { flex:1 1 220px; min-width:0; }
   .pa-bar .spacer { margin-left:auto; }
+  .pa-tabs { display:flex; align-items:center; gap:4px; margin:0 0 12px; border-bottom:1px solid var(--line); }
+  .pa-tabs a { padding:8px 12px; margin-bottom:-1px; border-bottom:2px solid transparent; color:var(--muted); text-decoration:none; font-size:13.5px; }
+  .pa-tabs a span { font-size:11.5px; color:var(--faint, #94a3b8); margin-left:3px; }
+  .pa-tabs a.on { color:var(--ink); font-weight:600; border-bottom-color:var(--ink); }
+  .pa-year { margin:0 0 4px auto; }
+  .pa-year select { font:inherit; font-size:12.5px; padding:4px 8px; border:1px solid var(--line); border-radius:7px; background:transparent; color:var(--ink); }
   .pa-bar .pa-n { font-size:12px; color:var(--muted); }
   .pa-bar label.check { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); }
   .pa-wrap { overflow:auto; max-height:calc(100dvh - 230px); border:1px solid var(--line); border-radius:10px; }
@@ -38,11 +44,21 @@
 {% if err %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ err }}</span></p>{% endif %}
 {% if ok %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>{% endif %}
 
+<nav class="pa-tabs" aria-label="사업 갈래">
+  <a href="/programs/admin" class="{{ 'on' if tab == 'current' else '' }}"{% if tab == 'current' %} aria-current="page"{% endif %}>현행 사업 <span>{{ n_cur }}</span></a>
+  <a href="/programs/admin?tab=past" class="{{ 'on' if tab == 'past' else '' }}"{% if tab == 'past' %} aria-current="page"{% endif %}>지난 사업 <span>{{ n_past }}</span></a>
+  <form method="get" class="pa-year">{% if tab == 'past' %}<input type="hidden" name="tab" value="past">{% endif %}
+    <select name="year" aria-label="연도" onchange="this.form.submit()">
+      <option value="0"{% if not year %} selected{% endif %}>{{ '전체 연도' }}</option>
+      {% for y in years %}<option value="{{ y }}"{% if y == year %} selected{% endif %}>{{ y }}년{% if y == this_year %} (올해){% endif %}</option>{% endfor %}
+    </select></form>
+</nav>
 <div class="card reveal"><div class="card-in">
-  <p class="muted" style="margin:0 0 12px; font-size:12.5px;">
+  {% if tab == 'past' %}<p class="muted" style="margin:0 0 12px; font-size:12.5px;">끝난 사업 · 확인용(고치지 않음){% if year %} · {{ year }}년에 진행한 사업{% endif %}</p>{% else %}
+  <p class="muted" style="margin:0 0 12px; font-size:12.5px;">{% if year %}{{ year }}년 진행 사업 · {% endif %}
     {% if scope == 'all' %}교내 사업 장부 · 줄을 고치면 장부 위에 덮어 보이고, 총괄 책임자·사업 담당자 지정은 그 사업 프로젝트의 진행 현황 권한이 됩니다
     {% elif scope == 'dept' %}{{ me_dept or '내 부서' }} 사업과 총괄 책임자로 지정된 사업 · 사업 담당자를 정할 수 있습니다
-    {% else %}사업 담당자로 지정된 사업{% endif %}</p>
+    {% else %}사업 담당자로 지정된 사업{% endif %}</p>{% endif %}
   <form class="pa-bar" data-pa-filter onsubmit="return false">
     <input type="search" name="q" placeholder="사업 이름·별칭·부서 찾기" aria-label="사업 찾기">
     <select name="dept" aria-label="부서로 거르기"><option value="">부서 전체</option>{% for d in depts %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select>
@@ -64,7 +80,7 @@
       <td class="cat">{{ r.l3 or '' }}</td>
       <td class="name">{{ r.name }}{% if r.source == '추가' %}<span class="pa-sub">직접 더한 줄</span>{% endif %}{% if r.hidden %}<span class="pa-sub">숨김</span>{% endif %}</td>
       <td>{{ r.dept or '—' }}</td>
-      <td class="n">{{ r.period or '—' }}</td>
+      <td class="n">{{ r.period or '—' }}{% if r.stage == 'unknown' %}<span class="pa-sub">기간 확인 필요</span>{% endif %}</td>
       <td class="n">{{ r.budget or '—' }}</td>
       <td>{% for u in r.heads %}{{ name_of.get(u, u) }}{% if not loop.last %}, {% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
       <td>{% for u in r.leads %}{{ name_of.get(u, u) }}{% if not loop.last %}, {% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>

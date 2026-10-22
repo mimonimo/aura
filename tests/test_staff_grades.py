@@ -195,7 +195,9 @@ def test_program_admin_permissions(world):
     app, tmp_path, pid = world
     dev = _client(app, "zzdev", "devpass")
     page = dev.get("/programs/admin").text
-    assert "가나다 혁신사업" in page and "라마바 지원사업" in page and "사업 아닌 것" not in page
+    assert "가나다 혁신사업" in page and "라마바 지원사업" not in page and "사업 아닌 것" not in page   # 현행(올해 진행)
+    past = dev.get("/programs/admin?tab=past").text
+    assert "라마바 지원사업" in past and "data-pa-new>" not in past and "확인용" in past             # 지난 사업은 읽기만
     assert "data-pa-new>" in page and "교육부 재정지원" in page
     assert _client(app, "plain").get("/programs/admin").status_code == 403
     assert _client(app, "plain").post("/programs/admin/save", data={"key": "x"}).status_code == 403
@@ -285,3 +287,15 @@ def test_team_page_head_grants_same_dept_only(tmp_path):
     assert kim.get("/team").status_code == 403                             # 본인이 권한을 고르지 못한다
     assert "/team" in boss.get("/chat").text and 'href="/team"' not in kim.get("/chat").text
     assert dev.get("/team?dept=교무처").status_code == 200
+
+
+def test_program_span_and_stage():
+    """사업 관리는 연도 기준 — 끝 연도가 올해보다 앞이면 지난 사업(확인용), 진행 중·끝 열림은 현행."""
+    assert program_admin.span("2022~2027") == (2022, 2027, False)
+    assert program_admin.span("2025~") == (2025, None, True)
+    assert program_admin.span("2026.5~2028.2")[:2] == (2026, 2028)
+    assert program_admin.span("") == (None, None, False)
+    assert program_admin.stage({"period": "2014~2018"}, 2026) == "past"
+    assert program_admin.stage({"period": "2025~"}, 2026) == "current"
+    assert program_admin.stage({"period": ""}, 2026) == "unknown"
+    assert program_admin.runs_in({"period": "2017~2022"}, 2019) and not program_admin.runs_in({"period": "2017~2022"}, 2023)
