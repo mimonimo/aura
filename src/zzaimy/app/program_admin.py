@@ -379,6 +379,8 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
     accounts = getattr(st, "accounts", None) or {}
     rows = merged_rows(st.data_dir)
     link_projects(st.db, rows)
+    if scope != "all":
+        trim_projects(request, rows, user, acct)        # 볼 수 없는 프로젝트 이름은 보이지 않게
     shown = visible_rows(rows, scope, user, acct, show_hidden=bool(hidden) and scope == "all")
     this_year = int(time.strftime("%Y"))
     tab = tab if tab in TABS else "current"
@@ -442,6 +444,8 @@ def programs_admin_csv(request: Request, q: str = "", dept: str = "", l1: str = 
     accounts = getattr(st, "accounts", None) or {}
     rows = merged_rows(st.data_dir)
     link_projects(st.db, rows)
+    if scope != "all":
+        trim_projects(request, rows, user, acct)
     rows = _filter(visible_rows(rows, scope, user, acct, show_hidden=bool(hidden) and scope == "all"), q, dept, l1)
     name_of = lambda u: f"{(accounts.get(u) or {}).get('name') or u}({u})"
     buf = io.StringIO()
@@ -760,6 +764,35 @@ def _row_for(request: Request, key: str, live_only: bool = True) -> tuple[dict, 
     return r, scope, user, acct
 
 
+def trim_projects(request: Request, rows: list[dict], user: str, acct: dict) -> None:
+    """보안: 줄마다 이어진 프로젝트 목록(plist)을 이 사람이 볼 수 있는 것만 남긴다 — 자기 프로젝트, 공유받은 프로젝트,
+    진행 현황을 볼 수 있는 프로젝트(grades.can_view_activity). 남은 수는 hidden_projects 로(이름은 보이지 않게)."""
+    from zzaimy.app import access_policy as _ap, project_access as _pa
+    st = request.app.state
+    accounts = getattr(st, "accounts", None) or {}
+    v = _ap.request_viewer(request)
+    seen: dict[int, bool] = {}
+
+    def _may(pid: int) -> bool:
+        if pid in seen:
+            return seen[pid]
+        proj = st.db.get_project(pid) if st.db is not None else None
+        ok = False
+        if proj:
+            owner_dept = str((accounts.get(proj.get("owner") or "") or {}).get("dept") or "").strip()
+            ok = (proj.get("owner") == user
+                  or bool(_pa.access(proj, user=user, role=v["role"], dept=v["dept"] or "", also=v["also"],
+                                     share=_pa.shares(st.db, proj, owner_dept)))
+                  or grades.can_view_activity(proj, user=user, account=acct, lead=_pa.lead(st.db, proj, accounts),
+                                              project_dept=owner_dept, data_dir=st.data_dir))
+        seen[pid] = ok
+        return ok
+    for r in rows:
+        allowed = [p for p in r.get("plist") or [] if _may(int(p["id"]))]
+        r["hidden_projects"] = len(r.get("plist") or []) - len(allowed)
+        r["plist"] = allowed
+
+
 @router.get("/programs/admin/row")
 def programs_admin_row(request: Request, key: str = ""):
     """줄 상세(오른쪽 패널) — 연도별 값, 지정 계정, 이어진 프로젝트, 그 프로젝트의 최근 문서."""
@@ -769,6 +802,8 @@ def programs_admin_row(request: Request, key: str = ""):
     accounts = getattr(st, "accounts", None) or {}
     label = lambda u: ((accounts.get(u) or {}).get("name") or "").strip() or u
     docs = []
+    if scope != "all":
+        trim_projects(request, [r], user, acct)
     live = [p["id"] for p in r["plist"] if not p["archived"]]
     if live and st.db is not None:
         marks = ",".join("?" for _ in live[:50])
@@ -777,6 +812,10 @@ def programs_admin_row(request: Request, key: str = ""):
                 got = conn.execute(f"SELECT id, filename, project_id FROM documents WHERE project_id IN ({marks})"
                                    " ORDER BY id DESC LIMIT 12", tuple(live[:50])).fetchall()
             docs = [{"id": int(i), "name": str(n or ""), "project_id": int(p)} for i, n, p in got]
+            if scope != "all":                             # 문서도 열람 규칙(access_policy.visible) 안의 것만
+                from zzaimy.app import access_policy as _ap2
+                vv = _ap2.request_viewer(request)
+                docs = [d for d in docs if _ap2.visible(st.db.get_document(d["id"]) or {}, **vv)]
         except Exception:
             docs = []
     years = [{"year": y, **{f: v.get(f, "") for f in ("budget", "manager", "dept", "period", "sub", "status", "from")},
@@ -786,7 +825,7 @@ def programs_admin_row(request: Request, key: str = ""):
             "period": r["period"], "budget": r["budget"], "manager": r["manager"], "source": r["source"], "terms": r["terms"][:12],
             "stage": stage(r, int(time.strftime("%Y"))), "years": years,
             "roles": {f: [label(u) for u in r[f]] for f in ROLES},
-            "projects": r["plist"], "docs": docs}
+            "projects": r["plist"], "hidden_projects": r.get("hidden_projects", 0), "docs": docs}
 
 
 @router.post("/programs/admin/link")

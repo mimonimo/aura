@@ -252,3 +252,12 @@ def test_clerks_link_projects_and_detail(world):
     assert ch[0]["stage"] != "past" and {c["key"] for c in ch} >= {key, "program:라마바지원사업"}
     assert [c["key"] for c in program_admin.choices("own", user="clerk1", data_dir=tmp_path)] == [key]
     assert program_admin.program_value(key, 2026) == key + "|2026"
+
+
+
+def test_trim_projects_hides_unviewable_names():
+    """보안: 사업 관리 상세·목록의 프로젝트·문서는 볼 수 있는 것만(관리자 밖)."""
+    import inspect
+    from zzaimy.app import program_admin as pa_
+    src = inspect.getsource(pa_.programs_admin_row)
+    assert "trim_projects" in src and "visible(" in src
