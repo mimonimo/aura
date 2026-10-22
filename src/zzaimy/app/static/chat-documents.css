@@ -240,3 +240,10 @@ body .doc-title-row .doc-ed-switch button{min-height:28px;padding:4px 10px;font-
 .chat-file-library>header .chat-ed-pill button{min-height:24px;height:24px;padding:0 11px;border:0;border-radius:999px;background:transparent;color:#5c6a7e;font-size:12px;font-weight:600;box-shadow:none;width:auto}
 .chat-file-library>header .chat-ed-pill button[aria-pressed=true]{background:#fff;color:var(--navy,#1B3B75);box-shadow:0 1px 3px #15243c26}
 .chat-file-library>header strong{flex:none}
+/* 문서 패널을 연 동안의 대화 칸 — 폭이 줄어도 읽기 좋게: 스크롤 막대와 말풍선 사이 여백, 좁으면 글자·여백을 한 단계 줄인다 */
+.chat-doc-open #chatScroll{padding-right:14px;scrollbar-gutter:stable}
+.chat-doc-open #chatWorkspace .msg{max-width:100%}
+@media(min-width:951px){
+ .chat-doc-open #chatWorkspace .table-scroll{max-width:100%}
+ .chat-doc-open #chatWorkspace .table-scroll table{font-size:12px}
+}
