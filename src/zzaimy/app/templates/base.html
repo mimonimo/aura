@@ -573,7 +573,7 @@ document.addEventListener('submit', function(event) {
   </div>
     {% if request.state.role != 'student' %}{# 학생은 검색 화면을 쓰지 않는다 — 서버도 막는다(check_auth) #}
     <a class="side-searchbox" href="/search" data-quick-search aria-label="빠른 찾기 열기(Ctrl+K)">
-      <iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><span>검색</span><kbd class="side-kbd">Ctrl K</kbd>
+      <iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><span>검색</span>
     </a>
     {% endif %}
   {% set developer_space = dev_space(request.url.path, request.state.role) %}
