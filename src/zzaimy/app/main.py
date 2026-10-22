@@ -2072,6 +2072,13 @@ def create_app(
 
     _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
 
+    _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
+                    "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
+                    "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기"}
+
+    def _tool_label(name: str) -> str:
+        return _TOOL_LABELS.get(name, name or "생각")
+
     def _run_doc_agent(session_id: int, q: str, owner: str, project: dict | None, scope: dict, scope_msg: str, data_dir: Path,
                        attachment_text: str | None, criteria: list[int] | None, r) -> bool:
         """Writer 가 도구를 골라 요청을 처리한다(app/doc_agent). 처리했으면 True — 모델이 못 돌았고 아무것도 남기지 않았으면 False(기존 경로)."""
@@ -2094,6 +2101,7 @@ def create_app(
         except Exception:
             _ctx_len_agent = _lb_agent.DEFAULT_CONTEXT
         before = len(db.list_chats(session_id))
+        _before_id = max([int(m_["id"]) for m_ in db.list_chats(session_id, limit=1)] or [0])
         crit_ids = _scoped_criteria(session_id)
         mats_box: dict = {}
 
@@ -2519,7 +2527,9 @@ def create_app(
             src = getattr(r, "last_sources", None)
             if src is not None:
                 _chat_sources.setdefault(session_id, []).extend(src)
-            db.add_chat(session_id, "assistant", _scrub_internal((scope_msg + "\n\n" if scope_msg else "") + text))
+            mid_ = db.add_chat(session_id, "assistant", _scrub_internal((scope_msg + "\n\n" if scope_msg else "") + text))
+            if getattr(r, "last_reasoning", ""):
+                db.set_setting(f"chat_cot:{int(mid_)}", r.last_reasoning[:6000])
             return text[:600]
 
         def t_ask(a: dict) -> str:
@@ -2614,6 +2624,17 @@ def create_app(
                            # 서식이 길면(절 수십 개) 근거 읽기·칸·절 쓰기에 걸음이 많다 — 한글 작업본이 있을 때 한도를 절 수에 맞춰 늘린다
                            max_writes=(30 if hw is not None else doc_agent.MAX_WRITES),
                            **({"max_steps": hw.step_budget()} if hw is not None else {}))
+        # 에이전트 걸음의 생각(thought)도 답과 함께 「생각 과정」 으로 — 걸음마다 [N단계: 도구] 생각
+        try:
+            new_msgs = [m_ for m_ in db.list_chats(session_id, limit=20) if m_.get("role") == "assistant" and int(m_["id"]) > _before_id]
+            thoughts = [(s_.get("action") or "", str(s_.get("thought") or "").strip()) for s_ in ep.steps if s_.get("thought")]
+            if new_msgs and thoughts:
+                last_id = int(new_msgs[-1]["id"])
+                prev = db.get_setting(f"chat_cot:{last_id}", "") or ""
+                steps_txt = "\n".join(f"[{i + 1}단계: {_tool_label(a_)}] {t_}" for i, (a_, t_) in enumerate(thoughts[:20]))
+                db.set_setting(f"chat_cot:{last_id}", (steps_txt + ("\n\n" + prev if prev else ""))[:8000])
+        except Exception:
+            pass
         doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps,
                                     "llm": _model_info.stamp(client),
                                     "answer_timing": answer_timing, "graph_read": os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1"})
