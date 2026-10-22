@@ -63,6 +63,9 @@ class HwpTools:
         held = webhwp.lock_holder(self.db, fid)
         if held and held["user"] != "AURA":
             lines.append(f"지금 {held['user']} 님이 이 작업본을 편집 중이다 — 쓰기 도구는 기다리라고 알린다.")
+        if empty:
+            lines.append("작성 순서: ① 담당자가 알려 준 값·프로젝트 정보(프로젝트 이름은 사업명 칸)로 채울 수 있는 칸을 hwp_fill 한 번에 모두 채운다 "
+                         "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
         return lines
 
     # ── 도구 ──

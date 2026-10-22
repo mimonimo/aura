@@ -2577,15 +2577,18 @@ def create_app(
                                hw.start, writes=True),
                 doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태 보기. args {}", hw.fields),
                 doc_agent.Tool("hwp_fill", "칸·표 필드에 값 넣기(근거로 찾았거나 담당자가 알려 준 값만). args {values: {필드 이름: 값}}", hw.fill, writes=True),
-                doc_agent.Tool("hwp_write", "절 필드에 본문 쓰기 — 번호 문단(1) 가) (1))과 필요하면 마크다운 표(| 머리 | … |). 근거는 search 로 찾은 것만. "
-                               "args {field: 절 필드 이름, text: 본문}", hw.write, writes=True),
+                doc_agent.Tool("hwp_write", "절 필드에 본문 쓰기 — 개조식 번호 문단으로 쓴다: 1) → 가) → (1) 단계, 한 줄에 한 항목, 문장 끝은 「~함」「~임」 "
+                               "(서술형 「~하였다」 금지). 수치·일정·내역은 마크다운 표(| 머리 | … |, 머리글 구분 줄 포함)로. "
+                               "담당자가 이번 요청에서 알려 준 사실과 search 로 찾은 근거만 쓰고 지어내지 않는다. args {field: 절 필드 이름, text: 본문}", hw.write, writes=True),
             ]
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
 
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json,
-                           on_act=lambda n, a, ph: _chat_act(session_id, n, a, ph))
+                           on_act=lambda n, a, ph: _chat_act(session_id, n, a, ph),
+                           # 한글 기안기는 칸 채우기가 가볍고 여러 번이다 — 한 요청에서 작업본 만들기·칸·절을 끝까지 쓰게 한도를 넉넉히
+                           max_writes=(12 if hw is not None else doc_agent.MAX_WRITES))
         doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps,
                                     "llm": _model_info.stamp(client),
                                     "answer_timing": answer_timing, "graph_read": os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1"})
