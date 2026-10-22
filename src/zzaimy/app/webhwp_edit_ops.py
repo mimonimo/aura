@@ -877,6 +877,7 @@ def page_setup(data: bytes, a: dict) -> tuple[bytes, str]:
     if not (size or land is not None or mm or gtype):
         raise EditError("바꿀 것(paper·orientation·margin·margins_mm·gutter_type)을 하나 이상 준다.")
     done = 0
+    old_tw = {n: _text_width(doc.secs[n]) for n in doc.sec_names}
     for n in doc.sec_names:
         def sub(m: re.Match) -> str:
             p = m.group(0)
@@ -895,15 +896,63 @@ def page_setup(data: bytes, a: dict) -> tuple[bytes, str]:
         done += k
     if not done:
         raise EditError("페이지 설정(pagePr)이 없는 문서다.")
+    refit = 0
+    for n in doc.sec_names:                              # 본문 폭에 맞춰 둔 표는 바뀐 본문 폭을 따라간다(가로로 바꾸면 표도 넓게)
+        new_tw = _text_width(doc.secs[n])
+        if old_tw.get(n) and new_tw and abs(new_tw - old_tw[n]) > 200:
+            doc.secs[n], k = _refit_tables(doc.secs[n], old_tw[n], new_tw)
+            refit += k
     pp = re.search(r"<hp:pagePr\b.*?</hp:pagePr>", doc.secs[doc.sec_names[0]], re.S).group(0)
     w, h = (int(x) for x in re.search(r'width="(\d+)" height="(\d+)"', pp).groups())
     mg = {k: mm_of(int(v)) for k, v in re.findall(r'\b(top|bottom|left|right|header|footer|gutter)="(\d+)"', pp)}
     is_land = 'landscape="NARROWLY"' in pp
     return doc.pack(), (f"페이지 설정: {mm_of(w)}×{mm_of(h)}mm {'가로' if is_land else '세로'}, 여백 위 {mg.get('top')}·아래 {mg.get('bottom')}·"
-                        f"왼쪽 {mg.get('left')}·오른쪽 {mg.get('right')}·머리말 {mg.get('header')}·꼬리말 {mg.get('footer')}·제본 {mg.get('gutter')}mm.")
+                        f"왼쪽 {mg.get('left')}·오른쪽 {mg.get('right')}·머리말 {mg.get('header')}·꼬리말 {mg.get('footer')}·제본 {mg.get('gutter')}mm."
+                        + (f" 본문 폭에 맞춘 표 {refit}개도 새 폭으로 맞췄다." if refit else ""))
 
 
 @_guarded
+def _text_width(sec: str) -> int:
+    """구역의 본문 폭(HWPUNIT) — 방향을 따져 쪽 폭에서 왼쪽·오른쪽·제본 여백을 뺀 값. 모르면 0."""
+    m = re.search(r"<hp:pagePr\b.*?</hp:pagePr>", sec, re.S)
+    if not m:
+        return 0
+    pp = m.group(0)
+    try:
+        w, h = (int(x) for x in re.search(r'width="(\d+)" height="(\d+)"', pp).groups())
+        mg = {k: int(v) for k, v in re.findall(r'\b(left|right|gutter)="(\d+)"', pp)}
+    except (AttributeError, ValueError):
+        return 0
+    page_w = max(w, h) if 'landscape="NARROWLY"' in pp else min(w, h)
+    return max(page_w - mg.get("left", 0) - mg.get("right", 0) - mg.get("gutter", 0), 0)
+
+
+def _refit_tables(sec: str, old_w: int, new_w: int) -> tuple[str, int]:
+    """본문 폭(±10%)에 맞춰 둔 맨 바깥 표만 새 폭 비율로 늘이거나 줄인다 — 열 비율은 그대로(칸 폭·표 폭을 같은 비율로)."""
+    if old_w <= 0 or new_w <= 0:
+        return sec, 0
+    ratio = new_w / old_w
+    out, i, n = [], 0, 0
+    depth, start = 0, -1
+    for m in re.finditer(r"<hp:tbl\b|</hp:tbl>", sec):
+        if m.group(0).startswith("<hp:tbl"):
+            if depth == 0:
+                start = m.start()
+            depth += 1
+        else:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                seg = sec[start:m.end()]
+                sz = re.search(r'<hp:sz width="(\d+)"', seg)
+                if sz and abs(int(sz.group(1)) - old_w) <= old_w * 0.1:
+                    seg = re.sub(r'(<hp:sz width=")(\d+)', lambda x: f'{x.group(1)}{int(round(int(x.group(2)) * ratio))}', seg)
+                    seg = re.sub(r'(<hp:cellSz width=")(\d+)', lambda x: f'{x.group(1)}{int(round(int(x.group(2)) * ratio))}', seg)
+                    out.append(sec[i:start]); out.append(seg); i = m.end(); n += 1
+                start = -1
+    out.append(sec[i:])
+    return "".join(out), n
+
+
 def current_page(data: bytes) -> dict:
     """첫 구역의 페이지 설정(mm) — 편집 화면의 「페이지 설정」 창이 처음 값으로 쓴다."""
     doc = _Doc(data)

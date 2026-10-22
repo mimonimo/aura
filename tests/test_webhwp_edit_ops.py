@@ -205,3 +205,18 @@ def test_edit_tools_and_live_tool(tmp_path, monkeypatch):
     for t in eo.TOOLS:
         assert t["name"].startswith("hwp_") and "args" in t["desc"] and isinstance(t["args"], dict) and t["label"]
     assert set(eo.LIVE_ACTIONS) <= set(re.findall(r"([a-z_]+)\(", next(t["desc"] for t in eo.TOOLS if t["name"] == "hwp_live")))
+
+
+def test_landscape_refits_full_width_tables():
+    """가로로 바꾸면 본문 폭에 맞춘 표도 새 본문 폭으로(열 비율 유지)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    sec = ('<hp:pagePr landscape="WIDELY" width="59528" height="84186"><hp:margin left="8504" right="8504" gutter="0"/></hp:pagePr>'
+           '<hp:tbl><hp:sz width="42520" height="100"/><hp:tc><hp:cellSz width="21260" height="10"/></hp:tc>'
+           '<hp:tc><hp:cellSz width="21260" height="10"/></hp:tc></hp:tbl>'
+           '<hp:tbl><hp:sz width="10000" height="100"/><hp:tc><hp:cellSz width="10000" height="10"/></hp:tc></hp:tbl>')
+    old = eo._text_width(sec)
+    land = sec.replace('landscape="WIDELY"', 'landscape="NARROWLY"')
+    new = eo._text_width(land)
+    assert old == 42520 and new == 84186 - 17008
+    out, n = eo._refit_tables(land, old, new)
+    assert n == 1 and f'<hp:sz width="{new}"' in out and '<hp:sz width="10000"' in out
