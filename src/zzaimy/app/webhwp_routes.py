@@ -109,7 +109,8 @@ def _ensure_templates(db, base: Path) -> None:
 
 @router.get("/hwp", response_class=HTMLResponse)
 def hwp_home(request: Request, dept: str = "", folder: str = "", ok: str = "", err: str = ""):
-    """부서 한글 문서함 — 왼쪽 부서 목록, 오른쪽 고른 부서의 폴더·문서(폴더 만들기·올리기·새 문서·지우기), 편집기 고르기."""
+    """문서함 — 왼쪽 위치(부서 폴더·구글 드라이브), 오른쪽 고른 곳의 폴더·문서(폴더 만들기·올리기·새 문서·지우기).
+    한글 파일은 늘 웹 한글 기안기로 연다 — 편집기 고르기(/hwp/editor)는 다른 화면의 설정이라 여기서는 묻지 않는다."""
     _need_staff(request)
     st = request.app.state
     _ensure_templates(st.db, _base(request))
@@ -119,8 +120,7 @@ def hwp_home(request: Request, dept: str = "", folder: str = "", ok: str = "", e
     folder = _check_dept(request, dept, folder) if dept else ""
     return st.templates.TemplateResponse(request, "hwp.html", st.ctx(request, {
         "depts": webhwp.listing(st.db, _base(request), depts), "here": webhwp.browse(st.db, _base(request), dept, folder) if dept else None,
-        "status": webhwp.status(), "editor": webhwp.editor_of(st.db, getattr(request.state, "user", "")),
-        "editors": webhwp.EDITORS, "ok": ok, "err": err}))
+        "status": webhwp.status(), "ok": ok, "err": err}))
 
 
 @router.post("/hwp/folder")

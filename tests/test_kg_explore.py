@@ -137,11 +137,11 @@ def test_explore_default_overview_and_selection_query(tmp_path):
     assert '"sel": ["program:A", "program:C"]' in c.get("/graph/explore", params={"sel": "program:A,program:C"}).text
     assert '"sel": ["doc:' + str(d1) + '"]' in c.get("/graph/explore", params={"id": f"doc:{d1}"}).text   # 옛 id= 링크는 하나 고르기
     assert 'data-tab="onto"' in c.get("/graph/explore", params={"tab": "onto"}).text
-    assert "업무 화면으로" in page and "한글 문서함" not in page     # 개발 메뉴의 화면은 개발 사이드바
+    assert "업무 화면으로" in page and "side-hwp-box" not in page     # 개발 메뉴의 화면은 개발 사이드바
     staff = TestClient(app)
     assert _login(staff, "zzaimy", "boot-pass-1")
     sp = staff.get("/graph/explore", params={"tab": "onto"}).text
-    assert "한글 문서함" in sp and 'data-tab="kg"' in sp               # 온톨로지 탭은 개발자만
+    assert "side-hwp-box" in sp and 'data-tab="kg"' in sp               # 온톨로지 탭은 개발자만
 
 
 def test_ontology_default_schema_has_classes_and_attributes(tmp_path):

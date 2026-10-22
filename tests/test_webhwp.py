@@ -443,3 +443,38 @@ def test_version_pruning_does_not_touch_files_sharing_a_name_prefix(tmp_path, mo
     for i in range(3):
         webhwp.save(db, tmp_path, a, _hwpx() + bytes([i]), user="kim")
     assert sorted(x.name for x in vdir.iterdir() if x.name.startswith("계획 2 ")) == before
+
+
+def test_document_box_page_finder_layout_without_editor_radio(tmp_path, monkeypatch):
+    """문서함 화면 — 제목은 「문서함」, 왼쪽에 부서 폴더·구글 드라이브, 편집기 라디오 없음, 새 폴더 창은 이름 칸이 제 줄."""
+    app = _setup(tmp_path, monkeypatch)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    kim.post("/hwp/folder", data={"dept": "기획처", "folder": "", "name": "2026 공문"})
+    _up(kim, app, "기획처", "협조문.hwpx", _hwpx(), folder="2026 공문")
+    page = kim.get("/hwp?dept=기획처").text
+    assert "<title>문서함" in page and "한글 문서함" not in page.split("<main", 1)[-1]
+    assert "부서 폴더" in page and "구글 드라이브" in page and "내 드라이브" in page and "data-drive-hint" in page
+    assert "/settings" in page and "학교 구글 계정을 연결하면 드라이브도 여기서 봅니다" in page
+    assert "한글 완성본 열 곳" not in page and 'name="editor"' not in page and "/hwp/editor" not in page
+    assert 'class="hb-btn primary" href="/hwp/new?dept=' in page                    # 주 단추는 새 문서 하나
+    assert page.count("hb-btn primary") == 2                                        # 새 문서 + 새 폴더 창의 만들기
+    assert 'id="hwFolderName" type="text" name="name"' in page and "기획처 안에 만듭니다" in page
+    assert "’ 폴더에 복사해 기안기로 엽니다" in page and " 에 복사해" not in page
+    assert "/static/hwp-box.js" in page and "/static/hwp-box.css" in page
+    inside = kim.get("/hwp?dept=기획처&folder=2026 공문").text
+    assert "협조문.hwpx" in inside and 'href="/hwp?dept=%EA%B8%B0%ED%9A%8D%EC%B2%98" aria-label="위 폴더로"' in inside
+    assert "웹 한글 기안기 13.82.0.208" in page
+    # 기안기 서버가 없으면 새 문서·양식 단추를 감추고 내려받기만
+    monkeypatch.setattr(webhwp, "status", lambda *a, **k: {"ok": False, "version": "", "error": "x"})
+    down = kim.get("/hwp?dept=기획처&folder=2026 공문").text
+    assert "/hwp/new?dept=" not in down and "data-tpl-open" not in down and "내려받기만 됩니다" in down
+
+
+def test_drive_browse_without_google_account_is_409(tmp_path, monkeypatch):
+    app = _setup(tmp_path, monkeypatch)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    from zzaimy.ingest import gdrive_files
+    monkeypatch.setattr(gdrive_files, "account_for", lambda *a, **k: "")
+    assert kim.get("/api/hwp/drive/browse").status_code == 409

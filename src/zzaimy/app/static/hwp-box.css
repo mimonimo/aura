@@ -1,0 +1,105 @@
+/* 문서함(/hwp) — 파일 가져오기 창(.hwp-finder)과 같은 얇은 파인더 꼴. 왼쪽 위치 목록, 오른쪽 행 목록 */
+.hb{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:min(640px,calc(100dvh - 150px));border:1px solid #d9e0ea;border-radius:14px;overflow:hidden;background:#fff;color:var(--ink)}
+.hb-side{display:flex;flex-direction:column;gap:2px;padding:10px 8px;background:#f3f5f8;border-right:1px solid #e3e8ef;min-width:0}
+.hb-group{margin:12px 8px 4px;font-size:11px;font-weight:650;color:#8a96a6}
+.hb-group:first-child{margin-top:4px}
+.hb-place{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;min-height:0;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:#2f3d51;font:inherit;font-size:13px;font-weight:400;text-align:left;justify-content:flex-start;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-place iconify-icon{font-size:16px;color:#5b7aa3;flex:none}
+.hb-place .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hb-place .n{flex:none;font-size:11.5px;color:#8a96a6}
+.hb-place:hover{background:#e6ebf2;border:0}
+.hb-place.on{background:#dce6f3;color:#1b3b75;font-weight:600}
+.hb-hint{margin:2px 8px 0;font-size:12px;line-height:1.55;color:#7a8698}
+.hb-hint a{color:#45658f}
+.hb-status{margin-top:auto;padding:10px 8px 2px;font-size:11.5px;color:#8a96a6;line-height:1.5}
+.hb-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#c0392b;margin-right:6px;vertical-align:1px}
+.hb-dot.on{background:#2e7d4f}
+
+.hb-main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.hb-main[hidden]{display:none}
+.hb-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:10px 14px;border-bottom:1px solid #edf0f4;background:#f7f9fb}
+.hb-loc{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 220px}
+.hb-back{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:1px solid #dfe5ed;border-radius:7px;background:#fff;color:#526176;font-size:16px;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-back:hover{background:#eef2f7;border-color:#cfd8e3}
+.hb-back[aria-disabled=true],.hb-back:disabled{opacity:.4;pointer-events:none}
+.hb-path{display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-width:0;font-size:13.5px}
+.hb-path a,.hb-path button{border:0;background:none;min-height:0;padding:3px 6px;border-radius:6px;color:#45658f;font:inherit;font-weight:400;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-path a:hover,.hb-path button:hover{background:#eef2f7}
+.hb-path b{padding:3px 6px;color:#1f2a3a;font-weight:600}
+.hb-sep{color:#a3adba}
+.hb-tools{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.hb-btn{display:inline-flex;align-items:center;gap:6px;box-sizing:border-box;min-height:32px;padding:0 12px;border:1px solid #d6dee8;border-radius:8px;background:#fff;color:#36465b;font:inherit;font-size:12.5px;font-weight:600;box-shadow:none;white-space:nowrap;cursor:pointer;text-decoration:none}
+.hb-btn iconify-icon{font-size:15px}
+.hb-btn:hover{background:#f3f6fa;border-color:#bfcadb;color:var(--ink)}
+.hb-btn.primary{background:var(--navy);border-color:var(--navy);color:#fff}
+.hb-btn.primary:hover{background:var(--navy-deep);border-color:var(--navy-deep);color:#fff}
+.hb-btn:disabled{opacity:.5;cursor:default}
+
+.hb-list{flex:1;overflow-y:auto;padding:6px}
+.hb-head,.hb-row{display:grid;grid-template-columns:22px minmax(0,1fr) 128px 110px auto;align-items:center;gap:10px;padding:0 10px}
+.hb-head{height:30px;font-size:11.5px;font-weight:600;color:#8a96a6;border-bottom:1px solid #f0f2f6;margin-bottom:2px}
+.hb-row{min-height:40px;border-radius:7px;color:#1f2a3a;font-size:13px}
+.hb-row:hover{background:#f1f4f8}
+.hb-row>iconify-icon{font-size:20px;color:#476d9e}
+.hb-row[data-kind=folder]>iconify-icon{color:#c9a227}
+.hb-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}
+a.hb-name:hover{color:var(--navy);text-decoration:underline}
+.hb-meta{font-size:12px;color:#8a96a6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hb-lock{display:inline-block;padding:1px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11.5px;font-weight:600}
+.hb-act{display:flex;gap:4px;justify-content:flex-end}
+.hb-act form{margin:0}
+.hb-act .hb-btn{min-height:26px;padding:0 9px;font-size:12px;font-weight:500;border-color:transparent;background:transparent;color:#526176}
+.hb-row:hover .hb-act .hb-btn{border-color:#dfe5ed;background:#fff}
+.hb-act .hb-btn:hover{color:var(--ink);border-color:#bfcadb}
+button.hb-row{width:100%;border:0;background:transparent;font:inherit;font-weight:400;text-align:left;justify-content:stretch;box-shadow:none;cursor:pointer}
+button.hb-row:hover{border:0;background:#f1f4f8}
+.hb-drive .hb-row,.hb-drive .hb-head{grid-template-columns:22px minmax(0,1fr) 128px}
+.hb-empty{margin:28px 16px;color:#8a96a6;font-size:13px;text-align:center;line-height:1.7}
+.hb-note{padding:8px 14px;border-top:1px solid #edf0f4;background:#f7f9fb;font-size:12px;color:#7a8698}
+.hb-note[data-err]{color:#8a5a00}
+
+/* 줄 자리 표시(불러오는 동안) */
+.hb-skel{display:flex;flex-direction:column;gap:6px;padding:8px 10px}
+.hb-skel i{display:block;height:14px;border-radius:6px;background:linear-gradient(90deg,#eef1f5 25%,#f6f8fa 50%,#eef1f5 75%);background-size:200% 100%;animation:hb-shine 1.2s linear infinite}
+.hb-skel i:nth-child(3n+1){width:62%}.hb-skel i:nth-child(3n+2){width:78%}.hb-skel i:nth-child(3n){width:48%}
+@keyframes hb-shine{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.hb-skel i{animation:none}}
+
+/* 창 — 새 폴더·양식으로 시작 */
+.modal-back>.card.hb-dlg{width:440px;padding:0;border-radius:14px;border:1px solid #d9e0ea;box-shadow:0 24px 64px #15243c33;overflow:hidden}
+.modal-back>.card.hb-dlg.wide{width:600px;display:flex;flex-direction:column;max-height:min(640px,88vh)}
+.hb-dlg-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #e3e8ef;background:#f7f9fb}
+.hb-dlg-head h2{margin:0;font-size:15px;font-weight:650}
+.hb-dlg-head [data-modal-close]{width:30px;height:30px;min-height:0;padding:0;border:0;border-radius:7px;background:transparent;color:#6b778a;font-size:18px;box-shadow:none}
+.hb-dlg-head [data-modal-close]:hover{background:#e9eef4}
+.hb-dlg-body{padding:16px 16px 4px}
+.hb-field{display:block;margin:0 0 6px;font-size:13px;font-weight:600;color:#36465b}
+.hb-input{display:block;width:100%;box-sizing:border-box;height:38px;border:1px solid #d6dee8;border-radius:8px;padding:0 12px;font:inherit;font-size:14px;background:#fff;color:var(--ink);outline:none}
+.hb-input:focus{border-color:#7f9cc4;box-shadow:0 0 0 2px #dce6f3}
+.hb-help{margin:6px 0 0;font-size:12px;color:#7a8698}
+.hb-dlg-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 16px;margin-top:14px;border-top:1px solid #e3e8ef;background:#f7f9fb}
+.hb-dlg-foot .hb-btn{min-height:34px;padding:0 16px;font-size:13px}
+
+.hb-search{position:relative;padding:12px 14px 0}
+.hb-search iconify-icon{position:absolute;left:25px;top:50%;margin-top:6px;transform:translateY(-50%);font-size:16px;color:#8a96a6;pointer-events:none}
+.hb-search .hb-input{height:36px;padding-left:34px;font-size:13.5px}
+.hb-tpl-hint{margin:8px 14px 6px;font-size:12px;color:#7a8698}
+.hb-tpl-list{flex:1;min-height:240px;max-height:420px;overflow-y:auto;margin:0 8px 8px;padding:2px 0}
+.hb-tpl-group{position:sticky;top:0;z-index:1;margin:0;padding:8px 10px 4px;background:#fff;font-size:11px;font-weight:650;color:#8a96a6}
+.hb-tpl-item{display:flex;align-items:center;gap:10px;width:100%;min-height:34px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#1f2a3a;font:inherit;font-size:13px;font-weight:400;text-align:left;justify-content:flex-start;box-shadow:none;cursor:pointer}
+.hb-tpl-item iconify-icon{font-size:17px;color:#476d9e;flex:none}
+.hb-tpl-item span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hb-tpl-item:hover{background:#f1f4f8;border:0}
+.hb-tpl-item.on{background:#1b3b75;color:#fff}
+.hb-tpl-item.on iconify-icon{color:#dfe7f3}
+.hb-tpl-item:focus-visible{outline:2px solid #607c9e;outline-offset:-2px}
+
+@media (max-width:760px){
+  .hb{grid-template-columns:1fr;min-height:0}
+  .hb-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid #e3e8ef}
+  .hb-group,.hb-hint,.hb-status{width:100%}
+  .hb-place{width:auto}
+  .hb-head{display:none}
+  .hb-row,.hb-drive .hb-row{grid-template-columns:22px minmax(0,1fr) auto;padding:6px 10px}
+  .hb-row .hb-meta{display:none}
+}
