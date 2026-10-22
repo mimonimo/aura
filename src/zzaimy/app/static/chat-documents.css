@@ -132,10 +132,17 @@ body .chat-location-button::before{content:'↗';color:#497bfb}
 .doc-cursor{position:fixed;z-index:60;pointer-events:none;display:flex;align-items:flex-start;gap:2px;left:-100px;top:-100px;
   transition:left 1.2s cubic-bezier(.3,.7,.2,1),top 1.2s cubic-bezier(.3,.7,.2,1),opacity .4s ease}
 .doc-cursor.leaving{opacity:0}
-.doc-cursor .aura-cursor-arrow{width:20px;height:22px;background:var(--navy,#1f3b63);filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35));
-  clip-path:polygon(0 0,0 100%,30% 72%,52% 100%,66% 92%,45% 64%,85% 62%)}
-.doc-cursor .aura-cursor-tag{margin-top:16px;padding:3px 10px;border-radius:999px;background:var(--navy,#1f3b63);color:#fff;
-  font-size:12px;font-weight:600;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 8px rgba(15,30,60,.18)}
+.doc-cursor{gap:0}
+.doc-cursor .ac-svg{width:24px;height:24px;filter:drop-shadow(0 2px 3px rgba(27,59,117,.35));flex:none}
+.doc-cursor .aura-cursor-tag{margin:16px 0 0 -4px;display:inline-flex;align-items:center;gap:5px;padding:3px 10px 3px 7px;border-radius:999px;
+  background:linear-gradient(135deg,#1B3B75,#3D6FD6);color:#fff;font-size:12px;font-weight:600;white-space:nowrap;max-width:320px;
+  box-shadow:0 4px 14px rgba(27,59,117,.28),0 0 0 3px rgba(61,111,214,.14)}
+.doc-cursor .ac-star{width:12px;height:12px;color:#cfe0ff;flex:none}
+.doc-cursor .ac-text{overflow:hidden;text-overflow:ellipsis}
+.doc-cursor .ac-dots{display:inline-flex;gap:2px;margin-left:2px}
+.doc-cursor .ac-dots i{width:3px;height:3px;border-radius:50%;background:#fff;opacity:.4;animation:acdot2 1.2s infinite}
+.doc-cursor .ac-dots i:nth-child(2){animation-delay:.2s}.doc-cursor .ac-dots i:nth-child(3){animation-delay:.4s}
+@keyframes acdot2{30%{opacity:1}}
 @media(prefers-reduced-motion:reduce){.doc-cursor{transition:opacity .2s ease}}
 
 /* 편집기 고르기(구글 문서 · 한글 기안기) — 머리줄 가운데 두 칸 단추 */

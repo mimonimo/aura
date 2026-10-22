@@ -802,10 +802,10 @@
    const still=window.matchMedia('(prefers-reduced-motion: reduce)').matches;   // 움직임 줄이기 설정이면 한 자리에 둔다
    if(!docCursor){
      docCursor=document.createElement('div');docCursor.className='aura-cursor doc-cursor';docCursor.setAttribute('aria-hidden','true');
-     docCursor.innerHTML='<span class="aura-cursor-arrow"></span><span class="aura-cursor-tag"></span>';
+     docCursor.innerHTML='<svg class="ac-svg" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="acgd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B3B75"/><stop offset="1" stop-color="#3D6FD6"/></linearGradient></defs><path d="M4.6 3.1 19.7 10.8c.8.4.7 1.5-.2 1.7l-6 1.6-2.7 5.8c-.4.8-1.5.7-1.7-.1L4.6 3.1Z" fill="url(#acgd)" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg><span class="aura-cursor-tag"><svg class="ac-star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l1.4 4.1 4.1 1.4-4.1 1.4L8 12.5 6.6 8.4 2.5 7l4.1-1.4z" fill="currentColor"/></svg><span class="ac-text"></span><span class="ac-dots"><i></i><i></i><i></i></span></span>';
      document.body.append(docCursor);
    }
-   docCursor.querySelector('.aura-cursor-tag').textContent=label;
+   docCursor.querySelector('.ac-text').textContent=label;
    const step=()=>{
      const f=panel?.querySelector('iframe');if(!f||!docCursor){docCursorOff();return;}
      const r=f.getBoundingClientRect();if(r.width<80||r.height<80){docCursor.style.opacity='0';return;}
