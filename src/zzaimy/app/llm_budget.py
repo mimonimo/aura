@@ -229,7 +229,7 @@ def track() -> dict:
 
 
 class label:
-    """with llm_budget.label("메인 · 걸음 3"): … — 그 안의 모델 호출에 이름표(화면의 호출별 문맥 사용). 「서브 · …」 로 시작하면 서브 묶음."""
+    """with llm_budget.label("에이전트 · 3단계"): … — 그 안의 모델 호출에 이름표(화면의 호출별 문맥 사용). 「서브 · …」 로 시작하면 서브 묶음."""
 
     def __init__(self, name: str):
         self.name, self._tok = name, None

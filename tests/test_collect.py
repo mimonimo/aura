@@ -67,7 +67,7 @@ def test_page_is_dev_only_and_makes_bundle(tmp_path):
     assert login("kim", "kim-pass").get("/dev/collect").status_code == 403
     dev = login("zzdev", "dev-pass")
     page = dev.get("/dev/collect").text
-    assert "대화 메시지" in page and "업무 도우미 걸음" in page
+    assert "대화 메시지" in page and "업무 도우미 기록" in page
     r = dev.post("/dev/collect/make", data={"keys": ["chat_messages"]}, follow_redirects=False)
     assert r.status_code == 303
     for _ in range(100):
@@ -107,7 +107,7 @@ def test_page_groups_empty_rows_and_period_chips(tmp_path):
     cat = collect.catalog(app.state.db, tmp_path / "platform")
     n_empty = sum(1 for x in cat if not x["n"])
     assert f"비어 있는 항목 {n_empty}개 보기" in page
-    assert page.index("업무 도우미 걸음") < page.index("절 작성 기록")           # 자료 있는 항목이 위
+    assert page.index("업무 도우미 기록") < page.index("절 작성 기록")           # 자료 있는 항목이 위
     assert page.count('class="col-pick"') == len(cat) - n_empty
     assert "<th class=\"hide-sm\">있는 곳</th>" not in page and "platform_helper_episodes.jsonl" in page
     # 빠른 기간 — 이번 달(오늘 기준)로도 만들어진다

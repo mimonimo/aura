@@ -234,7 +234,7 @@ def failure_message(ep: Episode) -> str:
     elif ep.stop == "rejected":
         what = "모델 서버가 요청을 받지 않았습니다"
     elif ep.stop == "repeat":
-        what = "같은 걸음을 되풀이해 멈췄습니다"
+        what = "같은 작업을 되풀이해 멈췄습니다"
     elif ep.finished:
         what = "처리를 마쳤지만 남길 답을 만들지 못했습니다"
     else:
@@ -323,7 +323,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             cuts += [llm_budget.Cut(msg=3 + 2 * k, text=turns[k][1]) for k in range(n_old, len(turns))]
             cuts += [llm_budget.OUTPUT]
             try:
-                with llm_budget.label(f"메인 · 걸음 {_i + 1}"):
+                with llm_budget.label(f"에이전트 · {_i + 1}단계"):
                     resp = llm_budget.create_fitted(client, messages, 700, cuts, floor=300,
                                                     temperature=0.6 if repeats else 0.2,     # 되풀이를 거절당한 뒤엔 조금 넓게
                                                     extra_body=getattr(client, "_extra", {}))

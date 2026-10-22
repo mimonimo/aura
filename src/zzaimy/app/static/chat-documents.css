@@ -317,5 +317,6 @@ body .doc-title-row .doc-full-btn[aria-pressed=true]{background:#edf3fb;color:#2
 .ctx-card-bar{height:5px;border-radius:5px;background:#e9edf3;margin:8px 0;overflow:hidden}
 .ctx-card-bar>span{display:block;height:100%;background:#8aa2c2;border-radius:5px}
 .ctx-card-goal{margin:0 0 6px;line-height:1.55;color:#2f3d51}
+.ctx-card-goal b{display:block;font-size:11px;font-weight:500;color:#7b8798;margin-bottom:1px}
 .ctx-card-meta{margin:0;color:#7a8698;line-height:1.55}
 .ctx-card-hint{margin:6px 0 0;color:#a3adba;font-size:11px}
