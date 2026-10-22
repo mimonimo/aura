@@ -24,6 +24,33 @@ def bound(db, session_id: int) -> int | None:
     return int(v) if v.isdigit() else None
 
 
+def files_of(db, session_id: int) -> list[int]:
+    """이 대화로 가져온 한글 파일(가져오기·양식으로 시작·완성본) — 문서 패널 「작업 문서」 에 서는 목록. 지금 이어진 것이 맨 앞."""
+    try:
+        ids = [int(x) for x in json.loads(db.get_setting(f"chat_hwp_files:{int(session_id)}", "[]") or "[]")]
+    except (ValueError, TypeError):
+        ids = []
+    cur = bound(db, session_id)
+    if cur and cur not in ids:
+        ids.insert(0, cur)
+    return [i for i in ids if webhwp.get(db, i)]
+
+
+def attach(db, session_id: int, fid: int) -> None:
+    """한글 파일을 이 대화의 작업 문서로 잇는다(지금 작업본으로 두고 목록 맨 앞에)."""
+    ids = [i for i in files_of(db, session_id) if i != int(fid)]
+    db.set_setting(f"chat_hwp_files:{int(session_id)}", json.dumps([int(fid), *ids][:30]))
+    db.set_setting(f"chat_hwp:{int(session_id)}", str(int(fid)))
+
+
+def detach(db, session_id: int, fid: int) -> None:
+    """목록에서 뺀다(파일은 부서 폴더에 그대로). 지금 작업본이었으면 다음 것으로."""
+    ids = [i for i in files_of(db, session_id) if i != int(fid)]
+    db.set_setting(f"chat_hwp_files:{int(session_id)}", json.dumps(ids))
+    if bound(db, session_id) == int(fid):
+        db.set_setting(f"chat_hwp:{int(session_id)}", str(ids[0]) if ids else "")
+
+
 def activity(db, fid: int) -> dict:
     try:
         a = json.loads(db.get_setting(f"webhwp_activity:{int(fid)}", "{}") or "{}")
@@ -152,7 +179,7 @@ class HwpTools:
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
-        self.db.set_setting(f"chat_hwp:{self.sid}", str(fid))
+        attach(self.db, self.sid, fid)
         self.writes += 1
         kinds = {}
         for x in fields:

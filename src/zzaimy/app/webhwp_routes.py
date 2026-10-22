@@ -245,6 +245,23 @@ def hwp_drive_list(request: Request, q: str = "", page: str = ""):
         raise HTTPException(502, str(e))
 
 
+@router.get("/api/hwp/drive/browse")
+def hwp_drive_browse(request: Request, folder: str = "", drive: str = "", q: str = ""):
+    """파일 가져오기 창(파인더 꼴) — 드라이브 폴더의 하위 폴더·한글 파일, 공유 드라이브 목록."""
+    _need_staff(request)
+    from zzaimy.app import webhwp_drive
+    email = _google(request)
+    try:
+        out = webhwp_drive.browse(email, folder, drive, q)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    if not folder and not drive and not q:
+        out["drives"] = webhwp_drive.drives(email)
+    return {"account": email, **out}
+
+
 @router.post("/hwp/drive/import")
 def hwp_drive_import(request: Request, file_id: str = Form(...), dept: str = Form(""), folder: str = Form("")):
     """드라이브 → 부서 디렉터리로 받아 기안기로 연다."""

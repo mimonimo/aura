@@ -94,3 +94,54 @@ def test_fill_rejects_long_text_and_placeholders():
     assert not wa._too_long("2026. 3. 1. ~ 2027. 2. 28.")
     assert wa._placeholder("○○대학교 총장") and wa._placeholder("000명")
     assert not wa._placeholder("120,000천원") and not wa._placeholder("홍길동")
+
+
+def test_chat_work_files_list_switch_and_detach(tmp_path, monkeypatch):
+    """문서 패널 작업 문서 — 가져온 한글 파일이 쌓이고, 고르면 지금 작업본이 바뀌고, 빼면 목록에서만 빠진다."""
+    app = _setup(tmp_path, monkeypatch)
+    from tests.test_webhwp import _hwpx, _up
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    db = app.state.db
+    sid = db.create_chat_session("시험", owner="kim")
+    a = _up(kim, app, "기획처", "가.hwpx", _hwpx())
+    b = _up(kim, app, "기획처", "나.hwpx", _hwpx())
+    kim.post(f"/api/chat/{sid}/hwp/bind", json={"id": a})
+    kim.post(f"/api/chat/{sid}/hwp/bind", json={"id": b})
+    st = kim.get(f"/api/chat/{sid}/hwp").json()
+    assert [f["id"] for f in st["files"]] == [b, a] and st["files"][0]["current"] and st["files"][0]["where"]
+    assert kim.post(f"/api/chat/{sid}/hwp/current", json={"id": a}).json()["file"]["id"] == a and wa.bound(db, sid) == a
+    other = _up(kim, app, "기획처", "다.hwpx", _hwpx())
+    assert kim.post(f"/api/chat/{sid}/hwp/current", json={"id": other}).status_code == 404     # 가져오지 않은 파일은 못 고른다
+    kim.delete(f"/api/chat/{sid}/hwp/files/{a}")
+    st = kim.get(f"/api/chat/{sid}/hwp").json()
+    assert [f["id"] for f in st["files"]] == [b] and wa.bound(db, sid) == b and webhwp.get(db, a)
+
+
+def test_drive_browse_lists_folders_and_hwp_files(monkeypatch):
+    from zzaimy.app import webhwp_drive as wd
+    from zzaimy.ingest import gdrive_files
+    monkeypatch.setattr(gdrive_files, "_headers", lambda email, http: {})
+    seen = {}
+
+    class R:
+        status_code = 200
+
+        def __init__(self, body):
+            self._b = body
+
+        def json(self):
+            return self._b
+
+    class H:
+        def get(self, url, headers=None, params=None):
+            seen.update(params or {})
+            return R({"files": [{"id": "f" * 12, "name": "사업", "mimeType": wd.FOLDER_MIME},
+                                {"id": "a" * 12, "name": "계획서.hwpx", "mimeType": "application/hwp+zip"},
+                                {"id": "b" * 12, "name": "사진.png", "mimeType": "image/png"}]})
+    out = wd.browse("x@ync.ac.kr", folder="f" * 12, http=H())
+    assert [f["name"] for f in out["folders"]] == ["사업"] and [f["name"] for f in out["files"]] == ["계획서.hwpx"]
+    assert seen["q"].startswith("'" + "f" * 12 + "' in parents")
+    import pytest
+    with pytest.raises(ValueError):
+        wd.browse("x@ync.ac.kr", folder="x' or name contains '", http=H())

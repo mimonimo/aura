@@ -282,6 +282,7 @@
    if(!panel)return;
    const sw=panel.querySelector('.chat-doc-switch'), frame=panel.querySelector('iframe'), box=panel.querySelector('[data-hwp]');
    sw.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.ed===kind)));
+   editorKind=kind;panel.classList.toggle('is-hwp',kind==='webhwp');      // 한글 쪽에서는 구글 문서 목차 이동·서식 도구를 감춘다
    panel.querySelector('.chat-doc-toolbar').hidden=kind!=='gdocs';
    clearInterval(hwpPoll);hwpPoll=null;
    const body=new URLSearchParams({editor:kind,back:'/'});fetch('/hwp/editor',{method:'POST',body,redirect:'manual'}).catch(()=>{});
@@ -294,7 +295,10 @@
      return;
    }
    frame.hidden=true;box.hidden=false;
-   box.innerHTML='<div class="chat-doc-hwp-card"><strong>한글 기안기로 열 완성본이 아직 없습니다</strong><p>작업본에 쓴 절을 원본 서식(한글)에 그대로 채워 부서 한글 문서함에 두고 여기서 엽니다.</p><button type="button" data-hwp-make>한글 완성본 만들어 열기</button><p role="status" data-hwp-msg></p></div>';
+   box.innerHTML='<div class="chat-doc-hwp-card"><iconify-icon icon="solar:document-add-linear" aria-hidden="true"></iconify-icon><strong>이 대화에 한글 문서가 없습니다</strong>'
+     +'<p>부서 폴더나 구글 드라이브의 한글 파일을 가져와 바로 편집하거나, 지금 구글 작업본을 원본 서식(한글)에 채워 한글 문서로 만들 수 있습니다.</p>'
+     +'<div class="chat-doc-hwp-actions"><button type="button" data-hwp-pick>파일 가져오기</button><button type="button" class="secondary" data-hwp-make>구글 작업본을 한글로</button></div><p role="status" data-hwp-msg></p></div>';
+   box.querySelector('[data-hwp-pick]').onclick=openFinder;
    const btn=box.querySelector('[data-hwp-make]'), msg=box.querySelector('[data-hwp-msg]');
    const wait=()=>{msg.textContent='만드는 중… 끝나면 대화에도 결과가 남습니다';btn.disabled=true;hwpPoll=setInterval(async()=>{const s2=await api('/api/chat/'+sid+'/hwp').catch(()=>null);if(s2&&s2.file){clearInterval(hwpPoll);hwpPoll=null;pickEditor('webhwp',s2);}else if(s2&&!s2.busy){clearInterval(hwpPoll);hwpPoll=null;btn.disabled=false;msg.textContent='만들지 못했습니다 — 대화의 안내를 확인해 주세요';}},3000);};
    if(st&&st.busy)wait();
@@ -352,6 +356,7 @@
    more.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();more.open=false;summary.focus();}});
    menu.addEventListener('click',e=>{if(e.target.closest('a,button'))more.open=false;});
    const formatting=header.querySelector('.chat-doc-toolbar');if(formatting)tools.append(formatting);
+   const edSwitch=header.querySelector('.chat-doc-switch');if(edSwitch){edSwitch.classList.add('doc-ed-switch');titleRow.insertBefore(edSwitch,close);}   // 편집기 고르기는 제목 줄 오른쪽(닫기 앞)
    tools.append(more);
    buildSectionJump(tools);
    addLocationButtons();
@@ -495,58 +500,109 @@
    chat:{attached:'아직 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'첨부한 공고·지침이 없습니다.'}};
  const inProject=()=>Boolean(document.querySelector('#chatForm [name=project_id]'));
  let refreshLibrary=null;
- // 문서 패널의 한글 문서 영역 — 편집기 고르기(한글 문서 · 구글 문서), 이 대화의 한글 작업본, 부서 폴더(디렉터리), 구글 드라이브.
- // 부서 폴더·드라이브에서 파일을 고르면 이 대화의 작업 문서로 이어 기안기로 연다(드라이브 파일은 부서 폴더 「작업」 으로 받아서)
- function hwpSections(body,current,workDocs,status){
-   const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
-   const sw=el('div','chat-doc-switch chat-file-editor');sw.setAttribute('role','group');sw.setAttribute('aria-label','문서 편집기');
-   const bH=el('button',null,'한글 문서'),bG=el('button',null,'구글 문서');bH.type=bG.type='button';bH.dataset.ed='webhwp';bG.dataset.ed='gdocs';
-   sw.append(bH,bG);body.insertBefore(sw,body.firstChild.nextSibling);
-   const mark=ed=>[bH,bG].forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.ed===ed)));
-   api('/api/chat/'+sid+'/hwp').then(st=>{mark(st.editor||'gdocs');if(!st.ok)bH.title='웹 한글 기안기 서버 연결 안 됨';
-     if(st.file&&panel===current){const a=el('button','chat-doc-file');a.type='button';fileCard(a,st.file.name.replace(/\.hwpx?$/,''),'현재 작업 중 · 한글 문서',null,'hwpx');a.onclick=()=>showHwp(st.file);workDocs.prepend(a);}
-   }).catch(()=>{});
+ // 문서 패널 맨 위 편집기 고르기(한글 문서 · 구글 문서)와 「작업 문서」 의 한글 파일 — 이 대화로 가져온 파일·양식·완성본만 선다.
+ // 파일을 찾아오는 일(부서 폴더·구글 드라이브)은 머리줄 「가져오기」 의 파인더 창(openFinder)에서 한다.
+ const elx=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e;};
+ let editorKind='gdocs';
+ function hwpWork(body,current,workDocs,status){
+   // 편집기 고르기 — 머리줄 제목 옆의 작은 원형 토글(한글 · 구글)
+   const sw=elx('div','chat-ed-pill');sw.setAttribute('role','group');sw.setAttribute('aria-label','문서 편집기');
+   const bH=elx('button',null,'한글'),bG=elx('button',null,'구글');bH.type=bG.type='button';bH.dataset.ed='webhwp';bG.dataset.ed='gdocs';
+   bH.title='한글 문서(웹 한글 기안기)로 작업';bG.title='구글 문서로 작업';
+   sw.append(bH,bG);const head=current.querySelector('header');head.insertBefore(sw,head.querySelector('strong').nextSibling);
+   const mark=ed=>{editorKind=ed;[bH,bG].forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.ed===ed)));};
+   const paint=st=>{
+     workDocs.querySelectorAll('[data-hwp-file]').forEach(x=>x.remove());
+     (st.files||[]).slice().reverse().forEach(f=>{
+       const row=elx('div','chat-hwp-work');row.dataset.hwpFile=f.id;
+       const a=elx('button','chat-doc-file'+(f.current?' chat-file-current':''));a.type='button';
+       fileCard(a,f.name.replace(/\.hwpx?$/i,''),[f.current?'현재 작업 중':'',f.where,f.saved?('저장 '+f.saved+(f.saved_by?' · '+f.saved_by:'')):''].filter(Boolean).join(' · '),null,'hwpx');
+       if(f.current)a.setAttribute('aria-current','true');
+       a.onclick=async()=>{try{const r=await api('/api/chat/'+sid+'/hwp/current',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:f.id})});showHwp(r.file);}catch(e){status.textContent=e.message;}};
+       const x=elx('button','chat-hwp-detach','×');x.type='button';x.title='작업 문서 목록에서 빼기(파일은 부서 폴더에 그대로)';x.setAttribute('aria-label',x.title);
+       x.onclick=async()=>{try{await api('/api/chat/'+sid+'/hwp/files/'+f.id,{method:'DELETE'});row.remove();}catch(e){status.textContent=e.message;}};
+       row.append(a,x);workDocs.prepend(row);
+     });
+     workDocs.dispatchEvent(new Event('hwp-painted'));
+   };
+   api('/api/chat/'+sid+'/hwp').then(st=>{if(panel!==current)return;mark(st.editor||'gdocs');if(!st.ok){bH.title='웹 한글 기안기 서버 연결 안 됨';}paint(st);}).catch(()=>{});
    [bH,bG].forEach(b=>b.onclick=()=>{mark(b.dataset.ed);fetch('/hwp/editor',{method:'POST',body:new URLSearchParams({editor:b.dataset.ed,back:'/'}),redirect:'manual'}).catch(()=>{});});
-   async function bind(payload,label){
-     status.textContent=label+' 여는 중…';
-     try{const r=await api('/api/chat/'+sid+'/hwp/bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});status.textContent='';showHwp(r.file);}
-     catch(e){status.textContent=e.message;}
+ }
+ // 파일 가져오기 — 맥 파인더처럼 왼쪽에 위치(부서 폴더 · 구글 드라이브 · 공유 드라이브), 오른쪽에 그 폴더의 폴더·한글 파일.
+ // 파일을 고르고 「열기」(또는 두 번 누르기)면 이 대화의 작업 문서로 이어 기안기로 연다. 드라이브 파일은 내 부서 폴더 「작업」 으로 받아서,
+ // 잠긴 공통 양식은 내 부서 폴더로 복사해서 연다(원본 양식은 그대로).
+ let finderFolderUrl='';
+ async function openFinder(){
+   const d=elx('dialog','hwp-finder');d.setAttribute('aria-label','파일 가져오기');
+   d.innerHTML='<header><h2>파일 가져오기</h2><form class="hf-search" role="search"><input type="search" name="q" placeholder="구글 드라이브에서 한글 파일 검색" aria-label="구글 드라이브에서 한글 파일 검색"></form><button type="button" class="hf-x" aria-label="닫기">×</button></header>'
+     +'<div class="hf-body"><nav class="hf-side" aria-label="위치"></nav><section class="hf-main"><div class="hf-bar"><button type="button" class="hf-back" aria-label="뒤로" disabled>‹</button><div class="hf-path"></div></div><div class="hf-list" role="listbox" aria-label="폴더와 파일"></div></section></div>'
+     +'<footer><span class="hf-sel">파일을 고르세요</span><span class="hf-msg" role="status"></span><button type="button" class="secondary" data-cancel>취소</button><button type="button" data-open disabled>열기</button></footer>';
+   document.body.append(d);d.showModal();
+   const side=d.querySelector('.hf-side'),list=d.querySelector('.hf-list'),path=d.querySelector('.hf-path'),back=d.querySelector('.hf-back');
+   const sel=d.querySelector('.hf-sel'),msg=d.querySelector('.hf-msg'),openBtn=d.querySelector('[data-open]'),q=d.querySelector('input');
+   const close=()=>d.close();d.querySelector('.hf-x').onclick=close;d.querySelector('[data-cancel]').onclick=close;
+   d.addEventListener('close',()=>d.remove());d.addEventListener('click',e=>{if(e.target===d)close();});
+   let loc=null,hist=[],picked=null,drives=[];
+   const sideBtn=(label,icon,go,key)=>{const b=elx('button','hf-place');b.type='button';b.dataset.key=key;const i=document.createElement('iconify-icon');i.setAttribute('icon',icon);i.setAttribute('aria-hidden','true');b.append(i,elx('span',null,label));b.onclick=()=>{hist=[];go();};return b;};
+   const markSide=key=>side.querySelectorAll('.hf-place').forEach(b=>b.classList.toggle('on',b.dataset.key===key));
+   const pick=(row,item)=>{list.querySelectorAll('.hf-row.on').forEach(r=>r.classList.remove('on'));row.classList.add('on');picked=item;sel.textContent=item.name;openBtn.disabled=false;};
+   const row=(kind,name,meta,onOpen,item)=>{const r=elx('button','hf-row');r.type='button';r.setAttribute('role','option');r.dataset.kind=kind;
+     const i=document.createElement('iconify-icon');i.setAttribute('icon',kind==='folder'?'solar:folder-bold':'solar:document-text-bold');i.setAttribute('aria-hidden','true');
+     const nm=elx('span','hf-name',name),mt=elx('span','hf-meta',meta||'');r.append(i,nm,mt);
+     if(kind==='folder'){r.onclick=onOpen;}else{r.onclick=()=>pick(r,item);r.ondblclick=()=>{pick(r,item);openPicked();};}
+     list.append(r);};
+   const crumbs=parts=>{path.replaceChildren();parts.forEach((p,i)=>{if(i)path.append(elx('span','hf-sep','›'));const b=elx('button',null,p.name);b.type='button';b.disabled=!p.go||i===parts.length-1;if(p.go)b.onclick=()=>{hist.push(loc);p.go();};path.append(b);});};
+   const busy=t=>{list.replaceChildren(elx('p','hf-empty',t));picked=null;openBtn.disabled=true;sel.textContent='파일을 고르세요';};
+   async function goDept(dept,folder){
+     loc={src:'dept',dept,folder};back.disabled=!hist.length;markSide('dept:'+dept);busy('불러오는 중…');if(dept)crumbs([{name:dept}]);
+     let j;try{j=await api('/api/hwp/browse?dept='+encodeURIComponent(dept||'')+'&folder='+encodeURIComponent(folder||''));}catch(e){busy(e.message);return;}
+     if(!d.open)return;const here=j.here;if(!here){busy('쓸 수 있는 부서 폴더가 없습니다');return;}
+     if(!dept){loc.dept=here.dept;markSide('dept:'+here.dept);}
+     crumbs([{name:here.dept,go:()=>goDept(here.dept,'')},...(here.crumbs||[]).map(c=>({name:c.name,go:()=>goDept(here.dept,c.path)}))]);
+     list.replaceChildren();
+     here.folders.forEach(f=>row('folder',f.name,'문서 '+f.count,()=>{hist.push(loc);goDept(here.dept,f.path);}));
+     here.files.forEach(f=>row('file',f.name.replace(/\.hwpx?$/i,''),[f.saved,f.saved_by||f.owner].filter(Boolean).join(' · '),null,{id:f.id,name:f.name}));
+     if(!here.folders.length&&!here.files.length)busy('이 폴더는 비어 있습니다');
+     return j;
    }
-   // 부서 폴더
-   const dH=el('h3',null,'부서 폴더'),dNote=el('p','chat-file-section-note','부서 한글 문서함 — 파일을 고르면 이 대화에서 기안기로 엽니다');
-   const crumb=el('div','chat-hwp-crumb'),dList=el('div','chat-file-list chat-hwp-dir');
-   body.append(dH,dNote,crumb,dList);
-   async function openDir(dept,folder){
-     dList.replaceChildren(el('p','chat-file-empty','불러오는 중…'));
-     let j;try{j=await api('/api/hwp/browse?dept='+encodeURIComponent(dept||'')+'&folder='+encodeURIComponent(folder||''));}catch(e){dList.replaceChildren(el('p','chat-file-empty',e.message));return;}
-     if(panel!==current)return;
-     crumb.replaceChildren();
-     const depts=el('div','chat-hwp-depts');
-     (j.depts||[]).forEach(d=>{const b=el('button','chat-hwp-chip'+(j.here&&j.here.dept===d.dept?' on':''),d.dept);b.type='button';b.onclick=()=>openDir(d.dept,'');depts.append(b);});
-     crumb.append(depts);
-     const here=j.here;if(!here){dList.replaceChildren(el('p','chat-file-empty','쓸 수 있는 부서 폴더가 없습니다'));return;}
-     if(here.folder){const path=el('div','chat-hwp-path');const up=el('button',null,'‹ '+here.dept);up.type='button';up.onclick=()=>openDir(here.dept,'');path.append(up);
-       here.crumbs.forEach((c,i)=>{path.append(document.createTextNode(' / '));const b=el('button',null,c.name);b.type='button';b.onclick=()=>openDir(here.dept,c.path);path.append(b);});crumb.append(path);}
-     dList.replaceChildren();
-     here.folders.forEach(f=>{const b=el('button','chat-doc-file chat-hwp-folder');b.type='button';fileCard(b,f.name,'폴더 · 문서 '+f.count,null,'folder');b.onclick=()=>openDir(here.dept,f.path);dList.append(b);});
-     here.files.forEach(f=>{const b=el('button','chat-doc-file');b.type='button';fileCard(b,f.name.replace(/\.hwpx?$/,''),[f.saved,f.saved_by||f.owner].filter(Boolean).join(' · '),null,'hwpx');b.onclick=()=>bind({id:f.id},f.name);dList.append(b);});
-     if(!here.folders.length&&!here.files.length)dList.append(el('p','chat-file-empty','이 폴더에 문서가 없습니다'));
+   async function goDrive(drive,folder,trail){
+     loc={src:'drive',drive,folder,trail};back.disabled=!hist.length;markSide('drive:'+(drive||'my'));busy('불러오는 중…');
+     const root=drive?(drives.find(x=>x.id===drive)||{name:'공유 드라이브'}).name:'내 드라이브';
+     crumbs([{name:root,go:()=>goDrive(drive,'',[])},...trail.map((t,i)=>({name:t.name,go:()=>goDrive(drive,t.id,trail.slice(0,i+1))}))]);
+     let j;try{j=await api('/api/hwp/drive/browse?drive='+encodeURIComponent(drive||'')+'&folder='+encodeURIComponent(folder||''));}
+     catch(e){busy(e.status===409?'학교 구글 계정을 연결하면 드라이브 파일을 고를 수 있습니다 — 설정 › 내 학교 계정 연결':e.message);return;}
+     if(!d.open)return;
+     list.replaceChildren();
+     j.folders.forEach(f=>row('folder',f.name,'폴더',()=>{hist.push(loc);goDrive(drive,f.id,[...trail,f]);}));
+     j.files.forEach(f=>row('file',f.name.replace(/\.hwpx?$/i,''),'드라이브 · '+(f.modifiedTime||'').slice(0,10),null,{drive_id:f.id,name:f.name}));
+     if(!j.folders.length&&!j.files.length)busy('이 폴더에 한글 파일이 없습니다');
    }
-   openDir('','');
-   // 구글 드라이브(내 드라이브·공유 드라이브의 한글 파일)
-   const gH=el('h3',null,'구글 드라이브'),gNote=el('p','chat-file-section-note','연결된 학교 계정의 한글 파일 — 고르면 부서 폴더 「작업」 에 받아 기안기로 엽니다');
-   const gForm=el('form','chat-hwp-search');const gq=el('input');gq.placeholder='파일 이름 검색';gq.name='q';gForm.append(gq);
-   const gList=el('div','chat-file-list chat-hwp-drive');
-   body.append(gH,gNote,gForm,gList);
-   async function loadDrive(q){
-     gList.replaceChildren(el('p','chat-file-empty','불러오는 중…'));
-     try{const j=await api('/api/hwp/drive?q='+encodeURIComponent(q||''));if(panel!==current)return;gList.replaceChildren();
-       if(!j.files.length)gList.append(el('p','chat-file-empty','한글 파일이 없습니다'));
-       j.files.forEach(f=>{const b=el('button','chat-doc-file');b.type='button';fileCard(b,f.name.replace(/\.hwpx?$/i,''),'드라이브 · '+(f.modifiedTime||'').slice(0,10),null,f.name.split('.').pop());b.onclick=()=>bind({drive_id:f.id},f.name);gList.append(b);});}
-     catch(e){gList.replaceChildren(el('p','chat-file-empty',e.status===409?'학교 구글 계정을 연결하면 여기에서 고를 수 있습니다':e.message));}
+   async function search(text){
+     loc={src:'search',text};back.disabled=!hist.length;markSide('');busy('찾는 중…');crumbs([{name:'「'+text+'」 검색 결과'}]);
+     let j;try{j=await api('/api/hwp/drive/browse?q='+encodeURIComponent(text));}catch(e){busy(e.status===409?'학교 구글 계정을 연결하면 드라이브에서 찾을 수 있습니다':e.message);return;}
+     list.replaceChildren();j.files.forEach(f=>row('file',f.name.replace(/\.hwpx?$/i,''),'드라이브 · '+(f.modifiedTime||'').slice(0,10),null,{drive_id:f.id,name:f.name}));
+     if(!j.files.length)busy('맞는 한글 파일이 없습니다');
    }
-   gForm.onsubmit=e=>{e.preventDefault();loadDrive(gq.value);};
-   loadDrive('');
+   const goLoc=l=>l.src==='dept'?goDept(l.dept,l.folder):l.src==='drive'?goDrive(l.drive,l.folder,l.trail):search(l.text);
+   back.onclick=()=>{const l=hist.pop();if(l)goLoc(l);};
+   d.querySelector('.hf-search').onsubmit=e=>{e.preventDefault();const t=q.value.trim();if(t){hist.push(loc);search(t);}};
+   async function openPicked(){
+     if(!picked)return;openBtn.disabled=true;msg.textContent=picked.drive_id?'드라이브에서 받아 여는 중…':'여는 중…';
+     const payload=picked.drive_id?{drive_id:picked.drive_id}:{id:picked.id};
+     try{const r=await api('/api/chat/'+sid+'/hwp/bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});close();showHwp(r.file);}
+     catch(e){msg.textContent=e.message;openBtn.disabled=false;}
+   }
+   openBtn.onclick=openPicked;
+   // 왼쪽 목록 — 부서 폴더(쓸 수 있는 부서), 구글 드라이브(내 드라이브·공유 드라이브), 이 프로젝트의 드라이브 폴더(새 창)
+   side.append(elx('p','hf-group','부서 폴더'));
+   const first=await goDept('','');
+   ((first&&first.depts)||[]).forEach(x=>side.append(sideBtn(x.dept,'solar:folder-with-files-linear',()=>goDept(x.dept,''),'dept:'+x.dept)));
+   if(first&&first.here)markSide('dept:'+first.here.dept);
+   side.append(elx('p','hf-group','구글 드라이브'));
+   side.append(sideBtn('내 드라이브','solar:cloud-linear',()=>goDrive('','',[]),'drive:my'));
+   api('/api/hwp/drive/browse').then(j=>{drives=j.drives||[];const anchor=side.querySelector('[data-key="drive:my"]');
+     drives.slice().reverse().forEach(x=>anchor.after(sideBtn(x.name,'solar:users-group-rounded-linear',()=>goDrive(x.id,'',[]),'drive:'+x.id)));}).catch(()=>{});
+   if(finderFolderUrl){const a=elx('a','hf-place hf-link','프로젝트 드라이브 폴더 ↗');a.href=finderFolderUrl;a.target='_blank';a.rel='noopener';side.append(a);}
  }
  async function showFiles(){
    // 문서 목록은 좁게 연다(목록 폭, 기본 패널 30%) — 문서를 열면 편집기·열람 폭으로 넓어진다
@@ -554,6 +610,7 @@
    panel.classList.add('chat-file-library');setRatio(listRatio,false);panel.querySelector('header strong').textContent='문서 패널';
    const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg>';refresh.title='목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
    panel.querySelector('header').insertBefore(refresh,panel.querySelector('[data-close]'));
+
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='파일을 불러오는 중…';body.append(status);
    const countHeading=(heading,label,count)=>{heading.textContent=label+' ';const badge=document.createElement('span');badge.className='chat-file-count';badge.textContent=count;heading.append(badge);};
@@ -561,7 +618,7 @@
    const workDocs=document.createElement('div');workDocs.className='chat-file-list chat-work-files';
    const workNote=document.createElement('p');workNote.className='chat-file-section-note';workNote.textContent='채팅과 함께 편집하는 문서';
    body.append(workHeading,workNote,workDocs);
-   hwpSections(body,current,workDocs,status);
+   hwpWork(body,current,workDocs,status);
    const groups={};
    let scope=inProject()?'project':'chat';
    for(const [key,label] of DOC_GROUPS){
@@ -622,7 +679,7 @@
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
      status.textContent='';
-     if(data.folder_url&&!panel.querySelector('header [data-folder]')){const folder=document.createElement('a');folder.dataset.folder='';folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='드라이브 폴더 열기';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
+     if(data.folder_url)finderFolderUrl=data.folder_url;      // 드라이브 폴더는 가져오기 창 왼쪽 목록에서 연다
      for(const file of data.files){
        if(file.mime_type==='application/vnd.google-apps.folder')continue;   // 폴더는 문서가 아니다(서버도 거른다)
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
@@ -650,11 +707,14 @@
      if(platformError)status.textContent='프로젝트 문서를 불러오지 못했습니다. 새로고침을 눌러 주세요.';
      if(data.error)status.textContent='Drive 목록: '+data.error;
      finishGroups();
-     countHeading(workHeading,'작업 문서',workDocs.children.length);
-     if(!workDocs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=data.error?'작업 문서 목록을 불러오지 못했습니다.':'아직 작업 문서가 없습니다.';workDocs.append(empty);}
-     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='드라이브에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
+     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='파일 가져오기';
+     connectButton.title='부서 폴더·구글 드라이브에서 문서를 골라 이 대화의 작업 문서로';
+     connectButton.onclick=()=>editorKind==='webhwp'?openFinder():connect();workDocs.after(connectButton);
      connectButton.classList.add('chat-file-import');
-     workNote.hidden=!workDocs.querySelector('.chat-doc-file');
+     const tidy=()=>{workDocs.querySelectorAll(':scope>.chat-file-empty').forEach(x=>x.remove());countHeading(workHeading,'작업 문서',workDocs.querySelectorAll('.chat-doc-file').length);
+       if(!workDocs.querySelector('.chat-doc-file'))workDocs.append(elx('p','chat-file-empty','아직 작업 문서가 없습니다 — 「파일 가져오기」로 부서 폴더나 드라이브의 문서를 고르거나, 대화에서 문서를 쓰자고 하면 AURA 가 양식으로 만듭니다.'));
+       workNote.hidden=!workDocs.querySelector('.chat-doc-file');};
+     workDocs.addEventListener('hwp-painted',tidy);tidy();
      markCurrentFile();
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
@@ -669,8 +729,9 @@
    if(panel)clearPanel();
    panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-hwp-panel';panel.dataset.fid=String(file.id);
    panel.setAttribute('aria-label','한글 기안기 작업본');
-   panel.innerHTML='<header><strong></strong><a class="mini-btn" target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="한글 기안기"></iframe>';
-   panel.querySelector('strong').textContent=file.name;
+   // 제목·저장 상태·새 창·내려받기는 기안기 화면 머리줄(embed)에 있다 — 바깥 머리줄은 목록으로 돌아가기·닫기만(제목이 두 번 서지 않게)
+   panel.innerHTML='<header class="hwp-panel-head"><button type="button" class="secondary" data-list>← 문서 목록</button><span class="hwp-panel-gap"></span><a class="mini-btn" target="_blank" rel="noopener" hidden></a><button type="button" class="secondary doc-icon-button" data-hide aria-label="문서 패널 닫기" title="문서 패널 닫기">×</button></header><iframe title="한글 기안기"></iframe>';
+   panel.querySelector('[data-list]').onclick=showFiles;
    panel.querySelector('a').href=file.url;
    panel.querySelector('iframe').src=file.url+'&embed=1';
    panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};

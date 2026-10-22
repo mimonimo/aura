@@ -3687,8 +3687,18 @@ def create_app(
         from zzaimy.app.webhwp_routes import EDIT_PAGE
         f = _chat_hwp_file(session_id)
         busy = time.time() - _hwp_busy.get(session_id, 0) < 300
+        files = []
+        ids_ = _wa_files.files_of(db, session_id)
+        if f and f["id"] not in ids_:                          # 한글 완성본(작업본을 원본 서식에 채운 것)도 목록에
+            ids_.insert(0, f["id"])
+        for i in ids_:
+            r_ = _webhwp.get(db, i)
+            m_ = _webhwp.meta(db, i)
+            files.append({"id": i, "name": r_["name"], "url": f"{EDIT_PAGE}?id={i}", "current": bool(f and f["id"] == i),
+                          "where": " / ".join(x_ for x_ in (m_.get("dept", ""), _webhwp.folder_of(Path(db_path).parent, r_["path"])) if x_), "saved": m_.get("saved", ""),
+                          "saved_by": m_.get("saved_by", "")})
         return {"editor": _webhwp.editor_of(db, getattr(request.state, "user", "")), "ok": _webhwp.status()["ok"], "busy": busy,
-                "file": ({"id": f["id"], "name": f["name"], "url": f"{EDIT_PAGE}?id={f['id']}"} if f else None)}
+                "file": ({"id": f["id"], "name": f["name"], "url": f"{EDIT_PAGE}?id={f['id']}"} if f else None), "files": files}
 
     @app.post("/api/chat/{session_id}/hwp/bind")
     async def chat_hwp_bind(request: Request, session_id: int):
@@ -3722,9 +3732,29 @@ def create_app(
                 raise HTTPException(502, str(e))
         else:
             raise HTTPException(400, "id 또는 drive_id 가 필요합니다")
-        db.set_setting(f"chat_hwp:{session_id}", str(fid))
+        _wa_files.attach(db, session_id, fid)
         f = _webhwp.get(db, fid)
         return {"file": {"id": fid, "name": f["name"], "url": f"{EDIT_PAGE}?id={fid}"}}
+
+    @app.post("/api/chat/{session_id}/hwp/current")
+    async def chat_hwp_current(request: Request, session_id: int):
+        """작업 문서 목록에서 고른 한글 파일을 지금 작업본으로(에이전트도 이 파일에 쓴다)."""
+        _chat_owned(request, session_id)
+        from zzaimy.app.webhwp_routes import EDIT_PAGE
+        body = await request.json()
+        fid = int(body.get("id") or 0)
+        if fid not in _wa_files.files_of(db, session_id):
+            raise HTTPException(404, "이 대화의 작업 문서가 아닙니다")
+        _wa_files.attach(db, session_id, fid)
+        f = _webhwp.get(db, fid)
+        return {"file": {"id": fid, "name": f["name"], "url": f"{EDIT_PAGE}?id={fid}"}}
+
+    @app.delete("/api/chat/{session_id}/hwp/files/{fid}")
+    def chat_hwp_detach(request: Request, session_id: int, fid: int):
+        """작업 문서 목록에서 빼기 — 파일은 부서 폴더에 그대로 남는다."""
+        _chat_owned(request, session_id)
+        _wa_files.detach(db, session_id, fid)
+        return {"ok": True}
 
     @app.post("/api/chat/{session_id}/hwp/export")
     def chat_hwp_export(request: Request, session_id: int):
@@ -4329,6 +4359,7 @@ def create_app(
         return user_status(db, uid, accounts.get(uid, {}).get("dept") or None)
 
     from zzaimy.app import webhwp as _webhwp
+    from zzaimy.app import webhwp_agent as _wa_files
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, ok: str = "", err: str = ""):
