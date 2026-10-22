@@ -95,13 +95,13 @@ def _inject_into_para(p: str, fxml: str) -> str:
     return p[:m.end()] + f'<hp:run charPrIDRef="0">{fxml}</hp:run>' + p[m.end():]
 
 
-def _empty_para_after(p: str, fxml: str, ids: _Ids) -> str:
-    """제목 문단과 같은 문단 모양의 새 빈 문단(글자 모양은 제목의 첫 run) + 필드."""
+def _empty_para_after(p: str, fxml: str, ids: _Ids, body_cp: str = "0") -> str:
+    """제목 문단과 같은 문단 모양의 새 빈 문단 + 필드. 글자 모양은 본문(charPr 0, 바탕글) — 제목의 굵고 큰 글자를 물려받으면
+    쓴 본문이 제목처럼 보인다."""
     head = re.match(r"<hp:p\b[^>]*>", p).group(0)
     head = re.sub(r'\bid="\d+"', f'id="{ids.new()}"', head, count=1)
     head = re.sub(r'\bpageBreak="1"', 'pageBreak="0"', head)
-    cp = re.search(r'<hp:run\b[^>]*charPrIDRef="(\d+)"', p)
-    return f'{head}<hp:run charPrIDRef="{cp.group(1) if cp else 0}">{fxml}</hp:run></hp:p>'
+    return f'{head}<hp:run charPrIDRef="{body_cp}">{fxml}</hp:run></hp:p>'
 
 
 class _Names:
@@ -174,7 +174,12 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
             pos = b
         buf.append(xml[pos:])
         xml = "".join(buf)
-    # 2) 절 제목 — 번호 붙은 제목 문단(어디에 있든) 다음에 빈 문단 + 필드
+    # 2) 절 제목 — 번호 붙은 제목 문단(어디에 있든) 다음에 빈 문단 + 필드. 본문 글자 모양은 제목이 아닌 문단에서 가장 흔한 것
+    from collections import Counter as _C
+    cps = _C(re.search(r'charPrIDRef="(\d+)"', p).group(1) for p in _LEAF_P.findall(xml)
+             if 'charPrIDRef="' in p and _text(p) and not _is_heading(_text(p)))
+    body_cp = cps.most_common(1)[0][0] if cps else "0"
+
     def head_sub(m: re.Match) -> str:
         p = m.group(0)
         t = _text(p)
@@ -182,14 +187,33 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
             return p
         name = names(f"절:{t}")
         out.append({"name": name, "kind": "절"})
-        return p + _empty_para_after(p, field_xml(name, "본문 입력", ids), ids)
+        return p + _empty_para_after(p, field_xml(name, "본문 입력", ids), ids, body_cp)
     xml = _LEAF_P.sub(head_sub, xml)
     return xml, out
 
 
+MAX_UNZIPPED = 300 * 1024 * 1024        # 풀었을 때 전체 크기 한도 — 압축 폭탄 막기
+MAX_RATIO = 200                          # 항목 하나의 압축률 한도(정상 hwpx 본문 XML 은 수십 배 안쪽)
+
+
+def check_zip(zin: zipfile.ZipFile) -> None:
+    """풀기 전에 크기·압축률을 잰다 — 작은 파일이 풀면서 메모리를 다 쓰지 않게."""
+    total = 0
+    for info in zin.infolist():
+        total += info.file_size
+        if info.compress_size and info.file_size > 1024 * 1024 and info.file_size / info.compress_size > MAX_RATIO:
+            raise ValueError("한글 파일 구조가 비정상입니다(압축률이 지나치게 큼)")
+    if total > MAX_UNZIPPED:
+        raise ValueError("한글 파일이 너무 큽니다(풀었을 때 300MB 초과)")
+
+
 def fieldize(data: bytes) -> tuple[bytes, list[dict]]:
     """hwpx 바이트 → 필드를 박은 hwpx 바이트와 필드 목록. 이미 필드가 있으면 손대지 않는다(그 목록만)."""
-    zin = zipfile.ZipFile(io.BytesIO(data))
+    try:
+        zin = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise ValueError("hwpx 파일이 아닙니다")
+    check_zip(zin)
     names_ = zin.namelist()
     secs = [n for n in names_ if _SEC.search(n)]
     xmls = {n: zin.read(n).decode("utf-8") for n in secs}

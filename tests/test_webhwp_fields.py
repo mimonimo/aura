@@ -64,3 +64,15 @@ def test_common_templates_get_fields():
     from zzaimy.ingest.gdocs_templates import SPECS
     names = _names(wt.build(SPECS["minutes"]))          # 만들 때 이미 필드를 박는다
     assert any(n.startswith("절:") for n in names) and len(names) >= 5
+
+
+def test_zip_bomb_is_refused():
+    import pytest
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("Contents/section0.xml", "<a>" + "0" * (20 * 1024 * 1024) + "</a>")   # 20MB 가 수십 KB 로 — 압축률 수백 배
+    with pytest.raises(ValueError):
+        wf.fieldize(buf.getvalue())
+    with pytest.raises(ValueError):
+        wf.fieldize(b"not a zip")

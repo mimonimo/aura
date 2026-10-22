@@ -250,8 +250,8 @@ def test_common_templates_built_once_and_fillable(tmp_path, monkeypatch):
     app = _setup(tmp_path, monkeypatch)
     db, base = app.state.db, Path(app.state.data_dir)
     first = wt.ensure_all(db, base)
-    assert len(first) == len(SPECS) + len(wt.OFFICIAL) and all(x["made"] for x in first)
-    assert all(Path(webhwp.get(db, x["id"])["path"]).parent.name in ("공통 양식", "공문") for x in first)
+    assert len(first) == len(SPECS) + len(wt.OFFICIAL) + len(wt.GRANT) and all(x["made"] for x in first)
+    assert all(Path(webhwp.get(db, x["id"])["path"]).parent.name in ("공통 양식", "공문", "국고 사업") for x in first)
     assert not any(x["made"] for x in wt.ensure_all(db, base))
     src = wt.path_for(db, "minutes")
     heads = [b["text"] for b in SPECS["minutes"]["blocks"] if "h" in b]
