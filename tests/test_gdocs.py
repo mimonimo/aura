@@ -947,7 +947,7 @@ def test_section_append_requests_computes_table_cells_without_rereading():
     fills = [r["insertText"] for r in reqs if "insertText" in r][1:5]
     assert [f["location"]["index"] for f in fills] == [at + 11, at + 9, at + 6, at + 4]     # 뒤에서부터
     assert [f["text"] for f in fills] == ["1", "가", "값", "구분"]
-    bolds = [r["updateTextStyle"]["range"] for r in reqs if "updateTextStyle" in r]
+    bolds = [r["updateTextStyle"]["range"] for r in reqs if r.get("updateTextStyle", {}).get("textStyle", {}).get("bold")]
     assert bolds == [{"startIndex": at + 4, "endIndex": at + 6}, {"startIndex": at + 6 + 2, "endIndex": at + 8 + 1}]
     tail = reqs[-2]["insertText"]
     assert tail["text"] == "\n뒤 글" and tail["location"]["index"] == at + 1 + 2 + 2 * 5 + len("구분값가1")
@@ -1767,3 +1767,121 @@ def test_fill_table_keeps_shaded_label_cells(monkeypatch, tmp_path):
     assert r["kept_labels"] == 1 and r["cells"] == 1
     texts = [q["insertText"]["text"] for q in sent[0] if "insertText" in q]
     assert texts == ["확인 필요"]
+
+
+# ── 학교 표 서식(한글 쪽 webhwp_style 과 같은 값) ──
+def _cell_styles(reqs):
+    return [r["updateTableCellStyle"] for r in reqs if "updateTableCellStyle" in r]
+
+
+def test_docs_table_uses_house_style_values():
+    """독스 표도 한글 표 기본과 같은 값 — 머리줄 #E5E5E5 음영·굵게·가운데, 바깥 0.4mm·안쪽 0.12mm 실선(pt 로 바꿔), 10pt, 칸 여백,
+    행 최소 높이, 라벨 칸 음영, 짧은 값 가운데. 값은 house_style 한 곳에서 읽는다."""
+    from zzaimy.app import webhwp_style
+    from zzaimy.export import house_style as hs
+
+    assert webhwp_style.HOUSE is hs.HOUSE and webhwp_style.DIAGRAM_FILLS is hs.DIAGRAM_FILLS
+    sec = {"index": 2, "heading": "절", "start": 10, "end": 30}
+    rows = [["구분", "내용", "금액"], ["국비", "장비 구입과 설치에 드는 비용 전체", "1,000"]]
+    reqs = gdocs._section_append_requests(sec, 100, [("table", rows)])
+    start = 30
+    cs = _cell_styles(reqs)
+    whole = cs[0]
+    assert whole["tableRange"]["rowSpan"] == 2 and whole["tableRange"]["columnSpan"] == 3
+    st = whole["tableCellStyle"]
+    inner, outer = round(0.12 * 72 / 25.4, 3), round(0.4 * 72 / 25.4, 3)
+    assert {st[b]["width"]["magnitude"] for b in ("borderTop", "borderBottom", "borderLeft", "borderRight")} == {inner}
+    assert st["borderTop"]["dashStyle"] == "SOLID"
+    assert st["paddingLeft"] == {"magnitude": 5.1, "unit": "PT"} and st["paddingTop"] == {"magnitude": 1.41, "unit": "PT"}
+    edges = {k: v for c in cs[1:5] for k, v in c["tableCellStyle"].items()}
+    assert {v["width"]["magnitude"] for v in edges.values()} == {outer} and set(edges) == {"borderTop", "borderBottom", "borderLeft", "borderRight"}
+    head = next(c for c in cs if "backgroundColor" in c["tableCellStyle"])
+    assert head["tableRange"]["rowSpan"] == 1 and head["tableRange"]["columnSpan"] == 3
+    assert head["tableRange"]["tableCellLocation"]["tableStartLocation"]["index"] == start
+    assert head["tableCellStyle"]["backgroundColor"]["color"]["rgbColor"] == {"red": 0.898, "green": 0.898, "blue": 0.898}
+    row = next(r["updateTableRowStyle"] for r in reqs if "updateTableRowStyle" in r)
+    assert row["rowIndices"] == [0, 1] and row["tableRowStyle"]["minRowHeight"] == {"magnitude": 19.0, "unit": "PT"}
+    texts = [r["updateTextStyle"] for r in reqs if "updateTextStyle" in r]
+    assert len(texts) == 6 and all(t["textStyle"]["fontSize"] == {"magnitude": 10.0, "unit": "PT"} for t in texts)
+    assert sum(1 for t in texts if t["textStyle"].get("bold")) == 3                 # 머리줄 세 칸만 굵게
+    centers = [r["updateParagraphStyle"]["range"]["startIndex"] for r in reqs
+               if r.get("updateParagraphStyle", {}).get("paragraphStyle", {}).get("alignment") == "CENTER"]
+    long_at = 29 + 4 + 7 + 2 + len("구분내용금액국비")                              # 긴 본문 칸(1,1)은 가운데가 아니다
+    assert len(centers) == 5 and long_at not in centers
+
+
+def test_docs_table_label_cells_and_box():
+    """라벨 칸(글 있는 칸 오른쪽이 빈 칸)은 머리줄과 같은 음영, 한 칸 상자는 점선·9pt 회색 글·왼쪽."""
+    sec = {"index": 2, "heading": "절", "start": 10, "end": 30}
+    reqs = gdocs._section_append_requests(sec, 100, [("table", [["사업명", ""], ["기간", ""]])])
+    labels = [c for c in _cell_styles(reqs) if "backgroundColor" in c["tableCellStyle"] and c["tableRange"]["rowSpan"] == 1
+              and c["tableRange"]["columnSpan"] == 1]
+    assert [(c["tableRange"]["tableCellLocation"]["rowIndex"], c["tableRange"]["tableCellLocation"]["columnIndex"]) for c in labels] == [(0, 0), (1, 0)]
+    box = gdocs._section_append_requests(sec, 100, [("table", [["※ 작성 안내"]])])
+    st = _cell_styles(box)[0]["tableCellStyle"]
+    assert st["borderTop"]["dashStyle"] == "DASH" and len(_cell_styles(box)) == 1                 # 바깥 굵은 선·음영 없음
+    ts = next(r["updateTextStyle"]["textStyle"] for r in box if "updateTextStyle" in r)
+    assert ts["fontSize"]["magnitude"] == 9.0 and "foregroundColor" in ts
+    assert next(r["updateParagraphStyle"]["paragraphStyle"]["alignment"] for r in box if "updateParagraphStyle" in r) == "START"
+
+
+def test_docs_diagram_table_matches_hwp_grid():
+    """도식 블록 → 한글과 같은 격자: 상자·화살표 칸 번갈아(2n-1 열), 줄 사이 ↓ 행, 상자 하나뿐인 줄은 가로로 합침,
+    상자만 0.12mm 선·음영(첫 줄 연파랑), 나머지 칸은 선 없음, 합치기는 맨 뒤."""
+    from zzaimy.export import house_style as hs
+
+    lines = hs.diagram_lines("총장\n↓\n기획처 → 산학협력단 → 교무처")
+    sec = {"index": 2, "heading": "절", "start": 10, "end": 30}
+    reqs = gdocs._section_append_requests(sec, 100, [("diagram", (lines, 450.0))])
+    tbl = next(r["insertTable"] for r in reqs if "insertTable" in r)
+    assert tbl == {"location": {"index": 29}, "rows": 3, "columns": 5}
+    fills = [r["insertText"] for r in reqs if "insertText" in r]
+    assert [f["text"] for f in fills] == ["교무처", "→", "산학협력단", "→", "기획처", "↓", "총장"]
+    assert [f["location"]["index"] for f in fills] == sorted((f["location"]["index"] for f in fills), reverse=True)
+    assert fills[-1]["location"]["index"] == 29 + 4                                     # 첫 칸
+    cs = _cell_styles(reqs)
+    assert cs[0]["tableCellStyle"]["borderTop"]["width"]["magnitude"] == 0                # 바탕은 선 없음
+    boxes = [c for c in cs if "backgroundColor" in c["tableCellStyle"]]
+    assert len(boxes) == 4
+    assert boxes[0]["tableRange"]["columnSpan"] == 5
+    assert boxes[0]["tableCellStyle"]["backgroundColor"]["color"]["rgbColor"] == hs.rgb("#DFEAF5")
+    assert boxes[1]["tableCellStyle"]["backgroundColor"]["color"]["rgbColor"] == hs.rgb("#F2F2F2")
+    assert boxes[1]["tableCellStyle"]["borderLeft"]["width"]["magnitude"] == round(0.12 * 72 / 25.4, 3)
+    widths = {tuple(r["updateTableColumnProperties"]["columnIndices"]): r["updateTableColumnProperties"]["tableColumnProperties"]["width"]["magnitude"]
+              for r in reqs if "updateTableColumnProperties" in r}
+    assert widths == {(1, 3): 32.1, (0, 2, 4): 128.6}                                     # 상자:화살표 = 4:1
+    merges = [i for i, r in enumerate(reqs) if "mergeTableCells" in r]
+    assert len(merges) == 2 and merges == list(range(len(reqs) - 2, len(reqs)))
+    heights = [r["updateTableRowStyle"]["tableRowStyle"]["minRowHeight"]["magnitude"] for r in reqs if "updateTableRowStyle" in r]
+    assert heights == [18.0, 9.0, 18.0]
+    bold = [r["updateTextStyle"]["textStyle"]["bold"] for r in reqs if "updateTextStyle" in r]
+    assert bold.count(True) == 1                                                        # 첫 줄(상위 기관)만 굵게
+
+
+def test_insert_into_section_turns_diagram_block_into_table(monkeypatch, tmp_path):
+    """본문 속 ```도식 블록은 글로 들어가지 않고 앞 글 → 도식 표 → 뒤 글 차례로 들어간다."""
+    secs = [{"index": 1, "heading": "1. 추진체계", "start": 1, "end": 20}]
+    batches = []
+
+    class R:
+        status_code = 200
+
+        def json(self):
+            return {"body": {"content": []}, "documentStyle": {"pageSize": {"width": {"magnitude": 595}},
+                                                               "marginLeft": {"magnitude": 72}, "marginRight": {"magnitude": 72}}}
+    monkeypatch.setattr(gdocs, "_read", lambda email, doc, http=None: R())
+    monkeypatch.setattr(gdocs, "outline", lambda document: {"sections": secs, "end": 21, "text": ""})
+    monkeypatch.setattr(gdocs, "get", lambda email, doc, http=None: {"sections": secs, "end": 21, "text": ""})
+    monkeypatch.setattr(gdocs, "_batch", lambda email, doc, reqs, http: batches.append(reqs) or {})
+    text = "추진체계는 다음과 같다.\n```도식\n총장\n기획처 → 산학협력단\n```\n위 체계로 운영한다."
+    res = gdocs.insert_into_section("a@b", "d", 1, text, user="u", data_dir=tmp_path, http=object())
+    assert res["diagrams"] == 1 and len(batches) == 3
+    first, diagram, last = batches
+    assert first[0]["insertText"]["text"].endswith("추진체계는 다음과 같다.")
+    assert not any("```" in r.get("insertText", {}).get("text", "") for b in batches for r in b)
+    assert any("insertTable" in r for r in diagram) and any("mergeTableCells" in r for r in diagram)
+    widths = [r["updateTableColumnProperties"]["tableColumnProperties"]["width"]["magnitude"] for r in diagram if "updateTableColumnProperties" in r]
+    assert sum(w * (2 if i == 1 else 1) for i, w in enumerate(widths)) == pytest.approx(451, abs=0.5)   # 문서 본문 폭(595-72-72)
+    assert last[0]["insertText"]["text"].endswith("위 체계로 운영한다.")
+    assert [a["action"] for a in gdocs.recent_writes(tmp_path, 3)] == ["insert", "diagram", "insert"]
+

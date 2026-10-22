@@ -18,6 +18,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from zzaimy.export import house_style as hs
 from zzaimy.ingest import gdrive
 
 log = logging.getLogger(__name__)
@@ -492,13 +493,28 @@ def _guide_anchor(body: list[dict], info: dict, sec: dict) -> int | None:
 
 def insert_into_section(email: str, doc: str, section_index: int, text: str, *, user: str,
                         data_dir: Path, scrub=None, http=None) -> dict:
-    """절(제목 아래) 끝에 글을 넣는다. 글은 scrub(개인정보 검사기)을 거친다. 감사 기록을 남긴다."""
+    """절(제목 아래) 끝에 글을 넣는다. 글은 scrub(개인정보 검사기)을 거친다. 감사 기록을 남긴다.
+    글 속 ```도식 블록은 글로 넣지 않고 한글 쪽과 같은 상자·화살표 표(insert_diagram)로 넣는다 — 앞뒤 글과 차례대로."""
     http = http or _http()
     text = (text or "").strip()
     if not text:
         raise ValueError("넣을 글이 없습니다")
     if scrub is not None:
         text = scrub(text)
+    parts = hs.split_diagram_blocks(text)
+    if any(k == "diagram" for k, _t in parts):
+        res: dict = {"ok": True, "at": None, "chars": 0, "section": "", "reply": "", "diagrams": 0}
+        for kind, part in parts:
+            if kind == "diagram":
+                r = insert_diagram(email, doc, section_index, part, user=user, data_dir=data_dir, http=http)
+                res["diagrams"] += 1
+            else:
+                r = insert_into_section(email, doc, section_index, part, user=user, data_dir=data_dir, http=http)
+                res["chars"] += r["chars"]
+                res["reply"] = r.get("reply", "") or res["reply"]
+            res["at"] = r.get("at") if res["at"] is None else res["at"]
+            res["section"] = r["section"]
+        return res
     info = get(email, doc, http)
     secs = {s["index"]: s for s in info["sections"]}
     sec = secs.get(int(section_index))
@@ -536,6 +552,27 @@ def insert_into_section(email: str, doc: str, section_index: int, text: str, *, 
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "insert", "section": sec["heading"],
                       "chars": len(text)})
     return {"ok": True, "at": at, "chars": len(text), "section": sec["heading"], "reply": res.get("documentId", "")}
+
+
+def insert_diagram(email: str, doc: str, section_index: int, text: str, *, user: str, data_dir: Path, http=None) -> dict:
+    """절 끝에 도식(```도식 블록 글 — 줄마다 「상자 → 상자」)을 상자·화살표 표로 넣는다. 한 번 읽고 한 요청으로."""
+    http = http or _http()
+    lines = hs.diagram_lines(text)
+    if not lines:
+        raise ValueError("도식에 넣을 상자가 없습니다")
+    r = _read(email, doc, http)
+    _raise(r)
+    document = r.json()
+    info = outline(document)
+    sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
+    if sec is None:
+        raise ValueError("절을 다시 골라 주세요")
+    reqs = _section_append_requests(sec, int(info["end"]), [("diagram", (lines, _content_width_pt(document)))])
+    _batch(email, doc, reqs, http)
+    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "diagram", "section": sec["heading"],
+                      "boxes": sum(len(b) for b in lines)})
+    return {"ok": True, "at": next(q["insertTable"]["location"]["index"] for q in reqs if "insertTable" in q),
+            "section": sec["heading"], "lines": len(lines)}
 
 
 def replace_text(email: str, doc: str, old: str, new: str, *, user: str, data_dir: Path, scrub=None,
@@ -752,9 +789,9 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     reqs = [{"insertText": {"location": {"index": idx}, "text": text}} for idx, text in sorted(fills, reverse=True)]
     if reqs:
         _batch(email, doc, reqs, http)
-    # 표의 꼴 — 머리 행은 옅은 음영과 굵은 글자(완성본의 표처럼 보이게). 실패해도 표 자체는 들어갔으니 조용히 넘어간다
+    # 표의 꼴 — 학교 표 서식(머리줄·라벨 음영, 선, 글자, 여백). 실패해도 표 자체는 들어갔으니 조용히 넘어간다
     try:
-        _style_table_header(email, doc, at, n_cols, http)
+        _style_table(email, doc, at, http)
     except Exception:
         pass
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "table", "section": sec["heading"],
@@ -762,33 +799,177 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     return {"ok": True, "rows": len(rows), "cols": n_cols, "section": sec["heading"]}
 
 
-# 표 머리줄 음영 — 한글 기안기 표 기본(webhwp_style.HOUSE, 학교 서식 표에서 가장 흔한 #E5E5E5)과 같은 색. 두 편집기 결과가 같은 모양이게
-HEAD_GRAY = {"red": 0.898, "green": 0.898, "blue": 0.898}
+# 표 서식 — 한글 기안기 표 기본(house_style.HOUSE, 학교 서식 표 20,441개에서 캔 값)을 독스 단위(pt·rgb 0..1)로 바꿔 쓴다.
+# 두 편집기 결과가 같은 모양이게 값은 house_style 한 곳에서만 읽는다
+HEAD_GRAY = hs.rgb(hs.HOUSE["head_fill"])
+_BLACK = {"red": 0.0, "green": 0.0, "blue": 0.0}
+_DOCS_ALIGN = {"CENTER": "CENTER", "LEFT": "START", "RIGHT": "END", "JUSTIFY": "JUSTIFIED"}
+_BORDERS = ("borderTop", "borderBottom", "borderLeft", "borderRight")
+_PADS = {"paddingTop": "top", "paddingBottom": "bottom", "paddingLeft": "left", "paddingRight": "right"}
+DEFAULT_CONTENT_WIDTH_PT = 451.0                   # A4 에서 좌우 여백 1인치 — 문서 쪽 설정을 못 읽을 때만
 
 
-def _style_table_header(email: str, doc: str, at: int, n_cols: int, http) -> None:
-    """방금 넣은 표(위치 at 이후 첫 표)의 머리 행에 음영·굵게."""
+def _pt(v: float) -> dict:
+    return {"magnitude": v, "unit": "PT"}
+
+
+def _border(width_pt: float, dash: str = "SOLID", color: dict | None = None) -> dict:
+    return {"color": {"color": {"rgbColor": color or _BLACK}}, "width": _pt(width_pt), "dashStyle": dash}
+
+
+def _cell_style(start: int, r: int, c: int, rs: int, cs: int, style: dict) -> dict:
+    return {"updateTableCellStyle": {
+        "tableRange": {"tableCellLocation": {"tableStartLocation": {"index": start}, "rowIndex": r, "columnIndex": c},
+                       "rowSpan": rs, "columnSpan": cs},
+        "tableCellStyle": style, "fields": ",".join(style)}}
+
+
+def house_table_requests(start: int, cells: dict[tuple[int, int], tuple[str, int]], n_rows: int, n_cols: int,
+                         opts: dict | None = None) -> list[dict]:
+    """표 하나에 학교 표 서식을 입히는 요청 목록 — 한글 쪽 style_table 과 같은 규칙(house_style.cell_roles).
+    cells 는 (행, 열) → (칸 글, 그 글이 놓인 시작 위치). 선(바깥·안쪽)·칸 여백·행 최소 높이·머리줄과 라벨 칸 음영·
+    글자 크기·머리줄 굵게·가운데 정렬(머리·라벨·짧은 값). 한 칸 상자(안내)는 점선·작은 회색 글·왼쪽."""
+    v = hs.docs_house(opts)
+    grid = [[cells.get((r, c), ("", 0))[0] for c in range(n_cols)] for r in range(n_rows)]
+    rl = hs.cell_roles(hs.grid_cells(grid))
+    box = n_cols == 1
+    pads = {k: _pt(v["padding"][side]) for k, side in _PADS.items()}
+    if box:
+        line = _border(v["inner_pt"], v["box_dash"])
+        reqs = [_cell_style(start, 0, 0, n_rows, n_cols, {**{b: line for b in _BORDERS}, **pads})]
+    else:
+        inner = _border(v["inner_pt"])
+        outer = _border(v["outer_pt"])
+        reqs = [_cell_style(start, 0, 0, n_rows, n_cols, {**{b: inner for b in _BORDERS}, **pads}),
+                _cell_style(start, 0, 0, 1, n_cols, {"borderTop": outer}),
+                _cell_style(start, n_rows - 1, 0, 1, n_cols, {"borderBottom": outer}),
+                _cell_style(start, 0, 0, n_rows, 1, {"borderLeft": outer}),
+                _cell_style(start, 0, n_cols - 1, n_rows, 1, {"borderRight": outer})]
+        head_rows = sum(1 for r in range(n_rows) if rl.get((r, 0)) == "head")
+        if head_rows and v["head_rgb"]:
+            reqs.append(_cell_style(start, 0, 0, head_rows, n_cols, {"backgroundColor": {"color": {"rgbColor": v["head_rgb"]}}}))
+        if v["label_rgb"]:
+            reqs += [_cell_style(start, r, c, 1, 1, {"backgroundColor": {"color": {"rgbColor": v["label_rgb"]}}})
+                     for (r, c), role in sorted(rl.items()) if role == "label"]
+    reqs.append({"updateTableRowStyle": {"tableStartLocation": {"index": start}, "rowIndices": list(range(n_rows)),
+                                         "tableRowStyle": {"minRowHeight": _pt(v["min_row_pt"])}, "fields": "minRowHeight"}})
+    for (r, c), (text, at) in sorted(cells.items()):
+        if not text:
+            continue
+        role = rl.get((r, c), "body")
+        rng = {"startIndex": at, "endIndex": at + _u16(text)}
+        ts: dict = {"fontSize": _pt(v["box_font_pt"] if role == "box" else v["font_pt"])}
+        if role == "head":
+            ts["bold"] = v["head_bold"]
+        if role == "box" and v["box_rgb"]:
+            ts["foregroundColor"] = {"color": {"rgbColor": v["box_rgb"]}}
+        reqs.append({"updateTextStyle": {"range": rng, "textStyle": ts, "fields": ",".join(ts)}})
+        if role == "box":
+            align = v["box_align"]
+        elif role in ("head", "label"):
+            align = v["head_align"]
+        else:
+            align = v["body_align"] or ("CENTER" if hs.short_value(text) else "")
+        if align:
+            reqs.append({"updateParagraphStyle": {"range": rng, "paragraphStyle": {"alignment": _DOCS_ALIGN.get(align, align)},
+                                                  "fields": "alignment"}})
+    return reqs
+
+
+def _grid_positions(cur: int, texts: list[list[str]], n_cols: int) -> dict[tuple[int, int], tuple[str, int]]:
+    """자리 cur 에 막 넣은 빈 표에 칸 글을 채운 뒤 각 칸 글의 시작 위치 — 칸(r, c) = cur + 4 + r(2열+1) + 2c + 앞 칸 글 길이."""
+    out, shift = {}, 0
+    for ri, row in enumerate(texts):
+        for ci in range(n_cols):
+            t = str(row[ci]) if ci < len(row) else ""
+            out[(ri, ci)] = (t, cur + 4 + ri * (2 * n_cols + 1) + 2 * ci + shift)
+            shift += _u16(t)
+    return out
+
+
+def diagram_requests(cur: int, lines: list[list[str]], width_pt: float = DEFAULT_CONTENT_WIDTH_PT) -> tuple[list[dict], int]:
+    """자리 cur(문단 끝)에 도식 표를 넣는 요청 목록과 넣은 표의 길이 — 한글 쪽 diagram_table 과 같은 격자(house_style.diagram_grid):
+    상자 칸·화살표 칸이 번갈아, 줄 사이 아래 화살표 행, 상자만 선·음영(첫 줄 연파랑·나머지 연회색), 나머지 칸은 선 없음."""
+    v = hs.docs_house()
+    g = hs.diagram_grid(lines)
+    n_rows, n_cols = len(g["rows"]), g["cols"]
+    texts = [[""] * n_cols for _ in range(n_rows)]
+    for ri, row in enumerate(g["rows"]):
+        for cell in row["cells"]:
+            texts[ri][cell["c"]] = cell["text"]
+    start = cur + 1
+    pos = _grid_positions(cur, texts, n_cols)
+    reqs: list[dict] = [{"insertTable": {"location": {"index": cur}, "rows": n_rows, "columns": n_cols}}]
+    fills = [(cur + 4 + ri * (2 * n_cols + 1) + 2 * ci, texts[ri][ci]) for ri in range(n_rows) for ci in range(n_cols) if texts[ri][ci]]
+    reqs += [{"insertText": {"location": {"index": i}, "text": t}} for i, t in sorted(fills, reverse=True)]   # 칸은 뒤에서부터
+    none = _border(0)
+    pad = _pt(v["diagram_padding_pt"])
+    reqs.append(_cell_style(start, 0, 0, n_rows, n_cols, {**{b: none for b in _BORDERS}, **{k: pad for k in _PADS},
+                                                         "contentAlignment": "MIDDLE"}))
+    total = sum(g["weights"])
+    for w in sorted(set(g["weights"])):
+        reqs.append({"updateTableColumnProperties": {
+            "tableStartLocation": {"index": start}, "columnIndices": [c for c, x in enumerate(g["weights"]) if x == w],
+            "tableColumnProperties": {"widthType": "FIXED_WIDTH", "width": _pt(round(width_pt * w / total, 1))},
+            "fields": "widthType,width"}})
+    line = _border(v["diagram_border_pt"])
+    merges = []
+    for ri, row in enumerate(g["rows"]):
+        reqs.append({"updateTableRowStyle": {"tableStartLocation": {"index": start}, "rowIndices": [ri],
+                                             "tableRowStyle": {"minRowHeight": _pt(v["diagram_box_pt"] if row["kind"] == "boxes" else v["diagram_arrow_pt"])},
+                                             "fields": "minRowHeight"}})
+        for cell in row["cells"]:
+            if cell["kind"] == "box":
+                fill = hs.rgb(cell["fill"])
+                reqs.append(_cell_style(start, ri, cell["c"], 1, cell["span"],
+                                        {**{b: line for b in _BORDERS}, "backgroundColor": {"color": {"rgbColor": fill}}}))
+            if cell["text"]:
+                t, at = pos[(ri, cell["c"])]
+                rng = {"startIndex": at, "endIndex": at + _u16(t)}
+                ts = {"fontSize": _pt(v["font_pt"]), "bold": bool(cell["bold"])}
+                reqs.append({"updateTextStyle": {"range": rng, "textStyle": ts, "fields": "fontSize,bold"}})
+                reqs.append({"updateParagraphStyle": {"range": rng, "paragraphStyle": {"alignment": "CENTER"}, "fields": "alignment"}})
+            if cell["span"] > 1:
+                merges.append({"mergeTableCells": {"tableRange": {
+                    "tableCellLocation": {"tableStartLocation": {"index": start}, "rowIndex": ri, "columnIndex": cell["c"]},
+                    "rowSpan": 1, "columnSpan": cell["span"]}}})
+    # 합치기는 마지막에 — 합친 칸은 빈 칸뿐이라 글 자리를 밀지 않지만, 앞 요청들의 자리 계산을 합치기 전 구조로 맞춘다
+    reqs += merges
+    table_len = 2 + n_rows * (2 * n_cols + 1) + sum(_u16(t) for t, _a in pos.values())
+    return reqs, table_len
+
+
+def _content_width_pt(document: dict) -> float:
+    """문서 쪽 폭에서 좌우 여백을 뺀 본문 폭(pt). 못 읽으면 기본값."""
+    ds = document.get("documentStyle") or {}
+    try:
+        w = float(ds["pageSize"]["width"]["magnitude"])
+        lm = float((ds.get("marginLeft") or {}).get("magnitude", 72))
+        rm = float((ds.get("marginRight") or {}).get("magnitude", 72))
+        return max(w - lm - rm, 100.0)
+    except (KeyError, TypeError, ValueError):
+        return DEFAULT_CONTENT_WIDTH_PT
+
+
+def _style_table(email: str, doc: str, at: int, http) -> None:
+    """방금 넣은 표(위치 at 이후 첫 표)에 학교 표 서식 — 칸 글과 자리는 다시 읽은 문서에서."""
     r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     el = next((e for e in body if e.get("table") and int(e.get("startIndex", -1)) >= at), None)
     if not el:
         return
-    reqs: list[dict] = [{"updateTableCellStyle": {
-        "tableRange": {"tableCellLocation": {"tableStartLocation": {"index": int(el["startIndex"])}, "rowIndex": 0, "columnIndex": 0},
-                       "rowSpan": 1, "columnSpan": n_cols},
-        "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": HEAD_GRAY}}},
-        "fields": "backgroundColor"}}]
-    head = (el["table"].get("tableRows") or [{}])[0]
-    for cell in head.get("tableCells", []):
-        paras = [e for e in cell.get("content", []) if "paragraph" in e and e.get("endIndex")]
-        if paras:
-            a, b = int(paras[0]["startIndex"]), int(paras[-1]["endIndex"]) - 1
-            if b > a:
-                reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": b}, "textStyle": {"bold": True}, "fields": "bold"}})
-                reqs.append({"updateParagraphStyle": {"range": {"startIndex": a, "endIndex": b},
-                                                      "paragraphStyle": {"alignment": "CENTER"}, "fields": "alignment"}})
-    _batch(email, doc, reqs, http)
+    cells: dict[tuple[int, int], tuple[str, int]] = {}
+    rows = el["table"].get("tableRows") or []
+    n_cols = max((len(tr.get("tableCells", [])) for tr in rows), default=0)
+    for ri, tr in enumerate(rows):
+        for ci, cell in enumerate(tr.get("tableCells", [])):
+            paras = [e for e in cell.get("content", []) if "paragraph" in e]
+            if not paras or "startIndex" not in paras[0]:
+                continue
+            cells[(ri, ci)] = ("".join(_para_text(p["paragraph"]) for p in paras).rstrip("\n"), int(paras[0]["startIndex"]))
+    if rows and n_cols:
+        _batch(email, doc, house_table_requests(int(el["startIndex"]), cells, len(rows), n_cols), http)
 
 
 def _section_tables(body: list[dict], info: dict, section_index: int) -> list[dict]:
@@ -1388,23 +1569,14 @@ def _section_append_requests(sec: dict, doc_end: int, items: list[tuple[str, obj
             fills = [(cur + 4 + ri * (2 * n_cols + 1) + 2 * ci, str(rows[ri][ci]))
                      for ri in range(n_rows) for ci in range(n_cols) if ci < len(rows[ri]) and str(rows[ri][ci])]
             reqs += [{"insertText": {"location": {"index": i}, "text": t}} for i, t in sorted(fills, reverse=True)]
-            reqs.append({"updateTableCellStyle": {
-                "tableRange": {"tableCellLocation": {"tableStartLocation": {"index": start}, "rowIndex": 0, "columnIndex": 0},
-                               "rowSpan": 1, "columnSpan": n_cols},
-                "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": HEAD_GRAY}}},
-                "fields": "backgroundColor"}})
-            shift = 0                                                  # 머리 행 칸마다 굵게 — 앞 칸에 넣은 글만큼 밀린 자리
-            for ci in range(n_cols):
-                t = str(rows[0][ci]) if ci < len(rows[0]) else ""
-                a = cur + 4 + 2 * ci + shift
-                if t:
-                    reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": a + u(t)},
-                                                     "textStyle": {"bold": True}, "fields": "bold"}})
-                    reqs.append({"updateParagraphStyle": {"range": {"startIndex": a, "endIndex": a + u(t)},
-                                                          "paragraphStyle": {"alignment": "CENTER"}, "fields": "alignment"}})
-                shift += u(t)
+            reqs += house_table_requests(start, _grid_positions(cur, rows, n_cols), n_rows, n_cols)
             table_len = 2 + n_rows * (2 * n_cols + 1) + sum(u(t) for _i, t in fills)
             cur = start + table_len                                    # 표 뒤 문단(줄바꿈 앞)
+        elif kind == "diagram":
+            lines, width_pt = payload
+            dreqs, table_len = diagram_requests(cur, lines, width_pt)
+            reqs += dreqs
+            cur = cur + 1 + table_len
     return reqs
 
 

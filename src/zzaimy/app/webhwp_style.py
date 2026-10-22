@@ -15,8 +15,9 @@ import re
 import zipfile
 from xml.sax.saxutils import escape
 
-HOUSE = {"head_fill": "#E5E5E5", "label_fill": "#E5E5E5", "outer": "0.4 mm", "inner": "0.12 mm",
-         "head_bottom": "SOLID", "font_pt": 10.0, "head_bold": True, "head_align": "CENTER", "body_align": ""}
+from zzaimy.export import house_style as hs
+from zzaimy.export.house_style import DIAGRAM_FILLS, HOUSE, diagram_lines  # noqa: F401 — 기준값은 공용 모듈 한 곳(독스와 같이 씀)
+
 BORDER_WIDTHS = ["0.1 mm", "0.12 mm", "0.15 mm", "0.2 mm", "0.25 mm", "0.3 mm", "0.4 mm", "0.5 mm", "0.6 mm", "0.7 mm",
                  "1.0 mm", "1.5 mm", "2.0 mm", "3.0 mm", "4.0 mm", "5.0 mm"]
 ALIGNS = {"가운데": "CENTER", "왼쪽": "LEFT", "오른쪽": "RIGHT", "양쪽": "JUSTIFY",
@@ -31,10 +32,7 @@ def _text(x: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", x)).strip()
 
 
-def _short(t: str) -> bool:
-    """가운데에 둘 값 — 기호(●○◎-), 숫자·금액·비율·날짜, 여섯 글자 이하."""
-    t = (t or "").strip()
-    return bool(t) and (len(t) <= 6 or bool(re.fullmatch(r"[\d\s,.%~\-–()/:·년월일천백만억원명개건회점]+", t)))
+_short = hs.short_value          # 가운데에 둘 값 — 기호·숫자·금액·날짜, 여섯 글자 이하
 
 
 def _width(w: str) -> str:
@@ -152,37 +150,7 @@ def _cells(tbl: str) -> list[dict]:
 
 def roles(tbl: str) -> dict[tuple[int, int], str]:
     """칸(행, 열) → 'head'·'label'·'body'·'box'. 머리줄=첫 행이 모두 글이고 아래 행이 있을 때, 라벨=글 있는 칸 바로 오른쪽이 빈 칸·필드."""
-    cells = _cells(tbl)
-    if not cells:
-        return {}
-    nrows = max(c["r"] + c["rs"] for c in cells)
-    ncols = max(c["c"] + c["cs"] for c in cells)
-    if ncols == 1:
-        return {(c["r"], c["c"]): "box" for c in cells}
-    at = {(c["r"], c["c"]): c for c in cells}
-    first = [c for c in cells if c["r"] == 0]
-    head_rows = 0
-    if nrows >= 2 and first and all(c["text"] and not c["field"] for c in first) and len(first) >= 2:
-        head_rows = max(c["rs"] for c in first)
-        # 머리줄이 두 줄(합친 칸 아래 세부 머리)인 표 — 둘째 줄도 모두 글이고 그 아래 빈 줄이 있으면
-        second = [c for c in cells if c["r"] == head_rows]
-        if (head_rows == 1 and nrows >= 3 and second and all(c["text"] and not c["field"] for c in second)
-                and any(c["cs"] > 1 for c in first) and len(second) < ncols):
-            head_rows = 2
-    out = {}
-    for c in cells:
-        if c["r"] < head_rows:
-            out[(c["r"], c["c"])] = "head"
-            continue
-        right = at.get((c["r"], c["c"] + c["cs"]))
-        below = at.get((c["r"] + c["rs"], c["c"]))
-        is_label = bool(c["text"]) and not c["field"] and len(c["text"]) <= 20 and (
-            (right is not None and (not right["text"] or right["field"]))
-            or (c["c"] == 0 and not head_rows and ncols >= 2)
-            # 표 안 소머리(아래 칸이 비었거나 필드이고 오른쪽도 글인 칸 — 「국비 | 지방비 | 대응자금」 줄)
-            or (below is not None and (not below["text"] or below["field"]) and c["c"] > 0))
-        out[(c["r"], c["c"])] = "label" if is_label else "body"
-    return out
+    return hs.cell_roles(_cells(tbl))
 
 
 def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
@@ -202,8 +170,8 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
         role = rl.get((c["r"], c["c"]), "body")
         x = c["xml"]
         if role == "box":                                   # 작성 안내 상자 — 점선, 작은 회색 글, 왼쪽 정렬(본문과 구별)
-            bf = hdr.border(o["inner"], o["inner"], o["inner"], o["inner"], "none", "DASH")
-            align = "LEFT"
+            bf = hdr.border(o["inner"], o["inner"], o["inner"], o["inner"], "none", hs.BOX["dash"])
+            align = hs.BOX["align"]
         else:
             left = o["outer"] if c["c"] == 0 else o["inner"]
             right = o["outer"] if c["c"] + c["cs"] >= ncols else o["inner"]
@@ -219,9 +187,10 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
                 align = "CENTER"
             # 칸 여백 — 학교 표의 절반이 510/510/141/141(좌우 1.8mm). 좁으면 글이 선에 붙는다
             x = re.sub(r'(<hp:tc\b[^>]*\bhasMargin=")0', r"\g<1>1", x, count=1)
-            x = re.sub(r'<hp:cellMargin [^>]*/>', '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>', x, count=1)
+            m_ = hs.CELL_MARGIN
+            x = re.sub(r'<hp:cellMargin [^>]*/>', f'<hp:cellMargin left="{m_["left"]}" right="{m_["right"]}" top="{m_["top"]}" bottom="{m_["bottom"]}"/>', x, count=1)
             # 줄 높이 — 10pt 한 줄 + 여백이 들어가게 최소 1,900(약 6.7mm). 1,200 이면 글이 위아래 선에 닿는다
-            x = re.sub(r'(<hp:cellSz width="\d+" height=")(\d+)"', lambda m: f'{m.group(1)}{max(int(m.group(2)), 1900)}"', x, count=1)
+            x = re.sub(r'(<hp:cellSz width="\d+" height=")(\d+)"', lambda m: f'{m.group(1)}{max(int(m.group(2)), hs.MIN_ROW_HEIGHT)}"', x, count=1)
             # 기안기는 「제목 칸」(header="1")의 글자 굵기를 무시한다 — 머리줄 굵게가 보이도록 끈다
             x = re.sub(r'(<hp:tc\b[^>]*\bheader=")1', r"\g<1>0", x, count=1)
         if not o.get("keep_borders"):                        # 양식 표 모양을 따른 표는 선·음영을 그대로 두고 글·정렬·여백만
@@ -230,7 +199,7 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
         pt = float(o["font_pt"]) if o.get("font_pt") else None
         color = ""
         if role == "box":
-            pt, color = (pt or 10.0) - 1, "#555555"
+            pt, color = (pt or HOUSE["font_pt"]) + hs.BOX["font_delta"], hs.BOX["color"]
 
         def run(m: re.Match) -> str:
             return f'{m.group(1)}{hdr.char(m.group(2), bold=bold, pt=pt, color=color)}{m.group(3)}'
@@ -341,45 +310,37 @@ def dress(data: bytes, plan: list[tuple[str, str]]) -> bytes:
 
 # ── 도식 ── 학교 문서의 추진체계도·흐름도는 대부분 표 칸 상자 + 화살표로 그린다(그리기 개체보다 편집·이동이 쉽고 기안기에서 그대로 고친다).
 # 에이전트는 본문에 「```도식」 블록으로 줄마다 「상자 → 상자 → 상자」 를 쓰고, 줄 사이는 아래 화살표(↓)로 잇는다. 상자 하나뿐인 줄은 가로로 꽉.
-DIAGRAM_FILLS = ("#DFEAF5", "#F2F2F2")          # 첫 줄(상위·출발) 상자는 연파랑, 나머지는 연회색 — 채굴한 머리줄 색 계열
-
-
-def diagram_lines(text: str) -> list[list[str]]:
-    out = []
-    for ln in str(text or "").split("\n"):
-        boxes = [b.strip() for b in re.split(r"\s*(?:→|->|⇒|=>)\s*", ln.strip()) if b.strip()]
-        if boxes and not re.fullmatch(r"[↓|]+", ln.strip()):
-            out.append(boxes)
-    return out[:12]
+# 상자 색·선·높이·여백·줄 나누기(diagram_lines)는 house_style 의 값 — 독스 도식과 같은 꼴
 
 
 def diagram_table(lines: list[list[str]], hdr: _Header, pp: str, cp: str, width: int, table_id: int) -> str:
     """상자 줄 목록 → 표 XML(병합 칸·화살표 칸 테두리 없음). 열 = 상자 칸·화살표 칸 번갈아(2n-1)."""
     n = max(len(b) for b in lines)
     cols = max(2 * n - 1, 1)
-    weights = [4 if c % 2 == 0 else 1 for c in range(cols)]
+    weights = [hs.DIAGRAM_WEIGHTS[0] if c % 2 == 0 else hs.DIAGRAM_WEIGHTS[1] for c in range(cols)]
     col_w = [max(int(width * w / sum(weights)), 600) for w in weights]
     none_bf = hdr.border("", "", "", "", "none")
     pc = hdr.para(pp, "CENTER")
     bold = hdr.char(cp, bold=True)
     rows, r = [], 0
 
-    def cell(text, c, r, span, bf, char, h=1800):
+    def cell(text, c, r, span, bf, char, h=hs.DIAGRAM_BOX_HEIGHT):
         w = sum(col_w[c:c + span])
         body = f'<hp:p id="0" paraPrIDRef="{pc}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="{char}"><hp:t>{escape(text)}</hp:t></hp:run></hp:p>'
         return (f'<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{bf}">'
                 f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" '
                 f'textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">{body}</hp:subList>'
                 f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="{span}" rowSpan="1"/>'
-                f'<hp:cellSz width="{w}" height="{h}"/><hp:cellMargin left="283" right="283" top="283" bottom="283"/></hp:tc>')
+                f'<hp:cellSz width="{w}" height="{h}"/><hp:cellMargin left="{dm}" right="{dm}" top="{dm}" bottom="{dm}"/></hp:tc>')
+    dm = hs.DIAGRAM_MARGIN
     heights = 0
     for i, boxes in enumerate(lines):
         if i:                                                # 줄 사이 아래 화살표
-            rows.append("<hp:tr>" + cell("↓", 0, r, cols, none_bf, cp, 900) + "</hp:tr>")
+            rows.append("<hp:tr>" + cell("↓", 0, r, cols, none_bf, cp, hs.DIAGRAM_ARROW_HEIGHT) + "</hp:tr>")
             r += 1
-            heights += 900
+            heights += hs.DIAGRAM_ARROW_HEIGHT
         fill = DIAGRAM_FILLS[0] if i == 0 else DIAGRAM_FILLS[1]
-        box_bf = hdr.border("0.12 mm", "0.12 mm", "0.12 mm", "0.12 mm", fill)
+        box_bf = hdr.border(*[hs.DIAGRAM_BORDER] * 4, fill)
         tcs = []
         if len(boxes) == 1:
             tcs.append(cell(boxes[0], 0, r, cols, box_bf, bold))
@@ -401,7 +362,7 @@ def diagram_table(lines: list[list[str]], hdr: _Header, pp: str, cp: str, width:
                 tcs.append(cell("", c, r, cols - c, none_bf, cp))
         rows.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
         r += 1
-        heights += 1800
+        heights += hs.DIAGRAM_BOX_HEIGHT
     tbl = (f'<hp:tbl id="{table_id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
            f'pageBreak="CELL" repeatHeader="0" rowCnt="{r}" colCnt="{cols}" cellSpacing="0" borderFillIDRef="{none_bf}" noAdjust="0">'
            f'<hp:sz width="{sum(col_w)}" widthRelTo="ABSOLUTE" height="{heights}" heightRelTo="ABSOLUTE" protect="0"/>'
