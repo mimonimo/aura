@@ -6,6 +6,8 @@
 - hwp_fields {}: 작업본의 필드와 채움 상태(빈 필드가 먼저).
 - hwp_fill {values: {필드: 값}}: 칸·표 필드 값 넣기.
 - hwp_write {field, text}: 절 필드에 본문 쓰기(번호 문단 + 마크다운 표). 같은 절을 다시 쓰면 앞 내용을 지우고 새로.
+- 편집 도구(webhwp_edit_ops.TOOLS — hwp_page_setup·hwp_table_insert·hwp_table_view·hwp_table_edit·hwp_page_number·hwp_header_footer·
+  hwp_page_break·hwp_text_style·hwp_footnote·hwp_picture·hwp_replace·hwp_undo·hwp_live): 기안기 기능을 파일 직접 고치기·열린 기안기 명령으로.
 - delegate_section {section, gist, form, length}: 긴 절을 같은 모델의 깨끗한 문맥(서브)에 맡긴다(app/delegate, ADR-0065 4번, ZZAIMY_DELEGATE).
 절 쓰기는 메인이 직접 쓰든 서브가 쓰든 같은 관문(check_body)을 지난다 — 양식 예시 글자(○○·000), 근거에 없는 수치, 길이 상한.
 남은 문맥이 모자란데 긴 본문을 직접 쓰려 하면 거절하고 절 맡기기를 안내한다(관문만 — 맡길지는 에이전트가 정한다).
@@ -195,6 +197,8 @@ class HwpTools:
                          "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
         if self.delegating:
             lines += self.budget_lines(fl)
+        lines.append("모양 고치기(페이지 설정·표 만들기·행·열·칸 합치기·쪽 번호·머리말·글꼴·각주·그림·찾아 바꾸기)는 hwp_page_setup·hwp_table_* 같은 "
+                     "편집 도구로 — 표 번호는 hwp_tables, 칸 자리는 hwp_table_view 로 확인한다.")
         return lines
 
     def needs_map(self) -> dict[str, list[str]]:
