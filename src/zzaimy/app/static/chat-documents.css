@@ -262,7 +262,12 @@ body .doc-title-row .doc-full-btn[aria-pressed=true]{background:#edf3fb;color:#2
 @media(min-width:951px){
  /* 대화 화면은 대화 제목이 있어 맨 위 제목 줄을 접는다 — 문서·대화가 세로로 더 넓게 */
  body:has(#chatWorkspace) .content-col>.topbar{display:none}
+ /* 사이드바를 접으면 여는 단추가 있어야 한다 — 그때는 맨 위 줄을 다시 보인다(얇게) */
+ html.sidebar-collapsed body:has(#chatWorkspace) .content-col>.topbar{display:flex;min-height:44px;padding-top:6px;padding-bottom:6px}
 }
+/* 대화 머리의 공개 여부 단추는 한 줄로 */
+#chatWorkspace .act-btn{white-space:nowrap;flex:none}
+#chatWorkspace .act-btn span{white-space:nowrap}
 /* 입력창 아래 오른쪽 문맥 사용 — 옅고 작게 */
 .chat-dock-footer{display:flex;align-items:center;gap:12px}
 .chat-dock-footer #chatSendState{flex:1;min-width:0}
@@ -277,3 +282,33 @@ body .doc-title-row .doc-full-btn[aria-pressed=true]{background:#edf3fb;color:#2
 .chat-cot-btn span{color:#9aa5b4}
 .chat-cot-btn:hover{background:#f5f7fa}
 .chat-cot-body{margin-top:6px;padding:8px 12px;border-left:2px solid #e3e8ef;color:#6b7686;font-size:12.5px;line-height:1.7;white-space:pre-wrap}
+/* 문맥 관리 창 */
+.chat-ctx{cursor:pointer;border-radius:999px;padding:2px 6px}
+.chat-ctx:hover{background:#f1f4f8;color:#526176}
+.ctx-pop{width:min(560px,calc(100vw - 32px));max-height:min(720px,calc(100dvh - 48px));overflow:auto;padding:18px 20px;border:1px solid #d9e0ea;border-radius:14px;box-shadow:0 24px 64px #15243c33;color:var(--ink)}
+.ctx-pop::backdrop{background:#15243c44}
+.ctx-pop>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.ctx-pop h2{margin:0;font-size:16px;font-weight:650}
+.ctx-pop h3{margin:16px 0 8px;font-size:13px;font-weight:600;color:#36465b}
+.ctx-sum,.ctx-note,.ctx-empty{margin:0;font-size:12px;color:#7a8698;line-height:1.6}
+.ctx-note{margin-top:14px}
+.ctx-memo{margin:0;padding:10px 12px;background:#f6f8fb;border:1px solid #e6ebf1;border-radius:9px;font:inherit;font-size:12.5px;line-height:1.7;color:#36465b;white-space:pre-wrap;max-height:220px;overflow:auto}
+.ctx-group{margin-top:8px}
+.ctx-gname{font-size:11.5px;font-weight:600;color:#8a96a6;margin:6px 0 4px}
+.ctx-row{display:grid;grid-template-columns:minmax(0,1fr) 140px 128px;align-items:center;gap:10px;padding:4px 0;font-size:12.5px}
+.ctx-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#2f3d51}
+.ctx-rbar{position:relative;height:6px;border-radius:6px;background:#e9edf3;overflow:hidden}
+.ctx-rbar>span{position:absolute;left:0;top:0;bottom:0;background:#8aa2c2;border-radius:6px}
+.ctx-row.is-high .ctx-rbar>span{background:#c9944a}
+.ctx-num{font-size:11.5px;color:#7a8698;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chat-ctx.is-live .chat-ctx-bar>span{animation:ctx-live 1.4s ease-in-out infinite}
+@keyframes ctx-live{50%{opacity:.5}}
+.ctx-card{position:fixed;z-index:70;width:280px;padding:12px 14px;border:1px solid #e1e6ed;border-radius:12px;background:#fff;box-shadow:0 10px 30px #15243c22;font-size:12px;color:#36465b;pointer-events:none}
+.ctx-card-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ctx-card-top strong{font-size:13px;font-weight:650;color:#1f2a3a}
+.ctx-card-top span{color:#8a96a6;font-variant-numeric:tabular-nums}
+.ctx-card-bar{height:5px;border-radius:5px;background:#e9edf3;margin:8px 0;overflow:hidden}
+.ctx-card-bar>span{display:block;height:100%;background:#8aa2c2;border-radius:5px}
+.ctx-card-goal{margin:0 0 6px;line-height:1.55;color:#2f3d51}
+.ctx-card-meta{margin:0;color:#7a8698;line-height:1.55}
+.ctx-card-hint{margin:6px 0 0;color:#a3adba;font-size:11px}

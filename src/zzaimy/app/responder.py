@@ -274,7 +274,8 @@ class AgentResponder:
         from zzaimy.generate import model_config
 
         gen = gen if gen is not None else {"extra_body": getattr(client, "_extra", {})}
-        stream = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=on_fitted, temperature=0.2,
+        with llm_budget.label("답 쓰기"):
+            stream = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=on_fitted, temperature=0.2,
                                           stream=True, stream_options={"include_usage": True}, **gen)
         parts: list[str] = []
         finish, last, usage = "", 0.0, None
@@ -530,7 +531,8 @@ class AgentResponder:
             except Exception:
                 text, finish = "", ""
         if not text:
-            resp = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=_sent, temperature=0.2, **gen)
+            with llm_budget.label("답 쓰기"):
+                resp = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=_sent, temperature=0.2, **gen)
             usages.append(getattr(resp, "usage", None))
             text = resp.choices[0].message.content or ""            # 생각 글(reasoning_content)은 답에 넣지 않는다
             finish = getattr(resp.choices[0], "finish_reason", "")

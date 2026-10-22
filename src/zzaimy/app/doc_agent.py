@@ -323,9 +323,10 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             cuts += [llm_budget.Cut(msg=3 + 2 * k, text=turns[k][1]) for k in range(n_old, len(turns))]
             cuts += [llm_budget.OUTPUT]
             try:
-                resp = llm_budget.create_fitted(client, messages, 700, cuts, floor=300,
-                                                temperature=0.6 if repeats else 0.2,     # 되풀이를 거절당한 뒤엔 조금 넓게
-                                                extra_body=getattr(client, "_extra", {}))
+                with llm_budget.label(f"메인 · 걸음 {_i + 1}"):
+                    resp = llm_budget.create_fitted(client, messages, 700, cuts, floor=300,
+                                                    temperature=0.6 if repeats else 0.2,     # 되풀이를 거절당한 뒤엔 조금 넓게
+                                                    extra_body=getattr(client, "_extra", {}))
                 raw = resp.choices[0].message.content or ""
             except llm_budget.ContextOverflow as e:
                 ep.steps.append({"error": f"문맥 한도: {str(e)[:160]}"})

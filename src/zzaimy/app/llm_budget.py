@@ -219,10 +219,32 @@ def note_overflow(client, messages: list[dict], err: BaseException) -> bool:
 _USAGE: contextvars.ContextVar[dict | None] = contextvars.ContextVar("llm_usage", default=None)
 
 
+_LABEL: contextvars.ContextVar[str] = contextvars.ContextVar("llm_label", default="")
+
+
 def track() -> dict:
-    d = {"calls": 0, "prompt": 0, "peak": 0, "limit": 0, "trimmed": False}
+    d = {"calls": 0, "prompt": 0, "peak": 0, "limit": 0, "trimmed": False, "items": []}
     _USAGE.set(d)
     return d
+
+
+class label:
+    """with llm_budget.label("메인 · 걸음 3"): … — 그 안의 모델 호출에 이름표(화면의 호출별 문맥 사용). 「서브 · …」 로 시작하면 서브 묶음."""
+
+    def __init__(self, name: str):
+        self.name, self._tok = name, None
+
+    def __enter__(self):
+        self._tok = _LABEL.set(self.name)
+        return self
+
+    def __exit__(self, *exc):
+        _LABEL.reset(self._tok)
+        return False
+
+
+def group_of(name: str) -> str:
+    return "서브" if name.startswith("서브") else "메인"
 
 
 def _note_usage(client, fitted: list[dict], messages: list[dict], max_tokens: int) -> None:
@@ -234,8 +256,12 @@ def _note_usage(client, fitted: list[dict], messages: list[dict], max_tokens: in
     d["prompt"] += n
     d["peak"] = max(d["peak"], n + max_tokens)
     d["limit"] = context_len(client)
-    if len(fitted) < len(messages) or sum(len(str(m.get("content") or "")) for m in fitted) < sum(len(str(m.get("content") or "")) for m in messages):
+    trimmed = len(fitted) < len(messages) or sum(len(str(m.get("content") or "")) for m in fitted) < sum(len(str(m.get("content") or "")) for m in messages)
+    if trimmed:
         d["trimmed"] = True                                 # 한도 때문에 오래된 대화·첨부를 줄였다
+    name = _LABEL.get() or "기타"
+    if len(d["items"]) < 80:
+        d["items"].append({"label": name, "group": group_of(name), "in": n, "out": int(max_tokens), "limit": d["limit"], "trimmed": trimmed})
 
 
 def create_fitted(client, messages: list[dict], max_tokens: int, cuts: list[Cut] | None = None, *, floor: int = 512,

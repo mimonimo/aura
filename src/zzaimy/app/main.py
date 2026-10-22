@@ -3263,10 +3263,13 @@ def create_app(
     _RETRIEVAL_NOTE = {"fulltext": "풀텍스트 RAG — 그래프 단계 끔", "graph": "온톨로지 + RAG(운영 기본)",
                        "graph_read": "온톨로지 + RAG, 27B 질문 읽기"}
 
+    _chat_usage_live: dict[int, dict] = {}                         # 답을 쓰는 중인 대화의 문맥 사용(실시간 표시)
+
     def _answer_task(session_id, q, stored, criteria, web="", retrieval=""):
         from zzaimy.app import grant_search as _gs_mode
         from zzaimy.app import llm_budget as _lb_usage
         usage_ = _lb_usage.track()                                # 이 답변에서 모델에 보낸 양 — 화면 「문맥 사용」 표시
+        _chat_usage_live[session_id] = usage_                     # 답을 쓰는 동안에도 화면이 지금까지의 호출을 본다
         try:
             # 관리자 실험(GraphRAG 비교) — 이 답변 안의 사업 문서 검색만 그 모드로. 기본("")은 운영 그대로
             with _gs_mode.graph_mode(retrieval):
@@ -3274,6 +3277,7 @@ def create_app(
                     _chat_step(session_id, f"[실험] 검색 방식: {_RETRIEVAL_NOTE.get(retrieval, retrieval)}")
                 _answer_task_impl(session_id, q, stored, criteria, web)
         finally:
+            _chat_usage_live.pop(session_id, None)
             if usage_["calls"]:
                 db.set_setting(f"chat_ctx:{int(session_id)}", json.dumps({**usage_, "at": time.time()}))
                 from zzaimy.app import chat_memory as _cm2
@@ -3285,10 +3289,22 @@ def create_app(
     def chat_context_usage(request: Request, session_id: int):
         """마지막 답변의 문맥 사용 — 가장 큰 호출의 입력+출력 / 모델 문맥 한도, 모델에 보낸 입력 합, 줄였는지."""
         _chat_owned(request, session_id)
-        try:
-            u = json.loads(db.get_setting(f"chat_ctx:{int(session_id)}", "") or "{}")
-        except ValueError:
-            u = {}
+        from zzaimy.app import chat_memory as _cm3
+        live = _chat_usage_live.get(session_id)
+        if live is not None and live.get("calls"):
+            u = {**live, "items": list(live.get("items") or []), "running": True}
+        else:
+            try:
+                u = json.loads(db.get_setting(f"chat_ctx:{int(session_id)}", "") or "{}")
+            except ValueError:
+                u = {}
+        memo = _cm3.load(db, session_id)
+        lim = int(u.get("limit") or 0) or 16384
+        msgs = [m for m in db.list_chats(session_id, limit=400) if m.get("role") in ("user", "assistant")]
+        _, recent = _cm3.split(msgs, int(lim * _cm3.RECENT_SHARE))
+        u["memo"] = {"text": memo.get("text", ""), "folded": int(memo.get("n") or 0), "at": memo.get("at")}
+        u["window"] = {"messages": len(msgs), "recent": len(recent), "recent_share": _cm3.RECENT_SHARE,
+                       "memo_share": _cm3.SUMMARY_SHARE, "limit": lim}
         return u
 
     def _schedule_answer(background, session_id, q, stored, criteria, web="", retrieval=""):

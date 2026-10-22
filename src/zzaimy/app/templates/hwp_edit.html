@@ -73,6 +73,14 @@
   .tools-btn[aria-pressed=true] { background:#EDF3FB; color:#244770; border-color:#D6E2F2; }
   .btn.ghost { border-color:transparent; background:transparent; color:var(--muted); }
   .btn.ghost iconify-icon { font-size:20px; }
+  /* 문서 위 AURA 커서 — AURA 가 쓰는 칸에 화살표와 이름표(편집 틀 위에 겹쳐 그린다) */
+  .aura-cursor { position:fixed; z-index:30; pointer-events:none; display:flex; align-items:flex-start; gap:2px; transition:left .5s ease, top .5s ease, opacity .3s; }
+  .aura-cursor[hidden] { display:none; }
+  .aura-cursor .arrow { width:18px; height:20px; background:var(--navy); filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35));
+    clip-path:polygon(0 0,0 100%,30% 72%,52% 100%,66% 92%,45% 64%,85% 62%); }
+  .aura-cursor .tag { margin-top:14px; padding:2px 9px; border-radius:999px; background:var(--navy); color:#fff; font-size:11.5px; font-weight:600; white-space:nowrap; max-width:320px; overflow:hidden; text-overflow:ellipsis; box-shadow:0 2px 8px rgba(15,30,60,.18); }
+  .chip.aura { cursor:pointer; }
+  .chip.aura.paused { animation:none; opacity:.75; }
   .alert { flex:none; margin:0; padding:9px 16px; background:#FFF8EC; color:#8A5A00; font-size:13px; border-bottom:1px solid #F5E2BD; display:flex; align-items:center; gap:10px; }
   .alert[hidden] { display:none; }
   .alert button { height:26px; padding:0 10px; border-radius:6px; border:1px solid #E5C77A; background:#fff; font:inherit; font-size:12.5px; cursor:pointer; }
@@ -109,6 +117,7 @@
 <div class="notice-bar" data-notice hidden><span data-notice-text></span><button type="button" data-reload>다시 불러오기</button></div>
 <p class="alert" role="alert" data-load-fail hidden>한글 편집기를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요. <button type="button" onclick="location.reload()">다시 열기</button></p>
 <div id="hwpctrl"></div>
+<div class="aura-cursor" data-aura-cursor hidden aria-hidden="true"><span class="arrow"></span><span class="tag"></span></div>
 <script src="/webhwpctrl/js/hwpctrlapp/utils/util.js"></script>
 <script src="/webhwpctrl/js/hwpctrlapp/hwpCtrlApp.js"></script>
 <script src="/webhwpctrl/js/webhwpctrl.js"></script>
@@ -258,6 +267,8 @@
       // 한글 입력(조합)·붙여넣기·끌어 놓기, 그리고 마우스로 고친 것(표·서식 단추) — 마우스는 누른 뒤 저장해 보고, 바뀐 것이 없으면 서버가 버린다
       ['paste', 'drop', 'cut', 'compositionend', 'input'].forEach(function (t) { doc_.addEventListener(t, touched, true); });
       doc_.addEventListener('pointerup', function () { if (ready && !isNew) touched(); }, true);
+      doc_.addEventListener('pointerdown', pauseFollow, true);
+      doc_.addEventListener('keydown', pauseFollow, true);
     } catch (e) {}
   }
   setTimeout(watchKeys, 1500);
@@ -275,15 +286,49 @@
     if (list.length > 4) { var m = document.createElement('span'); m.className = 'av2 more'; m.textContent = '+' + (list.length - 4); m.title = list.slice(4).map(function (p) { return p.name; }).join(', '); people.append(m); }
     auraBox.innerHTML = '';
     if (aura && aura.field) {
-      var c = document.createElement('span'); c.className = 'chip aura';
+      var c = document.createElement('span'); c.className = 'chip aura' + (follow ? '' : ' paused');
       var av = document.createElement('span'); av.className = 'av'; av.textContent = 'A';
-      c.append(av, document.createTextNode('AURA 작성 중 · ' + where(aura.field)));
+      c.append(av, document.createTextNode('AURA 작성 중 · ' + where(aura.field) + (follow ? '' : ' · 따라가기')));
+      c.title = follow ? 'AURA 가 쓰는 칸을 따라가는 중 — 문서를 누르거나 입력하면 멈춥니다' : '누르면 AURA 가 쓰는 칸으로 따라갑니다';
+      c.onclick = function () { follow = true; pausedAt = 0; followAura(aura.field, true); drawPeople(list, aura); };
       auraBox.append(c);
     }
+    auraNow = aura && aura.field ? aura.field : '';
+    if (!auraNow) { auraCursor.hidden = true; lastAuraField = ''; }
+    else if (follow) followAura(auraNow, auraNow !== lastAuraField);
   }
+  // ── AURA 따라가기 ── AURA 가 쓰는 동안 담당자가 손대지 않으면 화면이 그 칸으로 가고 AURA 커서를 그 자리에 그린다.
+  // 담당자가 입력하거나 문서를 누르면 따라가기를 멈춘다(머리줄 꼬리표를 누르면 다시 따라간다). 담당자의 글은 건드리지 않는다
+  var follow = true, pausedAt = 0, auraNow = '', lastAuraField = '';
+  var auraCursor = document.querySelector('[data-aura-cursor]');
+  function caretRect() {
+    try {
+      var fr = box.querySelector('iframe'); var el = fr.contentDocument.getElementById('HWP_CURSOR_VIEW');
+      if (!el) return null;
+      var r = el.getBoundingClientRect(), o = fr.getBoundingClientRect();
+      if (!r.height) return null;
+      return {x: o.left + r.left, y: o.top + r.top, h: r.height, inView: r.top >= 0 && r.top < o.height};
+    } catch (e) { return null; }
+  }
+  function drawAuraCursor() {
+    if (!auraNow || !follow) { auraCursor.hidden = true; return; }
+    var r = caretRect();
+    if (!r || !r.inView) { auraCursor.hidden = true; return; }
+    auraCursor.querySelector('.tag').textContent = 'AURA · ' + where(auraNow);
+    auraCursor.style.left = (r.x - 2) + 'px'; auraCursor.style.top = (r.y + r.h - 6) + 'px';
+    auraCursor.hidden = false;
+  }
+  function followAura(field, jump) {
+    if (!ready || !follow || dirty) return;
+    if (jump) { try { ctrl.MoveToField(field, true, true, false); lastAuraField = field; } catch (e) {} }
+    setTimeout(drawAuraCursor, 120);
+  }
+  setInterval(drawAuraCursor, 400);
+  function pauseFollow() { if (auraNow && follow) { follow = false; pausedAt = Date.now(); auraCursor.hidden = true; } }
   function reopen() {
     fetch(fileUrl, {credentials: 'same-origin', cache: 'no-store'}).then(function (r) { return r.blob(); }).then(function (blob) {
-      ctrl.Open(new File([blob], name), '', '', function () { fitWidth(); dirty = false; notice.hidden = true; say('최신 상태', 'ok'); setTimeout(watchKeys, 800); });
+      ctrl.Open(new File([blob], name), '', '', function () { fitWidth(); dirty = false; notice.hidden = true; say('최신 상태', 'ok'); setTimeout(watchKeys, 800);
+        if (auraNow && follow) setTimeout(function () { followAura(auraNow, true); }, 300); });
     });
   }
   document.querySelector('[data-reload]').addEventListener('click', reopen);

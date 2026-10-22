@@ -108,6 +108,15 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
         return False
     if not text:
         return False
+    try:                                                     # 메모 갱신도 화면의 호출 목록에(배경 호출이라 답의 기록에 덧붙인다)
+        u = json.loads(db.get_setting(f"chat_ctx:{int(session_id)}", "") or "{}")
+        if isinstance(u, dict):
+            n_in = llm_budget.estimate_messages(messages)
+            u.setdefault("items", []).append({"label": "작업 메모 갱신", "group": "메모", "in": n_in, "out": cap_tokens + 64,
+                                              "limit": limit, "trimmed": False})
+            db.set_setting(f"chat_ctx:{int(session_id)}", json.dumps(u, ensure_ascii=False))
+    except (ValueError, TypeError):
+        pass
     db.set_setting(f"chat_summary:{int(session_id)}", json.dumps(
         {"text": text[:cap_chars + 200], "upto": int(fresh[-1]["id"]), "n": int(s.get("n") or 0) + len(fresh), "at": time.time()},
         ensure_ascii=False))

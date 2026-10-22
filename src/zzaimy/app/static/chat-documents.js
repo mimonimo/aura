@@ -861,17 +861,70 @@
  }
  // 답이 도착하면 연결 정보를 다시 읽고(절·연결 문서가 바뀌었을 수 있다) 편집기를 새로 불러온다.
  // 쓴 절을 알면 그 자리로 옮긴다.
- // 입력창 아래 오른쪽 — 마지막 답변의 문맥 사용(가장 큰 모델 호출이 문맥 한도를 얼마나 썼는지)과 모델에 보낸 입력 합
+ // 입력창 아래 오른쪽 — 문맥 관리 보기. 누르면 지금 작업 메모, 이번 답의 모델 호출(메인·서브·메모 갱신)별 문맥 사용, 최근 대화 몫이 열린다
+ const fmtK=n=>n>=10000?(n/10000).toFixed(1).replace(/\.0$/,'')+'만':n>=1000?(n/1000).toFixed(1).replace(/\.0$/,'')+'K':String(n);
  async function paintCtx(){
    const box=document.getElementById('chatCtx');if(!box||!sid)return;
    let u;try{u=await api('/api/chat/'+sid+'/context');}catch(_){return;}
-   if(!u||!u.limit||!u.peak){box.hidden=true;return;}
-   const pct=Math.min(100,Math.round(u.peak/u.limit*100)),fmt=n=>n>=10000?(n/10000).toFixed(1).replace(/\.0$/,'')+'만':n.toLocaleString('ko-KR');
+   const memo=(u.memo&&u.memo.text)||'';
+   if(!u.limit&&!memo){box.hidden=true;return;}
+   const pct=u.limit?Math.min(100,Math.round((u.peak||0)/u.limit*100)):0;
    box.hidden=false;box.classList.toggle('is-high',pct>=85);
    box.querySelector('.chat-ctx-bar>span').style.width=pct+'%';
-   box.querySelector('.chat-ctx-text').textContent='문맥 '+pct+'% · 입력 '+fmt(u.prompt)+' 토큰';
-   box.title='마지막 답변 — 한 번에 보낸 양이 가장 컸던 호출이 문맥 한도 '+u.limit.toLocaleString('ko-KR')+' 토큰 중 '+u.peak.toLocaleString('ko-KR')+' 토큰(입력+답변 몫)을 썼습니다.\n'
-     +'모델 호출 '+u.calls+'번, 보낸 입력 합 '+u.prompt.toLocaleString('ko-KR')+' 토큰(어림).'+(u.trimmed?'\n한도에 맞추려고 오래된 대화나 첨부 일부를 줄여서 보냈습니다.':'');
+   box.querySelector('.chat-ctx-text').textContent=u.limit?('문맥 '+pct+'% · 입력 '+fmtK(u.prompt||0)+' 토큰'):'작업 메모';
+   box.classList.toggle('is-live',!!u.running);
+   box.removeAttribute('title');
+   box.setAttribute('role','button');box.tabIndex=0;box.setAttribute('aria-label','문맥 관리 보기');
+   box._u=u;
+   box.onclick=box.onkeydown=e=>{if(e.type==='keydown'&&!['Enter',' '].includes(e.key))return;e.preventDefault();hideCtxCard();openCtx(box._u);};
+   if(!box._hover){box._hover=true;box.addEventListener('mouseenter',()=>showCtxCard(box));box.addEventListener('mouseleave',hideCtxCard);box.addEventListener('focus',()=>showCtxCard(box));box.addEventListener('blur',hideCtxCard);}
+   if(document.querySelector('.ctx-card'))showCtxCard(box);          // 열려 있으면 새 값으로
+ }
+ // 마우스를 올리면 뜨는 요약 카드 — 문맥 %, 지금 목표 한 줄, 메인·서브·메모 호출 수와 가장 큰 호출
+ function showCtxCard(box){
+   const u=box._u||{};hideCtxCard();
+   const c=elx('div','ctx-card');c.setAttribute('role','tooltip');
+   const lim=u.limit||(u.window&&u.window.limit)||0,pct=lim?Math.min(100,Math.round((u.peak||0)/lim*100)):0;
+   const top=elx('div','ctx-card-top');top.append(elx('strong',null,(u.running?'답 쓰는 중 · ':'')+'문맥 '+pct+'%'),elx('span',null,lim?fmtK(u.peak||0)+' / '+fmtK(lim)+' 토큰':''));c.append(top);
+   const bar=elx('div','ctx-card-bar');const f=elx('span');f.style.width=pct+'%';bar.append(f);c.append(bar);
+   const goal=((u.memo&&u.memo.text)||'').split('\n').map(x=>x.trim()).filter(Boolean);
+   const gi=goal.findIndex(x=>/^지금 목표/.test(x));
+   if(gi>=0&&goal[gi+1])c.append(elx('p','ctx-card-goal','목표 '+goal[gi+1].replace(/^-\s*/,'')));
+   const items=u.items||[],cnt=g=>items.filter(i=>(i.group||'메인')===g).length;
+   c.append(elx('p','ctx-card-meta','메인 '+cnt('메인')+'번 · 서브 '+cnt('서브')+'번 · 메모 '+cnt('메모')+'번 · 최근 대화 '+((u.window&&u.window.recent)||0)+'개 원문, 앞은 메모'));
+   c.append(elx('p','ctx-card-hint','누르면 자세히'));
+   document.body.append(c);
+   const r=box.getBoundingClientRect();c.style.left=Math.max(12,Math.min(window.innerWidth-c.offsetWidth-12,r.right-c.offsetWidth))+'px';c.style.top=(r.top-c.offsetHeight-8)+'px';
+ }
+ function hideCtxCard(){document.querySelector('.ctx-card')?.remove();}
+ // 실시간 — 답을 쓰는 동안에는 2초, 평소엔 10초마다 다시 읽는다(창이 보일 때만)
+ setInterval(()=>{if(document.hidden)return;const b=document.getElementById('chatCtx');const live=b&&b.classList.contains('is-live');const now=Date.now();
+   if(live||!paintCtx._at||now-paintCtx._at>10000){paintCtx._at=now;paintCtx();}},2000);
+ function openCtx(u){
+   document.querySelector('.ctx-pop')?.remove();
+   const d=elx('dialog','ctx-pop');d.setAttribute('aria-label','문맥 관리');
+   const head=elx('header');head.append(elx('h2',null,'문맥 관리'));const x=elx('button','hf-x','×');x.type='button';x.setAttribute('aria-label','닫기');x.onclick=()=>d.close();head.append(x);d.append(head);
+   const w=u.window||{},lim=u.limit||w.limit||0;
+   const sum=elx('p','ctx-sum');
+   sum.textContent='모델 문맥 한도 '+(lim?lim.toLocaleString('ko-KR'):'—')+' 토큰 · 최근 대화 원문은 한도의 '+Math.round((w.recent_share||0.3)*100)+'%('+(w.recent||0)+'개 / 전체 '+(w.messages||0)+'개), 그 앞은 작업 메모로 접음'+((u.memo&&u.memo.folded)?'('+u.memo.folded+'개 접음)':'');
+   d.append(sum);
+   // 작업 메모
+   const mh=elx('h3',null,'지금 작업 메모');d.append(mh);
+   const mt=elx('pre','ctx-memo',(u.memo&&u.memo.text)||'아직 메모가 없습니다 — 첫 답이 끝나면 만들어집니다.');d.append(mt);
+   // 호출별
+   const items=u.items||[];
+   const ch=elx('h3',null,'이번 답의 모델 호출 '+items.length+'번');d.append(ch);
+   if(!items.length)d.append(elx('p','ctx-empty','기록된 호출이 없습니다.'));
+   const order=['메인','서브','메모'],names={'메인':'메인 에이전트','서브':'서브 에이전트','메모':'작업 메모'};
+   order.forEach(g=>{const rows=items.filter(it=>(it.group||'메인')===g);if(!rows.length)return;
+     const sec=elx('div','ctx-group');sec.append(elx('div','ctx-gname',names[g]+' · '+rows.length+'번'));
+     rows.forEach(it=>{const tot=(it.in||0)+(it.out||0),l=it.limit||lim||1,p=Math.min(100,Math.round(tot/l*100));
+       const r=elx('div','ctx-row'+(p>=85?' is-high':''));r.append(elx('span','ctx-label',it.label+(it.trimmed?' · 줄여 보냄':'')));
+       const bar=elx('span','ctx-rbar');const fill=elx('span');fill.style.width=p+'%';const fo=elx('span','ctx-out');fo.style.width=Math.min(100-p,Math.round((it.out||0)/l*100))+'%';fo.style.left=Math.round((it.in||0)/l*100)+'%';bar.append(fill);
+       r.append(bar,elx('span','ctx-num',fmtK(it.in||0)+' + '+fmtK(it.out||0)+' / '+fmtK(l)));r.title='입력 '+(it.in||0).toLocaleString('ko-KR')+' 토큰(어림) + 답 몫 '+(it.out||0).toLocaleString('ko-KR')+' 토큰, 한도 '+l.toLocaleString('ko-KR');
+       sec.append(r);});d.append(sec);});
+   d.append(elx('p','ctx-note','토큰 수는 어림값입니다(서버가 셀 수 있으면 실측으로 보정). 한도를 넘으면 첨부·오래된 대화·근거 순으로 줄여 보냅니다.'));
+   document.body.append(d);d.showModal();d.addEventListener('close',()=>d.remove());d.addEventListener('click',e=>{if(e.target===d)d.close();});
  }
  async function afterAnswer(){
    paintCtx();
