@@ -1,8 +1,8 @@
 /* 빠른 찾기 창 — 화면 위쪽 가운데, 얇은 테두리 */
-.qs{width:min(620px,calc(100vw - 32px));max-height:min(520px,calc(100dvh - 120px));margin:12vh auto auto;padding:0;border:1px solid #dfe5ec;border-radius:14px;box-shadow:0 24px 64px #15243c2e;overflow:hidden;background:#fff;color:#1f2a3a}
+.qs{width:min(640px,calc(100vw - 32px));max-height:min(600px,calc(100dvh - 100px));margin:10vh auto auto;padding:0;border:1px solid #dfe5ec;border-radius:14px;box-shadow:0 24px 64px #15243c2e;overflow:hidden;background:#fff;color:#1f2a3a}
 .qs[open]{display:flex;flex-direction:column}
 .qs::backdrop{background:#15243c33}
-.qs-top{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #edf0f4}
+.qs-top{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #edf0f4}
 .qs-top iconify-icon{font-size:17px;color:#8a96a6}
 .qs-top input{flex:1;min-width:0;border:0!important;outline:0!important;background:none!important;box-shadow:none!important;padding:2px 0;font:inherit;font-size:15px;-webkit-appearance:none;appearance:none}
 .qs-top input::-webkit-search-cancel-button{display:none}
@@ -12,7 +12,7 @@
 .qs-tab{min-height:0;padding:3px 10px;border:0;border-radius:999px;background:transparent;color:#5d6a7c;font:inherit;font-size:12.5px;box-shadow:none;cursor:pointer}
 .qs-tab:hover{background:#f1f4f8}
 .qs-tab.on{background:#e7edf6;color:#1b3b75;font-weight:600}
-.qs-list{flex:1;overflow-y:auto;padding:6px}
+.qs-list{flex:1;min-height:min(340px,calc(100dvh - 260px));overflow-y:auto;padding:6px}
 .qs-sect{margin:8px 10px 3px;font-size:11px;font-weight:600;color:#8d98a7}
 .qs-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:#1f2a3a;text-decoration:none;font-size:13.5px}
 .qs-row iconify-icon{font-size:16px;color:#6a86ab}
@@ -20,7 +20,7 @@
 .qs-meta{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:#8d98a7}
 .qs-row.on{background:#eef2f8}
 .qs-row.on .qs-name{color:#163266}
-.qs-empty{margin:22px;text-align:center;color:#8d98a7;font-size:13px}
+.qs-empty{margin:56px 22px;text-align:center;color:#8d98a7;font-size:13px}
 .qs-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-top:1px solid #edf0f4;background:#fafbfc;font-size:11.5px;color:#8d98a7}
 .qs-foot kbd{margin:0 1px}
 .qs-all{color:#45658f;text-decoration:none;font-size:12px}

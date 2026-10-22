@@ -123,6 +123,7 @@ def merged_rows(data_dir=None, ledger: dict | None = None, store: dict | None = 
             if f in o:
                 r[f] = list(o[f] or [])
         r["hidden"] = bool(o.get("hidden", r.get("hidden")))
+        r["period"] = re.sub(r"(\d{4})-(\d{2})-(\d{2})(?:[ T]00:00(?::00)?)?", r"\1.\2.\3", str(r.get("period") or "")).strip()   # 엑셀 날짜 값(… 00:00:00)은 날짜만
         r["ids"] = {r["key"], *("program:" + k for t in [r["name"], *r["terms"]] if (k := _norm(t)))}
         r["depts"] = [d for d in _SPLIT.split(r.get("dept") or "") if d]
     return rows
