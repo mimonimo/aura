@@ -21,7 +21,8 @@
 #projectWorkspace .project-start input[name=question] { flex:1; min-width:0; font-size:14px; }
 #projectWorkspace .project-start button { flex:none; white-space:nowrap; }
 .project-overview-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:28px; }
-#projectDocuments { order:2; min-width:0; }
+.project-side { order:2; min-width:0; display:flex; flex-direction:column; gap:22px; }
+#projectDocuments { min-width:0; }
 #projectChatList { order:1; min-width:0; }
 #projectWorkspace .project-overview-grid .card { border:0; box-shadow:none; }
 #projectWorkspace .project-overview-grid .card-in { padding:0; }
@@ -39,6 +40,8 @@
 #projectWorkspace .project-head { border-bottom:0 !important; margin-bottom:12px !important; }
 .project-name { font-size:28px; font-weight:650; margin:0 0 8px; letter-spacing:-.04em; overflow-wrap:anywhere; }
 .project-tabs { display:flex; gap:24px; border-bottom:1px solid var(--line); margin:28px 0 24px; }
+.project-tabs a { color:var(--muted); padding:12px 2px; font-size:14px; text-decoration:none; border-bottom:2px solid transparent; }
+.project-tabs a:hover { color:var(--ink); text-decoration:none; }
 .project-tabs button { background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--muted); padding:12px 2px; font-size:14px; box-shadow:none; }
 .project-tabs button[aria-selected=true] { border-bottom-color:var(--ink); color:var(--ink); }
 .project-tabs button span { font-size:11px; background:#f0f1f3; padding:3px 6px; border-radius:5px; }
@@ -48,8 +51,6 @@
 #projectWorkspace .project-chat-row form { width:100%; align-items:center; border:1px solid #dedfe3; border-radius:18px; padding:12px; background:#fafafa; }
 #projectWorkspace .project-chat-row input { border:0 !important; background:transparent; outline:none; }
 #projectWorkspace .project-chat-row form:focus-within { border-color:#8092a9; }
-.project-tools { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 36px; }
-.project-tools button { font-size:12px; background:white; padding:8px 11px; }
 .project-history-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); }
 .project-history-heading h3 { font-size:14px; font-weight:600; }
 .project-conversation { display:flex; align-items:center; gap:12px; padding:18px 10px; border-bottom:1px solid #f0f1f3; text-decoration:none; color:var(--ink); border-radius:6px; font-size:14px; }
@@ -57,16 +58,6 @@
 .project-conversation span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .project-conversation iconify-icon { flex-shrink:0; color:var(--muted); }
 .project-empty { padding:28px 0; color:var(--muted); font-size:13px; }
-#projectContext .tabbar { max-width:440px; margin-bottom:24px; }
-#projectContext textarea { min-width:0; }
-.project-context-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
-.project-context-section{min-width:0;padding:22px;border:1px solid var(--line);border-radius:16px;background:white}
-#projectWorkspace .project-context-section .project-context-intro{margin:0 0 20px}
-.project-context-help{font-size:12px;color:var(--muted);line-height:1.7;margin:14px 0 0}
-#projectWorkspace .project-context-section .project-criterion-item{flex-wrap:wrap;gap:10px;padding:14px}
-#projectWorkspace .project-context-section .project-criterion-title{flex-basis:calc(100% - 40px)}
-#projectWorkspace .project-context-section .project-criterion-open{margin-left:auto}
-@media(max-width:1100px){.project-context-grid{grid-template-columns:minmax(0,1fr)}.project-context-section{padding:18px}}
 @media(max-width:600px) {
   .project-name { font-size:24px; }
   .project-tabs { gap:20px; margin-top:18px; }
@@ -76,40 +67,6 @@
   #projectWorkspace .project-chat-row button { margin-left:auto; }
 }
 
-#projectWorkspace .project-context-intro { margin:20px 0; }
-#projectWorkspace .project-context-intro h2 { font-size:17px; margin:0 0 8px; }
-#projectWorkspace .project-context-intro p,.project-intake-help { font-size:13px; line-height:1.7; color:var(--muted); margin:0; }
-#projectWorkspace .project-note-compose { display:grid; gap:10px; padding:0; background:transparent; border:0; }
-#projectWorkspace .project-note-compose label { font-size:14px; font-weight:600; }
-#projectWorkspace .project-note-compose textarea { width:100%; box-sizing:border-box; height:88px; min-height:88px; max-height:200px; resize:none; overflow-y:auto; font:inherit; font-size:14px; line-height:1.7; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:white; }
-#projectWorkspace .project-note-compose textarea:focus { outline:2px solid #c7d8ee; outline-offset:2px; border-color:#718cac; }
-#projectWorkspace .project-context-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-#projectWorkspace .project-context-footer span { font-size:12px; color:var(--muted); }
-#projectWorkspace .project-context-footer button { flex:none; }
-#projectWorkspace .project-context-list-title { margin:28px 0 12px; font-size:14px; }
-#projectWorkspace .project-context-list-title span { color:var(--muted); margin-left:6px; }
-#projectWorkspace .project-note-list { display:grid; gap:12px; }
-#projectWorkspace .project-note-item { border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
-#projectWorkspace .project-note-item p { margin:0 0 12px; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.8; font-size:14px; }
-#projectWorkspace .project-note-meta { display:flex; justify-content:space-between; align-items:center; gap:12px; color:var(--muted); font-size:12px; }
-#projectWorkspace .project-note-meta form { margin:0; }
-#projectWorkspace .project-note-meta button { padding:5px 10px; font-size:12px; }
-#projectWorkspace .project-context-empty { padding:22px; border:1px dashed var(--line); border-radius:10px; color:var(--muted); font-size:13px; line-height:1.7; }
-#projectWorkspace .project-criterion-item { display:flex; align-items:center; gap:14px; padding:18px; border:1px solid var(--line); border-radius:12px; background:white; }
-#projectWorkspace .project-criterion-title { flex:1; min-width:0; }
-#projectWorkspace .project-criterion-title a { display:block; font-weight:600; line-height:1.7; overflow-wrap:anywhere; text-decoration:none; }
-#projectWorkspace .project-criterion-title span { display:block; margin-top:6px; font-size:12px; color:var(--muted); }
-#projectWorkspace .project-criterion-item form { margin:0; flex:none; }
-#projectWorkspace .project-criterion-item button,.project-criterion-open { font-size:12px; white-space:nowrap; }
-#projectWorkspace .project-criterion-open { text-decoration:none; color:var(--navy); }
-@media(max-width:650px){
- #projectWorkspace .project-note-compose { padding:0; }
- #projectWorkspace .project-context-footer { align-items:flex-start; flex-wrap:wrap; }
- #projectWorkspace .project-context-footer button { margin-left:auto; }
- #projectWorkspace .project-criterion-item { flex-wrap:wrap; gap:12px; }
- #projectWorkspace .project-criterion-title { flex-basis:calc(100% - 40px); }
- #projectWorkspace .project-criterion-open { margin-left:auto; }
-}
 
 #linkModal .criteria-picker-filters { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0; }
 #linkModal .criteria-picker-filters button { padding:7px 11px; font-size:12px; border-radius:18px; white-space:nowrap; }
@@ -126,18 +83,10 @@
 #projectWorkspace .project-doc-group h3 { display:flex; align-items:center; gap:6px; margin:0; font-size:13px; }
 #projectWorkspace .project-doc-count { font-size:11.5px; font-weight:600; color:var(--muted); background:var(--soft, #F1F4F9); border-radius:999px; padding:1px 8px; }
 #projectWorkspace .project-doc-empty { margin:8px 0 0; font-size:12.5px; color:var(--muted); line-height:1.6; }
-/* 관련 지난 사업은 두 칸을 다 쓴다 — 왼쪽 한 칸에만 서고 오른쪽이 비지 않게 */
-.project-context-grid #paneRefs{grid-column:1/-1}
 .project-breadcrumb{display:inline-flex;align-items:center;gap:4px}
 
 .project-conversation a{color:inherit;text-decoration:none}
 .project-conversation .project-action-link{color:#355984}
-/* 기준 문서·지난 사업 줄 — 넓은 화면에서는 한 줄(아이콘 · 제목 · 단추), 줄 사이를 띄운다 */
-@media (min-width: 721px) {
-  #projectWorkspace .project-context-section .project-criterion-item { flex-wrap:nowrap; padding:12px 14px; }
-  #projectWorkspace .project-context-section .project-criterion-item .project-criterion-title { flex:1 1 auto; min-width:0; }
-}
-#projectWorkspace .project-context-section .project-criterion-item + .project-criterion-item { margin-top:8px; }
 /* 대화 줄 — 본인 대화는 오른쪽에 공개·비공개 단추, 동료 대화는 「이름 · 읽기 전용」 */
 .project-conversation-row{display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f1f3}
 .project-conversation-row .project-conversation{flex:1;min-width:0;border-bottom:0}
@@ -166,3 +115,104 @@ a.pw-row:hover, .pw-row:hover { background:#f5f7fa; text-decoration:none; }
 .pw-btn:focus-visible { outline:2px solid #45658f; outline-offset:2px; }
 #projectWorkspace .project-history-heading + .pw-list { border-top:0; }
 @media(max-width:600px){ .pw-meta { display:none; } }
+
+/* 머리 아이콘 — 색은 프로젝트마다(--pc 아이콘, --pcb 바탕). 소유자는 눌러 팔레트를 연다 */
+.project-icon-wrap { position:relative; flex:none; }
+.project-icon { width:42px; height:42px; min-height:0; padding:0; border-radius:12px; border:0; background:var(--pcb, #E8EFFC); color:var(--pc, var(--navy)); display:flex; align-items:center; justify-content:center; box-shadow:none; cursor:pointer; }
+.project-icon iconify-icon { font-size:23px; }
+.project-icon:disabled { cursor:default; opacity:1; }
+.project-icon:not(:disabled):hover { box-shadow:0 0 0 3px #1f293712; }
+.project-pop { position:absolute; z-index:20; top:calc(100% + 6px); left:0; margin:0; padding:8px; background:#fff; border:1px solid #e3e7ed; border-radius:10px; box-shadow:0 8px 24px #15243c1a; }
+.project-pop[hidden] { display:none; }
+.project-color-pop { display:flex; gap:6px; }
+.project-swatch { width:22px; height:22px; min-height:0; padding:0; border-radius:50%; border:1.5px solid var(--sw); background:transparent; box-shadow:none; cursor:pointer; position:relative; }
+.project-swatch::after { content:""; position:absolute; inset:4px; border-radius:50%; background:var(--sw); opacity:.18; }
+.project-swatch[aria-pressed=true]::after { opacity:1; }
+.project-swatch:hover::after { opacity:.45; }
+.project-swatch:focus-visible { outline:2px solid #45658f; outline-offset:2px; }
+.project-meta { font-size:12.5px; color:var(--muted); margin-top:2px; }
+.project-lead-wrap { position:relative; display:inline-block; }
+.project-lead-chip { display:inline; min-height:0; padding:0 2px; border:0; background:transparent; box-shadow:none; color:var(--muted); font:inherit; font-size:12.5px; cursor:pointer; border-bottom:1px dashed #c3cad4; border-radius:0; }
+.project-lead-chip:hover { color:var(--ink); border-bottom-color:var(--ink); }
+.project-lead-pop { min-width:180px; display:flex; flex-direction:column; gap:2px; }
+.project-lead-pop button { display:flex; align-items:center; gap:8px; width:100%; min-height:30px; padding:5px 8px; border:0; border-radius:6px; background:transparent; color:var(--ink); font:inherit; font-size:13px; text-align:left; box-shadow:none; }
+.project-lead-pop button:hover, .project-lead-pop button[aria-pressed=true] { background:#f1f4f8; }
+.project-lead-pop small { margin-left:auto; color:var(--faint); font-size:11.5px; }
+.project-lead-pop p { margin:4px 8px 2px; max-width:220px; font-size:12px; line-height:1.5; color:var(--muted); }
+
+/* 문서 추가 — 작은 메뉴 */
+#projectWorkspace .project-doc-head .pd-add { position:relative; }
+#projectWorkspace .project-doc-head .pd-add-btn { display:inline-flex; align-items:center; gap:5px; font-size:12px; padding:5px 9px; min-height:30px; background:#fff; color:var(--ink); border:1px solid #dde1e6; border-radius:8px; box-shadow:none; font-weight:500; }
+#projectWorkspace .project-doc-head .pd-add-btn:hover { background:#f5f7fa; border-color:#c4ccd6; }
+.pd-caret { font-size:12px; color:var(--faint); }
+.pd-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:20; min-width:250px; padding:5px; background:#fff; border:1px solid #e3e7ed; border-radius:10px; box-shadow:0 8px 24px #15243c1a; }
+.pd-menu[hidden] { display:none; }
+#projectWorkspace .pd-menu button { display:flex; align-items:center; gap:9px; width:100%; min-height:32px; padding:6px 9px; border:0; border-radius:6px; background:transparent; color:var(--ink); font:inherit; font-size:13px; text-align:left; box-shadow:none; }
+#projectWorkspace .pd-menu button[hidden] { display:none; }
+#projectWorkspace .pd-menu button:hover, #projectWorkspace .pd-menu button:focus-visible { background:#f1f4f8; outline:none; }
+.pd-menu iconify-icon { font-size:16px; color:#6f8bb0; flex:none; }
+.project-intake-help { font-size:12px; color:var(--faint); margin:4px 0 0; }
+
+/* 끌어 놓기 — 칸 전체, 끌어 오면 얇은 점선 테두리와 한 줄 안내 */
+#projectDocuments[data-drop-zone] { position:relative; border-radius:12px; outline:1.5px dashed transparent; outline-offset:6px; transition:outline-color .12s, background .12s; }
+#projectDocuments.is-drag { outline-color:#8da4c2; background:#f6f8fb; }
+.pd-drop-hint { display:none; position:absolute; inset:0; z-index:5; align-items:center; justify-content:center; gap:8px; border-radius:12px; background:#f6f8fbe6; color:#3d5675; font-size:13px; pointer-events:none; }
+#projectDocuments.is-drag .pd-drop-hint { display:flex; }
+.pd-drop-hint iconify-icon { font-size:18px; }
+
+/* 올릴 문서 — 줄마다 이름·크기/진행·빼기 */
+.pd-pending { margin-top:12px; border:1px solid #e6eaef; border-radius:10px; padding:4px 10px 8px; background:#fff; }
+.pd-pending[hidden] { display:none; }
+.pd-pending-list { list-style:none; margin:0; padding:0; }
+.pd-up { display:grid; grid-template-columns:18px minmax(0,1fr) auto 22px; grid-template-rows:auto 3px; column-gap:8px; align-items:center; padding:7px 0 6px; border-bottom:1px solid #f0f2f5; font-size:12.5px; }
+.pd-up > iconify-icon { color:#6f8bb0; font-size:16px; }
+.pd-up-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pd-up-state { font-size:11.5px; color:var(--faint); white-space:nowrap; }
+.pd-up-x { width:22px; height:22px; min-height:0; padding:0; border:0; border-radius:6px; background:transparent; color:var(--faint); font-size:15px; line-height:1; box-shadow:none; }
+.pd-up-x:hover { background:#f1f4f8; color:var(--ink); }
+.pd-bar { grid-column:2 / 4; grid-row:2; height:2px; border-radius:2px; background:#eef1f4; overflow:hidden; visibility:hidden; }
+.pd-bar i { display:block; height:100%; width:0; background:#5b7aa3; transition:width .15s; }
+.pd-up.is-up .pd-bar, .pd-up.is-wait .pd-bar { visibility:visible; }
+.pd-up.is-wait .pd-bar i { width:35%; animation:pd-wait 1.2s ease-in-out infinite; }
+@keyframes pd-wait { 0% { transform:translateX(-100%); } 100% { transform:translateX(300%); } }
+.pd-up.is-done .pd-up-state { color:#2f6b45; }
+.pd-up.is-bad .pd-up-state { color:#a23b3b; }
+.pd-up.is-bad .pd-up-name { color:var(--muted); }
+.pd-pending-foot { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-top:8px; }
+.pd-pending-foot .muted { margin-right:auto; font-size:12px; }
+.pd-pending-foot button { font-size:12px; padding:5px 12px; min-height:30px; }
+.pd-status { font-size:12.5px; margin:8px 0 0; }
+
+/* 문서 줄의 작은 동작(기준으로 쓰기·빼기) — 넓은 화면은 줄에 올렸을 때 */
+.pw-act { margin:0; flex:none; }
+.pw-act .pw-btn { min-height:0; box-shadow:none; font:inherit; font-size:11.5px; cursor:pointer; }
+@media (hover:hover) { .pw-row .pw-act { opacity:0; } .pw-row:hover .pw-act, .pw-row:focus-within .pw-act { opacity:1; } }
+
+/* 작성 원칙·지난 사업 — 오른쪽 열 아래 얇은 카드 */
+.project-side-card { border:1px solid #e6eaef; border-radius:12px; padding:12px 14px; background:#fff; }
+.project-side-title { display:flex; align-items:center; gap:6px; margin:0 0 6px; font-size:13px; }
+.pn-list { list-style:none; margin:0; padding:0; }
+.pn-row { display:flex; align-items:flex-start; gap:6px; padding:5px 0; border-bottom:1px solid #f0f2f5; font-size:13px; line-height:1.55; }
+.pn-text { flex:1; min-width:0; overflow-wrap:anywhere; }
+.pn-text::before { content:"·"; margin-right:6px; color:var(--faint); }
+.pn-del-form { margin:0; flex:none; }
+.pn-del { width:22px; height:22px; min-height:0; padding:0; border:0; border-radius:6px; background:transparent; color:var(--faint); font-size:15px; box-shadow:none; }
+.pn-del:hover { background:#f1f4f8; color:var(--ink); }
+@media (hover:hover) { .pn-row .pn-del { opacity:0; } .pn-row:hover .pn-del, .pn-row:focus-within .pn-del { opacity:1; } }
+.pn-empty { padding:4px 0 6px; font-size:12.5px; color:var(--faint); }
+.pn-add { display:flex; gap:6px; margin:8px 0 0; }
+.pn-add input { flex:1; min-width:0; height:32px; padding:0 10px; font:inherit; font-size:13px; border:1px solid #e1e5ea; border-radius:8px; background:#fafbfc; }
+.pn-add input:focus { outline:none; border-color:#8092a9; background:#fff; }
+.pn-add button { flex:none; font-size:12px; padding:4px 12px; min-height:32px; }
+.pr-line { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid #f0f2f5; font-size:12px; color:var(--muted); }
+.pr-label { color:var(--faint); margin-right:2px; }
+.pr-chip { display:inline-flex; align-items:center; gap:2px; max-width:100%; padding:1px 4px 1px 8px; border:1px solid #e3e7ed; border-radius:999px; background:#fafbfc; }
+.pr-chip a { color:var(--ink); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px; }
+.pr-chip form { margin:0; }
+.pr-chip button { width:18px; height:18px; min-height:0; padding:0; border:0; border-radius:50%; background:transparent; color:var(--faint); font-size:13px; line-height:1; box-shadow:none; }
+.pr-chip button:hover { background:#eef1f4; color:var(--ink); }
+.pr-link { color:#3d5675; text-decoration:none; }
+.pr-link:hover { text-decoration:underline; text-underline-offset:2px; }
+.pr-none { color:var(--faint); }
+.pr-chip.is-suggest { border-style:dashed; background:transparent; }
+.pr-chip.is-suggest a { color:var(--muted); }

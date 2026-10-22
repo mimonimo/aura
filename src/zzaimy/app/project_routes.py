@@ -1,6 +1,10 @@
 """프로젝트(/project*·/projects*) — 프로젝트 만들기(이름만·자료 묶음으로), 프로젝트 화면(/project/{id}),
-자료 더 넣기(/project/{id}/bundle), 기준 문서 고르기·빼기, 관련 보관 사업 잇기·풀기, 프로젝트 검색(/projects/archived),
-보관·불러오기, 작업 폴더 부서 공유, 메모·노트, 이름·기한·사업단·사업 바꾸기, 지우기.
+자료 더 넣기(/project/{id}/bundle — 끌어 놓기·파일 고르기), 문서함·드라이브에서 가져오기(/project/{id}/documents/import),
+기준 문서 고르기·한 건 잇기·빼기, 관련 보관 사업 잇기·풀기, 프로젝트 검색(/projects/archived),
+보관·불러오기, 작업 폴더 부서 공유, 작성 원칙, 아이콘 색·사업 책임자, 이름·기한·사업단·사업 바꾸기, 지우기.
+
+프로젝트 화면은 탭 하나(「대화·문서」)에 대화·작업 문서(왼쪽)와 프로젝트 문서·작성 원칙·관련 지난 사업(오른쪽)을 함께 둔다.
+옛 「작성 원칙·기준 문서」 탭 주소(?tab=context)는 같은 화면의 작성 원칙 자리(#projectContext)로 이어진다.
 
 - 프로젝트 찾기 JSON(/api/projects/browse)은 main, 프로젝트 검색 API(/api/projects/search)는 app/project_search 에 그대로 있다.
 - DB·화면 틀·화면 공통 맥락(ctx)과 묶음 반입(_intake_bundle — 배경 판독·뒤 단계 줄)·지난 사업 자동 참조(_link_past_projects)·
@@ -10,14 +14,16 @@
 """
 from __future__ import annotations
 
+import io
 import json as _aj
 import logging
 import re
+from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from zzaimy.app import storage
 
@@ -57,7 +63,81 @@ def make_project_helpers(
             logging.getLogger("zzaimy.app.web").exception("관련 보관 사업 조회 실패")
             return {"project_refs": [], "ref_candidates": [], "refq": refq}
 
+    # 프로젝트 아이콘 색 — 프로젝트 목록·사이드바가 같은 색으로 그리게 템플릿 어디서나 project_color(프로젝트 id) 로 부른다
+    from zzaimy.app import project_access as _pa
+    try:
+        templates.env.globals["project_color"] = lambda pid: _pa.color(db, int(pid)) if pid else _pa.PALETTE[_pa.DEFAULT_COLOR][0]
+        # 새 프로젝트 만들기 단추 — 사업 책임 이상에게만(grades.can_create_project). 화면은 can_create_project(request) 로 묻는다
+        templates.env.globals["can_create_project"] = _may_create
+    except AttributeError:                                # 테스트용 가짜 템플릿
+        pass
     return SimpleNamespace(**deps, _ref_names=_ref_names, _project_ref_ctx=_project_ref_ctx)
+
+
+IMPORT_LIMIT = 20                                         # 문서함·드라이브에서 한 번에 가져오는 문서 수
+_DRIVE_ID = re.compile(r"[A-Za-z0-9_-]{10,128}")
+_DRIVE_MAX = 100 * 1024 * 1024
+
+
+def _account(request: Request) -> dict:
+    """이 요청의 계정 — 계정 장부 값에 지금 역할을 채운다(인증 없는 로컬 개발 모드는 장부가 비어 관리자)."""
+    user = getattr(request.state, "user", "") or ""
+    acc = dict((getattr(request.app.state, "accounts", None) or {}).get(user) or {})
+    acc.setdefault("role", getattr(request.state, "role", "") or "")
+    return acc
+
+
+def _may_create(request: Request) -> bool:
+    from zzaimy.app import grades
+    return grades.can_create_project(_account(request))
+
+
+def _require_create(request: Request) -> None:
+    if not _may_create(request):
+        raise HTTPException(403, "사업 책임 이상만 프로젝트를 만들 수 있습니다")
+
+
+def _wants_json(request: Request) -> bool:
+    return "application/json" in (request.headers.get("accept") or "")
+
+
+def _require_write(request: Request, proj: dict) -> None:
+    """대화 시작·문서 추가·원칙 수정 같은 쓰기 — 소유자·관리자·함께 작업만. 참조(읽기 전용)는 403."""
+    from zzaimy.app import project_access as pa
+    if proj.get("archived"):
+        raise HTTPException(403, "지난 사업은 보관 해제 뒤에 고칩니다")
+    if not pa.can_write(request.app.state.project_access(request, proj)):
+        raise HTTPException(403, "참조로 공유된 프로젝트는 읽기만 할 수 있습니다")
+
+
+def _require_owner(request: Request, proj: dict) -> None:
+    """프로젝트 설정(색·담당자·공유) — 소유자와 관리자만."""
+    if getattr(request.state, "role", "") != "dev" and proj.get("owner") != getattr(request.state, "user", ""):
+        raise HTTPException(403, "프로젝트 설정은 소유자만 바꿉니다")
+
+
+def _share_of(request: Request, proj: dict) -> dict:
+    from zzaimy.app import project_access as pa
+    accounts = request.app.state.accounts
+    owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
+    return pa.shares(request.app.state.db, proj, owner_dept)
+
+
+def _drive_fetch(email: str, drive_id: str, http=None) -> tuple[bytes, str]:
+    """드라이브 파일 하나를 내려받는다 — 구글 문서·시트·슬라이드는 오피스 형식으로 내보낸다(gdrive_import._download 그대로)."""
+    from zzaimy.app import gdrive_import, webhwp_drive
+    from zzaimy.ingest import gdrive, gdrive_files
+    http = http or webhwp_drive._http()
+    m = http.get(f"{gdrive.API}/files/{drive_id}", headers=gdrive_files._headers(email, http),
+                 params={"fields": "id,name,mimeType,size", "supportsAllDrives": "true"})
+    if m.status_code != 200:
+        raise RuntimeError(f"드라이브 파일을 찾지 못했습니다({m.status_code})")
+    meta = m.json()
+    if not webhwp_drive.accepts(meta, "docs"):
+        raise ValueError("프로젝트 문서로 들일 수 없는 형식입니다")
+    if int(meta.get("size") or 0) > _DRIVE_MAX:
+        raise ValueError("100MB 보다 큰 파일은 가져올 수 없습니다")
+    return gdrive_import._download(email, meta, http)
 
 
 @router.post("/project/{project_id}/criteria/unlink")
@@ -67,6 +147,56 @@ def project_criteria_unlink(request: Request, project_id: int, criteria_doc_id: 
     if db.get_project(project_id) is None:
         raise HTTPException(404)
     db.remove_project_criterion(project_id, criteria_doc_id)
+    return RedirectResponse(f"/project/{project_id}#projectDocuments", status_code=303)
+
+
+@router.post("/project/{project_id}/criteria/link")
+def project_criteria_link(request: Request, project_id: int, criteria_doc_id: int = Form(...)):
+    """문서 한 건을 기준 문서로 — 프로젝트 문서 줄의 「기준으로 쓰기」. 볼 수 있는 문서만."""
+    h = request.app.state.project
+    db = h.db
+    proj = db.get_project(project_id)
+    if proj is None:
+        raise HTTPException(404)
+    _require_write(request, proj)
+    doc = db.get_document(criteria_doc_id)
+    if doc is None or not h._visible(doc, **h._req_viewer(request)):
+        raise HTTPException(404, "문서를 찾을 수 없습니다")
+    db.add_project_criteria(project_id, [criteria_doc_id])
+    return RedirectResponse(f"/project/{project_id}#projectDocuments", status_code=303)
+
+
+@router.post("/project/{project_id}/color")
+def project_set_color(request: Request, project_id: int, color: str = Form(...)):
+    """머리 아이콘 색 — 팔레트 열쇠 하나. 목록·사이드바도 같은 색(project_color)."""
+    from zzaimy.app import project_access as pa
+    db = request.app.state.db
+    proj = db.get_project(project_id)
+    if proj is None:
+        raise HTTPException(404)
+    _require_owner(request, proj)
+    try:
+        key = pa.set_color(db, project_id, color.strip())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if _wants_json(request):
+        return {"color": key, "hex": pa.PALETTE[key][0], "bg": pa.PALETTE[key][1]}
+    return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+
+@router.post("/project/{project_id}/lead")
+def project_set_lead(request: Request, project_id: int, user: str = Form(...)):
+    """사업 책임자(메인 담당자) — 만든 사람과 「함께 작업」으로 받는 사람 가운데서."""
+    from zzaimy.app import project_access as pa
+    db = request.app.state.db
+    proj = db.get_project(project_id)
+    if proj is None:
+        raise HTTPException(404)
+    _require_owner(request, proj)
+    try:
+        pa.set_lead(db, proj, user.strip(), pa.lead_choices(proj, _share_of(request, proj), request.app.state.accounts or {}))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return RedirectResponse(f"/project/{project_id}", status_code=303)
 
 
@@ -77,6 +207,7 @@ def create_project(
 ):
     h = request.app.state.project
     db, _business_units, _link_past_projects = h.db, h._business_units, h._link_past_projects
+    _require_create(request)
     from zzaimy.app.main import INBOX_TYPES
     if sector not in INBOX_TYPES:
         raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
@@ -99,6 +230,7 @@ def create_project_bundle(request: Request, background: BackgroundTasks, sector:
     h = request.app.state.project
     db, _business_units, _intake_bundle, _link_past_projects = h.db, h._business_units, h._intake_bundle, h._link_past_projects
     _title_from_bundle = h._title_from_bundle
+    _require_create(request)
     from zzaimy.app.main import INBOX_TYPES
     if sector not in INBOX_TYPES:
         raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
@@ -124,19 +256,102 @@ def project_bundle(request: Request, background: BackgroundTasks, project_id: in
     project = db.get_project(project_id)
     if project is None or project.get("owner") != getattr(request.state, "user", "zzaimy"):
         raise HTTPException(404)
+    _require_write(request, project)
     files = [f for f in file if f and f.filename]
     if not files:
         raise HTTPException(400, "파일을 하나 이상 골라 주세요")
     made = _intake_bundle(request, background, project, files)
+    if _wants_json(request):                              # 끌어 놓기·진행 표시 — 화면이 결과를 받아 새로 그린다
+        return {"criteria": len(made["criteria"]), "intake": len(made["intake"]), "skipped": made["skipped"]}
     return RedirectResponse(f"/project/{project_id}?bundle={len(made['criteria'])}+{len(made['intake'])}", status_code=303)
 
 
+@router.post("/project/{project_id}/documents/import")
+def project_documents_import(request: Request, background: BackgroundTasks, project_id: int, payload: dict = Body(...)):
+    """문서함·구글 드라이브에서 고른 문서를 프로젝트 문서로 — 공용 디렉터리 창(AuraFinder)이 고른 항목을 받는다.
+    {items: [{source:"dept", id} | {source:"drive", drive_id}]}. 문서함 파일은 열 수 있는 부서의 것만(webhwp.may_open),
+    드라이브 파일은 이 사람이 연결한 학교 계정으로 내려받는다(구글 문서는 오피스 형식으로 내보냄).
+    들이는 길은 「문서 추가」 업로드와 같은 반입(_intake_bundle — 원본 보관 adopt_original·기준/첨부 나누기·배경 판독)."""
+    h = request.app.state.project
+    db = h.db
+    project = db.get_project(project_id)
+    if project is None:
+        raise HTTPException(404)
+    _require_write(request, project)
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not items:
+        raise HTTPException(400, "가져올 문서를 하나 이상 골라 주세요")
+    if len(items) > IMPORT_LIMIT:
+        raise HTTPException(400, f"한 번에 {IMPORT_LIMIT}개까지 가져올 수 있습니다")
+    from zzaimy.app import webhwp
+    from zzaimy.app.webhwp_routes import _depts
+    from zzaimy.ingest import gdrive_files
+    st = request.app.state
+    base = Path(st.data_dir) if getattr(st, "data_dir", None) else None
+    depts = _depts(request) if base is not None else []
+    email = None
+    files, rejected, opened, seen = [], [], [], set()
+    try:
+        for it in items:
+            it = it if isinstance(it, dict) else {}
+            name = str(it.get("name") or "")[:160]
+            src = it.get("source")
+            if src == "dept":
+                try:
+                    fid = int(it.get("id"))
+                except (TypeError, ValueError):
+                    rejected.append({"name": name, "why": "없는 문서입니다"})
+                    continue
+                if ("dept", fid) in seen:
+                    continue
+                seen.add(("dept", fid))
+                f = webhwp.get(db, fid)
+                if f is None or base is None or not webhwp.may_open(base, f, depts) or not Path(f["path"]).is_file():
+                    rejected.append({"name": name, "why": "열 수 없는 문서입니다"})
+                    continue
+                fh = open(f["path"], "rb")
+                opened.append(fh)
+                files.append(SimpleNamespace(filename=f["name"], file=fh))
+            elif src == "drive":
+                did = str(it.get("drive_id") or "")
+                if not _DRIVE_ID.fullmatch(did):
+                    rejected.append({"name": name, "why": "드라이브 파일 id 가 올바르지 않습니다"})
+                    continue
+                if ("drive", did) in seen:
+                    continue
+                seen.add(("drive", did))
+                if email is None:
+                    email = gdrive_files.account_for(db, getattr(request.state, "user", ""),
+                                                     getattr(request.state, "dept", "") or None) or ""
+                if not email:
+                    rejected.append({"name": name, "why": "학교 구글 계정이 연결되어 있지 않습니다"})
+                    continue
+                try:
+                    data, fname = _drive_fetch(email, did)
+                except (RuntimeError, ValueError) as e:
+                    rejected.append({"name": name, "why": str(e)})
+                    continue
+                files.append(SimpleNamespace(filename=fname, file=io.BytesIO(data)))
+            else:
+                rejected.append({"name": name, "why": "알 수 없는 항목입니다"})
+        made = h._intake_bundle(request, background, project, files) if files else {"criteria": [], "intake": [], "skipped": []}
+    finally:
+        for fh in opened:
+            fh.close()
+    body = {"criteria": len(made["criteria"]), "intake": len(made["intake"]), "skipped": made["skipped"], "rejected": rejected}
+    return JSONResponse(body, status_code=403 if rejected and not files else 200)
+
+
 @router.get("/project/{project_id}", response_class=HTMLResponse)
-def project_page(request: Request, project_id: int, refq: str = ""):
+def project_page(request: Request, project_id: int, refq: str = "", tab: str = ""):
+    if tab:                                               # 옛 탭 주소 — 탭은 「대화·문서」 하나. 작성 원칙·기준 문서는 같은 화면 오른쪽
+        rest = [(k, v) for k, v in request.query_params.multi_items() if k != "tab"]
+        hint = "#projectContext" if tab in ("context", "guide", "criteria", "refs") else ""
+        return RedirectResponse(f"/project/{project_id}" + (f"?{urlencode(rest)}" if rest else "") + hint, status_code=307)
     h = request.app.state.project
     db, templates, ctx, _req_viewer = h.db, h.templates, h.ctx, h._req_viewer
     _visible, _doc_groups, _program_options, _project_suggestions = h._visible, h._doc_groups, h._program_options, h._project_suggestions
-    _share_sync, _can_read_chat, _ref_names, _project_ref_ctx = h._share_sync, h._can_read_chat, h._ref_names, h._project_ref_ctx
+    _share_sync, _can_read_chat = h._share_sync, h._can_read_chat
     proj = db.get_project(project_id)
     if proj is None:
         raise HTTPException(404)
@@ -205,6 +420,15 @@ def project_page(request: Request, project_id: int, refq: str = ""):
     # 한글 작업 문서 — 대화에 이은 한글 파일과 부서 한글 문서함의 「작업/<프로젝트>」 폴더. 이 사람이 열 수 있는 부서의 것만
     work_docs += _hwp_work_docs(request, proj, project_chats, owner_view=can_edit)
     work_docs.sort(key=lambda w: (w["created_at"] or "").replace("T", " "), reverse=True)
+    from zzaimy.app import project_access as pa
+    accounts = request.app.state.accounts or {}
+    lead = pa.lead(db, proj)
+    _nm = lambda u: ((accounts.get(u) or {}).get("name") or "").strip() or u
+    from zzaimy.app import grades
+    owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
+    show_activity = grades.can_view_activity(proj, user=me or getattr(request.state, "user", ""), account=_account(request),
+                                             lead=lead, project_dept=owner_dept)
+    lead_choices = [{"user": u, "label": _nm(u)} for u in pa.lead_choices(proj, _share_of(request, proj), accounts)] if can_edit else []
     return templates.TemplateResponse(
         request,
         "project.html",
@@ -223,7 +447,9 @@ def project_page(request: Request, project_id: int, refq: str = ""):
             "owner_label": proj.get("owner") or "",
             "work_docs": work_docs, "work_sessions": work_sessions,
             "project_notes": db.list_project_notes(project_id),
-            **_project_ref_ctx(request, proj, refq, _ref_names(doc_groups)),
+            **h._project_ref_ctx(request, proj, refq, h._ref_names(doc_groups)),
+            "palette": pa.PALETTE, "project_color_key": pa.color_key(db, project_id),
+            "lead": lead, "lead_label": _nm(lead), "lead_choices": lead_choices, "show_activity": show_activity,
         }),
     )
 
@@ -243,7 +469,7 @@ def project_ref_link(request: Request, project_id: int, ref_project_id: int = Fo
     if not project_refs._visible_counts(db, [ref_project_id], scope).get(ref_project_id):
         raise HTTPException(404)
     project_refs.link(db, project_id, ref_project_id, reason, getattr(request.state, "user", "") or "")
-    return RedirectResponse(f"/project/{project_id}#paneRefs", status_code=303)
+    return RedirectResponse(f"/project/{project_id}#projectContext", status_code=303)
 
 
 @router.post("/project/{project_id}/refs/{ref_project_id}/delete")
@@ -254,7 +480,7 @@ def project_ref_unlink(request: Request, project_id: int, ref_project_id: int):
     if db.get_project(project_id) is None:
         raise HTTPException(404)
     project_refs.unlink(db, project_id, ref_project_id)
-    return RedirectResponse(f"/project/{project_id}#paneRefs", status_code=303)
+    return RedirectResponse(f"/project/{project_id}#projectContext", status_code=303)
 
 
 @router.get("/projects/archived", response_class=HTMLResponse)
@@ -374,7 +600,7 @@ def _share_ctx(request: Request, proj: dict) -> dict:
         choices.append({"to": f"user:{u}", "label": f"{name} ({u})" if name and name != u else u, "hint": dept or "사용자"})
     names = {c["to"]: c["label"] for c in choices}
     return {"share": share, "share_label": pa.button_label(share), "share_title": pa.describe(share),
-            "share_levels": pa.LEVEL_LABEL, "share_depts": depts, "share_users": users,
+            "share_levels": pa.LEVEL_LABEL, "share_level_hints": pa.LEVEL_HINT, "share_depts": depts, "share_users": users,
             "share_choices": choices, "share_names": names, "share_own_dept": owner_dept if owner_dept in depts else "",
             "my_access": st.project_access(request, proj)}
 
@@ -427,21 +653,25 @@ def project_meta(
 def project_note_add(request: Request, project_id: int, content: str = Form(...)):
     h = request.app.state.project
     db = h.db
-    if db.get_project(project_id) is None:
+    proj = db.get_project(project_id)
+    if proj is None:
         raise HTTPException(404)
+    _require_write(request, proj)
     if content.strip():
-        db.add_project_note(project_id, content.strip())
-    return RedirectResponse(f"/project/{project_id}", status_code=303)
+        db.add_project_note(project_id, content.strip()[:300])
+    return RedirectResponse(f"/project/{project_id}#projectContext", status_code=303)
 
 
 @router.post("/project/{project_id}/notes/{note_id}/delete")
 def project_note_delete(request: Request, project_id: int, note_id: int):
     h = request.app.state.project
     db = h.db
-    if db.get_project(project_id) is None:
+    proj = db.get_project(project_id)
+    if proj is None:
         raise HTTPException(404)
+    _require_write(request, proj)
     db.delete_project_note(project_id, note_id)
-    return RedirectResponse(f"/project/{project_id}", status_code=303)
+    return RedirectResponse(f"/project/{project_id}#projectContext", status_code=303)
 
 
 @router.post("/project/{project_id}/criteria")

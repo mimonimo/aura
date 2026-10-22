@@ -114,7 +114,7 @@ def test_announcement_kind_documents_become_project_criteria(client):
     assert {d["id"] for d in groups["rules"]} == {notice, att}
     assert [d["id"] for d in groups["attached"]] == [form]
     page = client.get(f"/project/{pid}").text
-    assert "공고·지침·평가 기준으로 분류된 문서는 기준 문서로 연결됩니다" in page
+    assert "공고·지침은 기준 문서로" in page
 
 
 def test_archive_origin_is_shown_as_source(client):

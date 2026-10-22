@@ -1,8 +1,12 @@
 """프로젝트 공유 — 누가 이 프로젝트를 볼 수 있고 함께 작업할 수 있나(10-21 사용자).
 
-공유 범위는 프로젝트마다 담당자가 정한다: 나만 · 부서(일괄) · 지정한 사용자. 받는 사람마다 「보기」 또는 「함께 작업」.
-- 보기: 프로젝트 화면·공개 대화·작업 문서를 읽기 전용으로(드라이브 작업 문서는 보기 권한)
-- 함께 작업: 그 프로젝트 안에 자기 대화를 열어 묻고 문서를 쓴다(드라이브 작업 문서는 편집 권한). 프로젝트 이름·지우기·보관·공유 설정은 담당자만
+공유 범위는 프로젝트마다 담당자가 정한다: 나만 · 부서(일괄) · 지정한 사용자. 권한은 셋이다.
+- 소유: 만든 사람(projects.owner). 프로젝트 이름·지우기·보관·공유 설정·문서 추가·작성 원칙은 소유자와 관리자만
+- 함께 작업(level "edit"): 그 프로젝트 안에 자기 대화를 열어 묻고 문서를 쓴다(드라이브 작업 문서는 편집 권한)
+- 참조(level "view", 옛 이름 「보기」): 프로젝트 화면·공개 대화·작업 문서를 읽기 전용으로(드라이브 작업 문서는 보기 권한).
+  대화 시작·문서 추가·원칙 수정·작업본 쓰기는 막힌다
+저장 값 "view"·"edit" 는 예전 그대로다(이름만 「보기」→「참조」) — 옛 기록을 옮길 일이 없다.
+사업 책임자(메인 담당자)는 설정 project_lead:<프로젝트 id> = 계정(없으면 만든 사람), 머리 아이콘 색은 project_color:<프로젝트 id> = 팔레트 열쇠.
 저장은 설정 project_shares:<프로젝트 id> = {"mode": "private"|"shared", "items": [{"to": "dept:<부서>"|"user:<계정>", "level": "view"|"edit"}]}.
 설정이 없는 옛 프로젝트는 지금까지와 같게 — 담당자 부서에 「보기」(10-16 같은 부서 동료 읽기 전용).
 받는 사람은 교직원 계정만(학생은 프로젝트를 쓰지 않는다). 대화 하나하나의 공개는 따로(비공개 대화는 만든 사람만 — chat_sessions.is_private).
@@ -12,7 +16,59 @@ from __future__ import annotations
 import json
 
 LEVELS = ("view", "edit")
-LEVEL_LABEL = {"view": "보기", "edit": "함께 작업"}
+LEVEL_LABEL = {"view": "참조", "edit": "함께 작업"}
+LEVEL_HINT = {"view": "읽기 전용", "edit": "읽기·쓰기"}
+
+# 프로젝트 아이콘 색 — 얇은 동그라미 팔레트. 값은 (아이콘 색, 바탕 색)
+PALETTE = {
+    "navy": ("#1B3B75", "#E8EFFC"), "blue": ("#2563EB", "#E6EEFE"), "teal": ("#0F766E", "#E3F4F1"),
+    "green": ("#3F7F3A", "#E9F4E6"), "amber": ("#B45309", "#FBF0DF"), "red": ("#B42318", "#FCE9E7"),
+    "plum": ("#7E3A8E", "#F4E8F7"), "slate": ("#475569", "#EDF0F4"),
+}
+DEFAULT_COLOR = "navy"
+
+
+def color_key(db, project_id: int) -> str:
+    """이 프로젝트 아이콘 색의 팔레트 열쇠 — 정하지 않았으면 기본(navy)."""
+    v = (db.get_setting(f"project_color:{int(project_id)}", "") or "").strip()
+    return v if v in PALETTE else DEFAULT_COLOR
+
+
+def color(db, project_id: int) -> str:
+    """아이콘 색(#RRGGBB) — 목록·사이드바가 같은 프로젝트를 같은 색으로 그린다."""
+    return PALETTE[color_key(db, project_id)][0]
+
+
+def set_color(db, project_id: int, key: str) -> str:
+    if key not in PALETTE:
+        raise ValueError("없는 색입니다")
+    db.set_setting(f"project_color:{int(project_id)}", key)
+    return key
+
+
+def lead(db, project: dict) -> str:
+    """사업 책임자 계정 — 정하지 않았으면 만든 사람."""
+    v = (db.get_setting(f"project_lead:{int(project['id'])}", "") or "").strip()
+    return v or (project.get("owner") or "")
+
+
+def lead_choices(project: dict, share: dict, accounts: dict) -> list[str]:
+    """사업 책임자로 고를 수 있는 사람 — 만든 사람과 「함께 작업」으로 받는 교직원(참조는 읽기 전용이라 뺀다)."""
+    owner = project.get("owner") or ""
+    rec = recipients(share, accounts, owner) if share.get("mode") == "shared" else {}
+    return [owner, *sorted(u for u, lv in rec.items() if lv == "edit")] if owner else sorted(u for u, lv in rec.items() if lv == "edit")
+
+
+def set_lead(db, project: dict, user: str, choices: list[str]) -> str:
+    if user not in choices:
+        raise ValueError("공유 대상 가운데서 고릅니다")
+    db.set_setting(f"project_lead:{int(project['id'])}", "" if user == project.get("owner") else user)
+    return user
+
+
+def can_write(level: str) -> bool:
+    """대화 시작·문서 추가·원칙 수정·작업본 쓰기를 할 수 있는 권한인가 — 소유자·관리자(edit)·함께 작업(edit)만. 참조(view)는 못 한다."""
+    return level == "edit"
 
 
 def _key(project_id: int) -> str:
@@ -99,7 +155,7 @@ def button_label(share: dict) -> str:
 
 
 def describe(share: dict) -> str:
-    """화면 한 줄 — 「나만 보기」 · 「기획처(보기) · test(함께 작업)」."""
+    """화면 한 줄 — 「나만 보기」 · 「기획처(참조) · test(함께 작업)」."""
     if share.get("mode") == "private" or not share.get("items"):
         return "나만 보기"
     return " · ".join(f"{i['to'].split(':', 1)[1]}({LEVEL_LABEL.get(i['level'], i['level'])})" for i in share["items"])

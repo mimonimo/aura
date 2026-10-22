@@ -5,10 +5,9 @@ def test_project_context_and_unified_intake(client):
     client.post('/projects', data={'sector': 'grant', 'name': '화면 검수'})
     client.post('/project/1/notes', data={'content': '첫 줄\n두 번째 줄'})
     page = client.get('/project/1?bundle=2+3').text
-    assert 'class="project-note-compose"' in page
-    assert 'aria-describedby="noteHelp"' in page
+    assert 'class="pn-add"' in page and 'aria-label="원칙 추가"' in page   # 작성 원칙은 오른쪽 열 아래 얇은 카드, 한 줄 입력
     assert '첫 줄\n두 번째 줄' in page
-    assert page.index('id="noteInput"') < page.index('id="noteList"')
+    assert page.index('id="projectDocuments"') < page.index('id="projectContext"') < page.index('id="noteInput"')
     assert 'id="intakeFile" multiple' in page
     assert 'id="bundleForm"' not in page
     assert '묶음 접수' not in page
@@ -16,8 +15,8 @@ def test_project_context_and_unified_intake(client):
     assert '한글 문서 연결' not in page
     assert 'id="hwpTargetModal"' not in page
     assert '기준 문서 2건, 첨부 문서 3건' in page
-    assert 'id="projectCriteriaHeading">기준 문서' in page
-    assert 'id="intakeConfirm"' in page                 # 고른 파일은 확인 뒤에 올린다
+    assert 'id="paneCriteria"' in page                  # 기준 문서는 프로젝트 문서의 기준 묶음이 맡는다
+    assert 'id="intakeConfirm"' in page                 # 고른 파일은 줄마다 확인한 뒤 올린다
     assert 'id="noteSave" disabled' in page             # 빈 원칙은 저장하지 않는다
     assert 'data-doc-group="attached"' in page and 'data-doc-group="reference"' in page and 'data-doc-group="rules"' in page
     assert 'class="project-overview-grid"' in page
@@ -31,9 +30,9 @@ def test_linked_criteria_has_readable_title_and_separate_actions(client):
                 files={'file': ('긴 사업 공고문.pdf', b'%PDF', 'application/pdf')})
     client.post('/project/1/criteria', data={'criteria': ['1']})
     page = client.get('/project/1').text
-    assert 'class="project-criterion-title"' in page
-    assert 'class="project-criterion-open' not in page   # 제목 링크 하나로 문서를 연다(진입 버튼 한 곳)
-    assert '원본 문서는 유지됩니다.' in page
+    rules = page.split('id="paneCriteria"')[1].split('</section>')[0]
+    assert 'href="/doc/1"' in rules and 'class="project-criterion-open' not in page   # 제목 링크 하나로 문서를 연다
+    assert '기준에서 빼기' in rules and '원본 문서는 유지됩니다.' in rules
     assert 'class="criteria-picker-item"' in page
     assert 'class="criteria-picker-name"' in page
     assert 'id="criteriaEmpty"' in page

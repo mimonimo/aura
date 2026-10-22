@@ -68,8 +68,9 @@ def test_share_button_and_dialog_wording(tmp_path, monkeypatch):
     page = kim.get(f"/project/{pid}").text
     assert "공유 안 함</button>" in page and "공유 · 나만" not in page
     assert "나만 보기" in page and "함께 쓰기" in page
-    assert "보기: 공개 대화와 작업 문서를 읽을 수 있습니다" in page
-    assert "함께 작업: 대화를 열고 작업 문서를 고칠 수 있습니다" in page
+    assert "참조: 읽기 전용 — 공개 대화와 작업 문서를 읽습니다" in page
+    assert "함께 작업: 읽기·쓰기 — 대화를 열고 작업 문서를 고칩니다" in page
+    assert 'class="share-owner"' in page and ">소유<" in page
     assert "비공개 대화는 공유해도 다른 사람에게 보이지 않습니다" in page
     assert 'data-share-quick="dept:기획처"' in page                    # 우리 부서 전체 바로 더하기
     choices = json.loads(page.split("data-share-choices>", 1)[1].split("</script>", 1)[0])

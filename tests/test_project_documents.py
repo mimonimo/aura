@@ -65,7 +65,7 @@ def test_chat_panel_and_project_page_show_the_same_three_groups(tmp_path):
         assert re.search(rf"{label} <span class=\"project-doc-count\">{len(panel[key])}</span>", block)
         for d in panel[key].values():
             assert f'href="/doc/{d["id"]}"' in block
-    # 지침·기준 탭의 규정·지침도 같은 목록(검토 전이라도 연결된 기준은 보인다)
+    # 기준 문서 묶음(옛 지침·기준 탭 자리)도 같은 목록(검토 전이라도 연결된 기준은 보인다)
     criteria = page.split('id="paneCriteria"')[1].split("</section>")[0]
     for d in panel["rules"].values():
         assert f'href="/doc/{d["id"]}"' in criteria

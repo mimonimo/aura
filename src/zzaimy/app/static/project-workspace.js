@@ -3,13 +3,6 @@
   if (!root) return;
   const tabs = [...root.querySelectorAll('[data-project-tab]')];
   const key = 'projectTab:' + location.pathname;
-  const noteInput = document.getElementById('noteInput');
-  function fitNote() {
-    if (!noteInput || !noteInput.getClientRects().length) return;
-    noteInput.style.height = '88px';
-    noteInput.style.height = Math.min(200, Math.max(88, noteInput.scrollHeight + 2)) + 'px';
-  }
-  if (noteInput) noteInput.addEventListener('input', fitNote);
   function activate(id, focus=false) {
     if (!tabs.some(tab => tab.dataset.projectTab === id)) return;
     tabs.forEach(tab => {
@@ -19,7 +12,6 @@
       if (active && focus) tab.focus();
     });
     try { sessionStorage.setItem(key, id); } catch (_) {}
-    fitNote();
   }
   tabs.forEach((tab,index) => {
     tab.addEventListener('click', () => activate(tab.dataset.projectTab));
@@ -28,9 +20,8 @@
       if (next>=0) { event.preventDefault(); activate(tabs[next].dataset.projectTab, true); }
     });
   });
-  // 주소의 ?tab=context(작성 원칙·기준 문서)·?tab=chat 이 먼저 — 다른 화면의 바로가기가 그 탭으로 열리게
-  const want = ({context: 'projectContext', chat: 'projectConversations'})[new URLSearchParams(location.search).get('tab') || ''];
-  try { activate(want || sessionStorage.getItem(key) || 'projectConversations'); } catch (_) { activate(want || 'projectConversations'); }
+  // 탭은 「대화·문서」 하나(「진행 현황」은 다른 화면으로 가는 링크). 옛 ?tab=context 주소는 서버가 같은 화면의 #projectContext 로 잇는다
+  try { activate(sessionStorage.getItem(key) || 'projectConversations'); } catch (_) { activate('projectConversations'); }
   function revealLinkedSection() {
     const section = document.getElementById((location.hash || '').slice(1));
     const panel = section?.closest('.project-panel');

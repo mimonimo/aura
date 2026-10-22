@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }}{% endblock %}
 {% block pagetitle %}프로젝트{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/project-workspace.css?v={{ asset_v }}"><script src="/static/project-workspace.js?v={{ asset_v }}" defer></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/project-workspace.css?v={{ asset_v }}"><script src="/static/project-workspace.js?v={{ asset_v }}" defer></script><link rel="stylesheet" href="/static/aura-finder.css?v={{ asset_v }}"><script src="/static/aura-finder.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 {% set flow_hints = {
   "grant": "공고·지침을 기준 문서로 연결하고, 대화에서 공고 항목에 맞춘 계획서 초안을 작성합니다.",
@@ -14,18 +14,35 @@
 
 <div id="projectWorkspace">
 <a class="project-breadcrumb" href="/?type={{ project.sector }}"><iconify-icon icon="solar:arrow-left-linear" aria-hidden="true"></iconify-icon> {{ sector_name }} 프로젝트 목록</a>
+{% set can_add = can_edit and not project.archived %}
+{% set pcolor = palette.get(project_color_key) or palette['navy'] %}
+{% set color_names = {'navy': '남색', 'blue': '파랑', 'teal': '청록', 'green': '초록', 'amber': '주황', 'red': '빨강', 'plum': '보라', 'slate': '회색'} %}
 <div class="page-head project-head" style="justify-content:flex-start; gap:14px; padding:2px 2px 16px;
             border-bottom:1px solid var(--line); margin-bottom:20px;">
-  <div style="width:42px; height:42px; border-radius:12px; background:#E8EFFC;
-              color:var(--navy); display:flex; align-items:center; justify-content:center; flex:none;">
-    <iconify-icon icon="solar:{{ 'archive' if project.archived else 'folder-2' }}-linear" style="font-size:23px;"></iconify-icon>
+  {# 머리 아이콘 — 소유자는 눌러 색을 고른다(바로 저장). 목록·사이드바도 같은 색(project_color) #}
+  <div class="project-icon-wrap">
+    <button type="button" class="project-icon" id="projectIcon" style="--pc:{{ pcolor[0] }}; --pcb:{{ pcolor[1] }};"
+            {% if can_edit %}aria-haspopup="true" aria-expanded="false" aria-controls="projectColorPop" title="아이콘 색 바꾸기" aria-label="아이콘 색 바꾸기"{% else %}disabled aria-hidden="true" tabindex="-1"{% endif %}>
+      <iconify-icon icon="solar:{{ 'archive' if project.archived else 'folder-2' }}-linear" aria-hidden="true"></iconify-icon></button>
+    {% if can_edit %}
+    <form class="project-pop project-color-pop" id="projectColorPop" action="/project/{{ project.id }}/color" method="post" hidden aria-label="아이콘 색">
+      {% for key, c in palette.items() %}<button type="submit" name="color" value="{{ key }}" class="project-swatch" style="--sw:{{ c[0] }};"
+        aria-label="{{ color_names.get(key, key) }}" title="{{ color_names.get(key, key) }}" aria-pressed="{{ 'true' if key == project_color_key else 'false' }}"
+        data-bg="{{ c[1] }}"></button>{% endfor %}
+    </form>
+    {% endif %}
   </div>
   <div style="min-width:0;">
     <h1 class="project-name">{{ project.name }}{% if project.archived %} <span class="pill" style="font-size:12px; vertical-align:middle;">지난 사업</span>{% endif %}</h1>
-    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
+    <div class="project-meta">
       {{ sector_name }} 업무 · 첨부 {{ doc_groups.attached|length }}건 ·
       참고 {{ doc_groups.reference|length }}건 · 기준 문서 {{ doc_groups.rules|length }}건
       {% if project.due_date %} · <b style="color:#C05621;">마감 {{ project.due_date }}</b>{% endif %}
+      · {% if can_edit and not project.archived %}<span class="project-lead-wrap"><button type="button" class="project-lead-chip" id="projectLead" aria-haspopup="true" aria-expanded="false" aria-controls="projectLeadPop" title="사업 책임자 바꾸기">책임 {{ lead_label }}</button>
+        <form class="project-pop project-lead-pop" id="projectLeadPop" action="/project/{{ project.id }}/lead" method="post" hidden aria-label="사업 책임자">
+          {% for c in lead_choices %}<button type="submit" name="user" value="{{ c.user }}" aria-pressed="{{ 'true' if c.user == lead else 'false' }}">{{ c.label }}{% if c.user == project.owner %}<small>만든 사람</small>{% endif %}</button>{% endfor %}
+          {% if lead_choices|length < 2 %}<p>함께 작업으로 공유한 사람을 사업 책임자로 고를 수 있습니다</p>{% endif %}
+        </form></span>{% else %}<span class="project-lead-text">책임 {{ lead_label }}</span>{% endif %}
       · 만든 날 {{ project.created_at[:10] }}</div>
   </div>
   <div class="page-head-actions" style="flex:none;">
@@ -50,29 +67,22 @@
 {% if not can_edit and not project.archived and my_access == 'edit' %}
 <p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon><span>{{ owner_label }} 님이 함께 작업하도록 공유한 프로젝트입니다 — 내 대화를 열어 묻고 문서를 씁니다. 프로젝트 설정은 담당자가 합니다.</span></p>
 {% elif not can_edit and not project.archived %}
-<p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:eye-linear"></iconify-icon><span>보기로 공유된 {{ owner_label }} 님의 프로젝트입니다 — 공개된 대화와 작업 문서를 읽을 수 있습니다.</span></p>
+<p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:eye-linear"></iconify-icon><span>참조로 공유된 {{ owner_label }} 님의 프로젝트입니다 — 읽기 전용으로 공개된 대화와 작업 문서를 봅니다.</span></p>
 {% elif project.archived %}
 <p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:archive-linear"></iconify-icon><span>지난 사업 자료입니다. 다른 프로젝트에서 참조로 연결해 근거로 쓸 수 있고, 다시 진행하려면 「보관 해제」를 누릅니다.</span></p>
 {% elif flow_hints.get(project.sector) %}
 <p class="muted" style="font-size:12.5px; margin:-8px 2px 16px; line-height:1.6;">{{ flow_hints.get(project.sector) }}</p>
 {% endif %}
+{% if request.query_params.get('ok') %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ request.query_params.get('ok') }}</span></p>{% endif %}
+{% if request.query_params.get('err') %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ request.query_params.get('err') }}</span></p>{% endif %}
 
 <div class="project-tabs" role="tablist" aria-label="프로젝트 작업">
   <button type="button" role="tab" id="projectTabChat" data-project-tab="projectConversations" aria-controls="projectConversations" aria-selected="true">대화·문서</button>
-  <button type="button" role="tab" id="projectTabContext" data-project-tab="projectContext" aria-controls="projectContext" aria-selected="false" tabindex="-1">작성 원칙·기준 문서</button>
+  {% if show_activity %}<a role="tab" id="projectTabActivity" href="/project/{{ project.id }}/activity" aria-selected="false">진행 현황</a>{% endif %}
 </div>
 <form id="intakeForm" action="/project/{{ project.id }}/bundle" method="post" enctype="multipart/form-data" hidden>
-  <input type="file" name="file" id="intakeFile" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
+  <input type="file" name="file" id="intakeFile" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.tif,.tiff,.txt,.md">
 </form>
-{# 선택한 파일을 확인한 뒤 올린다 — 잘못 선택한 파일은 여기서 취소 #}
-<div id="intakeConfirm" class="notice" role="region" aria-label="추가할 파일 확인" hidden>
-  <div style="flex:1; min-width:0;">
-    <p style="margin:0 0 6px;"><span id="intakeCount"></span>개 파일을 프로젝트에 추가합니다. 공고·지침·기준은 기준 문서로, 나머지는 첨부 문서로 들어갑니다.</p>
-    <ul id="intakeNames" style="margin:0 0 10px; padding-left:18px; font-size:12.5px; overflow-wrap:anywhere;"></ul>
-    <div style="display:flex; gap:8px;"><button type="button" class="secondary" id="intakeCancel">취소</button><button type="button" id="intakeSubmit">추가</button></div>
-  </div>
-</div>
-<p class="muted" id="intakeStatus" role="status" hidden>문서를 등록하는 중입니다…</p>
 {% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 첨부 문서 {{ received[-1] }}건. 본문을 읽고 열람 화면을 준비하는 중이며, 끝나면 상태가 「처리 완료」로 바뀝니다.</span></p>{% endif %}
 <section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
 {% if (can_edit or my_access == 'edit') and not project.archived %}
@@ -85,41 +95,90 @@
 </div>
 {% endif %}
 <div class="project-overview-grid">
-<section id="projectDocuments" aria-label="프로젝트 문서">
-
-{# 문서는 대화 문서 패널과 같은 세 갈래(project_documents): 사용자 첨부 · 참고 · 기준 문서 #}
+<div class="project-side">
+<section id="projectDocuments" aria-label="프로젝트 문서"{% if can_add %} data-drop-zone{% endif %}>
+{# 문서는 대화 문서 패널과 같은 세 갈래(project_documents): 사용자 첨부 · 참고 · 기준 문서. 칸 전체가 끌어 놓기 자리 #}
 <div class="card">
   <div class="card-in">
     <div class="project-doc-head"><h2><iconify-icon icon="solar:documents-linear"></iconify-icon>프로젝트 문서</h2>
-      {% if can_edit and not project.archived %}<button type="button" data-intake-pick><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 추가</button>{% endif %}
+      {% if can_add %}<div class="pd-add">
+        <button type="button" class="pd-add-btn" id="docAddBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="docAddMenu"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>문서 추가<iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true" class="pd-caret"></iconify-icon></button>
+        <div class="pd-menu" id="docAddMenu" role="menu" aria-label="문서 추가" hidden>
+          <button type="button" role="menuitem" data-intake-pick><iconify-icon icon="solar:laptop-linear" aria-hidden="true"></iconify-icon>내 컴퓨터에서 올리기</button>
+          <button type="button" role="menuitem" data-finder-pick hidden><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>문서함·구글 드라이브에서 가져오기</button>
+          <button type="button" role="menuitem" data-modal-open="#linkModal"><iconify-icon icon="solar:checklist-minimalistic-linear" aria-hidden="true"></iconify-icon>문서함 문서를 기준으로 연결</button>
+        </div>
+      </div>{% endif %}
     </div>
-    {% if can_edit and not project.archived %}<p class="project-intake-help">파일을 한 개 또는 여러 개 고를 수 있습니다. 공고·지침·평가 기준으로 분류된 문서는 기준 문서로 연결됩니다.</p>{% endif %}
+    {% if can_add %}<p class="project-intake-help">끌어다 놓아도 올라갑니다 · 공고·지침은 기준 문서로</p>
+    <div class="pd-drop-hint" aria-hidden="true"><iconify-icon icon="solar:upload-linear"></iconify-icon>여기에 놓으면 프로젝트 문서로 올립니다</div>
+    {# 올릴 파일 — 줄마다 이름·진행. 잘못 고른 파일은 올리기 전에 뺀다 #}
+    <div id="intakeConfirm" class="pd-pending" role="region" aria-label="올릴 문서" hidden>
+      <ul id="intakeNames" class="pd-pending-list"></ul>
+      <div class="pd-pending-foot"><span id="intakeCount" class="muted"></span><button type="button" class="secondary" id="intakeCancel">취소</button><button type="button" id="intakeSubmit">올리기</button></div>
+    </div>
+    <p class="muted pd-status" id="intakeStatus" role="status" hidden></p>
+    {% endif %}
     {% for key, label in [('attached', '첨부 문서'), ('reference', '참고 문서'), ('rules', '기준 문서')] %}
     {% set items = doc_groups[key] %}
-    <section class="project-doc-group" data-doc-group="{{ key }}" aria-label="{{ label }}">
+    <section class="project-doc-group" data-doc-group="{{ key }}" aria-label="{{ label }}"{% if key == 'rules' %} id="paneCriteria"{% endif %}>
       <h3>{{ label }} <span class="project-doc-count">{{ items|length }}</span></h3>
       {% if items %}
-      {# 한 줄 행 목록 — 아이콘 · 제목(말줄임) · 출처·접수번호·날짜. 많으면 목록 칸 안에서 스크롤 #}
+      {# 한 줄 행 목록 — 아이콘 · 제목(말줄임) · 출처·접수번호·날짜 · 기준으로 쓰기/빼기. 많으면 목록 칸 안에서 스크롤 #}
       <div class="pw-list">
         {% for d in items %}
         {% set show_status = d.status != 'reviewed' %}{% set show_decision = key == 'attached' and d.doc_type in ('recruit', 'admission') %}
-        <a class="pw-row" href="/doc/{{ d.id }}" title="{{ doc_title(d) }}">
+        <div class="pw-row">
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
-          <span class="pw-name">{{ doc_title(d) }}</span>
+          <span class="pw-name"><a href="/doc/{{ d.id }}" title="{{ doc_title(d) }}">{{ doc_title(d) }}</a></span>
           {% if show_status %}<span class="pw-tag {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% endif %}
           {% if show_decision %}<span class="pw-tag {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
           <span class="pw-meta">{% if key == 'rules' %}{{ kind_labels.get(d.kind or '', '분류 전') }} · {% endif %}{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:10] }}</span>
-        </a>
+          {% if can_add and key == 'rules' and d.id in linked_criteria %}
+          <form class="pw-act" action="/project/{{ project.id }}/criteria/unlink" method="post" data-confirm="기준에서 뺄까요? 원본 문서는 유지됩니다.">
+            <input type="hidden" name="criteria_doc_id" value="{{ d.id }}"><button type="submit" class="pw-btn" aria-label="{{ doc_title(d) }} 기준에서 빼기">기준에서 빼기</button></form>
+          {% elif can_add and key != 'rules' %}
+          <form class="pw-act" action="/project/{{ project.id }}/criteria/link" method="post">
+            <input type="hidden" name="criteria_doc_id" value="{{ d.id }}"><button type="submit" class="pw-btn" aria-label="{{ doc_title(d) }} 기준으로 쓰기">기준으로 쓰기</button></form>
+          {% endif %}
+        </div>
         {% endfor %}
       </div>
       {% else %}
-      <p class="project-doc-empty">{{ {'attached': '아직 올리거나 첨부한 문서가 없습니다.', 'reference': '대화에서 에이전트가 근거로 불러온 문서가 여기에 쌓입니다.', 'rules': '연결된 기준 문서가 없습니다.' ~ (' 「작성 원칙·기준 문서」 탭에서 연결합니다.' if can_edit else '')}[key] }}</p>
+      <p class="project-doc-empty">{{ {'attached': '아직 올리거나 첨부한 문서가 없습니다.', 'reference': '대화에서 에이전트가 근거로 불러온 문서가 여기에 쌓입니다.', 'rules': '연결된 기준 문서가 없습니다.' ~ (' 「문서 추가」에서 연결합니다.' if can_add else '')}[key] }}</p>
       {% endif %}
     </section>
     {% endfor %}
   </div>
 </div>
 </section>
+{# 작성 원칙 — 이 프로젝트의 검토·작성·대화에 늘 적용. 관련 지난 사업은 그 아래 작은 줄 #}
+<section id="projectContext" class="project-side-card" aria-labelledby="projectGuideHeading">
+  <div id="paneGuide">
+    <h3 class="project-side-title" id="projectGuideHeading">작성 원칙 <span class="project-doc-count">{{ project_notes|length }}</span></h3>
+    <ul id="noteList" class="pn-list">
+      {% for n in project_notes %}
+      <li class="pn-row"><span class="pn-text">{{ n.content }}</span>
+        {% if can_add %}<form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post" class="pn-del-form" data-confirm="이 작성 원칙을 지울까요?">
+          <button type="submit" class="pn-del" title="지우기" aria-label="지우기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button></form>{% endif %}</li>
+      {% else %}
+      <li class="pn-empty">아직 작성 원칙이 없습니다</li>
+      {% endfor %}
+    </ul>
+    {% if can_add %}<form action="/project/{{ project.id }}/notes" method="post" class="pn-add">
+      <input type="text" name="content" id="noteInput" maxlength="300" required autocomplete="off" aria-label="원칙 추가" placeholder="원칙 추가 — 예: 근거 조항 함께 적기">
+      <button type="submit" class="secondary" id="noteSave" disabled>추가</button>
+    </form>{% endif %}
+  </div>
+  {# 관련 지난 사업 — 참조 관계만(보관 해제·소유권 변경 없음). 덜 쓰는 기능이라 한 줄 #}
+  <div id="paneRefs" class="pr-line">
+    <span class="pr-label">관련 지난 사업</span>
+    {% for r in project_refs %}<span class="pr-chip"><a href="/project/{{ r.ref_project_id }}" title="문서 {{ r.n_docs or 0 }}{% if r.reason %} · {{ r.reason }}{% endif %}">{{ r.name }}</a>{% if can_add %}<form action="/project/{{ project.id }}/refs/{{ r.ref_project_id }}/delete" method="post" data-confirm="「{{ r.name }}」 연결을 풀까요? 지난 사업 자료는 그대로 남습니다."><button type="submit" aria-label="{{ r.name }} 연결 풀기" title="연결 풀기">×</button></form>{% endif %}</span>{% endfor %}
+    {% if can_add %}{% for c in ref_candidates[:3] %}<span class="pr-chip is-suggest" title="추천 · 문서 {{ c.n_docs }} · {{ c.why }}"><a href="/project/{{ c.id }}">{{ c.name }}</a><form action="/project/{{ project.id }}/refs" method="post"><input type="hidden" name="ref_project_id" value="{{ c.id }}"><input type="hidden" name="reason" value="{{ c.why }}"><button type="submit" aria-label="{{ c.name }} 연결" title="연결">+</button></form></span>{% endfor %}
+    <a class="pr-link" href="/projects/archived?for_project={{ project.id }}">지난 사업 연결</a>{% elif not project_refs %}<span class="pr-none">없음</span>{% endif %}
+  </div>
+</section>
+</div>
 <section id="projectChatList" aria-label="프로젝트 대화">
 <div class="card project-chat-card">
   <div class="card-in">
@@ -156,100 +215,6 @@
 
 </section>
 </div>
-</section>
-<section id="projectContext" class="project-panel" role="tabpanel" aria-labelledby="projectTabContext" hidden>
-<div class="card">
-  <div class="card-in">
-    <div class="project-context-grid">
-    <section id="paneGuide" class="project-context-section" aria-labelledby="projectGuideHeading">
-    <div class="project-context-intro"><h2 id="projectGuideHeading">작성 원칙 <span class="pill">{{ project_notes|length }}</span></h2><p>이 프로젝트의 검토·작성·대화에 늘 적용할 원칙과 업무 조건입니다.</p></div>
-    {% if can_edit %}<form action="/project/{{ project.id }}/notes" method="post" class="project-note-compose">
-      <label for="noteInput">원칙 추가</label>
-      <textarea name="content" required rows="2" id="noteInput" aria-describedby="noteHelp"
-                placeholder="예: 검토 의견에는 근거 조항을 함께 적고, 확인되지 않은 내용은 구분해 주세요."></textarea>
-      <div class="project-context-footer"><span id="noteHelp">개인 메모가 아니라 이 프로젝트 공통 원칙입니다.</span><button type="submit" id="noteSave" disabled>원칙 저장</button></div>
-    </form>{% endif %}
-    <div id="noteList" class="project-note-list">
-      {% for n in project_notes %}
-      <article class="project-note-item">
-        <p>{{ n.content }}</p>
-        <div class="project-note-meta"><time>{{ n.created_at[:16] }}</time>
-{% if can_edit %}        <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post"
-              class="project-note-delete" data-confirm="이 작성 원칙을 삭제할까요? 삭제 후에는 복구할 수 없습니다.">
-          <button type="submit" class="secondary">삭제</button>
-        </form>{% endif %}
-        </div>
-      </article>
-      {% else %}
-      <p class="project-context-empty">아직 작성 원칙이 없습니다.</p>
-      {% endfor %}
-    </div>
-    </section>
-
-    <section id="paneCriteria" class="project-context-section" aria-labelledby="projectCriteriaHeading">
-    <div class="project-context-intro"><h2 id="projectCriteriaHeading">기준 문서 <span class="pill">{{ doc_groups.rules|length }}</span></h2><p>검토와 작성의 근거가 되는 공고·평가 기준·규정입니다. 문서의 내용을 근거로 씁니다.</p></div>
-    {% if doc_groups.rules %}
-    <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
-      {% for c in doc_groups.rules %}
-      <article class="project-criterion-item">
-        <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
-        <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_title(c) }}</a><span>{{ kind_labels.get(c.kind or '', '분류 전') }} · {{ c.via }}{% if c.receipt_no %} · {{ receipt_label(c.receipt_no) }}{% endif %}{% if c.status != 'reviewed' %} · {{ status_labels.get(c.status, c.status) }}{% endif %}</span></div>
-        {% if c.id in linked_criteria and can_edit %}
-        <form action="/project/{{ project.id }}/criteria/unlink" method="post" data-confirm="이 기준 문서의 연결을 해제할까요? 원본 문서는 유지됩니다.">
-          <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
-          <button type="submit" class="secondary">연결 해제</button>
-        </form>
-        {% endif %}
-      </article>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div style="text-align:center; padding:22px 10px; color:var(--faint);">
-      <iconify-icon icon="solar:library-linear" style="font-size:30px; display:block; margin:0 auto 2px;"></iconify-icon>
-      <p class="muted" style="font-size:12.5px; margin:8px 0 0; line-height:1.6;">
-        공고문·심사 기준을 연결하면<br>검토와 초안이 그 기준을 근거로 씁니다.</p>
-    </div>
-    {% endif %}
-    {% if can_edit and not project.archived %}
-    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
-      <button type="button" class="secondary" data-modal-open="#linkModal"
-              style="flex:1 1 auto; padding:9px 12px; font-size:13px; white-space:nowrap;">
-        <iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>기준 문서 선택</button>
-    </div>
-    <p class="project-context-help">새 파일은 「대화·문서」 탭의 「문서 추가」로 올립니다. 연결을 해제해도 원본은 삭제되지 않습니다.</p>
-    {% endif %}
-    </section>
-    {# 관련 보관 사업 — 지난 사업 묶음을 근거 자료로 참조만 한다. 보관 해제·소유권 변경은 없다 #}
-    <section id="paneRefs" class="project-context-section" aria-labelledby="projectRefsHeading">
-    <div class="project-context-intro"><h2 id="projectRefsHeading">관련 지난 사업 <span class="pill">{{ project_refs|length }}</span></h2><p>지난 사업 자료를 근거로 참조합니다. 연결해도 원래 자료는 바뀌지 않습니다.</p></div>
-    {% for r in project_refs %}
-    <article class="project-criterion-item">
-      <iconify-icon icon="solar:archive-linear" style="color:var(--navy); flex:none;"></iconify-icon>
-      <div class="project-criterion-title"><a href="/project/{{ r.ref_project_id }}">{{ r.name }}</a><span>문서 {{ r.n_docs or 0 }}{% if r.reason %} · {{ r.reason }}{% endif %}</span></div>
-      {% if can_edit %}<form action="/project/{{ project.id }}/refs/{{ r.ref_project_id }}/delete" method="post" data-confirm="「{{ r.name }}」 참조 연결을 해제할까요? 지난 사업 자료는 그대로 남습니다."><button type="submit" class="secondary">연결 해제</button></form>{% endif %}
-    </article>
-    {% endfor %}
-    {% if can_edit and not project.archived %}
-    <a class="btn secondary" href="/projects/archived?for_project={{ project.id }}">지난 사업 찾아 연결</a>
-    {% if ref_candidates %}<h3 class="project-context-list-title">추천 <span>{{ ref_candidates|length }}</span></h3>{% endif %}
-    {% for c in ref_candidates %}
-    <article class="project-criterion-item">
-      <iconify-icon icon="solar:folder-2-linear" style="color:var(--muted); flex:none;"></iconify-icon>
-      <div class="project-criterion-title"><a href="/project/{{ c.id }}">{{ c.name }}</a><span>문서 {{ c.n_docs }} · {{ c.why }}</span></div>
-      <form action="/project/{{ project.id }}/refs" method="post">
-        <input type="hidden" name="ref_project_id" value="{{ c.id }}"><input type="hidden" name="reason" value="{{ c.why }}">
-        <button type="submit" class="secondary">참조로 연결</button></form>
-    </article>
-    {% else %}
-    <p class="muted" style="font-size:12.5px;">{% if refq %}「{{ refq }}」에 맞는 지난 사업이 없습니다.{% else %}프로젝트 이름·기준 문서 제목·사업명과 겹치는 지난 사업이 없습니다. 「지난 사업 찾아 연결」에서 이름으로 찾습니다.{% endif %}</p>
-    {% endfor %}
-    {% endif %}
-    </section>
-    </div>
-
-  </div>
-</div>
-
 </section>
 </div>
 
@@ -326,6 +291,7 @@
           <div class="share-suggest" data-share-suggest role="listbox" hidden></div>
         </div>
         {% if share_own_dept %}<button type="button" class="share-quick" data-share-quick="dept:{{ share_own_dept }}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>우리 부서 전체({{ share_own_dept }})</button>{% endif %}
+        <div class="share-owner"><iconify-icon icon="solar:crown-minimalistic-linear" aria-hidden="true"></iconify-icon><span class="share-who">{{ owner_label }}<small>만든 사람</small></span><span class="share-owner-level">소유</span></div>
         <div class="share-rows" data-share-rows>
           {% for it in share['items'] if shared_on %}{% set kind = it.to.split(':', 1)[0] %}<div class="share-row" data-to="{{ it.to }}"><input type="hidden" name="to" value="{{ it.to }}">
             <iconify-icon icon="solar:{{ 'buildings-2' if kind == 'dept' else 'user' }}-linear" aria-hidden="true"></iconify-icon>
@@ -335,8 +301,8 @@
         </div>
         <p class="share-empty" data-share-empty {{ 'hidden' if shared_on }}>아직 고른 부서·사람이 없습니다. 위에서 찾아 더합니다.</p>
         <ul class="share-help">
-          <li>보기: 공개 대화와 작업 문서를 읽을 수 있습니다</li>
-          <li>함께 작업: 대화를 열고 작업 문서를 고칠 수 있습니다</li>
+          <li>참조: 읽기 전용 — 공개 대화와 작업 문서를 읽습니다</li>
+          <li>함께 작업: 읽기·쓰기 — 대화를 열고 작업 문서를 고칩니다</li>
           <li>비공개 대화는 공유해도 다른 사람에게 보이지 않습니다</li>
         </ul>
       </div>
@@ -377,6 +343,11 @@
   .share-row select { height:30px; padding:0 8px; font-size:12.5px; border:1px solid #d6dee8; border-radius:7px; background:#fff; }
   .share-remove { width:28px; height:28px; min-height:0; padding:0; border:0; border-radius:7px; background:transparent; color:var(--faint); font-size:17px; box-shadow:none; }
   .share-remove:hover { background:#f1f4f8; color:var(--ink); }
+  .share-owner { display:grid; grid-template-columns:18px minmax(0,1fr) 108px 28px; gap:8px; align-items:center; padding:6px 4px; margin-top:10px; border-top:1px solid #eef1f4; }
+  .share-owner > iconify-icon { color:#5b7aa3; font-size:16px; }
+  .share-owner-level { font-size:12.5px; color:var(--muted); padding-left:9px; }
+  .share-owner + .share-rows { margin-top:0; }
+  .share-owner + .share-rows .share-row:first-child { border-top:0; }
   .share-empty { margin:10px 2px 0; font-size:12.5px; color:var(--muted); }
   .share-help { margin:14px 0 0; padding:0 0 0 16px; font-size:12px; line-height:1.75; color:var(--muted); }
   .share-foot { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
@@ -508,31 +479,188 @@
 
 <script>
 (function () {
-  // 문서 추가 — 파일을 고르면 목록을 보여 주고 「추가」를 눌러야 올린다
-  var intakeFile = document.getElementById("intakeFile");
-  var box = document.getElementById("intakeConfirm");
-  if (intakeFile && box) {
-    document.querySelectorAll("[data-intake-pick]").forEach(function (btn) {
-      btn.addEventListener("click", function () { intakeFile.click(); });
+  // 작은 펼침 창(아이콘 색·담당자·문서 추가 메뉴) — 단추로 열고, 바깥을 누르거나 Esc 로 닫는다
+  var pops = [];
+  function closePops(except) {
+    pops.forEach(function (p) { if (p.pop !== except && !p.pop.hidden) { p.pop.hidden = true; p.btn.setAttribute("aria-expanded", "false"); } });
+  }
+  ["projectIcon", "projectLead", "docAddBtn"].forEach(function (id) {
+    var btn = document.getElementById(id), pop = btn && document.getElementById(btn.getAttribute("aria-controls") || "");
+    if (!btn || !pop || btn.disabled) return;
+    pops.push({btn: btn, pop: pop});
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = pop.hidden;
+      closePops(pop);
+      if (id === "docAddBtn") syncFinder();
+      pop.hidden = !open; btn.setAttribute("aria-expanded", String(open));
+      if (open) { var first = pop.querySelector("button:not([hidden])"); if (first) first.focus(); }
     });
-    intakeFile.addEventListener("change", function () {
-      var files = Array.from(intakeFile.files || []);
-      if (!files.length) { box.hidden = true; return; }
-      document.getElementById("intakeCount").textContent = files.length;
-      var list = document.getElementById("intakeNames");
-      list.replaceChildren();
-      files.forEach(function (f) { var li = document.createElement("li"); li.textContent = f.name; list.appendChild(li); });
-      box.hidden = false;
-      document.getElementById("intakeSubmit").focus();
+  });
+  document.addEventListener("click", function (e) { if (!e.target.closest(".project-pop, .pd-menu")) closePops(null); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    pops.forEach(function (p) { if (!p.pop.hidden) { p.pop.hidden = true; p.btn.setAttribute("aria-expanded", "false"); p.btn.focus(); } });
+  });
+  var menu = document.getElementById("docAddMenu");
+  if (menu) menu.addEventListener("click", function (e) { if (e.target.closest("[role=menuitem]")) closePops(null); });
+
+  // 아이콘 색 — 누르면 바로 저장하고 그 자리에서 색을 바꾼다(실패하면 보통 제출로)
+  var colorPop = document.getElementById("projectColorPop"), icon = document.getElementById("projectIcon");
+  if (colorPop && icon) {
+    colorPop.addEventListener("click", function (e) {
+      var sw = e.target.closest(".project-swatch"); if (!sw) return;
+      e.preventDefault();
+      var fd = new FormData(); fd.append("color", sw.value);
+      fetch(colorPop.action, {method: "POST", body: fd, headers: {Accept: "application/json"}, credentials: "same-origin"})
+        .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function (d) {
+          icon.style.setProperty("--pc", d.hex); icon.style.setProperty("--pcb", d.bg);
+          colorPop.querySelectorAll(".project-swatch").forEach(function (b) { b.setAttribute("aria-pressed", String(b === sw)); });
+          closePops(null); icon.focus();
+        })
+        .catch(function () { colorPop.requestSubmit(sw); });
     });
-    document.getElementById("intakeCancel").addEventListener("click", function () {
-      intakeFile.value = ""; box.hidden = true;
+  }
+
+  // 문서 추가 — 고르거나 끌어 놓은 파일을 줄마다 보여 주고 「올리기」로 한 번에 올린다(줄마다 진행 표시)
+  var intakeForm = document.getElementById("intakeForm"), intakeFile = document.getElementById("intakeFile");
+  var box = document.getElementById("intakeConfirm"), names = document.getElementById("intakeNames");
+  var countEl = document.getElementById("intakeCount"), submitBtn = document.getElementById("intakeSubmit");
+  var cancelBtn = document.getElementById("intakeCancel"), statusEl = document.getElementById("intakeStatus");
+  var zone = document.querySelector("[data-drop-zone]");
+  var ALLOWED = /\.(pdf|hwpx?|docx?|xlsx?|pptx?|png|jpe?g|tiff?|txt|md)$/i;
+  var pending = [], xhr = null;
+  function size(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(n / 1024)) + "KB"; }
+  function say(text) { if (statusEl) { statusEl.textContent = text; statusEl.hidden = !text; } }
+  function row(name, note) {
+    var li = document.createElement("li"); li.className = "pd-up";
+    var ic = document.createElement("iconify-icon"); ic.setAttribute("icon", "solar:document-text-linear"); ic.setAttribute("aria-hidden", "true");
+    var nm = document.createElement("span"); nm.className = "pd-up-name"; nm.textContent = name; nm.title = name;
+    var st = document.createElement("span"); st.className = "pd-up-state"; st.textContent = note || "";
+    var bar = document.createElement("span"); bar.className = "pd-bar"; bar.setAttribute("aria-hidden", "true");
+    var fill = document.createElement("i"); bar.appendChild(fill);
+    li.append(ic, nm, st, bar);
+    return {li: li, state: st, fill: fill};
+  }
+  function render() {
+    var ok = pending.filter(function (p) { return p.ok; }).length;
+    box.hidden = !pending.length;
+    countEl.textContent = ok ? ok + "개 올릴 준비" : "올릴 수 있는 파일이 없습니다";
+    submitBtn.disabled = !ok || !!xhr;
+  }
+  function addFiles(list) {
+    if (!box || xhr) return;
+    Array.from(list || []).forEach(function (f) {
+      if (pending.some(function (p) { return p.file && p.file.name === f.name && p.file.size === f.size; })) return;
+      var ok = ALLOWED.test(f.name), r = row(f.name, ok ? size(f.size) : "올릴 수 없는 형식");
+      var p = {file: f, ok: ok, r: r};
+      if (!ok) r.li.classList.add("is-bad");
+      var rm = document.createElement("button"); rm.type = "button"; rm.className = "pd-up-x"; rm.setAttribute("aria-label", f.name + " 빼기"); rm.title = "빼기";
+      rm.textContent = "×";
+      rm.addEventListener("click", function () { pending = pending.filter(function (x) { return x !== p; }); r.li.remove(); render(); });
+      r.li.appendChild(rm); names.appendChild(r.li); pending.push(p);
     });
-    document.getElementById("intakeSubmit").addEventListener("click", function () {
-      var st = document.getElementById("intakeStatus");
-      if (st) { st.hidden = false; st.textContent = intakeFile.files.length + "개 파일을 등록하는 중입니다…"; }
-      box.hidden = true;
-      document.getElementById("intakeForm").requestSubmit();
+    say(""); render();
+    if (!submitBtn.disabled) submitBtn.focus();
+  }
+  function reset() { pending = []; names.replaceChildren(); xhr = null; render(); }
+  function done(c, i, skipped) {
+    var q = "bundle=" + c + "+" + i;
+    if (skipped && skipped.length) q += "&err=" + encodeURIComponent("올리지 못한 파일: " + skipped.join(", "));
+    location.href = location.pathname + "?" + q;
+  }
+  if (intakeForm && box) {
+    document.querySelectorAll("[data-intake-pick]").forEach(function (btn) { btn.addEventListener("click", function () { intakeFile.click(); }); });
+    intakeFile.addEventListener("change", function () { addFiles(intakeFile.files); intakeFile.value = ""; });
+    cancelBtn.addEventListener("click", function () {
+      if (xhr) { xhr.abort(); return; }
+      reset(); say("");
+    });
+    submitBtn.addEventListener("click", function () {
+      var up = pending.filter(function (p) { return p.ok; });
+      if (!up.length || xhr) return;
+      pending.filter(function (p) { return !p.ok; }).forEach(function (p) { p.r.li.remove(); });
+      pending = up;
+      var fd = new FormData(), total = 0, starts = [];
+      up.forEach(function (p) { fd.append("file", p.file); starts.push(total); total += p.file.size || 1; });
+      up.forEach(function (p) { var x = p.r.li.querySelector(".pd-up-x"); if (x) x.hidden = true; p.r.li.classList.add("is-up"); p.r.state.textContent = "0%"; });
+      xhr = new XMLHttpRequest();
+      xhr.open("POST", intakeForm.action);
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.upload.addEventListener("progress", function (e) {
+        if (!e.lengthComputable) return;
+        var sent = e.loaded / e.total * total;
+        up.forEach(function (p, k) {
+          var pct = Math.max(0, Math.min(1, (sent - starts[k]) / (p.file.size || 1)));
+          p.r.fill.style.width = Math.round(pct * 100) + "%";
+          p.r.state.textContent = pct >= 1 ? "받는 중" : Math.round(pct * 100) + "%";
+        });
+      });
+      xhr.addEventListener("load", function () {
+        var d = null; try { d = JSON.parse(xhr.responseText); } catch (_) {}
+        if (xhr.status === 200 && d) {
+          up.forEach(function (p) { p.r.fill.style.width = "100%"; p.r.state.textContent = "등록함"; p.r.li.classList.add("is-done"); });
+          say("문서를 등록했습니다. 본문을 읽는 중입니다…");
+          done(d.criteria, d.intake, d.skipped);
+          return;
+        }
+        xhr = null; cancelBtn.textContent = "취소";
+        up.forEach(function (p) { p.r.state.textContent = "실패"; p.r.li.classList.add("is-bad"); });
+        say("올리지 못했습니다" + (d && d.detail ? " — " + d.detail : "") + ". 다시 올려 주세요."); render();
+      });
+      xhr.addEventListener("error", function () { xhr = null; cancelBtn.textContent = "취소"; say("연결이 끊겨 올리지 못했습니다. 다시 올려 주세요."); render(); });
+      xhr.addEventListener("abort", function () { reset(); cancelBtn.textContent = "취소"; say("올리기를 멈췄습니다."); });
+      cancelBtn.textContent = "멈추기"; submitBtn.disabled = true;
+      say(up.length + "개 파일을 올리는 중입니다…");
+      xhr.send(fd);
+    });
+  }
+  // 끌어 놓기 — 프로젝트 문서 칸 전체. 칸 밖에 놓쳐도 브라우저가 파일을 열어 화면을 떠나지 않게 막는다
+  if (zone && box) {
+    var depth = 0;
+    var isFiles = function (e) { return e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf("Files") >= 0; };
+    zone.addEventListener("dragenter", function (e) { if (!isFiles(e)) return; e.preventDefault(); depth++; zone.classList.add("is-drag"); });
+    zone.addEventListener("dragover", function (e) { if (!isFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+    zone.addEventListener("dragleave", function () { depth = Math.max(0, depth - 1); if (!depth) zone.classList.remove("is-drag"); });
+    zone.addEventListener("drop", function (e) {
+      if (!isFiles(e)) return;
+      e.preventDefault(); depth = 0; zone.classList.remove("is-drag");
+      addFiles(e.dataTransfer.files);
+    });
+    window.addEventListener("dragover", function (e) { if (isFiles(e) && !zone.contains(e.target)) e.preventDefault(); });
+    window.addEventListener("drop", function (e) { if (isFiles(e) && !zone.contains(e.target)) e.preventDefault(); });
+  }
+
+  // 문서함·구글 드라이브에서 가져오기 — 공용 디렉터리 창(AuraFinder). 창 모듈이 없으면 메뉴 항목을 숨긴다
+  var finderBtn = document.querySelector("[data-finder-pick]");
+  function syncFinder() { if (finderBtn) finderBtn.hidden = !(window.AuraFinder && typeof window.AuraFinder.open === "function"); }
+  window.addEventListener("load", syncFinder);
+  if (finderBtn && box) {
+    finderBtn.addEventListener("click", function () {
+      if (!window.AuraFinder || xhr) return;
+      window.AuraFinder.open({title: "프로젝트 문서 가져오기", accept: "docs", multiple: true, openLabel: "가져오기"}).then(function (items) {
+        if (!items || !items.length) return;
+        reset(); box.hidden = false; submitBtn.disabled = true; cancelBtn.hidden = true;
+        countEl.textContent = items.length + "개 가져오는 중";
+        items.forEach(function (it) { var r = row(it.name || "문서", "가져오는 중"); r.li.classList.add("is-wait"); names.appendChild(r.li); });
+        say("");
+        return fetch(location.pathname.replace(/\/$/, "") + "/documents/import", {
+          method: "POST", credentials: "same-origin",
+          headers: {"Content-Type": "application/json", Accept: "application/json"},
+          body: JSON.stringify({items: items})
+        }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return {status: r.status, d: d}; }); })
+          .then(function (res) {
+            var d = res.d || {}, bad = (d.rejected || []).map(function (x) { return (x.name || "문서") + "(" + x.why + ")"; });
+            if (res.status === 200 && (d.criteria || d.intake)) {
+              var skipped = (d.skipped || []).concat(bad);
+              done(d.criteria, d.intake, skipped);
+              return;
+            }
+            reset(); cancelBtn.hidden = false;
+            say("가져오지 못했습니다" + (bad.length ? " — " + bad.join(", ") : d.detail ? " — " + d.detail : (d.skipped || []).length ? " — 들일 수 없는 형식: " + d.skipped.join(", ") : "") + ".");
+          });
+      }).catch(function () { reset(); cancelBtn.hidden = false; say("가져오지 못했습니다. 잠시 뒤 다시 해 주세요."); });
     });
   }
 
@@ -587,7 +715,7 @@
     });
   }
 
-  // 작성 원칙 — 빈 칸이면 저장을 끈다
+  // 작성 원칙 — 빈 칸이면 추가를 끈다
   var note = document.getElementById("noteInput"), noteSave = document.getElementById("noteSave");
   if (note && noteSave) {
     var syncNote = function () { noteSave.disabled = !note.value.trim(); };
