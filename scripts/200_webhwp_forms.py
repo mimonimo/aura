@@ -58,8 +58,12 @@ def select(db) -> list[dict]:
         groups[norm_title(r["filename"]) or f"doc-{r['id']}"].append(r)
 
     def rank(r):
-        t = r["filename"] or ""
-        return (bool(re.search(r"양식|서식", t)), storage.original_ext(r) == ".hwpx", r.get("created_at") or "")
+        # 빈 양식다운 것 — 「양식·서식·○○」이 있고, 괄호 속 기관·학과·사람 이름(채운 사본의 표시)이 없고, 제목이 짧은 것.
+        # 그다음 hwpx, 최근 순
+        t = storage.title_of(r["filename"] or "")
+        named = [x for x in re.findall(r"[\(\[（【]([^\)\]）】]*)[\)\]）】]", t) if not re.search(r"양식|서식|○|ㅇ|oo|OO|붙임|별지", x)]
+        return (bool(re.search(r"양식|서식|○○|ㅇㅇ|oo|OO", t)), not named, storage.original_ext(r) == ".hwpx", -len(t),
+                r.get("created_at") or "")
 
     picked = []
     for key, rs in groups.items():
