@@ -91,8 +91,15 @@ def recipients(share: dict, accounts: dict, owner: str) -> dict[str, str]:
     return out
 
 
-def describe(share: dict) -> str:
-    """화면 한 줄 — 「나만」 · 「기획처(보기) · test(함께 작업)」."""
+def button_label(share: dict) -> str:
+    """머리줄 공유 단추 — 「공유 안 함」 · 「공유 중 · 2」(받는 부서·사람 수)."""
     if share.get("mode") == "private" or not share.get("items"):
-        return "나만"
+        return "공유 안 함"
+    return f"공유 중 · {len(share['items'])}"
+
+
+def describe(share: dict) -> str:
+    """화면 한 줄 — 「나만 보기」 · 「기획처(보기) · test(함께 작업)」."""
+    if share.get("mode") == "private" or not share.get("items"):
+        return "나만 보기"
     return " · ".join(f"{i['to'].split(':', 1)[1]}({LEVEL_LABEL.get(i['level'], i['level'])})" for i in share["items"])

@@ -190,7 +190,7 @@ def project_page(request: Request, project_id: int, refq: str = ""):
             url = f.get("path") or ""
             if url.startswith("https://") and url not in seen_urls:
                 seen_urls.add(url)
-                work_docs.append({"name": f.get("name") or "작업 문서", "url": url, "chat_id": cs["id"],
+                work_docs.append({"kind": "gdoc", "name": f.get("name") or "작업 문서", "url": url, "chat_id": cs["id"],
                                   "chat_title": cs.get("title") or "", "created_at": f.get("created_at") or ""})
         # 양식으로 만든 문서는 파일 기록 없이 대화 연결(chat_google_doc)만 있다 — 연결된 문서도 넣는다
         link = _aj.loads(db.get_setting(f"chat_google_doc:{cs['id']}", "") or "{}")
@@ -200,9 +200,11 @@ def project_page(request: Request, project_id: int, refq: str = ""):
             url = f"https://docs.google.com/document/d/{link['doc']}/edit"
             if not any(link["doc"] in u for u in seen_urls):
                 seen_urls.add(url)
-                work_docs.append({"name": f"{cs.get('title') or '대화'}의 작업 문서", "url": url, "chat_id": cs["id"],
+                work_docs.append({"kind": "gdoc", "name": f"{cs.get('title') or '대화'}의 작업 문서", "url": url, "chat_id": cs["id"],
                                   "chat_title": cs.get("title") or "", "created_at": cs.get("created_at") or ""})
-    work_docs.sort(key=lambda w: w["created_at"], reverse=True)
+    # 한글 작업 문서 — 대화에 이은 한글 파일과 부서 한글 문서함의 「작업/<프로젝트>」 폴더. 이 사람이 열 수 있는 부서의 것만
+    work_docs += _hwp_work_docs(request, proj, project_chats, owner_view=can_edit)
+    work_docs.sort(key=lambda w: (w["created_at"] or "").replace("T", " "), reverse=True)
     return templates.TemplateResponse(
         request,
         "project.html",
@@ -311,6 +313,48 @@ def project_archive(request: Request, project_id: int):
     return RedirectResponse("/projects/archived", status_code=303)
 
 
+def _hwp_work_docs(request: Request, proj: dict, chats: list[dict], *, owner_view: bool = False) -> list[dict]:
+    """이 프로젝트의 한글 작업 문서 — 대화마다 이은 한글 파일(webhwp_agent.files_of)과 부서 한글 문서함의 「작업/<프로젝트 이름>」 폴더
+    (에이전트가 양식으로 작업본을 만드는 자리). 보는 사람이 열 수 있는 부서(webhwp.may_open)의 파일만 싣는다.
+    드라이브에 최종본을 올린 파일은 담당자 화면에 구글 드라이브 열기도 함께 준다."""
+    from pathlib import Path
+
+    from zzaimy.app import webhwp, webhwp_agent
+    from zzaimy.app.webhwp_routes import EDIT_PAGE, _depts
+    st = request.app.state
+    db = st.db
+    depts = _depts(request)
+    if not depts or not getattr(st, "data_dir", None):
+        return []
+    base = Path(st.data_dir)
+    try:
+        folder = webhwp.clean_folder(f"작업/{storage.safe_name(proj.get('name') or '')[:40]}")
+    except ValueError:
+        folder = ""
+    picked: dict[int, int | None] = {}                    # 파일 id → 이은 대화(없으면 None)
+    for cs in chats:
+        for fid in webhwp_agent.files_of(db, int(cs["id"])):
+            picked.setdefault(int(fid), int(cs["id"]))
+    if folder and folder != "작업":
+        for r in db.list_files(kind="webhwp", limit=5000):
+            sub = webhwp.folder_of(base, r["path"])
+            if sub == folder or sub.startswith(folder + "/"):
+                picked.setdefault(int(r["id"]), None)
+    out = []
+    for fid, chat_id in picked.items():
+        f = webhwp.get(db, fid)
+        if not webhwp.may_open(base, f, depts) or not Path(f["path"]).exists():
+            continue
+        m = webhwp.meta(db, fid)
+        drive = (m.get("drive_out") or {}).get("url") or ""
+        out.append({"kind": "hwp", "id": fid, "name": Path(f["name"]).stem or f["name"], "url": f"{EDIT_PAGE}?id={fid}",
+                    "chat_id": chat_id, "chat_title": "",
+                    "where": " / ".join(x for x in (webhwp.dept_of_path(base, f["path"]), webhwp.folder_of(base, f["path"])) if x),
+                    "drive_url": drive if owner_view and drive.startswith("https://") else "",
+                    "created_at": m.get("saved") or m.get("created") or f.get("created_at") or ""})
+    return out
+
+
 def _share_ctx(request: Request, proj: dict) -> dict:
     """공유 창 — 지금 범위, 고를 수 있는 부서·사용자, 이 사람의 권한."""
     from zzaimy.app import project_access as pa
@@ -319,10 +363,19 @@ def _share_ctx(request: Request, proj: dict) -> dict:
     accounts = st.accounts
     owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
     share = pa.shares(st.db, proj, owner_dept)
-    return {"share": share, "share_label": pa.describe(share), "share_levels": pa.LEVEL_LABEL,
-            "share_depts": known_depts(st.db, accounts, getattr(st, "data_dir", None)),
-            "share_users": sorted(u for u, a in accounts.items() if (a or {}).get("role", "staff") in ("staff", "professor", "head")
-                                  and u != proj.get("owner") and (a or {}).get("active", True)),
+    depts = known_depts(st.db, accounts, getattr(st, "data_dir", None))
+    users = sorted(u for u, a in accounts.items() if (a or {}).get("role", "staff") in ("staff", "professor", "head")
+                   and u != proj.get("owner") and (a or {}).get("active", True))
+    # 공유 창의 찾기 목록 — 부서 전체와 사람(이름·부서를 함께 보여 고르기 쉽게)
+    choices = [{"to": f"dept:{d}", "label": d, "hint": "부서 전체"} for d in depts]
+    for u in users:
+        a = accounts.get(u) or {}
+        name, dept = (a.get("name") or "").strip(), (a.get("dept") or "").strip()
+        choices.append({"to": f"user:{u}", "label": f"{name} ({u})" if name and name != u else u, "hint": dept or "사용자"})
+    names = {c["to"]: c["label"] for c in choices}
+    return {"share": share, "share_label": pa.button_label(share), "share_title": pa.describe(share),
+            "share_levels": pa.LEVEL_LABEL, "share_depts": depts, "share_users": users,
+            "share_choices": choices, "share_names": names, "share_own_dept": owner_dept if owner_dept in depts else "",
             "my_access": st.project_access(request, proj)}
 
 

@@ -11,6 +11,7 @@ import os
 from urllib.parse import quote as _q, urlencode
 import logging
 import re
+import json
 import time
 import secrets
 import shutil
@@ -854,6 +855,7 @@ def create_app(
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.state.templates = templates
     templates.env.globals["status_labels"] = STATUS_LABELS
+    templates.env.globals["cot_of"] = lambda mid: (db.get_setting(f"chat_cot:{int(mid)}", "") or "") if mid else ""   # 답 앞 단계 추론
     templates.env.globals["feedback_reasons"] = ("근거 문서가 틀림", "숫자·사실이 틀림", "질문과 다른 답", "너무 길거나 짧음", "느림", "기타")
     # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다
     templates.env.globals["asset_v"] = _asset_version()
@@ -1563,6 +1565,8 @@ def create_app(
         except Exception:
             pass                    # 근거 기록이 실패해도 답변은 남긴다
         mid = db.add_chat(session_id, "assistant", answer)
+        if getattr(r, "last_reasoning", ""):                    # 답 앞의 단계 추론 — 화면의 「생각 과정」 에서 펼쳐 본다
+            db.set_setting(f"chat_cot:{int(mid)}", r.last_reasoning[:6000])
         _record_run(session_id, mid, "rag", r)
 
     _DRAFT_EXPLICIT = re.compile(r"초안|보고서로|문서로\s*(?:만들|정리|작성|써)|공문으로")
@@ -2084,6 +2088,11 @@ def create_app(
             client = VllmClient(role="answer")
         except Exception:
             return False
+        from zzaimy.app import llm_budget as _lb_agent
+        try:
+            _ctx_len_agent = _lb_agent.context_len(client)          # 대화 기억에 쓰는 몫은 이 모델의 문맥 한도 기준
+        except Exception:
+            _ctx_len_agent = _lb_agent.DEFAULT_CONTEXT
         before = len(db.list_chats(session_id))
         crit_ids = _scoped_criteria(session_id)
         mats_box: dict = {}
@@ -2169,9 +2178,15 @@ def create_app(
                 lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(_tag(a) for a in pend[:10])
                              + " — 사실 값만 search 로 찾고, 결과에 그대로 있으면 바로 다음 걸음에 resolve_from_evidence 로 출처와 함께 남긴다. "
                                "결정 값(담당자가 정할 목표·계획)은 찾지 않고 묻는다. 방금 결과에 받지 못한 값의 글이 있으면 바로 resolve_from_evidence.")
-            hist = [m_ for m_ in db.list_chats(session_id)[-8:-1]]
+            # 대화 기억 — 작업 메모(목표·결정·진행·남은 일) + 문맥 한도 몫만큼의 최근 대화(chat_memory). 지금 요청은 따로 들어간다
+            from zzaimy.app import chat_memory as _cm
+            from zzaimy.app.responder import strip_reasoning as _strip_r
+            _last = db.list_chats(session_id, limit=1)
+            memo_, hist = _cm.window(db, session_id, int(_ctx_len_agent * 0.5), exclude_ids={int(m_["id"]) for m_ in _last if m_.get("role") == "user"})
+            if memo_:
+                lines.append(_cm.block(memo_))
             if hist:
-                lines.append("최근 대화(맥락일 뿐 근거가 아니다 — 여기의 사실을 쓰려면 search 로 다시 확인):\n" + "\n".join(f"  [{m_['role']}] {(m_['content'] or '')[:300]}" for m_ in hist))
+                lines.append("최근 대화(맥락일 뿐 근거가 아니다 — 여기의 사실을 쓰려면 search 로 다시 확인):\n" + "\n".join(f"  [{m_['role']}] {_strip_r(m_['content'] or '')[:600]}" for m_ in hist))
             return "\n".join(lines)
 
         notes: list[str] = []                                   # 에이전트가 찾은 근거 — 절 쓰기 재료로 넘긴다
@@ -3229,6 +3244,8 @@ def create_app(
 
     def _answer_task(session_id, q, stored, criteria, web="", retrieval=""):
         from zzaimy.app import grant_search as _gs_mode
+        from zzaimy.app import llm_budget as _lb_usage
+        usage_ = _lb_usage.track()                                # 이 답변에서 모델에 보낸 양 — 화면 「문맥 사용」 표시
         try:
             # 관리자 실험(GraphRAG 비교) — 이 답변 안의 사업 문서 검색만 그 모드로. 기본("")은 운영 그대로
             with _gs_mode.graph_mode(retrieval):
@@ -3236,8 +3253,22 @@ def create_app(
                     _chat_step(session_id, f"[실험] 검색 방식: {_RETRIEVAL_NOTE.get(retrieval, retrieval)}")
                 _answer_task_impl(session_id, q, stored, criteria, web)
         finally:
+            if usage_["calls"]:
+                db.set_setting(f"chat_ctx:{int(session_id)}", json.dumps({**usage_, "at": time.time()}))
+                from zzaimy.app import chat_memory as _cm2
+                _cm2.compact_later(db, session_id)                   # 답을 보낸 뒤 작업 메모 고치기(배경)
             _chat_running.discard(session_id)
             _chat_progress.pop(session_id, None)
+
+    @app.get("/api/chat/{session_id}/context")
+    def chat_context_usage(request: Request, session_id: int):
+        """마지막 답변의 문맥 사용 — 가장 큰 호출의 입력+출력 / 모델 문맥 한도, 모델에 보낸 입력 합, 줄였는지."""
+        _chat_owned(request, session_id)
+        try:
+            u = json.loads(db.get_setting(f"chat_ctx:{int(session_id)}", "") or "{}")
+        except ValueError:
+            u = {}
+        return u
 
     def _schedule_answer(background, session_id, q, stored, criteria, web="", retrieval=""):
         import time

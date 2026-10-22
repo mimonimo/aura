@@ -28,11 +28,6 @@
 #projectWorkspace .project-doc-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 #projectWorkspace .project-doc-head h2 { font-size:14px; }
 #projectWorkspace .project-doc-head button { font-size:12px; padding:7px 10px; }
-.project-document-list { display:grid; gap:12px; margin-top:16px; }
-.project-document-item { padding:14px; border:1px solid var(--line); border-radius:10px; display:grid; gap:9px; font-size:12px; }
-.project-document-item>a { font-size:14px; font-weight:600; line-height:1.7; overflow-wrap:anywhere; text-decoration:none; }
-.project-document-item>div { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
-.project-document-item>div a { margin-left:auto; }
 .project-action-link { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:32px; box-sizing:border-box; padding:5px 11px; border:1px solid #d5e0ef; border-radius:999px; background:#f0f5fc; color:#355984; font-size:12px; font-weight:600; line-height:20px; text-decoration:none; white-space:nowrap; vertical-align:middle; transition:background .15s,border-color .15s; }
 .project-action-link:visited { color:#355984; }
 .project-action-link:hover { text-decoration:none; background:#e3edf9; border-color:#a9bfdc; }
@@ -130,13 +125,10 @@
 #projectWorkspace .project-doc-group { margin-top:18px; }
 #projectWorkspace .project-doc-group h3 { display:flex; align-items:center; gap:6px; margin:0; font-size:13px; }
 #projectWorkspace .project-doc-count { font-size:11.5px; font-weight:600; color:var(--muted); background:var(--soft, #F1F4F9); border-radius:999px; padding:1px 8px; }
-#projectWorkspace .project-doc-group .project-document-list { margin-top:10px; }
 #projectWorkspace .project-doc-empty { margin:8px 0 0; font-size:12.5px; color:var(--muted); line-height:1.6; }
 /* 관련 지난 사업은 두 칸을 다 쓴다 — 왼쪽 한 칸에만 서고 오른쪽이 비지 않게 */
 .project-context-grid #paneRefs{grid-column:1/-1}
 .project-breadcrumb{display:inline-flex;align-items:center;gap:4px}
-.project-doc-more{margin-top:12px}
-.project-doc-more{margin-top:6px}
 
 .project-conversation a{color:inherit;text-decoration:none}
 .project-conversation .project-action-link{color:#355984}
@@ -153,3 +145,24 @@
 .project-conversation-share button{font-size:12px;padding:4px 10px;min-height:28px}
 
 /* 작업 폴더 부서 공유 — 작업 문서 머리 오른쪽 한 줄 */
+
+/* 문서 목록 — 파인더 목록처럼 한 줄 행(아이콘 · 제목 말줄임 · 옅은 출처·날짜), 얇은 구분선, 많으면 칸 안에서 스크롤 */
+.pw-list { margin-top:8px; max-height:262px; overflow-y:auto; border-top:1px solid #eef1f4; }
+.pw-row { display:flex; align-items:center; gap:10px; min-height:36px; padding:6px 8px; border-bottom:1px solid #eef1f4; color:var(--ink); font-size:13px; text-decoration:none; }
+a.pw-row:hover, .pw-row:hover { background:#f5f7fa; text-decoration:none; }
+.pw-row > iconify-icon { flex:none; font-size:17px; color:#6f8bb0; }
+.pw-row[data-kind=hwp] > iconify-icon { color:#3f7f8c; }
+.pw-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pw-name a { color:inherit; text-decoration:none; }
+.pw-name a:hover { text-decoration:underline; text-underline-offset:2px; }
+.pw-meta { flex:0 1 auto; max-width:48%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; color:#8a96a6; }
+.pw-tag { flex:none; font-size:11px; color:#8a5a00; background:#fff6e5; border-radius:5px; padding:0 6px; line-height:18px; }
+.pw-tag.failed, .pw-tag.reject, .pw-tag.rejected, .pw-tag.fail { color:#a23b3b; background:#fdeeee; }
+.pw-tag.approved, .pw-tag.pass { color:#2f6b45; background:#eaf5ee; }
+.pw-open { flex:none; display:flex; gap:4px; }
+.pw-btn { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border:1px solid #dde3ea; border-radius:6px; background:#fff; color:#3d5675; font-size:11.5px; line-height:18px; text-decoration:none; white-space:nowrap; }
+.pw-btn:visited { color:#3d5675; }
+.pw-btn:hover { border-color:#b9c6d6; background:#f5f7fa; text-decoration:none; }
+.pw-btn:focus-visible { outline:2px solid #45658f; outline-offset:2px; }
+#projectWorkspace .project-history-heading + .pw-list { border-top:0; }
+@media(max-width:600px){ .pw-meta { display:none; } }

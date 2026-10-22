@@ -535,7 +535,7 @@ def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatc
     owner.post(f"/chat/{pub}/private", data={"private": "0"}, follow_redirects=False)
     r = owner.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False)
     assert r.status_code == 303 and calls[-1] == {}                        # 나만으로 돌리면 준 권한을 거둔다
-    assert "공유 · 나만" in owner.get(f"/project/{pid}").text
+    assert "공유 안 함</button>" in owner.get(f"/project/{pid}").text
     assert plan.get(f"/project/{pid}").status_code == 404                  # 같은 부서여도 이제 안 보인다
 
 

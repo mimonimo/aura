@@ -37,8 +37,8 @@
       <button type="submit" class="secondary">보관 해제</button></form>
     {% endif %}
     {% if can_edit and not project.archived %}
-    <button type="button" class="secondary" data-modal-open="#shareModal" title="이 프로젝트를 볼 수 있는 사람 — {{ share_label }}">
-      <iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>공유 · {{ share_label }}</button>
+    <button type="button" class="secondary" data-modal-open="#shareModal" title="공유 범위 — {{ share_title }}">
+      <iconify-icon icon="solar:{{ 'lock-keyhole' if share.mode == 'private' or not share['items'] else 'users-group-rounded' }}-linear"></iconify-icon>{{ share_label }}</button>
     {% endif %}
     {% if can_edit %}
     <button type="button" class="secondary" data-modal-open="#manageModal"
@@ -99,17 +99,17 @@
     <section class="project-doc-group" data-doc-group="{{ key }}" aria-label="{{ label }}">
       <h3>{{ label }} <span class="project-doc-count">{{ items|length }}</span></h3>
       {% if items %}
-      <div class="project-document-list">
+      {# 한 줄 행 목록 — 아이콘 · 제목(말줄임) · 출처·접수번호·날짜. 많으면 목록 칸 안에서 스크롤 #}
+      <div class="pw-list">
         {% for d in items %}
-        {% if loop.index == ref_shown + 1 %}<details class="project-doc-more chip-toggle"><summary>{{ items|length - ref_shown }}건 더 보기</summary><div class="project-document-list">{% endif %}
-        <article class="project-document-item">
-          <a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
-          <span class="muted">{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>
-          {# 상태는 평소(처리 완료)와 다를 때만 — 모든 카드에 같은 초록 꼬리표는 가려 주는 것이 없다 #}
-          {% set show_status = d.status != 'reviewed' %}{% set show_decision = key == 'attached' and d.doc_type in ('recruit', 'admission') %}
-          {% if show_status or show_decision or key == 'rules' %}<div>{% if show_status %}<span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% endif %}{% if show_decision %} <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}{% if key == 'rules' %} <span class="muted">{{ kind_labels.get(d.kind or '', '분류 전') }}</span>{% endif %}</div>{% endif %}
-        </article>
-        {% if loop.last and loop.length > ref_shown %}</div></details>{% endif %}
+        {% set show_status = d.status != 'reviewed' %}{% set show_decision = key == 'attached' and d.doc_type in ('recruit', 'admission') %}
+        <a class="pw-row" href="/doc/{{ d.id }}" title="{{ doc_title(d) }}">
+          <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
+          <span class="pw-name">{{ doc_title(d) }}</span>
+          {% if show_status %}<span class="pw-tag {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% endif %}
+          {% if show_decision %}<span class="pw-tag {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
+          <span class="pw-meta">{% if key == 'rules' %}{{ kind_labels.get(d.kind or '', '분류 전') }} · {% endif %}{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:10] }}</span>
+        </a>
         {% endfor %}
       </div>
       {% else %}
@@ -137,16 +137,20 @@
   <div class="card-in">
     <div class="project-history-heading"><h3>작업 문서 <span class="project-doc-count" id="workDocCount">{{ work_docs|length }}</span></h3>
     {% if can_edit and drive_share.shared %}<span class="muted" style="font-size:12px;">작업 문서 공유 {{ drive_share.shared }}명{% if drive_share.missing %} · 구글 미연결 {{ drive_share.missing }}명{% endif %}{% if drive_share.error %} · 확인 필요{% endif %}</span>
-    {% elif not can_edit %}<span class="muted" style="font-size:12px;">공유받은 작업 문서 — 구글에서 열기</span>{% endif %}</div>
-    {# 처음엔 서버 기록으로 그리고, 구글 문서가 연결된 대화마다 문서 패널과 같은 목록(드라이브 폴더)을 불러와 바꾼다 #}
-    <div class="project-conversations" id="workDocs" data-sessions="{{ work_sessions|join(',') }}">
+    {% elif not can_edit %}<span class="muted" style="font-size:12px;">공유받은 작업 문서</span>{% endif %}</div>
+    {# 한글 문서(웹 한글 기안기)와 구글 문서를 함께 — 줄마다 그 문서를 여는 편집기 단추. 구글 줄은 대화마다 문서 패널과 같은 목록으로 다시 불러온다 #}
+    <div class="pw-list is-work" id="workDocs" data-sessions="{{ work_sessions|join(',') }}">
       {% for w in work_docs %}
-      <div class="project-conversation"><iconify-icon icon="solar:document-add-linear"></iconify-icon>
-        <span><a href="/chat/{{ w.chat_id }}" title="대화의 문서 패널에서 고칩니다">{{ w.name }}</a></span>
-        <a class="project-action-link" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 구글 문서 (새 창)">구글 문서 <span aria-hidden="true">↗</span></a></div>
+      {% set hwp = w.kind == 'hwp' %}
+      <div class="pw-row" data-kind="{{ w.kind }}">
+        <iconify-icon icon="solar:{{ 'document-text' if hwp else 'document-add' }}-linear" aria-hidden="true"></iconify-icon>
+        <span class="pw-name">{% if w.chat_id %}<a href="/chat/{{ w.chat_id }}" title="{{ w.name }} — 대화의 문서 패널에서 고칩니다">{{ w.name }}</a>{% else %}<a href="{{ w.url }}" target="_blank" rel="noopener" title="{{ w.name }}">{{ w.name }}</a>{% endif %}</span>
+        <span class="pw-meta">{{ '한글' if hwp else '구글' }}{% if w.where %} · {{ w.where }}{% endif %}{% if w.created_at %} · {{ w.created_at[:10] }}{% endif %}</span>
+        <span class="pw-open">{% if hwp %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 한글 문서로 열기 (새 창)">한글 문서 <span aria-hidden="true">↗</span></a>{% if w.drive_url %}<a class="pw-btn" href="{{ w.drive_url }}" target="_blank" rel="noopener" title="드라이브에 올린 최종본" aria-label="{{ w.name }} 구글 드라이브로 열기 (새 창)">드라이브 <span aria-hidden="true">↗</span></a>{% endif %}{% else %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 구글 문서로 열기 (새 창)">구글 문서 <span aria-hidden="true">↗</span></a>{% endif %}</span>
+      </div>
       {% endfor %}
     </div>
-    <p class="project-empty" id="workDocsStatus" role="status" {% if work_docs or work_sessions %}hidden{% endif %}>대화에서 만든 구글 문서가 여기에 모입니다.</p>
+    <p class="project-empty" id="workDocsStatus" role="status" {% if work_docs or work_sessions %}hidden{% endif %}>대화에서 만든 한글 문서와 구글 문서가 여기에 모입니다.</p>
   </div>
 </div>{% endif %}{# 작업 문서는 담당자 드라이브 — 동료 화면에는 싣지 않는다 #}
 
@@ -304,52 +308,136 @@
 </div>
 
 {% if can_edit and not project.archived %}
-{# 프로젝트 공유 — 나만 / 공유(부서 일괄·지정 사용자, 보기·함께 작업). 저장하면 작업 문서의 구글 권한도 따라간다(app/project_access) #}
+{# 프로젝트 공유 — 나만 보기 / 함께 쓰기(부서 전체·지정한 사람, 보기·함께 작업). 저장하면 작업 문서의 구글 권한도 따라간다(app/project_access) #}
+{% set shared_on = share.mode == 'shared' and share['items'] %}
 <div id="shareModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
   <div class="card share-modal"><div class="card-in">
     <div class="modal-head"><h2 id="shareModalTitle"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>프로젝트 공유</h2>
       <button type="button" data-modal-close class="icon-btn" title="닫기" aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form action="/project/{{ project.id }}/shares" method="post" id="shareForm">
-      <div class="share-mode">
-        <label><input type="radio" name="mode" value="private" {{ 'checked' if share.mode == 'private' }}> 나만</label>
-        <label><input type="radio" name="mode" value="shared" {{ 'checked' if share.mode == 'shared' }}> 공유</label>
+      <div class="share-mode" role="radiogroup" aria-label="공유 범위">
+        <label><input type="radio" name="mode" value="private" {{ 'checked' if not shared_on }}><span><span class="share-mode-name">나만 보기</span><small>담당자와 관리자만 봅니다</small></span></label>
+        <label><input type="radio" name="mode" value="shared" {{ 'checked' if shared_on }}><span><span class="share-mode-name">함께 쓰기</span><small>고른 부서·사람과 나눕니다</small></span></label>
       </div>
-      <div class="share-rows" data-share-rows {{ 'hidden' if share.mode == 'private' }}>
-        {% for it in share['items'] %}<div class="share-row"><select name="to" aria-label="받는 부서·사람">
-          <optgroup label="부서 전체">{% for d in share_depts %}<option value="dept:{{ d }}" {{ 'selected' if it.to == 'dept:' ~ d }}>{{ d }}</option>{% endfor %}</optgroup>
-          <optgroup label="사용자">{% for u in share_users %}<option value="user:{{ u }}" {{ 'selected' if it.to == 'user:' ~ u }}>{{ u }}</option>{% endfor %}</optgroup></select>
-          <select name="level" aria-label="권한">{% for k, v in share_levels.items() %}<option value="{{ k }}" {{ 'selected' if it.level == k }}>{{ v }}</option>{% endfor %}</select>
-          <button type="button" class="secondary" data-share-remove aria-label="빼기">빼기</button></div>{% endfor %}
-        <template data-share-template><div class="share-row"><select name="to" aria-label="받는 부서·사람">
-          <optgroup label="부서 전체">{% for d in share_depts %}<option value="dept:{{ d }}">{{ d }}</option>{% endfor %}</optgroup>
-          <optgroup label="사용자">{% for u in share_users %}<option value="user:{{ u }}">{{ u }}</option>{% endfor %}</optgroup></select>
-          <select name="level" aria-label="권한">{% for k, v in share_levels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
-          <button type="button" class="secondary" data-share-remove aria-label="빼기">빼기</button></div></template>
-        <button type="button" class="secondary" data-share-add><iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서·사람 더하기</button>
+      <div class="share-body" data-share-body {{ 'hidden' if not shared_on }}>
+        <div class="share-find">
+          <iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
+          <input type="search" data-share-search placeholder="부서나 사람 이름으로 찾기" aria-label="공유할 부서·사람 찾기" autocomplete="off">
+          <div class="share-suggest" data-share-suggest role="listbox" hidden></div>
+        </div>
+        {% if share_own_dept %}<button type="button" class="share-quick" data-share-quick="dept:{{ share_own_dept }}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>우리 부서 전체({{ share_own_dept }})</button>{% endif %}
+        <div class="share-rows" data-share-rows>
+          {% for it in share['items'] if shared_on %}{% set kind = it.to.split(':', 1)[0] %}<div class="share-row" data-to="{{ it.to }}"><input type="hidden" name="to" value="{{ it.to }}">
+            <iconify-icon icon="solar:{{ 'buildings-2' if kind == 'dept' else 'user' }}-linear" aria-hidden="true"></iconify-icon>
+            <span class="share-who">{{ share_names.get(it.to, it.to.split(':', 1)[1]) }}<small>{{ '부서 전체' if kind == 'dept' else '사람' }}</small></span>
+            <select name="level" aria-label="{{ share_names.get(it.to, it.to.split(':', 1)[1]) }} 권한">{% for k, v in share_levels.items() %}<option value="{{ k }}" {{ 'selected' if it.level == k }}>{{ v }}</option>{% endfor %}</select>
+            <button type="button" class="share-remove" data-share-remove title="빼기" aria-label="{{ share_names.get(it.to, it.to.split(':', 1)[1]) }} 빼기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>{% endfor %}
+        </div>
+        <p class="share-empty" data-share-empty {{ 'hidden' if shared_on }}>아직 고른 부서·사람이 없습니다. 위에서 찾아 더합니다.</p>
+        <ul class="share-help">
+          <li>보기: 공개 대화와 작업 문서를 읽을 수 있습니다</li>
+          <li>함께 작업: 대화를 열고 작업 문서를 고칠 수 있습니다</li>
+          <li>비공개 대화는 공유해도 다른 사람에게 보이지 않습니다</li>
+        </ul>
       </div>
-      <p class="muted share-help">보기 — 공개된 대화·작업 문서를 읽기 · 함께 작업 — 이 프로젝트에서 자기 대화를 열고 문서를 씀(작업 문서 편집). 비공개로 둔 대화는 공유돼도 나만 봅니다.</p>
-      <div class="share-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">저장</button></div>
+      <script type="application/json" data-share-choices>{{ share_choices|tojson }}</script>
+      <template data-share-template><div class="share-row"><input type="hidden" name="to" value="">
+        <iconify-icon aria-hidden="true"></iconify-icon><span class="share-who"><small></small></span>
+        <select name="level" aria-label="권한">{% for k, v in share_levels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+        <button type="button" class="share-remove" data-share-remove title="빼기" aria-label="빼기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div></template>
+      <div class="share-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" class="share-save">저장</button></div>
     </form>
   </div></div>
 </div>
 <style>
-  .share-modal { width:520px; max-width:100%; }
-  .share-mode { display:flex; gap:18px; margin:4px 0 12px; }
-  .share-mode label { display:flex; align-items:center; gap:6px; font-weight:600; }
-  .share-rows { display:flex; flex-direction:column; gap:8px; }
-  .share-row { display:grid; grid-template-columns:minmax(0,1fr) 120px auto; gap:8px; align-items:center; }
-  .share-help { font-size:12px; margin:12px 0 0; line-height:1.6; }
-  .share-foot { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  .share-modal { width:500px; max-width:calc(100vw - 32px); }
+  .share-mode { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:4px 0 14px; }
+  .share-mode label { display:flex; align-items:flex-start; gap:8px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }
+  .share-mode label:has(input:checked) { border-color:#9fb0c6; background:#f6f8fb; }
+  .share-mode input { margin:3px 0 0; accent-color:#1f2937; }
+  .share-mode .share-mode-name { display:block; font-size:13.5px; font-weight:600; }
+  .share-mode small { display:block; margin-top:2px; font-size:12px; color:var(--muted); }
+  .share-find { position:relative; display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid #d6dee8; border-radius:8px; background:#fff; }
+  .share-find:focus-within { border-color:#8092a9; }
+  .share-find iconify-icon { color:var(--faint); flex:none; }
+  .share-find input { flex:1; min-width:0; height:34px; border:0 !important; outline:none !important; box-shadow:none !important; background:transparent; padding:0; font:inherit; font-size:13px; }
+  .share-suggest { position:absolute; left:-1px; right:-1px; top:calc(100% + 4px); z-index:5; max-height:220px; overflow-y:auto; padding:4px; background:#fff; border:1px solid #d9e0ea; border-radius:8px; box-shadow:0 8px 24px #15243c1f; }
+  .share-suggest button { display:flex; align-items:center; gap:8px; width:100%; padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--ink); font:inherit; font-size:13px; text-align:left; box-shadow:none; cursor:pointer; }
+  .share-suggest button:hover, .share-suggest button.on { background:#f1f4f8; }
+  .share-suggest small { margin-left:auto; color:var(--faint); font-size:11.5px; }
+  .share-suggest p { margin:6px 8px; font-size:12.5px; color:var(--muted); }
+  .share-quick { margin:8px 0 0; padding:4px 10px; min-height:28px; font-size:12px; font-weight:500; border:1px solid #dde1e6; border-radius:7px; background:#fff; color:#414b58; box-shadow:none; gap:5px; }
+  .share-quick:hover { background:#f4f5f7; border-color:#bfc7d2; }
+  .share-rows { display:flex; flex-direction:column; margin-top:10px; }
+  .share-row { display:grid; grid-template-columns:18px minmax(0,1fr) 108px 28px; gap:8px; align-items:center; padding:6px 4px; border-bottom:1px solid #eef1f4; }
+  .share-row:first-child { border-top:1px solid #eef1f4; }
+  .share-row > iconify-icon { color:#5b7aa3; font-size:16px; }
+  .share-who { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+  .share-who small { margin-left:6px; color:var(--faint); font-size:11.5px; }
+  .share-row select { height:30px; padding:0 8px; font-size:12.5px; border:1px solid #d6dee8; border-radius:7px; background:#fff; }
+  .share-remove { width:28px; height:28px; min-height:0; padding:0; border:0; border-radius:7px; background:transparent; color:var(--faint); font-size:17px; box-shadow:none; }
+  .share-remove:hover { background:#f1f4f8; color:var(--ink); }
+  .share-empty { margin:10px 2px 0; font-size:12.5px; color:var(--muted); }
+  .share-help { margin:14px 0 0; padding:0 0 0 16px; font-size:12px; line-height:1.75; color:var(--muted); }
+  .share-foot { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+  .share-foot .share-save { background:var(--ink); border:1px solid var(--ink); color:#fff; font-weight:500; box-shadow:none; }
+  .share-foot .share-save:hover { background:#111827; border-color:#111827; }
+  @media(max-width:520px){ .share-mode { grid-template-columns:1fr; } .share-row { grid-template-columns:18px minmax(0,1fr) 96px 28px; } }
 </style>
 <script>
 (function () {
   var form = document.getElementById('shareForm'); if (!form) return;
-  var rows = form.querySelector('[data-share-rows]'), tpl = form.querySelector('[data-share-template]');
-  form.addEventListener('change', function (e) { if (e.target.name === 'mode') rows.hidden = e.target.value !== 'shared'; });
-  form.querySelector('[data-share-add]').addEventListener('click', function () {
-    rows.insertBefore(tpl.content.firstElementChild.cloneNode(true), form.querySelector('[data-share-add]'));
+  var body = form.querySelector('[data-share-body]'), rows = form.querySelector('[data-share-rows]');
+  var tpl = form.querySelector('[data-share-template]'), empty = form.querySelector('[data-share-empty]');
+  var search = form.querySelector('[data-share-search]'), sug = form.querySelector('[data-share-suggest]');
+  var quick = form.querySelector('[data-share-quick]');
+  var choices = []; try { choices = JSON.parse(form.querySelector('[data-share-choices]').textContent) || []; } catch (_) {}
+  function has(to) { return !!rows.querySelector('.share-row[data-to="' + CSS.escape(to) + '"]'); }
+  function sync() {
+    empty.hidden = !!rows.children.length;
+    if (quick) quick.hidden = has(quick.dataset.shareQuick);
+  }
+  function add(c) {
+    if (!c || has(c.to)) return;
+    var row = tpl.content.firstElementChild.cloneNode(true), dept = c.to.indexOf('dept:') === 0;
+    row.dataset.to = c.to; row.querySelector('input').value = c.to;
+    row.querySelector('iconify-icon').setAttribute('icon', dept ? 'solar:buildings-2-linear' : 'solar:user-linear');
+    var who = row.querySelector('.share-who'); who.insertBefore(document.createTextNode(c.label), who.firstChild);
+    who.querySelector('small').textContent = dept ? '부서 전체' : c.hint;
+    row.querySelector('select').setAttribute('aria-label', c.label + ' 권한');
+    row.querySelector('[data-share-remove]').setAttribute('aria-label', c.label + ' 빼기');
+    rows.appendChild(row); sync();
+  }
+  function matches() {
+    var q = search.value.trim().toLocaleLowerCase();
+    if (!q) return [];
+    return choices.filter(function (c) { return !has(c.to) && (c.label + ' ' + c.hint).toLocaleLowerCase().indexOf(q) >= 0; }).slice(0, 8);
+  }
+  function paint() {
+    var list = matches(); sug.replaceChildren();
+    if (!search.value.trim()) { sug.hidden = true; return; }
+    if (!list.length) { var p = document.createElement('p'); p.textContent = '맞는 부서·사람이 없습니다'; sug.appendChild(p); }
+    list.forEach(function (c, i) {
+      var b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'option'); if (!i) b.className = 'on';
+      var ic = document.createElement('iconify-icon'); ic.setAttribute('icon', c.to.indexOf('dept:') === 0 ? 'solar:buildings-2-linear' : 'solar:user-linear');
+      var t = document.createElement('span'); t.textContent = c.label;
+      var h = document.createElement('small'); h.textContent = c.hint;
+      b.append(ic, t, h);
+      b.addEventListener('click', function () { add(c); search.value = ''; paint(); search.focus(); });
+      sug.appendChild(b);
+    });
+    sug.hidden = false;
+  }
+  search.addEventListener('input', paint);
+  search.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); var m = matches(); if (m.length) { add(m[0]); search.value = ''; paint(); } }
+    else if (e.key === 'Escape' && !sug.hidden) { e.stopPropagation(); search.value = ''; paint(); }
   });
-  rows.addEventListener('click', function (e) { var b = e.target.closest('[data-share-remove]'); if (b) b.closest('.share-row').remove(); });
+  search.addEventListener('blur', function () { setTimeout(function () { if (!sug.contains(document.activeElement)) sug.hidden = true; }, 150); });
+  if (quick) quick.addEventListener('click', function () { add(choices.find(function (c) { return c.to === quick.dataset.shareQuick; })); });
+  form.addEventListener('change', function (e) { if (e.target.name === 'mode') { body.hidden = e.target.value !== 'shared'; if (!body.hidden && !rows.children.length) search.focus(); } });
+  rows.addEventListener('click', function (e) { var b = e.target.closest('[data-share-remove]'); if (b) { b.closest('.share-row').remove(); sync(); } });
+  sync();
 })();
 </script>
 {% endif %}
@@ -448,12 +536,14 @@
     });
   }
 
-  // 작업 문서 — 대화마다 문서 패널과 같은 목록(/api/chat-documents/{대화}/files)을 불러온다. 실패하면 서버 기록을 그대로 둔다
+  // 작업 문서 — 구글 줄은 대화마다 문서 패널과 같은 목록(/api/chat-documents/{대화}/files)으로 다시 그린다.
+  // 한글 줄(서버가 그린 것)은 그대로 두고, 불러오지 못하면 서버 기록을 그대로 둔다
   var work = document.getElementById("workDocs");
   var sessions = work && work.dataset.sessions ? work.dataset.sessions.split(",").filter(Boolean) : [];
   if (sessions.length) {
     var st = document.getElementById("workDocsStatus");
-    st.hidden = false; st.textContent = "작업 문서를 불러오는 중…";
+    var idle = "대화에서 만든 한글 문서와 구글 문서가 여기에 모입니다.";
+    if (!work.children.length) { st.hidden = false; st.textContent = "작업 문서를 불러오는 중…"; }
     Promise.all(sessions.map(function (sid) {
       return fetch("/api/chat-documents/" + sid + "/files", {cache: "no-store"})
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -468,23 +558,32 @@
           seen[f.id] = true; rows.push({sid: res.sid, f: f});
         });
       });
-      if (failed && !rows.length) { st.textContent = "작업 문서 목록을 불러오지 못했습니다. 대화의 문서 패널에서 확인해 주세요."; return; }
-      if (!failed) work.replaceChildren();
+      if (failed && !rows.length) {
+        if (!work.children.length) { st.hidden = false; st.textContent = "작업 문서 목록을 불러오지 못했습니다. 대화의 문서 패널에서 확인해 주세요."; }
+        return;
+      }
+      if (!failed) work.querySelectorAll('.pw-row[data-kind="gdoc"]').forEach(function (x) { x.remove(); });
+      var firstHwp = work.querySelector('.pw-row[data-kind="hwp"]');
       rows.forEach(function (row) {
         var doc = row.f.mime_type === "application/vnd.google-apps.document";
         var url = doc ? "https://docs.google.com/document/d/" + row.f.id + "/edit" : "https://drive.google.com/file/d/" + row.f.id + "/view";
         if (failed && work.querySelector('a[href="' + url + '"]')) return;
-        var line = document.createElement("div"); line.className = "project-conversation";
-        var name = document.createElement("span"); var a = document.createElement("a");
-        a.href = "/chat/" + row.sid; a.title = "대화의 문서 패널에서 고칩니다"; a.textContent = row.f.name || "문서"; name.appendChild(a);
-        var open = document.createElement("a"); open.className = "project-action-link"; open.href = url; open.target = "_blank"; open.rel = "noopener";
-        open.setAttribute("aria-label", (row.f.name || "문서") + " " + (doc ? "구글 문서" : "구글 드라이브") + " (새 창)");
-        open.textContent = (doc ? "구글 문서" : "구글 드라이브") + " ↗";
-        line.append(name, open); work.appendChild(line);
+        var label = doc ? "구글 문서" : "드라이브", nm = row.f.name || "문서";
+        var line = document.createElement("div"); line.className = "pw-row"; line.dataset.kind = "gdoc";
+        var ic = document.createElement("iconify-icon"); ic.setAttribute("icon", "solar:document-add-linear"); ic.setAttribute("aria-hidden", "true");
+        var name = document.createElement("span"); name.className = "pw-name";
+        var a = document.createElement("a"); a.href = "/chat/" + row.sid; a.title = nm + " — 대화의 문서 패널에서 고칩니다"; a.textContent = nm; name.appendChild(a);
+        var meta = document.createElement("span"); meta.className = "pw-meta"; meta.textContent = "구글";
+        var openBox = document.createElement("span"); openBox.className = "pw-open";
+        var open = document.createElement("a"); open.className = "pw-btn"; open.href = url; open.target = "_blank"; open.rel = "noopener";
+        open.setAttribute("aria-label", nm + " " + label + "로 열기 (새 창)");
+        open.textContent = label + " ↗"; openBox.appendChild(open);
+        line.append(ic, name, meta, openBox);
+        work.insertBefore(line, firstHwp);
       });
       var n = work.children.length;
       document.getElementById("workDocCount").textContent = n;
-      st.hidden = n > 0; st.textContent = "대화에서 만든 구글 문서가 여기에 모입니다.";
+      st.hidden = n > 0; st.textContent = idle;
     });
   }
 

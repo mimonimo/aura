@@ -102,6 +102,16 @@
   /* 사이드바는 스크롤 칸이라 펼침 창이 잘리지 않게 화면 기준으로 띄운다(사이드바 왼쪽 아래에서 위로) */
   .side-user .popover { position: fixed; top: auto; bottom: 64px; left: 12px; right: auto; width: 300px; max-height: calc(100dvh - 120px); overflow-y: auto; }
   .topbar { padding-top: 9px; padding-bottom: 9px; min-height: 48px; }
+  /* 사용자 메뉴 — 얇게: 계정 한 줄, 아이콘 + 글 한 줄씩 */
+  .user-menu { width: 248px; padding: 6px; border-radius: 12px; }
+  .user-menu .um-head { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 8px; }
+  .user-menu .um-id { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-menu .um-sub { font-size: 11.5px; color: var(--faint); }
+  .user-menu .um-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none; box-shadow: none;
+                        color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 400; text-decoration: none; cursor: pointer; justify-content: flex-start; min-height: 0; }
+  .user-menu .um-item:hover { background: var(--panel); }
+  .user-menu .um-item iconify-icon { font-size: 17px; color: var(--muted); }
+  .user-menu .um-sep { height: 1px; background: var(--line); margin: 5px 4px; }
   .side-note { font-size: 11px; color: var(--faint); padding: 10px 12px 0; line-height: 1.5; }
 
   /* ── 우측 컬럼 ── */
@@ -706,23 +716,14 @@ document.addEventListener('submit', function(event) {
         <span class="avatar" aria-hidden="true">{{ (profile_name or request.state.user or "담")[:1] | upper }}</span>
         {{ profile_name or request.state.user or "담당자" }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
       </button>
-      <div class="popover" id="userPop">
-        <div class="pop-head">
-          <span class="pop-avatar" aria-hidden="true">{{ (profile_name or request.state.user or "담")[:1] | upper }}</span>
-          <div style="min-width:0;">
-            <div class="pop-name">{{ profile_name or request.state.user or "담당자" }}</div>
-            {% set sub = [request.state.user if profile_name and profile_name != request.state.user else "", role_labels.get(request.state.role, "담당자"), profile_dept or ""] | select | list %}
-            <div class="pop-sub">{{ sub | join(" · ") }}</div>
-          </div>
-        </div>
-        <div class="pop-div"></div>
-        <a class="pop-item" href="/settings"><iconify-icon icon="solar:settings-linear"></iconify-icon><span>내 설정</span></a>
-        <div class="pop-div"></div>
+      <div class="popover user-menu" id="userPop">
+        {% set sub = [role_labels.get(request.state.role, "담당자"), profile_dept or ""] | select | list %}
+        <div class="um-head"><span class="um-id">{{ request.state.user or "" }}</span><span class="um-sub">{{ (profile_name ~ " · ") if profile_name and profile_name != request.state.user else "" }}{{ sub | join(" · ") }}</span></div>
+        <a class="um-item" href="/settings"><iconify-icon icon="solar:settings-linear" aria-hidden="true"></iconify-icon><span>설정</span></a>
+        {% if request.state.role == 'dev' %}<a class="um-item" href="/dev/users"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon><span>사용자·계정 관리</span></a>{% endif %}
+        <div class="um-sep"></div>
         <form action="/logout" method="post" style="margin:0;">
-          <button type="submit" class="pop-item" style="width:100%; background:none; border:0;
-                  box-shadow:none; color:var(--ink); font-weight:400; font-size:13.5px;
-                  padding:9px 10px; cursor:pointer; justify-content:flex-start; gap:9px;">
-            <iconify-icon icon="solar:logout-2-linear"></iconify-icon>로그아웃</button>
+          <button type="submit" class="um-item"><iconify-icon icon="solar:logout-2-linear" aria-hidden="true"></iconify-icon><span>로그아웃</span></button>
         </form>
       </div>
     </div>

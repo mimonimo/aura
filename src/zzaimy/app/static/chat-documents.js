@@ -519,7 +519,7 @@
      (st.files||[]).slice().reverse().forEach(f=>{
        const row=elx('div','chat-hwp-work');row.dataset.hwpFile=f.id;
        const a=elx('button','chat-doc-file'+(f.current?' chat-file-current':''));a.type='button';
-       fileCard(a,f.name.replace(/\.hwpx?$/i,''),[f.current?'현재 작업 중':'',f.where,f.saved?('저장 '+f.saved+(f.saved_by?' · '+f.saved_by:'')):''].filter(Boolean).join(' · '),null,'hwpx');
+       fileCard(a,f.name.replace(/\.hwpx?$/i,''),[f.current?'현재 작업 중':'',f.where,f.saved?('저장 '+f.saved.replace('T',' ').slice(5,16)+(f.saved_by?' · '+f.saved_by:'')):''].filter(Boolean).join(' · '),null,'hwpx');
        if(f.current)a.setAttribute('aria-current','true');
        a.onclick=async()=>{try{const r=await api('/api/chat/'+sid+'/hwp/current',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:f.id})});showHwp(r.file);}catch(e){status.textContent=e.message;}};
        const x=elx('button','chat-hwp-detach','×');x.type='button';x.title='작업 문서 목록에서 빼기(파일은 부서 폴더에 그대로)';x.setAttribute('aria-label',x.title);
@@ -777,6 +777,7 @@
    if(session===sid&&!linked&&workspace.isConnected)watch=setTimeout(checkCreatedDocument,6000);
  }
  function initializeSession(){
+   paintCtx();
    const session=sid;
    clearTimeout(watch);
    initialized=session?api('/api/chat-documents/'+session).then(data=>{
@@ -860,7 +861,20 @@
  }
  // 답이 도착하면 연결 정보를 다시 읽고(절·연결 문서가 바뀌었을 수 있다) 편집기를 새로 불러온다.
  // 쓴 절을 알면 그 자리로 옮긴다.
+ // 입력창 아래 오른쪽 — 마지막 답변의 문맥 사용(가장 큰 모델 호출이 문맥 한도를 얼마나 썼는지)과 모델에 보낸 입력 합
+ async function paintCtx(){
+   const box=document.getElementById('chatCtx');if(!box||!sid)return;
+   let u;try{u=await api('/api/chat/'+sid+'/context');}catch(_){return;}
+   if(!u||!u.limit||!u.peak){box.hidden=true;return;}
+   const pct=Math.min(100,Math.round(u.peak/u.limit*100)),fmt=n=>n>=10000?(n/10000).toFixed(1).replace(/\.0$/,'')+'만':n.toLocaleString('ko-KR');
+   box.hidden=false;box.classList.toggle('is-high',pct>=85);
+   box.querySelector('.chat-ctx-bar>span').style.width=pct+'%';
+   box.querySelector('.chat-ctx-text').textContent='문맥 '+pct+'% · 입력 '+fmt(u.prompt)+' 토큰';
+   box.title='마지막 답변 — 한 번에 보낸 양이 가장 컸던 호출이 문맥 한도 '+u.limit.toLocaleString('ko-KR')+' 토큰 중 '+u.peak.toLocaleString('ko-KR')+' 토큰(입력+답변 몫)을 썼습니다.\n'
+     +'모델 호출 '+u.calls+'번, 보낸 입력 합 '+u.prompt.toLocaleString('ko-KR')+' 토큰(어림).'+(u.trimmed?'\n한도에 맞추려고 오래된 대화나 첨부 일부를 줄여서 보냈습니다.':'');
+ }
  async function afterAnswer(){
+   paintCtx();
    const session=sid;
    let fresh=null;
    try{fresh=await api('/api/chat-documents/'+session);}catch(_){}

@@ -63,6 +63,42 @@ WEAK_EVIDENCE_NOTE = (
 # 답 쓰기(생성 단계)의 생각 모드 손잡이 — 기본은 끈다(운영 동작). ZZAIMY_ANSWER_THINK=1 이면 내부 vLLM 에 생각을 켜고
 # 생각에 쓸 몫만큼 출력 한도와 시간 제한을 넓힌다(생각 글은 reasoning_content 로 따로 오고 답 글에는 섞지 않는다).
 # 생각을 켜는 인자(chat_template_kwargs)는 그 인자를 받는 서버(client._extra 에 있는 경우)에만 보낸다. 측정: scripts/188 --think-compare
+def answer_cot() -> bool:
+    """답 생성 전 단계 추론(CoT) — 기본 켬. 끄려면 ZZAIMY_ANSWER_COT=0."""
+    return os.environ.get("ZZAIMY_ANSWER_COT", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+# 학습 데이터(구조 단계 문답, 「[N단계: …]」 추론 + 「[답]」)와 같은 꼴 — 입력마다 질문 파악 → 근거 확인 → 답 구성
+COT_RULE = """답하기 전에 짧게 단계별로 생각한다. 꼴(제목 줄 그대로):
+[1단계: 질문 파악] 담당자가 지금 원하는 것과 작업 메모의 목표에 비춰 이 요청이 어디에 해당하는지(1~2줄)
+[2단계: 근거 확인] 아래 근거에서 쓸 것과 근거에 없는 것(1~3줄, 문서 이름·수치만 짚기)
+[3단계: 답 구성] 답의 순서·형식(표·목록 여부)과 담당자에게 물어야 할 것(1~2줄)
+[답]
+여기부터 담당자에게 보일 답만 쓴다. 단계 글은 답에 되풀이하지 않는다."""
+
+_ANS_MARK = re.compile(r"^\s*\[답\]\s*$|^\s*\[답\]\s*", re.M)
+_STEP = re.compile(r"^\s*\[\d+단계[^\]]*\].*$", re.M)
+
+
+def split_reasoning(text: str) -> tuple[str, str | None]:
+    """(단계 추론, 답) — 「[답]」 이 아직 없으면 답은 None(쓰는 중)."""
+    m = _ANS_MARK.search(text or "")
+    if not m:
+        return (text or "").strip(), None
+    return text[:m.start()].strip(), text[m.end():].lstrip("\n")
+
+
+def strip_reasoning(text: str) -> str:
+    """답 글에 섞인 단계 줄을 걷어 낸다(모델이 [답] 을 빼먹었거나 지난 대화에 남은 경우)."""
+    r, a = split_reasoning(text or "")
+    if a is not None:
+        return a
+    if _STEP.search(text or ""):
+        lines = [ln for ln in (text or "").splitlines() if not _STEP.match(ln)]
+        return "\n".join(lines).strip()
+    return text or ""
+
+
 def answer_think() -> bool:
     return os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on")
 
@@ -417,7 +453,14 @@ class AgentResponder:
         if on_progress:
             on_progress(f"답변에 사용할 근거 {len(hits or [])}개 구성"
                         if hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
-        history = db.list_chats(session_id, limit=6) if session_id else []
+        # 대화 기억 — 작업 메모(목표·결정·진행·남은 일)와 문맥 한도 몫만큼의 최근 대화(chat_memory). 개수로 자르지 않는다
+        from zzaimy.app import chat_memory
+        _ctx_len = llm_budget.context_len(VllmClient(role="answer"))
+        memo, history = ("", [])
+        if session_id:
+            _all = db.list_chats(session_id, limit=2)
+            _cur = {int(m["id"]) for m in _all[-1:] if m.get("role") == "user" and (m.get("content") or "").strip() == question.strip()}
+            memo, history = chat_memory.window(db, session_id, _ctx_len, exclude_ids=_cur)
         prof = db.profile_for(scope.get("user")) if hasattr(db, "profile_for") else db.all_settings()
         if scope.get("dept"):
             prof = dict(prof, dept=scope["dept"])           # 부서는 계정에 정해진 값(RAG 공간과 같은 것)
@@ -432,9 +475,13 @@ class AgentResponder:
             for n in notes:
                 lines.append(f"프로젝트 지침·메모({n['created_at'][:10]}): {n['content']}")
             system += "\n\n" + "\n".join(lines)
+        if memo:
+            system += "\n\n" + chat_memory.block(memo)
+        if answer_cot():
+            system += "\n\n" + COT_RULE
         messages: list[dict] = [{"role": "system", "content": system}]
         for m in history:
-            messages.append({"role": m["role"], "content": m["content"][:2000]})
+            messages.append({"role": m["role"], "content": strip_reasoning(m["content"])[:chat_memory.MSG_CAP]})
         if history:
             messages.append({"role": "user", "content": "[앞선 대화는 여기까지 — 맥락일 뿐 근거가 아니다. 수치·날짜는 아래 근거 자료에서만]"})
         att_block = f"\n\n[첨부 문서 본문 — 개인정보 마스킹됨]\n{attachment_text[:8000]}" if attachment_text else ""
@@ -464,6 +511,17 @@ class AgentResponder:
             self.last_context = msgs[-1]["content"]         # 모델에 실제로 건넨 글(측정 스크립트가 답의 수치를 이것과 대조한다)
 
         text, finish = "", ""
+        if on_partial is not None and answer_cot():
+            _raw_partial = on_partial
+
+            def on_partial(t, _p=_raw_partial):          # 단계 추론 동안은 진행 줄에 단계만, [답] 부터 화면에
+                reasoning, ans = split_reasoning(t)
+                if ans is None:
+                    if on_progress and reasoning:
+                        step = re.findall(r"\[(\d+)단계[^\]]*\]", reasoning)
+                        on_progress(f"생각하는 중 · {step[-1]}단계" if step else "생각하는 중")
+                    return
+                _p(ans)
         if on_partial is not None:
             # 쓰는 대로 화면에 — 답 생성(초당 10토큰 안팎)이 끝날 때까지 기다리지 않게. 조각 응답을 못 하는 서버면 아래 한 번에 받기로
             try:
@@ -490,6 +548,9 @@ class AgentResponder:
                 text = text.rstrip() + "\n" + (more.choices[0].message.content or "").lstrip()
             except Exception:
                 pass
+        reasoning, ans = split_reasoning(text)
+        self.last_reasoning = reasoning if ans is not None else ""
+        text = ans if ans is not None else strip_reasoning(text)
         _t_han = _time.time()
         out = strip_emoji(fix_foreign_han(text.strip(), user_content, client))
         if _time.time() - _t_han > 0.05:

@@ -11,6 +11,7 @@ fit_messages(또는 create_fitted)를 거친다:
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -214,6 +215,29 @@ def note_overflow(client, messages: list[dict], err: BaseException) -> bool:
     return True
 
 
+# 요청 하나(대화 답변)에서 모델에 보낸 양 — 화면의 「문맥 사용」 표시용. track() 으로 시작하면 그 실행 흐름의 create_fitted 가 더한다
+_USAGE: contextvars.ContextVar[dict | None] = contextvars.ContextVar("llm_usage", default=None)
+
+
+def track() -> dict:
+    d = {"calls": 0, "prompt": 0, "peak": 0, "limit": 0, "trimmed": False}
+    _USAGE.set(d)
+    return d
+
+
+def _note_usage(client, fitted: list[dict], messages: list[dict], max_tokens: int) -> None:
+    d = _USAGE.get()
+    if d is None:
+        return
+    n = int(estimate_messages(fitted) * _CORRECTION.get(_base(client), 1.0))
+    d["calls"] += 1
+    d["prompt"] += n
+    d["peak"] = max(d["peak"], n + max_tokens)
+    d["limit"] = context_len(client)
+    if len(fitted) < len(messages) or sum(len(str(m.get("content") or "")) for m in fitted) < sum(len(str(m.get("content") or "")) for m in messages):
+        d["trimmed"] = True                                 # 한도 때문에 오래된 대화·첨부를 줄였다
+
+
 def create_fitted(client, messages: list[dict], max_tokens: int, cuts: list[Cut] | None = None, *, floor: int = 512,
                   on_fitted=None, **kw):
     """fit_messages 로 줄여 보낸다. 그래도 서버가 한도 초과로 거절하면 실측으로 보정해 한 번만 다시 줄여 보낸다.
@@ -221,6 +245,7 @@ def create_fitted(client, messages: list[dict], max_tokens: int, cuts: list[Cut]
     fitted, mt = fit_messages(client, messages, max_tokens, cuts, floor=floor)
     if on_fitted:
         on_fitted(fitted)
+    _note_usage(client, fitted, messages, mt)
     try:
         return client.client.chat.completions.create(model=client.model, messages=fitted, max_tokens=mt, **kw)
     except Exception as e:

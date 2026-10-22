@@ -189,7 +189,7 @@
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
-      {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(sources) }}</div>
+      {% if m.role == 'assistant' %}{% set cot = cot_of(m.id) %}{% if cot %}<div class="chat-cot"><button type="button" class="chat-cot-btn" aria-expanded="false" onclick="var b=this.nextElementSibling;b.hidden=!b.hidden;this.setAttribute('aria-expanded',String(!b.hidden));this.querySelector('span').textContent=b.hidden?'펼치기':'접기'">생각 과정 <span>펼치기</span></button><div class="chat-cot-body" hidden>{{ cot }}</div></div>{% endif %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(sources) }}</div>
       {% if '필요한 값 입력' in m.content and value_form_open %}<button type="button" class="secondary chat-jump-form" data-jump-form>필요한 값 입력으로 이동</button>{% endif %}
       {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
       {% endif %}
@@ -285,7 +285,7 @@
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>
   <div class="dock-hint" id="dockHint" hidden>보낼 내용을 입력하세요.</div>
-  <div class="chat-dock-footer"><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서에서 확인하세요.' }}</span></div>
+  <div class="chat-dock-footer"><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서에서 확인하세요.' }}</span><span id="chatCtx" class="chat-ctx" hidden><span class="chat-ctx-bar"><span></span></span><span class="chat-ctx-text"></span></span></div>
 </form>
 <button type="button" id="chatLatest" class="secondary" hidden>새 답변 보기 ↓</button>
 </div>{# /chat-main #}

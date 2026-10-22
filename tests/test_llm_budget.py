@@ -439,3 +439,18 @@ def test_trimming_keeps_last_steps_and_the_log():
     for i in (3, 4, 5):
         assert f"검색 {i} 근거" in text                                   # 최근 세 걸음의 결과는 남는다
     assert "검색 0 근거" not in text                                      # 오래된 결과는 줄었다
+
+
+def test_usage_tracking_records_peak_and_trimming():
+    import contextvars
+    fake = _Fake(max_len=6000)
+
+    def run():
+        u = llm_budget.track()
+        llm_budget.create_fitted(fake, [{"role": "user", "content": "짧은 질문"}], 512)
+        big = [{"role": "system", "content": "s"}, {"role": "user", "content": "옛 대화 " * 1500}, {"role": "user", "content": "질문"}]
+        llm_budget.create_fitted(fake, big, 3072, [llm_budget.Cut(msg=1)])
+        return u
+    u = contextvars.copy_context().run(run)
+    assert u["calls"] == 2 and u["limit"] == 6000 and u["trimmed"] and 0 < u["peak"] <= 6000 and u["prompt"] > 0
+    llm_budget.create_fitted(fake, [{"role": "user", "content": "추적 밖"}], 256)          # 추적을 켜지 않은 흐름은 아무것도 남기지 않는다
