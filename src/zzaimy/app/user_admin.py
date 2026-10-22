@@ -9,7 +9,9 @@
 - 사용자: GET /account/google(상태 JSON), GET /account/google/connect(허용 화면으로), POST /account/google/disconnect
 - 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): GET /dev/users, POST /dev/users/save(역할·교직원 등급·부서 —
   등급과 관리자 상한은 grades, ADR-0066),
-  POST /dev/google/{settings,dept,revoke}
+  POST /dev/google/{settings,dept,revoke}, POST /dev/users/dept(부서 만들기·지우기·사전에서 여러 개 만들기 create_many),
+  POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary). 계정의 겸직 부서는
+  줄마다 부서 + 그 부서에서의 등급(rag grants dept: 와 account["dept_grades"] 를 함께 맞춘다)
 
 main.py 는 app.state 에 accounts(플랫폼 계정 표)·save_accounts·set_pw·new_account·templates·page_ctx 를 두고 이 라우터를 붙인다.
 """
@@ -87,6 +89,14 @@ def known_depts(db, accounts: dict, data_dir=None) -> list[str]:
     return sorted(n for n in names if n and n != "공통")
 
 
+def _extras(uid: str, a: dict, data_dir=None) -> list[str]:
+    """겸직 부서 — RAG 추가 권한(grants dept:)과 부서별 등급(dept_grades)을 합친 것(소속 부서 빼고)."""
+    from zzaimy.app import access_policy
+    out = list(access_policy.extra_depts(uid, data_dir)) if data_dir else []
+    out += [d for d in grades.dept_grades(a) if d not in out]
+    return [d for d in out if d and d != str(a.get("dept") or "").strip()]
+
+
 def overview(db, accounts: dict, data_dir=None) -> dict:
     conn = connected_emails()
     users = []
@@ -97,7 +107,9 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
         users.append({**st, "name": a.get("name", ""), "role": a.get("role", "staff"), "role_label": ROLES.get(a.get("role", "staff"), ""),
                       "grade": g if g in grades.GRADES else "", "grade_label": grades.GRADES.get(g, ""),
                       "perms": [k for k in grades.PERMS if k in (a.get("perms") or ())] if a.get("role") in grades.STAFF else [],
-                      "dept": a.get("dept", ""), "extra": access_policy.extra_depts(uid, data_dir) if data_dir else [], "active": a.get("active", True), "created_at": (a.get("created_at") or "")[:10]})
+                      "dept": a.get("dept", ""), "extra": (ex := _extras(uid, a, data_dir)),
+                      "extra_grades": [grades.dept_grades(a).get(d, "member") for d in ex],
+                      "active": a.get("active", True), "created_at": (a.get("created_at") or "")[:10]})
     settings = db.all_settings()
     # 부서 목록은 한 곳(known_depts) — 여기서 만든 부서가 RAG 공간의 부서 RAG·검색 범위·폴더 범위에 그대로 쓰인다
     depts = known_depts(db, accounts, data_dir)
@@ -107,7 +119,15 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
             n_docs = {str(r[0]): int(r[1]) for r in c.execute(
                 f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
     from zzaimy.ingest import dept_drive
+    from zzaimy.app import dept_dictionary
+    dic = dept_dictionary.load(data_dir)
+    confirmed = dept_dictionary.parents_override(data_dir)
+    suggested = dept_dictionary.suggested_parents(data_dir)
     dept_rows = [{"dept": d, "account": (settings.get(f"google_account_dept:{d}") or "").strip(),
+                  "line": dic.line(d) if dic.normalize(d) else d,
+                  "parent": confirmed.get(d, ""),
+                  # 규정에서 뽑은 상위(제안) — 아직 관리자가 정하지 않았고 그 상위가 부서로 있을 때만
+                  "suggested": (sp if d not in confirmed and (sp := suggested.get(dic.normalize(d) or d, "")) in depts else ""),
                   "root": (settings.get(f"google_root:{d}") or "").strip(),
                   "drive": dept_drive.state(db, d, accounts, data_dir),
                   "members": sorted(u for u, a in accounts.items() if (a.get("dept") or "").strip() == d),
@@ -195,7 +215,19 @@ def dev_users(request: Request, ok: str = "", err: str = ""):
     data = overview(st.db, _accounts(request), getattr(st, "data_dir", None))
     data["me"] = _user(request)
     data["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))
+    data.update(dict_candidates(st, data["dept_choices"]))
     return st.templates.TemplateResponse(request, "dev_users.html", st.page_ctx(request, {**data, "ok": ok, "err": err}))
+
+
+def dict_candidates(st, existing: list[str]) -> dict:
+    """부서 사전(dept_dictionary)에서 고를 후보 — 만들 수 있는 것(행정·사업 조직, 이미 있는 부서 제외)과 건너뛴 까닭.
+    화면은 이것을 「사전에서 고르기」 목록·부서 이름 자동완성·계정 부서 목록의 보조 후보로 쓴다. 자동으로 만들지는 않는다."""
+    from zzaimy.app import dept_dictionary
+    d = dept_dictionary.current(getattr(st, "db", None), getattr(st, "data_dir", None))
+    plan = dept_dictionary.plan_create(d, existing)
+    labels = {x: d.line(x) for x in existing if d.normalize(x)}
+    return {"dict_ready": bool(d.units), "dict_create": [d.view(d.by_name[n]) for n in plan["create"]],
+            "dict_skipped": len(plan["skip"]), "dept_labels": labels}
 
 
 @router.get("/dev/google")
@@ -207,7 +239,7 @@ def dev_google_moved():
 def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
                    role: str = Form("staff"), dept: str = Form(""), active: str = Form(""), new_pw: str = Form(""),
                    google: str = Form(""), extra: list[str] = Form([]), grade: str = Form(""),
-                   perm: list[str] = Form([])):
+                   perm: list[str] = Form([]), extra_grade: list[str] = Form([])):
     """사용자 추가·수정 — 역할·부서·사용 여부, 임시 비밀번호(새 계정은 필수, 기존 계정은 왔을 때만 초기화), 구글 계정 이음.
     관리자가 넣은 비밀번호는 임시다 — 계정에 must_change 를 달아 다음 로그인 때 본인이 바꾸게 한다. 값은 응답에 싣지 않는다."""
     st = request.app.state
@@ -275,13 +307,26 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
     else:
         accounts[uid].pop("grade", None)
         accounts[uid].pop("perms", None)
-    st.save_accounts()
-    # 추가 부서(여러 개) — RAG 공간의 계정별 추가 권한(grants)과 같은 값. 교직원만 받는다(학생·관리자는 비운다). 소속 부서는 빼고 저장
+    # 겸직 부서(여러 줄: 부서 + 그 부서에서의 등급) — RAG 추가 권한(grants dept:)과 부서별 등급(dept_grades) 둘 다 맞춘다.
+    # 교직원만 받는다(학생·관리자는 비운다). 소속 부서·모르는 부서는 빼고, 일반은 따로 적지 않는다(없으면 일반)
     data_dir = getattr(st, "data_dir", None)
+    known = set(known_depts(st.db, accounts, data_dir))
+    pairs: dict[str, str] = {}
+    if role == "staff":
+        for i, d in enumerate(extra):
+            d = d.strip()
+            g = (extra_grade[i] if i < len(extra_grade) else "").strip() or "member"
+            if d and d in known and d != dept and g in grades.GRADES:
+                pairs[d] = g
+    dg = {d: g for d, g in pairs.items() if g != "member"}
+    if dg:
+        accounts[uid]["dept_grades"] = dg
+    else:
+        accounts[uid].pop("dept_grades", None)
+    st.save_accounts()
     if data_dir is not None:
         from zzaimy.app import rag_spaces
-        known = set(known_depts(st.db, accounts, data_dir))
-        want = sorted({d.strip() for d in extra if d.strip() in known and d.strip() != dept}) if role == "staff" else []
+        want = sorted(pairs)
         cfg = rag_spaces.config(data_dir)
         grants = dict(cfg.get("grants", {}))
         if sorted(s[5:] for s in grants.get(uid, []) if str(s).startswith("dept:")) != want:
@@ -358,7 +403,7 @@ def dev_google_dept(request: Request, dept: str = Form(""), root: str = Form("")
 
 
 @router.post("/dev/users/dept")
-def dev_users_dept(request: Request, action: str = Form(""), name: str = Form("")):
+def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""), names: list[str] = Form([])):
     """부서 만들기·지우기 — 부서 목록은 RAG 공간 설정(dept_rags)에 하나로 둔다. 만든 부서는 부서 RAG·검색 범위·폴더 범위·계정 부서에서
     바로 고를 수 있다. 지우면 그 부서 문서는 공통 RAG 로 돌아가고 추가 권한·폴더 짝·부서 공용 설정도 풀린다(계정이 있으면 못 지운다)."""
     from zzaimy.app import rag_spaces
@@ -366,7 +411,25 @@ def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""
     data_dir = getattr(st, "data_dir", None)
     cfg = dict(rag_spaces.config(data_dir))
     name = " ".join((name or "").split())
+    from zzaimy.app import dept_dictionary
+    dic = dept_dictionary.load(data_dir)
+    if action == "create_many":
+        # 「사전에서 고르기」 — 관리자가 고른 사전 이름만 만든다(이미 있는 부서·별칭이 같은 부서는 건너뜀). 만드는 길은 하나씩 만들기와 같다
+        plan = dept_dictionary.plan_create(dic, known_depts(st.db, _accounts(request), data_dir), [n for n in names if n.strip()])
+        made = []
+        for n in plan["create"]:
+            cfg, err = rag_spaces.create_dept_rag(cfg, n, by=_user(request))
+            if not err:
+                made.append(n)
+        if not made:
+            return _back("만들 부서가 없습니다 — 고른 부서가 이미 있거나 사전에서 만들 수 없는 갈래입니다", ok=False)
+        rag_spaces.save_config(cfg, data_dir)
+        msg = f"부서 {len(made)}개를 만들었습니다: {', '.join(made[:8])}{' …' if len(made) > 8 else ''}"
+        if plan["skip"]:
+            msg += f" · 건너뜀 {len(plan['skip'])}개"
+        return RedirectResponse(f"/dev/users?ok={quote(msg)}#depts", status_code=303)
     if action == "create":
+        name = dic.normalize(name) or name             # 별칭(옛 이름·줄임말)으로 적어도 사전의 정식 이름으로
         new, err = rag_spaces.create_dept_rag(cfg, name, by=_user(request))
         if err:
             return _back(err, ok=False)
@@ -384,6 +447,28 @@ def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""
             st.db.set_setting(k, "")
         return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 지웠습니다 · 문서 {moved}건은 공통 RAG 로')}#depts", status_code=303)
     return _back("알 수 없는 요청", ok=False)
+
+
+@router.post("/dev/users/dept-parent")
+def dev_users_dept_parent(request: Request, dept: str = Form(""), parent: str = Form("")):
+    """부서의 상위 부서를 정한다(관리자만) — 상위 부서의 총괄 책임자가 하위 부서도 맡는 권한 판정에 쓰이는 확정 관계.
+    비우면 상위 없음. 둘 다 부서 목록에 있어야 하고, 순환(하위를 상위로)은 막는다. 이전 판은 history/ 에 남는다."""
+    if getattr(request.state, "role", "") != "dev":
+        raise HTTPException(403, "관리자만 상위 부서를 정합니다")
+    from zzaimy.app import dept_dictionary
+    st = request.app.state
+    data_dir = getattr(st, "data_dir", None)
+    known = known_depts(st.db, _accounts(request), data_dir)
+    dept, parent = " ".join(dept.split()), " ".join(parent.split())
+    if dept not in known or (parent and parent not in known):
+        return _back("부서와 상위 부서는 부서 목록에서 골라 주세요", ok=False)
+    if data_dir is None:
+        return _back("설정 위치가 없습니다", ok=False)
+    err = dept_dictionary.set_parent(data_dir, dept, parent)
+    if err:
+        return _back(err, ok=False)
+    msg = f"「{dept}」 의 상위 부서를 「{parent}」 로 정했습니다" if parent else f"「{dept}」 의 상위 부서를 비웠습니다"
+    return RedirectResponse(f"/dev/users?ok={quote(msg)}#depts", status_code=303)
 
 
 @router.get("/dev/google/folders")

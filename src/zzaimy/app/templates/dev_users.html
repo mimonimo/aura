@@ -75,6 +75,19 @@
   #userEdit .ua-extra-list { display:flex; flex-wrap:wrap; gap:6px 14px; }
   #userEdit .ua-extra-list label.check { flex-direction:row; align-items:center; gap:6px; margin:0; font-weight:400; font-size:13px; }
   @media (max-width:640px) { #userEdit { padding:12px; } #userEdit > .card, #userEdit > .card > .card-in { max-height:calc(100dvh - 24px); } #userEdit .modal-head, #userEdit .ua-form, #userEdit .ua-footer { padding:18px; } }
+  #userEdit .ua-extra-rows { display:flex; flex-direction:column; gap:6px; }
+  #userEdit .ua-extra-row { display:grid; grid-template-columns:minmax(0,1fr) 150px 36px; gap:6px; align-items:center; }
+  #userEdit .ua-extra-row button { min-height:38px; padding:0; }
+  .ua-parent { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:0; }
+  .ua-parent select { font:inherit; font-size:12.5px; padding:4px 8px; border:1px solid var(--line); border-radius:8px; max-width:180px; }
+  #deptPick > .card { width:620px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; }
+  #deptPick .card-in { display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
+  #deptPick .pick-list { overflow:auto; min-height:0; border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
+  #deptPick .pick-group { margin:6px 0 10px; }
+  #deptPick .pick-group h3 { font-size:12.5px; margin:0 0 4px; display:flex; gap:8px; align-items:center; }
+  #deptPick .pick-group label { display:flex; gap:8px; align-items:baseline; font-size:13px; padding:3px 0; }
+  #deptPick .pick-group .ua-sub { display:inline; margin:0; }
+  @media (max-width:640px) { #userEdit .ua-extra-row { grid-template-columns:1fr 1fr 36px; } }
   @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } .ua-table .wide { display:none; } }
 </style>
 
@@ -92,11 +105,11 @@
     {% for u in users %}
     <tr class="{{ '' if u.active else 'off' }}">
       <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
-      <td>{{ u.role_label }}{% if u.grade_label %} · {{ u.grade_label }}{% endif %}{% for k in u.perms %}<span class="ua-perm">+ {{ perms[k] }}</span>{% endfor %}</td>
-      <td>{% if u.dept %}{{ u.dept }}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}{% if u.extra %}<span class="ua-sub" title="추가 부서 — 이 부서 문서도 찾고 작업합니다">+ {{ u.extra | join(', ') }}</span>{% endif %}</td>
+      <td>{{ u.role_label }}{% if u.grade_label %} · {{ u.grade_label }}{% endif %}{% for k in u.perms %}<span class="ua-perm">+ {{ perms[k] }}</span>{% endfor %}{% if u.extra %}<span class="ua-sub" title="겸직 부서 — 이 부서 문서도 찾고 작업하며, 부서마다 등급이 따로입니다">겸직: {% for d in u.extra %}{{ d }}({{ grades[u.extra_grades[loop.index0]] }}){% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}</td>
+      <td>{% if u.dept %}{{ u.dept }}{% if dept_labels.get(u.dept) and dept_labels[u.dept] != u.dept %}<span class="ua-sub">{{ dept_labels[u.dept] }}</span>{% endif %}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}</td>
       <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted" title="로그인 뒤 설정에서 「내 학교 계정 연결」">연결 전</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
-            data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-grade="{{ u.grade }}" data-perms="{{ u.perms | join('|') }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}"
+            data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-grade="{{ u.grade }}" data-perms="{{ u.perms | join('|') }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}" data-extra-grades="{{ u.extra_grades | join('|') }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}"
             data-effective="{{ (u.effective ~ ' · ' ~ u.via) if u.effective and u.via != '본인' else '' }}" aria-label="{{ u.user }} 사용자 편집">편집</button></td>
     </tr>
@@ -108,15 +121,23 @@
 <div class="card reveal" id="depts"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
     <button type="button" class="secondary spacer" data-modal-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
-      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
+      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button>
+    {% if dict_create %}<button type="button" class="secondary" data-modal-open="#deptPick" style="padding:6px 12px; font-size:12.5px;" title="직제·사무분장 규정에서 뽑은 부서 사전 — 고른 것만 만듭니다">
+      <iconify-icon icon="solar:list-check-linear"></iconify-icon>사전에서 고르기 · {{ dict_create | length }}</button>{% endif %}</h2>
   <p class="ua-lead">부서마다 드라이브를 먼저 연결합니다 — 그 부서 사람(소속·추가 부서)의 학교 계정만 부서 폴더에 접근합니다.</p>
   {% if depts %}
   <div class="table-scroll">
   <table class="ua-table">
-    <tr><th>부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
+    <tr><th>부서</th><th>상위 부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
     {% for d in depts %}
     <tr>
-      <td><b>{{ d.dept }}</b></td>
+      <td><b>{{ d.dept }}</b>{% if d.line != d.dept %}<span class="ua-sub" title="직제·사무분장 규정에서 뽑은 위계">{{ d.line }}</span>{% endif %}</td>
+      <td>{# 상위 부서 — 상위 부서의 총괄 책임자가 이 부서도 맡는다(관리자가 정한 값만 권한에 쓰인다). 규정 제안은 단추로 적용 #}
+        <form method="post" action="/dev/users/dept-parent" class="ua-parent"><input type="hidden" name="dept" value="{{ d.dept }}">
+          <select name="parent" aria-label="{{ d.dept }} 상위 부서" data-parent-auto><option value="">없음</option>
+            {% for x in depts %}{% if x.dept != d.dept %}<option value="{{ x.dept }}"{% if x.dept == d.parent %} selected{% endif %}>{{ x.dept }}</option>{% endif %}{% endfor %}</select></form>
+        {% if d.suggested and d.suggested != d.parent %}<form method="post" action="/dev/users/dept-parent" class="ua-parent"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="parent" value="{{ d.suggested }}">
+          <button type="submit" class="btn-ghost" style="padding:3px 8px; font-size:12px;" title="직제·사무분장 규정에 나온 위계 — 적용하면 상위 부서 총괄 책임자가 이 부서도 맡습니다">규정 제안: {{ d.suggested }} — 적용</button></form>{% endif %}</td>
       {# 드라이브 권한을 받는 사람(drive.members — 추가 부서 포함, 첫 비밀번호를 바꾼 계정)과 아직 첫 로그인 전인 소속 계정을 함께 보인다 #}
       {% set waiting = d.members | reject('in', d.drive.members) | list %}
       <td>{{ d.drive.members | join(", ") }}{% if waiting %}{% if d.drive.members %}, {% endif %}<span class="muted" title="첫 로그인에서 비밀번호를 바꾸면 부서 드라이브 권한을 받습니다">{{ waiting | join(", ") }}(첫 로그인 전)</span>{% endif %}{% if not d.drive.members and not waiting %}—{% endif %}</td>
@@ -145,12 +166,35 @@
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form action="/dev/users/dept" method="post" class="ua-form">
       <input type="hidden" name="action" value="create">
-      <label>부서 이름<input type="text" name="name" required maxlength="30" autocomplete="off" placeholder="예: 교무처, 산학협력단"></label>
+      <label>부서 이름<input type="text" name="name" required maxlength="30" autocomplete="off" placeholder="예: 교무처, 산학협력단" list="uaDictNames"></label>
+      <datalist id="uaDictNames">{% for x in dict_create %}<option value="{{ x.name }}">{{ x.line }} · {{ x.kind_label }}</option>{% endfor %}</datalist>
+      {% if dict_ready %}<p class="ua-hint">이름을 치면 직제·사무분장 규정에서 뽑은 부서 사전 후보가 나옵니다. 줄임말·옛 이름으로 적어도 사전의 정식 이름으로 만듭니다.</p>{% endif %}
       <p class="ua-hint">만들면 부서 RAG 가 함께 생깁니다(문서는 비어 있음). 부서 문서를 만들 드라이브 폴더는 목록의 「드라이브 폴더 정하기」에서 정합니다.</p>
       <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">만들기</button></footer>
     </form>
   </div></div>
 </div>
+
+{% if dict_create %}
+<div class="modal-back" id="deptPick">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:17px;">사전에서 고르기</h2>
+      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/dev/users/dept" method="post" class="ua-form" id="deptPickForm" style="min-height:0;">
+      <input type="hidden" name="action" value="create_many">
+      <p class="ua-hint">직제·사무분장 규정에서 뽑은 행정·사업 조직 가운데 아직 없는 부서입니다. 고른 것만 만듭니다(부서 RAG 가 함께 생김). 학과·위원회와 애매한 이름{% if dict_skipped %}({{ dict_skipped }}개){% endif %}은 목록에 넣지 않았습니다.</p>
+      <div class="pick-list">
+      {% for kind, rows in dict_create | groupby('kind_label') %}
+        <div class="pick-group"><h3>{{ kind }} <button type="button" class="btn-ghost" data-pick-all style="padding:2px 8px; font-size:12px;">모두 고르기</button></h3>
+        {% for x in rows %}<label><input type="checkbox" name="names" value="{{ x.name }}">{{ x.name }}{% if x.parent %}<span class="ua-sub">· {{ x.line.split(' · ')[1:] | join(' · ') }}</span>{% endif %}</label>{% endfor %}</div>
+      {% endfor %}
+      </div>
+      <footer class="ua-footer" style="padding:0; border:0;"><span class="muted" data-pick-count style="margin-right:auto; font-size:12.5px;">0개 고름</span>
+        <button type="button" class="secondary" data-modal-close>취소</button><button type="submit">고른 부서 만들기</button></footer>
+    </form>
+  </div></div>
+</div>
+{% endif %}
 
 <div class="card reveal" id="google-links"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
@@ -191,7 +235,8 @@
       <div class="row">
         <label>역할<select name="role">{% for k, v in roles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
         <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
-          {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
+          {% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}
+          {% if dict_create %}<optgroup label="사전에 있는 부서 — 부서 카드의 「사전에서 고르기」로 먼저 만듭니다">{% for x in dict_create[:60] %}<option value="" disabled>{{ x.line }}</option>{% endfor %}</optgroup>{% endif %}</select></label>
       </div>
       <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
         <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업(추가 권한은 여기 또는 그 부서 총괄 책임자의 「부서 사람」 화면에서) · 사업 책임자는 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자는 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
@@ -199,8 +244,14 @@
         <span class="tm-perms">{% for k, v in perms.items() %}<label><input type="checkbox" name="perm" value="{{ k }}"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% endfor %}</span>
       </fieldset>
       <p class="ua-hint" data-admin-hint hidden>관리자는 최대 {{ admin_max }}명 · 지금 {{ admin_n }}명</p>
-      {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>추가 부서 <span class="ua-hint">— 소속 부서처럼 문서를 찾고 작업합니다</span></legend>
-        <div class="ua-extra-list">{% for d in dept_choices %}<label class="check"><input type="checkbox" name="extra" value="{{ d }}">{{ d }}</label>{% endfor %}</div></fieldset>{% endif %}
+      {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>겸직 부서 <span class="ua-hint">— 소속 부서처럼 문서를 찾고 작업합니다. 부서마다 등급을 따로 정합니다</span></legend>
+        <div class="ua-extra-rows" data-extra-rows></div>
+        <template data-extra-tpl><div class="ua-extra-row">
+          <input type="text" name="extra" list="uaDeptChoices" autocomplete="off" placeholder="부서 이름" aria-label="겸직 부서">
+          <select name="extra_grade" aria-label="그 부서에서의 등급">{% for k, v in grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+          <button type="button" class="secondary" data-extra-del aria-label="이 겸직 빼기">×</button></div></template>
+        <button type="button" class="secondary" data-extra-add style="margin-top:6px; padding:5px 11px; font-size:12.5px;">＋ 겸직 부서 더하기</button>
+        <datalist id="uaDeptChoices">{% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}</datalist></fieldset>{% endif %}
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
       <label>본인 구글 계정<select name="google"><option value="">본인 연결 없음</option>
         {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}{% if e.users %} — {{ e.users | join(", ") }} 사용 중{% endif %}</option>{% endfor %}</select></label>
@@ -299,22 +350,12 @@
         f.dept.add(oldDept);
       }
       f.dept.value = dept;
-      // 추가 부서(여러 개) — 표의 data-extra 로 체크. 교직원만 받으므로 역할이 교직원이 아니면 칸을 숨긴다
+      // 겸직 부서(여러 줄: 부서 + 그 부서에서의 등급) — 표의 data-extra·data-extra-grades 로 채운다. 교직원만 받는다
       var extra = isNew ? [] : (btn.dataset.extra || '').split('|').filter(Boolean);
-      document.querySelectorAll('#userEdit input[name="extra"]').forEach(function (cb) { cb.checked = extra.indexOf(cb.value) >= 0; });
+      var extraG = isNew ? [] : (btn.dataset.extraGrades || '').split('|');
+      fillExtra(extra.map(function (d, i) { return [d, extraG[i] || 'member']; }));
       var extraBox = document.querySelector('#userEdit [data-extra-depts]');
-      // 소속 부서는 추가 부서 목록에서 뺀다(부서를 바꾸면 바로 다시 맞춘다) — 고를 다른 부서가 없으면 칸을 숨긴다
-      var syncExtra = function () {
-        if (!extraBox) return;
-        var left = 0;
-        document.querySelectorAll('#userEdit input[name="extra"]').forEach(function (cb) {
-          var mine = cb.value === f.dept.value;
-          if (mine) cb.checked = false;
-          cb.closest('label').hidden = mine;
-          if (!mine) left++;
-        });
-        extraBox.hidden = f.role.value !== 'staff' || !left;
-      };
+      var syncExtra = function () { if (extraBox) extraBox.hidden = f.role.value !== 'staff'; };
       // 등급은 교직원일 때만 고른다 — 관리자·학생은 등급이 없다
       if (f.grade) f.grade.value = (!isNew && btn.dataset.grade) || '{{ default_grade }}';
       var hasPerms = (!isNew && btn.dataset.perms ? btn.dataset.perms.split('|') : []);
@@ -350,6 +391,24 @@
       document.querySelector('#userEdit [data-pw-label]').textContent = isNew ? '임시 비밀번호(첫 로그인용)' : '임시 비밀번호';
     });
   });
+  // 겸직 줄 — ＋ 더하기·× 빼기(줄 틀은 template)
+  var rowsBox = document.querySelector('#userEdit [data-extra-rows]'), tpl = document.querySelector('#userEdit [data-extra-tpl]');
+  function addExtra(dept, grade) {
+    if (!rowsBox || !tpl || !tpl.content) return;
+    var row = tpl.content.firstElementChild.cloneNode(true);
+    row.querySelector('input').value = dept || '';
+    row.querySelector('select').value = grade || 'member';
+    row.querySelector('[data-extra-del]').addEventListener('click', function () { row.remove(); });
+    rowsBox.appendChild(row);
+    return row;
+  }
+  function fillExtra(pairs) {
+    if (!rowsBox) return;
+    rowsBox.innerHTML = '';
+    pairs.forEach(function (p) { addExtra(p[0], p[1]); });
+  }
+  var addBtn = document.querySelector('#userEdit [data-extra-add]');
+  if (addBtn && addBtn.addEventListener) addBtn.addEventListener('click', function () { var r = addExtra('', 'member'); if (r) r.querySelector('input').focus(); });
   document.querySelectorAll('[data-modal-open="#deptEdit"]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var f = document.querySelector('#deptEdit form'), isNew = btn.hasAttribute('data-dept-new');
@@ -361,6 +420,28 @@
       window.openDepartmentFolders();
     });
   });
+})();
+</script>
+<script>
+(function () {
+  // 상위 부서 — 고르면 바로 저장
+  document.querySelectorAll('[data-parent-auto]').forEach(function (sel) {
+    sel.addEventListener('change', function () { sel.form.submit(); });
+  });
+  // 사전에서 고르기 — 갈래별 모두 고르기, 고른 수
+  var pick = document.getElementById('deptPickForm');
+  if (pick) {
+    var count = function () { pick.querySelector('[data-pick-count]').textContent = pick.querySelectorAll('input[name="names"]:checked').length + '개 고름'; };
+    pick.addEventListener('change', count);
+    pick.querySelectorAll('[data-pick-all]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var boxes = b.closest('.pick-group').querySelectorAll('input[name="names"]');
+        var all = Array.from(boxes).every(function (x) { return x.checked; });
+        boxes.forEach(function (x) { x.checked = !all; });
+        count();
+      });
+    });
+  }
 })();
 </script>
 <script>

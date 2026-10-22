@@ -770,6 +770,7 @@ def create_app(
     from zzaimy.app.archive_view import router as archive_view_router   # DGX 원본 보관소(원본 목록 장부)
     app.include_router(archive_view_router)
     from zzaimy.app.program_admin import router as program_admin_router; app.include_router(program_admin_router)   # 사업 관리(/programs/admin, ADR-0066)
+    from zzaimy.app.dept_dictionary import router as dept_dict_router; app.include_router(dept_dict_router)   # 부서 사전 자동완성(/api/depts)
     from zzaimy.app.project_activity import router as project_activity_router   # 프로젝트 진행 현황(참여·요청·문맥 사용·작업 요약)
     app.include_router(project_activity_router)
 
