@@ -337,6 +337,21 @@ def report(picked: list[dict]) -> None:
     print(" · ".join(f"{k} {v}" for k, v in cnt.most_common()), flush=True)
 
 
+# 문서 종류 — 제목 끝말로 고른다(긴 말 먼저). 한글 문서함 「공통/양식/<종류>」 폴더와 종류별 공통 양식에 쓴다
+KIND_WORDS = ("결과보고서", "실적보고서", "계획서", "보고서", "신청서", "지원서", "회의록", "서명부", "참석자명단", "동의서", "확인서", "서약서",
+              "이력서", "조서", "명세서", "내역서", "설문지", "평가표", "평가서", "체크리스트", "협약서", "계약서", "증명서", "추천서",
+              "의견서", "검토서", "요청서", "명단", "목록", "현황", "대장", "일지", "라벨")
+
+
+def kind_of(title: str) -> str:
+    t = re.sub(r"\s+", "", title or "")
+    best = ""
+    for w in KIND_WORDS:
+        if w in t and len(w) > len(best):
+            best = w
+    return best or "기타"
+
+
 def register(db, picked: list[dict]) -> None:
     """점검 통과(문제 없음) 양식을 한글 문서함 「공통/양식/<묶음>」 에 잠긴 양식으로 — 이미 둔 것은 내용이 같으면 그대로."""
     from zzaimy.app import webhwp
@@ -356,7 +371,7 @@ def register(db, picked: list[dict]) -> None:
         sha = hashlib.sha256(data).hexdigest()[:16]
         if placed.get(k, {}).get("sha") == sha and webhwp.get(db, int(placed[k]["fid"])):
             continue
-        group = (re.findall(r"[가-힣]{2,}", p["title"]) or ["기타"])[0][:12]
+        group = kind_of(p["title"])
         if placed.get(k) and webhwp.get(db, int(placed[k]["fid"])):
             webhwp.save(db, base, int(placed[k]["fid"]), data, user="zzaimy")
             fid = int(placed[k]["fid"])
@@ -367,6 +382,41 @@ def register(db, picked: list[dict]) -> None:
         n += 1
     _save(OUT / "registered.json", placed)
     print(f"한글 문서함에 둔 양식 {n}건(전체 {len(placed)})", flush=True)
+    common(db, picked, res, placed)
+
+
+def common(db, picked: list[dict], res: dict, placed: dict, per_kind: int = 3) -> None:
+    """종류별 공통 양식 — 점검 통과·필드 있는 양식 가운데 같은 양식 사본이 가장 많은(학교가 가장 많이 쓴) 것 몇 개를
+    「공통/공통 양식/<종류>」 에 잠긴 양식으로 둔다(기안기에서 새 문서를 시작할 때 고르는 자리)."""
+    from zzaimy.app import webhwp
+    base = Path(db.path).parent if hasattr(db, "path") else ROOT / "data/platform"
+    chosen = _load(OUT / "common.json")
+    by_kind: dict[str, list[dict]] = defaultdict(list)
+    for p in picked:
+        k = str(p["id"])
+        r = res.get(k) or {}
+        if k in placed and r.get("ok") and r.get("fields") and kind_of(p["title"]) != "기타":
+            by_kind[kind_of(p["title"])].append(p)
+    n = 0
+    for kind, ps in sorted(by_kind.items()):
+        for p in sorted(ps, key=lambda x: (-x["copies"], len(x["title"])))[:per_kind]:
+            k = str(p["id"])
+            data = (OUT / "hwpx" / f"{k}.fields.hwpx").read_bytes()
+            sha = hashlib.sha256(data).hexdigest()[:16]
+            cur = chosen.get(k)
+            if cur and cur.get("sha") == sha and webhwp.get(db, int(cur["fid"])):
+                continue
+            title = re.sub(r"\s*\(?양식\)?\s*$", "", p["title"]).strip()[:60]
+            if cur and webhwp.get(db, int(cur["fid"])):
+                webhwp.save(db, base, int(cur["fid"]), data, user="zzaimy")
+                fid = int(cur["fid"])
+            else:
+                fid = webhwp.add(db, base, webhwp.COMMON, f"{title}.hwpx", data, owner="zzaimy",
+                                 source=f"양식:common-{k}", folder=f"공통 양식/{kind}")
+            chosen[k] = {"fid": fid, "sha": sha, "kind": kind}
+            n += 1
+    _save(OUT / "common.json", chosen)
+    print(f"종류별 공통 양식 {n}건 새로 둠(전체 {len(chosen)}, 종류 {len(by_kind)})", flush=True)
 
 
 def main() -> int:
