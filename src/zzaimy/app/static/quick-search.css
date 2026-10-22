@@ -4,7 +4,8 @@
 .qs::backdrop{background:#15243c33}
 .qs-top{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #edf0f4}
 .qs-top iconify-icon{font-size:17px;color:#8a96a6}
-.qs-top input{flex:1;min-width:0;border:0;outline:0;background:none;box-shadow:none;padding:2px 0;font:inherit;font-size:15px}
+.qs-top input{flex:1;min-width:0;border:0!important;outline:0!important;background:none!important;box-shadow:none!important;padding:2px 0;font:inherit;font-size:15px;-webkit-appearance:none;appearance:none}
+.qs-top input::-webkit-search-cancel-button{display:none}
 .qs kbd{display:inline-block;min-width:16px;padding:1px 5px;border:1px solid #e1e6ed;border-radius:5px;background:#f7f9fb;color:#7b8798;font:500 11px/1.4 inherit;text-align:center}
 .qs-tabs{display:flex;gap:4px;padding:8px 12px 6px;border-bottom:1px solid #f1f3f6}
 .qs-tabs[hidden]{display:none}
