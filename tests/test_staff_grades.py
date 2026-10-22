@@ -343,3 +343,40 @@ def test_lead_cannot_grant_what_it_lacks(tmp_path):
     _client(app, "boss").post("/team/save", data={"uid": "kim", "perm": ["create_project", "view_activity"]}, follow_redirects=False)
     lead.post("/team/save", data={"uid": "kim", "perm": []}, follow_redirects=False)
     assert app.state.accounts["kim"]["perms"] == ["view_activity"]           # 총괄 책임자가 준 권한은 남는다
+
+
+def test_multi_dept_grades_and_hierarchy(monkeypatch):
+    """겸직: 기획처 일반이면서 ○○사업단 총괄 책임자. 위계: 산학협력단 총괄 책임자는 하위 ○○사업단도 맡는다. 사업의 총괄을 부서로 지정."""
+    monkeypatch.setattr(grades, "_children", lambda data_dir=None: {"산학협력단": ["가나사업단"]})
+    monkeypatch.setattr(access_policy, "extra_depts", lambda user, data_dir=None: [])
+    kim = {"role": "staff", "grade": "member", "dept": "기획처", "dept_grades": {"가나사업단": "head"}}
+    assert grades.grade_in("kim", kim, "기획처") == "member" and grades.grade_in("kim", kim, "가나사업단") == "head"
+    assert grades.covered_depts("kim", kim) == {"가나사업단"} and grades.top_grade("kim", kim) == "head"
+    assert grades.program_scope(kim) == "dept" and grades.can_create_project(kim)
+    proj = {"id": 1, "owner": "x", "program": ""}
+    assert grades.can_view_activity(proj, user="kim", account=kim, project_dept="가나사업단", program_roles={})
+    assert not grades.can_view_activity(proj, user="kim", account=kim, project_dept="교무처", program_roles={})
+    boss = {"role": "staff", "grade": "head", "dept": "산학협력단"}
+    assert grades.covered_depts("boss", boss) == {"산학협력단", "가나사업단"}
+    assert grades.can_view_activity(proj, user="boss", account=boss, project_dept="가나사업단", program_roles={})
+    other = {"role": "staff", "grade": "head", "dept": "교무처"}
+    assert not grades.can_view_activity(proj, user="o", account=other, project_dept="다라사업단", program_roles={"heads": []})
+    boss2 = {"role": "staff", "grade": "head", "dept": "산학협력단"}
+    assert grades.can_view_activity(proj, user="b2", account=boss2, project_dept="다라사업단", program_roles={"heads": ["dept:산학협력단"]})
+
+
+def test_team_page_multi_dept_head(tmp_path):
+    """겸직 총괄 책임자: 기획처 일반이지만 가나사업단 총괄 책임자면 가나사업단 사람의 등급을 그 사업단에서만 정한다."""
+    app, _ = _dev(tmp_path)
+    _add(app, "kim", dept="기획처", grade="member")
+    app.state.accounts["kim"]["dept_grades"] = {"가나사업단": "head"}
+    _add(app, "park", dept="교무처", grade="member")
+    app.state.accounts["park"]["dept_grades"] = {"가나사업단": "member"}
+    _add(app, "lee", dept="기획처", grade="member")
+    app.state.save_accounts()
+    kim = _client(app, "kim")
+    page = kim.get("/team").text
+    assert "park" in page and "겸직(소속 교무처)" in page and "lee" not in page   # 맡은 부서는 가나사업단뿐
+    kim.post("/team/save", data={"uid": "park", "dept": "가나사업단", "grade": "lead"}, follow_redirects=False)
+    assert app.state.accounts["park"]["dept_grades"]["가나사업단"] == "lead" and app.state.accounts["park"]["grade"] == "member"
+    assert kim.post("/team/save", data={"uid": "lee", "dept": "기획처", "grade": "lead"}, follow_redirects=False).status_code == 403

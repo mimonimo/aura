@@ -62,7 +62,8 @@ def request_grade(request) -> str:
     va = getattr(st, "view_as", None)
     if va:
         return user_grade(None, va)
-    return grade_of({**(accounts.get(user) or {}), "role": getattr(st, "role", "") or ""})
+    acct = {**(accounts.get(user) or {}), "role": getattr(st, "role", "") or ""}
+    return top_grade(user, acct, getattr(request.app.state, "data_dir", None))     # 겸직 부서의 등급 가운데 가장 높은 것
 
 
 def label(grade: str) -> str:
@@ -73,9 +74,87 @@ def at_least(grade: str, need: str) -> bool:
     return RANK.get(grade, 0) >= RANK.get(need, 99)
 
 
+# ---------------------------------------------------------------- 겸직(여러 부서)과 부서 위계
+# 한 사람이 여러 부서에 속할 수 있다(소속 부서 + 추가 부서 — rag_spaces grants). 부서마다 등급을 따로 줄 수 있다
+# (account["dept_grades"] = {"○○사업단": "head"}) — 기획처에선 일반, ○○사업단에선 총괄 책임자 같은 겸직. 따로 정하지 않은 추가 부서는 일반.
+# 부서 위계(산학협력단이 ○○사업단을 관리)는 dept_dictionary.parent_of 로 — 상위 부서의 총괄 책임자는 하위 부서도 맡는다.
+
+
+def dept_grades(account: dict | None) -> dict:
+    a = account or {}
+    if (a.get("role") or "") not in STAFF:
+        return {}
+    return {str(d).strip(): g for d, g in (a.get("dept_grades") or {}).items() if str(d).strip() and g in GRADES}
+
+
+def depts_of(user: str, account: dict | None, data_dir=None) -> list[str]:
+    """이 사람이 속한 부서 — 소속 부서 먼저, 그다음 추가 부서(겸직)·부서별 등급을 받은 부서."""
+    a = account or {}
+    out = [str(a.get("dept") or "").strip()] if str(a.get("dept") or "").strip() else []
+    try:
+        from zzaimy.app import access_policy
+        out += [d for d in access_policy.extra_depts(user, data_dir) if d not in out]
+    except Exception:
+        pass
+    out += [d for d in dept_grades(a) if d not in out]
+    return out
+
+
+def grade_in(user: str, account: dict | None, dept: str, data_dir=None) -> str:
+    """그 부서에서의 등급 — 관리자는 admin, 소속 부서는 계정 등급, 다른 부서는 부서별 등급(없으면 일반, 속하지 않으면 빈 값)."""
+    g = grade_of(account)
+    if g in ("admin", ""):
+        return g
+    dept = (dept or "").strip()
+    if not dept:
+        return ""
+    own = dept_grades(account).get(dept)
+    if own:
+        return own if RANK.get(own, 0) >= RANK.get(g, 0) or dept != str((account or {}).get("dept") or "").strip() else g
+    if dept == str((account or {}).get("dept") or "").strip():
+        return g
+    return "member" if dept in depts_of(user, account, data_dir) else ""
+
+
+def _children(data_dir=None) -> dict:
+    try:
+        from zzaimy.app import dept_dictionary
+        return dept_dictionary.children_map(data_dir) or {}
+    except Exception:
+        return {}
+
+
+def covered_depts(user: str, account: dict | None, data_dir=None, need: str = "head") -> set[str]:
+    """need 등급 이상으로 맡는 부서 — 부서별 등급과 부서 위계(하위 부서까지)를 따른다. 관리자는 빈 집합(전부라는 뜻은 호출부가)."""
+    roots = {d for d in depts_of(user, account, data_dir) if at_least(grade_in(user, account, d, data_dir), need)}
+    kids = _children(data_dir)
+    out, stack = set(), list(roots)
+    while stack:
+        d = stack.pop()
+        if d in out:
+            continue
+        out.add(d)
+        stack += list(kids.get(d) or ())
+    return out
+
+
+def top_grade(user: str, account: dict | None, data_dir=None) -> str:
+    """가장 높은 등급(겸직 포함) — 화면 메뉴(사업 관리·부서 사람)를 보일지 정할 때."""
+    g = grade_of(account)
+    if g in ("admin", ""):
+        return g
+    best = g
+    for d in depts_of(user, account, data_dir):
+        x = grade_in(user, account, d, data_dir)
+        if RANK.get(x, 0) > RANK.get(best, 0):
+            best = x
+    return best
+
+
 def can_create_project(account: dict | None) -> bool:
-    """새 프로젝트를 만들 수 있는가 — 사업 책임자 이상, 또는 「프로젝트 만들기」 권한을 받은 계정."""
-    return at_least(grade_of(account), "lead") or has_perm(account, "create_project")
+    """새 프로젝트를 만들 수 있는가 — 사업 책임자 이상(겸직 부서의 등급 포함), 또는 「프로젝트 만들기」 권한을 받은 계정."""
+    return (at_least(grade_of(account), "lead") or has_perm(account, "create_project")
+            or any(at_least(x, "lead") for x in dept_grades(account).values()))
 
 
 def can_view_activity(project: dict | None, *, user: str, account: dict | None, lead: str = "",
@@ -90,6 +169,12 @@ def can_view_activity(project: dict | None, *, user: str, account: dict | None, 
     g = grade_of(account)
     if g == "admin":
         return True
+    pd = (project_dept or "").strip()
+    if user and pd and pd in covered_depts(user, account, data_dir):     # 그 부서(또는 상위 부서)의 총괄 책임자 — 겸직 포함
+        return True
+    tg = top_grade(user, account, data_dir) if user else g
+    if g == "member" and tg != "member":                 # 소속에선 일반이어도 겸직 부서에서 사업 책임자·행정 담당자면 그 갈래로
+        g = tg if tg != "head" else "lead"
     if g == "member" and has_perm(account, "view_activity") and user:   # 일반이어도 권한을 받으면 자기 부서 프로젝트
         mine = str((account or {}).get("dept") or "").strip()
         return bool(mine) and mine == (project_dept or "").strip() or user in (project.get("owner"), lead)
@@ -111,7 +196,12 @@ def can_view_activity(project: dict | None, *, user: str, account: dict | None, 
     roles = roles or {}
     if user in (roles.get("leads") or ()) or user in (roles.get("clerks") or ()):
         return True
-    return g == "head" and user in (roles.get("heads") or ())
+    heads = roles.get("heads") or ()
+    if g == "head" and user in heads:
+        return True
+    # 사업의 총괄 책임자로 부서가 지정됐으면(「dept:산학협력단」) 그 부서를 맡는 총괄 책임자(겸직·상위 부서 포함)도
+    dept_heads = {str(h)[5:].strip() for h in heads if str(h).startswith("dept:")}
+    return bool(dept_heads) and bool(dept_heads & covered_depts(user, account, data_dir))
 
 
 def admin_count(accounts: dict, *, except_uid: str = "") -> int:
@@ -155,4 +245,7 @@ def program_scope(account: dict | None) -> str:
     """사업 관리 화면을 어디까지 보나 — all(관리자: 전부·편집) · dept(총괄 책임자: 자기 부서·총괄 책임자 지정 사업 읽기, 책임자 지정) ·
     own(사업 책임자: 자기가 책임자인 사업 읽기) · 빈 값(일반·학생: 열지 못함)."""
     g = grade_of(account)
+    for x in dept_grades(account).values():              # 겸직 부서에서의 등급도(가장 높은 것)
+        if g != "admin" and RANK.get(x, 0) > RANK.get(g, 0):
+            g = x
     return {"admin": "all", "head": "dept", "lead": "own", "clerk": "own"}.get(g, "")

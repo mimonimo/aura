@@ -428,17 +428,27 @@ TEAM_GRADES = ("member", "clerk", "lead")
 LEAD_GRANTABLE = ("create_project",)          # 사업 책임자가 일반 직원에게 줄 수 있는 추가 권한
 
 
-def _team_actor(request: Request) -> tuple[str, dict, str, str]:
-    """(나, 내 계정, 다룰 부서, 내 등급) — 총괄 책임자·사업 책임자는 자기 부서, 관리자는 아무 부서. 그 밖은 403."""
+def _team_actor(request: Request) -> tuple[str, dict, dict, str]:
+    """(나, 내 계정, {다룰 부서: 그 부서에서 내 등급}, 대표 등급) — 겸직·부서 위계를 따른다(grades.covered_depts).
+    관리자는 빈 dict(모든 부서). 총괄 책임자는 맡은 부서(하위 부서 포함)에서 head, 사업 책임자는 자기가 사업 책임자인 부서에서 lead."""
     accounts = _accounts(request)
     me = _user(request)
     mine = accounts.get(me) or {}
     g = grades.request_grade(request)
     if g == "admin":
-        return me, mine, "", g
-    if g not in ("head", "lead") or not str(mine.get("dept") or "").strip():
+        return me, mine, {}, g
+    dd = getattr(request.app.state, "data_dir", None)
+    if getattr(request.state, "view_as", None):        # 테스트 보기 — 고른 등급을 소속 부서에
+        d0 = str(getattr(request.state, "dept", "") or "").strip()
+        scope = {d0: g} if d0 and g in ("head", "lead") else {}
+    else:
+        scope = {d: "head" for d in grades.covered_depts(me, mine, dd, "head")}
+        for d in grades.depts_of(me, mine, dd):
+            if d not in scope and grades.grade_in(me, mine, d, dd) == "lead":
+                scope[d] = "lead"
+    if not scope:
         raise HTTPException(403, "부서 사람 권한은 그 부서의 총괄 책임자·사업 책임자와 관리자가 정합니다")
-    return me, mine, str(mine["dept"]).strip(), g
+    return me, mine, scope, ("head" if "head" in scope.values() else "lead")
 
 
 def _can_touch(actor_grade: str, target_grade: str) -> tuple[bool, bool]:
@@ -450,49 +460,69 @@ def _can_touch(actor_grade: str, target_grade: str) -> tuple[bool, bool]:
     return False, False
 
 
-def _team_rows(accounts: dict, dept: str, actor_grade: str = "admin") -> list[dict]:
+def _member_grade(uid: str, a: dict, dept: str, data_dir=None) -> str:
+    """그 부서에서의 등급 — 소속 부서면 계정 등급, 겸직 부서면 부서별 등급(없으면 일반)."""
+    return grades.grade_in(uid, a, dept, data_dir) or ""
+
+
+def _team_rows(accounts: dict, dept: str, actor_grade: str = "admin", data_dir=None) -> list[dict]:
     rows = []
     for uid, a in sorted(accounts.items()):
-        if a.get("role") not in grades.STAFF or not a.get("active", True) or str(a.get("dept") or "").strip() != dept:
+        if a.get("role") not in grades.STAFF or not a.get("active", True):
             continue
-        g = grades.grade_of(a)
+        if dept not in grades.depts_of(uid, a, data_dir):
+            continue
+        g = _member_grade(uid, a, dept, data_dir)
+        primary = str(a.get("dept") or "").strip() == dept
         perm_ok, grade_ok = _can_touch(actor_grade, g)
         rows.append({"uid": uid, "name": a.get("name") or uid, "grade": g, "grade_label": grades.label(g),
+                     "primary": primary, "home": "" if primary else str(a.get("dept") or "").strip(),
                      "perms": [k for k in grades.PERMS if k in (a.get("perms") or ())], "editable": perm_ok, "grade_editable": grade_ok,
                      "by": a.get("perms_by") or ""})
+    rows.sort(key=lambda r: (not r["primary"], -grades.RANK.get(r["grade"], 0), r["name"]))
     return rows
 
 
 @router.get("/team", response_class=HTMLResponse)
 def team_page(request: Request, dept: str = "", ok: str = "", err: str = ""):
     st = request.app.state
-    me, _, mine, ag = _team_actor(request)
-    choices = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None)) if not mine else [mine]
-    dept = mine or (dept if dept in choices else (choices[0] if choices else ""))
+    me, _, scope, _ag = _team_actor(request)
+    dd = getattr(st, "data_dir", None)
+    choices = known_depts(st.db, _accounts(request), dd) if not scope else sorted(scope)
+    dept = dept if dept in choices else (choices[0] if choices else "")
+    ag = "admin" if not scope else scope.get(dept, "lead")
     return st.templates.TemplateResponse(request, "team.html", st.page_ctx(request, {
-        "rows": _team_rows(_accounts(request), dept, ag), "dept": dept, "actor_grade": ag, "lead_grantable": LEAD_GRANTABLE, "depts": choices, "me": me,
+        "rows": _team_rows(_accounts(request), dept, ag, dd), "dept": dept, "actor_grade": ag, "lead_grantable": LEAD_GRANTABLE, "depts": choices, "me": me,
         "perms": grades.PERMS, "team_grades": {k: grades.GRADES[k] for k in TEAM_GRADES}, "ok": ok, "err": err}))
 
 
 @router.post("/team/save")
 def team_save(request: Request, uid: str = Form(...), grade: str = Form(""), perm: list[str] = Form([]), dept: str = Form("")):
     st = request.app.state
-    me, _, mine, ag = _team_actor(request)
+    me, _, scope, _ag = _team_actor(request)
     accounts = _accounts(request)
+    dd = getattr(st, "data_dir", None)
     a = accounts.get(uid.strip().lower())
-    target_dept = str((a or {}).get("dept") or "").strip()
-    back = lambda m, good=True: RedirectResponse(f"/team?dept={quote(target_dept or dept)}&{'ok' if good else 'err'}={quote(m)}", status_code=303)
+    dept = (dept or "").strip() or str((a or {}).get("dept") or "").strip()
+    back = lambda m, good=True: RedirectResponse(f"/team?dept={quote(dept)}&{'ok' if good else 'err'}={quote(m)}", status_code=303)
     if not a or a.get("role") not in grades.STAFF or not a.get("active", True):
         return back("바꿀 수 있는 교직원 계정이 아닙니다", False)
-    if mine and target_dept != mine:
-        raise HTTPException(403, "다른 부서 사람의 권한은 바꿀 수 없습니다")
-    perm_ok, grade_ok = _can_touch(ag, grades.grade_of(a))
+    if dept not in grades.depts_of(uid.strip().lower(), a, dd):
+        return back("이 부서에 속한 사람이 아닙니다", False)
+    if scope and dept not in scope:
+        raise HTTPException(403, "맡은 부서가 아닌 곳의 권한은 바꿀 수 없습니다")
+    ag = "admin" if not scope else scope[dept]
+    cur = _member_grade(uid.strip().lower(), a, dept, dd)
+    perm_ok, grade_ok = _can_touch(ag, cur)
     if not perm_ok:
         return back("이 사람의 권한은 바꿀 수 없습니다 — 사업 책임자는 일반 직원의 추가 권한만, 등급은 총괄 책임자가 정합니다", False)
-    if grade and grade != grades.grade_of(a):
+    if grade and grade != cur:
         if not grade_ok or grade not in TEAM_GRADES:
             return back("등급(사업 책임자·행정 담당자 지정)은 총괄 책임자가 정합니다", False)
-        a["grade"] = grade
+        if str(a.get("dept") or "").strip() == dept:
+            a["grade"] = grade
+        else:                                            # 겸직 부서의 등급은 그 부서에만(소속 부서 등급은 그대로)
+            a.setdefault("dept_grades", {})[dept] = grade
     # 사업 책임자는 자기가 가진 권한만 나눠 준다(프로젝트 만들기) — 부서 전체 진행 현황 보기처럼 자기에게 없는 권한은 줄 수도 뺄 수도 없다
     grantable = set(grades.PERMS) if ag in ("admin", "head") else set(LEAD_GRANTABLE)
     keep = {k for k in (a.get("perms") or ()) if k not in grantable}
