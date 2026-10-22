@@ -543,3 +543,16 @@ def test_file_kinds_html_and_lock(tmp_path):
     assert program_sheet.parse_won("12억 3,000만 원") == 1_230_000_000 and program_sheet.parse_won("1,200원") == 1200
     assert program_sheet.parse_won("미정") is None
 
+
+
+def test_xmlss_rejects_doctype_beyond_prefix_and_utf16(tmp_path):
+    """보안: 앞 64KB 뒤에 숨긴 DOCTYPE·UTF-16 인코딩도 파서 단계에서 거절(엔티티 폭탄 차단)."""
+    import pytest
+    from zzaimy.app import program_sheet as ps
+    bomb = '<?xml version="1.0"?>' + "<!--" + "x" * 70000 + "-->" + '<!DOCTYPE a [<!ENTITY b "bbbb">]><a>&b;</a>'
+    with pytest.raises(ps.SheetError):
+        ps._safe_xml(bomb.encode())
+    u16 = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE a [<!ENTITY b "x">]><a>&b;</a>'.encode("utf-16")
+    with pytest.raises(ps.SheetError):
+        ps._safe_xml(u16)
+    assert ps._safe_xml(b"<a><b>1</b></a>").tag == "a"

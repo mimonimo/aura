@@ -486,6 +486,38 @@ def _load_mht(p: Path) -> list[Sheet]:
     return out
 
 
+def _safe_xml(raw: bytes):
+    """보안: 파서 단계에서 DOCTYPE·엔티티 선언을 거절한다 — 앞부분 글자 검사(인코딩·위치를 바꾼 우회)에만 기대지 않게.
+    먼저 expat 으로 훑으며 문서형·엔티티 선언 처리기가 하나라도 불리면 멈추고, 깨끗할 때만 ElementTree 로 읽는다."""
+    import xml.etree.ElementTree as ET
+    from xml.parsers import expat
+
+    class _Bad(Exception):
+        pass
+
+    def _no(*_a, **_k):
+        raise _Bad()
+    px = expat.ParserCreate()
+    px.StartDoctypeDeclHandler = _no
+    px.EntityDeclHandler = _no
+    px.UnparsedEntityDeclHandler = _no
+    px.ExternalEntityRefHandler = _no
+    try:
+        px.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    except Exception:
+        pass
+    try:
+        px.Parse(raw, True)
+    except _Bad:
+        raise SheetError("XML 안에 DOCTYPE·ENTITY 선언이 있어 읽지 않습니다 — xlsx 로 저장해 올려 주세요")
+    except expat.ExpatError as e:
+        raise SheetError(f"XML 을 읽지 못했습니다({str(e)[:60]})")
+    try:
+        return ET.fromstring(raw)
+    except ET.ParseError as e:
+        raise SheetError(f"XML 을 읽지 못했습니다({str(e)[:60]})")
+
+
 def _load_xmlss(p: Path) -> list[Sheet]:
     """XML 스프레드시트(엑셀 2003 XML) — Worksheet/Table/Row/Cell(ss:Index·MergeAcross·MergeDown)."""
     import xml.etree.ElementTree as ET
@@ -493,7 +525,7 @@ def _load_xmlss(p: Path) -> list[Sheet]:
     raw = p.read_bytes()
     if re.search(rb"<!(?:DOCTYPE|ENTITY)", raw[:65536], re.I):
         raise SheetError("XML 안에 DOCTYPE·ENTITY 선언이 있어 읽지 않습니다 — xlsx 로 저장해 올려 주세요")
-    root = ET.fromstring(raw)
+    root = _safe_xml(raw)
     if sum(1 for _ in root.iter(ns + "Worksheet")) > MAX_SHEETS:
         raise _too_big("시트가 너무 많습니다")
     out = []
