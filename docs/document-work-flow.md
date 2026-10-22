@@ -155,7 +155,8 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | hwp_start | 고른 양식으로 한글 작업본을 만들어 대화에 잇기 | 부서 디렉터리 「작업/<프로젝트>」 에 복사, hwp 는 기안기 서버로 hwpx 변환, 쓸 자리 누름틀 박기(webhwp_convert) |
 | hwp_fields | 작업본 필드(절·칸·표)와 채움 상태 | webhwp_write.fields |
 | hwp_fill | 칸·표 필드에 짧은 값 넣기(여러 줄·표·예시 글자 ○○ 는 거절하고 hwp_write 로 돌림) | 서버에서 hwpx 고침·판 남김(고친 사람 AURA), 편집 중인 화면에는 실시간으로 |
-| hwp_write | 절 필드·큰 칸에 본문(번호 문단·마크다운 표) 쓰기, 다시 쓰면 앞 내용을 바꿈 | webhwp_write.write_section — 서식 보존 채우기와 같은 문단·표 모양, 양식에 음영 표가 없으면 학교 표 기본 모양 |
+| hwp_write | 절 필드·큰 칸에 본문(번호 문단·마크다운 표) 쓰기, 다시 쓰면 앞 내용을 바꿈. 본문 관문(예시 글자 ○○, 근거에 없는 수치, 길이)을 지나야 쓰고, 맡기기가 켜졌을 때 남은 문맥이 적은데 긴 본문이면 거절하고 delegate_section 을 안내 | webhwp_write.write_section — 서식 보존 채우기와 같은 문단·표 모양, 양식에 음영 표가 없으면 학교 표 기본 모양. 관문은 webhwp_agent.check_body |
+| delegate_section | 절 하나를 같은 모델의 깨끗한 문맥(서브)에 맡겨 쓰기 — 메인은 절 이름·요지·형식·분량만, 작업 메모의 목표·확정 값·문서 개요·앞 절 요지·담당자 원문 인용은 코드가 지시서에 채움. 모르는 값은 「확인 필요」 로 돌려받고, 같은 절은 한 번까지 다시 맡김(ZZAIMY_DELEGATE=off 면 안 보임) | app/delegate.Delegator — 근거는 문장 단위 압축(ZZAIMY-Rerank, 숫자·날짜·고유명사 우선), 쓰기는 hwp_write 와 같은 길·같은 관문, 호출 이름표 「서브 · 절 맡기기 · 절」 |
 | hwp_tables | 작업본 표 목록(번호·크기·첫 행) | webhwp_style.tables |
 | hwp_style | 표 서식 고치기(음영·선 굵기·이중선·글자 크기·굵게·정렬) | webhwp_style.apply — 학교 서식 표 20,441개에서 캔 기본값 |
 | hwp_page_setup | 용지(A4·A3·A5·B4·B5·Letter·Legal)·방향·여백(보통·좁게·넓게 또는 mm)·머리말·꼬리말 여백·제본 | webhwp_edit_ops.page_setup — 구역마다 pagePr·margin(HWPUNIT = mm × 283.465) |

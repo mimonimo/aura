@@ -6,12 +6,16 @@
 - hwp_fields {}: 작업본의 필드와 채움 상태(빈 필드가 먼저).
 - hwp_fill {values: {필드: 값}}: 칸·표 필드 값 넣기.
 - hwp_write {field, text}: 절 필드에 본문 쓰기(번호 문단 + 마크다운 표). 같은 절을 다시 쓰면 앞 내용을 지우고 새로.
+- delegate_section {section, gist, form, length}: 긴 절을 같은 모델의 깨끗한 문맥(서브)에 맡긴다(app/delegate, ADR-0065 4번, ZZAIMY_DELEGATE).
+절 쓰기는 메인이 직접 쓰든 서브가 쓰든 같은 관문(check_body)을 지난다 — 양식 예시 글자(○○·000), 근거에 없는 수치, 길이 상한.
+남은 문맥이 모자란데 긴 본문을 직접 쓰려 하면 거절하고 절 맡기기를 안내한다(관문만 — 맡길지는 에이전트가 정한다).
 쓰기는 서버에서 파일을 고치고 판을 남긴다(webhwp.save, 고친 사람 「AURA」). 사람이 그 문서를 편집 중(잠금)이면 쓰지 않고 알린다.
 쓰는 동안 「AURA 작성 중 · 필드」 를 남겨 편집 화면이 AURA 커서·안내를 띄운다(webhwp_activity:<id>).
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -69,6 +73,78 @@ def _placeholder(v: str) -> bool:
     return bool(re.search(r"○○|OO|ㅇㅇ|□□|◯◯|(?<![\d,])000(?![\d,])|XXX|xxx", v))
 
 
+BODY_SHARE = 0.25                 # 절 본문 하나의 길이 상한 — 문맥 한도(토큰)의 몫
+LONG_SHARE = 0.04                 # 이보다 긴 본문(문맥 한도 몫)은 「긴 본문」 — 남은 문맥이 적으면 직접 쓰지 않고 맡긴다
+LOW_HEADROOM = 0.40               # 메인의 남은 문맥 몫이 이 아래면 긴 본문을 직접 쓰지 않는다
+
+
+def _ph_lines(text: str) -> list[str]:
+    """절 본문에서 양식 예시 글자(○○·000 등)가 남은 줄."""
+    return [ln.strip()[:60] for ln in (text or "").splitlines() if _placeholder(ln)]
+
+
+def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
+    """절 본문 품질 관문 — 메인 직접 쓰기와 서브(절 맡기기)가 같은 것을 지난다. 통과면 None, 아니면 거절 까닭.
+    - 양식 예시 글자(○○·OO·000·□□)가 남은 줄
+    - 근거(요청·찾은 근거·작업본의 양식 글·담당자 글)에 없는 수치 — evidence 가 None 이면(근거를 모르는 호출부) 보지 않는다
+    - 길이: 문맥 한도의 BODY_SHARE 를 넘는 본문"""
+    from zzaimy.app import llm_budget
+    from zzaimy.verify.numbers import mask_unsupported
+
+    ph = _ph_lines(text)
+    if ph:
+        return ("양식 예시 글자(○○·000 등)가 남았다 — 모르는 값은 그 줄을 빼고 「확인 필요」 로 돌린다: " + " / ".join(ph[:4]))
+    if llm_budget.estimate_tokens(text) > int(limit * BODY_SHARE):
+        return f"본문이 너무 길다(문맥 한도의 {int(BODY_SHARE * 100)}% 넘음) — 절을 나눠 쓰거나 줄인다."
+    if evidence is not None:
+        _, bad = mask_unsupported(text, [e for e in evidence if e])
+        if bad:
+            return ("근거에 없는 수치: " + ", ".join(dict.fromkeys(bad[:8]))
+                    + " — 찾은 근거·담당자가 알려 준 값에 있는 수치만 쓴다. 모르는 값은 빼고 「확인 필요」 로 남긴다.")
+    return None
+
+
+def length_hint(guide: str) -> str:
+    """양식 안내 글의 분량 안내(「2쪽 이내」「500자 내외」) — 없으면 빈 글."""
+    m = re.search(r"(\d+(?:\.\d+)?\s*(?:쪽|페이지|매|자|줄))\s*(?:이내|내외|정도|분량|이하)?", guide or "")
+    return m.group(0).strip() if m else ""
+
+
+# 작성방법 글이 요구하는 본문 요소 — 서식 일반의 낱말로 읽는다(특정 양식·사업의 규칙이 아니다)
+_GUIDE_MARK = re.compile(r"작성\s*방법|작성\s*요령|작성\s*지침|작성\s*가이드|※\s*작성")
+_NEEDS = (("표", re.compile(r"(?<![가-힣])표(?:로|에|를|와|\s|\(|$)|일정표|내역|연차별|월별|분기별|[가-힣]+\s*현황표")),
+          ("도식", re.compile(r"도식|체계도|조직도|흐름도|모식도|구성도|그림|추진\s*체계")),
+          ("출처", re.compile(r"출처")))
+
+
+def guide_of(context: str) -> str:
+    """필드 앞뒤 양식 글에서 작성방법 상자 글만 — 마지막 작성방법 표시부터 쓸 자리까지. 표시가 없으면 빈 글(앞 절 본문을 안내로 읽지 않게)."""
+    head = (context or "").split("[이 자리에 쓴다]")[0]
+    marks = list(_GUIDE_MARK.finditer(head))
+    return head[marks[-1].start():].strip() if marks else ""
+
+
+def needs_of(guide: str) -> list[str]:
+    """작성방법이 요구한 요소(표·도식·출처)."""
+    return [k for k, pat in _NEEDS if pat.search(guide or "")]
+
+
+def body_shape(text: str) -> dict:
+    """쓴 본문의 모양 — 표·도식 블록 수, 번호 체계(1) 가) (1)), 글자 수, 출처 표기."""
+    from zzaimy.app import webhwp_write as ww
+    items = ww.parse_body(text)
+    plain = "\n".join(str(v) for k, v in items if k == "text")
+    return {"tables": sum(1 for k, _ in items if k == "table"), "diagrams": sum(1 for k, _ in items if k == "diagram"),
+            "numbered": bool(re.search(r"(^|\n)\s*(\d+\)|[가-하]\)|\(\d+\))", plain)),
+            "chars": len(re.sub(r"\s+", "", text or "")),
+            "sources": bool(re.search(r"출처|자료\s*[:：]|《[^》]+》", text or ""))}
+
+
+def missing_needs(need: list[str], shape: dict) -> list[str]:
+    have = {"표": shape.get("tables", 0) > 0, "도식": shape.get("diagrams", 0) > 0, "출처": shape.get("sources", False)}
+    return [n for n in need if not have.get(n, True)]
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -76,6 +152,17 @@ class HwpTools:
         self.project = project
         self.project_docs = project_docs            # () -> 프로젝트·대화 문서 목록(dict)
         self.writes = 0
+        self.evidence = None                        # () -> [근거 글] — 수치 관문에 쓰는 근거(요청·찾은 근거·담당자 글). None 이면 수치 관문 끔
+        self.client = None                          # 문맥 한도를 읽을 연결(관문의 길이 상한) — None 이면 기본 한도
+        self.delegating = False                     # 절 맡기기 도구가 켜졌는가(상태 글·직접 쓰기 관문의 안내)
+        self.need_notes: dict[str, int] = {}        # 요구 요소 빠짐을 알린 횟수(필드마다 한 번만 — 고쳐 쓰기 1회)
+
+    def limit(self) -> int:
+        from zzaimy.app import llm_budget
+        try:
+            return llm_budget.context_len(self.client) if self.client is not None else int(os.environ.get("ZZAIMY_WRITER_CONTEXT", llm_budget.DEFAULT_CONTEXT))
+        except Exception:
+            return llm_budget.DEFAULT_CONTEXT
 
     # ── 상태 ──
     def fid(self) -> int | None:
@@ -96,14 +183,57 @@ class HwpTools:
         fl = self._fields()
         empty = [x["name"] for x in fl if not x["text"]]
         lines = [f"편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 「{Path(f['name']).stem}」(필드 {len(fl)}개, 빈 필드 {len(empty)}개)"]
-        lines.append("필드(이름 — 상태): " + "; ".join(f"{x['name']} — {'비어 있음' if not x['text'] else '채움'}" for x in fl[:80]))
+        needs = self.needs_map()
+        lines.append("필드(이름 — 상태): " + "; ".join(
+            f"{x['name']} — {'비어 있음' if not x['text'] else '채움'}" + (f"(작성방법 요구: {'·'.join(needs[x['name']])})" if needs.get(x["name"]) and not x["text"] else "")
+            for x in fl[:80]))
         held = webhwp.lock_holder(self.db, fid)
         if held and held["user"] != "AURA":
             lines.append(f"지금 {held['user']} 님도 이 작업본을 편집 중이다 — 칸은 그 화면에 바로 들어가니 그대로 쓴다.")
         if empty:
             lines.append("작성 순서: ① 담당자가 알려 준 값·프로젝트 정보(프로젝트 이름은 사업명 칸)로 채울 수 있는 칸을 hwp_fill 한 번에 모두 채운다 "
                          "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
+        if self.delegating:
+            lines += self.budget_lines(fl)
         return lines
+
+    def needs_map(self) -> dict[str, list[str]]:
+        """필드마다 작성방법이 요구한 요소(표·도식·출처) — 작업본의 작성방법 상자 글에서 읽는다."""
+        from zzaimy.app import webhwp_write as ww
+        f = webhwp.get(self.db, self.fid() or 0)
+        if not f:
+            return {}
+        try:
+            ctx = ww.section_contexts(Path(f["path"]).read_bytes())
+        except Exception:
+            return {}
+        return {k: n for k, v in ctx.items() if (n := needs_of(guide_of(v)))}
+
+    def budget_lines(self, fl: list[dict] | None = None) -> list[str]:
+        """절 맡기기 판단 재료 — 남은 문맥 %, 빈 절 수와 절별 분량 안내, 남은 단계 수(판단은 에이전트가 한다)."""
+        from zzaimy.app import doc_agent, llm_budget
+        from zzaimy.app import webhwp_write as ww
+        fl = fl if fl is not None else self._fields()
+        f = webhwp.get(self.db, self.fid() or 0)
+        data = Path(f["path"]).read_bytes() if f else b""
+        empty = [x["name"] for x in fl if x["kind"] == "절" and not x["text"]]
+        hr = llm_budget.headroom()
+        st = doc_agent.step_info()
+        sizes = []
+        for n in empty[:12]:
+            try:
+                h = length_hint(ww.section_context(data, n)) if data else ""
+            except Exception:
+                h = ""
+            sizes.append(f"{n[2:]}({h or '분량 안내 없음'})")
+        out = [("문맥: 남은 약 " + (f"{int(hr[0] * 100)}%(한도 {hr[1]} 토큰)" if hr else "알 수 없음(첫 단계)")
+                + (f" · 남은 단계 {max(0, st[1] - st[0])}/{st[1]}" if st else "")
+                + f" · 빈 절 {len(empty)}개")]
+        if sizes:
+            out.append("빈 절과 분량 안내: " + "; ".join(sizes) + (" …" if len(empty) > 12 else ""))
+        out.append("절 맡기기(delegate_section): 긴 절·근거가 많은 절·남은 문맥이 적을 때 같은 모델에 깨끗한 문맥으로 그 절 하나를 맡긴다. "
+                   "짧은 절·칸 몇 개·서식 고치기는 직접 한다. 돌아온 보고(쓴 값·확인 필요)를 보고 모자라면 한 번 다시 맡긴다.")
+        return out
 
     def step_budget(self) -> int:
         """이번 요청의 걸음 한도 — 기본 20, 작업본의 빈 절이 많으면 늘린다(절 하나에 쓰기 한 걸음 + 가끔 찾기), 최대 48."""
@@ -236,7 +366,7 @@ class HwpTools:
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
                 + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else ""))
 
-    def write(self, a: dict) -> str:
+    def write(self, a: dict, by: str = "메인") -> str:
         from zzaimy.app import webhwp_write as ww
         g = self._guard()
         if isinstance(g, str):
@@ -247,6 +377,9 @@ class HwpTools:
         field = self.resolve(field) or (field if field.startswith(("절:", "칸:", "표")) else "절:" + field)
         if not text:
             return "text 가 비었다."
+        why = self.gate(text, by=by)                       # by 는 코드가 정한다(모델 인자로 바꿀 수 없다)
+        if why:
+            return "쓰지 않았다 — " + why
         m = webhwp.meta(self.db, fid)
         written = m.get("written") or {}
         self._mark(fid, field)
@@ -259,9 +392,54 @@ class HwpTools:
         m = webhwp.meta(self.db, fid)
         written[field] = put
         m["written"] = written
+        gist = m.get("gist") if isinstance(m.get("gist"), dict) else {}
+        gist[field] = re.sub(r"\s+", " ", text)[:300]       # 절 요지 — 다음 절을 맡길 때 「앞 절 요지」 로 쓴다
+        m["gist"] = gist
+        need = needs_of(guide_of(ww.section_context(data, field)))
+        shape = body_shape(text)
+        shape.update(need=need, missing=missing_needs(need, shape), by=by)
+        shapes = m.get("shape") if isinstance(m.get("shape"), dict) else {}
+        shapes[field] = shape                                # 쓴 모양 기록 — 평가(scripts/201)·화면이 읽는다
+        m["shape"] = shapes
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
         self.writes += 1
-        return f"「{field[2:]}」 을 썼다(문단·표 {len(put) + 1}개)."
+        msg = f"「{field[2:]}」 을 썼다(문단·표 {len(put) + 1}개)."
+        if shape["missing"] and self.need_notes.get(field, 0) < 1:
+            self.need_notes[field] = self.need_notes.get(field, 0) + 1
+            msg += (f" 다만 작성방법이 요구한 {'·'.join(shape['missing'])} 이(가) 본문에 없다 — 근거가 있으면 같은 field 로 한 번 고쳐 쓴다"
+                    "(표는 마크다운 표, 도식은 ```도식 블록, 출처는 근거 문서 이름). 근거가 없어 못 넣으면 그대로 두고 다음으로.")
+        return msg
+
+    def gate(self, text: str, by: str = "메인") -> str | None:
+        """절 본문 관문 — check_body(메인·서브 같음) + 메인만: 남은 문맥이 모자란데 긴 본문을 직접 쓰면 거절하고 맡기기 안내."""
+        from zzaimy.app import llm_budget
+        limit = self.limit()
+        ev = None
+        if self.evidence is not None:
+            try:
+                ev = list(self.evidence()) + [self.form_text()]
+            except Exception:
+                ev = None
+        why = check_body(text, ev, limit)
+        if why:
+            return why
+        if by == "메인" and self.delegating:
+            hr = llm_budget.headroom()
+            if hr and hr[0] < LOW_HEADROOM and llm_budget.estimate_tokens(text) > int(hr[1] * LONG_SHARE):
+                return (f"남은 문맥이 약 {int(hr[0] * 100)}% 라 긴 본문을 직접 쓰지 않는다 — delegate_section 으로 이 절을 맡긴다"
+                        "(절 이름·요지·형식·분량만 주면 지시서의 나머지는 코드가 채운다).")
+        return None
+
+    def form_text(self) -> str:
+        """작업본에 원래 있는 글(양식·예시·쓴 절) — 양식에 있는 수치는 지어낸 것이 아니다."""
+        f = webhwp.get(self.db, self.fid() or 0)
+        if not f:
+            return ""
+        import io
+        import zipfile
+        z = zipfile.ZipFile(io.BytesIO(Path(f["path"]).read_bytes()))
+        return re.sub(r"<[^>]+>", " ", "".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist()
+                                              if re.match(r"Contents/section\d+\.xml$", n)))
 
     def tables(self, a: dict) -> str:
         from zzaimy.app import webhwp_style

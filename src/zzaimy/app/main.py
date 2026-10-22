@@ -2089,7 +2089,8 @@ def create_app(
 
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
                     "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
-                    "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기"}
+                    "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기",
+                    "delegate_section": "절 맡기기"}
 
     def _tool_label(name: str) -> str:
         return _TOOL_LABELS.get(name, name or "생각")
@@ -2406,23 +2407,29 @@ def create_app(
             ms = db.list_chats(session_id)
             return (ms[-1]["content"] if ms and ms[-1]["role"] == "assistant" else "")[:1500]
 
-        def with_notes(fn):
-            """에이전트가 찾은 근거를 절 쓰기 재료(gathered)에 덧붙여 fn 을 부른다 — 쓰는 동안만 둔다."""
+        def with_notes(fn, focus: str = ""):
+            """에이전트가 찾은 근거를 절 쓰기 재료(gathered)에 덧붙여 fn 을 부른다 — 쓰는 동안만 둔다.
+            focus(절 제목)를 주면 근거를 문장 단위로 그 절에 맞게 압축한다(app/delegate.compress — 리랭커가 없으면 원문 그대로)."""
             if notes:
-                _agent_notes[session_id] = "[에이전트가 찾은 근거 — 출처는 《 》 안의 문서 제목만]\n" + "\n".join(notes[-8:])
+                body_ = "\n".join(notes[-8:])
+                if focus:
+                    from zzaimy.app import delegate as _dg_c
+                    body_, _ci = _dg_c.compress(focus, notes[-8:])
+                    _chat_step(session_id, f"근거 압축 {_ci['before']}→{_ci['after']} 토큰" + (f"(원문 그대로: {_ci['note']})" if _ci["method"] != "rerank" else ""))
+                _agent_notes[session_id] = "[에이전트가 찾은 근거 — 출처는 《 》 안의 문서 제목만]\n" + body_
             try:
                 fn()
             finally:
                 _agent_notes.pop(session_id, None)
 
-        def run_doc(fn) -> str:
+        def run_doc(fn, focus: str = "") -> str:
             """연결 문서 작업 하나를 직접 부르고(모델이 고른 인자 그대로) 이번에 대화에 더해진 답을 관찰로 돌려준다.
             실패하면 문서는 그대로라고 대화에 남긴다."""
             if not link().get("doc"):
                 return "연결된 문서가 없다 — create_document 나 open_project_document 로 먼저 잇는다."
             n0 = len(db.list_chats(session_id))
             try:
-                with_notes(fn)
+                with_notes(fn, focus)
             except Exception as e:
                 from zzaimy.generate.client import describe_llm_error
 
@@ -2439,7 +2446,8 @@ def create_app(
             memo = str(a.get("notes") or a.get("reason") or "").strip()
             request = q + (f"\n에이전트 메모: {memo}" if memo else "")
             return run_doc(lambda: _draft_sections(session_id, owner, data_dir, scope, scope_msg, targets=[sec], redo=redo,
-                                                   request=request, client=client))
+                                                   request=request, client=client),
+                           focus=f"{sec['heading']} {memo}".strip() if sec else "")
 
         def t_review(a: dict) -> str:
             sec = find_section(str(a.get("section") or "")) if link().get("doc") else None
@@ -2622,6 +2630,9 @@ def create_app(
                 doc_agent.Tool("hwp_write", "절 필드에 본문 쓰기 — 개조식 번호 문단으로 쓴다: 1) → 가) → (1) 단계, 한 줄에 한 항목, 문장 끝은 「~함」「~임」 "
                                "(서술형 「~하였다」 금지). 수치·일정·내역은 마크다운 표(| 머리 | … |, 머리글 구분 줄 포함)로. "
                                "추진체계·절차·흐름은 도식 블록으로: ```도식 줄바꿈 후 줄마다 「상자 → 상자」(줄 사이는 아래 화살표로 이어짐, 상자 하나뿐인 줄은 상위 기관) ```. "
+                               "예) 표: 「| 구분 | 내용 | 일정 |\\n|---|---|---|\\n| 1단계 | 교육과정 개발 | 3~6월 |」, "
+                               "도식: 「```도식\\n총장\\n사업단장 → 운영위원회\\n교육팀 → 성과관리팀\\n```」. "
+                               "상태의 필드 목록에 「작성방법 요구: 표·도식·출처」 가 붙은 절은 그 요소를 넣는다(근거가 있을 때). "
                                "담당자가 이번 요청에서 알려 준 사실과 search 로 찾은 근거만 쓰고 지어내지 않는다. 큰 칸(사업 추진계획 같은 요약 표의 본문 칸)도 field 에 칸 이름을 주면 그 칸 안에 쓴다. args {field: 절 또는 칸 필드 이름, text: 본문}", hw.write, writes=True),
                 doc_agent.Tool("hwp_tables", "작업본의 표 목록(번호·크기·첫 행) — 서식을 고칠 표를 짚을 때. args {}", hw.tables),
                 doc_agent.Tool("hwp_style", "표 서식 고치기(담당자가 표 모양을 바꿔 달라고 할 때). 주지 않은 값은 학교 표 기본(머리줄·라벨 칸 회색 #E5E5E5·굵게·가운데, "
@@ -2629,6 +2640,23 @@ def create_app(
                                "label_fill, outer: 바깥 선 mm, inner: 안쪽 선 mm, head_bottom: 실선|이중선, font_pt, head_bold: true|false, "
                                "head_align·body_align: 가운데|왼쪽|오른쪽|양쪽}", hw.style, writes=True),
             ]
+        if hw is not None:
+            # 절 본문 관문(webhwp_agent.check_body)의 근거 — 이번 요청 글, 찾은 근거, 담당자가 이 대화에 쓴 글. 작업 메모는 맥락일 뿐 근거가 아니다
+            hw.client = client
+            hw.evidence = lambda: [q, *notes, *[str(m_.get("content") or "") for m_ in db.list_chats(session_id, limit=400) if m_.get("role") == "user"]]
+            from zzaimy.app import delegate as _dg
+            if _dg.enabled():
+                # 절 맡기기(ADR-0065 4번) — 맡길지는 에이전트가 상태 글(남은 문맥·빈 절·남은 단계)을 보고 정한다
+                hw.delegating = True
+
+                def _dg_search(query_: str) -> list[dict]:
+                    hits_ = list(mats().search_project(query_) or [])[:3]
+                    if crit_ids:
+                        hits_ += list(mats().search_criteria(query_) or [])[:3]
+                    return hits_
+
+                _dlg = _dg.Delegator(client, db, session_id, hw, q, search=_dg_search, notes=lambda: notes[-8:])
+                tools.append(doc_agent.Tool("delegate_section", _dg.TOOL_DESC, _dlg.run, writes=True))
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
@@ -2666,7 +2694,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", _scrub_internal(msg_))
         if not ep.finished and ep.writes and hw is not None and hw.fid():
             # 한글 작업본 — 쓴 절·칸, 남은 빈 절, 담당자가 알려 줘야 할 빈 칸을 알린다(긴 서식은 한 번에 다 못 쓴다)
-            ok_ = [s_ for s_ in ep.steps if s_.get("action") in ("hwp_write", "hwp_fill")
+            ok_ = [s_ for s_ in ep.steps if s_.get("action") in ("hwp_write", "hwp_fill", "delegate_section")
                    and str(s_.get("observation", "")).startswith(("「", "채웠다"))]
             fl_ = hw._fields()
             left_s = [x["name"][2:] for x in fl_ if x["kind"] == "절" and not x["text"]]

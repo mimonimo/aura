@@ -247,6 +247,24 @@ def group_of(name: str) -> str:
     return "서브" if name.startswith("서브") else "메인"
 
 
+def usage() -> dict | None:
+    """지금 실행 흐름에서 track() 으로 시작한 사용 기록(없으면 None)."""
+    return _USAGE.get()
+
+
+def headroom() -> tuple[float, int] | None:
+    """메인 에이전트의 남은 문맥 몫 — (1 - 가장 최근 메인 호출의 입력 / 한도, 한도). 기록이 없으면 None.
+    다음 걸음은 그 입력에 이번 결과가 더해지므로, 이 몫이 작으면 긴 본문을 직접 쓸 자리가 없다."""
+    d = _USAGE.get()
+    if not d:
+        return None
+    mains = [x for x in d.get("items") or [] if x.get("group") == "메인" and x.get("limit")]
+    if not mains:
+        return None
+    last = mains[-1]
+    return max(0.0, 1.0 - float(last["in"]) / float(last["limit"])), int(last["limit"])
+
+
 def _note_usage(client, fitted: list[dict], messages: list[dict], max_tokens: int) -> None:
     d = _USAGE.get()
     if d is None:

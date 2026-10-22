@@ -373,3 +373,33 @@ def parse_body(text: str) -> list[tuple[str, object]]:
         items.append(("diagram", "\n".join(fence)))
     flush_text()
     return items
+
+
+
+def section_contexts(data: bytes, before: int = 900, after: int = 300) -> dict[str, str]:
+    """필드마다 앞뒤의 양식 글 — 제목·작성방법 상자·예시처럼 그 자리를 쓸 때 볼 안내(앞 필드 끝 ~ 이 필드, 이 필드 끝 ~ 다음 필드).
+    서브 에이전트(절 맡기기)가 그 절의 양식 글·작성방법만 보고 쓰게 하고, 상태 글이 절마다 작성방법이 요구한 요소를 보이는 데 쓴다."""
+    def txt(frag: str) -> str:
+        frag = re.sub(r"</hp:p>|<hp:lineBreak/>", "\n", frag)
+        t = re.sub(r"<[^>]+>", "", frag)
+        t = t.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").replace("&quot;", '"')
+        return "\n".join(ln.strip() for ln in t.splitlines() if ln.strip())
+    _, secs = _open(data)
+    out: dict[str, str] = {}
+    for n in sorted(secs):
+        xml = secs[n]
+        begins = list(_BEGIN.finditer(xml))
+        prev_end = 0
+        for k, m in enumerate(begins):
+            sp = _span(xml, m.group(1), m.end())
+            nxt = begins[k + 1].start() if k + 1 < len(begins) else len(xml)
+            head = txt(xml[prev_end:m.start()])[-before:]
+            tail = txt(xml[(sp[1] if sp else m.end()):nxt])[:after]
+            out.setdefault(_unq(m.group(2)), (head + ("\n[이 자리에 쓴다]\n" if head or tail else "") + tail).strip())
+            prev_end = sp[1] if sp else m.end()
+    return out
+
+
+def section_context(data: bytes, name: str, before: int = 900, after: int = 300) -> str:
+    """한 필드의 앞뒤 양식 글(section_contexts 참고). 필드가 없으면 빈 글."""
+    return section_contexts(data, before, after).get(name, "")

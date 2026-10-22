@@ -123,6 +123,25 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
     return True
 
 
+HEADS = ("지금 목표", "확정된 것", "진행 상황", "남은 일·물어볼 것")
+
+
+def parts(text: str) -> dict[str, str]:
+    """작업 메모 글 → 갈래별 글 {지금 목표, 확정된 것, 진행 상황, 남은 일·물어볼 것}. 제목 줄이 없으면 통째로 「지금 목표」."""
+    out: dict[str, list[str]] = {}
+    cur = ""
+    for ln in (text or "").splitlines():
+        head = ln.strip().rstrip(":：").strip()
+        hit = next((h for h in HEADS if head == h or head.startswith(h)), None) if ln.strip().endswith((":", "：")) or head in HEADS else None
+        if hit:
+            cur = hit
+            out.setdefault(cur, [])
+            continue
+        if ln.strip():
+            out.setdefault(cur or HEADS[0], []).append(ln.rstrip())
+    return {k: "\n".join(v).strip() for k, v in out.items() if "\n".join(v).strip()}
+
+
 def block(summary: str) -> str:
     """요청에 넣는 작업 메모 — 맥락일 뿐 근거가 아님을 함께 적는다."""
     return ("[이 대화의 작업 메모 — 지금까지의 목표·결정·진행·남은 일. 맥락일 뿐 근거가 아니다. 수치·날짜는 근거 자료에서 다시 확인]\n"

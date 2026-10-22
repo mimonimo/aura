@@ -28,7 +28,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+import contextvars
 
+_STEP: contextvars.ContextVar = contextvars.ContextVar("doc_agent_step", default=None)   # (이번 단계, 단계 한도)
 READ_PER_DOC = 4                   # 한 요청에서 한 문서를 이어 읽는 횟수 상한
 MAX_STEPS = 14                     # 절마다 찾기에 걸음이 여럿 들어 10걸음이면 세 절째에서 끊긴다
 MAX_WRITES = 4
@@ -258,6 +260,11 @@ def _parse(raw: str) -> dict | None:
     return got if isinstance(got, dict) and got.get("action") else None
 
 
+def step_info() -> tuple[int, int] | None:
+    """지금 도는 에이전트 루프의 (이번 단계, 단계 한도) — 상태 글이 남은 단계를 보여 줄 때 쓴다. 루프 밖이면 None."""
+    return _STEP.get()
+
+
 KEEP_STEPS = 3                     # 문맥을 줄여도 빼지 않는 최근 걸음 수
 REPEAT_LIMIT = 3                   # 같은 걸음을 잇달아 이만큼 거절하면 멈춘다
 
@@ -301,6 +308,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         if last and not (searched and grace):
             break
         allowed = set(grace) if last else set(reg)
+        _STEP.set((_i + 1, max_steps))
         st = state()
         # 상태(문서 제목·절 이름·최근 대화)와 걸음 기록도 문서에서 온 글을 품으므로 울타리 안에 둔다
         current = (fenced("상태", st) + "\n\n" + fenced("지금까지 한 걸음 — 같은 걸음을 되풀이하지 않는다", "\n".join(log) or "(아직 없음)")
@@ -462,6 +470,7 @@ def _step_label(name: str, args: dict) -> str:
               "read_found": lambda a: f"찾은 문서 이어 읽는 중 — 「{str(a.get('document', ''))[:30]}」",
               "read_section": lambda a: f"절 읽는 중 — 「{a.get('section', '')[:30]}」",
               "write_section": lambda a: f"절 쓰는 중 — 「{a.get('section', '')[:30]}」",
+              "delegate_section": lambda a: f"절 맡겨 쓰는 중 — 「{str(a.get('section', ''))[:30]}」",
               "rewrite_section": lambda a: f"절 다시 쓰는 중 — 「{a.get('section', '')[:30]}」",
               "review_section": lambda a: f"절 검토 중 — 「{a.get('section', '')[:30]}」",
               "create_document": lambda a: "문서 만드는 중",
