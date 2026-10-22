@@ -7,7 +7,8 @@
 한다.
 
 - 사용자: GET /account/google(상태 JSON), GET /account/google/connect(허용 화면으로), POST /account/google/disconnect
-- 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): GET /dev/users, POST /dev/users/save,
+- 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): GET /dev/users, POST /dev/users/save(역할·교직원 등급·부서 —
+  등급과 관리자 상한은 grades, ADR-0066),
   POST /dev/google/{settings,dept,revoke}
 
 main.py 는 app.state 에 accounts(플랫폼 계정 표)·save_accounts·set_pw·new_account·templates·page_ctx 를 두고 이 라우터를 붙인다.
@@ -23,7 +24,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from zzaimy.app import passwords
+from zzaimy.app import grades, passwords
 from zzaimy.app.access_guard import ROLES
 from zzaimy.ingest import gdocs, gdrive, gdrive_files
 
@@ -92,7 +93,9 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
     from zzaimy.app import access_policy
     for uid, a in sorted(accounts.items(), key=lambda kv: (not kv[1].get("active", True), kv[1].get("dept") or "", kv[0])):
         st = user_status(db, uid, a.get("dept") or None)
+        g = grades.grade_of(a)
         users.append({**st, "name": a.get("name", ""), "role": a.get("role", "staff"), "role_label": ROLES.get(a.get("role", "staff"), ""),
+                      "grade": g if g in grades.GRADES else "", "grade_label": grades.GRADES.get(g, ""),
                       "dept": a.get("dept", ""), "extra": access_policy.extra_depts(uid, data_dir) if data_dir else [], "active": a.get("active", True), "created_at": (a.get("created_at") or "")[:10]})
     settings = db.all_settings()
     # 부서 목록은 한 곳(known_depts) — 여기서 만든 부서가 RAG 공간의 부서 RAG·검색 범위·폴더 범위에 그대로 쓰인다
@@ -118,8 +121,9 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
     emails = [{"email": e, "users": owners.get(e, []), "shared": sharers.get(e, []), "docs_ok": gdocs.has_docs_scope(e),
                "granted_at": conn[e].get("granted_at", "")} for e in sorted(conn)]
     return {"users": users, "depts": dept_rows, "emails": emails, "domain": gdrive.allowed_domain(),
-            "app": gdrive.public_status(), "roles": ASSIGNABLE_ROLES,
-            "me": ""}
+            "app": gdrive.public_status(), "roles": ASSIGNABLE_ROLES, "grades": grades.GRADES,
+            "default_grade": grades.DEFAULT_GRADE, "admin_max": grades.ADMIN_MAX,
+            "admin_n": grades.admin_count(accounts), "me": ""}
 
 
 # ---------------- 사용자 본인 ----------------
@@ -201,7 +205,7 @@ def dev_google_moved():
 @router.post("/dev/users/save")
 def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
                    role: str = Form("staff"), dept: str = Form(""), active: str = Form(""), new_pw: str = Form(""),
-                   google: str = Form(""), extra: list[str] = Form([])):
+                   google: str = Form(""), extra: list[str] = Form([]), grade: str = Form("")):
     """사용자 추가·수정 — 역할·부서·사용 여부, 임시 비밀번호(새 계정은 필수, 기존 계정은 왔을 때만 초기화), 구글 계정 이음.
     관리자가 넣은 비밀번호는 임시다 — 계정에 must_change 를 달아 다음 로그인 때 본인이 바꾸게 한다. 값은 응답에 싣지 않는다."""
     st = request.app.state
@@ -227,6 +231,14 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
     me = _user(request)
     if uid == me and (not on or role != "dev"):
         return _back("지금 로그인한 관리자 계정은 스스로 끄거나 역할을 낮출 수 없습니다", ok=False)
+    # 관리자는 개발자와 시스템 전체 관리자 둘까지(ADR-0066) — 이미 사용 중인 관리자 계정을 그대로 고쳐 저장하는 것은 막지 않는다
+    was_admin = not new and accounts[uid].get("role") == "dev" and accounts[uid].get("active", True)
+    if not was_admin and grades.admin_over(accounts, uid, role, on):
+        return _back(f"관리자는 최대 {grades.ADMIN_MAX}명까지 둘 수 있습니다 — 다른 관리자 계정을 교직원으로 바꾸거나 사용 중지한 뒤 지정해 주세요",
+                     ok=False)
+    grade = grade.strip()
+    if grade and grade not in grades.GRADES:
+        return _back("등급 값이 올바르지 않습니다", ok=False)
     others_dev = [u for u, a in accounts.items() if u != uid and a.get("role") == "dev" and a.get("active", True)]
     if not others_dev and (role != "dev" or not on):
         return _back("사용 중인 관리자 계정이 하나는 남아 있어야 합니다", ok=False)
@@ -249,6 +261,13 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
     if new_pw:
         accounts[uid]["must_change"] = True
     accounts[uid].update(role=role, dept=dept, active=on, updated_at=__import__("datetime").datetime.now().isoformat(timespec="seconds"))
+    # 교직원 등급 — 교직원만 받는다. 고르지 않으면 지금 값 유지(새 계정은 기본 등급 사업 책임), 교직원이 아니면 지운다
+    if role in grades.STAFF:
+        accounts[uid]["grade"] = grade or accounts[uid].get("grade") or grades.DEFAULT_GRADE
+        if accounts[uid]["grade"] not in grades.GRADES:
+            accounts[uid]["grade"] = grades.DEFAULT_GRADE
+    else:
+        accounts[uid].pop("grade", None)
     st.save_accounts()
     # 추가 부서(여러 개) — RAG 공간의 계정별 추가 권한(grants)과 같은 값. 교직원만 받는다(학생·관리자는 비운다). 소속 부서는 빼고 저장
     data_dir = getattr(st, "data_dir", None)

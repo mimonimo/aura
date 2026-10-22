@@ -104,11 +104,12 @@ def reg_kwargs(scope: dict) -> dict:
     return out
 
 
-def search_scope(dept: str | None, role: str, user: str | None = None, data_dir=None) -> dict:
+def search_scope(dept: str | None, role: str, user: str | None = None, data_dir=None, grade: str = "") -> dict:
     """검색에 넘길 범위 — RAG 공간(app/rag_spaces, ADR-0053)에서 만든다. 학생은 학생 공개 학사 규정만(ADR-0052),
-    부서가 있는 교직원은 그 부서 사업 문서 + 공통·그 부서 규정, 부서 없는 교직원은 사업 문서 전부, 관리자는 전체."""
+    부서가 있는 교직원은 그 부서 사업 문서 + 공통·그 부서 규정, 부서 없는 교직원은 사업 문서 전부, 관리자는 전체.
+    grade: 교직원 등급 — RAG 공간에 최소 등급이 걸려 있을 때만 범위를 좁힌다(ADR-0066)."""
     from zzaimy.app import rag_spaces
-    return rag_spaces.search_scope(role, dept, user, data_dir)
+    return rag_spaces.search_scope(role, dept, user, data_dir, grade=grade)
 
 
 def allowed_doc_ids(db, doc_ids: list[int], dept: str | None, role: str, user: str | None = None, data_dir=None) -> list[int]:

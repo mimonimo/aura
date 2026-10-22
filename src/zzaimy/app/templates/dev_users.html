@@ -85,11 +85,11 @@
     {% for u in users %}
     <tr class="{{ '' if u.active else 'off' }}">
       <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
-      <td>{{ u.role_label }}</td>
+      <td>{{ u.role_label }}{% if u.grade_label %} · {{ u.grade_label }}{% endif %}</td>
       <td>{% if u.dept %}{{ u.dept }}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}{% if u.extra %}<span class="ua-sub" title="추가 부서 — 이 부서 문서도 찾고 작업합니다">+ {{ u.extra | join(', ') }}</span>{% endif %}</td>
       <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted" title="로그인 뒤 설정에서 「내 학교 계정 연결」">연결 전</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
-            data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}"
+            data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-grade="{{ u.grade }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}"
             data-effective="{{ (u.effective ~ ' · ' ~ u.via) if u.effective and u.via != '본인' else '' }}" aria-label="{{ u.user }} 사용자 편집">편집</button></td>
     </tr>
@@ -186,6 +186,9 @@
         <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
           {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
       </div>
+      <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+        <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업 · 사업 책임은 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄은 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
+      <p class="ua-hint" data-admin-hint hidden>관리자는 최대 {{ admin_max }}명 · 지금 {{ admin_n }}명</p>
       {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>추가 부서 <span class="ua-hint">— 소속 부서처럼 문서를 찾고 작업합니다</span></legend>
         <div class="ua-extra-list">{% for d in dept_choices %}<label class="check"><input type="checkbox" name="extra" value="{{ d }}">{{ d }}</label>{% endfor %}</div></fieldset>{% endif %}
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
@@ -302,7 +305,14 @@
         });
         extraBox.hidden = f.role.value !== 'staff' || !left;
       };
-      f.role.onchange = syncExtra; f.dept.onchange = syncExtra; syncExtra();
+      // 등급은 교직원일 때만 고른다 — 관리자·학생은 등급이 없다
+      if (f.grade) f.grade.value = (!isNew && btn.dataset.grade) || '{{ default_grade }}';
+      var syncGrade = function () {
+        var gf = document.querySelector('#userEdit [data-grade-field]'), ah = document.querySelector('#userEdit [data-admin-hint]');
+        if (gf) gf.hidden = f.role.value !== 'staff';
+        if (ah) ah.hidden = f.role.value !== 'dev';
+      };
+      f.role.onchange = function () { syncExtra(); syncGrade(); }; f.dept.onchange = syncExtra; syncExtra(); syncGrade();
       f.google.value = isNew ? '' : (btn.dataset.google || '');
       // 본인 연결이 없어도 부서 공용·공용 계정으로 문서를 쓰는 사용자 — 표의 「문서 작업 계정」과 같은 말을 창에서도 한다
       var eff = document.querySelector('#userEdit [data-effective-hint]');

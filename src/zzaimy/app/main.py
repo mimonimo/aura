@@ -35,6 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from zzaimy.app import paths as _paths
+from zzaimy.app import grades as _gr
 from zzaimy.app import storage
 from zzaimy.app import korean_text as _ko
 from zzaimy.app.chat_history import display_title as _chat_title
@@ -297,7 +298,8 @@ def create_app(
             return None
         if not isinstance(v, dict) or v.get("role") not in VIEW_AS_ROLES:
             return None
-        return {"role": v["role"], "dept": str(v.get("dept") or "")}
+        return {"role": v["role"], "dept": str(v.get("dept") or ""),
+                "grade": str(v.get("grade") or "") if v["role"] == "staff" and v.get("grade") in _gr.GRADES else ""}
 
     def _acct_role_dept(user: str) -> tuple[str, str | None]:
         """계정의 지금 역할·부서 — 계정 설정에 「테스트 보기」를 얹은 값. 화면 요청·뒤에서 도는 답변·도우미가 같은 값을 쓴다."""
@@ -345,7 +347,7 @@ def create_app(
         # 「테스트 보기」 중에는 개발자가 올린 문서를 「자기 문서」로 보지 않는다 — 고른 계정이 실제로 보는 범위와 같게
         user = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
         return _ap.viewer(getattr(request.state, "role", ""), getattr(request.state, "dept", "") or None,
-                          user, Path(db_path).parent)
+                          user, Path(db_path).parent, grade=_gr.request_grade(request))
 
     def _dept_peers(request: Request) -> tuple[str, ...]:
         """같은 부서 동료 계정 — 진행 중인 프로젝트를 읽기 전용으로 서로 본다(대화와 고치기는 담당자만). 교직원 계열·부서가 있을 때만."""
@@ -758,6 +760,7 @@ def create_app(
     app.include_router(collect_router)
     from zzaimy.app.archive_view import router as archive_view_router   # DGX 원본 보관소(원본 목록 장부)
     app.include_router(archive_view_router)
+    from zzaimy.app.program_admin import router as program_admin_router; app.include_router(program_admin_router)   # 사업 관리(/programs/admin, ADR-0066)
     from zzaimy.app.project_activity import router as project_activity_router   # 프로젝트 진행 현황(참여·요청·문맥 사용·작업 요약)
     app.include_router(project_activity_router)
 
@@ -1032,7 +1035,7 @@ def create_app(
                 try:
                     from zzaimy.app import access_guard as _ag, grant_lex as _gl
                     sp = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, "" if getattr(request.state, "view_as", None) else (request.state.user or ""),
-                                          Path(db_path).parent)
+                                          Path(db_path).parent, grade=_gr.request_grade(request))
                     if sp.get("grant"):
                         cids = _gl.rank(db, _gl.lex_terms(q), None, None if request.state.role == "dev" else (request.state.user or ""),
                                         limit=3000, depts=sp.get("grant_depts"))
@@ -1444,7 +1447,8 @@ def create_app(
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
-        scope = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent)
+        scope = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent,
+                                grade=_gr.user_grade(accounts.get(owner), _view_as(owner)))
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
         # 문서 작업 에이전트 — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
@@ -3464,7 +3468,7 @@ def create_app(
             from zzaimy.app import access_guard as _ag
 
             space = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, "" if getattr(request.state, "view_as", None) else (request.state.user or ""),
-                                     Path(db_path).parent)
+                                     Path(db_path).parent, grade=_gr.request_grade(request))
             with db._conn() as conn:
                 found = [dict(r) for r in conn.execute(
                     "SELECT d.id, d.filename, d.doc_type, d.status, d.created_at, d.receipt_no, d.project_id, d.kind FROM documents d"
@@ -4218,7 +4222,8 @@ def create_app(
             r_ = responder or _default_responder()
             kw = dict(attachment_text=material, criteria_ids=ag.allowed_doc_ids(db, [], dept, role, owner))
             if "scope" in _insp.signature(r_.answer).parameters:
-                kw["scope"] = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent)
+                kw["scope"] = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent,
+                                              grade=_gr.user_grade(accounts.get(owner), _view_as(owner)))
             answer = r_.answer(db, q, **kw)
             # 범위 밖 부서 자료를 가리키는 질문 — 대화 화면과 같은 안내(검색은 원래 범위 안에서만 돈다)
             scope_msg = ag.scope_note(q, dept, role, sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()}),
@@ -4509,7 +4514,7 @@ def create_app(
         return RedirectResponse("/?" + urlencode(qs), status_code=303)
 
     @app.post("/view-as")
-    def view_as_set(request: Request, role: str = Form(""), dept: str = Form(""), back: str = Form("/")):
+    def view_as_set(request: Request, role: str = Form(""), dept: str = Form(""), grade: str = Form(""), back: str = Form("/")):
         """개발자 「테스트 보기」 켜기 — 고른 역할·부서로 화면·검색·대화를 본다. 개발자 계정만, 권한은 좁히기만."""
         if getattr(request.state, "real_role", request.state.role) != "dev":
             raise HTTPException(403, "개발자 계정 전용입니다")
@@ -4518,7 +4523,10 @@ def create_app(
         dept = (dept or "").strip()
         if dept and dept not in _all_depts():
             raise HTTPException(400, "없는 부서입니다")
-        db.set_setting(f"view_as:{request.state.user}", _aj.dumps({"role": role, "dept": "" if role == "student" else dept}))
+        if grade and (role != "staff" or grade not in _gr.GRADES):
+            raise HTTPException(400, "고를 수 없는 등급입니다")
+        db.set_setting(f"view_as:{request.state.user}", _aj.dumps({"role": role, "dept": "" if role == "student" else dept,
+                                                                    "grade": grade if role == "staff" else ""}))
         dest = _local_back(back) if not _local_back(back).startswith("/dev") else "/"
         return RedirectResponse("/chat" if role == "student" else dest, status_code=303)
 
@@ -4581,6 +4589,7 @@ def create_app(
         if n < 0:
             return _lib_back(err="원본 폴더는 지울 수 없습니다 — 원본 보관소의 폴더입니다")
         return _lib_back(ok=f"폴더를 지웠습니다 · 문서 {n:,}건은 라이브러리에 그대로 있습니다")
+    templates.env.globals["view_as_grades"] = dict(_gr.GRADES)      # 테스트 보기의 교직원 등급(select name="grade", 비우면 기본 등급)
 
     @app.post("/library/upload")
     def library_upload(request: Request, background: BackgroundTasks, files: list[UploadFile] = File(...),

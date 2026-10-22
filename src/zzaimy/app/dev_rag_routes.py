@@ -11,6 +11,8 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from zzaimy.app import grades
+
 router = APIRouter()
 
 
@@ -34,7 +36,37 @@ def dev_rag(request: Request):
     return st.templates.TemplateResponse(request, "dev_rag.html", st.page_ctx(request, {
         "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
         "dict_grants": {a["id"]: {"space": a["space"], "grants": a["grants"]} for a in accts},
-        "dept_rags": rag_spaces.dept_rag_rows(db, cfg, accounts, st.all_depts())}))
+        "dept_rags": rag_spaces.dept_rag_rows(db, cfg, accounts, st.all_depts()),
+        "staff_grades": {k: v for k, v in grades.GRADES.items() if k != "member"}}))
+
+
+@router.post("/dev/rag/min-grade")
+async def dev_rag_min_grade(request: Request):
+    """RAG 공간의 최소 등급(ADR-0066) — space=common | dept:<부서>, grade=빈 값(걸지 않음)·lead·head.
+    걸면 그 등급 아래 교직원은 그 RAG 의 사업 문서를 검색 범위에서 빼고, 부서 RAG 면 열람에서도 뺀다(rag_spaces.search_scope·
+    access_policy.viewer)."""
+    from zzaimy.app import rag_spaces
+    st = request.app.state
+    form = await request.form()
+    space, grade = str(form.get("space") or "").strip(), str(form.get("grade") or "").strip()
+    if grade and grade not in grades.GRADES:
+        return RedirectResponse("/dev/rag?" + urlencode({"err": "등급 값이 올바르지 않습니다"}) + "#dept-rags", status_code=303)
+    if space != grades.COMMON_SPACE and not (space.startswith("dept:") and space[5:] in st.all_depts()):
+        return RedirectResponse("/dev/rag?" + urlencode({"err": "없는 RAG 입니다"}) + "#dept-rags", status_code=303)
+    cfg = dict(rag_spaces.config(st.data_dir))
+    mg = {k: v for k, v in (cfg.get("min_grade") or {}).items() if v}
+    if grade:
+        mg[space] = grade
+    else:
+        mg.pop(space, None)
+    if mg:
+        cfg["min_grade"] = mg
+    else:
+        cfg.pop("min_grade", None)
+    rag_spaces.save_config(cfg, st.data_dir)
+    name = "공통 RAG" if space == grades.COMMON_SPACE else f"{space[5:]} 부서 RAG"
+    msg = f"{name} 최소 등급 — {grades.GRADES[grade] + ' 이상' if grade else '걸지 않음'}"
+    return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#dept-rags", status_code=303)
 
 @router.post("/dev/rag/grant")
 async def dev_rag_grant(request: Request):

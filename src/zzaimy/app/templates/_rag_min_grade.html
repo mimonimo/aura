@@ -1,0 +1,10 @@
+{# RAG 공간의 최소 등급(ADR-0066) — 고르면 바로 저장. 기본은 걸지 않음. sid: common | dept:<부서> #}
+{% set cur = (cfg.get('min_grade') or {}).get(sid, '') %}
+<form method="post" action="/dev/rag/min-grade" class="rg-mingrade">
+  <input type="hidden" name="space" value="{{ sid }}">
+  <select name="grade" aria-label="최소 등급" onchange="this.form.requestSubmit()">
+    <option value=""{% if not cur %} selected{% endif %}>걸지 않음</option>
+    {% for k, v in staff_grades.items() %}<option value="{{ k }}"{% if cur == k %} selected{% endif %}>{{ v }} 이상</option>{% endfor %}
+  </select>
+  <noscript><button type="submit" class="btn">저장</button></noscript>
+</form>

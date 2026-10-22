@@ -92,14 +92,43 @@ def can_edit(doc: dict, *, role: str, dept: str | None, user: str | None, also: 
     return d != DEFAULT_DEPT and d in mine
 
 
-def viewer(role: str | None, dept: str | None, user: str | None, data_dir=None) -> dict:
+def viewer(role: str | None, dept: str | None, user: str | None, data_dir=None, grade: str | None = None) -> dict:
     """열람 판정에 넘기는 보는 사람 — visible(doc, **viewer)·doc_sql(viewer) 가 같은 값을 쓴다. 계정의 모르는 역할은 교직원으로 보지 않고
-    가장 좁게(학생과 같은 범위). visible 에 역할을 직접 넘기는 내부 호출(역할 빈 값)은 예전처럼 공개·공통만 본다."""
+    가장 좁게(학생과 같은 범위). visible 에 역할을 직접 넘기는 내부 호출(역할 빈 값)은 예전처럼 공개·공통만 본다.
+    grade: 교직원 등급(grades.user_grade). RAG 공간 설정에 최소 등급(min_grade)이 걸려 있고 거기 못 미치면 그 부서 RAG 는
+    소속·추가 부서에서 빠진다(ADR-0066). 주지 않으면 계정 표에서 찾는다 — 걸린 것이 없으면 계정 표도 읽지 않고 지금 동작 그대로."""
     role = role or ""
     if role not in ("dev", "student", *STAFF_ROLES):
         role = "student"
     also = tuple(extra_depts(user, data_dir)) if role in STAFF_ROLES else ()
-    return {"role": role, "dept": (dept or "").strip() or None, "user": user or "", "also": also}
+    dept = (dept or "").strip() or None
+    if role in STAFF_ROLES and data_dir is not None:
+        dept, also = _grade_narrow(dept, also, user, data_dir, grade)
+    return {"role": role, "dept": dept, "user": user or "", "also": also}
+
+
+def _grade_narrow(dept, also, user, data_dir, grade):
+    """최소 등급이 걸린 부서 RAG 를 소속·추가 부서에서 뺀다. 공통 RAG 의 최소 등급은 검색 범위(rag_spaces.search_scope)에서만
+    쓴다 — 전체 공개 문서는 열람 등급이 「전체 공개」라 열람까지 막지 않는다."""
+    from zzaimy.app import grades, rag_spaces
+    cfg = rag_spaces.config(data_dir)
+    if not cfg.get("min_grade"):
+        return dept, also
+    if grade is None:
+        grade = grades.grade_of(_account(user, data_dir)) if user else ""
+    blocked = grades.rag_blocked(cfg, grade or "") - {DEFAULT_DEPT}
+    if not blocked:
+        return dept, also
+    return (None if dept in blocked else dept), tuple(x for x in also if x not in blocked)
+
+
+def _account(user: str, data_dir) -> dict:
+    import json
+    from pathlib import Path
+    try:
+        return (json.loads((Path(data_dir) / "accounts.json").read_text(encoding="utf-8")) or {}).get(user) or {}
+    except (OSError, ValueError):
+        return {}
 
 
 def request_viewer(request) -> dict:
@@ -107,7 +136,8 @@ def request_viewer(request) -> dict:
     st = request.state
     data_dir = getattr(request.app.state, "data_dir", None)
     user = "" if getattr(st, "view_as", None) else getattr(st, "user", "")      # 테스트 보기 중에는 개발자 자기 문서를 빼고
-    return viewer(getattr(st, "role", ""), getattr(st, "dept", "") or None, user, data_dir)
+    from zzaimy.app import grades
+    return viewer(getattr(st, "role", ""), getattr(st, "dept", "") or None, user, data_dir, grade=grades.request_grade(request))
 
 
 def can_browse(role: str | None) -> bool:

@@ -134,7 +134,9 @@ def make_chat_helpers(
         from zzaimy.app import access_guard as ag, grant_search
         from zzaimy.app.regulations import find_relevant
 
-        scope = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent)
+        from zzaimy.app import grades as _gr
+        scope = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent,
+                                grade=_gr.user_grade(accounts.get(owner), _view_as(owner)))
 
         def search(query: str) -> list[dict]:
             out: list[dict] = []

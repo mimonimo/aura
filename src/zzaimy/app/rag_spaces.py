@@ -69,17 +69,26 @@ def resolve(role: str, dept: str | None, data_dir: str | Path | None = None) -> 
     return {"id": "public", "label": "공개 규정", "regulation": {}, "grant": False, "grant_depts": []}
 
 
-def search_scope(role: str, dept: str | None, user: str | None = None, data_dir: str | Path | None = None) -> dict:
+def search_scope(role: str, dept: str | None, user: str | None = None, data_dir: str | Path | None = None,
+                 grade: str = "") -> dict:
     """검색에 넘길 범위 — 공간에서 만든다. 규정은 levels·dept·user(열람 등급 규칙), 사업 문서는 grant(쓰나)·grant_depts(부서).
-    계정별 추가 권한(grants)이 있으면 그 공간들의 사업 문서 부서를 더한다(학생에게는 더하지 않는다)."""
+    계정별 추가 권한(grants)이 있으면 그 공간들의 사업 문서 부서를 더한다(학생에게는 더하지 않는다).
+    grade: 계정의 교직원 등급(grades.user_grade). 설정 min_grade 로 최소 등급이 걸린 RAG 에 못 미치면 그 RAG 의 사업 문서
+    부서를 범위에서 뺀다(ADR-0066). 빈 값이거나 걸린 것이 없으면 지금 동작 그대로."""
+    cfg = config(data_dir)
     sp = resolve(role, dept, data_dir)
-    extra = [] if role == "student" else config(data_dir).get("grants", {}).get(user or "", [])
+    extra = [] if role == "student" else cfg.get("grants", {}).get(user or "", [])
     if extra and sp.get("grant_depts") is not None:
         depts = list(sp["grant_depts"])
         for sid in extra:
             if sid.startswith("dept:") and sid[5:] not in depts:
                 depts.append(sid[5:])
         sp = {**sp, "grant": True, "grant_depts": depts, "id": sp["id"] + "+" + ",".join(extra)}
+    if grade and role != "dev" and sp.get("grant_depts") is not None:
+        from zzaimy.app import grades
+        blocked = grades.rag_blocked(cfg, grade)
+        if blocked & set(sp["grant_depts"]):
+            sp = {**sp, "grant_depts": [d for d in sp["grant_depts"] if d not in blocked]}
     scope: dict = {"space": sp["id"], "role": role}
     if sp["regulation"].get("audience") == "student":
         scope["levels"] = ("student",)
@@ -237,7 +246,8 @@ def target_scope(target: str, accounts: dict, data_dir: str | Path | None = None
         if a is None:
             return None
         role, dept = a.get("role", "staff"), a.get("dept") or None
-        return f"{val} 계정", search_scope(role, dept, val, data_dir)
+        from zzaimy.app import grades
+        return f"{val} 계정", search_scope(role, dept, val, data_dir, grade=grades.grade_of(a))
     if kind == "space":
         if val == "dev":
             role, dept = "dev", None
