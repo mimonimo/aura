@@ -159,7 +159,7 @@
  divider.title='드래그로 너비 조절 · 두 번 클릭하면 반반';
  // 폭은 보기마다 따로 — 문서를 열어 볼 때(편집기·열람)는 넓게(기본 반반), 문서 목록만 볼 때는 좁게(기본 대화 70% · 패널 30%).
  // 끌어 둔 폭도 보기마다 따로 기억한다.
- const LIST_DEFAULT=70, DOC_DEFAULT=50;
+ const LIST_DEFAULT=70, DOC_DEFAULT=42;     // 문서를 볼 때는 문서 칸을 조금 넓게(대화 42% · 문서 58%)
  let ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||DOC_DEFAULT;
  let listRatio=Number(sessionStorage.getItem('chatDocListRatio'))||LIST_DEFAULT;
  const listMode=()=>Boolean(panel&&panel.classList.contains('chat-file-library'));
@@ -730,13 +730,21 @@
    panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-hwp-panel';panel.dataset.fid=String(file.id);
    panel.setAttribute('aria-label','한글 기안기 작업본');
    // 제목·저장 상태·새 창·내려받기는 기안기 화면 머리줄(embed)에 있다 — 바깥 머리줄은 목록으로 돌아가기·닫기만(제목이 두 번 서지 않게)
-   panel.innerHTML='<header class="hwp-panel-head"><button type="button" class="secondary" data-list>← 문서 목록</button><span class="hwp-panel-gap"></span><a class="mini-btn" target="_blank" rel="noopener" hidden></a><button type="button" class="secondary doc-icon-button" data-hide aria-label="문서 패널 닫기" title="문서 패널 닫기">×</button></header><iframe title="한글 기안기"></iframe>';
+   // 목록·닫기는 기안기 화면 머리줄 안에(postMessage) — 바깥 머리줄 없이 한 줄
+   panel.innerHTML='<header class="hwp-panel-head" hidden><button type="button" data-list></button><a hidden></a><button type="button" data-hide></button></header><iframe title="한글 기안기"></iframe>';
    panel.querySelector('[data-list]').onclick=showFiles;
    panel.querySelector('a').href=file.url;
    panel.querySelector('iframe').src=file.url+'&embed=1';
    panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
    main.prepend(panel);visibility(true);
  }
+ // 기안기 화면(embed) 머리줄의 「목록」·「닫기」
+ window.addEventListener('message',e=>{
+   if(e.origin!==location.origin||!e.data||e.data.aura!=='hwp'||!panel?.classList.contains('chat-doc-hwp-panel'))return;
+   if(e.source!==panel.querySelector('iframe')?.contentWindow)return;
+   if(e.data.act==='list')showFiles();
+   else if(e.data.act==='close'){visibility(false);opener.focus();}
+ });
  async function checkHwp(){
    const session=sid;
    if(!session||linked)return false;
