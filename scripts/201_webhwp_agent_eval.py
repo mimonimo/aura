@@ -96,6 +96,9 @@ def run_case(case: dict, tmp: Path) -> dict:
         out.update(fill_ratio=0.0, sections="0/0", facts=0.0, invented=[], style=False, asked=False)
         return out
     data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    keep = ROOT / "data" / "eval" / "webhwp_agent" / "files"            # 결과 한글 파일 — 기안기로 열어 서식을 눈으로 본다
+    keep.mkdir(parents=True, exist_ok=True)
+    (keep / f"{case['name']}.hwpx").write_bytes(data)
     fl = ww.fields(data)
     cells = [x for x in fl if x["kind"] in ("칸", "표")]
     secs = [x for x in fl if x["kind"] == "절"]
