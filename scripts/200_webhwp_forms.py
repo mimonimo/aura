@@ -204,14 +204,18 @@ def check_one(path: Path, http) -> dict:
                 labels.append(a)
     out["label_cells"] = len(labels)
     out["kind"] = "절 양식" if heads else "칸 양식"
-    if labels:
+    if labels and out.get("fields"):
+        # 실제 에이전트 경로(webhwp_write.set_fields)로 칸 필드 6개를 채워 다시 읽히는가
         try:
-            from hwpx import HwpxDocument
-            doc = HwpxDocument.open(path.read_bytes())
-            res = doc.fill_by_path({f"{lb} > right": "점검값" for lb in labels[:6]})
-            filled = getattr(res, "filled", None) or getattr(res, "applied", None)
-            out["label_fill"] = len(filled) if isinstance(filled, (list, tuple, dict)) else str(res)[:60]
-            doc.to_bytes()                                # 채운 파일이 만들어지는가까지(기안기 열림은 필드 파일로 확인)
+            from zzaimy.app import webhwp_write as ww
+            fzp = path.with_suffix(".fields.hwpx")
+            if fzp.exists():
+                names = [f for f in out.get("field_names", []) if f.startswith(("칸:", "표"))][:6]
+                data, done = ww.set_fields(fzp.read_bytes(), {n: "점검값" for n in names})
+                back = {x["name"]: x["text"] for x in ww.fields(data)}
+                out["label_fill"] = sum(1 for n in done if back.get(n) == "점검값")
+                if names and out["label_fill"] < len(names):
+                    out["problems"].append(f"칸 필드 {len(names)}개 중 {out['label_fill']}개만 채워짐")
         except Exception as e:
             out["problems"].append(f"칸 채우기 실패({type(e).__name__}: {str(e)[:60]})")
     # 3) 절 양식 시험 — 절 제목 아래 문단과 새 표, 서식 표(머리행 + 빈 행) 칸 채우기·행 늘리기. 제목 후보를 차례로(목차 줄은 건너뜀)
