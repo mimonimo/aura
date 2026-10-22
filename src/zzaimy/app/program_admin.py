@@ -821,8 +821,10 @@ def programs_admin_row(request: Request, key: str = ""):
     years = [{"year": y, **{f: v.get(f, "") for f in ("budget", "manager", "dept", "period", "sub", "status", "from")},
               "by_hand": list(v.get("by_hand") or [])}
              for y, v in sorted(r["years"].items(), key=lambda kv: kv[0], reverse=True)]
-    return {"key": r["key"], "name": r["name"], "l1": r["l1"], "l2": r["l2"], "l3": r["l3"], "dept": r["dept"],
-            "period": r["period"], "budget": r["budget"], "manager": r["manager"], "source": r["source"], "terms": r["terms"][:12],
+    latest = years[0] if years else {}                     # 위쪽 요약도 표와 같게 — 빈칸이면 가장 최근 해의 값
+    pick = lambda f: r.get(f) or latest.get(f, "")
+    return {"key": r["key"], "name": r["name"], "l1": r["l1"], "l2": r["l2"], "l3": r["l3"], "dept": pick("dept"),
+            "period": pick("period"), "budget": pick("budget"), "manager": pick("manager"), "source": r["source"], "terms": r["terms"][:12],
             "stage": stage(r, int(time.strftime("%Y"))), "years": years,
             "roles": {f: [label(u) for u in r[f]] for f in ROLES},
             "projects": r["plist"], "hidden_projects": r.get("hidden_projects", 0), "docs": docs}
