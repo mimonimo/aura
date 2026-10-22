@@ -606,9 +606,31 @@
  let initialized=Promise.resolve();
  // 새로 생성된 문서만 자동으로 연다. 기존 문서는 문서 버튼에서 목록을 먼저 표시한다.
  let watch=null;
+ // 한글 기안기 작업본이 이어진 대화 — 문서 창에 기안기를 연다(에이전트가 hwp_start 로 만들면 몇 초 안에 뜬다)
+ let hwpFile=null;
+ function showHwp(file){
+   hwpFile=file;
+   if(panel&&panel.classList.contains('chat-doc-hwp-panel')&&panel.dataset.fid===String(file.id)){visibility(true);return;}
+   if(panel)clearPanel();
+   panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-hwp-panel';panel.dataset.fid=String(file.id);
+   panel.setAttribute('aria-label','한글 기안기 작업본');
+   panel.innerHTML='<header><strong></strong><a class="mini-btn" target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="한글 기안기"></iframe>';
+   panel.querySelector('strong').textContent=file.name;
+   panel.querySelector('a').href=file.url;
+   panel.querySelector('iframe').src=file.url+'&embed=1';
+   panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
+   main.prepend(panel);visibility(true);
+ }
+ async function checkHwp(){
+   const session=sid;
+   if(!session||linked)return false;
+   try{const st=await api('/api/chat/'+session+'/hwp');if(session===sid&&st.file&&(!hwpFile||hwpFile.id!==st.file.id)){showHwp(st.file);return true;}return Boolean(st.file);}
+   catch(e){return false;}
+ }
  async function checkCreatedDocument(){
    const session=sid;
    if(!session||linked||!workspace.isConnected)return;
+   if(await checkHwp()){if(session===sid)watch=setTimeout(checkCreatedDocument,6000);return;}
    try{
      const data=await api('/api/chat-documents/'+session);
      // 요청 중 사용자가 목록에서 다른 문서를 선택했다면 그 선택을 보존한다.
@@ -623,7 +645,8 @@
    initialized=session?api('/api/chat-documents/'+session).then(data=>{
      if(session===sid){currentDoc=data.connected?data.doc:null;if(data.connected)linked=data;markCurrentFile();}
    }).catch(error=>{if(session===sid)loadError=error.message;}):Promise.resolve();
-   initialized.then(()=>{if(session===sid&&sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
+   hwpFile=null;
+   initialized.then(()=>{if(session===sid&&sid&&!linked){checkHwp();watch=setTimeout(checkCreatedDocument,6000);}});
  }
  // 에이전트 작업 중 표시 — 대화 쪽 진행 카드(chat-workspace.js 의 폴링)의 현재 단계를 편집기 위 한 줄로
  // 비춘다. 단계 글은 'chat-progress' 사건으로, 대기 시작·끝은 'chat-session-updated' 의 waiting 으로 받는다.
@@ -754,6 +777,7 @@
  opener.onclick=()=>{
    if(panel&&!panel.hidden&&!closing)return;
    if(panel)visibility(true);
+   else if(hwpFile)showHwp(hwpFile);
    else showFiles();
  };
 })();

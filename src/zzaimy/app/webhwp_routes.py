@@ -134,6 +134,53 @@ def hwp_folder(request: Request, dept: str = Form(""), folder: str = Form(""), n
     return _back(f"「{sub.split('/')[-1]}」 폴더를 만들었습니다", dept=dept, folder=sub)
 
 
+@router.post("/hwp/{fid}/presence")
+async def hwp_presence(request: Request, fid: int):
+    """같은 문서를 연 사람 표시 — 편집 화면이 몇 초마다 지금 있는 필드를 알린다(이름표: 이름 · 필드)."""
+    _need_staff(request)
+    _file(request, fid)
+    import json as _json
+    import time as _time
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    st = request.app.state
+    user = getattr(request.state, "user", "")
+    try:
+        cur = _json.loads(st.db.get_setting(f"webhwp_view:{int(fid)}", "{}") or "{}")
+    except ValueError:
+        cur = {}
+    now = _time.time()
+    cur = {u: v for u, v in cur.items() if now - float(v.get("at") or 0) < 30}
+    cur[user] = {"at": now, "field": str(body.get("field") or "")[:60]}
+    st.db.set_setting(f"webhwp_view:{int(fid)}", _json.dumps(cur, ensure_ascii=False))
+    return {"ok": True}
+
+
+@router.get("/hwp/{fid}/state")
+def hwp_state(request: Request, fid: int):
+    """편집 화면이 몇 초마다 묻는 문서 상태 — 마지막 저장(누가), 에이전트 작성 중(AURA 커서), 같이 보는 사람."""
+    _need_staff(request)
+    f = _file(request, fid)
+    import json as _json
+    import time as _time
+    from zzaimy.app import webhwp_agent
+    st = request.app.state
+    m = webhwp.meta(st.db, fid)
+    try:
+        view = _json.loads(st.db.get_setting(f"webhwp_view:{int(fid)}", "{}") or "{}")
+    except ValueError:
+        view = {}
+    now = _time.time()
+    me = getattr(request.state, "user", "")
+    names = {u: (st.db.profile_for(u) or {}).get("name") or u for u in view}
+    people = [{"user": u, "name": names[u], "field": v.get("field", "")} for u, v in view.items()
+              if u != me and now - float(v.get("at") or 0) < 30]
+    return {"saved": m.get("saved") or m.get("created") or "", "saved_by": m.get("saved_by", ""), "size": f.get("size", 0),
+            "aura": webhwp_agent.activity(st.db, fid), "lock": webhwp.lock_holder(st.db, fid), "people": people}
+
+
 @router.post("/hwp/{fid}/lock")
 def hwp_lock(request: Request, fid: int):
     """편집 잠금 잡기·늘리기(편집 화면이 45초마다) — 다른 사람이 편집 중이면 ok=false 와 그 사람."""
@@ -335,7 +382,7 @@ def hwp_new(request: Request, dept: str = "", folder: str = ""):
 
 
 @router.get(EDIT_PAGE, response_class=HTMLResponse)
-def hwp_edit_page(request: Request, id: int | None = None, dept: str = "", folder: str = ""):
+def hwp_edit_page(request: Request, id: int | None = None, dept: str = "", folder: str = "", embed: int = 0):
     """기안기 편집 화면(전체 화면, 사이드바 없이) — id 가 있으면 그 문서, 없으면 dept 부서(folder 폴더)의 새 문서."""
     _need_staff(request)
     st = request.app.state
@@ -348,6 +395,7 @@ def hwp_edit_page(request: Request, id: int | None = None, dept: str = "", folde
         folder = _check_dept(request, dept, folder)
         ctx = {"f": None, "dept": dept, "folder": folder, "meta": {}, "readonly": False}
     ctx["back"] = _where(ctx["dept"], ctx["folder"])
+    ctx["embed"] = bool(embed)                              # 채팅 문서 창 안 — 「문서함」 돌아가기는 빼고 새 창 열기는 창 머리줄에
     return st.templates.TemplateResponse(request, "hwp_edit.html", {"request": request, **ctx, "status": webhwp.status()})
 
 

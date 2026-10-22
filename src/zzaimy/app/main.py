@@ -2091,6 +2091,12 @@ def create_app(
         def link() -> dict:
             return chat_documents.binding(db, session_id, owner) or {}
 
+        # 편집기를 웹 한글 기안기로 고른 사람(또는 이미 한글 작업본이 이어진 대화) — 같은 흐름, 쓰기 도구만 한글(webhwp_agent)
+        from zzaimy.app import webhwp_agent as _wa
+        hw = (_wa.HwpTools(db, Path(db_path).parent, session_id, owner, (accounts.get(owner, {}) or {}).get("dept", "") if password is not None else "",
+                           project, lambda: _project_doc_candidates(project, session_id))
+              if (_webhwp.editor_of(db, owner) == "webhwp" or _wa.bound(db, session_id)) and not link().get("doc") else None)
+
         def mats():
             if "m" not in mats_box:
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
@@ -2140,7 +2146,9 @@ def create_app(
             if attachment_text:
                 lines.append(f"이번 메시지 첨부: 있음({len(attachment_text)}자)")
             lk = link()
-            if lk.get("doc"):
+            if hw is not None:
+                lines += hw.state_lines()
+            elif lk.get("doc"):
                 secs = [x for x in sections() if x.get("index", 0) > 0]
                 rows = [f"  {x['heading'][:50]} — {'쓸 수 있음' if drafting.writable(x) else '장 제목'}"
                         f"{', 비어 있음' if drafting.writable(x) and drafting.is_unfilled(x) else (', 작성됨' if drafting.writable(x) else '')}"
@@ -2559,6 +2567,19 @@ def create_app(
             doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why, kind: 사실(자료에 있을 수 있는 값) 또는 결정(담당자가 정할 목표·계획)}], message}", t_ask, final=True),
             doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
         ]
+        if hw is not None:
+            # 한글 기안기 — 구글 문서 쓰기 도구를 한글 도구로 바꾼다(찾기·읽기·값 기억·묻기·답하기·마치기는 같다)
+            _docs_only = {"read_section", "create_document", "write_section", "open_project_document", "rewrite_section",
+                          "review_section", "edit_document", "remove_guide_boxes", "export_hwp", "new_work_copy"}
+            tools = [t_ for t_ in tools if t_.name not in _docs_only] + [
+                doc_agent.Tool("hwp_forms", "쓸 한글 양식 찾기 — 이 프로젝트의 한글 양식(사업이 준 서식)이 먼저, 그다음 공문·국고 사업·학교 양식. args {query: 문서 갈래 낱말}", hw.forms),
+                doc_agent.Tool("hwp_start", "고른 양식으로 한글 작업본을 만들어 이 대화에 잇기(담당자가 문서를 쓰자고 했을 때). args {form: hwp_forms 의 id, title: 문서 제목}",
+                               hw.start, writes=True),
+                doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태 보기. args {}", hw.fields),
+                doc_agent.Tool("hwp_fill", "칸·표 필드에 값 넣기(근거로 찾았거나 담당자가 알려 준 값만). args {values: {필드 이름: 값}}", hw.fill, writes=True),
+                doc_agent.Tool("hwp_write", "절 필드에 본문 쓰기 — 번호 문단(1) 가) (1))과 필요하면 마크다운 표(| 머리 | … |). 근거는 search 로 찾은 것만. "
+                               "args {field: 절 필드 이름, text: 본문}", hw.write, writes=True),
+            ]
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
@@ -3622,6 +3643,10 @@ def create_app(
         return session_, owner
 
     def _chat_hwp_file(session_id: int) -> dict | None:
+        from zzaimy.app import webhwp_agent as _wa_
+        b_ = _wa_.bound(db, session_id)                    # 에이전트가 이 대화에 이은 한글 작업본이 먼저
+        if b_ and _webhwp.get(db, b_) and Path(_webhwp.get(db, b_)["path"]).exists():
+            return _webhwp.get(db, b_)
         best = None
         for r in db.list_files(kind="webhwp", limit=5000):
             if _webhwp.meta(db, r["id"]).get("source") == f"대화-{session_id}" and Path(r["path"]).exists():
