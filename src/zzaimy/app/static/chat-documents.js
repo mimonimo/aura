@@ -230,7 +230,8 @@
    opener.title='문서 패널 열기';opener.setAttribute('aria-label',opener.title);
    sessionStorage.setItem('chatDocHidden:'+sid,visible?'0':'1');
  }
- async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});if(!response.ok||response.redirected){let message='요청을 처리하지 못했습니다.';try{const data=await response.json();if(typeof data.detail==='string')message=data.detail;}catch(_){}const err=new Error(message);err.status=response.status;throw err;}return response.json();}
+ // 네트워크가 끊긴 때 브라우저 영어 오류(Failed to fetch 등) 대신 쉬운 안내로
+ async function api(url,options={}){let response;try{response=await fetch(url,{cache:'no-store',...options});}catch(e){if(e.name==='AbortError')throw e;const err=new Error('서버에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');err.status=0;throw err;}if(!response.ok||response.redirected){let message='요청을 처리하지 못했습니다.';try{const data=await response.json();if(typeof data.detail==='string')message=data.detail;}catch(_){}const err=new Error(message);err.status=response.status;throw err;}return response.json();}
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
  async function connect(){const d=dialog('드라이브에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
  try{const data=await api('/api/chat-documents/accounts');if(!d.isConnected)return;
@@ -707,7 +708,7 @@
      }
      const platformError=await platformRequest;if(panel!==current)return;
      if(platformError)status.textContent='프로젝트 문서를 불러오지 못했습니다. 새로고침을 눌러 주세요.';
-     if(data.error)status.textContent='Drive 목록: '+data.error;
+     if(data.error)workDocs.dataset.driveError=data.error;      // 드라이브 목록 실패는 작업 문서 칸 안의 옅은 안내로(패널 맨 위 오류 줄 대신)
      finishGroups();
      const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='파일 가져오기';
      connectButton.title='부서 폴더·구글 드라이브에서 문서를 골라 이 대화의 작업 문서로';
@@ -715,6 +716,7 @@
      connectButton.classList.add('chat-file-import');
      const tidy=()=>{workDocs.querySelectorAll(':scope>.chat-file-empty').forEach(x=>x.remove());countHeading(workHeading,'작업 문서',workDocs.querySelectorAll('.chat-doc-file').length);
        if(!workDocs.querySelector('.chat-doc-file'))workDocs.append(elx('p','chat-file-empty','아직 작업 문서가 없습니다 — 「파일 가져오기」로 부서 폴더나 드라이브의 문서를 고르거나, 대화에서 문서를 쓰자고 하면 AURA 가 양식으로 만듭니다.'));
+       if(workDocs.dataset.driveError&&!workDocs.querySelector('.chat-file-note-soft'))workDocs.append(elx('p','chat-file-note-soft','구글 드라이브 작업 문서를 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.'));
        workNote.hidden=!workDocs.querySelector('.chat-doc-file');};
      workDocs.addEventListener('hwp-painted',tidy);tidy();
      markCurrentFile();

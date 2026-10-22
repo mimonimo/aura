@@ -21,6 +21,9 @@
   .doc .name { font-size:15.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .doc input.name { border:1px solid transparent; border-radius:6px; padding:2px 6px; margin-left:-7px; font:inherit; font-size:15.5px; font-weight:600; width:min(360px, 100%); background:transparent; }
   .doc input.name:hover, .doc input.name:focus { border-color:var(--line); background:var(--panel); outline:none; }
+  .doc .sub { display:flex; align-items:center; gap:10px; min-width:0; }
+  .doc .sub .state { font-size:12px; gap:5px; }
+  .doc .sub .state .dot { width:6px; height:6px; }
   .doc .where { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .state { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); white-space:nowrap; }
   .state .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
@@ -70,7 +73,9 @@
   .tools-btn[aria-pressed=true] { background:#EDF3FB; color:#244770; border-color:#D6E2F2; }
   .btn.ghost { border-color:transparent; background:transparent; color:var(--muted); }
   .btn.ghost iconify-icon { font-size:20px; }
-  .alert { flex:none; margin:0; padding:10px 16px; background:#FEF2F2; color:var(--bad); font-size:13.5px; border-bottom:1px solid #FECACA; }
+  .alert { flex:none; margin:0; padding:9px 16px; background:#FFF8EC; color:#8A5A00; font-size:13px; border-bottom:1px solid #F5E2BD; display:flex; align-items:center; gap:10px; }
+  .alert[hidden] { display:none; }
+  .alert button { height:26px; padding:0 10px; border-radius:6px; border:1px solid #E5C77A; background:#fff; font:inherit; font-size:12.5px; cursor:pointer; }
   @media (max-width:640px) { .doc .where, .btn .label-long, .btn kbd { display:none; } .bar { gap:8px; padding:0 10px; } }
 </style>
 </head>
@@ -81,13 +86,14 @@
   <div class="doc">
     {% if f %}<span class="name" title="{{ f.name }}">{{ f.name }}</span>
     {% else %}<label class="sr-only" for="heTitle">문서 이름</label><input id="heTitle" class="name" data-title value="새 문서" maxlength="60" autocomplete="off">{% endif %}
-    <span class="where">{{ dept }}{% if folder %} / {{ folder }}{% endif %}{% if meta.saved %} · {{ meta.saved[:16]|replace('T',' ') }} {{ meta.saved_by }} 저장{% elif meta.owner %} · {{ meta.owner }} 올림{% endif %}</span>
+    <span class="sub"><span class="where">{{ dept }}{% if folder %} / {{ folder }}{% endif %}</span><span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
   </div>
   <span class="people" data-aura aria-live="polite"></span>
   <span class="avatars" data-people aria-label="같이 보는 사람"></span>
-  <span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span>
   {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;"><button type="submit" class="btn primary" title="내 부서 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
   {% else %}{% if not f %}<button type="button" class="btn" data-save disabled title="새 문서를 부서 폴더에 만들기 — 그 뒤로는 자동 저장"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">만들기</span></button>{% endif %}{% endif %}
+  <button type="button" class="btn tools-btn" data-tools aria-pressed="false" title="편집 도구 펼치기 — 직접 고칠 때"><iconify-icon icon="solar:pen-2-linear" aria-hidden="true"></iconify-icon><span class="label-long">편집 도구</span></button>
+  {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
   {% if f %}<span class="menu-wrap">
     <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="내려받기·공유"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
     <div class="menu" role="menu" data-menu hidden>
@@ -98,12 +104,10 @@
       {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>문서함에서 보기</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
     </div>
   </span>{% endif %}
-  <button type="button" class="btn tools-btn" data-tools aria-pressed="false" title="편집 도구 펼치기 — 직접 고칠 때"><iconify-icon icon="solar:pen-2-linear" aria-hidden="true"></iconify-icon><span class="label-long">편집 도구</span></button>
-  {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="close" title="문서 패널 닫기" aria-label="문서 패널 닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
 </header>
 <div class="notice-bar" data-notice hidden><span data-notice-text></span><button type="button" data-reload>다시 불러오기</button></div>
-{% if not status.ok %}<p class="alert" role="alert">웹 한글 기안기 서버에 연결하지 못했습니다 — 관리자에게 알려 주세요.</p>{% endif %}
+<p class="alert" role="alert" data-load-fail hidden>한글 편집기를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요. <button type="button" onclick="location.reload()">다시 열기</button></p>
 <div id="hwpctrl"></div>
 <script src="/webhwpctrl/js/hwpctrlapp/utils/util.js"></script>
 <script src="/webhwpctrl/js/hwpctrlapp/hwpCtrlApp.js"></script>
@@ -152,7 +156,11 @@
   document.querySelectorAll('[data-embed]').forEach(function (b) {
     b.onclick = function () { try { parent.postMessage({aura: 'hwp', act: b.getAttribute('data-embed')}, location.origin); } catch (e) {} };
   });
+  // 편집기가 15초 안에 뜨지 않을 때만 안내(서버 상태를 미리 짐작해 띄우지 않는다 — 열려 있는데 오류 띠가 보이지 않게)
+  var built = false;
+  setTimeout(function () { if (!built) { document.querySelector('[data-load-fail]').hidden = false; say('불러오지 못함', 'bad'); } }, 15000);
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
+    built = true; document.querySelector('[data-load-fail]').hidden = true;
     fit();
     if (isNew) { fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; say('새 문서 — 저장하면 ' + dept + (folder ? ' / ' + folder : '') + '에 생깁니다', ''); return; }
     fetch(fileUrl, {credentials: 'same-origin'}).then(function (r) {
@@ -261,7 +269,7 @@
     people.innerHTML = '';
     list.slice(0, 4).forEach(function (p) {
       var a = document.createElement('span'); a.className = 'av2'; a.style.background = colorOf(p.user);
-      a.textContent = (p.name || p.user).slice(0, 1); a.title = (p.name || p.user) + ' · ' + where(p.field);
+      a.textContent = (p.name || p.user).slice(0, 1).toUpperCase(); a.title = (p.name || p.user) + ' · ' + where(p.field);
       people.append(a);
     });
     if (list.length > 4) { var m = document.createElement('span'); m.className = 'av2 more'; m.textContent = '+' + (list.length - 4); m.title = list.slice(4).map(function (p) { return p.name; }).join(', '); people.append(m); }

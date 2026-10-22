@@ -258,3 +258,8 @@ body .doc-title-row .doc-full-btn{flex:none;min-height:28px;padding:3px 10px;fon
 body .doc-title-row .doc-full-btn[aria-pressed=true]{background:#edf3fb;color:#244770;border-color:#c9d7ea}
 /* 사이드바 검색 칸 — 얇게 */
 .sidebar .side-searchbox{padding:6px 11px;border-radius:9px;min-height:0}
+.chat-file-note-soft{margin:2px 0 0;font-size:12px;color:#8a7140;line-height:1.6}
+@media(min-width:951px){
+ /* 대화 화면은 대화 제목이 있어 맨 위 제목 줄을 접는다 — 문서·대화가 세로로 더 넓게 */
+ body:has(#chatWorkspace) .content-col>.topbar{display:none}
+}

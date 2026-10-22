@@ -35,7 +35,8 @@ def base_url() -> str:
 def status(http=None, ttl: float = 60.0) -> dict:
     """기안기 서버가 떠 있는가 — version.txt 를 1분마다 한 번 묻는다. {"ok", "version", "error"}."""
     now = time.time()
-    if _STATUS["value"] is not None and now - _STATUS["at"] < ttl:
+    cached = _STATUS["value"]
+    if cached is not None and now - _STATUS["at"] < (ttl if cached.get("ok") else min(ttl, 10.0)):   # 실패는 10초만 기억
         return _STATUS["value"]
     try:
         import httpx
