@@ -25,6 +25,7 @@ from xml.sax.saxutils import escape
 
 from zzaimy.app import webhwp
 from zzaimy.app import webhwp_fields as wf
+from zzaimy.app import webhwp_native as _nat
 from zzaimy.app import webhwp_style as ws
 from zzaimy.export import house_style as hs
 from zzaimy.ingest import hwpx_fill as hf
@@ -1799,8 +1800,11 @@ def live_steps(action: str, p: dict) -> list[list]:
     raise EditError("알 수 없는 동작.")
 
 
-def steps_allowed(steps: list) -> bool:
-    """단계가 모두 허용 원소인가 — 편집 화면에 넘기기 전 마지막 관문(명령 줄에 직접 쓴 것도 여기서 막는다)."""
+def steps_allowed(steps: list, runner: int = 1) -> bool:
+    """단계가 모두 허용 원소인가 — 편집 화면에 넘기기 전 마지막 관문(명령 줄에 직접 쓴 것도 여기서 막는다).
+    runner 1 = 편집 화면(hwp_edit.html)에 든 예전 실행기(run·exec·text·field 와 _PRIMS 만), 2 = static/webhwp-agent-runner.js(webhwp_native 허용 목록)."""
+    if runner >= 2:
+        return _nat.steps_ok(steps)
     for st in steps or []:
         if not isinstance(st, list) or not st:
             return False
@@ -1816,6 +1820,9 @@ def steps_allowed(steps: list) -> bool:
 
 CMD_TTL = 600            # 명령은 10분 안에 열린 기안기가 가져가지 않으면 버린다
 SEEN_TTL = 8             # 편집 화면이 이 초 안에 명령 줄을 물었으면 「열려 있음」
+MAX_IMAGE = 8 * 1024 * 1024   # 기안기 명령으로 넣는 그림 하나(기안기 도움말: 큰 그림은 브라우저에서 늦거나 실패)
+MAX_DATA = 20000         # 편집 화면이 돌려주는 읽기 결과(글자 수)
+ASSET_DIR = ".aura_cmd"  # 명령에 붙은 그림을 잠시 두는 곳(데이터 폴더 아래) — 실행기가 /hwp/{id}/cmd/{cid}/asset 으로 받아 간다
 
 
 def _cmds(db, fid: int) -> dict:
@@ -1834,57 +1841,229 @@ def _put_cmds(db, fid: int, v: dict) -> None:
     db.set_setting(f"webhwp_cmd:{int(fid)}", json.dumps(v, ensure_ascii=False))
 
 
-def push(db, fid: int, action: str, params: dict, by: str = "AURA") -> dict:
-    """명령 줄에 넣는다 — {id, action, params, steps, by, at, status:new}. 허용 목록 밖이면 EditError."""
-    steps = live_steps(action, params)
-    if not steps_allowed(steps):
+def _asset_path(base: Path, fid: int, cid: int) -> Path:
+    return Path(base) / ASSET_DIR / f"{int(fid)}-{int(cid)}.bin"
+
+
+def _sweep_assets(base: Path) -> None:
+    d = Path(base) / ASSET_DIR
+    if not d.is_dir():
+        return
+    now = time.time()
+    for p in d.glob("*.bin"):
+        try:
+            if now - p.stat().st_mtime > CMD_TTL * 3:
+                p.unlink()
+        except OSError:
+            pass
+
+
+def push(db, fid: int, action: str, params: dict, by: str = "AURA", *, steps: list | None = None, label: str = "",
+         runner: int = 1, owner: str = "", asset: bytes | None = None, base: Path | None = None) -> dict:
+    """명령 줄에 넣는다 — {id, action, params, steps, by, at, status:new}. 허용 목록 밖이면 EditError.
+    steps 를 주면(기안기 기본 동작 — webhwp_native) 그대로, 없으면 LIVE_ACTIONS 로 만든다. owner 는 그 사람의 편집 화면이 열려 있으면
+    그 화면이 먼저 가져가게(여럿이 같이 열었을 때 남의 화면에서 AURA 명령이 돌지 않게). asset 은 그림 바이트(실행기가 받아 간다)."""
+    if steps is None:
+        steps = live_steps(action, params)
+        label = label or LIVE_ACTIONS[action]["desc"]
+    if not steps_allowed(steps, runner):
         raise EditError("허용 목록 밖의 단계가 있다.")
     v = _cmds(db, fid)
     v["seq"] += 1
-    c = {"id": v["seq"], "action": action, "label": LIVE_ACTIONS[action]["desc"], "params": params or {}, "steps": steps,
-         "by": by, "at": time.time(), "status": "new"}
+    c = {"id": v["seq"], "action": action, "label": label or action, "params": params or {}, "steps": steps,
+         "by": by, "at": time.time(), "status": "new", "runner": int(runner)}
+    if owner:
+        c["for"] = owner
+    if asset is not None:
+        if base is None or len(asset) > MAX_IMAGE:
+            raise EditError("그림이 너무 크다(8MB 까지).")
+        _sweep_assets(base)
+        p = _asset_path(base, fid, c["id"])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(asset)
+        c["asset"] = True
     v["items"].append(c)
     _put_cmds(db, fid, v)
     return c
 
 
-def take(db, fid: int, user: str) -> list[dict]:
-    """편집 화면이 가져갈 새 명령 — 가져간 것은 running 으로(두 창이 같은 명령을 두 번 하지 않게). 묻는 시각도 남긴다."""
+def _seen_runners(db, fid: int) -> dict:
+    try:
+        v = json.loads(db.get_setting(f"webhwp_cmd_r2:{int(fid)}", "{}") or "{}")
+    except ValueError:
+        v = {}
+    now = time.time()
+    return {u: float(t) for u, t in v.items() if now - float(t or 0) < SEEN_TTL}
+
+
+def take(db, fid: int, user: str, runner: int = 1) -> list[dict]:
+    """편집 화면이 가져갈 새 명령 — 가져간 것은 running 으로(두 창이 같은 명령을 두 번 하지 않게). 묻는 시각도 남긴다.
+    새 실행기(runner 2)가 하나라도 살아 있으면 예전 실행기에는 주지 않는다(한 명령을 한 실행기만). 명령에 owner(for)가 있고
+    그 사람의 새 실행기가 살아 있으면 그 사람 화면만 가져간다."""
     db.set_setting(f"webhwp_cmd_seen:{int(fid)}", json.dumps({"at": time.time(), "user": user}))
+    alive = _seen_runners(db, fid)
+    if runner >= 2:
+        alive[user] = time.time()
+        db.set_setting(f"webhwp_cmd_r2:{int(fid)}", json.dumps(alive))
+    elif alive:
+        return []
     v = _cmds(db, fid)
     now = time.time()
     out = []
     for c in v["items"]:
         if c["status"] == "new" and now - float(c["at"]) > CMD_TTL:
             c["status"], c["result"] = "error", "기한(10분)이 지나 버렸다"
-        elif c["status"] == "new" and steps_allowed(c.get("steps")):
-            c["status"], c["taken_by"], c["taken"] = "running", user, now
-            out.append({k: c[k] for k in ("id", "action", "label", "steps", "by")})
+            continue
+        need = int(c.get("runner") or 1)               # 명령을 만든 갈래의 관문으로 다시 본다(예전 명령은 예전 관문)
+        if c["status"] != "new" or need > runner or not steps_allowed(c.get("steps"), need):
+            continue
+        if c.get("for") and c["for"] != user and c["for"] in alive:
+            continue
+        c["status"], c["taken_by"], c["taken"] = "running", user, now
+        item = {k: c[k] for k in ("id", "action", "label", "steps", "by") if k in c}
+        if c.get("asset"):
+            item["asset"] = True
+        if _nat.read_only(c.get("steps")):
+            item["readonly"] = True                # 읽기만 — 편집 화면은 구조 잠금·저장 없이
+        out.append(item)
     if out or v["items"]:
         _put_cmds(db, fid, v)
     return out
 
 
-def report(db, fid: int, cid: int, ok: bool, message: str) -> bool:
+def report(db, fid: int, cid: int, ok: bool, message: str, data=None) -> bool:
     v = _cmds(db, fid)
     for c in v["items"]:
         if int(c["id"]) == int(cid) and c["status"] == "running":
             c["status"], c["result"], c["done"] = ("done" if ok else "error"), str(message or "")[:300], time.time()
+            if data is not None:
+                try:
+                    raw = json.dumps(data, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    raw = "null"
+                c["data"] = json.loads(raw) if len(raw) <= MAX_DATA else {"_cut": raw[:MAX_DATA]}
             _put_cmds(db, fid, v)
             return True
     return False
+
+
+def drop(db, fid: int, cid: int, message: str) -> None:
+    """가져가지 않은 명령을 버린다(읽기 명령인데 기안기가 닫혀 있을 때 등)."""
+    v = _cmds(db, fid)
+    for c in v["items"]:
+        if int(c["id"]) == int(cid) and c["status"] in ("new", "running"):
+            c["status"], c["result"] = "error", str(message)[:300]
+            _put_cmds(db, fid, v)
+            return
+
+
+def asset(db, base: Path, fid: int, cid: int) -> Path | None:
+    """실행 중인 명령의 그림 — 그 명령이 그림을 달고 있고 아직 끝나지 않았을 때만."""
+    c = status(db, fid, cid)
+    if not c or not c.get("asset") or c.get("status") not in ("new", "running"):
+        return None
+    p = _asset_path(base, fid, cid)
+    return p if p.is_file() else None
 
 
 def status(db, fid: int, cid: int) -> dict:
     return next((c for c in _cmds(db, fid)["items"] if int(c["id"]) == int(cid)), {})
 
 
-def editor_open(db, fid: int) -> bool:
+def editor_open(db, fid: int, runner: int = 1) -> bool:
+    if runner >= 2:
+        return bool(_seen_runners(db, fid))
     try:
         s = json.loads(db.get_setting(f"webhwp_cmd_seen:{int(fid)}", "{}") or "{}")
     except ValueError:
         return False
     return time.time() - float(s.get("at") or 0) < SEEN_TTL
+
+
+def lease_block(db, fid: int, field: str, owner: str) -> str:
+    """공동 편집 임대(webhwp_coedit)를 지킨다 — 그 칸(필드가 없으면 문서 구조 잠금)을 다른 사람이 쥐고 있으면 그 사람, 아니면 ''.
+    AURA 와 이 대화의 담당자가 쥔 것은 막지 않는다. 공동 편집 모듈이 없으면 막지 않는다."""
+    try:
+        from zzaimy.app import webhwp_coedit as ce
+    except ImportError:
+        return ""
+    try:
+        who = ce.holder(db, fid, field if field else ce.STRUCT)
+    except Exception:                               # 표가 아직 없는 등 — 임대를 읽지 못하면 막지 않는다(파일 쪽 관문이 따로 있다)
+        return ""
+    return "" if who in ("", getattr(ce, "AGENT", "AURA"), owner) else who
+
+
+_STYLE = re.compile(r'<hh:style\b([^>]*)/?>')
+
+
+def styles(data: bytes) -> list[dict]:
+    """작업본 header 의 스타일 목록(header 차례 그대로) — 기안기의 스타일 단축(StyleShortcut1~10)이 이 차례를 따른다."""
+    doc = _Doc(data)
+    out = []
+    for m in _STYLE.finditer(doc.hdr.xml):
+        at = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
+        out.append({"id": at.get("id", ""), "name": at.get("name", ""), "eng": at.get("engName", ""),
+                    "type": "글자" if at.get("type") == "CHAR" else "문단"})
+    return out
+
+
+def styles_text(data: bytes) -> str:
+    st = styles(data)
+    if not st:
+        return "스타일 목록이 없다."
+    return "\n".join(f"{i}. {s['name']}({s['type']})" + (f" — hwp_action StyleShortcut{i}" if i <= 10 else "")
+                      for i, s in enumerate(st, 1))
+
+
+def _ps_native(a: dict):
+    """hwp_page_setup 인자 → PageSetup 기안기 동작(편집 화면이 열려 있을 때)."""
+    p: dict = {}
+    if a.get("paper"):
+        p["paper"] = a["paper"]
+    if a.get("orientation"):
+        p["Landscape"] = str(a["orientation"]) in ("가로", "landscape")
+    names = {"top": "TopMargin", "bottom": "BottomMargin", "left": "LeftMargin", "right": "RightMargin",
+             "header": "HeaderLen", "footer": "FooterLen", "gutter": "GutterLen"}
+    mm = dict(MARGIN_PRESETS.get(str(a.get("margin") or ""), {}))
+    if a.get("margin") and not mm:
+        raise EditError("margin 은 보통|좁게|넓게 다.")
+    mm.update({k: v for k, v in (a.get("margins_mm") or {}).items() if k in names and v not in (None, "")})
+    for k, v in mm.items():
+        p[names[k]] = v
+    if a.get("gutter_type"):
+        g = {"왼쪽": "왼쪽", "맞쪽": "맞쪽", "위쪽": "위쪽", "LEFT_ONLY": "왼쪽", "LEFT_RIGHT": "맞쪽", "TOP_BOTTOM": "위쪽"}.get(str(a["gutter_type"]))
+        if not g:
+            raise EditError("gutter_type 은 왼쪽|맞쪽|위쪽 이다.")
+        p["GutterType"] = g
+    if not p:
+        raise EditError("바꿀 것이 없다.")
+    return "PageSetup", p, None
+
+
+def _pn_native(a: dict):
+    """hwp_page_number 인자 → PageNumPos(시작 번호를 주면 파일 도구로 — NewNumber 는 쪽 자리가 필요해 따로)."""
+    if a.get("start") not in (None, ""):
+        raise EditError("시작 번호는 파일 도구로.")
+    pos = str(a.get("position") or "아래 가운데")
+    fmt = str(a.get("format") or "1")
+    p = {"DrawPos": pos, "NumberFormat": fmt}
+    if a.get("dash"):
+        p["SideChar"] = True
+    return "PageNumPos", p, None
+
+
+def _hf_native(a: dict):
+    """hwp_header_footer 인자 → HeaderFooter(머리말·꼬리말 가운데 하나, 글이 있을 때만 — 빼기·정렬은 파일 도구로)."""
+    keys = [k for k in ("header", "footer") if a.get(k) not in (None, "")]
+    if len(keys) != 1 or a.get("align"):
+        raise EditError("하나만, 정렬 없이.")
+    k = keys[0]
+    return "HeaderFooter", {"HeaderFooterCtrlType": "머리말" if k == "header" else "꼬리말", "Type": "양쪽", "text": str(a[k])}, None
+
+
+# 기안기가 열려 있으면 파일 대신 기안기 동작으로 하는 파일 도구 — 기안기 창이 하는 일과 똑같이(편집 용지·쪽 번호·머리말)
+_NATIVE_FIRST = {"hwp_page_setup": _ps_native, "hwp_page_number": _pn_native, "hwp_header_footer": _hf_native}
 
 
 # ── 에이전트 도구 ──
@@ -1942,6 +2121,22 @@ TOOLS: list[dict] = [
              + "; ".join(f"{k}({v['desc']}: {', '.join(v['params'])})" for k, v in LIVE_ACTIONS.items())
              + ". field 는 hwp_fields 의 이름. 기안기가 닫혀 있으면 명령을 두었다가 열면 이어서 한다 — 바로 해야 하면 위 파일 도구를 쓴다",
      "args": {"action": "str", "params": "dict"}},
+    {"name": "hwp_action", "writes": True, "label": "기안기 기능",
+     "desc": "열린 기안기의 기본 기능을 그대로 부르기(한컴 동작 이름·매개변수 항목 그대로, 단위만 mm·pt·#RRGGBB/색 이름). "
+             "args {action, params: {항목: 값}, at}. at(자리 — 사람의 커서 자리에는 쓰지 않는다): {field: 필드, select: true(필드 글 블록)} | "
+             "{find: 찾을 글, nth: n번째}(그 글을 블록으로) | {cell: 표 칸 필드, right: n, down: n}(칸 블록) | {move: 문서 처음|문서 끝}. "
+             "글자 모양은 블록(field+select 또는 find), 표 동작은 표 칸 자리, 쪽 동작(PageSetup·PageNumPos·HeaderFooter)·AllReplace 는 at 없이 된다. "
+             "그림은 InsertPicture {image: doc:<문서 id>|file:<파일 id>, width_mm}. 기안기가 닫혀 있으면 명령을 두었다가 열면 한다. action: "
+             + _nat.describe(),
+     "args": {"action": "str", "params": "dict", "at": "dict"}},
+    {"name": "hwp_inspect", "writes": False, "label": "기안기 보기",
+     "desc": "열린 기안기에서 지금 자리의 정보 읽기 — 커서 위치·필드·블록 글·글자 모양(글꼴·크기·굵게·색)·문단 모양(정렬·줄 간격·여백)·"
+             "개요 번호·쪽 수·표 안인지·필드 목록·문서 글. args {at(없으면 담당자의 지금 커서 — 옮기지 않음), what: [pos, field, selection, char, "
+             "para, heading, pages, table, fields, text]}",
+     "args": {"at": "dict", "what": "list"}},
+    {"name": "hwp_styles", "writes": False, "label": "스타일 목록",
+     "desc": "작업본의 스타일 목록(차례·이름·문단/글자) — hwp_action StyleShortcut1~10 이 목록의 1~10번째를 적용한다. args {}",
+     "args": {}},
 ]
 LABELS = {t["name"]: t["label"] for t in TOOLS}
 
@@ -1984,6 +2179,20 @@ class EditTools:
             return out
         if name == "hwp_live":
             return self.live(fid, a)
+        if name == "hwp_action":
+            return self.action(fid, a)
+        if name == "hwp_inspect":
+            return self.inspect(fid, a)
+        if name == "hwp_styles":
+            try:
+                return styles_text(Path(webhwp.get(db, fid)["path"]).read_bytes())
+            except (EditError, OSError) as e:
+                return str(e)
+        if name in _NATIVE_FIRST and editor_open(db, fid, 2):     # 기안기가 열려 있으면 파일 대신 기안기 동작으로(화면이 다시 불러오지 않게)
+            try:
+                return self.native(fid, *_NATIVE_FIRST[name](a))
+            except (EditError, _nat.NativeError):
+                pass                                                # 기안기 동작으로 못 옮기는 인자면 파일 도구로
         if name == "hwp_picture":
             try:
                 img = self._image(str(a.get("image") or ""))
@@ -2039,6 +2248,90 @@ class EditTools:
                     (f" — {st.get('result')}" if st.get("result") else "") + "."
             time.sleep(0.5)
         return f"기안기에 「{c['label']}」 명령을 보냈다 — 아직 결과가 오지 않았다(화면이 바쁘면 곧 실행된다)."
+
+    # ── 기안기 기본 기능(webhwp_native) ──
+    def _wait(self, fid: int, c: dict) -> dict:
+        db = self.hw.db
+        end = time.time() + self.LIVE_WAIT
+        while time.time() < end:
+            st = status(db, fid, c["id"])
+            if st.get("status") in ("done", "error"):
+                return st
+            time.sleep(0.4)
+        return {}
+
+    def _send(self, fid: int, action: str, label: str, steps: list, field: str, params: dict, *, writes: bool = True,
+              asset: bytes | None = None) -> tuple[dict | None, str]:
+        db = self.hw.db
+        who = lease_block(db, fid, field, self.hw.owner) if writes else ""
+        if who:
+            where = f"「{field}」 칸" if field else "문서 구조(칸 밖 본문·쪽 설정)"
+            return None, f"하지 않았다 — {who} 님이 {where}을 편집 중이다. 그 사람이 마치면 다시 하거나 담당자에게 묻는다."
+        try:
+            c = push(db, fid, action, params, steps=steps, label=label, runner=2, owner=self.hw.owner, asset=asset, base=self.hw.base)
+        except EditError as e:
+            return None, "보내지 않았다 — " + str(e)
+        if writes:
+            self.hw._mark(fid, f"기안기 · {label}")
+        if not editor_open(db, fid, 2):
+            return c, (f"기안기를 열면 이어서 합니다 — 「{label}」 명령을 줄에 두었다(10분 안에 열면 실행). "
+                       "바로 파일에 반영해야 하면 hwp_page_setup·hwp_table_edit 같은 파일 도구를 쓴다.")
+        return c, ""
+
+    def native(self, fid: int, action: str, params: dict, at=None, picture=None, asset=None) -> str:
+        steps, field = _nat.steps_for(action, params, at, picture)
+        label = _nat.NATIVE[action]["label"]
+        c, msg = self._send(fid, action, label, steps, field, {"params": params, "at": at}, asset=asset)
+        if c is None or msg:
+            return msg
+        st = self._wait(fid, c)
+        if not st:
+            return f"기안기에 「{label}」 명령을 보냈다 — 아직 결과가 오지 않았다(화면이 바쁘면 곧 실행된다)."
+        self.hw.writes += 1
+        return (f"기안기에서 「{label}」 을 했다" if st["status"] == "done" else f"기안기에서 「{label}」 이 안 됐다") + \
+            (f" — {st.get('result')}" if st.get("result") else "") + "."
+
+    def action(self, fid: int, a: dict) -> str:
+        name = str(a.get("action") or "")
+        params = a.get("params") if isinstance(a.get("params"), dict) else ({} if a.get("params") in (None, "") else a.get("params"))
+        at = a.get("at")
+        try:
+            if name == "InsertPicture":
+                if not isinstance(params, dict):
+                    raise _nat.NativeError("params 는 {image, width_mm} 꼴이다.")
+                img = self._image(str(params.get("image") or ""))
+                if len(img) > MAX_IMAGE:
+                    raise EditError("그림이 너무 크다(8MB 까지).")
+                if not hf.image_kind(img):
+                    raise EditError("그림 파일(png·jpg·gif·bmp)이 아니다.")
+                w = _nat.convert("width_mm", ("int", 5, 400), int(round(_nat._num(params.get("width_mm") or 80, "width_mm"))))
+                px = hf._image_px(img)
+                h = params.get("height_mm")
+                h = _nat._num(h, "height_mm") if h not in (None, "") else (w * px[1] / px[0] if px and px[0] else w * 0.75)
+                if not 1 <= h <= 1000:
+                    raise _nat.NativeError("height_mm 는 1~1000mm 다.")
+                return self.native(fid, name, {}, at, (w, h), asset=img)
+            return self.native(fid, name, params, at)
+        except (EditError, _nat.NativeError) as e:
+            return "보내지 않았다 — " + str(e)
+
+    def inspect(self, fid: int, a: dict) -> str:
+        try:
+            steps, field = _nat.read_steps(a.get("at"), a.get("what") if isinstance(a.get("what"), list) else None)
+        except _nat.NativeError as e:
+            return "읽지 않았다 — " + str(e)
+        c, msg = self._send(fid, "read", "기안기 보기", steps, field, {"at": a.get("at")}, writes=False)
+        if c is None:
+            return msg
+        if msg:                                         # 닫혀 있으면 읽기 명령은 두지 않는다
+            drop(self.hw.db, fid, c["id"], "기안기가 닫혀 있어 읽지 않음")
+            return "기안기가 열려 있지 않아 읽지 못했다 — 파일 기준 정보는 hwp_fields·hwp_tables·hwp_styles 로 본다."
+        st = self._wait(fid, c)
+        if not st:
+            return "기안기에 읽기를 보냈다 — 아직 답이 없다."
+        if st["status"] != "done":
+            return "읽지 못했다 — " + str(st.get("result") or "")
+        return "기안기에서 읽은 것: " + json.dumps(st.get("data") or {}, ensure_ascii=False)[:4000]
 
 
 def doc_tools(hw, Tool) -> list:

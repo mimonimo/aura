@@ -58,6 +58,7 @@
 - [한글 → 구글 독스 변환 경로 견주기](2026-09-30-docs-path-compare.md)
 - [kordoc 조사 — 서식 보존 작성](2026-09-30-kordoc-authoring-survey.md)
 - [실물 양식 표 20,441개 채굴 — 학교 표 기본 모양의 근거](2026-10-22-table-mining.md)
+- [웹 한글 기안기 기능 전수조사 — 사람·AURA 가 기안기 기능을 그대로 쓰게](2026-10-24-webhwp-features.md)
 - [한글(HWPX) 에이전트 스킬 수집](hwpx-agent-skills.md)
 - [플랫폼 업무 도우미](platform-helper.md)
 - [UI/UX 전수 조사](uiux-audit.md)
