@@ -198,7 +198,7 @@ def test_drive_pane_lists_shared_and_my_department_drive(tmp_path, monkeypatch):
     j = kim.get("/api/hwp/drive/browse?shared=1").json()
     assert [f["name"] for f in j["files"]] == ["받은 계획.hwpx"] and "sharedWithMe" in seen[-1] and "drives" not in j
     js = (Path(__file__).parents[1] / "src/zzaimy/app/static/hwp-box.js").read_text(encoding="utf-8")
-    assert "문서함으로 가져오기" in js and "공유 문서함" in js
+    assert "'가져오기'" in js and "공유 문서함" in js
 
 
 def test_delete_many_checks_each_file(tmp_path, monkeypatch):
@@ -231,3 +231,17 @@ def test_repath_files_treats_underscore_and_percent_literally(tmp_path):
     db.repath_files("/x/5%/", "/x/pct/")
     paths = sorted(r["path"] for r in db.list_files(kind="webhwp"))
     assert paths == ["/x/5zz/4.hwpx", "/x/aXb/2.hwpx", "/x/new/1.hwpx", "/x/pct/3.hwpx"]
+
+
+def test_list_wording_and_quiet_row_actions(tmp_path, monkeypatch):
+    """목록 말·꼴 — 수정일·수정한 사람, 폴더 문서 수는 이름 옆, 줄 동작은 아이콘 단추(이름은 title·aria-label), 드라이브 아래 안내 줄 없음."""
+    app, kim, _ = _two(tmp_path, monkeypatch)
+    kim.post("/hwp/folder", data={"dept": "기획처", "folder": "", "name": "결과보고서"})
+    _up(kim, app, "기획처", "협조문.hwpx", _hwpx())
+    page = kim.get("/hwp?dept=기획처").text
+    assert "<span>수정일</span><span>수정한 사람</span>" in page and "고친 때" not in page and "고친 사람" not in page
+    assert 'class="hb-count" title="문서 0개">0개</span>' in page and ">문서 0<" not in page
+    assert "두 번 눌러" not in page and 'aria-label="「결과보고서」 이름 바꾸기"' in page
+    assert 'aria-label="「협조문.hwpx」 내려받기"' in page and 'aria-label="「협조문.hwpx」 지우기"' in page
+    assert ">내려받기</a>" not in page and ">지우기</button></form>" not in page
+    assert "data-drive-note" not in page and "문서함으로 가져오기" not in page and 'class="hb-side-head">문서함<' in page

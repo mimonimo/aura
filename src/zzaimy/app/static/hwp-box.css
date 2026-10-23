@@ -7,80 +7,100 @@ main:has(> .hb){max-width:none;padding:0;display:flex;flex-direction:column;min-
 .hb-toast.err{background:#8a2a1d}
 .hb-toast.out{opacity:0;transform:translateY(6px)}
 @media (prefers-reduced-motion:reduce){.hb-toast{transition:none}}
-.hb{flex:1;min-height:0;display:grid;grid-template-columns:224px minmax(0,1fr);background:#fff;color:var(--ink)}
-.hb-side{display:flex;flex-direction:column;gap:1px;padding:10px 8px 12px;background:#fafbfc;border-right:1px solid #eceff3;min-width:0;min-height:0;overflow-y:auto}
-.hb-sec{display:flex;flex-direction:column;gap:1px}
+/* 세 기둥(앱 메뉴·위치 목록·행 목록)의 맨 위 줄을 64px 한 줄로 맞춘다 — 넓은 화면에서는 맨 위 제목 줄을 접고
+   「문서함」 제목은 위치 목록 머리에, 경로·단추는 행 목록 머리에. 메뉴를 접었거나 좁으면 맨 위 줄(메뉴 여는 단추)이 그대로 남는다 */
+@media (min-width:1081px){
+  html:not(.sidebar-collapsed) body:has(.hb) .content-col>.topbar{display:none}
+  html:not(.sidebar-collapsed) .hb-side-head{display:flex}
+  html:not(.sidebar-collapsed) .hb-bar{min-height:64px}
+}
+.hb{--hb-line:#ededee;--hb-max:1000px;flex:1;min-height:0;display:grid;grid-template-columns:232px minmax(0,1fr);background:#fff;color:var(--ink)}
+/* 위치 목록 — 앱 메뉴의 작은 항목(.side-item)과 같은 높이·글자·아이콘 크기 */
+.hb-side{display:flex;flex-direction:column;gap:2px;padding:0 8px 16px;background:#fff;border-right:1px solid var(--hb-line);min-width:0;min-height:0;overflow-y:auto}
+.hb-side-head{display:none;align-items:center;flex:none;box-sizing:border-box;height:64px;margin:0 -8px 4px;padding:0 18px;border-bottom:1px solid var(--hb-line);font-size:16.5px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.hb-sec{display:flex;flex-direction:column;gap:2px}
 .hb-sec[hidden]{display:none}
-.hb-sec-list{display:flex;flex-direction:column;gap:1px}
-.hb-group{margin:14px 8px 4px;font-size:11px;font-weight:600;color:#8a96a6}
-.hb-sec:first-child .hb-group,.hb-sec[hidden]+.hb-sec .hb-group{margin-top:4px}
-.hb-place{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;min-height:0;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:#2f3d51;font:inherit;font-size:13px;font-weight:400;text-align:left;justify-content:flex-start;box-shadow:none;cursor:pointer;text-decoration:none}
-.hb-place iconify-icon{font-size:15px;color:#6b7f99;flex:none}
+.hb-sec-list{display:flex;flex-direction:column;gap:2px}
+.hb-group{margin:18px 10px 6px;font-size:11px;font-weight:500;color:#737982}
+.hb-side-head+.hb-sec .hb-group,.hb-side-head+.hb-sec[hidden]+.hb-sec .hb-group{margin-top:12px}
+.hb-place{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;min-height:34px;padding:7px 10px;border:0;border-radius:9px;background:transparent;color:var(--ink);font:inherit;font-size:13px;font-weight:400;line-height:1.5;text-align:left;justify-content:flex-start;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-place iconify-icon{font-size:15px;color:var(--faint);flex:none}
 .hb-place[data-place=fav] iconify-icon{color:#c9a227}
 .hb-place .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hb-place .n{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#9aa5b3}
-.hb-place:hover{background:#eef1f5;border:0}
-.hb-place.on{background:#e6ecf5;color:#1b3b75;font-weight:600}
-.hb-hint{margin:2px 8px 0;font-size:12px;line-height:1.55;color:#7a8698}
+.hb-place .n{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--faint)}
+.hb-place:hover{background:#f3f4f6;border:0}
+.hb-place.on{background:#eceef1;font-weight:600}
+.hb-place.on iconify-icon{color:var(--navy)}
+.hb-more{color:var(--muted)}
+.hb-more[aria-expanded=true] iconify-icon{transform:rotate(180deg)}
+.hb-hint{margin:2px 10px 0;font-size:12px;line-height:1.55;color:var(--muted)}
 .hb-hint a{color:#45658f}
-.hb-status{margin-top:auto;padding:10px 8px 0;font-size:11.5px;color:#8a96a6;line-height:1.5}
-.hb-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#c0392b;margin-right:6px;vertical-align:1px}
-.hb-dot.on{background:#2e7d4f}
 
 .hb-main{display:flex;flex-direction:column;min-width:0;min-height:0}
 .hb-main[hidden]{display:none}
-.hb-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;padding:8px 16px;border-bottom:1px solid #eceff3;background:#fff}
-.hb-loc{display:flex;align-items:center;gap:6px;min-width:0;flex:1 1 220px}
-.hb-back{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:0;border-radius:6px;background:transparent;color:#526176;font-size:16px;box-shadow:none;cursor:pointer;text-decoration:none}
-.hb-back:hover{background:#eef1f5}
+/* 머리 줄 — 오른쪽 끝은 아래 행 목록과 같은 폭(--hb-max)에서 끝난다 */
+.hb-bar{display:flex;align-items:center;gap:12px;box-sizing:border-box;min-height:56px;padding:0 max(16px,calc(100% - var(--hb-max) - 16px)) 0 16px;border-bottom:1px solid var(--hb-line);background:#fff}
+.hb-loc{display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 auto}
+.hb-back{flex:none;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-height:0;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:17px;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-back:hover{background:#f3f4f6;color:var(--ink)}
 .hb-back[aria-disabled=true],.hb-back:disabled{opacity:.35;pointer-events:none}
-.hb-path{display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-width:0;font-size:13.5px}
-.hb-path a,.hb-path button{border:0;background:none;min-height:0;padding:3px 6px;border-radius:6px;color:#45658f;font:inherit;font-weight:400;box-shadow:none;cursor:pointer;text-decoration:none}
-.hb-path a:hover,.hb-path button:hover{background:#eef1f5}
-.hb-path b{padding:3px 6px;color:#1f2a3a;font-weight:600}
-.hb-sep{color:#a3adba}
-.hb-tools{display:flex;align-items:center;flex-wrap:wrap;gap:2px}
-.hb-btn{display:inline-flex;align-items:center;gap:6px;box-sizing:border-box;min-height:30px;padding:0 10px;border:1px solid #d6dee8;border-radius:7px;background:#fff;color:#36465b;font:inherit;font-size:12.5px;font-weight:500;box-shadow:none;white-space:nowrap;cursor:pointer;text-decoration:none}
-.hb-btn iconify-icon{font-size:15px;flex:none}
-.hb-btn:hover{background:#f3f6fa;border-color:#bfcadb;color:var(--ink)}
-.hb-btn.ghost{border-color:transparent;background:transparent;color:#45546a}
-.hb-btn.ghost:hover{background:#eef1f5;border-color:transparent}
+.hb-path{display:flex;align-items:center;flex-wrap:nowrap;gap:2px;min-width:0;overflow:hidden;font-size:14px;white-space:nowrap}
+.hb-path a,.hb-path button{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;border:0;background:none;min-height:0;padding:4px 6px;border-radius:6px;color:var(--muted);font:inherit;font-weight:400;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-path a:hover,.hb-path button:hover{background:#f3f4f6;color:var(--ink)}
+.hb-path b{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;padding:4px 6px;color:var(--ink);font-weight:600}
+.hb-sep{flex:none;color:#b4bac3}
+.hb-tools{display:flex;align-items:center;flex:none;gap:4px}
+/* 단추는 모두 32px 높이·16px 아이콘 — 주 단추(새 문서)도 같은 높이 */
+.hb-btn{display:inline-flex;align-items:center;gap:6px;box-sizing:border-box;height:32px;min-height:0;padding:0 12px;border:1px solid #dcdfe4;border-radius:8px;background:#fff;color:#3a4049;font:inherit;font-size:13px;font-weight:500;line-height:1;box-shadow:none;white-space:nowrap;cursor:pointer;text-decoration:none}
+.hb-btn iconify-icon{font-size:16px;flex:none}
+.hb-btn:hover{background:#f3f4f6;border-color:#c5cad2;color:var(--ink)}
+.hb-btn.ghost{border-color:transparent;background:transparent}
+.hb-btn.ghost:hover{background:#f3f4f6;border-color:transparent}
 .hb-btn.primary{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600;margin-right:4px}
 .hb-btn.primary:hover{background:var(--navy-deep);border-color:var(--navy-deep);color:#fff}
 .hb-btn:disabled{opacity:.5;cursor:default}
+/* 기안기 상태 — 관리자에게는 점 하나(마우스를 올리면 「기안기 연결됨」), 끊기면 누구에게나 짧은 한 줄 */
+.hb-status{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 8px;font-size:12px;color:#8a5a00;white-space:nowrap;cursor:default}
+.hb-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#c0392b}
+.hb-dot.on{background:#2e7d4f}
 
-/* 즐겨찾기 별 — 폴더 줄에서는 마우스를 올리거나 켜져 있을 때만 */
+/* 줄 끝 작은 아이콘 단추(사본 만들기·내려받기·지우기·이름 바꾸기·별) — 같은 28px */
+.hb-ib,.hb-star{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:28px;height:28px;min-height:0;padding:0;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:16px;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-ib:hover,.hb-star:hover{background:#eceef1;color:var(--ink);border:0}
+.hb-ib.danger:hover{background:#fdecea;color:#b42318}
+.hb-ib:focus-visible,.hb-star:focus-visible{outline:2px solid #607c9e;outline-offset:-2px}
 .hb-fav{margin:0;display:inline-flex}
-.hb-star{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;min-height:0;padding:0;border:0;border-radius:6px;background:transparent;color:#9aa5b3;font-size:15px;box-shadow:none;cursor:pointer}
-.hb-star:hover{background:#eef1f5;color:#6b7f99;border:0}
+.hb-star{color:var(--faint)}
 .hb-star.on{color:#c9a227}
-.hb-star:focus-visible{outline:2px solid #607c9e;outline-offset:-2px}
-.hb-row .hb-star:not(.on){opacity:0}
-.hb-row:hover .hb-star,.hb-row .hb-star:focus-visible{opacity:1}
+/* 줄의 동작은 마우스를 올리거나 키보드 초점이 줄 안에 올 때만 — 켜진 별은 늘 보인다 */
+.hb-row .hb-ib,.hb-row .hb-star:not(.on){opacity:0}
+.hb-row:hover :is(.hb-ib,.hb-star),.hb-row:focus-within :is(.hb-ib,.hb-star),.hb-row.picked .hb-ib{opacity:1}
+@media (hover:none){.hb-row .hb-ib,.hb-row .hb-star:not(.on){opacity:1}}
 
-.hb-list{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 12px}
-.hb-head,.hb-row{display:grid;grid-template-columns:22px minmax(0,1fr) 128px 110px auto;align-items:center;gap:10px;padding:0 10px}
-.hb-head{position:sticky;top:-4px;z-index:1;height:30px;font-size:11.5px;font-weight:600;color:#8a96a6;border-bottom:1px solid #f0f2f6;margin-bottom:2px;background:#fff}
-.hb-row{min-height:38px;border-radius:6px;color:#1f2a3a;font-size:13px}
-.hb-row:hover{background:#f4f6f9}
-.hb-row>iconify-icon{font-size:19px;color:#476d9e}
+/* 행 목록 — 이름 칸만 늘고 수정일·수정한 사람·동작은 이름 가까이 묶는다(폭 --hb-max 까지). 아래 여백은 떠 있는 대화 단추 몫 */
+.hb-list{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 96px}
+.hb-head,.hb-row{display:grid;grid-template-columns:28px minmax(0,1fr) 108px 120px 92px;align-items:center;gap:12px;box-sizing:border-box;max-width:calc(var(--hb-max) + 16px);padding:0 8px}
+.hb-head>span:first-child{display:flex;justify-content:center}
+.hb-head{position:sticky;top:-4px;z-index:1;height:36px;font-size:12px;font-weight:600;color:var(--faint);border-bottom:1px solid #f1f1f3;margin-bottom:2px;background:#fff}
+.hb-row{min-height:40px;border-radius:8px;color:var(--ink);font-size:13px}
+.hb-row:hover{background:#f6f7f8}
+.hb-row>iconify-icon{justify-self:center;font-size:19px;color:#476d9e}
 .hb-row[data-kind=folder]>iconify-icon{color:#c9a227}
+.hb-cell{display:flex;align-items:baseline;gap:8px;min-width:0}
 .hb-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}
 a.hb-name:hover{color:var(--navy);text-decoration:underline}
-.hb-meta{font-size:12px;color:#8a96a6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hb-count{flex:none;font-size:12px;color:var(--faint)}
+.hb-row.editing .hb-count{display:none}
+.hb-meta{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hb-lock{display:inline-block;padding:1px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11.5px;font-weight:600}
-.hb-act{display:flex;align-items:center;gap:4px;justify-content:flex-end}
-.hb-act form{margin:0}
-.hb-act .hb-btn{min-height:26px;padding:0 9px;font-size:12px;font-weight:500;border-color:transparent;background:transparent;color:#526176}
-.hb-row:hover .hb-act .hb-btn{border-color:#dfe5ed;background:#fff}
-.hb-act .hb-btn:hover{color:var(--ink);border-color:#bfcadb}
+.hb-act{display:flex;align-items:center;gap:2px;justify-content:flex-end}
+.hb-act form{margin:0;display:inline-flex}
+.hb-act .hb-btn{height:28px;padding:0 10px;font-size:12.5px}
 button.hb-row{width:100%;border:0;background:transparent;font:inherit;font-weight:400;text-align:left;justify-content:stretch;box-shadow:none;cursor:pointer}
-button.hb-row:hover{border:0;background:#f4f6f9}
-.hb-drive .hb-row,.hb-drive .hb-head{grid-template-columns:22px minmax(0,1fr) 128px auto}
-.hb-drive .hb-act .hb-btn iconify-icon{font-size:14px}
-.hb-empty{margin:28px 16px;color:#8a96a6;font-size:13px;text-align:center;line-height:1.7}
-.hb-note{padding:8px 16px;border-top:1px solid #eceff3;background:#fafbfc;font-size:12px;color:#7a8698}
-.hb-note[data-err]{color:#8a5a00}
+button.hb-row:hover{border:0;background:#f6f7f8}
+.hb-drive .hb-row,.hb-drive .hb-head{grid-template-columns:28px minmax(0,1fr) 108px auto}
+.hb-drive .hb-act .hb-btn iconify-icon{font-size:15px}
+.hb-empty{margin:28px 16px;color:var(--faint);font-size:13px;text-align:center;line-height:1.7}
 
 /* 줄 자리 표시(불러오는 동안) */
 .hb-skel{display:flex;flex-direction:column;gap:6px;padding:8px 10px}
@@ -126,34 +146,31 @@ button.hb-row:hover{border:0;background:#f4f6f9}
 @media (max-width:760px){
   .content-col:has(> main > .hb){height:auto}
   .hb{grid-template-columns:1fr}
-  .hb-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid #eceff3;overflow:visible}
+  .hb-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--hb-line);overflow:visible;padding-top:8px}
   .hb-sec,.hb-sec-list{flex-direction:row;flex-wrap:wrap;width:100%}
-  .hb-group,.hb-hint,.hb-status{width:100%}
+  .hb-group,.hb-hint{width:100%}
   .hb-place{width:auto}
+  .hb-bar{flex-wrap:wrap;padding:8px 12px}
   .hb-head{display:none}
-  .hb-row,.hb-drive .hb-row{grid-template-columns:22px minmax(0,1fr) auto;padding:6px 10px}
+  .hb-row,.hb-drive .hb-row{grid-template-columns:28px minmax(0,1fr) auto;padding:6px 8px}
   .hb-row .hb-meta{display:none}
-  .hb-row .hb-star:not(.on){opacity:1}
+  .hb-row .hb-ib,.hb-row .hb-star:not(.on){opacity:1}
 }
 
 /* 줄에서 바로 이름 적기(새 폴더·이름 바꾸기) */
-.hb-row.editing{background:#f4f6f9}
-.hb-input.hb-rename{height:28px;padding:0 8px;font-size:13px;min-width:0}
+.hb-row.editing{background:#f6f7f8}
+.hb-input.hb-rename{height:28px;padding:0 8px;font-size:13px;min-width:0;flex:1}
 .hb-meta.hb-err{color:#b42318;white-space:normal;line-height:1.35;overflow:visible}
-.hb-row .hb-act [data-rename-folder]{opacity:0}
-.hb-row:hover .hb-act [data-rename-folder],.hb-row .hb-act [data-rename-folder]:focus-visible{opacity:1}
 
 /* 여러 개 고르기 — 줄 앞 아이콘 자리에 칸(마우스를 올리거나 하나라도 고르면 보인다), 위 띠에 「N개 선택 · 지우기」 */
-.hb-ic{position:relative;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px}
+.hb-ic{position:relative;display:inline-flex;align-items:center;justify-content:center;justify-self:center;width:22px;height:22px}
 .hb-ic iconify-icon{font-size:19px;color:#476d9e}
 .hb-pick{width:15px;height:15px;margin:0;cursor:pointer;accent-color:var(--navy)}
 .hb-ic .hb-pick{position:absolute;inset:0;margin:auto;opacity:0}
 .hb-row:hover .hb-ic .hb-pick,.picking .hb-ic .hb-pick,.hb-ic .hb-pick:focus-visible{opacity:1}
 .hb-row:hover .hb-ic:has(.hb-pick) iconify-icon,.picking .hb-ic:has(.hb-pick) iconify-icon{visibility:hidden}
 .hb-row.picked{background:#eef3fb}
-.hb-selbar{display:flex;align-items:center;gap:6px;padding:6px 16px;border-bottom:1px solid #eceff3;background:#f4f7fc;font-size:12.5px;color:#1b3b75;font-weight:600}
+.hb-selbar{display:flex;align-items:center;gap:6px;padding:6px 16px;border-bottom:1px solid var(--hb-line);background:#f4f7fc;font-size:12.5px;color:#1b3b75;font-weight:600}
 .hb-selbar[hidden]{display:none}
 .hb-selbar [data-sel-count]{margin-right:6px}
-.hb-selbar .hb-btn{min-height:26px}
-.hb-more{display:block;width:100%;margin:2px 0 0;padding:5px 8px 5px 31px;border:0;border-radius:6px;background:transparent;box-shadow:none;color:#6b7f99;font:inherit;font-size:12.5px;text-align:left;cursor:pointer;min-height:0}
-.hb-more:hover{background:#eef2f7;color:#2f3d51}
+.hb-selbar .hb-btn{height:28px}

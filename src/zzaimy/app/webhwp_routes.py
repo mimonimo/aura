@@ -92,7 +92,7 @@ def _writable(request: Request, fid: int) -> None:
     다른 사람이 편집 잠금을 잡고 있으면 409(편집 화면의 잠금만 믿지 않고 서버에서도 막는다)."""
     st = request.app.state
     if webhwp.locked(st.db, fid) and getattr(request.state, "role", "") != "dev":
-        raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다 — 「복사해 쓰기」로 내 부서 폴더에 복사해 쓰세요")
+        raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다 — 「사본 만들기」로 내 부서 폴더에 사본을 만들어 쓰세요")
     holder = webhwp.lock_holder(st.db, fid).get("user", "")
     if holder and holder != getattr(request.state, "user", ""):
         name = (st.db.profile_for(holder) or {}).get("name") or holder

@@ -1,4 +1,4 @@
-// 문서함(/hwp) — 즐겨찾기 별, 구글 드라이브 위치(왼쪽 목록·오른쪽 행), 양식으로 시작 창, 복사해 쓰기(곳 고르기), 올리기, 그 자리 지우기, 알림 토스트
+// 문서함(/hwp) — 즐겨찾기 별, 구글 드라이브 위치(왼쪽 목록·오른쪽 행), 양식으로 시작 창, 사본 만들기(곳 고르기), 올리기, 그 자리 지우기, 알림 토스트
 (function () {
   'use strict';
   var box = document.querySelector('[data-hwp-box]');
@@ -109,16 +109,16 @@
     });
   }
 
-  // 복사해 쓰기 — 공용 위치 창  // 복사해 쓰기 — 공용 위치 창(AuraFinder.save)에서 부서 폴더와 이름을 고른다. 처음 여는 곳은 내 부서에서 마지막으로 일한 폴더
+  // 사본 만들기 — 공용 위치 창(AuraFinder.save)에서 부서 폴더와 이름을 고른다. 처음 여는 곳은 내 부서에서 마지막으로 일한 폴더
   function copyDoc(id, name) {
     var stem = String(name || '').replace(/\.(hwpx|hwp)$/i, '').replace(/ 공통 양식$/, '');
-    if (!window.AuraFinder || typeof window.AuraFinder.save !== 'function') { toast('위치 고르기 창을 불러오지 못했습니다. 새로 고친 뒤 다시 해 주세요', true); return; }
+    if (!window.AuraFinder || typeof window.AuraFinder.save !== 'function') { toast('위치 고르기 창을 불러오지 못했습니다. 새로 고침한 뒤 다시 해 주세요', true); return; }
     window.AuraFinder.save({
-      title: '어디에 복사할까요', saveLabel: '복사해 열기', name: stem, accept: 'hwp',
+      title: '사본을 어디에 만들까요', saveLabel: '사본 만들기', name: stem, accept: 'hwp',
       at: {dept: box.dataset.copyDept || '', folder: box.dataset.copyFolder || ''},
-      note: '복사본은 고른 곳에 두고 기안기로 엽니다', projects: true,
+      note: '사본은 고른 곳에 두고 기안기로 엽니다', projects: true,
       onSave: function (at) {
-        if (at.target === 'drive') return Promise.reject(new Error('복사본은 부서 폴더·내 폴더·프로젝트에만 둘 수 있습니다 — 왼쪽에서 고르세요'));
+        if (at.target === 'drive') return Promise.reject(new Error('사본은 부서 폴더·내 폴더·프로젝트에만 만들 수 있습니다 — 왼쪽에서 고르세요'));
         var body = new FormData(); body.append('name', at.name);
         if (at.target === 'project') body.append('project', at.project_id);
         else { body.append('dept', at.dept); body.append('folder', at.folder || ''); }
@@ -189,7 +189,7 @@
     var nameEl = row.querySelector('.hb-name'), err = row.querySelector('.hb-meta');
     var inp = el('input', 'hb-input hb-rename'); inp.type = 'text'; inp.value = value; inp.maxLength = 60; inp.setAttribute('aria-label', '폴더 이름');
     if (nameEl) nameEl.hidden = true;
-    row.insertBefore(inp, nameEl || row.children[1] || null);
+    row.querySelector('.hb-cell').insertBefore(inp, nameEl || null);
     row.classList.add('editing');
     var busy = false, over = false;
     function close() { over = true; inp.remove(); row.classList.remove('editing'); if (nameEl) nameEl.hidden = false; }
@@ -229,11 +229,12 @@
       });
     }, function () { if (meta) { meta.textContent = keep; meta.classList.remove('hb-err'); } });
   }
-  function bindFolderRow(row) {
+  function bindFolderRow(row) {                             // 이름 바꾸기는 줄의 연필 단추(두 번 눌러 바꾸기도 그대로 둔다)
     var b = row.querySelector('[data-rename-folder]');
     if (b) b.addEventListener('click', function () { renameRow(row); });
     if (dList0 && dList0.dataset.mayMake) row.addEventListener('dblclick', function (e) { if (!e.target.closest('a,button,input,form')) renameRow(row); });
   }
+  function iconBtn(ic, label) { var b = el('button', 'hb-ib'); b.type = 'button'; b.title = label; b.setAttribute('aria-label', label); b.append(icon(ic)); return b; }
   if (dList0) dList0.querySelectorAll('.hb-row[data-kind=folder]').forEach(bindFolderRow);
   var nf = box.querySelector('[data-new-folder]');
   if (nf && dList0) nf.addEventListener('click', function () {
@@ -242,18 +243,19 @@
     var head = dList0.querySelector('.hb-head');
     if (!head) {
       head = el('div', 'hb-head'); head.setAttribute('aria-hidden', 'true');
-      ['', '이름', '고친 때', '고친 사람', ''].forEach(function (t) { head.append(el('span', '', t)); });
+      ['', '이름', '수정일', '수정한 사람', ''].forEach(function (t) { head.append(el('span', '', t)); });
       dList0.prepend(head);
     }
     var row = el('div', 'hb-row'); row.dataset.kind = 'folder'; row.setAttribute('role', 'listitem');
-    row.append(icon('solar:folder-bold'), el('span', 'hb-meta'), el('span', 'hb-meta'), el('div', 'hb-act'));
+    row.append(icon('solar:folder-bold'), el('span', 'hb-cell'), el('span', 'hb-meta'), el('span', 'hb-meta'), el('div', 'hb-act'));
     head.after(row);
     editName(row, freeName(), function (v) {
       return postJSON('/hwp/folder', folderForm({folder: box.dataset.folder || '', name: v})).then(function (j) {
-        var a = el('a', 'hb-name', j.name); a.href = j.href; a.title = '두 번 눌러 이름 바꾸기';
-        row.insertBefore(a, row.children[1]); row.dataset.path = j.path;
-        var metas = row.querySelectorAll('.hb-meta'); metas[0].textContent = '문서 0'; metas[0].classList.remove('hb-err');
-        var act = row.querySelector('.hb-act'), rb = el('button', 'hb-btn', '이름 바꾸기'); rb.type = 'button'; rb.setAttribute('data-rename-folder', '');
+        var a = el('a', 'hb-name', j.name); a.href = j.href;
+        var cell = row.querySelector('.hb-cell'), cnt = el('span', 'hb-count', '0개'); cnt.title = '문서 0개';
+        cell.prepend(a); cell.append(cnt); row.dataset.path = j.path;
+        var metas = row.querySelectorAll('.hb-meta'); metas[0].textContent = ''; metas[0].classList.remove('hb-err');
+        var act = row.querySelector('.hb-act'), rb = iconBtn('solar:pen-linear', '이름 바꾸기'); rb.setAttribute('data-rename-folder', '');
         act.append(rb, makeStar(box.dataset.dept || '', j.path, j.name));
         bindFolderRow(row);
         toast('「' + j.name + '」 폴더를 만들었습니다');
@@ -287,10 +289,9 @@
   // ---- 구글 드라이브 ----
   var deptView = box.querySelector('[data-dept-view]'), driveView = box.querySelector('[data-drive-view]');
   var dList = box.querySelector('[data-drive-list]'), dPath = box.querySelector('[data-drive-path]');
-  var dBack = box.querySelector('[data-drive-back]'), dNote = box.querySelector('[data-drive-note]');
+  var dBack = box.querySelector('[data-drive-back]');
   var dImport = box.querySelector('[data-drive-import]'), places = box.querySelector('[data-drive-places]');
   var hint = box.querySelector('[data-drive-hint]');
-  var noteText = dNote ? dNote.textContent : '';
   var loc = null, hist = [], token = 0;
 
   function mark(key) {
@@ -300,7 +301,6 @@
     });
   }
   function noAccount() { if (hint) hint.hidden = false; }
-  function say(text, err) { if (!dNote) return; dNote.textContent = text; if (err) dNote.setAttribute('data-err', ''); else dNote.removeAttribute('data-err'); }
 
   function drawPath(trail) {
     dPath.replaceChildren();
@@ -314,11 +314,11 @@
   }
   function fileRow(f) {
     var r = el('div', 'hb-row'); r.dataset.kind = 'file'; r.setAttribute('role', 'listitem');
-    var act = el('div', 'hb-act'), b = el('button', 'hb-btn', '문서함으로 가져오기'); b.type = 'button';
+    var act = el('div', 'hb-act'), b = el('button', 'hb-btn', '가져오기'); b.type = 'button';   // 문서함 지금 폴더로 받아 기안기로 연다
     b.prepend(icon('solar:download-minimalistic-linear'));
-    b.title = '지금 문서함 폴더로 받아 기안기로 엽니다';
+    b.title = '‘' + (dImport.dataset.where || '') + '’에 받아 기안기로 엽니다';
     b.onclick = function () {
-      say('「' + f.name + '」 받는 중…');
+      toast('「' + f.name + '」 받는 중…');
       dList.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
       dImport.elements.file_id.value = f.id; dImport.submit();
     };
@@ -328,7 +328,7 @@
   }
   function folderRow(f) {
     var r = el('button', 'hb-row'); r.type = 'button'; r.dataset.kind = 'folder'; r.setAttribute('role', 'listitem');
-    r.append(icon('solar:folder-bold'), el('span', 'hb-name', f.name), el('span', 'hb-meta', '폴더'));
+    r.append(icon('solar:folder-bold'), el('span', 'hb-name', f.name), el('span', 'hb-meta'));
     r.onclick = function () { go({drive: loc.drive, folder: f.id, key: loc.key, trail: loc.trail.concat([{id: f.id, name: f.name}])}, true); };
     return r;
   }
@@ -339,7 +339,6 @@
     dBack.disabled = !hist.length;
     mark(next.key != null ? next.key : next.drive);
     drawPath(next.trail);
-    say(noteText);
     dList.replaceChildren(skeleton(7));
     var mine = ++token;
     getJSON('/api/hwp/drive/browse?drive=' + encodeURIComponent(next.drive || '') + '&folder=' + encodeURIComponent(next.folder || '') + (next.shared ? '&shared=1' : ''))
@@ -349,7 +348,7 @@
         var folders = j.folders || [], files = j.files || [];
         if (folders.length || files.length) {
           var h = el('div', 'hb-head'); h.setAttribute('aria-hidden', 'true');
-          h.append(el('span'), el('span', '', '이름'), el('span', '', '고친 때'), el('span'));
+          h.append(el('span'), el('span', '', '이름'), el('span', '', '수정일'), el('span'));
           dList.append(h);
         }
         folders.forEach(function (f) { dList.append(folderRow(f)); });
@@ -397,7 +396,7 @@
   if (driveView) {
     var my = box.querySelector('[data-drive-place=""]');
     if (my) my.onclick = openMyDrive;
-    // 드라이브에서 가져오기는 왼쪽 「구글 드라이브」 에서 — 파일 줄의 「문서함으로 가져오기」 가 지금 폴더로 받아 기안기로 연다
+    // 드라이브에서 가져오기는 왼쪽 「구글 드라이브」 에서 — 파일 줄의 「가져오기」 가 지금 폴더로 받아 기안기로 연다
     dBack.onclick = function () { var l = hist.pop(); if (l) go(l, false); };
     // 공유 문서함·부서 드라이브·공유 드라이브는 왼쪽 목록에 미리 — 계정이 없으면 한 줄 안내만
     getJSON('/api/hwp/drive/browse').then(function (j) { addDrives(j.drives || [], j.dept_drives || []); })

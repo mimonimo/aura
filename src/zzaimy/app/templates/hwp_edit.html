@@ -142,7 +142,7 @@
   </div>
   <span class="people" data-aura aria-live="polite"></span>
   <span class="avatars" data-people aria-label="같이 보는 사람"></span>
-  {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;" data-copy-form><button type="submit" class="btn primary" title="고른 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
+  {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;" data-copy-form><button type="submit" class="btn primary" title="고른 폴더에 사본을 만들어 엽니다"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>사본 만들기</button></form>
   {% else %}{% if not f %}<button type="button" class="btn primary" data-save disabled title="저장할 곳과 이름을 정해 만들기 — 그 뒤로는 자동 저장"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">만들기</span></button>{% endif %}{% endif %}
   <button type="button" class="btn tools-btn" data-tools aria-pressed="false" title="편집 도구 펼치기 — 직접 고칠 때"><iconify-icon icon="solar:pen-2-linear" aria-hidden="true"></iconify-icon><span class="label-long">편집 도구</span></button>
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
@@ -188,7 +188,7 @@
 <script>
 (function () {
   var state = document.querySelector('[data-state]'), msg = document.querySelector('[data-msg]');
-  var saveBtn = document.querySelector('[data-save]') || document.createElement('button');   // 공통 양식(읽기 전용)은 저장 단추 대신 「복사해 쓰기」
+  var saveBtn = document.querySelector('[data-save]') || document.createElement('button');   // 공통 양식(읽기 전용)은 저장 단추 대신 「사본 만들기」
   var box = document.getElementById('hwpctrl');
   var isNew = {{ 'false' if f else 'true' }};
   var fileUrl = {{ (('/hwp/' ~ f.id ~ '/file') if f else '') | tojson }}, saveUrl = {{ (('/hwp/' ~ f.id ~ '/save') if f else '') | tojson }};
@@ -537,17 +537,17 @@
       }
     }).then(function () { saOpen = false; }, function () { saOpen = false; });
   }
-  // 복사해 쓰기(보기 전용 양식) — 같은 위치 창에서 부서 폴더·이름을 고른다. 처음 여는 곳은 내 부서에서 마지막으로 일한 폴더
+  // 사본 만들기(보기 전용 양식) — 같은 위치 창에서 부서 폴더·이름을 고른다. 처음 여는 곳은 내 부서에서 마지막으로 일한 폴더
   var copyForm = document.querySelector('[data-copy-form]'), copyAt = {{ (copy_at or {}) | tojson }};
   if (copyForm) copyForm.addEventListener('submit', function (e) {
     if (!window.AuraFinder || typeof window.AuraFinder.save !== 'function') return;
     e.preventDefault();
     window.AuraFinder.save({
-      title: '어디에 복사할까요', saveLabel: '복사해 열기', accept: 'hwp',
+      title: '사본을 어디에 만들까요', saveLabel: '사본 만들기', accept: 'hwp',
       name: stemOf(name).replace(/ 공통 양식$/, ''), at: {dept: copyAt.dept || '', folder: copyAt.folder || ''},
-      note: '복사본은 고른 곳에 두고 기안기로 엽니다', projects: true,
+      note: '사본은 고른 곳에 두고 기안기로 엽니다', projects: true,
       onSave: function (at) {
-        if (at.target === 'drive') return Promise.reject(new Error('복사본은 부서 폴더·내 폴더·프로젝트에만 둘 수 있습니다 — 왼쪽에서 고르세요'));
+        if (at.target === 'drive') return Promise.reject(new Error('사본은 부서 폴더·내 폴더·프로젝트에만 만들 수 있습니다 — 왼쪽에서 고르세요'));
         var body = new FormData(); body.append('name', at.name);
         if (at.target === 'project') body.append('project', at.project_id);
         else { body.append('dept', at.dept); body.append('folder', at.folder || ''); }
