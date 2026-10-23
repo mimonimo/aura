@@ -350,7 +350,6 @@ def dev_db(
     return st.templates.TemplateResponse(request, "dev_db.html", st.page_ctx(request, {
         "tab": tab, "tabs": dx.TABS, "q": q, "type": type, "doc_id": doc,
         "view": view, "index": index, "lg": ledger, "extract_page": dx.EXTRACT_PAGE,
-        "overview": st.overview.data_overview(),
     }))
 
 

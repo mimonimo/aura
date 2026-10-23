@@ -25,7 +25,7 @@ def test_intake_page_shows_audit_and_lists(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/intake")
     assert r.status_code == 200
-    for text in ("처리 대상 문서 100건", "라이브러리 반영 90", "놓친 원본 4건", "암호 문서", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
+    for text in ("처리 대상 문서 100건", "라이브러리에 들어감 90", "빠진 원본 4건", "암호 문서", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
         assert text in r.text, text
     csv = c.get("/dev/intake/missed.csv")
     assert csv.status_code == 200 and "링크/업무/a.pdf" in csv.text
@@ -57,10 +57,10 @@ def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
     _audit(tmp_path)
     page = _client(tmp_path).get("/dev/intake").text
     assert "/dev/intake/missed.csv" not in page and "/dev/intake/failed.csv" not in page   # 빈 표 카드 없음
-    assert "놓친 원본 예시" not in page
+    assert "빠진 원본 예시" not in page
     names = _metric_names(page)
-    assert "[놓침 0]" in names and "[실패 0]" in names                  # 0 은 처리 대상 범례에서 한 번만
-    assert "[놓친 원본]" not in names
+    assert "[빠짐 0]" in names and "[실패 0]" in names                  # 0 은 처리 대상 범례에서 한 번만
+    assert "[빠진 원본]" not in names
 
 
 def test_failed_card_states_retry_rule_from_parse_script(tmp_path):
@@ -69,7 +69,7 @@ def test_failed_card_states_retry_rule_from_parse_script(tmp_path):
     page = _client(tmp_path).get("/dev/intake").text
     limit = intake_status.retry_limit()
     assert isinstance(limit, int) and limit > 0
-    assert f"새 형식 변환 실패는 같은 판에서 {limit}번까지" in page and "고쳐질 때까지" in page
+    assert f"변환 실패는 {limit}번까지" in page and "원본이 바뀔 때" in page
     assert "/dev/intake/failed.csv" in page and "/dev/intake/missed.csv" not in page
     assert 'class="h-link" href="/dev/intake/failed.csv" download' in page and 'class="pill"' not in page.split("failed.csv")[0][-80:]
 

@@ -312,10 +312,6 @@
     {
      "label": "평가 계획",
      "href": "/dev/doc/eval-plan.md"
-    },
-    {
-     "label": "모델 비교 결과",
-     "href": "/dev/models/compare"
     }
    ]
   },
