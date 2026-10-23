@@ -296,3 +296,69 @@ def test_undo_refused_after_later_change(org):
     app.state.save_accounts()
     u = dev.post("/org/move", json={"dept": "학생지원팀", "parent": "기획처"}).json()["undo"]
     assert boss.post("/org/move", json=u).status_code == 403
+
+
+def _state(tmp, app):
+    files = {f: (tmp / f).read_bytes() if (tmp / f).is_file() else None
+             for f in ("rag_spaces.json", dept_dictionary.PARENTS_FILE, "program_admin.json", "accounts.json")}
+    return files, json.dumps(app.state.accounts, sort_keys=True, ensure_ascii=False)
+
+
+def test_head_cannot_purge_traces_via_create(org):
+    """총괄 책임자는 흔적이 남은 이름으로 만들 수 없다(409) — 남의 겸직 등급·사업 지정이 지워지지 않는다."""
+    from zzaimy.app import program_admin
+    app, dev, tmp = org
+    _leave_traces(app, tmp, "옛사업단")
+    before = _state(tmp, app)
+    r = _client(app, "boss").post("/org/create", json={"name": "옛사업단", "parent": "기획처"})
+    assert r.status_code == 409 and "관리자에게" in r.json()["error"]
+    assert _state(tmp, app) == before
+    assert app.state.accounts["kim"]["dept_grades"] == {"옛사업단": "head"}
+    assert program_admin.load_store(tmp)["added"]["x1"]["heads"] == ["dept:옛사업단"]
+
+
+def test_checks_finish_before_any_write(org):
+    """검사에 걸리면 아무것도 쓰지 않는다 — 부모 없음·처·단 아님·이름 꼴·중복·권한, 그리고 흔적 정리도 그 뒤."""
+    app, dev, tmp = org
+    _leave_traces(app, tmp, "옛사업단")
+    before = _state(tmp, app)
+    bad = [("/org/create", {"name": "옛사업단", "parent": "없는처"}), ("/org/create", {"name": "옛사업단", "parent": "기획팀"}),
+           ("/org/create", {"name": "공통", "parent": ""}), ("/org/create", {"name": "기획팀", "parent": ""}),
+           ("/org/create", {"name": "x", "parent": ""}),
+           ("/org/move", {"dept": "예산팀", "parent": "기획팀"}), ("/org/move", {"dept": "기획처", "parent": "학생복지처"}),
+           ("/org/rename", {"dept": "예산팀", "name": "옛사업단"}), ("/org/rename", {"dept": "예산팀", "name": "!"}),
+           ("/org/delete", {"dept": "기획팀"}), ("/org/head", {"dept": "기획팀", "user": "kim"}),
+           ("/org/head", {"dept": "기획처", "user": "nobody"})]
+    for path, body in bad:
+        r = dev.post(path, json=body)
+        assert r.status_code >= 400, (path, body)
+        assert _state(tmp, app) == before, (path, body)
+    for path, body in [("/org/create", {"name": "옛사업단", "parent": ""}), ("/org/rename", {"dept": "예산팀", "name": "옛사업단"})]:
+        assert _client(app, "kim").post(path, json=body).status_code == 403
+    assert _state(tmp, app) == before
+
+
+def test_write_failure_rolls_back(org, monkeypatch):
+    """쓰는 도중 실패하면 바꾸기 전으로 되돌린다 — 이름 바꾸기 중간(사업 관리 저장)·만들기 중간(위계 저장)."""
+    from zzaimy.app import org_routes
+    app, dev, tmp = org
+    db = app.state.db
+    with db._conn() as c:
+        c.execute("INSERT INTO documents (filename, stored_path, created_at, doc_type, status, dept, access_level)"
+                  " VALUES ('b.pdf', 'x/b.pdf', '2026-10-23', 'grant', 'done', '기획팀', 'dept')")
+    before = _state(tmp, app)
+
+    def boom(*a, **k):
+        raise OSError("disk")
+    monkeypatch.setattr(dept_dictionary, "rename_dept", boom)
+    r = dev.post("/org/rename", json={"dept": "기획팀", "name": "기획조정팀"})
+    assert r.status_code == 500 and "되돌렸습니다" in r.json()["detail"]
+    assert _state(tmp, app)[1] == before[1] and _state(tmp, app)[0]["rag_spaces.json"] == before[0]["rag_spaces.json"]
+    assert app.state.accounts["kim"]["dept"] == "기획팀"
+    with db._conn() as c:
+        assert c.execute("SELECT dept FROM documents WHERE filename = 'b.pdf'").fetchone()[0] == "기획팀"
+    monkeypatch.undo()
+    monkeypatch.setattr(dept_dictionary, "set_parent", boom)
+    assert dev.post("/org/create", json={"name": "평가팀", "parent": "기획처"}).status_code == 500
+    assert _state(tmp, app)[0]["rag_spaces.json"] == before[0]["rag_spaces.json"]
+    assert "평가팀" not in rag_spaces.known_depts(rag_spaces.config(tmp), app.state.accounts)

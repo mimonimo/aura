@@ -232,17 +232,25 @@ def _fail(msg: str, code: int = 400) -> JSONResponse:
     return JSONResponse({"ok": False, "error": msg}, status_code=code)
 
 
-def _check_place(st, dept: str, parent: str) -> str:
-    """dept 를 parent 아래(빈 값이면 맨 위)에 둘 수 있나 — 두 단계 규칙. 문제면 문장."""
-    dd = getattr(st, "data_dir", None)
-    over = dept_dictionary.parents_override(dd)
-    kids = dept_dictionary.children_map(dd)
+def _check_parent(over: dict, kids: dict, dept: str, parent: str) -> str:
+    """parent 가 놓을 수 있는 처·단인가(빈 값은 맨 위) — 문제면 문장."""
     if not parent:
         return ""
     if parent == dept:
         return "자기 자신 아래로 옮길 수 없습니다"
     if not is_top(parent, over, kids) or over.get(parent, ""):
         return f"{parent} 아래에는 둘 수 없습니다 — 처·단이 아니라서 세 단계가 됩니다. 처·단 아래로 옮기세요"
+    return ""
+
+
+def _check_place(st, dept: str, parent: str) -> str:
+    """dept 를 parent 아래(빈 값이면 맨 위)에 둘 수 있나 — 두 단계 규칙. 문제면 문장."""
+    dd = getattr(st, "data_dir", None)
+    over = dept_dictionary.parents_override(dd)
+    kids = dept_dictionary.children_map(dd)
+    err = _check_parent(over, kids, dept, parent)
+    if err or not parent:
+        return err
     if kids.get(dept):
         return f"{dept} 아래에 부서가 있어 다른 처·단 아래로 옮기지 않습니다 — 하위 부서를 먼저 옮기세요"
     return ""
@@ -274,10 +282,13 @@ async def org_move(request: Request):
     if unset:
         # 관리자가 정하기 전으로 — 이름 갈래에 따라 처·단이 되거나 상위 없는 부서가 되므로 관리자만
         _need(actor.admin, "되돌리기 전 자리는 관리자만 정합니다")
-        dept_dictionary.clear_parent(dd, dept)
+        _write_all(st, (), lambda: dept_dictionary.clear_parent(dd, dept))
         return {"ok": True, "msg": f"{dept} — 옮기기 전으로 되돌렸습니다", "undo": None}
     _need(actor.can_hold(parent), "그 자리에는 놓을 수 없습니다 — 맨 위(처·단)로 올리기와 다른 처·단 아래로 옮기기는 관리자가 합니다")
-    err = _check_place(st, dept, parent) or dept_dictionary.set_parent(dd, dept, parent)
+    err = _check_place(st, dept, parent)                 # 두 단계 — 쓰기 전에 모두 본다(순환은 set_parent 가 쓰기 전에 본다)
+    if err:
+        return _fail(err)
+    err = _write_all(st, (), lambda: dept_dictionary.set_parent(dd, dept, parent))
     if err:
         return _fail(err)
     msg = f"{dept} → {parent} 아래로 옮겼습니다" if parent else f"{dept} → 처·단(맨 위)으로 올렸습니다"
@@ -300,6 +311,77 @@ def _backup_accounts(data_dir) -> None:
         dst = hist / f"accounts.{time.strftime('%Y%m%d%H%M%S')}.json"
         shutil.copy2(p, dst)
         dst.chmod(0o600)
+
+
+class Snapshot:
+    """쓰기 전에 조직도가 건드리는 저장값을 잡아 두고, 쓰다가 실패하면 그대로 되돌린다 — 중간까지만 쓰인 상태가 남지 않게.
+    대상: 계정 표(메모리·파일), rag_spaces.json, dept_parents.json, program_admin.json, 「열쇠:부서」 꼴 설정, 주어진 부서들의 문서·조각·
+    라이브러리 폴더 부서."""
+
+    FILES = ("rag_spaces.json", dept_dictionary.PARENTS_FILE, "program_admin.json", "accounts.json")
+
+    def __init__(self, st, depts: tuple[str, ...] = ()):
+        import copy
+        self.st = st
+        self.dd = getattr(st, "data_dir", None)
+        self.accounts = copy.deepcopy(getattr(st, "accounts", None) or {})
+        self.files: dict[str, bytes | None] = {}
+        if self.dd is not None:
+            for f in self.FILES:
+                p = Path(self.dd) / f
+                self.files[f] = p.read_bytes() if p.is_file() else None
+        self.settings = dict(st.db.all_settings() or {}) if st.db is not None else {}
+        self.docs: list[tuple] = []
+        self.folders: list[tuple] = []
+        if st.db is not None and depts:
+            q = ",".join("?" * len(depts))
+            with st.db._conn() as c:
+                self.docs = [tuple(r) for r in c.execute(f"SELECT id, dept, access_level FROM documents WHERE dept IN ({q})", depts)]
+                try:
+                    self.folders = [tuple(r) for r in c.execute(f"SELECT id, dept FROM library_folders WHERE dept IN ({q})", depts)]
+                except Exception:
+                    self.folders = []
+
+    def restore(self) -> None:
+        st = self.st
+        live = getattr(st, "accounts", None)
+        if live is not None:
+            live.clear()
+            live.update(self.accounts)
+        if self.dd is not None:
+            for f, data in self.files.items():
+                p = Path(self.dd) / f
+                if data is None:
+                    p.unlink(missing_ok=True)
+                else:
+                    p.write_bytes(data)
+            dept_dictionary._cache.clear()
+            try:
+                from zzaimy.app import program_admin
+                program_admin._CACHE.clear()
+            except Exception:
+                pass
+        if st.db is not None:
+            now = dict(st.db.all_settings() or {})
+            for k in set(now) | set(self.settings):
+                if now.get(k, "") != self.settings.get(k, ""):
+                    st.db.set_setting(k, self.settings.get(k, ""))
+            for did, dept, level in self.docs:
+                st.db.set_document_scope(did, dept=dept, access_level=level)
+            if self.folders:
+                with st.db._conn() as c:
+                    for fid, dept in self.folders:
+                        c.execute("UPDATE library_folders SET dept = ? WHERE id = ?", (dept, fid))
+
+
+def _write_all(st, depts: tuple[str, ...], fn):
+    """검사를 모두 마친 뒤 부르는 쓰기 묶음 — 도중에 실패하면 Snapshot 으로 되돌리고 500 대신 알린다."""
+    snap = Snapshot(st, depts)
+    try:
+        return fn()
+    except Exception:
+        snap.restore()
+        raise HTTPException(500, "저장하다 멈춰 바꾸기 전으로 되돌렸습니다 — 잠시 뒤 다시 해 주세요")
 
 
 def traces(st, name: str) -> list[str]:
@@ -466,7 +548,7 @@ async def org_rename(request: Request):
     if left:
         return _fail(f"{new} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 이 이름으로 바꿀 수 없습니다 — "
                      "관리자가 같은 이름으로 부서를 새로 만들면 남은 기록이 정리됩니다", 409)
-    got = rename_dept(st, old, new)
+    got = _write_all(st, (old,), lambda: rename_dept(st, old, new))
     return {"ok": True, "msg": f"이름 바꿈: {old} → {new} · 계정 {got['accounts']}개 · 문서 {got['docs']}건",
             "undo": {"dept": new, "name": old}, "name": new}
 
@@ -481,7 +563,10 @@ async def org_delete(request: Request):
     if name not in _known(st):
         return _fail("없는 부서입니다")
     _need(actor.can_edit(name), "이 부서는 지울 수 없습니다 — 맡은 처·단의 하위 부서만 고칩니다")
-    err, moved = delete_dept(st, getattr(st, "accounts", None) or {}, name)
+    accounts = getattr(st, "accounts", None) or {}
+    if any((a.get("dept") or "").strip() == name for a in accounts.values()):     # 쓰기 전에 막는다(delete_dept 도 다시 본다)
+        return _fail(f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요", 409)
+    err, moved = _write_all(st, (name,), lambda: delete_dept(st, accounts, name))
     if err:
         return _fail(err, 409)
     return {"ok": True, "msg": f"{name} 부서를 지웠습니다 · 문서 {moved}건은 공통 RAG 로"}
@@ -505,22 +590,37 @@ async def org_create(request: Request):
         return _fail(f"이미 있는 부서입니다: {name}")
     if not rag_spaces._DEPT_NAME.match(name) or name == "공통":
         return _fail("부서 이름은 2~30자의 한글·영문·숫자로 적습니다(「공통」은 쓸 수 없음)")
-    # 보안: 같은 이름의 지운 부서가 남긴 권한 흔적은 먼저 지운다 — 새 부서가 옛 겸직 등급·추가 권한·위계·사업 지정을 물려받지 않게
-    cleaned = purge_traces(st, name)
-    if parent:
-        err = _check_place(st, name, parent)
-        if err:
-            return _fail(err)
-    cfg, err = rag_spaces.create_dept_rag(rag_spaces.config(dd), name, by=actor.user)
+    # 새 부서라 아래 부서는 없다(같은 이름의 옛 위계는 아래 흔적 정리 대상) — 놓을 처·단만 본다
+    err = _check_parent(dept_dictionary.parents_override(dd), dept_dictionary.children_map(dd), name, parent)
     if err:
         return _fail(err)
-    rag_spaces.save_config(cfg, dd)
-    over = dept_dictionary.parents_override(dd)
-    kids = dept_dictionary.children_map(dd)
-    if parent:
-        dept_dictionary.set_parent(dd, name, parent)
-    elif not is_top(name, over, kids):                    # 맨 위에 둔 팀·센터 — 「상위 없음」 을 정한 것으로 적어 처·단으로 보이게
-        dept_dictionary.set_parent(dd, name, "")
+    _, err = rag_spaces.create_dept_rag(rag_spaces.config(dd), name, by=actor.user)     # 이름 꼴·중복 검사만(쓰지 않음)
+    if err:
+        return _fail(err)
+    # 보안: 같은 이름의 지운 부서가 남긴 권한 흔적 — 정리는 남의 겸직 등급·추가 권한·사업 지정을 지우는 일이라 관리자만.
+    # 총괄 책임자는 흔적 있는 이름으로 만들지 못한다(관리자에게 요청)
+    left = traces(st, name)
+    if left and not actor.admin:
+        return _fail(f"{name} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 만들 수 없습니다 — 관리자에게 요청해 주세요", 409)
+    # 여기까지 검사 — 아래부터 쓰기(도중 실패면 모두 되돌린다)
+
+    def write() -> list[str]:
+        cleaned = purge_traces(st, name) if left else []
+        new_cfg, e = rag_spaces.create_dept_rag(rag_spaces.config(dd), name, by=actor.user)   # 정리한 뒤의 설정 위에(검사는 위에서 마침)
+        if e:
+            raise RuntimeError(e)
+        rag_spaces.save_config(new_cfg, dd)
+        over = dept_dictionary.parents_override(dd)
+        kids = dept_dictionary.children_map(dd)
+        if parent:
+            e = dept_dictionary.set_parent(dd, name, parent)
+            if e:
+                raise RuntimeError(e)
+        elif not is_top(name, over, kids):                # 맨 위에 둔 팀·센터 — 「상위 없음」 을 정한 것으로 적어 처·단으로 보이게
+            dept_dictionary.set_parent(dd, name, "")
+        return cleaned
+
+    cleaned = _write_all(st, (), write)
     where = f"{parent} 아래에" if parent else "맨 위(처·단)에"
     msg = f"{name} 부서를 {where} 더했습니다" + (f" · 남아 있던 옛 기록 정리: {', '.join(cleaned)}" if cleaned else "")
     return {"ok": True, "msg": msg, "name": name, "cleaned": cleaned}
@@ -542,7 +642,18 @@ async def org_head(request: Request):
     if not a or a.get("role") not in grades.STAFF or not a.get("active", True):
         return _fail("사용 중인 교직원 계정만 지정할 수 있습니다")
     dd = getattr(st, "data_dir", None)
+    over = dept_dictionary.parents_override(dd)
+    if on and (over.get(dept, "") or not is_top(dept, over, dept_dictionary.children_map(dd))):
+        return _fail("총괄 책임자는 처·단(맨 위)에 정합니다")
     primary = str(a.get("dept") or "").strip() == dept
+    _write_all(st, (), lambda: _set_head(st, a, uid, dept, on, primary))
+    who = (a.get("name") or "").strip() or uid
+    msg = (f"{who} 님을 「{dept}」 총괄 책임자로 정했습니다" + ("" if primary else " · 겸직")) if on else f"{who} 님을 「{dept}」 총괄 책임자에서 뺐습니다"
+    return {"ok": True, "msg": msg}
+
+
+def _set_head(st, a: dict, uid: str, dept: str, on: bool, primary: bool) -> None:
+    dd = getattr(st, "data_dir", None)
     if primary:
         a["grade"] = "head" if on else (grades.DEFAULT_GRADE if a.get("grade") == "head" else a.get("grade") or grades.DEFAULT_GRADE)
     else:
@@ -566,6 +677,3 @@ async def org_head(request: Request):
             rag_spaces.save_config(cfg, dd)
     a["updated_at"] = datetime.datetime.now().isoformat(timespec="seconds")
     st.save_accounts()
-    who = (a.get("name") or "").strip() or uid
-    msg = (f"{who} 님을 「{dept}」 총괄 책임자로 정했습니다" + ("" if primary else " · 겸직")) if on else f"{who} 님을 「{dept}」 총괄 책임자에서 뺐습니다"
-    return {"ok": True, "msg": msg}
