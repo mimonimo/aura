@@ -822,6 +822,28 @@ def forget_dept(data_dir, name: str) -> None:
         _write(Path(data_dir) / PARENTS_FILE, new)
 
 
+def clear_parent(data_dir, dept: str) -> None:
+    """관리자가 정한 상위 관계를 지운다(정하기 전으로 — 조직도의 「되돌리기」). 이전 판은 history/ 에."""
+    if data_dir is None:
+        return
+    dept = " ".join((dept or "").split())
+    over = parents_override(data_dir)
+    if dept in over:
+        over.pop(dept)
+        _write(Path(data_dir) / PARENTS_FILE, over)
+
+
+def rename_dept(data_dir, old: str, new: str) -> None:
+    """부서 이름을 바꿀 때 확정 위계의 이름도 바꾼다(하위로든 상위로든). 이전 판은 history/ 에."""
+    if data_dir is None:
+        return
+    old, new = " ".join((old or "").split()), " ".join((new or "").split())
+    over = parents_override(data_dir)
+    got = {(new if c == old else c): (new if p == old else p) for c, p in over.items()}
+    if got != over:
+        _write(Path(data_dir) / PARENTS_FILE, got)
+
+
 def parent_of(name: str, data_dir=None) -> str:
     """확정된 상위 부서(관리자가 저장한 것)만 — 권한 판정용. 규정 제안은 suggested_parents."""
     return parents_override(data_dir).get(" ".join((name or "").split()), "") if data_dir is not None else ""

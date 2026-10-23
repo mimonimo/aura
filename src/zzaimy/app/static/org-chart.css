@@ -1,0 +1,141 @@
+/* 조직도(/team?tab=org) — 처·단 카드와 그 아래 팀·센터 줄. 얇은 선·작은 글자, 움직임은 짧게 */
+/* 끌기 중 위 막대 자리에 겹쳐 뜨는 「맨 위로」 놓는 자리 — 목록이 밀리지 않게 */
+.oc { position: relative; --oc-accent: #1b3b75; --oc-soft: #eef3fa; --oc-ring: #1b3b7518; }
+.oc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.oc-find { position: relative; flex: 1 1 260px; max-width: 360px; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.oc-find:focus-within { border-color: #9fb3cf; box-shadow: 0 0 0 3px var(--oc-ring); }
+.oc-find iconify-icon { color: var(--faint); flex: none; }
+.oc-find input { flex: 1; min-width: 0; border: 0 !important; outline: 0; box-shadow: none !important; background: transparent; padding: 0 !important; font: inherit; font-size: 13px; }
+.oc-btn { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.oc-btn:hover { border-color: #c3cedc; }
+.oc-btn:focus-visible, .oc-icon:focus-visible, .oc-menu button:focus-visible, .oc-chip button:focus-visible { outline: 0; box-shadow: 0 0 0 3px #1b3b7533; }
+.oc-btn.primary { background: var(--oc-accent); border-color: var(--oc-accent); color: #fff; }
+.oc-btn.primary:hover { background: #14325a; }
+.oc-btn.danger { background: #b3312f; border-color: #b3312f; color: #fff; }
+.oc-btn[disabled] { opacity: .45; cursor: not-allowed; }
+.oc-btn[aria-pressed="true"] { background: var(--oc-soft); border-color: #b9cbe4; color: var(--oc-accent); }
+.oc-bar .oc-gap { flex: 1; }
+.oc-hint { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+
+.oc-sugg { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; margin: 0 0 12px; border: 1px dashed #cdd7e4; border-radius: 10px; background: #fbfcfe; }
+.oc-sugg[hidden] { display: none; }
+.oc-sugg p { flex-basis: 100%; margin: 0 0 2px; font-size: 12px; color: var(--muted); }
+.oc-sugg button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
+.oc-sugg button:hover { border-color: #b9cbe4; background: var(--oc-soft); }
+.oc-sugg button[disabled] { cursor: default; color: var(--faint); background: #fff; }
+
+.oc-topzone { display: none; position: absolute; left: 0; right: 0; top: 0; z-index: 20; align-items: center; justify-content: center; height: 34px; border: 1.5px dashed #b9cbe4; border-radius: 10px;
+  font-size: 12.5px; color: var(--oc-accent); background: #f7f9fd; }
+.oc.dragging .oc-topzone { display: flex; }
+.oc-topzone.over { background: var(--oc-soft); border-color: var(--oc-accent); }
+
+.oc-list { display: flex; flex-direction: column; gap: 10px; }
+.oc-card { border: 1px solid var(--line); border-radius: 12px; background: #fff; transition: border-color .15s, box-shadow .15s; }
+.oc-card.over { border-color: var(--oc-accent); box-shadow: 0 0 0 3px var(--oc-ring); }
+.oc-card.loose { background: #fcfcfd; border-style: dashed; }
+.oc-card[hidden], .oc-row[hidden] { display: none; }
+.oc-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 14px; min-height: 48px; }
+.oc-head .oc-title { display: flex; align-items: baseline; gap: 7px; min-width: 0; flex: 0 1 auto; }
+.oc-name { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oc-row .oc-name { font-size: 13px; font-weight: 500; }
+.oc-kind { font-size: 11px; color: var(--faint); white-space: nowrap; }
+.oc-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.oc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.oc-chip { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
+  background: #f1f4f8; color: #334155; border: 1px solid transparent; }
+.oc-chip.head { background: var(--oc-soft); color: var(--oc-accent); }
+.oc-chip small { color: inherit; opacity: .7; font-size: 10.5px; }
+.oc-chip button { border: 0; background: none; padding: 0 0 0 2px; font-size: 13px; line-height: 1; color: inherit; cursor: pointer; border-radius: 4px; }
+.oc-chip.add { background: #fff; border: 1px dashed #b9cbe4; color: var(--oc-accent); cursor: pointer; font: inherit; font-size: 11.5px; }
+.oc-chip.add:hover { background: var(--oc-soft); }
+.oc-gap { flex: 1; }
+.oc-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--muted); cursor: pointer; font-size: 17px; flex: none; }
+.oc-icon:hover { background: #f1f4f8; color: var(--ink); }
+.oc-fold { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; font: inherit; font-size: 12px; color: var(--muted);
+  cursor: pointer; white-space: nowrap; flex: none; }
+.oc-fold:hover { color: var(--ink); border-color: #c3cedc; }
+.oc-body { border-top: 1px solid var(--line); }
+.oc-card.folded .oc-body { display: none; }
+.oc-row { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 5px 10px 5px 12px; border-bottom: 1px solid #f0f3f7; background: #fff; }
+.oc-row:last-child { border-bottom: 0; border-radius: 0 0 12px 12px; }
+.oc-row[draggable="true"] { cursor: grab; }
+.oc-row.lifted { opacity: .45; }
+.oc-grip { color: #c3ccd8; font-size: 15px; flex: none; width: 16px; display: inline-flex; justify-content: center; }
+.oc-row:not([draggable="true"]) .oc-grip { visibility: hidden; }
+.oc-via { font-size: 11px; color: var(--faint); white-space: nowrap; }
+.oc-empty { margin: 0; padding: 12px 14px; font-size: 12.5px; color: var(--faint); }
+.oc-slot { display: none; }
+.oc-card.over .oc-slot { display: flex; align-items: center; height: 34px; margin: 6px 10px 8px; padding: 0 12px; border: 1.5px dashed var(--oc-accent);
+  border-radius: 8px; background: var(--oc-soft); font-size: 12.5px; color: var(--oc-accent); }
+mark.oc-hit { background: #fff1b8; color: inherit; border-radius: 3px; padding: 0 1px; }
+.oc-none { padding: 16px; font-size: 12.5px; color: var(--muted); }
+
+/* 이름 바꾸기 칸(그 자리에서) */
+.oc-rename { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; }
+.oc-rename input { flex: 1; min-width: 120px; max-width: 320px; height: 30px; padding: 0 9px; border: 1px solid #9fb3cf; border-radius: 7px; font: inherit; font-size: 13px;
+  box-shadow: 0 0 0 3px var(--oc-ring); outline: 0; }
+
+/* ⋯ 메뉴 */
+.oc-menu { position: fixed; z-index: 1200; min-width: 168px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 30, 60, .14); }
+.oc-menu button { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; font: inherit;
+  font-size: 13px; color: var(--ink); text-align: left; cursor: pointer; }
+.oc-menu button:hover, .oc-menu button:focus { background: #f1f4f8; outline: 0; }
+.oc-menu button.danger { color: #b3312f; }
+.oc-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+
+/* 창 */
+.oc-dlg { border: 0; padding: 0; border-radius: 14px; width: min(440px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(15, 30, 60, .22); color: var(--ink); }
+.oc-dlg::backdrop { background: rgba(15, 23, 42, .32); }
+.oc-dlg form { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; margin: 0; }
+.oc-dlg h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.oc-dlg p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
+.oc-dlg label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--muted); }
+.oc-dlg input[type="text"] { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; color: var(--ink); width: 100%; box-sizing: border-box; }
+.oc-dlg input[type="text"]:focus { outline: 0; border-color: #9fb3cf; box-shadow: 0 0 0 3px var(--oc-ring); }
+.oc-dlg .oc-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.oc-dlg .oc-err { color: #b3312f; font-size: 12.5px; }
+.oc-dlg .oc-err:empty { display: none; }
+.oc-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; padding: 10px 12px; border-radius: 9px; background: #f8fafc; font-size: 13px; }
+.oc-facts dt { color: var(--muted); }
+.oc-facts dd { margin: 0; }
+.oc-facts .warn { color: #b3312f; font-weight: 600; }
+
+/* 고르기 칸(콤보) */
+.oc-combo { position: relative; }
+.oc-opts { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 220px; overflow: auto; padding: 4px; border: 1px solid var(--line);
+  border-radius: 9px; background: #fff; box-shadow: 0 10px 24px rgba(15, 30, 60, .12); }
+.oc-opts[hidden] { display: none; }
+.oc-opt { display: flex; align-items: baseline; gap: 8px; padding: 6px 9px; border-radius: 6px; font-size: 13px; color: var(--ink); cursor: pointer; }
+.oc-opt small { color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oc-opt.on, .oc-opt:hover { background: #f1f4f8; }
+
+/* 총괄 책임자 고르기 */
+.oc-pick { position: fixed; z-index: 1200; width: min(320px, calc(100vw - 32px)); padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 30, 60, .16); }
+.oc-pick p { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+
+/* 되돌리기 알림 */
+.oc-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 1300; display: flex; align-items: center; gap: 14px;
+  max-width: min(560px, calc(100vw - 32px)); padding: 10px 12px 10px 16px; border-radius: 10px; background: #1b3b75; color: #fff; font-size: 13px;
+  box-shadow: 0 8px 24px rgba(15, 30, 60, .22); animation: oc-up .18s ease-out; }
+.oc-toast.err { background: #8f2725; }
+.oc-toast span { min-width: 0; }
+.oc-toast button { flex: none; border: 1px solid rgba(255, 255, 255, .45); background: none; color: #fff; border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.oc-toast button:hover { background: rgba(255, 255, 255, .12); }
+@keyframes oc-up { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+@media (max-width: 760px) {
+  .oc-find { max-width: none; flex-basis: 100%; }
+  .oc-head { flex-wrap: wrap; row-gap: 4px; }
+  .oc-head .oc-chips { order: 5; flex-basis: 100%; }
+  .oc-row { flex-wrap: wrap; row-gap: 2px; }
+  .oc-row .oc-chips { order: 5; flex-basis: 100%; padding-left: 24px; }
+  .oc-row[draggable="true"] { cursor: default; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .oc-card, .oc-toast { transition: none; animation: none; }
+}

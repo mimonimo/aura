@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% block title %}부서 사람{% endblock %}
 {% block pagetitle %}부서 사람{% endblock %}
+{% block head %}{% if tab == 'org' %}<link rel="stylesheet" href="/static/org-chart.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/people-picker.css?v={{ asset_v }}">
+<script src="/static/people-picker.js?v={{ asset_v }}" defer></script><script src="/static/org-chart.js?v={{ asset_v }}" defer></script>{% endif %}{% endblock %}
 {% block content %}
 <style>
+  .tm-tabs { display:flex; gap:2px; margin:0 0 14px; border-bottom:1px solid var(--line); }
+  .tm-tabs a { padding:8px 12px 9px; margin-bottom:-1px; font-size:13px; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; }
+  .tm-tabs a:hover { color:var(--ink); }
+  .tm-tabs a[aria-current="page"] { color:var(--ink); font-weight:600; border-bottom-color:#1b3b75; }
   .tm-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
   .tm-head p { margin:0; font-size:12.5px; color:var(--muted); }
   .tm-head select { font:inherit; font-size:13px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; }
@@ -37,8 +43,27 @@
   @media (max-width:760px) { .tm-find { margin-left:0; } .tm-find input { width:100%; } .tm-head { flex-wrap:wrap; } }
   @media (max-width:760px) { .tm-row { grid-template-columns:1fr; } .tm-row.head { display:none; } }
 </style>
+<nav class="tm-tabs" aria-label="부서 사람 화면">
+  <a href="/team?tab=org"{% if tab == 'org' %} aria-current="page"{% endif %}>조직도</a>
+  {% if team_ok %}<a href="/team"{% if tab != 'org' %} aria-current="page"{% endif %}>부서 사람</a>{% endif %}
+</nav>
 {% if err %}<p class="notice" role="alert"><span>{{ err }}</span></p>{% endif %}
 {% if ok %}<p class="notice" role="status"><span>{{ ok }}</span></p>{% endif %}
+{% if tab == 'org' %}
+<div class="oc" id="orgChart">
+  <div class="oc-bar">
+    <label class="oc-find"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" data-oc-find placeholder="부서 이름·옛 이름으로 찾기" aria-label="부서 찾기" autocomplete="off"></label>
+    <button type="button" class="oc-btn" data-oc-sugg-btn aria-pressed="false" hidden>규정 제안 보기</button>
+    <span class="oc-gap"></span>
+    <button type="button" class="oc-btn" data-oc-foldall hidden>모두 접기</button>
+    {% if org_can %}<button type="button" class="oc-btn primary" data-oc-add hidden><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>부서 더하기</button>{% endif %}
+  </div>
+  <p class="oc-hint">{% if org_admin %}처·단 아래 팀·센터 · 줄을 다른 처·단 카드로 끌어 놓거나 ⋯ 메뉴로 옮깁니다{% elif org_can %}맡은 처·단 아래 부서만 고칠 수 있습니다 · 다른 부서는 보기만{% else %}보기만 · 조직도는 관리자와 처·단 총괄 책임자가 고칩니다{% endif %}</p>
+  <div class="oc-sugg" data-oc-sugg hidden></div>
+  <div class="oc-topzone" data-oc-topzone>여기에 놓으면 처·단(맨 위)으로</div>
+  <div class="oc-list" data-oc-list><p class="oc-none">불러오는 중</p></div>
+</div>
+{% else %}
 <div class="tm-head">
   {% if depts|length > 1 %}<form method="get"><select name="dept" aria-label="부서" onchange="this.form.submit()">{% for d in depts %}<option value="{{ d }}"{% if d == dept %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></form>{% else %}<strong>{{ dept }}</strong>{% endif %}
   <p>{% if actor_grade == 'lead' %}일반 직원의 추가 권한 · 바꾸면 바로 저장{% else %}같은 부서 직원의 등급과 추가 권한 · 바꾸면 바로 저장{% endif %}</p>
@@ -69,6 +94,7 @@
   {% if not rows %}<p class="tm-fixed" style="padding:14px">이 부서에 사용 중인 교직원 계정이 없습니다</p>{% endif %}
   <p class="tm-none" data-tm-none hidden>찾는 사람이 없습니다</p>
 </div>
+{% endif %}
 <script>
 (function () {
   // 찾기 — 이름·아이디로 줄을 거르고, 다 숨은 묶음은 머리도 숨긴다(글자는 textContent 로만 다룬다)

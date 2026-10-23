@@ -420,3 +420,27 @@ def delete_dept_rag(db, cfg: dict, name: str) -> tuple[dict, int]:
     new["grants"] = {u: g for u, g in new["grants"].items() if g}
     new["dept_of_area"] = {f: v for f, v in cfg.get("dept_of_area", {}).items() if v != name}
     return new, moved
+
+
+def rename_dept_rag(db, cfg: dict, old: str, new: str) -> tuple[dict, int]:
+    """부서 이름을 바꾼다 — 부서 RAG·폴더 짝·공간의 부서·추가 권한(dept:)·최소 등급 열쇠와 그 부서 문서(조각까지)를 함께.
+    (새 설정, 옮긴 문서 수). 문서의 열람 등급은 그대로 둔다(부서 제한 문서는 새 이름의 부서 제한)."""
+    import copy
+    new_cfg = copy.deepcopy(cfg)
+    key_old, key_new = f"dept:{old}", f"dept:{new}"
+    new_cfg["dept_rags"] = [{**r, "dept": new} if str(r.get("dept")) == old else r for r in new_cfg.get("dept_rags", [])]
+    new_cfg["dept_of_area"] = {f: (new if v == old else v) for f, v in new_cfg.get("dept_of_area", {}).items()}
+    for sp in new_cfg.get("spaces", []):
+        if sp.get("depts"):
+            sp["depts"] = [new if d == old else d for d in sp["depts"]]
+    new_cfg["grants"] = {u: list(dict.fromkeys(key_new if s == key_old else s for s in g)) for u, g in new_cfg.get("grants", {}).items()}
+    if new_cfg.get("min_grade"):
+        new_cfg["min_grade"] = {(key_new if k == key_old else k): v for k, v in new_cfg["min_grade"].items()}
+    n = 0
+    if db is not None:
+        with db._conn() as conn:
+            ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE dept = ?", (old,))]
+        for did in ids:
+            db.set_document_scope(did, dept=new)
+            n += 1
+    return new_cfg, n

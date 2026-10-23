@@ -12,6 +12,7 @@
   POST /dev/google/{settings,dept,revoke}, POST /dev/users/dept(부서 만들기·지우기·사전에서 여러 개 만들기 create_many),
   POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary). 계정의 겸직 부서는
   줄마다 부서 + 그 부서에서의 등급(rag grants dept: 와 account["dept_grades"] 를 함께 맞춘다)
+- 부서 사람: GET /team(등급·추가 권한), GET /team?tab=org(조직도 — 자료·고치기는 org_routes, 이 라우터에 함께 붙는다)
 
 main.py 는 app.state 에 accounts(플랫폼 계정 표)·save_accounts·set_pw·new_account·templates·page_ctx 를 두고 이 라우터를 붙인다.
 """
@@ -402,6 +403,39 @@ def dev_google_dept(request: Request, dept: str = Form(""), root: str = Form("")
     return _back(msg, ok=not got["error"])
 
 
+def delete_dept(st, accounts: dict, name: str) -> tuple[str, int]:
+    """부서 하나를 지운다 — (오류 문장, 공통 RAG 로 돌린 문서 수). 소속 계정이 있으면 지우지 않는다.
+    부서 RAG 문서는 공통으로, 추가 권한·폴더 짝·부서 공용 설정을 풀고, 겸직 등급·확정 위계에서도 뺀다.
+    사용자·계정 화면과 조직도(org_routes)가 같은 이 함수를 쓴다."""
+    from zzaimy.app import dept_dictionary, rag_spaces
+    data_dir = getattr(st, "data_dir", None)
+    name = " ".join((name or "").split())
+    if any((a.get("dept") or "").strip() == name for a in accounts.values()):
+        return f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요", 0
+    if name not in known_depts(st.db, accounts, data_dir):
+        return "없는 부서입니다", 0
+    new, moved = rag_spaces.delete_dept_rag(st.db, rag_spaces.config(data_dir), name)
+    rag_spaces.save_config(new, data_dir)
+    for k in (f"google_account_dept:{name}", f"google_root:{name}", f"google_root_name:{name}"):
+        st.db.set_setting(k, "")
+    # 보안: 지운 부서에 걸린 권한 흔적도 지운다 — 같은 이름으로 다시 만들었을 때 옛 겸직 등급·위계가 되살아나지 않게
+    touched = False
+    for a_ in accounts.values():
+        dg = a_.get("dept_grades") or {}
+        if name in dg:
+            dg.pop(name, None)
+            if not dg:
+                a_.pop("dept_grades", None)
+            touched = True
+    if touched:
+        st.save_accounts()
+    try:
+        dept_dictionary.forget_dept(data_dir, name)
+    except Exception:
+        pass
+    return "", moved
+
+
 @router.post("/dev/users/dept")
 def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""), names: list[str] = Form([])):
     """부서 만들기·지우기 — 부서 목록은 RAG 공간 설정(dept_rags)에 하나로 둔다. 만든 부서는 부서 RAG·검색 범위·폴더 범위·계정 부서에서
@@ -437,31 +471,9 @@ def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""
         return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 만들었습니다 — 계정 부서·부서 RAG·검색 범위에서 고를 수 있습니다')}#depts",
                                 status_code=303)
     if action == "delete":
-        if any((a.get("dept") or "").strip() == name for a in _accounts(request).values()):
-            return _back(f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 계정의 부서를 먼저 바꿉니다", ok=False)
-        if name not in known_depts(st.db, _accounts(request), data_dir):
-            return _back("없는 부서입니다", ok=False)
-        new, moved = rag_spaces.delete_dept_rag(st.db, cfg, name)
-        rag_spaces.save_config(new, data_dir)
-        for k in (f"google_account_dept:{name}", f"google_root:{name}", f"google_root_name:{name}"):
-            st.db.set_setting(k, "")
-        # 보안: 지운 부서에 걸린 권한 흔적도 지운다 — 같은 이름으로 다시 만들었을 때 옛 겸직 등급·위계가 되살아나지 않게
-        accounts = _accounts(request)
-        touched = False
-        for a_ in accounts.values():
-            dg = a_.get("dept_grades") or {}
-            if name in dg:
-                dg.pop(name, None)
-                if not dg:
-                    a_.pop("dept_grades", None)
-                touched = True
-        if touched:
-            st.save_accounts()
-        try:
-            from zzaimy.app import dept_dictionary as _dd
-            _dd.forget_dept(data_dir, name)
-        except Exception:
-            pass
+        err, moved = delete_dept(st, _accounts(request), name)
+        if err:
+            return _back(err, ok=False)
         return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 지웠습니다 · 문서 {moved}건은 공통 RAG 로')}#depts", status_code=303)
     return _back("알 수 없는 요청", ok=False)
 
@@ -586,14 +598,27 @@ def _team_rows(accounts: dict, dept: str, actor_grade: str = "admin", data_dir=N
 
 
 @router.get("/team", response_class=HTMLResponse)
-def team_page(request: Request, dept: str = "", ok: str = "", err: str = ""):
+def team_page(request: Request, dept: str = "", ok: str = "", err: str = "", tab: str = ""):
+    """부서 사람(등급·추가 권한)과 조직도(tab=org) — 조직도는 교직원 누구나 보고, 고치기는 org_routes 가 권한을 다시 본다."""
     st = request.app.state
+    if tab == "org":
+        from zzaimy.app.org_routes import Actor
+        actor = Actor(request)
+        try:
+            _team_actor(request)
+            team_ok = True
+        except HTTPException:
+            team_ok = False
+        return st.templates.TemplateResponse(request, "team.html", st.page_ctx(request, {
+            "tab": "org", "team_ok": team_ok, "org_admin": actor.admin, "org_can": actor.can_any, "rows": [], "dept": "",
+            "depts": [], "ok": ok, "err": err}))
     me, _, scope, _ag = _team_actor(request)
     dd = getattr(st, "data_dir", None)
     choices = known_depts(st.db, _accounts(request), dd) if not scope else sorted(scope)
     dept = dept if dept in choices else (choices[0] if choices else "")
     ag = "admin" if not scope else scope.get(dept, "lead")
     return st.templates.TemplateResponse(request, "team.html", st.page_ctx(request, {
+        "tab": "team", "team_ok": True,
         "rows": _team_rows(_accounts(request), dept, ag, dd), "dept": dept, "actor_grade": ag, "lead_grantable": LEAD_GRANTABLE, "depts": choices, "me": me,
         "perms": grades.PERMS, "team_grades": {k: grades.GRADES[k] for k in TEAM_GRADES}, "ok": ok, "err": err}))
 
@@ -635,3 +660,9 @@ def team_save(request: Request, uid: str = Form(...), grade: str = Form(""), per
     a["updated_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
     st.save_accounts()
     return back(f"{a.get('name') or uid} 님의 권한을 저장했습니다")
+
+
+# 조직도(/team?tab=org 의 자료·고치기 — org_routes). main.py 가 이 라우터만 붙이므로 여기서 함께 붙인다
+from zzaimy.app.org_routes import router as _org_router  # noqa: E402
+
+router.include_router(_org_router)
