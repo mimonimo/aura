@@ -137,9 +137,11 @@ def set_domain(domain: str) -> str:
     return d
 
 
-def auth_url(redirect_uri: str, user: str = "") -> str:
+def auth_url(redirect_uri: str, user: str = "", purpose: str = "", select_account: bool = False) -> str:
     """담당자를 구글 허용 화면으로 보낸다. state 는 되돌아올 때 대조한다(10분) — 허용을 시작한 플랫폼 계정(user)과 함께 적어,
-    다른 사람이 시작한 허용의 되돌아오는 주소를 내 브라우저가 열어도 내 계정에 남의 구글 계정이 묶이지 않게 한다."""
+    다른 사람이 시작한 허용의 되돌아오는 주소를 내 브라우저가 열어도 내 계정에 남의 구글 계정이 묶이지 않게 한다.
+    purpose: 무엇을 위한 허용인지(빈 값 = 본인 계정, 「dept:<부서>」 = 부서 드라이브 계정) — state 와 함께 서버에만 둔다.
+    select_account: 구글 계정 고르기 화면을 꼭 띄운다(브라우저에 로그인된 본인 계정이 저절로 쓰이지 않게)."""
     c = client_config()
     if not configured():
         raise ValueError("구글 클라이언트 ID·비밀이 아직 없습니다")
@@ -148,13 +150,21 @@ def auth_url(redirect_uri: str, user: str = "") -> str:
         now = time.time()
         for k in [k for k, v in _pending_states.items() if now - (v[0] if isinstance(v, tuple) else v) > 600]:
             _pending_states.pop(k, None)
-        _pending_states[state] = (now, user or "")
+        _pending_states[state] = (now, user or "", purpose or "")
     q = {"client_id": c["client_id"], "redirect_uri": redirect_uri, "response_type": "code",
-         "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "state": state,
+         "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "select_account consent" if select_account else "consent",
+         "state": state,
          "include_granted_scopes": "true"}
     if allowed_domain():
         q["hd"] = allowed_domain()                   # 구글 계정 고르기 화면에 이 도메인 계정만 보인다(안내일 뿐, 검사는 exchange_code)
     return f"{AUTH_URL}?{urlencode(q)}"
+
+
+def state_purpose(state: str) -> str:
+    """되돌아온 state 가 무엇을 위한 허용이었는지(소비하지 않고 본다) — 모르는 state 는 빈 값. 대조는 exchange_code 가 한다."""
+    with _lock:
+        got = _pending_states.get(state or "")
+    return got[2] if isinstance(got, tuple) and len(got) > 2 else ""
 
 
 def _http():
@@ -164,7 +174,7 @@ def _http():
     return httpx.Client(timeout=httpx.Timeout(180, connect=30))
 
 
-def exchange_code(code: str, state: str, redirect_uri: str, http=None, user: str = "") -> str:
+def exchange_code(code: str, state: str, redirect_uri: str, http=None, user: str = "", purpose: str | None = None) -> str:
     """허용 화면에서 돌아온 코드를 토큰으로 바꾸고 계정(이메일) 아래에 보관한다. 돌려주는 것은 이메일.
     state 는 허용을 시작한 그 플랫폼 계정(user)이 돌아왔을 때만 받는다."""
     with _lock:
@@ -174,6 +184,8 @@ def exchange_code(code: str, state: str, redirect_uri: str, http=None, user: str
     started_by = got[1] if isinstance(got, tuple) else ""
     if started_by != (user or ""):
         raise ValueError("허용을 시작한 계정과 지금 로그인한 계정이 다릅니다 — 본인 계정으로 로그인한 채 다시 연결해 주세요")
+    if purpose is not None and (got[2] if isinstance(got, tuple) and len(got) > 2 else "") != purpose:
+        raise ValueError("허용 요청이 일치하지 않습니다 — 다시 시도해 주세요")
     c = client_config()
     http = http or _http()
     r = http.post(TOKEN_URL, data={"code": code, "client_id": c["client_id"], "client_secret": c["client_secret"],

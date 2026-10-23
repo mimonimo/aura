@@ -210,10 +210,8 @@ def test_dev_users_dictionary_candidates_and_bulk_create(tmp_path):
     app, c = _client(tmp_path)
     c.post("/dev/users/dept", data={"action": "create", "name": "기획처"})
     page = c.get("/dev/users").text
-    assert "사전에서 고르기" in page and 'name="names" value="기획팀"' in page
-    assert 'name="names" value="기획처"' not in page                              # 이미 있는 부서는 후보에서 뺀다
-    assert 'name="names" value="새이름과"' not in page and 'name="names" value="행정지원팀"' not in page
-    assert '<option value="학생복지팀">학생복지팀 · 학생처 · 대학본부' in page            # 부서 이름 자동완성 후보
+    # 화면에서는 사전 고르기를 뺐다(10-23 사용자: 쓰기 복잡) — 부서 추가는 이름과 상위 부서만. 서버의 여러 개 만들기 길은 남는다
+    assert "사전에서 고르기" not in page and 'name="names"' not in page
     r = c.post("/dev/users/dept", data={"action": "create_many", "names": ["기획팀", "학생처", "새이름과", "기획처"]},
                follow_redirects=False)
     assert "ok=" in r.headers["location"] and "2개" in unquote(r.headers["location"])
@@ -223,8 +221,7 @@ def test_dev_users_dictionary_candidates_and_bulk_create(tmp_path):
     c.post("/dev/users/dept", data={"action": "create", "name": "다라사업단"})
     assert "다라2.0사업단" in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})
     page = c.get("/dev/users").text
-    assert "기획팀 · 기획처" in page                                               # 부서 카드의 위계 한 줄
-    assert "규정 제안: 기획처 — 적용" in page                                       # 기획팀의 상위 부서 제안
+    assert "규정 제안" not in page and 'data-parent-open="기획팀"' in page          # 상위 부서는 창에서 고른다
 
 
 def test_dept_parent_route_admin_only_and_no_cycle(tmp_path):

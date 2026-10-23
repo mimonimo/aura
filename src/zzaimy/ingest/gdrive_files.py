@@ -106,9 +106,14 @@ NEED_ACCOUNT = "문서를 만들 구글 계정이 연결되지 않았습니다 �
 
 
 def account_for(db, user: str | None, dept: str | None = None) -> str:
-    """이 담당자가 문서를 만들 구글 계정 — 본인이 연결한 계정 → (관리자가 정한) 부서 공용 계정. 없으면 빈 문자열."""
+    """이 담당자가 문서를 만들 구글 계정 — 본인이 연결한 계정 → (관리자가 정한) 부서 공용 계정. 없으면 빈 문자열.
+    부서가 부서 드라이브 계정을 연결했으면(google_root_shared:<부서>=1, dept_drive) 그 계정이 먼저다 — 부서 문서는 부서 계정
+    드라이브의 부서 폴더에 부서 계정 소유로 만들어지고, 부서 사람은 폴더 권한(맞추기)으로 함께 편집한다. 연결 전이면 본인 드라이브."""
     ok = {a["email"] for a in gdrive.list_accounts() if gdocs.has_docs_scope(a["email"])}
-    for key in ((f"google_account:{user}" if user else ""), (f"google_account_dept:{dept}" if dept else "")):
+    keys = [(f"google_account:{user}" if user else ""), (f"google_account_dept:{dept}" if dept else "")]
+    if dept and (db.get_setting(f"google_root_shared:{dept}", "") or "").strip() == "1":
+        keys.reverse()
+    for key in keys:
         if key:
             email = (db.get_setting(key, "") or "").strip()
             if email in ok:

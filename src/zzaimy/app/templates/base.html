@@ -104,16 +104,23 @@
   /* 사이드바는 스크롤 칸이라 펼침 창이 잘리지 않게 화면 기준으로 띄운다(사이드바 왼쪽 아래에서 위로) */
   .side-user .popover { position: fixed; top: auto; bottom: 64px; left: 12px; right: auto; width: 300px; max-height: calc(100dvh - 120px); overflow-y: auto; }
   .topbar { padding-top: 9px; padding-bottom: 9px; min-height: 48px; }
-  /* 사용자 메뉴 — 얇게: 계정 한 줄, 아이콘 + 글 한 줄씩 */
-  .user-menu { width: 248px; padding: 6px; border-radius: 12px; }
-  .user-menu .um-head { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 8px; }
-  .user-menu .um-id { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .user-menu .um-sub { font-size: 11.5px; color: var(--faint); }
-  .user-menu .um-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none; box-shadow: none;
-                        color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 400; text-decoration: none; cursor: pointer; justify-content: flex-start; min-height: 0; }
-  .user-menu .um-item:hover { background: var(--panel); }
-  .user-menu .um-item iconify-icon { font-size: 17px; color: var(--muted); }
-  .user-menu .um-sep { height: 1px; background: var(--line); margin: 5px 4px; }
+  /* 사용자 메뉴 — 사이드바 폭에 맞춘 작은 카드: 머리(아바타·이름·등급·부서) + 아이콘 한 줄 항목 */
+  .side-user .popover.user-menu { width: 244px; bottom: 60px; left: 10px; }
+  .user-menu { width: 244px; padding: 5px; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 10px 28px rgba(15, 23, 42, .12), 0 1px 3px rgba(15, 23, 42, .06); }
+  .user-menu.open { animation: umIn .12s ease-out; transform-origin: bottom left; }
+  @keyframes umIn { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
+  .user-menu .um-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 9px; }
+  .user-menu .um-head .avatar { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%;
+                                background: #e8edf6; color: #1f3a68; font-size: 13px; font-weight: 600; }
+  .user-menu .um-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .user-menu .um-id { font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-menu .um-sub { font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-menu .um-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: none; box-shadow: none;
+                        color: var(--ink); font: inherit; font-size: 13px; font-weight: 400; text-decoration: none; cursor: pointer; justify-content: flex-start; min-height: 0; }
+  .user-menu .um-item:hover, .user-menu .um-item:focus-visible { background: var(--panel); outline: none; }
+  .user-menu .um-item iconify-icon { font-size: 16px; color: var(--muted); }
+  .user-menu .um-item.um-out:hover iconify-icon, .user-menu .um-item.um-out:hover span { color: #b42318; }
+  .user-menu .um-sep { height: 1px; background: var(--line); margin: 4px 6px; }
   .side-note { font-size: 11px; color: var(--faint); padding: 10px 12px 0; line-height: 1.5; }
 
   /* ── 우측 컬럼 ── */
@@ -593,9 +600,9 @@ document.addEventListener('submit', function(event) {
       <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
     {% endif %}
     {% set _team_mgr = program_scope is defined and program_scope(request) in ('all', 'dept') or (program_scope is defined and request_grade is defined and request_grade(request) == 'lead') %}
-    {% if _team_mgr or request.state.role in ('staff', 'professor', 'head') %}{# 조직도는 교직원 누구나 보기, 부서 사람(권한 주기)은 책임자 이상 #}
-    <a href="{{ '/team' if _team_mgr else '/team?tab=org' }}" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="{{ '조직도와 같은 부서 직원의 등급·추가 권한' if _team_mgr else '학교 조직도' }}">
-      <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>{{ '부서 사람' if _team_mgr else '조직도' }}</a>
+    {% if _team_mgr or request.state.role in ('staff', 'professor', 'head') %}{# 조직도는 교직원 누구나 보기, 구성원(권한 주기)은 책임자 이상 #}
+    <a href="{{ '/team' if _team_mgr else '/team?tab=org' }}" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="{{ '조직도와 구성원 등급·권한' if _team_mgr else '학교 조직도' }}">
+      <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>{{ '조직·구성원' if _team_mgr else '조직도' }}</a>
     {% endif %}
     {% endif %}
   </nav>
@@ -733,12 +740,14 @@ document.addEventListener('submit', function(event) {
       </button>
       <div class="popover user-menu" id="userPop">
         {% set sub = [role_labels.get(request.state.role, "담당자"), profile_dept or ""] | select | list %}
-        <div class="um-head"><span class="um-id">{{ request.state.user or "" }}</span><span class="um-sub">{{ (profile_name ~ " · ") if profile_name and profile_name != request.state.user else "" }}{{ sub | join(" · ") }}</span></div>
+        <div class="um-head"><span class="avatar" aria-hidden="true">{{ (profile_name or request.state.user or "담")[:1] | upper }}</span>
+          <span class="um-who"><span class="um-id">{{ profile_name or request.state.user or "" }}</span><span class="um-sub">{{ sub | join(" · ") }}</span></span></div>
+        <div class="um-sep"></div>
         <a class="um-item" href="/settings"><iconify-icon icon="solar:settings-linear" aria-hidden="true"></iconify-icon><span>설정</span></a>
         {% if request.state.role == 'dev' %}<a class="um-item" href="/dev/users"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon><span>사용자·계정 관리</span></a>{% endif %}
         <div class="um-sep"></div>
         <form action="/logout" method="post" style="margin:0;">
-          <button type="submit" class="um-item"><iconify-icon icon="solar:logout-2-linear" aria-hidden="true"></iconify-icon><span>로그아웃</span></button>
+          <button type="submit" class="um-item um-out"><iconify-icon icon="solar:logout-2-linear" aria-hidden="true"></iconify-icon><span>로그아웃</span></button>
         </form>
       </div>
     </div>

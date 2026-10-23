@@ -1,5 +1,4 @@
-/* 조직도(/team?tab=org) — 처·단 카드와 그 아래 팀·센터 줄. 얇은 선·작은 글자, 움직임은 짧게 */
-/* 끌기 중 위 막대 자리에 겹쳐 뜨는 「맨 위로」 놓는 자리 — 목록이 밀리지 않게 */
+/* 조직도(/team?tab=org) — 다이어그램(학교 → 처·단 → 팀·센터)과 자세히 창. 얇은 선·작은 글자, 움직임은 짧게 */
 .oc { position: relative; --oc-accent: #1b3b75; --oc-soft: #eef3fa; --oc-ring: #1b3b7518; }
 .oc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
 .oc-find { position: relative; flex: 1 1 260px; max-width: 360px; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px;
@@ -10,14 +9,17 @@
 .oc-btn { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
   color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
 .oc-btn:hover { border-color: #c3cedc; }
-.oc-btn:focus-visible, .oc-icon:focus-visible, .oc-menu button:focus-visible, .oc-chip button:focus-visible { outline: 0; box-shadow: 0 0 0 3px #1b3b7533; }
+.oc-btn:focus-visible, .oc-chip button:focus-visible { outline: 0; box-shadow: 0 0 0 3px #1b3b7533; }
 .oc-btn.primary { background: var(--oc-accent); border-color: var(--oc-accent); color: #fff; }
 .oc-btn.primary:hover { background: #14325a; }
 .oc-btn.danger { background: #b3312f; border-color: #b3312f; color: #fff; }
+.oc-btn.danger-soft { color: #b3312f; }
+.oc-btn.danger-soft:hover { border-color: #e6b7b6; background: #fdf5f5; }
+a.oc-btn { text-decoration: none; }
 .oc-btn[disabled] { opacity: .45; cursor: not-allowed; }
 .oc-btn[aria-pressed="true"] { background: var(--oc-soft); border-color: #b9cbe4; color: var(--oc-accent); }
 .oc-bar .oc-gap { flex: 1; }
-.oc-hint { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+.oc [hidden] { display: none !important; }
 
 .oc-sugg { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; margin: 0 0 12px; border: 1px dashed #cdd7e4; border-radius: 10px; background: #fbfcfe; }
 .oc-sugg[hidden] { display: none; }
@@ -26,66 +28,73 @@
 .oc-sugg button:hover { border-color: #b9cbe4; background: var(--oc-soft); }
 .oc-sugg button[disabled] { cursor: default; color: var(--faint); background: #fff; }
 
-.oc-topzone { display: none; position: absolute; left: 0; right: 0; top: 0; z-index: 20; align-items: center; justify-content: center; height: 34px; border: 1.5px dashed #b9cbe4; border-radius: 10px;
-  font-size: 12.5px; color: var(--oc-accent); background: #f7f9fd; }
-.oc.dragging .oc-topzone { display: flex; }
-.oc-topzone.over { background: var(--oc-soft); border-color: var(--oc-accent); }
+/* 다이어그램 — 맨 위 「학교」 → 처·단 상자(가로로 나란히) → 그 아래 팀·센터 상자(세로로, 왼쪽 선으로 잇기) */
+.oc { --od-line: #c7d1de; }
+.od-view { position: relative; overflow: auto; min-height: 360px; max-height: calc(100vh - 230px); padding: 22px; border: 1px solid var(--line); border-radius: 12px;
+  background: #fbfcfd radial-gradient(#e3e8ef 1px, transparent 1px) 0 0 / 18px 18px; cursor: grab; }
+.od-view.panning { cursor: grabbing; user-select: none; }
+.od-stage { display: flex; align-items: flex-start; gap: 40px; width: max-content; margin: 0 auto; cursor: default; }
+.od-tree { display: inline-flex; flex-direction: column; align-items: center; }
+.od-root { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 22px; border: 1px solid #b9cbe4; border-radius: 10px; background: var(--oc-soft);
+  color: var(--oc-accent); }
+.od-root .od-name { color: var(--oc-accent); font-size: 14px; }
+.od-root .od-l2 { color: var(--muted); }
+.od-stem { width: 1px; height: 18px; background: var(--od-line); }
+.od-row { display: flex; align-items: flex-start; }
+.od-col { position: relative; display: flex; flex-direction: column; padding: 18px 9px 0; }
+.od-col::before, .od-col::after { content: ""; position: absolute; top: 0; width: 50%; height: 18px; border-top: 1px solid var(--od-line); }
+.od-col::before { left: 0; }
+.od-col::after { right: 0; border-left: 1px solid var(--od-line); }
+.od-col:first-child::before { border-top: 0; }
+.od-col:last-child::after { border-top: 0; }
+.od-sub { display: flex; justify-content: flex-end; margin-left: 18px; padding: 5px 0 0; border-left: 1px solid var(--od-line); }
+.od-sub.shut { border-left-color: transparent; }
+.od-fold { height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.od-fold:hover { color: var(--ink); border-color: #c3cedc; }
+.od-fold:focus-visible { outline: 0; box-shadow: 0 0 0 3px #1b3b7533; }
+.od-kids { margin-left: 18px; }
+.od-k { position: relative; padding: 6px 0 0 14px; }
+.od-k::before { content: ""; position: absolute; left: 0; top: 0; width: 13px; height: 23px; border-left: 1px solid var(--od-line); border-bottom: 1px solid var(--od-line);
+  border-bottom-left-radius: 6px; }
+.od-k::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--od-line); }
+.od-k:last-child::after { display: none; }
 
-.oc-list { display: flex; flex-direction: column; gap: 10px; }
-.oc-card { border: 1px solid var(--line); border-radius: 12px; background: #fff; transition: border-color .15s, box-shadow .15s; }
-.oc-card.over { border-color: var(--oc-accent); box-shadow: 0 0 0 3px var(--oc-ring); }
-.oc-card.loose { background: #fcfcfd; border-style: dashed; }
-.oc-card[hidden], .oc-row[hidden] { display: none; }
-.oc-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 14px; min-height: 48px; }
-.oc-head .oc-title { display: flex; align-items: baseline; gap: 7px; min-width: 0; flex: 0 1 auto; }
-.oc-name { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.oc-row .oc-name { font-size: 13px; font-weight: 500; }
-.oc-kind { font-size: 11px; color: var(--faint); white-space: nowrap; }
-.oc-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
-.oc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
-.oc-chip { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
-  background: #f1f4f8; color: #334155; border: 1px solid transparent; }
-.oc-chip.head { background: var(--oc-soft); color: var(--oc-accent); }
-.oc-chip small { color: inherit; opacity: .7; font-size: 10.5px; }
-.oc-chip button { border: 0; background: none; padding: 0 0 0 2px; font-size: 13px; line-height: 1; color: inherit; cursor: pointer; border-radius: 4px; }
-.oc-chip.add { background: #fff; border: 1px dashed #b9cbe4; color: var(--oc-accent); cursor: pointer; font: inherit; font-size: 11.5px; }
-.oc-chip.add:hover { background: var(--oc-soft); }
-.oc-gap { flex: 1; }
-.oc-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent;
-  color: var(--muted); cursor: pointer; font-size: 17px; flex: none; }
-.oc-icon:hover { background: #f1f4f8; color: var(--ink); }
-.oc-fold { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; font: inherit; font-size: 12px; color: var(--muted);
-  cursor: pointer; white-space: nowrap; flex: none; }
-.oc-fold:hover { color: var(--ink); border-color: #c3cedc; }
-.oc-body { border-top: 1px solid var(--line); }
-.oc-card.folded .oc-body { display: none; }
-.oc-row { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 5px 10px 5px 12px; border-bottom: 1px solid #f0f3f7; background: #fff; }
-.oc-row:last-child { border-bottom: 0; border-radius: 0 0 12px 12px; }
-.oc-row[draggable="true"] { cursor: grab; }
-.oc-row.lifted { opacity: .45; }
-.oc-grip { color: #c3ccd8; font-size: 15px; flex: none; width: 16px; display: inline-flex; justify-content: center; }
-.oc-row:not([draggable="true"]) .oc-grip { visibility: hidden; }
-.oc-via { font-size: 11px; color: var(--faint); white-space: nowrap; }
-.oc-empty { margin: 0; padding: 12px 14px; font-size: 12.5px; color: var(--faint); }
-.oc-slot { display: none; }
-.oc-card.over .oc-slot { display: flex; align-items: center; height: 34px; margin: 6px 10px 8px; padding: 0 12px; border: 1.5px dashed var(--oc-accent);
-  border-radius: 8px; background: var(--oc-soft); font-size: 12.5px; color: var(--oc-accent); }
+.od-box { display: flex; flex-direction: column; gap: 3px; width: 212px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; cursor: pointer; transition: border-color .12s, box-shadow .12s, opacity .12s; }
+.od-box.top { border-color: #cfd9e7; background: #f8fafd; }
+.od-k .od-box, .od-loose .od-box { width: auto; }
+.od-box:hover { border-color: #b9cbe4; box-shadow: 0 2px 10px rgba(15, 30, 60, .06); }
+.od-box:focus-visible { outline: 0; border-color: #9fb3cf; box-shadow: 0 0 0 3px #1b3b7533; }
+.od-box.dim { opacity: .38; }
+.od-box.hit { border-color: #e2b93b; box-shadow: 0 0 0 3px #fff1b8; }
+.od-box.cur { box-shadow: 0 0 0 3px #f2c94c; }
+.od-box.lifted { opacity: .4; }
+.od-box.over, .od-root.over { border-color: var(--oc-accent); background: var(--oc-soft); box-shadow: 0 0 0 3px var(--oc-ring); }
+.oc.dragging .od-root { border-style: dashed; }
+.od-l1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.od-name { min-width: 0; font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.od-k .od-name, .od-loose .od-name { font-weight: 500; }
+.od-kind { flex: none; margin-left: auto; padding: 0 6px; border-radius: 5px; background: #f1f4f8; font-size: 10.5px; line-height: 17px; color: var(--muted); }
+.od-l2 { display: flex; gap: 8px; min-width: 0; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.od-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--oc-accent); }
+.od-via { font-size: 11px; color: var(--faint); }
+.od-loose { width: 200px; flex: none; padding: 10px; border: 1px dashed #cdd7e4; border-radius: 12px; background: #fff; }
+.od-loose-h { margin: 0 2px 8px; font-size: 12px; font-weight: 600; color: var(--ink); }
+.od-loose-list { display: flex; flex-direction: column; gap: 6px; }
+.oc-zoom { display: inline-flex; }
+.oc-zoom .oc-btn { border-radius: 0; margin-left: -1px; padding: 0 10px; }
+.oc-zoom .oc-btn:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+.oc-zoom .oc-btn:last-child { border-radius: 0 8px 8px 0; }
+.oc-zoom .oc-zv { min-width: 56px; justify-content: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+.oc-found { flex: none; font-size: 11.5px; color: var(--faint); }
 mark.oc-hit { background: #fff1b8; color: inherit; border-radius: 3px; padding: 0 1px; }
 .oc-none { padding: 16px; font-size: 12.5px; color: var(--muted); }
 
-/* 이름 바꾸기 칸(그 자리에서) */
-.oc-rename { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; }
-.oc-rename input { flex: 1; min-width: 120px; max-width: 320px; height: 30px; padding: 0 9px; border: 1px solid #9fb3cf; border-radius: 7px; font: inherit; font-size: 13px;
-  box-shadow: 0 0 0 3px var(--oc-ring); outline: 0; }
-
-/* ⋯ 메뉴 */
-.oc-menu { position: fixed; z-index: 1200; min-width: 168px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: #fff;
-  box-shadow: 0 10px 28px rgba(15, 30, 60, .14); }
-.oc-menu button { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; font: inherit;
-  font-size: 13px; color: var(--ink); text-align: left; cursor: pointer; }
-.oc-menu button:hover, .oc-menu button:focus { background: #f1f4f8; outline: 0; }
-.oc-menu button.danger { color: #b3312f; }
-.oc-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+/* 칩(총괄 책임자) */
+.oc-chip { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
+  background: #f1f4f8; color: #334155; border: 1px solid transparent; }
+.oc-chip.head { background: var(--oc-soft); color: var(--oc-accent); }
+.oc-chip button { border: 0; background: none; padding: 0 0 0 2px; font-size: 13px; line-height: 1; color: inherit; cursor: pointer; border-radius: 4px; }
 
 /* 창 */
 .oc-dlg { border: 0; padding: 0; border-radius: 14px; width: min(440px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(15, 30, 60, .22); color: var(--ink); }
@@ -104,6 +113,15 @@ mark.oc-hit { background: #fff1b8; color: inherit; border-radius: 3px; padding: 
 .oc-facts dd { margin: 0; }
 .oc-facts .warn { color: #b3312f; font-weight: 600; }
 
+/* 자세히 창 */
+.oc-dlg .od-where { margin-top: -8px; font-size: 12.5px; color: var(--faint); }
+.od-heads { display: flex; flex-wrap: wrap; gap: 4px; }
+.od-none { color: var(--faint); }
+.od-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.od-acts .oc-btn { height: 32px; }
+.od-pick { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
+.od-pick p { margin: 0 0 8px; font-size: 12px; }
+
 /* 고르기 칸(콤보) */
 .oc-combo { position: relative; }
 .oc-opts { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; max-height: 220px; overflow: auto; padding: 4px; border: 1px solid var(--line);
@@ -112,11 +130,6 @@ mark.oc-hit { background: #fff1b8; color: inherit; border-radius: 3px; padding: 
 .oc-opt { display: flex; align-items: baseline; gap: 8px; padding: 6px 9px; border-radius: 6px; font-size: 13px; color: var(--ink); cursor: pointer; }
 .oc-opt small { color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oc-opt.on, .oc-opt:hover { background: #f1f4f8; }
-
-/* 총괄 책임자 고르기 */
-.oc-pick { position: fixed; z-index: 1200; width: min(320px, calc(100vw - 32px)); padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fff;
-  box-shadow: 0 12px 30px rgba(15, 30, 60, .16); }
-.oc-pick p { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
 
 /* 되돌리기 알림 */
 .oc-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 1300; display: flex; align-items: center; gap: 14px;
@@ -130,12 +143,8 @@ mark.oc-hit { background: #fff1b8; color: inherit; border-radius: 3px; padding: 
 
 @media (max-width: 760px) {
   .oc-find { max-width: none; flex-basis: 100%; }
-  .oc-head { flex-wrap: wrap; row-gap: 4px; }
-  .oc-head .oc-chips { order: 5; flex-basis: 100%; }
-  .oc-row { flex-wrap: wrap; row-gap: 2px; }
-  .oc-row .oc-chips { order: 5; flex-basis: 100%; padding-left: 24px; }
-  .oc-row[draggable="true"] { cursor: default; }
+  .od-view { max-height: none; padding: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .oc-card, .oc-toast { transition: none; animation: none; }
+  .od-box, .oc-toast { transition: none; animation: none; }
 }

@@ -158,22 +158,11 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
     c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
     assert gdrive.allowed_domain() == "ync.ac.kr"
     assert "err=" in c.post("/dev/google/settings", data={"domain": "not a domain"}, follow_redirects=False).headers["location"]
-    # 부서 드라이브 연결 — 고른 위치(주소에서 id 를 뽑는다) 아래에 부서 폴더를 새로 만들고, 연결 계정이 부서 공용 계정이 된다
-    from zzaimy.ingest import dept_drive
-    made = []
-
-    def fake_connect(db_, dept, account, parent, http=None):
-        made.append((dept, account, parent))
-        for k, v in (("google_root", "NEWFOLDER1"), ("google_root_by", account), ("google_account_dept", account)):
-            db_.set_setting(f"{k}:{dept}", v)
-        return "NEWFOLDER1"
-    monkeypatch.setattr(dept_drive, "connect", fake_connect)
-    monkeypatch.setattr(dept_drive, "sync", lambda *a, **k: {"added": 0, "removed": 0, "error": ""})
+    # 관리자 화면의 부서 드라이브는 확인용 — 연결은 부서 쪽(/team/drive/connect)에서. 예전 연결 요청은 안내만 한다
     c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})
-    c.post("/dev/google/dept", data={"dept": "산학협력단",
-                                     "root": "https://drive.google.com/drive/folders/0AbCdEfGhIjKlMnOp?usp=sharing"})
-    assert made == [("산학협력단", "dev@ync.ac.kr", "0AbCdEfGhIjKlMnOp")]
-    assert db.get_setting("google_account_dept:산학협력단") == "dev@ync.ac.kr" and db.get_setting("google_root:산학협력단") == "NEWFOLDER1"
+    r = c.post("/dev/google/dept", data={"dept": "산학협력단", "action": "connect"}, headers={"Accept": "application/json"})
+    assert r.status_code == 400 and "조직·구성원" in r.json()["msg"]
+    db.set_setting("google_account_dept:산학협력단", "dev@ync.ac.kr")
     # 연결 삭제는 토큰과 사용자·부서 이음을 함께 푼다
     db.set_setting("google_account:zzaimy", "dev@ync.ac.kr")
     c.post("/dev/google/revoke", data={"email": "dev@ync.ac.kr"})
@@ -182,7 +171,7 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
 
 def test_callback_is_open_to_staff_and_returns_to_settings(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
-    monkeypatch.setattr(gdrive, "exchange_code", lambda code, state, uri, user="": "kim@ync.ac.kr")
+    monkeypatch.setattr(gdrive, "exchange_code", lambda code, state, uri, user="", purpose=None: "kim@ync.ac.kr")
     c = TestClient(_app(tmp_path))
     assert _login(c, "zzaimy", "boot-pass-1")
     r = c.get("/dev/gdrive/callback?code=x&state=y", follow_redirects=False)
@@ -324,7 +313,8 @@ def test_dept_card_has_only_working_buttons(tmp_path, monkeypatch):
     page = c.get("/dev/users").text
     card = page[page.index('id="depts"'):page.index('id="deptCreate"')]
     assert "문서 넣기" not in card and 'href="/?type=all"' not in card
-    assert "드라이브 연결" in card and "연결 전" in card and 'data-modal-open="#deptEdit"' in card
+    assert "연결 전" in card and "#deptEdit" not in card and "드라이브 연결" not in card     # 관리자는 확인만(연결은 부서에서)
+    assert 'data-people-open="교무처"' in card and 'data-parent-open="교무처"' in card
     assert "/?type=all&amp;scope=%EA%B5%90%EB%AC%B4%EC%B2%98" in card                  # 문서 수 → 그 부서 문서 목록
     assert "ua-steps" not in card and card.count('class="ua-lead"') == 1               # 설명은 한 줄
     assert 'name="action" value="delete"' in card and "부서 추가" in card

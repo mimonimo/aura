@@ -12,7 +12,7 @@
   POST /dev/google/{settings,dept,revoke}, POST /dev/users/dept(부서 만들기·지우기·사전에서 여러 개 만들기 create_many),
   POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary). 계정의 겸직 부서는
   줄마다 부서 + 그 부서에서의 등급(rag grants dept: 와 account["dept_grades"] 를 함께 맞춘다)
-- 부서 사람: GET /team(등급·추가 권한), GET /team?tab=org(조직도 — 자료·고치기는 org_routes, 이 라우터에 함께 붙는다)
+- 조직·구성원: GET /team(구성원 — 등급·추가 권한), GET /team?tab=org(조직도 — 자료·고치기는 org_routes, 이 라우터에 함께 붙는다)
 
 main.py 는 app.state 에 accounts(플랫폼 계정 표)·save_accounts·set_pw·new_account·templates·page_ctx 를 두고 이 라우터를 붙인다.
 """
@@ -120,7 +120,7 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
             n_docs = {str(r[0]): int(r[1]) for r in c.execute(
                 f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
     from zzaimy.ingest import dept_drive
-    from zzaimy.app import dept_dictionary
+    from zzaimy.app import dept_dictionary, dept_drive_routes
     dic = dept_dictionary.load(data_dir)
     confirmed = dept_dictionary.parents_override(data_dir)
     suggested = dept_dictionary.suggested_parents(data_dir)
@@ -132,7 +132,9 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
                   "root": (settings.get(f"google_root:{d}") or "").strip(),
                   "drive": dept_drive.state(db, d, accounts, data_dir),
                   "members": sorted(u for u, a in accounts.items() if (a.get("dept") or "").strip() == d),
+                  "people": dept_drive_routes.people_rows(db, d, accounts, data_dir),
                   "docs": n_docs.get(d, 0)} for d in depts]
+    dept_rows = dept_drive_routes.tree_rows(dept_rows, data_dir)       # 맨 위 부서 다음에 그 아래 부서(펼치기·접기)
     owners: dict[str, list[str]] = {}
     sharers: dict[str, list[str]] = {}         # 본인 연결 없이 이 계정으로 문서를 쓰는 사용자(부서 공용·공용 계정)
     for u in users:
@@ -142,7 +144,8 @@ def overview(db, accounts: dict, data_dir=None) -> dict:
             sharers.setdefault(u["effective"], []).append(f'{u["user"]}({u["via"]})')
     emails = [{"email": e, "users": owners.get(e, []), "shared": sharers.get(e, []), "docs_ok": gdocs.has_docs_scope(e),
                "granted_at": conn[e].get("granted_at", "")} for e in sorted(conn)]
-    return {"users": users, "depts": dept_rows, "emails": emails, "domain": gdrive.allowed_domain(),
+    return {"users": users, "depts": dept_rows, "dept_people": {r["dept"]: r["people"] for r in dept_rows},
+            "emails": emails, "domain": gdrive.allowed_domain(),
             "app": gdrive.public_status(), "roles": ASSIGNABLE_ROLES, "grades": grades.GRADES, "perms": grades.PERMS,
             "default_grade": grades.DEFAULT_GRADE, "admin_max": grades.ADMIN_MAX,
             "admin_n": grades.admin_count(accounts), "me": ""}
@@ -363,45 +366,35 @@ def dev_google_settings(request: Request, domain: str = Form("")):
     return _back(f"허용 도메인을 저장했습니다({d or '제한 없음'})")
 
 
+def _reply(request: Request, msg: str, ok: bool = True, **extra):
+    """부서 표의 동작 응답 — 화면이 fetch 로 보내면(Accept: application/json) {ok, msg, …}, 폼 그대로면 /dev/users 로 돌아간다."""
+    from zzaimy.app.dept_drive_routes import wants_json
+    if wants_json(request):
+        return JSONResponse({"ok": ok, "msg": msg, **extra}, status_code=200 if ok else 400)
+    return RedirectResponse(f"/dev/users?{'ok' if ok else 'err'}={quote(msg)}#depts", status_code=303)
+
+
 @router.post("/dev/google/dept")
-def dev_google_dept(request: Request, dept: str = Form(""), root: str = Form(""), action: str = Form("connect")):
-    """부서 드라이브 연결 — 고른 위치(내 드라이브·공유 드라이브의 폴더) 아래에 「AURA · <부서>」 폴더를 새로 만들고, 그 부서 사람의
-    학교 구글 계정에만 편집 권한을 준다(ingest/dept_drive). 연결 계정은 지금 로그인한 관리자의 학교 계정 — 그 계정이 폴더를 만든다.
-    action=sync 는 권한만 다시 맞춘다."""
-    from zzaimy.ingest import dept_drive
+def dev_google_dept(request: Request, dept: str = Form(""), action: str = Form("sync")):
+    """관리자 화면의 부서 드라이브 — 확인용이라 권한 맞추기(sync)와 비상 연결 끊기(disconnect)만 한다. 연결은 그 부서가
+    조직·구성원 화면에서 부서가 함께 쓸 구글 계정으로 한다(dept_drive_routes)."""
+    from zzaimy.app import dept_drive_routes
     st = request.app.state
-    db = st.db
     dept = dept.strip()
-    if not dept or dept not in known_depts(db, _accounts(request), getattr(st, "data_dir", None)):
-        return _back("부서를 목록에서 골라 주세요", ok=False)
+    if not dept or dept not in known_depts(st.db, _accounts(request), getattr(st, "data_dir", None)):
+        return _reply(request, "부서를 목록에서 골라 주세요", ok=False)
     if action == "sync":
-        got = dept_drive.sync(db, dept, _accounts(request), getattr(st, "data_dir", None))
-        return _back(f"부서 {dept} 드라이브 권한을 맞췄습니다 — 줌 {got['added']} · 거둠 {got['removed']}"
-                     + (f" ({got['error']})" if got["error"] else ""), ok=not got["error"])
-    email = (db.get_setting(f"google_account:{_user(request)}", "") or "").strip()
-    if not email or email not in connected_emails():
-        return _back("먼저 본인의 학교 계정을 연결해 주세요 — 그 계정이 부서 폴더를 만듭니다", ok=False)
-    m = _FOLDER_ID.search(root.strip()) if root.strip() else None
-    parent = (m.group(1) or m.group(2)) if m else "root"
-    from zzaimy.ingest.folder_picker import folder as check_folder
-    if parent != "root":
-        try:
-            if not check_folder(email, parent)["writable"]:
-                return _back("고른 위치에 폴더를 만들 권한이 없습니다", ok=False)
-        except (ValueError, httpx.HTTPError):
-            return _back("고른 위치를 확인하지 못했습니다. 계정 연결과 쓰기 권한을 확인해 주세요", ok=False)
-    try:
-        dept_drive.connect(db, dept, email, parent)
-    except Exception as e:
-        return _back(str(e)[:200], ok=False)
-    got = dept_drive.sync(db, dept, _accounts(request), getattr(st, "data_dir", None))
-    s_ = dept_drive.state(db, dept, _accounts(request), getattr(st, "data_dir", None))
-    msg = f"부서 {dept} 드라이브를 연결했습니다 — 「{dept_drive.folder_name(dept)}」 폴더, 접근 {s_['granted']}명"
-    if s_["unlinked"]:
-        msg += f" · 구글 미연결 {len(s_['unlinked'])}명({', '.join(s_['unlinked'][:5])}) — 연결하면 다음 맞추기에서 받습니다"
-    if got["error"]:
-        msg += f" ({got['error']})"
-    return _back(msg, ok=not got["error"])
+        msg, good = dept_drive_routes.sync_now(request, dept)
+    elif action == "disconnect":
+        msg, good = dept_drive_routes.disconnect_now(request, dept)
+    else:
+        msg, good = "부서 드라이브는 그 부서의 조직·구성원 화면에서 연결합니다", False
+    return _reply(request, msg, good, dept=dept)
+
+
+from zzaimy.app.dept_drive_routes import router as _dept_drive_router  # noqa: E402  부서 쪽 연결(/team/drive*)
+
+router.include_router(_dept_drive_router)
 
 
 @org_lock.serialized
@@ -464,26 +457,25 @@ def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""
             if not err:
                 made.append(n)
         if not made:
-            return _back("만들 부서가 없습니다 — 고른 부서가 이미 있거나 사전에서 만들 수 없는 갈래입니다", ok=False)
+            return _reply(request, "만들 부서가 없습니다 — 고른 부서가 이미 있거나 사전에서 만들 수 없는 갈래입니다", ok=False)
         rag_spaces.save_config(cfg, data_dir)
         msg = f"부서 {len(made)}개를 만들었습니다: {', '.join(made[:8])}{' …' if len(made) > 8 else ''}"
         if plan["skip"]:
             msg += f" · 건너뜀 {len(plan['skip'])}개"
-        return RedirectResponse(f"/dev/users?ok={quote(msg)}#depts", status_code=303)
+        return _reply(request, msg)
     if action == "create":
         name = dic.normalize(name) or name             # 별칭(옛 이름·줄임말)으로 적어도 사전의 정식 이름으로
         new, err = rag_spaces.create_dept_rag(cfg, name, by=_user(request))
         if err:
-            return _back(err, ok=False)
+            return _reply(request, err, ok=False)
         rag_spaces.save_config(new, data_dir)
-        return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 만들었습니다 — 계정 부서·부서 RAG·검색 범위에서 고를 수 있습니다')}#depts",
-                                status_code=303)
+        return _reply(request, f'부서 「{name}」을 만들었습니다 — 계정 부서·부서 RAG·검색 범위에서 고를 수 있습니다', name=name)
     if action == "delete":
         err, moved = delete_dept(st, _accounts(request), name)
         if err:
-            return _back(err, ok=False)
-        return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 지웠습니다 · 문서 {moved}건은 공통 RAG 로')}#depts", status_code=303)
-    return _back("알 수 없는 요청", ok=False)
+            return _reply(request, err, ok=False)
+        return _reply(request, f'부서 「{name}」을 지웠습니다 · 문서 {moved}건은 공통 RAG 로')
+    return _reply(request, "알 수 없는 요청", ok=False)
 
 
 @router.post("/dev/users/dept-parent")
@@ -499,14 +491,14 @@ def dev_users_dept_parent(request: Request, dept: str = Form(""), parent: str = 
     known = known_depts(st.db, _accounts(request), data_dir)
     dept, parent = " ".join(dept.split()), " ".join(parent.split())
     if dept not in known or (parent and parent not in known):
-        return _back("부서와 상위 부서는 부서 목록에서 골라 주세요", ok=False)
+        return _reply(request, "부서와 상위 부서는 부서 목록에서 골라 주세요", ok=False)
     if data_dir is None:
-        return _back("설정 위치가 없습니다", ok=False)
+        return _reply(request, "설정 위치가 없습니다", ok=False)
     err = dept_dictionary.set_parent(data_dir, dept, parent)
     if err:
-        return _back(err, ok=False)
+        return _reply(request, err, ok=False)
     msg = f"「{dept}」 의 상위 부서를 「{parent}」 로 정했습니다" if parent else f"「{dept}」 의 상위 부서를 비웠습니다"
-    return RedirectResponse(f"/dev/users?ok={quote(msg)}#depts", status_code=303)
+    return _reply(request, msg)
 
 
 @router.get("/dev/google/folders")
@@ -544,7 +536,7 @@ def dev_google_revoke(request: Request, email: str = Form("")):
     return _back(f"{email} 연결을 지웠습니다(구글 쪽 권한은 그 계정의 보안 설정에서 따로 지울 수 있습니다)")
 
 
-# ---------------- 부서 사람: 같은 부서의 권한 있는 사람이 직원에게 등급·추가 권한을 준다 ----------------
+# ---------------- 구성원(조직·구성원 화면): 같은 부서의 권한 있는 사람이 직원에게 등급·추가 권한을 준다 ----------------
 # 권한은 본인이 고르지 않는다(10-22 사용자). 총괄 책임자(부서장)는 자기 부서 직원의 등급(일반·행정 담당자·사업 책임자)과
 # 추가 권한을 정하고, 사업 책임자는 자기 부서 일반 직원에게 추가 권한만 준다(등급은 못 바꿈). 총괄 책임자 지정은 관리자가.
 TEAM_GRADES = ("member", "clerk", "lead")
@@ -570,7 +562,7 @@ def _team_actor(request: Request) -> tuple[str, dict, dict, str]:
             if d not in scope and grades.grade_in(me, mine, d, dd) == "lead":
                 scope[d] = "lead"
     if not scope:
-        raise HTTPException(403, "부서 사람 권한은 그 부서의 총괄 책임자·사업 책임자와 관리자가 정합니다")
+        raise HTTPException(403, "구성원 권한은 그 부서의 총괄 책임자·사업 책임자와 관리자가 정합니다")
     return me, mine, scope, ("head" if "head" in scope.values() else "lead")
 
 
@@ -606,29 +598,60 @@ def _team_rows(accounts: dict, dept: str, actor_grade: str = "admin", data_dir=N
     return rows
 
 
+def _dept_groups(choices: list[str], data_dir=None) -> list[dict]:
+    """부서 고르기 칸의 묶음 — 처·단마다 그 아래 팀·센터(조직도와 같은 위계), 위가 없는 부서는 마지막 묶음.
+    [{"name": 처·단(없으면 빈 값), "pick": 처·단 자체를 고를 수 있나, "kids": [부서…]}]"""
+    from zzaimy.app import dept_dictionary
+    from zzaimy.app.org_routes import _top_of, is_top
+
+    over = dept_dictionary.parents_override(data_dir)
+    kids = dept_dictionary.children_map(data_dir)
+    have = set(choices)
+    groups: dict[str, list[str]] = {}
+    loose: list[str] = []
+    for d in choices:
+        t = _top_of(d, over)
+        if t:
+            groups.setdefault(t, []).append(d)
+        elif is_top(d, over, kids):
+            groups.setdefault(d, [])
+        else:
+            loose.append(d)
+    out = [{"name": t, "pick": t in have, "kids": sorted(ks)} for t, ks in sorted(groups.items())]
+    if loose:
+        out.append({"name": "", "pick": False, "kids": sorted(loose)})
+    return out
+
+
 @router.get("/team", response_class=HTMLResponse)
 def team_page(request: Request, dept: str = "", ok: str = "", err: str = "", tab: str = ""):
-    """부서 사람(등급·추가 권한)과 조직도(tab=org) — 조직도는 교직원 누구나 보고, 고치기는 org_routes 가 권한을 다시 본다."""
+    """조직·구성원 — 구성원(등급·추가 권한)과 조직도(tab=org). 조직도는 교직원 누구나 보고, 고치기는 org_routes 가 권한을 다시 본다."""
     st = request.app.state
     if tab == "org":
         from zzaimy.app.org_routes import Actor
         actor = Actor(request)
         try:
-            _team_actor(request)
+            _, _, scope, _ = _team_actor(request)
             team_ok = True
         except HTTPException:
-            team_ok = False
+            team_ok, scope = False, {}
+        # 조직도 상자에서 「구성원 보기」 를 보일 부서 — 관리자는 모두, 책임자는 맡은 부서만
+        team_scope = {"all": team_ok and not scope, "depts": sorted(scope)}
         return st.templates.TemplateResponse(request, "team.html", st.page_ctx(request, {
             "tab": "org", "team_ok": team_ok, "org_admin": actor.admin, "org_can": actor.can_any, "rows": [], "dept": "",
-            "depts": [], "ok": ok, "err": err}))
-    me, _, scope, _ag = _team_actor(request)
+            "depts": [], "team_scope": team_scope, "ok": ok, "err": err}))
+    me, mine, scope, _ag = _team_actor(request)
     dd = getattr(st, "data_dir", None)
     choices = known_depts(st.db, _accounts(request), dd) if not scope else sorted(scope)
     dept = dept if dept in choices else (choices[0] if choices else "")
     ag = "admin" if not scope else scope.get(dept, "lead")
+    groups = _dept_groups(choices, dd) if len(choices) > 1 else []
+    dept_top = next((g["name"] for g in groups if dept in g["kids"] and g["name"]), "")
+    my_depts = [d for d in grades.depts_of(me, mine, dd) if d in choices]
     return st.templates.TemplateResponse(request, "team.html", st.page_ctx(request, {
         "tab": "team", "team_ok": True,
         "rows": _team_rows(_accounts(request), dept, ag, dd), "dept": dept, "actor_grade": ag, "lead_grantable": LEAD_GRANTABLE, "depts": choices, "me": me,
+        "dept_groups": groups, "dept_top": dept_top, "my_depts": my_depts,
         "perms": grades.PERMS, "team_grades": {k: grades.GRADES[k] for k in TEAM_GRADES}, "ok": ok, "err": err}))
 
 

@@ -19,20 +19,40 @@
   .ua-form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
   .ua-form footer { display:flex; gap:8px; justify-content:flex-end; }
   .ua-lead { margin:0 0 12px; font-size:12.5px; color:var(--muted); line-height:1.6; }
-  #deptEdit { padding:16px; box-sizing:border-box; }
-  #deptEdit > .card { width:560px; max-height:calc(100dvh - 32px); overflow:hidden; border-radius:18px; }
-  #deptEdit .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 32px); }
-  #deptEdit .modal-head { padding:20px; margin:0; flex:none; border-bottom:1px solid var(--line); }
-  #deptEdit .ua-form { padding:20px; min-height:0; overflow:auto; }
-  #deptEdit .dept-steps { margin:0 0 12px; padding-left:18px; font-size:13px; line-height:1.6; color:var(--muted); }
-  #deptEdit .ua-footer { flex:none; display:flex; gap:8px; justify-content:flex-end; padding:16px 20px; border-top:1px solid var(--line); }
-  .folder-toolbar { display:flex; flex-wrap:wrap; gap:8px; }
-  .folder-list { border:1px solid var(--line); border-radius:10px; max-height:220px; overflow:auto; }
-  .folder-list:empty { display:none; }
-  .folder-list button { display:flex; width:100%; justify-content:space-between; text-align:left; border:0; border-radius:0; background:transparent; padding:12px; overflow-wrap:anywhere; }
-  .folder-list button + button { border-top:1px solid var(--line); }
-  .folder-list button:hover { background:var(--bg); }
-  .folder-selection { background:var(--bg); border-radius:8px; padding:12px; font-size:13px; overflow-wrap:anywhere; }
+  /* 부서 표 — 맨 위 부서 다음에 아래 부서(펼치기·접기), 상위 부서·사람은 창으로 */
+  .ua-dfind { font:inherit; font-size:12.5px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; width:160px; }
+  .ua-sm { padding:5px 11px; font-size:12px; }
+  .ua-tree td.act form { display:inline; margin:0; }
+  .ua-dname { display:inline-flex; align-items:center; gap:8px; }
+  .ua-indent { display:inline-block; width:14px; height:1px; border-bottom:1px solid var(--line); }
+  .ua-kid td { background:#fafbfc; }
+  .ua-toggle { padding:1px 8px; font-size:11.5px; border:1px solid var(--line); border-radius:999px; background:#fff; color:#45658f; cursor:pointer; box-shadow:none; min-height:0; }
+  .ua-chip { display:inline-block; margin-top:3px; padding:1px 8px; font-size:11.5px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--muted); cursor:pointer; box-shadow:none; min-height:0; }
+  .ua-tree td:first-child .ua-chip { display:block; width:max-content; }
+  .ua-kid td:first-child .ua-chip { margin-left:22px; }
+  .ua-chip:hover, .ua-toggle:hover { background:#eef3fa; color:#1b3b75; }
+  .ua-count { font-size:12.5px; color:var(--ink); margin:0; }
+  .ua-warn { color:#8a5a00; }
+  .ua-rowmsg { display:block; font-size:11.5px; color:var(--red, #b91c1c); } .ua-rowmsg:empty { display:none; }
+  .ua-pick-row { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--muted); }
+  .ua-pick-row .ua-chip { margin:0; font-size:13px; padding:4px 12px; }
+  #parentPick > .card, #peopleView > .card { width:460px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; }
+  #parentPick .card-in, #peopleView .card-in { display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
+  #parentPick .ua-form, #peopleView .ua-form { min-height:0; }
+  .ua-plist { overflow:auto; min-height:120px; max-height:min(420px, 55dvh); border:1px solid var(--line); border-radius:10px; padding:4px; }
+  .ua-plist h3 { margin:8px 8px 2px; font-size:11px; font-weight:600; color:var(--muted); }
+  .ua-opt { display:flex; width:100%; justify-content:space-between; align-items:center; gap:8px; padding:7px 10px; border:0; border-radius:7px; background:transparent; font:inherit; font-size:13px; text-align:left; color:var(--ink); cursor:pointer; box-shadow:none; min-height:0; }
+  .ua-opt:hover, .ua-opt.focus { background:#f3f5f8; }
+  .ua-opt[aria-selected=true] { background:#e6edf7; color:#163266; font-weight:600; }
+  .ua-person { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; padding:7px 10px; border-bottom:1px solid var(--line); font-size:13px; }
+  .ua-person:last-child { border-bottom:0; }
+  .ua-person .ua-sub { margin:0; }
+  .ua-badge { display:inline-block; margin-left:6px; padding:0 6px; border-radius:5px; background:#eef3fa; color:#2b4a78; font-size:11px; font-weight:400; }
+  .ua-access { justify-self:end; font-size:12px; color:var(--muted); }
+  .ua-access.ok { color:#1f7a4d; }
+  #uaConfirm > .card { width:420px; }
+  .ua-toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:1000; max-width:min(560px, calc(100vw - 32px)); padding:10px 16px; border-radius:10px; background:#1f2a3a; color:#fff; font-size:13px; box-shadow:0 8px 24px #10213b40; }
+  .ua-toast.bad { background:#8f1d1d; }
   #userEdit { padding:20px; box-sizing:border-box; }
   #userEdit > .card { width:540px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; border-radius:20px; box-shadow:0 24px 80px #10213b30; }
   #userEdit > .card > .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
@@ -78,15 +98,6 @@
   #userEdit .ua-extra-rows { display:flex; flex-direction:column; gap:6px; }
   #userEdit .ua-extra-row { display:grid; grid-template-columns:minmax(0,1fr) 150px 36px; gap:6px; align-items:center; }
   #userEdit .ua-extra-row button { min-height:38px; padding:0; }
-  .ua-parent { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:0; }
-  .ua-parent select { font:inherit; font-size:12.5px; padding:4px 8px; border:1px solid var(--line); border-radius:8px; max-width:180px; }
-  #deptPick > .card { width:620px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; }
-  #deptPick .card-in { display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
-  #deptPick .pick-list { overflow:auto; min-height:0; border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
-  #deptPick .pick-group { margin:6px 0 10px; }
-  #deptPick .pick-group h3 { font-size:12.5px; margin:0 0 4px; display:flex; gap:8px; align-items:center; }
-  #deptPick .pick-group label { display:flex; gap:8px; align-items:baseline; font-size:13px; padding:3px 0; }
-  #deptPick .pick-group .ua-sub { display:inline; margin:0; }
   @media (max-width:640px) { #userEdit .ua-extra-row { grid-template-columns:1fr 1fr 36px; } }
   @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } .ua-table .wide { display:none; } }
 </style>
@@ -118,83 +129,97 @@
   </div>
 </div></div>
 
-<div class="card reveal" id="depts"><div class="card-in">
+<div class="card reveal" id="depts"><div class="card-in" data-dept-card>
   <h2 class="ua-head"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
-    <button type="button" class="secondary spacer" data-modal-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
-      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button>
-    {% if dict_create %}<button type="button" class="secondary" data-modal-open="#deptPick" style="padding:6px 12px; font-size:12.5px;" title="직제·사무분장 규정에서 뽑은 부서 사전 — 고른 것만 만듭니다">
-      <iconify-icon icon="solar:list-check-linear"></iconify-icon>사전에서 고르기 · {{ dict_create | length }}</button>{% endif %}</h2>
-  <p class="ua-lead">부서마다 드라이브를 먼저 연결합니다 — 그 부서 사람(소속·추가 부서)의 학교 계정만 부서 폴더에 접근합니다.</p>
+    <span class="muted" style="font-size:12px; font-weight:400;">{{ depts | length }}개</span>
+    <input type="search" class="ua-dfind spacer" data-dept-find placeholder="부서 찾기" aria-label="부서 찾기">
+    <button type="button" class="btn-ghost" data-tree-all style="padding:6px 10px; font-size:12.5px;">모두 펼치기</button>
+    <button type="button" class="secondary" data-ua-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
+      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
+  <p class="ua-lead">부서 드라이브는 각 부서의 총괄 책임자가 조직·구성원 화면에서 연결합니다. 여기서는 연결 상태를 확인합니다.</p>
   {% if depts %}
   <div class="table-scroll">
-  <table class="ua-table">
-    <tr><th>부서</th><th>상위 부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
+  <table class="ua-table ua-tree">
+    <tr><th>부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
     {% for d in depts %}
-    <tr>
-      <td><b>{{ d.dept }}</b>{% if d.line != d.dept %}<span class="ua-sub" title="직제·사무분장 규정에서 뽑은 위계">{{ d.line }}</span>{% endif %}</td>
-      <td>{# 상위 부서 — 상위 부서의 총괄 책임자가 이 부서도 맡는다(관리자가 정한 값만 권한에 쓰인다). 규정 제안은 단추로 적용 #}
-        <form method="post" action="/dev/users/dept-parent" class="ua-parent"><input type="hidden" name="dept" value="{{ d.dept }}">
-          <select name="parent" aria-label="{{ d.dept }} 상위 부서" data-parent-auto><option value="">없음</option>
-            {% for x in depts %}{% if x.dept != d.dept %}<option value="{{ x.dept }}"{% if x.dept == d.parent %} selected{% endif %}>{{ x.dept }}</option>{% endif %}{% endfor %}</select></form>
-        {% if d.suggested and d.suggested != d.parent %}<form method="post" action="/dev/users/dept-parent" class="ua-parent"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="parent" value="{{ d.suggested }}">
-          <button type="submit" class="btn-ghost" style="padding:3px 8px; font-size:12px;" title="직제·사무분장 규정에 나온 위계 — 적용하면 상위 부서 총괄 책임자가 이 부서도 맡습니다">규정 제안: {{ d.suggested }} — 적용</button></form>{% endif %}</td>
-      {# 드라이브 권한을 받는 사람(drive.members — 추가 부서 포함, 첫 비밀번호를 바꾼 계정)과 아직 첫 로그인 전인 소속 계정을 함께 보인다 #}
-      {% set waiting = d.members | reject('in', d.drive.members) | list %}
-      <td>{{ d.drive.members | join(", ") }}{% if waiting %}{% if d.drive.members %}, {% endif %}<span class="muted" title="첫 로그인에서 비밀번호를 바꾸면 부서 드라이브 권한을 받습니다">{{ waiting | join(", ") }}(첫 로그인 전)</span>{% endif %}{% if not d.drive.members and not waiting %}—{% endif %}</td>
+    {% set waiting = d.people | selectattr('access', 'equalto', '첫 로그인 전') | list | length %}
+    <tr data-dept-row="{{ d.dept }}" data-top="{{ d.top }}"{% if d.top %} class="ua-kid" hidden{% endif %}>
+      <td><span class="ua-dname">{% if d.top %}<span class="ua-indent" aria-hidden="true"></span>{% endif %}<b>{{ d.dept }}</b>
+        {% if d.kids %}<button type="button" class="ua-toggle" data-tree-toggle="{{ d.dept }}" aria-expanded="false" data-kids="{{ d.kids }}">펼치기 · {{ d.kids }}</button>{% endif %}</span>
+        <button type="button" class="ua-chip" data-parent-open="{{ d.dept }}" data-parent="{{ d.parent }}" title="상위 부서 — 상위 부서의 총괄 책임자가 이 부서도 맡습니다">{{ ('상위: ' ~ d.parent) if d.parent else '상위 부서 정하기' }}</button>
+        <span class="ua-rowmsg" role="status"></span></td>
+      <td><button type="button" class="ua-chip ua-count" data-people-open="{{ d.dept }}">{{ d.people | length }}명</button>{% if waiting %}<span class="ua-sub">첫 로그인 전 {{ waiting }}</span>{% endif %}</td>
       <td><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="라이브러리에서 이 부서 문서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
       <td>{% if d.drive.connected %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>{{ d.drive.name or '부서 폴더' }}</a>
-          <span class="ua-sub">연결 계정 {{ d.drive.by }} · 접근 {{ d.drive.granted }}명{% if d.drive.unlinked %} · 구글 미연결 {{ d.drive.unlinked | join(', ') }}{% endif %}{% if d.drive.error %} · <span style="color:var(--red);">{{ d.drive.error }}</span>{% endif %}</span>
-        {% elif d.drive.legacy %}<span class="muted">예전 방식(폴더만 지정) — 다시 연결하면 부서원만 접근합니다</span>
-        {% else %}<span class="muted">연결 전 — 문서는 작업하는 사람 본인 드라이브에 만들어집니다</span>{% endif %}</td>
-      <td class="act" style="white-space:nowrap;"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
-            data-dept="{{ d.dept }}" data-connected="{{ '1' if d.drive.connected else '' }}" aria-label="{{ d.dept }} 부서 드라이브 연결">{{ '다시 연결' if d.drive.connected else '드라이브 연결' }}</button>
-        {% if d.drive.connected %}<form method="post" action="/dev/google/dept" style="display:inline; margin:0;"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="sync">
-          <button type="submit" class="secondary" style="padding:5px 11px; font-size:12px;" title="부서 사람이 바뀌었거나 구글을 새로 연결했을 때 — 보통은 저절로 맞춥니다">권한 맞추기</button></form>{% endif %}
-        {% if not d.members %}<form method="post" action="/dev/users/dept" style="display:inline; margin:0;" data-confirm="부서 「{{ d.dept }}」을 지웁니다. 부서 RAG 문서 {{ '{:,}'.format(d.docs) }}건은 공통 RAG 로 돌아갑니다.">
+          <span class="ua-sub">{{ '공용 계정' if d.drive.shared else '개인 계정' }} {{ d.drive.by }} · 접근 {{ d.drive.granted }}명{% if d.drive.unlinked %} · 구글 미연결 {{ d.drive.unlinked | length }}명{% endif %}</span>
+          {% if d.drive.personal %}<span class="ua-sub ua-warn">개인 계정으로 연결됨 — 부서에서 공용 계정으로 바꾸기</span>{% endif %}
+          {% if d.drive.actor or d.drive.connected_at %}<span class="ua-sub">{{ d.drive.actor }}{% if d.drive.actor %} 연결{% endif %}{% if d.drive.connected_at %} · {{ d.drive.connected_at }}{% endif %}{% if d.drive.synced_at %} · 맞춤 {{ d.drive.synced_at }}{% endif %}</span>{% endif %}
+          {% if d.drive.error %}<span class="ua-sub" style="color:var(--red);">{{ d.drive.error }}</span>{% endif %}
+        {% elif d.drive.legacy %}<span class="muted">예전 방식(폴더만 지정)</span>
+        {% else %}<span class="muted">연결 전</span>{% endif %}</td>
+      <td class="act">
+        {% if d.drive.connected %}<form method="post" action="/dev/google/dept" data-ua-ajax><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="sync">
+          <button type="submit" class="secondary ua-sm" title="부서 사람이 바뀌었거나 구글을 새로 연결했을 때 — 보통은 저절로 맞춥니다">권한 맞추기</button></form>
+        <form method="post" action="/dev/google/dept" data-ua-ajax data-ua-confirm="{{ d.dept }} 부서 드라이브 연결을 끊을까요? 부서 사람의 폴더 권한을 거두고, 폴더와 문서는 {{ d.drive.by }} 드라이브에 남습니다." data-ua-ok="연결 끊기"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="disconnect">
+          <button type="submit" class="btn-ghost ua-sm" style="color:var(--red);">연결 끊기</button></form>{% endif %}
+        {% if not d.members %}<form method="post" action="/dev/users/dept" data-ua-ajax data-ua-confirm="부서 「{{ d.dept }}」을 지울까요? 부서 RAG 문서 {{ '{:,}'.format(d.docs) }}건은 공통 RAG 로 돌아갑니다." data-ua-ok="지우기">
           <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ d.dept }}">
-          <button type="submit" class="btn-ghost" style="padding:5px 9px; font-size:12px; color:var(--red);">지우기</button></form>{% endif %}</td>
+          <button type="submit" class="btn-ghost ua-sm" style="color:var(--red);">지우기</button></form>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>
   </div>
+  <p class="muted" data-dept-none hidden style="margin:10px 0 0;">찾는 부서가 없습니다.</p>
   {% else %}<p class="muted" style="margin:0;">아직 부서가 없습니다. 「부서 추가」로 만들면 계정·부서 RAG 에서 고를 수 있습니다.</p>{% endif %}
+  <script type="application/json" data-dept-json>{{ {"depts": depts | map(attribute='dept') | list, "tops": depts | selectattr('is_top') | map(attribute='dept') | list, "people": dept_people} | tojson }}</script>
 </div></div>
 
 <div class="modal-back" id="deptCreate">
   <div class="card"><div class="card-in">
     <div class="modal-head"><h2 style="font-size:17px;">부서 추가</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/users/dept" method="post" class="ua-form">
+    <form action="/dev/users/dept" method="post" class="ua-form" data-dept-create>
       <input type="hidden" name="action" value="create">
-      <label>부서 이름<input type="text" name="name" required maxlength="30" autocomplete="off" placeholder="예: 교무처, 산학협력단" list="uaDictNames"></label>
-      <datalist id="uaDictNames">{% for x in dict_create %}<option value="{{ x.name }}">{{ x.line }} · {{ x.kind_label }}</option>{% endfor %}</datalist>
-      {% if dict_ready %}<p class="ua-hint">이름을 치면 직제·사무분장 규정에서 뽑은 부서 사전 후보가 나옵니다. 줄임말·옛 이름으로 적어도 사전의 정식 이름으로 만듭니다.</p>{% endif %}
-      <p class="ua-hint">만들면 부서 RAG 가 함께 생깁니다(문서는 비어 있음). 부서 문서를 만들 드라이브 폴더는 목록의 「드라이브 폴더 정하기」에서 정합니다.</p>
+      <label>부서 이름<input type="text" name="name" required maxlength="30" autocomplete="off" placeholder="예: 교무처, 산학협력단"></label>
+      <div class="ua-pick-row"><span>상위 부서</span><button type="button" class="ua-chip" data-create-parent data-parent="">없음</button></div>
+      <p class="ua-rowmsg" data-create-msg role="status"></p>
       <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">만들기</button></footer>
     </form>
   </div></div>
 </div>
 
-{% if dict_create %}
-<div class="modal-back" id="deptPick">
+<div class="modal-back" id="parentPick">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:17px;">사전에서 고르기</h2>
+    <div class="modal-head"><h2 style="font-size:17px;" data-pp-title>상위 부서</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/users/dept" method="post" class="ua-form" id="deptPickForm" style="min-height:0;">
-      <input type="hidden" name="action" value="create_many">
-      <p class="ua-hint">직제·사무분장 규정에서 뽑은 행정·사업 조직 가운데 아직 없는 부서입니다. 고른 것만 만듭니다(부서 RAG 가 함께 생김). 학과·위원회와 애매한 이름{% if dict_skipped %}({{ dict_skipped }}개){% endif %}은 목록에 넣지 않았습니다.</p>
-      <div class="pick-list">
-      {% for kind, rows in dict_create | groupby('kind_label') %}
-        <div class="pick-group"><h3>{{ kind }} <button type="button" class="btn-ghost" data-pick-all style="padding:2px 8px; font-size:12px;">모두 고르기</button></h3>
-        {% for x in rows %}<label><input type="checkbox" name="names" value="{{ x.name }}">{{ x.name }}{% if x.parent %}<span class="ua-sub">· {{ x.line.split(' · ')[1:] | join(' · ') }}</span>{% endif %}</label>{% endfor %}</div>
-      {% endfor %}
-      </div>
-      <footer class="ua-footer" style="padding:0; border:0;"><span class="muted" data-pick-count style="margin-right:auto; font-size:12.5px;">0개 고름</span>
-        <button type="button" class="secondary" data-modal-close>취소</button><button type="submit">고른 부서 만들기</button></footer>
-    </form>
+    <div class="ua-form">
+      <input type="search" data-pp-find placeholder="부서 이름으로 찾기" aria-label="상위 부서 찾기" autocomplete="off">
+      <div class="ua-plist" role="listbox" aria-label="상위 부서" data-pp-list tabindex="-1"></div>
+      <p class="ua-rowmsg" data-pp-msg role="status"></p>
+      <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="button" data-pp-save>저장</button></footer>
+    </div>
   </div></div>
 </div>
-{% endif %}
+
+<div class="modal-back" id="peopleView">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:17px;" data-pv-title>부서 사람</h2>
+      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <div class="ua-form">
+      <input type="search" data-pv-find placeholder="이름·아이디로 찾기" aria-label="사람 찾기" autocomplete="off">
+      <div class="ua-plist" data-pv-list></div>
+      <footer class="ua-footer" style="padding:0; border:0;"><a class="btn-ghost" data-pv-team href="/team">구성원 화면에서 관리</a><button type="button" class="secondary" data-modal-close>닫기</button></footer>
+    </div>
+  </div></div>
+</div>
+
+<div class="modal-back" id="uaConfirm">
+  <div class="card"><div class="card-in">
+    <p data-cf-text style="margin:0 0 16px; font-size:14px; line-height:1.6;"></p>
+    <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="button" data-cf-ok>확인</button></footer>
+  </div></div>
+</div>
+<div class="ua-toast" role="status" aria-live="polite" hidden></div>
 
 <div class="card reveal" id="google-links"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
@@ -235,8 +260,7 @@
       <div class="row">
         <label>역할<select name="role">{% for k, v in roles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
         <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
-          {% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}
-          {% if dict_create %}<optgroup label="사전에 있는 부서 — 부서 카드의 「사전에서 고르기」로 먼저 만듭니다">{% for x in dict_create[:60] %}<option value="" disabled>{{ x.line }}</option>{% endfor %}</optgroup>{% endif %}</select></label>
+          {% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}</select></label>
       </div>
       <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
         <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업(추가 권한은 여기 또는 그 부서 총괄 책임자의 「부서 사람」 화면에서) · 사업 책임자는 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자는 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
@@ -280,32 +304,6 @@
       </section>
     </form>
     <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="userEditForm" data-save-user>사용자 추가</button></footer>
-  </div></div>
-</div>
-
-<div class="modal-back" id="deptEdit">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:17px;" data-dept-title>부서 드라이브 연결</h2>
-      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form id="departmentFolderForm" action="/dev/google/dept" method="post" class="ua-form">
-      <input type="hidden" name="dept" value="">
-      <input type="hidden" name="account" value="">
-      <input type="hidden" name="root" value="">
-      <ol class="dept-steps">
-        <li>위치를 고릅니다 — 내 드라이브 또는 공유 드라이브의 폴더. 공유 드라이브는 그 구성원이 모두 보므로 부서원만 보게 하려면 관리자만 구성원인 곳을 고릅니다.</li>
-        <li>「연결」을 누르면 그 아래에 <b data-dept-folder>AURA · 부서</b> 폴더를 새로 만들고, 이 부서 사람의 학교 계정에만 편집 권한을 줍니다.</li>
-      </ol>
-      <div class="folder-toolbar"><button type="button" class="secondary" data-folder-home="root">내 드라이브</button><button type="button" class="secondary" data-folder-home="drives">공유 드라이브</button></div>
-      <div class="folder-toolbar"><button type="button" class="secondary" data-folder-back>상위 폴더</button><input type="search" data-folder-search aria-label="현재 위치에서 폴더 검색" placeholder="현재 위치에서 폴더 검색" style="min-width:0; flex:1;"><button type="button" class="secondary" data-folder-find>검색</button></div>
-      <p data-folder-path class="muted" style="margin:0; font-size:12px; overflow-wrap:anywhere;"></p>
-      <p data-folder-status role="status" style="margin:0; font-size:13px;"></p>
-      <a href="/account/google/connect" data-folder-connect hidden>학교 계정 연결</a>
-      <div class="folder-list" data-folder-list></div>
-      <div class="folder-toolbar"><button type="button" class="secondary" data-folder-more hidden>더 보기</button><button type="button" data-folder-select disabled>현재 폴더 선택</button></div>
-      <div class="folder-selection" data-folder-selection>위치: 내 드라이브 최상위</div>
-      <button type="button" class="secondary" data-folder-clear hidden>위치 지우기</button>
-    </form>
-    <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="departmentFolderForm">연결</button></footer>
   </div></div>
 </div>
 
@@ -409,41 +407,9 @@
   }
   var addBtn = document.querySelector('#userEdit [data-extra-add]');
   if (addBtn && addBtn.addEventListener) addBtn.addEventListener('click', function () { var r = addExtra('', 'member'); if (r) r.querySelector('input').focus(); });
-  document.querySelectorAll('[data-modal-open="#deptEdit"]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var f = document.querySelector('#deptEdit form'), isNew = btn.hasAttribute('data-dept-new');
-      f.dept.value = btn.dataset.dept || '';
-      f.root.value = '';
-      document.querySelector('#deptEdit [data-dept-title]').textContent = btn.dataset.dept + ' 부서 드라이브 ' + (btn.dataset.connected ? '다시 연결' : '연결');
-      document.querySelector('#deptEdit [data-dept-folder]').textContent = 'AURA · ' + btn.dataset.dept;
-      document.querySelector('[data-folder-selection]').textContent = '위치: 내 드라이브 최상위';
-      window.openDepartmentFolders();
-    });
-  });
 })();
 </script>
-<script>
-(function () {
-  // 상위 부서 — 고르면 바로 저장
-  document.querySelectorAll('[data-parent-auto]').forEach(function (sel) {
-    sel.addEventListener('change', function () { sel.form.submit(); });
-  });
-  // 사전에서 고르기 — 갈래별 모두 고르기, 고른 수
-  var pick = document.getElementById('deptPickForm');
-  if (pick) {
-    var count = function () { pick.querySelector('[data-pick-count]').textContent = pick.querySelectorAll('input[name="names"]:checked').length + '개 고름'; };
-    pick.addEventListener('change', count);
-    pick.querySelectorAll('[data-pick-all]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var boxes = b.closest('.pick-group').querySelectorAll('input[name="names"]');
-        var all = Array.from(boxes).every(function (x) { return x.checked; });
-        boxes.forEach(function (x) { x.checked = !all; });
-        count();
-      });
-    });
-  }
-})();
-</script>
+<script src="/static/dev-users-depts.js?v={{ asset_v }}" defer></script>
 <script>
 // 임시 비밀번호 — 브라우저에서 무작위로 만든다(헷갈리는 글자 0·O·1·l·I 빼고, 4자씩 묶어 불러 주기 쉽게).
 // 값은 이 창의 칸에만 있고 저장 뒤 서버 응답·주소·로그에 남지 않는다. 길이 규칙은 서버(passwords.problem)와 같다
@@ -478,5 +444,4 @@
   });
 })();
 </script>
-<script src="/static/folder-picker.js?v={{ asset_v }}" defer></script>
 {% endblock %}

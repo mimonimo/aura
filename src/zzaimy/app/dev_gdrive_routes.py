@@ -56,8 +56,14 @@ def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error
 
     if error or not code:
         return done(f"구글 허용이 취소됐습니다({error or '코드 없음'})", ok=False)
+    purpose = gdrive.state_purpose(state)
+    if purpose.startswith("dept:"):
+        # 부서 드라이브 계정 — 로그인한 사람 본인 계정에 묶지 않고 부서에 잇는다(dept_drive_routes)
+        from zzaimy.app.dept_drive_routes import finish_connect
+        msg, good = finish_connect(request, purpose[5:], code, state, _gdrive_redirect_uri(request))
+        return done(msg, ok=good)
     try:
-        email = gdrive.exchange_code(code, state, _gdrive_redirect_uri(request), user=getattr(request.state, "user", ""))
+        email = gdrive.exchange_code(code, state, _gdrive_redirect_uri(request), user=getattr(request.state, "user", ""), purpose="")
     except ValueError as e:
         return done(str(e), ok=False)
     from zzaimy.ingest import gdrive_files

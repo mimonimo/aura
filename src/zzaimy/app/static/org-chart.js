@@ -1,15 +1,22 @@
-/* 조직도 — /api/org 를 읽어 처·단 카드와 팀·센터 줄을 그리고, 옮기기(끌어 놓기·메뉴)·이름 바꾸기·지우기·더하기·총괄 책임자 지정을 한다.
+/* 조직도 — /api/org 를 읽어 다이어그램(맨 위 「학교」 → 처·단 상자 → 그 아래 팀·센터 상자, 선으로 잇기)을 그린다.
+ * 상자를 누르면 가운데 창에서 자세히 보고 고친다(이름 바꾸기·옮기기·지우기·총괄 책임자·부서 더하기·구성원 보기).
+ * 고칠 수 있는 상자는 다른 처·단 상자(또는 맨 위 「학교」)로 끌어 놓아 옮긴다.
  * 고치기 단추는 서버가 준 권한(can_edit·can_hold·admin)대로만 보이고, 서버가 매번 다시 검사한다(403).
- * 글자는 모두 textContent 로 넣는다. 접힘 상태는 브라우저에 기억한다(막혀 있으면 건너뜀).
+ * 글자는 모두 textContent 로 넣는다. 접힘·크기는 브라우저에 기억한다(막혀 있으면 건너뜀).
  */
 (function () {
   var root = document.getElementById('orgChart');
   if (!root) return;
-  var FOLD_KEY = 'oc.folded';
+  var FOLD_KEY = 'oc.folded', ZOOM_KEY = 'oc.zoom';
   var data = null, words = [], aliasHits = [], showSugg = false, dragName = '', toastTimer = null;
+  var hitIdx = 0, zoom = 0, firstDraw = true;
+  var team = {all: false, depts: []};
+  try { team = JSON.parse(root.getAttribute('data-team') || '{}') || team; } catch (e) {}
   var folded = {};
   try { folded = JSON.parse(localStorage.getItem(FOLD_KEY) || '{}') || {}; } catch (e) { folded = {}; }
+  try { zoom = parseFloat(localStorage.getItem(ZOOM_KEY) || '0') || 0; } catch (e) { zoom = 0; }
   function saveFold() { try { localStorage.setItem(FOLD_KEY, JSON.stringify(folded)); } catch (e) {} }
+  var view = root.querySelector('[data-od-view]'), stage = root.querySelector('[data-od-stage]');
 
   function h(tag, attrs, kids) {
     var el = document.createElement(tag);
@@ -24,7 +31,6 @@
     (kids || []).forEach(function (c) { if (c != null && c !== false) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
     return el;
   }
-  function icon(name) { return h('iconify-icon', {icon: name, 'aria-hidden': 'true'}); }
 
   // ------------------------------------------------------------ 서버
   function load() {
@@ -32,7 +38,7 @@
       if (!r.ok) throw new Error('조직도를 불러오지 못했습니다');
       return r.json();
     }).then(function (d) { data = d; render(); }).catch(function (e) {
-      root.querySelector('[data-oc-list]').replaceChildren(h('p', {class: 'oc-none', text: e.message}));
+      stage.replaceChildren(h('p', {class: 'oc-none', text: e.message}));
     });
   }
   function post(path, body) {
@@ -66,7 +72,7 @@
     return act('/org/move', {dept: dept, parent: parent}, {path: '/org/move', body: function (j) { return j.undo; }});
   }
 
-  // ------------------------------------------------------------ 그리기
+  // ------------------------------------------------------------ 찾기
   function tops() { return (data && data.tops) || []; }
   function findDept(name) {
     var hit = null;
@@ -75,128 +81,110 @@
     return hit;
   }
   function matches(n) {
-    if (!words.length) return true;
+    if (!words.length) return false;
     if (aliasHits.indexOf(n.name) >= 0) return true;
     var hay = [n.name].concat(n.aliases || []).join(' ').toLowerCase();
     return words.every(function (w) { return hay.indexOf(w) >= 0; });
   }
   function nameEl(n) {
-    var el = h('span', {class: 'oc-name', title: n.aliases && n.aliases.length ? '다른 이름: ' + n.aliases.join(', ') : n.name});
+    var el = h('span', {class: 'od-name', title: n.aliases && n.aliases.length ? n.name + ' · 다른 이름: ' + n.aliases.join(', ') : n.name});
     var w = words.length ? words[0] : '';
     var i = w ? n.name.toLowerCase().indexOf(w) : -1;
     if (i < 0) { el.textContent = n.name; return el; }
     el.append(n.name.slice(0, i), h('mark', {class: 'oc-hit', text: n.name.slice(i, i + w.length)}), n.name.slice(i + w.length));
     return el;
   }
-  function chips(n, isTop) {
-    var box = h('span', {class: 'oc-chips'});
-    (n.heads || []).forEach(function (p) {
-      var c = h('span', {class: 'oc-chip head', title: '총괄 책임자' + (p.extra ? ' · 겸직' : '')}, ['총괄 ' + p.name]);
-      if (data.admin && isTop) c.appendChild(h('button', {type: 'button', 'aria-label': p.name + ' 총괄 책임자에서 빼기', text: '×',
-        onclick: function () { act('/org/head', {dept: n.name, user: p.user, on: false}); }}));
-      box.appendChild(c);
-    });
-    if (data.admin && isTop) box.appendChild(h('button', {type: 'button', class: 'oc-chip add', text: (n.heads || []).length ? '+ 총괄 책임자' : '총괄 책임자 정하기',
-      onclick: function (e) { openPicker(e.currentTarget, n.name); }}));
-    var leads = n.leads || [];
-    leads.slice(0, 3).forEach(function (p) { box.appendChild(h('span', {class: 'oc-chip', title: '사업 책임자' + (p.extra ? ' · 겸직' : '')}, ['사업 ' + p.name])); });
-    if (leads.length > 3) box.appendChild(h('span', {class: 'oc-chip', title: leads.slice(3).map(function (p) { return p.name; }).join(', '), text: '외 ' + (leads.length - 3) + '명'}));
-    return box;
+  function canTeam(name) { return !!(team.all || (team.depts || []).indexOf(name) >= 0); }
+  function people(list, max) {
+    var names = (list || []).map(function (p) { return p.name; });
+    return names.slice(0, max).join(', ') + (names.length > max ? ' 외 ' + (names.length - max) + '명' : '');
   }
-  function count(n) {
-    return h('span', {class: 'oc-count', title: '소속 ' + n.n + '명' + (n.n_extra ? ' · 겸직 ' + n.n_extra + '명' : '') + (n.docs != null ? ' · 부서 RAG 문서 ' + n.docs + '건' : ''),
-      text: n.n + '명' + (n.n_extra ? ' · 겸직 ' + n.n_extra : '')});
-  }
-  function menuBtn(n, opts) {
-    var items = [];
-    if (opts.canHold) items.push(['이 아래에 부서 더하기', function () { openCreate(n.name); }]);
-    if (n.can_edit) {
-      items.push(['이름 바꾸기', function () { startRename(n); }]);
-      items.push(['옮기기', function () { openMove(n); }]);
-      items.push(null);
-      items.push(['지우기', function () { openDelete(n); }, 'danger']);
-    }
-    if (!items.length) return null;
-    return h('button', {type: 'button', class: 'oc-icon', 'aria-haspopup': 'menu', 'aria-label': n.name + ' 메뉴', title: '메뉴',
-      onclick: function (e) { openMenu(e.currentTarget, items); }}, [icon('solar:menu-dots-bold')]);
-  }
-  function row(n, top) {
+
+  // ------------------------------------------------------------ 다이어그램
+  function box(n, where) {
+    var hit = matches(n);
     var drag = !!n.can_edit;
-    var r = h('div', {class: 'oc-row', 'data-name': n.name, draggable: drag ? 'true' : null, role: 'listitem'}, [
-      h('span', {class: 'oc-grip', 'aria-hidden': 'true'}, [icon('solar:hamburger-menu-linear')]),
-      h('span', {class: 'oc-title'}, [nameEl(n)]),
-      n.kind ? h('span', {class: 'oc-kind', text: n.kind}) : null,
-      n.via ? h('span', {class: 'oc-via', text: n.via + ' 아래'}) : null,
-      count(n), chips(n, false), h('span', {class: 'oc-gap'}), menuBtn(n, {})]);
+    var heads = people(n.heads, 2);
+    var b = h('div', {class: 'od-box' + (where.top ? ' top' : '') + (hit ? ' hit' : '') + (words.length && !hit ? ' dim' : ''),
+      'data-name': n.name, tabindex: '0', role: 'button', 'aria-label': n.name + ' 자세히', draggable: drag ? 'true' : null}, [
+      h('span', {class: 'od-l1'}, [nameEl(n), n.kind ? h('span', {class: 'od-kind', text: n.kind}) : null]),
+      h('span', {class: 'od-l2'}, [h('span', {text: n.n + '명' + (n.n_extra ? ' · 겸직 ' + n.n_extra : '')}),
+        heads ? h('span', {class: 'od-head', title: '총괄 책임자', text: '총괄 ' + heads}) : null]),
+      n.via ? h('span', {class: 'od-via', text: n.via + ' 아래'}) : null]);
+    b.addEventListener('click', function () { openCard(n); });
+    b.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard(n); } });
     if (drag) {
-      r.addEventListener('dragstart', function (e) {
-        dragName = n.name; r.classList.add('lifted'); root.classList.add('dragging');
+      b.addEventListener('dragstart', function (e) {
+        dragName = n.name; b.classList.add('lifted'); root.classList.add('dragging');
         try { e.dataTransfer.setData('text/plain', n.name); e.dataTransfer.effectAllowed = 'move'; } catch (x) {}
       });
-      r.addEventListener('dragend', function () { dragName = ''; r.classList.remove('lifted'); root.classList.remove('dragging');
+      b.addEventListener('dragend', function () { dragName = ''; b.classList.remove('lifted'); root.classList.remove('dragging');
         root.querySelectorAll('.over').forEach(function (x) { x.classList.remove('over'); }); });
     }
-    return r;
+    return b;
   }
   function dropTarget(el, parent, can) {
     if (!can) return;
     el.addEventListener('dragover', function (e) {
-      if (!dragName || (typeof can === 'function' && !can())) return;
+      if (!dragName) return;
       var cur = findDept(dragName);
       if (cur && ((cur.top && cur.top.name === parent) || (!cur.top && !cur.loose && !parent) || dragName === parent)) return;
       e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (x) {}
-      if (!el.classList.contains('over')) {
-        el.classList.add('over');
-        var slot = el.querySelector('.oc-slot'); if (slot) slot.textContent = dragName + ' — 여기에 놓기';
-      }
+      el.classList.add('over');
     });
     el.addEventListener('dragleave', function (e) { if (!el.contains(e.relatedTarget)) el.classList.remove('over'); });
     el.addEventListener('drop', function (e) {
       e.preventDefault(); el.classList.remove('over');
       var name = dragName; dragName = ''; root.classList.remove('dragging');
-      if (name && name !== parent) move(name, parent);
+      if (name && name !== parent) move(name, parent).catch(function () {});
     });
   }
-  function card(t) {
-    var kids = (t.children || []);
-    var selfHit = matches(t);
-    var shownKids = kids.filter(function (c) { return selfHit || matches(c); });
-    if (words.length && !selfHit && !shownKids.length) return null;
-    var isFold = !words.length && !!folded[t.name];
-    var body = h('div', {class: 'oc-body', role: 'list', 'aria-label': t.name + ' 아래 부서'});
-    shownKids.forEach(function (c) { body.appendChild(row(c, t)); });
-    if (!kids.length) body.appendChild(h('p', {class: 'oc-empty', text: t.can_hold ? '아래 부서가 없습니다 · 팀·센터를 여기로 끌어 놓을 수 있습니다' : '아래 부서가 없습니다'}));
-    body.appendChild(h('div', {class: 'oc-slot', 'aria-hidden': 'true'}));
-    var foldBtn = h('button', {type: 'button', class: 'oc-fold', 'aria-expanded': isFold ? 'false' : 'true', text: isFold ? '펼치기' : '접기',
-      onclick: function () { folded[t.name] = !folded[t.name]; if (!folded[t.name]) delete folded[t.name]; saveFold(); render(); }});
-    var c = h('section', {class: 'oc-card' + (isFold ? ' folded' : ''), 'data-name': t.name, 'aria-label': t.name}, [
-      h('div', {class: 'oc-head'}, [
-        h('span', {class: 'oc-title'}, [nameEl(t), t.kind ? h('span', {class: 'oc-kind', text: t.kind}) : null]),
-        count(t), h('span', {class: 'oc-count', text: '· 아래 ' + kids.length + '개'}), chips(t, true), h('span', {class: 'oc-gap'}),
-        foldBtn, menuBtn(t, {canHold: t.can_hold})]),
-      body]);
-    dropTarget(c, t.name, t.can_hold);
-    return c;
+  function isFolded(t) { return !!folded[t.name] && !(t.children || []).some(matches); }   // 찾은 부서가 아래에 있으면 펼쳐 보인다
+  function foldBtn(t) {
+    var isFold = isFolded(t), kids = t.children || [];
+    return h('button', {type: 'button', class: 'od-fold', 'aria-expanded': isFold ? 'false' : 'true', 'aria-label': t.name + (isFold ? ' 펼치기' : ' 접기'),
+      text: isFold ? '펼치기 · ' + kids.length : '접기',
+      onclick: function () { if (folded[t.name]) delete folded[t.name]; else folded[t.name] = true; saveFold(); render(); }});
   }
-  function looseCard(list) {
-    var shown = list.filter(matches);
-    if (!list.length || (words.length && !shown.length)) return null;
-    var body = h('div', {class: 'oc-body', role: 'list', 'aria-label': '상위 없는 부서'});
-    shown.forEach(function (c) { body.appendChild(row(c, null)); });
-    return h('section', {class: 'oc-card loose', 'aria-label': '상위 없는 부서'}, [
-      h('div', {class: 'oc-head'}, [h('span', {class: 'oc-title'}, [h('span', {class: 'oc-name', text: '상위 없는 부서'})]),
-        h('span', {class: 'oc-count', text: list.length + '개 · 처·단 카드로 끌어 놓거나 ⋯ 메뉴의 옮기기로 정리'})]),
-      body]);
+  function column(t) {
+    var kids = t.children || [];
+    var isFold = isFolded(t);
+    var top = box(t, {top: true});
+    dropTarget(top, t.name, t.can_hold);
+    var col = h('div', {class: 'od-col'}, [top]);
+    if (kids.length) {
+      col.appendChild(h('div', {class: 'od-sub' + (isFold ? ' shut' : '')}, [foldBtn(t)]));
+      if (!isFold) col.appendChild(h('div', {class: 'od-kids', role: 'group', 'aria-label': t.name + ' 아래'},
+        kids.map(function (c) { return h('div', {class: 'od-k'}, [box(c, {})]); })));
+    }
+    return col;
+  }
+  function looseGroup(list) {
+    if (!list.length) return null;
+    return h('section', {class: 'od-loose', 'aria-label': '상위 없는 부서'}, [
+      h('p', {class: 'od-loose-h', text: '상위 없는 부서 · ' + list.length + '개'}),
+      h('div', {class: 'od-loose-list'}, list.map(function (c) { return box(c, {}); }))]);
   }
   function render() {
     if (!data) return;
-    var list = root.querySelector('[data-oc-list]');
+    var ts = tops();
     var out = [];
-    var lc = looseCard(data.loose || []);
-    if (lc) out.push(lc);
-    tops().forEach(function (t) { var c = card(t); if (c) out.push(c); });
-    if (!out.length) out.push(h('p', {class: 'oc-none', text: words.length ? '찾는 부서가 없습니다' : '아직 부서가 없습니다'}));
-    list.replaceChildren.apply(list, out);
+    var lg = looseGroup(data.loose || []);
+    if (lg) out.push(lg);
+    if (ts.length) {
+      var rootBox = h('div', {class: 'od-root', 'aria-label': '학교 전체'}, [h('span', {class: 'od-name', text: '학교'}), h('span', {class: 'od-l2', text: '처·단 ' + ts.length + '개'})]);
+      dropTarget(rootBox, '', data.can_top);
+      out.push(h('div', {class: 'od-tree'}, [rootBox, h('div', {class: 'od-stem', 'aria-hidden': 'true'}),
+        h('div', {class: 'od-row' + (ts.length === 1 ? ' one' : '')}, ts.map(column))]));
+    }
+    if (!out.length) out.push(h('p', {class: 'oc-none', text: '아직 부서가 없습니다'}));
+    var keep = {l: view.scrollLeft, t: view.scrollTop, y: window.scrollY, focus: document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-name]')};
+    var focusName = keep.focus && stage.contains(keep.focus) ? keep.focus.getAttribute('data-name') : '';
+    stage.replaceChildren.apply(stage, out);
+    view.scrollLeft = keep.l; view.scrollTop = keep.t;                 // 고친 뒤 다시 그려도 보던 자리·크기·접힘 그대로
+    if (Math.abs(window.scrollY - keep.y) > 1) window.scrollTo(0, keep.y);
+    if (focusName) { var fe = stage.querySelector('[data-name="' + CSS.escape(focusName) + '"]'); if (fe) fe.focus({preventScroll: true}); }
+
     var add = root.querySelector('[data-oc-add]');
     if (add) add.hidden = !data.can_any;
     var sb = root.querySelector('[data-oc-sugg-btn]'), sg = root.querySelector('[data-oc-sugg]');
@@ -207,89 +195,149 @@
     sg.replaceChildren(h('p', {text: '직제·사무분장 규정에서 뽑은 상위와 지금 자리가 다른 부서 · 누르면 그 처·단 아래로 옮깁니다'}));
     sug.forEach(function (s) {
       sg.appendChild(h('button', {type: 'button', disabled: s.can ? null : true, title: s.can ? '' : '고칠 권한이 없습니다',
-        text: s.dept + ' → ' + s.parent, onclick: function () { move(s.dept, s.parent); }}));
+        text: s.dept + ' → ' + s.parent, onclick: function () { move(s.dept, s.parent).catch(function () {}); }}));
     });
     var allBtn = root.querySelector('[data-oc-foldall]');
-    var anyOpen = tops().some(function (t) { return !folded[t.name]; });
+    var withKids = ts.filter(function (t) { return (t.children || []).length; });
+    var anyOpen = withKids.some(function (t) { return !folded[t.name]; });
     allBtn.textContent = anyOpen ? '모두 접기' : '모두 펼치기';
-    allBtn.hidden = !tops().length;
+    allBtn.hidden = !withKids.length;
+    var found = root.querySelector('[data-oc-found]');
+    var hits = stage.querySelectorAll('.od-box.hit');
+    found.textContent = words.length ? (hits.length ? hits.length + '개' : '없음') : '';
+    if (firstDraw) { firstDraw = false; applyZoom(zoom || null); }
+  }
+  function jumpTo(i) {
+    var hits = stage.querySelectorAll('.od-box.hit');
+    if (!hits.length) return;
+    hitIdx = ((i % hits.length) + hits.length) % hits.length;
+    hits.forEach(function (x, k) { x.classList.toggle('cur', k === hitIdx); });
+    var el = hits[hitIdx], vr = view.getBoundingClientRect(), er = el.getBoundingClientRect();
+    view.scrollTo({left: view.scrollLeft + er.left - vr.left - (vr.width - er.width) / 2,
+      top: view.scrollTop + er.top - vr.top - (vr.height - er.height) / 2, behavior: 'smooth'});
   }
 
-  // ------------------------------------------------------------ 메뉴·창
-  function closeFloat() { document.querySelectorAll('.oc-menu, .oc-pick').forEach(function (m) { m.remove(); }); }
-  function place(el, anchor) {
-    var r = anchor.getBoundingClientRect();
-    document.body.appendChild(el);
-    var w = el.offsetWidth, hgt = el.offsetHeight;
-    var left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8);
-    var top = r.bottom + 4 + hgt > window.innerHeight - 8 ? Math.max(8, r.top - hgt - 4) : r.bottom + 4;
-    el.style.left = left + 'px'; el.style.top = top + 'px';
+  // ------------------------------------------------------------ 크기·움직이기
+  function applyZoom(z) {
+    if (!z) {                                               // 맞추기 — 화면 너비에 들어가게(너무 작아지지 않게)
+      stage.style.zoom = 1;
+      var cs = getComputedStyle(view);
+      var w = stage.scrollWidth, avail = view.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+      z = w > avail ? Math.max(0.4, avail / w) : 1;
+      zoom = 0;
+    } else zoom = z;
+    z = Math.max(0.4, Math.min(1.6, z));
+    stage.style.zoom = z;
+    stage.setAttribute('data-zoom', String(z));
+    root.querySelector('.oc-zv').textContent = Math.round(z * 100) + '%';
+    try { if (zoom) localStorage.setItem(ZOOM_KEY, String(zoom)); else localStorage.removeItem(ZOOM_KEY); } catch (e) {}
   }
-  function openMenu(anchor, items) {
-    closeFloat();
-    var m = h('div', {class: 'oc-menu', role: 'menu'});
-    items.forEach(function (it) {
-      if (!it) { m.appendChild(h('hr')); return; }
-      m.appendChild(h('button', {type: 'button', role: 'menuitem', class: it[2] || '', text: it[0], onclick: function () { closeFloat(); it[1](); }}));
+  function curZoom() { return parseFloat(stage.getAttribute('data-zoom') || '1') || 1; }
+  root.querySelectorAll('[data-oc-zoom]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var v = b.getAttribute('data-oc-zoom');
+      if (v === 'fit') applyZoom(null);
+      else applyZoom(Math.round((curZoom() + (+v) * 0.1) * 10) / 10);
     });
-    place(m, anchor);
-    var btns = m.querySelectorAll('button');
-    btns[0].focus();
-    m.addEventListener('keydown', function (e) {
-      var i = Array.prototype.indexOf.call(btns, document.activeElement);
-      if (e.key === 'ArrowDown') { e.preventDefault(); btns[(i + 1) % btns.length].focus(); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length].focus(); }
-      else if (e.key === 'Escape') { e.preventDefault(); closeFloat(); anchor.focus(); }
-      else if (e.key === 'Tab') { closeFloat(); }
-    });
-  }
-  document.addEventListener('mousedown', function (e) { if (!e.target.closest('.oc-menu, .oc-pick, .pp-pop')) closeFloat(); });
+  });
+  view.addEventListener('wheel', function (e) {                // Ctrl(⌘)+휠로 크기
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    applyZoom(Math.round((curZoom() + (e.deltaY < 0 ? 0.1 : -0.1)) * 10) / 10);
+  }, {passive: false});
+  var pan = null;                                           // 빈 곳을 잡고 끌면 화면이 움직인다(마우스)
+  view.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('.od-box, .od-root, button, a, input')) return;
+    pan = {x: e.clientX, y: e.clientY, l: view.scrollLeft, t: view.scrollTop};
+    view.classList.add('panning');
+  });
+  window.addEventListener('pointermove', function (e) {
+    if (!pan) return;
+    view.scrollLeft = pan.l - (e.clientX - pan.x); view.scrollTop = pan.t - (e.clientY - pan.y);
+  });
+  window.addEventListener('pointerup', function () { if (pan) { pan = null; view.classList.remove('panning'); } });
 
-  function startRename(n) {
-    var el = root.querySelector('[data-name="' + CSS.escape(n.name) + '"]');
-    if (!el) return;
-    var title = el.querySelector('.oc-title');
-    var input = h('input', {type: 'text', value: n.name, 'aria-label': n.name + ' 새 이름', maxlength: '30'});
-    var done = false;
-    function finish(save) {
-      if (done) return; done = true;
-      var v = input.value.trim().replace(/\s+/g, ' ');
-      if (!save || !v || v === n.name) { render(); return; }
-      act('/org/rename', {dept: n.name, name: v}, {path: '/org/rename', body: function (j) { return j.undo; }}).catch(function () {});
-    }
-    var box = h('span', {class: 'oc-rename'}, [input,
-      h('button', {type: 'button', class: 'oc-btn primary', text: '저장', onmousedown: function (e) { e.preventDefault(); }, onclick: function () { finish(true); }}),
-      h('button', {type: 'button', class: 'oc-btn', text: '취소', onmousedown: function (e) { e.preventDefault(); }, onclick: function () { finish(false); }})]);
-    title.replaceWith(box);
-    el.removeAttribute('draggable');
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
-      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
-    });
-    input.addEventListener('blur', function () { setTimeout(function () { if (!done) finish(false); }, 150); });
-    input.focus(); input.select();
-  }
-
+  // ------------------------------------------------------------ 창
   function dialog(title, build, okText, okClass) {
     var dlg = h('dialog', {class: 'oc-dlg', 'aria-label': title});
     var err = h('p', {class: 'oc-err', role: 'alert'});
-    var ok = h('button', {type: 'submit', class: 'oc-btn ' + (okClass || 'primary'), text: okText});
+    var ok = okText ? h('button', {type: 'submit', class: 'oc-btn ' + (okClass || 'primary'), text: okText}) : null;
     var form = h('form', {method: 'dialog'}, [h('h2', {text: title})]);
-    var api = {err: err, ok: ok, close: function () { dlg.close(); }, submit: null};
+    var api = {err: err, ok: ok, dlg: dlg, form: form, close: function () { dlg.close(); }, submit: null};
     build(form, api);
-    form.append(err, h('div', {class: 'oc-acts'}, [h('button', {type: 'button', class: 'oc-btn', text: '취소', onclick: function () { dlg.close(); }}), ok]));
+    form.append(err, h('div', {class: 'oc-acts'}, [h('button', {type: 'button', class: 'oc-btn', text: ok ? '취소' : '닫기', onclick: function () { dlg.close(); }}), ok]));
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (!api.submit || ok.disabled) return;
+      if (!ok || !api.submit || ok.disabled) return;
       ok.disabled = true; err.textContent = '';
       Promise.resolve(api.submit()).then(function () { dlg.close(); }).catch(function (x) { err.textContent = x && x.message || '저장하지 못했습니다'; ok.disabled = false; });
     });
     dlg.appendChild(form);
-    dlg.addEventListener('close', function () { dlg.remove(); });
+    dlg.addEventListener('close', function () { dlg.remove(); if (api.onclose) api.onclose(); });
+    dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });     // 바깥(어두운 곳)을 누르면 닫기
     document.body.appendChild(dlg);
     dlg.showModal();
     var first = form.querySelector('input'); if (first) first.focus();
     return api;
+  }
+  // 상자를 누르면 — 자세히와 할 수 있는 일
+  function openCard(n) {
+    var cur = findDept(n.name) || {};
+    var isTop = !cur.top && !cur.loose;
+    var here = cur.top ? cur.top.name + ' 아래' : (cur.loose ? '상위 없음' : '처·단');
+    var back = function () { var el = stage.querySelector('[data-name="' + CSS.escape(n.name) + '"]'); if (el) el.focus({preventScroll: true}); };
+    var then = null;                                       // 창을 닫고 이어서 열 창
+    var api = dialog(n.name, function (form, api) {
+      form.querySelector('h2').after(h('p', {class: 'od-where', text: [n.kind, here].filter(Boolean).join(' · ')}));
+      var facts = h('dl', {class: 'oc-facts'}, [h('dt', {text: '사람'}), h('dd', {text: '소속 ' + n.n + '명' + (n.n_extra ? ' · 겸직 ' + n.n_extra + '명' : '')})]);
+      var headDd = h('dd', {class: 'od-heads'});
+      (n.heads || []).forEach(function (p) {
+        var c = h('span', {class: 'oc-chip head', title: p.extra ? '겸직' : ''}, [p.name]);
+        if (data.admin && isTop && p.user) c.appendChild(h('button', {type: 'button', 'aria-label': p.name + ' 총괄 책임자에서 빼기', text: '×',
+          onclick: function () { api.close(); act('/org/head', {dept: n.name, user: p.user, on: false}).catch(function () {}); }}));
+        headDd.appendChild(c);
+      });
+      if (!(n.heads || []).length) headDd.appendChild(h('span', {class: 'od-none', text: '없음'}));
+      facts.append(h('dt', {text: '총괄 책임자'}), headDd);
+      if (cur.node && isTop) facts.append(h('dt', {text: '아래 부서'}), h('dd', {text: (cur.node.children || []).length + '개'}));
+      form.appendChild(facts);
+      var acts = h('div', {class: 'od-acts'});
+      function btn(label, fn, cls) { acts.appendChild(h('button', {type: 'button', class: 'oc-btn' + (cls ? ' ' + cls : ''), text: label, onclick: fn})); }
+      if (canTeam(n.name)) acts.appendChild(h('a', {class: 'oc-btn', href: '/team?dept=' + encodeURIComponent(n.name), text: '구성원 보기'}));
+      if (data.admin && isTop) btn('총괄 책임자 정하기', function () { showPicker(form, api, n.name); });
+      if (n.can_edit) {
+        btn('이름 바꾸기', function () { then = function () { openRename(n); }; api.close(); });
+        btn('옮기기', function () { then = function () { openMove(n); }; api.close(); });
+        btn('지우기', function () { then = function () { openDelete(n); }; api.close(); }, 'danger-soft');
+      }
+      if (acts.childNodes.length) form.appendChild(acts);
+    });
+    api.onclose = function () { if (then) then(); else back(); };
+    var f = api.form.querySelector('.od-acts .oc-btn'); if (f) f.focus();
+  }
+  function showPicker(form, api, dept) {
+    if (form.querySelector('.od-pick')) { form.querySelector('.od-pick input').focus(); return; }
+    var box = h('div', {class: 'od-pick'}, [
+      h('p', {text: '소속이 다르면 겸직으로 정합니다'}),
+      h('div', {'data-people-picker': true, 'data-pass': true, 'data-purpose': 'share', 'data-name': 'head', 'data-placeholder': '이름·아이디·부서로 찾기'})]);
+    form.querySelector('.od-acts').after(box);
+    var el = box.querySelector('[data-people-picker]');
+    if (window.PeoplePicker) window.PeoplePicker.mount(el);
+    el.addEventListener('pp:pick', function (e) { api.close(); act('/org/head', {dept: dept, user: e.detail.user, on: true}).catch(function () {}); });
+    var input = box.querySelector('input'); if (input) input.focus();
+  }
+  function openRename(n) {
+    dialog('이름 바꾸기', function (form, api) {
+      var input = h('input', {type: 'text', value: n.name, 'aria-label': '새 이름', maxlength: '30'});
+      form.append(h('label', {}, ['새 이름', input]), h('p', {text: '계정·문서·사업 관리의 부서 이름도 함께 바뀝니다'}));
+      api.submit = function () {
+        var v = input.value.trim().replace(/\s+/g, ' ');
+        if (!v) return Promise.reject(new Error('새 이름을 적어 주세요'));
+        if (v === n.name) return Promise.resolve();
+        return act('/org/rename', {dept: n.name, name: v}, {path: '/org/rename', body: function (j) { return j.undo; }});
+      };
+      setTimeout(function () { input.select(); }, 0);
+    }, '바꾸기');
   }
   // 고르기 칸 — 목록(choices: [{value, label, sub}])에서 이름으로 거르고 화살표·Enter 로 고른다. fetcher 가 있으면 그 결과로
   function combo(labelText, choices, opts) {
@@ -301,7 +349,7 @@
     function show(list) {
       items = list; cur = list.length ? 0 : -1;
       pop.replaceChildren.apply(pop, list.map(function (c, i) {
-        return h('div', {class: 'oc-opt' + (i === cur ? ' on' : ''), role: 'option', 'data-i': i, onmousedown: function (e) { e.preventDefault(); choose(i); }},
+        return h('div', {class: 'oc-opt' + (i === cur ? ' on' : '') + (c.kid ? ' kid' : ''), role: 'option', 'data-i': i, onmousedown: function (e) { e.preventDefault(); choose(i); }},
           [h('span', {text: c.label}), c.sub ? h('small', {text: c.sub}) : null]);
       }));
       pop.hidden = !list.length; input.setAttribute('aria-expanded', list.length ? 'true' : 'false');
@@ -310,7 +358,8 @@
     function filter() {
       var q = input.value.trim().toLowerCase();
       if (picked && input.value !== picked.label) picked = null;
-      var local = choices.filter(function (c) { return !q || (c.label + ' ' + (c.sub || '')).toLowerCase().indexOf(q) >= 0; }).slice(0, 30);
+      if (picked) q = '';
+      var local = choices.filter(function (c) { return !q || (c.label + ' ' + (c.sub || '')).toLowerCase().indexOf(q) >= 0; }).slice(0, 60);
       if (!opts.fetcher || !q) { show(local); return; }
       var my = ++seq;
       opts.fetcher(q).then(function (extra) { if (my === seq) show(local.concat(extra.filter(function (x) { return !local.some(function (y) { return y.value === x.value; }); })).slice(0, 30)); })
@@ -394,43 +443,39 @@
       };
     }, '더하기');
   }
-  function openPicker(anchor, dept) {
-    closeFloat();
-    var box = h('div', {class: 'oc-pick', role: 'dialog', 'aria-label': dept + ' 총괄 책임자 고르기'}, [
-      h('p', {text: dept + ' 총괄 책임자 · 소속이 다르면 겸직으로 정합니다'}),
-      h('div', {'data-people-picker': true, 'data-pass': true, 'data-purpose': 'share', 'data-name': 'head', 'data-placeholder': '이름·아이디·부서로 찾기'})]);
-    place(box, anchor);
-    var el = box.querySelector('[data-people-picker]');
-    if (window.PeoplePicker) window.PeoplePicker.mount(el);
-    el.addEventListener('pp:pick', function (e) { closeFloat(); act('/org/head', {dept: dept, user: e.detail.user, on: true}); });
-    var input = box.querySelector('input'); if (input) input.focus();
-    box.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeFloat(); anchor.focus(); } });
-  }
 
   // ------------------------------------------------------------ 위 막대
   var find = root.querySelector('[data-oc-find]'), findTimer = null, findSeq = 0;
-  find.addEventListener('input', function () {
+  function onFind(jump) {
     words = find.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    aliasHits = [];
     render();
+    hitIdx = 0;
+    if (jump && words.length) jumpTo(0);
+  }
+  find.addEventListener('input', function () {
+    aliasHits = [];
+    onFind(true);
     clearTimeout(findTimer);
     var q = find.value.trim();
     if (!q) return;
     findTimer = setTimeout(function () {                    // 부서 사전 — 옛 이름·줄임말로도 찾는다
       var my = ++findSeq;
       fetch('/api/depts?limit=10&q=' + encodeURIComponent(q), {headers: {Accept: 'application/json'}}).then(function (r) { return r.ok ? r.json() : {items: []}; })
-        .then(function (d) { if (my !== findSeq) return; aliasHits = (d.items || []).map(function (x) { return x.name; }); render(); }).catch(function () {});
+        .then(function (d) { if (my !== findSeq) return; aliasHits = (d.items || []).map(function (x) { return x.name; }); onFind(false); }).catch(function () {});
     }, 180);
+  });
+  find.addEventListener('keydown', function (e) {           // Enter — 다음 찾은 상자로, Shift+Enter — 앞으로
+    if (e.key === 'Enter') { e.preventDefault(); jumpTo(hitIdx + (e.shiftKey ? -1 : 1)); }
   });
   root.querySelector('[data-oc-sugg-btn]').addEventListener('click', function () { showSugg = !showSugg; render(); });
   var addBtn = root.querySelector('[data-oc-add]');
   if (addBtn) addBtn.addEventListener('click', function () { openCreate(null); });
   root.querySelector('[data-oc-foldall]').addEventListener('click', function () {
-    var anyOpen = tops().some(function (t) { return !folded[t.name]; });
+    var withKids = tops().filter(function (t) { return (t.children || []).length; });
+    var anyOpen = withKids.some(function (t) { return !folded[t.name]; });
     folded = {};
-    if (anyOpen) tops().forEach(function (t) { folded[t.name] = true; });
+    if (anyOpen) withKids.forEach(function (t) { folded[t.name] = true; });
     saveFold(); render();
   });
-  dropTarget(root.querySelector('[data-oc-topzone]'), '', function () { return data && data.can_top; });
   load();
 })();

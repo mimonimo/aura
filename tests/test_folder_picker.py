@@ -40,17 +40,19 @@ def test_browser_uses_current_user_only_and_save_rechecks(tmp_path, monkeypatch)
     assert c.get('/dev/google/folders?email=kim@ync.ac.kr').status_code == 200
     assert seen == ['dev@ync.ac.kr']
     c.post('/dev/rag/dept', data={'action': 'create', 'name': '행정'})
+    # 부서 폴더 위치 바꾸기(부서 쪽 /team/drive/move) — 고른 폴더를 부서 계정으로 다시 보고, 쓸 수 없으면 옮기지 않는다
     from zzaimy.ingest import dept_drive
-    monkeypatch.setattr(dept_drive, 'connect', lambda db_, dept, account, parent, http=None:
-                        db_.set_setting(f'google_root:{dept}', f'AURA-under-{parent}') or f'AURA-under-{parent}')
-    monkeypatch.setattr(dept_drive, 'sync', lambda *a, **k: {'added': 0, 'removed': 0, 'error': ''})
-    monkeypatch.setattr(dept_drive, 'state', lambda *a, **k: {'granted': 0, 'unlinked': [], 'connected': True})
-    db.set_setting('google_root:행정', 'old-folder')
-    monkeypatch.setattr(fp, 'folder', lambda *a: {'id':'readonly-folder', 'name':'읽기 전용', 'writable':False})
-    r = c.post('/dev/google/dept', data={'dept':'행정','root':'readonly-folder'}, follow_redirects=False)
-    assert 'err=' in r.headers['location']
-    assert db.get_setting('google_root:행정') == 'old-folder'
-    monkeypatch.setattr(fp, 'folder', lambda *a: {'id':'writable-folder', 'name':'행정 자료', 'writable':True})
-    r = c.post('/dev/google/dept', data={'dept':'행정','root':'writable-folder'}, follow_redirects=False)
-    assert 'ok=' in r.headers['location']
-    assert db.get_setting('google_root:행정') == 'AURA-under-writable-folder'      # 고른 폴더 아래에 부서 폴더를 새로 만든다
+    moved = []
+    monkeypatch.setattr(dept_drive, 'move', lambda db_, dept, parent, http=None: moved.append(parent) or parent)
+    db.set_setting('google_root:행정', 'dept-folder')
+    db.set_setting('google_root_by:행정', 'kim@ync.ac.kr')
+    looked = []
+    monkeypatch.setattr(fp, 'folder', lambda email, fid, *a: looked.append(email) or {'id': fid, 'name': '읽기 전용', 'writable': False})
+    r = c.post('/team/drive/move', data={'dept': '행정', 'parent': 'readonly-folder'}, headers={'Accept': 'application/json'})
+    assert r.status_code == 400 and moved == [] and looked == ['kim@ync.ac.kr']          # 부서 계정으로 확인
+    monkeypatch.setattr(fp, 'folder', lambda *a: {'id': 'writable-folder', 'name': '행정 자료', 'writable': True})
+    r = c.post('/team/drive/move', data={'dept': '행정', 'parent': 'writable-folder'}, headers={'Accept': 'application/json'})
+    assert r.json()['ok'] and moved == ['writable-folder']
+    monkeypatch.setattr(fp, 'browse', lambda email, *args: seen.append(email) or {'items': [{'id': 'dept-folder', 'name': 'AURA · 행정'}], 'next': '', 'current': None})
+    got = c.get('/team/drive/folders', params={'dept': '행정', 'parent': 'root'}).json()
+    assert seen[-1] == 'kim@ync.ac.kr' and got['items'] == []                          # 부서 폴더 자신은 목록에서 뺀다
