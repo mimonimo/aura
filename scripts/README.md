@@ -139,6 +139,7 @@
 - `196_program_rejudge.py` — 사업 분류 다시 보기 — 폴더 판정·이름 뽑기가 잘못 묶은 원본을 27B 가 파일 하나씩 보고 사업을 정한다.
 - `197_trainset_catalog.py` — 학습셋 목록 — DGX 의 학습 준비 폴더(data/train 의 staging·releases·baselines)에서 설명 정보만 모아 ~/parsed/trainsets.json
 - `198_forms_to_drive.py` — 양식을 드라이브에 맞춘다 — 원본 맞추기(164)가 새로 만든 공통 양식 docx 를 구글 독스로 바꿔 「ZZAIMY/공통 양식」에 올린다.
+- `209_migration_manifest.py` — 서버 이전 목록 — 경로마다 옮김·다시 만듦·옮기지 않음·학습(아스트라)을 정해 report(manifest.json·md)와 pack(rsync --files-from 목록·명령)을 낸다. 설명은 docs/ops/migration.md
 - `build_question_tree_review.py` — 실문서 완성본의 질문–정답 후보를 새 Label Studio 검수 묶음으로 생성. 삭제 없음.
 - `publish_authored_qa.py` — 직접 작성한 JSON 문답을 SSH 로 교내 Label Studio 누적 프로젝트에 게시한다.
 - `set_platform_database.py` — Set platform DB keys in an existing environment file (service must be stopped).

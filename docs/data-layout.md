@@ -31,7 +31,8 @@ data/
 ```
 
 옮기기. 뿌리 둘만 바꾼다: `ZZAIMY_DATA_DIR`(기본 data/platform), `ZZAIMY_TRAIN_DIR`(기본 data/train). 문서 폴더는 DB 의
-`stored_path` 가 가리키므로 통째로 옮길 때는 `documents/` 를 같이 옮기고 경로 접두어만 바꾸면 된다(`db.repath_files`).
+`stored_path` 가 가리키므로 통째로 옮길 때는 `documents/` 를 같이 옮기고 경로 접두어만 바꾸면 된다(`db.repath_files`). 다른 서버로 옮길 때 무엇을 옮기고 뺄지는
+[서버 이전](ops/migration.md)(`scripts/209_migration_manifest.py`).
 
 내보내기. `scripts/140_export_knowledge.py`(기본 전체 공개만). 결과 묶음은 다른 시스템에서 jsonl·npz 그대로 읽는다.
 
