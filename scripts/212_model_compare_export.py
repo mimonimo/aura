@@ -35,6 +35,7 @@ LABELS = {
     "multiturn_rate": "여러 번 주고받은 값 이어 쓰기 통과율", "longctx_rate": "긴 자료 사실 찾기 통과율", "conflict_rate": "「없으면 확인 필요」 통과율",
     "overall_rate": "맥락 이해 전체 통과율", "회차": "회차 수", "절 채움": "절 채움 비율", "목표 유지": "목표 유지 비율",
     "고쳐 쓰기 반영": "고쳐 쓰기 반영(0~2)", "시간(초)": "대화 전체 시간(초)",
+    "gold_lp": "정답 익숙함(토큰당 평균 로그확률, 0에 가까울수록 학습 꼴)", "gold_first_lp": "정답 첫 토큰 로그확률", "gold_lp_n": "정답 익숙함 잰 문항 수",
 }
 PERCENT = {"gold_frame", "invented_any", "truncated", "table", "unknown", "multiturn_rate", "longctx_rate", "conflict_rate", "overall_rate",
            "절 채움", "목표 유지"}
@@ -88,39 +89,58 @@ def mask(text: str) -> str:
 
 # ── 보류분(210) ──
 def heldout_block(work: Path, arms: list[dict], s210) -> tuple[dict | None, dict]:
+    """본 비교 대상(open·sft-merged)은 모두 생성한 문항으로, 대조군(sft-lora)은 오픈 모델과 짝지은 문항으로 따로 센다 —
+    대조군이 일부 문항만 있어도 본 비교의 문항 수가 줄지 않게."""
     run = work / "test-run"
     have = [a["key"] for a in arms if (run / f"gen-{a['key']}.jsonl").exists()]
-    if not have or s210 is None:
+    kind = {a["key"]: a["kind"] for a in arms}
+    main = [k for k in have if kind[k] != "sft-lora"]
+    ctl = [k for k in have if kind[k] == "sft-lora"]
+    if not main or s210 is None:
         return None, {}
     data = work / "test.jsonl"
     items = s210.load_items(data, work / "test-index.jsonl")
-    pairs = [(have[0], b) for b in have[1:]] + [(have[i], have[j]) for i in range(1, len(have)) for j in range(i + 1, len(have))]
-
-    class A:  # 210 phase_report 가 읽는 인자
-        pass
-    a = A()
-    a.models, a.pairs, a.judge_model, a.temperature, a.max_tokens, a.data = have, pairs, "zzaimy-writer(토르 03)", 0.2, 2048, str(data)
-    rep_out = work / "test-run"
     import contextlib
     import io
-    with contextlib.redirect_stdout(io.StringIO()):
-        rep = s210.phase_report(items, a, rep_out)
-    full = json.loads((rep_out / "report.json").read_text(encoding="utf-8"))
+
+    def report(models, pairs):
+        class A:  # 210 phase_report 가 읽는 인자
+            pass
+        a = A()
+        a.models, a.pairs, a.judge_model, a.temperature, a.max_tokens, a.data = models, pairs, "zzaimy-writer(토르 03)", 0.2, 2048, str(data)
+        with contextlib.redirect_stdout(io.StringIO()):
+            return s210.phase_report(items, a, run)
+
     mech_keys = ["chrf", "rougeL", "len_ratio", "invented_any", "table", "gold_frame", "unknown", "truncated", "sec", "out_tokens", "chars"]
-    metrics = {arm: {k: rep["mech"]["전체"][arm][k] for k in mech_keys} for arm in have}
+    ctl_reps = {c: report([main[0], c], [(main[0], c)]) for c in ctl}
+    pairs = [(main[0], b) for b in main[1:]] + [(main[i], main[j]) for i in range(1, len(main)) for j in range(i + 1, len(main))]
+    rep = report(main, pairs)                                   # 마지막에 돌려 report.json 이 본 비교가 되게
+    full = json.loads((run / "report.json").read_text(encoding="utf-8"))
+    metrics = {arm: {**{k: rep["mech"]["전체"][arm][k] for k in mech_keys}, "n": rep["n"]} for arm in main}
+    for c, cr in ctl_reps.items():
+        metrics[c] = {**{k: cr["mech"]["전체"][c][k] for k in mech_keys}, "n": cr["n"]}
+    for r in [rep, *ctl_reps.values()]:
+        for arm, g in (r.get("goldlp") or {}).items():          # 학습이 실제로 얹혔는지(정답 로그확률, 앞 40문항)
+            if arm in metrics:
+                metrics[arm].update({"gold_lp": g["mean_lp"], "gold_first_lp": g["first_lp"], "gold_lp_n": g["n"]})
     pairwise = []
-    for name, p in rep["pairs"].items():
-        s = p["groups"]["전체"]["종합"]
-        pairwise.append({"a": p["candidate"], "b": p["baseline"], "win": s["win"], "tie": s["tie"], "loss": s["loss"], "n": s["n"],
-                         "score": s["score"], "ci_low": s["ci95"][0], "ci_high": s["ci95"][1],
-                         "by_dimension": {k: {kk: p["groups"]["전체"][k][kk] for kk in ("win", "tie", "loss", "score")} for k in DIMS if k in p["groups"]["전체"]},
-                         "position_bias_A_share": p["position_bias_A_share"], "flip_rate": p["flip_rate"]})
-    per_dim = {d: {arm: (rep.get("scores", {}).get("전체", {}).get(arm) or {}).get(d) for arm in have} for d in DIMS}
+    for r, control in [(rep, False)] + [(cr, True) for cr in ctl_reps.values()]:
+        for name, p in r["pairs"].items():
+            s = p["groups"]["전체"]["종합"]
+            pairwise.append({"a": p["candidate"], "b": p["baseline"], "win": s["win"], "tie": s["tie"], "loss": s["loss"], "n": s["n"],
+                             "score": s["score"], "ci_low": s["ci95"][0], "ci_high": s["ci95"][1], "control": control,
+                             "by_dimension": {k: {kk: p["groups"]["전체"][k][kk] for kk in ("win", "tie", "loss", "score")} for k in DIMS if k in p["groups"]["전체"]},
+                             "position_bias_A_share": p["position_bias_A_share"], "flip_rate": p["flip_rate"]})
+    have = main
+    def sc(g, arm, d):
+        x = rep.get("scores", {}).get(g, {}).get(arm) or {}
+        return x.get(d) if x.get("n") else None
+    per_dim = {d: {arm: sc("전체", arm, d) for arm in have} for d in DIMS}
     per_type = []
     for g in [x for x in rep["mech"] if x != "전체"]:
         row = {"type": g, "n": rep["mech"][g]["n"],
                "metrics": {arm: {k: rep["mech"][g][arm][k] for k in ("chrf", "rougeL", "invented_any", "len_ratio")} for arm in have},
-               "per_dimension": {arm: {d: (rep.get("scores", {}).get(g, {}).get(arm) or {}).get(d) for d in DIMS} for arm in have},
+               "per_dimension": {arm: {d: sc(g, arm, d) for d in DIMS} for arm in have},
                "pairwise": [{"a": p["candidate"], "b": p["baseline"], **{k: p["groups"][g]["종합"][k] for k in ("win", "tie", "loss", "n", "score")},
                              "ci_low": p["groups"][g]["종합"]["ci95"][0], "ci_high": p["groups"][g]["종합"]["ci95"][1]}
                             for p in rep["pairs"].values() if g in p["groups"]]}
@@ -290,7 +310,7 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
                      "<th></th><th>점수(95% 구간)</th></tr>")
             for p in b["pairwise"]:
                 n = max(1, p["n"])
-                L.append(f"<tr><td>{esc(p['a'])} 대 {esc(p['b'])}</td><td class='n'>{p['n']}</td><td class='n'>{p['win']} · {p['tie']} · {p['loss']}</td>"
+                L.append(f"<tr><td>{esc(p['a'])} 대 {esc(p['b'])}{' (대조군: 같은 모델 두 번)' if p.get('control') else ''}</td><td class='n'>{p['n']}</td><td class='n'>{p['win']} · {p['tie']} · {p['loss']}</td>"
                          f"<td><div class='bar'><span class='w' style='width:{100 * p['win'] / n:.1f}%'></span><span class='t' style='width:{100 * p['tie'] / n:.1f}%'>"
                          f"</span><span class='l' style='width:{100 * p['loss'] / n:.1f}%'></span></div></td>"
                          f"<td class='n'>{p.get('score', '')} ({p['ci_low']}~{p['ci_high']})</td></tr>")

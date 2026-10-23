@@ -38,6 +38,8 @@ def test_export_writes_admin_files(tmp_path):
         [r for i in range(4) for r in (
             {"key": f"test-{i:03d}|open-nvfp4", "item": f"test-{i:03d}", "a_is": "open-nvfp4", "verdict": {"종합": "B", **{d: "B" for d in DIMS}}},
             {"key": f"test-{i:03d}|sft-merged", "item": f"test-{i:03d}", "a_is": "sft-merged", "verdict": {"종합": "A", **{d: "A" for d in DIMS}}})])
+    _jl(work / "test-run" / "gen-sft-lora.jsonl",                  # 대조군은 일부 문항만 — 본 비교 문항 수를 줄이지 않는다
+        [{"key": f"test-{i:03d}", "arm": "sft-lora", "text": "답 가", "finish": "stop", "usage": {}, "sec": 1} for i in range(2)])
     ctx = work / "context-run"
     ctx.mkdir(parents=True)
     (ctx / "cases.json").write_text(json.dumps([{"id": "cf-00", "kind": "conflict", "messages": [{"role": "system", "content": "s"},
@@ -49,10 +51,11 @@ def test_export_writes_admin_files(tmp_path):
     html_out = tmp_path / "page" / "index.html"
     rc = s212.main(["--run-id", "r1", "--work", str(work), "--dest", str(dest), "--html-out", str(html_out),
                     "--arm", "open-nvfp4|오픈|zzaimy-writer|토르 02 :8001|open",
-                    "--arm", "sft-merged|병합|writer-sft-merged|토르 02 :8002|sft-merged"])
+                    "--arm", "sft-merged|병합|writer-sft-merged|토르 02 :8002|sft-merged",
+                    "--arm", "sft-lora|어댑터|writer-sft|토르 02 :8001|sft-lora"])
     assert rc == 0
     s = json.loads((dest / "r1" / "summary.json").read_text(encoding="utf-8"))
-    assert [a["kind"] for a in s["arms"]] == ["open", "sft-merged"]
+    assert [a["kind"] for a in s["arms"]] == ["open", "sft-merged", "sft-lora"]
     assert s["labels"]["chrf"] == "정답 겹침(chrF)" and "invented_any" in s["percent_keys"]
     assert s212.fmt("invented_any", 0.164) == "16.4%" and s212.fmt("sec", 37.129) == "37.13"
     blocks = {b["key"]: b for b in s["blocks"]}
@@ -60,6 +63,8 @@ def test_export_writes_admin_files(tmp_path):
     pw = blocks["heldout220"]["pairwise"][0]
     assert (pw["a"], pw["b"], pw["win"], pw["n"]) == ("sft-merged", "open-nvfp4", 4, 4)
     assert blocks["heldout220"]["per_dimension"]["형식"] == {"open-nvfp4": 3.0, "sft-merged": 4.0}
+    assert blocks["heldout220"]["n"] == 4 and blocks["heldout220"]["metrics"]["sft-lora"]["n"] == 2
+    assert [p.get("control") for p in blocks["heldout220"]["pairwise"]] == [False]     # 대조군은 판정이 있을 때만
     samples = json.loads((dest / "r1" / "samples.json").read_text(encoding="utf-8"))
     assert samples and all("홍길동" not in x["input"] for x in samples)
     assert json.loads((dest / "r1" / "docs.json").read_text(encoding="utf-8")) == []
