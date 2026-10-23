@@ -16,7 +16,8 @@
          원문은 넣지 않고 문항 번호만 남긴다.
 - score  팔마다 답 하나씩 항목 1~5점(지시 충실·맥락 이해·형식·근거 충실·문체·완결성) — 팔을 나중에 더해도 그대로 견준다.
 - speed  앞 --speed-n 문항을 동시 1로 흘려 받아 첫 토큰 시간·토큰/초·전체 시간.
-- all    생성·점수·쌍대·보고를 차례로(speed 는 따로).
+- goldlp 앞 --goldlp-n 문항의 정답 토큰당 평균 로그확률(vLLM) — 학습이 실제로 얹혔는지(어댑터·병합본) 샘플링 잡음 없이 본다.
+- all    생성·점수·쌍대·보고를 차례로(speed·goldlp 는 따로).
 팔(arm): --models 의 「팔:서빙 이름=주소」. 결과 파일은 팔 이름으로 — 운영 교체 뒤 같은 서빙 이름이 다른 모델을 가리켜도 섞이지 않는다.
 
 사용(VM — 결과·사본은 저장소 밖에):
@@ -446,6 +447,41 @@ def phase_speed(items, a, out: Path, lock) -> None:
                           "chars": len(g.get("text", ""))}, lock)
 
 
+def gold_logprob(base_url: str, model: str, it: dict, timeout: float = 600) -> dict:
+    """정답(학습 꼴 완성본)의 토큰당 평균 로그확률 — 같은 정답에 대해 모델이 얼마나 「익숙한가」. 학습이 들어간 모델이면 학습 손실 근처로 내려간다.
+    vLLM 전용(prompt_logprobs·continue_final_message·/tokenize). 샘플링 잡음이 없어 어댑터가 실제로 얹혔는지 가르는 데 쓴다."""
+    kw = dict(it.get("kwargs") or {}, enable_thinking=False)
+    root = re.sub(r"/v1/?$", "", base_url.rstrip("/"))
+
+    def post(url, body):
+        req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8"))
+    try:
+        n_prompt = post(root + "/tokenize", {"model": model, "messages": it["messages"], "add_generation_prompt": True,
+                                             "chat_template_kwargs": kw})["count"]
+        d = post(base_url.rstrip("/") + "/chat/completions", {
+            "model": model, "messages": it["messages"] + [{"role": "assistant", "content": it["gold"]}], "max_tokens": 1,
+            "temperature": 0, "prompt_logprobs": 0, "add_generation_prompt": False, "continue_final_message": True,
+            "chat_template_kwargs": kw})
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"[:200]}
+    vals = [next(iter(x.values()))["logprob"] for x in (d.get("prompt_logprobs") or [])[n_prompt:] if x]
+    if not vals:
+        return {"error": "로그확률 없음"}
+    return {"mean_lp": round(sum(vals) / len(vals), 5), "first_lp": round(vals[0], 5), "n_tokens": len(vals)}
+
+
+def phase_goldlp(items, a, out: Path, lock) -> None:
+    for arm in a.gen_models:
+        path = out / f"goldlp-{arm}.jsonl"
+        done = read_cache(path)
+        todo = [it for it in items[:a.goldlp_n] if it["id"] not in done]
+        print(f"[goldlp] {arm}: {len(done)} 있음, {len(todo)} 남음", flush=True)
+        for it in todo:
+            append(path, {"key": it["id"], "arm": arm, **gold_logprob(a.urls[arm], a.served[arm], it)}, lock)
+
+
 MECH_KEYS = ("chrf", "rougeL", "chars", "len_ratio", "invented", "nominal_ratio", "plain_ratio", "bullet_ratio",
              "headings", "table", "gold_frame", "unknown", "truncated", "han", "latin_words", "empty", "sec", "out_tokens")
 
@@ -477,6 +513,10 @@ def phase_report(items, a, out: Path) -> dict:
         for g in groups:
             rs = [r for r in rows if (g == "전체" or r["group"] == g) and arm in r.get("scores", {})]
             rep["scores"].setdefault(g, {})[arm] = {"n": len(rs), **{k: mean([r["scores"][arm][k] for r in rs]) for k in CRITERIA}}
+        gl = [v for v in read_cache(out / f"goldlp-{arm}.jsonl").values() if v.get("mean_lp") is not None]
+        if gl:
+            rep.setdefault("goldlp", {})[arm] = {"n": len(gl), "mean_lp": mean([x["mean_lp"] for x in gl]), "first_lp": mean([x["first_lp"] for x in gl]),
+                                                 "ids": sorted(x["key"] for x in gl)}
         sp = [v for v in read_cache(out / f"speed-{arm}.jsonl").values() if v.get("ttft") is not None]
         if sp:
             rep["speed"][arm] = {"n": len(sp), "ttft": mean([x["ttft"] for x in sp]), "tok_per_sec": mean([x["tok_per_sec"] for x in sp]),
@@ -542,6 +582,11 @@ def to_md(rep: dict, models: list[str]) -> str:
                 if x["n"]:
                     L.append(f"| {g} | {arm} | {x['n']} | " + " | ".join(str(x[k]) for k in CRITERIA) + " |")
         L.append("")
+    if rep.get("goldlp"):
+        L += ["## 정답 로그확률(토큰당 평균, 높을수록 학습 꼴에 익숙)", "", "| 비교 대상 | 문항 | 정답 평균 | 정답 첫 토큰 |", "|---|---|---|---|"]
+        for arm, x in rep["goldlp"].items():
+            L.append(f"| {arm} | {x['n']} | {x['mean_lp']} | {x['first_lp']} |")
+        L.append("")
     if rep.get("speed"):
         L += ["## 속도(흘려 받기, 동시 1)", "", "| 팔 | n | 첫 토큰(초) | 토큰/초 | 전체(초) | 출력 토큰 | 입력 토큰 |", "|---|---|---|---|---|---|---|"]
         for arm, x in rep["speed"].items():
@@ -585,7 +630,8 @@ def main(argv=None) -> int:
     ap.add_argument("--judge-url", default="")
     ap.add_argument("--judge-model", default="zzaimy-writer")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--phase", choices=("gen", "judge", "score", "speed", "report", "all"), default="all")
+    ap.add_argument("--phase", choices=("gen", "judge", "score", "speed", "goldlp", "report", "all"), default="all")
+    ap.add_argument("--goldlp-n", type=int, default=40, help="정답 로그확률을 잴 앞 문항 수")
     ap.add_argument("--speed-n", type=int, default=20, help="속도 걸음에서 흘려 받을 앞 문항 수")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=2)
@@ -603,7 +649,7 @@ def main(argv=None) -> int:
     else:
         a.pairs = [(a.models[i], a.models[j]) for i in range(len(a.models)) for j in range(i + 1, len(a.models))]
     a.gen_models = [m.strip() for m in a.gen_only.split(",") if m.strip()] or a.models
-    if a.phase in ("gen", "speed", "all") and not all(a.urls.get(m) for m in a.gen_models):
+    if a.phase in ("gen", "speed", "goldlp", "all") and not all(a.urls.get(m) for m in a.gen_models):
         ap.error("생성할 모델의 주소가 없다(--base-url 또는 이름=주소)")
     if a.phase in ("judge", "score", "all") and not a.judge_url:
         ap.error("--judge-url 이 필요하다")
@@ -617,6 +663,8 @@ def main(argv=None) -> int:
         phase_gen(items, a, out, lock)
     if a.phase == "speed":
         phase_speed(items, a, out, lock)
+    if a.phase == "goldlp":
+        phase_goldlp(items, a, out, lock)
     if a.phase in ("score", "all"):
         phase_score(items, a, out, lock)
     if a.phase in ("judge", "all"):

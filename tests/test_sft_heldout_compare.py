@@ -99,3 +99,34 @@ def test_pointwise_scores_parse_and_clamp():
     assert v["형식"] == 5 and v["문체"] == 1 and v["근거 충실"] == 3 and v["완결성"] == 4
     assert s210.parse_scores('{"지시 충실": 4}') is None
     assert "맥락 이해" in s210.CRITERIA
+
+
+def test_gold_logprob_reads_only_completion_tokens(monkeypatch):
+    calls = []
+
+    class R:
+        def __init__(self, d):
+            self.d = d
+
+        def read(self):
+            return json.dumps(self.d).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout=0):
+        body = json.loads(req.data)
+        calls.append(req.full_url)
+        if req.full_url.endswith("/tokenize"):
+            return R({"count": 2})
+        assert body["continue_final_message"] and body["messages"][-1]["content"] == "정답"
+        return R({"prompt_logprobs": [None, {"1": {"logprob": -9.0}}, {"2": {"logprob": -1.0}}, {"3": {"logprob": -3.0}}]})
+
+    monkeypatch.setattr(s210.urllib.request, "urlopen", fake)
+    it = {"messages": [{"role": "user", "content": "q"}], "gold": "정답", "kwargs": {}}
+    got = s210.gold_logprob("http://h:8001/v1", "m", it)
+    assert got == {"mean_lp": -2.0, "first_lp": -1.0, "n_tokens": 2}
+    assert calls[0] == "http://h:8001/tokenize"
