@@ -1,6 +1,8 @@
-{# 라이브러리 — 문서를 보는 곳은 여기 하나다. 문서(등록 문서 한 목록, 기준은 쓰임새 칩) / 원본 보관소(학교 원본 파일). ADR-0062 #}
+{# 라이브러리 — 문서를 보는 곳은 여기 하나다. 제목은 「라이브러리」 하나, 탭이 문서(등록 문서 한 목록, 기준은 쓰임새 칩) / 원본 보관소(학교 원본 파일). ADR-0062
+   두 화면이 같은 머리·탭·한 줄 설명을 써서 탭을 오가도 탭 줄 높이가 같다. lib_desc 로 설명 줄을 바꾼다(업무를 고른 문서 목록 등) #}
 {% set lp = request.url.path %}
-<nav class="space-links library-tabs" aria-label="라이브러리" style="margin:0 0 18px;">
+<section class="page-head library-head" aria-label="라이브러리"><h1>라이브러리</h1></section>
+<nav class="space-links library-tabs" aria-label="라이브러리">
   <a href="/?type=all" {% if lp in ('/', '/inbox') %}aria-current="page"{% endif %}>{{ library_tabs.docs }}</a>
   <a href="/archive" {% if lp.startswith('/archive') %}aria-current="page"{% endif %}>{{ library_tabs.archive }}</a>
   {# 그래프는 문서를 보는 다른 방법 — 여기서는 전체, 원본 보관소에서 사업을 골랐으면 그 사업 중심 #}
@@ -8,3 +10,9 @@
   <a class="library-graph" href="/graph/explore{{ ('?id=' ~ (gp|urlencode)) if gp.startswith('program:') else '' }}">
     <iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>{{ '이 사업 그래프' if gp.startswith('program:') else ('지식그래프·온톨로지' if request.state.role == 'dev' else '지식그래프') }}</a>
 </nav>
+<p class="muted library-desc">{{ lib_desc if lib_desc is defined and lib_desc else ('학교 문서 원본 파일 · 열어 보기만 해서는 등록되지 않음' if lp.startswith('/archive') else '등록한 문서 찾기 · 폴더로 묶기') }}</p>
+<style>
+  .library-head { margin-bottom:6px; }
+  .library-tabs { margin:0 0 6px !important; }
+  .library-desc { margin:0 2px 16px; min-height:20px; font-size:12.5px; line-height:20px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style>

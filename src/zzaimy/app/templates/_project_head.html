@@ -1,0 +1,149 @@
+{# 프로젝트 머리 — 「대화·문서」 와 「진행 현황」 이 같은 머리(이름·정보·단추·안내)와 탭 줄을 쓴다.
+   head_tab: 'chat' | 'activity'. 공유·관리 창은 대화·문서 화면에만 있어서 진행 현황에서는 그 화면의 #share·#manage 로 간다 #}
+{% set sector_name = sector_labels.get(project.sector, project.sector) %}
+{% set on_chat = head_tab == 'chat' %}
+{% set pcolor = palette.get(project_color_key) or palette['navy'] %}
+{% set color_names = {'navy': '남색', 'blue': '파랑', 'teal': '청록', 'green': '초록', 'amber': '주황', 'red': '빨강', 'plum': '보라', 'slate': '회색'} %}
+{% set flow_hints = {
+  "grant": "공고·지침을 기준 문서로 연결하고, 대화에서 공고 항목에 맞춘 계획서 초안을 작성합니다.",
+  "recruit": "지원 서류를 채용 공고·임용 규정과 대조해 검토 의견을 만들고 판정합니다.",
+  "admission": "입학 서류를 모집 요강과 대조해 확인 사항을 정리하고 판정합니다.",
+  "auto": "행정 문서를 관련 규정과 대조해 검토 의견을 만들고 판정합니다.",
+} %}
+{% if project.archived %}<a class="project-breadcrumb" href="/projects/archived"><iconify-icon icon="solar:arrow-left-linear" aria-hidden="true"></iconify-icon> 지난 사업</a>
+{% else %}<a class="project-breadcrumb" href="/?type={{ project.sector }}" title="라이브러리에서 {{ sector_name }} 프로젝트와 문서 보기"><iconify-icon icon="solar:arrow-left-linear" aria-hidden="true"></iconify-icon> 라이브러리 · {{ sector_name }}</a>{% endif %}
+<div class="page-head project-head">
+  {# 머리 아이콘 — 소유자는 눌러 색을 고른다(바로 저장). 목록·사이드바도 같은 색(project_color) #}
+  <div class="project-icon-wrap">
+    <button type="button" class="project-icon" id="projectIcon" style="--pc:{{ pcolor[0] }}; --pcb:{{ pcolor[1] }};"
+            {% if can_edit %}aria-haspopup="true" aria-expanded="false" aria-controls="projectColorPop" title="아이콘 색 바꾸기" aria-label="아이콘 색 바꾸기"{% else %}disabled aria-hidden="true" tabindex="-1"{% endif %}>
+      <iconify-icon icon="solar:{{ 'archive' if project.archived else 'folder-2' }}-linear" aria-hidden="true"></iconify-icon></button>
+    {% if can_edit %}
+    <form class="project-pop project-color-pop" id="projectColorPop" action="/project/{{ project.id }}/color" method="post" hidden aria-label="아이콘 색">
+      {% for key, c in palette.items() %}<button type="submit" name="color" value="{{ key }}" class="project-swatch" style="--sw:{{ c[0] }};"
+        aria-label="{{ color_names.get(key, key) }}" title="{{ color_names.get(key, key) }}" aria-pressed="{{ 'true' if key == project_color_key else 'false' }}"
+        data-bg="{{ c[1] }}"></button>{% endfor %}
+    </form>
+    {% endif %}
+  </div>
+  <div class="project-title-block">
+    <h1 class="project-name">{{ project.name }}{% if project.archived %} <span class="pill" style="font-size:12px; vertical-align:middle;">지난 사업</span>{% endif %}</h1>
+    <div class="project-meta">
+      {{ sector_name }} 업무 · 첨부 {{ doc_counts.attached }}건 ·
+      참고 {{ doc_counts.reference }}건 · 기준 문서 {{ doc_counts.rules }}건
+      {% if project.due_date %} · <b style="color:#C05621;">마감 {{ project.due_date }}</b>{% endif %}
+      · {% if can_edit and not project.archived %}<span class="project-lead-wrap"><button type="button" class="project-lead-chip" id="projectLead" aria-haspopup="true" aria-expanded="false" aria-controls="projectLeadPop" title="사업 책임자 바꾸기">책임 {{ lead_label }}</button>
+        <form class="project-pop project-lead-pop" id="projectLeadPop" action="/project/{{ project.id }}/lead" method="post" hidden aria-label="사업 책임자">
+          {% for c in lead_choices %}<button type="submit" name="user" value="{{ c.user }}" aria-pressed="{{ 'true' if c.user == lead else 'false' }}">{{ c.label }}{% if c.user == project.owner %}<small>만든 사람</small>{% endif %}</button>{% endfor %}
+          {% if lead_choices|length < 2 %}<p>함께 작업으로 공유한 사람을 사업 책임자로 고를 수 있습니다</p>{% endif %}
+        </form></span>{% else %}<span class="project-lead-text">책임 {{ lead_label }}</span>{% endif %}
+      · 만든 날 {{ project.created_at[:10] }}</div>
+  </div>
+  <div class="page-head-actions project-actions">
+    {% set gid = (project.program or '').split('|')[0] %}
+    {% set has_graph = gid.startswith('program:') %}
+    {% set has_admin = has_graph and program_scope is defined and program_scope(request) %}
+    {% if project.archived and (can_edit or project.owner == 'zzdev') %}
+    <form action="/project/{{ project.id }}/unarchive" method="post" style="margin:0;">
+      <button type="submit" class="secondary">보관 해제</button></form>
+    {% endif %}
+    {% if can_edit and not project.archived %}
+    {% set share_icon = 'lock-keyhole' if share.mode == 'private' or not share['items'] else 'users-group-rounded' %}
+    {% if on_chat %}<button type="button" class="secondary" data-modal-open="#shareModal" title="공유 범위 — {{ share_title }}">
+      <iconify-icon icon="solar:{{ share_icon }}-linear"></iconify-icon>{{ share_label }}</button>
+    {% else %}<a class="btn secondary" href="/project/{{ project.id }}#share" title="공유 범위 — {{ share_title }}">
+      <iconify-icon icon="solar:{{ share_icon }}-linear"></iconify-icon>{{ share_label }}</a>{% endif %}
+    {% endif %}
+    {% if can_edit %}
+    {% if on_chat %}<button type="button" class="secondary" data-modal-open="#manageModal">
+      <iconify-icon icon="solar:settings-linear"></iconify-icon>관리</button>
+    {% else %}<a class="btn secondary" href="/project/{{ project.id }}#manage"><iconify-icon icon="solar:settings-linear"></iconify-icon>관리</a>{% endif %}
+    {% endif %}
+    {# 덜 쓰는 바로가기(사업 그래프·사업 관리)는 「⋯」 한 곳에 — 좁은 화면에서도 머리 단추가 한 줄에 든다 #}
+    {% if has_graph %}
+    <span class="project-more-wrap">
+      <button type="button" class="secondary project-more" id="projectMore" aria-haspopup="menu" aria-expanded="false" aria-controls="projectMoreMenu" aria-label="더 보기" title="더 보기">
+        <iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon></button>
+      <span class="project-pop project-more-pop" id="projectMoreMenu" role="menu" aria-label="더 보기" hidden>
+        <a role="menuitem" href="/graph/explore?id={{ gid|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>
+        {% if has_admin %}<a role="menuitem" href="/programs/admin?tab=all&q={{ (project.program_name or gid[8:]) | urlencode }}" title="사업 관리에서 이 사업 보기"><iconify-icon icon="solar:clipboard-list-linear" aria-hidden="true"></iconify-icon>사업 관리</a>{% endif %}
+      </span>
+    </span>
+    {% endif %}
+  </div>
+</div>
+{% if not can_edit and not project.archived and my_access == 'edit' %}
+<p class="notice project-head-note"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon><span>{{ owner_label }} 님이 함께 작업하도록 공유한 프로젝트입니다 — 내 대화를 열어 묻고 문서를 씁니다. 프로젝트 설정은 담당자가 합니다.</span></p>
+{% elif not can_edit and not project.archived %}
+<p class="notice project-head-note"><iconify-icon icon="solar:eye-linear"></iconify-icon><span>참조로 공유된 {{ owner_label }} 님의 프로젝트입니다 — 읽기 전용으로 공개된 대화와 작업 문서를 봅니다.</span></p>
+{% elif project.archived %}
+<p class="notice project-head-note"><iconify-icon icon="solar:archive-linear"></iconify-icon><span>지난 사업 자료입니다. 다른 프로젝트에서 참조로 연결해 근거로 쓸 수 있고, 다시 진행하려면 「보관 해제」를 누릅니다.</span></p>
+{% elif flow_hints.get(project.sector) %}
+<p class="muted project-hint">{{ flow_hints.get(project.sector) }}</p>
+{% endif %}
+{% if request.query_params.get('ok') %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ request.query_params.get('ok') }}</span></p>{% endif %}
+{% if request.query_params.get('err') %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ request.query_params.get('err') }}</span></p>{% endif %}
+
+{% if on_chat %}
+<div class="project-tabs" role="tablist" aria-label="프로젝트 작업">
+  <button type="button" role="tab" id="projectTabChat" data-project-tab="projectConversations" aria-controls="projectConversations" aria-selected="true">대화·문서</button>
+  {% if show_activity %}<a role="tab" id="projectTabActivity" href="/project/{{ project.id }}/activity" aria-selected="false">진행 현황</a>{% endif %}
+</div>
+{% else %}
+<nav class="project-tabs pa-tabs" aria-label="프로젝트 작업">
+  <a href="/project/{{ project.id }}" aria-selected="false">대화·문서</a>
+  <a href="/project/{{ project.id }}/activity" aria-selected="true" aria-current="page">진행 현황</a>
+</nav>
+{% endif %}
+<script>
+(function () {
+  // 머리의 작은 펼침 창(아이콘 색·사업 책임자·더 보기) — 단추로 열고, 바깥을 누르거나 Esc 로 닫는다
+  var pops = [];
+  function closePops(except) {
+    pops.forEach(function (p) { if (p.pop !== except && !p.pop.hidden) { p.pop.hidden = true; p.btn.setAttribute("aria-expanded", "false"); } });
+  }
+  ["projectIcon", "projectLead", "projectMore"].forEach(function (id) {
+    var btn = document.getElementById(id), pop = btn && document.getElementById(btn.getAttribute("aria-controls") || "");
+    if (!btn || !pop || btn.disabled) return;
+    pops.push({btn: btn, pop: pop});
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var open = pop.hidden;
+      closePops(pop);
+      pop.hidden = !open; btn.setAttribute("aria-expanded", String(open));
+      if (open) { var first = pop.querySelector("button, a"); if (first) first.focus(); }
+    });
+  });
+  document.addEventListener("click", function (e) { if (!e.target.closest(".project-head .project-pop")) closePops(null); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    pops.forEach(function (p) { if (!p.pop.hidden) { p.pop.hidden = true; p.btn.setAttribute("aria-expanded", "false"); p.btn.focus(); } });
+  });
+  // 아이콘 색 — 누르면 바로 저장하고 그 자리에서 색을 바꾼다(실패하면 보통 제출로)
+  var colorPop = document.getElementById("projectColorPop"), icon = document.getElementById("projectIcon");
+  if (colorPop && icon) {
+    colorPop.addEventListener("click", function (e) {
+      var sw = e.target.closest(".project-swatch"); if (!sw) return;
+      e.preventDefault();
+      var fd = new FormData(); fd.append("color", sw.value);
+      fetch(colorPop.action, {method: "POST", body: fd, headers: {Accept: "application/json"}, credentials: "same-origin"})
+        .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function (d) {
+          icon.style.setProperty("--pc", d.hex); icon.style.setProperty("--pcb", d.bg);
+          colorPop.querySelectorAll(".project-swatch").forEach(function (b) { b.setAttribute("aria-pressed", String(b === sw)); });
+          closePops(null); icon.focus();
+        })
+        .catch(function () { colorPop.requestSubmit(sw); });
+    });
+  }
+  {% if on_chat %}
+  // 진행 현황의 「공유」·「관리」 는 이 화면의 #share·#manage 로 온다 — 그 창을 열어 준다
+  var want = {"#share": "shareModal", "#manage": "manageModal"}[location.hash];
+  var modal = want && document.getElementById(want);
+  if (modal) {
+    history.replaceState(null, "", location.pathname + location.search);
+    window.addEventListener("load", function () { modal.classList.add("open"); var f = modal.querySelector("input,select,textarea"); if (f) f.focus(); });
+  }
+  {% endif %}
+})();
+</script>

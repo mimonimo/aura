@@ -19,19 +19,6 @@
     <button type="button" id="documentWidthToggle" class="btn-ghost" aria-pressed="true" aria-controls="documentSource documentWork" hidden>나란히 보기</button>
     {% endif %}
     {% endif %}
-    {% if doc.status == 'reviewed' %}
-    <span class="menu-wrap" style="margin-left:auto;">
-      <button type="button" id="expBtn" class="btn-ghost" aria-expanded="false" aria-controls="expMenu">내보내기</button>
-      <div id="expMenu" class="menu-list" hidden>
-        {# 원본 파일은 위 「내려받기」가 맡는다. 여기는 읽어 낸 본문을 다른 형식으로 #}
-        {% if restored_pdf %}<a href="/doc/{{ doc.id }}/export.pdf">글자 찾기 되는 PDF <span class="ext">.pdf</span></a>{% endif %}
-        <a href="/doc/{{ doc.id }}/export.docx">워드 파일 <span class="ext">.docx</span></a>
-        <a href="/doc/{{ doc.id }}/export.md">텍스트 <span class="ext">.md</span></a>
-        {% if assets %}<a href="/doc/{{ doc.id }}/images.zip">그림 {{ assets|length }}장 <span class="ext">.zip</span></a>{% endif %}
-        {% if scan_asset %}<a href="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}?dl=1">보정 스캔본 <span class="ext">.png</span></a>{% endif %}
-      </div>
-    </span>
-    {% endif %}
   </h2>
   {% if doc.status == 'reviewed' %}
   {% if is_spreadsheet %}

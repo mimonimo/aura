@@ -1,8 +1,7 @@
 {% extends "base.html" %}
-{% block title %}원본 보관소{% endblock %}
-{% block pagetitle %}원본 보관소{% endblock %}
+{% block title %}라이브러리 · 원본 보관소{% endblock %}
+{% block pagetitle %}라이브러리{% endblock %}
 {% block content %}
-<header class="space-intro"><h1>라이브러리</h1></header>
 {% include "_library_tabs.html" %}
 <style>
 .ar-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:20px;margin:16px 0 4px}
@@ -43,7 +42,7 @@
 .ar-body{min-width:0}
 #archive-browse[aria-busy=true],#archive-list[aria-busy=true]{opacity:.55;transition:opacity .15s}
 /* 찾기 */
-.ar-form{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.4fr);gap:12px;align-items:end;margin:0 0 10px}
+.ar-form{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:end;margin:0 0 10px}
 .ar-more{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto auto;gap:12px;align-items:end}
 .ar-form label,.ar-more label{display:grid;gap:6px;font-size:12px;color:var(--muted);min-width:0}
 .ar-form input,.ar-more select{width:100%;min-width:0;height:36px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:inherit;box-sizing:border-box}
@@ -127,15 +126,6 @@
  .ar-rail .ar-facets{flex-direction:row;flex-wrap:wrap;gap:4px}.ar-rail .ar-facets .ar-ri{border:1px solid var(--line);padding:4px 10px;border-radius:14px}
  .ar-views{margin-left:0}}
 </style>
-<section class="card"><div class="card-in">
-  <div class="ar-head"><h2>원본 보관소</h2></div>
-  <p class="ar-note">학교 문서 원본을 모아 둔 곳입니다.</p>
-  <dl class="ar-summary">
-    <div><dt title="{{ metric_tip(head_metric) }}">{{ '열람 가능 원본 파일' if head_metric == 'archive_visible' else '원본 파일' }}</dt><dd>{{ "{:,}".format(overall.total) }}<small>건</small></dd></div>
-    {% for s in overall.states %}<div><dt{% if s.value == 'failed' and head_metric == 'archive_originals' %} title="{{ metric_tip('archive_failed') }}"{% endif %}>{{ s.label }}</dt><dd>{{ "{:,}".format(s.n) }}<small>건</small></dd></div>{% endfor %}
-  </dl>
-  <p class="ar-note">원본 파일 기준 건수입니다. 「문서 연결됨」은 라이브러리 문서와 이어진 원본 파일 수로, 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다.</p>
-</div></section>
 {% if request.state.role == 'dev' %}
 {# 정리 — 처리하지 않는 원본(사진·압축·범위 밖·중복·크기 초과). 관리 도구라 접어 두고 「펼치기」로 연다. 정리함은 보관소에서만 빼는 표시이고 되돌릴 수 있다. 실제 삭제는 따로 #}
 <section class="card" id="archive-cleanup"><div class="card-in">
@@ -227,8 +217,8 @@
       <form id="arForm" method="get" action="/archive#archive-list" role="search" aria-label="원본 찾기">
         <div class="ar-form">
           <label>검색<input name="q" value="{{ f.q }}" placeholder="파일 이름이나 폴더, 여러 낱말 가능" type="search" autocomplete="off"></label>
-          <label>사업<input name="program" value="{{ program_label if f.program else '' }}" list="arPrograms" placeholder="사업 이름 일부" type="search" autocomplete="off"></label>
-          <datalist id="arPrograms">{% for name, key, n in program_names %}<option value="{{ name }}" data-key="{{ key }}" label="{{ "{:,}".format(n) }}건"></option>{% endfor %}<option value="{{ no_program }}" data-key="{{ nokey }}"></option></datalist>
+          {# 사업은 왼쪽 「사업별로 보기」 한 곳에서 고른다 — 고른 사업 열쇠만 여기 실어 보낸다 #}
+          <input type="hidden" name="program" value="{{ f.program }}">
         </div>
         <div class="ar-more">
           <label>사업 연도<select name="year"><option value="">전체</option>{% for y in overall.years if y.year and y.year != nokey %}<option value="{{ y.year }}" {{ 'selected' if y.year == f.year }}>{{ y.year }}년</option>{% endfor %}{% if overall.years|selectattr('year', 'equalto', nokey)|list %}<option value="{{ nokey }}" {{ 'selected' if f.year == nokey }}>연도 미상</option>{% endif %}</select></label>
@@ -242,7 +232,6 @@
       </form>
     </div></section>
     <div id="arResults" aria-live="polite">{% set part = 'list' %}{% include "_archive_results.html" %}</div>
-    <p class="ar-note">「원본 열기」는 원본 파일을 엽니다(최대 100 MB). 열어 보는 것만으로 문서 등록이나 분석이 시작되지는 않습니다.</p>
   </div>
 </div>
 <script>
@@ -302,10 +291,6 @@
   const query = () => {
     const p = new URLSearchParams();
     for (const [k, v] of new FormData(form)) if (String(v).trim() && !(k === 'sort' && v === 'name')) p.set(k, String(v).trim());
-    if (p.has('program')) {                     // 제안에서 선택한 사업 이름은 그 묶음 열쇠로 보낸다
-      const opt = [...document.querySelectorAll('#arPrograms option')].find(o => o.value === p.get('program'));
-      if (opt && opt.dataset.key) p.set('program', opt.dataset.key);
-    }
     return p;
   };
   const busy = on => ['archive-browse', 'archive-list'].forEach(id => { const el = $(id); if (el) on ? el.setAttribute('aria-busy', 'true') : el.removeAttribute('aria-busy'); });
@@ -339,7 +324,6 @@
   form.addEventListener('change', e => { if (e.target.matches('select')) run(); });
   form.addEventListener('input', e => {
     if (!e.target.matches('input')) return;
-    if (e.target.name === 'program') { setField('round', ''); }
     clearTimeout(timer);
     timer = setTimeout(run, e.inputType === 'insertReplacementText' ? 0 : 350);
   });
@@ -349,10 +333,7 @@
     if (a.dataset.set !== undefined) {
       e.preventDefault();
       for (const [k, v] of new URLSearchParams(a.dataset.set)) {
-        if (k === 'program') {                  // 칸에는 사업 이름을 보이고, 보낼 때 query() 가 열쇠로 바꾼다
-          const opt = [...document.querySelectorAll('#arPrograms option')].find(o => o.dataset.key === v);
-          setField(k, opt ? opt.value : v);
-        } else setField(k, v);
+        setField(k, v);
       }
       run(undefined, !!a.closest('.ar-rail'));
     } else if (a.dataset.clear) {

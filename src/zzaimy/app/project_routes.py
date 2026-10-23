@@ -1,6 +1,6 @@
 """프로젝트(/project*·/projects*) — 프로젝트 만들기(이름만·자료 묶음으로), 프로젝트 화면(/project/{id}),
 자료 더 넣기(/project/{id}/bundle — 끌어 놓기·파일 고르기), 문서함·드라이브에서 가져오기(/project/{id}/documents/import),
-기준 문서 고르기·한 건 잇기·빼기, 관련 보관 사업 잇기·풀기, 프로젝트 검색(/projects/archived),
+기준 문서 고르기·한 건 잇기·빼기, 관련 보관 사업 잇기·풀기, 지난 사업(/projects/archived),
 보관·불러오기, 작업 폴더 부서 공유, 작성 원칙, 아이콘 색·사업 책임자, 이름·기한·사업단·사업 바꾸기, 지우기.
 
 프로젝트 화면은 탭 하나(「대화·문서」)에 대화·작업 문서(왼쪽)와 프로젝트 문서·작성 원칙·관련 지난 사업(오른쪽)을 함께 둔다.
@@ -424,15 +424,6 @@ def project_page(request: Request, project_id: int, refq: str = "", tab: str = "
     # 한글 작업 문서 — 대화에 이은 한글 파일과 부서 한글 문서함의 「작업/<프로젝트>」 폴더. 이 사람이 열 수 있는 부서의 것만
     work_docs += _hwp_work_docs(request, proj, project_chats, owner_view=can_edit)
     work_docs.sort(key=lambda w: (w["created_at"] or "").replace("T", " "), reverse=True)
-    from zzaimy.app import project_access as pa
-    accounts = request.app.state.accounts or {}
-    lead = pa.lead(db, proj, accounts)
-    _nm = lambda u: ((accounts.get(u) or {}).get("name") or "").strip() or u
-    from zzaimy.app import grades
-    owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
-    show_activity = grades.can_view_activity(proj, user=me or getattr(request.state, "user", ""), account=_account(request),
-                                             lead=lead, project_dept=owner_dept)
-    lead_choices = [{"user": u, "label": _nm(u)} for u in pa.lead_choices(proj, _share_of(request, proj), accounts)] if can_edit else []
     return templates.TemplateResponse(
         request,
         "project.html",
@@ -445,15 +436,12 @@ def project_page(request: Request, project_id: int, refq: str = "", tab: str = "
             "suggestions": _project_suggestions(proj),
             "linked_criteria": linked, "sector_criteria": sector_criteria,
             "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
-            "project_chats": project_chats, "can_edit": can_edit,
+            "project_chats": project_chats,
             "drive_share": {**_ds.state(db, project_id)},
-            **_share_ctx(request, proj),
-            "owner_label": proj.get("owner") or "",
             "work_docs": work_docs, "work_sessions": work_sessions,
             "project_notes": db.list_project_notes(project_id),
             **h._project_ref_ctx(request, proj, refq, h._ref_names(doc_groups)),
-            "palette": pa.PALETTE, "project_color_key": pa.color_key(db, project_id),
-            "lead": lead, "lead_label": _nm(lead), "lead_choices": lead_choices, "show_activity": show_activity,
+            **head_ctx(request, proj, doc_groups),
         }),
     )
 
@@ -490,7 +478,7 @@ def project_ref_unlink(request: Request, project_id: int, ref_project_id: int):
 @router.get("/projects/archived", response_class=HTMLResponse)
 def projects_archived(request: Request, q: str = "", status: str = "all", year: str = "", unit: str = "",
                       for_project: int | None = None, sort: str = ""):
-    """프로젝트 검색(사업 단위 찾기) — 권한 범위의 진행 중 프로젝트·보관된 사업 묶음을 사업명·수행 연도·사업단으로. 기본은 전체.
+    """지난 사업(사업 단위 찾기) — 권한 범위의 진행 중 프로젝트·보관된 사업 묶음을 사업명·수행 연도·사업단으로. 기본은 전체.
     결과는 같은 사업의 연도별 묶음을 한 카드로 모아 보인다(project_refs.group_items)."""
     h = request.app.state.project
     db, templates, ctx, _dept_peers = h.db, h.templates, h.ctx, h._dept_peers
@@ -534,7 +522,7 @@ def project_unarchive(request: Request, project_id: int):
 
 @router.post("/project/{project_id}/archive")
 def project_archive(request: Request, project_id: int):
-    """보관 — 사이드바·목록에서 빼고 「보관된 사업」으로. 문서·대화·메모는 그대로."""
+    """보관 — 사이드바·목록에서 빼고 「지난 사업」으로. 문서·대화·메모는 그대로."""
     h = request.app.state.project
     db = h.db
     if db.get_project(project_id) is None:
@@ -583,6 +571,32 @@ def _hwp_work_docs(request: Request, proj: dict, chats: list[dict], *, owner_vie
                     "drive_url": drive if owner_view and drive.startswith("https://") else "",
                     "created_at": m.get("saved") or m.get("created") or f.get("created_at") or ""})
     return out
+
+
+def head_ctx(request: Request, proj: dict, doc_groups: dict | None = None) -> dict:
+    """프로젝트 머리(_project_head.html) — 「대화·문서」 와 「진행 현황」 이 같은 값으로 같은 머리를 그린다.
+    이름·정보 줄(문서 수·사업 책임자)·단추(공유·관리·⋯)·안내·탭(진행 현황을 볼 수 있는지)."""
+    from zzaimy.app import grades, project_access as pa
+    st = request.app.state
+    db = st.db
+    me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+    can_edit = request.state.role == "dev" or (bool(me) and proj.get("owner") == me)
+    if doc_groups is None:
+        try:
+            doc_groups = st.project._doc_groups(request, proj)
+        except Exception:
+            doc_groups = {}
+    accounts = st.accounts or {}
+    lead = pa.lead(db, proj, accounts)
+    _nm = lambda u: ((accounts.get(u) or {}).get("name") or "").strip() or u
+    owner_dept = ((accounts.get(proj.get("owner") or "", {}) or {}).get("dept") or "").strip()
+    show_activity = grades.can_view_activity(proj, user=me or getattr(request.state, "user", ""), account=_account(request),
+                                             lead=lead, project_dept=owner_dept)
+    lead_choices = [{"user": u, "label": _nm(u)} for u in pa.lead_choices(proj, _share_of(request, proj), accounts)] if can_edit else []
+    return {"can_edit": can_edit, **_share_ctx(request, proj), "owner_label": proj.get("owner") or "",
+            "doc_counts": {k: len((doc_groups or {}).get(k) or []) for k in ("attached", "reference", "rules")},
+            "palette": pa.PALETTE, "project_color_key": pa.color_key(db, int(proj["id"])),
+            "lead": lead, "lead_label": _nm(lead), "lead_choices": lead_choices, "show_activity": show_activity}
 
 
 def _share_ctx(request: Request, proj: dict) -> dict:

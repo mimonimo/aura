@@ -39,10 +39,10 @@
     {% set on = k.value == f.kind %}
     <li>{{ ri(k.label, k.n, url(kind='' if on else k.value), 'kind=' ~ ('' if on else k.value), on) }}</li>
   {% endfor %}</ul>
-  <h2 class="ar-rh">처리 상태</h2>
+  <h2 class="ar-rh"{% if head_metric is defined %} title="{{ metric_tip(head_metric) }}"{% endif %}>처리 상태</h2>
   <ul class="ar-facets" aria-label="처리 상태">{% for s in view.states %}
     {% set on = s.value == f.state %}
-    <li>{{ ri(s.label, s.n, url(state='' if on else s.value), 'state=' ~ ('' if on else s.value), on) }}</li>
+    <li>{{ ri(s.label, s.n, url(state='' if on else s.value), 'state=' ~ ('' if on else s.value), on, title=('라이브러리 문서와 이어진 원본 파일 수 — 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다' if s.value == 'registered' else '')) }}</li>
   {% endfor %}</ul>
 </div>
 {% endif %}
@@ -60,7 +60,7 @@
       <p class="ar-muted">{% if pick %}원본 {{ "{:,}".format(pick.n) }}건 · {{ states.registered }} {{ "{:,}".format(pick.registered) }}건{% else %}지금 조건에 맞는 원본이 없습니다{% endif %}</p>
     </div>
     <div class="ar-pick-acts">
-      {% if f.program != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': program_label, 'status': 'all'}|urlencode }}">프로젝트 검색</a>
+      {% if f.program != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': program_label, 'status': 'all'}|urlencode }}">지난 사업에서 찾기</a>
       <a class="btn secondary ar-graph" href="/graph/explore?id={{ f.program|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로" aria-label="{{ program_label }} 그래프"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>그래프</a>{% endif %}
       <a class="btn secondary" href="{{ url(program='', year='', round='') }}" data-set="program=&year=&round=">전체 사업 보기</a>
     </div>

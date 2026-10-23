@@ -64,7 +64,7 @@ def _count(html: str) -> str:
 def test_page_wording_and_labels(client):
     page = client.get("/archive").text
     assert "<title>" in page and "DGX" not in page
-    assert "원본 보관소" in page and "학교 문서 원본을 모아 둔 곳입니다" in page
+    assert "원본 보관소" in page and "학교 문서 원본 파일" in page
     assert "한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다" in page
     for internal in ("플랫폼 원본 대장", "OCR·분석 완료율", "미정", "파일명으로 검색", ">evidence", ">curriculum"):
         assert internal not in page, internal
@@ -308,7 +308,7 @@ def test_picked_program_header_has_actions(client):
 def test_unclassified_row_has_no_project_link(client):
     page = client.get("/archive?program=none").text
     pick = page[page.index('class="ar-pick"'):page.index('class="ar-resbar"')]
-    assert ">사업 미분류</h2>" in pick and "프로젝트 검색" not in pick and "그래프" not in pick and "전체 사업 보기" in pick
+    assert ">사업 미분류</h2>" in pick and "지난 사업에서 찾기" not in pick and "그래프" not in pick and "전체 사업 보기" in pick
 
 
 def _graph_program(db, key, label, acronyms=()):
@@ -331,7 +331,8 @@ def test_renamed_program_keeps_its_files_and_every_way_of_filtering(client):
     for value in ("program:b", "별누리 인재양성체계(구 ZETA)", "별누리인재양성체계(구ZETA)", "ZETA", "별누리"):
         assert _count(client.get(f"/archive?program={value}").text) == "61건 중 1–50", value
     row_tag = client.get("/archive?program=ZETA").text
-    assert 'value="별누리 인재양성체계(구 ZETA)"' in row_tag                       # 칸에는 보일 이름, 주소는 열쇠
+    assert 'name="program" value="program:b"' in row_tag                          # 사업은 왼쪽 목록 한 곳 — 찾기 칸에는 열쇠만 싣는다
+    assert "별누리 인재양성체계(구 ZETA)" in row_tag[row_tag.index('class="ar-pick"'):]     # 고른 사업 머리에는 보일 이름
     assert "program=program%3Ab" in page
 
 
@@ -369,7 +370,7 @@ def test_shared_vocabulary_and_format_groups(client):
         ["ACA0040.rdf", "공고 100%_안내.다운로드", "setup.exe", "style.css"])
     # 원본의 「문서 연결됨」과 문서의 「처리 완료」는 다른 말 — 같은 이름이면 서로 다른 수가 모순처럼 보인다
     assert vocab.ARCHIVE_STATE_LABELS["registered"] == "문서 연결됨" and vocab.STATUS_LABELS["reviewed"] == "처리 완료"
-    assert f"<dt>{vocab.ARCHIVE_STATE_LABELS['registered']}</dt>" in page and "등록됨" not in page
+    assert f">{vocab.ARCHIVE_STATE_LABELS['registered']}<span>" in page and "등록됨" not in page
     from zzaimy.app import main
     assert main.STATUS_LABELS is vocab.STATUS_LABELS
 
@@ -419,7 +420,7 @@ def test_program_box_ranks_exact_acronym_over_word_and_part_matches(client):
     assert chooser.index("새빛 인재양성체계(구 NOVA)") < chooser.index("대구 NOVA 협력 사업") < chooser.index("경북 NOVA 실험실 사업")
     assert "program=program%3Adgnova" in chooser
     full = client.get("/archive").text
-    assert '<option value="새빛 인재양성체계(구 NOVA)" data-key="program:nova" label="30건">' in full
+    assert ">새빛 인재양성체계(구 NOVA)<span>30</span></a>" in _tree(full)            # 사업 고르기는 왼쪽 목록 한 곳
 
 
 def test_polluted_graph_aliases_never_steal_another_programs_acronym(client):

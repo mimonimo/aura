@@ -19,7 +19,7 @@ def test_back_link_prefers_active_project_then_origin():
     assert doc_origin.back_link(doc, None, "", "http://evil/archive", "h")["label"] == "라이브러리로"   # 다른 사이트
     assert doc_origin.back_link(doc, None, "", "http://h/doc/3", "h")["label"] == "라이브러리로"        # 모르는 화면
     archived = {"id": 9, "name": "보관 묶음", "archived": 1}
-    assert doc_origin.back_link(doc, archived)["label"] == "보관된 사업으로"
+    assert doc_origin.back_link(doc, archived)["label"] == "지난 사업으로"
     assert doc_origin.back_link(doc, archived, "graph")["label"] == "그래프 탐색으로"
     assert doc_origin.back_link({"doc_type": "regulation"}, None)["href"] == "/?type=all&use=criteria"
     assert doc_origin.back_link({"doc_type": "grant", "stored_path": "dgx://가/나.pdf"}, None)["href"] == "/archive"

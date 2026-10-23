@@ -697,7 +697,7 @@ def rail_tree(programs: list[dict]) -> list[dict]:
 
 
 def picked_program(f: dict, view: dict, tree: list[dict]) -> dict | None:
-    """고른 사업 — 목록 머리에 이름·건수·동작(프로젝트 검색·그래프)을 보인다. 지금 조건에 원본이 없으면 None."""
+    """고른 사업 — 목록 머리에 이름·건수·동작(지난 사업에서 찾기·그래프)을 보인다. 지금 조건에 원본이 없으면 None."""
     if f["program"] == NONE:
         u = view.get("unclassified")
         return {"value": NONE, "label": NO_PROGRAM, "raw_label": NO_PROGRAM, "n": u["n"], "registered": u["registered"]} if u else None
@@ -781,14 +781,14 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
         data["prev_url"] = page_url(f, page=data["page"] - 1)
     if data["page"] < data["pages"]:
         data["next_url"] = page_url(f, page=data["page"] + 1)
+    # 원본 수의 이름·정의는 지표 모듈에서 — 열람 제한이 없으면 학교 원본 전부(archive_originals), 있으면 열람 범위(archive_visible).
+    # 처리 상태는 왼쪽 「처리 상태」 한 곳에만 보인다(머리 숫자 칸은 두지 않는다)
+    data["head_metric"] = "archive_visible" if hidden else "archive_originals"
     if partial:                              # 조건을 바꿀 때마다 왼쪽 분류와 원본 목록만 다시 그린다
         return st.templates.TemplateResponse(request, "_archive_results.html", data)
     overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else program_years(facet_rows(
         db, parse_filters(), hidden), prog_of), parse_filters(), prog_of, labels)
     data["overall"] = overall
-    # 머리 숫자의 이름·정의는 지표 모듈에서 — 열람 제한이 없으면 학교 원본 전부(archive_originals), 있으면 열람 범위(archive_visible)
-    data["head_metric"] = "archive_visible" if hidden else "archive_originals"
-    data["program_names"] = sorted(((prog_of.name[g], g, prog_of.count.get(g, 0)) for g in prog_of.name), key=lambda t: -t[2])
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))
 
 

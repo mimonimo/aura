@@ -11,8 +11,11 @@
 </form>
 {%- endmacro %}
 <div class="hb" data-hwp-box data-dept="{{ here.dept if here else '' }}" data-folder="{{ here.folder if here else '' }}" data-editor="{{ 'on' if status.ok else '' }}" data-copy-dept="{{ copy_at.dept }}" data-copy-folder="{{ copy_at.folder }}">
-  <nav class="hb-side" aria-label="위치">
+  {# 좁은 화면에서는 위치 목록이 화면 반을 차지하지 않게 「폴더」 단추로 여는 아래 판(sheet)이 된다 #}
+  <div class="hb-sheet-back" data-side-back></div>
+  <nav class="hb-side" id="hbSide" aria-label="위치">
     <p class="hb-side-head">문서함</p>
+    <div class="hb-sheet-head"><b>위치</b><button type="button" class="hb-btn ghost" data-side-close aria-label="위치 목록 닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon>닫기</button></div>
     <div class="hb-sec" data-fav-sec{% if not favorites %} hidden{% endif %}>
       <p class="hb-group">즐겨찾기</p>
       <div class="hb-sec-list" data-fav-list>{% for x in favorites %}{% set cur = here and here.dept == x.dept and here.folder == x.folder %}<a class="hb-place{{ ' on' if cur }}" href="{{ x.href }}" data-place="fav" title="{{ x.where or x.dept }}"{% if cur %} aria-current="page"{% endif %}><iconify-icon icon="solar:star-linear" aria-hidden="true"></iconify-icon><span class="t">{{ x.name }}</span>{% if x.where %}<span class="n">{{ x.label }}</span>{% endif %}</a>{% endfor %}</div>
@@ -56,6 +59,7 @@
   <section class="hb-main" data-dept-view aria-label="{{ here.dept }}">
     <div class="hb-bar">
       <div class="hb-loc">
+        <button type="button" class="hb-btn hb-side-open" data-side-open aria-controls="hbSide" aria-expanded="false"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>폴더</button>
         {% if here.crumbs %}<a class="hb-back" href="/hwp?dept={{ here.dept|urlencode }}{% if parent %}&folder={{ parent|urlencode }}{% endif %}" aria-label="위 폴더로" title="위 폴더로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></a>
         {% else %}<span class="hb-back" aria-disabled="true"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></span>{% endif %}
         <div class="hb-path" aria-label="경로">
@@ -65,12 +69,15 @@
         {{ star(here.dept, here.folder, here.crumbs[-1].name if here.crumbs else here.label) }}
       </div>
       <div class="hb-tools">
-        {% if not status.ok %}<span class="hb-status" title="기안기 서버에 연결되지 않아 내려받기만 됩니다"><span class="hb-dot" aria-hidden="true"></span>내려받기만 됩니다</span>
-        {% elif request.state.role == 'dev' %}<span class="hb-status" title="기안기 연결됨" role="img" aria-label="기안기 연결됨"><span class="hb-dot on" aria-hidden="true"></span></span>{% endif %}
+        {# 한글 편집기가 꺼져 있어도 단추는 숨기지 않고 까닭과 함께 막아 둔다(내려받기·올리기는 그대로 된다) #}
+        {% if not status.ok %}<span class="hb-status" id="hbEditorOff"><span class="hb-dot" aria-hidden="true"></span>한글 편집기 연결 안 됨</span>
+        {% elif request.state.role == 'dev' %}<span class="hb-status" title="한글 편집기 연결됨" role="img" aria-label="한글 편집기 연결됨"><span class="hb-dot on" aria-hidden="true"></span></span>{% endif %}
         {% if status.ok %}<a class="hb-btn primary" href="/hwp/new?dept={{ here.dept|urlencode }}{% if here.folder %}&folder={{ here.folder|urlencode }}{% endif %}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</a>
-        <button type="button" class="hb-btn ghost" data-modal-open="#hwTpl" data-tpl-open title="양식으로 시작" aria-label="양식으로 시작"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon><span class="l">양식으로 시작</span></button>{% endif %}
-        <button type="button" class="hb-btn ghost" data-pick-file title="내 컴퓨터의 한글 파일 올리기" aria-label="올리기"><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon><span class="l">올리기</span></button>
-        {% if here.may_make %}<button type="button" class="hb-btn ghost" data-new-folder title="새 폴더" aria-label="새 폴더"><iconify-icon icon="solar:add-folder-linear" aria-hidden="true"></iconify-icon><span class="l">새 폴더</span></button>{% endif %}
+        <button type="button" class="hb-btn ghost" data-modal-open="#hwTpl" data-tpl-open title="양식으로 시작" aria-label="양식으로 시작"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon><span class="l">양식으로 시작</span><span class="s" aria-hidden="true">양식</span></button>
+        {% else %}<button type="button" class="hb-btn primary" disabled aria-describedby="hbEditorOff" title="한글 편집기 연결 안 됨"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</button>
+        <button type="button" class="hb-btn ghost" disabled aria-label="양식으로 시작" aria-describedby="hbEditorOff" title="한글 편집기 연결 안 됨"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon><span class="l">양식으로 시작</span><span class="s" aria-hidden="true">양식</span></button>{% endif %}
+        <button type="button" class="hb-btn ghost" data-pick-file title="내 컴퓨터의 한글 파일 올리기" aria-label="올리기"><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon><span class="l">올리기</span><span class="s" aria-hidden="true">올리기</span></button>
+        {% if here.may_make %}<button type="button" class="hb-btn ghost" data-new-folder title="새 폴더" aria-label="새 폴더"><iconify-icon icon="solar:add-folder-linear" aria-hidden="true"></iconify-icon><span class="l">새 폴더</span><span class="s" aria-hidden="true">새 폴더</span></button>{% endif %}
       </div>
     </div>
     <form action="/hwp/upload" method="post" enctype="multipart/form-data" data-upload{% if here.sorts %} data-sort{% endif %} hidden>
@@ -105,6 +112,7 @@
   <section class="hb-main hb-drive" data-drive-view hidden aria-label="구글 드라이브">
     <div class="hb-bar">
       <div class="hb-loc">
+        <button type="button" class="hb-btn hb-side-open" data-side-open aria-controls="hbSide" aria-expanded="false"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>폴더</button>
         <button type="button" class="hb-back" data-drive-back aria-label="뒤로" title="뒤로" disabled><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></button>
         <div class="hb-path" data-drive-path aria-label="경로"></div>
       </div>

@@ -259,7 +259,7 @@ def test_split_numbering_lines_collapse_but_numbers_stay():
 
 def test_library_tab_names_come_from_one_place(client):
     page = client.get("/?type=all").text
-    assert page.count(">문서</a>") == 1 and "<h1>문서</h1>" in page     # 탭과 머리 제목이 같은 이름(library_tabs)
+    assert page.count(">문서</a>") == 1 and "<h1>라이브러리</h1>" in page    # 머리 제목은 라이브러리 하나, 탭이 이름(library_tabs)
     templates = Path(__file__).resolve().parents[1] / "src" / "zzaimy" / "app" / "templates"
     for f in templates.glob("*.html"):
         assert "「프로젝트·문서」" not in f.read_text(encoding="utf-8"), f.name

@@ -3,44 +3,23 @@
 {% block pagetitle %}프로젝트{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/project-workspace.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/project-activity.css?v={{ asset_v }}"><script src="/static/project-activity.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
-{% set sector_name = sector_labels.get(project.sector, project.sector) %}
 {% set a = activity %}
 {% macro num(n) %}{{ "{:,}".format(n or 0) }}{% endmacro %}
 <div id="projectWorkspace" class="pa-root" data-project="{{ project.id }}">
-<a class="project-breadcrumb" href="/?type={{ project.sector }}"><iconify-icon icon="solar:arrow-left-linear" aria-hidden="true"></iconify-icon> {{ sector_name }} 프로젝트 목록</a>
-<div class="page-head project-head" style="justify-content:flex-start; gap:14px; padding:2px 2px 16px;
-            border-bottom:1px solid var(--line); margin-bottom:20px;">
-  <div style="width:42px; height:42px; border-radius:12px; background:#E8EFFC;
-              color:var(--navy); display:flex; align-items:center; justify-content:center; flex:none;">
-    <iconify-icon icon="solar:{{ 'archive' if project.archived else 'folder-2' }}-linear" style="font-size:23px;"></iconify-icon>
-  </div>
-  <div style="min-width:0;">
-    <h1 class="project-name">{{ project.name }}{% if project.archived %} <span class="pill" style="font-size:12px; vertical-align:middle;">지난 사업</span>{% endif %}</h1>
-    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
-      {{ sector_name }} 업무 · 첨부 {{ doc_counts.attached }}건 ·
-      참고 {{ doc_counts.reference }}건 · 기준 문서 {{ doc_counts.rules }}건
-      {% if project.due_date %} · <b style="color:#C05621;">마감 {{ project.due_date }}</b>{% endif %}
-      · 만든 날 {{ project.created_at[:10] }}</div>
-  </div>
-</div>
-
-<nav class="project-tabs pa-tabs" aria-label="프로젝트 작업">
-  <a href="/project/{{ project.id }}" aria-selected="false">대화·문서</a>
-  <a href="/project/{{ project.id }}/activity" aria-selected="true" aria-current="page">진행 현황</a>
-</nav>
+{% set head_tab = 'activity' %}{% include "_project_head.html" %}
 
 <div class="pa-subtabs" role="tablist" aria-label="진행 현황">
   <button type="button" role="tab" data-pa-tab="people" aria-selected="true">참여자 <span>{{ a.people|length }}</span></button>
   <button type="button" role="tab" data-pa-tab="requests" aria-selected="false" tabindex="-1">요청 기록 <span>{{ a.requests|length }}</span></button>
-  <button type="button" role="tab" data-pa-tab="usage" aria-selected="false" tabindex="-1">문맥·토큰</button>
+  <button type="button" role="tab" data-pa-tab="usage" aria-selected="false" tabindex="-1">사용량</button>
   <button type="button" role="tab" data-pa-tab="summary" aria-selected="false" tabindex="-1">작업 요약</button>
 </div>
 
 {# 1) 참여자 #}
 <section class="pa-panel" id="pa-people" role="tabpanel">
-  <p class="pa-note">공유 범위 · {% if a.share_mode == 'implicit' %}정하지 않음(담당자 부서에 보기){% elif not a.shared_to %}나만 보기{% else %}{% for s in a.shared_to %}{{ s.to }}({{ s.kind }}·{{ s.level }}){% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>
+  <p class="pa-note">{% if a.share_mode == 'implicit' %}담당자 부서 사람들이 봅니다(공유를 따로 정하지 않음){% elif not a.shared_to %}담당자만 봅니다{% else %}함께 보는 곳 · {% for s in a.shared_to %}{{ s.to }}({{ s.kind }}·{{ s.level }}){% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>
   <div class="pa-list">
-    <div class="pa-row pa-head-row"><span class="pa-name">사람</span><span class="pa-num">요청</span><span class="pa-num">토큰</span><span class="pa-num">작업 문서</span><span class="pa-when">마지막 활동</span></div>
+    <div class="pa-row pa-head-row"><span class="pa-name">사람</span><span class="pa-num">요청</span><span class="pa-num">사용량</span><span class="pa-num">작업 문서</span><span class="pa-when">마지막 활동</span></div>
     {% for p in a.people %}
     <div class="pa-row">
       <span class="pa-name"><b class="pa-who">{{ p.name }}</b>{% if p.name != p.user %} <span class="pa-sub">{{ p.user }}</span>{% endif %}
@@ -55,7 +34,7 @@
     <p class="pa-empty">아직 참여한 사람이 없습니다.</p>
     {% endfor %}
   </div>
-  <p class="pa-note">요청·토큰·작업 문서는 내가 읽을 수 있는 대화만 셉니다. 비공개 대화는 빠집니다.</p>
+  <p class="pa-note">요청·사용량·작업 문서는 내가 읽을 수 있는 대화만 셉니다. 비공개 대화는 빠집니다.</p>
 </section>
 
 {# 2) 요청 기록 #}
@@ -81,7 +60,7 @@
   </div>
 </section>
 
-{# 3) 문맥·토큰 #}
+{# 3) 사용량 #}
 <section class="pa-panel" id="pa-usage" role="tabpanel" hidden>
   {% set u = a.usage %}
   {% if not u.answers %}
@@ -103,7 +82,7 @@
     {% endfor %}
   </div>
   {% endfor %}
-  <p class="pa-note">입력 합은 모델에 보낸 양(토큰 어림)입니다. 줄임은 문맥 한도 때문에 오래된 대화·자료를 덜어 낸 답 수입니다.
+  <p class="pa-note">입력 합은 모델에 보낸 글의 양입니다. 줄임은 한 번에 보낼 수 있는 양을 넘어 오래된 대화·자료를 덜어 낸 답 수입니다.
     {% if u.legacy %}이전 기록은 대화별 마지막 답만 남아 있어 {{ u.legacy }}개 대화는 한 건씩만 셉니다.{% endif %}</p>
   {% endif %}
 </section>

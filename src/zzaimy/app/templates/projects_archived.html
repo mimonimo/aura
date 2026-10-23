@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}프로젝트 검색{% endblock %}
-{% block pagetitle %}프로젝트 검색{% endblock %}
+{% block title %}지난 사업{% endblock %}
+{% block pagetitle %}지난 사업{% endblock %}
 {% set base_params = {'q': q, 'status': status, 'year': year, 'unit': unit, 'sort': sort, 'for_project': for_project or ''} %}
 {% macro without(key) -%}
 /projects/archived{% set ns = namespace(parts=[]) %}{% for k, v in base_params.items() if k != key and v and not (k == 'status' and v == 'all') and not (k == 'sort' and v == ('relevance' if for_project else 'year')) %}{% set ns.parts = ns.parts + [k ~ '=' ~ (v|string|urlencode)] %}{% endfor %}{% if ns.parts %}?{{ ns.parts|join('&') }}{% endif %}
@@ -8,8 +8,8 @@
 {% block content %}
 <section class="project-browser card" aria-labelledby="browserHeading"><div class="card-in">
   <div class="browser-head">
-    <div><h2 id="browserHeading">프로젝트 검색</h2>
-    <p class="browser-intro">진행 중 프로젝트(내 것·같은 부서)와 보관된 사업 자료를 사업 단위로 찾기</p></div>
+    <div><h2 id="browserHeading">지난 사업</h2>
+    <p class="browser-intro">지난 사업 자료와 진행 중 프로젝트를 사업 이름으로 찾기</p></div>
   </div>
   {% if for_project %}
   <div class="browser-context"><span>현재 프로젝트에 연결할 과거 사업을 선택하세요.</span><a class="browser-action" href="/project/{{ for_project }}#paneRefs">프로젝트로 돌아가기</a></div>
@@ -20,7 +20,7 @@
       <div class="browser-query-box"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
       <input id="browserQuery" name="q" type="search" maxlength="200" value="{{ q }}" placeholder="사업 이름 낱말로 검색" autocomplete="off"></div></div>
     <fieldset class="browser-status"><legend>상태</legend>
-      <div class="browser-seg" id="browserStatus">{% for value,label in [('all','전체'),('active','진행 중'),('archived','보관된 사업')] %}
+      <div class="browser-seg" id="browserStatus">{% for value,label in [('all','전체'),('active','진행 중'),('archived','지난 사업')] %}
         <label><input type="radio" name="status" value="{{ value }}" {% if status == value %}checked{% endif %}><span>{{ label }}</span></label>{% endfor %}</div>
     </fieldset>
     <div><label for="browserYear">수행 연도</label><select id="browserYear" name="year" data-facet="year">
@@ -37,7 +37,7 @@
   <div id="browserLive" aria-live="polite">
   {% set chips = [] %}
   {% if q %}{% set _ = chips.append(('q', '사업명', q)) %}{% endif %}
-  {% if status != 'all' %}{% set _ = chips.append(('status', '상태', '내 프로젝트' if status == 'active' else '보관된 사업')) %}{% endif %}
+  {% if status != 'all' %}{% set _ = chips.append(('status', '상태', '진행 중' if status == 'active' else '지난 사업')) %}{% endif %}
   {% if year %}{% set _ = chips.append(('year', '연도', (year ~ '년') if year|length == 4 and year.isdigit() else year_label)) %}{% endif %}
   {% if unit %}{% set _ = chips.append(('unit', '사업단', unit)) %}{% endif %}
   {% if chips %}

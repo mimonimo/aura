@@ -78,7 +78,7 @@ main:has(> .hb){max-width:none;padding:0;display:flex;flex-direction:column;min-
 @media (hover:none){.hb-row .hb-ib,.hb-row .hb-star:not(.on){opacity:1}}
 
 /* 행 목록 — 이름 칸만 늘고 수정일·수정한 사람·동작은 이름 가까이 묶는다(폭 --hb-max 까지). 아래 여백은 떠 있는 대화 단추 몫 */
-.hb-list{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 96px}
+.hb-list{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 96px;padding-bottom:max(96px,var(--ag-fab-room,0px))}  /* 떠 있는 업무 도우미 단추가 마지막 줄을 가리지 않게 */
 .hb-head,.hb-row{display:grid;grid-template-columns:28px minmax(0,1fr) 108px 120px 92px;align-items:center;gap:12px;box-sizing:border-box;max-width:calc(var(--hb-max) + 16px);padding:0 8px}
 .hb-head>span:first-child{display:flex;justify-content:center}
 .hb-head{position:sticky;top:-4px;z-index:1;height:36px;font-size:12px;font-weight:600;color:var(--faint);border-bottom:1px solid #f1f1f3;margin-bottom:2px;background:#fff}
@@ -139,18 +139,28 @@ button.hb-row:hover{border:0;background:#f6f7f8}
 .hb-tpl-item:focus-visible{outline:2px solid #607c9e;outline-offset:-2px}
 
 /* 좁은 화면 — 보조 단추는 아이콘만(이름은 title·aria-label 에 그대로) */
+/* 단추 이름 — 넓으면 긴 이름(.l), 좁으면 짧은 이름(.s). 아이콘만 남기지 않는다 */
+.hb-btn .s{display:none}
+.hb-btn:disabled{pointer-events:none}
+.hb-side-open,.hb-sheet-head,.hb-sheet-back{display:none}
 @media (max-width:900px){
   .hb-btn.ghost .l{display:none}
+  .hb-btn.ghost .s{display:inline}
   .hb-btn.ghost{padding:0 8px}
 }
 @media (max-width:760px){
   .content-col:has(> main > .hb){height:auto}
   .hb{grid-template-columns:1fr}
-  .hb-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--hb-line);overflow:visible;padding-top:8px}
-  .hb-sec,.hb-sec-list{flex-direction:row;flex-wrap:wrap;width:100%}
-  .hb-group,.hb-hint{width:100%}
-  .hb-place{width:auto}
+  /* 위치 목록 — 화면 위를 차지하지 않고 「폴더」 단추로 여는 아래 판 */
+  .hb-side-open{display:inline-flex;flex:none;margin-right:4px}
+  .hb-side{display:none;position:fixed;left:0;right:0;bottom:0;z-index:60;max-height:72vh;overflow-y:auto;border-right:0;border-top:1px solid var(--hb-line);border-radius:16px 16px 0 0;box-shadow:0 -12px 32px #15243c2e;padding:0 12px 24px}
+  .hb.side-open .hb-side{display:flex}
+  .hb-sheet-head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:1;margin:0 -12px;padding:10px 12px 8px 20px;background:#fff;border-bottom:1px solid var(--hb-line);font-size:14px}
+  .hb.side-open .hb-sheet-back{display:block;position:fixed;inset:0;z-index:59;background:#0f172a40}
+  .hb-side .hb-side-head{display:none}
   .hb-bar{flex-wrap:wrap;padding:8px 12px}
+  .hb-tools{flex:1 1 100%;flex-wrap:wrap;min-width:0}
+  .hb-tools .hb-status{flex:1 1 100%;height:24px;padding:0 4px}
   .hb-head{display:none}
   .hb-row,.hb-drive .hb-row{grid-template-columns:28px minmax(0,1fr) auto;padding:6px 8px}
   .hb-row .hb-meta{display:none}

@@ -476,10 +476,10 @@ def test_document_box_page_finder_layout_without_editor_radio(tmp_path, monkeypa
     inside = kim.get("/hwp?dept=기획처&folder=2026 공문").text
     assert "협조문.hwpx" in inside and 'href="/hwp?dept=%EA%B8%B0%ED%9A%8D%EC%B2%98" aria-label="위 폴더로"' in inside
     assert "13.82.0.208" not in page and "기안기 연결됨" not in page              # 기안기 판·주소는 교직원 화면에 보이지 않는다
-    # 기안기 서버가 없으면 새 문서·양식 단추를 감추고 내려받기만
+    # 기안기 서버가 없으면 새 문서·양식 단추를 숨기지 않고 까닭과 함께 막아 둔다(내려받기·올리기는 그대로)
     monkeypatch.setattr(webhwp, "status", lambda *a, **k: {"ok": False, "version": "", "error": "x"})
     down = kim.get("/hwp?dept=기획처&folder=2026 공문").text
-    assert "/hwp/new?dept=" not in down and "data-tpl-open" not in down and "내려받기만 됩니다" in down
+    assert "/hwp/new?dept=" not in down and "data-tpl-open" not in down and "한글 편집기 연결 안 됨" in down
 
 
 def test_drive_browse_without_google_account_is_409(tmp_path, monkeypatch):

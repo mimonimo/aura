@@ -68,7 +68,27 @@ def test_editor_version_hidden_for_staff_and_shown_as_plain_status_for_admin(tmp
     dev = TestClient(app)
     assert _login(dev, "boss", PW)
     dpage = dev.get("/hwp").text
-    assert "기안기 연결됨" in dpage and "13.82.0.208" not in dpage
+    assert "한글 편집기 연결됨" in dpage and "13.82.0.208" not in dpage
+
+
+def test_drive_status_is_200_and_editor_down_keeps_buttons_disabled(tmp_path, monkeypatch):
+    """구글 계정이 없는 것은 오류가 아니라 상태(200) — 화면은 이것을 먼저 물어 드라이브 목록을 부르지 않는다(콘솔 409 없음).
+    한글 편집기가 꺼져도 「새 문서」·「양식으로 시작」 을 숨기지 않고 까닭과 함께 막아 둔다."""
+    app, kim, _ = _two(tmp_path, monkeypatch)
+    from zzaimy.ingest import gdrive_files
+    monkeypatch.setattr(gdrive_files, "account_for", lambda *a, **k: "")
+    r = kim.get("/api/hwp/drive/status")
+    assert r.status_code == 200 and r.json() == {"status": "no_account", "account": ""}
+    monkeypatch.setattr(gdrive_files, "account_for", lambda *a, **k: "kim@ync.ac.kr")
+    assert kim.get("/api/hwp/drive/status").json()["status"] == "ok"
+    js = (Path(webhwp.__file__).parent / "static" / "hwp-box.js").read_text(encoding="utf-8")
+    assert js.index("/api/hwp/drive/status") < js.index("getJSON('/api/hwp/drive/browse')")     # 상태 먼저, 이었을 때만 목록
+    monkeypatch.setattr(webhwp, "status", lambda *a, **k: {"ok": False, "version": "", "error": "x"})
+    down = kim.get("/hwp?dept=기획처").text
+    bar = down[down.index('class="hb-tools"'):down.index("</div>", down.index('class="hb-tools"'))]
+    assert "한글 편집기 연결 안 됨" in bar and "/hwp/new?dept=" not in bar
+    assert bar.count(" disabled ") == 2 and ">새 문서</button>" in bar and "양식으로 시작" in bar
+    assert 'data-side-open' in down and 'id="hbSide"' in down                       # 좁은 화면은 「폴더」 단추로 여는 위치 판
 
 
 def test_delete_in_place_returns_json(tmp_path, monkeypatch):

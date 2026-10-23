@@ -21,9 +21,9 @@ def setup(tmp_path):
 def test_archive_layout_and_zero_denominator(setup):
     app, client = setup
     page = client.get("/archive?q=계획서").text
-    assert "<dt>문서 연결됨</dt><dd>0<small>" in page                                   # 분모가 0 이어도 그린다
+    assert ">문서 연결됨<span>0</span>" in page                                          # 분모가 0 이어도 그린다(왼쪽 「처리 상태」 한 곳)
     assert page.index('id="archive-browse"') < page.index('id="archive-search"') < page.index('id="archive-list"')   # 왼쪽 분류 → 찾기 → 목록
-    assert ">원본 열기</a>" in page and ">계획서<" in page and "원본 파일을 엽니다" in page
+    assert ">원본 열기</a>" in page and ">계획서<" in page and "열어 보기만 해서는 등록되지 않음" in page
     with app.state.db._conn() as conn:
         conn.execute("DELETE FROM archive_files")
     assert client.get("/archive").status_code == 200
@@ -82,7 +82,7 @@ def test_staff_can_open_only_visible_linked_document(setup, monkeypatch, tmp_pat
     with db._conn() as conn:
         conn.execute("UPDATE documents SET access_level = 'public' WHERE id = ?", (doc_id,))
     page = client.get("/archive?q=계획서").text
-    assert "<dt>문서 연결됨</dt><dd>1<small>" in page and 'href="/doc/' in page
+    assert ">문서 연결됨<span>1</span>" in page and 'href="/doc/' in page
     assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 200
     assert not file.exists()
 

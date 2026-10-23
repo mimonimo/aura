@@ -38,7 +38,7 @@
       {% endif %}
     {% endfor %}
     {% for d in same_program or [] %}
-      <a href="/doc/{{ d.id }}" class="pill type" style="text-decoration:none;" title="같은 사업을 다루는 문서">{{ doc_name(d) }}{% if d.year %} · {{ d.year }}{% endif %}</a>
+      <a href="/doc/{{ d.id }}" class="pill type" style="text-decoration:none;" title="같은 사업을 다루는 문서">{{ doc_title(d) }}{% if d.year %} · {{ d.year }}{% endif %}</a>
     {% endfor %}
   </div>
 {% endmacro %}
@@ -64,9 +64,9 @@
              color: var(--muted); }
   .xtract summary:hover { color: var(--navy); }
 
-  /* 내보내기 — 단추 하나에 목록 하나 */
-  .menu-wrap { position: relative; }
-  .menu-list { position: absolute; right: 0; top: 36px; z-index: 30; min-width: 168px;
+  /* 내려받기 — 단추 하나에 목록 하나(원본 파일 + 읽어 낸 본문의 다른 형식) */
+  .menu-wrap { position: relative; display: inline-flex; }
+  .menu-list { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; min-width: 168px;
     background: var(--panel, #fff); border: 1px solid var(--line); border-radius: 11px;
     padding: 5px; box-shadow: 0 12px 32px rgba(27, 59, 117, .16);
     display: flex; flex-direction: column; }
@@ -131,8 +131,24 @@
     <div class="doc-actions control-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
       <a class="btn secondary" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener" title="브라우저에서 원본을 봅니다. 한글·워드·엑셀·PPT는 PDF로 바꿔 보여 줍니다.">
         <iconify-icon icon="solar:document-text-linear"></iconify-icon>원본 열기</a>
+      {# 내려받기 — 원본 파일과 읽어 낸 본문의 다른 형식을 이 단추 하나에(문서 보기 칸에는 두지 않는다) #}
+      {% if doc.status == 'reviewed' %}
+      <span class="menu-wrap">
+        <button type="button" id="expBtn" class="btn secondary" aria-haspopup="menu" aria-expanded="false" aria-controls="expMenu">
+          <iconify-icon icon="solar:file-download-linear" aria-hidden="true"></iconify-icon>내려받기</button>
+        <div id="expMenu" class="menu-list" role="menu" hidden>
+          <a role="menuitem" href="/doc/{{ doc.id }}/original/download" title="원본 파일을 그대로 내려받습니다.">원본 파일</a>
+          {% if restored_pdf %}<a role="menuitem" href="/doc/{{ doc.id }}/export.pdf">글자 찾기 되는 PDF <span class="ext">.pdf</span></a>{% endif %}
+          <a role="menuitem" href="/doc/{{ doc.id }}/export.docx">워드 파일 <span class="ext">.docx</span></a>
+          <a role="menuitem" href="/doc/{{ doc.id }}/export.md">텍스트 <span class="ext">.md</span></a>
+          {% if assets %}<a role="menuitem" href="/doc/{{ doc.id }}/images.zip">그림 {{ assets|length }}장 <span class="ext">.zip</span></a>{% endif %}
+          {% if scan_asset %}<a role="menuitem" href="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}?dl=1">보정 스캔본 <span class="ext">.png</span></a>{% endif %}
+        </div>
+      </span>
+      {% else %}
       <a class="btn secondary" href="/doc/{{ doc.id }}/original/download" title="원본 파일을 그대로 내려받습니다.">
         <iconify-icon icon="solar:file-download-linear"></iconify-icon>내려받기</a>
+      {% endif %}
       <a class="btn secondary" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 구글 시트·슬라이드·문서로, 한글 파일은 구글 문서로 바꿔 엽니다. PDF·그림은 드라이브 미리보기로 엽니다. 구글에서 고친 내용은 이 화면의 본문에 반영되지 않습니다.">
         <iconify-icon icon="solar:square-top-up-linear"></iconify-icon>구글에서 열기</a>
       {% if hwp_work %}

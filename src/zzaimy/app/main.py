@@ -785,6 +785,8 @@ def create_app(
     # 웹 한글 기안기 — 부서 한글 문서함·기안기로 열기·기안기 서버 프록시(/webhwpctrl/)
     from zzaimy.app.webhwp_routes import router as webhwp_router
     app.include_router(webhwp_router)
+    from zzaimy.app.hwp_drive_status import router as hwp_drive_status_router   # 문서함 구글 드라이브 연결 상태(늘 200)
+    app.include_router(hwp_drive_status_router)
     from zzaimy.app.webhwp_export_routes import router as webhwp_export_router   # 기안기 내려받기 형식·다른 이름으로 저장·이름 바꾸기
     app.include_router(webhwp_export_router)
     from zzaimy.app.webhwp_live_routes import router as webhwp_live_router   # 열린 기안기 명령 줄·페이지 설정 값(webhwp_edit_ops)
@@ -3699,7 +3701,7 @@ def create_app(
         acc, acc_args = _doc_access_sql(request)
         pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         with db._conn() as conn:
-            out["docs"] = [{"id": r["id"], "name": r["filename"], "at": str(r["created_at"] or "")[:10]} for r in conn.execute(
+            out["docs"] = [{"id": r["id"], "name": _doc_title(dict(r)), "at": str(r["created_at"] or "")[:10]} for r in conn.execute(   # 라이브러리와 같은 제목(파일 이름 아님)
                 f"SELECT d.id, d.filename, d.created_at FROM documents d WHERE d.filename LIKE ? ESCAPE '\\'{acc}"
                 " ORDER BY d.id DESC LIMIT 6", [pattern, *acc_args]).fetchall()]
         try:

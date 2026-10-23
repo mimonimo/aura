@@ -319,7 +319,15 @@
       else p.classList.toggle('on', key == null && p.getAttribute('aria-current') === 'page');
     });
   }
-  function noAccount() { if (hint) hint.hidden = false; }
+  // 학교 구글 계정 — 이었는지 먼저 묻는다(/api/hwp/drive/status, 늘 200). 잇지 않았으면 목록을 부르지 않고 옅은 안내만
+  var google = null;                              // null: 아직 모름, true/false: 이었는지
+  function noAccount() { google = false; if (hint) hint.hidden = false; }
+  function connectHint() {
+    var p = el('p', 'hb-empty');
+    p.append('학교 구글 계정을 연결하면 드라이브도 여기서 봅니다.', document.createElement('br'));
+    var a = el('a', '', '설정에서 연결하기'); a.href = '/settings'; p.append(a);
+    return p;
+  }
 
   function drawPath(trail) {
     dPath.replaceChildren();
@@ -358,8 +366,9 @@
     dBack.disabled = !hist.length;
     mark(next.key != null ? next.key : next.drive);
     drawPath(next.trail);
-    dList.replaceChildren(skeleton(7));
     var mine = ++token;
+    if (google === false) { dList.replaceChildren(connectHint()); return; }
+    dList.replaceChildren(skeleton(7));
     getJSON('/api/hwp/drive/browse?drive=' + encodeURIComponent(next.drive || '') + '&folder=' + encodeURIComponent(next.folder || '') + (next.shared ? '&shared=1' : ''))
       .then(function (j) {
         if (mine !== token) return;
@@ -379,11 +388,8 @@
         if (mine !== token) return;
         dList.replaceChildren();
         var p = el('p', 'hb-empty');
-        if (e.status === 409) {
-          noAccount();
-          p.append('학교 구글 계정을 연결하면 드라이브도 여기서 봅니다.', document.createElement('br'));
-          var a = el('a', '', '설정에서 연결하기'); a.href = '/settings'; p.append(a);
-        } else { p.textContent = e.message; }
+        if (e.status === 409) { noAccount(); dList.append(connectHint()); return; }
+        p.textContent = e.message;
         dList.append(p);
       });
   }
@@ -418,9 +424,24 @@
     // 드라이브에서 가져오기는 왼쪽 「구글 드라이브」 에서 — 파일 줄의 「가져오기」 가 지금 폴더로 받아 기안기로 연다
     dBack.onclick = function () { var l = hist.pop(); if (l) go(l, false); };
     // 공유 문서함·부서 드라이브·공유 드라이브는 왼쪽 목록에 미리 — 계정이 없으면 한 줄 안내만
-    getJSON('/api/hwp/drive/browse').then(function (j) { addDrives(j.drives || [], j.dept_drives || []); })
-      .catch(function (e) { if (e.status === 409) noAccount(); });
+    getJSON('/api/hwp/drive/status').then(function (st) {
+      if (st.status !== 'ok') { noAccount(); return; }
+      google = true;
+      return getJSON('/api/hwp/drive/browse').then(function (j) { addDrives(j.drives || [], j.dept_drives || []); });
+    }).catch(function (e) { if (e.status === 409) noAccount(); });
   }
+
+  // ---- 좁은 화면의 위치 판 — 「폴더」 단추로 열고, 바깥·닫기·Esc·위치를 고르면 닫는다 ----
+  var side = document.getElementById('hbSide');
+  function sideOpen(open) {
+    box.classList.toggle('side-open', open);
+    box.querySelectorAll('[data-side-open]').forEach(function (b) { b.setAttribute('aria-expanded', String(open)); });
+    if (open && side) { var f = side.querySelector('[data-side-close]'); if (f) f.focus(); }
+  }
+  box.querySelectorAll('[data-side-open]').forEach(function (b) { b.addEventListener('click', function () { sideOpen(true); }); });
+  box.querySelectorAll('[data-side-close], [data-side-back]').forEach(function (b) { b.addEventListener('click', function () { sideOpen(false); }); });
+  if (side) side.addEventListener('click', function (e) { if (e.target.closest('.hb-place[data-drive-place], [data-drive-places] .hb-place')) sideOpen(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && box.classList.contains('side-open')) sideOpen(false); });
 
   // ---- 양식으로 시작 ----
   var tList = document.querySelector('[data-tpl-list]');

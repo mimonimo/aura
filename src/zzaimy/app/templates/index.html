@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block pagetitle %}라이브러리{% endblock %}
-{% block title %}{{ library_tabs.docs }}{% if active_tab != "all" %} · {{ doc_type_labels.get(active_tab, "") }}{% endif %} · AURA{% endblock %}
+{% block title %}라이브러리 · {{ library_tabs.docs }}{% if active_tab != "all" %} · {{ doc_type_labels.get(active_tab, "") }}{% endif %}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}">
 <style>
   .lib-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
@@ -46,7 +46,8 @@
   .lib-rail-item.fixed { color:#53647B; } .lib-rail-item.fixed:first-of-type { margin-top:6px; }
   .lib-rail-item[hidden], .lib-l2[hidden], .lib-l1[hidden] { display:none; }
   .lib-fold-h { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  .lib-mini { all:unset; cursor:pointer; font-size:11.5px; color:#2D4F7C; padding:2px 8px; border:1px solid var(--line); border-radius:999px; background:#fff; }
+  .lib-mini { all:unset; box-sizing:border-box; display:inline-flex; align-items:center; min-height:32px; cursor:pointer; font-size:12px; color:#2D4F7C; padding:0 12px; border:1px solid var(--line); border-radius:999px; background:#fff; }
+  .lib-mini:focus-visible { outline:2px solid #607C9E; outline-offset:2px; }
   .lib-mini:hover { background:#EEF3FA; }
   .lib-folders { display:flex; flex-direction:column; gap:1px; margin-bottom:4px; }
   .lib-folders iconify-icon { flex:none; color:#8A94A6; }
@@ -109,6 +110,21 @@
   .lib-row-no { font-variant-numeric:tabular-nums; color:#9AA6B6; }
   .lib-row-date { flex:none; font-size:12px; color:#9AA6B6; font-variant-numeric:tabular-nums; padding-top:2px; }
   @media (max-width: 900px) { .lib-layout { grid-template-columns:1fr; } .lib-rail { position:static; max-height:280px; } }
+  .lib-act-s { display:none; }
+  .lib-clear { white-space:nowrap; }
+  /* 좁은 화면 — 거르기 칸은 같은 폭 두 칸 격자(찾을 말만 한 줄 전체), 쓰임새 칩과 올리기 단추는 한 줄 */
+  @media (max-width: 600px) {
+    .lib-uses { flex-wrap:nowrap; gap:6px; }
+    .lib-uses a { padding:0 10px; min-height:32px; font-size:12.5px; }
+    .lib-uses .lib-uses-act { flex:none; min-height:32px; padding:0 10px; }
+    .lib-act-l { display:none; } .lib-act-s { display:inline; }
+    .intake-toolbar.lib-filters { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
+    .intake-toolbar.lib-filters > *, .lib-more > * { width:100%; min-width:0; max-width:none; box-sizing:border-box; margin:0; }
+    .intake-toolbar.lib-filters input[type=search] { grid-column:1 / -1; }
+    .lib-filters .lib-more { display:contents; }
+    .lib-filters .lib-body { width:auto !important; justify-content:center; min-height:36px; border:1px solid var(--line); border-radius:8px; }
+    .lib-filters .lib-clear { display:inline-flex; align-items:center; justify-content:center; min-height:36px; }
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -140,9 +156,7 @@
 {# 업무마다 보이는 칸 — 사업단·공고 자료 안내는 국고사업에만 #}
 {% set grant_like = active_tab in ("all", "grant") %}
 
-<section class="page-head" aria-label="{{ library_tabs.docs }}">
-  <h1>{{ library_tabs.docs }}</h1>
-</section>
+{% set lib_desc = sector_meta[active_tab][2] if active_tab in sector_meta else '' %}
 {% include "_library_tabs.html" %}
 
 {# 업무 탭 줄은 문서가 있는 업무가 둘 이상일 때만(library.show_business_tabs) — 하나뿐이면 목록의 업무 선택 상자에서 고른다 #}
@@ -156,7 +170,6 @@
 <p class="notice" role="status"><iconify-icon icon="solar:info-circle-linear"></iconify-icon>「{{ unknown_type }}」 업무는 없습니다. 전체 업무의 문서를 보여 줍니다.</p>
 {% endif %}
 {% if active_tab != "all" and active_tab in sector_meta %}
-<p class="muted lib-sector-note">{{ sector_meta[active_tab][2] }}</p>
 
 <div class="card"><div class="card-in">
   <h2 style="margin-bottom:12px;"><iconify-icon icon="solar:folder-2-linear"></iconify-icon>{{ sector_meta[active_tab][1] }} 프로젝트</h2>
@@ -254,16 +267,17 @@
     <nav class="lib-uses" aria-label="쓰임새">
       {% for key, label in uses %}<a href="/?{{ use_qs }}{% if key != 'all' %}&amp;use={{ key }}{% endif %}" {% if use == key %}aria-current="true"{% endif %}
          title="{{ metric_tip(use_metrics[key]) }}">{{ label }} <span>{{ "{:,}".format(use_counts.get(key, 0)) }}</span></a>{% endfor %}
-      {% if use == 'criteria' %}<button type="button" class="secondary lib-uses-act" data-modal-open="#criteriaUploadModal">
-        <iconify-icon icon="solar:add-circle-linear"></iconify-icon>기준 등록</button>
-      {% else %}<button type="button" class="secondary lib-uses-act" data-modal-open="#libUploadModal">
-        <iconify-icon icon="solar:upload-linear"></iconify-icon>문서 올리기</button>{% endif %}
+      {% if use == 'criteria' %}<button type="button" class="secondary lib-uses-act" data-modal-open="#criteriaUploadModal" aria-label="기준 등록">
+        <iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon><span class="lib-act-l">기준 등록</span><span class="lib-act-s" aria-hidden="true">등록</span></button>
+      {% else %}<button type="button" class="secondary lib-uses-act" data-modal-open="#libUploadModal" aria-label="문서 올리기">
+        <iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon><span class="lib-act-l">문서 올리기</span><span class="lib-act-s" aria-hidden="true">올리기</span></button>{% endif %}
     </nav>
     <form action="/" method="get" class="intake-toolbar lib-filters control-row" role="search" aria-label="문서 찾기" data-autosubmit>
       {% if business_tabs %}<input type="hidden" name="type" value="{{ active_tab }}">
       {% else %}<select name="type" aria-label="업무">
         <option value="all">전체 업무</option>
-        {% for key, meta in sector_meta.items() %}<option value="{{ key }}" {% if active_tab == key %}selected{% endif %}>{{ meta[1] }} {{ "{:,}".format(business_counts.get(key, 0)) }}</option>{% endfor %}
+        {# 업무를 고르면 그 업무 문서와 공통 문서(모든 업무에 적용)가 함께 보인다 — 수도 같은 범위로 센다 #}
+        {% for key, meta in sector_meta.items() %}<option value="{{ key }}" {% if active_tab == key %}selected{% endif %}>{{ meta[1] }} {{ "{:,}".format(business_counts.get(key, 0) + business_counts.get('common', 0)) }}</option>{% endfor %}
       </select>{% endif %}
       <input type="hidden" name="use" value="{{ use }}">
       {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
@@ -286,8 +300,9 @@
         {% if scope %}<input type="hidden" name="scope" value="{{ scope }}"><a class="lib-chip" href="/?type={{ active_tab }}{{ ('&folder=' ~ (folder | urlencode)) if folder }}" title="공개 범위 거르기 풀기">공개 {{ '전체' if scope == '공통' else scope }} ×</a>{% endif %}
         <select name="sort" aria-label="정렬">
           {% for k, lab in [("new","최근 등록순"),("old","오래된 순"),("name","이름순")] %}<option value="{{ k }}" {{ 'selected' if sort == k }}>{{ lab }}</option>{% endfor %}</select>
+        {# 조건 지우기 — 거르기 조건이 걸렸을 때만(쓰임새 칩·정렬은 조건이 아니다). 고른 쓰임새는 그대로 둔다 #}
+        {% if q or active_flt or kind or fmt or since or scope or body %}<a class="btn-ghost lib-clear" href="/?type={{ active_tab }}{{ ('&use=' ~ use) if use != 'all' }}{{ (('&prog=' ~ (prog | urlencode)) if prog else '') ~ (('&folder=' ~ (folder | urlencode)) if folder else '') }}">조건 지우기</a>{% endif %}
       </div>
-      {% if q or active_flt or kind or use != 'all' or fmt or since or scope or sort != 'new' or body %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ (('&prog=' ~ (prog | urlencode)) if prog else '') ~ (('&folder=' ~ (folder | urlencode)) if folder else '') }}">조건 지우기</a>{% endif %}
     </form>
     {% if documents %}
     {% set show_business = business_tabs and active_tab == 'all' %}

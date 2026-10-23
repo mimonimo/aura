@@ -330,12 +330,8 @@ def activity_page(request: Request, project_id: int):
     proj = _guard(request, project_id)
     st = request.app.state
     h = st.project
-    try:
-        groups = h._doc_groups(request, proj)
-        counts = {k: len(groups.get(k) or []) for k in ("attached", "reference", "rules")}
-    except Exception:
-        counts = {"attached": 0, "reference": 0, "rules": 0}
+    from zzaimy.app.project_routes import head_ctx       # 「대화·문서」 와 같은 머리(이름·단추·안내·탭)
     data = collect(request, proj)
     return h.templates.TemplateResponse(request, "project_activity.html", h.ctx(request, {
-        "project": proj, "active_tab": proj.get("sector"), "doc_counts": counts, "activity": data,
+        "project": proj, "active_tab": proj.get("sector"), "activity": data, **head_ctx(request, proj),
     }))
