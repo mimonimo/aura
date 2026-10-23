@@ -592,9 +592,10 @@ document.addEventListener('submit', function(event) {
     <a href="/programs/admin" class="{{ 'active' if request.url.path.startswith('/programs/admin') else '' }}" title="교내 사업 장부 — 분류·부서·기간·예산·총괄 책임자·사업 책임자">
       <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
     {% endif %}
-    {% if program_scope is defined and program_scope(request) in ('all', 'dept') or (program_scope is defined and request_grade is defined and request_grade(request) == 'lead') %}
-    <a href="/team" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="같은 부서 직원의 등급·추가 권한">
-      <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>부서 사람</a>
+    {% set _team_mgr = program_scope is defined and program_scope(request) in ('all', 'dept') or (program_scope is defined and request_grade is defined and request_grade(request) == 'lead') %}
+    {% if _team_mgr or request.state.role in ('staff', 'professor', 'head') %}{# 조직도는 교직원 누구나 보기, 부서 사람(권한 주기)은 책임자 이상 #}
+    <a href="{{ '/team' if _team_mgr else '/team?tab=org' }}" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="{{ '조직도와 같은 부서 직원의 등급·추가 권한' if _team_mgr else '학교 조직도' }}">
+      <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>{{ '부서 사람' if _team_mgr else '조직도' }}</a>
     {% endif %}
     {% endif %}
   </nav>
