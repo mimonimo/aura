@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from test_app import FakeDrafter, FakeProcessor
 from zzaimy.app.main import create_app
-from zzaimy.ingest import gdrive, nas_sync
+from zzaimy.ingest import gdrive
 
 TREE = {
     "root1": [
@@ -86,31 +86,6 @@ def test_backend_lists_exports_and_reads_without_writing(drive_env):
         gdrive.GDriveBackend("root1", "nobody@example.ac.kr").check()
     with pytest.raises(ValueError):
         gdrive.folder_id("https://example.com/what?x=1")
-
-
-def test_source_registration_and_sync_through_nas_path(drive_env, tmp_path):
-    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
-                     processor=FakeProcessor(), drafter=FakeDrafter())
-    client = TestClient(app)
-    r = client.post("/dev/nas/add", data={"name": "드라이브 공고", "backend": "gdrive",
-                                          "root": "https://drive.google.com/drive/folders/root1",
-                                          "username": "staff@example.ac.kr", "target": "regulation",
-                                          "sector": "common", "extensions": "", "recursive": "1"}, follow_redirects=False)
-    assert r.status_code == 303 and "ok=" in r.headers["location"]
-    src = nas_sync.list_sources()[0]
-    assert src["root"] == "root1" and src["backend"] == "gdrive"
-    pr = nas_sync.probe(src)
-    assert pr["ok"] and pr["n_match"] == 3
-    res = nas_sync.sync(src, app.state.db, FakeProcessor(), tmp_path / "inbox")
-    assert res["new"] == 3 and res["failed"] == 0
-    names = {d["filename"] for d in app.state.db.list_documents("regulation")}
-    assert names == {"사업 공고.docx", "안내.pdf", "예산.xlsx"}
-    # 계정 없이 등록하면 거절
-    r = client.post("/dev/nas/add", data={"name": "x", "backend": "gdrive", "root": "root1", "target": "regulation",
-                                          "sector": "common", "recursive": "1"}, follow_redirects=False)
-    assert "err=" in r.headers["location"]
-    page = client.get("/dev/nas")
-    assert page.status_code == 200
 
 
 def test_oauth_flow_stores_tokens_only_on_valid_state(drive_env, tmp_path):

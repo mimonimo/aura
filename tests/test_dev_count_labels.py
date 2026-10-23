@@ -74,23 +74,23 @@ def test_intake_page_names_school_originals_and_folds_graph_counts(tmp_path):
     _put(db, [("링크/a.hwp", "hwp", "", None)])
     page = c.get("/dev/intake").text
     assert "학교 원본" in page
-    # 처리하지 않는 파일(정리함·부산물)은 학교 원본 수에서 빼고 따로 한 줄로 — DGX 파일은 그대로
-    assert "처리하지 않는 파일 0건(정리함 0 · 부산물 0)" in page
+    # 처리하지 않는 파일(따로 모은 파일·변환 중간 파일)은 학교 원본 수에서 빼고 짧은 한 줄로 — DGX 파일은 그대로
+    assert "처리 안 함 0 · 따로 모은 파일 0 · 변환 중간 파일 0" in page
     assert page.count('<span class="ik-school">학교 원본</span>') == 2                   # 처리 대상 문서 · 같은 파일 중복
-    assert "처리 대상 기준" in page and "(절대 규칙 11)" not in page
-    graph = page.split('<details class="chip-toggle"', 1)[1].split("</details>", 1)[0]
-    assert "31,234" in graph and "문서 38,573 · 조각 1,980,742" in graph               # 다른 그래프 수는 접어 둔다
-    assert "45,678" in page.split('<details class="chip-toggle"', 1)[0]                # 그래프 문서 노드 하나만 바로 보인다
-    assert "38573" not in page and "▶" not in page
+    assert "(절대 규칙 11)" not in page and "<details" not in page and "▶" not in page   # 접기 없이 한 표
+    after = page.split("<h2>라이브러리 다음 단계</h2>", 1)[1].split("</section>", 1)[0]
+    assert "45,678" in after and "31,234" in after and "문서 38,573 · 조각 1,980,742" in after
+    assert "38573" not in page
 
 
-def test_drive_is_a_tab_of_intake(tmp_path):
+def test_intake_has_no_drive_tab_and_doc_flow_lives_on_overview(tmp_path):
+    """문서 흐름 다섯 칸은 개발 현황 한 곳 — 문서 가져오기는 한 줄 바로가기. Drive 탭은 없다(옛 주소는 사용자·계정으로)."""
     c, _ = _client(tmp_path)
+    page = c.get("/dev/intake").text
+    assert 'href="/dev#doc-flow"' in page and 'class="df"' not in page
+    assert "tab=drive" not in page and 'id="connectedFolders"' not in page and "← 개발 현황" not in page
     r = c.get("/dev/nas?ok=저장", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/dev/intake?tab=drive&ok=%EC%A0%80%EC%9E%A5"
-    page = c.get("/dev/intake?tab=drive").text
-    assert 'href="/dev/intake?tab=drive" class="on"' in page and 'id="connectedFolders"' in page
-    assert "← 개발 현황" not in page
+    assert r.status_code == 303 and r.headers["location"] == "/dev/users#google-links"
 
 
 def test_dev_db_ledger_labels_and_dead_corpus_tab(tmp_path):

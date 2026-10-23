@@ -177,7 +177,7 @@ def test_callback_is_open_to_staff_and_returns_to_settings(tmp_path, monkeypatch
     r = c.get("/dev/gdrive/callback?code=x&state=y", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/settings?ok=")
     assert c.app.state.db.get_setting("google_account:zzaimy") == "kim@ync.ac.kr"
-    assert c.get("/dev/nas", follow_redirects=False).status_code == 403                      # 다른 /dev 는 여전히 막힘
+    assert c.get("/dev/intake", follow_redirects=False).status_code == 403                      # 다른 /dev 는 여전히 막힘
 
 
 def test_exchange_code_rejects_other_domain(monkeypatch, tmp_path):

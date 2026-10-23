@@ -119,7 +119,7 @@ def test_intake_page_names_each_number(client, tmp_path):
     page = client.get("/dev/intake").text
     assert "처리 대상 문서 가운데 라이브러리 문서로 들어온 것" in page
     assert "그래프 대상 사업 문서 수" in page and "문서함" not in page
-    assert 'data-confirm="지금 맞출까요?' in page and 'data-confirm="연동 점검을 지금 돌릴까요?' in page
+    assert 'data-confirm="지금 맞출까요?' in page and 'data-confirm="지금 다시 점검할까요?' in page
 
 
 def test_heavy_dev_actions_ask_first(client):
@@ -139,7 +139,7 @@ def test_shared_confirm_covers_any_form_with_data_confirm():
 
 def test_dev_titles_match_sidebar_names(client):
     for href, name in [("/dev/db", "데이터 현황"), ("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검"),
-                       ("/dev/nas", "문서 반입"), ("/dev/intake", "문서 반입"), ("/dev", "개발 현황")]:
+                       ("/dev/intake", "문서 가져오기"), ("/dev", "개발 현황")]:
         page = client.get(href).text
         assert f"<title>{name}" in page, href
         sidebar = page.split("data-developer-navigation", 1)[1].split("</aside>", 1)[0]

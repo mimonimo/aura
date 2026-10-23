@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ dev_page_name('/dev') }}{% endblock %}
 {% block pagetitle %}{{ dev_page_name('/dev') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/dev-topology.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
 <style>
 
@@ -92,8 +93,8 @@
   {# 문서 흐름의 정본은 여기 한 곳 — 문서 가져오기 화면은 이리로 잇는다 #}
   <h3 id="doc-flow" style="font-size:13.5px; margin:16px 0 0;">문서 흐름</h3>
   {% include "_doc_flow.html" %}
-  {# 장비·처리 단계 설명은 처리 흐름 한 곳에 — 여기서는 바로가기만 #}
-  <p class="muted" style="font-size:12.5px; margin:8px 0 0;">시스템 구성·처리 단계 <a href="/dev/flow">처리 흐름</a> · <a href="/static/topology.svg" target="_blank" rel="noopener">상세 구성도 ↗</a></p>
+
+  {% include "dev-topology.html" %}
 
   {# 구축 현황(기능 상태표)과 진행 현황(dev-now.md 서술)은 원천이 달라 탭으로 나란히 둔다 #}
   <div class="tabbar" style="max-width:520px; margin:18px 0 14px;">

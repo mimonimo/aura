@@ -22,6 +22,8 @@ def test_invented_numbers_only_counts_values_missing_from_prompt():
     msgs = [{"role": "user", "content": "예산 1,200 백만원, 2027년 3월 시작"}]
     assert s210.invented_numbers("예산 1200 백만원으로 2027년 시작, 참여 45명", msgs) == ["45"]
     assert s210.invented_numbers("1. 목적\n2. 내용", msgs) == []          # 줄머리 번호는 세지 않는다
+    assert s210.invented_numbers("## 3.1 추진 체계\n### 3.2 일정\n- 202X년 운영", msgs) == []   # 절 번호·연도 자리표
+    assert s210.invented_numbers("목표 3.5% 달성", msgs) == ["3.5"]
 
 
 def test_format_and_endings():

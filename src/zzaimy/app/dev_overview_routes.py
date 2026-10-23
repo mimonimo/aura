@@ -73,8 +73,6 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
         n_reg = mv["regulation_chunks"]
         n_reg_docs = mv["regulation_docs"]
         n_ent = mv["entities"]
-        n_ds = one("SELECT COUNT(*) FROM datasets")
-        n_pairs = mv["dataset_pairs"]
         n_qr_open = one("SELECT COUNT(*) FROM quality_reports WHERE status='open'")
         n_egr = one("SELECT COUNT(*) FROM egress_requests")
 
@@ -92,8 +90,6 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
              "value": n_ent, "sub": "사업·부서·연도 이름 · 지식그래프와 별개"},
             {"icon": "solar:share-circle-linear", "label": "그래프 노드", "metric": "graph_nodes",
              "value": mv["graph_nodes"], "sub": f"관계 {mv['graph_edges']:,} · 문서 노드 {mv['graph_doc_nodes']:,}"},
-            {"icon": "solar:database-linear", "label": "학습 데이터쌍", "metric": "dataset_pairs",
-             "value": n_pairs, "sub": f"데이터셋 {n_ds}개"},
         ]
         groups = []
         for title, sql, labels in [
@@ -362,21 +358,14 @@ def dev_db(
 def dev_dashboard(request: Request):
     # 허브 — 요약과 바로가기만. 상세는 전용 페이지(/dev/quality·/dev/docs·/dev/history)
     st = request.app.state
-    from zzaimy.app import model_compare, reindex_state
+    from zzaimy.app import model_compare
     h = st.overview
     return st.templates.TemplateResponse(request, "dev.html", st.page_ctx(request, {
         "overview": h.data_overview(),   # 규모 타일 — /dev/db 와 같은 원천
         "dev_now": h.dev_now_parts()["hub"],
         "dev_now_more": h.dev_now_parts()["more"],
-        "reindex_needed": reindex_state.needed(st.db),   # 규정 조각 지문이 색인과 다르거나 표시가 있을 때
-        "retrieval_eval": h.retrieval_eval_state(),   # 카드의 '최근 측정' 한 줄에만 쓴다
         "progress": h.dev_progress(),
         "reindex_running": h.reindex_running(),
-        "egress": st.db.egress_stats(),
-        "quality": st.db.quality_report_stats(),
-        "n_papers": len(h.dev_papers()),
-        "n_adr": len(h.dev_doc_list("decisions")),
-        "n_notes": len(h.dev_doc_list("notes")),
         # 모델 비교 결과가 하나라도 있을 때만 Writer 줄에 바로가기
         "model_compare_runs": model_compare.list_runs(model_compare.root(st.db_path)),
     }))
@@ -384,7 +373,7 @@ def dev_dashboard(request: Request):
 
 @router.get("/dev/api/intake")
 def dev_api_intake(request: Request):
-    """반입 현황(JSON) — 문서 반입 화면과 같은 원천(app/intake_status)."""
+    """반입 현황(JSON) — 문서 가져오기 화면과 같은 원천(app/intake_status)."""
     data = request.app.state.overview.intake_snapshot()
     if data is None:
         raise HTTPException(500, "반입 현황을 읽지 못했습니다")

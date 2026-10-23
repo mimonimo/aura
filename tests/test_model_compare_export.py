@@ -53,6 +53,8 @@ def test_export_writes_admin_files(tmp_path):
     assert rc == 0
     s = json.loads((dest / "r1" / "summary.json").read_text(encoding="utf-8"))
     assert [a["kind"] for a in s["arms"]] == ["open", "sft-merged"]
+    assert s["labels"]["chrf"] == "정답 겹침(chrF)" and "invented_any" in s["percent_keys"]
+    assert s212.fmt("invented_any", 0.164) == "16.4%" and s212.fmt("sec", 37.129) == "37.13"
     blocks = {b["key"]: b for b in s["blocks"]}
     assert set(blocks) >= {"heldout220", "context", "speed"}
     pw = blocks["heldout220"]["pairwise"][0]
@@ -63,4 +65,5 @@ def test_export_writes_admin_files(tmp_path):
     assert json.loads((dest / "r1" / "docs.json").read_text(encoding="utf-8")) == []
     page = html_out.read_text(encoding="utf-8")
     assert "<title>모델 견주기 보고</title>" in page and "192.168" not in page
+    assert "질문에 없는 숫자가 든 답 비율" in page and ">gold_frame<" not in page
     assert not list((dest / "r1").glob("*.tmp"))

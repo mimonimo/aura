@@ -28,6 +28,6 @@
     <article><h3>{{ name }}</h3><p><span class="pill{{ ' reviewed' if check.get('state') == 'authenticated' else '' }}">{{ states.get(check.get('state'),'미확인') }}</span></p></article>
     {% endfor %}
   </div>
-  <p class="ext-help">외부 참조 AI · 구독 연결 확인 — 플랫폼 서버의 CLI 설치·구독 로그인 여부 · 마지막 확인 {{ (subscription_checks.get('at') | kst) or '없음' }}</p>
+  <p class="ext-help">마지막 확인 {{ (subscription_checks.get('at') | kst) or '없음' }} · 외부 참조 AI · 구독 연결 확인 — 플랫폼 서버의 CLI 설치·구독 로그인 여부</p>
 </div></div>
 {% endblock %}

@@ -27,12 +27,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HERE = Path(__file__).resolve().parent
 DIMS = ["지시 충실", "맥락 이해", "형식", "근거 충실", "문체", "완결성"]
+LABELS = {
+    "chars": "답 글자 수", "chrf": "정답 겹침(chrF)", "rougeL": "정답 겹침(ROUGE-L)", "gold_frame": "정답 형식 일치",
+    "invented_any": "질문에 없는 숫자가 든 답 비율", "len_ratio": "정답 대비 길이", "out_tokens": "출력 토큰", "in_tokens": "입력 토큰",
+    "truncated": "잘린 답 비율", "sec": "문항당 시간(초)", "ttft": "첫 글자까지(초)", "tok_per_sec": "초당 토큰", "n": "문항 수",
+    "table": "표를 쓴 답 비율", "unknown": "「모름·확인 필요」 표시 비율",
+    "multiturn_rate": "여러 턴 값 이어 쓰기 통과율", "longctx_rate": "긴 자료 사실 찾기 통과율", "conflict_rate": "「없으면 확인 필요」 통과율",
+    "overall_rate": "맥락 시험 전체 통과율", "회차": "회차 수", "절 채움": "절 채움 비율", "목표 유지": "목표 유지 비율",
+    "고쳐 쓰기 반영": "고쳐 쓰기 반영(0~2)", "시간(초)": "대화 전체 시간(초)",
+}
+PERCENT = {"gold_frame", "invented_any", "truncated", "table", "unknown", "multiturn_rate", "longctx_rate", "conflict_rate", "overall_rate",
+           "절 채움", "목표 유지"}
+
+
+def fmt(key: str, v) -> str:
+    if v is None or v == "":
+        return ""
+    if key in PERCENT and isinstance(v, (int, float)):
+        return f"{v * 100:.1f}%"
+    if isinstance(v, float):
+        return f"{v:,.2f}".rstrip("0").rstrip(".") if abs(v) < 1000 else f"{v:,.0f}"
+    return str(v)
+
+
 KIND_TITLE = {"multiturn": "여러 턴 값 이어 쓰기", "longctx": "긴 자료(약 1.2만 토큰) 속 사실 찾기", "conflict": "「자료에 없으면 확인 필요」 지키기"}
 
 
 def _load(name: str, file: str):
-    p = HERE / file
-    if not p.exists():
+    """같은 폴더 → 운영 저장소 scripts(홑 파일 사본을 ~/ops 에서 돌릴 때) 차례로 찾는다."""
+    p = next((d / file for d in (HERE, Path.home() / "zzaimy-capstone" / "scripts") if (d / file).exists()), None)
+    if p is None:
         return None
     spec = importlib.util.spec_from_file_location(name, p)
     m = importlib.util.module_from_spec(spec)
@@ -285,13 +309,13 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
             ks = sorted({k for m in b["metrics"].values() for k in m})
             L.append("<h3>지표</h3><div class='wrap'><table><tr><th>지표</th>" + "".join(f"<th>{esc(k)}</th>" for k in b["metrics"]) + "</tr>")
             for k in ks:
-                L.append(f"<tr><td>{esc(k)}</td>" + "".join(f"<td class='n'>{esc(b['metrics'][a].get(k, ''))}</td>" for a in b["metrics"]) + "</tr>")
+                L.append(f"<tr><td>{esc(LABELS.get(k, k))}</td>" + "".join(f"<td class='n'>{esc(fmt(k, b['metrics'][a].get(k)))}</td>" for a in b["metrics"]) + "</tr>")
             L.append("</table></div>")
         if b["key"] == "heldout220" and b.get("per_type"):
-            L.append("<h3>갈래별</h3><div class='wrap'><table><tr><th>갈래</th><th>n</th><th>쌍대 점수</th><th>chrF</th><th>항목 점수 합(30점)</th></tr>")
+            L.append("<h3>갈래별</h3><div class='wrap'><table><tr><th>갈래</th><th>n</th><th>쌍대 점수</th><th>정답 겹침(chrF)</th><th>항목 점수 합(30점)</th></tr>")
             for t in b["per_type"]:
                 pw = " / ".join(f"{p['a']} 대 {p['b']} {p['score']}" for p in t["pairwise"])
-                ch = " / ".join(f"{k} {v['chrf']}" for k, v in t["metrics"].items())
+                ch = " / ".join(f"{k} {fmt('chrf', v['chrf'])}" for k, v in t["metrics"].items())
                 sc = " / ".join(f"{k} {round(sum(x for x in v.values() if x), 1)}" for k, v in t["per_dimension"].items() if any(v.values()))
                 L.append(f"<tr><td>{esc(t['type'])}</td><td class='n'>{t['n']}</td><td>{esc(pw)}</td><td>{esc(ch)}</td><td>{esc(sc)}</td></tr>")
             L.append("</table></div>")
@@ -366,7 +390,8 @@ def main(argv=None) -> int:
     if hctx.get("speed"):
         blocks.append({"key": "speed", "title": "속도(보류분 앞 20문항, 흘려 받기, 동시 1)", "metrics": hctx["speed"], "pairwise": [],
                        "per_dimension": {}, "per_type": []})
-    summary = {"run_id": a.run_id, "created": time.strftime("%Y-%m-%d %H:%M"), "arms": arms, "blocks": blocks, "notes": notes}
+    summary = {"run_id": a.run_id, "created": time.strftime("%Y-%m-%d %H:%M"), "arms": arms, "blocks": blocks, "notes": notes,
+               "labels": LABELS, "percent_keys": sorted(PERCENT)}
     samples = pick_samples(hctx, cctx, arms)
     write_atomic(dest / "summary.json", json.dumps(summary, ensure_ascii=False, indent=1))
     write_atomic(dest / "samples.json", json.dumps(samples, ensure_ascii=False, indent=1))

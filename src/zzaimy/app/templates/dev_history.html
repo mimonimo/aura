@@ -79,15 +79,13 @@
 <p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <a href="/dev" class="btn-ghost">← 개발 현황</a>
 </p>
-<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-</p>
 
 {% if dev_now_days %}
 <div class="card reveal" id="recent"><div class="card-in">
   <h2><iconify-icon icon="solar:notes-linear"></iconify-icon>작업 기록
     <span class="cnt" style="margin-left:auto;">{{ dev_now_days|length }}일</span></h2>
   {# 손으로 적는 요약(dev-now.md 「최근 작업」)이라 커밋보다 늦을 수 있다 — 빠짐없는 목록은 아래 변경 이력 #}
-  <p class="muted" style="font-size:12px; margin:0 0 8px;">진행 현황 문서의 요약 · 마지막 {{ dev_now_days[0].day }}{% if history and history[0].day|length >= 10 and history[0].day[:10] > dev_now_days[0].day[:10] %} · 그 뒤 변경은 아래 변경 이력(커밋, 마지막 {{ history[0].day }})에 있습니다{% endif %}</p>
+  <p class="muted" style="font-size:12px; margin:0 0 8px;">진행 현황 요약 · 마지막 {{ dev_now_days[0].day }}{% if history and history[0].day|length >= 10 and history[0].day[:10] > dev_now_days[0].day[:10] %} · 그 뒤는 아래 변경 이력(커밋, 마지막 {{ history[0].day }}){% endif %}</p>
   <ol class="tl">
     {% for d in dev_now_days %}
     <li class="tl-day">

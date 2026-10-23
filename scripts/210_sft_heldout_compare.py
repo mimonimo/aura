@@ -211,10 +211,16 @@ def numbers(text: str) -> set[str]:
     return {re.sub(r",", "", n).rstrip(".") for n in re.findall(r"\d[\d,.]*\d", text or "")}
 
 
+HEAD_NUM = re.compile(r"^[\s#*>|-]*(?:[가-하]\.\s*)?(\d{1,2}(?:\.\d{1,2})+)\.?\s", re.M)
+
+
 def invented_numbers(answer: str, messages: list[dict]) -> list[str]:
+    """답의 숫자 가운데 질문·앞 대화에 없는 것. 절 번호(줄머리 「3.1 」)와 연도 자리표(「202X」)는 숫자 값이 아니라 뺀다."""
     ctx = " ".join(m.get("content", "") for m in messages)
     have = numbers(ctx)
-    return sorted(n for n in numbers(answer) if n not in have)
+    heads = set(HEAD_NUM.findall(answer or ""))
+    body = re.sub(r"\d+(?=[Xx○●])", " ", answer or "")
+    return sorted(n for n in numbers(body) if n not in have and n not in heads)
 
 
 def endings(text: str) -> dict:
