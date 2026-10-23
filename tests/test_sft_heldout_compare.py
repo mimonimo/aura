@@ -60,7 +60,7 @@ def test_report_from_cached_runs(tmp_path):
     data.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
     idx.write_text("\n".join(json.dumps({"job": "j" * 12, "track": "t", "turn": i + 1}) for i in range(3)), encoding="utf-8")
     items = s210.load_items(data, idx)
-    assert [s210.group_of(it) for it in items] == ["t·첫 턴", "t·이어지는 턴", "t·이어지는 턴"]
+    assert [s210.group_of(it) for it in items] == ["t·첫 질문", "t·이어지는 질문", "t·이어지는 질문"]
     out = tmp_path / "run"
     out.mkdir()
     for m, text in (("base", "예산 999 로 운영한다"), ("cand", "근거 설명: 원문\n답변: 예산 300 으로 운영함")):

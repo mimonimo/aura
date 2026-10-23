@@ -64,6 +64,6 @@ def test_export_writes_admin_files(tmp_path):
     assert samples and all("홍길동" not in x["input"] for x in samples)
     assert json.loads((dest / "r1" / "docs.json").read_text(encoding="utf-8")) == []
     page = html_out.read_text(encoding="utf-8")
-    assert "<title>모델 견주기 보고</title>" in page and "192.168" not in page
+    assert "<title>모델 비교 보고</title>" in page and "192.168" not in page
     assert "질문에 없는 숫자가 든 답 비율" in page and ">gold_frame<" not in page
     assert not list((dest / "r1").glob("*.tmp"))

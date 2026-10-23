@@ -140,8 +140,11 @@ def load_items(data: Path, index: Path | None, limit: int = 0) -> list[dict]:
     return out[:limit] if limit else out
 
 
+TRACK_NAMES = {"institutional_policy": "규정·제도 문서", "program_retrieval": "사업 자료 활용"}
+
+
 def group_of(it: dict) -> str:
-    return f"{it['track']}·{'첫 턴' if it['turn'] <= 1 else '이어지는 턴'}"
+    return f"{TRACK_NAMES.get(it['track'], it['track'])}·{'첫 질문' if it['turn'] <= 1 else '이어지는 질문'}"
 
 
 def read_cache(path: Path) -> dict:

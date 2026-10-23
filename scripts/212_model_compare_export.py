@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""모델 견주기 결과 묶기 — 210(보류분)·211(맥락)·202(문서 작성) 결과를 관리자 화면이 읽는 꼴로 모은다.
+"""모델 비교 결과 모으기 — 210(보류분)·211(맥락)·202(문서 작성) 결과를 관리자 화면이 읽는 꼴로 모은다.
 
 쓰는 곳: <dest>/<run-id>/ (기본 data/eval/model_compare — scripts/203 과 같은 자리)
 - summary.json  {run_id, created, arms[{key,label,model,endpoint,kind}], blocks[{key,title,metrics,pairwise,per_dimension,per_type}], notes}
-- samples.json  대표 문항 10~20 — 입력(이름·연락처 가림), 정답(있으면), 팔마다 답·점수, 채점 까닭
-- docs.json + docs/<팔>/*.hwpx   202 회차마다 만든 한글 파일
+- samples.json  대표 문항 10~20 — 입력(이름·연락처 가림), 정답(있으면), 모델마다 답·점수, 채점 까닭
+- docs.json + docs/<비교 대상>/*.hwpx   202 회차마다 만든 한글 파일
 - index.html    같은 내용을 한 쪽으로(크롬으로 열어 캡처)
 파일은 임시 파일에 쓰고 이름을 바꿔(원자적) 화면이 반쯤 쓴 파일을 읽지 않게 한다. 주소(IP)는 남기지 않는다 — endpoint 는 「토르 02 :8001」 같은 이름.
 
@@ -32,8 +32,8 @@ LABELS = {
     "invented_any": "질문에 없는 숫자가 든 답 비율", "len_ratio": "정답 대비 길이", "out_tokens": "출력 토큰", "in_tokens": "입력 토큰",
     "truncated": "잘린 답 비율", "sec": "문항당 시간(초)", "ttft": "첫 글자까지(초)", "tok_per_sec": "초당 토큰", "n": "문항 수",
     "table": "표를 쓴 답 비율", "unknown": "「모름·확인 필요」 표시 비율",
-    "multiturn_rate": "여러 턴 값 이어 쓰기 통과율", "longctx_rate": "긴 자료 사실 찾기 통과율", "conflict_rate": "「없으면 확인 필요」 통과율",
-    "overall_rate": "맥락 시험 전체 통과율", "회차": "회차 수", "절 채움": "절 채움 비율", "목표 유지": "목표 유지 비율",
+    "multiturn_rate": "여러 번 주고받은 값 이어 쓰기 통과율", "longctx_rate": "긴 자료 사실 찾기 통과율", "conflict_rate": "「없으면 확인 필요」 통과율",
+    "overall_rate": "맥락 이해 전체 통과율", "회차": "회차 수", "절 채움": "절 채움 비율", "목표 유지": "목표 유지 비율",
     "고쳐 쓰기 반영": "고쳐 쓰기 반영(0~2)", "시간(초)": "대화 전체 시간(초)",
 }
 PERCENT = {"gold_frame", "invented_any", "truncated", "table", "unknown", "multiturn_rate", "longctx_rate", "conflict_rate", "overall_rate",
@@ -50,7 +50,7 @@ def fmt(key: str, v) -> str:
     return str(v)
 
 
-KIND_TITLE = {"multiturn": "여러 턴 값 이어 쓰기", "longctx": "긴 자료(약 1.2만 토큰) 속 사실 찾기", "conflict": "「자료에 없으면 확인 필요」 지키기"}
+KIND_TITLE = {"multiturn": "여러 번 주고받은 값 이어 쓰기", "longctx": "긴 자료(약 1.2만 토큰) 속 사실 찾기", "conflict": "「자료에 없으면 확인 필요」 지키기"}
 
 
 def _load(name: str, file: str):
@@ -125,7 +125,7 @@ def heldout_block(work: Path, arms: list[dict], s210) -> tuple[dict | None, dict
                              "ci_low": p["groups"][g]["종합"]["ci95"][0], "ci_high": p["groups"][g]["종합"]["ci95"][1]}
                             for p in rep["pairs"].values() if g in p["groups"]]}
         per_type.append(row)
-    block = {"key": "heldout220", "title": f"학습셋 보류분 {rep['n']}문항(학습에 안 쓴 시험 묶음)", "n": rep["n"], "metrics": metrics,
+    block = {"key": "heldout220", "title": f"시험 문항 {rep['n']}개(학습에 쓰지 않은 것)", "n": rep["n"], "metrics": metrics,
              "pairwise": pairwise, "per_dimension": per_dim, "per_type": per_type}
     speed = {arm: rep["speed"][arm] for arm in have if arm in rep.get("speed", {})}
     return block, {"rows": full["rows"], "items": {it["id"]: it for it in items}, "speed": speed,
@@ -148,7 +148,7 @@ def context_block(work: Path, arms: list[dict]) -> tuple[dict | None, dict]:
                         "invented_any": round(sum(x["invented_any"] * x["n"] for x in d.values()) / max(1, tot), 3)}
     per_type = [{"type": KIND_TITLE.get(k, k), "key": k, "n": rep["arms"][keys[0]].get(k, {}).get("n", 0),
                  "metrics": {arm: rep["arms"][arm].get(k, {}) for arm in keys}} for k in KIND_TITLE]
-    return ({"key": "context", "title": "맥락 이해 시험(가상 값·공개 자료 30건)", "metrics": metrics, "pairwise": [], "per_dimension": {},
+    return ({"key": "context", "title": "맥락 이해(가상 값·공개 자료 30문항)", "metrics": metrics, "pairwise": [], "per_dimension": {},
              "per_type": per_type, "longctx_in_tokens": rep.get("longctx_in_tokens")},
             {"rows": rep["rows"], "cases": json.loads((work / "context-run" / "cases.json").read_text(encoding="utf-8")),
              "gens": {arm: _read_jsonl(work / "context-run" / f"gen-{arm}.jsonl") for arm in keys}})
@@ -194,7 +194,7 @@ def doc_block(work: Path, arms: list[dict], dest: Path, s202) -> tuple[dict | No
                                  "path": str(rel), "bytes": src.stat().st_size})
     if not metrics:
         return None, docs
-    return ({"key": "doc202", "title": "문서 작성 시나리오(202, 양식 없이 시작 11턴, 팔마다 2회)", "metrics": metrics, "pairwise": [],
+    return ({"key": "doc202", "title": "문서 작성(양식 없이 시작해 11번 주고받기, 모델마다 2회)", "metrics": metrics, "pairwise": [],
              "per_dimension": {k: {arm: metrics[arm].get(k) for arm in metrics} for k in ("구체성", "논리", "문체", "근거")},
              "per_type": per_run}, docs)
 
@@ -209,7 +209,7 @@ def pick_samples(hctx: dict, cctx: dict, arms: list[dict], n_heldout: int = 12) 
         for r in rows:
             by_group.setdefault(r["group"], []).append(r)
 
-        def gap(r):  # 팔끼리 점수 차가 큰 것과 비슷한 것을 섞어 고른다
+        def gap(r):  # 모델끼리 점수 차가 큰 것과 비슷한 것을 섞어 고른다
             tot = [sum((r["scores"].get(k) or {}).get(d, 0) for d in DIMS) for k in keys if k in r["scores"]]
             return (max(tot) - min(tot)) if len(tot) > 1 else 0
 
@@ -276,9 +276,9 @@ def esc(x) -> str:
 def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
     arms = {a["key"]: a for a in summary["arms"]}
     color = {k: f"var(--a{i % 4})" for i, k in enumerate(arms)}
-    L = [f"<main><h1>모델 견주기 — 오픈 모델과 SFT 학습 모델</h1><p class='mut'>{esc(summary['run_id'])} · {esc(summary['created'])} · "
+    L = [f"<main><h1>모델 비교 — 오픈 모델과 SFT 학습 모델</h1><p class='mut'>{esc(summary['run_id'])} · {esc(summary['created'])} · "
          "바뀌는 것은 모델뿐(같은 질문·같은 생성 설정·같은 채점자)</p>",
-         "<table><tr><th>팔</th><th>이름</th><th>서빙 이름</th><th>서빙 자리</th><th>갈래</th></tr>"]
+         "<table><tr><th>비교 대상</th><th>이름</th><th>모델 이름</th><th>서버</th><th>종류</th></tr>"]
     for a in summary["arms"]:
         L.append(f"<tr><td><span class='tag' style='background:{color[a['key']]};color:#fff'>{esc(a['key'])}</span></td><td>{esc(a['label'])}</td>"
                  f"<td>{esc(a['model'])}</td><td>{esc(a['endpoint'])}</td><td>{esc(a['kind'])}</td></tr>")
@@ -286,7 +286,7 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
     for b in summary["blocks"]:
         L.append(f"<h2>{esc(b['title'])}</h2>")
         if b.get("pairwise"):
-            L.append("<h3>쌍대 판정(채점자가 두 답을 순서 바꿔 두 번 견줌)</h3><div class='wrap'><table><tr><th>견줌</th><th>n</th><th>이김·비김·짐</th>"
+            L.append("<h3>둘 중 나은 답 고르기(채점 모델이 두 답의 순서를 바꿔 두 번 고름)</h3><div class='wrap'><table><tr><th>비교</th><th>문항</th><th>이김·비김·짐</th>"
                      "<th></th><th>점수(95% 구간)</th></tr>")
             for p in b["pairwise"]:
                 n = max(1, p["n"])
@@ -294,10 +294,10 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
                          f"<td><div class='bar'><span class='w' style='width:{100 * p['win'] / n:.1f}%'></span><span class='t' style='width:{100 * p['tie'] / n:.1f}%'>"
                          f"</span><span class='l' style='width:{100 * p['loss'] / n:.1f}%'></span></div></td>"
                          f"<td class='n'>{p.get('score', '')} ({p['ci_low']}~{p['ci_high']})</td></tr>")
-            L.append("</table></div><p class='mut'>점수 = (이김 + 비김/2)/n, 0.5 가 같음. 초록 = 앞 팔 이김, 주황 = 짐.</p>")
+            L.append("</table></div><p class='mut'>점수 = (이김 + 비김/2)/n, 0.5 가 같음. 초록 = 앞 모델이 나음, 주황 = 뒤 모델이 나음.</p>")
         pd = {d: v for d, v in (b.get("per_dimension") or {}).items() if any(x is not None for x in v.values())}
         if pd:
-            L.append("<h3>항목 점수(1~5, 팔마다 따로 채점)</h3><div class='wrap'><table><tr><th>항목</th>" + "".join(f"<th>{esc(k)}</th>" for k in arms) + "</tr>")
+            L.append("<h3>항목 점수(1~5, 모델마다 따로 채점)</h3><div class='wrap'><table><tr><th>항목</th>" + "".join(f"<th>{esc(k)}</th>" for k in arms) + "</tr>")
             for d, v in pd.items():
                 cells = []
                 for k in arms:
@@ -312,7 +312,7 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
                 L.append(f"<tr><td>{esc(LABELS.get(k, k))}</td>" + "".join(f"<td class='n'>{esc(fmt(k, b['metrics'][a].get(k)))}</td>" for a in b["metrics"]) + "</tr>")
             L.append("</table></div>")
         if b["key"] == "heldout220" and b.get("per_type"):
-            L.append("<h3>갈래별</h3><div class='wrap'><table><tr><th>갈래</th><th>n</th><th>쌍대 점수</th><th>정답 겹침(chrF)</th><th>항목 점수 합(30점)</th></tr>")
+            L.append("<h3>종류별</h3><div class='wrap'><table><tr><th>종류</th><th>문항</th><th>나은 답 점수</th><th>정답 겹침(chrF)</th><th>항목 점수 합(30점)</th></tr>")
             for t in b["per_type"]:
                 pw = " / ".join(f"{p['a']} 대 {p['b']} {p['score']}" for p in t["pairwise"])
                 ch = " / ".join(f"{k} {fmt('chrf', v['chrf'])}" for k, v in t["metrics"].items())
@@ -320,18 +320,18 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
                 L.append(f"<tr><td>{esc(t['type'])}</td><td class='n'>{t['n']}</td><td>{esc(pw)}</td><td>{esc(ch)}</td><td>{esc(sc)}</td></tr>")
             L.append("</table></div>")
         if b["key"] == "context" and b.get("per_type"):
-            L.append("<h3>갈래별 통과</h3><table><tr><th>갈래</th>" + "".join(f"<th>{esc(k)}</th>" for k in b["metrics"]) + "</tr>")
+            L.append("<h3>종류별 통과</h3><table><tr><th>종류</th>" + "".join(f"<th>{esc(k)}</th>" for k in b["metrics"]) + "</tr>")
             for t in b["per_type"]:
                 L.append(f"<tr><td>{esc(t['type'])}</td>" + "".join(f"<td class='n'>{v.get('ok', '-')}/{v.get('n', '-')}</td>" for v in t["metrics"].values()) + "</tr>")
             L.append("</table>")
     if docs:
-        L.append("<h2>문서 작성 결과 파일(202)</h2><ul>" + "".join(f"<li>{esc(d['title'])} — {esc(d['path'])}</li>" for d in docs) + "</ul>")
+        L.append("<h2>문서 작성 결과 파일</h2><ul>" + "".join(f"<li>{esc(d['title'])} — {esc(d['path'])}</li>" for d in docs) + "</ul>")
     if summary.get("notes"):
         L.append("<h2>읽을 때 주의</h2><ul>" + "".join(f"<li>{esc(n)}</li>" for n in summary["notes"]) + "</ul>")
-    L.append("<h2>대표 문항</h2><p class='mut'>사람 이름·연락처는 가렸다. 입력은 마지막 질문(앞 대화는 턴 수만).</p>")
+    L.append("<h2>대표 문항</h2><p class='mut'>사람 이름·연락처는 가렸다. 입력은 마지막 질문만(앞 대화는 횟수만).</p>")
     for s in samples:
         L.append(f"<div class='sample'><div><span class='tag'>{esc(s['id'])}</span><span class='tag'>{esc(s['type'])}</span>"
-                 + (f"<span class='mut'>앞 대화 {s['prior_turns']}턴</span>" if s.get("prior_turns") else "") + "</div>"
+                 + (f"<span class='mut'>앞서 주고받은 대화 {s['prior_turns']}번</span>" if s.get("prior_turns") else "") + "</div>"
                  f"<h3>입력</h3><div class='inp'>{esc(s['input'])}</div><h3>답</h3><div class='cols'>")
         for k, txt in s["outputs"].items():
             sc = s.get("scores", {}).get(k) or {}
@@ -340,7 +340,7 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
                      f"<span class='mut'>{esc(scs)}</span></div><pre>{esc(txt)}</pre></div>")
         L.append("</div>")
         if s.get("pairwise"):
-            L.append("<p class='mut'>쌍대: " + esc(" · ".join(f"{k} → {v}" for k, v in s["pairwise"].items())) + "</p>")
+            L.append("<p class='mut'>나은 답: " + esc(" · ".join(f"{k} → {v}" for k, v in s["pairwise"].items())) + "</p>")
         if s.get("judge_reason"):
             L.append(f"<p class='mut'>채점 까닭: {esc(s['judge_reason'])}</p>")
         if s.get("gold"):
@@ -348,11 +348,11 @@ def render_html(summary: dict, samples: list[dict], docs: list[dict]) -> str:
         L.append("</div>")
     L.append("</main>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>모델 견주기 보고</title><style>{CSS}</style></head><body>" + "".join(L) + "</body></html>")
+            f"<title>모델 비교 보고</title><style>{CSS}</style></head><body>" + "".join(L) + "</body></html>")
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="모델 견주기 결과 묶기(관리자 화면·한 쪽 보고)")
+    ap = argparse.ArgumentParser(description="모델 비교 결과 모으기(관리자 화면·한 쪽 보고)")
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--work", default=str(Path.home() / "ops" / "sft_eval"))
     ap.add_argument("--dest", default=str(ROOT / "data" / "eval" / "model_compare"))
@@ -364,7 +364,7 @@ def main(argv=None) -> int:
     for s in a.arm:
         k, label, model, endpoint, kind = (x.strip() for x in s.split("|"))
         if kind not in ("open", "sft-lora", "sft-merged"):
-            ap.error(f"모르는 갈래: {kind}")
+            ap.error(f"모르는 종류: {kind}")
         arms.append({"key": k, "label": label, "model": model, "endpoint": endpoint, "kind": kind})
     work, dest = Path(a.work).expanduser(), Path(a.dest).expanduser() / a.run_id
     dest.mkdir(parents=True, exist_ok=True)
@@ -388,7 +388,7 @@ def main(argv=None) -> int:
     if db:
         blocks.append(db)
     if hctx.get("speed"):
-        blocks.append({"key": "speed", "title": "속도(보류분 앞 20문항, 흘려 받기, 동시 1)", "metrics": hctx["speed"], "pairwise": [],
+        blocks.append({"key": "speed", "title": "속도(시험 문항 20개, 한 번에 하나씩)", "metrics": hctx["speed"], "pairwise": [],
                        "per_dimension": {}, "per_type": []})
     summary = {"run_id": a.run_id, "created": time.strftime("%Y-%m-%d %H:%M"), "arms": arms, "blocks": blocks, "notes": notes,
                "labels": LABELS, "percent_keys": sorted(PERCENT)}
