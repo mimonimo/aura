@@ -25,7 +25,7 @@
 사용(VM, 모델 주소가 든 .env.local 을 읽고): set -a; . ./.env.local; set +a;
   PYTHONPATH=src .venv/bin/python scripts/201_webhwp_agent_eval.py [--only 이름] [--delegate off|auto]
 모델 연결 설정은 data/platform/llm_connections.json — 다른 폴더에서 돌리면 ZZAIMY_EVAL_CONN 으로 그 파일을 짚는다(임시 폴더에 복사, 끝나면 지운다).
-후보 모델 견주기(scripts/195 와 같은 방식): --candidate-conn <연결 id> --candidate-model <서빙 이름> — 이 프로세스에서만 answer·review 를 후보로
+후보 모델 견주기(scripts/195 와 같은 방식): --candidate-conn <연결 id>(또는 장부 밖 교내 서버 --candidate-url <주소>) --candidate-model <서빙 이름> — 이 프로세스에서만 answer·review 를 후보로
 (zzaimy.eval.model_trial). 결과에 모델 정보·연결 이름(주소 없이)을 남기고, --label·--out 으로 결과 파일 이름·폴더를 정한다(scripts/203 이 모은다).
 """
 from __future__ import annotations
@@ -269,12 +269,13 @@ def main() -> int:
     ap.add_argument("--delegate", choices=("off", "auto"), default=os.environ.get("ZZAIMY_DELEGATE", "auto") or "auto",
                     help="절 맡기기 — off: 항상 직접, auto: 에이전트가 판단(ZZAIMY_DELEGATE)")
     ap.add_argument("--candidate-conn", default="", help="후보 연결 id(운영 용도 지정은 바꾸지 않는다)")
+    ap.add_argument("--candidate-url", default="", help="장부에 없는 교내 서버 주소(/v1 까지) — llm_connections.json 을 고치지 않고 잰다(ZZAIMY_LLM_TRY_URL)")
     ap.add_argument("--candidate-model", default="", help="후보 서빙 이름(LoRA 어댑터 이름 등)")
     ap.add_argument("--label", default="", help="결과 파일 이름에 붙일 이름(예: 운영·후보)")
     ap.add_argument("--out", default=str(ROOT / "data" / "eval" / "webhwp_agent"))
     a = ap.parse_args()
     from zzaimy.eval import model_trial
-    model_trial.apply(a.candidate_conn.strip(), a.candidate_model.strip())
+    model_trial.apply(a.candidate_conn.strip(), a.candidate_model.strip(), a.candidate_url.strip())
     os.environ["ZZAIMY_DELEGATE"] = a.delegate
     os.environ["ZZAIMY_EVAL_LABEL"] = a.label
     os.environ.pop("ZZAIMY_PLATFORM_SQLITE_PATH", None)        # 임시 DB 경로라 운영 PostgreSQL 로 가지 않는다(database_backend)

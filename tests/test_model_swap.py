@@ -256,6 +256,51 @@ def test_trial_env_overrides_generation_roles_only(monkeypatch, tmp_path):
     assert (tmp_path / "llm_connections.json").read_text() == before
 
 
+def test_trial_url_evaluates_unregistered_server_without_touching_ledger(monkeypatch, tmp_path):
+    """장부에 없는 교내 서버(학습 장비에 띄운 어댑터 등)를 ZZAIMY_LLM_TRY_URL 로 — 장부는 그대로, vision 은 운영 그대로."""
+    from zzaimy.eval import model_trial
+    from zzaimy.generate import llm_connections, model_config
+
+    llm_connections.configure(tmp_path / "llm_connections.json")
+    monkeypatch.setenv("ZZAIMY_LLM_FAILOVER", "0")
+    for k in model_trial.TRIAL_ENV:
+        monkeypatch.delenv(k, raising=False)
+    prod = llm_connections.add("운영", "vllm", "http://prod:8000/v1", "writer", "")
+    ext = llm_connections.add("외부", "partner", "https://partner.example/v1", "big", "k")
+    llm_connections.activate(prod["id"])
+    llm_connections.set_roles({"answer": (prod["id"], "writer"), "review": (prod["id"], "writer"),
+                               "vision": (prod["id"], "writer")})
+    before = (tmp_path / "llm_connections.json").read_text()
+    env = model_trial.apply(model="writer-sft", url="http://dgx:8001/v1/")
+    try:
+        assert env == {"ZZAIMY_LLM_TRY_MODEL": "writer-sft", "ZZAIMY_LLM_TRY_URL": "http://dgx:8001/v1/"}
+        got = model_config.current("answer")
+        assert got["base_url"] == "http://dgx:8001/v1" and got["model"] == "writer-sft"
+        assert got["connection_id"] == llm_connections.TRIAL_URL_ID and got["external"] is False
+        assert model_config.current("review")["base_url"] == "http://dgx:8001/v1"
+        assert model_config.current("vision")["connection_id"] == prod["id"]          # 문서 이미지 판독은 그대로
+        with model_trial.without_trial():                                              # 채점자는 운영 연결
+            assert model_config.current("review")["connection_id"] == prod["id"]
+        model_trial.apply(model="x", url=ext["base_url"])                              # 외부 서버 주소는 후보로도 쓰지 않는다
+        assert llm_connections.trial_conn("answer") is None
+        assert model_config.current("answer")["connection_id"] == prod["id"]
+        model_trial.apply(url="not a url")
+        assert llm_connections.trial_conn("answer") is None
+    finally:
+        model_trial.apply()
+    assert model_config.current("answer")["model"] == "writer"
+    assert (tmp_path / "llm_connections.json").read_text() == before
+
+
+def test_candidate_url_flag_reaches_subprocess_env():
+    s195 = _load("s195url", "195_model_swap_check.py")
+    assert s195.trial_env("", "writer-sft", "http://dgx:8001/v1") == {"ZZAIMY_LLM_TRY_MODEL": "writer-sft",
+                                                                      "ZZAIMY_LLM_TRY_URL": "http://dgx:8001/v1"}
+    assert "ZZAIMY_LLM_TRY_URL" in s195.TRIAL_ENV
+    for f in ("201_webhwp_agent_eval.py", "202_webhwp_scenario_eval.py", "203_model_compare.py"):
+        assert "--candidate-url" in (ROOT / "scripts" / f).read_text(encoding="utf-8")
+
+
 def test_set_options_validates():
     from zzaimy.generate import llm_connections
 

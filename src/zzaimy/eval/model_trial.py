@@ -1,4 +1,5 @@
-"""평가 스크립트의 후보 모델 연결 — scripts/195 와 같은 방식(ZZAIMY_LLM_TRY_CONN·ZZAIMY_LLM_TRY_MODEL → llm_connections.trial_conn).
+"""평가 스크립트의 후보 모델 연결 — scripts/195 와 같은 방식(ZZAIMY_LLM_TRY_CONN·ZZAIMY_LLM_TRY_MODEL·ZZAIMY_LLM_TRY_URL → llm_connections.trial_conn).
+장부(llm_connections.json)에 없는 교내 서버는 --candidate-url(ZZAIMY_LLM_TRY_URL)로 장부를 고치지 않고 잰다.
 
 운영 용도 지정은 바꾸지 않고, 이 프로세스에서만 answer·review·기본 연결을 후보로 돌린다. 결과에는 모델 정보와 연결 이름·id 만 남기고
 서버 주소는 남기지 않는다. 채점처럼 판마다 같아야 하는 호출은 fixed_client 로 후보 설정을 빼고 운영 연결을 쓴다.
@@ -9,16 +10,24 @@ import os
 import re
 from contextlib import contextmanager
 
-TRIAL_ENV = ("ZZAIMY_LLM_TRY_CONN", "ZZAIMY_LLM_TRY_MODEL")
+TRIAL_ENV = ("ZZAIMY_LLM_TRY_CONN", "ZZAIMY_LLM_TRY_MODEL", "ZZAIMY_LLM_TRY_URL")
 
 
-def apply(conn: str = "", model: str = "") -> dict[str, str]:
-    """후보 설정을 이 프로세스 환경에 얹는다(빈 값이면 운영 그대로). 돌려주는 것은 얹은 값."""
+def env_for(conn: str = "", model: str = "", url: str = "") -> dict[str, str]:
+    """후보 설정 → 환경변수(빈 값은 뺀다). 하위 실행에 넘길 때도 쓴다."""
     env = {}
     if conn:
         env["ZZAIMY_LLM_TRY_CONN"] = conn
     if model:
         env["ZZAIMY_LLM_TRY_MODEL"] = model
+    if url:
+        env["ZZAIMY_LLM_TRY_URL"] = url
+    return env
+
+
+def apply(conn: str = "", model: str = "", url: str = "") -> dict[str, str]:
+    """후보 설정을 이 프로세스 환경에 얹는다(빈 값이면 운영 그대로). 돌려주는 것은 얹은 값."""
+    env = env_for(conn, model, url)
     for k in TRIAL_ENV:
         os.environ.pop(k, None)
     os.environ.update(env)
@@ -56,6 +65,8 @@ def snapshot(roles: tuple[str, ...] = ("answer", "review")) -> dict:
         try:
             c = VllmClient(role=role)
             conn = llm_connections.get(c.connection_id) if c.connection_id else None
+            if c.connection_id == llm_connections.TRIAL_URL_ID:
+                conn = {"name": "후보 주소(장부 밖)"}
             out[role] = {"llm": _no_address(model_info.stamp(c)), "label": model_info.label(model_info.stamp(c)),
                          "conn": (conn or {}).get("name", "환경변수"), "conn_id": c.connection_id, "kind": c.kind}
         except Exception as e:

@@ -29,6 +29,7 @@ scripts/201 과 같은 방식: 임시 DB 로 앱을 띄우고(운영 DB·문서�
 기준 절 포함률(학교 서식에서 흔히 쓰는 절 이름 갈래, 정답 채우기가 아니라 포함률), 작성방법 안내(덮은 비율·평균 길이·근거 언급률), 분량 안내, 요약 표 칸,
 번호 체계, 빌드 성공·서식 깨짐. 에이전트가 만들지 않으면 같은 설계 도구를 직접 불러 설계 품질은 따로 잰다(「직접」 표시).
 후보 모델 견주기(scripts/195 와 같은 방식): --candidate-conn·--candidate-model(zzaimy.eval.model_trial) — 결과에 모델 정보·연결 이름(주소 없이).
+장부에 없는 교내 서버는 --candidate-url <주소>(ZZAIMY_LLM_TRY_URL, 장부를 고치지 않는다).
 되풀이·판 견주기(ADR-0068): --repeat N 으로 같은 요청을 N 번(회차 <label>-1 …), --old 는 새 기능 설정(쓰기 품질·고쳐 쓰기·동시 맡기기·메모 목표 줄)을 끈 이전 판.
 끝에 판·판본마다 평균(최소~최대) 표 — 고쳐 쓰기 반영(구체: 바뀐 자리 글자 1.15배 넘게, 표: 바뀐 자리에 표 생김), 절 채움, 지어낸 숫자(수치 대조기로 같은 값 인정 뒤·
 표면형), 목표·목표 유지(기간·양식 턴 뒤 메모 목표 갈래에 대상·예산·기간이 다 든 턴 비율), 채점 4항목, 시간. --rescore <json…> 는 저장된 결과를 같은 잣대로 다시 센다.
@@ -814,6 +815,7 @@ def main() -> int:
     ap.add_argument("--out", default=str(ROOT / "data" / "eval" / "webhwp_scenario"))
     ap.add_argument("--no-judge", action="store_true")
     ap.add_argument("--candidate-conn", default="", help="후보 연결 id(운영 용도 지정은 바꾸지 않는다)")
+    ap.add_argument("--candidate-url", default="", help="장부에 없는 교내 서버 주소(/v1 까지) — llm_connections.json 을 고치지 않고 잰다(ZZAIMY_LLM_TRY_URL)")
     ap.add_argument("--candidate-model", default="", help="후보 서빙 이름(LoRA 어댑터 이름 등)")
     ap.add_argument("--repeat", type=int, default=1, help="같은 요청을 이만큼 되풀이(회차 이름 <label>-1 …) — 평균·범위 표")
     ap.add_argument("--old", action="store_true", help="이전 판 — 새 기능 설정(쓰기 품질·고쳐 쓰기·동시 맡기기·메모 목표 줄)을 끈다")
@@ -833,7 +835,7 @@ def main() -> int:
     if a.old:
         os.environ.update(OLD_ENV)
     from zzaimy.eval import model_trial
-    model_trial.apply(a.candidate_conn.strip(), a.candidate_model.strip())
+    model_trial.apply(a.candidate_conn.strip(), a.candidate_model.strip(), a.candidate_url.strip())
     os.environ.pop("ZZAIMY_PLATFORM_SQLITE_PATH", None)        # 임시 DB 경로라 운영 PostgreSQL 로 가지 않는다
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

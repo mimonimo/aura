@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 from datetime import datetime
 from pathlib import Path
@@ -275,14 +276,32 @@ def role_conn(role: str) -> dict | None:
 # 후보 모델 점검 — 운영 용도 지정(roles)은 그대로 두고, 그 프로세스에서만 생성 용도를 후보 연결·모델로 돌린다(scripts/195).
 # ZZAIMY_LLM_TRY_CONN=<연결 id>  ZZAIMY_LLM_TRY_MODEL=<서빙 이름>  — 둘 중 하나만 줘도 된다(모델만 주면 지금 연결에서 그 이름으로).
 # 문서 이미지 판독(vision)은 바꾸지 않는다. 외부 서버 연결은 후보로도 쓰지 않는다(절대 규칙 3).
+# ZZAIMY_LLM_TRY_URL=<교내 서버 주소(/v1 까지)> — 장부에 없는 교내 서버(학습 장비에 잠깐 띄운 어댑터 등)를 장부를 고치지 않고 잴 때.
+# 연결 id 보다 먼저 보며, 그 주소의 교내 vLLM 연결로 다룬다(모델 이름은 ZZAIMY_LLM_TRY_MODEL, 키는 VLLM_API_KEY). 등록된 외부 서버 주소면 쓰지 않는다.
 TRIAL_ROLES = ("", "answer", "review", "helper")
+TRIAL_URL_ID = "try-url"
+
+
+def _trial_url_conn(url: str, model: str) -> dict | None:
+    if not re.match(r"^https?://[^/\s]+", url):
+        _warn_once(f"try-url:{url}", "후보 주소 %s 를 읽지 못해 쓰지 않습니다", url)
+        return None
+    norm = url.rstrip("/")
+    if any(_is_external(c) and c.get("base_url", "").rstrip("/") == norm for c in _load()["connections"]):
+        _warn_once(f"try-url-ext:{url}", "후보 주소가 외부 서버 연결과 같아 쓰지 않습니다")
+        return None
+    return {"id": TRIAL_URL_ID, "name": "후보 주소(장부 밖)", "kind": "vllm", "external": False,
+            "base_url": norm, "model": model, "vision_model": "", "api_key": ""}
 
 
 def trial_conn(role: str = "") -> dict | None:
     cid = (os.environ.get("ZZAIMY_LLM_TRY_CONN") or "").strip()
     model = (os.environ.get("ZZAIMY_LLM_TRY_MODEL") or "").strip()
-    if (not cid and not model) or role not in TRIAL_ROLES:
+    url = (os.environ.get("ZZAIMY_LLM_TRY_URL") or "").strip()
+    if (not cid and not model and not url) or role not in TRIAL_ROLES:
         return None
+    if url:
+        return _trial_url_conn(url, model)
     if cid:
         conn = get(cid)
         if conn is None or _is_external(conn):

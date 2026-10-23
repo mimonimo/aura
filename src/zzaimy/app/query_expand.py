@@ -46,7 +46,7 @@ def expand(query: str, base_url: str | None = None, model: str | None = None) ->
 
         # 생성 호출은 VllmClient 를 거친다 — 생각 끄기 인자(Ollama·vLLM·연결 설정)는 거기서 정한다.
         # 후보 모델 점검(ZZAIMY_LLM_TRY_*) 중이면 확장도 후보 모델로 돈다(scripts/195)
-        trial = bool(os.environ.get("ZZAIMY_LLM_TRY_CONN") or os.environ.get("ZZAIMY_LLM_TRY_MODEL"))
+        trial = any(os.environ.get(k) for k in ("ZZAIMY_LLM_TRY_CONN", "ZZAIMY_LLM_TRY_MODEL", "ZZAIMY_LLM_TRY_URL"))
         by_role = trial or conf == "answer"
         key = ("answer",) if by_role else conf
         if key not in _clients:

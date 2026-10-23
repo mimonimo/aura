@@ -8,6 +8,7 @@
 --quick 이면 검색은 --reader 한 번, 답과 갈래는 아주 적게(배선·속도 확인용 — 수치 비교에는 기본 실행을 쓴다).
 
 후보 모델(운영 용도 지정은 바꾸지 않는다): --candidate-conn <연결 id> 와/또는 --candidate-model <서빙 이름>.
+장부에 없는 교내 서버는 --candidate-url <주소> --candidate-model <서빙 이름>(ZZAIMY_LLM_TRY_URL — 장부를 고치지 않는다).
 하위 실행에 ZZAIMY_LLM_TRY_CONN·ZZAIMY_LLM_TRY_MODEL 을 넘겨 그 프로세스에서만 answer·review·기본 연결을 후보로 돌린다(llm_connections.trial_conn).
 후보를 주면 같은 실행에서 운영도 함께 돈다(같은 데이터 상태에서 견주게) — 운영을 건너뛰려면 --no-current(기준 파일과만 견준다).
 
@@ -35,7 +36,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 BASELINE = ROOT / "data" / "eval" / "model_baseline.json"
 STEPS = ("search", "answer", "kind")
-TRIAL_ENV = ("ZZAIMY_LLM_TRY_CONN", "ZZAIMY_LLM_TRY_MODEL")
+TRIAL_ENV = ("ZZAIMY_LLM_TRY_CONN", "ZZAIMY_LLM_TRY_MODEL", "ZZAIMY_LLM_TRY_URL")
 
 # 표에 싣는 수치 — (열쇠, 이름, 높을수록 좋은가(None 이면 방향 없음))
 METRICS: list[tuple[str, str, bool | None]] = [
@@ -87,12 +88,14 @@ def load_env_file(path: Path) -> dict[str, str]:
     return out
 
 
-def trial_env(conn: str = "", model: str = "") -> dict[str, str]:
+def trial_env(conn: str = "", model: str = "", url: str = "") -> dict[str, str]:
     env = {}
     if conn:
         env["ZZAIMY_LLM_TRY_CONN"] = conn
     if model:
         env["ZZAIMY_LLM_TRY_MODEL"] = model
+    if url:
+        env["ZZAIMY_LLM_TRY_URL"] = url
     return env
 
 
@@ -312,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--quick", action="store_true", help="검색 한 번·답 3문·갈래 6건 — 배선·속도 확인용")
     ap.add_argument("--skip", default="", help="건너뛸 단계(쉼표): search·answer·kind")
     ap.add_argument("--candidate-conn", default="", help="후보 연결 id(등록된 교내 연결) — 운영 용도 지정은 바꾸지 않는다")
+    ap.add_argument("--candidate-url", default="", help="장부에 없는 교내 서버 주소(/v1 까지) — llm_connections.json 을 고치지 않고 잰다(ZZAIMY_LLM_TRY_URL)")
     ap.add_argument("--candidate-model", default="", help="후보 서빙 이름(같은 연결의 LoRA 어댑터 이름 등)")
     ap.add_argument("--no-current", action="store_true", help="후보만 돌리고 기준 파일과만 견준다")
     ap.add_argument("--save-baseline", action="store_true", help="이번 운영 결과를 기준으로 바꿔 저장한다")
@@ -331,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"경고: {Path(args.env_file).name} 을 읽지 못함 — 검색 임베딩·재순위가 CPU 대체로 돌아 수치가 운영과 다를 수 있다", flush=True)
     for k, v in loaded.items():
         os.environ.setdefault(k, v)                     # 셸에서 이미 준 값이 먼저
-    candidate = trial_env(args.candidate_conn.strip(), args.candidate_model.strip())
+    candidate = trial_env(args.candidate_conn.strip(), args.candidate_model.strip(), args.candidate_url.strip())
     runs: list[tuple[str, dict]] = []
     if not (candidate and args.no_current):
         runs.append(("운영", {}))

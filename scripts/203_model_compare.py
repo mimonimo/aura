@@ -5,7 +5,7 @@
 - 195 답변 품질·검색·갈래 판정(scripts/195_model_swap_check.py — 운영·후보를 한 실행에서 함께 돈다)
 - 201 문서 작성(한글 기안기 에이전트, scripts/201) — 운영 한 번, 후보 한 번
 - 202 시나리오(여러 턴: 목표 이해·양식 고르기/만들기·절 쓰기·고쳐 쓰기·디자인) + 양식 만들기 묶음(scripts/202 --forms) — 운영 한 번, 후보 한 번
-후보는 운영 용도 지정을 바꾸지 않고 하위 실행에서만 돈다(--candidate-conn·--candidate-model → ZZAIMY_LLM_TRY_CONN·ZZAIMY_LLM_TRY_MODEL,
+후보는 운영 용도 지정을 바꾸지 않고 하위 실행에서만 돈다(--candidate-conn·--candidate-model·--candidate-url → ZZAIMY_LLM_TRY_CONN·ZZAIMY_LLM_TRY_MODEL·ZZAIMY_LLM_TRY_URL,
 llm_connections.trial_conn). 채점자(202 의 review 27B)는 두 판 모두 운영 연결로 고정이다. 결과에는 모델 이름·연결 이름만, 서버 주소는 남기지 않는다.
 
 결과: data/eval/model_compare/<tag>/ 아래 하위 실행 결과와 합친 표 compare.md·compare.json.
@@ -88,6 +88,7 @@ def table_201(runs: dict[str, list[dict]]) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--candidate-conn", default="")
+    ap.add_argument("--candidate-url", default="", help="장부에 없는 교내 서버 주소(/v1 까지) — llm_connections.json 을 고치지 않고 잰다(ZZAIMY_LLM_TRY_URL)")
     ap.add_argument("--candidate-model", default="")
     ap.add_argument("--skip", default="", help="건너뛸 묶음(쉼표): 195·201·202")
     ap.add_argument("--quick", action="store_true")
@@ -96,9 +97,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     a = ap.parse_args(argv)
     cand = [x for x in (["--candidate-conn", a.candidate_conn.strip()] if a.candidate_conn.strip() else [])
-            + (["--candidate-model", a.candidate_model.strip()] if a.candidate_model.strip() else [])]
+            + (["--candidate-model", a.candidate_model.strip()] if a.candidate_model.strip() else [])
+            + (["--candidate-url", a.candidate_url.strip()] if a.candidate_url.strip() else [])]
     if not cand:
-        ap.error("--candidate-conn 또는 --candidate-model 을 준다")
+        ap.error("--candidate-conn·--candidate-model·--candidate-url 가운데 하나는 준다")
     skip = {s.strip() for s in a.skip.split(",") if s.strip()}
     if skip - set(SUITES):
         ap.error("모르는 묶음: " + ", ".join(sorted(skip - set(SUITES))))
@@ -109,12 +111,14 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.setdefault(k, v)
     os.environ.pop("ZZAIMY_LLM_TRY_CONN", None)
     os.environ.pop("ZZAIMY_LLM_TRY_MODEL", None)
+    os.environ.pop("ZZAIMY_LLM_TRY_URL", None)
     out = ROOT / "data" / "eval" / "model_compare" / a.tag
     out.mkdir(parents=True, exist_ok=True)
     py = sys.executable
     sides = ([] if a.no_current else [("운영", [])]) + [("후보", cand)]
-    summary: dict = {"tag": a.tag, "candidate": {"conn": a.candidate_conn, "model": a.candidate_model}, "quick": a.quick}
-    md = [f"# 모델 비교 {a.tag}", "", f"후보: 연결 {a.candidate_conn or '(운영 연결)'} · 서빙 이름 {a.candidate_model or '(연결 기본)'}"
+    summary: dict = {"tag": a.tag, "candidate": {"conn": a.candidate_conn or ("장부 밖 주소" if a.candidate_url.strip() else ""),
+                                                 "model": a.candidate_model}, "quick": a.quick}   # 주소는 남기지 않는다
+    md = [f"# 모델 비교 {a.tag}", "", f"후보: 연결 {a.candidate_conn or ('장부 밖 주소' if a.candidate_url.strip() else '(운영 연결)')} · 서빙 이름 {a.candidate_model or '(연결 기본)'}"
           + (" · 빠른 판(배선 확인용, 수치 비교에 쓰지 않는다)" if a.quick else ""), ""]
     if "195" not in skip:
         print("[195] 답변 품질·검색·갈래", flush=True)
