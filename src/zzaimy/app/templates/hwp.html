@@ -3,19 +3,45 @@
 {% block pagetitle %}문서함{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/hwp-box.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/aura-finder.css?v={{ asset_v }}"><script src="/static/aura-finder.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
-{% if ok %}<p class="notice ok" role="status">{{ ok }}</p>{% endif %}
-{% if err %}<p class="notice" role="alert">{{ err }}</p>{% endif %}
-<div class="hb" data-hwp-box data-dept="{{ here.dept if here else '' }}" data-folder="{{ here.folder if here else '' }}" data-editor="{{ 'on' if status.ok else '' }}">
+<div class="hb-toasts" data-toasts aria-live="polite">{% if ok %}<p class="hb-toast" role="status">{{ ok }}</p>{% endif %}{% if err %}<p class="hb-toast err" role="alert">{{ err }}</p>{% endif %}</div>
+{% macro star(dept, folder, label) -%}
+{% set starred = (dept, folder) in fav_keys %}<form class="hb-fav" action="/hwp/favorite" method="post" data-fav>
+  <input type="hidden" name="dept" value="{{ dept }}"><input type="hidden" name="folder" value="{{ folder }}"><input type="hidden" name="on" value="{{ '0' if starred else '1' }}">
+  <button type="submit" class="hb-star{{ ' on' if starred }}" aria-pressed="{{ 'true' if starred else 'false' }}" aria-label="「{{ label }}」 즐겨찾기" title="{{ '즐겨찾기에서 빼기' if starred else '즐겨찾기에 넣기' }}"><iconify-icon icon="{{ 'solar:star-bold' if starred else 'solar:star-linear' }}" aria-hidden="true"></iconify-icon></button>
+</form>
+{%- endmacro %}
+<div class="hb" data-hwp-box data-dept="{{ here.dept if here else '' }}" data-folder="{{ here.folder if here else '' }}" data-editor="{{ 'on' if status.ok else '' }}" data-copy-dept="{{ copy_at.dept }}" data-copy-folder="{{ copy_at.folder }}">
   <nav class="hb-side" aria-label="위치">
-    <p class="hb-group">부서 폴더</p>
-    {% for d in depts %}<a class="hb-place {{ 'on' if here and here.dept == d.dept }}" href="/hwp?dept={{ d.dept|urlencode }}" data-place="dept"{% if here and here.dept == d.dept %} aria-current="page"{% endif %}><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="t">{{ d.dept }}</span><span class="n">{{ d.count }}</span></a>{% endfor %}
-    {% if here %}
-    <p class="hb-group">구글 드라이브</p>
-    <button type="button" class="hb-place" data-drive-place="" data-drive-name="내 드라이브"><iconify-icon icon="solar:cloud-linear" aria-hidden="true"></iconify-icon><span class="t">내 드라이브</span></button>
-    <div data-drive-places></div>
-    <p class="hb-hint" data-drive-hint hidden>학교 구글 계정을 연결하면 드라이브도 여기서 봅니다. <a href="/settings">설정</a></p>
+    <div class="hb-sec" data-fav-sec{% if not favorites %} hidden{% endif %}>
+      <p class="hb-group">즐겨찾기</p>
+      <div class="hb-sec-list" data-fav-list>{% for x in favorites %}{% set cur = here and here.dept == x.dept and here.folder == x.folder %}<a class="hb-place{{ ' on' if cur }}" href="{{ x.href }}" data-place="fav" title="{{ x.where or x.dept }}"{% if cur %} aria-current="page"{% endif %}><iconify-icon icon="solar:star-linear" aria-hidden="true"></iconify-icon><span class="t">{{ x.name }}</span>{% if x.where %}<span class="n">{{ x.label }}</span>{% endif %}</a>{% endfor %}</div>
+    </div>
+    {% if recent %}
+    <div class="hb-sec">
+      <p class="hb-group">최근 폴더</p>
+      {% for x in recent %}<a class="hb-place" href="{{ x.href }}" data-place="recent" title="{{ x.where or x.dept }}"><iconify-icon icon="solar:clock-circle-linear" aria-hidden="true"></iconify-icon><span class="t">{{ x.name }}</span>{% if x.where %}<span class="n">{{ x.label }}</span>{% endif %}</a>{% endfor %}
+    </div>
     {% endif %}
-    <p class="hb-status"><span class="hb-dot {{ 'on' if status.ok }}" aria-hidden="true"></span>{% if status.ok %}웹 한글 기안기 {{ status.version }}{% else %}기안기 서버에 연결되지 않아 내려받기만 됩니다{% endif %}</p>
+    {% if mine %}
+    <div class="hb-sec">
+      <p class="hb-group">내 폴더</p>
+      <a class="hb-place {{ 'on' if here and here.dept == mine }}" href="/hwp?dept={{ mine|urlencode }}" data-place="mine"{% if here and here.dept == mine %} aria-current="page"{% endif %} title="나만 보는 폴더"><iconify-icon icon="solar:user-rounded-linear" aria-hidden="true"></iconify-icon><span class="t">내 폴더</span></a>
+    </div>
+    {% endif %}
+    <div class="hb-sec">
+      <p class="hb-group">부서 폴더</p>
+      {% for d in depts %}<a class="hb-place {{ 'on' if here and here.dept == d.dept }}" href="/hwp?dept={{ d.dept|urlencode }}" data-place="dept"{% if here and here.dept == d.dept %} aria-current="page"{% endif %}><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="t">{{ d.dept }}</span><span class="n">{{ d.count }}</span></a>{% endfor %}
+    </div>
+    {% if here %}
+    <div class="hb-sec">
+      <p class="hb-group">구글 드라이브</p>
+      <button type="button" class="hb-place" data-drive-place="" data-drive-name="내 드라이브"><iconify-icon icon="solar:cloud-linear" aria-hidden="true"></iconify-icon><span class="t">내 드라이브</span></button>
+      <div data-drive-places></div>
+      <p class="hb-hint" data-drive-hint hidden>학교 구글 계정을 연결하면 드라이브도 여기서 봅니다. <a href="/settings">설정</a></p>
+    </div>
+    {% endif %}
+    {% if not status.ok %}<p class="hb-status"><span class="hb-dot" aria-hidden="true"></span>기안기 서버에 연결되지 않아 내려받기만 됩니다</p>
+    {% elif request.state.role == 'dev' %}<p class="hb-status"><span class="hb-dot on" aria-hidden="true"></span>기안기 연결됨</p>{% endif %}
   </nav>
 
   {% if here %}
@@ -26,39 +52,41 @@
         {% if here.crumbs %}<a class="hb-back" href="/hwp?dept={{ here.dept|urlencode }}{% if parent %}&folder={{ parent|urlencode }}{% endif %}" aria-label="위 폴더로" title="위 폴더로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></a>
         {% else %}<span class="hb-back" aria-disabled="true"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></span>{% endif %}
         <div class="hb-path" aria-label="경로">
-          {% if here.crumbs %}<a href="/hwp?dept={{ here.dept|urlencode }}">{{ here.dept }}</a>{% else %}<b>{{ here.dept }}</b>{% endif %}
+          {% if here.crumbs %}<a href="/hwp?dept={{ here.dept|urlencode }}">{{ here.label }}</a>{% else %}<b>{{ here.label }}</b>{% endif %}
           {% for c in here.crumbs %}<span class="hb-sep">›</span>{% if loop.last %}<b>{{ c.name }}</b>{% else %}<a href="/hwp?dept={{ here.dept|urlencode }}&folder={{ c.path|urlencode }}">{{ c.name }}</a>{% endif %}{% endfor %}
         </div>
+        {{ star(here.dept, here.folder, here.crumbs[-1].name if here.crumbs else here.label) }}
       </div>
       <div class="hb-tools">
         {% if status.ok %}<a class="hb-btn primary" href="/hwp/new?dept={{ here.dept|urlencode }}{% if here.folder %}&folder={{ here.folder|urlencode }}{% endif %}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</a>
-        <button type="button" class="hb-btn" data-modal-open="#hwTpl" data-tpl-open><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon>양식으로 시작</button>{% endif %}
-        <button type="button" class="hb-btn" data-pick-file><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon>올리기</button>
-        <button type="button" class="hb-btn" data-drive-open><iconify-icon icon="solar:cloud-download-linear" aria-hidden="true"></iconify-icon>드라이브에서 가져오기</button>
-        <button type="button" class="hb-btn" data-modal-open="#hwFolder"><iconify-icon icon="solar:folder-add-linear" aria-hidden="true"></iconify-icon>새 폴더</button>
+        <button type="button" class="hb-btn ghost" data-modal-open="#hwTpl" data-tpl-open title="양식으로 시작" aria-label="양식으로 시작"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon><span class="l">양식으로 시작</span></button>{% endif %}
+        <button type="button" class="hb-btn ghost" data-pick-file title="내 컴퓨터의 한글 파일 올리기" aria-label="올리기"><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon><span class="l">올리기</span></button>
+        {% if here.may_make %}<button type="button" class="hb-btn ghost" data-new-folder title="새 폴더" aria-label="새 폴더"><iconify-icon icon="solar:add-folder-linear" aria-hidden="true"></iconify-icon><span class="l">새 폴더</span></button>{% endif %}
       </div>
     </div>
     <form action="/hwp/upload" method="post" enctype="multipart/form-data" data-upload hidden>
       <input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}">
       <input type="file" name="file" accept=".hwp,.hwpx" aria-label="올릴 한글 파일">
     </form>
-    <div class="hb-list" role="list">
+    <div class="hb-selbar" data-selbar hidden><span data-sel-count></span><button type="button" class="hb-btn" data-sel-delete><iconify-icon icon="solar:trash-bin-minimalistic-linear" aria-hidden="true"></iconify-icon>지우기</button><button type="button" class="hb-btn ghost" data-sel-clear>선택 해제</button></div>
+    <div class="hb-list" role="list" data-dept-list data-may-make="{{ 'on' if here.may_make else '' }}">
       {% if here.folders or here.files %}
-      <div class="hb-head" aria-hidden="true"><span></span><span>이름</span><span>고친 때</span><span>고친 사람</span><span></span></div>
+      <div class="hb-head"><span>{% if here.files %}<input type="checkbox" class="hb-pick" data-pick-all aria-label="모두 선택" title="모두 선택">{% endif %}</span><span>이름</span><span>고친 때</span><span>고친 사람</span><span></span></div>
       {% for d in here.folders %}
-      <div class="hb-row" data-kind="folder" role="listitem"><iconify-icon icon="solar:folder-bold" aria-hidden="true"></iconify-icon>
-        <a class="hb-name" href="/hwp?dept={{ here.dept|urlencode }}&folder={{ d.path|urlencode }}">{{ d.name }}</a>
-        <span class="hb-meta">문서 {{ d.count }}</span><span class="hb-meta"></span><span></span></div>
+      <div class="hb-row" data-kind="folder" data-path="{{ d.path }}" role="listitem"><iconify-icon icon="solar:folder-bold" aria-hidden="true"></iconify-icon>
+        <a class="hb-name" href="/hwp?dept={{ here.dept|urlencode }}&folder={{ d.path|urlencode }}"{% if here.may_make %} title="두 번 눌러 이름 바꾸기"{% endif %}>{{ d.name }}</a>
+        <span class="hb-meta">문서 {{ d.count }}</span><span class="hb-meta"></span><div class="hb-act">{% if here.may_make %}<button type="button" class="hb-btn" data-rename-folder>이름 바꾸기</button>{% endif %}{{ star(here.dept, d.path, d.name) }}</div></div>
       {% endfor %}
       {% for f in here.files %}
-      <div class="hb-row" data-kind="file" role="listitem"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
+      {% set deletable = not f.locked or request.state.role == 'dev' %}
+      <div class="hb-row" data-kind="file" data-id="{{ f.id }}" role="listitem"><span class="hb-ic"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>{% if deletable %}<input type="checkbox" class="hb-pick" data-pick value="{{ f.id }}" aria-label="「{{ f.name }}」 고르기">{% endif %}</span>
         {% if status.ok %}<a class="hb-name" href="/hwp/{{ f.id }}/edit" title="기안기로 열기">{{ f.name }}</a>{% else %}<span class="hb-name">{{ f.name }}</span>{% endif %}
         <span class="hb-meta">{{ f.saved }}</span>
         <span class="hb-meta">{% if f.editing %}<span class="hb-lock" title="편집 중인 사람이 닫으면 풀립니다">{{ f.editing }} 편집 중</span>{% else %}{{ f.saved_by or f.owner }}{% endif %}</span>
         <div class="hb-act">
-          {% if f.locked %}<form action="/hwp/{{ f.id }}/copy" method="post" title="내 부서 폴더에 복사해 기안기로 엽니다"><button type="submit" class="hb-btn">복사해 쓰기</button></form>{% endif %}
+          {% if f.locked %}<form action="/hwp/{{ f.id }}/copy" method="post" data-copy="{{ f.id }}" data-name="{{ f.name }}" title="고른 폴더에 복사해 기안기로 엽니다"><button type="submit" class="hb-btn">복사해 쓰기</button></form>{% endif %}
           <a class="hb-btn" href="/hwp/{{ f.id }}/file">내려받기</a>
-          {% if not f.locked or request.state.role == 'dev' %}<form action="/hwp/{{ f.id }}/delete" method="post" data-confirm="「{{ f.name }}」을(를) 지울까요? 부서 휴지통으로 옮기며 관리자가 되살릴 수 있습니다."><button type="submit" class="hb-btn">지우기</button></form>{% endif %}
+          {% if not f.locked or request.state.role == 'dev' %}<form action="/hwp/{{ f.id }}/delete" method="post" data-delete data-confirm="「{{ f.name }}」을(를) 지울까요? 부서 휴지통으로 옮기며 관리자가 되살릴 수 있습니다."><button type="submit" class="hb-btn">지우기</button></form>{% endif %}
         </div></div>
       {% endfor %}
       {% else %}<p class="hb-empty">이 폴더는 비어 있습니다.<br>새 문서를 쓰거나 한글 파일을 올리세요.</p>{% endif %}
@@ -73,7 +101,7 @@
       </div>
     </div>
     <div class="hb-list" data-drive-list role="list"></div>
-    <p class="hb-note" data-drive-note>파일을 열면 ‘{{ here.dept }}{% if here.folder %} / {{ here.folder }}{% endif %}’에 받아 기안기로 엽니다</p>
+    <p class="hb-note" data-drive-note>「문서함으로 가져오기」 를 누르면 ‘{{ here.dept }}{% if here.folder %} / {{ here.folder }}{% endif %}’에 받아 기안기로 엽니다</p>
     <form action="/hwp/drive/import" method="post" data-drive-import hidden>
       <input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}"><input type="hidden" name="file_id">
     </form>
@@ -84,28 +112,14 @@
 </div>
 
 {% if here %}
-<div class="modal-back" id="hwFolder"><div class="card hb-dlg" role="dialog" aria-modal="true" aria-labelledby="hwFolderTitle">
-  <div class="hb-dlg-head"><h2 id="hwFolderTitle">새 폴더</h2>
-    <button type="button" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button></div>
-  <form action="/hwp/folder" method="post">
-    <input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}">
-    <div class="hb-dlg-body">
-      <label class="hb-field" for="hwFolderName">폴더 이름</label>
-      <input class="hb-input" id="hwFolderName" type="text" name="name" required maxlength="60" placeholder="예: 2026 공문" autocomplete="off">
-      <p class="hb-help">{{ here.dept }}{% if here.folder %} / {{ here.folder }}{% endif %} 안에 만듭니다</p>
-    </div>
-    <div class="hb-dlg-foot"><button type="button" class="hb-btn" data-modal-close>취소</button><button type="submit" class="hb-btn primary">만들기</button></div>
-  </form>
-</div></div>
 {% if status.ok %}
 <div class="modal-back" id="hwTpl"><div class="card hb-dlg wide" role="dialog" aria-modal="true" aria-labelledby="hwTplTitle">
   <div class="hb-dlg-head"><h2 id="hwTplTitle">양식으로 시작</h2>
     <button type="button" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button></div>
   <form class="hb-search" data-tpl-search role="search"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
     <input class="hb-input" type="search" name="q" placeholder="양식 이름" aria-label="양식 이름 찾기" autocomplete="off"></form>
-  <p class="hb-tpl-hint">고른 양식을 ‘{{ here.dept }}{% if here.folder %} / {{ here.folder }}{% endif %}’ 폴더에 복사해 기안기로 엽니다</p>
+  <p class="hb-tpl-hint">양식을 고르면 복사할 폴더와 이름을 정한 뒤 기안기로 엽니다</p>
   <div class="hb-tpl-list" data-tpl-list role="listbox" aria-label="양식"></div>
-  <form method="post" data-tpl-copy hidden><input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}"></form>
 </div></div>
 {% endif %}
 {% endif %}

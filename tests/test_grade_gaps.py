@@ -126,7 +126,7 @@ def test_finder_save_mode_is_the_only_save_dialog():
     assert "/hwp/save-as?dept=" in edit and "/hwp/save-as/drive?name=" in edit and "&keep=1" in edit
     assert "새 문서 만들기" in edit and "드라이브에 만들면 작업본은 " in edit and "/static/aura-finder.js" in edit
     box = (APP / "static/hwp-box.js").read_text(encoding="utf-8")
-    assert "AuraFinder.open(" in box and "드라이브에서 가져오기" in box and "start: 'drive'" in box
+    assert "AuraFinder.save(" in box and "어디에 복사할까요" in box and "문서함으로 가져오기" in box   # 드라이브는 왼쪽 목록에서 가져온다
     node = shutil.which("node")
     if node:
         for f in ("static/aura-finder.js", "static/hwp-box.js"):

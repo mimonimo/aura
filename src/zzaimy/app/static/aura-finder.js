@@ -33,7 +33,7 @@
         :'<footer><div class="af-sel"><span class="af-sel-main"></span><span class="af-sel-where"></span></div><span class="af-msg" role="status"></span><button type="button" class="af-btn" data-cancel>취소</button><button type="button" class="af-btn primary" data-open disabled></button></footer>';
       d.innerHTML='<header><h2></h2>'+(saving?'<span class="af-grow"></span>':'<form class="af-search" role="search"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" name="q"></form>')+'<button type="button" class="af-x" aria-label="닫기">×</button></header>'
         +'<div class="af-body"><nav class="af-side" aria-label="위치"></nav><section class="af-main"><div class="af-bar"><button type="button" class="af-back" aria-label="뒤로" disabled>‹</button><div class="af-path"></div>'
-        +(saving?'<button type="button" class="af-newfolder" hidden><iconify-icon icon="solar:folder-add-linear" aria-hidden="true"></iconify-icon>새 폴더</button>':'')
+        +(saving?'<button type="button" class="af-newfolder" hidden><iconify-icon icon="solar:add-folder-linear" aria-hidden="true"></iconify-icon>새 폴더</button>':'')
         +'</div><div class="af-list" role="listbox"></div></section></div>'+foot;
       d.querySelector('h2').textContent=opts.title;
       const q=d.querySelector('.af-search input');
@@ -101,7 +101,8 @@
       function showDept(j){
         if(!d.open)return;const here=j&&j.here;if(!here){busy('쓸 수 있는 부서 폴더가 없습니다');if(newBtn)newBtn.hidden=true;return;}
         loc.dept=here.dept;loc.folder=here.folder||'';markSide('dept:'+here.dept);
-        crumbs([{name:here.dept,go:()=>goDept(here.dept,'')},...(here.crumbs||[]).map(c=>({name:c.name,go:()=>goDept(here.dept,c.path)}))]);
+        if(newBtn)newBtn.hidden=here.may_make===false;      // 새 폴더는 쓸 수 있는 곳만(공통·양식 자리는 숨김, 서버도 거절)
+        crumbs([{name:here.label||here.dept,go:()=>goDept(here.dept,'')},...(here.crumbs||[]).map(c=>({name:c.name,go:()=>goDept(here.dept,c.path)}))]);
         list.replaceChildren();const at=where;
         here.folders.forEach(f=>folderRow(f.name,'문서 '+f.count,()=>goDept(here.dept,f.path)));
         here.files.forEach(f=>fileRow({source:'dept',id:f.id,name:f.name,path:at},[f.saved,f.saved_by||f.owner].filter(Boolean).join(' · ')));
@@ -141,7 +142,10 @@
         if(j.drive_state==='no-account')list.append(el('p','af-note','드라이브는 학교 구글 계정을 연결하면 함께 찾습니다'));
         else if(j.drive_state==='fail')list.append(el('p','af-note','드라이브에서는 찾지 못했습니다(연결 확인 필요)'));
       }
-      const goLoc=l=>l.src==='dept'?goDept(l.dept,l.folder):l.src==='drive'?goDrive(l.drive,l.folder,l.trail,l.rootName):search(l.text);
+      // 프로젝트(저장 창, opts.projects) — 고르면 그 프로젝트의 작업 문서로(서버가 곳을 정한다)
+      function goProject(p){nowLoc({src:'project',id:p.id,name:p.name});markSide('project:'+p.id);crumbs([{name:p.name}]);
+        busy('프로젝트 「'+p.name+'」 의 작업 문서로 넣습니다');locOk=true;paintSel();}
+      const goLoc=l=>l.src==='dept'?goDept(l.dept,l.folder):l.src==='drive'?goDrive(l.drive,l.folder,l.trail,l.rootName):l.src==='project'?goProject(l):search(l.text);
       back.onclick=()=>{const l=hist.pop();if(l)goLoc(l);};
       if(q){
         let timer=0;
@@ -155,7 +159,9 @@
         list.querySelectorAll('.af-empty').forEach(x=>x.remove());
         const r=el('form','af-row af-newrow');r.dataset.kind='folder';
         const inp=el('input');inp.maxLength=60;inp.placeholder='새 폴더 이름';inp.setAttribute('aria-label','새 폴더 이름');inp.autocomplete='off';
-        r.append(el('span','af-check'),icon('solar:folder-bold'),inp,el('span','af-meta','Enter 로 만들기'));list.prepend(r);inp.focus();
+        const have=[...list.querySelectorAll('.af-row[data-kind=folder] .af-name')].map(x=>x.textContent);let nm='새 폴더',k=2;while(have.includes(nm))nm='새 폴더 '+(k++);inp.value=nm;
+        r.append(el('span','af-check'),icon('solar:folder-bold'),inp,el('span','af-meta','Enter 로 만들기'));list.prepend(r);inp.focus();inp.select();
+        inp.addEventListener('blur',()=>setTimeout(()=>{if(r.isConnected&&!inp.disabled&&inp.value.trim())r.requestSubmit();},0));
         const at=loc;
         inp.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();r.remove();}};
         r.onsubmit=async e=>{
@@ -172,10 +178,10 @@
       };
       function submit(){
         if(saving){
-          if(busyNow||!locOk||!loc||(loc.src!=='dept'&&loc.src!=='drive'))return;
+          if(busyNow||!locOk||!loc||(loc.src!=='dept'&&loc.src!=='drive'&&loc.src!=='project'))return;
           const nm=stem(nameIn.value.trim());
           if(!nm){say('이름을 적어 주세요',true);nameIn.focus();return;}
-          const choice=loc.src==='dept'?{target:'dept',dept:loc.dept,folder:loc.folder||'',name:nm}:{target:'drive',drive:loc.drive||'',folder:loc.folder||'',name:nm};
+          const choice=loc.src==='project'?{target:'project',project_id:loc.id,project:loc.name,name:nm}:loc.src==='dept'?{target:'dept',dept:loc.dept,folder:loc.folder||'',name:nm}:{target:'drive',drive:loc.drive||'',folder:loc.folder||'',name:nm};
           if(typeof opts.onSave!=='function'){finish(choice);return;}
           busyNow=true;paintSel();d.classList.add('is-busy');say(choice.target==='drive'?'드라이브에 올리는 중':'저장하는 중');
           Promise.resolve().then(()=>opts.onSave(choice,{note:t=>say(t)}))
@@ -205,7 +211,9 @@
       if(toDrive)goDrive('','',[]);else{nowLoc({src:'dept',dept:at0.dept||'',folder:at0.folder||''});busy('불러오는 중…');}
       api('/api/hwp/browse?dept='+encodeURIComponent(at0.dept||'')+'&folder='+encodeURIComponent(at0.folder||'')).catch(e=>{if(!toDrive)busy(e.message);return null;}).then(first=>{
         if(!d.open)return;
-        ((first&&first.depts)||[]).forEach(x=>anchor.before(sideBtn(x.dept,'solar:folder-with-files-linear',()=>goDept(x.dept,''),'dept:'+x.dept)));
+        ((first&&first.depts)||[]).forEach(x=>anchor.before(sideBtn(x.label||x.dept,x.dept.startsWith('~')?'solar:user-rounded-linear':'solar:folder-with-files-linear',()=>goDept(x.dept,''),'dept:'+x.dept)));
+        if(saving&&opts.projects)api('/api/hwp/projects').then(j=>{const ps=(j&&j.projects)||[];if(!ps.length||!d.open)return;
+          anchor.before(el('p','af-group','프로젝트'));ps.forEach(p=>anchor.before(sideBtn(p.name,'solar:case-round-linear',()=>goProject(p),'project:'+p.id)));}).catch(()=>{});
         anchor.after(el('p','af-group','구글 드라이브'));
         my=sideBtn('내 드라이브','solar:cloud-linear',()=>goDrive('','',[]),'drive:my');side.append(my);
         const pf=opts.projectFolder||{};

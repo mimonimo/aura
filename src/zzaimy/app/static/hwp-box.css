@@ -1,61 +1,85 @@
-/* 문서함(/hwp) — 파일 가져오기 창(.hwp-finder)과 같은 얇은 파인더 꼴. 왼쪽 위치 목록, 오른쪽 행 목록 */
-.hb{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:min(640px,calc(100dvh - 150px));border:1px solid #d9e0ea;border-radius:14px;overflow:hidden;background:#fff;color:var(--ink)}
-.hb-side{display:flex;flex-direction:column;gap:2px;padding:10px 8px;background:#f3f5f8;border-right:1px solid #e3e8ef;min-width:0}
-.hb-group{margin:12px 8px 4px;font-size:11px;font-weight:650;color:#8a96a6}
-.hb-group:first-child{margin-top:4px}
-.hb-place{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;min-height:0;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:#2f3d51;font:inherit;font-size:13px;font-weight:400;text-align:left;justify-content:flex-start;box-shadow:none;cursor:pointer;text-decoration:none}
-.hb-place iconify-icon{font-size:16px;color:#5b7aa3;flex:none}
+/* 문서함(/hwp) — 창 속 창 없이 본문 자리를 꽉 채우는 파인더 꼴. 왼쪽 얇은 위치 목록, 오른쪽 행 목록(목록만 안에서 스크롤) */
+.content-col:has(> main > .hb){height:100dvh}
+main:has(> .hb){max-width:none;padding:0;display:flex;flex-direction:column;min-height:0}
+/* 알림 — 아래쪽 작은 토스트, 잠시 뒤 사라진다 */
+.hb-toasts{position:fixed;left:50%;bottom:24px;z-index:60;display:flex;flex-direction:column;align-items:center;gap:6px;transform:translateX(-50%);pointer-events:none;max-width:calc(100vw - 32px)}
+.hb-toast{margin:0;padding:8px 14px;border-radius:8px;background:#1f2a3a;color:#fff;font-size:12.5px;line-height:1.5;box-shadow:0 6px 20px #15243c2e;pointer-events:auto;transition:opacity .35s ease,transform .35s ease}
+.hb-toast.err{background:#8a2a1d}
+.hb-toast.out{opacity:0;transform:translateY(6px)}
+@media (prefers-reduced-motion:reduce){.hb-toast{transition:none}}
+.hb{flex:1;min-height:0;display:grid;grid-template-columns:224px minmax(0,1fr);background:#fff;color:var(--ink)}
+.hb-side{display:flex;flex-direction:column;gap:1px;padding:10px 8px 12px;background:#fafbfc;border-right:1px solid #eceff3;min-width:0;min-height:0;overflow-y:auto}
+.hb-sec{display:flex;flex-direction:column;gap:1px}
+.hb-sec[hidden]{display:none}
+.hb-sec-list{display:flex;flex-direction:column;gap:1px}
+.hb-group{margin:14px 8px 4px;font-size:11px;font-weight:600;color:#8a96a6}
+.hb-sec:first-child .hb-group,.hb-sec[hidden]+.hb-sec .hb-group{margin-top:4px}
+.hb-place{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;min-height:0;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:#2f3d51;font:inherit;font-size:13px;font-weight:400;text-align:left;justify-content:flex-start;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-place iconify-icon{font-size:15px;color:#6b7f99;flex:none}
+.hb-place[data-place=fav] iconify-icon{color:#c9a227}
 .hb-place .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hb-place .n{flex:none;font-size:11.5px;color:#8a96a6}
-.hb-place:hover{background:#e6ebf2;border:0}
-.hb-place.on{background:#dce6f3;color:#1b3b75;font-weight:600}
+.hb-place .n{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#9aa5b3}
+.hb-place:hover{background:#eef1f5;border:0}
+.hb-place.on{background:#e6ecf5;color:#1b3b75;font-weight:600}
 .hb-hint{margin:2px 8px 0;font-size:12px;line-height:1.55;color:#7a8698}
 .hb-hint a{color:#45658f}
-.hb-status{margin-top:auto;padding:10px 8px 2px;font-size:11.5px;color:#8a96a6;line-height:1.5}
-.hb-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#c0392b;margin-right:6px;vertical-align:1px}
+.hb-status{margin-top:auto;padding:10px 8px 0;font-size:11.5px;color:#8a96a6;line-height:1.5}
+.hb-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#c0392b;margin-right:6px;vertical-align:1px}
 .hb-dot.on{background:#2e7d4f}
 
 .hb-main{display:flex;flex-direction:column;min-width:0;min-height:0}
 .hb-main[hidden]{display:none}
-.hb-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:10px 14px;border-bottom:1px solid #edf0f4;background:#f7f9fb}
-.hb-loc{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 220px}
-.hb-back{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:1px solid #dfe5ed;border-radius:7px;background:#fff;color:#526176;font-size:16px;box-shadow:none;cursor:pointer;text-decoration:none}
-.hb-back:hover{background:#eef2f7;border-color:#cfd8e3}
-.hb-back[aria-disabled=true],.hb-back:disabled{opacity:.4;pointer-events:none}
+.hb-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;padding:8px 16px;border-bottom:1px solid #eceff3;background:#fff}
+.hb-loc{display:flex;align-items:center;gap:6px;min-width:0;flex:1 1 220px}
+.hb-back{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-height:0;padding:0;border:0;border-radius:6px;background:transparent;color:#526176;font-size:16px;box-shadow:none;cursor:pointer;text-decoration:none}
+.hb-back:hover{background:#eef1f5}
+.hb-back[aria-disabled=true],.hb-back:disabled{opacity:.35;pointer-events:none}
 .hb-path{display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-width:0;font-size:13.5px}
 .hb-path a,.hb-path button{border:0;background:none;min-height:0;padding:3px 6px;border-radius:6px;color:#45658f;font:inherit;font-weight:400;box-shadow:none;cursor:pointer;text-decoration:none}
-.hb-path a:hover,.hb-path button:hover{background:#eef2f7}
+.hb-path a:hover,.hb-path button:hover{background:#eef1f5}
 .hb-path b{padding:3px 6px;color:#1f2a3a;font-weight:600}
 .hb-sep{color:#a3adba}
-.hb-tools{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
-.hb-btn{display:inline-flex;align-items:center;gap:6px;box-sizing:border-box;min-height:32px;padding:0 12px;border:1px solid #d6dee8;border-radius:8px;background:#fff;color:#36465b;font:inherit;font-size:12.5px;font-weight:600;box-shadow:none;white-space:nowrap;cursor:pointer;text-decoration:none}
-.hb-btn iconify-icon{font-size:15px}
+.hb-tools{display:flex;align-items:center;flex-wrap:wrap;gap:2px}
+.hb-btn{display:inline-flex;align-items:center;gap:6px;box-sizing:border-box;min-height:30px;padding:0 10px;border:1px solid #d6dee8;border-radius:7px;background:#fff;color:#36465b;font:inherit;font-size:12.5px;font-weight:500;box-shadow:none;white-space:nowrap;cursor:pointer;text-decoration:none}
+.hb-btn iconify-icon{font-size:15px;flex:none}
 .hb-btn:hover{background:#f3f6fa;border-color:#bfcadb;color:var(--ink)}
-.hb-btn.primary{background:var(--navy);border-color:var(--navy);color:#fff}
+.hb-btn.ghost{border-color:transparent;background:transparent;color:#45546a}
+.hb-btn.ghost:hover{background:#eef1f5;border-color:transparent}
+.hb-btn.primary{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600;margin-right:4px}
 .hb-btn.primary:hover{background:var(--navy-deep);border-color:var(--navy-deep);color:#fff}
 .hb-btn:disabled{opacity:.5;cursor:default}
 
-.hb-list{flex:1;overflow-y:auto;padding:6px}
+/* 즐겨찾기 별 — 폴더 줄에서는 마우스를 올리거나 켜져 있을 때만 */
+.hb-fav{margin:0;display:inline-flex}
+.hb-star{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;min-height:0;padding:0;border:0;border-radius:6px;background:transparent;color:#9aa5b3;font-size:15px;box-shadow:none;cursor:pointer}
+.hb-star:hover{background:#eef1f5;color:#6b7f99;border:0}
+.hb-star.on{color:#c9a227}
+.hb-star:focus-visible{outline:2px solid #607c9e;outline-offset:-2px}
+.hb-row .hb-star:not(.on){opacity:0}
+.hb-row:hover .hb-star,.hb-row .hb-star:focus-visible{opacity:1}
+
+.hb-list{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 12px}
 .hb-head,.hb-row{display:grid;grid-template-columns:22px minmax(0,1fr) 128px 110px auto;align-items:center;gap:10px;padding:0 10px}
-.hb-head{height:30px;font-size:11.5px;font-weight:600;color:#8a96a6;border-bottom:1px solid #f0f2f6;margin-bottom:2px}
-.hb-row{min-height:40px;border-radius:7px;color:#1f2a3a;font-size:13px}
-.hb-row:hover{background:#f1f4f8}
-.hb-row>iconify-icon{font-size:20px;color:#476d9e}
+.hb-head{position:sticky;top:-4px;z-index:1;height:30px;font-size:11.5px;font-weight:600;color:#8a96a6;border-bottom:1px solid #f0f2f6;margin-bottom:2px;background:#fff}
+.hb-row{min-height:38px;border-radius:6px;color:#1f2a3a;font-size:13px}
+.hb-row:hover{background:#f4f6f9}
+.hb-row>iconify-icon{font-size:19px;color:#476d9e}
 .hb-row[data-kind=folder]>iconify-icon{color:#c9a227}
 .hb-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}
 a.hb-name:hover{color:var(--navy);text-decoration:underline}
 .hb-meta{font-size:12px;color:#8a96a6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hb-lock{display:inline-block;padding:1px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11.5px;font-weight:600}
-.hb-act{display:flex;gap:4px;justify-content:flex-end}
+.hb-act{display:flex;align-items:center;gap:4px;justify-content:flex-end}
 .hb-act form{margin:0}
 .hb-act .hb-btn{min-height:26px;padding:0 9px;font-size:12px;font-weight:500;border-color:transparent;background:transparent;color:#526176}
 .hb-row:hover .hb-act .hb-btn{border-color:#dfe5ed;background:#fff}
 .hb-act .hb-btn:hover{color:var(--ink);border-color:#bfcadb}
 button.hb-row{width:100%;border:0;background:transparent;font:inherit;font-weight:400;text-align:left;justify-content:stretch;box-shadow:none;cursor:pointer}
-button.hb-row:hover{border:0;background:#f1f4f8}
-.hb-drive .hb-row,.hb-drive .hb-head{grid-template-columns:22px minmax(0,1fr) 128px}
+button.hb-row:hover{border:0;background:#f4f6f9}
+.hb-drive .hb-row,.hb-drive .hb-head{grid-template-columns:22px minmax(0,1fr) 128px auto}
+.hb-drive .hb-act .hb-btn iconify-icon{font-size:14px}
 .hb-empty{margin:28px 16px;color:#8a96a6;font-size:13px;text-align:center;line-height:1.7}
-.hb-note{padding:8px 14px;border-top:1px solid #edf0f4;background:#f7f9fb;font-size:12px;color:#7a8698}
+.hb-note{padding:8px 16px;border-top:1px solid #eceff3;background:#fafbfc;font-size:12px;color:#7a8698}
 .hb-note[data-err]{color:#8a5a00}
 
 /* 줄 자리 표시(불러오는 동안) */
@@ -94,12 +118,40 @@ button.hb-row:hover{border:0;background:#f1f4f8}
 .hb-tpl-item.on iconify-icon{color:#dfe7f3}
 .hb-tpl-item:focus-visible{outline:2px solid #607c9e;outline-offset:-2px}
 
+/* 좁은 화면 — 보조 단추는 아이콘만(이름은 title·aria-label 에 그대로) */
+@media (max-width:900px){
+  .hb-btn.ghost .l{display:none}
+  .hb-btn.ghost{padding:0 8px}
+}
 @media (max-width:760px){
-  .hb{grid-template-columns:1fr;min-height:0}
-  .hb-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid #e3e8ef}
+  .content-col:has(> main > .hb){height:auto}
+  .hb{grid-template-columns:1fr}
+  .hb-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid #eceff3;overflow:visible}
+  .hb-sec,.hb-sec-list{flex-direction:row;flex-wrap:wrap;width:100%}
   .hb-group,.hb-hint,.hb-status{width:100%}
   .hb-place{width:auto}
   .hb-head{display:none}
   .hb-row,.hb-drive .hb-row{grid-template-columns:22px minmax(0,1fr) auto;padding:6px 10px}
   .hb-row .hb-meta{display:none}
+  .hb-row .hb-star:not(.on){opacity:1}
 }
+
+/* 줄에서 바로 이름 적기(새 폴더·이름 바꾸기) */
+.hb-row.editing{background:#f4f6f9}
+.hb-input.hb-rename{height:28px;padding:0 8px;font-size:13px;min-width:0}
+.hb-meta.hb-err{color:#b42318;white-space:normal;line-height:1.35;overflow:visible}
+.hb-row .hb-act [data-rename-folder]{opacity:0}
+.hb-row:hover .hb-act [data-rename-folder],.hb-row .hb-act [data-rename-folder]:focus-visible{opacity:1}
+
+/* 여러 개 고르기 — 줄 앞 아이콘 자리에 칸(마우스를 올리거나 하나라도 고르면 보인다), 위 띠에 「N개 선택 · 지우기」 */
+.hb-ic{position:relative;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px}
+.hb-ic iconify-icon{font-size:19px;color:#476d9e}
+.hb-pick{width:15px;height:15px;margin:0;cursor:pointer;accent-color:var(--navy)}
+.hb-ic .hb-pick{position:absolute;inset:0;margin:auto;opacity:0}
+.hb-row:hover .hb-ic .hb-pick,.picking .hb-ic .hb-pick,.hb-ic .hb-pick:focus-visible{opacity:1}
+.hb-row:hover .hb-ic:has(.hb-pick) iconify-icon,.picking .hb-ic:has(.hb-pick) iconify-icon{visibility:hidden}
+.hb-row.picked{background:#eef3fb}
+.hb-selbar{display:flex;align-items:center;gap:6px;padding:6px 16px;border-bottom:1px solid #eceff3;background:#f4f7fc;font-size:12.5px;color:#1b3b75;font-weight:600}
+.hb-selbar[hidden]{display:none}
+.hb-selbar [data-sel-count]{margin-right:6px}
+.hb-selbar .hb-btn{min-height:26px}

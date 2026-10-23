@@ -142,7 +142,7 @@
   </div>
   <span class="people" data-aura aria-live="polite"></span>
   <span class="avatars" data-people aria-label="같이 보는 사람"></span>
-  {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;"><button type="submit" class="btn primary" title="내 부서 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
+  {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;" data-copy-form><button type="submit" class="btn primary" title="고른 폴더에 복사해 열기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>복사해 쓰기</button></form>
   {% else %}{% if not f %}<button type="button" class="btn primary" data-save disabled title="저장할 곳과 이름을 정해 만들기 — 그 뒤로는 자동 저장"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">만들기</span></button>{% endif %}{% endif %}
   <button type="button" class="btn tools-btn" data-tools aria-pressed="false" title="편집 도구 펼치기 — 직접 고칠 때"><iconify-icon icon="solar:pen-2-linear" aria-hidden="true"></iconify-icon><span class="label-long">편집 도구</span></button>
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
@@ -251,7 +251,7 @@
   setTimeout(fit, 300);
   // 편집 잠금 — 같은 문서를 두 사람이 동시에 고쳐 서로 덮어쓰지 않게. 잡으면 45초마다 늘리고, 남이 쓰는 중이면 보기 전용으로 두고 기다린다
   var lockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/lock') : '', unlockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/unlock') : '';
-  var holding = false, beat = null, waitedFor = '', together = false;
+  var holding = false, beat = null, waitedFor = '';
   function holdLock() {
     if (!lockUrl) return;
     fetch(lockUrl, {method: 'POST', credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (j) {
@@ -263,10 +263,9 @@
       } else if (j.readonly) {
         holding = false; ready = false; saveBtn.disabled = true;
       } else {
-        // 다른 사람이 먼저 열었어도 함께 편집한다 — 칸(필드) 글은 서로 실시간으로 넣고, 저장할 때 서버가 합친다
-        holding = true; ready = true; saveBtn.disabled = false; waitedFor = '';
-        if (!together) say((j.by || '다른 사람') + ' 님과 함께 편집 중', '');
-        together = true;
+        // 다른 사람이 편집 중이면 보기 전용으로 두고 기다린다 — 서버도 그 사람의 잠금이 살아 있는 동안 저장을 409 로 막는다
+        holding = false; ready = false; saveBtn.disabled = true; waitedFor = j.by || '다른 사람';
+        say(waitedFor + ' 님이 편집 중 — 보기 전용, 끝나면 다시 열 수 있습니다', 'busy');
       }
     }).catch(function () {});
   }
@@ -283,14 +282,14 @@
     saving = true; saveBtn.disabled = true; say('저장 중', 'busy');
     hwpxBytes(function (bytes) {
       fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
-        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('저장하지 못했습니다(' + r.status + ')')); return j; }); })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.detail || ('저장하지 못했습니다(' + r.status + ')')); e.status = r.status; throw e; } return j; }); })
         .then(function (j) {
           dirty = false; lastSaved = null;
           say((auto ? '자동 저장됨 · ' : '저장됨 · ') + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
           if (then) then();
         })
-        .catch(function (e) { say(e.message, 'bad'); })
-        .finally(function () { saving = false; saveBtn.disabled = false; });
+        .catch(function (e) { say(e.message, 'bad'); if (e.status === 409) { ready = false; holding = false; clearTimeout(idleTimer); } })
+        .finally(function () { saving = false; saveBtn.disabled = !ready; });
     });
   }
   saveBtn.addEventListener('click', function () { if (isNew) openSaveAs('create'); else save(false); });
@@ -538,6 +537,26 @@
       }
     }).then(function () { saOpen = false; }, function () { saOpen = false; });
   }
+  // 복사해 쓰기(보기 전용 양식) — 같은 위치 창에서 부서 폴더·이름을 고른다. 처음 여는 곳은 내 부서에서 마지막으로 일한 폴더
+  var copyForm = document.querySelector('[data-copy-form]'), copyAt = {{ (copy_at or {}) | tojson }};
+  if (copyForm) copyForm.addEventListener('submit', function (e) {
+    if (!window.AuraFinder || typeof window.AuraFinder.save !== 'function') return;
+    e.preventDefault();
+    window.AuraFinder.save({
+      title: '어디에 복사할까요', saveLabel: '복사해 열기', accept: 'hwp',
+      name: stemOf(name).replace(/ 공통 양식$/, ''), at: {dept: copyAt.dept || '', folder: copyAt.folder || ''},
+      note: '복사본은 고른 곳에 두고 기안기로 엽니다', projects: true,
+      onSave: function (at) {
+        if (at.target === 'drive') return Promise.reject(new Error('복사본은 부서 폴더·내 폴더·프로젝트에만 둘 수 있습니다 — 왼쪽에서 고르세요'));
+        var body = new FormData(); body.append('name', at.name);
+        if (at.target === 'project') body.append('project', at.project_id);
+        else { body.append('dept', at.dept); body.append('folder', at.folder || ''); }
+        return fetch(copyForm.action, {method: 'POST', body: body, credentials: 'same-origin', headers: {Accept: 'application/json'}})
+          .then(function (r) { return r.ok ? r.json() : fail(r); })
+          .then(function (j) { location.href = j.url; return j; });
+      }
+    });
+  });
   var saveAsBtn = document.querySelector('[data-save-as]');
   if (saveAsBtn) saveAsBtn.addEventListener('click', function () { openSaveAs('copy'); });
 

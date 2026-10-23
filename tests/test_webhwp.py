@@ -287,7 +287,7 @@ def test_common_templates_are_locked_and_copyable(tmp_path, monkeypatch):
 
 
 def test_concurrent_editing_shares_fields_and_merges_on_save(tmp_path, monkeypatch):
-    """같은 문서를 둘이 동시에 — 둘 다 편집·저장할 수 있고, 각자 칸에 쓴 글은 서로 받으며, 저장 때 상대 칸 글을 합친다."""
+    """같은 문서를 둘이 동시에 — 칸에 쓴 글은 서로 받지만, 저장은 편집 잠금을 쥔 사람만(서버가 409 로 막는다). 잠금 쥔 사람이 저장할 때 상대 칸 글을 합친다."""
     app = _setup(tmp_path, monkeypatch)
     from zzaimy.app import rag_spaces, webhwp_templates as wt, webhwp_write as ww
     cfg = rag_spaces.config(app.state.data_dir)
@@ -299,7 +299,7 @@ def test_concurrent_editing_shares_fields_and_merges_on_save(tmp_path, monkeypat
     fid = _up(kim, app, "기획처", "공동.hwpx", form)
     assert kim.post(f"/hwp/{fid}/lock").json()["ok"]
     j = lee.post(f"/hwp/{fid}/lock").json()
-    assert j["ok"] is False and j["by"] == "kim" and not j.get("readonly")       # 먼저 연 사람 표시(막지는 않는다)
+    assert j["ok"] is False and j["by"] == "kim" and not j.get("readonly")
     assert "kim 편집 중" in lee.get("/hwp?dept=기획처").text
     # kim 은 사업명, lee 는 담당자 칸을 쓴다 — 서로 받는다
     kim.post(f"/hwp/{fid}/live", json={"field": "칸:사업명", "text": "AI 사업", "since": 0})
@@ -307,14 +307,24 @@ def test_concurrent_editing_shares_fields_and_merges_on_save(tmp_path, monkeypat
     assert [c["field"] for c in r["changes"]] == ["칸:사업명"] and r["changes"][0]["text"] == "AI 사업"
     r2 = kim.post(f"/hwp/{fid}/live", json={"since": 1}).json()
     assert [c["field"] for c in r2["changes"]] == ["칸:담당자"]
-    # lee 가 자기 판(사업명은 아직 비어 있음)을 저장해도 kim 의 사업명이 합쳐진다
+    # 잠금을 쥔 kim 이 있는 동안 lee 의 저장·이름 바꾸기·지우기는 서버가 막는다
     lee_copy, _ = ww.set_fields(form, {"칸:담당자": "이몽룡"})
-    out = lee.post(f"/hwp/{fid}/save", content=lee_copy).json()
-    assert out["ok"] and out["merged"] == ["칸:사업명"]
+    before = Path(webhwp.get(app.state.db, fid)["path"]).read_bytes()
+    r = lee.post(f"/hwp/{fid}/save", content=lee_copy)
+    assert r.status_code == 409 and "편집 중이라 저장하지 않았습니다" in r.json()["detail"]
+    assert Path(webhwp.get(app.state.db, fid)["path"]).read_bytes() == before
+    assert lee.post(f"/hwp/{fid}/rename", json={"name": "남의 이름"}).status_code == 409
+    assert lee.post(f"/hwp/{fid}/delete", headers={"Accept": "application/json"}).status_code == 409
+    assert webhwp.get(app.state.db, fid) is not None
+    # kim 이 자기 판(담당자는 비어 있음)을 저장하면 lee 가 칸에 쓴 담당자가 합쳐진다
+    kim_copy, _ = ww.set_fields(form, {"칸:사업명": "AI 사업"})
+    out = kim.post(f"/hwp/{fid}/save", content=kim_copy).json()
+    assert out["ok"] and out["merged"] == ["칸:담당자"]
     vals = {x["name"]: x["text"] for x in ww.fields(Path(webhwp.get(app.state.db, fid)["path"]).read_bytes())}
     assert vals["칸:사업명"] == "AI 사업" and vals["칸:담당자"] == "이몽룡"
     kim.post(f"/hwp/{fid}/unlock")
     assert lee.post(f"/hwp/{fid}/lock").json()["ok"]
+    assert lee.post(f"/hwp/{fid}/save", content=lee_copy).status_code == 200      # 잠금을 쥐면 저장된다
     monkeypatch.setattr(webhwp, "LOCK_TTL", -1)              # 창이 끊겨 늘리지 못하면 저절로 풀린다
     assert kim.post(f"/hwp/{fid}/lock").json()["ok"]
 
@@ -446,7 +456,7 @@ def test_version_pruning_does_not_touch_files_sharing_a_name_prefix(tmp_path, mo
 
 
 def test_document_box_page_finder_layout_without_editor_radio(tmp_path, monkeypatch):
-    """문서함 화면 — 제목은 「문서함」, 왼쪽에 부서 폴더·구글 드라이브, 편집기 라디오 없음, 새 폴더 창은 이름 칸이 제 줄."""
+    """문서함 화면 — 제목은 「문서함」, 왼쪽에 부서 폴더·구글 드라이브, 편집기 라디오 없음, 새 폴더는 목록 줄에서 바로."""
     app = _setup(tmp_path, monkeypatch)
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
@@ -458,13 +468,14 @@ def test_document_box_page_finder_layout_without_editor_radio(tmp_path, monkeypa
     assert "/settings" in page and "학교 구글 계정을 연결하면 드라이브도 여기서 봅니다" in page
     assert "한글 완성본 열 곳" not in page and 'name="editor"' not in page and "/hwp/editor" not in page
     assert 'class="hb-btn primary" href="/hwp/new?dept=' in page                    # 주 단추는 새 문서 하나
-    assert page.count("hb-btn primary") == 2                                        # 새 문서 + 새 폴더 창의 만들기
-    assert 'id="hwFolderName" type="text" name="name"' in page and "기획처 안에 만듭니다" in page
-    assert "’ 폴더에 복사해 기안기로 엽니다" in page and " 에 복사해" not in page
+    assert page.count("hb-btn primary") == 1                                        # 새 폴더는 창 없이 목록 줄에서 바로
+    assert "data-new-folder" in page and 'id="hwFolder"' not in page and "solar:add-folder-linear" in page
+    assert "data-drive-open" not in page                                            # 드라이브는 왼쪽 「구글 드라이브」 에서
+    assert "복사할 폴더와 이름을 정한 뒤 기안기로 엽니다" in page and " 에 복사해" not in page
     assert "/static/hwp-box.js" in page and "/static/hwp-box.css" in page
     inside = kim.get("/hwp?dept=기획처&folder=2026 공문").text
     assert "협조문.hwpx" in inside and 'href="/hwp?dept=%EA%B8%B0%ED%9A%8D%EC%B2%98" aria-label="위 폴더로"' in inside
-    assert "웹 한글 기안기 13.82.0.208" in page
+    assert "13.82.0.208" not in page and "기안기 연결됨" not in page              # 기안기 판·주소는 교직원 화면에 보이지 않는다
     # 기안기 서버가 없으면 새 문서·양식 단추를 감추고 내려받기만
     monkeypatch.setattr(webhwp, "status", lambda *a, **k: {"ok": False, "version": "", "error": "x"})
     down = kim.get("/hwp?dept=기획처&folder=2026 공문").text
