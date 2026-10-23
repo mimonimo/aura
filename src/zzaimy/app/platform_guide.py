@@ -123,7 +123,7 @@ PAGES: tuple[Page, ...] = (
          buttons=("잔여 검사 실행", "자가 점검 실행", "설정 저장")),
     Page("/dev/users", "dev_users.html", "사용자·계정 — 계정 추가·역할·부서, 부서 목록(부서 RAG), 구글 계정과 문서 저장 위치.",
          (Task("계정 만들기", "「사용자 추가」"),
-          Task("부서 만들기(부서 RAG 가 함께 생김)", "「부서」 카드의 「부서 추가」", "depts", "dept_rag.create", 'data-modal-open="#deptCreate"'),
+          Task("부서 만들기(부서 RAG 가 함께 생김)", "「부서」 카드의 「부서 추가」", "depts", "dept_rag.create", 'data-ua-open="#deptCreate"'),
           Task("비밀번호 잊은 계정", "계정을 열어 「임시 비밀번호 만들기」")),
          buttons=("사용자 추가", "부서 추가", "임시 비밀번호 만들기")),
     Page("/dev/docs", "dev_docs.html", "논문·설계 문서 — 설계 결정(ADR)·논문 자료·주간 보고를 찾아본다.",
