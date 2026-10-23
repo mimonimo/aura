@@ -789,6 +789,16 @@ class Database:
             if path:
                 conn.execute("DELETE FROM files WHERE path = ?", (path,))
 
+    def remove_files_under(self, folder: str) -> int:
+        """한 폴더 아래 파일 장부 줄을 지운다(폴더째 지운 문서) — 이름의 _·% 는 글자 그대로."""
+        prefix = folder.rstrip("/") + "/"
+        with self._conn() as conn:
+            rows = [r for r in conn.execute("SELECT id, path FROM files WHERE path LIKE ? ESCAPE '\\'", (_like_prefix(prefix),)).fetchall()
+                    if str(r[1]).startswith(prefix)]
+            for r in rows:
+                conn.execute("DELETE FROM files WHERE id = ?", (r[0],))
+        return len(rows)
+
     def repath_files(self, old_prefix: str, new_prefix: str) -> None:
         """폴더 이름이 바뀌면 그 아래 파일 경로를 함께 바꾼다."""
         with self._conn() as conn:

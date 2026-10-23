@@ -245,3 +245,13 @@ def test_list_wording_and_quiet_row_actions(tmp_path, monkeypatch):
     assert 'aria-label="「협조문.hwpx」 내려받기"' in page and 'aria-label="「협조문.hwpx」 지우기"' in page
     assert ">내려받기</a>" not in page and ">지우기</button></form>" not in page
     assert "data-drive-note" not in page and "문서함으로 가져오기" not in page and 'class="hb-side-head">문서함<' in page
+
+
+def test_remove_files_under_removes_detached_rows_only_in_that_folder(tmp_path):
+    """문서를 먼저 지워 files.doc_id 가 비워져도 그 문서 폴더 아래 장부 줄은 지워진다 — 이름이 비슷한 옆 폴더는 그대로."""
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    db.add_file("intake", "/b/2026-국고-0072 계획_수정/원본.pdf", name="원본")
+    db.add_file("intake", "/b/2026-국고-0072 계획_수정2/원본.pdf", name="원본")
+    assert db.remove_files_under("/b/2026-국고-0072 계획_수정") == 1
+    assert [r["path"] for r in db.list_files(kind="intake")] == ["/b/2026-국고-0072 계획_수정2/원본.pdf"]

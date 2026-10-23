@@ -155,8 +155,10 @@ def remove_intake_dir(db, doc: dict, base: Path | None = None) -> None:
     p = Path(doc.get("stored_path") or "")
     if _under(p, root(base) / KIND_DIRS["intake"]) and p.parent.exists():
         shutil.rmtree(p.parent, ignore_errors=True)
+        db.remove_files_under(str(p.parent))      # 문서를 먼저 지우면 files.doc_id 가 비워져 아래 doc_id 지우기로 못 찾는다
     elif p.exists():
         p.unlink()
+        db.remove_files(path=str(p))
     db.remove_files(doc_id=doc.get("id"))
 
 
