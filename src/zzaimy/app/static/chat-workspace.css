@@ -332,3 +332,5 @@ body #chatForm { max-width:1040px; }
 .msg a.cite { color:#254b85; font-weight:600; background:#F1F5FB; border-radius:4px; padding:0 3px; text-decoration:none; cursor:pointer; }
 .msg a.cite:hover { background:#E1EAF7; }
 .turn-acts .act-btn[data-feedback] { width:auto; padding:0 10px; gap:5px; white-space:nowrap; }
+/* 「부서 공개/비공개」 단추는 글자가 있어 36px 정사각 단추 틀에 넣으면 옆 문서 단추와 겹친다 — 글자 폭만큼 */
+.chat-head-actions .chat-share-toggle .act-btn { width: auto; min-width: 36px; padding: 0 10px; gap: 5px; white-space: nowrap; }
