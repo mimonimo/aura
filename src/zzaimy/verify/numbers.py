@@ -116,9 +116,10 @@ def _decl_at(text: str, pos: int) -> int | None:
 
 
 _WON_AFTER = re.compile(r"\s*원")
+_COUNTER_AFTER = re.compile(r"\s*(명|건|개|회|곳|%|퍼센트|년|월|일|시간|학점|과목|팀|기관|대|점|차|기|위|배|쪽|㎡|m)")
 
 
-def _money_value(text: str, m: re.Match) -> str | None:
+def _money_value(text: str, m: re.Match, draft: bool = False) -> str | None:
     """금액으로 읽히는 숫자의 원 단위 값 — 뒤에 「원」, 바로 뒤 괄호 금액 단위, 또는 덩이 안 단위 선언이 있을 때만."""
     num = Decimal(m.group(1).replace(",", "")) * _UNIT_VALUE.get(m.group(2) or "", 1)
     if _WON_AFTER.match(text, m.end()):
@@ -126,10 +127,14 @@ def _money_value(text: str, m: re.Match) -> str | None:
     pm = _PAREN_UNIT.match(text, m.end())
     if pm:
         return _fmt(num * _MONEY_UNIT[pm.group(1)])
-    if not m.group(2):
-        d = _decl_at(text, m.start())
-        if d:
-            return _fmt(num * d)
+    # 단위 선언으로 금액이 되는 것은 표 칸의 숫자만, 뒤에 셈 단위(명·건·%·개…)가 붙지 않은 것만 — 문장 속 아무 숫자나
+    # 선언 하나로 금액이 되어 근거의 금액과 맞춰지지 않게(보안)
+    if not m.group(2) and not _COUNTER_AFTER.match(text, m.end()):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        if not draft or text[line_start:m.start()].lstrip().startswith("|"):   # 근거 쪽은 믿는 글이라 문단 선언도
+            d = _decl_at(text, m.start())
+            if d:
+                return _fmt(num * d)
     return None
 
 
@@ -162,7 +167,7 @@ def _supported(src: str, m: re.Match, surface_ok: set[str], canon_ok: set[str], 
     unit = m.group(2)
     if s in surface_ok or s in canon_ok or _fmt(Decimal(s) * _UNIT_VALUE.get(unit or "", 1)) in canon_ok:
         return True
-    v = _money_value(src, m)
+    v = _money_value(src, m, draft=True)
     return bool(v) and v in money_ok
 
 

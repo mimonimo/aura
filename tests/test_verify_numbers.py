@@ -61,3 +61,12 @@ def test_unit_declarations_cannot_launder_numbers():
     assert verify_numbers("총 사업비 500(백만원)", ev).ok          # 같은 금액의 단위 바꿈은 인정
     assert verify_numbers("(단위: 백만원)\n| 사업비 | 500 |", ev).ok
     assert not verify_numbers("(단위: 백만원)\n| 사업비 | 700 |", ev).ok
+
+
+def test_declaration_only_scales_table_cells():
+    """보안: 단위 선언 바로 옆에 둔 문장 속 숫자(사람 수 등)는 금액으로 바뀌지 않는다 — 표 칸의 숫자만."""
+    from zzaimy.verify.numbers import verify_numbers
+    ev = ["사업비 5억 원"]
+    assert not verify_numbers("(단위: 천원) 참여 학생 500000", ev).ok
+    assert not verify_numbers("(단위: 천원)\n| 참여 학생 | 500000명 |", ev).ok
+    assert verify_numbers("(단위: 천원)\n| 사업비 | 500,000 |", ev).ok
