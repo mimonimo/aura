@@ -94,7 +94,7 @@ def test_permissions_by_grade(org):
 def test_move_two_levels_cycle_and_undo(org):
     app, dev, tmp = org
     r = dev.post("/org/move", json={"dept": "천마빌리지센터", "parent": "학생복지처"}).json()
-    assert r["ok"] and r["undo"] == {"dept": "천마빌리지센터", "parent": "", "unset": True}
+    assert r["ok"] and r["undo"] == {"dept": "천마빌리지센터", "parent": "", "unset": True, "expect": {"parent": "학생복지처", "unset": False}}
     assert _names(_tree(dev))["학생복지처"] == ["천마빌리지센터", "학생지원팀"]
     assert dev.post("/org/move", json={**r["undo"]}).json()["ok"]                       # 되돌리기 — 정하기 전으로
     assert "천마빌리지센터" not in dept_dictionary.parents_override(tmp)
@@ -191,3 +191,108 @@ def test_create_at_top_and_suggestions(org, monkeypatch):
     monkeypatch.setattr(dept_dictionary, "suggested_parents", lambda data_dir=None: {"천마빌리지센터": "학생복지처", "기획팀": "기획처"})
     s = _tree(dev)["suggestions"]
     assert s == [{"dept": "천마빌리지센터", "parent": "학생복지처", "can": True}]            # 지금과 다른 곳만
+
+
+# ---------------------------------------------------------------- 보안 점검(권한 넓히기·정보 노출·옛 권한 되살아남)
+
+def test_head_cannot_pull_outside_depts_in(org):
+    app, dev, tmp = org
+    boss = _client(app, "boss")
+    assert boss.post("/org/move", json={"dept": "천마빌리지센터", "parent": "기획처"}).status_code == 403   # 상위 없는 부서 끌어오기
+    assert boss.post("/org/move", json={"dept": "학생지원팀", "parent": "기획처"}).status_code == 403      # 남의 처·단 부서 끌어오기
+    assert boss.post("/org/move", json={"dept": "천마빌리지센터", "unset": True}).status_code == 403
+    assert boss.post("/org/move", json={"dept": "예산팀", "unset": True}).status_code == 403              # 정하기 전으로는 관리자만
+    assert "천마빌리지센터" not in grades.covered_depts("boss", app.state.accounts["boss"], tmp)
+    assert boss.post("/org/create", json={"name": "새팀", "parent": ""}).status_code == 403
+
+
+def test_api_hides_ids_from_viewers(org):
+    app, dev, tmp = org
+    app.state.accounts["kim"]["dept_grades"] = {"학생복지처": "head"}
+    app.state.save_accounts()
+    lee = _client(app, "lee")                                                    # 사업 책임자 — 보기만
+    raw = lee.get("/api/org").text
+    for secret in ('"boss"', '"kim"', '"user"', "n_extra", '"extra"', '"docs"', '"me"', '"roots"'):
+        assert secret not in raw, secret
+    t = lee.get("/api/org").json()
+    top = {x["name"]: x for x in t["tops"]}
+    assert top["기획처"]["heads"] == [{"name": "BOSS"}] and top["기획처"]["n"] == 1
+    # 관리자와 그 처·단을 맡은 총괄 책임자는 자세히
+    assert {x["name"]: x for x in _tree(dev)["tops"]}["기획처"]["heads"][0]["user"] == "boss"
+    tb = {x["name"]: x for x in _tree(_client(app, "boss"))["tops"]}
+    assert tb["기획처"]["heads"][0]["user"] == "boss" and "docs" in tb["기획처"]
+    assert "user" not in tb["학생복지처"]["heads"][0] and "docs" not in tb["학생복지처"]          # 남의 처·단은 이름만
+
+
+def _leave_traces(app, tmp, name):
+    """지운 부서가 남긴 것처럼 흔적을 심는다 — 겸직 등급·최소 등급·위계·사업 관리 지정."""
+    from zzaimy.app import program_admin
+    app.state.accounts["kim"]["dept_grades"] = {name: "head"}
+    app.state.save_accounts()
+    cfg = rag_spaces.config(tmp)
+    cfg["min_grade"] = {f"dept:{name}": "member"}         # 추가 권한(grants)이 남으면 부서 목록에 그대로 보여 「이미 있는 부서」로 막힌다
+    rag_spaces.save_config(cfg, tmp)
+    over = dept_dictionary.parents_override(tmp)
+    over["예산팀"] = name                                                        # 남의 부서를 옛 이름 아래로 가리키는 관계
+    (tmp / dept_dictionary.PARENTS_FILE).write_text(json.dumps(over, ensure_ascii=False), encoding="utf-8")
+    store = program_admin.load_store(tmp)
+    store["added"]["x1"] = {"name": "가상 사업", "heads": [f"dept:{name}"]}
+    program_admin.save_store(store, tmp)
+
+
+def test_rename_refuses_name_with_old_traces(org):
+    app, dev, tmp = org
+    _leave_traces(app, tmp, "옛사업단")
+    boss = _client(app, "boss")
+    r = boss.post("/org/rename", json={"dept": "기획팀", "name": "옛사업단"})
+    assert r.status_code == 409 and "권한 기록" in r.json()["error"]
+    assert dev.post("/org/rename", json={"dept": "기획팀", "name": "옛사업단"}).status_code == 409   # 관리자도 이름 바꾸기로는 못 차지
+    assert app.state.accounts["kim"]["dept"] == "기획팀"
+    assert dev.post("/org/rename", json={"dept": "기획팀", "name": "기획처"}).status_code == 400     # 지금 있는 부서 이름
+
+
+def test_create_purges_old_traces_first(org):
+    app, dev, tmp = org
+    from zzaimy.app import program_admin
+    _leave_traces(app, tmp, "옛사업단")
+    r = dev.post("/org/create", json={"name": "옛사업단", "parent": ""}).json()
+    assert r["ok"] and r["cleaned"]
+    assert "dept_grades" not in app.state.accounts["kim"]
+    cfg = rag_spaces.config(tmp)
+    assert "dept:옛사업단" not in cfg.get("min_grade", {})
+    assert dept_dictionary.parents_override(tmp).get("예산팀") != "옛사업단"
+    assert "dept:옛사업단" not in program_admin.load_store(tmp)["added"]["x1"]["heads"]
+    assert "옛사업단" not in grades.covered_depts("kim", app.state.accounts["kim"], tmp)
+
+
+def test_delete_clears_all_traces(org):
+    app, dev, tmp = org
+    from zzaimy.app import program_admin, user_admin
+    cfg = rag_spaces.config(tmp)
+    cfg["min_grade"] = {"dept:천마빌리지센터": "lead"}
+    rag_spaces.save_config(cfg, tmp)
+    store = program_admin.load_store(tmp)
+    store["added"]["x2"] = {"name": "가상", "heads": ["dept:천마빌리지센터"]}
+    program_admin.save_store(store, tmp)
+    assert dev.post("/org/delete", json={"dept": "천마빌리지센터"}).json()["ok"]
+    from zzaimy.app import org_routes
+    assert org_routes.traces(app.state, "천마빌리지센터") == []
+
+
+def test_undo_refused_after_later_change(org):
+    app, dev, tmp = org
+    r = dev.post("/org/move", json={"dept": "예산팀", "parent": "학생복지처"}).json()
+    dev.post("/org/move", json={"dept": "예산팀", "parent": "기획처"})                  # 그 사이 다시 옮김
+    assert dev.post("/org/move", json=r["undo"]).status_code == 409
+    r = dev.post("/org/move", json={"dept": "예산팀", "parent": "학생복지처"}).json()
+    dev.post("/org/rename", json={"dept": "예산팀", "name": "예산관리팀"})             # 그 사이 이름 바뀜
+    assert dev.post("/org/move", json=r["undo"]).status_code == 400
+    # 되돌리기도 지금 권한으로 다시 본다 — 총괄 책임자가 받은 되돌리기를 그 사이 권한이 빠진 뒤 쓰면 403
+    boss = _client(app, "boss")
+    dev.post("/org/move", json={"dept": "예산관리팀", "parent": "기획처"})
+    dev.post("/org/move", json={"dept": "기획팀", "parent": "학생복지처"})
+    r = boss.post("/org/move", json={"dept": "예산관리팀", "parent": "기획처"})
+    app.state.accounts["boss"]["grade"] = "lead"
+    app.state.save_accounts()
+    u = dev.post("/org/move", json={"dept": "학생지원팀", "parent": "기획처"}).json()["undo"]
+    assert boss.post("/org/move", json=u).status_code == 403

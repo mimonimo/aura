@@ -57,7 +57,8 @@
   }
   function act(path, body, undoOf) {
     return post(path, body).then(function (j) {
-      toast(j.msg || '저장했습니다', undoOf ? function () { act(undoOf.path, undoOf.body(j)).then(function () {}); } : null);
+      var ub = undoOf && undoOf.body(j);
+      toast(j.msg || '저장했습니다', ub ? function () { act(undoOf.path, ub).catch(function () {}); } : null);
       return load().then(function () { return j; });
     }).catch(function (e) { toast(e.message, null, true); throw e; });
   }
@@ -103,7 +104,7 @@
     return box;
   }
   function count(n) {
-    return h('span', {class: 'oc-count', title: '소속 ' + n.n + '명' + (n.n_extra ? ' · 겸직 ' + n.n_extra + '명' : '') + ' · 부서 RAG 문서 ' + n.docs + '건',
+    return h('span', {class: 'oc-count', title: '소속 ' + n.n + '명' + (n.n_extra ? ' · 겸직 ' + n.n_extra + '명' : '') + (n.docs != null ? ' · 부서 RAG 문서 ' + n.docs + '건' : ''),
       text: n.n + '명' + (n.n_extra ? ' · 겸직 ' + n.n_extra : '')});
   }
   function menuBtn(n, opts) {
@@ -355,7 +356,7 @@
     dialog('「' + n.name + '」 지우기', function (form, api) {
       var facts = h('dl', {class: 'oc-facts'}, [
         h('dt', {text: '소속 사람'}), h('dd', {class: n.n ? 'warn' : '', text: n.n + '명' + (n.n ? ' — 먼저 사람을 다른 부서로 옮기세요' : '')}),
-        h('dt', {text: '부서 RAG 문서'}), h('dd', {text: n.docs + '건' + (n.docs ? ' — 공통 RAG 로 돌아갑니다' : '')})]);
+        h('dt', {text: '부서 RAG 문서'}), h('dd', {text: (n.docs || 0) + '건' + (n.docs ? ' — 공통 RAG 로 돌아갑니다' : '')})]);
       if (n.n_extra) facts.append(h('dt', {text: '겸직'}), h('dd', {text: n.n_extra + '명 — 이 부서 겸직이 풀립니다'}));
       if (kids) facts.append(h('dt', {text: '아래 부서'}), h('dd', {text: kids + '개 — 상위 없는 부서로 남습니다'}));
       form.appendChild(facts);

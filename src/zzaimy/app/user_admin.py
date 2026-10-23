@@ -433,6 +433,11 @@ def delete_dept(st, accounts: dict, name: str) -> tuple[str, int]:
         dept_dictionary.forget_dept(data_dir, name)
     except Exception:
         pass
+    try:                                                 # 남은 흔적(RAG 최소 등급·사업 관리 dept: 지정·부서 공용 설정 등)도 함께
+        from zzaimy.app.org_routes import purge_traces
+        purge_traces(st, name)
+    except Exception:
+        pass
     return "", moved
 
 
