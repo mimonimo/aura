@@ -15,12 +15,11 @@
     {% if r.can_request %}<button type="button" role="menuitem" data-pa-req-open="assign">지정 신청</button>
     <button type="button" role="menuitem" data-pa-req-open="edit">수정 신청</button>{% endif %}
     {% if r.can_link %}<button type="button" role="menuitem" data-pa-link-open>프로젝트 연결</button>{% endif %}
-    {% if scope == 'all' %}<hr>
-    {% if r.stage != 'past' %}<button type="button" role="menuitem" data-pa-merge-open>같은 사업으로 합치기</button>{% endif %}
-    <form method="post" action="/programs/admin/hide"><input type="hidden" name="key" value="{{ r.key }}"><input type="hidden" name="hidden" value="1"><input type="hidden" name="not_program" value="1">
-      <button type="submit" role="menuitem">사업 아님으로 숨기기</button></form>
-    <form method="post" action="/programs/admin/hide"><input type="hidden" name="key" value="{{ r.key }}"><input type="hidden" name="hidden" value="{{ '0' if r.hidden else '1' }}">
-      <button type="submit" role="menuitem">{{ '다시 보이기' if r.hidden else '숨기기' }}</button></form>{% endif %}
+    {% if scope == 'all' %}{% if r.can_edit or r.can_link %}<hr>{% endif %}
+    {% if r.hidden %}<form method="post" action="/programs/admin/hide"><input type="hidden" name="key" value="{{ r.key }}"><input type="hidden" name="hidden" value="0">
+      <button type="submit" role="menuitem">목록에 다시 넣기</button></form>
+    {% else %}<button type="button" role="menuitem" data-pa-merge-open>다른 사업과 합치기</button>
+    <button type="button" role="menuitem" data-pa-hide-open>목록에서 빼기</button>{% endif %}{% endif %}
   </div>{% endif %}</td>{% endmacro %}
 {% macro rowattrs(r) %} data-pa-row data-key="{{ r.key }}" data-name="{{ r.name }}" data-q="{{ ([r.name] + r.terms + [r.dept, r.l2, r.l3, r.v.manager]) | join(' ') | lower }}" data-dept="{{ r.depts | join('|') }}" data-l1="{{ r.l1 }}" data-st="{{ r.status_chips | join('|') }}" data-mi="{{ r.ministries | join('|') }}" data-src="{{ r.origin }}" data-b="{{ (r.y.m.budget if year else r.v.budget_won) or 0 }}" data-p="{{ r.v.start }}" data-edit='{{ r.edit | tojson }}' data-can='{{ {"edit": r.can_edit, "req": r.can_request, "link": r.can_link, "new": r.can_new} | tojson }}'{% endmacro %}
 {% macro origin_chip(r) %}<span class="pa-src src-{{ r.origin }}" title="출처">{{ origin_labels[r.origin] }}</span>{% endmacro %}
@@ -45,12 +44,21 @@
   .pa-tabs a { padding:8px 12px; margin-bottom:-1px; border-bottom:2px solid transparent; color:var(--muted); text-decoration:none; font-size:13.5px; white-space:nowrap; }
   .pa-tabs a span { font-size:11.5px; color:var(--faint); margin-left:3px; font-variant-numeric:tabular-nums; }
   .pa-tabs a.on { color:var(--ink); font-weight:600; border-bottom-color:var(--ink); }
-  .pa-years { display:flex; gap:4px; margin-left:auto; padding:0 0 6px; overflow-x:auto; scrollbar-width:none; }
-  .pa-years a { flex:none; height:26px; line-height:24px; padding:0 11px; border:1px solid var(--pa-line); border-radius:999px; color:var(--muted); text-decoration:none;
-    font-size:12.5px; font-variant-numeric:tabular-nums; background:#fff; }
-  .pa-years a:hover { color:var(--ink); }
-  .pa-years a[aria-current] { background:var(--ink); border-color:var(--ink); color:#fff; }
-  .pa-years a:focus-visible { outline:2px solid var(--blue); outline-offset:1px; }
+  /* 연도 — 한 줄 단추 묶음(라디오). 고른 칸만 흰 바탕으로 떠 있게, 크기는 고정이라 바꿔도 줄이 흔들리지 않는다 */
+  .pa-yseg { display:flex; gap:2px; margin:0 0 6px auto; padding:2px; border-radius:9px; background:#F1F3F7; overflow-x:auto; scrollbar-width:none; flex:0 1 auto; min-width:0; }
+  .pa-yseg button { flex:none; height:26px; padding:0 11px; border:0; border-radius:7px; background:transparent; color:var(--muted); font:inherit; font-size:12.5px;
+    font-variant-numeric:tabular-nums; cursor:pointer; box-shadow:none; white-space:nowrap; }
+  .pa-yseg button:hover { color:var(--ink); }
+  .pa-yseg button[aria-checked=true] { background:#fff; color:var(--ink); font-weight:600; box-shadow:0 1px 2px rgba(15,23,42,.08), 0 0 0 1px rgba(15,23,42,.04); }
+  .pa-yseg button:focus-visible { outline:2px solid var(--blue); outline-offset:-2px; }
+  .pa-yseg small { margin-left:4px; font-size:10.5px; color:var(--faint); font-weight:400; }
+  /* 바꿔 끼우는 동안 — 표는 그대로 두고 위에 가는 띠만(빨리 끝나면 보이지 않는다) */
+  .pa-main { position:relative; }
+  .pa-busy { position:absolute; left:0; right:0; top:-6px; height:2px; overflow:hidden; pointer-events:none; opacity:0; }
+  .pa-main[aria-busy=true] .pa-busy { opacity:1; transition:opacity .1s .18s; }
+  .pa-busy::after { content:""; position:absolute; top:0; bottom:0; width:30%; background:var(--blue); border-radius:2px; animation:pa-slide 1s ease-in-out infinite; }
+  @keyframes pa-slide { from { left:-30%; } to { left:100%; } }
+  .pa-main[aria-busy=true] [data-pa-wrap] { cursor:progress; }
   /* 조작부 */
   .pa-ctl { display:flex; align-items:center; gap:6px; margin:0 0 6px; flex-wrap:wrap; }
   .pa-search { position:relative; flex:1 1 320px; min-width:200px; }
@@ -138,8 +146,8 @@
   .pa-table tr:last-child td { border-bottom:0; }
   {% for c in ['cat','dept','per','bud','man','who','proj'] %}.pa-table.hide-{{ c }} [data-col={{ c }}] { display:none; }
   {% endfor %}
-  .pa-yt .g-org, .pa-yt .g-money { display:none; }
-  .pa-yt.show-org .g-org, .pa-yt.show-money .g-money { display:table-cell; }
+  .pa-yt .g-org, .pa-yt .g-money, .pa-yt .g-seq { display:none; }
+  .pa-yt.show-org .g-org, .pa-yt.show-money .g-money, .pa-yt.show-seq .g-seq { display:table-cell; }
   .pa-yt tr.nodata td { color:var(--faint); }
   .pa-yt tr.pa-task td { height:38px; font-size:12px; background:#FBFCFE; cursor:default; }
   .pa-yt tr.pa-task td.name { padding-left:24px; }
@@ -160,6 +168,28 @@
   .pa-dlg { width:min(880px, calc(100vw - 48px)); max-height:calc(100dvh - 80px); display:flex; flex-direction:column; background:#fff; border:1px solid var(--pa-line);
     border-radius:14px; box-shadow:0 24px 64px rgba(15,23,42,.22); overflow:hidden; }
   .pa-dlg.narrow { width:min(560px, calc(100vw - 48px)); }
+  .pa-dlg.mid { width:min(680px, calc(100vw - 48px)); }
+  /* 합치기 */
+  .pa-mg-list { list-style:none; margin:8px 0 0; padding:4px; max-height:300px; overflow:auto; border:1px solid var(--pa-line); border-radius:10px; }
+  .pa-mg-list li { display:flex; flex-direction:column; gap:1px; padding:7px 10px; border-radius:7px; cursor:pointer; font-size:13px; }
+  .pa-mg-list li .sub { font-size:11.5px; color:var(--muted); }
+  .pa-mg-list li:hover, .pa-mg-list li[aria-selected=true] { background:#F1F5FB; }
+  .pa-mg-list li.none { color:var(--muted); cursor:default; background:transparent; }
+  .pa-mg-pair { display:grid; grid-template-columns:1fr auto 1fr; align-items:stretch; gap:8px; margin:6px 0 4px; }
+  .pa-mg-side { display:flex; flex-direction:column; gap:2px; padding:10px 12px; border:1px solid var(--pa-line); border-radius:10px; min-width:0; }
+  .pa-mg-side.keep { border-color:#B9C8EE; background:#F7F9FF; }
+  .pa-mg-side.gone { color:var(--muted); }
+  .pa-mg-side .k { font-size:11.5px; color:var(--muted); }
+  .pa-mg-side strong { font-size:13.5px; font-weight:600; overflow-wrap:anywhere; }
+  .pa-mg-side .s { font-size:11.5px; color:var(--muted); }
+  .pa-mg-arrow { align-self:center; color:var(--faint); }
+  /* 빼기 까닭 */
+  .pa-why { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 0; padding:0; border:0; }
+  .pa-why-o { position:relative; }
+  .pa-why-o input { position:absolute; opacity:0; inset:0; margin:0; cursor:pointer; }
+  .pa-why-o span { display:inline-block; height:32px; line-height:30px; padding:0 14px; border:1px solid var(--pa-line); border-radius:999px; font-size:13px; color:var(--ink); background:#fff; }
+  .pa-why-o input:checked + span { border-color:var(--navy); background:#EEF2FB; color:var(--navy); font-weight:600; }
+  .pa-why-o input:focus-visible + span { outline:2px solid var(--blue); outline-offset:1px; }
   .modal-back.open .pa-dlg { animation:pa-rise .18s ease-out; }
   @keyframes pa-rise { from { transform:translateY(8px); opacity:.6; } to { transform:none; opacity:1; } }
   @media (prefers-reduced-motion: reduce) { .modal-back.open .pa-dlg { animation:none; } }
@@ -245,7 +275,8 @@
   .pa-req-list .st-wait { color:#9A6A12; } .pa-req-list .st-ok { color:#2F7A4F; } .pa-req-list .st-no { color:#C2410C; }
   .pa-req-list td form { display:inline-flex; gap:4px; margin:0; }
   @media (max-width:760px) {
-    .pa-top { flex-direction:column; align-items:stretch; } .pa-years { margin-left:0; }
+    .pa-top { flex-direction:column; align-items:stretch; } .pa-yseg { margin-left:0; }
+    .pa-mg-pair { grid-template-columns:1fr; } .pa-mg-arrow { display:none; }
     .pa-grid { grid-template-columns:1fr; } .pa-grid .w2, .pa-grid .w3 { grid-column:auto; }
     .pa-wrap { max-height:none; }
     .pa-dlg { width:calc(100vw - 16px); max-height:calc(100dvh - 24px); } .modal-back.pa-modal { padding:8px; }
@@ -259,7 +290,8 @@
   }
 </style>
 
-<div class="pa-page">
+<div class="pa-page" data-pa-page>
+<div data-pa-part="notes">
 {% if err %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ err }}</span></p>{% endif %}
 {% if ok and not done %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>{% endif %}
 
@@ -268,20 +300,25 @@
   <a href="/programs/admin?view=requests">신청 보기</a><button type="button" class="pa-b ghost" data-pa-notes-read>확인</button></div>{% endif %}
 {% if scope == 'all' and n_wait and view != 'requests' %}<div class="pa-strip"><span>처리할 신청 <strong>{{ n_wait }}</strong>건</span><span class="sp"></span><a href="/programs/admin?view=requests">신청 목록</a></div>
 {% elif scope == 'dept' and n_mine and view != 'requests' %}<div class="pa-strip"><span>내 신청 {{ n_mine }}건</span><span class="sp"></span><a href="/programs/admin?view=requests">내 신청 보기</a></div>{% endif %}
-
-<div class="pa-top">
-  <nav class="pa-tabs" aria-label="사업 갈래">
-    <a href="/programs/admin?tab=all{% if year %}&year={{ year }}{% else %}&year=0{% endif %}" class="{{ 'on' if tab == 'all' and view != 'requests' else '' }}">전체 <span>{{ n_all }}</span></a>
-    <a href="/programs/admin?tab=current{% if year %}&year={{ year }}{% endif %}" class="{{ 'on' if tab == 'current' and view != 'requests' else '' }}">현행 사업 <span>{{ n_cur }}</span></a>
-    <a href="/programs/admin?tab=past&year=0" class="{{ 'on' if tab == 'past' and view != 'requests' else '' }}" title="끝난 사업 — 확인용(읽기만)">지난 사업 <span>{{ n_past }}</span></a>
-    {% if (scope == 'all' and reqs) or (scope == 'dept' and n_mine) %}<a href="/programs/admin?view=requests" class="{{ 'on' if view == 'requests' else '' }}">{{ '신청' if scope == 'all' else '내 신청' }} <span>{{ n_wait if scope == 'all' else n_mine }}</span></a>{% endif %}
-  </nav>
-  {% if view != 'requests' %}<nav class="pa-years" aria-label="연도" data-pa-years>
-    <a href="/programs/admin?tab={{ tab }}&year=0"{% if not year %} aria-current="true"{% endif %} data-y="0">전체</a>
-    {% for y in years %}<a href="/programs/admin?tab={{ tab }}&year={{ y }}"{% if y == year %} aria-current="true"{% endif %} data-y="{{ y }}">{{ y }}{% if y == this_year %}(올해){% endif %}</a>{% endfor %}
-  </nav>{% endif %}
 </div>
 
+{% set listing = view not in ('requests', 'removed') %}
+<div class="pa-top" data-pa-part="top">
+  <nav class="pa-tabs" aria-label="사업 갈래" data-pa-tabs>
+    <a href="/programs/admin?tab=all&year={{ year or 0 }}" data-tab="all" class="{{ 'on' if tab == 'all' and listing else '' }}"{% if tab == 'all' and listing %} aria-current="page"{% endif %}>전체 <span>{{ n_all }}</span></a>
+    <a href="/programs/admin?tab=current{% if year %}&year={{ year }}{% endif %}" data-tab="current" class="{{ 'on' if tab == 'current' and listing else '' }}"{% if tab == 'current' and listing %} aria-current="page"{% endif %}>현행 사업 <span>{{ n_cur }}</span></a>
+    <a href="/programs/admin?tab=past&year=0" data-tab="past" class="{{ 'on' if tab == 'past' and listing else '' }}"{% if tab == 'past' and listing %} aria-current="page"{% endif %} title="끝난 사업 — 확인용(읽기만)">지난 사업 <span>{{ n_past }}</span></a>
+    {% if (scope == 'all' and reqs) or (scope == 'dept' and n_mine) %}<a href="/programs/admin?view=requests" class="{{ 'on' if view == 'requests' else '' }}">{{ '신청' if scope == 'all' else '내 신청' }} <span>{{ n_wait if scope == 'all' else n_mine }}</span></a>{% endif %}
+    {% if scope == 'all' and (removed or view == 'removed') %}<a href="/programs/admin?view=removed" class="{{ 'on' if view == 'removed' else '' }}" data-pa-removed-tab>뺀 사업 <span>{{ removed | length }}</span></a>{% endif %}
+  </nav>
+  {% if listing %}
+  <div class="pa-yseg" role="radiogroup" aria-label="연도" data-pa-years>
+    <button type="button" role="radio" data-y="0" aria-checked="{{ 'true' if not year else 'false' }}" tabindex="{{ '0' if not year else '-1' }}">전체 연도</button>
+    {% for y in years %}<button type="button" role="radio" data-y="{{ y }}" aria-checked="{{ 'true' if y == year else 'false' }}" tabindex="{{ '0' if y == year else '-1' }}">{{ y }}{% if y == this_year %}<small>올해</small>{% endif %}</button>{% endfor %}
+  </div>{% endif %}
+</div>
+
+<div data-pa-part="body" data-pa-view="{{ view or '' }}">
 {% if view == 'requests' %}
 <div class="pa-host"><div class="pa-wrap">
 <table class="pa-table pa-req-list" style="min-width:900px;">
@@ -303,8 +340,25 @@
   </tr>{% else %}<tr><td colspan="7" class="pa-empty">신청이 없습니다</td></tr>{% endfor %}
   </tbody>
 </table></div></div>
+{% elif view == 'removed' %}
+<div class="pa-host"><div class="pa-wrap">
+<table class="pa-table pa-rm-list" data-pa-removed style="min-width:760px;">
+  <thead><tr><th style="width:34%;">사업</th><th>어떻게</th><th style="width:170px;">언제 · 누가</th><th style="width:130px;"><span class="sr-only">되살리기</span></th></tr></thead>
+  <tbody>
+  {% for x in removed %}<tr data-key="{{ x.key }}">
+    <td><span class="l1" title="{{ x.name }}">{{ x.name }}</span></td>
+    <td>{% if x.kind == 'merged' %}<span class="l1">「{{ x.into_name }}」에 합침</span>
+      {% else %}<span class="l1">목록에서 뺌{% if x.reason %} · {{ x.reason }}{% endif %}</span>{% if x.note %}<span class="l2" title="{{ x.note }}">{{ x.note }}</span>{% endif %}{% endif %}</td>
+    <td><span class="l1">{{ x.at or '—' }}</span>{% if x.by %}<span class="l2">{{ x.by }}</span>{% endif %}</td>
+    <td class="act" style="text-align:right;">{% if x.kind == 'merged' %}
+      <form method="post" action="/programs/admin/unmerge" style="margin:0;"><input type="hidden" name="key" value="{{ x.key }}"><button type="submit" class="pa-b"{% if not x.undo_full %} title="예전에 합친 줄 — 이름만 떼어 냅니다"{% endif %}>떼어 내기</button></form>
+      {% else %}<form method="post" action="/programs/admin/hide" style="margin:0;"><input type="hidden" name="key" value="{{ x.key }}"><input type="hidden" name="hidden" value="0"><button type="submit" class="pa-b">다시 넣기</button></form>{% endif %}</td>
+  </tr>{% else %}<tr><td colspan="4" class="pa-empty">뺀 사업이 없습니다</td></tr>{% endfor %}
+  </tbody>
+</table></div></div>
 {% else %}
-
+<div class="pa-main" data-pa-main data-pa-state='{{ {"tab": tab, "year": year, "unit": unit} | tojson }}' aria-busy="false">
+<div class="pa-busy" aria-hidden="true"></div>
 <div class="pa-ctl" data-pa-ctl>
   <div class="pa-search"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
     <input type="search" data-pa-q placeholder="사업·별칭·부서·책임자 찾기" aria-label="사업 찾기" autocomplete="off" enterkeyhint="search">
@@ -317,7 +371,6 @@
       {% if sts %}<h4>구분</h4><div class="pa-chiprow">{% for x in sts %}<button type="button" class="pa-fchip" data-f="st" data-v="{{ x }}" aria-pressed="false">{{ x }}</button>{% endfor %}</div>{% endif %}
       {% if mis %}<h4>지원기관</h4><div class="pa-chiprow">{% for x in mis %}<button type="button" class="pa-fchip" data-f="mi" data-v="{{ x }}" aria-pressed="false">{{ x }}</button>{% endfor %}</div>{% endif %}
       <h4>출처</h4><label class="pa-sw">엑셀에 없는 사업만<input type="checkbox" data-pa-src></label>
-      {% if scope == 'all' and n_hidden %}<label class="pa-sw">숨긴 줄 {{ n_hidden }}개도 보기<input type="checkbox" data-pa-hidden {% if show_hidden %}checked{% endif %}></label>{% endif %}
     </div>
   </div>
   <span style="flex:1;"></span>
@@ -327,6 +380,7 @@
       {% if year %}<h4>열 묶음</h4>
       <label class="pa-sw">기관·기간<input type="checkbox" data-pa-group="org"></label>
       <label class="pa-sw">예산 내역<input type="checkbox" data-pa-group="money"></label>
+      <label class="pa-sw">엑셀 연번<input type="checkbox" data-pa-group="seq"></label>
       {% else %}<h4>열</h4>
       {% for c, lab in [('cat','분류'),('dept','주관 부서'),('per','기간'),('bud','예산'),('man','책임자 이름'),('who','지정'),('proj','프로젝트')] %}<label class="pa-sw">{{ lab }}<input type="checkbox" data-pa-col="{{ c }}" checked></label>{% endfor %}
       <label class="pa-sw">소분류 펼치기<input type="checkbox" data-pa-l3></label>
@@ -335,7 +389,7 @@
       <span class="pa-seg" role="group" aria-label="금액 단위">{% for k, lab in units %}<a href="#" data-unit="{{ k }}"{% if k == unit %} aria-current="true"{% endif %}>{{ lab }}</a>{% endfor %}</span>
     </div>
   </div>
-  {% if may_import and tab != 'past' %}<button type="button" class="pa-b" data-modal-open="#paImport" data-pa-sheet><iconify-icon icon="solar:import-linear" aria-hidden="true"></iconify-icon>가져오기</button>{% endif %}
+  {% if may_import and tab != 'past' %}<button type="button" class="pa-b" data-pa-import data-pa-sheet><iconify-icon icon="solar:import-linear" aria-hidden="true"></iconify-icon>가져오기</button>{% endif %}
   <div class="pa-pop-host">
     <button type="button" class="pa-b" data-pa-pop="exp" aria-expanded="false" data-pa-export><iconify-icon icon="solar:export-linear" aria-hidden="true"></iconify-icon>내보내기</button>
     <div class="pa-menu" data-pa-popbox="exp" hidden style="min-width:250px;">
@@ -371,18 +425,19 @@
 <p class="pa-count" data-pa-count>{{ rows | length }}개</p>
 {% if rows and year %}
 <div class="pa-host" data-pa-host><div class="pa-wrap" data-pa-wrap>
-<table class="pa-table pa-yt" data-pa-table data-pa-ytable data-tid="y">
-  <thead><tr><th class="stk" data-sort="name" data-w="300">사업명</th><th data-sort="seq" data-w="54" title="엑셀 순서">순</th><th data-w="72">구분</th><th data-w="120">지원기관</th>
-    <th class="g-org" data-w="130">주관기관</th><th class="g-org" data-w="150">총사업기간</th><th class="g-org" data-w="150">당해 기간</th>
-    <th data-w="100">사업 책임자</th><th data-w="100">행정 담당자</th><th data-w="130">업무진행부서</th>
-    {% for f in split %}<th class="n g-money" data-w="96">{{ labels[f] }}</th>{% endfor %}<th class="n" data-sort="budget" data-w="110">합계</th>
-    {% if any_action %}<th data-w="44"><span class="sr-only">메뉴</span></th>{% endif %}</tr></thead>
+{% set tw = 300 + 72 + 120 + 100 + 100 + 130 + 110 + (44 if any_action else 0) %}
+<table class="pa-table pa-yt" data-pa-table data-pa-ytable data-tid="y" style="min-width:{{ tw }}px;">
+  <thead><tr><th class="stk" data-sort="name" data-w="300">사업명</th><th class="n g-seq" data-sort="seq" data-w="80" style="width:80px;">엑셀 연번</th><th data-w="72" style="width:72px;">구분</th><th data-w="120" style="width:120px;">지원기관</th>
+    <th class="g-org" data-w="130" style="width:130px;">주관기관</th><th class="g-org" data-w="150" style="width:150px;">총사업기간</th><th class="g-org" data-w="150" style="width:150px;">당해 기간</th>
+    <th data-w="100" style="width:100px;">사업 책임자</th><th data-w="100" style="width:100px;">행정 담당자</th><th data-w="130" style="width:130px;">업무진행부서</th>
+    {% for f in split %}<th class="n g-money" data-w="96" style="width:96px;">{{ labels[f] }}</th>{% endfor %}<th class="n" data-sort="budget" data-w="110" style="width:110px;">합계</th>
+    {% if any_action %}<th data-w="44" style="width:44px;"><span class="sr-only">메뉴</span></th>{% endif %}</tr></thead>
   <tbody>
   {% for r in rows %}{% set y = r.y %}
   <tr class="{{ 'off' if r.hidden else '' }}{{ ' nodata' if not y.has else '' }}"{{ rowattrs(r) }} data-o="{{ y.seq or 9999 }}" data-m='{{ y.money_json | tojson }}'>
     <td class="name stk"><span class="l1" title="{{ r.name }}">{{ r.name }}{% if r.stage == 'past' %}<span class="pa-past">지난</span>{% endif %}</span>
-      <span class="l2">{{ origin_chip(r) }}{% if y.tasks | length > 1 %}<button type="button" class="pa-plink" data-pa-tasks aria-expanded="false" data-n="{{ y.tasks | length }}">세부 과제 {{ y.tasks | length }}개 펼치기</button>{% elif y.tasks and y.tasks[0].sub and y.tasks[0].sub != r.name %}{{ y.tasks[0].sub }}{% elif not y.has %}그해 값 없음{% endif %}{% if r.hidden %} · 숨김{% endif %}</span></td>
-    <td class="n">{{ y.seq }}</td>
+      <span class="l2">{{ origin_chip(r) }}{% if y.tasks | length > 1 %}<button type="button" class="pa-plink" data-pa-tasks aria-expanded="false" data-n="{{ y.tasks | length }}">세부 과제 {{ y.tasks | length }}개 펼치기</button>{% elif y.tasks and y.tasks[0].sub and y.tasks[0].sub != r.name %}{{ y.tasks[0].sub }}{% elif not y.has %}그해 값 없음{% endif %}{% if r.hidden %} · 뺀 사업{% endif %}</span></td>
+    <td class="n g-seq">{{ y.seq }}</td>
     <td>{{ stchips(y.chips) }}</td>
     <td><span class="l1" title="{{ y.ministry }}">{{ y.ministry or '—' }}</span></td>
     <td class="g-org"><span class="l1" title="{{ y.agency }}">{{ y.agency or '—' }}</span></td>
@@ -398,7 +453,7 @@
   {% if y.tasks | length > 1 %}{% for t in y.tasks %}
   <tr class="pa-task" data-pa-task hidden>
     <td class="name stk"><span class="l1" title="{{ t.sub or t.name }}">{{ t.sub or t.name }}</span>{% if t.majors %}<span class="l2" title="{{ t.majors }}">참여 {{ t.majors }}</span>{% endif %}</td>
-    <td class="n">{{ t.seq or '' }}</td><td>{{ stchips(t.chips) }}</td>
+    <td class="n g-seq">{{ t.seq or '' }}</td><td>{{ stchips(t.chips) }}</td>
     <td><span class="l1">{{ t.ministry or '' }}</span></td>
     <td class="g-org"><span class="l1">{{ t.agency or '' }}</span></td>
     <td class="g-org"><span class="l1">{{ t.period or '' }}</span></td>
@@ -411,7 +466,7 @@
   </tr>{% endfor %}{% endif %}
   {% endfor %}
   </tbody>
-  <tfoot><tr data-pa-foot><td class="stk">합계 <span class="muted" data-pa-foot-n>{{ ysum.n }}개 사업</span></td><td></td><td></td><td></td>
+  <tfoot><tr data-pa-foot><td class="stk">합계 <span class="muted" data-pa-foot-n>{{ ysum.n }}개 사업</span></td><td class="g-seq"></td><td></td><td></td>
     <td class="g-org"></td><td class="g-org"></td><td class="g-org"></td><td></td><td></td><td></td>
     {% for f in split %}<td class="n g-money" data-foot="{{ f }}">{{ foot[f] }}</td>{% endfor %}<td class="n" data-foot="budget">{{ foot.budget }}</td>
     {% if any_action %}<td></td>{% endif %}</tr></tfoot>
@@ -419,15 +474,16 @@
 </div></div>
 {% elif rows %}
 <div class="pa-host" data-pa-host><div class="pa-wrap" data-pa-wrap>
-<table class="pa-table" data-pa-table data-tid="a">
-  <thead><tr><th class="stk" data-sort="name" data-w="320">사업</th><th data-col="cat" data-w="150">분류</th><th data-col="dept" data-w="130">주관 부서</th>
-    <th data-col="per" data-sort="period" data-w="140">기간</th><th data-col="bud" class="n" data-sort="budget" data-w="96">예산</th><th data-col="man" data-w="110">책임자 이름</th>
-    <th data-col="who" data-w="150" title="총괄 책임자 · 사업 책임자 · 행정 담당자(계정)">지정</th><th data-col="proj" data-w="110">프로젝트</th>{% if any_action %}<th data-w="44"><span class="sr-only">메뉴</span></th>{% endif %}</tr></thead>
+{% set tw = 320 + 150 + 130 + 140 + 96 + 110 + 150 + 110 + (44 if any_action else 0) %}
+<table class="pa-table" data-pa-table data-tid="a" style="min-width:{{ tw }}px;">
+  <thead><tr><th class="stk" data-sort="name" data-w="320">사업</th><th data-col="cat" data-w="150" style="width:150px;">분류</th><th data-col="dept" data-w="130" style="width:130px;">주관 부서</th>
+    <th data-col="per" data-sort="period" data-w="140" style="width:140px;">기간</th><th data-col="bud" class="n" data-sort="budget" data-w="96" style="width:96px;">예산</th><th data-col="man" data-w="110" style="width:110px;">책임자 이름</th>
+    <th data-col="who" data-w="150" style="width:150px;" title="총괄 책임자 · 사업 책임자 · 행정 담당자(계정)">지정</th><th data-col="proj" data-w="110" style="width:110px;">프로젝트</th>{% if any_action %}<th data-w="44" style="width:44px;"><span class="sr-only">메뉴</span></th>{% endif %}</tr></thead>
   <tbody>
   {% for r in rows %}
   <tr class="{{ 'off' if r.hidden else '' }}"{{ rowattrs(r) }}>
     <td class="name stk"><span class="l1" title="{{ r.name }}">{{ r.name }}{% if r.stage == 'past' %}<span class="pa-past">지난</span>{% endif %}</span>
-      <span class="l2">{{ origin_chip(r) }}{% if r.v.n_years %}연도별 값 {{ r.v.n_years }}개 해{% endif %}{% if r.hidden %} · 숨김{% endif %}{% if r.stage == 'unknown' %} · 기간 확인 필요{% endif %}</span></td>
+      <span class="l2">{{ origin_chip(r) }}{% if r.v.n_years %}연도별 값 {{ r.v.n_years }}개 해{% endif %}{% if r.hidden %} · 뺀 사업{% endif %}{% if r.stage == 'unknown' %} · 기간 확인 필요{% endif %}</span></td>
     <td data-col="cat"><span class="l1" title="{{ r.l1 }}">{{ r.l1 or '—' }}</span><span class="l2" title="{{ r.l2 }}">{{ r.l2 or '' }}</span>{% if r.l3 %}<span class="l3">{{ r.l3 }}</span>{% endif %}</td>
     <td data-col="dept"><span class="l1" title="{{ r.v.dept }}">{{ r.v.dept_short or '—' }}</span></td>
     <td data-col="per" class="n"><span class="l1" title="{{ r.v.period }}">{{ r.v.period_short or '—' }}</span></td>
@@ -446,7 +502,9 @@
 <p class="pa-empty">{% if tab == 'past' %}지난 사업이 없습니다.{% elif scope == 'all' %}사업이 없습니다 — 「가져오기」로 현황 엑셀을 읽거나 「줄 추가」로 더합니다.{% elif scope == 'dept' %}볼 수 있는 사업이 없습니다.{% else %}사업 책임자·행정 담당자로 지정된 사업이 없습니다.{% endif %}</p>
 {% endif %}
 <p class="pa-empty" data-pa-none hidden>거르기에 맞는 사업이 없습니다 · <button type="button" class="pa-clear" data-pa-clear-all>거르기 모두 지우기</button></p>
+</div>
 {% endif %}
+</div>
 </div>
 
 {# ---------------- 세부정보(가운데 창) ---------------- #}
@@ -493,7 +551,7 @@
       </section>
     </form>
     <footer class="pa-df">
-      {% if scope == 'all' %}<form method="post" action="/programs/admin/hide" data-pa-e-hide style="margin:0;"><input type="hidden" name="key" value=""><input type="hidden" name="hidden" value="1"><button type="submit" class="pa-b danger">숨기기</button></form>{% endif %}
+      {% if scope == 'all' %}<button type="button" class="pa-b danger" data-pa-e-hide>목록에서 빼기</button>{% endif %}
       <span class="sp"></span>
       <span class="pa-dirty" data-pa-dirty hidden>저장하지 않고 닫을까요<button type="button" class="pa-b ghost" data-pa-dirty-keep>계속 고치기</button><button type="button" class="pa-b" data-pa-dirty-close>닫기</button></span>
       <span class="ferr" data-pa-ferr></span>
@@ -503,9 +561,11 @@
   </div>
 </div>
 {% endif %}
+<div data-pa-part="lists" hidden>
 <datalist id="paL1">{% for x in l1s %}<option value="{{ x }}">{% endfor %}</datalist>
 <datalist id="paL2">{% for x in rows | map(attribute='l2') | select | unique | sort %}<option value="{{ x }}">{% endfor %}</datalist>
 <datalist id="paDepts">{% for d in depts %}<option value="{{ d }}">{% endfor %}</datalist>
+</div>
 <datalist id="paSt"><option value="기존"><option value="신규"><option value="종료"></datalist>
 
 {# ---------------- 신청 ---------------- #}
@@ -534,27 +594,51 @@
 {% endif %}
 <datalist id="paYearsList">{% for y in range(2010, this_year + 3) | reverse %}<option value="{{ y }}">{% endfor %}</datalist>
 
-{# ---------------- 합치기(관리자) ---------------- #}
+{# ---------------- 합치기·빼기(관리자) ---------------- #}
 {% if scope == 'all' %}
 <div class="modal-back pa-modal" id="paMerge">
-  <div class="pa-dlg narrow" role="dialog" aria-modal="true" aria-labelledby="paMergeTitle">
-    <header class="pa-dh"><div><h2 id="paMergeTitle">같은 사업으로 합치기</h2><div class="meta" data-pa-merge-name></div></div><span class="sp"></span><button type="button" class="pa-x" data-modal-close aria-label="닫기">×</button></header>
-    <form id="paMergeForm" action="/programs/admin/merge" method="post" class="pa-db">
+  <div class="pa-dlg mid" role="dialog" aria-modal="true" aria-labelledby="paMergeTitle">
+    <header class="pa-dh"><div style="min-width:0;"><h2 id="paMergeTitle">다른 사업과 합치기</h2><div class="meta" data-pa-merge-name></div></div><span class="sp"></span><button type="button" class="pa-x" data-modal-close aria-label="닫기">×</button></header>
+    <form id="paMergeForm" action="/programs/admin/merge" method="post" class="pa-db" autocomplete="off">
       <input type="hidden" name="key" value=""><input type="hidden" name="into" value="">
-      <label class="pa-f">합쳐 넣을 사업<input type="text" list="paRowsList" data-pa-merge-into placeholder="사업 이름으로 찾기" autocomplete="off"></label>
-      <p class="pa-empty" style="margin-top:8px;">이 줄의 이름은 고른 사업의 별칭이 되고, 연도 값·지정·이은 프로젝트가 옮겨 갑니다. 이 줄은 숨겨지고 변경 기록에 남습니다.</p>
+      <div class="pa-mg-pick" data-pa-mg-pick>
+        <label class="pa-f">합칠 곳<input type="search" class="pa-in" data-pa-merge-q role="combobox" aria-expanded="true" aria-controls="paMgList" aria-autocomplete="list" placeholder="사업 이름·별칭·부서로 찾기" enterkeyhint="search"></label>
+        <ul class="pa-mg-list" id="paMgList" role="listbox" aria-label="합칠 곳" data-pa-mg-list></ul>
+      </div>
+      <div class="pa-mg-plan" data-pa-mg-plan hidden>
+        <div class="pa-mg-pair">
+          <div class="pa-mg-side keep"><span class="k">남는 사업</span><strong data-pa-mg-dst></strong><span class="s" data-pa-mg-dsts></span></div>
+          <span class="pa-mg-arrow" aria-hidden="true">←</span>
+          <div class="pa-mg-side gone"><span class="k">합쳐서 빠지는 줄</span><strong data-pa-mg-src></strong><span class="s" data-pa-mg-srcs></span></div>
+        </div>
+        <div data-pa-mg-body></div>
+        <button type="button" class="pa-toggle-link" data-pa-mg-repick>다른 사업 고르기</button>
+      </div>
     </form>
-    <footer class="pa-df"><span class="ferr" data-pa-merge-err></span><span class="sp"></span><button type="button" class="pa-b" data-modal-close>취소</button><button type="submit" form="paMergeForm" class="pa-b primary">합치기</button></footer>
+    <footer class="pa-df"><span class="ferr" data-pa-merge-err></span><span class="sp"></span><button type="button" class="pa-b" data-modal-close>취소</button><button type="submit" form="paMergeForm" class="pa-b primary" data-pa-mg-go data-busy="합치는 중" disabled>합치기</button></footer>
   </div>
 </div>
-<datalist id="paRowsList">{% for x in all_rows %}<option value="{{ x.name }}" data-key="{{ x.key }}">{% endfor %}</datalist>
+<script type="application/json" id="paTargets">{{ all_rows | tojson }}</script>
+
+<div class="modal-back pa-modal" id="paHide">
+  <div class="pa-dlg narrow" role="dialog" aria-modal="true" aria-labelledby="paHideTitle">
+    <header class="pa-dh"><div style="min-width:0;"><h2 id="paHideTitle">목록에서 빼기</h2><div class="meta" data-pa-hide-name></div></div><span class="sp"></span><button type="button" class="pa-x" data-modal-close aria-label="닫기">×</button></header>
+    <form id="paHideForm" action="/programs/admin/hide" method="post" class="pa-db" autocomplete="off">
+      <input type="hidden" name="key" value=""><input type="hidden" name="hidden" value="1">
+      <fieldset class="pa-why"><legend class="sr-only">빼는 까닭</legend>
+        {% for k, lab in hide_reasons.items() %}<label class="pa-why-o"><input type="radio" name="reason" value="{{ k }}"{% if loop.first %} checked{% endif %}><span>{{ lab }}</span></label>{% endfor %}
+      </fieldset>
+    </form>
+    <footer class="pa-df"><span class="sp"></span><button type="button" class="pa-b" data-modal-close>취소</button><button type="submit" form="paHideForm" class="pa-b primary" data-busy="빼는 중">빼기</button></footer>
+  </div>
+</div>
 {% endif %}
 
 {# ---------------- 프로젝트 연결 ---------------- #}
 <div class="modal-back pa-modal" id="paLink">
   <div class="pa-dlg narrow" role="dialog" aria-modal="true" aria-labelledby="paLinkTitle">
     <header class="pa-dh"><div><h2 id="paLinkTitle">프로젝트 연결</h2><div class="meta" data-pa-link-name></div></div><span class="sp"></span><button type="button" class="pa-x" data-modal-close aria-label="닫기">×</button></header>
-    <div class="pa-db">
+    <div class="pa-db" data-pa-part="link">
       <ul class="pa-log" data-pa-linked></ul>
       <form action="/programs/admin/link" method="post" class="pa-grid" style="margin-top:12px; align-items:end;">
         <input type="hidden" name="key" value="">
@@ -576,7 +660,7 @@
 
 {# ---------------- 가져오기(단계형) ---------------- #}
 {% if may_import %}
-<div class="modal-back pa-modal{{ ' open' if sheet or done else '' }}" id="paImport">
+<div class="modal-back pa-modal{{ ' open' if sheet or done else '' }}" id="paImport" data-pa-part="import">
   <div class="pa-dlg" role="dialog" aria-modal="true" aria-labelledby="paImportTitle">
     <header class="pa-dh"><div><h2 id="paImportTitle">가져오기</h2>
       <ol class="pa-steps" style="margin-top:6px;"><li class="{{ 'on' if not sheet and not done }}"><span>1</span>파일 고르기</li><li class="{{ 'on' if sheet }}"><span>2</span>미리보기</li><li class="{{ 'on' if done }}"><span>3</span>적용</li></ol></div>
@@ -587,7 +671,7 @@
       <p class="pa-empty">이전 판은 서버의 history 폴더(program_admin.{{ done.stamp }}.json)에 남아 있습니다. 결과가 이상하면 바로 되돌립니다.</p>
     </div>
     <footer class="pa-df"><form method="post" action="/programs/admin/sheet/undo" style="margin:0;"><input type="hidden" name="stamp" value="{{ done.stamp }}"><input type="hidden" name="h" value="{{ done.h }}"><button type="submit" class="pa-b danger" data-pa-undo>되돌리기</button></form>
-      <span class="sp"></span><a class="pa-b primary" href="/programs/admin?tab=all&year=0">닫기</a></footer>
+      <span class="sp"></span><button type="button" class="pa-b primary" data-pa-import-reset>닫기</button></footer>
     {% elif sheet %}{% set sm = sheet.summary %}
     <div class="pa-db" data-pa-preview>
       <p class="pa-empty" style="margin:6px 0 10px;">{{ sheet.names | join(', ') }} · 엑셀 {{ sm.lines }}줄 · 아직 저장하지 않았습니다{% if sheet.dept_only %} · 우리 부서 사업 줄만 반영{% endif %}</p>
@@ -611,7 +695,7 @@
         <p class="pa-empty" style="font-size:11.5px;">꺼 두면 편집 창에서 직접 적은 칸은 그대로 두고 빈칸·엑셀에서 온 칸만 채웁니다</p>
       </form>
     </div>
-    <footer class="pa-df"><a class="pa-b" href="/programs/admin?tab=all&year=0" data-pa-import-back>처음으로</a><span class="sp"></span><button type="submit" form="paApply" class="pa-b primary" data-pa-apply data-busy="적용 중">적용</button></footer>
+    <footer class="pa-df"><button type="button" class="pa-b" data-pa-import-reset="again" data-pa-import-back>처음으로</button><span class="sp"></span><button type="submit" form="paApply" class="pa-b primary" data-pa-apply data-busy="적용 중">적용</button></footer>
     {% else %}
     <form id="paSheetForm" action="/programs/admin/sheet/preview" method="post" enctype="multipart/form-data" class="pa-db">
       <label class="pa-drop" data-pa-drop><iconify-icon icon="solar:file-download-linear" aria-hidden="true"></iconify-icon>
@@ -634,7 +718,7 @@
 
 <script>
 (function () {
-  var tab = {{ tab | tojson }}, year = {{ year | tojson }}, unit = {{ unit | tojson }}, scope = {{ scope | tojson }};
+  var tab = {{ tab | tojson }}, year = {{ year | tojson }}, unit = {{ unit | tojson }}, scope = {{ scope | tojson }};   // 표를 바꿔 끼우면 data-pa-state 로 다시 읽는다
   var thisYear = {{ this_year | tojson }}, labels = {{ labels | tojson }}, split = {{ split | list | tojson }};
   var here = new URLSearchParams(location.search);
   // 보안: 따옴표까지 바꾼다 — 속성값(title="…")에 넣어도 속성을 깨고 나가지 못하게
@@ -715,160 +799,70 @@
     });
   }
 
-  // ---------- 저장 뒤 돌아오면 보던 갈래·연도·단위·거르기로(서버는 결과 글만 붙여 돌려보낸다)
+  function $(s, r) { return (r || document).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
   var NOTE = ['ok', 'err', 'row', 'done', 'h'];
-  var view0 = new URLSearchParams(location.search); NOTE.forEach(function (k) { view0.delete(k); });
-  if ((here.has('ok') || here.has('err')) && !view0.toString()) {
-    var saved = null; try { saved = sessionStorage.getItem('pa.view'); } catch (e) {}
-    if (saved) { var back = new URLSearchParams(saved); NOTE.forEach(function (k) { if (here.has(k)) back.set(k, here.get(k)); }); location.replace('/programs/admin?' + back.toString()); return; }
-  }
-  if (view0.toString()) { try { sessionStorage.setItem('pa.view', view0.toString()); } catch (e) {} }
+  var FKEYS = ['q', 'dept', 'l1', 'st', 'mi', 'src'];
+  function curView() { var b = $('[data-pa-part="body"]'); return b ? b.dataset.paView || '' : ''; }
 
-  // ---------- 연도 알약 — 한 번 눌러 바꾸기, ←→, 고른 연도는 브라우저 기억
-  var yb = document.querySelector('[data-pa-years]');
-  if (yb) {
-    var pills = Array.prototype.slice.call(yb.querySelectorAll('a'));
-    var cur = yb.querySelector('[aria-current]'); if (cur) cur.scrollIntoView({inline: 'center', block: 'nearest'});
-    pills.forEach(function (p, i) {
-      p.addEventListener('click', function () { ls('pa.year', p.dataset.y); });
-      p.addEventListener('keydown', function (e) {
-        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-        e.preventDefault(); var n = pills[Math.max(0, Math.min(pills.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)))];
-        n.focus(); ls('pa.year', n.dataset.y); location.href = n.href;
-      });
-    });
-    var remembered = ls('pa.year');
-    if (!here.has('year') && !here.has('view') && remembered != null && String(remembered) !== String(year || 0) && tab !== 'past'
-        && pills.some(function (p) { return p.dataset.y === String(remembered); })) {
-      here.set('year', remembered); location.replace('/programs/admin?' + here.toString()); return;
-    }
-  }
-
-  // ---------- 알림 확인
-  var nr = document.querySelector('[data-pa-notes-read]');
-  if (nr) nr.addEventListener('click', function () { fetch('/programs/admin/notes/read', {method: 'POST'}).then(function () { nr.closest('[data-pa-notes]').remove(); }); });
-
-  // ---------- 팝오버(거르기·보기·내보내기)·줄 메뉴
-  function closePops(except) {
-    document.querySelectorAll('[data-pa-popbox]').forEach(function (b) { if (b !== except) { b.hidden = true; var t = document.querySelector('[data-pa-pop="' + b.dataset.paPopbox + '"]'); if (t) t.setAttribute('aria-expanded', 'false'); } });
-    document.querySelectorAll('.pa-table .pa-menu').forEach(function (m) { if (m !== except) { m.hidden = true; var b = m.previousElementSibling; if (b) b.setAttribute('aria-expanded', 'false'); } });
-  }
-  document.querySelectorAll('[data-pa-pop]').forEach(function (t) {
-    t.addEventListener('click', function (e) {
-      e.stopPropagation(); var b = document.querySelector('[data-pa-popbox="' + t.dataset.paPop + '"]'); closePops(b);
-      b.hidden = !b.hidden; t.setAttribute('aria-expanded', b.hidden ? 'false' : 'true');
-    });
-  });
-  document.querySelectorAll('[data-pa-popbox]').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); }); });
-  document.addEventListener('click', function () { closePops(null); });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePops(null); });
-  document.querySelectorAll('[data-pa-more]').forEach(function (btn) {
-    btn.addEventListener('click', function (e) { e.stopPropagation(); var m = btn.nextElementSibling; closePops(m); m.hidden = !m.hidden; btn.setAttribute('aria-expanded', m.hidden ? 'false' : 'true'); });
-  });
-  document.querySelectorAll('[data-pa-unfold]').forEach(function (b) {
-    var lab = b.textContent;
-    b.addEventListener('click', function () {
-      var t = document.getElementById(b.dataset.paUnfold); t.hidden = !t.hidden; b.setAttribute('aria-expanded', t.hidden ? 'false' : 'true');
-      b.textContent = t.hidden ? lab : lab.replace(/펼치기|보기|고르기$/, '접기').replace(/^고급 — 문서 번호로 접기$/, '고급 접기');
-    });
-  });
-
-  // ---------- 표: 거르기·찾기·정렬·열·합계
-  var table = document.querySelector('[data-pa-table]'), rows = Array.prototype.slice.call(document.querySelectorAll('[data-pa-row]'));
-  var qIn = document.querySelector('[data-pa-q]'), qClr = document.querySelector('[data-pa-qclr]');
+  // ---------- 거르기 값 — 주소에 없고 저장 뒤 돌아온 것이면 이 탭에서 쓰던 거르기로(다시 불러오지 않는다)
   var F = {dept: here.getAll('dept'), l1: here.getAll('l1'), st: here.getAll('st'), mi: here.getAll('mi'), src: here.get('src') || ''};
+  var q0 = here.get('q') || '';
+  if ((here.has('ok') || here.has('err')) && !FKEYS.some(function (k) { return here.has(k); })) {
+    try { var sv = new URLSearchParams(sessionStorage.getItem('pa.filters') || ''); F = {dept: sv.getAll('dept'), l1: sv.getAll('l1'), st: sv.getAll('st'), mi: sv.getAll('mi'), src: sv.get('src') || ''}; q0 = sv.get('q') || ''; } catch (e) {}
+  }
   var FLAB = {dept: '부서', l1: '대분류', st: '구분', mi: '지원기관'};
-  if (qIn) qIn.value = here.get('q') || '';
+
+  // ---------- 표 상태 — 바꿔 끼울 때마다 bindMain 이 다시 잡는다(손잡이는 모두 문서에 한 번만 건다)
+  var main = null, table = null, rows = [], qIn = null, qClr = null, wrap = null, host = null, tid = '', shown = {}, widths = {};
+  var sortState = null, userSort = false;
   function tasksOf(tr) { var out = [], x = tr.nextElementSibling; while (x && x.hasAttribute('data-pa-task')) { out.push(x); x = x.nextElementSibling; } return out; }
   function has(list, cell) { if (!list.length) return true; var v = (cell || '').split('|'); return list.some(function (x) { return v.indexOf(x) >= 0; }); }
   function query(extra) {
     var p = new URLSearchParams(); var q = qIn ? qIn.value.trim() : '';
     if (q) p.set('q', q); ['dept', 'l1', 'st', 'mi'].forEach(function (k) { F[k].forEach(function (v) { p.append(k, v); }); });
-    if (F.src) p.set('src', F.src); var hid = document.querySelector('[data-pa-hidden]'); if (hid && hid.checked) p.set('hidden', '1');
+    if (F.src) p.set('src', F.src);
     Object.keys(extra || {}).forEach(function (k) { p.set(k, extra[k]); }); return p;
   }
+  function viewParams() { var p = new URLSearchParams(); p.set('tab', tab); p.set('year', String(year || 0)); if (unit && unit !== 'auto') p.set('unit', unit); return p; }
+  function syncUrl() {                                   // 주소는 지금 보는 갈래·연도·단위·거르기와 같게(결과 글은 지운다)
+    var p;
+    if (curView()) { p = new URLSearchParams(); p.set('view', curView()); }
+    else { p = viewParams(); query().forEach(function (v, k) { p.append(k, v); }); }
+    try { history.replaceState(history.state, '', '/programs/admin?' + p.toString()); } catch (e) {}
+    try { sessionStorage.setItem('pa.filters', query().toString()); } catch (e) {}
+  }
+  function remember() { document.cookie = 'pa_view=' + tab + '.' + (year || 0) + '.' + (unit || 'auto') + '; path=/programs; max-age=31536000; samesite=lax'; }
   function apply() {
+    if (!main) return 0;
     var q = qIn ? qIn.value.trim().toLowerCase() : '', n = 0, nY = 0, sums = {};
     rows.forEach(function (tr) {
       var on = (!q || tr.dataset.q.indexOf(q) >= 0) && has(F.dept, tr.dataset.dept) && has(F.l1, tr.dataset.l1) && has(F.st, tr.dataset.st)
         && has(F.mi, tr.dataset.mi) && (F.src !== 'noexcel' || tr.dataset.src !== 'excel');
-      tr.hidden = !on; if (on) n++;
+      if (tr.hidden === on) tr.hidden = !on;
+      if (on) n++;
       var b = tr.querySelector('[data-pa-tasks]'), open = b && b.getAttribute('aria-expanded') === 'true';
       tasksOf(tr).forEach(function (t) { t.hidden = !(on && open); });
       if (on && tr.dataset.m) { var m = JSON.parse(tr.dataset.m); Object.keys(m).forEach(function (k) { if (m[k] != null) sums[k] = (sums[k] || 0) + m[k]; }); if (!tr.classList.contains('nodata')) nY++; }
     });
-    var c = document.querySelector('[data-pa-count]'); if (c) c.textContent = n + '개' + (n !== rows.length ? ' · 전체 ' + rows.length + '개 가운데' : '');
-    document.querySelectorAll('[data-foot]').forEach(function (td) { td.textContent = money(sums[td.dataset.foot] || 0); td.title = (sums[td.dataset.foot] || 0).toLocaleString('en-US') + '원'; });
-    var fn = document.querySelector('[data-pa-foot-n]'); if (fn) fn.textContent = nY + '개 사업';
-    var none = document.querySelector('[data-pa-none]'); if (none) none.hidden = !(rows.length && !n);
+    var c = $('[data-pa-count]'); if (c) c.textContent = n + '개' + (n !== rows.length ? ' · 전체 ' + rows.length + '개 가운데' : '');
+    $$('[data-foot]').forEach(function (td) { td.textContent = money(sums[td.dataset.foot] || 0); td.title = (sums[td.dataset.foot] || 0).toLocaleString('en-US') + '원'; });
+    var fn = $('[data-pa-foot-n]'); if (fn) fn.textContent = nY + '개 사업';
+    var none = $('[data-pa-none]'); if (none) none.hidden = !(rows.length && !n);
     if (qClr) qClr.hidden = !q;
-    // 적용된 거르기 칩
-    var ap = document.querySelector('[data-pa-applied]');
+    var ap = $('[data-pa-applied]');
     if (ap) {
       var h = '';
       ['dept', 'l1', 'st', 'mi'].forEach(function (k) { F[k].forEach(function (v) { h += '<span class="pa-achip">' + esc(FLAB[k] + ' ' + v) + '<button type="button" data-rm="' + k + '" data-v="' + esc(v) + '" aria-label="빼기">×</button></span>'; }); });
       if (F.src) h += '<span class="pa-achip">엑셀에 없는 사업만<button type="button" data-rm="src" aria-label="빼기">×</button></span>';
       if (h) h += '<button type="button" class="pa-clear" data-pa-clear-all>모두 지우기</button>';
-      ap.innerHTML = h;
+      if (ap.innerHTML !== h) ap.innerHTML = h;
     }
-    document.querySelectorAll('.pa-fchip').forEach(function (b) { b.setAttribute('aria-pressed', F[b.dataset.f].indexOf(b.dataset.v) >= 0 ? 'true' : 'false'); });
-    var sb = document.querySelector('[data-pa-src]'); if (sb) sb.checked = F.src === 'noexcel';
-    var keep = new URLSearchParams(location.search); ['q', 'dept', 'l1', 'st', 'mi', 'src'].forEach(function (k) { keep.delete(k); });
-    query().forEach(function (v, k) { if (k !== 'hidden') keep.append(k, v); });
-    try { history.replaceState(null, '', '/programs/admin' + (keep.toString() ? '?' + keep.toString() : '')); } catch (e) {}
-    var v = new URLSearchParams(keep); NOTE.forEach(function (k) { v.delete(k); }); try { if (v.toString()) sessionStorage.setItem('pa.view', v.toString()); } catch (e) {}
+    $$('.pa-fchip').forEach(function (b) { b.setAttribute('aria-pressed', F[b.dataset.f].indexOf(b.dataset.v) >= 0 ? 'true' : 'false'); });
+    var sb = $('[data-pa-src]'); if (sb) sb.checked = F.src === 'noexcel';
+    syncUrl();
     return n;
   }
-  if (qIn) { qIn.addEventListener('input', apply); qClr.addEventListener('click', function () { qIn.value = ''; apply(); qIn.focus(); }); }
-  document.querySelectorAll('.pa-fchip').forEach(function (b) {
-    b.addEventListener('click', function () { var l = F[b.dataset.f], i = l.indexOf(b.dataset.v); if (i >= 0) l.splice(i, 1); else l.push(b.dataset.v); apply(); });
-  });
-  var srcSw = document.querySelector('[data-pa-src]'); if (srcSw) srcSw.addEventListener('change', function () { F.src = srcSw.checked ? 'noexcel' : ''; apply(); });
-  document.addEventListener('click', function (e) {
-    var rm = e.target.closest('[data-rm]');
-    if (rm) { if (rm.dataset.rm === 'src') F.src = ''; else F[rm.dataset.rm].splice(F[rm.dataset.rm].indexOf(rm.dataset.v), 1); apply(); return; }
-    if (e.target.closest('[data-pa-clear-all]')) { F = {dept: [], l1: [], st: [], mi: [], src: ''}; if (qIn) qIn.value = ''; apply(); }
-  });
-  var hidSw = document.querySelector('[data-pa-hidden]');
-  if (hidSw) hidSw.addEventListener('change', function () { var p = new URLSearchParams(location.search); if (hidSw.checked) p.set('hidden', '1'); else p.delete('hidden'); location.href = '/programs/admin?' + p.toString(); });
-  // 단위
-  document.querySelectorAll('[data-unit]').forEach(function (a) {
-    a.addEventListener('click', function (e) { e.preventDefault(); ls('pa.unit', a.dataset.unit); var p = new URLSearchParams(location.search); p.set('unit', a.dataset.unit); location.href = '/programs/admin?' + p.toString(); });
-  });
-  var ru = ls('pa.unit');
-  if (!here.has('unit') && ru && ru !== unit && DIV[ru] != null) { here.set('unit', ru); location.replace('/programs/admin?' + here.toString()); return; }
-  // 내보내기 — 지금 거르기를 그대로
-  document.querySelectorAll('[data-exp]').forEach(function (a) {
-    a.addEventListener('click', function (e) {
-      e.preventDefault(); var k = a.dataset.exp, p;
-      if (k === 'xlsx') p = '/programs/admin.xlsx?' + query({year: document.querySelector('[data-exp-year]').value, tab: tab}).toString();
-      else if (k === 'all') p = '/programs/admin.xlsx?' + query({all: '1', tab: tab}).toString();
-      else p = '/programs/admin.csv?' + query({tab: tab, year: String(year || 0)}).toString();
-      location.href = p; closePops(null);
-    });
-  });
-  // 세부 과제 펼치기
-  document.querySelectorAll('[data-pa-tasks]').forEach(function (b) {
-    b.addEventListener('click', function (e) {
-      e.stopPropagation(); var open = b.getAttribute('aria-expanded') !== 'true';
-      b.setAttribute('aria-expanded', open ? 'true' : 'false'); b.textContent = '세부 과제 ' + b.dataset.n + '개 ' + (open ? '접기' : '펼치기');
-      tasksOf(b.closest('tr')).forEach(function (t) { t.hidden = !open; });
-    });
-  });
-  // 열 묶음·열 켜고 끄기(브라우저 기억)
-  var tid = table ? table.dataset.tid : '', shown = ls('pa.cols.' + tid) || {};
-  document.querySelectorAll('[data-pa-group]').forEach(function (i) {
-    var g = i.dataset.paGroup; i.checked = !!shown[g]; if (table) table.classList.toggle('show-' + g, i.checked);
-    i.addEventListener('change', function () { shown[g] = i.checked; table.classList.toggle('show-' + g, i.checked); ls('pa.cols.' + tid, shown); sizeTable(); });
-  });
-  document.querySelectorAll('[data-pa-col]').forEach(function (i) {
-    var c = i.dataset.paCol; i.checked = shown[c] !== false; if (table) table.classList.toggle('hide-' + c, !i.checked);
-    i.addEventListener('change', function () { shown[c] = i.checked; table.classList.toggle('hide-' + c, !i.checked); ls('pa.cols.' + tid, shown); sizeTable(); });
-  });
-  var l3 = document.querySelector('[data-pa-l3]');
-  if (l3 && table) l3.addEventListener('change', function () { table.classList.toggle('show-l3', l3.checked); });
-  // 열 너비 — 머리 경계를 끌어 조절, 브라우저 기억
-  var widths = ls('pa.w.' + tid) || {};
   function sizeTable() {
     if (!table) return; var sum = 0, avail = table.parentElement.clientWidth, first = table.querySelector('thead th');
     table.querySelectorAll('thead th').forEach(function (th, i) {
@@ -876,48 +870,246 @@
       var w = widths[i] || +th.dataset.w || 100; th.style.width = w + 'px'; sum += w;
     });
     if (sum < avail && first) { first.style.width = ((widths[0] || +first.dataset.w) + avail - sum) + 'px'; sum = avail; }   // 남는 폭은 사업 이름 칸이
-    table.style.width = sum + 'px';
+    table.style.width = sum + 'px'; table.style.minWidth = '';
     shadows();
   }
-  if (table) {
-    table.querySelectorAll('thead th').forEach(function (th, i) {
-      var h = document.createElement('span'); h.className = 'rz'; h.setAttribute('aria-hidden', 'true'); th.style.position = th.classList.contains('stk') ? 'sticky' : 'sticky'; th.appendChild(h);
-      h.addEventListener('click', function (e) { e.stopPropagation(); });
-      h.addEventListener('mousedown', function (e) {
-        e.preventDefault(); e.stopPropagation(); var x0 = e.clientX, w0 = th.offsetWidth;
-        function mv(ev) { widths[i] = Math.max(48, w0 + ev.clientX - x0); sizeTable(); }
-        function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); ls('pa.w.' + tid, widths); }
-        document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
-      });
-    });
-    window.addEventListener('resize', sizeTable);
-  }
-  // 가로 스크롤 힌트·Shift+휠
-  var wrap = document.querySelector('[data-pa-wrap]'), host = document.querySelector('[data-pa-host]');
-  function shadows() { if (!wrap) return; host.classList.toggle('more-l', wrap.scrollLeft > 2); host.classList.toggle('more-r', wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 2); }
-  if (wrap) {
-    wrap.addEventListener('scroll', shadows, {passive: true});
-    wrap.addEventListener('wheel', function (e) { if (e.shiftKey && e.deltaY && !e.deltaX) { wrap.scrollLeft += e.deltaY; e.preventDefault(); } }, {passive: false});
-  }
-  // 정렬 — 사업명·예산·기간·순
-  var sortState = {k: year ? 'budget' : 'name', d: year ? -1 : 1};
+  function shadows() { if (!wrap || !host) return; host.classList.toggle('more-l', wrap.scrollLeft > 2); host.classList.toggle('more-r', wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 2); }
+  window.addEventListener('resize', sizeTable);
   function paintSort() { if (!table) return; table.querySelectorAll('th[data-sort]').forEach(function (th) { var a = th.querySelector('.ar'); if (!a) { a = document.createElement('span'); a.className = 'ar'; th.insertBefore(a, th.querySelector('.rz')); } a.textContent = th.dataset.sort === sortState.k ? (sortState.d > 0 ? '▲' : '▼') : ''; th.setAttribute('aria-sort', th.dataset.sort === sortState.k ? (sortState.d > 0 ? 'ascending' : 'descending') : 'none'); }); }
-  if (table) {
-    table.querySelectorAll('th[data-sort]').forEach(function (th) {
-      th.addEventListener('click', function () {
-        var k = th.dataset.sort; sortState = {k: k, d: sortState.k === k ? -sortState.d : (k === 'budget' ? -1 : 1)};
-        var key = {name: function (r) { return r.dataset.name; }, budget: function (r) { return +r.dataset.b || 0; }, period: function (r) { return +r.dataset.p || 0; }, seq: function (r) { return +r.dataset.o || 9999; }}[k];
-        var tb = table.tBodies[0];
-        rows.slice().sort(function (a, b) { var x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sortState.d || a.dataset.name.localeCompare(b.dataset.name); })
-          .forEach(function (r) { var t = tasksOf(r); tb.appendChild(r); t.forEach(function (x) { tb.appendChild(x); }); });
-        rows = Array.prototype.slice.call(tb.querySelectorAll('[data-pa-row]')); paintSort();
+  function sortRows() {
+    var key = {name: function (r) { return r.dataset.name; }, budget: function (r) { return +r.dataset.b || 0; }, period: function (r) { return +r.dataset.p || 0; }, seq: function (r) { return +r.dataset.o || 9999; }}[sortState.k];
+    if (!key || !table) return; var tb = table.tBodies[0];
+    rows.slice().sort(function (a, b) { var x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sortState.d || a.dataset.name.localeCompare(b.dataset.name); })
+      .forEach(function (r) { var t = tasksOf(r); tb.appendChild(r); t.forEach(function (x) { tb.appendChild(x); }); });
+    rows = $$('[data-pa-row]', tb);
+  }
+  function bindMain() {
+    main = $('[data-pa-main]');
+    if (main) { var st = JSON.parse(main.dataset.paState || '{}'); tab = st.tab || tab; year = st.year || 0; unit = st.unit || 'auto'; }
+    table = $('[data-pa-table]'); rows = $$('[data-pa-row]'); qIn = $('[data-pa-q]'); qClr = $('[data-pa-qclr]');
+    wrap = $('[data-pa-wrap]'); host = $('[data-pa-host]');
+    tid = table ? table.dataset.tid : ''; shown = ls('pa.cols.' + tid) || {}; widths = ls('pa.w.' + tid) || {};
+    $$('[data-pa-group]').forEach(function (i) { var g = i.dataset.paGroup; i.checked = !!shown[g]; if (table) table.classList.toggle('show-' + g, i.checked); });
+    $$('[data-pa-col]').forEach(function (i) { var c = i.dataset.paCol; i.checked = shown[c] !== false; if (table) table.classList.toggle('hide-' + c, !i.checked); });
+    if (table) {
+      table.querySelectorAll('thead th').forEach(function (th, i) {
+        var h = document.createElement('span'); h.className = 'rz'; h.setAttribute('aria-hidden', 'true'); th.appendChild(h);
+        h.addEventListener('mousedown', function (e) {
+          e.preventDefault(); e.stopPropagation(); var x0 = e.clientX, w0 = th.offsetWidth;
+          function mv(ev) { widths[i] = Math.max(48, w0 + ev.clientX - x0); sizeTable(); }
+          function up() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); ls('pa.w.' + tid, widths); }
+          document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+        });
       });
-    });
-    paintSort(); sizeTable();
+      wrap.addEventListener('scroll', shadows, {passive: true});
+      wrap.addEventListener('wheel', function (e) { if (e.shiftKey && e.deltaY && !e.deltaX) { wrap.scrollLeft += e.deltaY; e.preventDefault(); } }, {passive: false});
+      var dflt = {k: year ? 'budget' : 'name', d: year ? -1 : 1};
+      if (userSort && sortState && table.querySelector('th[data-sort="' + sortState.k + '"]')) sortRows(); else { sortState = dflt; userSort = false; }
+      paintSort(); sizeTable();
+    }
+    var yb = $('[data-pa-years]'), on = yb && yb.querySelector('[aria-checked=true]');
+    if (on && yb.scrollWidth > yb.clientWidth) yb.scrollLeft = Math.max(0, on.offsetLeft - (yb.clientWidth - on.offsetWidth) / 2);   // 페이지는 움직이지 않게
   }
 
+  // ---------- 바꿔 끼우기 — 갈래·연도·단위와 저장 결과를 다시 불러오지 않고 제자리에서. 표를 비우지 않고 한 번에 갈아 끼운다
+  var cache = {}, navSeq = 0;
+  function load(url, useCache) {
+    if (useCache && cache[url]) return cache[url];
+    var p = fetch(url, {credentials: 'same-origin', headers: {Accept: 'text/html'}}).then(function (r) { if (!r.ok) throw r; return r.text().then(function (t) { return {html: t, url: r.url}; }); });
+    if (useCache) { cache[url] = p; p.catch(function () { delete cache[url]; }); }
+    return p;
+  }
+  function busy(on) { if (main) main.setAttribute('aria-busy', on ? 'true' : 'false'); }
+  function swap(html, opt) {
+    opt = opt || {};
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    if (!doc.querySelector('[data-pa-page]')) throw new Error('not page');
+    var act = document.activeElement, focusSel = '';
+    if (act && act.dataset) {
+      if (act.dataset.tab) focusSel = '[data-tab="' + act.dataset.tab + '"]';
+      else if (act.closest && act.closest('[data-pa-years]') && act.dataset.y != null) focusSel = '[data-pa-years] [data-y="' + act.dataset.y + '"]';
+      else if (act.matches && act.matches('[data-pa-q]')) focusSel = '[data-pa-q]';
+    }
+    var sTop = wrap ? wrap.scrollTop : 0, sLeft = wrap ? wrap.scrollLeft : 0, qv = qIn ? qIn.value : q0;
+    var open = {}; $$('[data-pa-tasks][aria-expanded=true]').forEach(function (b) { var tr = b.closest('tr'); if (tr) open[tr.dataset.key] = 1; });
+    var body = $('[data-pa-part="body"]'), lockH = body && window.scrollY > 0 ? body.offsetHeight : 0;
+    $$('[data-pa-part]', doc).forEach(function (n) {
+      var name = n.dataset.paPart; if (opt.only && opt.only.indexOf(name) < 0) return;
+      var cur = $('[data-pa-part="' + name + '"]'); if (cur) cur.replaceWith(document.adoptNode(n));
+    });
+    body = $('[data-pa-part="body"]'); if (body && lockH) body.style.minHeight = lockH + 'px';   // 짧아져도 화면이 위로 튀지 않게
+    if (opt.only && opt.only.indexOf('body') < 0) return;
+    bindMain();
+    if (qIn) qIn.value = qv;
+    rows.forEach(function (tr) { var b = tr.querySelector('[data-pa-tasks]'); if (b && open[tr.dataset.key]) { b.setAttribute('aria-expanded', 'true'); b.textContent = '세부 과제 ' + b.dataset.n + '개 접기'; } });
+    apply();
+    if (wrap) { wrap.scrollLeft = sLeft; if (opt.keepScroll) wrap.scrollTop = sTop; shadows(); }
+    if (focusSel) { var f = $(focusSel); if (f) f.focus({preventScroll: true}); }
+  }
+  function go(url) {
+    var my = ++navSeq; busy(true);
+    load(url, true).then(function (res) { if (my !== navSeq) return; swap(res.html, {keepScroll: false}); remember(); syncUrl(); busy(false); })
+      .catch(function () { if (my === navSeq) location.href = url; });
+  }
+  function goView(t, y, u) {
+    var p = new URLSearchParams(); p.set('tab', t); if (y != null) p.set('year', String(y)); if (u && u !== 'auto') p.set('unit', u);
+    go('/programs/admin?' + p.toString());
+  }
+  function pickYear(y) {
+    $$('[data-pa-years] [data-y]').forEach(function (b) { var on = b.dataset.y === String(y); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
+    goView(tab, y, unit);
+  }
+  function refresh(after) {                              // 지금 보는 화면을 새 값으로(결과 글은 따로)
+    var p = curView() ? new URLSearchParams({view: curView()}) : viewParams();
+    return load('/programs/admin?' + p.toString(), false).then(function (res) { cache = {}; swap(res.html, {keepScroll: true}); syncUrl(); if (after) after(); });
+  }
+
+  // ---------- 팝오버(거르기·보기·내보내기)·줄 메뉴
+  function closePops(except) {
+    $$('[data-pa-popbox]').forEach(function (b) { if (b !== except) { b.hidden = true; var t = $('[data-pa-pop="' + b.dataset.paPopbox + '"]'); if (t) t.setAttribute('aria-expanded', 'false'); } });
+    $$('.pa-table .pa-menu').forEach(function (m) { if (m !== except) { m.hidden = true; var b = m.previousElementSibling; if (b) b.setAttribute('aria-expanded', 'false'); } });
+  }
+  function rowOf(el) { return el.closest('tr[data-pa-row]'); }
+  function rowByKey(k) { return rows.filter(function (r) { return r.dataset.key === k; })[0] || null; }
+  function flash(tr) { if (!tr) return; tr.classList.add('hl'); tr.scrollIntoView({block: 'nearest'}); setTimeout(function () { tr.classList.remove('hl'); }, 1600); }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t.closest) return;
+    var pop = t.closest('[data-pa-pop]');
+    if (pop) { e.preventDefault(); var b = $('[data-pa-popbox="' + pop.dataset.paPop + '"]'); closePops(b); b.hidden = !b.hidden; pop.setAttribute('aria-expanded', b.hidden ? 'false' : 'true'); return; }
+    var more = t.closest('[data-pa-more]');
+    if (more) { var m = more.nextElementSibling; closePops(m); m.hidden = !m.hidden; more.setAttribute('aria-expanded', m.hidden ? 'false' : 'true'); return; }
+    if (!t.closest('[data-pa-popbox]')) closePops(null);
+    var tr = rowOf(t);
+    if (t.closest('[data-pa-edit-open]')) { openEdit(tr); return; }
+    var rq = t.closest('[data-pa-req-open]'); if (rq) { openReq(tr, rq.dataset.paReqOpen); return; }
+    if (t.closest('[data-pa-link-open]')) { openLink(tr); return; }
+    if (t.closest('[data-pa-merge-open]')) { openMerge(tr); return; }
+    if (t.closest('[data-pa-hide-open]')) { openHide(tr.dataset.key, tr.dataset.name); return; }
+    var tk = t.closest('[data-pa-tasks]');
+    if (tk) {
+      var op = tk.getAttribute('aria-expanded') !== 'true';
+      tk.setAttribute('aria-expanded', op ? 'true' : 'false'); tk.textContent = '세부 과제 ' + tk.dataset.n + '개 ' + (op ? '접기' : '펼치기');
+      tasksOf(tk.closest('tr')).forEach(function (x) { x.hidden = !op; }); return;
+    }
+    if (tr && !t.closest('a, button, form, .pa-menu, input')) { showDetail(tr); return; }
+    var th = t.closest('[data-pa-table] th[data-sort]');
+    if (th && !t.closest('.rz')) { var k = th.dataset.sort; sortState = {k: k, d: sortState.k === k ? -sortState.d : (k === 'budget' ? -1 : 1)}; userSort = true; sortRows(); paintSort(); return; }
+    var fc = t.closest('.pa-fchip');
+    if (fc) { var l = F[fc.dataset.f], i = l.indexOf(fc.dataset.v); if (i >= 0) l.splice(i, 1); else l.push(fc.dataset.v); apply(); return; }
+    var rm = t.closest('[data-rm]');
+    if (rm) { if (rm.dataset.rm === 'src') F.src = ''; else F[rm.dataset.rm].splice(F[rm.dataset.rm].indexOf(rm.dataset.v), 1); apply(); return; }
+    if (t.closest('[data-pa-clear-all]')) { F = {dept: [], l1: [], st: [], mi: [], src: ''}; if (qIn) qIn.value = ''; apply(); return; }
+    if (t.closest('[data-pa-qclr]')) { qIn.value = ''; apply(); qIn.focus(); return; }
+    var un = t.closest('[data-unit]');
+    if (un) { e.preventDefault(); closePops(null); goView(tab, year, un.dataset.unit); return; }
+    var ex = t.closest('[data-exp]');
+    if (ex) {
+      e.preventDefault(); var kx = ex.dataset.exp, p;
+      if (kx === 'xlsx') p = '/programs/admin.xlsx?' + query({year: $('[data-exp-year]').value, tab: tab}).toString();
+      else if (kx === 'all') p = '/programs/admin.xlsx?' + query({all: '1', tab: tab}).toString();
+      else p = '/programs/admin.csv?' + query({tab: tab, year: String(year || 0)}).toString();
+      location.href = p; closePops(null); return;
+    }
+    if (t.closest('[data-pa-new]')) { openEdit(null); return; }
+    if (t.closest('[data-pa-import]')) { openModal($('#paImport')); return; }
+    var ir = t.closest('[data-pa-import-reset]');
+    if (ir) { var again = ir.dataset.paImportReset === 'again'; refresh(function () { if (again) openModal($('#paImport')); }).catch(function () { location.href = '/programs/admin'; }); return; }
+    var ta = t.closest('[data-pa-tabs] a[data-tab]');
+    if (ta && curView() === '' && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      e.preventDefault();
+      $$('[data-pa-tabs] a').forEach(function (a) { a.classList.toggle('on', a === ta); if (a === ta) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+      var u = new URL(ta.href, location.href); goView(ta.dataset.tab, u.searchParams.get('year'), unit); return;
+    }
+    var yb = t.closest('[data-pa-years] [data-y]');
+    if (yb) { pickYear(yb.dataset.y); return; }
+    var tl = t.closest('a.pa-tr');
+    if (tl && !e.metaKey && !e.ctrlKey) { e.preventDefault(); pickYear(new URL(tl.href, location.href).searchParams.get('year')); return; }
+    var uf = t.closest('[data-pa-unfold]');
+    if (uf) {
+      var tg = document.getElementById(uf.dataset.paUnfold); uf.dataset.lab = uf.dataset.lab || uf.textContent;
+      tg.hidden = !tg.hidden; uf.setAttribute('aria-expanded', tg.hidden ? 'false' : 'true');
+      uf.textContent = tg.hidden ? uf.dataset.lab : uf.dataset.lab.replace(/펼치기|보기|고르기$/, '접기').replace(/^고급 — 문서 번호로 접기$/, '고급 접기'); return;
+    }
+    var nr = t.closest('[data-pa-notes-read]');
+    if (nr) { fetch('/programs/admin/notes/read', {method: 'POST', credentials: 'same-origin'}).then(function () { var s = nr.closest('[data-pa-notes]'); if (s) s.remove(); }); return; }
+    var eh = t.closest('[data-pa-e-hide]');
+    if (eh) { dirty = false; eBox.classList.remove('open'); openHide(eh.dataset.key, eh.dataset.name); return; }
+  });
+  // 연도 — ←→·Home·End 로 옮기면 바로 그 해(라디오 묶음)
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closePops(null);
+    var b = e.target.closest && e.target.closest('[data-pa-years] [data-y]'); if (!b) return;
+    var all = $$('[data-pa-years] [data-y]'), i = all.indexOf(b), n = -1;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') n = Math.min(all.length - 1, i + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') n = Math.max(0, i - 1);
+    else if (e.key === 'Home') n = 0; else if (e.key === 'End') n = all.length - 1;
+    if (n < 0 || n === i) return;
+    e.preventDefault(); all[n].focus(); pickYear(all[n].dataset.y);
+  });
+  document.addEventListener('pointerenter', function (e) {     // 올려 두면 미리 받아 둔다 — 누르면 바로 바뀐다
+    var b = e.target.closest && e.target.closest('[data-pa-years] [data-y]'); if (!b || b.getAttribute('aria-checked') === 'true') return;
+    var p = viewParams(); p.set('year', b.dataset.y); load('/programs/admin?' + p.toString(), true).catch(function () {});
+  }, true);
+  document.addEventListener('input', function (e) { if (e.target.matches && e.target.matches('[data-pa-q]')) apply(); });
+  document.addEventListener('change', function (e) {
+    var i = e.target; if (!i.matches) return;
+    if (i.matches('[data-pa-src]')) { F.src = i.checked ? 'noexcel' : ''; apply(); }
+    else if (i.matches('[data-pa-group]')) { shown[i.dataset.paGroup] = i.checked; table.classList.toggle('show-' + i.dataset.paGroup, i.checked); ls('pa.cols.' + tid, shown); sizeTable(); }
+    else if (i.matches('[data-pa-col]')) { shown[i.dataset.paCol] = i.checked; table.classList.toggle('hide-' + i.dataset.paCol, !i.checked); ls('pa.cols.' + tid, shown); sizeTable(); }
+    else if (i.matches('[data-pa-l3]')) { if (table) table.classList.toggle('show-l3', i.checked); }
+    else if (i.matches('[data-pa-files]')) showFiles(i);
+  });
+
+  // ---------- 저장·합치기·빼기·되돌리기·잇기·가져오기 — 보내고 결과를 제자리에 갈아 끼운다(스크롤·거르기·펼침 그대로)
+  function unbusy(f) {
+    $$('button[data-orig]', f).concat(f.id ? $$('button[form="' + f.id + '"][data-orig]') : []).forEach(function (b) { b.innerHTML = b.dataset.orig; delete b.dataset.orig; b.disabled = false; });
+  }
+  function act(f, submitter) {
+    var fd = new FormData(f); if (submitter && submitter.name) fd.append(submitter.name, submitter.value);
+    var box = f.closest('.modal-back'), inDetail = box && box.id === 'paDetail', inImport = box && box.id === 'paImport', inLink = box && box.id === 'paLink';
+    var key = f.key ? f.key.value : '', keepKey = inDetail ? dKey : key;
+    fetch(f.action, {method: 'POST', body: fd, credentials: 'same-origin'}).then(function (r) {
+      return r.text().then(function (t) { return {ok: r.ok, html: t, url: r.url}; });
+    }).then(function (res) {
+      var u = new URL(res.url, location.href);
+      if (!/^\/programs\/admin(\/|$)/.test(u.pathname)) { location.href = res.url; return; }   // 새 프로젝트 등 다른 화면으로 가는 결과
+      if (!res.ok) throw res;
+      cache = {}; unbusy(f);
+      var err = u.searchParams.get('err'), hl = u.searchParams.get('row');
+      if (err && box && !inDetail) {
+        var fe = $('.ferr', box) || $('[data-pa-import-err]', box);
+        if (fe) { fe.textContent = err; return; }
+      }
+      if (u.pathname !== '/programs/admin') { swap(res.html, {only: ['import']}); return; }   // 가져오기 미리보기 — 창만
+      var done = function (html) {
+        swap(html, {keepScroll: true}); syncUrl();
+        if (box && !inDetail && !inImport && !inLink) box.classList.remove('open');
+        var tr = keepKey && rowByKey(keepKey);
+        if (inDetail && tr) showDetail(tr);
+        else if (inLink && tr) openLink(tr, true);
+        if (hl) flash(rowByKey(hl));
+      };
+      if (curView()) {                                   // 신청·뺀 사업 목록에서 — 그 목록을 결과 글과 함께 다시
+        var p = new URLSearchParams({view: curView()}); ['ok', 'err'].forEach(function (k) { if (u.searchParams.get(k)) p.set(k, u.searchParams.get(k)); });
+        return load('/programs/admin?' + p.toString(), false).then(function (r2) { done(r2.html); });
+      }
+      done(res.html);
+    }).catch(function () { unbusy(f); HTMLFormElement.prototype.submit.call(f); });
+  }
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (e.defaultPrevented || (f.method || '').toLowerCase() !== 'post') return;
+    if (!/^\/programs\/admin\//.test(new URL(f.action, location.href).pathname)) return;
+    if (f.id === 'paSheetForm') {
+      var fin = $('[data-pa-files]', f), any = (fin && fin.files.length) || f.querySelector('input[name=doc]:checked') || (f.doc_ids && f.doc_ids.value.trim());
+      if (!any) { e.preventDefault(); unbusy(f); $('[data-pa-import-err]').textContent = '파일을 고르거나 문서를 골라 주세요'; return; }
+    }
+    e.preventDefault(); act(f, e.submitter);
+  });
   // ---------- 세부정보(가운데 창) — 줄을 누르면, ←→ 로 앞뒤 사업
-  var dlg = document.getElementById('paDetail'), dBody = dlg.querySelector('[data-pa-d-body]'), dIdx = -1;
+  var dlg = document.getElementById('paDetail'), dBody = dlg.querySelector('[data-pa-d-body]'), dIdx = -1, dKey = '';
   function openModal(m) { m.classList.add('open'); try { history.pushState({zzaimyModal: true}, ''); } catch (e) {} }
   function visibleRows() { return rows.filter(function (r) { return !r.hidden; }); }
   function list(a) { return (a && a.length) ? a.map(esc).join(', ') : '<span class="muted">—</span>'; }
@@ -974,7 +1166,7 @@
     box.style.display = 'inline-flex'; box.style.gap = '8px';
   }
   function showDetail(tr) {
-    var vis = visibleRows(); dIdx = vis.indexOf(tr);
+    var vis = visibleRows(); dIdx = vis.indexOf(tr); dKey = tr.dataset.key;
     rows.forEach(function (x) { x.classList.remove('hl'); });
     dBody.innerHTML = '<p class="pa-empty">불러오는 중</p>';
     if (!dlg.classList.contains('open')) openModal(dlg);
@@ -989,17 +1181,10 @@
     if (!dlg.classList.contains('open') || /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || ''))) return;
     if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); } else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
   });
-  rows.forEach(function (tr) {
-    tr.addEventListener('click', function (e) { if (e.target.closest('a, button, form, .pa-menu, input')) return; showDetail(tr); });
-    tr.querySelectorAll('[data-pa-edit-open]').forEach(function (b) { b.addEventListener('click', function () { closePops(null); openEdit(tr); }); });
-    tr.querySelectorAll('[data-pa-req-open]').forEach(function (b) { b.addEventListener('click', function () { closePops(null); openReq(tr, b.dataset.paReqOpen); }); });
-    tr.querySelectorAll('[data-pa-link-open]').forEach(function (b) { b.addEventListener('click', function () { closePops(null); openLink(tr); }); });
-    tr.querySelectorAll('[data-pa-merge-open]').forEach(function (b) { b.addEventListener('click', function () { closePops(null); openMerge(tr); }); });
-  });
 
   // ---------- 프로젝트 연결
   var linkBox = document.getElementById('paLink');
-  function openLink(tr) {
+  function openLink(tr, again) {
     var d = JSON.parse(tr.dataset.edit), can = JSON.parse(tr.dataset.can || '{}');
     linkBox.querySelectorAll('input[name=key]').forEach(function (i) { i.value = d.key; });
     linkBox.querySelector('[data-pa-link-name]').textContent = d.name;
@@ -1009,25 +1194,7 @@
         + '<button type="submit" class="pa-b ghost" style="height:24px;">끊기</button></form></li>';
     }).join('') || '<li class="muted">이어진 프로젝트가 없습니다</li>';
     var np = linkBox.querySelector('[data-pa-newproj]'); if (np) np.hidden = !can.new;
-    openModal(linkBox);
-  }
-
-  // ---------- 합치기
-  var mergeBox = document.getElementById('paMerge');
-  function openMerge(tr) {
-    if (!mergeBox) return; var d = JSON.parse(tr.dataset.edit);
-    mergeBox.querySelector('[name=key]').value = d.key; mergeBox.querySelector('[data-pa-merge-name]').textContent = d.name;
-    mergeBox.querySelector('[data-pa-merge-into]').value = ''; mergeBox.querySelector('[name=into]').value = '';
-    openModal(mergeBox);
-  }
-  if (mergeBox) {
-    mergeBox.querySelector('form').addEventListener('submit', function (e) {
-      var nm = mergeBox.querySelector('[data-pa-merge-into]').value.trim(), key = '';
-      document.querySelectorAll('#paRowsList option').forEach(function (o) { if (o.value === nm) key = o.dataset.key; });
-      var err = mergeBox.querySelector('[data-pa-merge-err]');
-      if (!key || key === mergeBox.querySelector('[name=key]').value) { e.preventDefault(); err.textContent = '목록에서 다른 사업을 골라 주세요'; return; }
-      mergeBox.querySelector('[name=into]').value = key; err.textContent = '';
-    });
+    if (!again) openModal(linkBox);
   }
 
   // ---------- 신청
@@ -1233,10 +1400,9 @@
     ['heads', 'leads', 'clerks'].forEach(function (k) { var el = eBox.querySelector('[data-pa-pp="' + k + '"]'); if (el && window.PeoplePicker) PeoplePicker.set(el, (r.who || {})[k] || []); });
     document.querySelector('[data-pa-title]').textContent = r.key ? r.name : '줄 추가';
     eBox.querySelector('[data-pa-e-meta]').innerHTML = r.key ? '<span class="pa-src src-' + esc(r.origin) + '">' + esc({excel: '엑셀', ledger: '문서에서 찾음', added: '직접 더함'}[r.origin] || '') + '</span>' : '';
-    var hf = eBox.querySelector('[data-pa-e-hide]'); if (hf) { hf.hidden = !r.key; hf.querySelector('[name=key]').value = r.key || ''; }
+    var hf = eBox.querySelector('[data-pa-e-hide]'); if (hf) { hf.hidden = !r.key; hf.dataset.key = r.key || ''; hf.dataset.name = r.name || ''; }
     openModal(eBox); setTimeout(function () { cur0 = true; }, 0); form.name.focus();
   }
-  var add = document.querySelector('[data-pa-new]'); if (add) add.addEventListener('click', function () { openEdit(null); });
   // 부서 자동완성 — 부서 사전 API 가 있으면 그것으로(없으면 표의 부서 목록)
   document.addEventListener('input', function (e) {
     var i = e.target; if (!i.matches || !i.matches('[data-pa-dept]') || i.value.trim().length < 1) return;
@@ -1248,26 +1414,95 @@
     }, 200);
   });
 
-  // ---------- 가져오기 — 끌어 놓기
-  var drop = document.querySelector('[data-pa-drop]');
-  if (drop) {
-    var fin = drop.querySelector('[data-pa-files]'), fl = document.querySelector('[data-pa-filelist]');
-    function showFiles() { fl.innerHTML = Array.prototype.map.call(fin.files, function (f) { return '<li>' + esc(f.name) + ' <span class="muted">' + Math.max(1, Math.round(f.size / 1024)) + 'KB</span></li>'; }).join(''); }
-    fin.addEventListener('change', showFiles);
-    ['dragenter', 'dragover'].forEach(function (k) { drop.addEventListener(k, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
-    ['dragleave', 'drop'].forEach(function (k) { drop.addEventListener(k, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
-    drop.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files.length) { fin.files = e.dataTransfer.files; showFiles(); } });
-    document.getElementById('paSheetForm').addEventListener('submit', function (e) {
-      var f = e.target, any = fin.files.length || f.querySelector('input[name=doc]:checked') || (f.doc_ids && f.doc_ids.value.trim());
-      if (!any) { e.preventDefault(); document.querySelector('[data-pa-import-err]').textContent = '파일을 고르거나 문서를 골라 주세요'; }
+
+  // ---------- 다른 사업과 합치기 — 고르면 미리보기(남는 사업·옮겨 가는 것), 확인해야 합친다
+  var mBox = document.getElementById('paMerge'), mg = {src: null, list: [], sel: -1}, targets = [];
+  try { targets = JSON.parse(($('#paTargets') || {}).textContent || '[]'); } catch (e) {}
+  function grams(s) { s = String(s || '').replace(/\s+/g, '').toLowerCase(); var o = {}; for (var i = 0; i < s.length - 1; i++) o[s.substr(i, 2)] = 1; return o; }
+  function sim(a, b) { var A = grams(a), B = grams(b), n = 0, t = 0, k; for (k in A) { t++; if (B[k]) n++; } for (k in B) t++; return t ? 2 * n / t : 0; }
+  function mgShowPick(on) { $('[data-pa-mg-pick]', mBox).hidden = !on; $('[data-pa-mg-plan]', mBox).hidden = on; $('[data-pa-mg-go]', mBox).disabled = true; $('[data-pa-merge-err]', mBox).textContent = ''; }
+  function mgList() {
+    var q = $('[data-pa-merge-q]', mBox).value.trim().toLowerCase(), src = mg.src;
+    var cand = targets.filter(function (t) { return t.key !== src.key; });
+    if (q) cand = cand.filter(function (t) { return [t.name, t.dept].concat(t.terms || []).join(' ').toLowerCase().indexOf(q) >= 0; });
+    cand = cand.map(function (t) { return {t: t, s: sim(src.name, t.name)}; }).sort(function (a, b) { return b.s - a.s || a.t.name.localeCompare(b.t.name); })
+      .slice(0, q ? 40 : 8).map(function (x) { return x.t; });
+    mg.list = cand; mg.sel = cand.length ? 0 : -1;
+    $('[data-pa-mg-list]', mBox).innerHTML = cand.map(function (t, i) {
+      var sub = [t.dept, t.span, t.past ? '지난 사업' : ''].filter(Boolean).join(' · ');
+      return '<li role="option" id="paMgO' + i + '" data-i="' + i + '" aria-selected="false"><span class="nm">' + esc(t.name) + '</span>' + (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</li>';
+    }).join('') || '<li class="none" role="presentation">맞는 사업이 없습니다</li>';
+    mgPaint();
+  }
+  function mgPaint() {
+    $$('[data-pa-mg-list] [role=option]', mBox).forEach(function (li) { var on = +li.dataset.i === mg.sel; li.setAttribute('aria-selected', on ? 'true' : 'false'); if (on) li.scrollIntoView({block: 'nearest'}); });
+    $('[data-pa-merge-q]', mBox).setAttribute('aria-activedescendant', mg.sel >= 0 ? 'paMgO' + mg.sel : '');
+  }
+  function won(n) { return n == null ? '—' : money(n); }
+  function mgPlan(dst) {
+    mgShowPick(false);
+    var f = $('#paMergeForm'); f.key.value = mg.src.key; f.into.value = dst.key;
+    $('[data-pa-mg-dst]', mBox).textContent = dst.name; $('[data-pa-mg-src]', mBox).textContent = mg.src.name;
+    $('[data-pa-mg-dsts]', mBox).textContent = ''; $('[data-pa-mg-srcs]', mBox).textContent = '';
+    var bodyEl = $('[data-pa-mg-body]', mBox); bodyEl.innerHTML = '<p class="pa-empty">불러오는 중</p>';
+    fetch('/programs/admin/merge/preview?key=' + encodeURIComponent(mg.src.key) + '&into=' + encodeURIComponent(dst.key), {credentials: 'same-origin', headers: {Accept: 'application/json'}})
+      .then(function (r) { if (!r.ok) throw r; return r.json(); }).then(function (d) {
+        if (d.error) { bodyEl.innerHTML = ''; $('[data-pa-merge-err]', mBox).textContent = d.error; return; }
+        var side = function (x) { return [x.dept, x.years.length ? x.years[0] + (x.years.length > 1 ? '~' + x.years[x.years.length - 1] : '') + '년 값' : '연도 값 없음'].filter(Boolean).join(' · '); };
+        $('[data-pa-mg-dsts]', mBox).textContent = side(d.dst); $('[data-pa-mg-srcs]', mBox).textContent = side(d.src);
+        var h = '<section><h3>별칭으로 붙는 이름</h3>' + (d.aliases.length ? '<div class="pa-chiprow">' + d.aliases.map(function (a) { return '<span class="pa-st">' + esc(a) + '</span>'; }).join('') + '</div>' : '<p class="pa-empty">없음</p>') + '</section>';
+        h += '<section><h3>연도 값</h3>' + (d.years.length ? '<table class="pa-mini"><thead><tr><th>연도</th><th>옮기기</th><th class="n">빠지는 줄</th><th class="n">남는 사업</th><th class="n">합친 뒤</th></tr></thead><tbody>'
+          + d.years.map(function (y) { return '<tr><td>' + esc(y.year) + '</td><td>' + (y.how === 'add' ? '금액 더함' : '그대로 옮김') + '</td><td class="n">' + esc(won(y.src)) + '</td><td class="n">' + esc(won(y.dst)) + '</td><td class="n">' + esc(won(y.after)) + '</td></tr>'; }).join('')
+          + '</tbody></table>' : '<p class="pa-empty">없음</p>') + '</section>';
+        var rl = {heads: '총괄 책임자', leads: '사업 책임자', clerks: '행정 담당자'}, rh = Object.keys(rl).filter(function (k) { return d.roles[k].length; });
+        if (rh.length) h += '<section><h3>지정</h3><dl class="pa-dl">' + rh.map(function (k) { return '<dt>' + rl[k] + '</dt><dd>' + d.roles[k].map(esc).join(', ') + '</dd>'; }).join('') + '</dl></section>';
+        h += '<section><h3>이어진 프로젝트</h3>' + (d.projects.length ? '<ul class="pa-log">' + d.projects.map(function (p) { return '<li><span class="c">' + esc(p.name) + '</span><span class="w">' + esc(p.year) + '</span></li>'; }).join('') + '</ul>' : '<p class="pa-empty">없음</p>') + '</section>';
+        bodyEl.innerHTML = h; $('[data-pa-mg-go]', mBox).disabled = false;
+      }).catch(function () { bodyEl.innerHTML = '<p class="pa-empty">불러오지 못했습니다</p>'; });
+  }
+  function openMerge(tr) {
+    if (!mBox || !tr) return; mg.src = {key: tr.dataset.key, name: tr.dataset.name};
+    $('[data-pa-merge-name]', mBox).textContent = tr.dataset.name;
+    var q = $('[data-pa-merge-q]', mBox); q.value = ''; mgShowPick(true); mgList();
+    openModal(mBox); setTimeout(function () { q.focus(); }, 0);
+  }
+  if (mBox) {
+    var mq = $('[data-pa-merge-q]', mBox);
+    mq.addEventListener('input', mgList);
+    mq.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (mg.list.length) { mg.sel = (mg.sel + (e.key === 'ArrowDown' ? 1 : -1) + mg.list.length) % mg.list.length; mgPaint(); } }
+      else if (e.key === 'Enter') { e.preventDefault(); if (mg.sel >= 0) mgPlan(mg.list[mg.sel]); }
     });
+    $('[data-pa-mg-list]', mBox).addEventListener('click', function (e) { var li = e.target.closest('[role=option]'); if (li) mgPlan(mg.list[+li.dataset.i]); });
+    $('[data-pa-mg-repick]', mBox).addEventListener('click', function () { mgShowPick(true); mq.focus(); });
+    $('#paMergeForm').addEventListener('submit', function (e) { if (!this.into.value || $('[data-pa-mg-go]', mBox).disabled) { e.preventDefault(); unbusy(this); } });
   }
 
+  // ---------- 목록에서 빼기 — 까닭 하나 고르기
+  var hBox = document.getElementById('paHide');
+  function openHide(key, name) {
+    if (!hBox || !key) return; var f = $('#paHideForm'); f.key.value = key; $('[data-pa-hide-name]', hBox).textContent = name || '';
+    var r = $$('input[name=reason]', f); r.forEach(function (x, i) { x.checked = i === 0; });
+    openModal(hBox); setTimeout(function () { var b = $('button[form="paHideForm"]'); if (b) b.focus(); }, 0);
+  }
+
+  // ---------- 가져오기 — 끌어 놓기(창은 결과에 따라 갈아 끼우므로 문서에 건다)
+  function showFiles(fin) { var fl = $('[data-pa-filelist]'); if (fl) fl.innerHTML = Array.prototype.map.call(fin.files, function (f) { return '<li>' + esc(f.name) + ' <span class="muted">' + Math.max(1, Math.round(f.size / 1024)) + 'KB</span></li>'; }).join(''); }
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(function (k) {
+    document.addEventListener(k, function (e) {
+      var drop = e.target.closest && e.target.closest('[data-pa-drop]'); if (!drop) return;
+      e.preventDefault(); drop.classList.toggle('over', k === 'dragenter' || k === 'dragover');
+      if (k === 'drop' && e.dataTransfer && e.dataTransfer.files.length) { var fin = $('[data-pa-files]', drop); fin.files = e.dataTransfer.files; showFiles(fin); }
+    });
+  });
+
   // ---------- 처음 상태 — 거르기 적용, 찾은 사업이 하나면 세부정보, 저장한 줄 강조
-  var n = apply();
-  if (here.get('q') && n === 1) showDetail(visibleRows()[0]);
-  var hl = here.get('row');
-  if (hl) rows.forEach(function (r) { if (r.dataset.key === hl) { r.classList.add('hl'); r.scrollIntoView({block: 'center'}); setTimeout(function () { r.classList.remove('hl'); }, 1600); } });
+  bindMain();
+  if (qIn) qIn.value = q0;
+  var n0 = apply();
+  if (main) remember();
+  if (here.get('q') && n0 === 1) showDetail(visibleRows()[0]);
+  var hl0 = here.get('row'); if (hl0) flash(rowByKey(hl0));
 })();
 </script>
 {% endblock %}

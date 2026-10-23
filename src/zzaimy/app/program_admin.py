@@ -23,11 +23,13 @@
 
 화면: GET /programs/admin · 줄 상세 GET /programs/admin/row · 내려받기 GET /programs/admin.csv · 연도 엑셀 GET /programs/admin.xlsx ·
 저장 POST /programs/admin/save ·
-숨기기 POST /programs/admin/hide · 프로젝트 잇기·끊기 POST /programs/admin/link · 새 프로젝트 POST /programs/admin/new-project
+목록에서 빼기·다시 넣기 POST /programs/admin/hide · 합치기 미리보기 GET /programs/admin/merge/preview · 합치기 POST /programs/admin/merge ·
+떼어 내기 POST /programs/admin/unmerge · 프로젝트 잇기·끊기 POST /programs/admin/link · 새 프로젝트 POST /programs/admin/new-project
 엑셀에서 채우기(관리자): 미리보기 POST /programs/admin/sheet/preview · 적용 POST /programs/admin/sheet/apply
 """
 from __future__ import annotations
 
+import copy
 import csv
 import hashlib
 import io
@@ -321,6 +323,7 @@ def _choices(accounts: dict, scope: str, acct: dict) -> tuple[list[dict], list[d
 
 
 def _back(msg: str, ok: bool = True, anchor: str = "") -> RedirectResponse:
+    """결과 글을 붙여 사업 관리로 — 갈래·연도는 쿠키(pa_view)로 보던 대로 연다."""
     return RedirectResponse(f"/programs/admin?{'ok' if ok else 'err'}={quote(msg)}{anchor}", status_code=303)
 
 
@@ -626,6 +629,18 @@ def _edit_years(r: dict) -> dict:
     return out
 
 
+def merge_targets(rows: list[dict]) -> list[dict]:
+    """합칠 곳 고르기 목록 — 목록에 보이는(빼지 않은) 모든 갈래의 사업. 이름·별칭·부서·연도로 찾는다."""
+    out = []
+    for r in sorted(rows, key=lambda x: x["name"]):
+        if r["hidden"]:
+            continue
+        a, b = row_span(r)
+        out.append({"key": r["key"], "name": r["name"], "dept": r.get("dept") or "", "terms": [t for t in r["terms"] if t != r["name"]][:6],
+                    "span": (f"{a}~{b or ''}" if a and a != b else str(a or "")), "past": r.get("stage") == "past"})
+    return out
+
+
 def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str = "", ok: str = "", err: str = "",
           sheet: dict | None = None, unit: str = "auto", view_: str = "", done: dict | None = None):
     """사업 관리 — 세 갈래(전체·현행·지난)와 연도 알약. 연도를 고르면 그해 진행한 사업만, 엑셀과 같은 묶음의 연도별 표로 보인다.
@@ -693,6 +708,21 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
         q["before"] = _req_before(r, q, name_of)
         q["after"] = _req_after(q, name_of)
         q["by_label"] = name_of.get(q.get("by"), q.get("by"))
+    removed = []
+    if scope == "all":                                     # 뺀 사업·합친 사업 — 되살리기·떼어 내기
+        name_by_key = {r["key"]: r["name"] for r in rows}
+        for r in rows:
+            if not r["hidden"]:
+                continue
+            o = store["rows"].get(r["key"]) or {}
+            last = next((e for e in reversed(r["log"]) if e.get("field") in ("hidden", "합치기")), {})
+            why = HIDE_REASONS.get(o.get("hide_reason") or "", "사업 아님" if r["not_program"] else "")
+            removed.append({"key": r["key"], "name": r["name"], "kind": "merged" if r["merged_into"] else "hidden",
+                            "into": r["merged_into"], "into_name": name_by_key.get(r["merged_into"], r["merged_into"]),
+                            "reason": why, "note": o.get("hide_note") or "", "at": last.get("at", ""),
+                            "by": name_of.get(last.get("by"), last.get("by")) if last.get("by") else "",
+                            "undo_full": bool(o.get("merge_undo"))})
+        removed.sort(key=lambda x: x["at"], reverse=True)
     notes = [n for n in (store.get("notes") or {}).get(user, []) if not n.get("seen")]
     may_import = scope == "all" or (scope == "dept" and bool(covered(acct)))
     good_docs, other_docs = (sheet_docs(st.db, st.data_dir) if may_import else ([], []))
@@ -712,15 +742,39 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
         "ysum": ysum, "foot": foot, "basis": basis, "trend": [] if sel else year_trend(S["in_tab"]),
         "split": program_sheet.SPLIT, "view": view_, "reqs": my_reqs, "n_wait": sum(1 for q in reqs if q["status"] == "wait"),
         "n_mine": sum(1 for q in reqs if q.get("by") == user), "notes": notes, "req_fields": REQ_FIELDS,
-        "all_rows": [{"key": x["key"], "name": x["name"]} for x in sorted(S["in_tab"], key=lambda x: x["name"]) if not x["hidden"]] if scope == "all" else [],
+        "all_rows": merge_targets(rows) if scope == "all" else [], "removed": removed,
+        "hide_reasons": HIDE_REASONS,
         "me": user, "ok": ok, "err": err, "me_dept": my_dept(acct)}))
 
 
+VIEW_COOKIE = "pa_view"
+
+
+def remembered_view(request: Request) -> dict:
+    """쿠키 pa_view(「갈래.연도.단위」, 화면이 갈래·연도·단위를 바꿀 때 적는다) — 주소에 갈래·연도가 없으면 보던 대로 연다.
+    예전에는 화면을 그린 뒤 스크립트가 기억한 연도로 주소를 바꿔 다시 불러 한 번 깜빡였다."""
+    parts = (request.cookies.get(VIEW_COOKIE) or "").split(".")
+    out = {}
+    if len(parts) == 3:
+        tab, year, unit = parts
+        if tab in TABS:
+            out["tab"] = tab
+        if year.isdigit() and len(year) in (1, 4):
+            out["year"] = year
+        if unit in program_sheet.UNITS:
+            out["unit"] = unit
+    return out
+
+
 @router.get("/programs/admin", response_class=HTMLResponse)
-def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = "", tab: str = "current", year: str = "",
-                   unit: str = "auto", view: str = "", done: str = "", h: str = ""):
+def programs_admin(request: Request, ok: str = "", err: str = "", hidden: str = "", tab: str = "", year: str = "",
+                   unit: str = "", view: str = "", done: str = "", h: str = ""):
     d = {"stamp": done, "h": h} if done and h else None
-    return _page(request, tab=tab, year=year, hidden=hidden, ok=ok, err=err, unit=unit, view_=view, done=d)
+    mem = remembered_view(request)
+    if not tab and not year:
+        tab, year = mem.get("tab", "current"), mem.get("year", "")
+    unit = unit or mem.get("unit", "auto")
+    return _page(request, tab=tab or "current", year=year, hidden=hidden, ok=ok, err=err, unit=unit, view_=view, done=d)
 
 
 def year_lines(rows: list[dict], year: int) -> list[dict]:
@@ -1091,52 +1145,121 @@ def _admin(request: Request) -> tuple[str, dict]:
     return user, acct
 
 
+HIDE_REASONS = {"not_program": "사업 아님", "dup": "중복", "ended": "끝난 사업", "other": "그 밖"}
+
+
 @router.post("/programs/admin/hide")
-def programs_admin_hide(request: Request, key: str = Form(""), hidden: str = Form("1"), not_program: str = Form("")):
-    """숨기기·다시 보이기(관리자). not_program=1 이면 「사업 아님」으로 숨긴다 — 그 이름은 다음 가져오기에서도 건너뛴다."""
+def programs_admin_hide(request: Request, key: str = Form(""), hidden: str = Form("1"), not_program: str = Form(""),
+                        reason: str = Form("")):
+    """목록에서 빼기·다시 넣기(관리자). reason 은 사업 아님·중복·끝난 사업·그 밖(HIDE_REASONS). 「사업 아님」은 다음 가져오기에서도
+    그 이름을 건너뛴다. 옛 꼴 not_program=1 도 「사업 아님」으로 받는다. 뺀 줄은 「뺀 사업」 목록에서 다시 넣는다."""
     user, _ = _admin(request)
     st = request.app.state
     store = load_store(st.data_dir)
     rows = {r["key"]: r for r in merged_rows(st.data_dir, store=store)}
     if key not in rows:
         raise HTTPException(404, "사업을 찾을 수 없습니다")
+    if rows[key]["merged_into"]:
+        return _back("합친 줄은 「뺀 사업」 목록에서 떼어 냅니다", ok=False)
+    reason = reason if reason in HIDE_REASONS else ("not_program" if not_program else "")
     o = store["rows"].setdefault(key, {})
+    name = rows[key]["name"]
     if hidden == "1":
         o["hidden"] = True
-        if not_program:
+        if reason == "not_program":
             o["not_program"] = True
-        program_sheet.add_log(o, user, "hidden", "", "사업 아님으로 숨김" if not_program else "숨김", "직접")
-    else:
-        o.pop("hidden", None)
-        o.pop("not_program", None)
-        program_sheet.add_log(o, user, "hidden", "숨김", "보임", "직접")
+        else:
+            o.pop("not_program", None)
+        if reason:
+            o["hide_reason"] = reason
+        else:
+            o.pop("hide_reason", None)
+        why = HIDE_REASONS.get(reason, "")
+        program_sheet.add_log(o, user, "hidden", "", f"목록에서 뺌({why})" if why else "목록에서 뺌", "직접")
+        save_store(store, st.data_dir)
+        return _back(f"「{name}」을 목록에서 뺐습니다" + (f"({why})" if why else ""))
+    for f in ("hidden", "not_program", "hide_reason", "hide_note"):
+        o.pop(f, None)
+    program_sheet.add_log(o, user, "hidden", "목록에서 뺌", "다시 넣음", "직접")
     save_store(store, st.data_dir)
-    what = "사업 아님으로 숨겼습니다" if hidden == "1" and not_program else ("숨겼습니다" if hidden == "1" else "다시 보이게 했습니다")
-    return _back(f"「{rows[key]['name']}」 줄을 {what}")
+    return _back(f"「{name}」을 목록에 다시 넣었습니다", anchor=f"&row={quote(key)}")
 
 
-@router.post("/programs/admin/merge")
-def programs_admin_merge(request: Request, key: str = Form(""), into: str = Form("")):
-    """같은 사업으로 합치기(관리자) — key 줄을 into 줄의 별칭으로: 연도 값(없는 해는 옮기고, 겹치는 해는 세부 과제를 잇고 금액을 더함)·
-    지정·이은 프로젝트를 옮기고 원래 줄은 숨긴다. 두 줄 모두 변경 기록에 남긴다."""
-    user, _ = _admin(request)
+def _fp(o: dict) -> str:
+    """받은 줄 저장값의 지문 — 합친 뒤 그대로인지(떼어 낼 때 받은 줄까지 되돌려도 되는지) 본다."""
+    part = {f: o.get(f) for f in ("years", "terms_add", *ROLES)}
+    return hashlib.sha256(json.dumps(part, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def merge_plan(src: dict, dst: dict, name_of=None) -> dict:
+    """합치기 미리보기 — 남는 줄(dst)과 옮겨 갈 것: 별칭, 연도 값(없는 해는 옮기고 겹치는 해는 금액을 더하고 세부 과제를 잇는다),
+    지정 계정, 이은 프로젝트(link_projects 를 먼저 부른 src 의 plist)."""
+    name_of = name_of or {}
+    have = {dst["name"], *dst["terms"]}
+    aliases = [t for t in dict.fromkeys([src["name"], *src["terms"]]) if t and t not in have]
+    years = []
+    for y in sorted(src["years"]):
+        sm = program_sheet.year_money(src["years"][y])["budget"]
+        dm = program_sheet.year_money(dst["years"][y])["budget"] if y in dst["years"] else None
+        years.append({"year": y, "how": "add" if y in dst["years"] else "move", "src": sm, "dst": dm,
+                      "after": (sm or 0) + (dm or 0) if (sm is not None or dm is not None) else None})
+    roles = {f: [name_of.get(u, u) for u in src[f] if u not in dst[f]] for f in ROLES}
+    side = lambda r: {"key": r["key"], "name": r["name"], "dept": r.get("dept") or "",
+                      "years": sorted(r["years"]), "terms": [t for t in r["terms"] if t != r["name"]][:8]}
+    return {"src": side(src), "dst": side(dst), "aliases": aliases, "years": years, "roles": roles,
+            "projects": [{"id": p["id"], "name": p["name"], "year": p.get("year") or ""} for p in src.get("plist") or []]}
+
+
+def _merge_pair(request: Request, key: str, into: str):
     st = request.app.state
     store = load_store(st.data_dir)
     rows = {r["key"]: r for r in merged_rows(st.data_dir, store=store)}
     src, dst = rows.get(key), rows.get(into)
     if src is None or dst is None or key == into:
-        return _back("합칠 두 사업을 골라 주세요", ok=False)
+        return store, src, dst, "합칠 두 사업을 골라 주세요"
+    if src["merged_into"]:
+        return store, src, dst, "이미 다른 사업에 합친 줄입니다"
     if dst["merged_into"]:
-        return _back("이미 다른 줄에 합쳐진 줄로는 합치지 않습니다", ok=False)
+        return store, src, dst, "이미 다른 줄에 합쳐진 줄로는 합치지 않습니다"
+    return store, src, dst, ""
+
+
+@router.get("/programs/admin/merge/preview")
+def programs_admin_merge_preview(request: Request, key: str = "", into: str = ""):
+    """합치기 미리보기(관리자) — 저장하지 않는다."""
+    _admin(request)
+    st = request.app.state
+    _, src, dst, bad = _merge_pair(request, key, into)
+    if bad:
+        return {"error": bad}
+    link_projects(st.db, [src])
+    accounts = getattr(st, "accounts", None) or {}
+    name_of = _NameOf({u: ((a.get("name") or "").strip() or u) for u, a in accounts.items()})
+    return merge_plan(src, dst, name_of)
+
+
+@router.post("/programs/admin/merge")
+def programs_admin_merge(request: Request, key: str = Form(""), into: str = Form("")):
+    """다른 사업과 합치기(관리자) — key 줄을 into 줄의 별칭으로: 연도 값(없는 해는 옮기고, 겹치는 해는 세부 과제를 잇고 금액을 더함)·
+    지정·이은 프로젝트를 옮기고 원래 줄은 목록에서 뺀다. 떼어 내기(unmerge)에 쓸 앞 값(merge_undo)을 남기고 두 줄 모두 변경 기록에 남긴다."""
+    user, _ = _admin(request)
+    st = request.app.state
+    store, src, dst, bad = _merge_pair(request, key, into)
+    if bad:
+        return _back(bad, ok=False)
     so, do = store["rows"].setdefault(key, {}), store["rows"].setdefault(into, {})
+    before = {f: copy.deepcopy(do[f]) for f in ("years", "terms_add", *ROLES) if f in do}
+    undo = {"into": into, "at": time.strftime("%Y-%m-%d %H:%M"), "by": user, "src_years": copy.deepcopy(so.get("years") or {}),
+            "src_roles": {f: copy.deepcopy(so[f]) for f in ROLES if f in so}, "dst_before": before,
+            "aliases": [t for t in dict.fromkeys([src["name"], *src["terms"]]) if t not in (do.get("terms_add") or [])], "projects": []}
     do["terms_add"] = list(dict.fromkeys([*(do.get("terms_add") or []), src["name"], *src["terms"]]))
     dys = do.setdefault("years", {})
     for y, v in (so.get("years") or {}).items():
         if y not in dys:
-            dys[y] = v
+            dys[y] = copy.deepcopy(v)
             continue
         cur = dys[y]
-        cur["tasks"] = list(cur.get("tasks") or []) + list(v.get("tasks") or [])
+        cur["tasks"] = list(cur.get("tasks") or []) + copy.deepcopy(list(v.get("tasks") or []))
         for f in program_sheet.MONEY:
             a, b = cur.get(f + "_won"), v.get(f + "_won")
             if b is not None:
@@ -1151,14 +1274,68 @@ def programs_admin_merge(request: Request, key: str = Form(""), into: str = Form
     if st.db is not None:
         link_projects(st.db, [src])
         for p_ in src.get("plist") or []:
+            old = (st.db.get_project(int(p_["id"])) or {}).get("program") or ""
             st.db.set_project_program(int(p_["id"]), program_value(into, p_.get("year") or ""))
+            undo["projects"].append([int(p_["id"]), old])
             moved += 1
-    so["hidden"], so["merged_into"] = True, into
+    undo["dst_after"] = _fp(do)
+    so["hidden"], so["merged_into"], so["merge_undo"] = True, into, undo
     so.pop("years", None)
     program_sheet.add_log(so, user, "합치기", src["name"], dst["name"], "합치기")
     program_sheet.add_log(do, user, "합치기", src["name"], dst["name"], "합치기")
     save_store(store, st.data_dir)
-    return _back(f"「{src['name']}」을 「{dst['name']}」에 합쳤습니다 — 연도 값·지정을 옮기고 프로젝트 {moved}개를 다시 이었습니다")
+    return _back(f"「{src['name']}」을 「{dst['name']}」에 합쳤습니다 — 연도 값·지정을 옮기고 프로젝트 {moved}개를 다시 이었습니다",
+                 anchor=f"&row={quote(into)}")
+
+
+@router.post("/programs/admin/unmerge")
+def programs_admin_unmerge(request: Request, key: str = Form("")):
+    """합친 줄 떼어 내기(관리자) — 원래 줄을 목록에 다시 넣고 연도 값·지정·옮긴 프로젝트를 돌려놓는다. 받은 줄이 합친 뒤 그대로면
+    받은 줄의 연도 값·별칭·지정도 합치기 앞으로, 그 뒤 고쳐졌으면 붙인 별칭만 떼고 연도 값은 그대로 둔다(알림에 적는다)."""
+    user, _ = _admin(request)
+    st = request.app.state
+    store = load_store(st.data_dir)
+    rows = {r["key"]: r for r in merged_rows(st.data_dir, store=store)}
+    src = rows.get(key)
+    so = store["rows"].get(key) or {}
+    if src is None or not so.get("merged_into"):
+        return _back("합친 줄이 아닙니다", ok=False)
+    into = so["merged_into"]
+    dst = rows.get(into)
+    do = store["rows"].setdefault(into, {})
+    u = so.get("merge_undo") or {}
+    whole = bool(u) and _fp(do) == u.get("dst_after")
+    if whole:
+        for f in ("years", "terms_add", *ROLES):
+            if f in u.get("dst_before", {}):
+                do[f] = copy.deepcopy(u["dst_before"][f])
+            else:
+                do.pop(f, None)
+    else:
+        gone = set(u.get("aliases") or [src["name"]])
+        do["terms_add"] = [t for t in do.get("terms_add") or [] if t not in gone]
+    if u.get("src_years"):
+        so["years"] = copy.deepcopy(u["src_years"])
+    back = 0
+    if st.db is not None:
+        for pid, old in u.get("projects") or []:
+            p = st.db.get_project(int(pid)) or {}
+            if str(p.get("program") or "").partition("|")[0] == into:
+                st.db.set_project_program(int(pid), old)
+                back += 1
+    for f in ("hidden", "merged_into", "merge_undo", "not_program", "hide_reason", "hide_note"):
+        so.pop(f, None)
+    dname = dst["name"] if dst else into
+    program_sheet.add_log(so, user, "떼어 내기", dname, src["name"], "떼어 내기")
+    program_sheet.add_log(do, user, "떼어 내기", src["name"], dname, "떼어 내기")
+    save_store(store, st.data_dir)
+    if not u:
+        tail = " — 예전에 합친 줄이라 연도 값은 돌려놓지 못했습니다"
+    elif whole:
+        tail = f" — 연도 값·지정·프로젝트 {back}개를 돌려놓았습니다"
+    else:
+        tail = f" — 「{dname}」이 합친 뒤 고쳐져 그쪽 연도 값은 그대로 두었습니다(겹치는 해는 확인해 주세요)"
+    return _back(f"「{src['name']}」을 「{dname}」에서 떼어 냈습니다{tail}", anchor=f"&row={quote(key)}")
 
 
 @router.post("/programs/admin/revert")
