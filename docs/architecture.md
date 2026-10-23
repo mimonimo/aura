@@ -98,7 +98,7 @@ for 절 in 목차:
 
 | 검증기 | 방식 | 원칙 |
 |---|---|---|
-| 수치 대조 | 초안에서 수치·고유 실적명을 기계 추출해 인출 근거와 대조 | 결정론적. LLM 판단을 쓰지 않는다 |
+| 수치 대조 | 초안에서 수치·고유 실적명을 기계 추출해 인출 근거와 대조. 같은 금액을 단위만 바꿔 쓴 값(5억 = 500(백만원) = 「(단위: 백만원)」 표의 500)은 같은 값으로 본다(ADR-0068 — 금액끼리만, 가장 가까운 단위 선언 하나만) | 결정론적. LLM 판단을 쓰지 않는다 |
 | 배점 커버리지 | 공고 스키마의 배점 항목별로 초안 반영 여부를 확인하고 누락을 보고 | 규칙과 임베딩 유사도로 매칭하고, 최종 판단은 사람이 한다 |
 | 예산 계산 | 단가 표와 산식으로 예산표를 만들고 검산 | LLM을 쓰지 않는다 (절대 규칙 5) |
 
@@ -145,6 +145,11 @@ for 절 in 목차:
   교직원은 그 부서의 사업 문서와 공통·부서 규정을 검색한다. 채팅 검색과 머리말 검색(`/search`)의 본문 대목·규정 조각이
   같은 공간 범위를 쓴다. 라이브러리의 판본 묶음은 캐시 없이 요청마다 열람 범위 안에서 계산한다.
 - 열람 등급 값 체계는 학교 기준이 확정되면 바꾼다. 필드와 필터 경로가 이미 있어 값 교체에 재색인이 필요 없다.
+- 작업 권한은 열람과 따로 교직원 등급으로 나눈다(`app/grades.py`, ADR-0066) — 일반·행정 담당자·사업 책임자·총괄 책임자와 관리자(최대 2명).
+  권한 판단은 소속 부서 등급만 보고, 겸직 등급은 그 부서 안에서만 쓴다. 부서 단위는 두 단계(총괄 책임자 = 처·단, 사업 책임자·행정 담당자 = 팀·센터)이며
+  조직도(`app/org_routes.py`)에서 관리자와 맡은 처·단의 총괄 책임자만 고치고, 고치는 검사·쓰기·되돌리기는 공용 잠금 하나 안에서 한다.
+- 부서 드라이브(`app/dept_drive_routes.py`, `ingest/dept_drive.py`)는 부서 총괄 책임자가 부서 공용 학교 계정으로 연결한다. 그 계정 토큰은 부서 폴더 안
+  문서를 만들고 다룰 때만 쓰고(`gdrive_files.doc_account_for`), 드라이브 찾기·가져오기·쓸 계정 목록은 본인 계정만 받는다. 관리자는 연결 상태를 확인만 한다.
 
 그래프 조회도 문서 화면과 같은 가시성 정책을 따른다. 노드 생성·사업 분석·유사도 비교 전에 문서 범위를 좁히고,
 일반 사용자에게는 본인 프로젝트만 포함한다. 사업 그래프(`/graph/program`)는 허용된 문서·절과 상위 사업·연차·분류만
@@ -219,8 +224,12 @@ for 절 in 목차:
 | RAG 공간 · 개인정보 점검 | dev_rag_routes.py · dev_pii_routes.py | /dev/rag*, /dev/pii* |
 | 문서 반입 · 구글 연결 | dev_intake_routes.py · dev_gdrive_routes.py | /dev/intake, /dev/nas*, /dev/gdrive/* |
 | 논문·설계 문서·주간 보고·변경 이력 | dev_docs_routes.py | /dev/docs, /dev/doc/*, /dev/paper/*, /dev/weekly*, /dev/history |
+| 한글 문서함·기안기 편집 | webhwp_routes.py | /hwp, /hwp/{id}/edit, /hwp/favorite, /webhwpctrl/ |
+| 조직도 | org_routes.py | /api/org, /org/* |
+| 부서 드라이브 | dept_drive_routes.py | /team/drive* |
+| 사업 관리 | program_admin.py | /programs/admin* |
 
-이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), user_admin.py(/dev/users), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
+이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), user_admin.py(/dev/users, 조직·구성원 /team), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
 앱이 띄우는 긴 배경 작업(재측정·재색인·반입 점검)은 `app/detach.py` 로 systemd scope 에 떼어 서비스 재시작에 끊기지 않는다.
 
 ## 11. 미결 사항

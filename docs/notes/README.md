@@ -57,6 +57,7 @@
 - [독스·LibreOffice 줄 간격 실측](2026-09-29-line-spacing-measurement.md)
 - [한글 → 구글 독스 변환 경로 견주기](2026-09-30-docs-path-compare.md)
 - [kordoc 조사 — 서식 보존 작성](2026-09-30-kordoc-authoring-survey.md)
+- [실물 양식 표 20,441개 채굴 — 학교 표 기본 모양의 근거](2026-10-22-table-mining.md)
 - [한글(HWPX) 에이전트 스킬 수집](hwpx-agent-skills.md)
 - [플랫폼 업무 도우미](platform-helper.md)
 - [UI/UX 전수 조사](uiux-audit.md)
