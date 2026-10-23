@@ -290,12 +290,12 @@
         {# 사람·부서 찾기 — 공용 사람 고르기 부품(people-picker, /api/people?purpose=share). 고르면 아래 줄로 옮겨 권한을 정한다 #}
         <div class="share-find" data-people-picker data-pass data-kind="dept" data-purpose="share" data-share-picker
              data-owner="{{ project.owner or '' }}" data-placeholder="이름·아이디·부서로 찾기"></div>
-        {% if share_own_dept %}<button type="button" class="share-quick" data-share-quick="dept:{{ share_own_dept }}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>우리 부서 전체({{ share_own_dept }})</button>{% endif %}
+        {% if share_own_dept %}<button type="button" class="share-quick" data-share-quick="dept:{{ share_own_dept }}"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>우리 부서({{ share_own_dept }}) 모두와</button>{% endif %}
         <div class="share-owner"><iconify-icon icon="solar:crown-minimalistic-linear" aria-hidden="true"></iconify-icon><span class="share-who">{{ owner_label }}<small>만든 사람</small></span><span class="share-owner-level">소유</span></div>
         <div class="share-rows" data-share-rows>
           {% for it in share['items'] if shared_on %}{% set kind = it.to.split(':', 1)[0] %}<div class="share-row" data-to="{{ it.to }}"><input type="hidden" name="to" value="{{ it.to }}">
             <iconify-icon icon="solar:{{ 'buildings-2' if kind == 'dept' else 'user' }}-linear" aria-hidden="true"></iconify-icon>
-            <span class="share-who">{{ share_names.get(it.to, it.to.split(':', 1)[1]) }}<small>{{ '부서 전체' if kind == 'dept' else '사람' }}</small></span>
+            <span class="share-who">{{ share_names.get(it.to, it.to.split(':', 1)[1]) }}<small>{{ '부서 사람 모두' if kind == 'dept' else '사람' }}</small></span>
             <select name="level" aria-label="{{ share_names.get(it.to, it.to.split(':', 1)[1]) }} 권한">{% for k, v in share_levels.items() %}<option value="{{ k }}" {{ 'selected' if it.level == k }}>{{ v }}</option>{% endfor %}</select>
             <button type="button" class="share-remove" data-share-remove title="빼기" aria-label="{{ share_names.get(it.to, it.to.split(':', 1)[1]) }} 빼기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>{% endfor %}
         </div>
@@ -363,7 +363,7 @@
     row.dataset.to = c.to; row.querySelector('input').value = c.to;
     row.querySelector('iconify-icon').setAttribute('icon', dept ? 'solar:buildings-2-linear' : 'solar:user-linear');
     var who = row.querySelector('.share-who'); who.insertBefore(document.createTextNode(c.label), who.firstChild);
-    who.querySelector('small').textContent = dept ? '부서 전체' : c.hint;
+    who.querySelector('small').textContent = dept ? '부서 사람 모두' : c.hint;
     row.querySelector('select').setAttribute('aria-label', c.label + ' 권한');
     row.querySelector('[data-share-remove]').setAttribute('aria-label', c.label + ' 빼기');
     rows.appendChild(row); sync();
@@ -376,9 +376,9 @@
   picker.addEventListener('pp:pick', function (e) {
     var p = e.detail || {}, dept = p.kind === 'dept';
     if (!dept && p.user === picker.dataset.owner) return;
-    add({to: dept ? p.user : 'user:' + p.user, label: dept ? p.name : (p.name && p.name !== p.user ? p.name + ' (' + p.user + ')' : p.user), hint: dept ? '부서 전체' : (p.dept || '사람')});
+    add({to: dept ? p.user : 'user:' + p.user, label: dept ? p.name : (p.name && p.name !== p.user ? p.name + ' (' + p.user + ')' : p.user), hint: dept ? '부서 사람 모두' : (p.dept || '사람')});
   });
-  if (quick) quick.addEventListener('click', function () { var d = quick.dataset.shareQuick; add({to: d, label: d.slice(5), hint: '부서 전체'}); });
+  if (quick) quick.addEventListener('click', function () { var d = quick.dataset.shareQuick; add({to: d, label: d.slice(5), hint: '부서 사람 모두'}); });
   function focusPicker() { var i = picker.querySelector('input'); if (i) i.focus(); }
   form.addEventListener('change', function (e) { if (e.target.name === 'mode') { body.hidden = e.target.value !== 'shared'; if (!body.hidden && !rows.children.length) focusPicker(); } });
   rows.addEventListener('click', function (e) { var b = e.target.closest('[data-share-remove]'); if (b) { b.closest('.share-row').remove(); sync(); } });

@@ -1422,7 +1422,24 @@ def _people_for_share(request: Request, q: str, dept: str, limit: int) -> dict:
                         hit.append(it["name"])
             except Exception:
                 pass
-        depts_out = [{"user": f"dept:{d}", "name": d, "dept": "부서", "grade_label": "부서 전체", "kind": "dept"} for d in hit[:10]]
+        mine = ((accounts.get(me) or {}).get("dept") or "").strip()
+        if not words:                                              # 찾을 말이 없으면 내 부서 먼저, 그다음 처·단 급
+            top = re.compile(r"(처|단|본부|실|원|추진단|사업단)$")
+            hit.sort(key=lambda d: (d != mine, not top.search(d), d))
+        count = {}
+        for a_ in accounts.values():
+            if (a_ or {}).get("active", True) and (a_ or {}).get("role", "staff") in grades.STAFF:
+                k = ((a_ or {}).get("dept") or "").strip()
+                count[k] = count.get(k, 0) + 1
+        try:
+            from zzaimy.app import dept_dictionary as _dd2
+            parent = lambda d: _dd2.parent_of(d, getattr(st, "data_dir", None))
+        except Exception:
+            parent = lambda d: ""
+        # 「부서 전체」 대신 무슨 뜻인지 보이게 — 부서를 고르면 그 부서 사람 모두와 공유(몇 명인지·어느 처·단 소속인지)
+        depts_out = [{"user": f"dept:{d}", "name": d, "dept": "부서", "kind": "dept",
+                      "grade_label": "부서 공유 · " + (f"{count[d]}명" if count.get(d) else "아직 계정 없음")
+                                     + (f" · {parent(d)} 소속" if parent(d) else "")} for d in hit[:10]]
     return {"people": out, "depts": depts_out, "my_dept": ((accounts.get(me) or {}).get("dept") or "").strip()}
 
 
