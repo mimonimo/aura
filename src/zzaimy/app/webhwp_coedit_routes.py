@@ -23,6 +23,8 @@ from zzaimy.app import webhwp_coedit as ce
 from zzaimy.app.webhwp_routes import _file, _need_staff
 
 router = APIRouter()
+MAX_BODY = 4_000_000       # 한 요청 본문 상한(칸 글 50,000자 × 여러 칸, 서식째 시험 포함)
+STREAMS_PER_USER = 8       # 한 사람이 한 문서에 여는 알림 흐름 수 상한(창·탭)
 POLL = 1.0                 # 다른 프로세스가 쓴 알림을 읽는 주기(같은 프로세스는 바로 깨운다)
 BEAT = 15.0                # 연결 유지 주석 간격
 
@@ -51,7 +53,15 @@ def _name(db, user: str, cache: dict) -> str:
 
 async def _json(request: Request) -> dict:
     try:
-        body = await request.json()
+        if int(request.headers.get("content-length") or 0) > MAX_BODY:
+            raise HTTPException(413, "보낸 내용이 너무 큽니다")
+    except ValueError:
+        pass
+    raw = await request.body()
+    if len(raw) > MAX_BODY:
+        raise HTTPException(413, "보낸 내용이 너무 큽니다")
+    try:
+        body = json.loads(raw or b"{}")
     except Exception:
         body = {}
     return body if isinstance(body, dict) else {}
@@ -85,13 +95,16 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
         last_id = await run_in_threadpool(ce.last_event_id, db, fid)
     loop = asyncio.get_running_loop()
     wake = asyncio.Event()
-    ce.HUB.add(fid, loop, wake)
+    me = _user(request)
+    if ce.HUB.count(fid, me) >= STREAMS_PER_USER:
+        raise HTTPException(429, "이 문서를 연 창이 너무 많습니다 — 쓰지 않는 창을 닫아 주세요")
     names: dict = {}
 
     async def stream():
         nonlocal last_id
         seen: list[int] = []
         quiet = 0.0
+        ce.HUB.add(fid, loop, wake, me)
         try:
             yield "retry: 1500\n\n"
             while True:
@@ -119,7 +132,7 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
                         quiet = 0.0
                         yield ": beat\n\n"
         finally:
-            ce.HUB.remove(fid, loop, wake)
+            ce.HUB.remove(fid, loop, wake, me)
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
@@ -151,7 +164,8 @@ async def hwp_lease(request: Request, fid: int):
     client = str(body.get("client") or "")[:80]
     st, user = request.app.state, _user(request)
     if action == "touch":
-        return {"ok": True, "until": await run_in_threadpool(ce.touch, st.db, fid, user, body.get("fields") if isinstance(body.get("fields"), list) else None)}
+        fields = [str(x)[:200] for x in body["fields"][:500]] if isinstance(body.get("fields"), list) else None
+        return {"ok": True, "until": await run_in_threadpool(ce.touch, st.db, fid, user, fields)}
     if not field:
         raise HTTPException(400, "field 가 필요합니다(구조 잠금은 /lock)")
     if action == "acquire":
@@ -174,7 +188,7 @@ async def hwp_leave(request: Request, fid: int):
 
     def run():
         if client:
-            ce.leave(st.db, fid, client)
+            ce.leave(st.db, fid, client, user)
         for f, x in ce.locks(st.db, fid).items():
             if x["user"] == user and f != ce.STRUCT and (not client or x["client"] in ("", client)):
                 ce.release(st.db, fid, f, user, grace=True)

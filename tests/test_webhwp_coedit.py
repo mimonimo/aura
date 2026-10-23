@@ -275,3 +275,52 @@ def test_editor_page_uses_wrapper_and_has_no_duplicate_dialogs(tmp_path, monkeyp
     for api in ("PutFieldText", "GetFieldText", "ModifyFieldProperties", "GetCurFieldName", "MoveToField("):
         assert api not in page_js, api                                          # 기안기 API 는 어댑터만 부른다
         assert api not in (root / "static/webhwp-collab.js").read_text()
+
+
+def test_client_id_is_bound_to_signed_in_user(tmp_path, monkeypatch):
+    """창 번호(client)는 화면이 지어 보내는 값 — 남의 창 번호·seq 를 흉내 내어도 그 사람의 변경을 막거나 판 검사를 건너뛰지 못한다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    # 박이 김의 창 번호와 seq 를 먼저 차지해 둔다
+    park.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "박의 글"}]})
+    kim.post(f"/hwp/{fid}/lease", json={"field": "칸:사업명", "action": "acquire", "client": "k1"})
+    park.post(f"/hwp/{fid}/lease", json={"field": "칸:사업명", "action": "release"})
+    r = kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 1, "field": "칸:사업명", "base": 1, "text": "김의 글"}]}).json()["results"][0]
+    assert r["ok"] and r["version"] == 2                       # 박의 결과가 되돌아오지 않고 김의 글이 실제로 들어간다
+    assert ce.state(db, fid)["칸:사업명"]["text"] == "김의 글"
+    kim.post(f"/hwp/{fid}/lease", json={"field": "칸:사업명", "action": "release"})
+    # 김의 창 번호를 흉내 내어도 판 번호 검사(옛 판 위에 쓰기)를 건너뛰지 못한다
+    r = park.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 9, "field": "칸:사업명", "base": 0, "text": "덮어쓰기"}]}).json()["results"][0]
+    assert r["ok"] is False and r["reason"] == "version"
+    assert ce.state(db, fid)["칸:사업명"]["text"] == "김의 글"
+
+
+def test_presence_and_leave_only_touch_own_window(tmp_path, monkeypatch):
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    kim.post(f"/hwp/{fid}/presence", json={"client": "k1", "field": "칸:사업명"})
+    park.post(f"/hwp/{fid}/presence", json={"client": "k1", "field": "칸:예산"})     # 같은 창 번호를 써도 김 줄을 바꾸지 못한다
+    park.post(f"/hwp/{fid}/leave", json={"client": "k1"})                           # 박이 김의 창 번호로 나가도 김은 남는다
+    ppl = {p["user"]: p for p in ce.people(db, fid)}
+    assert ppl["kim"]["field"] == "칸:사업명" and ppl["kim"]["client"] == "k1" and "park" not in ppl
+
+
+def test_coedit_resource_caps(tmp_path, monkeypatch):
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    from zzaimy.app import webhwp_coedit_routes as cr
+    monkeypatch.setattr(cr, "MAX_BODY", 1000)
+    r = kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "가" * 2000}]})
+    assert r.status_code == 413
+    # 문서에 새로 만들 수 있는 칸 줄 수에 상한
+    monkeypatch.setattr(ce, "FIELDS_MAX", 2)
+    res = ce.apply_ops(db, fid, "kim", "k1", [{"seq": i, "field": f"f{i}", "text": "x"} for i in range(1, 5)])
+    assert [x["ok"] for x in res] == [True, True, False, False] and res[2]["reason"] == "too_many"
+    # 충돌 사본은 사람·문서마다 상한까지만 남는다
+    monkeypatch.setattr(ce, "CONFLICTS_KEEP", 3)
+    ce.acquire(db, fid, "f1", "kim", "k1")
+    ce.apply_ops(db, fid, "park", "p1", [{"seq": 100 + i, "field": "f1", "text": f"t{i}"} for i in range(6)])
+    assert len(ce.conflicts(db, fid, "park")) == 3
+    # 한 사람이 한 문서에 여는 알림 흐름 수 상한
+    monkeypatch.setattr(ce.HUB, "count", lambda f, u: cr.STREAMS_PER_USER)
+    assert kim.get(f"/hwp/{fid}/events").status_code == 429

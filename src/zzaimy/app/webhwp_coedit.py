@@ -29,6 +29,8 @@ STRUCT = ""                       # 구조 잠금(문서 전체)의 필드 이�
 AGENT = "AURA"
 TEXT_MAX = 50_000
 RICH_MAX = 2_000_000
+FIELDS_MAX = 2_000                # 한 문서에 새로 만들 수 있는 칸 글 줄 상한(양식의 필드 수보다 넉넉히)
+CONFLICTS_KEEP = 200              # 사람·문서마다 남기는 충돌 사본 수(오래된 것부터 지운다)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS webhwp_field_locks (fid INTEGER NOT NULL, field TEXT NOT NULL, user_id TEXT NOT NULL,
@@ -110,6 +112,16 @@ def _txlock(conn, fid: int) -> None:
         conn.execute("BEGIN IMMEDIATE")
 
 
+def ckey(user: str, client: str) -> str:
+    """보낸 창의 표 안 열쇠 — 창 번호(client)는 편집 화면이 지어 보내는 값이라 로그인한 사람과 묶는다.
+    그래야 남의 창 번호를 흉내 내어 그 사람의 (client, seq) 를 먼저 차지하거나 판 번호 검사를 건너뛸 수 없다."""
+    return f"{user}\x1f{client}"
+
+
+def craw(key: str) -> str:
+    return (key or "").split("\x1f", 1)[-1]
+
+
 def norm(text) -> str:
     """칸 글 비교용 — 줄바꿈을 \\n 하나로(기안기는 \\r\\n 으로 돌려준다), XML 이 받지 않는 글자는 빼고 길이 상한."""
     from zzaimy.app import webhwp_fields as wf
@@ -130,20 +142,24 @@ class _Hub:
         self.lock = threading.Lock()
         self.waiters: dict[int, set] = {}
 
-    def add(self, fid: int, loop, event) -> None:
+    def count(self, fid: int, user: str) -> int:
         with self.lock:
-            self.waiters.setdefault(int(fid), set()).add((loop, event))
+            return sum(1 for w in self.waiters.get(int(fid), ()) if w[2] == user)
 
-    def remove(self, fid: int, loop, event) -> None:
+    def add(self, fid: int, loop, event, user: str = "") -> None:
+        with self.lock:
+            self.waiters.setdefault(int(fid), set()).add((loop, event, user))
+
+    def remove(self, fid: int, loop, event, user: str = "") -> None:
         with self.lock:
             s = self.waiters.get(int(fid))
             if s:
-                s.discard((loop, event))
+                s.discard((loop, event, user))
 
     def wake(self, fid: int) -> None:
         with self.lock:
             targets = list(self.waiters.get(int(fid), ()))
-        for loop, ev in targets:
+        for loop, ev, _ in targets:
             try:
                 loop.call_soon_threadsafe(ev.set)
             except RuntimeError:
@@ -338,6 +354,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
     force=True 는 판 번호 검사를 건너뛴다(에이전트가 지금 판 위에 쓸 때) — 남이 쥔 임대는 그래도 지킨다."""
     ensure(db)
     client = str(client or "")[:80]
+    ck = ckey(user, client)
     results = []
     changed = False
     for op in ops or []:
@@ -360,7 +377,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
         event = None
         with db._conn() as conn:
             _txlock(conn, fid)
-            seen = conn.execute("SELECT result FROM webhwp_field_ops WHERE fid = ? AND client = ? AND seq = ?", (int(fid), client, seq)).fetchone()
+            seen = conn.execute("SELECT result FROM webhwp_field_ops WHERE fid = ? AND client = ? AND seq = ?", (int(fid), ck, seq)).fetchone()
             if seen:
                 results.append(json.loads(seen[0]))
                 continue
@@ -370,27 +387,32 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
             reason = ""
             if _alive(lk, now) and lk[0] != user:
                 reason = "locked"
-            elif not force and b != cur_v and cur_client != client:
+            elif not force and b != cur_v and cur_client != ck:
                 reason = "version"
+            elif st is None and conn.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = ?", (int(fid),)).fetchone()[0] >= FIELDS_MAX:
+                results.append({"seq": seq, "field": field, "ok": False, "reason": "too_many"})
+                continue
             if reason:
                 sql = ("INSERT INTO webhwp_conflicts (fid, field, user_id, base_version, server_version, text, reason, at)"
                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
                 args = (int(fid), field, user, b, cur_v, text, reason, now)
                 cid = (conn.execute(sql + " RETURNING id", args).fetchone()[0] if _pg(conn) else conn.execute(sql, args).lastrowid)
+                conn.execute("DELETE FROM webhwp_conflicts WHERE fid = ? AND user_id = ? AND id NOT IN (SELECT id FROM webhwp_conflicts"
+                             " WHERE fid = ? AND user_id = ? ORDER BY id DESC LIMIT ?)", (int(fid), user, int(fid), user, CONFLICTS_KEEP))
                 res = {"seq": seq, "field": field, "ok": False, "conflict": cid or 0, "reason": reason, "version": cur_v,
                        "text": cur_text or "", "by": (lk[0] if reason == "locked" else (st[3] if st else ""))}
-                results.append(_result(conn, fid, client, seq, res))
+                results.append(_result(conn, fid, ck, seq, res))
                 event = ("conflict", {"field": field, "user": user, "reason": reason})
             elif st is not None and cur_text == text and (st[4] or "") == rich:
-                results.append(_result(conn, fid, client, seq, {"seq": seq, "field": field, "ok": True, "version": cur_v}))
+                results.append(_result(conn, fid, ck, seq, {"seq": seq, "field": field, "ok": True, "version": cur_v}))
             else:
                 v = cur_v + 1
                 if st is None:
                     conn.execute("INSERT INTO webhwp_field_state (fid, field, version, text, rich, author, client, at, committed)"
-                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)", (int(fid), field, v, text, rich, user, client, now))
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)", (int(fid), field, v, text, rich, user, ck, now))
                 else:
                     conn.execute("UPDATE webhwp_field_state SET version = ?, text = ?, rich = ?, author = ?, client = ?, at = ?"
-                                 " WHERE fid = ? AND field = ?", (v, text, rich, user, client, now, int(fid), field))
+                                 " WHERE fid = ? AND field = ?", (v, text, rich, user, ck, now, int(fid), field))
                 conn.execute("INSERT INTO webhwp_field_edits (fid, field, version, text, author, at) VALUES (?, ?, ?, ?, ?, ?)",
                              (int(fid), field, v, text, user, now))
                 # 고치는 것도 활동 — 임대가 없으면 이 사람 것으로 잡고, 있으면 늘린다
@@ -408,7 +430,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                 if rich:
                     data["rich"] = rich
                 emit(db, fid, "field-updated", data, conn=conn)
-                results.append(_result(conn, fid, client, seq, {"seq": seq, "field": field, "ok": True, "version": v, "until": until}))
+                results.append(_result(conn, fid, ck, seq, {"seq": seq, "field": field, "ok": True, "version": v, "until": until}))
                 changed = True
         if event:
             emit(db, fid, *event)
@@ -451,24 +473,27 @@ def presence(db, fid: int, user: str, client: str, field: str) -> None:
     ensure(db)
     now = time.time()
     field = (field or "")[:200]
+    ck = ckey(user, client)
     changed = False
     with db._conn() as conn:
-        row = conn.execute("SELECT field, at FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), client)).fetchone()
+        row = conn.execute("SELECT field, at FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), ck)).fetchone()
         if row:
             changed = row[0] != field or now - float(row[1] or 0) > conf(db, "presence_ttl")
-            conn.execute("UPDATE webhwp_presence SET field = ?, at = ?, user_id = ? WHERE fid = ? AND client = ?", (field, now, user, int(fid), client))
+            conn.execute("UPDATE webhwp_presence SET field = ?, at = ? WHERE fid = ? AND client = ?", (field, now, int(fid), ck))
         else:
             changed = True
-            conn.execute("INSERT INTO webhwp_presence (fid, client, user_id, field, at) VALUES (?, ?, ?, ?, ?)", (int(fid), client, user, field, now))
+            conn.execute("INSERT INTO webhwp_presence (fid, client, user_id, field, at) VALUES (?, ?, ?, ?, ?)", (int(fid), ck, user, field, now))
     if changed:
         emit(db, fid, "presence", {"user": user, "client": client, "field": field})
 
 
-def leave(db, fid: int, client: str) -> None:
+def leave(db, fid: int, client: str, user: str) -> None:
+    """이 사람의 그 창만 뺀다(남의 창 번호로는 남을 뺄 수 없다)."""
     ensure(db)
     with db._conn() as conn:
-        conn.execute("DELETE FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), client))
-    emit(db, fid, "presence", {"client": client, "left": True})
+        n = conn.execute("DELETE FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), ckey(user, client))).rowcount
+    if n:
+        emit(db, fid, "presence", {"user": user, "client": client, "left": True})
 
 
 def people(db, fid: int) -> list[dict]:
@@ -480,7 +505,7 @@ def people(db, fid: int) -> list[dict]:
                             (int(fid), now - conf(db, "presence_ttl"))).fetchall()
     by: dict[str, dict] = {}
     for r in rows:
-        by[r[0]] = {"user": r[0], "field": r[1], "at": float(r[2]), "client": r[3]}
+        by[r[0]] = {"user": r[0], "field": r[1], "at": float(r[2]), "client": craw(r[3])}
     return list(by.values())
 
 

@@ -285,7 +285,7 @@
       es.onerror = function () { reopened = true; if (es.readyState === 2) setTimeout(connect, 2000); };
       function h(kind, fn) { es.addEventListener(kind, function (ev) { lastId = Math.max(lastId, +ev.lastEventId || 0); var d = {}; try { d = JSON.parse(ev.data); } catch (e) {} learn(d); fn(d); }); }
       h('field-updated', function (d) {
-        if (d.client === client) return;
+        if (d.client === client && d.by === me) return;    // 내 창이 보낸 것(창 번호만으로는 남의 글을 놓칠 수 있어 사람도 본다)
         if (known[d.field] && d.version <= known[d.field].v) return;
         d.receivedAt = now();
         inbox[d.field] = d;
@@ -305,8 +305,9 @@
       });
       h('lock-wanted', function (d) { if (d.holder === me) emit('wanted', d.field, nameOf(d.by)); });
       h('presence', function (d) {
-        if (d.left) delete people[d.client];
-        else if (d.client !== client) people[d.client] = {user: d.user, field: d.field, at: now()};
+        var k = d.user + '\u001f' + d.client;          // 같이 보는 사람은 사람+창으로 가른다(서버도 그렇게 묶는다)
+        if (d.left) delete people[k];
+        else if (!(d.client === client && d.user === me)) people[k] = {user: d.user, field: d.field, at: now()};
         emit('people', peopleList());
       });
       h('doc-saved', function (d) { if (d.by !== me) emit('doc-saved', d); });
@@ -346,7 +347,7 @@
           if (lk.user === me && mine[f] === undefined) mine[f] = lk.until;
         });
         var t = now();
-        (s.people || []).forEach(function (p) { if (p.client !== client) people[p.client] = {user: p.user, field: p.field, at: t}; });
+        (s.people || []).forEach(function (p) { if (!(p.client === client && p.user === me)) people[p.user + '\u001f' + p.client] = {user: p.user, field: p.field, at: t}; });
         var srv = s.fields || {}, local = hwp.readMany(fieldList.filter(function (f) { return srv[f]; }));
         fieldList.forEach(function (f) {
           var x = srv[f];

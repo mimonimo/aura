@@ -79,7 +79,7 @@ def test_grade_saved_only_for_staff_and_shown(tmp_path):
     assert "ok=" in r.headers["location"]
     data = json.loads((tmp_path / "accounts.json").read_text())
     assert data["kimhead"]["grade"] == "head"
-    assert "교직원 · 총괄 책임자" in c.get("/dev/users").text
+    assert '교직원</span> · <span class="ua-nw">총괄 책임자' in c.get("/dev/users").text  # 좁은 화면에서 줄이 갈리지 않게 낱말마다 묶음
     # 등급을 보내지 않으면 지금 값 유지
     c.post("/dev/users/save", data={"uid": "kimhead", "role": "staff", "active": "1"})
     assert json.loads((tmp_path / "accounts.json").read_text())["kimhead"]["grade"] == "head"

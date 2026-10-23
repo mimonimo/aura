@@ -81,7 +81,7 @@ def test_upload_creates_document_and_processes(client):
     )
     assert r.status_code == 303  # 목록으로 리다이렉트
     r = client.get("/")
-    assert "합성문서.pdf" in r.text
+    assert "합성문서" in r.text  # 화면은 파일 이름 대신 문서 제목(확장자 없이)
 
 
 def test_document_detail_shows_ai_review(client):
@@ -191,11 +191,11 @@ def test_sector_tab_filters_documents(client):
                 files={"file": ("이력서.pdf", b"%PDF", "application/pdf")})
     # 문서 표는 검색 결과로 나온다 — 업무 탭이 표를 거른다
     all_page = client.get("/inbox?q=pdf").text
-    assert "공고문.pdf" in all_page and "이력서.pdf" in all_page
+    assert 'href="/doc/1">공고문</a>' in all_page and 'href="/doc/2">이력서</a>' in all_page
     recruit_page = client.get("/inbox?type=recruit&q=pdf").text
     table = recruit_page.split("data-doc-list>", 1)[-1].split("<!-- /lib-rows -->", 1)[0]
     assert '<a class="lib-row-title" href="/doc/2">이력서</a>' in table
-    assert '<a href="/doc/1">공고문.pdf' not in table
+    assert 'href="/doc/1"' not in table
 
 
 def test_password_protection_requires_auth(tmp_path):
@@ -455,9 +455,9 @@ def test_document_table_shows_project_name(client):
     client.post("/upload", data={"doc_type": "recruit", "project_id": "1"},
                 files={"file": ("이력서.pdf", b"%PDF", "application/pdf")})
     page = client.get("/?type=recruit").text
-    table = page.split("<table>", 1)[-1].split("</table>", 1)[0]
+    rows = page.split("data-doc-list>", 1)[-1].split("</ul>", 1)[0]
     row = next(
-        ln.split("</tr>")[0] for ln in table.split("<tr>") if "이력서.pdf" in ln
+        ln.split("</li>")[0] for ln in rows.split('<li class="lib-row">') if ">이력서</a>" in ln
     )
     assert "간호학과 채용" in row  # 문서 행에 프로젝트명이 보인다
 
