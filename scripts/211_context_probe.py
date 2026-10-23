@@ -156,11 +156,9 @@ def make_conflict(rnd: random.Random, n: int) -> list[dict]:
 
 
 # ── 채점 ──
-def field_line(text: str, field: str) -> str:
-    for line in text.splitlines():
-        if field.replace(" ", "") in line.replace(" ", ""):
-            return line
-    return ""
+def field_lines(text: str, field: str) -> list[str]:
+    """그 칸 이름이 든 줄 모두 — 설명 문장에 칸 이름이 먼저 나와도 표 줄을 놓치지 않게."""
+    return [line for line in text.splitlines() if field.replace(" ", "") in line.replace(" ", "")]
 
 
 def grade(case: dict, text: str) -> dict:
@@ -192,15 +190,19 @@ def grade(case: dict, text: str) -> dict:
         dept = e["dept"] in text
         return {"ok": day and dept, "day": day, "dept": dept, "invented": len(inv)}
     # conflict
-    good = {f: bool(field_line(text, f)) and (
-        budget_hit(field_line(text, f), next(x for x in BUDGETS if x[0] == v)) if f == "총사업비" else
-        period_hit(field_line(text, f), v) if f == "운영 기간" else num_digits(v)[0] in num_digits(field_line(text, f)))
-        for f, v in e["given"].items()}
-    marked = {}
-    for f in e["missing"]:
-        line = field_line(text, f)
+    def given_ok(f, v, line):
+        if f == "총사업비":
+            return budget_hit(line, next(x for x in BUDGETS if x[0] == v))
+        if f == "운영 기간":
+            return period_hit(line, v)
+        return num_digits(v)[0] in num_digits(line)
+
+    def marked_ok(f, line):
         cell = line.split(f, 1)[-1] if f in line else line
-        marked[f] = bool(line) and ("확인 필요" in line or "확인필요" in line) and not re.search(r"\d", cell.replace("확인 필요", ""))
+        return ("확인 필요" in line or "확인필요" in line) and not re.search(r"\d", cell.replace("확인 필요", ""))
+
+    good = {f: any(given_ok(f, v, line) for line in field_lines(text, f)) for f, v in e["given"].items()}
+    marked = {f: any(marked_ok(f, line) for line in field_lines(text, f)) for f in e["missing"]}
     return {"ok": all(good.values()) and all(marked.values()), "given_ok": sum(good.values()), "missing_marked": sum(marked.values()),
             "invented": len(inv), "ctx_numbers": len(s210.numbers(ctx))}
 

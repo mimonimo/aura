@@ -55,3 +55,11 @@ def test_unit_converted_budget_is_not_invented():
     case = {"kind": "multiturn", "messages": [{"role": "user", "content": "예산은 9천 5백만 원"}],
             "expect": {"target": "10명", "dept": "기획처", "period": "2027. 3. ~ 2027. 12.", "budget": ["9천 5백만 원", "95,000,000"], "old_budget": None}}
     assert s211.grade(case, "예산 95,000,000원(9,500만 원)")["invented"] == 0
+
+
+def test_conflict_table_found_after_explanation_line():
+    c = s211.make_conflict(random.Random(3), 1)[0]
+    e = c["expect"]
+    head = "근거 설명: " + "·".join(e["missing"]) + " 는 자료에 없어 남긴다."
+    rows = [f"| {f} | {v} |" for f, v in e["given"].items()] + [f"| {f} | 확인 필요 |" for f in e["missing"]]
+    assert s211.grade(c, head + "\n답변: " + "\n".join(rows))["ok"]
