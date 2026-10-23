@@ -58,7 +58,8 @@ def test_editor_state_and_presence(tmp_path, monkeypatch):
     assert st["people"] == [] and st["aura"] == {}                     # 나는 이름표에 안 나온다
     webhwp.take_lock(app.state.db, fid, "kim")
     import json, time
-    app.state.db.set_setting(f"webhwp_view:{fid}", json.dumps({"lee": {"at": time.time(), "field": "절:1. 개요"}}))
+    from zzaimy.app import webhwp_coedit as ce
+    ce.presence(app.state.db, fid, "lee", "lee-tab1", "절:1. 개요")
     app.state.db.set_setting(f"webhwp_activity:{fid}", json.dumps({"by": "AURA", "field": "절:2. 현황", "at": time.time()}))
     st = kim.get(f"/hwp/{fid}/state").json()
     assert st["people"][0]["user"] == "lee" and st["people"][0]["field"] == "절:1. 개요"

@@ -325,7 +325,8 @@ def test_concurrent_editing_shares_fields_and_merges_on_save(tmp_path, monkeypat
     kim.post(f"/hwp/{fid}/unlock")
     assert lee.post(f"/hwp/{fid}/lock").json()["ok"]
     assert lee.post(f"/hwp/{fid}/save", content=lee_copy).status_code == 200      # 잠금을 쥐면 저장된다
-    monkeypatch.setattr(webhwp, "LOCK_TTL", -1)              # 창이 끊겨 늘리지 못하면 저절로 풀린다
+    with app.state.db._conn() as conn:                      # 창이 끊겨 늘리지 못하면 임대 시간이 지나 저절로 풀린다
+        conn.execute("UPDATE webhwp_field_locks SET lease_until = 0 WHERE fid = ?", (fid,))
     assert kim.post(f"/hwp/{fid}/lock").json()["ok"]
 
 

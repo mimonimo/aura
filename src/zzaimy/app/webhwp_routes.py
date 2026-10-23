@@ -95,7 +95,7 @@ def _writable(request: Request, fid: int) -> None:
         raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다 — 「사본 만들기」로 내 부서 폴더에 사본을 만들어 쓰세요")
     holder = webhwp.lock_holder(st.db, fid).get("user", "")
     if holder and holder != getattr(request.state, "user", ""):
-        name = (st.db.profile_for(holder) or {}).get("name") or holder
+        name = webhwp.display_name(st.db, holder, getattr(st, "accounts", None))
         raise HTTPException(409, f"{name} 님이 편집 중이라 저장하지 않았습니다")
 
 
@@ -122,7 +122,7 @@ def _back(msg: str, ok: bool = True, dept: str = "", folder: str = "") -> Redire
 
 def _check_dept(request: Request, dept: str, folder: str = "") -> str:
     if dept not in _depts(request):
-        raise HTTPException(403, "이 부서 디렉터리는 쓸 수 없습니다")
+        raise HTTPException(403, "이 부서 폴더는 쓸 수 없습니다")
     try:
         return webhwp.clean_folder(folder)
     except ValueError as e:
@@ -341,7 +341,8 @@ def hwp_folder_rename(request: Request, dept: str = Form(""), folder: str = Form
         if str(Path(r["path"]).resolve()).startswith(prefix):
             who = webhwp.lock_holder(st.db, r["id"]).get("user", "")
             if who and who != me:
-                raise HTTPException(409, f"「{r['name']}」 을(를) {who} 님이 편집 중이라 이름을 바꾸지 않았습니다")
+                who_name = webhwp.display_name(st.db, who, getattr(st, "accounts", None))
+                raise HTTPException(409, f"「{r['name']}」 을(를) {who_name} 님이 편집 중이라 이름을 바꾸지 않았습니다")
     old.rename(new)
     st.db.repath_files(str(old) + "/", str(new) + "/")
     if str(old.resolve()) != str(old):
@@ -359,31 +360,25 @@ def hwp_folder_rename(request: Request, dept: str = Form(""), folder: str = Form
 
 @router.post("/hwp/{fid}/presence")
 async def hwp_presence(request: Request, fid: int):
-    """같은 문서를 연 사람 표시 — 편집 화면이 몇 초마다 지금 있는 필드를 알린다(이름표: 이름 · 필드)."""
+    """같은 문서를 연 사람 표시 — 편집 화면이 커서 칸이 바뀔 때·몇 초마다 알린다(공동 편집 표, 바뀌면 알림 흐름으로 다른 화면에)."""
     _need_staff(request)
     _file(request, fid)
-    import json as _json
-    import time as _time
+    from starlette.concurrency import run_in_threadpool
+    from zzaimy.app import webhwp_coedit as ce
     try:
         body = await request.json()
     except Exception:
         body = {}
-    st = request.app.state
+    body = body if isinstance(body, dict) else {}
     user = getattr(request.state, "user", "")
-    try:
-        cur = _json.loads(st.db.get_setting(f"webhwp_view:{int(fid)}", "{}") or "{}")
-    except ValueError:
-        cur = {}
-    now = _time.time()
-    cur = {u: v for u, v in cur.items() if now - float(v.get("at") or 0) < 30}
-    cur[user] = {"at": now, "field": str(body.get("field") or "")[:60]}
-    st.db.set_setting(f"webhwp_view:{int(fid)}", _json.dumps(cur, ensure_ascii=False))
+    client = str(body.get("client") or f"{user}:page")[:80]
+    await run_in_threadpool(ce.presence, request.app.state.db, fid, user, client, str(body.get("field") or "")[:200])
     return {"ok": True}
 
 
 @router.post("/hwp/{fid}/live")
 async def hwp_live(request: Request, fid: int):
-    """칸 단위 실시간 공유 — 내 커서 필드의 글을 올리고(field·text), since 뒤에 다른 사람이 바꾼 필드 글을 받는다."""
+    """(예전 편집 화면) 칸 글 올리기·받기 — 이제 공동 편집 표 위에서. 새 화면은 /ops·/events 를 쓴다."""
     _need_staff(request)
     _file(request, fid)
     if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
@@ -394,36 +389,29 @@ async def hwp_live(request: Request, fid: int):
         body = {}
     st = request.app.state
     user = getattr(request.state, "user", "")
-    field = str(body.get("field") or "")[:80]
+    field = str(body.get("field") or "")[:200]
     if field and isinstance(body.get("text"), str):
         webhwp.live_put(st.db, fid, user, field, body["text"])
     v, changes = webhwp.live_since(st.db, fid, int(body.get("since") or 0), user)
     names = {}
     for c in changes:
-        names.setdefault(c["by"], (st.db.profile_for(c["by"]) or {}).get("name") or c["by"])
+        names.setdefault(c["by"], webhwp.display_name(st.db, c["by"], getattr(st, "accounts", None)))
         c["name"] = names[c["by"]]
     return {"v": v, "changes": changes}
 
 
 @router.get("/hwp/{fid}/state")
 def hwp_state(request: Request, fid: int):
-    """편집 화면이 몇 초마다 묻는 문서 상태 — 마지막 저장(누가), 에이전트 작성 중(AURA 커서), 같이 보는 사람."""
+    """문서 상태 — 마지막 저장(누가), 에이전트 작성 중(AURA 커서), 같이 보는 사람, 구조 잠금."""
     _need_staff(request)
     f = _file(request, fid)
-    import json as _json
-    import time as _time
     from zzaimy.app import webhwp_agent
+    from zzaimy.app import webhwp_coedit as ce
     st = request.app.state
     m = webhwp.meta(st.db, fid)
-    try:
-        view = _json.loads(st.db.get_setting(f"webhwp_view:{int(fid)}", "{}") or "{}")
-    except ValueError:
-        view = {}
-    now = _time.time()
     me = getattr(request.state, "user", "")
-    names = {u: (st.db.profile_for(u) or {}).get("name") or u for u in view}
-    people = [{"user": u, "name": names[u], "field": v.get("field", "")} for u, v in view.items()
-              if u != me and now - float(v.get("at") or 0) < 30]
+    people = [{"user": p["user"], "name": webhwp.display_name(st.db, p["user"], getattr(st, "accounts", None)), "field": p["field"]}
+              for p in ce.people(st.db, fid) if p["user"] != me]
     return {"saved": m.get("saved") or m.get("created") or "", "saved_by": m.get("saved_by", ""), "size": f.get("size", 0),
             "aura": webhwp_agent.activity(st.db, fid), "lock": webhwp.lock_holder(st.db, fid), "people": people}
 
@@ -435,7 +423,9 @@ def hwp_lock(request: Request, fid: int):
     _file(request, fid)
     if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
         return {"ok": False, "by": "", "readonly": True}
-    return webhwp.take_lock(request.app.state.db, fid, getattr(request.state, "user", ""))
+    r = webhwp.take_lock(request.app.state.db, fid, getattr(request.state, "user", ""))
+    r["by_name"] = webhwp.display_name(request.app.state.db, r["by"], getattr(request.app.state, "accounts", None))     # 화면에는 계정 아이디가 아닌 이름
+    return r
 
 
 @router.post("/hwp/{fid}/unlock")
@@ -546,8 +536,9 @@ def hwp_to_drive(request: Request, fid: int):
     """지금 저장된 판을 드라이브에 최종본으로 올린다."""
     _need_staff(request)
     f = _file(request, fid)
-    from zzaimy.app import webhwp_drive
+    from zzaimy.app import webhwp_drive, webhwp_coedit
     email = _google(request)
+    webhwp_coedit.fresh(request.app.state.db, _base(request), fid)
     try:
         up = webhwp_drive.upload_final(request.app.state.db, fid, email, dept=webhwp.dept_of_path(_base(request), f["path"]))
     except (RuntimeError, PermissionError) as e:
@@ -894,6 +885,9 @@ def hwp_edit(request: Request, fid: int):
 def hwp_file(request: Request, fid: int):
     _need_staff(request)
     f = _file(request, fid)
+    from zzaimy.app import webhwp_coedit
+    webhwp_coedit.fresh(request.app.state.db, _base(request), fid)       # 공동 편집 칸 글을 먼저 파일에 — 여는 판이 최신
+    f = webhwp.get(request.app.state.db, fid) or f
     p = Path(f["path"])
     if not p.exists():
         raise HTTPException(404, "파일이 없습니다")
@@ -908,10 +902,19 @@ async def hwp_save(request: Request, fid: int):
     f = _file(request, fid)
     _writable(request, fid)
     data = await _body(request)
-    # 동시 편집 — 다른 사람이 칸(필드)에 올린 최신 글을 이 판에 합쳐 저장한다(서로 덮어쓰지 않게)
-    data, merged = webhwp.merge_live(request.app.state.db, fid, data, getattr(request.state, "user", ""))
+    from starlette.concurrency import run_in_threadpool
+    from zzaimy.app import webhwp_coedit as ce
+    db, user = request.app.state.db, getattr(request.state, "user", "")
+
+    def run():
+        # 칸 글은 공동 편집 표가 정답 — 이 판에 표의 칸 글을 덮어 써 저장한다(다른 사람이 동시에 쓴 칸이 사라지지 않게)
+        with ce.file_lock(fid):
+            new, done, versions = ce.overlay(db, fid, data)
+            p_ = webhwp.save(db, _base(request), fid, new, user=user)
+            ce._mark_committed(db, fid, versions)
+        return p_, new, done
     try:
-        p = webhwp.save(request.app.state.db, _base(request), fid, data, user=getattr(request.state, "user", ""))
+        p, data, merged = await run_in_threadpool(run)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _touch(request, webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"]))

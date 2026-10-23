@@ -1,0 +1,585 @@
+/* 웹 한글 기안기 칸 단위 공동 편집 — 동기화 엔진(AuraCollab.engine)과 화면(AuraCollab.ui). ADR-0070.
+ * 기안기 API 는 부르지 않는다 — 모두 어댑터(webhwp-wrapper.js)를 거친다.
+ *
+ * 엔진: 칸 임대(커서가 든 칸), 보낼 줄(outbox: 칸마다 마지막 글, seq·base, IndexedDB 에도), 받을 줄(inbox: 입력이 멈추면 넣기),
+ * 알림 흐름(SSE /hwp/{id}/events), 판 번호, 30초 지문 대조, 충돌 사본, 저장 상태.
+ * 서버가 정답이다 — 받은 글은 판 번호가 앞선 것만 넣고, 보낸 글은 서버 답(ack)을 받아야 보낼 줄에서 지운다.
+ */
+(function () {
+  'use strict';
+  var STRUCT = '';
+  var BAD = /[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]|[\ud800-\udbff](?![\udc00-\udfff])|(^|[^\ud800-\udbff])[\udc00-\udfff]/g;
+  function norm(s) { return String(s == null ? '' : s).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(BAD, '$1').slice(0, 50000); }
+  var CRC = (function () { var t = new Uint32Array(256); for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function fp(s) {                       // 서버 webhwp_coedit.fingerprint 와 같은 셈(UTF-8 CRC32)
+    var b = new TextEncoder().encode(norm(s)), c = 0xFFFFFFFF;
+    for (var i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8);
+    return ('0000000' + ((c ^ 0xFFFFFFFF) >>> 0).toString(16)).slice(-8);
+  }
+  function now() { return Date.now(); }
+  function clientId() {
+    try { var v = sessionStorage.getItem('aura-coedit-client'); if (v) return v; } catch (e) {}
+    var id = 'c' + Math.random().toString(36).slice(2, 10) + now().toString(36);
+    try { sessionStorage.setItem('aura-coedit-client', id); } catch (e) {}
+    return id;
+  }
+
+  // ── IndexedDB 보낼 줄 — 창이 닫히거나 끊겨도 다음에 열 때 다시 보낸다 ──
+  function store() {
+    var dbp = null;
+    function open() {
+      if (dbp) return dbp;
+      dbp = new Promise(function (res) {
+        try {
+          var r = indexedDB.open('aura-coedit', 1);
+          r.onupgradeneeded = function () { r.result.createObjectStore('outbox', {keyPath: 'key'}); r.result.createObjectStore('conflicts', {keyPath: 'key'}); };
+          r.onsuccess = function () { res(r.result); };
+          r.onerror = function () { res(null); };
+        } catch (e) { res(null); }
+      });
+      return dbp;
+    }
+    function tx(name, mode, fn) {
+      return open().then(function (db) {
+        if (!db) return null;
+        return new Promise(function (res) {
+          try { var t = db.transaction(name, mode), s = t.objectStore(name), out = fn(s); t.oncomplete = function () { res(out && out.result !== undefined ? out.result : null); }; t.onerror = function () { res(null); }; }
+          catch (e) { res(null); }
+        });
+      });
+    }
+    return {
+      put: function (name, v) { return tx(name, 'readwrite', function (s) { return s.put(v); }); },
+      del: function (name, key) { return tx(name, 'readwrite', function (s) { return s.delete(key); }); },
+      all: function (name) { return tx(name, 'readonly', function (s) { return s.getAll(); }).then(function (x) { return x || []; }); }
+    };
+  }
+
+  function engine(o) {
+    var hwp = o.hwp, fid = o.fid, me = o.me, base = '/hwp/' + fid, client = clientId(), idb = store();
+    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 0, aura_ttl: 20};
+    var names = {}, known = {}, locks = {}, people = {}, mine = {};
+    var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
+    var inbox = {}, applyTimer = null, applying = false;
+    var online = true, retryTimer = null, retryMs = 1000, es = null, lastId = 0, readonly = !!o.readonly;
+    var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
+    var handlers = {}, aura = {};
+    function on(k, fn) { (handlers[k] = handlers[k] || []).push(fn); }
+    function emit(k) { var a = [].slice.call(arguments, 1); (handlers[k] || []).forEach(function (fn) { try { fn.apply(null, a); } catch (e) { console.warn(e); } }); }
+    function nameOf(u) { return u === 'AURA' ? 'AURA' : (names[u] || u); }
+    function learn(d) { ['by', 'user', 'holder'].forEach(function (k) { if (d[k] && d[k + '_name']) names[d[k]] = d[k + '_name']; }); }
+    function nextSeq() { seqN = Math.max(seqN + 1, now()); return seqN; }
+    function post(path, body, extra) {
+      return fetch(base + path, Object.assign({method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}, extra || {}))
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.detail || ('요청 실패(' + r.status + ')')); e.status = r.status; throw e; } return j; }); });
+    }
+    var fieldsMode = function () { return fieldList.length > 0 && !readonly; };
+    function alive(lk) { return lk && lk.until * 1000 > now(); }
+    function heldByOther(f) { var lk = locks[f]; return alive(lk) && lk.user !== me; }
+    function pending() { return Object.keys(outbox).length + Object.keys(dirty).length + (inflight ? 1 : 0); }
+    function status() {
+      var n = pending();
+      if (!online) emit('status', 'offline', n ? '오프라인 — 연결되면 저장' : '오프라인');
+      else if (n) emit('status', 'saving', '저장 중');
+      else emit('status', 'saved', '저장됨');
+      if (!n && online) { var w = waiters; waiters = []; w.forEach(function (fn) { fn(); }); }
+    }
+
+    // ── 편집 가능한 칸 — 남이 임대를 쥔 칸만 잠근다(빈 칸은 바로 쓸 수 있게 두고 임대는 뒤따라 잡는다) ──
+    var editTimer = null;
+    function applyEditable() {
+      if (!fieldsMode()) return;
+      if (hwp.isComposing() || hwp.isProbing()) {        // 조합 중에 칸 속성을 바꾸면 조합이 끊긴다(실측) — 조합이 끝나면
+        clearTimeout(editTimer); editTimer = setTimeout(applyEditable, 120); return;
+      }
+      fieldList.forEach(function (f) { hwp.setEditable(f, !heldByOther(f)); });
+    }
+
+    // ── 내 고침 → 보낼 줄 ──
+    function collect() {
+      Object.keys(dirty).forEach(function (f) {
+        delete dirty[f];
+        var text = hwp.read(f);
+        if (text === null) return;
+        text = norm(text);
+        var e = outbox[f], k = known[f];
+        if (e ? e.text === text : (k && k.text === text)) return;
+        var op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0, text: text, at: now()};
+        outbox[f] = op;
+        idb.put('outbox', op);
+      });
+    }
+    function scheduleFlush() {
+      if (flushTimer) return;
+      flushTimer = setTimeout(flush, Math.max(0, lastSend + conf.throttle_ms - now()));
+    }
+    // 한글 조합 중에는 칸 글을 읽지 않는다 — 기안기는 조합 중에 글을 읽으면 조합을 끊어 자모가 따로 박힌다(실측). 조합이 끝나면 다시 부른다
+    function flush() {
+      flushTimer = null;
+      if (hwp.isComposing()) { flushTimer = setTimeout(flush, 60); return; }
+      collect(); send();
+    }
+    function send() {
+      var ops = Object.keys(outbox).map(function (f) { return outbox[f]; });
+      if (inflight) return;
+      if (!ops.length) { status(); return; }
+      inflight = true; lastSend = now(); status();
+      var bySeq = {};
+      ops.forEach(function (op) { bySeq[op.seq] = op; });
+      post('/ops', {client: client, ops: ops.map(function (op) { var x = {seq: op.seq, field: op.field, base: op.base, text: op.text}; if (op.rich) x.rich = op.rich; return x; })})
+        .then(function (j) {
+          inflight = false; online = true; retryMs = 1000;
+          (j.results || []).forEach(function (r) {
+            var op = bySeq[r.seq], f = r.field;
+            if (!op) return;
+            if (outbox[f] && outbox[f].seq === r.seq) { delete outbox[f]; idb.del('outbox', op.key); }
+            if (r.ok) {
+              if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
+              if (conf.rich && RICH.test(f) && !op.rich) { richDirty[f] = true; scheduleRich(); }
+              if (r.until) { mine[f] = r.until; locks[f] = {user: me, until: r.until}; }
+            } else if (r.conflict !== undefined) {
+              var copy = {key: fid + '|c' + r.conflict + '|' + op.seq, fid: fid, field: f, text: op.text, reason: r.reason, by: r.by_name || r.by || '', at: now(), id: r.conflict};
+              idb.put('conflicts', copy);
+              emit('conflict', copy);
+              known[f] = {v: r.version, text: r.text};
+              inbox[f] = {field: f, version: r.version, text: r.text, force: true};
+              scheduleApply();
+            }
+          });
+          if (Object.keys(outbox).length || Object.keys(dirty).length) scheduleFlush(); else status();
+        })
+        .catch(function (e) {
+          inflight = false;
+          if (e.status && e.status < 500 && e.status !== 408 && e.status !== 429) {   // 받지 않는 요청(권한 등) — 다시 보내도 같다. 보낼 줄은 남겨 둔다
+            emit('error', e.message); online = true; status(); return;
+          }
+          online = false; status();
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(function () { send(); }, retryMs);
+          retryMs = Math.min(retryMs * 2, 10000);
+        });
+    }
+    // ── 서식째 주고받기(시험 기능, 설정 rich=1) — 절 필드만. 글은 위 길로 먼저 보내고, 입력이 1초 멈추면 기안기 JSON 블록을 따로 보낸다 ──
+    var RICH = /^절:/, richDirty = {}, richTimer = null, lastRich = {};
+    function scheduleRich() { clearTimeout(richTimer); richTimer = setTimeout(doRich, 1000); }
+    function doRich() {
+      if (hwp.isComposing() || hwp.isProbing() || now() - hwp.lastInputAt() < 1000 || pending()) { scheduleRich(); return; }
+      var fs = Object.keys(richDirty);
+      richDirty = {};
+      (function next() {
+        var f = fs.shift();
+        if (!f) return;
+        if (heldByOther(f)) { next(); return; }
+        hwp.exportField(f).then(function (json) {
+          if (json && json !== lastRich[f]) {
+            lastRich[f] = json;
+            var k = known[f], op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0,
+                                    text: norm(hwp.read(f)), rich: json, at: now()};
+            outbox[f] = op; idb.put('outbox', op); send();
+          }
+          next();
+        });
+      })();
+    }
+    function flushNow() {
+      return new Promise(function (resolve) {
+        clearTimeout(flushTimer); flushTimer = null;
+        if (!hwp.isComposing()) collect(); else scheduleFlush();
+        if (!pending()) { resolve(); return; }
+        waiters.push(resolve); send();
+      });
+    }
+
+    // ── 받은 글 → 입력이 멈추면 넣기(한글 조합이 깨지지 않게) ──
+    function scheduleApply(delay) {
+      if (applyTimer) return;
+      applyTimer = setTimeout(applyInbox, delay || 0);
+    }
+    function applyInbox() {
+      applyTimer = null;
+      var keys = Object.keys(inbox);
+      if (!keys.length) return;
+      var idle = now() - hwp.lastInputAt();
+      if (hwp.isComposing() || hwp.isProbing() || idle < conf.pause_ms) { scheduleApply(Math.max(30, conf.pause_ms - idle + 20)); return; }
+      var cur = null, rich = [];
+      keys.forEach(function (f) {
+        var d = inbox[f]; delete inbox[f];
+        if (!fieldSet[f]) { known[f] = {v: d.version, text: d.text}; return; }
+        if (!d.force && known[f] && d.version <= known[f].v) return;
+        if (dirty[f]) collect();                               // 내 고침을 먼저 보낼 줄에 — 서버가 충돌 사본으로 남긴다
+        var local = hwp.read(f);
+        if (d.rich && conf.rich) { rich.push(d); known[f] = {v: d.version, text: d.text}; return; }
+        if (local !== null && norm(local) !== d.text) {
+          cur = cur || hwp.getCursor();
+          applying = true;
+          hwp.write(f, d.text);
+          applying = false;
+        }
+        known[f] = {v: d.version, text: d.text};
+        emit('applied', f, d);
+      });
+      if (cur) hwp.restoreCursor(cur);
+      if (Object.keys(outbox).length) scheduleFlush();
+      (function next() {                                // 서식째 받은 절 — 기안기 JSON 블록으로 그 칸을 바꾼다. 안 되면 글만
+        var d = rich.shift();
+        if (!d) return;
+        applying = true;
+        hwp.importField(d.field, d.rich).then(function (ok) {
+          if (!ok || norm(hwp.read(d.field)) !== d.text) hwp.write(d.field, d.text);
+          applying = false; emit('applied', d.field, d); next();
+        });
+      })();
+    }
+
+    // ── 임대 ──
+    function acquire(f) {
+      return post('/lease', {field: f, client: client, action: 'acquire'}).then(function (r) {
+        if (r.ok) { mine[f] = r.until; locks[f] = {user: me, until: r.until, since: r.since}; }
+        else { names[r.by] = r.by_name || names[r.by]; locks[f] = {user: r.by, until: r.until}; emit('blocked', f, nameOf(r.by)); if (dirty[f]) flush(); }
+        applyEditable(); emit('locks', locks);
+        return r;
+      }).catch(function () { return {ok: false}; });
+    }
+    function letGo(f, now_) {
+      if (!mine[f]) return Promise.resolve();
+      return flushNow().then(function () {
+        return post('/lease', {field: f, client: client, action: now_ ? 'release' : 'grace'}).then(function () {
+          if (now_) { delete mine[f]; delete locks[f]; applyEditable(); emit('locks', locks); }
+        }).catch(function () {});
+      });
+    }
+    function extend() {
+      lastTouch = now();
+      return post('/lease', {action: 'touch', client: client}).then(function (r) {
+        Object.keys(r.until || {}).forEach(function (f) { mine[f] = r.until[f]; if (locks[f]) locks[f].until = r.until[f]; });
+        emit('lease-ok');
+      }).catch(function () {});
+    }
+    function checkCaret() {
+      if (!started || hwp.isProbing() || hwp.isComposing()) return;
+      var f = hwp.currentField();
+      if (f === curField) return;
+      var prev = curField;
+      curField = f;
+      presence(true);
+      if (!fieldsMode()) return;
+      if (prev && mine[prev]) letGo(prev, false);
+      if (f && fieldSet[f]) {
+        if (heldByOther(f)) { emit('blocked', f, nameOf(locks[f].user)); acquire(f); }   // 기다리는 사람으로 알린다
+        else if (!mine[f] || mine[f] * 1000 < now() + conf.grace * 1000) acquire(f);
+      }
+      emit('caret', f);
+    }
+    function presence(force) {
+      if (!force && now() - lastPresence < 10000) return;
+      lastPresence = now();
+      post('/presence', {client: client, field: curField}).catch(function () {});
+    }
+
+    // ── 알림 흐름 ──
+    function connect() {
+      if (es) es.close();
+      es = new EventSource(base + '/events' + (lastId ? '?last=' + lastId : ''));
+      var reopened = false;
+      es.onopen = function () { if (reopened) { online = true; resync(false); send(); } reopened = false; };
+      es.onerror = function () { reopened = true; if (es.readyState === 2) setTimeout(connect, 2000); };
+      function h(kind, fn) { es.addEventListener(kind, function (ev) { lastId = Math.max(lastId, +ev.lastEventId || 0); var d = {}; try { d = JSON.parse(ev.data); } catch (e) {} learn(d); fn(d); }); }
+      h('field-updated', function (d) {
+        if (d.client === client) return;
+        if (known[d.field] && d.version <= known[d.field].v) return;
+        d.receivedAt = now();
+        inbox[d.field] = d;
+        if (d.by && d.by !== me) { locks[d.field] = locks[d.field] || {user: d.by, until: (now() / 1000) + conf.lease}; }
+        emit('remote', d);
+        scheduleApply();
+      });
+      h('lock-changed', function (d) {
+        if (d.field === STRUCT) { emit('struct', d.user || ''); return; }
+        if (d.user) locks[d.field] = {user: d.user, until: d.until};
+        else {
+          delete locks[d.field];
+          if (d.released_by === me) delete mine[d.field];
+          if (curField === d.field && d.released_by !== me) acquire(d.field);     // 기다리던 칸이 풀렸다 — 바로 잡는다
+        }
+        applyEditable(); emit('locks', locks);
+      });
+      h('lock-wanted', function (d) { if (d.holder === me) emit('wanted', d.field, nameOf(d.by)); });
+      h('presence', function (d) {
+        if (d.left) delete people[d.client];
+        else if (d.client !== client) people[d.client] = {user: d.user, field: d.field, at: now()};
+        emit('people', peopleList());
+      });
+      h('doc-saved', function (d) { if (d.by !== me) emit('doc-saved', d); });
+      h('aura', function (d) { setAura(d.field ? d : {}, d.ttl); });
+    }
+    var auraTimer = null;
+    function setAura(a, ttl) {                       // AURA 작성 중 표시 — 마지막 쓰기 뒤 aura_ttl 초 지나면 저절로 지운다
+      clearTimeout(auraTimer);
+      aura = a && a.field ? a : {};
+      if (aura.field) auraTimer = setTimeout(function () { aura = {}; emit('aura', aura); }, Math.max(1, ttl || conf.aura_ttl || 20) * 1000);
+      emit('aura', aura);
+    }
+    function peopleList() {
+      var by = {}, t = now() - conf.presence_ttl * 1000;
+      Object.keys(people).forEach(function (c) { var p = people[c]; if (p.at >= t && p.user !== me) by[p.user] = {user: p.user, name: nameOf(p.user), field: p.field}; });
+      return Object.keys(by).map(function (u) { return by[u]; });
+    }
+
+    // ── 처음·다시 이어질 때 — 서버 상태로 맞추기, 지문 대조 ──
+    function resync(first) {
+      if (!first && (hwp.isComposing() || now() - hwp.lastInputAt() < conf.pause_ms)) {   // 입력 중이면 조금 뒤에
+        return new Promise(function (r) { setTimeout(function () { r(resync(false)); }, 1000); });
+      }
+      return fetch(base + '/coedit', {credentials: 'same-origin', cache: 'no-store'}).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(function (s) {
+        if (!first && hwp.isComposing()) { setTimeout(function () { resync(false); }, 800); return s; }
+        online = true;
+        Object.assign(names, s.names || {});
+        Object.assign(conf, s.conf || {});
+        readonly = !!s.readonly;
+        if (first) { lastId = s.last || 0; setAura(s.aura || {}, s.aura && s.aura.at ? (conf.aura_ttl || 20) - ((s.now || now() / 1000) - s.aura.at) : 0); }
+        var skew = (s.now || now() / 1000) - now() / 1000;
+        locks = {};
+        Object.keys(s.locks || {}).forEach(function (f) {
+          var lk = s.locks[f]; lk.until -= skew;
+          if (f === STRUCT) { emit('struct', lk.user); return; }
+          locks[f] = lk;
+          if (lk.user === me && mine[f] === undefined) mine[f] = lk.until;
+        });
+        var t = now();
+        (s.people || []).forEach(function (p) { if (p.client !== client) people[p.client] = {user: p.user, field: p.field, at: t}; });
+        var srv = s.fields || {}, local = hwp.readMany(fieldList.filter(function (f) { return srv[f]; }));
+        fieldList.forEach(function (f) {
+          var x = srv[f];
+          if (!x) { if (!known[f]) known[f] = {v: 0, text: norm(hwp.read(f))}; return; }
+          var k = known[f];
+          if (!k || x.version > k.v) inbox[f] = {field: f, version: x.version, text: x.text, rich: x.rich, force: true};
+          else if (x.version === k.v && !dirty[f] && !outbox[f] && fp(local[f]) !== x.fp) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
+        });
+        applyEditable(); emit('locks', locks); emit('people', peopleList());
+        scheduleApply(first ? 0 : undefined);
+        status();
+        return s;
+      }).catch(function () { online = false; status(); });
+    }
+    function replay() {                                  // 지난번에 못 보낸 것(같은 브라우저) — 원래 client·seq 그대로 다시 보내 한 번만 반영
+      return idb.all('outbox').then(function (rows) {
+        var mineRows = rows.filter(function (r) { return r.fid === fid; });
+        var groups = {};
+        mineRows.forEach(function (r) { (groups[r.client] = groups[r.client] || []).push(r); });
+        return Promise.all(Object.keys(groups).map(function (c) {
+          if (c === client) { groups[c].forEach(function (r) { if (!outbox[r.field] || outbox[r.field].seq < r.seq) outbox[r.field] = r; }); return null; }
+          return post('/ops', {client: c, ops: groups[c].map(function (r) { return {seq: r.seq, field: r.field, base: r.base, text: r.text}; })}).then(function (j) {
+            (j.results || []).forEach(function (res, i) {
+              var r = groups[c][i];
+              if (!r) return;
+              idb.del('outbox', r.key);
+              if (res && res.ok === false && res.conflict !== undefined) emit('conflict', {field: r.field, text: r.text, reason: res.reason, by: res.by_name || res.by || ''});
+            });
+          }).catch(function () {});
+        })).then(function () { send(); });
+      });
+    }
+
+    function start() {
+      hwp.attach();
+      fieldList = readonly ? [] : hwp.fields();
+      fieldSet = {}; fieldList.forEach(function (f) { fieldSet[f] = true; });
+      if (fieldsMode()) hwp.setFormMode(true);
+      hwp.onLocalEdit(function (ev) {
+        if (applying || !fieldsMode()) return;
+        // 조합 중에는 기안기에 아무것도 묻지 않는다(커서 칸 이름을 물어도 조합이 끊긴다 — 실측) — 마지막으로 안 커서 칸을 쓴다
+        var f = ev && ev.composing ? curField : hwp.currentField();
+        if (!f || !fieldSet[f]) { emit('outside-edit'); return; }
+        if (heldByOther(f)) return;
+        dirty[f] = true; status(); scheduleFlush();
+        if (mine[f] && now() - lastTouch > 15000 && mine[f] * 1000 - now() < (conf.lease - 15) * 1000) extend();
+      });
+      hwp.onCaret(function () {
+        checkCaret();
+        // 서식 단추·Ctrl+B 같은 고침은 입력 사건이 없다 — 서식째 모드면 내 절 칸을 다시 재 본다(바뀐 것이 없으면 보내지 않는다)
+        if (conf.rich && RICH.test(curField) && mine[curField]) { richDirty[curField] = true; scheduleRich(); }
+      });
+      hwp.onActivity(function () { if (curField && mine[curField] && now() - lastTouch > 20000) extend(); });
+      setInterval(checkCaret, 700);
+      setInterval(function () { presence(false); }, 5000);
+      setInterval(function () { resync(false); }, Math.max(5, conf.hash_check) * 1000);
+      setInterval(function () {                                   // 임대 시계 — 곧 풀리면 알리고, 지난 것은 지운다
+        var t = now(), changed = false;
+        Object.keys(locks).forEach(function (f) {
+          if (alive(locks[f])) return;
+          var was = locks[f].user; delete locks[f]; changed = true;
+          if (f === curField && was !== me && fieldsMode()) acquire(f);   // 기다리던 칸의 임대가 끝났다 — 바로 잡는다
+        });
+        Object.keys(mine).forEach(function (f) {
+          var left = mine[f] * 1000 - t;
+          if (left <= 0) { delete mine[f]; if (f === curField) emit('lease-lost', f); }
+          else if (f === curField && left < conf.warn * 1000) emit('lease-warn', f, Math.ceil(left / 1000));
+        });
+        if (changed) { applyEditable(); emit('locks', locks); }
+      }, 1000);
+      window.addEventListener('online', function () { online = true; send(); resync(false); });
+      window.addEventListener('pagehide', function () {
+        collect();
+        var ops = Object.keys(outbox).map(function (f) { var x = outbox[f]; return {seq: x.seq, field: x.field, base: x.base, text: x.text}; });
+        if (ops.length) { try { fetch(base + '/ops', {method: 'POST', keepalive: true, credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({client: client, ops: ops})}); } catch (e) {} }
+        try { navigator.sendBeacon(base + '/leave?client=' + encodeURIComponent(client), new Blob([JSON.stringify({client: client})], {type: 'application/json'})); } catch (e) {}
+      });
+      return resync(true).then(function () { started = true; connect(); presence(true); checkCaret(); return replay(); });
+    }
+    // 새 판을 다시 연 뒤 — 필드 목록·편집 가능·서버 칸 글을 다시 맞춘다
+    function reopened() {
+      hwp.attach(); hwp.resetEditable();
+      fieldList = readonly ? [] : hwp.fields();
+      fieldSet = {}; fieldList.forEach(function (f) { fieldSet[f] = true; });
+      known = {};
+      if (fieldsMode()) hwp.setFormMode(!o.structureMode || !o.structureMode());
+      return resync(true).then(function () { applyInbox(); });
+    }
+    return {
+      start: start, on: on, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
+      handover: function (f) { return letGo(f, true); }, reopened: reopened, resync: resync, applyEditable: applyEditable,
+      client: client, fieldsMode: fieldsMode, current: function () { return curField; }, locks: function () { return locks; },
+      people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
+      pending: pending, aura: function () { return aura; }, setReadOnly: function (v) { readonly = !!v; },
+      conflicts: function () { return idb.all('conflicts').then(function (r) { return r.filter(function (x) { return x.fid === fid; }).sort(function (a, b) { return b.at - a.at; }); }); }
+    };
+  }
+
+  // ── 화면 — 머리줄 아바타·칸 테두리·이름표·안내 띠 ──
+  var PALETTE = ['#2563EB', '#16A34A', '#D97706', '#DB2777', '#7C3AED', '#0891B2', '#DC2626', '#4D7C0F'];
+  function colorOf(u) { if (u === 'AURA') return '#1B3B75'; var h = 0; for (var i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]; }
+  function where(f) { return f ? f.replace(/^(절|칸):/, '').replace(/^표\d+:/, '표 · ') : ''; }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  function ui(eng, hwp, o) {
+    var avatars = o.avatars, layer = el('div', 'co-layer'), bar = o.bar, tags = {}, rects = {}, measuring = false, dirtyRects = true;
+    document.body.appendChild(layer);
+    layer.setAttribute('aria-hidden', 'true');
+    var MAX = 4, auraState = {};
+    function holderOf(f) { var lk = eng.locks()[f]; return lk && lk.until * 1000 > Date.now() && lk.user !== o.me ? lk.user : ''; }
+    function drawAvatars() {
+      var list = eng.people().slice();
+      if (auraState.field) list.unshift({user: 'AURA', name: 'AURA', field: auraState.field});
+      avatars.innerHTML = '';
+      list.slice(0, MAX).forEach(function (p) {
+        var b = el('button', 'co-av' + (p.user === 'AURA' ? ' aura' : ''));
+        b.type = 'button';
+        b.style.setProperty('--c', colorOf(p.user));
+        b.textContent = p.user === 'AURA' ? 'A' : (p.name || p.user).slice(0, 1);
+        var editing = p.field && (holderOf(p.field) === p.user || p.user === 'AURA');
+        var label = (p.name || p.user) + (p.field ? ' · ' + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : ' · 문서 보는 중');
+        b.title = label; b.setAttribute('aria-label', label + (p.field ? ' — 눌러서 그 칸으로' : ''));
+        if (editing) b.classList.add('editing');
+        b.onclick = function () { if (p.field) { hwp.moveTo(p.field, false); } };
+        avatars.appendChild(b);
+      });
+      if (list.length > MAX) {
+        var m = el('span', 'co-av more', '+' + (list.length - MAX));
+        m.title = list.slice(MAX).map(function (p) { return (p.name || p.user) + (p.field ? ' · ' + where(p.field) : ''); }).join('\n');
+        avatars.appendChild(m);
+      }
+    }
+    // 다른 사람이 쥔 칸 — 색 테두리와 이름표. 자리는 입력이 멈췄을 때만 잰다(재는 동안 들어온 키는 어댑터가 곧바로 되돌린다)
+    function others() {
+      var out = {}, lk = eng.locks();
+      Object.keys(lk).forEach(function (f) { var u = holderOf(f); if (u) out[f] = u; });
+      if (auraState.field) out[auraState.field] = 'AURA';
+      return out;
+    }
+    function draw() {
+      var want = others(), seen = {};
+      Object.keys(want).forEach(function (f) {
+        var r = rects[f], u = want[f];
+        if (!r) return;
+        seen[f] = 1;
+        var t = tags[f];
+        if (!t) { t = tags[f] = el('div', 'co-box'); t.appendChild(el('span', 'co-tag')); layer.appendChild(t); }
+        var c = colorOf(u), single = Math.abs(r.y2 - r.y) < 2 && r.x2 > r.x + 4;
+        var visible = r.y + r.h > r.top && r.y < r.bottom;
+        t.hidden = !visible;
+        t.style.setProperty('--c', c);
+        t.style.left = (single ? r.x - 3 : r.x - 3) + 'px';
+        t.style.top = (r.y - 2) + 'px';
+        t.style.width = (single ? Math.max(12, r.x2 - r.x + 6) : 6) + 'px';
+        t.style.height = (single ? r.h + 4 : Math.max(r.h, r.y2 - r.y + r.h) + 4) + 'px';
+        t.classList.toggle('multi', !single);
+        t.firstChild.textContent = eng.nameOf(u) + (u === 'AURA' ? ' 작성 중' : '');
+      });
+      Object.keys(tags).forEach(function (f) { if (!seen[f]) { tags[f].remove(); delete tags[f]; } });
+    }
+    function measure() {
+      if (measuring) return;
+      var want = Object.keys(others()).filter(function (f) { return dirtyRects || !rects[f]; });
+      if (!want.length) { draw(); return; }
+      if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1200) { setTimeout(measure, 600); return; }
+      measuring = true; dirtyRects = false;
+      var i = 0;
+      (function next() {
+        if (i >= want.length) { measuring = false; draw(); return; }
+        var f = want[i++];
+        hwp.measureField(f).then(function (r) { if (r) rects[f] = r; else delete rects[f]; next(); });
+      })();
+    }
+    var mTimer = null;
+    function remeasure(delay) { dirtyRects = true; Object.keys(tags).forEach(function (f) { tags[f].hidden = true; }); clearTimeout(mTimer); mTimer = setTimeout(measure, delay == null ? 250 : delay); }
+    eng.on('locks', function () { drawAvatars(); measure(); draw(); });
+    eng.on('people', drawAvatars);
+    eng.on('aura', function (a) { auraState = a || {}; drawAvatars(); measure(); draw(); });
+    eng.on('applied', function () { remeasure(400); });
+    hwp.onActivity(function (e) { if (e && (e.type === 'wheel' || e.type === 'scroll')) remeasure(300); });
+    window.addEventListener('resize', function () { remeasure(300); });
+
+    // 안내 띠 — 한 번에 하나, 단추는 키보드로도(Esc 로 닫기)
+    var barKind = '';
+    function show(kind, text, buttons) {
+      barKind = kind;
+      bar.innerHTML = '';
+      bar.appendChild(el('span', 'co-bar-text', text));
+      (buttons || []).forEach(function (b) { var x = el('button', 'co-btn', b[0]); x.type = 'button'; x.onclick = b[1]; bar.appendChild(x); });
+      var close = el('button', 'co-btn ghost', '닫기'); close.type = 'button'; close.onclick = hide; bar.appendChild(close);
+      bar.hidden = false;
+    }
+    function hide(kind) { if (typeof kind === 'string' && kind !== barKind) return; bar.hidden = true; barKind = ''; }
+    bar.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); hide(); } });
+    eng.on('lease-warn', function (f, left) {
+      show('warn', '「' + where(f) + '」 칸 편집이 ' + left + '초 뒤 풀립니다', [['계속 쓰기', function () { eng.extend(); hide('warn'); }]]);
+    });
+    eng.on('lease-ok', function () { hide('warn'); });
+    eng.on('lease-lost', function (f) { show('lost', '「' + where(f) + '」 칸 편집이 쉬는 동안 풀렸습니다 — 다시 누르면 이어서 씁니다'); });
+    eng.on('blocked', function (f, who) { show('blocked', who + ' 님이 「' + where(f) + '」 칸을 쓰는 중이라 보기만 됩니다 — 끝나면 바로 쓸 수 있게 알려 드립니다'); });
+    eng.on('caret', function (f) { if (barKind === 'blocked' && !holderOf(f)) hide('blocked'); });
+    var wantedField = '';
+    eng.on('locks', function () { var lk = eng.locks()[wantedField]; if (barKind === 'wanted' && (!lk || lk.user !== o.me)) hide('wanted'); });
+    eng.on('locks', function () { var f = eng.current(); if (barKind === 'blocked' && f && !holderOf(f)) { show('free', '「' + where(f) + '」 칸이 비었습니다 — 이제 쓸 수 있습니다'); setTimeout(function () { hide('free'); }, 4000); } });
+    eng.on('wanted', function (f, who) {
+      wantedField = f;
+      show('wanted', who + ' 님이 「' + where(f) + '」 칸을 쓰려고 기다립니다', [['넘겨주기', function () { eng.handover(f); hide('wanted'); }]]);
+    });
+    eng.on('conflict', function (c) {
+      show('conflict', '「' + where(c.field) + '」 칸에 쓴 글이 ' + (c.by ? c.by + ' 님의 글과 ' : '') + '겹쳐 내 글을 사본으로 따로 두었습니다', [['내 글 보기', function () { openConflicts(); }]]);
+    });
+    var panel = null;
+    function openConflicts() {
+      if (panel) { panel.remove(); panel = null; }
+      eng.conflicts().then(function (list) {
+        panel = el('div', 'co-panel'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', '충돌 사본');
+        panel.appendChild(el('div', 'co-panel-h', '충돌로 따로 둔 내 글'));
+        if (!list.length) panel.appendChild(el('div', 'co-panel-empty', '따로 둔 글이 없습니다'));
+        list.slice(0, 20).forEach(function (c) {
+          var row = el('div', 'co-panel-row');
+          row.appendChild(el('div', 'co-panel-f', where(c.field) + ' · ' + new Date(c.at).toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'})));
+          row.appendChild(el('pre', 'co-panel-t', c.text));
+          var cp = el('button', 'co-btn', '복사'); cp.type = 'button';
+          cp.onclick = function () { try { navigator.clipboard.writeText(c.text); cp.textContent = '복사됨'; } catch (e) {} };
+          row.appendChild(cp); panel.appendChild(row);
+        });
+        var x = el('button', 'co-btn ghost', '닫기'); x.type = 'button'; x.onclick = function () { panel.remove(); panel = null; }; panel.appendChild(x);
+        panel.addEventListener('keydown', function (e) { if (e.key === 'Escape') { panel.remove(); panel = null; } });
+        document.body.appendChild(panel); x.focus();
+      });
+    }
+    return {drawAvatars: drawAvatars, remeasure: remeasure, show: show, hide: hide, openConflicts: openConflicts, colorOf: colorOf};
+  }
+
+  window.AuraCollab = {engine: engine, ui: ui, fp: fp, norm: norm, colorOf: colorOf};
+})();

@@ -170,8 +170,9 @@ VERSION_GAP = 600        # 앞 판을 따로 남기는 최소 간격(초)
 VERSION_KEEP = 30        # 파일마다 남기는 앞 판 수
 
 
-def save(db, base: Path, fid: int, data: bytes, *, user: str) -> Path:
-    """기안기에서 고친 내용을 저장 — 앞 판은 .판/ 으로 옮기고 같은 자리에 쓴다. 고친 사람·시각을 남긴다."""
+def save(db, base: Path, fid: int, data: bytes, *, user: str, quiet: bool = False) -> Path:
+    """기안기에서 고친 내용을 저장 — 앞 판은 .판/ 으로 옮기고 같은 자리에 쓴다. 고친 사람·시각을 남긴다.
+    공동 편집 알림 줄에 「문서 저장」 을 남겨 열린 편집 화면이 새 판을 불러오게 한다(quiet=True 는 칸 글 써 넣기 — 화면은 이미 그 글을 가졌다)."""
     f = get(db, fid)
     if not f:
         raise FileNotFoundError("문서가 없습니다")
@@ -210,6 +211,13 @@ def save(db, base: Path, fid: int, data: bytes, *, user: str) -> Path:
     m = meta(db, fid)
     m.update(saved_by=user, saved=datetime.now().isoformat(timespec="seconds"))
     db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+    if not quiet:
+        try:
+            from zzaimy.app import webhwp_coedit
+            webhwp_coedit.emit(db, fid, "doc-saved", {"by": user, "saved": m["saved"]})
+        except Exception:
+            import logging
+            logging.getLogger("zzaimy.app.webhwp").exception("저장 알림 실패")
     return p
 
 
@@ -247,7 +255,7 @@ def browse(db, base: Path, dept: str, folder: str = "") -> dict:
         m = meta(db, r["id"])
         files.append({"id": r["id"], "name": r["name"], "size": r["size"], "owner": m.get("owner", ""),
                       "locked": str(m.get("source", "")).startswith("양식:"),
-                      "editing": lock_holder(db, r["id"]).get("user", ""),
+                      "editing": _display(db, lock_holder(db, r["id"]).get("user", "")),
                       "saved": (m.get("saved") or m.get("created") or r.get("created_at") or "")[:16].replace("T", " "),
                       "saved_by": m.get("saved_by", "")})
     files.sort(key=lambda x: x["saved"], reverse=True)
@@ -256,6 +264,26 @@ def browse(db, base: Path, dept: str, folder: str = "") -> dict:
         acc.append(seg)
         crumbs.append({"name": seg, "path": "/".join(acc)})
     return {"dept": dept, "folder": clean_folder(folder), "folders": folders, "files": files, "crumbs": crumbs}
+
+
+def display_name(db, user: str, accounts: dict | None = None) -> str:
+    """화면에 보일 사람 이름 — 공용 규칙(app/people.display_name: 계정 장부 이름 → 그 계정의 성명 설정 → 아이디).
+    라우터 밖(에이전트·알림 흐름)에서도 쓰도록 계정 장부를 못 받으면 DB 옆 accounts.json 을 읽는다."""
+    from zzaimy.app import people
+    if not user:
+        return ""
+    if user == "AURA":
+        return "AURA"
+    if accounts is None:
+        try:
+            p = Path(db.path).parent / "accounts.json"
+            accounts = json.loads(p.read_text()) if p.exists() else {}
+        except (OSError, ValueError, TypeError):
+            accounts = {}
+    return people.display_name(user, accounts, db)
+
+
+_display = display_name
 
 
 def trash(db, base: Path, fid: int, *, user: str) -> None:
@@ -271,86 +299,58 @@ def trash(db, base: Path, fid: int, *, user: str) -> None:
     db.remove_files(path=f["path"])
 
 
-LOCK_TTL = 120     # 편집 잠금 유지 시간(초) — 편집 화면이 45초마다 늘린다. 창을 닫거나 끊기면 2분 뒤 저절로 풀린다
+LOCK_TTL = 120     # 구조 잠금(문서 전체 편집 잠금) 유지 시간(초) — 편집 화면이 45초마다 늘린다. 창을 닫거나 끊기면 2분 뒤 저절로 풀린다
 
 
+# 구조 잠금 — 칸(필드) 밖을 고치는 사람(본문·행 추가·페이지 설정, 필드 없는 문서는 문서 전체)이 쥔다.
+# 칸 단위 임대와 같은 표(webhwp_coedit, 필드 이름 STRUCT)에 두어 동시에 잡아도 한 사람만 잡힌다.
 def lock_holder(db, fid: int) -> dict:
-    """지금 이 문서를 편집 중인 사람 — {"user", "at"} 또는 {}(아무도 없거나 시간이 지남)."""
-    try:
-        cur = json.loads(db.get_setting(f"webhwp_lock:{int(fid)}", "{}") or "{}")
-    except ValueError:
-        return {}
-    return cur if cur.get("user") and time.time() - float(cur.get("at") or 0) < LOCK_TTL else {}
+    """지금 이 문서의 구조 잠금을 쥔 사람 — {"user", "at", "since"} 또는 {}(아무도 없거나 시간이 지남)."""
+    from zzaimy.app import webhwp_coedit as ce
+    cur = ce.locks(db, fid).get(ce.STRUCT)
+    return {"user": cur["user"], "at": cur["until"] - LOCK_TTL, "since": cur["since"]} if cur else {}
 
 
 def take_lock(db, fid: int, user: str) -> dict:
-    """편집 잠금 잡기·늘리기 — 다른 사람이 잡고 있으면 {"ok": False, "by": 그 사람}. 여럿이 같은 문서를 동시에 고쳐 서로 덮어쓰지 않게."""
-    cur = lock_holder(db, fid)
-    if cur and cur["user"] != user:
-        return {"ok": False, "by": cur["user"], "since": cur.get("since", cur["at"])}
-    since = cur.get("since") if cur else time.time()
-    db.set_setting(f"webhwp_lock:{int(fid)}", json.dumps({"user": user, "at": time.time(), "since": since}))
-    return {"ok": True, "by": user}
+    """구조 잠금 잡기·늘리기 — 다른 사람이 잡고 있으면 {"ok": False, "by": 그 사람}."""
+    from zzaimy.app import webhwp_coedit as ce
+    r = ce.acquire(db, fid, ce.STRUCT, user, ttl=LOCK_TTL)
+    return {"ok": True, "by": user} if r["ok"] else {"ok": False, "by": r["by"], "since": r.get("since", 0)}
 
 
 def release_lock(db, fid: int, user: str) -> None:
-    cur = lock_holder(db, fid)
-    if cur and cur["user"] == user:
-        db.set_setting(f"webhwp_lock:{int(fid)}", "{}")
+    from zzaimy.app import webhwp_coedit as ce
+    ce.release(db, fid, ce.STRUCT, user)
 
 
-# ── 칸 단위 실시간 공유 ── 여러 사람이 같은 문서를 열면 각자 커서가 있는 필드(칸·표·절 첫 줄)의 글을 몇 초마다 올리고,
-# 다른 사람의 바뀐 필드 글을 받아 자기 화면의 같은 필드에 넣는다. 저장할 때는 다른 사람이 올린 최신 필드 글을 합쳐 저장한다(merge_live).
-LIVE_KEEP = 1800      # 30분 지난 필드 글은 버린다
-
-
-def live_get(db, fid: int) -> dict:
-    try:
-        cur = json.loads(db.get_setting(f"webhwp_live:{int(fid)}", "{}") or "{}")
-    except ValueError:
-        cur = {}
-    cur.setdefault("v", 0)
-    cur.setdefault("fields", {})
-    return cur
-
-
+# ── 칸 단위 공유(예전 편집 화면·에이전트가 쓰던 이름) — 이제 webhwp_coedit 의 칸 글 표·알림 줄 위에서 돈다 ──
 def live_put(db, fid: int, user: str, field: str, text: str) -> int:
-    cur = live_get(db, fid)
-    now = time.time()
-    cur["fields"] = {k: v for k, v in cur["fields"].items() if now - float(v.get("at") or 0) < LIVE_KEEP}
-    old = cur["fields"].get(field)
-    if old and old.get("text") == text and old.get("by") == user:
-        return int(cur["v"])
-    cur["v"] = int(cur["v"]) + 1
-    cur["fields"][field] = {"text": text[:5000], "by": user, "at": now, "v": cur["v"]}
-    db.set_setting(f"webhwp_live:{int(fid)}", json.dumps(cur, ensure_ascii=False))
-    return int(cur["v"])
+    from zzaimy.app import webhwp_coedit as ce
+    res = ce.apply_ops(db, fid, user, f"{user}:live", [{"seq": int(time.time() * 1e6), "field": field, "text": text}], force=True)
+    return int(res[0].get("version") or 0) if res else 0
 
 
 def live_since(db, fid: int, since: int, user: str) -> tuple[int, list[dict]]:
-    cur = live_get(db, fid)
-    out = [{"field": k, "text": v["text"], "by": v["by"], "v": v["v"]} for k, v in cur["fields"].items()
-           if int(v.get("v") or 0) > int(since) and v.get("by") != user]
-    return int(cur["v"]), sorted(out, key=lambda x: x["v"])
+    """since(알림 번호) 뒤 다른 사람이 바꾼 칸 — (마지막 알림 번호, [{field, text, by, v}]). 같은 칸은 마지막 것만."""
+    from zzaimy.app import webhwp_coedit as ce
+    evs = ce.events_since(db, fid, int(since))
+    last = max([int(since)] + [e["id"] for e in evs])
+    out: dict[str, dict] = {}
+    for e in evs:
+        d = e["data"]
+        if e["kind"] == "field-updated" and d.get("by") != user:
+            out[d["field"]] = {"field": d["field"], "text": d["text"], "by": d["by"], "v": e["id"]}
+    return last, sorted(out.values(), key=lambda x: x["v"])
 
 
 def merge_live(db, fid: int, data: bytes, user: str) -> tuple[bytes, list[str]]:
-    """저장하려는 판에 다른 사람이 올린 최신 필드 글을 합친다 — 동시에 다른 칸을 쓴 사람의 글이 사라지지 않게."""
-    from zzaimy.app import webhwp_write as ww
-    cur = live_get(db, fid)
-    saved_at = 0.0
-    m = meta(db, fid)
+    """저장하려는 판에 칸 글 표(서버가 정답)를 덮어 쓴다 — 동시에 다른 칸을 쓴 사람의 글이 사라지지 않게. (새 바이트, 바꾼 필드)."""
+    from zzaimy.app import webhwp_coedit as ce
     try:
-        saved_at = datetime.fromisoformat(m.get("saved") or m.get("created") or "1970-01-01").timestamp()
-    except ValueError:
-        pass
-    others = {k: v["text"] for k, v in cur["fields"].items() if v.get("by") != user and float(v.get("at") or 0) >= saved_at - 5}
-    if not others or data[:2] != b"PK":
-        return data, []
-    try:
-        return ww.set_fields(data, others)
+        new, done, versions = ce.overlay(db, fid, data)
     except Exception:
         return data, []
+    return new, done
 
 
 def locked(db, fid: int) -> bool:

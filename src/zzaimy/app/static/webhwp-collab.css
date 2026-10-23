@@ -1,0 +1,32 @@
+/* 기안기 공동 편집 화면 — 머리줄 아바타(32px 줄에 맞춤)·칸 테두리·이름표·안내 띠·충돌 사본 창 */
+.co-avatars { display:flex; align-items:center; flex:none; min-width:0; }
+.co-av { width:28px; height:28px; border-radius:50%; border:2px solid #fff; margin-left:-6px; padding:0; display:inline-flex; align-items:center; justify-content:center;
+  background:var(--c, #64748B); color:#fff; font:inherit; font-size:12px; font-weight:700; line-height:1; cursor:pointer; position:relative; flex:none;
+  box-shadow:0 0 0 1px rgba(15,23,42,.06); transition:transform .12s; }
+.co-av:first-child { margin-left:0; }
+.co-av:hover, .co-av:focus-visible { transform:translateY(-1px); z-index:2; outline:none; box-shadow:0 0 0 2px var(--c, #64748B); }
+.co-av.editing::after { content:""; position:absolute; right:-2px; bottom:-2px; width:9px; height:9px; border-radius:50%; background:#22C55E; border:2px solid #fff; }
+.co-av.aura { background:#1B3B75; animation:co-pulse 1.6s ease-in-out infinite; }
+.co-av.more { background:#E2E8F0; color:#475569; cursor:default; font-size:11px; }
+@keyframes co-pulse { 50% { box-shadow:0 0 0 3px rgba(27,59,117,.25); } }
+.co-layer { position:fixed; inset:0; pointer-events:none; z-index:25; }
+.co-box { position:fixed; border:2px solid var(--c, #2563EB); border-radius:3px; background:color-mix(in srgb, var(--c, #2563EB) 7%, transparent); transition:top .15s, left .15s; }
+.co-box.multi { border-width:0 0 0 3px; border-radius:0; background:none; }
+.co-box[hidden] { display:none; }
+.co-tag { position:absolute; left:-2px; bottom:100%; margin-bottom:2px; padding:1px 6px 2px; border-radius:4px 4px 4px 0; background:var(--c, #2563EB); color:#fff;
+  font-size:10.5px; font-weight:600; line-height:15px; white-space:nowrap; box-shadow:0 1px 3px rgba(15,23,42,.2); }
+.co-bar { flex:none; display:flex; align-items:center; gap:8px; min-height:40px; padding:6px 16px; background:#EEF4FF; color:#1E3A6E; font-size:13px; border-bottom:1px solid #D6E2F7; }
+.co-bar[hidden] { display:none; }
+.co-bar-text { flex:1; min-width:0; }
+.co-btn { flex:none; height:28px; padding:0 12px; border-radius:6px; border:1px solid #B9C9E6; background:#fff; color:#1E3A6E; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap; }
+.co-btn:hover { background:#F5F8FE; }
+.co-btn:focus-visible { outline:2px solid #2563EB; outline-offset:1px; }
+.co-btn.ghost { border-color:transparent; background:transparent; color:#64748B; font-weight:500; }
+.co-panel { position:fixed; right:16px; top:64px; width:min(420px, calc(100vw - 32px)); max-height:min(70vh, 560px); overflow:auto; background:#fff; border:1px solid #E2E8F0;
+  border-radius:12px; box-shadow:0 12px 32px rgba(15,23,42,.14); padding:12px; z-index:45; font-size:13px; }
+.co-panel-h { font-weight:600; margin:2px 2px 10px; }
+.co-panel-empty { color:#64748B; padding:8px 2px; }
+.co-panel-row { border-top:1px solid #EEF2F7; padding:8px 2px; display:grid; grid-template-columns:1fr auto; gap:6px 8px; align-items:start; }
+.co-panel-f { grid-column:1 / -1; color:#64748B; font-size:12px; }
+.co-panel-t { margin:0; white-space:pre-wrap; word-break:break-word; font:inherit; font-size:12.5px; max-height:120px; overflow:auto; }
+@media (max-width:640px) { .co-av { width:26px; height:26px; font-size:11px; } .co-bar { padding:6px 10px; flex-wrap:wrap; } }

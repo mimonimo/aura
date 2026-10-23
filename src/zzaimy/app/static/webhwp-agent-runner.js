@@ -56,6 +56,7 @@
   function mm(v) { return typeof v === 'number' ? Math.round(v / MM * 10) / 10 : null; }
   function read(keys) {
     var c = ctrl(), h = adapter(), out = {};
+    if (h && h.inspect) return h.inspect(keys);                 // 어댑터에 있으면 그것(기안기 API 는 어댑터 한 곳에서)
     keys.forEach(function (k) {
       try {
         if (k === 'pos') out.pos = c.GetPos();
@@ -75,11 +76,12 @@
     });
     return out;
   }
-  function inTable() { try { var p = ctrl().ParentCtrl; return !!(p && p.CtrlID === 'tbl'); } catch (e) { return false; } }
+  function inTable() { var h = adapter(); if (h && h.inTable) return h.inTable(); try { var p = ctrl().ParentCtrl; return !!(p && p.CtrlID === 'tbl'); } catch (e) { return false; } }
 
   // 문서 처음부터 n 번째 「글」 을 블록으로 — 기안기 찾기(ForwardFind)를 알림 창 없이
   function find(text, n) {
     var h = adapter();
+    if (h.findNth) return h.findNth(text, n);
     h.run('Cancel'); h.run('MoveDocBegin');
     for (var i = 0; i < n; i++) {
       if (h.exec('ForwardFind', {FindString: text, IgnoreMessage: 1, Direction: 0}) === false) return false;
@@ -95,6 +97,8 @@
         return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = rej; fr.readAsDataURL(b); });
       })
       .then(function (url) {
+        var h = adapter();
+        if (h && h.insertPicture) return h.insertPicture(url, wmm, hmm);
         return new Promise(function (res, rej) {
           var t = setTimeout(function () { res(); }, 8000);
           var ok = ctrl().InsertPicture(url, true, 1, false, false, 0, wmm, hmm, function () { clearTimeout(t); res(); });

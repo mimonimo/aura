@@ -1,0 +1,598 @@
+"""웹 한글 기안기 칸 단위 공동 편집(ADR-0070) — 칸(누름틀 필드)마다 편집 임대, 칸 글의 판 번호, 보낸 변경의 중복 막기, 충돌 사본, 알림 줄.
+
+여러 사람이 한 문서를 열면 각자 커서가 든 칸의 편집 임대(lease)를 잡는다. 임대를 쥔 사람만 그 칸을 고치고(편집 화면은 양식 보호 모드로
+남의 칸을 잠근다), 고친 글은 칸 글 전체를 판 번호와 함께 서버로 보낸다. 서버가 정답이다 — 받은 글은 이 모듈의 표에 먼저 남기고
+(그 순간이 「저장됨」), 몇 초 뒤 한글 파일(hwpx)의 필드에 써 넣는다(webhwp_write.set_fields → webhwp.save, 앞 판은 .판/ 에).
+
+- 임대: 활동(입력·커서·스크롤)이 있으면 저절로 늘린다. 다른 칸으로 옮기면 바로 풀지 않고 유예 뒤 풀린다. 다른 사람이 기다리면 짧게.
+  모든 시간 값은 설정(conf) — 설정 표의 coedit:<키>, 없으면 환경 변수 ZZAIMY_COEDIT_<키>, 없으면 기본값.
+- 구조 잠금(필드 이름 STRUCT): 필드 밖 본문·행 추가·페이지 설정처럼 칸이 아닌 고침은 문서 전체 잠금(예전 편집 잠금과 같은 뜻)을 쥔 사람만,
+  그 사람이 문서 전체를 저장한다. 저장할 때 이 표의 칸 글을 다시 덮어 써(overlay) 다른 사람의 칸 글이 사라지지 않게 한다.
+- 변경(op): (client, seq) 로 한 번만 반영한다(다시 보내도 같은 답). base(보낸 쪽이 마지막으로 본 판)가 지금 판과 다르고 그 사이 판을
+  다른 창이 썼으면 반영하지 않고 충돌 사본으로 남긴다 — 조용히 버리지 않는다. 임대를 다른 사람이 쥐고 있어도 충돌 사본.
+- 알림: 바뀐 칸·임대·같이 보는 사람은 알림 줄(webhwp_events)에 쌓고, 편집 화면은 SSE(/hwp/{id}/events)로 바로 받는다.
+  같은 프로세스 안에서는 쓰는 즉시 깨우고, 다른 프로세스가 쓴 것은 짧은 주기로 표를 읽어 받는다.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+import time
+import zlib
+from pathlib import Path
+
+log = logging.getLogger("zzaimy.app.webhwp_coedit")
+
+STRUCT = ""                       # 구조 잠금(문서 전체)의 필드 이름 자리
+AGENT = "AURA"
+TEXT_MAX = 50_000
+RICH_MAX = 2_000_000
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS webhwp_field_locks (fid INTEGER NOT NULL, field TEXT NOT NULL, user_id TEXT NOT NULL,
+  client TEXT NOT NULL DEFAULT '', lease_until DOUBLE PRECISION NOT NULL DEFAULT 0, touched DOUBLE PRECISION NOT NULL DEFAULT 0,
+  since DOUBLE PRECISION NOT NULL DEFAULT 0, wanted_by TEXT NOT NULL DEFAULT '', PRIMARY KEY (fid, field));
+CREATE TABLE IF NOT EXISTS webhwp_field_state (fid INTEGER NOT NULL, field TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0,
+  text TEXT NOT NULL DEFAULT '', rich TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '', client TEXT NOT NULL DEFAULT '',
+  at DOUBLE PRECISION NOT NULL DEFAULT 0, committed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (fid, field));
+CREATE TABLE IF NOT EXISTS webhwp_field_ops (fid INTEGER NOT NULL, client TEXT NOT NULL, seq BIGINT NOT NULL,
+  result TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0, PRIMARY KEY (fid, client, seq));
+CREATE TABLE IF NOT EXISTS webhwp_field_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, fid INTEGER NOT NULL, field TEXT NOT NULL,
+  version INTEGER NOT NULL, text TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS webhwp_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, fid INTEGER NOT NULL, field TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT '', base_version INTEGER NOT NULL DEFAULT 0, server_version INTEGER NOT NULL DEFAULT 0,
+  text TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS webhwp_events (id INTEGER PRIMARY KEY AUTOINCREMENT, fid INTEGER NOT NULL, kind TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS webhwp_events_fid ON webhwp_events (fid, id);
+CREATE TABLE IF NOT EXISTS webhwp_presence (fid INTEGER NOT NULL, client TEXT NOT NULL, user_id TEXT NOT NULL,
+  field TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0, PRIMARY KEY (fid, client))
+"""
+
+# 설정 기본값(초, ms 는 이름에) — 하드코딩하지 않고 conf() 로 읽는다
+DEFAULTS = {
+    "lease": 300.0,            # 입력 없이 임대가 유지되는 시간
+    "lease_contended": 120.0,  # 다른 사람이 그 칸을 기다릴 때의 입력 없음 시간
+    "grace": 30.0,             # 다른 칸으로 옮긴 뒤 임대를 놓기까지의 유예
+    "warn": 60.0,              # 임대가 풀리기 전 미리 알리는 시간
+    "commit_delay": 3.0,       # 마지막 변경 뒤 한글 파일에 써 넣기까지
+    "commit_max": 20.0,        # 변경이 이어져도 이 시간 안에는 한 번 써 넣는다
+    "hash_check": 30.0,        # 편집 화면이 칸 글 지문을 서버와 맞춰 보는 주기
+    "throttle_ms": 300.0,      # 입력 중 칸 글을 보내는 간격
+    "pause_ms": 300.0,         # 받은 칸 글을 넣기 전에 기다리는 입력 멈춤
+    "presence_ttl": 30.0,      # 같이 보는 사람 표시가 남는 시간
+    "rich": 0.0,
+    "aura_ttl": 20.0,          # AURA 작성 중 표시가 마지막 쓰기 뒤 남는 시간               # 1 이면 절 필드를 서식째(기안기 JSON 블록) 주고받는 시험 기능(M3)
+}
+_ENSURED: set[str] = set()
+_FILE_LOCKS: dict[int, threading.Lock] = {}
+_FILE_LOCKS_GUARD = threading.Lock()
+
+
+def conf(db, key: str) -> float:
+    raw = None
+    try:
+        raw = db.get_setting(f"coedit:{key}", None)
+    except Exception:
+        raw = None
+    if raw in (None, ""):
+        raw = os.environ.get(f"ZZAIMY_COEDIT_{key.upper()}")
+    try:
+        return float(raw) if raw not in (None, "") else DEFAULTS[key]
+    except (TypeError, ValueError):
+        return DEFAULTS[key]
+
+
+def client_conf(db) -> dict:
+    """편집 화면에 넘기는 설정(초·ms)."""
+    return {k: conf(db, k) for k in DEFAULTS}
+
+
+def ensure(db) -> None:
+    if db.path in _ENSURED:
+        return
+    with db._conn() as conn:
+        conn.executescript(_SCHEMA)
+    _ENSURED.add(db.path)
+
+
+def _pg(conn) -> bool:
+    return getattr(conn, "dialect", "") == "postgres"
+
+
+def _txlock(conn, fid: int) -> None:
+    """이 문서의 공동 편집 표를 고치는 동안 다른 쓰기를 막는다(같은 문서끼리만 줄 세운다)."""
+    if _pg(conn):
+        conn.execute("SELECT pg_advisory_xact_lock(CAST(? AS INTEGER), CAST(? AS INTEGER))", (26102401, int(fid)))
+    else:
+        conn.execute("BEGIN IMMEDIATE")
+
+
+def norm(text) -> str:
+    """칸 글 비교용 — 줄바꿈을 \\n 하나로(기안기는 \\r\\n 으로 돌려준다), XML 이 받지 않는 글자는 빼고 길이 상한."""
+    from zzaimy.app import webhwp_fields as wf
+    s = "" if text is None else str(text)
+    return wf.clean_text(s.replace("\r\n", "\n").replace("\r", "\n"), TEXT_MAX)
+
+
+def fingerprint(text: str) -> str:
+    """칸 글 지문 — 편집 화면(webhwp-collab.js 의 fp)과 같은 셈: UTF-8 바이트의 CRC32 를 16진수로."""
+    return format(zlib.crc32(norm(text).encode("utf-8")) & 0xFFFFFFFF, "08x")
+
+
+# ── 알림 줄 ──
+class _Hub:
+    """같은 프로세스 안의 SSE 연결을 깨운다 — 스레드(동기 경로)에서도 부를 수 있게 루프에 넘겨 깨운다."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.waiters: dict[int, set] = {}
+
+    def add(self, fid: int, loop, event) -> None:
+        with self.lock:
+            self.waiters.setdefault(int(fid), set()).add((loop, event))
+
+    def remove(self, fid: int, loop, event) -> None:
+        with self.lock:
+            s = self.waiters.get(int(fid))
+            if s:
+                s.discard((loop, event))
+
+    def wake(self, fid: int) -> None:
+        with self.lock:
+            targets = list(self.waiters.get(int(fid), ()))
+        for loop, ev in targets:
+            try:
+                loop.call_soon_threadsafe(ev.set)
+            except RuntimeError:
+                pass
+
+
+HUB = _Hub()
+_LAST_PRUNE = {"at": 0.0}
+
+
+def emit(db, fid: int, kind: str, data: dict, conn=None) -> None:
+    payload = json.dumps(data, ensure_ascii=False)
+    if conn is not None:
+        conn.execute("INSERT INTO webhwp_events (fid, kind, data, at) VALUES (?, ?, ?, ?)", (int(fid), kind, payload, time.time()))
+    else:
+        ensure(db)
+        with db._conn() as c:
+            c.execute("INSERT INTO webhwp_events (fid, kind, data, at) VALUES (?, ?, ?, ?)", (int(fid), kind, payload, time.time()))
+    if conn is not None:                              # 묶음 안 — 깨우기·정리는 묶음을 확정한 쪽이
+        return
+    HUB.wake(fid)
+    now = time.time()
+    if now - _LAST_PRUNE["at"] > 300:
+        _LAST_PRUNE["at"] = now
+        try:
+            with db._conn() as c:
+                c.execute("DELETE FROM webhwp_events WHERE at < ?", (now - 1800,))
+                c.execute("DELETE FROM webhwp_field_ops WHERE at < ?", (now - 7 * 86400,))
+        except Exception:
+            log.exception("알림 줄 정리 실패")
+
+
+def events_since(db, fid: int, last_id: int, lookback: int = 0) -> list[dict]:
+    """last_id 뒤 알림(PostgreSQL 은 번호 순서와 확정 순서가 다를 수 있어 lookback 만큼 앞에서부터 읽고 부르는 쪽이 본 번호를 거른다)."""
+    ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute("SELECT id, kind, data FROM webhwp_events WHERE fid = ? AND id > ? ORDER BY id LIMIT 500",
+                            (int(fid), max(0, int(last_id) - lookback))).fetchall()
+    out = []
+    for r in rows:
+        try:
+            out.append({"id": int(r[0]), "kind": r[1], "data": json.loads(r[2] or "{}")})
+        except ValueError:
+            continue
+    return out
+
+
+def last_event_id(db, fid: int) -> int:
+    ensure(db)
+    with db._conn() as conn:
+        r = conn.execute("SELECT MAX(id) FROM webhwp_events WHERE fid = ?", (int(fid),)).fetchone()
+    return int(r[0] or 0) if r else 0
+
+
+# ── 임대 ──
+def _lock_row(conn, fid: int, field: str):
+    return conn.execute("SELECT user_id, client, lease_until, touched, since, wanted_by FROM webhwp_field_locks WHERE fid = ? AND field = ?",
+                        (int(fid), field)).fetchone()
+
+
+def _alive(row, now: float) -> bool:
+    return bool(row) and float(row[2] or 0) > now
+
+
+def locks(db, fid: int) -> dict:
+    """살아 있는 임대 — {필드: {user, until, since, wanted}}(구조 잠금은 필드 이름 STRUCT)."""
+    ensure(db)
+    now = time.time()
+    with db._conn() as conn:
+        rows = conn.execute("SELECT field, user_id, lease_until, since, wanted_by, client FROM webhwp_field_locks WHERE fid = ? AND lease_until > ?",
+                            (int(fid), now)).fetchall()
+    return {r[0]: {"user": r[1], "until": float(r[2]), "since": float(r[3] or 0), "wanted": r[4] or "", "client": r[5] or ""} for r in rows}
+
+
+def holder(db, fid: int, field: str) -> str:
+    return (locks(db, fid).get(field) or {}).get("user", "")
+
+
+def _lease_for(db, wanted: str) -> float:
+    return conf(db, "lease_contended") if wanted else conf(db, "lease")
+
+
+def acquire(db, fid: int, field: str, user: str, client: str = "", *, ttl: float | None = None) -> dict:
+    """임대 잡기·늘리기 — 다른 사람이 살아 있는 임대를 쥐고 있으면 {"ok": False, "by"}(그 사람에게 「기다리는 사람」 을 알린다)."""
+    ensure(db)
+    now = time.time()
+    with db._conn() as conn:
+        _txlock(conn, fid)
+        row = _lock_row(conn, fid, field)
+        if _alive(row, now) and row[0] != user:
+            if row[5] != user:                         # 기다리는 사람이 생기면 쥔 사람의 입력 없음 시간을 짧게
+                until = min(float(row[2]), float(row[3] or now) + conf(db, "lease_contended")) if ttl is None else float(row[2])
+                conn.execute("UPDATE webhwp_field_locks SET wanted_by = ?, lease_until = ? WHERE fid = ? AND field = ?",
+                             (user, until, int(fid), field))
+                emit(db, fid, "lock-wanted", {"field": field, "by": user, "holder": row[0]}, conn=conn)
+            out = {"ok": False, "by": row[0], "until": float(row[2]), "since": float(row[4] or 0)}
+        else:
+            mine = _alive(row, now) and row[0] == user
+            since = float(row[4]) if mine else now
+            wanted = (row[5] if mine else "") or ""
+            until = now + (ttl if ttl is not None else _lease_for(db, wanted))
+            if row:
+                conn.execute("UPDATE webhwp_field_locks SET user_id = ?, client = ?, lease_until = ?, touched = ?, since = ?, wanted_by = ?"
+                             " WHERE fid = ? AND field = ?", (user, client, until, now, since, wanted, int(fid), field))
+            else:
+                conn.execute("INSERT INTO webhwp_field_locks (fid, field, user_id, client, lease_until, touched, since, wanted_by)"
+                             " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (int(fid), field, user, client, until, now, since, ""))
+            if not mine:
+                emit(db, fid, "lock-changed", {"field": field, "user": user, "until": until}, conn=conn)
+            out = {"ok": True, "by": user, "until": until, "since": since}
+    HUB.wake(fid)
+    return out
+
+
+def touch(db, fid: int, user: str, fields: list[str] | None = None) -> dict:
+    """활동이 있었다 — 이 사람의 임대(고른 필드만, 없으면 전부)를 늘린다. {필드: until}."""
+    ensure(db)
+    now = time.time()
+    out = {}
+    with db._conn() as conn:
+        _txlock(conn, fid)
+        rows = conn.execute("SELECT field, wanted_by FROM webhwp_field_locks WHERE fid = ? AND user_id = ? AND lease_until > ?",
+                            (int(fid), user, now)).fetchall()
+        for f, wanted in rows:
+            if f == STRUCT or (fields is not None and f not in fields):
+                continue
+            until = now + _lease_for(db, wanted)
+            conn.execute("UPDATE webhwp_field_locks SET lease_until = ?, touched = ? WHERE fid = ? AND field = ?", (until, now, int(fid), f))
+            out[f] = until
+    return out
+
+
+def release(db, fid: int, field: str, user: str, *, grace: bool = False, base: Path | None = None) -> bool:
+    """임대 놓기 — 순서: (편집 화면이 보낼 것을 다 보내 답을 받은 뒤) 한글 파일에 써 넣고 → 알리고 → 지운다.
+    grace=True 면 바로 지우지 않고 유예 시간 뒤 풀리게만 한다(다른 칸으로 옮겼을 때 — 돌아오면 그대로)."""
+    ensure(db)
+    now = time.time()
+    if grace:
+        with db._conn() as conn:
+            _txlock(conn, fid)
+            row = _lock_row(conn, fid, field)
+            if not (_alive(row, now) and row[0] == user):
+                return False
+            until = min(float(row[2]), now + conf(db, "grace"))
+            conn.execute("UPDATE webhwp_field_locks SET lease_until = ? WHERE fid = ? AND field = ?", (until, int(fid), field))
+            emit(db, fid, "lock-changed", {"field": field, "user": user, "until": until, "grace": True}, conn=conn)
+        HUB.wake(fid)
+        return True
+    if base is not None and field != STRUCT:
+        try:
+            commit_now(db, base, fid)
+        except Exception:
+            log.exception("놓기 전 써 넣기 실패 — 임대는 놓는다(칸 글은 표에 남아 다음 써 넣기에 들어간다)")
+    with db._conn() as conn:
+        _txlock(conn, fid)
+        row = _lock_row(conn, fid, field)
+        if not (row and row[0] == user):
+            return False
+        conn.execute("DELETE FROM webhwp_field_locks WHERE fid = ? AND field = ?", (int(fid), field))
+        emit(db, fid, "lock-changed", {"field": field, "user": "", "released_by": user, "wanted": row[5] or ""}, conn=conn)
+    HUB.wake(fid)
+    return True
+
+
+# ── 칸 글 ──
+def state(db, fid: int, fields: list[str] | None = None, *, with_text: bool = True) -> dict:
+    """{필드: {version, text, by, at, fp}} — fields 를 주면 그것만."""
+    ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute("SELECT field, version, text, author, at, rich FROM webhwp_field_state WHERE fid = ?", (int(fid),)).fetchall()
+    out = {}
+    for r in rows:
+        if fields is not None and r[0] not in fields:
+            continue
+        x = {"version": int(r[1]), "by": r[3], "at": float(r[4] or 0), "fp": fingerprint(r[2])}
+        if with_text:
+            x["text"] = r[2]
+            if r[5]:
+                x["rich"] = r[5]
+        out[r[0]] = x
+    return out
+
+
+def _result(conn, fid: int, client: str, seq: int, res: dict) -> dict:
+    conn.execute("INSERT INTO webhwp_field_ops (fid, client, seq, result, at) VALUES (?, ?, ?, ?, ?)",
+                 (int(fid), client, int(seq), json.dumps(res, ensure_ascii=False), time.time()))
+    return res
+
+
+def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Path | None = None, force: bool = False) -> list[dict]:
+    """칸 변경 묶음을 차례로 반영한다. 돌려주는 것은 op 마다 {seq, field, ok, version, [conflict, reason, text, by]}.
+    force=True 는 판 번호 검사를 건너뛴다(에이전트가 지금 판 위에 쓸 때) — 남이 쥔 임대는 그래도 지킨다."""
+    ensure(db)
+    client = str(client or "")[:80]
+    results = []
+    changed = False
+    for op in ops or []:
+        try:
+            seq = int(op.get("seq"))
+        except (TypeError, ValueError):
+            results.append({"ok": False, "reason": "bad"})
+            continue
+        field = str(op.get("field") or "")[:200]
+        if not field:
+            results.append({"seq": seq, "ok": False, "reason": "bad"})
+            continue
+        text = norm(op.get("text"))
+        rich = op.get("rich") if isinstance(op.get("rich"), str) and len(op.get("rich")) <= RICH_MAX else ""
+        try:
+            b = int(op.get("base") or 0)
+        except (TypeError, ValueError):
+            b = 0
+        now = time.time()
+        event = None
+        with db._conn() as conn:
+            _txlock(conn, fid)
+            seen = conn.execute("SELECT result FROM webhwp_field_ops WHERE fid = ? AND client = ? AND seq = ?", (int(fid), client, seq)).fetchone()
+            if seen:
+                results.append(json.loads(seen[0]))
+                continue
+            lk = _lock_row(conn, fid, field)
+            st = conn.execute("SELECT version, text, client, author, rich FROM webhwp_field_state WHERE fid = ? AND field = ?", (int(fid), field)).fetchone()
+            cur_v, cur_text, cur_client = (int(st[0]), st[1], st[2]) if st else (0, None, "")
+            reason = ""
+            if _alive(lk, now) and lk[0] != user:
+                reason = "locked"
+            elif not force and b != cur_v and cur_client != client:
+                reason = "version"
+            if reason:
+                sql = ("INSERT INTO webhwp_conflicts (fid, field, user_id, base_version, server_version, text, reason, at)"
+                       " VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                args = (int(fid), field, user, b, cur_v, text, reason, now)
+                cid = (conn.execute(sql + " RETURNING id", args).fetchone()[0] if _pg(conn) else conn.execute(sql, args).lastrowid)
+                res = {"seq": seq, "field": field, "ok": False, "conflict": cid or 0, "reason": reason, "version": cur_v,
+                       "text": cur_text or "", "by": (lk[0] if reason == "locked" else (st[3] if st else ""))}
+                results.append(_result(conn, fid, client, seq, res))
+                event = ("conflict", {"field": field, "user": user, "reason": reason})
+            elif st is not None and cur_text == text and (st[4] or "") == rich:
+                results.append(_result(conn, fid, client, seq, {"seq": seq, "field": field, "ok": True, "version": cur_v}))
+            else:
+                v = cur_v + 1
+                if st is None:
+                    conn.execute("INSERT INTO webhwp_field_state (fid, field, version, text, rich, author, client, at, committed)"
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)", (int(fid), field, v, text, rich, user, client, now))
+                else:
+                    conn.execute("UPDATE webhwp_field_state SET version = ?, text = ?, rich = ?, author = ?, client = ?, at = ?"
+                                 " WHERE fid = ? AND field = ?", (v, text, rich, user, client, now, int(fid), field))
+                conn.execute("INSERT INTO webhwp_field_edits (fid, field, version, text, author, at) VALUES (?, ?, ?, ?, ?, ?)",
+                             (int(fid), field, v, text, user, now))
+                # 고치는 것도 활동 — 임대가 없으면 이 사람 것으로 잡고, 있으면 늘린다
+                wanted = (lk[5] if _alive(lk, now) else "") or ""
+                until = now + _lease_for(db, wanted)
+                if lk:
+                    conn.execute("UPDATE webhwp_field_locks SET user_id = ?, client = ?, lease_until = ?, touched = ?, since = ?"
+                                 " WHERE fid = ? AND field = ?", (user, client, until, now, float(lk[4]) if _alive(lk, now) else now, int(fid), field))
+                else:
+                    conn.execute("INSERT INTO webhwp_field_locks (fid, field, user_id, client, lease_until, touched, since, wanted_by)"
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?, '')", (int(fid), field, user, client, until, now, now))
+                if not _alive(lk, now):
+                    emit(db, fid, "lock-changed", {"field": field, "user": user, "until": until}, conn=conn)
+                data = {"field": field, "version": v, "text": text, "by": user, "client": client}
+                if rich:
+                    data["rich"] = rich
+                emit(db, fid, "field-updated", data, conn=conn)
+                results.append(_result(conn, fid, client, seq, {"seq": seq, "field": field, "ok": True, "version": v, "until": until}))
+                changed = True
+        if event:
+            emit(db, fid, *event)
+        HUB.wake(fid)
+    if changed and base is not None:
+        schedule_commit(db, base, fid)
+    return results
+
+
+def put(db, fid: int, user: str, values: dict, *, base: Path | None = None, client: str = "") -> tuple[list[str], dict]:
+    """에이전트·서버 쪽 쓰기 — 사람과 같은 길(임대·판 번호·알림)로. 남이 임대를 쥔 칸은 쓰지 않는다.
+    돌려주는 것은 (쓴 필드, {못 쓴 필드: 쥔 사람})."""
+    client = client or f"{user}:server"
+    seq0 = int(time.time() * 1000)
+    ops = [{"seq": seq0 + i, "field": k, "text": v} for i, (k, v) in enumerate(values.items())]
+    res = apply_ops(db, fid, user, client, ops, force=True)
+    done = [r["field"] for r in res if r.get("ok")]
+    held = {r["field"]: r.get("by", "") for r in res if not r.get("ok") and r.get("field")}
+    for f in done:                                     # 에이전트는 쓰고 바로 놓는다(사람이 이어서 잡을 수 있게)
+        release(db, fid, f, user)
+    if base is not None and done:
+        commit_now(db, base, fid)
+    return done, held
+
+
+def conflicts(db, fid: int, user: str | None = None, limit: int = 50) -> list[dict]:
+    ensure(db)
+    q = "SELECT id, field, user_id, base_version, server_version, text, reason, at FROM webhwp_conflicts WHERE fid = ?"
+    args: list = [int(fid)]
+    if user:
+        q += " AND user_id = ?"
+        args.append(user)
+    with db._conn() as conn:
+        rows = conn.execute(q + " ORDER BY id DESC LIMIT ?", (*args, int(limit))).fetchall()
+    return [{"id": r[0], "field": r[1], "user": r[2], "base": r[3], "server": r[4], "text": r[5], "reason": r[6], "at": r[7]} for r in rows]
+
+
+# ── 같이 보는 사람 ──
+def presence(db, fid: int, user: str, client: str, field: str) -> None:
+    ensure(db)
+    now = time.time()
+    field = (field or "")[:200]
+    changed = False
+    with db._conn() as conn:
+        row = conn.execute("SELECT field, at FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), client)).fetchone()
+        if row:
+            changed = row[0] != field or now - float(row[1] or 0) > conf(db, "presence_ttl")
+            conn.execute("UPDATE webhwp_presence SET field = ?, at = ?, user_id = ? WHERE fid = ? AND client = ?", (field, now, user, int(fid), client))
+        else:
+            changed = True
+            conn.execute("INSERT INTO webhwp_presence (fid, client, user_id, field, at) VALUES (?, ?, ?, ?, ?)", (int(fid), client, user, field, now))
+    if changed:
+        emit(db, fid, "presence", {"user": user, "client": client, "field": field})
+
+
+def leave(db, fid: int, client: str) -> None:
+    ensure(db)
+    with db._conn() as conn:
+        conn.execute("DELETE FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), client))
+    emit(db, fid, "presence", {"client": client, "left": True})
+
+
+def people(db, fid: int) -> list[dict]:
+    """지금 이 문서를 연 창 — 사람마다 하나(가장 최근 창). [{user, field, at}]."""
+    ensure(db)
+    now = time.time()
+    with db._conn() as conn:
+        rows = conn.execute("SELECT user_id, field, at, client FROM webhwp_presence WHERE fid = ? AND at > ? ORDER BY at",
+                            (int(fid), now - conf(db, "presence_ttl"))).fetchall()
+    by: dict[str, dict] = {}
+    for r in rows:
+        by[r[0]] = {"user": r[0], "field": r[1], "at": float(r[2]), "client": r[3]}
+    return list(by.values())
+
+
+# ── 한글 파일에 써 넣기 ──
+def file_lock(fid: int) -> threading.Lock:
+    with _FILE_LOCKS_GUARD:
+        return _FILE_LOCKS.setdefault(int(fid), threading.Lock())
+
+
+def overlay(db, fid: int, data: bytes) -> tuple[bytes, list[str], dict]:
+    """한글 파일 바이트에 표의 칸 글을 덮어 쓴다 — (새 바이트, 파일과 달라 바꾼 필드, {필드: 써 넣은 판})."""
+    from zzaimy.app import webhwp_write as ww
+    st = state(db, fid)
+    if not st or data[:2] != b"PK":
+        return data, [], {}
+    try:
+        have = ww.field_values(data)
+    except Exception:
+        return data, [], {}
+    want = {k: v["text"] for k, v in st.items() if k in have}
+    diff = {k: v for k, v in want.items() if norm(have.get(k, "")) != norm(v)}
+    versions = {k: st[k]["version"] for k in want}
+    if not diff:
+        return data, [], versions
+    new, done = ww.set_fields(data, diff)
+    return new, done, versions
+
+
+def _mark_committed(db, fid: int, versions: dict) -> None:
+    with db._conn() as conn:
+        for k, v in versions.items():
+            conn.execute("UPDATE webhwp_field_state SET committed = ? WHERE fid = ? AND field = ? AND committed < ?", (int(v), int(fid), k, int(v)))
+
+
+def dirty(db, fid: int) -> list[str]:
+    ensure(db)
+    with db._conn() as conn:
+        return [r[0] for r in conn.execute("SELECT field FROM webhwp_field_state WHERE fid = ? AND version > committed", (int(fid),)).fetchall()]
+
+
+def commit_now(db, base: Path, fid: int) -> list[str]:
+    """아직 파일에 안 들어간 칸 글을 한글 파일에 써 넣는다(앞 판은 webhwp.save 가 .판/ 에). 써 넣은 필드 목록."""
+    from zzaimy.app import webhwp
+    if not dirty(db, fid):
+        return []
+    with file_lock(fid):
+        f = webhwp.get(db, fid)
+        if not f or not Path(f["path"]).exists():
+            return []
+        data = Path(f["path"]).read_bytes()
+        new, done, versions = overlay(db, fid, data)
+        if done:
+            with db._conn() as conn:
+                r = conn.execute("SELECT author FROM webhwp_field_state WHERE fid = ? ORDER BY at DESC LIMIT 1", (int(fid),)).fetchone()
+            webhwp.save(db, base, fid, new, user=(r[0] if r else "") or "공동 작성", quiet=True)
+        _mark_committed(db, fid, versions)
+    if done:
+        emit(db, fid, "committed", {"fields": done})
+    return done
+
+
+def fresh(db, base: Path, fid: int) -> None:
+    """파일을 읽어 내보내기 전에 — 아직 안 들어간 칸 글을 먼저 써 넣는다(실패해도 읽기는 이어 간다)."""
+    try:
+        commit_now(db, base, fid)
+    except Exception:
+        log.exception("써 넣기 실패")
+
+
+_TIMERS: dict[int, dict] = {}
+_TIMERS_GUARD = threading.Lock()
+
+
+def schedule_commit(db, base: Path, fid: int) -> None:
+    """변경 뒤 commit_delay 초 조용하면 써 넣는다. 변경이 이어져도 commit_max 초 안에는 한 번."""
+    delay, most = conf(db, "commit_delay"), conf(db, "commit_max")
+    now = time.time()
+    with _TIMERS_GUARD:
+        cur = _TIMERS.get(int(fid))
+        first = cur["first"] if cur else now
+        if cur:
+            cur["timer"].cancel()
+        wait = max(0.0, min(delay, first + most - now))
+
+        def run():
+            with _TIMERS_GUARD:
+                if _TIMERS.get(int(fid), {}).get("timer") is t:
+                    _TIMERS.pop(int(fid), None)
+            try:
+                commit_now(db, base, fid)
+            except Exception:
+                log.exception("칸 글 써 넣기 실패 — 표에 남아 다음에 다시 써 넣는다")
+        t = threading.Timer(wait, run)
+        t.daemon = True
+        _TIMERS[int(fid)] = {"timer": t, "first": first}
+        t.start()
+
+
+def flush_all(db, base: Path) -> None:
+    """프로세스를 내리기 전 — 기다리는 써 넣기를 바로."""
+    with _TIMERS_GUARD:
+        items = list(_TIMERS.items())
+        _TIMERS.clear()
+    for fid, x in items:
+        x["timer"].cancel()
+        try:
+            commit_now(db, base, fid)
+        except Exception:
+            log.exception("써 넣기 실패")
+
+
+def snapshot(db, fid: int, me: str = "") -> dict:
+    """편집 화면이 처음 열 때·다시 이어질 때 받는 전체 상태."""
+    return {"fields": state(db, fid), "locks": locks(db, fid), "people": people(db, fid), "last": last_event_id(db, fid),
+            "conf": client_conf(db), "now": time.time()}

@@ -21,6 +21,8 @@ def hwp_export(request: Request, fid: int, fmt: str = "hwpx"):
     _need_staff(request)
     f = _file(request, fid)
     from pathlib import Path
+    from zzaimy.app import webhwp_coedit
+    webhwp_coedit.fresh(request.app.state.db, Path(request.app.state.data_dir), fid)     # 공동 편집 칸 글을 먼저 파일에
     p = Path(f["path"])
     if not p.exists():
         raise HTTPException(404, "파일이 없습니다")

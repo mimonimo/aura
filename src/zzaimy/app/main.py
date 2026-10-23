@@ -791,6 +791,8 @@ def create_app(
     app.include_router(webhwp_export_router)
     from zzaimy.app.webhwp_live_routes import router as webhwp_live_router   # 열린 기안기 명령 줄·페이지 설정 값(webhwp_edit_ops)
     app.include_router(webhwp_live_router)
+    from zzaimy.app.webhwp_coedit_routes import router as webhwp_coedit_router   # 칸 단위 공동 편집(임대·칸 글·알림 흐름, ADR-0070)
+    app.include_router(webhwp_coedit_router)
     from zzaimy.app.finder_routes import router as finder_router            # 공용 디렉터리 창(부서 폴더·드라이브 고르기·전체 찾기)
     app.include_router(finder_router)
     # 사업 중심 그래프(온톨로지 v3, ADR-0048) — kg_nodes·kg_edges 를 사업 하나 기준으로 펼친다

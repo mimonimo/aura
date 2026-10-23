@@ -14,8 +14,10 @@
 - hwp_revise {field, instruction}: 이미 쓴 절을 담당자 지시대로 고친다 — 서브가 지시를 점검표로 만들고 코드가 셀 수 있는 것만 점검(app/delegate.Reviser, ADR-0068).
 절 쓰기는 메인이 직접 쓰든 서브가 쓰든 같은 관문(check_body)을 지난다 — 양식 예시 글자(○○·000), 근거에 없는 수치, 길이 상한.
 남은 문맥이 모자란데 긴 본문을 직접 쓰려 하면 거절하고 절 맡기기를 안내한다(관문만 — 맡길지는 에이전트가 정한다).
-쓰기는 서버에서 파일을 고치고 판을 남긴다(webhwp.save, 고친 사람 「AURA」). 사람이 그 문서를 편집 중(잠금)이면 쓰지 않고 알린다.
-쓰는 동안 「AURA 작성 중 · 필드」 를 남겨 편집 화면이 AURA 커서·안내를 띄운다(webhwp_activity:<id>).
+쓰기는 공동 편집(webhwp_coedit, ADR-0070)의 한 참여자로 한다 — 칸 값은 사람과 같은 길(임대·판 번호·알림)로 넣고 바로 임대를 놓는다,
+절 본문은 서버에서 파일을 고치고 판을 남긴다(webhwp.save, 고친 사람 「AURA」). 사람이 임대를 쥔 칸(지금 그 칸을 쓰는 중)은 쓰지 않고 알린다 —
+다른 칸은 사람이 문서를 열어 두었어도 쓴다(열린 화면에 바로 들어간다).
+쓰는 동안 「AURA 작성 중 · 필드」 를 남겨 편집 화면이 AURA 표시를 띄운다(webhwp_activity:<id>, 알림 흐름 「aura」, 마지막 쓰기 뒤 aura_ttl 초).
 """
 from __future__ import annotations
 
@@ -65,7 +67,8 @@ def activity(db, fid: int) -> dict:
         a = json.loads(db.get_setting(f"webhwp_activity:{int(fid)}", "{}") or "{}")
     except ValueError:
         return {}
-    return a if a and time.time() - float(a.get("at") or 0) < 120 else {}
+    from zzaimy.app import webhwp_coedit as ce
+    return a if a and time.time() - float(a.get("at") or 0) < ce.conf(db, "aura_ttl") else {}
 
 
 def _too_long(v: str) -> bool:
@@ -364,11 +367,14 @@ class HwpTools:
         fid = self.fid()
         if not fid:
             return "이 대화에 한글 작업본이 없다 — hwp_forms → hwp_start."
-        # 사람이 같은 문서를 편집 중이어도 쓴다 — 칸 글은 실시간 공유로 그 화면에 바로 들어가고(live_put), 저장 때 서로 합친다
+        # 사람이 같은 문서를 편집 중이어도 쓴다 — 칸 글은 공동 편집(webhwp_coedit)의 같은 길로 그 화면에 바로 들어간다.
+        # 다만 사람이 임대를 쥔 칸(지금 그 칸을 쓰는 중)은 건드리지 않는다
         return fid, webhwp.get(self.db, fid)
 
     def _mark(self, fid: int, field: str) -> None:
+        from zzaimy.app import webhwp_coedit as ce
         self.db.set_setting(f"webhwp_activity:{fid}", json.dumps({"by": "AURA", "field": field, "at": time.time()}, ensure_ascii=False))
+        ce.emit(self.db, fid, "aura", {"field": field, "ttl": ce.conf(self.db, "aura_ttl")})
 
     def fill(self, a: dict) -> str:
         from zzaimy.app import webhwp_write as ww
@@ -390,16 +396,20 @@ class HwpTools:
             return ("넣은 것 없음." + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "")
                     + ("" if long_ or fake else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
+        from zzaimy.app import webhwp_coedit as ce
         self._mark(fid, next(iter(values)))
-        data, done = ww.set_fields(Path(f["path"]).read_bytes(), values)
-        if not done:
+        have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
+        miss = [k for k in values if k not in have]
+        values = {k: v for k, v in values.items() if k in have}
+        if not values:
             return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓴다."
-        webhwp.save(self.db, self.base, fid, data, user="AURA")
-        for k in done:                                      # 열린 편집 화면의 같은 칸에 바로(다시 불러오지 않고)
-            webhwp.live_put(self.db, fid, "AURA", k, values[k])
-        self.writes += 1
-        miss = [k for k in values if k not in done]
-        return (f"채웠다: {', '.join(done)}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")
+        # 사람과 같은 길 — 임대 확인·판 번호·알림(열린 편집 화면의 같은 칸에 바로) 뒤 한글 파일에 써 넣는다(고친 사람 AURA)
+        done, held = ce.put(self.db, fid, ce.AGENT, values, base=self.base, client="aura-agent")
+        if not done and not held:
+            return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓴다."
+        self.writes += 1 if done else 0
+        return (f"채웠다: {', '.join(done) or '없음'}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")
+                + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
                 + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else ""))
 
@@ -417,6 +427,10 @@ class HwpTools:
         why = self.gate(text, by=by)                       # by 는 코드가 정한다(모델 인자로 바꿀 수 없다)
         if why:
             return "쓰지 않았다 — " + why
+        from zzaimy.app import webhwp_coedit as ce
+        who = ce.holder(self.db, fid, field)
+        if who and who != ce.AGENT:
+            return f"쓰지 않았다 — {who} 님이 지금 「{field}」 칸을 쓰는 중이다. 다른 절을 먼저 쓰고 나중에 다시 한다."
         m = webhwp.meta(self.db, fid)
         written = m.get("written") or {}
         self._mark(fid, field)
@@ -426,6 +440,9 @@ class HwpTools:
             names = [x["name"] for x in self._fields() if x["kind"] == "절"]
             return f"그런 절 필드가 없다. 절 필드: {', '.join(names[:30])}"
         webhwp.save(self.db, self.base, fid, data, user="AURA")
+        inner = ww.field_values(data).get(field)
+        if inner is not None:                               # 절 필드 안 글도 칸 글 표에 — 써 넣기(overlay)가 AURA 글을 옛 글로 되돌리지 않게
+            ce.put(self.db, fid, ce.AGENT, {field: inner}, client="aura-agent")
         m = webhwp.meta(self.db, fid)
         written[field] = put
         m["written"] = written

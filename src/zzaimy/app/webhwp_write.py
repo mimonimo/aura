@@ -63,6 +63,24 @@ def fields(data: bytes) -> list[dict]:
     return out
 
 
+def field_values(data: bytes) -> dict[str, str]:
+    """필드마다 지금 값 — 공동 편집이 칸 글과 견줄 꼴(줄 나눔·문단 나눔은 \n, 글자 참조는 풀고, 앞뒤 공백도 그대로). 같은 이름은 앞의 것."""
+    _, secs = _open(data)
+    out: dict[str, str] = {}
+    for n in sorted(secs):
+        xml = secs[n]
+        for m in _BEGIN.finditer(xml):
+            name = _unq(m.group(2))
+            if name in out:
+                continue
+            sp = _span(xml, m.group(1), m.end())
+            frag = xml[sp[0]:sp[1]] if sp else ""
+            frag = re.sub(r"<hp:lineBreak\s*/>|</hp:p>\s*<hp:p\b[^>]*>", "\n", frag)
+            frag = re.sub(r"<hp:tab\b[^>]*/>", "\t", frag)
+            out[name] = _unq(re.sub(r"<[^>]+>", "", frag))
+    return out
+
+
 def _value_xml(text: str) -> str:
     lines = wf.clean_text(text).split("\n")
     return "<hp:t>" + "<hp:lineBreak/>".join(escape(x) for x in lines) + "</hp:t>"
