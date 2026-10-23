@@ -874,7 +874,7 @@ def test_recent_uploads_are_findable_in_library(client):
                 files={"file": ("이력서R.pdf", b"%PDF", "application/pdf")})
     client.post("/criteria/upload", data={"sector": "common"},
                 files={"file": ("규정R.pdf", b"%PDF", "application/pdf")})
-    assert "이력서R.pdf" in client.get("/inbox?q=이력서R").text
+    assert "이력서R" in client.get("/inbox?q=이력서R").text
     assert ">규정R</a>" in client.get("/criteria").text
 
 

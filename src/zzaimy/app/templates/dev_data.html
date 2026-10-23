@@ -214,7 +214,7 @@
       <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;
                  white-space:nowrap;">
         <a href="/doc/{{ r.id }}" style="color:var(--navy); text-decoration:none;
-           font-weight:600;">{{ doc_name(r) }}</a></td>
+           font-weight:600;">{{ doc_title(r) }}</a></td>
       <td>{{ doc_type_labels.get(r.doc_type, r.doc_type) }}</td>
       <td>{{ status_labels.get(r.status, r.status) }}</td>
       <td>{{ r.n_chunks }}</td>

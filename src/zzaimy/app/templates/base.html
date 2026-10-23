@@ -710,14 +710,14 @@ document.addEventListener('submit', function(event) {
         {% for d in drive_new %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:cloud-download-linear" aria-hidden="true"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>「ZZAIMY 가져오기」 폴더에서 · {{ status_labels.get(d.status, d.status) }}</small></span>
+          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>「ZZAIMY 가져오기」 폴더에서 · {{ status_labels.get(d.status, d.status) }}</small></span>
         </a>
         {% endfor %}
         {% if notification_pending %}<h6 class="notification-section">판정 필요</h6>{% endif %}
         {% for d in notification_pending %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인 후 판정{% if d.receipt_no %} · {{ receipt_label(d.receipt_no) }}{% endif %}</small></span>
+          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>검토 결과 확인 후 판정{% if d.receipt_no %} · {{ receipt_label(d.receipt_no) }}{% endif %}</small></span>
         </a>
         {% endfor %}
         {% if failed_docs %}
@@ -725,7 +725,7 @@ document.addEventListener('submit', function(event) {
         {% for d in failed_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:danger-triangle-linear" style="color:var(--red);"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>처리 실패 · 문서에서 원인을 확인해 주세요.</small></span>
+          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>처리 실패 · 문서에서 원인을 확인해 주세요.</small></span>
         </a>
         {% endfor %}
         {% endif %}
@@ -735,7 +735,7 @@ document.addEventListener('submit', function(event) {
         {% for d in recent_reviewed if d not in notification_pending %}
         <a class="pop-item has-chevron" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 보기{% if d.receipt_no %} · {{ receipt_label(d.receipt_no) }}{% endif %}</small></span>
+          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>검토 결과 보기{% if d.receipt_no %} · {{ receipt_label(d.receipt_no) }}{% endif %}</small></span>
           <iconify-icon class="pop-chevron" icon="solar:alt-arrow-right-linear" aria-hidden="true"></iconify-icon>
         </a>
         {% endfor %}

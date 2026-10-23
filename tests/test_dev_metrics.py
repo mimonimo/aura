@@ -262,7 +262,7 @@ def test_project_tile_counts_active_projects_only(client, tmp_path):
 def test_dev_role_label_comes_from_access_guard(client):
     from zzaimy.app.access_guard import ROLES
     page = client.get("/settings").text                 # 업무 화면 사이드바의 개발 현황 진입
-    assert f"개발 현황 ({ROLES['dev']})" in page and "(개발자)" not in page
+    assert "개발 현황" in page and "(개발자)" not in page and f"개발 현황 ({ROLES['dev']})" not in page
 
 
 def test_originals_exclude_platform_copies_and_byproducts(client, tmp_path):

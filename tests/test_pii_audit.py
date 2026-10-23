@@ -332,7 +332,7 @@ def test_dev_pii_page_lists_recorded_documents_and_corpus_db(client, tmp_path):
     assert "기록이 없는 문서 1건" in page
     assert "규정.pdf" not in page          # 기준 문서는 마스킹 대상 표에 없다
     page = client.get("/dev/pii?view=history&source=corpus").text
-    assert "국고 코퍼스 (별도 DB)" in page and "공고.pdf" in page
+    assert "국고 코퍼스 (별도 DB)" in page and "공고" in page
     assert "이메일 1" in page
 
 
