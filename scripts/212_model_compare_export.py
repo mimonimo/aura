@@ -35,9 +35,11 @@ LABELS = {
     "multiturn_rate": "여러 번 주고받은 값 이어 쓰기 통과율", "longctx_rate": "긴 자료 사실 찾기 통과율", "conflict_rate": "「없으면 확인 필요」 통과율",
     "overall_rate": "맥락 이해 전체 통과율", "회차": "회차 수", "절 채움": "절 채움 비율", "목표 유지": "목표 유지 비율",
     "고쳐 쓰기 반영": "고쳐 쓰기 반영(0~2)", "시간(초)": "대화 전체 시간(초)",
+    "frame_prefix": "학습셋 틀(「답변:」 줄)이 든 답 비율", "frame_answers": "학습셋 틀이 든 채팅 답 비율",
+    "frame_no_system": "틀 비율 — 지시 없는 채팅", "frame_platform": "틀 비율 — 플랫폼 답변 지시", "frame_train": "틀 비율 — 학습셋 지시",
     "gold_lp": "정답 익숙함(토큰당 평균 로그확률, 0에 가까울수록 학습 꼴)", "gold_first_lp": "정답 첫 토큰 로그확률", "gold_lp_n": "정답 익숙함 잰 문항 수",
 }
-PERCENT = {"gold_frame", "invented_any", "truncated", "table", "unknown", "multiturn_rate", "longctx_rate", "conflict_rate", "overall_rate",
+PERCENT = {"gold_frame", "frame_prefix", "frame_answers", "frame_no_system", "frame_platform", "frame_train", "invented_any", "truncated", "table", "unknown", "multiturn_rate", "longctx_rate", "conflict_rate", "overall_rate",
            "절 채움", "목표 유지"}
 
 
@@ -63,6 +65,9 @@ def _load(name: str, file: str):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
+
+
+FRAME = re.compile(r"(?:^|\n)\s*(?:\*\*)?답변(?:\*\*)?\s*:")   # 210 FRAME 과 같다(학습셋 틀의 줄머리 「답변:」)
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -111,7 +116,7 @@ def heldout_block(work: Path, arms: list[dict], s210) -> tuple[dict | None, dict
         with contextlib.redirect_stdout(io.StringIO()):
             return s210.phase_report(items, a, run)
 
-    mech_keys = ["chrf", "rougeL", "len_ratio", "invented_any", "table", "gold_frame", "unknown", "truncated", "sec", "out_tokens", "chars"]
+    mech_keys = ["chrf", "rougeL", "len_ratio", "invented_any", "table", "gold_frame", "frame_prefix", "unknown", "truncated", "sec", "out_tokens", "chars"]
     ctl_reps = {c: report([main[0], c], [(main[0], c)]) for c in ctl}
     pairs = [(main[0], b) for b in main[1:]] + [(main[i], main[j]) for i in range(1, len(main)) for j in range(i + 1, len(main))]
     rep = report(main, pairs)                                   # 마지막에 돌려 report.json 이 본 비교가 되게
@@ -194,6 +199,10 @@ def doc_block(work: Path, arms: list[dict], dest: Path, s202) -> tuple[dict | No
         if not runs:
             continue
         ms = [s202.metrics(r) if s202 else {} for r in runs]
+        for r, m in zip(runs, ms):                        # 채팅 답에 학습셋 틀이 새어 나왔나(턴마다)
+            answers = [t.get("answer") or "" for t in (r.get("turns") or [])]
+            if answers:
+                m["frame_answers"] = round(sum(bool(FRAME.search(x)) for x in answers) / len(answers), 3)
         keys = sorted({k for m in ms for k in m})
         avg = {}
         for k in keys:
@@ -407,6 +416,15 @@ def main(argv=None) -> int:
     db, docs = doc_block(work, arms, dest, s202)
     if db:
         blocks.append(db)
+    fr = work / "format-run" / "report.json"
+    if fr.exists():
+        frep = json.loads(fr.read_text(encoding="utf-8"))
+        keymap = {"지시 없음": "frame_no_system", "플랫폼 답변 지시": "frame_platform", "학습셋 지시": "frame_train"}
+        fm = {arm: {keymap[k]: v["rate"] for k, v in d.items() if k in keymap} for arm, d in frep["arms"].items()
+              if arm in {x["key"] for x in arms}}
+        if fm:
+            blocks.append({"key": "format", "title": f"답 꼴(평범한 업무 질문 {frep['prompts']}개 × 지시 세 가지)", "metrics": fm, "pairwise": [],
+                           "per_dimension": {}, "per_type": []})
     if hctx.get("speed"):
         blocks.append({"key": "speed", "title": "속도(시험 문항 20개, 한 번에 하나씩)", "metrics": hctx["speed"], "pairwise": [],
                        "per_dimension": {}, "per_type": []})

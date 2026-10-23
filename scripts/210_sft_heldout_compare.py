@@ -62,6 +62,9 @@ SCORE_SYSTEM = """당신은 대학 행정 문서 작성 도우미의 답 하나�
 
 UNKNOWN = re.compile(r"확인되지\s*않|확인할\s*수\s*없|자료에\s*없|근거가\s*없|제시되지\s*않|알\s*수\s*없|주어지지\s*않|사용자\s*입력으로|확인이\s*필요|확인\s*후")
 HAN = re.compile(r"[一-鿿]")
+# 학습셋 틀(「근거 설명: … 답변: …」, 「○○ 원문: …」) — 플랫폼은 이 틀을 요청하지 않는다. 학습 꼴이 서빙 답에 새어 나오는지 센다.
+# 틀의 표지는 줄머리 「답변:」 — 학습셋 정답은 모두 이 줄을 갖고, 플랫폼 답에는 쓸 일이 없다(「근거:」 만은 정상 답에도 나와 세지 않는다).
+FRAME = re.compile(r"(?:^|\n)\s*(?:\*\*)?답변(?:\*\*)?\s*:")
 LATIN_WORD = re.compile(r"\b[A-Za-z]{4,}\b")
 
 
@@ -249,7 +252,8 @@ def format_marks(text: str) -> dict:
     return {"table": bool(re.search(r"^\s*\|?\s*:?-{3,}", text or "", re.M)),
             "headings": sum(bool(re.match(r"\s*(#{1,4}\s|[가-하]\.\s|\d+\.\s\S.{0,30}$)", x)) for x in lines),
             "bullet_ratio": round(bullets / len(lines), 3) if lines else 0.0,
-            "gold_frame": bool(re.search(r"근거\s*설명\s*:", text or "")) and bool(re.search(r"답변\s*:", text or ""))}
+            "gold_frame": bool(re.search(r"근거\s*설명\s*:", text or "")) and bool(re.search(r"답변\s*:", text or "")),
+            "frame_prefix": bool(FRAME.search(text or ""))}
 
 
 def mech(it: dict, g: dict) -> dict:
@@ -483,7 +487,7 @@ def phase_goldlp(items, a, out: Path, lock) -> None:
 
 
 MECH_KEYS = ("chrf", "rougeL", "chars", "len_ratio", "invented", "nominal_ratio", "plain_ratio", "bullet_ratio",
-             "headings", "table", "gold_frame", "unknown", "truncated", "han", "latin_words", "empty", "sec", "out_tokens")
+             "headings", "table", "gold_frame", "frame_prefix", "unknown", "truncated", "han", "latin_words", "empty", "sec", "out_tokens")
 
 
 def phase_report(items, a, out: Path) -> dict:
