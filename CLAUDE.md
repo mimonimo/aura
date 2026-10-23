@@ -55,6 +55,7 @@ SFT 범위(ADR-0052): 지정한 규정·발전계획 5종과, 반입 자료의 �
 - 데이터를 커밋하지 않는다 — 실제 문서·파싱 결과·실적 카드·비밀번호는 `data/`와 `.env.local`에만.
   `.gitignore`가 막지만 `git add` 전에 `git status`를 본다
 - 결정은 ADR로 — `docs/decisions/0000-template.md`. 기존 기록은 고쳐 쓰지 않고 새 번호로, 옛 것은 `대체됨`
+- 코드를 바꾸는 커밋은 같은 커밋에서 docs/progress.json·dev-now·논문 원재료(paper)·결정 문서 가운데 맞는 것을 고친다. 처음 받으면 `git config core.hooksPath .githooks` — commit-msg 훅이 빠뜨린 커밋을 막는다(무관하면 메시지에 [문서 무관]과 까닭).
 - 새 것을 넣으면 문서(HANDOFF·dev-now·해당 설계 문서)를 같이 고치고 기존 검증(테스트·스모크·PII·
   반입 자가 점검·서빙 점검·측정)을 다시 돌린다
 - 화면·보고서의 수치는 기계 산출물에서만. 측정은 `.env.local`을 읽고 띄운다(안 읽으면 CPU 폴백으로 거짓 수치)

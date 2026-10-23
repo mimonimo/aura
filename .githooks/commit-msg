@@ -1,0 +1,13 @@
+#!/bin/sh
+# 코드·화면을 바꾸는 커밋은 개발 현황 문서도 같은 커밋에서 고친다(사용자 10-23: 「업데이트하면 어디는 누락되어 있고 그러면 안 됨, 즉각」).
+# 코드(src·scripts·templates·static) 가 들어 있는데 docs/progress.json · docs/dev-now.md · docs/paper/ · docs/decisions/ 가 하나도 없으면 막는다.
+# 문서와 정말 무관한 고침(오타·테스트만 등)은 커밋 메시지에 [문서 무관] 을 적어 지나간다 — 까닭이 기록에 남는다.
+staged=$(git diff --cached --name-only)
+code=$(printf '%s\n' "$staged" | grep -E '^(src/|scripts/)' | grep -vE '^scripts/99_deploy\.sh$')
+[ -z "$code" ] && exit 0
+docs=$(printf '%s\n' "$staged" | grep -E '^docs/(progress\.json|dev-now\.md|paper/|decisions/)')
+[ -n "$docs" ] && exit 0
+grep -q '\[문서 무관\]' "$1" && exit 0
+echo "커밋 막음: 코드가 바뀌었는데 개발 현황 문서(docs/progress.json · dev-now.md · paper/ · decisions/)가 같이 바뀌지 않았습니다." >&2
+echo "같은 커밋에서 문서를 고치거나, 정말 무관하면 메시지에 [문서 무관] 과 까닭을 적으세요." >&2
+exit 1
