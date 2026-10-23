@@ -9,6 +9,7 @@
 걸음(--phase):
 - gen    두 모델로 문항마다 생성(같은 메시지·온도·최대 토큰, 생각 모드 끔). gen-<모델>.jsonl 에 쌓고 이어 돌리면 빈 것만 채운다.
 - judge  채점자에게 답 둘을 A·B 로 보여 고르게 한다 — 순서를 바꿔 두 번(위치 치우침 상쇄), 두 판정을 더해 이김·비김·짐.
+         모델이 셋 이상이면 짝마다(기본: 첫 모델 대 나머지, 그 뒤 후보끼리) judge-<기준>__<후보>.jsonl.
          기준표(JUDGE_RUBRIC): 지시 충실·형식·근거 충실·문체·완결성. 정답은 채점자에게 보여 주지 않는다(정답 꼴을 익힌 쪽에 기울지 않게).
 - report 기계 지표(정답 대비 chrF·ROUGE-L, 질문에 없는 숫자, 형식 표시, 모름 답, 잘림, 외국 글자, 길이·시간·토큰)와
          쌍대 판정(이김·비김·짐, 이김 비율 95% 신뢰구간 — 부트스트랩)을 갈래(track × 첫 턴/이어지는 턴)별로 report.json·report.md 에.
@@ -273,15 +274,19 @@ def mean(xs) -> float:
 
 
 # ── 걸음 ──
+def pair_file(out: Path, base: str, cand: str) -> Path:
+    return out / f"judge-{base}__{cand}.jsonl"
+
+
 def phase_gen(items, a, out: Path, lock) -> None:
-    for model in a.models:
+    for model in a.gen_models:
         path = out / f"gen-{model}.jsonl"
         done = read_cache(path)
         todo = [it for it in items if it["id"] not in done]
         print(f"[gen] {model}: {len(done)} 있음, {len(todo)} 남음", flush=True)
 
         def one(it, model=model, path=path):
-            g = chat(a.base_url, model, it["messages"], a.max_tokens, a.temperature, kwargs=it["kwargs"], seed=a.seed)
+            g = chat(a.urls[model], model, it["messages"], a.max_tokens, a.temperature, kwargs=it["kwargs"], seed=a.seed)
             append(path, {"key": it["id"], "model": model, **g}, lock)
             return g
 
@@ -292,88 +297,93 @@ def phase_gen(items, a, out: Path, lock) -> None:
 
 
 def phase_judge(items, a, out: Path, lock) -> None:
-    m1, m2 = a.models
     gens = {m: read_cache(out / f"gen-{m}.jsonl") for m in a.models}
-    path = out / "judge.jsonl"
-    done = read_cache(path)
     sysmsg = JUDGE_SYSTEM.format(rubric="\n".join(f"- {k}: {v}" for k, v in JUDGE_RUBRIC.items()))
-    jobs = []
-    for it in items:
-        if it["id"] not in gens[m1] or it["id"] not in gens[m2]:
-            continue
-        for order in ((m1, m2), (m2, m1)):
-            key = f"{it['id']}|{order[0]}"
-            if key not in done:
-                jobs.append((it, order, key))
-    print(f"[judge] {len(done)} 있음, {len(jobs)} 남음", flush=True)
+    for m1, m2 in a.pairs:
+        path = pair_file(out, m1, m2)
+        done = read_cache(path)
+        jobs = []
+        for it in items:
+            if it["id"] not in gens[m1] or it["id"] not in gens[m2]:
+                continue
+            for order in ((m1, m2), (m2, m1)):
+                key = f"{it['id']}|{order[0]}"
+                if key not in done:
+                    jobs.append((it, order, key))
+        print(f"[judge] {m2} 대 {m1}: {len(done)} 있음, {len(jobs)} 남음", flush=True)
 
-    def one(job):
-        it, (ma, mb), key = job
-        user = (f"[대화 맥락]\n{judge_context(it['messages'])}\n\n[답 A]\n{gens[ma][it['id']]['text'][:6000]}\n\n"
-                f"[답 B]\n{gens[mb][it['id']]['text'][:6000]}\n\n기준표대로 견주어 JSON 하나만 답하라.")
-        r = chat(a.judge_url, a.judge_model, [{"role": "system", "content": sysmsg}, {"role": "user", "content": user}],
-                 400, 0.0)
-        v = parse_verdict(r.get("text", ""))
-        rec = {"key": key, "item": it["id"], "a_is": ma, "verdict": v, "sec": r.get("sec")}
-        if v is None:
-            rec["error"] = r.get("error") or "판정 못 읽음"
-        append(path, rec, lock)
-        return rec
+        def one(job, path=path):
+            it, (ma, mb), key = job
+            user = (f"[대화 맥락]\n{judge_context(it['messages'])}\n\n[답 A]\n{gens[ma][it['id']]['text'][:6000]}\n\n"
+                    f"[답 B]\n{gens[mb][it['id']]['text'][:6000]}\n\n기준표대로 견주어 JSON 하나만 답하라.")
+            r = chat(a.judge_url, a.judge_model, [{"role": "system", "content": sysmsg}, {"role": "user", "content": user}],
+                     400, 0.0)
+            v = parse_verdict(r.get("text", ""))
+            rec = {"key": key, "item": it["id"], "a_is": ma, "verdict": v, "sec": r.get("sec")}
+            if v is None:
+                rec["error"] = r.get("error") or "판정 못 읽음"
+            append(path, rec, lock)
+            return rec
 
-    with ThreadPoolExecutor(max_workers=a.concurrency) as ex:
-        for k, rec in enumerate(ex.map(one, jobs), 1):
-            if k % 20 == 0 or rec.get("error"):
-                print(f"  judge {k}/{len(jobs)} {rec.get('error') or ''}", flush=True)
+        with ThreadPoolExecutor(max_workers=a.concurrency) as ex:
+            for k, rec in enumerate(ex.map(one, jobs), 1):
+                if k % 20 == 0 or rec.get("error"):
+                    print(f"  judge {k}/{len(jobs)} {rec.get('error') or ''}", flush=True)
+
+
+MECH_KEYS = ("chrf", "rougeL", "chars", "len_ratio", "invented", "nominal_ratio", "plain_ratio", "bullet_ratio",
+             "headings", "table", "gold_frame", "unknown", "truncated", "han", "latin_words", "empty", "sec", "out_tokens")
 
 
 def phase_report(items, a, out: Path) -> dict:
-    m1, m2 = a.models                       # 견줌의 기준: m2(후보)가 m1(운영) 대비 이김·짐
+    """기계 지표는 모델마다, 쌍대 판정은 짝(기준 m1 · 후보 m2 — m2 쪽 이김·짐)마다."""
     gens = {m: read_cache(out / f"gen-{m}.jsonl") for m in a.models}
-    judged = defaultdict(list)
-    for d in read_cache(out / "judge.jsonl").values():
-        if d.get("verdict"):
-            judged[d["item"]].append((d["verdict"], d["a_is"]))
     rows = []
     for it in items:
         if not all(it["id"] in gens[m] for m in a.models):
             continue
-        row = {"id": it["id"], "group": group_of(it), "track": it["track"], "turn": it["turn"], "job": it["job"],
-               "mech": {m: mech(it, gens[m][it["id"]]) for m in a.models}}
-        vs = judged.get(it["id"], [])
-        if len(vs) == 2:
-            row["pair"] = {k: combine(vs, m2, k) for k in CRITERIA + ["종합"]}
-            row["position_A_wins"] = sum(v.get("종합") == "A" for v, _ in vs)
-            row["flip"] = vs[0][0].get("종합") == vs[1][0].get("종합") != "같음"     # 두 순서에서 같은 자리를 고름 = 모델로는 엇갈림
-            row["reasons"] = [v.get("까닭", "") for v, _ in vs]
-        rows.append(row)
+        rows.append({"id": it["id"], "group": group_of(it), "track": it["track"], "turn": it["turn"], "job": it["job"],
+                     "mech": {m: mech(it, gens[m][it["id"]]) for m in a.models}, "pairs": {}})
+    byid = {r["id"]: r for r in rows}
     groups = ["전체"] + sorted({r["group"] for r in rows})
-    rep = {"models": {"baseline": m1, "candidate": m2}, "judge_model": a.judge_model, "n": len(rows),
-           "temperature": a.temperature, "max_tokens": a.max_tokens, "data": Path(a.data).name, "groups": {}}
+    rep = {"models": a.models, "judge_model": a.judge_model, "n": len(rows), "temperature": a.temperature,
+           "max_tokens": a.max_tokens, "data": Path(a.data).name, "mech": {}, "pairs": {}}
     for g in groups:
         rs = [r for r in rows if g == "전체" or r["group"] == g]
-        pr = [r for r in rs if "pair" in r]
-        rep["groups"][g] = {
-            "n": len(rs),
-            "pair": {k: wlt_summary([r["pair"][k] for r in pr]) for k in ["종합"] + CRITERIA},
-            "mech": {m: {k: mean([float(r["mech"][m][k]) for r in rs]) for k in
-                         ("chrf", "rougeL", "chars", "len_ratio", "invented", "nominal_ratio", "plain_ratio", "bullet_ratio",
-                          "headings", "table", "gold_frame", "unknown", "truncated", "han", "latin_words", "empty", "sec", "out_tokens")}
-                     | {"invented_any": mean([float(r["mech"][m]["invented"] > 0) for r in rs])}
-                     for m in a.models},
+        rep["mech"][g] = {"n": len(rs), **{m: {k: mean([float(r["mech"][m][k]) for r in rs]) for k in MECH_KEYS}
+                                           | {"invented_any": mean([float(r["mech"][m]["invented"] > 0) for r in rs])}
+                                           for m in a.models}}
+    for m1, m2 in a.pairs:
+        name = f"{m2} 대 {m1}"
+        judged = defaultdict(list)
+        for d in read_cache(pair_file(out, m1, m2)).values():
+            if d.get("verdict"):
+                judged[d["item"]].append((d["verdict"], d["a_is"]))
+        prs = []
+        for iid, vs in judged.items():
+            r = byid.get(iid)
+            if r is None or len(vs) != 2:
+                continue
+            r["pairs"][name] = {"result": {k: combine(vs, m2, k) for k in CRITERIA + ["종합"]},
+                                "position_A_wins": sum(v.get("종합") == "A" for v, _ in vs),
+                                "flip": vs[0][0].get("종합") == vs[1][0].get("종합") != "같음",   # 두 순서에서 같은 자리를 고름 = 모델로는 엇갈림
+                                "reasons": [v.get("까닭", "") for v, _ in vs]}
+            prs.append(r)
+        p = {"baseline": m1, "candidate": m2, "n": len(prs), "groups": {},
+             "position_bias_A_share": round(sum(r["pairs"][name]["position_A_wins"] for r in prs) / max(1, 2 * len(prs)), 3),
+             "flip_rate": round(sum(r["pairs"][name]["flip"] for r in prs) / max(1, len(prs)), 3)}
+        for g in groups:
+            gp = [r for r in prs if g == "전체" or r["group"] == g]
+            p["groups"][g] = {k: wlt_summary([r["pairs"][name]["result"][k] for r in gp]) for k in ["종합"] + CRITERIA}
+        # 문항 번호 목록(원문 없이)
+        p["ids"] = {
+            "candidate_loss": sorted(r["id"] for r in prs if r["pairs"][name]["result"]["종합"] == "loss"),
+            "candidate_win": sorted(r["id"] for r in prs if r["pairs"][name]["result"]["종합"] == "win"),
+            "candidate_invented_more": [r["id"] for r in rows if r["mech"][m2]["invented"] > r["mech"][m1]["invented"]],
+            "candidate_truncated": [r["id"] for r in rows if r["mech"][m2]["truncated"]],
+            "baseline_truncated": [r["id"] for r in rows if r["mech"][m1]["truncated"]],
         }
-    allp = [r for r in rows if "pair" in r]
-    rep["position_bias_A_share"] = round(sum(r["position_A_wins"] for r in allp) / max(1, 2 * len(allp)), 3)
-    rep["flip_rate"] = round(sum(r["flip"] for r in allp) / max(1, len(allp)), 3)
-    # 문항 번호 목록(원문 없이) — 갈래별로 후보가 진 문항·이긴 문항, 기계 지표가 크게 갈린 문항
-    rep["ids"] = {
-        "candidate_loss": [r["id"] for r in allp if r["pair"]["종합"] == "loss"],
-        "candidate_win": [r["id"] for r in allp if r["pair"]["종합"] == "win"],
-        "candidate_invented_more": [r["id"] for r in rows if r["mech"][m2]["invented"] > r["mech"][m1]["invented"]],
-        "candidate_truncated": [r["id"] for r in rows if r["mech"][m2]["truncated"]],
-        "baseline_truncated": [r["id"] for r in rows if r["mech"][m1]["truncated"]],
-        "candidate_foreign": [r["id"] for r in rows if r["mech"][m2]["han"] > 0],
-        "baseline_foreign": [r["id"] for r in rows if r["mech"][m1]["han"] > 0],
-    }
+        rep["pairs"][name] = p
     (out / "report.json").write_text(json.dumps({**rep, "rows": rows}, ensure_ascii=False, indent=1), encoding="utf-8")
     md = to_md(rep, a.models)
     (out / "report.md").write_text(md, encoding="utf-8")
@@ -382,34 +392,49 @@ def phase_report(items, a, out: Path) -> dict:
 
 
 def to_md(rep: dict, models: list[str]) -> str:
-    m1, m2 = models
     L = [f"# 보류분 견주기 — {rep['data']} {rep['n']}문항", "",
-         f"기준 {m1} · 후보 {m2} · 채점자 {rep['judge_model']}(순서 바꿔 두 번) · 온도 {rep['temperature']} · 최대 {rep['max_tokens']}토큰",
-         f"채점자 A 쪽 고름 비율 {rep['position_bias_A_share']} · 두 순서 판정 엇갈림 {rep['flip_rate']}", "",
-         "## 쌍대 판정(후보 기준 이김/비김/짐, 점수 = (이김 + 비김/2)/n, 95% 부트스트랩 구간)", "",
-         "| 갈래 | n | 항목 | 이김 | 비김 | 짐 | 점수 | 95% 구간 |", "|---|---|---|---|---|---|---|---|"]
-    for g, d in rep["groups"].items():
-        for k, s in d["pair"].items():
-            if g != "전체" and k != "종합":
-                continue
-            L.append(f"| {g} | {s['n']} | {k} | {s['win']} | {s['tie']} | {s['loss']} | {s['score']} | {s['ci95'][0]}~{s['ci95'][1]} |")
-    L += ["", "## 기계 지표(평균)", "", "| 갈래 | 모델 | chrF | ROUGE-L | 글자 | 정답 대비 길이 | 지어낸 숫자 | 숫자 지어낸 답 비율 | 명사형 끝 | 서술형 끝 | "
+         f"모델 {' · '.join(models)} · 채점자 {rep['judge_model']}(순서 바꿔 두 번) · 온도 {rep['temperature']} · 최대 {rep['max_tokens']}토큰", "",
+         "## 쌍대 판정(후보 기준 이김/비김/짐, 점수 = (이김 + 비김/2)/n, 95% 부트스트랩 구간)", ""]
+    for name, p in rep["pairs"].items():
+        L += [f"### {name}", "", f"채점자 A 쪽 고름 비율 {p['position_bias_A_share']} · 두 순서 판정 엇갈림 {p['flip_rate']}", "",
+              "| 갈래 | n | 항목 | 이김 | 비김 | 짐 | 점수 | 95% 구간 |", "|---|---|---|---|---|---|---|---|"]
+        for g, d in p["groups"].items():
+            for k, x in d.items():
+                if g != "전체" and k != "종합":
+                    continue
+                L.append(f"| {g} | {x['n']} | {k} | {x['win']} | {x['tie']} | {x['loss']} | {x['score']} | {x['ci95'][0]}~{x['ci95'][1]} |")
+        L.append("")
+    L += ["## 기계 지표(평균)", "", "| 갈래 | 모델 | chrF | ROUGE-L | 글자 | 정답 대비 길이 | 지어낸 숫자 | 숫자 지어낸 답 비율 | 명사형 끝 | 서술형 끝 | "
           "표 | 정답 꼴(근거 설명·답변) | 모름 표시 | 잘림 | 한자 | 초 | 출력 토큰 |", "|" + "---|" * 17]
-    for g, d in rep["groups"].items():
+    for g, d in rep["mech"].items():
         for m in models:
-            x = d["mech"][m]
+            x = d[m]
             L.append(f"| {g} | {m} | {x['chrf']} | {x['rougeL']} | {x['chars']:.0f} | {x['len_ratio']} | {x['invented']} | {x['invented_any']} | "
                      f"{x['nominal_ratio']} | {x['plain_ratio']} | {x['table']} | {x['gold_frame']} | {x['unknown']} | {x['truncated']} | "
                      f"{x['han']} | {x['sec']} | {x['out_tokens']:.0f} |")
     return "\n".join(L) + "\n"
 
 
+def parse_models(spec: str, base_url: str) -> tuple[list[str], dict[str, str]]:
+    """「이름」 또는 「이름=주소」 를 쉼표로 — 주소를 빼면 --base-url."""
+    names, urls = [], {}
+    for part in (x.strip() for x in spec.split(",")):
+        if not part:
+            continue
+        name, _, url = part.partition("=")
+        names.append(name.strip())
+        urls[name.strip()] = (url.strip() or base_url)
+    return names, urls
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="학습셋 보류분 두 모델 견주기(생성·눈가림 쌍대 채점·기계 지표)")
+    ap = argparse.ArgumentParser(description="학습셋 보류분 모델 견주기(생성·눈가림 쌍대 채점·기계 지표)")
     ap.add_argument("--data", required=True)
     ap.add_argument("--index", default="")
-    ap.add_argument("--base-url", default="", help="두 모델을 내어 주는 서빙 주소(/v1 까지)")
-    ap.add_argument("--models", default="zzaimy-writer,writer-sft", help="기준,후보 서빙 이름(쉼표)")
+    ap.add_argument("--base-url", default="", help="모델을 내어 주는 서빙 주소(/v1 까지) — 모델마다 다르면 --models 에 이름=주소")
+    ap.add_argument("--models", default="zzaimy-writer,writer-sft", help="기준,후보[,후보…] 서빙 이름(쉼표, 이름=주소 가능)")
+    ap.add_argument("--pairs", default="", help="견줄 짝 「기준:후보」 쉼표(기본 첫 모델 대 나머지, 그 뒤 후보끼리)")
+    ap.add_argument("--gen-only", default="", help="이 모델들만 생성(쉼표) — 다른 서빙에 부하를 더하지 않을 때")
     ap.add_argument("--judge-url", default="")
     ap.add_argument("--judge-model", default="zzaimy-writer")
     ap.add_argument("--out", required=True)
@@ -420,11 +445,18 @@ def main(argv=None) -> int:
     ap.add_argument("--temperature", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=None)
     a = ap.parse_args(argv)
-    a.models = [m.strip() for m in a.models.split(",") if m.strip()]
-    if len(a.models) != 2:
-        ap.error("--models 는 기준,후보 둘")
-    if a.phase in ("gen", "all") and not a.base_url:
-        ap.error("--base-url 이 필요하다")
+    a.models, a.urls = parse_models(a.models, a.base_url)
+    if len(a.models) < 2 or len(set(a.models)) != len(a.models):
+        ap.error("--models 는 서로 다른 둘 이상")
+    if a.pairs:
+        a.pairs = [tuple(x.split(":", 1)) for x in a.pairs.split(",") if ":" in x]
+        if any(m not in a.models for pr in a.pairs for m in pr):
+            ap.error("--pairs 의 이름이 --models 에 없다")
+    else:
+        a.pairs = [(a.models[i], a.models[j]) for i in range(len(a.models)) for j in range(i + 1, len(a.models))]
+    a.gen_models = [m.strip() for m in a.gen_only.split(",") if m.strip()] or a.models
+    if a.phase in ("gen", "all") and not all(a.urls.get(m) for m in a.gen_models):
+        ap.error("생성할 모델의 주소가 없다(--base-url 또는 이름=주소)")
     if a.phase in ("judge", "all") and not a.judge_url:
         ap.error("--judge-url 이 필요하다")
     a.concurrency = max(1, min(a.concurrency, 4))

@@ -69,13 +69,19 @@ def test_report_from_cached_runs(tmp_path):
     for it in items:
         js.append({"key": f"{it['id']}|base", "item": it["id"], "a_is": "base", "verdict": {"종합": "B", **{k: "B" for k in s210.CRITERIA}}})
         js.append({"key": f"{it['id']}|cand", "item": it["id"], "a_is": "cand", "verdict": {"종합": "A", **{k: "A" for k in s210.CRITERIA}}})
-    (out / "judge.jsonl").write_text("\n".join(json.dumps(j, ensure_ascii=False) for j in js), encoding="utf-8")
-    a = NS(models=["base", "cand"], judge_model="j", temperature=0.2, max_tokens=100, data=str(data))
+    (out / "judge-base__cand.jsonl").write_text("\n".join(json.dumps(j, ensure_ascii=False) for j in js), encoding="utf-8")
+    a = NS(models=["base", "cand"], pairs=[("base", "cand")], judge_model="j", temperature=0.2, max_tokens=100, data=str(data))
     rep = s210.phase_report(items, a, out)
-    g = rep["groups"]["전체"]
-    assert g["pair"]["종합"]["win"] == 3 and g["pair"]["종합"]["score"] == 1.0
-    assert g["mech"]["base"]["invented_any"] == 1.0 and g["mech"]["cand"]["invented_any"] == 0.0
-    assert g["mech"]["cand"]["gold_frame"] == 1.0 and g["mech"]["cand"]["chrf"] == 100.0
-    assert rep["position_bias_A_share"] == 0.5 and rep["flip_rate"] == 0.0
+    p = rep["pairs"]["cand 대 base"]
+    assert p["groups"]["전체"]["종합"]["win"] == 3 and p["groups"]["전체"]["종합"]["score"] == 1.0
+    g = rep["mech"]["전체"]
+    assert g["base"]["invented_any"] == 1.0 and g["cand"]["invented_any"] == 0.0
+    assert g["cand"]["gold_frame"] == 1.0 and g["cand"]["chrf"] == 100.0
+    assert p["position_bias_A_share"] == 0.5 and p["flip_rate"] == 0.0
     md = (out / "report.md").read_text(encoding="utf-8")
     assert "질문 0" not in md and "예산 999" not in md          # 원문은 보고에 넣지 않는다
+
+
+def test_models_with_own_address_and_default_pairs():
+    names, urls = s210.parse_models("a, b, c=http://other:8002/v1", "http://main:8001/v1")
+    assert names == ["a", "b", "c"] and urls["a"] == "http://main:8001/v1" and urls["c"] == "http://other:8002/v1"
