@@ -525,7 +525,7 @@
     <header class="pa-dh"><div style="min-width:0;"><h2 id="paEditTitle" data-pa-title>사업</h2><div class="meta" data-pa-e-meta></div></div><span class="sp"></span>
       <button type="button" class="pa-x" data-pa-e-close aria-label="닫기">×</button></header>
     <form id="paForm" action="/programs/admin/save" method="post" class="pa-db" autocomplete="off">
-      <input type="hidden" name="key" value=""><input type="hidden" name="years_json" value="">
+      <input type="hidden" name="key" value=""><input type="hidden" name="ver" value=""><input type="hidden" name="years_json" value="">
       <section><h3>기본 정보</h3>
         <div class="pa-grid">
           <label class="pa-f w3">사업 이름<input type="text" name="name" maxlength="120" required autocomplete="off" enterkeyhint="done"></label>
@@ -1071,8 +1071,13 @@
     var box = f.closest('.modal-back'), inDetail = box && box.id === 'paDetail', inImport = box && box.id === 'paImport', inLink = box && box.id === 'paLink';
     var key = f.key ? f.key.value : '', keepKey = inDetail ? dKey : key;
     fetch(f.action, {method: 'POST', body: fd, credentials: 'same-origin'}).then(function (r) {
-      return r.text().then(function (t) { return {ok: r.ok, html: t, url: r.url}; });
+      return r.text().then(function (t) { return {ok: r.ok, status: r.status, html: t, url: r.url}; });
     }).then(function (res) {
+      if (res.status === 409 && box) {                    // 다른 사람이 먼저 고친 줄 — 창은 그대로(적은 값 그대로) 두고 까닭만
+        var fe409 = $('.ferr', box), msg = '';
+        try { msg = JSON.parse(res.html).detail || ''; } catch (e) {}
+        unbusy(f); if (fe409) { fe409.textContent = msg || '다른 사람이 먼저 고쳤습니다'; return; }
+      }
       var u = new URL(res.url, location.href);
       if (!/^\/programs\/admin(\/|$)/.test(u.pathname)) { location.href = res.url; return; }   // 새 프로젝트 등 다른 화면으로 가는 결과
       if (!res.ok) throw res;
@@ -1392,7 +1397,7 @@
   function openEdit(tr) {
     if (!form) return; var r = tr ? JSON.parse(tr.dataset.edit) : {key: '', years: {}, heads: [], leads: [], clerks: [], who: {heads: [], leads: [], clerks: []}, span: [null, null], origin: 'added'};
     cur0 = null; dirty = false; eBox.querySelector('[data-pa-dirty]').hidden = true;
-    form.key.value = r.key || ''; ['name', 'l1', 'l2', 'l3', 'dept', 'budget', 'manager'].forEach(function (f) { if (form[f]) form[f].value = r[f] || ''; });
+    form.key.value = r.key || ''; form.ver.value = r.ver || ''; ['name', 'l1', 'l2', 'l3', 'dept', 'budget', 'manager'].forEach(function (f) { if (form[f]) form[f].value = r[f] || ''; });
     perW = periodWidget(form.querySelector('[data-pa-period=period]'), r.period || '', function () { setDirty(); validate(); });
     ye = JSON.parse(JSON.stringify(r.years || {})); yeOrig = JSON.stringify(r.years || {}); span = r.span || [null, null];
     Object.keys(ye).forEach(function (y) { ye[y].money = ye[y].money || {}; });

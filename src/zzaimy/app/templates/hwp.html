@@ -73,9 +73,9 @@
         {% if here.may_make %}<button type="button" class="hb-btn ghost" data-new-folder title="새 폴더" aria-label="새 폴더"><iconify-icon icon="solar:add-folder-linear" aria-hidden="true"></iconify-icon><span class="l">새 폴더</span></button>{% endif %}
       </div>
     </div>
-    <form action="/hwp/upload" method="post" enctype="multipart/form-data" data-upload hidden>
+    <form action="/hwp/upload" method="post" enctype="multipart/form-data" data-upload{% if here.sorts %} data-sort{% endif %} hidden>
       <input type="hidden" name="dept" value="{{ here.dept }}"><input type="hidden" name="folder" value="{{ here.folder }}">
-      <input type="file" name="file" accept=".hwp,.hwpx" aria-label="올릴 한글 파일">
+      <input type="file" name="file" accept=".hwp,.hwpx" aria-label="올릴 한글 파일"{% if here.sorts %} multiple{% endif %}>
     </form>
     <div class="hb-selbar" data-selbar hidden><span data-sel-count></span><button type="button" class="hb-btn" data-sel-delete><iconify-icon icon="solar:trash-bin-minimalistic-linear" aria-hidden="true"></iconify-icon>지우기</button><button type="button" class="hb-btn ghost" data-sel-clear>선택 해제</button></div>
     <div class="hb-list" role="list" data-dept-list data-may-make="{{ 'on' if here.may_make else '' }}">

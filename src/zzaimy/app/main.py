@@ -207,9 +207,16 @@ def create_app(
     accounts_path = Path(db_path).parent / "accounts.json"
     accounts: dict[str, dict] = {}
 
+    from zzaimy.app import org_lock as _org_lock
+
     def _save_accounts() -> None:
-        accounts_path.write_text(_aj.dumps(accounts, ensure_ascii=False, indent=1))
-        accounts_path.chmod(0o600)
+        """계정 표 쓰기 — 조직도·사용자 화면과 같은 잠금(org_lock) 안에서, 임시 파일에 쓴 뒤 바꿔 끼운다(쓰다 끊겨도 반쪽 파일이 남지 않게)."""
+        with _org_lock.LOCK:
+            tmp = accounts_path.with_suffix(".tmp")
+            tmp.write_text(_aj.dumps(accounts, ensure_ascii=False, indent=1))
+            tmp.chmod(0o600)
+            tmp.replace(accounts_path)
+            _org_lock.note(accounts_path)
 
     def _now_iso() -> str:
         from datetime import datetime as _d
@@ -239,8 +246,11 @@ def create_app(
         legacy = str(acct.get("pw", ""))
         # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
         if legacy and secrets.compare_digest(pw.encode(), legacy.encode()):
-            _set_pw(acct, pw)
-            _save_accounts()
+            with _org_lock.LOCK:                          # 승격도 계정 쓰기 — 다시 읽어 아직 평문일 때만 바꾼다
+                acct = accounts.get(uid)
+                if acct is not None and not acct.get("pw_hash"):
+                    _set_pw(acct, pw)
+                    _save_accounts()
             return True
         return False
 
@@ -4245,16 +4255,21 @@ def create_app(
         def _go(kind: str, msg: str) -> RedirectResponse:
             return RedirectResponse(f"{path}{sep}{kind}={_q(msg)}" + (f"#{frag}" if frag else ""), status_code=303)
 
-        if not _verify_pw(uid, current_pw):
-            return _go("err", "현재 비밀번호가 맞지 않습니다")
         bad = _pw_rules.problem(new_pw, current_pw)
-        if bad:
-            return _go("err", bad)
-        if confirm and new_pw != confirm:
-            return _go("err", "새 비밀번호 확인이 일치하지 않습니다")
-        _set_pw(accounts[uid], new_pw)
-        accounts[uid].pop("must_change", None)
-        _save_accounts()
+        # 확인부터 쓰기까지 계정 잠금 안에서 — 그 사이 관리자 화면이 같은 계정을 고쳐도 서로 덮지 않는다
+        with _org_lock.LOCK:
+            if not _verify_pw(uid, current_pw):
+                return _go("err", "현재 비밀번호가 맞지 않습니다")
+            if bad:
+                return _go("err", bad)
+            if confirm and new_pw != confirm:
+                return _go("err", "새 비밀번호 확인이 일치하지 않습니다")
+            acct = accounts.get(uid)
+            if acct is None:
+                return _go("err", "계정을 찾을 수 없습니다")
+            _set_pw(acct, new_pw)
+            acct.pop("must_change", None)
+            _save_accounts()
         return _go("ok", "비밀번호를 변경했습니다")
 
     # ---- 문서 작업 — 구글 독스를 화면 안에 두고 에이전트가 같은 문서를 읽고, 담당자가 누른 자리에만 쓴다(ADR-0029) ----

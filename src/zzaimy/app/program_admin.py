@@ -44,7 +44,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from zzaimy.app import grades, program_sheet
+from zzaimy.app import grades, org_lock, program_sheet
 from zzaimy.app.program_names import group_key
 from zzaimy.app.program_register import slug
 from zzaimy.app.program_tree import Ledger, place
@@ -113,6 +113,15 @@ def _save_store(store: dict, data_dir=None) -> str:
     tmp.replace(p)
     _CACHE.clear()
     return stamp
+
+
+def row_version(store: dict, key: str) -> str:
+    """한 줄의 판 — 그 줄의 저장값(rows·added)의 지문. 편집 창은 읽은 때의 판을 함께 보내고, 저장 때 지금 판과 다르면 409."""
+    part = {"row": (store.get("rows") or {}).get(key), "added": (store.get("added") or {}).get(key)}
+    return hashlib.sha256(json.dumps(part, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+STALE = "다른 사람이 먼저 고쳤습니다 — 새로 불러온 뒤 다시 저장해 주세요"
 
 
 def store_hash(data_dir=None) -> str:
@@ -683,6 +692,7 @@ def _page(request: Request, *, tab: str = "current", year: str = "", hidden: str
         r["edit"]["years"] = _edit_years(r) if r["can_edit"] else {}
         a, b = row_span(r)
         r["edit"]["span"] = [a, b]
+        r["edit"]["ver"] = row_version(store, r["key"])
         r["status_chips"] = (r["y"]["chips"] if sel else program_sheet.chips(program_sheet.latest(r["years"]).get("status") or ""))
         r["ministries"] = program_sheet.chips(((r["years"].get(str(sel)) or {}) if sel else program_sheet.latest(r["years"])).get("ministry") or "")
     ysum, foot, basis = None, {}, {}
@@ -1024,6 +1034,14 @@ def _check_people(want: dict, allowed: dict, old: dict, accounts: dict) -> str:
 
 @router.post("/programs/admin/save")
 async def programs_admin_save(request: Request):
+    """줄 저장 — 읽기부터 쓰기까지는 잠금(org_lock) 안에서(_save_row)."""
+    form = await request.form()
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(_save_row, request, form)
+
+
+@org_lock.serialized
+def _save_row(request: Request, form):
     """줄 저장 — 관리자는 모든 줄·새 줄(key 비움), 총괄 책임자는 주관 부서가 자기 부서인 사업(값·사업 책임자·행정 담당자, 같은 부서 사람만).
     다른 부서 사업은 403(신청으로). 연도별 값은 표(years_json) 또는 예전 칸(y_year·y_<칸>). 바뀐 칸은 변경 기록에 「직접」으로."""
     scope, user, acct = _scope_or_403(request)
@@ -1031,7 +1049,6 @@ async def programs_admin_save(request: Request):
         raise HTTPException(403, "사업 고치기는 총괄 책임자와 관리자만 합니다")
     st = request.app.state
     accounts = getattr(st, "accounts", None) or {}
-    form = await request.form()
     key = str(form.get("key") or "").strip()
     store = load_store(st.data_dir)
     rows = merged_rows(st.data_dir, store=store)
@@ -1039,6 +1056,9 @@ async def programs_admin_save(request: Request):
     old = by_key.get(key)
     if key and old is None:
         raise HTTPException(404, "사업을 찾을 수 없습니다")
+    ver = str(form.get("ver") or "").strip()
+    if key and ver and ver != row_version(store, key):          # 편집 창을 연 뒤 다른 사람이 이 줄을 저장했다
+        raise HTTPException(409, STALE)
     if scope == "dept":
         if old is None:
             raise HTTPException(403, "줄 추가는 관리자만 합니다")
@@ -1149,6 +1169,7 @@ HIDE_REASONS = {"not_program": "사업 아님", "dup": "중복", "ended": "끝�
 
 
 @router.post("/programs/admin/hide")
+@org_lock.serialized
 def programs_admin_hide(request: Request, key: str = Form(""), hidden: str = Form("1"), not_program: str = Form(""),
                         reason: str = Form("")):
     """목록에서 빼기·다시 넣기(관리자). reason 은 사업 아님·중복·끝난 사업·그 밖(HIDE_REASONS). 「사업 아님」은 다음 가져오기에서도
@@ -1239,6 +1260,7 @@ def programs_admin_merge_preview(request: Request, key: str = "", into: str = ""
 
 
 @router.post("/programs/admin/merge")
+@org_lock.serialized
 def programs_admin_merge(request: Request, key: str = Form(""), into: str = Form("")):
     """다른 사업과 합치기(관리자) — key 줄을 into 줄의 별칭으로: 연도 값(없는 해는 옮기고, 겹치는 해는 세부 과제를 잇고 금액을 더함)·
     지정·이은 프로젝트를 옮기고 원래 줄은 목록에서 뺀다. 떼어 내기(unmerge)에 쓸 앞 값(merge_undo)을 남기고 두 줄 모두 변경 기록에 남긴다."""
@@ -1289,6 +1311,7 @@ def programs_admin_merge(request: Request, key: str = Form(""), into: str = Form
 
 
 @router.post("/programs/admin/unmerge")
+@org_lock.serialized
 def programs_admin_unmerge(request: Request, key: str = Form("")):
     """합친 줄 떼어 내기(관리자) — 원래 줄을 목록에 다시 넣고 연도 값·지정·옮긴 프로젝트를 돌려놓는다. 받은 줄이 합친 뒤 그대로면
     받은 줄의 연도 값·별칭·지정도 합치기 앞으로, 그 뒤 고쳐졌으면 붙인 별칭만 떼고 연도 값은 그대로 둔다(알림에 적는다)."""
@@ -1339,6 +1362,7 @@ def programs_admin_unmerge(request: Request, key: str = Form("")):
 
 
 @router.post("/programs/admin/revert")
+@org_lock.serialized
 def programs_admin_revert(request: Request, key: str = Form(""), i: str = Form("")):
     """변경 기록 한 줄 되돌리기(관리자) — 지금 값이 그 기록의 「후」 값과 같을 때만 「전」 값으로."""
     user, _ = _admin(request)
@@ -1469,6 +1493,7 @@ def _recheck(q: dict, accounts: dict, data_dir) -> str:
 
 
 @router.post("/programs/admin/request/decide")
+@org_lock.serialized
 def programs_admin_decide(request: Request, id: str = Form(""), decision: str = Form(""), note: str = Form("")):
     """신청 처리(관리자) — 승인하면 그대로 반영(변경 기록에 「신청 #n 승인」), 반려하면 사유와 함께 신청자에게 알림."""
     user, _ = _admin(request)
@@ -1509,6 +1534,7 @@ def programs_admin_decide(request: Request, id: str = Form(""), decision: str = 
 
 
 @router.post("/programs/admin/notes/read")
+@org_lock.serialized
 def programs_admin_notes_read(request: Request):
     _, user, _ = _scope_or_403(request)
     st = request.app.state

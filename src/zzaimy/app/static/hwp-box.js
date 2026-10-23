@@ -275,7 +275,26 @@
   var pick = document.querySelector('[data-pick-file]');
   if (pick && upInput) {
     pick.addEventListener('click', function () { upInput.click(); });
-    upInput.addEventListener('change', function () { if (upInput.files.length) up.submit(); });
+    upInput.addEventListener('change', function () {
+      if (!upInput.files.length) return;
+      if (!up.hasAttribute('data-sort')) { up.submit(); return; }
+      // 지난 사업 문서·공통 양식 — 파일마다 보내 제자리에 넣고, 결과를 모아 이 폴더를 다시 연다
+      var files = Array.prototype.slice.call(upInput.files), many = files.length > 1, oks = [], errs = [];
+      toast(many ? files.length + '개 올리는 중…' : '올리는 중…');
+      files.reduce(function (p, f) {
+        return p.then(function () {
+          var fd = new FormData(); fd.append('dept', up.dept.value); fd.append('folder', up.folder.value); fd.append('file', f);
+          return postJSON(up.action, fd).then(function (j) {
+            (j.ok ? oks : errs).push((many ? f.name + ' — ' : '') + (j.message || ''));
+          }).catch(function (err) { errs.push((many ? f.name + ' — ' : '') + err.message); });
+        });
+      }, Promise.resolve()).then(function () {
+        var u = new URL(location.href); u.searchParams.delete('ok'); u.searchParams.delete('err');
+        if (oks.length) u.searchParams.set('ok', oks.join(' · '));
+        if (errs.length) u.searchParams.set('err', errs.join(' · '));
+        location.href = u.toString();
+      });
+    });
   }
 
   // 창을 열면 글 넣는 칸에 바로 커서

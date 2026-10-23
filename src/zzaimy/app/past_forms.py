@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 import re
+import threading
 import time
 import zipfile
 from pathlib import Path
@@ -138,10 +139,13 @@ def folder_for(program: str = "", purpose: str = "", small: bool = False) -> str
     return f"{ROOT}/{prog}" if small else f"{ROOT}/{prog}/{purp}"
 
 
+UPLOAD_SOURCE = "양식:upload-"      # 교직원이 문서함에서 올린 지난 양식(올릴 때 이미 판정했다)
+
+
 def platform_made(source: str) -> bool:
-    """플랫폼이 만든 공통 양식(webhwp_templates) — 지난 문서에서 모은 것(양식:doc-·양식:common-)이 아닌 잠긴 양식."""
+    """플랫폼이 만든 공통 양식(webhwp_templates) — 지난 문서에서 모은 것(양식:doc-·양식:common-)·올린 양식(양식:upload-)이 아닌 잠긴 양식."""
     s = str(source or "")
-    return s.startswith("양식:") and doc_id_of(s) is None
+    return s.startswith("양식:") and doc_id_of(s) is None and not s.startswith(UPLOAD_SOURCE)
 
 
 def in_scope(folder: str, source: str) -> str:
@@ -543,3 +547,114 @@ def mask_title(title: str, names=()) -> str:
 
         out = re.sub(r"(?<![가-힣])([가-힣]{2,4})(?![가-힣])", sub, out)
     return out
+
+
+# ── 문서함에서 올리기(교직원) — 「지난 사업 문서」·「공통 양식」 을 보면서 올린 파일을 classify 로 제자리에 ──
+def sorts_here(dept: str, folder: str) -> bool:
+    """이 자리에서 올리면 저절로 나누는가 — 공통 부서의 「지난 사업 문서」·「공통 양식」(그 아래 폴더 포함)."""
+    from zzaimy.app import webhwp
+    return dept == webhwp.COMMON and (_under(folder or "", ROOT) or _under(folder or "", COMMON_ROOT))
+
+
+_PERSONAL_PLAIN = (("rrn", "주민등록번호"), ("accounts", "계좌번호"), ("addresses", "주소"))
+
+
+def plain_reason(c: dict, title: str = "") -> str:
+    """classify 가 지우라고 한 까닭을 쉬운 말로 — 「개인 정보(계좌번호)가 있어 올리지 않았습니다」."""
+    code, m = c.get("reason_code", ""), c.get("measure") or {}
+    if code == "personal":
+        what = [w for k, w in _PERSONAL_PLAIN if m.get(k)]
+        if m.get("mobiles"):
+            what.append("휴대전화 번호")
+        if not what:
+            t = re.sub(r"\s+", "", title or "")
+            kind = next((w for w in PERSONAL_WORDS if w in t), "")
+            if kind:
+                return f"개인 서류({kind})라 올리지 않았습니다"
+            what.append("이름")
+        return f"개인 정보({'·'.join(what)})가 있어 올리지 않았습니다"
+    return {"broken": "파일이 열리지 않아 올리지 않았습니다",
+            "empty": "내용이 없는 빈 파일이라 올리지 않았습니다",
+            "garbled": "글자가 깨져 있어 올리지 않았습니다",
+            "record": "이미 쓴 기록이라 올리지 않았습니다 — 빈 양식을 올려 주세요",
+            "filled": "이미 채워진 문서라 올리지 않았습니다 — 빈 양식을 올려 주세요",
+            "nofields": "채울 자리를 찾지 못해 양식으로 쓸 수 없습니다",
+            "lowvalue": "양식으로 쓸 만한 자리가 없어 올리지 않았습니다"}.get(code, "양식으로 쓸 수 없어 올리지 않았습니다")
+
+
+_SHA_CACHE: dict[str, tuple[tuple, str]] = {}
+_UPLOAD_LOCK = threading.Lock()
+
+
+def _text_sha_of(path: Path) -> str:
+    """파일 본문 지문(measure 의 text_sha) — 경로·크기·고친 때가 같으면 다시 재지 않는다."""
+    try:
+        st = path.stat()
+    except OSError:
+        return ""
+    key = (st.st_size, st.st_mtime_ns)
+    got = _SHA_CACHE.get(str(path))
+    if got and got[0] == key:
+        return got[1]
+    try:
+        sha = measure(path.read_bytes()).get("text_sha", "")
+    except OSError:
+        sha = ""
+    _SHA_CACHE[str(path)] = (key, sha)
+    return sha
+
+
+def existing_form(db, base: Path, text_sha: str) -> dict | None:
+    """본문이 같은 양식이 이미 있나 — 공통 부서의 잠긴 양식(지난 사업 문서·공통 양식·옛 자리) 가운데."""
+    from zzaimy.app import webhwp
+    if not text_sha:
+        return None
+    for r in db.list_files(kind="webhwp", limit=200000):
+        if webhwp.dept_of_path(base, r["path"]) != webhwp.COMMON or not webhwp.locked(db, r["id"]):
+            continue
+        if _text_sha_of(Path(r["path"])) == text_sha:
+            return r
+    return None
+
+
+def _small_program_dir(base: Path, folder: str) -> str:
+    """사업 폴더가 목적 폴더 없이 파일만 두는 작은 사업이면(정리 때 접힌 것) 그 사업 폴더에 바로 둔다."""
+    from zzaimy.app import webhwp
+    parts = folder.split("/")
+    if len(parts) != 3 or parts[0] != ROOT:
+        return folder
+    d = webhwp.folder_dir(base, webhwp.COMMON, "/".join(parts[:2]))
+    if not d.is_dir():
+        return folder
+    kids = [c for c in d.iterdir() if not c.name.startswith(".")]
+    if any(c.is_file() for c in kids) and not any(c.is_dir() for c in kids):
+        return "/".join(parts[:2])
+    return folder
+
+
+def take_upload(db, base: Path, filename: str, data: bytes, *, owner: str, programs: "Programs | None" = None,
+                http=None) -> dict:
+    """올린 한글 파일 하나를 지난 양식으로 받는다 — hwp 는 hwpx 로 바꾸고 쓸 자리를 박은 뒤 classify.
+    남길 것이면 classify 가 정한 폴더에 잠긴 양식(source 「양식:upload-<아이디>」)으로 두고, 지울 것·같은 본문이 있으면 두지 않는다.
+    돌려주는 것 {ok, message, folder, fid}."""
+    from zzaimy.app import storage as _st
+    from zzaimy.app import webhwp, webhwp_convert
+    ext = Path(filename or "").suffix.lower()
+    if ext not in webhwp.SUFFIXES:
+        return {"ok": False, "message": "한글 파일(.hwp·.hwpx)만 올릴 수 있습니다"}
+    title = _st.title_of(filename) or "양식"
+    try:
+        fz, _fields = webhwp_convert.work_form(data, ext, http)
+    except Exception as e:                                   # 기안기 서버 연결·변환 실패, 열리지 않는 파일
+        msg = str(e) if isinstance(e, RuntimeError) else "파일이 열리지 않아 올리지 않았습니다"
+        return {"ok": False, "message": msg}
+    c = classify(fz, title, programs)
+    if c["action"] != KEEP:
+        return {"ok": False, "message": plain_reason(c, title)}
+    with _UPLOAD_LOCK:                                        # 같은 파일을 한꺼번에 두 번 올려도 하나만
+        if existing_form(db, base, c["measure"].get("text_sha", "")):
+            return {"ok": False, "message": "이미 있는 양식입니다"}
+        folder = _small_program_dir(base, c["folder"])
+        fid = webhwp.add(db, base, webhwp.COMMON, f"{title[:60]}.hwpx", fz, owner=owner,
+                         source=f"{UPLOAD_SOURCE}{owner}", folder=folder)
+    return {"ok": True, "message": f"「{folder}」에 넣었습니다", "folder": folder, "fid": fid}

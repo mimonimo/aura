@@ -237,6 +237,8 @@ def hwp_home(request: Request, dept: str = "", folder: str = "", ok: str = "", e
     if here:
         here["label"] = _label(request, dept)
         here["may_make"] = _may_make(request, dept)
+        from zzaimy.app import past_forms
+        here["sorts"] = past_forms.sorts_here(dept, folder)
     if here and _place_ok(request, depts, dept, folder):
         _touch(request, dept, folder)
     favs, recent = _side_places(request, depts, here)
@@ -800,11 +802,22 @@ def hwp_editor(request: Request, editor: str = Form("gdocs"), back: str = Form("
 
 @router.post("/hwp/upload")
 async def hwp_upload(request: Request, dept: str = Form(""), folder: str = Form(""), file: UploadFile = File(...)):
+    """올리기 — 공통의 「지난 사업 문서」·「공통 양식」 에서는 past_forms 판정으로 제자리(잠긴 양식)에 넣거나 까닭을 들어 거절하고,
+    그 밖의 곳은 고른 폴더에 그대로 둔다. 화면 스크립트(Accept JSON)에는 JSON 으로 답한다."""
     _need_staff(request)
     folder = _check_dept(request, dept, folder)
     data = await file.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
+        if _json_wanted(request):
+            return {"ok": False, "message": "100MB 보다 큰 파일은 올릴 수 없습니다"}
         return _back("100MB 보다 큰 파일은 올릴 수 없습니다", ok=False, dept=dept, folder=folder)
+    from zzaimy.app import past_forms
+    if past_forms.sorts_here(dept, folder):
+        from starlette.concurrency import run_in_threadpool
+        res = await run_in_threadpool(_take_past_form, request, file.filename or "", data)
+        if _json_wanted(request):
+            return res
+        return _back(res["message"], ok=res["ok"], dept=dept, folder=folder)
     try:
         webhwp.add(request.app.state.db, _base(request), dept, file.filename or "", data,
                    owner=getattr(request.state, "user", ""), source="upload", folder=folder)
@@ -812,6 +825,18 @@ async def hwp_upload(request: Request, dept: str = Form(""), folder: str = Form(
         return _back(str(e), ok=False, dept=dept, folder=folder)
     _touch(request, dept, folder)
     return _back(f"「{file.filename}」 을(를) 올렸습니다", dept=dept, folder=folder)
+
+
+def _programs(request: Request):
+    """사업 장부(past_forms.Programs) — 올릴 때마다 지금 장부로."""
+    from zzaimy.app import past_forms
+    return past_forms.Programs(request.app.state.db, request.app.state.data_dir)
+
+
+def _take_past_form(request: Request, filename: str, data: bytes) -> dict:
+    from zzaimy.app import past_forms
+    return past_forms.take_upload(request.app.state.db, _base(request), filename, data,
+                                  owner=getattr(request.state, "user", ""), programs=_programs(request))
 
 
 EDIT_PAGE = "/webhwpctrl/aura-edit"     # 기안기 스크립트는 「지금 페이지의 폴더」 + hwpctrlmain.html 로 편집 틀을 연다 — 그래서 /webhwpctrl/ 바로 아래
