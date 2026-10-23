@@ -2093,7 +2093,7 @@ def create_app(
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
                     "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_form_create": "양식 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
                     "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기",
-                    "delegate_section": "절 맡기기"}
+                    "delegate_section": "절 맡기기", "hwp_revise": "고쳐 쓰기"}
 
     def _tool_label(name: str) -> str:
         return _TOOL_LABELS.get(name, name or "생각")
@@ -2666,8 +2666,25 @@ def create_app(
                         hits_ += list(mats().search_criteria(query_) or [])[:3]
                     return hits_
 
-                _dlg = _dg.Delegator(client, db, session_id, hw, q, search=_dg_search, notes=lambda: notes[-8:])
+                # 서브 연결 묶음 — 검토 연결(서빙 장비 둘째) 위주로 동시 상한만큼, 메인 연결은 하나(메인은 맡기는 동안 기다린다).
+                # 두 역할이 같은 서버·모델이면 그 연결 하나의 상한만큼. 동시 상한은 연결 설정 parallel(없으면 ZZAIMY_DELEGATE_PARALLEL)
+                _pool = [(client, 1)]
+                if _dg.parallel_on():
+                    try:
+                        _rc = VllmClient(role="review")
+                        _same = (str(getattr(_rc.client, "base_url", "")) == str(getattr(client.client, "base_url", ""))
+                                 and _rc.model == client.model)
+                        _pool = [(client, _dg.conn_cap(client))] if _same else [(_rc, _dg.conn_cap(_rc)), (client, 1)]
+                    except Exception:
+                        _pool = [(client, _dg.conn_cap(client))]
+                _dlg = _dg.Delegator(client, db, session_id, hw, q, search=_dg_search, notes=lambda: notes[-8:], pool=_pool)
+                hw.delegate_cap = len(_dlg.slots())
                 tools.append(doc_agent.Tool("delegate_section", _dg.TOOL_DESC, _dlg.run, writes=True))
+                if _dg.revise_on():
+                    # 고쳐 쓰기(ADR-0068) — 이미 쓴 절을 담당자 지시대로, 서브가 점검표를 만들고 코드가 셀 수 있는 것만 점검
+                    hw.revising = True
+                    _rev = _dg.Reviser(client, db, session_id, hw, q, search=_dg_search, notes=lambda: notes[-8:], pool=_pool)
+                    tools.append(doc_agent.Tool("hwp_revise", _dg.REVISE_DESC, _rev.run, writes=True))
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
@@ -2705,7 +2722,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", _scrub_internal(msg_))
         if not ep.finished and ep.writes and hw is not None and hw.fid():
             # 한글 작업본 — 쓴 절·칸, 남은 빈 절, 담당자가 알려 줘야 할 빈 칸을 알린다(긴 서식은 한 번에 다 못 쓴다)
-            ok_ = [s_ for s_ in ep.steps if s_.get("action") in ("hwp_write", "hwp_fill", "delegate_section")
+            ok_ = [s_ for s_ in ep.steps if s_.get("action") in ("hwp_write", "hwp_fill", "delegate_section", "hwp_revise")
                    and str(s_.get("observation", "")).startswith(("「", "채웠다"))]
             fl_ = hw._fields()
             left_s = [x["name"][2:] for x in fl_ if x["kind"] == "절" and not x["text"]]

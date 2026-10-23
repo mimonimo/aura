@@ -70,7 +70,8 @@ def test_brief_fills_required_items_and_returns_unknowns(tmp_path, monkeypatch):
     assert hw.write({"field": secs[0], "text": "1) 사업 개요는 AI 기초 교육 확산임"}).startswith("「")
     client = FakeClient(["[본문]\n1) 1학년 320명 대상 AI 기초 교육 운영함\n2) 교과·비교과 연계함\n[확인 필요]\n- 예산 총액: 자료에 없음\n"])
     hw.client, hw.evidence, hw.delegating = client, (lambda: ["대상 1학년 320명"]), True
-    dlg = delegate.Delegator(client, db, sid, hw, "AI 교육 사업계획서 써 줘", search=lambda q: [{"title": "공고", "text": "사업 목적은 AI 교육 확산임."}])
+    dlg = delegate.Delegator(client, db, sid, hw, "AI 교육 사업계획서 써 줘", search=lambda q: [{"title": "공고", "text": "사업 목적은 AI 교육 확산임."}],
+                             quality=False)
     out = dlg.run({"section": secs[1], "gist": "추진 방향", "form": "번호 문단", "length": "500자"})
     user = client.sent[0][1]["content"]
     # 코드가 채운 필수 항목 — 메모 목표·확정, 문서 개요, 앞 절 요지, 담당자 원문 인용
@@ -89,7 +90,7 @@ def test_gate_rejects_invented_numbers_and_redo_limit(tmp_path, monkeypatch):
     app, db, hw, secs = _work(tmp_path, monkeypatch, sid=92)
     client = FakeClient(["[본문]\n1) 참여 학생 4,500명 목표임\n[확인 필요]\n- 없음"] * 3)
     hw.client, hw.evidence, hw.delegating = client, (lambda: ["자료"]), True
-    dlg = delegate.Delegator(client, db, hw.sid, hw, "써 줘")
+    dlg = delegate.Delegator(client, db, hw.sid, hw, "써 줘", quality=False)
     out = dlg.run({"section": secs[0], "gist": "목표"})
     assert "관문에서 막혔다" in out and "4,500" in out
     assert not {x["name"]: x["text"] for x in hw._fields()}[secs[0]]       # 쓰지 않았다
@@ -127,7 +128,7 @@ def test_sub_call_label_groups_as_sub(tmp_path, monkeypatch):
     client = FakeClient(["[본문]\n1) 내용임\n[확인 필요]\n- 없음"])
     hw.client, hw.delegating = client, True
     d = llm_budget.track()
-    delegate.Delegator(client, db, hw.sid, hw, "써 줘").run({"section": secs[0], "gist": "개요"})
+    delegate.Delegator(client, db, hw.sid, hw, "써 줘", quality=False).run({"section": secs[0], "gist": "개요"})
     item = d["items"][-1]
     assert item["label"].startswith("서브 · 절 맡기기 · ") and item["group"] == "서브"
     llm_budget._USAGE.set(None)
@@ -177,3 +178,125 @@ def test_guide_needs_shown_and_missing_noticed_once(tmp_path, monkeypatch):
     sh = webhwp.meta(db, hw.fid())["shape"][field]
     assert sh["tables"] == 1 and sh["diagrams"] == 1 and sh["numbered"] and sh["sources"] and "출처" not in sh["missing"]
     assert wa.needs_of("목표는 성과지표와 연결") == []                        # 「지표」「목표」 의 표 글자는 표 요구가 아니다
+
+
+def test_outline_then_write_with_numbered_evidence_and_self_check(tmp_path, monkeypatch):
+    """쓰기 품질 켬 — 검색어 2~3개로 여러 번 찾고, 번호·쪽 붙인 근거로 [개요] → [본문], 자기 점검이 고친 본문을 쓴다."""
+    monkeypatch.delenv("ZZAIMY_RERANK_URL", raising=False)
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=96)
+    asked = []
+
+    def search(q):
+        asked.append(q)
+        return [{"title": "기본계획", "text": f"{q} 관련 — 지원 대상은 1학년 학생임. 사업 기간은 2027. 3. ~ 2028. 2.임.", "doc_id": None, "chunk_id": None}]
+    client = FakeClient(['{"검색어": ["지원 대상", "추진 일정", "평가 지표"]}',
+                         "[개요]\n요지: 대상과 일정\n근거: [근거 1]\n표: 필요 없음\n[본문]\n1) 역량 강화함\n[확인 필요]\n- 없음",
+                         "[판정] 고침\n[고칠 점]\n- 1 대상이 없음\n[본문]\n1) 1학년 학생 대상 AI 기초 교육 운영함(출처: 기본계획)\n2) 2027. 3. ~ 2028. 2. 운영함\n[확인 필요]\n- 없음"])
+    hw.client, hw.evidence, hw.delegating = client, (lambda: ["써 줘"]), True
+    dlg = delegate.Delegator(client, db, hw.sid, hw, "써 줘", search=search, quality=True)
+    out = dlg.run({"section": secs[0], "gist": "대상과 일정"})
+    assert len(asked) == 4 and "지원 대상" in asked and "평가 지표" in asked          # 절 제목+요지 + 27B 검색어 셋
+    write_prompt = client.sent[1]
+    assert "[근거 1]" in write_prompt[1]["content"] and "[근거 4]" in write_prompt[1]["content"]
+    assert "[개요]" in write_prompt[0]["content"] and "출처" in write_prompt[0]["content"]
+    assert "기준표" in client.sent[2][0]["content"]
+    vals = {x["name"]: x["text"] for x in hw._fields()}
+    assert vals[secs[0]].startswith("1) 1학년 학생 대상")                             # 자기 점검이 고친 본문
+    rec = delegate.load_log(db, hw.sid)[-1]
+    assert rec["queries"] == ["지원 대상", "추진 일정", "평가 지표"] and rec["check"]["used"] and "대상과 일정" in rec["outline"]
+    assert "자기 점검 고침(고쳐 씀)" in out
+
+
+def test_self_check_rewrite_with_invented_number_keeps_first_body(tmp_path, monkeypatch):
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=97)
+    client = FakeClient(["[개요]\n요지\n[본문]\n1) 교육 운영함\n[확인 필요]\n- 없음",
+                         "[판정] 고침\n[고칠 점]\n- 1 수치 없음\n[본문]\n1) 학생 4,500명 교육 운영함\n[확인 필요]\n- 없음"])
+    hw.client, hw.evidence, hw.delegating = client, (lambda: ["써 줘"]), True
+    dlg = delegate.Delegator(client, db, hw.sid, hw, "써 줘", quality=True)      # 찾기 없음 — 검색어 호출도 없다
+    dlg.run({"section": secs[0], "gist": "운영"})
+    assert {x["name"]: x["text"] for x in hw._fields()}[secs[0]] == "1) 교육 운영함"
+    chk = delegate.load_log(db, hw.sid)[-1]["check"]
+    assert chk["verdict"] == "고침" and chk["used"] is False and "4,500" in chk["kept_why"]
+
+
+def test_parallel_delegation_respects_slots(tmp_path, monkeypatch):
+    """여러 절 동시 맡기기 — 연결별 동시 상한의 합까지만 맡기고, 자리마다 연결을 나눠 쓴다. 쓰기는 차례대로 모두 들어간다."""
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=98)
+    if len(secs) < 4:
+        secs = secs + secs[:4 - len(secs)]
+    a, b = FakeClient(["[본문]\n1) 가 내용임\n[확인 필요]\n- 없음"] * 4), FakeClient(["[본문]\n1) 나 내용임\n[확인 필요]\n- 없음"] * 4)
+    hw.client, hw.delegating = a, True
+    dlg = delegate.Delegator(a, db, hw.sid, hw, "써 줘", pool=[(b, 2), (a, 1)], quality=False)
+    assert dlg.slots() == [b, a, b]
+    uniq = list(dict.fromkeys(secs))
+    out = dlg.run({"sections": [{"section": n, "gist": "내용"} for n in uniq[:4]]})
+    wrote = [n for n in uniq[:3] if {x["name"]: x["text"] for x in hw._fields()}[n]]
+    assert len(wrote) == min(3, len(uniq))
+    assert len(b.sent) == 2 and len(a.sent) == 1
+    if len(uniq) >= 4:
+        assert "동시 상한(3개)" in out
+    monkeypatch.setenv("ZZAIMY_DELEGATE_PARALLEL", "3")
+    assert delegate.conn_cap(a) == 3 and delegate.parallel_on()
+    monkeypatch.setenv("ZZAIMY_DELEGATE_PARALLEL", "0")
+    assert not delegate.parallel_on()
+
+
+def test_revise_checklist_gate_retries_then_writes(tmp_path, monkeypatch):
+    """고쳐 쓰기 — 27B 가 지시를 점검표로, 코드는 바뀜·길이 방향·표 유무를 센다. 어기면 까닭을 붙여 한 번 다시 청한다."""
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=99)
+    hw.evidence = lambda: ["일정은 표로 정리해 줘"]
+    assert hw.write({"field": secs[0], "text": "1) 준비 단계 운영함\n2) 평가 단계 운영함"}).startswith("「")
+    client = FakeClient(['{"의도": "일정을 표로", "길이": "그대로", "표": "넣음", "더할 항목": [], "검색어": []}',
+                         "[본문]\n1) 준비 단계 운영함\n2) 평가 단계 운영함\n[확인 필요]\n- 없음",
+                         "[본문]\n1) 추진 일정\n| 단계 | 내용 |\n|---|---|\n| 준비 | 과정 설계 |\n| 평가 | 성과 점검 |\n[확인 필요]\n- 없음"])
+    hw.client = client
+    rev = delegate.Reviser(client, db, hw.sid, hw, "일정은 표로 정리해 줘")
+    out = rev.run({"field": secs[0], "instruction": "일정은 표로 정리"})
+    assert "고쳐 썼다" in out and "표 0 → 1" in out
+    retry = client.sent[2]
+    assert "지금 글과 같다" in retry[-1]["content"]                                     # 첫 답이 그대로라 다시 청함
+    assert "[지금 글" in client.sent[1][1]["content"] and "준비 단계 운영함" in client.sent[1][1]["content"]
+    rec = delegate.load_log(db, hw.sid)[-1]
+    assert rec["kind"] == "revise" and rec["written"] and len(rec["tries"]) == 2
+    assert webhwp.meta(db, hw.fid())["shape"][secs[0]]["tables"] == 1
+    # 비어 있는 절은 고쳐 쓰기가 아니다
+    if len(secs) > 1:
+        assert "아직 비어" in rev.run({"field": secs[1], "instruction": "더 구체적으로"})
+
+
+def test_revise_problems_and_invented_numbers_block(tmp_path, monkeypatch):
+    p = delegate.revise_problems({"길이": "늘림", "표": "그대로", "더할 항목": ["운영 시기"]}, "1) 교육 운영함", "1) 교육 운영함 더")
+    assert any("길이를 늘려야" in x for x in p) and any("운영 시기" in x or "시기" in x for x in p)
+    assert delegate.revise_problems({"길이": "줄임"}, "1) " + "가" * 100, "1) " + "가" * 50) == []
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=100)
+    hw.evidence = lambda: ["더 구체적으로"]
+    hw.write({"field": secs[0], "text": "1) 교육 운영함"})
+    client = FakeClient(['{"길이": "늘림"}'] + ["[본문]\n1) 학생 4,500명 대상 교육을 매주 운영함\n[확인 필요]\n- 없음"] * 2)
+    hw.client = client
+    out = delegate.Reviser(client, db, hw.sid, hw, "더 구체적으로").run({"field": secs[0], "instruction": "더 구체적으로"})
+    assert "고쳐 쓰지 못했다" in out and "4,500" in out
+    assert {x["name"]: x["text"] for x in hw._fields()}[secs[0]] == "1) 교육 운영함"
+
+
+def test_resolve_number_and_state_guidance(tmp_path, monkeypatch):
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=101)
+    import re as _re
+    nums = [_re.match(r"^절:\s*(\d+)\.\s", n).group(1) for n in secs if _re.match(r"^절:\s*\d+\.\s", n)]
+    once = [k for k in nums if nums.count(k) == 1]
+    twice = [k for k in nums if nums.count(k) > 1]
+    if once:
+        assert hw.resolve_number(f"{once[0]}번 절") == next(n for n in secs if n.startswith(f"절:{once[0]}. "))
+    if twice:
+        assert hw.resolve_number(f"{twice[0]}번 절") is None                 # 같은 번호 절이 여럿이면 정하지 않는다(에이전트가 이름으로 짚는다)
+    assert hw.resolve_number("추진 일정") is None
+    hw.revising, hw.delegating, hw.delegate_cap = True, True, 3
+    st = "\n".join(hw.state_lines())
+    assert "hwp_revise" in st and "sections" in st
+
+
+def test_parse_sub_header_only_at_line_start():
+    raw = ("[개요]\n- 비전: [확인 필요] 문구 없음\n[본문]\n| 구분 | 내용 |\n|---|---|\n| 비전 | [확인 필요] |\n[확인 필요]\n- 비전 문구: 근거 없음")
+    body, unk = delegate.parse_sub(raw)
+    assert body.startswith("| 구분 |") and "| 비전 | [확인 필요] |" in body and unk == ["비전 문구: 근거 없음"]
+    assert delegate.parse_sub("1) 내용임\n[확인 필요]\n- 없음") == ("1) 내용임", [])
+    assert delegate.revise_problems({"길이": "그대로", "더할 항목": ["취업 통계"]}, "1) 가", "1) 나", ["취업 통계: 근거 없음"]) == []

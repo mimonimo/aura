@@ -1,8 +1,9 @@
 """대화 기억 — 긴 대화도 앞부분을 잃지 않고, 두루뭉술하게 시작한 요청이 대화를 거치며 분명한 목표로 모이게 한다.
 
 왜. 요청마다 최근 몇 개만 넣으면 그 밖의 대화(담당자가 알려 준 값, 정한 방향, 만든 문서)가 통째로 사라진다.
-- 작업 메모: 답이 끝날 때마다(배경에서) 앞 메모 + 그 뒤 대화 → 새 메모로 고친다(compact). 메모는 네 갈래다 —
-  지금 목표(대화가 진행되며 구체화된 최종 목표), 확정된 것(정한 것·알려 준 값), 진행 상황(만든 문서·쓴 부분), 남은 일·물어볼 것.
+- 작업 메모: 답이 끝날 때마다(배경에서) 앞 메모 + 그 뒤 대화 → 새 메모로 고친다(compact). 메모는 다섯 갈래다 —
+  최종 결과물(문서 이름·용도·대상·마감 한 줄), 지금 목표(대화가 진행되며 구체화된 목표와 핵심 조건), 확정된 것(정한 것·알려 준 값),
+  진행 상황(만든 문서·쓴 부분), 남은 일·물어볼 것. 최종 결과물 줄은 담당자가 바꾸자고 하지 않으면 이전 값을 지킨다(keep_final — 코드 관문).
   대화가 길어질수록 지난 과정은 더 압축되고 목표·결정·값·남은 일은 남는다. 메모 길이 상한은 문맥 한도의 몫(SUMMARY_SHARE).
 - 최근 창: 원문은 개수가 아니라 그 모델 문맥 한도의 일정 몫(RECENT_SHARE)만큼 새 것부터 — 모델을 큰 것으로 바꾸면 저절로 더 담는다.
 - 메모는 맥락일 뿐 근거가 아니다 — 답과 문서의 수치는 지금처럼 검색한 근거에서만 쓴다(절대 규칙 1).
@@ -11,6 +12,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 
 from zzaimy.app import llm_budget
@@ -65,7 +68,7 @@ def window(db, session_id: int, context_len: int, *, exclude_ids: set[int] | Non
 
 SUMMARY_PROMPT = """아래는 행정 업무 대화의 [지난 작업 메모]와 그 뒤에 이어진 [대화]다. 둘을 합쳐 새 작업 메모를 쓴다.
 형식(제목 줄 그대로, 갈래마다 「- 」 짧은 항목 줄):
-지금 목표:
+{final}지금 목표:
 - 담당자가 결국 얻으려는 최종 결과물을 한두 줄로. 처음엔 막연했어도 대화에서 구체화된 만큼 분명하게(문서 이름·용도·마감·범위), 그 결과물을 정하는
   핵심 조건(대상·규모·예산·기간처럼 대화에서 정해진 것)을 함께 적는다. 지금 하고 있는 한 단계(절 채우기·서식 고치기)는 목표가 아니라 진행 상황에 적는다.
 확정된 것:
@@ -75,6 +78,10 @@ SUMMARY_PROMPT = """아래는 행정 업무 대화의 [지난 작업 메모]와 
 남은 일·물어볼 것:
 - 아직 안 한 일, 담당자에게 받아야 할 값·결정.
 규칙: 대화에 없는 사실을 보태지 않는다. 바뀐 결정은 새 것만 남긴다. 인사·되풀이·과정 설명·근거 문서 본문은 버린다. 모두 {limit}자 안에서."""
+FINAL_PROMPT = """최종 결과물:
+- 담당자가 결국 받을 문서 한 줄 — 문서 이름·용도·대상·마감(대화에 나온 만큼). 담당자가 다른 문서로 바꾸자고 하지 않았으면 [지난 작업 메모]의 이 줄을
+  그대로 두고, 대화에서 더 분명해진 것만 보탠다. 지금 하는 단계(절 쓰기·고쳐 쓰기·표 만들기·서식 바꾸기)를 여기에 적지 않는다.
+"""
 
 
 def compact(db, session_id: int, client, *, force: bool = False) -> bool:
@@ -99,7 +106,7 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
     cap_tokens = max(200, int(limit * SUMMARY_SHARE))
     cap_chars = cap_tokens * 2                               # 한국어 어림(글자 ≈ 토큰의 2배 안쪽)
     convo = "\n".join(f"[{'담당자' if m['role'] == 'user' else 'AURA'}] {str(m.get('content') or '')[:MSG_CAP]}" for m in fresh)
-    messages = [{"role": "system", "content": SUMMARY_PROMPT.format(limit=cap_chars)},
+    messages = [{"role": "system", "content": SUMMARY_PROMPT.format(limit=cap_chars, final=FINAL_PROMPT if goal_lock() else "")},
                 {"role": "user", "content": f"[지난 작업 메모]\n{s.get('text') or '(없음 — 대화 처음)'}\n\n[대화]\n{convo}"}]
     try:
         resp = llm_budget.create_fitted(client, messages, cap_tokens + 64, [llm_budget.Cut(msg=1, text=convo)], floor=200,
@@ -109,6 +116,8 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
         return False
     if not text:
         return False
+    if goal_lock():
+        text = keep_final(s.get("text") or "", text, [str(m.get("content") or "") for m in fresh if m.get("role") == "user"])
     try:                                                     # 메모 갱신도 화면의 호출 목록에(배경 호출이라 답의 기록에 덧붙인다)
         u = json.loads(db.get_setting(f"chat_ctx:{int(session_id)}", "") or "{}")
         if isinstance(u, dict):
@@ -124,7 +133,43 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
     return True
 
 
-HEADS = ("지금 목표", "확정된 것", "진행 상황", "남은 일·물어볼 것")
+HEADS = ("최종 결과물", "지금 목표", "확정된 것", "진행 상황", "남은 일·물어볼 것")
+FINAL = "최종 결과물"
+# 담당자가 결과물을 바꾸자는 말 — 일반 낱말(바꾸·변경·대신·말고·다른 문서·새 문서). 이 말이 없으면 최종 결과물 줄은 다듬기만 받는다
+_CHANGE = re.compile(r"바꾸|바꿔|변경|대신|말고|다른\s*(?:문서|양식|사업|보고서|계획서)|새\s*(?:문서|양식)|그만")
+KEEP_OVERLAP = 0.5           # 새 줄이 이전 줄의 낱말을 이만큼 품으면 다듬은 것(구체화)으로 받는다
+
+
+def goal_lock() -> bool:
+    """최종 결과물 줄 지키기(코드 관문) — ZZAIMY_MEMO_GOAL_LOCK=0 이면 끈다."""
+    return os.environ.get("ZZAIMY_MEMO_GOAL_LOCK", "1").strip().lower() not in ("0", "off", "false", "no")
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", text or "")}
+
+
+def keep_final(old_text: str, new_text: str, user_msgs: list[str]) -> str:
+    """갱신한 메모의 「최종 결과물」 줄 관문 — 담당자가 바꾸라고 하지 않았는데 그 줄이 사라지거나 이전 줄과 낱말이 거의 겹치지 않으면
+    (지금 단계 이름으로 바뀐 경우 등) 이전 줄을 그대로 둔다. 이전 줄이 없거나, 담당자가 바꾸자고 했거나, 새 줄이 이전 줄을 품고 더 분명해졌으면 새 것."""
+    old = parts(old_text).get(FINAL, "")
+    if not old:
+        return new_text
+    new = parts(new_text).get(FINAL, "")
+    if any(_CHANGE.search(u or "") for u in user_msgs):
+        return new_text if new else _set_part(new_text, FINAL, old)
+    ow = _words(old)
+    if new and ow and len(ow & _words(new)) >= KEEP_OVERLAP * len(ow):
+        return new_text
+    return _set_part(new_text, FINAL, old)
+
+
+def _set_part(text: str, head: str, body: str) -> str:
+    """메모 글에서 한 갈래의 글을 바꾸거나(없으면 맨 앞에) 넣는다 — 다른 갈래는 그대로."""
+    p = parts(text)
+    p[head] = body
+    return "\n".join(f"{h}:\n{p[h]}" for h in HEADS if p.get(h)) + "".join(
+        f"\n{k}:\n{v}" for k, v in p.items() if k not in HEADS)
 
 
 def parts(text: str) -> dict[str, str]:
@@ -139,7 +184,7 @@ def parts(text: str) -> dict[str, str]:
             out.setdefault(cur, [])
             continue
         if ln.strip():
-            out.setdefault(cur or HEADS[0], []).append(ln.rstrip())
+            out.setdefault(cur or "지금 목표", []).append(ln.rstrip())
     return {k: "\n".join(v).strip() for k, v in out.items() if "\n".join(v).strip()}
 
 

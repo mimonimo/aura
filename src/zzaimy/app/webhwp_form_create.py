@@ -559,7 +559,8 @@ class FormCreator:
                 f"[문서 갈래] {str(a.get('kind') or '').strip() or '(주지 않음)'}\n"
                 f"[꼭 들어갈 항목] {', '.join(str(x) for x in must) or '(없음)'}\n"
                 f"[제목 안] {str(a.get('title') or '').strip() or '(없음)'} · [표지] {'원함' if a.get('cover') else '판단에 맡김'}\n"
-                f"[지금 목표 — 작업 메모]\n{memo.get('지금 목표', '') or '(없음)'}\n"
+                + (f"[최종 결과물 — 작업 메모]\n{memo['최종 결과물']}\n" if memo.get("최종 결과물") else "")
+                + f"[지금 목표 — 작업 메모]\n{memo.get('지금 목표', '') or '(없음)'}\n"
                 f"[확정된 것 — 작업 메모]\n{memo.get('확정된 것', '') or '(없음)'}\n"
                 f"[담당자 원문 인용]\n{quotes or '(없음)'}\n"
                 f"[프로젝트 문서] {', '.join(titles) or '(없음)'}\n\n"

@@ -470,7 +470,9 @@ def _step_label(name: str, args: dict) -> str:
               "read_found": lambda a: f"찾은 문서 이어 읽는 중 — 「{str(a.get('document', ''))[:30]}」",
               "read_section": lambda a: f"절 읽는 중 — 「{a.get('section', '')[:30]}」",
               "write_section": lambda a: f"절 쓰는 중 — 「{a.get('section', '')[:30]}」",
-              "delegate_section": lambda a: f"절 맡겨 쓰는 중 — 「{str(a.get('section', ''))[:30]}」",
+              "delegate_section": lambda a: (f"절 {len(a['sections'])}개 맡겨 쓰는 중(동시에)" if isinstance(a.get("sections"), list)
+                                             else f"절 맡겨 쓰는 중 — 「{str(a.get('section', ''))[:30]}」"),
+              "hwp_revise": lambda a: f"절 고쳐 쓰는 중 — 「{str(a.get('field', ''))[:30]}」",
               "rewrite_section": lambda a: f"절 다시 쓰는 중 — 「{a.get('section', '')[:30]}」",
               "review_section": lambda a: f"절 검토 중 — 「{a.get('section', '')[:30]}」",
               "create_document": lambda a: "문서 만드는 중",

@@ -29,6 +29,9 @@ scripts/201 과 같은 방식: 임시 DB 로 앱을 띄우고(운영 DB·문서�
 기준 절 포함률(학교 서식에서 흔히 쓰는 절 이름 갈래, 정답 채우기가 아니라 포함률), 작성방법 안내(덮은 비율·평균 길이·근거 언급률), 분량 안내, 요약 표 칸,
 번호 체계, 빌드 성공·서식 깨짐. 에이전트가 만들지 않으면 같은 설계 도구를 직접 불러 설계 품질은 따로 잰다(「직접」 표시).
 후보 모델 견주기(scripts/195 와 같은 방식): --candidate-conn·--candidate-model(zzaimy.eval.model_trial) — 결과에 모델 정보·연결 이름(주소 없이).
+되풀이·판 견주기(ADR-0068): --repeat N 으로 같은 요청을 N 번(회차 <label>-1 …), --old 는 새 기능 설정(쓰기 품질·고쳐 쓰기·동시 맡기기·메모 목표 줄)을 끈 이전 판.
+끝에 판·판본마다 평균(최소~최대) 표 — 고쳐 쓰기 반영(구체: 바뀐 자리 글자 1.15배 넘게, 표: 바뀐 자리에 표 생김), 절 채움, 지어낸 숫자(수치 대조기로 같은 값 인정 뒤·
+표면형), 목표·목표 유지(기간·양식 턴 뒤 메모 목표 갈래에 대상·예산·기간이 다 든 턴 비율), 채점 4항목, 시간. --rescore <json…> 는 저장된 결과를 같은 잣대로 다시 센다.
 채점자(review 27B)는 후보 설정을 빼고 운영 연결로 고정한다(판끼리 같은 채점자).
 """
 from __future__ import annotations
@@ -119,6 +122,19 @@ def _nums(text: str) -> set[str]:
     return {re.sub(r"[,\s]", "", n) for n in re.findall(r"\d[\d,]{1,}", text or "") if len(re.sub(r"\D", "", n)) >= 3}
 
 
+def invented_numbers(text: str, evidence: list[str]) -> list[str]:
+    """지어낸 숫자 — 문서 글의 숫자 가운데 근거(담당자 말·근거 문서·빈 양식 글)에 같은 값이 없는 것. 판정은 앱 관문과 같은 수치 대조기
+    (verify.numbers — 단위 바꿈 5억 = 500,000,000원 = 500(백만원) = 「(단위: 백만원)」 표의 500 은 같은 값). 세 자리 이상만, 연도 꼴은 뺀다."""
+    from zzaimy.verify.numbers import mask_unsupported
+    _, bad = mask_unsupported(text or "", [e for e in evidence if e])
+    out = set()
+    for b in bad:
+        d = re.sub(r"[^\d.]", "", b)
+        if len(re.sub(r"\D", "", d)) >= 3 and not re.fullmatch(r"(?:19|20)\d{2}", d):
+            out.add(d)
+    return sorted(out)[:20]
+
+
 # ── 디자인·깨짐 검사(실제 XML 값) ──
 def design_values(data: bytes) -> dict:
     """방향·좌우 여백(mm)·표 머리줄 음영·쪽 번호 — 작업본 XML 에서 읽는다."""
@@ -186,11 +202,22 @@ def structure_score(design: dict) -> dict:
 
 
 def goal_score(memo_text: str) -> dict:
+    """목표 갈래(최종 결과물 + 지금 목표)가 담당자가 준 대상·예산·기간을 담았나. 최종 결과물 줄이 없는 판(이전 판)은 지금 목표만."""
     from zzaimy.app import chat_memory
     parts = chat_memory.parts(memo_text or "")
-    goal = parts.get("지금 목표", "")
+    goal = "\n".join(x for x in (parts.get("최종 결과물", ""), parts.get("지금 목표", "")) if x)
     return {"goal": {k: bool(re.search(p, goal)) for k, p in GIVEN.items()},
-            "memo": {k: bool(re.search(p, memo_text or "")) for k, p in GIVEN.items()}, "goal_text": goal[:400]}
+            "memo": {k: bool(re.search(p, memo_text or "")) for k, p in GIVEN.items()}, "goal_text": goal[:400],
+            "final": parts.get("최종 결과물", "")[:200]}
+
+
+def goal_kept(turns: list[dict]) -> str:
+    """목표 유지 — 대상·예산·기간이 다 나온 턴(기간·양식) 뒤 턴들 가운데 메모 목표 갈래에 셋이 다 든 턴 수."""
+    names = [t["turn"] for t in turns]
+    start = names.index("기간·양식") if "기간·양식" in names else 0
+    after = [t for t in turns[start:] if t.get("memo")]
+    ok = sum(1 for t in after if all(goal_score(t["memo"])["goal"].values()))
+    return f"{ok}/{len(after)}"
 
 
 def body_stats(text: str) -> dict:
@@ -356,6 +383,8 @@ def run_variant(variant: str, label: str, tmp: Path, out_dir: Path, judge_on: bo
             res["form"]["outline"] = [s["heading"] for s in meta["form_design"]["sections"]]
         # 목표 이해
         res["goal"] = goal_score(chat_memory.load(db, sid).get("text", ""))
+        res["goal"]["kept"] = goal_kept(turns)
+        res["build"] = build_tag()
         # 쓴 절·사실·지어낸 숫자
         xml = _xml(data)
         text = _text(xml)
@@ -367,16 +396,26 @@ def run_variant(variant: str, label: str, tmp: Path, out_dir: Path, judge_on: bo
         res["evidence_words"] = {w: w in norm for w in EVIDENCE_WORDS}
         given = set().union(*[_nums(q) for _, q in TURNS]) | {"2026", "2027", "2028"}
         tpl = set()
+        ev_texts = [q for _, q in TURNS]
         for name in docs:
             try:
-                tpl |= _nums(_text(_xml((EVALDOCS / name).read_bytes())))
+                t_ = _text(_xml((EVALDOCS / name).read_bytes()))
+                tpl |= _nums(t_)
+                ev_texts.append(t_)
             except (OSError, zipfile.BadZipFile):
                 pass
         if src.startswith("양식복사:") and src[5:].isdigit() and webhwp.get(db, int(src[5:])):
-            tpl |= _nums(_text(_xml(Path(webhwp.get(db, int(src[5:]))["path"]).read_bytes())))
+            t_ = _text(_xml(Path(webhwp.get(db, int(src[5:]))["path"]).read_bytes()))
+            tpl |= _nums(t_)
+            ev_texts.append(t_)
         if meta.get("form_design"):
             tpl |= _nums(json.dumps(meta["form_design"], ensure_ascii=False))
-        res["invented"] = sorted(n for n in _nums(text) - given - tpl if not n.startswith("20"))[:20]
+            ev_texts.append(json.dumps(meta["form_design"], ensure_ascii=False))
+        if snaps.get("기간·양식"):                              # 빈 양식(만든 직후)의 글 — 양식에 있던 숫자는 지어낸 것이 아니다
+            ev_texts.append(_text(_xml(snaps["기간·양식"]["data"])))
+        # 표면형만 견준 옛 집계(단위 바꿈도 지어낸 숫자로 잡힘)와 수치 대조기로 같은 값을 인정한 집계를 함께 남긴다
+        res["invented_surface"] = sorted(n for n in _nums(text) - given - tpl if not n.startswith("20"))[:20]
+        res["invented"] = invented_numbers(text, ev_texts)
         shapes = meta.get("shape") or {}
         res["tables"] = sum(v.get("tables", 0) for v in shapes.values())
         res["diagrams"] = sum(v.get("diagrams", 0) for v in shapes.values())
@@ -399,7 +438,12 @@ def run_variant(variant: str, label: str, tmp: Path, out_dir: Path, judge_on: bo
                       "before": [stat(prev, k) for k in changed[:4]], "after": [stat(aft, k) for k in changed[:4]]}
         # 일정 표 — 「표로」 턴에서 바뀐 자리에 표가 새로 생겼나(절 이름은 양식마다 달라 바뀐 자리로 본다)
         rw["표"]["schedule_table"] = any(a_["tables"] > b_["tables"] for a_, b_ in zip(rw["표"]["after"], rw["표"]["before"]))
+        # 반영 — 「더 구체적으로」 는 바뀐 자리가 있고 그 가운데 하나라도 글자가 1.15배 넘게 늘었나, 「표로」 는 바뀐 자리에 표가 새로 생겼나
+        rw["구체"]["reflected"] = any(a_["chars"] > b_["chars"] * 1.15 for a_, b_ in zip(rw["구체"]["after"], rw["구체"]["before"]))
+        rw["표"]["reflected"] = rw["표"]["schedule_table"]
+        rw["actions"] = {t_["turn"]: t_.get("actions") for t_ in turns if t_["turn"].startswith("고쳐 쓰기")}
         res["rewrite"] = rw
+        res["delegate_log"] = _delegate_log(db, sid)
         # 디자인 — 턴마다 값과 끝 값
         dv = design_values(data)
         base_d = next((t_["design"] for t_ in reversed(turns) if t_.get("design") and not t_["turn"].startswith("디자인")), None)
@@ -429,6 +473,121 @@ def run_variant(variant: str, label: str, tmp: Path, out_dir: Path, judge_on: bo
         return res
     finally:
         webhwp_templates.ensure_all = saved_ensure
+
+
+def _delegate_log(db, sid: int) -> dict:
+    """서브 기록 요약 — 맡긴 절 수, 고쳐 쓰기 수, 자기 점검 판정, 검색어 수, 동시에 맡긴 묶음(같은 걸음의 자리)."""
+    from zzaimy.app import delegate
+    log = delegate.load_log(db, sid)
+    secs = [r for r in log if r.get("kind") != "revise"]
+    rev = [r for r in log if r.get("kind") == "revise"]
+    return {"sections": len(secs), "written": sum(1 for r in secs if r.get("written")),
+            "check": {v: sum(1 for r in secs if (r.get("check") or {}).get("verdict") == v) for v in ("통과", "고침", "모름", "실패")},
+            "check_used": sum(1 for r in secs if (r.get("check") or {}).get("used")),
+            "queries": sum(len(r.get("queries") or []) for r in secs),
+            "lanes": {k: sum(1 for r in secs if r.get("lane") == k) for k in {str(r.get("lane") or "") for r in secs}},
+            "revise": [{"field": r.get("field"), "written": r.get("written"), "before": r.get("before_chars"), "after": r.get("after_chars"),
+                        "plan": r.get("plan"), "left": r.get("left"), "tries": len(r.get("tries") or [])} for r in rev]}
+
+
+def build_tag() -> str:
+    """판 표시 — 새 기능 설정(쓰기 품질·고쳐 쓰기·동시 맡기기·메모 목표 줄)이 켜졌나."""
+    from zzaimy.app import chat_memory, delegate
+    on = {"품질": delegate.quality_on(), "고쳐쓰기": delegate.revise_on(), "동시": delegate.parallel_on(), "목표줄": chat_memory.goal_lock()}
+    return "new" if all(on.values()) else "old" if not any(on.values()) else ",".join(k for k, v in on.items() if v)
+
+
+OLD_ENV = {"ZZAIMY_DRAFT_QUALITY": "0", "ZZAIMY_REVISE": "0", "ZZAIMY_DELEGATE_PARALLEL": "0", "ZZAIMY_MEMO_GOAL_LOCK": "0"}
+
+
+# ── 여러 회 모아 보기(평균·범위) ──
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def metrics(r: dict) -> dict:
+    """한 회차의 견줄 수치 — 고쳐 쓰기 반영(0~2), 절 채움 비율, 지어낸 숫자(보정 뒤·표면형), 채점 4항목, 목표, 목표 유지, 시간."""
+    if r.get("error") and not r.get("form"):
+        return {}
+    a, b = (r.get("sections") or "0/0").split("/")
+    rw = r.get("rewrite") or {}
+    j = (r.get("judge") or {}).get("avg") or {}
+    g = (r.get("goal") or {}).get("goal") or {}
+    kept = (r.get("goal") or {}).get("kept") or ""
+    out = {"고쳐 쓰기 반영": int(bool((rw.get("구체") or {}).get("reflected"))) + int(bool((rw.get("표") or {}).get("reflected"))),
+           "절 채움": round(int(a) / max(1, int(b)), 2), "쓴 절": int(a),
+           "지어낸 숫자": len(r.get("invented") or []), "지어낸 숫자(표면형)": len(r.get("invented_surface") or r.get("invented") or []),
+           "목표": sum(1 for v in g.values() if v), "시간(초)": r.get("total_sec")}
+    if kept and "/" in kept:
+        k1, k2 = kept.split("/")
+        out["목표 유지"] = round(int(k1) / max(1, int(k2)), 2)
+    for k in RUBRIC:
+        out[k] = j.get(k)
+    return out
+
+
+def aggregate(rows: list[dict]) -> str:
+    """판(variant)·판본(build)마다 평균(최소~최대) 표."""
+    keys = ["고쳐 쓰기 반영", "절 채움", "쓴 절", "지어낸 숫자", "지어낸 숫자(표면형)", "목표", "목표 유지", *RUBRIC, "시간(초)"]
+    groups: dict[tuple, list[dict]] = {}
+    for r in rows:
+        groups.setdefault((r.get("variant"), r.get("build") or "old"), []).append(metrics(r))
+    out = ["| 판 | 판본 | 회수 | " + " | ".join(keys) + " |", "|" + "---|" * (len(keys) + 3)]
+    for (v, b), ms in sorted(groups.items(), key=lambda x: (str(x[0][0]), str(x[0][1]))):
+        ms = [m for m in ms if m]
+        cells = []
+        for k in keys:
+            xs = [_num(m.get(k)) for m in ms if _num(m.get(k)) is not None]
+            cells.append(f"{round(sum(xs) / len(xs), 2)} ({min(xs):g}~{max(xs):g})" if xs else "-")
+        out.append(f"| {v} | {b} | {len(ms)} | " + " | ".join(cells) + " |")
+    return "\n".join(out)
+
+
+def rescore(paths: list[Path]) -> list[dict]:
+    """저장된 결과(json)를 다시 센다 — 지어낸 숫자를 지금 수치 대조기로(빈 양식 파일·근거 문서·담당자 말을 근거로), 고쳐 쓰기 반영·목표 유지도.
+    이전 판 결과(이 집계가 없던 때)를 같은 잣대로 견주려고 쓴다."""
+    out = []
+    for p in paths:
+        try:
+            r = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(r, dict) or not r.get("variant"):
+            continue
+        hx = Path(r.get("hwpx") or "")
+        if not hx.exists() and r.get("hwpx"):
+            hx = p.parent / Path(r["hwpx"]).name
+        if hx.exists():
+            text = _text(_xml(hx.read_bytes()))
+            ev = [q for _, q in TURNS]
+            for name in EVIDENCE_DOCS + ([FORM_DOC] if r["variant"] == "forms" else []):
+                try:
+                    ev.append(_text(_xml((EVALDOCS / name).read_bytes())))
+                except (OSError, zipfile.BadZipFile):
+                    pass
+            blank = Path(r.get("hwpx_양식") or "")
+            if not blank.exists() and r.get("hwpx_양식"):
+                blank = p.parent / Path(r["hwpx_양식"]).name
+            if blank.exists():
+                ev.append(_text(_xml(blank.read_bytes())))
+            if (r.get("form") or {}).get("structure"):
+                ev.append(json.dumps(r["form"], ensure_ascii=False))
+            r.setdefault("invented_surface", r.get("invented") or [])
+            r["invented"] = invented_numbers(text, ev)
+        rw = r.get("rewrite") or {}
+        if rw and "reflected" not in (rw.get("구체") or {}):
+            c = rw.get("구체") or {}
+            c["reflected"] = any((a_.get("chars") or 0) > (b_.get("chars") or 0) * 1.15 for a_, b_ in zip(c.get("after") or [], c.get("before") or []))
+            (rw.get("표") or {})["reflected"] = bool((rw.get("표") or {}).get("schedule_table"))
+        if r.get("goal") is not None and r.get("turns"):
+            r["goal"].update({k: v for k, v in goal_score(r["turns"][-1].get("memo") or "").items() if k in ("final",)})
+            r["goal"]["kept"] = goal_kept(r["turns"])
+        r.setdefault("build", "old")
+        out.append(r)
+    return out
 
 
 # ── 양식 만들기 묶음(--forms) ──
@@ -652,7 +811,23 @@ def main() -> int:
     ap.add_argument("--no-judge", action="store_true")
     ap.add_argument("--candidate-conn", default="", help="후보 연결 id(운영 용도 지정은 바꾸지 않는다)")
     ap.add_argument("--candidate-model", default="", help="후보 서빙 이름(LoRA 어댑터 이름 등)")
+    ap.add_argument("--repeat", type=int, default=1, help="같은 요청을 이만큼 되풀이(회차 이름 <label>-1 …) — 평균·범위 표")
+    ap.add_argument("--old", action="store_true", help="이전 판 — 새 기능 설정(쓰기 품질·고쳐 쓰기·동시 맡기기·메모 목표 줄)을 끈다")
+    ap.add_argument("--rescore", nargs="*", default=None, help="저장된 결과 json 을 다시 세어 평균·범위 표만(모델을 부르지 않는다)")
     a = ap.parse_args()
+    if a.rescore is not None:
+        rows = rescore([Path(x) for x in a.rescore])
+        md = aggregate(rows)
+        out = Path(a.out)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"{time.strftime('%Y%m%d-%H%M%S')}-rescore-{a.label}.json").write_text(
+            json.dumps([{"variant": r.get("variant"), "label": r.get("label"), "build": r.get("build"), **metrics(r),
+                         "invented": r.get("invented"), "invented_surface": r.get("invented_surface")} for r in rows],
+                       ensure_ascii=False, indent=1), encoding="utf-8")
+        print(md, flush=True)
+        return 0
+    if a.old:
+        os.environ.update(OLD_ENV)
     from zzaimy.eval import model_trial
     model_trial.apply(a.candidate_conn.strip(), a.candidate_model.strip())
     os.environ.pop("ZZAIMY_PLATFORM_SQLITE_PATH", None)        # 임시 DB 경로라 운영 PostgreSQL 로 가지 않는다
@@ -662,20 +837,24 @@ def main() -> int:
     res = []
     md = ""
     try:
-        for v in {"both": ("forms", "noforms"), "none": ()}.get(a.variant, (a.variant,)):
-            try:
-                r = run_variant(v, a.label, tmp, out, not a.no_judge)
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                r = {"variant": v, "label": a.label, "error": f"{type(e).__name__}: {e}"[:300]}
-            res.append(r)
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            (out / f"{stamp}-{v}-{a.label}.json").write_text(json.dumps(r, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-            print(json.dumps({k: r.get(k) for k in ("variant", "form", "goal", "sections", "facts", "invented", "design", "broken", "total_sec")},
-                             ensure_ascii=False, default=str)[:3000], flush=True)
+        for i in range(max(1, a.repeat)):
+            label = a.label if a.repeat <= 1 else f"{a.label}-{i + 1}"
+            for v in {"both": ("forms", "noforms"), "none": ()}.get(a.variant, (a.variant,)):
+                try:
+                    r = run_variant(v, label, tmp / label, out, not a.no_judge)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    r = {"variant": v, "label": label, "error": f"{type(e).__name__}: {e}"[:300]}
+                r.setdefault("build", build_tag())
+                res.append(r)
+                stamp = time.strftime("%Y%m%d-%H%M%S")
+                (out / f"{stamp}-{v}-{label}.json").write_text(json.dumps(r, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+                print(json.dumps({k: r.get(k) for k in ("variant", "build", "form", "goal", "sections", "facts", "invented", "design", "broken", "total_sec")},
+                                 ensure_ascii=False, default=str)[:3000], flush=True)
         if res:
             md += HEAD + "\n" + "\n".join(table_row(r) for r in res) + "\n"
+            md += "\n" + aggregate(res) + "\n"
         if a.forms:
             try:
                 fr = run_forms(a.label, tmp, out, a.only_form, tuple(m.strip() for m in a.form_modes.split(",") if m.strip() in FORM_MODES),

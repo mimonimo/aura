@@ -68,4 +68,23 @@ def test_reasoning_is_split_from_answer():
     assert r.startswith("[1단계") and a.startswith("| 비목")
     assert split_reasoning("[1단계: 질문 파악] 쓰는 중")[1] is None
     assert strip_reasoning("[1단계: 질문 파악] x\n본문만") == "본문만"
-    assert json.dumps(cm.SUMMARY_PROMPT.format(limit=100))
+    assert json.dumps(cm.SUMMARY_PROMPT.format(limit=100, final=cm.FINAL_PROMPT))
+
+
+def test_final_line_kept_unless_user_changes_it(monkeypatch):
+    """최종 결과물 줄 관문 — 단계 이름으로 바뀌거나 사라지면 이전 값을 지키고, 다듬은 것·담당자가 바꾸자고 한 것은 받는다."""
+    old = "최종 결과물:\n- 2027 AI 교육 사업계획서(1학년 대상, 국고 사업 신청용)\n지금 목표:\n- 사업계획서 작성\n확정된 것:\n- 예산 5억 원"
+    step = "최종 결과물:\n- 추진 일정 표로 정리\n지금 목표:\n- 일정 표\n확정된 것:\n- 예산 5억 원"
+    kept = cm.keep_final(old, step, ["추진 일정은 표로 정리해 줘."])
+    assert "2027 AI 교육 사업계획서" in cm.parts(kept)["최종 결과물"] and cm.parts(kept)["지금 목표"] == "- 일정 표"
+    gone = cm.keep_final(old, "지금 목표:\n- 사업계획서 작성", ["계속 써 줘."])
+    assert "2027 AI 교육 사업계획서" in cm.parts(gone)["최종 결과물"]
+    finer = "최종 결과물:\n- 2027 AI 교육 사업계획서(1학년 대상, 국고 사업 신청용, 마감 11월)\n지금 목표:\n- 작성"
+    assert "마감 11월" in cm.parts(cm.keep_final(old, finer, ["마감은 11월이야"]))["최종 결과물"]
+    changed = "최종 결과물:\n- 2027 AI 교육 결과보고서\n지금 목표:\n- 작성"
+    assert "결과보고서" in cm.parts(cm.keep_final(old, changed, ["계획서 말고 결과보고서로 바꾸자"]))["최종 결과물"]
+    assert cm.keep_final("", step, []) == step                                   # 이전 줄이 없으면 새 것
+    assert cm.parts("최종 결과물:\n- 가\n지금 목표:\n- 나")["최종 결과물"] == "- 가"
+    assert "최종 결과물" in cm.SUMMARY_PROMPT.format(limit=100, final=cm.FINAL_PROMPT)
+    monkeypatch.setenv("ZZAIMY_MEMO_GOAL_LOCK", "0")
+    assert not cm.goal_lock()

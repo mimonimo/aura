@@ -87,6 +87,63 @@ def canonical_values(text: str) -> set[str]:
     return out
 
 
+# 같은 값의 단위 바꿈 — 「500(백만원)」 처럼 숫자 바로 뒤 괄호의 금액 단위, 표·문단의 「(단위: 백만원)」 선언.
+# 그 단위로 환산한 값도 같은 값으로 본다(5억 = 500,000,000원 = 500백만원 = 500(백만원), 단위가 백만원인 표의 500).
+_MONEY_UNIT = {"원": 1, "천원": 10**3, "만원": 10**4, "백만원": 10**6, "천만원": 10**7, "억원": 10**8}
+_UNIT_ALT = "천만원|백만원|천원|만원|억원|원"
+_DECLARED = re.compile(r"단위\s*[:：]?\s*(" + _UNIT_ALT + r")")
+_PAREN_UNIT = re.compile(r"\s*[(（]\s*(?:단위\s*[:：]?\s*)?(" + _UNIT_ALT + r")\s*[)）]")
+
+
+def declared_units(text: str) -> set[int]:
+    """글에 선언된 금액 단위(「(단위: 백만원)」) — 배수 집합. 원 단위 선언(1)은 뺀다."""
+    return {_MONEY_UNIT[u] for u in _DECLARED.findall(text or "") if _MONEY_UNIT[u] > 1}
+
+
+def scaled_values(text: str) -> set[str]:
+    """단위 바꿈으로 같은 값이 되는 정준값 — 단위 없는 숫자에 바로 뒤 괄호 단위나 글의 단위 선언을 곱한 값."""
+    cleaned = _LIST_MARKER.sub("\n", text or "")
+    decl = declared_units(cleaned)
+    out: set[str] = set()
+    for m in _NUM_UNIT.finditer(cleaned):
+        if m.group(2):
+            continue
+        num = Decimal(m.group(1).replace(",", ""))
+        pm = _PAREN_UNIT.match(cleaned, m.end())
+        for mult in ({_MONEY_UNIT[pm.group(1)]} if pm else set()) | decl:
+            out.add(_fmt(num * mult))
+    return out
+
+
+def _candidates(src: str, m: re.Match, decl: set[int]) -> set[str]:
+    """초안 속 숫자 하나가 뜻할 수 있는 값 — 표면형·단위 환산값, 단위가 없으면 괄호 단위·선언 단위로 환산한 값."""
+    surface = m.group(1).replace(",", "")
+    unit = m.group(2)
+    num = Decimal(surface)
+    out = {surface, _fmt(num * _UNIT_VALUE.get(unit or "", 1))}
+    if not unit:
+        pm = _PAREN_UNIT.match(src, m.end())
+        for mult in ({_MONEY_UNIT[pm.group(1)]} if pm else set()) | decl:
+            out.add(_fmt(num * mult))
+    return out
+
+
+def _allowed(evidence_texts: list[str]) -> tuple[set[str], set[str]]:
+    surface: set[str] = set()
+    canon: set[str] = set()
+    for ev in evidence_texts:
+        surface |= extract_numbers(ev)
+        canon |= canonical_values(ev) | scaled_values(ev)
+    return surface, canon
+
+
+def _supported(src: str, m: re.Match, surface_ok: set[str], canon_ok: set[str], decl: set[int]) -> bool:
+    s = m.group(1).replace(",", "")
+    if s in surface_ok:
+        return True
+    return bool(_candidates(src, m, decl) & canon_ok)
+
+
 @dataclass(frozen=True)
 class NumberAudit:
     ok: bool
@@ -113,24 +170,14 @@ def verify_numbers(draft: str, evidence_texts: list[str]) -> NumberAudit:
 
     표면형(콤마 제거) 또는 정준값(단위 환산) 어느 쪽으로든 근거에 있으면 통과.
     """
-    allowed_surface: set[str] = set()
-    allowed_canonical: set[str] = set()
-    for ev in evidence_texts:
-        allowed_surface |= extract_numbers(ev)
-        allowed_canonical |= canonical_values(ev)
-
+    allowed_surface, allowed_canonical = _allowed(evidence_texts)
     violations: list[str] = []
     contexts: list[str] = []
     cleaned = _LIST_MARKER.sub("\n", draft)
+    decl = declared_units(cleaned)
     for m in _NUM_UNIT.finditer(cleaned):
         surface = m.group(1).replace(",", "")
-        unit = m.group(2)
-        value = _fmt(Decimal(surface) * _UNIT_VALUE.get(unit or "", 1))
-        if (
-            surface in allowed_surface
-            or value in allowed_canonical
-            or surface in allowed_canonical
-        ):
+        if _supported(cleaned, m, allowed_surface, allowed_canonical, decl):
             continue
         if surface not in violations:
             violations.append(surface)
@@ -159,13 +206,10 @@ def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[st
 
 
 def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tuple[str, list[str]]:
-    allowed_surface: set[str] = set()
-    allowed_canonical: set[str] = set()
-    for ev in evidence_texts:
-        allowed_surface |= extract_numbers(ev)
-        allowed_canonical |= canonical_values(ev)
+    allowed_surface, allowed_canonical = _allowed(evidence_texts)
     out, masked, last = [], [], 0
     src = text or ""
+    decl = declared_units(src)
     for m in _NUM_UNIT.finditer(src):
         surface = m.group(1).replace(",", "")
         unit = m.group(2)
@@ -186,8 +230,7 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
             small = False
         if small:
             continue
-        value = _fmt(Decimal(surface) * _UNIT_VALUE.get(unit or "", 1))
-        if surface in allowed_surface or value in allowed_canonical or surface in allowed_canonical:
+        if _supported(src, m, allowed_surface, allowed_canonical, decl):
             continue
         if mark:
             end = m.end()

@@ -157,7 +157,8 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | hwp_fields | 작업본 필드(절·칸·표)와 채움 상태 | webhwp_write.fields |
 | hwp_fill | 칸·표 필드에 짧은 값 넣기(여러 줄·표·예시 글자 ○○ 는 거절하고 hwp_write 로 돌림) | 서버에서 hwpx 고침·판 남김(고친 사람 AURA), 편집 중인 화면에는 실시간으로 |
 | hwp_write | 절 필드·큰 칸에 본문(번호 문단·마크다운 표) 쓰기, 다시 쓰면 앞 내용을 바꿈. 본문 관문(예시 글자 ○○, 근거에 없는 수치, 길이)을 지나야 쓰고, 맡기기가 켜졌을 때 남은 문맥이 적은데 긴 본문이면 거절하고 delegate_section 을 안내 | webhwp_write.write_section — 서식 보존 채우기와 같은 문단·표 모양, 양식에 음영 표가 없으면 학교 표 기본 모양. 관문은 webhwp_agent.check_body |
-| delegate_section | 절 하나를 같은 모델의 깨끗한 문맥(서브)에 맡겨 쓰기 — 메인은 절 이름·요지·형식·분량만, 작업 메모의 목표·확정 값·문서 개요·앞 절 요지·담당자 원문 인용은 코드가 지시서에 채움. 모르는 값은 「확인 필요」 로 돌려받고, 같은 절은 한 번까지 다시 맡김(ZZAIMY_DELEGATE=off 면 안 보임) | app/delegate.Delegator — 근거는 문장 단위 압축(ZZAIMY-Rerank, 숫자·날짜·고유명사 우선), 쓰기는 hwp_write 와 같은 길·같은 관문, 호출 이름표 「서브 · 절 맡기기 · 절」 |
+| delegate_section | 절 하나를 같은 모델의 깨끗한 문맥(서브)에 맡겨 쓰기 — 메인은 절 이름·요지·형식·분량만, 작업 메모의 목표·확정 값·문서 개요·앞 절 요지·담당자 원문 인용은 코드가 지시서에 채움. 모르는 값은 「확인 필요」 로 돌려받고, 같은 절은 한 번까지 다시 맡김(ZZAIMY_DELEGATE=off 면 안 보임). 서로 다른 절 여럿은 sections 로 한 번에 맡기면 연결별 동시 상한 안에서 동시에 씀 | app/delegate.Delegator — 서브가 검색어 2~3개를 내고 코드가 여러 번 찾아 번호·쪽 붙인 근거를 문장 단위 압축(ZZAIMY-Rerank, 숫자·날짜·고유명사 우선), [개요] → [본문] → 기준표 자기 점검 한 번(ZZAIMY_DRAFT_QUALITY), 쓰기는 hwp_write 와 같은 길·같은 관문, 호출 이름표 「서브 · 절 맡기기 · 절」 |
+| hwp_revise | 이미 쓴 절을 담당자 지시대로 고쳐 쓰기(더 구체적으로·표로·줄여·문체·항목 더하기). 지시의 뜻은 서브가 점검표로 만들고, 코드는 바뀜·길이 방향·표·도식 유무·더할 항목 낱말·본문 관문만 세어 어기면 한 번 다시 청함(ZZAIMY_REVISE=0 이면 안 보임) | app/delegate.Reviser — 지금 글(쓴 본문 기록 또는 작업본 글)·지시·그 절의 작성방법·근거를 깨끗한 문맥으로, 쓰기는 hwp_write 와 같은 길 |
 | hwp_tables | 작업본 표 목록(번호·크기·첫 행) | webhwp_style.tables |
 | hwp_style | 표 서식 고치기(음영·선 굵기·이중선·글자 크기·굵게·정렬) | webhwp_style.apply — 학교 서식 표 20,441개에서 캔 기본값 |
 | hwp_page_setup | 용지(A4·A3·A5·B4·B5·Letter·Legal)·방향·여백(보통·좁게·넓게 또는 mm)·머리말·꼬리말 여백·제본 | webhwp_edit_ops.page_setup — 구역마다 pagePr·margin(HWPUNIT = mm × 283.465) |

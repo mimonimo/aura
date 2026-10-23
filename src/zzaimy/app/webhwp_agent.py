@@ -10,7 +10,8 @@
 - hwp_write {field, text}: 절 필드에 본문 쓰기(번호 문단 + 마크다운 표). 같은 절을 다시 쓰면 앞 내용을 지우고 새로.
 - 편집 도구(webhwp_edit_ops.TOOLS — hwp_page_setup·hwp_table_insert·hwp_table_view·hwp_table_edit·hwp_page_number·hwp_header_footer·
   hwp_page_break·hwp_text_style·hwp_footnote·hwp_picture·hwp_replace·hwp_undo·hwp_live): 기안기 기능을 파일 직접 고치기·열린 기안기 명령으로.
-- delegate_section {section, gist, form, length}: 긴 절을 같은 모델의 깨끗한 문맥(서브)에 맡긴다(app/delegate, ADR-0065 4번, ZZAIMY_DELEGATE).
+- delegate_section {section, gist, form, length} 또는 {sections: […]}: 긴 절을 같은 모델의 깨끗한 문맥(서브)에 맡긴다 — 여럿이면 동시에(app/delegate, ADR-0065 4번, ZZAIMY_DELEGATE).
+- hwp_revise {field, instruction}: 이미 쓴 절을 담당자 지시대로 고친다 — 서브가 지시를 점검표로 만들고 코드가 셀 수 있는 것만 점검(app/delegate.Reviser, ADR-0068).
 절 쓰기는 메인이 직접 쓰든 서브가 쓰든 같은 관문(check_body)을 지난다 — 양식 예시 글자(○○·000), 근거에 없는 수치, 길이 상한.
 남은 문맥이 모자란데 긴 본문을 직접 쓰려 하면 거절하고 절 맡기기를 안내한다(관문만 — 맡길지는 에이전트가 정한다).
 쓰기는 서버에서 파일을 고치고 판을 남긴다(webhwp.save, 고친 사람 「AURA」). 사람이 그 문서를 편집 중(잠금)이면 쓰지 않고 알린다.
@@ -167,6 +168,8 @@ class HwpTools:
         self.form_search = None                     # (query) -> [{"title","text"}] — 양식 설계 재료(공고의 작성·평가 항목) 찾기
         self.request = ""                           # 이번 요청 글(양식 설계의 담당자 인용)
         self.doc_visible = None                     # (doc) -> bool — 참고 양식으로 볼 반입 문서의 열람 범위(없으면 반입 문서는 참고하지 않음)
+        self.revising = False                       # 고쳐 쓰기 도구(hwp_revise)가 켜졌는가(상태 글의 안내)
+        self.delegate_cap = 1                       # 한 번에 맡길 수 있는 절 수(서브 연결 자리 수 — 상태 글의 안내)
 
     def limit(self) -> int:
         from zzaimy.app import llm_budget
@@ -207,7 +210,10 @@ class HwpTools:
                          "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
         lines.append("쓰기·고쳐 쓰기 요청(「채워」「계속 써」「더 구체적으로」「표로」)이면 이번 요청에서 먼저 쓴다: 지금 있는 근거·담당자 값으로 hwp_write(또는 "
                      "delegate_section)를 하고, 모르는 값은 본문에 「확인 필요」 로 남긴 뒤 묻는다 — 값이 모자라다는 까닭으로 쓰지 않고 묻기만 하고 끝내지 않는다. "
-                     "고쳐 쓰기는 같은 field 로 다시 쓰면 앞 내용이 바뀐다(「N번 절」 은 필드 이름의 번호로 짚는다).")
+                     + ("담당자가 이미 쓴 절을 고쳐 달라고 하면(더 구체적으로·표로·줄여·문체·항목 더하기) 다시 찾거나 묻지 말고 먼저 hwp_revise {field, instruction: 담당자 지시 그대로} "
+                        "— 서브가 지금 글·지시·그 절의 근거를 보고 고친다(「N번 절」 은 필드 이름의 번호, 「일정은 표로」 처럼 절을 짚지 않으면 그 내용이 든 절)."
+                        if self.revising else
+                        "고쳐 쓰기는 같은 field 로 다시 쓰면 앞 내용이 바뀐다(「N번 절」 은 필드 이름의 번호로 짚는다)."))
         if self.delegating:
             lines += self.budget_lines(fl)
         lines.append("모양 고치기(페이지 설정·표 만들기·행·열·칸 합치기·쪽 번호·머리말·글꼴·각주·그림·찾아 바꾸기)는 hwp_page_setup·hwp_table_* 같은 "
@@ -250,6 +256,11 @@ class HwpTools:
             out.append("빈 절과 분량 안내: " + "; ".join(sizes) + (" …" if len(empty) > 12 else ""))
         out.append("절 맡기기(delegate_section): 긴 절·근거가 많은 절·남은 문맥이 적을 때 같은 모델에 깨끗한 문맥으로 그 절 하나를 맡긴다. "
                    "짧은 절·칸 몇 개·서식 고치기는 직접 한다. 돌아온 보고(쓴 값·확인 필요)를 보고 모자라면 한 번 다시 맡긴다.")
+        if self.delegate_cap > 1:
+            low = hr is not None and hr[0] < 0.5
+            out.append(f"동시 맡기기: 서로 다른 빈 절을 sections 로 묶어 한 번에 {self.delegate_cap}개까지 맡기면 동시에 쓴다(한 걸음에 여러 절)."
+                       + (f" 지금 빈 절 {len(empty)}개" + (" · 남은 문맥이 절반 아래" if low else "")
+                          + " — 직접 하나씩 쓰면 이번 요청의 단계·문맥 안에 다 못 쓴다. 빈 절을 묶어 맡기는 것이 낫다." if len(empty) >= 4 or low else ""))
         return out
 
     def step_budget(self) -> int:
@@ -421,6 +432,9 @@ class HwpTools:
         gist = m.get("gist") if isinstance(m.get("gist"), dict) else {}
         gist[field] = re.sub(r"\s+", " ", text)[:300]       # 절 요지 — 다음 절을 맡길 때 「앞 절 요지」 로 쓴다
         m["gist"] = gist
+        bodies = m.get("body") if isinstance(m.get("body"), dict) else {}
+        bodies[field] = text[:20000]                         # 쓴 본문 그대로(마크다운 표·도식) — 고쳐 쓰기(hwp_revise)의 「지금 글」
+        m["body"] = bodies
         need = needs_of(guide_of(ww.section_context(data, field)))
         shape = body_shape(text)
         shape.update(need=need, missing=missing_needs(need, shape), by=by)
@@ -435,6 +449,51 @@ class HwpTools:
             msg += (f" 다만 작성방법이 요구한 {'·'.join(shape['missing'])} 이(가) 본문에 없다 — 근거가 있으면 같은 field 로 한 번 고쳐 쓴다"
                     "(표는 마크다운 표, 도식은 ```도식 블록, 출처는 근거 문서 이름). 근거가 없어 못 넣으면 그대로 두고 다음으로.")
         return msg
+
+    def resolve_number(self, name: str) -> str | None:
+        """「2번 절」「2」 처럼 번호로 짚은 절 → 그 번호로 시작하는 절 필드(위 단계 「2.」 가 먼저). 하나로 정해지지 않으면 None."""
+        m = re.search(r"(\d+)", name or "")
+        if not m or re.sub(r"[\d\s번절장.:)]", "", re.sub(r"^(절|칸):", "", name or "")):
+            return None
+        n = m.group(1)
+        secs = [x["name"] for x in self._fields() if x["kind"] == "절"]
+        for pat in (rf"^절:\s*{n}\.\s", rf"^절:\s*{n}\)\s", rf"^절:\s*{n}\D"):
+            hits = [x for x in secs if re.match(pat, x)]
+            if len(hits) == 1:
+                return hits[0]
+        return None
+
+    def current_body(self, field: str) -> str:
+        """절의 지금 글 — AURA 가 쓴 본문 기록(마크다운 그대로)이 작업본의 첫 줄과 맞으면 그것, 아니면(사람이 고쳤거나 기록 없음) 작업본 글."""
+        f = webhwp.get(self.db, self.fid() or 0)
+        if not f:
+            return ""
+        m = webhwp.meta(self.db, f["id"])
+        data = Path(f["path"]).read_bytes()
+        from zzaimy.app import webhwp_write as ww
+        first = next((x["text"] for x in ww.fields(data) if x["name"] == field), "")
+        rec = (m.get("body") or {}).get(field) if isinstance(m.get("body"), dict) else None
+        if rec:
+            head = re.sub(r"\s+", "", re.sub(r"^\s*(?:\d+\)|[가-하]\)|\(\d+\))\s*", "", rec.strip().splitlines()[0]))[:20]
+            if not first or head[:12] in re.sub(r"\s+", "", first):
+                return rec
+        pids = ((m.get("written") or {}).get(field) or []) if isinstance(m.get("written"), dict) else []
+        import io
+        import zipfile
+        z = zipfile.ZipFile(io.BytesIO(data))
+        xml = "".join(z.read(n).decode("utf-8", "ignore") for n in sorted(z.namelist()) if re.match(r"Contents/section\d+\.xml$", n))
+        parts = [first]
+        for pid in pids:
+            mm = re.search(rf'<hp:p id="{re.escape(str(pid))}"[^>]*>', xml)
+            if not mm:
+                continue
+            depth = 0
+            for t in re.finditer(r"<hp:p\b|</hp:p>", xml[mm.start():]):
+                depth += 1 if t.group(0) != "</hp:p>" else -1
+                if depth == 0:
+                    parts.append(re.sub(r"<[^>]+>", " ", xml[mm.start():mm.start() + t.end()]).strip())
+                    break
+        return "\n".join(p for p in parts if p.strip())
 
     def gate(self, text: str, by: str = "메인") -> str | None:
         """절 본문 관문 — check_body(메인·서브 같음) + 메인만: 남은 문맥이 모자란데 긴 본문을 직접 쓰면 거절하고 맡기기 안내."""
