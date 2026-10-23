@@ -36,10 +36,12 @@ LABELS = {
     "overall_rate": "맥락 이해 전체 통과율", "회차": "회차 수", "절 채움": "절 채움 비율", "목표 유지": "목표 유지 비율",
     "고쳐 쓰기 반영": "고쳐 쓰기 반영(0~2)", "시간(초)": "대화 전체 시간(초)",
     "frame_prefix": "학습셋 틀(「답변:」 줄)이 든 답 비율", "frame_answers": "학습셋 틀이 든 채팅 답 비율",
+    "frame_memo": "학습셋 틀이 든 작업 메모 비율", "format_stop": "단계 형식 오류로 멈춘 턴 비율", "ask_only": "묻기만 하고 끝난 턴 비율",
+    "문서 만듦": "문서(작업본)를 만든 회차 비율",
     "frame_no_system": "틀 비율 — 지시 없는 채팅", "frame_platform": "틀 비율 — 플랫폼 답변 지시", "frame_train": "틀 비율 — 학습셋 지시",
     "gold_lp": "정답 익숙함(토큰당 평균 로그확률, 0에 가까울수록 학습 꼴)", "gold_first_lp": "정답 첫 토큰 로그확률", "gold_lp_n": "정답 익숙함 잰 문항 수",
 }
-PERCENT = {"gold_frame", "frame_prefix", "frame_answers", "frame_no_system", "frame_platform", "frame_train", "invented_any", "truncated", "table", "unknown", "multiturn_rate", "longctx_rate", "conflict_rate", "overall_rate",
+PERCENT = {"gold_frame", "frame_prefix", "frame_answers", "frame_memo", "format_stop", "ask_only", "문서 만듦", "frame_no_system", "frame_platform", "frame_train", "invented_any", "truncated", "table", "unknown", "multiturn_rate", "longctx_rate", "conflict_rate", "overall_rate",
            "절 채움", "목표 유지"}
 
 
@@ -195,14 +197,25 @@ def doc_block(work: Path, arms: list[dict], dest: Path, s202) -> tuple[dict | No
     for a in arms:
         folder = work / "202" / a["key"]
         runs = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(folder.glob(f"*-noforms-{a['key']}-*.json"))]
-        runs = [r for r in runs if not r.get("error") or r.get("form")]
+        # 작업본을 못 만든 회차(에이전트가 묻기만 되풀이 등)도 빼지 않는다 — 실패가 결과다
         if not runs:
             continue
         ms = [s202.metrics(r) if s202 else {} for r in runs]
-        for r, m in zip(runs, ms):                        # 채팅 답에 학습셋 틀이 새어 나왔나(턴마다)
-            answers = [t.get("answer") or "" for t in (r.get("turns") or [])]
-            if answers:
-                m["frame_answers"] = round(sum(bool(FRAME.search(x)) for x in answers) / len(answers), 3)
+        for r, m in zip(runs, ms):                        # 채팅 답·작업 메모에 학습셋 틀이 새어 나왔나, 에이전트 단계가 형식에서 멈췄나(턴마다)
+            turns = r.get("turns") or []
+            m["문서 만듦"] = 0 if r.get("error") and not r.get("form") else 1
+            if m["문서 만듦"] == 0:
+                m.setdefault("쓴 절", 0)
+                m.setdefault("절 채움", 0.0)
+            if turns:
+                n = len(turns)
+                m["frame_answers"] = round(sum(bool(FRAME.search(t.get("answer") or "")) for t in turns) / n, 3)
+                m["frame_memo"] = round(sum(bool(FRAME.search(t.get("memo") or "")) for t in turns) / n, 3)
+                m["format_stop"] = round(sum(t.get("stop") == "format" for t in turns) / n, 3)
+                m["ask_only"] = round(sum(bool(t.get("actions")) and set(t["actions"]) <= {"ask_user", "search", "finish"}
+                                          and "ask_user" in t["actions"] for t in turns) / n, 3)
+            if r.get("error"):
+                m["오류"] = str(r["error"])[:60]
         keys = sorted({k for m in ms for k in m})
         avg = {}
         for k in keys:

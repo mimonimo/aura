@@ -47,6 +47,12 @@ def test_export_writes_admin_files(tmp_path):
     (ctx / "report.json").write_text(json.dumps({"arms": {"open-nvfp4": {"conflict": {"n": 1, "ok": 1, "rate": 1.0, "invented_any": 0.0}}},
                                                  "rows": [{"id": "cf-00", "kind": "conflict", "arm": "open-nvfp4", "ok": True}]}), encoding="utf-8")
     _jl(ctx / "gen-open-nvfp4.jsonl", [{"key": "cf-00", "text": "| 총사업비 | 확인 필요 |"}])
+    for arm, err, actions in (("open-nvfp4", None, ["hwp_write", "finish"]), ("sft-merged", "작업본이 없다", [])):   # 202 — 실패 회차도 남긴다
+        (work / "202" / arm).mkdir(parents=True)
+        (work / "202" / arm / f"20261024-000000-noforms-{arm}-1.json").write_text(json.dumps(
+            {"label": f"{arm}-1", "error": err, "form": None if err else {"name": "x"}, "sections": None if err else "3/3",
+             "turns": [{"answer": "근거 설명: x\n답변: y" if err else "썼습니다", "memo": "", "stop": "format" if err else "finished",
+                        "actions": actions or ["ask_user"]}]}, ensure_ascii=False), encoding="utf-8")
     dest = tmp_path / "dest"
     html_out = tmp_path / "page" / "index.html"
     rc = s212.main(["--run-id", "r1", "--work", str(work), "--dest", str(dest), "--html-out", str(html_out),
@@ -65,6 +71,9 @@ def test_export_writes_admin_files(tmp_path):
     assert blocks["heldout220"]["per_dimension"]["형식"] == {"open-nvfp4": 3.0, "sft-merged": 4.0}
     assert blocks["heldout220"]["n"] == 4 and blocks["heldout220"]["metrics"]["sft-lora"]["n"] == 2
     assert [p.get("control") for p in blocks["heldout220"]["pairwise"]] == [False]     # 대조군은 판정이 있을 때만
+    d = blocks["doc202"]["metrics"]
+    assert d["sft-merged"]["문서 만듦"] == 0 and d["sft-merged"]["frame_answers"] == 1.0 and d["sft-merged"]["format_stop"] == 1.0
+    assert d["sft-merged"]["ask_only"] == 1.0 and d["open-nvfp4"]["문서 만듦"] == 1
     samples = json.loads((dest / "r1" / "samples.json").read_text(encoding="utf-8"))
     assert samples and all("홍길동" not in x["input"] for x in samples)
     assert json.loads((dest / "r1" / "docs.json").read_text(encoding="utf-8")) == []
