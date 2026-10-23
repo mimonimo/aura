@@ -412,7 +412,7 @@
     var s = String(g || '');
     if (s === '공통 양식') return '공통 양식';
     if (s.indexOf('공통 양식/') === 0) return s.slice(6);
-    if (s.indexOf('양식/') === 0) return '학교 양식 · ' + s.slice(3);
+    if (s.indexOf('지난 사업 문서/') === 0) return '지난 사업 · ' + s.slice(9);
     return s;
   }
   function items() { return Array.prototype.slice.call(tList.querySelectorAll('.hb-tpl-item')); }

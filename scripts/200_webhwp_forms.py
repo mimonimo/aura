@@ -8,7 +8,11 @@
 - convert: 대표의 원본을 원본 보관소(DGX)에서 받아 hwpx 로(hwp 는 기안기 서버 변환). 이미 한 것(원본 지문 같음)은 건너뜀
 - check  : 변환본마다 — 기안기에서 다시 열리는가(open), 표·문단 수, 절 제목 후보, 채우기 시험(첫 절에 문단·표, 서식 표 칸 채우기·행 늘리기),
            자가 점검(checks). 결과 report.json·report.md
-- register: 점검을 통과한 것을 한글 문서함 「공통/양식/<첫 낱말 묶음>」 에 잠긴 양식(source 「양식:doc-<id>」)으로 둔다
+- register: 점검을 통과한 것을 app/past_forms.classify 로 판정해 잠긴 양식(source 「양식:doc-<id>」)으로 둔다 —
+           사업 전용이 아니면 「공통/공통 양식/<목적>」, 사업 전용이면 「공통/지난 사업 문서/<사업>/<목적>」.
+           판정이 휴지통 갈래(개인 서류·채워진 제출본 …)이거나 정리(scripts/208 apply)가 지운 문서는 두지 않는다
+- common  : (10-23 그만 씀) 종류별 「공통 양식/<종류>」 에 사본 많은 양식을 두던 단계. 공통 양식은 플랫폼이 만든 것과
+           classify 가 사업 전용이 아니라고 본 빈 양식만 둔다 — register 가 더는 부르지 않는다. 옛 결과는 scripts/208 이 정리한다
 운영 문서함·DB 의 문서는 읽기만 한다(register 만 기안기 문서함에 파일을 더한다).
 사용(VM): set -a; . ./.env.local; set +a; PYTHONPATH=src .venv/bin/python scripts/200_webhwp_forms.py all [--limit N]
 """
@@ -40,12 +44,8 @@ def _db() -> Database:
 
 
 def norm_title(t: str) -> str:
-    t = storage.title_of(t or "")
-    t = re.sub(r"[\(\[\{（【<「][^\)\]\}）】>」]*[\)\]\}）】>」]", "", t)
-    t = re.sub(r"20\d\d|\d+\s*(차년도|차|회차|년|월|일|호|번)?", "", t)
-    t = re.sub(r"(ㅇ|○|◯|o{2,}|O{2,})+", "", t)
-    t = re.sub(r"(양식|서식|최종|수정|붙임|별지|별첨|제출용|작성용)", "", t)
-    return re.sub(r"[^가-힣A-Za-z]", "", t)
+    from zzaimy.app.past_forms import norm_title as _nt
+    return _nt(t)
 
 
 def select(db) -> list[dict]:
@@ -319,7 +319,7 @@ def report(picked: list[dict]) -> None:
     print(" · ".join(f"{k} {v}" for k, v in cnt.most_common()), flush=True)
 
 
-# 문서 종류 — 제목 끝말로 고른다(긴 말 먼저). 한글 문서함 「공통/양식/<종류>」 폴더와 종류별 공통 양식에 쓴다
+# 문서 종류 — 제목 끝말로 고른다(긴 말 먼저). 그만 쓴 common() 만 쓴다(자리 판정은 app/past_forms)
 KIND_WORDS = ("결과보고서", "실적보고서", "계획서", "보고서", "신청서", "지원서", "회의록", "서명부", "참석자명단", "동의서", "확인서", "서약서",
               "이력서", "조서", "명세서", "내역서", "설문지", "평가표", "평가서", "체크리스트", "협약서", "계약서", "증명서", "추천서",
               "의견서", "검토서", "요청서", "명단", "목록", "현황", "대장", "일지", "라벨")
@@ -335,16 +335,19 @@ def kind_of(title: str) -> str:
 
 
 def register(db, picked: list[dict]) -> None:
-    """점검 통과(문제 없음) 양식을 한글 문서함 「공통/양식/<묶음>」 에 잠긴 양식으로 — 이미 둔 것은 내용이 같으면 그대로."""
-    from zzaimy.app import webhwp
+    """점검 통과 양식을 한글 문서함 공통 부서에 잠긴 양식으로 — 자리는 past_forms.classify(공통 양식/<목적> · 지난 사업 문서/<사업>/<목적>).
+    이미 둔 것은 내용이 같으면 그대로(옮겨졌어도 그 자리에서 저장), 정리(scripts/208)가 지운 문서와 휴지통 갈래 판정은 두지 않는다."""
+    from zzaimy.app import past_forms, webhwp
     base = Path(db.path).parent if hasattr(db, "path") else ROOT / "data/platform"
     res = _load(OUT / "check.json")
     placed = _load(OUT / "registered.json")
-    n = 0
+    removed = _load(OUT / "tidy_removed.json")
+    programs = past_forms.Programs(db, base)
+    n = skipped = 0
     for p in picked:
         k = str(p["id"])
         r = res.get(k)
-        if not r or not r.get("ok"):
+        if not r or not r.get("ok") or k in removed:
             continue
         fz = OUT / "hwpx" / f"{k}.fields.hwpx"
         if not fz.exists():                              # 쓸 자리 필드가 없는 양식은 기안기 작업 양식으로 두지 않는다
@@ -353,22 +356,25 @@ def register(db, picked: list[dict]) -> None:
         sha = hashlib.sha256(data).hexdigest()[:16]
         if placed.get(k, {}).get("sha") == sha and webhwp.get(db, int(placed[k]["fid"])):
             continue
-        group = kind_of(p["title"])
         if placed.get(k) and webhwp.get(db, int(placed[k]["fid"])):
             webhwp.save(db, base, int(placed[k]["fid"]), data, user="zzaimy")
             fid = int(placed[k]["fid"])
         else:
+            c = past_forms.classify(data, p["title"], programs, int(k))
+            if c["action"] != past_forms.KEEP:
+                skipped += 1
+                continue
             fid = webhwp.add(db, base, webhwp.COMMON, f"{p['title'][:60]}.hwpx", data, owner="zzaimy",
-                             source=f"양식:doc-{k}", folder=f"양식/{group}")
+                             source=f"양식:doc-{k}", folder=c["folder"])
         placed[k] = {"fid": fid, "sha": sha}
         n += 1
     _save(OUT / "registered.json", placed)
-    print(f"한글 문서함에 둔 양식 {n}건(전체 {len(placed)})", flush=True)
-    common(db, picked, res, placed)
+    print(f"한글 문서함에 둔 양식 {n}건(전체 {len(placed)}, 판정으로 뺀 것 {skipped})", flush=True)
 
 
 def common(db, picked: list[dict], res: dict, placed: dict, per_kind: int = 3) -> None:
-    """종류별 공통 양식 — 점검 통과·필드 있는 양식 가운데 같은 양식 사본이 가장 많은(학교가 가장 많이 쓴) 것 몇 개를
+    """(10-23 그만 씀 — register 가 부르지 않는다. 공통 양식은 플랫폼이 만든 것과 past_forms 가 사업 전용이 아니라고 본 빈 양식만.)
+    종류별 공통 양식 — 점검 통과·필드 있는 양식 가운데 같은 양식 사본이 가장 많은(학교가 가장 많이 쓴) 것 몇 개를
     「공통/공통 양식/<종류>」 에 잠긴 양식으로 둔다(기안기에서 새 문서를 시작할 때 고르는 자리)."""
     from zzaimy.app import webhwp
     base = Path(db.path).parent if hasattr(db, "path") else ROOT / "data/platform"
