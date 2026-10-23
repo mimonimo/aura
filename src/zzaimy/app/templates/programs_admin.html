@@ -527,7 +527,7 @@
     <td data-col="bud" class="n" data-label="예산" data-won="{{ r.v.budget_won if r.v.budget_won is not none else '' }}" title="{{ r.v.budget_full }}{% if r.v.note %} · {{ r.v.note }}{% endif %}">{{ r.v.budget_short or '—' }}</td>
     <td data-col="man" data-label="책임자 이름"><span class="l1" title="{{ r.v.manager }}{% if r.v.has_account %} · 계정 있음{% endif %}">{{ r.v.manager or '—' }}</span></td>
     <td data-col="who" data-label="지정">{% if r.who.heads or r.who.leads or r.who.clerks %}<span class="l1" title="{{ (['총괄 ' ~ (r.who.heads | join(', '))] if r.who.heads else []) | join('') }}">{% if r.who.heads %}총괄 {{ r.who.heads | join(', ') }}{% elif r.who.leads %}책임 {{ r.who.leads | join(', ') }}{% else %}행정 {{ r.who.clerks | join(', ') }}{% endif %}</span>
-      <span class="l2">{% if r.who.heads and r.who.leads %}책임 {{ r.who.leads | join(', ') }}{% endif %}{% if (r.who.heads or r.who.leads) and r.who.clerks %} · 행정 {{ r.who.clerks | join(', ') }}{% endif %}</span>{% endif %}</td>
+      <span class="l2">{% if r.who.heads and r.who.leads %}책임 {{ r.who.leads | join(', ') }}{% endif %}{% if (r.who.heads or r.who.leads) and r.who.clerks %}{{ ' · ' if r.who.heads and r.who.leads }}행정 {{ r.who.clerks | join(', ') }}{% endif %}</span>{% endif %}</td>
     <td data-col="proj" data-label="프로젝트"><span class="pa-num{{ ' z' if not r.projects }}" title="진행 프로젝트">{{ r.projects }}</span><span class="pa-num{{ ' z' if not r.archived }}" title="보관 묶음">{{ r.archived }}</span></td>
     {% if any_action %}{{ menu(r) }}{% endif %}
   </tr>
