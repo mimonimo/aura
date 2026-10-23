@@ -18,7 +18,8 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 
 # 사이드바에 없는 개발 화면
 EXTRA = {"/dev/history": "변경 이력", "/dev/nas": "문서 반입",     # Google Drive 가져오기는 문서 반입의 탭
-         "/dev/train?tab=settings": "도구·모델 연결"}                 # 옛 주소 — /dev/tools 로 넘긴다
+         "/dev/train?tab=settings": "도구·모델 연결",                 # 옛 주소 — /dev/tools 로 넘긴다
+         "/dev/models/compare": "모델 비교 결과"}                     # 개발 현황 모델 표의 Writer 줄에서 들어간다
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
 
@@ -31,7 +32,7 @@ def page_name(href: str) -> str:
 def is_active(href: str, path: str, train_tab: str) -> bool:
     """사이드바에서 지금 화면을 고른다. 「데이터·학습」은 /dev/train·/dev/data, 「도구·모델 연결」은 /dev/tools."""
     if href == "/dev/train":
-        return path in ("/dev/data", "/dev/train")
+        return path in ("/dev/data", "/dev/train") or path.startswith("/dev/models/")
     if href == "/dev/docs":                        # 문서 보기·논문 자료·주간 보고는 논문·설계 문서의 하위 화면
         return path.startswith(("/dev/doc", "/dev/paper", "/dev/weekly"))
     if href == "/dev":                             # 변경 이력은 개발 현황의 하위 화면

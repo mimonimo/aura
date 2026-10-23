@@ -362,7 +362,7 @@ def dev_db(
 def dev_dashboard(request: Request):
     # 허브 — 요약과 바로가기만. 상세는 전용 페이지(/dev/quality·/dev/docs·/dev/history)
     st = request.app.state
-    from zzaimy.app import reindex_state
+    from zzaimy.app import model_compare, reindex_state
     h = st.overview
     return st.templates.TemplateResponse(request, "dev.html", st.page_ctx(request, {
         "overview": h.data_overview(),   # 규모 타일 — /dev/db 와 같은 원천
@@ -377,6 +377,8 @@ def dev_dashboard(request: Request):
         "n_papers": len(h.dev_papers()),
         "n_adr": len(h.dev_doc_list("decisions")),
         "n_notes": len(h.dev_doc_list("notes")),
+        # 모델 비교 결과가 하나라도 있을 때만 Writer 줄에 바로가기
+        "model_compare_runs": model_compare.list_runs(model_compare.root(st.db_path)),
     }))
 
 

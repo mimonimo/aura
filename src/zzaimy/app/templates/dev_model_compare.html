@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}모델 비교 결과{% endblock %}
+{% block pagetitle %}모델 비교 결과{% endblock %}
+{% block content %}
+<style>
+  .mc-head { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; justify-content:space-between; }
+  .mc-head h2 { margin:0; font-weight:500; }
+  .mc-arms, .mc-runs { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .mc-chip { display:inline-flex; gap:6px; align-items:baseline; padding:2px 10px; border:1px solid var(--line); border-radius:999px; font-size:12.5px; background:#fff; }
+  .mc-chip small { color:var(--muted); font-size:11.5px; }
+  .mc-wait { display:inline-block; font-size:12px; color:var(--muted); padding:1px 8px; border:1px dashed var(--line); border-radius:999px; }
+  .mc-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px; margin-top:10px; }
+  .mc-part h3 { font-size:13px; font-weight:500; margin:0 0 6px; color:var(--ink); }
+  .mc-pair { margin:0 0 10px; font-size:12.5px; }
+  .mc-pair-name { display:flex; justify-content:space-between; gap:8px; }
+  .mc-bar { display:flex; height:10px; border-radius:5px; overflow:hidden; background:#f2f3f5; margin:4px 0 2px; }
+  .mc-bar span { display:block; height:100%; }
+  .mc-win { background:#5b8def; } .mc-tie { background:#c9ced6; } .mc-loss { background:#e8a2a2; }
+  .mc-legend { font-size:11.5px; color:var(--muted); }
+  .mc-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .mc-table th, .mc-table td { padding:4px 6px; border-bottom:1px solid var(--line); text-align:right; font-weight:400; }
+  .mc-table th:first-child, .mc-table td:first-child { text-align:left; }
+  .mc-table thead th { color:var(--muted); font-size:11.5px; }
+  .mc-samples { display:grid; grid-template-columns:minmax(180px, 240px) 1fr; gap:14px; margin-top:10px; min-height:420px; }
+  .mc-list { list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:8px; max-height:640px; overflow:auto; }
+  .mc-list button { all:unset; box-sizing:border-box; display:block; width:100%; padding:7px 10px; border-bottom:1px solid var(--line); cursor:pointer; font-size:12.5px; }
+  .mc-list button:hover { background:#f6f7f9; }
+  .mc-list button[aria-current="true"] { background:#eef3fb; }
+  .mc-list small { display:block; color:var(--muted); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mc-detail { min-width:0; }
+  .mc-detail h4 { font-size:12.5px; font-weight:500; color:var(--muted); margin:10px 0 4px; }
+  .mc-text { white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.6; border:1px solid var(--line); border-radius:8px; padding:8px 10px; max-height:260px; overflow:auto; margin:0; background:#fff; }
+  .mc-cols { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(240px, 1fr); gap:10px; overflow-x:auto; }
+  .mc-col .mc-text { max-height:520px; }
+  .mc-scores { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0 6px; }
+  .mc-score { font-size:11.5px; padding:1px 7px; border-radius:999px; background:#f2f3f5; color:var(--ink); }
+  .mc-docs { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-top:8px; }
+  .mc-docs ul { list-style:none; margin:0; padding:0; }
+  .mc-docs li { display:flex; justify-content:space-between; gap:8px; align-items:center; padding:5px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
+  .mc-docs li span { min-width:0; overflow-wrap:anywhere; }
+  @media (max-width:760px) { .mc-samples { grid-template-columns:1fr; } .mc-list { max-height:220px; } }
+</style>
+
+<section class="card"><div class="card-in">
+  <div class="mc-head">
+    <h2>{% if run %}{{ run.id }}{% else %}모델 비교 결과{% endif %}</h2>
+    {% if runs|length > 1 %}
+    <div class="mc-runs" aria-label="비교 실행">
+      {% for r in runs %}<a class="btn-ghost{% if run and r.id == run.id %} active{% endif %}" href="/dev/models/compare/{{ r.id }}">{{ r.id }}</a>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% if not run %}
+  <p class="muted">비교 실행 결과 없음 · 결과 자리 {{ base_shown }}</p>
+  {% else %}
+  <p class="muted" style="font-size:12px; margin:4px 0 0;">{% if run.created %}{{ run.created }}{% else %}<span class="mc-wait">진행 중</span>{% endif %}</p>
+  <div class="mc-arms" data-mc-arms>
+    {% for a in run.arms %}<span class="mc-chip" title="{{ a.model }}">{{ a.kind_label or a.label }}{% if a.kind_label and a.label != a.kind_label %}<small>{{ a.label }}</small>{% endif %}</span>{% else %}<span class="mc-wait">진행 중</span>{% endfor %}
+  </div>
+  {% for n in run.notes %}<p class="muted" style="font-size:12px; margin:6px 0 0;">{{ n }}</p>{% endfor %}
+  {% endif %}
+</div></section>
+
+{% if run %}
+{% set L = run.arm_label %}
+{% if run.blocks is none %}
+<section class="card"><div class="card-in"><h2>요약</h2><span class="mc-wait">진행 중</span></div></section>
+{% endif %}
+{% for b in run.blocks or [] %}
+<section class="card" data-mc-block="{{ b.key }}"><div class="card-in">
+  <h2>{{ b.title }}</h2>
+  <div class="mc-grid">
+    <div class="mc-part"><h3>쌍대 비교</h3>
+      {% if b.pairwise is none %}<span class="mc-wait">진행 중</span>{% endif %}
+      {% for p in b.pairwise or [] %}
+      <div class="mc-pair">
+        <div class="mc-pair-name"><span>{{ L.get(p.a, p.a) }} 대 {{ L.get(p.b, p.b) }}</span><span class="muted">n={{ p.n }}</span></div>
+        <div class="mc-bar" role="img" aria-label="이김 {{ p.win }} 비김 {{ p.tie }} 짐 {{ p.loss }}">
+          <span class="mc-win" style="width:{{ p.win_pct }}%"></span><span class="mc-tie" style="width:{{ p.tie_pct }}%"></span><span class="mc-loss" style="width:{{ p.loss_pct }}%"></span>
+        </div>
+        <div class="mc-legend">이김 {{ p.win }} · 비김 {{ p.tie }} · 짐 {{ p.loss }}{% if p.ci_low is not none and p.ci_high is not none %} · 95% 구간 {{ p.ci_low|mc_num }}~{{ p.ci_high|mc_num }}{% endif %}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="mc-part"><h3>항목별 평균</h3>
+      {% if b.dims is none %}<span class="mc-wait">진행 중</span>{% else %}
+      <table class="mc-table"><thead><tr><th>항목</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for r in b.dims %}<tr><td>{{ r.name }}</td>{% for a in run.arms %}<td>{{ r.vals.get(a.key)|mc_num }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+      {% endif %}
+    </div>
+    <div class="mc-part"><h3>속도</h3>
+      {% if not b.speed %}<span class="mc-wait">진행 중</span>{% else %}
+      <table class="mc-table"><thead><tr><th>지표</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for r in b.speed %}<tr><td>{{ r.name }}</td>{% for a in run.arms %}<td>{{ r.vals.get(a.key)|mc_num }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+      {% endif %}
+      {% if b.other %}
+      <h3 style="margin-top:12px;">그 밖의 지표</h3>
+      <table class="mc-table"><tbody>{% for r in b.other %}<tr><td>{{ r.name }}</td>{% for a in run.arms %}<td>{{ r.vals.get(a.key)|mc_num }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+      {% endif %}
+    </div>
+    <div class="mc-part"><h3>서류 갈래별</h3>
+      {% if b.per_type is none %}<span class="mc-wait">진행 중</span>{% else %}
+      <table class="mc-table"><thead><tr><th>갈래</th><th>n</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for r in b.per_type %}<tr><td>{{ r.type }}</td><td>{{ r.n }}</td>{% for a in run.arms %}<td>{{ r.vals.get(a.key)|mc_num }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+      {% endif %}
+    </div>
+  </div>
+</div></section>
+{% endfor %}
+
+<section class="card" id="samples"><div class="card-in">
+  <h2>표본 <span class="muted" style="font-size:12px;">{% if run.samples is not none %}{{ run.samples|length }}건{% endif %}</span></h2>
+  {% if run.samples is none %}<span class="mc-wait">진행 중</span>
+  {% elif not run.samples %}<p class="muted">표본 없음</p>
+  {% else %}
+  <div class="mc-samples">
+    <ul class="mc-list" data-mc-list>
+      {% for s in run.samples %}<li><button type="button" data-i="{{ loop.index0 }}">{{ s.type or '갈래 없음' }}<small>{{ s.id }}</small></button></li>{% endfor %}
+    </ul>
+    <div class="mc-detail" data-mc-detail aria-live="polite"></div>
+  </div>
+  <script type="application/json" id="mc-data">{{ {"samples": run.samples, "arms": run.arms} | tojson }}</script>
+  {% endif %}
+</div></section>
+
+<section class="card" id="docs"><div class="card-in">
+  <h2>만든 문서</h2>
+  {% if run.docs is none %}<span class="mc-wait">진행 중</span>
+  {% elif not run.docs %}<p class="muted">문서 없음</p>
+  {% else %}
+  <div class="mc-docs">
+    {% for arm, files in run.docs.items() %}
+    <div><h3 style="font-size:13px; font-weight:500; margin:0 0 4px;">{{ L.get(arm, arm) }}</h3>
+      <ul>{% for f in files %}<li><span>{{ f.title }}{% if f.created %} <small class="muted">{{ f.created }}</small>{% endif %}</span>
+        <a class="btn-ghost" href="/dev/models/compare/{{ run.id }}/doc?f={{ f.file|urlencode }}" download>내려받기</a></li>{% endfor %}</ul>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div></section>
+
+<script>
+(function () {
+  var dataEl = document.getElementById("mc-data");
+  if (!dataEl) return;
+  var data = JSON.parse(dataEl.textContent);
+  var list = document.querySelector("[data-mc-list]");
+  var detail = document.querySelector("[data-mc-detail]");
+  var DIM = { instruction: "지시 충실", instruction_following: "지시 충실", context: "맥락 이해", context_understanding: "맥락 이해",
+              format: "형식", structure: "형식", grounding: "근거 충실", faithfulness: "근거 충실", groundedness: "근거 충실",
+              style: "문체", tone: "문체", completeness: "완결성" };
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = typeof text === "string" ? text : JSON.stringify(text, null, 2);
+    return e;
+  }
+  function show(i) {
+    var s = data.samples[i];
+    if (!s) return;
+    Array.prototype.forEach.call(list.querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-current", String(b.dataset.i === String(i)));
+    });
+    detail.replaceChildren();
+    detail.appendChild(el("h4", "", "입력"));
+    detail.appendChild(el("pre", "mc-text", s.input || ""));
+    if (s.gold) { detail.appendChild(el("h4", "", "기준 답")); detail.appendChild(el("pre", "mc-text", s.gold)); }
+    detail.appendChild(el("h4", "", "출력"));
+    var cols = el("div", "mc-cols");
+    var arms = data.arms.length ? data.arms : Object.keys(s.outputs || {}).map(function (k) { return { key: k, label: k }; });
+    arms.forEach(function (a) {
+      var col = el("div", "mc-col");
+      col.appendChild(el("div", "", a.kind_label || a.label || a.key));
+      var sc = (s.scores || {})[a.key] || {};
+      var chips = el("div", "mc-scores");
+      Object.keys(sc).forEach(function (k) { chips.appendChild(el("span", "mc-score", (DIM[k] || k) + " " + sc[k])); });
+      col.appendChild(chips);
+      var out = (s.outputs || {})[a.key];
+      col.appendChild(el("pre", "mc-text", out === undefined ? "진행 중" : out));
+      cols.appendChild(col);
+    });
+    detail.appendChild(cols);
+    detail.appendChild(el("h4", "", "판정 이유"));
+    detail.appendChild(el("pre", "mc-text", s.judge_reason || "진행 중"));
+  }
+  list.addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-i]");
+    if (b) show(Number(b.dataset.i));
+  });
+  show(0);
+})();
+</script>
+{% endif %}
+{% endblock %}

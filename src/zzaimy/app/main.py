@@ -4516,6 +4516,10 @@ def create_app(
     app.state.docs = _docs
     app.include_router(dev_intake_routes.router)
     app.include_router(dev_docs_routes.router)
+    # 모델 비교 결과(/dev/models/compare*) — VM 비교 실행이 남긴 파일을 읽기만 한다(app/model_compare)
+    from zzaimy.app import model_compare
+    model_compare.install(templates.env)
+    app.include_router(model_compare.router)
 
     # 주간 보고 자동 작성 일정 — 작성 도우미는 문서·보고 라우터(app/dev_docs_routes)의 묶음(_docs)
     import threading as _weekly_threading
