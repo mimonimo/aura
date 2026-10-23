@@ -27,7 +27,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from zzaimy.app import grades, passwords
+from zzaimy.app import grades, org_lock, passwords
 from zzaimy.app.access_guard import ROLES
 from zzaimy.ingest import gdocs, gdrive, gdrive_files
 
@@ -237,6 +237,7 @@ def dev_google_moved():
 
 
 @router.post("/dev/users/save")
+@org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
 def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
                    role: str = Form("staff"), dept: str = Form(""), active: str = Form(""), new_pw: str = Form(""),
                    google: str = Form(""), extra: list[str] = Form([]), grade: str = Form(""),
@@ -403,6 +404,7 @@ def dev_google_dept(request: Request, dept: str = Form(""), root: str = Form("")
     return _back(msg, ok=not got["error"])
 
 
+@org_lock.serialized
 def delete_dept(st, accounts: dict, name: str) -> tuple[str, int]:
     """부서 하나를 지운다 — (오류 문장, 공통 RAG 로 돌린 문서 수). 소속 계정이 있으면 지우지 않는다.
     부서 RAG 문서는 공통으로, 추가 권한·폴더 짝·부서 공용 설정을 풀고, 겸직 등급·확정 위계에서도 뺀다.
@@ -428,7 +430,7 @@ def delete_dept(st, accounts: dict, name: str) -> tuple[str, int]:
                 a_.pop("dept_grades", None)
             touched = True
     if touched:
-        st.save_accounts()
+        org_lock.save_accounts(st)
     try:
         dept_dictionary.forget_dept(data_dir, name)
     except Exception:
@@ -442,6 +444,7 @@ def delete_dept(st, accounts: dict, name: str) -> tuple[str, int]:
 
 
 @router.post("/dev/users/dept")
+@org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
 def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""), names: list[str] = Form([])):
     """부서 만들기·지우기 — 부서 목록은 RAG 공간 설정(dept_rags)에 하나로 둔다. 만든 부서는 부서 RAG·검색 범위·폴더 범위·계정 부서에서
     바로 고를 수 있다. 지우면 그 부서 문서는 공통 RAG 로 돌아가고 추가 권한·폴더 짝·부서 공용 설정도 풀린다(계정이 있으면 못 지운다)."""
@@ -484,6 +487,7 @@ def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""
 
 
 @router.post("/dev/users/dept-parent")
+@org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
 def dev_users_dept_parent(request: Request, dept: str = Form(""), parent: str = Form("")):
     """부서의 상위 부서를 정한다(관리자만) — 상위 부서의 총괄 책임자가 하위 부서도 맡는 권한 판정에 쓰이는 확정 관계.
     비우면 상위 없음. 둘 다 부서 목록에 있어야 하고, 순환(하위를 상위로)은 막는다. 이전 판은 history/ 에 남는다."""
@@ -629,6 +633,7 @@ def team_page(request: Request, dept: str = "", ok: str = "", err: str = "", tab
 
 
 @router.post("/team/save")
+@org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
 def team_save(request: Request, uid: str = Form(...), grade: str = Form(""), perm: list[str] = Form([]), dept: str = Form("")):
     st = request.app.state
     me, _, scope, _ag = _team_actor(request)

@@ -21,9 +21,14 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from zzaimy.app import dept_dictionary, grades, rag_spaces
+import logging
+
+from starlette.concurrency import run_in_threadpool
+
+from zzaimy.app import dept_dictionary, grades, org_lock, rag_spaces
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 TOP_LEVEL = 4                     # dept_dictionary.LEVEL — 처·본부·실·원·단·사업 조직·기관 급이 맨 위(처·단)
 _VIEW_ROLES = ("staff", "dev", "professor", "head")
@@ -209,6 +214,12 @@ def api_org(request: Request):
 
 # ---------------------------------------------------------------- 고치기
 
+def _locked(fn, request: Request, b: dict):
+    """조직도 고치기 — 권한·검사·쓰기·되돌리기를 공용 잠금(org_lock) 안에서 한 번에. 잠금은 스레드 풀에서 잡는다(이벤트 루프를 막지 않게)."""
+    with org_lock.LOCK:
+        return fn(request, b)
+
+
 async def _body(request: Request) -> dict:
     try:
         got = await request.json()
@@ -258,10 +269,14 @@ def _check_place(st, dept: str, parent: str) -> str:
 
 @router.post("/org/move")
 async def org_move(request: Request):
+    b = await _body(request)
+    return await run_in_threadpool(_locked, _org_move, request, b)
+
+
+def _org_move(request: Request, b: dict):
     """부서를 처·단 아래로(parent) 또는 맨 위로(parent 빈 값) 옮긴다. unset 이면 관리자가 정하기 전으로(되돌리기)."""
     st = request.app.state
     actor = Actor(request)
-    b = await _body(request)
     dept, parent, unset = _name(b.get("dept")), _name(b.get("parent")), bool(b.get("unset"))
     known = _known(st)
     if dept not in known or (parent and parent not in known):
@@ -314,16 +329,18 @@ def _backup_accounts(data_dir) -> None:
 
 
 class Snapshot:
-    """쓰기 전에 조직도가 건드리는 저장값을 잡아 두고, 쓰다가 실패하면 그대로 되돌린다 — 중간까지만 쓰인 상태가 남지 않게.
+    """쓰기 전에 조직도가 건드리는 저장값을 잡아 두고, 쓰다가 실패하면 되돌린다 — 중간까지만 쓰인 상태가 남지 않게.
     대상: 계정 표(메모리·파일), rag_spaces.json, dept_parents.json, program_admin.json, 「열쇠:부서」 꼴 설정, 주어진 부서들의 문서·조각·
-    라이브러리 폴더 부서."""
+    라이브러리 폴더 부서. 되돌리기는 「내가 쓴 뒤 그대로인 것」만 — 파일은 쓴 직후 해시(org_lock 쓰기 기록)와 지금이 같을 때,
+    문서·폴더는 지금 부서가 내가 바꾼 값(targets)일 때만. 그 밖은 덮지 않고 conflicts 에 남긴다."""
 
     FILES = ("rag_spaces.json", dept_dictionary.PARENTS_FILE, "program_admin.json", "accounts.json")
 
-    def __init__(self, st, depts: tuple[str, ...] = ()):
+    def __init__(self, st, depts: tuple[str, ...] = (), targets: tuple[str, ...] = ()):
         import copy
         self.st = st
         self.dd = getattr(st, "data_dir", None)
+        self.targets = set(targets)
         self.accounts = copy.deepcopy(getattr(st, "accounts", None) or {})
         self.files: dict[str, bytes | None] = {}
         if self.dd is not None:
@@ -341,47 +358,81 @@ class Snapshot:
                     self.folders = [tuple(r) for r in c.execute(f"SELECT id, dept FROM library_folders WHERE dept IN ({q})", depts)]
                 except Exception:
                     self.folders = []
+        self.conflicts: list[str] = []
 
-    def restore(self) -> None:
+    def restore(self, journal: dict) -> None:
+        """되돌린다. 남의 쓰기가 끼어든 것은 conflicts 에 남기고, 되돌리기 자체가 실패하면 예외를 그대로 올린다(숨기지 않음)."""
+        import hashlib
         st = self.st
-        live = getattr(st, "accounts", None)
-        if live is not None:
-            live.clear()
-            live.update(self.accounts)
+        accounts_back = True
         if self.dd is not None:
             for f, data in self.files.items():
                 p = Path(self.dd) / f
+                pre = hashlib.sha256(data).hexdigest() if data is not None else None
+                cur = org_lock.digest(p)
+                if cur == pre:
+                    continue                                   # 바뀌지 않았다
+                mine = journal.get(str(p.resolve()), "missing")
+                if mine != cur:                                # 내가 쓴 뒤 다른 쪽이 썼거나 내가 쓴 것이 아니다 — 덮지 않는다
+                    self.conflicts.append(f)
+                    if f == "accounts.json":
+                        accounts_back = False
+                    continue
                 if data is None:
                     p.unlink(missing_ok=True)
                 else:
-                    p.write_bytes(data)
+                    tmp = p.with_suffix(".restore")
+                    tmp.write_bytes(data)
+                    tmp.replace(p)
             dept_dictionary._cache.clear()
             try:
                 from zzaimy.app import program_admin
                 program_admin._CACHE.clear()
             except Exception:
                 pass
+        live = getattr(st, "accounts", None)
+        if live is not None and accounts_back:
+            live.clear()
+            live.update(self.accounts)
         if st.db is not None:
             now = dict(st.db.all_settings() or {})
             for k in set(now) | set(self.settings):
                 if now.get(k, "") != self.settings.get(k, ""):
                     st.db.set_setting(k, self.settings.get(k, ""))
             for did, dept, level in self.docs:
-                st.db.set_document_scope(did, dept=dept, access_level=level)
-            if self.folders:
+                d = st.db.get_document(did)
+                if d is not None and d["dept"] in self.targets:
+                    st.db.set_document_scope(did, dept=dept, access_level=level)
+            if self.folders and self.targets:
+                q = ",".join("?" * len(self.targets))
                 with st.db._conn() as c:
                     for fid, dept in self.folders:
-                        c.execute("UPDATE library_folders SET dept = ? WHERE id = ?", (dept, fid))
+                        c.execute(f"UPDATE library_folders SET dept = ? WHERE id = ? AND dept IN ({q})", (dept, fid, *self.targets))
 
 
-def _write_all(st, depts: tuple[str, ...], fn):
-    """검사를 모두 마친 뒤 부르는 쓰기 묶음 — 도중에 실패하면 Snapshot 으로 되돌리고 500 대신 알린다."""
-    snap = Snapshot(st, depts)
+def _write_all(st, depts: tuple[str, ...], fn, targets: tuple[str, ...] = ()):
+    """검사를 모두 마친 뒤 부르는 쓰기 묶음(잠금 안에서 불린다). 도중에 실패하면 내가 쓴 뒤 그대로인 것만 되돌리고 500.
+    되돌리지 못한 것(다른 쪽이 그 사이 쓴 파일)이 있거나 되돌리기 자체가 실패하면 기록하고 그 사실을 500 으로 알린다(fail-closed)."""
+    snap = Snapshot(st, depts, targets)
+    journal = org_lock.start_journal()
     try:
         return fn()
+    except HTTPException:
+        raise
     except Exception:
-        snap.restore()
+        log.exception("조직도 쓰기 실패 — 되돌립니다")
+        try:
+            snap.restore(journal)
+        except Exception:
+            log.exception("조직도 되돌리기 실패 — 저장값이 중간 상태일 수 있습니다")
+            raise HTTPException(500, "저장하다 멈췄고 되돌리기도 실패했습니다 — 관리자에게 알려 주세요(history/ 의 이전 판으로 복구)")
+        if snap.conflicts:
+            log.error("조직도 되돌리기: 그 사이 다른 쓰기가 있어 덮지 않은 파일 %s", snap.conflicts)
+            raise HTTPException(500, "저장하다 멈췄고, 그 사이 다른 변경이 있던 파일(" + ", ".join(snap.conflicts)
+                                + ")은 되돌리지 않았습니다 — 관리자에게 알려 주세요")
         raise HTTPException(500, "저장하다 멈춰 바꾸기 전으로 되돌렸습니다 — 잠시 뒤 다시 해 주세요")
+    finally:
+        org_lock.stop_journal()
 
 
 def traces(st, name: str) -> list[str]:
@@ -436,7 +487,7 @@ def purge_traces(st, name: str) -> list[str]:
                 dg.pop(name, None)
                 if not dg:
                     a.pop("dept_grades", None)
-        st.save_accounts()
+        org_lock.save_accounts(st)
     if dd is not None:
         cfg = rag_spaces.config(dd)
         gr = {u: [x for x in (g or []) if x != key] for u, g in (cfg.get("grants") or {}).items()}
@@ -489,7 +540,7 @@ def rename_dept(st, old: str, new: str) -> dict:
             hit = True
         n_acc += hit
     if n_acc:
-        st.save_accounts()
+        org_lock.save_accounts(st)
     # 부서 RAG 설정과 문서
     cfg, n_docs = rag_spaces.rename_dept_rag(st.db, rag_spaces.config(dd), old, new)
     if dd is not None:
@@ -529,9 +580,13 @@ def rename_dept(st, old: str, new: str) -> dict:
 
 @router.post("/org/rename")
 async def org_rename(request: Request):
+    b = await _body(request)
+    return await run_in_threadpool(_locked, _org_rename, request, b)
+
+
+def _org_rename(request: Request, b: dict):
     st = request.app.state
     actor = Actor(request)
-    b = await _body(request)
     old, new = _name(b.get("dept")), _name(b.get("name"))
     known = _known(st)
     if old not in known:
@@ -548,17 +603,21 @@ async def org_rename(request: Request):
     if left:
         return _fail(f"{new} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 이 이름으로 바꿀 수 없습니다 — "
                      "관리자가 같은 이름으로 부서를 새로 만들면 남은 기록이 정리됩니다", 409)
-    got = _write_all(st, (old,), lambda: rename_dept(st, old, new))
+    got = _write_all(st, (old,), lambda: rename_dept(st, old, new), targets=(new,))
     return {"ok": True, "msg": f"이름 바꿈: {old} → {new} · 계정 {got['accounts']}개 · 문서 {got['docs']}건",
             "undo": {"dept": new, "name": old}, "name": new}
 
 
 @router.post("/org/delete")
 async def org_delete(request: Request):
+    b = await _body(request)
+    return await run_in_threadpool(_locked, _org_delete, request, b)
+
+
+def _org_delete(request: Request, b: dict):
     from zzaimy.app.user_admin import delete_dept
     st = request.app.state
     actor = Actor(request)
-    b = await _body(request)
     name = _name(b.get("dept"))
     if name not in _known(st):
         return _fail("없는 부서입니다")
@@ -566,7 +625,7 @@ async def org_delete(request: Request):
     accounts = getattr(st, "accounts", None) or {}
     if any((a.get("dept") or "").strip() == name for a in accounts.values()):     # 쓰기 전에 막는다(delete_dept 도 다시 본다)
         return _fail(f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요", 409)
-    err, moved = _write_all(st, (name,), lambda: delete_dept(st, accounts, name))
+    err, moved = _write_all(st, (name,), lambda: delete_dept(st, accounts, name), targets=("공통",))
     if err:
         return _fail(err, 409)
     return {"ok": True, "msg": f"{name} 부서를 지웠습니다 · 문서 {moved}건은 공통 RAG 로"}
@@ -574,9 +633,13 @@ async def org_delete(request: Request):
 
 @router.post("/org/create")
 async def org_create(request: Request):
+    b = await _body(request)
+    return await run_in_threadpool(_locked, _org_create, request, b)
+
+
+def _org_create(request: Request, b: dict):
     st = request.app.state
     actor = Actor(request)
-    b = await _body(request)
     dd = getattr(st, "data_dir", None)
     raw, parent = _name(b.get("name")), _name(b.get("parent"))
     known = _known(st)
@@ -628,12 +691,16 @@ async def org_create(request: Request):
 
 @router.post("/org/head")
 async def org_head(request: Request):
+    b = await _body(request)
+    return await run_in_threadpool(_locked, _org_head, request, b)
+
+
+def _org_head(request: Request, b: dict):
     """처·단의 총괄 책임자 지정(관리자만) — 소속이 그 부서면 계정 등급을, 아니면 겸직 등급(dept_grades)과 겸직 부서(추가 권한)를.
     on=false 면 뺀다(소속은 사업 책임자로, 겸직은 그 부서 겸직째 푼다)."""
     st = request.app.state
     actor = Actor(request)
     _need(actor.admin, "총괄 책임자 지정은 관리자가 합니다")
-    b = await _body(request)
     dept, uid, on = _name(b.get("dept")), _name(b.get("user")).lower(), b.get("on", True) is not False
     if dept not in _known(st):
         return _fail("없는 부서입니다")
@@ -676,4 +743,4 @@ def _set_head(st, a: dict, uid: str, dept: str, on: bool, primary: bool) -> None
             cfg["grants"] = {u: v for u, v in gr.items() if v}
             rag_spaces.save_config(cfg, dd)
     a["updated_at"] = datetime.datetime.now().isoformat(timespec="seconds")
-    st.save_accounts()
+    org_lock.save_accounts(st)

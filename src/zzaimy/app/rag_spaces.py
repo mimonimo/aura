@@ -122,6 +122,8 @@ def save_config(cfg: dict, data_dir: str | Path) -> None:
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(p)
+    from zzaimy.app import org_lock
+    org_lock.note(p)                     # 조직도 되돌리기가 「내가 쓴 뒤 그대로인지」 볼 해시
 
 
 def backfill_depts(db, data_dir: str | Path) -> dict:

@@ -613,6 +613,8 @@ def _write(p: Path, data: dict) -> None:
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(p)
     _cache.pop(str(p), None)
+    from zzaimy.app import org_lock
+    org_lock.note(p)                     # 조직도 되돌리기가 「내가 쓴 뒤 그대로인지」 볼 해시
 
 
 # ---------------------------------------------------------------- 읽기 — 자동완성·정식 이름

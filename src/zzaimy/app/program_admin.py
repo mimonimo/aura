@@ -84,7 +84,16 @@ def load_store(data_dir=None) -> dict:
 
 
 def save_store(store: dict, data_dir=None) -> str:
-    """저장 — 이전 판은 history/program_admin.<시각>.json 으로 남기고 그 이름의 시각 부분을 돌려준다(가져오기 되돌리기에 쓴다)."""
+    """저장 — 이전 판은 history/program_admin.<시각>.json 으로 남기고 그 이름의 시각 부분을 돌려준다(가져오기 되돌리기에 쓴다).
+    조직·계정 저장값과 같은 잠금(org_lock) 안에서 쓴다."""
+    from zzaimy.app import org_lock
+    with org_lock.LOCK:
+        stamp = _save_store(store, data_dir)
+        org_lock.note(_dir(data_dir) / STORE)
+        return stamp
+
+
+def _save_store(store: dict, data_dir=None) -> str:
     d = _dir(data_dir)
     p = d / STORE
     hist = d / "history"

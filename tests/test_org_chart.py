@@ -362,3 +362,110 @@ def test_write_failure_rolls_back(org, monkeypatch):
     assert dev.post("/org/create", json={"name": "평가팀", "parent": "기획처"}).status_code == 500
     assert _state(tmp, app)[0]["rag_spaces.json"] == before[0]["rag_spaces.json"]
     assert "평가팀" not in rag_spaces.known_depts(rag_spaces.config(tmp), app.state.accounts)
+
+
+# ---------------------------------------------------------------- 동시 요청·되돌리기(org_lock)
+
+def _race(app, calls):
+    """같은 순간에 여러 요청 — 스레드마다 관리자 클라이언트 하나."""
+    import threading
+    clients = [_client(app, "zzdev", "devpass") for _ in calls]
+    out = [None] * len(calls)
+    go = threading.Barrier(len(calls))
+
+    def run(i):
+        go.wait()
+        out[i] = clients[i].post(calls[i][0], json=calls[i][1])
+    ts = [threading.Thread(target=run, args=(i,)) for i in range(len(calls))]
+    [t.start() for t in ts]
+    [t.join(20) for t in ts]
+    return out
+
+
+def test_concurrent_renames_one_wins(org, monkeypatch):
+    import time
+    from zzaimy.app import org_routes
+    app, dev, tmp = org
+    real = org_routes.rename_dept
+    monkeypatch.setattr(org_routes, "rename_dept", lambda st, o, n: (time.sleep(0.3), real(st, o, n))[1])
+    rs = _race(app, [("/org/rename", {"dept": "기획팀", "name": "가팀"}), ("/org/rename", {"dept": "기획팀", "name": "나팀"})])
+    codes = sorted(r.status_code for r in rs)
+    assert codes == [200, 400]
+    win = next(r.json()["name"] for r in rs if r.status_code == 200)
+    assert app.state.accounts["kim"]["dept"] == win
+    names = {x["dept"] for x in rag_spaces.config(tmp)["dept_rags"]}
+    assert win in names and not ({"가팀", "나팀"} - {win}) & names and "기획팀" not in names
+    assert dept_dictionary.parents_override(tmp)[win] == "기획처"
+
+
+def test_concurrent_moves_keep_two_levels(org, monkeypatch):
+    import time
+    from zzaimy.app import org_routes
+    app, dev, tmp = org
+    dev.post("/org/move", json={"dept": "학생지원팀", "parent": "기획처"})          # 학생복지처 아래를 비운다
+    real = org_routes._check_place
+    monkeypatch.setattr(org_routes, "_check_place", lambda st, d, p: (real(st, d, p), time.sleep(0.3))[0])
+    rs = _race(app, [("/org/move", {"dept": "천마빌리지센터", "parent": "학생복지처"}),
+                     ("/org/move", {"dept": "학생복지처", "parent": "기획처"})])
+    assert sorted(r.status_code for r in rs) == [200, 400]                       # 검사 뒤 상태가 바뀌어 둘 다 통과하지 않는다
+    over = dept_dictionary.parents_override(tmp)
+    assert not (over.get("천마빌리지센터") == "학생복지처" and over.get("학생복지처") == "기획처")
+
+
+def test_rollback_skips_files_changed_by_others(org, monkeypatch):
+    """쓰는 도중 다른 쪽이 같은 파일을 썼으면 되돌리기가 그 파일을 덮지 않고 500 으로 알린다."""
+    from zzaimy.app import org_routes
+    app, dev, tmp = org
+
+    def half(st, old, new):
+        cfg, _ = rag_spaces.rename_dept_rag(st.db, rag_spaces.config(tmp), old, new)
+        rag_spaces.save_config(cfg, tmp)                                         # 내 쓰기(기록됨)
+        (tmp / "rag_spaces.json").write_text('{"dept_rags": [{"dept": "남의쓰기"}]}', encoding="utf-8")   # 기록 밖 다른 쓰기
+        dept_dictionary.rename_dept(tmp, old, new)                               # 내 쓰기(기록됨)
+        raise OSError("disk")
+    monkeypatch.setattr(org_routes, "rename_dept", half)
+    before_parents = (tmp / dept_dictionary.PARENTS_FILE).read_bytes()
+    r = dev.post("/org/rename", json={"dept": "기획팀", "name": "가팀"})
+    assert r.status_code == 500 and "rag_spaces.json" in r.json()["detail"]
+    assert "남의쓰기" in (tmp / "rag_spaces.json").read_text(encoding="utf-8")       # 덮지 않음
+    assert (tmp / dept_dictionary.PARENTS_FILE).read_bytes() == before_parents     # 내가 쓴 뒤 그대로인 파일은 되돌림
+
+
+def test_rollback_failure_is_reported(org, monkeypatch, caplog):
+    from zzaimy.app import org_routes
+    app, dev, tmp = org
+
+    def boom(*a, **k):
+        raise OSError("disk")
+
+    def restore_fails(self, journal):
+        raise OSError("restore")
+    monkeypatch.setattr(org_routes, "rename_dept", boom)
+    monkeypatch.setattr(org_routes.Snapshot, "restore", restore_fails)
+    r = dev.post("/org/rename", json={"dept": "기획팀", "name": "가팀"})
+    assert r.status_code == 500 and "되돌리기도 실패" in r.json()["detail"]
+    assert any("되돌리기 실패" in m for m in caplog.messages)
+
+
+def test_other_paths_share_the_lock(org):
+    """계정 화면·부서 사람·사업 관리 저장도 같은 잠금 — 잠금을 쥔 동안 끝나지 않는다."""
+    import threading
+    import time
+    from zzaimy.app import org_lock, program_admin
+    app, dev, tmp = org
+    done = []
+
+    def save():
+        program_admin.save_store(program_admin.load_store(tmp), tmp)
+        done.append("store")
+
+    def team():
+        _client(app, "boss").post("/team/save", data={"uid": "kim", "dept": "기획팀", "perm": ["create_project"]}, follow_redirects=False)
+        done.append("team")
+    with org_lock.LOCK:
+        ts = [threading.Thread(target=save), threading.Thread(target=team)]
+        [t.start() for t in ts]
+        time.sleep(0.5)
+        assert done == []
+    [t.join(10) for t in ts]
+    assert sorted(done) == ["store", "team"]
