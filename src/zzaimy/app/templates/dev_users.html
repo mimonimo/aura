@@ -100,6 +100,25 @@
   #userEdit .ua-extra-row button { min-height:38px; padding:0; }
   @media (max-width:640px) { #userEdit .ua-extra-row { grid-template-columns:1fr 1fr 36px; } }
   @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } .ua-table .wide { display:none; } }
+  .ua-nw { white-space:nowrap; }
+  /* 좁은 화면 — 표 줄을 카드로(이름 / 주요 값 / 단추), 가로 스크롤 없이 */
+  @media (max-width:600px) {
+    .ua-head { flex-wrap:wrap; }
+    .ua-head .ua-dfind { flex:1 1 100%; width:auto; order:9; margin-left:0; }
+    .ua-cards, .ua-cards tbody { display:block; }
+    .ua-cards tr.ua-th { display:none; }
+    .ua-cards tr { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; position:relative; margin:0 0 8px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+    .ua-cards tr[hidden] { display:none; }
+    .ua-cards td { display:block; padding:0; border:0; min-width:0; }
+    .ua-cards td:first-child { grid-column:1 / -1; padding-right:64px; }
+    .ua-cards td[data-label]::before { content:attr(data-label); display:block; font-size:10.5px; color:var(--muted); margin-bottom:1px; }
+    .ua-cards td.act { position:absolute; top:8px; right:8px; }
+    .ua-tree td:first-child { padding-right:0; }
+    .ua-tree td.act { position:static; grid-column:1 / -1; text-align:left; white-space:normal; }
+    .ua-tree td.act:not(:has(form)) { display:none; }
+    .ua-kid { margin-left:14px !important; }
+    .ua-kid td:first-child .ua-chip { margin-left:0; }
+  }
 </style>
 
 {% if err %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ err }}</span></p>{% endif %}
@@ -107,18 +126,19 @@
 
 <div class="card reveal"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>사용자
-    <span class="muted spacer" style="font-size:12px; font-weight:400;">{{ users | selectattr('active') | list | length }}명 사용 중</span>
+    <span class="muted" style="font-size:12px; font-weight:400;">{{ users | selectattr('active') | list | length }}명 사용 중</span>
+    <input type="search" class="ua-dfind spacer" data-user-find placeholder="이름·아이디·부서 찾기" aria-label="사용자 찾기">
     <button type="button" class="secondary" data-modal-open="#userEdit" data-user-new style="padding:6px 12px; font-size:12.5px;">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>사용자 추가</button></h2>
   <div class="table-scroll">
-  <table class="ua-table">
-    <tr><th>아이디</th><th>역할</th><th>부서</th><th>문서 작업 계정</th><th></th></tr>
+  <table class="ua-table ua-cards" data-user-table>
+    <tr class="ua-th"><th>아이디</th><th>역할</th><th>부서</th><th>문서 작업 계정</th><th></th></tr>
     {% for u in users %}
-    <tr class="{{ '' if u.active else 'off' }}">
+    <tr class="{{ '' if u.active else 'off' }}" data-user-row data-q="{{ [u.user, u.name or '', u.role_label, u.grade_label or '', u.dept or '', dept_labels.get(u.dept, '') if u.dept else ''] | join(' ') | lower }}">
       <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
-      <td>{{ u.role_label }}{% if u.grade_label %} · {{ u.grade_label }}{% endif %}{% for k in u.perms %}<span class="ua-perm">+ {{ perms[k] }}</span>{% endfor %}{% if u.extra %}<span class="ua-sub" title="겸직 부서 — 이 부서 문서도 찾고 작업하며, 부서마다 등급이 따로입니다">겸직: {% for d in u.extra %}{{ d }}({{ grades[u.extra_grades[loop.index0]] }}){% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}</td>
-      <td>{% if u.dept %}{{ u.dept }}{% if dept_labels.get(u.dept) and dept_labels[u.dept] != u.dept %}<span class="ua-sub">{{ dept_labels[u.dept] }}</span>{% endif %}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}</td>
-      <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted" title="로그인 뒤 설정에서 「내 학교 계정 연결」">연결 전</span>{% endif %}</td>
+      <td data-label="역할"><span class="ua-nw">{{ u.role_label }}</span>{% if u.grade_label %} · <span class="ua-nw">{{ u.grade_label }}</span>{% endif %}{% for k in u.perms %}<span class="ua-perm">+ {{ perms[k] }}</span>{% endfor %}{% if u.extra %}<span class="ua-sub" title="겸직 부서 — 이 부서 문서도 찾고 작업하며, 부서마다 등급이 따로입니다">겸직: {% for d in u.extra %}{{ d }}({{ grades[u.extra_grades[loop.index0]] }}){% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}</td>
+      <td data-label="부서">{% if u.dept %}{{ u.dept }}{% if dept_labels.get(u.dept) and dept_labels[u.dept] != u.dept %}<span class="ua-sub">{{ dept_labels[u.dept] }}</span>{% endif %}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}</td>
+      <td data-label="문서 작업 계정">{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted" title="로그인 뒤 설정에서 「내 학교 계정 연결」">연결 전</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
             data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-grade="{{ u.grade }}" data-perms="{{ u.perms | join('|') }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}" data-extra-grades="{{ u.extra_grades | join('|') }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}"
@@ -127,6 +147,18 @@
     {% endfor %}
   </table>
   </div>
+  <p class="muted" data-user-none hidden style="margin:10px 0 0;">찾는 사용자가 없습니다.</p>
+  <script>
+  (function () {
+    var f = document.querySelector('[data-user-find]'), rows = document.querySelectorAll('[data-user-row]'), none = document.querySelector('[data-user-none]');
+    if (!f) return;
+    f.addEventListener('input', function () {
+      var q = f.value.trim().toLowerCase(), n = 0;
+      rows.forEach(function (tr) { var on = !q || tr.dataset.q.indexOf(q) >= 0; tr.hidden = !on; if (on) n++; });
+      none.hidden = n > 0;
+    });
+  })();
+  </script>
 </div></div>
 
 <div class="card reveal" id="depts"><div class="card-in" data-dept-card>
@@ -139,8 +171,8 @@
   <p class="ua-lead">부서 드라이브는 각 부서의 총괄 책임자가 조직·구성원 화면에서 연결합니다. 여기서는 연결 상태를 확인합니다.</p>
   {% if depts %}
   <div class="table-scroll">
-  <table class="ua-table ua-tree">
-    <tr><th>부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
+  <table class="ua-table ua-tree ua-cards">
+    <tr class="ua-th"><th>부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
     {% for d in depts %}
     {% set waiting = d.people | selectattr('access', 'equalto', '첫 로그인 전') | list | length %}
     <tr data-dept-row="{{ d.dept }}" data-top="{{ d.top }}"{% if d.top %} class="ua-kid" hidden{% endif %}>
@@ -148,9 +180,9 @@
         {% if d.kids %}<button type="button" class="ua-toggle" data-tree-toggle="{{ d.dept }}" aria-expanded="false" data-kids="{{ d.kids }}">펼치기 · {{ d.kids }}</button>{% endif %}</span>
         <button type="button" class="ua-chip" data-parent-open="{{ d.dept }}" data-parent="{{ d.parent }}" title="상위 부서 — 상위 부서의 총괄 책임자가 이 부서도 맡습니다">{{ ('상위: ' ~ d.parent) if d.parent else '상위 부서 정하기' }}</button>
         <span class="ua-rowmsg" role="status"></span></td>
-      <td><button type="button" class="ua-chip ua-count" data-people-open="{{ d.dept }}">{{ d.people | length }}명</button>{% if waiting %}<span class="ua-sub">첫 로그인 전 {{ waiting }}</span>{% endif %}</td>
-      <td><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="라이브러리에서 이 부서 문서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
-      <td>{% if d.drive.connected %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>{{ d.drive.name or '부서 폴더' }}</a>
+      <td data-label="사람"><button type="button" class="ua-chip ua-count" data-people-open="{{ d.dept }}">{{ d.people | length }}명</button>{% if waiting %}<span class="ua-sub">첫 로그인 전 {{ waiting }}</span>{% endif %}</td>
+      <td data-label="부서 RAG 문서"><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="라이브러리에서 이 부서 문서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
+      <td data-label="부서 드라이브">{% if d.drive.connected %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>{{ d.drive.name or '부서 폴더' }}</a>
           <span class="ua-sub">{{ '공용 계정' if d.drive.shared else '개인 계정' }} {{ d.drive.by }} · 접근 {{ d.drive.granted }}명{% if d.drive.unlinked %} · 구글 미연결 {{ d.drive.unlinked | length }}명{% endif %}</span>
           {% if d.drive.personal %}<span class="ua-sub ua-warn">개인 계정으로 연결됨 — 부서에서 공용 계정으로 바꾸기</span>{% endif %}
           {% if d.drive.actor or d.drive.connected_at %}<span class="ua-sub">{{ d.drive.actor }}{% if d.drive.actor %} 연결{% endif %}{% if d.drive.connected_at %} · {{ d.drive.connected_at }}{% endif %}{% if d.drive.synced_at %} · 맞춤 {{ d.drive.synced_at }}{% endif %}</span>{% endif %}

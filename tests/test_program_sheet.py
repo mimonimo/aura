@@ -157,8 +157,8 @@ def test_preview_apply_and_year_view(world):
     assert ">1,500<" in p25
     assert ">1,200<" in p24 and ">1,500<" not in p24 and "라마바 지원사업" in p24          # 연도별 표의 합계 칸(원, 쉼표)
     p25 = dev.get("/programs/admin?tab=all&year=2025").text
-    assert "새로운 교육 프로젝트 사업" in p25 and 'class="pa-src src-excel"' in p25
-    assert "계정 있음" in p25                                        # 책임자 이름 BOSS = 계정 이름
+    assert "새로운 교육 프로젝트 사업" in p25 and "출처 엑셀" in p25 and 'class="pa-src src-excel"' not in p25   # 출처는 이름 칸 툴팁에만(세부정보 창은 칩)
+    assert "· 계정 있음" in p25 and '<span class="l2">계정 있음' not in p25   # 책임자 이름 BOSS = 계정 이름(툴팁)
     assert "lead1" not in json.dumps(store["rows"]["program:가나다혁신사업"].get("heads", []))   # 권한은 주지 않는다
     assert "BOSS" not in program_admin.load_store(tmp_path)["rows"]["program:가나다혁신사업"].get("heads", [])
 

@@ -25,9 +25,9 @@ def load(db):
 
 def save(db, enabled, entities, user):
     if any(e not in ENTITIES for e in entities):
-        raise ValueError("지원하지 않는 마스킹 항목")
+        raise ValueError("지원하지 않는 가리기 항목")
     if enabled and not entities:
-        raise ValueError("마스킹을 켜려면 항목을 하나 이상 선택하세요.")
+        raise ValueError("가리기를 켜려면 항목을 하나 이상 선택하세요.")
     value = {"enabled": bool(enabled), "entities": sorted(set(entities)),
              "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": user}
     db.set_setting(KEY, json.dumps(value, ensure_ascii=False))

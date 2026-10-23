@@ -53,8 +53,10 @@
   .cl summary::-webkit-details-marker { display: none; }
   .cl summary:hover { background: var(--panel); border-color: #94A3B8; }
   .cl summary:focus-visible { outline: 2px solid #94A3B8; outline-offset: 2px; }
-  .cl-chev { font-size: 16px; color: var(--muted); transition: transform .2s var(--ease); }
-  .cl[open] .cl-chev { transform: rotate(180deg); }
+  /* 세모 대신 「펼치기 / 접기」 글(오른쪽 끝) */
+  .cl-chev { order: 9; margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .cl-chev::after { content: "펼치기"; }
+  .cl[open] .cl-chev::after { content: "접기"; color: #2d4f7c; }
   .cl-count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
   .cl-count::before { content: ""; display: inline-block; width: 1px; height: 12px;
                       background: #CBD5E1; margin: 0 9px 0 1px; vertical-align: -2px; }
@@ -107,7 +109,7 @@
   </div>
   <details class="cl" open>
     <summary>
-      <iconify-icon class="cl-chev" icon="solar:alt-arrow-down-linear"></iconify-icon>
+      <span class="cl-chev" aria-hidden="true"></span>
       전체 변경 목록 (커밋 이력)
       <span class="cl-count">{{ history|length }}일 · {{ history_count }}건</span>
     </summary>

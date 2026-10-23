@@ -10,6 +10,7 @@
   .mc-chip small { color:var(--muted); font-size:11.5px; }
   .mc-wait { display:inline-block; font-size:12px; color:var(--muted); padding:1px 8px; border:1px dashed var(--line); border-radius:999px; }
   .mc-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px; margin-top:10px; }
+  .mc-part { min-width:0; overflow-x:auto; }   /* 좁은 화면 — 표만 가로로 밀고 화면은 넘치지 않게 */
   .mc-part h3 { font-size:13px; font-weight:500; margin:0 0 6px; color:var(--ink); }
   .mc-pair { margin:0 0 10px; font-size:12.5px; }
   .mc-pair-name { display:flex; justify-content:space-between; gap:8px; }
@@ -51,7 +52,7 @@
     {% endif %}
   </div>
   {% if not run %}
-  <p class="muted">비교 실행 결과 없음 · 결과 자리 {{ base_shown }}</p>
+  <p class="muted" title="{{ base_shown }}">아직 비교 실행 결과가 없습니다.</p>
   {% else %}
   <p class="muted" style="font-size:12px; margin:4px 0 0;">{% if run.created %}{{ run.created }}{% else %}<span class="mc-wait">진행 중</span>{% endif %}</p>
   <div class="mc-arms" data-mc-arms>
@@ -98,9 +99,9 @@
       <table class="mc-table"><tbody>{% for r in b.other %}<tr><td>{{ r.name }}</td>{% for a in run.arms %}<td>{% if r.pct and r.vals.get(a.key) is not none %}{{ "%.1f"|format(r.vals.get(a.key) * 100) }}%{% else %}{{ r.vals.get(a.key)|mc_num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
       {% endif %}
     </div>
-    <div class="mc-part"><h3>서류 갈래별</h3>
+    <div class="mc-part"><h3>서류 종류별</h3>
       {% if b.per_type is none %}<span class="mc-wait">진행 중</span>{% else %}
-      <table class="mc-table"><thead><tr><th>갈래</th><th>n</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+      <table class="mc-table"><thead><tr><th>종류</th><th>n</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
         <tbody>{% for r in b.per_type %}<tr><td>{{ r.type }}</td><td>{{ r.n }}</td>{% for a in run.arms %}<td>{% if r.pct and r.vals.get(a.key) is not none %}{{ "%.1f"|format(r.vals.get(a.key) * 100) }}%{% else %}{{ r.vals.get(a.key)|mc_num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
       {% endif %}
     </div>
@@ -115,7 +116,7 @@
   {% else %}
   <div class="mc-samples">
     <ul class="mc-list" data-mc-list>
-      {% for s in run.samples %}<li><button type="button" data-i="{{ loop.index0 }}">{{ s.type or '갈래 없음' }}<small>{{ s.id }}</small></button></li>{% endfor %}
+      {% for s in run.samples %}<li><button type="button" data-i="{{ loop.index0 }}">{{ s.type or '종류 없음' }}<small>{{ s.id }}</small></button></li>{% endfor %}
     </ul>
     <div class="mc-detail" data-mc-detail aria-live="polite"></div>
   </div>

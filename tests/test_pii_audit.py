@@ -271,9 +271,9 @@ def test_dev_pii_page_actions_and_shortcut(client):
     assert "자가 점검" in checks and "잔여 검사" in checks
     assert 'action="/dev/pii/selftest"' in checks
     assert "원문 유지" in r.text and 'action="/dev/pii/policy"' in r.text
-    assert "내부 마스킹 꺼짐" in r.text
+    assert "내부 가리기 꺼짐" in r.text
     assert 'action="/dev/pii/scan"' not in r.text
-    assert "마스킹 기록 —" not in r.text
+    assert "가리기 기록 —" not in r.text
 
     r = client.post("/dev/pii/selftest", follow_redirects=False)
     assert r.status_code == 303

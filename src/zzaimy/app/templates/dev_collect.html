@@ -44,7 +44,7 @@
         <th class="num">건수</th><th class="hide-sm">기간</th></tr></thead>
       <tbody>{% for s in full %}
         <tr><td><input type="checkbox" name="keys" value="{{ s.key }}" class="col-pick" data-n="{{ s.n }}" aria-label="{{ s.name }}"></td>
-          <td><b>{{ s.name }}</b><span class="sub">{{ s.desc }}</span><span class="where" title="있는 곳">{{ s.where }}</span></td>
+          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b><span class="sub">{{ s.desc }}</span></td>
           <td class="hide-sm">{{ s.use }}</td>
           <td class="num">{{ '{:,}'.format(s.n) }}</td>
           <td class="hide-sm span" title="{{ s.first }} ~ {{ s.last }}">{{ s.span }}</td></tr>
@@ -53,7 +53,7 @@
           data-show="비어 있는 항목 {{ empty | length }}개 보기" data-hide="비어 있는 항목 접기">비어 있는 항목 {{ empty | length }}개 보기</button></td></tr>{% endif %}
       {% for s in empty %}
         <tr class="col-empty" hidden><td><input type="checkbox" disabled aria-label="{{ s.name }} — 자료 없음"></td>
-          <td><b>{{ s.name }}</b><span class="sub">{{ s.desc }}</span><span class="where" title="있는 곳">{{ s.where }}</span></td>
+          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b><span class="sub">{{ s.desc }}</span></td>
           <td class="hide-sm">{{ s.use }}</td>
           <td class="num">0</td>
           <td class="hide-sm span">아직 없음</td></tr>
@@ -74,7 +74,7 @@
         <span class="col-sum" id="colSum" aria-live="polite"><span id="colRange">전체 기간</span> <span class="muted" id="colCount">· 선택 0개</span></span>
       </div>
     </div>
-    <p class="col-note">가린 사본 · 사람은 가명(u_…), 대화는 가린 번호(s_…) · 대화 단위 train·eval 9:1, 평가 세트 질문은 heldout</p>
+    <p class="col-note">개인정보를 가린 사본 · 사람과 대화는 가명으로 바꿈 · 대화마다 학습용과 평가용을 9:1로 나누고, 평가 세트 질문은 따로 둠</p>
   </form>
 </div></div>
 

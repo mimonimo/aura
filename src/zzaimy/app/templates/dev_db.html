@@ -273,7 +273,7 @@ tr.pick[hidden]{display:none}
         {% for d in view.docs %}
         {% set href = '/dev/db?tab=docs&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') ~ ('&type=' ~ type if type else '') %}
         <tr class="pick {{ 'on' if d.id == sel_id else '' }}" data-href="{{ href }}">
-          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.filename }}</a>
+          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.title or d.filename }}</a>
             <div class="sub {{ d.status }}">{{ doc_type_labels.get(d.doc_type, d.doc_type) }} · <span class="dx-mono">{{ receipt_label(d.receipt_no) or '—' }}</span> · {{ status_labels.get(d.status, d.status) }}</div></td>
           <td class="dx-num dx-counts">항목 {{ d.n_chunks }} · 검색 조각 {% if d.n_grant is not none %}{{ d.n_grant }}{% else %}{{ d.n_units }}{% endif %}</td>
         </tr>
@@ -292,7 +292,7 @@ tr.pick[hidden]{display:none}
     {% else %}
     {% set s = view.selected %}{% set o = s.overview %}
     <div class="dx-head">
-      <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span class="dx-title" title="{{ o.filename }}">{{ doc_name(o) }}</span></h2>
+      <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span class="dx-title" title="{{ o.filename }}">{{ doc_title(o) }}</span></h2>
       <span class="dx-links">
         <a class="h-link" href="/doc/{{ o.id }}"><iconify-icon icon="solar:eye-linear"></iconify-icon>문서 화면</a>
         <a class="h-link" href="/graph/explore?id=doc:{{ o.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프</a>
@@ -447,8 +447,8 @@ tr.pick[hidden]{display:none}
         <tbody>
         {% for d in view.docs %}
         {% set href = '/dev/db?tab=regulation&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') %}
-        <tr class="pick {{ 'on' if d.id == doc_id else '' }}" data-href="{{ href }}" data-name="{{ (d.filename or '')|lower }}" data-missing="{{ '1' if index.exists and d.n_units and not d.n_embedded else '' }}">
-          <td class="name"><a href="{{ href }}">{{ d.filename }}</a>
+        <tr class="pick {{ 'on' if d.id == doc_id else '' }}" data-href="{{ href }}" data-name="{{ ((d.title or '') ~ ' ' ~ (d.filename or ''))|lower }}" data-missing="{{ '1' if index.exists and d.n_units and not d.n_embedded else '' }}">
+          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.title or d.filename }}</a>
             <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis;">{{ receipt_label(d.receipt_no) or '—' }}</div></td>
           <td class="muted" style="font-size:12px;">{{ d.dept }}</td>
           <td class="dx-num">{{ d.n_units }}</td>

@@ -53,7 +53,7 @@ def _tensorboard_status() -> dict:
             runs = _json.loads(r.read() or b"[]")
         return {"ok": True, "detail": f"학습 기록 {len(runs)}개" if isinstance(runs, list) else ""}
     except Exception as e:  # noqa: BLE001 — 상태 표시일 뿐
-        return {"ok": False, "detail": f"응답 없음({type(e).__name__})"}
+        return {"ok": False, "detail": "응답 없음", "error": type(e).__name__}   # 까닭은 툴팁(관리자 화면)
 
 
 @router.get("/dev/train", response_class=HTMLResponse)
@@ -95,7 +95,8 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
     tools = [
         {**t, "url": db.get_setting(t["setting"], ""),
          "connected": ls["ok"] if t["key"] == "labelstudio" else (tb["ok"] if t["key"] == "tensorboard" else None),
-         "detail": tb.get("detail", "") if t["key"] == "tensorboard" else ""}
+         "detail": tb.get("detail", "") if t["key"] == "tensorboard" else "",
+         "error": tb.get("error", "") if t["key"] == "tensorboard" else ""}
         for t in _TRAIN_TOOLS
     ]
     llm = model_config.current()

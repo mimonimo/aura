@@ -1,7 +1,21 @@
 {% set path = request.url.path %}
 {% set train_tab = request.query_params.get('tab', 'data') %}
 {# 이름은 app/dev_nav.py 한 곳에서 — 화면 머리·탭 제목도 같은 표를 읽는다 #}
-<div style="overflow-y:auto; min-height:0; flex:1;" data-developer-navigation>
+<style>
+  .dev-nav-box { position:relative; flex:1; min-height:0; display:flex; flex-direction:column; }
+  .dev-nav-scroll { overflow-y:auto; min-height:0; flex:1; }
+  .dev-nav-scroll .side-label { margin:12px 12px 4px; }
+  .dev-nav-scroll .side-label:first-child { margin-top:4px; }
+  .dev-nav-scroll .side-nav a { padding-top:8px; padding-bottom:8px; }
+  /* 아래에 메뉴가 더 있으면 아래 가장자리를 흐리게 — 내려 볼 수 있다는 표시 */
+  .dev-nav-box::after { content:""; position:absolute; left:0; right:0; bottom:0; height:28px; pointer-events:none;
+    background:linear-gradient(to bottom, transparent, #f7f7f8); opacity:0; transition:opacity .15s; }
+  .dev-nav-box.more-below::after { opacity:1; }
+  /* 카드 머리(h2)의 아이콘 크기(20px)가 머리 오른쪽 단추(h-link·mini-btn)의 14px 아이콘 칸을 넘쳐 글자를 덮지 않게 — 개발 화면 공통 */
+  .card h2 .h-link iconify-icon, .card h2 .mini-btn iconify-icon { font-size:14px; color:inherit; }
+</style>
+<div class="dev-nav-box" data-developer-navigation-box>
+<div class="dev-nav-scroll" data-developer-navigation>
 {% for heading, links in dev_nav_groups %}
   <div class="side-label">{{ heading }}</div>
   <nav class="side-nav" aria-label="{{ heading }}">
@@ -12,3 +26,23 @@
   </nav>
 {% endfor %}
 </div>
+</div>
+<script>
+(function () {
+  var box = document.querySelector('[data-developer-navigation-box]'), sc = box && box.querySelector('[data-developer-navigation]');
+  if (!sc) return;
+  function edge() { box.classList.toggle('more-below', sc.scrollTop + sc.clientHeight < sc.scrollHeight - 2); }
+  function reveal() {   // 지금 화면 메뉴가 가려져 있으면 보이는 자리로(페이지 스크롤은 건드리지 않는다)
+    var act = sc.querySelector('a[aria-current="page"]');
+    if (act) {
+      var a = act.getBoundingClientRect(), b = sc.getBoundingClientRect();
+      if (a.bottom > b.bottom || a.top < b.top) sc.scrollTop += a.top - b.top - (sc.clientHeight - a.height) / 2;
+    }
+    edge();
+  }
+  sc.addEventListener('scroll', edge, {passive: true});
+  window.addEventListener('resize', edge);
+  if (document.readyState === 'complete') reveal(); else window.addEventListener('load', reveal);
+  document.addEventListener('DOMContentLoaded', reveal);
+})();
+</script>

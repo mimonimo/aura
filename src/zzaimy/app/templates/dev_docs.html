@@ -198,7 +198,7 @@
       <div class="docs-search" style="margin-bottom:10px;">
         <input type="search" id="recQ" placeholder="제목·설명으로 찾기 (예: OCR, 리랭커, 개인정보)" aria-label="기록 찾기" autocomplete="off">
       </div>
-      <div class="rec-kinds" role="group" aria-label="갈래">
+      <div class="rec-kinds" role="group" aria-label="종류">
         <button type="button" class="rec-kind on" data-kind="">전체</button>
         {% for k, items in groups %}<button type="button" class="rec-kind" data-kind="{{ k }}">{{ k }} <span>{{ items | length }}</span></button>{% endfor %}
       </div>

@@ -37,7 +37,8 @@ def dev_rag(request: Request):
         "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
         "dict_grants": {a["id"]: {"space": a["space"], "grants": a["grants"]} for a in accts},
         "dept_rags": rag_spaces.dept_rag_rows(db, cfg, accounts, st.all_depts()),
-        "staff_grades": {k: v for k, v in grades.GRADES.items() if k != "member"}}))
+        "staff_grades": {k: v for k, v in grades.GRADES.items() if k != "member"},
+        "names": {u: ((a or {}).get("name") or "").strip() or u for u, a in accounts.items()}}))   # 아이디 대신 이름
 
 
 @router.post("/dev/rag/min-grade")
@@ -125,6 +126,12 @@ def dev_rag_regs(request: Request, q: str = ""):
     from zzaimy.app import regulation_register
     st = request.app.state
     got = regulation_register.candidates(st.db, q)
+    from zzaimy.app.doc_title import display_title     # 화면에는 확장자 뗀 제목, 파일 이름은 filename 에 그대로
+    for d in got["registered"]:
+        d["title"] = display_title({"filename": d.get("filename") or ""}) or d.get("filename") or ""
+    for d in got["items"]:
+        d["filename"] = d.get("title") or ""
+        d["title"] = display_title({"filename": d["filename"]}) or d["filename"]
     from zzaimy.app import reindex_state
     return {**got, "reindex_needed": reindex_state.needed(st.db), "reindex_running": st.reindex_running()}
 
@@ -157,6 +164,34 @@ async def dev_rag_regs_audience(request: Request):
             n += 1
     return {"changed": n, "audience": aud}
 
+@router.get("/dev/rag/targets")
+def dev_rag_targets(request: Request, q: str = "", limit: int = 30):
+    """검색 범위 시험의 대상 찾기 — 사람 고르기 부품(people-picker)이 읽는 꼴로 공간과 계정을 함께 돌려준다.
+    값은 「space:<공간>」·「user:<계정>」(dev_rag_try 가 받는 그대로), 보이는 이름은 공간 이름·사람 이름."""
+    from zzaimy.app import rag_spaces
+    from zzaimy.app.access_guard import ROLES
+    st = request.app.state
+    accounts = st.accounts or {}
+    cfg = rag_spaces.config(st.data_dir)
+    words = [w for w in (q or "").lower().split() if w]
+    hit = lambda *t: not words or all(w in " ".join(t).lower() for w in words)
+    out = []
+    spaces = [("student", "student", None), ("staff", "staff", None), ("dev", "dev", None)] + \
+             [(f"dept:{d}", "staff", d) for d in rag_spaces.known_depts(cfg, accounts)]
+    for sid, role, dept in spaces:
+        label = "관리자 — 모든 문서" if sid == "dev" else rag_spaces.resolve(role, dept, st.data_dir)["label"]
+        if hit(sid, label):
+            out.append({"user": f"space:{sid}", "name": label, "dept": "검색 공간", "grade_label": ""})
+    for u, a in sorted(accounts.items()):
+        name = (a.get("name") or "").strip() or u
+        role = a.get("role", "staff")
+        g = grades.label(grades.grade_of(a)) if role in grades.STAFF else ""
+        who = " · ".join(x for x in (ROLES.get(role, role), g) if x)
+        if hit(u, name, a.get("dept") or "", who):
+            out.append({"user": f"user:{u}", "name": name, "dept": (a.get("dept") or "").strip() or "부서 없음", "grade_label": who})
+    return {"people": out[:max(1, min(int(limit or 30), 80))], "depts": [], "my_dept": ""}
+
+
 @router.get("/dev/rag/try")
 def dev_rag_try(request: Request, target: str = "", q: str = "", k: int = 5):
     """검색 범위 시험 — 공간·계정의 실제 검색 범위(search_scope)로 규정·사업 문서를 찾은 상위 결과. 생성 모델은 부르지 않는다."""
@@ -169,6 +204,9 @@ def dev_rag_try(request: Request, target: str = "", q: str = "", k: int = 5):
     if not term:
         raise HTTPException(400, "검색어를 넣으세요")
     label, sc = got
+    if target.startswith("user:"):                     # 아이디 대신 사람 이름
+        acct = st.accounts.get(target[5:]) or {}
+        label = f"{(acct.get('name') or '').strip() or target[5:]} 계정"
     res = rag_spaces.preview_search(st.db, sc, term, k=max(1, min(int(k), 10)))
     return {"label": label, "space": sc["space"], "uses_grant": bool(sc.get("grant")), "grant_depts": sc.get("grant_depts"),
             "student_only": sc.get("levels") == ("student",), **res}

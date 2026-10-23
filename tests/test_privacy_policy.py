@@ -79,7 +79,7 @@ def test_policy_post_and_history_paging(tmp_path):
     client=TestClient(app)
     assert '꺼짐 · 원문 활용' in client.get('/dev/pii').text
     response=client.post('/dev/pii/policy', data={'enabled':'on','entities':'KR_PHONE'})
-    assert response.status_code == 200 and '내부 마스킹 켜짐' in response.text
+    assert response.status_code == 200 and '내부 가리기 켜짐' in response.text
     assert client.post('/dev/pii/policy', data={'enabled':'on'}).status_code == 400
     db=app.state.db
     for i in range(13):

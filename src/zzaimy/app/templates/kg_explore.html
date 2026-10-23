@@ -159,7 +159,7 @@
     </div>
     <div class="gx-chips" id="gxChips" aria-label="선택한 항목"></div>
     <div class="gx-list" id="gxList">
-      <div class="gx-cap" title="이름을 누르면 그것만, 체크하면 여러 개를 함께 봅니다"><span>지원 주체 · 갈래 · 사업</span><span title="볼 수 있는 등록 문서 수">문서 수</span></div>
+      <div class="gx-cap" title="이름을 누르면 그것만, 체크하면 여러 개를 함께 봅니다"><span>지원 주체 · 종류 · 사업</span><span title="볼 수 있는 등록 문서 수">문서 수</span></div>
       {% for t in tree %}
       <section class="gx-l1{{ ' unknown' if t.unknown }}" data-l1 data-open="{{ '0' if t.unknown else '1' }}">
         <button type="button" class="gx-l1-h" aria-expanded="{{ 'false' if t.unknown else 'true' }}"><b>{{ t.label }}</b><small>{{ "{:,}".format(t.n) }}</small><em class="gx-fold"></em></button>
@@ -186,10 +186,12 @@
       </div>
       <span class="gx-where" id="gxWhere"></span>
       <span class="gx-tools">
-        <button type="button" class="gx-tool" id="gxLayout" title="노드를 다시 배치하고 화면에 맞춥니다"><iconify-icon icon="solar:refresh-linear"></iconify-icon>다시 배치</button>
-        <button type="button" class="gx-tool" id="gxFit" title="배치는 두고 화면에 맞춥니다"><iconify-icon icon="solar:maximize-square-linear"></iconify-icon>화면 맞춤</button>
-        <a class="gx-tool" href="/graph/program" title="사업별 연차·문서 표"><iconify-icon icon="solar:document-text-linear"></iconify-icon>사업별 표</a>
-        {% if request.state.role == 'dev' %}<button type="button" class="gx-tool" id="gxExport" data-modal-open="#gxExportModal" title="온톨로지·지식그래프 파일 내려받기"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기</button>{% endif %}
+        <button type="button" class="gx-tool" id="gxLayout" disabled title="노드를 다시 배치하고 화면에 맞춥니다"><iconify-icon icon="solar:refresh-linear"></iconify-icon>다시 배치</button>
+        <button type="button" class="gx-tool" id="gxFit" disabled title="배치는 두고 화면에 맞춥니다"><iconify-icon icon="solar:maximize-square-linear"></iconify-icon>화면 맞춤</button>
+        {# 그래프가 비면 표·내려받기도 쓸 것이 없다 — 누를 수 없게 #}
+        {% if programs %}<a class="gx-tool" href="/graph/program" title="사업별 연차·문서 표"><iconify-icon icon="solar:document-text-linear"></iconify-icon>사업별 표</a>
+        {% else %}<button type="button" class="gx-tool" disabled title="그래프가 비어 있습니다"><iconify-icon icon="solar:document-text-linear"></iconify-icon>사업별 표</button>{% endif %}
+        {% if request.state.role == 'dev' %}<button type="button" class="gx-tool" id="gxExport" data-modal-open="#gxExportModal"{% if not programs %} disabled{% endif %} title="온톨로지·지식그래프 파일 내려받기"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기</button>{% endif %}
       </span>
     </div>
     <div class="gx-legend" id="gxLegend"></div>
@@ -252,9 +254,18 @@
   function paintDots(scope) { scope.querySelectorAll("i[data-type]").forEach(function (i) { i.style.background = COLOR[i.dataset.type] || "#8892A6"; }); }
   paintDots(listBox);
 
+  // 글자에 맞춘 상자 폭 — cytoscape 의 width:"label" 은 없어질 값이라 글자 폭을 직접 잰다
+  var measure = document.createElement("canvas").getContext("2d"), widthCache = {};
+  function labelWidth(size, weight) {
+    return function (n) {
+      var t = String(n.data("short") || ""), k = size + "/" + weight + "/" + t;
+      if (!(k in widthCache)) { measure.font = weight + " " + size + "px " + getComputedStyle(document.body).fontFamily; widthCache[k] = Math.ceil(measure.measureText(t).width) + 2; }
+      return widthCache[k];
+    };
+  }
   var cy = cytoscape({
     container: document.getElementById("gxCy"),
-    wheelSensitivity: 0.25, minZoom: 0.08, maxZoom: 3,
+    minZoom: 0.08, maxZoom: 3,
     style: [
       { selector: "node", style: { "background-color": "data(color)", label: "data(short)", "font-size": 10, color: "#33405A",
         "text-valign": "bottom", "text-margin-y": 4, "text-wrap": "wrap", "text-max-width": 120, "min-zoomed-font-size": 7,
@@ -264,9 +275,9 @@
       { selector: "node.lbl, node:selected, node.loaded", style: { label: "data(short)", "z-index": 10 } },
       { selector: "node[type = 'program_group']", style: { shape: "round-hexagon", "font-weight": 600 } },
       { selector: "node[type = 'bundle']", style: { shape: "round-rectangle", label: "data(short)", "font-weight": 600, "border-width": 2,
-        "border-color": "data(color)", "background-opacity": 0.25, "text-valign": "center", "text-margin-y": 0, width: "label", height: 26, padding: 8 } },
+        "border-color": "data(color)", "background-opacity": 0.25, "text-valign": "center", "text-margin-y": 0, width: labelWidth(10, 600), height: 26, padding: 8 } },
       { selector: "node[type = 'attr']", style: { shape: "round-rectangle", "background-color": "#EEF1F5", "border-color": "#CBD5E1",
-        "border-width": 1, color: "#5B6577", "font-size": 9, "text-valign": "center", "text-margin-y": 0, width: "label", height: 16, padding: 4 } },
+        "border-width": 1, color: "#5B6577", "font-size": 9, "text-valign": "center", "text-margin-y": 0, width: labelWidth(9, 400), height: 16, padding: 4 } },
       { selector: "node.loaded", style: { "border-color": "#1B2436", "border-width": 2.5 } },
       { selector: "node.picked", style: { "border-color": "#1B3B75", "border-width": 4, "font-weight": 700 } },
       { selector: "node:selected", style: { "border-color": "#F2A63B", "border-width": 4 } },
@@ -882,7 +893,7 @@
   // 온톨로지 종류 하나 — 정의, 속성(채워진 비율), 나가는·들어오는 관계(기준·건수)
   function showClass(t) {
     if (t.attr) t = t.of;
-    if (t.sub) { panel("문서 하위 종류", t.label, "문서 " + fmt(t.n) + "건 · 문서 노드의 갈래 속성으로 나눈다"); return; }
+    if (t.sub) { panel("문서 하위 종류", t.label, "문서 " + fmt(t.n) + "건 · 문서 노드의 종류 속성으로 나눈다"); return; }
     var body = panel("노드 종류", t.type_ko, "노드 " + fmt(t.n) + "개 · " + t.type);
     if (t.def) body.appendChild(el("p", "gx-ev", t.def));
     var a = el("div", "gx-grp"); a.appendChild(el("h4", null, "속성 (앞 300개 중 채워진 비율)"));
@@ -956,6 +967,9 @@
     if (state.tab === "onto" && schemaData) { drawn = ""; render(); } else relayout(true);
   });
   document.getElementById("gxFit").addEventListener("click", function () { cy.fit(undefined, 40); });
+  // 그림에 노드가 없으면 「다시 배치·화면 맞춤」을 누를 수 없게
+  function syncTools() { var none = cy.nodes().length === 0; document.getElementById("gxLayout").disabled = none; document.getElementById("gxFit").disabled = none; }
+  cy.on("add remove", syncTools);
 
   history.replaceState({ sel: state.sel, tab: state.tab }, "", urlOf());
   render();

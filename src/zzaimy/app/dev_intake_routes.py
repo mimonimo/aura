@@ -25,7 +25,10 @@ def _intake_job_running(request: Request, kind: str) -> bool:
     if p is not None and p.poll() is None:
         return True
     import subprocess
-    pat = "zz_reconcile.sh" if kind == "reconcile" else "python.* scripts/175_pipeline_audit"
+    # 실행 중인 그 스크립트만 — 명령 줄 맨 앞이 셸·파이썬인 프로세스. 이름이 글로 들어간 다른 명령(ssh 로 상태를 묻는 셸,
+    # grep 등)까지 잡으면 놀고 있어도 「맞추는 중…」으로 보인다
+    pat = (r"^([^ ]*/)?(ba)?sh .*zz_reconcile\.sh" if kind == "reconcile"
+           else r"^([^ ]*/)?python[0-9.]* .*scripts/175_pipeline_audit")
     return subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
 
 

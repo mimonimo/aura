@@ -101,7 +101,7 @@ def test_pii_checks_use_korean_detector_labels_and_context(client):
 
 def test_pii_history_empty_state_is_plain(client):
     page = client.get("/dev/pii?view=history").text
-    assert "마스킹 기록 없음" in page
+    assert "가리기 기록 없음" in page
     assert "보증하지 않습니다" not in page
 
 

@@ -11,7 +11,7 @@ TRACKS = (
      "status": "v1 운영 채택",
      "next": "현재 문서 기준 재측정·근거 하한 검증"},
     {"key": "answer", "name": "ZZAIMY-Writer", "base": "Qwen3.8-27B (NVFP4 · MTP)",
-     "role": "답·문서 작성 에이전트·검토·서류 갈래와 사업 판정·이미지 판독",
+     "role": "답·문서 작성 에이전트·검토·서류 종류와 사업 판정·이미지 판독",
      "method": "bf16 LoRA SFT (원본 정밀도 유지, 4비트는 메모리 부족 때 예비)",
      "status": "운영은 베이스 모델 — 라이브러리 문서의 검색(RAG)과 지식그래프(GraphRAG)를 근거로 답한다. "
                "SFT: writer-v1(학습 4,434 · 검증 346 · 시험 220)로 DGX 에서 LoRA 학습 마침(10-22), "

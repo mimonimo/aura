@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ dev_page_name('/dev/rag') }}{% endblock %}
 {% block pagetitle %}{{ dev_page_name('/dev/rag') }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/people-picker.css?v={{ asset_v }}">
+<script src="/static/people-picker.js?v={{ asset_v }}" defer></script>
+{% endblock %}
 {% block content %}
+{% macro people(ids) %}{% for u in ids %}{{ names.get(u, u) }}{{ ", " if not loop.last }}{% endfor %}{% endmacro %}
 <style>
 .rg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start;}
 .rg-scroll{overflow-x:auto;max-width:100%;}
@@ -18,8 +23,13 @@
 .rg-note{color:var(--muted);font-size:12px;margin:8px 0 0;}
 .rg-warn td{background:#fff8ec;color:#7a4b00;font-size:12.5px;}
 .rg-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;}
-.rg-bar input[type=search],.rg-bar input[type=text],.rg-bar select{min-height:34px;padding:5px 9px;font-size:13px;border:1px solid var(--line);border-radius:7px;background:#fff;}
-.rg-bar input[type=search],.rg-bar input[type=text]{flex:1 1 200px;min-width:0;}
+.rg-bar > input[type=search],.rg-bar > input[type=text],.rg-bar select{min-height:34px;padding:5px 9px;font-size:13px;border:1px solid var(--line);border-radius:7px;background:#fff;}
+.rg-bar > input[type=search],.rg-bar > input[type=text]{flex:1 1 200px;min-width:0;}
+.rg-bar .rg-target{flex:1 1 260px;min-width:0;}
+.rg-fold-h{display:flex;align-items:center;gap:8px;margin-bottom:0;}
+.rg-fold{margin-left:auto;padding:3px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--muted);font-size:12px;font-weight:400;box-shadow:none;min-height:0;cursor:pointer;}
+.rg-fold[aria-expanded=true]{background:#eef3fa;border-color:#c9d6e8;color:#2d4f7c;}
+.rg-try{margin-top:10px;}
 .rg-bar select{flex:1 1 260px;min-width:0;max-width:100%;}
 /* 토글 — 칸 전체가 눌리는 라벨, 안의 체크 상자는 키보드(Tab·Space)로 다룬다 */
 .rg-sw{display:flex;align-items:center;justify-content:center;min-height:40px;min-width:64px;cursor:pointer;position:relative;border-radius:8px;}
@@ -115,18 +125,18 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     <tr><td><b>공통 RAG</b><br><span class="rg-sub">전 교직원 · 기본</span></td>
       <td class="n"><a href="/?type=all&amp;scope=%EA%B3%B5%ED%86%B5" title="라이브러리에서 보기">{{ "{:,}".format(staff.grant_docs) }}</a></td>
       <td class="n">{{ "{:,}".format(staff.reg_docs) }} · {{ "{:,}".format(staff.reg_chunks) }}</td>
-      <td class="rg-wrap">모든 교직원{% if staff.users %} <span class="rg-sub">(부서 없음: {{ staff.users|join(", ") }})</span>{% endif %}</td>
+      <td class="rg-wrap">모든 교직원{% if staff.users %} <span class="rg-sub">(부서 없음: {{ people(staff.users) }})</span>{% endif %}</td>
       <td>—</td><td class="rg-wrap">{{ "정하지 않은 폴더 전부" }}</td>
       <td>{% with sid="common" %}{% include "_rag_min_grade.html" %}{% endwith %}</td>
       <td><button type="button" class="btn" data-comp="space:staff" aria-expanded="false">구성 보기</button></td></tr>
     <tr hidden data-comp-row="space:staff"><td colspan="8"><div class="rg-comp" aria-live="polite"></div></td></tr>
     {% endif %}
     {% for r in dept_rags %}
-    <tr><td><b>{{ r.dept }} 부서 RAG</b>{% if r.made.at %}<br><span class="rg-sub">{{ r.made.at }} 만듦</span>{% endif %}</td>
+    <tr><td><b>{{ r.dept }} 부서 RAG</b>{% if r.made.at %}<br><span class="rg-sub">만든 날 {{ r.made.at }}</span>{% endif %}</td>
       <td class="n"><a href="/?type=all&amp;scope={{ r.dept | urlencode }}" title="라이브러리에서 보기">{{ "{:,}".format(r.docs) }}</a></td>
       <td class="n">{{ "{:,}".format(r.reg_docs) }} · {{ "{:,}".format(r.reg_chunks) }}</td>
-      <td class="rg-wrap">{{ r.members | join(", ") if r.members else "—" }}</td>
-      <td class="rg-wrap">{{ r.granted | join(", ") if r.granted else "—" }}</td>
+      <td class="rg-wrap">{{ people(r.members) if r.members else "—" }}</td>
+      <td class="rg-wrap">{{ people(r.granted) if r.granted else "—" }}</td>
       <td class="rg-wrap">{{ r.folders | join(", ") if r.folders else "—" }}</td>
       <td>{% with sid="dept:" ~ r.dept %}{% include "_rag_min_grade.html" %}{% endwith %}</td>
       <td><button type="button" class="btn" data-comp="space:dept:{{ r.dept }}" aria-expanded="false" title="이 부서 계정이 실제로 찾는 범위(공통 RAG 포함)">구성 보기</button></td></tr>
@@ -135,7 +145,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     {% if stu %}
     <tr><td><b>학생 RAG</b><br><span class="rg-sub">학생 공개로 지정한 규정만</span></td>
       <td class="n">—</td><td class="n">{{ "{:,}".format(stu.reg_docs) }} · {{ "{:,}".format(stu.reg_chunks) }}</td>
-      <td class="rg-wrap">{{ stu.users|join(", ") if stu.users else "학생 계정" }}</td><td>—</td><td>—</td><td>—</td>
+      <td class="rg-wrap">{{ people(stu.users) if stu.users else "학생 계정" }}</td><td>—</td><td>—</td><td>—</td>
       <td><button type="button" class="btn" data-comp="space:student" aria-expanded="false">구성 보기</button></td></tr>
     <tr hidden data-comp-row="space:student"><td colspan="8"><div class="rg-comp" aria-live="polite"></div></td></tr>
     {% if stu.reg_docs == 0 %}<tr class="rg-warn"><td colspan="8">학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다 · <a href="#student-regs">학생 공개 규정 지정</a></td></tr>{% endif %}
@@ -179,7 +189,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   {% set ns = namespace(fixed=[], open=[]) %}
   {% for a in accts %}{% if a.role in ("student", "dev") or a.all_grant %}{% set ns.fixed = ns.fixed + [a] %}{% else %}{% set ns.open = ns.open + [a] %}{% endif %}{% endfor %}
   <p class="rg-sub" style="margin:0 0 10px;">추가 부서의 사업 문서도 검색·편집할 수 있습니다(사용자·계정 편집 창의 「추가 부서」와 같은 값).
-    {% if ns.fixed %}범위가 정해진 계정 {{ ns.fixed|length }}개({% for a in ns.fixed %}{{ a.id }} — {% if a.role == "student" %}학생 공개 규정만{% elif a.role == "dev" %}관리자, 전부{% else %}부서 없음, 사업 문서 전부{% endif %}{{ ", " if not loop.last }}{% endfor %})는 더할 것이 없어 표에서 뺐습니다.{% endif %}</p>
+    {% if ns.fixed %}범위가 정해진 계정 {{ ns.fixed|length }}개({% for a in ns.fixed %}{{ names.get(a.id, a.id) }} — {% if a.role == "student" %}학생 공개 규정만{% elif a.role == "dev" %}관리자, 전부{% else %}부서 없음, 사업 문서 전부{% endif %}{{ ", " if not loop.last }}{% endfor %})는 더할 것이 없어 표에서 뺐습니다.{% endif %}</p>
   {% if not dept_spaces or not ns.open %}
   <p class="rg-sub" style="margin:0;">추가 권한을 줄 계정이 없습니다 — <a href="/dev/users">사용자·계정</a>에서 교직원 계정에 부서를 정하면 여기에 나옵니다.</p>
   {% else %}
@@ -192,8 +202,8 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     <thead><tr><th>계정</th><th>검색 범위</th><th>추가 부서</th><th></th></tr></thead>
     <tbody>
     {% for a in ns.open %}
-    <tr data-find="{{ (a.id ~ ' ' ~ a.role ~ ' ' ~ a.dept ~ ' ' ~ (a.grants|join(' ')))|lower }}">
-      <td>{{ a.id }}<br><span class="rg-sub">{{ a.role }}{{ " · " ~ a.dept if a.dept }}</span></td>
+    <tr data-find="{{ (a.id ~ ' ' ~ names.get(a.id, a.id) ~ ' ' ~ role_labels.get(a.role, a.role) ~ ' ' ~ a.dept ~ ' ' ~ (a.grants|join(' ')))|lower }}">
+      <td title="{{ a.id }}">{{ names.get(a.id, a.id) }}<br><span class="rg-sub">{{ role_labels.get(a.role, a.role) }}{{ " · " ~ a.dept if a.dept }}</span></td>
       <td class="rg-wrap">{% if a.space.startswith('dept:') %}공통 + {{ a.space[5:] }}{% elif a.space == 'staff' %}공통{% else %}{{ a.space }}{% endif %}</td>
       <td class="rg-wrap">{% set extra = a.grants | select('in', dept_spaces) | list %}{% if extra %}{% for g in extra %}<span class="rg-chip">{{ g[5:] }}</span>{% endfor %}{% else %}<span class="rg-sub">—</span>{% endif %}</td>
       <td class="c"><button type="button" class="btn" data-grant-edit="{{ a.id }}">설정</button></td>
@@ -222,29 +232,23 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 
 
 <section class="card" id="try"><div class="card-in">
-  <details class="chip-toggle rg-try" id="rgTryBox">
-  <summary>검색 범위 시험</summary>
-  <p class="rg-sub" style="margin:10px 0 8px;">계정이나 공간을 선택해 그 범위로 실제 검색해 봅니다 — 「이 계정이 이 규정을 찾는가」를 확인할 때.</p>
+  <h2 class="rg-fold-h"><iconify-icon icon="solar:magnifer-linear"></iconify-icon>검색 범위 시험
+    <button type="button" class="rg-fold" id="rgTryToggle" aria-expanded="false" aria-controls="rgTryBox">펼치기</button></h2>
+  <div class="rg-try" id="rgTryBox" hidden>
+  <p class="rg-sub" style="margin:4px 0 8px;">계정이나 공간을 골라 그 범위로 실제 검색해 봅니다. 답변은 만들지 않습니다.</p>
   <form class="rg-bar" id="rgTry" data-own-confirm>
-    <label class="rg-sub" for="rgTryTarget">범위</label>
-    <select id="rgTryTarget" name="target" required>
-      <optgroup label="공간">
-        {% for s in spaces %}<option value="space:{{ s.id }}">{{ s.id }} — {{ s.label }}</option>{% endfor %}
-        <option value="space:dev">dev — 관리자 전부</option>
-      </optgroup>
-      <optgroup label="계정">
-        {% for a in accts %}<option value="user:{{ a.id }}">{{ a.id }} ({{ a.role }}{{ " · " ~ a.dept if a.dept }})</option>{% endfor %}
-      </optgroup>
-    </select>
+    <div class="rg-target" data-people-picker data-single data-name="target" data-endpoint="/dev/rag/targets"
+         data-placeholder="공간·이름·부서로 찾기" aria-label="검색 범위"
+         data-selected='{{ [{"user": "space:staff", "label": (spaces | selectattr("id", "equalto", "staff") | map(attribute="label") | first) or "staff"}] | tojson }}'></div>
     <input type="search" name="q" id="rgTryQ" placeholder="검색어 — 예: 장학금 지급 기준" maxlength="200" required aria-label="검색어">
     <button class="btn primary" type="submit">검색</button>
   </form>
-  <p class="rg-sub" id="rgTryStatus" aria-live="polite">규정 색인과 사업 문서에서 상위 5건씩. 답변은 만들지 않습니다.</p>
+  <p class="rg-sub" id="rgTryStatus" aria-live="polite">규정 색인과 사업 문서에서 상위 5건씩.</p>
   <div class="rg-results" id="rgTryOut" hidden>
     <div><h3>규정 색인</h3><div data-out="regulation"></div></div>
     <div><h3>사업 문서</h3><div data-out="grant"></div></div>
   </div>
-  </details>
+  </div>
 </div></section>
 <section class="card" id="exports"><div class="card-in"><h2><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기</h2>{% with groups="rag" %}{% include "_exports.html" %}{% endwith %}</div></section>
 
@@ -359,7 +363,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
       const grid = document.createElement('div');
       grid.className = 'rg-comp-grid';
       if (d.programs.length) grid.append(compBox('사업별 문서', `사업 ${num(d.program_count)}개`, d.programs, '건'));
-      if (d.kinds.length) grid.append(compBox('갈래별 문서', `갈래 ${num(d.kind_count)}개`, d.kinds, '건'));
+      if (d.kinds.length) grid.append(compBox('종류별 문서', `종류 ${num(d.kind_count)}개`, d.kinds, '건'));
       if (d.regulations.length) grid.append(compBox('규정(조각 수)', `${num(d.reg_docs)}건`, d.regulations, '조각', true));
       box.innerHTML = `<p class="rg-comp-sum">${esc(sum.join(' · '))}</p>`;
       if (grid.childElementCount) box.append(grid);
@@ -372,7 +376,10 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 
   // 검색 범위 시험
   const tryForm = document.getElementById('rgTry');
-  if (location.hash === '#try') document.getElementById('rgTryBox').open = true;     // 다른 화면의 「검색 범위 시험」 바로가기
+  const tryBox = document.getElementById('rgTryBox'), tryToggle = document.getElementById('rgTryToggle');
+  const setTry = open => { tryBox.hidden = !open; tryToggle.setAttribute('aria-expanded', String(open)); tryToggle.textContent = open ? '접기' : '펼치기'; };
+  tryToggle.addEventListener('click', () => setTry(tryBox.hidden));
+  if (location.hash === '#try') setTry(true);     // 다른 화면의 「검색 범위 시험」 바로가기
   const status = document.getElementById('rgTryStatus'), out = document.getElementById('rgTryOut');
   const hits = (rows, empty) => rows.length ? rows.map(h => `<div class="rg-hit"><div class="t"><a href="/doc/${h.doc_id}">${esc(h.title || '문서')}</a></div>`
     + `<div class="w">${esc([h.where, h.dept ? '부서 ' + h.dept : ''].filter(Boolean).join(' · '))}</div><div class="h">${esc(h.head)}</div></div>`).join('')
@@ -380,7 +387,8 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   tryForm.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(tryForm);
-    const btn = tryForm.querySelector('button');
+    if (!fd.get('target')) { status.textContent = '공간이나 계정을 고르세요'; return; }
+    const btn = tryForm.querySelector('button[type=submit]');
     btn.disabled = true;
     status.textContent = '찾는 중…';
     try {
@@ -461,7 +469,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     document.querySelector('[data-n="staff"]').textContent = num(state.reg.length - stu);
     $('rrRegCount').textContent = num(state.reg.length);
     $('rrCandCount').textContent = num(state.candTotal);
-    $('rrPicked').textContent = pick.size ? `선택 ${num(pick.size)}건` : '여럿은 체크 뒤 아래 단추';
+    $('rrPicked').textContent = pick.size ? `선택 ${num(pick.size)}건` : '여러 개는 체크한 뒤 아래 단추로';
     document.querySelectorAll('[data-rr]').forEach(b => { b.disabled = !pick.size; });
     $('rrAll').checked = shown.length > 0 && shown.every(d => pick.has(d.id));
   }

@@ -22,7 +22,8 @@
     <button type="button" role="menuitem" data-pa-hide-open>목록에서 빼기</button>{% endif %}{% endif %}
   </div>{% endif %}</td>{% endmacro %}
 {% macro rowattrs(r) %} data-pa-row data-key="{{ r.key }}" data-name="{{ r.name }}" data-q="{{ ([r.name] + r.terms + [r.dept, r.l2, r.l3, r.v.manager]) | join(' ') | lower }}" data-dept="{{ r.depts | join('|') }}" data-l1="{{ r.l1 }}" data-st="{{ r.status_chips | join('|') }}" data-mi="{{ r.ministries | join('|') }}" data-src="{{ r.origin }}" data-b="{{ (r.y.m.budget if year else r.v.budget_won) or 0 }}" data-p="{{ r.v.start }}" data-edit='{{ r.edit | tojson }}' data-can='{{ {"edit": r.can_edit, "req": r.can_request, "link": r.can_link, "new": r.can_new} | tojson }}'{% endmacro %}
-{% macro origin_chip(r) %}<span class="pa-src src-{{ r.origin }}" title="출처">{{ origin_labels[r.origin] }}</span>{% endmacro %}
+{# 출처(엑셀·문서에서 찾음·직접 더함)·계정 있음은 줄마다 칩으로 늘어놓지 않고 이름 칸 툴팁에만 둔다 #}
+{% macro name_tip(r) %}{{ r.name }} · 출처 {{ origin_labels[r.origin] }}{% endmacro %}
 <style>
   .pa-page, .pa-modal { --pa-line:#E3E8EF; --pa-h:30px; --pa-r:8px; }
   .pa-page .muted { color:var(--muted); }
@@ -149,6 +150,7 @@
   .pa-yt .g-org, .pa-yt .g-money, .pa-yt .g-seq { display:none; }
   .pa-yt.show-org .g-org, .pa-yt.show-money .g-money, .pa-yt.show-seq .g-seq { display:table-cell; }
   .pa-yt tr.nodata td { color:var(--faint); }
+  .pa-yt.no-st .c-st, .pa-yt.no-mi .c-mi { display:none; }
   .pa-yt tr.pa-task td { height:38px; font-size:12px; background:#FBFCFE; cursor:default; }
   .pa-yt tr.pa-task td.name { padding-left:24px; }
   .pa-more { width:28px; height:28px; padding:0; border:0; border-radius:7px; background:transparent; color:var(--muted); font-size:16px; line-height:1; cursor:pointer; box-shadow:none; }
@@ -274,6 +276,34 @@
   .pa-toggle-link { border:0; background:transparent; padding:4px 0; color:var(--navy); font:inherit; font-size:12px; cursor:pointer; box-shadow:none; }
   .pa-req-list .st-wait { color:#9A6A12; } .pa-req-list .st-ok { color:#2F7A4F; } .pa-req-list .st-no { color:#C2410C; }
   .pa-req-list td form { display:inline-flex; gap:4px; margin:0; }
+  /* 좁은 화면 — 표를 줄마다 카드로(이름 / 주요 값 / 메뉴). 가로 스크롤 없이 */
+  @media (max-width:600px) {
+    .pa-host::after { display:none; }
+    .pa-wrap { overflow:visible; max-height:none; border:0; background:transparent; }
+    .pa-table, .pa-table tbody, .pa-table tfoot { display:block; width:auto !important; min-width:0 !important; }
+    .pa-table thead { display:none; }
+    .pa-table tr { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; position:relative; margin:0 0 8px; padding:10px 12px;
+      border:1px solid var(--pa-line); border-radius:10px; background:#fff; }
+    .pa-table tr[hidden] { display:none; }
+    .pa-table td, .pa-table tfoot td { display:block; position:static; height:auto; padding:0; border:0; min-width:0; background:transparent; }
+    .pa-table td.stk { position:static; background:transparent; box-shadow:none; }
+    .pa-table td.name { grid-column:1 / -1; padding-right:34px; }
+    .pa-table td.name .l1 { white-space:normal; }
+    .pa-table td[data-label]::before { content:attr(data-label); display:block; font-size:10.5px; color:var(--muted); }
+    .pa-table td.n { text-align:left; }
+    .pa-table td.act { position:absolute; top:6px; right:4px; padding:0; }
+    .pa-table td:empty:not(.act) { display:none; }
+    .pa-yt .g-seq, .pa-yt .g-org, .pa-yt .g-money, .pa-yt.show-seq .g-seq, .pa-yt.show-org .g-org, .pa-yt.show-money .g-money, .pa-yt .c-mi { display:none; }
+    .pa-yt .c-st:has(.pa-st) { grid-column:1 / -1; }
+    .pa-yt .c-st:not(:has(.pa-st)) { display:none; }
+    .pa-yt tr.pa-task { margin:-4px 0 8px 14px; background:#FBFCFE; }
+    .pa-yt tr.pa-task td { height:auto; background:transparent; }
+    .pa-yt tr.pa-task td.name { padding-left:0; }
+    .pa-table tfoot tr { display:flex; justify-content:space-between; background:#FAFBFD; }
+    .pa-table tfoot td:not(.stk):not(.c-sum) { display:none; }
+    .pa-table tfoot td.c-sum::before { content:none; }
+    .pa-table:not(.pa-yt) [data-col=cat], .pa-table:not(.pa-yt) [data-col=man], .pa-table:not(.pa-yt) [data-col=proj] { display:none; }
+  }
   @media (max-width:760px) {
     .pa-top { flex-direction:column; align-items:stretch; } .pa-yseg { margin-left:0; }
     .pa-mg-pair { grid-template-columns:1fr; } .pa-mg-arrow { display:none; }
@@ -412,7 +442,8 @@
   <div><span class="k">신규 · 종료</span><span class="v">{{ ysum.n_new }} · {{ ysum.n_end }}</span></div>
   <div><span class="k">{{ year - 1 }}년 대비</span>{% if ysum.prev %}<span class="v">{{ ysum.delta }}</span><span class="u">{% if unit != 'auto' %}{{ ysum.unit }} · {% endif %}{% if ysum.delta_pct %}{{ ysum.delta_pct }} · {% endif %}사업 {{ '%+d' | format(ysum.dn) }}</span>{% else %}<span class="v muted">—</span>{% endif %}</div>
 </div>
-<p class="pa-basis" data-pa-basis>{% if basis %}{{ ['기준일 ' ~ basis.base_date if basis.base_date else '', '대상기간 ' ~ basis.target if basis.target else '', basis.file or ''] | select | join(' · ') }}{% else %}{{ year }}년 현황 엑셀을 아직 가져오지 않았습니다{% endif %}</p>
+{% if basis %}<p class="pa-basis" data-pa-basis>{{ ['기준일 ' ~ basis.base_date if basis.base_date else '', '대상기간 ' ~ basis.target if basis.target else '', basis.file or ''] | select | join(' · ') }}</p>
+{% elif not ysum.n and may_import and tab != 'past' %}<p class="pa-basis" data-pa-basis><button type="button" class="pa-plink" data-pa-import data-pa-sheet>{{ year }}년 현황 엑셀 가져오기</button></p>{% endif %}
 {% elif trend %}
 <div class="pa-trend" data-pa-trend aria-label="연도별 사업 수와 총 예산">
   {% for t in trend %}<a class="pa-tr" href="/programs/admin?tab={{ tab }}&year={{ t.year }}"><span class="y">{{ t.year }}</span>
@@ -422,12 +453,16 @@
 </div>
 {% endif %}
 
-<p class="pa-count" data-pa-count>{{ rows | length }}개</p>
+{# 연도 보기는 요약 띠에 사업 수가 있으므로 거를 때만 보인다(스크립트) #}
+<p class="pa-count" data-pa-count{% if year and ysum %} data-pa-count-filtered hidden{% endif %}>{{ rows | length }}개</p>
 {% if rows and year %}
 <div class="pa-host" data-pa-host><div class="pa-wrap" data-pa-wrap>
-{% set tw = 300 + 72 + 120 + 100 + 100 + 130 + 110 + (44 if any_action else 0) %}
-<table class="pa-table pa-yt" data-pa-table data-pa-ytable data-tid="y" style="min-width:{{ tw }}px;">
-  <thead><tr><th class="stk" data-sort="name" data-w="300">사업명</th><th class="n g-seq" data-sort="seq" data-w="80" style="width:80px;">엑셀 연번</th><th data-w="72" style="width:72px;">구분</th><th data-w="120" style="width:120px;">지원기관</th>
+{# 구분(엑셀 「구분」 칸 — 기존·신규·종료)·지원기관은 그해 값이 하나도 없으면 칸째 감춘다(직접 더한 줄만 있을 때) #}
+{% set no_st = not (rows | map(attribute='y.chips') | select | list) %}
+{% set no_mi = not (rows | map(attribute='y.ministry') | select | list) %}
+{% set tw = 300 + (0 if no_st else 72) + (0 if no_mi else 120) + 100 + 100 + 130 + 110 + (44 if any_action else 0) %}
+<table class="pa-table pa-yt{{ ' no-st' if no_st }}{{ ' no-mi' if no_mi }}" data-pa-table data-pa-ytable data-tid="y" style="min-width:{{ tw }}px;">
+  <thead><tr><th class="stk" data-sort="name" data-w="300">사업명</th><th class="n g-seq" data-sort="seq" data-w="80" style="width:80px;">엑셀 연번</th><th class="c-st" data-w="72" style="width:72px;">구분</th><th class="c-mi" data-w="120" style="width:120px;">지원기관</th>
     <th class="g-org" data-w="130" style="width:130px;">주관기관</th><th class="g-org" data-w="150" style="width:150px;">총사업기간</th><th class="g-org" data-w="150" style="width:150px;">당해 기간</th>
     <th data-w="100" style="width:100px;">사업 책임자</th><th data-w="100" style="width:100px;">행정 담당자</th><th data-w="130" style="width:130px;">업무진행부서</th>
     {% for f in split %}<th class="n g-money" data-w="96" style="width:96px;">{{ labels[f] }}</th>{% endfor %}<th class="n" data-sort="budget" data-w="110" style="width:110px;">합계</th>
@@ -435,40 +470,42 @@
   <tbody>
   {% for r in rows %}{% set y = r.y %}
   <tr class="{{ 'off' if r.hidden else '' }}{{ ' nodata' if not y.has else '' }}"{{ rowattrs(r) }} data-o="{{ y.seq or 9999 }}" data-m='{{ y.money_json | tojson }}'>
-    <td class="name stk"><span class="l1" title="{{ r.name }}">{{ r.name }}{% if r.stage == 'past' %}<span class="pa-past">지난</span>{% endif %}</span>
-      <span class="l2">{{ origin_chip(r) }}{% if y.tasks | length > 1 %}<button type="button" class="pa-plink" data-pa-tasks aria-expanded="false" data-n="{{ y.tasks | length }}">세부 과제 {{ y.tasks | length }}개 펼치기</button>{% elif y.tasks and y.tasks[0].sub and y.tasks[0].sub != r.name %}{{ y.tasks[0].sub }}{% elif not y.has %}그해 값 없음{% endif %}{% if r.hidden %} · 뺀 사업{% endif %}</span></td>
-    <td class="n g-seq">{{ y.seq }}</td>
-    <td>{{ stchips(y.chips) }}</td>
-    <td><span class="l1" title="{{ y.ministry }}">{{ y.ministry or '—' }}</span></td>
-    <td class="g-org"><span class="l1" title="{{ y.agency }}">{{ y.agency or '—' }}</span></td>
-    <td class="g-org"><span class="l1" title="{{ y.period }}">{{ y.period | replace('.01~', '~') if false else (y.period and y.period) | default('—', true) }}</span></td>
-    <td class="g-org"><span class="l1" title="{{ y.year_period }}">{{ y.year_period or '—' }}</span></td>
-    <td><span class="l1" title="{{ y.manager }}">{{ y.manager or '—' }}</span>{% if r.v.has_account %}<span class="l2">계정 있음</span>{% endif %}</td>
-    <td><span class="l1" title="{{ y.officer }}">{{ y.officer or '—' }}</span></td>
-    <td><span class="l1" title="{{ y.dept }}">{{ y.dept or '—' }}</span>{% if y.account_dept %}<span class="l2">회계 {{ y.account_dept }}</span>{% endif %}</td>
-    {% for f in split %}<td class="n g-money" title="{{ '{:,}원'.format(y.m[f]) if y.m[f] is not none else '' }}">{{ y.mf[f] }}</td>{% endfor %}
-    <td class="n" title="{% if y.hand_budget %}직접 적은 값: {{ y.budget_text }}{% elif y.m.budget is not none %}{{ '{:,}원'.format(y.m.budget) }}{% endif %}">{{ y.mf.budget or '—' }}</td>
+    <td class="name stk"><span class="l1" title="{{ name_tip(r) }}">{{ r.name }}{% if r.stage == 'past' %}<span class="pa-past">지난</span>{% endif %}</span>
+      {% if y.tasks or not y.has or r.hidden %}<span class="l2">{% if y.tasks | length > 1 %}<button type="button" class="pa-plink" data-pa-tasks aria-expanded="false" data-n="{{ y.tasks | length }}">세부 과제 {{ y.tasks | length }}개 펼치기</button>{% elif y.tasks and y.tasks[0].sub and y.tasks[0].sub != r.name %}{{ y.tasks[0].sub }}{% elif not y.has %}그해 값 없음{% endif %}{% if r.hidden %} · 뺀 사업{% endif %}</span>{% endif %}</td>
+    <td class="n g-seq" data-label="엑셀 연번">{{ y.seq }}</td>
+    <td class="c-st" data-label="구분">{{ stchips(y.chips) }}</td>
+    <td class="c-mi" data-label="지원기관"><span class="l1" title="{{ y.ministry }}">{{ y.ministry or '—' }}</span></td>
+    <td class="g-org" data-label="주관기관"><span class="l1" title="{{ y.agency }}">{{ y.agency or '—' }}</span></td>
+    <td class="g-org" data-label="총사업기간"><span class="l1" title="{{ y.period }}">{{ y.period or '—' }}</span></td>
+    <td class="g-org" data-label="당해 기간"><span class="l1" title="{{ y.year_period }}">{{ y.year_period or '—' }}</span></td>
+    {# 엑셀 글이 없으면 계정으로 지정한 사람(사업 책임자·행정 담당자)을 보인다 #}
+    {% set man = y.manager or (r.who.leads | join(', ')) %}{% set off = y.officer or (r.who.clerks | join(', ')) %}
+    <td class="c-man" data-label="사업 책임자"><span class="l1" title="{{ man }}{% if r.v.has_account %} · 계정 있음{% endif %}">{{ man or '—' }}</span></td>
+    <td class="c-off" data-label="행정 담당자"><span class="l1" title="{{ off }}">{{ off or '—' }}</span></td>
+    <td class="c-dept" data-label="업무진행부서"><span class="l1" title="{{ y.dept }}">{{ y.dept or '—' }}</span>{% if y.account_dept %}<span class="l2">회계 {{ y.account_dept }}</span>{% endif %}</td>
+    {% for f in split %}<td class="n g-money" data-label="{{ labels[f] }}" title="{{ '{:,}원'.format(y.m[f]) if y.m[f] is not none else '' }}">{{ y.mf[f] }}</td>{% endfor %}
+    <td class="n c-sum" data-label="합계" title="{% if y.hand_budget %}직접 적은 값: {{ y.budget_text }}{% elif y.m.budget is not none %}{{ '{:,}원'.format(y.m.budget) }}{% endif %}">{{ y.mf.budget or '—' }}</td>
     {% if any_action %}{{ menu(r) }}{% endif %}
   </tr>
   {% if y.tasks | length > 1 %}{% for t in y.tasks %}
   <tr class="pa-task" data-pa-task hidden>
     <td class="name stk"><span class="l1" title="{{ t.sub or t.name }}">{{ t.sub or t.name }}</span>{% if t.majors %}<span class="l2" title="{{ t.majors }}">참여 {{ t.majors }}</span>{% endif %}</td>
-    <td class="n g-seq">{{ t.seq or '' }}</td><td>{{ stchips(t.chips) }}</td>
-    <td><span class="l1">{{ t.ministry or '' }}</span></td>
+    <td class="n g-seq">{{ t.seq or '' }}</td><td class="c-st">{{ stchips(t.chips) }}</td>
+    <td class="c-mi"><span class="l1">{{ t.ministry or '' }}</span></td>
     <td class="g-org"><span class="l1">{{ t.agency or '' }}</span></td>
     <td class="g-org"><span class="l1">{{ t.period or '' }}</span></td>
     <td class="g-org"><span class="l1">{{ t.year_period or '' }}</span></td>
-    <td><span class="l1">{{ t.manager or '' }}</span></td><td><span class="l1">{{ t.officer or '' }}</span></td>
-    <td><span class="l1">{{ t.dept or '' }}</span>{% if t.account_dept %}<span class="l2">회계 {{ t.account_dept }}</span>{% endif %}</td>
+    <td class="c-man" data-label="사업 책임자"><span class="l1">{{ t.manager or '' }}</span></td><td class="c-off" data-label="행정 담당자"><span class="l1">{{ t.officer or '' }}</span></td>
+    <td class="c-dept" data-label="업무진행부서"><span class="l1">{{ t.dept or '' }}</span>{% if t.account_dept %}<span class="l2">회계 {{ t.account_dept }}</span>{% endif %}</td>
     {% for f in split %}<td class="n g-money" title="{{ '{:,}원'.format(t.m[f]) if t.m[f] is not none else '' }}">{{ t.mf[f] }}</td>{% endfor %}
-    <td class="n" title="{{ '{:,}원'.format(t.m.budget) if t.m.budget is not none else '' }}">{{ t.mf.budget }}</td>
+    <td class="n c-sum" data-label="합계" title="{{ '{:,}원'.format(t.m.budget) if t.m.budget is not none else '' }}">{{ t.mf.budget }}</td>
     {% if any_action %}<td></td>{% endif %}
   </tr>{% endfor %}{% endif %}
   {% endfor %}
   </tbody>
-  <tfoot><tr data-pa-foot><td class="stk">합계 <span class="muted" data-pa-foot-n>{{ ysum.n }}개 사업</span></td><td class="g-seq"></td><td></td><td></td>
+  <tfoot><tr data-pa-foot><td class="stk">합계 <span class="muted" data-pa-foot-n>{{ ysum.n }}개 사업</span></td><td class="g-seq"></td><td class="c-st"></td><td class="c-mi"></td>
     <td class="g-org"></td><td class="g-org"></td><td class="g-org"></td><td></td><td></td><td></td>
-    {% for f in split %}<td class="n g-money" data-foot="{{ f }}">{{ foot[f] }}</td>{% endfor %}<td class="n" data-foot="budget">{{ foot.budget }}</td>
+    {% for f in split %}<td class="n g-money" data-foot="{{ f }}">{{ foot[f] }}</td>{% endfor %}<td class="n c-sum" data-foot="budget">{{ foot.budget }}</td>
     {% if any_action %}<td></td>{% endif %}</tr></tfoot>
 </table>
 </div></div>
@@ -482,16 +519,16 @@
   <tbody>
   {% for r in rows %}
   <tr class="{{ 'off' if r.hidden else '' }}"{{ rowattrs(r) }}>
-    <td class="name stk"><span class="l1" title="{{ r.name }}">{{ r.name }}{% if r.stage == 'past' %}<span class="pa-past">지난</span>{% endif %}</span>
-      <span class="l2">{{ origin_chip(r) }}{% if r.v.n_years %}연도별 값 {{ r.v.n_years }}개 해{% endif %}{% if r.hidden %} · 뺀 사업{% endif %}{% if r.stage == 'unknown' %} · 기간 확인 필요{% endif %}</span></td>
-    <td data-col="cat"><span class="l1" title="{{ r.l1 }}">{{ r.l1 or '—' }}</span><span class="l2" title="{{ r.l2 }}">{{ r.l2 or '' }}</span>{% if r.l3 %}<span class="l3">{{ r.l3 }}</span>{% endif %}</td>
-    <td data-col="dept"><span class="l1" title="{{ r.v.dept }}">{{ r.v.dept_short or '—' }}</span></td>
-    <td data-col="per" class="n"><span class="l1" title="{{ r.v.period }}">{{ r.v.period_short or '—' }}</span></td>
-    <td data-col="bud" class="n" data-won="{{ r.v.budget_won if r.v.budget_won is not none else '' }}" title="{{ r.v.budget_full }}{% if r.v.note %} · {{ r.v.note }}{% endif %}">{{ r.v.budget_short or '—' }}</td>
-    <td data-col="man"><span class="l1" title="{{ r.v.manager }}">{{ r.v.manager or '—' }}</span>{% if r.v.has_account %}<span class="l2">계정 있음</span>{% endif %}</td>
-    <td data-col="who">{% if r.who.heads or r.who.leads or r.who.clerks %}<span class="l1" title="{{ (['총괄 ' ~ (r.who.heads | join(', '))] if r.who.heads else []) | join('') }}">{% if r.who.heads %}총괄 {{ r.who.heads | join(', ') }}{% elif r.who.leads %}책임 {{ r.who.leads | join(', ') }}{% else %}행정 {{ r.who.clerks | join(', ') }}{% endif %}</span>
+    <td class="name stk"><span class="l1" title="{{ name_tip(r) }}">{{ r.name }}{% if r.stage == 'past' %}<span class="pa-past">지난</span>{% endif %}</span>
+      {% if r.v.n_years or r.hidden or r.stage == 'unknown' %}<span class="l2">{% if r.v.n_years %}연도별 값 {{ r.v.n_years }}개 해{% endif %}{% if r.hidden %} · 뺀 사업{% endif %}{% if r.stage == 'unknown' %} · 기간 확인 필요{% endif %}</span>{% endif %}</td>
+    <td data-col="cat" data-label="분류"><span class="l1" title="{{ r.l1 }}">{{ r.l1 or '—' }}</span><span class="l2" title="{{ r.l2 }}">{{ r.l2 or '' }}</span>{% if r.l3 %}<span class="l3">{{ r.l3 }}</span>{% endif %}</td>
+    <td data-col="dept" data-label="주관 부서"><span class="l1" title="{{ r.v.dept }}">{{ r.v.dept_short or '—' }}</span></td>
+    <td data-col="per" class="n" data-label="기간"><span class="l1" title="{{ r.v.period }}">{{ r.v.period_short or '—' }}</span></td>
+    <td data-col="bud" class="n" data-label="예산" data-won="{{ r.v.budget_won if r.v.budget_won is not none else '' }}" title="{{ r.v.budget_full }}{% if r.v.note %} · {{ r.v.note }}{% endif %}">{{ r.v.budget_short or '—' }}</td>
+    <td data-col="man" data-label="책임자 이름"><span class="l1" title="{{ r.v.manager }}{% if r.v.has_account %} · 계정 있음{% endif %}">{{ r.v.manager or '—' }}</span></td>
+    <td data-col="who" data-label="지정">{% if r.who.heads or r.who.leads or r.who.clerks %}<span class="l1" title="{{ (['총괄 ' ~ (r.who.heads | join(', '))] if r.who.heads else []) | join('') }}">{% if r.who.heads %}총괄 {{ r.who.heads | join(', ') }}{% elif r.who.leads %}책임 {{ r.who.leads | join(', ') }}{% else %}행정 {{ r.who.clerks | join(', ') }}{% endif %}</span>
       <span class="l2">{% if r.who.heads and r.who.leads %}책임 {{ r.who.leads | join(', ') }}{% endif %}{% if (r.who.heads or r.who.leads) and r.who.clerks %} · 행정 {{ r.who.clerks | join(', ') }}{% endif %}</span>{% endif %}</td>
-    <td data-col="proj"><span class="pa-num{{ ' z' if not r.projects }}" title="진행 프로젝트">{{ r.projects }}</span><span class="pa-num{{ ' z' if not r.archived }}" title="보관 묶음">{{ r.archived }}</span></td>
+    <td data-col="proj" data-label="프로젝트"><span class="pa-num{{ ' z' if not r.projects }}" title="진행 프로젝트">{{ r.projects }}</span><span class="pa-num{{ ' z' if not r.archived }}" title="보관 묶음">{{ r.archived }}</span></td>
     {% if any_action %}{{ menu(r) }}{% endif %}
   </tr>
   {% endfor %}
@@ -845,7 +882,7 @@
       tasksOf(tr).forEach(function (t) { t.hidden = !(on && open); });
       if (on && tr.dataset.m) { var m = JSON.parse(tr.dataset.m); Object.keys(m).forEach(function (k) { if (m[k] != null) sums[k] = (sums[k] || 0) + m[k]; }); if (!tr.classList.contains('nodata')) nY++; }
     });
-    var c = $('[data-pa-count]'); if (c) c.textContent = n + '개' + (n !== rows.length ? ' · 전체 ' + rows.length + '개 가운데' : '');
+    var c = $('[data-pa-count]'); if (c) { c.textContent = n + '개' + (n !== rows.length ? ' · 전체 ' + rows.length + '개 가운데' : ''); if (c.hasAttribute('data-pa-count-filtered')) c.hidden = n === rows.length; }
     $$('[data-foot]').forEach(function (td) { td.textContent = money(sums[td.dataset.foot] || 0); td.title = (sums[td.dataset.foot] || 0).toLocaleString('en-US') + '원'; });
     var fn = $('[data-pa-foot-n]'); if (fn) fn.textContent = nY + '개 사업';
     var none = $('[data-pa-none]'); if (none) none.hidden = !(rows.length && !n);

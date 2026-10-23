@@ -38,9 +38,11 @@
   .guide-toggle { width:100%; justify-content:flex-start; gap:9px; background:#fff; color:var(--ink);
     border:1px solid var(--line); border-radius:14px; padding:14px 20px; font-size:14px; }
   .guide-toggle:hover { background:var(--panel); border-color:#94A3B8; }
-  .guide-toggle iconify-icon { color:var(--faint); font-size:16px; transition:transform .2s var(--ease); }
   .guide-toggle[aria-expanded="true"] { margin-bottom:12px; }
-  .guide-toggle[aria-expanded="true"] iconify-icon { transform:rotate(90deg); }
+  /* 세모 대신 「펼치기 / 접기」 글 */
+  .guide-toggle .fold-word { margin-left:auto; font-size:12px; font-weight:400; color:var(--muted); }
+  .guide-toggle .fold-word::after { content:"펼치기"; }
+  .guide-toggle[aria-expanded="true"] .fold-word::after { content:"접기"; color:#2d4f7c; }
 </style>
 
 {% if err %}
@@ -56,7 +58,7 @@
    자리를 일하는 칸 아래로 내리거나 <details> 를 쓰면 tests/test_dev_pages.py(설명이 문답 검수 앞·이 화면에 details 없음)가
    깨져, 자리는 두고 단추+숨김 영역으로 접는다 #}
 <div class="guide-fold" id="training-guide-fold">
-  <button type="button" class="guide-toggle" aria-expanded="false" aria-controls="training-guide-body" data-guide-toggle><iconify-icon icon="solar:alt-arrow-right-linear" aria-hidden="true"></iconify-icon>학습 문답 구성 안내</button>
+  <button type="button" class="guide-toggle" aria-expanded="false" aria-controls="training-guide-body" data-guide-toggle>학습 문답 구성 안내<span class="fold-word" aria-hidden="true"></span></button>
   <div id="training-guide-body" hidden>
   {% include "_training_guide.html" %}
   </div>

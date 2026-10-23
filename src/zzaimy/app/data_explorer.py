@@ -206,7 +206,7 @@ def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> l
     """문서 목록 — 접수번호·파일명·유형·상태·조각 수(추출 조각·검색 단위)."""
     sql = (
         "SELECT d.id, d.receipt_no, d.filename, d.doc_type, d.status, d.decision,"
-        " d.sector, d.dept, d.owner, d.created_at, d.project_id"
+        " d.sector, d.dept, d.owner, d.created_at, d.project_id, d.identity"
         " FROM documents d"
     )
     cond: list[str] = []
@@ -241,8 +241,10 @@ def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> l
             grant_counts = _grant_index_counts(conn, grant_ids)
             for row in rows:
                 row['n_grant'] = grant_counts.get(row['id'], 0) if row['id'] in grant_ids else None
+    from zzaimy.app.doc_title import display_title
     for r in rows:
-        r["name"] = shorten(r["filename"], NAME_CHARS)
+        r["title"] = display_title(r) or r["filename"]        # 화면에는 본문 제목(없으면 확장자 뗀 파일 이름)
+        r["name"] = shorten(r["title"], NAME_CHARS)
     return rows
 
 
@@ -600,6 +602,7 @@ def docs_tab(
 
 def regulation_docs(db, embedded_ids: frozenset[int] | None = None) -> list[dict]:
     """규정 문서 목록 — 제목·조각 수·임베딩된 조각 수·계열·부서."""
+    from zzaimy.app.doc_title import display_title
     with db._conn() as conn:  # noqa: SLF001
         docs = [dict(r) for r in conn.execute(
             "SELECT d.id, d.receipt_no, d.filename, d.sector, d.dept, d.status,"
@@ -614,7 +617,7 @@ def regulation_docs(db, embedded_ids: frozenset[int] | None = None) -> list[dict
                 if int(cid) in embedded_ids:
                     emb[int(doc_id)] = emb.get(int(doc_id), 0) + 1
     for d in docs:
-        d["title"] = d.get("reg_title") or _stem(d["filename"])
+        d["title"] = d.get("reg_title") or display_title({"filename": d["filename"]}) or _stem(d["filename"])
         d["name"] = shorten(d["title"], NAME_CHARS)
         d["n_embedded"] = None if embedded_ids is None else emb.get(int(d["id"]), 0)
     return docs

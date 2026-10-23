@@ -327,7 +327,7 @@ def _items() -> list[Item]:
         Item("kg_edges", "지식그래프 관계", "관계 양 끝·종류·기준·근거·가중치", "CSV (gzip)", "graph", _kg_edges,
              lambda r: _rows_text(_count(r, "SELECT COUNT(*) FROM kg_edges"), "개"), params={"kind": "관계 종류"}),
         Item("programs", "사업 목록", "사업과 장부 대·중·소 분류·문서 수", "CSV", "graph", _programs, _programs_info),
-        Item("rag_docs", "검색 범위 문서 목록", "문서별 갈래·부서·공개 등급·조각 수·색인 조각 수(본문 제외)", "CSV", "rag", _rag_docs,
+        Item("rag_docs", "검색 범위 문서 목록", "문서별 종류·부서·공개 등급·조각 수·색인 조각 수(본문 제외)", "CSV", "rag", _rag_docs,
              lambda r: _rows_text(_count(r, "SELECT COUNT(*) FROM documents WHERE status = 'reviewed'"), "건")),
         Item("regulations", "규정 기준 문서 목록", "규정별 제목·조각 수·학생 공개 여부(본문 제외)", "CSV", "rag", _reg_docs,
              lambda r: _rows_text(_count(r, "SELECT COUNT(DISTINCT doc_id) FROM regulation_chunks"), "건")),

@@ -93,7 +93,7 @@ def test_rag_page_sections(tmp_path):
     # 범위가 정해진 계정(학생·관리자)은 표에 줄을 두지 않고 한 줄 안내로
     assert '<tr data-find="u-stu' not in r.text and "더할 것이 없어 표에서 뺐습니다" in r.text
     # 순서: 검색 공간 → 규정·기준 문서 → 계정별 추가 권한 → 검색 범위 시험(접힘)
-    assert r.text.index("규정·지침</h2>") < r.text.index("계정별 추가 권한</h2>") < r.text.index("<summary>검색 범위 시험")
+    assert r.text.index("규정·지침</h2>") < r.text.index("계정별 추가 권한</h2>") < r.text.index('id="rgTryToggle"')
     # 계정마다 한 줄 + 「설정」 창 — 부서는 열이 아니라 창의 체크 목록(부서가 늘어도 표가 넓어지지 않음)
     assert 'data-grant-edit="u-ga"' in r.text and "나부서 더하기" not in r.text
     assert 'data-grant-edit="u-stu"' not in r.text                     # 학생 줄은 없다
@@ -197,6 +197,19 @@ def test_search_preview_keeps_account_scope(tmp_path, monkeypatch):
     assert {h["doc_id"] for h in staff["regulation"]} == {reg_s, reg_t}
     assert c.get("/dev/rag/try", params={"target": "user:ghost", "q": q}).status_code == 400
     assert c.get("/dev/rag/try", params={"target": "space:staff", "q": " "}).status_code == 400
+
+
+def test_search_target_picker_lists_spaces_and_people(tmp_path):
+    """검색 범위 시험의 대상 찾기 — 공간과 계정을 사람 고르기 꼴로(값은 시험이 받는 그대로, 이름·역할은 우리말)."""
+    c = _client(tmp_path)
+    c.app.state.accounts["u-ga"]["name"] = "가사람"
+    got = c.get("/dev/rag/targets").json()["people"]
+    by = {p["user"]: p for p in got}
+    assert "space:staff" in by and "space:dev" in by and "space:dept:가부서" in by
+    assert by["user:u-ga"]["name"] == "가사람" and by["user:u-ga"]["dept"] == "가부서"
+    assert by["user:u-stu"]["grade_label"] == "학생" and "staff" not in by["user:u-ga"]["grade_label"]
+    only = c.get("/dev/rag/targets", params={"q": "가사람"}).json()["people"]
+    assert [p["user"] for p in only] == ["user:u-ga"]
 
 
 def test_space_composition_and_regulation_kind_column(tmp_path, monkeypatch):

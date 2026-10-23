@@ -27,9 +27,11 @@
 .privacy-record h3{font-size:14px;margin:0 0 8px}.privacy-record p{font-size:13px;line-height:1.7}
 .privacy-page .table-scroll{overflow-x:auto}
 .privacy-page table{min-width:640px}
-.privacy-nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
-.privacy-nav a{padding:7px 12px;font-size:12px;border-radius:7px;text-decoration:none;color:var(--muted);border:1px solid var(--border,#dfe4ec)}
-.privacy-nav a[aria-current=page]{background:var(--navy,#203b61);color:white;border-color:transparent}
+/* 탭 — 다른 화면과 같은 밑줄 탭 */
+.privacy-nav{display:flex;gap:2px;margin:12px 0 20px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.privacy-nav a{padding:8px 12px;margin-bottom:-1px;font-size:13.5px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.privacy-nav a:hover{color:var(--ink)}
+.privacy-nav a[aria-current=page]{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
 .privacy-nav a:focus-visible{outline:2px solid #416ca4;outline-offset:3px}
 .privacy-notice{padding:14px 16px;background:#fff8eb;border:1px solid #ead9b9;border-radius:12px;line-height:1.7;margin:16px 0}
 .privacy-principles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}
@@ -38,7 +40,7 @@
 .privacy-principles h3{font-size:15px;margin:0 0 10px}
 .privacy-principles p{margin:0;line-height:1.7;font-size:13px}
 .privacy-page .privacy-help{font-size:13px;line-height:1.7;color:var(--muted)}
-@media(max-width:760px){.privacy-principles{grid-template-columns:1fr}.privacy-page h2 form{margin-left:0!important}.privacy-nav a{flex:1;text-align:center;padding:10px 8px}.privacy-page .card-in{padding:18px}}
+@media(max-width:760px){.privacy-principles{grid-template-columns:1fr}.privacy-page h2 form{margin-left:0!important}.privacy-nav a{flex:1;text-align:center;padding:10px 6px}.privacy-page .card-in{padding:18px}}
 @media(max-width:760px){.privacy-principles:has(>article:nth-child(2):last-child){grid-template-columns:1fr}}
 </style>
 {% endblock %}
@@ -60,12 +62,12 @@
   <form method="post" action="/dev/pii/policy" id="privacyPolicyForm">
   <input type="hidden" name="enabled" id="privacyEnabledValue" value="{{ 'on' if internal_policy.enabled else 'off' }}">
   <div class="privacy-switch-row"><div><strong>내부 문서의 개인정보 가리기</strong><p class="privacy-help">새 반입·첨부·내부 응답에 적용</p></div>
-  <label><input type="checkbox" role="switch" id="privacyEnabled" aria-label="내부 마스킹" aria-controls="privacyEntities" {% if internal_policy.enabled %}checked{% endif %}><span id="privacySwitchLabel">{{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</span></label></div>
+  <label><input type="checkbox" role="switch" id="privacyEnabled" aria-label="내부 가리기" aria-controls="privacyEntities" {% if internal_policy.enabled %}checked{% endif %}><span id="privacySwitchLabel">{{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</span></label></div>
   <fieldset id="privacyEntities" {% if not internal_policy.enabled %}hidden{% endif %}><legend>가릴 항목</legend><div class="privacy-options">
   {% for key,label in masking_entities.items() %}<label><input type="checkbox" name="entities" value="{{ key }}" {% if key in internal_policy.entities %}checked{% endif %}>{{ label }}</label>{% endfor %}
   </div></fieldset>
   <p class="privacy-help">기준 문서는 원문 유지 · 원본 파일·기존 본문·검색 조각은 소급 변경 없음</p>
-  <div class="privacy-switch-row"><span id="privacySaveStatus" class="privacy-help" role="status">저장된 설정: 내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐' }} · 마지막 변경 {{ (internal_policy.updated_at | kst) or '없음(기본값)' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</span><button type="submit">설정 저장</button></div></form>
+  <div class="privacy-switch-row"><span id="privacySaveStatus" class="privacy-help" role="status">저장된 설정: 내부 가리기 {{ '켜짐' if internal_policy.enabled else '꺼짐' }} · 마지막 변경 {{ (internal_policy.updated_at | kst) or '없음(기본값)' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</span><button type="submit">설정 저장</button></div></form>
   <script>
   (function(){
     var form=document.getElementById('privacyPolicyForm'), toggle=document.getElementById('privacyEnabled');
@@ -116,7 +118,7 @@
   <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>문서 활용과 개인정보 보호</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
     내부 검색·검토·초안은 문서 접근 권한을 따릅니다. 학습·외부 전송 사본은 내부 설정과 별도로 보호합니다.</p>
-  <p class="privacy-help" role="status">현재 저장된 상태: <strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong></p>
+  <p class="privacy-help" role="status">현재 저장된 상태: <strong>내부 가리기 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong></p>
   {% set scan0 = sources[0].scan if sources else none %}
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
     {% if selftest and not selftest.error %}
@@ -125,7 +127,7 @@
     {% if scan0 and not scan0.error %}
       <span class="pill {{ 'reviewed' if scan0.hits == 0 else 'processing' }}">최근 정규식 탐지 {{ scan0.hits | num }}건 · {{ scan0.at | kst }}</span>
     {% else %}<span class="pill processing">잔여 검사 미실행</span>{% endif %}
-    {% if sources %}<span class="pill type" title="{{ metric_tip('pii_recorded') }}">마스킹 기록 있는 문서 {{ sources[0].recorded_subjects | num }} / 마스킹 대상 문서 {{ sources[0].subject_docs | num }}</span>{% endif %}
+    {% if sources %}<span class="pill type" title="{{ metric_tip('pii_recorded') }}">가리기 기록 있는 문서 {{ sources[0].recorded_subjects | num }} / 가릴 문서 {{ sources[0].subject_docs | num }}</span>{% endif %}
   </div>
 </div></div>
 <p class="privacy-help">읽기 전용 진단 · 검사 결과로 반출을 승인하거나 처리 설정을 바꾸지 않음</p>
@@ -156,7 +158,7 @@
   {% if request.query_params.get('detail') == 'selftest' or not selftest.ok or selftest.uncovered %}
   <div class="table-scroll">
   <table style="font-size:12.5px;">
-    <tr><th>항목</th><th>판정</th><th>마스킹 결과</th><th>비고</th></tr>
+    <tr><th>항목</th><th>판정</th><th>가린 결과</th><th>비고</th></tr>
     {% for c in selftest.checks if request.query_params.get('detail') == 'selftest' or not c.passed %}
     <tr>
       <td style="white-space:nowrap;">
@@ -215,7 +217,7 @@
       {% if scan.hits == 0 %}<span class="pill reviewed">정규식 탐지 0건</span>
       {% else %}<span class="pill processing">확인할 탐지 {{ scan.hits | num }}건</span>{% endif %}
     </div>
-    {% if scan.hits %}<p class="muted scan-context" style="margin:6px 0 0; font-size:12px;">{% if internal_policy.enabled %}내부 마스킹 켜짐 · 가린 뒤에도 남은 값이라 확인 필요, 정규식 특성상 오탐 포함 가능{% else %}내부 마스킹 꺼짐 · 원문을 그대로 검사하므로 탐지가 나오는 것이 정상, 오탐 포함 가능{% endif %}</p>{% endif %}
+    {% if scan.hits %}<p class="muted scan-context" style="margin:6px 0 0; font-size:12px;">{% if internal_policy.enabled %}내부 가리기 켜짐 · 가린 뒤에도 남은 값이라 확인 필요, 정규식 특성상 오탐 포함 가능{% else %}내부 가리기 꺼짐 · 원문을 그대로 검사하므로 탐지가 나오는 것이 정상, 오탐 포함 가능{% endif %}</p>{% endif %}
     {% if scan.hits %}
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">
       {% for k, v in scan.by_type.items() %}
@@ -254,7 +256,7 @@
 {% endif %}
 
 {% if selected == 'history' %}
-<p class="privacy-help">처리 때 남긴 마스킹 기록 · 현재 설정과 별개</p>
+<p class="privacy-help">처리 때 남긴 가리기 기록 · 현재 설정과 별개</p>
 <form method="get" action="/dev/pii" class="privacy-nav">
 <input type="hidden" name="view" value="history">
 <select name="source" aria-label="기록 저장소"><option value="platform">플랫폼 DB</option>{% if sources|length > 1 %}<option value="corpus" {% if history_source=='corpus' %}selected{% endif %}>국고 코퍼스 (별도 DB)</option>{% endif %}</select>
@@ -262,9 +264,9 @@
 <select name="entity" aria-label="개인정보 유형"><option value="">전체 유형</option>{% for key,label in masking_entities.items() %}<option value="{{ key }}" {% if history_entity==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><button type="submit">조회</button></form>
 {% for src in [sources[1] if history_source=='corpus' else sources[0]] %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>마스킹 기록 — {{ src.name }}</h2>
+  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>가리기 기록 — {{ src.name }}</h2>
   {% if not src.stats.total and not src.docs and not history_q and not history_entity %}
-  <p class="muted pii-empty" style="margin:0; font-size:12.5px;">마스킹 기록 없음</p>
+  <p class="muted pii-empty" style="margin:0; font-size:12.5px;">가리기 기록 없음</p>
   {% else %}
   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:12px;">
     <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
@@ -296,18 +298,18 @@
   <p class="muted" style="margin:0 0 10px; font-size:12px; line-height:1.6;">
     {{ metric_label("pii_unrecorded", "", "처리는 끝났는데 기록이 없는 문서 " ~ (src.unrecorded | num) ~ "건") }} — 기록 기능 도입 전에 처리된 문서입니다.
     {% if src.not_reviewed %}나머지 {{ src.not_reviewed | num }}건은 아직 처리 완료가 아닌 문서(처리 중·실패)입니다.{% endif %}
-    당시 마스킹 여부는 여기서 확인되지 않습니다(미확인). 재처리하면 기록이 생깁니다.</p>
+    당시 가렸는지는 여기서 확인되지 않습니다(미확인). 재처리하면 기록이 생깁니다.</p>
   {% endif %}
   {% if src.unknown_types %}
   <p class="muted" style="margin:0 0 10px; font-size:12px;">
-    정책표에 없는 문서 유형: {{ src.unknown_types | join(', ') }} — 마스킹 여부 미확인.</p>
+    정책표에 없는 문서 유형: {{ src.unknown_types | join(', ') }} — 가렸는지 미확인.</p>
   {% endif %}
 
   {% if src.docs %}
   <p class="privacy-help">검색 결과 {{ src.filtered_total | num }}건 · 한 페이지 10건</p>
   {% for d in src.docs %}<article class="privacy-record">
   <h3>{% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>{% else %}{{ doc_name(d) }}{% endif %}</h3>
-  <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ (d.recorded_at | kst) or '마스킹 기록 없음' }}</p>
+  <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ (d.recorded_at | kst) or '가리기 기록 없음' }}</p>
   <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}{% if d.recorded %}<span class="pill">가린 항목 0건</span>{% endif %}{% endfor %}</div>
   {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}" class="mini-btn">가린 문맥 표본 보기</a>{% endif %}
   </article>{% endfor %}
@@ -315,7 +317,7 @@
   {% if src.page>1 %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>
   {% if src.page<src.pages %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page+1 }}">다음</a>{% endif %}</nav>
   {% else %}
-  <p class="muted pii-empty" style="margin:0; font-size:12.5px;">{{ '조건에 맞는 기록 없음' if history_q or history_entity else '마스킹 기록 없음' }}</p>
+  <p class="muted pii-empty" style="margin:0; font-size:12.5px;">{{ '조건에 맞는 기록 없음' if history_q or history_entity else '가리기 기록 없음' }}</p>
   {% endif %}
   {% endif %}
 </div></div>
