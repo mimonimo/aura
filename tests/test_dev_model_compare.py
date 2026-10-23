@@ -114,3 +114,11 @@ def test_dev_link_only_when_runs_exist(world):
     _partial_run(base)
     page = c.get("/dev").text
     assert 'href="/dev/models/compare"' in page and "모델 비교 결과" in page
+
+
+def test_labels_and_percent_keys_from_summary():
+    from zzaimy.app import model_compare as mc
+    b = mc._block({"key": "x", "metrics": {"invented_any": {"o": 0.041}, "chrf": {"o": 27.9}}}, ["o"],
+                  {"invented_any": "질문에 없는 숫자가 든 답 비율", "chrf": "정답 겹침(chrF)"}, {"invented_any"})
+    rows = {r["name"]: r for r in b["other"]}
+    assert rows["질문에 없는 숫자가 든 답 비율"]["pct"] is True and rows["정답 겹침(chrF)"]["pct"] is False

@@ -91,14 +91,14 @@ def _pair(p: dict) -> dict:
             "ci_low": _num(p.get("ci_low")), "ci_high": _num(p.get("ci_high"))}
 
 
-def _block(b: dict, arm_keys: list[str]) -> dict:
+def _block(b: dict, arm_keys: list[str], labels: dict | None = None, pct: set | None = None) -> dict:
     metrics = b.get("metrics") if isinstance(b.get("metrics"), dict) else None
     speed, other = [], []
     for name, vals in (metrics or {}).items():
         if not isinstance(vals, dict):
             continue
-        row = {"name": SPEED_LABELS.get(name, str(name)),
-               "vals": {a: _num(vals.get(a)) for a in arm_keys}}
+        row = {"name": (labels or {}).get(name) or SPEED_LABELS.get(name, str(name)),   # summary 의 labels(한국어 이름)가 먼저
+               "vals": {a: _num(vals.get(a)) for a in arm_keys}, "pct": name in (pct or set())}
         (speed if name in SPEED_LABELS else other).append(row)
     dims = b.get("per_dimension") if isinstance(b.get("per_dimension"), dict) else None
     dim_rows = None
@@ -163,7 +163,9 @@ def load_run(base: Path, run_id: str) -> dict | None:
     return {
         "id": d.name, "created": str(s.get("created") or ""), "has_summary": bool(s),
         "arms": arms, "arm_label": {a["key"]: a["label"] for a in arms},
-        "blocks": [_block(b, arm_keys) for b in blocks if isinstance(b, dict)] if isinstance(blocks, list) else None,
+        "blocks": [_block(b, arm_keys, s.get("labels") if isinstance(s.get("labels"), dict) else None,
+                          set(s.get("percent_keys") or []) if isinstance(s.get("percent_keys"), list) else None)
+                   for b in blocks if isinstance(b, dict)] if isinstance(blocks, list) else None,
         "notes": [str(n) for n in (s.get("notes") or []) if n] if isinstance(s.get("notes"), list) else [],
         "samples": [{"id": str(x.get("id", i)), "type": str(x.get("type") or ""), "input": x.get("input") or "",
                      "gold": x.get("gold") or "", "outputs": x.get("outputs") if isinstance(x.get("outputs"), dict) else {},
