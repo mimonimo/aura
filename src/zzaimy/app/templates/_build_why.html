@@ -1,14 +1,14 @@
-{# 왜 기성 도구 대신 직접 만들었나 — 개발 현황 「답변 흐름」 에서 옮김 #}
+{# 왜 기성 도구 대신 직접 만들었나 — 한 줄씩. 쓰는 오픈소스는 아래 「사용 기술」 #}
 <style>
-  .flow-why { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 16px; margin:0 0 16px; font-size:12.5px; line-height:1.65; }
-  .flow-why dt { font-weight:700; color:var(--navy); white-space:nowrap; } .flow-why dd { margin:0; color:#3B4A5E; }
+  .flow-why { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 16px; margin:0; font-size:12.5px; line-height:1.6; }
+  .flow-why dt { font-weight:600; color:var(--navy); white-space:nowrap; } .flow-why dd { margin:0; color:#3B4A5E; }
   @media (max-width:700px) { .flow-why { grid-template-columns:1fr; } .flow-why dd { margin-bottom:6px; } }
 </style>
-    <p class="muted" style="font-size:12px; margin:0 0 8px;">LangChain·LlamaIndex 의 RAG, Microsoft GraphRAG, Neo4j 같은 그래프 DB 를 그대로 쓰지 않고 지식그래프·온톨로지·검색을 우리 코드로 만들었습니다. 부품(PostgreSQL·Kiwi·임베딩 모델 등)은 오픈소스를 씁니다 — 아래 「쓰는 부품」.</p>
+  <p class="muted" style="font-size:12px; margin:0 0 8px;">범용 RAG·GraphRAG·그래프 DB 대신 검색·그래프를 직접 구성, 부품은 오픈소스</p>
   <dl class="flow-why">
-    <dt>문서가 행정 문서다</dt><dd>한글(hwp)·스캔 PDF·병합 칸이 많은 표가 대부분이라 범용 도구의 문서 자르기로는 표와 절이 깨집니다. 절·표·조문 단위로 자르는 규칙과 판독을 우리 문서에 맞춰 만들었습니다.</dd>
-    <dt>사업 구조가 정해져 있다</dt><dd>사업 → 연차 → 계획서·실적보고서, 계획↔실적 짝, 앞·뒤 단계 사업처럼 관계가 분명합니다. 범용 GraphRAG 는 글에서 관계를 LLM 으로 뽑아 비용이 크고 틀릴 수 있어, 파일 이름·폴더·외부 확인 장부 같은 근거로 관계를 짓고 근거를 함께 적습니다.</dd>
-    <dt>권한과 보안</dt><dd>부서·열람 등급·학생 공개를 검색 단계에서 걸러야 하고(절대 규칙 4), 원문이 학교 밖으로 나가면 안 됩니다. 폐쇄망·자체 서버에서 돌고, 권한 필터가 검색 SQL 안에 들어가도록 직접 짰습니다.</dd>
-    <dt>수치를 지어내지 않게</dt><dd>답의 수치는 근거에 있는 것만 쓰도록 근거 조각·출처를 끝까지 들고 다닙니다. 단계마다 무엇을 왜 골랐는지 기록(리즈닝 단계)이 남아 검수와 학습 데이터로 이어집니다.</dd>
-    <dt>운영 규모와 비용</dt><dd>그래프(규모는 위 5단계의 노드·관계 수)를 이미 쓰는 PostgreSQL 한 곳에 두어 따로 그래프 DB 를 운영하지 않습니다. 측정 도구(scripts/173·184)로 바꿀 때마다 수치를 견줍니다.</dd>
+    <dt>행정 문서</dt><dd>한글·스캔 PDF·병합 칸 표가 많아 절·표·조문 단위로 직접 자른다.</dd>
+    <dt>정해진 사업 구조</dt><dd>사업 → 연차 → 계획서·실적보고서 관계를 근거 있는 것만 잇는다.</dd>
+    <dt>권한과 보안</dt><dd>부서·등급·학생 공개를 검색 단계에서 거르고, 원문은 학교 밖으로 나가지 않는다.</dd>
+    <dt>지어낸 수치 막기</dt><dd>근거 조각과 출처를 끝까지 들고 다니며 근거에 없는 수치는 가린다.</dd>
+    <dt>운영 규모</dt><dd>그래프도 쓰고 있는 PostgreSQL 한 곳에 둬 따로 운영할 DB 가 없다.</dd>
   </dl>

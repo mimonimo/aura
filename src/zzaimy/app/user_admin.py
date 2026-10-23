@@ -218,6 +218,7 @@ def dev_users(request: Request, ok: str = "", err: str = ""):
     st = request.app.state
     data = overview(st.db, _accounts(request), getattr(st, "data_dir", None))
     data["me"] = _user(request)
+    data["redirect_uri"] = redirect_uri(request)          # Google 앱 등록 창에 보일 되돌아올 주소
     data["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))
     data.update(dict_candidates(st, data["dept_choices"]))
     return st.templates.TemplateResponse(request, "dev_users.html", st.page_ctx(request, {**data, "ok": ok, "err": err}))
@@ -516,7 +517,7 @@ def dev_google_folders(request: Request, parent: str = 'root', q: str = '', toke
 
 def unlink_google(db, accounts: dict, email: str) -> None:
     """구글 계정 연결 해제 — 보관 토큰과 그 계정으로 이어진 사용자·부서 이음을 모두 푼다.
-    사용자·계정 화면과 문서 반입(Google Drive) 화면이 같은 이 함수를 쓴다(토큰만 지우면 사용자 이음이 죽은 계정을 가리킨다)."""
+    사용자·계정 화면의 연결 삭제와 /dev/gdrive/revoke 가 같은 이 함수를 쓴다(토큰만 지우면 사용자 이음이 죽은 계정을 가리킨다)."""
     for uid, e in bindings(db, accounts).items():
         if e == email:
             db.set_setting(f"google_account:{uid}", "")

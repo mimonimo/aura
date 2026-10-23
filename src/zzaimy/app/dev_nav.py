@@ -9,7 +9,7 @@ from __future__ import annotations
 # (주소, 이름) — 사이드바 순서대로, 하는 일 묶음별로(문서가 들어와 → 검색·지식이 되고 → 모델이 쓰고 → 점검·관리)
 GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     ("개요", [("/dev", "개발 현황"), ("/dev/flow", "처리 흐름")]),
-    ("문서·데이터", [("/dev/intake", "문서 반입"), ("/dev/db", "데이터 현황")]),
+    ("문서·데이터", [("/dev/intake", "문서 가져오기"), ("/dev/db", "데이터 현황")]),
     ("검색·지식", [("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색")]),
     ("모델", [("/dev/train", "데이터·학습"), ("/dev/collect", "수집 자료"), ("/dev/tools", "도구·모델 연결")]),
     ("점검", [("/dev/quality", "품질·성능"), ("/dev/pii", "개인정보·반출 점검")]),
@@ -17,8 +17,7 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 ]
 
 # 사이드바에 없는 개발 화면
-EXTRA = {"/dev/history": "변경 이력", "/dev/nas": "문서 반입",     # Google Drive 가져오기는 문서 반입의 탭
-         "/dev/train?tab=settings": "도구·모델 연결",                 # 옛 주소 — /dev/tools 로 넘긴다
+EXTRA = {"/dev/history": "변경 이력",                              # 개발 현황 머리의 「변경 이력」
          "/dev/models/compare": "모델 비교 결과"}                     # 개발 현황 모델 표의 Writer 줄에서 들어간다
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
@@ -38,7 +37,7 @@ def is_active(href: str, path: str, train_tab: str) -> bool:
     if href == "/dev":                             # 변경 이력은 개발 현황의 하위 화면
         return path in ("/dev", "/dev/history")
     if href == "/dev/intake":
-        return path in ("/dev/intake", "/dev/nas")
+        return path == "/dev/intake"
     return path == href
 
 

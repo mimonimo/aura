@@ -2,16 +2,23 @@
 
 - /dev 경로는 main.check_auth 가 개발자만 들인다. 되돌아오는 주소(/dev/gdrive/callback)만 예외로 모든 계정이 온다.
 - DB·계정 표(accounts)·서비스 안 경로 판정식(local_path)은 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
-- 문서 반입 화면(app/dev_intake_routes)의 Google Drive 탭 주소 이동·되돌아올 주소 도우미를 함께 쓴다.
+- 앱 등록과 계정 목록은 사용자·계정 화면(/dev/users#google-links) — 관리자 동작은 그리로 되돌아간다.
 """
 from __future__ import annotations
+
+from urllib.parse import quote as _q
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
-from zzaimy.app.dev_intake_routes import _gdrive_redirect_uri, _nas_redirect
+from zzaimy.app.user_admin import redirect_uri as _gdrive_redirect_uri
 
 router = APIRouter()
+
+
+def _users_redirect(msg: str, ok: bool = True) -> RedirectResponse:
+    """관리자 동작 뒤 사용자·계정 화면의 「학교 계정 연결 현황」 으로."""
+    return RedirectResponse(f"/dev/users?{'ok' if ok else 'err'}={_q(msg)}#google-links", status_code=303)
 
 
 @router.post("/dev/gdrive/client")
@@ -21,8 +28,8 @@ def dev_gdrive_client(client_id: str = Form(""), client_secret: str = Form("")):
     try:
         gdrive.set_client(client_id, client_secret)
     except ValueError as e:
-        return _nas_redirect(str(e), ok=False)
-    return _nas_redirect("구글 클라이언트를 저장했습니다 — 이제 계정 허용을 누르세요")
+        return _users_redirect(str(e), ok=False)
+    return _users_redirect("Google 앱 등록을 저장했습니다 — 사용자는 설정에서 학교 계정을 연결합니다")
 
 
 @router.get("/dev/gdrive/auth")
@@ -32,14 +39,12 @@ def dev_gdrive_auth(request: Request):
     try:
         return RedirectResponse(gdrive.auth_url(_gdrive_redirect_uri(request), getattr(request.state, "user", "")), status_code=303)
     except ValueError as e:
-        return _nas_redirect(str(e), ok=False)
+        return _users_redirect(str(e), ok=False)
 
 
 @router.get("/dev/gdrive/callback")
 def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     from zzaimy.ingest import gdrive
-
-    from urllib.parse import quote as _q
 
     back = request.cookies.get("zz_google_back", "")
     back = back if request.app.state.local_path.fullmatch(back or "") else ""          # 쿠키 값도 서비스 안 경로만
@@ -48,7 +53,7 @@ def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error
 
     def done(msg: str, ok: bool = True):
         if not back:
-            return _nas_redirect(msg, ok=ok)
+            return _users_redirect(msg, ok=ok)
         sep = "&" if "?" in back else "?"
         resp = RedirectResponse(f"{back}{sep}{'ok' if ok else 'err'}={_q(msg)}", status_code=303)
         resp.delete_cookie("zz_google_back")
@@ -77,4 +82,4 @@ def dev_gdrive_revoke(request: Request, email: str = Form("")):
     from zzaimy.app.user_admin import unlink_google
 
     unlink_google(request.app.state.db, request.app.state.accounts, email.strip())            # 사용자·계정 화면의 연결 삭제와 같은 동작
-    return _nas_redirect(f"구글 계정 {email} 연결을 지웠습니다 — 이 계정으로 이어진 사용자·부서 연결도 풀었습니다")
+    return _users_redirect(f"구글 계정 {email} 연결을 지웠습니다 — 이 계정으로 이어진 사용자·부서 연결도 풀었습니다")

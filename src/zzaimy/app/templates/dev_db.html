@@ -3,7 +3,6 @@
 {% block pagetitle %}{{ dev_page_name('/dev/db') }}{% endblock %}
 {% block head %}<script src="/static/data-explorer.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
-<p class="muted">운영 DB의 반입 문서와 검색 자료(교내 규정·사업 문서). 학습 후보와 검수 상태는 <a href="/dev/train">{{ dev_page_name("/dev/train") }}</a>에서 본다.</p>
 
 <style>
 /* 데이터 열람 — 이 페이지 전용 스코프(.dx-*) */
@@ -212,12 +211,11 @@ tr.pick[hidden]{display:none}
 .dx-extract-more{margin:8px 0 0}.dx-extract-more > .dx-rows{margin-top:8px}
 </style>
 
-<p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
-  <span class="muted" style="font-size:12.5px;">읽기 전용 · 접수번호·제목으로 찾아 한 문서의 추출·조각·표를 자세히 본다</span></p>
+<p class="muted" style="font-size:12.5px; margin:0 0 14px;">운영 DB 읽기 전용 · 문서 하나의 항목·검색 조각·그래프 연결 · 학습 데이터는 <a href="/dev/train">{{ dev_page_name("/dev/train") }}</a></p>
 
 <div class="dx-tabs">
   {% for key, label in tabs %}
-  <a href="/dev/db?tab={{ key }}" class="{{ 'on' if key == tab else '' }}" {% if key == tab %}aria-current="page"{% endif %}>{{ {'docs':'문서', 'regulation':'기준 문서', 'chat':'대화 기록'}.get(key, label) }}</a>
+  <a href="/dev/db?tab={{ key }}" class="{{ 'on' if key == tab else '' }}" {% if key == tab %}aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
 </div>
 
@@ -226,9 +224,8 @@ tr.pick[hidden]{display:none}
 <section class="card dx-card"><div class="card-in">
 <div class="dx-head"><h2><iconify-icon icon="solar:database-linear"></iconify-icon>원본 장부 원값</h2>
   <span class="dx-links"><a class="h-link" href="/archive{{ ('?q=' ~ (q|urlencode)) if q else '' }}#archive-list"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>원본 보관소에서 찾기</a></span></div>
-<p class="muted dx-foot" style="margin:0 0 4px;">{% if q %}검색 결과 {{ view.total|num }} · {% endif %}{% if lg %}{{ metric_label("archive_originals", "", "학교 원본") }} {{ lg.originals|num }}{% if view.everything %} · 함께 보는 처리하지 않는 파일: 정리함 {{ lg.cleaned|num }} · 부산물 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% else %} · 처리하지 않는 파일 {{ (lg.total - lg.originals)|num }}건(정리함·부산물 — 원본 파일은 DGX 에 그대로)은 빼고 봅니다{% endif %}{% else %}{{ view.total|num }}{% endif %}
-  · <a href="/dev/db?tab=archive{{ ('&q=' ~ (q|urlencode)) if q }}{{ '' if view.everything else '&all=1' }}">{{ '학교 원본만 보기' if view.everything else '정리함·부산물까지 모두 보기' }}</a></p>
-<p class="muted dx-foot" style="margin:0 0 12px;">사업·연도·처리 상태로 훑기는 원본 보관소 · 여기는 장부에 적힌 값 그대로(분류 상태·문서 번호·같은 파일 대표·처리 기록·목록에서 본 때) · <span class="pill dx-pill">정리함</span> 원본 보관소 정리함에 옮긴 원본(보관소 목록·건수에서 빠짐, 되돌릴 수 있음)</p>
+<p class="muted dx-foot" style="margin:0 0 4px;">{% if q %}검색 결과 {{ view.total|num }} · {% endif %}{% if lg %}{{ metric_label("archive_originals", "", "학교 원본") }} {{ lg.originals|num }}{% if view.everything %} · 처리하지 않는 파일 포함: 정리함 {{ lg.cleaned|num }} · 변환 사본 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% else %} · 처리하지 않는 파일 {{ (lg.total - lg.originals)|num }}건 제외{% endif %}{% else %}{{ view.total|num }}{% endif %}
+  · <a href="/dev/db?tab=archive{{ ('&q=' ~ (q|urlencode)) if q }}{{ '' if view.everything else '&all=1' }}">{{ '학교 원본만 보기' if view.everything else '처리하지 않는 파일까지 보기' }}</a></p>
 <form method="get" action="/dev/db" class="dx-search dx-search-row">
   <input type="hidden" name="tab" value="archive">{% if view.everything %}<input type="hidden" name="all" value="1">{% endif %}
   <input type="search" name="q" value="{{ q }}" placeholder="파일 경로 · 장부 사업 이름(여러 낱말 가능)" aria-label="원본 장부 검색" autocomplete="off">
@@ -239,7 +236,7 @@ tr.pick[hidden]{display:none}
   <tbody>
 {% for row in view.rows %}<tr>
   {% set parts = (row.rel or '').rsplit('/', 1) %}
-  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 부산물">사본·부산물</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 보관소 「정리함」에 옮긴 원본 — 보관소 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
+  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 사본">사본</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 보관소 「정리함」에 옮긴 원본 — 보관소 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
   <td class="dx-nowrap">{{ row.ext or '—' }} · {{ row.size|num }}</td>
   <td class="dx-ell" title="{{ row.program_name }}">{{ row.program_name or '—' }}</td>
   <td class="dx-ell" title="{{ row.status_label or '분류 없음' }} · 장부 코드 {{ row.status or '없음' }}">{{ row.status_label or '—' }}</td>
@@ -270,7 +267,7 @@ tr.pick[hidden]{display:none}
     </form>
     <div class="dx-scroll">
       <table class="dx-list">
-        <thead><tr><th>문서</th><th class="dx-num" title="추출 항목 · 검색 색인에 든 조각">자료</th></tr></thead>
+        <thead><tr><th>문서</th><th class="dx-num" title="항목 · 검색 조각">자료</th></tr></thead>
         <tbody>
         {% set sel_id = view.selected_id or doc_id %}
         {% for d in view.docs %}
@@ -278,7 +275,7 @@ tr.pick[hidden]{display:none}
         <tr class="pick {{ 'on' if d.id == sel_id else '' }}" data-href="{{ href }}">
           <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.filename }}</a>
             <div class="sub {{ d.status }}">{{ doc_type_labels.get(d.doc_type, d.doc_type) }} · <span class="dx-mono">{{ receipt_label(d.receipt_no) or '—' }}</span> · {{ status_labels.get(d.status, d.status) }}</div></td>
-          <td class="dx-num dx-counts">추출 {{ d.n_chunks }} · {% if d.n_grant is not none %}사업 색인 {{ d.n_grant }}{% else %}규정 색인 {{ d.n_units }}{% endif %}</td>
+          <td class="dx-num dx-counts">항목 {{ d.n_chunks }} · 검색 조각 {% if d.n_grant is not none %}{{ d.n_grant }}{% else %}{{ d.n_units }}{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="2" class="dx-empty">문서 없음</td></tr>
@@ -305,33 +302,33 @@ tr.pick[hidden]{display:none}
       <span class="pill type dx-pill">{{ doc_type_labels.get(o.doc_type, o.doc_type) }}</span>
       <span class="pill {{ o.status }} dx-pill">{{ status_labels.get(o.status, o.status) }}</span>
       {% if o.decision and o.decision != 'pending' %}<span class="pill dx-pill">{{ decision_labels.get(o.decision, o.decision) }}</span>{% endif %}
-      <span class="muted" style="font-size:12px;">계정 {{ o.owner }}</span>
+      {% if o.owner %}<span class="muted" style="font-size:12px;">올린 계정 {{ o.owner }}</span>{% endif %}
     </div>
 
     <div class="dx-sec">
       <h3>개요</h3>
       <div class="dx-kv">
-        <div><span>접수번호</span><b class="dx-mono" style="font-size:12.5px;">{{ receipt_label(o.receipt_no) or '—' }}</b></div>
+        {% if receipt_label(o.receipt_no) %}<div><span>접수번호</span><b class="dx-mono" style="font-size:12.5px;">{{ receipt_label(o.receipt_no) }}</b></div>{% endif %}
         <div><span>접수 시각</span>{{ (o.created_at or '')[:16] | replace('T', ' ') or '—' }}</div>
         {% set sector_name = sector_labels.get(o.sector, o.sector) %}
         <div><span>계열 · 부서</span>{{ sector_name }}{% if o.dept and o.dept != sector_name %} · {{ o.dept }}{% endif %}</div>
         <div><span>원본 파일</span>{% if o.original.exists %}있음 · {{ o.original.suffix or '확장자 없음' }}{% else %}없음{% endif %}</div>
-        <div><span>마스킹 본문</span>{{ "{:,}".format(o.text_chars) }}자</div>
+        <div><span>개인정보 가린 본문</span>{{ "{:,}".format(o.text_chars) }}자</div>
         <div><span>검토 의견 · 초안</span>{{ '있음' if o.has_review else '없음' }} · {{ '있음' if o.has_draft else '없음' }}</div>
-        <div><span>프로젝트</span>{% if o.project %}<a href="/project/{{ o.project.id }}" title="{{ o.project.name }}">{{ o.project.name }}</a>{% else %}—{% endif %}</div>
-        <div><span>근거 기준</span>{% if o.related_criteria %}<a href="/dev/db?tab=docs&doc={{ o.related_criteria.id }}" title="{{ o.related_criteria.filename }}">{{ o.related_criteria.name }}</a>{% elif o.related_criteria_id %}<span class="muted">문서 {{ o.related_criteria_id }} (삭제됨)</span>{% else %}—{% endif %}</div>
-        <div class="wide"><span>마스킹 기록</span>
-          {% if not o.mask.subject %}<span class="muted">대상 아님 — 기준 문서는 원문 유지 (ADR-0006)</span>
+        {% if o.project %}<div><span>프로젝트</span><a href="/project/{{ o.project.id }}" title="{{ o.project.name }}">{{ o.project.name }}</a></div>{% endif %}
+        {% if o.related_criteria or o.related_criteria_id %}<div><span>관련 기준 문서</span>{% if o.related_criteria %}<a href="/dev/db?tab=docs&doc={{ o.related_criteria.id }}" title="{{ o.related_criteria.filename }}">{{ o.related_criteria.name }}</a>{% else %}<span class="muted">문서 {{ o.related_criteria_id }} (삭제됨)</span>{% endif %}</div>{% endif %}
+        <div class="wide"><span>개인정보 가림</span>
+          {% if not o.mask.subject %}<span class="muted">해당 없음(규정은 원문 그대로)</span>
           {% elif not o.mask.recorded %}<span class="muted">기록 없음</span>
           {% elif not o.mask.rows %}<span class="dx-pills"><span class="pill reviewed dx-pill">가린 항목 0건</span>
             <span class="muted" style="font-size:12px;">{{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }}</span></span>
           {% else %}<span class="dx-pills">
             {% for m in o.mask.rows %}<span class="pill type dx-pill">{{ m.label }} {{ m.n }}</span>{% endfor %}
-            <span class="muted" style="font-size:12px;">총 {{ o.mask.total }}건 · {{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }} · 유형·건수만 기록</span></span>
+            <span class="muted" style="font-size:12px;">총 {{ o.mask.total }}건 · {{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }}</span></span>
           {% endif %}
         </div>
         {% if o.error %}<div class="wide"><span>오류</span><span style="color:var(--red);">{{ o.error }}</span></div>{% endif %}
-        {% if o.parse_note %}<div class="wide"><span>파싱 메모</span>{{ o.parse_note }}</div>{% endif %}
+        {% if o.parse_note %}<div class="wide"><span>읽기 메모</span>{{ o.parse_note }}</div>{% endif %}
       </div>
     </div>
 
@@ -339,29 +336,28 @@ tr.pick[hidden]{display:none}
     <div class="dx-sec">
       <h3 class="dx-materials-title">추출·검색 자료</h3>
         <div class="dx-pills dx-materials-summary">
-          <span class="pill dx-pill">추출 항목 {{ c.n_extract }}</span>
+          <span class="pill dx-pill">항목 {{ c.n_extract }}</span>
           {% for k in c.kinds %}<span class="pill dx-pill" style="background:#fff; border:1px solid var(--line);">{{ k.label }} {{ k.n }}</span>{% endfor %}
           {% if c.n_units %}
-            <span class="pill type dx-pill">검색 자료 {{ c.n_units }}</span>
+            <span class="pill type dx-pill">검색 조각 {{ c.n_units }}</span>
             {% if c.n_embedded is not none %}
-              <span class="pill {{ 'reviewed' if c.n_embedded == c.n_units else 'processing' }} dx-pill">의미 검색 색인 {{ c.n_embedded }}/{{ c.n_units }}</span>
-            {% elif index.exists %}<span class="pill processing dx-pill">의미 검색 색인 자료별 미확인</span>
-            {% else %}<span class="pill dx-pill">의미 검색 색인 없음</span>{% endif %}
+              <span class="pill {{ 'reviewed' if c.n_embedded == c.n_units else 'processing' }} dx-pill">검색 색인 {{ c.n_embedded }}/{{ c.n_units }}</span>
+            {% elif index.exists %}<span class="pill processing dx-pill">검색 색인 미확인</span>
+            {% else %}<span class="pill dx-pill">검색 색인 없음</span>{% endif %}
           {% elif c.n_grant is not none %}
-            <span class="pill type dx-pill">사업 문서 색인 {{ c.n_grant }}</span>
-            <span class="muted" style="font-size:12px;">추출 항목의 본문·표·그림 속 글자를 그대로 검색에 씀</span>
+            <span class="pill type dx-pill">검색 조각 {{ c.n_grant }}</span>
           {% elif o.doc_type == 'grant' %}
-            <span class="muted">검토가 끝나면 사업 문서 색인에 들어감</span>
+            <span class="muted">검토 뒤 검색 색인에 들어감</span>
           {% else %}
             <span class="muted">검색 색인 없음</span>
           {% endif %}
         </div>
 
       {% if c.n_units %}
-      <section class="dx-material-group" aria-label="검색 자료">
-        <h4 class="dx-material-heading">검색 자료 <span>{{ c.n_units }}건 · 답변 근거</span></h4>
+      <section class="dx-material-group" aria-label="검색 조각">
+        <h4 class="dx-material-heading">검색 조각 <span>{{ c.n_units }}건</span></h4>
         <div class="dx-rows-wrap"><table class="dx-rows">
-          <tr><th>#</th><th>표제</th><th class="dx-num">길이</th><th>의미 검색 색인</th><th>본문</th></tr>
+          <tr><th>#</th><th>제목</th><th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
           {% for u in c.units %}
           <tr>
             <td class="dx-mono">{{ u.id }}</td>
@@ -375,8 +371,8 @@ tr.pick[hidden]{display:none}
       </section>
       {% endif %}
 
-      <section class="dx-material-group" aria-label="추출 내용">
-        <h4 class="dx-material-heading">추출 내용 <span>{{ c.n_extract }}건 · 본문·표·그림</span></h4>
+      <section class="dx-material-group" aria-label="항목">
+        <h4 class="dx-material-heading">항목 <span>{{ c.n_extract }}건 · 본문·표·그림</span></h4>
         {% if c.extract %}
         <div class="dx-rows-wrap"><table class="dx-rows">
           <tr><th>#</th><th>종류</th><th class="dx-num">쪽</th><th class="dx-num">길이</th><th>본문</th></tr>
@@ -393,7 +389,7 @@ tr.pick[hidden]{display:none}
           </tr>
           {% endfor %}
         </table>{% if c.extract|length > extract_page %}</details>{% endif %}</div>
-        {% else %}<p class="muted" style="font-size:12.5px; margin:4px 0 0;">추출 항목 없음</p>{% endif %}
+        {% else %}<p class="muted" style="font-size:12.5px; margin:4px 0 0;">항목 없음</p>{% endif %}
       </section>
     </div>
 
@@ -434,20 +430,20 @@ tr.pick[hidden]{display:none}
 {% set n_missing = (view.docs | rejectattr('n_embedded') | selectattr('n_units') | list | length) if index.exists else none %}
 <div class="card dx-status"><div class="card-in">
   <div class="dx-stat"><b>{{ "{:,}".format(view.docs|length) }}</b><span>기준 문서</span></div>
-  <div class="dx-stat"><b>{{ "{:,}".format(n_units) }}</b><span>규정 색인 조각</span></div>
-  <div class="dx-stat"><b>{{ "{:,}".format(n_emb) if n_emb is not none else "—" }}</b><span>임베딩된 조각{% if n_emb is not none and n_units %} · {{ (n_emb * 100 / n_units) | round(1) }}%{% endif %}</span></div>
-  <div class="dx-stat{{ ' warn' if n_missing }}"><b>{{ "{:,}".format(n_missing) if n_missing is not none else "—" }}</b><span>임베딩 안 된 문서</span></div>
-  <p class="muted dx-stat-note">{% if index.exists %}임베딩 모델 {{ index.model }}{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}{% else %}임베딩 색인 없음 — 낱말 검색만{% endif %}
-    {% if n_missing %} · 임베딩이 없는 문서도 낱말 검색으로는 찾습니다. 다시 만들기는 <a href="/dev/rag#student-regs">RAG 공간</a>{% endif %}</p>
+  <div class="dx-stat"><b>{{ "{:,}".format(n_units) }}</b><span>검색 조각</span></div>
+  <div class="dx-stat"><b>{{ "{:,}".format(n_emb) if n_emb is not none else "—" }}</b><span>검색 색인에 든 조각{% if n_emb is not none and n_units %} · {{ (n_emb * 100 / n_units) | round(1) }}%{% endif %}</span></div>
+  <div class="dx-stat{{ ' warn' if n_missing }}"><b>{{ "{:,}".format(n_missing) if n_missing is not none else "—" }}</b><span>검색 색인 빠진 문서</span></div>
+  <p class="muted dx-stat-note">{% if index.exists %}색인 모델 {{ index.model }}{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}{% else %}검색 색인 없음 — 낱말 검색만{% endif %}
+    {% if n_missing %} · 빠진 문서도 낱말 검색으로는 찾음 · 다시 만들기는 <a href="/dev/rag#student-regs">RAG 공간</a>{% endif %}</p>
 </div></div>
 <div class="dx-grid">
   <div class="card dx-card"><div class="card-in">
     <div class="dx-regbar"><input type="search" id="dxRegFind" placeholder="규정 이름 거르기" aria-label="규정 거르기">
-      <label><input type="checkbox" id="dxRegMissing"> 임베딩 안 된 것만</label></div>
-    <p class="muted" style="font-size:12px; margin:0 0 8px;">규정 검색 시험은 <a href="/dev/rag#try">RAG 공간 › 검색 범위 시험</a>(공간·계정 범위 그대로)에서, 등록·해제는 <a href="/dev/rag#student-regs">규정·기준 문서</a>에서 합니다. 여기서는 조각을 열람합니다.</p>
+      <label><input type="checkbox" id="dxRegMissing"> 색인 빠진 것만</label></div>
+    <p class="muted" style="font-size:12px; margin:0 0 8px;">검색 시험·등록은 <a href="/dev/rag#try">RAG 공간</a></p>
     <div class="dx-scroll">
       <table class="dx-list">
-        <thead><tr><th>규정</th><th>부서</th><th class="dx-num">조각</th><th class="dx-num">임베딩</th></tr></thead>
+        <thead><tr><th>규정</th><th>부서</th><th class="dx-num">조각</th><th class="dx-num">색인</th></tr></thead>
         <tbody>
         {% for d in view.docs %}
         {% set href = '/dev/db?tab=regulation&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') %}
@@ -480,13 +476,13 @@ tr.pick[hidden]{display:none}
   <div class="card dx-card dx-detail" id="dxDetail"><div class="card-in">
     {% if view.hits %}
     <div class="dx-sec" style="margin-top:0; padding-top:0; border-top:0;">
-      <h3>검색 결과 <span class="muted">‘{{ q }}’ · {{ view.hits|length }}건 · 형태소+의미 검색 색인 후보를 리랭커로 정렬</span></h3>
+      <h3>검색 결과 <span class="muted">‘{{ q }}’ · {{ view.hits|length }}건</span></h3>
       {% for h in view.hits %}
       <div class="dx-hit">
         <div style="display:flex; gap:8px; align-items:baseline; min-width:0;">
           <span class="pill dx-pill" style="flex:none;">{{ h.rank }}</span>
           <a href="/dev/db?tab=regulation&doc={{ h.doc_id }}&q={{ q|urlencode }}#u{{ h.id }}"
-             style="font-weight:600; font-size:13px; text-decoration:none; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ h.heading or '(표제 없음)' }}</a>
+             style="font-weight:600; font-size:13px; text-decoration:none; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ h.heading or '(제목 없음)' }}</a>
           <span class="muted" style="font-size:11.5px; margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45%; flex:none;">{{ h.reg_title }}</span>
         </div>
         <p style="margin:5px 0 0; font-size:12.5px; line-height:1.6; color:#33425c;">{{ h.preview }}</p>
@@ -510,13 +506,13 @@ tr.pick[hidden]{display:none}
     <div class="dx-pills" style="margin-bottom:12px;">
       {% set sector_name = sector_labels.get(s.sector, s.sector) %}
       <span class="pill type dx-pill">{{ sector_name }}{% if s.dept and s.dept != sector_name %} · {{ s.dept }}{% endif %}</span>
-      <span class="pill dx-pill">자료 {{ s.n_units }}</span>
-      {% if s.n_embedded is not none %}<span class="pill {{ 'reviewed' if s.n_embedded == s.n_units else 'processing' }} dx-pill">의미 검색 색인 {{ s.n_embedded }}/{{ s.n_units }}</span>{% endif %}
-      <span class="muted" style="font-size:12px;">{{ receipt_label(s.receipt_no) or '—' }} · {{ (s.created_at or '')[:16] | replace('T', ' ') }}</span>
+      <span class="pill dx-pill">검색 조각 {{ s.n_units }}</span>
+      {% if s.n_embedded is not none %}<span class="pill {{ 'reviewed' if s.n_embedded == s.n_units else 'processing' }} dx-pill">검색 색인 {{ s.n_embedded }}/{{ s.n_units }}</span>{% endif %}
+      <span class="muted" style="font-size:12px;">{% if receipt_label(s.receipt_no) %}{{ receipt_label(s.receipt_no) }} · {% endif %}{{ (s.created_at or '')[:16] | replace('T', ' ') }}</span>
     </div>
     {% if s.units %}
     <div class="dx-rows-wrap" style="max-height:calc(100vh - 220px);"><table class="dx-rows">
-      <tr><th>#</th><th>표제</th><th class="dx-num">길이</th><th>의미 검색 색인</th><th>본문</th></tr>
+      <tr><th>#</th><th>제목</th><th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
       {% for u in s.units %}
       <tr id="u{{ u.id }}" class="{{ 'hit' if u.hit else '' }}">
         <td class="dx-mono">{{ u.id }}</td>
@@ -527,22 +523,22 @@ tr.pick[hidden]{display:none}
       </tr>
       {% endfor %}
     </table></div>
-    {% else %}<p class="dx-empty" style="padding:12px 0;">자료 없음</p>{% endif %}
+    {% else %}<p class="dx-empty" style="padding:12px 0;">조각 없음</p>{% endif %}
     {% elif not q %}
     <div class="dx-empty">왼쪽 목록에서 규정 선택</div>
     {% endif %}
   </div></div>
 </div>
 
-{# ---------------- 국고 공개 문서 모음 ---------------- #}
+{# ---------------- 대화 기록 ---------------- #}
 {% elif tab == 'chat' %}
 <div class="card dx-card"><div class="card-in">
   <div class="dx-head">
-    <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>채팅 기록
+    <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>대화 기록
       <span class="muted" style="font-size:12.5px; font-weight:500;">{{ view.sessions|length }}건</span></h2>
   </div>
   <div class="table-scroll"><table class="dx-rows" style="font-size:13px;">
-    <tr><th>#</th><th>질문</th><th>시각</th><th class="dx-num">메시지</th><th class="dx-num">근거</th><th>프로젝트</th><th>계정</th></tr>
+    <tr><th>#</th><th>질문</th><th>시각</th><th class="dx-num">메시지</th><th class="dx-num">근거</th><th>프로젝트</th><th>올린 계정</th></tr>
     {% for s in view.sessions %}
     <tr>
       <td class="dx-mono">{{ s.id }}</td>
@@ -555,10 +551,10 @@ tr.pick[hidden]{display:none}
       <td class="muted" style="white-space:nowrap;">{{ s.owner }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="dx-empty">채팅 기록 없음</td></tr>
+    <tr><td colspan="7" class="dx-empty">대화 기록 없음</td></tr>
     {% endfor %}
   </table></div>
-  <p class="muted dx-foot">근거 = 답변에 인출한 자료 수 · 서버에 남아 있는 기록만 표시 · 기록이 없으면 —</p>
+  <p class="muted dx-foot">근거 = 답변에 쓴 자료 수</p>
 </div></div>
 {% endif %}
 

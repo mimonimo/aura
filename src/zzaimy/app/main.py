@@ -721,12 +721,8 @@ def create_app(
     from zzaimy.generate import llm_connections as _lc
 
     _lc.configure(Path(db_path).parent / "llm_connections.json")
-    # NAS 수집 — 원천(계정 포함)·반입 상태 파일, 자동 반입은 켜진 원천이 있을 때만 시작
-    from zzaimy.ingest import nas_sync as _nas
     from zzaimy.app import gdrive_import as _gimport
 
-    _nas.configure(Path(db_path).parent / "nas_sources.json", Path(db_path).parent / "nas_state.json")
-    _nas.ensure_scheduler(db, processor, inbox_dir)
     if not _lc.list_public() and db.get_setting("llm_base_url", ""):
         # 예전 '모델 서버 주소' 설정은 내부 vLLM 연결 하나로 옮긴다
         _old = _lc.add("내부 vLLM", "vllm", db.get_setting("llm_base_url", ""),

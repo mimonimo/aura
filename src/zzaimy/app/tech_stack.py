@@ -1,7 +1,7 @@
-"""쓰는 부품 표 — RAG·지식그래프·온톨로지·판독·모델 서빙·화면에 쓰는 부품(대부분 오픈소스)과 우리 코드가 맡는 부분.
+"""사용 기술 표 — RAG·지식그래프·온톨로지·판독·모델 서빙·화면에 쓰는 부품(대부분 오픈소스)과 우리 코드가 맡는 부분.
 
-처리 흐름(/dev/flow 「쓰는 부품」)의 원천이다. 파이썬 패키지의 판·라이선스는 이 서버에 설치된 것에서 그때그때 읽고(importlib.metadata),
-PostgreSQL 판은 DB 에 물어본다. 다른 장비(DGX·토르)에 있는 부품과 화면에 동봉한 JS 는 확인한 날짜와 함께 적는다.
+처리 흐름(/dev/flow 「사용 기술」)의 원천이다. 파이썬 패키지의 버전·라이선스는 이 서버에 설치된 것에서 그때그때 읽고(importlib.metadata),
+PostgreSQL 버전은 DB 에 물어본다. 다른 장비(DGX·토르)에 있는 부품과 화면에 동봉한 JS 는 확인한 날짜와 함께 적는다.
 부품을 바꾸면(예: ADR-0051 docling 제거) 여기도 같이 고친다.
 """
 from __future__ import annotations
@@ -16,15 +16,15 @@ STACK: list[tuple] = [
     ("RAG", "Kiwi(kiwipiepy)", "한국어 형태소 분석 — 질문·조각의 명사 뽑기", "kiwipiepy", "", "", "운영 VM", "app/regulations.py"),
     ("RAG", "pgvector", "의미 검색 벡터(조각 임베딩 halfvec 1024) + HNSW 색인 — 권한·부서·범위를 같은 SQL 에서", None, "0.8.7", "PostgreSQL License",
      "운영 VM", "ADR-0057"),
-    ("RAG", "ZZAIMY-Embed v2 (베이스 KURE-v1)", "조밀 검색 임베딩 — 우리 데이터로 학습한 판", None, "v2", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0021·모델 카드"),
+    ("RAG", "ZZAIMY-Embed v2 (베이스 KURE-v1)", "의미 검색 임베딩 — 우리 데이터로 학습한 모델", None, "v2", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0021·모델 카드"),
     ("RAG", "ZZAIMY-Rerank v1 (베이스 bge-reranker-v2-m3)", "규정 후보 재정렬(사업 문서는 대결에서 손해라 끔)", None, "v1", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0020·모델 카드"),
-    ("RAG", "Qwen3.8-27B(Writer) + vLLM", "답변·초안 생성, 그래프 짝 판정(158)·공통 양식 묶기(172)", None, "NVFP4", "Apache 2.0 계열(model-plan)·vLLM Apache-2.0",
+    ("RAG", "Qwen3.8-27B(Writer) + vLLM", "답변·초안·문서 작업, 그래프 짝 판정 · SFT 후보(writer-sft) 비교 중", None, "NVFP4", "Apache 2.0 계열(model-plan)·vLLM Apache-2.0",
      "토르 02·03", "configs/serving.yaml"),
-    ("RAG", "자체 코드", "하이브리드 검색(어휘+조밀 RRF)·SQL 범위·그래프 절 축·이웃 확장·문서당 상한·RAG 공간 권한", None, "", "우리 코드",
+    ("RAG", "자체 코드", "키워드+의미 검색 섞기 · 범위 좁히기 · 짝 문서 따라가기 · RAG 공간 권한", None, "", "우리 코드",
      "src/zzaimy/app", "grant_search·rag_spaces"),
     # ── 지식그래프
     ("지식그래프", "PostgreSQL 테이블(kg_nodes·kg_edges)", "노드·관계·근거 저장, 이웃·권한 조회", None, "", "PostgreSQL License", "운영 VM", "graph/kg_store.py"),
-    ("지식그래프", "자체 코드(157 그래프 생성)", "사업·연차·문서·절·단위과제·성과지표·기관 노드와 근거 있는 관계만", None, "", "우리 코드", "scripts/157_build_kg.py",
+    ("지식그래프", "자체 코드(그래프 생성)", "사업·연차·문서·절·단위과제·성과지표·기관 노드와 근거 있는 관계만", None, "", "우리 코드", "scripts/157_build_kg.py",
      "ADR-0048·0055"),
     ("지식그래프", "Cytoscape.js", "그래프 탐색 화면 그리기", None, "3.30.4", "MIT", "화면(static 동봉)", "ADR-0054"),
     ("지식그래프", "cytoscape-fcose · cose-base · layout-base", "노드 자동 배치", None, "2.2.0 · 2.2.0 · 2.0.1", "MIT", "화면(static 동봉)", "ADR-0054"),
@@ -33,23 +33,23 @@ STACK: list[tuple] = [
      "graph/programs.py", "ADR-0048"),
     ("온톨로지", "외부 확인 장부(kg_external.json)", "사업 체계·이름 변경·편입·주관 부처·전담기관 — 항목마다 출처 URL", None, "", "우리 데이터", "운영 VM data/platform",
      "ADR-0055"),
-    ("온톨로지", "온톨로지 점검(174)", "규칙 위반·고립 노드·근거 없는 관계 점검", None, "", "우리 코드", "scripts/174_ontology_audit.py", ""),
+    ("온톨로지", "자체 코드(온톨로지 점검)", "규칙 위반·고립 노드·근거 없는 관계 점검", None, "", "우리 코드", "scripts/174_ontology_audit.py", ""),
     ("온톨로지", "rdflib", "온톨로지 설계도(OWL)·인스턴스(RDF) 내보내기 — Protégé·WebVOWL 로 열린다", "rdflib", "", "", "운영 VM", "ADR-0056"),
     ("온톨로지", "pySHACL", "표준 검사 규칙(SHACL, graph/shapes.ttl)으로 그래프 검사", "pyshacl", "", "", "운영 VM", "ADR-0056"),
-    # ── 판독(문서 읽기)
-    ("판독", "kordoc", "한글(hwp/hwpx)·docx·xlsx 구조 읽기 1순위", None, "4.15.7", "MIT", "DGX", "ADR-0033·0051"),
-    ("판독", "MinerU", "스캔 PDF OCR(표·레이아웃)", None, "3.4.5", "MinerU Open Source License", "DGX", "ADR-0007"),
-    ("판독", "python-docx", "docx 읽기(kordoc 다음)", "python-docx", "", "", "운영 VM·DGX", "ADR-0051"),
-    ("판독", "openpyxl", "xlsx 읽기(kordoc 다음)", "openpyxl", "", "", "운영 VM·DGX", "ADR-0051"),
-    ("판독", "python-pptx", "pptx 읽기", "python-pptx", "", "", "운영 VM·DGX", "ADR-0051"),
-    ("판독", "LibreOffice", "옛 형식(xls·doc·ppt) → 새 형식 변환", None, "24.2.7", "MPL-2.0", "DGX", "ADR-0051"),
-    ("판독", "pypdf", "디지털 PDF 글자층 읽기", "pypdf", "", "", "운영 VM", ""),
+    # ── 문서 읽기
+    ("문서 읽기", "kordoc", "한글(hwp/hwpx)·docx·xlsx 구조 읽기 1순위", None, "4.15.7", "MIT", "DGX", "ADR-0033·0051"),
+    ("문서 읽기", "MinerU", "스캔 PDF OCR(표·레이아웃)", None, "3.4.5", "MinerU Open Source License", "DGX", "ADR-0007"),
+    ("문서 읽기", "python-docx", "docx 읽기(kordoc 다음)", "python-docx", "", "", "운영 VM·DGX", "ADR-0051"),
+    ("문서 읽기", "openpyxl", "xlsx 읽기(kordoc 다음)", "openpyxl", "", "", "운영 VM·DGX", "ADR-0051"),
+    ("문서 읽기", "python-pptx", "pptx 읽기", "python-pptx", "", "", "운영 VM·DGX", "ADR-0051"),
+    ("문서 읽기", "LibreOffice", "옛 형식(xls·doc·ppt) → 새 형식 변환", None, "24.2.7", "MPL-2.0", "DGX", "ADR-0051"),
+    ("문서 읽기", "pypdf", "디지털 PDF 글자층 읽기", "pypdf", "", "", "운영 VM", ""),
     # ── 플랫폼
     ("플랫폼", "FastAPI · Uvicorn", "웹 서버", "fastapi", "", "", "운영 VM", ""),
     ("플랫폼", "Jinja2", "화면 템플릿", "jinja2", "", "", "운영 VM", ""),
     ("플랫폼", "psycopg", "PostgreSQL 연결", "psycopg", "", "", "운영 VM", ""),
 ]
-CHECKED = "2026-10-06"          # 다른 장비 부품·동봉 JS 판을 확인한 날
+CHECKED = "2026-10-24"          # 다른 장비 부품(DGX kordoc·MinerU·LibreOffice, VM pgvector)·동봉 JS 버전을 확인한 날
 
 
 def _pkg(name: str) -> tuple[str, str]:

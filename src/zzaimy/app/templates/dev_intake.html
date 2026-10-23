@@ -22,34 +22,28 @@
 .ik-alert{padding:8px 12px;border-left:3px solid #c0392b;background:rgba(192,57,43,.06);margin:6px 0;font-size:13px;}
 </style>
 
-{% include "_intake_tabs.html" %}
 {% set q = request.query_params %}
 {% if q.get('ok') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
 {% if q.get('err') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
+<p class="muted" style="font-size:12.5px;margin:0 0 12px;">학교 원본(DGX) → 라이브러리 · 문서 흐름 수는 <a href="/dev#doc-flow">개발 현황</a> · 구글 앱 등록은 <a href="/dev/users#google-links">사용자·계정</a></p>
 
 <section class="card"><div class="card-in">
-  <h2 style="margin-bottom:2px;">문서 흐름</h2>
-  <p class="muted" style="font-size:12px;margin:0;">원본 → 처리 대상 → 라이브러리 → 검색. 개발 현황·라이브러리와 같은 수·같은 이름입니다(이름에 마우스를 올리면 무엇을 셌는지).</p>
-  {% include "_doc_flow.html" %}
-</div></section>
-<section class="card"><div class="card-in">
-  <h2><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>연동 점검
+  <h2><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>원본과 라이브러리 맞추기
     <span class="ik-actions" style="margin-left:auto;">
-      <form method="post" action="/dev/intake/audit" data-confirm="연동 점검을 지금 돌릴까요? 원본 장부 전체를 읽어 몇 분 걸립니다. 점검 결과만 새로 쓰고 문서는 바꾸지 않습니다.">
+      <form method="post" action="/dev/intake/audit" data-confirm="지금 다시 점검할까요? 원본 장부 전체를 읽어 몇 분 걸립니다. 점검 결과만 새로 쓰고 문서는 바꾸지 않습니다.">
         <button class="btn" {{ 'disabled' if running.audit }}>{{ '점검 중…' if running.audit else '다시 점검' }}</button></form>
-      <form method="post" action="/dev/intake/reconcile" data-confirm="지금 맞출까요? DGX 에서 처리됐는데 라이브러리에 없는 원본을 찾아 다시 들입니다. 수십 분 걸릴 수 있고, 라이브러리에 문서가 추가됩니다.">
+      <form method="post" action="/dev/intake/reconcile" data-confirm="지금 맞출까요? DGX 에서 읽었는데 라이브러리에 없는 원본을 다시 들입니다. 수십 분 걸릴 수 있고, 라이브러리에 문서가 추가됩니다.">
         <button class="btn primary" {{ 'disabled' if running.reconcile }}>{{ '맞추는 중…' if running.reconcile else '지금 맞추기' }}</button></form>
     </span>
   </h2>
   {% if not p %}
-  <p class="muted">점검 결과 없음 · 「다시 점검」 또는 10분 동기화 때 자동 점검</p>
+  <p class="muted">점검 결과 없음 · 「다시 점검」 또는 10분 동기화 때 자동</p>
   {% else %}
-  {% set lv = live["values"] %}
-  <p class="muted" style="font-size:12px;margin:0;">점검 {{ p.at }} 기준 · 맞추기는 매일 04:30 자동 · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다</p>
-  <p class="ik-line">
+  <p class="ik-line" style="margin-top:0;">
     <span>{{ metric_label("archive_originals", live.at, "학교 원본") }} <b>{{ lg.originals|num }}</b></span>
+    <span class="muted">점검 {{ p.at }} · 맞추기 매일 04:30 자동</span>
   </p>
-  <p class="muted ik-sum">처리하지 않는 파일 {{ (lg.total - lg.originals)|num }}건(정리함 {{ lg.cleaned|num }} · 부산물 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %})은 학교 원본 수에서 뺍니다 — 원본 파일은 DGX 에 그대로 두고 장부에서만 따로 셉니다{% if p.dgx_listing is not none %} · DGX 목록 전체 {{ p.dgx_listing|num }}{% endif %}</p>
+  <p class="muted ik-sum">처리 안 함 {{ (lg.total - lg.originals)|num }} · 따로 모은 파일 {{ lg.cleaned|num }} · 변환 중간 파일 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% if p.dgx_listing is not none %} · DGX 목록 {{ p.dgx_listing|num }}{% endif %}</p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
   {% endif %}
 </div></section>
@@ -58,23 +52,22 @@
 <div class="ik-grid">
 <section class="card"><div class="card-in">
   <h2>{{ metric_label("audit_targets", p.at, "처리 대상 문서 " ~ "{:,}".format(p.targets) ~ "건") }}</h2>
-  <p class="muted" style="font-size:12px;margin:2px 0 0;">처리 대상 기준 · 원본 보관소의 실패·대기는 원본 파일 기준</p>
   <div class="ik-bar">
     <span class="ik-ok" style="width:{{ p.pct.in_docbox }}%"></span><span class="ik-fail" style="width:{{ p.pct.failed }}%"></span>
     <span class="ik-wait" style="width:{{ p.pct.waiting }}%"></span><span class="ik-miss" style="width:{{ p.pct.missed }}%"></span>
   </div>
   <div class="ik-legend">
-    <span><i class="ik-ok"></i>{{ metric_label("audit_in_library", p.at, "라이브러리 반영 " ~ "{:,}".format(p.in_docbox)) }} ({{ p.pct.in_docbox }}%)</span>
+    <span><i class="ik-ok"></i>{{ metric_label("audit_in_library", p.at, "라이브러리에 들어감 " ~ "{:,}".format(p.in_docbox)) }} ({{ p.pct.in_docbox }}%)</span>
     <span><i class="ik-fail"></i>{{ metric_label("audit_failed", p.at, "실패 " ~ "{:,}".format(p.failed)) }} ({{ p.pct.failed }}%)</span>
     <span><i class="ik-wait"></i>{{ metric_label("audit_waiting", p.at, "대기 " ~ "{:,}".format(p.waiting)) }}</span>
     {% if p.too_big %}<span title="DGX 처리기가 300MB 넘는 파일은 건너뜁니다">크기 초과(처리 제외) {{ "{:,}".format(p.too_big) }}</span>{% endif %}
-    <span><i class="ik-miss"></i>{{ metric_label("audit_missed", p.at, "놓침 " ~ "{:,}".format(p.missed)) }} ({{ p.pct.missed }}%)</span>
+    <span><i class="ik-miss"></i>{{ metric_label("audit_missed", p.at, "빠짐 " ~ "{:,}".format(p.missed)) }} ({{ p.pct.missed }}%)</span>
   </div>
-  <p class="muted" style="font-size:12px;margin:10px 0 0;">대기: 들어오거나 바뀐 지 6시간 안 · 놓침: 6시간 넘게 결과 없음</p>
+  <p class="muted" style="font-size:12px;margin:10px 0 0;">대기 = 들어오거나 바뀐 지 6시간 안 · 빠짐 = 6시간 넘게 결과 없음</p>
 </div></section>
 
 <section class="card"><div class="card-in">
-  <h2>{{ metric_label("archive_files", p.at, "원본 장부 구성") }}</h2>
+  <h2>{{ metric_label("archive_files", p.at, "원본 파일 구성") }}</h2>
   <style>.ik-table .ik-quiet td{color:var(--muted);font-size:12px}</style>
   <table class="ik-table">
     {% for r in p.rows | selectattr("school") %}
@@ -84,25 +77,21 @@
     <tr class="ik-quiet"><td>{{ r.label }}<span class="muted" style="font-size:11px;"> · 처리하지 않음</span></td><td class="n">{{ "{:,}".format(r.n) }}</td></tr>
     {% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">합계 {{ (p.composition or {}).values()|sum|num }} · 「학교 원본」 줄 합계 {{ p.school_rows_total|num }}{% if lg.platform %}(플랫폼 사본 포함){% endif %} · 라이브러리·색인·그래프에는 처리 대상 문서만 반영 · 지출·증빙·정산 문서는 이번 범위에서 제외</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">합계 {{ (p.composition or {}).values()|sum|num }} · 학교 원본 {{ p.school_rows_total|num }}{% if lg.platform %}(플랫폼 사본 포함){% endif %} · 지출·증빙·정산 문서는 범위 밖</p>
 </div></section>
 
 <section class="card"><div class="card-in">
-  <h2>라이브러리 이후</h2>
+  <h2>라이브러리 다음 단계</h2>
   <table class="ik-table">
     <tr><td>{{ metric_label("audit_graph_doc_nodes", p.at) }}</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
     <tr><td>{{ metric_label("audit_grant_chunks", p.at) }}</td><td class="n">{{ "{:,}".format(p.grant_chunks) }}</td></tr>
     <tr><td>{{ metric_label("audit_embedding_index", p.at) }}</td><td class="n">{{ "{:,}".format(p.embedding_index) }}</td></tr>
     <tr><td>{{ metric_label("audit_lexical_index", p.at) }}</td><td class="n">{{ "{:,}".format(p.lexical_index) }}</td></tr>
-    <tr><td>처리 멈춤(1시간 넘게 처리 중)</td><td class="n">{{ "{:,}".format(p.stuck_docs) }}</td></tr>
+    <tr><td>멈춘 문서(1시간 넘게 처리 중)</td><td class="n">{{ "{:,}".format(p.stuck_docs) }}</td></tr>
+    <tr><td>{{ metric_label("audit_graph_docs", p.at) }}</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
+    {% set gsum = p.sync_text.get("graph", "") %}
+    {% if gsum %}<tr><td>마지막 그래프 작업({{ (p.sync.get("graph") or {}).get("at", "") }})</td><td class="n">{{ gsum }}</td></tr>{% endif %}
   </table>
-  <details class="chip-toggle" style="margin-top:10px;"><summary>그래프 다른 수</summary>
-    <table class="ik-table" style="margin-top:6px;">
-      <tr><td>{{ metric_label("audit_graph_docs", p.at) }}</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
-      {% set gsum = p.sync_text.get("graph", "") %}
-      {% if gsum %}<tr><td>마지막 그래프 작업({{ (p.sync.get("graph") or {}).get("at", "") }})</td><td class="n">{{ gsum }}</td></tr>{% endif %}
-    </table>
-  </details>
 </div></section>
 </div>
 
@@ -110,7 +99,7 @@
 <div class="ik-grid">
 {% if p.missed %}
 <section class="card"><div class="card-in">
-  <h2>{{ metric_label("audit_missed", p.at, "놓친 원본 " ~ "{:,}".format(p.missed) ~ "건") }} <a class="h-link" href="/dev/intake/missed.csv" download><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>목록 내려받기</a></h2>
+  <h2>{{ metric_label("audit_missed", p.at, "빠진 원본 " ~ "{:,}".format(p.missed) ~ "건") }} <a class="h-link" href="/dev/intake/missed.csv" download><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>목록 내려받기</a></h2>
   {% if p.missed_by_ext %}
   <table class="ik-table">
     <tr><th>형식</th><th class="n">건수</th></tr>
@@ -132,7 +121,7 @@
     <tr><th>사유</th><th class="n">건수</th></tr>
     {% for k, v in (p.failed_by_reason or {}).items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">DGX 주기 처리(30분)의 다시 하기 · 판독 환경 오류(모듈 없음 등)는 고쳐질 때까지 · 새 형식 변환 실패는 같은 판에서 {{ p.retry_limit ~ "번" if p.retry_limit else "정해진 횟수" }}까지 · 그 밖의 실패는 원본이 바뀔 때 · 암호 문서는 풀지 않음</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">다시 시도: 30분마다(변환 실패는 {{ p.retry_limit ~ "번" if p.retry_limit else "정해진 횟수" }}까지, 그 밖은 원본이 바뀔 때) · 암호 문서는 제외</p>
 </div></section>
 {% endif %}
 </div>
@@ -140,7 +129,7 @@
 
 {% if p.missed %}
 <section class="card"><div class="card-in">
-  <h2>놓친 원본 예시</h2>
+  <h2>빠진 원본 예시</h2>
   <table class="ik-table">
     <tr><th>원본 경로</th><th>형식</th><th>들어온·바뀐 때</th></tr>
     {% for r in missed %}<tr><td class="ik-rel">{{ r.rel }}</td><td>{{ r.ext }}</td><td style="white-space:nowrap;">{{ r.seen_at }}</td></tr>
@@ -152,10 +141,10 @@
 <section class="card"><div class="card-in">
   <h2>주기 작업</h2>
   <table class="ik-table">
-    {% for k, label in [("full", "원본 동기화(10분)"), ("parsed", "DGX 결과 들이기(5분)"), ("index", "색인(2분)"), ("lexical", "어휘 색인"), ("graph", "그래프"), ("audit", "연동 점검")] %}
+    {% for k, label in [("full", "원본 동기화(10분)"), ("parsed", "DGX 결과 받기(5분)"), ("index", "검색 색인(2분)"), ("lexical", "키워드 색인"), ("graph", "그래프"), ("audit", "점검")] %}
     <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (p.sync.get(k) or {}).get("at", "기록 없음") }}</td>
       {% set summary = p.sync_text.get(k, "") %}
-      <td>{% if k == "full" and p.dgx_listing is not none %}{{ metric_label("dgx_listing", (p.sync.get(k) or {}).get("at", ""), "DGX 목록") }} {{ p.dgx_listing|num }}{% if " · " in summary %} · {{ summary.split(" · ", 1)[1] }}{% endif %}{% elif k == "graph" %}<span class="muted">수는 「라이브러리 이후」</span>{% else %}{{ summary }}{% endif %}</td></tr>
+      <td>{% if k == "full" and p.dgx_listing is not none %}{{ metric_label("dgx_listing", (p.sync.get(k) or {}).get("at", ""), "DGX 목록") }} {{ p.dgx_listing|num }}{% if " · " in summary %} · {{ summary.split(" · ", 1)[1] }}{% endif %}{% elif k == "graph" %}<span class="muted">수는 「라이브러리 다음 단계」</span>{% else %}{{ summary }}{% endif %}</td></tr>
     {% endfor %}
   </table>
 </div></section>

@@ -29,8 +29,8 @@ META_PATH = _paths.index_meta()
 TABS: list[tuple[str, str]] = [
     ("archive", "원본 장부"),
     ("docs", "문서"),
-    ("regulation", "규정"),
-    ("chat", "채팅 기록"),
+    ("regulation", "기준 문서"),
+    ("chat", "대화 기록"),
 ]
 _TAB_KEYS = {k for k, _ in TABS}
 
@@ -276,6 +276,29 @@ def mask_summary(db, doc: dict) -> dict:
     }
 
 
+# 읽기 메모(documents.parse_note)는 반입 때 처리기가 적은 글 그대로 저장돼 있다 — 화면에서는 쉬운 말로만 바꿔 보인다(저장값은 그대로)
+_NOTE_WORDS = (
+    ("구조 추출 생략 — 이 서버에 GPU 없음", "구조 읽기 생략(GPU 없음)"),
+    ("구조 추출 실패", "구조 읽기 실패"),
+    ("글자층 직독", "PDF 글자 그대로 읽음"),
+    ("AI 비전 판독", "AI 그림 읽기"),
+)
+
+
+def plain_parse_note(note: str) -> str:
+    """읽기 메모를 화면용 쉬운 말로 — 「갈라진 낱말 N개 복원」 → 「끊긴 낱말 N개 이음」, 「쪽수 N」 → 「N쪽」."""
+    out = note or ""
+    for a, b in _NOTE_WORDS:
+        out = out.replace(a, b)
+    out = re.sub(r"갈라진 낱말 (\d[\d,]*)개 복원", r"끊긴 낱말 \1개 이음", out)
+    return re.sub(r"쪽수 (\d[\d,]*)", r"\1쪽", out)
+
+
+def _project_label(name: str) -> str:
+    """보관 묶음 이름의 「(연도 미상)」 꼬리는 화면에서 뺀다 — 연도가 없으면 적지 않는다."""
+    return re.sub(r"\s*\(연도 미상\)\s*$", "", name or "")
+
+
 def doc_overview(db, doc: dict, file_exists: Callable[[str], bool] | None = None) -> dict:
     """개요 — 접수번호·유형·상태·시각·원본 파일 유무·본문 크기·마스킹 기록."""
     path = doc.get("stored_path") or ""
@@ -299,7 +322,7 @@ def doc_overview(db, doc: dict, file_exists: Callable[[str], bool] | None = None
         "created_at": doc.get("created_at") or "",
         "project_id": doc.get("project_id"),
         "project": (
-            {"id": project["id"], "name": shorten(project.get("name") or "", NAME_CHARS)}
+            {"id": project["id"], "name": shorten(_project_label(project.get("name") or ""), NAME_CHARS)}
             if project else None
         ),
         "related_criteria_id": doc.get("related_criteria_id"),
@@ -314,7 +337,7 @@ def doc_overview(db, doc: dict, file_exists: Callable[[str], bool] | None = None
         "text_chars": len(masked),
         "has_review": bool(doc.get("ai_review")),
         "has_draft": bool(doc.get("draft")),
-        "parse_note": doc.get("parse_note") or "",
+        "parse_note": plain_parse_note(doc.get("parse_note") or ""),
         "error": shorten(doc.get("error") or "", 160),
         "mask": mask_summary(db, doc),
     }

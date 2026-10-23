@@ -1,11 +1,11 @@
-{# 쓰는 부품 — 원천 app/tech_stack.py. 파이썬 패키지 판·라이선스는 이 서버 설치본에서, PostgreSQL 판은 DB 에서 읽는다 #}
-  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">오픈소스 부품 {{ tech.n_open }}개 · 우리 코드·데이터 {{ tech.n_ours }}개 ·
-    판은 이 서버 설치본·DB 기준, 다른 장비 부품과 화면 동봉 JS 는 {{ tech.checked }} 확인</p>
+{# 사용 기술 — 원천 app/tech_stack.py. 파이썬 패키지 버전·라이선스는 이 서버 설치본에서, PostgreSQL 버전은 DB 에서 읽는다 #}
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">오픈소스 {{ tech.n_open }}개 · 우리 코드·데이터 {{ tech.n_ours }}개 ·
+    버전은 이 서버 설치본·DB 기준, 다른 장비와 화면 동봉 JS 는 {{ tech.checked }} 확인</p>
   {% for area, rows in tech.areas.items() %}
   <h3 style="font-size:14px; margin:14px 0 6px;">{{ area }}</h3>
   <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:12.5px;">
-    <tr style="text-align:left; color:var(--muted);"><th style="padding:5px 8px;">이름</th><th style="padding:5px 8px;">하는 일</th>
-      <th style="padding:5px 8px; white-space:nowrap;">판</th><th style="padding:5px 8px;">라이선스</th><th style="padding:5px 8px;">어디서</th></tr>
+    <tr style="text-align:left; color:var(--muted);"><th style="padding:5px 8px;">이름</th><th style="padding:5px 8px;">역할</th>
+      <th style="padding:5px 8px; white-space:nowrap;">버전</th><th style="padding:5px 8px;">라이선스</th><th style="padding:5px 8px;">위치</th></tr>
     {% for r in rows %}
     <tr style="border-top:1px solid var(--line); vertical-align:top;">
       <td style="padding:6px 8px; font-weight:600;">{{ r.name }}</td>

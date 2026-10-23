@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ dev_page_name('/dev') }}{% endblock %}
 {% block pagetitle %}{{ dev_page_name('/dev') }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/dev-topology.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
 <style>
 
@@ -82,20 +81,19 @@
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:target-linear"></iconify-icon>프로젝트 현황
     <a href="/dev/history" class="h-link"><iconify-icon icon="solar:history-linear"></iconify-icon>변경 이력</a></h2>
-  <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    행정 문서의 검색·검토와 국고사업 계획서 초안 작성을 지원합니다. 최종 내용과 수치는 담당자가 근거 문서와 대조해 확인합니다.</p>
   {# 규모 요약 — 큰 숫자 블록 대신 한 줄. 수치는 데이터 현황(/dev/db)과 같은 _data_overview() #}
-  <div style="display:flex; gap:6px 8px; flex-wrap:wrap; align-items:center; margin-top:12px; font-size:12.5px;">
+  <div style="display:flex; gap:6px 8px; flex-wrap:wrap; align-items:center; margin-top:4px; font-size:12.5px;">
     <span class="muted" style="font-weight:600;">현재 규모</span>
     {% for t in overview.tiles %}
     <span class="pill" title="{{ t.sub }}{% if t.metric %} — {{ metric_tip(t.metric) }}{% endif %}" style="font-variant-numeric:tabular-nums;">{{ t.label }} {{ "{:,}".format(t.value) }}</span>
     {% endfor %}
   </div>
 
-  <h3 style="font-size:13.5px; margin:16px 0 0;">문서 흐름</h3>
+  {# 문서 흐름의 정본은 여기 한 곳 — 문서 가져오기 화면은 이리로 잇는다 #}
+  <h3 id="doc-flow" style="font-size:13.5px; margin:16px 0 0;">문서 흐름</h3>
   {% include "_doc_flow.html" %}
-
-  {% include "dev-topology.html" %}
+  {# 장비·처리 단계 설명은 처리 흐름 한 곳에 — 여기서는 바로가기만 #}
+  <p class="muted" style="font-size:12.5px; margin:8px 0 0;">시스템 구성·처리 단계 <a href="/dev/flow">처리 흐름</a> · <a href="/static/topology.svg" target="_blank" rel="noopener">상세 구성도 ↗</a></p>
 
   {# 구축 현황(기능 상태표)과 진행 현황(dev-now.md 서술)은 원천이 달라 탭으로 나란히 둔다 #}
   <div class="tabbar" style="max-width:520px; margin:18px 0 14px;">
@@ -103,10 +101,8 @@
     <button type="button" data-tab="paneNow">진행 현황</button>
   </div>
   <div id="paneBuild" class="tab-pane on">
-    <p class="muted" style="font-size:12px; margin:0 0 10px;">{% if progress.updated %}{{ progress.updated }} 기준(기능 상태 파일의 마지막 변경일) · {% endif %}완료 {{ progress.features | selectattr("status", "equalto", "done") | list | length }}
-      · 진행 {{ progress.features | selectattr("status", "equalto", "doing") | list | length }}
-      · 대기 {{ progress.features | selectattr("status", "equalto", "wait") | list | length }}
-      · 예정 {{ progress.features | selectattr("status", "equalto", "todo") | list | length }} · 막대는 기능 상태에서 계산한 완료 비율</p>
+    {# 기준일은 progress.json 의 마지막 커밋일, 0건인 상태는 적지 않는다 #}
+    <p class="muted" style="font-size:12px; margin:0 0 10px;">{% if progress.updated %}{{ progress.updated }} 기준{% endif %}{% for key, label in [("done", "완료"), ("doing", "진행"), ("wait", "보류"), ("todo", "예정")] %}{% set n = progress.features | selectattr("status", "equalto", key) | list | length %}{% if n %} · {{ label }} {{ n }}{% endif %}{% endfor %}</p>
     <h4 class="extract-h" style="margin-top:0;">영역별 완료 비율</h4>
     <div class="dev-progress-grid">
       {% for a in progress.areas %}
@@ -124,13 +120,13 @@
     {# 영역별로 묶고, 기능마다 지금 상태 · 남은 것 · 근거 문서/화면 링크를 둔다. 한 줄로 다 못 적는 것은 문서 링크로 잇는다 #}
     {% for a in progress.areas %}
     <div class="feat-area">
-      <div class="feat-area-h">{{ loop.index }}. {{ a.name }} <span class="muted">{{ a.done }}/{{ a.total }} 완료</span></div>
+      <div class="feat-area-h">{{ loop.index }}. {{ a.name }}</div>
       {% for f in a.features %}
       <div class="feat-row">
         <div class="feat-head">
           {% if f.status == "done" %}<span class="pill reviewed">완료</span>
           {% elif f.status == "doing" %}<span class="pill type">진행</span>
-          {% elif f.status == "wait" %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">대기</span>
+          {% elif f.status == "wait" %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">보류</span>
           {% else %}<span class="pill">예정</span>{% endif %}
           <span class="feat-name">{{ f.name }}</span>
         </div>

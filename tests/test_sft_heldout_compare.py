@@ -83,5 +83,17 @@ def test_report_from_cached_runs(tmp_path):
 
 
 def test_models_with_own_address_and_default_pairs():
-    names, urls = s210.parse_models("a, b, c=http://other:8002/v1", "http://main:8001/v1")
+    names, urls, served = s210.parse_models("a, b, c=http://other:8002/v1", "http://main:8001/v1")
     assert names == ["a", "b", "c"] and urls["a"] == "http://main:8001/v1" and urls["c"] == "http://other:8002/v1"
+    assert served == {"a": "a", "b": "b", "c": "c"}
+    # 팔 이름 — 운영 교체 뒤 같은 서빙 이름(zzaimy-writer)이 다른 모델이어도 결과가 섞이지 않게
+    names, urls, served = s210.parse_models("open-nvfp4:zzaimy-writer,sft-merged:writer-sft-merged=http://m:8002/v1", "http://main:8001/v1")
+    assert names == ["open-nvfp4", "sft-merged"] and served["open-nvfp4"] == "zzaimy-writer"
+    assert urls["sft-merged"] == "http://m:8002/v1" and served["sft-merged"] == "writer-sft-merged"
+
+
+def test_pointwise_scores_parse_and_clamp():
+    v = s210.parse_scores('{"지시 충실": 4, "맥락 이해": 5, "형식": 7, "근거 충실": "3", "문체": 0, "완결성": 4.4, "까닭": "x"}')
+    assert v["형식"] == 5 and v["문체"] == 1 and v["근거 충실"] == 3 and v["완결성"] == 4
+    assert s210.parse_scores('{"지시 충실": 4}') is None
+    assert "맥락 이해" in s210.CRITERIA

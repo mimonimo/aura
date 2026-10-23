@@ -281,7 +281,7 @@ def test_dev_db_other_tabs_and_legacy_urls(client):
     corpus = client.get("/dev/db?tab=corpus", follow_redirects=False)   # 거둔 공개 문서 모음 탭 → 문서 탭
     assert corpus.status_code == 303 and corpus.headers["location"] == "/dev/db?tab=docs"
     chat = client.get("/dev/db?tab=chat")
-    assert chat.status_code == 200 and "채팅 기록 없음" in chat.text
+    assert chat.status_code == 200 and "대화 기록 없음" in chat.text
     legacy = client.get("/dev/db?table=regulation_chunks")
     assert legacy.status_code == 200 and "규정 문서 없음" in legacy.text
 
@@ -299,7 +299,7 @@ def test_short_content_also_has_full_reader(client, tmp_path):
     assert '<pre>도장</pre>' in document
     assert 'id="dxDetail"' in regulation
     assert 'class="dx-more can"' in regulation
-    assert 'aria-label="추출 내용"' in document
+    assert 'aria-label="항목"' in document
     assert 'class="dx-group"' not in document
     assert 'box-shadow:inset 3px' not in document
 
@@ -360,3 +360,12 @@ def test_global_search_box_keeps_query_only_on_search_page(client):
     page = client.get("/search?q=가상검색어").text
     top = page.split('class="side-searchbox"', 1)[1].split("</a>", 1)[0]
     assert "data-quick-search" in top and 'value="가상검색어"' in page      # 검색어는 검색 화면 안 입력칸에 남는다
+
+
+def test_parse_note_shown_in_plain_words():
+    """읽기 메모는 저장값 그대로 두고 화면에서만 쉬운 말로 — 처리기 용어(직독·추출 실패·복원)가 보이지 않는다."""
+    from zzaimy.app.data_explorer import plain_parse_note
+
+    got = plain_parse_note("글자층 직독 (구조 추출 실패, 쪽수 12) · 갈라진 낱말 14개 복원")
+    assert got == "PDF 글자 그대로 읽음 (구조 읽기 실패, 12쪽) · 끊긴 낱말 14개 이음"
+    assert plain_parse_note("") == ""

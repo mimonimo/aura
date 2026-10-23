@@ -1,27 +1,4 @@
 (() => {
-  function revealSettings() {
-    if (['#googleApp', '#googleAccounts'].includes(location.hash)) {
-      const section = document.querySelector(location.hash);
-      const details = section?.closest('details');
-      if (details) { details.open = true; section.scrollIntoView({block:'nearest'}); }
-    }
-  }
-  window.addEventListener('hashchange', revealSettings);
-  revealSettings();
-  const appForm = document.getElementById('googleAppForm'), edit = document.querySelector('[data-app-edit]');
-  const appDialog = document.getElementById('googleAppDialog');
-  if (appDialog && appForm && edit) {
-    edit.addEventListener('click', () => {
-      if (!appDialog.open) appDialog.showModal();
-    });
-    appDialog.querySelectorAll('[data-app-close]').forEach(button => {
-      button.addEventListener('click', () => appDialog.close());
-    });
-    appDialog.addEventListener('close', () => {
-      appForm.reset();
-      edit.focus({preventScroll:true});
-    });
-  }
   function confirmChange(message, opener) {
     return new Promise(resolve => {
       const dialog = document.createElement('dialog'); dialog.className = 'gd-confirm';

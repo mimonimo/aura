@@ -15,7 +15,7 @@
 |---|---|---|
 | ZZAIMY-Embed | KURE-v1 | v2 운영 채택(ADR-0021) |
 | ZZAIMY-Rerank | bge-reranker-v2-m3 | v1 운영 채택(ADR-0020) |
-| ZZAIMY-Writer | Qwen3.8-27B | 베이스 서빙 중, SFT writer-v1 을 DGX 에서 학습 중(체크포인트 110에서 이어 학습) |
+| ZZAIMY-Writer | Qwen3.8-27B | 베이스 서빙 중, SFT writer-v1 학습 마침(10-22) — 어댑터 writer-sft 를 토르 02 에서 운영 모델과 비교 중(10-23~) |
 | ZZAIMY-Extract | Qwen3.8-27B (Writer와 같은 모델) | 예정 |
 
 ## 1. 학습 데이터 생성 (모델별)
@@ -80,7 +80,8 @@ dense 27B를 고른 이유: LoRA 어댑터와 vLLM LoRA 서빙이 dense 모델�
 
 현재 베이스 모델이 두 토르에서 NVFP4로 서빙 중이다(요청당 10.4~10.9 tok/s). 이미지 판독, 반입 검토, 대화, 초안,
 문서 작업 에이전트의 판단을 모두 이 모델이 맡는다. 실문서 평가셋을 분리하고 베이스라인을 측정한 뒤 학습한다.
-첫 학습본 writer-v1(SFT)은 DGX 에서 학습 중이다(체크포인트 110에서 이어 학습).
+첫 학습본 writer-v1(SFT, LoRA bf16)은 DGX 에서 학습을 마쳤고(10-22), 어댑터 writer-sft 를 토르 02 에 올려 운영 모델과 같은 보류분·시나리오로
+견주는 중이다(10-23~). 병합·NVFP4 재양자화본 writer-sft-merged 도 같은 비교에 넣는다.
 
 실문서 학습쌍(ADR-0039): 위 역구성을 실제로 수행하는 도구가 `scripts/152_build_real_sft.py`다. 양식(작성 서식)과
 완성본(사업계획서) 한 쌍에서 절마다 입력(서빙 프롬프트와 같은 꼴: 작성 방법, 근거, 사실 목록, 양식 표 격자)과

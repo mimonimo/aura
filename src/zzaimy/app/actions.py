@@ -74,8 +74,10 @@ REGISTRY: tuple[Action, ...] = (
            ("외부", "참조", "구독", "로그인")),
 
     # ---- 자료 관리 ----
-    Action("nas.page", "문서 반입 · Google Drive", "/dev/nas", "get", (),
-           ("가져오", "반입", "폴더", "공유")),
+    Action("intake.page", "문서 가져오기", "/dev/intake", "get", (),
+           ("가져오", "반입", "원본", "동기화")),
+    Action("google.page", "Google 앱 등록 · 학교 계정 연결 현황", "/dev/users#google-links", "get", (),
+           ("구글", "드라이브", "google", "앱 등록")),
     Action("reindex", "검색 색인 다시 만들기", "/dev/reindex", "post", (),
            ("색인", "재색인", "검색 다시"), True),
     Action("pii.scan", "개인정보 잔여 검사", "/dev/pii/scan", "post", (),

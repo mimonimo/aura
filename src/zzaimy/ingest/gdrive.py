@@ -267,7 +267,7 @@ def access_token(email: str, http=None) -> str:
     return tok["access_token"]
 
 
-# ---------------- 원천 백엔드 (nas_sync 와 같은 계약: check · walk · read · listdir) ----------------
+# ---------------- 드라이브 읽기 (check · walk · read · listdir) ----------------
 
 _FOLDER_URL = re.compile(r"folders/([A-Za-z0-9_-]{4,})")
 _FILE_URL = re.compile(r"/d/([A-Za-z0-9_-]{4,})")

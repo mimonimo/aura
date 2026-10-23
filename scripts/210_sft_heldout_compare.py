@@ -14,7 +14,10 @@
 - report 기계 지표(정답 대비 chrF·ROUGE-L, 질문에 없는 숫자, 형식 표시, 모름 답, 잘림, 외국 글자, 길이·시간·토큰)와
          쌍대 판정(이김·비김·짐, 이김 비율 95% 신뢰구간 — 부트스트랩)을 갈래(track × 첫 턴/이어지는 턴)별로 report.json·report.md 에.
          원문은 넣지 않고 문항 번호만 남긴다.
-- all    셋을 차례로.
+- score  팔마다 답 하나씩 항목 1~5점(지시 충실·맥락 이해·형식·근거 충실·문체·완결성) — 팔을 나중에 더해도 그대로 견준다.
+- speed  앞 --speed-n 문항을 동시 1로 흘려 받아 첫 토큰 시간·토큰/초·전체 시간.
+- all    생성·점수·쌍대·보고를 차례로(speed 는 따로).
+팔(arm): --models 의 「팔:서빙 이름=주소」. 결과 파일은 팔 이름으로 — 운영 교체 뒤 같은 서빙 이름이 다른 모델을 가리켜도 섞이지 않는다.
 
 사용(VM — 결과·사본은 저장소 밖에):
   python3 210_sft_heldout_compare.py --data ~/ops/sft_eval/test.jsonl --index ~/ops/sft_eval/test-index.jsonl \\
@@ -37,6 +40,7 @@ from pathlib import Path
 
 JUDGE_RUBRIC = {
     "지시 충실": "마지막 질문과 앞 대화의 조건(범위·하지 말 것·연습 조건)을 따랐는가",
+    "맥락 이해": "질문 의도를 바로 짚고 주어진 원문·앞 대화의 내용(앞서 준 값·결정)을 제대로 끌어 썼는가",
     "형식": "대학 행정 문서 꼴 — 개조식·표·절 구조(제목·번호)가 내용에 맞게 쓰였는가",
     "근거 충실": "주어진 원문·자료에 없는 숫자·기관·사실·승인 상태를 지어내지 않았는가, 모르는 것은 모른다고 했는가",
     "문체": "문장 끝 「~함」「~임」 같은 행정 문체가 일관되고 구어·군더더기가 없는가",
@@ -47,7 +51,13 @@ JUDGE_SYSTEM = """당신은 대학 행정 문서 작성 도우미의 답 두 개
 답의 길이나 순서(A가 먼저)로 판단하지 않는다. 둘이 비슷하면 「같음」.
 [기준표]
 {rubric}
-답은 JSON 하나만: {{"지시 충실": "A|B|같음", "형식": "A|B|같음", "근거 충실": "A|B|같음", "문체": "A|B|같음", "완결성": "A|B|같음", "종합": "A|B|같음", "까닭": "한 문장"}}"""
+답은 JSON 하나만: {{"지시 충실": "A|B|같음", "맥락 이해": "A|B|같음", "형식": "A|B|같음", "근거 충실": "A|B|같음", "문체": "A|B|같음", "완결성": "A|B|같음", "종합": "A|B|같음", "까닭": "한 문장"}}"""
+
+SCORE_SYSTEM = """당신은 대학 행정 문서 작성 도우미의 답 하나를 기준표로 채점한다. 주어진 대화 맥락만 근거로 삼고 기준표 밖의 생각은 넣지 않는다.
+항목마다 1~5점(1=매우 나쁨, 3=보통, 5=매우 좋음). 길이가 길다고 점수를 주지 않는다.
+[기준표]
+{rubric}
+답은 JSON 하나만: {{"지시 충실": 1~5, "맥락 이해": 1~5, "형식": 1~5, "근거 충실": 1~5, "문체": 1~5, "완결성": 1~5, "까닭": "한 문장"}}"""
 
 UNKNOWN = re.compile(r"확인되지\s*않|확인할\s*수\s*없|자료에\s*없|근거가\s*없|제시되지\s*않|알\s*수\s*없|주어지지\s*않|사용자\s*입력으로|확인이\s*필요|확인\s*후")
 HAN = re.compile(r"[一-鿿]")
@@ -76,6 +86,44 @@ def chat(base_url: str, model: str, messages: list[dict], max_tokens: int, tempe
             last = f"{type(e).__name__}: {e}"[:200]
             time.sleep(5 * (attempt + 1))
     return {"text": "", "error": last, "sec": round(time.time() - t0, 2)}
+
+
+def chat_stream(base_url: str, model: str, messages: list[dict], max_tokens: int, temperature: float, timeout: float = 600,
+                kwargs: dict | None = None, seed: int | None = None) -> dict:
+    """흘려 받기 — 첫 토큰까지 시간(ttft)·생성 속도(토큰/초)·전체 시간. 요청 본문은 chat 과 같다(stream 만 더함)."""
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": True,
+            "stream_options": {"include_usage": True}, "chat_template_kwargs": dict(kwargs or {}, enable_thinking=False)}
+    if seed is not None:
+        body["seed"] = seed
+    req = urllib.request.Request(base_url.rstrip("/") + "/chat/completions", data=json.dumps(body).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"})
+    t0 = time.time()
+    ttft, parts, usage, finish = None, [], {}, None
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            for raw in r:
+                line = raw.decode("utf-8", "ignore").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                d = json.loads(data)
+                if d.get("usage"):
+                    usage = d["usage"]
+                for ch in d.get("choices") or []:
+                    piece = (ch.get("delta") or {}).get("content") or ""
+                    if piece and ttft is None:
+                        ttft = time.time() - t0
+                    parts.append(piece)
+                    finish = ch.get("finish_reason") or finish
+    except Exception as e:
+        return {"text": "".join(parts), "error": f"{type(e).__name__}: {e}"[:200], "sec": round(time.time() - t0, 2)}
+    total = time.time() - t0
+    n = usage.get("completion_tokens") or 0
+    tps = (n - 1) / (total - ttft) if ttft is not None and n > 1 and total > ttft else 0.0
+    return {"text": "".join(parts), "finish": finish, "usage": usage, "sec": round(total, 2),
+            "ttft": round(ttft or 0.0, 3), "tok_per_sec": round(tps, 2)}
 
 
 # ── 입력 ──
@@ -286,8 +334,8 @@ def phase_gen(items, a, out: Path, lock) -> None:
         print(f"[gen] {model}: {len(done)} 있음, {len(todo)} 남음", flush=True)
 
         def one(it, model=model, path=path):
-            g = chat(a.urls[model], model, it["messages"], a.max_tokens, a.temperature, kwargs=it["kwargs"], seed=a.seed)
-            append(path, {"key": it["id"], "model": model, **g}, lock)
+            g = chat(a.urls[model], a.served[model], it["messages"], a.max_tokens, a.temperature, kwargs=it["kwargs"], seed=a.seed)
+            append(path, {"key": it["id"], "arm": model, "model": a.served[model], **g}, lock)
             return g
 
         with ThreadPoolExecutor(max_workers=a.concurrency) as ex:
@@ -331,6 +379,64 @@ def phase_judge(items, a, out: Path, lock) -> None:
                     print(f"  judge {k}/{len(jobs)} {rec.get('error') or ''}", flush=True)
 
 
+def parse_scores(text: str) -> dict | None:
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return None
+    try:
+        d = json.loads(m.group(0))
+    except Exception:
+        return None
+    out = {}
+    for k in CRITERIA:
+        try:
+            v = int(round(float(d.get(k))))
+        except Exception:
+            return None
+        out[k] = min(5, max(1, v))
+    out["까닭"] = str(d.get("까닭", ""))[:200]
+    return out
+
+
+def phase_score(items, a, out: Path, lock) -> None:
+    """팔마다 답 하나씩 1~5점(항목 여섯) — 다른 팔 답을 보지 않으므로 팔을 나중에 더해도(운영 교체 뒤) 그대로 견줄 수 있다."""
+    sysmsg = SCORE_SYSTEM.format(rubric="\n".join(f"- {k}: {v}" for k, v in JUDGE_RUBRIC.items()))
+    for arm in a.gen_models:
+        gens = read_cache(out / f"gen-{arm}.jsonl")
+        path = out / f"score-{arm}.jsonl"
+        done = read_cache(path)
+        jobs = [it for it in items if it["id"] in gens and it["id"] not in done]
+        print(f"[score] {arm}: {len(done)} 있음, {len(jobs)} 남음", flush=True)
+
+        def one(it, arm=arm, gens=gens, path=path):
+            user = (f"[대화 맥락]\n{judge_context(it['messages'])}\n\n[답]\n{gens[it['id']]['text'][:6000]}\n\n기준표대로 채점해 JSON 하나만 답하라.")
+            r = chat(a.judge_url, a.judge_model, [{"role": "system", "content": sysmsg}, {"role": "user", "content": user}], 300, 0.0)
+            v = parse_scores(r.get("text", ""))
+            rec = {"key": it["id"], "arm": arm, "scores": v, "sec": r.get("sec")}
+            if v is None:
+                rec["error"] = r.get("error") or "점수 못 읽음"
+            append(path, rec, lock)
+            return rec
+
+        with ThreadPoolExecutor(max_workers=a.concurrency) as ex:
+            for k, rec in enumerate(ex.map(one, jobs), 1):
+                if k % 20 == 0 or rec.get("error"):
+                    print(f"  score {arm} {k}/{len(jobs)} {rec.get('error') or ''}", flush=True)
+
+
+def phase_speed(items, a, out: Path, lock) -> None:
+    """속도 — 앞 --speed-n 문항을 하나씩(동시 1) 흘려 받아 첫 토큰 시간·토큰/초·전체 시간. 생성 설정은 gen 과 같다."""
+    for arm in a.gen_models:
+        path = out / f"speed-{arm}.jsonl"
+        done = read_cache(path)
+        todo = [it for it in items[:a.speed_n] if it["id"] not in done]
+        print(f"[speed] {arm}: {len(done)} 있음, {len(todo)} 남음", flush=True)
+        for it in todo:
+            g = chat_stream(a.urls[arm], a.served[arm], it["messages"], a.max_tokens, a.temperature, kwargs=it["kwargs"], seed=a.seed)
+            append(path, {"key": it["id"], "arm": arm, "model": a.served[arm], **{k: v for k, v in g.items() if k != "text"},
+                          "chars": len(g.get("text", ""))}, lock)
+
+
 MECH_KEYS = ("chrf", "rougeL", "chars", "len_ratio", "invented", "nominal_ratio", "plain_ratio", "bullet_ratio",
              "headings", "table", "gold_frame", "unknown", "truncated", "han", "latin_words", "empty", "sec", "out_tokens")
 
@@ -353,6 +459,20 @@ def phase_report(items, a, out: Path) -> dict:
         rep["mech"][g] = {"n": len(rs), **{m: {k: mean([float(r["mech"][m][k]) for r in rs]) for k in MECH_KEYS}
                                            | {"invented_any": mean([float(r["mech"][m]["invented"] > 0) for r in rs])}
                                            for m in a.models}}
+    rep["scores"], rep["speed"] = {}, {}
+    for arm in a.models:
+        sc = {k: v["scores"] for k, v in read_cache(out / f"score-{arm}.jsonl").items() if v.get("scores")}
+        for r in rows:
+            if r["id"] in sc:
+                r.setdefault("scores", {})[arm] = sc[r["id"]]
+        for g in groups:
+            rs = [r for r in rows if (g == "전체" or r["group"] == g) and arm in r.get("scores", {})]
+            rep["scores"].setdefault(g, {})[arm] = {"n": len(rs), **{k: mean([r["scores"][arm][k] for r in rs]) for k in CRITERIA}}
+        sp = [v for v in read_cache(out / f"speed-{arm}.jsonl").values() if v.get("ttft") is not None]
+        if sp:
+            rep["speed"][arm] = {"n": len(sp), "ttft": mean([x["ttft"] for x in sp]), "tok_per_sec": mean([x["tok_per_sec"] for x in sp]),
+                                 "sec": mean([x["sec"] for x in sp]), "out_tokens": mean([(x.get("usage") or {}).get("completion_tokens", 0) for x in sp]),
+                                 "in_tokens": mean([(x.get("usage") or {}).get("prompt_tokens", 0) for x in sp])}
     for m1, m2 in a.pairs:
         name = f"{m2} 대 {m1}"
         judged = defaultdict(list)
@@ -360,6 +480,8 @@ def phase_report(items, a, out: Path) -> dict:
             if d.get("verdict"):
                 judged[d["item"]].append((d["verdict"], d["a_is"]))
         prs = []
+        if not judged:
+            continue
         for iid, vs in judged.items():
             r = byid.get(iid)
             if r is None or len(vs) != 2:
@@ -404,6 +526,18 @@ def to_md(rep: dict, models: list[str]) -> str:
                     continue
                 L.append(f"| {g} | {x['n']} | {k} | {x['win']} | {x['tie']} | {x['loss']} | {x['score']} | {x['ci95'][0]}~{x['ci95'][1]} |")
         L.append("")
+    if rep.get("scores"):
+        L += ["## 항목 점수(채점자 1~5, 팔마다 따로)", "", "| 갈래 | 팔 | n | " + " | ".join(CRITERIA) + " |", "|---|---|---|" + "---|" * len(CRITERIA)]
+        for g, d in rep["scores"].items():
+            for arm, x in d.items():
+                if x["n"]:
+                    L.append(f"| {g} | {arm} | {x['n']} | " + " | ".join(str(x[k]) for k in CRITERIA) + " |")
+        L.append("")
+    if rep.get("speed"):
+        L += ["## 속도(흘려 받기, 동시 1)", "", "| 팔 | n | 첫 토큰(초) | 토큰/초 | 전체(초) | 출력 토큰 | 입력 토큰 |", "|---|---|---|---|---|---|---|"]
+        for arm, x in rep["speed"].items():
+            L.append(f"| {arm} | {x['n']} | {x['ttft']} | {x['tok_per_sec']} | {x['sec']} | {x['out_tokens']:.0f} | {x['in_tokens']:.0f} |")
+        L.append("")
     L += ["## 기계 지표(평균)", "", "| 갈래 | 모델 | chrF | ROUGE-L | 글자 | 정답 대비 길이 | 지어낸 숫자 | 숫자 지어낸 답 비율 | 명사형 끝 | 서술형 끝 | "
           "표 | 정답 꼴(근거 설명·답변) | 모름 표시 | 잘림 | 한자 | 초 | 출력 토큰 |", "|" + "---|" * 17]
     for g, d in rep["mech"].items():
@@ -415,16 +549,20 @@ def to_md(rep: dict, models: list[str]) -> str:
     return "\n".join(L) + "\n"
 
 
-def parse_models(spec: str, base_url: str) -> tuple[list[str], dict[str, str]]:
-    """「이름」 또는 「이름=주소」 를 쉼표로 — 주소를 빼면 --base-url."""
-    names, urls = [], {}
+def parse_models(spec: str, base_url: str) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    """「[팔:]서빙 이름[=주소]」 를 쉼표로. 팔(arm)은 결과 파일·표의 이름 — 서빙 이름이 바뀌어도(운영 교체 뒤 같은 이름) 결과가 섞이지 않게
+    팔 이름으로 남긴다. 팔을 빼면 서빙 이름, 주소를 빼면 --base-url."""
+    names, urls, served = [], {}, {}
     for part in (x.strip() for x in spec.split(",")):
         if not part:
             continue
-        name, _, url = part.partition("=")
-        names.append(name.strip())
-        urls[name.strip()] = (url.strip() or base_url)
-    return names, urls
+        head, _, url = part.partition("=")
+        arm, _, model = head.partition(":") if ":" in head else ("", "", head)
+        arm, model = (arm.strip() or model.strip()), model.strip()
+        names.append(arm)
+        urls[arm] = url.strip() or base_url
+        served[arm] = model
+    return names, urls, served
 
 
 def main(argv=None) -> int:
@@ -438,16 +576,17 @@ def main(argv=None) -> int:
     ap.add_argument("--judge-url", default="")
     ap.add_argument("--judge-model", default="zzaimy-writer")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--phase", choices=("gen", "judge", "report", "all"), default="all")
+    ap.add_argument("--phase", choices=("gen", "judge", "score", "speed", "report", "all"), default="all")
+    ap.add_argument("--speed-n", type=int, default=20, help="속도 걸음에서 흘려 받을 앞 문항 수")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=2)
     ap.add_argument("--max-tokens", type=int, default=2048)
     ap.add_argument("--temperature", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=None)
     a = ap.parse_args(argv)
-    a.models, a.urls = parse_models(a.models, a.base_url)
-    if len(a.models) < 2 or len(set(a.models)) != len(a.models):
-        ap.error("--models 는 서로 다른 둘 이상")
+    a.models, a.urls, a.served = parse_models(a.models, a.base_url)
+    if not a.models or len(set(a.models)) != len(a.models) or (len(a.models) < 2 and a.phase in ("judge", "all")):
+        ap.error("--models 는 서로 다른 이름(쌍대 판정은 둘 이상)")
     if a.pairs:
         a.pairs = [tuple(x.split(":", 1)) for x in a.pairs.split(",") if ":" in x]
         if any(m not in a.models for pr in a.pairs for m in pr):
@@ -455,9 +594,9 @@ def main(argv=None) -> int:
     else:
         a.pairs = [(a.models[i], a.models[j]) for i in range(len(a.models)) for j in range(i + 1, len(a.models))]
     a.gen_models = [m.strip() for m in a.gen_only.split(",") if m.strip()] or a.models
-    if a.phase in ("gen", "all") and not all(a.urls.get(m) for m in a.gen_models):
+    if a.phase in ("gen", "speed", "all") and not all(a.urls.get(m) for m in a.gen_models):
         ap.error("생성할 모델의 주소가 없다(--base-url 또는 이름=주소)")
-    if a.phase in ("judge", "all") and not a.judge_url:
+    if a.phase in ("judge", "score", "all") and not a.judge_url:
         ap.error("--judge-url 이 필요하다")
     a.concurrency = max(1, min(a.concurrency, 4))
     items = load_items(Path(a.data).expanduser(), Path(a.index).expanduser() if a.index else None, a.limit)
@@ -467,6 +606,10 @@ def main(argv=None) -> int:
     lock = threading.Lock()
     if a.phase in ("gen", "all"):
         phase_gen(items, a, out, lock)
+    if a.phase == "speed":
+        phase_speed(items, a, out, lock)
+    if a.phase in ("score", "all"):
+        phase_score(items, a, out, lock)
     if a.phase in ("judge", "all"):
         phase_judge(items, a, out, lock)
     if a.phase in ("report", "all"):

@@ -27,6 +27,9 @@ def test_flow_page_lists_every_stage_term_and_host(tmp_path):
     for h in process_flow.HOSTS:
         assert h["name"] in page
     assert [s["n"] for s in process_flow.STAGES] == list(range(1, len(process_flow.STAGES) + 1))
+    assert all(len(s["how"]) <= 4 for s in process_flow.STAGES)          # 단계마다 4줄까지
+    assert "scripts/" not in " ".join(h for s in process_flow.STAGES for h in s["how"])   # 스크립트 번호는 「관련 코드」 줄에만
+    assert "수치 기준" in page
 
 
 def test_flow_numbers_come_from_outputs(tmp_path):
