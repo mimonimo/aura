@@ -100,48 +100,70 @@ def declared_units(text: str) -> set[int]:
     return {_MONEY_UNIT[u] for u in _DECLARED.findall(text or "") if _MONEY_UNIT[u] > 1}
 
 
+def _decl_at(text: str, pos: int) -> int | None:
+    """그 숫자에 걸리는 단위 선언 — 같은 덩이(빈 줄로 나뉜 문단·표) 안에서 그 숫자와 가장 가까운 선언 하나(표 위·아래 어느 쪽이든).
+    보안: 글 어딘가의 선언을 모두 곱해 보면, 선언을 여러 개 넣는 것만으로 아무 숫자나 근거 값과 맞출 수 있다."""
+    a = text.rfind("\n\n", 0, pos)
+    start = 0 if a < 0 else a
+    b = text.find("\n\n", pos)
+    end = len(text) if b < 0 else b
+    best, gap = None, None
+    for d in _DECLARED.finditer(text, start, end):
+        g = abs(d.start() - pos)
+        if gap is None or g < gap:
+            best, gap = _MONEY_UNIT[d.group(1)], g
+    return best if best and best > 1 else None
+
+
+_WON_AFTER = re.compile(r"\s*원")
+
+
+def _money_value(text: str, m: re.Match) -> str | None:
+    """금액으로 읽히는 숫자의 원 단위 값 — 뒤에 「원」, 바로 뒤 괄호 금액 단위, 또는 덩이 안 단위 선언이 있을 때만."""
+    num = Decimal(m.group(1).replace(",", "")) * _UNIT_VALUE.get(m.group(2) or "", 1)
+    if _WON_AFTER.match(text, m.end()):
+        return _fmt(num)
+    pm = _PAREN_UNIT.match(text, m.end())
+    if pm:
+        return _fmt(num * _MONEY_UNIT[pm.group(1)])
+    if not m.group(2):
+        d = _decl_at(text, m.start())
+        if d:
+            return _fmt(num * d)
+    return None
+
+
 def scaled_values(text: str) -> set[str]:
-    """단위 바꿈으로 같은 값이 되는 정준값 — 단위 없는 숫자에 바로 뒤 괄호 단위나 글의 단위 선언을 곱한 값."""
+    """근거 글의 금액 값(원 단위) — 단위 바꿈 비교는 금액끼리만 한다."""
     cleaned = _LIST_MARKER.sub("\n", text or "")
-    decl = declared_units(cleaned)
     out: set[str] = set()
     for m in _NUM_UNIT.finditer(cleaned):
-        if m.group(2):
-            continue
-        num = Decimal(m.group(1).replace(",", ""))
-        pm = _PAREN_UNIT.match(cleaned, m.end())
-        for mult in ({_MONEY_UNIT[pm.group(1)]} if pm else set()) | decl:
-            out.add(_fmt(num * mult))
+        v = _money_value(cleaned, m)
+        if v:
+            out.add(v)
     return out
 
 
-def _candidates(src: str, m: re.Match, decl: set[int]) -> set[str]:
-    """초안 속 숫자 하나가 뜻할 수 있는 값 — 표면형·단위 환산값, 단위가 없으면 괄호 단위·선언 단위로 환산한 값."""
-    surface = m.group(1).replace(",", "")
-    unit = m.group(2)
-    num = Decimal(surface)
-    out = {surface, _fmt(num * _UNIT_VALUE.get(unit or "", 1))}
-    if not unit:
-        pm = _PAREN_UNIT.match(src, m.end())
-        for mult in ({_MONEY_UNIT[pm.group(1)]} if pm else set()) | decl:
-            out.add(_fmt(num * mult))
-    return out
-
-
-def _allowed(evidence_texts: list[str]) -> tuple[set[str], set[str]]:
+def _allowed(evidence_texts: list[str]) -> tuple[set[str], set[str], set[str]]:
     surface: set[str] = set()
     canon: set[str] = set()
+    money: set[str] = set()
     for ev in evidence_texts:
         surface |= extract_numbers(ev)
-        canon |= canonical_values(ev) | scaled_values(ev)
-    return surface, canon
+        canon |= canonical_values(ev)
+        money |= scaled_values(ev)
+    return surface, canon, money
 
 
-def _supported(src: str, m: re.Match, surface_ok: set[str], canon_ok: set[str], decl: set[int]) -> bool:
+def _supported(src: str, m: re.Match, surface_ok: set[str], canon_ok: set[str], money_ok: set[str]) -> bool:
+    """근거에 있는 값인가 — 표면형·단위 환산(조·억·만…) 비교는 전처럼, 금액 단위 바꿈(500(백만원)=5억 원)은
+    초안 쪽도 금액으로 읽힐 때만, 근거의 금액 값과만 견준다(사람 수·건수 같은 값과 단위 바꿈으로 맞추지 않게)."""
     s = m.group(1).replace(",", "")
-    if s in surface_ok:
+    unit = m.group(2)
+    if s in surface_ok or s in canon_ok or _fmt(Decimal(s) * _UNIT_VALUE.get(unit or "", 1)) in canon_ok:
         return True
-    return bool(_candidates(src, m, decl) & canon_ok)
+    v = _money_value(src, m)
+    return bool(v) and v in money_ok
 
 
 @dataclass(frozen=True)
@@ -170,14 +192,13 @@ def verify_numbers(draft: str, evidence_texts: list[str]) -> NumberAudit:
 
     표면형(콤마 제거) 또는 정준값(단위 환산) 어느 쪽으로든 근거에 있으면 통과.
     """
-    allowed_surface, allowed_canonical = _allowed(evidence_texts)
+    allowed_surface, allowed_canonical, allowed_money = _allowed(evidence_texts)
     violations: list[str] = []
     contexts: list[str] = []
     cleaned = _LIST_MARKER.sub("\n", draft)
-    decl = declared_units(cleaned)
     for m in _NUM_UNIT.finditer(cleaned):
         surface = m.group(1).replace(",", "")
-        if _supported(cleaned, m, allowed_surface, allowed_canonical, decl):
+        if _supported(cleaned, m, allowed_surface, allowed_canonical, allowed_money):
             continue
         if surface not in violations:
             violations.append(surface)
@@ -206,10 +227,9 @@ def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[st
 
 
 def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tuple[str, list[str]]:
-    allowed_surface, allowed_canonical = _allowed(evidence_texts)
+    allowed_surface, allowed_canonical, allowed_money = _allowed(evidence_texts)
     out, masked, last = [], [], 0
     src = text or ""
-    decl = declared_units(src)
     for m in _NUM_UNIT.finditer(src):
         surface = m.group(1).replace(",", "")
         unit = m.group(2)
@@ -230,7 +250,7 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
             small = False
         if small:
             continue
-        if _supported(src, m, allowed_surface, allowed_canonical, decl):
+        if _supported(src, m, allowed_surface, allowed_canonical, allowed_money):
             continue
         if mark:
             end = m.end()

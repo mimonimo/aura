@@ -50,3 +50,14 @@ def test_same_value_unit_changes_are_supported():
     assert mask_unsupported("총 사업비 700(백만원)", ev)[1] == ["700"]
     assert mask_unsupported("참여 학생 4,500명", ev)[1] == ["4,500"]
     assert verify_numbers("총 사업비 6억 원", ev).violations == ["6"]
+
+
+def test_unit_declarations_cannot_launder_numbers():
+    """보안: 단위 선언을 여러 개 넣어도 아무 숫자나 근거와 맞출 수 없다 — 금액 단위 바꿈은 금액끼리, 가장 가까운 선언 하나만."""
+    from zzaimy.verify.numbers import verify_numbers
+    ev = ["참여 학생 3,000명, 사업비 5억 원"]
+    bad = "(단위: 천원) (단위: 만원) (단위: 억원)\n참여 학생 3명으로 운영"
+    assert not verify_numbers(bad, ev).ok                       # 3×천 = 3000(사람 수)에 맞추지 못함
+    assert verify_numbers("총 사업비 500(백만원)", ev).ok          # 같은 금액의 단위 바꿈은 인정
+    assert verify_numbers("(단위: 백만원)\n| 사업비 | 500 |", ev).ok
+    assert not verify_numbers("(단위: 백만원)\n| 사업비 | 700 |", ev).ok
