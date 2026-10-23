@@ -88,3 +88,12 @@ def test_final_line_kept_unless_user_changes_it(monkeypatch):
     assert "최종 결과물" in cm.SUMMARY_PROMPT.format(limit=100, final=cm.FINAL_PROMPT)
     monkeypatch.setenv("ZZAIMY_MEMO_GOAL_LOCK", "0")
     assert not cm.goal_lock()
+
+
+def test_keep_final_accepts_concrete_line_over_unsettled_one():
+    old = "최종 결과물:\n- 내년 AI 교육 사업 준비 관련 문서(구체적 문서 이름·용도·대상·마감 미정)\n지금 목표:\n- 자료 찾기"
+    new = "최종 결과물:\n- 「2027 AI 교육 사업계획서」 한글 문서(대상 1학년 전체, 예산 5억 원, 2027. 3. ~ 2028. 2.)\n지금 목표:\n- 절 채우기"
+    assert "사업계획서" in cm.parts(cm.keep_final(old, new, ["양식부터 잡아 줘."]))["최종 결과물"]
+    settled = "최종 결과물:\n- 「2027 AI 교육 사업계획서」 한글 문서\n지금 목표:\n- 절 채우기"
+    step = "최종 결과물:\n- 표 서식 고치기\n지금 목표:\n- 표"
+    assert "사업계획서" in cm.parts(cm.keep_final(settled, step, ["표 머리줄 색 바꿔"[:5]]))["최종 결과물"]

@@ -440,7 +440,9 @@ def run_variant(variant: str, label: str, tmp: Path, out_dir: Path, judge_on: bo
         rw["표"]["schedule_table"] = any(a_["tables"] > b_["tables"] for a_, b_ in zip(rw["표"]["after"], rw["표"]["before"]))
         # 반영 — 「더 구체적으로」 는 바뀐 자리가 있고 그 가운데 하나라도 글자가 1.15배 넘게 늘었나, 「표로」 는 바뀐 자리에 표가 새로 생겼나
         rw["구체"]["reflected"] = any(a_["chars"] > b_["chars"] * 1.15 for a_, b_ in zip(rw["구체"]["after"], rw["구체"]["before"]))
-        rw["표"]["reflected"] = rw["표"]["schedule_table"]
+        # 고친 자리가 처음부터 표였고 고친 뒤에도 표면 지시는 이미 지켜진 것(이미 표) — 따로 적어 표가 새로 생긴 것과 가른다
+        rw["표"]["already_table"] = any(b_["tables"] >= 1 and a_["tables"] >= 1 for a_, b_ in zip(rw["표"]["after"], rw["표"]["before"]))
+        rw["표"]["reflected"] = rw["표"]["schedule_table"] or rw["표"]["already_table"]
         rw["actions"] = {t_["turn"]: t_.get("actions") for t_ in turns if t_["turn"].startswith("고쳐 쓰기")}
         res["rewrite"] = rw
         res["delegate_log"] = _delegate_log(db, sid)
@@ -581,7 +583,9 @@ def rescore(paths: list[Path]) -> list[dict]:
         if rw and "reflected" not in (rw.get("구체") or {}):
             c = rw.get("구체") or {}
             c["reflected"] = any((a_.get("chars") or 0) > (b_.get("chars") or 0) * 1.15 for a_, b_ in zip(c.get("after") or [], c.get("before") or []))
-            (rw.get("표") or {})["reflected"] = bool((rw.get("표") or {}).get("schedule_table"))
+            t = rw.get("표") or {}
+            t["already_table"] = any((b_.get("tables") or 0) >= 1 and (a_.get("tables") or 0) >= 1 for a_, b_ in zip(t.get("after") or [], t.get("before") or []))
+            t["reflected"] = bool(t.get("schedule_table")) or t["already_table"]
         if r.get("goal") is not None and r.get("turns"):
             r["goal"].update({k: v for k, v in goal_score(r["turns"][-1].get("memo") or "").items() if k in ("final",)})
             r["goal"]["kept"] = goal_kept(r["turns"])
@@ -788,7 +792,7 @@ def table_row(r: dict) -> str:
     return (f"| {r['variant']} | {r['label']} | {fm['how']}: {fm['name'][:28]} | {st} | "
             f"{''.join('O' if g[k] else 'x' for k in GIVEN)} | {r['sections']} | {sum(r['facts'].values())}/{len(r['facts'])} | "
             f"{len(r['invented'])} | {r['tables']}·{r['diagrams']} | {r['needs_met']} | "
-            f"{len(rw['구체']['changed'])}·{'O' if rw['표'].get('schedule_table') else 'x'} | "
+            f"{len(rw['구체']['changed'])}·{'O' if rw['표'].get('schedule_table') else ('이미 표' if rw['표'].get('already_table') else 'x')} | "
             f"{''.join('O' if v else 'x' for v in ds.values())} | {r['broken']['check_n']}·{r['broken']['field_unpaired']} | "
             f"{r['total_sec']} | {r['peak']}/{r['limit']} | "
             f"{'/'.join(str(j.get(k)) for k in RUBRIC) if j else '-'} |")

@@ -21,6 +21,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from zzaimy.app import llm_budget
+from zzaimy.app.korean_text import josa
 
 MAX_SECTIONS = 30                   # 절(모든 단계) 수 상한 — 더 길면 문서를 나눈다
 MAX_LEVEL = 3                       # 1. → 가. → 1)
@@ -162,7 +163,7 @@ def guide_text(s: dict) -> str:
     if s.get("table"):
         parts.append(f"{'·'.join(s['table'])} 열의 표로 정리한다")
     if s.get("diagram"):
-        parts.append(f"{s['diagram']}은(는) 도식(상자와 화살표)으로 그린다")
+        parts.append(f"{s['diagram']}{josa(s['diagram'], '은')} 도식(상자와 화살표)으로 그린다")
     if s.get("length"):
         parts.append(f"분량 {s['length']}")
     return ". ".join(parts) + ("." if parts else "")

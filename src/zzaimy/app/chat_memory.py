@@ -138,6 +138,8 @@ FINAL = "최종 결과물"
 # 담당자가 결과물을 바꾸자는 말 — 일반 낱말(바꾸·변경·대신·말고·다른 문서·새 문서). 이 말이 없으면 최종 결과물 줄은 다듬기만 받는다
 _CHANGE = re.compile(r"바꾸|바꿔|변경|대신|말고|다른\s*(?:문서|양식|사업|보고서|계획서)|새\s*(?:문서|양식)|그만")
 KEEP_OVERLAP = 0.5           # 새 줄이 이전 줄의 낱말을 이만큼 품으면 다듬은 것(구체화)으로 받는다
+# 아직 정해지지 않은 줄(미정·확인 필요 같은 빈자리 표시) — 지킬 결과물이 아직 없으니 구체화한 새 줄을 받는다
+_UNSETTLED = re.compile(r"미정|미확정|확인\s*필요|정해지지|정하지\s*않|모름|불명|추후")
 
 
 def goal_lock() -> bool:
@@ -158,6 +160,8 @@ def keep_final(old_text: str, new_text: str, user_msgs: list[str]) -> str:
     new = parts(new_text).get(FINAL, "")
     if any(_CHANGE.search(u or "") for u in user_msgs):
         return new_text if new else _set_part(new_text, FINAL, old)
+    if new and _UNSETTLED.search(old) and len(_words(new) - _words(old)) >= 2:
+        return new_text                                    # 이전 줄이 빈자리 표시뿐이면 새 낱말이 든 줄로 구체화를 받는다
     ow = _words(old)
     if new and ow and len(ow & _words(new)) >= KEEP_OVERLAP * len(ow):
         return new_text

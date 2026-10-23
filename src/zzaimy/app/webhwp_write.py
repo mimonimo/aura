@@ -187,6 +187,48 @@ class _LevelStyles:
         return out
 
 
+def _top_paras(xml: str, end: int):
+    """xml[:end] 안 맨 바깥 문단(<hp:p>…</hp:p>)의 (시작, 끝) — 표 칸 안 문단은 건너뛴다."""
+    depth, start = 0, None
+    for t in re.finditer(r"<hp:p\b|</hp:p>", xml[:end]):
+        if t.group(0) != "</hp:p>":
+            if depth == 0:
+                start = t.start()
+            depth += 1
+        else:
+            depth -= 1
+            if depth == 0 and start is not None:
+                yield start, t.end()
+            if depth < 0:
+                return
+
+
+def _drop_empty_form_tables(tail: str) -> str:
+    """본문이 표를 들고 왔을 때, 같은 절(다음 절 필드 앞까지)에 남은 양식의 빈 표(머리줄 말고는 글자 없는 표)를 지운다 —
+    본문 표 밑에 같은 꼴 빈 표가 겹쳐 남지 않게. 글자가 한 칸이라도 든 표는 손대지 않는다."""
+    nxt = next((m.start() for m in _BEGIN.finditer(tail) if _unq(m.group(2)).startswith("절:")), len(tail))
+    nxt = min(nxt, len(tail))
+    cut = []
+    for a, b in _top_paras(tail, nxt):
+        if b > nxt:
+            break
+        frag = tail[a:b]
+        if "<hp:tbl" not in frag:
+            continue
+        rows = re.findall(r"<hp:tr\b.*?</hp:tr>", frag, re.S)
+        if len(rows) < 2:
+            continue
+        body_txt = "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", "".join(rows[1:])))
+        if re.sub(r"\s+", "", body_txt):
+            continue
+        if re.sub(r"\s+", "", "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", frag[:frag.find("<hp:tbl")]))):
+            continue                                       # 표 앞에 글이 같이 든 문단은 두고
+        cut.append((a, b))
+    for a, b in reversed(cut):
+        tail = tail[:a] + tail[b:]
+    return tail
+
+
 def write_section(data: bytes, name: str, items: list[tuple[str, object]], written: dict[str, list[str]] | None = None
                   ) -> tuple[bytes, list[str]]:
     """절 필드 다음에 문단·표를 넣는다 — (새 바이트, 넣은 문단 id). 앞서 넣은 것은 지운다."""
@@ -297,7 +339,11 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                 put.append(pid)
         # 줄 배치 캐시는 글이 바뀐 필드 문단에서만 지운다(새 문단·표는 처음부터 없다). 문서 전체에서 지우면 상자 밖으로 글이 넘친다
         field_p = hf.strip_linesegs(xml[pb[0]:pb[1]])[0]
-        new[n] = xml[:pb[0]] + field_p + "".join(chunks) + xml[pb[1]:]
+        head_ = xml[:pb[0]] + field_p + "".join(chunks)
+        tail_ = xml[pb[1]:]
+        if any(k == "table" for k, _ in items):
+            tail_ = _drop_empty_form_tables(tail_)
+        new[n] = head_ + tail_
         if levels.cache:
             header = levels.header
         break

@@ -285,3 +285,18 @@ def test_form_sources_scope(tmp_path):
     assert keys == ["doc:2"]
     keys = [s["key"] for s in fc.form_sources(DB(), tmp_path, visible=lambda d: d["id"] != 2)]
     assert keys == ["doc:1", "doc:3"]
+
+
+def test_body_table_replaces_empty_form_table_only():
+    """본문이 표를 들고 오면 같은 절의 빈 양식 표(머리줄만 있는 표)는 지운다 — 표 없는 본문이면 양식 표를 둔다. 작성방법 조사도 받침에 맞게."""
+    clean, _ = fc.validate(DESIGN)
+    data = fc.build(clean)
+    assert "사업단 조직은 도식" in "".join(ww.section_contexts(data).values())
+    table_names = lambda d: [n for n in _fields(d)["표"] if n.endswith((":추진 과제", ":일정", ":담당"))]
+    assert len(table_names(data)) == 3
+    plain, _ = ww.write_section(data, "절:3. 추진 일정", ww.parse_body("월별로 추진함."), {})
+    assert len(table_names(plain)) == 3
+    body = "월별 일정은 다음과 같음.\n| 추진 과제 | 일정 | 담당 |\n|---|---|---|\n| 준비 | 3월 | 기획처 |"
+    out, _ = ww.write_section(data, "절:3. 추진 일정", ww.parse_body(body), {})
+    assert table_names(out) == [] and eo.check_bytes(out) == []
+    assert any(n.endswith(":과정") for n in _fields(out)["표"]), "다른 절의 양식 표는 그대로"
