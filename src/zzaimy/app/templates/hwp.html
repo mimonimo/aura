@@ -30,7 +30,15 @@
     {% endif %}
     <div class="hb-sec">
       <p class="hb-group">부서 폴더</p>
-      {% for d in depts %}<a class="hb-place {{ 'on' if here and here.dept == d.dept }}" href="/hwp?dept={{ d.dept|urlencode }}" data-place="dept"{% if here and here.dept == d.dept %} aria-current="page"{% endif %}><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="t">{{ d.dept }}</span><span class="n">{{ d.count }}</span></a>{% endfor %}
+      {# 문서가 있거나 지금 보는·내 부서 폴더만 바로 보이고, 빈 부서 폴더는 「빈 부서 폴더 · N」 단추 뒤로(부서가 많은 관리자 화면) #}
+      {% set quiet = [] %}
+      {% for d in depts %}{% set main_ = d.count or (here and here.dept == d.dept) or d.dept == mine or d.dept == (request.state.dept or "") or depts|length <= 8 %}
+      {% if not main_ %}{% set _ = quiet.append(1) %}{% endif %}
+      <a class="hb-place {{ 'on' if here and here.dept == d.dept }}" href="/hwp?dept={{ d.dept|urlencode }}" data-place="dept"{% if not main_ %} data-quiet hidden{% endif %}{% if here and here.dept == d.dept %} aria-current="page"{% endif %}><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="t">{{ d.dept }}</span><span class="n">{{ d.count }}</span></a>{% endfor %}
+      {% if quiet %}<button type="button" class="hb-more" data-quiet-toggle data-n="{{ quiet|length }}">빈 부서 폴더 · {{ quiet|length }}</button>
+      <script>(function () { var b = document.querySelector('[data-quiet-toggle]'); if (!b) return; b.addEventListener('click', function () {
+        var open = b.getAttribute('aria-expanded') === 'true'; document.querySelectorAll('[data-quiet]').forEach(function (a) { a.hidden = open; });
+        b.setAttribute('aria-expanded', open ? 'false' : 'true'); b.textContent = open ? '빈 부서 폴더 · ' + b.getAttribute('data-n') : '빈 부서 폴더 접기'; }); })();</script>{% endif %}
     </div>
     {% if here %}
     <div class="hb-sec">

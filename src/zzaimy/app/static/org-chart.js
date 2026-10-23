@@ -205,7 +205,7 @@
     var found = root.querySelector('[data-oc-found]');
     var hits = stage.querySelectorAll('.od-box.hit');
     found.textContent = words.length ? (hits.length ? hits.length + '개' : '없음') : '';
-    if (firstDraw) { firstDraw = false; applyZoom(zoom || null); }
+    if (firstDraw) { firstDraw = false; applyZoom(zoom || 1); }   // 처음은 100% — 처·단이 많으면 맞춤이 글자를 못 읽게 줄인다(옆으로 끌어 보기)
   }
   function jumpTo(i) {
     var hits = stage.querySelectorAll('.od-box.hit');

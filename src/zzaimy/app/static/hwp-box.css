@@ -155,3 +155,5 @@ button.hb-row:hover{border:0;background:#f4f6f9}
 .hb-selbar[hidden]{display:none}
 .hb-selbar [data-sel-count]{margin-right:6px}
 .hb-selbar .hb-btn{min-height:26px}
+.hb-more{display:block;width:100%;margin:2px 0 0;padding:5px 8px 5px 31px;border:0;border-radius:6px;background:transparent;box-shadow:none;color:#6b7f99;font:inherit;font-size:12.5px;text-align:left;cursor:pointer;min-height:0}
+.hb-more:hover{background:#eef2f7;color:#2f3d51}
