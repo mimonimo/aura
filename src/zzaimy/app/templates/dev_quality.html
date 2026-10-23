@@ -92,7 +92,7 @@
   <p class="eval-now">현재 구성 측정 없음 —
     {% if retrieval_eval.running %}측정 진행 중
     {% elif retrieval_eval.query_set_missing %}{{ retrieval_eval.query_set_message }}
-    {% else %}재측정 단추로 실행(수십 분){% endif %}</p>
+    {% else %}「재측정」 버튼으로 실행(수십 분){% endif %}</p>
   <p class="muted" style="font-size:12px; margin:0 0 4px;">지금 구성 · 규정 조각 {{ current_chunks | num }}개 · 임베딩 {{ index_model or '미확인' }}</p>
   <details class="chip-toggle eval-past">
     <summary>지난 측정(구성 다름) · {{ retrieval_eval.measured_at_display }} · 조각 {{ ev.n_chunks | num }}개 · {{ ev.embedding_model or '임베딩 미확인' }}</summary>

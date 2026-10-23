@@ -469,7 +469,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     document.querySelector('[data-n="staff"]').textContent = num(state.reg.length - stu);
     $('rrRegCount').textContent = num(state.reg.length);
     $('rrCandCount').textContent = num(state.candTotal);
-    $('rrPicked').textContent = pick.size ? `선택 ${num(pick.size)}건` : '여러 개는 체크한 뒤 아래 단추로';
+    $('rrPicked').textContent = pick.size ? `선택 ${num(pick.size)}건` : '여러 개는 체크한 뒤 아래 버튼으로';
     document.querySelectorAll('[data-rr]').forEach(b => { b.disabled = !pick.size; });
     $('rrAll').checked = shown.length > 0 && shown.every(d => pick.has(d.id));
   }
