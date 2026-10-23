@@ -5,7 +5,7 @@
  * AuraHwpWrapper.create(ctrl, box) → {
  *   fields(), read(name), readMany(names), write(name, text), setEditable(name, on), setFormMode(on), formMode(),
  *   setReadOnly(on), currentField(), getCursor(), restoreCursor(c), moveTo(name, select), caretRect(),
- *   measureField(name) → Promise<{x, y, h, x2, y2} | null>, onLocalEdit(cb), onCaret(cb), onActivity(cb), attach(),
+ *   fieldGeom(names) → {이름: {page,x,y,h,page2,x2,y2,h2}} | null(쪽 좌표), toScreen(page,x,y), bodyLeft(), unitPx(v), onLocalEdit(cb), onCaret(cb), onActivity(cb), attach(),
  *   isComposing(), lastInputAt(), exportField(name) → Promise<json>, importField(name, json) → Promise<bool>,
  *   open(blob, name) → Promise, hwpx() → Promise<Uint8Array>, run(action), exec(action, items), insertText(text) }
  * 글은 언제나 \n 줄바꿈으로 주고받는다(기안기는 \r\n).
@@ -42,9 +42,9 @@
       try { ctrl.PutFieldText(name, nl(text).replace(/\n/g, '\r\n')); return true; } catch (e) { return false; }
     }
     // 양식 보호 모드(EditMode 2)에서 「양식 모드에서 편집 가능」 속성(1)을 켜고 끈다 — 끈 칸은 입력이 들어가지 않는다
-    function setEditable(name, on) {
+    function setEditable(name, on, force) {
       on = !!on;
-      if (editable[name] === on) return;
+      if (editable[name] === on && !force) return;
       try { ctrl.ModifyFieldProperties(name, on ? 0 : 1, on ? 1 : 0); editable[name] = on; } catch (e) {}
     }
     function setFormMode(on) { try { ctrl.EditMode = on ? 2 : 1; } catch (e) {} }
@@ -56,7 +56,13 @@
     function restoreCursor(c) {
       if (!c || !c.pos) return;
       try { ctrl.SetPos(c.pos.list, c.pos.para, c.pos.pos); } catch (e) {}
-      if (c.scroll) { try { var s = ctrl.ScrollPosInfo; Object.keys(c.scroll).forEach(function (k) { s.m_Set.m_SetItemMap[k] = c.scroll[k]; }); ctrl.ScrollPosInfo = s; } catch (e) {} }
+      if (c.scroll) {                         // 바뀐 때만 되돌린다(같은 값을 다시 넣으면 기안기가 화면을 다시 그린다)
+        try {
+          var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap, diff = false;
+          Object.keys(c.scroll).forEach(function (k) { if (m[k] !== c.scroll[k]) { m[k] = c.scroll[k]; diff = true; } });
+          if (diff) ctrl.ScrollPosInfo = s;
+        } catch (e) {}
+      }
     }
     function moveTo(name, select) { try { return ctrl.MoveToField(name, true, true, !!select) !== false; } catch (e) { return false; } }
     function caretRect() {
@@ -68,32 +74,60 @@
         return {x: o.left + r.left, y: o.top + r.top, h: r.height, top: o.top, bottom: o.top + o.height, left: o.left, right: o.left + o.width};
       } catch (e) { return null; }
     }
-    // 다른 사람 칸의 자리 재기 — 커서를 그 칸 처음·끝으로 옮겨 커서 자리를 읽고 바로 되돌린다(화면 이동 없이).
-    // 사용자가 그사이 키·마우스를 쓰면 그 자리에서 곧바로 되돌려 입력이 엉뚱한 칸에 들어가지 않게 한다
-    function measureField(name) {
-      return new Promise(function (resolve) {
-        if (probing || composing) { resolve(null); return; }
-        var d = doc(), cv = d && d.getElementById('HWP_CURSOR_VIEW');
-        var keep = getCursor();
-        if (!keep) { resolve(null); return; }
-        probing = {keep: keep, aborted: false, field0: (function () { try { return ctrl.GetCurFieldName(0) || ''; } catch (e) { return ''; } })()};
-        var vis = cv ? cv.style.visibility : '';
-        if (cv) cv.style.visibility = 'hidden';
-        var done = function (val) { if (cv) cv.style.visibility = vis; var p = probing; probing = null; if (p && !p.aborted) restoreCursor(p.keep); resolve(val); };
-        try { ctrl.MoveToField(name, true, true, false); } catch (e) { done(null); return; }
-        setTimeout(function () {
-          if (!probing || probing.aborted) { done(null); return; }
-          var a = caretRect();
-          try { ctrl.MoveToField(name, true, false, false); } catch (e) {}
-          setTimeout(function () {
-            if (!probing || probing.aborted) { done(null); return; }
-            var b = caretRect();
-            done(a ? {x: a.x, y: a.y, h: a.h, x2: b ? b.x : a.x, y2: b ? b.y : a.y, top: a.top, bottom: a.bottom, left: a.left, right: a.right} : null);
-          }, 0);
-        }, 0);
-      });
+    // ── 칸 자리 재기(커서·화면을 건드리지 않고) ──
+    // 기안기 화면 커서(HWP_CURSOR_VIEW)는 그리기 차례에 늦게 옮겨지고, 가려지거나 초점이 없는 창에서는 아예 늦어 그것으로 재면
+    // 엉뚱한 자리가 나왔다(10-24 실측). 그래서 기안기 내부의 커서 모델(HwpApp.hwpCaret — 쪽·쪽 안 좌표)과 화면 변환(HwpApp.hxe.CalcCaretPos)을
+    // 같은 작업 단위 안에서 읽는다: 커서를 칸 처음·끝으로 옮겨 쪽 좌표를 읽고 곧바로 되돌린다 — 그사이 그리기가 없어 화면에는 아무 일도 없다.
+    // 내부가 없으면(제품 판이 바뀜) null — 틀린 자리를 그리느니 그리지 않는다.
+    function app() { try { return frame().contentWindow.HwpApp || null; } catch (e) { return null; } }
+    function geomReady() { var A = app(); return !!(A && A.hwpCaret && typeof A.hwpCaret.KNi === 'function' && A.hxe && typeof A.hxe.CalcCaretPos === 'function'); }
+    function hasSelection() {
+      try { var s = ctrl.GetSelectedPos(); return !!(s && (s.slist !== s.elist || s.spara !== s.epara || s.spos !== s.epos) && s.slist !== undefined); } catch (e) { return false; }
     }
-    function abortProbe() { if (probing && !probing.aborted) { probing.aborted = true; restoreCursor(probing.keep); } }
+    function fieldGeom(names) {
+      var A = app(), out = {};
+      if (!geomReady() || composing && Date.now() - lastInput < 3000 || probing || hasSelection()) return null;
+      var keep = getCursor();
+      if (!keep) return null;
+      probing = {field0: (function () { try { return ctrl.GetCurFieldName(0) || ''; } catch (e) { return ''; } })()};
+      try {
+        names.forEach(function (n) {
+          try {
+            if (ctrl.MoveToField(n, true, true, false) === false) return;
+            var a = A.hwpCaret.KNi();
+            ctrl.MoveToField(n, true, false, false);
+            var b = A.hwpCaret.KNi();
+            if (a && b && typeof a.y === 'number') out[n] = {page: a.page, x: a.x, y: a.y, h: a.h, page2: b.page, x2: b.x, y2: b.y, h2: b.h};
+          } catch (e) {}
+        });
+      } finally {
+        restoreCursor(keep);
+        probing = null;
+      }
+      return out;
+    }
+    var leftMargin = null;
+    function bodyLeft() {                     // 쪽 왼쪽 여백(HWPUNIT) — 이름표를 글 밖 여백에 두려고
+      if (leftMargin !== null) return leftMargin;
+      if (composing && Date.now() - lastInput < 3000) return 0;   // 조합 중에는 기안기에 묻지 않는다(조합이 끊긴다) — 다음에 다시
+      try { var a = ctrl.CreateAction('PageSetup'), s = a.CreateSet(); a.GetDefault(s); var pd = s.Item('PageDef'); leftMargin = (pd.Item('LeftMargin') || 0) + (pd.Item('GutterLen') || 0); }
+      catch (e) { leftMargin = 0; }
+      return leftMargin;
+    }
+    // 쪽 좌표 → 편집 화면(바깥 문서) 좌표. 보이는 종이 칸(view)도 함께
+    function toScreen(page, x, y) {
+      var A = app();
+      if (!A) return null;
+      try {
+        var fr = frame(), d = fr.contentDocument, pc = d.getElementById('PaperCanvas') || d.getElementById('EditCanvas');
+        var o = fr.getBoundingClientRect(), c = pc.getBoundingClientRect(), p = A.hxe.CalcCaretPos(page, x, y), z = A.hxe.GetCurrentZoom ? A.hxe.GetCurrentZoom() : 1;
+        if (!p || p.x < -1e5) return null;
+        return {x: o.left + c.left + p.x, y: o.top + c.top + p.y, zoom: z, view: {left: o.left + c.left, top: o.top + c.top, right: o.left + c.right, bottom: o.top + c.bottom}};
+      } catch (e) { return null; }
+    }
+    // 쪽 좌표 길이(HWPUNIT) → 화면 px
+    function unitPx(v) { var A = app(); try { var z = A.hxe.GetCurrentZoom(); return v / 7200 * 96 * z; } catch (e) { return 0; } }
+    function abortProbe() {}
 
     // 편집 틀(같은 출처)의 입력 사건 — 기안기는 문서 바뀜 사건을 주지 않아 키·조합·붙여넣기로 「내가 고쳤다」 를 안다
     function attach() {
@@ -206,7 +240,8 @@
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, setEditable: setEditable,
       setFormMode: setFormMode, formMode: formMode, setReadOnly: setReadOnly, currentField: currentField,
-      getCursor: getCursor, restoreCursor: restoreCursor, moveTo: moveTo, caretRect: caretRect, measureField: measureField,
+      getCursor: getCursor, restoreCursor: restoreCursor, moveTo: moveTo, caretRect: caretRect,
+      fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); },
       attach: attach, isProbing: function () { return !!probing; },
       isComposing: function () { return composing && Date.now() - lastInput < 3000; },     // 조합 끝 사건을 놓쳐도 3초 뒤엔 풀린다

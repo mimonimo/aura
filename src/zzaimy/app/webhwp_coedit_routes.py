@@ -39,9 +39,11 @@ def _readable(request: Request, fid: int) -> dict:
 
 
 def _editable(request: Request, fid: int) -> dict:
+    """칸 단위 공동 편집으로 고쳐도 되는 문서 — 잠긴 공통 양식은 누구도(관리자도) 칸 공동 편집으로 고치지 않는다.
+    공통 양식은 모두의 한글 완성본이 원본 서식으로 쓰는 파일이라, 관리자가 고칠 때는 문서 전체 잠금(편집 화면의 필드 없는 문서와 같은 길)으로만."""
     f = _readable(request, fid)
-    if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
-        raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다 — 「사본 만들기」로 사본을 만들어 쓰세요")
+    if webhwp.locked(request.app.state.db, fid):
+        raise HTTPException(403, "공통 양식은 칸 공동 편집으로 고치지 않습니다 — 「사본 만들기」로 사본을 만들어 쓰세요")
     return f
 
 
@@ -79,7 +81,8 @@ def hwp_coedit(request: Request, fid: int):
         _name(db, x["by"], names)
     from zzaimy.app import webhwp_agent
     snap.update(me=_user(request), names=names, aura=webhwp_agent.activity(db, fid),
-                readonly=webhwp.locked(db, fid) and getattr(request.state, "role", "") != "dev")
+                readonly=webhwp.locked(db, fid) and getattr(request.state, "role", "") != "dev",
+                fields_off=webhwp.locked(db, fid))      # 공통 양식 — 관리자도 칸 공동 편집 없이(문서 전체 잠금으로만)
     return snap
 
 
@@ -165,7 +168,7 @@ async def hwp_lease(request: Request, fid: int):
     st, user = request.app.state, _user(request)
     if action == "touch":
         fields = [str(x)[:200] for x in body["fields"][:500]] if isinstance(body.get("fields"), list) else None
-        return {"ok": True, "until": await run_in_threadpool(ce.touch, st.db, fid, user, fields)}
+        return {"ok": True, "until": await run_in_threadpool(ce.touch, st.db, fid, user, fields, client or None)}
     if not field:
         raise HTTPException(400, "field 가 필요합니다(구조 잠금은 /lock)")
     if action == "acquire":
@@ -189,9 +192,11 @@ async def hwp_leave(request: Request, fid: int):
     def run():
         if client:
             ce.leave(st.db, fid, client, user)
+        # 창을 닫으면 그 창의 칸은 바로 놓는다(편집 화면이 닫기 전에 남은 변경을 keepalive 로 먼저 보낸다 — 늦게 닿아도 판 번호로 받는다).
+        # 연결만 끊긴 창은 여기 오지 않아 임대 시간 동안 그대로다
         for f, x in ce.locks(st.db, fid).items():
-            if x["user"] == user and f != ce.STRUCT and (not client or x["client"] in ("", client)):
-                ce.release(st.db, fid, f, user, grace=True)
+            if x["user"] == user and f != ce.STRUCT and client and x["client"] == client:
+                ce.release(st.db, fid, f, user, base=Path(st.data_dir))
     await run_in_threadpool(run)
     return {"ok": True}
 

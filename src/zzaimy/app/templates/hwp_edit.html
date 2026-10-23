@@ -251,6 +251,7 @@
       ready = true;
       if (eng.fieldsMode()) {
         mode = 'fields';
+        hwp.setReadOnly(false); hwp.setFormMode(true);           // 앞 상태(읽기 전용)가 남아 회색으로 막히지 않게
         var sb = document.querySelector('[data-struct]'); if (sb) sb.hidden = false;
         drawStruct();
       } else { mode = 'whole'; holdLock(); }

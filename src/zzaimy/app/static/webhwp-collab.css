@@ -9,12 +9,18 @@
 .co-av.aura { background:#1B3B75; animation:co-pulse 1.6s ease-in-out infinite; }
 .co-av.more { background:#E2E8F0; color:#475569; cursor:default; font-size:11px; }
 @keyframes co-pulse { 50% { box-shadow:0 0 0 3px rgba(27,59,117,.25); } }
-.co-layer { position:fixed; inset:0; pointer-events:none; z-index:25; }
-.co-box { position:fixed; border:2px solid var(--c, #2563EB); border-radius:3px; background:color-mix(in srgb, var(--c, #2563EB) 7%, transparent); transition:top .15s, left .15s; }
-.co-box.multi { border-width:0 0 0 3px; border-radius:0; background:none; }
-.co-box[hidden] { display:none; }
-.co-tag { position:absolute; left:-2px; bottom:100%; margin-bottom:2px; padding:1px 6px 2px; border-radius:4px 4px 4px 0; background:var(--c, #2563EB); color:#fff;
-  font-size:10.5px; font-weight:600; line-height:15px; white-space:nowrap; box-shadow:0 1px 3px rgba(15,23,42,.2); }
+.co-layer { position:fixed; left:0; top:0; width:0; height:0; overflow:hidden; pointer-events:none; z-index:25; }
+/* 남이 쥔 칸 — 한 줄이면 칸 둘레 테두리, 여러 줄이면 칸 왼쪽 세로 막대, 빈 칸이면 커서 꼴 막대. 글 위에는 아무것도 얹지 않는다 */
+.co-box { position:absolute; box-sizing:border-box; pointer-events:none; }
+.co-box[hidden], .co-flag[hidden] { display:none; }
+.co-box.line { border:2px solid var(--c, #2563EB); border-radius:3px; background:color-mix(in srgb, var(--c, #2563EB) 8%, transparent); }
+.co-box.caret { background:var(--c, #2563EB); border-radius:1px; }
+.co-box.multi { background:var(--c, #2563EB); border-radius:2px; }
+.co-box.here { background:var(--c, #2563EB); opacity:.45; border-radius:1px; }
+/* 이름표 — 쪽 왼쪽 여백에(글이 없는 자리), 좁으면 머리 글자 동그라미 */
+.co-flag { position:absolute; pointer-events:auto; display:inline-flex; align-items:center; height:18px; padding:0 7px; border-radius:9px; background:var(--c, #2563EB);
+  color:#fff; font-size:11px; font-weight:600; line-height:18px; white-space:nowrap; box-shadow:0 1px 2px rgba(15,23,42,.18); cursor:default; }
+.co-flag.dot { width:18px; padding:0; justify-content:center; font-size:10px; }
 .co-bar { flex:none; display:flex; align-items:center; gap:8px; min-height:40px; padding:6px 16px; background:#EEF4FF; color:#1E3A6E; font-size:13px; border-bottom:1px solid #D6E2F7; }
 .co-bar[hidden] { display:none; }
 .co-bar-text { flex:1; min-width:0; }

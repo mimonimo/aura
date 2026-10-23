@@ -397,7 +397,6 @@ class HwpTools:
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "")
                     + ("" if long_ or fake else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
-        self._mark(fid, next(iter(values)))
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
         miss = [k for k in values if k not in have]
         values = {k: v for k, v in values.items() if k in have}
@@ -407,6 +406,8 @@ class HwpTools:
         done, held = ce.put(self.db, fid, ce.AGENT, values, base=self.base, client="aura-agent")
         if not done and not held:
             return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓴다."
+        if done:                                            # AURA 작성 표시는 실제로 쓴 칸에만(사람이 쥐어 못 쓴 칸에는 띄우지 않는다)
+            self._mark(fid, done[-1])
         self.writes += 1 if done else 0
         return (f"채웠다: {', '.join(done) or '없음'}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")
                 + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")

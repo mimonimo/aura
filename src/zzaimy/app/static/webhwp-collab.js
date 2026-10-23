@@ -73,9 +73,12 @@
       return fetch(base + path, Object.assign({method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}, extra || {}))
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.detail || ('요청 실패(' + r.status + ')')); e.status = r.status; throw e; } return j; }); });
     }
-    var fieldsMode = function () { return fieldList.length > 0 && !readonly; };
+    var fieldsOff = false;
+    var fieldsMode = function () { return fieldList.length > 0 && !readonly && !fieldsOff; };
     function alive(lk) { return lk && lk.until * 1000 > now(); }
-    function heldByOther(f) { var lk = locks[f]; return alive(lk) && lk.user !== me; }
+    // 남이 쥔 칸 — 다른 사람, 또는 같은 사람의 다른 창(창 번호가 다름)
+    function heldByOther(f) { var lk = locks[f]; return alive(lk) && (lk.user !== me || (!!lk.client && lk.client !== client)); }
+    function isMine(f) { var lk = locks[f]; return !!mine[f] && (!lk || (lk.user === me && (!lk.client || lk.client === client))); }
     function pending() { return Object.keys(outbox).length + Object.keys(dirty).length + (inflight ? 1 : 0); }
     function status() {
       var n = pending();
@@ -136,7 +139,7 @@
             if (r.ok) {
               if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
               if (conf.rich && RICH.test(f) && !op.rich) { richDirty[f] = true; scheduleRich(); }
-              if (r.until) { mine[f] = r.until; locks[f] = {user: me, until: r.until}; }
+              if (r.until && (!locks[f] || !heldByOther(f))) { mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until}; }
             } else if (r.conflict !== undefined) {
               var copy = {key: fid + '|c' + r.conflict + '|' + op.seq, fid: fid, field: f, text: op.text, reason: r.reason, by: r.by_name || r.by || '', at: now(), id: r.conflict};
               idb.put('conflicts', copy);
@@ -232,19 +235,32 @@
     }
 
     // ── 임대 ──
-    function acquire(f) {
-      return post('/lease', {field: f, client: client, action: 'acquire'}).then(function (r) {
-        if (r.ok) { mine[f] = r.until; locks[f] = {user: me, until: r.until, since: r.since}; }
-        else { names[r.by] = r.by_name || names[r.by]; locks[f] = {user: r.by, until: r.until}; emit('blocked', f, nameOf(r.by)); if (dirty[f]) flush(); }
+    // 임대는 칸에 커서를 둘 때가 아니라 처음 고칠 때 잡는다(구글 문서처럼 — 눌러 보기만 하면 남을 막지 않는다).
+    // 서버는 이 창이 쥔 다른 칸을 함께 놓는다(한 창에 한 칸)
+    var acquiring = {};
+    function acquire(f, quiet) {
+      if (acquiring[f]) return acquiring[f];
+      acquiring[f] = post('/lease', {field: f, client: client, action: 'acquire'}).then(function (r) {
+        if (r.ok) {
+          Object.keys(mine).forEach(function (g) { if (g !== f) { delete mine[g]; if (locks[g] && locks[g].user === me && locks[g].client === client) delete locks[g]; } });
+          mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until, since: r.since};
+          if (curField !== f && !hwp.isComposing()) setTimeout(function () { if (curField !== f) letGo(f, true); }, 0);   // 답을 받기 전에 이미 다른 칸으로 옮겼다
+        } else {
+          names[r.by] = r.by_name || names[r.by]; locks[f] = {user: r.by, client: r.client || '', until: r.until};
+          if (!quiet) emit('blocked', f, holderLabel(f));
+          if (dirty[f]) flush();
+        }
         applyEditable(); emit('locks', locks);
         return r;
-      }).catch(function () { return {ok: false}; });
+      }).catch(function () { return {ok: false}; }).then(function (r) { delete acquiring[f]; return r; });
+      return acquiring[f];
     }
+    function holderLabel(f) { var lk = locks[f]; if (!lk) return ''; return nameOf(lk.user) + (lk.user === me ? '(다른 창)' : ''); }
     function letGo(f, now_) {
       if (!mine[f]) return Promise.resolve();
       return flushNow().then(function () {
         return post('/lease', {field: f, client: client, action: now_ ? 'release' : 'grace'}).then(function () {
-          if (now_) { delete mine[f]; delete locks[f]; applyEditable(); emit('locks', locks); }
+          if (now_) { delete mine[f]; if (locks[f] && locks[f].user === me && (!locks[f].client || locks[f].client === client)) delete locks[f]; applyEditable(); emit('locks', locks); }
         }).catch(function () {});
       });
     }
@@ -263,10 +279,13 @@
       curField = f;
       presence(true);
       if (!fieldsMode()) return;
-      if (prev && mine[prev]) letGo(prev, false);
+      if (prev && mine[prev]) letGo(prev, true);              // 다른 칸으로 옮기면 보낼 것을 보내고 바로 놓는다(한 사람 한 칸)
       if (f && fieldSet[f]) {
-        if (heldByOther(f)) { emit('blocked', f, nameOf(locks[f].user)); acquire(f); }   // 기다리는 사람으로 알린다
-        else if (!mine[f] || mine[f] * 1000 < now() + conf.grace * 1000) acquire(f);
+        hwp.setEditable(f, !heldByOther(f), true);             // 지금 칸은 상태를 다시 맞춘다(오래된 속성이 남아 막히지 않게)
+        if (heldByOther(f)) {
+          emit('blocked', f, holderLabel(f));
+          if (locks[f].user !== me) acquire(f, true);         // 기다리는 사람으로 알린다(같은 사람 다른 창은 빼앗지 않는다)
+        }
       }
       emit('caret', f);
     }
@@ -289,17 +308,19 @@
         if (known[d.field] && d.version <= known[d.field].v) return;
         d.receivedAt = now();
         inbox[d.field] = d;
-        if (d.by && d.by !== me) { locks[d.field] = locks[d.field] || {user: d.by, until: (now() / 1000) + conf.lease}; }
         emit('remote', d);
         scheduleApply();
       });
       h('lock-changed', function (d) {
         if (d.field === STRUCT) { emit('struct', d.user || ''); return; }
-        if (d.user) locks[d.field] = {user: d.user, until: d.until};
-        else {
+        if (d.user) {
+          locks[d.field] = {user: d.user, client: d.client || '', until: d.until};
+          if (mine[d.field] && heldByOther(d.field)) delete mine[d.field];      // 같은 사람 다른 창이 가져갔다
+        } else {
+          var was = locks[d.field];
           delete locks[d.field];
-          if (d.released_by === me) delete mine[d.field];
-          if (curField === d.field && d.released_by !== me) acquire(d.field);     // 기다리던 칸이 풀렸다 — 바로 잡는다
+          if (d.released_by === me && (!d.client || d.client === client)) delete mine[d.field];
+          if (curField === d.field && was && was.user !== me) emit('freed', d.field);   // 기다리던 칸이 풀렸다 — 이제 쓸 수 있다
         }
         applyEditable(); emit('locks', locks);
       });
@@ -336,7 +357,7 @@
         online = true;
         Object.assign(names, s.names || {});
         Object.assign(conf, s.conf || {});
-        readonly = !!s.readonly;
+        readonly = !!s.readonly; fieldsOff = !!s.fields_off;
         if (first) { lastId = s.last || 0; setAura(s.aura || {}, s.aura && s.aura.at ? (conf.aura_ttl || 20) - ((s.now || now() / 1000) - s.aura.at) : 0); }
         var skew = (s.now || now() / 1000) - now() / 1000;
         locks = {};
@@ -344,7 +365,7 @@
           var lk = s.locks[f]; lk.until -= skew;
           if (f === STRUCT) { emit('struct', lk.user); return; }
           locks[f] = lk;
-          if (lk.user === me && mine[f] === undefined) mine[f] = lk.until;
+          if (lk.user === me && (!lk.client || lk.client === client) && mine[f] === undefined) mine[f] = lk.until;
         });
         var t = now();
         (s.people || []).forEach(function (p) { if (!(p.client === client && p.user === me)) people[p.user + '\u001f' + p.client] = {user: p.user, field: p.field, at: t}; });
@@ -385,13 +406,14 @@
       hwp.attach();
       fieldList = readonly ? [] : hwp.fields();
       fieldSet = {}; fieldList.forEach(function (f) { fieldSet[f] = true; });
-      if (fieldsMode()) hwp.setFormMode(true);
       hwp.onLocalEdit(function (ev) {
         if (applying || !fieldsMode()) return;
         // 조합 중에는 기안기에 아무것도 묻지 않는다(커서 칸 이름을 물어도 조합이 끊긴다 — 실측) — 마지막으로 안 커서 칸을 쓴다
         var f = ev && ev.composing ? curField : hwp.currentField();
+        if (f !== curField && !(ev && ev.composing)) checkCaret();      // 커서 칸이 바뀐 것을 먼저 반영(앞 칸을 놓고 이 칸을 잡게)
         if (!f || !fieldSet[f]) { emit('outside-edit'); return; }
         if (heldByOther(f)) return;
+        if (!mine[f]) acquire(f);                               // 처음 고칠 때 임대를 잡는다
         dirty[f] = true; status(); scheduleFlush();
         if (mine[f] && now() - lastTouch > 15000 && mine[f] * 1000 - now() < (conf.lease - 15) * 1000) extend();
       });
@@ -409,11 +431,11 @@
         Object.keys(locks).forEach(function (f) {
           if (alive(locks[f])) return;
           var was = locks[f].user; delete locks[f]; changed = true;
-          if (f === curField && was !== me && fieldsMode()) acquire(f);   // 기다리던 칸의 임대가 끝났다 — 바로 잡는다
+          if (f === curField && was !== me) emit('freed', f);
         });
         Object.keys(mine).forEach(function (f) {
           var left = mine[f] * 1000 - t;
-          if (left <= 0) { delete mine[f]; if (f === curField) emit('lease-lost', f); }
+          if (left <= 0) { delete mine[f]; emit('lease-ok'); }        // 쉬는 동안 풀렸다 — 다시 고치면 저절로 다시 잡는다(안내 없음)
           else if (f === curField && left < conf.warn * 1000) emit('lease-warn', f, Math.ceil(left / 1000));
         });
         if (changed) { applyEditable(); emit('locks', locks); }
@@ -425,7 +447,7 @@
         if (ops.length) { try { fetch(base + '/ops', {method: 'POST', keepalive: true, credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({client: client, ops: ops})}); } catch (e) {} }
         try { navigator.sendBeacon(base + '/leave?client=' + encodeURIComponent(client), new Blob([JSON.stringify({client: client})], {type: 'application/json'})); } catch (e) {}
       });
-      return resync(true).then(function () { started = true; connect(); presence(true); checkCaret(); return replay(); });
+      return resync(true).then(function () { if (fieldsMode()) hwp.setFormMode(true); started = true; connect(); presence(true); checkCaret(); return replay(); });
     }
     // 새 판을 다시 연 뒤 — 필드 목록·편집 가능·서버 칸 글을 다시 맞춘다
     function reopened() {
@@ -439,7 +461,7 @@
     return {
       start: start, on: on, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
       handover: function (f) { return letGo(f, true); }, reopened: reopened, resync: resync, applyEditable: applyEditable,
-      client: client, fieldsMode: fieldsMode, current: function () { return curField; }, locks: function () { return locks; },
+      client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
       people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
       pending: pending, aura: function () { return aura; }, setReadOnly: function (v) { readonly = !!v; },
       conflicts: function () { return idb.all('conflicts').then(function (r) { return r.filter(function (x) { return x.fid === fid; }).sort(function (a, b) { return b.at - a.at; }); }); }
@@ -453,11 +475,18 @@
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
   function ui(eng, hwp, o) {
-    var avatars = o.avatars, layer = el('div', 'co-layer'), bar = o.bar, tags = {}, rects = {}, measuring = false, dirtyRects = true;
+    var avatars = o.avatars, bar = o.bar, layer = el('div', 'co-layer'), marks = {}, geo = {}, geoAt = 0, geoWant = '';
     document.body.appendChild(layer);
     layer.setAttribute('aria-hidden', 'true');
     var MAX = 4, auraState = {};
-    function holderOf(f) { var lk = eng.locks()[f]; return lk && lk.until * 1000 > Date.now() && lk.user !== o.me ? lk.user : ''; }
+    // 남이 쥔 칸 — 다른 사람, 또는 내 다른 창. 내 이 창이 쥔 칸은 표시하지 않는다
+    function holderOf(f) {
+      var lk = eng.locks()[f];
+      if (!lk || lk.until * 1000 <= Date.now()) return null;
+      if (lk.user !== o.me) return {user: lk.user, label: eng.nameOf(lk.user)};
+      if (lk.client && lk.client !== eng.client) return {user: lk.user, label: eng.nameOf(lk.user) + '(다른 창)', self: true};
+      return null;
+    }
     function drawAvatars() {
       var list = eng.people().slice();
       if (auraState.field) list.unshift({user: 'AURA', name: 'AURA', field: auraState.field});
@@ -467,11 +496,11 @@
         b.type = 'button';
         b.style.setProperty('--c', colorOf(p.user));
         b.textContent = p.user === 'AURA' ? 'A' : (p.name || p.user).slice(0, 1);
-        var editing = p.field && (holderOf(p.field) === p.user || p.user === 'AURA');
+        var h = p.field && holderOf(p.field), editing = p.field && (h && h.user === p.user || p.user === 'AURA');
         var label = (p.name || p.user) + (p.field ? ' · ' + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : ' · 문서 보는 중');
-        b.title = label; b.setAttribute('aria-label', label + (p.field ? ' — 눌러서 그 칸으로' : ''));
+        b.title = label; b.setAttribute('aria-label', label + (p.field && eng.hasField(p.field) ? ' — 눌러서 그 칸으로' : ''));
         if (editing) b.classList.add('editing');
-        b.onclick = function () { if (p.field) { hwp.moveTo(p.field, false); } };
+        b.onclick = function () { if (p.field && eng.hasField(p.field)) hwp.moveTo(p.field, false); };
         avatars.appendChild(b);
       });
       if (list.length > MAX) {
@@ -480,84 +509,120 @@
         avatars.appendChild(m);
       }
     }
-    // 다른 사람이 쥔 칸 — 색 테두리와 이름표. 자리는 입력이 멈췄을 때만 잰다(재는 동안 들어온 키는 어댑터가 곧바로 되돌린다)
-    function others() {
-      var out = {}, lk = eng.locks();
-      Object.keys(lk).forEach(function (f) { var u = holderOf(f); if (u) out[f] = u; });
-      if (auraState.field) out[auraState.field] = 'AURA';
+    // 그릴 것: 남이 쥔 칸(테두리 + 왼쪽 여백 이름표), AURA 가 쓰는 칸, 남의 커서가 있는 칸(옅은 세로줄만)
+    function wanted() {
+      var out = {};
+      Object.keys(eng.locks()).forEach(function (f) { var h = holderOf(f); if (h && eng.hasField(f)) out[f] = {kind: 'hold', user: h.user, label: h.label}; });
+      if (auraState.field && eng.hasField(auraState.field) && !out[auraState.field]) out[auraState.field] = {kind: 'hold', user: 'AURA', label: 'AURA 작성 중'};
+      eng.people().forEach(function (p) { if (p.field && eng.hasField(p.field) && !out[p.field]) out[p.field] = {kind: 'here', user: p.user, label: p.name || p.user}; });
       return out;
     }
-    function draw() {
-      var want = others(), seen = {};
+    // 쪽 좌표 재기 — 기안기 내부 커서 모델로 같은 작업 단위 안에서(화면 커서·스크롤은 그대로). 입력·조합 중이면 미룬다
+    function measure(force) {
+      var want = Object.keys(wanted()), key = want.join('\u0002');
+      if (!want.length) { geo = {}; geoWant = ''; return; }
+      if (!force && key === geoWant && Date.now() - geoAt < 4000) return;
+      if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 800) return;
+      var g = hwp.fieldGeom(want);
+      if (!g) return;
+      geo = g; geoAt = Date.now(); geoWant = key;
+    }
+    function mark(f) {
+      var m = marks[f];
+      if (!m) {
+        m = marks[f] = {box: el('div', 'co-box'), flag: el('div', 'co-flag')};
+        m.flag.appendChild(el('span', 'co-flag-t'));
+        layer.appendChild(m.box); layer.appendChild(m.flag);
+      }
+      return m;
+    }
+    function render() {
+      var want = wanted(), seen = {}, view = null;
       Object.keys(want).forEach(function (f) {
-        var r = rects[f], u = want[f];
-        if (!r) return;
+        var g = geo[f], w = want[f];
+        if (!g) return;
+        var a = hwp.toScreen(g.page, g.x, g.y), b = hwp.toScreen(g.page2, g.x2, g.y2);
+        if (!a || !b) return;
+        view = a.view;
+        var h1 = hwp.unitPx(g.h), h2 = hwp.unitPx(g.h2), m = mark(f), c = colorOf(w.user);
         seen[f] = 1;
-        var t = tags[f];
-        if (!t) { t = tags[f] = el('div', 'co-box'); t.appendChild(el('span', 'co-tag')); layer.appendChild(t); }
-        var c = colorOf(u), single = Math.abs(r.y2 - r.y) < 2 && r.x2 > r.x + 4;
-        var visible = r.y + r.h > r.top && r.y < r.bottom;
-        t.hidden = !visible;
-        t.style.setProperty('--c', c);
-        t.style.left = (single ? r.x - 3 : r.x - 3) + 'px';
-        t.style.top = (r.y - 2) + 'px';
-        t.style.width = (single ? Math.max(12, r.x2 - r.x + 6) : 6) + 'px';
-        t.style.height = (single ? r.h + 4 : Math.max(r.h, r.y2 - r.y + r.h) + 4) + 'px';
-        t.classList.toggle('multi', !single);
-        t.firstChild.textContent = eng.nameOf(u) + (u === 'AURA' ? ' 작성 중' : '');
+        var top = a.y, bottom = b.y + h2, single = g.page === g.page2 && Math.abs(b.y - a.y) < 2;
+        var vis = bottom > view.top && top < view.bottom;
+        m.box.hidden = !vis; m.flag.hidden = !vis || w.kind !== 'hold';
+        if (!vis) return;
+        m.box.style.setProperty('--c', c); m.flag.style.setProperty('--c', c);
+        m.box.className = 'co-box ' + (w.kind === 'here' ? 'here' : single ? (b.x - a.x > 3 ? 'line' : 'caret') : 'multi');
+        m.box.title = w.label + ' · ' + where(f) + (w.kind === 'here' ? ' 보는 중' : '');
+        var L = layer.getBoundingClientRect();
+        if (w.kind === 'here' || (single && b.x - a.x <= 3)) {
+          m.box.style.left = (a.x - 1 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px'; m.box.style.width = '2px'; m.box.style.height = Math.max(8, h1) + 'px';
+        } else if (single) {
+          m.box.style.left = (a.x - 3 - L.left) + 'px'; m.box.style.top = (top - 2 - L.top) + 'px';
+          m.box.style.width = (b.x - a.x + 6) + 'px'; m.box.style.height = (h1 + 4) + 'px';
+        } else {                                       // 여러 줄 — 칸 왼쪽에 세로 막대만(글 위에 그리지 않는다)
+          m.box.style.left = (a.x - 7 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px'; m.box.style.width = '3px'; m.box.style.height = Math.max(h1, bottom - top) + 'px';
+        }
+        if (w.kind !== 'hold') return;
+        // 이름표 — 쪽 왼쪽 여백(글이 없는 곳)에, 칸 첫 줄 높이로. 여백이 좁으면 머리 글자 동그라미만
+        var edge = hwp.toScreen(g.page, 0, g.y), body = hwp.toScreen(g.page, hwp.bodyLeft(), g.y);
+        var right = Math.min(body ? body.x : a.x, a.x) - 8, left = (edge ? edge.x : view.left) + 4, room = right - left;
+        var t = m.flag.firstChild;
+        t.textContent = w.label;
+        m.flag.classList.remove('dot');
+        m.flag.title = w.label + ' · ' + where(f) + (w.user === 'AURA' ? '' : ' 쓰는 중');
+        if (m.flag.offsetWidth > room) { m.flag.classList.add('dot'); t.textContent = w.user === 'AURA' ? 'A' : w.label.slice(0, 1); }
+        if (m.flag.offsetWidth > room + 2) { m.flag.hidden = true; return; }
+        m.flag.style.left = (right - m.flag.offsetWidth - L.left) + 'px';
+        m.flag.style.top = (top + Math.max(0, (h1 - m.flag.offsetHeight) / 2) - L.top) + 'px';
       });
-      Object.keys(tags).forEach(function (f) { if (!seen[f]) { tags[f].remove(); delete tags[f]; } });
+      Object.keys(marks).forEach(function (f) { if (!seen[f]) { marks[f].box.remove(); marks[f].flag.remove(); delete marks[f]; } });
+      if (view) {                                       // 종이 칸 밖(머리줄·스크롤 막대)에는 그리지 않는다
+        layer.style.left = view.left + 'px'; layer.style.top = view.top + 'px';
+        layer.style.width = (view.right - view.left) + 'px'; layer.style.height = (view.bottom - view.top) + 'px';
+      }
     }
-    function measure() {
-      if (measuring) return;
-      var want = Object.keys(others()).filter(function (f) { return dirtyRects || !rects[f]; });
-      if (!want.length) { draw(); return; }
-      if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1200) { setTimeout(measure, 600); return; }
-      measuring = true; dirtyRects = false;
-      var i = 0;
-      (function next() {
-        if (i >= want.length) { measuring = false; draw(); return; }
-        var f = want[i++];
-        hwp.measureField(f).then(function (r) { if (r) rects[f] = r; else delete rects[f]; next(); });
-      })();
-    }
-    var mTimer = null;
-    function remeasure(delay) { dirtyRects = true; Object.keys(tags).forEach(function (f) { tags[f].hidden = true; }); clearTimeout(mTimer); mTimer = setTimeout(measure, delay == null ? 250 : delay); }
-    eng.on('locks', function () { drawAvatars(); measure(); draw(); });
-    eng.on('people', drawAvatars);
-    eng.on('aura', function (a) { auraState = a || {}; drawAvatars(); measure(); draw(); });
-    eng.on('applied', function () { remeasure(400); });
-    hwp.onActivity(function (e) { if (e && (e.type === 'wheel' || e.type === 'scroll')) remeasure(300); });
-    window.addEventListener('resize', function () { remeasure(300); });
+    function tick() { if (hwp.isComposing()) return; try { measure(false); render(); } catch (e) {} }   // 한글 조합 중에는 손대지 않는다
+    setInterval(tick, 250);                              // 화면 좌표는 매번 다시(스크롤·확대·창 크기), 쪽 좌표는 바뀔 때·4초마다
+    function soon() { geoWant = ''; setTimeout(tick, 0); }
+    eng.on('locks', function () { drawAvatars(); soon(); });
+    eng.on('people', function () { drawAvatars(); soon(); });
+    eng.on('aura', function (a) { auraState = a || {}; drawAvatars(); soon(); });
+    eng.on('applied', soon);
+    hwp.onLocalEdit(function () { geoWant = ''; });
 
     // 안내 띠 — 한 번에 하나, 단추는 키보드로도(Esc 로 닫기)
-    var barKind = '';
-    function show(kind, text, buttons) {
+    var barKind = '', barTimer = null;
+    function show(kind, text, buttons, ms) {               // ms 를 주면 그 뒤 저절로 닫힌다
       barKind = kind;
+      clearTimeout(barTimer);
       bar.innerHTML = '';
       bar.appendChild(el('span', 'co-bar-text', text));
       (buttons || []).forEach(function (b) { var x = el('button', 'co-btn', b[0]); x.type = 'button'; x.onclick = b[1]; bar.appendChild(x); });
-      var close = el('button', 'co-btn ghost', '닫기'); close.type = 'button'; close.onclick = hide; bar.appendChild(close);
+      var close = el('button', 'co-btn ghost', '닫기'); close.type = 'button'; close.onclick = function () { hide(); }; bar.appendChild(close);
       bar.hidden = false;
+      if (ms) barTimer = setTimeout(function () { hide(kind); }, ms);
     }
-    function hide(kind) { if (typeof kind === 'string' && kind !== barKind) return; bar.hidden = true; barKind = ''; }
+    function hide(kind) { if (typeof kind === 'string' && kind !== barKind) return; clearTimeout(barTimer); bar.hidden = true; barKind = ''; }
     bar.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); hide(); } });
     eng.on('lease-warn', function (f, left) {
-      show('warn', '「' + where(f) + '」 칸 편집이 ' + left + '초 뒤 풀립니다', [['계속 쓰기', function () { eng.extend(); hide('warn'); }]]);
+      if (barKind !== 'warn' && barKind) return;
+      show('warn', '「' + where(f) + '」 칸을 ' + left + '초 동안 고치지 않으면 다른 사람도 쓸 수 있게 풀려요', [['계속 쓰기', function () { eng.extend(); hide('warn'); }]]);
     });
     eng.on('lease-ok', function () { hide('warn'); });
-    eng.on('lease-lost', function (f) { show('lost', '「' + where(f) + '」 칸 편집이 쉬는 동안 풀렸습니다 — 다시 누르면 이어서 씁니다'); });
-    eng.on('blocked', function (f, who) { show('blocked', who + ' 님이 「' + where(f) + '」 칸을 쓰는 중이라 보기만 됩니다 — 끝나면 바로 쓸 수 있게 알려 드립니다'); });
-    eng.on('caret', function (f) { if (barKind === 'blocked' && !holderOf(f)) hide('blocked'); });
+    eng.on('blocked', function (f, who) {
+      var self = /\(다른 창\)$/.test(who);
+      show('blocked', '「' + where(f) + '」 칸은 ' + (self ? '내 다른 창에서 쓰는 중이에요. 그 창을 닫거나 다른 칸으로 옮기면 여기서 쓸 수 있어요' : who + ' 님이 쓰는 중이에요. 끝나면 바로 쓸 수 있어요'), null, 6000);
+    });
+    eng.on('caret', function (f) { if (barKind === 'blocked' && !holderOf(f)) hide('blocked'); if (barKind === 'warn') hide('warn'); });
+    eng.on('freed', function (f) { if (eng.current() === f) show('free', '「' + where(f) + '」 칸이 비었어요. 이제 쓸 수 있어요', null, 3000); });
     var wantedField = '';
-    eng.on('locks', function () { var lk = eng.locks()[wantedField]; if (barKind === 'wanted' && (!lk || lk.user !== o.me)) hide('wanted'); });
-    eng.on('locks', function () { var f = eng.current(); if (barKind === 'blocked' && f && !holderOf(f)) { show('free', '「' + where(f) + '」 칸이 비었습니다 — 이제 쓸 수 있습니다'); setTimeout(function () { hide('free'); }, 4000); } });
+    eng.on('locks', function () { var lk = eng.locks()[wantedField]; if (barKind === 'wanted' && (!lk || lk.user !== o.me || lk.client !== eng.client)) hide('wanted'); });
     eng.on('wanted', function (f, who) {
       wantedField = f;
-      show('wanted', who + ' 님이 「' + where(f) + '」 칸을 쓰려고 기다립니다', [['넘겨주기', function () { eng.handover(f); hide('wanted'); }]]);
+      show('wanted', who + ' 님이 「' + where(f) + '」 칸을 쓰려고 기다려요', [['넘겨주기', function () { eng.handover(f); hide('wanted'); }]], 15000);
     });
     eng.on('conflict', function (c) {
-      show('conflict', '「' + where(c.field) + '」 칸에 쓴 글이 ' + (c.by ? c.by + ' 님의 글과 ' : '') + '겹쳐 내 글을 사본으로 따로 두었습니다', [['내 글 보기', function () { openConflicts(); }]]);
+      show('conflict', '「' + where(c.field) + '」 칸에 쓴 글이 ' + (c.by ? c.by + ' 님의 글과 ' : '') + '겹쳐 내 글은 사본으로 따로 두었어요', [['내 글 보기', function () { openConflicts(); }]]);
     });
     var panel = null;
     function openConflicts() {
@@ -579,7 +644,7 @@
         document.body.appendChild(panel); x.focus();
       });
     }
-    return {drawAvatars: drawAvatars, remeasure: remeasure, show: show, hide: hide, openConflicts: openConflicts, colorOf: colorOf};
+    return {drawAvatars: drawAvatars, refresh: soon, show: show, hide: hide, openConflicts: openConflicts, colorOf: colorOf};
   }
 
   window.AuraCollab = {engine: engine, ui: ui, fp: fp, norm: norm, colorOf: colorOf};

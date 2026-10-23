@@ -63,6 +63,7 @@ def test_lease_acquire_deny_wait_touch_grace_release(tmp_path, monkeypatch):
 def test_ops_idempotent_versions_and_conflict_copies(tmp_path, monkeypatch):
     app, kim, park, fid = _doc(tmp_path, monkeypatch)
     db = app.state.db
+    assert kim.post(f"/hwp/{fid}/lease", json={"field": "칸:사업명", "client": "k1"}).json()["ok"]      # 처음 고칠 때 편집 화면이 잡는다
     op = {"seq": 1, "field": "칸:사업명", "base": 0, "text": "AI 사업"}
     r1 = kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [op]}).json()["results"][0]
     r2 = kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [op]}).json()["results"][0]
@@ -324,3 +325,78 @@ def test_coedit_resource_caps(tmp_path, monkeypatch):
     # 한 사람이 한 문서에 여는 알림 흐름 수 상한
     monkeypatch.setattr(ce.HUB, "count", lambda f, u: cr.STREAMS_PER_USER)
     assert kim.get(f"/hwp/{fid}/events").status_code == 429
+
+
+def test_one_lease_per_window_and_typing_takes_it(tmp_path, monkeypatch):
+    """칸을 옮겨 다녀도 임대가 쌓이지 않는다 — 한 창에 한 칸. 변경만으로는 임대를 만들지 않는다(편집 화면이 처음 고칠 때 잡는다).
+    같은 사람의 다른 창은 따로 센다(창 번호가 다른 임대는 놓지 않는다). 알림에는 창 번호가 있어 화면이 「(다른 창)」 을 가른다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    for f in ("칸:사업명", "칸:담당자", "절:1. 변경 사유"):
+        assert kim.post(f"/hwp/{fid}/lease", json={"field": f, "client": "k1"}).json()["ok"]
+    assert {f: x["user"] for f, x in ce.locks(db, fid).items()} == {"절:1. 변경 사유": "kim"}
+    assert kim.post(f"/hwp/{fid}/lease", json={"field": "칸:사업명", "client": "k2"}).json()["ok"]      # 같은 사람 다른 창
+    lk = ce.locks(db, fid)
+    assert lk["절:1. 변경 사유"]["client"] == "k1" and lk["칸:사업명"]["client"] == "k2"
+    ev = [e["data"] for e in ce.events_since(db, fid, 0) if e["kind"] == "lock-changed"]
+    assert all("client" in d for d in ev) and any(d["field"] == "칸:담당자" and d["user"] == "" for d in ev)
+    # 변경만 보낸 칸에는 임대가 생기지 않는다(옛 칸 임대가 되살아나지 않게)
+    r = park.post(f"/hwp/{fid}/ops", json={"client": "p1", "ops": [{"seq": 1, "field": "칸:담당자", "base": 0, "text": "박"}]}).json()["results"][0]
+    assert r["ok"] and "until" not in r and "칸:담당자" not in ce.locks(db, fid)
+    # 쥔 창의 변경은 임대를 늘린다
+    r = kim.post(f"/hwp/{fid}/ops", json={"client": "k2", "ops": [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "가"}]}).json()["results"][0]
+    assert r["ok"] and r["until"] > time.time()
+    # 활동 늘리기는 그 창 것만
+    t = kim.post(f"/hwp/{fid}/lease", json={"action": "touch", "client": "k2"}).json()["until"]
+    assert set(t) == {"칸:사업명"}
+    # 창을 닫으면 그 창의 칸은 바로 풀린다(유예 없이) — 같은 사람 다른 창의 칸은 그대로
+    assert kim.post(f"/hwp/{fid}/leave", json={"client": "k2"}).json()["ok"]
+    assert {f: x["client"] for f, x in ce.locks(db, fid).items()} == {"절:1. 변경 사유": "k1"}
+
+
+def test_locked_template_never_coedited_even_by_admin(tmp_path, monkeypatch):
+    """공통 양식은 모두의 한글 완성본이 원본 서식으로 쓴다 — 칸 공동 편집으로는 관리자도 고치지 않는다(시험 글이 양식에 남지 않게)."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    tid = {x["spec"]: x["id"] for x in wt.ensure_all(app.state.db, Path(app.state.data_dir))}["plan"]
+    before = Path(webhwp.get(app.state.db, tid)["path"]).read_bytes()
+    dev = TestClient(app)
+    app.state.accounts["boss"] = app.state.new_account("boss", "pass-12345678", "dev")
+    assert _login(dev, "boss", "pass-12345678")
+    assert dev.get(f"/hwp/{tid}/coedit").json()["fields_off"] is True
+    assert dev.post(f"/hwp/{tid}/ops", json={"client": "d", "ops": [{"seq": 1, "field": "칸:사업명", "text": "시험"}]}).status_code == 403
+    assert dev.post(f"/hwp/{tid}/lease", json={"field": "칸:사업명", "client": "d"}).status_code == 403
+    assert Path(webhwp.get(app.state.db, tid)["path"]).read_bytes() == before and ce.state(app.state.db, tid) == {}
+    # 사본은 칸 공동 편집이 된다
+    new = kim.post(f"/hwp/{tid}/copy", data={"dept": "기획처"}, headers={"Accept": "application/json"}).json()["id"]
+    assert kim.get(f"/hwp/{new}/coedit").json()["fields_off"] is False
+
+
+def test_agent_flag_only_on_fields_it_wrote(tmp_path, monkeypatch):
+    """사람이 쥔 칸이라 AURA 가 못 쓰면 「AURA 작성 중」 표시를 띄우지 않는다."""
+    from zzaimy.app import webhwp_agent as wa
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 78, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "표시 시험"})
+    fid = wa.bound(db, 78)
+    assert ce.acquire(db, fid, "칸:담당자", "lee", "l1")["ok"]
+    out = hw.fill({"values": {"칸:담당자": "홍길동"}})
+    assert "쓰는 칸이라" in out and wa.activity(db, fid) == {}
+    assert not any(e["kind"] == "aura" for e in ce.events_since(db, fid, 0))
+    hw.fill({"values": {"칸:사업명": "AI"}})
+    assert wa.activity(db, fid)["field"] == "칸:사업명"
+
+
+def test_overlay_geometry_from_editor_model_not_screen_caret():
+    """남이 쥔 칸 자리는 기안기 내부 커서 모델(쪽 좌표)로 재고 화면 커서로 재지 않는다 — 화면 커서는 그리기 차례에 늦게 옮겨져
+    가려진·초점 없는 창에서 엉뚱한 자리가 나왔다. 이름표는 쪽 왼쪽 여백에, 내 창이 쥔 칸에는 표시하지 않고 내 다른 창은 「(다른 창)」."""
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app/static"
+    w, c = (root / "webhwp-wrapper.js").read_text(), (root / "webhwp-collab.js").read_text()
+    assert "hwpCaret.KNi()" in w and "CalcCaretPos" in w and "measureField" not in w + c
+    ui = c[c.index("function ui("):]
+    assert "caretRect" not in ui and "(다른 창)" in ui and "bodyLeft()" in ui
+    assert "lk.client !== eng.client" in ui                                     # 같은 사람이라도 다른 창만
+    assert "acquire(f)" in c and "letGo(prev, true)" in c                       # 처음 고칠 때 잡고, 옮기면 바로 놓는다
+    assert "lease-lost" not in c                                                # 풀렸다는 안내가 남아 막히지 않게

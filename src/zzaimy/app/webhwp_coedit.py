@@ -255,7 +255,7 @@ def acquire(db, fid: int, field: str, user: str, client: str = "", *, ttl: float
                 conn.execute("UPDATE webhwp_field_locks SET wanted_by = ?, lease_until = ? WHERE fid = ? AND field = ?",
                              (user, until, int(fid), field))
                 emit(db, fid, "lock-wanted", {"field": field, "by": user, "holder": row[0]}, conn=conn)
-            out = {"ok": False, "by": row[0], "until": float(row[2]), "since": float(row[4] or 0)}
+            out = {"ok": False, "by": row[0], "client": row[1] or "", "until": float(row[2]), "since": float(row[4] or 0)}
         else:
             mine = _alive(row, now) and row[0] == user
             since = float(row[4]) if mine else now
@@ -267,23 +267,31 @@ def acquire(db, fid: int, field: str, user: str, client: str = "", *, ttl: float
             else:
                 conn.execute("INSERT INTO webhwp_field_locks (fid, field, user_id, client, lease_until, touched, since, wanted_by)"
                              " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (int(fid), field, user, client, until, now, since, ""))
-            if not mine:
-                emit(db, fid, "lock-changed", {"field": field, "user": user, "until": until}, conn=conn)
+            if not mine or (row[1] or "") != client:
+                emit(db, fid, "lock-changed", {"field": field, "user": user, "client": client, "until": until}, conn=conn)
+            if field != STRUCT and client:
+                # 한 창에 한 칸 — 이 창이 쥐고 있던 다른 칸은 놓는다(칸을 옮겨 다니며 임대가 쌓이지 않게)
+                for (other,) in conn.execute("SELECT field FROM webhwp_field_locks WHERE fid = ? AND user_id = ? AND client = ? AND field <> ? AND field <> ?",
+                                             (int(fid), user, client, field, STRUCT)).fetchall():
+                    conn.execute("DELETE FROM webhwp_field_locks WHERE fid = ? AND field = ?", (int(fid), other))
+                    emit(db, fid, "lock-changed", {"field": other, "user": "", "released_by": user, "client": client}, conn=conn)
             out = {"ok": True, "by": user, "until": until, "since": since}
     HUB.wake(fid)
     return out
 
 
-def touch(db, fid: int, user: str, fields: list[str] | None = None) -> dict:
-    """활동이 있었다 — 이 사람의 임대(고른 필드만, 없으면 전부)를 늘린다. {필드: until}."""
+def touch(db, fid: int, user: str, fields: list[str] | None = None, client: str | None = None) -> dict:
+    """활동이 있었다 — 이 사람의 임대(고른 필드만·client 를 주면 그 창 것만, 없으면 전부)를 늘린다. {필드: until}."""
     ensure(db)
     now = time.time()
     out = {}
     with db._conn() as conn:
         _txlock(conn, fid)
-        rows = conn.execute("SELECT field, wanted_by FROM webhwp_field_locks WHERE fid = ? AND user_id = ? AND lease_until > ?",
+        rows = conn.execute("SELECT field, wanted_by, client FROM webhwp_field_locks WHERE fid = ? AND user_id = ? AND lease_until > ?",
                             (int(fid), user, now)).fetchall()
-        for f, wanted in rows:
+        for f, wanted, cl in rows:
+            if client is not None and (cl or "") != client:
+                continue
             if f == STRUCT or (fields is not None and f not in fields):
                 continue
             until = now + _lease_for(db, wanted)
@@ -305,7 +313,7 @@ def release(db, fid: int, field: str, user: str, *, grace: bool = False, base: P
                 return False
             until = min(float(row[2]), now + conf(db, "grace"))
             conn.execute("UPDATE webhwp_field_locks SET lease_until = ? WHERE fid = ? AND field = ?", (until, int(fid), field))
-            emit(db, fid, "lock-changed", {"field": field, "user": user, "until": until, "grace": True}, conn=conn)
+            emit(db, fid, "lock-changed", {"field": field, "user": user, "client": row[1] or "", "until": until, "grace": True}, conn=conn)
         HUB.wake(fid)
         return True
     if base is not None and field != STRUCT:
@@ -319,7 +327,7 @@ def release(db, fid: int, field: str, user: str, *, grace: bool = False, base: P
         if not (row and row[0] == user):
             return False
         conn.execute("DELETE FROM webhwp_field_locks WHERE fid = ? AND field = ?", (int(fid), field))
-        emit(db, fid, "lock-changed", {"field": field, "user": "", "released_by": user, "wanted": row[5] or ""}, conn=conn)
+        emit(db, fid, "lock-changed", {"field": field, "user": "", "released_by": user, "client": row[1] or "", "wanted": row[5] or ""}, conn=conn)
     HUB.wake(fid)
     return True
 
@@ -415,22 +423,20 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                                  " WHERE fid = ? AND field = ?", (v, text, rich, user, ck, now, int(fid), field))
                 conn.execute("INSERT INTO webhwp_field_edits (fid, field, version, text, author, at) VALUES (?, ?, ?, ?, ?, ?)",
                              (int(fid), field, v, text, user, now))
-                # 고치는 것도 활동 — 임대가 없으면 이 사람 것으로 잡고, 있으면 늘린다
-                wanted = (lk[5] if _alive(lk, now) else "") or ""
-                until = now + _lease_for(db, wanted)
-                if lk:
-                    conn.execute("UPDATE webhwp_field_locks SET user_id = ?, client = ?, lease_until = ?, touched = ?, since = ?"
-                                 " WHERE fid = ? AND field = ?", (user, client, until, now, float(lk[4]) if _alive(lk, now) else now, int(fid), field))
-                else:
-                    conn.execute("INSERT INTO webhwp_field_locks (fid, field, user_id, client, lease_until, touched, since, wanted_by)"
-                                 " VALUES (?, ?, ?, ?, ?, ?, ?, '')", (int(fid), field, user, client, until, now, now))
-                if not _alive(lk, now):
-                    emit(db, fid, "lock-changed", {"field": field, "user": user, "until": until}, conn=conn)
+                # 고치는 것도 활동 — 이 창이 쥔 임대면 늘린다. 임대가 없으면 만들지 않는다(임대는 편집 화면이 처음 고칠 때 /lease 로 잡는다 —
+                # 변경만으로 임대를 만들면 칸을 옮겨 다닐 때 남은 변경이 옛 칸 임대를 되살렸다)
+                until = 0.0
+                if _alive(lk, now) and lk[0] == user and (lk[1] or "") == client:
+                    until = now + _lease_for(db, lk[5] or "")
+                    conn.execute("UPDATE webhwp_field_locks SET lease_until = ?, touched = ? WHERE fid = ? AND field = ?", (until, now, int(fid), field))
                 data = {"field": field, "version": v, "text": text, "by": user, "client": client}
                 if rich:
                     data["rich"] = rich
                 emit(db, fid, "field-updated", data, conn=conn)
-                results.append(_result(conn, fid, ck, seq, {"seq": seq, "field": field, "ok": True, "version": v, "until": until}))
+                res = {"seq": seq, "field": field, "ok": True, "version": v}
+                if until:
+                    res["until"] = until
+                results.append(_result(conn, fid, ck, seq, res))
                 changed = True
         if event:
             emit(db, fid, *event)
