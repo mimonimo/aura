@@ -217,3 +217,17 @@ def test_delete_many_checks_each_file(tmp_path, monkeypatch):
     dev = TestClient(app)
     assert _login(dev, "boss", PW)
     assert dev.post("/hwp/delete-many", json={"ids": [tpl]}).json()["deleted"] == [tpl]   # 관리자는 잠긴 양식도
+
+
+def test_repath_files_treats_underscore_and_percent_literally(tmp_path):
+    """폴더 이름의 _·% 가 LIKE 와일드카드로 다른 폴더의 파일 경로를 바꾸지 않는다."""
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    db.add_file("webhwp", "/x/a_b/1.hwpx", name="1")
+    db.add_file("webhwp", "/x/aXb/2.hwpx", name="2")
+    db.add_file("webhwp", "/x/5%/3.hwpx", name="3")
+    db.add_file("webhwp", "/x/5zz/4.hwpx", name="4")
+    db.repath_files("/x/a_b/", "/x/new/")
+    db.repath_files("/x/5%/", "/x/pct/")
+    paths = sorted(r["path"] for r in db.list_files(kind="webhwp"))
+    assert paths == ["/x/5zz/4.hwpx", "/x/aXb/2.hwpx", "/x/new/1.hwpx", "/x/pct/3.hwpx"]

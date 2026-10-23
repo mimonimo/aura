@@ -241,6 +241,11 @@ def _no_nul(v):
     """PostgreSQL 글자 칸은 NUL(0x00)을 받지 않는다 — 판독 결과에 섞인 NUL 하나로 반입 전체가 멈추지 않게 뗀다."""
     return v.replace("\x00", "") if isinstance(v, str) else v
 
+
+def _like_prefix(prefix: str) -> str:
+    """LIKE 앞부분 일치 패턴 — 글자 그대로의 \\ % _ 를 이스케이프한다(ESCAPE '\\' 와 함께)."""
+    return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
 class Database:
     # 스키마 추가분 — 기존 DB에 없으면 붙인다 (개발 단계 간이 마이그레이션)
     _MIGRATIONS = [
@@ -787,14 +792,16 @@ class Database:
     def repath_files(self, old_prefix: str, new_prefix: str) -> None:
         """폴더 이름이 바뀌면 그 아래 파일 경로를 함께 바꾼다."""
         with self._conn() as conn:
-            for r in conn.execute("SELECT id, path FROM files WHERE path LIKE ?", (old_prefix + "%",)).fetchall():
-                conn.execute("UPDATE files SET path = ? WHERE id = ?", (new_prefix + r[1][len(old_prefix):], r[0]))
+            for r in conn.execute("SELECT id, path FROM files WHERE path LIKE ? ESCAPE '\\'", (_like_prefix(old_prefix),)).fetchall():
+                if str(r[1]).startswith(old_prefix):         # 이름의 _·% 가 와일드카드로 남의 경로를 잡지 않게 한 번 더
+                    conn.execute("UPDATE files SET path = ? WHERE id = ?", (new_prefix + r[1][len(old_prefix):], r[0]))
 
     def repath_assets(self, doc_id: int, old_prefix: str, new_prefix: str) -> None:
         with self._conn() as conn:
-            for r in conn.execute("SELECT id, path FROM doc_assets WHERE doc_id = ? AND path LIKE ?",
-                                  (doc_id, old_prefix + "%")).fetchall():
-                conn.execute("UPDATE doc_assets SET path = ? WHERE id = ?", (new_prefix + r[1][len(old_prefix):], r[0]))
+            for r in conn.execute("SELECT id, path FROM doc_assets WHERE doc_id = ? AND path LIKE ? ESCAPE '\\'",
+                                  (doc_id, _like_prefix(old_prefix))).fetchall():
+                if str(r[1]).startswith(old_prefix):
+                    conn.execute("UPDATE doc_assets SET path = ? WHERE id = ?", (new_prefix + r[1][len(old_prefix):], r[0]))
 
     def file_counts(self) -> dict[str, int]:
         with self._conn() as conn:
