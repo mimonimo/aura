@@ -20,6 +20,19 @@
 }
 .chat-doc-dialog{width:min(540px,calc(100vw - 28px));box-sizing:border-box;max-height:85dvh;overflow:auto;border:1px solid var(--line);border-radius:16px;padding:24px;color:var(--ink)}.chat-doc-dialog::backdrop{background:#15243c66}.chat-doc-dialog h2{margin:0 0 20px;font-size:20px}.chat-doc-dialog form{display:grid;gap:16px}.chat-doc-dialog label{display:grid;gap:8px;font-size:13px}.chat-doc-dialog :is(input,select,textarea){width:100%;box-sizing:border-box;min-width:0;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit}.chat-doc-dialog select{padding-right:32px}.chat-doc-dialog textarea{min-height:160px;resize:vertical;max-height:35dvh}.chat-doc-dialog footer{display:flex;gap:10px;justify-content:flex-end}.chat-doc-dialog [role=status]{font-size:13px;color:var(--muted);line-height:1.7}.chat-doc-dialog [hidden]{display:none!important}.chat-doc-dialog [data-confirmation]{padding:12px;border:1px solid var(--line);border-radius:8px}.chat-doc-note{padding:10px 14px;font-size:12px;background:#fff;line-height:1.6}
 @media(max-width:950px){main.chat-doc-open{flex-direction:column;overflow-y:auto;height:auto;min-height:calc(100dvh - 64px)}.chat-doc-editor{flex:none;height:55dvh;min-height:360px;border-right:0;border-bottom:1px solid var(--line)}.chat-doc-open #chatWorkspace{flex:none;min-width:0;height:75dvh;min-height:500px}.chat-doc-editor label{display:none}}
+/* 좁은 화면 — 「대화 / 문서」 전환 버튼 한 줄 아래에 둘 중 하나만 화면 높이로(chat-documents.js setPane) */
+.chat-pane-switch{display:none}
+@media(max-width:950px){
+ main.chat-doc-open>.chat-pane-switch{display:flex;order:-1;flex:none;gap:4px;margin:8px 12px 0;padding:3px;border-radius:10px;background:#E9EEF5}
+ main.chat-doc-open>.chat-pane-switch button{flex:1 1 0;min-height:36px;padding:6px 10px;border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--muted);font-size:13px;font-weight:600}
+ main.chat-doc-open>.chat-pane-switch button[aria-pressed=true]{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(27,59,117,.15)}
+ main.chat-doc-open{overflow:hidden;height:calc(100dvh - var(--workspace-topbar-height,65px))}
+ main.chat-doc-open[data-pane=doc]>#chatWorkspace,main.chat-doc-open[data-pane=chat]>.chat-doc-editor{display:none}
+ main.chat-doc-open>.chat-doc-editor,main.chat-doc-open>#chatWorkspace{flex:1 1 auto;height:auto;min-height:0;border-bottom:0}
+ main.chat-doc-open>.chat-doc-divider{display:none}
+ /* 문서 머리 — 제목이 버튼에 밀려 「2027 가…」 로 잘리지 않게 두 줄까지 */
+ main.chat-doc-open>.chat-doc-editor header strong{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+}
 /* 패널 여닫기 — 대화 칸 폭만 부드럽게 줄이고 늘린다. 문서 칸은 목표 폭 그대로 오른쪽에 있어
    대화 칸이 줄어드는 만큼 밀려 들어온다(밖으로 넘친 부분은 main 이 가린다). 드래그 중에는 즉시 적용. */
 main>.chat-doc-editor{transition:none}

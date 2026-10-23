@@ -66,11 +66,17 @@ def test_profile_menu_changes_only_own_account(tmp_path):
     page = c.get("/settings").text
     assert "비밀번호 변경" in page and 'name="target"' not in page   # 다른 계정 선택 라디오 없음
     assert 'action="/account/password"' in page
-    # 프로필은 계정마다 따로 저장된다
+    # 장부에 관리자가 정한 이름이 있으면 성명은 읽기만 — 본인이 바꾸지 못한다(사람 이름 한 곳, app/people)
+    assert 'id="s-name"' not in page and "성명은 관리자가 정합니다" in page
+    c.post("/settings", data={"name": "딴이름"})
+    assert "딴이름" not in c.get("/settings").text
+    # 장부에 이름이 없는 계정은 설정의 성명이 화면 이름이 되고, 계정마다 따로 저장된다
+    c.app.state.accounts["zzaimy"]["name"] = ""
     c.post("/settings", data={"name": "김담당", "call_me": "", "instructions": "근거 조항을 적는다"})
     d = TestClient(c.app)
     _login(d, "zzdev", "devpass")
     assert "김담당" not in d.get("/settings").text and "김담당" in c.get("/settings").text
+    assert '<span class="um-id">김담당</span>' in c.get("/settings").text     # 사용자 메뉴도 같은 이름
     assert c.post("/dev/account", data={"target": "zzdev", "new_pw": "x"}).status_code == 404
 
 

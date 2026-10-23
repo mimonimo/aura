@@ -55,31 +55,46 @@
 <div class="ms-head">
   <span class="ms-avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
   <div>
-    <div class="ms-name">{{ s.get('name') or uid or "담당자" }}</div>
+    <div class="ms-name">{{ my_name or uid or "담당자" }}</div>
     <div class="ms-sub">{{ uid }}{% if uid %} · {% endif %}{{ role_labels.get(acct_role, role_labels.staff) }}{% if acct_dept %} · {{ acct_dept }}{% endif %}</div>
   </div>
 </div>
 
+{% if is_student %}
+{# 학생 — 비밀번호 변경만 #}
+<section class="card reveal" id="password"><div class="card-in">
+  <h2><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호</h2>
+  <div class="ms-google-row"><span class="muted">로그인 비밀번호를 바꿉니다.</span>
+    {% if has_password and uid %}<button type="button" class="secondary" onclick="document.getElementById('pwDialog').showModal()">비밀번호 변경</button>{% endif %}</div>
+</div></section>
+{% else %}
 <form action="/settings" method="post" data-protect-changes>
 <section class="card reveal" id="profile"><div class="card-in">
   <h2><iconify-icon icon="solar:user-id-linear"></iconify-icon>프로필</h2>
   <div class="ms-fields">
     <div class="ms-field">
+      {% if name_locked %}
+      <label>성명</label>
+      <div class="ms-ro">{{ my_name }}</div>
+      <span class="muted" style="font-size:11.5px;">성명은 관리자가 정합니다.</span>
+      {% else %}
       <label for="s-name">성명</label>
-      <input id="s-name" type="text" name="name" value="{{ s.get('name', '') }}" placeholder="예: 홍길동" autocomplete="name">
+      <input id="s-name" type="text" name="name" value="{{ my_name }}" placeholder="예: 홍길동" autocomplete="name">
+      {% endif %}
     </div>
     <div class="ms-field">
       <label>계정 · 소속 부서</label>
       <div class="ms-ro">{{ uid or "로컬 모드" }} · {{ acct_dept or "부서 없음" }}</div>
-      <span class="muted" style="font-size:11.5px;">소속 부서는 관리자가 지정합니다(볼 수 있는 문서 범위).</span>
+      <span class="muted" style="font-size:11.5px;">소속 부서는 관리자가 정합니다(볼 수 있는 문서 범위).</span>
     </div>
   </div>
   <div class="ms-actions">
     {% if has_password and uid %}<button type="button" class="secondary" onclick="document.getElementById('pwDialog').showModal()">비밀번호 변경</button>{% endif %}
-    <button type="submit">저장</button>
+    {% if not name_locked %}<button type="submit">저장</button>{% endif %}
   </div>
 </div></section>
 </form>
+{% endif %}
 
 {% if has_password and uid %}
 <dialog id="pwDialog" class="pw-dialog" aria-labelledby="pwTitle"><div class="card-in">

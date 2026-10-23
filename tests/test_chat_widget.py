@@ -100,9 +100,9 @@ def test_peek_missing_document(tmp_path):
 
 def test_widget_present_off_chat_and_absent_on_chat(tmp_path):
     c = _client(tmp_path)
-    assert "에이전트에게 묻기" in c.get("/inbox").text     # 라이브러리에는 떠 있다
+    assert 'aria-label="업무 도우미"' in c.get("/inbox").text     # 라이브러리에는 떠 있다(이름은 「업무 도우미」 하나)
     assert "직접 묻기" in c.get("/inbox").text             # 글 선택 질문
-    assert "에이전트에게 묻기" not in c.get("/chat").text  # 채팅 화면에는 겹치지 않는다
+    assert 'id="agFab"' not in c.get("/chat").text  # 채팅 화면에는 겹치지 않는다
 
 
 def test_chat_page_offers_retry_after_answer(tmp_path):

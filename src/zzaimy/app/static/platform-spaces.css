@@ -243,6 +243,10 @@ body #chatForm .chat-answer-mode { grid-column:4; grid-row:1; width:128px; max-w
   body #chatForm .chat-answer-mode { grid-column:3; grid-row:2; width:118px; }
   body #chatForm #sendBtn { grid-column:4; grid-row:2; }
 }
+/* 첨부·답변 방식이 없는 입력줄(학생) — 빈 칸 자리를 남기지 않고 입력칸이 왼쪽 끝부터 */
+body #chatForm .dock-row:has(> #attachButton[hidden]):has(> #answerMode[hidden]) { grid-template-columns:minmax(0,1fr) 36px; padding-left:16px; }
+body #chatForm .dock-row:has(> #attachButton[hidden]):has(> #answerMode[hidden]) #chatInput { grid-column:1; grid-row:1; }
+body #chatForm .dock-row:has(> #attachButton[hidden]):has(> #answerMode[hidden]) #sendBtn { grid-column:2; grid-row:1; }
 body #sendBtn:disabled { background:#e3e6eb; color:#9299a4; border-color:#e3e6eb; }
 body #sendBtn iconify-icon { font-size:21px; }
 body #chatForm .chat-dock-footer { border-top:0; padding:12px 8px 0; font-size:11px; line-height:1.5; gap:8px 20px; }
@@ -265,6 +269,8 @@ body .ag-empty .ag-empty-hint { font-size:11px; color:var(--muted); max-width:23
   body #chatWorkspace:has(.chat-empty-state) #chatForm { margin-bottom:0; }
   body #chatWorkspace:has(.chat-empty-state) .chat-empty-state h2 { font-size:25px; }
   body #chatWorkspace:has(.chat-empty-state) .chat-empty-state p { font-size:12px; }
+  /* 좁은 화면의 첫 화면 안내 — 두 줄로 꺾이는 설명을 가운데 맞춤으로 두면 읽기 어려워 왼쪽 맞춤(제목·예시 질문과 같은 선) */
+  body #chatWorkspace:has(.chat-empty-state) .chat-empty-state .card-in { text-align:left; }
   .space-intro h1 { font-size:22px; }
 }
 #bellPop{width:min(380px,calc(100vw - 32px));max-height:min(520px,70dvh);overflow-y:auto;padding:12px;box-sizing:border-box}
@@ -275,6 +281,15 @@ body .ag-empty .ag-empty-hint { font-size:11px; color:var(--muted); max-width:23
 #bellPop .notification-copy strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;font-size:13px;font-weight:600;line-height:1.6}
 #bellPop .notification-copy small{font-size:11px;color:var(--muted);line-height:1.5}
 #bellPop .pop-item:focus-visible{outline:2px solid #607c9e;outline-offset:-2px}
+/* 알림 — 「새 알림이 없습니다」 와 지난 목록(최근 검토 완료)을 줄로 갈라 같은 묶음으로 읽히지 않게, 꺾쇠는 오른쪽 끝 한 줄로 */
+#bellPop .notification-empty{padding:16px 10px 14px}
+#bellPop .notification-recent{margin-top:8px;padding-top:4px;border-top:1px solid var(--line)}
+#bellPop .notification-recent .notification-section{color:var(--faint)}
+#bellPop .pop-item.has-chevron .notification-copy{flex:1 1 auto}
+#bellPop .pop-item>iconify-icon.pop-chevron{flex:none;margin:0 0 0 auto;align-self:center;font-size:16px;color:var(--faint)}
+/* 비어 있는 사이드바 묶음 — 옅은 한 줄(누를 수 없는 글) */
+.sidebar .side-empty{color:var(--faint);font-size:12.5px;cursor:default}
+.sidebar .side-empty:hover{background:transparent}
 /* 라이브러리 탭 줄 오른쪽 — 같은 문서를 그래프로 보는 바로가기(탭이 아니라 다른 화면으로 가는 단추 모양) */
 .library-tabs { align-items:center; }
 .library-tabs a.library-graph { margin-left:auto; border:1px solid var(--line); background:#fff; color:var(--navy); font-weight:600; padding:7px 12px; }
@@ -283,7 +298,7 @@ body .ag-empty .ag-empty-hint { font-size:11px; color:var(--muted); max-width:23
 summary { list-style:none; }
 summary::-webkit-details-marker { display:none; }
 summary::marker { content:""; }
-.chip-toggle > summary { display:inline-flex; align-items:center; gap:6px; width:max-content; max-width:100%; padding:3px 11px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); font-size:12px; font-weight:500; line-height:1.6; cursor:pointer; user-select:none; }
+.chip-toggle > summary { display:inline-flex; align-items:center; gap:6px; width:max-content; max-width:100%; min-height:32px; box-sizing:border-box; padding:3px 11px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); font-size:12px; font-weight:500; line-height:1.6; cursor:pointer; user-select:none; }
 .chip-toggle > summary::after { content:"펼치기"; color:var(--muted); font-weight:400; }
 .chip-toggle[open] > summary::after { content:"접기"; color:#2d4f7c; }
 .chip-toggle > summary:hover { background:#f3f6fb; border-color:#cfd8e3; }

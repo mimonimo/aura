@@ -151,6 +151,17 @@
    toolbar?.addEventListener('change',resize);
    fitObserver=new ResizeObserver(resize);fitObserver.observe(viewport);
  }
+ // 좁은 화면(950px 이하) — 대화와 문서를 위아래로 쌓지 않고 「대화 / 문서」 버튼으로 하나씩 꽉 차게 본다.
+ // 넓은 화면에서는 CSS 가 이 줄을 감춘다(나란히 보기 그대로). 패널을 열면 문서 쪽으로, 닫으면 대화로 돌아온다
+ const paneSwitch=document.createElement('div');
+ paneSwitch.className='chat-pane-switch';paneSwitch.setAttribute('role','group');paneSwitch.setAttribute('aria-label','대화와 문서 전환');
+ paneSwitch.innerHTML='<button type="button" data-pane="chat" aria-pressed="false">대화</button><button type="button" data-pane="doc" aria-pressed="true">문서</button>';
+ function setPane(which){
+   main.dataset.pane=which;
+   paneSwitch.querySelectorAll('[data-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.pane===which)));
+ }
+ paneSwitch.addEventListener('click',event=>{const b=event.target.closest('[data-pane]');if(b)setPane(b.dataset.pane);});
+ main.prepend(paneSwitch);
  const divider=document.createElement('div');
  divider.className='chat-doc-divider';divider.tabIndex=0;
  divider.setAttribute('role','separator');divider.setAttribute('aria-orientation','vertical');
@@ -204,12 +215,14 @@
    clearTimeout(closing);closing=0;
    main.classList.remove('chat-doc-open','chat-doc-closing');
    if(panel)panel.hidden=true;
+   delete main.dataset.pane;
  }
  function reveal(){
    if(closing){clearTimeout(closing);closing=0;}
    main.classList.remove('chat-doc-closing');
    setRatio(currentRatio(),false);
    panel.hidden=false;main.classList.add('chat-doc-open');
+   if(main.dataset.pane!=='chat')setPane('doc');
  }
  function conceal(){
    if(!panel||panel.hidden||closing)return;

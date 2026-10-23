@@ -58,7 +58,9 @@ INBOX_TYPES = {
     "recruit": "채용",
     "admission": "입학",
 }
-DOC_TYPE_LABELS = {**INBOX_TYPES, "regulation": "기준 문서", "ocr": "문서 추출"}
+# 모르는 유형 코드도 영어로 보이지 않게 — 라이브러리의 문서 종류 이름으로 잇는다(vocab.TypeLabels·doc_kind_label)
+from zzaimy.app.vocab import TypeLabels as _TypeLabels  # noqa: E402
+DOC_TYPE_LABELS = _TypeLabels({**INBOX_TYPES, "regulation": "기준 문서", "ocr": "문서 추출"})
 
 from zzaimy.app.work_areas import SECTOR_LABELS  # noqa: E402  업무 목록 — 폴더 연결 설정(nas_sync)과 같은 표
 
@@ -337,8 +339,9 @@ def create_app(
 
     _DOC_PATH = re.compile(r"^/(?:doc|chat/peek|api/doc)/(\d+)(?:/|$)")   # api/doc: 구글 열람본 만들기(드라이브로 나가는 길)
     # 학생 허용 경로 — 대화(보내기·읽기·다시·지우기)와 문서 읽기(학생 공개 규정만, 열람 판정은 _DOC_PATH 가 한다)
-    _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|logout$)")
-    _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|logout)$")
+    _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|settings$|logout$)")
+    # 학생도 내 설정(비밀번호 변경만)은 쓴다 — 바꾸는 길은 본인 계정·현재 비밀번호 확인(/account/password)뿐
+    _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|account/password|logout)$")
 
     _PROJECT_PATH = re.compile(r"^/projects?/(\d+)(?:/|$)")
     _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/(?:quality-report|webhwp)$")   # 문서를 볼 수 있는 누구나 하는 POST(품질 신고·기안기 작업본 만들기)
@@ -548,10 +551,10 @@ def create_app(
                 raise HTTPException(401, detail="password-change-required")
             # 구글 허용 콜백은 로그인한 누구나 — 사용자마다 자기 학교 계정을 잇는다(user_admin, 콘솔에 등록된 주소 그대로)
             if request.url.path.startswith("/dev") and request.state.role != "dev" and request.url.path != "/dev/gdrive/callback":
-                raise HTTPException(403, "개발자 계정 전용입니다")
+                raise HTTPException(403, "관리자 계정만 여는 화면입니다")
             # 학생은 허용한 경로만 — 대화와 학생 공개 규정 읽기(ADR-0052). 허용 목록이라 앞으로 생기는 화면도 저절로 막힌다
             if request.state.role == "student" and not _student_allowed(request.method, request.url.path):
-                raise HTTPException(403, "학생 계정에서는 쓸 수 없는 화면입니다")
+                raise HTTPException(403, "학생 계정은 학사 질문 대화만 씁니다")
             # 열람 등급은 검색만이 아니라 문서 경로 전부(화면·원본·쪽 그림·복원·내보내기·삭제)에 강제한다(브리프 절대 규칙 4).
             # 라우트마다 검사를 넣지 않고 여기서 한 번에 — 앞으로 생기는 /doc/{id}/… 경로도 저절로 막힌다.
             m = _DOC_PATH.match(request.url.path)
@@ -614,9 +617,32 @@ def create_app(
 
     from starlette.exceptions import HTTPException as _StarletteHTTPException
 
-    _ERROR_PAGES = {404: ("페이지를 찾을 수 없습니다", "주소가 바뀌었거나 없는 화면입니다. 처음 화면이나 사이드바에서 다시 찾아 주세요."),
-                    403: ("볼 수 있는 권한이 없습니다", "이 화면이나 문서는 계정의 열람 범위 밖입니다. 필요하면 관리자에게 권한을 요청해 주세요."),
+    # 오류 화면 — 권한으로 막힌 화면(403)과 남의 비공개 문서·프로젝트·대화(404, 있는지조차 숨긴다)는 같은 꼴:
+    # 머리 「볼 수 없는 화면입니다」 + 까닭 한 줄, 탭 제목은 짧게. 화면·역할 단위로 막는 것은 403, 개별 문서·프로젝트·대화처럼
+    # 남의 것이 있는지 드러나면 안 되는 것은 404 로 둔다(없는 것과 볼 수 없는 것을 같은 말로).
+    _DENIED = "볼 수 없는 화면입니다"
+    _ERROR_PAGES = {404: (_DENIED, "없는 주소이거나 볼 수 있는 범위 밖입니다. 처음 화면이나 사이드바에서 다시 찾아 주세요."),
+                    403: (_DENIED, "계정의 열람 범위 밖입니다. 필요하면 관리자에게 권한을 요청해 주세요."),
                     405: ("이 방법으로는 열 수 없는 주소입니다", "버튼이나 메뉴로 다시 들어와 주세요.")}
+    _NOT_FOUND_OF = re.compile(r"^(.{1,20}?)[을를] 찾을 수 없습니다\.?$")
+    # 개별 항목 주소 — 없는 것과 남의 비공개 것이 같은 글로 보이게 주소 갈래로 이름을 정한다(상세 글이 없을 때도)
+    _ITEM_OF_PATH = ((re.compile(r"^/(?:doc|api/doc)/\d+"), "문서"), (re.compile(r"^/projects?/\d+"), "프로젝트"),
+                     (re.compile(r"^/chat/\d+"), "대화"))
+
+    def _error_page_text(code: int, detail: str, path: str = "") -> tuple[str, str]:
+        """오류 화면의 (머리, 까닭 한 줄). 화면에 「디렉터리」 대신 「폴더」."""
+        detail = (detail or "").replace("디렉터리", "폴더").strip()
+        heading, message = _ERROR_PAGES[code]
+        if code == 404:
+            item = next((name for rx, name in _ITEM_OF_PATH if rx.match(path)), "")
+            m = _NOT_FOUND_OF.match(detail)
+            noun = item or (m.group(1) if m else "")
+            if noun:
+                return _DENIED, f"없거나 볼 수 있는 범위 밖의 {noun}입니다."
+            return heading, (detail.rstrip(".") + "." if detail else message)
+        if code == 403 and detail:
+            return _DENIED, detail.rstrip(".") + "."
+        return heading, message
 
     def _wants_page(request: Request) -> bool:
         """사람이 브라우저로 연 화면인가 — API·스크립트 요청(JSON)은 그대로 JSON 으로 둔다."""
@@ -632,9 +658,10 @@ def create_app(
         if exc.status_code == 401 and exc.detail == "password-change-required":
             return RedirectResponse("/settings?err=첫 비밀번호를 바꿔 주세요", status_code=_status.HTTP_303_SEE_OTHER)
         if exc.status_code in _ERROR_PAGES and _wants_page(request):
-            heading, message = _ERROR_PAGES[exc.status_code]
             detail = exc.detail if isinstance(exc.detail, str) and exc.detail not in ("Not Found", "Forbidden", "Method Not Allowed") else ""
-            return templates.TemplateResponse(request, "_error.html", {"code": exc.status_code, "heading": detail or heading,
+            heading, message = _error_page_text(exc.status_code, detail, request.url.path)
+            short = heading.removesuffix("입니다").rstrip()      # 탭 제목은 짧게 — 「볼 수 없는 화면 · AURA」
+            return templates.TemplateResponse(request, "_error.html", {"code": exc.status_code, "heading": heading, "title": short,
                                                                        "message": message}, status_code=exc.status_code)
         return JSONResponse(
             {"detail": exc.detail}, status_code=exc.status_code,
@@ -883,6 +910,16 @@ def create_app(
     # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다
     templates.env.globals["asset_v"] = _asset_version()
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
+    # 사람 이름 한 곳(app/people) — 장부 이름 → 내 설정 성명 → 아이디. 사이드바·사용자 메뉴·설정·사람 칩·잠금 안내가 같은 값을 쓴다
+    from zzaimy.app import people as _people
+
+    def _person_name(uid: str | None, fallback: str | None = None) -> str:
+        if password is None:                       # 인증 없는 로컬 모드 — 계정 장부가 없어 내 설정 성명(없으면 예전 공통 값)
+            got = _people.display_name(uid, None, db, fallback="") or (db.get_setting("name", "") or "").strip()
+            return got or ((uid or "") if fallback is None else fallback)
+        return _people.display_name(uid, accounts, db, fallback=fallback)
+    app.state.person_name = _person_name
+    templates.env.globals["person_name"] = _person_name
     templates.env.globals["decision_labels"] = DECISION_LABELS
     templates.env.globals["sector_labels"] = SECTOR_LABELS
     from zzaimy.app.access_guard import ROLES as _ROLES
@@ -974,7 +1011,7 @@ def create_app(
             # 공유받은 프로젝트 — 내 것 아래 따로(project_access). 학생·관리자 화면에는 없다
             "side_shared": [p for p in (db.get_project(i) for i in _shared_project_ids(request)[:20]) if p]
                            if getattr(request.state, "role", "") in _ap.STAFF_ROLES else [],
-            "profile_name": db.profile_for(getattr(request.state, "user", None)).get("name", ""),
+            "profile_name": _person_name(getattr(request.state, "user", None), fallback=""),   # 사람 이름 한 곳(app/people)
             "profile_dept": (accounts.get(getattr(request.state, "user", "") or "", {}) or {}).get("dept", ""),
             **extra,
         }
@@ -4569,13 +4606,17 @@ def create_app(
         """내 설정 — 프로필·응답 지침·비밀번호·구글 계정을 한 화면에서."""
         uid = getattr(request.state, "user", "") or ""
         acct = accounts.get(uid, {}) if password is not None else {}
-        gst = _gimport.status(db, uid) if uid else {}
+        is_student = request.state.role == "student"          # 학생은 비밀번호 변경만(프로필·편집기·구글 계정 없음)
+        gst = _gimport.status(db, uid) if uid and not is_student else {}
         return templates.TemplateResponse(
             request, "settings.html",
             ctx(request, {"s": db.profile_for(uid or None), "active_tab": "all", "uid": uid,
                           "acct_dept": acct.get("dept", ""), "acct_role": acct.get("role", request.state.role),
-                          "has_password": password is not None,
-                          "google": _user_admin_status(request), "ok": ok, "err": err,
+                          "has_password": password is not None, "is_student": is_student,
+                          # 성명 — 사람 이름 한 곳(app/people)과 같은 값. 장부에 관리자가 정한 이름이 있으면 읽기만
+                          "my_name": _person_name(uid or None, fallback=""),
+                          "name_locked": password is not None and _people.name_locked(uid, accounts),
+                          "google": None if is_student else _user_admin_status(request), "ok": ok, "err": err,
                           "gimport": gst, "gimport_folder": _gimport.FOLDER_NAME,
                           "gimport_minutes": _gimport.interval_minutes(), "gimport_stalled": _gimport.stalled(gst),
                           # 문서 편집기 고르기(구글 문서 · 웹 한글 기안기) — 교직원·관리자만
@@ -4606,6 +4647,9 @@ def create_app(
     ):
         """설정 저장 — 성명만(호칭·개인 응답 지침은 뺐다, 지침은 프로젝트 「작성 원칙」)."""
         uid = getattr(request.state, "user", "") or ""
+        if uid and password is not None and _people.name_locked(uid, accounts):
+            # 관리자가 장부에 정한 이름은 본인이 바꾸지 않는다(사용자·계정 화면에서 관리자가)
+            return RedirectResponse("/settings?err=" + _q("성명은 관리자가 정합니다"), status_code=303)
         if uid:
             prof = db.profile_for(uid) or {}
             db.set_profile(uid, name=name, call_me=prof.get("call_me", ""), instructions=prof.get("instructions", ""))

@@ -29,6 +29,32 @@ def kind_labels() -> dict[str, str]:
 
 
 UNSORTED_KIND = "분류 전"
+OTHER_KIND = "기타"
+
+
+class TypeLabels(dict):
+    """문서 유형 이름표 — 모르는 값도 영어 코드(notice·report …)를 그대로 보이지 않는다.
+
+    `labels.get(code, code)` 처럼 코드를 기본값으로 넘겨도, 이 표에 없으면 문서 종류 이름(kind_labels, 라이브러리와
+    같은 목록)으로, 거기에도 없으면 「기타」(빈 값은 「분류 전」)로 보인다. 화면마다 따로 고치지 않게 표 자체가 지킨다.
+    """
+
+    def get(self, key, default=None):                      # noqa: D401 — dict.get 과 같은 꼴
+        if key in self:
+            return self[key]
+        if default is not None and default != key:        # 따로 정한 기본값(빈 값 등)은 그대로
+            return default
+        return doc_kind_label(key)
+
+
+def doc_kind_label(code: str | None, fallback_labels: dict | None = None) -> str:
+    """문서 유형·종류 코드의 우리말 이름 — 유형표(fallback_labels) → 종류 이름 → 「기타」/「분류 전」."""
+    code = (code or "").strip()
+    if not code:
+        return UNSORTED_KIND
+    if fallback_labels and code in fallback_labels:
+        return fallback_labels[code]
+    return kind_labels().get(code) or OTHER_KIND
 
 # 파일 형식 갈래 — 원본 보관소의 형식 선택지는 아래 갈래(학교 문서 원본이 되는 형식)만 보인다.
 # 프로그램·시스템·웹 자료·백업 파일(exe·dll·css·rdf 같은 회계 프로그램 서식 등)은 원본 문서가 아니라서 「그 밖의 형식」 하나로 둔다.

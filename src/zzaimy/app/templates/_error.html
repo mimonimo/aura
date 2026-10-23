@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ heading }} · AURA</title>
+<title>{{ title or heading }} · AURA</title>
 <link rel="stylesheet"
   href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
   integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" crossorigin="anonymous">
@@ -17,7 +17,6 @@
          word-break: keep-all; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
   .err-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; width: 440px; max-width: 100%;
               padding: 30px 30px 24px; box-shadow: 0 16px 48px rgba(27,59,117,.08); }
-  .err-code { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
   h1 { font-size: 18px; margin: 0 0 8px; letter-spacing: -.01em; }
   p { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin: 0 0 20px; }
   .err-acts { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -30,7 +29,6 @@
 <body>
 <main class="err-card">
   <img src="/static/ync-logo.png" alt="영남이공대학교" style="height:28px;width:auto;display:block;margin-bottom:22px;">
-  <p class="err-code">{{ code }}</p>
   <h1>{{ heading }}</h1>
   <p>{{ message }}</p>
   <div class="err-acts">

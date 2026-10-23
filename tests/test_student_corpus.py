@@ -73,9 +73,15 @@ def test_student_routes_are_allowlisted(tmp_path):
     assert s.get(f"/doc/{hak}").status_code == 200                                  # 학생 공개 학사 규정
     for path in (f"/doc/{staff_reg}", f"/doc/{grant}", f"/doc/{grant}/original"):
         assert s.get(path).status_code in (403, 404), path
-    for path in ("/archive", "/graph/explore", "/projects/archived", "/criteria", "/dev", "/dev/intake", "/settings",
-                 "/?type=all", "/api/projects/browse"):
+    for path in ("/archive", "/graph/explore", "/projects/archived", "/criteria", "/dev", "/dev/intake",
+                 "/?type=all", "/api/projects/browse", "/api/notifications/notices"):
         assert s.get(path, follow_redirects=False).status_code in (303, 403), path
+    # 내 설정은 비밀번호 변경만 — 프로필 저장·구글 계정·편집기 고르기는 없고, 알림 종도 없다
+    page = s.get("/settings").text
+    assert "비밀번호 변경" in page and 'action="/account/password"' in page
+    assert 'id="s-name"' not in page and 'id="myGoogle"' not in page and 'id="myEditor"' not in page
+    assert 'id="bellPop"' not in page and 'id="agFab"' not in page
+    assert s.post("/settings", data={"name": "x"}).status_code == 403
     assert s.post(f"/doc/{hak}/audience", data={"audience": "staff"}).status_code == 403
     assert s.post(f"/doc/{hak}/delete").status_code == 403
     assert db.get_document(hak)["audience"] == "student"

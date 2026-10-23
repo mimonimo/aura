@@ -17,7 +17,7 @@ def make(tmp_path):
 def test_unknown_page_shows_error_screen_for_browser(tmp_path):
     client = make(tmp_path)
     r = client.get("/no-such-page", headers={"accept": "text/html"})
-    assert r.status_code == 404 and "페이지를 찾을 수 없습니다" in r.text and "처음 화면으로" in r.text
+    assert r.status_code == 404 and "볼 수 없는 화면입니다" in r.text and "처음 화면으로" in r.text
     assert '{"detail"' not in r.text
 
 
