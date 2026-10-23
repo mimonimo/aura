@@ -200,7 +200,7 @@ def doc_view(request: Request, doc_id: int):
         raise HTTPException(404)
     owner = getattr(request.state, "user", "zzaimy")
     acct_ = accounts.get(owner, {}) if password is not None else {}
-    email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
+    email = gdrive_files.doc_account_for(db, owner, acct_.get("dept") or None)
     if not email or not gdrive_files.has_file_scope(email):
         return RedirectResponse(f"/doc/{doc_id}?view=local", status_code=303)
     if not _visible(doc, **_doc_scope(request)):

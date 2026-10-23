@@ -80,10 +80,12 @@ def test_callback_binds_department_not_person(env, monkeypatch):
     assert db.get_setting("google_account:zzaimy", "") == ""                    # 연결한 사람 본인 계정에는 묶지 않는다
     s = staff.get("/team/drive", params={"dept": "기획처"}).json()
     assert s["connected"] and s["shared"] and s["account"] == f"office@{DOM}" and s["can_manage"]
-    # 부서 문서는 부서 계정으로(본인 연결이 있어도) — 연결 전 부서는 본인 드라이브
+    # 부서 폴더 안 문서는 부서 계정으로(본인 연결이 있어도) — 연결 전 부서는 본인 드라이브
     db.set_setting("google_account:zzaimy", f"kim@{DOM}")
-    assert gdrive_files.account_for(db, "zzaimy", "기획처") == f"office@{DOM}"
-    assert gdrive_files.account_for(db, "zzaimy", "학생처") == f"kim@{DOM}"
+    assert gdrive_files.doc_account_for(db, "zzaimy", "기획처") == f"office@{DOM}"
+    assert gdrive_files.doc_account_for(db, "zzaimy", "학생처") == f"kim@{DOM}"
+    # 둘러보기·가져오기(부서 폴더 밖)는 본인 계정만 — 부서 계정 토큰을 쓰지 않는다
+    assert gdrive_files.account_for(db, "zzaimy", "기획처") == f"kim@{DOM}"
 
 
 def test_exchange_rejects_purpose_mismatch(monkeypatch):
@@ -143,3 +145,71 @@ def test_connect_reuses_folder_for_same_account(monkeypatch):
     http = httpx.Client(transport=httpx.MockTransport(handler))
     assert dept_drive.connect(db, "기획처", f"office@{DOM}", http=http, shared=True, actor="u1") == "OLD"
     assert calls == [("GET", "/drive/v3/files/OLD")] and db["google_root_shared:기획처"] == "1"
+
+
+def test_dept_token_not_used_outside_dept_folder(env, monkeypatch):
+    """보안 검토: 부서가 연결한 계정 토큰은 부서 폴더 안 문서에만 — 둘러보기·가져오기·계정 고르기에는 본인 계정만."""
+    app, dev, staff = env
+    db = app.state.db
+    for k, v in (("google_root", "FOLDER1"), ("google_root_by", f"office@{DOM}"), ("google_account_dept", f"office@{DOM}"),
+                 ("google_root_shared", "1")):
+        db.set_setting(f"{k}:기획처", v)
+    # 본인 연결이 없는 부서 사람 — 부서 계정으로 대신하지 않는다
+    assert gdrive_files.account_for(db, "zzaimy", "기획처") == ""
+    assert gdrive_files.usable_accounts(db, "zzaimy", "기획처", "staff") == set()
+    assert gdrive_files.doc_account_for(db, "zzaimy", "기획처") == f"office@{DOM}"
+    # 파인더 드라이브 둘러보기 — 부서 계정 드라이브 전체가 보이지 않는다
+    from zzaimy.app import webhwp_drive
+    seen = []
+    monkeypatch.setattr(webhwp_drive, "browse", lambda email, *a, **k: seen.append(email) or {"items": []})
+    monkeypatch.setattr(webhwp_drive, "drives", lambda email: [])
+    assert staff.get("/api/finder/drive").status_code == 409 and seen == []
+    # 본인 계정을 이으면 본인 계정으로
+    db.set_setting("google_account:zzaimy", f"kim@{DOM}")
+    assert staff.get("/api/finder/drive").status_code == 200 and seen == [f"kim@{DOM}"]
+    assert gdrive_files.usable_accounts(db, "zzaimy", "기획처", "staff") == {f"kim@{DOM}"}
+    # 예전 방식(관리자가 정한 부서 공용 계정, shared 아님)은 그대로
+    db.set_setting("google_account_dept:학생처", f"office@{DOM}")
+    assert gdrive_files.account_for(db, "park", "학생처") == f"office@{DOM}"
+
+
+def test_callback_rejects_other_user_and_consumes_state(env, monkeypatch):
+    """한 사람이 시작한 부서 연결의 되돌아오는 주소를 다른 사람(관리자 포함)이 열어도 부서에 잇지 않는다. 권한 없이 돌아온 state 는 버린다."""
+    app, dev, staff = env
+    app.state.accounts["zzaimy"]["grade"] = "head"
+    made = []
+    monkeypatch.setattr(dept_drive, "connect", lambda *a, **k: made.append(a) or "F")
+    posted = []
+
+    class NoHttp:
+        def post(self, *a, **k):
+            posted.append(a)
+            raise AssertionError("토큰 교환까지 가면 안 된다")
+    monkeypatch.setattr(gdrive, "_http", lambda: NoHttp())
+    r = staff.post("/team/drive/connect", data={"dept": "기획처"}, follow_redirects=False)
+    state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+    r = dev.get(f"/dev/gdrive/callback?code=c&state={state}", follow_redirects=False)
+    assert r.status_code == 303 and "err=" in r.headers["location"]
+    assert made == [] and posted == [] and gdrive.state_purpose(state) == ""        # 한 번 쓰면 끝
+    # 권한이 없어진 뒤 돌아오면 state 도 버린다
+    r = staff.post("/team/drive/connect", data={"dept": "기획처"}, follow_redirects=False)
+    state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+    app.state.accounts["zzaimy"]["grade"] = "lead"
+    r = staff.get(f"/dev/gdrive/callback?code=c&state={state}", follow_redirects=False)
+    assert "err=" in r.headers["location"] and made == [] and gdrive.state_purpose(state) == ""
+
+
+def test_connect_failure_drops_unbound_token(env, monkeypatch):
+    app, dev, staff = env
+    app.state.accounts["zzaimy"]["grade"] = "head"
+    monkeypatch.setattr(gdrive, "exchange_code", lambda *a, **k: f"new@{DOM}")
+
+    def boom(*a, **k):
+        raise PermissionError("부서 폴더를 만들지 못했습니다(403)")
+    monkeypatch.setattr(dept_drive, "connect", boom)
+    revoked = []
+    monkeypatch.setattr(gdrive, "revoke", lambda email: revoked.append(email))
+    r = staff.post("/team/drive/connect", data={"dept": "기획처"}, follow_redirects=False)
+    state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+    r = staff.get(f"/dev/gdrive/callback?code=c&state={state}", follow_redirects=False)
+    assert "err=" in r.headers["location"] and revoked == [f"new@{DOM}"]

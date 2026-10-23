@@ -105,14 +105,20 @@ def bind_account(db, user: str, email: str) -> None:
 NEED_ACCOUNT = "문서를 만들 구글 계정이 연결되지 않았습니다 — 설정 → 내 구글 계정에서 학교 계정(ync.ac.kr)을 연결해 주세요"
 
 
+def _shared_dept(db, dept: str | None) -> bool:
+    """부서가 부서 드라이브 계정을 연결했나(google_root_shared:<부서>=1, dept_drive)."""
+    return bool(dept) and (db.get_setting(f"google_root_shared:{dept}", "") or "").strip() == "1"
+
+
 def account_for(db, user: str | None, dept: str | None = None) -> str:
-    """이 담당자가 문서를 만들 구글 계정 — 본인이 연결한 계정 → (관리자가 정한) 부서 공용 계정. 없으면 빈 문자열.
-    부서가 부서 드라이브 계정을 연결했으면(google_root_shared:<부서>=1, dept_drive) 그 계정이 먼저다 — 부서 문서는 부서 계정
-    드라이브의 부서 폴더에 부서 계정 소유로 만들어지고, 부서 사람은 폴더 권한(맞추기)으로 함께 편집한다. 연결 전이면 본인 드라이브."""
+    """이 담당자가 쓰는 구글 계정 — 본인이 연결한 계정 → (관리자가 정한, 예전 방식) 부서 공용 계정. 없으면 빈 문자열.
+    부서가 연결한 부서 드라이브 계정(google_root_shared:<부서>=1)은 여기서 돌려주지 않는다 — 드라이브 둘러보기·파일 가져오기처럼
+    부서 폴더 밖까지 닿는 일에 부서 계정 토큰을 쓰면 부서 사람 누구나 그 계정 드라이브 전체를 보게 된다(보안 검토 10-23).
+    부서 폴더 안에 문서를 만드는 길은 doc_account_for."""
     ok = {a["email"] for a in gdrive.list_accounts() if gdocs.has_docs_scope(a["email"])}
-    keys = [(f"google_account:{user}" if user else ""), (f"google_account_dept:{dept}" if dept else "")]
-    if dept and (db.get_setting(f"google_root_shared:{dept}", "") or "").strip() == "1":
-        keys.reverse()
+    keys = [(f"google_account:{user}" if user else "")]
+    if dept and not _shared_dept(db, dept):
+        keys.append(f"google_account_dept:{dept}")
     for key in keys:
         if key:
             email = (db.get_setting(key, "") or "").strip()
@@ -125,6 +131,17 @@ def account_for(db, user: str | None, dept: str | None = None) -> str:
     return ""
 
 
+def doc_account_for(db, user: str | None, dept: str | None = None) -> str:
+    """부서 폴더(root_for(dept)) 안에 문서를 만들거나 그 문서를 다룰 계정 — 부서가 부서 드라이브 계정을 연결했으면 그 계정이
+    먼저다(부서 문서는 부서 계정 소유로 부서 폴더에, 부서 사람은 폴더 권한으로 함께 편집). 아니면 account_for.
+    dept 는 호출부가 그 사람의 소속 부서(계정 표)에서 읽어 넘긴다 — 사용자가 고른 값을 넘기지 않는다."""
+    if _shared_dept(db, dept):
+        email = (db.get_setting(f"google_account_dept:{dept}", "") or "").strip()
+        if email and email in {a["email"] for a in gdrive.list_accounts() if gdocs.has_docs_scope(a["email"])}:
+            return email
+    return account_for(db, user, dept)
+
+
 def usable_accounts(db, user: str | None, dept: str | None = None, role: str = "") -> set[str]:
     """이 담당자가 쓸 수 있는 구글 계정 — 본인이 연결한 계정과 부서 공용 계정(허용된 것만). 관리자는 허용된 계정 전부.
     다른 담당자가 연결한 계정으로 남의 드라이브를 둘러보거나 문서를 고치지 않게, 계정을 받는 경로는 모두 이 목록으로 거른다."""
@@ -132,7 +149,9 @@ def usable_accounts(db, user: str | None, dept: str | None = None, role: str = "
     if role == "dev":
         return listed
     out: set[str] = set()
-    for key in ((f"google_account:{user}" if user else ""), (f"google_account_dept:{dept}" if dept else "")):
+    # 부서가 연결한 부서 드라이브 계정은 고를 수 없다 — 그 계정으로 아무 폴더·문서나 둘러보지 않게(부서 문서는 본인 계정과 폴더 권한으로)
+    for key in ((f"google_account:{user}" if user else ""),
+                (f"google_account_dept:{dept}" if dept and not _shared_dept(db, dept) else "")):
         if key:
             email = (db.get_setting(key, "") or "").strip()
             if email in listed:
@@ -176,7 +195,7 @@ def move_to_project(db, session_id: int, project_name: str | None, dept: str | N
 def auto_document(db, session_id: int, owner: str, title: str, project_name: str | None = None,
                   email: str | None = None, dept: str | None = None, http=None) -> dict:
     """대화에 문서가 없으면 드라이브 폴더와 문서를 만들어 잇는다. 돌려주는 것은 {doc, account, folder}."""
-    email = email or account_for(db, owner, dept)
+    email = email or doc_account_for(db, owner, dept)
     if not email:
         raise ValueError(NEED_ACCOUNT)
     if not has_file_scope(email):

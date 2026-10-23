@@ -64,7 +64,7 @@ def user_status(db, uid: str, dept: str | None) -> dict:
     """한 사용자의 연결 상태 — 이어진 계정, 그 허용이 살아 있는지, 문서를 실제로 만들 계정과 그 출처(본인·부서 공용·공용)."""
     conn = connected_emails()
     bound = (db.get_setting(f"google_account:{uid}", "") or "").strip()
-    effective = gdrive_files.account_for(db, uid, dept or None)
+    effective = gdrive_files.doc_account_for(db, uid, dept or None)
     dept_acct = (db.get_setting(f"google_account_dept:{dept}", "") or "").strip() if dept else ""
     via = ""
     if effective:

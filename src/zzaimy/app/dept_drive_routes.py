@@ -124,6 +124,8 @@ def finish_connect(request: Request, dept: str, code: str, state: str, uri: str)
     db = st.db
     me = getattr(request.state, "user", "") or ""
     if not _known(request, dept) or not may_manage(request, dept):
+        with gdrive._lock:                                  # 쓰지 못한 state 는 바로 버린다(한 번만 쓰는 값)
+            gdrive._pending_states.pop(state or "", None)
         return "부서 드라이브는 그 부서의 총괄 책임자와 관리자가 연결합니다", False
     try:
         email = gdrive.exchange_code(code, state, uri, user=me, purpose=f"dept:{dept}")
@@ -134,6 +136,7 @@ def finish_connect(request: Request, dept: str, code: str, state: str, uri: str)
         dept_drive.connect(db, dept, email, "root", shared=True, actor=me)
     except Exception as e:
         log.warning("부서 %s 드라이브 연결 실패: %s", dept, type(e).__name__)
+        _drop_if_orphan(request, email)                     # 부서에 잇지 못한 토큰은 보관하지 않는다(아무도 안 쓰면 거둔다)
         return str(e)[:200], False
     if old and old != email:
         _drop_if_orphan(request, old)

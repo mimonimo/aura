@@ -491,7 +491,7 @@ def create_app(
             return ({}, 0) if fresh.get("archived") else _share_plan(fresh)
 
         def work():
-            drive_share.sync(db, int(project["id"]), _gf.account_for(db, owner, dept), plan)
+            drive_share.sync(db, int(project["id"]), _gf.doc_account_for(db, owner, dept), plan)
         if wait:
             work()
         else:
@@ -1795,7 +1795,7 @@ def create_app(
             # 드라이브로 올리기 전 관문 — 대화 주인이 열람할 수 없는 문서는 어느 길로 골랐든 올리지 않는다
             return False, "열람 범위 밖 문서라 작업본을 만들 수 없습니다."
         acct_ = accounts.get(owner, {}) if password is not None else {}
-        email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
+        email = gdrive_files.doc_account_for(db, owner, acct_.get("dept") or None)
         if not email or not gdrive_files.has_file_scope(email):
             return False, gdrive_files.NEED_ACCOUNT
         title = storage.title_of(doc.get("filename") or "")
@@ -4005,7 +4005,7 @@ def create_app(
             raise HTTPException(404)                        # 열람 범위 밖 문서는 드라이브로 올리지 않는다
         owner = getattr(request.state, "user", "zzaimy")
         acct_ = accounts.get(owner, {}) if password is not None else {}
-        email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
+        email = gdrive_files.doc_account_for(db, owner, acct_.get("dept") or None)
         if not email or not gdrive_files.has_file_scope(email):
             raise HTTPException(400, gdrive_files.NEED_ACCOUNT)
         project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
