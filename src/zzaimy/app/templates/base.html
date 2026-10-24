@@ -1074,6 +1074,7 @@ document.addEventListener('submit', function(event) {
   .aura-cursor { position: fixed; z-index: 2147483000; pointer-events: none; display: flex; align-items: flex-start; gap: 0;
     transition: left .7s cubic-bezier(.3,.7,.2,1), top .7s cubic-bezier(.3,.7,.2,1), opacity .4s ease; }
   .aura-cursor.leaving { opacity: 0; }
+  .ag-panel.ag-peek { opacity: .12; pointer-events: none; transition: opacity .2s ease; }
   .aura-cursor .ac-svg { width: 15px; height: 15px; filter: drop-shadow(0 1px 1.5px rgba(20,36,70,.3)); transition: transform .15s ease; flex: none; }
   .aura-cursor.press .ac-svg { transform: scale(.82); }
   .aura-cursor-tag { margin: 11px 0 0 -2px; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 2px; border-radius: 6px;
@@ -1307,7 +1308,12 @@ document.addEventListener('submit', function(event) {
           pressed = true; hit.classList.add("aura-ring"); c.classList.add("press");
           setTimeout(function () { c.classList.remove("press"); if (then) then(true); }, 450);
         }
+        // 도우미 창이 대상을 덮으면 가리키는 동안만 창을 비켜 보이게(옅게·누름 통과) — 대상과 커서가 창 밑에 숨던 것
+        var pane = document.getElementById("agPanel"), pr = pane && pane.getBoundingClientRect();
+        var over = pr && pr.width && !(r.right < pr.left || r.left > pr.right || r.bottom < pr.top || r.top > pr.bottom);
+        if (pane) pane.classList.toggle("ag-peek", !!over && age < 3600);
         if (age < 3600) { c._follow = setTimeout(follow, 100); return; }
+        if (pane) pane.classList.remove("ag-peek");
         hit.classList.remove("aura-ring"); c.classList.add("leaving");
       })();
     }
