@@ -17,6 +17,7 @@
   PYTHONPATH=src python scripts/214_paper_write.py --db <자료>/t.db --only 1.1,1.2 --delay 2
   PYTHONPATH=src python scripts/214_paper_write.py --db <자료>/t.db --restamp --set 칸:학과=사이버보안과
   PYTHONPATH=src python scripts/214_paper_write.py --db <자료>/t.db --rich --formatted   # 표·그림이 있는 절만 서식째로 다시
+  PYTHONPATH=src python scripts/214_paper_write.py --db <자료>/t.db --drop-empty --page-numbers   # 빈 쓸 자리 지우기·본문 쪽 1부터
 운영: --db 를 주지 않으면 data/platform/platform.db(.env.local 의 DB 설정을 따른다), 자료 폴더는 DB 옆.
 """
 from __future__ import annotations
@@ -53,6 +54,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="쓸 목록만 보인다")
     ap.add_argument("--restamp", action="store_true", help="필드 밖 학과 글(표지 아래 줄·꼬리말)만 바꾸고(--dept) 원고는 쓰지 않는다(--set 은 함께 쓴다)")
     ap.add_argument("--dept", default="", help=f"--restamp 의 학과 이름(기본 {ph.META['dept']})")
+    ap.add_argument("--page-numbers", action="store_true",
+                    help="본문 쪽 번호를 「1. 서론」 에서 1 로, 표지·목차·그림 목차·표 목차에는 쪽 번호 없음(앞 판은 .판/) — 원고는 쓰지 않는다")
+    ap.add_argument("--drop-empty", action="store_true",
+                    help="아래 절만 있고 원고에 제 글이 없는 절의 빈 쓸 자리(붉은 「본문 입력」)를 지운다(앞 판은 .판/) — 원고는 쓰지 않는다")
     a = ap.parse_args()
 
     db_path = Path(a.db)
@@ -63,6 +68,25 @@ def main() -> int:
     if not f or not Path(f["path"]).exists():
         print("논문 문서가 없다 — 개발 현황 → 논문·설계 문서에서 「논문 문서 만들기」 를 먼저 누른다(또는 --fid).")
         return 2
+    if a.drop_empty:
+        texts0 = [p.read_text(encoding="utf-8") for p in ph.chapter_files(Path(a.src))]
+        names = ph.headless_fields(Path(f["path"]).read_bytes(), texts0)
+        if a.dry_run:
+            print(f"문서 {fid}: 지울 빈 쓸 자리 {len(names)}곳(미리 보기)")
+            for n in names:
+                print(f"  {n}")
+        else:
+            r = ph.drop_headless(db, base, fid, texts0)
+            print(f"문서 {fid}: 빈 쓸 자리 " + (f"지움 {r.get('note', '')}" if r["ok"] and r.get("changed") else "지울 것 없음")
+                  if r["ok"] else f"문서 {fid}: 지우지 않음 — {WHY.get(r['why'], r['why'])}")
+    if a.page_numbers:
+        if a.dry_run:
+            _, n = ph.page_numbers(Path(f["path"]).read_bytes())
+            print(f"문서 {fid}: 본문 쪽 번호를 서론부터 1 로 고칠 곳 {n}곳(미리 보기)")
+        else:
+            r = ph.renumber(db, base, fid)
+            print(f"문서 {fid}: 쪽 번호 " + (f"고침 {r.get('note', '')}" if r["ok"] and r.get("changed") else "고칠 것 없음")
+                  if r["ok"] else f"문서 {fid}: 쪽 번호 고치지 않음 — {WHY.get(r['why'], r['why'])}")
     if a.restamp:
         dept = a.dept or ph.META["dept"]
         if a.dry_run:
@@ -74,10 +98,11 @@ def main() -> int:
             r = ph.restamp(db, base, fid, dept)
             print(f"문서 {fid}: 학과 「{dept}」 — " + (("바꿈 " + r.get("note", "")) if r.get("changed") else "바꿀 것 없음")
                   if r["ok"] else f"문서 {fid}: 바꾸지 않음 — {WHY.get(r['why'], r['why'])}{' · ' + r['by'] if r.get('by') else ''}")
-        if not a.set:
-            return 0
+    upkeep = a.restamp or a.drop_empty or a.page_numbers           # 문서 손질만 — 원고는 쓰지 않는다(--set 은 함께 쓴다)
+    if upkeep and not a.set:
+        return 0
     src = Path(a.src)
-    files = [] if a.restamp else ([src] if src.is_file() else ph.chapter_files(src))
+    files = [] if upkeep else ([src] if src.is_file() else ph.chapter_files(src))
     if not files and not a.set:
         print(f"원고가 없다: {src}")
         return 2
@@ -111,16 +136,27 @@ def main() -> int:
             print(f"  {w['field']} · {len(w['text'])}자 · {','.join(w.get('blocks', [])) or '칸'}{pic} · {prev[:90]}")
         return 0
     done, skipped = [], []
+    # 서식째 절은 장마다 묶어 한 번에 쓴다(저장 한 번 — 열린 화면이 장마다 한 번만 새 판을 부른다). 글 절은 하나씩 흘려 쓴다
+    groups: list[list[dict]] = []
+    for w in todo:
+        if w["kind"] == "rich" and groups and groups[-1][0]["kind"] == "rich" and groups[-1][0].get("chapter") == w.get("chapter"):
+            groups[-1].append(w)
+        else:
+            groups.append([w])
     try:
-        for i, w in enumerate(todo):
-            r = ph.write(db, base, fid, w, overwrite=a.overwrite or bool(w.get("set")), pause=a.pause)
-            if r["ok"]:
-                done.append(w["field"])
-                print(f"  씀: {w['field']}")
+        for i, g in enumerate(groups):
+            if g[0]["kind"] == "rich":
+                rs = ph.write_batch(db, base, fid, g, overwrite=a.overwrite)
             else:
-                skipped.append(r)
-                print(f"  건너뜀: {w['field']} — {WHY.get(r['why'], r['why'])}{' · ' + webhwp.display_name(db, r['by']) if r.get('by') else ''}")
-            if i + 1 < len(todo):
+                rs = [ph.write(db, base, fid, g[0], overwrite=a.overwrite or bool(g[0].get("set")), pause=a.pause)]
+            for w, r in zip(g, rs):
+                if r["ok"]:
+                    done.append(w["field"])
+                    print(f"  씀: {w['field']}")
+                else:
+                    skipped.append(r)
+                    print(f"  건너뜀: {w['field']} — {WHY.get(r['why'], r['why'])}{' · ' + webhwp.display_name(db, r['by']) if r.get('by') else ''}")
+            if i + 1 < len(groups):
                 time.sleep(a.delay)
     finally:
         ph.leave(db, fid)

@@ -414,3 +414,108 @@ def test_comments_are_left_out_and_references_get_hanging_style(tmp_path, monkey
     sec = zipfile.ZipFile(io.BytesIO(new)).read("Contents/section0.xml").decode()
     cap = re.search(r'<hp:p\b[^>]*styleIDRef="(\d+)"[^>]*>(?:(?!<hp:p\b).)*?\[2\] 둘째 출처', sec, re.S)
     assert cap and cap.group(1) == st["참고 문헌"]["style"]
+
+
+CH1_HEADLESS = CH1.replace("## 이 장의 그림·표 자리", "## 1.4 프로젝트 구성\n\n### 1.4.1 전체 구조\n\n구조 글이다.\n\n## 이 장의 그림·표 자리")
+
+
+def test_heading_with_only_subsections_gets_no_field_and_old_docs_drop_it(tmp_path, monkeypatch):
+    texts = [CH1_HEADLESS, CH2, CH6, BACK, APPX]
+    outline = ph.outline_from_markdown(texts) + [(1, "", "팀원 소개")]
+    assert "절:1.4 프로젝트 구성" in ph.headless(outline, texts) and "절:2.1 생성 모델" in ph.headless(outline, texts)
+    assert "절:1.1 프로젝트 배경 및 목적" not in ph.headless(outline, texts)
+    data = ph.build(outline, no_body=ph.headless(outline, texts))
+    names = _names(data)
+    assert "절:1.4 프로젝트 구성" not in names and "절:1.4.1 전체 구조" in names
+    assert "1.4 프로젝트 구성" in zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()   # 제목은 남는다
+    # 예전에 만든 문서(빈 쓸 자리가 있는 문서) — 지우기, 사람이 쓴 칸·쥔 칸은 둔다, 앞 판은 남는다
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    old = ph.build(outline)
+    fid = webhwp.add(db, base, webhwp.COMMON, "옛 논문.hwpx", old, owner="pdev", folder=ph.FOLDER)
+    m = webhwp.meta(db, fid)
+    m["paper"] = {"build": 1}
+    db.set_setting(f"webhwp_meta:{fid}", __import__("json").dumps(m))
+    assert set(ph.headless_fields(old, texts)) == {"절:1.4 프로젝트 구성", "절:2.1 생성 모델", "절:부록 1 한눈에 보기"}
+    ce.put(db, fid, "kim", {"절:2.1 생성 모델": "사람이 쓴 글"}, base=base, client="k1")
+    before = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    r = ph.drop_headless(db, base, fid, texts)
+    assert r["ok"] and r["note"] == "2곳" and r["fields"] == ["절:1.4 프로젝트 구성", "절:부록 1 한눈에 보기"]
+    p = Path(webhwp.get(db, fid)["path"])
+    after = ww.field_values(p.read_bytes())
+    assert "절:1.4 프로젝트 구성" not in after and after == {k: v for k, v in before.items() if k not in r["fields"]}
+    assert eo.check_bytes(p.read_bytes()) == [] and list((p.parent / ".판").glob("옛 논문 *.hwpx"))
+    assert ph.drop_headless(db, base, fid, texts)["changed"] is False
+    # 목차의 1.4 줄은 다음 절(1.4.1)의 쪽으로 잰다
+    e = {x["text"]: x for x in ph.toc_entries(p.read_bytes())}
+    assert e["1.4 프로젝트 구성"]["field"] == "절:1.4.1 전체 구조"
+
+
+def test_rich_tables_head_centered_body_left_short_columns_centered(tmp_path, monkeypatch):
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    body = ("# 1. 서론\n\n## 1.2 핵심내용\n\n표 앞 글이다.\n\n[표 1-1] 팀 구성\n\n| 구분 | 맡은 일 |\n|---|---|\n"
+            "| 팀원 1(팀장) | 프로젝트 총괄, 플랫폼 개발, 모델 서빙, 문서 작업 에이전트 |\n| 팀원 2 | 문서 데이터화, RAG, 학습 데이터 구축과 파인튜닝 |\n")
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    w = next(x for x in ph.plan(data, [body], rich=True)["writes"] if x["field"] == "절:1.2 핵심내용")
+    assert ph.write(db, base, fid, w)["ok"]
+    new = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    z = zipfile.ZipFile(io.BytesIO(new))
+    sec, hdr = z.read("Contents/section0.xml").decode(), z.read("Contents/header.xml").decode()
+    tbl = re.search(r"<hp:tbl\b(?:(?!<hp:tbl\b).)*?팀원 1\(팀장\).*?</hp:tbl>", sec, re.S).group(0)
+
+    def align(text):
+        p = re.search(rf'<hp:p\b[^>]*paraPrIDRef="(\d+)"[^>]*>(?:(?!<hp:p\b).)*?{re.escape(text)}', tbl, re.S).group(1)
+        return re.search(rf'<hh:paraPr id="{p}"[^>]*>.*?<hh:align horizontal="(\w+)"', hdr, re.S).group(1)
+    assert align("구분") == "CENTER" and align("맡은 일") == "CENTER"                   # 머리줄
+    assert align("팀원 1(팀장)") == align("팀원 2") == "CENTER"                         # 짧은 값만 든 열은 한 가지로 가운데
+    assert align("프로젝트 총괄") == align("문서 데이터화") == "LEFT"                      # 긴 글 열은 왼쪽(양쪽 정렬 아님)
+
+
+def test_rich_batch_saves_once_per_chapter(tmp_path, monkeypatch):
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    ws = [x for x in _plan(app, fid, rich=True)["writes"] if x["chapter"] == "1"]
+    assert len(ws) >= 2
+    n0 = len(_events(db, fid, "doc-saved"))
+    rs = ph.write_batch(db, base, fid, ws)
+    assert all(r["ok"] for r in rs)
+    assert len(_events(db, fid, "doc-saved")) == n0 + 1                                   # 장 하나에 새 판 알림 한 번
+    vals = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    assert vals["절:1.1 프로젝트 배경 및 목적"].startswith("대학 행정은")
+    assert not any(ce.holder(db, fid, w["field"]) for w in ws)
+
+
+def test_body_pages_start_at_one_and_front_matter_has_no_numbers(tmp_path, monkeypatch):
+    data = ph.build()
+    sec = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
+    assert sec.count("<hp:newNum ") == 1 and sec.count("<hp:pageNum ") == 1
+    p = re.search(r"<hp:p\b[^>]*>(?:(?!<hp:p\b).)*?<hp:newNum\b(?:(?!<hp:p\b).)*?</hp:p>", sec, re.S).group(0)
+    assert ph._ptext(p).strip() == "1. 서론" and "<hp:pageNum " in p                    # 쪽 번호는 서론 쪽부터, 1 로 새로
+    assert eo.check_bytes(data) == [] and ph.page_numbers(data)[1] == 0                     # 다시 넣지 않는다
+    # 예전 문서(쪽 번호 컨트롤이 구역 첫 문단) 손질 — 스크립트, 필드 값은 그대로
+    app, fid = _paper(tmp_path, monkeypatch)
+    db = app.state.db
+    path = Path(webhwp.get(db, fid)["path"])
+    zf = zipfile.ZipFile(io.BytesIO(path.read_bytes()))
+    files = {n: zf.read(n) for n in zf.namelist()}
+    s0 = files["Contents/section0.xml"].decode()
+    pn = re.search(r"<hp:ctrl><hp:pageNum\b[^>]*/></hp:ctrl>", s0).group(0)
+    s0 = s0.replace(ph._NEW_NUM, "").replace(pn, "")
+    s0 = s0.replace("</hp:secPr>", "</hp:secPr>" + pn, 1) if "</hp:secPr>" in s0 else s0
+    files["Contents/section0.xml"] = s0.encode()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in zf.infolist():
+            z.writestr(info, files[info.filename])
+    path.write_bytes(buf.getvalue())
+    before = ww.field_values(path.read_bytes())
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "214_paper_write.py"), "--db", str(Path(app.state.data_dir) / "t.db"),
+                        "--src", str(tmp_path / "논문"), "--page-numbers", "--drop-empty"], capture_output=True, text=True,
+                       env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"}, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "쪽 번호 고침" in r.stdout, r.stdout
+    after = path.read_bytes()
+    s1 = zipfile.ZipFile(io.BytesIO(after)).read("Contents/section0.xml").decode()
+    assert s1.count("<hp:pageNum ") == 1 and s1.index("<hp:pageNum ") > s1.index(ph.TOC_TITLE)
+    assert eo.check_bytes(after) == [] and ww.field_values(after) == before
