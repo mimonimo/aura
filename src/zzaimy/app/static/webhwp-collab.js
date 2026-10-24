@@ -563,10 +563,11 @@
     function measure(force) {
       var want = Object.keys(wanted()), key = want.join('\u0002');
       if (!want.length) { geo = {}; geoWant = ''; return; }
-      if (!force && key === geoWant && Date.now() - geoAt < 4000) return;
+      var missing = want.some(function (f) { return !geo[f]; });          // 아직 자리를 모르는 칸이 있으면 1초마다 다시(모르는 동안은 누름 막이 없다)
+      if (!force && key === geoWant && Date.now() - geoAt < (missing ? 1000 : 4000)) return;
       if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1500) return;   // 누르거나 치는 중에는 재지 않는다 — 재는 동안 커서를 옮겼다 되돌려 막 누른 자리를 덮었다
       want = want.filter(function (f) { var t = hwp.read(f); return t != null && t !== ''; });   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
-      if (!want.length) { geo = {}; geoWant = key; geoAt = Date.now(); return; }
+      if (!want.length) { geo = {}; geoWant = ''; return; }                 // 글이 오면 다시 잰다
       var g = hwp.fieldGeom(want);
       if (!g) return;
       geo = g; geoAt = Date.now(); geoWant = key;
