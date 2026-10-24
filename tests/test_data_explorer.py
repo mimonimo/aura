@@ -350,8 +350,7 @@ def test_ledger_tab_shows_raw_values_and_points_to_archive(client, tmp_path):
     assert 'title="가상사업/폴더/아주긴이름의계획서.hwp"' in page and 'title="가상사업/대표.hwp"' in page
     assert ">규칙으로 확정<" in page and '장부 코드 auto"' in page                  # 분류 상태는 코드 대신 이름(코드는 툴팁)
     assert "2031-01-02 03:04" in page and "처리 실패: 시험" in page
-    top = page.split('class="side-searchbox"', 1)[1].split("</a>", 1)[0]
-    assert "가상" not in top and "data-quick-search" in top      # 사이드바 검색은 빠른 찾기 창을 여는 단추 — 화면 안 검색어가 들어가지 않는다
+    assert 'class="side-searchbox"' not in page                 # 개발자 사이드바에는 빠른 찾기 상자를 두지 않는다(업무 화면 쪽은 아래 시험)
     assert "사본·부산물" in client.get("/dev/db?tab=archive&q=반입").text
     assert dx.archive_tab(db, q='가상 계획서')['total'] == 1 and dx.archive_tab(db, q='100%')['total'] == 0
 

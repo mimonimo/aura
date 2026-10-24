@@ -51,8 +51,12 @@ def _mine(request: Request) -> str:
 
 
 def _depts(request: Request) -> list[str]:
-    """이 사람이 쓰는 부서 디렉터리 + 자기 「내 폴더」. 관리자는 남의 「내 폴더」 도 열 수 있다(왼쪽 목록에는 안 보인다)."""
+    """이 사람이 쓰는 부서 디렉터리 + 자기 「내 폴더」. 관리자는 남의 「내 폴더」 도 열 수 있다(왼쪽 목록에는 안 보인다).
+    공동 편집 시연 계정으로 판정한 요청(ADR-0071)은 시연 폴더 하나만 — 공통 양식·부서 문서·자기 내 폴더도 열지 못한다."""
     from zzaimy.app.user_admin import known_depts
+    if getattr(request.state, "demo", ""):
+        from zzaimy.app.webhwp_demo import ROOT
+        return [ROOT]
     st = request.app.state
     role = getattr(request.state, "role", "")
     user = getattr(request.state, "user", "")
@@ -72,6 +76,9 @@ def _label(request: Request, dept: str) -> str:
     """화면에 보일 뿌리 이름 — 내 「내 폴더」 는 「내 폴더」, 관리자가 보는 남의 것은 「아이디 님 폴더」."""
     if dept and dept == _mine(request):
         return "내 폴더"
+    from zzaimy.app.webhwp_demo import ROOT
+    if dept == ROOT:
+        return "공동 편집 시연"
     if dept.startswith(MINE):
         return f"{dept[len(MINE):]} 님 폴더"
     return dept

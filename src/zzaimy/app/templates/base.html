@@ -581,12 +581,12 @@ document.addEventListener('submit', function(event) {
   </a>
   <p class="sidebar-service-name">AURA</p>
   </div>
-    {% if request.state.role != 'student' %}{# 학생은 검색 화면을 쓰지 않는다 — 서버도 막는다(check_auth) #}
+  {% set developer_space = dev_space(request.url.path, request.state.role) %}
+    {% if request.state.role != 'student' and not developer_space %}{# 학생은 검색 화면을 쓰지 않는다 — 서버도 막는다(check_auth). 개발자 화면은 메뉴가 적어 문서 찾기가 필요 없다(10-24) #}
     <a class="side-searchbox" href="/search" data-quick-search aria-label="빠른 찾기 열기(Ctrl+K)">
       <iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><span>검색</span>
     </a>
     {% endif %}
-  {% set developer_space = dev_space(request.url.path, request.state.role) %}
   {% if developer_space %}
     {% include "_developer_sidebar.html" %}
   {% else %}
@@ -673,6 +673,7 @@ document.addEventListener('submit', function(event) {
         <footer><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit">적용</button></footer>
       </form>
     </dialog>
+    <a href="/dev/coedit-demo" style="opacity:.7; font-size:12.5px;"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>{{ dev_page_name('/dev/coedit-demo') }}</a>
     {% endif %}
     {% if request.state.role == 'dev' %}
     <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"

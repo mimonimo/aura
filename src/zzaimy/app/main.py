@@ -517,6 +517,7 @@ def create_app(
         return _ap.can_edit(doc, **_req_viewer(request)) if doc else False
 
     if password is not None:
+        from zzaimy.app import webhwp_demo as _webhwp_demo
         basic = HTTPBasic(auto_error=False)
 
         def check_auth(
@@ -546,6 +547,8 @@ def create_app(
             request.state.view_as = va
             if va and not request.url.path.startswith("/view-as"):
                 request.state.role, request.state.dept = va["role"], va["dept"]
+            # 공동 편집 시연(ADR-0071) — 관리자 세션에서 칸 표시를 단 기안기 편집 요청만 시연 계정으로(권한은 좁히기만)
+            _webhwp_demo.apply(request, accounts)
             # 무작위 첫 비밀번호 계정은 바꾸기 전까지 설정 화면(비밀번호 바꾸기)과 로그아웃만
             if accounts.get(user, {}).get("must_change") and request.url.path not in ("/settings", "/account/password", "/logout"):
                 raise HTTPException(401, detail="password-change-required")
@@ -785,6 +788,8 @@ def create_app(
     # 웹 한글 기안기 — 부서 한글 문서함·기안기로 열기·기안기 서버 프록시(/webhwpctrl/)
     from zzaimy.app.webhwp_routes import router as webhwp_router
     app.include_router(webhwp_router)
+    from zzaimy.app.webhwp_demo import router as webhwp_demo_router         # 공동 편집 시연(/dev/coedit-demo, ADR-0071)
+    app.include_router(webhwp_demo_router)
     from zzaimy.app.hwp_drive_status import router as hwp_drive_status_router   # 문서함 구글 드라이브 연결 상태(늘 200)
     app.include_router(hwp_drive_status_router)
     from zzaimy.app.webhwp_export_routes import router as webhwp_export_router   # 기안기 내려받기 형식·다른 이름으로 저장·이름 바꾸기

@@ -1,0 +1,53 @@
+<!doctype html>
+{# 공동 편집 시연(ADR-0071) — 같은 기안기 문서를 세 칸으로, 칸마다 다른 시연 계정(webhwp_demo). 관리자만. #}
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공동 편집 시연 · AURA</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+  :root { --navy:#1B3B75; --ink:#1F2937; --muted:#64748B; --bg:#E2E8F0; --line:#CBD5E1; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { font-family:"Pretendard Variable", Pretendard, system-ui, sans-serif; color:var(--ink); background:var(--bg); display:flex; flex-direction:column; }
+  .bar { flex:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; background:#fff; border-bottom:1px solid var(--line); }
+  .bar a.back { display:inline-flex; align-items:center; gap:4px; color:var(--muted); text-decoration:none; font-size:13px; }
+  .bar h1 { font-size:15px; margin:0; font-weight:600; }
+  .bar select { font:inherit; font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; max-width:320px; }
+  .bar form { margin:0; }
+  .bar button { font:inherit; font-size:13px; padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
+  .bar button.primary { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .bar .hint { font-size:12px; color:var(--muted); }
+  .grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; padding:6px; }
+  .pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .pane .who { font-size:12.5px; padding:2px 4px 4px; color:#334155; }
+  .pane iframe { flex:1; width:100%; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  .empty { margin:40px auto; color:var(--muted); font-size:14px; }
+  @media (max-width:900px) { .grid { grid-template-columns:1fr; grid-auto-rows:80vh; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="back" href="/dev"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>개발 현황</a>
+  <h1>공동 편집 시연</h1>
+  {% if docs|length > 1 %}<select aria-label="시연 문서" onchange="location.href='/dev/coedit-demo?id=' + this.value">
+    {% for d in docs %}<option value="{{ d.id }}"{% if cur and d.id == cur.id %} selected{% endif %}>{{ d.name }}</option>{% endfor %}
+  </select>{% elif cur %}<span class="hint">{{ cur.name }}</span>{% endif %}
+  <form method="post" action="/dev/coedit-demo/new"><button type="submit" class="{{ '' if cur else 'primary' }}">새 시연 문서</button></form>
+  {% if cur %}<form method="post" action="/dev/coedit-demo/reset"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit">문서 비우기</button></form>{% endif %}
+  <span class="hint">칸마다 다른 시연 계정입니다{% if missing %} · 계정은 「새 시연 문서」 때 만듭니다{% endif %}</span>
+</header>
+{% if cur and not missing %}
+<main class="grid">
+  {% for p in panes %}<section class="pane" aria-label="{{ p.name }}">
+    <div class="who">{{ p.name }}</div>
+    <iframe src="/webhwpctrl/aura-edit?id={{ cur.id }}&amp;demo={{ p.slot }}" title="{{ p.name }} 편집 화면" data-demo="{{ p.slot }}"></iframe>
+  </section>{% endfor %}
+</main>
+{% else %}
+<p class="empty">{{ '시연 계정이 없습니다' if cur else '시연 문서가 없습니다' }}</p>
+{% endif %}
+</body>
+</html>

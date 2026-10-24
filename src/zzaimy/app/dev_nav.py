@@ -18,7 +18,8 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 
 # 사이드바에 없는 개발 화면
 EXTRA = {"/dev/history": "변경 이력",                              # 개발 현황 머리의 「변경 이력」
-         "/dev/models/compare": "모델 비교 결과"}                     # 개발 현황 모델 표의 Writer 줄에서 들어간다
+         "/dev/models/compare": "모델 비교 결과",                     # 개발 현황 모델 표의 Writer 줄에서 들어간다
+         "/dev/coedit-demo": "공동 편집 시연"}                        # 업무 화면 사이드바 아래 「테스트 보기」 옆(ADR-0071)
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
 
