@@ -129,6 +129,17 @@
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료
         <span class="doc-cnt">{{ papers|length }}</span></h2>
+      <div class="weekly-actions" id="paper-hwp">
+        {% if paper_hwp %}
+        <a class="btn-ghost" href="/dev/paper/hwp">논문 작성</a>
+        <span class="muted">웹 한글 기안기 · 공통/논문 · 교직원 함께 작성{% if paper_hwp.saved %} · 저장 {{ paper_hwp.saved }}{% endif %}</span>
+        {% else %}
+        <form method="post" action="/dev/paper/hwp">
+          <button type="submit">논문 문서 만들기</button>
+        </form>
+        <span class="muted">논문 양식으로 공통/논문에 만들고 기안기로 엽니다</span>
+        {% endif %}
+      </div>
       {{ rows(papers) }}
     </div></div>
 

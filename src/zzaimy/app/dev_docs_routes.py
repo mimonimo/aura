@@ -603,6 +603,33 @@ def dev_doc(request: Request, name: str):
     }))
 
 
+# 논문 문서(웹 한글 기안기, ADR-0072) — /dev/paper/{name} 보다 먼저 둔다(「hwp」 가 원재료 문서 이름으로 잡히지 않게)
+@router.get("/dev/paper/hwp")
+def dev_paper_hwp_open(request: Request):
+    """논문 문서를 기안기로 연다 — 없으면 논문 자료 목록으로(그 화면에 「논문 문서 만들기」)."""
+    from fastapi.responses import RedirectResponse
+
+    from zzaimy.app import paper_hwp
+    from zzaimy.app.webhwp_routes import EDIT_PAGE
+    f = paper_hwp.current(request.app.state.db)
+    if not f:
+        return RedirectResponse("/dev/docs#paper-hwp", status_code=303)
+    return RedirectResponse(f"{EDIT_PAGE}?id={int(f['id'])}", status_code=303)
+
+
+@router.post("/dev/paper/hwp")
+def dev_paper_hwp_create(request: Request):
+    """논문 양식으로 논문 문서를 만든다(이미 있으면 그것) — 한글 문서함 「공통/논문」, 교직원 모두 함께 고친다."""
+    from fastapi.responses import RedirectResponse
+
+    from zzaimy.app import paper_hwp
+    from zzaimy.app.webhwp_routes import EDIT_PAGE
+    st = request.app.state
+    src = Path(request.app.state.docs.docs_dir) / "paper" / "논문"
+    fid, _ = paper_hwp.create(st.db, Path(st.data_dir), getattr(request.state, "user", "") or "zzdev", src)
+    return RedirectResponse(f"{EDIT_PAGE}?id={fid}", status_code=303)
+
+
 @router.get("/dev/paper/{name}/export.{fmt}")
 def dev_paper_export(request: Request, name: str, fmt: str):
     """논문 자료 문서를 hwpx·docx 파일로 내려받기."""
@@ -654,6 +681,17 @@ def dev_paper(request: Request, name: str):
         "papers": h.dev_papers(),
         "show_export": True,
     }))
+
+
+def _paper_hwp(request: Request) -> dict:
+    """논문 문서 줄 — {id, name, saved}(없으면 빈 사전)."""
+    from zzaimy.app import paper_hwp, webhwp
+    f = paper_hwp.current(request.app.state.db)
+    if not f:
+        return {}
+    m = webhwp.meta(request.app.state.db, f["id"])
+    return {"id": f["id"], "name": Path(f["name"]).stem,
+            "saved": (m.get("saved") or m.get("created") or "")[:16].replace("T", " ")}
 
 
 @router.get("/dev/docs", response_class=HTMLResponse)
@@ -737,6 +775,7 @@ def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1
         "weekly": h.weekly_card((_today - _td(days=_today.weekday())).isoformat(), _today.isoformat()),
         "papers": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
                    for p in h.dev_papers()],
+        "paper_hwp": _paper_hwp(request),
         "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
                            d["title"]) for d in h.dev_doc_list("decisions")],
         # 기술 검토(조사·판단)와 작업 메모(내부 메모)를 나눠 보인다

@@ -272,8 +272,8 @@ def display_name(db, user: str, accounts: dict | None = None) -> str:
     from zzaimy.app import people
     if not user:
         return ""
-    if user == "AURA":
-        return "AURA"
+    if user in AGENTS:
+        return AGENTS[user]
     if accounts is None:
         try:
             p = Path(db.path).parent / "accounts.json"
@@ -284,6 +284,9 @@ def display_name(db, user: str, accounts: dict | None = None) -> str:
 
 
 _display = display_name
+
+# 사람 계정이 아닌 공동 편집 참여자 — 아이디 → 화면 이름. AURA(플랫폼 에이전트)와 Claude(논문 원고 쓰기, scripts/214·ADR-0072)
+AGENTS = {"AURA": "AURA", "claude": "Claude"}
 
 
 def trash(db, base: Path, fid: int, *, user: str) -> None:
