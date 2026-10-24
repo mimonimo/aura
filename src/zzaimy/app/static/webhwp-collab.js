@@ -501,6 +501,7 @@
     function auraLabel() {                             // AURA 는 시킨 사람에게 딸린다 — 「AURA · 김가람」
       return 'AURA' + (auraState.by ? ' · ' + eng.nameOf(auraState.by) : '');
     }
+    function short(s) { s = String(s || '').replace(/^\d+\.\s*/, function (m) { return m.trim() + ' '; }); return s.length > 9 ? s.slice(0, 8) + '…' : s; }   // 목록 꼬리는 짧게 — 길면 자른다(전체는 풀이말)
     function heldBy(u) {                               // 그 사람이 지금 쥔 칸(쓰는 중인 곳) — 알림이 늦어도 임대로 안다
       var L = eng.locks(), out = '';
       Object.keys(L).forEach(function (f) { var lk = L[f]; if (f && lk && lk.user === u && lk.until * 1000 > Date.now()) out = f; });
@@ -540,7 +541,9 @@
         var hf2 = p.me ? '' : p.user === 'AURA' ? p.field : heldBy(p.user); if (hf2) p.field = hf2;
         var editing = !!hf2;
         r.appendChild(d); r.appendChild(el('span', '', p.name || p.user));
-        r.appendChild(el('small', '', p.me ? '' : p.field ? where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : '보는 중'));
+        var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (p.field ? ' · ' + short(where(p.field)) : ''));
+        if (p.field) sm.title = where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중');
+        r.appendChild(sm);
         if (!p.me && p.field && eng.hasField(p.field)) r.onclick = function () { hwp.moveTo(p.field, false); popOpen = false; pop.hidden = true; };
         pop.appendChild(r);
       });
