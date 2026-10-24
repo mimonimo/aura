@@ -36,3 +36,16 @@ def test_agent_write_applies_styles(tmp_path, monkeypatch):
     assert re.search(rf'<hp:p\b[^>]*styleIDRef="{ids["표 캡션"]}"', sec)
     assert re.search(rf'<hp:p\b[^>]*styleIDRef="{ids["팁 상자"]}"', sec)
     assert "<표 1> 추진 일정" in ww.field_values(data)[secs[0]] or "&lt;표 1&gt; 추진 일정" in sec
+
+
+def test_caption_first_and_renumber(tmp_path, monkeypatch):
+    app, db, hw, secs = _work(tmp_path, monkeypatch)
+    hw.write({"field": secs[1], "text": "<표 2> 예산 편성\n| 항목 | 금액 |\n|---|---|\n| 인건비 | 100 |"})      # 절이 표 제목으로 시작
+    hw.write({"field": secs[0], "text": "1) 개요임\n<표 2> 추진 일정\n| 단계 | 시기 |\n|---|---|\n| 1단계 | 3월 |"})   # 앞 절을 나중에, 같은 번호
+    data = Path(webhwp.get(db, hw.fid())["path"]).read_bytes()
+    z = zipfile.ZipFile(io.BytesIO(data))
+    hdr = z.read("Contents/header.xml").decode()
+    sid = re.search(r'<hh:style\b[^>]*\bid="(\d+)"[^>]*\bname="표 캡션"', hdr).group(1)
+    sec = "".join(z.read(n).decode() for n in sorted(z.namelist()) if n.startswith("Contents/section"))
+    caps = re.findall(rf'<hp:p\b[^>]*styleIDRef="{sid}"[^>]*>(?:(?!</hp:p>).)*?&lt;표 (\d+)&gt; ([^<]*)', sec, re.S)
+    assert [(n, t.strip()) for n, t in caps] == [("1", "추진 일정"), ("2", "예산 편성")]

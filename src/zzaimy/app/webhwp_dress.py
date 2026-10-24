@@ -72,12 +72,46 @@ def dress_items(items: list[tuple[str, object]], others: list[str] | None = None
     return out, style
 
 
-def apply(data: bytes, put: list[str], style: dict[str, str]) -> bytes:
-    """쓴 문단(put)에 꾸밈 스타일 — 필요한 스타일을 header 에 두고(없으면) 그 문단·상자에 입힌다."""
-    if not style or not put:
+def apply(data: bytes, put: list[str], style: dict[str, str], field: str = "") -> bytes:
+    """쓴 문단(put)과 칸 첫 문단(field — 절이 표 제목으로 시작하면 제목이 칸 안 문단에 든다)에 꾸밈 스타일 — 필요한 스타일을
+    header 에 두고(없으면) 입힌 뒤, 문서 전체의 표 제목 번호를 차례대로 다시 매긴다."""
+    if not style:
         return data
     from zzaimy.app import paper_hwp as ph
     from xml.sax.saxutils import escape
     data, _ = ph.add_styles(data)
     style = {**style, **{escape(k): v for k, v in style.items()}}   # 문단 글은 XML 그대로 견준다(「<표 1>」 → 「&lt;표 1&gt;」)
-    return ph.dress_written(data, put, style)
+    head = ph._field_para_id(data, field) if field else ""
+    data = ph.dress_written(data, list(put) + ([head] if head else []), style)
+    return renumber(data)
+
+
+def renumber(data: bytes) -> bytes:
+    """「표 캡션」 꾸밈이 붙은 문단의 「<표 N>」 을 문서 차례대로 1, 2, 3 … — 27B 가 적은 번호가 겹치거나, 앞 절을 나중에 써도 맞게."""
+    import io
+    import zipfile
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    hdr = zin.read("Contents/header.xml").decode("utf-8")
+    m = re.search(r'<hh:style\b[^>]*\bid="(\d+)"[^>]*\bname="표 캡션"', hdr)
+    if not m:
+        return data
+    sid, n, new = m.group(1), 0, {}
+    secs = sorted((x for x in zin.namelist() if re.fullmatch(r"Contents/section\d+\.xml", x)), key=lambda x: int(re.search(r"\d+", x).group(0)))
+
+    def one(p: re.Match) -> str:
+        nonlocal n
+        n += 1
+        return re.sub(r"&lt;표\s*\d+(?:-\d+)?&gt;", f"&lt;표 {n}&gt;", p.group(0), count=1)
+    for sn in secs:
+        xml = zin.read(sn).decode("utf-8")
+        x2 = re.sub(rf'<hp:p\b[^>]*\bstyleIDRef="{sid}"[^>]*>(?:(?!</hp:p>).)*?&lt;표\s*\d+(?:-\d+)?&gt;', one, xml, flags=re.S)
+        if x2 != xml:
+            new[sn] = x2
+    if not new:
+        return data
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in zin.infolist():
+            body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
+            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    return buf.getvalue()
