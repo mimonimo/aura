@@ -5,7 +5,8 @@
   samples.json  표본마다 입력·갈래별 출력·점수·판정 이유
   docs.json     갈래별로 만든 hwpx 목록(docs/<arm>/*.hwpx). 없으면 docs/ 폴더를 직접 훑는다
 
-실행이 도는 중이면 파일이 덜 차 있다 — 없는 부분은 화면이 「진행 중」 으로 보인다. 파일은 읽기만 한다.
+실행이 도는 중이면 파일이 덜 차 있다 — 없는 부분은 화면이 「진행 중」 으로 보인다(summary 에 created 가 생기면 끝난 것 —
+그 뒤로는 재지 않은 칸만 「—」). 지표는 {갈래: {지표: 값}}·{지표: {갈래: 값}} 둘 다 읽는다. 파일은 읽기만 한다.
 - 개발자(관리자)만 — /dev 경로는 main.check_auth 가 막는다.
 """
 from __future__ import annotations
@@ -34,9 +35,9 @@ DIM_LABELS = {
 }
 DIM_ORDER = ("지시 충실", "맥락 이해", "형식", "근거 충실", "문체", "완결성")
 SPEED_LABELS = {
-    "ttft": "첫 글자까지", "ttft_s": "첫 글자까지", "ttft_ms": "첫 글자까지(ms)", "first_token_s": "첫 글자까지",
-    "tok_per_s": "초당 토큰", "tokens_per_s": "초당 토큰", "tps": "초당 토큰", "tok_s": "초당 토큰",
-    "total_s": "전체 시간", "elapsed_s": "전체 시간", "latency_s": "전체 시간", "total_time_s": "전체 시간",
+    "ttft": "첫 글자까지(초)", "ttft_s": "첫 글자까지(초)", "ttft_ms": "첫 글자까지(ms)", "first_token_s": "첫 글자까지(초)",
+    "tok_per_sec": "초당 토큰", "tok_per_s": "초당 토큰", "tokens_per_s": "초당 토큰", "tps": "초당 토큰", "tok_s": "초당 토큰",
+    "sec": "문항당 시간(초)", "total_s": "전체 시간", "elapsed_s": "전체 시간", "latency_s": "전체 시간", "total_time_s": "전체 시간",
 }
 
 
@@ -88,36 +89,83 @@ def _pair(p: dict) -> dict:
     pct = (lambda x: round(100 * x / tot, 1)) if tot else (lambda x: 0)
     return {"a": str(p.get("a", "")), "b": str(p.get("b", "")), "win": win, "tie": tie, "loss": loss,
             "n": p.get("n", tot), "win_pct": pct(win), "tie_pct": pct(tie), "loss_pct": pct(loss),
-            "ci_low": _num(p.get("ci_low")), "ci_high": _num(p.get("ci_high"))}
+            "score": _num(p.get("score")), "ci_low": _num(p.get("ci_low")), "ci_high": _num(p.get("ci_high")),
+            "control": bool(p.get("control")), "flip_rate": _num(p.get("flip_rate"))}
+
+
+def _by_metric(metrics, arm_keys: list[str]) -> dict[str, dict]:
+    """지표 표를 {지표: {갈래: 값}} 꼴로 — summary 는 {갈래: {지표: 값}}(212 내보내기) 과 {지표: {갈래: 값}} 둘 다 온다."""
+    if not isinstance(metrics, dict):
+        return {}
+    arm_major = bool(metrics) and all(k in arm_keys for k in metrics) and all(isinstance(v, dict) for v in metrics.values())
+    out: dict[str, dict] = {}
+    if arm_major:
+        for arm, vals in metrics.items():
+            for name, v in vals.items():
+                out.setdefault(str(name), {})[arm] = v
+    else:
+        for name, vals in metrics.items():
+            if isinstance(vals, dict):
+                out[str(name)] = dict(vals)
+    return out
+
+
+def _is_pct(name: str, pct: set) -> bool:
+    return name in pct or name == "rate" or name.endswith("_rate")
+
+
+def _rows(by_metric: dict, arm_keys: list[str], labels: dict, pct: set, skip=()) -> list[dict]:
+    return [{"name": labels.get(n) or SPEED_LABELS.get(n) or {"rate": "통과율", "ok": "통과", "n": "문항 수"}.get(n, n),
+             "vals": {a: _num(v.get(a)) for a in arm_keys}, "pct": _is_pct(n, pct)}
+            for n, v in by_metric.items() if n not in skip and any(_num(v.get(a)) is not None for a in arm_keys)]
 
 
 def _block(b: dict, arm_keys: list[str], labels: dict | None = None, pct: set | None = None) -> dict:
+    labels, pct = labels or {}, pct or set()
     metrics = b.get("metrics") if isinstance(b.get("metrics"), dict) else None
-    speed, other = [], []
-    for name, vals in (metrics or {}).items():
-        if not isinstance(vals, dict):
-            continue
-        row = {"name": (labels or {}).get(name) or SPEED_LABELS.get(name, str(name)),   # summary 의 labels(한국어 이름)가 먼저
-               "vals": {a: _num(vals.get(a)) for a in arm_keys}, "pct": name in (pct or set())}
-        (speed if name in SPEED_LABELS else other).append(row)
+    bm = _by_metric(metrics, arm_keys)
+    speed = _rows({n: v for n, v in bm.items() if n in SPEED_LABELS}, arm_keys, labels, pct)
+    other = _rows({n: v for n, v in bm.items() if n not in SPEED_LABELS}, arm_keys, labels, pct)
     dims = b.get("per_dimension") if isinstance(b.get("per_dimension"), dict) else None
     dim_rows = None
     if dims is not None:
         dim_rows = [{"name": _label(DIM_LABELS, k), "vals": {a: _num((v or {}).get(a)) for a in arm_keys}}
-                    for k, v in dims.items() if isinstance(v, dict)]
+                    for k, v in dims.items() if isinstance(v, dict) and any(_num(v.get(a)) is not None for a in arm_keys)]
         order = {n: i for i, n in enumerate(DIM_ORDER)}
         dim_rows.sort(key=lambda r: order.get(r["name"], len(order)))
-    per_type = b.get("per_type") if isinstance(b.get("per_type"), list) else None
+    per_type_raw = b.get("per_type") if isinstance(b.get("per_type"), list) else None
+    per_type, runs = None, None
+    if per_type_raw is not None:
+        per_type, run_list = [], []
+        for r in per_type_raw:
+            if not isinstance(r, dict):
+                continue
+            if r.get("arm") and isinstance(r.get("metrics"), dict) and "type" not in r:
+                run_list.append({"label": str(r.get("label") or r["arm"]), "arm": str(r["arm"]), "metrics": r["metrics"]})
+                continue
+            m = r.get("metrics")
+            rows = _rows(_by_metric(m, arm_keys), arm_keys, labels, pct, skip=("n",)) if isinstance(m, dict) else \
+                [{"name": "", "vals": {a: _num(r.get(a)) for a in arm_keys}, "pct": False}]
+            per_type.append({"type": str(r.get("type", "")), "n": r.get("n", ""), "rows": rows})
+        if run_list:   # 회차별(문서 작성처럼 한 판씩 돈 것): 줄 = 지표, 칸 = 회차
+            names: list[str] = []
+            for x in run_list:
+                for n in x["metrics"]:
+                    if n not in names:
+                        names.append(n)
+            runs = {"cols": [{"label": x["label"], "arm": x["arm"]} for x in run_list],
+                    "rows": [{"name": labels.get(n) or n, "pct": _is_pct(n, pct),
+                              "vals": [x["metrics"].get(n) for x in run_list]} for n in names]}
     pairwise = b.get("pairwise") if isinstance(b.get("pairwise"), list) else None
+    used = set()
+    for r in speed + other + (dim_rows or []) + [row for t in (per_type or []) for row in t["rows"]]:
+        used |= {a for a, v in r["vals"].items() if v is not None}
     return {
         "key": str(b.get("key", "")), "title": str(b.get("title") or b.get("key") or "묶음"),
         "pairwise": [_pair(p) for p in pairwise if isinstance(p, dict)] if pairwise is not None else None,
-        "dims": dim_rows,
-        "speed": speed if metrics is not None else None,
-        "other": other,
-        "per_type": [{"type": str(r.get("type", "")), "n": r.get("n", ""),
-                      "vals": {a: _num(r.get(a)) for a in arm_keys}} for r in per_type if isinstance(r, dict)]
-                    if per_type is not None else None,
+        "dims": dim_rows, "speed": speed if metrics is not None else None, "other": other,
+        "per_type": per_type, "runs": runs,
+        "arms": [a for a in arm_keys if a in used] or list(arm_keys),   # 이 묶음에서 잰 갈래만 칸으로
     }
 
 
@@ -162,6 +210,7 @@ def load_run(base: Path, run_id: str) -> dict | None:
     docs_listed = _read(d / "docs.json") if (d / "docs.json").exists() else None
     return {
         "id": d.name, "created": str(s.get("created") or ""), "has_summary": bool(s),
+        "finished": bool(s.get("created")) and isinstance(s.get("blocks"), list),
         "arms": arms, "arm_label": {a["key"]: a["label"] for a in arms},
         "blocks": [_block(b, arm_keys, s.get("labels") if isinstance(s.get("labels"), dict) else None,
                           set(s.get("percent_keys") or []) if isinstance(s.get("percent_keys"), list) else None)

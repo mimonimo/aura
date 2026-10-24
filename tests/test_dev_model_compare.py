@@ -122,3 +122,69 @@ def test_labels_and_percent_keys_from_summary():
                   {"invented_any": "질문에 없는 숫자가 든 답 비율", "chrf": "정답 겹침(chrF)"}, {"invented_any"})
     rows = {r["name"]: r for r in b["other"]}
     assert rows["질문에 없는 숫자가 든 답 비율"]["pct"] is True and rows["정답 겹침(chrF)"]["pct"] is False
+
+
+def _finished_run(base, run_id="sft-compare"):
+    """212 내보내기와 같은 꼴 — 지표는 {갈래: {지표: 값}}, 종류별은 metrics 안에, 문서 작성은 회차별."""
+    d = base / run_id
+    d.mkdir()
+    arms = [{"key": "open-nvfp4", "label": "오픈 모델", "model": "q", "kind": "open"},
+            {"key": "sft-merged", "label": "SFT 병합본", "model": "m", "kind": "sft-merged"},
+            {"key": "sft-lora", "label": "SFT 어댑터", "model": "l", "kind": "sft-lora"}]
+    blocks = [
+        {"key": "heldout220", "title": "시험 문항 220개", "n": 220,
+         "metrics": {"open-nvfp4": {"chrf": 27.89, "invented_any": 0.041, "sec": 37.1},
+                     "sft-merged": {"chrf": 36.6, "invented_any": 0.0, "sec": 16.8},
+                     "sft-lora": {"chrf": 27.9, "invented_any": 0.04, "sec": 37.0}},
+         "pairwise": [{"a": "sft-merged", "b": "open-nvfp4", "win": 28, "tie": 80, "loss": 112, "n": 220, "score": 0.309,
+                       "ci_low": 0.264, "ci_high": 0.355, "control": False, "flip_rate": 0.364},
+                      {"a": "sft-lora", "b": "open-nvfp4", "win": 49, "tie": 129, "loss": 42, "n": 220, "score": 0.516,
+                       "ci_low": 0.475, "ci_high": 0.559, "control": True}],
+         "per_dimension": {"지시 충실": {"open-nvfp4": 4.95, "sft-merged": 5.0}},
+         "per_type": [{"type": "규정·제도 문서·첫 질문", "n": 46,
+                       "metrics": {"open-nvfp4": {"chrf": 20.632}, "sft-merged": {"chrf": 31.25}},
+                       "per_dimension": {"open-nvfp4": {"지시 충실": 4.9}}, "pairwise": []}]},
+        {"key": "context", "title": "맥락 이해", "metrics": {"open-nvfp4": {"overall_rate": 1.0}, "sft-merged": {"overall_rate": 1.0}},
+         "pairwise": [], "per_dimension": {},
+         "per_type": [{"type": "긴 자료 속 사실 찾기", "key": "longctx", "n": 10,
+                       "metrics": {"open-nvfp4": {"n": 10, "ok": 10, "rate": 1.0}, "sft-merged": {"n": 10, "ok": 9, "rate": 0.9}}}]},
+        {"key": "doc202", "title": "문서 작성", "metrics": {"open-nvfp4": {"문서 만듦": 1.0, "ask_only": 0.14},
+                                                        "sft-merged": {"문서 만듦": 0.0, "ask_only": 0.82}},
+         "pairwise": [], "per_dimension": {"근거": {"open-nvfp4": 2.75, "sft-merged": None}},
+         "per_type": [{"arm": "open-nvfp4", "label": "open-nvfp4-1", "metrics": {"쓴 절": 7, "ask_only": 0.182}},
+                      {"arm": "sft-merged", "label": "sft-merged-1", "metrics": {"쓴 절": 0, "ask_only": 0.727, "오류": "작업본이 없다"}}]},
+        {"key": "speed", "title": "속도", "metrics": {"open-nvfp4": {"ttft": 0.556, "tok_per_sec": 24.316},
+                                                   "sft-merged": {"ttft": 0.65, "tok_per_sec": 21.5}},
+         "pairwise": [], "per_dimension": {}, "per_type": []}]
+    (d / "summary.json").write_text(json.dumps({
+        "run_id": run_id, "created": "2026-10-24 06:02", "arms": arms, "blocks": blocks, "notes": ["끝난 실행"],
+        "labels": {"chrf": "정답 겹침(chrF)", "invented_any": "질문에 없는 숫자가 든 답 비율", "ask_only": "묻기만 하고 끝난 턴 비율",
+                   "문서 만듦": "문서(작업본)를 만든 회차 비율", "overall_rate": "맥락 이해 전체 통과율", "sec": "문항당 시간(초)"},
+        "percent_keys": ["invented_any", "ask_only", "문서 만듦", "overall_rate"]}, ensure_ascii=False))
+    (d / "samples.json").write_text(json.dumps([{"id": "t1", "type": "규정", "input": "질문",
+                                                 "outputs": {"open-nvfp4": "오픈 답", "sft-merged": "병합본 답"}}], ensure_ascii=False))
+    return d
+
+
+def test_finished_run_shows_real_numbers(world):
+    """끝난 실행(212 꼴)은 묶음마다 실제 수치를 그린다 — 「진행 중」 없이, 재지 않은 갈래만 빠진다."""
+    app, base, _ = world
+    _finished_run(base)
+    page = _client(app, "zzdev").get("/dev/models/compare/sft-compare").text
+    assert "진행 중" not in page.split('id="mc-data"')[0]
+    assert "36.60" in page and "27.89" in page                              # 지표(갈래 → 지표 꼴을 뒤집어 읽음)
+    assert "4.1%" in page and "82.0%" in page and "0.0%" in page            # percent_keys
+    assert "점수 0.31" in page and "대조군" in page and "뒤집힌 문항 36%" in page
+    assert "첫 글자까지" in page and "24.32" in page and "문항당 시간" in page  # 속도
+    assert "31.25" in page and "규정·제도 문서·첫 질문" in page                  # 문항 종류별(metrics 안)
+    assert "90.0%" in page and "통과율" in page                                # 맥락 종류별 rate
+    assert "회차별" in page and "sft-merged-1" in page and "작업본이 없다" in page  # 문서 작성 회차
+    assert "SFT 어댑터 을(를) 돌리지 않았습니다" in page                         # 202 등은 어댑터 없음
+    assert '"finished": true' in page
+
+
+def test_metric_major_and_arm_major_read_the_same():
+    from zzaimy.app import model_compare as mc
+    a = mc._block({"metrics": {"chrf": {"o": 1.5, "s": 2.5}}}, ["o", "s"])
+    b = mc._block({"metrics": {"o": {"chrf": 1.5}, "s": {"chrf": 2.5}}}, ["o", "s"])
+    assert a["other"] == b["other"] and a["other"][0]["vals"] == {"o": 1.5, "s": 2.5}

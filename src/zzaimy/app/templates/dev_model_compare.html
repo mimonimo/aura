@@ -67,44 +67,63 @@
 {% if run.blocks is none %}
 <section class="card"><div class="card-in"><h2>요약</h2><span class="mc-wait">진행 중</span></div></section>
 {% endif %}
+{% macro cell(v, pct) %}{% if pct and v is not none %}{{ "%.1f"|format(v * 100) }}%{% else %}{{ v|mc_num }}{% endif %}{% endmacro %}
 {% for b in run.blocks or [] %}
+{% set A = run.arms|selectattr("key", "in", b.arms)|list %}
 <section class="card" data-mc-block="{{ b.key }}"><div class="card-in">
   <h2>{{ b.title }}</h2>
+  {% if A|length < run.arms|length %}<p class="muted" style="font-size:12px; margin:2px 0 0;">이 묶음은 {% for a in run.arms if a.key not in b.arms %}{{ a.kind_label or a.label }}{% if not loop.last %}·{% endif %}{% endfor %} 을(를) 돌리지 않았습니다.</p>{% endif %}
   <div class="mc-grid">
-    <div class="mc-part"><h3>쌍대 비교</h3>
+    {% if b.pairwise is none or b.pairwise %}
+    <div class="mc-part"><h3>둘 중 나은 답 고르기</h3>
       {% if b.pairwise is none %}<span class="mc-wait">진행 중</span>{% endif %}
       {% for p in b.pairwise or [] %}
       <div class="mc-pair">
-        <div class="mc-pair-name"><span>{{ L.get(p.a, p.a) }} 대 {{ L.get(p.b, p.b) }}</span><span class="muted">n={{ p.n }}</span></div>
+        <div class="mc-pair-name"><span>{{ L.get(p.a, p.a) }} 대 {{ L.get(p.b, p.b) }}{% if p.control %} <small class="muted">(대조군: 같은 모델 두 번)</small>{% endif %}</span><span class="muted">n={{ p.n }}</span></div>
         <div class="mc-bar" role="img" aria-label="이김 {{ p.win }} 비김 {{ p.tie }} 짐 {{ p.loss }}">
           <span class="mc-win" style="width:{{ p.win_pct }}%"></span><span class="mc-tie" style="width:{{ p.tie_pct }}%"></span><span class="mc-loss" style="width:{{ p.loss_pct }}%"></span>
         </div>
-        <div class="mc-legend">이김 {{ p.win }} · 비김 {{ p.tie }} · 짐 {{ p.loss }}{% if p.ci_low is not none and p.ci_high is not none %} · 95% 구간 {{ p.ci_low|mc_num }}~{{ p.ci_high|mc_num }}{% endif %}</div>
+        <div class="mc-legend">이김 {{ p.win }} · 비김 {{ p.tie }} · 짐 {{ p.loss }}{% if p.score is not none %} · 점수 {{ p.score|mc_num }}{% endif %}{% if p.ci_low is not none and p.ci_high is not none %} (95% 구간 {{ p.ci_low|mc_num }}~{{ p.ci_high|mc_num }}){% endif %}{% if p.flip_rate is not none %} · 순서를 바꾸면 판정이 뒤집힌 문항 {{ "%.0f"|format(p.flip_rate * 100) }}%{% endif %}</div>
       </div>
       {% endfor %}
     </div>
-    <div class="mc-part"><h3>항목별 평균</h3>
+    {% endif %}
+    {% if b.dims is none or b.dims %}
+    <div class="mc-part"><h3>항목별 평균(1~5)</h3>
       {% if b.dims is none %}<span class="mc-wait">진행 중</span>{% else %}
-      <table class="mc-table"><thead><tr><th>항목</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
-        <tbody>{% for r in b.dims %}<tr><td>{{ r.name }}</td>{% for a in run.arms %}<td>{% if r.pct and r.vals.get(a.key) is not none %}{{ "%.1f"|format(r.vals.get(a.key) * 100) }}%{% else %}{{ r.vals.get(a.key)|mc_num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+      <table class="mc-table"><thead><tr><th>항목</th>{% for a in A %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for r in b.dims %}<tr><td>{{ r.name }}</td>{% for a in A %}<td>{{ cell(r.vals.get(a.key), false) }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
       {% endif %}
     </div>
+    {% endif %}
+    {% if b.other %}
+    <div class="mc-part"><h3>지표</h3>
+      <table class="mc-table"><thead><tr><th>지표</th>{% for a in A %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for r in b.other %}<tr><td>{{ r.name }}</td>{% for a in A %}<td>{{ cell(r.vals.get(a.key), r.pct) }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+    </div>
+    {% endif %}
+    {% if b.speed is none or b.speed %}
     <div class="mc-part"><h3>속도</h3>
-      {% if not b.speed %}<span class="mc-wait">진행 중</span>{% else %}
-      <table class="mc-table"><thead><tr><th>지표</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
-        <tbody>{% for r in b.speed %}<tr><td>{{ r.name }}</td>{% for a in run.arms %}<td>{% if r.pct and r.vals.get(a.key) is not none %}{{ "%.1f"|format(r.vals.get(a.key) * 100) }}%{% else %}{{ r.vals.get(a.key)|mc_num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
-      {% endif %}
-      {% if b.other %}
-      <h3 style="margin-top:12px;">그 밖의 지표</h3>
-      <table class="mc-table"><tbody>{% for r in b.other %}<tr><td>{{ r.name }}</td>{% for a in run.arms %}<td>{% if r.pct and r.vals.get(a.key) is not none %}{{ "%.1f"|format(r.vals.get(a.key) * 100) }}%{% else %}{{ r.vals.get(a.key)|mc_num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+      {% if b.speed is none %}<span class="mc-wait">진행 중</span>{% else %}
+      <table class="mc-table"><thead><tr><th>지표</th>{% for a in A %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for r in b.speed %}<tr><td>{{ r.name }}</td>{% for a in A %}<td>{{ cell(r.vals.get(a.key), r.pct) }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
       {% endif %}
     </div>
-    <div class="mc-part"><h3>서류 종류별</h3>
+    {% endif %}
+    {% if b.per_type is none or b.per_type %}
+    <div class="mc-part"><h3>문항 종류별</h3>
       {% if b.per_type is none %}<span class="mc-wait">진행 중</span>{% else %}
-      <table class="mc-table"><thead><tr><th>종류</th><th>n</th>{% for a in run.arms %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
-        <tbody>{% for r in b.per_type %}<tr><td>{{ r.type }}</td><td>{{ r.n }}</td>{% for a in run.arms %}<td>{% if r.pct and r.vals.get(a.key) is not none %}{{ "%.1f"|format(r.vals.get(a.key) * 100) }}%{% else %}{{ r.vals.get(a.key)|mc_num }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+      <table class="mc-table"><thead><tr><th>종류 · 지표</th><th>n</th>{% for a in A %}<th>{{ a.kind_label or a.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for t in b.per_type %}{% for r in t.rows %}<tr><td>{% if loop.first %}{{ t.type }}{% endif %}{% if r.name %}<small class="muted">{% if loop.first %} · {% endif %}{{ r.name }}</small>{% endif %}</td><td>{% if loop.first %}{{ t.n }}{% endif %}</td>{% for a in A %}<td>{{ cell(r.vals.get(a.key), r.pct) }}</td>{% endfor %}</tr>{% endfor %}{% endfor %}</tbody></table>
       {% endif %}
     </div>
+    {% endif %}
+    {% if b.runs %}
+    <div class="mc-part"><h3>회차별</h3>
+      <table class="mc-table"><thead><tr><th>지표</th>{% for c in b.runs.cols %}<th title="{{ L.get(c.arm, c.arm) }}">{{ c.label }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for r in b.runs.rows %}<tr><td>{{ r.name }}</td>{% for v in r.vals %}<td>{% if v is string %}{{ v }}{% else %}{{ cell(v, r.pct) }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
+    </div>
+    {% endif %}
   </div>
 </div></section>
 {% endfor %}
@@ -120,7 +139,7 @@
     </ul>
     <div class="mc-detail" data-mc-detail aria-live="polite"></div>
   </div>
-  <script type="application/json" id="mc-data">{{ {"samples": run.samples, "arms": run.arms} | tojson }}</script>
+  <script type="application/json" id="mc-data">{{ {"samples": run.samples, "arms": run.arms, "finished": run.finished} | tojson }}</script>
   {% endif %}
 </div></section>
 
@@ -168,7 +187,10 @@
     if (s.gold) { detail.appendChild(el("h4", "", "기준 답")); detail.appendChild(el("pre", "mc-text", s.gold)); }
     detail.appendChild(el("h4", "", "출력"));
     var cols = el("div", "mc-cols");
-    var arms = data.arms.length ? data.arms : Object.keys(s.outputs || {}).map(function (k) { return { key: k, label: k }; });
+    var seen = {};   // 표본에 출력이 하나라도 있는 갈래만 칸으로(돌리지 않은 갈래는 칸을 만들지 않는다)
+    data.samples.forEach(function (x) { Object.keys(x.outputs || {}).forEach(function (k) { seen[k] = 1; }); });
+    var arms = data.arms.length ? data.arms.filter(function (a) { return !data.finished || seen[a.key]; })
+                                : Object.keys(s.outputs || {}).map(function (k) { return { key: k, label: k }; });
     arms.forEach(function (a) {
       var col = el("div", "mc-col");
       col.appendChild(el("div", "", a.kind_label || a.label || a.key));
@@ -177,12 +199,12 @@
       Object.keys(sc).forEach(function (k) { chips.appendChild(el("span", "mc-score", (DIM[k] || k) + " " + sc[k])); });
       col.appendChild(chips);
       var out = (s.outputs || {})[a.key];
-      col.appendChild(el("pre", "mc-text", out === undefined ? "진행 중" : out));
+      col.appendChild(el("pre", "mc-text", out === undefined ? (data.finished ? "이 문항은 돌리지 않음" : "진행 중") : out));
       cols.appendChild(col);
     });
     detail.appendChild(cols);
     detail.appendChild(el("h4", "", "판정 이유"));
-    detail.appendChild(el("pre", "mc-text", s.judge_reason || "진행 중"));
+    detail.appendChild(el("pre", "mc-text", s.judge_reason || (data.finished ? "—" : "진행 중")));
   }
   list.addEventListener("click", function (e) {
     var b = e.target.closest("button[data-i]");
