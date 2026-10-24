@@ -119,7 +119,7 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
                 if await request.is_disconnected():
                     break
                 wake.clear()
-                evs = await run_in_threadpool(ce.events_since, db, fid, last_id, 20)
+                evs = await run_in_threadpool(lambda: ce.events_since(db, fid, last_id, 20, full=False))
                 for e in evs:
                     if e["id"] in seen or e["id"] <= last_id - 20 or e["id"] <= floor:
                         continue

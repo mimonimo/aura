@@ -410,7 +410,7 @@ def test_overlay_geometry_from_editor_model_not_screen_caret():
     assert "caretRect" not in ui and "(다른 창)" not in ui
     assert "co-box hl" in ui and "co-caret" in ui and "co-people" in ui        # 구글 독스 꼴(옅은 바탕·커서·이름 깃발)·같이 있는 사람 목록
     assert "kind: 'here'" not in ui                                             # 보는 중인 칸은 문서 위에 그리지 않는다
-    assert "t !== ''" in ui and "< 1500" in ui                                  # 빈 칸·입력 직후에는 재지 않는다
+    assert "x === ''" in ui and "< 1500" in ui                                  # 빈 칸·입력 직후에는 재지 않는다
     assert "'co-av me', '나'" in ui                                             # 나 동그라미
     assert "co-block" in ui and "emitLocal('blocked'" in ui                     # 남의 칸 누름은 막고 알린다(글이 앞 칸으로 새지 않게)
     assert "'co-box multi'" in ui and "'co-box bar'" not in ui                  # 머리줄 .bar 꾸밈과 겹치지 않게
@@ -484,7 +484,7 @@ def test_delta_ops_apply_on_server_text_and_fall_back_to_full_text(tmp_path, mon
     op = {"seq": 2, "field": F, "base": 1, "at": 100, "del": 3, "ins": "새 글", "fp": ce.fingerprint(want)}
     r = ce.apply_ops(db, fid, "kim", "k1", [op])[0]
     assert r["ok"] and r["version"] == 2 and ce.state(db, fid)[F]["text"] == want
-    ev = [e for e in ce.events_since(db, fid, 0) if e["kind"] == "field-updated"][-1]["data"]
+    ev = [e for e in ce.events_since(db, fid, 0, full=False) if e["kind"] == "field-updated"][-1]["data"]
     assert "text" not in ev and ev["ins"] == "새 글" and ev["base"] == 1 and ev["fp"] == ce.fingerprint(want)
     # 판이 어긋남 → delta(기록 안 함), 지문이 다름 → delta
     bad = dict(op, seq=3, base=1)
@@ -540,7 +540,7 @@ def test_editor_sends_and_applies_deltas_and_keeps_cursor_by_field():
     assert "function diffText(" in c and "fp: fp(op.text)" in c and "r.reason === 'delta'" in c and "full: true" in c
     assert "hwp.applyDelta(" in c and "fetchFields([f])" in c and "'/coedit?'" in c
     assert "slice(0, 50000)" not in c and "field_max" in c
-    assert "function applyDelta(" in w and "SelectText(" in w and "BreakPara" in w and "setEditable(name, true, true)" in w
+    assert "function applyDelta(" in w and "SelectText(" in w and "InsertText" in w and "setEditable(name, true, true)" in w
     assert "c.rel = {field: f" in w and "LockCommand('Undo', on)" in w
     assert "hwp.lockUndo(true)" in c and "hwp.lockUndo(false)" in c
 
@@ -569,3 +569,47 @@ def test_release_does_not_wait_for_write_back_and_cache_follows_file(tmp_path, m
     p = Path(webhwp.get(db, fid)["path"])                                # 밖에서 파일이 바뀌면(문서 전체 저장) 캐시는 다시 푼다
     p.write_bytes(ww.set_fields(p.read_bytes(), {"칸:사업명": "밖에서"})[0])
     assert ce._file_values(db, fid)["칸:사업명"] == "밖에서"
+
+
+def test_agent_writes_as_deltas_and_streams_sections_in_parallel(tmp_path, monkeypatch):
+    """AURA 쓰기도 바뀐 부분으로 — 알림에 글 전체가 실리지 않는다. 여러 절을 절마다 따로 임대(AURA 창 번호)로 나란히 흘려 쓰고,
+    사람이 쥔 절은 건너뛴다. 다 쓰면 놓는다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    ce.put(db, fid, ce.AGENT, {"절:1. 변경 사유": "가" * 5000})
+    ce.put(db, fid, ce.AGENT, {"절:1. 변경 사유": "가" * 5000 + "\n덧붙임"})
+    ev = [e for e in ce.events_since(db, fid, 0, full=False) if e["kind"] == "field-updated"][-1]["data"]
+    assert "text" not in ev and ev["ins"] == "\n덧붙임"
+    ce.acquire(db, fid, "절:2. 변경 내역", "kim", "k1")
+    seen = []
+    real = ce.acquire
+    monkeypatch.setattr(ce, "acquire", lambda *a, **k: (seen.append(a[4] if len(a) > 4 else k.get("client")), real(*a, **k))[1])
+    done, held = ce.put_sections(db, fid, {"절:1. 변경 사유": "첫 문단\n둘째 문단", "절:3. 성과지표·사업 추진에 미치는 영향": "가\n나\n다",
+                                           "절:2. 변경 내역": "못 씀"}, base=base)
+    assert sorted(done) == ["절:1. 변경 사유", "절:3. 성과지표·사업 추진에 미치는 영향"] and held == {"절:2. 변경 내역": "kim"}
+    assert len(set(seen)) == 3 and all(c.startswith("aura:") for c in seen)          # 절마다 따로 창 번호
+    st = ce.state(db, fid)
+    assert st["절:3. 성과지표·사업 추진에 미치는 영향"]["text"] == "가\n나\n다" and st["절:3. 성과지표·사업 추진에 미치는 영향"]["version"] == 3
+    assert set(ce.locks(db, fid)) == {"절:2. 변경 내역"}                                # AURA 는 다 쓰고 놓았다
+
+
+def test_presence_carries_page_and_own_live_windows(tmp_path, monkeypatch):
+    """같이 있는 사람에 쪽 번호(「이름 · N쪽 · 절」), presence 답에 내 살아 있는 창 — 닫힌 내 옛 창이 쥔 칸은 새 창이 이어받는다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    kim.post(f"/hwp/{fid}/presence", json={"client": "k-old", "field": "칸:사업명", "page": 12})
+    j = park.post(f"/hwp/{fid}/presence", json={"client": "p1", "field": "", "page": 3}).json()
+    me = [p for p in j["people"] if p["user"] == "kim"][0]
+    assert me["page"] == 12 and j["windows"] == [{"user": "park", "client": "p1"}]       # 창 목록은 내 것만
+    j2 = kim.post(f"/hwp/{fid}/presence", json={"client": "k-new", "field": ""}).json()
+    assert {w["client"] for w in j2["windows"]} == {"k-old", "k-new"}
+    snap = kim.get(f"/hwp/{fid}/coedit").json()
+    assert {"user": "kim", "client": "k-old"} in snap["windows"]
+
+
+def test_editor_slices_inbox_measures_one_field_and_takes_over_closed_window():
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app/static"
+    w, c = (root / "webhwp-wrapper.js").read_text(), (root / "webhwp-collab.js").read_text()
+    assert "SLICE_MS" in c and "prioritize" in c and "function stepsFor(" in c                 # 나눠 넣기·보이는 칸 먼저·전체 글도 바뀐 부분으로
+    assert "hwp.fieldGeom([pick])" in c and "invalidateFrom(" in c and "nearView(" in c          # 한 번에 한 칸, 화면 근처만
+    assert "otherWindowGone(" in c and "learnWindows(" in c                                       # 닫힌 내 옛 창 칸 이어받기
+    assert "p.page + '쪽'" in c and "KeyIndicator()" in w and "page: page" in c                  # 쪽 번호

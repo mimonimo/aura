@@ -92,7 +92,17 @@
     var fieldsMode = function () { return fieldList.length > 0 && !readonly && !fieldsOff; };
     function alive(lk) { return lk && lk.until * 1000 > now(); }
     // 남이 쥔 칸 — 다른 사람, 또는 같은 사람의 다른 창(창 번호가 다름)
-    function heldByOther(f) { var lk = locks[f]; return alive(lk) && (lk.user !== me || (!!lk.client && lk.client !== client)); }
+    // 내 다른 창이 쥔 칸도 남의 칸이다 — 다만 그 창이 닫히거나 멈춰(같이 있는 사람 신호가 끊김) 살아 있지 않으면 이 창이 이어받는다.
+    // 예전에는 갑자기 닫힌 창의 임대가 남아 같은 사람의 새 창도 그 칸을 5분 동안 못 썼다
+    var myWindows = null;                      // 서버가 아는 내 살아 있는 창 번호(presence 답) — 모르면(null) 막아 둔다
+    function otherWindowGone(c) { return myWindows !== null && !myWindows[c]; }
+    function heldByOther(f) {
+      var lk = locks[f];
+      if (!alive(lk)) return false;
+      if (lk.user !== me) return true;
+      return !!lk.client && lk.client !== client && !otherWindowGone(lk.client);
+    }
+    function learnWindows(list) { if (!list) return; myWindows = {}; list.forEach(function (w) { if (w.user === me) myWindows[w.client] = 1; }); }
     function isMine(f) { var lk = locks[f]; return !!mine[f] && (!lk || (lk.user === me && (!lk.client || lk.client === client))); }
     function pending() { return Object.keys(outbox).length + Object.keys(dirty).length + (inflight ? 1 : 0); }
     function status() {
@@ -234,29 +244,48 @@
       if (applyTimer) return;
       applyTimer = setTimeout(applyInbox, delay || 0);
     }
+    // 받은 칸이 많을 때(AURA 가 216절을 한꺼번에 씀) 한 작업에서 다 넣으면 451쪽 문서에서 화면이 30~70초 멈췄다 — 한 번에 SLICE_MS 만 넣고 쉬며,
+    // 입력이 생기면 멈춘다. 보이는 칸(화면이 알려 주는 순서, 없으면 내 커서 칸에서 가까운 칸)부터 넣는다
+    var SLICE_MS = 30, rankOf = null, fieldIdx = {};
+    function order(keys) {
+      var me_ = fieldIdx[curField] || 0;
+      var r = rankOf || function (f) { return Math.abs((fieldIdx[f] === undefined ? 1e9 : fieldIdx[f]) - me_); };
+      return keys.sort(function (a, b) { return r(a) - r(b); });
+    }
+    function stepsFor(d, local) {                     // 넣을 바뀐 부분 — 알림에 실려 왔으면 그것, 전체 글로 왔으면 내 글과 견줘서 하나
+      var k = known[d.field];
+      if (!k || norm(local) !== k.text) return null;
+      if (d.steps && d.steps.length && k.v === d.from) return d.steps;
+      var x = diffText(k.text, d.text);
+      // 칸 대부분을 바꾸는 짧은 칸(AURA 가 절을 새로 씀)은 통째 쓰기가 더 싸다(451쪽 3,000자 칸: 통째 180ms, 지우고 넣기 211~250ms)
+      if (x.del > k.text.length / 2 && k.text.length < 20000) return null;
+      return [{at: cpLen(k.text.slice(0, x.at)), del: cpLen(k.text.slice(x.at, x.at + x.del)), ins: x.ins}];
+    }
     function applyInbox() {
       applyTimer = null;
       var keys = Object.keys(inbox);
       if (!keys.length) return;
       var idle = now() - hwp.lastInputAt();
       if (hwp.isComposing() || hwp.isProbing() || idle < conf.pause_ms) { scheduleApply(Math.max(30, conf.pause_ms - idle + 20)); return; }
-      var cur = null, rich = [];
-      keys.forEach(function (f) {
-        var d = inbox[f]; delete inbox[f];
-        if (!fieldSet[f]) { known[f] = {v: d.version, text: d.text}; return; }
-        if (!d.force && known[f] && d.version <= known[f].v) return;
+      var cur = null, rich = [], t0 = performance.now(), wrote = false;
+      order(keys);
+      for (var i = 0; i < keys.length; i++) {
+        if (i && performance.now() - t0 > SLICE_MS) break;          // 나머지는 다음 조각에
+        var f = keys[i], d = inbox[f]; delete inbox[f];
+        if (!fieldSet[f]) { known[f] = {v: d.version, text: d.text}; continue; }
+        if (!d.force && known[f] && d.version <= known[f].v) continue;
         if (dirty[f]) collect();                               // 내 고침을 먼저 보낼 줄에 — 서버가 충돌 사본으로 남긴다
         var local = hwp.read(f);
-        if (d.rich && conf.rich) { rich.push(d); known[f] = {v: d.version, text: d.text}; return; }
+        if (d.rich && conf.rich) { rich.push(d); known[f] = {v: d.version, text: d.text}; continue; }
         if (local !== null && norm(local) !== d.text) {
           cur = cur || hwp.getCursor();
-          applying = true;
+          applying = true; wrote = true;
           // 바뀐 부분만 그 자리에(통째 쓰기는 칸 전체를 다시 그려 451쪽 문서의 5만 자 절에서 2~4초 걸렸다). 내 화면 글이 바뀌기 전 글과 같을 때만,
           // 넣은 뒤 글이 안 맞으면 전체 쓰기로
-          var okd = false;
-          if (d.steps && d.steps.length && known[f] && known[f].v === d.from && norm(local) === known[f].text && hwp.applyDelta) {
+          var okd = false, steps = hwp.applyDelta ? stepsFor(d, local) : null;
+          if (steps) {
             var t = known[f].text;
-            okd = d.steps.every(function (st) { var a = u16At(t, st.at), b = u16At(t.slice(a), st.del) + a, ok = hwp.applyDelta(f, t, a, b - a, st.ins); t = t.slice(0, a) + st.ins + t.slice(b); return ok; });
+            okd = steps.every(function (st) { var a = u16At(t, st.at), b = u16At(t.slice(a), st.del) + a, ok = hwp.applyDelta(f, t, a, b - a, st.ins); t = t.slice(0, a) + st.ins + t.slice(b); return ok; });
             if (okd) { var after = hwp.read(f); okd = after !== null && norm(after) === d.text; }
           }
           if (!okd) hwp.write(f, d.text);
@@ -264,8 +293,10 @@
         }
         known[f] = {v: d.version, text: d.text};
         emit('applied', f, d);
-      });
-      if (cur) { hwp.restoreCursor(cur); if (hwp.lockUndo) hwp.lockUndo(true); }
+      }
+      if (cur) hwp.restoreCursor(cur);
+      if (wrote && hwp.lockUndo) hwp.lockUndo(true);
+      if (Object.keys(inbox).length) { clearTimeout(applyTimer); applyTimer = setTimeout(applyInbox, 0); }   // 남은 것은 쉬었다가(입력이 끼면 위에서 미룬다)
       if (Object.keys(outbox).length) scheduleFlush();
       (function next() {                                // 서식째 받은 절 — 기안기 JSON 블록으로 그 칸을 바꾼다. 안 되면 글만
         var d = rich.shift();
@@ -333,17 +364,20 @@
       }
       emit('caret', f);
     }
+    var lastPage = 0;
     function presence(force) {
       if (!force && now() - lastPresence < 8000) return;
       lastPresence = now();
-      post('/presence', {client: client, field: curField}).then(function (j) {
+      var page = hwp.isComposing() || !hwp.caretPage ? lastPage : (lastPage = hwp.caretPage());   // 쪽 번호(조합 중에는 묻지 않는다)
+      post('/presence', {client: client, field: curField, page: page}).then(function (j) {
         if (!j || !j.people) return;                  // 서버가 아는 같이 있는 사람으로 맞춘다(가만히 있는 사람도 남게)
+        learnWindows(j.windows);
         var seen = {};
         j.people.forEach(function (p) {
           if (p.name) names[p.user] = p.name;
           if (p.client === client && p.user === me) return;
           var k = p.user + '\u001f' + p.client; seen[k] = 1;
-          people[k] = {user: p.user, field: p.field, at: now()};
+          people[k] = {user: p.user, field: p.field, page: p.page || 0, at: now()};
         });
         Object.keys(people).forEach(function (k) { if (!seen[k]) delete people[k]; });
         emit('people', peopleList());
@@ -392,7 +426,7 @@
       h('presence', function (d) {
         var k = d.user + '\u001f' + d.client;          // 같이 보는 사람은 사람+창으로 가른다(서버도 그렇게 묶는다)
         if (d.left) delete people[k];
-        else if (!(d.client === client && d.user === me)) people[k] = {user: d.user, field: d.field, at: now()};
+        else if (!(d.client === client && d.user === me)) people[k] = {user: d.user, field: d.field, page: d.page || 0, at: now()};
         emit('people', peopleList());
       });
       h('doc-saved', function (d) { if (d.by !== me) emit('doc-saved', d); });
@@ -407,7 +441,7 @@
     }
     function peopleList() {
       var by = {}, t = now() - conf.presence_ttl * 1000;
-      Object.keys(people).forEach(function (c) { var p = people[c]; if (p.at >= t && p.user !== me) by[p.user] = {user: p.user, name: nameOf(p.user), field: p.field}; });
+      Object.keys(people).forEach(function (c) { var p = people[c]; if (p.at >= t && p.user !== me) by[p.user] = {user: p.user, name: nameOf(p.user), field: p.field, page: p.page || 0}; });
       return Object.keys(by).map(function (u) { return by[u]; });
     }
 
@@ -448,11 +482,13 @@
           if (lk.user === me && (!lk.client || lk.client === client) && mine[f] === undefined) mine[f] = lk.until;
         });
         var t = now();
-        (s.people || []).forEach(function (p) { if (!(p.client === client && p.user === me)) people[p.user + '\u001f' + p.client] = {user: p.user, field: p.field, at: t}; });
-        var srv = s.fields || {}, local = hwp.readMany(fieldList.filter(function (f) { return srv[f]; }));
+        (s.people || []).forEach(function (p) { if (!(p.client === client && p.user === me)) people[p.user + '\u001f' + p.client] = {user: p.user, field: p.field, page: p.page || 0, at: t}; });
+        if (s.windows) learnWindows(s.windows);
+        // 칸 글은 한 번에 읽는다(942칸을 하나씩 읽으면 열 때 0.3초)
+        var srv = s.fields || {}, local = hwp.readMany(fieldList.filter(function (f) { return srv[f] || !known[f]; }));
         fieldList.forEach(function (f) {
           var x = srv[f];
-          if (!x) { if (!known[f]) known[f] = {v: 0, text: norm(hwp.read(f))}; return; }
+          if (!x) { if (!known[f]) known[f] = {v: 0, text: norm(local[f])}; return; }
           var k = known[f];
           if (!k || x.version > k.v) inbox[f] = {field: f, version: x.version, text: x.text, rich: x.rich, force: true};
           else if (x.version === k.v && !dirty[f] && !outbox[f] && fp(local[f]) !== x.fp) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
@@ -485,7 +521,7 @@
     function start() {
       hwp.attach();
       fieldList = readonly ? [] : hwp.fields();
-      fieldSet = {}; fieldList.forEach(function (f) { fieldSet[f] = true; });
+      fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
       hwp.onLocalEdit(function (ev) {
         if (applying || !fieldsMode()) return;
         if (!(ev && ev.composing) && hwp.lockUndo) hwp.lockUndo(false);   // 내가 고치면 되돌리기를 다시 연다(내 고침이 맨 위)
@@ -534,14 +570,15 @@
     function reopened() {
       hwp.attach(); hwp.resetEditable();
       fieldList = readonly ? [] : hwp.fields();
-      fieldSet = {}; fieldList.forEach(function (f) { fieldSet[f] = true; });
+      fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
       known = {};
       if (fieldsMode()) hwp.setFormMode(!o.structureMode || !o.structureMode());
       return resync(true).then(function () { applyInbox(); });
     }
     return {
       start: start, on: on, emitLocal: emit, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
-      handover: function (f) { return letGo(f, true); }, reopened: reopened, resync: resync, applyEditable: applyEditable,
+      handover: function (f) { return letGo(f, true); }, reopened: reopened, prioritize: function (fn) { rankOf = fn; },
+      indexOf: function (f) { return fieldIdx[f] === undefined ? 1e9 : fieldIdx[f]; }, resync: resync, applyEditable: applyEditable,
       client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
       people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
       pending: pending, aura: function () { return aura; }, setReadOnly: function (v) { readonly = !!v; },
@@ -563,7 +600,7 @@
     // 남이 쥔 칸 — 다른 사람, 또는 내 다른 창. 내 이 창이 쥔 칸은 표시하지 않는다
     function holderOf(f) {
       var lk = eng.locks()[f];
-      if (!lk || lk.until * 1000 <= Date.now()) return null;
+      if (!lk || lk.until * 1000 <= Date.now() || !eng.heldByOther(f)) return null;   // 닫힌 내 옛 창의 칸은 남의 칸이 아니다
       if (lk.user !== o.me) return {user: lk.user, label: eng.nameOf(lk.user)};
       if (lk.client && lk.client !== eng.client) return {user: lk.user, label: eng.nameOf(lk.user), self: true};
       return null;
@@ -590,7 +627,7 @@
         b.textContent = p.user === 'AURA' ? 'A' : (p.name || p.user).slice(0, 1);
         var hf = p.user === 'AURA' ? p.field : heldBy(p.user); if (hf) p.field = hf;
         var editing = !!hf;
-        var label = (p.name || p.user) + (p.field ? ' · ' + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : ' · 문서 보는 중');
+        var label = (p.name || p.user) + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field ? ' · ' + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : ' · 문서 보는 중');
         b.title = label; b.setAttribute('aria-label', label + (p.field && eng.hasField(p.field) ? ' — 눌러서 그 칸으로' : ''));
         if (editing) b.classList.add('editing');
         b.onclick = function () { if (p.field && eng.hasField(p.field)) hwp.moveTo(p.field, false); };
@@ -611,8 +648,9 @@
         var hf2 = p.me ? '' : p.user === 'AURA' ? p.field : heldBy(p.user); if (hf2) p.field = hf2;
         var editing = !!hf2;
         r.appendChild(d); r.appendChild(el('span', '', p.name || p.user));
-        var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (p.field ? ' · ' + short(where(p.field)) : ''));
-        if (p.field) sm.title = where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중');
+        // 「쓰는 중 · N쪽 · 절」 — 큰 문서에서 어디쯤인지 쪽으로 먼저 보인다. 누르면 그 칸으로
+        var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field ? ' · ' + short(where(p.field)) : ''));
+        if (p.field) sm.title = (p.page ? p.page + '쪽 · ' : '') + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중');
         r.appendChild(sm);
         if (!p.me && p.field && eng.hasField(p.field)) r.onclick = function () { hwp.moveTo(p.field, false); popOpen = false; pop.hidden = true; };
         pop.appendChild(r);
@@ -629,18 +667,36 @@
       // 남의 커서만 있는 칸(보는 중)은 문서 위에 그리지 않는다 — 재려면 커서를 그 칸에 넣어야 해서 빈 칸 안내 글이 지워졌다(10-24). 아바타 풀이말로만 보인다
       return out;
     }
-    // 쪽 좌표 재기 — 기안기 내부 커서 모델로 같은 작업 단위 안에서(화면 커서·스크롤은 그대로). 입력·조합 중이면 미룬다
+    // 쪽 좌표 재기 — 기안기 내부 커서 모델로 같은 작업 단위 안에서(화면 커서·스크롤은 그대로). 입력·조합 중이면 미룬다.
+    // 큰 문서에서는 재기 한 번이 칸마다 커서를 두 번 옮겨 451쪽·20칸에 46~65ms였다 — 이제 칸마다 자리를 기억해 두고 한 번에 한 칸만 잰다:
+    // 처음 보는 칸(내 커서 칸에서 가까운 칸부터), 그다음 화면 근처 칸 중 바뀌었을 수 있는 칸(앞쪽 칸 글이 바뀜·4초 지남). 화면 밖 칸은 화면에 들어올 때 잰다
+    var stale = {}, staleAt = {};
+    function nearView(g) {
+      var a = hwp.toScreen(g.page, g.x, g.y);
+      if (!a) return false;
+      var h = a.view.bottom - a.view.top;
+      return a.y > a.view.top - h && a.y < a.view.bottom + h;
+    }
     function measure(force) {
-      var want = Object.keys(wanted()), key = want.join('\u0002');
-      if (!want.length) { geo = {}; geoWant = ''; return; }
-      var missing = want.some(function (f) { return !geo[f]; });          // 아직 자리를 모르는 칸이 있으면 1초마다 다시(모르는 동안은 누름 막이 없다)
-      if (!force && key === geoWant && Date.now() - geoAt < (missing ? 1000 : 4000)) return;
+      var want = Object.keys(wanted());
+      Object.keys(geo).forEach(function (f) { if (want.indexOf(f) < 0) delete geo[f]; });
+      if (!want.length) { geoWant = ''; return; }
       if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1500) return;   // 누르거나 치는 중에는 재지 않는다 — 재는 동안 커서를 옮겼다 되돌려 막 누른 자리를 덮었다
-      want = want.filter(function (f) { var t = hwp.read(f); return t != null && t !== ''; });   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
-      if (!want.length) { geo = {}; geoWant = ''; return; }                 // 글이 오면 다시 잰다
-      var g = hwp.fieldGeom(want);
+      var t = Date.now(), kn = eng.known();
+      var empty = function (f) { var k = kn[f]; if (k && typeof k.text === 'string') return k.text === ''; var x = hwp.read(f); return x == null || x === ''; };   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
+      var cur = eng.current(), idx = eng.indexOf ? eng.indexOf : function () { return 0; }, me_ = idx(cur);
+      var pick = want.filter(function (f) { return !geo[f] && !empty(f); }).sort(function (a, b) { return Math.abs(idx(a) - me_) - Math.abs(idx(b) - me_); })[0];
+      if (!pick) pick = want.filter(function (f) { return geo[f] && (stale[f] || t - (staleAt[f] || 0) > 4000 || force) && nearView(geo[f]) && !empty(f); })[0];
+      if (!pick) return;
+      var g = hwp.fieldGeom([pick]);
       if (!g) return;
-      geo = g; geoAt = Date.now(); geoWant = key;
+      if (g[pick]) geo[pick] = g[pick];
+      delete stale[pick]; staleAt[pick] = t; geoAt = t;
+    }
+    // 칸 글이 바뀌면 그 칸과 뒤쪽 칸 자리가 밀렸을 수 있다
+    function invalidateFrom(f) {
+      var idx = eng.indexOf ? eng.indexOf : function () { return 0; }, i = f ? idx(f) : -1;
+      Object.keys(geo).forEach(function (g) { if (!f || idx(g) >= i) stale[g] = 1; });
     }
     function mark(f) {
       var m = marks[f];
@@ -714,12 +770,14 @@
     }
     function tick() { if (hwp.isComposing()) return; try { measure(false); render(); } catch (e) {} }   // 한글 조합 중에는 손대지 않는다
     setInterval(tick, 250);                              // 화면 좌표는 매번 다시(스크롤·확대·창 크기), 쪽 좌표는 바뀔 때·4초마다
-    function soon() { geoWant = ''; setTimeout(tick, 0); }
+    function soon() { setTimeout(tick, 0); }
     eng.on('locks', function () { drawAvatars(); soon(); });
     eng.on('people', function () { drawAvatars(); soon(); });
     eng.on('aura', function (a) { auraState = a || {}; drawAvatars(); soon(); });
-    eng.on('applied', soon);
-    hwp.onLocalEdit(function () { geoWant = ''; });
+    eng.on('applied', function (f) { invalidateFrom(f); soon(); });
+    hwp.onLocalEdit(function () { invalidateFrom(eng.current()); });
+    // 보이는 칸부터 받아 넣게 — 자리를 아는 칸은 화면 근처면 앞으로
+    if (eng.prioritize) eng.prioritize(function (f) { var g = geo[f]; return g && nearView(g) ? -1 : (eng.indexOf ? Math.abs(eng.indexOf(f) - eng.indexOf(eng.current())) : 0); });
 
     // 안내 띠 — 한 번에 하나, 단추는 키보드로도(Esc 로 닫기)
     var barKind = '', barTimer = null;

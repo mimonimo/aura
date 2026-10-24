@@ -108,15 +108,17 @@ def ensure(db) -> None:
         with db._conn() as conn:
             conn.executescript(_SCHEMA)
         # 고친 기록에 바뀐 부분 칸(delta) — 앞서 만든 표에는 칸을 더한다(다른 프로세스가 먼저 더했으면 그대로)
-        try:
-            with db._conn() as conn:
-                conn.execute("SELECT delta FROM webhwp_field_edits LIMIT 0")
-        except Exception:
+        for table, col, ddl in (("webhwp_field_edits", "delta", "TEXT NOT NULL DEFAULT ''"),
+                                ("webhwp_presence", "page", "INTEGER NOT NULL DEFAULT 0")):   # 같이 있는 사람의 쪽 번호
             try:
                 with db._conn() as conn:
-                    conn.execute("ALTER TABLE webhwp_field_edits ADD COLUMN delta TEXT NOT NULL DEFAULT ''")
+                    conn.execute(f"SELECT {col} FROM {table} LIMIT 0")
             except Exception:
-                log.info("고친 기록 delta 칸 — 이미 있음")
+                try:
+                    with db._conn() as conn:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+                except Exception:
+                    log.info("%s.%s 칸 — 이미 있음", table, col)
         _ENSURED.add(db.path)
 
 
@@ -212,8 +214,9 @@ def emit(db, fid: int, kind: str, data: dict, conn=None) -> None:
             log.exception("알림 줄 정리 실패")
 
 
-def events_since(db, fid: int, last_id: int, lookback: int = 0) -> list[dict]:
-    """last_id 뒤 알림(PostgreSQL 은 번호 순서와 확정 순서가 다를 수 있어 lookback 만큼 앞에서부터 읽고 부르는 쪽이 본 번호를 거른다)."""
+def events_since(db, fid: int, last_id: int, lookback: int = 0, *, full: bool = True) -> list[dict]:
+    """last_id 뒤 알림(PostgreSQL 은 번호 순서와 확정 순서가 다를 수 있어 lookback 만큼 앞에서부터 읽고 부르는 쪽이 본 번호를 거른다).
+    full 이면 바뀐 부분만 실린 칸 알림에 그 칸의 지금 글(text)을 채운다 — 예전 칸 공유 경로(live_since)는 글 전체를 기대한다. 알림 흐름(SSE)은 full=False."""
     ensure(db)
     with db._conn() as conn:
         rows = conn.execute("SELECT id, kind, data FROM webhwp_events WHERE fid = ? AND id > ? ORDER BY id LIMIT 500",
@@ -224,6 +227,14 @@ def events_since(db, fid: int, last_id: int, lookback: int = 0) -> list[dict]:
             out.append({"id": int(r[0]), "kind": r[1], "data": json.loads(r[2] or "{}")})
         except ValueError:
             continue
+    if full:
+        need = {e["data"].get("field") for e in out if e["kind"] == "field-updated" and "text" not in e["data"]}
+        if need:
+            cur = state(db, fid, [f for f in need if f], with_text=True)
+            for e in out:
+                d = e["data"]
+                if e["kind"] == "field-updated" and "text" not in d and d.get("field") in cur:
+                    d["text"] = cur[d["field"]]["text"]
     return out
 
 
@@ -512,14 +523,97 @@ def put(db, fid: int, user: str, values: dict, *, base: Path | None = None, clie
     돌려주는 것은 (쓴 필드, {못 쓴 필드: 쥔 사람})."""
     client = client or f"{user}:server"
     seq0 = int(time.time() * 1000)
-    ops = [{"seq": seq0 + i, "field": k, "text": v} for i, (k, v) in enumerate(values.items())]
+    # 바뀐 부분으로 보낸다(받는 화면이 칸 전체를 다시 그리지 않게) — 사이에 판이 바뀌어 안 받으면 그 칸만 전체 글로
+    ops = [delta_op(db, fid, k, v, seq0 + i) for i, (k, v) in enumerate(values.items())]
     res = apply_ops(db, fid, user, client, ops, force=True)
+    retry = [i for i, r in enumerate(res) if r.get("reason") == "delta"]
+    if retry:
+        full = apply_ops(db, fid, user, client, [{"seq": seq0 + len(ops) + j, "field": ops[i]["field"], "text": values[ops[i]["field"]]}
+                                                  for j, i in enumerate(retry)], force=True)
+        for i, r in zip(retry, full):
+            res[i] = r
     done = [r["field"] for r in res if r.get("ok")]
     held = {r["field"]: r.get("by", "") for r in res if not r.get("ok") and r.get("field")}
     for f in done:                                     # 에이전트는 쓰고 바로 놓는다(사람이 이어서 잡을 수 있게)
         release(db, fid, f, user)
     if base is not None and done:
         commit_now(db, base, fid)
+    return done, held
+
+
+def _diff(a: str, b: str) -> tuple[int, int, str]:
+    """앞뒤 같은 부분을 뺀 가운데 — (자리, 지울 글자 수, 넣을 글)."""
+    n, i = min(len(a), len(b)), 0
+    while i < n and a[i] == b[i]:
+        i += 1
+    j = 0
+    while j < n - i and a[len(a) - 1 - j] == b[len(b) - 1 - j]:
+        j += 1
+    return i, len(a) - i - j, b[i:len(b) - j]
+
+
+def delta_op(db, fid: int, field: str, text: str, seq: int) -> dict:
+    """서버 쪽 참여자(AURA 등)의 쓰기를 바뀐 부분 변경으로 — 지금 판(없으면 파일 값)과 견줘서. 바뀐 부분이 글 전체만 하면 전체 글."""
+    text = norm(text)
+    st = state(db, fid, [field], with_text=True).get(field)
+    cur, v = (st["text"], st["version"]) if st else (_file_values(db, fid).get(field), 0)
+    if cur is None:
+        return {"seq": seq, "field": field, "text": text}
+    at, dl, ins = _diff(cur, text)
+    if dl + len(ins) >= len(text) and len(text) > 0:
+        return {"seq": seq, "field": field, "base": v, "text": text}
+    return {"seq": seq, "field": field, "base": v, "at": at, "del": dl, "ins": ins, "fp": fingerprint(text)}
+
+
+class SectionStream:
+    """AURA 가 절 하나를 쓰는 동안 조금씩 흘려 보내기 — 그 절만의 AURA 창 번호로 임대를 잡아(여러 절을 따로 동시에 쓸 수 있다)
+    write(지금까지 쓴 글) 마다 바뀐 부분만 보내고, close() 에 놓는다. 사람이 쥔 칸이면 열지 않는다(ok=False, held=쥔 사람)."""
+
+    def __init__(self, db, fid: int, field: str, *, user: str = AGENT, base: Path | None = None, ttl: float = 120.0):
+        self.db, self.fid, self.field, self.user, self.base = db, int(fid), field, user, base
+        self.client = f"aura:{abs(hash(field)) % 10**8}"
+        r = acquire(db, fid, field, user, self.client, ttl=ttl)
+        self.ok, self.held = bool(r.get("ok")), ("" if r.get("ok") else r.get("by", ""))
+        self.seq, self.sent = int(time.time() * 1000), None
+
+    def write(self, text: str) -> bool:
+        if not self.ok:
+            return False
+        self.seq += 1
+        r = apply_ops(self.db, self.fid, self.user, self.client, [delta_op(self.db, self.fid, self.field, text, self.seq)], force=True)[0]
+        if r.get("reason") == "delta":
+            self.seq += 1
+            r = apply_ops(self.db, self.fid, self.user, self.client, [{"seq": self.seq, "field": self.field, "text": text}], force=True)[0]
+        if r.get("ok"):
+            self.sent = text
+        return bool(r.get("ok"))
+
+    def close(self) -> None:
+        if self.ok:
+            release(self.db, self.fid, self.field, self.user, base=self.base)
+            self.ok = False
+
+
+def put_sections(db, fid: int, values: dict, *, user: str = AGENT, base: Path | None = None, pace: float = 0.0) -> tuple[list[str], dict]:
+    """여러 절을 나란히 흘려 쓰기 — 절마다 따로 임대(AURA 창 번호), 문단 하나씩 돌아가며 보낸다(받는 화면은 작은 변경을 조금씩 넣는다).
+    돌려주는 것은 (쓴 절, {못 쓴 절: 쥔 사람})."""
+    streams = {k: SectionStream(db, fid, k, user=user, base=None) for k in values}
+    held = {k: s.held for k, s in streams.items() if not s.ok}
+    parts = {k: norm(v).split("\n") for k, v in values.items() if streams[k].ok}
+    done: list[str] = []
+    try:
+        for step in range(max((len(p) for p in parts.values()), default=0)):
+            for k, ps in parts.items():
+                if step < len(ps):
+                    streams[k].write("\n".join(ps[:step + 1]))
+            if pace:
+                time.sleep(pace)
+        done = [k for k in parts if streams[k].sent == norm(values[k])]
+    finally:
+        for s_ in streams.values():
+            s_.close()
+    if base is not None and done:
+        schedule_commit(db, base, fid, wait=0.0)
     return done, held
 
 
@@ -580,22 +674,25 @@ def conflicts(db, fid: int, user: str | None = None, limit: int = 50) -> list[di
 
 
 # ── 같이 보는 사람 ──
-def presence(db, fid: int, user: str, client: str, field: str) -> None:
+def presence(db, fid: int, user: str, client: str, field: str, page: int = 0) -> None:
+    """같이 보는 사람 — 커서 칸과 쪽 번호(편집 화면이 기안기 KeyIndicator 로 안다). 칸·쪽이 바뀌면 알린다."""
     ensure(db)
     now = time.time()
     field = (field or "")[:200]
+    page = max(0, min(int(page or 0), 100_000))
     ck = ckey(user, client)
     changed = False
     with db._conn() as conn:
-        row = conn.execute("SELECT field, at FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), ck)).fetchone()
+        row = conn.execute("SELECT field, at, page FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), ck)).fetchone()
         if row:
-            changed = row[0] != field or now - float(row[1] or 0) > conf(db, "presence_ttl")
-            conn.execute("UPDATE webhwp_presence SET field = ?, at = ? WHERE fid = ? AND client = ?", (field, now, int(fid), ck))
+            changed = row[0] != field or int(row[2] or 0) != page or now - float(row[1] or 0) > conf(db, "presence_ttl")
+            conn.execute("UPDATE webhwp_presence SET field = ?, at = ?, page = ? WHERE fid = ? AND client = ?", (field, now, page, int(fid), ck))
         else:
             changed = True
-            conn.execute("INSERT INTO webhwp_presence (fid, client, user_id, field, at) VALUES (?, ?, ?, ?, ?)", (int(fid), ck, user, field, now))
+            conn.execute("INSERT INTO webhwp_presence (fid, client, user_id, field, at, page) VALUES (?, ?, ?, ?, ?, ?)",
+                         (int(fid), ck, user, field, now, page))
     if changed:
-        emit(db, fid, "presence", {"user": user, "client": client, "field": field})
+        emit(db, fid, "presence", {"user": user, "client": client, "field": field, "page": page})
 
 
 def leave(db, fid: int, client: str, user: str) -> None:
@@ -612,12 +709,21 @@ def people(db, fid: int) -> list[dict]:
     ensure(db)
     now = time.time()
     with db._conn() as conn:
-        rows = conn.execute("SELECT user_id, field, at, client FROM webhwp_presence WHERE fid = ? AND at > ? ORDER BY at",
+        rows = conn.execute("SELECT user_id, field, at, client, page FROM webhwp_presence WHERE fid = ? AND at > ? ORDER BY at",
                             (int(fid), now - conf(db, "presence_ttl"))).fetchall()
     by: dict[str, dict] = {}
     for r in rows:
-        by[r[0]] = {"user": r[0], "field": r[1], "at": float(r[2]), "client": craw(r[3])}
+        by[r[0]] = {"user": r[0], "field": r[1], "at": float(r[2]), "client": craw(r[3]), "page": int(r[4] or 0)}
     return list(by.values())
+
+
+def windows(db, fid: int) -> list[dict]:
+    """지금 살아 있는 창 모두(같은 사람의 여러 창 포함) — [{user, client}]. 같은 사람의 옛 창이 쥔 칸을 새 창이 이어받을지 가를 때."""
+    ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute("SELECT user_id, client FROM webhwp_presence WHERE fid = ? AND at > ?",
+                            (int(fid), time.time() - conf(db, "presence_ttl"))).fetchall()
+    return [{"user": r[0], "client": craw(r[1])} for r in rows]
 
 
 # ── 한글 파일에 써 넣기 ──
@@ -800,5 +906,5 @@ def flush_all(db, base: Path) -> None:
 
 def snapshot(db, fid: int, me: str = "") -> dict:
     """편집 화면이 처음 열 때·다시 이어질 때 받는 전체 상태."""
-    return {"fields": state(db, fid), "locks": locks(db, fid), "people": people(db, fid), "last": last_event_id(db, fid),
+    return {"fields": state(db, fid), "locks": locks(db, fid), "people": people(db, fid), "windows": windows(db, fid), "last": last_event_id(db, fid),
             "conf": client_conf(db), "now": time.time()}

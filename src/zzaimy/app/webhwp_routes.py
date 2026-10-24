@@ -380,11 +380,18 @@ async def hwp_presence(request: Request, fid: int):
     user = getattr(request.state, "user", "")
     client = str(body.get("client") or f"{user}:page")[:80]
     db = request.app.state.db
-    await run_in_threadpool(ce.presence, db, fid, user, client, str(body.get("field") or "")[:200])
-    # 지금 같이 있는 사람을 함께 돌려준다 — 알림은 칸이 바뀔 때만 가서, 가만히 있는 사람이 30초 뒤 남의 화면에서 사라졌다(10-24)
+    try:
+        page = int(body.get("page") or 0)
+    except (TypeError, ValueError):
+        page = 0
+    await run_in_threadpool(ce.presence, db, fid, user, client, str(body.get("field") or "")[:200], page)
+    # 지금 같이 있는 사람을 함께 돌려준다 — 알림은 칸이 바뀔 때만 가서, 가만히 있는 사람이 30초 뒤 남의 화면에서 사라졌다(10-24).
+    # 쪽 번호(목록에 「이름 · N쪽 · 절」), 살아 있는 창(같은 사람의 옛 창이 쥔 칸을 이어받을지)
     people = await run_in_threadpool(ce.people, db, fid)
-    return {"ok": True, "people": [{"user": p["user"], "client": p["client"], "field": p["field"],
-                                    "name": request.app.state.person_name(p["user"])} for p in people]}
+    wins = await run_in_threadpool(ce.windows, db, fid)
+    return {"ok": True, "people": [{"user": p["user"], "client": p["client"], "field": p["field"], "page": p.get("page", 0),
+                                    "name": request.app.state.person_name(p["user"])} for p in people],
+            "windows": [w for w in wins if w["user"] == user]}
 
 
 @router.post("/hwp/{fid}/live")

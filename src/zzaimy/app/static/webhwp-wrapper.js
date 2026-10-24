@@ -42,7 +42,7 @@
       try { ctrl.PutFieldText(name, nl(text).replace(/\n/g, '\r\n')); return true; } catch (e) { return false; }
     }
     // 칸 안 일부만 고치기 — text0(지금 칸 글, \n 줄바꿈)에서 at 부터 del 글자를 지우고 ins 를 넣는다(UTF-16 자리).
-    // 칸 처음 자리(MoveToField)에서 문단·자리를 세어 SelectText+Delete, SetPos+InsertText(줄바꿈은 BreakPara)로.
+    // 칸 처음 자리(MoveToField)에서 문단·자리를 세어 SelectText+Delete, SetPos+InsertText(줄바꿈은 \r\n — 문단 나눔)로.
     // 451쪽 문서 5만 자 칸에서 넣기 4.7ms·지우기 3.3ms(통째 쓰기 2,118ms). 대리 쌍·탭이 든 글은 자리 셈을 믿을 수 없어 false(부르는 쪽이 통째 쓰기로)
     function applyDelta(name, text0, at, del, ins) {
       if (/[\ud800-\udfff\t]/.test(text0) || /[\ud800-\udfff\t]/.test(ins)) return false;
@@ -59,15 +59,17 @@
         if (del > 0) { var a = at2(at), b = at2(at + del); ctrl.SetPos(a.list, a.para, a.pos); if (ctrl.SelectText(a.para, a.pos, b.para, b.pos) === false) return false; run('Delete'); }
         if (ins) {
           var p = at2(at); ctrl.SetPos(p.list, p.para, p.pos);
-          ins.split('\n').forEach(function (t, i) { if (i) run('BreakPara'); if (t) exec('InsertText', {Text: t}); });
+          exec('InsertText', {Text: ins.replace(/\n/g, '\r\n')});   // \r\n 은 문단 나눔(실측) — 한 번에 넣어 다시 배치도 한 번
         }
         return true;
       } catch (e) { return false; }
     }
     // 양식 보호 모드(EditMode 2)에서 「양식 모드에서 편집 가능」 속성(1)을 켜고 끈다 — 끈 칸은 입력이 들어가지 않는다
+    // 처음(모름)은 편집 가능으로 본다 — 필드는 「양식 모드에서 편집 가능」 으로 만들어져 있어, 열 때 942칸 모두에 속성을 다시 쓰던 0.5초를 뺀다.
+    // 지금 커서 칸은 부르는 쪽이 force 로 다시 맞춘다
     function setEditable(name, on, force) {
       on = !!on;
-      if (editable[name] === on && !force) return;
+      if ((editable[name] === on || (editable[name] === undefined && on)) && !force) return;
       try { ctrl.ModifyFieldProperties(name, on ? 0 : 1, on ? 1 : 0); editable[name] = on; } catch (e) {}
     }
     function setFormMode(on) { try { ctrl.EditMode = on ? 2 : 1; } catch (e) {} }
@@ -131,6 +133,8 @@
       if (undoLocked === on) return;
       try { ctrl.LockCommand('Undo', on); ctrl.LockCommand('Redo', on); undoLocked = on; } catch (e) {}
     }
+    // 내 커서가 있는 쪽(1부터) — 기안기 KeyIndicator, 칸 자리 재기 없이 바로. 같이 있는 사람 목록에 「N쪽」 으로
+    function caretPage() { try { var k = ctrl.KeyIndicator(); return k && k.result ? (k.prnpageno || 0) : 0; } catch (e) { return 0; } }
     function moveTo(name, select) { try { return ctrl.MoveToField(name, true, true, !!select) !== false; } catch (e) { return false; } }
     function caretRect() {
       try {
@@ -307,7 +311,7 @@
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
       setFormMode: setFormMode, formMode: formMode, setReadOnly: setReadOnly, currentField: currentField,
-      getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect,
+      getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); },
       attach: attach, isProbing: function () { return !!probing; },
