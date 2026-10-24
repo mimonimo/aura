@@ -370,8 +370,7 @@
       if (f && fieldSet[f]) {
         hwp.setEditable(f, !heldByOther(f), true);             // 지금 칸은 상태를 다시 맞춘다(오래된 속성이 남아 막히지 않게)
         if (heldByOther(f)) {
-          emit('blocked', f, holderLabel(f));
-          if (locks[f].user !== me) acquire(f, true);         // 기다리는 사람으로 알린다(같은 사람 다른 창은 빼앗지 않는다)
+          emit('blocked', f, holderLabel(f));                 // 보러 오기만 한 것(사람 목록에서 그 자리로 옮기기 포함)은 쥔 사람에게 알리지 않는다 — 쓰려고 할 때만(아래 onActivity)
         }
       }
       emit('caret', f);
@@ -580,7 +579,12 @@
         // 서식 단추·Ctrl+B 같은 고침은 입력 사건이 없다 — 서식째 모드면 내 절 칸을 다시 재 본다(바뀐 것이 없으면 보내지 않는다)
         if (conf.rich && RICH.test(curField) && mine[curField]) { richDirty[curField] = true; scheduleRich(); }
       });
-      hwp.onActivity(function () { if (curField && mine[curField] && now() - lastTouch > 20000) extend(); });
+      hwp.onActivity(function (e) {
+        if (curField && mine[curField] && now() - lastTouch > 20000) extend();
+        // 남이 쥔 칸에서 글을 치려 하면 그때 기다리는 사람으로 알린다(같은 사람 다른 창은 빼앗지 않는다)
+        if (e && e.type === 'keydown' && !e.metaKey && !e.ctrlKey && e.key && (e.key.length === 1 || /^(Backspace|Delete|Enter|Process)$/.test(e.key))
+            && curField && fieldSet[curField] && fieldsMode() && heldByOther(curField) && locks[curField].user !== me) acquire(curField, true);
+      });
       setInterval(checkCaret, 700);
       setInterval(function () { presence(false); }, 5000);
       setInterval(function () { resync(false, true); }, Math.max(5, conf.hash_check) * 1000);
