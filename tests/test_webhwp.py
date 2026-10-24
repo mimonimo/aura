@@ -14,8 +14,9 @@ from zzaimy.app import webhwp
 def _hwpx(text: str = "본문") -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
-        z.writestr("mimetype", "application/hwp+zip")
-        z.writestr("Contents/section0.xml", f"<p>{text}</p>")
+        # 고정 시각 — 바이트 비교 시험이 초가 바뀌는 순간(바쁜 기계)에 틀리지 않게
+        z.writestr(zipfile.ZipInfo("mimetype", (2026, 1, 1, 0, 0, 0)), "application/hwp+zip")
+        z.writestr(zipfile.ZipInfo("Contents/section0.xml", (2026, 1, 1, 0, 0, 0)), f"<p>{text}</p>")
     return buf.getvalue()
 
 
