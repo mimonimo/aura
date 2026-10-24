@@ -111,7 +111,7 @@ def test_three_slots_are_three_users(tmp_path, monkeypatch):
     # a 가 칸을 쥐면 b 는 못 쥐고(쥔 사람 이름은 시연 이름), 다른 칸은 b 가 쓴다
     assert dev.post(f"/hwp/{fid}/lease", headers=H("a"), json={"field": f1, "client": "wa"}).json()["ok"]
     j = dev.post(f"/hwp/{fid}/lease", headers=H("b"), json={"field": f1, "client": "wb"}).json()
-    assert j["ok"] is False and j["by"] == "demo_a" and j["by_name"] == "시연 김가람"
+    assert j["ok"] is False and j["by"] == "demo_a" and j["by_name"] == "김가람"
     r = dev.post(f"/hwp/{fid}/ops", headers=H("b"), json={"client": "wb", "ops": [{"seq": 1, "field": f2, "base": 0, "text": "이나래 글"}]}).json()
     assert r["results"][0]["ok"]
     assert ce.state(db, fid)[f2]["by"] == "demo_b" and ce.locks(db, fid)[f1]["user"] == "demo_a"
