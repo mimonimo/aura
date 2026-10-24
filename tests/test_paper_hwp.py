@@ -91,14 +91,17 @@ def test_form_has_field_per_section_styles_and_page_frame():
     sec = z.read("Contents/section0.xml").decode()
     assert re.search(r'<hp:pagePr\b[^>]*width="59528"[^>]*height="84186"', sec)       # A4
     assert ph.META["short"] in re.search(r"<hp:header\b.*?</hp:header>", sec, re.S).group(0)
-    assert "영남이공대학교" in re.search(r"<hp:footer\b.*?</hp:footer>", sec, re.S).group(0)
+    assert "영남이공대학교 사이버보안과" in re.search(r"<hp:footer\b.*?</hp:footer>", sec, re.S).group(0)
+    assert ww.field_values(data)["칸:학과"] == "사이버보안과"                # 표지 머리 줄 학과 칸의 기본값
     assert "<hp:pageNum" in sec and 'hideFirstHeader="1"' in sec
     # 제목은 필드 밖, 쓸 자리는 제목 바로 다음 문단
     ctx = ww.section_context(data, "절:1.1 프로젝트 배경 및 목적")
     assert "1.1 프로젝트 배경 및 목적" in ctx and "1. 서론" in ctx
     assert ww.field_values(data)["칸:논문 제목"] == ph.META["title"]
-    # 목차: 세 단계와 점선
-    assert "1.1 프로젝트 배경 및 목적" + ph.TOC_LEADER in sec
+    # 목차: 세 단계, 줄 끝은 오른쪽 탭(점선 채움) — 쪽 번호는 편집 화면이 잰 뒤
+    assert "    1.1 프로젝트 배경 및 목적" + ph._TOC_TAB + "</hp:t>" in sec
+    hdr = z.read("Contents/header.xml").decode()
+    assert 'type="RIGHT" leader="DASH"' in hdr
 
 
 def test_outline_from_manuscripts_fills_missing_chapters_back_matter_and_appendix(tmp_path):
@@ -252,3 +255,162 @@ def test_writer_script_dry_run(tmp_path, monkeypatch):
     assert r.returncode == 0, r.stderr
     assert f"문서 {fid}" in r.stdout and "절:1.1 프로젝트 배경 및 목적" in r.stdout and "원고 메모라 쓰지 않음" in r.stdout
     assert ce.state(app.state.db, fid) == {}                         # 미리 보기는 쓰지 않는다
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "214_paper_write.py"), "--db", str(Path(app.state.data_dir) / "t.db"),
+                        "--src", str(tmp_path / "논문"), "--rich", "--formatted", "--dry-run"], capture_output=True, text=True,
+                       env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"}, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "절:1.2 핵심내용" in r.stdout and "절:1.1 프로젝트 배경 및 목적 ·" not in r.stdout   # 표·그림이 있는 절만
+
+
+def _events(db, fid, kind):
+    return [e for e in ce.events_since(db, fid, 0) if e["kind"] == kind]
+
+
+def test_restamp_changes_dept_outside_fields_only_and_keeps_version(tmp_path, monkeypatch):
+    monkeypatch.setitem(ph.META, "dept", ph.PLACEHOLDER_DEPT)            # 예전 판으로 만든 문서(○○과)
+    app, fid = _paper(tmp_path, monkeypatch)
+    monkeypatch.setitem(ph.META, "dept", "사이버보안과")
+    db, base = app.state.db, Path(app.state.data_dir)
+    ce.put(db, fid, "kim", {"절:6.1 연구 요약 및 기여점": "○○과 학생이 쓴 글", "칸:팀명": "AURA"}, base=base, client="k1")
+    before = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    seen = len(_events(db, fid, "doc-saved"))
+    r = ph.restamp(db, base, fid)
+    assert r["ok"] and r["changed"] and r["note"] == "2곳"                  # 표지 아래 줄·꼬리말
+    p = Path(webhwp.get(db, fid)["path"])
+    data = p.read_bytes()
+    sec = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
+    assert "영남이공대학교 사이버보안과" in re.search(r"<hp:footer\b.*?</hp:footer>", sec, re.S).group(0)
+    assert ww.field_values(data) == before                                # 칸 글(사람이 쓴 ○○과 포함)은 그대로
+    assert ww.field_values(data)["절:6.1 연구 요약 및 기여점"] == "○○과 학생이 쓴 글"
+    olds = list((p.parent / ".판").glob(f"{p.stem} *{p.suffix}"))
+    assert any(b"\xe2\x97\x8b\xe2\x97\x8b\xea\xb3\xbc" in zipfile.ZipFile(o).read("Contents/section0.xml") for o in olds)   # 앞 판(○○과)이 남았다
+    assert len(_events(db, fid, "doc-saved")) == seen + 1                 # 열린 편집 화면이 새 판을 부른다
+    assert webhwp.meta(db, fid)["paper"]["dept"] == "사이버보안과"
+    assert ph.restamp(db, base, fid)["changed"] is False                  # 다시 하면 바꿀 것이 없다
+    # 다른 학과로 다시 바꾸면 앞서 넣은 이름을 바꾼다, 구조 잠금을 쥔 사람이 있으면 하지 않는다
+    assert ph.restamp(db, base, fid, "정보보안과")["note"] == "2곳"
+    assert webhwp.take_lock(db, fid, "kim")["ok"]
+    assert ph.restamp(db, base, fid, "사이버보안과")["why"] == "struct"
+
+
+def test_writer_script_restamp_and_set_dept(tmp_path, monkeypatch):
+    monkeypatch.setitem(ph.META, "dept", ph.PLACEHOLDER_DEPT)
+    app, fid = _paper(tmp_path, monkeypatch)
+    env = {"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"}
+    cmd = [sys.executable, str(ROOT / "scripts" / "214_paper_write.py"), "--db", str(Path(app.state.data_dir) / "t.db"), "--restamp",
+           "--set", "칸:학과=사이버보안과", "--delay", "0", "--pause", "0"]
+    r = subprocess.run(cmd + ["--dry-run"], capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "2곳" in r.stdout and "칸:학과" in r.stdout
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode == 0, r.stderr
+    data = Path(webhwp.get(app.state.db, fid)["path"]).read_bytes()
+    assert ww.field_values(data)["칸:학과"] == "사이버보안과"
+    assert "영남이공대학교 사이버보안과" in zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
+
+
+def test_toc_pages_from_editor_are_written_outside_fields(tmp_path, monkeypatch):
+    app, fid = _paper(tmp_path, monkeypatch)
+    db = app.state.db
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    ents = ph.toc_entries(data)
+    by = {e["text"]: e for e in ents}
+    assert by["1. 서론"]["field"] == "절:1.1 프로젝트 배경 및 목적" and by["1. 서론"]["from_next"]      # 장 줄은 첫 절의 쪽
+    assert by["참고 문헌"]["field"] == "절:참고 문헌"
+    assert by["1.2 화면 구성"]["field"] == "절:부록 1.2 화면 구성"                                        # 부록 소절도 차례대로 짝
+    assert all(e["field"] for e in ents)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    fields = kim.get(f"/hwp/{fid}/paper-toc").json()["fields"]
+    assert fields[0] == "절:1.1 프로젝트 배경 및 목적" and len(fields) == len(set(fields))
+    before = ww.field_values(data)
+    r = kim.post(f"/hwp/{fid}/paper-toc", json={"pages": {f: i + 3 for i, f in enumerate(fields)}})
+    assert r.status_code == 200 and r.json()["changed"]
+    new = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    sec = zipfile.ZipFile(io.BytesIO(new)).read("Contents/section0.xml").decode()
+    assert "1. 서론" + ph._TOC_TAB + "3</hp:t>" in sec and "    1.2 핵심내용" + ph._TOC_TAB + "4</hp:t>" in sec
+    assert ww.field_values(new) == before and eo.check_bytes(new) == []
+    assert kim.post(f"/hwp/{fid}/paper-toc", json={"pages": {f: i + 3 for i, f in enumerate(fields)}}).json()["changed"] is False
+    # 논문 문서가 아니면 없다, 학생은 못 쓴다
+    other = webhwp.add(db, Path(app.state.data_dir), webhwp.COMMON, "다른.hwpx", data, owner="kim")
+    assert kim.get(f"/hwp/{other}/paper-toc").status_code == 404
+    # 편집 화면 「⋯」 메뉴에 논문 문서만 「목차 쪽 번호 넣기」
+    assert "목차 쪽 번호 넣기" in kim.get(f"/webhwpctrl/aura-edit?id={fid}").text
+    assert "목차 쪽 번호 넣기" not in kim.get(f"/webhwpctrl/aura-edit?id={other}").text
+
+
+def test_create_answers_json_url_for_the_page_button(tmp_path, monkeypatch):
+    app = _setup(tmp_path, monkeypatch)
+    _dev(app)
+    dev = TestClient(app)
+    assert _login(dev, "pdev", "pass-12345678")
+    assert "data-paper-create" in dev.get("/dev/docs").text
+    j = dev.post("/dev/paper/hwp", headers={"Accept": "application/json"}).json()
+    assert j["url"] == f"/webhwpctrl/aura-edit?id={j['id']}"
+
+
+def test_writer_holds_lease_and_shows_writing_while_streaming(tmp_path, monkeypatch):
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    w = {"field": "절:1.1 프로젝트 배경 및 목적", "kind": "text", "text": "\n".join(f"{i}번째 문단이다." for i in range(8))}
+    seen = []
+
+    def watch(_s):
+        seen.append((ce.holder(db, fid, w["field"]), {p["user"]: p["field"] for p in ce.people(db, fid)}.get(ph.WRITER)))
+    assert ph.write(db, base, fid, w, pause=0.01, sleep=watch)["ok"]
+    assert len(seen) >= 3 and all(h == ph.WRITER and f == w["field"] for h, f in seen)    # 걸음마다 임대·표시가 그 칸
+    assert not ce.holder(db, fid, w["field"])                                           # 다 쓰고 놓았다
+    assert {p["user"]: p["field"] for p in ce.people(db, fid)}[ph.WRITER] == ""          # 칸 없이(문서 보는 중)
+
+
+def _png(w: int, h: int) -> bytes:
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * w for _ in range(h))
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def test_rich_write_embeds_listed_figures_and_keeps_placeholders(tmp_path, monkeypatch):
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    root = tmp_path / "repo"
+    (root / "docs" / "images" / "diagrams").mkdir(parents=True)
+    (root / "docs" / "images" / "diagrams" / "01-system.png").write_bytes(_png(40, 20))
+    lst = tmp_path / "list.md"
+    lst.write_text("| 번호 | 캡션 | 자료 |\n|---|---|---|\n| [그림 1-2] | 전체 구조 | docs/images/diagrams/01-system.png |\n"
+                   "| [그림 1-3] | 없는 그림 | 캡처 필요: /chat |\n| [그림 1-4] | 빠진 파일 | docs/images/없음.png |\n", encoding="utf-8")
+    figs = ph.figure_files(lst, root)
+    assert list(figs) == ["1-2"]
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    w = next(x for x in ph.plan(data, [CH1], rich=True, figures=figs)["writes"] if x["field"] == "절:1.2 핵심내용")
+    assert list(w["pictures"].values()) == [str(root / "docs/images/diagrams/01-system.png")]
+    assert ph.write(db, base, fid, w, sleep=lambda s: None)["ok"]
+    new = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    z = zipfile.ZipFile(io.BytesIO(new))
+    sec = z.read("Contents/section0.xml").decode()
+    assert eo.check_bytes(new) == [] and sec.count("<hp:pic ") == 1 and "⟦그림 파일" not in sec
+    assert sec.index("<hp:pic ") < sec.index("[그림 1-2] 전체 프로젝트 구조")                     # 캡션은 그림 아래
+    bins = [n for n in z.namelist() if n.startswith("BinData/")]
+    assert len(bins) == 1 and 'href="' + bins[0] + '"' in z.read("Contents/content.hpf").decode()
+    assert ph.write(db, base, fid, w, sleep=lambda s: None)["ok"]                            # 다시 써도 그림·BinData 가 늘지 않는다
+    z2 = zipfile.ZipFile(io.BytesIO(Path(webhwp.get(db, fid)["path"]).read_bytes()))
+    assert z2.read("Contents/section0.xml").decode().count("<hp:pic ") == 1
+    assert len([n for n in z2.namelist() if n.startswith("BinData/")]) == 1
+
+
+def test_comments_are_left_out_and_references_get_hanging_style(tmp_path, monkeypatch):
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    back = "# 참고 문헌\n\n<!-- 인쇄 전에 주소를 확인한다 -->\n\n[1] 출처. 제목. URL\n\n[2] 둘째 출처. 제목. URL\n"
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    w = next(x for x in ph.plan(data, [back], rich=True)["writes"] if x["field"] == "절:참고 문헌")
+    assert "인쇄 전에" not in w["text"]
+    assert ph.write(db, base, fid, w, sleep=lambda s: None)["ok"]
+    new = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    st = ph.styles_in(new)
+    sec = zipfile.ZipFile(io.BytesIO(new)).read("Contents/section0.xml").decode()
+    cap = re.search(r'<hp:p\b[^>]*styleIDRef="(\d+)"[^>]*>(?:(?!<hp:p\b).)*?\[2\] 둘째 출처', sec, re.S)
+    assert cap and cap.group(1) == st["참고 문헌"]["style"]

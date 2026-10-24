@@ -2,7 +2,7 @@
 
 - 양식: 작년 캡스톤 논문집 한 편의 차례(docs/paper/논문-양식-가이드.md)를 따른다. 표지(머리 줄 + PROJECT·제목·팀원·팀명 상자) → 목차
   (1./1.1/1.1.1 세 단계, 점선) → 그림 목차 → 표 목차 → 1~6장 → 참고 문헌 → Abstract → 팀원 소개. A4, 머리말 오른쪽 위 줄인 제목,
-  꼬리말 「영남이공대학교 ○○과」 와 쪽 번호. 장·절·소절 제목은 글자 체계(house_style.TYPE)의 chapter·h1·h2 로 서로 다르게.
+  꼬리말 「영남이공대학교 사이버보안과」 와 쪽 번호. 목차 줄은 오른쪽 탭(점선 채움) 뒤에 쪽 번호 — 쪽은 편집 화면이 재서 넣는다(toc_set). 장·절·소절 제목은 글자 체계(house_style.TYPE)의 chapter·h1·h2 로 서로 다르게.
 - 쓸 자리: 절마다 제목 바로 아래 문단 하나가 누름틀 「절:<번호> <제목>」(참고 문헌처럼 번호 없는 장은 「절:<제목>」). 제목은 필드 밖이라
   공동 편집에서 칸 단위로 나눠 쓴다(ADR-0070). 장 제목(1. 서론)에는 쓸 자리를 두지 않는다 — 장은 절로 시작한다.
 - 차례 정의는 OUTLINE 한 곳. docs/paper/논문/ 에 장 원고(*.md)가 있으면 그 번호 제목에서 차례를 읽는다(outline_for).
@@ -17,6 +17,7 @@ import json
 import re
 import zipfile
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from zzaimy.export import house_style as hs
 
@@ -24,12 +25,14 @@ SETTING = "paper:hwp_fid"
 FOLDER = "논문"
 WRITER = "claude"                 # 논문 원고를 쓰는 참여자 아이디(공동 편집 표의 user_id) — 화면 이름은 webhwp.display_name 이 「Claude」
 WRITER_NAME = "Claude"
-BUILD = 1                         # 만드는 방식이 바뀌면 올린다(문서 메타에 남겨 어느 판 양식으로 만든 문서인지 안다)
+BUILD = 2                         # 만드는 방식이 바뀌면 올린다(문서 메타에 남겨 어느 판 양식으로 만든 문서인지 안다) — 2: 학과 기본값·목차 탭 줄
 
-# 표지·머리말·꼬리말 값 — 학과·팀명은 정해지면 기안기에서 고친다(표지 상자는 칸 필드)
+# 표지·머리말·꼬리말 값 — 표지 상자의 팀명 같은 칸은 기안기에서 고친다(칸 필드). 학과는 표지 머리 줄 칸(칸:학과)의 기본값이자
+# 꼬리말·표지 아래 줄의 글(필드 밖) — 이미 만든 문서의 필드 밖 글은 restamp 로 바꾼다
+PLACEHOLDER_DEPT = "○○과"
 META = {
     "year": "2026",
-    "dept": "○○과",
+    "dept": "사이버보안과",
     "title": "AURA: 교내 행정 업무 자동화를 위한 sLLM 모델 개발 및 행정 자동화 에이전트",
     "short": "AURA 교내 행정 업무 자동화 sLLM·에이전트",
     "file": "AURA 캡스톤 논문",
@@ -106,7 +109,9 @@ STYLES = {
     "그림 캡션": {"pt": 10, "bold": True, "align": "CENTER", "after": 6},
     "표 캡션": {"pt": 10, "bold": True, "align": "CENTER", "after": 6},
     "코드": {"pt": 9.5, "color": "#333333", "indent": 1, "shade": "#F2F2F2", "line": 130},
+    "참고 문헌": {"pt": 10, "hang": 2.6, "after": 3},
 }
+_REF = re.compile(r"^\[\d+\]\s")                         # 참고 문헌 줄 「[12] 저자. 제목. 주소」 — 내어쓰기 모양
 # 서식째 쓰기에서 상자로 그리는 갈래의 칸 바탕(1칸 표) — 팁 상자·코드·그림 자리
 BOX_FILL = {"팁 상자": "#EEF3FA", "코드": "#F2F2F2", "그림 자리": "none"}
 
@@ -314,9 +319,9 @@ def build(outline: list[tuple[int, str, str]] | None = None, meta: dict | None =
     data = webhwp_style.dress(data, plan)
     data = _dress_cells(data, cell_kinds)
     data, _ = add_styles(data)
-    data = _fieldize(data)
+    data = _fieldize(data, meta)
     data = _page_frame(data, meta)
-    return data
+    return toc_set(data, {})
 
 
 def _dress_cells(data: bytes, kinds: dict[str, str]) -> bytes:
@@ -352,9 +357,11 @@ def _dress_cells(data: bytes, kinds: dict[str, str]) -> bytes:
 _HINTS = {"칸:학과": "학과 이름", "칸:프로젝트 번호": "번호", "칸:논문 제목": "논문 제목", "칸:팀원": "팀원 이름", "칸:팀명": "팀명"}
 
 
-def _fieldize(data: bytes) -> bytes:
-    """⟦이름⟧ 표식을 누름틀로 — 표식만 든 문단은 그 문단이 쓸 자리, 글 사이 표식은 그 자리에 칸. 논문 제목은 기본 글을 넣어 둔다."""
+def _fieldize(data: bytes, meta: dict | None = None) -> bytes:
+    """⟦이름⟧ 표식을 누름틀로 — 표식만 든 문단은 그 문단이 쓸 자리, 글 사이 표식은 그 자리에 칸. 논문 제목·학과는 기본 글을 넣어 둔다."""
     from zzaimy.app import webhwp_fields as wf
+    meta = {**META, **(meta or {})}
+    defaults = {"칸:논문 제목": meta["title"], "칸:학과": meta["dept"]}
     zin = zipfile.ZipFile(io.BytesIO(data))
     secs = {n: zin.read(n).decode("utf-8") for n in zin.namelist() if re.match(r"Contents/section\d+\.xml$", n)}
     ids = wf._Ids(list(secs.values()))
@@ -364,7 +371,7 @@ def _fieldize(data: bytes) -> bytes:
             name = m.group(1)
             hint = _HINTS.get(name, "본문 입력")
             a, b = wf.field_parts(name, hint, ids)
-            value = META["title"] if name == "칸:논문 제목" else ""
+            value = escape(defaults.get(name, ""))
             return f"{a}<hp:t>{value}</hp:t>{b}" if value else f"{a}<hp:t/>{b}"
         y = re.sub(r"⟦([^⟧]+)⟧", lambda m: "</hp:t>" + sub(m) + "<hp:t>", xml)
         y = re.sub(r"<hp:t></hp:t>", "", y)
@@ -416,6 +423,139 @@ def _paper_not_a4(data: bytes) -> bool:
     x = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode("utf-8")
     m = re.search(r'<hp:pagePr\b[^>]*\bwidth="(\d+)"[^>]*\bheight="(\d+)"', x)
     return not m or (int(m.group(1)), int(m.group(2))) != (59528, 84186)
+
+
+# ── 목차 쪽 번호 ── 쪽 나눔은 기안기만 안다(서버는 글자 배치를 하지 않는다). 편집 화면이 칸마다 쪽을 재서 보내면(static/paper-toc.js)
+# 목차 줄을 「제목 <오른쪽 탭, 점선 채움> 쪽」 으로 다시 쓴다. 목차 줄은 필드 밖이고, 장 줄(1. 서론)은 그 장 첫 절의 쪽을 쓴다.
+TOC_TITLE = "목 차"
+_TOC_TAB = '<hp:tab width="0" leader="3" type="2"/>'      # 한글 차례 실물 꼴 — 오른쪽 탭, 채움은 header 의 tabItem(leader="DASH")
+
+
+def _ptext(p: str) -> str:
+    """문단 글 — 탭은 \t, 필드 안내 글은 뺀다."""
+    p = re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", p, flags=re.S)
+    p = re.sub(r"<hp:tab\b[^>]*/>", "\t", p)
+    return re.sub(r"<[^>]+>", "", p).replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _toc_lines(xml: str) -> list[tuple[int, int, str, str]]:
+    """목차 줄 문단 — (시작, 끝, 들여쓰기, 제목). 「목 차」 제목 문단 다음부터 쪽을 나누는 문단 앞까지, 빈 줄은 뺀다."""
+    out: list[tuple[int, int, str, str]] = []
+    started = False
+    for m in re.finditer(r"<hp:p\b[^>]*>(?:(?!<hp:p\b).)*?</hp:p>", xml, re.S):
+        p = m.group(0)
+        t = _ptext(p)
+        if not started:
+            started = t.strip() == TOC_TITLE
+            continue
+        if 'pageBreak="1"' in p[:p.find(">")]:
+            break
+        if not t.strip():
+            continue
+        head = re.sub(r"\t.*$", "", t, flags=re.S)
+        head = re.sub(r"\s*·{3,}\s*\d*\s*$", "", head)
+        indent = head[:len(head) - len(head.lstrip(" "))]
+        out.append((m.start(), m.end(), indent, head.strip()))
+    return out
+
+
+def _field_heads(data: bytes) -> list[tuple[str, str]]:
+    """절 필드를 문서 차례로 — (목차에 보일 제목, 필드 이름)."""
+    from zzaimy.app import webhwp_write as ww
+    out = []
+    for f in ww.fields(data):
+        name = f["name"]
+        if not name.startswith("절:") or name[2:] in LISTS:
+            continue
+        num, title = parse_heading(name[2:])
+        out.append((heading_text(num, title, level_of(num) if num else 1), name))
+    return out
+
+
+def toc_entries(data: bytes) -> list[dict]:
+    """목차 줄마다 쪽을 잴 필드 — [{text, field}]. 줄과 절 필드를 차례대로 짝짓고(같은 제목이 부록에 또 있어도 차례로 갈린다),
+    필드가 없는 장 줄은 다음 줄의 필드(그 장의 첫 절)로 잰다. 맞는 필드가 끝내 없으면 field 가 빈 글."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    xml = zin.read("Contents/section0.xml").decode("utf-8")
+    heads = _field_heads(data)
+    k = 0
+    out: list[dict] = []
+    for _s, _e, _i, text in _toc_lines(xml):
+        hit = next((j for j in range(k, len(heads)) if _norm(heads[j][0]) == _norm(text)), None)
+        if hit is not None:
+            k = hit + 1
+        out.append({"text": text, "field": heads[hit][1] if hit is not None else ""})
+    for i in range(len(out) - 1, -1, -1):
+        if not out[i]["field"] and i + 1 < len(out):
+            out[i]["field"] = out[i + 1]["field"]
+            out[i]["from_next"] = True
+    return out
+
+
+def toc_set(data: bytes, pages: dict[str, int]) -> bytes:
+    """목차 줄을 「들여쓰기 + 제목 + 오른쪽 탭(점선 채움) + 쪽」 으로 — pages 는 {필드 이름: 쪽}(모르는 줄은 쪽 없이 점선만).
+    예전 꼴(제목 뒤 「····」)도 이 꼴로 바꾼다. 필드 밖 목차 줄만 고친다."""
+    from zzaimy.ingest import hwpx_fill as hf
+    entries = toc_entries(data)
+
+    def fn(xml: str, hdr, name: str) -> str:
+        if name != "Contents/section0.xml":
+            return xml
+        lines = _toc_lines(xml)
+        if not lines:
+            return xml
+        width = hf._text_width_hu(xml)
+        tab_id = _tab_pr(hdr, width)
+        pp_cache: dict[str, str] = {}
+        out, pos = [], 0
+        for (s_, e_, indent, text), ent in zip(lines, entries):
+            p = xml[s_:e_]
+            pp = re.search(r'paraPrIDRef="(\d+)"', p).group(1)
+            if pp not in pp_cache:
+                pp_cache[pp] = _para_with_tab(hdr, pp, tab_id)
+            run = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', p)
+            cp = run.group(1) if run else "0"
+            n = pages.get(ent.get("field") or "")
+            page = str(int(n)) if isinstance(n, (int, float)) or str(n or "").isdigit() else ""
+            opener = re.sub(r'paraPrIDRef="\d+"', f'paraPrIDRef="{pp_cache[pp]}"', re.match(r"<hp:p\b[^>]*>", p).group(0), count=1)
+            body = f'<hp:run charPrIDRef="{cp}"><hp:t>{escape(indent + text)}{_TOC_TAB}{page}</hp:t></hp:run>'
+            out += [xml[pos:s_], opener, body, "</hp:p>"]
+            pos = e_
+        out.append(xml[pos:])
+        return "".join(out)
+    from zzaimy.app import webhwp_style
+    return webhwp_style._rewrite(data, fn)
+
+
+def _tab_pr(hdr, width: int) -> str:
+    """오른쪽 탭 하나(글 폭 끝, 점선 채움)인 탭 모양 — 이미 있으면 그 id. 한글 실물 꼴(글자 단위 판은 HWPUNIT, 기본 판은 두 배 값)."""
+    for m in re.finditer(r'<hh:tabPr id="(\d+)"[^>/]*>(.*?)</hh:tabPr>', hdr.xml, re.S):
+        if f'pos="{width}" type="RIGHT" leader="DASH" unit="HWPUNIT"' in m.group(2):
+            return m.group(1)
+    ids = [int(x) for x in re.findall(r'<hh:tabPr id="(\d+)"', hdr.xml)]
+    tid = str(max(ids or [0]) + 1)
+    body = (f'<hh:tabPr id="{tid}" autoTabLeft="0" autoTabRight="0"><hp:switch>'
+            f'<hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/HwpUnitChar">'
+            f'<hh:tabItem pos="{width}" type="RIGHT" leader="DASH" unit="HWPUNIT"/></hp:case>'
+            f'<hp:default><hh:tabItem pos="{width * 2}" type="RIGHT" leader="DASH"/></hp:default></hp:switch></hh:tabPr>')
+    close = hdr.xml.find("</hh:tabProperties>")
+    hdr.xml = hdr.xml[:close] + body + hdr.xml[close:]
+    n = len(re.findall(r"<hh:tabPr\b", hdr.xml))
+    hdr.xml = re.sub(r'(<hh:tabProperties\b[^>]*\bitemCnt=")\d+', rf"\g<1>{n}", hdr.xml, count=1)
+    return tid
+
+
+def _para_with_tab(hdr, pp: str, tab_id: str) -> str:
+    """문단 모양 pp 를 그 탭 모양으로 — 같은 것이 있으면 그 id."""
+    m = re.search(rf'<hh:paraPr\b[^>]*?\bid="{pp}"[^>]*>.*?</hh:paraPr>', hdr.xml, re.S)
+    if not m:
+        return pp
+    body = m.group(0)
+    if re.search(rf'\btabPrIDRef="{tab_id}"', body):
+        return pp
+    body = re.sub(r'\btabPrIDRef="\d+"', f'tabPrIDRef="{tab_id}"', body, count=1)
+    body = re.sub(r'\bid="\d+"', f'id="{hdr._next_id("paraPr")}"', body, count=1)
+    return hdr._append("paraProperties", body)
 
 
 # ── 꾸밈 문단 스타일 ──
@@ -509,6 +649,114 @@ def create(db, base: Path, owner: str, src: Path | None = None) -> tuple[int, bo
     return fid, True
 
 
+# ── 이미 만든 문서 고치기(필드 밖만) ── 표지 아래 줄·꼬리말의 학과, 목차 쪽 번호. 칸 글(사람이 쓴 것)은 건드리지 않는다
+def _outside_fields(xml: str) -> list[tuple[int, int]]:
+    """필드 밖 구간 — 누름틀 시작부터 그 짝 끝까지를 뺀 나머지 (시작, 끝) 목록."""
+    inside: list[tuple[int, int]] = []
+    for m in re.finditer(r'<hp:fieldBegin\b[^>]*\bid="(\d+)"', xml):
+        e = re.search(rf'<hp:fieldEnd\b[^>]*\bbeginIDRef="{m.group(1)}"[^>]*/>', xml[m.end():])
+        if e:
+            inside.append((m.start(), m.end() + e.end()))
+    out, pos = [], 0
+    for a, b in sorted(inside):
+        if a > pos:
+            out.append((pos, a))
+        pos = max(pos, b)
+    out.append((pos, len(xml)))
+    return out
+
+
+def stamp_dept(data: bytes, old: list[str], new: str) -> tuple[bytes, int]:
+    """필드 밖 글(표지 아래 줄·꼬리말·머리말 등)의 학과 이름 old → new — (새 바이트, 바꾼 곳 수). 글 조각(<hp:t>) 안만 본다."""
+    from zzaimy.app import webhwp_style
+    olds = [escape(o) for o in old if o and o != new]
+    count = [0]
+
+    def fn(xml: str, _hdr, _n: str) -> str:
+        if not olds:
+            return xml
+        parts, pos = [], 0
+        for a, b in _outside_fields(xml):
+            parts.append(xml[pos:a])
+            seg = xml[a:b]
+
+            def sub(m: re.Match) -> str:
+                t = m.group(2)
+                for o in olds:
+                    if o in t:
+                        count[0] += t.count(o)
+                        t = t.replace(o, escape(new))
+                return m.group(1) + t + m.group(3)
+            parts.append(re.sub(r"(<hp:t>)([^<]*)(</hp:t>)", sub, seg))
+            pos = b
+        parts.append(xml[pos:])
+        return "".join(parts)
+    out = webhwp_style._rewrite(data, fn)
+    return out, count[0]
+
+
+def _save_outside(db, base: Path, fid: int, change, *, user: str) -> dict:
+    """필드 밖 고치기 공용 — 칸 글을 먼저 파일에 써 넣고(commit_now) → 고치고 → 점검(파일 구조·필드 값이 그대로인지) →
+    앞 판을 .판/ 에 남기고 저장. 저장 알림(「문서 저장」)으로 열린 편집 화면이 새 판을 불러온다. 구조 잠금을 쥔 사람이 있으면 쓰지 않는다.
+    change(data) → (새 바이트, 알릴 말)."""
+    from zzaimy.app import webhwp, webhwp_coedit as ce
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_write as ww
+    who = webhwp.lock_holder(db, fid).get("user", "")
+    if who:
+        return {"ok": False, "why": "struct", "by": who}
+    ce.commit_now(db, base, fid)
+    with ce.file_lock(fid):
+        f = webhwp.get(db, fid)
+        data = Path(f["path"]).read_bytes()
+        new, note = change(data)
+        if new == data:
+            return {"ok": True, "changed": False, "note": note}
+        probs = eo.check_bytes(new)
+        if probs:
+            return {"ok": False, "why": "check", "by": "; ".join(probs[:2])}
+        if ww.field_values(new) != ww.field_values(data):
+            return {"ok": False, "why": "fields", "by": ""}
+        eo._snapshot(db, base, fid)                     # 고치기 전 판은 꼭 남긴다(save 의 10분 간격 규칙과 상관없이)
+        webhwp.save(db, base, fid, new, user=user)
+    return {"ok": True, "changed": True, "note": note}
+
+
+def restamp(db, base: Path, fid: int, dept: str | None = None, *, user: str = WRITER) -> dict:
+    """이미 만든 논문 문서의 학과 글(필드 밖 — 표지 아래 「영남이공대학교 …」·꼬리말)을 dept(기본 META) 로 바꾼다.
+    예전 값은 문서 메타 paper.dept(없으면 자리표시 「○○과」). 표지 머리 줄의 학과는 칸(칸:학과)이라 여기서 바꾸지 않는다 — 칸 글은 공동 편집 길로."""
+    from zzaimy.app import webhwp
+    dept = (dept or META["dept"]).strip()
+    m = webhwp.meta(db, fid)
+    paper = m.get("paper") if isinstance(m.get("paper"), dict) else {}
+    old = [x for x in {paper.get("dept") or "", PLACEHOLDER_DEPT} if x]
+    def change(data: bytes):
+        new, n = stamp_dept(data, old, dept)
+        return new, f"{n}곳"
+    r = _save_outside(db, base, fid, change, user=user)
+    if r.get("ok"):
+        m = webhwp.meta(db, fid)
+        m["paper"] = {**(m.get("paper") if isinstance(m.get("paper"), dict) else {}), "dept": dept}
+        db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+    return r
+
+
+def toc_refresh(db, base: Path, fid: int, pages: dict, *, user: str) -> dict:
+    """편집 화면이 잰 쪽({필드: 쪽})으로 목차 줄의 쪽 번호를 다시 쓴다. 바뀐 줄 수를 note 로."""
+    clean = {str(k)[:200]: int(v) for k, v in (pages or {}).items() if str(v).isdigit() and 0 < int(v) < 10000}
+
+    def change(data: bytes):
+        new = toc_set(data, clean)
+        n = sum(1 for e in toc_entries(new) if e["field"] in clean)
+        return new, f"{n}줄"
+    return _save_outside(db, base, fid, change, user=user)
+
+
+def is_paper(db, fid: int) -> bool:
+    from zzaimy.app import webhwp
+    return isinstance(webhwp.meta(db, fid).get("paper"), dict)
+
+
 # ── 원고(마크다운) → 절 ──
 def split_sections(text: str) -> list[dict]:
     """원고 하나 → [{num, title, level, body, note}] — sec·back 제목 하나가 한 덩이, note 제목(원고 메모)도 덩이로 두되 note=True.
@@ -535,7 +783,7 @@ def split_sections(text: str) -> list[dict]:
 
 
 _IMG = re.compile(r"^!\[([^\]]*)\]\(([^)]*)\)\s*$")
-_CAP = re.compile(r"^\s*\[(그림|표)\s*(\d+-\d+)?\]\s*(.*)$")
+_CAP = re.compile(r"^\s*\[(그림|표)\s*(\d+-\d+|부록-\d+)?\]\s*(.*)$")
 _OL = re.compile(r"^\s*(\d+)[.)]\s+(.*)$")
 _UL = re.compile(r"^\s*[-*+]\s+(.*)$")
 
@@ -550,7 +798,7 @@ def _inline(t: str) -> str:
 
 
 _SENT = re.compile(r"^(은|는|이|가|을|를|의|과|와|에서|에|로|으로|처럼|까지|도)(\s|$)")
-_PAREN_SRC = re.compile(r"\s*\((캡처[^:：)]*|작성 필요|그림 자리)\s*[:：]?\s*([^)]*)\)\s*$")
+_PAREN_SRC = re.compile(r"\s*\((캡처[^:：)]*|작성 필요|그림 자리|그림(?=\s+docs/))\s*[:：]?\s*([^)]*)\)\s*$")
 
 
 def _caption_line(s: str):
@@ -566,6 +814,7 @@ def blocks(body: str) -> list[dict]:
     figure(![캡션](자리) 또는 「[그림 n-m] 자리: …」 + 「[그림 n-m] 캡션」 줄)·table(| 표 |, 앞이나 뒤의 「[표 n-m] 캡션」 줄)·
     code(``` 블록)·diagram(```도식)·sub(소제목)."""
     out: list[dict] = []
+    body = re.sub(r"<!--.*?-->", "", body, flags=re.S)     # 원고 메모(HTML 주석)는 문서에 넣지 않는다
     lines = body.splitlines()
     i = 0
     para: list[str] = []
@@ -573,7 +822,9 @@ def blocks(body: str) -> list[dict]:
 
     def flush():
         if para:
-            out.append({"kind": "p", "text": " ".join(_inline(x) for x in para if x.strip())})
+            text = " ".join(_inline(x) for x in para if x.strip())
+            tip = re.match(r"^(참고|팁)\s*[:：]\s*", text)              # 「참고: …」 문단은 팁 상자
+            out.append({"kind": "tip", "text": text[tip.end():]} if tip else {"kind": "p", "text": text})
             para.clear()
 
     def next_line(j: int) -> str:
@@ -650,19 +901,22 @@ def blocks(body: str) -> list[dict]:
         elif _OL.match(ln):
             flush()
             items = []
-            while i < len(lines) and (_OL.match(lines[i]) or (items and lines[i].startswith("   ") and lines[i].strip())):
+            start = int(_OL.match(ln).group(1))
+            while i < len(lines) and (_OL.match(lines[i]) or (items and lines[i].startswith("   ") and lines[i].strip()
+                                                              and not _caption_line(lines[i].strip()))):
                 m = _OL.match(lines[i])
                 if m:
                     items.append(_inline(m.group(2)))
                 else:
                     items[-1] += " " + _inline(lines[i])
                 i += 1
-            out.append({"kind": "steps", "items": items})
+            out.append({"kind": "steps", "items": items, "start": start})      # 그림을 사이에 둔 목록은 번호를 잇는다
             continue
         elif _UL.match(ln):
             flush()
             items = []
-            while i < len(lines) and (_UL.match(lines[i]) or (items and lines[i].startswith("  ") and lines[i].strip())):
+            while i < len(lines) and (_UL.match(lines[i]) or (items and lines[i].startswith("  ") and lines[i].strip()
+                                                              and not _caption_line(lines[i].strip()))):
                 m = _UL.match(lines[i])
                 if m:
                     items.append(_inline(m.group(1)))
@@ -693,6 +947,10 @@ class Numbering:
         self.next[k] = n
         return f"{chapter or '0'}-{n}"
 
+    def peek(self, what: str, chapter: str, given: str = "") -> str:
+        """다음에 take 가 줄 번호(세지 않고 보기만)."""
+        return given or f"{chapter or '0'}-{self.next.get((what, chapter or '0'), 0) + 1}"
+
     def caption(self, what: str, chapter: str, caption: str, given: str = "") -> str:
         line = f"[{what} {self.take(what, chapter, given)}] {caption}".rstrip()
         self.listed[what].append(line)
@@ -710,7 +968,7 @@ def to_text(bl: list[dict], chapter: str, nums: Numbering) -> str:
         elif k == "sub":
             out.append("■ " + b["text"])
         elif k == "steps":
-            out += [f"{i}) {t}" for i, t in enumerate(b["items"], 1)]
+            out += [f"{i}) {t}" for i, t in enumerate(b["items"], b.get("start", 1))]
         elif k == "bullets":
             out += [f"- {t}" for t in b["items"]]
         elif k == "tip":
@@ -730,11 +988,16 @@ def to_text(bl: list[dict], chapter: str, nums: Numbering) -> str:
     return "\n".join(out)
 
 
-def to_items(bl: list[dict], chapter: str, nums: Numbering) -> tuple[list[tuple[str, object]], dict[str, str]]:
-    """덩이 → 서식째 쓰기 항목(webhwp_write.write_section 의 items)과 꾸밈 짝({글: 스타일 이름}) — 글 문단은 그 글로, 상자(1칸 표)는 칸 글로 짚는다."""
+def to_items(bl: list[dict], chapter: str, nums: Numbering, figures: dict[str, list[Path]] | None = None,
+             pictures: dict[str, str] | None = None) -> tuple[list[tuple[str, object]], dict[str, str]]:
+    """덩이 → 서식째 쓰기 항목(webhwp_write.write_section 의 items)과 꾸밈 짝({글: 스타일 이름}) — 글 문단은 그 글로, 상자(1칸 표)는 칸 글로 짚는다.
+    figures({그림 번호: [그림 파일]}, figure_files)에 그 번호의 파일이 있으면 그림 자리 상자 대신 그림 표식 문단(⟦그림 파일 n⟧)을 두고
+    pictures 에 {표식: 파일 경로} 를 모은다 — 쓴 뒤 place_pictures 가 표식 문단을 그림으로 바꾼다."""
     items: list[tuple[str, object]] = []
     style: dict[str, str] = {}
     texts: list[str] = []
+    figures = figures or {}
+    pictures = pictures if pictures is not None else {}
 
     def flush():
         if texts:
@@ -744,15 +1007,29 @@ def to_items(bl: list[dict], chapter: str, nums: Numbering) -> tuple[list[tuple[
         k = b["kind"]
         if k == "p":
             texts.append(b["text"])
+            if _REF.match(b["text"]):
+                style[b["text"]] = "참고 문헌"
         elif k == "sub":
             texts.append("■ " + b["text"])
         elif k == "steps":
-            for i, t in enumerate(b["items"], 1):
+            for i, t in enumerate(b["items"], b.get("start", 1)):
                 line = f"{i}) {t}"
                 texts.append(line)
                 style[line] = "단계 목록"
         elif k == "bullets":
             texts += [f"- {t}" for t in b["items"]]
+        elif k == "figure" and figures.get(nums.peek("그림", chapter, b.get("no", ""))):
+            flush()
+            if not items:                              # 절이 그림으로 시작하면 절 필드는 비워 둔다(표식이 필드 안에 들어가지 않게)
+                items.append(("text", ""))
+            for path in figures[nums.peek("그림", chapter, b.get("no", ""))]:
+                mark = _marker(f"그림 파일 {len(pictures) + 1}")
+                pictures[mark] = str(path)
+                items.append(("text", mark))
+            if b.get("caption") or b.get("no"):
+                cap = nums.caption("그림", chapter, b.get("caption") or "", b.get("no", ""))
+                texts.append(cap)
+                style[cap] = "그림 캡션"
         elif k in ("tip", "code", "figure"):
             flush()
             if k == "tip":
@@ -782,6 +1059,123 @@ def to_items(bl: list[dict], chapter: str, nums: Numbering) -> tuple[list[tuple[
             items.append(("diagram", b["text"]))
     flush()
     return items, style
+
+
+_FIG_ROW = re.compile(r"^\|\s*\[그림\s*([^\]]+?)\]\s*\|[^|]*\|\s*(.+?)\s*\|\s*$")
+_IMG_PATH = re.compile(r"(docs/images/[\w./-]+?\.(?:png|jpe?g|gif|bmp))", re.I)
+
+
+def figure_files(list_md: Path, root: Path) -> dict[str, list[Path]]:
+    """그림·표 목록(docs/paper/논문/그림-표-목록.md)의 「자료」 칸이 저장소 그림 파일로 시작하는 그림 — {번호: [파일]}.
+    「캡처 필요」·「작성 필요」·「본문 글 상자」 로 시작하면 아직 넣을 그림이 없는 것으로 본다. 「a.jpg + b.jpg」 는 둘 다(뒤 것은 앞 것과 같은 폴더)."""
+    out: dict[str, list[Path]] = {}
+    if not list_md or not Path(list_md).is_file():
+        return out
+    for ln in Path(list_md).read_text(encoding="utf-8").splitlines():
+        m = _FIG_ROW.match(ln.strip())
+        if not m:
+            continue
+        no, src = m.group(1).strip(), m.group(2).strip()
+        first = _IMG_PATH.match(src)
+        if not first:
+            continue
+        paths = [root / first.group(1)]
+        for extra in re.findall(r"\+\s*([\w.-]+\.(?:png|jpe?g|gif|bmp))", src[first.end():], re.I):
+            paths.append(paths[0].parent / extra)
+        paths = [x for x in paths if x.is_file()]
+        if paths:
+            out[no] = paths
+    return out
+
+
+PIC_MAX_H = 52000          # 그림 높이 상한(HWPUNIT, 약 18cm) — 세로로 긴 화면 캡처가 한 쪽을 넘지 않게
+
+
+def place_pictures(data: bytes, pids: list[str], pictures: dict[str, bytes]) -> bytes:
+    """서식째 쓴 문단(pids) 가운데 그림 표식(⟦그림 파일 n⟧)만 든 문단을 그 그림 문단으로 바꾼다 — 글자처럼 취급하는 그림, 가운데, 글 폭에 맞춤.
+    문단 id 는 그대로 두어 다시 쓰면 지워진다. 같은 그림 바이트가 이미 BinData 에 있으면 그것을 다시 쓴다(다시 써도 파일이 불지 않게)."""
+    from zzaimy.ingest import hwpx_fill as hf
+    if not pictures or not pids:
+        return data
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    names = zin.namelist()
+    sec_names = sorted(n for n in names if re.match(r"Contents/section\d+\.xml$", n))
+    secs = {n: zin.read(n).decode("utf-8") for n in sec_names}
+    hpf_name = next((n for n in names if n.endswith("content.hpf")), None)
+    if not hpf_name:
+        return data
+    hpf = zin.read(hpf_name).decode("utf-8")
+    have = {n: zin.read(n) for n in names if n.startswith("BinData/")}
+    added: dict[str, bytes] = {}
+    from zzaimy.app import webhwp_style
+    st = styles_in(data)
+    hdr = webhwp_style._Header(zin.read("Contents/header.xml").decode("utf-8"))
+    # 그림 문단은 가운데·다음 문단(캡션)과 함께 — 그림과 캡션이 쪽을 사이에 두고 갈리지 않게
+    para = hdr.para_style(st["그림 자리"]["para"], keep_next=True) if "그림 자리" in st else None
+    ids = [int(x) for x in re.findall(r'<hp:pic id="(\d+)"', "".join(secs.values()))]
+    next_pic = [max(ids or [1_000_000]) + 1]
+
+    def bin_for(img: bytes) -> str | None:
+        for n, b in {**have, **added}.items():
+            if b == img:
+                return Path(n).stem
+        kind = hf.image_kind(img)
+        if not kind:
+            return None
+        used = set(hf._MANIFEST_ID.findall(hpf)) | {Path(x).stem for x in [*have, *added]}
+        k = 1
+        while f"image{k}" in used:
+            k += 1
+        added[f"BinData/image{k}.{kind[0]}"] = img
+        return f"image{k}"
+    changed = False
+    for n, xml in secs.items():
+        width = hf._text_width_hu(secs[sec_names[0]])
+        for pid in pids:
+            m = re.search(rf'<hp:p id="{pid}"[^>]*>(?:(?!<hp:p\b).)*?</hp:p>', xml, re.S)
+            if not m:
+                continue
+            mark = re.sub(r"<[^>]+>", "", m.group(0)).strip()
+            img = pictures.get(mark)
+            if img is None:
+                continue
+            bid = bin_for(img)
+            if not bid:
+                continue
+            px = hf._image_px(img)
+            org_w, org_h = (px[0] * 75, px[1] * 75) if px else (width, width * 3 // 4)
+            w = min(org_w, width)
+            h = int(w * org_h / org_w)
+            if h > PIC_MAX_H:
+                w, h = int(w * PIC_MAX_H / h), PIC_MAX_H
+            pp = para or re.search(r'paraPrIDRef="(\d+)"', m.group(0)).group(1)
+            run = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', m.group(0))
+            cp = run.group(1) if run else "0"
+            px_xml = hf.picture_xml(bid, next_pic[0], w, h, org_w, org_h, pp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1)
+            next_pic[0] += 1
+            xml = xml[:m.start()] + px_xml + xml[m.end():]
+            changed = True
+        secs[n] = xml
+    if not changed:
+        return data
+    for name, b in added.items():
+        mt = hf.image_kind(b)[1]
+        hpf = hpf.replace("</opf:manifest>", f'<opf:item id="{Path(name).stem}" href="{name}" media-type="{mt}" isEmbeded="1"/></opf:manifest>', 1)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in zin.infolist():
+            if info.filename in secs:
+                body = secs[info.filename].encode("utf-8")
+            elif info.filename == hpf_name:
+                body = hpf.encode("utf-8")
+            elif info.filename == "Contents/header.xml":
+                body = hdr.xml.encode("utf-8")
+            else:
+                body = zin.read(info.filename)
+            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+        for name, b in added.items():
+            z.writestr(name, b, compress_type=zipfile.ZIP_STORED)
+    return buf.getvalue()
 
 
 def _norm(t: str) -> str:
@@ -869,9 +1263,9 @@ def match_field(fields: list[str], num: str, title: str) -> str:
     return hit[0] if hit else ""
 
 
-def plan(data: bytes, texts: list[str], *, rich: bool = False) -> dict:
-    """원고들 → 쓸 목록. {"writes": [{field, kind(text|rich), text, items, style, chapter}], "missing": [원고 절], "lists": {그림·표 목차}}.
-    그림·표 번호는 원고 차례대로 장마다 매긴다(Numbering)."""
+def plan(data: bytes, texts: list[str], *, rich: bool = False, figures: dict[str, list[Path]] | None = None) -> dict:
+    """원고들 → 쓸 목록. {"writes": [{field, kind(text|rich), text, items, style, pictures, chapter}], "missing": [원고 절], "lists": {그림·표 목차}}.
+    그림·표 번호는 원고 차례대로 장마다 매긴다(Numbering). 서식째(rich)면 figures(figure_files)에 파일이 있는 그림은 그림으로 넣는다."""
     from zzaimy.app import webhwp_write as ww
     names = [x["name"] for x in ww.fields(data)]
     nums = Numbering()
@@ -893,7 +1287,8 @@ def plan(data: bytes, texts: list[str], *, rich: bool = False) -> dict:
             w = {"field": field, "chapter": chapter, "blocks": [b["kind"] for b in bl]}
             if rich:
                 w["kind"] = "rich"
-                w["items"], w["style"] = to_items(bl, chapter, nums)
+                w["pictures"] = {}
+                w["items"], w["style"] = to_items(bl, chapter, nums, figures, w["pictures"])
                 w["text"] = to_text(bl, chapter, Numbering())          # 미리 보기용(번호는 따로 셈)
             else:
                 w["kind"] = "text"
@@ -924,8 +1319,29 @@ def _who_wrote(db, fid: int, field: str, file_text: str) -> str:
     return "파일" if file_text.strip() else ""
 
 
+def _field_para_id(data: bytes, field: str) -> str:
+    """그 필드가 든 문단의 id — 절 첫 줄(필드 안 글)도 꾸밈 스타일을 입히려고."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    for n in sorted(x for x in zin.namelist() if re.match(r"Contents/section\d+\.xml$", x)):
+        xml = zin.read(n).decode("utf-8")
+        m = re.search(rf'<hp:fieldBegin\b[^>]*\bname="{re.escape(escape(field, {chr(34): "&quot;"}))}"', xml)
+        if m:
+            opens = list(re.finditer(r'<hp:p id="(\d+)"', xml[:m.start()]))
+            return opens[-1].group(1) if opens else ""
+    return ""
+
+
+def _steps(text: str, pause: float) -> list[str]:
+    """보는 사람에게 글이 차오르는 걸음 — 글이 길수록 걸음이 많다(줄 묶음 끝에서 끊는다, 4~12걸음). pause 가 0 이면 한 번에."""
+    if pause <= 0:
+        return [text]
+    return _parts(text, max(4, min(12, len(text) // 150 + 1)))
+
+
 def write(db, base: Path, fid: int, w: dict, *, overwrite: bool = False, pause: float = 0.4, sleep=None) -> dict:
-    """절 하나를 쓴다 — {"field", "ok", "why"}. 사람이 임대를 쥔 칸·사람이 쓴 글이 있는 칸(overwrite 아니면)은 건너뛴다."""
+    """절 하나를 쓴다 — {"field", "ok", "why"}. 사람이 임대를 쥔 칸·사람이 쓴 글이 있는 칸(overwrite 아니면)은 건너뛴다.
+    쓰는 동안(글이 차오르는 걸음·서식째 파일 쓰기 내내) 칸 임대를 쥐고 같이 보는 사람 표시를 그 칸에 둔다 — 편집 화면 사람 목록에
+    「Claude · 쓰는 중」. 마지막 칸 글을 넣은 뒤 놓고, 표시는 칸 없이(문서 보는 중) 둔다."""
     import time as _t
 
     from zzaimy.app import webhwp, webhwp_coedit as ce
@@ -940,41 +1356,59 @@ def write(db, base: Path, fid: int, w: dict, *, overwrite: bool = False, pause: 
     owner = _who_wrote(db, fid, field, ww.field_values(data).get(field, ""))
     if owner and owner != WRITER and not overwrite:
         return {"field": field, "ok": False, "why": "human", "by": owner}
-    got = ce.acquire(db, fid, field, WRITER, CLIENT)
-    if not got["ok"]:
-        return {"field": field, "ok": False, "why": "held", "by": got["by"]}
-    ce.presence(db, fid, WRITER, CLIENT, field)
-    if w["kind"] == "rich":
-        who = webhwp.lock_holder(db, fid).get("user", "")
-        if who and who != WRITER:
-            ce.release(db, fid, field, WRITER)
-            return {"field": field, "ok": False, "why": "struct", "by": who}
-        ce.commit_now(db, base, fid)                 # 칸 글 표의 남의 글을 먼저 파일에 — 서식째 쓰기가 파일을 새로 쓰므로
-        data = Path(webhwp.get(db, fid)["path"]).read_bytes()
-        m = webhwp.meta(db, fid)
-        written = m.get("written") if isinstance(m.get("written"), dict) else {}
-        new, put = ww.write_section(data, field, w["items"], written)
-        new = dress_written(new, put, w.get("style") or {})
-        from zzaimy.app import webhwp_edit_ops as eo
-        probs = eo.check_bytes(new)
-        if probs:
-            ce.release(db, fid, field, WRITER)
-            return {"field": field, "ok": False, "why": "check", "by": "; ".join(probs[:2])}
-        webhwp.save(db, base, fid, new, user=WRITER)          # 열린 편집 화면은 「문서 저장」 알림으로 새 판을 불러온다
-        m = webhwp.meta(db, fid)
-        written[field] = put
-        m["written"] = written
-        db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
-        inner = ww.field_values(new).get(field, "")
-        done, held = ce.put(db, fid, WRITER, {field: inner}, client=CLIENT)
-    else:
-        for part in _parts(w["text"])[:-1]:
-            ce.apply_ops(db, fid, WRITER, CLIENT, [{"seq": int(_t.time() * 1e6), "field": field, "text": part}], force=True)
-            sleep(pause)
-        done, held = ce.put(db, fid, WRITER, {field: w["text"]}, base=base, client=CLIENT)
-    if held:
-        return {"field": field, "ok": False, "why": "held", "by": held.get(field, "")}
-    return {"field": field, "ok": bool(done), "why": "" if done else "none"}
+    # 절 하나를 흘려 쓰는 동안 임대를 쥐는 공동 편집 도구(SectionStream — 그 절만의 창 번호) — 사람 화면에는 「Claude · 쓰는 중」
+    stream = ce.SectionStream(db, fid, field, user=WRITER, base=base)
+    if not stream.ok:
+        return {"field": field, "ok": False, "why": "held", "by": stream.held}
+
+    def keep():                                      # 임대·표시를 이어 둔다(긴 절·느린 파일 쓰기에도 「보는 중」 으로 바뀌지 않게)
+        ce.touch(db, fid, WRITER, [field], client=stream.client)
+        ce.presence(db, fid, WRITER, CLIENT, field)
+
+    def done_with(r: dict) -> dict:
+        stream.close()                                # 놓기(써 넣기는 놓을 때 예약된다)
+        if r.get("ok"):
+            ce.commit_now(db, base, fid)              # 스크립트는 곧 끝나므로 기다리지 않고 바로 파일에
+        ce.presence(db, fid, WRITER, CLIENT, "")
+        return r
+    try:
+        keep()
+        if w["kind"] == "rich":
+            who = webhwp.lock_holder(db, fid).get("user", "")
+            if who and who != WRITER:
+                return done_with({"field": field, "ok": False, "why": "struct", "by": who})
+            ce.commit_now(db, base, fid)             # 칸 글 표의 남의 글을 먼저 파일에 — 서식째 쓰기가 파일을 새로 쓰므로
+            keep()
+            data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+            data, _ = add_styles(data)               # 나중에 더한 꾸밈 스타일(참고 문헌 등)이 예전 문서에 없으면 둔다
+            m = webhwp.meta(db, fid)
+            written = m.get("written") if isinstance(m.get("written"), dict) else {}
+            new, put = ww.write_section(data, field, w["items"], written)
+            head = _field_para_id(new, field)
+            new = dress_written(new, put + ([head] if head else []), w.get("style") or {})
+            pics = {k: Path(v).read_bytes() for k, v in (w.get("pictures") or {}).items() if Path(v).is_file()}
+            new = place_pictures(new, put, pics)
+            from zzaimy.app import webhwp_edit_ops as eo
+            probs = eo.check_bytes(new)
+            if probs:
+                return done_with({"field": field, "ok": False, "why": "check", "by": "; ".join(probs[:2])})
+            keep()
+            webhwp.save(db, base, fid, new, user=WRITER)      # 열린 편집 화면은 「문서 저장」 알림으로 새 판을 불러온다
+            m = webhwp.meta(db, fid)
+            written[field] = put
+            m["written"] = written
+            db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+            ok = stream.write(ww.field_values(new).get(field, ""))
+        else:
+            for part in _steps(w["text"], pause)[:-1]:
+                stream.write(part)
+                keep()
+                sleep(pause)
+            ok = stream.write(w["text"])
+        return done_with({"field": field, "ok": ok, "why": "" if ok else "none"})
+    except Exception:
+        stream.close()
+        raise
 
 
 def leave(db, fid: int) -> None:

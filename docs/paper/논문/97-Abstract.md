@@ -1,6 +1,6 @@
 # Abstract
 
-Title: AURA: An On-Premise sLLM Platform and Document Agent for University Administrative Work (영문 제목은 표지 확정 후 맞춘다)
+Title: AURA: An On-Premise sLLM Platform and Document Agent for University Administrative Work <!-- 영문 제목은 표지 확정 후 맞춘다 -->
 
 University administration runs on documents such as grant announcements, project plans, performance reports and regulations.
 These documents contain personal and institutional information, so they cannot be sent to commercial cloud AI services and staff search

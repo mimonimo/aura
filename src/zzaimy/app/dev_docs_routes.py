@@ -627,7 +627,57 @@ def dev_paper_hwp_create(request: Request):
     st = request.app.state
     src = Path(request.app.state.docs.docs_dir) / "paper" / "논문"
     fid, _ = paper_hwp.create(st.db, Path(st.data_dir), getattr(request.state, "user", "") or "zzdev", src)
-    return RedirectResponse(f"{EDIT_PAGE}?id={fid}", status_code=303)
+    url = f"{EDIT_PAGE}?id={fid}"
+    if "application/json" in request.headers.get("accept", ""):       # 화면의 만들기 단추는 답을 받아 직접 옮겨 간다
+        return {"id": fid, "url": url}
+    return RedirectResponse(url, status_code=303)
+
+
+# 논문 문서의 목차 쪽 번호(ADR-0072) — 쪽은 기안기만 안다. 편집 화면(static/paper-toc.js)이 칸마다 쪽을 재 보내면 목차 줄을 다시 쓴다.
+# 논문은 교직원이 함께 쓰므로 /dev 밖 경로(교직원·관리자, 문서를 열 수 있는 사람)
+@router.get("/hwp/{fid}/paper-toc")
+def hwp_paper_toc_fields(request: Request, fid: int):
+    """목차 줄마다 쪽을 잴 필드 — 차례대로, 겹치지 않게."""
+    from zzaimy.app import paper_hwp
+    from zzaimy.app.webhwp_routes import _file, _need_staff
+    _need_staff(request)
+    f = _file(request, fid)
+    if not paper_hwp.is_paper(request.app.state.db, fid):
+        raise HTTPException(404, "논문 문서가 아닙니다")
+    seen: list[str] = []
+    for e in paper_hwp.toc_entries(Path(f["path"]).read_bytes()):
+        if e["field"] and e["field"] not in seen:
+            seen.append(e["field"])
+    return {"fields": seen}
+
+
+@router.post("/hwp/{fid}/paper-toc")
+async def hwp_paper_toc_set(request: Request, fid: int):
+    """잰 쪽({pages: {필드: 쪽}})으로 목차 쪽 번호를 쓴다 — 필드 밖만 고치고 앞 판은 .판/ 에, 열린 화면은 저장 알림으로 새 판."""
+    from starlette.concurrency import run_in_threadpool
+
+    from zzaimy.app import paper_hwp
+    from zzaimy.app.webhwp_routes import _file, _need_staff, _writable
+    _need_staff(request)
+    _file(request, fid)
+    _writable(request, fid)
+    st = request.app.state
+    if not paper_hwp.is_paper(st.db, fid):
+        raise HTTPException(404, "논문 문서가 아닙니다")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    pages = body.get("pages") if isinstance(body, dict) and isinstance(body.get("pages"), dict) else {}
+    if not pages:
+        raise HTTPException(400, "잰 쪽이 없습니다")
+    user = getattr(request.state, "user", "")
+    r = await run_in_threadpool(lambda: paper_hwp.toc_refresh(st.db, Path(st.data_dir), fid, pages, user=user))
+    if not r.get("ok"):
+        why = {"struct": "칸 밖 고치기 중인 사람이 있어 쓰지 않았습니다", "check": "고친 파일이 점검을 통과하지 못했습니다",
+               "fields": "칸 글이 달라져 쓰지 않았습니다"}.get(r.get("why"), "쓰지 않았습니다")
+        raise HTTPException(409, why)
+    return {"ok": True, "changed": r.get("changed", False), "note": r.get("note", "")}
 
 
 @router.get("/dev/paper/{name}/export.{fmt}")

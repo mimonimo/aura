@@ -157,7 +157,8 @@
     <div class="menu" role="menu" data-menu hidden>
       <button type="button" role="menuitem" data-save-as><iconify-icon icon="solar:diskette-linear"></iconify-icon>다른 이름으로 저장</button>
       {% if not readonly %}<button type="button" role="menuitem" data-struct hidden><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon><span data-struct-label>칸 밖 고치기</span><span class="hint" data-struct-hint>표·본문·용지</span></button>
-      <button type="button" role="menuitem" data-conflicts hidden><iconify-icon icon="solar:history-linear"></iconify-icon>충돌로 따로 둔 내 글</button>{% endif %}
+      <button type="button" role="menuitem" data-conflicts hidden><iconify-icon icon="solar:history-linear"></iconify-icon>충돌로 따로 둔 내 글</button>
+      {% if meta.paper is mapping %}<button type="button" role="menuitem" data-paper-toc="{{ f.id }}"><iconify-icon icon="solar:list-linear"></iconify-icon>목차 쪽 번호 넣기<span class="hint">논문</span></button>{% endif %}{% endif %}
       <div class="sep"></div>
       <div class="mlabel">내려받기</div>
       {# 형식은 webhwp_export.FORMATS 와 같게(필터 서버로 확인한 것만) — tests/test_webhwp_export 가 맞춰 본다 #}
@@ -182,6 +183,7 @@
 <script src="/static/webhwp-wrapper.js?v={{ asset_v }}"></script>
 <script src="/static/webhwp-collab.js?v={{ asset_v }}"></script>
 <script src="/static/webhwp-agent-runner.js?v={{ asset_v }}"></script>
+{% if f and meta.paper is mapping and not readonly %}<script src="/static/paper-toc.js?v={{ asset_v }}" defer></script>{% endif %}
 <script>
 (function () {
   // 편집 화면 — 기안기 API 는 어댑터(webhwp-wrapper.js)만 부르고, 같이 쓰기는 공동 편집 층(webhwp-collab.js, ADR-0070)이 맡는다.
