@@ -29,7 +29,11 @@
   }
   function cpLen(s) { return SUR.test(s) ? Array.from(s).length : s.length; }
   function u16At(s, cp) { if (!SUR.test(s)) return cp; var i = 0, k = 0; while (k < cp && i < s.length) { var c = s.charCodeAt(i); i += (c >= 0xD800 && c <= 0xDBFF) ? 2 : 1; k++; } return i; }
-  function applyStr(s, d) { var a = u16At(s, d.at), b = u16At(s.slice(a), d.del) + a; return s.slice(0, a) + d.ins + s.slice(b); }
+  // 받은 바뀐 부분을 글에 — 자리·길이가 글 밖이면(잘못된 알림) null, 부르는 쪽이 칸 글 전체를 다시 받는다
+  function applyStr(s, d) {
+    if (typeof d.ins !== 'string' || !(d.at >= 0) || !(d.del >= 0) || d.at + d.del > cpLen(s)) return null;
+    var a = u16At(s, d.at), b = u16At(s.slice(a), d.del) + a; return s.slice(0, a) + d.ins + s.slice(b);
+  }
   function now() { return Date.now(); }
   function clientId() {
     try { var v = sessionStorage.getItem('aura-coedit-client'); if (v) return v; } catch (e) {}
@@ -279,7 +283,9 @@
         var local = hwp.read(f);
         // 서식째 — 기안기 JSON 블록(설정 rich 일 때)이나 서버 참여자의 hwpx 조각(언제나). 조각을 넣은 칸은 화면 글이 서버 글과 조금 달라도
         // (표 글·캡션) 지문 대조로 글만 다시 쓰지 않는다(서식이 지워진다) — 그 칸을 다음에 글로 고칠 때까지
-        var hx = d.rich && hwp.isHwpxRich && hwp.isHwpxRich(d.rich);
+        // hwpx 조각은 서버가 검사해 trusted 로 표시한 알림, 또는 서버 칸 상태(검사를 거친 것만 남는다)에서 온 것만
+        var hx = d.rich && hwp.isHwpxRich && hwp.isHwpxRich(d.rich) && (d.trusted === true || d.fromState === true);
+        if (d.rich && hwp.isHwpxRich && hwp.isHwpxRich(d.rich) && !hx) d.rich = null;
         if (d.rich && (conf.rich || hx)) { rich.push(d); known[f] = {v: d.version, text: d.text}; if (hx) richField[f] = d.version; else delete richField[f]; continue; }
         delete richField[f];
         if (local !== null && norm(local) !== d.text) {
@@ -407,7 +413,7 @@
           var q = inbox[f], baseText = q && q.version === d.base ? q.text : (!q && k && k.v === d.base ? k.text : null);
           if (baseText === null) { fetchFields([f]); return; }       // 판이 끊겼다 — 칸 글 전체를 받는다
           var text = applyStr(baseText, d);
-          if (fp(text) !== d.fp) { fetchFields([f]); return; }
+          if (text === null || fp(text) !== d.fp) { fetchFields([f]); return; }
           var steps = q ? (q.steps || null) : [];
           if (steps) steps = steps.concat([{at: d.at, del: d.del, ins: d.ins}]);
           inbox[f] = {field: f, version: d.version, text: text, by: d.by, client: d.client, receivedAt: d.receivedAt, steps: steps, from: q ? q.from : k.v};
@@ -480,7 +486,7 @@
         .then(function (r) { return r.json(); }).then(function (j) {
           Object.keys(j.fields || {}).forEach(function (f) {
             var x = j.fields[f];
-            if (!known[f] || x.version > known[f].v || (x.version === known[f].v && fp(known[f].text) !== x.fp)) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
+            if (!known[f] || x.version > known[f].v || (x.version === known[f].v && fp(known[f].text) !== x.fp)) inbox[f] = {field: f, version: x.version, text: x.text, rich: x.rich, fromState: true, force: true};
           });
           scheduleApply();
         }).catch(function () {}).then(function () { list.forEach(function (f) { delete fetching[f]; }); });
@@ -525,7 +531,7 @@
           var x = srv[f];
           if (!x) { if (!known[f]) known[f] = {v: 0, text: norm(local[f])}; return; }
           var k = known[f];
-          if (!k || x.version > k.v) inbox[f] = {field: f, version: x.version, text: x.text, rich: x.rich, force: true};
+          if (!k || x.version > k.v) inbox[f] = {field: f, version: x.version, text: x.text, rich: x.rich, fromState: true, force: true};
           else if (x.version === k.v && !dirty[f] && !outbox[f] && richField[f] !== x.version && fp(local[f]) !== x.fp) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
         });
         applyEditable(); emit('locks', locks); emit('people', peopleList());

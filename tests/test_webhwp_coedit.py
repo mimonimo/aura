@@ -630,13 +630,70 @@ def test_server_participant_sends_hwpx_fragment_as_rich(tmp_path, monkeypatch):
     import base64
     app, kim, park, fid = _doc(tmp_path, monkeypatch)
     db = app.state.db
-    frag = wt.build(wt.GRANT["trip_report"])
+    frag = _fragment()
     r = ce.put_rich(db, fid, "절:1. 변경 사유", "조각 글", frag)
     assert r["ok"]
     rich = json.loads(ce.state(db, fid)["절:1. 변경 사유"]["rich"])
     assert rich["fmt"] == "hwpx" and base64.b64decode(rich["b64"]) == frag
     ev = [e for e in ce.events_since(db, fid, 0, full=False) if e["kind"] == "field-updated"][-1]["data"]
-    assert json.loads(ev["rich"])["fmt"] == "hwpx" and ev["text"] == "조각 글"
+    assert json.loads(ev["rich"])["fmt"] == "hwpx" and ev["text"] == "조각 글" and ev["trusted"] is True
     w = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-wrapper.js").read_text()
     c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
     assert "fmt = 'HWPX'" in w and "isHwpxRich" in c and "richField[f] !== x.version" in c
+
+
+def _fragment(extra_xml: str = "", extra_entry: str | None = None) -> bytes:
+    import io as _io
+    import zipfile as _zip
+    from hwpx import HwpxDocument
+    doc = HwpxDocument.new()
+    doc.add_paragraph("조각 문단")
+    t = doc.add_table(1, 2)
+    t.set_cell_text(0, 0, "표")
+    data = doc.to_bytes()
+    if not extra_xml and not extra_entry:
+        return data
+    zin, buf = _zip.ZipFile(_io.BytesIO(data)), _io.BytesIO()
+    with _zip.ZipFile(buf, "w") as z:
+        for i in zin.infolist():
+            b = zin.read(i.filename)
+            if i.filename == "Contents/section0.xml" and extra_xml:
+                b = b.decode().replace("조각 문단", "조각 문단" + extra_xml, 1).encode()
+            z.writestr(i, b)
+        if extra_entry:
+            z.writestr(extra_entry, b"x")
+    return buf.getvalue()
+
+
+def test_rich_fragments_only_from_server_participants_and_checked(tmp_path, monkeypatch):
+    """보안 점검: 사람 화면이 /ops 로 보낸 hwpx 조각은 받지 않는다(남의 화면에 아무 조각이나 넣게 된다). 서버 참여자의 조각도 필드·OLE·링크·
+    외부 주소·스크립트 같은 부분이 있으면 받지 않는다. 기안기 JSON 블록(시험 기능)은 설정이 켜져 있고 그 칸 임대를 쥔 창이 보낸 것만 — 아니면 글만."""
+    import base64
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    F = "절:1. 변경 사유"
+    hx = json.dumps({"fmt": "hwpx", "b64": base64.b64encode(_fragment()).decode()})
+    r = kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 1, "field": F, "base": 0, "text": "글", "rich": hx}]}).json()["results"][0]
+    assert r["reason"] == "rich_denied" and F not in ce.state(db, fid)
+    # 조각 안 누름틀은 떼어 내고 받는다(칸 안에 칸이 생기지 않게)
+    withf = _fragment('</hp:t></hp:run><hp:run charPrIDRef="0"><hp:ctrl><hp:fieldBegin id="1" type="CLICK_HERE" name="칸:사업명"/></hp:ctrl><hp:t>')
+    assert ce.put_rich(db, fid, "칸:담당자", "글", withf)["ok"]
+    sent = base64.b64decode(json.loads(ce.state(db, fid)["칸:담당자"]["rich"])["b64"])
+    assert b"fieldBegin" not in __import__("zipfile").ZipFile(__import__("io").BytesIO(sent)).read("Contents/section0.xml")
+    for bad in (_fragment('</hp:t></hp:run><hp:run charPrIDRef="0"><hp:ctrl><hp:fieldBegin id="2" type="HYPERLINK" name="x"/></hp:ctrl><hp:t>'),
+                _fragment(extra_xml="", extra_entry="Scripts/headerScripts"),
+                _fragment('</hp:t></hp:run><hp:run charPrIDRef="0"><hp:pic href="http://example.invalid/x.png"/><hp:t>'),
+                b"not a zip"):
+        assert ce.put_rich(db, fid, F, "글", bad)["reason"] == "rich_bad"
+    assert F not in ce.state(db, fid)
+    # JSON 블록: 설정이 꺼져 있으면 글만, 켜져 있어도 임대를 쥔 창이 아니면 글만
+    kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 2, "field": F, "base": 0, "text": "글", "rich": "{\"x\":1}"}]})
+    assert ce.state(db, fid)[F]["text"] == "글" and "rich" not in ce.state(db, fid)[F]
+    db.set_setting("coedit:rich", "1")
+    kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 3, "field": F, "base": 1, "text": "글2", "rich": "{\"x\":2}"}]})
+    assert "rich" not in ce.state(db, fid)[F]
+    ce.acquire(db, fid, F, "kim", "k1")
+    kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 4, "field": F, "base": 2, "text": "글3", "rich": "{\"x\":3}"}]})
+    assert ce.state(db, fid)[F]["rich"] == "{\"x\":3}"
+    c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
+    assert "d.trusted === true || d.fromState === true" in c and "d.at + d.del > cpLen(s)" in c

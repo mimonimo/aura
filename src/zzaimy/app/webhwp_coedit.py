@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import zlib
@@ -387,7 +388,20 @@ def _result(conn, fid: int, client: str, seq: int, res: dict) -> dict:
     return res
 
 
-def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Path | None = None, force: bool = False) -> list[dict]:
+def _rich_kind(rich: str) -> str:
+    """서식째 거리의 꼴 — 'hwpx'(서버 참여자의 조각) 또는 'json'(기안기 JSON 블록, 시험 기능)."""
+    if rich.lstrip().startswith("{"):
+        try:
+            j = json.loads(rich)
+            if isinstance(j, dict) and j.get("fmt") == "hwpx":
+                return "hwpx"
+        except ValueError:
+            pass
+    return "json"
+
+
+def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Path | None = None, force: bool = False,
+              trusted: bool = False) -> list[dict]:
     """칸 변경 묶음을 차례로 반영한다. 돌려주는 것은 op 마다 {seq, field, ok, version, [conflict, reason, text, by]}.
     force=True 는 판 번호 검사를 건너뛴다(에이전트가 지금 판 위에 쓸 때) — 남이 쥔 임대는 그래도 지킨다."""
     ensure(db)
@@ -419,7 +433,17 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
         if len(text) > TEXT_MAX:                       # 자르면 칸 끝 글이 말없이 사라진다 — 받지 않고 알린다
             results.append({"seq": seq, "field": field, "ok": False, "reason": "too_long", "max": TEXT_MAX})
             continue
-        rich = op.get("rich") if isinstance(op.get("rich"), str) and len(op.get("rich")) <= RICH_MAX else ""
+        # 서식째 거리 — hwpx 조각은 서버 참여자(trusted, put_rich 가 검사한 것)만. 사람 화면이 보낸 hwpx 조각은 받지 않는다(남의 화면에
+        # 아무 조각이나 넣게 된다). 기안기 JSON 블록은 시험 기능이 켜져 있을 때·그 칸 임대를 쥔 창에서만(아래 임대 검사)
+        raw_rich = op.get("rich") if isinstance(op.get("rich"), str) else ""
+        if len(raw_rich) > RICH_MAX:
+            results.append({"seq": seq, "field": field, "ok": False, "reason": "too_long", "max": RICH_MAX})
+            continue
+        rich_kind = _rich_kind(raw_rich) if raw_rich else ""
+        if rich_kind == "hwpx" and not trusted:
+            results.append({"seq": seq, "field": field, "ok": False, "reason": "rich_denied"})
+            continue
+        rich = raw_rich if (rich_kind == "hwpx" or (rich_kind == "json" and conf(db, "rich") > 0)) else ""
         try:
             b = int(op.get("base") or 0)
         except (TypeError, ValueError):
@@ -436,6 +460,8 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
             st = conn.execute("SELECT version, text, client, author, rich FROM webhwp_field_state WHERE fid = ? AND field = ?", (int(fid), field)).fetchone()
             cur_v, cur_text, cur_client = (int(st[0]), st[1], st[2]) if st else (0, None, "")
             reason = ""
+            if rich and rich_kind == "json" and not (_alive(lk, now) and lk[0] == user and (lk[1] or "") == client):
+                rich = ""                                  # JSON 블록은 그 칸을 쥔 창이 보낸 것만 — 아니면 글만 받는다
             if _alive(lk, now) and lk[0] != user:
                 reason = "locked"
             elif not force and b != cur_v and cur_client != ck:
@@ -504,6 +530,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                     data = {"field": field, "version": v, "text": text, "fp": fingerprint(text), "by": user, "client": client}
                 if rich:
                     data["rich"] = rich
+                    data["trusted"] = rich_kind == "hwpx"          # 화면은 hwpx 조각을 서버가 검사한 것만 넣는다
                 emit(db, fid, "field-updated", data, conn=conn)
                 res = {"seq": seq, "field": field, "ok": True, "version": v}
                 if until:
@@ -665,12 +692,66 @@ def put_rich(db, fid: int, field: str, text: str, hwpx: bytes, *, user: str = AG
     """서버 참여자(AURA·논문 작성기)가 칸 하나를 서식째 — hwpx 조각(표·꾸밈 스타일·캡션)과 그 글. 열린 편집 화면은 조각을 그 칸에 넣는다
     (SetTextFile insertfile). 파일 써 넣기는 아직 글만이다(조각의 문단 모양·표를 파일 머리(header)에 합치는 일은 남음 — ADR-0070)."""
     import base64
+    hwpx = strip_fragment_fields(hwpx)                 # 조각 안 누름틀(쓰는 쪽 표시용 「절:조각」 등)은 떼어 낸다 — 칸 안에 칸이 생기지 않게
+    why = fragment_problem(hwpx)
+    if why:
+        return {"ok": False, "reason": "rich_bad", "why": why}
     rich = json.dumps({"fmt": "hwpx", "b64": base64.b64encode(hwpx).decode()})
     if len(rich) > RICH_MAX:
         return {"ok": False, "reason": "too_long", "max": RICH_MAX}
     client = client or f"{user}:server"
-    r = apply_ops(db, fid, user, client, [{"seq": int(time.time() * 1000), "field": field, "text": text, "rich": rich}], base=base, force=True)[0]
+    r = apply_ops(db, fid, user, client, [{"seq": int(time.time() * 1000), "field": field, "text": text, "rich": rich}], base=base, force=True,
+                  trusted=True)[0]
     return r
+
+
+_FRAG_ENTRY = re.compile(r"^(mimetype|version\.xml|settings\.xml|META-INF/[^/]+|Contents/(header|content|section\d+)\.(xml|hpf)|Preview/[^/]+|"
+                         r"BinData/[^/]+\.(png|jpe?g|gif|bmp))$", re.I)
+_FRAG_BAD = re.compile(r"<hp:fieldBegin\b|<hp:fieldEnd\b|<hp:ole\b|<hp:video\b|<hp:(btn|checkBtn|radioBtn|comboBox|listBox|edit|scrollBar)\b|"
+                       r"HYPERLINK|\b(href|src)=\"(?!#)[^\"]+\"", re.I)
+
+
+def strip_fragment_fields(data: bytes) -> bytes:
+    """조각의 누름틀(CLICK_HERE) 여닫는 ctrl 만 떼어 낸다(글은 그대로). 열 수 없으면 그대로 돌려줘 fragment_problem 이 거절한다."""
+    import io
+    import zipfile
+    try:
+        zin = zipfile.ZipFile(io.BytesIO(data))
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zout:
+            for i in zin.infolist():
+                b = zin.read(i.filename)
+                if re.match(r"Contents/section\d+\.xml$", i.filename):
+                    x = b.decode("utf-8")
+                    x = re.sub(r'<hp:ctrl><hp:fieldBegin\b[^>]*type="CLICK_HERE"[^>]*>.*?</hp:fieldBegin></hp:ctrl>', "", x, flags=re.S)
+                    x = re.sub(r'<hp:ctrl><hp:fieldBegin\b[^>]*type="CLICK_HERE"[^>]*/></hp:ctrl>', "", x)
+                    x = re.sub(r"<hp:ctrl><hp:fieldEnd\b[^>]*/></hp:ctrl>", "", x)
+                    b = x.encode("utf-8")
+                zout.writestr(i, b, compress_type=zipfile.ZIP_STORED if i.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+        return buf.getvalue()
+    except Exception:
+        return data
+
+
+def fragment_problem(data: bytes) -> str:
+    """서식째 조각(hwpx)을 남의 화면에 넣기 전에 — 들인 것이 글·문단·표·그림만인지. 문제가 있으면 까닭, 없으면 빈 글.
+    필드(조각 안 누름틀이 대상 칸 밖 이름과 겹치거나 칸을 벗어남)·OLE·동영상·양식 개체·하이퍼링크·외부 주소·스크립트 같은 다른 파일은 받지 않는다."""
+    import io
+    import zipfile
+    from zzaimy.app import webhwp_fields as wf
+    if not data or data[:2] != b"PK" or len(data) > RICH_MAX * 3 // 4:
+        return "hwpx 조각이 아니거나 너무 큽니다"
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        wf.check_zip(z)
+    except Exception:
+        return "hwpx 조각을 열 수 없습니다"
+    for n in z.namelist():
+        if not _FRAG_ENTRY.match(n):
+            return f"조각에 넣을 수 없는 부분: {n[:80]}"
+        if re.match(r"Contents/section\d+\.xml$", n) and _FRAG_BAD.search(z.read(n).decode("utf-8", "replace")):
+            return "조각에 필드·개체·링크·외부 주소가 있습니다"
+    return ""
 
 
 def conflicts(db, fid: int, user: str | None = None, limit: int = 50) -> list[dict]:
