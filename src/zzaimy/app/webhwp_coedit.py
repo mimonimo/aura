@@ -27,7 +27,8 @@ log = logging.getLogger("zzaimy.app.webhwp_coedit")
 
 STRUCT = ""                       # 구조 잠금(문서 전체)의 필드 이름 자리
 AGENT = "AURA"
-TEXT_MAX = 50_000
+TEXT_MAX = 1_000_000              # 한 칸 글 상한(webhwp_fields.TEXT_MAX 와 같다) — 넘으면 자르지 않고 받지 않는다(too_long)
+DOC_TEXT_MAX = 8_000_000          # 한 문서 칸 글 합계 상한(webhwp_fields.DOC_TEXT_MAX) — 넘으면 too_big
 RICH_MAX = 2_000_000
 FIELDS_MAX = 2_000                # 한 문서에 새로 만들 수 있는 칸 글 줄 상한(양식의 필드 수보다 넉넉히)
 CONFLICTS_KEEP = 200              # 사람·문서마다 남기는 충돌 사본 수(오래된 것부터 지운다)
@@ -88,8 +89,10 @@ def conf(db, key: str) -> float:
 
 
 def client_conf(db) -> dict:
-    """편집 화면에 넘기는 설정(초·ms)."""
-    return {k: conf(db, k) for k in DEFAULTS}
+    """편집 화면에 넘기는 설정(초·ms)과 한 칸 글 상한(field_max)."""
+    out = {k: conf(db, k) for k in DEFAULTS}
+    out["field_max"] = TEXT_MAX
+    return out
 
 
 def ensure(db) -> None:
@@ -123,10 +126,10 @@ def craw(key: str) -> str:
 
 
 def norm(text) -> str:
-    """칸 글 비교용 — 줄바꿈을 \\n 하나로(기안기는 \\r\\n 으로 돌려준다), XML 이 받지 않는 글자는 빼고 길이 상한."""
+    """칸 글 비교용 — 줄바꿈을 \\n 하나로(기안기는 \\r\\n 으로 돌려준다), XML 이 받지 않는 글자는 뺀다. 자르지 않는다(상한은 apply_ops 가 거절로)."""
     from zzaimy.app import webhwp_fields as wf
     s = "" if text is None else str(text)
-    return wf.clean_text(s.replace("\r\n", "\n").replace("\r", "\n"), TEXT_MAX)
+    return wf.clean_text(s.replace("\r\n", "\n").replace("\r", "\n"), None)
 
 
 def fingerprint(text: str) -> str:
@@ -376,6 +379,9 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
             results.append({"seq": seq, "ok": False, "reason": "bad"})
             continue
         text = norm(op.get("text"))
+        if len(text) > TEXT_MAX:                       # 자르면 칸 끝 글이 말없이 사라진다 — 받지 않고 알린다
+            results.append({"seq": seq, "field": field, "ok": False, "reason": "too_long", "max": TEXT_MAX})
+            continue
         rich = op.get("rich") if isinstance(op.get("rich"), str) and len(op.get("rich")) <= RICH_MAX else ""
         try:
             b = int(op.get("base") or 0)
@@ -400,6 +406,12 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
             elif st is None and conn.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = ?", (int(fid),)).fetchone()[0] >= FIELDS_MAX:
                 results.append({"seq": seq, "field": field, "ok": False, "reason": "too_many"})
                 continue
+            if not reason and (st is None or cur_text != text):
+                other = conn.execute("SELECT COALESCE(SUM(LENGTH(text)), 0) FROM webhwp_field_state WHERE fid = ? AND field <> ?",
+                                     (int(fid), field)).fetchone()[0]
+                if int(other or 0) + len(text) > DOC_TEXT_MAX:
+                    results.append({"seq": seq, "field": field, "ok": False, "reason": "too_big", "max": DOC_TEXT_MAX})
+                    continue
             if reason:
                 sql = ("INSERT INTO webhwp_conflicts (fid, field, user_id, base_version, server_version, text, reason, at)"
                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -574,11 +586,63 @@ def commit_now(db, base: Path, fid: int) -> list[str]:
 
 
 def fresh(db, base: Path, fid: int) -> None:
-    """파일을 읽어 내보내기 전에 — 아직 안 들어간 칸 글을 먼저 써 넣는다(실패해도 읽기는 이어 간다)."""
+    """파일을 읽어 내보내기 전에 — 아직 안 들어간 칸 글을 먼저 써 넣고, 필드 안 줄 나눔을 문단 나눔으로 바꾼다(실패해도 읽기는 이어 간다)."""
     try:
         commit_now(db, base, fid)
     except Exception:
         log.exception("써 넣기 실패")
+    try:
+        normalize_file(db, base, fid)
+    except Exception:
+        log.exception("줄 나눔 정리 실패")
+
+
+_NORMALIZED: dict[int, tuple] = {}
+
+
+def _keep_version(p: Path) -> Path:
+    """지금 파일을 앞 판으로 따로 남긴다(.판/<이름> YYYYMMDD-HHMMSS[-n].<확장자> — webhwp 의 판 목록과 같은 꼴)."""
+    import shutil
+    from datetime import datetime
+    vdir = p.parent / ".판"
+    vdir.mkdir(exist_ok=True)
+    stamp, n = datetime.now().strftime("%Y%m%d-%H%M%S"), 1
+    dest = vdir / f"{p.stem} {stamp}{p.suffix}"
+    while dest.exists():
+        n += 1
+        dest = vdir / f"{p.stem} {stamp}-{n}{p.suffix}"
+    shutil.copy2(p, dest)
+    return dest
+
+
+def normalize_file(db, base: Path, fid: int) -> int:
+    """필드 안 줄 나눔(lineBreak)을 문단 나눔으로 한 번 바꾼다 — 기안기 GetFieldText 는 줄 나눔을 돌려주지 않아 칸 공동 편집이
+    한 번 지나가면 그 칸의 줄이 모두 붙었다. 바꾸기 전 판은 .판/ 에 남기고, 열린 편집 화면에는 「문서 저장」 을 알려 새 판을 열게 한다.
+    잠긴 공통 양식·hwp 는 손대지 않는다. 같은 파일(수정 시각·크기)은 다시 보지 않는다. 바꾼 줄 나눔 수."""
+    from zzaimy.app import webhwp, webhwp_write as ww
+    f = webhwp.get(db, fid)
+    if not f:
+        return 0
+    p = Path(f["path"])
+    if not p.exists() or p.suffix.lower() != ".hwpx" or webhwp.locked(db, fid):
+        return 0
+    st = p.stat()
+    if _NORMALIZED.get(int(fid)) == (st.st_mtime_ns, st.st_size):
+        return 0
+    n = 0
+    with file_lock(fid):
+        data = p.read_bytes()
+        try:
+            new, n = ww.normalize_breaks(data)
+        except Exception:
+            log.exception("줄 나눔 정리 — 파일을 읽지 못함(그대로 둔다)")
+            new, n = data, 0
+        if n:
+            _keep_version(p)
+            p = webhwp.save(db, base, fid, new, user=AGENT, quiet=False)
+        st = p.stat()
+        _NORMALIZED[int(fid)] = (st.st_mtime_ns, st.st_size)
+    return n
 
 
 _TIMERS: dict[int, dict] = {}

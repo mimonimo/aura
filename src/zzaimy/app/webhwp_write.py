@@ -1,7 +1,9 @@
 """기안기 작업본에 쓰기(서버 쪽) — 에이전트 도구가 브라우저 없이 한글 파일(hwpx)의 누름틀 필드에 값을 넣고 절 본문(문단·표)을 쓴다.
 
 - fields(data): 필드 목록과 지금 값 — [{"name", "kind"(절·칸·표·기타), "text"}]
-- set_fields(data, {이름: 값}): 칸·표 필드 값 바꾸기(줄바꿈은 한 칸 안 줄 나눔)
+- set_fields(data, {이름: 값}): 칸·표 필드 값 바꾸기(줄바꿈은 진짜 문단 나눔 — 필드가 여러 문단에 걸친다)
+- normalize_breaks(data): 필드 안 줄 나눔(lineBreak)을 문단 나눔으로 — 기안기 GetFieldText 가 줄 나눔을 돌려주지 않아
+  공동 편집 한 번에 줄이 모두 붙고, 한 문단이 된 긴 절은 양식 모드에서 한 글자마다 문단 길이만큼 다시 배치된다(ADR-0070)
 - write_section(data, 이름, items, written): 절 필드가 든 문단 바로 뒤에 문단·표를 넣는다. items = [("text", 글) | ("table", 행렬)].
   앞서 같은 절에 넣은 문단(written[이름] 의 문단 id)은 지우고 새로 넣는다 — 「다시 써 줘」 가 덧붙이지 않게.
   문단·표 모양은 서식 보존 채우기(hwpx_fill)와 같은 함수로 만든다(서식의 기본 문단·글자 모양, 실선 테두리).
@@ -81,9 +83,95 @@ def field_values(data: bytes) -> dict[str, str]:
     return out
 
 
-def _value_xml(text: str) -> str:
-    lines = wf.clean_text(text).split("\n")
-    return "<hp:t>" + "<hp:lineBreak/>".join(escape(x) for x in lines) + "</hp:t>"
+_TOK = re.compile(r"<hp:p\b[^>]*>|</hp:p>|<hp:run\b[^>]*>|</hp:run>|<hp:t(?=[\s>])[^>]*>")
+_LB = re.compile(r"<hp:lineBreak\s*/>")
+
+
+def _opens_at(xml: str, positions: list[int]) -> list[tuple[str, str, str]]:
+    """자리마다 그 자리를 품은 가장 안쪽 문단·글자 묶음(run)·글(t)의 여는 태그 — 한 번 훑어서(자리는 차례대로)."""
+    out, ps, runs, t = [], [], [], ""
+    toks = _TOK.finditer(xml)
+    nxt = next(toks, None)
+    for at in positions:
+        while nxt is not None and nxt.start() < at:
+            g = nxt.group(0)
+            if g.startswith("<hp:p"):
+                ps.append(g)
+            elif g == "</hp:p>":
+                ps and ps.pop()
+            elif g.startswith("<hp:run"):
+                runs.append(g); t = ""
+            elif g == "</hp:run>":
+                runs and runs.pop(); t = ""
+            else:
+                t = g
+            nxt = next(toks, None)
+        out.append((ps[-1] if ps else "", runs[-1] if runs else "", t or "<hp:t>"))
+    return out
+
+
+def _cont(p_open: str, run_open: str, t_open: str, ids: "wf._Ids", made: set) -> str:
+    """문단을 여기서 나눈다 — 닫고, 같은 모양의 새 문단(새 id, 쪽·단 나눔 없음)을 연다."""
+    pid = ids.new()
+    made.add(pid)
+    p2 = re.sub(r'\bid="\d+"', f'id="{pid}"', p_open, count=1)
+    p2 = re.sub(r'\b(pageBreak|columnBreak)="1"', r'\1="0"', p2)
+    return "</hp:t></hp:run></hp:p>" + p2 + (run_open or '<hp:run charPrIDRef="0">') + t_open
+
+
+def _value_xml(text: str, split=None) -> str:
+    """필드 값 — 여러 줄이면 split()(줄마다 새 문단을 여는 조각)으로 잇는다. split 이 없으면(문단 자리를 모름) 줄 나눔."""
+    lines = wf.clean_text(text, None).split("\n")
+    out = escape(lines[0])
+    for x in lines[1:]:
+        out += (split() if split else "<hp:lineBreak/>") + escape(x)
+    return "<hp:t>" + out + "</hp:t>"
+
+
+def _strip_made(xml: str, made: set) -> str:
+    """나누거나 새로 만든 문단의 줄 배치 캐시만 지운다(편집기가 그 문단만 다시 배치)."""
+    if not made:
+        return xml
+    return wf.strip_lineseg_in(xml, lambda p: (re.match(r'<hp:p\b[^>]*\bid="(\d+)"', p) or [None, None])[1] in made)
+
+
+def _normalize_xml(xml: str, ids: "wf._Ids") -> tuple[str, int]:
+    """한 절 xml 의 필드 안 줄 나눔을 문단 나눔으로. 표·그림이 든 필드는 그대로 둔다. (새 xml, 바꾼 수)."""
+    hits = []
+    for m in _BEGIN.finditer(xml):
+        sp = _span(xml, m.group(1), m.end())
+        if not sp:
+            continue
+        frag = xml[sp[0]:sp[1]]
+        if "<hp:lineBreak" not in frag or "<hp:tbl" in frag or "<hp:pic" in frag:
+            continue
+        hits += [sp[0] + b.start() for b in _LB.finditer(frag)]
+    if not hits:
+        return xml, 0
+    hits.sort()
+    opens = _opens_at(xml, hits)
+    made: set = set()
+    out, pos = [], 0
+    for at, (p, r, t) in zip(hits, opens):
+        if not p:
+            continue
+        made.add((re.match(r'<hp:p\b[^>]*\bid="(\d+)"', p) or [None, None])[1])
+        m = _LB.match(xml, at)
+        out.append(xml[pos:at]); out.append(_cont(p, r, t, ids, made)); pos = m.end()
+    out.append(xml[pos:])
+    return _strip_made("".join(out), made), len(hits)
+
+
+def normalize_breaks(data: bytes) -> tuple[bytes, int]:
+    """필드 안 줄 나눔(lineBreak) → 문단 나눔. 바꿀 것이 없으면 같은 바이트. (새 바이트, 바꾼 수)."""
+    zin, secs = _open(data)
+    ids = wf._Ids(list(secs.values()))
+    new, n = {}, 0
+    for name, xml in secs.items():
+        x2, k = _normalize_xml(xml, ids)
+        if k:
+            new[name], n = x2, n + k
+    return (_pack(zin, new) if new else data), n
 
 
 def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
@@ -91,11 +179,12 @@ def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
     zin, secs = _open(data)
     if not isinstance(values, dict):
         raise ValueError("values 는 {필드 이름: 값} 이다")
-    want = {str(k): ("" if v is None else wf.clean_text(v)) for k, v in values.items() if k}
+    want = {str(k): ("" if v is None else wf.clean_text(v, None)) for k, v in values.items() if k}
     done: list[str] = []
     new = {}
+    ids = wf._Ids(list(secs.values()))
     for n, xml in secs.items():
-        pos, buf = 0, []
+        hits = []
         for m in _BEGIN.finditer(xml):
             name = _unq(m.group(2))
             if name not in want or name in done:
@@ -103,15 +192,29 @@ def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
             sp = _span(xml, m.group(1), m.end())
             if not sp:
                 continue
-            buf.append(xml[pos:sp[0]])
-            buf.append(_value_xml(want[name]))
-            pos = sp[1]
+            hits.append((m, sp, name))
             done.append(name)
-        if buf:
-            buf.append(xml[pos:])
-            names = set(done)
-            # 값이 바뀐 필드의 문단만 줄 배치 캐시를 지운다(편집기가 그 문단만 다시 배치)
-            new[n] = wf.strip_lineseg_in("".join(buf), lambda p: any(_unq(b.group(2)) in names for b in _BEGIN.finditer(p)))
+        if not hits:
+            continue
+        # 여러 줄 값은 필드가 든 문단과 같은 모양의 문단으로 나눈다(줄 나눔이 아니라) — 기안기 PutFieldText(\r\n)와 같은 꼴
+        opens = _opens_at(xml, [m.start() for m, _, _ in hits])
+        made: set = set()
+        pos, buf = 0, []
+        for (m, sp, name), (p, r, t) in zip(hits, opens):
+            buf.append(xml[pos:sp[0]])
+            pid = (re.match(r'<hp:p\b[^>]*\bid="(\d+)"', p) or [None, None])[1] if p else None
+            if pid:
+                made.add(pid)
+            split = (lambda p=p, r=r: _cont(p, r, "<hp:t>", ids, made)) if p else None
+            buf.append(_value_xml(want[name], split))
+            pos = sp[1]
+        buf.append(xml[pos:])
+        x2 = "".join(buf)
+        # 값이 바뀐 필드의 문단(나눈 문단 포함)만 줄 배치 캐시를 지운다. 닫는 필드가 있던 문단(앞 판에서 여러 문단이던 필드)도
+        ends = {m.group(1) for m, _, _ in hits}
+        x2 = wf.strip_lineseg_in(x2, lambda q: (re.match(r'<hp:p\b[^>]*\bid="(\d+)"', q) or [None, None])[1] in made
+                                 or any(e in q for e in (f'beginIDRef="{b}"' for b in ends)))
+        new[n] = _normalize_xml(x2, ids)[0]          # 같은 절의 다른 필드에 남은 줄 나눔도 함께 문단으로
     return (_pack(zin, new) if new else data), done
 
 

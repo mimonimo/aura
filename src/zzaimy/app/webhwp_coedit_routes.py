@@ -23,7 +23,7 @@ from zzaimy.app import webhwp_coedit as ce
 from zzaimy.app.webhwp_routes import _file, _need_staff
 
 router = APIRouter()
-MAX_BODY = 4_000_000       # 한 요청 본문 상한(칸 글 50,000자 × 여러 칸, 서식째 시험 포함)
+MAX_BODY = 8_000_000       # 한 요청 본문 상한(한글 3바이트 × 칸 글 100만 자 두어 칸, 서식째 시험 포함) — 보통은 바뀐 부분만 간다
 STREAMS_PER_USER = 8       # 한 사람이 한 문서에 여는 알림 흐름 수 상한(창·탭)
 POLL = 1.0                 # 다른 프로세스가 쓴 알림을 읽는 주기(같은 프로세스는 바로 깨운다)
 BEAT = 15.0                # 연결 유지 주석 간격
@@ -106,7 +106,8 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
     async def stream():
         nonlocal last_id
         seen: list[int] = []
-        quiet = 0.0
+        floor = last_id               # 화면이 이미 본 끝 — 앞을 다시 읽는 것(lookback)은 그 뒤에 늦게 확정된 것만 잡으려고. 본 것을 다시 보내면
+        quiet = 0.0                   # 열자마자 제 「문서 저장」(줄 나눔 정리)을 받아 한 번 더 열었다
         ce.HUB.add(fid, loop, wake, me)
         try:
             yield "retry: 1500\n\n"
@@ -116,7 +117,7 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
                 wake.clear()
                 evs = await run_in_threadpool(ce.events_since, db, fid, last_id, 20)
                 for e in evs:
-                    if e["id"] in seen or e["id"] <= last_id - 20:
+                    if e["id"] in seen or e["id"] <= last_id - 20 or e["id"] <= floor:
                         continue
                     seen.append(e["id"])
                     last_id = max(last_id, e["id"])

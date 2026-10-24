@@ -33,7 +33,8 @@ _LINESEG = re.compile(r"<hp:linesegarray>.*?</hp:linesegarray>", re.S)
 
 # XML 1.0 이 받지 않는 글자 — 제어 문자(탭·줄바꿈 빼고)·짝 없는 대리 쌍·U+FFFE/FFFF. 하나라도 들어가면 한글이 파일을 열지 못한다
 _BAD_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
-TEXT_MAX = 50_000                       # 한 번에 넣는 글의 상한(절 본문 여러 쪽 분량) — 넘는 글은 자른다
+TEXT_MAX = 1_000_000                    # 한 칸·한 번에 넣는 글의 상한(절 하나 약 600쪽 분량) — 50,000자일 때 30쪽 넘는 절의 끝이 잘렸다(ADR-0070)
+DOC_TEXT_MAX = 8_000_000                # 한 문서 칸 글 합계 상한(공동 편집 표) — 넘는 고침은 받지 않고 알린다
 
 
 def clean_text(value, limit: int | None = TEXT_MAX) -> str:

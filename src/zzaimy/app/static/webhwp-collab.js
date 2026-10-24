@@ -9,7 +9,8 @@
   'use strict';
   var STRUCT = '';
   var BAD = /[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]|[\ud800-\udbff](?![\udc00-\udfff])|(^|[^\ud800-\udbff])[\udc00-\udfff]/g;
-  function norm(s) { return String(s == null ? '' : s).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(BAD, '$1').slice(0, 50000); }
+  // 자르지 않는다 — 예전 50,000자 자르기는 30쪽 넘는 절에서 칸 끝 글을 말없이 버렸다(ADR-0070). 상한은 서버 설정 field_max 로 보내기 전에 알린다
+  function norm(s) { return String(s == null ? '' : s).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(BAD, '$1'); }
   var CRC = (function () { var t = new Uint32Array(256); for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
   function fp(s) {                       // 서버 webhwp_coedit.fingerprint 와 같은 셈(UTF-8 CRC32)
     var b = new TextEncoder().encode(norm(s)), c = 0xFFFFFFFF;
@@ -57,7 +58,8 @@
 
   function engine(o) {
     var hwp = o.hwp, fid = o.fid, me = o.me, base = '/hwp/' + fid, client = clientId(), idb = store();
-    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 0, aura_ttl: 20};
+    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 0, aura_ttl: 20, field_max: 1000000};
+    var tooLong = {};
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
     var inbox = {}, applyTimer = null, applying = false;
@@ -105,6 +107,11 @@
         var text = hwp.read(f);
         if (text === null) return;
         text = norm(text);
+        if (text.length > conf.field_max) {                    // 상한을 넘는 글은 보내지 않고 알린다(잘라 보내면 끝 글이 사라진다)
+          if (!tooLong[f]) { tooLong[f] = 1; emit('error', '「' + f.replace(/^(절|칸):/, '') + '」 칸은 ' + conf.field_max.toLocaleString() + '자까지 같이 쓸 수 있어요 — 넘는 동안은 저장되지 않아요'); }
+          return;
+        }
+        delete tooLong[f];
         var e = outbox[f], k = known[f];
         if (e ? e.text === text : (k && k.text === text)) return;
         var op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0, text: text, at: now()};
@@ -140,6 +147,8 @@
               if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
               if (conf.rich && RICH.test(f) && !op.rich) { richDirty[f] = true; scheduleRich(); }
               if (r.until && (!locks[f] || !heldByOther(f))) { mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until}; }
+            } else if (r.reason === 'too_long' || r.reason === 'too_big') {
+              emit('error', r.reason === 'too_long' ? '칸 글이 ' + (r.max || conf.field_max).toLocaleString() + '자를 넘어 저장하지 않았어요' : '이 문서의 칸 글 합계가 상한을 넘어 저장하지 않았어요');
             } else if (r.conflict !== undefined) {
               var copy = {key: fid + '|c' + r.conflict + '|' + op.seq, fid: fid, field: f, text: op.text, reason: r.reason, by: r.by_name || r.by || '', at: now(), id: r.conflict};
               idb.put('conflicts', copy);

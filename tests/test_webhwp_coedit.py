@@ -419,3 +419,54 @@ def test_overlay_geometry_from_editor_model_not_screen_caret():
     assert "lk.client !== eng.client" in ui                                     # 같은 사람이라도 다른 창만
     assert "acquire(f)" in c and "letGo(prev, true)" in c                       # 처음 고칠 때 잡고, 옮기면 바로 놓는다
     assert "lease-lost" not in c                                                # 풀렸다는 안내가 남아 막히지 않게
+
+
+def test_opening_old_file_turns_line_breaks_into_paragraphs_once(tmp_path, monkeypatch):
+    """예전 판의 필드 안 줄 나눔은 파일을 열 때 한 번 문단 나눔으로 — 앞 판은 .판/ 에 남고, 열린 다른 화면은 「문서 저장」 으로 새 판을 연다."""
+    import io as _io
+    import zipfile as _zip
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    p = Path(webhwp.get(db, fid)["path"])
+    data = ww.set_fields(p.read_bytes(), {"절:1. 변경 사유": "가"})[0]
+    zin = _zip.ZipFile(_io.BytesIO(data))
+    buf = _io.BytesIO()
+    with _zip.ZipFile(buf, "w") as z:
+        for i in zin.infolist():
+            b = zin.read(i.filename)
+            if i.filename == "Contents/section0.xml":
+                b = b.decode().replace("<hp:t>가</hp:t>", "<hp:t>가<hp:lineBreak/>나</hp:t>", 1).encode()
+            z.writestr(i, b)
+    p.write_bytes(buf.getvalue())
+    got = kim.get(f"/hwp/{fid}/file").content
+    assert b"lineBreak" not in _zip.ZipFile(_io.BytesIO(got)).read("Contents/section0.xml")
+    assert ww.field_values(got)["절:1. 변경 사유"] == "가\n나"
+    olds = list((p.parent / ".판").glob(f"{p.stem} *.hwpx"))
+    assert any(b"lineBreak" in _zip.ZipFile(o).read("Contents/section0.xml") for o in olds)      # 바꾸기 전 판이 남는다
+    assert any(e["kind"] == "doc-saved" and e["data"]["by"] == ce.AGENT for e in ce.events_since(db, fid, 0))
+    n_versions = len(olds)
+    kim.get(f"/hwp/{fid}/file")
+    assert len(list((p.parent / ".판").glob(f"{p.stem} *.hwpx"))) == n_versions                    # 두 번째 열기는 그대로
+
+
+def test_long_section_is_not_truncated_and_caps_reject_instead(tmp_path, monkeypatch):
+    """50,000자 넘는 절도 끝까지 받고 파일에 들어간다(예전에는 잘려 칸 끝 글이 사라졌다). 상한을 넘으면 자르지 않고 거절한다."""
+    from zzaimy.app import webhwp_fields as wf
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    assert ce.TEXT_MAX == wf.TEXT_MAX >= 1_000_000 and ce.DOC_TEXT_MAX == wf.DOC_TEXT_MAX
+    long = "\n".join("가나다라마바사아" * 120 for _ in range(70))            # 약 67,000자
+    r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 1, "field": "절:1. 변경 사유", "base": 0, "text": long + "끝"}])
+    assert r[0]["ok"] and ce.state(db, fid)["절:1. 변경 사유"]["text"].endswith("끝")
+    ce.commit_now(db, base, fid)
+    assert _vals(app, fid)["절:1. 변경 사유"] == long + "끝"
+    assert kim.get(f"/hwp/{fid}/coedit").json()["conf"]["field_max"] == ce.TEXT_MAX
+    monkeypatch.setattr(ce, "TEXT_MAX", 100)
+    r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 2, "field": "칸:사업명", "base": 0, "text": "가" * 101}])
+    assert r[0]["reason"] == "too_long" and "칸:사업명" not in ce.state(db, fid)
+    monkeypatch.setattr(ce, "TEXT_MAX", 1_000_000)
+    monkeypatch.setattr(ce, "DOC_TEXT_MAX", len(long) + 10)
+    r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 3, "field": "칸:사업명", "base": 0, "text": "가" * 20}])
+    assert r[0]["reason"] == "too_big"
+    r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 4, "field": "칸:사업명", "base": 0, "text": "가"}])
+    assert r[0]["ok"]
