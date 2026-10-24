@@ -334,3 +334,14 @@ body #chatForm { max-width:1040px; }
 .turn-acts .act-btn[data-feedback] { width:auto; padding:0 10px; gap:5px; white-space:nowrap; }
 /* 「부서 공개/비공개」 단추는 글자가 있어 36px 정사각 단추 틀에 넣으면 옆 문서 단추와 겹친다 — 글자 폭만큼 */
 .chat-head-actions .chat-share-toggle .act-btn { width: auto; min-width: 36px; padding: 0 10px; gap: 5px; white-space: nowrap; }
+/* 문서 패널을 열면 화면은 넓어도 대화 칸이 좁아진다 — 화면 폭이 아니라 이 폼의 폭으로 좁은 꼴을 고른다(1440px 에서 「자료에서 찾음」 글·「확인」 단추가 한 글자씩 세로로 꺾였다) */
+#chatScroll .chat-suggestion-form { container-type:inline-size; container-name:needform; }
+#chatScroll .chat-suggestion-form .chat-form-source > span { flex:1 1 14em; }
+#chatScroll .chat-suggestion-form .chat-form-source button { white-space:nowrap; flex:0 0 auto; }
+@container needform (max-width: 640px) {
+  #chatScroll .chat-suggestion-form .chat-form-field { grid-template-columns:18px minmax(0,1fr) auto; }
+  #chatScroll .chat-suggestion-form .chat-form-name { grid-column:2 / -1; padding-top:0; }
+  #chatScroll .chat-suggestion-form .chat-form-input { grid-column:2; }
+  #chatScroll .chat-suggestion-form .chat-form-pick { margin-top:2px; }
+  #chatScroll .chat-suggestion-form .chat-form-tools { flex-wrap:wrap; }
+}

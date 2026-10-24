@@ -3616,7 +3616,16 @@ def create_app(
                 i = low.find(term.lower())
                 if i < 0:
                     i = min((j for j in (low.find(w.lower()) for w in term.split()) if j >= 0), default=-1)
-                return " ".join((body[max(0, i - 40):i + n] if i >= 0 else body[:n]).split())
+                a, b = (max(0, i - 40), i + n) if i >= 0 else (0, n)
+                # 낱말 가운데서 자르지 않는다(「산업의」 가 「업의」 로 시작하던 것) — 앞은 다음 빈칸 뒤부터, 뒤는 앞 빈칸까지, 잘렸으면 「…」
+                if a > 0:
+                    sp = body.find(" ", a, i if i >= 0 else b)
+                    a = sp + 1 if sp >= 0 else a
+                if b < len(body):
+                    sp = body.rfind(" ", max(a, i if i >= 0 else a), b)
+                    b = sp if sp > a else b
+                out = " ".join(body[a:b].split())
+                return ("…" if a > 0 else "") + out + ("…" if b < len(body.rstrip()) else "")
 
             seen = {d["id"] for d in found}
             for h in body_hits:
