@@ -137,6 +137,7 @@
         delete tooLong[f];
         var e = outbox[f], k = known[f];
         if (e ? e.text === text : (k && k.text === text)) return;
+        touched[f] = 1;
         var op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0, text: text, at: now()};
         outbox[f] = op;
         idb.put('outbox', op);
@@ -276,7 +277,11 @@
         if (!d.force && known[f] && d.version <= known[f].v) continue;
         if (dirty[f]) collect();                               // 내 고침을 먼저 보낼 줄에 — 서버가 충돌 사본으로 남긴다
         var local = hwp.read(f);
-        if (d.rich && conf.rich) { rich.push(d); known[f] = {v: d.version, text: d.text}; continue; }
+        // 서식째 — 기안기 JSON 블록(설정 rich 일 때)이나 서버 참여자의 hwpx 조각(언제나). 조각을 넣은 칸은 화면 글이 서버 글과 조금 달라도
+        // (표 글·캡션) 지문 대조로 글만 다시 쓰지 않는다(서식이 지워진다) — 그 칸을 다음에 글로 고칠 때까지
+        var hx = d.rich && hwp.isHwpxRich && hwp.isHwpxRich(d.rich);
+        if (d.rich && (conf.rich || hx)) { rich.push(d); known[f] = {v: d.version, text: d.text}; if (hx) richField[f] = d.version; else delete richField[f]; continue; }
+        delete richField[f];
         if (local !== null && norm(local) !== d.text) {
           cur = cur || hwp.getCursor();
           applying = true; wrote = true;
@@ -291,7 +296,7 @@
           if (!okd) hwp.write(f, d.text);
           applying = false;
         }
-        known[f] = {v: d.version, text: d.text};
+        known[f] = {v: d.version, text: d.text}; touched[f] = 1;
         emit('applied', f, d);
       }
       if (cur) hwp.restoreCursor(cur);
@@ -303,7 +308,8 @@
         if (!d) return;
         applying = true;
         hwp.importField(d.field, d.rich).then(function (ok) {
-          if (!ok || norm(hwp.read(d.field)) !== d.text) hwp.write(d.field, d.text);
+          var hx2 = hwp.isHwpxRich && hwp.isHwpxRich(d.rich);
+          if (!ok || (!hx2 && norm(hwp.read(d.field)) !== d.text)) { hwp.write(d.field, d.text); delete richField[d.field]; }
           applying = false; emit('applied', d.field, d); next();
         });
       })();
@@ -445,6 +451,25 @@
       return Object.keys(by).map(function (u) { return by[u]; });
     }
 
+    function lightCheck() {
+      return fetch(base + '/coedit?light=1', {credentials: 'same-origin', cache: 'no-store'}).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(function (s) {
+        if (hwp.isComposing()) return s;
+        online = true;
+        var srv = s.fields || {}, chk = checkSet(), need = [];
+        var names_ = fieldList.filter(function (f) { var x = srv[f], k = known[f]; return x && k && x.version === k.v && chk[f] && !dirty[f] && !outbox[f]; });
+        var local = hwp.readMany(names_);
+        fieldList.forEach(function (f) {
+          var x = srv[f], k = known[f];
+          if (!x) return;
+          if (!k || x.version > k.v) need.push(f);
+          else if (local[f] !== undefined && richField[f] !== x.version && fp(local[f]) !== x.fp) need.push(f);
+        });
+        if (need.length) fetchFields(need);
+        if (s.windows) learnWindows(s.windows);
+        status();
+        return s;
+      }).catch(function () { online = false; status(); });
+    }
     // 고른 칸의 글 전체를 서버에서 — 바뀐 부분 알림이 끊겼거나 지문이 안 맞을 때
     var fetching = {};
     function fetchFields(list) {
@@ -462,10 +487,20 @@
     }
 
     // ── 처음·다시 이어질 때 — 서버 상태로 맞추기, 지문 대조 ──
-    function resync(first) {
+    // 30초 지문 대조는 가볍게(light) — 칸 글 없이 판·지문만 받고(451쪽에서 전체가 758KB), 내 쪽 지문은 그사이 바뀐 칸과 돌아가며 고른 몇 칸만 센다
+    // (모든 칸을 읽으면 451쪽 218칸에 0.3~0.5초). 판이 앞서거나 지문이 다른 칸만 글을 받는다. 처음·다시 이어질 때는 전체
+    var touched = {}, rot = 0, richField = {};
+    function checkSet() {
+      var out = touched, n = Math.max(20, Math.ceil(fieldList.length / 10));
+      touched = {};
+      for (var i = 0; i < n && fieldList.length; i++) { out[fieldList[rot % fieldList.length]] = 1; rot++; }
+      return out;
+    }
+    function resync(first, light) {
       if (!first && (hwp.isComposing() || now() - hwp.lastInputAt() < conf.pause_ms)) {   // 입력 중이면 조금 뒤에
-        return new Promise(function (r) { setTimeout(function () { r(resync(false)); }, 1000); });
+        return new Promise(function (r) { setTimeout(function () { r(resync(false, light)); }, 1000); });
       }
+      if (light && !first) return lightCheck();
       return fetch(base + '/coedit', {credentials: 'same-origin', cache: 'no-store'}).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(function (s) {
         if (!first && hwp.isComposing()) { setTimeout(function () { resync(false); }, 800); return s; }
         online = true;
@@ -491,7 +526,7 @@
           if (!x) { if (!known[f]) known[f] = {v: 0, text: norm(local[f])}; return; }
           var k = known[f];
           if (!k || x.version > k.v) inbox[f] = {field: f, version: x.version, text: x.text, rich: x.rich, force: true};
-          else if (x.version === k.v && !dirty[f] && !outbox[f] && fp(local[f]) !== x.fp) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
+          else if (x.version === k.v && !dirty[f] && !outbox[f] && richField[f] !== x.version && fp(local[f]) !== x.fp) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
         });
         applyEditable(); emit('locks', locks); emit('people', peopleList());
         scheduleApply(first ? 0 : undefined);
@@ -542,7 +577,7 @@
       hwp.onActivity(function () { if (curField && mine[curField] && now() - lastTouch > 20000) extend(); });
       setInterval(checkCaret, 700);
       setInterval(function () { presence(false); }, 5000);
-      setInterval(function () { resync(false); }, Math.max(5, conf.hash_check) * 1000);
+      setInterval(function () { resync(false, true); }, Math.max(5, conf.hash_check) * 1000);
       setInterval(function () {                                   // 임대 시계 — 곧 풀리면 알리고, 지난 것은 지운다
         var t = now(), changed = false;
         Object.keys(locks).forEach(function (f) {

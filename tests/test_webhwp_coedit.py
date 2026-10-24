@@ -613,3 +613,30 @@ def test_editor_slices_inbox_measures_one_field_and_takes_over_closed_window():
     assert "hwp.fieldGeom([pick])" in c and "invalidateFrom(" in c and "nearView(" in c          # 한 번에 한 칸, 화면 근처만
     assert "otherWindowGone(" in c and "learnWindows(" in c                                       # 닫힌 내 옛 창 칸 이어받기
     assert "p.page + '쪽'" in c and "KeyIndicator()" in w and "page: page" in c                  # 쪽 번호
+
+
+def test_light_snapshot_has_versions_and_fingerprints_only(tmp_path, monkeypatch):
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    ce.apply_ops(app.state.db, fid, "kim", "k1", [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "값"}])
+    full = kim.get(f"/hwp/{fid}/coedit").json()["fields"]["칸:사업명"]
+    light = kim.get(f"/hwp/{fid}/coedit", params={"light": 1}).json()["fields"]["칸:사업명"]
+    assert full["text"] == "값" and "text" not in light and light["fp"] == full["fp"] == ce.fingerprint("값") and light["version"] == 1
+    c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
+    assert "resync(false, true)" in c and "'/coedit?light=1'" in c and "function checkSet(" in c
+
+
+def test_server_participant_sends_hwpx_fragment_as_rich(tmp_path, monkeypatch):
+    """AURA·논문 작성기가 칸을 서식째(hwpx 조각) — 칸 글과 조각이 표·알림에 실리고, 편집 화면은 SetTextFile(HWPX, insertfile)로 넣는다."""
+    import base64
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    frag = wt.build(wt.GRANT["trip_report"])
+    r = ce.put_rich(db, fid, "절:1. 변경 사유", "조각 글", frag)
+    assert r["ok"]
+    rich = json.loads(ce.state(db, fid)["절:1. 변경 사유"]["rich"])
+    assert rich["fmt"] == "hwpx" and base64.b64decode(rich["b64"]) == frag
+    ev = [e for e in ce.events_since(db, fid, 0, full=False) if e["kind"] == "field-updated"][-1]["data"]
+    assert json.loads(ev["rich"])["fmt"] == "hwpx" and ev["text"] == "조각 글"
+    w = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-wrapper.js").read_text()
+    c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
+    assert "fmt = 'HWPX'" in w and "isHwpxRich" in c and "richField[f] !== x.version" in c

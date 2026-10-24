@@ -661,6 +661,18 @@ def history(db, fid: int, field: str, upto: int | None = None) -> list[dict]:
     return out
 
 
+def put_rich(db, fid: int, field: str, text: str, hwpx: bytes, *, user: str = AGENT, client: str = "", base: Path | None = None) -> dict:
+    """서버 참여자(AURA·논문 작성기)가 칸 하나를 서식째 — hwpx 조각(표·꾸밈 스타일·캡션)과 그 글. 열린 편집 화면은 조각을 그 칸에 넣는다
+    (SetTextFile insertfile). 파일 써 넣기는 아직 글만이다(조각의 문단 모양·표를 파일 머리(header)에 합치는 일은 남음 — ADR-0070)."""
+    import base64
+    rich = json.dumps({"fmt": "hwpx", "b64": base64.b64encode(hwpx).decode()})
+    if len(rich) > RICH_MAX:
+        return {"ok": False, "reason": "too_long", "max": RICH_MAX}
+    client = client or f"{user}:server"
+    r = apply_ops(db, fid, user, client, [{"seq": int(time.time() * 1000), "field": field, "text": text, "rich": rich}], base=base, force=True)[0]
+    return r
+
+
 def conflicts(db, fid: int, user: str | None = None, limit: int = 50) -> list[dict]:
     ensure(db)
     q = "SELECT id, field, user_id, base_version, server_version, text, reason, at FROM webhwp_conflicts WHERE fid = ?"
@@ -904,7 +916,7 @@ def flush_all(db, base: Path) -> None:
             log.exception("써 넣기 실패")
 
 
-def snapshot(db, fid: int, me: str = "") -> dict:
-    """편집 화면이 처음 열 때·다시 이어질 때 받는 전체 상태."""
-    return {"fields": state(db, fid), "locks": locks(db, fid), "people": people(db, fid), "windows": windows(db, fid), "last": last_event_id(db, fid),
+def snapshot(db, fid: int, me: str = "", *, light: bool = False) -> dict:
+    """편집 화면이 처음 열 때·다시 이어질 때 받는 전체 상태. light 면 칸 글 없이 판·지문만(30초 지문 대조 — 451쪽에서 칸 글 전체가 758KB였다)."""
+    return {"fields": state(db, fid, with_text=not light), "locks": locks(db, fid), "people": people(db, fid), "windows": windows(db, fid), "last": last_event_id(db, fid),
             "conf": client_conf(db), "now": time.time()}

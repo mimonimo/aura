@@ -233,14 +233,22 @@
         catch (e) { restoreCursor(keep); resolve(null); }
       });
     }
+    // 서식째 넣기 — 기안기 JSON 블록(시험 기능) 또는 서버 참여자(AURA·논문 작성기)가 보낸 hwpx 조각 {"fmt":"hwpx","b64":…}.
+    // hwpx 조각은 SetTextFile(base64, 'HWPX', 'insertfile') 로 그 칸 내용을 바꾼다(표·꾸밈 스타일·캡션째, 다시 넣으면 바뀜 — ADR-0072 실측)
     function importField(name, json) {
+      var fmt = 'JSON', body = json;
+      try { var j = typeof json === 'string' && json.charAt(0) === '{' && json.indexOf('"fmt"') > 0 ? JSON.parse(json) : null; if (j && j.fmt === 'hwpx' && j.b64) { fmt = 'HWPX'; body = j.b64; } } catch (e) {}
       return new Promise(function (resolve) {
-        var keep = getCursor(), t = setTimeout(function () { restoreCursor(keep); resolve(false); }, 5000);
-        try { ctrl.MoveToField(name, true, true, true); } catch (e) { clearTimeout(t); resolve(false); return; }
-        try { ctrl.SetTextFile(json, 'JSON', 'insertfile', function (r) { clearTimeout(t); restoreCursor(keep); resolve(!(r && r.result === false)); }); }
-        catch (e) { clearTimeout(t); restoreCursor(keep); resolve(false); }
+        var keep = getCursor(), t = setTimeout(function () { restoreCursor(keep); resolve(false); }, 8000);
+        var relock = editable[name] === false;
+        if (relock) setEditable(name, true, true);                // 남이 쥔 칸은 잠겨 있다 — 넣는 동안만 푼다
+        var done = function (ok) { clearTimeout(t); if (relock) setEditable(name, false, true); restoreCursor(keep); resolve(ok); };
+        try { ctrl.MoveToField(name, true, true, true); } catch (e) { done(false); return; }
+        try { ctrl.SetTextFile(body, fmt, 'insertfile', function (r) { done(!(r && r.result === false)); }); }
+        catch (e) { done(false); }
       });
     }
+    function isHwpxRich(json) { return typeof json === 'string' && /^\{"fmt":\s*"hwpx"/.test(json); }
     function open(blob, name) {
       return new Promise(function (resolve, reject) {
         try {
@@ -316,7 +324,7 @@
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); },
       attach: attach, isProbing: function () { return !!probing; },
       isComposing: function () { return composing && Date.now() - lastInput < 3000; },     // 조합 끝 사건을 놓쳐도 3초 뒤엔 풀린다
-      lastInputAt: function () { return lastInput; }, exportField: exportField, importField: importField, open: open, hwpx: hwpx,
+      lastInputAt: function () { return lastInput; }, exportField: exportField, importField: importField, isHwpxRich: isHwpxRich, open: open, hwpx: hwpx,
       run: run, exec: exec, insertText: function (t) { return exec('InsertText', {Text: String(t)}); },
       resetEditable: function () { editable = {}; },
       inspect: inspect, findNth: findNth, insertPicture: insertPicture, inTable: inTable

@@ -72,12 +72,12 @@ async def _json(request: Request) -> dict:
 
 
 @router.get("/hwp/{fid}/coedit")
-def hwp_coedit(request: Request, fid: int, field: list[str] | None = Query(None)):
+def hwp_coedit(request: Request, fid: int, field: list[str] | None = Query(None), light: int = 0):
     _readable(request, fid)
     db = request.app.state.db
     if field:                                  # 고른 칸만(바뀐 부분 알림이 끊겨 칸 글 전체가 필요할 때)
         return {"fields": ce.state(db, fid, [str(x)[:200] for x in field[:200]]), "now": time.time()}
-    snap = ce.snapshot(db, fid)
+    snap = ce.snapshot(db, fid, light=bool(light))
     names: dict = {}
     for x in [*snap["people"], *snap["locks"].values()]:
         _name(db, x["user"], names)
