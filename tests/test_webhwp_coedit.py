@@ -412,6 +412,9 @@ def test_overlay_geometry_from_editor_model_not_screen_caret():
     assert "kind: 'here'" not in ui                                             # 보는 중인 칸은 문서 위에 그리지 않는다
     assert "t !== ''" in ui and "< 1500" in ui                                  # 빈 칸·입력 직후에는 재지 않는다
     assert "'co-av me', '나'" in ui                                             # 나 동그라미
+    assert "co-block" in ui and "emitLocal('blocked'" in ui                     # 남의 칸 누름은 막고 알린다(글이 앞 칸으로 새지 않게)
+    assert "'co-box multi'" in ui and "'co-box bar'" not in ui                  # 머리줄 .bar 꾸밈과 겹치지 않게
+    assert "auraLabel()" in ui and "heldBy(" in ui                              # AURA · 시킨 사람, 쓰는 중은 임대로
     assert "lastInput = Date.now(); fire('activity'" in w                       # 누름도 입력으로 셈(재기 미룸)
     assert "lk.client !== eng.client" in ui                                     # 같은 사람이라도 다른 창만
     assert "acquire(f)" in c and "letGo(prev, true)" in c                       # 처음 고칠 때 잡고, 옮기면 바로 놓는다

@@ -470,7 +470,7 @@
       return resync(true).then(function () { applyInbox(); });
     }
     return {
-      start: start, on: on, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
+      start: start, on: on, emitLocal: emit, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
       handover: function (f) { return letGo(f, true); }, reopened: reopened, resync: resync, applyEditable: applyEditable,
       client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
       people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
@@ -498,9 +498,17 @@
       if (lk.client && lk.client !== eng.client) return {user: lk.user, label: eng.nameOf(lk.user), self: true};
       return null;
     }
+    function auraLabel() {                             // AURA 는 시킨 사람에게 딸린다 — 「AURA · 김가람」
+      return 'AURA' + (auraState.by ? ' · ' + eng.nameOf(auraState.by) : '');
+    }
+    function heldBy(u) {                               // 그 사람이 지금 쥔 칸(쓰는 중인 곳) — 알림이 늦어도 임대로 안다
+      var L = eng.locks(), out = '';
+      Object.keys(L).forEach(function (f) { var lk = L[f]; if (f && lk && lk.user === u && lk.until * 1000 > Date.now()) out = f; });
+      return out;
+    }
     function drawAvatars() {
       var list = eng.people().slice();
-      if (auraState.field) list.unshift({user: 'AURA', name: 'AURA', field: auraState.field});
+      if (auraState.field) list.unshift({user: 'AURA', name: auraLabel(), field: auraState.field});
       avatars.innerHTML = '';
       var myName = o.meName || eng.nameOf(o.me), meChip = el('span', 'co-av me', '나');   // 맨 끝 「나」 동그라미 — 올리면 「나 · 이름」
       meChip.style.setProperty('--c', colorOf(o.me)); meChip.title = '나 · ' + myName; meChip.setAttribute('aria-label', '나 · ' + myName);
@@ -509,7 +517,8 @@
         b.type = 'button';
         b.style.setProperty('--c', colorOf(p.user));
         b.textContent = p.user === 'AURA' ? 'A' : (p.name || p.user).slice(0, 1);
-        var h = p.field && holderOf(p.field), editing = p.field && (h && h.user === p.user || p.user === 'AURA');
+        var hf = p.user === 'AURA' ? p.field : heldBy(p.user); if (hf) p.field = hf;
+        var editing = !!hf;
         var label = (p.name || p.user) + (p.field ? ' · ' + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : ' · 문서 보는 중');
         b.title = label; b.setAttribute('aria-label', label + (p.field && eng.hasField(p.field) ? ' — 눌러서 그 칸으로' : ''));
         if (editing) b.classList.add('editing');
@@ -528,7 +537,8 @@
       [{user: o.me, name: '나 · ' + myName, me: true}].concat(list).forEach(function (p) {
         var r = el('div', 'co-people-row'), d = el('span', 'dot', p.me ? '나' : p.user === 'AURA' ? 'A' : (p.name || p.user).slice(0, 1));
         d.style.setProperty('--c', colorOf(p.user));
-        var h = !p.me && p.field && holderOf(p.field), editing = p.field && (h && h.user === p.user || p.user === 'AURA');
+        var hf2 = p.me ? '' : p.user === 'AURA' ? p.field : heldBy(p.user); if (hf2) p.field = hf2;
+        var editing = !!hf2;
         r.appendChild(d); r.appendChild(el('span', '', p.name || p.user));
         r.appendChild(el('small', '', p.me ? '' : p.field ? where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : '보는 중'));
         if (!p.me && p.field && eng.hasField(p.field)) r.onclick = function () { hwp.moveTo(p.field, false); popOpen = false; pop.hidden = true; };
@@ -542,7 +552,7 @@
     function wanted() {
       var out = {};
       Object.keys(eng.locks()).forEach(function (f) { var h = holderOf(f); if (h && eng.hasField(f)) out[f] = {kind: 'hold', user: h.user, label: h.label}; });
-      if (auraState.field && eng.hasField(auraState.field) && !out[auraState.field]) out[auraState.field] = {kind: 'hold', user: 'AURA', label: 'AURA 작성 중'};
+      if (auraState.field && eng.hasField(auraState.field) && !out[auraState.field]) out[auraState.field] = {kind: 'hold', user: 'AURA', label: auraLabel()};
       // 남의 커서만 있는 칸(보는 중)은 문서 위에 그리지 않는다 — 재려면 커서를 그 칸에 넣어야 해서 빈 칸 안내 글이 지워졌다(10-24). 아바타 풀이말로만 보인다
       return out;
     }
@@ -561,9 +571,16 @@
     function mark(f) {
       var m = marks[f];
       if (!m) {
-        m = marks[f] = {box: el('div', 'co-box'), caret: el('div', 'co-caret'), flag: el('div', 'co-flag')};
+        m = marks[f] = {box: el('div', 'co-box'), caret: el('div', 'co-caret'), flag: el('div', 'co-flag'), block: el('div', 'co-block')};
         m.flag.appendChild(el('span', 'co-flag-t'));
-        layer.appendChild(m.box); layer.appendChild(m.caret); layer.appendChild(m.flag);
+        // 남이 쓰는 칸을 누르면 기안기가 커서를 앞 칸으로 돌려놓아 친 글이 엉뚱한 칸에 들어갔다(10-24 녹화) — 칸 위에 투명 막을 두어 누름을 받고 알린다
+        m.block.addEventListener('pointerdown', function (e) {
+          e.preventDefault(); e.stopPropagation();
+          var h = holderOf(f);
+          eng.emitLocal('blocked', f, h ? h.label : '다른 사람');
+          try { var fr = document.querySelector('iframe'); if (fr) fr.blur(); if (document.activeElement) document.activeElement.blur(); } catch (x) {}
+        });
+        layer.appendChild(m.box); layer.appendChild(m.block); layer.appendChild(m.caret); layer.appendChild(m.flag);
       }
       return m;
     }
@@ -580,7 +597,7 @@
         seen[f] = 1;
         var top = a.y, bottom = b.y + h2, single = g.page === g.page2 && Math.abs(b.y - a.y) < 2;
         var vis = bottom > view.top && top < view.bottom;
-        m.box.hidden = m.caret.hidden = m.flag.hidden = !vis;
+        m.box.hidden = m.caret.hidden = m.flag.hidden = m.block.hidden = !vis;
         if (!vis) return;
         [m.box, m.caret, m.flag].forEach(function (x) { x.style.setProperty('--c', c); });
         var L = layer.getBoundingClientRect();
@@ -590,22 +607,32 @@
           m.box.style.left = (a.x - 1 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px';
           m.box.style.width = Math.max(4, b.x - a.x + 2) + 'px'; m.box.style.height = h1 + 'px';
         } else {                                        // 여러 줄 — 칸 왼쪽에 옅은 막대(글 위를 덮지 않게)
-          m.box.className = 'co-box bar';
-          m.box.style.left = (a.x - 8 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px';
-          m.box.style.width = '4px'; m.box.style.height = Math.max(h1, bottom - top) + 'px';
+          m.box.className = 'co-box multi';
+          m.box.style.left = (a.x - 7 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px';
+          m.box.style.width = '2px'; m.box.style.height = Math.max(h1, bottom - top) + 'px';
         }
+        m.block.hidden = false;                         // 누름 막 — 칸 글 자리 전체(여러 줄이면 종이 글 폭까지)
+        var bl = a.x - 4, br = single ? Math.max(b.x, a.x + 8) + 4 : view.right - (a.x - view.left) + 4;
+        m.block.style.left = (bl - L.left) + 'px'; m.block.style.top = (top - 2 - L.top) + 'px';
+        m.block.style.width = Math.max(12, br - bl) + 'px'; m.block.style.height = (Math.max(h1, bottom - top) + 4) + 'px';
+        m.block.title = w.label + ' 님이 쓰는 중';
         // 커서 — 칸 끝(그 사람이 이어 쓰는 자리)
         m.caret.style.left = (b.x - L.left) + 'px'; m.caret.style.top = (b.y - L.top) + 'px'; m.caret.style.height = h2 + 'px';
         // 이름 깃발 — 커서 바로 위. 종이 오른쪽 끝을 넘으면 왼쪽으로 붙인다
-        var tt = m.flag.firstChild;
+        // 이름표 — 커서가 있는 줄 높이에, 종이 여백(글이 없는 곳) 중 커서에 가까운 쪽에. 글 위에는 놓지 않는다. 여백이 좁으면 머리 글자 동그라미
+        var tt = m.flag.firstChild, edge = hwp.toScreen(g.page2, hwp.bodyLeft(), g.y2), bodyL = edge ? edge.x : view.left + 40;
+        var bodyR = view.right - (bodyL - view.left);          // 좌우 여백이 같다고 본다
+        var leftSide = (b.x - bodyL) < (bodyR - b.x);
         tt.textContent = w.label;
+        m.flag.className = 'co-flag ' + (leftSide ? 'left' : 'right');
         m.flag.title = w.label + ' · ' + where(f) + (w.user === 'AURA' ? '' : ' 쓰는 중');
-        var fw = m.flag.offsetWidth, fh = m.flag.offsetHeight, fx = b.x, right = view.right - 4;
-        m.flag.classList.toggle('flip', fx + fw > right);
-        if (fx + fw > right) fx = b.x - fw + 2;
-        m.flag.style.left = (fx - L.left) + 'px'; m.flag.style.top = (b.y - fh - L.top) + 'px';
+        var room = leftSide ? bodyL - view.left - 10 : view.right - bodyR - 10;
+        if (m.flag.offsetWidth > room) { m.flag.classList.add('dot'); tt.textContent = w.user === 'AURA' ? 'A' : w.label.slice(0, 1); }
+        var fw = m.flag.offsetWidth, fh = m.flag.offsetHeight;
+        var fx = leftSide ? bodyL - 6 - fw : bodyR + 6;
+        m.flag.style.left = (fx - L.left) + 'px'; m.flag.style.top = (b.y + Math.max(0, (h2 - fh) / 2) - L.top) + 'px';
       });
-      Object.keys(marks).forEach(function (f) { if (!seen[f]) { marks[f].box.remove(); marks[f].caret.remove(); marks[f].flag.remove(); delete marks[f]; } });
+      Object.keys(marks).forEach(function (f) { if (!seen[f]) { marks[f].box.remove(); marks[f].caret.remove(); marks[f].flag.remove(); marks[f].block.remove(); delete marks[f]; } });
       if (view) {                                       // 종이 칸 밖(머리줄·스크롤 막대)에는 그리지 않는다
         layer.style.left = view.left + 'px'; layer.style.top = view.top + 'px';
         layer.style.width = (view.right - view.left) + 'px'; layer.style.height = (view.bottom - view.top) + 'px';
