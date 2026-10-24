@@ -145,7 +145,7 @@
     {% if f and not readonly %}<button type="button" class="name" data-name title="눌러서 이름 바꾸기">{{ f.name }}</button>
     {% elif f %}<span class="name" data-name title="{{ f.name }}">{{ f.name }}</span>
     {% else %}<span class="name" data-name>새 문서</span>{% endif %}
-    <span class="sub">{% if f %}<a class="where" href="{{ back }}"{% if embed %} target="_blank" rel="noopener"{% endif %} title="문서함에서 이 폴더 열기"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ ([dept] + (folder.split('/') if folder else [])) | join(' › ') }}</span></a>{% endif %}<span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
+    <span class="sub">{% if f %}<a class="where" href="{{ back }}"{% if embed %} target="_blank" rel="noopener"{% endif %} title="문서함에서 이 폴더 열기"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ ([('공동 편집 시연' if dept == '~시연' else dept)] + (folder.split('/') if folder else [])) | join(' › ') }}</span></a>{% endif %}<span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
   </div>
   <span class="co-avatars" data-people role="group" aria-label="지금 이 문서에 있는 사람"></span>
   {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;" data-copy-form><button type="submit" class="btn primary" title="고른 폴더에 사본을 만들어 엽니다"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>사본 만들기</button></form>

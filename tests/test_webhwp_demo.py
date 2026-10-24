@@ -63,7 +63,7 @@ def test_slot_acts_as_demo_user_on_editor_routes_only(tmp_path, monkeypatch):
     fid = _new(dev)
     # 편집 화면 — 칸 표시가 있으면 그 시연 계정으로 그리고(나 = demo_a), 저장소를 나누는 앞 스크립트가 붙는다
     pg = dev.get(f"/webhwpctrl/aura-edit?id={fid}&demo=a").text
-    assert 'me = "demo_a"' in pg and "X-Aura-Demo" in pg and json.dumps("시연 김가람") in pg
+    assert 'me = "demo_a"' in pg and "X-Aura-Demo" in pg and json.dumps("김가람") in pg
     plain = dev.get(f"/webhwpctrl/aura-edit?id={fid}").text
     assert 'me = "zzdev"' in plain and "X-Aura-Demo" not in plain              # 표시가 없으면 예전 그대로
     assert dev.get(f"/hwp/{fid}/coedit", headers=H("b")).json()["me"] == "demo_b"
@@ -105,7 +105,7 @@ def test_three_slots_are_three_users(tmp_path, monkeypatch):
     for s in "abc":
         assert dev.post(f"/hwp/{fid}/presence", headers=H(s), json={"client": f"w{s}", "field": ""}).json()["ok"]
     out = dev.post(f"/hwp/{fid}/presence", headers=H("a"), json={"client": "wa", "field": ""}).json()["people"]
-    assert {p["user"]: p["name"] for p in out} == {"demo_a": "시연 김가람", "demo_b": "시연 이나래", "demo_c": "시연 박다온"}
+    assert {p["user"]: p["name"] for p in out} == {"demo_a": "김가람", "demo_b": "이나래", "demo_c": "박다온"}
     names = [x["name"] for x in ww.fields(Path(webhwp.get(db, fid)["path"]).read_bytes())]
     f1, f2 = names[0], names[1]
     # a 가 칸을 쥐면 b 는 못 쥐고(쥔 사람 이름은 시연 이름), 다른 칸은 b 가 쓴다

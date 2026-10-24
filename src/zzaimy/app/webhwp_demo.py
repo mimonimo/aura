@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 router = APIRouter()
 
 # 칸 → (계정 아이디, 보일 이름)
-SLOTS: dict[str, tuple[str, str]] = {"a": ("demo_a", "시연 김가람"), "b": ("demo_b", "시연 이나래"), "c": ("demo_c", "시연 박다온")}
+SLOTS: dict[str, tuple[str, str]] = {"a": ("demo_a", "김가람"), "b": ("demo_b", "이나래"), "c": ("demo_c", "박다온")}   # 이름 앞에 「시연」 을 붙이면 머리 글자 동그라미가 모두 「시」 가 된다 — 칸 위에만 「시연」
 ROOT = "~시연"          # 기안기 문서함의 시연 뿌리 — 「내 폴더」 꼴(~)이라 부서 목록에 끼지 않고, 계정 아이디 규칙([a-z0-9_-]) 밖이라 남의 내 폴더와 겹치지 않는다
 HEADER = "x-aura-demo"
 SOURCE = "시연:"         # 시연 문서 장부의 source — 뒤에 복사한 공통 양식 id
@@ -63,6 +63,9 @@ def ensure_accounts(app) -> None:
         changed = False
         for uid, name in SLOTS.values():
             if uid in accounts:
+                if accounts[uid].get("demo") and accounts[uid].get("name") != name:   # 앞판 이름(「시연 …」) 고치기 — 시연 계정만
+                    accounts[uid]["name"] = name
+                    changed = True
                 continue
             accounts[uid] = {"role": "staff", "name": name, "dept": "", "active": False, "demo": True,
                              "created_at": datetime.now().isoformat(timespec="seconds")}
@@ -108,6 +111,11 @@ def pick_form(request: Request, prefer: int | None = None) -> dict:
             continue
         if prefer is not None and r["id"] == prefer:
             return r
+        if "요약 보고서" in r["name"] and (best is None or "요약 보고서" not in best[1]["name"]):   # 보기 쉬운 1쪽 보고서 양식을 먼저
+            best = (n, r)
+            continue
+        if best is not None and "요약 보고서" in best[1]["name"]:
+            continue
         if best is None or (n, r["name"]) < (best[0], best[1]["name"]):
             best = (n, r)
     if best is None:

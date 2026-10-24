@@ -42,7 +42,7 @@
 {% if cur and not missing %}
 <main class="grid">
   {% for p in panes %}<section class="pane" aria-label="{{ p.name }}">
-    <div class="who">{{ p.name }}</div>
+    <div class="who">시연 {{ p.name }}</div>
     <iframe src="/webhwpctrl/aura-edit?id={{ cur.id }}&amp;demo={{ p.slot }}" title="{{ p.name }} 편집 화면" data-demo="{{ p.slot }}"></iframe>
   </section>{% endfor %}
 </main>
