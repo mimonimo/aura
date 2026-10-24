@@ -49,3 +49,11 @@ def test_caption_first_and_renumber(tmp_path, monkeypatch):
     sec = "".join(z.read(n).decode() for n in sorted(z.namelist()) if n.startswith("Contents/section"))
     caps = re.findall(rf'<hp:p\b[^>]*styleIDRef="{sid}"[^>]*>(?:(?!</hp:p>).)*?&lt;표 (\d+)&gt; ([^<]*)', sec, re.S)
     assert [(n, t.strip()) for n, t in caps] == [("1", "추진 일정"), ("2", "예산 편성")]
+
+
+def test_aura_activity_keeps_requester(tmp_path, monkeypatch):
+    """AURA 작성 기록에는 시킨 사람이 남는다 — 편집 화면이 다시 맞출 때도 「AURA · 이름」(예전엔 「AURA · AURA」)."""
+    from zzaimy.app import webhwp_agent as wa
+    app, db, hw, secs = _work(tmp_path, monkeypatch)
+    hw.write({"field": secs[0], "text": "1) 개요임"})
+    assert wa.activity(db, hw.fid()).get("by") == "kim"

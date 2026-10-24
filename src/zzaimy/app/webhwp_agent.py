@@ -373,7 +373,7 @@ class HwpTools:
 
     def _mark(self, fid: int, field: str) -> None:
         from zzaimy.app import webhwp_coedit as ce
-        self.db.set_setting(f"webhwp_activity:{fid}", json.dumps({"by": "AURA", "field": field, "at": time.time()}, ensure_ascii=False))
+        self.db.set_setting(f"webhwp_activity:{fid}", json.dumps({"by": self.owner or "AURA", "field": field, "at": time.time()}, ensure_ascii=False))   # 누가 시킨 AURA 인지 — 다시 맞출 때도 「AURA · 이름」
         ce.emit(self.db, fid, "aura", {"field": field, "ttl": ce.conf(self.db, "aura_ttl"), "by": self.owner})   # 누가 시킨 AURA 인지(화면에 「AURA · 이름」)
 
     def fill(self, a: dict) -> str:

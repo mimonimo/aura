@@ -99,7 +99,10 @@ def hwp_coedit(request: Request, fid: int, field: list[str] | None = Query(None)
     for x in snap["fields"].values():
         _name(db, x["by"], names)
     from zzaimy.app import webhwp_agent
-    snap.update(me=_user(request), names=names, aura=webhwp_agent.activity(db, fid),
+    aura = webhwp_agent.activity(db, fid)
+    if aura.get("by") and aura["by"] != "AURA":
+        _name(db, aura["by"], names)                      # 「AURA · 이름」 — 시킨 사람 이름도 함께
+    snap.update(me=_user(request), names=names, aura=aura,
                 readonly=webhwp.locked(db, fid) and getattr(request.state, "role", "") != "dev",
                 fields_off=webhwp.locked(db, fid))      # 공통 양식 — 관리자도 칸 공동 편집 없이(문서 전체 잠금으로만)
     return snap
