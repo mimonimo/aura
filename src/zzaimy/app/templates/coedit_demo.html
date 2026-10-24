@@ -8,46 +8,72 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
 <style>
-  :root { --navy:#1B3B75; --ink:#1F2937; --muted:#64748B; --bg:#E2E8F0; --line:#CBD5E1; }
+  :root { --navy:#1B3B75; --ink:#1F2937; --muted:#64748B; --bg:#EEF2F7; --line:#E2E8F0; --line2:#CBD5E1; }
   * { box-sizing:border-box; }
   html, body { height:100%; margin:0; }
   body { font-family:"Pretendard Variable", Pretendard, system-ui, sans-serif; color:var(--ink); background:var(--bg); display:flex; flex-direction:column; }
-  .bar { flex:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; background:#fff; border-bottom:1px solid var(--line); }
-  .bar a.back { display:inline-flex; align-items:center; gap:4px; color:var(--muted); text-decoration:none; font-size:13px; }
-  .bar h1 { font-size:15px; margin:0; font-weight:600; }
-  .bar select { font:inherit; font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; max-width:320px; }
+  /* 머리줄 — 왼쪽 돌아가기·제목, 가운데 문서 고르기, 오른쪽 버튼 */
+  .bar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 16px; background:#fff; border-bottom:1px solid var(--line); }
+  .bar a.back { display:inline-flex; align-items:center; gap:2px; color:var(--muted); text-decoration:none; font-size:13px; padding:6px 8px 6px 4px; border-radius:6px; }
+  .bar a.back:hover { background:#F1F5F9; color:var(--ink); }
+  .bar .sep { width:1px; height:20px; background:var(--line); }
+  .bar h1 { font-size:15px; margin:0; font-weight:700; white-space:nowrap; }
+  .doc { display:flex; align-items:center; gap:6px; min-width:0; margin-left:8px; height:34px; padding:0 10px; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--ink); font-size:13px; }
+  .doc iconify-icon { color:var(--muted); flex:none; }
+  .doc select { font:inherit; border:0; background:transparent; color:inherit; max-width:340px; padding:0 2px; cursor:pointer; outline:none; }
+  .doc span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:340px; }
+  .bar .grow { flex:1; }
   .bar form { margin:0; }
-  .bar button { font:inherit; font-size:13px; padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
-  .bar button.primary { background:var(--navy); border-color:var(--navy); color:#fff; }
-  .bar .hint { font-size:12px; color:var(--muted); }
-  .grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; padding:6px; }
-  .pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
-  .pane .who { font-size:12.5px; padding:2px 4px 4px; color:#334155; }
-  .pane iframe { flex:1; width:100%; border:1px solid var(--line); border-radius:6px; background:#fff; }
-  .empty { margin:40px auto; color:var(--muted); font-size:14px; }
-  @media (max-width:900px) { .grid { grid-template-columns:1fr; grid-auto-rows:80vh; } }
+  .btn { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 12px; font:inherit; font-size:13px; font-weight:600; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--ink); cursor:pointer; white-space:nowrap; }
+  .btn:hover { background:#F8FAFC; }
+  .btn.primary { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .btn.primary:hover { background:#16305F; }
+  .btn:focus-visible, .doc:focus-within { outline:2px solid #2563EB; outline-offset:1px; }
+  /* 세 칸 */
+  .grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; padding:10px; }
+  .pane { display:flex; flex-direction:column; min-width:0; min-height:0; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+  .pane .who { flex:none; display:flex; align-items:center; gap:8px; height:36px; padding:0 12px; font-size:13px; font-weight:600; border-bottom:1px solid var(--line); }
+  .pane .who .dot { width:22px; height:22px; border-radius:50%; background:var(--c, #64748B); color:#fff; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+  .pane .who .tag { font-size:11px; font-weight:600; color:var(--muted); background:#F1F5F9; border-radius:999px; padding:2px 8px; }
+  .pane iframe { flex:1; width:100%; border:0; background:#fff; }
+  .empty { margin:64px auto; text-align:center; color:var(--muted); font-size:14px; }
+  @media (max-width:900px) { .grid { grid-template-columns:1fr; grid-auto-rows:80vh; } .doc { display:none; } }
 </style>
 </head>
 <body>
 <header class="bar">
   <a class="back" href="/dev"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>개발 현황</a>
+  <span class="sep" aria-hidden="true"></span>
   <h1>공동 편집 시연</h1>
-  {% if docs|length > 1 %}<select aria-label="시연 문서" onchange="location.href='/dev/coedit-demo?id=' + this.value">
-    {% for d in docs %}<option value="{{ d.id }}"{% if cur and d.id == cur.id %} selected{% endif %}>{{ d.name }}</option>{% endfor %}
-  </select>{% elif cur %}<span class="hint">{{ cur.name }}</span>{% endif %}
-  <form method="post" action="/dev/coedit-demo/new"><button type="submit" class="{{ '' if cur else 'primary' }}">새 시연 문서</button></form>
-  {% if cur %}<form method="post" action="/dev/coedit-demo/reset"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit">문서 비우기</button></form>{% endif %}
-  <span class="hint">칸마다 다른 시연 계정입니다{% if missing %} · 계정은 「새 시연 문서」 때 만듭니다{% endif %}</span>
+  {% macro title(n) %}{{ (n[:-5] if n.endswith('.hwpx') else n) | replace('시연 ', '', 1) }}{% endmacro %}
+  {% if cur %}<label class="doc"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
+    {% if docs|length > 1 %}<select aria-label="시연 문서" onchange="location.href='/dev/coedit-demo?id=' + this.value">
+      {% for d in docs %}<option value="{{ d.id }}"{% if d.id == cur.id %} selected{% endif %}>{{ title(d.name) }}</option>{% endfor %}
+    </select>{% else %}<span title="{{ cur.name }}">{{ title(cur.name) }}</span>{% endif %}</label>{% endif %}
+  <span class="grow"></span>
+  {% if cur %}<form method="post" action="/dev/coedit-demo/reset" title="같은 양식으로 빈 문서를 새로 엽니다"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon>문서 비우기</button></form>{% endif %}
+  <form method="post" action="/dev/coedit-demo/new" title="칸마다 다른 시연 계정으로 같은 문서를 엽니다"><button type="submit" class="btn primary"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 시연 문서</button></form>
 </header>
 {% if cur and not missing %}
 <main class="grid">
   {% for p in panes %}<section class="pane" aria-label="{{ p.name }}">
-    <div class="who">시연 {{ p.name }}</div>
+    <div class="who"><span class="dot" data-uid="{{ p.uid }}">{{ p.name[:1] }}</span>{{ p.name }}<span class="tag">시연 계정</span></div>
     <iframe src="/webhwpctrl/aura-edit?id={{ cur.id }}&amp;demo={{ p.slot }}" title="{{ p.name }} 편집 화면" data-demo="{{ p.slot }}"></iframe>
   </section>{% endfor %}
 </main>
+<script>
+  // 칸 머리 동그라미 색을 편집 화면 아바타와 같게(webhwp-collab.js colorOf 와 같은 셈)
+  (function () {
+    var P = ['#2563EB', '#16A34A', '#D97706', '#DB2777', '#7C3AED', '#0891B2', '#DC2626', '#4D7C0F'];
+    document.querySelectorAll('.who .dot').forEach(function (d) {
+      var u = d.getAttribute('data-uid') || '', h = 0;
+      for (var i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) >>> 0;
+      d.style.setProperty('--c', P[h % P.length]);
+    });
+  })();
+</script>
 {% else %}
-<p class="empty">{{ '시연 계정이 없습니다' if cur else '시연 문서가 없습니다' }}</p>
+<p class="empty">{{ '시연 계정이 없습니다' if cur else '「새 시연 문서」를 누르면 같은 문서를 세 칸으로 엽니다' }}</p>
 {% endif %}
 </body>
 </html>

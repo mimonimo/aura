@@ -42,7 +42,7 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     page = dev.get(f"/dev/coedit-demo?id={fid}").text
     for s in "abc":
         assert f"/webhwpctrl/aura-edit?id={fid}&amp;demo={s}" in page
-    assert page.count("<iframe") == 3 and "시연 김가람" in page and "문서 비우기" in page
+    assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "문서 비우기" in page
     # 시연 계정 — 장부에 demo 표시·비활성·비밀번호 없음(로그인 길 없음), 다시 눌러도 그대로
     acc = json.loads((tmp_path / "accounts.json").read_text())
     for uid, name in demo.SLOTS.values():
