@@ -435,8 +435,13 @@ class HwpTools:
         m = webhwp.meta(self.db, fid)
         written = m.get("written") or {}
         self._mark(fid, field)
+        from zzaimy.app import webhwp_dress
         try:
-            data, put = ww.write_section(Path(f["path"]).read_bytes(), field, ww.parse_body(text), written)
+            raw = Path(f["path"]).read_bytes()
+            others = [v for k, v in ww.field_values(raw).items() if k != field]
+            items, look = webhwp_dress.dress_items(ww.parse_body(text), others)   # 참고 상자(> 줄)·표 제목(<표> 줄)은 꾸밈 스타일로
+            data, put = ww.write_section(raw, field, items, written)
+            data = webhwp_dress.apply(data, put, look)
         except KeyError:
             names = [x["name"] for x in self._fields() if x["kind"] == "절"]
             return f"그런 절 필드가 없다. 절 필드: {', '.join(names[:30])}"
