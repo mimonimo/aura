@@ -634,7 +634,10 @@ def test_server_participant_sends_hwpx_fragment_as_rich(tmp_path, monkeypatch):
     r = ce.put_rich(db, fid, "절:1. 변경 사유", "조각 글", frag)
     assert r["ok"]
     rich = json.loads(ce.state(db, fid)["절:1. 변경 사유"]["rich"])
-    assert rich["fmt"] == "hwpx" and base64.b64decode(rich["b64"]) == frag
+    sent = base64.b64decode(rich["b64"])                          # 검사한 나무를 다시 써서 보낸다 — 다시 검사해도 그대로 지나고, 글은 같다
+    assert rich["fmt"] == "hwpx" and ce.sanitize_fragment(sent)[1] == ""
+    import io as _io, zipfile as _zip
+    assert "조각 문단" in _zip.ZipFile(_io.BytesIO(sent)).read("Contents/section0.xml").decode()
     ev = [e for e in ce.events_since(db, fid, 0, full=False) if e["kind"] == "field-updated"][-1]["data"]
     assert json.loads(ev["rich"])["fmt"] == "hwpx" and ev["text"] == "조각 글" and ev["trusted"] is True
     w = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-wrapper.js").read_text()
@@ -697,3 +700,67 @@ def test_rich_fragments_only_from_server_participants_and_checked(tmp_path, monk
     assert ce.state(db, fid)[F]["rich"] == "{\"x\":3}"
     c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
     assert "d.trusted === true || d.fromState === true" in c and "d.at + d.del > cpLen(s)" in c
+
+
+def _raw_fragment(mutate=None, extra: list | None = None) -> bytes:
+    """조각을 바이트 수준에서 고쳐 만든다(같은 이름 두 번·이상한 이름 같은 것도) — 검사 우회 시험용."""
+    import io as _io
+    import zipfile as _zip
+    base = _fragment()
+    zin, buf = _zip.ZipFile(_io.BytesIO(base)), _io.BytesIO()
+    with _zip.ZipFile(buf, "w") as z:
+        for i in zin.infolist():
+            b = zin.read(i.filename)
+            if i.filename == "Contents/section0.xml" and mutate:
+                b = mutate(b.decode()).encode()
+            z.writestr(i.filename, b)
+        for n, b in extra or []:
+            z.writestr(n, b)
+    return buf.getvalue()
+
+
+def test_fragment_sanitizer_parses_xml_and_rejects_crafted_fragments():
+    """보안 점검 3: 조각 검사는 진짜 XML 해석기로 — 접두어 바꾸기·글자 참조·주석·CDATA·대소문자·같은 이름 두 번·경로 이상·DTD 개체로 빠져나가지 못한다."""
+    P = "http://www.hancom.co.kr/hwpml/2011/paragraph"
+    ins = lambda frag: (lambda x: x.replace("조각 문단", "조각 문단</hp:t></hp:run><hp:run charPrIDRef=\"0\">" + frag + "<hp:t>", 1))
+    bad = {
+        "다른 접두어의 필드": _raw_fragment(ins(f'<zz:ctrl xmlns:zz="{P}"><zz:fieldBegin type="HYPERLINK" name="x"/></zz:ctrl>')),
+        "글자 참조로 숨긴 주소": _raw_fragment(ins('<hp:pic href="&#104;ttp://evil.invalid/a.png"/>')),
+        "글자 참조로 숨긴 javascript": _raw_fragment(ins('<hp:pic alt="&#106;avascript:alert(1)"/>')),
+        "OLE(대소문자)": _raw_fragment(ins('<hp:OLE/>')),
+        "주석으로 가른 태그(잘못된 XML)": _raw_fragment(ins('<hp:fiel<!-- -->dBegin/>')),
+        "DTD 개체": _raw_fragment(lambda x: x.replace("?>", '?><!DOCTYPE r [<!ENTITY e "x">]>', 1)),
+        "같은 이름 두 번": _raw_fragment(extra=[("Contents/section0.xml", b"<x/>")]),
+        "대소문자만 다른 이름": _raw_fragment(extra=[("contents/section0.xml", b"<x/>")]),
+        "경로 넘기": _raw_fragment(extra=[("../evil.xml", b"<x/>")]),
+        "모르는 부분": _raw_fragment(extra=[("Scripts/sourceScripts", b"x")]),
+        "그림 이름과 다른 내용": _raw_fragment(extra=[("BinData/BIN0001.png", b"MZ\x90\x00")]),
+    }
+    for why, data in bad.items():
+        out, reason = ce.sanitize_fragment(data)
+        assert reason and out == b"", why
+    # CDATA 속 태그는 글일 뿐 — 다시 쓰면 이스케이프된 글로 나가고 요소가 되지 않는다
+    out, reason = ce.sanitize_fragment(_raw_fragment(lambda x: x.replace("조각 문단", "조각<![CDATA[<hp:fieldBegin/>]]>", 1)))
+    assert reason == ""
+    import io as _io, zipfile as _zip
+    sec = _zip.ZipFile(_io.BytesIO(out)).read("Contents/section0.xml").decode()
+    assert "<hp:fieldBegin" not in sec and "&lt;hp:fieldBegin" in sec
+
+
+def test_client_and_field_names_have_one_canonical_parse(tmp_path, monkeypatch):
+    """보안 점검 3: 창 번호·칸 이름은 webhwp_coedit 한 곳에서 가르고 자르지 않는다 — 표 안 열쇠의 구분자(\\x1f)·제어 문자·공백·너무 긴 값은 400/bad."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    for c in ("k\x1fpark", "k 1", "k\n1", "x" * 81, ""):
+        r = kim.post(f"/hwp/{fid}/ops", json={"client": c, "ops": [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "x"}]})
+        assert r.status_code == 400, repr(c)
+        assert kim.post(f"/hwp/{fid}/lease", json={"field": "칸:사업명", "client": c}).status_code == 400
+        assert kim.post(f"/hwp/{fid}/presence", json={"client": c}).status_code == (400 if c else 200)
+    r = ce.apply_ops(app.state.db, fid, "kim", "k1", [{"seq": 1, "field": "칸:" + "가" * 300, "text": "x"}, {"seq": 2, "field": "칸:\x1f사업명", "text": "x"}])
+    assert [x["reason"] for x in r] == ["bad", "bad"]
+    assert kim.post(f"/hwp/{fid}/lease", json={"field": "칸:" + "가" * 300, "client": "k1"}).status_code == 400
+    import pytest as _pt
+    with _pt.raises(ValueError):
+        ce.ckey("kim\x1fpark", "k1")
+    # put_rich 는 서버 안에서만 — 이 길로 들어오는 경로가 없다
+    from zzaimy.app import main as _m
+    assert not any("rich" in getattr(r_, "path", "") for r_ in app.routes)

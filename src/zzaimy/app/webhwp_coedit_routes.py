@@ -35,6 +35,21 @@ def _user(request: Request) -> str:
     return getattr(request.state, "user", "") or ""
 
 
+def _client(v) -> str:
+    """창 번호 — webhwp_coedit.clean_client 한 곳에서 가른다(자르지 않고, 맞지 않으면 400)."""
+    try:
+        return ce.clean_client(v)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+def _field(v) -> str:
+    try:
+        return ce.clean_field(v)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 def _readable(request: Request, fid: int) -> dict:
     _need_staff(request)
     return _file(request, fid)
@@ -76,7 +91,7 @@ def hwp_coedit(request: Request, fid: int, field: list[str] | None = Query(None)
     _readable(request, fid)
     db = request.app.state.db
     if field:                                  # 고른 칸만(바뀐 부분 알림이 끊겨 칸 글 전체가 필요할 때)
-        return {"fields": ce.state(db, fid, [str(x)[:200] for x in field[:200]]), "now": time.time()}
+        return {"fields": ce.state(db, fid, [_field(x) for x in field[:200]]), "now": time.time()}
     snap = ce.snapshot(db, fid, light=bool(light))
     names: dict = {}
     for x in [*snap["people"], *snap["locks"].values()]:
@@ -151,8 +166,8 @@ async def hwp_ops(request: Request, fid: int):
     _editable(request, fid)
     body = await _json(request)
     ops = body.get("ops") if isinstance(body.get("ops"), list) else []
-    client = str(body.get("client") or "")[:80]
-    if not client or len(ops) > 200:
+    client = _client(body.get("client"))
+    if len(ops) > 200:
         raise HTTPException(400, "client 와 ops(200개까지)가 필요합니다")
     st = request.app.state
     res = await run_in_threadpool(ce.apply_ops, st.db, fid, _user(request), client, ops, base=Path(st.data_dir))
@@ -167,12 +182,12 @@ async def hwp_ops(request: Request, fid: int):
 async def hwp_lease(request: Request, fid: int):
     _editable(request, fid)
     body = await _json(request)
-    field = str(body.get("field") or "")[:200]
     action = str(body.get("action") or "acquire")
-    client = str(body.get("client") or "")[:80]
+    field = _field(body.get("field")) if body.get("field") else ""
+    client = _client(body.get("client")) if body.get("client") or action == "acquire" else ""
     st, user = request.app.state, _user(request)
     if action == "touch":
-        fields = [str(x)[:200] for x in body["fields"][:500]] if isinstance(body.get("fields"), list) else None
+        fields = [_field(x) for x in body["fields"][:500]] if isinstance(body.get("fields"), list) else None
         return {"ok": True, "until": await run_in_threadpool(ce.touch, st.db, fid, user, fields, client or None)}
     if not field:
         raise HTTPException(400, "field 가 필요합니다(구조 잠금은 /lock)")
@@ -191,7 +206,8 @@ async def hwp_lease(request: Request, fid: int):
 async def hwp_leave(request: Request, fid: int):
     _readable(request, fid)
     body = await _json(request)
-    client = str(body.get("client") or request.query_params.get("client") or "")[:80]
+    raw = body.get("client") or request.query_params.get("client") or ""
+    client = _client(raw) if raw else ""
     st, user = request.app.state, _user(request)
 
     def run():

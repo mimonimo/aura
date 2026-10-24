@@ -135,9 +135,31 @@ def _txlock(conn, fid: int) -> None:
         conn.execute("BEGIN IMMEDIATE")
 
 
+_BAD_ID = re.compile(r"[\x00-\x20\x7f\u0085\u00a0\u2028\u2029]")
+
+
+def clean_client(client) -> str:
+    """창 번호 — 한 곳에서만 가른다. 1~80자, 공백·제어 문자(표 안 열쇠의 구분자 \\x1f 포함) 없음. 맞지 않으면 자르거나 고치지 않고 ValueError."""
+    c = "" if client is None else str(client)
+    if not 1 <= len(c) <= 80 or _BAD_ID.search(c):
+        raise ValueError("창 번호(client)가 올바르지 않습니다")
+    return c
+
+
+def clean_field(field) -> str:
+    """칸 이름 — 1~200자, 제어 문자 없음. 자르지 않는다(자르면 다른 칸 이름과 같아질 수 있다). 맞지 않으면 ValueError."""
+    f = "" if field is None else str(field)
+    if not 1 <= len(f) <= 200 or re.search(r"[\x00-\x1f\x7f]", f):
+        raise ValueError("칸 이름이 올바르지 않습니다")
+    return f
+
+
 def ckey(user: str, client: str) -> str:
     """보낸 창의 표 안 열쇠 — 창 번호(client)는 편집 화면이 지어 보내는 값이라 로그인한 사람과 묶는다.
-    그래야 남의 창 번호를 흉내 내어 그 사람의 (client, seq) 를 먼저 차지하거나 판 번호 검사를 건너뛸 수 없다."""
+    그래야 남의 창 번호를 흉내 내어 그 사람의 (client, seq) 를 먼저 차지하거나 판 번호 검사를 건너뛸 수 없다.
+    구분자(\\x1f)가 사람·창 번호에 들어 있으면 열쇠가 겹칠 수 있어 받지 않는다."""
+    if "\x1f" in str(user) or "\x1f" in str(client):
+        raise ValueError("사람·창 번호에 구분 문자가 있습니다")
     return f"{user}\x1f{client}"
 
 
@@ -405,7 +427,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
     """칸 변경 묶음을 차례로 반영한다. 돌려주는 것은 op 마다 {seq, field, ok, version, [conflict, reason, text, by]}.
     force=True 는 판 번호 검사를 건너뛴다(에이전트가 지금 판 위에 쓸 때) — 남이 쥔 임대는 그래도 지킨다."""
     ensure(db)
-    client = str(client or "")[:80]
+    client = clean_client(client)
     ck = ckey(user, client)
     results = []
     changed = False
@@ -415,8 +437,9 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
         except (TypeError, ValueError):
             results.append({"ok": False, "reason": "bad"})
             continue
-        field = str(op.get("field") or "")[:200]
-        if not field:
+        try:
+            field = clean_field(op.get("field"))
+        except ValueError:
             results.append({"seq": seq, "ok": False, "reason": "bad"})
             continue
         # 바뀐 부분(delta) {at, del, ins, fp} — 자리·길이는 글자(코드 포인트) 단위. 서버가 지금 글에 넣어 보고 지문이 맞을 때만 받는다
@@ -692,10 +715,11 @@ def put_rich(db, fid: int, field: str, text: str, hwpx: bytes, *, user: str = AG
     """서버 참여자(AURA·논문 작성기)가 칸 하나를 서식째 — hwpx 조각(표·꾸밈 스타일·캡션)과 그 글. 열린 편집 화면은 조각을 그 칸에 넣는다
     (SetTextFile insertfile). 파일 써 넣기는 아직 글만이다(조각의 문단 모양·표를 파일 머리(header)에 합치는 일은 남음 — ADR-0070)."""
     import base64
-    hwpx = strip_fragment_fields(hwpx)                 # 조각 안 누름틀(쓰는 쪽 표시용 「절:조각」 등)은 떼어 낸다 — 칸 안에 칸이 생기지 않게
-    why = fragment_problem(hwpx)
+    # 진짜 XML 로 읽고 허용한 것만 다시 써서 보낸다(조각 안 누름틀은 떼어 낸다 — 칸 안에 칸이 생기지 않게)
+    hwpx, why = sanitize_fragment(hwpx)
     if why:
         return {"ok": False, "reason": "rich_bad", "why": why}
+    field = clean_field(field)
     rich = json.dumps({"fmt": "hwpx", "b64": base64.b64encode(hwpx).decode()})
     if len(rich) > RICH_MAX:
         return {"ok": False, "reason": "too_long", "max": RICH_MAX}
@@ -705,53 +729,159 @@ def put_rich(db, fid: int, field: str, text: str, hwpx: bytes, *, user: str = AG
     return r
 
 
-_FRAG_ENTRY = re.compile(r"^(mimetype|version\.xml|settings\.xml|META-INF/[^/]+|Contents/(header|content|section\d+)\.(xml|hpf)|Preview/[^/]+|"
-                         r"BinData/[^/]+\.(png|jpe?g|gif|bmp))$", re.I)
-_FRAG_BAD = re.compile(r"<hp:fieldBegin\b|<hp:fieldEnd\b|<hp:ole\b|<hp:video\b|<hp:(btn|checkBtn|radioBtn|comboBox|listBox|edit|scrollBar)\b|"
-                       r"HYPERLINK|\b(href|src)=\"(?!#)[^\"]+\"", re.I)
+# ── 서식째 조각(hwpx) 검사 ── 문자열로 훑으면 기안기가 실제로 읽는 XML(이름공간 접두어·글자 참조·주석·CDATA)과 어긋날 수 있어,
+# 진짜 XML 해석기로 읽고 허용한 것만 다시 써서 내보낸다(읽은 나무를 다시 직렬화 — 검사한 것과 보내는 것이 같다)
+_FRAG_FILES = {"mimetype", "version.xml", "settings.xml", "META-INF/container.xml", "META-INF/manifest.xml", "META-INF/container.rdf",
+               "Contents/content.hpf", "Contents/header.xml", "Preview/PrvText.txt", "Preview/PrvImage.png"}
+_FRAG_SECTION = re.compile(r"Contents/section\d{1,3}\.xml")
+_FRAG_BIN = re.compile(r"BinData/[A-Za-z0-9_-]{1,40}\.(png|jpg|jpeg|gif|bmp)")
+_IMG_MAGIC = {"png": (b"\x89PNG\r\n\x1a\n",), "jpg": (b"\xff\xd8\xff",), "jpeg": (b"\xff\xd8\xff",), "gif": (b"GIF87a", b"GIF89a"), "bmp": (b"BM",)}
+_FRAG_FORBID = {"fieldbegin", "fieldend", "ole", "video", "btn", "checkbtn", "radiobtn", "combobox", "listbox", "edit", "scrollbar",
+                "hyperlink", "script", "container", "textart", "chart", "connectline", "unknownobject"}
+_URL = re.compile(r"(?i)(^|[^a-z])(https?|ftp|file|javascript|vbscript|data|mailto|smb):|//")
 
 
-def strip_fragment_fields(data: bytes) -> bytes:
-    """조각의 누름틀(CLICK_HERE) 여닫는 ctrl 만 떼어 낸다(글은 그대로). 열 수 없으면 그대로 돌려줘 fragment_problem 이 거절한다."""
+def _xml_attr(v: str) -> str:
+    return v.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].rsplit(":", 1)[-1].lower() if isinstance(tag, str) else ""
+
+
+def _parse_xml(raw: bytes):
+    """XML 하나를 읽는다 — DTD·개체 선언은 받지 않는다(외부·내부 개체 펼치기 막기). (나무, [(접두어, 이름공간)]).
+    먼저 expat 로 한 번 훑어 DTD·개체 선언을 거절하고 이름공간 접두어를 모은 뒤, 같은 바이트를 ElementTree 로 읽는다."""
+    import xml.etree.ElementTree as ET
+    from xml.parsers import expat
+
+    def no_dtd(*_a, **_k):
+        raise ValueError("DTD·개체 선언은 받지 않습니다")
+    nss: list[tuple[str, str]] = []
+    px = expat.ParserCreate(namespace_separator=" ")
+    px.StartDoctypeDeclHandler = no_dtd
+    px.EntityDeclHandler = no_dtd
+    px.UnparsedEntityDeclHandler = no_dtd
+    px.ExternalEntityRefHandler = no_dtd
+    px.StartNamespaceDeclHandler = lambda prefix, uri: nss.append((prefix or "", uri or ""))
+    px.Parse(raw, True)
+    return ET.fromstring(raw), nss
+
+
+_NS_OK = ("http://www.hancom.co.kr/", "http://www.idpf.org/", "http://purl.org/dc/", "http://www.w3.org/")   # 패키지·이름공간 표시용 주소
+
+
+def _clean_tree(root, strip_fields: bool, inside: set | frozenset = frozenset(), body: bool = True) -> str:
+    """나무를 고친다 — 누름틀(CLICK_HERE) 여닫이 ctrl 은 떼고, 막힌 개체·외부 주소가 남았으면 그 까닭(빈 글이면 통과)."""
+    parent = {c: p for p in root.iter() for c in p}
+    if strip_fields:
+        for el in list(root.iter()):
+            if _local(el.tag) == "ctrl" and len(el) and all(_local(c.tag) in ("fieldbegin", "fieldend") for c in el):
+                kinds = {(c.get("type") or "").upper() for c in el if _local(c.tag) == "fieldbegin"}
+                if kinds <= {"CLICK_HERE"} and el in parent:
+                    parent[el].remove(el)
+    for el in root.iter():
+        name = _local(el.tag)
+        if body and name in _FRAG_FORBID:                   # 본문·머리(header)의 개체만 — 패키지 목록(META-INF/container.xml)의 이름은 다른 뜻
+            return f"조각에 넣을 수 없는 개체: {name}"
+        for k, v in el.attrib.items():
+            lk, v = _local(k), v or ""
+            if v.startswith(_NS_OK) and "?" not in v and " " not in v:
+                continue                                   # 한컴·OPF·DC·W3C 이름공간 표시(패키지 머리가 쓴다)
+            if lk in ("href", "src", "link", "url", "uri") and v and not v.startswith("#") and v not in inside:
+                return f"조각에 외부 주소가 있습니다({lk})"   # 조각 안 부분(Contents/section0.xml 등)만 가리킬 수 있다
+            if _URL.search(v) and v not in inside:
+                return "조각 속성에 주소가 있습니다"
+    return ""
+
+
+def sanitize_fragment(data: bytes, *, strip_fields: bool = True) -> tuple[bytes, str]:
+    """서식째 조각을 남의 화면에 넣기 전에 — (다시 만든 조각, 까닭). 까닭이 있으면 쓰지 않는다.
+    ZIP: 이름을 정확히 허용한 것만(절은 Contents/sectionN.xml, 그림은 BinData/이름.png 등), 같은 이름 두 번·경로 이상은 거절.
+    XML: 진짜 해석기로 읽고(DTD·개체 선언 거절) 누름틀은 떼고, 필드·OLE·동영상·양식 개체·하이퍼링크·외부 주소가 있으면 거절, 읽은 나무를 다시 써서 담는다.
+    그림: 이름의 확장자와 파일 머리(매직 바이트)가 맞아야. 미리보기 글은 UTF-8 로 다시 쓴다."""
     import io
     import zipfile
-    try:
-        zin = zipfile.ZipFile(io.BytesIO(data))
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zout:
-            for i in zin.infolist():
-                b = zin.read(i.filename)
-                if re.match(r"Contents/section\d+\.xml$", i.filename):
-                    x = b.decode("utf-8")
-                    x = re.sub(r'<hp:ctrl><hp:fieldBegin\b[^>]*type="CLICK_HERE"[^>]*>.*?</hp:fieldBegin></hp:ctrl>', "", x, flags=re.S)
-                    x = re.sub(r'<hp:ctrl><hp:fieldBegin\b[^>]*type="CLICK_HERE"[^>]*/></hp:ctrl>', "", x)
-                    x = re.sub(r"<hp:ctrl><hp:fieldEnd\b[^>]*/></hp:ctrl>", "", x)
-                    b = x.encode("utf-8")
-                zout.writestr(i, b, compress_type=zipfile.ZIP_STORED if i.filename == "mimetype" else zipfile.ZIP_DEFLATED)
-        return buf.getvalue()
-    except Exception:
-        return data
-
-
-def fragment_problem(data: bytes) -> str:
-    """서식째 조각(hwpx)을 남의 화면에 넣기 전에 — 들인 것이 글·문단·표·그림만인지. 문제가 있으면 까닭, 없으면 빈 글.
-    필드(조각 안 누름틀이 대상 칸 밖 이름과 겹치거나 칸을 벗어남)·OLE·동영상·양식 개체·하이퍼링크·외부 주소·스크립트 같은 다른 파일은 받지 않는다."""
-    import io
-    import zipfile
+    import xml.etree.ElementTree as ET
     from zzaimy.app import webhwp_fields as wf
     if not data or data[:2] != b"PK" or len(data) > RICH_MAX * 3 // 4:
-        return "hwpx 조각이 아니거나 너무 큽니다"
+        return b"", "hwpx 조각이 아니거나 너무 큽니다"
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
         wf.check_zip(z)
+        infos = z.infolist()
     except Exception:
-        return "hwpx 조각을 열 수 없습니다"
-    for n in z.namelist():
-        if not _FRAG_ENTRY.match(n):
-            return f"조각에 넣을 수 없는 부분: {n[:80]}"
-        if re.match(r"Contents/section\d+\.xml$", n) and _FRAG_BAD.search(z.read(n).decode("utf-8", "replace")):
-            return "조각에 필드·개체·링크·외부 주소가 있습니다"
-    return ""
+        return b"", "hwpx 조각을 열 수 없습니다"
+    names = [i.filename for i in infos]
+    if len(names) != len(set(names)) or len({n.lower() for n in names}) != len(names):
+        return b"", "조각에 같은 이름의 부분이 두 번 있습니다"
+    if not any(_FRAG_SECTION.fullmatch(n) for n in names):
+        return b"", "조각에 본문(절)이 없습니다"
+    out: list[tuple[str, bytes]] = []
+    for info in infos:
+        n = info.filename
+        if info.is_dir() or not (n in _FRAG_FILES or _FRAG_SECTION.fullmatch(n) or _FRAG_BIN.fullmatch(n)):
+            return b"", f"조각에 넣을 수 없는 부분: {n[:80]}"
+        try:
+            raw = z.read(info)
+        except Exception:
+            return b"", "조각을 풀 수 없습니다"
+        if n == "mimetype":
+            if raw.strip() != b"application/hwp+zip":
+                return b"", "조각의 형식 표시가 hwpx 가 아닙니다"
+            out.append((n, b"application/hwp+zip"))
+        elif _FRAG_BIN.fullmatch(n) or n == "Preview/PrvImage.png":
+            ext = n.rsplit(".", 1)[-1].lower()
+            if not raw.startswith(_IMG_MAGIC[ext]):
+                return b"", f"그림 파일 머리가 이름과 다릅니다: {n[:80]}"
+            out.append((n, raw))
+        elif n.endswith(".txt"):
+            out.append((n, raw.decode("utf-8", "replace").encode("utf-8")))
+        else:
+            try:
+                root, nss = _parse_xml(raw)
+            except Exception:
+                return b"", f"조각 XML 을 읽을 수 없습니다: {n[:80]}"
+            why = _clean_tree(root, strip_fields and bool(_FRAG_SECTION.fullmatch(n)), frozenset(names),
+                              body=bool(_FRAG_SECTION.fullmatch(n)) or n == "Contents/header.xml")
+            if why:
+                return b"", why
+            for prefix, uri in nss:                      # 원래 접두어(hp·hh·hc…)로 다시 쓴다
+                if prefix and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,15}", prefix):
+                    try:
+                        ET.register_namespace(prefix, uri)
+                    except ValueError:
+                        pass
+            x = ET.tostring(root, encoding="unicode", xml_declaration=False)
+            # ElementTree 는 쓰지 않은 이름공간 선언을 빼는데 기안기는 원래 선언이 다 있어야 조각을 받는다(실측) — 맨 위 요소에 되살린다
+            m = re.match(r"<[^\s>/]+", x)
+            if m:
+                head_end = x.index(">")
+                have = set(re.findall(r'\sxmlns(?::([A-Za-z][\w.-]*))?="', x[:head_end]))
+                add = "".join(f' xmlns:{pf}="{_xml_attr(uri)}"' for pf, uri in dict(nss).items()
+                              if pf and pf not in have and re.fullmatch(r"[A-Za-z][\w.-]{0,15}", pf) and uri.startswith(_NS_OK))
+                if add:
+                    cut = head_end - 1 if x[head_end - 1] == "/" else head_end
+                    x = x[:cut] + add + x[cut:]
+            body = b'<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>' + x.encode("utf-8")
+            out.append((n, body))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zout:
+        order = sorted(out, key=lambda x: x[0] != "mimetype")
+        for n, b in order:
+            zout.writestr(zipfile.ZipInfo(n), b, compress_type=zipfile.ZIP_STORED if n == "mimetype" else zipfile.ZIP_DEFLATED)
+    return buf.getvalue(), ""
+
+
+def strip_fragment_fields(data: bytes) -> bytes:
+    """(예전 이름) 조각의 누름틀을 떼어 다시 만든 조각 — 검사를 못 지나면 원본(넣는 쪽 sanitize_fragment 가 거절한다)."""
+    new, why = sanitize_fragment(data)
+    return data if why else new
+
+
+def fragment_problem(data: bytes) -> str:
+    """조각을 남의 화면에 넣어도 되는지 — 문제가 있으면 까닭, 없으면 빈 글(sanitize_fragment 와 같은 검사)."""
+    return sanitize_fragment(data)[1]
 
 
 def conflicts(db, fid: int, user: str | None = None, limit: int = 50) -> list[dict]:
@@ -771,9 +901,9 @@ def presence(db, fid: int, user: str, client: str, field: str, page: int = 0) ->
     """같이 보는 사람 — 커서 칸과 쪽 번호(편집 화면이 기안기 KeyIndicator 로 안다). 칸·쪽이 바뀌면 알린다."""
     ensure(db)
     now = time.time()
-    field = (field or "")[:200]
+    field = clean_field(field) if field else ""
     page = max(0, min(int(page or 0), 100_000))
-    ck = ckey(user, client)
+    ck = ckey(user, clean_client(client))
     changed = False
     with db._conn() as conn:
         row = conn.execute("SELECT field, at, page FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), ck)).fetchone()

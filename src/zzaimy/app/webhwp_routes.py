@@ -378,13 +378,17 @@ async def hwp_presence(request: Request, fid: int):
         body = {}
     body = body if isinstance(body, dict) else {}
     user = getattr(request.state, "user", "")
-    client = str(body.get("client") or f"{user}:page")[:80]
+    try:                                     # 창 번호·칸 이름은 webhwp_coedit 한 곳에서 가른다(자르지 않는다)
+        client = ce.clean_client(body.get("client") or f"{user}:page")
+        pfield = ce.clean_field(body.get("field")) if body.get("field") else ""
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     db = request.app.state.db
     try:
         page = int(body.get("page") or 0)
     except (TypeError, ValueError):
         page = 0
-    await run_in_threadpool(ce.presence, db, fid, user, client, str(body.get("field") or "")[:200], page)
+    await run_in_threadpool(ce.presence, db, fid, user, client, pfield, page)
     # 지금 같이 있는 사람을 함께 돌려준다 — 알림은 칸이 바뀔 때만 가서, 가만히 있는 사람이 30초 뒤 남의 화면에서 사라졌다(10-24).
     # 쪽 번호(목록에 「이름 · N쪽 · 절」), 살아 있는 창(같은 사람의 옛 창이 쥔 칸을 이어받을지)
     people = await run_in_threadpool(ce.people, db, fid)
@@ -407,7 +411,11 @@ async def hwp_live(request: Request, fid: int):
         body = {}
     st = request.app.state
     user = getattr(request.state, "user", "")
-    field = str(body.get("field") or "")[:200]
+    from zzaimy.app import webhwp_coedit as _ce
+    try:
+        field = _ce.clean_field(body.get("field")) if body.get("field") else ""
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if field and isinstance(body.get("text"), str):
         webhwp.live_put(st.db, fid, user, field, body["text"])
     v, changes = webhwp.live_since(st.db, fid, int(body.get("since") or 0), user)
