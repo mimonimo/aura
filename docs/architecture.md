@@ -232,6 +232,34 @@ for 절 in 목차:
 이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), user_admin.py(/dev/users, 조직·구성원 /team), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
 앱이 띄우는 긴 배경 작업(재측정·재색인·반입 점검)은 `app/detach.py` 로 systemd scope 에 떼어 서비스 재시작에 끊기지 않는다.
 
+## 10.2 웹 한글 기안기 공동 편집 (ADR-0070, 10-24)
+
+한글 문서함의 같은 문서를 여러 사람과 AURA 가 칸(누름틀) 단위로 함께 고친다. 기안기 공개 API 에 문서 바뀜 사건이 없어 글자 단위 병합 대신
+칸 임대 + 칸 글 전체 전송 + 서버 정답으로 짰다. 자세한 동작과 측정은 ADR-0070, 논문 원재료 5.6.
+
+| 층 | 모듈 | 맡는 일 |
+|---|---|---|
+| 어댑터 | static/webhwp-wrapper.js | 기안기 API 를 부르는 유일한 곳(칸 읽기·쓰기, 편집 가능 켜기·끄기, 커서 저장·되돌리기, 칸 자리 재기, 입력·한글 조합 사건) |
+| 공동 편집 층 | static/webhwp-collab.js · webhwp-collab.css | 임대, 보낼 줄(IndexedDB 에도)·받을 줄, 판 번호, 지문 대조, 충돌 사본, 머리줄 아바타·칸 표시·누름 막 |
+| 화면 | templates/hwp_edit.html | 두 층을 잇기만 한다 |
+| 경로 | app/webhwp_coedit_routes.py · webhwp_routes.py | /hwp/{id}/coedit · events(SSE) · ops · lease · leave · conflicts, presence |
+| 서버 정답 | app/webhwp_coedit.py | 표 일곱(webhwp_field_locks · webhwp_field_state · webhwp_field_ops · webhwp_field_edits · webhwp_conflicts · webhwp_events · webhwp_presence), 문서별 쓰기 줄 세우기, 파일 써 넣기 |
+| 파일 | app/webhwp_write.py · webhwp.py | set_fields 로 hwpx 필드에 쓰고 save(앞 판은 .판/) |
+
+```
+[창 A] 키·조합 사건 → 어댑터가 칸 글 읽기(조합 중엔 안 읽음)
+   → 공동 편집 층: 첫 고침에 POST /lease, 300ms 마다 POST /ops {client, seq, base, 칸 글}
+                                       │
+[서버] 문서별 잠금 안에서: 같은 (client, seq) 면 같은 답 / base 어긋남·남의 임대면 충돌 사본
+       → webhwp_field_state 판 번호 올림 → webhwp_events 에 알림 → 3초 뒤(최대 20초) hwpx 써 넣기
+                                       │ SSE /events
+[창 B] 판 번호가 앞선 글만, 입력이 300ms 멈추고 조합 중이 아닐 때 PutFieldText → 커서·스크롤 되돌림
+       0.25초마다 칸 자리 다시 셈(기안기 커서 모델) → 옅은 바탕·색 커서·이름 깃발·누름 막
+```
+
+칸 밖 고침(본문·표 행·용지)은 구조 잠금을 쥔 한 사람이 문서 전체를 저장하고, 서버가 칸 글 표를 덮어 써 다른 사람의 칸 글을 지킨다.
+시간 값은 설정 표 `coedit:<키>` → `ZZAIMY_COEDIT_<키>` → 기본값 순으로 읽는다. 창 번호는 로그인한 사람과 묶어 남의 변경을 막는다.
+
 ## 11. 미결 사항
 
 | 항목 | 상태 |
