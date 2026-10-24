@@ -186,6 +186,43 @@ def model_can_see(base_url: str, model: str) -> bool:
     return _VISION_CACHE[key]
 
 
+def _caller() -> str:
+    """이 호출을 시킨 곳(모듈.함수) — 생성 연결·문맥 맞추기 층은 건너뛴다. 학습 데이터의 갈래 나누기에 쓴다."""
+    import inspect
+    for fr in inspect.stack()[2:]:
+        mod = fr.frame.f_globals.get("__name__", "")
+        if mod.startswith(("zzaimy.generate", "zzaimy.app.llm_budget", "openai", "functools")):
+            continue
+        return f"{mod}.{fr.function}"
+    return ""
+
+
+def _record(kw: dict, resp) -> None:
+    """ZZAIMY_LLM_RECORD(폴더)가 켜져 있으면 모델에 보낸 요청과 받은 답을 그대로 한 줄씩 남긴다 — Writer 학습 데이터를 플랫폼이
+    실제로 보내는 꼴로 만들 때(K61). 기본은 꺼짐이고, 시험 DB 로 돌린 시나리오에서만 켠다(운영에서 켜지 않는다 — 문서 원문이 들어간다).
+    기록 실패는 생성을 막지 않는다."""
+    folder = os.environ.get("ZZAIMY_LLM_RECORD", "").strip()
+    if not folder:
+        return
+    try:
+        import datetime as _dt
+        import json as _json
+        from pathlib import Path as _P
+        msg = resp.choices[0].message
+        row = {"at": _dt.datetime.now().isoformat(timespec="seconds"), "caller": _caller(), "model": kw.get("model", ""),
+               "messages": kw.get("messages"), "tools": kw.get("tools"), "response_format": kw.get("response_format"),
+               "max_tokens": kw.get("max_tokens"), "temperature": kw.get("temperature"),
+               "answer": getattr(msg, "content", None) or "",
+               "tool_calls": [tc.model_dump() for tc in (getattr(msg, "tool_calls", None) or []) if hasattr(tc, "model_dump")],
+               "finish": getattr(resp.choices[0], "finish_reason", "")}
+        d = _P(folder)
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / f"llm-{_dt.date.today().isoformat()}.jsonl", "a", encoding="utf-8") as f:
+            f.write(_json.dumps(row, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        pass
+
+
 class VllmClient:
     def __init__(self, base_url: str | None = None, model: str | None = None,
                  role: str = "", *, timeout: float | None = None, max_retries: int | None = None) -> None:
@@ -276,6 +313,7 @@ class VllmClient:
                     else:
                         raise
                 if not kw.get("stream"):
+                    _record(kw, resp)
                     model_config.record_usage(
                         self.connection_id, kw.get("model", self.model), getattr(resp, "usage", None)
                     )
