@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import quote as _q
 
@@ -947,6 +948,9 @@ async def hwp_save(request: Request, fid: int):
     return {"ok": True, "name": p.name, "size": len(data), "merged": merged}
 
 
+_STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf)$", re.I)   # 기안기 정적 파일(경로 끝 확장자)
+
+
 @router.api_route("/webhwpctrl/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"])
 async def webhwp_proxy(request: Request, path: str):
     """기안기 서버로 그대로 넘긴다 — 교직원·관리자만(인증은 앱 단계에서 이미)."""
@@ -971,6 +975,11 @@ async def webhwp_proxy(request: Request, path: str):
     except httpx.HTTPError:
         raise HTTPException(503, "웹 한글 기안기 서버에 연결하지 못했습니다")
     out = {k: v for k, v in r.headers.items() if k.lower() not in _HOP and k.lower() != "set-cookie"}
+    # 기안기 서버는 모든 파일을 no-cache 로 보내 문서를 열 때마다 wasm(13MB)·앱 스크립트(5MB)를 다시 받았다(느린 연결에서 1분 넘게).
+    # 편집기 판(13.82.0.208)에 묶인 정적 파일만 하루 동안 이 브라우저에 둔다(private — 로그인한 교직원만 받는 파일). 문서·API 는 그대로
+    if request.method == "GET" and r.status_code == 200 and _STATIC_EDITOR.search(raw):
+        out = {k: v for k, v in out.items() if k.lower() not in ("cache-control", "pragma", "expires")}
+        out["Cache-Control"] = "private, max-age=86400"
     resp = Response(r.content, status_code=r.status_code, headers=out)
     for c in r.headers.get_list("set-cookie"):          # 기안기 세션 쿠키는 경로를 /webhwpctrl 로 두고 그대로 넘긴다
         resp.headers.append("set-cookie", c)

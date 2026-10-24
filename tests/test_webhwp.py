@@ -491,3 +491,28 @@ def test_drive_browse_without_google_account_is_409(tmp_path, monkeypatch):
     from zzaimy.ingest import gdrive_files
     monkeypatch.setattr(gdrive_files, "account_for", lambda *a, **k: "")
     assert kim.get("/api/hwp/drive/browse").status_code == 409
+
+
+def test_proxy_caches_static_editor_files_only(tmp_path, monkeypatch):
+    """기안기 정적 파일(js·wasm 등)은 하루 동안 브라우저에 두고(no-cache 를 바꿈), 문서·API 응답은 기안기 서버 헤더 그대로."""
+    app = _setup(tmp_path, monkeypatch)
+    import httpx
+
+    class _Resp:
+        status_code = 200
+        content = b"x"
+        headers = httpx.Headers({"content-type": "application/wasm", "cache-control": "no-cache", "etag": 'W/"1"'})
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def request(self, *a, **k): return _Resp()
+
+    monkeypatch.setattr("httpx.AsyncClient", _Client)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    r = kim.get("/webhwpctrl/wasm/eqeditwa.wasm")
+    assert r.headers["cache-control"] == "private, max-age=86400" and r.headers.get("etag") == 'W/"1"'
+    assert kim.get("/webhwpctrl/js/hwpApp.8c0c.chunk.js?13.82.0.208").headers["cache-control"] == "private, max-age=86400"
+    assert kim.get("/webhwpctrl/serverProps").headers["cache-control"] == "no-cache"
