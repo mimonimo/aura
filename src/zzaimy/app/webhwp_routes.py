@@ -949,6 +949,21 @@ async def hwp_save(request: Request, fid: int):
 
 
 _STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf)$", re.I)   # 기안기 정적 파일(경로 끝 확장자)
+_GZIP_EDITOR = re.compile(r"\.(js|css|wasm|svg)$", re.I)                       # 압축이 듣는 것(그림·woff2 는 이미 압축됨)
+_GZ_CACHE: dict[tuple[str, str], bytes] = {}
+
+
+def _gzipped(path: str, etag: str, body: bytes) -> bytes:
+    """기안기 정적 파일의 gzip 본 — (경로, ETag) 마다 한 번 만든다. 판이 바뀌면 ETag 가 달라 새로 만든다. 모두 합쳐 80MB 를 넘으면 비운다."""
+    import gzip
+    key = (path, etag or str(len(body)))
+    got = _GZ_CACHE.get(key)
+    if got is None:
+        got = gzip.compress(body, compresslevel=6)
+        if sum(len(v) for v in _GZ_CACHE.values()) + len(got) > 80 * 1024 * 1024:
+            _GZ_CACHE.clear()
+        _GZ_CACHE[key] = got
+    return got
 
 
 @router.api_route("/webhwpctrl/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"])
@@ -977,10 +992,18 @@ async def webhwp_proxy(request: Request, path: str):
     out = {k: v for k, v in r.headers.items() if k.lower() not in _HOP and k.lower() != "set-cookie"}
     # 기안기 서버는 모든 파일을 no-cache 로 보내 문서를 열 때마다 wasm(13MB)·앱 스크립트(5MB)를 다시 받았다(느린 연결에서 1분 넘게).
     # 편집기 판(13.82.0.208)에 묶인 정적 파일만 하루 동안 이 브라우저에 둔다(private — 로그인한 교직원만 받는 파일). 문서·API 는 그대로
+    content = r.content
     if request.method == "GET" and r.status_code == 200 and _STATIC_EDITOR.search(raw):
         out = {k: v for k, v in out.items() if k.lower() not in ("cache-control", "pragma", "expires")}
         out["Cache-Control"] = "private, max-age=86400"
-    resp = Response(r.content, status_code=r.status_code, headers=out)
+        # 기안기 서버는 압축하지 않는다 — 큰 글·wasm 은 gzip 으로(수식 wasm 13MB → 7MB). 압축본은 판(ETag)마다 한 번 만들어 둔다
+        if (_GZIP_EDITOR.search(raw) and "gzip" in request.headers.get("accept-encoding", "")
+                and not any(k.lower() == "content-encoding" for k in out) and len(content) > 4096):
+            content = _gzipped(raw, r.headers.get("etag", ""), content)
+            out = {k: v for k, v in out.items() if k.lower() != "content-length"}
+            out["Content-Encoding"] = "gzip"
+            out["Vary"] = "Accept-Encoding"
+    resp = Response(content, status_code=r.status_code, headers=out)
     for c in r.headers.get_list("set-cookie"):          # 기안기 세션 쿠키는 경로를 /webhwpctrl 로 두고 그대로 넘긴다
         resp.headers.append("set-cookie", c)
     return resp

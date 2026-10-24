@@ -516,3 +516,6 @@ def test_proxy_caches_static_editor_files_only(tmp_path, monkeypatch):
     assert r.headers["cache-control"] == "private, max-age=86400" and r.headers.get("etag") == 'W/"1"'
     assert kim.get("/webhwpctrl/js/hwpApp.8c0c.chunk.js?13.82.0.208").headers["cache-control"] == "private, max-age=86400"
     assert kim.get("/webhwpctrl/serverProps").headers["cache-control"] == "no-cache"
+    _Resp.content = b"wasm" * 5000                       # 큰 정적 파일은 gzip 으로(받는 쪽이 풀어 같은 바이트)
+    r = kim.get("/webhwpctrl/wasm/big.wasm", headers={"Accept-Encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip" and r.content == b"wasm" * 5000
