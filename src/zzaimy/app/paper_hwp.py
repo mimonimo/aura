@@ -804,7 +804,8 @@ def _save_outside(db, base: Path, fid: int, change, *, user: str, removable: set
             return {"ok": False, "why": "check", "by": "; ".join(probs[:2])}
         before = ww.field_values(data)
         gone = set(before) - set(ww.field_values(new))
-        if gone - (removable or set()) or any(before[k].strip() for k in gone) \
+        guide = _guides(data)
+        if gone - (removable or set()) or any(before[k].strip() not in ("", guide.get(k, "")) for k in gone) \
                 or ww.field_values(new) != {k: v for k, v in before.items() if k not in gone}:
             return {"ok": False, "why": "fields", "by": ""}         # 지워도 되는 빈 칸 말고는 칸 글이 그대로여야 한다
         eo._snapshot(db, base, fid)                     # 고치기 전 판은 꼭 남긴다(save 의 10분 간격 규칙과 상관없이)
@@ -831,20 +832,50 @@ def restamp(db, base: Path, fid: int, dept: str | None = None, *, user: str = WR
     return r
 
 
-def headless_fields(data: bytes, texts: list[str]) -> list[str]:
-    """이미 만든 문서에서 지울 빈 쓸 자리 — 아래 절 필드가 있고, 원고에 제 글이 없고, 파일 값이 빈 절 필드."""
+def _guides(data: bytes) -> dict[str, str]:
+    """필드마다 안내 글(누름틀의 Direction, 「본문 입력」 같은 것) — 기안기가 저장한 파일은 빈 칸에 안내 글을 실제 글로 넣어 둔다."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    out: dict[str, str] = {}
+    for n in sorted(x for x in zin.namelist() if re.match(r"Contents/section\d+\.xml$", x)):
+        xml = zin.read(n).decode("utf-8")
+        for m in re.finditer(r'<hp:fieldBegin\b[^>]*\bname="([^"]*)"[^>]*>(.*?)</hp:fieldBegin>', xml, re.S):
+            g = re.search(r'<hp:stringParam name="Direction"[^>]*>([^<]*)</hp:stringParam>', m.group(2))
+            name = m.group(1).replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+            out.setdefault(name, (g.group(1) if g else "").strip())
+    return out
+
+
+def headless_report(data: bytes, texts: list[str], *, written: dict | None = None, state: dict | None = None) -> tuple[list[str], dict[str, str]]:
+    """이미 만든 문서에서 지울 빈 쓸 자리와, 아래 절이 있는데 지우지 않는 절의 까닭 — (지울 필드, {남긴 필드: 까닭}).
+    지우는 것: 아래 절 필드가 있고, 원고에 그 절 제목은 있으나 제 글이 없고, 칸 글 표에 글이 없고, 파일 값이 비었거나 안내 글뿐인 절 필드.
+    서식째 쓴 절(written)은 지우지 않는다(서식째 쓰면 본문이 필드 뒤에 붙어 필드 값만으로는 비어 보일 수 있다)."""
     from zzaimy.app import webhwp_write as ww
     own = _own_text(texts)
     vals = ww.field_values(data)
+    guide = _guides(data)
     names = [n for n in vals if n.startswith("절:") and n[2:] not in LISTS]
-    out = []
+    out, kept = [], {}
     for n in names:
         num, _t = parse_heading(n[2:])
-        if not num or vals[n].strip() or own.get(n, True):
+        if not num or not any(m.startswith(f"절:{num}.") for m in names):
             continue
-        if any(m.startswith(f"절:{num}.") for m in names):
+        if n not in own:
+            kept[n] = "원고에 이 절 제목이 없다"
+        elif own[n]:
+            kept[n] = "원고에 제 글이 있다"
+        elif (written or {}).get(n):
+            kept[n] = "서식째 쓴 절이다"
+        elif ((state or {}).get(n) or {}).get("text", "").strip():
+            kept[n] = "칸 글 표에 글이 있다"
+        elif vals[n].strip() not in ("", guide.get(n, "")):
+            kept[n] = f"파일 값이 있다: {vals[n].strip()[:30]}"
+        else:
             out.append(n)
-    return out
+    return out, kept
+
+
+def headless_fields(data: bytes, texts: list[str], **kw) -> list[str]:
+    return headless_report(data, texts, **kw)[0]
 
 
 def _drop_field_paras(data: bytes, names: set[str]) -> tuple[bytes, int]:
@@ -862,9 +893,16 @@ def _drop_field_paras(data: bytes, names: set[str]) -> tuple[bytes, int]:
             if a < 0 or b < 0:
                 continue
             para = xml[a:b + 7]
-            if "<hp:tbl" in para or _ptext(para).strip():
+            beg = para.rfind("<hp:ctrl>", 0, m.start() - a)
+            end = re.search(r'<hp:fieldEnd\b[^>]*/></hp:ctrl>', para[m.end() - a:])
+            if beg < 0 or not end:
                 continue
-            xml = xml[:a] + xml[b + 7:]
+            fspan = (beg, m.end() - a + end.end())
+            rest = para[:fspan[0]] + para[fspan[1]:]
+            if "<hp:tbl" in rest or _ptext(rest).strip():
+                xml = xml[:a] + rest + xml[b + 7:]           # 필드 밖 글이 있으면 필드(안내 글 포함)만 뗀다
+            else:
+                xml = xml[:a] + xml[b + 7:]                  # 필드만 든 문단은 통째로
             count[0] += 1
         return xml
     out = webhwp_style._rewrite(data, fn)
@@ -875,9 +913,11 @@ def drop_headless(db, base: Path, fid: int, texts: list[str], *, user: str = WRI
     """이미 만든 문서의 빈 쓸 자리(아래 절만 있고 제 글이 없는 절, 화면에 붉은 「본문 입력」 이 보이던 칸)를 지운다.
     지금 누가 쥐었거나 칸 글 표에 글이 있는 칸은 두고, 앞 판은 .판/ 에 남긴다(restamp 와 같은 저장 길)."""
     from zzaimy.app import webhwp, webhwp_coedit as ce
+    ce.commit_now(db, base, fid)
     data = Path(webhwp.get(db, fid)["path"]).read_bytes()
-    st = ce.state(db, fid)
-    names = {n for n in headless_fields(data, texts) if not ce.holder(db, fid, n) and not (st.get(n) or {}).get("text", "").strip()}
+    m = webhwp.meta(db, fid)
+    names = {n for n in headless_fields(data, texts, written=m.get("written") if isinstance(m.get("written"), dict) else {},
+                                        state=ce.state(db, fid)) if not ce.holder(db, fid, n)}
 
     def change(d: bytes):
         new, n = _drop_field_paras(d, names)

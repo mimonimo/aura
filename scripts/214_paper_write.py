@@ -70,11 +70,17 @@ def main() -> int:
         return 2
     if a.drop_empty:
         texts0 = [p.read_text(encoding="utf-8") for p in ph.chapter_files(Path(a.src))]
-        names = ph.headless_fields(Path(f["path"]).read_bytes(), texts0)
+        from zzaimy.app import webhwp_coedit as ce
+        meta = webhwp.meta(db, fid)
+        names, kept = ph.headless_report(Path(f["path"]).read_bytes(), texts0, state=ce.state(db, fid),
+                                         written=meta.get("written") if isinstance(meta.get("written"), dict) else {})
         if a.dry_run:
             print(f"문서 {fid}: 지울 빈 쓸 자리 {len(names)}곳(미리 보기)")
             for n in names:
-                print(f"  {n}")
+                print(f"  지움: {n}")
+            for n, why in kept.items():
+                if why != "원고에 제 글이 있다":
+                    print(f"  둠: {n} — {why}")
         else:
             r = ph.drop_headless(db, base, fid, texts0)
             print(f"문서 {fid}: 빈 쓸 자리 " + (f"지움 {r.get('note', '')}" if r["ok"] and r.get("changed") else "지울 것 없음")

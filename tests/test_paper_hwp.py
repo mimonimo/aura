@@ -519,3 +519,49 @@ def test_body_pages_start_at_one_and_front_matter_has_no_numbers(tmp_path, monke
     s1 = zipfile.ZipFile(io.BytesIO(after)).read("Contents/section0.xml").decode()
     assert s1.count("<hp:pageNum ") == 1 and s1.index("<hp:pageNum ") > s1.index(ph.TOC_TITLE)
     assert eo.check_bytes(after) == [] and ww.field_values(after) == before
+
+
+def _editor_like(data: bytes) -> bytes:
+    """기안기가 저장한 꼴 — 빈 누름틀에 안내 글(Direction)을 붉은 글로 넣어 둔다."""
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    files = {n: zf.read(n) for n in zf.namelist()}
+    s = files["Contents/section0.xml"].decode()
+
+    def sub(m):
+        g = re.search(r'<hp:stringParam name="Direction"[^>]*>([^<]*)<', m.group(0)).group(1)
+        return m.group(0).replace("<hp:t/><hp:ctrl><hp:fieldEnd", f'</hp:run><hp:run charPrIDRef="0"><hp:t>{g}</hp:t></hp:run><hp:run charPrIDRef="0"><hp:ctrl><hp:fieldEnd', 1)
+    s = re.sub(r'<hp:ctrl><hp:fieldBegin\b(?:(?!</hp:p>).)*?<hp:t/><hp:ctrl><hp:fieldEnd', sub, s, flags=re.S)
+    files["Contents/section0.xml"] = s.encode()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in zf.infolist():
+            z.writestr(info, files[info.filename])
+    return buf.getvalue()
+
+
+def test_drop_empty_on_editor_saved_rich_written_doc(tmp_path, monkeypatch):
+    texts = [CH1_HEADLESS, CH2, CH6, BACK, APPX]
+    outline = ph.outline_from_markdown(texts) + [(1, "", "팀원 소개")]
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    fid = webhwp.add(db, base, webhwp.COMMON, "운영 꼴.hwpx", ph.build(outline), owner="pdev", folder=ph.FOLDER)
+    m = webhwp.meta(db, fid)
+    m["paper"] = {"build": 1}
+    db.set_setting(f"webhwp_meta:{fid}", __import__("json").dumps(m))
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    for w in ph.plan(data, texts, rich=True)["writes"]:                   # 서식째로 다 쓴 문서
+        assert ph.write(db, base, fid, w)["ok"], w["field"]
+    p = Path(webhwp.get(db, fid)["path"])
+    p.write_bytes(_editor_like(p.read_bytes()))                           # 기안기가 저장해 빈 칸에 안내 글이 들어간 꼴
+    vals = ww.field_values(p.read_bytes())
+    assert vals["절:1.4 프로젝트 구성"] == "본문 입력"
+    names, kept = ph.headless_report(p.read_bytes(), texts, written=webhwp.meta(db, fid)["written"], state=ce.state(db, fid))
+    assert "절:1.4 프로젝트 구성" in names and "절:1.4.1 전체 구조" not in names
+    assert all(not n.startswith("절:1.4.1") for n in names)
+    before = ww.field_values(p.read_bytes())
+    r = ph.drop_headless(db, base, fid, texts)
+    assert r["ok"] and r["changed"] and "절:1.4 프로젝트 구성" in r["fields"]
+    after = ww.field_values(p.read_bytes())
+    assert "절:1.4 프로젝트 구성" not in after and after["절:1.4.1 전체 구조"] == before["절:1.4.1 전체 구조"]
+    assert eo.check_bytes(p.read_bytes()) == []
+    assert "1.4 프로젝트 구성" in zipfile.ZipFile(p).read("Contents/section0.xml").decode()       # 제목은 남는다
