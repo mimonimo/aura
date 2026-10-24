@@ -293,7 +293,7 @@
   function reloadWhenSafe(d) {
     if (structMine) return;
     if (mode === 'whole' && holding && dirty) {
-      notice.querySelector('[data-notice-text]').textContent = (d.by === 'AURA' ? 'AURA' : (d.by_name || d.by) + ' 님') + '가 이 문서를 새로 저장했습니다. 내 변경을 저장하면 덮어쓰고, 다시 불러오면 내 변경은 사라집니다.';
+      notice.querySelector('[data-notice-text]').textContent = (d.by === 'AURA' ? 'AURA가' : (d.by_name || d.by) + ' 님이') + ' 이 문서를 새로 저장했습니다. 내 변경을 저장하면 덮어쓰고, 다시 불러오면 내 변경은 사라집니다.';
       notice.hidden = false; return;
     }
     reloadPending = d;
