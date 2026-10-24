@@ -264,7 +264,7 @@
   }
 
   // ── 처음 배율 — 넓은 화면에서 「폭 맞춤」 이 너무 크게 보여(125~200%) 처음엔 100%, 사람이 바꾼 배율은 기억해 다음에도(이 브라우저) ──
-  var ZKEY = 'aura-hwp-zoom', zoomSeen = 0, zoomWatch = false;
+  var ZKEY = 'aura-hwp-zoom2', zoomSeen = 0, zoomWatch = false;
   function curZoom() {
     var fs = document.querySelectorAll('iframe');
     for (var i = 0; i < fs.length; i++) { try { var A = fs[i].contentWindow.HwpApp; if (A && A.hxe) return A.hxe.GetCurrentZoom(); } catch (e) {} }
@@ -273,13 +273,21 @@
   function setZoom(ratio) {
     try { var a = window.auraCtrl.CreateAction('ViewZoom'), st = a.CreateSet(); a.GetDefault(st); st.SetItem('ZoomType', 0); st.SetItem('ZoomRatio', Math.round(ratio)); a.Execute(st); } catch (e) {}
   }
+  function zoomType() { try { return window.auraCtrl.ViewProperties.Item('ZoomType'); } catch (e) { return -1; } }
   function fitZoom() {
     var saved = 0; try { saved = parseInt(localStorage.getItem(ZKEY) || '0', 10); } catch (e) {}
-    if (saved >= 30 && saved <= 400) setZoom(saved);
+    var want = saved >= 30 && saved <= 400 ? saved : 0;
+    if (want) setZoom(want);
     else if (curZoom() > 1.1) setZoom(100);
     if (zoomWatch) return; zoomWatch = true;                // 다시 불러올 때는 배율만 — 지켜보기는 한 번
-    setTimeout(function () { zoomSeen = curZoom(); setInterval(function () {        // 사람이 배율을 바꾸면 기억
-      var z = curZoom(); if (z && zoomSeen && Math.abs(z - zoomSeen) > 0.01) { zoomSeen = z; try { localStorage.setItem(ZKEY, String(Math.round(z * 100))); } catch (e) {} }
+    var t0 = Date.now();
+    setTimeout(function () { zoomSeen = curZoom(); setInterval(function () {
+      var z = curZoom(), ty = zoomType();
+      if (!z) return;
+      // 큰 문서는 다 열린 뒤 편집기가 스스로 폭 맞춤(ZoomType 2)으로 다시 키운다 — 처음 2분 안이면 되돌린다(사람이 고른 폭 맞춤은 2분 뒤부터 둔다)
+      if (ty === 2) { if (Date.now() - t0 < 120000 && z > 1.1) { setZoom(want || 100); zoomSeen = curZoom(); } return; }
+      // 사람이 퍼센트로 바꾼 배율만 기억한다(편집기가 스스로 바꾼 폭 맞춤 배율은 기억하지 않는다)
+      if (zoomSeen && Math.abs(z - zoomSeen) > 0.01) { zoomSeen = z; want = Math.round(z * 100); try { localStorage.setItem(ZKEY, String(want)); } catch (e) {} }
     }, 2000); }, 1500);
   }
   // ── 같이 쓰기 ──
