@@ -156,18 +156,18 @@
     <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="저장·내려받기·공유"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
     <div class="menu" role="menu" data-menu hidden>
       <button type="button" role="menuitem" data-save-as><iconify-icon icon="solar:diskette-linear"></iconify-icon>다른 이름으로 저장</button>
-      {% if not readonly %}<button type="button" role="menuitem" data-struct hidden><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon><span data-struct-label>칸 밖 고치기</span><span class="hint" data-struct-hint>표·본문·용지</span></button>
-      <button type="button" role="menuitem" data-conflicts hidden><iconify-icon icon="solar:history-linear"></iconify-icon>충돌로 따로 둔 내 글</button>
-      {% if meta.paper is mapping %}<button type="button" role="menuitem" data-paper-toc="{{ f.id }}"><iconify-icon icon="solar:list-linear"></iconify-icon>목차 쪽 번호 넣기<span class="hint">논문</span></button>{% endif %}{% endif %}
+      {% if not readonly %}<button type="button" role="menuitem" data-struct hidden><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon><span data-struct-label>문서 틀 고치기</span><span class="hint" data-struct-hint>제목·표·용지</span></button>
+      <button type="button" role="menuitem" data-conflicts hidden><iconify-icon icon="solar:history-linear"></iconify-icon>겹쳐서 따로 남긴 내 글</button>
+      {% if meta.paper is mapping %}<button type="button" role="menuitem" data-paper-toc="{{ f.id }}"><iconify-icon icon="solar:list-linear"></iconify-icon>목차 쪽 번호 넣기</button>{% endif %}{% endif %}
       <div class="sep"></div>
       <div class="mlabel">내려받기</div>
       {# 형식은 webhwp_export.FORMATS 와 같게(필터 서버로 확인한 것만) — tests/test_webhwp_export 가 맞춰 본다 #}
       {% for key, label in [('hwpx', '한글(hwpx)'), ('hwp', '한글(hwp)'), ('pdf', 'PDF'), ('docx', 'Word(docx)')] %}<a role="menuitem" href="/hwp/{{ f.id }}/export?fmt={{ key }}" data-export="{{ key }}" data-label="{{ label }}"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>{{ label }}</a>
       {% endfor %}<div class="sep"></div>
-      <button type="button" role="menuitem" data-to-drive><iconify-icon icon="solar:cloud-upload-linear"></iconify-icon>구글 드라이브에 올리기<span class="hint">최종본</span></button>
+      <button type="button" role="menuitem" data-to-drive><iconify-icon icon="solar:cloud-upload-linear"></iconify-icon>구글 드라이브에 올리기</button>
       <div class="sep"></div>
       {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>문서함에서 보기</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
-      {% if not readonly %}<div class="mnote">고치면 바로 자동 저장됩니다 · 여럿이 같이 쓸 수 있습니다</div>{% endif %}
+      {% if not readonly %}<div class="mnote">자동 저장 · 여럿이 함께 편집</div>{% endif %}
     </div>
   </span>{% endif %}
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="close" title="문서 패널 닫기" aria-label="문서 패널 닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
@@ -325,16 +325,16 @@
   function drawStruct() {
     var b = document.querySelector('[data-struct]'); if (!b) return;
     var lab = b.querySelector('[data-struct-label]'), hint = b.querySelector('[data-struct-hint]');
-    if (structMine) { lab.textContent = '칸 밖 고치기 끝내기'; hint.textContent = '저장하고 풀기'; b.disabled = false; }
-    else if (structBy && structBy !== me) { lab.textContent = eng.nameOf(structBy) + ' 님이 칸 밖 고치는 중'; hint.textContent = ''; b.disabled = true; }
-    else { lab.textContent = '칸 밖 고치기'; hint.textContent = '표·본문·용지'; b.disabled = false; }
+    if (structMine) { lab.textContent = '문서 틀 고치기 끝내기'; hint.textContent = '저장'; b.disabled = false; }
+    else if (structBy && structBy !== me) { lab.textContent = eng.nameOf(structBy) + ' 님이 문서 틀 고치는 중'; hint.textContent = ''; b.disabled = true; }
+    else { lab.textContent = '문서 틀 고치기'; hint.textContent = '제목·표·용지'; b.disabled = false; }
   }
   function structOn() {
     return post(lockUrl).then(function (j) {
-      if (!j.ok) { structBy = j.by; drawStruct(); say((j.by_name || j.by) + ' 님이 칸 밖을 고치는 중입니다', 'busy'); return false; }
+      if (!j.ok) { structBy = j.by; drawStruct(); say((j.by_name || j.by) + ' 님이 문서 틀을 고치는 중입니다', 'busy'); return false; }
       structMine = true; holding = true; hwp.setFormMode(false); drawStruct();
       clearInterval(beat); beat = setInterval(function () { post(lockUrl).catch(function () {}); }, 45000);
-      say('칸 밖 고치는 중 — 다른 사람은 칸만 씁니다', 'busy');
+      say('문서 틀 고치는 중 — 그동안 다른 사람은 칸 안만 씁니다', 'busy');
       return true;
     });
   }

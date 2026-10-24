@@ -674,7 +674,7 @@ async def hwp_paper_toc_set(request: Request, fid: int):
     user = getattr(request.state, "user", "")
     r = await run_in_threadpool(lambda: paper_hwp.toc_refresh(st.db, Path(st.data_dir), fid, pages, user=user))
     if not r.get("ok"):
-        why = {"struct": "칸 밖 고치기 중인 사람이 있어 쓰지 않았습니다", "check": "고친 파일이 점검을 통과하지 못했습니다",
+        why = {"struct": "문서 틀을 고치는 사람이 있어 쓰지 않았습니다", "check": "고친 파일이 점검을 통과하지 못했습니다",
                "fields": "칸 글이 달라져 쓰지 않았습니다"}.get(r.get("why"), "쓰지 않았습니다")
         raise HTTPException(409, why)
     return {"ok": True, "changed": r.get("changed", False), "note": r.get("note", "")}
