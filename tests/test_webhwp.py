@@ -519,3 +519,5 @@ def test_proxy_caches_static_editor_files_only(tmp_path, monkeypatch):
     _Resp.content = b"wasm" * 5000                       # 큰 정적 파일은 gzip 으로(받는 쪽이 풀어 같은 바이트)
     r = kim.get("/webhwpctrl/wasm/big.wasm", headers={"Accept-Encoding": "gzip"})
     assert r.headers.get("content-encoding") == "gzip" and r.content == b"wasm" * 5000
+    _Resp.content = b"evil" * 5000                       # 같은 경로·같은 길이·같은 ETag 라도 내용이 다르면 그 내용 그대로(압축본이 섞이지 않는다)
+    assert kim.get("/webhwpctrl/wasm/big.wasm", headers={"Accept-Encoding": "gzip"}).content == b"evil" * 5000

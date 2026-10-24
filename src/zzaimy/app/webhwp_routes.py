@@ -950,13 +950,15 @@ async def hwp_save(request: Request, fid: int):
 
 _STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf)$", re.I)   # 기안기 정적 파일(경로 끝 확장자)
 _GZIP_EDITOR = re.compile(r"\.(js|css|wasm|svg)$", re.I)                       # 압축이 듣는 것(그림·woff2 는 이미 압축됨)
-_GZ_CACHE: dict[tuple[str, str], bytes] = {}
+_GZ_CACHE: dict[bytes, bytes] = {}
 
 
-def _gzipped(path: str, etag: str, body: bytes) -> bytes:
-    """기안기 정적 파일의 gzip 본 — (경로, ETag) 마다 한 번 만든다. 판이 바뀌면 ETag 가 달라 새로 만든다. 모두 합쳐 80MB 를 넘으면 비운다."""
+def _gzipped(body: bytes) -> bytes:
+    """기안기 정적 파일의 gzip 본 — 받은 내용의 해시(sha256)마다 한 번 만든다. 경로·ETag·쿼리로 기억하지 않아 다른 응답과 섞일 수 없다
+    (같은 내용이면 같은 압축본). 모두 합쳐 80MB 를 넘으면 비운다."""
     import gzip
-    key = (path, etag or str(len(body)))
+    import hashlib
+    key = hashlib.sha256(body).digest()
     got = _GZ_CACHE.get(key)
     if got is None:
         got = gzip.compress(body, compresslevel=6)
@@ -996,10 +998,10 @@ async def webhwp_proxy(request: Request, path: str):
     if request.method == "GET" and r.status_code == 200 and _STATIC_EDITOR.search(raw):
         out = {k: v for k, v in out.items() if k.lower() not in ("cache-control", "pragma", "expires")}
         out["Cache-Control"] = "private, max-age=86400"
-        # 기안기 서버는 압축하지 않는다 — 큰 글·wasm 은 gzip 으로(수식 wasm 13MB → 7MB). 압축본은 판(ETag)마다 한 번 만들어 둔다
+        # 기안기 서버는 압축하지 않는다 — 큰 글·wasm 은 gzip 으로(수식 wasm 13MB → 7MB). 압축본은 내용 해시마다 한 번 만들어 둔다
         if (_GZIP_EDITOR.search(raw) and "gzip" in request.headers.get("accept-encoding", "")
                 and not any(k.lower() == "content-encoding" for k in out) and len(content) > 4096):
-            content = _gzipped(raw, r.headers.get("etag", ""), content)
+            content = _gzipped(content)
             out = {k: v for k, v in out.items() if k.lower() != "content-length"}
             out["Content-Encoding"] = "gzip"
             out["Vary"] = "Accept-Encoding"
