@@ -470,3 +470,76 @@ def test_long_section_is_not_truncated_and_caps_reject_instead(tmp_path, monkeyp
     assert r[0]["reason"] == "too_big"
     r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 4, "field": "칸:사업명", "base": 0, "text": "가"}])
     assert r[0]["ok"]
+
+
+def test_delta_ops_apply_on_server_text_and_fall_back_to_full_text(tmp_path, monkeypatch):
+    """바뀐 부분 {at, del, ins, fp} — 서버가 지금 글에 넣어 보고 지문이 맞을 때만 받는다. 판이 어긋나거나 지문이 다르면 「delta」 로 돌려보내
+    (기록하지 않아 같은 seq 로 다시 보낼 수 있다) 편집 화면이 전체 글로 다시 보낸다. 알림·고친 기록도 바뀐 부분만, 스냅숏으로 되살린다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    F = "절:1. 변경 사유"
+    base = "가" * 30000 + "\n둘째 문단"
+    assert ce.apply_ops(db, fid, "kim", "k1", [{"seq": 1, "field": F, "base": 0, "text": base}])[0]["version"] == 1
+    want = base[:100] + "새 글" + base[103:]
+    op = {"seq": 2, "field": F, "base": 1, "at": 100, "del": 3, "ins": "새 글", "fp": ce.fingerprint(want)}
+    r = ce.apply_ops(db, fid, "kim", "k1", [op])[0]
+    assert r["ok"] and r["version"] == 2 and ce.state(db, fid)[F]["text"] == want
+    ev = [e for e in ce.events_since(db, fid, 0) if e["kind"] == "field-updated"][-1]["data"]
+    assert "text" not in ev and ev["ins"] == "새 글" and ev["base"] == 1 and ev["fp"] == ce.fingerprint(want)
+    # 판이 어긋남 → delta(기록 안 함), 지문이 다름 → delta
+    bad = dict(op, seq=3, base=1)
+    assert ce.apply_ops(db, fid, "kim", "k1", [bad])[0]["reason"] == "delta"
+    assert ce.apply_ops(db, fid, "kim", "k1", [dict(op, seq=3, base=2, fp="00000000")])[0]["reason"] == "delta"
+    good = want + "끝"
+    r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 3, "field": F, "base": 2, "at": len(want), "del": 0, "ins": "끝", "fp": ce.fingerprint(good)}])[0]
+    assert r["ok"] and r["version"] == 3                                   # 같은 seq 로 다시 보내면 이번에는 받는다
+    # 남이 쥔 칸에 바뀐 부분 → delta(전체 글로 다시 오면 그때 충돌 사본)
+    ce.acquire(db, fid, F, "park", "p1")
+    assert ce.apply_ops(db, fid, "kim", "k1", [{"seq": 4, "field": F, "base": 3, "at": 0, "del": 0, "ins": "x", "fp": ""}])[0]["reason"] == "delta"
+    assert ce.apply_ops(db, fid, "kim", "k1", [{"seq": 5, "field": F, "base": 3, "text": "x" + good}])[0]["reason"] == "locked"
+    # 고친 기록: 처음은 스냅숏, 그 뒤는 바뀐 부분만 — history 가 판마다 글을 되살린다
+    with db._conn() as conn:
+        rows = conn.execute("SELECT version, LENGTH(text), delta FROM webhwp_field_edits WHERE fid = ? AND field = ? ORDER BY id", (fid, F)).fetchall()
+    assert rows[0][1] == len(base) and rows[1][1] == 0 and rows[1][2]
+    assert [h["text"] for h in ce.history(db, fid, F)] == [base, want, good]
+    # 칸 글 전체만 따로 받기(알림이 끊겼을 때)
+    j = kim.get(f"/hwp/{fid}/coedit", params={"field": [F]}).json()
+    assert list(j["fields"]) == [F] and j["fields"][F]["text"] == good and j["fields"][F]["version"] == 3
+
+
+def test_snapshots_every_n_versions(tmp_path, monkeypatch):
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    monkeypatch.setattr(ce, "SNAP_EVERY", 3)
+    t = ""
+    for i in range(1, 8):
+        nt = t + str(i)
+        ce.apply_ops(db, fid, "kim", "k1", [{"seq": i, "field": "칸:사업명", "base": i - 1, "at": len(t), "del": 0, "ins": str(i), "fp": ce.fingerprint(nt)}])
+        t = nt
+    with db._conn() as conn:
+        snaps = [v for v, d in conn.execute("SELECT version, delta FROM webhwp_field_edits WHERE fid = ? ORDER BY id", (fid,)).fetchall() if not d]
+    assert snaps == [1, 3, 6] and ce.history(db, fid, "칸:사업명")[-1]["text"] == "1234567"
+
+
+def test_first_delta_uses_file_value_as_base(tmp_path, monkeypatch):
+    """표에 아직 없는 칸의 첫 고침도 바뀐 부분으로 — 서버가 파일의 지금 값을 바탕으로 맞춰 본다(받는 화면이 칸 전체를 다시 그리지 않게)."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    p = Path(webhwp.get(db, fid)["path"])
+    p.write_bytes(ww.set_fields(p.read_bytes(), {"절:1. 변경 사유": "파일 글\n둘째"})[0])
+    want = "파일 글\n둘째 더함"
+    r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 1, "field": "절:1. 변경 사유", "base": 0, "at": 7, "del": 0, "ins": " 더함", "fp": ce.fingerprint(want)}])[0]
+    assert r["ok"] and ce.state(db, fid)["절:1. 변경 사유"]["text"] == want
+
+
+def test_editor_sends_and_applies_deltas_and_keeps_cursor_by_field():
+    """편집 화면: 보내기는 바뀐 부분(서버가 안 받으면 전체 글로 다시), 받기는 그 자리만 고치기(applyDelta, 안 맞으면 통째 쓰기),
+    판이 끊기면 그 칸만 다시 받기. 커서는 든 칸 기준으로 되돌리고, 남의 고침을 넣은 뒤에는 되돌리기를 잠근다."""
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app/static"
+    w, c = (root / "webhwp-wrapper.js").read_text(), (root / "webhwp-collab.js").read_text()
+    assert "function diffText(" in c and "fp: fp(op.text)" in c and "r.reason === 'delta'" in c and "full: true" in c
+    assert "hwp.applyDelta(" in c and "fetchFields([f])" in c and "'/coedit?'" in c
+    assert "slice(0, 50000)" not in c and "field_max" in c
+    assert "function applyDelta(" in w and "SelectText(" in w and "BreakPara" in w and "setEditable(name, true, true)" in w
+    assert "c.rel = {field: f" in w and "LockCommand('Undo', on)" in w
+    assert "hwp.lockUndo(true)" in c and "hwp.lockUndo(false)" in c

@@ -1,6 +1,7 @@
 """칸 단위 공동 편집 경로(ADR-0070) — 규칙·표는 app/webhwp_coedit, 편집 화면 쪽은 static/webhwp-collab.js.
 
-- GET  /hwp/{id}/coedit      처음·다시 이어질 때 전체 상태(칸 글·판·임대·같이 보는 사람·설정·이름)
+- GET  /hwp/{id}/coedit      처음·다시 이어질 때 전체 상태(칸 글·판·임대·같이 보는 사람·설정·이름), ?field=… 면 그 칸 글만
+- 변경은 칸 글 전체 {seq, field, base, text} 또는 바뀐 부분 {seq, field, base, at, del, ins, fp}(서버가 맞춰 보고 안 맞으면 delta 로 돌려보냄)
 - GET  /hwp/{id}/events      알림 흐름(SSE) — field-updated · lock-changed · lock-wanted · presence · doc-saved · committed · conflict
 - POST /hwp/{id}/ops         칸 변경 묶음 {client, ops: [{seq, field, base, text, rich?}]} → op 마다 결과
 - POST /hwp/{id}/lease       임대 {field, client, action: acquire|touch|grace|release}
@@ -11,10 +12,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -70,9 +72,11 @@ async def _json(request: Request) -> dict:
 
 
 @router.get("/hwp/{fid}/coedit")
-def hwp_coedit(request: Request, fid: int):
+def hwp_coedit(request: Request, fid: int, field: list[str] | None = Query(None)):
     _readable(request, fid)
     db = request.app.state.db
+    if field:                                  # 고른 칸만(바뀐 부분 알림이 끊겨 칸 글 전체가 필요할 때)
+        return {"fields": ce.state(db, fid, [str(x)[:200] for x in field[:200]]), "now": time.time()}
     snap = ce.snapshot(db, fid)
     names: dict = {}
     for x in [*snap["people"], *snap["locks"].values()]:

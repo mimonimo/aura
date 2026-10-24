@@ -3,7 +3,7 @@
  * 제품 판이 바뀌어 API 가 달라지면 이 파일만 고친다.
  *
  * AuraHwpWrapper.create(ctrl, box) → {
- *   fields(), read(name), readMany(names), write(name, text), setEditable(name, on), setFormMode(on), formMode(),
+ *   fields(), read(name), readMany(names), write(name, text), applyDelta(name, text0, at, del, ins), setEditable(name, on), setFormMode(on), formMode(),
  *   setReadOnly(on), currentField(), getCursor(), restoreCursor(c), moveTo(name, select), caretRect(),
  *   fieldGeom(names) → {이름: {page,x,y,h,page2,x2,y2,h2}} | null(쪽 좌표), toScreen(page,x,y), bodyLeft(), unitPx(v), onLocalEdit(cb), onCaret(cb), onActivity(cb), attach(),
  *   isComposing(), lastInputAt(), exportField(name) → Promise<json>, importField(name, json) → Promise<bool>,
@@ -41,6 +41,29 @@
     function write(name, text) {
       try { ctrl.PutFieldText(name, nl(text).replace(/\n/g, '\r\n')); return true; } catch (e) { return false; }
     }
+    // 칸 안 일부만 고치기 — text0(지금 칸 글, \n 줄바꿈)에서 at 부터 del 글자를 지우고 ins 를 넣는다(UTF-16 자리).
+    // 칸 처음 자리(MoveToField)에서 문단·자리를 세어 SelectText+Delete, SetPos+InsertText(줄바꿈은 BreakPara)로.
+    // 451쪽 문서 5만 자 칸에서 넣기 4.7ms·지우기 3.3ms(통째 쓰기 2,118ms). 대리 쌍·탭이 든 글은 자리 셈을 믿을 수 없어 false(부르는 쪽이 통째 쓰기로)
+    function applyDelta(name, text0, at, del, ins) {
+      if (/[\ud800-\udfff\t]/.test(text0) || /[\ud800-\udfff\t]/.test(ins)) return false;
+      // 남이 쥔 칸은 양식 모드에서 잠겨 있어 문단 나누기·지우기가 듣지 않는다(글 넣기는 든다, 실측) — 고치는 동안만 풀었다 다시 잠근다
+      var relock = editable[name] === false;
+      if (relock) setEditable(name, true, true);
+      try { return applyDelta0(name, text0, at, del, ins); } finally { if (relock) setEditable(name, false, true); }
+    }
+    function applyDelta0(name, text0, at, del, ins) {
+      try {
+        if (ctrl.MoveToField(name, true, true, false) === false) return false;
+        var s0 = ctrl.GetPos();
+        var at2 = function (k) { var ls = text0.slice(0, k).split('\n'), dp = ls.length - 1; return {list: s0.list, para: s0.para + dp, pos: dp ? ls[dp].length : s0.pos + ls[0].length}; };
+        if (del > 0) { var a = at2(at), b = at2(at + del); ctrl.SetPos(a.list, a.para, a.pos); if (ctrl.SelectText(a.para, a.pos, b.para, b.pos) === false) return false; run('Delete'); }
+        if (ins) {
+          var p = at2(at); ctrl.SetPos(p.list, p.para, p.pos);
+          ins.split('\n').forEach(function (t, i) { if (i) run('BreakPara'); if (t) exec('InsertText', {Text: t}); });
+        }
+        return true;
+      } catch (e) { return false; }
+    }
     // 양식 보호 모드(EditMode 2)에서 「양식 모드에서 편집 가능」 속성(1)을 켜고 끈다 — 끈 칸은 입력이 들어가지 않는다
     function setEditable(name, on, force) {
       on = !!on;
@@ -52,10 +75,37 @@
     function setReadOnly(on) { try { ctrl.ReadOnlyMode = !!on; } catch (e) {} try { if (on) ctrl.EditMode = 0; } catch (e) {} }
     function currentField() { if (probing) return probing.field0; try { return ctrl.GetCurFieldName(0) || ''; } catch (e) { return ''; } }
     function scrollItems() { try { var m = ctrl.ScrollPosInfo.m_Set.m_SetItemMap, o = {}; Object.keys(m).forEach(function (k) { o[k] = m[k]; }); return o; } catch (e) { return null; } }
-    function getCursor() { try { return {pos: ctrl.GetPos(), scroll: scrollItems()}; } catch (e) { return null; } }
+    // 커서 저장·되돌리기 — 문단 번호(GetPos)는 문서 처음부터 세므로, 위쪽 칸의 문단 수가 바뀌면(남이 줄을 넣거나 AURA 가 절을 씀) 엉뚱한 칸으로 갔다
+    // (451쪽 실측: AURA 전체 초안 뒤 네 번 중 네 번). 그래서 커서가 든 칸 처음에서 센 자리(칸 기준)로 저장하고 그 칸 처음에서 다시 센다.
+    // abs 면 문단 번호 그대로(같은 작업 단위 안에서 바로 되돌릴 때 — 칸 자리 재기). 화면은 커서가 보이던 높이를 지키도록 스크롤을 맞춘다
+    function caretY() { var A = app(); try { var k = A.hwpCaret.KNi(), p = toScreen(k.page, k.x, k.y); return p ? p.y : null; } catch (e) { return null; } }
+    function getCursor(abs) {
+      var c;
+      try { c = {pos: ctrl.GetPos(), scroll: scrollItems()}; } catch (e) { return null; }
+      if (abs) return c;
+      try {
+        var f = ctrl.GetCurFieldName(0) || '';
+        if (f && ctrl.MoveToField(f, true, true, false) !== false) {
+          var s0 = ctrl.GetPos();
+          if (s0.list === c.pos.list && c.pos.para >= s0.para) c.rel = {field: f, dp: c.pos.para - s0.para, pos: c.pos.para === s0.para ? c.pos.pos - s0.pos : c.pos.pos};
+          ctrl.SetPos(c.pos.list, c.pos.para, c.pos.pos);
+        }
+      } catch (e) {}
+      c.y = caretY();
+      return c;
+    }
     function restoreCursor(c) {
       if (!c || !c.pos) return;
-      try { ctrl.SetPos(c.pos.list, c.pos.para, c.pos.pos); } catch (e) {}
+      var done = false;
+      if (c.rel) {
+        try {
+          if (ctrl.MoveToField(c.rel.field, true, true, false) !== false) {
+            var s0 = ctrl.GetPos();
+            ctrl.SetPos(s0.list, s0.para + c.rel.dp, c.rel.dp ? c.rel.pos : s0.pos + c.rel.pos); done = true;
+          }
+        } catch (e) {}
+      }
+      if (!done) { try { ctrl.SetPos(c.pos.list, c.pos.para, c.pos.pos); } catch (e) {} }
       if (c.scroll) {                         // 바뀐 때만 되돌린다(같은 값을 다시 넣으면 기안기가 화면을 다시 그린다)
         try {
           var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap, diff = false;
@@ -63,6 +113,23 @@
           if (diff) ctrl.ScrollPosInfo = s;
         } catch (e) {}
       }
+      // 커서가 보이던 높이 지키기 — 위쪽 글이 늘거나 줄어 커서가 밀렸으면 그만큼 스크롤(세로 스크롤 값 1 = 화면 1/75px, 실측)
+      if (c.y != null && c.rel) {
+        try {
+          var y1 = caretY(), fr = frame().getBoundingClientRect();
+          if (y1 != null && Math.abs(y1 - c.y) > 2 && c.y > fr.top && c.y < fr.bottom) {
+            var s2 = ctrl.ScrollPosInfo, m2 = s2.m_Set.m_SetItemMap;
+            if (typeof m2['28675'] === 'number') { m2['28675'] = Math.max(0, m2['28675'] + (y1 - c.y) * 75); ctrl.ScrollPosInfo = s2; }
+          }
+        } catch (e) {}
+      }
+    }
+    var undoLocked = false;
+    // 남의 고침을 넣으면 기안기 되돌리기 기록에 들어가 내 Ctrl+Z 가 남의 글을 지웠다(실측) — 넣은 뒤에는 되돌리기를 잠그고, 내가 고치면 푼다
+    function lockUndo(on) {
+      on = !!on;
+      if (undoLocked === on) return;
+      try { ctrl.LockCommand('Undo', on); ctrl.LockCommand('Redo', on); undoLocked = on; } catch (e) {}
     }
     function moveTo(name, select) { try { return ctrl.MoveToField(name, true, true, !!select) !== false; } catch (e) { return false; } }
     function caretRect() {
@@ -87,7 +154,7 @@
     function fieldGeom(names) {
       var A = app(), out = {};
       if (!geomReady() || composing && Date.now() - lastInput < 3000 || probing || hasSelection()) return null;
-      var keep = getCursor();
+      var keep = getCursor(true);
       if (!keep) return null;
       probing = {field0: (function () { try { return ctrl.GetCurFieldName(0) || ''; } catch (e) { return ''; } })()};
       try {
@@ -156,7 +223,7 @@
     // 절 필드를 서식째(기안기 JSON 블록) 꺼내고 넣기 — 시험 기능(M3). 커서는 되돌린다
     function exportField(name) {
       return new Promise(function (resolve) {
-        var keep = getCursor();
+        var keep = getCursor(true);
         try { ctrl.MoveToField(name, true, true, true); } catch (e) { resolve(null); return; }
         try { ctrl.GetTextFile('JSON', 'saveblock', function (d) { restoreCursor(keep); resolve(typeof d === 'string' ? d : null); }); }
         catch (e) { restoreCursor(keep); resolve(null); }
@@ -238,9 +305,9 @@
     }
     function on(kind, cb) { listeners[kind].push(cb); }
     return {
-      ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, setEditable: setEditable,
+      ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
       setFormMode: setFormMode, formMode: formMode, setReadOnly: setReadOnly, currentField: currentField,
-      getCursor: getCursor, restoreCursor: restoreCursor, moveTo: moveTo, caretRect: caretRect,
+      getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); },
       attach: attach, isProbing: function () { return !!probing; },

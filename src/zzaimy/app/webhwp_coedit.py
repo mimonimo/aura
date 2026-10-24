@@ -32,6 +32,7 @@ DOC_TEXT_MAX = 8_000_000          # 한 문서 칸 글 합계 상한(webhwp_fiel
 RICH_MAX = 2_000_000
 FIELDS_MAX = 2_000                # 한 문서에 새로 만들 수 있는 칸 글 줄 상한(양식의 필드 수보다 넉넉히)
 CONFLICTS_KEEP = 200              # 사람·문서마다 남기는 충돌 사본 수(오래된 것부터 지운다)
+SNAP_EVERY = 50                   # 고친 기록은 바뀐 부분으로 남기고 이 판마다 한 번 칸 글 전체(스냅숏)를 남긴다
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS webhwp_field_locks (fid INTEGER NOT NULL, field TEXT NOT NULL, user_id TEXT NOT NULL,
@@ -95,12 +96,28 @@ def client_conf(db) -> dict:
     return out
 
 
+_ENSURE_LOCK = threading.Lock()
+
+
 def ensure(db) -> None:
     if db.path in _ENSURED:
         return
-    with db._conn() as conn:
-        conn.executescript(_SCHEMA)
-    _ENSURED.add(db.path)
+    with _ENSURE_LOCK:
+        if db.path in _ENSURED:
+            return
+        with db._conn() as conn:
+            conn.executescript(_SCHEMA)
+        # 고친 기록에 바뀐 부분 칸(delta) — 앞서 만든 표에는 칸을 더한다(다른 프로세스가 먼저 더했으면 그대로)
+        try:
+            with db._conn() as conn:
+                conn.execute("SELECT delta FROM webhwp_field_edits LIMIT 0")
+        except Exception:
+            try:
+                with db._conn() as conn:
+                    conn.execute("ALTER TABLE webhwp_field_edits ADD COLUMN delta TEXT NOT NULL DEFAULT ''")
+            except Exception:
+                log.info("고친 기록 delta 칸 — 이미 있음")
+        _ENSURED.add(db.path)
 
 
 def _pg(conn) -> bool:
@@ -378,7 +395,17 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
         if not field:
             results.append({"seq": seq, "ok": False, "reason": "bad"})
             continue
-        text = norm(op.get("text"))
+        # 바뀐 부분(delta) {at, del, ins, fp} — 자리·길이는 글자(코드 포인트) 단위. 서버가 지금 글에 넣어 보고 지문이 맞을 때만 받는다
+        is_delta = isinstance(op.get("ins"), str) and "text" not in op
+        if is_delta:
+            try:
+                d_at, d_del = int(op.get("at")), int(op.get("del") or 0)
+            except (TypeError, ValueError):
+                results.append({"seq": seq, "field": field, "ok": False, "reason": "bad"})
+                continue
+            d_ins, d_fp, text = norm(op.get("ins")), str(op.get("fp") or ""), ""
+        else:
+            text = norm(op.get("text"))
         if len(text) > TEXT_MAX:                       # 자르면 칸 끝 글이 말없이 사라진다 — 받지 않고 알린다
             results.append({"seq": seq, "field": field, "ok": False, "reason": "too_long", "max": TEXT_MAX})
             continue
@@ -406,6 +433,21 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
             elif st is None and conn.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = ?", (int(fid),)).fetchone()[0] >= FIELDS_MAX:
                 results.append({"seq": seq, "field": field, "ok": False, "reason": "too_many"})
                 continue
+            if is_delta:
+                # 바뀐 부분은 보낸 쪽이 본 판(base)이 지금 판일 때만 — 아니면(남이 쥠·판 어긋남·지문 다름) 「delta」 로 돌려보내
+                # 편집 화면이 칸 글 전체로 다시 보낸다(그러면 위 규칙대로 충돌 사본까지). 이 답은 기록하지 않는다(같은 seq 로 다시 와도 다시 본다)
+                # 아직 표에 없는 칸은 파일의 지금 값이 바탕(편집 화면도 파일에서 연 글에 대해 바뀐 부분을 셌다)
+                cur = cur_text if st is not None else (_file_values(db, fid).get(field, "") if b == 0 else "")
+                ok_d = not reason and b == cur_v and 0 <= d_at <= len(cur) and 0 <= d_del <= len(cur) - d_at
+                if ok_d:
+                    text = cur[:d_at] + d_ins + cur[d_at + d_del:]
+                    ok_d = not d_fp or fingerprint(text) == d_fp
+                if not ok_d:
+                    results.append({"seq": seq, "field": field, "ok": False, "reason": "delta", "version": cur_v})
+                    continue
+                if len(text) > TEXT_MAX:
+                    results.append({"seq": seq, "field": field, "ok": False, "reason": "too_long", "max": TEXT_MAX})
+                    continue
             if not reason and (st is None or cur_text != text):
                 other = conn.execute("SELECT COALESCE(SUM(LENGTH(text)), 0) FROM webhwp_field_state WHERE fid = ? AND field <> ?",
                                      (int(fid), field)).fetchone()[0]
@@ -433,15 +475,23 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                 else:
                     conn.execute("UPDATE webhwp_field_state SET version = ?, text = ?, rich = ?, author = ?, client = ?, at = ?"
                                  " WHERE fid = ? AND field = ?", (v, text, rich, user, ck, now, int(fid), field))
-                conn.execute("INSERT INTO webhwp_field_edits (fid, field, version, text, author, at) VALUES (?, ?, ?, ?, ?, ?)",
-                             (int(fid), field, v, text, user, now))
+                # 고친 기록 — 바뀐 부분만, SNAP_EVERY 판마다·처음·전체 글로 온 고침은 칸 글 전체(history 가 스냅숏 + 바뀐 부분으로 되살린다)
+                snap = not is_delta or st is None or v % SNAP_EVERY == 0
+                delta_json = "" if snap else json.dumps({"base": cur_v, "at": d_at, "del": d_del, "ins": d_ins}, ensure_ascii=False)
+                conn.execute("INSERT INTO webhwp_field_edits (fid, field, version, text, author, at, delta) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (int(fid), field, v, text if snap else "", user, now, delta_json))
                 # 고치는 것도 활동 — 이 창이 쥔 임대면 늘린다. 임대가 없으면 만들지 않는다(임대는 편집 화면이 처음 고칠 때 /lease 로 잡는다 —
                 # 변경만으로 임대를 만들면 칸을 옮겨 다닐 때 남은 변경이 옛 칸 임대를 되살렸다)
                 until = 0.0
                 if _alive(lk, now) and lk[0] == user and (lk[1] or "") == client:
                     until = now + _lease_for(db, lk[5] or "")
                     conn.execute("UPDATE webhwp_field_locks SET lease_until = ?, touched = ? WHERE fid = ? AND field = ?", (until, now, int(fid), field))
-                data = {"field": field, "version": v, "text": text, "by": user, "client": client}
+                # 알림도 바뀐 부분만(받는 화면은 판이 이어지면 그 자리에 넣고, 끊기면 칸 글을 다시 받는다). 전체 글로 온 고침은 전체 글
+                if is_delta:
+                    data = {"field": field, "version": v, "base": cur_v, "at": d_at, "del": d_del, "ins": d_ins, "fp": fingerprint(text),
+                            "by": user, "client": client}
+                else:
+                    data = {"field": field, "version": v, "text": text, "fp": fingerprint(text), "by": user, "client": client}
                 if rich:
                     data["rich"] = rich
                 emit(db, fid, "field-updated", data, conn=conn)
@@ -472,6 +522,50 @@ def put(db, fid: int, user: str, values: dict, *, base: Path | None = None, clie
     if base is not None and done:
         commit_now(db, base, fid)
     return done, held
+
+
+_FILE_VALUES: dict[int, tuple] = {}
+
+
+def _file_values(db, fid: int) -> dict:
+    """한글 파일의 필드 값(공동 편집 비교 꼴) — 파일 수정 시각·크기가 같으면 다시 풀지 않는다."""
+    from zzaimy.app import webhwp, webhwp_write as ww
+    f = webhwp.get(db, fid)
+    p = Path(f["path"]) if f else None
+    if not p or not p.exists():
+        return {}
+    st = p.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _FILE_VALUES.get(int(fid))
+    if hit and hit[0] == key:
+        return hit[1]
+    try:
+        vals = {k: norm(v) for k, v in ww.field_values(p.read_bytes()).items()}
+    except Exception:
+        vals = {}
+    _FILE_VALUES[int(fid)] = (key, vals)
+    return vals
+
+
+def history(db, fid: int, field: str, upto: int | None = None) -> list[dict]:
+    """한 칸의 판마다 글 — 고친 기록(스냅숏 + 바뀐 부분)으로 되살린다. [{version, text, author, at}] (오래된 것부터)."""
+    ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute("SELECT version, text, delta, author, at FROM webhwp_field_edits WHERE fid = ? AND field = ? ORDER BY id",
+                            (int(fid), field)).fetchall()
+    out, cur = [], None
+    for v, text, delta, author, at in rows:
+        if upto is not None and int(v) > upto:
+            break
+        if delta:
+            d = json.loads(delta)
+            if cur is None:
+                continue                                   # 앞 스냅숏이 지워졌다 — 다음 스냅숏부터
+            cur = cur[:d["at"]] + d["ins"] + cur[d["at"] + d["del"]:]
+        else:
+            cur = text
+        out.append({"version": int(v), "text": cur, "author": author, "at": float(at or 0)})
+    return out
 
 
 def conflicts(db, fid: int, user: str | None = None, limit: int = 50) -> list[dict]:

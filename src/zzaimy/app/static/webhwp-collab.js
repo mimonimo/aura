@@ -17,6 +17,19 @@
     for (var i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8);
     return ('0000000' + ((c ^ 0xFFFFFFFF) >>> 0).toString(16)).slice(-8);
   }
+  // ── 바뀐 부분(delta) — 앞뒤 같은 부분을 뺀 가운데. 서버(파이썬)는 글자(코드 포인트)로 세므로 자리는 코드 포인트로 주고받는다 ──
+  var SUR = /[\ud800-\udfff]/;
+  function diffText(a, b) {
+    var n = Math.min(a.length, b.length), i = 0, j = 0;
+    while (i < n && a.charCodeAt(i) === b.charCodeAt(i)) i++;
+    while (j < n - i && a.charCodeAt(a.length - 1 - j) === b.charCodeAt(b.length - 1 - j)) j++;
+    if (i > 0 && /[\ud800-\udbff]/.test(a.charAt(i - 1))) i--;                 // 대리 쌍을 가르지 않게
+    if (j > 0 && /[\udc00-\udfff]/.test(a.charAt(a.length - j))) j--;
+    return {at: i, del: a.length - i - j, ins: b.slice(i, b.length - j)};
+  }
+  function cpLen(s) { return SUR.test(s) ? Array.from(s).length : s.length; }
+  function u16At(s, cp) { if (!SUR.test(s)) return cp; var i = 0, k = 0; while (k < cp && i < s.length) { var c = s.charCodeAt(i); i += (c >= 0xD800 && c <= 0xDBFF) ? 2 : 1; k++; } return i; }
+  function applyStr(s, d) { var a = u16At(s, d.at), b = u16At(s.slice(a), d.del) + a; return s.slice(0, a) + d.ins + s.slice(b); }
   function now() { return Date.now(); }
   function clientId() {
     try { var v = sessionStorage.getItem('aura-coedit-client'); if (v) return v; } catch (e) {}
@@ -136,7 +149,18 @@
       inflight = true; lastSend = now(); status();
       var bySeq = {};
       ops.forEach(function (op) { bySeq[op.seq] = op; });
-      post('/ops', {client: client, ops: ops.map(function (op) { var x = {seq: op.seq, field: op.field, base: op.base, text: op.text}; if (op.rich) x.rich = op.rich; return x; })})
+      // 보내는 것은 바뀐 부분만 — 서버가 안 받으면(판 어긋남·지문 다름) 그 칸만 전체 글로 다시(op.full)
+      post('/ops', {client: client, ops: ops.map(function (op) {
+        var k = known[op.field];
+        if (!op.full && !op.rich && k && typeof k.text === 'string') {
+          var d = diffText(k.text, op.text);
+          if (d.del + d.ins.length < op.text.length) {
+            var pre = k.text.slice(0, d.at);
+            return {seq: op.seq, field: op.field, base: k.v, at: cpLen(pre), del: cpLen(k.text.slice(d.at, d.at + d.del)), ins: d.ins, fp: fp(op.text)};
+          }
+        }
+        var x = {seq: op.seq, field: op.field, base: op.base, text: op.text}; if (op.rich) x.rich = op.rich; return x;
+      })})
         .then(function (j) {
           inflight = false; online = true; retryMs = 1000;
           (j.results || []).forEach(function (r) {
@@ -147,6 +171,9 @@
               if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
               if (conf.rich && RICH.test(f) && !op.rich) { richDirty[f] = true; scheduleRich(); }
               if (r.until && (!locks[f] || !heldByOther(f))) { mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until}; }
+            } else if (r.reason === 'delta') {               // 바뀐 부분을 안 받았다 — 같은 글을 전체로 다시(더 새 글이 줄에 있으면 그것을 전체로)
+              if (outbox[f]) outbox[f].full = true;
+              else { outbox[f] = Object.assign({}, op, {seq: nextSeq(), full: true}); idb.put('outbox', outbox[f]); }
             } else if (r.reason === 'too_long' || r.reason === 'too_big') {
               emit('error', r.reason === 'too_long' ? '칸 글이 ' + (r.max || conf.field_max).toLocaleString() + '자를 넘어 저장하지 않았어요' : '이 문서의 칸 글 합계가 상한을 넘어 저장하지 않았어요');
             } else if (r.conflict !== undefined) {
@@ -224,13 +251,21 @@
         if (local !== null && norm(local) !== d.text) {
           cur = cur || hwp.getCursor();
           applying = true;
-          hwp.write(f, d.text);
+          // 바뀐 부분만 그 자리에(통째 쓰기는 칸 전체를 다시 그려 451쪽 문서의 5만 자 절에서 2~4초 걸렸다). 내 화면 글이 바뀌기 전 글과 같을 때만,
+          // 넣은 뒤 글이 안 맞으면 전체 쓰기로
+          var okd = false;
+          if (d.steps && d.steps.length && known[f] && known[f].v === d.from && norm(local) === known[f].text && hwp.applyDelta) {
+            var t = known[f].text;
+            okd = d.steps.every(function (st) { var a = u16At(t, st.at), b = u16At(t.slice(a), st.del) + a, ok = hwp.applyDelta(f, t, a, b - a, st.ins); t = t.slice(0, a) + st.ins + t.slice(b); return ok; });
+            if (okd) { var after = hwp.read(f); okd = after !== null && norm(after) === d.text; }
+          }
+          if (!okd) hwp.write(f, d.text);
           applying = false;
         }
         known[f] = {v: d.version, text: d.text};
         emit('applied', f, d);
       });
-      if (cur) hwp.restoreCursor(cur);
+      if (cur) { hwp.restoreCursor(cur); if (hwp.lockUndo) hwp.lockUndo(true); }
       if (Object.keys(outbox).length) scheduleFlush();
       (function next() {                                // 서식째 받은 절 — 기안기 JSON 블록으로 그 칸을 바꾼다. 안 되면 글만
         var d = rich.shift();
@@ -325,9 +360,18 @@
       function h(kind, fn) { es.addEventListener(kind, function (ev) { lastId = Math.max(lastId, +ev.lastEventId || 0); var d = {}; try { d = JSON.parse(ev.data); } catch (e) {} learn(d); fn(d); }); }
       h('field-updated', function (d) {
         if (d.client === client && d.by === me) return;    // 내 창이 보낸 것(창 번호만으로는 남의 글을 놓칠 수 있어 사람도 본다)
-        if (known[d.field] && d.version <= known[d.field].v) return;
+        var f = d.field, k = known[f];
+        if (k && d.version <= k.v) return;
         d.receivedAt = now();
-        inbox[d.field] = d;
+        if (d.ins !== undefined) {                          // 바뀐 부분 — 이어지는 판이면 받을 글을 만들어 두고, 넣을 때는 그 자리만 고친다
+          var q = inbox[f], baseText = q && q.version === d.base ? q.text : (!q && k && k.v === d.base ? k.text : null);
+          if (baseText === null) { fetchFields([f]); return; }       // 판이 끊겼다 — 칸 글 전체를 받는다
+          var text = applyStr(baseText, d);
+          if (fp(text) !== d.fp) { fetchFields([f]); return; }
+          var steps = q ? (q.steps || null) : [];
+          if (steps) steps = steps.concat([{at: d.at, del: d.del, ins: d.ins}]);
+          inbox[f] = {field: f, version: d.version, text: text, by: d.by, client: d.client, receivedAt: d.receivedAt, steps: steps, from: q ? q.from : k.v};
+        } else inbox[f] = d;
         emit('remote', d);
         scheduleApply();
       });
@@ -365,6 +409,22 @@
       var by = {}, t = now() - conf.presence_ttl * 1000;
       Object.keys(people).forEach(function (c) { var p = people[c]; if (p.at >= t && p.user !== me) by[p.user] = {user: p.user, name: nameOf(p.user), field: p.field}; });
       return Object.keys(by).map(function (u) { return by[u]; });
+    }
+
+    // 고른 칸의 글 전체를 서버에서 — 바뀐 부분 알림이 끊겼거나 지문이 안 맞을 때
+    var fetching = {};
+    function fetchFields(list) {
+      list = list.filter(function (f) { return !fetching[f]; });
+      if (!list.length) return;
+      list.forEach(function (f) { fetching[f] = 1; });
+      fetch(base + '/coedit?' + list.map(function (f) { return 'field=' + encodeURIComponent(f); }).join('&'), {credentials: 'same-origin', cache: 'no-store'})
+        .then(function (r) { return r.json(); }).then(function (j) {
+          Object.keys(j.fields || {}).forEach(function (f) {
+            var x = j.fields[f];
+            if (!known[f] || x.version > known[f].v || (x.version === known[f].v && fp(known[f].text) !== x.fp)) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
+          });
+          scheduleApply();
+        }).catch(function () {}).then(function () { list.forEach(function (f) { delete fetching[f]; }); });
     }
 
     // ── 처음·다시 이어질 때 — 서버 상태로 맞추기, 지문 대조 ──
@@ -428,6 +488,7 @@
       fieldSet = {}; fieldList.forEach(function (f) { fieldSet[f] = true; });
       hwp.onLocalEdit(function (ev) {
         if (applying || !fieldsMode()) return;
+        if (!(ev && ev.composing) && hwp.lockUndo) hwp.lockUndo(false);   // 내가 고치면 되돌리기를 다시 연다(내 고침이 맨 위)
         // 조합 중에는 기안기에 아무것도 묻지 않는다(커서 칸 이름을 물어도 조합이 끊긴다 — 실측) — 마지막으로 안 커서 칸을 쓴다
         var f = ev && ev.composing ? curField : hwp.currentField();
         if (f !== curField && !(ev && ev.composing)) checkCaret();      // 커서 칸이 바뀐 것을 먼저 반영(앞 칸을 놓고 이 칸을 잡게)
