@@ -153,7 +153,7 @@
   <button type="button" class="btn tools-btn" data-tools aria-pressed="false" title="편집 도구 펼치기 — 직접 고칠 때"><iconify-icon icon="solar:pen-2-linear" aria-hidden="true"></iconify-icon><span class="label-long">편집 도구</span></button>
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="full" title="전체 보기" aria-label="전체 보기" aria-pressed="false"><iconify-icon icon="solar:maximize-square-minimalistic-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
   {% if f %}<span class="menu-wrap">
-    <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="저장·내려받기·공유"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
+    <button type="button" class="btn icon" data-menu-btn aria-haspopup="menu" aria-expanded="false" title="더 보기"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon><span class="sr-only">더 보기</span></button>
     <div class="menu" role="menu" data-menu hidden>
       <button type="button" role="menuitem" data-save-as><iconify-icon icon="solar:diskette-linear"></iconify-icon>다른 이름으로 저장</button>
       {% if not readonly %}<button type="button" role="menuitem" data-struct hidden><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon><span data-struct-label>문서 틀 고치기</span><span class="hint" data-struct-hint>제목·표·용지</span></button>
@@ -261,6 +261,24 @@
     }).then(function (blob) { return hwp.open(blob, name); });
   }
 
+  // ── 처음 배율 — 넓은 화면에서 「폭 맞춤」 이 너무 크게 보여(125~200%) 처음엔 100%, 사람이 바꾼 배율은 기억해 다음에도(이 브라우저) ──
+  var ZKEY = 'aura-hwp-zoom', zoomSeen = 0;
+  function curZoom() {
+    var fs = document.querySelectorAll('iframe');
+    for (var i = 0; i < fs.length; i++) { try { var A = fs[i].contentWindow.HwpApp; if (A && A.hxe) return A.hxe.GetCurrentZoom(); } catch (e) {} }
+    return 0;
+  }
+  function setZoom(ratio) {
+    try { var a = window.auraCtrl.CreateAction('ViewZoom'), st = a.CreateSet(); a.GetDefault(st); st.SetItem('ZoomType', 0); st.SetItem('ZoomRatio', Math.round(ratio)); a.Execute(st); } catch (e) {}
+  }
+  function fitZoom() {
+    var saved = 0; try { saved = parseInt(localStorage.getItem(ZKEY) || '0', 10); } catch (e) {}
+    if (saved >= 30 && saved <= 400) setZoom(saved);
+    else if (curZoom() > 1.1) setZoom(100);
+    setTimeout(function () { zoomSeen = curZoom(); setInterval(function () {        // 사람이 배율을 바꾸면 기억
+      var z = curZoom(); if (z && zoomSeen && Math.abs(z - zoomSeen) > 0.01) { zoomSeen = z; try { localStorage.setItem(ZKEY, String(Math.round(z * 100))); } catch (e) {} }
+    }, 2000); }, 1500);
+  }
   // ── 같이 쓰기 ──
   function startCollab() {
     var bar = document.querySelector('[data-co-bar]');
@@ -279,6 +297,7 @@
     eng.start().then(function () {
       if (readonly) { mode = 'view'; hwp.setReadOnly(true); say('공통 양식 — 보기 전용', 'ok'); return; }
       ready = true;
+      setTimeout(fitZoom, 300);
       if (eng.fieldsMode()) {
         mode = 'fields';
         hwp.setReadOnly(false); hwp.setFormMode(true);           // 앞 상태(읽기 전용)가 남아 회색으로 막히지 않게
@@ -410,6 +429,7 @@
     hwp.onActivity(function (e) {
       if (e && e.type === 'keydown' && (e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); save(false); }
       if (e && (e.type === 'keydown' || e.type === 'pointerdown')) pauseFollow();
+      if (e && e.type === 'pointerdown') closeMenu();   // 편집 틀 안을 누르면 「⋯」 메뉴를 닫는다(틀 안 누름은 바깥 문서로 오지 않는다)
       if (e && e.type === 'pointerup' && structMine) touched();
     });
   }
@@ -418,9 +438,11 @@
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S') && !saOpen) { e.preventDefault(); save(false); }
   });
   var mbtn = document.querySelector('[data-menu-btn]'), menu = document.querySelector('[data-menu]') || document.createElement('div');
+  function closeMenu() { if (menu && !menu.hidden) { menu.hidden = true; if (mbtn) mbtn.setAttribute('aria-expanded', 'false'); } }
   if (mbtn) {
     mbtn.addEventListener('click', function (e) { e.stopPropagation(); menu.hidden = !menu.hidden; mbtn.setAttribute('aria-expanded', String(!menu.hidden)); });
     document.addEventListener('click', function () { menu.hidden = true; mbtn.setAttribute('aria-expanded', 'false'); });
+    window.addEventListener('blur', function () { if (!menu.hidden) { menu.hidden = true; mbtn.setAttribute('aria-expanded', 'false'); } });   // 편집기(틀)로 초점이 넘어가면 닫기
     menu.addEventListener('keydown', function (e) { if (e.key === 'Escape') { menu.hidden = true; mbtn.setAttribute('aria-expanded', 'false'); mbtn.focus(); } });
   }
   var notice = document.querySelector('[data-notice]');
