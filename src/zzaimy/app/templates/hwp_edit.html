@@ -254,7 +254,7 @@
         hwp.setReadOnly(false); hwp.setFormMode(true);           // 앞 상태(읽기 전용)가 남아 회색으로 막히지 않게
         var sb = document.querySelector('[data-struct]'); if (sb) sb.hidden = false;
         drawStruct();
-        if (!eng.pending()) say('저장됨', 'ok');                // 보기만 한 창도 「불러오는 중」 에 머물지 않게(10-24)
+        if (!eng.pending()) say("저장됨", 'ok');                // 보기만 한 창도 「불러오는 중」 에 머물지 않게(10-24)
       } else { mode = 'whole'; holdLock(); }
       watchEdits();
       eng.conflicts().then(function (l) { var c = document.querySelector('[data-conflicts]'); if (c && l.length) c.hidden = false; });
