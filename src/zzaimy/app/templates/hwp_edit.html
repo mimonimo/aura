@@ -232,7 +232,7 @@
   document.querySelectorAll('[data-embed]').forEach(function (b) {
     b.onclick = function () { try { parent.postMessage({aura: 'hwp', act: b.getAttribute('data-embed')}, location.origin); } catch (e) {} };
   });
-  // 편집기를 못 불러오면 빨리 알린다 — 스크립트가 안 왔거나 기안기 서버가 답하지 않으면 바로, 그 밖에는 20초 안에 뜨지 않을 때
+  // 편집기를 못 불러오면 알린다 — 스크립트가 안 왔거나 기안기 서버가 답하지 않으면 바로, 그 밖에는 90초 안에 뜨지 않을 때
   var built = false;
   function loadFail() { if (built) return; document.querySelector('[data-load-fail]').hidden = false; say('불러오지 못함', 'bad'); }
   if (window.__hwpLoadFail || typeof window.BuildWebHwpCtrl !== 'function') { loadFail(); return; }
@@ -241,7 +241,9 @@
     fetch('/webhwpctrl/version.txt', {cache: 'no-store', credentials: 'same-origin', signal: ac ? ac.signal : undefined})
       .then(function (r) { clearTimeout(t); if (!r.ok) loadFail(); }).catch(function () { clearTimeout(t); loadFail(); });
   })();
-  setTimeout(loadFail, 20000);
+  // 느리기만 한 때(기안기 서버가 바쁠 때)는 실패로 보이지 않게 — 20초에 「오래 걸림」, 90초가 지나도 뜨지 않을 때만 실패
+  setTimeout(function () { if (!built) say('불러오는 중 — 오래 걸림'); }, 20000);
+  setTimeout(loadFail, 90000);
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     built = true; document.querySelector('[data-load-fail]').hidden = true;
     hwp = window.auraHwp = AuraHwpWrapper.create(ctrl, box);
@@ -262,7 +264,7 @@
   }
 
   // ── 처음 배율 — 넓은 화면에서 「폭 맞춤」 이 너무 크게 보여(125~200%) 처음엔 100%, 사람이 바꾼 배율은 기억해 다음에도(이 브라우저) ──
-  var ZKEY = 'aura-hwp-zoom', zoomSeen = 0;
+  var ZKEY = 'aura-hwp-zoom', zoomSeen = 0, zoomWatch = false;
   function curZoom() {
     var fs = document.querySelectorAll('iframe');
     for (var i = 0; i < fs.length; i++) { try { var A = fs[i].contentWindow.HwpApp; if (A && A.hxe) return A.hxe.GetCurrentZoom(); } catch (e) {} }
@@ -275,6 +277,7 @@
     var saved = 0; try { saved = parseInt(localStorage.getItem(ZKEY) || '0', 10); } catch (e) {}
     if (saved >= 30 && saved <= 400) setZoom(saved);
     else if (curZoom() > 1.1) setZoom(100);
+    if (zoomWatch) return; zoomWatch = true;                // 다시 불러올 때는 배율만 — 지켜보기는 한 번
     setTimeout(function () { zoomSeen = curZoom(); setInterval(function () {        // 사람이 배율을 바꾸면 기억
       var z = curZoom(); if (z && zoomSeen && Math.abs(z - zoomSeen) > 0.01) { zoomSeen = z; try { localStorage.setItem(ZKEY, String(Math.round(z * 100))); } catch (e) {} }
     }, 2000); }, 1500);
@@ -326,7 +329,7 @@
         var who = reloadPending; reloadPending = null;
         var cur = hwp.getCursor();
         return loadFile().then(function () {
-          fitWidth();
+          fitZoom();                                   // 다시 불러와도 보던 배율 그대로(폭 맞춤으로 커지지 않게)
           if (readonly || (mode === 'whole' && !holding)) hwp.setReadOnly(true);
           return eng.reopened();
         }).then(function () {
