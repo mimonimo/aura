@@ -46,10 +46,24 @@ def _kind(name: str) -> str:
     return "절" if name.startswith("절:") else "칸" if name.startswith("칸:") else "표" if re.match(r"표\d+:", name) else "기타"
 
 
+_END = re.compile(r'<hp:ctrl><hp:fieldEnd\b[^>]*beginIDRef="(\d+)"[^>]*/></hp:ctrl>')
+_ENDS: tuple = (None, {})
+
+
 def _span(xml: str, bid: str, start: int) -> tuple[int, int] | None:
-    """필드 여는 ctrl 끝 ~ 닫는 ctrl 시작(그 사이가 필드 값)."""
-    m = re.search(rf'<hp:ctrl><hp:fieldEnd\b[^>]*beginIDRef="{bid}"[^>]*/></hp:ctrl>', xml[start:])
-    return (start, start + m.start()) if m else None
+    """필드 여는 ctrl 끝 ~ 닫는 ctrl 시작(그 사이가 필드 값). 닫는 ctrl 자리는 xml 하나에 한 번만 훑어 둔다 —
+    필드마다 xml[start:] 를 잘라 찾던 것이 942칸·5MB 절에서 써 넣기 한 번에 0.5초였다."""
+    global _ENDS
+    c = _ENDS
+    if c[0] is not xml:
+        ends: dict[str, list[int]] = {}
+        for m in _END.finditer(xml):
+            ends.setdefault(m.group(1), []).append(m.start())
+        c = _ENDS = (xml, ends)
+    for e in c[1].get(bid, ()):
+        if e >= start:
+            return (start, e)
+    return None
 
 
 def fields(data: bytes) -> list[dict]:
@@ -138,6 +152,8 @@ def _strip_made(xml: str, made: set) -> str:
 def _normalize_xml(xml: str, ids: "wf._Ids") -> tuple[str, int]:
     """한 절 xml 의 필드 안 줄 나눔을 문단 나눔으로. 표·그림이 든 필드는 그대로 둔다. (새 xml, 바꾼 수)."""
     hits = []
+    if "<hp:lineBreak" not in xml:
+        return xml, 0
     for m in _BEGIN.finditer(xml):
         sp = _span(xml, m.group(1), m.end())
         if not sp:
@@ -214,7 +230,7 @@ def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
         ends = {m.group(1) for m, _, _ in hits}
         x2 = wf.strip_lineseg_in(x2, lambda q: (re.match(r'<hp:p\b[^>]*\bid="(\d+)"', q) or [None, None])[1] in made
                                  or any(e in q for e in (f'beginIDRef="{b}"' for b in ends)))
-        new[n] = _normalize_xml(x2, ids)[0]          # 같은 절의 다른 필드에 남은 줄 나눔도 함께 문단으로
+        new[n] = _normalize_xml(x2, ids)[0] if "<hp:lineBreak" in x2 else x2     # 같은 절의 다른 필드에 남은 줄 나눔도 함께 문단으로
     return (_pack(zin, new) if new else data), done
 
 

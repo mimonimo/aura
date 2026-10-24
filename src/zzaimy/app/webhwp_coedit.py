@@ -337,10 +337,9 @@ def release(db, fid: int, field: str, user: str, *, grace: bool = False, base: P
         HUB.wake(fid)
         return True
     if base is not None and field != STRUCT:
-        try:
-            commit_now(db, base, fid)
-        except Exception:
-            log.exception("놓기 전 써 넣기 실패 — 임대는 놓는다(칸 글은 표에 남아 다음 써 넣기에 들어간다)")
+        # 놓을 때 써 넣기는 기다리지 않는다 — 451쪽 문서에서 0.5~1.3초 걸려 「칸 옮기기」 요청을 붙잡았다. 파일을 읽는 쪽(열기·내려받기·AURA)은
+        # fresh 가 먼저 써 넣으므로 순서는 지켜진다
+        schedule_commit(db, base, fid, wait=0.0)
     with db._conn() as conn:
         _txlock(conn, fid)
         row = _lock_row(conn, fid, field)
@@ -627,16 +626,21 @@ def file_lock(fid: int) -> threading.Lock:
         return _FILE_LOCKS.setdefault(int(fid), threading.Lock())
 
 
-def overlay(db, fid: int, data: bytes) -> tuple[bytes, list[str], dict]:
-    """한글 파일 바이트에 표의 칸 글을 덮어 쓴다 — (새 바이트, 파일과 달라 바꾼 필드, {필드: 써 넣은 판})."""
+def overlay(db, fid: int, data: bytes, *, have: dict | None = None, only_dirty: bool = False) -> tuple[bytes, list[str], dict]:
+    """한글 파일 바이트에 표의 칸 글을 덮어 쓴다 — (새 바이트, 파일과 달라 바꾼 필드, {필드: 써 넣은 판}).
+    have 는 그 파일의 필드 값(이미 안다면 — 써 넣기는 파일 지문으로 캐시한 값), only_dirty 면 아직 안 써 넣은 칸만 본다."""
     from zzaimy.app import webhwp_write as ww
-    st = state(db, fid)
+    ensure(db)
+    q = "SELECT field, version, text FROM webhwp_field_state WHERE fid = ?" + (" AND version > committed" if only_dirty else "")
+    with db._conn() as conn:
+        st = {r[0]: {"version": int(r[1]), "text": r[2]} for r in conn.execute(q, (int(fid),)).fetchall()}
     if not st or data[:2] != b"PK":
         return data, [], {}
-    try:
-        have = ww.field_values(data)
-    except Exception:
-        return data, [], {}
+    if have is None:
+        try:
+            have = ww.field_values(data)
+        except Exception:
+            return data, [], {}
     want = {k: v["text"] for k, v in st.items() if k in have}
     diff = {k: v for k, v in want.items() if norm(have.get(k, "")) != norm(v)}
     versions = {k: st[k]["version"] for k in want}
@@ -668,11 +672,24 @@ def commit_now(db, base: Path, fid: int) -> list[str]:
         if not f or not Path(f["path"]).exists():
             return []
         data = Path(f["path"]).read_bytes()
-        new, done, versions = overlay(db, fid, data)
+        have = _file_values(db, fid)                    # 파일 지문(수정 시각·크기)이 같으면 다시 풀지 않는다
+        new, done, versions = overlay(db, fid, data, have=have or None, only_dirty=True)
         if done:
             with db._conn() as conn:
                 r = conn.execute("SELECT author FROM webhwp_field_state WHERE fid = ? ORDER BY at DESC LIMIT 1", (int(fid),)).fetchone()
-            webhwp.save(db, base, fid, new, user=(r[0] if r else "") or "공동 작성", quiet=True)
+            p = webhwp.save(db, base, fid, new, user=(r[0] if r else "") or "공동 작성", quiet=True)
+            try:                                         # 써 넣은 값으로 캐시를 이어 둔다(다음 써 넣기가 파일을 다시 풀지 않게)
+                vals = dict(have or {})
+                with db._conn() as conn:
+                    for k, t in conn.execute("SELECT field, text FROM webhwp_field_state WHERE fid = ?", (int(fid),)).fetchall():
+                        if k in done:
+                            vals[k] = norm(t)
+                st_ = Path(p).stat()
+                _FILE_VALUES[int(fid)] = ((st_.st_mtime_ns, st_.st_size), vals)
+                if _NORMALIZED.get(int(fid)) is not None:
+                    _NORMALIZED[int(fid)] = (st_.st_mtime_ns, st_.st_size)   # 써 넣기는 문단으로 쓰므로 줄 나눔 정리를 다시 할 것이 없다
+            except Exception:
+                _FILE_VALUES.pop(int(fid), None)
         _mark_committed(db, fid, versions)
     if done:
         emit(db, fid, "committed", {"fields": done})
@@ -743,9 +760,9 @@ _TIMERS: dict[int, dict] = {}
 _TIMERS_GUARD = threading.Lock()
 
 
-def schedule_commit(db, base: Path, fid: int) -> None:
-    """변경 뒤 commit_delay 초 조용하면 써 넣는다. 변경이 이어져도 commit_max 초 안에는 한 번."""
-    delay, most = conf(db, "commit_delay"), conf(db, "commit_max")
+def schedule_commit(db, base: Path, fid: int, wait: float | None = None) -> None:
+    """변경 뒤 commit_delay 초 조용하면 써 넣는다. 변경이 이어져도 commit_max 초 안에는 한 번. wait 를 주면 그 뒤에(놓을 때 0)."""
+    delay, most = (conf(db, "commit_delay") if wait is None else wait), conf(db, "commit_max")
     now = time.time()
     with _TIMERS_GUARD:
         cur = _TIMERS.get(int(fid))

@@ -543,3 +543,29 @@ def test_editor_sends_and_applies_deltas_and_keeps_cursor_by_field():
     assert "function applyDelta(" in w and "SelectText(" in w and "BreakPara" in w and "setEditable(name, true, true)" in w
     assert "c.rel = {field: f" in w and "LockCommand('Undo', on)" in w
     assert "hwp.lockUndo(true)" in c and "hwp.lockUndo(false)" in c
+
+
+def test_release_does_not_wait_for_write_back_and_cache_follows_file(tmp_path, monkeypatch):
+    """임대를 놓을 때 써 넣기는 뒤에서(놓기 요청을 붙잡지 않는다). 써 넣기는 파일 값 캐시를 이어 쓰고, 파일이 밖에서 바뀌면 다시 푼다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    db.set_setting("coedit:commit_delay", "60")
+    calls = []
+    real = ce.commit_now
+    monkeypatch.setattr(ce, "commit_now", lambda *a, **k: (calls.append(time.time()), time.sleep(0.5), real(*a, **k))[-1])
+    ce.acquire(db, fid, "칸:사업명", "kim", "k1")
+    ce.apply_ops(db, fid, "kim", "k1", [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "첫 값"}])
+    t = time.time()
+    assert ce.release(db, fid, "칸:사업명", "kim", base=base)
+    assert time.time() - t < 0.3                                         # 놓기는 바로 돌아온다
+    deadline = time.time() + 5
+    while time.time() < deadline and ce.dirty(db, fid):
+        time.sleep(0.05)
+    assert _vals(app, fid)["칸:사업명"] == "첫 값"
+    monkeypatch.setattr(ce, "commit_now", real)
+    ce.apply_ops(db, fid, "kim", "k1", [{"seq": 2, "field": "칸:사업명", "base": 1, "text": "둘째 값"}])
+    ce.commit_now(db, base, fid)
+    assert _vals(app, fid)["칸:사업명"] == "둘째 값" and ce._file_values(db, fid)["칸:사업명"] == "둘째 값"
+    p = Path(webhwp.get(db, fid)["path"])                                # 밖에서 파일이 바뀌면(문서 전체 저장) 캐시는 다시 푼다
+    p.write_bytes(ww.set_fields(p.read_bytes(), {"칸:사업명": "밖에서"})[0])
+    assert ce._file_values(db, fid)["칸:사업명"] == "밖에서"
