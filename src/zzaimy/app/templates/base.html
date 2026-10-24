@@ -661,18 +661,6 @@ document.addEventListener('submit', function(event) {
     {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험(한 줄 + 작은 창) #}
     <button type="button" class="side-search side-viewas" onclick="document.getElementById('viewAsDialog').showModal()"
             style="opacity:.7; font-size:12.5px; justify-content:flex-start; text-align:left;"><iconify-icon icon="solar:user-id-linear"></iconify-icon>테스트 보기</button>
-    <dialog id="viewAsDialog" class="view-as-dialog" aria-labelledby="viewAsTitle">
-      <form method="post" action="/view-as">
-        <h2 id="viewAsTitle">테스트 보기</h2>
-        <p class="muted">고른 계정이 보는 화면·검색·답변 범위로 바꿉니다. 맨 위 띠의 「원래대로」로 돌아옵니다.</p>
-        <input type="hidden" name="back" value="{{ request.url.path }}">
-        <label>역할<select name="role">{% for k, v in view_as_roles.items() %}<option value="{{ k }}"{% if k == 'staff' %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
-        {% if view_as_grades is defined %}<label data-grade-row>등급(교직원)<select name="grade"><option value="">기본(사업 책임자)</option>{% for k, v in view_as_grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-        <script>(function(){var f=document.currentScript.closest('form'),r=f.querySelector('[name=role]'),g=f.querySelector('[data-grade-row]');var s=function(){g.hidden=r.value!=='staff';};r.addEventListener('change',s);s();})();</script>{% endif %}
-        <label>부서<select name="dept"><option value="">부서 없음(공통)</option>{% for d in view_as_depts() %}{% if d and d != '공통' %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}</select></label>
-        <footer><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit">적용</button></footer>
-      </form>
-    </dialog>
     <a href="/dev/coedit-demo" style="opacity:.7; font-size:12.5px;"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>{{ dev_page_name('/dev/coedit-demo') }}</a>
     {% endif %}
     {% if request.state.role == 'dev' %}
@@ -772,8 +760,23 @@ document.addEventListener('submit', function(event) {
   <form method="post" action="/view-as/clear" class="view-as-bar" role="status">
     <input type="hidden" name="back" value="{{ request.url.path if request.url.path != '/chat' else '/' }}">
     <span>테스트 보기 중 — {{ (request.state.view_as.dept ~ ' ') if request.state.view_as.dept else '' }}{{ view_as_roles.get(request.state.view_as.role, request.state.view_as.role) }} 계정의 화면·검색 범위입니다.</span>
+    <button type="button" onclick="document.getElementById('viewAsDialog').showModal()">다른 계정으로</button>
     <button type="submit">원래대로</button>
   </form>
+  {% endif %}
+  {% if request.state.real_role is defined and request.state.real_role == 'dev' and not developer_space %}{# 테스트 보기 창 — 사이드바 「테스트 보기」 와 위 띠 「다른 계정으로」 가 연다(보는 중에도 바로 바꾸기) #}
+    <dialog id="viewAsDialog" class="view-as-dialog" aria-labelledby="viewAsTitle">
+      <form method="post" action="/view-as">
+        <h2 id="viewAsTitle">테스트 보기</h2>
+        <p class="muted">고른 계정이 보는 화면·검색·답변 범위로 바꿉니다. 맨 위 띠의 「원래대로」로 돌아오고, 「다른 계정으로」로 바로 바꿉니다.</p>
+        <input type="hidden" name="back" value="{{ request.url.path }}">
+        <label>역할<select name="role">{% for k, v in view_as_roles.items() %}<option value="{{ k }}"{% if k == 'staff' %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+        {% if view_as_grades is defined %}<label data-grade-row>등급(교직원)<select name="grade"><option value="">기본(사업 책임자)</option>{% for k, v in view_as_grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+        <script>(function(){var f=document.currentScript.closest('form'),r=f.querySelector('[name=role]'),g=f.querySelector('[data-grade-row]');var s=function(){g.hidden=r.value!=='staff';};r.addEventListener('change',s);s();})();</script>{% endif %}
+        <label>부서<select name="dept"><option value="">부서 없음(공통)</option>{% for d in view_as_depts() %}{% if d and d != '공통' %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}</select></label>
+        <footer><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit">적용</button></footer>
+      </form>
+    </dialog>
   {% endif %}
   <div class="topbar">
     <button type="button" class="navtoggle" id="navToggle" aria-label="메뉴 열기">

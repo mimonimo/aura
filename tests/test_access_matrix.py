@@ -279,6 +279,9 @@ def test_dev_view_as_narrows_to_chosen_account(world):
     assert r.status_code == 303
     page = dev.get("/?type=all").text
     assert "테스트 보기 중" in page and "기획처내부계획" in page and "산학내부계획" not in page
+    assert "다른 계정으로" in page and 'id="viewAsDialog"' in page   # 보는 중에도 「원래대로」 없이 바로 다른 계정으로
+    assert "산학내부계획" in dev.get("/?type=all").text or dev.post("/view-as", data={"role": "staff", "dept": "산학협력단", "back": "/"},
+                                                                follow_redirects=False).status_code == 303
     assert dev.get("/dev").status_code == 403                     # 고른 계정 그대로 — 개발자 화면도 막힌다
     assert dev.post("/view-as/clear", data={"back": "/"}, follow_redirects=False).status_code == 303
     assert "산학내부계획" in dev.get("/?type=all").text and dev.get("/dev").status_code == 200
