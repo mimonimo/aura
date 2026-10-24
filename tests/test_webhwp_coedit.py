@@ -159,6 +159,15 @@ def test_presence_from_everyone_and_snapshot_names(tmp_path, monkeypatch):
     assert kim.get(f"/hwp/{fid}/state").json()["people"] == []
 
 
+def test_presence_ping_returns_everyone_including_quiet_people(tmp_path, monkeypatch):
+    """알림은 칸이 바뀔 때만 가서 가만히 있는 사람이 30초 뒤 남의 화면에서 사라졌다 — 몇 초마다 보내는 알림의 답으로 지금 있는 사람 모두를 준다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    park.post(f"/hwp/{fid}/presence", json={"client": "p1", "field": ""})
+    out = kim.post(f"/hwp/{fid}/presence", json={"client": "k1", "field": "칸:사업명"}).json()
+    got = {p["user"]: p for p in out["people"]}
+    assert got["park"]["name"] == "박다온" and got["park"]["client"] == "p1" and got["kim"]["field"] == "칸:사업명"
+
+
 def test_live_put_concurrent_writes_are_not_lost(tmp_path, monkeypatch):
     """예전 칸 공유는 설정 JSON 을 읽고 고쳐 써 동시에 쓰면 칸 글이 사라졌다 — 이제 칸마다 줄이라 다 남는다."""
     app, kim, park, fid = _doc(tmp_path, monkeypatch)
@@ -391,12 +400,19 @@ def test_agent_flag_only_on_fields_it_wrote(tmp_path, monkeypatch):
 
 def test_overlay_geometry_from_editor_model_not_screen_caret():
     """남이 쥔 칸 자리는 기안기 내부 커서 모델(쪽 좌표)로 재고 화면 커서로 재지 않는다 — 화면 커서는 그리기 차례에 늦게 옮겨져
-    가려진·초점 없는 창에서 엉뚱한 자리가 나왔다. 이름표는 쪽 왼쪽 여백에, 내 창이 쥔 칸에는 표시하지 않고 내 다른 창은 「(다른 창)」."""
+    가려진·초점 없는 창에서 엉뚱한 자리가 나왔다. 이름 깃발은 칸 끝 커서 위에, 내 창이 쥔 칸에는 표시하지 않고 이름에 「(다른 창)」 을 붙이지 않는다.
+    재기는 커서를 칸에 넣었다 빼므로 빈 칸(안내 글이 지워진다)·누르거나 치는 중(막 누른 자리를 덮는다)에는 하지 않고, 남의 커서만 있는 칸은 그리지 않는다.
+    머리줄 맨 끝 「나」 동그라미로 내가 누구인지 보인다."""
     root = Path(__file__).resolve().parents[1] / "src/zzaimy/app/static"
     w, c = (root / "webhwp-wrapper.js").read_text(), (root / "webhwp-collab.js").read_text()
     assert "hwpCaret.KNi()" in w and "CalcCaretPos" in w and "measureField" not in w + c
     ui = c[c.index("function ui("):]
-    assert "caretRect" not in ui and "(다른 창)" in ui and "bodyLeft()" in ui
+    assert "caretRect" not in ui and "(다른 창)" not in ui
+    assert "co-box hl" in ui and "co-caret" in ui and "co-people" in ui        # 구글 독스 꼴(옅은 바탕·커서·이름 깃발)·같이 있는 사람 목록
+    assert "kind: 'here'" not in ui                                             # 보는 중인 칸은 문서 위에 그리지 않는다
+    assert "t !== ''" in ui and "< 1500" in ui                                  # 빈 칸·입력 직후에는 재지 않는다
+    assert "'co-av me', '나'" in ui                                             # 나 동그라미
+    assert "lastInput = Date.now(); fire('activity'" in w                       # 누름도 입력으로 셈(재기 미룸)
     assert "lk.client !== eng.client" in ui                                     # 같은 사람이라도 다른 창만
     assert "acquire(f)" in c and "letGo(prev, true)" in c                       # 처음 고칠 때 잡고, 옮기면 바로 놓는다
     assert "lease-lost" not in c                                                # 풀렸다는 안내가 남아 막히지 않게

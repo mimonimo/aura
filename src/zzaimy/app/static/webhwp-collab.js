@@ -255,7 +255,7 @@
       }).catch(function () { return {ok: false}; }).then(function (r) { delete acquiring[f]; return r; });
       return acquiring[f];
     }
-    function holderLabel(f) { var lk = locks[f]; if (!lk) return ''; return nameOf(lk.user) + (lk.user === me ? '(다른 창)' : ''); }
+    function holderLabel(f) { var lk = locks[f]; if (!lk) return ''; return nameOf(lk.user); }
     function letGo(f, now_) {
       if (!mine[f]) return Promise.resolve();
       return flushNow().then(function () {
@@ -290,9 +290,20 @@
       emit('caret', f);
     }
     function presence(force) {
-      if (!force && now() - lastPresence < 10000) return;
+      if (!force && now() - lastPresence < 8000) return;
       lastPresence = now();
-      post('/presence', {client: client, field: curField}).catch(function () {});
+      post('/presence', {client: client, field: curField}).then(function (j) {
+        if (!j || !j.people) return;                  // 서버가 아는 같이 있는 사람으로 맞춘다(가만히 있는 사람도 남게)
+        var seen = {};
+        j.people.forEach(function (p) {
+          if (p.name) names[p.user] = p.name;
+          if (p.client === client && p.user === me) return;
+          var k = p.user + '\u001f' + p.client; seen[k] = 1;
+          people[k] = {user: p.user, field: p.field, at: now()};
+        });
+        Object.keys(people).forEach(function (k) { if (!seen[k]) delete people[k]; });
+        emit('people', peopleList());
+      }).catch(function () {});
     }
 
     // ── 알림 흐름 ──
@@ -478,19 +489,21 @@
     var avatars = o.avatars, bar = o.bar, layer = el('div', 'co-layer'), marks = {}, geo = {}, geoAt = 0, geoWant = '';
     document.body.appendChild(layer);
     layer.setAttribute('aria-hidden', 'true');
-    var MAX = 4, auraState = {};
+    var MAX = 4, auraState = {}, popOpen = false, hideT = null;
     // 남이 쥔 칸 — 다른 사람, 또는 내 다른 창. 내 이 창이 쥔 칸은 표시하지 않는다
     function holderOf(f) {
       var lk = eng.locks()[f];
       if (!lk || lk.until * 1000 <= Date.now()) return null;
       if (lk.user !== o.me) return {user: lk.user, label: eng.nameOf(lk.user)};
-      if (lk.client && lk.client !== eng.client) return {user: lk.user, label: eng.nameOf(lk.user) + '(다른 창)', self: true};
+      if (lk.client && lk.client !== eng.client) return {user: lk.user, label: eng.nameOf(lk.user), self: true};
       return null;
     }
     function drawAvatars() {
       var list = eng.people().slice();
       if (auraState.field) list.unshift({user: 'AURA', name: 'AURA', field: auraState.field});
       avatars.innerHTML = '';
+      var myName = o.meName || eng.nameOf(o.me), meChip = el('span', 'co-av me', '나');   // 맨 끝 「나」 동그라미 — 올리면 「나 · 이름」
+      meChip.style.setProperty('--c', colorOf(o.me)); meChip.title = '나 · ' + myName; meChip.setAttribute('aria-label', '나 · ' + myName);
       list.slice(0, MAX).forEach(function (p) {
         var b = el('button', 'co-av' + (p.user === 'AURA' ? ' aura' : ''));
         b.type = 'button';
@@ -504,17 +517,33 @@
         avatars.appendChild(b);
       });
       if (list.length > MAX) {
-        var m = el('span', 'co-av more', '+' + (list.length - MAX));
-        m.title = list.slice(MAX).map(function (p) { return (p.name || p.user) + (p.field ? ' · ' + where(p.field) : ''); }).join('\n');
+        var m = el('button', 'co-av more', '+' + (list.length - MAX));
+        m.type = 'button'; m.title = '같이 있는 사람 모두 보기';
+        m.onclick = function (e) { e.stopPropagation(); popOpen = !popOpen; pop.hidden = !popOpen; };
         avatars.appendChild(m);
       }
+      avatars.appendChild(meChip);
+      // 같이 있는 사람 목록 — 동그라미 위에 마우스를 올리거나 「+N」 을 누르면. 줄을 누르면 그 사람 칸으로
+      var pop = el('div', 'co-people'); pop.hidden = !popOpen;
+      [{user: o.me, name: '나 · ' + myName, me: true}].concat(list).forEach(function (p) {
+        var r = el('div', 'co-people-row'), d = el('span', 'dot', p.me ? '나' : p.user === 'AURA' ? 'A' : (p.name || p.user).slice(0, 1));
+        d.style.setProperty('--c', colorOf(p.user));
+        var h = !p.me && p.field && holderOf(p.field), editing = p.field && (h && h.user === p.user || p.user === 'AURA');
+        r.appendChild(d); r.appendChild(el('span', '', p.name || p.user));
+        r.appendChild(el('small', '', p.me ? '' : p.field ? where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : '보는 중'));
+        if (!p.me && p.field && eng.hasField(p.field)) r.onclick = function () { hwp.moveTo(p.field, false); popOpen = false; pop.hidden = true; };
+        pop.appendChild(r);
+      });
+      avatars.appendChild(pop);
+      avatars.onmouseenter = function () { clearTimeout(hideT); popOpen = true; pop.hidden = false; };
+      avatars.onmouseleave = function () { hideT = setTimeout(function () { popOpen = false; var p2 = avatars.querySelector('.co-people'); if (p2) p2.hidden = true; }, 250); };
     }
     // 그릴 것: 남이 쥔 칸(테두리 + 왼쪽 여백 이름표), AURA 가 쓰는 칸, 남의 커서가 있는 칸(옅은 세로줄만)
     function wanted() {
       var out = {};
       Object.keys(eng.locks()).forEach(function (f) { var h = holderOf(f); if (h && eng.hasField(f)) out[f] = {kind: 'hold', user: h.user, label: h.label}; });
       if (auraState.field && eng.hasField(auraState.field) && !out[auraState.field]) out[auraState.field] = {kind: 'hold', user: 'AURA', label: 'AURA 작성 중'};
-      eng.people().forEach(function (p) { if (p.field && eng.hasField(p.field) && !out[p.field]) out[p.field] = {kind: 'here', user: p.user, label: p.name || p.user}; });
+      // 남의 커서만 있는 칸(보는 중)은 문서 위에 그리지 않는다 — 재려면 커서를 그 칸에 넣어야 해서 빈 칸 안내 글이 지워졌다(10-24). 아바타 풀이말로만 보인다
       return out;
     }
     // 쪽 좌표 재기 — 기안기 내부 커서 모델로 같은 작업 단위 안에서(화면 커서·스크롤은 그대로). 입력·조합 중이면 미룬다
@@ -522,7 +551,9 @@
       var want = Object.keys(wanted()), key = want.join('\u0002');
       if (!want.length) { geo = {}; geoWant = ''; return; }
       if (!force && key === geoWant && Date.now() - geoAt < 4000) return;
-      if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 800) return;
+      if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1500) return;   // 누르거나 치는 중에는 재지 않는다 — 재는 동안 커서를 옮겼다 되돌려 막 누른 자리를 덮었다
+      want = want.filter(function (f) { var t = hwp.read(f); return t != null && t !== ''; });   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
+      if (!want.length) { geo = {}; geoWant = key; geoAt = Date.now(); return; }
       var g = hwp.fieldGeom(want);
       if (!g) return;
       geo = g; geoAt = Date.now(); geoWant = key;
@@ -530,12 +561,13 @@
     function mark(f) {
       var m = marks[f];
       if (!m) {
-        m = marks[f] = {box: el('div', 'co-box'), flag: el('div', 'co-flag')};
+        m = marks[f] = {box: el('div', 'co-box'), caret: el('div', 'co-caret'), flag: el('div', 'co-flag')};
         m.flag.appendChild(el('span', 'co-flag-t'));
-        layer.appendChild(m.box); layer.appendChild(m.flag);
+        layer.appendChild(m.box); layer.appendChild(m.caret); layer.appendChild(m.flag);
       }
       return m;
     }
+    // 구글 독스처럼 — 그 사람이 쓰는 칸은 옅은 색 바탕, 끝에 색 세로줄(커서), 그 위에 이름 깃발. 글자는 가리지 않는다(바탕은 반투명)
     function render() {
       var want = wanted(), seen = {}, view = null;
       Object.keys(want).forEach(function (f) {
@@ -544,38 +576,36 @@
         var a = hwp.toScreen(g.page, g.x, g.y), b = hwp.toScreen(g.page2, g.x2, g.y2);
         if (!a || !b) return;
         view = a.view;
-        var h1 = hwp.unitPx(g.h), h2 = hwp.unitPx(g.h2), m = mark(f), c = colorOf(w.user);
+        var h1 = Math.max(10, hwp.unitPx(g.h)), h2 = Math.max(10, hwp.unitPx(g.h2)), m = mark(f), c = colorOf(w.user);
         seen[f] = 1;
         var top = a.y, bottom = b.y + h2, single = g.page === g.page2 && Math.abs(b.y - a.y) < 2;
         var vis = bottom > view.top && top < view.bottom;
-        m.box.hidden = !vis; m.flag.hidden = !vis || w.kind !== 'hold';
+        m.box.hidden = m.caret.hidden = m.flag.hidden = !vis;
         if (!vis) return;
-        m.box.style.setProperty('--c', c); m.flag.style.setProperty('--c', c);
-        m.box.className = 'co-box ' + (w.kind === 'here' ? 'here' : single ? (b.x - a.x > 3 ? 'line' : 'caret') : 'multi');
-        m.box.title = w.label + ' · ' + where(f) + (w.kind === 'here' ? ' 보는 중' : '');
+        [m.box, m.caret, m.flag].forEach(function (x) { x.style.setProperty('--c', c); });
         var L = layer.getBoundingClientRect();
-        if (w.kind === 'here' || (single && b.x - a.x <= 3)) {
-          m.box.style.left = (a.x - 1 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px'; m.box.style.width = '2px'; m.box.style.height = Math.max(8, h1) + 'px';
-        } else if (single) {
-          m.box.style.left = (a.x - 3 - L.left) + 'px'; m.box.style.top = (top - 2 - L.top) + 'px';
-          m.box.style.width = (b.x - a.x + 6) + 'px'; m.box.style.height = (h1 + 4) + 'px';
-        } else {                                       // 여러 줄 — 칸 왼쪽에 세로 막대만(글 위에 그리지 않는다)
-          m.box.style.left = (a.x - 7 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px'; m.box.style.width = '3px'; m.box.style.height = Math.max(h1, bottom - top) + 'px';
+        m.box.title = w.label + ' · ' + where(f);
+        if (single) {                                   // 한 줄 — 칸 글 위에 옅은 바탕
+          m.box.className = 'co-box hl';
+          m.box.style.left = (a.x - 1 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px';
+          m.box.style.width = Math.max(4, b.x - a.x + 2) + 'px'; m.box.style.height = h1 + 'px';
+        } else {                                        // 여러 줄 — 칸 왼쪽에 옅은 막대(글 위를 덮지 않게)
+          m.box.className = 'co-box bar';
+          m.box.style.left = (a.x - 8 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px';
+          m.box.style.width = '4px'; m.box.style.height = Math.max(h1, bottom - top) + 'px';
         }
-        if (w.kind !== 'hold') return;
-        // 이름표 — 쪽 왼쪽 여백(글이 없는 곳)에, 칸 첫 줄 높이로. 여백이 좁으면 머리 글자 동그라미만
-        var edge = hwp.toScreen(g.page, 0, g.y), body = hwp.toScreen(g.page, hwp.bodyLeft(), g.y);
-        var right = Math.min(body ? body.x : a.x, a.x) - 8, left = (edge ? edge.x : view.left) + 4, room = right - left;
-        var t = m.flag.firstChild;
-        t.textContent = w.label;
-        m.flag.classList.remove('dot');
+        // 커서 — 칸 끝(그 사람이 이어 쓰는 자리)
+        m.caret.style.left = (b.x - L.left) + 'px'; m.caret.style.top = (b.y - L.top) + 'px'; m.caret.style.height = h2 + 'px';
+        // 이름 깃발 — 커서 바로 위. 종이 오른쪽 끝을 넘으면 왼쪽으로 붙인다
+        var tt = m.flag.firstChild;
+        tt.textContent = w.label;
         m.flag.title = w.label + ' · ' + where(f) + (w.user === 'AURA' ? '' : ' 쓰는 중');
-        if (m.flag.offsetWidth > room) { m.flag.classList.add('dot'); t.textContent = w.user === 'AURA' ? 'A' : w.label.slice(0, 1); }
-        if (m.flag.offsetWidth > room + 2) { m.flag.hidden = true; return; }
-        m.flag.style.left = (right - m.flag.offsetWidth - L.left) + 'px';
-        m.flag.style.top = (top + Math.max(0, (h1 - m.flag.offsetHeight) / 2) - L.top) + 'px';
+        var fw = m.flag.offsetWidth, fh = m.flag.offsetHeight, fx = b.x, right = view.right - 4;
+        m.flag.classList.toggle('flip', fx + fw > right);
+        if (fx + fw > right) fx = b.x - fw + 2;
+        m.flag.style.left = (fx - L.left) + 'px'; m.flag.style.top = (b.y - fh - L.top) + 'px';
       });
-      Object.keys(marks).forEach(function (f) { if (!seen[f]) { marks[f].box.remove(); marks[f].flag.remove(); delete marks[f]; } });
+      Object.keys(marks).forEach(function (f) { if (!seen[f]) { marks[f].box.remove(); marks[f].caret.remove(); marks[f].flag.remove(); delete marks[f]; } });
       if (view) {                                       // 종이 칸 밖(머리줄·스크롤 막대)에는 그리지 않는다
         layer.style.left = view.left + 'px'; layer.style.top = view.top + 'px';
         layer.style.width = (view.right - view.left) + 'px'; layer.style.height = (view.bottom - view.top) + 'px';
@@ -610,8 +640,7 @@
     });
     eng.on('lease-ok', function () { hide('warn'); });
     eng.on('blocked', function (f, who) {
-      var self = /\(다른 창\)$/.test(who);
-      show('blocked', '「' + where(f) + '」 칸은 ' + (self ? '내 다른 창에서 쓰는 중이에요. 그 창을 닫거나 다른 칸으로 옮기면 여기서 쓸 수 있어요' : who + ' 님이 쓰는 중이에요. 끝나면 바로 쓸 수 있어요'), null, 6000);
+      show('blocked', '「' + where(f) + '」 칸은 ' + who + ' 님이 쓰는 중이에요. 끝나면 바로 쓸 수 있어요', null, 6000);
     });
     eng.on('caret', function (f) { if (barKind === 'blocked' && !holderOf(f)) hide('blocked'); if (barKind === 'warn') hide('warn'); });
     eng.on('freed', function (f) { if (eng.current() === f) show('free', '「' + where(f) + '」 칸이 비었어요. 이제 쓸 수 있어요', null, 3000); });

@@ -166,7 +166,7 @@
   var isNew = {{ 'false' if f else 'true' }};
   var fileUrl = {{ (('/hwp/' ~ f.id ~ '/file') if f else '') | tojson }}, saveUrl = {{ (('/hwp/' ~ f.id ~ '/save') if f else '') | tojson }};
   var name = {{ (f.name if f else '새 문서.hwpx') | tojson }}, dept = {{ dept | tojson }}, folder = {{ (folder or '') | tojson }};
-  var fid = {{ f.id if f else 'null' }}, readonly = {{ 'true' if readonly else 'false' }}, me = {{ (request.state.user or '') | tojson }};
+  var fid = {{ f.id if f else 'null' }}, readonly = {{ 'true' if readonly else 'false' }}, me = {{ (request.state.user or '') | tojson }}; var meName = {{ (person_name(request.state.user) if request.state.user else '') | tojson }};
   var embed = {{ 'true' if embed else 'false' }};
   var ready = false, saving = false, dirty = false, hwp = null, eng = null, cui = null;
   var mode = '';                     // 'fields' 칸 공동 편집 · 'whole' 문서 전체 잠금 · 'new' 새 문서 · 'view' 보기 전용
@@ -235,7 +235,7 @@
   function startCollab() {
     var bar = document.querySelector('[data-co-bar]');
     eng = window.auraCollab = AuraCollab.engine({fid: fid, me: me, hwp: hwp, readonly: readonly, structureMode: function () { return structMine; }});
-    cui = AuraCollab.ui(eng, hwp, {avatars: document.querySelector('[data-people]'), bar: bar, me: me});
+    cui = AuraCollab.ui(eng, hwp, {avatars: document.querySelector('[data-people]'), bar: bar, me: me, meName: meName});
     eng.on('status', function (kind, text) {
       if (mode !== 'fields' || structMine && (saving || dirty)) return;
       say(text, kind === 'saved' ? 'ok' : kind === 'saving' ? 'busy' : 'bad');
@@ -400,7 +400,8 @@
   var follow = true, auraNow = '', lastAuraField = '';
   var auraCursor = document.querySelector('[data-aura-cursor]');
   function drawAuraCursor() {
-    if (!auraNow || !follow || !hwp) { auraCursor.hidden = true; return; }
+    // 공동 편집 중에는 그리지 않는다 — 내 커서 자리에 AURA 표를 띄워 내가 쓴 글을 가렸다(10-24). AURA 칸은 공동 편집 층이 여백에 표시
+    if (!auraNow || !follow || !hwp || (eng && eng.fieldsMode && eng.fieldsMode())) { auraCursor.hidden = true; return; }
     var r = hwp.caretRect();
     if (!r || r.y < r.top || r.y > r.bottom) { auraCursor.hidden = true; return; }
     auraCursor.style.left = (r.x - 2) + 'px'; auraCursor.style.top = (r.y + r.h - 5) + 'px';
@@ -408,6 +409,7 @@
   }
   function followAura(field, jump) {
     if (!ready || !follow || dirty || (eng && eng.pending()) || hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1500) return;
+    if (eng && eng.fieldsMode && eng.fieldsMode()) return;   // 공동 편집 중에는 내 커서를 AURA 칸으로 옮기지 않는다(쓰던 자리를 잃었다)
     // 내가 칸을 쓰는 중(임대를 쥠·커서가 칸 안)이면 커서를 옮기지 않는다 — 옮기면 내 칸 임대가 풀린다
     if (eng && (eng.current() || Object.keys(eng.mine()).length)) return;
     if (jump && hwp.moveTo(field, false)) { hwp.run('MoveLeft'); lastAuraField = field; }

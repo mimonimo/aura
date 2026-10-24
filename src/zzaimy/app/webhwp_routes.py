@@ -372,8 +372,12 @@ async def hwp_presence(request: Request, fid: int):
     body = body if isinstance(body, dict) else {}
     user = getattr(request.state, "user", "")
     client = str(body.get("client") or f"{user}:page")[:80]
-    await run_in_threadpool(ce.presence, request.app.state.db, fid, user, client, str(body.get("field") or "")[:200])
-    return {"ok": True}
+    db = request.app.state.db
+    await run_in_threadpool(ce.presence, db, fid, user, client, str(body.get("field") or "")[:200])
+    # 지금 같이 있는 사람을 함께 돌려준다 — 알림은 칸이 바뀔 때만 가서, 가만히 있는 사람이 30초 뒤 남의 화면에서 사라졌다(10-24)
+    people = await run_in_threadpool(ce.people, db, fid)
+    return {"ok": True, "people": [{"user": p["user"], "client": p["client"], "field": p["field"],
+                                    "name": request.app.state.person_name(p["user"])} for p in people]}
 
 
 @router.post("/hwp/{fid}/live")
