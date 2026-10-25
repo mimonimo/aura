@@ -123,9 +123,34 @@ def pick_form(request: Request, prefer: int | None = None) -> dict:
     return best[1]
 
 
-def make_doc(request: Request, prefer: int | None = None) -> int:
+LONG_MIN, LONG_MAX = 100, 320       # 장문 시연 — 절 필드 수 범위(너무 큰 별첨 묶음은 열기만 오래 걸린다)
+
+
+def pick_long_form(request: Request) -> dict:
+    """장문 시연용 양식 — 잠긴 양식 가운데 이름에 「사업계획서」 가 들고 절 필드가 LONG_MIN~LONG_MAX 개인 것 중 절이 가장 많은 것.
+    수십 쪽 보고서를 여럿이 서로 다른 장에서 함께 쓰는 장면(멀리 떨어진 쪽의 이름표·옮겨 가기·지연)을 보인다."""
     from zzaimy.app import webhwp
-    form = pick_form(request, prefer)
+    from zzaimy.app import webhwp_write as ww
+    db = request.app.state.db
+    best = None
+    for r in db.list_files(kind="webhwp", limit=5000):
+        p = Path(r["path"])
+        if "사업계획서" not in r["name"] or not p.exists() or not webhwp.locked(db, r["id"]):
+            continue
+        try:
+            n = sum(1 for x in ww.fields(p.read_bytes()) if x["kind"] == "절")
+        except Exception:
+            continue
+        if LONG_MIN <= n <= LONG_MAX and (best is None or n > best[0]):
+            best = (n, r)
+    if best is None:
+        raise HTTPException(409, f"절이 {LONG_MIN}~{LONG_MAX}개인 사업계획서 양식이 없습니다")
+    return best[1]
+
+
+def make_doc(request: Request, prefer: int | None = None, long: bool = False) -> int:
+    from zzaimy.app import webhwp
+    form = pick_long_form(request) if long and prefer is None else pick_form(request, prefer)
     data = Path(form["path"]).read_bytes()
     name = f"시연 {Path(form['name']).stem}{Path(form['name']).suffix or '.hwpx'}"
     return webhwp.add(request.app.state.db, _base(request), ROOT, name, data,
@@ -153,12 +178,12 @@ def coedit_demo(request: Request, id: int | None = None):
 
 
 @router.post("/dev/coedit-demo/new")
-def coedit_demo_new(request: Request):
+def coedit_demo_new(request: Request, kind: str = Form("")):
     _need_login_mode(request)
     ensure_accounts(request.app)
     if accounts_ready(request.app):
         raise HTTPException(409, "같은 아이디의 계정이 있어 시연 계정을 만들지 못했습니다: " + ", ".join(accounts_ready(request.app)))
-    return RedirectResponse(f"/dev/coedit-demo?id={make_doc(request)}", status_code=303)
+    return RedirectResponse(f"/dev/coedit-demo?id={make_doc(request, long=kind == 'long')}", status_code=303)
 
 
 @router.post("/dev/coedit-demo/reset")

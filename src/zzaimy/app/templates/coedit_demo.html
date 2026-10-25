@@ -52,6 +52,7 @@
     </select>{% else %}<span title="{{ cur.name }}">{{ title(cur.name) }}</span>{% endif %}</label>{% endif %}
   <span class="grow"></span>
   {% if cur %}<form method="post" action="/dev/coedit-demo/reset" title="같은 양식으로 빈 문서를 새로 엽니다"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon>문서 비우기</button></form>{% endif %}
+  <form method="post" action="/dev/coedit-demo/new" title="절이 많은 사업계획서 양식으로 — 여럿이 서로 다른 장을 함께 쓰는 장면"><input type="hidden" name="kind" value="long"><button type="submit" class="btn"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon>장문 시연 문서</button></form>
   <form method="post" action="/dev/coedit-demo/new" title="칸마다 다른 시연 계정으로 같은 문서를 엽니다"><button type="submit" class="btn primary"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 시연 문서</button></form>
 </header>
 {% if cur and not missing %}

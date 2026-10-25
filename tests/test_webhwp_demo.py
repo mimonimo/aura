@@ -133,3 +133,18 @@ def test_reset_makes_fresh_copy_and_trashes_old(tmp_path, monkeypatch):
     assert new != fid and webhwp.get(db, fid) is None and webhwp.meta(db, new)["source"] == src
     assert ce.snapshot(db, new)["fields"] == {}
     assert dev.post("/dev/coedit-demo/reset", data={"id": 999999}, follow_redirects=False).status_code == 404
+
+
+def test_long_demo_uses_business_plan_form(tmp_path, monkeypatch):
+    """「장문 시연 문서」 — 절이 많은 사업계획서 양식으로. 맞는 양식이 없으면 409(까닭을 말한다), 비우기는 같은 양식으로."""
+    app, dev, _ = _admin(tmp_path, monkeypatch)
+    wt.ensure_all(app.state.db, Path(app.state.data_dir))
+    r = dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False)
+    assert r.status_code == 409 and "사업계획서" in r.text                 # 시험 양식은 절이 적다
+    monkeypatch.setattr(demo, "LONG_MIN", 2)
+    r = dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False)
+    assert r.status_code == 303, r.text
+    fid = int(r.headers["location"].split("id=")[-1])
+    db = app.state.db
+    assert "사업계획서" in webhwp.get(db, fid)["name"]
+    assert "장문 시연 문서" in dev.get("/dev/coedit-demo").text
