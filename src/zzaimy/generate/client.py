@@ -313,7 +313,6 @@ class VllmClient:
                     else:
                         raise
                 if not kw.get("stream"):
-                    _record(kw, resp)
                     model_config.record_usage(
                         self.connection_id, kw.get("model", self.model), getattr(resp, "usage", None)
                     )
@@ -322,12 +321,15 @@ class VllmClient:
                         asked = int(kw.get("max_tokens") or 0)
                         wider = min(max(asked * 4, _THINKING_FLOOR), _THINKING_CEILING)
                         if wider > asked:
-                            resp2 = orig(*a, **dict(kw, max_tokens=wider))
+                            retry_kw = dict(kw, max_tokens=wider)
+                            resp2 = orig(*a, **retry_kw)
                             model_config.record_usage(
                                 self.connection_id, kw.get("model", self.model),
                                 getattr(resp2, "usage", None),
                             )
+                            _record(retry_kw, resp2)
                             return resp2
+                    _record(kw, resp)
                 return resp
 
             self.client.chat.completions.create = _create
