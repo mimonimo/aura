@@ -1,5 +1,5 @@
 """개발 현황(/dev) — 허브와 그 아래 화면: 처리 흐름(/dev/flow)·데이터 현황(/dev/db)·품질·성능(/dev/quality*)·
-규정 검색 재측정(/dev/eval/*)·재색인(/dev/reindex)·반입 현황 JSON(/dev/api/intake)·문서 갈래 일괄 다시 정하기(/dev/route-all).
+규정 검색 재측정(/dev/eval/*)·재색인(/dev/reindex)·문서 갈래 일괄 다시 정하기(/dev/route-all).
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·DB 경로(db_path)·화면 틀·화면 공통 맥락(page_ctx)·대화 근거 표(chat_sources)·문서 갈래 정하기(auto_route)와
@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import logging
 import os
 import re
 import time
@@ -24,9 +23,6 @@ router = APIRouter()
 
 def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
     """앱마다 하나 — 문서 날짜 캐시·재색인 프로세스 표를 앱 안에 둔다."""
-    from zzaimy.app.main import (DECISION_LABELS, DOC_TYPE_LABELS, EGRESS_VERDICT_LABELS, SECTOR_LABELS,
-                                 STATUS_LABELS)   # 화면 용어 — 정본은 main(같은 표)
-
     def _dev_read(name: str, tail_lines: int | None = None) -> str:
         try:
             text = (_DOCS_DIR / name).read_text(encoding="utf-8")
@@ -37,7 +33,7 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
             return ""
 
     def _data_overview() -> dict:
-        """데이터 열람용 통계 개요 — 핵심 지표 타일 + 주요 현황 분해."""
+        """개발 현황 규모 타일 — 핵심 지표(주간 보고도 같은 타일을 쓴다)."""
         from zzaimy.app.database_backend import connect
         conn = connect(db_path, readonly=True)
         q = conn.execute
@@ -47,18 +43,6 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
                 return q(sql).fetchone()[0] or 0
             except Exception:
                 return 0
-
-        def group(sql: str, labels: dict | None = None) -> list[dict]:
-            try:
-                rows = q(sql).fetchall()
-            except Exception:
-                return []
-            out = []
-            for val, n in rows:
-                key = "" if val is None else str(val)
-                lbl = (labels or {}).get(key) or key or "(미지정)"
-                out.append({"label": lbl, "n": n})
-            return out
 
         from zzaimy.app import metrics as _m
         mv = _m.live(db)["values"]          # 같은 이름의 수는 지표 모듈 하나에서(/dev·/dev/intake·/dev/pii 와 같은 정의)
@@ -73,8 +57,6 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
         n_reg = mv["regulation_chunks"]
         n_reg_docs = mv["regulation_docs"]
         n_ent = mv["entities"]
-        n_qr_open = one("SELECT COUNT(*) FROM quality_reports WHERE status='open'")
-        n_egr = one("SELECT COUNT(*) FROM egress_requests")
 
         # 타일마다 지표 이름(metric) — 화면이 지표 모듈의 정의를 툴팁으로 붙인다
         tiles = [
@@ -91,55 +73,8 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
             {"icon": "solar:share-circle-linear", "label": "그래프 노드", "metric": "graph_nodes",
              "value": mv["graph_nodes"], "sub": f"관계 {mv['graph_edges']:,} · 문서 노드 {mv['graph_doc_nodes']:,}"},
         ]
-        groups = []
-        for title, sql, labels in [
-            ("문서 상태",
-             "SELECT status, COUNT(*) FROM documents GROUP BY status ORDER BY 2 DESC",
-             STATUS_LABELS),
-            ("문서 계열",
-             "SELECT sector, COUNT(*) FROM documents GROUP BY sector ORDER BY 2 DESC",
-             SECTOR_LABELS),
-            ("담당자 판정",
-             "SELECT decision, COUNT(*) FROM documents GROUP BY decision ORDER BY 2 DESC",
-             DECISION_LABELS),
-            ("문서 유형",
-             "SELECT doc_type, COUNT(*) FROM documents GROUP BY doc_type ORDER BY 2 DESC",
-             DOC_TYPE_LABELS),
-        ]:
-            rows = group(sql, labels)
-            if rows:
-                groups.append({"title": title, "rows": rows})
-        if n_qr_open:
-            groups.append({"title": "품질 리포트",
-                           "rows": [{"label": "미해결", "n": n_qr_open}]})
-        if n_egr:
-            groups.append({"title": "외부 AI 참조 (자동 분류)",
-                           "rows": group(
-                               "SELECT verdict, COUNT(*) FROM egress_requests"
-                               " GROUP BY verdict ORDER BY 2 DESC",
-                               EGRESS_VERDICT_LABELS)})
         conn.close()
-        return {"tiles": tiles, "groups": groups}
-
-    def _run_dev_query(sql: str) -> dict:
-        """읽기 전용 SELECT 1문만, 상한 50행 — 개발자 DB 점검용."""
-        from zzaimy.app.database_backend import connect
-
-        q = sql.strip().rstrip(";")
-        if not q.lower().startswith("select") or ";" in q:
-            return {"error": "SELECT 한 문장만 실행할 수 있습니다."}
-        try:
-            from contextlib import closing
-            with closing(connect(db_path, readonly=True)) as conn:
-                cur = conn.execute(q)
-                cols = [d[0] for d in cur.description or []]
-                rows = [
-                    [str(v)[:200] if v is not None else "" for v in r]
-                    for r in cur.fetchmany(50)
-                ]
-            return {"cols": cols, "rows": rows, "sql": sql}
-        except Exception as e:
-            return {"error": str(e), "sql": sql}
+        return {"tiles": tiles}
 
     def _dev_progress() -> dict:
         """구축 현황 — docs/progress.json 의 기능 상태 목록. 영역별 막대는 기능 상태에서
@@ -237,14 +172,6 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
             for n in names
         ]
 
-    def _intake_snapshot() -> dict | None:
-        try:
-            from zzaimy.app import intake_status
-            return intake_status.snapshot(db)
-        except Exception:
-            logging.getLogger("zzaimy.app.web").exception("반입 현황 조회 실패")
-            return None
-
     _doc_dates: dict[str, str] = {}
 
     def _doc_last_changed(rel: str) -> str:
@@ -304,9 +231,9 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
         return dashboard_state(Path(db_path).parent / "eval")
 
     return SimpleNamespace(
-        dev_read=_dev_read, data_overview=_data_overview, run_dev_query=_run_dev_query, dev_progress=_dev_progress,
+        dev_read=_dev_read, data_overview=_data_overview, dev_progress=_dev_progress,
         dev_doc_list=_dev_doc_list, dev_now=_dev_now, dev_now_parts=_dev_now_parts, paper_labels=_PAPER_LABELS,
-        dev_papers=_dev_papers, intake_snapshot=_intake_snapshot, doc_last_changed=_doc_last_changed,
+        dev_papers=_dev_papers, doc_last_changed=_doc_last_changed,
         reindex_running=_reindex_running, start_reindex=_start_reindex, retrieval_eval_state=_retrieval_eval_state,
     )
 
@@ -375,15 +302,6 @@ def dev_dashboard(request: Request):
     }))
 
 
-@router.get("/dev/api/intake")
-def dev_api_intake(request: Request):
-    """반입 현황(JSON) — 문서 가져오기 화면과 같은 원천(app/intake_status)."""
-    data = request.app.state.overview.intake_snapshot()
-    if data is None:
-        raise HTTPException(500, "반입 현황을 읽지 못했습니다")
-    return data
-
-
 @router.get("/dev/flow", response_class=HTMLResponse)
 def dev_flow(request: Request):
     """처리 흐름 — 원본 수집부터 서빙까지 단계별 설명과 지금 수치(기계 산출물)."""
@@ -394,7 +312,9 @@ def dev_flow(request: Request):
     return st.templates.TemplateResponse(request, "dev_flow.html", st.page_ctx(request, {
         "terms": pf.TERMS, "hosts": pf.HOSTS, "stages": pf.STAGES,
         "cycles": pf.CYCLES, "flow": pf.snapshot(db), "coedit": pf.COEDIT,
-        "coedit_conf": __import__("zzaimy.app.webhwp_coedit", fromlist=["client_conf"]).client_conf(db),
+        "coedit_conf": (_co := __import__("zzaimy.app.webhwp_coedit", fromlist=["client_conf"]).client_conf(db)),
+        "coedit_svgs": [__import__("zzaimy.app.coedit_diagram", fromlist=["field_flow"]).field_flow(_co),
+                        __import__("zzaimy.app.coedit_diagram", fromlist=["aura_flow"]).aura_flow(_co)],
         "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
     }))
 

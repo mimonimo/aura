@@ -112,3 +112,13 @@ def test_system_diagram_file_follows_host_list():
     assert "구글 드라이브·독스" in svg and "준비 중" not in svg and "작업본(협업)" not in svg
     f = Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/topology.svg"
     assert f.read_text(encoding="utf-8").strip() == svg.strip(), "static/topology.svg 를 system_diagram.svg() 로 다시 쓴다(모듈 머리 주석의 명령)"
+
+
+def test_coedit_sequence_figures_use_live_settings(tmp_path):
+    """공동 편집 표 위의 순서 그림 두 장 — 사람이 칸에 칠 때와 AURA 가 절을 쓸 때, 보내기 간격은 운영 설정값."""
+    app, c = _client(tmp_path)
+    page = c.get("/dev/flow").text
+    assert page.count('<figure class="pf-fig"><svg') == 2
+    assert "사람이 칸에 글을 칠 때" in page and "AURA(27B)가 절을 쓸 때" in page and "300ms 마다" in page
+    app.state.db.set_setting("coedit:throttle_ms", "500")
+    assert "500ms 마다" in c.get("/dev/flow").text

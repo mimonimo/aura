@@ -30,6 +30,8 @@
 .pf-link{font-size:12px;margin-top:8px;display:inline-block;}
 .pf-code{font-size:11px;color:var(--faint);margin:6px 0 0;overflow-wrap:anywhere;}
 .pf-cycles{width:100%;font-size:12.5px;border-collapse:collapse;}
+.pf-fig{margin:0 0 14px;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.pf-fig svg{display:block;width:100%;height:auto;}
 .pf-co td{font-size:12px;line-height:1.55;min-width:120px;}
 .pf-cycles td,.pf-cycles th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
 @media(max-width:760px){.pf-stage{grid-template-columns:minmax(0,1fr);}}
@@ -86,6 +88,7 @@
 <div class="card reveal" id="coedit"><div class="card-in">
   <h2><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>공동 편집 처리 방식 — 웹 한글 기안기</h2>
   <p class="pf-lead" style="margin-bottom:10px;">칸 글은 서버 DB 에 먼저 저장돼 다른 창으로 가고, 한글 파일은 몇 초 뒤 그 글로 바뀐다.</p>
+  {% for s in coedit_svgs %}<figure class="pf-fig">{{ s|safe }}</figure>{% endfor %}
   <div class="table-scroll"><table class="pf-cycles pf-co">
     <tr><th>처리 방식</th><th>사용자가 보는 것</th><th>뒤에서 일어나는 일</th><th>걸리는 시간</th><th>동시에 하면</th></tr>
     {% for r in coedit %}<tr><td style="white-space:nowrap;font-weight:600;">{{ r.what }}</td><td>{{ r.see }}</td><td>{{ r.back }}</td><td>{{ r.lag }}</td><td>{{ r.together }}</td></tr>{% endfor %}
