@@ -428,6 +428,7 @@ class HwpTools:
         field = self.resolve(field) or (field if field.startswith(("절:", "칸:", "표")) else "절:" + field)
         if not text:
             return "text 가 비었다."
+        text = ww.drop_heading_echo(text, field)            # 절 머리와 같은 첫 줄은 빼고 넣는다
         why = self.gate(text, by=by)                       # by 는 코드가 정한다(모델 인자로 바꿀 수 없다)
         if why:
             return "쓰지 않았다 — " + why

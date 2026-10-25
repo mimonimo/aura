@@ -514,6 +514,22 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     return out, put
 
 
+def drop_heading_echo(text: str, field: str) -> str:
+    """본문 첫 줄이 절 제목을 그대로 되풀이하면 뺀다 — 제목은 양식의 절 머리에 이미 있다(「2. 성과지표 총괄표」 가 두 번 보이던 것).
+    공백·기호·마크다운 # 를 뺀 글이 같을 때만 — 제목을 바꿔 쓴 줄(○○○○ → 과제 이름)은 그대로 둔다."""
+    def key(s: str) -> str:
+        return re.sub(r"[\s\W_]+", "", s)
+    name = key(field.split(":", 1)[-1])
+    lines = text.split("\n")
+    first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+    if first is None or not name or key(lines[first]) != name:
+        return text
+    rest = lines[first + 1:]
+    while rest and not rest[0].strip():
+        rest.pop(0)
+    return "\n".join(rest) if any(x.strip() for x in rest) else text
+
+
 def parse_body(text: str) -> list[tuple[str, object]]:
     """에이전트가 쓴 절 본문(글 + 마크다운 표 | a | b | + ```도식 블록) → items. 표 구분 줄(|---|)은 버린다."""
     items: list[tuple[str, object]] = []

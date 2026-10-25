@@ -57,3 +57,14 @@ def test_aura_activity_keeps_requester(tmp_path, monkeypatch):
     app, db, hw, secs = _work(tmp_path, monkeypatch)
     hw.write({"field": secs[0], "text": "1) 개요임"})
     assert wa.activity(db, hw.fid()).get("by") == "kim"
+
+
+def test_drop_heading_echo_only_exact_repeat():
+    from zzaimy.app import webhwp_write as ww
+    body = "2. 성과지표 총괄표\n\n<표> 성과지표 총괄표\n| 구분 | 지표 |\n|---|---|\n| 1 | 수료율 |"
+    assert ww.drop_heading_echo(body, "절:2. 성과지표 총괄표").startswith("<표> 성과지표 총괄표")
+    assert ww.drop_heading_echo("## 2. 성과지표  총괄표\n본문", "절:2. 성과지표 총괄표") == "본문"
+    renamed = "1. (추진 과제 1) AI 교육 운영\n가. 과제 개요"                      # 제목을 바꿔 쓴 줄은 둔다
+    assert ww.drop_heading_echo(renamed, "절:1. (추진 과제 1) ○○○○") == renamed
+    assert ww.drop_heading_echo("2. 성과지표 총괄표", "절:2. 성과지표 총괄표") == "2. 성과지표 총괄표"   # 그 줄뿐이면 그대로
+    assert ww.drop_heading_echo("1) 추진 배경\n내용", "절:1. 추진 배경 및 필요성").startswith("1) 추진 배경")
