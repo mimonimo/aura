@@ -126,6 +126,7 @@ def main() -> int:
     if not args.record_dir.is_dir() or not list(args.record_dir.glob("llm-*.jsonl")):
         parser.error("No recorded LLM calls in --record-dir")
     if (args.out.parent != args.held_out.parent or not args.out.parent.is_dir()
+            or args.out.parent.stat().st_uid != os.getuid()
             or stat.S_IMODE(args.out.parent.stat().st_mode) & 0o077):
         parser.error("Both outputs need the same existing owner-only (0700) directory")
     if args.out.exists() or args.held_out.exists() or args.out == args.held_out:
