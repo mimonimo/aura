@@ -212,6 +212,7 @@ def _record(kw: dict, resp) -> None:
         row = {"at": _dt.datetime.now().isoformat(timespec="seconds"), "caller": _caller(), "model": kw.get("model", ""),
                "messages": kw.get("messages"), "tools": kw.get("tools"), "response_format": kw.get("response_format"),
                "max_tokens": kw.get("max_tokens"), "temperature": kw.get("temperature"),
+               "extra_body": kw.get("extra_body"),
                "answer": getattr(msg, "content", None) or "",
                "tool_calls": [tc.model_dump() for tc in (getattr(msg, "tool_calls", None) or []) if hasattr(tc, "model_dump")],
                "finish": getattr(resp.choices[0], "finish_reason", "")}

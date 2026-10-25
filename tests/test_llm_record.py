@@ -14,9 +14,12 @@ def _resp(text):
 
 def test_record_on(tmp_path, monkeypatch):
     monkeypatch.setenv("ZZAIMY_LLM_RECORD", str(tmp_path))
-    gc._record({"model": "m", "messages": [{"role": "user", "content": "안녕"}], "max_tokens": 9}, _resp("반갑습니다"))
+    gc._record({"model": "m", "messages": [{"role": "user", "content": "안녕"}],
+                "max_tokens": 9, "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+               _resp("반갑습니다"))
     rows = [json.loads(x) for f in tmp_path.glob("llm-*.jsonl") for x in f.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1 and rows[0]["answer"] == "반갑습니다" and rows[0]["messages"][0]["content"] == "안녕"
+    assert rows[0]["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
     assert rows[0]["caller"].endswith(".test_record_on")
 
 
