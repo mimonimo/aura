@@ -205,7 +205,7 @@ def test_action_tool_queues_validates_and_reports(tmp_path, monkeypatch):
 
     def answer():                                   # 편집 화면 흉내 — 받은 명령마다 「했다」 를 보고, 표 만들기를 받으면 끝
         import time
-        for _ in range(60):
+        for _ in range(400):                         # 병렬 시험으로 바쁠 때도 넉넉히(예전 3초는 가끔 모자랐다)
             for g in eo.take(db, fid, "kim", runner=2):
                 eo.report(db, fid, g["id"], True, "")
                 if g["action"] == "TableCreate":
@@ -213,7 +213,7 @@ def test_action_tool_queues_validates_and_reports(tmp_path, monkeypatch):
             time.sleep(0.05)
     th = threading.Thread(target=answer)
     th.start()
-    et.LIVE_WAIT = 3
+    et.LIVE_WAIT = 15
     out = et.run("hwp_action", {"action": "TableCreate", "params": {"Rows": 2, "Cols": 3}, "at": {"move": "문서 끝"}})
     th.join()
     assert out.startswith("기안기에서 「표 만들기」 을 했다") and len(eo._cmds(db, fid)["items"]) == n + 1
