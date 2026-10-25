@@ -834,5 +834,5 @@ def test_korean_typing_sends_at_each_commit_and_empty_field_counts():
     assert "hwp.onCommit(function" in c and "collect(); send();" in c
     assert "if (hwp.isComposing()) { send(); flushTimer = setTimeout(flush, 60); return; }" in c
     assert "if (!f && lastEdit.f && now() - lastEdit.at < 5000) f = lastEdit.f;" in c
-    # 쉬었다가 칸 글을 골라 한꺼번에 지운 때 — 마지막 커서 칸의 글이 실제로 바뀌었을 때만 그 칸 고침(칸 밖 고침을 칸 고침으로 잘못 잡지 않게)
-    assert "if (f) lastCaret = {f: f, at: now()};" in c and "norm(cur) !== was.text) f = lastCaret.f;" in c
+    # 기안기는 빈 글 넣기를 무시한다 — 남이 칸을 비우면 칸 글을 골라 지운다
+    assert "if (!t) { var cur = read(name); if (!cur) return true; if (applyDelta(name, cur, 0, cur.length, '') && !read(name)) return true; }" in w

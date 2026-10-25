@@ -39,7 +39,10 @@
       return out;
     }
     function write(name, text) {
-      try { ctrl.PutFieldText(name, nl(text).replace(/\n/g, '\r\n')); return true; } catch (e) { return false; }
+      var t = nl(text);
+      // 기안기는 빈 글 넣기(PutFieldText "")를 말없이 무시한다(실측 — 남이 칸을 비워도 내 화면엔 옛 글이 남았다). 빈 글은 칸 글을 골라 지운다
+      if (!t) { var cur = read(name); if (!cur) return true; if (applyDelta(name, cur, 0, cur.length, '') && !read(name)) return true; }
+      try { ctrl.PutFieldText(name, t.replace(/\n/g, '\r\n')); return true; } catch (e) { return false; }
     }
     // 칸 안 일부만 고치기 — text0(지금 칸 글, \n 줄바꿈)에서 at 부터 del 글자를 지우고 ins 를 넣는다(UTF-16 자리).
     // 칸 처음 자리(MoveToField)에서 문단·자리를 세어 SelectText+Delete, SetPos+InsertText(줄바꿈은 \r\n — 문단 나눔)로.

@@ -80,7 +80,6 @@
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
     var lastEdit = {f: "", at: 0};                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
-    var lastCaret = {f: "", at: 0};                       // 마지막으로 커서가 있던 칸 — 칸을 비워 커서 칸 이름이 빈 글로 올 때 쓴다
     var inbox = {}, applyTimer = null, applying = false;
     var online = true, retryTimer = null, retryMs = 1000, es = null, lastId = 0, readonly = !!o.readonly;
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
@@ -364,7 +363,6 @@
     function checkCaret() {
       if (!started || hwp.isProbing() || hwp.isComposing()) return;
       var f = hwp.currentField();
-      if (f) lastCaret = {f: f, at: now()};
       if (f === curField) return;
       var prev = curField;
       curField = f;
@@ -580,11 +578,6 @@
         // 칸을 끝까지 지워 비우면 커서가 칸 경계에 걸려 기안기가 칸 이름을 빈 글로 준다 — 방금 고치던 칸의 고침으로 본다
         // (전에는 칸 밖 고침으로 잡혀 30초 지문 대조 때에야 다른 화면에서 지워졌다)
         if (!f && lastEdit.f && now() - lastEdit.at < 5000) f = lastEdit.f;
-        // 한참 쉬었다가 칸 글을 골라 한꺼번에 지운 때도 같다(Shift+Home → Delete) — 마지막으로 커서가 있던 칸의 글이 실제로 바뀌었으면 그 칸 고침
-        if (!f && !(ev && ev.composing) && lastCaret.f && fieldSet[lastCaret.f] && now() - lastCaret.at < 120000) {
-          var was = outbox[lastCaret.f] || known[lastCaret.f], cur = hwp.read(lastCaret.f);
-          if (was && cur !== null && norm(cur) !== was.text) f = lastCaret.f;
-        }
         if (f !== curField && !(ev && ev.composing)) checkCaret();      // 커서 칸이 바뀐 것을 먼저 반영(앞 칸을 놓고 이 칸을 잡게)
         if (!f || !fieldSet[f]) { emit('outside-edit'); return; }
         if (heldByOther(f)) return;
