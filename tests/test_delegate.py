@@ -110,6 +110,8 @@ def test_main_long_write_rejected_when_context_low(tmp_path, monkeypatch):
     assert out.startswith("쓰지 않았다") and "delegate_section" in out
     assert hw.write({"field": secs[0], "text": "1) 짧은 본문임"}).startswith("「")      # 짧은 본문은 직접
     assert any("문맥: 남은 약 26%" in line for line in hw.state_lines())
+    st = "\n".join(hw.state_lines())                                      # 빈 절 수는 범위가 아니다 — 절 하나 요청은 그 절만
+    assert "절 하나·특정 절만 부탁했으면 그 절만" in st and "빈 절을 묶어 맡기는 것이 낫다" not in st
     hw.delegating = False                                                   # 맡기기 꺼짐 — 관문 없음, 상태 글에도 없음
     assert hw.write({"field": secs[0], "text": long_text}).startswith("「")
     assert not any("절 맡기기" in line for line in hw.state_lines())

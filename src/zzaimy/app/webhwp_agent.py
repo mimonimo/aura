@@ -263,7 +263,10 @@ class HwpTools:
             low = hr is not None and hr[0] < 0.5
             out.append(f"동시 맡기기: 서로 다른 빈 절을 sections 로 묶어 한 번에 {self.delegate_cap}개까지 맡기면 동시에 쓴다(한 걸음에 여러 절)."
                        + (f" 지금 빈 절 {len(empty)}개" + (" · 남은 문맥이 절반 아래" if low else "")
-                          + " — 직접 하나씩 쓰면 이번 요청의 단계·문맥 안에 다 못 쓴다. 빈 절을 묶어 맡기는 것이 낫다." if len(empty) >= 4 or low else ""))
+                          + " — 요청이 여러 절이나 문서 전체를 채우는 일이면, 직접 하나씩 쓰면 이번 요청의 단계·문맥 안에 다 못 쓰니 묶어 맡기는 것이 낫다."
+                          if len(empty) >= 4 or low else ""))
+        # 빈 절 수는 판단 재료일 뿐 할 일의 범위가 아니다 — 범위는 담당자 요청이 정한다(「절 하나」를 문서 전체 채우기로 넓히지 않게)
+        out.append("범위: 담당자가 절 하나·특정 절만 부탁했으면 그 절만 쓰고 끝내며, 남은 빈 절은 답에 「이어 쓸까요」로만 알린다.")
         return out
 
     def step_budget(self) -> int:
