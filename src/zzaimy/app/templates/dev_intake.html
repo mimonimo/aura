@@ -81,14 +81,14 @@
 </div></section>
 
 <section class="card"><div class="card-in">
-  <h2>라이브러리 다음 단계</h2>
+  <h2>라이브러리 다음 단계 <span class="muted" style="font-weight:400;font-size:12px;">점검 {{ p.at }} 기준</span></h2>
   <table class="ik-table">
-    <tr><td>{{ metric_label("audit_graph_doc_nodes", p.at) }}</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
-    <tr><td>{{ metric_label("audit_grant_chunks", p.at) }}</td><td class="n">{{ "{:,}".format(p.grant_chunks) }}</td></tr>
-    <tr><td>{{ metric_label("audit_embedding_index", p.at) }}</td><td class="n">{{ "{:,}".format(p.embedding_index) }}</td></tr>
-    <tr><td>{{ metric_label("audit_lexical_index", p.at) }}</td><td class="n">{{ "{:,}".format(p.lexical_index) }}</td></tr>
+    <tr><td>{{ metric_label("audit_graph_doc_nodes", p.at, "그래프 문서 노드") }}</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
+    <tr><td>{{ metric_label("audit_grant_chunks", p.at, "사업 문서 조각") }}</td><td class="n">{{ "{:,}".format(p.grant_chunks) }}</td></tr>
+    <tr><td>{{ metric_label("audit_embedding_index", p.at, "임베딩 색인 조각") }}</td><td class="n">{{ "{:,}".format(p.embedding_index) }}</td></tr>
+    <tr><td>{{ metric_label("audit_lexical_index", p.at, "어휘 색인 조각") }}</td><td class="n">{{ "{:,}".format(p.lexical_index) }}</td></tr>
     <tr><td>멈춘 문서(1시간 넘게 처리 중)</td><td class="n">{{ "{:,}".format(p.stuck_docs) }}</td></tr>
-    <tr><td>{{ metric_label("audit_graph_docs", p.at) }}</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
+    <tr><td>{{ metric_label("audit_graph_docs", p.at, "그래프 대상 사업 문서") }}</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
     {% set gsum = p.sync_text.get("graph", "") %}
     {% if gsum %}<tr><td>마지막 그래프 작업({{ (p.sync.get("graph") or {}).get("at", "") }})</td><td class="n">{{ gsum }}</td></tr>{% endif %}
   </table>
