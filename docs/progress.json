@@ -320,10 +320,6 @@
     {
      "label": "결정 ADR-0069",
      "href": "/dev/doc/decisions/0069-sft-model-compare.md"
-    },
-    {
-     "label": "모델 비교",
-     "href": "/dev/models/compare"
     }
    ]
   },
