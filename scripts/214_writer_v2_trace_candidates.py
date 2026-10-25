@@ -20,11 +20,22 @@ def _candidate(row: dict) -> tuple[dict | None, str]:
     if not caller.startswith(("zzaimy.app.doc_agent.", "zzaimy.app.chat_memory.",
                               "zzaimy.app.responder.", "zzaimy.app.delegate.")):
         return None, "unrelated_caller"
+    # The main responder reply streams and is not recorded here. A recorded
+    # responder call is therefore a fallback or a continuation, not a sample
+    # of ordinary replies. Keep it out until stream capture is complete.
+    if caller.startswith("zzaimy.app.responder."):
+        return None, "incomplete_reply_capture"
+    if caller in {"zzaimy.app.delegate._queries", "zzaimy.app.delegate._check"}:
+        return None, "auxiliary_delegate_call"
     if row.get("model") != "zzaimy-writer":
         return None, "wrong_model"
     if (row.get("kind") != "vllm" or row.get("external") is not False
             or not isinstance(row.get("connection_id"), str) or not row["connection_id"]):
         return None, "unverified_connection"
+    if row.get("attempt") != 1:
+        return None, "retry_response"
+    if row.get("reasoning_present") is not False:
+        return None, "reasoning_trace"
     body = row.get("extra_body")
     if not isinstance(body, dict):
         return None, "unrecorded_thinking_mode"
@@ -48,6 +59,8 @@ def _candidate(row: dict) -> tuple[dict | None, str]:
     tool_calls = row.get("tool_calls") or []
     if not isinstance(answer, str) or not isinstance(tool_calls, list):
         return None, "invalid_answer"
+    if "<think" in answer.lower() or "</think>" in answer.lower():
+        return None, "reasoning_trace"
     if not answer.strip() and not tool_calls:
         return None, "empty_answer"
     if row.get("finish") not in ({"stop", "tool_calls"} if tool_calls else {"stop"}):
@@ -55,7 +68,9 @@ def _candidate(row: dict) -> tuple[dict | None, str]:
     assistant = {"role": "assistant", "content": answer}
     if tool_calls:
         assistant["tool_calls"] = tool_calls
-    pair = {"messages": [*messages, assistant], "caller": caller,
+    # Deliberately not named "messages": the SFT runner can read that key
+    # directly without checking review status. Promotion must be explicit.
+    pair = {"trace_messages": [*messages, assistant], "caller": caller,
             "request": {key: row.get(key) for key in (
                 "model", "connection_id", "tools", "response_format", "max_tokens",
                 "temperature", "extra_body", "attempt", "asked_max_tokens")},
@@ -95,7 +110,7 @@ def collect(folder: Path) -> tuple[list[dict], list[dict], Counter]:
                                      "record": row})
                     continue
                 fingerprint = hashlib.sha256(json.dumps(
-                    {"messages": pair["messages"], "request": pair["request"]},
+                    {"messages": pair["trace_messages"], "request": pair["request"]},
                     ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
                 if fingerprint in seen:
                     counts["duplicate"] += 1

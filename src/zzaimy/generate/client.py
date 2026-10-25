@@ -209,9 +209,15 @@ def _record(kw: dict, resp, *, connection_id: str = "", kind: str = "", external
         import datetime as _dt
         import json as _json
         msg = resp.choices[0].message
+        extra = getattr(msg, "model_extra", None)
+        reasoning_present = bool(
+            getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
+            or (extra.get("reasoning_content") if isinstance(extra, dict) else None)
+        )
         row = {"at": _dt.datetime.now().isoformat(timespec="seconds"), "caller": _caller(), "model": kw.get("model", ""),
                "connection_id": connection_id, "kind": kind, "external": external,
                "attempt": attempt, "asked_max_tokens": asked_max_tokens,
+               "reasoning_present": reasoning_present,
                "messages": kw.get("messages"), "tools": kw.get("tools"), "response_format": kw.get("response_format"),
                "max_tokens": kw.get("max_tokens"), "temperature": kw.get("temperature"),
                "extra_body": kw.get("extra_body"),

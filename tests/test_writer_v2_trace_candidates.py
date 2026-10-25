@@ -23,6 +23,7 @@ def _row(**updates):
                         {"role": "user", "content": "초안을 작성해 줘"}],
            "tools": [{"type": "function", "function": {"name": "write_section"}}],
            "response_format": {"type": "json_object"}, "max_tokens": 256,
+           "attempt": 1, "reasoning_present": False,
            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
            "answer": '{"step":"write"}', "finish": "stop"}
     row.update(updates)
@@ -34,7 +35,8 @@ def test_preserves_real_request_and_answer_as_unapproved_candidate(monkeypatch):
     pair, reason = collector._candidate(_row())
     assert reason == "accepted_for_review"
     assert pair["status"] == "review_pending"
-    assert pair["messages"][-1] == {"role": "assistant", "content": '{"step":"write"}'}
+    assert "messages" not in pair
+    assert pair["trace_messages"][-1] == {"role": "assistant", "content": '{"step":"write"}'}
     assert pair["request"]["tools"][0]["function"]["name"] == "write_section"
     assert pair["request"]["response_format"] == {"type": "json_object"}
     assert pair["request"]["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
@@ -51,6 +53,12 @@ def test_rejects_empty_truncated_and_unrelated_calls(monkeypatch):
     assert collector._candidate(_row(extra_body={"chat_template_kwargs": {"enable_thinking": True}}))[1] == "thinking_enabled"
     assert collector._candidate(_row(extra_body=None))[1] == "unrecorded_thinking_mode"
     assert collector._candidate(_row(extra_body={}))[1] == "thinking_enabled"
+    assert collector._candidate(_row(attempt=2))[1] == "retry_response"
+    assert collector._candidate(_row(reasoning_present=True))[1] == "reasoning_trace"
+    assert collector._candidate(_row(reasoning_present=None))[1] == "reasoning_trace"
+    assert collector._candidate(_row(answer="<think>분석</think>답"))[1] == "reasoning_trace"
+    assert collector._candidate(_row(caller="zzaimy.app.responder.answer"))[1] == "incomplete_reply_capture"
+    assert collector._candidate(_row(caller="zzaimy.app.delegate._check"))[1] == "auxiliary_delegate_call"
 
 
 def test_keeps_tool_call_completion(monkeypatch):
@@ -59,7 +67,7 @@ def test_keeps_tool_call_completion(monkeypatch):
         "name": "write_section", "arguments": '{"section":"개요"}'}}
     pair, reason = collector._candidate(_row(answer="", tool_calls=[call], finish="tool_calls"))
     assert reason == "accepted_for_review"
-    assert pair["messages"][-1]["tool_calls"] == [call]
+    assert pair["trace_messages"][-1]["tool_calls"] == [call]
 
 
 def test_collect_deduplicates_and_keeps_trace(monkeypatch, tmp_path):

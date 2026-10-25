@@ -21,6 +21,7 @@ def test_record_on(tmp_path, monkeypatch):
     rows = [json.loads(x) for f in tmp_path.glob("llm-*.jsonl") for x in f.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1 and rows[0]["answer"] == "반갑습니다" and rows[0]["messages"][0]["content"] == "안녕"
     assert rows[0]["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+    assert rows[0]["reasoning_present"] is False
     assert rows[0]["caller"].endswith(".test_record_on")
     assert stat.S_IMODE(next(tmp_path.glob("llm-*.jsonl")).stat().st_mode) == 0o600
 
@@ -59,6 +60,15 @@ def test_record_off(tmp_path, monkeypatch):
     monkeypatch.delenv("ZZAIMY_LLM_RECORD", raising=False)
     gc._record({"model": "m", "messages": []}, _resp("x"))
     assert not list(tmp_path.iterdir())
+
+
+def test_record_marks_observed_reasoning(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZZAIMY_LLM_RECORD", str(tmp_path))
+    resp = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+        content="최종 답", reasoning_content="내부 추론", tool_calls=None), finish_reason="stop")])
+    gc._record({"model": "m", "messages": []}, resp)
+    row = json.loads(next(tmp_path.glob("llm-*.jsonl")).read_text(encoding="utf-8"))
+    assert row["reasoning_present"] is True
 
 
 def test_record_keeps_only_final_retry_response(tmp_path, monkeypatch):
@@ -101,5 +111,6 @@ def test_record_keeps_only_final_retry_response(tmp_path, monkeypatch):
     assert rows[0]["max_tokens"] == calls[1]
     assert rows[0]["asked_max_tokens"] == 64
     assert rows[0]["attempt"] == 2
+    assert rows[0]["reasoning_present"] is False
     assert rows[0]["connection_id"] == "internal-writer"
     assert rows[0]["external"] is False
