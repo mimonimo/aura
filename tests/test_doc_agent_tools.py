@@ -262,7 +262,8 @@ def test_documents_outside_scope_are_hidden_from_agent_and_fallback(tmp_path, mo
         return orig(**kw)
     fake.client.chat.completions.create = spy
     client.post("/chat/send", data={"question": "지역혁신 작성서식으로 작업하자", "session_id": str(sid)}, follow_redirects=False)
-    assert seen and not any("지역혁신 작성서식" in t.split("[담당자 요청]")[0] for t in seen)   # 상태에 제목이 없다
+    steps = [t for t in seen if "[담당자 요청]" in t]          # 에이전트 걸음 요청만 — 답 뒤 배경의 작업 메모 갱신 호출은 대화 원문을 담는다(병렬 시험에서 먼저 잡히던 것)
+    assert steps and not any("지역혁신 작성서식" in t.split("[담당자 요청]")[0] for t in steps)   # 상태에 제목이 없다
     assert copied == []
     assert app.state.project_doc_named(db.get_project(pid), sid, "지역혁신 작성서식으로 작업하자") is None
 
