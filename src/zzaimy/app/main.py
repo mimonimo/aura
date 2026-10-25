@@ -1345,9 +1345,7 @@ def create_app(
             _units_cache.update(at=_t.time(), v=_archive.business_units(db))
         return _units_cache["v"]
 
-    templates.env.globals["project_unit_options"] = _business_units
-    # 문서 흐름(원본 → 처리 대상 → 라이브러리 → 검색) — 개발 현황·문서 반입이 같은 수·같은 이름(_doc_flow.html)
-    templates.env.globals["doc_flow"] = lambda: __import__("zzaimy.app.metrics", fromlist=["flow"]).flow(db)   # 사이드바의 프로젝트 추가 창(_project_modal.html)
+    templates.env.globals["project_unit_options"] = _business_units   # 사이드바의 프로젝트 추가 창(_project_modal.html)
 
     def _criteria_docs(request: Request | None = None) -> list[dict]:
         counts = db.regulation_chunk_counts()
@@ -4287,8 +4285,6 @@ def create_app(
     templates.env.filters["particles"] = _ko.attach_particles      # 「제목」 을 → 「제목」을 — 옛 답변도 화면에서 바로잡는다
     templates.env.filters["chat_title"] = _chat_title              # 대화 제목 — 전각→반각, 프로젝트 안에서는 접두어 생략
 
-    _CORPUS_DB = _paths.corpus_db_existing(Path(db_path).parent)
-
     @app.post("/account/password")
     def account_password(
         request: Request, current_pw: str = Form(""), new_pw: str = Form(...),
@@ -4517,7 +4513,7 @@ def create_app(
             db.add_chat(sid, "assistant", "적용됨:\n" + "\n".join(f"- {ln}" for ln in lines))
         return {"ok": True, "applied": lines}
 
-    # 개발 현황(/dev·/dev/api/intake·/dev/flow·/dev/db·/dev/quality*·/dev/eval/*·/dev/reindex·/dev/route-all) — 독립 라우터
+    # 개발 현황(/dev·/dev/flow·/dev/db·/dev/quality*·/dev/eval/*·/dev/reindex·/dev/route-all) — 독립 라우터
     # (app/dev_overview_routes). 개발 현황 도우미 묶음(_ov)은 앱마다 만들고 문서·보고·RAG 공간 라우터와 자동 재색인이 함께 쓴다.
     # 구글 드라이브 연결(/dev/gdrive/*) — 독립 라우터(app/dev_gdrive_routes)
     from zzaimy.app import dev_gdrive_routes, dev_overview_routes
@@ -4561,18 +4557,16 @@ def create_app(
     app.state.llm_redirect = dev_data_routes._llm_redirect
     app.state.ls_client = _ls.ls_client
     app.state.ls_status = _ls.ls_status
-    app.state.ls_status_reset = _ls.ls_status_reset
     app.state.grounded_cache = _ls.grounded_cache
     app.state.grounded_ls_status = _ls.grounded_ls_status
     app.state.grounded_status_note = dev_data_routes._grounded_status_note
-    app.state.dev_slow = dev_train_routes.make_dev_slow()
     app.include_router(dev_data_routes.router)
     app.include_router(dev_train_routes.router)
     app.state.all_depts = lambda: _all_depts()     # 부서 목록 — 아래(라이브러리 폴더)에서 정의되므로 부를 때 찾는다
     app.state.reindex_running = _ov.reindex_running
     app.include_router(dev_rag_routes.router)
     app.include_router(dev_pii_routes.router)
-    # 문서 반입(/dev/intake*·/dev/nas*) — 독립 라우터(app/dev_intake_routes). 문서·보고(/dev/docs·/dev/doc/·/dev/paper·
+    # 문서 반입(/dev/intake*) — 독립 라우터(app/dev_intake_routes). 문서·보고(/dev/docs·/dev/doc/·/dev/paper·
     # /dev/history·/dev/weekly*) — 독립 라우터(app/dev_docs_routes). 개발 현황 묶음(_ov)의 문서 도우미를 넘긴다
     from zzaimy.app import dev_docs_routes, dev_intake_routes
     app.state.db_path = db_path

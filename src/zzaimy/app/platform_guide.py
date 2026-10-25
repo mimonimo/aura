@@ -127,7 +127,7 @@ PAGES: tuple[Page, ...] = (
                 ("추가 부서", "교직원 계정에 소속 부서 말고 더 주는 부서 — 그 부서 문서도 찾고 작업한다. 사용자 편집 창이나 「계정별 추가 권한」에서 정한다."))),
     Page("/graph/explore", "kg_explore.html", "그래프 탐색 — 사업·연차·문서·절 사이 관계(지식그래프)와 온톨로지를 그림으로 본다.",
          buttons=("지식그래프", "온톨로지", "전체 보기")),
-    Page("/dev/train", "dev_data.html", "데이터·학습 — 학습 문답 검수(Label Studio), 데이터 묶음 이력, DGX 학습셋과 학습 상태."),
+    Page("/dev/train", "dev_data.html", "데이터·학습 — 학습 문답 검수(Label Studio), DGX 학습셋과 학습 상태·TensorBoard."),
     Page("/dev/tools", "dev_tools.html", "도구·모델 연결 — 학습 도구 주소·계정, LLM 연결과 단계별 모델, 외부 연결(웹 검색 제공자).",
          (Task("모델 서버 연결 확인", "LLM 연결 카드의 「연결 확인」"),
           Task("문서 작업 기본 서버 바꾸기", "LLM 연결 카드의 「기본 서버로 지정」"))),

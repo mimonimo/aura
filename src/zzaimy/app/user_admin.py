@@ -10,7 +10,8 @@
 - 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): GET /dev/users, POST /dev/users/save(역할·교직원 등급·부서 —
   등급과 관리자 상한은 grades, ADR-0066),
   POST /dev/google/{settings,dept,revoke}, POST /dev/users/dept(부서 만들기·지우기·사전에서 여러 개 만들기 create_many),
-  POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary). 계정의 겸직 부서는
+  POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary). 화면에서 부서 만들기·옮기기는
+  조직도(/team) 한 곳이고(10-25), 화면에 남은 쪽은 부서 지우기뿐이다(만들기·상위 부서 경로는 JSON 호출용으로 둔다). 계정의 겸직 부서는
   줄마다 부서 + 그 부서에서의 등급(rag grants dept: 와 account["dept_grades"] 를 함께 맞춘다)
 - 조직·구성원: GET /team(구성원 — 등급·추가 권한), GET /team?tab=org(조직도 — 자료·고치기는 org_routes, 이 라우터에 함께 붙는다)
 
@@ -233,11 +234,6 @@ def dict_candidates(st, existing: list[str]) -> dict:
     labels = {x: d.line(x) for x in existing if d.normalize(x)}
     return {"dict_ready": bool(d.units), "dict_create": [d.view(d.by_name[n]) for n in plan["create"]],
             "dict_skipped": len(plan["skip"]), "dept_labels": labels}
-
-
-@router.get("/dev/google")
-def dev_google_moved():
-    return RedirectResponse("/dev/users", status_code=301)
 
 
 @router.post("/dev/users/save")

@@ -41,7 +41,7 @@ def test_settings_reuses_connection_probe(client, monkeypatch):
     def duplicate_probe(*args, **kwargs):
         raise AssertionError('default connection must reuse existing probe')
     monkeypatch.setattr(model_config, 'probe', duplicate_probe)
-    response = client.get('/dev/train?tab=settings')
+    response = client.get('/dev/tools')
     assert response.status_code == 200
     assert calls.count(conn['id']) == 1
 
@@ -53,7 +53,7 @@ def test_overview_uses_responsive_roles(client):
     assert '<img src="/static/topology.svg"' not in response.text
 
 
-@pytest.mark.parametrize('path', ['/dev/train', '/dev/train?tab=data', '/dev/data'])
+@pytest.mark.parametrize('path', ['/dev/train', '/dev/train?tab=data'])
 def test_training_navigation_does_not_scan_hidden_legacy_documents(client, monkeypatch, path):
     from zzaimy.dataset import build
     def forbidden(*args, **kwargs):
@@ -69,16 +69,6 @@ def test_training_navigation_does_not_scan_hidden_legacy_documents(client, monke
     assert '근거 설명(rationale)은 현재 학습 출력에 포함되지 않습니다' in response.text
     for field in ('program', 'history', 'question', 'answer', 'evidence', 'source', 'kind'):
         assert field in response.text
-
-
-def test_training_legacy_keeps_requested_previews(client, monkeypatch):
-    from zzaimy.dataset import build
-    calls = []
-    monkeypatch.setattr(build, 'rag_status', lambda db: calls.append('rag') or [])
-    monkeypatch.setattr(build, 'preview_sources', lambda db: calls.append('source') or [])
-    response = client.get('/dev/train?view=legacy')
-    assert response.status_code == 200
-    assert sorted(calls) == ['rag', 'source']
 
 
 def test_design_doc_has_no_export_buttons(client):
@@ -119,8 +109,6 @@ def test_dev_dashboard_labels(client):
     assert "측정 기록·모델 카드" not in d
     hpage = client.get("/dev/history").text
     assert "전체 변경 목록" in hpage and "/dev/docs#weekly" in hpage     # 주간 보고서는 논문 자료 칸으로
-    r2 = client.get("/dev/pii?view=external")
-    assert r2.status_code == 200 and "외부 참조 AI · 구독 연결 확인" in r2.text
     assert '>문서 추출</h2>' not in r.text
     assert '>문서 가져오기</h2>' not in r.text
     assert 'href="/dev/egress"' not in r.text
@@ -131,8 +119,6 @@ def test_developer_work_pages_have_actions_not_duplicate_plans(client):
     assert '완료한 검수 결과 반영' in page
     assert 'action="/dev/data/grounded-review-config"' not in page
     assert 'id="datasetBuildForm"' not in page and '<details' not in page
-    legacy = client.get('/dev/train?tab=data&view=legacy').text
-    assert 'id="datasetBuildForm"' in legacy and '데이터 묶음 이력' in legacy
     settings = client.get('/dev/train?tab=settings').text
     assert 'action="/dev/data/grounded-review-config"' not in settings
     for url in ['/dev/docs', '/dev/quality', '/dev/pii']:
@@ -141,12 +127,8 @@ def test_developer_work_pages_have_actions_not_duplicate_plans(client):
 
 
 def test_privacy_tabs_and_subscription_check(client, monkeypatch):
-    from zzaimy.app import subscription_status
-    monkeypatch.setattr(subscription_status, 'probe', lambda p: {'provider': p, 'installed': False, 'state': 'missing'})
-    response = client.post('/dev/pii/subscriptions/check')
+    response = client.get('/dev/tools')
     assert response.status_code == 200
-    assert 'CLI 미설치' in response.text
-    assert '아스트라 · Codex' in response.text and 'Claude Code' in response.text
     assert '기존 외부 API' not in response.text
     assert 'API 호출 미사용' not in response.text
     assert 'action="/dev/egress/submit"' not in response.text
@@ -173,7 +155,7 @@ def test_export_selection_is_honored(client):
 
 
 def test_train_page_holds_tool_accounts_once(client):
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert "toolModal-labelstudio" in page and "/dev/accounts" not in page
     # 비밀번호는 같은 창 안에서 화면만 바꿔 받는다 — 접이식(details)으로 펼치지 않는다
     assert "비밀번호 변경" in page and "data-pw-open" in page and "<details" not in page
@@ -352,7 +334,7 @@ def test_connection_page_shows_what_is_in_use_without_popups(client, monkeypatch
     lc.activate(conn["id"])
     monkeypatch.setattr(app_main, "_live_models_cached", lambda cid, ttl=0: {
         "ok": True, "models": [{"id": "qwen3.8:27b"}, {"id": "qwen3.6:35b"}], "error": ""})
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     # 서버가 지금 내어 주는 모델을 고를 수 있다 — 어제 받은 모델이 안 보이던 문제
     assert "qwen3.8:27b" in page
     # 연결(서버) 관리와 단계별 모델 선택은 나뉘어 있다
@@ -377,7 +359,7 @@ def test_search_stages_show_where_they_run_not_a_picker(client, monkeypatch):
     assert got["embed"]["remote"] and got["embed"]["model"] == "KURE-v1"
     assert "<토르03 주소>:8014" in got["embed"]["where"]
     assert not got["rerank"]["remote"] and "VM" in got["rerank"]["where"]
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     # 계획서 모델 4종이 지금 어디서 도는지 한 표에서 보인다
     assert "계획 모델과 현재 서빙 연결" in page and "②ZZAIMY-Rerank" in page and "계획 KURE-v1" in page
     # 쓰이지 않는 단계를 고르게 두지 않는다 — 학습 서버 지정 칸은 없다
@@ -398,7 +380,7 @@ def test_stage_models_save_once_atomically(client, monkeypatch, tmp_path):
     monkeypatch.setattr(app_main, "_live_models_cached", lambda cid, ttl=0: {
         "ok": True, "models": [{"id": "qwen3.8:27b"}, {"id": "qwen3.6:35b"}], "error": ""})
 
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert 'action="/dev/llm/roles"' in page and 'id="useSave"' in page
     assert page.count('name="role"') == len(lc.ROLES)      # 단계마다 한 줄, 저장 버튼은 하나
     # 고르는 칸은 선택창이 아니라 칩이다 — 목록이 OS 팝업으로 떠 스크롤을 가로채지 않게

@@ -23,7 +23,6 @@ data/
       index/chunk_embeddings.npz(.meta.json), doc_vectors.npz, question_embeddings.npz
       eval/retrieval-*.json, llm-rerank-*                      검색 품질 측정
       exports/<날짜-시각>/manifest.json, documents.jsonl, chunks.jsonl, entities.jsonl, doc_entities.jsonl, embeddings.npz
-      corpus_pilot/                                              옛 국고 파일럿(참고)
     cache/lines, pagecache, restored  재생성 가능. 지워도 된다
     backup/                          DB·조각·색인 백업, inbox-leftover
   train/                             3층 모델 — DGX 의 ~/zzaimy/train 과 같은 모양

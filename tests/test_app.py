@@ -986,12 +986,6 @@ def test_searchable_pdf_export(client, tmp_path):
     assert "입찰 공고" in text and "검색가능텍스트" in text  # 보이지 않는 레이어가 검색됨
 
 
-def test_dev_egress_page_renders(client):
-    r = client.get("/dev/pii?view=external")
-    assert r.status_code == 200
-    assert "외부 참조 AI · 구독 연결 확인" in r.text
-
-
 @pytest.mark.parametrize("path", [
     "/dev/egress/submit", "/dev/egress/tokenized", "/dev/egress/1/decide",
     "/dev/egress/1/retry", "/dev/egress/enable", "/dev/egress/disable",
@@ -1056,15 +1050,11 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
         masked_text="예산 1,000천원 편성. " + "상세 내용. " * 10,
         ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
     )
-    r = client.get("/dev/data")
+    r = client.get("/dev/train")
     assert r.status_code == 200 and "데이터·학습" in r.text
-
-    r = client.post(
-        "/dev/data/build",
-        data={"name": "t1", "sources": ["review"]},
-        follow_redirects=False,
-    )
-    assert r.status_code == 303
+    # 화면의 기록 기반 후보 생성(/dev/data/build)은 10-25 에 지웠다 — 후보 묶음은 변환기로 직접 만들어 내려받기 가드만 본다
+    from zzaimy.dataset.build import export_dataset
+    export_dataset(db, ["review"], "t1")
     ds = db.list_datasets()[0]
     assert ds["n_pairs"] == 1
 
@@ -1083,10 +1073,11 @@ def test_md_view_renders_code_fence_not_raw(client):
 
 
 def test_dev_train_page_and_url_save(client):
-    """모델 학습 도구 연결 — 주소 저장, 잘못된 주소 거부."""
-    r = client.get("/dev/train?tab=settings")
+    """모델 학습 도구 연결 — 주소 저장, 잘못된 주소 거부. TensorBoard 는 데이터·학습 화면 한 곳(10-25)."""
+    r = client.get("/dev/tools")
     assert r.status_code == 200
-    assert "Label Studio" in r.text and "TensorBoard" in r.text
+    assert "Label Studio" in r.text and "TensorBoard" not in r.text
+    assert "TensorBoard" in client.get("/dev/train").text
 
     r = client.post("/dev/train/url",
                     data={"setting": "tensorboard_url",
@@ -1145,13 +1136,13 @@ def test_llm_connections_manage_and_apply(client, monkeypatch, tmp_path):
 
     lc.configure(tmp_path / "llm_connections.json"); model_config.set_override("", ""); model_config.reset_status_cache()
     monkeypatch.setattr(model_config, "probe", lambda base_url=None, timeout=3.0: {"ok": True, "models": ["qwen-a"], "error": ""})
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert "LLM 연결" in page and 'action="/dev/llm/add"' in page and "등록된 서버가 없습니다" in page
     # 내부 연결 추가 → 동의 없이 기본 지정
     r = client.post("/dev/llm/add", data={"name": "교내 GPU", "kind": "vllm", "base_url": "http://gpu:8000/v1", "model": "", "api_key": ""}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     cid = lc.list_public()[0]["id"]
-    assert client.post(f"/dev/llm/{cid}/activate", follow_redirects=False).headers["location"].startswith("/dev/train?tab=settings&ok=")
+    assert client.post(f"/dev/llm/{cid}/activate", follow_redirects=False).headers["location"].startswith("/dev/tools?ok=")
     cfg = model_config.current()
     assert cfg["base_url"] == "http://gpu:8000/v1" and cfg["kind"] == "vllm" and not cfg["external"]
     # 외부 기관 GPU 서버: https 강제, 키는 화면에 끝 4자리만, 기관 승인 확인 없이는 문서 작업 기본 지정 거부
@@ -1160,7 +1151,7 @@ def test_llm_connections_manage_and_apply(client, monkeypatch, tmp_path):
     client.post("/dev/llm/add", data={"name": "외부 기관", "kind": "partner", "base_url": "https://llm.partner.ac.kr/v1", "model": "gpt-x", "api_key": "sk-secret-1234"})
     ext = [c for c in lc.list_public() if c["name"] == "외부 기관"][0]
     assert ext["kind_label"] == "외부 GPU 서버" and ext["api_key_masked"] == "…1234"
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert "sk-secret-1234" not in page and "…1234" in page and "외부 참조 전용" not in page and f"llmAct-{ext['id']}" in page
     assert "err=" in client.post(f"/dev/llm/{ext['id']}/activate", follow_redirects=False).headers["location"]
     assert model_config.current()["base_url"] == "http://gpu:8000/v1"                 # 문서 작업은 아직 교내
@@ -1229,7 +1220,7 @@ def test_connection_screen_uses_only_live_models(client, monkeypatch, tmp_path):
     assert [m["id"] for m in got["models"]] == ["exaone-4.0-32b", "ax-3.1"]
     r = lc.refresh_models(lc.get(conn["id"]))
     assert r["ok"] and [m["id"] for m in r["models"]] == ["exaone-4.0-32b", "ax-3.1"]
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert "카탈로그" not in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
 
@@ -1261,7 +1252,7 @@ def test_client_records_usage_and_describes_errors(client, monkeypatch, tmp_path
     c.client.chat.completions.create(model="qwen-a", messages=[]); c.client.chat.completions.create(model="qwen-a", messages=[])
     u = model_config.usage_today(conn["id"])
     assert u["requests"] == 2 and u["prompt"] == 240 and u["total"] == 300
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert "2회 · 300" in page and "오늘 2회 · 300 토큰" in page
     # 오류를 사람 말로 — 예외 이름 없음
     class RateLimitError(Exception):
@@ -1306,7 +1297,7 @@ def test_llm_probe_diagnoses_network_in_plain_words(client, tmp_path):
     loc = unquote(client.post(f"/dev/llm/{hub['id']}/test", follow_redirects=False).headers["location"])
     assert "연결 실패 — 서버까지 통신이 막혀 있음" in loc and "관리자에게 요청하세요" in loc
     # 통신이 막힌 연결은 화면에서 '응답 없음' 으로 보이고, 실패 사유가 사람 말로 남는다
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert "응답 없음" in page and "서버까지 통신이 막혀 있음" in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
 

@@ -52,7 +52,6 @@ PostgreSQL 운영 DB(문서·조각·개체·장부·의미 검색 벡터의 정
 | `data/platform/*_audit.jsonl`, `regulation_register.jsonl`, `llm_usage.json` | 감사·등록·사용량 기록 |
 | `data/platform/*_episodes.jsonl`, `platform_actions.jsonl`, `fill_gaps.jsonl`, `gdocs_fills.json` | 에이전트 실행 기록(수집 자료 화면), 구글 문서 채운 칸 기록 |
 | `data/platform/nas_state.json`, `.sync_seen`, `.sync_backlog`, `parse_failures.jsonl`, `doc_program_changes.jsonl` | 동기화 상태와 처리 기록. 없으면 처음부터 다시 훑는다 |
-| `data/platform/knowledge/corpus_pilot/`(옛 자리 `corpus_pilot*`) | 국고 코퍼스 SQLite 와 색인. 앱 코퍼스 검색이 읽는다 |
 | `data/inbox/parsed/.offsets.json` | DGX 처리 결과를 읽은 자리. 없으면 결과 파일을 처음부터 다시 훑는다 |
 | `data/generated/templates/gdocs/published.json` | 공통 양식 드라이브 게시 기록. 없으면 같은 양식이 다시 올라간다 |
 | `~/.config/systemd/user/zzaimy*` | 사용자 서비스 단위 |

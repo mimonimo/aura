@@ -149,10 +149,10 @@ def test_area_folders_from_ledger(tmp_path):
 
 
 def test_old_area_tab_points_to_rag_space(tmp_path):
-    """폴더별 담당 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 한 곳 — 옛 문서 반입 탭 주소는 RAG 공간으로."""
+    """폴더별 담당 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 한 곳 — 옛 문서 반입 탭 넘기기는 10-25 에 지웠다."""
     c = _client(tmp_path)
     r = c.get("/dev/intake?tab=areas", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/dev/rag"
+    assert r.status_code == 200
     assert "폴더별 담당 부서" not in c.get("/dev/intake").text
 
 

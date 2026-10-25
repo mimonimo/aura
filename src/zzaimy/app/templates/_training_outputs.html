@@ -28,7 +28,8 @@
   .tool-card b { font-size:14px; color:var(--ink); }
   .tool-card p { margin:0; font-size:12px; flex:1; }
   .tool-card .tool-entry { margin-top:auto; align-self:flex-start; }
-  .tool-card .tool-missing { font-size:12px; }
+  .tool-card .tool-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:auto; }
+  .tool-card .tool-actions .tool-entry { margin-top:0; }
   .output-empty { color:var(--muted); font-size:12px; font-weight:400; }
   /* 학습셋 줄 — 왼쪽 갈래 이름, 오른쪽 이름·상태 / 숫자 / 파일 단추 순서 */
   .trainset-legend { display:flex; flex-wrap:wrap; gap:4px 14px; margin:10px 0 0; font-size:11.5px; color:var(--muted); }
@@ -94,20 +95,33 @@
 </div></section>
 <section class="card" id="training-tools"><div class="card-in">
   <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>학습·평가</h2>
+  {# TensorBoard 는 링크·연결 상태·주소를 이 카드 한 곳에(도구·모델 연결 화면에는 두지 않는다, 10-25) #}
+  {% set tb = tensorboard_status or {} %}
   <div class="tool-cards">
-  {% for name, url, action, description in [
-    ('학습 상태', '/dev/train/run', '학습 상태 보기', '손실·검증 손실·메모리·멈춤 여부 점검'),
-    ('TensorBoard', tensorboard_url, '그래프 열기', 'DGX 학습의 손실·학습률·GPU 원값 그래프'),
-    ('품질·성능 측정', '/dev/quality', '평가 결과·측정 열기', '검색 평가 비교·재측정')
-  ] %}
-  <div class="tool-card"><b>{{ name }}</b><p class="muted">{{ description }}</p>
-    {% if url %}<a class="btn-ghost tool-entry" href="{{ url }}" {% if name not in ('품질·성능 측정', '학습 상태') %}target="_blank" rel="noopener noreferrer"{% endif %}>{{ action }}</a>
-    {% else %}<span class="tool-missing muted">주소 미등록</span><a class="btn-ghost tool-entry" href="/dev/train?tab=settings">주소 등록하기</a>{% endif %}
+  <div class="tool-card"><b>학습 상태</b><p class="muted">손실·검증 손실·메모리·멈춤 여부 점검</p>
+    <a class="btn-ghost tool-entry" href="/dev/train/run">학습 상태 보기</a></div>
+  <div class="tool-card"><b>TensorBoard</b><p class="muted">DGX 학습의 손실·학습률·GPU 원값 그래프
+    {% if tb.ok %}<span class="pill reviewed">연결됨</span> {{ tb.detail }}{% elif tensorboard_url %}<span class="pill processing"{% if tb.error %} title="{{ tb.error }}"{% endif %}>응답 없음</span>{% else %}<span class="pill processing">주소 미등록</span>{% endif %}</p>
+    <span class="tool-actions">{% if tensorboard_url %}<a class="btn-ghost tool-entry" href="{{ tensorboard_url }}" target="_blank" rel="noopener noreferrer">그래프 열기</a>{% endif %}
+    <button type="button" class="secondary tool-entry" data-modal-open="#toolModal-tensorboard" aria-label="TensorBoard 주소 변경">{{ '주소 변경' if tensorboard_url else '주소 등록하기' }}</button></span>
   </div>
-  {% endfor %}
+  <div class="tool-card"><b>품질·성능 측정</b><p class="muted">검색 평가 비교·재측정</p>
+    <a class="btn-ghost tool-entry" href="/dev/quality">평가 결과·측정 열기</a></div>
   </div>
   <p class="muted" style="margin:12px 0 0;font-size:12px;">학습 실행은 DGX(승인 기록·해시 확인 뒤) · 데이터는 자동 전달되지 않으며 여기서는 진행만 확인</p>
 </div></section>
+<div class="modal-back" id="toolModal-tensorboard">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">TensorBoard 주소</h2>
+      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/dev/train/url" method="post" class="field-row">
+      <input type="hidden" name="setting" value="tensorboard_url"><input type="hidden" name="back" value="/dev/train#training-tools">
+      <input type="text" name="url" value="{{ tensorboard_url }}" placeholder="http://<GPU 서버>:포트/" aria-label="TensorBoard 주소">
+      <button type="submit" class="secondary">저장</button>
+    </form>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">주소를 지우고 저장하면 쓰지 않는 상태가 됩니다.</p>
+  </div></div>
+</div>
 <script>
 (() => {
   // 선택 수 표시 · 선택이 없으면 「선택 항목 내려받기」 비활성

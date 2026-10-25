@@ -310,7 +310,8 @@ def test_dev_pii_page_shows_load_failure_without_500(client, monkeypatch):
     assert "마스커 로드 실패: RuntimeError: spacy 모델 없음" in page.text
 
 
-def test_dev_pii_page_lists_recorded_documents_and_corpus_db(client, tmp_path):
+def test_dev_pii_page_lists_recorded_documents(client):
+    """원천은 플랫폼 DB 하나 — 국고 코퍼스 파일럿(별도 DB)은 10-25 에 지웠다."""
     db = client.app.state.db
     doc_id = db.add_document("접수.pdf", "/tmp/x.pdf", doc_type="recruit")
     db.update_document(doc_id, status="reviewed", masked_text="연락처 [KR_PHONE]")
@@ -322,18 +323,11 @@ def test_dev_pii_page_lists_recorded_documents_and_corpus_db(client, tmp_path):
     reg = db.add_document("규정.pdf", "/tmp/r.pdf", doc_type="regulation")
     db.update_document(reg, status="reviewed", masked_text="원문 유지")
 
-    # 플랫폼 DB 옆의 코퍼스 파일럿 DB는 두 번째 원천으로 뜬다
-    cdb = Database(tmp_path / "corpus_pilot.db")
-    c_id = cdb.add_document("공고.pdf", "/tmp/c.pdf", doc_type="regulation", owner="corpus")
-    cdb.replace_mask_events(c_id, [{"entity_type": "EMAIL", "n": 1, "context": "[EMAIL]"}])
-
     page = client.get("/dev/pii?view=history").text
     assert f'href="/doc/{doc_id}"' in page and "전화번호 3" in page
     assert "기록이 없는 문서 1건" in page
     assert "규정.pdf" not in page          # 기준 문서는 마스킹 대상 표에 없다
-    page = client.get("/dev/pii?view=history&source=corpus").text
-    assert "국고 코퍼스 (별도 DB)" in page and "공고" in page
-    assert "이메일 1" in page
+    assert "국고 코퍼스" not in page and 'name="source"' not in page
 
 
 # --- 5. 파이프라인 연결 — 접수·문서 추출 경로가 실제로 기록을 남기는가 ---

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""데이터 체계 이관(ADR-0031) — 지식(색인·측정·옛 파일럿)·캐시·학습 자료를 세 층 자리로 옮긴다.
+"""데이터 체계 이관(ADR-0031) — 지식(색인·측정)·캐시·학습 자료를 세 층 자리로 옮긴다.
 
   chunk_embeddings.* · doc_vectors.npz · question_embeddings.npz → knowledge/index/
   eval/ · data/eval/llm-rerank-*                                → knowledge/eval/
-  corpus_pilot.db · corpus_pilot_embeddings.*                   → knowledge/corpus_pilot/
   lines/ · pagecache/ · restored/                               → cache/
   data/eval/baseline*.json                                       → data/train/baselines/writer/
 DB 는 건드리지 않는다(경로가 DB 에 없다). 기본은 미리보기. 서비스가 색인을 읽는 중이면 재시작이 필요하다(99 --restart).
@@ -33,9 +32,6 @@ def plan_moves(base: Path, train: Path, repo_eval: Path) -> list[tuple[Path, Pat
     if (base / "eval").is_dir():
         for f in sorted((base / "eval").iterdir()):
             moves.append((f, paths.eval_dir(base) / f.name))
-    for name in ("corpus_pilot.db", "corpus_pilot_embeddings.npz", "corpus_pilot_embeddings.meta.json"):
-        if (base / name).exists():
-            moves.append((base / name, paths.corpus_dir(base) / name))
     for name in ("lines", "pagecache", "restored"):
         if (base / name).is_dir():
             moves.append((base / name, paths.cache_dir(base) / name))

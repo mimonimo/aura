@@ -20,6 +20,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 router = APIRouter()
 
+# 기획 단계 자료 — 논문·설계 문서의 「논문 자료」 에서 빼고 「기록·자료 목록」 의 「기획·발표 이력」 묶음으로 보인다(10-25).
+# 파일은 그대로 두고 열람(/dev/paper/…)·내보내기도 그대로다
+PAPER_PLANNING = ("프로젝트-기획서.md", "제안발표-내용.md", "논문-양식-가이드.md")
+
 
 def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
     """앱마다 하나 — 문서 날짜 캐시·재색인 프로세스 표를 앱 안에 둔다."""
@@ -157,9 +161,8 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
         "제안발표-내용.md": "제안 발표 내용",
     }
 
-    # 읽는 순서 — 구현 설명서(지금 구조의 정본)·발표·실험 기록이 먼저, 기획 단계 자료는 뒤에
-    _PAPER_ORDER = ["논문-원재료.md", "중간-발표자료.md", "발표-자료-모음.md", "실험-로그.md", "프로젝트-기획서.md",
-                    "제안발표-내용.md", "논문-양식-가이드.md"]
+    # 읽는 순서 — 구현 설명서(지금 구조의 정본)·발표·실험 기록이 먼저, 기획 단계 자료(PAPER_PLANNING)는 뒤에
+    _PAPER_ORDER = ["논문-원재료.md", "중간-발표자료.md", "발표-자료-모음.md", "실험-로그.md", *PAPER_PLANNING]
 
     def _dev_papers() -> list[dict]:
         d = _DOCS_DIR / "paper"
@@ -254,8 +257,6 @@ def dev_db(
 
     st = request.app.state
     db = st.db
-    if tab == "corpus":                 # 예전 공개 문서 모음 탭(파일럿, 거둠) — 문서 탭으로
-        return RedirectResponse("/dev/db?tab=docs", status_code=303)
     tab = dx.normalize_tab(tab, table)
     index = dx.embedding_index() if tab != "archive" else {}
     ledger = None

@@ -126,64 +126,56 @@ def test_status_bad_token_and_missing_project(monkeypatch):
 
 # ---- 데이터 공방 ② — 상태 줄과 버튼, 붙여넣기 칸 없음 ----
 
+# 데이터·학습의 「이전 기록·이력」(기존 기록 검수·되받기·후보 생성 보조 경로)은 10-25 에 지웠다 — 연결 상태는 도구·모델 연결에서 본다
+
 def test_page_unreachable_shows_fix_sentence_without_paste_box(client, monkeypatch):
     _configure(client)
     _fake_requests(monkeypatch, exc=requests.ConnectionError("refused"))
-    r = client.get("/dev/train?tab=data&view=legacy")
+    r = client.get("/dev/tools")
     assert r.status_code == 200
-    assert "미연결" in r.text and '<a href="/dev/train?tab=settings">연결 설정</a>' in r.text
+    assert "미연결" in r.text and "68_labelstudio_token.sh" in r.text   # 고치는 방법 한 줄
     assert 'name="token"' not in r.text          # 토큰 붙여넣기 칸 없음
     assert "label-export" not in r.text and "label-import" not in r.text  # 수동 파일 교환 없음
 
 
-def test_page_connected_shows_progress_and_buttons(client, monkeypatch):
+def test_page_connected_shows_status(client, monkeypatch):
     _configure(client)
     _fake_requests(monkeypatch, {"/api/projects": (200, PROJECT_LIST)})
-    r = client.get("/dev/train?tab=data&view=legacy")
-    assert r.status_code == 200
-    assert "연결됨" in r.text
-    assert "전체 5" in r.text and "완료 2" in r.text and "대기 3" in r.text
-    assert "이전 기록 검수 열기" in r.text and 'action="/dev/data/ls-pull"' in r.text
-    assert f'href="{LS_URL}"' in r.text
+    r = client.get("/dev/tools")
+    assert r.status_code == 200 and "연결됨" in r.text
+    page = client.get("/dev/train").text
+    assert "이전 기록 검수 열기" not in page and 'action="/dev/data/ls-pull"' not in page and "view=legacy" not in page
 
 
 def test_page_without_settings_never_touches_network(client, monkeypatch):
     _fake_requests(monkeypatch, exc=AssertionError("설정이 없으면 네트워크에 나가면 안 된다"))
-    r = client.get("/dev/train?tab=data&view=legacy")
-    assert r.status_code == 200
-    assert "미연결" in r.text and '<a href="/dev/train?tab=settings">연결 설정</a>' in r.text
+    for url in ("/dev/train", "/dev/tools"):
+        r = client.get(url)
+        assert r.status_code == 200
+    assert "미연결" in r.text
 
 
 def test_status_is_cached_between_page_loads(client, monkeypatch):
     _configure(client)
     calls = _fake_requests(monkeypatch, {"/api/projects": (200, PROJECT_LIST)})
-    client.get("/dev/data")
-    # 기본 화면은 현재 문답만 조회한다. 숨겨진 이전 검수는 요청하지 않는다.
+    client.get("/dev/train")
+    # 기본 화면은 현재 문답만 조회한다
     assert len(calls) == 1
-    client.get("/dev/data")
     client.get("/dev/train")
     assert len(calls) == 1
 
 
-# ---- 되받기는 그대로, 수동 라우트는 사라졌다 ----
-
-def test_ls_pull_still_confirms_reviewed_pairs(client, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)   # data/interim/sft 산출물이 저장소 data/ 에 닿지 않게
-    _configure(client)
-    monkeypatch.setattr(lsc.LabelStudioClient, "ensure_project", lambda self, title: 3)
-    monkeypatch.setattr(lsc.LabelStudioClient, "pull_reviewed", lambda self, pid: [PAIR])
-    r = client.post("/dev/data/ls-pull", data={"name": "검수완료"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].endswith("ls_pulled=1")
-    ds = client.app.state.db.list_datasets()[0]
-    assert ds["sources"] == "labelstudio" and ds["n_pairs"] == 1
-    assert Path(ds["path"]).exists()
-
+# ---- 수동 라우트와 이전 기록 경로는 사라졌다 ----
 
 @pytest.mark.parametrize("method,path", [
     ("post", "/dev/data/label-export"),
     ("get", "/dev/data/label-config"),
     ("post", "/dev/data/label-import"),
     ("post", "/dev/data/ls-token"),
+    ("post", "/dev/data/ls-pull"),          # 이전 기록 되받기(10-25 지움)
+    ("post", "/dev/data/build"),            # 기록 기반 후보 생성 보조 경로(10-25 지움)
+    ("post", "/dev/data/build-and-push"),
+    ("get", "/dev/data"),                   # 옛 주소 넘기기(10-25 지움)
 ])
 def test_manual_exchange_routes_are_gone(client, method, path):
     assert getattr(client, method)(path).status_code == 404
@@ -198,11 +190,12 @@ def test_dev_train_labelstudio_card_is_read_only(client, monkeypatch):
     assert r.status_code == 200
     assert "미연결" in r.text and "/dev/accounts" not in r.text
     assert 'href="/dev/data"' not in r.text               # 데이터 공방 진입은 허브 카드 하나 — 여기엔 없다
-    assert "toolModal-tensorboard" not in r.text and "toolModal-labelstudio" not in r.text
-    r = client.get("/dev/train?tab=settings")
-    assert r.status_code == 200
-    assert "toolModal-tensorboard" in r.text and "toolModal-labelstudio" in r.text   # 설정에만 표시
+    # TensorBoard 주소는 학습 화면 한 곳(10-25), Label Studio 계정은 도구·모델 연결에만
+    assert "toolModal-tensorboard" in r.text and "toolModal-labelstudio" not in r.text
     assert 'name="url"' in r.text and "labelstudio_url" not in r.text   # LS 주소 입력란은 없다
+    r = client.get("/dev/tools")
+    assert r.status_code == 200
+    assert "toolModal-tensorboard" not in r.text and "toolModal-labelstudio" in r.text
     r = client.post("/dev/train/url", data={"setting": "labelstudio_url", "url": "http://x"})
     assert r.status_code == 400                          # Label Studio 주소는 화면에서 못 바꾼다
 

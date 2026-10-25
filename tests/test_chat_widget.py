@@ -251,7 +251,7 @@ def test_agent_starts_a_project_from_an_announcement(tmp_path):
 def test_agent_leaves_outward_actions_as_buttons(tmp_path):
     body = _client(tmp_path).post("/chat/ask", data={"question": "외부 전송 켜줘"}).json()
     labels = [a["label"] for a in body["actions"]]
-    assert "외부 구독 연결" in labels          # 상태 확인 화면만 연결하며 자동 실행하지 않는다
+    assert "외부 구독 연결" not in labels      # 구독 연결 화면은 지웠다(10-25) — 바깥으로 내보내는 일은 자동 실행하지 않는다
     assert body["done"] == []
 
 

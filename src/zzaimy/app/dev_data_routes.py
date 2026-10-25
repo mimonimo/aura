@@ -1,4 +1,4 @@
-"""LLM 연결 관리(/dev/llm/*)와 데이터 공방(/dev/data*) — 연결 등록·확인·기본 지정, 기록 → 학습 데이터(JSONL), Label Studio 왕복.
+"""LLM 연결 관리(/dev/llm/*)와 근거 문답 검수 반영(/dev/data/grounded-*) — 연결 등록·확인·기본 지정, Label Studio 검수 결과 반영·승인 JSONL.
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·데이터 폴더(data_dir)와 Label Studio 연결 도우미(make_ls_helpers 가 앱마다 만든다)는 main.create_app 이
@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
@@ -28,7 +28,7 @@ def _live_models_cache() -> dict:
 def _llm_redirect(msg: str, ok: bool = True) -> RedirectResponse:
     from urllib.parse import urlencode
     from urllib.parse import quote
-    return RedirectResponse("/dev/train?" + urlencode({"tab": "settings", "ok" if ok else "err": msg}, quote_via=quote), status_code=303)
+    return RedirectResponse("/dev/tools?" + urlencode({"ok" if ok else "err": msg}, quote_via=quote), status_code=303)
 
 @router.post("/dev/llm/add")
 def dev_llm_add(name: str = Form(""), kind: str = Form("vllm"), base_url: str = Form(""),
@@ -211,9 +211,6 @@ def make_ls_helpers(db) -> SimpleNamespace:
         _ls_status_cache.update(at=now, value=value)
         return value
 
-    def _ls_status_reset() -> None:
-        _ls_status_cache["value"] = None
-
     _grounded_cache: dict = {"at": 0.0, "value": None}
 
     def _grounded_ls_status():
@@ -228,7 +225,7 @@ def make_ls_helpers(db) -> SimpleNamespace:
         _grounded_cache.update(at=now, value=value)
         return value
 
-    return SimpleNamespace(ls_client=_ls_client, ls_status=_ls_status, ls_status_reset=_ls_status_reset,
+    return SimpleNamespace(ls_client=_ls_client, ls_status=_ls_status,
                            grounded_cache=_grounded_cache, grounded_ls_status=_grounded_ls_status)
 
 
@@ -242,114 +239,15 @@ def _grounded_status_note(st: dict, ls_url: str | None) -> dict | None:
         return {"chips": [{"text": "Label Studio 연결됨", "level": "reviewed", "title": ""},
                           {"text": "검수 프로젝트 없음", "level": "processing", "title": f"프로젝트 이름: {_GROUNDED_PROJECT}"}],
                 "hint": "프로젝트는 사람 검수 시작 때 생성 · 지금 학습셋은 모델 전수 점검으로 승인",
-                "href": f"{ls_url.rstrip('/')}/projects" if ls_url else "/dev/train?tab=settings",
+                "href": f"{ls_url.rstrip('/')}/projects" if ls_url else "/dev/tools",
                 "action": "Label Studio 프로젝트 목록" if ls_url else "도구·모델 연결",
                 "external": bool(ls_url)}
     return {"chips": [{"text": f"Label Studio 미연결({st.get('error') or '응답 오류'})", "level": "processing", "title": ""}],
             "hint": "",
-            "href": "/dev/train?tab=settings", "action": "도구·모델 연결", "external": False}
+            "href": "/dev/tools", "action": "도구·모델 연결", "external": False}
 
 
-# ---- 데이터 공방 — 기록 → 학습 데이터(JSONL) 변환 (개발자 전용) ----
-
-@router.get("/dev/data", response_class=HTMLResponse)
-def dev_data(request: Request, err: str = "", ok: str = "", ds_page: int = 0):
-    from urllib.parse import urlencode
-    params = dict(request.query_params)
-    params["tab"] = "data"
-    return RedirectResponse("/dev/train?" + urlencode(params), status_code=303)
-
-@router.post("/dev/data/build-and-push")
-def dev_data_build_and_push(request: Request, sources: list[str] = Form([])):
-    """예시 만들기 + Label Studio 자동 주입을 한 번에 — 연결돼 있으면 바로 푸시,
-    아니면 데이터셋만 만들고 연결 방법(구축 스크립트)을 안내한다."""
-    st = request.app.state
-    db = st.db
-    from datetime import datetime as _dt
-
-    from zzaimy.dataset.build import _BUILDERS, export_dataset
-    from zzaimy.dataset.ls_client import LabelStudioError
-
-    srcs = [s for s in sources if s in _BUILDERS]
-    if not srcs:
-        return RedirectResponse("/dev/data?err=기록 종류를 하나 이상 고르세요", status_code=303)
-    # 1) 예시 묶음 생성(수치검증 통과분만) — 대장에 기록
-    try:
-        export_dataset(db, srcs, _dt.now().strftime("예시-%Y%m%d-%H%M"))
-    except ValueError as exc:
-        return RedirectResponse(f"/dev/data?err={exc}", status_code=303)
-    # 2) Label Studio 연결이 있으면 자동 주입 (연결은 scripts/68_labelstudio_token.sh 가 맺는다)
-    if not (db.get_setting("labelstudio_url") and db.get_setting("labelstudio_token")):
-        return RedirectResponse(
-            "/dev/data?ok=예시 묶음을 만들었습니다. Label Studio가 연결되지 않아 보내지는"
-            " 않았습니다 — 서버에서 scripts/68_labelstudio_token.sh 를 실행하면"
-            " 다음부터 자동으로 보냅니다.",
-            status_code=303)
-    pairs = []
-    for s in srcs:
-        pairs.extend(_BUILDERS[s](db).pairs)
-    if not pairs:
-        return RedirectResponse("/dev/data?err=보낼 예시가 없습니다", status_code=303)
-    try:
-        cli = st.ls_client()
-        pid = cli.ensure_project(_LS_PROJECT)
-        n = cli.push_tasks(pid, pairs)
-    except LabelStudioError as e:
-        return RedirectResponse(f"/dev/data?err=Label Studio: {e}", status_code=303)
-    st.ls_status_reset()   # 진행 수치가 바뀌었다 — 캐시를 비워 바로 반영
-    return RedirectResponse(f"/dev/data?ls_pushed={n}", status_code=303)
-
-@router.post("/dev/data/build")
-def dev_data_build(request: Request, sources: list[str] = Form([])):
-    db = request.app.state.db
-    from datetime import datetime as _dt
-
-    from zzaimy.dataset.build import export_dataset
-
-    # 이름은 자동 부여(사용자가 'sft' 같은 걸 타이핑하지 않게) — 필요 시 대장에서 구분
-    nm = _dt.now().strftime("예시-%Y%m%d-%H%M")
-    try:
-        export_dataset(db, sources, nm)
-    except ValueError as exc:
-        return RedirectResponse(f"/dev/data?err={exc}", status_code=303)
-    return RedirectResponse(f"/dev/data?ok=예시 묶음 「{nm}」을 만들었습니다", status_code=303)
-
-@router.post("/dev/data/ls-pull")
-def dev_data_ls_pull(request: Request, name: str = Form("검수완료")):
-    """Label Studio 검수 결과를 API로 가져와 학습 데이터로 확정."""
-    st = request.app.state
-    db = st.db
-    from pathlib import Path as _P
-
-    from zzaimy.dataset.build import SFT_DIR
-    from zzaimy.dataset.privacy import protect_candidate
-    from zzaimy.dataset.ls_client import LabelStudioError
-
-    try:
-        cli = st.ls_client()
-        pid = cli.ensure_project(_LS_PROJECT)
-        pairs = cli.pull_reviewed(pid)
-        protected = protect_candidate(pairs)
-        if protected != pairs:
-            for pair in protected:
-                pair.setdefault("meta", {}).pop("review", None)
-        pairs = protected
-    except LabelStudioError as e:
-        return RedirectResponse(f"/dev/data?err=Label Studio: {e}", status_code=303)
-    if not pairs:
-        return RedirectResponse("/dev/data?err=검수 통과분이 없습니다", status_code=303)
-    from datetime import datetime, timezone
-
-    SFT_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
-    safe = "".join(c for c in name if c.isalnum() or c in "-_") or "reviewed"
-    path = _P(SFT_DIR) / f"{safe}-{stamp}.jsonl"
-    with path.open("w", encoding="utf-8") as f:
-        for p in pairs:
-            f.write(_aj.dumps(p, ensure_ascii=False) + "\n")
-    db.add_dataset(name=name, sources="labelstudio", path=str(path),
-                   n_pairs=len(pairs))
-    return RedirectResponse(f"/dev/data?ls_pulled={len(pairs)}", status_code=303)
+# ---- 근거 문답 검수(Label Studio) 반영 — 데이터·학습 화면의 「문답 검수」 카드 ----
 
 @router.post("/dev/data/grounded-review-config")
 def dev_grounded_review_config(request: Request):

@@ -40,6 +40,7 @@
 .privacy-principles h3{font-size:15px;margin:0 0 10px}
 .privacy-principles p{margin:0;line-height:1.7;font-size:13px}
 .privacy-page .privacy-help{font-size:13px;line-height:1.7;color:var(--muted)}
+.privacy-principle{margin:0 0 12px}
 /* 과거 처리 기록 찾기 줄 — 저장소·문서명·유형·조회 */
 .privacy-filter{margin:0 0 16px}
 .privacy-filter input[type=text]{max-width:360px}
@@ -51,12 +52,12 @@
 {% set selected = request.query_params.get('view', 'policy') %}
 {% if selected not in ['policy', 'checks', 'history'] %}{% set selected = 'policy' %}{% endif %}
 <div class="privacy-page">
-
 <nav class="privacy-nav" aria-label="개인정보 점검 메뉴">
 {% for key, label in [('policy','처리 정책'),('checks','점검 도구'),('history','과거 처리 기록')] %}
 <a href="/dev/pii?view={{ key }}" {% if selected == key %}aria-current="page"{% endif %}>{{ label }}</a>
 {% endfor %}
 </nav>
+<p class="privacy-help privacy-principle">처리 원칙 · 기준 문서(규정·지침·공고)는 원문 그대로 두고, 그 밖의 문서는 내부 마스킹 설정을 따릅니다 — <a href="/dev/doc/decisions/0006-criteria-no-masking.md">ADR-0006</a></p>
 
 {% if selected == 'policy' %}
 <div class="card"><div class="card-in">
@@ -87,33 +88,6 @@
   <p class="privacy-help">학습 반출 검수·문서 접근 권한과는 별개입니다(끄더라도 반출 검수와 부서 권한은 그대로). 이미 가린 본문은 자동으로 되돌리지 않습니다.</p>
   </div>
 </div></div>
-{% if request.query_params.get('legacy') == '1' %}
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>과거 유형별 처리 정책</h2>
-  <div class="table-scroll">
-  <table style="font-size:12.5px;">
-    <tr><th>문서 유형</th><th>처리</th><th>시점</th><th>이유</th><th>기록(문서·가린 항목)</th></tr>
-    {% set agg_all = sources[0].by_doc_type if sources else {} %}
-    {% for code, name, masked, when, why in policy %}
-    {% set agg = agg_all.get(code) %}
-    <tr>
-      <td style="font-weight:600; white-space:nowrap;" title="{{ code }}">{{ name }}</td>
-      <td style="white-space:nowrap;">
-        {% if masked %}<span class="pill processing">기존 가림 처리</span>
-        {% else %}<span class="pill processing">원문 유지</span>{% endif %}</td>
-      <td style="white-space:nowrap;">{{ when }}</td>
-      <td style="line-height:1.55;">{{ why }}</td>
-      <td style="white-space:nowrap; font-variant-numeric:tabular-nums;">
-        {% if agg %}{{ agg.recorded }}/{{ agg.docs }}건 · {{ agg.total }}개{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  </div>
-  <p class="muted" style="margin:10px 0 0; font-size:12px; line-height:1.6;">
-    채팅 첨부 파일도 같은 마스커를 거치지만 문서 대장에 남지 않아 여기 집계되지 않습니다.</p>
-</div></div>
-<p class="privacy-help"><a href="/dev/doc/decisions/0006-criteria-no-masking.md">기존 기준 문서 예외 정책 (ADR-0006)</a> · 과거 정책 근거이며 새 처리 원칙의 구현 완료 증거는 아닙니다.</p>
-{% endif %}
 {% endif %}
 
 {% if selected == 'checks' %}
@@ -262,11 +236,10 @@
 <p class="privacy-help">처리 때 남긴 가리기 기록 · 현재 설정과 별개</p>
 <form method="get" action="/dev/pii" class="control-row control-bar privacy-filter" role="search" aria-label="가리기 기록 찾기">
 <input type="hidden" name="view" value="history">
-<select name="source" aria-label="기록 저장소"><option value="platform">플랫폼 DB</option>{% if sources|length > 1 %}<option value="corpus" {% if history_source=='corpus' %}selected{% endif %}>국고 코퍼스 (별도 DB)</option>{% endif %}</select>
 <input type="text" name="q" value="{{ history_q }}" placeholder="문서명 검색" aria-label="문서명 검색">
 <select name="entity" aria-label="개인정보 유형"><option value="">전체 유형</option>{% for key,label in masking_entities.items() %}<option value="{{ key }}" {% if history_entity==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
 <button type="submit" class="secondary">조회</button></form>
-{% for src in [sources[1] if history_source=='corpus' else sources[0]] %}
+{% for src in sources[:1] %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>가리기 기록 — {{ src.name }}</h2>
   {% if not src.stats.total and not src.docs and not history_q and not history_entity %}
@@ -315,11 +288,11 @@
   <h3>{% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_title(d) }}</a>{% else %}{{ doc_title(d) }}{% endif %}</h3>
   <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ (d.recorded_at | kst) or '가리기 기록 없음' }}</p>
   <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}{% if d.recorded %}<span class="pill">가린 항목 0건</span>{% endif %}{% endfor %}</div>
-  {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}" class="mini-btn">가린 문맥 표본 보기</a>{% endif %}
+  {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}" class="mini-btn">가린 문맥 표본 보기</a>{% endif %}
   </article>{% endfor %}
   <nav class="pager" aria-label="기록 페이지">
-  {% if src.page>1 %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}" class="mini-btn">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>
-  {% if src.page<src.pages %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page+1 }}" class="mini-btn">다음</a>{% endif %}</nav>
+  {% if src.page>1 %}<a href="/dev/pii?view=history&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}" class="mini-btn">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>
+  {% if src.page<src.pages %}<a href="/dev/pii?view=history&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page+1 }}" class="mini-btn">다음</a>{% endif %}</nav>
   {% else %}
   <p class="muted pii-empty" style="margin:0; font-size:12.5px;">{{ '조건에 맞는 기록 없음' if history_q or history_entity else '가리기 기록 없음' }}</p>
   {% endif %}

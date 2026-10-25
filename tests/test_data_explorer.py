@@ -278,8 +278,8 @@ def test_dev_db_renders_tabs_and_document_detail(client):
 
 def test_dev_db_other_tabs_and_legacy_urls(client):
     assert client.get("/dev/db?tab=regulation").status_code == 200
-    corpus = client.get("/dev/db?tab=corpus", follow_redirects=False)   # 거둔 공개 문서 모음 탭 → 문서 탭
-    assert corpus.status_code == 303 and corpus.headers["location"] == "/dev/db?tab=docs"
+    corpus = client.get("/dev/db?tab=corpus", follow_redirects=False)   # 거둔 공개 문서 모음 탭 — 넘기기 없이 문서 탭 그대로(10-25)
+    assert corpus.status_code == 200 and "국고 코퍼스" not in corpus.text
     chat = client.get("/dev/db?tab=chat")
     assert chat.status_code == 200 and "대화 기록 없음" in chat.text
     legacy = client.get("/dev/db?table=regulation_chunks")

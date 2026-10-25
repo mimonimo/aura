@@ -37,7 +37,6 @@ def test_migration_moves_knowledge_cache_and_baseline(tmp_path, monkeypatch):
     np.savez(base / "chunk_embeddings.npz", ids=np.array([1]), vectors=np.zeros((1, 4)))
     (base / "chunk_embeddings.meta.json").write_text("{}")
     (base / "eval").mkdir(); (base / "eval" / "retrieval-latest.json").write_text("{}")
-    (base / "corpus_pilot.db").write_bytes(b"x")
     (base / "pagecache").mkdir(); (base / "pagecache" / "1-1.png").write_bytes(b"p")
     (repo_eval / "baseline.json").write_text("{}"); (repo_eval / "llm-rerank-x.json").write_text("{}")
     mig = _load("139_layout_knowledge")
@@ -45,7 +44,6 @@ def test_migration_moves_knowledge_cache_and_baseline(tmp_path, monkeypatch):
     assert mig.main() == 0
     assert (base / "knowledge" / "index" / "chunk_embeddings.npz").exists()
     assert (base / "knowledge" / "eval" / "retrieval-latest.json").exists() and (base / "knowledge" / "eval" / "llm-rerank-x.json").exists()
-    assert (base / "knowledge" / "corpus_pilot" / "corpus_pilot.db").exists()
     assert (base / "cache" / "pagecache" / "1-1.png").exists() and not (base / "pagecache").exists()
     assert (train / "baselines" / "writer" / "baseline.json").exists() and not repo_eval.exists()
 

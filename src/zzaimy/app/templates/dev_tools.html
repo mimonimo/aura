@@ -3,31 +3,16 @@
 {% block pagetitle %}{{ dev_page_name('/dev/tools') }}{% endblock %}
 {% block content %}
 <style>
-  .ext-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-top:12px; }
-  .ext-grid article { border:1px solid var(--line); border-radius:12px; padding:16px 18px; min-width:0; }
-  .ext-grid h3 { font-size:14px; margin:0 0 8px; }
-  .ext-grid p { margin:0; font-size:13px; line-height:1.7; }
-  .ext-help { font-size:12.5px; line-height:1.7; color:var(--muted); margin:12px 0 0; }
-  @media(max-width:760px) { .ext-grid { grid-template-columns:1fr; } }
+  .ext-line { margin:8px 0 0; font-size:13px; line-height:1.7; }
+  .ext-line b { font-weight:600; }
 </style>
 
 {% include "_tools_settings.html" %}
 
-{# 외부 연결 — 웹 검색 제공자와 외부 참조 AI(구독 CLI) 인증 상태를 한 카드에. 토큰·이메일·CLI 출력은 보이거나 저장하지 않는다 #}
+{# 외부 연결 — 채팅의 「외부 검색」 이 쓰는 웹 검색 제공자(키가 있으면 구글·네이버, 없으면 DuckDuckGo, ADR-0038) #}
 <div class="card reveal" id="external"><div class="card-in">
-  <h2><iconify-icon icon="solar:global-linear"></iconify-icon>외부 연결
-    <form action="/dev/pii/subscriptions/check" method="post" style="margin-left:auto;">
-      <button type="submit" class="secondary" style="padding:5px 12px; font-size:12px;">연결 상태 확인</button></form></h2>
-  {% set states = {'missing':'CLI 미설치','authenticated':'구독 로그인 확인','signed_out':'로그인 필요','unsupported_auth':'구독 인증 방식 확인 필요','unknown':'확인 실패'} %}
-  <div class="ext-grid">
-    <article><h3>웹 검색</h3><p>{{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}
-      <span class="muted">· 채팅에서 웹 검색을 고른 요청만</span></p></article>
-    {# Codex 이름표는 tests/test_dev_pages.py(아스트라 소유)가 「아스트라 · Codex」로 확인한다 #}
-    {% for key, name in [('claude','Claude Code'),('codex','아스트라 · Codex')] %}
-    {% set check = subscription_checks.get(key,{}) %}
-    <article><h3>{{ name }}</h3><p><span class="pill{{ ' reviewed' if check.get('state') == 'authenticated' else '' }}">{{ states.get(check.get('state'),'미확인') }}</span></p></article>
-    {% endfor %}
-  </div>
-  <p class="ext-help">마지막 확인 {{ (subscription_checks.get('at') | kst) or '없음' }} · 외부 참조 AI · 구독 연결 확인 — 플랫폼 서버의 CLI 설치·구독 로그인 여부</p>
+  <h2><iconify-icon icon="solar:global-linear"></iconify-icon>외부 연결</h2>
+  <p class="ext-line">웹 검색 <b>{{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}</b>
+    <span class="muted">· 채팅에서 웹 검색을 고른 요청만</span></p>
 </div></div>
 {% endblock %}

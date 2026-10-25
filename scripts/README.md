@@ -81,8 +81,6 @@
 - `68_labelstudio_token.py` — Label Studio 고정 토큰 프로비저닝 보조 — scripts/68_labelstudio_token.sh 가 부른다.
 - `68_labelstudio_token.sh` — Label Studio 고정 토큰 프로비저닝 — 사람이 토큰을 복사해 붙여넣지 않게 한다.
 - `70_extract_entities.py` — 개체 추출 배치 (지식 그래프 2단계, ADR-0010).
-- `74_ingest_corpus.py` — 수집 코퍼스 → RAG 기준문서(regulation chunk) 인제스트.
-- `75_embed_corpus.py` — corpus_pilot.db 조각 KURE 임베딩 — /dev/corpus 의미검색용 (CPU).
 - `75_rechunk_regulations.py` — 규정 조각 재분할 — 조각화 규칙이 바뀐 뒤 기존 문서에 소급 적용한다.
 - `78_post_deploy_smoke.py` — 배포 후 실동작 점검(운영 VM, 실제 DB) — 화면·검색·마스킹·연동을 한 번에 돈다.
 - `79_register_llm_connection.py` — OpenAI 호환 추론 서버를 LLM 연결로 등록한다.

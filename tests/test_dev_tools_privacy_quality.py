@@ -36,28 +36,17 @@ def test_tools_has_own_address_and_sidebar_link(client):
     assert _active_nav(r.text) == ["/dev/tools"]               # 사이드바에서 이 화면만 고른 상태
     assert 'href="/dev/train?tab=settings"' not in r.text
     assert _active_nav(client.get("/dev/train").text) == ["/dev/train"]
-    # 옛 주소는 안내 문구를 들고 새 주소로
-    old = client.get("/dev/train?tab=settings&ok=저장", follow_redirects=False)
-    assert old.status_code == 303 and old.headers["location"].startswith("/dev/tools?ok=")
-    assert client.get("/dev/train?tab=settings", follow_redirects=False).headers["location"] == "/dev/tools"
+    # 옛 주소(tab=settings) 넘기기는 10-25 에 지웠다 — 연결 안내는 처음부터 /dev/tools 로 간다
+    assert client.get("/dev/train?tab=settings", follow_redirects=False).status_code == 200
+    assert client.get("/dev/tools?ok=저장").text.count("저장") >= 1
 
 
-def test_tools_holds_external_connections(client, monkeypatch):
-    from zzaimy.app import subscription_status
-
+def test_tools_holds_external_connections(client):
+    """외부 연결은 웹 검색 제공자 한 줄 — 구독 CLI(Claude Code·Codex) 인증 확인은 실행 경로가 없어 지웠다(10-25)."""
     page = client.get("/dev/tools").text
-    assert "외부 연결" in page and "웹 검색" in page and "외부 참조 AI · 구독 연결 확인" in page
-    monkeypatch.setattr(subscription_status, "probe",
-                        lambda p: {"provider": p, "installed": False, "state": "missing"})
-    r = client.post("/dev/pii/subscriptions/check", follow_redirects=False)
-    assert r.headers["location"].startswith("/dev/tools")
-    page = client.get("/dev/tools").text
-    assert "CLI 미설치" in page
-    # 시각은 원 ISO 문자열이 아니라 한국시간 「YYYY-MM-DD HH:MM」
-    assert re.search(r"마지막 확인 \d{4}-\d{2}-\d{2} \d{2}:\d{2} ·", page)
-    assert not re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", page)
-    # 옛 탭 주소도 새 화면으로
-    assert client.get("/dev/pii?view=external", follow_redirects=False).headers["location"].startswith("/dev/tools")
+    assert "외부 연결" in page and "웹 검색" in page
+    assert "구독" not in page and "subscriptions/check" not in page
+    assert client.post("/dev/pii/subscriptions/check", follow_redirects=False).status_code in (404, 405)
 
 
 def test_tools_folds_internal_addresses(client, monkeypatch, tmp_path):

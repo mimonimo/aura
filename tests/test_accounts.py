@@ -92,7 +92,7 @@ def test_tool_accounts_live_on_train_page(tmp_path):
     model_page = d.get("/dev/train").text
     assert 'id="toolModal-labelstudio"' not in model_page
     assert 'LLaMA Board' not in model_page and 'TensorBoard' in model_page
-    page = d.get("/dev/train?tab=settings").text
+    page = d.get("/dev/tools").text
     assert "toolModal-labelstudio" in page and "로그인 아이디" in page and "비밀번호 변경" in page
     assert "플랫폼 계정" not in page and "계정 추가" not in page   # 시스템 계정 관리는 여기 없다
     assert d.post("/dev/accounts/add", data={"uid": "x1", "new_pw": "abcdefgh", "confirm": "abcdefgh"}).status_code == 404
@@ -104,12 +104,12 @@ def test_ls_password_reset_lives_on_train_page(client, monkeypatch):
 
     monkeypatch.setattr(ls_admin, "available", lambda: True)
     client.app.state.db.set_setting("labelstudio_username", "zzdev@example.org")
-    page = client.get("/dev/train?tab=settings").text
+    page = client.get("/dev/tools").text
     assert "zzdev@example.org" in page and "/dev/train/ls-password" in page
     monkeypatch.setattr(ls_admin, "set_password", lambda pw: (True, "PASS: ok"))
     r = client.post("/dev/train/ls-password", data={"new_pw": "abcdefgh", "confirm": "abcdefgh"},
                     follow_redirects=False)
-    assert r.headers["location"].startswith("/dev/train?tab=settings&ok=")
+    assert r.headers["location"].startswith("/dev/tools?ok=")
     assert client.post("/dev/accounts/ls-password", data={"new_pw": "abcdefgh", "confirm": "abcdefgh"}).status_code == 404
 
 

@@ -306,18 +306,20 @@ def test_disconnect_refuses_when_share_revocation_fails(tmp_path, monkeypatch):
 
 
 def test_dept_card_has_only_working_buttons(tmp_path, monkeypatch):
-    """부서 카드 — 라이브러리로 옮겨만 가던 「문서 넣기」는 없고, 드라이브 연결·지우기·부서 추가만 남는다."""
+    """부서 카드 — 라이브러리로 옮겨만 가던 「문서 넣기」는 없고, 드라이브 연결 확인·지우기만 남는다.
+    부서 만들기·상위 부서 옮기기는 조직도(/team, ADR-0066) 한 곳으로 합쳐 카드에는 「조직도에서 부서 추가」 바로가기만(10-25)."""
     _fake_google(monkeypatch)
     c = _dev(tmp_path)
     c.post("/dev/rag/dept", data={"action": "create", "name": "교무처"})
     page = c.get("/dev/users").text
-    card = page[page.index('id="depts"'):page.index('id="deptCreate"')]
+    card = page[page.index('id="depts"'):page.index('id="peopleView"')]
     assert "문서 넣기" not in card and 'href="/?type=all"' not in card
     assert "연결 전" in card and "#deptEdit" not in card and "드라이브 연결" not in card     # 관리자는 확인만(연결은 부서에서)
-    assert 'data-people-open="교무처"' in card and 'data-parent-open="교무처"' in card
+    assert 'data-people-open="교무처"' in card and "data-parent-open" not in card and 'id="deptCreate"' not in page
     assert "/?type=all&amp;scope=%EA%B5%90%EB%AC%B4%EC%B2%98" in card                  # 문서 수 → 그 부서 문서 목록
     assert "ua-steps" not in card and card.count('class="ua-lead"') == 1               # 설명은 한 줄
-    assert 'name="action" value="delete"' in card and "부서 추가" in card
+    assert 'name="action" value="delete"' in card and 'href="/team" data-org-link' in card and "조직도에서 부서 추가" in card
+    assert 'id="parentPick"' not in page and page.count("조직도에서 부서 추가") == 2                 # 부서 카드 · 사용자 창
 
 
 def test_login_mode_turns_off_shared_google_fallback(tmp_path):

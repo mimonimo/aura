@@ -43,7 +43,7 @@ def test_stage_model_rows_do_not_nest_and_help_copy_is_removed(client, monkeypat
         lc.activate(conn['id'])
         monkeypatch.setattr(main, '_live_models_cached', lambda *a, **kw: {
             'ok': True, 'models': [{'id': 'long-model-name'}], 'error': ''})
-        page = client.get('/dev/train?tab=settings')
+        page = client.get('/dev/tools')
         assert page.status_code == 200
         parsed = Rows()
         parsed.feed(page.text)
@@ -89,12 +89,10 @@ def test_quality_report_full_note_and_resolution_preserved(client):
     assert client.app.state.db.quality_report_stats()['open'] == 0
 
 
-def test_data_build_sources_have_labels_and_selection_status(client):
-    page = client.get('/dev/data')
-    assert page.status_code == 200
-    assert 'id="datasetBuildForm"' not in page.text
-    page = client.get('/dev/train?tab=data&view=legacy')
-    assert page.status_code == 200
-    assert 'id="datasetBuildForm"' in page.text
-    assert 'id="datasetSelectionStatus" role="status"' in page.text
-    assert '원천 선택"' in page.text
+def test_data_build_sources_are_gone_with_legacy_view(client):
+    """「이전 기록·이력」(기록 기반 후보 생성 보조 경로 포함)은 10-25 에 지웠다 — 옛 view=legacy 주소도 기본 화면 그대로."""
+    for url in ('/dev/train', '/dev/train?view=legacy'):
+        page = client.get(url)
+        assert page.status_code == 200
+        assert 'id="datasetBuildForm"' not in page.text and 'id="datasetSelectionStatus"' not in page.text
+        assert '이전 기록·이력' not in page.text

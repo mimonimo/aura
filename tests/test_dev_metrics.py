@@ -118,7 +118,7 @@ def test_intake_page_names_each_number(client, tmp_path):
          "lexical_index": 40, "stuck_docs": 0, "composition": {}, "alerts": []}), encoding="utf-8")
     page = client.get("/dev/intake").text
     assert "처리 대상 문서 가운데 라이브러리 문서로 들어온 것" in page
-    assert "그래프 대상 사업 문서 수" in page and "문서함" not in page
+    assert "그래프 대상 사업 문서" in page and "문서함" not in page          # 12555b42 에서 줄 이름을 짧게(「… 수」 뺌)
     assert 'data-confirm="지금 맞출까요?' in page and 'data-confirm="지금 다시 점검할까요?' in page
 
 
@@ -155,10 +155,10 @@ def test_every_nav_entry_has_a_name_and_page_name_rejects_unknown():
 
 
 @pytest.mark.parametrize("url", ["/dev/train?tab=models", "/dev/train?tab=exports", "/dev/train?tab=whatever"])
-def test_train_accepts_only_tabs_it_shows(client, url):
+def test_train_has_one_view_and_keeps_notice(client, url):
+    """옛 탭 넘기기(tab=models·exports)는 10-25 에 지웠다 — 어떤 tab 값이든 한 화면이고 안내 문구는 그대로 보인다."""
     r = client.get(url + "&err=안내", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/dev/train?tab=data")
-    assert "err=" in r.headers["location"]
+    assert r.status_code == 200 and "안내" in r.text
 
 
 # ---- 링크 ----
@@ -220,28 +220,18 @@ def test_user_status_names_fallback_account(monkeypatch, tmp_path):
 
 
 # ---- 무거운 개발 화면은 작업자를 붙잡지 않는다 ----
+# 문서별 상태·원천 미리보기(이전 기록·이력 화면)는 10-25 에 지웠다 — 데이터·학습 화면은 그 무거운 계산을 아예 하지 않는다
 
-def test_legacy_data_view_returns_pending_instead_of_blocking(client, monkeypatch):
-    import threading
-    import time as _time
-
+def test_train_view_never_runs_heavy_legacy_scans(client, monkeypatch):
     from zzaimy.dataset import build
-    gate = threading.Event()
 
-    def slow_status(db):
-        gate.wait(30)
-        return [{"id": 1, "filename": "a.pdf", "doc_type": "grant", "status": "reviewed",
-                 "n_chunks": 3, "indexed": None, "has_review": False, "has_draft": False}]
+    def boom(db):
+        raise AssertionError("데이터·학습 화면이 문서별 상태·원천 미리보기를 세면 안 된다")
 
-    monkeypatch.setattr(build, "rag_status", slow_status)
-    t0 = _time.time()
-    page = client.get("/dev/train?tab=data&view=legacy").text
-    assert _time.time() - t0 < 15
-    assert "문서별 상태를 세는 중입니다" in page and "등록된 문서가 없습니다" not in page
-    gate.set()
-    _time.sleep(0.3)
-    page = client.get("/dev/train?tab=data&view=legacy").text      # 끝난 결과는 재사용
-    assert "세는 중" not in page.split("변환 현황판", 1)[1][:600] and 'href="/doc/1"' in page
+    monkeypatch.setattr(build, "rag_status", boom)
+    monkeypatch.setattr(build, "preview_sources", boom)
+    for url in ("/dev/train", "/dev/train?view=legacy"):
+        assert client.get(url).status_code == 200
 
 
 def test_project_tile_counts_active_projects_only(client, tmp_path):

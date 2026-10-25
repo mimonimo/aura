@@ -1,4 +1,4 @@
-{# 도구·모델 연결(/dev/tools) 본문 — 학습 도구 주소·계정, LLM 연결, 단계별 모델, 계획 모델 서빙 상태 #}
+{# 도구·모델 연결(/dev/tools) 본문 — Label Studio 계정(TensorBoard 는 데이터·학습 화면), LLM 연결, 단계별 모델, 계획 모델 서빙 상태 #}
 <style>
   /* 도구 카드: 같은 구조·같은 높이. 3열 → 좁으면 1열(한 장만 남는 줄이 생기지 않게) */
   .tool-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-bottom:20px; }
@@ -43,15 +43,10 @@
   <div class="tool-status-row">
     <div class="tool-status-name"><b>{{ t.name }}</b><span class="muted">{{ t.step }}</span></div>
     <div class="tool-status-detail">
-      {% if t.key == "labelstudio" %}
-        {% if t.connected %}<span class="pill reviewed">연결됨</span>
-        {% else %}<span class="pill processing">미연결</span>{% endif %}
-      {% elif t.connected %}<span class="pill reviewed">연결됨</span><span class="muted">{{ t.detail }}</span>
-      {% elif t.connected is sameas false %}<span class="pill processing"{% if t.error %} title="{{ t.error }}"{% endif %}>응답 없음</span>
-      {% elif t.url %}<span class="pill">주소 등록됨</span><span class="muted">접속 상태 미확인</span>
-      {% else %}<span class="pill processing">주소 미등록</span>{% endif %}
+      {% if t.connected %}<span class="pill reviewed">연결됨</span>
+      {% else %}<span class="pill processing">미연결</span>{% endif %}
     </div>
-    <button type="button" class="secondary" aria-label="{{ t.name }} {{ '계정 관리' if t.key == 'labelstudio' else '주소 변경' }}" data-modal-open="#toolModal-{{ t.key }}">{{ '계정 관리' if t.key == 'labelstudio' else '주소 변경' }}</button>
+    <button type="button" class="secondary" aria-label="{{ t.name }} 계정 관리" data-modal-open="#toolModal-{{ t.key }}">계정 관리</button>
   </div>
   {% endfor %}
 </div></section>
@@ -59,9 +54,8 @@
 {% for t in tools %}
 <div class="modal-back" id="toolModal-{{ t.key }}">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} {{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</h2>
+    <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} 계정·연결</h2>
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    {% if t.key == "labelstudio" %}
     <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ t.role }}</p>
     <dl class="kv">
       <dt>상태</dt><dd>{% if t.connected %}연결됨{% else %}미연결{% if ls.error %} — {{ ls.error }}{% endif %}{% endif %}</dd>
@@ -95,22 +89,6 @@
       </form>
       <p class="muted" style="font-size:11.5px; margin:6px 0 0;">비밀번호는 해시로만 저장되어 조회할 수 없습니다.</p>
     </div>
-    {% else %}
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ t.role }}</p>
-    <dl class="kv">
-      <dt>상태</dt><dd>{% if t.url %}주소 등록됨{% else %}주소 없음 — 아래에서 등록하세요{% endif %}</dd>
-      <dt>주소</dt><dd>{% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.url }}</a>{% else %}미설정{% endif %}</dd>
-    </dl>
-    <div class="modal-sec">
-      <h4>주소 등록</h4>
-    <form action="/dev/train/url" method="post" class="field-row">
-      <input type="hidden" name="setting" value="{{ t.setting }}">
-      <input type="text" name="url" value="{{ t.url }}" placeholder="http://<GPU 서버>:포트/">
-      <button type="submit" class="secondary">저장</button>
-    </form>
-      <p class="muted" style="font-size:11.5px; margin:8px 0 0;">주소를 지우고 저장하면 이 도구를 쓰지 않는 상태가 됩니다.</p>
-    </div>
-    {% endif %}
   </div></div>
 </div>
 {% endfor %}

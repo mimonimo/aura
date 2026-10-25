@@ -33,17 +33,11 @@ def _intake_job_running(request: Request, kind: str) -> bool:
 
 
 @router.get("/dev/intake", response_class=HTMLResponse)
-def dev_intake(request: Request, tab: str = ""):
+def dev_intake(request: Request):
     from zzaimy.app import intake_status
     from zzaimy.app import metrics
     st = request.app.state
     db, db_path = st.db, st.db_path
-    if tab == "drive":
-        # 예전 Google Drive 가져오기 탭 — 앱 등록·계정 연결은 사용자·계정 화면에
-        return RedirectResponse(_GOOGLE, status_code=303)
-    if tab == "areas":
-        # 폴더별 담당 부서는 라이브러리 폴더 목록의 「공개 범위 바꾸기」 한 곳에서 바꾼다(같은 설정) — RAG 공간에서 본다
-        return RedirectResponse("/dev/rag", status_code=303)
     data = intake_status.pipeline(db_path)
     return st.templates.TemplateResponse(request, "dev_intake.html", st.page_ctx(request, {
         "p": data, "live": metrics.live(db), "lg": intake_status.ledger_breakdown(db), "running": {k: _intake_job_running(request, k) for k in _INTAKE_JOBS},
@@ -90,9 +84,3 @@ def dev_intake_run(request: Request, kind: str):
 # ---- 예전 Google Drive 가져오기 탭 — 폴더 연결 기능은 뺐다(문서함·채팅이 파일 단위로 가져온다).
 #      앱 등록·계정 연결 현황은 사용자·계정 화면에 있다. 옛 주소는 그리로 보낸다.
 
-_GOOGLE = "/dev/users#google-links"
-
-
-@router.get("/dev/nas")
-def dev_nas():
-    return RedirectResponse(_GOOGLE, status_code=303)

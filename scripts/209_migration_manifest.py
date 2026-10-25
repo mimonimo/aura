@@ -150,8 +150,6 @@ RULES: tuple[Rule, ...] = (
     # ---- data/platform: 옮김 ----
     R("data/platform/documents/**", MOVE, "1층 문서 — 반입·첨부·생성·보고·기안기 문서함(DB stored_path 가 가리킨다)"),
     R("data/platform/platform.db", MOVE, "DB 선택 안내 파일 — PostgreSQL 연결이 이 경로로 정해진다"),
-    R("data/platform/knowledge/corpus_pilot/**", MOVE, "국고 코퍼스 SQLite·색인 — 앱 코퍼스 검색이 읽는다"),
-    R("data/platform/corpus_pilot*", MOVE, "국고 코퍼스 옛 자리 — 앱이 새 자리에 없으면 여기를 본다"),
     R("data/platform/history/**", MOVE, "장부 이력(되돌리기)"),
     R("data/platform/dept_parents.json", MOVE, "관리자가 정한 상위 부서 — 권한 판정"),
     R("data/platform/program_admin.json", MOVE, "사업 관리 장부"),

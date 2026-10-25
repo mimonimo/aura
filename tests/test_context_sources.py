@@ -58,13 +58,9 @@ def test_answer_displays_only_sources_sent_to_model(monkeypatch):
 
 @pytest.mark.parametrize("found,weak", [(False, False), (True, False), (True, True)])
 def test_registered_search_keeps_sources_and_missing_evidence_notice(monkeypatch, found, weak):
-    from zzaimy.app import paths, regulations, responder
+    from zzaimy.app import regulations, responder
     from zzaimy.generate import client
 
-    def retired(*args, **kwargs):
-        pytest.fail("폐기 코퍼스를 조회하면 안 됩니다")
-
-    monkeypatch.setattr(paths, "corpus_db_existing", retired)
     hits = [{"doc_id": 42, "reg_title": "등록 문서", "content": "참여 목표 120명",
              "weak_evidence": weak}] if found else []
     received = []

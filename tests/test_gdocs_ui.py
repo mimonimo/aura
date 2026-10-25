@@ -37,7 +37,7 @@ def test_editor_actions_keep_contract_and_escape_answer(docs_env, tmp_path):
 
 
 def test_google_app_registration_lives_on_users_page(docs_env, tmp_path):
-    """앱 등록은 플랫폼에 한 번 — 사용자·계정 「학교 계정 연결 현황」 에서. 예전 Drive 탭 주소는 그리로 간다."""
+    """앱 등록은 플랫폼에 한 번 — 사용자·계정 「학교 계정 연결 현황」 에서. 예전 Drive 탭 주소 넘기기는 10-25 에 지웠다."""
     client = client_for(tmp_path)
     page = client.get('/dev/users').text
     card = page.split('id="google-links"', 1)[1].split('</div></div>', 1)[0]
@@ -45,8 +45,8 @@ def test_google_app_registration_lives_on_users_page(docs_env, tmp_path):
     modal = page.split('id="googleAppEdit"', 1)[1].split('</form>', 1)[0]
     assert 'action="/dev/gdrive/client"' in modal and 'name="client_id"' in modal and 'name="client_secret"' in modal
     assert '/dev/gdrive/callback' in modal                                   # 리디렉션 URI 를 보인다
-    for old in ('/dev/nas', '/dev/intake?tab=drive'):
-        r = client.get(old, follow_redirects=False)
-        assert r.status_code == 303 and r.headers['location'] == '/dev/users#google-links'
+    assert client.get('/dev/nas', follow_redirects=False).status_code == 404
+    assert client.get('/dev/intake?tab=drive', follow_redirects=False).status_code == 200   # 탭 값 없이 문서 반입 화면 그대로
+    assert client.get('/dev/google', follow_redirects=False).status_code in (404, 405)
     r = client.post('/dev/gdrive/client', data={'client_id': 'bad', 'client_secret': 'x'}, follow_redirects=False)
     assert r.headers['location'].startswith('/dev/users?err=') and r.headers['location'].endswith('#google-links')

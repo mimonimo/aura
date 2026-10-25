@@ -69,10 +69,6 @@ REGISTRY: tuple[Action, ...] = (
     Action("llm.test", "연결 확인", "/dev/llm/{cid}/test", "post", ("cid",),
            ("연결 확인", "접속", "살아"), True, auto=True),
 
-    # ---- 외부 참조 ----
-    Action("egress.page", "외부 구독 연결", "/dev/pii?view=external", "get", (),
-           ("외부", "참조", "구독", "로그인")),
-
     # ---- 자료 관리 ----
     Action("intake.page", "문서 가져오기", "/dev/intake", "get", (),
            ("가져오", "반입", "원본", "동기화")),
@@ -82,7 +78,7 @@ REGISTRY: tuple[Action, ...] = (
            ("색인", "재색인", "검색 다시"), True),
     Action("pii.scan", "개인정보 잔여 검사", "/dev/pii/scan", "post", (),
            ("개인정보", "마스킹", "잔여"), True),
-    Action("data.page", "학습 데이터 만들기", "/dev/data", "get", (),
+    Action("data.page", "학습 데이터 만들기", "/dev/train", "get", (),
            ("학습 데이터", "데이터 공방", "예시")),
 )
 

@@ -19,7 +19,7 @@
   .ua-form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
   .ua-form footer { display:flex; gap:8px; justify-content:flex-end; }
   .ua-lead { margin:0 0 12px; font-size:12.5px; color:var(--muted); line-height:1.6; }
-  /* 부서 표 — 맨 위 부서 다음에 아래 부서(펼치기·접기), 상위 부서·사람은 창으로 */
+  /* 부서 표 — 맨 위 부서 다음에 아래 부서(펼치기·접기), 사람은 창으로(만들기·옮기기는 조직도) */
   .ua-dfind { font:inherit; font-size:12.5px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; width:160px; }
   .ua-sm { padding:5px 11px; font-size:12px; }
   .ua-tree td.act form { display:inline; margin:0; }
@@ -34,16 +34,10 @@
   .ua-count { font-size:12.5px; color:var(--ink); margin:0; }
   .ua-warn { color:#8a5a00; }
   .ua-rowmsg { display:block; font-size:11.5px; color:var(--red, #b91c1c); } .ua-rowmsg:empty { display:none; }
-  .ua-pick-row { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--muted); }
-  .ua-pick-row .ua-chip { margin:0; font-size:13px; padding:4px 12px; }
-  #parentPick > .card, #peopleView > .card { width:460px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; }
-  #parentPick .card-in, #peopleView .card-in { display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
-  #parentPick .ua-form, #peopleView .ua-form { min-height:0; }
+  #peopleView > .card { width:460px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; }
+  #peopleView .card-in { display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
+  #peopleView .ua-form { min-height:0; }
   .ua-plist { overflow:auto; min-height:120px; max-height:min(420px, 55dvh); border:1px solid var(--line); border-radius:10px; padding:4px; }
-  .ua-plist h3 { margin:8px 8px 2px; font-size:11px; font-weight:600; color:var(--muted); }
-  .ua-opt { display:flex; width:100%; justify-content:space-between; align-items:center; gap:8px; padding:7px 10px; border:0; border-radius:7px; background:transparent; font:inherit; font-size:13px; text-align:left; color:var(--ink); cursor:pointer; box-shadow:none; min-height:0; }
-  .ua-opt:hover, .ua-opt.focus { background:#f3f5f8; }
-  .ua-opt[aria-selected=true] { background:#e6edf7; color:#163266; font-weight:600; }
   .ua-person { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; padding:7px 10px; border-bottom:1px solid var(--line); font-size:13px; }
   .ua-person:last-child { border-bottom:0; }
   .ua-person .ua-sub { margin:0; }
@@ -166,9 +160,9 @@
     <span class="muted" style="font-size:12px; font-weight:400;">{{ depts | length }}개</span>
     <input type="search" class="ua-dfind spacer" data-dept-find placeholder="부서 찾기" aria-label="부서 찾기">
     <button type="button" class="btn-ghost" data-tree-all>모두 펼치기</button>
-    <button type="button" class="secondary" data-ua-open="#deptCreate">
-      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
-  <p class="ua-lead">부서 드라이브는 각 부서의 총괄 책임자가 조직·구성원 화면에서 연결합니다. 여기서는 연결 상태를 확인합니다.</p>
+    <a class="btn-ghost" href="/team" data-org-link title="부서 만들기·위치 옮기기는 조직도 한 곳에서">
+      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>조직도에서 부서 추가</a></h2>
+  <p class="ua-lead">부서 만들기·옮기기는 조직도에서, 부서 드라이브는 각 부서의 총괄 책임자가 조직·구성원 화면에서 연결합니다. 여기서는 부서 RAG 와 연결 상태를 확인합니다.</p>
   {% if depts %}
   <div class="table-scroll">
   <table class="ua-table ua-tree ua-cards">
@@ -178,7 +172,7 @@
     <tr data-dept-row="{{ d.dept }}" data-top="{{ d.top }}"{% if d.top %} class="ua-kid" hidden{% endif %}>
       <td><span class="ua-dname">{% if d.top %}<span class="ua-indent" aria-hidden="true"></span>{% endif %}<b>{{ d.dept }}</b>
         {% if d.kids %}<button type="button" class="ua-toggle" data-tree-toggle="{{ d.dept }}" aria-expanded="false" data-kids="{{ d.kids }}">펼치기 · {{ d.kids }}</button>{% endif %}</span>
-        <button type="button" class="ua-chip" data-parent-open="{{ d.dept }}" data-parent="{{ d.parent }}" title="상위 부서 — 상위 부서의 총괄 책임자가 이 부서도 맡습니다">{{ ('상위: ' ~ d.parent) if d.parent else '상위 부서 정하기' }}</button>
+        {% if d.parent %}<span class="ua-sub" title="상위 부서 — 상위 부서의 총괄 책임자가 이 부서도 맡습니다. 바꾸기는 조직도에서">상위: {{ d.parent }}</span>{% endif %}
         <span class="ua-rowmsg" role="status"></span></td>
       <td data-label="사람"><button type="button" class="ua-chip ua-count" data-people-open="{{ d.dept }}">{{ d.people | length }}명</button>{% if waiting %}<span class="ua-sub">첫 로그인 전 {{ waiting }}</span>{% endif %}</td>
       <td data-label="부서 RAG 문서"><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="라이브러리에서 이 부서 문서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
@@ -202,36 +196,9 @@
   </table>
   </div>
   <p class="muted" data-dept-none hidden style="margin:10px 0 0;">찾는 부서가 없습니다.</p>
-  {% else %}<p class="muted" style="margin:0;">아직 부서가 없습니다. 「부서 추가」로 만들면 계정·부서 RAG 에서 고를 수 있습니다.</p>{% endif %}
-  <script type="application/json" data-dept-json>{{ {"depts": depts | map(attribute='dept') | list, "tops": depts | selectattr('is_top') | map(attribute='dept') | list, "people": dept_people} | tojson }}</script>
+  {% else %}<p class="muted" style="margin:0;">아직 부서가 없습니다. <a href="/team">조직도</a>에서 부서를 더하면 계정·부서 RAG 에서 고를 수 있습니다.</p>{% endif %}
+  <script type="application/json" data-dept-json>{{ {"people": dept_people} | tojson }}</script>
 </div></div>
-
-<div class="modal-back" id="deptCreate">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:17px;">부서 추가</h2>
-      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/users/dept" method="post" class="ua-form" data-dept-create>
-      <input type="hidden" name="action" value="create">
-      <label>부서 이름<input type="text" name="name" required maxlength="30" autocomplete="off" placeholder="예: 교무처, 산학협력단"></label>
-      <div class="ua-pick-row"><span>상위 부서</span><button type="button" class="ua-chip" data-create-parent data-parent="">없음</button></div>
-      <p class="ua-rowmsg" data-create-msg role="status"></p>
-      <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">만들기</button></footer>
-    </form>
-  </div></div>
-</div>
-
-<div class="modal-back" id="parentPick">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:17px;" data-pp-title>상위 부서</h2>
-      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <div class="ua-form">
-      <input type="search" data-pp-find placeholder="부서 이름으로 찾기" aria-label="상위 부서 찾기" autocomplete="off">
-      <div class="ua-plist" role="listbox" aria-label="상위 부서" data-pp-list tabindex="-1"></div>
-      <p class="ua-rowmsg" data-pp-msg role="status"></p>
-      <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="button" data-pp-save>저장</button></footer>
-    </div>
-  </div></div>
-</div>
 
 <div class="modal-back" id="peopleView">
   <div class="card"><div class="card-in">
@@ -309,6 +276,7 @@
         <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
           {% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}</select></label>
       </div>
+      <p class="ua-hint">목록에 없는 부서는 <a href="/team" target="_blank" rel="noopener">조직도에서 부서 추가</a> 뒤 고릅니다.</p>
       <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
         <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업(추가 권한은 여기 또는 그 부서 총괄 책임자의 「부서 사람」 화면에서) · 사업 책임자는 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자는 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
       <fieldset class="ua-extra" data-perm-field><legend>추가 권한 <span class="ua-hint">— 등급과 따로 이 사람에게만</span></legend>

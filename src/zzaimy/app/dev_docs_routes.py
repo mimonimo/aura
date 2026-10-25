@@ -19,6 +19,8 @@ from fastapi.responses import HTMLResponse
 
 from zzaimy.app import storage
 
+from zzaimy.app.dev_overview_routes import PAPER_PLANNING
+
 router = APIRouter()
 
 
@@ -825,7 +827,10 @@ def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1
         "weekly_feedback": h.weekly_feedback((_today - _td(days=_today.weekday())).isoformat()),
         "weekly": h.weekly_card((_today - _td(days=_today.weekday())).isoformat(), _today.isoformat()),
         "papers": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
-                   for p in h.dev_papers()],
+                   for p in h.dev_papers() if p["file"] not in PAPER_PLANNING],
+        # 기획 단계 자료(기획서·제안 발표·논문 양식 분석)는 기록·자료 목록의 한 묶음으로
+        "planning_docs": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
+                          for p in h.dev_papers() if p["file"] in PAPER_PLANNING],
         "paper_hwp": _paper_hwp(request),
         "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
                            d["title"]) for d in h.dev_doc_list("decisions")],

@@ -26,7 +26,6 @@ import re
 import time
 from collections.abc import Iterator, Sequence
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -478,16 +477,6 @@ def run_scan(db: Database, limit: int | None = None) -> dict:
 # --- 화면 조립 ---
 
 
-def corpus_db_path(db: Database) -> Path | None:
-    """플랫폼 DB 옆에 있는 코퍼스 파일럿 DB(스크립트 74 기본 대상). 없으면 None."""
-    from zzaimy.app import paths as _paths
-
-    p = _paths.corpus_db_existing(Path(db.path).parent)
-    if p.exists() and p.resolve() != Path(db.path).resolve():
-        return p
-    return None
-
-
 def source_view(db: Database, name: str, linkable: bool, *, q: str = "", entity: str = "", page: int = 1, page_size: int = 10) -> dict:
     """한 DB의 마스킹 현황 — 요약·문서별 기록·마지막 잔여 검사."""
     stats = db.mask_event_stats()
@@ -495,19 +484,12 @@ def source_view(db: Database, name: str, linkable: bool, *, q: str = "", entity:
     subjects: list[dict] = []
     known_types = {t for t, *_ in MASK_POLICY}
     unknown_types: set[str] = set()
-    # 유형별 집계 — 정책표 옆에 '이 유형에서 실제로 얼마나 가렸나'를 붙인다
-    by_doc_type: dict[str, dict[str, int]] = {}
     for doc in _doc_index(db):
         if doc.get("doc_type") not in known_types:
             unknown_types.add(doc.get("doc_type") or "")
         if not is_masking_subject(doc.get("doc_type"), doc.get("owner")):
             continue
         rec = recorded.get(doc["id"])
-        agg = by_doc_type.setdefault(doc.get("doc_type") or "", {"docs": 0, "recorded": 0, "total": 0})
-        agg["docs"] += 1
-        if rec is not None:
-            agg["recorded"] += 1
-            agg["total"] += int(rec.get("total", 0))
         subjects.append({
             "doc_id": doc["id"], "filename": doc["filename"],
             "doc_type": doc["doc_type"], "owner": doc.get("owner"),
@@ -538,6 +520,5 @@ def source_view(db: Database, name: str, linkable: bool, *, q: str = "", entity:
         "docs_truncated": max(0, len(filtered) - page*page_size),
         "page": page, "pages": pages, "filtered_total": len(filtered),
         "unknown_types": sorted(unknown_types),
-        "by_doc_type": by_doc_type,
         "scan": load_json(db, SCAN_KEY),
     }

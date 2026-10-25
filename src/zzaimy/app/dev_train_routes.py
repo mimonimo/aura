@@ -4,16 +4,14 @@
 (없으면 미연결로 표시). 반출 묶음은 선택 항목만 개방 표준으로 내보낸다(ADR-0012).
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
-- DB·화면 틀·화면 공통 맥락(page_ctx)과 다른 화면과 함께 쓰는 도우미(Label Studio 연결 상태·검수 현황·LLM 연결 안내 이동·
-  무거운 조회 대기열 dev_slow)는 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
+- DB·화면 틀·화면 공통 맥락(page_ctx)과 다른 화면과 함께 쓰는 도우미(Label Studio 연결 상태·검수 현황·LLM 연결 안내 이동)는
+  main.create_app 이 app.state 에 올려 둔 것을 읽는다.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
-import time
-from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -31,14 +29,14 @@ def _train_redirect(request: Request, msg: str, ok: bool = True) -> RedirectResp
 # 도구는 각자 프로세스로 돌고 플랫폼은 연결·임베드만 한다. GPU 도구는 DGX 에서
 # 돈다. 주소는 설정에 저장(없으면 미연결로 표시).
 
+# 도구·모델 연결(/dev/tools)에는 Label Studio 계정만. TensorBoard(진행 그래프)는 링크·상태·주소 모두 데이터·학습(/dev/train)
+# 「학습·평가」 한 곳에 둔다(10-25 — 학습 도구는 모델 학습 화면에서).
 _TRAIN_TOOLS = [
     {"key": "labelstudio", "name": "Label Studio", "step": "검수",
      "role": "학습 예시 검수",
      "gpu": False, "setting": "labelstudio_url"},
-    {"key": "tensorboard", "name": "TensorBoard", "step": "진행 확인",
-     "role": "DGX 학습의 손실·학습률·GPU 그래프(학습은 DGX 학습 스크립트로 실행)",
-     "gpu": True, "setting": "tensorboard_url"},
 ]
+_TB_SETTING = "tensorboard_url"
 
 
 def _tensorboard_status() -> dict:
@@ -57,22 +55,14 @@ def _tensorboard_status() -> dict:
 
 
 @router.get("/dev/train", response_class=HTMLResponse)
-def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "data", ds_page: int = 0):
-    # 데이터·학습 화면. 도구·모델 연결은 /dev/tools 로 옮겼다 — 옛 주소(tab=settings)는 안내·오류 문구를
-    # 그대로 들고 새 주소로 보낸다. 옛 tab 값(models·exports)이나 없는 값은 data 로 보낸다
-    from urllib.parse import urlencode
-    if tab == "settings":
-        keep = {k: v for k, v in (("err", err), ("ok", ok)) if v}
-        return RedirectResponse("/dev/tools" + ("?" + urlencode(keep) if keep else ""), status_code=303)
-    if tab != "data":
-        keep = {k: v for k, v in (("err", err), ("ok", ok), ("ds_page", ds_page or "")) if v}
-        return RedirectResponse("/dev/train?" + urlencode({"tab": "data", **keep}), status_code=303)
-    return _dev_data_view(request, err, ok, ds_page)
+def dev_train(request: Request, err: str = "", ok: str = ""):
+    # 데이터·학습 화면 하나 — 도구·모델 연결은 /dev/tools. 옛 탭 주소(tab=settings·models·exports) 넘기기는 10-25 에 지웠다
+    return _dev_data_view(request, err, ok)
 
 
 @router.get("/dev/tools", response_class=HTMLResponse)
 def dev_tools(request: Request, err: str = "", ok: str = ""):
-    """도구·모델 연결 — 학습 도구 주소·계정, LLM 연결·단계별 모델, 계획 모델 서빙, 외부 연결(웹 검색·구독 CLI)."""
+    """도구·모델 연결 — 학습 도구 주소·계정, LLM 연결·단계별 모델, 계획 모델 서빙, 외부 연결(웹 검색)."""
     # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
     # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
     from zzaimy.app import main as _main   # 모델 목록 캐시(_live_models_cached)는 main 에 있다 — 시험이 바꿔 끼운다
@@ -91,14 +81,7 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
     live_by_id = dict(zip([c['id'] for c in public_connections], live_results))
 
     ls = st.ls_status()
-    tb = _tensorboard_status()
-    tools = [
-        {**t, "url": db.get_setting(t["setting"], ""),
-         "connected": ls["ok"] if t["key"] == "labelstudio" else (tb["ok"] if t["key"] == "tensorboard" else None),
-         "detail": tb.get("detail", "") if t["key"] == "tensorboard" else "",
-         "error": tb.get("error", "") if t["key"] == "tensorboard" else ""}
-        for t in _TRAIN_TOOLS
-    ]
+    tools = [{**t, "url": db.get_setting(t["setting"], ""), "connected": ls["ok"]} for t in _TRAIN_TOOLS]
     llm = model_config.current()
     llm_probe = (live_by_id.get(llm.get("connection_id")) or model_config.probe()) if llm["configured"] else {"ok": False, "models": [], "error": "미확인"}
     return st.templates.TemplateResponse(request, "dev_tools.html", st.page_ctx(request, {
@@ -122,7 +105,6 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
         "plan_writer": next((p["base"] for p in serving_plan.PLAN if p["key"] == "answer"), ""),
         # 외부 연결 — 개인정보 화면에서 옮겨 온 칸
         "search_provider": web_search.provider(),
-        "subscription_checks": json.loads(db.get_setting("subscription_checks", "{}")),
     }))
 
 
@@ -248,79 +230,28 @@ def dev_train_ls_password(request: Request, new_pw: str = Form(...), confirm: st
 
 
 @router.post("/dev/train/url")
-def dev_tool_url(request: Request, setting: str = Form(...), url: str = Form(""), back: str = Form("/dev/train?tab=settings")):
+def dev_tool_url(request: Request, setting: str = Form(...), url: str = Form(""), back: str = Form("/dev/train#training-tools")):
     # Label Studio 주소는 구축 스크립트(scripts/68_labelstudio_token.sh)가 넣는다 —
-    # 화면에서는 GPU 도구(TensorBoard) 주소만 바꾼다
-    valid = {t["setting"] for t in _TRAIN_TOOLS if t["key"] != "labelstudio"}
-    if setting not in valid:
+    # 화면에서는 GPU 도구(TensorBoard) 주소만 바꾼다(데이터·학습 「학습·평가」 카드)
+    if setting != _TB_SETTING:
         raise HTTPException(400, "알 수 없는 도구입니다")
     url = url.strip()
     if url and not url.startswith(("http://", "https://")):
         raise HTTPException(400, "http(s):// 주소여야 합니다")
     request.app.state.db.set_setting(setting, url)
-    dest = back if back.startswith("/dev/") else "/dev/train?tab=settings"
+    dest = back if back.startswith("/dev/") else "/dev/train#training-tools"
     return RedirectResponse(dest, status_code=303)
 
 
-# 무거운 개발 화면 조회 — 웹 작업자를 몇 분씩 붙잡지 않게 뒤에서 돌리고, 정해진 시간 안에 끝나지 않으면
-# 화면은 「계산 중 — 잠시 뒤 다시」를 보인다. 결과는 잠시 재사용하고, 낡으면 옛 값을 보이며 뒤에서 다시 센다.
-# 대기열·결과는 앱마다 하나 — create_app 이 make_dev_slow() 로 만들어 app.state.dev_slow 에 둔다.
-def make_dev_slow():
-    import concurrent.futures as _slow_cf
-    _slow_pool = _slow_cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="dev-slow")
-    _slow_cache: dict = {}
-    _slow_lock = __import__("threading").Lock()
-
-    def _dev_slow(key: str, fn, *, wait_s: float = 4.0, ttl_s: float = 600.0):
-        """(값, 상태) — 상태는 "ok"·"pending"(아직 계산 중)·"error". 같은 조회는 동시에 한 번만 돈다."""
-        now = time.time()
-        with _slow_lock:
-            ent = _slow_cache.get(key) or {}
-            fut = ent.get("fut")
-            fresh = bool(ent.get("at")) and now - ent["at"] < ttl_s
-            if fut is None or (fut.done() and not fresh):
-                fut = _slow_pool.submit(fn)
-                ent = {"fut": fut, "at": now, "last": ent.get("last")}
-                _slow_cache[key] = ent
-        try:
-            val = fut.result(timeout=wait_s)
-        except _slow_cf.TimeoutError:
-            return ent.get("last"), "pending"
-        except Exception:
-            logging.getLogger("zzaimy.app.web").exception("개발 화면 조회 실패: %s", key)
-            return ent.get("last"), "error"
-        ent["last"] = val
-        return val, "ok"
-
-    return _dev_slow
-
-
-def _dev_data_view(request: Request, err: str = "", ok: str = "", ds_page: int = 0):
-    from zzaimy.dataset.build import preview_sources, rag_status
+def _dev_data_view(request: Request, err: str = "", ok: str = ""):
     from zzaimy.export.bundle import preview_bundle
 
     st = request.app.state
     db = st.db
-    show_legacy = (request.query_params.get('view') == 'legacy'
-                   or bool(request.query_params.get('ls_pushed'))
-                   or bool(request.query_params.get('ls_pulled')))
-
     try:
         export_preview = preview_bundle(db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
     except Exception:
         export_preview = []
-
-    ds_page = max(ds_page, 0)
-    DS_PER = 20
-    ds_total = db.count_datasets()
-    datasets = db.list_datasets(limit=DS_PER, offset=ds_page * DS_PER)
-    from zzaimy.dataset.privacy import approved_bytes
-    for dataset in datasets:
-        try:
-            approved_bytes(Path(dataset["path"]))
-            dataset["export_ready"] = True
-        except (ValueError, OSError):
-            dataset["export_ready"] = False
     # 「다시 확인」 — 30초 캐시를 비우고 Label Studio 에 바로 다시 묻는다
     if request.query_params.get("recheck"):
         st.grounded_cache["value"] = None
@@ -330,25 +261,14 @@ def _dev_data_view(request: Request, err: str = "", ok: str = "", ds_page: int =
         review_report = json.loads(db.get_setting('grounded_review_report', '{}') or '{}')
     except ValueError:
         review_report = {}
-    # 문서별 상태(문서마다 조각을 센다)·원천 미리보기(변환기를 실제로 돌린다)는 문서 수만큼 무거워 뒤에서 센다
-    rag_rows, rag_state, source_preview, source_state = [], "ok", [], "ok"
-    if show_legacy:
-        rag_rows, rag_state = st.dev_slow("rag_status", lambda: rag_status(db))
-        source_preview, source_state = st.dev_slow("preview_sources", lambda: preview_sources(db))
     return st.templates.TemplateResponse(request, "dev_data.html", st.page_ctx(request, {
-        "rag_state": rag_state, "source_state": source_state,
         "grounded_review_report": review_report,
         "development_tab": "data",
         "export_preview": export_preview,
-        "tensorboard_url": db.get_setting("tensorboard_url", ""),
+        "tensorboard_url": db.get_setting(_TB_SETTING, ""),
+        "tensorboard_status": _tensorboard_status(),
         "grounded_ls": grounded_ls,
         "grounded_note": st.grounded_status_note(grounded_ls, labelstudio_url),
-        "rag_rows": rag_rows or [],
-        "source_preview": source_preview or [],
-        "datasets": datasets,
-        "ds_page": ds_page, "ds_total": ds_total, "ds_per": DS_PER,
-        "ds_has_next": (ds_page + 1) * DS_PER < ds_total,
         "err": err, "ok": ok,
-        "ls": st.ls_status() if show_legacy else {"ok": False},
         "labelstudio_url": labelstudio_url,
     }))

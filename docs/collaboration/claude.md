@@ -4,6 +4,22 @@
 결정의 근거는 ADR(`docs/decisions/`), 지금 상태와 남은 일은 `docs/HANDOFF.md`·`docs/dev-now.md` 가 정본이다.
 아래의 남은 검수 항목은 기록 시점 기준이며 현재 상태는 미확인이다.
 
+## 요청 K66 — 개발 화면 정리 뒤 아스트라 담당 파일 따라잡기 (2026-10-25, 요청 — 사용자 지시 「필요 없는 건 지워 줘」「합쳐 줘」「안 쓰는 계산·경로, 옛 주소 넘기기」)
+
+Claude 가 구독 세션 확인·국고 코퍼스 파일럿·데이터·학습 「이전 기록·이력」·옛 주소 넘기기 9종·안 쓰던 계산을 지우고,
+부서 만들기·옮기기(조직도로)·TensorBoard(학습 화면으로)·기획 단계 논문 자료(기록·자료 목록으로)를 합쳤다(dev-now 10-25 첫 줄).
+
+1. tests/test_dev_pages.py — 사용자 직접 지시로 지운 기능의 단언만 뺐다. 바꾼 줄: test_settings_reuses_connection_probe·test_train_page_holds_tool_accounts_once·
+   test_connection_page_shows_what_is_in_use_without_popups·test_search_stages_show_where_they_run_not_a_picker·test_stage_models_save_once_atomically 의
+   `/dev/train?tab=settings` → `/dev/tools`, 매개변수 `'/dev/data'` 뺌, test_training_legacy_keeps_requested_previews 지움,
+   test_dev_dashboard_labels 의 `/dev/pii?view=external` 두 줄·test_developer_work_pages_have_actions_not_duplicate_plans 의 legacy 두 줄 뺌,
+   test_privacy_tabs_and_subscription_check 는 구독 단언 4줄을 빼고 `client.post('/dev/pii/subscriptions/check')` → `client.get('/dev/tools')`(이름은 그대로 — 바꾸려면 아스트라가).
+2. docs/HANDOFF.md — 216행 `/dev/api/intake`(지움), 125·359·389행 `/dev/data`(옛 주소 지움 — /dev/train), 391행 `/dev/nas`(지움), 395행 「국고 코퍼스」 탭,
+   322행 knowledge 의 corpus_pilot, 130행 「구독 인증 상태 확인은 유지」 가 지금과 다르다.
+3. docs/collaboration/README.md 60행 「NAS 연결 … `/dev/nas`」 — 주소를 지웠다(구글 앱 등록은 /dev/users#google-links).
+4. src/zzaimy/dataset/build.py 의 preview_sources·rag_status·export_dataset(_BUILDERS) — 화면에서 부르는 곳이 없어졌다(시험 tests/test_dataset.py 만 씀). 남길지 지울지 정해 주기.
+5. K65 3번(구독 상태 확인 단추)은 사용자 결정으로 기능째 지워 끝났다.
+
 ## 요청 K65 — 개발 화면 정리에 걸린 아스트라 담당 파일 (2026-10-25, 요청 — 사용자 지시 「개발 페이지 전수조사, 합칠 건 합치고 낡은 건 최신화」)
 
 Claude 가 개발 화면을 정리하다 아스트라 담당 파일에 걸려 멈춘 것들이다. 고쳐 주거나, 고쳐도 되면 이 아래에 답을 적어 주기 바란다.
@@ -298,8 +314,7 @@ Codex 쪽 요청(학습기 — 다음 이어 가기 때): (1) `logging_steps=1` 
 - VM 이 메모리 부족으로 멈춘 원인은 색인 갱신이 5.4GB 색인을 여러 번 복사한 것이었다. 색인 갱신은 한 번만 쓰고 검사는 머리만 읽는다.
   크론 작업은 `scripts/zz_run.sh` 로 메모리 상한(MemoryMax, 스왑 금지)과 낮은 OOM 우선순위를 두고 돈다. VM 은 64GB 로 늘렸다.
 - 사업 문서 색인은 전용 주기로 돌아 그래프 재구축이 색인을 막지 않는다(5,000조각 약 190초).
-- 반입 현황 데이터: `intake_status.snapshot(db)`(원본 보관소·문서함·사업별 보관 문서·색인·그래프 노드·동기화 주기), `/dev/api/intake`.
-  화면은 snapshot 값만 쓴다.
+- 반입 현황 데이터: 문서 가져오기 화면은 `intake_status.pipeline`·`ledger_breakdown` 을 쓴다. 옛 `snapshot(db)`·`/dev/api/intake` 는 부르는 곳이 없어 10-25 에 지웠다.
 
 ## 실문서 학습 데이터 생성기 (2026-09-29 ~ 10-01)
 

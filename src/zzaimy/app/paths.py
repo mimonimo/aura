@@ -5,7 +5,6 @@
                index/      조각 임베딩(chunk_embeddings.npz + .meta.json)·문서 벡터·질문 색인
                eval/       검색 품질 측정 산출물(retrieval-*.json, llm-rerank-*)
                exports/    외부 이용 묶음(scripts/140) — 문서·조각·개체·간선·임베딩을 jsonl/npz 로
-               corpus_pilot/  옛 국고 파일럿 DB 와 색인(참고)
   3층 모델   data/train/                     학습 자료와 학습본 — DGX 의 ~/zzaimy/train 과 같은 모양
                datasets/<모델>/<판>/  baselines/<모델>/  models/<모델>/<판>/  runs/<모델>/<판>/
   캐시       data/platform/cache/            재생성 가능(글자 좌표 lines·쪽 그림 pagecache·복원 PDF restored)
@@ -65,29 +64,6 @@ def exports_dir(base: Path | None = None) -> Path:
     return knowledge_dir(base) / "exports"
 
 
-def corpus_dir(base: Path | None = None) -> Path:
-    return knowledge_dir(base) / "corpus_pilot"
-
-
-def corpus_db(base: Path | None = None) -> Path:
-    return corpus_dir(base) / "corpus_pilot.db"
-
-
-def corpus_db_existing(base: Path | None = None) -> Path:
-    """파일럿 DB — 새 자리(knowledge/corpus_pilot)에 없으면 옛 자리(platform/ 바로 아래)도 본다(이관 전 호환)."""
-    new = corpus_db(base)
-    old = platform_dir(base) / "corpus_pilot.db"
-    return new if new.exists() or not old.exists() else old
-
-
-def corpus_npz(base: Path | None = None) -> Path:
-    return corpus_dir(base) / "corpus_pilot_embeddings.npz"
-
-
-def corpus_meta(base: Path | None = None) -> Path:
-    return corpus_dir(base) / "corpus_pilot_embeddings.meta.json"
-
-
 # ---- 캐시(재생성 가능) ----
 def cache_dir(base: Path | None = None) -> Path:
     return platform_dir(base) / "cache"
@@ -138,7 +114,6 @@ LAYOUT = {
     "knowledge/index": "2층 지식 — 조각 임베딩·문서 벡터·질문 색인",
     "knowledge/eval": "2층 지식 — 검색 품질 측정",
     "knowledge/exports": "2층 지식 — 외부 이용 묶음",
-    "knowledge/corpus_pilot": "2층 지식 — 옛 국고 파일럿(참고)",
     "cache": "재생성 가능한 캐시",
     "backups": "백업 한 곳 — 조각·색인 스냅샷과 일괄 정리·소급의 되돌리기 기록(옛 backup/ 를 10-19 합침)",
 }

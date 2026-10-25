@@ -210,7 +210,7 @@ def test_dev_users_dictionary_candidates_and_bulk_create(tmp_path):
     app, c = _client(tmp_path)
     c.post("/dev/users/dept", data={"action": "create", "name": "기획처"})
     page = c.get("/dev/users").text
-    # 화면에서는 사전 고르기를 뺐다(10-23 사용자: 쓰기 복잡) — 부서 추가는 이름과 상위 부서만. 서버의 여러 개 만들기 길은 남는다
+    # 화면에서는 사전 고르기를 뺐다(10-23 사용자: 쓰기 복잡). 부서 추가는 조직도(10-25). 서버의 여러 개 만들기 길은 남는다
     assert "사전에서 고르기" not in page and 'name="names"' not in page
     r = c.post("/dev/users/dept", data={"action": "create_many", "names": ["기획팀", "학생처", "새이름과", "기획처"]},
                follow_redirects=False)
@@ -221,7 +221,7 @@ def test_dev_users_dictionary_candidates_and_bulk_create(tmp_path):
     c.post("/dev/users/dept", data={"action": "create", "name": "다라사업단"})
     assert "다라2.0사업단" in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})
     page = c.get("/dev/users").text
-    assert "규정 제안" not in page and 'data-parent-open="기획팀"' in page          # 상위 부서는 창에서 고른다
+    assert "규정 제안" not in page and 'data-parent-open="기획팀"' not in page      # 상위 부서는 조직도에서 옮긴다(10-25)
 
 
 def test_dept_parent_route_admin_only_and_no_cycle(tmp_path):

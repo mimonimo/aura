@@ -103,7 +103,7 @@ def test_admin_table_json_actions(env, monkeypatch):
     r = dev.post("/dev/users/dept-parent", data={"dept": "기획팀", "parent": "기획처"}, headers=J)
     assert r.status_code == 200 and r.json()["ok"]
     page = dev.get("/dev/users").text
-    card = page[page.index('id="depts"'):page.index('id="deptCreate"')]
+    card = page[page.index('id="depts"'):page.index('id="peopleView"')]
     assert card.index('data-dept-row="기획처"') < card.index('data-dept-row="기획팀"') and 'data-tree-toggle="기획처"' in card
     assert 'data-top="기획처" class="ua-kid" hidden' in card                     # 아래 부서는 접혀 있다
     r = dev.post("/dev/users/dept-parent", data={"dept": "기획처", "parent": "없는부서"}, headers=J)
