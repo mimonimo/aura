@@ -85,7 +85,7 @@
 
 <div class="card reveal" id="coedit"><div class="card-in">
   <h2><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>공동 편집 처리 방식 — 웹 한글 기안기</h2>
-  <p class="pf-lead" style="margin-bottom:10px;">화면에 보이는 것은 기안기가 연 한글 파일 한 벌이다. 사람 사이의 정답은 서버 DB 의 칸 글 표가 먼저 갖고(실시간), 한글 파일은 몇 초 뒤 그 글로 바뀐다.</p>
+  <p class="pf-lead" style="margin-bottom:10px;">칸 글은 서버 DB 에 먼저 저장돼 다른 창으로 가고, 한글 파일은 몇 초 뒤 그 글로 바뀐다.</p>
   <div class="table-scroll"><table class="pf-cycles pf-co">
     <tr><th>처리 방식</th><th>사용자가 보는 것</th><th>뒤에서 일어나는 일</th><th>걸리는 시간</th><th>동시에 하면</th></tr>
     {% for r in coedit %}<tr><td style="white-space:nowrap;font-weight:600;">{{ r.what }}</td><td>{{ r.see }}</td><td>{{ r.back }}</td><td>{{ r.lag }}</td><td>{{ r.together }}</td></tr>{% endfor %}

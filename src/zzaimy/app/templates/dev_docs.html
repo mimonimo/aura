@@ -75,7 +75,7 @@
     .doc-go { grid-area: go; align-self: center; }
   }
 </style>
-<p class="muted">핵심 자료는 여기서 바로, 설계 결정은 번호로 찾고, 그 밖의 측정·검토·메모·9월 계획은 「기록·자료 목록」에서 찾습니다.</p>
+
 <nav class="docs-nav" aria-label="문서 분류">
 {% for key, label in [('current','핵심 자료'), ('decisions','설계 결정'), ('records','기록·자료 목록')] %}
 <a class="btn-ghost" href="/dev/docs?view={{ key }}" {% if docs_view == key %}aria-current="page"{% endif %}>{{ label }}</a>
@@ -226,7 +226,7 @@
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:archive-linear"></iconify-icon>기록·자료 목록
         <span class="doc-cnt" id="recCount">{{ groups | map(attribute=1) | map('length') | sum }}</span></h2>
-      <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 기록·모델 카드, 기술 검토, 작업 메모, 9월 설계·계획을 한 목록에서 찾습니다. 지금 구조는 「핵심 자료」의 시스템 설계와 구현 설명서가 정본이고, 여기는 근거·이력입니다. 폐기된 지난 기록은 docs/archive 에 따로 두었습니다. 날짜가 곧 그 기록의 유효 범위입니다.</p>
+      <p class="muted" style="font-size:12px; margin:0 0 10px;">지난 측정 기록·모델 카드, 기술 검토, 작업 메모입니다. 지금 구조는 「핵심 자료」의 시스템 설계를 봅니다. 날짜가 곧 그 기록의 유효 범위입니다.</p>
       <div class="docs-search" style="margin-bottom:10px;">
         <input type="search" id="recQ" placeholder="제목·설명으로 찾기 (예: OCR, 리랭커, 개인정보)" aria-label="기록 찾기" autocomplete="off">
       </div>

@@ -4,6 +4,16 @@
 결정의 근거는 ADR(`docs/decisions/`), 지금 상태와 남은 일은 `docs/HANDOFF.md`·`docs/dev-now.md` 가 정본이다.
 아래의 남은 검수 항목은 기록 시점 기준이며 현재 상태는 미확인이다.
 
+## 요청 K65 — 개발 화면 정리에 걸린 아스트라 담당 파일 (2026-10-25, 요청 — 사용자 지시 「개발 페이지 전수조사, 합칠 건 합치고 낡은 건 최신화」)
+
+Claude 가 개발 화면을 정리하다 아스트라 담당 파일에 걸려 멈춘 것들이다. 고쳐 주거나, 고쳐도 되면 이 아래에 답을 적어 주기 바란다.
+
+1. tests/test_dev_pages.py — 옛 모양을 고정한 줄: 「접수 문서」「규정 문단」 타일 이름(지표 이름 「등록 문서」「규정 조각」으로 맞추려 함),
+   변경 이력 커밋 목록 `<details class="cl" open>`(2,060건이 펼쳐진 채라 접어 두려 함), 「상세 구성도」 글(손그림 topology.svg 는 지울 후보).
+2. templates/_training_guide.html — 「근거 설명(rationale)은 현재 학습 출력에 포함되지 않습니다 … 보강할 예정」 이 ADR-0069(학습셋 틀이 출력에 샘)와 어긋난다.
+3. 구독 상태 확인 단추가 /dev/pii/subscriptions/check 를 부른다 — /dev/tools 쪽으로 옮기려면 test_dev_pages 의 test_privacy_tabs_and_subscription_check 를 함께.
+4. HANDOFF — K64 그대로.
+
 ## 요청 K64 — 인수인계(HANDOFF) 최신화 (2026-10-25, 요청 — 사용자 지시 「분산되거나 폐기된 것 정리, 신규로 다 업데이트」)
 
 개발자 화면 「논문·설계 문서」를 정리했다(폐기 기록은 docs/archive 로, 논문 원고를 목록에, 시스템 설계를 지금 구조 정본으로).
