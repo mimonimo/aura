@@ -574,3 +574,21 @@ def test_old_abstract_field_still_matches_and_renames(tmp_path):
     new, n = ph.stamp_dept(data, ["Abstract"], "초록")
     from zzaimy.app import webhwp_write as ww
     assert n >= 1 and "절:Abstract" in ww.field_values(new)          # 보이는 제목만 바뀌고 쓸 자리 이름은 그대로
+
+
+def test_docs_page_lists_manuscript_and_opens_chapters(tmp_path, monkeypatch):
+    """논문 자료 맨 앞에 논문 원고(docs/paper/논문/README.md) — 장 원고까지 열리고, 경로 밖은 막는다."""
+    app = _setup(tmp_path, monkeypatch)
+    _dev(app)
+    dev = TestClient(app)
+    assert _login(dev, "pdev", "pass-12345678")
+    page = dev.get("/dev/docs").text
+    assert 'href="/dev/paper/논문/README.md"' in page and "논문 원고" in page
+    assert "그림-목록.md" not in page                                     # 10-22 촬영 기록은 보관 폴더로
+    r = dev.get("/dev/paper/논문/README.md")
+    assert r.status_code == 200 and "캡스톤 논문 원고" in r.text and "export.hwpx" not in r.text
+    assert dev.get("/dev/paper/논문/01-서론.md").status_code == 200
+    assert dev.get("/dev/paper/논문-원재료.md").status_code == 200
+    for bad in ("논문/../../HANDOFF.md", "x/01-서론.md", "논문/a/b.md", "논문/README.txt"):
+        assert dev.get(f"/dev/paper/{bad}").status_code == 404, bad
+    assert dev.get("/dev/docs").text.count('href="/dev/doc/architecture.md"') == 1   # 시스템 설계는 지금 정본 칸에 한 번

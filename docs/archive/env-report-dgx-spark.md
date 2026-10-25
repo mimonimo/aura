@@ -1,5 +1,7 @@
 # 환경 점검 리포트 (DGX Spark)
 
+> 보관 — 9월 초 DGX Spark 점검 기록이다. Spark 는 지금 쓰지 않는다(학습 DGX, 서빙 젯슨 토르 02·03).
+
 > `scripts/00_env_check.py` 자동 생성 — W1-W2 TASK-01
 
 | 항목 | 값 |

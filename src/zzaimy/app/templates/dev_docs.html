@@ -45,7 +45,7 @@
   .docs-nav { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
   .docs-nav [aria-current="page"] { background:var(--navy); color:white; }
   .docs-search { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
-  .docs-search input { flex:1; min-width:140px; }
+  .docs-search input { flex:1 1 200px; min-width:140px; }
   .doc-cols.history-view { display:block; }
   .rec-kinds { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
   .rec-kind { border:1px solid var(--line); background:#fff; border-radius:999px; padding:4px 11px; font-size:12px; color:var(--muted); cursor:pointer; }
@@ -53,8 +53,12 @@
   .rec-kind.on { background:var(--navy); border-color:var(--navy); color:#fff; }
   .doc-num.rec-tag { width:auto; min-width:5.5em; font-size:11px; font-weight:600; color:var(--muted); }
   .doc-cols.history-view > div:first-child { display:none; }
-  .doc-st { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
-  .doc-st::before { content: ""; flex:none; width: 6px; height: 6px; border-radius: 50%; background: #CBD5E1; }
+  /* 상태는 한 줄 — 긴 상태 글(「제안 — 측정 결과 …」)은 말줄임, 전체는 툴팁. 줄 높이가 들쭉날쭉하지 않게 */
+  .doc-m { flex-wrap: nowrap; max-width: none; }
+  .doc-st { display: inline-block; max-width: 8em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            vertical-align: bottom; font-weight: 600; }
+  .doc-st::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 5px 0 0; border-radius: 50%;
+            vertical-align: middle; background: #CBD5E1; }
   .doc-st.ok::before { background: var(--green); }
   .doc-st.open::before { background: var(--amber); }
   .doc-go { flex: none; align-self: center; font-size: 15px; color: var(--faint);
@@ -87,7 +91,7 @@
     <span class="doc-t">{{ d.title }}{% if d.desc %}<span class="doc-d">{{ d.desc }}</span>{% endif %}</span>
     {% if d.status or d.date %}
     <span class="doc-m">
-      {% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}">{{ d.status }}</span>{% endif %}
+      {% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}" title="{{ d.status }}">{{ d.status }}</span>{% endif %}
       {% if d.date %}<span>{{ d.date }}</span>{% endif %}
     </span>
     {% endif %}
@@ -98,10 +102,10 @@
 {% endmacro %}
 
 {% if docs_view == 'decisions' %}
-<form class="docs-search" method="get" action="/dev/docs">
+<form class="docs-search control-row control-bar" method="get" action="/dev/docs" role="search">
   <input type="hidden" name="view" value="decisions">
   <input type="text" name="q" value="{{ docs_query }}" placeholder="결정 제목·번호 검색" aria-label="결정 제목·번호 검색">
-  <button type="submit">검색</button>
+  <button type="submit" class="secondary">검색</button>
 </form>
 {% set found = namespace(items=[]) %}
 {% for d in adr_docs|reverse %}
@@ -116,10 +120,10 @@
 <p class="muted">최근 번호 순 · 대체된 결정은 과거 이력입니다. 같은 번호의 기록은 제목으로 구분합니다.</p>
 {{ rows(found.items[(selected_page-1)*12:selected_page*12]) }}
 {% if not found.items %}<p>검색 결과가 없습니다.</p>{% endif %}
-<nav class="docs-nav" aria-label="설계 결정 페이지">
-{% if selected_page > 1 %}<a class="btn-ghost" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page-1 }}">이전</a>{% endif %}
+<nav class="pager" aria-label="설계 결정 페이지">
+{% if selected_page > 1 %}<a class="mini-btn" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page-1 }}">이전</a>{% endif %}
 <span>{{ selected_page }} / {{ total_pages }}</span>
-{% if selected_page < total_pages %}<a class="btn-ghost" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page+1 }}">다음</a>{% endif %}
+{% if selected_page < total_pages %}<a class="mini-btn" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page+1 }}">다음</a>{% endif %}
 </nav>
 </div></section>
 {% endif %}
@@ -212,7 +216,7 @@
         <span class="doc-cnt">{{ status_docs|length + plan_docs|length }}</span></h2>
       <div class="doc-sub">먼저 볼 것 — 지금 상태</div>
       {{ rows(status_docs) }}
-      <div class="doc-sub">설계·계획 (지금도 정본인 계획 — 9월 설계는 실험·검토 이력)</div>
+      <div class="doc-sub">설계·계획 — 지금 구조는 시스템 설계, 기능별 구현과 수치는 논문 자료의 구현 설명서</div>
       {{ rows(plan_docs) }}
     </div></div>
     {% endif %}
@@ -222,7 +226,7 @@
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:archive-linear"></iconify-icon>기록·자료 목록
         <span class="doc-cnt" id="recCount">{{ groups | map(attribute=1) | map('length') | sum }}</span></h2>
-      <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 기록·모델 카드, 기술 검토, 작업 메모, 9월 설계·계획을 한 목록에서 찾습니다. 지금 구조의 설명은 「핵심 자료」의 구현 설명서가 정본이고, 여기는 근거·이력입니다. 날짜가 곧 그 기록의 유효 범위입니다.</p>
+      <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 기록·모델 카드, 기술 검토, 작업 메모, 9월 설계·계획을 한 목록에서 찾습니다. 지금 구조는 「핵심 자료」의 시스템 설계와 구현 설명서가 정본이고, 여기는 근거·이력입니다. 폐기된 지난 기록은 docs/archive 에 따로 두었습니다. 날짜가 곧 그 기록의 유효 범위입니다.</p>
       <div class="docs-search" style="margin-bottom:10px;">
         <input type="search" id="recQ" placeholder="제목·설명으로 찾기 (예: OCR, 리랭커, 개인정보)" aria-label="기록 찾기" autocomplete="off">
       </div>
@@ -235,7 +239,7 @@
         <li data-kind="{{ k }}" data-text="{{ (d.title ~ ' ' ~ (d.desc or '') ~ ' ' ~ d.href) | lower }}"><a class="doc-row" href="{{ d.href }}">
           <span class="doc-num rec-tag">{{ k }}</span>
           <span class="doc-t">{{ d.title }}{% if d.desc %}<span class="doc-d">{{ d.desc }}</span>{% endif %}</span>
-          {% if d.status or d.date %}<span class="doc-m">{% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}">{{ d.status }}</span>{% endif %}{% if d.date %}<span>{{ d.date }}</span>{% endif %}</span>{% endif %}
+          {% if d.status or d.date %}<span class="doc-m">{% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}" title="{{ d.status }}">{{ d.status }}</span>{% endif %}{% if d.date %}<span>{{ d.date }}</span>{% endif %}</span>{% endif %}
           <iconify-icon class="doc-go" icon="solar:alt-arrow-right-linear"></iconify-icon>
         </a></li>
         {% endfor %}{% endfor %}

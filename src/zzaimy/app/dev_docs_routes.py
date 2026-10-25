@@ -24,6 +24,7 @@ router = APIRouter()
 
 # 문서 한 줄 설명 — 목록에서 제목 아래에 보인다. 없는 파일은 설명 없이 제목만.
 _DOC_DESC = {
+    "paper/논문/README.md": "장별 원고 — 웹 기안기 논문 문서로 옮기는 원본, 장마다 상태와 그림·표 목록",
     "paper/프로젝트-기획서.md": "제출용 기획서 — 목표·개발 내용·장비·일정·기대 효과",
     "paper/논문-원재료.md": "먼저 읽을 문서 — 문서 처리 → 검색·지식(RAG·온톨로지·GraphRAG) → 모델 → 화면 → 학습 → 개인정보 → 수치, 어떻게 구현했는지",
     "paper/실험-로그.md": "실험 시계열 — 무엇을 어떻게 재서 어떤 판정을 했는지",
@@ -33,7 +34,7 @@ _DOC_DESC = {
     "paper/제안발표-내용.md": "제안 발표 슬라이드 원고",
     "HANDOFF.md": "인수인계 — 운영 구성·접속·남은 일",
     "dev-now.md": "지금 하는 일 · 다음 일 · 최근 작업 (진행 현황 탭의 원본)",
-    "architecture.md": "아키텍처 설계 — 데이터 흐름·검색·검증기·현황 주석",
+    "architecture.md": "지금 구조의 정본 — 데이터 흐름·검색·27B 문서 작업 에이전트·웹 기안기 공동 편집(칸 글 DB → hwpx 써 넣기)·권한",
     "model-plan.md": "모델 4종 학습 계획 — 데이터·순서·게이트",
     "eval-plan.md": "평가 계획 — 평가셋·지표·베이스라인 절차",
     "capstone-plan.md": "13주 실행 계획 — 주차별 목표와 현황",
@@ -717,11 +718,11 @@ def dev_paper_export(request: Request, name: str, fmt: str):
     })
 
 
-@router.get("/dev/paper/{name}", response_class=HTMLResponse)
+@router.get("/dev/paper/{name:path}", response_class=HTMLResponse)
 def dev_paper(request: Request, name: str):
-    """논문 원재료 문서 열람 — 개발자 전용(경로 가드)."""
+    """논문 자료 문서 열람 — 개발자 전용(경로 가드). 논문 원고는 한 단계 아래 「논문/」 폴더다."""
     h = request.app.state.docs
-    if "/" in name or ".." in name or not name.endswith(".md"):
+    if not re.fullmatch(r"(논문/)?[^/]+\.md", name) or ".." in name:
         raise HTTPException(404)
     f = h.docs_dir / "paper" / name
     if not f.exists():
@@ -729,7 +730,7 @@ def dev_paper(request: Request, name: str):
     return request.app.state.templates.TemplateResponse(request, "dev_paper.html", request.app.state.page_ctx(request, {
         "fname": name, "doc": h.dev_doc_view(f.read_text(encoding="utf-8"), name),
         "papers": h.dev_papers(),
-        "show_export": True,
+        "show_export": "/" not in name,
     }))
 
 
@@ -837,11 +838,12 @@ def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1
                             key=lambda e: e["date"], reverse=True),
         # 현황(먼저 볼 것) · 설계·계획 · 측정 기록 · 모델 카드 — docs/ 바로 아래 파일들
         # dev-now 는 머리 제목 없이 절(## 지금 하는 일)로 시작한다 — 파일 이름 대신 화면 이름으로
-        "status_docs": [entry("HANDOFF.md", "/dev/doc/HANDOFF.md"), entry("dev-now.md", "/dev/doc/dev-now.md", "진행 현황")],
-        # 지금도 정본인 계획은 모델 개발 계획 하나 — 9월 설계·계획 문서는 구현 설명서로 대체돼 이력 쪽으로
-        "plan_docs": [entry("model-plan.md", "/dev/doc/model-plan.md")],
+        "status_docs": [entry("dev-now.md", "/dev/doc/dev-now.md", "진행 현황"), entry("HANDOFF.md", "/dev/doc/HANDOFF.md")],
+        # 지금도 정본인 설계·계획 — 시스템 설계(27B 문서 작업·웹 기안기 공동 편집까지)와 모델 개발 계획.
+        # 나머지 9월 설계·계획 문서는 이력 쪽으로
+        "plan_docs": [entry("architecture.md", "/dev/doc/architecture.md"), entry("model-plan.md", "/dev/doc/model-plan.md")],
         "old_plan_docs": [entry(f, f"/dev/doc/{f}") for f in (
-            "architecture.md", "eval-plan.md", "capstone-plan.md",
+            "eval-plan.md", "capstone-plan.md",
             "pilot-plan.md", "risks.md", "quality-system.md", "workflow.md")],
         "bench_docs": [entry(f, f"/dev/doc/{f}") for f in (
             "llm-rerank-eval.md", "retrieval-baseline-mini.md", "retrieval-weight-sweep.md",

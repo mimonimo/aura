@@ -8,7 +8,7 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 | 문서 | 내용 |
 |---|---|
 | [프로젝트 브리프](../PROJECT_BRIEF.md) | 목표, 범위, 설계 원칙, 산출물 상태 |
-| [시스템 설계](architecture.md) | 데이터 흐름, 검색·생성·검증 구조, 열람 권한 |
+| [시스템 설계](architecture.md) | 지금 구조의 정본 — 데이터 흐름, 검색·생성·검증, 27B 문서 작업 에이전트, 웹 한글 기안기 공동 편집, 열람 권한 |
 | [문서 작업 흐름](document-work-flow.md) | 문서 세트 접수, 작업본 작성, 한글 산출 |
 | [모델 개발 계획](model-plan.md) | 모델 4종의 역할, 학습 데이터, 일정 |
 
@@ -33,12 +33,16 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 - 검색: [리랭커 평가](llm-rerank-eval.md), [리랭커 베이스라인](rerank-baseline.md), [하이브리드 가중치 탐색](retrieval-weight-sweep.md),
   [검색 미니 베이스라인](retrieval-baseline-mini.md), [Embed v0 시험 학습](embed-v0-report.md), [리랭킹·질의 확장 회차별 결과](archive/README.md)
 - 문서 판독: [OCR 문자 오류율](ocr-cer-bench.md), [OCR 엔진 비교](ocr-duel.md), [OCR 시각 비교](ocr-visual-review.md)
-- 환경: [학습 장비 점검](env-report.md)
 
 ## 일정과 보고
 
+- [논문 원고](paper/논문/README.md): 장별 원고와 그림·표 목록, 웹 기안기 논문 문서로 옮기는 원본(ADR-0072)
 - [캡스톤 실행계획](capstone-plan.md), [주간 보고](weekly/), [논문 자료](paper/)
 - [원안 사업계획서(참고 자료)](business-plan.md): 착수 시점 원안. 지금 계획이 아니며 현재 목표·범위는 브리프가 기준이다. 제출용 기획서는 논문 자료의 프로젝트 기획서다
+
+## 보관
+
+- [보관한 지난 기록](archive/): 리랭킹 회차별 결과, DGX Spark 점검, 10-22 그림 촬영 기록. 지금 판단에는 쓰지 않는다
 
 ## 운영과 작업 기록
 

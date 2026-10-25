@@ -229,7 +229,9 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
         d = _DOCS_DIR / "paper"
         names = sorted((p.name for p in d.glob("*.md")) if d.exists() else [],
                        key=lambda n: (_PAPER_ORDER.index(n) if n in _PAPER_ORDER else 99, n))
-        return [
+        # 논문 원고(장별 .md, 웹 기안기 논문 문서로 옮기는 원본)는 하위 폴더라 따로 맨 앞에 둔다
+        head = [{"file": "논문/README.md", "label": "논문 원고"}] if (d / "논문" / "README.md").exists() else []
+        return head + [
             {"file": n, "label": _PAPER_LABELS.get(n, n.replace(".md", ""))}
             for n in names
         ]
