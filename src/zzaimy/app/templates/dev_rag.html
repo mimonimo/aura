@@ -131,8 +131,10 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
       <td><button type="button" class="btn" data-comp="space:staff" aria-expanded="false">구성 보기</button></td></tr>
     <tr hidden data-comp-row="space:staff"><td colspan="8"><div class="rg-comp" aria-live="polite"></div></td></tr>
     {% endif %}
+    {% set empty_rags = dept_rags | selectattr("docs", "equalto", 0) | selectattr("reg_docs", "equalto", 0) | rejectattr("members") | rejectattr("granted") | rejectattr("folders") | list %}
     {% for r in dept_rags %}
-    <tr><td><b>{{ r.dept }} 부서 RAG</b>{% if r.made.at %}<br><span class="rg-sub">만든 날 {{ r.made.at }}</span>{% endif %}</td>
+    {% set is_empty = r in empty_rags %}
+    <tr{% if is_empty %} hidden data-empty-rag{% endif %}><td><b>{{ r.dept }} 부서 RAG</b>{% if r.made.at %}<br><span class="rg-sub">만든 날 {{ r.made.at }}</span>{% endif %}</td>
       <td class="n"><a href="/?type=all&amp;scope={{ r.dept | urlencode }}" title="라이브러리에서 보기">{{ "{:,}".format(r.docs) }}</a></td>
       <td class="n">{{ "{:,}".format(r.reg_docs) }} · {{ "{:,}".format(r.reg_chunks) }}</td>
       <td class="rg-wrap">{{ people(r.members) if r.members else "—" }}</td>
@@ -142,6 +144,10 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
       <td><button type="button" class="btn" data-comp="space:dept:{{ r.dept }}" aria-expanded="false" title="이 부서 계정이 실제로 찾는 범위(공통 RAG 포함)">구성 보기</button></td></tr>
     <tr hidden data-comp-row="space:dept:{{ r.dept }}"><td colspan="8"><div class="rg-comp" aria-live="polite"></div></td></tr>
     {% endfor %}
+    {% if empty_rags %}{# 문서·계정·폴더가 모두 없는 부서 RAG 는 접어 둔다 — 쓰는 RAG·규정·권한이 아래로 밀리지 않게 #}
+    <tr><td colspan="8"><button type="button" class="btn-ghost" data-empty-toggle aria-expanded="false"
+        onclick="var on=this.getAttribute('aria-expanded')!=='true';this.setAttribute('aria-expanded',on);document.querySelectorAll('[data-empty-rag]').forEach(function(r){r.hidden=!on;});this.textContent=on?'빈 부서 RAG 접기':'빈 부서 RAG {{ empty_rags|length }}개 펼치기 — 문서·계정·반입 폴더가 아직 없음';">빈 부서 RAG {{ empty_rags|length }}개 펼치기 — 문서·계정·반입 폴더가 아직 없음</button></td></tr>
+    {% endif %}
     {% if stu %}
     <tr><td><b>학생 RAG</b><br><span class="rg-sub">학생 공개로 지정한 규정만</span></td>
       <td class="n">—</td><td class="n">{{ "{:,}".format(stu.reg_docs) }} · {{ "{:,}".format(stu.reg_chunks) }}</td>
