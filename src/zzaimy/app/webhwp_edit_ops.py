@@ -1825,6 +1825,28 @@ MAX_DATA = 20000         # 편집 화면이 돌려주는 읽기 결과(글자 �
 ASSET_DIR = ".aura_cmd"  # 명령에 붙은 그림을 잠시 두는 곳(데이터 폴더 아래) — 실행기가 /hwp/{id}/cmd/{cid}/asset 으로 받아 간다
 
 
+_Q_LOCKS: dict[int, "threading.RLock"] = {}
+_Q_GUARD = __import__("threading").Lock()
+
+
+def _qlock(fid: int):
+    """명령 줄(webhwp_cmd:<id>) 읽고 고쳐 쓰기를 한 번에 하나씩 — 에이전트가 넣는 동안 편집 화면이 같은 줄을 읽고 다시 쓰면
+    방금 넣은 명령이 덮여 사라졌다(병렬 시험에서 드러남). 운영 앱은 한 프로세스라 프로세스 안 잠금으로 막는다."""
+    import threading
+    with _Q_GUARD:
+        return _Q_LOCKS.setdefault(int(fid), threading.RLock())
+
+
+def _queued(fn):
+    import functools
+
+    @functools.wraps(fn)
+    def run(db, fid, *a, **k):
+        with _qlock(fid):
+            return fn(db, fid, *a, **k)
+    return run
+
+
 def _cmds(db, fid: int) -> dict:
     try:
         v = json.loads(db.get_setting(f"webhwp_cmd:{int(fid)}", "{}") or "{}")
@@ -1858,6 +1880,7 @@ def _sweep_assets(base: Path) -> None:
             pass
 
 
+@_queued
 def push(db, fid: int, action: str, params: dict, by: str = "AURA", *, steps: list | None = None, label: str = "",
          runner: int = 1, owner: str = "", asset: bytes | None = None, base: Path | None = None) -> dict:
     """명령 줄에 넣는다 — {id, action, params, steps, by, at, status:new}. 허용 목록 밖이면 EditError.
@@ -1896,6 +1919,7 @@ def _seen_runners(db, fid: int) -> dict:
     return {u: float(t) for u, t in v.items() if now - float(t or 0) < SEEN_TTL}
 
 
+@_queued
 def take(db, fid: int, user: str, runner: int = 1) -> list[dict]:
     """편집 화면이 가져갈 새 명령 — 가져간 것은 running 으로(두 창이 같은 명령을 두 번 하지 않게). 묻는 시각도 남긴다.
     새 실행기(runner 2)가 하나라도 살아 있으면 예전 실행기에는 주지 않는다(한 명령을 한 실행기만). 명령에 owner(for)가 있고
@@ -1931,6 +1955,7 @@ def take(db, fid: int, user: str, runner: int = 1) -> list[dict]:
     return out
 
 
+@_queued
 def report(db, fid: int, cid: int, ok: bool, message: str, data=None) -> bool:
     v = _cmds(db, fid)
     for c in v["items"]:
@@ -1947,6 +1972,7 @@ def report(db, fid: int, cid: int, ok: bool, message: str, data=None) -> bool:
     return False
 
 
+@_queued
 def drop(db, fid: int, cid: int, message: str) -> None:
     """가져가지 않은 명령을 버린다(읽기 명령인데 기안기가 닫혀 있을 때 등)."""
     v = _cmds(db, fid)
