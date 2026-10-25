@@ -230,11 +230,32 @@ def emit(db, fid: int, kind: str, data: dict, conn=None) -> None:
     if now - _LAST_PRUNE["at"] > 300:
         _LAST_PRUNE["at"] = now
         try:
-            with db._conn() as c:
-                c.execute("DELETE FROM webhwp_events WHERE at < ?", (now - 1800,))
-                c.execute("DELETE FROM webhwp_field_ops WHERE at < ?", (now - 7 * 86400,))
+            prune(db, now)
         except Exception:
             log.exception("알림 줄 정리 실패")
+
+
+# 공동 편집 표 정리 — 칸 글 표(webhwp_field_state)는 칸마다 한 줄이라 문서가 살아 있는 동안 둔다(파일에 써 넣기 전 정답).
+# 쌓이기만 하는 표는 기간을 두고, 지운 문서(files 장부에서 빠진 번호)의 줄은 모든 표에서 함께 지운다.
+KEEP_SECONDS = {"webhwp_events": 1800, "webhwp_field_ops": 7 * 86400, "webhwp_field_edits": 30 * 86400,
+                "webhwp_presence": 86400, "webhwp_conflicts": 30 * 86400}
+_PER_DOC = ("webhwp_field_state", "webhwp_field_edits", "webhwp_field_ops", "webhwp_field_locks",
+            "webhwp_conflicts", "webhwp_events", "webhwp_presence")
+
+
+def prune(db, now: float | None = None) -> dict:
+    """오래된 줄과 지운 문서의 줄을 지운다 — {표: 지운 줄 수}. emit 이 5분에 한 번 부른다."""
+    ensure(db)
+    now = time.time() if now is None else now
+    out: dict[str, int] = {}
+    with db._conn() as c:
+        for table, keep in KEEP_SECONDS.items():
+            cur = c.execute(f"DELETE FROM {table} WHERE at < ?", (now - keep,))
+            out[table] = max(0, getattr(cur, "rowcount", 0) or 0)
+        for table in _PER_DOC:
+            cur = c.execute(f"DELETE FROM {table} WHERE fid NOT IN (SELECT id FROM files)")
+            out[table] = out.get(table, 0) + max(0, getattr(cur, "rowcount", 0) or 0)
+    return out
 
 
 def events_since(db, fid: int, last_id: int, lookback: int = 0, *, full: bool = True) -> list[dict]:

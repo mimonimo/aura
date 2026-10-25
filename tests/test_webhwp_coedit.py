@@ -800,3 +800,25 @@ def test_sse_sends_named_beat_so_client_can_spot_dead_stream(tmp_path, monkeypat
         th.join(5)
     js = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text(encoding="utf-8")
     assert "addEventListener('beat'" in js and "STALE_MS" in js and "connect(true)" in js
+
+
+def test_prune_drops_old_rows_and_rows_of_deleted_documents(tmp_path, monkeypatch):
+    """칸 글 표는 문서가 살아 있는 동안 두고, 쌓이는 표는 기간이 지나면, 지운 문서의 줄은 모든 표에서 지운다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    r = kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "남김"}]})
+    assert r.status_code == 200
+    with db._conn() as c:
+        c.execute("INSERT INTO webhwp_field_edits (fid, field, version, text, author, at) VALUES (?, ?, ?, ?, ?, ?)",
+                  (fid, "칸:사업명", 0, "아주 옛 글", "kim", time.time() - 40 * 86400))
+        c.execute("INSERT INTO webhwp_field_state (fid, field, version, text, author, at) VALUES (?, ?, ?, ?, ?, ?)",
+                  (999999, "칸:사업명", 1, "지운 문서", "kim", time.time()))
+    ce.prune(db)
+    with db._conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = ?", (fid,)).fetchone()[0] == 1   # 살아 있는 문서 칸 글은 그대로
+        assert c.execute("SELECT COUNT(*) FROM webhwp_field_edits WHERE text = '아주 옛 글'").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = 999999").fetchone()[0] == 0
+    webhwp.trash(db, Path(app.state.data_dir), fid, user="kim")
+    ce.prune(db)
+    with db._conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = ?", (fid,)).fetchone()[0] == 0     # 휴지통으로 보낸 문서도
