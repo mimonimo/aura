@@ -1,7 +1,11 @@
 """Only valid, traceable test calls become unapproved Writer v2 candidates."""
 import importlib.util
 import json
+import stat
+import sys
 from pathlib import Path
+
+import pytest
 
 from zzaimy.dataset import privacy
 
@@ -88,3 +92,25 @@ def test_collect_retains_privacy_hold_for_review(monkeypatch, tmp_path):
     assert candidates == [] and counts["privacy_review"] == 1
     assert held[0]["reason"] == "privacy_review"
     assert held[0]["record"]["answer"] == '{"step":"write"}'
+
+
+def test_cli_requires_private_output_and_creates_private_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(privacy, "protect_candidate", lambda value: value)
+    records = tmp_path / "records"
+    records.mkdir()
+    (records / "llm-1.jsonl").write_text(json.dumps(_row(), ensure_ascii=False) + "\n")
+    output = tmp_path / "output"
+    output.mkdir()
+    output.chmod(0o700)
+    argv = [str(SCRIPT), "--record-dir", str(records), "--out", str(output / "review.jsonl"),
+            "--held-out", str(output / "held.jsonl")]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert collector.main() == 0
+    for name in ("review.jsonl", "held.jsonl"):
+        assert stat.S_IMODE((output / name).stat().st_mode) == 0o600
+
+    output.chmod(0o755)
+    monkeypatch.setattr(sys, "argv", [*argv[:-2], "--held-out", str(output / "next.jsonl")])
+    with pytest.raises(SystemExit):
+        collector.main()
+    assert not (output / "next.jsonl").exists()
