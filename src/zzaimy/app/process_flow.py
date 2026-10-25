@@ -32,11 +32,12 @@ TERMS = (
 
 # 장비 — 역할과 사양. 개발 현황 「시스템 구성」 이 이것과 LINKS 로 그린다(손그림 대신 — 장비·역할이 바뀌면 여기 한 곳만 고친다)
 HOSTS = (
-    {"name": "교직원 브라우저", "role": "AURA 화면 · 웹 한글 기안기로 한글 문서 편집·공동 편집", "spec": "학교망(VPN)"},
-    {"name": "운영 VM", "role": "플랫폼 화면 · DB · 검색 색인 · 지식그래프 · 웹 한글 기안기 서버 · 공동 편집 서버", "spec": "CPU 8 · 메모리 64GB · PostgreSQL(pgvector)"},
-    {"name": "토르 02", "role": "Writer 27B — 대화 · 문서 작성 에이전트", "spec": "Qwen3.8-27B NVFP4 · 포트 8001"},
-    {"name": "토르 03", "role": "검토·판독 27B · 임베딩 Embed v2 · 리랭커 Rerank v1", "spec": "임베딩 8016 · 리랭커 8015"},
-    {"name": "DGX", "role": "원본 보관 · 일괄 문서 읽기(OCR) · 학습", "spec": "GB10 GPU · 통합 메모리 121GB · 디스크 3.7TB"},
+    {"name": "교직원 브라우저", "role": "AURA 화면 · 웹 한글 기안기로 한글 문서 편집·공동 편집", "spec": "학교망(VPN)", "parts": ["AURA 화면", "웹 한글 기안기", "공동 편집 층"]},
+    {"name": "운영 VM", "role": "플랫폼 화면 · DB · 검색 색인 · 지식그래프 · 웹 한글 기안기 서버 · 공동 편집 서버", "spec": "CPU 8 · 메모리 64GB · PostgreSQL(pgvector)",
+     "parts": ["플랫폼 화면·API", "PostgreSQL·pgvector", "검색 색인", "지식그래프·온톨로지", "웹 한글 기안기 서버", "공동 편집 서버(SSE)"]},
+    {"name": "토르 02", "role": "Writer 27B — 대화 · 문서 작성 에이전트", "spec": "Qwen3.8-27B NVFP4 · 포트 8001", "parts": ["vLLM", "Writer 27B"]},
+    {"name": "토르 03", "role": "검토·판독 27B · 임베딩 Embed v2 · 리랭커 Rerank v1", "spec": "임베딩 8016 · 리랭커 8015", "parts": ["검토·판독 27B", "Embed v2", "Rerank v1"]},
+    {"name": "DGX", "role": "원본 보관 · 일괄 문서 읽기(OCR) · 학습", "spec": "GB10 GPU · 통합 메모리 121GB · 디스크 3.7TB", "parts": ["원본 보관", "MinerU 판독", "LoRA 학습"]},
     {"name": "원본 보관 PC", "role": "학교 실문서 보관(사업별 폴더)", "spec": "DGX 로 복사(rclone)"},
 )
 

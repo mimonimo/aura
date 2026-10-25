@@ -10,18 +10,18 @@ from __future__ import annotations
 
 from html import escape
 
-W, H = 980, 720
-BOX_W, BOX_H = 280, 112
+W, H = 1100, 790
+CHIP_H, CHIP_GAP = 24, 8
 
-# 장비 이름 → 왼쪽 위 좌표. 사용자(위) → 플랫폼(가운데) → 모델·학습(아래) 차례
+# 장비 이름 → (왼쪽, 위, 폭). 높이는 구성 요소 칩 수로 정한다. 사용자(위) → 플랫폼(가운데) → 모델·학습(아래)
 POS = {
-    "교직원 브라우저": (60, 30),
-    "구글 드라이브·독스": (650, 30),
-    "운영 VM": (330, 220),
-    "토르 02": (40, 420),
-    "토르 03": (355, 420),
-    "DGX": (670, 420),
-    "원본 보관 PC": (670, 575),
+    "교직원 브라우저": (40, 30, 340),
+    "구글 드라이브·독스": (720, 30, 340),
+    "운영 VM": (250, 215, 600),
+    "토르 02": (40, 500, 330),
+    "토르 03": (385, 500, 330),
+    "DGX": (730, 500, 330),
+    "원본 보관 PC": (730, 670, 330),
 }
 EXTRA_HOSTS = {"구글 드라이브·독스": {"role": "보조 경로 — 드라이브 가져오기·독스 편집", "spec": "계정을 이은 사용자만"}}
 ALIAS = {"토르 02·03": "토르 03"}          # 연결 목록의 묶음 이름 → 그림에서 가리킬 상자
@@ -29,44 +29,38 @@ MAIN = "운영 VM"
 DASHED = {"구글 드라이브·독스"}
 
 
-def _wrap(text: str, width: int) -> list[str]:
-    """한글 기준 width 글자로 자른다 — 「·」·띄어쓰기 뒤에서만 끊어 줄머리에 「·」 가 오지 않게."""
-    import re
-    parts = [p for p in re.split(r"(?<=·)|(?<= )", text.replace(" · ", "·")) if p]
-    out, line = [], ""
-    for part in parts:
-        if len((line + part).strip()) > width and line.strip():
-            out.append(line.strip())
-            line = part
-        else:
-            line += part
-    if line.strip():
-        out.append(line.strip())
-    return out[:3]
+def _cols(n: int) -> int:
+    return 3 if n > 4 else max(1, n)
+
+
+def _box_h(h: dict) -> int:
+    parts = h.get("parts") or []
+    rows = (len(parts) + _cols(len(parts)) - 1) // _cols(len(parts)) if parts else 0
+    return (44 + rows * (CHIP_H + CHIP_GAP) + 22) if parts else 86   # 칩이 있으면 설명 줄 없이 칩으로
 
 
 def _short(what: str) -> str:
     s = what.split(" — ")[0].split("(")[0].strip()
-    return s if len(s) <= 18 else s[:17] + "…"
+    return s if len(s) <= 28 else s[:27] + "…"
 
 
 def _edge(a: tuple, b: tuple, offset: float) -> tuple[float, float, float, float]:
-    """두 상자 가운데를 잇는 선을 상자 테두리에서 끊는다. offset 은 같은 두 상자 사이 두 번째 선을 옆으로 비킨다."""
-    ax, ay = a[0] + BOX_W / 2, a[1] + BOX_H / 2
-    bx, by = b[0] + BOX_W / 2, b[1] + BOX_H / 2
+    """두 상자(x, y, w, h) 가운데를 잇는 선을 테두리에서 끊는다. offset 은 같은 두 상자 사이 둘째 선을 옆으로 비킨다."""
+    ax, ay = a[0] + a[2] / 2, a[1] + a[3] / 2
+    bx, by = b[0] + b[2] / 2, b[1] + b[3] / 2
     dx, dy = bx - ax, by - ay
     n = max((dx * dx + dy * dy) ** 0.5, 1.0)
     px, py = -dy / n * offset, dx / n * offset
 
-    def cut(cx, cy, tx, ty):
-        sx = (BOX_W / 2) / abs(tx) if tx else 1e9
-        sy = (BOX_H / 2) / abs(ty) if ty else 1e9
+    def cut(cx, cy, tx, ty, w, h):
+        sx = (w / 2) / abs(tx) if tx else 1e9
+        sy = (h / 2) / abs(ty) if ty else 1e9
         s = min(sx, sy)
         return cx + tx * s, cy + ty * s
 
-    x1, y1 = cut(ax, ay, dx, dy)
-    x2, y2 = cut(bx, by, -dx, -dy)
-    return x1 + px, y1 + py, x2 + px, y2 + py
+    x1, y1 = cut(ax + px, ay + py, dx, dy, a[2], a[3])
+    x2, y2 = cut(bx + px, by + py, -dx, -dy, b[2], b[3])
+    return x1, y1, x2, y2
 
 
 def svg() -> str:
@@ -76,41 +70,54 @@ def svg() -> str:
     x = 40
     for name in hosts:                                    # 자리가 없는 새 장비 — 맨 아래 줄
         if name not in pos:
-            pos[name] = (x, 575)
-            x += 300
-    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" font-family="Pretendard, \'Apple SD Gothic Neo\', \'Malgun Gothic\', sans-serif">',
-           '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-           '<path d="M0,0 L10,5 L0,10 z" fill="#5b6b82"/></marker></defs>',
+            pos[name] = (x, 670, 330)
+            x += 345
+    rect = {n: (pos[n][0], pos[n][1], pos[n][2], _box_h(hosts[n])) for n in hosts}
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" role="img" aria-label="AURA 시스템 구성도" '
+           'font-family="Pretendard, \'Apple SD Gothic Neo\', \'Malgun Gothic\', sans-serif">',
+           '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
+           '<path d="M0,0 L10,5 L0,10 z" fill="#4a5f7d"/></marker></defs>',
            f'<rect width="{W}" height="{H}" fill="#ffffff"/>']
     links = [(ALIAS.get(a, a), ALIAS.get(b, b), what) for a, b, what in LINKS]
-    links = [l for l in links if l[0] in pos and l[1] in pos]
+    links = [l for l in links if l[0] in rect and l[1] in rect]
     total: dict[frozenset, int] = {}
     for a, b, _ in links:
         total[frozenset((a, b))] = total.get(frozenset((a, b)), 0) + 1
     seen: dict[frozenset, int] = {}
+    labels = []
     for a, b, what in links:
         key = frozenset((a, b))
         k = seen.get(key, 0)
         seen[key] = k + 1
-        x1, y1, x2, y2 = _edge(pos[a], pos[b], (k - (total[key] - 1) / 2) * 34 * (1 if a < b else -1))   # 같은 두 장비 사이 선이 여럿이면 옆으로 나란히 — 방향이 반대인 선도 같은 기준으로 비킨다
+        off = (k - (total[key] - 1) / 2) * 34 * (1 if a < b else -1)   # 같은 두 장비 사이 선이 여럿이면 나란히(방향이 반대여도 같은 기준)
+        x1, y1, x2, y2 = _edge(rect[a], rect[b], off)
         dash = ' stroke-dasharray="5 4"' if a in DASHED or b in DASHED else ""
-        out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#5b6b82" stroke-width="1.6"{dash} marker-end="url(#arr)"/>')
-        f = 0.5 if total[key] == 1 else (0.35 if k == 0 else 0.65)       # 나란한 두 선의 글은 앞뒤로 비켜 겹치지 않게
-        mx, my = x1 + (x2 - x1) * f, y1 + (y2 - y1) * f
-        label = escape(_short(what))
-        out.append(f'<text x="{mx:.0f}" y="{my - 5:.0f}" font-size="11.5" fill="#3b4757" text-anchor="middle" '
-                   f'paint-order="stroke" stroke="#ffffff" stroke-width="4">{label}</text>')
+        out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#4a5f7d" stroke-width="1.6"{dash} marker-end="url(#arr)"/>')
+        f = 0.5 if total[key] == 1 else (0.38 if k == 0 else 0.62)
+        labels.append((x1 + (x2 - x1) * f, y1 + (y2 - y1) * f, _short(what)))
     for name, h in hosts.items():
-        x0, y0 = pos[name]
+        x0, y0, bw, bh = rect[name]
         main = name == MAIN
-        fill = "#eef3fb" if main else "#f8fafc"
-        border = "#7f9cc4" if main else "#c9d3e0"
         dash = ' stroke-dasharray="5 4"' if name in DASHED else ""
-        out.append(f'<rect x="{x0}" y="{y0}" width="{BOX_W}" height="{BOX_H}" rx="10" fill="{fill}" stroke="{border}" stroke-width="1.4"{dash}/>')
-        out.append(f'<text x="{x0 + 16}" y="{y0 + 26}" font-size="15" font-weight="700" fill="#1b2a41">{escape(name)}</text>')
-        for i, ln in enumerate(_wrap(h.get("role", ""), 24)):
-            out.append(f'<text x="{x0 + 16}" y="{y0 + 47 + i * 15}" font-size="11.5" fill="#3b4757">{escape(ln)}</text>')
+        out.append(f'<rect x="{x0}" y="{y0}" width="{bw}" height="{bh}" rx="12" fill="{"#eef3fb" if main else "#f8fafc"}" '
+                   f'stroke="{"#7f9cc4" if main else "#c9d3e0"}" stroke-width="{1.6 if main else 1.2}"{dash}/>')
+        out.append(f'<text x="{x0 + 16}" y="{y0 + 27}" font-size="15.5" font-weight="700" fill="#1b2a41">{escape(name)}</text>')
+        parts = h.get("parts") or []
+        if not parts:                                     # 칩이 없는 상자만 한 줄 설명
+            role = h.get("role", "")
+            role = role if len(role) <= bw // 11 else role[: bw // 11 - 1] + "…"
+            out.append(f'<text x="{x0 + 16}" y="{y0 + 48}" font-size="11.5" fill="#4b5768">{escape(role)}</text>')
+        cols = _cols(len(parts))
+        cw = (bw - 32 - (cols - 1) * CHIP_GAP) / cols if parts else 0
+        for i, part in enumerate(parts):
+            cx = x0 + 16 + (i % cols) * (cw + CHIP_GAP)
+            cy = y0 + 40 + (i // cols) * (CHIP_H + CHIP_GAP)
+            out.append(f'<rect x="{cx:.0f}" y="{cy}" width="{cw:.0f}" height="{CHIP_H}" rx="6" fill="#ffffff" stroke="{"#9fb5d6" if main else "#d5dce6"}"/>')
+            out.append(f'<text x="{cx + cw / 2:.0f}" y="{cy + 16}" font-size="11.5" fill="#1b2a41" text-anchor="middle">{escape(part)}</text>')
         if h.get("spec"):
-            out.append(f'<text x="{x0 + 16}" y="{y0 + BOX_H - 10}" font-size="10.5" fill="#7a869a">{escape(h["spec"])}</text>')
+            out.append(f'<text x="{x0 + 16}" y="{y0 + bh - 10}" font-size="10.5" fill="#7a869a">{escape(h["spec"])}</text>')
+    for mx, my, label in labels:                          # 글은 맨 위에 — 상자에 가리지 않게
+        out.append(f'<text x="{mx:.0f}" y="{my - 5:.0f}" font-size="11.5" fill="#2c3a50" text-anchor="middle" '
+                   f'paint-order="stroke" stroke="#ffffff" stroke-width="5">{escape(label)}</text>')
     out.append("</svg>")
     return "\n".join(out)
