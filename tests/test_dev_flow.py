@@ -100,3 +100,15 @@ def test_flow_explains_coediting_with_live_settings(tmp_path):
     app.state.db.set_setting("coedit:throttle_ms", "500")
     assert "보내기 간격 500ms" in c.get("/dev/flow").text
     assert "SFT 후보" not in " ".join(h["role"] for h in process_flow.HOSTS)       # 끝난 비교는 장비 설명에서 뺐다
+
+
+def test_system_diagram_file_follows_host_list():
+    """구성도 그림 파일은 장비·연결 목록에서 그린 결과와 같아야 한다 — 목록을 바꾸고 그림을 안 다시 쓰면 여기서 막힌다."""
+    from pathlib import Path
+    from zzaimy.app import system_diagram
+    svg = system_diagram.svg()
+    for h in process_flow.HOSTS:
+        assert h["name"] in svg
+    assert "구글 드라이브·독스" in svg and "준비 중" not in svg and "작업본(협업)" not in svg
+    f = Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/topology.svg"
+    assert f.read_text(encoding="utf-8").strip() == svg.strip(), "static/topology.svg 를 system_diagram.svg() 로 다시 쓴다(모듈 머리 주석의 명령)"

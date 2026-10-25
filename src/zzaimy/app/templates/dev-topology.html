@@ -12,6 +12,7 @@
     </article>
     {% endfor %}
   </div>
+  <p class="system-figure"><a href="/static/topology.svg" target="_blank" rel="noopener">구성도 그림(SVG) 열기 — 논문·발표용, 이 목록에서 그림</a></p>
   <div class="table-scroll" style="margin-top:10px;"><table class="system-links-table">
     <tr><th>보내는 곳</th><th></th><th>받는 곳</th><th>무엇을</th></tr>
     {% for a, b, what in system_links %}<tr><td>{{ a }}</td><td class="muted">→</td><td>{{ b }}</td><td>{{ what }}</td></tr>{% endfor %}

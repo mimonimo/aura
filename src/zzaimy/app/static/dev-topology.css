@@ -20,3 +20,5 @@
 .system-links-table{width:100%;border-collapse:collapse;font-size:12.5px}
 .system-links-table td,.system-links-table th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 .system-links-table td:nth-child(1),.system-links-table td:nth-child(3){white-space:nowrap}
+.system-figure{margin:10px 0 0;font-size:12px}
+.system-figure a{color:var(--navy);text-decoration:none}
