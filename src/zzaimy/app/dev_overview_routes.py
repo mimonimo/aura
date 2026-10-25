@@ -428,7 +428,7 @@ def dev_quality_done(
         report_id, resolved_by=request.state.user, fix_note=fix_note.strip()
     ):
         raise HTTPException(404, "열려 있는 신고가 아닙니다")
-    return RedirectResponse("/dev", status_code=303)
+    return RedirectResponse("/dev/quality", status_code=303)
 
 
 @router.post("/dev/reindex")

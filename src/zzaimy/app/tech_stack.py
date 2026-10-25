@@ -18,7 +18,7 @@ STACK: list[tuple] = [
      "운영 VM", "ADR-0057"),
     ("RAG", "ZZAIMY-Embed v2 (베이스 KURE-v1)", "의미 검색 임베딩 — 우리 데이터로 학습한 모델", None, "v2", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0021·모델 카드"),
     ("RAG", "ZZAIMY-Rerank v1 (베이스 bge-reranker-v2-m3)", "규정 후보 재정렬(사업 문서는 대결에서 손해라 끔)", None, "v1", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0020·모델 카드"),
-    ("RAG", "Qwen3.8-27B(Writer) + vLLM", "답변·초안·문서 작업, 그래프 짝 판정 · SFT 후보(writer-sft) 비교 중", None, "NVFP4", "Apache 2.0 계열(model-plan)·vLLM Apache-2.0",
+    ("RAG", "Qwen3.8-27B(Writer) + vLLM", "답변·문서 작성 에이전트, 그래프 짝 판정", None, "NVFP4", "Apache 2.0 계열(model-plan)·vLLM Apache-2.0",
      "토르 02·03", "configs/serving.yaml"),
     ("RAG", "자체 코드", "키워드+의미 검색 섞기 · 범위 좁히기 · 짝 문서 따라가기 · RAG 공간 권한", None, "", "우리 코드",
      "src/zzaimy/app", "grant_search·rag_spaces"),

@@ -28,6 +28,18 @@ TRACKS = (
 )
 
 
+def _compare_done() -> bool:
+    """운영 모델과의 비교 실행 결과가 하나라도 있는가(모델 비교 화면이 읽는 자리 — data/eval/model_compare, ZZAIMY_MODEL_COMPARE_DIR)."""
+    import os
+    from pathlib import Path
+    env = os.environ.get("ZZAIMY_MODEL_COMPARE_DIR", "").strip()
+    base = Path(env) if env else Path(__file__).resolve().parents[3] / "data" / "eval" / "model_compare"
+    try:
+        return any(d.is_dir() for d in base.iterdir())
+    except OSError:
+        return False
+
+
 def live_training(runs: list[dict] | None = None) -> dict:
     """DGX 학습 기록기의 가장 최근 기록 — {text, at, running}. 기록이 없으면 빈 dict.
     학습 상태 화면(/dev/train/run)과 같은 판정(train_monitor)이라 두 화면이 다른 말을 하지 않는다."""
@@ -49,7 +61,8 @@ def live_training(runs: list[dict] | None = None) -> dict:
         if prog.get("remain"):
             head += f" · 남은 시간 약 {prog['remain']}"
     elif st.get("finished_ok"):
-        head = "SFT 학습 마침 — 학습 전후 비교 차례"
+        # 비교 결과(모델 비교 화면의 결과 파일)가 이미 있으면 「비교 차례」 가 아니다 — 끝난 일을 할 일처럼 보이지 않게
+        head = "SFT 학습 마침 — " + ("운영 모델과 비교 끝(모델 비교 화면)" if _compare_done() else "학습 전후 비교 차례")
     elif stale:
         head = f"SFT 기록이 {int((_t.time() - cur['mtime']) // 60)}분째 멈춤 — 학습 상태 확인 필요"
     else:

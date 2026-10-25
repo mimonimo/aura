@@ -141,7 +141,7 @@
 <section class="card"><div class="card-in">
   <h2>주기 작업</h2>
   <table class="ik-table">
-    {% for k, label in [("full", "원본 동기화(10분)"), ("parsed", "DGX 결과 받기(5분)"), ("index", "검색 색인(2분)"), ("lexical", "키워드 색인"), ("graph", "그래프"), ("audit", "점검")] %}
+    {% for k, label in [("full", "원본 장부 맞추기(목록이 바뀌면 바로, 아니면 1시간)"), ("parsed", "DGX 결과 받기(1분)"), ("index", "검색 색인(1분)"), ("lexical", "키워드 색인"), ("graph", "그래프"), ("audit", "점검")] %}
     <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (p.sync.get(k) or {}).get("at", "기록 없음") }}</td>
       {% set summary = p.sync_text.get(k, "") %}
       <td>{% if k == "full" and p.dgx_listing is not none %}{{ metric_label("dgx_listing", (p.sync.get(k) or {}).get("at", ""), "DGX 목록") }} {{ p.dgx_listing|num }}{% if " · " in summary %} · {{ summary.split(" · ", 1)[1] }}{% endif %}{% elif k == "graph" %}<span class="muted">수는 「라이브러리 다음 단계」</span>{% else %}{{ summary }}{% endif %}</td></tr>
