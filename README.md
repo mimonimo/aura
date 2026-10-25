@@ -119,6 +119,7 @@ research/       착수 단계 기술 조사
 - 핵심: [프로젝트 브리프](PROJECT_BRIEF.md), [시스템 설계](docs/architecture.md), [문서 작업 흐름](docs/document-work-flow.md), [모델 개발 계획](docs/model-plan.md)
 - 결정: [결정 기록(ADR)](docs/decisions/README.md)
 - 기록: [현재 작업](docs/dev-now.md), [기록 자료 색인](docs/notes/README.md), [주간 보고](docs/weekly/), [전체 문서 목록](docs/README.md)
+- 논문: [캡스톤 논문 원고](docs/paper/논문/README.md) — 장별 원고와 그림·표 목록. 같은 내용을 플랫폼의 웹 한글 기안기 문서로도 쓴다
 
 ## 프로젝트 상태
 
