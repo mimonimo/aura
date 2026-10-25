@@ -11,7 +11,10 @@
 .quality-resolve label { flex:1; min-width:0; color:var(--muted); font-size:12px; }
 .quality-resolve input { display:block; width:100%; margin-top:5px; padding:8px; border:1px solid var(--line); font:inherit; }
 .quality-resolve button { white-space:nowrap; }
-.quality-bars { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:16px 24px; margin:16px 0 24px; }
+.quality-bars { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px 24px; margin:16px 0 24px; }
+/* 막대는 넷 → 둘 → 하나로만 꺾는다(셋 + 하나처럼 한 칸만 남지 않게) */
+@media(max-width:1000px){.quality-bars{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:560px){.quality-bars{grid-template-columns:minmax(0,1fr);}}
 .quality-bars label { display:flex; justify-content:space-between; gap:10px; font-size:13px; margin-bottom:6px; }
 .quality-bars meter { display:block; width:100%; height:12px; }
 .eval-past { margin-top:14px; }

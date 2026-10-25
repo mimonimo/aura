@@ -125,10 +125,10 @@
 {% if ok %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>{% endif %}
 
 <div class="card reveal"><div class="card-in">
-  <h2 class="ua-head"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>사용자
+  <h2 class="ua-head control-row"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>사용자
     <span class="muted" style="font-size:12px; font-weight:400;">{{ users | selectattr('active') | list | length }}명 사용 중</span>
     <input type="search" class="ua-dfind spacer" data-user-find placeholder="이름·아이디·부서 찾기" aria-label="사용자 찾기">
-    <button type="button" class="secondary" data-modal-open="#userEdit" data-user-new style="padding:6px 12px; font-size:12.5px;">
+    <button type="button" class="secondary" data-modal-open="#userEdit" data-user-new>
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>사용자 추가</button></h2>
   <div class="table-scroll">
   <table class="ua-table ua-cards" data-user-table>
@@ -162,11 +162,11 @@
 </div></div>
 
 <div class="card reveal" id="depts"><div class="card-in" data-dept-card>
-  <h2 class="ua-head"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
+  <h2 class="ua-head control-row"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
     <span class="muted" style="font-size:12px; font-weight:400;">{{ depts | length }}개</span>
     <input type="search" class="ua-dfind spacer" data-dept-find placeholder="부서 찾기" aria-label="부서 찾기">
-    <button type="button" class="btn-ghost" data-tree-all style="padding:6px 10px; font-size:12.5px;">모두 펼치기</button>
-    <button type="button" class="secondary" data-ua-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
+    <button type="button" class="btn-ghost" data-tree-all>모두 펼치기</button>
+    <button type="button" class="secondary" data-ua-open="#deptCreate">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
   <p class="ua-lead">부서 드라이브는 각 부서의 총괄 책임자가 조직·구성원 화면에서 연결합니다. 여기서는 연결 상태를 확인합니다.</p>
   {% if depts %}

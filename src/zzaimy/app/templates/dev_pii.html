@@ -24,7 +24,7 @@
 .privacy-options label{display:flex;gap:8px;align-items:center}.privacy-options input{width:auto}
 .privacy-page fieldset{border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:12px 0;min-width:0}.privacy-page legend{font-size:13px;padding:0 6px}
 .privacy-record{border-top:1px solid var(--line);padding:14px 0;overflow-wrap:anywhere}
-.privacy-record h3{font-size:14px;margin:0 0 8px}.privacy-record p{font-size:13px;line-height:1.7}
+.privacy-record h3{font-size:14px;margin:0 0 6px}.privacy-record p{font-size:13px;line-height:1.7;margin:0 0 6px}.privacy-record > div:empty{display:none}
 .privacy-page .table-scroll{overflow-x:auto}
 .privacy-page table{min-width:640px}
 /* 탭 — 다른 화면과 같은 밑줄 탭 */
@@ -40,6 +40,9 @@
 .privacy-principles h3{font-size:15px;margin:0 0 10px}
 .privacy-principles p{margin:0;line-height:1.7;font-size:13px}
 .privacy-page .privacy-help{font-size:13px;line-height:1.7;color:var(--muted)}
+/* 과거 처리 기록 찾기 줄 — 저장소·문서명·유형·조회 */
+.privacy-filter{margin:0 0 16px}
+.privacy-filter input[type=text]{max-width:360px}
 @media(max-width:760px){.privacy-principles{grid-template-columns:1fr}.privacy-page h2 form{margin-left:0!important}.privacy-nav a{flex:1;text-align:center;padding:10px 6px}.privacy-page .card-in{padding:18px}}
 @media(max-width:760px){.privacy-principles:has(>article:nth-child(2):last-child){grid-template-columns:1fr}}
 </style>
@@ -257,11 +260,12 @@
 
 {% if selected == 'history' %}
 <p class="privacy-help">처리 때 남긴 가리기 기록 · 현재 설정과 별개</p>
-<form method="get" action="/dev/pii" class="privacy-nav">
+<form method="get" action="/dev/pii" class="control-row control-bar privacy-filter" role="search" aria-label="가리기 기록 찾기">
 <input type="hidden" name="view" value="history">
 <select name="source" aria-label="기록 저장소"><option value="platform">플랫폼 DB</option>{% if sources|length > 1 %}<option value="corpus" {% if history_source=='corpus' %}selected{% endif %}>국고 코퍼스 (별도 DB)</option>{% endif %}</select>
 <input type="text" name="q" value="{{ history_q }}" placeholder="문서명 검색" aria-label="문서명 검색">
-<select name="entity" aria-label="개인정보 유형"><option value="">전체 유형</option>{% for key,label in masking_entities.items() %}<option value="{{ key }}" {% if history_entity==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><button type="submit">조회</button></form>
+<select name="entity" aria-label="개인정보 유형"><option value="">전체 유형</option>{% for key,label in masking_entities.items() %}<option value="{{ key }}" {% if history_entity==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+<button type="submit" class="secondary">조회</button></form>
 {% for src in [sources[1] if history_source=='corpus' else sources[0]] %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>가리기 기록 — {{ src.name }}</h2>
@@ -313,9 +317,9 @@
   <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}{% if d.recorded %}<span class="pill">가린 항목 0건</span>{% endif %}{% endfor %}</div>
   {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}" class="mini-btn">가린 문맥 표본 보기</a>{% endif %}
   </article>{% endfor %}
-  <nav class="privacy-nav" aria-label="기록 페이지">
-  {% if src.page>1 %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>
-  {% if src.page<src.pages %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page+1 }}">다음</a>{% endif %}</nav>
+  <nav class="pager" aria-label="기록 페이지">
+  {% if src.page>1 %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}" class="mini-btn">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>
+  {% if src.page<src.pages %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page+1 }}" class="mini-btn">다음</a>{% endif %}</nav>
   {% else %}
   <p class="muted pii-empty" style="margin:0; font-size:12.5px;">{{ '조건에 맞는 기록 없음' if history_q or history_entity else '가리기 기록 없음' }}</p>
   {% endif %}

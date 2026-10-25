@@ -10,6 +10,11 @@
 - 나눔(split): 대화(세션) 단위로 train/eval 을 정한다(같은 대화가 두 쪽에 갈리지 않게). 평가 세트(data/eval)의 질문과 같은 질문이
   든 줄은 heldout 으로 — 학습에 섞이지 않게.
 만들기는 뒤에서 돌고(오래 걸릴 수 있다) 끝난 묶음은 data/platform/exports/collect/ 에 쌓인다. 관리자(dev)만.
+
+묶음 구조(뒤처리가 기댈 수 있게 고정, SCHEMA_VERSION):
+- 항목마다 <열쇠>.jsonl 하나 — 한 줄 한 기록, 모든 줄이 같은 키를 같은 차례로 가진다(없는 값은 null). 맨 끝 키는 split.
+- manifest.json — 항목마다 이름·건수·기간·필드(이름·형식·뜻·처리)와 가림·가명·나눔 규칙, 스키마 판.
+화면의 「구조·표본 보기」는 같은 변환(가림·가명·나눔)을 거친 앞 3건과 필드 목록을 보인다.
 """
 from __future__ import annotations
 
@@ -72,6 +77,32 @@ SESSION_KEYS = ("session", "session_id")
 QUESTION_KEYS = ("request", "question", "command")
 SKIP_MASK = {"at", "created_at", "role", "kind", "verdict", "mode", "split", "op", "stop", "action", *PERSON_KEYS, *SESSION_KEYS}
 MASK_FAILED = "[가림 실패]"
+SCHEMA_VERSION = "collect/2"          # 묶음 구조를 바꾸면 올린다(1 = 줄마다 키가 달랐던 옛 묶음)
+SAMPLE_N = 3                          # 화면 표본 줄 수
+SCAN_N = 500                          # 화면 구조 보기 — 앞에서 이만큼 읽어 필드를 모은다(묶음은 전부)
+
+# 필드 뜻 — 여러 기록에 두루 쓰이는 키 이름 하나에 한 줄. 여기 없는 키는 manifest 에 뜻을 비워 둔다
+FIELD_NOTES: dict[str, str] = {
+    "id": "기록 번호(표 안에서 하나)", "session_id": "대화 가명(s_…) — 같은 대화는 같은 값", "session": "대화 가명(s_…) — 같은 대화는 같은 값",
+    "message_id": "답 메시지 번호(대화 메시지의 id)", "role": "말한 쪽(user 질문 · assistant 답)", "content": "메시지 글(가림)",
+    "mode": "답변 방식(문서 근거·외부 검색·모델 지식)", "created_at": "기록 시각", "at": "기록 시각",
+    "owner": "대화 주인 가명(u_…)", "user": "사용한 사람 가명(u_…)", "by": "누른 사람 가명(u_…) 또는 고른 주체", "by_user": "사람 가명(u_…)",
+    "channel": "대화 창 갈래(chat 채팅 · helper 도우미 등)", "project_id": "프로젝트 번호", "kind": "기록 갈래",
+    "model": "답에 쓴 모델 정보", "llm": "부른 모델 정보(이름·주소 갈래)", "timing": "단계별 걸린 시간(초)",
+    "answer_timing": "답 단계별 걸린 시간(초)", "sources": "근거 문서 목록", "steps": "에이전트 걸음(생각·도구·관찰)",
+    "flagged": "근거 밖 숫자 표시(1 이면 있음)", "verdict": "평가(good 도움됨 · bad 아쉬움)", "reasons": "아쉬움 사유 목록",
+    "note": "메모(가림)", "batch": "같은 답의 근거 묶음 번호", "doc_id": "문서 번호", "title": "제목(가림)",
+    "heading": "절 제목(가림)", "snippet": "근거 대목(가림)", "origin": "근거 출처 갈래", "weak": "약한 근거(1 이면 약함)",
+    "request": "요청 글(가림)", "question": "질문 글(가림)", "command": "지시 글(가림)", "page": "요청한 화면 주소",
+    "finished": "끝까지 마쳤는지", "stop": "멈춘 까닭", "writes": "쓰기 동작 수", "run": "실행 번호",
+    "graph_read": "그래프 질문 읽기를 켰는지", "doc": "작업 문서 식별자", "section": "절 제목(가림)",
+    "materials": "작성 재료(가림)", "reply": "모델 답 글(가림)", "draft": "초안 동작 목록(가림)", "references": "참고 정답(가림)",
+    "score": "자동 채점", "candidates": "양식 후보 목록", "choice": "고른 후보", "why": "고른 까닭(가림)", "rule": "규칙이 고른 후보",
+    "plan": "찾을 맥락 계획", "found": "찾은 맥락과 근거", "reason": "못 채운 까닭 갈래", "needs": "더 필요한 자료",
+    "chars": "글자 수", "cells": "채운 칸 수", "op": "동작 이름", "args": "동작 인자", "ok": "성공했는지", "error": "오류 글",
+    "result": "결과 글(가림)", "changed": "바뀐 것 목록", "action": "편집 동작", "count": "바뀐 개수", "style": "글자 모양",
+    "table": "표 번호", "caption": "그림 설명(가림)", "split": "나눔(train 학습 · eval 평가 · heldout 평가 세트 질문과 같음)",
+}
 
 
 def out_dir(data_dir: Path) -> Path:
@@ -172,7 +203,87 @@ def _walk(v, key: str, mask: Masker, salt: str):
     return v
 
 
-def _db_rows(db, s: Source, since: str, until: str) -> Iterator[dict]:
+def _session_alias(salt: str, sess) -> str:
+    return "s_" + hashlib.sha256(f"{salt}:sess:{sess}".encode()).hexdigest()[:10]
+
+
+def transform(r: dict, salt: str, mask: Masker, held: set[str]) -> dict:
+    """기록 한 줄 → 내보내는 꼴: 글은 가리고, 사람·대화는 가명, 끝에 split. 묶음과 화면 표본이 같이 쓴다."""
+    sess = next((r.get(k) for k in SESSION_KEYS if r.get(k) not in (None, "")), None)
+    sp = split_of(salt, sess)
+    q = next((r.get(k) for k in QUESTION_KEYS if isinstance(r.get(k), str)), None)
+    if q is None and r.get("role") == "user":
+        q = r.get("content")
+    if q and _norm(q) in held:
+        sp = "heldout"
+    out = _walk(r, "", mask, salt)
+    out.pop("split", None)
+    if sess not in (None, ""):
+        for k in SESSION_KEYS:
+            if k in out:
+                out[k] = _session_alias(salt, sess)
+    out["split"] = sp
+    return out
+
+
+def type_of(v) -> str:
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "bool"
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, float):
+        return "float"
+    if isinstance(v, str):
+        return "str"
+    if isinstance(v, list):
+        return "list"
+    return "object" if isinstance(v, dict) else "str"
+
+
+def treatment(key: str, types: set[str]) -> str:
+    """필드가 내보낼 때 어떻게 바뀌는지 — 가명·가림·그대로."""
+    if key in PERSON_KEYS:
+        return "가명(u_…)"
+    if key in SESSION_KEYS:
+        return "대화 가명(s_…)"
+    if key == "split":
+        return "묶을 때 붙임"
+    if key not in SKIP_MASK and types & {"str", "list", "object"}:
+        return "개인정보 가림" if "str" in types else "안의 글 가림"
+    return "그대로"
+
+
+class SchemaScan:
+    """내보내는 줄들의 키·형식을 모아 고정 스키마(처음 나온 차례, split 은 맨 끝)를 만든다."""
+
+    def __init__(self):
+        self.types: dict[str, set[str]] = {}
+        self.seen: dict[str, int] = {}
+        self.n = 0
+
+    def add(self, row: dict) -> None:
+        self.n += 1
+        for k, v in row.items():
+            self.types.setdefault(k, set()).add(type_of(v))
+            self.seen[k] = self.seen.get(k, 0) + 1
+
+    def keys(self) -> list[str]:
+        ks = [k for k in self.types if k != "split"]
+        return ks + ["split"] if "split" in self.types else ks
+
+    def fields(self) -> list[dict]:
+        out = []
+        for k in self.keys():
+            ts = self.types[k] | ({"null"} if self.seen[k] < self.n else set())    # 어떤 줄엔 없는 키 → 묶음에서 null
+            name = "|".join(sorted(ts - {"null"})) or "null"
+            out.append({"name": k, "type": name + ("|null" if "null" in ts and name != "null" else ""),
+                        "meaning": FIELD_NOTES.get(k, ""), "treatment": treatment(k, ts)})
+        return out
+
+
+def _db_rows(db, s: Source, since: str, until: str, limit: int = 0) -> Iterator[dict]:
     from zzaimy.app.database_backend import table_names
     with db._conn() as conn:
         if s.table not in table_names(conn):
@@ -182,6 +293,8 @@ def _db_rows(db, s: Source, since: str, until: str) -> Iterator[dict]:
                    " LEFT JOIN chat_sessions c ON c.id = m.session_id WHERE m.created_at >= ? AND m.created_at < ? ORDER BY m.id")
         else:
             sql = f"SELECT * FROM {s.table} WHERE created_at >= ? AND created_at < ? ORDER BY id"
+        if limit:
+            sql += f" LIMIT {int(limit)}"
         rows = [dict(r) for r in conn.execute(sql, (since, until)).fetchall()]
     for r in rows:
         for k in ("model", "timing", "sources", "steps", "reasons"):
@@ -207,8 +320,13 @@ def _file_rows(data_dir: Path, s: Source, since: str, until: str) -> Iterator[di
                 yield r
 
 
-def rows(db, data_dir: Path, s: Source, since: str = "", until: str = "9999") -> Iterator[dict]:
-    yield from (_db_rows(db, s, since, until) if s.table else _file_rows(data_dir, s, since, until))
+def rows(db, data_dir: Path, s: Source, since: str = "", until: str = "9999", limit: int = 0) -> Iterator[dict]:
+    """기간 안의 기록 — limit 을 주면 앞에서 그만큼만."""
+    got = _db_rows(db, s, since, until, limit) if s.table else _file_rows(data_dir, s, since, until)
+    for i, r in enumerate(got):
+        if limit and i >= limit:
+            break
+        yield r
 
 
 def _short_span(first: str, last: str, this_year: str) -> str:
@@ -276,44 +394,90 @@ def resolve_period(period: str, since: str, until: str, today: str) -> tuple[str
     return since, until
 
 
+def _manifest_head(salt: str, by: str, since: str, until: str) -> dict:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "made_at": time.strftime("%Y-%m-%d %H:%M:%S"), "made_by": pseudonym(salt, by),
+        "period": [since[:10] or "처음", until[:10] or "끝"],
+        "format": "항목마다 <열쇠>.jsonl — UTF-8, 한 줄 한 기록. 모든 줄이 fields 의 키를 같은 차례로 가진다(없는 값은 null), 맨 끝은 split",
+        "masking": {"text": "글 칸은 접수 문서와 같은 개인정보 검사기(PiiMasker)로 가리고 고위험 꼴(주민번호·전화·메일 등)을 한 번 더 쓸어 냄",
+                    "failed": f"검사기가 실패한 글은 「{MASK_FAILED}」로 바꿈(원문을 내보내지 않음)",
+                    "kept": sorted(SKIP_MASK - set(PERSON_KEYS) - set(SESSION_KEYS))},
+        "pseudonymization": {"people": "사람 칸(" + "·".join(PERSON_KEYS) + ")은 서버 소금 가명 u_… — 묶음 사이에 같은 사람은 같은 가명",
+                             "sessions": "대화 칸(" + "·".join(SESSION_KEYS) + ")은 서버 소금 가명 s_… — 같은 대화는 같은 값",
+                             "salt": "서버에만 둠(묶음에 없음)"},
+        "split_rule": {"unit": "대화(세션) — 같은 대화가 두 쪽에 갈리지 않게", "ratio": "train 9 : eval 1",
+                       "method": "sha256(소금:s:대화) 를 10 으로 나눈 나머지가 0 이면 eval, 대화가 없는 줄은 train",
+                       "heldout": "평가 세트(data/eval) 질문과 같은 질문이 든 줄은 heldout — 학습에 섞지 않음"},
+        "sources": {},
+    }
+
+
 def build(db, data_dir: Path, keys: list[str], since: str, until: str, by: str = "") -> Path:
-    """가린 묶음(zip) — 항목마다 <열쇠>.jsonl 과 manifest.json. 끝난 파일 경로를 돌려준다."""
+    """가린 묶음(zip) — 항목마다 <열쇠>.jsonl(고정 스키마)과 manifest.json. 끝난 파일 경로를 돌려준다.
+
+    항목마다 두 번 지난다: 가린 줄을 임시 파일에 쓰며 키·형식을 모으고, 스키마를 정한 뒤 같은 차례로 다시 써 넣는다.
+    """
     salt, mask, held = _salt(data_dir), Masker(), eval_questions(data_dir)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     dest = out_dir(data_dir) / f"collect-{stamp}.zip"
     part = dest.with_suffix(".part")
-    manifest = {"made_at": time.strftime("%Y-%m-%d %H:%M:%S"), "made_by": pseudonym(salt, by), "period": [since or "처음", until or "끝"],
-                "masking": "글 칸 PiiMasker + 고위험 꼴 쓸기, 실패 시 「[가림 실패]」", "people": "서버 소금 가명(u_…) — 묶음 사이에 같은 사람은 같은 가명",
-                "split": "대화(세션) 단위 train 9 : eval 1, 평가 세트(data/eval) 질문과 같으면 heldout", "sources": {}}
-    with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as zf:
-        for key in keys:
-            s = BY_KEY.get(key)
-            if s is None:
-                continue
-            n, splits = 0, {"train": 0, "eval": 0, "heldout": 0}
-            with zf.open(f"{s.key}.jsonl", "w") as fh:
-                for r in rows(db, data_dir, s, since, until or "9999"):
-                    sess = next((r.get(k) for k in SESSION_KEYS if r.get(k) not in (None, "")), None)
-                    sp = split_of(salt, sess)
-                    q = next((r.get(k) for k in QUESTION_KEYS if isinstance(r.get(k), str)), None)
-                    if q is None and r.get("role") == "user":
-                        q = r.get("content")
-                    if q and _norm(q) in held:
-                        sp = "heldout"
-                    out = _walk(r, "", mask, salt)
-                    out["split"] = sp
-                    if sess not in (None, ""):
-                        for k in SESSION_KEYS:
-                            if k in out:
-                                out[k] = "s_" + hashlib.sha256(f"{salt}:sess:{sess}".encode()).hexdigest()[:10]
-                    fh.write((json.dumps(out, ensure_ascii=False) + "\n").encode("utf-8"))
-                    n += 1
-                    splits[sp] += 1
-            manifest["sources"][s.key] = {"name": s.name, "desc": s.desc, "use": s.use, "rows": n, "split": splits}
-        manifest["mask_failed"] = mask.failed
-        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=1))
-    part.replace(dest)
+    tmp = dest.with_suffix(".rows")
+    manifest = _manifest_head(salt, by, since, until)
+    try:
+        with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as zf:
+            for key in keys:
+                s = BY_KEY.get(key)
+                if s is None:
+                    continue
+                n, splits, scan, first, last = 0, {"train": 0, "eval": 0, "heldout": 0}, SchemaScan(), "", ""
+                with tmp.open("w", encoding="utf-8") as fh:
+                    for r in rows(db, data_dir, s, since, until or "9999"):
+                        t = str(r.get(s.time_key) or "")
+                        if t:
+                            first, last = min(first or t, t), max(last, t)
+                        out = transform(r, salt, mask, held)
+                        scan.add(out)
+                        fh.write(json.dumps(out, ensure_ascii=False) + "\n")
+                        n += 1
+                        splits[out["split"]] += 1
+                ks = scan.keys()
+                with zf.open(f"{s.key}.jsonl", "w") as zfh, tmp.open(encoding="utf-8") as fh:
+                    for line in fh:
+                        row = json.loads(line)
+                        zfh.write((json.dumps({k: row.get(k) for k in ks}, ensure_ascii=False) + "\n").encode("utf-8"))
+                manifest["sources"][s.key] = {
+                    "file": f"{s.key}.jsonl", "name": s.name, "desc": s.desc, "use": s.use, "where": s.table or s.file,
+                    "rows": n, "time_field": s.time_key,
+                    "period": {"first": first[:19].replace("T", " "), "last": last[:19].replace("T", " ")},
+                    "fields": scan.fields(), "split": splits}
+            manifest["mask_failed"] = mask.failed
+            zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=1))
+        part.replace(dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
     return dest
+
+
+def peek(db, data_dir: Path, key: str) -> dict:
+    """화면 「구조·표본 보기」 — 앞 SCAN_N 줄로 모은 필드 목록과 앞 SAMPLE_N 줄(묶음과 같은 가림·가명·나눔).
+
+    구조는 원래 줄에서 읽되 내보낼 때 바뀌는 형식(가명은 글)으로 적는다 — 500줄을 다 가리지 않으려고.
+    """
+    s = BY_KEY[key]
+    salt, mask, held = _salt(data_dir), Masker(), eval_questions(data_dir)
+    scan, raw, n = SchemaScan(), [], 0
+    for r in rows(db, data_dir, s, limit=SCAN_N):
+        n += 1
+        if len(raw) < SAMPLE_N:
+            raw.append(r)
+        scan.add({k: ("" if k in PERSON_KEYS or (k in SESSION_KEYS and v not in (None, "")) else v) for k, v in r.items()}
+                 | {"split": "train"})
+    sample = [transform(r, salt, mask, held) for r in raw]
+    ks = scan.keys()
+    return {"key": s.key, "name": s.name, "fields": scan.fields(), "sample": [{k: r.get(k) for k in ks} for r in sample],
+            "scanned": n, "scan_limit": SCAN_N, "mask_failed": mask.failed}
 
 
 _jobs: dict[str, dict] = {}
@@ -360,6 +524,14 @@ def collect_page(request: Request):
         "request": request, "sources": sources, "made": made(d), "running": running, "failed": failed,
         "periods": PERIODS, "today": time.strftime("%Y-%m-%d"), "earliest": min(firsts) if firsts else time.strftime("%Y-%m-%d"),
         "days": {c["key"]: c["days"] for c in sources if c["n"]}}))
+
+
+@router.get("/dev/collect/peek/{key}")
+def collect_peek(request: Request, key: str):
+    st = _st(request)
+    if key not in BY_KEY:
+        raise HTTPException(404)
+    return peek(st.db, _data_dir(request), key)
 
 
 @router.post("/dev/collect/make")

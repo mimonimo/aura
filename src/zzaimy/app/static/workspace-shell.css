@@ -133,6 +133,16 @@ body .modal-back input:is([type=text],[type=password],[type=url],[type=search]):
   line-height:1.2; font-size:13px; border-radius:8px; vertical-align:middle; }
 .control-row select { border:1px solid #CAD4E0; font-weight:500; }
 .control-row :is(button, .btn, .btn-ghost) { padding-left:14px; padding-right:14px; }
+/* 조작 줄 상자 — 검색칸·고르기·버튼을 한 줄에 간격을 두고 늘어놓는다(높이는 control-row 와 함께 쓴다). 검색칸이 남는 폭을 차지한다 */
+.control-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.control-bar > :is(input[type=text], input[type=search]) { flex:1 1 200px; min-width:0; }
+.control-bar > select { flex:0 1 auto; min-width:0; max-width:100%; }
+.control-bar > :is(button, .btn, .btn-ghost) { flex:none; white-space:nowrap; }
+/* 쪽 넘기기 — 「이전 · n / m · 다음」을 한 줄 가운데 높이에 */
+.pager { display:flex; align-items:center; gap:10px; margin:16px 0 0; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.pager > span { min-width:3.5em; text-align:center; }
+/* 표 칸 안 버튼은 두 줄로 꺾지 않는다(좁은 폭에서 「구성 / 보기」처럼 갈라지지 않게) */
+main td :is(button, .btn, .btn-ghost, .mini-btn) { white-space:nowrap; }
 /* 공용 확인창(workspace-navigation.js) — data-confirm 폼. 위험 동작은 확인 단추가 빨강 */
 .confirm-dialog { width:min(440px, calc(100vw - 32px)); box-sizing:border-box; margin:auto; padding:24px;
   border:1px solid var(--line); border-radius:16px; background:#fff; color:var(--ink);

@@ -111,8 +111,8 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
 .dx-title { white-space:normal; overflow-wrap:anywhere; line-height:1.5; }
 .dx-tabs { background:#f3f4f6; gap:4px; padding:5px; margin-bottom:24px; }
 .dx-search { flex-wrap:wrap; gap:8px; }
-.dx-search input[type=text] { flex:1 1 180px; min-height:40px; }
-.dx-search select { max-width:100%; padding-right:36px; min-height:40px; }
+.dx-search input[type=text] { flex:1 1 180px; min-height:var(--control-h); }
+.dx-search select { max-width:100%; padding-right:36px; min-height:var(--control-h); font-size:13px; }
 .dx-scroll, .dx-rows-wrap { overscroll-behavior:contain; scrollbar-gutter:stable; }
 table.dx-list td.name { white-space:normal; min-width:220px; }
 table.dx-list td.name a { display:block; overflow-wrap:anywhere; line-height:1.6; }
@@ -137,11 +137,11 @@ table.dx-list tr.on td { background:#edf3fc; }
 .dx-rows-wrap { container-type:inline-size; }
 .dx-rows-wrap table { width:100%; min-width:0; table-layout:fixed; }
 .dx-rows-wrap th:first-child { width:64px; }
-.dx-rows-wrap th:nth-child(2) { width:24%; }
+.dx-rows-wrap th:nth-child(2) { width:96px; }
 .dx-rows-wrap th:nth-child(3) { width:64px; }
 .dx-rows-wrap th:nth-child(4) { width:86px; }
 .dx-rows-wrap table.dx-rows th { white-space:normal; }
-.dx-rows-wrap table.dx-rows td { padding:12px 10px; overflow-wrap:anywhere; }
+.dx-rows-wrap table.dx-rows td { padding:10px; overflow-wrap:anywhere; vertical-align:top; }
 .dx-rows-wrap table.dx-rows td.head { white-space:normal; max-width:none; line-height:1.6; }
 .dx-rows-wrap table.dx-rows td.prev { min-width:0; max-width:none; width:auto; }
 .dx-preview-button { display:flex; align-items:center; gap:12px; width:100%; border:0; background:transparent; box-shadow:none; color:var(--ink); text-align:left; padding:6px 0; font-size:13px; font-weight:400; }
@@ -155,7 +155,7 @@ table.dx-list tr.on td { background:#edf3fc; }
 @container (max-width:680px) {
   .dx-rows-wrap th:first-child, .dx-rows-wrap td:first-child,
   .dx-rows-wrap th:nth-child(3), .dx-rows-wrap td:nth-child(3) { display:none; }
-  .dx-rows-wrap th:nth-child(2) { width:28%; }
+  .dx-rows-wrap th:nth-child(2) { width:88px; }
   .dx-rows-wrap th:nth-child(4) { width:70px; }
   .dx-preview-button { flex-direction:column; align-items:flex-start; gap:6px; }
 }
@@ -169,7 +169,7 @@ table.dx-list tr.on td { background:#edf3fc; }
 .dx-search-row { flex-wrap:nowrap; }
 .dx-search-row input[type=search], .dx-search-row input[type=text] { flex:1 1 auto; min-width:0; }
 .dx-search-row select { flex:0 1 auto; min-width:0; max-width:46%; text-overflow:ellipsis; }
-.dx-search-row button { flex:none; min-height:40px; }
+.dx-search-row button { flex:none; }
 .dx-ledger-wrap { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
 .dx-ledger-wrap table.dx-ledger { width:100%; table-layout:fixed; font-size:12.5px; border-collapse:collapse; }
 .dx-ledger-wrap table.dx-ledger th { position:static; background:#F8FAFC; padding:7px 10px; text-align:left; font-weight:600; }
@@ -204,10 +204,11 @@ table.dx-list tr.on td { background:#edf3fc; }
 .dx-stat b{font-size:18px;color:var(--navy);font-variant-numeric:tabular-nums}.dx-stat span{font-size:12px;color:var(--muted)}
 .dx-stat.warn{border-color:#F1D9A8;background:#FFF8EB}.dx-stat.warn b{color:#9A6A12}
 .dx-stat-note{flex:1 1 100%;margin:0;font-size:12px}
-.dx-regbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}.dx-regbar input[type=search]{flex:1 1 180px;min-width:0;height:32px;padding:5px 9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px}
+.dx-regbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}.dx-regbar input[type=search]{flex:1 1 180px;min-width:0;padding:5px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px}
 .dx-regbar label{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
 tr.pick[hidden]{display:none}
 .dx-help{border-bottom:1px dotted var(--muted);cursor:help}
+table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
 .dx-extract-more{margin:8px 0 0}.dx-extract-more > .dx-rows{margin-top:8px}
 </style>
 
@@ -226,7 +227,7 @@ tr.pick[hidden]{display:none}
   <span class="dx-links"><a class="h-link" href="/archive{{ ('?q=' ~ (q|urlencode)) if q else '' }}#archive-list"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>원본 보관소에서 찾기</a></span></div>
 <p class="muted dx-foot" style="margin:0 0 4px;">{% if q %}검색 결과 {{ view.total|num }} · {% endif %}{% if lg %}{{ metric_label("archive_originals", "", "학교 원본") }} {{ lg.originals|num }}{% if view.everything %} · 처리하지 않는 파일 포함: 정리함 {{ lg.cleaned|num }} · 변환 사본 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% else %} · 처리하지 않는 파일 {{ (lg.total - lg.originals)|num }}건 제외{% endif %}{% else %}{{ view.total|num }}{% endif %}
   · <a href="/dev/db?tab=archive{{ ('&q=' ~ (q|urlencode)) if q }}{{ '' if view.everything else '&all=1' }}">{{ '학교 원본만 보기' if view.everything else '처리하지 않는 파일까지 보기' }}</a></p>
-<form method="get" action="/dev/db" class="dx-search dx-search-row">
+<form method="get" action="/dev/db" class="dx-search dx-search-row control-row" role="search">
   <input type="hidden" name="tab" value="archive">{% if view.everything %}<input type="hidden" name="all" value="1">{% endif %}
   <input type="search" name="q" value="{{ q }}" placeholder="파일 경로 · 장부 사업 이름(여러 낱말 가능)" aria-label="원본 장부 검색" autocomplete="off">
   <button type="submit" class="secondary">찾기</button>
@@ -254,7 +255,7 @@ tr.pick[hidden]{display:none}
 {% elif tab == 'docs' %}
 <div class="dx-grid">
   <div class="card dx-card"><div class="card-in">
-    <form method="get" action="/dev/db" class="dx-search dx-search-row">
+    <form method="get" action="/dev/db" class="dx-search dx-search-row control-row" role="search">
       <input type="hidden" name="tab" value="docs">
       <input type="text" name="q" value="{{ q }}" placeholder="접수번호 · 제목" aria-label="문서 검색">
       <select name="type" aria-label="문서 유형">
@@ -438,7 +439,7 @@ tr.pick[hidden]{display:none}
 </div></div>
 <div class="dx-grid">
   <div class="card dx-card"><div class="card-in">
-    <div class="dx-regbar"><input type="search" id="dxRegFind" placeholder="규정 이름 거르기" aria-label="규정 거르기">
+    <div class="dx-regbar control-row"><input type="search" id="dxRegFind" placeholder="규정 이름 거르기" aria-label="규정 거르기">
       <label><input type="checkbox" id="dxRegMissing"> 색인 빠진 것만</label></div>
     <p class="muted" style="font-size:12px; margin:0 0 8px;">검색 시험·등록은 <a href="/dev/rag#try">RAG 공간</a></p>
     <div class="dx-scroll">
@@ -537,7 +538,7 @@ tr.pick[hidden]{display:none}
     <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>대화 기록
       <span class="muted" style="font-size:12.5px; font-weight:500;">{{ view.sessions|length }}건</span></h2>
   </div>
-  <div class="table-scroll"><table class="dx-rows" style="font-size:13px;">
+  <div class="table-scroll"><table class="dx-rows dx-chat" style="font-size:13px;">
     <tr><th>#</th><th>질문</th><th>시각</th><th class="dx-num">메시지</th><th class="dx-num">근거</th><th>프로젝트</th><th>올린 계정</th></tr>
     {% for s in view.sessions %}
     <tr>
