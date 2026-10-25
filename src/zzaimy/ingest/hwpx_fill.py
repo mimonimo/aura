@@ -526,6 +526,9 @@ def paragraph_xml(text: str, pp: str, cp: str) -> str:
             f'<hp:run charPrIDRef="{cp}"><hp:t>{xml_text(text)}</hp:t></hp:run></hp:p>')
 
 
+SHORT_TABLE_ROWS = 10      # 이 행 수 이하의 새 표는 쪽에서 나누지 않는다(통째로 다음 쪽) — 긴 표는 칸 단위로 나누고 머리줄을 되풀이
+
+
 def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int,
               widths: list[float] | None = None, roles: dict[str, tuple[str, str, str]] | None = None) -> str:
     """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 본문 폭을 균등 분할.
@@ -539,7 +542,12 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
     if widths and len(widths) == n_cols and sum(widths) > 0:
         col_ws = [max(int(width_hu * w / sum(widths)), 1000) for w in widths]
     else:
-        col_ws = [max(int(width_hu / n_cols), 1000)] * n_cols
+        # 열 너비는 칸 글 길이에 맞춰 — 똑같이 나누면 긴 문장이 든 열이 좁아 글이 꽉 찼다. 가장 긴 줄 길이를 4~30 자로 눌러 비율로 쓴다
+        weights = []
+        for c in range(n_cols):
+            longest = max((len(ln) for row in rows for ln in (split_lines(str(row[c])) if c < len(row) else [""]) or [""]), default=0)
+            weights.append(min(max(longest, 4), 30))
+        col_ws = [max(int(width_hu * w / sum(weights)), 1000) for w in weights]
     row_h = 1200
     trs = []
     for r, row in enumerate(rows):
@@ -558,7 +566,7 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
         trs.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
     total_w = sum(col_ws)
     tbl = (f'<hp:tbl id="{table_id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
-           f'pageBreak="CELL" repeatHeader="1" rowCnt="{n_rows}" colCnt="{n_cols}" cellSpacing="0" borderFillIDRef="{bf}" noAdjust="0">'
+           f'pageBreak="{'NONE' if n_rows <= SHORT_TABLE_ROWS else 'CELL'}" repeatHeader="1" rowCnt="{n_rows}" colCnt="{n_cols}" cellSpacing="0" borderFillIDRef="{bf}" noAdjust="0">'
            f'<hp:sz width="{total_w}" widthRelTo="ABSOLUTE" height="{row_h * n_rows}" heightRelTo="ABSOLUTE" protect="0"/>'
            f'<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" '
            f'vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'

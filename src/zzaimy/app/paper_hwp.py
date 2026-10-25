@@ -1290,7 +1290,10 @@ def figure_files(list_md: Path, root: Path) -> dict[str, list[Path]]:
 PIC_MAX_H = 52000          # 그림 높이 상한(HWPUNIT, 약 18cm) — 세로로 긴 화면 캡처가 한 쪽을 넘지 않게
 
 
-def place_pictures(data: bytes, pids: list[str], pictures: dict[str, bytes]) -> bytes:
+LOGO_MAX_W, LOGO_MAX_H = 17000, 9000   # 로고 그림 상한(HWPUNIT, 약 6cm × 3.2cm) — 글 폭에 맞추면 정사각 로고가 한 쪽을 다 차지했다
+
+
+def place_pictures(data: bytes, pids: list[str], pictures: dict[str, bytes], small: set[str] | None = None) -> bytes:
     """서식째 쓴 문단(pids) 가운데 그림 표식(⟦그림 파일 n⟧)만 든 문단을 그 그림 문단으로 바꾼다 — 글자처럼 취급하는 그림, 가운데, 글 폭에 맞춤.
     문단 id 는 그대로 두어 다시 쓰면 지워진다. 같은 그림 바이트가 이미 BinData 에 있으면 그것을 다시 쓴다(다시 써도 파일이 불지 않게)."""
     from zzaimy.ingest import hwpx_fill as hf
@@ -1347,6 +1350,9 @@ def place_pictures(data: bytes, pids: list[str], pictures: dict[str, bytes]) -> 
             h = int(w * org_h / org_w)
             if h > PIC_MAX_H:
                 w, h = int(w * PIC_MAX_H / h), PIC_MAX_H
+            if small and mark in small:                   # 로고는 작게 — 너비·높이 상한 안으로 비율대로
+                k = min(1.0, LOGO_MAX_W / w, LOGO_MAX_H / h)
+                w, h = int(w * k), int(h * k)
             pp = para or re.search(r'paraPrIDRef="(\d+)"', m.group(0)).group(1)
             run = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', m.group(0))
             cp = run.group(1) if run else "0"
@@ -1607,7 +1613,8 @@ def _rich_section(data: bytes, w: dict, written: dict) -> tuple[bytes, list[str]
     head = _field_para_id(new, field)
     new = dress_written(new, put + ([head] if head else []), w.get("style") or {})
     pics = {k: Path(v).read_bytes() for k, v in (w.get("pictures") or {}).items() if Path(v).is_file()}
-    return place_pictures(new, put, pics), put
+    logos = {k for k, v in (w.get("pictures") or {}).items() if "/logos/" in str(v).replace("\\", "/")}
+    return place_pictures(new, put, pics, logos), put
 
 
 def write(db, base: Path, fid: int, w: dict, *, overwrite: bool = False, pause: float = 0.4, sleep=None) -> dict:
