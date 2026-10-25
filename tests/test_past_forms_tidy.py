@@ -131,6 +131,10 @@ def test_plan_apply_idempotent_and_restore(tmp_path):
     broken = _add(db, base, "깨진 양식.hwpx", b"PKnot really", "양식/기타", "양식:doc-6")
     platform = _add(db, base, "회의록.hwpx", blank_plan("회의"), "공통 양식/회의록", "양식:minutes")
     mine = webhwp.add(db, base, "기획처", "내 문서.hwpx", blank_plan(), owner="kim", folder="양식")
+    for fid in (keep, dup):                  # 순위의 「최근」 은 초 단위 — 느린 병렬 실행에서 사본이 1초 늦게 만들어져도 같은 시각으로
+        m = webhwp.meta(db, fid)
+        m["created"] = "2026-10-01T09:00:00"
+        db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
     db.set_setting(f"webhwp_lock:{keep}", json.dumps({"user": "", "at": 0}))
     db.set_setting("chat_note:1", json.dumps({"p": webhwp.get(db, keep)["path"]}, ensure_ascii=False))
 
