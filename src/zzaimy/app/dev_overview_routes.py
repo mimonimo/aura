@@ -317,6 +317,7 @@ def dev_flow(request: Request):
         "coedit_svgs": [__import__("zzaimy.app.coedit_diagram", fromlist=["field_flow"]).field_flow(_co),
                         __import__("zzaimy.app.coedit_diagram", fromlist=["aura_flow"]).aura_flow(_co)],
         "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
+        "system_svg": __import__("zzaimy.app.system_diagram", fromlist=["svg"]).svg(),
     }))
 
 
