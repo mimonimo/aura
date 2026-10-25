@@ -358,11 +358,12 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
       <section class="dx-material-group" aria-label="검색 조각">
         <h4 class="dx-material-heading">검색 조각 <span>{{ c.n_units }}건</span></h4>
         <div class="dx-rows-wrap"><table class="dx-rows">
-          <tr><th>#</th><th>제목</th><th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
+          {% set has_head = c.units | selectattr("heading") | list | length > 0 %}{# 제목이 하나도 없으면(규정 조문 등) 빈 칸을 보이지 않는다 #}
+          <tr><th>#</th>{% if has_head %}<th>제목</th>{% endif %}<th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
           {% for u in c.units %}
           <tr>
             <td class="dx-mono">{{ u.id }}</td>
-            <td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>
+            {% if has_head %}<td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>{% endif %}
             <td class="dx-num">{{ "{:,}".format(u.length) }}</td>
             <td>{% if u.embedded is none %}<span class="muted">미확인</span>{% elif u.embedded %}<span class="pill reviewed dx-pill">있음</span>{% else %}<span class="pill processing dx-pill">없음</span>{% endif %}</td>
             <td class="prev"><details class="dx-more can"><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary><pre>{{ u.content }}</pre></details></td>
@@ -513,11 +514,12 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
     </div>
     {% if s.units %}
     <div class="dx-rows-wrap" style="max-height:calc(100vh - 220px);"><table class="dx-rows">
-      <tr><th>#</th><th>제목</th><th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
+      {% set has_head = s.units | selectattr("heading") | list | length > 0 %}{# 제목이 하나도 없으면(규정 조문 등) 빈 칸을 보이지 않는다 #}
+      <tr><th>#</th>{% if has_head %}<th>제목</th>{% endif %}<th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
       {% for u in s.units %}
       <tr id="u{{ u.id }}" class="{{ 'hit' if u.hit else '' }}">
         <td class="dx-mono">{{ u.id }}</td>
-        <td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>
+        {% if has_head %}<td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>{% endif %}
         <td class="dx-num">{{ "{:,}".format(u.length) }}</td>
         <td>{% if u.embedded is none %}<span class="muted">미확인</span>{% elif u.embedded %}<span class="pill reviewed dx-pill">있음</span>{% else %}<span class="pill processing dx-pill">없음</span>{% endif %}</td>
         <td class="prev"><details class="dx-more can" {{ 'open' if u.hit else '' }}><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary><pre>{{ u.content }}</pre></details></td>
