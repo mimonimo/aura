@@ -12,7 +12,9 @@
 .system-role p{font-size:12px;line-height:1.7;margin:0;color:var(--muted);word-break:keep-all;overflow-wrap:anywhere}
 .system-role ul{list-style:none;margin:14px 0 0;padding:0;font-size:12px;line-height:1.8}
 @media(max-width:760px){.system-roles{grid-template-columns:1fr}.system-heading{align-items:flex-start}.system-role{padding:16px}}
-.system-roles{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+.system-roles{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:900px){.system-roles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.system-roles{grid-template-columns:1fr}}
 .system-role h4{font-size:15px;margin:0 0 6px}
 .system-role ul{margin:0}
 .system-links-table{width:100%;border-collapse:collapse;font-size:12.5px}
