@@ -123,6 +123,7 @@ def main() -> int:
     writes = p["writes"]
     if a.only:
         keys = [x.strip() for x in a.only.split(",") if x.strip()]
+        keys += [o for k in list(keys) for o in ph.BACK_OLD.get(k, ())]      # 「초록」 으로 골라도 예전 이름(절:Abstract) 문서의 자리에
         writes = [w for w in writes if any(w["field"].startswith(f"절:{k} ") or w["field"] == f"절:{k}" for k in keys)]
     if a.formatted:
         writes = [w for w in writes if set(w.get("blocks", [])) & {"table", "figure", "tip", "code", "diagram"}
