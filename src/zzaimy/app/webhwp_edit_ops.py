@@ -319,6 +319,14 @@ def _siblings(xml: str, at: int) -> tuple[tuple[int, int, int], list[tuple[int, 
     return me, [p for p in ps if p[2] == me[2] and p[0] >= me[1] and box[0] <= p[0] < box[1]]
 
 
+_GUIDE_BOX = re.compile(r"^\s*【\s*(작성\s*방법|작성\s*요령|작성\s*가이드|유의\s*사항|작성\s*예시)")
+
+
+def _is_guide_para(seg: str) -> bool:
+    """작성방법 상자(한 칸 표)를 든 문단 — 절 제목과 절 필드 사이에 놓인다(제목 → 안내 → 쓸 자리)."""
+    return "<hp:tbl" in seg and bool(_GUIDE_BOX.match(_text(seg)))
+
+
 def _text(frag: str) -> str:
     frag = re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", frag, flags=re.S)
     t = re.sub(r"<[^>]+>", "", frag)
@@ -383,7 +391,11 @@ def _section_span(doc: _Doc, field: str) -> tuple[str, int, int]:
     end = me[1]
     for i, p in enumerate(sibs):
         seg = xml[p[0]:p[1]]
-        nxt = xml[sibs[i + 1][0]:sibs[i + 1][1]] if i + 1 < len(sibs) else ""
+        # 다음 절 제목 — 다음 절 필드 문단 앞의 작성방법 상자들을 건너뛴 바로 앞 문단(제목 → 안내 → 쓸 자리)
+        k = i + 1
+        while k < len(sibs) and _is_guide_para(xml[sibs[k][0]:sibs[k][1]]):
+            k += 1
+        nxt = xml[sibs[k][0]:sibs[k][1]] if k < len(sibs) else ""
         if re.search(r'name="절:', seg) or re.search(r'name="절:', nxt):
             break
         end = p[1]
@@ -1251,8 +1263,8 @@ def _target_para(doc: _Doc, a: dict) -> tuple[str, int, int]:
         xml = doc.secs[n]
         me, _ = _siblings(xml, pos)
         name = _resolve_field(doc, str(a["field"]))
-        if name.startswith("절:"):                         # 절 필드는 제목 바로 아래 문단 — 제목 문단을 짚는다
-            ps = [p for p in _paras(xml) if p[2] == me[2] and p[1] <= me[0]]
+        if name.startswith("절:"):                         # 절 필드는 제목 아래 문단 — 제목 문단을 짚는다(사이의 작성방법 상자는 건너뛴다)
+            ps = [p for p in _paras(xml) if p[2] == me[2] and p[1] <= me[0] and not _is_guide_para(xml[p[0]:p[1]])]
             if ps:
                 return n, ps[-1][0], ps[-1][1]
         return n, me[0], me[1]

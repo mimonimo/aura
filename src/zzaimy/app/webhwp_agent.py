@@ -6,7 +6,7 @@
   빌더로 만들어 작업본으로 연다(app/webhwp_form_create). 이 대화에서 hwp_forms 로 먼저 찾아본 뒤에만 돈다.
 - hwp_start {form, title}: 고른 양식으로 작업본을 부서 디렉터리(「작업/<프로젝트>」)에 만들고 이 대화에 잇는다. 한글 원본은 hwpx 로 바꾸고 쓸 자리 필드를 박는다.
 - hwp_fields {}: 작업본의 필드와 채움 상태(빈 필드가 먼저).
-- hwp_fill {values: {필드: 값}}: 칸·표 필드 값 넣기.
+- hwp_fill {values: {필드: 값}, from_user}: 칸·표 필드 값 넣기. 사람 칸(「입력:」)은 담당자에게 물어 받은 값만(from_user: true).
 - hwp_write {field, text}: 절 필드에 본문 쓰기(번호 문단 + 마크다운 표). 같은 절을 다시 쓰면 앞 내용을 지우고 새로.
 - 편집 도구(webhwp_edit_ops.TOOLS — hwp_page_setup·hwp_table_insert·hwp_table_view·hwp_table_edit·hwp_page_number·hwp_header_footer·
   hwp_page_break·hwp_text_style·hwp_footnote·hwp_picture·hwp_replace·hwp_undo·hwp_live): 기안기 기능을 파일 직접 고치기·열린 기안기 명령으로.
@@ -208,6 +208,9 @@ class HwpTools:
         held = webhwp.lock_holder(self.db, fid)
         if held and held["user"] != "AURA":
             lines.append(f"지금 {held['user']} 님도 이 작업본을 편집 중이다 — 칸은 그 화면에 바로 들어가니 그대로 쓴다.")
+        if any(x["kind"] == "입력" and not x["text"] for x in fl):
+            lines.append("「입력:」 필드는 사람 칸(날짜·서명·결재·달성률)이다 — 문서에서 찾거나 셈해 넣지 않고, 담당자가 알려 준 값만 "
+                         "hwp_fill {values, from_user: true} 로 넣는다(모르면 ask_user 로 한 번에 묻는다).")
         if empty:
             lines.append("작성 순서: ① 담당자가 알려 준 값·프로젝트 정보(프로젝트 이름은 사업명 칸)로 채울 수 있는 칸을 hwp_fill 한 번에 모두 채운다 "
                          "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
@@ -277,12 +280,12 @@ class HwpTools:
             empty = 12
         return max(20, min(48, 12 + empty))
 
-    def resolve(self, name: str, kinds: tuple[str, ...] = ("칸", "표", "절")) -> str | None:
-        """에이전트가 쓴 필드 이름 → 작업본의 실제 이름. 접두사(칸:·절:·표n:)를 빠뜨렸거나 띄어쓰기가 달라도 하나로 맞으면 그것."""
+    def resolve(self, name: str, kinds: tuple[str, ...] = ("칸", "표", "절", "입력")) -> str | None:
+        """에이전트가 쓴 필드 이름 → 작업본의 실제 이름. 접두사(칸:·절:·입력:·표n:)를 빠뜨렸거나 띄어쓰기가 달라도 하나로 맞으면 그것."""
         fl = [x["name"] for x in self._fields()]
         if name in fl:
             return name
-        key = lambda n: re.sub(r"\s+", "", re.sub(r"^(칸|절|표\d+):", "", n))
+        key = lambda n: re.sub(r"\s+", "", re.sub(r"^(칸|절|입력|표\d+):", "", n))
         hits = [n for n in fl if key(n) == key(name) and (n.split(":")[0].rstrip("0123456789") in kinds)]
         return hits[0] if len(hits) == 1 else None
 
@@ -388,6 +391,10 @@ class HwpTools:
         values = a.get("values") if isinstance(a.get("values"), dict) else {}
         values = {(self.resolve(str(k)) or str(k)): str(v)[:2000] for k, v in values.items()}
         values = {k: v for k, v in values.items() if not k.startswith("절:")}
+        # 사람 칸(「입력:」 — 날짜·서명·결재·달성률)은 담당자에게 물어 받은 값만. from_user 없이 온 값은 넣지 않고 묻게 한다
+        person = [k for k in values if k.startswith("입력:")] if not a.get("from_user") else []
+        for k in person:
+            values.pop(k)
         long_, fake = {}, []
         for k, v in list(values.items()):
             if _too_long(v):                                # 여러 줄·표·긴 글은 칸 값이 아니다 — 절 쓰기로(칸 안에 문단·표로 들어간다)
@@ -395,10 +402,12 @@ class HwpTools:
             elif _placeholder(v):                           # 양식의 예시 글자(○○·000)를 그대로 넣지 않는다 — 모르면 비워 두고 묻는다
                 fake.append(k)
                 values.pop(k)
+        ask = (f" 사람 칸이라 넣지 않았다 — ask_user 로 담당자에게 물어 받은 값만 from_user: true 와 함께 넣는다: {', '.join(person)}."
+               if person else "")
         if not values:
             return ("넣은 것 없음." + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
-                    + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "")
-                    + ("" if long_ or fake else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
+                    + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
+                    + ("" if long_ or fake or person else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
         miss = [k for k in values if k not in have]
@@ -415,7 +424,8 @@ class HwpTools:
         return (f"채웠다: {', '.join(done) or '없음'}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")
                 + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
-                + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else ""))
+                + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else "")
+                + (f" ·{ask}" if ask else ""))
 
     def write(self, a: dict, by: str = "메인") -> str:
         from zzaimy.app import webhwp_write as ww
@@ -428,6 +438,8 @@ class HwpTools:
         field = self.resolve(field) or (field if field.startswith(("절:", "칸:", "표")) else "절:" + field)
         if not text:
             return "text 가 비었다."
+        if field.startswith("입력:"):
+            return "쓰지 않았다 — 「입력:」 은 사람 칸(날짜·서명·결재)이다. ask_user 로 물어 받은 값을 hwp_fill(from_user: true)로 넣는다."
         text = ww.drop_heading_echo(text, field)            # 절 머리와 같은 첫 줄은 빼고 넣는다
         why = self.gate(text, by=by)                       # by 는 코드가 정한다(모델 인자로 바꿀 수 없다)
         if why:

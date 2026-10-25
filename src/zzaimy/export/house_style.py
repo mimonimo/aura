@@ -56,6 +56,8 @@ TYPE = {
     "table":       {"pt": 10, "bold": False, "spacing": 0, "line": 130, "before": 0, "after": 0, "align": ""},
     "table_head":  {"pt": 10, "bold": True, "spacing": 0, "line": 130, "before": 0, "after": 0, "align": "CENTER"},
     "box":         {"pt": 9, "bold": False, "spacing": 0, "line": 130, "before": 0, "after": 0, "align": "LEFT", "color": "#555555"},
+    "sign":        {"pt": 12, "bold": False, "spacing": 0, "line": 160, "before": 0, "after": 0, "align": "CENTER"},
+    "sign_org":    {"pt": 14, "bold": True, "spacing": 0, "line": 160, "before": 0, "after": 0, "align": "RIGHT"},
 }
 # 근거 — 운영 문서함 학교 서식 3,774건에서 갈래별로 센 분포(상위 값, 괄호는 문단 수). 고른 값과 다른 경우는 까닭을 적었다
 TYPE_BASIS = {
@@ -70,6 +72,7 @@ TYPE_BASIS = {
     "table": "표 칸 글 크기 10(62%)·11(15%), 가운데 70%, 자간 0(70%)·-3(13%), 줄 간격 160(43%)·130(29%) — 칸이 덜 벌어지게 130",
     "box": "표 칸 글 크기 분포에서 9pt(10%) — 본문 표보다 한 단계 작게, 진회색",
     "spacing": "자간은 모든 갈래에서 0 이 가장 많다(표지 69%, 본문 78%)",
+    "sign": "제출 문구(「위와 같이 … 제출합니다」·날짜)는 따로 세지 않았다 — 독스 판과 같이 가운데, 본문보다 한 단계 큰 12. 기관장 줄은 오른쪽 14 굵게",
 }
 
 # ── 표 디자인 ── 선 굵기 위계(바깥 0.4 > 머리줄 아래 0.25 > 안쪽 0.12), 머리줄·라벨 음영, 합계 줄 강조, 줄무늬 기본 끔
@@ -82,8 +85,26 @@ TABLE = {
     "num_align": "RIGHT",                # 금액·큰 수 칸
     "col_min_mm": 12.0,                  # 열 폭 하한(mm) — 머리 낱말이 한 줄에 들 폭이 이보다 크면 그 폭
     "col_max_share": 0.55,               # 한 열이 표 폭에서 차지하는 상한
+    "month_min_mm": 6.0,                 # 일정표(간트) 달 칸 하한(mm) — 12mm 하한이면 달 12칸이 표 폭을 거의 다 먹는다
     "month_fill": PALETTE["accent_soft"],  # 일정표 추진 기간 칸
 }
+# ── 쪽 모양 ── 공통 양식의 용지·여백(mm) 한 곳. 학교 실물 표본은 좌우 20mm 가 대다수이고 독스 판(gdocs_templates)도 20mm 다.
+# 한글 새 문서 기본값(좌우 30mm)을 쓰던 것을 바꿨다(10-25). 본문 폭(TEXT_W)은 여기서 셈한다
+PAGE = {"paper_mm": (210.0, 297.0), "margin_mm": {"top": 20.0, "bottom": 15.0, "left": 20.0, "right": 20.0, "header": 15.0, "footer": 15.0},
+        "page_number": "BOTTOM_CENTER", "page_number_min_heads": 8}     # 제목이 이만큼 넘는 여러 쪽 문서에 쪽 번호
+HU_PER_MM = 7200 / 25.4
+
+
+def text_width() -> int:
+    """본문 폭(HWPUNIT) — 용지 폭에서 좌우 여백을 뺀 값(한글이 셈하는 것과 같게 HWPUNIT 로 바꾼 뒤 뺀다)."""
+    m = page_margins_hu()
+    return int(round(PAGE["paper_mm"][0] * HU_PER_MM)) - m["left"] - m["right"]
+
+
+def page_margins_hu() -> dict[str, int]:
+    return {k: int(round(v * HU_PER_MM)) for k, v in PAGE["margin_mm"].items()}
+
+
 TOTAL_LABEL = re.compile(r"^\s*(합\s*계|총\s*계|소\s*계|계)\s*$")
 MONEY_HEAD = re.compile(r"금액|예산|단가|집행액|사업비|비용|\((?:천|백만|억)?원\)|단위\s*:\s*(?:천|백만|억)?원")
 _AMOUNT = re.compile(r"[-+△▲▽]?\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?|[-+△▲▽]?\s*\d{4,}(?:\.\d+)?")
@@ -153,31 +174,41 @@ def text_units(text: str) -> float:
 
 
 def fit_widths(columns: list[list[str]], total: int, weights: list[float] | None = None, *, pt: float = 10.0,
-               pad: int = 1020, min_w: int | None = None, max_share: float | None = None) -> list[int]:
+               pad: int = 1020, min_w: int | None = None, max_share: float | None = None,
+               spans: list[list[int]] | None = None) -> list[int]:
     """열 폭(HWPUNIT, 합 = total) — 열마다 글 묶음(머리 + 값들)을 보고 정한다.
     하한: 머리의 가장 긴 낱말이 한 줄에 드는 폭(글자 폭 + 좌우 칸 여백 pad)과 col_min_mm 가운데 큰 값.
     바람: weights(양식 정의의 비율)가 있으면 그 비율, 없으면 칸 글 길이(긴 값은 20글자에서 자름)의 제곱근 — 긴 글 칸이 넓되 한 열이 다 먹지 않게.
     하한에는 8글자 안쪽 짧은 칸 글도 센다(짧은 값·안내 글이 두 줄로 꺾이지 않게).
-    상한: 표 폭 × col_max_share. 하한 합이 표 폭을 넘으면 하한 비율로 줄인다. 반올림 나머지는 가장 넓은 열에."""
+    상한: 표 폭 × col_max_share. 하한 합이 표 폭을 넘으면 하한 비율로 줄인다. 반올림 나머지는 가장 넓은 열에.
+    spans — columns 와 같은 꼴의 칸 열 수(합친 칸은 2 이상). 합친 칸 글은 덮은 열 수로 나눠 센다(한 열에 몰아 세면 그 열만 넓어진다)."""
     n = len(columns)
     if n == 0 or total <= 0:
         return []
     char = pt * 100                                      # 한 글자 폭(HWPUNIT) ≈ 글자 크기
     floor = int(min_w if min_w is not None else TABLE["col_min_mm"] * 283.465)
     cap = int(total * (max_share if max_share is not None else TABLE["col_max_share"])) if n >= 3 else total   # 2열(라벨·값)은 값 칸이 넓다
+    def span(i: int, k: int) -> int:
+        try:
+            return max(1, int(spans[i][k])) if spans else 1
+        except (IndexError, TypeError, ValueError):
+            return 1
     need = []
-    for col in columns:
+    for i, col in enumerate(columns):
         head = str(col[0] if col else "")
         words = head.split() or [""]
-        short = [text_units(x) for x in col if 0 < text_units(x) <= 8]     # 짧은 칸 글(8글자 안쪽)은 한 줄에 들게
-        unit = max([text_units(w) for w in words] + short)
+        s0 = span(i, 0)
+        # 합친 칸은 덮은 열마다 자기 몫(글 폭 ÷ 열 수)만 — 하한만 늘리고 비율은 그대로
+        units = [text_units(w) / s0 for w in words]
+        units += [text_units(x) / span(i, k) for k, x in enumerate(col) if 0 < text_units(x) <= 8]   # 짧은 칸 글(8글자 안쪽)은 한 줄에 들게
+        unit = max(units)
         need.append(max(floor, int(unit * char * 1.15) + pad))
     if sum(need) >= total:
         out = [int(total * x / sum(need)) for x in need]
     else:
         want = []
         for i, col in enumerate(columns):
-            longest = max([min(text_units(x), 20.0) for x in col] + [1.0])
+            longest = max([min(text_units(x) / span(i, k), 20.0) for k, x in enumerate(col)] + [1.0])
             # 비율을 주면(양식 정의) 그 비율이 바람이고 글 길이는 하한(need)으로만, 없으면 글 길이의 제곱근
             w = float(weights[i]) if weights and i < len(weights) and float(weights[i]) > 0 else longest ** 0.5
             want.append(w)
@@ -252,7 +283,7 @@ def schedule_grid(tasks, months, marks: dict | None = None, head: str = "추진 
                 continue
             out_marks.append((ti + 1, ci))
     return {"rows": rows, "head_rows": 1, "weights": [4] + [1] * len(months), "merges": [], "marks": out_marks,
-            "min_w": int(6 * 283.465)}
+            "min_w": int(TABLE["month_min_mm"] * 283.465)}
 
 
 def budget_grid(items, unit: str = "천원", total: str | None = None) -> dict:

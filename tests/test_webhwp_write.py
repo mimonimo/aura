@@ -51,16 +51,17 @@ def test_house_table_style_and_restyle():
     from zzaimy.app import webhwp_style as st, webhwp_templates as t
     data = t.build(t.GRANT["budget_change"])
     tl = st.tables(data)
-    assert tl and tl[1]["head"].startswith("비목")
+    # 10-25: 절마다 작성방법 상자(한 칸 표)가 생겨 표 번호가 밀렸다 — 「비목」 내역 표를 이름으로 찾는다
+    item = next(t for t in tl if t["head"].startswith("비목"))
     hdr = zipfile.ZipFile(io.BytesIO(data)).read("Contents/header.xml").decode()
     assert 'faceColor="#E5E5E5"' in hdr and 'width="0.4 mm"' in hdr and "<hh:bold/>" in hdr
-    again = st.apply(data, [2], {"head_fill": "연파랑", "head_bottom": "DOUBLE", "font_pt": 11})
+    again = st.apply(data, [item["no"]], {"head_fill": "연파랑", "head_bottom": "DOUBLE", "font_pt": 11})
     h2 = zipfile.ZipFile(io.BytesIO(again)).read("Contents/header.xml").decode()
     assert 'faceColor="#DFEAF5"' in h2 and "DOUBLE_SLIM" in h2 and 'height="1100"' in h2
     tbl = st._TBL.findall(zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode())
     r = st.roles(tbl[0])
     assert r[(0, 0)] == "label" and r[(0, 1)] == "body"
-    assert set(st.roles(tbl[1])[(0, c)] for c in range(6)) == {"head"}
+    assert set(st.roles(tbl[item["no"] - 1])[(0, c)] for c in range(6)) == {"head"}
 
 
 def test_diagram_block_becomes_box_table():

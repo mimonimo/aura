@@ -202,8 +202,10 @@ def test_same_op_twice_is_stable():
     d = wt.build(wt.GRANT["budget_change"])
     a = ws.apply(d)
     assert ws.apply(a) == a and len(_hdr(a)) == len(_hdr(d))
-    x, _ = eo.table_edit(d, {"table": 2, "op": "head", "rows": 1})
-    y, _ = eo.table_edit(x, {"table": 2, "op": "head", "rows": 1})
+    # 10-25: 국고 양식에도 절마다 작성방법 상자(한 칸 표)가 생겨 표 번호가 밀렸다 — 번호를 박지 않고 「비목」 내역 표를 찾는다
+    tno = next(t["no"] for t in ws.tables(d) if t["head"].startswith("비목"))
+    x, _ = eo.table_edit(d, {"table": tno, "op": "head", "rows": 1})
+    y, _ = eo.table_edit(x, {"table": tno, "op": "head", "rows": 1})
     assert _hdr(x) == _hdr(y)
     x, _ = eo.text_style(d, {"pt": 12, "bold": True})
     y, msg = eo.text_style(x, {"pt": 12, "bold": True})

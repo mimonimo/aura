@@ -339,6 +339,8 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
         pos = c["e"]
     out.append(tbl[pos:])
     t = "".join(out)
+    if head_last and not o.get("keep_borders"):           # 머리줄 있는 표는 「제목 줄 반복」을 켠다(학교 실물 표 거의 모두 켜 있음, 한글 기본값)
+        t = re.sub(r'(<hp:tbl\b[^>]*\brepeatHeader=")0"', r'\g<1>1"', t, count=1)
     if o.get("row_height"):                                   # 표 높이 = 행 높이 합
         tall = {int(k): int(v) for k, v in (o.get("tall") or {}).items()}
         rows_h = sum(tall.get(r, int(o["row_height"])) for r in range(nrows))

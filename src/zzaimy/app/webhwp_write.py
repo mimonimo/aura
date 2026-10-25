@@ -1,6 +1,6 @@
 """기안기 작업본에 쓰기(서버 쪽) — 에이전트 도구가 브라우저 없이 한글 파일(hwpx)의 누름틀 필드에 값을 넣고 절 본문(문단·표)을 쓴다.
 
-- fields(data): 필드 목록과 지금 값 — [{"name", "kind"(절·칸·표·기타), "text"}]
+- fields(data): 필드 목록과 지금 값 — [{"name", "kind"(절·칸·입력·표·기타), "text"}]
 - set_fields(data, {이름: 값}): 칸·표 필드 값 바꾸기(줄바꿈은 진짜 문단 나눔 — 필드가 여러 문단에 걸친다)
 - normalize_breaks(data): 필드 안 줄 나눔(lineBreak)을 문단 나눔으로 — 기안기 GetFieldText 가 줄 나눔을 돌려주지 않아
   공동 편집 한 번에 줄이 모두 붙고, 한 문단이 된 긴 절은 양식 모드에서 한 글자마다 문단 길이만큼 다시 배치된다(ADR-0070)
@@ -43,6 +43,8 @@ def _unq(name: str) -> str:
 
 
 def _kind(name: str) -> str:
+    if name.startswith("입력:"):                            # 사람 칸(날짜·서명·결재) — 에이전트는 물어 받은 값만
+        return "입력"
     return "절" if name.startswith("절:") else "칸" if name.startswith("칸:") else "표" if re.match(r"표\d+:", name) else "기타"
 
 
@@ -340,9 +342,14 @@ def _top_paras(xml: str, end: int):
                 return
 
 
-def _drop_empty_form_tables(tail: str) -> str:
-    """본문이 표를 들고 왔을 때, 같은 절(다음 절 필드 앞까지)에 남은 양식의 빈 표(머리줄 말고는 글자 없는 표)를 지운다 —
-    본문 표 밑에 같은 꼴 빈 표가 겹쳐 남지 않게. 글자가 한 칸이라도 든 표는 손대지 않는다."""
+def _drop_empty_form_tables(tail: str, form_sid: str | None = None, cols: set[int] | None = None,
+                            keep_sid: str | None = None) -> str:
+    """본문이 표를 들고 왔을 때, 같은 절(다음 절 필드 앞까지)에 남은 양식의 빈 표를 지운다 — 본문 표 밑에 같은 꼴 빈 표가 겹쳐 남지 않게.
+    「빈 틀」은 사용자 글이 있는가로 가른다: 코드로 짠 양식의 표는 양식 글에 「양식 틀」 표시가 있어(webhwp_fields.mark_form_text)
+    라벨·2단 머리줄·합계 행 이름이 있어도 사용자 글이 없으면 지운다. 표시가 없는 표(학교 서식)는 머리줄 말고 글자가 한 칸이라도 들면 둔다.
+    cols — 본문이 넣은 표들의 열 수. 빈 틀 가운데 열 수가 같은 것이 있으면 그것만 지운다(한 절에 표가 둘인 양식 — 지표 표와 SWOT 격자 —
+    에서 본문이 지표 표만 쓰면 SWOT 틀은 남게). 같은 것이 없으면 본문 표가 양식 표를 다른 꼴로 바꾼 것이라 빈 틀을 모두 지운다.
+    머리줄 없는 라벨·값 격자와 「양식 틀 고정」(keep_sid — 결재란·서명란) 표는 지우지 않는다."""
     nxt = next((m.start() for m in _BEGIN.finditer(tail) if _unq(m.group(2)).startswith("절:")), len(tail))
     nxt = min(nxt, len(tail))
     cut = []
@@ -353,15 +360,28 @@ def _drop_empty_form_tables(tail: str) -> str:
         if "<hp:tbl" not in frag:
             continue
         rows = re.findall(r"<hp:tr\b.*?</hp:tr>", frag, re.S)
-        if len(rows) < 2:
+        if len(rows) < 2 or len(re.findall(r"<hp:tbl\b", frag)) > 1:      # 한 줄 상자·표 안의 표는 두고
             continue
-        body_txt = "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", "".join(rows[1:])))
-        if re.sub(r"\s+", "", body_txt):
+        if keep_sid is not None and re.search(rf'<hp:p\b[^>]*\bstyleIDRef="{keep_sid}"', frag):
             continue
+        judged = wf.user_text_in_table(frag, form_sid)
+        if judged:
+            continue
+        first = [wf._text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", c, flags=re.S))
+                 for c in re.findall(r"<hp:tc\b.*?</hp:tc>", rows[0], re.S)]
+        if judged is False and not (len(first) >= 2 and all(first)):
+            continue                                       # 머리줄 없는 라벨·값 격자(개요·항목 표)는 본문 표로 바뀌는 자리가 아니다 — 칸을 채운다
+        if judged is None:
+            body_txt = "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", "".join(rows[1:])))
+            if re.sub(r"\s+", "", body_txt):
+                continue
         if re.sub(r"\s+", "", "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", frag[:frag.find("<hp:tbl")]))):
             continue                                       # 표 앞에 글이 같이 든 문단은 두고
-        cut.append((a, b))
-    for a, b in reversed(cut):
+        m = re.search(r'<hp:tbl\b[^>]*\bcolCnt="(\d+)"', frag)
+        cut.append((a, b, int(m.group(1)) if m else 0))
+    if cols and any(n in cols for _a, _b, n in cut):
+        cut = [x for x in cut if x[2] in cols]
+    for a, b, _n in reversed(cut):
         tail = tail[:a] + tail[b:]
     return tail
 
@@ -479,7 +499,10 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         head_ = xml[:pb[0]] + field_p + "".join(chunks)
         tail_ = xml[pb[1]:]
         if any(k == "table" for k, _ in items):
-            tail_ = _drop_empty_form_tables(tail_)
+            ncols = {max((len(r) for r in v if isinstance(r, (list, tuple))), default=0)
+                     for k, v in items if k == "table" and isinstance(v, list) and v}
+            tail_ = _drop_empty_form_tables(tail_, wf.form_style_id(header), ncols,
+                                            keep_sid=wf.form_style_id(header, wf.FORM_KEEP_STYLE))
         new[n] = head_ + tail_
         if levels.cache:
             header = levels.header

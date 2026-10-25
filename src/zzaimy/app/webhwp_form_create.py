@@ -184,7 +184,8 @@ def to_spec(clean: dict) -> dict:
             blocks.append({"table": {"columns": list(s["table"]), "rows": [[""] * len(s["table"]) for _ in range(3)],
                                      "widths": [1] * len(s["table"]), "kind": s.get("table_kind") or "일반"}})
     cover = [clean["title"]] + ([clean["subtitle"]] if clean.get("subtitle") else [])
-    return {"id": "made", "title": clean["title"], "cover": cover, "blocks": blocks}
+    # 쪽 번호는 넣지 않는다 — 양식 만들기에서는 담당자의 디자인 요청(「쪽 번호 넣어 줘」)으로 넣는 값이다(평가 scripts/202 가 그 반영을 잰다)
+    return {"id": "made", "title": clean["title"], "cover": cover, "blocks": blocks, "page_number": False}
 
 
 def _drop_fields(data: bytes, names: list[str]) -> bytes:

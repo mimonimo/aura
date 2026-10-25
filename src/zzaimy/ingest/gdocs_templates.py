@@ -17,10 +17,12 @@ import json
 import re
 from pathlib import Path
 
+from zzaimy.export import house_style as _hs
 from zzaimy.ingest.gdocs import GUIDE_PREFIX
 from zzaimy.ingest.gdocs import TEMPLATE_FONT as FONT
 
-PAGE_W, PAGE_H, MARGIN = 595.28, 841.89, 56.7          # A4, 20mm
+PAGE_W, PAGE_H = 595.28, 841.89                         # A4
+MARGIN = round(_hs.PAGE["margin_mm"]["left"] * 72 / 25.4, 1)     # 20mm — 한글 양식과 같은 여백(house_style.PAGE 한 곳)
 KV_KEY_MAX = 0.30                                        # 항목형 표의 항목 칸 상한(쪽 폭 비율)
 HEAD_ABOVE = {"HEADING_1": 24, "HEADING_2": 16, "HEADING_3": 12}
 CONTENT_W = PAGE_W - 2 * MARGIN
@@ -82,6 +84,11 @@ def FORM(rows: list[list[str]], widths: list[float], labels: list[tuple[int, int
     tall — 글이 길게 들어갈 행의 최소 높이(pt) {행: 높이}(SWOT·목표·주요 내용 — 한 줄 높이면 빈 칸처럼 보인다)."""
     return {"table": {"columns": list(rows[0]), "form": True, "rows": rows,
                       "widths": widths, "labels": list(labels), "merges": list(merges), "tall": dict(tall or {})}}
+
+
+def KEEP(block: dict) -> dict:
+    """확인·서명·결재란처럼 사람이 채우는 표 — 비어 있어도 본문 표가 지우지 않는다(한글 양식의 「양식 틀 고정」, webhwp_fields)."""
+    return {"table": {**block["table"], "keep": True}}
 
 
 def KV(items: list[str], key_w: float = 1, val_w: float = 3) -> dict:
@@ -560,7 +567,7 @@ MINUTES = {
         T(["연번", "자료명", "비고"], 3, [0.5, 3.6, 1.4]),
         H(1, "7. 확인"),
         G("작성자와 위원장(또는 간사)이 확인한다. 서명은 출력본·전자결재에서 받는다."),
-        T(["구분", "소속·직위", "성명", "확인 일자"], [["작성", "", "", ""], ["확인(위원장)", "", "", ""]], [1.2, 2, 1.2, 1.2]),
+        KEEP(T(["구분", "소속·직위", "성명", "확인 일자"], [["작성", "", "", ""], ["확인(위원장)", "", "", ""]], [1.2, 2, 1.2, 1.2])),
     ],
 }
 

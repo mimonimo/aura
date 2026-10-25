@@ -146,3 +146,20 @@ def test_drive_browse_lists_folders_and_hwp_files(monkeypatch):
     import pytest
     with pytest.raises(ValueError):
         wd.browse("x@ync.ac.kr", folder="x' or name contains '", http=H())
+
+
+def test_person_fields_only_from_user(tmp_path, monkeypatch):
+    """사람 칸(「입력:」 — 날짜·서명·결재·달성률)은 담당자에게 물어 받은 값만 넣는다(from_user). 문서에서 찾은 값으로는 넣지 않는다."""
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 78, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "예산 변경 신청서"})
+    assert any("사람 칸" in line for line in hw.state_lines())
+    out = hw.fill({"values": {"칸:사업명": "AI 사업", "입력:신청 일자": "2026. 10. 25."}})
+    assert "채웠다: 칸:사업명" in out and "사람 칸이라 넣지 않았다" in out and "입력:신청 일자" in out
+    assert "사람 칸" in hw.write({"field": "입력:신청 일자", "text": "2026. 10. 25."})
+    assert "채웠다: 입력:신청 일자" in hw.fill({"values": {"신청 일자": "2026. 10. 25."}, "from_user": True})
+    vals = {x["name"]: x["text"] for x in ww.fields(Path(webhwp.get(db, wa.bound(db, 78))["path"]).read_bytes())}
+    assert vals["입력:신청 일자"] == "2026. 10. 25." and vals["칸:담당자"] == ""      # 기존 이름(칸:담당자)은 그대로

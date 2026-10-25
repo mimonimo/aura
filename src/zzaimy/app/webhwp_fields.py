@@ -6,8 +6,10 @@
 
 필드 이름(사람이 읽는 꼴, 같은 이름이 겹치면 뒤에 「#2」):
 - 「절:<제목>」 — 번호 붙은 절 제목 문단(표 칸 안 포함) 바로 다음에 새 빈 문단을 넣고 그 안에 필드. 본문·표·그림은 여기에 끼워 넣는다.
+  코드로 짠 양식은 만든 쪽이 잎 절 목록(slots)을 넘겨 짐작 없이 잎 절에만 박는다(10-25).
 - 「칸:<라벨>」 — 같은 행에서 라벨 칸 바로 오른쪽의 빈 칸 첫 문단.
 - 「표<n>:<머리 칸>」 — 머리행 + 빈 행으로 된 목록표의 첫 빈 행 칸(행 늘리기는 기안기 표 동작으로).
+- 「입력:<라벨>」 — 코드로 짠 양식이 사람 칸으로 정한 칸(날짜·서명·결재·달성률). 에이전트는 담당자에게 물어 받은 값만 넣는다.
 필드 XML 꼴은 기안기가 저장한 것을 그대로 따른다(CLICK_HERE, Direction = 안내 글). 이미 필드가 있는 양식은 그 필드를 그대로 두고 더하지 않는다.
 """
 from __future__ import annotations
@@ -192,10 +194,60 @@ class _Names:
         return base if n == 1 else f"{base}#{n}"
 
 
-def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
+class Slots:
+    """만든 쪽(webhwp_templates.build)이 아는 제목 차례 — [(제목 글, 잎 절인가)…]. 문서 차례대로 제목 문단을 하나씩 짚고
+    잎 절에만 절 필드를 박는다. 글 꼴로 짐작하지 않으므로 번호 없는 절(「사업 요약」)·로마 숫자 잎 장·붙임·첨부에도 박히고,
+    아래 절이 있는 위 제목에는 박히지 않는다. 섹션이 여럿이어도 차례를 잇는다."""
+
+    def __init__(self, heads):
+        self.heads = [(re.sub(r"\s+", " ", str(t)).strip(), bool(leaf)) for t, leaf in heads]
+        self.at = 0
+
+    def take(self, text: str) -> bool | None:
+        """이 문단 글이 다음 제목이면 잎 절인지(참·거짓), 아니면 None."""
+        if self.at < len(self.heads) and text == self.heads[self.at][0]:
+            self.at += 1
+            return self.heads[self.at - 1][1]
+        return None
+
+
+def fieldize_xml(xml: str, ids: _Ids, names: _Names, slots: Slots | None = None,
+                 people: dict | None = None, heads: dict | None = None) -> tuple[str, list[dict]]:
     out: list[dict] = []
     # 1) 표 — 라벨 칸 오른쪽 빈 칸, 목록표(머리행 + 빈 행) 첫 빈 행
     def do_table_rows(tbl_xml: str, tno: int) -> str:
+        placed = len(out)
+        tbl_xml = _table_rows(tbl_xml, tno)
+        if len(out) == placed and heads and tno in heads:
+            tbl_xml = _spec_list_row(tbl_xml, tno, *heads[tno])
+        return tbl_xml
+
+    def _spec_list_row(tbl_xml: str, tno: int, head_rows: int, cols: list[str]) -> str:
+        """만든 쪽이 머리줄 수·열 이름을 아는 목록표 — 짐작으로 필드가 하나도 안 박힌 표(2단 머리줄, 12자 넘는 머리)의
+        첫 본문 행 빈 칸에 「표n:<열 이름>」. 행 이름(라벨)이 든 칸·좁은 칸은 건너뛴다."""
+        rows = _TR.findall(tbl_xml)
+        if head_rows >= len(rows):
+            return tbl_xml
+        r = rows[head_rows]
+        r2 = r
+        for c in _TC.findall(r):
+            col = re.search(r'colAddr="(\d+)"', c)
+            w = re.search(r'<hp:cellSz width="(\d+)"', c)
+            if not col or _text(c) or "fieldBegin" in c or (w and int(w.group(1)) < MIN_SLOT_W):
+                continue
+            ci = int(col.group(1))
+            head = cols[ci] if ci < len(cols) and cols[ci] else str(ci + 1)
+            person = (people or {}).get(tno, False)
+            name = names(f"입력:{head}" if person is None or person and head in person else f"표{tno}:{head}")
+            pm = _LEAF_P.search(c)
+            if not pm:
+                continue
+            c2 = c[:pm.start()] + _inject_into_para(pm.group(0), field_xml(name, f"{head} 입력", ids)) + c[pm.end():]
+            r2 = r2.replace(c, c2, 1)
+            out.append({"name": name, "kind": "입력" if name.startswith("입력:") else "표"})
+        return tbl_xml.replace(r, r2, 1)
+
+    def _table_rows(tbl_xml: str, tno: int) -> str:
         rows = _TR.findall(tbl_xml)
         texts = [[_text(c) for c in _TC.findall(r)] for r in rows]
         # 목록표 — 머리행(짧은 이름 칸)과 그 아래 빈 행 또는 예시 행(ㅇㅇ·○○·000 이 든 행)
@@ -215,10 +267,15 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
                 if w and int(w.group(1)) < MIN_SLOT_W:            # 그림처럼 짠 표의 좁은 여백 칸 — 필드를 박으면 표가 늘어난다
                     continue
                 target = None
+                person = (people or {}).get(tno, False)      # 사람 칸 — None 이면 표 전체, 글 묶음이면 그 라벨·머리만
                 if listlike and ri == 1:
-                    target = (names(f"표{tno}:{texts[0][ci] if ci < len(texts[0]) else ci + 1}"), texts[0][ci] if ci < len(texts[0]) else "")
+                    head = texts[0][ci] if ci < len(texts[0]) else ""
+                    mine = person is None or person and head in person
+                    target = (names(f"입력:{head}" if mine else f"표{tno}:{head or ci + 1}"), head)
                 elif not ctexts[ci] and ci > 0 and _real_label(ctexts[ci - 1]) and not listlike:
-                    target = (names(f"칸:{ctexts[ci - 1]}"), ctexts[ci - 1])
+                    lab = ctexts[ci - 1]
+                    mine = person is None or person and lab in person
+                    target = (names(f"입력:{lab}" if mine else f"칸:{lab}"), lab)
                 if target:
                     pm = _LEAF_P.search(c)
                     if pm:
@@ -232,7 +289,7 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
                             np_ = _inject_into_para(para, field_xml(target[0], f"{target[1]} 입력", ids))
                         c2 = c[:pm.start()] + np_ + c[pm.end():]
                         r2 = r2.replace(c, c2, 1)
-                        out.append({"name": target[0], "kind": "칸" if target[0].startswith("칸:") else "표"})
+                        out.append({"name": target[0], "kind": target[0].split(":", 1)[0] if target[0].startswith(("칸:", "입력:")) else "표"})
             new_rows.append((r, r2))
         for a, b in new_rows:
             if a != b:
@@ -263,6 +320,7 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
     body_cp = cps.most_common(1)[0][0] if cps else "0"
 
     guides = _guide_spans(xml)
+    tables = [(m.start(), m.end()) for m in re.finditer(r"<hp:tbl\b.*?</hp:tbl>", xml, re.S)]
     leaves = [(m.start(), m.end(), "" if "fieldBegin" in m.group(0) else _text(m.group(0)), "<hp:tbl" in m.group(0))
               for m in _LEAF_P.finditer(xml)]             # 이미 필드를 박은 칸은 빈 자리로 본다
 
@@ -280,7 +338,10 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
     buf, pos = [], 0
     for i, (a, b, t, has_tbl) in enumerate(leaves):
         p = xml[a:b]
-        if "fieldBegin" in p or has_tbl or not _is_heading(t) or _inside(a, guides) or not slot_follows(i):
+        if slots is not None:                           # 만든 쪽이 아는 제목 차례 — 짐작하지 않는다(표 칸 안 글은 제목이 아니다)
+            if "fieldBegin" in p or has_tbl or not t or _inside(a, tables) or not slots.take(t):
+                continue
+        elif "fieldBegin" in p or has_tbl or not _is_heading(t) or _inside(a, guides) or not slot_follows(i):
             continue
         name = names(f"절:{t}")
         out.append({"name": name, "kind": "절"})
@@ -302,6 +363,81 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names) -> tuple[str, list[dict]]:
     return "".join(buf), out
 
 
+# ── 양식 틀 표시 ── 코드로 짠 양식의 표에서 양식이 미리 적은 글(머리줄·라벨·행 이름)이 든 문단에 붙이는 문단 스타일.
+# 본문에 표를 쓰면 같은 절의 빈 양식 표를 지우는데(webhwp_write), 「빈 틀」은 사용자 글이 있는가로 가른다 — 이 스타일이 아닌 문단의 글과
+# 누름틀에 쓴 글이 사용자 글이다. 스타일은 한글이 저장해도 남고, 빈 칸에 친 글은 그 칸 문단(바탕글)을 따르므로 사용자 글로 읽힌다.
+FORM_STYLE = "양식 틀"
+FORM_KEEP_STYLE = "양식 틀 고정"       # 결재란·서명란 — 비어 있어도 본문 표로 바뀌는 자리가 아니다(지우지 않는다)
+
+
+def form_style_id(header: str, name: str = FORM_STYLE) -> str | None:
+    m = re.search(r'<hh:style\b[^>]*\bid="(\d+)"[^>]*\bname="%s"' % re.escape(name), header)
+    return m.group(1) if m else None
+
+
+def _ensure_form_style(header: str, name: str = FORM_STYLE) -> tuple[str, str]:
+    sid = form_style_id(header, name)
+    if sid is not None:
+        return header, sid
+    ids_ = [int(x) for x in re.findall(r'<hh:style\b[^>]*\bid="(\d+)"', header)]
+    sid = str(max(ids_) + 1 if ids_ else 0)
+    tag = (f'<hh:style id="{sid}" type="PARA" name="{name}" engName="Form Frame" paraPrIDRef="0" charPrIDRef="0" '
+           f'nextStyleIDRef="0" langID="1042" lockForm="0"/>')
+    header = header.replace("</hh:styles>", tag + "</hh:styles>", 1)
+    header = re.sub(r'(<hh:styles\b[^>]*\bitemCnt=")(\d+)(")', lambda m: f"{m.group(1)}{int(m.group(2)) + 1}{m.group(3)}", header, count=1)
+    return header, sid
+
+
+def mark_form_text(data: bytes, keep: set[int] | None = None) -> bytes:
+    """표 칸 안의 글 있는 문단(누름틀이 없는 것)에 「양식 틀」 스타일을 붙인다 — 양식을 만든 직후에만 부른다.
+    keep — 문서 차례 표 번호(1부터, 작성방법 상자 포함) 가운데 결재란·서명란처럼 늘 남길 표. 그 표는 「양식 틀 고정」.
+    작성방법 상자는 건너뛴다(지우는 대상이 아니다)."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    header, sid = _ensure_form_style(zin.read("Contents/header.xml").decode("utf-8"))
+    if keep:
+        header, kid = _ensure_form_style(header, FORM_KEEP_STYLE)
+    count = [0]
+
+    def mark_para(p: str, style: str) -> str:
+        if "fieldBegin" in p or not _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", p, flags=re.S)):
+            return p
+        return re.sub(r'(<hp:p\b[^>]*\bstyleIDRef=")\d+', rf"\g<1>{style}", p, count=1)
+
+    def mark_tbl(m: re.Match) -> str:
+        t = m.group(0)
+        count[0] += 1
+        if _GUIDE.search(_text(t)):
+            return t
+        style = kid if keep and count[0] in keep else sid
+        return _LEAF_P.sub(lambda pm: mark_para(pm.group(0), style), t)
+    new = {"Contents/header.xml": header}
+    for n in zin.namelist():
+        if _SEC.search(n):
+            new[n] = re.sub(r"<hp:tbl\b(?:(?!<hp:tbl\b).)*?</hp:tbl>", mark_tbl, zin.read(n).decode("utf-8"), flags=re.S)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zout:
+        for info in zin.infolist():
+            body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
+            zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    return buf.getvalue()
+
+
+def user_text_in_table(tbl: str, form_sid: str | None) -> bool | None:
+    """양식 표에 사용자 글이 있는가 — 「양식 틀」 표시가 없는 표면 None(판정 못 함). 표시가 있으면 그 스타일이 아닌 문단에
+    예시 글자(○○·0000)가 아닌 글이 하나라도 있으면 참."""
+    if form_sid is None or not re.search(rf'<hp:p\b[^>]*\bstyleIDRef="{form_sid}"', tbl):
+        return None
+    # 이 함수가 받는 form_sid 는 「양식 틀」 하나 — 「양식 틀 고정」 표는 부르는 쪽(webhwp_write)이 먼저 거른다
+    for m in _LEAF_P.finditer(tbl):
+        p = m.group(0)
+        if re.search(rf'^<hp:p\b[^>]*\bstyleIDRef="{form_sid}"', p):
+            continue
+        t = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", p, flags=re.S))
+        if t and not _blankish(t):
+            return True
+    return False
+
+
 MAX_UNZIPPED = 300 * 1024 * 1024        # 풀었을 때 전체 크기 한도 — 압축 폭탄 막기
 MAX_RATIO = 200                          # 항목 하나의 압축률 한도(정상 hwpx 본문 XML 은 수십 배 안쪽)
 
@@ -317,8 +453,13 @@ def check_zip(zin: zipfile.ZipFile) -> None:
         raise ValueError("한글 파일이 너무 큽니다(풀었을 때 300MB 초과)")
 
 
-def fieldize(data: bytes) -> tuple[bytes, list[dict]]:
-    """hwpx 바이트 → 필드를 박은 hwpx 바이트와 필드 목록. 이미 필드가 있으면 손대지 않는다(그 목록만)."""
+def fieldize(data: bytes, slots=None, people: dict | None = None, heads: dict | None = None) -> tuple[bytes, list[dict]]:
+    """hwpx 바이트 → 필드를 박은 hwpx 바이트와 필드 목록. 이미 필드가 있으면 손대지 않는다(그 목록만).
+    slots — 만든 쪽이 아는 제목 차례 [(제목 글, 잎 절인가)…](코드로 짠 공통 양식). 주면 그 잎 절에만 절 필드를 박고,
+    없으면(학교 실물 서식) 글 꼴로 제목을 짐작한다.
+    people — {표 번호(문서 차례, 1부터): 사람 칸 라벨 묶음 또는 None(표 전체)}. 날짜·서명·결재·달성률처럼 사람이 정하는 칸은
+    「입력:<라벨>」 — 에이전트는 담당자에게 물어 받은 값만 넣는다(webhwp_agent.fill).
+    heads — {표 번호: (머리줄 수, 열 이름들)}. 짐작으로 필드가 하나도 안 박힌 목록표(2단 머리줄 등)의 첫 본문 행에 「표n:<열>」."""
     try:
         zin = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
@@ -331,10 +472,11 @@ def fieldize(data: bytes) -> tuple[bytes, list[dict]]:
     if existing:
         return data, [{"name": n, "kind": "기존"} for n in existing]
     ids, names = _Ids(list(xmls.values())), _Names()
+    order = Slots(slots) if slots is not None else None
     fields: list[dict] = []
     new = {}
     for n in sorted(secs, key=lambda s: int(re.search(r"(\d+)", s.rsplit("/", 1)[-1]).group(1))):
-        x, f = fieldize_xml(xmls[n], ids, names)
+        x, f = fieldize_xml(xmls[n], ids, names, order, people, heads)
         new[n] = strip_lineseg_in(x, lambda p: "fieldBegin" in p)    # 줄 배치 정보는 필드를 박은 문단만 지운다
         fields += f
     buf = io.BytesIO()
