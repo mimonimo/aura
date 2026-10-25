@@ -8,18 +8,18 @@ from __future__ import annotations
 
 # (주소, 이름) — 사이드바 순서대로, 하는 일 묶음별로(문서가 들어와 → 검색·지식이 되고 → 모델이 쓰고 → 점검·관리)
 GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
+    # 묶음은 개발 현황 「구축 현황」 의 여섯 영역·처리 흐름 단계와 같은 지도 — 어느 화면에서든 같은 자리에서 찾게
     ("개요", [("/dev", "개발 현황"), ("/dev/flow", "처리 흐름")]),
-    ("문서·데이터", [("/dev/intake", "문서 가져오기"), ("/dev/db", "데이터 현황")]),
-    ("검색·지식", [("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색")]),
-    ("모델", [("/dev/train", "데이터·학습"), ("/dev/collect", "수집 자료"), ("/dev/tools", "도구·모델 연결")]),
-    ("점검", [("/dev/quality", "품질·성능"), ("/dev/pii", "개인정보·반출 점검")]),
-    ("관리·기록", [("/dev/users", "사용자·계정"), ("/dev/docs", "논문·설계 문서")]),
+    ("문서 반입·읽기", [("/dev/intake", "문서 가져오기"), ("/dev/db", "데이터 현황")]),
+    ("검색·지식", [("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색"), ("/dev/quality", "품질·성능")]),
+    ("문서 작성", [("/dev/coedit-demo", "공동 편집 시연")]),
+    ("모델 학습", [("/dev/train", "데이터·학습"), ("/dev/collect", "수집 자료"), ("/dev/tools", "도구·모델 연결")]),
+    ("보안·관리", [("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검"), ("/dev/docs", "논문·설계 문서")]),
 ]
 
 # 사이드바에 없는 개발 화면
 EXTRA = {"/dev/history": "변경 이력",                              # 개발 현황 머리의 「변경 이력」
-         "/dev/models/compare": "모델 비교 결과",                     # 개발 현황 모델 표의 Writer 줄에서 들어간다
-         "/dev/coedit-demo": "공동 편집 시연"}                        # 업무 화면 사이드바 아래 「테스트 보기」 옆(ADR-0071)
+         "/dev/models/compare": "모델 비교 결과"}                     # 개발 현황 모델 표의 Writer 줄에서 들어간다
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
 
