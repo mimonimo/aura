@@ -77,34 +77,35 @@ def collect(folder: Path) -> tuple[list[dict], list[dict], Counter]:
     held = []
     seen = set()
     for path in sorted(folder.glob("llm-*.jsonl")):
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            try:
-                row = json.loads(line)
-                if not isinstance(row, dict):
-                    raise ValueError("not an object")
-            except (json.JSONDecodeError, ValueError):
-                counts["invalid_json"] += 1
-                continue
-            pair, reason = _candidate(row)
-            if pair is None:
+        with path.open(encoding="utf-8") as stream:
+            for number, line in enumerate(stream, 1):
+                try:
+                    row = json.loads(line)
+                    if not isinstance(row, dict):
+                        raise ValueError("not an object")
+                except (json.JSONDecodeError, ValueError):
+                    counts["invalid_json"] += 1
+                    continue
+                pair, reason = _candidate(row)
+                if pair is None:
+                    counts[reason] += 1
+                    if reason in {"wrong_model", "unverified_connection", "unrecorded_thinking_mode",
+                                  "thinking_enabled", "privacy_check_failed", "privacy_review"}:
+                        held.append({"reason": reason, "trace": {"file": path.name, "line": number},
+                                     "record": row})
+                    continue
+                fingerprint = hashlib.sha256(json.dumps(
+                    {"messages": pair["messages"], "request": pair["request"]},
+                    ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+                if fingerprint in seen:
+                    counts["duplicate"] += 1
+                    continue
+                seen.add(fingerprint)
                 counts[reason] += 1
-                if reason in {"wrong_model", "unverified_connection", "unrecorded_thinking_mode",
-                              "thinking_enabled", "privacy_check_failed", "privacy_review"}:
-                    held.append({"reason": reason, "trace": {"file": path.name, "line": number},
-                                 "record": row})
-                continue
-            fingerprint = hashlib.sha256(json.dumps(
-                {"messages": pair["messages"], "request": pair["request"]},
-                ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-            if fingerprint in seen:
-                counts["duplicate"] += 1
-                continue
-            seen.add(fingerprint)
-            counts[reason] += 1
-            pair["sample_id"] = fingerprint
-            pair["trace"] = {"file": path.name, "line": number}
-            candidates.append(pair)
-            counts[f"caller:{pair['caller']}"] += 1
+                pair["sample_id"] = fingerprint
+                pair["trace"] = {"file": path.name, "line": number}
+                candidates.append(pair)
+                counts[f"caller:{pair['caller']}"] += 1
     return candidates, held, counts
 
 
