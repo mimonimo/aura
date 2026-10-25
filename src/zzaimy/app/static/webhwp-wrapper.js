@@ -221,6 +221,15 @@
       d.addEventListener('pointerup', function (e) { setTimeout(function () { fire('caret', e); }, 0); }, true);
       d.addEventListener('wheel', function (e) { fire('activity', e); }, {capture: true, passive: true});
       d.addEventListener('scroll', function (e) { fire('activity', e); }, true);
+      // 쪽이 다 보이는데도 문서 영역이 몇십 px 넓어 생기는 가로 스크롤 — 트랙패드로 위아래를 밀면 옆으로 흔들렸다(좁은 칸에서 552/581).
+      // 넘침이 작을 때만 가로 스크롤을 막고, 확대해서 쪽이 정말 넓을 때는 그대로 둔다
+      setInterval(function () {
+        var v = d.getElementById('hcwoViewScroll');
+        if (!v) return;
+        var extra = v.scrollWidth - v.clientWidth, hide = extra > 0 && extra <= 64;
+        if (hide && v.style.overflowX !== 'hidden') { v.scrollLeft = 0; v.style.overflowX = 'hidden'; v.style.overscrollBehaviorX = 'none'; }
+        else if (!hide && extra > 64 && v.style.overflowX === 'hidden') { v.style.overflowX = ''; }
+      }, 1000);
       return true;
     }
 
