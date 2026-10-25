@@ -48,8 +48,10 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     for uid, name in demo.SLOTS.values():
         assert acc[uid]["demo"] is True and acc[uid]["active"] is False and "pw_hash" not in acc[uid] and acc[uid]["name"] == name
     assert not _login(TestClient(app), "demo_a", "")
-    _new(dev)
+    fid2 = _new(dev)
     assert json.loads((tmp_path / "accounts.json").read_text())["demo_a"] == acc["demo_a"]
+    assert webhwp.get(app.state.db, fid) is None                     # 같은 양식으로 다시 만들면 앞 시연 문서는 휴지통으로
+    fid = fid2
     # 문서는 칸 있는 공통 양식의 사본, 시연 폴더에
     f = webhwp.get(app.state.db, fid)
     assert webhwp.dept_of_path(Path(app.state.data_dir), f["path"]) == demo.ROOT and not webhwp.locked(app.state.db, fid)
@@ -136,15 +138,22 @@ def test_reset_makes_fresh_copy_and_trashes_old(tmp_path, monkeypatch):
 
 
 def test_long_demo_uses_business_plan_form(tmp_path, monkeypatch):
-    """「장문 시연 문서」 — 절이 많은 사업계획서 양식으로. 맞는 양식이 없으면 409(까닭을 말한다), 비우기는 같은 양식으로."""
+    """「장문 시연 문서」 — 코드로 짠 공통 양식 사업계획서로. 이름은 「시연 · 사업계획서」, 머리 칸에 시연용 값,
+    같은 양식으로 다시 만들면 앞 시연 문서는 휴지통으로(목록에 같은 이름이 쌓이지 않게)."""
     app, dev, _ = _admin(tmp_path, monkeypatch)
-    wt.ensure_all(app.state.db, Path(app.state.data_dir))
-    r = dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False)
-    assert r.status_code == 409 and "사업계획서" in r.text                 # 시험 양식은 절이 적다
-    monkeypatch.setattr(demo, "LONG_MIN", 2)
+    db = app.state.db
     r = dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False)
     assert r.status_code == 303, r.text
     fid = int(r.headers["location"].split("id=")[-1])
-    db = app.state.db
-    assert "사업계획서" in webhwp.get(db, fid)["name"]
-    assert "장문 시연 문서" in dev.get("/dev/coedit-demo").text
+    assert webhwp.get(db, fid)["name"].startswith("시연 · 사업계획서")
+    assert str(webhwp.meta(db, fid)["source"]).startswith(demo.SOURCE)
+    page = dev.get(f"/dev/coedit-demo?id={fid}").text
+    assert "장문 시연 문서" in page and ">사업계획서</span>" in page        # 목록·이름표는 「시연 · 」·「 공통 양식」 없이
+    again = int(dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False).headers["location"].split("id=")[-1])
+    assert again != fid and webhwp.get(db, fid) is None
+
+
+def test_demo_values_fill_header_cells_only():
+    vals = demo.demo_values([{"kind": "칸", "name": "칸:보고 부서", "text": ""}, {"kind": "칸", "name": "칸:보고 일자", "text": "2026. 1. 1."},
+                             {"kind": "절", "name": "절:1. 개요", "text": ""}, {"kind": "칸", "name": "칸:사업명", "text": ""}])
+    assert vals == {"칸:보고 부서": "기획팀", "칸:사업명": "2026 AI 업무 도구 교육 운영"}

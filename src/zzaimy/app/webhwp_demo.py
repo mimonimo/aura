@@ -92,69 +92,100 @@ def docs(request: Request) -> list[dict]:
     return sorted(out, key=lambda r: r["id"], reverse=True)
 
 
-def pick_form(request: Request, prefer: int | None = None) -> dict:
-    """복사할 공통 양식 — 잠긴 공통 양식 가운데 칸(필드)이 MIN_FIELDS 개 이상인 것. prefer(앞서 쓴 양식)가 맞으면 그것, 아니면 칸이 가장 적은 것."""
+TEMPLATE = "양식:"         # 코드로 짠 공통 양식(webhwp_templates)의 source 앞머리 — 시연은 이 양식만 쓴다
+SHORT, LONG = "양식:brief", "양식:plan"   # 「새 시연 문서」 = 1쪽 요약 보고서, 「장문 시연 문서」 = 사업계획서(17쪽, 절 36)
+
+
+def _template_forms(request: Request) -> dict[str, dict]:
+    """코드로 짠 공통 양식 — {source: 문서}. 지난 사업 문서(실물에서 모은 양식)는 시연에 쓰지 않는다(이름·내용이 실물 그대로라)."""
     from zzaimy.app import webhwp, webhwp_routes
-    from zzaimy.app import webhwp_write as ww
     db, base = request.app.state.db, _base(request)
     webhwp_routes._ensure_templates(db, base)
-    best = None
+    out: dict[str, dict] = {}
     for r in db.list_files(kind="webhwp", limit=5000):
-        p = Path(r["path"])
-        if not p.exists() or not webhwp.locked(db, r["id"]):
-            continue
+        src = str(webhwp.meta(db, r["id"]).get("source", ""))
+        if src.startswith(TEMPLATE) and Path(r["path"]).exists() and webhwp.locked(db, r["id"]):
+            out.setdefault(src, r)
+    return out
+
+
+def pick_form(request: Request, prefer: int | None = None, long: bool = False) -> dict:
+    """복사할 공통 양식 — 코드로 짠 공통 양식만. prefer(앞서 쓴 양식 id)가 그 가운데 있으면 그것, 아니면 장문이면 사업계획서,
+    아니면 1쪽 요약 보고서, 그것도 없으면 칸이 MIN_FIELDS 개 이상인 공통 양식 가운데 칸이 가장 적은 것."""
+    from zzaimy.app import webhwp_write as ww
+    forms = _template_forms(request)
+    if prefer is not None:
+        hit = next((r for r in forms.values() if r["id"] == prefer), None)
+        if hit:
+            return hit
+    want = LONG if long else SHORT
+    if want in forms:
+        return forms[want]
+    if long:
+        raise HTTPException(409, "공통 양식 「사업계획서」 가 없습니다")
+    best = None
+    for r in forms.values():
         try:
-            n = len(ww.fields(p.read_bytes()))
+            n = len(ww.fields(Path(r["path"]).read_bytes()))
         except Exception:
             continue
-        if n < MIN_FIELDS:
-            continue
-        if prefer is not None and r["id"] == prefer:
-            return r
-        if "요약 보고서" in r["name"] and (best is None or "요약 보고서" not in best[1]["name"]):   # 보기 쉬운 1쪽 보고서 양식을 먼저
-            best = (n, r)
-            continue
-        if best is not None and "요약 보고서" in best[1]["name"]:
-            continue
-        if best is None or (n, r["name"]) < (best[0], best[1]["name"]):
+        if n >= MIN_FIELDS and (best is None or n < best[0]):
             best = (n, r)
     if best is None:
         raise HTTPException(409, f"칸이 {MIN_FIELDS}개 이상인 공통 양식이 없습니다")
     return best[1]
 
 
-LONG_MIN, LONG_MAX = 100, 320       # 장문 시연 — 절 필드 수 범위(너무 큰 별첨 묶음은 열기만 오래 걸린다)
+def demo_values(fields: list[dict]) -> dict[str, str]:
+    """시연 문서의 머리 칸(표지·보고 정보)에 넣을 시연용 값 — 칸 이름 낱말로만 고른다. 본문(절)은 시연 때 쓰도록 비워 둔다."""
+    from datetime import date
+    rules = [(("일자", "날짜", "작성일"), date.today().strftime("%Y. %m. %d.")),
+             (("부서", "소속"), "기획팀"),
+             (("보고자", "작성자", "담당자", "책임자", "성명"), SLOTS["a"][1]),
+             (("사업명", "과제명", "제목", "프로그램명"), "2026 AI 업무 도구 교육 운영"),
+             (("기관", "대학명", "학교"), "영남이공대학교")]
+    out: dict[str, str] = {}
+    for f in fields:
+        if f.get("kind") != "칸" or f.get("text"):
+            continue
+        name = f["name"].split(":", 1)[-1]
+        for words, value in rules:
+            if any(w in name for w in words):
+                out[f["name"]] = value
+                break
+    return out
 
 
-def pick_long_form(request: Request) -> dict:
-    """장문 시연용 양식 — 잠긴 양식 가운데 이름에 「사업계획서」 가 들고 절 필드가 LONG_MIN~LONG_MAX 개인 것 중 절이 가장 많은 것.
-    수십 쪽 보고서를 여럿이 서로 다른 장에서 함께 쓰는 장면(멀리 떨어진 쪽의 이름표·옮겨 가기·지연)을 보인다."""
-    from zzaimy.app import webhwp
-    from zzaimy.app import webhwp_write as ww
-    db = request.app.state.db
-    best = None
-    for r in db.list_files(kind="webhwp", limit=5000):
-        p = Path(r["path"])
-        if "사업계획서" not in r["name"] or not p.exists() or not webhwp.locked(db, r["id"]):
-            continue
-        try:
-            n = sum(1 for x in ww.fields(p.read_bytes()) if x["kind"] == "절")
-        except Exception:
-            continue
-        if LONG_MIN <= n <= LONG_MAX and (best is None or n > best[0]):
-            best = (n, r)
-    if best is None:
-        raise HTTPException(409, f"절이 {LONG_MIN}~{LONG_MAX}개인 사업계획서 양식이 없습니다")
-    return best[1]
+def label(name: str) -> str:
+    """목록에 보일 시연 문서 이름 — 「시연 · 」·「 공통 양식」 을 뗀 양식 이름."""
+    stem = Path(name).stem
+    for cut in ("시연 · ", "시연 "):
+        if stem.startswith(cut):
+            stem = stem[len(cut):]
+    return stem.replace(" 공통 양식", "").strip()
 
 
 def make_doc(request: Request, prefer: int | None = None, long: bool = False) -> int:
+    """공통 양식 사본으로 시연 문서 하나 — 이름은 「시연 · 양식 이름」, 머리 칸은 시연용 값. 같은 양식으로 만든 앞 시연 문서와
+    코드로 짠 공통 양식이 아닌 양식으로 만든 옛 시연 문서는 시연 폴더 휴지통으로(목록에 같은 이름이 쌓이지 않게)."""
     from zzaimy.app import webhwp
-    form = pick_long_form(request) if long and prefer is None else pick_form(request, prefer)
+    from zzaimy.app import webhwp_write as ww
+    db, base = request.app.state.db, _base(request)
+    form = pick_form(request, prefer, long)
     data = Path(form["path"]).read_bytes()
-    name = f"시연 {Path(form['name']).stem}{Path(form['name']).suffix or '.hwpx'}"
-    return webhwp.add(request.app.state.db, _base(request), ROOT, name, data,
-                      owner=getattr(request.state, "user", ""), source=f"{SOURCE}{form['id']}")
+    try:
+        data, _ = ww.set_fields(data, demo_values(ww.fields(data)))
+    except Exception:
+        pass
+    name = f"시연 · {label(form['name'])}{Path(form['name']).suffix or '.hwpx'}"
+    template_ids = {r["id"] for r in _template_forms(request).values()}
+    user = getattr(request.state, "user", "")
+    for r in docs(request):
+        src = str(webhwp.meta(db, r["id"]).get("source", ""))
+        sid = int(src[len(SOURCE):]) if src.startswith(SOURCE) and src[len(SOURCE):].isdigit() else None
+        if sid == form["id"] or sid not in template_ids:
+            webhwp.trash(db, base, r["id"], user=user)
+    return webhwp.add(db, base, ROOT, name, data, owner=user, source=f"{SOURCE}{form['id']}")
 
 
 def _need_login_mode(request: Request) -> None:
@@ -174,7 +205,7 @@ def coedit_demo(request: Request, id: int | None = None):
     panes = [{"slot": s, "uid": uid, "name": st.person_name(uid) if uid not in missing else name}
              for s, (uid, name) in SLOTS.items()]
     return st.templates.TemplateResponse(request, "coedit_demo.html", {
-        "request": request, "docs": items, "cur": cur, "panes": panes, "missing": missing})
+        "request": request, "docs": items, "cur": cur, "panes": panes, "missing": missing, "label": label})
 
 
 @router.post("/dev/coedit-demo/new")
@@ -198,6 +229,7 @@ def coedit_demo_reset(request: Request, id: int = Form(...)):
     src = str(webhwp.meta(db, id).get("source", ""))
     prefer = int(src[len(SOURCE):]) if src.startswith(SOURCE) and src[len(SOURCE):].isdigit() else None
     ensure_accounts(request.app)
-    new = make_doc(request, prefer)
-    webhwp.trash(db, _base(request), id, user=getattr(request.state, "user", ""))
+    new = make_doc(request, prefer)                      # 같은 양식의 앞 사본은 make_doc 이 휴지통으로
+    if webhwp.get(db, id) is not None:
+        webhwp.trash(db, _base(request), id, user=getattr(request.state, "user", ""))
     return RedirectResponse(f"/dev/coedit-demo?id={new}", status_code=303)

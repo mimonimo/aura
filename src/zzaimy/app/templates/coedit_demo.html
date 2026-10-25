@@ -45,11 +45,10 @@
   <a class="back" href="/dev"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>개발 현황</a>
   <span class="sep" aria-hidden="true"></span>
   <h1>공동 편집 시연</h1>
-  {% macro title(n) %}{{ (n[:-5] if n.endswith('.hwpx') else n) | replace('시연 ', '', 1) }}{% endmacro %}
   {% if cur %}<label class="doc"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
     {% if docs|length > 1 %}<select aria-label="시연 문서" onchange="location.href='/dev/coedit-demo?id=' + this.value">
-      {% for d in docs %}<option value="{{ d.id }}"{% if d.id == cur.id %} selected{% endif %}>{{ title(d.name) }}</option>{% endfor %}
-    </select>{% else %}<span title="{{ cur.name }}">{{ title(cur.name) }}</span>{% endif %}</label>{% endif %}
+      {% for d in docs %}<option value="{{ d.id }}"{% if d.id == cur.id %} selected{% endif %}>{{ label(d.name) }}</option>{% endfor %}
+    </select>{% else %}<span title="{{ cur.name }}">{{ label(cur.name) }}</span>{% endif %}</label>{% endif %}
   <span class="grow"></span>
   {% if cur %}<form method="post" action="/dev/coedit-demo/reset" title="같은 양식으로 빈 문서를 새로 엽니다"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon>문서 비우기</button></form>{% endif %}
   <form method="post" action="/dev/coedit-demo/new" title="절이 많은 사업계획서 양식으로 — 여럿이 서로 다른 장을 함께 쓰는 장면"><input type="hidden" name="kind" value="long"><button type="submit" class="btn"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon>장문 시연 문서</button></form>
