@@ -288,3 +288,17 @@ def test_dev_renders_artifact_table(tmp_path, monkeypatch):
     assert "미측정" in r.text and "리랭커 미적재" in r.text
     assert "2026-09-14 10:00" in r.text and rev.SELF_RETRIEVAL_NOTE in r.text
     assert "재측정 불가" in r.text  # 질의 세트가 없으면 버튼 대신 사유
+
+
+def test_eval_if_stale_decides_by_chunks_and_model():
+    """재측정 버튼 대신 하루 한 번 — 조각 수나 임베딩이 마지막 측정과 다를 때만 다시 잰다."""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("s215", Path(__file__).resolve().parents[1] / "scripts" / "215_eval_if_stale.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    latest = {"n_chunks": 9595, "embedding_model": "zzaimy-embed-v2"}
+    assert m.stale(latest, 9595, "zzaimy-embed-v2") == ""
+    assert "9595 → 9633" in m.stale(latest, 9633, "zzaimy-embed-v2")
+    assert "임베딩" in m.stale(latest, 9595, "zzaimy-embed-v3")
+    assert m.stale(None, 1, "") == "측정 기록 없음"

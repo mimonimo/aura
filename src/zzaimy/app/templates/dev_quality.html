@@ -22,6 +22,10 @@
 .eval-past-body { color:var(--muted); filter:grayscale(1); opacity:.72; margin-top:10px; }
 .eval-now { font-size:13px; margin:0 0 6px; }
 @media(max-width:700px){.quality-report { grid-template-columns:minmax(0,1fr); }.card h2 { flex-wrap:wrap; }}
+.why-slow{margin-top:14px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:#fafbfc;}
+.why-slow h3{font-size:13.5px;margin:0 0 6px;}
+.why-slow ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;}
+.why-slow b{font-weight:600;}
 </style>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 품질
@@ -29,10 +33,7 @@
       {% if retrieval_eval.running %}
       <span class="pill processing">측정 중…</span>
       {% elif not retrieval_eval.query_set_missing %}
-      <form action="/dev/eval/run" method="post" style="margin:0;" data-confirm="규정 검색 품질을 다시 잴까요? 합성 질의 수에 따라 수십 분 걸리며, 끝나면 이 화면의 결과가 새 측정으로 바뀝니다.">
-        <button type="submit" class="secondary"
-                style="padding:5px 12px; font-size:12px;">재측정</button>
-      </form>
+      <span class="muted" style="font-size:12px; font-weight:400;">규정이 바뀌면 그날 밤 자동으로 다시 잼</span>
       {% endif %}
     </span></h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
@@ -126,15 +127,21 @@
   <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색(GraphRAG)</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 6px;">그래프에서 자동으로 뽑은 같은 시험지로 — 관계 질문 측정, 풀텍스트 RAG 와 비교. 27B 질문 읽기 지금 {{ '켜짐' if flow.model_read_on else '꺼짐' }}.</p>
   {% include "_search_compare.html" %}
+  <div class="why-slow">
+    <h3>왜 GraphRAG 가 풀텍스트보다 느린가</h3>
+    <ol>
+      <li><b>전부에서 찾기가 느린 것은 아니다.</b> 풀텍스트도 조각을 하나씩 훑지 않고 색인(키워드·벡터)을 한 번 타므로 빠르다. 범위를 좁힌 뒤의 검색은 오히려 더 가볍다.</li>
+      <li><b>가장 큰 차이는 27B 가 질문을 읽는 단계다.</b> 운영 방식(③)은 찾기 전에 27B 가 「어느 사업·몇 차년도·어떤 서류·어떤 관계」 인지 한 번 읽는다 — 모델 호출 한 번이 검색 전체보다 길다(위 표 검색 한 번 ②→③ 차이).</li>
+      <li><b>그래프를 따라가는 일이 조금 더해진다.</b> 사업 → 연차 → 문서로 범위를 정하고 계획서↔결과보고서 같은 짝 문서를 함께 가져온다(①→② 차이).</li>
+      <li><b>답 쓰기가 길어진 것은 근거가 맞아졌기 때문이다.</b> 맞는 문서와 짝 문서를 받아 내용 있는 답을 쓰니 글이 길어진다 — 늘어난 시간 대신 정답 문서를 근거로 쓴 비율과 답 점수가 올랐다.</li>
+    </ol>
+  </div>
 </div></div>
 
+{% if quality_open %}{# 담당자가 문서 화면에서 신고한 추출 문제 — 미처리 신고가 있을 때만 보인다 #}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 백로그
-    {% if quality.open %}
-    <span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span>
-    {% endif %}
-    <a href="/dev/doc/quality-system.md" class="h-link"><iconify-icon icon="solar:document-text-linear"></iconify-icon>품질 체계</a></h2>
-  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">담당자가 문서 화면에서 신고한 추출 문제입니다. 처리 시 막은 계층을 남깁니다(누적 {{ quality.done }}건).</p>
+    <span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span></h2>
   {% for r in quality_open %}
   <article class="quality-report">
     <div><span class="pill">{{ quality_kind_labels.get(r.kind, r.kind) }}</span>
@@ -146,10 +153,11 @@
       <button type="submit" class="secondary">처리 완료</button>
     </form>
   </article>
-  {% else %}
-  <p class="muted" style="margin:0; font-size:12.5px;">미처리 신고 없음</p>
   {% endfor %}
 </div></div>
+{% else %}
+<p class="muted" style="font-size:12.5px; margin:4px 4px 0;">추출 품질 백로그 — 담당자가 문서 화면에서 신고한 미처리 문제 없음(누적 처리 {{ quality.done }}건)</p>
+{% endif %}
 
 
 {% endblock %}
