@@ -84,3 +84,16 @@ def test_flow_page_title_is_plain(tmp_path):
     page = c.get("/dev/flow").text
     title = page.split("<title>", 1)[1].split("</title>", 1)[0]
     assert "<div" not in title and "처리 흐름" in title and page.count("왜 기성 도구 대신 직접 만들었나</h2>") == 1
+
+
+def test_flow_explains_coediting_with_live_settings(tmp_path):
+    """공동 편집 처리 방식 표 — 방식마다 보는 것·뒤의 일·시간·동시 규칙, 아래 줄은 운영 설정값(바꾸면 화면도 바뀜)."""
+    app, c = _client(tmp_path)
+    page = c.get("/dev/flow").text
+    assert 'id="coedit"' in page and "공동 편집 처리 방식" in page
+    for r in process_flow.COEDIT:
+        assert r["what"] in page and all(r[k] for k in ("see", "back", "lag", "together"))
+    assert "보내기 간격 300ms" in page
+    app.state.db.set_setting("coedit:throttle_ms", "500")
+    assert "보내기 간격 500ms" in c.get("/dev/flow").text
+    assert "SFT 후보" not in " ".join(h["role"] for h in process_flow.HOSTS)       # 끝난 비교는 장비 설명에서 뺐다

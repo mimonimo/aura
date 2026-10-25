@@ -30,6 +30,7 @@
 .pf-link{font-size:12px;margin-top:8px;display:inline-block;}
 .pf-code{font-size:11px;color:var(--faint);margin:6px 0 0;overflow-wrap:anywhere;}
 .pf-cycles{width:100%;font-size:12.5px;border-collapse:collapse;}
+.pf-co td{font-size:12px;line-height:1.55;min-width:120px;}
 .pf-cycles td,.pf-cycles th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
 @media(max-width:760px){.pf-stage{grid-template-columns:minmax(0,1fr);}}
 </style>
@@ -87,6 +88,16 @@
     </div>
   </section>
   {% endfor %}
+</div></div>
+
+<div class="card reveal" id="coedit"><div class="card-in">
+  <h2><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>공동 편집 처리 방식 — 웹 한글 기안기</h2>
+  <p class="pf-lead" style="margin-bottom:10px;">화면에 보이는 것은 기안기가 연 한글 파일 한 벌이다. 사람 사이의 정답은 서버 DB 의 칸 글 표가 먼저 갖고(실시간), 한글 파일은 몇 초 뒤 그 글로 바뀐다.</p>
+  <div class="table-scroll"><table class="pf-cycles pf-co">
+    <tr><th>처리 방식</th><th>사용자가 보는 것</th><th>뒤에서 일어나는 일</th><th>걸리는 시간</th><th>동시에 하면</th></tr>
+    {% for r in coedit %}<tr><td style="white-space:nowrap;font-weight:600;">{{ r.what }}</td><td>{{ r.see }}</td><td>{{ r.back }}</td><td>{{ r.lag }}</td><td>{{ r.together }}</td></tr>{% endfor %}
+  </table></div>
+  <p class="pf-code">지금 설정 — 보내기 간격 {{ coedit_conf.throttle_ms|int }}ms · 받은 글 넣기 전 입력 멈춤 {{ coedit_conf.pause_ms|int }}ms · 한글 파일 써 넣기 {{ coedit_conf.commit_delay|int }}초 조용하면(계속 고치면 {{ coedit_conf.commit_max|int }}초마다) · 칸 빌림 {{ coedit_conf.lease|int }}초(남이 기다리면 {{ coedit_conf.lease_contended|int }}초) · 다른 칸으로 옮긴 뒤 {{ coedit_conf.grace|int }}초 뒤 놓음 · 지문 대조 {{ coedit_conf.hash_check|int }}초 · 걸리는 시간은 ADR-0070 실측</p>
 </div></div>
 
 <div class="card reveal"><div class="card-in">

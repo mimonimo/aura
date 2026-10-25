@@ -390,7 +390,8 @@ def dev_flow(request: Request):
     db = st.db
     return st.templates.TemplateResponse(request, "dev_flow.html", st.page_ctx(request, {
         "terms": pf.TERMS, "hosts": pf.HOSTS, "stages": pf.STAGES,
-        "cycles": pf.CYCLES, "flow": pf.snapshot(db),
+        "cycles": pf.CYCLES, "flow": pf.snapshot(db), "coedit": pf.COEDIT,
+        "coedit_conf": __import__("zzaimy.app.webhwp_coedit", fromlist=["client_conf"]).client_conf(db),
         "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
     }))
 
