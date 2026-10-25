@@ -1,7 +1,7 @@
 """캡스톤 논문을 웹 한글 기안기에서 쓰기(ADR-0072) — 논문 양식(hwpx) 만들기, 논문 문서 하나 관리, 마크다운 원고 → 절 필드 글.
 
 - 양식: 작년 캡스톤 논문집 한 편의 차례(docs/paper/논문-양식-가이드.md)를 따른다. 표지(머리 줄 + PROJECT·제목·팀원·팀명 상자) → 목차
-  (1./1.1/1.1.1 세 단계, 점선) → 그림 목차 → 표 목차 → 1~6장 → 참고 문헌 → Abstract → 팀원 소개. A4, 머리말 오른쪽 위 줄인 제목,
+  (1./1.1/1.1.1 세 단계, 점선) → 그림 목차 → 표 목차 → 1~6장 → 참고 문헌 → 초록 → 팀원 소개. A4, 머리말 오른쪽 위 줄인 제목,
   꼬리말 「영남이공대학교 사이버보안과」 와 쪽 번호. 목차 줄은 오른쪽 탭(점선 채움) 뒤에 쪽 번호 — 쪽은 편집 화면이 재서 넣는다(toc_set). 장·절·소절 제목은 글자 체계(house_style.TYPE)의 chapter·h1·h2 로 서로 다르게.
 - 쓸 자리: 절마다 제목 바로 아래 문단 하나가 누름틀 「절:<번호> <제목>」(참고 문헌처럼 번호 없는 장은 「절:<제목>」). 제목은 필드 밖이라
   공동 편집에서 칸 단위로 나눠 쓴다(ADR-0070). 장 제목(1. 서론)에는 쓸 자리를 두지 않는다 — 장은 절로 시작한다.
@@ -38,7 +38,7 @@ META = {
     "file": "AURA 캡스톤 논문",
 }
 
-# 차례 — (단계, 번호, 제목). 단계 1 = 장, 2 = 절, 3 = 소절. 번호가 빈 1단계는 번호 없는 장(참고 문헌·Abstract·팀원 소개)
+# 차례 — (단계, 번호, 제목). 단계 1 = 장, 2 = 절, 3 = 소절. 번호가 빈 1단계는 번호 없는 장(참고 문헌·초록·팀원 소개)
 OUTLINE: list[tuple[int, str, str]] = [
     (1, "1", "서론"),
     (2, "1.1", "프로젝트 배경 및 목적"),
@@ -94,10 +94,11 @@ OUTLINE: list[tuple[int, str, str]] = [
     (2, "6.2", "결과 평가 및 한계점"),
     (2, "6.3", "향후 연구 방향"),
     (1, "", "참고 문헌"),
-    (1, "", "Abstract"),
+    (1, "", "초록"),
     (1, "", "팀원 소개"),
 ]
-BACK = ("참고 문헌", "Abstract", "팀원 소개")
+BACK = ("참고 문헌", "초록", "팀원 소개")
+BACK_OLD = {"초록": ("Abstract",)}          # 예전 이름 — 10-25 국문만으로 바꾸기 전에 만든 논문 문서의 쓸 자리 이름
 LISTS = ("그림 목차", "표 목차")       # 쓸 자리가 있는 차례 장 — 원고의 캡션에서 쓰는 쪽(scripts/214)이 채운다
 TOC_LEADER = " " + "·" * 20
 
@@ -163,7 +164,7 @@ def parse_heading(text: str) -> tuple[str, str]:
 
 def headings(text: str):
     """원고의 제목 줄을 차례로 — (줄 번호, 갈래, 번호, 제목, 단계). 갈래:
-    sec(번호 절, 3단계까지 — 쓸 자리), back(참고 문헌·Abstract·팀원 소개), sub(그보다 깊거나 번호 없는 소제목 — 본문 안 줄),
+    sec(번호 절, 3단계까지 — 쓸 자리), back(참고 문헌·초록·팀원 소개), sub(그보다 깊거나 번호 없는 소제목 — 본문 안 줄),
     note(번호 없는 장·절 — 「이 장의 그림·표 자리」 같은 원고 메모). 부록 장(「# 부록. …」) 안의 숫자 번호는 「부록 」 을 붙여 본문 장과 겹치지 않게."""
     fence = False
     appx = False
@@ -223,7 +224,7 @@ def chapter_files(src: Path) -> list[Path]:
 
 def outline_for(src: Path | None) -> list[tuple[int, str, str]]:
     """원고가 있고 장이 셋 이상 잡히면 원고 차례, 아니면 OUTLINE. 원고가 아직 없는 장은 OUTLINE 의 그 장으로 채우고(장 번호 차례),
-    뒤 장(참고 문헌·Abstract·팀원 소개)은 양식 가이드 차례(BACK)로, 부록은 그 뒤에 둔다."""
+    뒤 장(참고 문헌·초록·팀원 소개)은 양식 가이드 차례(BACK)로, 부록은 그 뒤에 둔다."""
     files = chapter_files(src) if src else []
     got = outline_from_markdown([p.read_text(encoding="utf-8") for p in files]) if files else []
     if sum(1 for lv, n, _ in got if lv == 1 and n and n[0].isdigit()) < 3:
@@ -338,7 +339,7 @@ def build(outline: list[tuple[int, str, str]] | None = None, meta: dict | None =
         if lv == 1:
             para(text, "chapter", page=True)
             para("")
-            if not num:                         # 번호 없는 장(참고 문헌·Abstract·팀원 소개)은 장 자체가 쓸 자리
+            if not num:                         # 번호 없는 장(참고 문헌·초록·팀원 소개)은 장 자체가 쓸 자리
                 para(_marker(key_of(num, title)))
             continue
         para("")
@@ -830,6 +831,18 @@ def restamp(db, base: Path, fid: int, dept: str | None = None, *, user: str = WR
         m["paper"] = {**(m.get("paper") if isinstance(m.get("paper"), dict) else {}), "dept": dept}
         db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
     return r
+
+
+def rename_back(db, base: Path, fid: int, *, user: str = WRITER) -> dict:
+    """예전 이름으로 만든 논문 문서의 뒤 장 이름을 지금 이름으로 — 필드 밖 글(장 제목 줄·목차 줄)만 바꾼다(「Abstract」 → 「초록」).
+    쓸 자리(필드) 이름은 그대로 두고 match_field 가 예전 이름도 알아본다(칸 이름을 바꾸면 공동 편집 칸 기록이 끊긴다)."""
+    def change(data: bytes):
+        total = 0
+        for new_name, olds in BACK_OLD.items():
+            data, n = stamp_dept(data, list(olds), new_name)
+            total += n
+        return data, f"{total}곳"
+    return _save_outside(db, base, fid, change, user=user)
 
 
 def _guides(data: bytes) -> dict[str, str]:
@@ -1492,8 +1505,8 @@ def match_field(fields: list[str], num: str, title: str) -> str:
     if num:
         hit = [f for f in fields if f.startswith(f"절:{num} ") and _similar(f[len(f"절:{num} "):], title)]
         return hit[0] if len(hit) == 1 else ""
-    t = _norm(title).lower()
-    hit = [f for f in fields if f.startswith("절:") and _norm(f[2:]).lower() == t]
+    names = [_norm(x).lower() for x in (title, *BACK_OLD.get(title, ()))]      # 예전 이름으로 만든 문서도(「초록」 ← 「Abstract」)
+    hit = [f for f in fields if f.startswith("절:") and _norm(f[2:]).lower() in names]
     return hit[0] if hit else ""
 
 

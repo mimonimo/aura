@@ -52,6 +52,7 @@ def main() -> int:
     ap.add_argument("--overwrite", action="store_true", help="사람이 쓴 칸도 덮어쓴다")
     ap.add_argument("--set", action="append", default=[], metavar="칸=값", help="표지 칸 값(예: 칸:팀명=AURA) — 칸에 글이 있어도 바꾼다")
     ap.add_argument("--dry-run", action="store_true", help="쓸 목록만 보인다")
+    ap.add_argument("--rename-back", action="store_true", help="예전 이름으로 만든 문서의 뒤 장 이름(필드 밖 제목·목차 줄)을 지금 이름으로(「Abstract」 → 「초록」)")
     ap.add_argument("--restamp", action="store_true", help="필드 밖 학과 글(표지 아래 줄·꼬리말)만 바꾸고(--dept) 원고는 쓰지 않는다(--set 은 함께 쓴다)")
     ap.add_argument("--dept", default="", help=f"--restamp 의 학과 이름(기본 {ph.META['dept']})")
     ap.add_argument("--page-numbers", action="store_true",
@@ -104,7 +105,11 @@ def main() -> int:
             r = ph.restamp(db, base, fid, dept)
             print(f"문서 {fid}: 학과 「{dept}」 — " + (("바꿈 " + r.get("note", "")) if r.get("changed") else "바꿀 것 없음")
                   if r["ok"] else f"문서 {fid}: 바꾸지 않음 — {WHY.get(r['why'], r['why'])}{' · ' + r['by'] if r.get('by') else ''}")
-    upkeep = a.restamp or a.drop_empty or a.page_numbers           # 문서 손질만 — 원고는 쓰지 않는다(--set 은 함께 쓴다)
+    if a.rename_back:
+        r = ph.rename_back(db, base, fid)
+        print(f"문서 {fid}: 뒤 장 이름 — " + (("바꿈 " + r.get("note", "")) if r.get("changed") else "바꿀 것 없음")
+              if r["ok"] else f"문서 {fid}: 바꾸지 않음 — {WHY.get(r['why'], r['why'])}")
+    upkeep = a.restamp or a.drop_empty or a.page_numbers or a.rename_back           # 문서 손질만 — 원고는 쓰지 않는다(--set 은 함께 쓴다)
     if upkeep and not a.set:
         return 0
     src = Path(a.src)

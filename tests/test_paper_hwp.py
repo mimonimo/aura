@@ -61,7 +61,7 @@ print("hi")
 """
 CH2 = "# 2. 관련 연구\n\n## 2.1 생성 모델\n\n### 2.1.1 vLLM\n\nvLLM 은 서빙 엔진이다.\n"
 CH6 = "# 6. 결론\n\n## 6.1 연구 요약 및 기여점\n\n요약이다.\n"
-BACK = "# 참고 문헌\n\n[1] 출처. 제목. URL\n\n# Abstract\n\nThis is AURA.\n"
+BACK = "# 참고 문헌\n\n[1] 출처. 제목. URL\n\n# 초록\n\nAURA 를 만들었다.\n"
 APPX = "# 부록. AURA 사용 설명서\n\n## 부록 1. 한눈에 보기\n\n### 1.2 화면 구성\n\n화면은 셋이다.\n"
 
 
@@ -108,7 +108,7 @@ def test_outline_from_manuscripts_fills_missing_chapters_back_matter_and_appendi
     ol = ph.outline_for(_src(tmp_path))
     chapters = [ph.heading_text(n, t, lv) for lv, n, t in ol if lv == 1]
     assert chapters[:6] == ["1. 서론", "2. 관련 연구", "3. 환경 구축 및 시스템 설계", "4. 구현", "5. 평가 및 결과", "6. 결론"]
-    assert chapters[6:] == ["참고 문헌", "Abstract", "팀원 소개", "부록. AURA 사용 설명서"]
+    assert chapters[6:] == ["참고 문헌", "초록", "팀원 소개", "부록. AURA 사용 설명서"]
     keys = [ph.key_of(n, t) for _, n, t in ol]
     assert "절:1.2 핵심내용" in keys and "절:4.3 검증기 세 종" in keys       # 1장은 원고, 4장은 기본 차례
     assert "절:부록 1.2 화면 구성" in keys and "절:1.2 화면 구성" not in keys  # 부록 번호는 본문 장과 겹치지 않는다
@@ -194,7 +194,7 @@ def test_claude_writes_sections_through_coedit_and_respects_people(tmp_path, mon
     db, base = app.state.db, Path(app.state.data_dir)
     p = _plan(app, fid)
     by = {w["field"]: w for w in p["writes"]}
-    assert "절:1.1 프로젝트 배경 및 목적" in by and "절:부록 1.2 화면 구성" in by and "절:Abstract" in by
+    assert "절:1.1 프로젝트 배경 및 목적" in by and "절:부록 1.2 화면 구성" in by and "절:초록" in by
     assert "이 장의 그림·표 자리" in p["notes"]
     assert p["lists"]["절:표 목차"] == "[표 1-1] 장비별 역할"
     # 사람이 지금 쥔 칸, 사람이 쓴 칸은 건너뛴다
@@ -565,3 +565,12 @@ def test_drop_empty_on_editor_saved_rich_written_doc(tmp_path, monkeypatch):
     assert "절:1.4 프로젝트 구성" not in after and after["절:1.4.1 전체 구조"] == before["절:1.4.1 전체 구조"]
     assert eo.check_bytes(p.read_bytes()) == []
     assert "1.4 프로젝트 구성" in zipfile.ZipFile(p).read("Contents/section0.xml").decode()       # 제목은 남는다
+
+
+def test_old_abstract_field_still_matches_and_renames(tmp_path):
+    """10-25 전에 만든 문서(쓸 자리 「절:Abstract」)도 원고 「# 초록」 이 그 자리에 들어가고, 보이는 이름은 rename_back 이 「초록」 으로 바꾼다."""
+    assert ph.match_field(["절:참고 문헌", "절:Abstract"], "", "초록") == "절:Abstract"
+    data = ph.build([(1, "", "참고 문헌"), (1, "", "Abstract")])
+    new, n = ph.stamp_dept(data, ["Abstract"], "초록")
+    from zzaimy.app import webhwp_write as ww
+    assert n >= 1 and "절:Abstract" in ww.field_values(new)          # 보이는 제목만 바뀌고 쓸 자리 이름은 그대로
