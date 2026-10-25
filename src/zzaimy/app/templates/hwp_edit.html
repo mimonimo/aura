@@ -342,7 +342,7 @@
           return eng.reopened();
         }).then(function () {
           hwp.restoreCursor(cur); dirty = false; notice.hidden = true;
-          say((who.by === 'AURA' ? 'AURA' : (who.by_name || who.by) + ' 님') + '의 새 판을 불러왔습니다', 'ok');
+          say(!who.by ? '최신 판을 불러왔습니다' : (who.by === 'AURA' ? 'AURA' : (who.by_name || who.by) + ' 님') + '의 새 판을 불러왔습니다', 'ok');
         });
       }).catch(function (e) { say(e.message || '새 판을 불러오지 못했습니다', 'bad'); });
     })();

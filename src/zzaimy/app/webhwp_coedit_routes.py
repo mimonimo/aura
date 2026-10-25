@@ -28,7 +28,7 @@ router = APIRouter()
 MAX_BODY = 8_000_000       # 한 요청 본문 상한(한글 3바이트 × 칸 글 100만 자 두어 칸, 서식째 시험 포함) — 보통은 바뀐 부분만 간다
 STREAMS_PER_USER = 8       # 한 사람이 한 문서에 여는 알림 흐름 수 상한(창·탭)
 POLL = 1.0                 # 다른 프로세스가 쓴 알림을 읽는 주기(같은 프로세스는 바로 깨운다)
-BEAT = 15.0                # 연결 유지 주석 간격
+BEAT = 15.0                # 연결 유지 알림(beat) 간격 — 화면은 45초 동안 아무 알림이 없으면 새로 붙는다
 
 
 def _user(request: Request) -> str:
@@ -156,7 +156,7 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
                     quiet += POLL
                     if quiet >= BEAT:
                         quiet = 0.0
-                        yield ": beat\n\n"
+                        yield "event: beat\ndata: {}\n\n"   # 이름 붙은 알림 — 주석(: beat)은 화면 스크립트가 못 봐 죽은 연결을 알아채지 못했다
         finally:
             ce.HUB.remove(fid, loop, wake, me)
 

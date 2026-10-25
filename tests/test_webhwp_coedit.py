@@ -764,3 +764,39 @@ def test_client_and_field_names_have_one_canonical_parse(tmp_path, monkeypatch):
     # put_rich 는 서버 안에서만 — 이 길로 들어오는 경로가 없다
     from zzaimy.app import main as _m
     assert not any("rich" in getattr(r_, "path", "") for r_ in app.routes)
+
+
+def test_sse_sends_named_beat_so_client_can_spot_dead_stream(tmp_path, monkeypatch):
+    """조용한 동안 이름 붙은 beat 알림을 보낸다(주석 줄은 EventSource 스크립트가 못 본다) — 화면은 STALE_MS 동안 아무 알림이 없으면 새로 붙는다."""
+    import uvicorn
+    from zzaimy.app import webhwp_coedit_routes as cr
+    monkeypatch.setattr(cr, "POLL", 0.1)
+    monkeypatch.setattr(cr, "BEAT", 0.3)
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    th = threading.Thread(target=server.run, daemon=True)
+    th.start()
+    try:
+        for _ in range(100):
+            if server.started:
+                break
+            time.sleep(0.05)
+        got: list = []
+
+        def listen():
+            with httpx.Client(cookies={"zz_session": park.cookies.get("zz_session")}, timeout=10) as c:
+                with c.stream("GET", f"http://127.0.0.1:{port}/hwp/{fid}/events") as r:
+                    for line in r.iter_lines():
+                        if line == "event: beat":
+                            got.append(line)
+                            return
+        t = threading.Thread(target=listen, daemon=True)
+        t.start()
+        t.join(5)
+        assert got, "조용한 동안 beat 알림이 오지 않았다"
+    finally:
+        server.should_exit = True
+        th.join(5)
+    js = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text(encoding="utf-8")
+    assert "addEventListener('beat'" in js and "STALE_MS" in js and "connect(true)" in js

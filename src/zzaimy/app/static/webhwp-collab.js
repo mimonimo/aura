@@ -396,13 +396,19 @@
     }
 
     // ── 알림 흐름 ──
-    function connect() {
+    // 연결이 조용히 죽으면(망이 잠깐 끊긴 뒤 반쯤 열린 채) EventSource 는 오류를 내지 않는다 — 서버가 BEAT 마다 보내는 beat 알림이
+    // STALE_MS 동안 하나도 오지 않으면 새로 붙고 서버 정답을 다시 맞춘다(놓친 「문서 저장」 은 last 뒤 알림으로 다시 온다)
+    var heardAt = now(), STALE_MS = 45000, watch = null;
+    function connect(again) {
       if (es) es.close();
       es = new EventSource(base + '/events' + (lastId ? '?last=' + lastId : ''));
-      var reopened = false;
-      es.onopen = function () { if (reopened) { online = true; resync(false); send(); } reopened = false; };
-      es.onerror = function () { reopened = true; if (es.readyState === 2) setTimeout(connect, 2000); };
-      function h(kind, fn) { es.addEventListener(kind, function (ev) { lastId = Math.max(lastId, +ev.lastEventId || 0); var d = {}; try { d = JSON.parse(ev.data); } catch (e) {} learn(d); fn(d); }); }
+      var reopened = !!again;
+      heardAt = now();
+      es.onopen = function () { heardAt = now(); if (reopened) { online = true; resync(false); send(); } reopened = false; };
+      es.onerror = function () { reopened = true; if (es.readyState === 2) setTimeout(function () { connect(true); }, 2000); };
+      es.addEventListener('beat', function () { heardAt = now(); });
+      if (!watch) watch = setInterval(function () { if (es && now() - heardAt > STALE_MS) connect(true); }, 5000);
+      function h(kind, fn) { es.addEventListener(kind, function (ev) { heardAt = now(); lastId = Math.max(lastId, +ev.lastEventId || 0); var d = {}; try { d = JSON.parse(ev.data); } catch (e) {} learn(d); fn(d); }); }
       h('field-updated', function (d) {
         if (d.client === client && d.by === me) return;    // 내 창이 보낸 것(창 번호만으로는 남의 글을 놓칠 수 있어 사람도 본다)
         var f = d.field, k = known[f];
