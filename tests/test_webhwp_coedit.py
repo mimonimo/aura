@@ -822,3 +822,15 @@ def test_prune_drops_old_rows_and_rows_of_deleted_documents(tmp_path, monkeypatc
     ce.prune(db)
     with db._conn() as c:
         assert c.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = ?", (fid,)).fetchone()[0] == 0     # 휴지통으로 보낸 문서도
+
+
+def test_korean_typing_sends_at_each_commit_and_empty_field_counts():
+    """한글은 쉬지 않고 치면 조합이 끝없이 이어진다 — 글자 확정(조합 끝, 거품 단계)마다 그 칸을 읽어 보내고,
+    조합 중에도 담아 둔 글은 기다리지 않고 보낸다. 칸을 다 지워 커서 칸 이름이 비어도 방금 고치던 칸의 고침이다(영상 10-25)."""
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app/static"
+    w = (root / "webhwp-wrapper.js").read_text(encoding="utf-8")
+    c = (root / "webhwp-collab.js").read_text(encoding="utf-8")
+    assert "d.addEventListener('compositionend', function () { fire('commit', {}); }, false);" in w and "onCommit:" in w
+    assert "hwp.onCommit(function" in c and "collect(); send();" in c
+    assert "if (hwp.isComposing()) { send(); flushTimer = setTimeout(flush, 60); return; }" in c
+    assert "if (!f && lastEdit.f && now() - lastEdit.at < 5000) f = lastEdit.f;" in c

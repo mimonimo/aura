@@ -79,6 +79,7 @@
     var tooLong = {};
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
+    var lastEdit = {f: "", at: 0};                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
     var inbox = {}, applyTimer = null, applying = false;
     var online = true, retryTimer = null, retryMs = 1000, es = null, lastId = 0, readonly = !!o.readonly;
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
@@ -154,7 +155,8 @@
     // 한글 조합 중에는 칸 글을 읽지 않는다 — 기안기는 조합 중에 글을 읽으면 조합을 끊어 자모가 따로 박힌다(실측). 조합이 끝나면 다시 부른다
     function flush() {
       flushTimer = null;
-      if (hwp.isComposing()) { flushTimer = setTimeout(flush, 60); return; }
+      // 조합 중에는 칸을 읽지 않지만(자모가 깨진다), 확정 때 이미 담아 둔 글은 기다리지 않고 보낸다 — 한글은 쉬지 않고 치면 조합이 끝없이 이어진다
+      if (hwp.isComposing()) { send(); flushTimer = setTimeout(flush, 60); return; }
       collect(); send();
     }
     function send() {
@@ -573,12 +575,21 @@
         if (!(ev && ev.composing) && hwp.lockUndo) hwp.lockUndo(false);   // 내가 고치면 되돌리기를 다시 연다(내 고침이 맨 위)
         // 조합 중에는 기안기에 아무것도 묻지 않는다(커서 칸 이름을 물어도 조합이 끊긴다 — 실측) — 마지막으로 안 커서 칸을 쓴다
         var f = ev && ev.composing ? curField : hwp.currentField();
+        // 칸을 끝까지 지워 비우면 커서가 칸 경계에 걸려 기안기가 칸 이름을 빈 글로 준다 — 방금 고치던 칸의 고침으로 본다
+        // (전에는 칸 밖 고침으로 잡혀 30초 지문 대조 때에야 다른 화면에서 지워졌다)
+        if (!f && lastEdit.f && now() - lastEdit.at < 5000) f = lastEdit.f;
         if (f !== curField && !(ev && ev.composing)) checkCaret();      // 커서 칸이 바뀐 것을 먼저 반영(앞 칸을 놓고 이 칸을 잡게)
         if (!f || !fieldSet[f]) { emit('outside-edit'); return; }
         if (heldByOther(f)) return;
         if (!mine[f]) acquire(f);                               // 처음 고칠 때 임대를 잡는다
-        dirty[f] = true; status(); scheduleFlush();
+        dirty[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush();
         if (mine[f] && now() - lastTouch > 15000 && mine[f] * 1000 - now() < (conf.lease - 15) * 1000) extend();
+      });
+      if (hwp.onCommit) hwp.onCommit(function () {           // 글자 하나 확정 — 그 칸만 바로 읽어 보낸다(조합이 끝난 이 순간만 읽어도 안전)
+        if (applying || !fieldsMode()) return;
+        var f = lastEdit.f;
+        if (!f || !dirty[f] || heldByOther(f)) return;
+        collect(); send();
       });
       hwp.onCaret(function () {
         checkCaret();

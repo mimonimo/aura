@@ -18,7 +18,7 @@
 
   function create(ctrl, box) {
     var editable = {};                 // 필드 → 지금 편집 가능 여부(같은 값으로 다시 부르지 않게)
-    var listeners = {edit: [], caret: [], activity: []};
+    var listeners = {edit: [], caret: [], activity: [], commit: []};
     var composing = false, lastInput = 0, attachedDoc = null, probing = null;
 
     function frame() { return box.querySelector('iframe'); }
@@ -210,6 +210,9 @@
       d.addEventListener('compositionstart', function () { abortProbe(); composing = true; lastInput = Date.now(); }, true);
       d.addEventListener('compositionupdate', function () { composing = true; lastInput = Date.now(); fire('edit', {composing: true}); }, true);
       d.addEventListener('compositionend', function () { composing = false; lastInput = Date.now(); fire('edit', {composing: false}); }, true);
+      // 글자 하나가 확정된 뒤 — 거품 단계(기안기가 그 글자를 문서에 넣은 다음)라 이때는 칸을 읽어도 조합이 끊기지 않는다.
+      // 한글은 다음 글자를 치는 순간 새 조합이 시작돼 「조합 중」 이 쉬지 않고 이어지므로, 확정 글을 여기서 바로 보내야 늦지 않는다
+      d.addEventListener('compositionend', function () { fire('commit', {}); }, false);
       ['input', 'paste', 'cut', 'drop'].forEach(function (t) {
         d.addEventListener(t, function () { lastInput = Date.now(); fire('edit', {composing: composing}); }, true);
       });
@@ -330,7 +333,7 @@
       setFormMode: setFormMode, formMode: formMode, setReadOnly: setReadOnly, currentField: currentField,
       getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
-      onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); },
+      onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },
       attach: attach, isProbing: function () { return !!probing; },
       isComposing: function () { return composing && Date.now() - lastInput < 3000; },     // 조합 끝 사건을 놓쳐도 3초 뒤엔 풀린다
       lastInputAt: function () { return lastInput; }, exportField: exportField, importField: importField, isHwpxRich: isHwpxRich, open: open, hwpx: hwpx,
