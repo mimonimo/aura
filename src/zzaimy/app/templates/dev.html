@@ -92,10 +92,7 @@
     {% endfor %}
   </div>
 
-  {# 문서 흐름의 정본은 여기 한 곳 — 문서 가져오기 화면은 이리로 잇는다 #}
-  <h3 id="doc-flow" style="font-size:13.5px; margin:16px 0 0;">문서 흐름</h3>
-  {% include "_doc_flow.html" %}
-
+  {# 문서 수의 단계별 흐름은 처리 흐름 화면의 1·3단계 수치가 정본 — 여기서는 되풀이하지 않는다 #}
   {% include "dev-topology.html" %}
 
   {# 구축 현황(기능 상태표)과 진행 현황(dev-now.md 서술)은 원천이 달라 탭으로 나란히 둔다 #}
@@ -146,9 +143,7 @@
   </div>
   <div id="paneNow" class="tab-pane">
   <div>{{ dev_now | for_people | md_view }}</div>
-  {% if dev_now_more %}
-  <p style="margin:10px 0 0;"><a href="/dev/history#recent" class="btn-ghost">이전 작업 기록</a></p>
-  {% endif %}
+  <p style="margin:10px 0 0;"><a href="/dev/history" class="btn-ghost">날짜별 작업 기록 — 변경 이력</a></p>
   </div>
 </div></div>
 

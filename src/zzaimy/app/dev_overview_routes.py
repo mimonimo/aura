@@ -205,7 +205,8 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
         if not blocks:
             return {"hub": head, "recent_all": "", "more": False}
         return {
-            "hub": head.rstrip() + "\n\n## 최근 작업\n\n" + blocks[0].strip() + "\n",
+            # 허브(진행 현황 탭)는 할 일 부분만 — 날짜별 작업 기록은 변경 이력 한 곳에서 본다(같은 글이 두 화면에 나오지 않게)
+            "hub": head.rstrip() + "\n",
             # 카드 제목이 '작업 기록'이므로 '## 최근 작업' 제목은 되풀이하지 않는다
             "recent_all": "\n\n".join(b.strip() for b in blocks) + "\n",
             "more": len(blocks) > 1,
@@ -364,6 +365,8 @@ def dev_dashboard(request: Request):
     return st.templates.TemplateResponse(request, "dev.html", st.page_ctx(request, {
         "overview": h.data_overview(),   # 규모 타일 — /dev/db 와 같은 원천
         "dev_now": h.dev_now_parts()["hub"],
+        "system_hosts": __import__("zzaimy.app.process_flow", fromlist=["HOSTS"]).HOSTS,
+        "system_links": __import__("zzaimy.app.process_flow", fromlist=["LINKS"]).LINKS,
         "dev_now_more": h.dev_now_parts()["more"],
         "progress": h.dev_progress(),
         "reindex_running": h.reindex_running(),

@@ -24,8 +24,11 @@ def test_flow_page_lists_every_stage_term_and_host(tmp_path):
         assert s["name"] in page and f'id="stage-{s["n"]}"' in page
     for t in process_flow.TERMS:
         assert t["name"] in page
+    assert 'href="/dev#system"' in page                                    # 장비는 개발 현황 시스템 구성 한 곳에
+    hub = c.get("/dev").text
     for h in process_flow.HOSTS:
-        assert h["name"] in page
+        assert h["name"] in hub
+    assert "구글 드라이브·독스" in hub and "웹 한글 기안기" in hub and "SFT 후보" not in hub
     assert [s["n"] for s in process_flow.STAGES] == list(range(1, len(process_flow.STAGES) + 1))
     assert all(len(s["how"]) <= 4 for s in process_flow.STAGES)          # 단계마다 4줄까지
     assert "scripts/" not in " ".join(h for s in process_flow.STAGES for h in s["how"])   # 스크립트 번호는 「관련 코드」 줄에만

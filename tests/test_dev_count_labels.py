@@ -84,10 +84,10 @@ def test_intake_page_names_school_originals_and_folds_graph_counts(tmp_path):
 
 
 def test_intake_has_no_drive_tab_and_doc_flow_lives_on_overview(tmp_path):
-    """문서 흐름 다섯 칸은 개발 현황 한 곳 — 문서 가져오기는 한 줄 바로가기. Drive 탭은 없다(옛 주소는 사용자·계정으로)."""
+    """단계별 문서 수는 처리 흐름 한 곳 — 문서 가져오기는 한 줄 바로가기. Drive 탭은 없다(옛 주소는 사용자·계정으로)."""
     c, _ = _client(tmp_path)
     page = c.get("/dev/intake").text
-    assert 'href="/dev#doc-flow"' in page and 'class="df"' not in page
+    assert 'href="/dev/flow#stage-1"' in page and 'class="df"' not in page     # 단계별 문서 수는 처리 흐름 1·3단계
     assert "tab=drive" not in page and 'id="connectedFolders"' not in page and "← 개발 현황" not in page
     r = c.get("/dev/nas?ok=저장", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/dev/users#google-links"
