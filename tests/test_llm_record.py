@@ -51,6 +51,7 @@ def test_record_keeps_only_final_retry_response(tmp_path, monkeypatch):
     monkeypatch.setattr(gc, "is_ollama", lambda *_: False)
     monkeypatch.setattr(model_config, "current", lambda role="": {
         "base_url": "http://example.invalid/v1", "api_key": "test", "model": "m", "kind": "vllm",
+        "connection_id": "internal-writer", "external": False,
     })
     monkeypatch.setattr(model_config, "record_usage", lambda *args, **kwargs: None)
 
@@ -66,3 +67,7 @@ def test_record_keeps_only_final_retry_response(tmp_path, monkeypatch):
     assert len(rows) == 1
     assert rows[0]["answer"] == "최종 답"
     assert rows[0]["max_tokens"] == calls[1]
+    assert rows[0]["asked_max_tokens"] == 64
+    assert rows[0]["attempt"] == 2
+    assert rows[0]["connection_id"] == "internal-writer"
+    assert rows[0]["external"] is False

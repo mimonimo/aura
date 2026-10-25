@@ -14,6 +14,7 @@ spec.loader.exec_module(collector)
 
 def _row(**updates):
     row = {"caller": "zzaimy.app.doc_agent.plan", "model": "zzaimy-writer",
+           "connection_id": "internal-writer", "kind": "vllm", "external": False,
            "messages": [{"role": "system", "content": "JSON 단계만"},
                         {"role": "user", "content": "초안을 작성해 줘"}],
            "tools": [{"type": "function", "function": {"name": "write_section"}}],
@@ -40,6 +41,10 @@ def test_rejects_empty_truncated_and_unrelated_calls(monkeypatch):
     assert collector._candidate(_row(answer=""))[1] == "empty_answer"
     assert collector._candidate(_row(finish="length"))[1] == "unfinished_answer"
     assert collector._candidate(_row(caller="zzaimy.eval.scorer.score"))[1] == "unrelated_caller"
+    assert collector._candidate(_row(model="other-model"))[1] == "wrong_model"
+    assert collector._candidate(_row(connection_id=""))[1] == "unverified_connection"
+    assert collector._candidate(_row(extra_body={"chat_template_kwargs": {"enable_thinking": True}}))[1] == "thinking_enabled"
+    assert collector._candidate(_row(extra_body=None))[1] == "unrecorded_thinking_mode"
 
 
 def test_keeps_tool_call_completion(monkeypatch):
@@ -56,8 +61,9 @@ def test_collect_deduplicates_and_keeps_trace(monkeypatch, tmp_path):
     path = tmp_path / "llm-2026-10-25.jsonl"
     path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in (
         _row(), _row(), _row(answer=""))) + "\n", encoding="utf-8")
-    candidates, counts = collector.collect(tmp_path)
+    candidates, held, counts = collector.collect(tmp_path)
     assert len(candidates) == 1
+    assert held == []
     assert candidates[0]["trace"] == {"file": path.name, "line": 1}
     assert counts["duplicate"] == 1
     assert counts["empty_answer"] == 1
@@ -67,3 +73,16 @@ def test_collect_deduplicates_and_keeps_trace(monkeypatch, tmp_path):
 def test_privacy_changes_hold_candidate(monkeypatch):
     monkeypatch.setattr(privacy, "protect_candidate", lambda value: {**value, "caller": "masked"})
     assert collector._candidate(_row())[1] == "privacy_review"
+
+
+def test_clean_synthetic_call_passes_real_privacy_check():
+    assert collector._candidate(_row())[1] == "accepted_for_review"
+
+
+def test_collect_retains_privacy_hold_for_review(monkeypatch, tmp_path):
+    monkeypatch.setattr(privacy, "protect_candidate", lambda value: {**value, "caller": "masked"})
+    (tmp_path / "llm-2026-10-25.jsonl").write_text(json.dumps(_row(), ensure_ascii=False) + "\n")
+    candidates, held, counts = collector.collect(tmp_path)
+    assert candidates == [] and counts["privacy_review"] == 1
+    assert held[0]["reason"] == "privacy_review"
+    assert held[0]["record"]["answer"] == '{"step":"write"}'
