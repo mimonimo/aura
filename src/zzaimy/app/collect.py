@@ -46,6 +46,8 @@ class Source:
     table: str = ""           # DB 표(질의) 또는
     file: str = ""            # data/platform 아래 기록 파일
     time_key: str = "created_at"
+    epoch: bool = False       # 표의 시각이 숫자(초)인 경우 — 기안기 공동 편집 표(at)
+    past: str = ""            # 더 쌓이지 않는 옛 경로 기록이면 그 까닭(화면에 「지난 기록」 으로)
 
 
 SOURCES: tuple[Source, ...] = (
@@ -56,19 +58,21 @@ SOURCES: tuple[Source, ...] = (
     Source("answer_feedback", "답 평가", "도움됨/아쉬움과 사유·메모", "실패 사례 모으기·평가 세트",
            table="answer_feedback"),
     Source("chat_sources", "대화 근거", "답에 붙은 근거 문서·대목", "검색 정답 후보", table="chat_sources"),
+    Source("webhwp_edits", "한글 기안기 칸 고친 기록", "공동 편집 문서의 칸마다 고친 판(사람·AURA, 시각, 글) — 30일 보관", "공동 편집 분석·작성 학습 후보",
+           table="webhwp_field_edits", time_key="at", epoch=True),
     Source("doc_agent", "문서 작업 에이전트 기록", "요청·도구 고르기·관찰·마침(문서 작업 에이전트)", "리즈닝 학습 후보",
            file="doc_agent_episodes.jsonl", time_key="at"),
     Source("helper", "업무 도우미 기록", "도우미의 요청·도구·제안", "도우미 개선", file="platform_helper_episodes.jsonl", time_key="at"),
-    Source("drafting", "절 작성 기록", "절 작성 재료·지시·초안·점수", "작성 품질·학습 후보", file="drafting_episodes.jsonl", time_key="at"),
+    Source("drafting", "절 작성 기록", "절 작성 재료·지시·초안·점수", "작성 품질·학습 후보", file="drafting_episodes.jsonl", time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
     Source("context_plan", "맥락 계획 기록", "절마다 찾을 맥락 계획과 찾은 것", "맥락 구성 리즈닝", file="context_plan_episodes.jsonl",
-           time_key="at"),
+           time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
     Source("form_choice", "양식 고르기 기록", "요청에 맞는 양식 후보와 고른 까닭", "양식 고르기 개선", file="form_choice_episodes.jsonl",
-           time_key="at"),
-    Source("fill_gaps", "못 채운 칸 기록", "채우지 못한 칸과 까닭·필요 자료", "자료 보강 목록", file="fill_gaps.jsonl", time_key="at"),
+           time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
+    Source("fill_gaps", "못 채운 칸 기록", "채우지 못한 칸과 까닭·필요 자료", "자료 보강 목록", file="fill_gaps.jsonl", time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
     Source("platform_actions", "도우미 실행 기록", "담당자가 [실행]을 누른 동작과 결과", "동작 오류 분석", file="platform_actions.jsonl",
            time_key="at"),
     Source("gdocs_audit", "구글 문서 작업 기록", "작업 문서 편집 동작·글자 수", "문서 편집 오류 분석", file="gdocs_audit.jsonl",
-           time_key="at"),
+           time_key="at", past="구글 독스 편집 기록 — 독스는 보조 경로라 거의 쌓이지 않음"),
 )
 BY_KEY = {s.key: s for s in SOURCES}
 
@@ -283,6 +287,24 @@ class SchemaScan:
         return out
 
 
+def _epoch(stamp: str, default: float) -> float:
+    """화면이 넘기는 날짜 글(YYYY-MM-DD…) → 초. 빈 글·「9999」 같은 끝 표시는 default."""
+    from datetime import datetime
+    try:
+        d = datetime.fromisoformat(stamp)
+        return (d if d.tzinfo else d.astimezone()).timestamp()
+    except (TypeError, ValueError):
+        return default
+
+
+def _iso(v) -> str:
+    from datetime import datetime
+    try:
+        return datetime.fromtimestamp(float(v)).astimezone().isoformat(timespec="seconds")
+    except (TypeError, ValueError, OSError):
+        return str(v or "")
+
+
 def _db_rows(db, s: Source, since: str, until: str, limit: int = 0) -> Iterator[dict]:
     from zzaimy.app.database_backend import table_names
     with db._conn() as conn:
@@ -291,11 +313,17 @@ def _db_rows(db, s: Source, since: str, until: str, limit: int = 0) -> Iterator[
         if s.table == "chat_messages":
             sql = ("SELECT m.*, c.owner AS owner, c.channel AS channel, c.project_id AS project_id FROM chat_messages m"
                    " LEFT JOIN chat_sessions c ON c.id = m.session_id WHERE m.created_at >= ? AND m.created_at < ? ORDER BY m.id")
+        elif s.epoch:
+            sql = f"SELECT * FROM {s.table} WHERE {s.time_key} >= ? AND {s.time_key} < ? ORDER BY id"
         else:
             sql = f"SELECT * FROM {s.table} WHERE created_at >= ? AND created_at < ? ORDER BY id"
         if limit:
             sql += f" LIMIT {int(limit)}"
-        rows = [dict(r) for r in conn.execute(sql, (since, until)).fetchall()]
+        args = (_epoch(since, 0.0), _epoch(until, 9e12)) if s.epoch else (since, until)
+        rows = [dict(r) for r in conn.execute(sql, args).fetchall()]
+    if s.epoch:
+        for r in rows:
+            r[s.time_key] = _iso(r.get(s.time_key))
     for r in rows:
         for k in ("model", "timing", "sources", "steps", "reasons"):
             if isinstance(r.get(k), str) and r[k][:1] in "[{":
@@ -349,7 +377,13 @@ def catalog(db, data_dir: Path) -> list[dict]:
         try:
             if s.table:
                 with db._conn() as conn:
-                    if s.table in table_names(conn):
+                    if s.table in table_names(conn) and s.epoch:
+                        stamps = [_iso(r[0]) for r in conn.execute(f"SELECT {s.time_key} FROM {s.table}").fetchall()]
+                        stamps = sorted(x for x in stamps if x)
+                        n, first, last = len(stamps), (stamps[0] if stamps else ""), (stamps[-1] if stamps else "")
+                        for x in stamps:
+                            days[x[:10]] = days.get(x[:10], 0) + 1
+                    elif s.table in table_names(conn):
                         n, first, last = conn.execute(
                             f"SELECT COUNT(*), MIN(created_at), MAX(created_at) FROM {s.table}").fetchone()
                         days = {str(d): int(c) for d, c in conn.execute(
@@ -369,7 +403,7 @@ def catalog(db, data_dir: Path) -> list[dict]:
         first, last = str(first or ""), str(last or "")
         out.append({"key": s.key, "name": s.name, "desc": s.desc, "use": s.use, "where": s.table or s.file,
                     "n": int(n or 0), "first": first[:10], "last": last[:16].replace("T", " "), "bytes": size,
-                    "span": _short_span(first, last, this_year), "days": days})
+                    "span": _short_span(first, last, this_year), "days": days, "past": s.past})
     return out
 
 

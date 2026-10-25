@@ -128,3 +128,20 @@ def test_peek_route_is_dev_only(tmp_path):
     assert dev.get("/dev/collect/peek/nope").status_code == 404
     page = dev.get("/dev/collect").text
     assert 'data-peek="chat_messages"' in page and "구조·표본 보기" in page and "manifest.json" in page
+
+
+def test_webhwp_edits_source_reads_epoch_times_and_past_marks(tmp_path):
+    """기안기 칸 고친 기록(시각이 숫자)도 수집 항목 — 날짜 범위로 고르고 시각은 날짜 글로. 옛 독스 경로 항목은 「지난 기록」."""
+    import time
+    from zzaimy.app import collect
+    from zzaimy.app import webhwp_coedit as ce
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    ce.ensure(db)
+    with db._conn() as c:
+        c.execute("INSERT INTO webhwp_field_edits (fid, field, version, text, author, at) VALUES (1, '칸:요약', 1, '첫 글', 'kim', ?)", (time.time(),))
+    src = next(s for s in collect.SOURCES if s.key == "webhwp_edits")
+    rows = list(collect._db_rows(db, src, "2000-01-01", "9999"))
+    assert len(rows) == 1 and rows[0]["at"][:2] == "20" and rows[0]["text"] == "첫 글"
+    assert not list(collect._db_rows(db, src, "2000-01-01", "2000-01-02"))
+    assert {s.key for s in collect.SOURCES if s.past} >= {"drafting", "gdocs_audit"}

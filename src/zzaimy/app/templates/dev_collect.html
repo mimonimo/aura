@@ -63,7 +63,7 @@
         <th class="num">건수</th><th class="hide-sm">기간</th><th><span class="sr-only">구조·표본</span></th></tr></thead>
       <tbody>{% for s in full %}
         <tr><td class="pick"><input type="checkbox" name="keys" value="{{ s.key }}" class="col-pick" data-n="{{ s.n }}" aria-label="{{ s.name }}"></td>
-          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b><span class="sub">{{ s.desc }}</span></td>
+          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}{% if s.past %} · {{ s.past }}{% endif %}</span></td>
           <td class="hide-sm">{{ s.use }}</td>
           <td class="num">{{ '{:,}'.format(s.n) }}</td>
           <td class="hide-sm span" title="{{ s.first }} ~ {{ s.last }}">{{ s.span }}</td>
@@ -75,7 +75,7 @@
           data-show="비어 있는 항목 {{ empty | length }}개 보기" data-hide="비어 있는 항목 접기">비어 있는 항목 {{ empty | length }}개 보기</button></td></tr>{% endif %}
       {% for s in empty %}
         <tr class="col-empty" hidden><td class="pick"><input type="checkbox" disabled aria-label="{{ s.name }} — 자료 없음"></td>
-          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b><span class="sub">{{ s.desc }}</span></td>
+          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}{% if s.past %} · {{ s.past }}{% endif %}</span></td>
           <td class="hide-sm">{{ s.use }}</td>
           <td class="num">0</td>
           <td class="hide-sm span">아직 없음</td><td></td></tr>
