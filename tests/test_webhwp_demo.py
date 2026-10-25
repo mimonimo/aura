@@ -161,3 +161,19 @@ def test_demo_values_fill_header_cells_only():
     vals = demo.demo_values([{"kind": "칸", "name": "칸:보고 부서", "text": ""}, {"kind": "칸", "name": "칸:보고 일자", "text": "2026. 1. 1."},
                              {"kind": "절", "name": "절:1. 개요", "text": ""}, {"kind": "칸", "name": "칸:사업명", "text": ""}])
     assert vals == {"칸:보고 부서": "기획팀", "칸:사업명": "2026 AI 업무 도구 교육 운영"}
+
+
+def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
+    """「AURA로 쓰기」 — 시연 계정 김가람의 대화를 문서에 잇고 채팅과 같은 답 길(schedule_answer)로 요청을 보낸다. 쓰는 중이면 다시 보내지 않는다."""
+    app, dev, _ = _admin(tmp_path, monkeypatch)
+    fid = _new(dev)
+    sent = []
+    monkeypatch.setattr(app.state, "schedule_answer", lambda bg, sid, q, stored, crit, *a, **k: sent.append((sid, q)), raising=False)
+    r = dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    assert r.status_code == 303 and "aura=1" in r.headers["location"]
+    sid, q = sent[-1]
+    db = app.state.db
+    from zzaimy.app import webhwp_agent as wa
+    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and "비어 있는 절" in q
+    assert "AURA(27B)가 빈 절을 골라 쓰는 중" in dev.get(r.headers["location"]).text
+    assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404

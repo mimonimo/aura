@@ -14,7 +14,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import BackgroundTasks, APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 router = APIRouter()
@@ -210,7 +210,7 @@ def _need_login_mode(request: Request) -> None:
 
 
 @router.get("/dev/coedit-demo", response_class=HTMLResponse)
-def coedit_demo(request: Request, id: int | None = None):
+def coedit_demo(request: Request, id: int | None = None, aura: str = ""):
     _need_login_mode(request)
     st = request.app.state
     items = docs(request)
@@ -219,7 +219,8 @@ def coedit_demo(request: Request, id: int | None = None):
     panes = [{"slot": s, "uid": uid, "name": st.person_name(uid) if uid not in missing else name}
              for s, (uid, name) in SLOTS.items()]
     return st.templates.TemplateResponse(request, "coedit_demo.html", {
-        "request": request, "docs": items, "cur": cur, "panes": panes, "missing": missing, "label": label})
+        "request": request, "docs": items, "cur": cur, "panes": panes, "missing": missing, "label": label,
+        "aura_note": {"1": "AURA(27B)가 빈 절을 골라 쓰는 중 — 1~2분", "busy": "AURA가 아직 앞 요청을 쓰는 중입니다"}.get(aura, "")})
 
 
 @router.post("/dev/coedit-demo/new")
@@ -247,3 +248,35 @@ def coedit_demo_reset(request: Request, id: int = Form(...)):
     if webhwp.get(db, id) is not None:
         webhwp.trash(db, _base(request), id, user=getattr(request.state, "user", ""))
     return RedirectResponse(f"/dev/coedit-demo?id={new}", status_code=303)
+
+
+AURA_ASK = ("이 작업본의 비어 있는 절 가운데 하나를 골라 그 절의 작성방법에 맞춰 써 줘. 사업명은 「2026 AI 업무 도구 교육 운영」, "
+            "대상은 신규 교직원, 기간은 2026년 3월부터 12월까지야. 자료에 없는 숫자는 쓰지 말고 모르는 값은 「확인 필요」로 남겨 줘.")
+
+
+@router.post("/dev/coedit-demo/aura")
+def coedit_demo_aura(request: Request, background: BackgroundTasks, id: int = Form(...)):
+    """「AURA로 쓰기」 — 실제 27B 문서 작업 에이전트가 이 시연 문서의 빈 절 하나를 골라 쓴다. 채팅과 같은 답 길(app.state.schedule_answer)로,
+    시연 계정 김가람의 대화를 이 문서에 잇고 요청을 보낸다. 화면에는 「AURA · 김가람」 으로 보인다. 어느 절을 무엇으로 쓸지는 27B 가 정한다."""
+    import json as _json
+    _need_login_mode(request)
+    from zzaimy.app import webhwp, webhwp_agent
+    st = request.app.state
+    db = st.db
+    if next((r for r in docs(request) if r["id"] == id), None) is None:
+        raise HTTPException(404, "시연 문서를 찾을 수 없습니다")
+    ensure_accounts(request.app)
+    uid = SLOTS["a"][0]
+    m = webhwp.meta(db, id)
+    sid = int(m.get("demo_session") or 0)
+    if not sid or not db.get_chat_session(sid):
+        sid = db.create_chat_session("시연 · AURA 쓰기", owner=uid)
+        m = webhwp.meta(db, id)
+        m["demo_session"] = sid
+        db.set_setting(f"webhwp_meta:{int(id)}", _json.dumps(m, ensure_ascii=False))
+    webhwp_agent.attach(db, sid, id)
+    if getattr(st, "chat_running", lambda _s: False)(sid):
+        return RedirectResponse(f"/dev/coedit-demo?id={id}&aura=busy", status_code=303)
+    db.add_chat(sid, "user", AURA_ASK)
+    st.schedule_answer(background, sid, AURA_ASK, None, [])
+    return RedirectResponse(f"/dev/coedit-demo?id={id}&aura=1", status_code=303)

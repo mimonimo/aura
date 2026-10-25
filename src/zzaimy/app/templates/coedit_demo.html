@@ -14,6 +14,7 @@
   body { font-family:"Pretendard Variable", Pretendard, system-ui, sans-serif; color:var(--ink); background:var(--bg); display:flex; flex-direction:column; }
   /* 머리줄 — 왼쪽 돌아가기·제목, 가운데 문서 고르기, 오른쪽 버튼 */
   .bar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 16px; background:#fff; border-bottom:1px solid var(--line); }
+  .bar .note { font-size:12.5px; color:var(--muted); white-space:nowrap; }
   .bar a.back { display:inline-flex; align-items:center; gap:2px; color:var(--muted); text-decoration:none; font-size:13px; padding:6px 8px 6px 4px; border-radius:6px; }
   .bar a.back:hover { background:#F1F5F9; color:var(--ink); }
   .bar .sep { width:1px; height:20px; background:var(--line); }
@@ -50,6 +51,8 @@
       {% for d in docs %}<option value="{{ d.id }}"{% if d.id == cur.id %} selected{% endif %}>{{ label(d.name) }}</option>{% endfor %}
     </select>{% else %}<span title="{{ cur.name }}">{{ label(cur.name) }}</span>{% endif %}</label>{% endif %}
   <span class="grow"></span>
+  {% if aura_note %}<span class="note" role="status">{{ aura_note }}</span>{% endif %}
+  {% if cur %}<form method="post" action="/dev/coedit-demo/aura" title="실제 27B 문서 작업 에이전트가 빈 절 하나를 골라 씁니다 — 채팅과 같은 길, 화면에는 「AURA · 김가람」"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true"></iconify-icon>AURA로 쓰기</button></form>{% endif %}
   {% if cur %}<form method="post" action="/dev/coedit-demo/reset" title="같은 양식으로 빈 문서를 새로 엽니다"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon>문서 비우기</button></form>{% endif %}
   <form method="post" action="/dev/coedit-demo/new" title="절이 많은 사업계획서 양식으로 — 여럿이 서로 다른 장을 함께 쓰는 장면"><input type="hidden" name="kind" value="long"><button type="submit" class="btn"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon>장문 시연 문서</button></form>
   <form method="post" action="/dev/coedit-demo/new" title="칸마다 다른 시연 계정으로 같은 문서를 엽니다"><button type="submit" class="btn primary"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 시연 문서</button></form>
