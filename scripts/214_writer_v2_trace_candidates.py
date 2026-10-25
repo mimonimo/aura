@@ -17,7 +17,8 @@ from pathlib import Path
 
 def _candidate(row: dict) -> tuple[dict | None, str]:
     caller = str(row.get("caller") or "")
-    if not caller.startswith("zzaimy.") or caller.startswith("zzaimy.eval."):
+    if not caller.startswith(("zzaimy.app.doc_agent.", "zzaimy.app.chat_memory.",
+                              "zzaimy.app.responder.", "zzaimy.app.delegate.")):
         return None, "unrelated_caller"
     if row.get("model") != "zzaimy-writer":
         return None, "wrong_model"
@@ -28,7 +29,11 @@ def _candidate(row: dict) -> tuple[dict | None, str]:
     if not isinstance(body, dict):
         return None, "unrecorded_thinking_mode"
     thinking = body.get("chat_template_kwargs") or {}
-    if (not isinstance(thinking, dict) or thinking.get("enable_thinking") is True
+    if not isinstance(thinking, dict):
+        return None, "unrecorded_thinking_mode"
+    explicitly_off = (thinking.get("enable_thinking") is False
+                      or body.get("reasoning_effort") in ("none", "off"))
+    if (not explicitly_off or thinking.get("enable_thinking") is True
             or body.get("reasoning_effort") not in (None, "none", "off")):
         return None, "thinking_enabled"
     messages = row.get("messages")

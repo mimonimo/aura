@@ -41,10 +41,12 @@ def test_rejects_empty_truncated_and_unrelated_calls(monkeypatch):
     assert collector._candidate(_row(answer=""))[1] == "empty_answer"
     assert collector._candidate(_row(finish="length"))[1] == "unfinished_answer"
     assert collector._candidate(_row(caller="zzaimy.eval.scorer.score"))[1] == "unrelated_caller"
+    assert collector._candidate(_row(caller="zzaimy.app.pipeline._review"))[1] == "unrelated_caller"
     assert collector._candidate(_row(model="other-model"))[1] == "wrong_model"
     assert collector._candidate(_row(connection_id=""))[1] == "unverified_connection"
     assert collector._candidate(_row(extra_body={"chat_template_kwargs": {"enable_thinking": True}}))[1] == "thinking_enabled"
     assert collector._candidate(_row(extra_body=None))[1] == "unrecorded_thinking_mode"
+    assert collector._candidate(_row(extra_body={}))[1] == "thinking_enabled"
 
 
 def test_keeps_tool_call_completion(monkeypatch):
