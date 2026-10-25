@@ -149,6 +149,10 @@ def test_long_demo_uses_business_plan_form(tmp_path, monkeypatch):
     assert str(webhwp.meta(db, fid)["source"]).startswith(demo.SOURCE)
     page = dev.get(f"/dev/coedit-demo?id={fid}").text
     assert "장문 시연 문서" in page and ">사업계획서</span>" in page        # 목록·이름표는 「시연 · 」·「 공통 양식」 없이
+    from zzaimy.app import webhwp_write as _ww
+    body = "".join(__import__("zipfile").ZipFile(__import__("io").BytesIO(Path(webhwp.get(db, fid)["path"]).read_bytes())).read(n).decode()
+                   for n in ["Contents/section0.xml"])
+    assert "○○○○ 사업" not in body and "2026 AI 업무 도구 교육 운영" in body       # 표지 자리표시도 시연용 값
     again = int(dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False).headers["location"].split("id=")[-1])
     assert again != fid and webhwp.get(db, fid) is None
 

@@ -156,6 +156,19 @@ def demo_values(fields: list[dict]) -> dict[str, str]:
     return out
 
 
+def demo_cover(data: bytes) -> bytes:
+    """표지·머리의 양식 자리표시(칸 밖 글 「○○○○ 사업」·「○○대학교」·「20○○. ○.」)를 시연용 값으로 — 시연 문서에만.
+    양식 자체(공통 양식)는 그대로다. 칸 안 안내 글은 손대지 않는다(paper_hwp.stamp_dept 와 같은 칸 밖 바꾸기)."""
+    from datetime import date
+    from zzaimy.app import paper_hwp
+    today = date.today()
+    pairs = [("○○○○ 사업", demo_values([{"kind": "칸", "name": "칸:사업명", "text": ""}])["칸:사업명"]),
+             ("○○대학교", "영남이공대학교"), ("20○○. ○.", f"{today.year}. {today.month}."), ("20○○년", f"{today.year}년")]
+    for old, new in pairs:
+        data, _ = paper_hwp.stamp_dept(data, [old], new)
+    return data
+
+
 def label(name: str) -> str:
     """목록에 보일 시연 문서 이름 — 「시연 · 」·「 공통 양식」 을 뗀 양식 이름."""
     stem = Path(name).stem
@@ -175,6 +188,7 @@ def make_doc(request: Request, prefer: int | None = None, long: bool = False) ->
     data = Path(form["path"]).read_bytes()
     try:
         data, _ = ww.set_fields(data, demo_values(ww.fields(data)))
+        data = demo_cover(data)
     except Exception:
         pass
     name = f"시연 · {label(form['name'])}{Path(form['name']).suffix or '.hwpx'}"
