@@ -6,8 +6,8 @@
 그 밖의 요청은 표시를 무시한다. 시연 계정은 비활성·비밀번호 없음이라 로그인할 수 없고, 열 수 있는 곳은 시연 폴더(ROOT) 하나다
 (webhwp_routes._depts). 그래서 표시는 권한을 좁히기만 한다.
 
-화면: GET /dev/coedit-demo — 한 문서(빈 문서, 1·2·3 절은 세 사람·4 절은 AURA). 칸 밖 문단도 칸으로 감싸 제목까지 함께 고친다
-(webhwp_fields.wrap_rest). 시연 문서가 없으면 열 때 만든다. 「새 빈 문서」 POST /dev/coedit-demo/reset, 「AURA 정리 쓰기」 POST /dev/coedit-demo/aura,
+화면: GET /dev/coedit-demo — 한 문서(제목만 있는 빈 문서 → AURA 가 양식을 불러오면 세 사람과 AURA 가 여러 쪽을 함께 쓴다). 칸 밖 문단도 칸으로 감싸 제목까지 함께 고친다
+(webhwp_fields.wrap_rest). 시연 문서가 없으면 열 때 만든다. 「새 빈 문서」 POST /dev/coedit-demo/reset, 「AURA 양식 불러오기 / 이어 쓰기」 POST /dev/coedit-demo/aura(단계는 GET /dev/coedit-demo/state),
 POST /dev/coedit-demo/new(kind=long 이면 사업계획서)는 화면 단추 없이 남긴 만들기 길. 창을 열면 칸마다 자기 차례의 쓸 자리로 커서가 간다(hwp_edit.html).
 """
 from __future__ import annotations
@@ -180,24 +180,20 @@ def label(name: str) -> str:
     return stem.replace(" 공통 양식", "").strip()
 
 
-BLANK = "blank"            # 「세 사람 동시 작성」 — 양식 사본이 아닌 빈 문서(시연 계정 수만큼 번호 붙은 절, 안내 글·미리 넣은 값 없음)
+BLANK = "blank2"           # 2 = 제목만 있는 빈 문서(양식 불러오기 시연, 10-26). 옛 「blank」(사람별 절) 문서는 열 때 휴지통으로 — 「세 사람 동시 작성」 — 양식 사본이 아닌 빈 문서(시연 계정 수만큼 번호 붙은 절, 안내 글·미리 넣은 값 없음)
 
 
 def blank_doc() -> bytes:
-    """빈 시연 문서 — 세 사람이 1·2·3 절을 하나씩 맡아 동시에 쓰는 장면. 절 제목 말고는 아무것도 없다.
+    """빈 시연 문서 — 제목 한 줄과 빈 문단뿐. 시연은 여기서 시작해 AURA(27B)가 양식을 찾아 불러오고(webhwp_agent 의 빈 문서 불러오기),
+    세 사람과 AURA 가 그 양식 여러 쪽을 함께 쓴다(10-26 「빈 페이지 → 양식 찾아 불러옴 → 작성 → 사용자별 입력·서식 → 따라가기, 몇십 쪽」).
     모양·누름틀은 공통 양식과 같은 빌더(webhwp_templates.build)로."""
     from zzaimy.app import webhwp_templates as wt
-    blocks: list[dict] = []
-    for i, (_uid, name) in enumerate(SLOTS.values(), 1):
-        blocks += [{"h": 1, "text": f"{i}. {name}"}, {"p": ""}]
-    blocks += [{"h": 1, "text": f"{len(SLOTS) + 1}. {AURA_SECTION}"}, {"p": ""}]   # AURA 몫 — 같은 문서에서 사람과 AURA 가 함께(10-26)
     data = wt.build({"id": "demo-blank", "title": "공동 편집 시연",
-                     "cover": {"title": "공동 편집 시연", "page": False},     # 부제 없이 — 좁은 세 칸에서 세 절이 한 화면에 들게
-                     "blocks": blocks, "page_number": False})
+                     "cover": {"title": "공동 편집 시연", "page": False},
+                     "blocks": [{"p": ""}], "page_number": False})
     return _bigger_text(data, BIG)
 
 
-AURA_SECTION = "AURA 정리"
 BIG = 1.6        # 시연 문서 글자 배율 — 세 칸으로 나눈 좁은 화면에서도 앞에서 보이게(시연 문서에만)
 
 
@@ -273,23 +269,9 @@ def is_blank(request: Request, fid: int) -> bool:
     return str(webhwp.meta(request.app.state.db, fid).get("source", "")) == SOURCE + BLANK
 
 
-def _has_aura_section(r: dict) -> bool:
-    try:
-        return f"절:{len(SLOTS) + 1}. {AURA_SECTION}".encode() in _section_bytes(Path(r["path"]))
-    except Exception:
-        return False
-
-
-def _section_bytes(p: Path) -> bytes:
-    import io
-    import zipfile
-    z = zipfile.ZipFile(io.BytesIO(p.read_bytes()))
-    return b"".join(z.read(n) for n in z.namelist() if n.startswith("Contents/section"))
-
-
 @router.get("/dev/coedit-demo", response_class=HTMLResponse)
 def coedit_demo(request: Request, id: int | None = None, aura: str = ""):
-    """한 문서에 세 사람과 AURA — 빈 문서의 1·2·3 절(과 제목 등 어디든)을 세 사람이, 4 절 「AURA 정리」 를 27B 가 쓴다.
+    """한 문서에 세 사람과 AURA — 빈 문서에서 시작해 AURA(27B)가 양식을 찾아 불러오고, 세 사람과 AURA 가 그 양식 여러 쪽을 함께 쓴다(10-26).
     갈래를 둘(세 사람·AURA 양식)로 나눴더니 「27B 문서에서도 공동 시연이 되어야」 했다(10-26). 시연 문서가 없으면 바로 만든다."""
     _need_login_mode(request)
     from zzaimy.app import webhwp
@@ -307,21 +289,19 @@ def coedit_demo(request: Request, id: int | None = None, aura: str = ""):
     for r in items:                                      # 한 갈래로 합침(10-26) — 양식 사본 시연 문서는 휴지통으로
         if r not in blanks:
             webhwp.trash(st.db, _base(request), r["id"], user=getattr(request.state, "user", ""))
-    ok = [r for r in blanks if _has_aura_section(r)]
+    ok = blanks
     cur = next((r for r in ok if r["id"] == id), None) or (ok[0] if ok else None)
     if cur is None:
         ensure_accounts(request.app)
         if not accounts_ready(request.app):
-            for r in blanks:                             # AURA 절이 없는 옛 빈 문서
-                webhwp.trash(st.db, _base(request), r["id"], user=getattr(request.state, "user", ""))
             fid = make_blank(request)
             return RedirectResponse(f"/dev/coedit-demo?id={fid}", status_code=303)
     missing = accounts_ready(request.app)
     panes = [{"slot": s, "uid": uid, "name": st.person_name(uid) if uid not in missing else name}
              for s, (uid, name) in SLOTS.items()]
     return st.templates.TemplateResponse(request, "coedit_demo.html", {
-        "request": request, "cur": cur, "panes": panes, "missing": missing, "label": label,
-        "aura_note": {"1": f"{len(SLOTS)}절까지 읽고 {len(SLOTS) + 1}절을 쓰는 중", "busy": "AURA가 앞 요청을 쓰는 중"}.get(aura, "")})
+        "request": request, "cur": cur, "panes": panes, "missing": missing, "label": label, "loaded": form_loaded(request, cur["id"]) if cur else False,
+        "aura_note": {"busy": "AURA가 앞 요청을 하는 중"}.get(aura, "")})
 
 
 @router.post("/dev/coedit-demo/new")
@@ -332,6 +312,16 @@ def coedit_demo_new(request: Request, kind: str = Form("")):
         raise HTTPException(409, "같은 아이디의 계정이 있어 시연 계정을 만들지 못했습니다: " + ", ".join(accounts_ready(request.app)))
     fid = make_doc(request, long=True) if kind == "long" else make_blank(request)
     return RedirectResponse(f"/dev/coedit-demo?id={fid}", status_code=303)
+
+
+@router.get("/dev/coedit-demo/state")
+def coedit_demo_state(request: Request, id: int):
+    """시연 머리 단추의 단계 — 양식을 불러왔는지, AURA 가 아직 일하는지(화면을 다시 열지 않고 단추만 바꾼다)."""
+    _need_login_mode(request)
+    from zzaimy.app import webhwp
+    st = request.app.state
+    sid = int(webhwp.meta(st.db, id).get("demo_session") or 0)
+    return {"loaded": form_loaded(request, id), "busy": bool(sid and getattr(st, "chat_running", lambda _s: False)(sid))}
 
 
 @router.post("/dev/coedit-demo/reset")
@@ -352,9 +342,19 @@ def coedit_demo_reset(request: Request, id: int = Form(...)):
     return RedirectResponse(f"/dev/coedit-demo?id={new}", status_code=303)
 
 
-AURA_ASK = (f"이 문서 1~{len(SLOTS)}절에 세 사람이 쓴 글을 읽고, 비어 있는 「{len(SLOTS) + 1}. {AURA_SECTION}」 절에 "
-            "핵심을 번호나 기호 없이 서너 문장으로 정리해 써 줘(한 문장에 한 줄). 문서에 없는 내용은 보태지 말고, 앞 절이 비어 있으면 "
-            "「아직 쓴 글 없음」 이라고만 적어 줘.")
+FORM_ASK = ("이 빈 문서에 사업계획서를 쓰려고 해. 공통 양식에서 수십 쪽 분량의 사업계획서 양식(칸이 많은 것)을 찾아 이 문서에 불러와 줘. "
+            "불러오기만 하고 아직 쓰지는 마.")
+WRITE_ASK = ("이 문서는 시연용이야 — 가상의 「AI 융합 실무인재 양성사업」 사업계획서라고 보고, 아직 비어 있는 절 가운데 앞에서부터 세 개를 "
+             "차례로 써 줘. 근거 문서가 없으니 숫자·기관 이름은 지어내지 말고, 절마다 서너 문장으로.")
+
+
+def form_loaded_id(app, fid: int) -> bool:
+    from zzaimy.app import webhwp
+    return bool(webhwp.meta(app.state.db, fid).get("form_loaded"))
+
+
+def form_loaded(request: Request, fid: int) -> bool:
+    return form_loaded_id(request.app, fid)
 
 
 @router.post("/dev/coedit-demo/aura")
@@ -380,6 +380,7 @@ def coedit_demo_aura(request: Request, background: BackgroundTasks, id: int = Fo
     webhwp_agent.attach(db, sid, id)
     if getattr(st, "chat_running", lambda _s: False)(sid):
         return RedirectResponse(f"/dev/coedit-demo?id={id}&aura=busy", status_code=303)
-    db.add_chat(sid, "user", AURA_ASK)
-    st.schedule_answer(background, sid, AURA_ASK, None, [])
+    ask = WRITE_ASK if form_loaded(request, id) else FORM_ASK      # 빈 문서면 양식 불러오기, 불러왔으면 이어 쓰기
+    db.add_chat(sid, "user", ask)
+    st.schedule_answer(background, sid, ask, None, [])
     return RedirectResponse(f"/dev/coedit-demo?id={id}&aura=1", status_code=303)

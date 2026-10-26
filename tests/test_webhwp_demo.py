@@ -22,8 +22,8 @@ def _admin(tmp_path, monkeypatch):
     return app, dev, kim
 
 
-def _new(dev) -> int:
-    r = dev.post("/dev/coedit-demo/new", follow_redirects=False)
+def _new(dev, kind: str = "") -> int:
+    r = dev.post("/dev/coedit-demo/new", data={"kind": kind}, follow_redirects=False)
     assert r.status_code == 303, r.text
     return int(r.headers["location"].split("id=")[-1])
 
@@ -44,7 +44,7 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     for s in "abc":
         assert f"/webhwpctrl/aura-edit?id={fid}&amp;demo={s}" in page
     assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "새 빈 문서" in page
-    assert "AURA 정리 쓰기" in page and "AURA 함께 쓰기" not in page and "어디를 고쳐도" not in page
+    assert "AURA 양식 불러오기" in page and "AURA 정리 쓰기" not in page and "어디를 고쳐도" not in page
     assert dev.get("/dev/coedit-demo", follow_redirects=False).status_code == 200          # 있으면 다시 만들지 않는다
     # 시연 계정 — 장부에 demo 표시·비활성·비밀번호 없음(로그인 길 없음), 다시 눌러도 그대로
     acc = json.loads((tmp_path / "accounts.json").read_text())
@@ -55,12 +55,11 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "accounts.json").read_text())["demo_a"] == acc["demo_a"]
     assert webhwp.get(app.state.db, fid) is None                     # 같은 양식으로 다시 만들면 앞 시연 문서는 휴지통으로
     fid = fid2
-    # 「새 시연 문서」 는 빈 문서 — 시연 계정마다 번호 붙은 빈 절 하나, 미리 든 글 없음, 시연 폴더에
+    # 「새 시연 문서」 는 빈 문서 — 제목 말고 미리 든 글 없음, 시연 폴더에(양식은 AURA 가 불러온다)
     f = webhwp.get(app.state.db, fid)
     assert webhwp.dept_of_path(Path(app.state.data_dir), f["path"]) == demo.ROOT and not webhwp.locked(app.state.db, fid)
     fs = ww.fields(Path(f["path"]).read_bytes())
-    assert [x["name"] for x in fs] == [f"절:{i}. {n}" for i, (_u, n) in enumerate(demo.SLOTS.values(), 1)] + [f"절:4. {demo.AURA_SECTION}"] \
-        and not any(x["text"] for x in fs)
+    assert not any(x["text"] for x in fs) and not demo.form_loaded_id(app, fid)
     # 바로가기는 개발 사이드바 「문서 작성」 한 곳(10-26 — 업무 화면 사이드바의 링크는 뺐다), 교직원 화면에는 없다
     assert 'href="/dev/coedit-demo"' in dev.get("/dev").text and 'href="/dev/coedit-demo"' not in dev.get("/hwp").text
     assert 'href="/dev/coedit-demo"' not in kim.get("/hwp").text
@@ -108,12 +107,13 @@ def test_demo_user_cannot_open_non_demo_documents(tmp_path, monkeypatch):
 
 def test_three_slots_are_three_users(tmp_path, monkeypatch):
     app, dev, _ = _admin(tmp_path, monkeypatch)
-    fid = _new(dev)
+    fid = _new(dev, "long")        # 칸이 있는 문서(양식 사본)로 — 빈 문서는 제목뿐이다
     db = app.state.db
     for s in "abc":
         assert dev.post(f"/hwp/{fid}/presence", headers=H(s), json={"client": f"w{s}", "field": ""}).json()["ok"]
     out = dev.post(f"/hwp/{fid}/presence", headers=H("a"), json={"client": "wa", "field": ""}).json()["people"]
     assert {p["user"]: p["name"] for p in out} == {"demo_a": "김가람", "demo_b": "이나래", "demo_c": "박다온"}
+    dev.get(f"/hwp/{fid}/file", headers=H("a"))                     # 열면 칸 밖 문단(제목·빈 문단)을 칸으로 감싼다
     names = [x["name"] for x in ww.fields(Path(webhwp.get(db, fid)["path"]).read_bytes())]
     f1, f2 = names[0], names[1]
     # a 가 칸을 쥐면 b 는 못 쥐고(쥔 사람 이름은 시연 이름), 다른 칸은 b 가 쓴다
@@ -131,8 +131,9 @@ def test_three_slots_are_three_users(tmp_path, monkeypatch):
 
 def test_reset_makes_fresh_copy_and_trashes_old(tmp_path, monkeypatch):
     app, dev, _ = _admin(tmp_path, monkeypatch)
-    fid = _new(dev)
+    fid = _new(dev, "long")        # 칸이 있는 문서(양식 사본)로 — 빈 문서는 제목뿐이다
     db = app.state.db
+    dev.get(f"/hwp/{fid}/file", headers=H("a"))
     f1 = ww.fields(Path(webhwp.get(db, fid)["path"]).read_bytes())[0]["name"]
     dev.post(f"/hwp/{fid}/ops", headers=H("a"), json={"client": "wa", "ops": [{"seq": 1, "field": f1, "base": 0, "text": "남은 글"}]})
     src = webhwp.meta(db, fid)["source"]
@@ -181,6 +182,9 @@ def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
     sid, q = sent[-1]
     db = app.state.db
     from zzaimy.app import webhwp_agent as wa
-    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and demo.AURA_SECTION in q
-    assert "3절까지 읽고 4절을 쓰는 중" in dev.get(r.headers["location"]).text
+    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and q == demo.FORM_ASK   # 빈 문서면 양식 불러오기
+    assert dev.get(f"/dev/coedit-demo/state?id={fid}").json() == {"loaded": False, "busy": False}
+    m = webhwp.meta(db, fid); m["form_loaded"] = "양식복사:1"; db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+    dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    assert sent[-1][1] == demo.WRITE_ASK and "AURA 이어 쓰기" in dev.get(f"/dev/coedit-demo?id={fid}").text   # 불러온 뒤엔 이어 쓰기
     assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404

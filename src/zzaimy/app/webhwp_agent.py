@@ -4,7 +4,8 @@
 - hwp_forms {query}: 쓸 양식 후보 — 이 프로젝트의 한글 양식(사업이 준 서식)이 먼저, 그다음 한글 문서함의 잠긴 양식(공문·국고 사업·학교 양식).
 - hwp_form_create {purpose, kind, must, title, cover}: 맞는 양식이 없을 때만 — 같은 모델이 목적에 맞는 양식을 설계하고 코드가 공통 양식과 같은
   빌더로 만들어 작업본으로 연다(app/webhwp_form_create). 이 대화에서 hwp_forms 로 먼저 찾아본 뒤에만 돈다.
-- hwp_start {form, title}: 고른 양식으로 작업본을 부서 디렉터리(「작업/<프로젝트>」)에 만들고 이 대화에 잇는다. 한글 원본은 hwpx 로 바꾸고 쓸 자리 필드를 박는다.
+- hwp_start {form, title}: 고른 양식으로 작업본을 부서 디렉터리(「작업/<프로젝트>」)에 만들고 이 대화에 잇는다. 이 대화에 이어진 문서가 비어 있으면(칸 글 합 EMPTY_CHARS 미만)
+  새로 만들지 않고 그 문서에 양식을 불러온다 — 함께 연 화면 모두에 바로 뜬다(공동 편집 시연의 「빈 문서 → 양식 불러오기」). 한글 원본은 hwpx 로 바꾸고 쓸 자리 필드를 박는다.
 - hwp_fields {}: 작업본의 필드와 채움 상태(빈 필드가 먼저).
 - hwp_fill {values: {필드: 값}, from_user}: 칸·표 필드 값 넣기. 사람 칸(「입력:」)은 담당자에게 물어 받은 값만(from_user: true).
 - hwp_write {field, text}: 절 필드에 본문 쓰기(번호 문단 + 마크다운 표). 같은 절을 다시 쓰면 앞 내용을 지우고 새로.
@@ -316,7 +317,16 @@ class HwpTools:
             pri = 0 if group.startswith("공통 양식") else 1
             scored.append((-hit, pri, name, f"tpl:{r['id']} 「{name}」({group})"))
         scored.sort()
-        out += [x[3] for x in scored[:15]]
+        from zzaimy.app import webhwp_write as ww
+        for x in scored[:15]:                              # 칸 수를 함께 — 「수십 쪽 양식」 처럼 분량으로 고를 때 쓴다(큰 파일은 건너뜀)
+            n = ""
+            try:
+                p_ = Path(webhwp.get(self.db, int(x[3][4:x[3].index(" ")]))["path"])
+                if p_.stat().st_size < 3_000_000:
+                    n = f" · 칸 {len(ww.fields(p_.read_bytes()))}개"
+            except Exception:
+                pass
+            out.append(x[3] + n)
         return (("양식 후보(form 에 앞의 id 를 쓴다 — 목적에 맞는 것이 없으면 hwp_form_create 로 새로 설계한다):\n" + "\n".join(out)) if out
                 else "맞는 양식이 없다 — 검색어를 바꿔 한 번 더 찾거나, 목적에 맞는 양식을 hwp_form_create 로 설계해 만든다.")
 
@@ -351,6 +361,9 @@ class HwpTools:
             src = f"doc:{d['id']}"
         else:
             return "form 은 hwp_forms 결과의 id(tpl:… 또는 doc:…)다."
+        cur = self.fid()
+        if cur and self._empty_doc(cur):
+            return self._load_into(cur, data, fields, name, src)
         fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder)
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
@@ -362,6 +375,42 @@ class HwpTools:
             kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
         return (f"작업본 「{name}」 을 {self.dept}/{folder} 에 만들고 이 대화에 이었다(필드 {len(fields)}개: "
                 + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다.")
+
+    EMPTY_CHARS = 200          # 이어진 문서의 칸 글 합이 이만큼 안 되면 「빈 문서」 — 양식을 새 작업본이 아니라 그 문서에 불러온다
+
+    def _empty_doc(self, fid: int) -> bool:
+        """이어진 한글 문서가 비어 있는가(제목·빈 칸뿐) — 함께 연 빈 문서에 양식을 불러오는 장면(공동 편집 시연 등)."""
+        from zzaimy.app import webhwp_write as ww
+        f = webhwp.get(self.db, fid)
+        if not f or webhwp.locked(self.db, fid):
+            return False
+        try:
+            vals = ww.field_values(Path(f["path"]).read_bytes())
+        except Exception:
+            return False
+        return sum(len(str(v or "").strip()) for v in vals.values()) < self.EMPTY_CHARS
+
+    def _load_into(self, fid: int, data: bytes, fields: list[dict], name: str, src: str) -> str:
+        """빈 문서에 양식을 불러온다 — 파일을 양식으로 바꾸고 옛 칸의 공동 편집 기록을 지운다. 저장 알림(doc-saved, 고친 사람 AURA)으로
+        이 문서를 연 화면이 모두 새 판을 다시 불러온다 — 함께 보던 사람 모두에게 양식이 한꺼번에 뜬다."""
+        from zzaimy.app import webhwp_coedit
+        from zzaimy.app import webhwp_write as ww
+        f = webhwp.get(self.db, fid)
+        try:
+            old = [x["name"] for x in ww.fields(Path(f["path"]).read_bytes())]
+            webhwp_coedit.forget(self.db, fid, old)
+        except Exception:
+            pass
+        webhwp.save(self.db, self.base, fid, data, user=webhwp_coedit.AGENT)
+        m = webhwp.meta(self.db, fid)
+        m["form_loaded"] = src
+        self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+        self.writes += 1
+        kinds = {}
+        for x in fields:
+            kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
+        return (f"이어진 빈 문서에 양식 「{name}」 을 불러왔다(필드 {len(fields)}개: " + ", ".join(f"{k} {v}" for k, v in kinds.items())
+                + "). 이 문서를 연 화면에 바로 뜬다. hwp_fields 로 빈 필드를 보고 채운다.")
 
     def fields(self, a: dict) -> str:
         if not self.fid():
