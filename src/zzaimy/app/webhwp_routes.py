@@ -95,12 +95,19 @@ def _need_staff(request: Request) -> None:
         raise HTTPException(403, "교직원·관리자만 쓸 수 있습니다")
 
 
+def _not_view_only(request: Request, fid: int) -> None:
+    """참조로 공유받은 프로젝트의 작업 문서는 읽기만 — 저장·칸 쓰기·잠금·이름 바꾸기·지우기를 막는다."""
+    if _access(request, webhwp.get(request.app.state.db, fid)) == "view":
+        raise HTTPException(403, "참조로 공유된 프로젝트의 문서는 읽기만 할 수 있습니다")
+
+
 def _writable(request: Request, fid: int) -> None:
     """이 문서를 고쳐도(저장·이름 바꾸기·지우기) 되는가 — 잠긴 공통 양식은 관리자만,
     다른 사람이 편집 잠금을 잡고 있으면 409(편집 화면의 잠금만 믿지 않고 서버에서도 막는다)."""
     st = request.app.state
     if webhwp.locked(st.db, fid) and getattr(request.state, "role", "") != "dev":
         raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다 — 「사본 만들기」로 내 부서 폴더에 사본을 만들어 쓰세요")
+    _not_view_only(request, fid)
     holder = webhwp.lock_holder(st.db, fid).get("user", "")
     if holder and holder != getattr(request.state, "user", ""):
         name = webhwp.display_name(st.db, holder, getattr(st, "accounts", None))
@@ -109,9 +116,90 @@ def _writable(request: Request, fid: int) -> None:
 
 def _file(request: Request, fid: int) -> dict:
     f = webhwp.get(request.app.state.db, fid)
-    if not webhwp.may_open(_base(request), f, _depts(request)):
+    if not _access(request, f):
         raise HTTPException(404, "문서를 찾을 수 없습니다")
     return f
+
+
+def work_projects(db, base: Path, f: dict | None, accounts: dict, data_dir=None) -> list[dict]:
+    """이 한글 파일이 작업 문서인 진행 중 프로젝트 — 「작업/<프로젝트 이름>」 폴더(에이전트·복사해 쓰기·양식 작업이 두는 자리)나
+    프로젝트 대화에 이은 파일(webhwp_agent.files_of). 파일을 만든 사람이 지금 그 프로젝트에 쓸 수 있을 때(소유·함께 작업·관리자)만 —
+    같은 이름의 다른 프로젝트나 공유가 풀린 사람이 둔 파일로 권한이 새지 않게."""
+    import json as _json
+
+    from zzaimy.app import project_access as pa
+    from zzaimy.app import storage
+    if not f:
+        return []
+    cands: dict[int, dict] = {}
+    parts = webhwp.folder_of(base, f["path"]).split("/")
+    if len(parts) >= 2 and parts[0] == "작업" and parts[1]:
+        with db._conn() as conn:
+            for r in conn.execute("SELECT * FROM projects WHERE archived = 0").fetchall():
+                p = dict(r)
+                if storage.safe_name(p.get("name") or "")[:40] == parts[1]:
+                    cands[int(p["id"])] = p
+    with db._conn() as conn:
+        rows = conn.execute("SELECT key, value FROM settings WHERE key LIKE 'chat_hwp_files:%' AND value LIKE ?",
+                            (f"%{int(f['id'])}%",)).fetchall()
+    for key, val in rows:
+        try:
+            if int(f["id"]) not in [int(x) for x in _json.loads(val or "[]")]:
+                continue
+            s = db.get_chat_session(int(str(key).split(":", 1)[1]))
+        except (ValueError, TypeError):
+            continue
+        p = db.get_project(int(s["project_id"])) if s and s.get("project_id") else None
+        if p and not p.get("archived"):
+            cands.setdefault(int(p["id"]), p)
+    maker = str((webhwp.meta(db, int(f["id"])) or {}).get("owner") or "")
+    a = accounts.get(maker) or {}
+    out = []
+    for p in cands.values():
+        if not maker or not a:
+            continue
+        if maker == p.get("owner") or a.get("role") == "dev":
+            out.append(p)
+            continue
+        owner_dept = ((accounts.get(p.get("owner") or "") or {}).get("dept") or "").strip()
+        lv = pa.access(p, user=maker, role=a.get("role", "staff"), dept=a.get("dept") or "",
+                       also=tuple(_ap.extra_depts(maker, data_dir)), share=pa.shares(db, p, owner_dept))
+        if pa.can_write(lv):
+            out.append(p)
+    return out
+
+
+def _access(request: Request, f: dict | None) -> str:
+    """이 사람이 이 한글 파일에 갖는 권한 — "edit"(부서 폴더 규칙으로 열거나, 작업 문서인 프로젝트에 함께 작업) ·
+    "view"(작업 문서인 프로젝트를 참조로만 받음 — 읽기 전용) · ""(못 엶). 부서 폴더 규칙(webhwp.may_open)이 먼저고,
+    다른 부서 사람에게 프로젝트를 공유하면 그 프로젝트의 작업 문서도 공유 권한대로 열린다(프로젝트 권한은 main._project_access 한 곳)."""
+    if not f:
+        return ""
+    if webhwp.may_open(_base(request), f, _depts(request)):
+        return "edit"
+    st = request.app.state
+    acc = getattr(st, "project_access", None)
+    if acc is None or getattr(request.state, "role", "") not in _ap.STAFF_ROLES or getattr(request.state, "demo", ""):
+        return ""
+    best = ""
+    for p in work_projects(st.db, _base(request), f, getattr(st, "accounts", {}) or {}, getattr(st, "data_dir", None)):
+        lv = acc(request, p)
+        if lv == "edit":
+            return "edit"
+        best = best or lv
+    return best
+
+
+def _via_project(request: Request, f: dict) -> dict | None:
+    """부서 폴더 규칙 밖에서 프로젝트 공유로 연 파일이면 그 프로젝트(편집 화면의 「돌아가기」 를 문서함 대신 프로젝트로)."""
+    if webhwp.may_open(_base(request), f, _depts(request)):
+        return None
+    st = request.app.state
+    acc = getattr(st, "project_access", None)
+    for p in work_projects(st.db, _base(request), f, getattr(st, "accounts", {}) or {}, getattr(st, "data_dir", None)):
+        if acc is not None and acc(request, p):
+            return p
+    return None
 
 
 def _where(dept: str = "", folder: str = "") -> str:
@@ -433,8 +521,8 @@ async def hwp_presence(request: Request, fid: int):
 async def hwp_live(request: Request, fid: int):
     """(예전 편집 화면) 칸 글 올리기·받기 — 이제 공동 편집 표 위에서. 새 화면은 /ops·/events 를 쓴다."""
     _need_staff(request)
-    _file(request, fid)
-    if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
+    f = _file(request, fid)
+    if (webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev") or _access(request, f) == "view":
         return {"v": 0, "changes": []}
     try:
         body = await request.json()
@@ -477,8 +565,8 @@ def hwp_state(request: Request, fid: int):
 def hwp_lock(request: Request, fid: int):
     """편집 잠금 잡기·늘리기(편집 화면이 45초마다) — 다른 사람이 편집 중이면 ok=false 와 그 사람."""
     _need_staff(request)
-    _file(request, fid)
-    if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
+    f = _file(request, fid)
+    if (webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev") or _access(request, f) == "view":
         return {"ok": False, "by": "", "readonly": True}
     r = webhwp.take_lock(request.app.state.db, fid, getattr(request.state, "user", ""))
     r["by_name"] = webhwp.display_name(request.app.state.db, r["by"], getattr(request.app.state, "accounts", None))     # 화면에는 계정 아이디가 아닌 이름
@@ -906,13 +994,18 @@ def hwp_edit_page(request: Request, id: int | None = None, dept: str = "", folde
     if id is not None:
         f = _file(request, id)
         _touch_file(request, int(id))
+        form_lock = webhwp.locked(st.db, id) and getattr(request.state, "role", "") != "dev"
+        view_only = not form_lock and _access(request, f) == "view"
         ctx = {"f": f, "dept": webhwp.dept_of_path(_base(request), f["path"]),
                "folder": webhwp.folder_of(_base(request), f["path"]), "meta": webhwp.meta(st.db, id),
-               "readonly": webhwp.locked(st.db, id) and getattr(request.state, "role", "") != "dev"}
+               "readonly": form_lock or view_only, "readonly_why": "공통 양식" if form_lock else ("참조" if view_only else "")}
+        via = _via_project(request, f)                     # 다른 부서 문서를 프로젝트 공유로 연 것 — 돌아갈 곳은 그 프로젝트
     else:
         folder = _check_dept(request, dept, folder)
-        ctx = {"f": None, "dept": dept, "folder": folder, "meta": {}, "readonly": False}
-    ctx["back"] = _where(ctx["dept"], ctx["folder"])
+        ctx = {"f": None, "dept": dept, "folder": folder, "meta": {}, "readonly": False, "readonly_why": ""}
+        via = None
+    ctx["back"] = "/project/%d" % int(via["id"]) if via else _where(ctx["dept"], ctx["folder"])
+    ctx["back_label"] = "프로젝트" if via else "문서함"
     ctx["copy_at"] = _copy_at(request) if ctx["readonly"] else {"dept": "", "folder": ""}   # 「복사해 쓰기」 창이 처음 여는 곳
     ctx["embed"] = bool(embed)                              # 채팅 문서 창 안 — 「문서함」 돌아가기는 빼고 새 창 열기는 창 머리줄에
     return st.templates.TemplateResponse(request, "hwp_edit.html", {"request": request, **ctx, "status": webhwp.status()})

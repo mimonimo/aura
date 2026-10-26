@@ -1,5 +1,5 @@
 """프로젝트 화면 작업 문서 — 한글 문서(웹 한글 기안기)와 구글 문서를 한 목록에, 줄마다 그 편집기로 여는 단추.
-한글 파일은 보는 사람이 열 수 있는 부서의 것만. 공유 창은 「공유 안 함 / 공유 중 · N」 단추와 찾아 더하기."""
+한글 파일은 보는 사람이 열 수 있는 것만(부서 폴더 규칙 + 그 프로젝트 공유). 공유 창은 「공유 안 함 / 공유 중 · N」 단추와 찾아 더하기."""
 from __future__ import annotations
 
 import json
@@ -55,7 +55,9 @@ def test_hangul_work_docs_follow_viewer_departments(tmp_path, monkeypatch):
     assert _login(lee, "lee", "pass-12345678")
     page = lee.get(f"/project/{pid}").text
     assert f'aura-edit?id={f["other"]}' in page                    # 내 부서(산학협력단) 작업 폴더
-    assert f'aura-edit?id={f["bound"]}' not in page and f'aura-edit?id={f["loose"]}' not in page
+    # 담당자 부서(기획처)의 작업 문서도 — 다른 부서에 「함께 작업」 으로 공유하면 프로젝트 작업 문서는 공유를 따라 열린다
+    assert f'aura-edit?id={f["bound"]}' in page and f'aura-edit?id={f["loose"]}' in page
+    assert f'aura-edit?id={f["unrelated"]}' not in page
     assert "https://drive.google.com/file/d/U1/view" not in page   # 드라이브 최종본은 담당자 화면에만
 
 
@@ -67,7 +69,7 @@ def test_share_button_and_dialog_wording(tmp_path, monkeypatch):
     kim.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False)
     page = kim.get(f"/project/{pid}").text
     assert "공유 안 함</button>" in page and "공유 · 나만" not in page
-    assert "나만 보기" in page and "함께 쓰기" in page
+    assert "나만 보기" in page and '<span class="share-mode-name">공유</span>' in page
     assert "참조: 읽기 전용 — 공개 대화와 작업 문서를 읽습니다" in page
     assert "함께 작업: 읽기·쓰기 — 대화를 열고 작업 문서를 고칩니다" in page
     assert 'class="share-owner"' in page and ">소유<" in page

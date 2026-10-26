@@ -16,7 +16,7 @@ from fastapi.responses import Response
 
 from zzaimy.app import webhwp
 from zzaimy.app import webhwp_edit_ops as eo
-from zzaimy.app.webhwp_routes import _file, _need_staff
+from zzaimy.app.webhwp_routes import _file, _need_staff, _not_view_only
 
 router = APIRouter()
 
@@ -26,6 +26,7 @@ def _editable(request: Request, fid: int) -> dict:
     f = _file(request, fid)
     if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
         raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다")
+    _not_view_only(request, fid)
     return f
 
 

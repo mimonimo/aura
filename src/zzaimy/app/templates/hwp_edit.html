@@ -142,13 +142,13 @@
 <body{% if embed %} class="embed"{% endif %}>
 <header class="bar">
   {% if embed %}<button type="button" class="back" data-embed="list" title="대화의 문서 목록으로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>목록</button>{% endif %}
-  {% if not embed %}<a class="back" href="{{ back }}" title="한글 문서함으로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>문서함</a>{% endif %}
+  {% if not embed %}<a class="back" href="{{ back }}" title="{{ '프로젝트로' if back_label == '프로젝트' else '한글 문서함으로' }}"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>{{ back_label or '문서함' }}</a>{% endif %}
   {% if not embed %}<button type="button" class="btn tools-btn" data-open-other title="다른 문서 열기 — 최근 문서·내 폴더·부서 폴더·드라이브"><iconify-icon icon="solar:folder-open-linear" aria-hidden="true"></iconify-icon><span class="label-long">열기</span></button>{% endif %}
   <div class="doc">
     {% if f and not readonly %}<button type="button" class="name" data-name title="눌러서 이름 바꾸기">{{ f.name }}</button>
     {% elif f %}<span class="name" data-name title="{{ f.name }}">{{ f.name }}</span>
     {% else %}<span class="name" data-name>새 문서</span>{% endif %}
-    <span class="sub">{% if f %}<a class="where" href="{{ back }}"{% if embed %} target="_blank" rel="noopener"{% endif %} title="문서함에서 이 폴더 열기"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ ([('공동 편집 시연' if dept == '~시연' else dept)] + (folder.split('/') if folder else [])) | join(' › ') }}</span></a>{% endif %}<span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
+    <span class="sub">{% if f %}<a class="where" href="{{ back }}"{% if embed %} target="_blank" rel="noopener"{% endif %} title="{{ '이 문서의 프로젝트 열기' if back_label == '프로젝트' else '문서함에서 이 폴더 열기' }}"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ ([('공동 편집 시연' if dept == '~시연' else dept)] + (folder.split('/') if folder else [])) | join(' › ') }}</span></a>{% endif %}<span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
   </div>
   {% if not readonly %}<button type="button" class="btn struct-on" data-struct-end hidden title="문서 틀 고치기를 끝내고 저장합니다 — 그동안 다른 사람은 칸 안만 씁니다"><iconify-icon icon="solar:pen-new-square-linear" aria-hidden="true"></iconify-icon>문서 틀 고치는 중 · 끝내기</button>{% endif %}
   <span class="co-avatars" data-people role="group" aria-label="지금 이 문서에 있는 사람"></span>
@@ -170,7 +170,7 @@
       {% endfor %}<div class="sep"></div>
       <button type="button" role="menuitem" data-to-drive><iconify-icon icon="solar:cloud-upload-linear"></iconify-icon>구글 드라이브에 올리기</button>
       <div class="sep"></div>
-      {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>문서함에서 보기</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
+      {% if not embed %}<a role="menuitem" href="{{ back }}"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>{{ '프로젝트에서 보기' if back_label == '프로젝트' else '문서함에서 보기' }}</a>{% else %}<a role="menuitem" href="/webhwpctrl/aura-edit?id={{ f.id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 창에서 열기</a>{% endif %}
       {% if not readonly %}<div class="mnote">자동 저장 · 여럿이 함께 편집</div>{% endif %}
     </div>
   </span>{% endif %}
@@ -358,7 +358,7 @@
     eng.on('conflict', function () { var c = document.querySelector('[data-conflicts]'); if (c) c.hidden = false; });
     eng.on('aura', function (a) { auraNow = a && a.field ? a.field : ''; if (!auraNow) lastAuraField = ''; else if (follow) followAura(auraNow, auraNow !== lastAuraField); drawCoStatus(); });
     eng.start().then(function () {
-      if (readonly) { mode = 'view'; hwp.setReadOnly(true); say('공통 양식 — 보기 전용', 'ok'); return; }
+      if (readonly) { mode = 'view'; hwp.setReadOnly(true); say({{ ((readonly_why or '공통 양식') ~ ' — 보기 전용') | tojson }}, 'ok'); return; }
       ready = true;
       setTimeout(fitZoom, 300);
       if (eng.fieldsMode()) {

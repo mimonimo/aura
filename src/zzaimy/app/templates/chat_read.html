@@ -2,20 +2,20 @@
 {% block title %}{{ chat_session.title or '대화' }} · 읽기 전용{% endblock %}
 {% block pagetitle %}대화 읽기{% endblock %}
 {% block content %}
-{# 같은 부서 동료의 프로젝트 대화 — 읽기 전용(입력줄·문서 패널·다시 쓰기 없음). 대화는 만든 사람만 이어 간다 #}
+{# 공유받은 프로젝트의 남의 대화, 또는 공유가 풀린 프로젝트 안 내 대화 — 읽기 전용(입력줄·문서 패널·다시 쓰기 없음). 대화는 만든 사람만 이어 간다 #}
 <link rel="stylesheet" href="/static/chat-workspace.css">
 <div class="chat-read">
   <header class="chat-workspace-head">
     <div class="chat-heading">
-      <span class="chat-eyebrow">{% if chat_project %}<a href="/project/{{ chat_project.id }}">{{ chat_project.name }}</a> · {% endif %}읽기 전용</span>
+      <span class="chat-eyebrow">{% if chat_project %}{% if project_open %}<a href="/project/{{ chat_project.id }}">{{ chat_project.name }}</a>{% else %}{{ chat_project.name }}{% endif %} · {% endif %}읽기 전용</span>
       <h1>{{ chat_session.title or '대화' }}</h1>
-      <p class="chat-scope">{{ chat_session.owner }} 님의 대화입니다. 대화를 이어 가거나 고치는 것은 만든 사람만 할 수 있습니다.</p>
+      <p class="chat-scope">{% if shared_lost %}프로젝트 공유가 풀려 이 대화는 읽기만 합니다.{% else %}{{ person_name(chat_session.owner) }} 님의 대화입니다. 대화를 이어 가거나 고치는 것은 만든 사람만 할 수 있습니다.{% endif %}</p>
     </div>
   </header>
   <div class="chat-read-list">
   {% for m in messages %}
     <div class="turn {{ m.role }}">
-      <div class="chat-speaker">{{ chat_session.owner if m.role == 'user' else 'AURA' }}</div>
+      <div class="chat-speaker">{{ person_name(chat_session.owner) if m.role == 'user' else 'AURA' }}</div>
       {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(sources) }}</div>
       {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
     </div>
