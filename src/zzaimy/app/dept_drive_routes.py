@@ -7,11 +7,11 @@
   허용을 시작한 플랫폼 계정·「dept:<부서>」 목적과 함께 대조한다. 도메인 검사(학교 계정만)는 본인 연결과 같은 exchange_code.
   토큰은 사용자 토큰과 같은 보관소에 메일별로 두고, 부서와 그 메일은 부서 설정으로 잇는다. 토큰·코드는 기록하지 않는다.
 - 사업 책임자·행정 담당자·일반은 상태만 본다. 학생·다른 부서는 볼 수 없다.
-- 관리자 화면(/dev/users)은 확인용 — 연결 계정·폴더·접근 수·마지막 맞추기와 권한 맞추기·연결 끊기(비상)만.
+- 화면은 조직 관리(/team)의 부서 설정 한 곳 — 관리자도 그 자리에서 확인·권한 맞추기·연결 끊기를 한다.
 
 경로: GET /team/drive?dept=…(JSON) · GET /team/drive/folders(위치 고르기) ·
 POST /team/drive/connect · /team/drive/sync · /team/drive/disconnect · /team/drive/move(부서 폴더 위치 바꾸기)
-(폼 그대로 보내면 back 으로 돌아가고, Accept: application/json 이면 {ok, msg}). 화면 조각은 templates/_dept_drive.html.
+(폼 그대로 보내면 back 으로 돌아가고, Accept: application/json 이면 {ok, msg}). 화면은 조직 관리 부서 설정 안의 상자(static/dept-drive.js 가 그린다).
 """
 from __future__ import annotations
 
@@ -236,66 +236,3 @@ def team_drive_move(request: Request, dept: str = Form(""), parent: str = Form("
     except Exception as e:
         return _done(request, back, str(e)[:200], False, dept)
     return _done(request, back, f"{dept_drive.folder_name(dept)} 폴더를 옮겼습니다", True, dept)
-
-
-# ---------------------------------------------------------------- 관리자 화면(/dev/users)의 부서 표
-
-def people_rows(db, dept: str, accounts: dict, data_dir=None) -> list[dict]:
-    """부서 사람 창 — 이름·아이디·그 부서 등급·소속/겸직·드라이브 권한 상태(권한 있음·구글 미연결·첫 로그인 전·해당 없음)."""
-    s = dept_drive.state(db, dept, accounts, data_dir)
-    try:
-        import json as _j
-        granted = set(_j.loads(db.get_setting(f"gdept:{dept}", "{}") or "{}"))
-    except ValueError:
-        granted = set()
-    drive_members = set(s["members"])
-    out = []
-    for uid, a in accounts.items():
-        a = a or {}
-        primary = (a.get("dept") or "").strip() == dept
-        if not primary and uid not in drive_members:
-            continue
-        email = (db.get_setting(f"google_account:{uid}", "") or "").strip().lower()
-        if a.get("active") is False:
-            access = "사용 중지"
-        elif a.get("must_change"):
-            access = "첫 로그인 전"
-        elif uid not in drive_members:
-            access = "해당 없음"
-        elif not email:
-            access = "구글 미연결"
-        elif not s["connected"]:
-            access = "연결 전"
-        else:
-            access = "권한 있음" if email in granted else "맞추기 전"
-        out.append({"uid": uid, "name": a.get("name") or "", "grade": grades.label(grades.grade_in(uid, a, dept, data_dir)),
-                    "primary": primary, "access": access})
-    out.sort(key=lambda r: (not r["primary"], r["name"] or r["uid"]))
-    return out
-
-
-def tree_rows(rows: list[dict], data_dir=None) -> list[dict]:
-    """부서 표를 두 단계로 — 맨 위(처·단과 상위가 없는 부서) 다음에 그 아래 부서. 줄마다 top(맨 위 부서 이름, 맨 위면 빈 값)·
-    is_top(상위 부서 창에서 앞에 둘 처·단 급)·kids(아래 부서 수)를 더한다."""
-    from zzaimy.app import dept_dictionary
-    from zzaimy.app.org_routes import _top_of, is_top
-    over = dept_dictionary.parents_override(data_dir)
-    kids_map = dept_dictionary.children_map(data_dir)
-    names = {r["dept"] for r in rows}
-    for r in rows:
-        t = _top_of(r["dept"], over)
-        r["top"] = t if t in names and t != r["dept"] else ""
-        r["is_top"] = is_top(r["dept"], over, kids_map)
-    under: dict[str, list[dict]] = {}
-    for r in rows:
-        if r["top"]:
-            under.setdefault(r["top"], []).append(r)
-    out = []
-    for r in sorted((r for r in rows if not r["top"]), key=lambda r: r["dept"]):
-        ks = sorted(under.get(r["dept"], []), key=lambda k: k["dept"])
-        r["kids"] = len(ks)
-        out.append(r)
-        for k in ks:
-            k["kids"] = 0
-            out.append(k)
-    return out

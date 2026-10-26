@@ -26,41 +26,77 @@
   // 확인하면 누른 단추(name/value)를 그대로 실어 다시 제출하고, 제출이 떠난 뒤의 거듭 누름은 막는다.
   const accepted = new Set(), sent = new Set();
   let asking = false;
-  function askConfirm({title, message, ok, danger}, opener) {
+  // choices — 고를 것이 있는 확인(예: 아래 부서를 함께 지울지·위로 올릴지): [{value, label, hint}] 를 둥근 단추 목록으로, value 가 기본(없으면 첫 것).
+  // run — 확인을 누르면 창을 연 채로 실행한다(누른 단추 잠금 + busy 문구). 실패하면 창 안에 그 까닭을 보이고 다시 누를 수 있다.
+  // 위험 동작은 처음 초점을 「취소」에 둔다(Enter 한 번에 지우지 않게, 빨간 단추에 초점 테두리가 겹쳐 보이지 않게).
+  function askConfirm({title, message, ok, danger, choices, value, run, busy}, opener) {
     return new Promise(resolve => {
       const dialog = document.createElement('dialog');
       dialog.className = 'confirm-dialog';
       dialog.setAttribute('aria-labelledby', 'confirmDialogTitle');
       dialog.setAttribute('aria-describedby', 'confirmDialogText');
-      dialog.innerHTML = '<h2 id="confirmDialogTitle"></h2><p id="confirmDialogText"></p>'
+      dialog.innerHTML = '<h2 id="confirmDialogTitle"></h2><p id="confirmDialogText"></p><div class="confirm-choices" role="radiogroup" hidden></div>'
+        + '<p class="confirm-error" role="alert" hidden></p>'
         + '<footer><button type="button" class="secondary" data-confirm-cancel>취소</button><button type="button" data-confirm-accept></button></footer>';
       dialog.querySelector('h2').textContent = title;
-      dialog.querySelector('p').textContent = message;
-      const accept = dialog.querySelector('[data-confirm-accept]');
+      dialog.querySelector('#confirmDialogText').textContent = message;
+      const accept = dialog.querySelector('[data-confirm-accept]'), cancel = dialog.querySelector('[data-confirm-cancel]');
+      const errBox = dialog.querySelector('.confirm-error'), box = dialog.querySelector('.confirm-choices');
       accept.textContent = ok;
       accept.classList.toggle('danger', danger);
-      dialog.querySelector('[data-confirm-cancel]').addEventListener('click', () => dialog.close());
-      accept.addEventListener('click', () => dialog.close('accept'));
+      let picked = null, working = false, result = false;
+      if (Array.isArray(choices) && choices.length) {
+        const start = choices.some(c => c.value === value) ? value : choices[0].value;
+        box.hidden = false;
+        box.setAttribute('aria-label', title);
+        choices.forEach((c, i) => {
+          const lab = document.createElement('label'), input = document.createElement('input'), text = document.createElement('span');
+          input.type = 'radio'; input.name = 'confirmChoice'; input.value = c.value; input.checked = c.value === start;
+          input.addEventListener('change', () => { picked = c.value; });
+          const b = document.createElement('b'); b.textContent = c.label; text.append(b);
+          if (c.hint) { const s = document.createElement('small'); s.textContent = c.hint; text.append(s); }
+          lab.append(input, text); box.append(lab);
+        });
+        picked = start;
+      }
+      cancel.addEventListener('click', () => { if (!working) dialog.close(); });
+      accept.addEventListener('click', async () => {
+        if (working) return;
+        const value = picked == null ? true : picked;
+        if (typeof run !== 'function') { result = value; dialog.close('accept'); return; }
+        working = true; errBox.hidden = true;
+        accept.disabled = cancel.disabled = true;
+        dialog.querySelectorAll('.confirm-choices input').forEach(i => { i.disabled = true; });
+        const label = accept.textContent; accept.textContent = busy || '처리 중…';
+        try { result = (await run(value)) ?? value; working = false; dialog.close('accept'); }
+        catch (e) {
+          working = false; accept.disabled = cancel.disabled = false; accept.textContent = label;
+          dialog.querySelectorAll('.confirm-choices input').forEach(i => { i.disabled = false; });
+          errBox.textContent = (e && e.message) || '처리하지 못했습니다 — 잠시 뒤 다시 해 주세요'; errBox.hidden = false;
+        }
+      });
+      dialog.addEventListener('cancel', event => { if (working) event.preventDefault(); });
       // 바깥(배경) 누름 = 취소 — 대화상자 상자 밖 좌표일 때만
       dialog.addEventListener('click', event => {
-        if (event.target !== dialog) return;
-        const box = dialog.getBoundingClientRect();
-        if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
+        if (event.target !== dialog || working) return;
+        const r = dialog.getBoundingClientRect();
+        if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close();
       });
       dialog.addEventListener('close', () => {
         const yes = dialog.returnValue === 'accept';
         dialog.remove();
         if (opener?.isConnected) opener.focus({preventScroll: true});
-        resolve(yes);
+        resolve(yes ? (result === false ? true : result) : false);
       }, {once: true});
       document.body.append(dialog);
       dialog.showModal();
-      accept.focus();
+      (danger ? cancel : accept).focus();
     });
   }
-  // 폼이 아닌 동작(fetch)도 같은 확인창을 쓰게 — await window.platformConfirm('설명', {title, ok, danger})
-  window.platformConfirm = (message, o = {}) => askConfirm({title: o.title || '확인', message, ok: o.ok || '확인', danger: !!o.danger},
-                                                           document.activeElement);
+  // 폼이 아닌 동작(fetch)도 같은 확인창을 쓰게 — await window.platformConfirm('설명', {title, ok, danger, choices, run, busy})
+  // 돌려주는 값: 취소 false, 확인 true(choices 가 있으면 고른 value, run 이 값을 돌려주면 그 값)
+  window.platformConfirm = (message, o = {}) => askConfirm({title: o.title || '확인', message, ok: o.ok || '확인', danger: !!o.danger,
+                                                            choices: o.choices, value: o.value, run: o.run, busy: o.busy}, document.activeElement);
   window.addEventListener('pageshow', () => { asking = false; sent.clear(); });
   document.addEventListener('submit', event => {
     const form = event.target;

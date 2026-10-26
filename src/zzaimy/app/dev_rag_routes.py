@@ -9,7 +9,7 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 
 from zzaimy.app import grades
 
@@ -47,12 +47,18 @@ async def dev_rag_min_grade(request: Request):
     걸면 그 등급 아래 교직원은 그 RAG 의 사업 문서를 검색 범위에서 빼고, 부서 RAG 면 열람에서도 뺀다(rag_spaces.search_scope·
     access_policy.viewer)."""
     from zzaimy.app import rag_spaces
+    from zzaimy.app.dept_drive_routes import wants_json
     st = request.app.state
     form = await request.form()
+    as_json = wants_json(request)                          # 조직 관리의 부서 설정은 fetch 로 보낸다 — {ok, msg}
     space, grade = str(form.get("space") or "").strip(), str(form.get("grade") or "").strip()
     if grade and grade not in grades.GRADES:
+        if as_json:
+            return JSONResponse({"ok": False, "msg": "등급 값이 올바르지 않습니다"}, status_code=400)
         return RedirectResponse("/dev/rag?" + urlencode({"err": "등급 값이 올바르지 않습니다"}) + "#dept-rags", status_code=303)
     if space != grades.COMMON_SPACE and not (space.startswith("dept:") and space[5:] in st.all_depts()):
+        if as_json:
+            return JSONResponse({"ok": False, "msg": "없는 RAG 입니다"}, status_code=400)
         return RedirectResponse("/dev/rag?" + urlencode({"err": "없는 RAG 입니다"}) + "#dept-rags", status_code=303)
     cfg = dict(rag_spaces.config(st.data_dir))
     mg = {k: v for k, v in (cfg.get("min_grade") or {}).items() if v}
@@ -67,6 +73,8 @@ async def dev_rag_min_grade(request: Request):
     rag_spaces.save_config(cfg, st.data_dir)
     name = "공통 RAG" if space == grades.COMMON_SPACE else f"{space[5:]} 부서 RAG"
     msg = f"{name} 최소 등급 — {grades.GRADES[grade] + ' 이상' if grade else '걸지 않음'}"
+    if as_json:
+        return JSONResponse({"ok": True, "msg": msg})
     return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#dept-rags", status_code=303)
 
 # 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳에서 저장한다(user_admin — 같은 rag grants). 이 화면의 표·저장 경로는 뺐다(10-26)

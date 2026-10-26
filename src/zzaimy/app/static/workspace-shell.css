@@ -156,3 +156,51 @@ main td :is(button, .btn, .btn-ghost, .mini-btn) { white-space:nowrap; }
 .confirm-dialog footer button { min-width:84px; min-height:40px; }
 .confirm-dialog footer button.danger { background:var(--red); border-color:var(--red); color:#fff; }
 .confirm-dialog footer button.danger:hover { background:#9A2A28; border-color:#9A2A28; }
+/* 확인창 단추 초점 — 바깥 테두리(outline) 대신 단추 안쪽 고리로. 단추끼리 붙어 있어도 테두리가 옆 단추에 겹쳐 보이지 않는다 */
+.confirm-dialog footer button:focus-visible { outline:0; box-shadow:0 0 0 3px rgba(96,124,158,.35); }
+.confirm-dialog footer button.danger:focus-visible { box-shadow:0 0 0 3px rgba(192,57,43,.3); }
+.confirm-dialog footer button:disabled { opacity:.7; cursor:progress; }
+.confirm-dialog footer button.danger:disabled { background:var(--red); border-color:var(--red); color:#fff; }
+/* 확인창 안 고르기(아래 부서를 함께 지울지 등) — 둥근 단추 줄 */
+.confirm-choices { display:flex; flex-direction:column; gap:8px; margin:16px 0 0; }
+.confirm-choices label { display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }
+.confirm-choices label:has(input:checked) { border-color:#9fb3cf; background:#f4f7fb; }
+.confirm-choices input { margin:3px 0 0; accent-color:var(--navy); flex:none; }
+.confirm-choices span { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.confirm-choices b { font-size:13.5px; font-weight:600; }
+.confirm-choices small { font-size:12px; color:var(--muted); line-height:1.5; }
+.confirm-dialog .confirm-error { margin:12px 0 0; font-size:13px; color:var(--red); white-space:normal; }
+
+/* 목록 일괄 작업 — 행을 고르면 목록 위에 뜨는 작업 줄(선택 n개 · 동작 · 선택 해제). 자리는 늘 잡아 두어 뜨고 질 때 목록이 밀리지 않는다 */
+.list-tools { position:relative; min-height:var(--control-h); margin:0 0 10px; }
+.list-tools > .control-bar { min-height:var(--control-h); }
+.bulk-bar { position:absolute; inset:0; z-index:3; display:flex; align-items:center; flex-wrap:nowrap; gap:8px; padding:0 8px 0 14px;
+  border:1px solid #b9cbe4; border-radius:10px; background:#eef3fa; overflow-x:auto; scrollbar-width:none; }
+.bulk-bar[hidden] { display:none; }
+.bulk-bar .bulk-n { flex:none; font-size:13px; font-weight:600; color:var(--navy); margin-right:4px; white-space:nowrap; }
+.bulk-bar :is(button, .btn-ghost, select) { flex:none; height:30px; min-height:30px; padding:0 12px; font-size:12.5px; border-radius:8px; }
+.bulk-bar select { padding-right:34px; background-position:right 10px center; font-weight:500; }
+.bulk-bar .bulk-gap { flex:1 0 8px; }
+.bulk-bar .danger-text { color:var(--red); }
+/* 행 고르기 칸 — 표 첫 칸 */
+.pick-cell { width:28px; padding-right:0 !important; }
+.pick-cell input { width:16px; height:16px; margin:0; accent-color:var(--navy); cursor:pointer; vertical-align:middle; }
+/* 행 끝 … 메뉴 — 단추 하나, 메뉴는 겹쳐 띄운다(다른 줄을 밀지 않는다) */
+.row-menu { position:relative; display:inline-block; }
+.row-menu > button { width:32px; height:32px; min-height:32px; padding:0; border-radius:8px; background:transparent; border:1px solid transparent; color:var(--muted); font-size:18px; line-height:1; }
+.row-menu > button:hover, .row-menu > button[aria-expanded="true"] { background:var(--panel); border-color:var(--line); color:var(--ink); }
+.row-menu-list { position:absolute; right:0; top:calc(100% + 4px); z-index:80; min-width:168px; padding:4px; border:1px solid var(--line); border-radius:10px;
+  background:#fff; box-shadow:0 12px 30px rgba(15,30,60,.14); text-align:left; }
+.row-menu-list[hidden] { display:none; }
+.row-menu-list.up { top:auto; bottom:calc(100% + 4px); }
+.row-menu-list :is(button, a) { display:flex; width:100%; justify-content:flex-start; gap:8px; padding:7px 10px; border:0; border-radius:7px; background:transparent;
+  color:var(--ink); font-size:13px; font-weight:500; text-decoration:none; white-space:nowrap; box-shadow:none; min-height:0; }
+.row-menu-list :is(button, a):hover, .row-menu-list :is(button, a):focus-visible { background:#f1f4f8; outline:0; }
+.row-menu-list .danger-text { color:var(--red); }
+.row-menu-list button:disabled { color:var(--faint); background:transparent; cursor:default; }
+/* 펼치기·접기 글자 단추(세모 없이) — 접힌 아래 수를 함께 */
+.fold-btn { height:24px; min-height:24px; padding:0 9px; border-radius:999px; background:#fff; border:1px solid var(--line); color:var(--muted);
+  font-size:11.5px; font-weight:500; box-shadow:none; white-space:nowrap; }
+.fold-btn:hover { color:var(--ink); border-color:#c3cedc; background:#fff; }
+/* 사라질 줄 — 처리 중은 흐리게, 끝나면 바로 뺀다 */
+tr.is-busy td, .is-busy { opacity:.45; pointer-events:none; }

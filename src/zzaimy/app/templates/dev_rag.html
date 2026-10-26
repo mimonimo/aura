@@ -160,7 +160,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   </div>
   {% set tot_docs = (staff.grant_docs if staff else 0) + (dept_rags | sum(attribute='docs')) %}
   {% set tot_regs = (staff.reg_docs if staff else 0) + (dept_rags | sum(attribute='reg_docs')) %}
-  <p class="rg-note">합계 사업 문서 {{ "{:,}".format(tot_docs) }}건 · 기준 문서 {{ "{:,}".format(tot_regs) }}건 · 부서 RAG 추가는 <a href="/dev/users#depts">사용자·계정 › 부서</a> · 문서 배정은 <a href="/?type=all">라이브러리</a>의 「공개 범위 바꾸기」{% if not dept_rags %} · 부서 RAG 없음{% endif %}</p>
+  <p class="rg-note">합계 사업 문서 {{ "{:,}".format(tot_docs) }}건 · 기준 문서 {{ "{:,}".format(tot_regs) }}건 · 부서 RAG 추가는 <a href="/team">조직 관리</a> · 문서 배정은 <a href="/?type=all">라이브러리</a>의 「공개 범위 바꾸기」{% if not dept_rags %} · 부서 RAG 없음{% endif %}</p>
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">

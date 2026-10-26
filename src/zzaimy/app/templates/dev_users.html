@@ -2,250 +2,40 @@
 {% block title %}{{ dev_page_name('/dev/users') }}{% endblock %}
 {% block pagetitle %}{{ dev_page_name('/dev/users') }}{% endblock %}
 {% block content %}
+<script>if (location.hash === '#depts') location.replace('/team');   /* 옛 주소 — 부서 표는 조직 관리로 옮겼다 */</script>
 <style>
   .ua-table { width:100%; border-collapse:collapse; font-size:13px; }
   .ua-table th { text-align:left; font-size:12px; color:var(--muted); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
   .ua-table td { padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
-  .ua-table tr.off td { color:var(--faint); }
   .ua-table td.act { text-align:right; white-space:nowrap; }
   .ua-sub { display:block; color:var(--muted); font-size:11.5px; margin-top:1px; }
-  .ua-head { display:flex; align-items:center; gap:10px; }
+  .ua-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .ua-head .spacer { margin-left:auto; }
   .ua-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
   .ua-form { display:flex; flex-direction:column; gap:12px; }
   .ua-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
-  .ua-form input[type=text], .ua-form input[type=password], .ua-form select { font:inherit; font-size:14px; padding:8px 12px; border:1.5px solid var(--line); border-radius:10px; }
-  .ua-form .row { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
-  .ua-form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
-  .ua-form footer { display:flex; gap:8px; justify-content:flex-end; }
-  .ua-lead { margin:0 0 12px; font-size:12.5px; color:var(--muted); line-height:1.6; }
-  /* 부서 표 — 맨 위 부서 다음에 아래 부서(펼치기·접기), 사람은 창으로(만들기·옮기기는 조직도) */
-  .ua-dfind { font:inherit; font-size:12.5px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; width:160px; }
-  .ua-sm { padding:5px 11px; font-size:12px; }
-  .ua-tree td.act form { display:inline; margin:0; }
-  .ua-dname { display:inline-flex; align-items:center; gap:8px; }
-  .ua-indent { display:inline-block; width:14px; height:1px; border-bottom:1px solid var(--line); }
-  .ua-kid td { background:#fafbfc; }
-  .ua-toggle { padding:1px 8px; font-size:11.5px; border:1px solid var(--line); border-radius:999px; background:#fff; color:#45658f; cursor:pointer; box-shadow:none; min-height:0; }
-  .ua-chip { display:inline-block; margin-top:3px; padding:1px 8px; font-size:11.5px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--muted); cursor:pointer; box-shadow:none; min-height:0; }
-  .ua-tree td:first-child .ua-chip { display:block; width:max-content; }
-  .ua-kid td:first-child .ua-chip { margin-left:22px; }
-  .ua-chip:hover, .ua-toggle:hover { background:#eef3fa; color:#1b3b75; }
-  .ua-count { font-size:12.5px; color:var(--ink); margin:0; }
-  .ua-warn { color:#8a5a00; }
-  .ua-rowmsg { display:block; font-size:11.5px; color:var(--red, #b91c1c); } .ua-rowmsg:empty { display:none; }
-  #peopleView > .card { width:460px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; }
-  #peopleView .card-in { display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
-  #peopleView .ua-form { min-height:0; }
-  .ua-plist { overflow:auto; min-height:120px; max-height:min(420px, 55dvh); border:1px solid var(--line); border-radius:10px; padding:4px; }
-  .ua-person { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; padding:7px 10px; border-bottom:1px solid var(--line); font-size:13px; }
-  .ua-person:last-child { border-bottom:0; }
-  .ua-person .ua-sub { margin:0; }
-  .ua-badge { display:inline-block; margin-left:6px; padding:0 6px; border-radius:5px; background:#eef3fa; color:#2b4a78; font-size:11px; font-weight:400; }
-  .ua-access { justify-self:end; font-size:12px; color:var(--muted); }
-  .ua-access.ok { color:#1f7a4d; }
-  #uaConfirm > .card { width:420px; }
-  .ua-toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:1000; max-width:min(560px, calc(100vw - 32px)); padding:10px 16px; border-radius:10px; background:#1f2a3a; color:#fff; font-size:13px; box-shadow:0 8px 24px #10213b40; }
-  .ua-toast.bad { background:#8f1d1d; }
-  #userEdit { padding:20px; box-sizing:border-box; }
-  #userEdit > .card { width:540px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; border-radius:20px; box-shadow:0 24px 80px #10213b30; }
-  #userEdit > .card > .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
-  #userEdit .modal-head { flex:none; padding:22px 24px 18px; margin:0; border-bottom:1px solid var(--line); }
-  #userEdit .modal-head h2 { font-size:18px; letter-spacing:-.4px; }
-  #userEdit .ua-form { padding:22px 24px; overflow-y:auto; min-height:0; gap:18px; }
-  #userEdit .ua-form label { font-size:12px; font-weight:600; gap:7px; }
-  #userEdit input[type=text], #userEdit input[type=password], #userEdit select { width:100%; min-width:0; box-sizing:border-box; min-height:42px; border-width:1px; border-radius:8px; font-size:14px; }
-  #userEdit input[readonly] { background:var(--bg); color:var(--muted); }
-  #userEdit .ua-hint { margin:0; font-size:12px; line-height:1.6; color:var(--muted); font-weight:400; }
-  #userEdit .ua-options { border-top:1px solid var(--line); padding-top:16px; }
-  #userEdit .ua-temp-pw { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
-  #userEdit .ua-temp-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  #userEdit .ua-temp-row .mini-btn { min-height:40px; padding:6px 14px; min-width:72px; }
-  #userEdit .ua-temp-row input { flex:1 1 180px; min-width:0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.04em; background:var(--panel); }
-  #userPasswordFields { margin-top:16px; }
-  #userEdit .ua-options label.check { margin-top:18px; }
-  /* 사용 중지 토글 — 라벨 전체가 누름 영역, 스페이스로 켜고 끈다 */
-  #userEdit .ua-options label.ua-switch { flex-direction:row; align-items:center; gap:12px; margin-top:18px; padding:10px 12px; min-height:44px; box-sizing:border-box;
-    border:1px solid var(--line); border-radius:10px; font-size:14px; font-weight:600; color:var(--ink); cursor:pointer; position:relative; }
-  #userEdit .ua-switch input { position:absolute; opacity:0; width:1px; height:1px; margin:0; }
-  #userEdit .ua-switch-track { flex:none; position:relative; width:42px; height:24px; border-radius:999px; background:#CBD5E1; transition:background .15s ease; }
-  #userEdit .ua-switch-track::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.2); transition:transform .15s ease; }
-  #userEdit .ua-switch input:checked + .ua-switch-track { background:var(--red, #C0392B); }
-  #userEdit .ua-switch input:checked + .ua-switch-track::after { transform:translateX(18px); }
-  #userEdit .ua-switch input:focus-visible + .ua-switch-track { outline:2px solid #607C9E; outline-offset:2px; }
-  #userEdit .ua-switch:hover { background:var(--panel); }
-  #userEdit .ua-footer { flex:none; display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid var(--line); background:var(--bg); }
-  #userEdit .ua-footer button { min-height:40px; border-radius:8px; padding:8px 18px; }
-  #userEdit [hidden] { display:none !important; }
-  #userEdit .ua-extra { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0; }
-  #userEdit .ua-extra legend { font-size:12px; font-weight:600; padding:0 4px; }
-  #userEdit .tm-perms { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
-  #userEdit .tm-perms label { position:relative; display:inline-flex; flex-direction:row; align-items:center; gap:6px; padding:4px 11px 4px 9px; border:1px solid var(--line); border-radius:999px; font-size:12.5px; color:var(--muted); background:#fff; cursor:pointer; }
-  #userEdit .tm-perms input { position:absolute; opacity:0; width:1px; height:1px; }
-  #userEdit .tm-perms .tm-dot { width:14px; height:14px; border-radius:50%; border:1.5px solid #c3ccd8; background:#fff; flex:none; }
-  #userEdit .tm-perms label:has(input:checked) { background:#eef3fa; border-color:#b9cbe4; color:#1b3b75; font-weight:600; }
-  #userEdit .tm-perms label:has(input:checked) .tm-dot { border-color:#1b3b75; background:#1b3b75 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.2l2.3 2.3 4.7-4.9' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/11px no-repeat; }
-  .ua-perm { display:inline-block; margin-left:6px; padding:0 6px; border-radius:5px; background:#eef3fa; color:#2b4a78; font-size:11.5px; }
-  #userEdit .ua-extra-list { display:flex; flex-wrap:wrap; gap:6px 14px; }
-  #userEdit .ua-extra-list label.check { flex-direction:row; align-items:center; gap:6px; margin:0; font-weight:400; font-size:13px; }
-  @media (max-width:640px) { #userEdit { padding:12px; } #userEdit > .card, #userEdit > .card > .card-in { max-height:calc(100dvh - 24px); } #userEdit .modal-head, #userEdit .ua-form, #userEdit .ua-footer { padding:18px; } }
-  #userEdit .ua-extra-rows { display:flex; flex-direction:column; gap:6px; }
-  #userEdit .ua-extra-row { display:grid; grid-template-columns:minmax(0,1fr) 150px 36px; gap:6px; align-items:center; }
-  #userEdit .ua-extra-row button { min-height:38px; padding:0; }
-  @media (max-width:640px) { #userEdit .ua-extra-row { grid-template-columns:1fr 1fr 36px; } }
-  @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } .ua-table .wide { display:none; } }
-  .ua-nw { white-space:nowrap; }
-  /* 좁은 화면 — 표 줄을 카드로(이름 / 주요 값 / 단추), 가로 스크롤 없이 */
-  @media (max-width:600px) {
-    .ua-head { flex-wrap:wrap; }
-    .ua-head .ua-dfind { flex:1 1 100%; width:auto; order:9; margin-left:0; }
-    .ua-cards, .ua-cards tbody { display:block; }
-    .ua-cards tr.ua-th { display:none; }
-    .ua-cards tr { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; position:relative; margin:0 0 8px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; }
-    .ua-cards tr[hidden] { display:none; }
-    .ua-cards td { display:block; padding:0; border:0; min-width:0; }
-    .ua-cards td:first-child { grid-column:1 / -1; padding-right:64px; }
-    .ua-cards td[data-label]::before { content:attr(data-label); display:block; font-size:10.5px; color:var(--muted); margin-bottom:1px; }
-    .ua-cards td.act { position:absolute; top:8px; right:8px; }
-    .ua-tree td:first-child { padding-right:0; }
-    .ua-tree td.act { position:static; grid-column:1 / -1; text-align:left; white-space:normal; }
-    .ua-tree td.act:not(:has(form)) { display:none; }
-    .ua-kid { margin-left:14px !important; }
-    .ua-kid td:first-child .ua-chip { margin-left:0; }
-  }
+  .ua-go { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0; font-size:13px; color:var(--muted); }
+  .ua-go .btn { margin-left:auto; }
+  @media (max-width:640px) { .ua-table .wide { display:none; } }
 </style>
 
 {% if err %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ err }}</span></p>{% endif %}
 {% if ok %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>{% endif %}
 
-<div class="card reveal"><div class="card-in">
-  <h2 class="ua-head control-row"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>사용자
-    <span class="muted" style="font-size:12px; font-weight:400;">{{ users | selectattr('active') | list | length }}명 사용 중</span>
-    <input type="search" class="ua-dfind spacer" data-user-find placeholder="이름·아이디·부서 찾기" aria-label="사용자 찾기">
-    <button type="button" class="secondary" data-modal-open="#userEdit" data-user-new>
-      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>사용자 추가</button></h2>
-  <div class="table-scroll">
-  <table class="ua-table ua-cards" data-user-table>
-    <tr class="ua-th"><th>아이디</th><th>역할</th><th>부서</th><th>문서 작업 계정</th><th></th></tr>
-    {% for u in users %}
-    <tr class="{{ '' if u.active else 'off' }}" data-user-row{% if not u.active %} data-user-off hidden{% endif %} data-q="{{ [u.user, u.name or '', u.role_label, u.grade_label or '', u.dept or '', dept_labels.get(u.dept, '') if u.dept else ''] | join(' ') | lower }}">
-      <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
-      <td data-label="역할"><span class="ua-nw">{{ u.role_label }}</span>{% if u.grade_label %} · <span class="ua-nw">{{ u.grade_label }}</span>{% endif %}{% for k in u.perms %}<span class="ua-perm">+ {{ perms[k] }}</span>{% endfor %}{% if u.extra %}<span class="ua-sub" title="겸직 부서 — 이 부서 문서도 찾고 작업하며, 부서마다 등급이 따로입니다">겸직: {% for d in u.extra %}{{ d }}({{ grades[u.extra_grades[loop.index0]] }}){% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}</td>
-      <td data-label="부서">{% if u.dept %}{{ u.dept }}{% if dept_labels.get(u.dept) and dept_labels[u.dept] != u.dept %}<span class="ua-sub">{{ dept_labels[u.dept] }}</span>{% endif %}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}</td>
-      <td data-label="문서 작업 계정">{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted" title="로그인 뒤 설정에서 「내 학교 계정 연결」">연결 전</span>{% endif %}</td>
-      <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
-            data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-grade="{{ u.grade }}" data-perms="{{ u.perms | join('|') }}" data-dept="{{ u.dept }}" data-extra="{{ u.extra | join('|') }}" data-extra-grades="{{ u.extra_grades | join('|') }}"
-            data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}"
-            data-effective="{{ (u.effective ~ ' · ' ~ u.via) if u.effective and u.via != '본인' else '' }}" aria-label="{{ u.user }} 사용자 편집">편집</button></td>
-    </tr>
-    {% endfor %}
-  </table>
-  </div>
-  <p class="muted" data-user-none hidden style="margin:10px 0 0;">찾는 사용자가 없습니다.</p>
-  {% set off_n = users | rejectattr('active') | list | length %}
-  {% if off_n %}<button type="button" class="btn-ghost" data-user-offs aria-expanded="false" style="margin-top:8px;">사용 중지 {{ off_n }}명 펼치기</button>{% endif %}
-  <script>
-  (function () {
-    var f = document.querySelector('[data-user-find]'), rows = document.querySelectorAll('[data-user-row]'), none = document.querySelector('[data-user-none]');
-    var offs = document.querySelector('[data-user-offs]'), showOff = false;
-    if (!f) return;
-    function apply() {   // 사용 중지 계정은 접어 두되, 찾기에는 늘 걸린다
-      var q = f.value.trim().toLowerCase(), n = 0;
-      rows.forEach(function (tr) { var on = q ? tr.dataset.q.indexOf(q) >= 0 : (showOff || !tr.hasAttribute('data-user-off')); tr.hidden = !on; if (on) n++; });
-      none.hidden = n > 0;
-    }
-    f.addEventListener('input', apply);
-    if (offs) offs.addEventListener('click', function () {
-      showOff = !showOff; offs.setAttribute('aria-expanded', showOff ? 'true' : 'false');
-      offs.textContent = offs.textContent.replace(showOff ? '펼치기' : '접기', showOff ? '접기' : '펼치기'); apply();
-    });
-  })();
-  </script>
+<div class="card reveal" id="org-link"><div class="card-in">
+  <p class="ua-go"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon>
+    <span>계정 {{ users | selectattr('active') | list | length }}명 사용 중 · 부서 {{ dept_choices | length }}개</span>
+    <a class="btn" href="/team?view=all" data-org-link>조직 관리에서 계정·부서 관리</a></p>
 </div></div>
-
-<div class="card reveal" id="depts"><div class="card-in" data-dept-card>
-  <h2 class="ua-head control-row"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
-    <span class="muted" style="font-size:12px; font-weight:400;">{{ depts | length }}개</span>
-    <input type="search" class="ua-dfind spacer" data-dept-find placeholder="부서 찾기" aria-label="부서 찾기">
-    <button type="button" class="btn-ghost" data-tree-all>모두 펼치기</button>
-    <button type="button" class="btn-ghost" data-dept-delmode aria-pressed="false" title="사람이 없는 부서에만 지우기 단추가 나옵니다">빈 부서 지우기</button>
-    <a class="btn-ghost" href="/team" data-org-link title="부서 만들기·위치 옮기기는 조직도 한 곳에서">
-      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>조직도에서 부서 추가</a></h2>
-  <p class="ua-lead">부서 만들기·옮기기는 조직도에서, 부서 드라이브는 각 부서의 총괄 책임자가 조직·구성원 화면에서 연결합니다. 여기서는 부서 RAG 와 연결 상태를 확인합니다.</p>
-  {% if depts %}
-  <div class="table-scroll">
-  <table class="ua-table ua-tree ua-cards">
-    <tr class="ua-th"><th>부서</th><th>사람</th><th>부서 RAG 문서</th><th>부서 드라이브</th><th></th></tr>
-    {% for d in depts %}
-    {% set waiting = d.people | selectattr('access', 'equalto', '첫 로그인 전') | list | length %}
-    <tr data-dept-row="{{ d.dept }}" data-top="{{ d.top }}"{% if d.top %} class="ua-kid" hidden{% endif %}>
-      <td><span class="ua-dname">{% if d.top %}<span class="ua-indent" aria-hidden="true"></span>{% endif %}<b>{{ d.dept }}</b>
-        {% if d.kids %}<button type="button" class="ua-toggle" data-tree-toggle="{{ d.dept }}" aria-expanded="false" data-kids="{{ d.kids }}">펼치기 · {{ d.kids }}</button>{% endif %}</span>
-        {% if d.parent %}<span class="ua-sub" title="상위 부서 — 상위 부서의 총괄 책임자가 이 부서도 맡습니다. 바꾸기는 조직도에서">상위: {{ d.parent }}</span>{% endif %}
-        <span class="ua-rowmsg" role="status"></span></td>
-      <td data-label="사람"><button type="button" class="ua-chip ua-count" data-people-open="{{ d.dept }}">{{ d.people | length }}명</button>{% if waiting %}<span class="ua-sub">첫 로그인 전 {{ waiting }}</span>{% endif %}</td>
-      <td data-label="부서 RAG 문서"><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="라이브러리에서 이 부서 문서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
-      <td data-label="부서 드라이브">{% if d.drive.connected %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>{{ d.drive.name or '부서 폴더' }}</a>
-          <span class="ua-sub">{{ '공용 계정' if d.drive.shared else '개인 계정' }} {{ d.drive.by }} · 접근 {{ d.drive.granted }}명{% if d.drive.unlinked %} · 구글 미연결 {{ d.drive.unlinked | length }}명{% endif %}</span>
-          {% if d.drive.personal %}<span class="ua-sub ua-warn">개인 계정으로 연결됨 — 부서에서 공용 계정으로 바꾸기</span>{% endif %}
-          {% if d.drive.actor or d.drive.connected_at %}<span class="ua-sub">{{ d.drive.actor }}{% if d.drive.actor %} 연결{% endif %}{% if d.drive.connected_at %} · {{ d.drive.connected_at }}{% endif %}{% if d.drive.synced_at %} · 맞춤 {{ d.drive.synced_at }}{% endif %}</span>{% endif %}
-          {% if d.drive.error %}<span class="ua-sub" style="color:var(--red);">{{ d.drive.error }}</span>{% endif %}
-        {% elif d.drive.legacy %}<span class="muted">예전 방식(폴더만 지정)</span>
-        {% else %}<span class="muted">연결 전</span>{% endif %}</td>
-      <td class="act">
-        {% if d.drive.connected %}<form method="post" action="/dev/google/dept" data-ua-ajax data-ua-confirm="{{ d.dept }} 부서 드라이브 연결을 끊을까요? 부서 사람의 폴더 권한을 거두고, 폴더와 문서는 {{ d.drive.by }} 드라이브에 남습니다." data-ua-ok="연결 끊기"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="disconnect">
-          <button type="submit" class="btn-ghost ua-sm" style="color:var(--red);">연결 끊기</button></form>{% endif %}
-        {% if not d.members %}<form method="post" action="/dev/users/dept" data-ua-ajax data-dept-del hidden data-ua-confirm="부서 「{{ d.dept }}」을 지울까요? 부서 RAG 문서 {{ '{:,}'.format(d.docs) }}건은 공통 RAG 로 돌아갑니다." data-ua-ok="지우기">
-          <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ d.dept }}">
-          <button type="submit" class="btn-ghost ua-sm" style="color:var(--red);">지우기</button></form>{% endif %}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  </div>
-  <p class="muted" data-dept-none hidden style="margin:10px 0 0;">찾는 부서가 없습니다.</p>
-  {% else %}<p class="muted" style="margin:0;">아직 부서가 없습니다. <a href="/team">조직도</a>에서 부서를 더하면 계정·부서 RAG 에서 고를 수 있습니다.</p>{% endif %}
-  <script>
-  (function () {   // 지우기 단추는 평소 숨기고, 「빈 부서 지우기」 를 눌렀을 때만 보인다(80여 줄마다 빨간 단추가 늘어서던 것)
-    var b = document.querySelector('[data-dept-delmode]');
-    if (!b) return;
-    b.addEventListener('click', function () {
-      var on = b.getAttribute('aria-pressed') !== 'true';
-      b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.textContent = on ? '지우기 끝내기' : '빈 부서 지우기';
-      document.querySelectorAll('[data-dept-del]').forEach(function (f) { f.hidden = !on; });
-    });
-  })();
-  </script>
-  <script type="application/json" data-dept-json>{{ {"people": dept_people} | tojson }}</script>
-</div></div>
-
-<div class="modal-back" id="peopleView">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:17px;" data-pv-title>부서 사람</h2>
-      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <div class="ua-form">
-      <input type="search" data-pv-find placeholder="이름·아이디로 찾기" aria-label="사람 찾기" autocomplete="off">
-      <div class="ua-plist" data-pv-list></div>
-      <footer class="ua-footer" style="padding:0; border:0;"><a class="btn-ghost" data-pv-team href="/team">구성원 화면에서 관리</a><button type="button" class="secondary" data-modal-close>닫기</button></footer>
-    </div>
-  </div></div>
-</div>
-
-<div class="modal-back" id="uaConfirm">
-  <div class="card"><div class="card-in">
-    <p data-cf-text style="margin:0 0 16px; font-size:14px; line-height:1.6;"></p>
-    <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="button" data-cf-ok>확인</button></footer>
-  </div></div>
-</div>
-<div class="ua-toast" role="status" aria-live="polite" hidden></div>
 
 <div class="card reveal" id="google-links"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
     <a class="btn-ghost spacer" href="/settings">내 학교 계정 연결</a></h2>
-  {# Google 앱 등록 — 플랫폼에 한 번. 계정 연결은 사용자마다(설정)·부서마다(조직·구성원) #}
+  {# Google 앱 등록 — 플랫폼에 한 번. 계정 연결은 사용자마다(설정)·부서마다(조직 관리 › 부서 설정) #}
   <div class="ua-chips" id="googleApp" style="align-items:center;">
     <span class="pill{{ ' reviewed' if app.configured else '' }}">Google 앱 {{ '등록 완료' if app.configured else '등록 필요' }}</span>
     <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
-    <button type="button" class="secondary" data-ua-open="#googleAppEdit" style="padding:4px 11px; font-size:12px;">{{ '앱 설정 변경' if app.configured else '앱 등록' }}</button>
+    <button type="button" class="mini-btn" data-modal-open="#googleAppEdit">{{ '앱 설정 변경' if app.configured else '앱 등록' }}</button>
   </div>
   {% if emails %}
   <div class="table-scroll">
@@ -256,8 +46,8 @@
       <td>{{ e.email }}{% if not e.docs_ok %}<span class="ua-sub">문서 편집 권한 확인 필요</span>{% endif %}</td>
       <td>{{ e.users | join(', ') if e.users else '—' }}{% if e.shared %}<span class="ua-sub">대신 쓰는 사용자: {{ e.shared | join(', ') }}</span>{% endif %}</td>
       <td class="wide">{{ e.granted_at }}</td>
-      <td class="act"><form action="/dev/google/revoke" method="post" data-confirm="{{ e.email }} 연결을 지울까요? 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다.">
-        <input type="hidden" name="email" value="{{ e.email }}"><button type="submit" class="secondary" style="padding:5px 11px; font-size:12px;">연결 삭제</button></form></td>
+      <td class="act"><form action="/dev/google/revoke" method="post" data-confirm-danger data-confirm-ok="연결 삭제" data-confirm="{{ e.email }} 연결을 지울까요? 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다.">
+        <input type="hidden" name="email" value="{{ e.email }}"><button type="submit" class="mini-btn">연결 삭제</button></form></td>
     </tr>
     {% endfor %}
   </table>
@@ -274,207 +64,9 @@
       <label>클라이언트 ID<input type="text" name="client_id" placeholder="….apps.googleusercontent.com" autocomplete="off" required></label>
       <label>클라이언트 보안 비밀번호<input type="password" name="client_secret" autocomplete="new-password" required></label>
       <p class="muted" style="margin:0; font-size:12px; overflow-wrap:anywhere;">리디렉션 URI <code style="user-select:all;">{{ redirect_uri }}</code> · <a href="/dev/doc/notes/2026-09-22-google-drive-source.md" target="_blank" rel="noopener">설정 안내</a></p>
-      <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">저장</button></footer>
+      <footer class="modal-foot"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">저장</button></footer>
     </form>
   </div></div>
 </div>
 
-<div class="modal-back" id="userEdit">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 data-title>사용자</h2>
-      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form id="userEditForm" action="/dev/users/save" method="post" class="ua-form">
-      <input type="hidden" name="is_new" value="">
-      <div class="row">
-        <label>아이디<input type="text" name="uid" autocomplete="off" required pattern="[a-z0-9][a-z0-9_\-]{2,31}"></label>
-        <label>이름<input type="text" name="name" autocomplete="off"></label>
-      </div>
-      <div class="row">
-        <label>역할<select name="role">{% for k, v in roles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-        <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
-          {% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}</select></label>
-      </div>
-      <p class="ua-hint">목록에 없는 부서는 <a href="/team" target="_blank" rel="noopener">조직도에서 부서 추가</a> 뒤 고릅니다.</p>
-      <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
-        <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업(추가 권한은 여기 또는 그 부서 총괄 책임자의 「부서 사람」 화면에서) · 사업 책임자는 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자는 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
-      <fieldset class="ua-extra" data-perm-field><legend>추가 권한 <span class="ua-hint">— 등급과 따로 이 사람에게만</span></legend>
-        <span class="tm-perms">{% for k, v in perms.items() %}<label><input type="checkbox" name="perm" value="{{ k }}"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% endfor %}</span>
-      </fieldset>
-      <p class="ua-hint" data-admin-hint hidden>관리자는 최대 {{ admin_max }}명 · 지금 {{ admin_n }}명</p>
-      {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>겸직 부서 <span class="ua-hint">— 소속 부서처럼 문서를 찾고 작업합니다. 부서마다 등급을 따로 정합니다</span></legend>
-        <div class="ua-extra-rows" data-extra-rows></div>
-        <template data-extra-tpl><div class="ua-extra-row">
-          <input type="text" name="extra" list="uaDeptChoices" autocomplete="off" placeholder="부서 이름" aria-label="겸직 부서">
-          <select name="extra_grade" aria-label="그 부서에서의 등급">{% for k, v in grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
-          <button type="button" class="secondary" data-extra-del aria-label="이 겸직 빼기">×</button></div></template>
-        <button type="button" class="secondary" data-extra-add style="margin-top:6px; padding:5px 11px; font-size:12.5px;">＋ 겸직 부서 더하기</button>
-        <datalist id="uaDeptChoices">{% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}</datalist></fieldset>{% endif %}
-      <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
-      <label>본인 구글 계정<select name="google"><option value="">본인 연결 없음</option>
-        {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}{% if e.users %} — {{ e.users | join(", ") }} 사용 중{% endif %}</option>{% endfor %}</select></label>
-      <p class="ua-hint" data-effective-hint hidden></p>
-      <p class="ua-hint">학교에서 연결된 계정 전체가 관리자에게만 보입니다 — 사용자 본인 설정에는 자기 연결만 보이고, 보통은 본인이 설정에서 연결합니다.</p>
-      <div data-initial-password></div>
-      <input type="hidden" name="active" value="1">
-      <section class="ua-options" data-account-options hidden>
-        <button type="button" class="secondary" data-password-toggle aria-expanded="false" aria-controls="userPasswordFields">임시 비밀번호 만들기</button>
-        <div id="userPasswordFields" hidden>
-        {# 관리자는 비밀번호를 정하지 않는다 — 무작위 임시 비밀번호를 만들어 전달하고, 사용자는 다음 로그인 때 바꾼다(서버가 must_change 로 강제) #}
-        <div class="ua-temp-pw" data-password-field>
-          <label for="uaTempPw"><span data-pw-label>임시 비밀번호</span></label>
-          <div class="ua-temp-row">
-            <input id="uaTempPw" type="text" name="new_pw" readonly autocomplete="off" spellcheck="false" minlength="{{ password_rules.min_length }}" aria-describedby="uaTempHelp">
-            <button type="button" class="mini-btn" data-temp-new>다시 만들기</button>
-            <button type="button" class="mini-btn" data-temp-copy><span>복사</span></button>
-          </div>
-          <p class="ua-hint" id="uaTempHelp">저장하면 이 비밀번호로 바뀝니다 · 사용자에게 전달 · 다음 로그인 때 본인이 새 비밀번호로 변경</p>
-        </div>
-        </div>
-      <div data-account-status hidden>
-        <label class="ua-switch"><input type="checkbox" name="suspended" role="switch" aria-describedby="accountStatusHelp"><span class="ua-switch-track" aria-hidden="true"></span><span>계정 사용 중지</span></label>
-        <p class="ua-hint" id="accountStatusHelp">선택 후 저장하면 로그인이 차단됩니다. 계정과 기존 자료는 삭제되지 않습니다.</p>
-      </div>
-      </section>
-    </form>
-    <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="userEditForm" data-save-user>사용자 추가</button></footer>
-  </div></div>
-</div>
-
-<script>
-(function () {
-  var userForm = document.querySelector('#userEdit form');
-  var passwordToggle = document.querySelector('[data-password-toggle]');
-  var passwordFields = document.getElementById('userPasswordFields');
-  passwordToggle.addEventListener('click', function () {
-    passwordFields.hidden = !passwordFields.hidden;
-    passwordToggle.setAttribute('aria-expanded', String(!passwordFields.hidden));
-    passwordToggle.textContent = passwordFields.hidden ? '임시 비밀번호 만들기' : '임시 비밀번호 취소';
-    if (passwordFields.hidden) userForm.elements.new_pw.value = '';
-  });
-  function syncAccountStatus() {
-    userForm.elements.active.value = userForm.elements.is_new.value === '1' || !userForm.elements.suspended.checked ? '1' : '';
-  }
-  userForm.elements.suspended.addEventListener('change', syncAccountStatus);
-  userForm.addEventListener('submit', syncAccountStatus);
-  // 편집 버튼의 값을 관리 창에 채운다 — 창은 하나, 새로 만들기와 고치기를 같이 쓴다
-  document.querySelectorAll('[data-modal-open="#userEdit"]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var f = document.querySelector('#userEdit form'), isNew = btn.hasAttribute('data-user-new');
-      f.is_new.value = isNew ? '1' : '';
-      f.uid.value = isNew ? '' : btn.dataset.user;
-      f.uid.readOnly = !isNew;
-      f.name.value = isNew ? '' : (btn.dataset.name || '');
-      f.role.querySelectorAll('[data-legacy-role]').forEach(function (option) { option.remove(); });
-      var role = isNew ? 'staff' : btn.dataset.role;
-      if (!Array.from(f.role.options).some(function (option) { return option.value === role; })) {
-        var legacy = new Option('기존 역할 유지', role);
-        legacy.dataset.legacyRole = '1';
-        f.role.add(legacy);
-      }
-      f.role.value = role;
-      // 부서는 알려진 부서 목록(user_admin.known_depts)에서만 고른다 — 목록에 없는 값이 오면 지금 값으로 보이게만 한다
-      f.dept.querySelectorAll('[data-legacy-dept]').forEach(function (option) { option.remove(); });
-      var dept = isNew ? '' : (btn.dataset.dept || '');
-      if (dept && !Array.from(f.dept.options).some(function (option) { return option.value === dept; })) {
-        var oldDept = new Option(dept + ' (목록에 없음)', dept);
-        oldDept.dataset.legacyDept = '1';
-        f.dept.add(oldDept);
-      }
-      f.dept.value = dept;
-      // 겸직 부서(여러 줄: 부서 + 그 부서에서의 등급) — 표의 data-extra·data-extra-grades 로 채운다. 교직원만 받는다
-      var extra = isNew ? [] : (btn.dataset.extra || '').split('|').filter(Boolean);
-      var extraG = isNew ? [] : (btn.dataset.extraGrades || '').split('|');
-      fillExtra(extra.map(function (d, i) { return [d, extraG[i] || 'member']; }));
-      var extraBox = document.querySelector('#userEdit [data-extra-depts]');
-      var syncExtra = function () { if (extraBox) extraBox.hidden = f.role.value !== 'staff'; };
-      // 등급은 교직원일 때만 고른다 — 관리자·학생은 등급이 없다
-      if (f.grade) f.grade.value = (!isNew && btn.dataset.grade) || '{{ default_grade }}';
-      var hasPerms = (!isNew && btn.dataset.perms ? btn.dataset.perms.split('|') : []);
-      document.querySelectorAll('#userEdit input[name="perm"]').forEach(function (cb) { cb.checked = hasPerms.indexOf(cb.value) >= 0; });
-      var syncGrade = function () {
-        var gf = document.querySelector('#userEdit [data-grade-field]'), ah = document.querySelector('#userEdit [data-admin-hint]');
-        if (gf) gf.hidden = f.role.value !== 'staff';
-        var pf = document.querySelector('#userEdit [data-perm-field]'); if (pf) pf.hidden = f.role.value !== 'staff';
-        if (ah) ah.hidden = f.role.value !== 'dev';
-      };
-      f.role.onchange = function () { syncExtra(); syncGrade(); }; f.dept.onchange = syncExtra; syncExtra(); syncGrade();
-      f.google.value = isNew ? '' : (btn.dataset.google || '');
-      // 본인 연결이 없어도 부서 공용·공용 계정으로 문서를 쓰는 사용자 — 표의 「문서 작업 계정」과 같은 말을 창에서도 한다
-      var eff = document.querySelector('#userEdit [data-effective-hint]');
-      eff.hidden = isNew || !btn.dataset.effective;
-      eff.textContent = eff.hidden ? '' : '지금 문서 작업 계정: ' + btn.dataset.effective + ' (본인 연결이 없어 대신 쓰는 계정)';
-      f.elements.suspended.checked = !isNew && btn.dataset.active !== '1';
-      f.elements.suspended.disabled = isNew;
-      document.querySelector('#userEdit [data-account-status]').hidden = isNew;
-      var options = document.querySelector('#userEdit [data-account-options]');
-      options.hidden = isNew;
-      passwordFields.hidden = true;
-      passwordToggle.setAttribute('aria-expanded', 'false');
-      passwordToggle.textContent = '임시 비밀번호 만들기';
-      var passwordField = document.querySelector('#userEdit [data-password-field]');
-      if (isNew) document.querySelector('#userEdit [data-initial-password]').appendChild(passwordField);
-      else passwordFields.appendChild(passwordField);
-      syncAccountStatus();
-      f.new_pw.value = '';
-      f.new_pw.required = isNew;
-      document.querySelector('#userEdit [data-title]').textContent = isNew ? '사용자 추가' : '사용자 편집';
-      document.querySelector('#userEdit [data-save-user]').textContent = isNew ? '사용자 추가' : '변경 사항 저장';
-      document.querySelector('#userEdit [data-pw-label]').textContent = isNew ? '임시 비밀번호(첫 로그인용)' : '임시 비밀번호';
-    });
-  });
-  // 겸직 줄 — ＋ 더하기·× 빼기(줄 틀은 template)
-  var rowsBox = document.querySelector('#userEdit [data-extra-rows]'), tpl = document.querySelector('#userEdit [data-extra-tpl]');
-  function addExtra(dept, grade) {
-    if (!rowsBox || !tpl || !tpl.content) return;
-    var row = tpl.content.firstElementChild.cloneNode(true);
-    row.querySelector('input').value = dept || '';
-    row.querySelector('select').value = grade || 'member';
-    row.querySelector('[data-extra-del]').addEventListener('click', function () { row.remove(); });
-    rowsBox.appendChild(row);
-    return row;
-  }
-  function fillExtra(pairs) {
-    if (!rowsBox) return;
-    rowsBox.innerHTML = '';
-    pairs.forEach(function (p) { addExtra(p[0], p[1]); });
-  }
-  var addBtn = document.querySelector('#userEdit [data-extra-add]');
-  if (addBtn && addBtn.addEventListener) addBtn.addEventListener('click', function () { var r = addExtra('', 'member'); if (r) r.querySelector('input').focus(); });
-})();
-</script>
-<script src="/static/dev-users-depts.js?v={{ asset_v }}" defer></script>
-<script>
-// 임시 비밀번호 — 브라우저에서 무작위로 만든다(헷갈리는 글자 0·O·1·l·I 빼고, 4자씩 묶어 불러 주기 쉽게).
-// 값은 이 창의 칸에만 있고 저장 뒤 서버 응답·주소·로그에 남지 않는다. 길이 규칙은 서버(passwords.problem)와 같다
-(function () {
-  var form = document.getElementById('userEditForm');
-  if (!form || !window.crypto || !crypto.getRandomValues) return;
-  var field = form.elements.new_pw, fields = document.getElementById('userPasswordFields');
-  var copy = form.querySelector('[data-temp-copy]'), min = parseInt(field.getAttribute('minlength'), 10) || 8;
-  var ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-  function make() {
-    var groups = Math.max(3, Math.ceil(min / 4)), out = [], buf = new Uint32Array(groups * 4);
-    crypto.getRandomValues(buf);
-    for (var g = 0; g < groups; g++) {
-      var part = '';
-      for (var i = 0; i < 4; i++) part += ABC[buf[g * 4 + i] % ABC.length];
-      out.push(part);
-    }
-    field.value = out.join('-');
-    copy.querySelector('span').textContent = '복사';
-  }
-  form.querySelector('[data-temp-new]').addEventListener('click', make);
-  copy.addEventListener('click', function () {
-    function done(ok) { copy.querySelector('span').textContent = ok ? '복사됨' : '복사 실패 — 칸을 눌러 직접 복사'; }
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(field.value).then(function () { done(true); }, function () { done(false); });
-    else { field.select(); done(false); }
-  });
-  field.addEventListener('focus', function () { field.select(); });
-  // 편집 창의 「임시 비밀번호 만들기」를 펼치거나 새 사용자 창을 열면 바로 하나 만든다(기존 처리 뒤에 이어 붙는 손잡이)
-  document.querySelector('[data-password-toggle]').addEventListener('click', function () { if (!fields.hidden) make(); });
-  document.querySelectorAll('[data-modal-open="#userEdit"]').forEach(function (btn) {
-    btn.addEventListener('click', function () { if (btn.hasAttribute('data-user-new')) make(); });
-  });
-})();
-</script>
 {% endblock %}

@@ -41,7 +41,7 @@ def test_google_app_registration_lives_on_users_page(docs_env, tmp_path):
     client = client_for(tmp_path)
     page = client.get('/dev/users').text
     card = page.split('id="google-links"', 1)[1].split('</div></div>', 1)[0]
-    assert 'Google 앱 등록 완료' in card and 'data-ua-open="#googleAppEdit"' in card and '앱 설정 변경' in card
+    assert 'Google 앱 등록 완료' in card and 'data-modal-open="#googleAppEdit"' in card and '앱 설정 변경' in card
     modal = page.split('id="googleAppEdit"', 1)[1].split('</form>', 1)[0]
     assert 'action="/dev/gdrive/client"' in modal and 'name="client_id"' in modal and 'name="client_secret"' in modal
     assert '/dev/gdrive/callback' in modal                                   # 리디렉션 URI 를 보인다

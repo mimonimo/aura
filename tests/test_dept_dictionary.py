@@ -244,7 +244,7 @@ def test_dual_post_rows_save_grants_and_grades(tmp_path):
     app, c = _client(tmp_path)
     for n in ("기획처", "다라2.0사업단", "학생처"):
         c.post("/dev/users/dept", data={"action": "create", "name": n})
-    page = c.get("/dev/users").text
+    page = c.get("/team").text                                                # 계정 편집 창은 조직 관리(ADR-0073)
     assert "겸직 부서" in page and "data-extra-add" in page and 'name="extra_grade"' in page
     r = c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",
                                         "extra": ["다라2.0사업단", "학생처", "기획처", "없는부서"],
@@ -254,8 +254,8 @@ def test_dual_post_rows_save_grants_and_grades(tmp_path):
     assert a["dept_grades"] == {"다라2.0사업단": "head"}                       # 일반은 따로 적지 않음, 소속·모르는 부서는 뺌
     grants = rag_spaces.config(tmp_path)["grants"]["zzaimy"]
     assert sorted(grants) == ["dept:다라2.0사업단", "dept:학생처"]
-    page = c.get("/dev/users").text
-    assert "겸직: 다라2.0사업단(총괄 책임자), 학생처(일반)" in page
+    me = next(u for u in c.get("/api/org/accounts").json()["users"] if u["user"] == "zzaimy")
+    assert me["extra"] == ["다라2.0사업단", "학생처"] and me["extra_grades"] == ["head", "member"]
     # 겸직을 빼면 둘 다에서 빠진다
     c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",
                                     "extra": ["학생처"], "extra_grade": ["clerk"]})

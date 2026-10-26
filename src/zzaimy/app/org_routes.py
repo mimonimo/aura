@@ -1,4 +1,4 @@
-"""조직도 — 부서를 두 단계(처·단 → 팀·센터)로 보이고 고친다(ADR-0066 「부서 단위와 등급」).
+"""조직 관리(/team)의 트리 자료와 부서 고치기 — 부서 위계를 단계 제한 없이 보이고 고친다(ADR-0066 「부서 단위와 등급」).
 
 위계는 관리자가 확정한 관계(dept_dictionary 의 dept_parents.json)만 쓴다. 부서 만들기·지우기는 사용자·계정 화면과 같은 길
 (rag_spaces.create_dept_rag · user_admin.delete_dept)을 쓴다. 이름 바꾸기는 rename_dept 한 함수가 계정 부서·겸직 등급·
@@ -9,7 +9,7 @@
 - 총괄 책임자: 자기가 맡은 처·단 아래(하위 부서)만 — 그 처·단 자체와 다른 처·단은 보기만.
 - 그 밖의 교직원: 보기만. 학생은 열지 못한다.
 
-경로: GET /api/org · POST /org/move · /org/rename · /org/delete · /org/create · /org/head (JSON 본문)
+경로: GET /api/org(nodes: 부서마다 바로 위 부서·권한) · POST /org/move · /org/rename · /org/delete · /org/create · /org/head (JSON 본문)
 """
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ def _top_of(name: str, over: dict) -> str:
     return top
 
 
-def _people(accounts: dict, dept: str, data_dir, detail: bool = True) -> dict:
+def _people(accounts: dict, dept: str, data_dir, detail: bool = True, depts_of: dict | None = None) -> dict:
     """그 부서의 사람 수(소속·겸직)와 그 부서에서 바로 총괄 책임자·사업 책임자인 사람.
     보안: detail 이 아니면(관리자·그 부서를 맡은 총괄 책임자가 아니면) 사람 수와 책임자 표시 이름만 — 아이디·겸직 여부·겸직 수는 뺀다."""
     n = extra = 0
@@ -118,7 +118,7 @@ def _people(accounts: dict, dept: str, data_dir, detail: bool = True) -> dict:
         primary = str(a.get("dept") or "").strip() == dept
         if primary:
             n += 1
-        elif dept in grades.depts_of(uid, a, data_dir):
+        elif dept in (depts_of[uid] if depts_of is not None and uid in depts_of else grades.depts_of(uid, a, data_dir)):
             extra += 1
         else:
             continue
@@ -148,16 +148,23 @@ def tree(st, actor: Actor) -> dict:
             n_docs = {str(r[0]): int(r[1]) for r in c.execute(
                 f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
     known = set(depts)
+    # 사람마다 속한 부서(소속·겸직)는 한 번만 — 부서마다 다시 읽으면 부서 수 × 사람 수만큼 설정 파일을 읽는다
+    member_of = {uid: set(grades.depts_of(uid, a, dd)) for uid, a in accounts.items()
+                 if a.get("role") in grades.STAFF and a.get("active", True)}
+    cache: dict[str, dict] = {}
 
     def node(d: str) -> dict:
+        if d in cache:
+            return dict(cache[d])
         u = dic.by_name.get(dic.normalize(d) or d) or {}
         k = _kind(d)
         detail = actor.admin or d in actor.covered          # 자세한 값(아이디·겸직·문서 수)은 관리자와 그 부서를 맡은 총괄 책임자만
         row = {"name": d, "kind": dept_dictionary.KINDS.get(k, ""), "aliases": list(u.get("aliases") or [])[:6],
-               "can_edit": actor.can_edit(d), **_people(accounts, d, dd, detail)}
+               "can_edit": actor.can_edit(d), **_people(accounts, d, dd, detail, member_of)}
         if detail:
             row["docs"] = n_docs.get(d, 0)
-        return row
+        cache[d] = row
+        return dict(row)
 
     tops, loose = [], []
     placed: dict[str, list[str]] = {}
@@ -199,11 +206,38 @@ def tree(st, actor: Actor) -> dict:
         cur = over.get(d, "")
         if sp and sp != cur and sp != d and sp in tops_set and not kids.get(d):
             sugg.append({"dept": d, "parent": sp, "can": actor.can_edit(d) and actor.can_hold(sp)})
-    out = {"tops": out_tops, "loose": [node(d) for d in loose], "suggestions": sugg,
+    # 조직 관리 트리 — 부서마다 바로 위 부서(parent, 없으면 맨 위). 단계 수에 제한이 없다. 화면은 이것으로 세로 트리를 그린다
+    team_all, team_depts = _team_view(st, actor)
+    mins = (rag_spaces.config(dd).get("min_grade") or {}) if actor.admin else {}
+    nodes = []
+    for d in depts:
+        row = node(d)
+        p = over.get(d, "")
+        row["parent"] = p if p in known and p != d else ""
+        row["can_hold"] = actor.can_hold(d)
+        row["team"] = team_all or d in team_depts           # 구성원을 볼 수 있나(관리자·총괄 책임자·그 부서 사업 책임자)
+        if actor.admin:
+            row["min_grade"] = mins.get(f"dept:{d}", "")
+        nodes.append(row)
+    out = {"nodes": nodes, "tops": out_tops, "loose": [node(d) for d in loose], "suggestions": sugg,
            "admin": actor.admin, "can_any": actor.can_any, "can_top": actor.admin}
     if actor.can_any:
         out["roots"] = sorted(actor.roots)
     return out
+
+
+def _team_view(st, actor: "Actor") -> tuple[bool, set[str]]:
+    """구성원을 볼 수 있는 부서 — (전부인가, 부서 모음). 관리자는 전부, 총괄 책임자는 맡은 부서(하위 포함), 사업 책임자는 그 부서."""
+    if actor.admin:
+        return True, set()
+    accounts = getattr(st, "accounts", None) or {}
+    acct = accounts.get(actor.user) or {}
+    dd = getattr(st, "data_dir", None)
+    out = set(actor.covered)
+    for d in grades.depts_of(actor.user, acct, dd):
+        if grades.grade_in(actor.user, acct, d, dd) == "lead":
+            out.add(d)
+    return False, out
 
 
 @router.get("/api/org")
@@ -244,27 +278,25 @@ def _fail(msg: str, code: int = 400) -> JSONResponse:
 
 
 def _check_parent(over: dict, kids: dict, dept: str, parent: str) -> str:
-    """parent 가 놓을 수 있는 처·단인가(빈 값은 맨 위) — 문제면 문장."""
+    """parent 아래에 dept 를 둘 수 있나(빈 값은 맨 위) — 문제면 문장. 단계 수는 제한하지 않는다(조직 관리 트리, 10-26).
+    순환(자기 아래 부서를 상위로)은 dept_dictionary.set_parent 가 쓰기 전에 다시 본다."""
     if not parent:
         return ""
     if parent == dept:
         return "자기 자신 아래로 옮길 수 없습니다"
-    if not is_top(parent, over, kids) or over.get(parent, ""):
-        return f"{parent} 아래에는 둘 수 없습니다 — 처·단이 아니라서 세 단계가 됩니다. 처·단 아래로 옮기세요"
+    up, seen = over.get(parent, ""), {parent}
+    while up and up not in seen:
+        if up == dept:
+            return f"「{parent}」 은(는) 「{dept}」 아래 부서라 그 아래로 옮길 수 없습니다"
+        seen.add(up)
+        up = over.get(up, "")
     return ""
 
 
 def _check_place(st, dept: str, parent: str) -> str:
-    """dept 를 parent 아래(빈 값이면 맨 위)에 둘 수 있나 — 두 단계 규칙. 문제면 문장."""
+    """dept 를 parent 아래(빈 값이면 맨 위)에 둘 수 있나. 문제면 문장."""
     dd = getattr(st, "data_dir", None)
-    over = dept_dictionary.parents_override(dd)
-    kids = dept_dictionary.children_map(dd)
-    err = _check_parent(over, kids, dept, parent)
-    if err or not parent:
-        return err
-    if kids.get(dept):
-        return f"{dept} 아래에 부서가 있어 다른 처·단 아래로 옮기지 않습니다 — 하위 부서를 먼저 옮기세요"
-    return ""
+    return _check_parent(dept_dictionary.parents_override(dd), dept_dictionary.children_map(dd), dept, parent)
 
 
 @router.post("/org/move")
@@ -615,20 +647,28 @@ async def org_delete(request: Request):
 
 
 def _org_delete(request: Request, b: dict):
-    from zzaimy.app.user_admin import delete_dept
+    """부서 지우기 — 아래 부서는 kids 대로(lift: 지운 부서의 자리로 올리기, with: 함께 지우기). 함께 지울 부서도 모두 고칠 권한이 있어야 한다."""
+    from zzaimy.app.user_admin import KID_MODES, delete_dept, delete_message, delete_plan
     st = request.app.state
     actor = Actor(request)
     name = _name(b.get("dept"))
+    kids = str(b.get("kids") or "lift")
+    if kids not in KID_MODES:
+        return _fail("아래 부서를 어떻게 할지 골라 주세요")
     if name not in _known(st):
         return _fail("없는 부서입니다")
     _need(actor.can_edit(name), "이 부서는 지울 수 없습니다 — 맡은 처·단의 하위 부서만 고칩니다")
     accounts = getattr(st, "accounts", None) or {}
-    if any((a.get("dept") or "").strip() == name for a in accounts.values()):     # 쓰기 전에 막는다(delete_dept 도 다시 본다)
-        return _fail(f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요", 409)
-    err, moved = _write_all(st, (name,), lambda: delete_dept(st, accounts, name), targets=("공통",))
+    plan = delete_plan(st, accounts, name, kids)
+    _need(all(actor.can_edit(d) for d in plan["targets"]), "함께 지울 아래 부서 가운데 고칠 수 없는 부서가 있습니다")
+    if plan["lift"]:
+        _need(actor.can_hold(plan["up"]), "아래 부서를 올릴 자리(맨 위 처·단)는 관리자만 정합니다 — 함께 지우기를 고르거나 관리자에게 요청해 주세요")
+    if plan["blocked"]:                                   # 쓰기 전에 막는다(delete_dept 도 다시 본다)
+        return _fail(f"{', '.join('「' + d + '」' for d in plan['blocked'][:3])} 부서에 사람이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요", 409)
+    err, moved = _write_all(st, tuple(plan["targets"]), lambda: delete_dept(st, accounts, name, kids), targets=("공통",))
     if err:
         return _fail(err, 409)
-    return {"ok": True, "msg": f"{name} 부서를 지웠습니다 · 문서 {moved}건은 공통 RAG 로"}
+    return {"ok": True, "msg": delete_message(name, plan, moved), "deleted": plan["targets"], "lifted": plan["lift"]}
 
 
 @router.post("/org/create")

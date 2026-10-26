@@ -102,10 +102,8 @@ def test_admin_table_json_actions(env, monkeypatch):
     db = app.state.db
     r = dev.post("/dev/users/dept-parent", data={"dept": "기획팀", "parent": "기획처"}, headers=J)
     assert r.status_code == 200 and r.json()["ok"]
-    page = dev.get("/dev/users").text
-    card = page[page.index('id="depts"'):page.index('id="peopleView"')]
-    assert card.index('data-dept-row="기획처"') < card.index('data-dept-row="기획팀"') and 'data-tree-toggle="기획처"' in card
-    assert 'data-top="기획처" class="ua-kid" hidden' in card                     # 아래 부서는 접혀 있다
+    nodes = {n["name"]: n for n in dev.get("/api/org").json()["nodes"]}
+    assert nodes["기획팀"]["parent"] == "기획처"                                # 조직 관리 트리(ADR-0073)
     r = dev.post("/dev/users/dept-parent", data={"dept": "기획처", "parent": "없는부서"}, headers=J)
     assert r.status_code == 400 and not r.json()["ok"]
     r = dev.post("/dev/users/dept", data={"action": "create", "name": "새부서"}, headers=J)
@@ -123,9 +121,9 @@ def test_admin_table_json_actions(env, monkeypatch):
     r = dev.post("/dev/google/dept", data={"dept": "학생처", "action": "disconnect"}, headers=J)
     assert r.json()["ok"] and deleted == ["P1"] and db.get_setting("google_root:학생처") == ""
     assert db.get_setting("google_account_dept:학생처") == ""
-    # 부서 사람 창 자료 — 소속·등급·드라이브 상태
-    people = json.loads(page.split('data-dept-json>')[1].split("</script>")[0])["people"]["기획처"]
-    assert people and people[0]["uid"] == "zzaimy" and people[0]["primary"] and people[0]["grade"] == "사업 책임자"
+    # 부서 구성원 — 조직 관리의 구성원 탭 자료
+    people = dev.get("/api/org/members", params={"dept": "기획처"}).json()["rows"]
+    assert people and people[0]["uid"] == "zzaimy" and people[0]["primary"] and people[0]["grade_label"] == "사업 책임자"
 
 
 def test_connect_reuses_folder_for_same_account(monkeypatch):
