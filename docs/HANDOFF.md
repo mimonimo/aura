@@ -4,7 +4,7 @@
 `PROJECT_BRIEF.md`(판단 기준). 지금 하는 일과 진행 중인 일은 `docs/dev-now.md` 가 정본이고, 구조는 `docs/architecture.md`,
 결정의 근거는 `docs/decisions/`(ADR) 에 있다.
 
-문서 점검: 2026-10-26. 옛 날짜별 기록(9~10월 초 후보 생성·반입 실험·옛 현황표)은 지웠다. 필요하면 깃 이력과
+문서 점검: 2026-10-27. 옛 날짜별 기록(9~10월 초 후보 생성·반입 실험·옛 현황표)은 지웠다. 필요하면 깃 이력과
 `docs/collaboration/` 의 작업 기록에서 찾는다.
 
 ---
@@ -90,8 +90,9 @@
 | 검색·지식 | RAG 공간 `/dev/rag`, 그래프 탐색 `/graph/explore`, 품질·성능 `/dev/quality` |
 | 문서 작성 | 공동 편집 시연 `/dev/coedit-demo` |
 | 모델 학습 | 데이터·학습 `/dev/train`, 수집 자료 `/dev/collect`, 도구·모델 연결 `/dev/tools`, 모델 비교 결과 `/dev/models/compare` |
-| 보안·관리 | 사용자·계정 `/dev/users`(구글 앱 등록 포함), 개인정보·반출 점검 `/dev/pii` |
+| 보안·관리 | 구글 계정 연결 `/dev/users`(구글 앱 등록·학교 계정 연결 현황), 개인정보·반출 점검 `/dev/pii` |
 
+계정·부서·구성원 관리는 개발 화면이 아니라 업무 화면 사이드바의 조직 관리 `/team` 한 곳이다(ADR-0073). `/dev/intake` 는 처리 흐름의 반입 점검 칸으로 넘긴다.
 옛 주소 `/dev/data`·`/dev/nas`·`/dev/api/intake` 와 구독 인증 상태 확인은 지웠다(10-25).
 
 ## 5. 사람 손이 필요한 남은 일

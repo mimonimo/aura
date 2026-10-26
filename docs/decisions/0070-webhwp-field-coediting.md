@@ -1,6 +1,6 @@
 # 0070. 웹 한글 기안기 실시간 공동 편집은 칸(누름틀) 단위 임대와 서버 정답으로
 
-- **상태**: 확정(칸 글 주고받기·임대·구조 잠금). 절 서식째 주고받기(M3)는 시험 기능 — 설정으로만 켠다
+- **상태**: 확정 (칸 글 주고받기·임대·구조 잠금. 서식 실시간 주고받기 coedit:rich 는 10-26 덧붙임으로 기본 켬)
 - **날짜**: 2026-10-24
 - **관련**: `app/webhwp_coedit.py`·`webhwp_coedit_routes.py`, `static/webhwp-wrapper.js`·`webhwp-collab.js`·`webhwp-collab.css`, `templates/hwp_edit.html`, ADR-0035(한글 완성본 채우기)
 

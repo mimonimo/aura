@@ -1,6 +1,6 @@
 # 시스템 설계
 
-> 지금 구조의 정본이다(마지막 정리 2026-10-25). 착수 단계(2026-09-01)에 쓴 설계 판단의 근거는 그대로 두고, 구현이 달라진 곳은 각 절에 `현황:`으로 적는다.
+> 지금 구조의 정본이다(마지막 정리 2026-10-27). 착수 단계(2026-09-01)에 쓴 설계 판단의 근거는 그대로 두고, 구현이 달라진 곳은 각 절에 `현황:`으로 적는다.
 > 문서 작성은 9장(에이전트)·10.2(웹 한글 기안기 공동 편집)·10.3(27B 가 문서에 쓰는 길)이 지금 모습이다. 결정의 이유는 결정 기록(ADR)에 있다.
 > 운영 구성은 [프로젝트 브리프](../PROJECT_BRIEF.md) 4·6장과 [인수인계](HANDOFF.md)를 따른다.
 > 근거: [조사 요약](../research/00-summary.md), [시스템 개관 조사](../research/02-system-overview.md), 1~2주차 측정.
@@ -224,16 +224,19 @@ for 절 in 목차:
 | 에이전트 채팅 | chat_routes.py | /chat/* |
 | 개발 현황·처리 흐름·원천 데이터·품질 | dev_overview_routes.py | /dev, /dev/flow, /dev/db, /dev/quality, /dev/eval, /dev/reindex |
 | 데이터·학습·도구 연결·학습 상태 | dev_train_routes.py | /dev/train*, /dev/tools |
-| 데이터 공방·LLM 연결 | dev_data_routes.py | /dev/data*, /dev/llm/* |
+| 근거 문답 검수 반영·LLM 연결 | dev_data_routes.py | /dev/data/grounded-*, /dev/llm/* |
 | RAG 공간 · 개인정보 점검 | dev_rag_routes.py · dev_pii_routes.py | /dev/rag*, /dev/pii* |
 | 반입 점검(처리 흐름) · 구글 앱 등록 | dev_intake_routes.py · dev_gdrive_routes.py | /dev/intake, /dev/gdrive/* (앱 등록 화면은 /dev/users#google-links) |
 | 논문·설계 문서·주간 보고·변경 이력 | dev_docs_routes.py | /dev/docs, /dev/doc/*, /dev/paper/*, /dev/weekly*, /dev/history |
 | 한글 문서함·기안기 편집 | webhwp_routes.py | /hwp, /hwp/{id}/edit, /hwp/favorite, /webhwpctrl/ |
 | 조직 관리(트리·부서) | org_routes.py | /api/org, /org/* |
+| 공동 편집·기안기 명령 줄·내려받기 | webhwp_coedit_routes.py · webhwp_live_routes.py · webhwp_export_routes.py | /hwp/{id}/coedit·ops·events…, /hwp/{id}/cmd*, /hwp/{id}/export, /hwp/save-as* |
+| 읽지 못한 문서 다시 하기 | read_fix_routes.py | /doc/{id}/reread·replace·ocr·resave·discard |
+| 공용 파일 찾기 창 | finder_routes.py | /api/finder/* |
 | 부서 드라이브 | dept_drive_routes.py | /team/drive* |
 | 사업 관리 | program_admin.py | /programs/admin* |
 
-이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), user_admin.py(/dev/users 구글 연결, 조직 관리 /team·/api/org/accounts·/api/org/members), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
+이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), model_compare.py(/dev/models/compare), user_admin.py(/dev/users 구글 연결, 조직 관리 /team·/api/org/accounts·/api/org/members), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
 앱이 띄우는 긴 배경 작업(재측정·재색인·반입 점검)은 `app/detach.py` 로 systemd scope 에 떼어 서비스 재시작에 끊기지 않는다.
 
 ## 10.2 웹 한글 기안기 공동 편집 (ADR-0070, 10-24)

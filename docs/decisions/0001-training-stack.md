@@ -1,6 +1,6 @@
 # 0001. 학습 스택 선정과 venv 분리 (TASK-03)
 
-- 상태: 확정
+- 상태: 확정 (LLaMA-Factory 는 10-18 걷어냄, 학습은 DGX 의 TRL·PEFT 스크립트)
 - 날짜: 2026-09-01
 - 관련: `PROJECT_BRIEF.md` §8.1-F, `research/01-F-llm-finetuning.md`, `research/00-summary.md` F항, W1-W2 TASK-03
 

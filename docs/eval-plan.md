@@ -7,6 +7,10 @@
 하네스로 판정했다. 사람이 작성한 골드셋과 생성·추출 평가셋은 실문서 처리와 함께 만든다. 측정 도구는
 `scripts/53_eval_retrieval.py`(검색), `scripts/105_rerank_floor.py`(근거 하한), `scripts/106_rerank_holdout_check.py`
 (홀드아웃 검증)이고, 결과의 원본은 데이터 폴더의 `platform/eval/`에 남는다.
+그 뒤 사업 문서 검색은 자동으로 뽑은 절·관계 질문으로 잰다(`scripts/173_rag_probe.py`·`184_graph_relation_probe.py`,
+그래프 단계의 값은 `188_graphrag_vs_fulltext.py`, 노트 「GraphRAG 대 풀텍스트 RAG 비교」). 생성 모델 교체·SFT 판은 같은 시험으로
+운영 모델과 견주어 정하고(ADR-0069, `scripts/195`·`202`·`210`~`212`, 결과는 개발 화면 「모델 비교 결과」), Writer SFT v1 은 이 비교로
+채택하지 않았다.
 
 ## 1. 평가셋 구축 (W3~W5)
 

@@ -1,6 +1,8 @@
 # 0071. 공동 편집 시연은 관리자 세션 하나에서 칸마다 시연 계정으로 판정한다
 
-- **상태**: 확정(서버 판정·시험). 실브라우저 세 칸 동시 편집은 미확인
+> 지금 화면: 계정 목록은 조직 관리(/team)의 「전체 사용자」
+
+- **상태**: 확정 (서버 판정·시험, 운영 실브라우저 세 칸 동시 편집은 10-24 확인)
 - **날짜**: 2026-10-24
 - **관련**: ADR-0070(칸 단위 공동 편집), `app/webhwp_demo.py`, `app/webhwp_routes.py`(_depts), `templates/coedit_demo.html`·`hwp_edit.html`, `tests/test_webhwp_demo.py`
 

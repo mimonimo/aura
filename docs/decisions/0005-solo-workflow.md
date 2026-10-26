@@ -2,7 +2,7 @@
 
 - 상태: 확정
 - 날짜: 2026-09-01
-- 관련: `docs/workflow.md`, `docs/instructions/W1-W2.md` 작업 방식
+- 관련: `docs/workflow.md`, `docs/archive/1-2주차-작업계획.md` 작업 방식
 
 ## 맥락
 
