@@ -384,6 +384,16 @@
   }
   // 다른 사람·AURA 가 문서 전체를 새로 저장했다 — 내 보낼 것을 다 보내고 입력이 멈추면 새 판을 열어 커서 자리로 돌아간다
   var reloadPending = null;
+  // 다시 연 뒤 보던 자리로 — 긴 문서는 쪽을 차례로 그려서 첫 되돌리기가 맨 위에 걸린다(10-26 시연: AURA 가 표 든 절을 쓰자 세 화면이 1쪽으로 튐).
+  // 그사이 사람이 치지 않았으면 몇 번 더 되돌리고, AURA 를 따라가던 화면은 AURA 자리로
+  function keepCursor(cur) {
+    hwp.restoreCursor(cur);
+    var inp0 = hwp.lastInputAt();
+    [400, 1200, 2500].forEach(function (ms) { setTimeout(function () {
+      if (hwp.lastInputAt() !== inp0) return;
+      if (follow && auraNow) followAura(auraNow, true); else hwp.restoreCursor(cur);
+    }, ms); });
+  }
   function reloadWhenSafe(d) {
     if (structMine) return;
     if (mode === 'whole' && holding && dirty) {
@@ -404,14 +414,8 @@
           if (readonly || (mode === 'whole' && !holding)) hwp.setReadOnly(true);
           return eng.reopened();
         }).then(function () {
-          hwp.restoreCursor(cur); dirty = false; notice.hidden = true;
-          // 긴 문서는 다시 연 뒤 쪽을 차례로 그려서 첫 되돌리기가 맨 위에 걸린다(10-26 시연: AURA 가 표 든 절을 쓰자 세 화면이 1쪽으로 튐) —
-          // 그사이 사람이 치지 않았으면 몇 번 더 되돌리고, AURA 를 따라가던 화면은 AURA 자리로
-          var inp0 = hwp.lastInputAt();
-          [400, 1200, 2500].forEach(function (ms) { setTimeout(function () {
-            if (hwp.lastInputAt() !== inp0) return;
-            if (follow && auraNow) followAura(auraNow, true); else hwp.restoreCursor(cur);
-          }, ms); });
+          dirty = false; notice.hidden = true;
+          keepCursor(cur);
           // AURA 명령은 시킨 사람의 편집기에서 돌아 저장자가 그 사람으로 온다 — AURA 가 그 사람 일로 쓰는 중이면 AURA 판으로 알린다(10-26)
           var au = eng && eng.aura ? eng.aura() : {}, byAura = who.by === 'AURA' || (au.field && au.by && au.by === who.by);
           say(!who.by ? '최신 판을 불러왔습니다' : (byAura ? AuraCollab.auraLabel(eng, au.by ? au : {by: who.by}) : (who.by_name || who.by) + ' 님') + '의 새 판을 불러왔습니다', 'ok');
@@ -427,7 +431,9 @@
   function drawStruct() {
     var b = document.querySelector('[data-struct]'); if (!b) return;
     var lab = b.querySelector('[data-struct-label]'), hint = b.querySelector('[data-struct-hint]'), endb = document.querySelector('[data-struct-end]');
-    if (endb) endb.hidden = !structMine;                                   // 켜진 동안 머리줄에 늘 보이게 — 메뉴 안에만 있으면 끝내는 곳을 못 찾는다(10-26)
+    // 직접 켠 동안 머리줄에 늘 보이게 — 메뉴 안에만 있으면 끝내는 곳을 못 찾는다(10-26). 칸 밖을 쳐서 저절로 잡은 잠금은 몇 초 뒤 저절로 놓으므로
+    // 단추를 띄웠다 치우지 않는다 — 머리줄이 들썩이고, 사라진 자리를 누르면 이름 바꾸기가 열렸다(10-27 시연 점검). 상태 글로만 알린다
+    if (endb) endb.hidden = !(structMine && !autoStruct);
     if (structMine) { lab.textContent = '문서 틀 고치기 끝내기'; hint.textContent = '저장'; b.disabled = false; }
     else if (structBy && structBy !== me) { lab.textContent = eng.nameOf(structBy) + ' 님이 문서 틀 고치는 중'; hint.textContent = ''; b.disabled = true; }
     else { lab.textContent = '문서 틀 고치기'; hint.textContent = '제목·표·용지'; b.disabled = false; }
@@ -447,7 +453,10 @@
       return post(unlockUrl).catch(function () {});
     }).then(function () {
       hwp.setFormMode(eng.formOnly()); hwp.resetEditable(); eng.applyEditable(); drawStruct(); say("저장됨", 'ok');
-      if (lastWrapped) { lastWrapped = 0; if (eng.suspend) eng.suspend(); return loadFile().then(function () { fitZoom(); return eng.reopened(); }); }   // 서버가 새 문단을 칸으로 감쌌다 — 내 화면도 새 판으로
+      if (lastWrapped) {                       // 서버가 새 문단을 칸으로 감쌌다 — 내 화면도 새 판으로, 보던 자리 그대로(10-27: 28쪽 표를 고친 사람이 1쪽으로 튐)
+        lastWrapped = 0; var cur = hwp.getCursor(); if (eng.suspend) eng.suspend();
+        return loadFile().then(function () { fitZoom(); return eng.reopened(); }).then(function () { keepCursor(cur); });
+      }
     });
   }
   var sbtn = document.querySelector('[data-struct]');
