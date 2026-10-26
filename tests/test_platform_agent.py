@@ -233,8 +233,10 @@ def test_widget_sends_page_and_draws_run_buttons(tmp_path):
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
                      processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
     html = TestClient(app).get("/inbox").text
-    assert 'fd.append("page", location.pathname)' in html
-    assert re.search(r'"/proposals/" \+ encodeURIComponent\(p\.id\) \+ "/run"', html)
+    assert "/static/aura-helper.js" in html and "/static/aura-helper.css" in html
+    js = (platform_guide.TEMPLATES.parent / "static" / "aura-helper.js").read_text(encoding="utf-8")
+    assert 'fd.append("page", location.pathname)' in js
+    assert re.search(r'"/proposals/" \+ encodeURIComponent\(p\.id\) \+ "/run"', js)
 
 
 def _helper_app(tmp_path, monkeypatch):
@@ -345,3 +347,70 @@ def test_upload_status_lists_only_own_documents(tmp_path):
     db.add_document("남의 비밀 문서.hwp", "x", doc_type="grant", owner="lee")
     got = platform_ops.lookup(platform_ops.Ctx(db=db, data_dir=tmp_path, user="kim", role="staff"), "my_uploads")
     assert f"({mine}) 내 계획서.hwp" in got and "처리 중" in got and "남의 비밀" not in got
+
+
+# ---- 떠 있는 창: 화면 조작(AURA 커서)·멈춤·추천 질문·기록 ----
+
+def test_open_page_now_carries_text_only_for_guide_element(tmp_path, monkeypatch):
+    """「라이브러리에서 ○○ 사업 찾아 줘」 — 도우미가 now·text 를 넣으면 화면이 바로 그 칸에 말을 넣어 찾는다(제안의 act)."""
+    app, c = _app(tmp_path, monkeypatch)
+    _use_agent(monkeypatch, [
+        _step("open_page", page="/?type=all", element='[id="libFind"]', text="  혁신  지원 사업 ", now=True, why="사업 찾기"),
+        _step("finish", message="라이브러리에서 찾습니다."),
+    ])
+    sid = c.post("/chat/ask", data={"question": "라이브러리에서 혁신지원 사업 찾아 줘", "page": "/hwp"}).json()["session_id"]
+    p = c.get(f"/chat/{sid}/messages").json()["proposals"][0]
+    assert p["kind"] == "go" and p["target"]["selector"] == '[id="libFind"]'
+    assert p["act"] == {"now": True, "text": "혁신 지원 사업"}
+    db = app.state.db
+    ctx = platform_ops.Ctx(db=db, data_dir=tmp_path, user="zzaimy", role="dev")
+    bare = platform_ops.propose_open(ctx, sid, "/hwp", "문서함", "", now=True, text="무시")
+    assert bare["act"] == {"now": True, "text": ""}               # 가리킬 요소가 없으면 넣을 말도 없다
+
+
+def test_guide_lists_cursor_targets_for_common_requests():
+    lib = platform_guide.render(platform_guide.BY_PATH["/?type=all"])
+    hwp = platform_guide.render(platform_guide.BY_PATH["/hwp"])
+    assert '[id="libFind"]' in lib and '[data-aura="hwp-new"]' in hwp
+
+
+def test_stop_drops_late_answer_and_frees_session(tmp_path, monkeypatch):
+    """「멈춤」 — 도는 요청의 남은 걸음·답·제안은 버리고 대화는 바로 다음 질문을 받는다."""
+    app, c = _app(tmp_path, monkeypatch)
+    h = app.state.chat
+    db = app.state.db
+    sid = db.create_chat_session("도우미", owner="zzaimy", channel="helper")
+    db.add_chat(sid, "user", "문서함 열어 줘")
+    run_id = h._helper_runs[sid] = object()
+    h._chat_running.add(sid)
+    assert c.post(f"/chat/{sid}/stop").json() == {"ok": True, "stopped": True}
+    assert db.list_chats(sid)[-1]["content"] == "멈췄습니다." and sid not in h._chat_running
+    fake = _use_agent(monkeypatch, [_step("open_page", page="/hwp", now=True, why="x"), _step("finish", message="늦은 답")])
+    h._helper_task(sid, "문서함 열어 줘", "/", run_id)           # 멈춘 뒤에 도는 옛 요청
+    assert [m["content"] for m in db.list_chats(sid)][-1] == "멈췄습니다."
+    assert c.get(f"/chat/{sid}/messages").json()["proposals"] == []
+    assert not fake.seen or len(fake.seen) == 1                  # 첫 걸음 뒤 바로 끊긴다
+    assert c.post(f"/chat/{sid}/stop").json()["stopped"] is False
+
+
+def test_helper_suggest_uses_current_page_tasks(tmp_path, monkeypatch):
+    app, c = _app(tmp_path, monkeypatch)
+    got = c.get("/api/helper/suggest", params={"page": "/hwp"}).json()
+    assert got["page"] == "한글 문서함" and got["items"][0] == "새 한글 문서 만들기" and len(got["items"]) <= 3
+    assert c.get("/api/helper/suggest", params={"page": "/nowhere"}).json()["items"] == []
+
+
+def test_helper_history_has_last_activity_time(tmp_path, monkeypatch):
+    app, c = _app(tmp_path, monkeypatch)
+    db = app.state.db
+    sid = db.create_chat_session("도우미 기록", owner="zzaimy", channel="helper")
+    db.add_chat(sid, "user", "질문")
+    row = next(r for r in c.get("/api/chat/sessions?channel=helper").json()["sessions"] if r["id"] == sid)
+    assert row["last_at"] == db.list_chats(sid)[-1]["created_at"]
+
+
+def _app(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZZAIMY_PLATFORM_HELPER", "1")
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                     processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    return app, TestClient(app)

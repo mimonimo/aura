@@ -166,10 +166,41 @@ def make_chat_helpers(
             return out[:4]
         return search
 
-    def _helper_task(session_id: int, q: str, page: str) -> None:
+    _helper_runs: dict[int, object] = {}       # 대화마다 지금 도는 도우미 요청의 표 — 「멈춤」 이 표를 거두면 그 요청의 남은 걸음·답은 버린다
+
+    class _Stopped(Exception):
+        pass
+
+    def _helper_stop(session_id: int) -> bool:
+        """도는 도우미 요청을 멈춘다 — 다음 걸음부터 하지 않고 늦게 온 답·제안은 버린다. 대화는 바로 다음 질문을 받는다."""
+        if _helper_runs.pop(session_id, None) is None:
+            return False
+        _chat_running.discard(session_id)
+        _chat_progress.pop(session_id, None)
+        platform_ops.expire(db, session_id)
+        db.add_chat(session_id, "assistant", "멈췄습니다.")
+        return True
+
+    def _helper_task(session_id: int, q: str, page: str, run_id: object = None) -> None:
         """플랫폼 업무 도우미(app/platform_helper) — 떠 있는 창의 질문. 모델에 닿지 못하면 안내 자료에서 찾은 화면을 그대로 보인다."""
         from zzaimy.app import platform_helper
         from zzaimy.generate.client import VllmClient
+
+        if run_id is None:
+            run_id = object()
+            _helper_runs[session_id] = run_id
+
+        def live() -> bool:
+            return _helper_runs.get(session_id) is run_id
+
+        def say(text: str) -> None:
+            if live():
+                db.add_chat(session_id, "assistant", _scrub_internal(text))
+
+        def step(label: str) -> None:
+            if not live():
+                raise _Stopped()
+            _chat_step(session_id, label)
 
         try:
             owner, role, dept = _session_viewer(session_id)
@@ -178,15 +209,16 @@ def make_chat_helpers(
             before = len(db.list_chats(session_id))
             env = platform_helper.Env(db=db, data_dir=Path(db_path).parent, session_id=session_id, user=owner, role=_ap.role_class(role), dept=dept,
                                       page=page, ctx=_ops_ctx(owner, role), project=project,
-                                      say=lambda text: db.add_chat(session_id, "assistant", _scrub_internal(text)),
-                                      on_step=lambda label: _chat_step(session_id, label),
+                                      say=say, on_step=step,
                                       search=_helper_search(owner, role, dept))
             ep = None
             try:
                 ep = platform_helper.run(env, VllmClient(role=platform_helper.model_role()), q)
+            except _Stopped:
+                return
             except Exception as e:
                 logging.getLogger("zzaimy.app.helper").warning("도우미 실패 (대화 %s): %s", session_id, type(e).__name__)
-            if len(db.list_chats(session_id)) > before:
+            if not live() or len(db.list_chats(session_id)) > before:
                 return
             if ep is not None and not ep.may_fall_back:
                 db.add_chat(session_id, "assistant", _scrub_internal(doc_agent_failure(ep)))
@@ -194,8 +226,10 @@ def make_chat_helpers(
             db.add_chat(session_id, "assistant", "도우미 모델에 닿지 못해 안내 자료에서 찾은 화면만 보입니다.\n\n"
                         + platform_guide.lookup(q, current=page, role=role))
         finally:
-            _chat_running.discard(session_id)
-            _chat_progress.pop(session_id, None)
+            if live():                         # 멈춘 뒤 새 요청이 돌고 있으면 그 진행 표는 건드리지 않는다
+                _helper_runs.pop(session_id, None)
+                _chat_running.discard(session_id)
+                _chat_progress.pop(session_id, None)
 
     def doc_agent_failure(ep) -> str:
         from zzaimy.app import doc_agent as _da
@@ -344,7 +378,8 @@ def make_chat_helpers(
 
     return SimpleNamespace(**deps,
                            _scope_label=_scope_label, _recommended_criteria=_recommended_criteria, _process_attachment=_process_attachment, _ops_ctx=_ops_ctx,
-                           _helper_search=_helper_search, _helper_task=_helper_task, doc_agent_failure=doc_agent_failure, _find_document=_find_document,
+                           _helper_search=_helper_search, _helper_task=_helper_task, _helper_runs=_helper_runs, _helper_stop=_helper_stop,
+                           doc_agent_failure=doc_agent_failure, _find_document=_find_document,
                            _run_action=_run_action, _page_actions=_page_actions, _may_create_project=_may_create_project)
 
 
@@ -656,6 +691,26 @@ def chat_proposal_run(request: Request, background: BackgroundTasks, session_id:
     return out
 
 
+@router.post("/chat/{session_id}/stop")
+def chat_stop(request: Request, session_id: int):
+    """떠 있는 창의 「멈춤」 — 도는 도우미 요청을 멈춘다(다음 걸음부터 하지 않는다). 멈출 것이 없으면 stopped=false."""
+    h = request.app.state.chat
+    h._owned_chat(request, session_id)
+    return {"ok": True, "stopped": h._helper_stop(session_id)}
+
+
+@router.get("/api/helper/suggest")
+def helper_suggest(request: Request, page: str = ""):
+    """빈 도우미 창의 추천 질문 — 지금 화면의 안내 자료(platform_guide)에서 이 계정이 할 수 있는 일 몇 개.
+    도우미가 대신 해 줄 수 있는 일(동작·가리킬 요소가 있는 것)을 먼저 둔다. 화면 항목이 없으면 빈 목록."""
+    role = _ap.role_class(getattr(request.state, "role", "") or "")
+    p = platform_guide.page_for(page or "/")
+    if p is None or role not in p.roles:
+        return {"page": "", "items": []}
+    tasks = sorted(p.tasks, key=lambda t: 0 if (t.op or t.mark) else 1)
+    return {"page": p.title, "items": [t.what for t in tasks[:3]]}
+
+
 @router.post("/chat/{session_id}/retry")
 def chat_retry(request: Request, background: BackgroundTasks, session_id: int):
     """마지막 답변을 지우고 같은 질문으로 다시 생성한다."""
@@ -772,7 +827,8 @@ def chat_ask(
     if use_helper:
         _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
         _chat_running.add(session_id)
-        background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""))
+        run_id = h._helper_runs[session_id] = object()
+        background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""), run_id)
     else:
         _schedule_answer(background, session_id, asked, None, [])
     return {"ok": True, "session_id": session_id, "done": done,

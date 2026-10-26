@@ -28,6 +28,8 @@ SYSTEM = """당신은 대학 행정 업무 플랫폼 AURA 의 플랫폼 업무 �
   사업 문서의 내용을 묻는지, 문서를 쓰고 싶은지.
 - 플랫폼 사용법은 platform_help 로 화면 안내 자료를 찾고, 그 자료에 있는 화면 이름·주소·단추 이름 그대로 finish 로 설명한다. 자료에 없는 화면·단추를 지어내지 않는다.
   상태의 「지금 보는 화면」 이 질문의 맥락이다. 그 화면으로 옮겨 가야 하면 open_page 로 화면 열기 단추를 함께 낸다.
+- 담당자가 화면 조작을 시키면(「문서함 열어 줘」, 「새 문서 만들어 줘」, 「라이브러리에서 ○○ 사업 찾아 줘」 처럼 열기·누르기·찾기) open_page 에 now=true 를 넣는다 —
+  화면이 바로 그 화면으로 옮겨 가 AURA 커서가 element 를 누른다. element 가 찾기 칸이면 text 에 찾을 말을 넣는다. 쓰는 법만 물었으면 now 를 넣지 않는다.
 - 안내 자료에 「도우미가 대신 할 수 있음」 으로 나온 일은, 담당자가 해 달라고 했거나 바로 해 줄 수 있으면 대상을 정해(필요하면 platform_lookup 으로 목록을 보고)
   propose_action 으로 제안한다. 실행은 담당자가 [실행] 을 눌러야 된다 — 실행했다고 말하지 않는다. 대상이 분명하지 않으면 제안하지 말고 finish 로 어느 것인지 묻는다.
   권한이 없다는 결과가 오면 제안하지 않고 누구에게 요청하면 되는지 알린다.
@@ -102,10 +104,14 @@ def tools(env: Env) -> list[doc_agent.Tool]:
     def t_open(a: dict) -> str:
         try:
             item = platform_ops.propose_open(env.ctx, env.session_id, str(a.get("page") or ""), str(a.get("why") or ""),
-                                             str(a.get("element") or ""))
+                                             str(a.get("element") or ""), now=a.get("now") in (True, "true", 1, "1"),
+                                             text=str(a.get("text") or ""))
         except platform_ops.OpRefused as e:
             raise doc_agent.Retry(str(e), e.data)
-        return f"화면 열기 단추를 올렸다: {item['screen']}" + (f" (가리킬 요소 {item['target']['selector']})" if item["target"]["selector"] else "")
+        act = item.get("act") or {}
+        return (f"화면 열기 단추를 올렸다: {item['screen']}" + (f" (가리킬 요소 {item['target']['selector']})" if item["target"]["selector"] else "")
+                + (" — 답이 뜨면 화면이 바로 옮겨 가 커서로 누른다" if act.get("now") else "")
+                + (f", 「{act['text']}」 를 넣는다" if act.get("text") else ""))
 
     def t_search(a: dict) -> str:
         query = str(a.get("query") or "").strip()
@@ -131,7 +137,8 @@ def tools(env: Env) -> list[doc_agent.Tool]:
           if env.search else []),
         doc_agent.Tool("propose_action", "화면 단추와 같은 일을 [실행] 단추로 제안(바로 실행하지 않는다). args {op, args}. op: " + platform_ops.describe(),
                        t_propose, writes=True),
-        doc_agent.Tool("open_page", "화면 열기 단추 내기(그 화면으로 옮겨 가야 할 때). args {page: 안내 자료의 주소(#자리 포함 가능), element: 안내 자료의 「가리킬 요소」(선택), why: 한 줄}",
+        doc_agent.Tool("open_page", "화면 열기 단추 내기(그 화면으로 옮겨 가야 할 때). args {page: 안내 자료의 주소(#자리 포함 가능), element: 안내 자료의 「가리킬 요소」(선택), why: 한 줄, "
+                       "now: 담당자가 열기·누르기·찾기를 시켰으면 true(바로 옮겨 가 커서로 누름, 선택), text: element 가 찾기 칸일 때 넣을 말(선택)}",
                        t_open, writes=True),
         doc_agent.Tool("finish", "담당자에게 안내·제안을 알리며 마치기(물을 것이 있으면 여기서 묻는다). args {message}", t_finish, final=True),
     ]
