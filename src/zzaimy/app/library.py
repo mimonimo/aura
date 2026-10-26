@@ -243,3 +243,95 @@ def rail(conn, where: str, args: list, rep: dict[str, str] | None = None) -> lis
     progs = sorted((g for g in res if g["key"].startswith("prog:")), key=lambda g: (-g["n"], g["label"]))
     fixed = [g for k in ("work", "nonprogram", "none") for g in res if g["key"] == k]
     return progs + fixed
+
+
+# ---- 사업 한눈에 보기 — 사업을 고르면 목록 위에 사업 머리·연도 × 서류 갈래 표·주요 문서 ----
+# 지난 사업을 찾는 일이 라이브러리의 주된 쓰임이라, 사업을 고르면 문서 줄보다 먼저 사업의 모양(어느 해에 어떤 서류가 몇 건)을 보인다.
+# 표는 SQL GROUP BY 한 번으로 센다(문서 수만 건을 파이썬으로 훑지 않는다). 사업 정보는 장부(kg_external.json)에 적힌 것만 쓴다.
+MATRIX_COLS = 7                                  # 따로 세우는 갈래 열 수(문서 많은 순) — 나머지는 「그 밖」 한 열
+KEY_KINDS = ("plan", "report")                   # 주요 문서 — 해마다 가장 최근에 등록된 계획서·결과보고서
+
+
+def _year_order(tail: str) -> tuple:
+    """표의 연도 줄 순서 — 최근 해 먼저, 그다음 n차년도, 연도 미상은 끝."""
+    if tail.isdigit():
+        return (0, -int(tail))
+    if tail.startswith("r") and tail[1:].isdigit():
+        return (1, int(tail[1:]))
+    return (2, tail)
+
+
+def matrix(conn, where: str, args: list, kind_labels: dict[str, str]) -> dict:
+    """고른 사업의 연도 × 서류 갈래 수. where 는 ' WHERE …'(표 별칭 d, 열람·사업 조건 포함).
+    → {years:[{tail,label,n,cells:{kind:n}}], cols:[{kind,label,n}], rest:bool, n, key_docs:{tail:{kind:id}}, span:(첫 해, 끝 해)|None}"""
+    rows = conn.execute(
+        "SELECT p.program, COALESCE(d.kind, ''), COUNT(*), MAX(d.id) FROM documents d"
+        f" LEFT JOIN projects p ON p.id = d.project_id{where} GROUP BY 1, 2", args).fetchall()
+    cells: dict[str, dict[str, int]] = {}
+    latest: dict[str, dict[str, int]] = {}
+    tot: dict[str, int] = {}
+    for program, kind, n, last in rows:
+        tail = str(program or "").partition("|")[2]
+        cells.setdefault(tail, {})
+        cells[tail][kind] = cells[tail].get(kind, 0) + int(n)
+        tot[kind] = tot.get(kind, 0) + int(n)
+        if kind in KEY_KINDS:
+            got = latest.setdefault(tail, {})
+            got[kind] = max(got.get(kind, 0), int(last))
+    ranked = sorted(tot, key=lambda k: (-tot[k], k == "", k))
+    shown, rest = ranked[:MATRIX_COLS], ranked[MATRIX_COLS:]
+    cols = [{"kind": k, "label": kind_labels.get(k, "분류 전") if k else "분류 전", "n": tot[k]} for k in shown]
+    years = []
+    for tail in sorted(cells, key=_year_order):
+        c = cells[tail]
+        row = {"tail": tail, "label": year_label(tail), "n": sum(c.values()), "cells": {k: c.get(k, 0) for k in shown}}
+        row["rest"] = sum(c.get(k, 0) for k in rest)
+        years.append(row)
+    nums = sorted(int(t) for t in cells if t.isdigit())
+    return {"years": years, "cols": cols, "rest": bool(rest), "rest_n": sum(tot[k] for k in rest), "n": sum(tot.values()),
+            "key_docs": latest, "span": (nums[0], nums[-1]) if nums else None}
+
+
+def program_facts(entry: dict | None, categories: dict | None = None) -> dict:
+    """장부 항목 → 사업 머리에 적을 사실(장부에 있는 것만). 항목이 없으면 빈 사실."""
+    if not entry:
+        return {}
+    from zzaimy.app.program_tree import place
+
+    l1, l2 = place(entry, categories)
+    school = entry.get("school") or {}
+    name = (entry.get("name") or "").strip()
+    terms = []
+    for t in [*(entry.get("terms") or []), *(school.get("names") or [])]:
+        t = " ".join(str(t or "").split())
+        if t and t != name and t not in terms:
+            terms.append(t)
+    return {"name": name, "aliases": terms[:8], "l1": l1, "l2": l2,
+            "ministry": str(entry.get("ministry") or "").strip(), "agency": str(entry.get("agency") or "").strip(),
+            "period": str(entry.get("period") or "").strip(),
+            "depts": [d for d in (school.get("depts") or []) if str(d or "").strip()][:6],
+            "school_years": [int(y) for y in (school.get("years") or []) if str(y).isdigit()]}
+
+
+def find_programs(items: list[dict], text: str, limit: int = 30) -> list[dict]:
+    """사업 찾기 — 이름·문서 속 이름·장부 별칭에 찾는 말(띄어쓰기·기호 무시)이 든 사업. 문서 많은 순."""
+    from zzaimy.app.program_names import group_key
+
+    want = group_key(text or "")
+    if not want:
+        return []
+    hits = []
+    for it in items:
+        names = [it.get("label") or "", it.get("raw_label") or "", *(it.get("aliases") or [])]
+        if any(want in group_key(n) for n in names if n):
+            hits.append(it)
+    hits.sort(key=lambda it: -int(it.get("n") or 0))
+    return hits[:limit]
+
+
+def year_span(years: list[dict]) -> str:
+    """사업 목록 묶음의 연도 꼬리 → 「2019–2025」(숫자 연도만). 없으면 빈 문자열."""
+    nums = sorted(int(y["tail"]) for y in years if str(y.get("tail") or "").isdigit())
+    if not nums:
+        return ""
+    return str(nums[0]) if nums[0] == nums[-1] else f"{nums[0]}–{nums[-1]}"

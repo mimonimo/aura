@@ -33,7 +33,9 @@
   .lib-note { display:block; font-size:11.5px; margin-top:3px; }
 
   /* 사업별로 보기 — 왼쪽 목록 + 오른쪽 문서. 줄은 제목 한 줄 + 정보 한 줄 */
-  .lib-layout { display:grid; grid-template-columns:260px minmax(0,1fr); gap:16px; align-items:start; }
+  /* 넓은 화면은 넓게 — 라이브러리만 본문 폭 상한을 넓히고, 왼쪽 목록은 화면 폭을 따라 줄고 는다 */
+  main:has(.lib-layout) { max-width:min(1840px, 100%); }
+  .lib-layout { display:grid; grid-template-columns:clamp(220px, 17vw, 320px) minmax(0,1fr); gap:16px; align-items:start; }
   .lib-rail { position:sticky; top:72px; display:flex; flex-direction:column; max-height:calc(100vh - 96px); border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; }
   .lib-rail-h { font-size:13px; margin:0 2px 8px; }
   .lib-rail-find { width:100%; box-sizing:border-box; height:32px; padding:5px 9px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; margin-bottom:8px; }
@@ -106,9 +108,71 @@
   .lib-row-title { font-weight:600; font-size:13.5px; text-decoration:none; color:var(--navy); overflow-wrap:anywhere; }
   .lib-row-title:hover { text-decoration:underline; }
   .lib-row-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:3px; font-size:12px; color:var(--muted); }
-  .lib-row-proj { color:#3F5F8A; text-decoration:none; max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .lib-row-proj:hover { text-decoration:underline; }
+  .lib-row-proj { color:#3F5F8A; text-decoration:none; max-width:min(48ch, 100%); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .lib-row-proj:hover { text-decoration:underline; }
   .lib-row-no { font-variant-numeric:tabular-nums; color:#9AA6B6; }
   .lib-row-date { flex:none; font-size:12px; color:#9AA6B6; font-variant-numeric:tabular-nums; padding-top:2px; }
+
+  /* 사업 찾기 — 목록 맨 위. 치는 대로 사업 이름·별칭이 맞는 사업을 아래에 띄운다(왼쪽 사업 목록에서 찾는다) */
+  .lib-find { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:0 0 14px; }
+  .lib-find-l { font-weight:700; font-size:14px; color:var(--navy); }
+  .lib-find-box { position:relative; flex:1 1 18rem; min-width:0; }
+  .lib-find-box input { width:100%; box-sizing:border-box; min-height:40px; font-size:14px; }
+  .lib-find-hits { position:absolute; z-index:30; left:0; right:0; top:calc(100% + 4px); list-style:none; margin:0; padding:4px; background:#fff;
+                   border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(15,23,42,.12); max-height:min(22rem, 60vh); overflow:auto; }
+  .lib-find-hits a { display:flex; gap:10px; align-items:baseline; padding:7px 10px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:13px; }
+  .lib-find-hits a small { margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .lib-find-hits a:hover, .lib-find-hits a.on { background:#EEF3FA; }
+  .lib-pcards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap:10px; margin:0 0 18px; }
+  .lib-pcard { display:flex; flex-direction:column; gap:4px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); text-decoration:none; min-width:0; }
+  .lib-pcard:hover { border-color:#94A3B8; background:#F8FAFD; }
+  .lib-pcard small { color:var(--muted); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lib-pcard b { font-size:13.5px; line-height:1.4; overflow-wrap:anywhere; color:var(--navy); }
+  .lib-pcard span { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .lib-sub-h { font-size:13px; margin:0 0 8px; color:var(--muted); font-weight:600; }
+  /* 사업 한눈에 보기 — 사업 머리, 연도 × 서류 갈래 표(칸을 누르면 아래 목록이 그 칸 문서로), 주요 문서 */
+  .lib-ov { border:1px solid var(--line); border-radius:14px; padding:clamp(12px, 1.4vw, 20px); margin:0 0 18px; background:#FBFCFE; }
+  .lib-ov-h { display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; }
+  .lib-ov-h > div:first-child { flex:1 1 20rem; min-width:0; }
+  .lib-ov-h small { color:var(--muted); font-size:12px; }
+  .lib-ov-h h2 { margin:2px 0 4px; font-size:clamp(17px, 1.3vw, 21px); overflow-wrap:anywhere; }
+  .lib-ov-alias { margin:0; font-size:12.5px; color:var(--muted); overflow-wrap:anywhere; }
+  .lib-ov-acts { display:flex; gap:6px; align-items:center; }
+  .lib-ov-facts { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 11rem), 1fr)); gap:8px; margin:12px 0; }
+  .lib-ov-facts > div { padding:8px 10px; border-radius:10px; background:#fff; border:1px solid #E6EBF2; min-width:0; }
+  .lib-ov-facts dt { font-size:11.5px; color:var(--muted); }
+  .lib-ov-facts dd { margin:2px 0 0; font-size:13.5px; font-weight:600; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+  .lib-ov-find { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 12px; }
+  .lib-ov-find input[type=search] { flex:1 1 16rem; min-width:0; }
+  .lib-ov-body { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; }
+  .lib-mx-wrap { flex:3 1 32rem; min-width:0; overflow-x:auto; border:1px solid #E6EBF2; border-radius:10px; background:#fff; }
+  .lib-mx { width:100%; border-collapse:collapse; font-size:12.5px; font-variant-numeric:tabular-nums; }
+  .lib-mx th, .lib-mx td { padding:7px 9px; border-bottom:1px solid #EEF1F5; text-align:right; white-space:nowrap; }
+  .lib-mx thead th { font-weight:600; color:var(--muted); background:#F6F8FB; position:sticky; top:0; }
+  .lib-mx thead th a { color:inherit; text-decoration:none; } .lib-mx thead th a:hover { color:var(--navy); text-decoration:underline; }
+  .lib-mx th[scope=row] { text-align:left; font-weight:600; }
+  .lib-mx th[scope=row] a { color:var(--navy); text-decoration:none; }
+  .lib-mx td a { display:inline-block; min-width:2.2em; padding:2px 6px; border-radius:6px; color:var(--navy); text-decoration:none; background:#EEF3FA; }
+  .lib-mx td a:hover { background:var(--navy); color:#fff; }
+  .lib-mx td.z { color:#C3CAD5; }
+  .lib-mx td.t, .lib-mx th.t { font-weight:700; color:var(--ink); }
+  .lib-mx tr.on th[scope=row], .lib-mx tr.on td { background:#F2F6FC; }
+  .lib-mx tfoot th, .lib-mx tfoot td { background:#F6F8FB; font-weight:600; border-bottom:0; }
+  .lib-key { flex:1 1 17rem; min-width:0; }
+  .lib-key ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; max-height:min(28rem, 70vh); overflow:auto; }
+  .lib-key li { padding:8px 10px; border:1px solid #E6EBF2; border-radius:10px; background:#fff; font-size:12.5px; }
+  .lib-key li b { display:block; font-size:12px; color:var(--muted); margin-bottom:3px; }
+  .lib-key li a { display:block; color:var(--navy); text-decoration:none; overflow-wrap:anywhere; line-height:1.45; }
+  .lib-key li a:hover { text-decoration:underline; }
+  .lib-key li a em { font-style:normal; color:var(--muted); margin-right:4px; }
+  /* 공개 범위 고르기 — 부서가 많아 긴 메뉴 대신 찾아 고르는 칸 */
+  .lib-scope-picker { position:relative; display:inline-flex; }
+  .lib-scope-picker input { min-height:30px; font-size:12.5px; width:min(16rem, 60vw); }
+  .lib-scope-list { position:absolute; z-index:30; left:0; top:calc(100% + 4px); width:max(100%, 14rem); list-style:none; margin:0; padding:4px; background:#fff;
+                    border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(15,23,42,.12); max-height:min(18rem, 50vh); overflow:auto; }
+  .lib-scope-list li { padding:6px 9px; border-radius:7px; cursor:pointer; font-size:12.5px; }
+  .lib-scope-list li:hover, .lib-scope-list li.on { background:#EEF3FA; }
+  .lib-scope-list li[aria-selected=true] { background:var(--navy); color:#fff; }
+  .lib-scope-list .none { color:var(--muted); cursor:default; }
   @media (max-width: 900px) { .lib-layout { grid-template-columns:1fr; } .lib-rail { position:static; max-height:280px; } }
   .lib-act-s { display:none; }
   .lib-clear { white-space:nowrap; }
@@ -207,6 +271,10 @@
 {% set rail_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&folder=" ~ (folder | urlencode)) if folder else "") ~ (("&fmt=" ~ fmt) if fmt else "") ~ (("&scope=" ~ (scope | urlencode)) if scope else "") ~ (("&since=" ~ since) if since else "") ~ (("&sort=" ~ sort) if sort != "new" else "") ~ ("&body=1" if body else "") %}
 {% set use_qs = "type=" ~ active_tab ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") %}
 {% set base_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
+{% macro pcard(it) -%}
+<a class="lib-pcard" href="/?type={{ active_tab }}&amp;prog={{ it.key | urlencode }}"><small>{{ it.l1 }}{% if it.l2 %} › {{ it.l2 }}{% endif %}</small><b>{{ it.label }}</b>
+  <span>문서 {{ "{:,}".format(it.n) }}건{% if it.span %} · {{ it.span }}{% endif %}</span></a>
+{%- endmacro %}
 <div class="lib-layout">
 {# 사업별로 보기 — 문서가 속한 프로젝트의 사업으로 묶은 목록. 고르면 오른쪽이 그 사업 문서, 연도 칩으로 좁힌다 #}
 <aside class="lib-rail" aria-label="폴더·사업별로 보기">
@@ -226,7 +294,7 @@
     <a href="/?{{ rail_qs }}" class="lib-rail-item{{ ' on' if not prog }}"{% if not prog %} aria-current="true"{% endif %}><span>전체</span><small>{{ "{:,}".format(rail | sum(attribute='n')) }}</small></a>
     {% macro rail_item(g, cls='') -%}
     <a href="/?{{ rail_qs }}&amp;prog={{ g.key | urlencode }}" class="lib-rail-item {{ cls }}{{ ' on' if prog == g.key }}"{% if prog == g.key %} aria-current="true"{% endif %}
-       data-name="{{ (g.label ~ ' ' ~ (g.raw_label or '')) | lower }}" title="{{ g.label }}{% if g.raw_label and g.raw_label != g.label %} (문서 속 이름: {{ g.raw_label }}){% endif %}"><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></a>
+       data-name="{{ (g.label ~ ' ' ~ (g.raw_label or '') ~ ' ' ~ ((g.aliases or []) | join(' '))) | lower }}" data-label="{{ g.label }}" data-n="{{ g.n }}" title="{{ g.label }}{% if g.raw_label and g.raw_label != g.label %} (문서 속 이름: {{ g.raw_label }}){% endif %}"><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></a>
     {%- endmacro %}
     {% for t in rail_tree %}
     {% set has_on = prog and (t.groups | map(attribute='progs') | sum(start=[]) | selectattr('key', 'equalto', prog) | list) %}
@@ -247,20 +315,85 @@
   <div class="card-in">
     {% if request.query_params.get('ok') %}<p class="pill lib-flash" role="status">{{ request.query_params.get('ok') }}</p>{% endif %}
     {% if request.query_params.get('err') %}<p class="pill lib-flash" role="alert">{{ request.query_params.get('err') }}</p>{% endif %}
+    {# 사업 찾기 — 지난 사업 조회가 라이브러리의 주된 쓰임. 이름·문서 속 이름·장부 별칭(띄어쓰기 무시)으로 찾고, 하나로 좁혀지면 그 사업 한눈에 보기로 #}
+    <form class="lib-find" action="/" method="get" role="search" aria-label="사업 찾기">
+      <input type="hidden" name="type" value="{{ active_tab }}">
+      <label class="lib-find-l" for="libFind">사업 찾기</label>
+      <div class="lib-find-box"><input type="search" id="libFind" name="pq" value="{{ pq }}" autocomplete="off" placeholder="사업 이름이나 별칭 — 띄어쓰기는 무시합니다"
+        aria-controls="libFindHits" aria-autocomplete="list"><ul class="lib-find-hits" id="libFindHits" role="listbox" aria-label="맞는 사업" hidden></ul></div>
+      <button type="submit" class="secondary">찾기</button>
+    </form>
+    {% if pq %}
+    <p class="lib-sub-h">{% if prog_hits %}「{{ pq }}」에 맞는 사업 {{ prog_hits | length }}개{% else %}「{{ pq }}」에 맞는 사업이 없습니다. <a href="/?type={{ active_tab }}&amp;q={{ pq | urlencode }}">문서 제목으로 찾기</a>{% endif %}</p>
+    {% if prog_hits %}<div class="lib-pcards">{% for it in prog_hits %}{{ pcard(it) }}{% endfor %}</div>{% endif %}
+    {% elif top_progs %}
+    <p class="lib-sub-h">문서가 많은 사업</p>
+    <div class="lib-pcards">{% for it in top_progs %}{{ pcard(it) }}{% endfor %}</div>
+    {% endif %}
     {% if folder_pick %}<div class="lib-folder-pick"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><b>{{ folder_pick.name }}</b>
       <span class="lib-scope{{ ' dept' if folder_pick.dept != '공통' }}">공개 {{ '전체' if folder_pick.dept == '공통' else folder_pick.dept }}</span>
       {% if request.state.role == 'dev' %}<button type="button" class="secondary lib-mini2" data-modal-open="#folderScopeModal">공개 범위 바꾸기…</button>
       {% if folder_pick.kind == '만든' %}<form method="post" action="/library/folders/delete" data-confirm="「{{ folder_pick.name }}」 폴더를 지웁니다. 문서 {{ '{:,}'.format(folder_pick.docs) }}건은 지우지 않고 폴더에서만 뺍니다." style="margin:0;">
         <input type="hidden" name="key" value="{{ folder_pick.key }}"><button class="btn-ghost" type="submit" style="color:var(--red);">폴더 지우기</button></form>{% endif %}{% endif %}
       <a class="lib-pick-x" href="/?type=all" aria-label="폴더 선택 해제">×</a></div>{% endif %}
-    {% if rail_pick %}<div class="lib-pick"><b>{{ rail_pick.label }}</b>
+    {% if overview %}{% set ov = overview %}{% set f = ov.facts %}{% set ov_base = "/?type=" ~ active_tab ~ "&prog=" ~ (prog | urlencode) %}
+    <section class="lib-ov" aria-label="사업 한눈에 보기" data-overview>
+      <div class="lib-ov-h">
+        <div><small>{{ ov.l1 or '사업' }}{% if ov.l2 %} › {{ ov.l2 }}{% endif %}</small>
+          <h2>{{ rail_pick.label if rail_pick else (f.name or prog[5:]) }}</h2>
+          {% if f.aliases %}<p class="lib-ov-alias">다른 이름 · {{ f.aliases | join(' · ') }}</p>
+          {% elif ov.raw_label and rail_pick and ov.raw_label != rail_pick.label %}<p class="lib-ov-alias">문서 속 이름 · {{ ov.raw_label }}</p>{% endif %}</div>
+        <div class="lib-ov-acts">
+          <a class="lib-pick-graph" href="/graph/explore?id={{ prog[5:] | urlencode }}"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>
+          <a class="lib-pick-x" href="/?{{ rail_qs }}" aria-label="사업 선택 해제" title="모든 문서로">×</a></div>
+      </div>
+      <dl class="lib-ov-facts">
+        <div><dt>문서</dt><dd>{{ "{:,}".format(ov.m.n) }}건</dd></div>
+        {% if ov.m.span %}<div><dt>문서가 있는 해</dt><dd>{{ ov.m.span[0] }}{% if ov.m.span[1] != ov.m.span[0] %}–{{ ov.m.span[1] }}{% endif %}</dd></div>{% endif %}
+        {% if f.period %}<div><dt>사업 기간(장부)</dt><dd>{{ f.period }}</dd></div>{% endif %}
+        {% if f.ministry %}<div><dt>지원기관</dt><dd>{{ f.ministry }}</dd></div>{% endif %}
+        {% if f.agency %}<div><dt>주관기관</dt><dd>{{ f.agency }}</dd></div>{% endif %}
+        {% if f.depts %}<div><dt>업무 부서(장부)</dt><dd>{{ f.depts | join(', ') }}</dd></div>{% endif %}
+      </dl>
+      <form class="lib-ov-find" action="/#libList" method="get" role="search" aria-label="이 사업 문서에서 찾기">
+        <input type="hidden" name="type" value="{{ active_tab }}"><input type="hidden" name="prog" value="{{ prog }}">
+        <input type="search" name="q" value="{{ q }}" placeholder="이 사업 문서에서 찾기 — 제목·접수번호·본문" aria-label="이 사업 문서에서 찾을 낱말">
+        <label class="lib-body"><input type="checkbox" name="body" value="1" {{ 'checked' if body or not q }}> 본문까지</label>
+        <button type="submit" class="secondary">찾기</button>
+      </form>
+      <div class="lib-ov-body">
+        <div class="lib-mx-wrap">
+          <table class="lib-mx" data-matrix>
+            <caption class="sr-only">연도별 서류 갈래 문서 수 — 칸을 누르면 아래 목록이 그 문서로 좁혀집니다</caption>
+            <thead><tr><th scope="col" style="text-align:left;">연도</th>
+              {% for c in ov.m.cols %}<th scope="col"><a href="{{ ov_base }}&amp;kind={{ (c.kind or '_none') | urlencode }}#libList">{{ c.label }}</a></th>{% endfor %}
+              {% if ov.m.rest %}<th scope="col" title="문서가 적은 갈래를 합친 수">그 밖</th>{% endif %}<th scope="col" class="t">합계</th></tr></thead>
+            <tbody>
+            {% for y in ov.m.years %}<tr{% if year == y.tail %} class="on"{% endif %} data-year="{{ y.tail }}">
+              <th scope="row"><a href="{{ ov_base }}&amp;year={{ y.tail | urlencode }}#libList">{{ y.label }}</a></th>
+              {% for c in ov.m.cols %}{% set n = y.cells[c.kind] %}{% if n %}<td><a href="{{ ov_base }}&amp;year={{ y.tail | urlencode }}&amp;kind={{ (c.kind or '_none') | urlencode }}#libList" data-cell="{{ c.kind or '_none' }}">{{ "{:,}".format(n) }}</a></td>{% else %}<td class="z">·</td>{% endif %}{% endfor %}
+              {% if ov.m.rest %}<td{% if not y.rest %} class="z"{% endif %}>{{ "{:,}".format(y.rest) if y.rest else '·' }}</td>{% endif %}
+              <td class="t">{{ "{:,}".format(y.n) }}</td></tr>{% endfor %}
+            </tbody>
+            <tfoot><tr><th scope="row">합계</th>{% for c in ov.m.cols %}<td>{{ "{:,}".format(c.n) }}</td>{% endfor %}{% if ov.m.rest %}<td>{{ "{:,}".format(ov.m.rest_n) }}</td>{% endif %}<td class="t">{{ "{:,}".format(ov.m.n) }}</td></tr></tfoot>
+          </table>
+        </div>
+        <div class="lib-key" aria-label="주요 문서">
+          <p class="lib-sub-h">주요 문서 — 해마다 가장 최근의 계획서·결과보고서</p>
+          {% if ov.key_docs %}<ul>{% for y in ov.key_docs %}<li><b>{{ y.label }}</b>
+            {% for k, d in y.docs %}<a href="/doc/{{ d.id }}"><em>{{ kind_labels.get(k, k) }}</em>{{ doc_title(d) }}</a>{% endfor %}</li>{% endfor %}</ul>
+          {% else %}<p class="muted" style="font-size:12.5px; margin:0;">계획서·결과보고서로 분류된 문서가 아직 없습니다.</p>{% endif %}
+        </div>
+      </div>
+    </section>
+    {% elif rail_pick %}<div class="lib-pick"><b>{{ rail_pick.label }}</b>
       {% if rail_pick.key.startswith('prog:') %}<a class="lib-pick-graph" href="/graph/explore?id={{ rail_pick.key[5:] | urlencode }}"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>{% endif %}
       <a class="lib-pick-x" href="/?{{ rail_qs }}" aria-label="사업 선택 해제">×</a></div>
     {% if rail_pick.years | length > 1 %}<nav class="lib-years" aria-label="연도">
       <a href="/?{{ rail_qs }}&amp;prog={{ prog | urlencode }}"{% if not year %} aria-current="true"{% endif %}>전체 연도</a>
       {% for y in rail_pick.years %}<a href="/?{{ rail_qs }}&amp;prog={{ prog | urlencode }}&amp;year={{ y.tail | urlencode }}"{% if year == y.tail %} aria-current="true"{% endif %}>{{ y.label }} <span>{{ "{:,}".format(y.n) }}</span></a>{% endfor %}
     </nav>{% endif %}{% endif %}
-    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{% if q %}검색 결과 {{ "{:,}".format(total_docs) }}건{% else %}{{ metric_label('documents_visible', '', '문서 ' ~ "{:,}".format(total_docs) ~ '건') }}{% endif %}
+    <h2 id="libList"><iconify-icon icon="solar:documents-linear"></iconify-icon>{% if overview and not q %}이 사업 문서 {{ "{:,}".format(total_docs) }}건{% if year or kind %} <a class="lib-chip" href="{{ ov_base }}#libList" title="연도·갈래 거르기 풀기">{{ year_label_of(year) if year }}{{ ' · ' if year and kind }}{{ (kind_labels.get(kind, '분류 전') if kind != '_none' else '분류 전') if kind }} ×</a>{% endif %}{% elif q %}검색 결과 {{ "{:,}".format(total_docs) }}건{% else %}{{ metric_label('documents_visible', '', '문서 ' ~ "{:,}".format(total_docs) ~ '건') }}{% endif %}
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
       {% if n_rows < total_docs %}<span class="muted" style="font-size:12.5px; font-weight:500;">같은 문서의 판본 {{ "{:,}".format(total_docs - n_rows) }}건은 최신본 아래에 묶음</span>{% endif %}</h2>
     {# 쓰임새 칩 — 기준(공고·지침·규정·평가 기준·기본계획, 규정 색인 문서) / 작성·결과(그 밖). 데이터는 그대로, 목록만 거른다(ADR-0062) #}
@@ -316,9 +449,16 @@
         <select id="libBulkAct" aria-label="선택한 문서에 할 일">
           <option value="" selected disabled>할 일 선택…</option>
           {% if made_folders %}<optgroup label="폴더">{% for f in made_folders %}<option value="folder:{{ f.key }}">「{{ f.name }}」 폴더에 담기</option>{% endfor %}<option value="folder:">폴더에서 빼기</option></optgroup>{% endif %}
-          {% if request.state.role == 'dev' and scope_choices | length > 1 %}<optgroup label="공개 범위">{% for d in scope_choices %}<option value="scope:{{ d }}">{{ '전체 공개로' if d == '공통' else d ~ ' 공개로' }}</option>{% endfor %}</optgroup>{% endif %}
+          {% if request.state.role == 'dev' and scope_choices | length > 1 %}<optgroup label="공개 범위"><option value="scope:">공개 범위 바꾸기 — 부서 찾아 고르기</option></optgroup>{% endif %}
           {% if request.state.role == 'dev' %}<optgroup label="관리"><option value="delete:">선택한 문서 삭제</option></optgroup>{% endif %}
         </select>
+        {# 부서가 많아 메뉴에 늘어놓지 않고 찾아 고른다 — 「공개 범위 바꾸기」를 고르면 나온다 #}
+        {% if request.state.role == 'dev' and scope_choices | length > 1 %}<span class="lib-scope-picker" id="libScopePicker" hidden>
+          <input type="search" id="libScopeFind" autocomplete="off" placeholder="부서 이름 찾기 · {{ scope_choices | length }}곳" aria-label="공개할 부서 찾기" aria-controls="libScopeList">
+          <ul class="lib-scope-list" id="libScopeList" role="listbox" aria-label="공개 범위" hidden>
+            {% for d in scope_choices %}<li role="option" aria-selected="false" data-dept="{{ d }}" data-name="{{ ('전체 공개' if d == '공통' else d) | lower }}">{{ '전체 공개' if d == '공통' else d }}</li>{% endfor %}
+            <li class="none" hidden>맞는 부서가 없습니다</li>
+          </ul></span>{% endif %}
         <button type="button" class="secondary" id="libBulkGo" disabled>적용</button>
       </span>
       <span class="lib-bulk-msg" id="libBulkMsg" role="status"></span>
@@ -513,10 +653,49 @@
   };
   document.addEventListener("change", function (e) { if (e.target.classList && e.target.classList.contains("lib-pick")) paint(); });
   document.getElementById("libPickAll").addEventListener("change", function (e) { picks().forEach(function (c) { c.checked = e.target.checked; }); paint(); });
-  document.getElementById("libBulkAct").addEventListener("change", function (e) { document.getElementById("libBulkGo").disabled = !e.target.value; });
+  var picker = document.getElementById("libScopePicker"), sFind = document.getElementById("libScopeFind"), sList = document.getElementById("libScopeList");
+  var dept = "";
+  var goReady = function () {
+    var v = document.getElementById("libBulkAct").value;
+    document.getElementById("libBulkGo").disabled = !v || (v === "scope:" && !dept);
+  };
+  document.getElementById("libBulkAct").addEventListener("change", function (e) {
+    var isScope = e.target.value === "scope:";
+    if (picker) { picker.hidden = !isScope; if (isScope) { sFind.focus(); showList(); } }
+    goReady();
+  });
+  // 부서 찾아 고르기 — 친 낱말이 든 부서만 보이고, 누르면(또는 화살표·Enter) 고른다
+  var items = function () { return sList ? Array.prototype.slice.call(sList.querySelectorAll("li[data-dept]")) : []; };
+  var visible = function () { return items().filter(function (li) { return !li.hidden; }); };
+  var showList = function () {
+    var t = (sFind.value || "").replace(/\s+/g, "").toLowerCase(), n = 0;
+    items().forEach(function (li) { li.hidden = !!t && li.dataset.name.replace(/\s+/g, "").indexOf(t) < 0; if (!li.hidden) n++; });
+    sList.querySelector(".none").hidden = n > 0; sList.hidden = false;
+  };
+  var choose = function (li) {
+    dept = li.dataset.dept; sFind.value = li.textContent.trim(); sList.hidden = true;
+    items().forEach(function (x) { x.setAttribute("aria-selected", x === li ? "true" : "false"); });
+    goReady();
+  };
+  if (sFind) {
+    sFind.addEventListener("input", function () { dept = ""; goReady(); showList(); });
+    sFind.addEventListener("focus", showList);
+    sFind.addEventListener("keydown", function (e) {
+      var vis = visible(), i = vis.findIndex(function (li) { return li.classList.contains("on"); });
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault(); if (!vis.length) return;
+        vis.forEach(function (li) { li.classList.remove("on"); });
+        var j = e.key === "ArrowDown" ? Math.min(vis.length - 1, i + 1) : Math.max(0, i - 1);
+        vis[j].classList.add("on"); vis[j].scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") { e.preventDefault(); if (vis.length) choose(i >= 0 ? vis[i] : vis[0]); }
+      else if (e.key === "Escape") { sList.hidden = true; }
+    });
+    sList.addEventListener("mousedown", function (e) { var li = e.target.closest("li[data-dept]"); if (li) { e.preventDefault(); choose(li); } });
+    sFind.addEventListener("blur", function () { setTimeout(function () { sList.hidden = true; }, 120); });
+  }
   document.getElementById("libBulkGo").addEventListener("click", async function () {
     var b = this, v = document.getElementById("libBulkAct").value, ids = chosen();
-    var kind = v.slice(0, v.indexOf(":")), arg = v.slice(v.indexOf(":") + 1);
+    var kind = v.slice(0, v.indexOf(":")), arg = kind === "scope" ? dept : v.slice(v.indexOf(":") + 1);
     if (kind === "delete" && !(await window.platformConfirm("선택한 문서 " + ids.length + "건과 조각·색인·그래프·원본 파일을 함께 지웁니다. 되돌릴 수 없습니다.",
         { title: "문서 삭제", ok: "삭제", danger: true }))) return;
     var body = kind === "folder" ? { ids: ids, folder: arg } : kind === "scope" ? { ids: ids, dept: arg } : { ids: ids };
@@ -575,6 +754,40 @@
       sec.dataset.open = open ? "1" : "0"; b.setAttribute("aria-expanded", open ? "true" : "false");
     });
   });
+})();
+(function () {
+  // 사업 찾기 — 치는 대로 왼쪽 사업 목록(이름·문서 속 이름·장부 별칭)에서 맞는 사업을 띄운다. Enter 는 고른 사업으로, 없으면 서버에서 찾기
+  var box = document.getElementById("libFind"), hits = document.getElementById("libFindHits");
+  if (!box || !hits) return;
+  var norm = function (t) { return (t || "").replace(/[\s·.\-_()（）\[\]]+/g, "").toLowerCase(); };
+  var all = Array.prototype.slice.call(document.querySelectorAll("#libRail .lib-rail-item[data-name]"))
+    .filter(function (a) { return /[?&]prog=prog%3A/.test(a.getAttribute("href") || ""); });
+  var render = function () {
+    var t = norm(box.value);
+    hits.innerHTML = "";
+    if (!t) { hits.hidden = true; return; }
+    var got = all.filter(function (a) { return norm(a.dataset.name).indexOf(t) >= 0; })
+      .sort(function (a, b) { return Number(b.dataset.n || 0) - Number(a.dataset.n || 0); }).slice(0, 10);
+    got.forEach(function (a) {
+      var li = document.createElement("li"), x = document.createElement("a"), s = document.createElement("small");
+      li.setAttribute("role", "option");
+      x.href = "/?type={{ active_tab }}&prog=" + encodeURIComponent(new URLSearchParams(a.getAttribute("href").split("?")[1]).get("prog"));
+      x.textContent = a.dataset.label || a.textContent; s.textContent = "문서 " + Number(a.dataset.n || 0).toLocaleString() + "건";
+      x.appendChild(s); li.appendChild(x); hits.appendChild(li);
+    });
+    hits.hidden = !got.length;
+  };
+  box.addEventListener("input", render);
+  box.addEventListener("keydown", function (e) {
+    var links = Array.prototype.slice.call(hits.querySelectorAll("a")), i = links.findIndex(function (a) { return a.classList.contains("on"); });
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && links.length) {
+      e.preventDefault(); links.forEach(function (a) { a.classList.remove("on"); });
+      var j = e.key === "ArrowDown" ? Math.min(links.length - 1, i + 1) : Math.max(0, i - 1);
+      links[j].classList.add("on"); links[j].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && i >= 0) { e.preventDefault(); location.href = links[i].href; }
+    else if (e.key === "Escape") { hits.hidden = true; }
+  });
+  box.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 150); });
 })();
 (function () {
   // 기준 등록 창 — 파일을 선택 전에는 「등록」을 끈다

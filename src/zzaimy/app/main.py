@@ -1052,13 +1052,14 @@ def create_app(
         scope: str = "",
         since: str = "",
         sort: str = "new",
+        pq: str = "",
     ):
         from zzaimy.app import library
         from zzaimy.app import library_folders as _lf
 
         if getattr(request.state, "role", "") == "student":
             return RedirectResponse("/chat", status_code=303)        # 학생 첫 화면은 대화(ADR-0052)
-        if not any((type, q, project, flt, prog, folder, request.query_params.get("page"), request.query_params.get("use"),
+        if not any((type, q, project, flt, prog, folder, pq, request.query_params.get("page"), request.query_params.get("use"),
                     request.query_params.get("group"))):
             return RedirectResponse("/chat", status_code=303)
         if "group" in request.query_params:
@@ -1197,10 +1198,48 @@ def create_app(
         # 사업 목록의 대·중·소 분류(외부 확인 장부 = 학교 재정지원사업 현황 기준) — 그래프 탐색 왼쪽 목록과 같은 나무
         from zzaimy.app import program_tree
         from zzaimy.app.program_names import load_ledger
-        rail_tree = program_tree.build([g for g in rail if g["key"].startswith("prog:")], load_ledger())
+        ledger = load_ledger()
+        rail_tree = program_tree.build([g for g in rail if g["key"].startswith("prog:")], ledger)
         shown_label = {it["key"]: it["label"] for t in rail_tree for gg in t["groups"] for it in gg["progs"]}
         for g in rail:
             g["label"] = shown_label.get(g["key"], g["label"])
+        from zzaimy.app.doc_routing import KINDS as _KINDS_LIB
+        # 사업 찾기·사업 머리 — 장부 항목의 별칭·분류·기간·부서(장부에 적힌 것만). 항목 찾기는 사업 수만큼(문서 수와 무관)
+        lg = program_tree.Ledger(ledger)
+        tree_items = []
+        for t in rail_tree:
+            for gg in t["groups"]:
+                for it in gg["progs"]:
+                    it["l1"], it["l2"] = t["label"], gg["label"]
+                    it["entry"] = lg.find(it.get("raw_label") or it.get("label") or "") if it.get("in_ledger") else None
+                    it["aliases"] = library.program_facts(it["entry"], lg.categories).get("aliases", [])
+                    it["span"] = library.year_span(it.get("years") or [])
+                    tree_items.append(it)
+        pq = (pq or "").strip()[:60]
+        prog_hits = library.find_programs(tree_items, pq) if pq else []
+        if pq and len(prog_hits) == 1 and not prog:                       # 하나로 좁혀지면 바로 그 사업 한눈에 보기로
+            return RedirectResponse("/?" + urlencode([("type", business or "all"), ("prog", prog_hits[0]["key"])]), status_code=303)
+        overview = None
+        pick_item = next((it for it in tree_items if it["key"] == prog), None)
+        if prog.startswith("prog:"):
+            oc, oa = library.rail_sql(prog, "", members)                   # 표는 연도·거르기와 무관하게 사업 전체(열람 조건만)
+            with db._conn() as conn:
+                mx = library.matrix(conn, " WHERE 1 = 1" + acc + " AND " + oc, [*acc_args, *oa], _KINDS_LIB)
+                key_ids = sorted({i for v in mx["key_docs"].values() for i in v.values()})
+                key_rows = {int(x["id"]): dict(x) for x in conn.execute(
+                    "SELECT d.id, d.receipt_no, d.filename, d.kind, d.created_at FROM documents d"
+                    f" WHERE d.id IN ({','.join('?' * len(key_ids))}){acc}", [*key_ids, *acc_args]).fetchall()} if key_ids else {}
+            facts = library.program_facts(pick_item.get("entry") if pick_item else None, lg.categories)
+            key_docs = []
+            for y in mx["years"]:
+                got = [(k, key_rows[i]) for k in library.KEY_KINDS if (i := mx["key_docs"].get(y["tail"], {}).get(k)) in key_rows]
+                if got:
+                    key_docs.append({"tail": y["tail"], "label": y["label"], "docs": got})
+            overview = {"m": mx, "facts": facts, "key_docs": key_docs[:12],
+                        "l1": (pick_item or {}).get("l1", ""), "l2": (pick_item or {}).get("l2", ""),
+                        "raw_label": (pick_item or {}).get("raw_label", "")}
+        # 첫 화면(아무것도 고르지 않음) — 사업 찾기 아래에 문서 많은 사업 몇 개를 바로가기로
+        top_progs = sorted(tree_items, key=lambda it: -int(it.get("n") or 0))[:8] if not (prog or q or folder or pq or kind or flt or fmt or since or scope) else []
         with db._conn() as conn:
             kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
                 f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
@@ -1247,7 +1286,8 @@ def create_app(
                 "scope_choices": _scope_choices(request), "inbox_types": INBOX_TYPES,
                 "ministries": sorted({str(e.get("ministry") or "").split(",")[0].strip() for e in load_ledger().get("programs", [])} - {""}),
                 "rail": rail, "rail_tree": rail_tree, "rail_fixed": [g for g in rail if not g["key"].startswith("prog:")],
-                "prog": prog, "year": year,
+                "prog": prog, "year": year, "pq": pq, "prog_hits": prog_hits, "overview": overview, "top_progs": top_progs,
+                "kind_labels": _KINDS_LIB, "year_label_of": library.year_label,
                 "rail_pick": next((g for g in rail if g["key"] == prog), None),
                 "common_templates": [t for t in _common_templates() if business and t["sector"] == business],
             }),
