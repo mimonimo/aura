@@ -176,7 +176,7 @@ def test_training_workflow_is_one_page(client):
         assert 'action="/dev/train/export.zip"' in page
         assert page.count('>데이터·학습</a>') == 1
         assert '>승인 산출물</a>' not in page
-        assert '데이터는 자동 전달되지 않으며' in page
+        assert '데이터는 자동 전달되지 않으며' not in page          # 설명 멘트는 뺐다(10-27)
     overview = client.get('/dev').text
     assert 'data-model-progress' in overview and 'data-learning-sequence' in overview
     assert '모델 계획 읽기' not in overview

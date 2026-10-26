@@ -14,7 +14,7 @@
   .col-table tr.col-empty td { color:var(--muted); background:#FAFBFC; }
   .col-table tr.col-empty b { font-weight:500; }
   .col-more td { padding:8px 10px; }
-  .col-period { margin-top:14px; display:grid; gap:10px; }
+  .col-period { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0 0 10px; }
   .chips { display:flex; flex-wrap:wrap; gap:6px; }
   .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px;
           border:1.5px solid var(--line); background:#fff; font-size:12.5px; color:var(--ink); cursor:pointer; }
@@ -24,10 +24,8 @@
   .chip:has(input:focus-visible) { outline:2px solid #607C9E; outline-offset:2px; }
   .col-dates { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); }
   .col-dates input[type=date] { height:34px; padding:5px 9px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
-  .col-go { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; }
   .col-sum { font-size:13px; font-variant-numeric:tabular-nums; }
   .col-sum .muted { font-size:12.5px; }
-  .col-note { font-size:12px; color:var(--muted); margin:10px 0 0; }
   .col-scroll { overflow-x:auto; }
   .col-table th.pick, .col-table td.pick { width:36px; padding-right:0; }
   .col-table td.more { width:1%; white-space:nowrap; text-align:right; }
@@ -53,35 +51,12 @@
 
 {% if request.query_params.get('err') %}<p class="notice">{{ request.query_params.get('err') }}</p>{% endif %}
 
-{% set full = sources | selectattr('n') | list %}
+{% set full = sources | selectattr('n') | rejectattr('past') | list %}
+{% set past = sources | selectattr('n') | selectattr('past') | list %}
 {% set empty = sources | rejectattr('n') | list %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:database-linear"></iconify-icon>수집 자료</h2>
   <form action="/dev/collect/make" method="post" id="collectForm">
-    <div class="col-scroll"><table class="col-table">
-      <thead><tr><th class="pick"><input type="checkbox" id="colAll" aria-label="자료 있는 항목 모두 선택" {{ 'disabled' if not full }}></th><th>항목</th><th class="hide-sm">쓰임</th>
-        <th class="num">건수</th><th class="hide-sm">기간</th><th><span class="sr-only">구조·표본</span></th></tr></thead>
-      <tbody>{% for s in full %}
-        <tr><td class="pick"><input type="checkbox" name="keys" value="{{ s.key }}" class="col-pick" data-n="{{ s.n }}" aria-label="{{ s.name }}"></td>
-          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}{% if s.past %} · {{ s.past }}{% endif %}</span></td>
-          <td class="hide-sm">{{ s.use }}</td>
-          <td class="num">{{ '{:,}'.format(s.n) }}</td>
-          <td class="hide-sm span" title="{{ s.first }} ~ {{ s.last }}">{{ s.span }}</td>
-          <td class="more"><button type="button" class="mini-btn col-peek-btn" data-peek="{{ s.key }}" aria-expanded="false"
-              aria-controls="peek-{{ s.key }}">구조·표본 보기</button></td></tr>
-        <tr class="col-peek" id="peek-{{ s.key }}" hidden><td colspan="6"><p class="muted" style="margin:0;">불러오는 중…</p></td></tr>
-      {% endfor %}
-      {% if empty %}<tr class="col-more"><td colspan="6"><button type="button" class="btn-ghost" id="colEmptyBtn" aria-expanded="false"
-          data-show="비어 있는 항목 {{ empty | length }}개 보기" data-hide="비어 있는 항목 접기">비어 있는 항목 {{ empty | length }}개 보기</button></td></tr>{% endif %}
-      {% for s in empty %}
-        <tr class="col-empty" hidden><td class="pick"><input type="checkbox" disabled aria-label="{{ s.name }} — 자료 없음"></td>
-          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}{% if s.past %} · {{ s.past }}{% endif %}</span></td>
-          <td class="hide-sm">{{ s.use }}</td>
-          <td class="num">0</td>
-          <td class="hide-sm span">아직 없음</td><td></td></tr>
-      {% endfor %}</tbody>
-    </table></div>
-
     <div class="col-period">
       <div class="chips" role="radiogroup" aria-label="기간">{% for v, label in periods %}
         <label class="chip"><input type="radio" name="period" value="{{ v }}" {{ 'checked' if v == 'all' }}>{{ label }}</label>{% endfor %}
@@ -91,12 +66,54 @@
         <span>~</span>
         <input type="date" name="until" value="{{ today }}" min="{{ earliest }}" max="{{ today }}" aria-label="끝일">
       </div>
-      <div class="col-go">
-        <button type="submit" id="colGo" {{ 'disabled' if running }}>{{ '만드는 중…' if running else '선택 항목 내려받기 묶음 만들기' }}</button>
-        <span class="col-sum" id="colSum" aria-live="polite"><span id="colRange">전체 기간</span> <span class="muted" id="colCount">· 선택 0개</span></span>
+    </div>
+    {# 행을 고르면 목록 위 작업 줄이 요약 줄 자리에 겹쳐 뜬다(자리는 늘 잡혀 있어 표가 밀리지 않는다) #}
+    <div class="list-tools">
+      <div class="control-bar col-sum" id="colSum" aria-live="polite"><span id="colRange">전체 기간</span>
+        <span class="muted" id="colTotal"></span>{% if running %}<span class="pill processing">묶음 만드는 중</span>{% endif %}</div>
+      <div class="bulk-bar" id="colBulk" hidden>
+        <span class="bulk-n" id="colN">선택 0개</span><span class="muted" id="colCount"></span>
+        <span class="bulk-gap"></span>
+        <button type="submit" id="colGo" title="개인정보를 가린 사본 · 사람은 가명 · 대화마다 학습용과 평가용 9:1 · 항목마다 JSONL 한 파일과 manifest.json" {{ 'disabled' if running }}>{{ '만드는 중…' if running else '선택 항목 내려받기 묶음 만들기' }}</button>
+        <button type="button" class="btn-ghost" id="colClear">선택 해제</button>
       </div>
     </div>
-    <p class="col-note">개인정보를 가린 사본 · 사람과 대화는 가명으로 바꿈 · 대화마다 학습용과 평가용을 9:1로 나누고, 평가 세트 질문은 따로 둠 · 항목마다 같은 필드 차례의 JSONL 한 파일과 설명 파일(manifest.json)</p>
+    <div class="col-scroll"><table class="col-table">
+      <thead><tr><th class="pick"><input type="checkbox" id="colAll" aria-label="자료 있는 항목 모두 선택" {{ 'disabled' if not full }}></th><th>항목</th><th class="hide-sm">쓰임</th>
+        <th class="num">건수</th><th class="hide-sm">기간</th><th><span class="sr-only">구조·표본</span></th></tr></thead>
+      <tbody>{% for s in full %}
+        <tr><td class="pick"><input type="checkbox" name="keys" value="{{ s.key }}" class="col-pick" data-n="{{ s.n }}" aria-label="{{ s.name }}"></td>
+          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}</span></td>
+          <td class="hide-sm">{{ s.use }}</td>
+          <td class="num" data-n-of="{{ s.key }}">{{ '{:,}'.format(s.n) }}</td>
+          <td class="hide-sm span" title="{{ s.first }} ~ {{ s.last }}">{{ s.span }}</td>
+          <td class="more"><button type="button" class="mini-btn col-peek-btn" data-peek="{{ s.key }}" aria-expanded="false"
+              aria-controls="peek-{{ s.key }}">구조·표본 보기</button></td></tr>
+        <tr class="col-peek" id="peek-{{ s.key }}" hidden><td colspan="6"><p class="muted" style="margin:0;">불러오는 중…</p></td></tr>
+      {% endfor %}
+      {% if past %}<tr class="col-more"><td colspan="6"><button type="button" class="btn-ghost" id="colPastBtn" aria-expanded="false"
+          data-show="지난 기록 {{ past | length }}개 보기" data-hide="지난 기록 접기">지난 기록 {{ past | length }}개 보기</button></td></tr>{% endif %}
+      {% for s in past %}
+        <tr class="col-past" hidden><td class="pick"><input type="checkbox" name="keys" value="{{ s.key }}" class="col-pick" data-n="{{ s.n }}" aria-label="{{ s.name }}"></td>
+          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}</span></td>
+          <td class="hide-sm">{{ s.use }}</td>
+          <td class="num" data-n-of="{{ s.key }}">{{ '{:,}'.format(s.n) }}</td>
+          <td class="hide-sm span" title="{{ s.first }} ~ {{ s.last }}">{{ s.span }}</td>
+          <td class="more"><button type="button" class="mini-btn col-peek-btn" data-peek="{{ s.key }}" aria-expanded="false"
+              aria-controls="peek-{{ s.key }}">구조·표본 보기</button></td></tr>
+        <tr class="col-peek" id="peek-{{ s.key }}" hidden><td colspan="6"><p class="muted" style="margin:0;">불러오는 중…</p></td></tr>
+      {% endfor %}
+      {% if empty %}<tr class="col-more"><td colspan="6"><button type="button" class="btn-ghost" id="colEmptyBtn" aria-expanded="false"
+          data-show="비어 있는 항목 {{ empty | length }}개 보기" data-hide="비어 있는 항목 접기">비어 있는 항목 {{ empty | length }}개 보기</button></td></tr>{% endif %}
+      {% for s in empty %}
+        <tr class="col-empty" hidden><td class="pick"><input type="checkbox" disabled aria-label="{{ s.name }} — 자료 없음"></td>
+          <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}</span></td>
+          <td class="hide-sm">{{ s.use }}</td>
+          <td class="num">0</td>
+          <td class="hide-sm span">아직 없음</td><td></td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+
   </form>
 </div></div>
 
@@ -143,24 +160,46 @@
     for (var k in d) { if ((!a || k >= a) && (!b || k <= b)) n += d[k]; }
     return n;
   }
+  // 보이는 행만 「모두 선택」 대상 — 접힌 지난 기록은 펼쳤을 때만 함께 고른다
+  function shown() { return picks.filter(function (c) { return !c.closest('tr').hidden; }); }
   function update() {
-    var r = range(), on = picks.filter(function (c) { return c.checked; }), n = 0;
+    var r = range(), on = picks.filter(function (c) { return c.checked; }), n = 0, total = 0, vis = shown();
     dates.hidden = !form.querySelector('input[name=period][value=custom]').checked;
-    on.forEach(function (c) { n += count(c.value, r[0], r[1]); });
+    // 건수 칸은 고른 기간 안의 건수(요청 때 받은 날짜별 건수로 계산)
+    picks.forEach(function (c) {
+      var k = count(c.value, r[0], r[1]), cell = form.querySelector('[data-n-of="' + c.value + '"]');
+      if (cell) cell.textContent = k.toLocaleString();
+      if (c.checked) n += k;
+      if (!c.closest('tr').hidden) total += k;
+    });
     document.getElementById('colRange').textContent = r[0] ? (r[0] === r[1] ? r[0] : r[0] + ' ~ ' + r[1]) + ' · ' + span(r[0], r[1]) + '일' : '전체 기간';
-    document.getElementById('colCount').textContent = '· 선택 ' + on.length + '개 · ' + n.toLocaleString() + '건';
-    all.checked = picks.length > 0 && on.length === picks.length;
-    all.indeterminate = on.length > 0 && on.length < picks.length;
+    document.getElementById('colTotal').textContent = '· 항목 ' + vis.length + '개 · ' + total.toLocaleString() + '건';
+    document.getElementById('colN').textContent = '선택 ' + on.length + '개';
+    document.getElementById('colCount').textContent = n.toLocaleString() + '건';
+    document.getElementById('colBulk').hidden = on.length === 0;
+    all.checked = vis.length > 0 && vis.every(function (c) { return c.checked; });
+    all.indeterminate = on.length > 0 && !all.checked;
     if (!running) go.disabled = on.length === 0;
   }
-  all.addEventListener('change', function () { picks.forEach(function (c) { c.checked = all.checked; }); update(); });
+  all.addEventListener('change', function () { var v = all.checked; shown().forEach(function (c) { c.checked = v; }); update(); });
+  document.getElementById('colClear').addEventListener('click', function () { picks.forEach(function (c) { c.checked = false; }); update(); });
   form.addEventListener('change', update);
-  var more = document.getElementById('colEmptyBtn');
-  if (more) more.addEventListener('click', function () {
-    var open = more.getAttribute('aria-expanded') !== 'true';
-    form.querySelectorAll('tr.col-empty').forEach(function (tr) { tr.hidden = !open; });
-    more.setAttribute('aria-expanded', open ? 'true' : 'false');
-    more.textContent = open ? more.dataset.hide : more.dataset.show;
+  [['colEmptyBtn', 'tr.col-empty'], ['colPastBtn', 'tr.col-past']].forEach(function (x) {
+    var more = document.getElementById(x[0]);
+    if (more) more.addEventListener('click', function () {
+      var open = more.getAttribute('aria-expanded') !== 'true';
+      form.querySelectorAll(x[1]).forEach(function (tr) {
+        tr.hidden = !open;
+        // 접을 때는 그 행에서 펼친 구조·표본도 같이 접고, 고른 것도 푼다
+        if (!open) {
+          var b = tr.querySelector('.col-peek-btn'); if (b && b.getAttribute('aria-expanded') === 'true') b.click();
+          var c = tr.querySelector('.col-pick'); if (c) c.checked = false;
+        }
+      });
+      more.setAttribute('aria-expanded', open ? 'true' : 'false');
+      more.textContent = open ? more.dataset.hide : more.dataset.show;
+      update();
+    });
   });
   update();
 

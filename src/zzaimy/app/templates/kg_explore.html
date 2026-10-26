@@ -25,8 +25,7 @@
   .gx .gx-tool iconify-icon { font-size: 15px; }
 
   .gx.is-onto .gx-rail > * { opacity: .38; pointer-events: none; }
-  .gx.is-onto .gx-rail::before { content: "온톨로지는 사업과 상관없는 전체 구조입니다. 사업을 고르려면 「지식그래프」로 바꿉니다."; display: block; margin: 12px 12px 4px; padding: 10px 12px; border-radius: 8px; background: #F3F6FB; color: #3F5F8A; font-size: 12px; line-height: 1.6; }
-  .gx-rail { width: 320px; flex: none; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .gx-rail { width: clamp(240px, 22vw, 320px); flex: none; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .gx-find, .gx-selbar, .gx-chips { flex: none; }
   .gx-find { padding: 12px 12px 8px; }
   .gx-find input { width: 100%; height: 34px; }
@@ -88,7 +87,7 @@
   #gxCy { flex: 1; min-height: 0; background: #FAFBFC; }
   .gx-blank { position: absolute; left: 50%; top: 55%; transform: translate(-50%, -50%); color: var(--faint); pointer-events: none; }
 
-  .gx-panel { width: 340px; flex: none; background: #fff; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .gx-panel { width: clamp(260px, 24vw, 340px); flex: none; background: #fff; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .gx-p-head { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
   .gx-pill { display: inline-block; border-radius: 20px; padding: 2px 10px; font-size: 11.5px; font-weight: 600; background: #EEF1F5; color: var(--muted); }
   .gx-p-title { margin: 7px 0 0; font-size: 14.5px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
@@ -161,8 +160,8 @@
     <div class="gx-list" id="gxList">
       <div class="gx-cap" title="이름을 누르면 그것만, 체크하면 여러 개를 함께 봅니다"><span>지원 주체 · 종류 · 사업</span><span title="볼 수 있는 등록 문서 수">문서 수</span></div>
       {% for t in tree %}
-      <section class="gx-l1{{ ' unknown' if t.unknown }}" data-l1 data-open="{{ '0' if t.unknown else '1' }}">
-        <button type="button" class="gx-l1-h" aria-expanded="{{ 'false' if t.unknown else 'true' }}"><b>{{ t.label }}</b><small>{{ "{:,}".format(t.n) }}</small><em class="gx-fold"></em></button>
+      <section class="gx-l1{{ ' unknown' if t.unknown }}" data-l1 data-open="0">
+        <button type="button" class="gx-l1-h" aria-expanded="false"><b>{{ t.label }}</b><small>{{ "{:,}".format(t.n) }}</small><em class="gx-fold"></em></button>
         <div class="gx-l1-body">
           {% for g in t.groups %}
           {% if g.node %}<div class="gx-l2 node" data-l2>{{ item(g.node) }}</div>
@@ -414,7 +413,7 @@
     document.getElementById("gxAll").disabled = !state.sel.length && state.tab === "kg";
     var cnt = document.getElementById("gxCount"); cnt.innerHTML = "";
     if (state.sel.length) { cnt.appendChild(document.createTextNode("선택한 ")); cnt.appendChild(el("b", null, state.sel.length + "개")); }
-    else cnt.textContent = "선택한 것 없음 · 전체 개요";
+    else cnt.textContent = "";
   }
   function bindItems(scope) {
     scope.querySelectorAll(".gx-item").forEach(function (r) {
@@ -448,7 +447,8 @@
       });
       close();
       sec.hidden = !secAny; any = any || secAny;
-      if (key) openL1(sec, secAny);
+      // 찾을 때는 맞는 갈래만 펼치고, 찾기를 비우면 고른 사업이 든 갈래만 남기고 다시 접는다
+      openL1(sec, key ? secAny : !!sec.querySelector(".gx-item.on"));
     });
     document.getElementById("gxNoMatch").hidden = any || !key;
   }

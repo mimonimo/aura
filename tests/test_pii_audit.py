@@ -269,8 +269,8 @@ def test_dev_pii_page_actions_and_shortcut(client):
     assert 'action="/dev/pii/selftest"' not in r.text
     checks = client.get('/dev/pii?view=checks').text
     assert "자가 점검" in checks and "잔여 검사" in checks
-    assert 'action="/dev/pii/selftest"' not in checks and "자동 — 매일 04:30" in checks     # 새벽 정리에서 자동(216, 10-26)
-    assert "원문 유지" in r.text and 'action="/dev/pii/policy"' in r.text
+    assert 'action="/dev/pii/selftest"' not in checks and "자동 · 매일 새벽" in checks     # 새벽 정리에서 자동(216, 10-26)
+    assert "원문 그대로" in r.text and 'action="/dev/pii/policy"' in r.text
     assert "내부 가리기 꺼짐" in r.text
     assert 'action="/dev/pii/scan"' not in r.text
     assert "가리기 기록 —" not in r.text

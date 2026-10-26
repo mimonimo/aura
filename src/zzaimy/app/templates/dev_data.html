@@ -68,7 +68,7 @@
 {% if review_ready %}<form method="post" action="/dev/data/grounded-pull"><button class="btn-ghost" type="submit"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>{% endif %}
 </div>
 </div>
-<p class="muted review-hint">{% if grounded_note and grounded_note.hint %}{{ grounded_note.hint }}<br>{% endif %}반영 전 근거·맥락·개인정보 확인 · 주석이나 AI 자체 검수만으로는 학습 승인 아님</p>
+{% if grounded_note and grounded_note.hint %}<p class="muted review-hint">{{ grounded_note.hint }}</p>{% endif %}
 {% if grounded_review_report %}
 <div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
 <strong>최근 검수 반영</strong>
