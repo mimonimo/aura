@@ -944,15 +944,22 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
         # 칸 글은 공동 편집 표가 정답 — 이 판에 표의 칸 글을 덮어 써 저장한다(다른 사람이 동시에 쓴 칸이 사라지지 않게)
         with ce.file_lock(fid):
             new, done, versions = ce.overlay(db, fid, data)
+            wrapped = 0
+            if not quiet and not isinstance((webhwp.meta(db, fid) or {}).get("paper"), dict):
+                try:                                       # 구조 저장 — 새로 생긴 칸 밖 문단은 칸으로, 같은 이름 칸은 새 이름으로(10-26 일반 편집 모드)
+                    from zzaimy.app import webhwp_fields as wf
+                    new, wrapped = wf.wrap_rest(new, limit=int(ce.conf(db, "para_wrap_max")))
+                except Exception:
+                    wrapped = 0
             p_ = webhwp.save(db, _base(request), fid, new, user=user, quiet=bool(quiet))
             ce._mark_committed(db, fid, versions)
-        return p_, new, done
+        return p_, new, done, wrapped
     try:
-        p, data, merged = await run_in_threadpool(run)
+        p, data, merged, wrapped = await run_in_threadpool(run)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _touch(request, webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"]))
-    return {"ok": True, "name": p.name, "size": len(data), "merged": merged}
+    return {"ok": True, "name": p.name, "size": len(data), "merged": merged, "wrapped": wrapped}
 
 
 _STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf)$", re.I)   # 기안기 정적 파일(경로 끝 확장자)

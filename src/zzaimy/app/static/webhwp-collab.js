@@ -75,7 +75,7 @@
 
   function engine(o) {
     var hwp = o.hwp, fid = o.fid, me = o.me, base = '/hwp/' + fid, client = clientId(), idb = store();
-    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 1, aura_ttl: 20, field_max: 1000000};
+    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 1, aura_ttl: 20, form_mode: 0, field_max: 1000000};
     var tooLong = {};
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
@@ -230,6 +230,27 @@
           retryTimer = setTimeout(function () { send(); }, retryMs);
           retryMs = Math.min(retryMs * 2, 10000);
         });
+    }
+    // 양식 모드(칸 안만, 설정 form_mode=1)인가 — 기본은 일반 편집 모드(칸 넘는 드래그·서식째 복사, 10-26). 문서 전체가 칸으로 감싸져 있어 가능하다
+    function formOnly() { return conf.form_mode > 0; }
+    function normalMode() { return fieldsMode() && !hwp.formMode() && !(o.structureMode && o.structureMode()); }
+    // 일반 편집 모드의 키 관문 — 양식 모드가 막아 주던 것을 대신 막는다. 칸 바깥에서 치려 하면 칸 안으로 옮기고, 남이 쓰는 칸·칸 표시를 지우는
+    // 키(칸 처음 Backspace, 칸 끝 Delete)는 막고, 여러 칸에 걸친 고침(선택이 칸을 넘음)은 화면에 넘겨 구조 고침으로 돌린다
+    function guardKey(e) {
+      var k = e.key || '', mod = e.ctrlKey || e.metaKey;
+      var edit = (!mod && (k.length === 1 || /^(Backspace|Delete|Enter|Tab)$/.test(k))) || (mod && /^[vVxX]$/.test(k));
+      if (!edit || applying) return;
+      var stop = function () { e.preventDefault(); e.stopImmediatePropagation(); };
+      var sel = hwp.selectionFields ? hwp.selectionFields() : null;
+      // 여러 칸에 걸친 고침·칸 바깥 고침은 편집기가 그대로 하게 두고 화면이 곧바로 문서 틀 고치기(구조 저장)로 돌린다
+      if (sel && (sel[0] !== sel[1] || !sel[0])) { emit('cross-edit', {key: k, mod: mod}); return; }
+      var f = hwp.snapIntoField ? hwp.snapIntoField() : hwp.currentField();
+      if (!f || !fieldSet[f]) { emit('cross-edit', {key: k, mod: mod}); return; }
+      if (heldByOther(f) && locks[f].user !== me) { stop(); emit('blocked', f); acquire(f, true); return; }
+      if (!sel && !mod && (k === 'Backspace' || k === 'Delete')) {
+        var c = hwp.caretInField ? hwp.caretInField() : null;
+        if (c && c.field === f && ((k === 'Backspace' && c.at <= 0) || (k === 'Delete' && c.at >= c.len))) stop();   // 칸 표시를 지우지 않게(이웃 문단과 잇기는 문서 틀 고치기에서)
+      }
     }
     // ── 서식째 주고받기(설정 rich, 기본 켬 10-26) — 글은 위 길(바뀐 부분)로, 서식 고침(툴바·단축키·글자 모양 창)은 그 칸을 기안기 JSON 블록째 ──
     // 서식만 바꾸면 글이 그대로라 위 길로는 아무것도 가지 않았다. 서식을 바꿀 수 있는 손놀림(편집 화면 밖 누름 — 툴바·메뉴·창, Ctrl/⌘ 키) 뒤
@@ -615,9 +636,11 @@
         collect(); send();
       });
       hwp.onCaret(function () {
+        if (normalMode() && !applying && !hwp.isComposing() && hwp.snapIntoField) hwp.snapIntoField();   // 줄 끝·문단 앞을 눌러 칸 바깥에 선 커서는 칸 안으로
         checkCaret();
       });
       hwp.onActivity(function (e) {
+        if (e && e.type === 'keydown' && normalMode() && !hwp.isComposing()) guardKey(e);
         if (curField && mine[curField] && now() - lastTouch > 20000) extend();
         // 서식을 바꿀 수 있는 손놀림 — 편집 화면(쪽) 밖 누름(툴바·메뉴·글자 모양 창)이나 Ctrl/⌘ 조합 키. 입력 사건이 없어 따로 잰다
         if (conf.rich && e && curField && fieldSet[curField] && fieldsMode() && !heldByOther(curField)) {
@@ -654,7 +677,7 @@
         if (ops.length) { try { fetch(base + '/ops', {method: 'POST', keepalive: true, credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({client: client, ops: ops})}); } catch (e) {} }
         try { navigator.sendBeacon(base + '/leave?client=' + encodeURIComponent(client), new Blob([JSON.stringify({client: client})], {type: 'application/json'})); } catch (e) {}
       });
-      return resync(true).then(function () { if (fieldsMode()) hwp.setFormMode(true); started = true; connect(); presence(true); checkCaret(); return replay(); });
+      return resync(true).then(function () { if (fieldsMode()) hwp.setFormMode(formOnly()); started = true; connect(); presence(true); checkCaret(); return replay(); });
     }
     // 새 판을 다시 연 뒤 — 필드 목록·편집 가능·서버 칸 글을 다시 맞춘다
     function reopened() {
@@ -662,7 +685,7 @@
       fieldList = readonly ? [] : hwp.fields();
       fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
       known = {};
-      if (fieldsMode()) hwp.setFormMode(!o.structureMode || !o.structureMode());
+      if (fieldsMode()) hwp.setFormMode(formOnly() && (!o.structureMode || !o.structureMode()));
       return resync(true).then(function () { applyInbox(); });
     }
     return {
@@ -671,7 +694,7 @@
       indexOf: function (f) { return fieldIdx[f] === undefined ? 1e9 : fieldIdx[f]; }, resync: resync, applyEditable: applyEditable,
       client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
       people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
-      pending: pending, aura: function () { return aura; }, setReadOnly: function (v) { readonly = !!v; },
+      pending: pending, aura: function () { return aura; }, formOnly: formOnly, setReadOnly: function (v) { readonly = !!v; },
       conflicts: function () { return idb.all('conflicts').then(function (r) { return r.filter(function (x) { return x.fid === fid; }).sort(function (a, b) { return b.at - a.at; }); }); }
     };
   }

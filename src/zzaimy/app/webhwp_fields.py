@@ -557,8 +557,22 @@ def wrap_rest(data: bytes, limit: int | None = None, dry: bool = False) -> tuple
     used = [int(x) for x in re.findall(r'name="' + PARA + r'(\d+)"', "".join(xmls.values()))]
     ids, k0 = _Ids(list(xmls.values())), max(used, default=0)
     new, k = {}, k0
+    seen: set[str] = set()
+    renamed = 0
     for n in secs:
-        new[n], c = wrap_rest_xml(xmls[n], ids, k)
+        # 같은 이름 칸이 둘이면(칸째 복사해 붙여 넣음) 뒤의 것은 새 「문단:n」 으로 — 같은 이름이면 칸 글이 엉뚱한 칸에 들어간다
+        def rename(m, n=n):
+            nonlocal k, renamed
+            name = m.group(2)
+            if "CLICK_HERE" not in m.group(1) or name not in seen:
+                if "CLICK_HERE" in m.group(1):
+                    seen.add(name)
+                return m.group(0)
+            k += 1
+            renamed += 1
+            return m.group(1) + f'name="{PARA}{k}"'
+        x = re.sub(r'(<hp:fieldBegin\b[^>]*?\s)name="([^"]*)"', rename, xmls[n])
+        new[n], c = wrap_rest_xml(x, ids, k)
         k += c
     total = k - k0
     if dry or not total or (limit is not None and total > limit):

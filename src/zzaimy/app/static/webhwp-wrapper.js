@@ -264,6 +264,39 @@
       if (!sel) return;
       try { ctrl.SetPos(sel.slist, sel.spara, sel.spos); ctrl.SelectText(sel.spara, sel.spos, sel.epara, sel.epos); } catch (e) {}
     }
+    // ── 일반 편집 모드(10-26) — 양식 모드가 해 주던 일을 대신 ──
+    // 줄 끝·문단 앞을 누르면 커서가 칸 바깥(칸 끝 표시 뒤·칸 시작 표시 앞)에 선다. 같은 문단 안에서 한 칸 옆으로 옮겨 칸 안이면 그리로
+    function snapIntoField() {
+      var f = currentField(); if (f) return f;
+      try { if (ctrl.SelectionMode) return ''; } catch (e) {}          // 고르는 중(Shift+화살표·끌기)에는 옮기지 않는다
+      var p0; try { p0 = ctrl.GetPos(); } catch (e) { return ''; }
+      var ways = ['MoveLeft', 'MoveRight'];
+      for (var i = 0; i < ways.length; i++) {
+        try {
+          ctrl.SetPos(p0.list, p0.para, p0.pos); ctrl.Run(ways[i]);
+          var p1 = ctrl.GetPos();
+          if (p1.list === p0.list && p1.para === p0.para) { f = ctrl.GetCurFieldName(0) || ''; if (f) return f; }
+        } catch (e) {}
+      }
+      try { ctrl.SetPos(p0.list, p0.para, p0.pos); } catch (e) {}
+      return '';
+    }
+    // 커서가 칸 글의 몇 번째 글자 앞에 있는지 — {field, at, len}. 칸 처음에서 Backspace·칸 끝에서 Delete 는 칸 표시를 지우므로 막는 데 쓴다
+    function caretInField() {
+      var c = getCursor(); if (!c || !c.rel) return null;
+      var t = read(c.rel.field) || '', lines = t.split('\n'), at = 0;
+      for (var i = 0; i < c.rel.dp && i < lines.length; i++) at += lines[i].length + 1;
+      at += c.rel.pos;
+      return {field: c.rel.field, at: at, len: t.length};
+    }
+    // 선택 영역 양 끝이 든 칸 — [시작 칸, 끝 칸] 또는 null(선택 없음). 선택은 되살린다
+    function selectionFields() {
+      var sel = keepSel(); if (!sel) return null;
+      var a = '', b = '';
+      try { ctrl.SetPos(sel.slist, sel.spara, sel.spos); a = ctrl.GetCurFieldName(0) || ''; ctrl.SetPos(sel.elist, sel.epara, sel.epos); b = ctrl.GetCurFieldName(0) || ''; } catch (e) {}
+      restoreSel(sel);
+      return [a, b];
+    }
     function exportField(name) {
       return new Promise(function (resolve) {
         var keep = getCursor(true), sel = keepSel();
@@ -358,7 +391,7 @@
     function on(kind, cb) { listeners[kind].push(cb); }
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
-      setFormMode: setFormMode, formMode: formMode, setReadOnly: setReadOnly, currentField: currentField,
+      setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
       getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },

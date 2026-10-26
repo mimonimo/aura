@@ -919,3 +919,28 @@ def test_json_block_gate():
     assert "<" not in hid and not ce.json_block_ok(hid)
     assert not ce.json_block_ok(json.dumps({"ro": {"<02/" + b"tbl ".hex() + "/1>": 1}}))     # 열쇠에 숨긴 것
     assert ce.json_block(ok) == json.dumps(json.loads(ok), ensure_ascii=False, separators=(",", ":"))
+
+
+def test_structure_save_wraps_new_paragraphs_and_renames_duplicates(tmp_path, monkeypatch):
+    """일반 편집 모드의 구조 저장(10-26) — 새로 생긴 칸 밖 문단은 칸으로 감싸고, 칸째 복사해 생긴 같은 이름 칸은 뒤의 것을 새 「문단:n」 으로."""
+    import io
+    import zipfile
+
+    from zzaimy.app import webhwp_fields as wf
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    data = kim.get(f"/hwp/{fid}/file").content                       # 열 때 한 번 감싼다
+    z = zipfile.ZipFile(io.BytesIO(data))
+    s = z.read("Contents/section0.xml").decode()
+    m = __import__("re").search(r'<hp:p\b[^>]*><hp:run\b[^>]*><hp:ctrl><hp:fieldBegin\b[^>]*name="문단:1".*?</hp:p>', s, __import__("re").S)
+    s = s.replace("</hs:sec>", '<hp:p id="1" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>새 줄</hp:t></hp:run></hp:p>'
+                  + m.group(0) + "</hs:sec>")                       # 칸 밖 새 문단 + 같은 이름 칸(문단:1) 복사본
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zo:
+        for info in z.infolist():
+            zo.writestr(info, s.encode() if info.filename == "Contents/section0.xml" else z.read(info.filename))
+    r = kim.post(f"/hwp/{fid}/save", content=buf.getvalue(), headers={"Content-Type": "application/octet-stream"}).json()
+    assert r["wrapped"] >= 2
+    names = __import__("re").findall(r'type="CLICK_HERE"[^>]*name="([^"]*)"',
+                                     zipfile.ZipFile(io.BytesIO(kim.get(f"/hwp/{fid}/file").content)).read("Contents/section0.xml").decode())
+    assert len(names) == len(set(names)) and wf.count_rest(kim.get(f"/hwp/{fid}/file").content) == 0
+    assert "새 줄" in ww.field_values(kim.get(f"/hwp/{fid}/file").content).values()

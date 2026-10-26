@@ -315,7 +315,17 @@
     eng.on('error', function (m) { say(m, 'bad'); });
     eng.on('struct', function (u) { structBy = u; drawStruct(); if (mode === 'whole') wholeLockChanged(u); });
     eng.on('doc-saved', function (d) { reloadWhenSafe(d); });
-    eng.on('outside-edit', function () { if (structMine) touched(); });
+    // 일반 편집 모드(10-26): 여러 칸에 걸친 고침·칸 바깥 고침(붙여 넣은 표 등) — 편집기는 이미 고쳤다. 곧바로 문서 틀 잠금을 잡고 2초 뒤 문서 전체를
+    // 저장한다(서버가 새 문단을 칸으로 감싸고 같은 이름 칸을 고친다). 저장이 끝나면 저절로 잠금을 놓고 새 판으로 다시 연다
+    var autoStruct = false;
+    function autoStructOn() {
+      if (structMine) { touched(); return; }
+      if (readonly || autoStruct) return;
+      autoStruct = true;
+      structOn().then(function (ok) { if (ok) touched(); else autoStruct = false; });
+    }
+    eng.on('cross-edit', autoStructOn);
+    eng.on('outside-edit', autoStructOn);
     // 서식째 보낸 뒤 — 파일에도 서식이 남게 이 화면이 조용히 저장한다(다른 화면은 새 판을 다시 불러오지 않는다). 서식 고침이 이어지면 2.5초 모아서
     var richSaveT = null;
     eng.on('rich-sent', function () { clearTimeout(richSaveT); richSaveT = setTimeout(quietSave, 2500); });
@@ -327,7 +337,7 @@
       setTimeout(fitZoom, 300);
       if (eng.fieldsMode()) {
         mode = 'fields';
-        hwp.setReadOnly(false); hwp.setFormMode(true);           // 앞 상태(읽기 전용)가 남아 회색으로 막히지 않게
+        hwp.setReadOnly(false); hwp.setFormMode(eng.formOnly());  // 앞 상태(읽기 전용)가 남아 회색으로 막히지 않게. 기본은 일반 편집 모드(칸 넘는 선택·서식째 복사)
         var sb = document.querySelector('[data-struct]'); if (sb) sb.hidden = false;
         drawStruct();
         if (!eng.pending()) say("저장됨", 'ok');                // 보기만 한 창도 「불러오는 중」 에 머물지 않게(10-24)
@@ -372,7 +382,7 @@
 
   // ── 칸 밖 고치기(구조 잠금) — 쥔 사람만 문서 전체를 저장한다. 다른 사람은 칸만 쓰고, 저장되면 새 판을 받는다 ──
   var lockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/lock') : '', unlockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/unlock') : '';
-  var beat = null;
+  var beat = null, lastWrapped = 0;
   function post(url) { return fetch(url, {method: 'POST', credentials: 'same-origin'}).then(function (r) { return r.json(); }); }
   function drawStruct() {
     var b = document.querySelector('[data-struct]'); if (!b) return;
@@ -395,7 +405,10 @@
     return save(false).then(function () {
       structMine = false; holding = false; clearInterval(beat);
       return post(unlockUrl).catch(function () {});
-    }).then(function () { hwp.setFormMode(true); hwp.resetEditable(); eng.applyEditable(); drawStruct(); say("저장됨", 'ok'); });
+    }).then(function () {
+      hwp.setFormMode(eng.formOnly()); hwp.resetEditable(); eng.applyEditable(); drawStruct(); say("저장됨", 'ok');
+      if (lastWrapped) { lastWrapped = 0; return loadFile().then(function () { fitZoom(); return eng.reopened(); }); }   // 서버가 새 문단을 칸으로 감쌌다 — 내 화면도 새 판으로
+    });
   }
   var sbtn = document.querySelector('[data-struct]');
   if (sbtn) sbtn.addEventListener('click', function () { menu.hidden = true; if (structMine) structOff(); else structOn(); });
@@ -446,9 +459,11 @@
     return (eng ? eng.flush() : Promise.resolve()).then(function () { return hwp.hwpx(); }).then(function (bytes) {
       return fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.detail || ('저장하지 못했습니다(' + r.status + ')')); e.status = r.status; throw e; } return j; }); });
-    }).then(function () {
+    }).then(function (j) {
       dirty = false;
+      if (j && j.wrapped) lastWrapped = j.wrapped;
       say((auto ? '자동 저장됨 · ' : '저장됨 · ') + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
+      if (autoStruct && structMine && auto) { autoStruct = false; structOff(); }   // 저절로 잡은 잠금은 저장이 끝나면 놓는다
       if (then) then();
     }).catch(function (e) { say(e.message, 'bad'); if (e.status === 409) { ready = false; holding = false; clearTimeout(idleTimer); } })
       .then(function () { saving = false; saveBtn.disabled = !ready; });
