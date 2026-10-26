@@ -197,7 +197,8 @@ def _caller() -> str:
     return ""
 
 
-def _record(kw: dict, resp) -> None:
+def _record(kw: dict, resp, *, connection_id: str = "", kind: str = "", external: bool = False,
+            attempt: int = 1, asked_max_tokens: int | None = None) -> None:
     """ZZAIMY_LLM_RECORD(폴더)가 켜져 있으면 모델에 보낸 요청과 받은 답을 그대로 한 줄씩 남긴다 — Writer 학습 데이터를 플랫폼이
     실제로 보내는 꼴로 만들 때(K61). 기본은 꺼짐이고, 시험 DB 로 돌린 시나리오에서만 켠다(운영에서 켜지 않는다 — 문서 원문이 들어간다).
     기록 실패는 생성을 막지 않는다."""
@@ -207,18 +208,44 @@ def _record(kw: dict, resp) -> None:
     try:
         import datetime as _dt
         import json as _json
-        from pathlib import Path as _P
         msg = resp.choices[0].message
+        extra = getattr(msg, "model_extra", None)
+        reasoning_present = bool(
+            getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
+            or (extra.get("reasoning_content") if isinstance(extra, dict) else None)
+        )
         row = {"at": _dt.datetime.now().isoformat(timespec="seconds"), "caller": _caller(), "model": kw.get("model", ""),
+               "connection_id": connection_id, "kind": kind, "external": external,
+               "attempt": attempt, "asked_max_tokens": asked_max_tokens,
+               "reasoning_present": reasoning_present,
                "messages": kw.get("messages"), "tools": kw.get("tools"), "response_format": kw.get("response_format"),
                "max_tokens": kw.get("max_tokens"), "temperature": kw.get("temperature"),
+               "extra_body": kw.get("extra_body"),
                "answer": getattr(msg, "content", None) or "",
                "tool_calls": [tc.model_dump() for tc in (getattr(msg, "tool_calls", None) or []) if hasattr(tc, "model_dump")],
                "finish": getattr(resp.choices[0], "finish_reason", "")}
-        d = _P(folder)
-        d.mkdir(parents=True, exist_ok=True)
-        with open(d / f"llm-{_dt.date.today().isoformat()}.jsonl", "a", encoding="utf-8") as f:
-            f.write(_json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        import stat as _stat
+        # Prompts may contain full documents. Require a prepared owner-only directory,
+        # and never follow a symlink or leave a world-readable trace file behind.
+        directory = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(directory)
+            if info.st_uid != os.getuid() or _stat.S_IMODE(info.st_mode) & 0o077:
+                return
+            name = f"llm-{_dt.date.today().isoformat()}.jsonl"
+            fd = os.open(name, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW,
+                         0o600, dir_fd=directory)
+            try:
+                info = os.fstat(fd)
+                if (not _stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or _stat.S_IMODE(info.st_mode) & 0o077):
+                    return
+                with os.fdopen(fd, "a", encoding="utf-8", closefd=False) as f:
+                    f.write(_json.dumps(row, ensure_ascii=False, default=str) + "\n")
+            finally:
+                os.close(fd)
+        finally:
+            os.close(directory)
     except Exception:
         pass
 
@@ -238,6 +265,7 @@ class VllmClient:
             raise RuntimeError("openai 패키지가 없습니다 — 생성 서버 호출에 필요합니다")
         self.kind = cfg.get("kind", "vllm")
         self.connection_id = cfg.get("connection_id", "")
+        self.external = bool(cfg.get("external", False))
         self.structured = cfg.get("structured") or "auto"
         self.context_default = int(cfg.get("context") or 0)
         # 시간 제한·재시도는 어느 OpenAI 호환 서버든 같은 규약(429·5xx 는 SDK 가 백오프 재시도)
@@ -319,7 +347,6 @@ class VllmClient:
                     else:
                         raise
                 if not kw.get("stream"):
-                    _record(kw, resp)
                     model_config.record_usage(
                         self.connection_id, kw.get("model", self.model), getattr(resp, "usage", None)
                     )
@@ -328,12 +355,18 @@ class VllmClient:
                         asked = int(kw.get("max_tokens") or 0)
                         wider = min(max(asked * 4, _THINKING_FLOOR), _THINKING_CEILING)
                         if wider > asked:
-                            resp2 = orig(*a, **dict(kw, max_tokens=wider))
+                            retry_kw = dict(kw, max_tokens=wider)
+                            resp2 = orig(*a, **retry_kw)
                             model_config.record_usage(
                                 self.connection_id, kw.get("model", self.model),
                                 getattr(resp2, "usage", None),
                             )
+                            _record(retry_kw, resp2, connection_id=self.connection_id,
+                                    kind=self.kind, external=self.external, attempt=2,
+                                    asked_max_tokens=asked)
                             return resp2
+                    _record(kw, resp, connection_id=self.connection_id,
+                            kind=self.kind, external=self.external, asked_max_tokens=kw.get("max_tokens"))
                 return resp
 
             self.client.chat.completions.create = _create
