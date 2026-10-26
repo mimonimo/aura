@@ -645,15 +645,15 @@
         if (e && e.type === 'keydown' && normalMode() && !hwp.isComposing()) guardKey(e);
         if (curField && mine[curField] && now() - lastTouch > 20000) extend();
         // 서식을 바꿀 수 있는 손놀림 — 편집 화면(쪽) 밖 누름(툴바·메뉴·글자 모양 창)이나 Ctrl/⌘ 조합 키. 입력 사건이 없어 따로 잰다
-        if (conf.rich && e && curField && fieldSet[curField] && fieldsMode() && !heldByOther(curField)) {
+        if (conf.rich && e && fieldsMode()) {
           var view = e.target && e.target.ownerDocument && e.target.ownerDocument.getElementById('hcwoViewScroll');
           var outside = e.type === 'pointerdown' && !(view && view.contains(e.target));
           var combo = e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !/^(Control|Meta|Shift|Alt|c|C|a|A|s|S|f|F|p|P)$/.test(e.key || '');
           if (outside || combo) {
-            richDirty[curField] = true;
+            if (curField && fieldSet[curField] && !heldByOther(curField)) richDirty[curField] = true;   // 선택 끝이 칸 사이면 지금 칸이 비어 있다 — 아래 선택 범위로
             // 선택이 여러 칸에 걸쳐 있으면 그 사이 칸을 모두 — 커서 칸 하나만 보내 나머지 칸 서식이 다른 화면에 가지 않았다(10-26 녹화)
             var sel = hwp.selectionFields ? hwp.selectionFields() : null;
-            if (sel && sel[0] && sel[1] && sel[0] !== sel[1] && fieldIdx[sel[0]] !== undefined && fieldIdx[sel[1]] !== undefined) {
+            if (sel && sel[0] && sel[1] && fieldIdx[sel[0]] !== undefined && fieldIdx[sel[1]] !== undefined) {
               var i0 = Math.min(fieldIdx[sel[0]], fieldIdx[sel[1]]), i1 = Math.max(fieldIdx[sel[0]], fieldIdx[sel[1]]);
               for (var q = i0; q <= i1 && q - i0 < 400; q++) richDirty[fieldList[q]] = true;
             }

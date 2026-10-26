@@ -305,7 +305,13 @@
     function selectionFields() {
       var sel = keepSel(); if (!sel) return null;
       var a = '', b = '';
-      try { ctrl.SetPos(sel.slist, sel.spara, sel.spos); a = ctrl.GetCurFieldName(0) || ''; ctrl.SetPos(sel.elist, sel.epara, sel.epos); b = ctrl.GetCurFieldName(0) || ''; } catch (e) {}
+      try {
+        // 끝이 칸 사이(칸 끝 표시 뒤·시작 표시 앞)에 걸리면 이름이 비어 나온다 — 시작은 한 칸 오른쪽, 끝은 한 칸 왼쪽(선택 안쪽)으로 옮겨 다시 묻는다
+        ctrl.SetPos(sel.slist, sel.spara, sel.spos); a = ctrl.GetCurFieldName(0) || '';
+        if (!a) { ctrl.Run('MoveRight'); a = ctrl.GetCurFieldName(0) || ''; }
+        ctrl.SetPos(sel.elist, sel.epara, sel.epos); b = ctrl.GetCurFieldName(0) || '';
+        if (!b) { ctrl.Run('MoveLeft'); b = ctrl.GetCurFieldName(0) || ''; }
+      } catch (e) {}
       restoreSel(sel);
       return [a, b];
     }
