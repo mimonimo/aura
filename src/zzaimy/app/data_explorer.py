@@ -166,8 +166,8 @@ EXTRACT_PAGE = 100     # 문서 자세히의 추출 내용은 앞 100건만 펼�
 
 def archive_tab(db, q: str = '', page: int = 0, everything: bool = False) -> dict:
     """원본 장부(archive_files) 원값 — 개발자가 장부 자체를 확인하는 화면. 사업·연도·처리 상태로 훑는 일반 목록은
-    원본 보관소(/archive)가 맡는다. 여기서는 정리된 이름 대신 장부에 적힌 값(분류 상태 코드·문서 번호·같은 파일 대표·
-    처리 기록·목록에서 본 때)을 그대로 보이고, 원본 보관소가 빼는 플랫폼 사본·변환 부산물도 함께 보인다."""
+    원본 관리(/dev/archive)가 맡는다. 여기서는 정리된 이름 대신 장부에 적힌 값(분류 상태 코드·문서 번호·같은 파일 대표·
+    처리 기록·목록에서 본 때)을 그대로 보이고, 원본 관리가 빼는 플랫폼 사본·변환 부산물도 함께 보인다."""
     from zzaimy.app.archive import ensure
     from zzaimy.app.archive_state import is_original, original_sql
     ensure(db)
@@ -178,7 +178,7 @@ def archive_tab(db, q: str = '', page: int = 0, everything: bool = False) -> dic
         osql, oargs = original_sql()
         where += " AND " + osql
         args += oargs
-    for term in q.split()[:6]:                       # 여러 낱말은 모두 들어간 것만(원본 보관소와 같은 규칙)
+    for term in q.split()[:6]:                       # 여러 낱말은 모두 들어간 것만(원본 관리와 같은 규칙)
         where += " AND (rel LIKE ? ESCAPE '!' OR program_name LIKE ? ESCAPE '!')"
         like = '%' + term.replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
         args += [like, like]
@@ -194,7 +194,7 @@ def archive_tab(db, q: str = '', page: int = 0, everything: bool = False) -> dic
     for r in rows:
         row = dict(zip(ARCHIVE_COLS, r))
         row['original'] = is_original(row['rel'] or '')
-        row['cleaned'] = row['rel'] in cleaned          # 원본 보관소 「정리함」 — 보관소 목록·건수에서는 빠진다
+        row['cleaned'] = row['rel'] in cleaned          # 원본 관리 「정리함」 — 원본 목록·건수에서는 빠진다
         row['status_label'] = ARCHIVE_STATUS.get(row['status'] or '', row['status'] or '')
         an = str(row['analysis'] or '')
         row['analysis_note'] = next((v for k, v in ANALYSIS_NOTES.items() if an.startswith(k)), '')

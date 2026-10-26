@@ -809,7 +809,7 @@ def create_app(
     app.include_router(exports_router)
     from zzaimy.app.collect import router as collect_router
     app.include_router(collect_router)
-    from zzaimy.app.archive_view import router as archive_view_router   # DGX 원본 보관소(원본 목록 장부)
+    from zzaimy.app.archive_view import router as archive_view_router   # DGX 학교 원본(원본 목록 장부)
     app.include_router(archive_view_router)
     from zzaimy.app.program_admin import router as program_admin_router; app.include_router(program_admin_router)   # 사업 관리(/programs/admin, ADR-0066)
     from zzaimy.app.dept_dictionary import router as dept_dict_router; app.include_router(dept_dict_router)   # 부서 사전 자동완성(/api/depts)
@@ -960,8 +960,6 @@ def create_app(
     templates.env.globals["doc_name"] = _doc_name
     from zzaimy.app.doc_title import display_title as _doc_title, receipt_label as _receipt_label
     templates.env.globals["doc_title"] = _doc_title
-    # 라이브러리 탭 이름 — 탭(_library_tabs)과 안내문이 같은 이름을 쓴다
-    templates.env.globals["library_tabs"] = {"docs": "문서", "archive": "원본 보관소"}
     templates.env.globals["receipt_label"] = _receipt_label
     from zzaimy.app import read_failure as _rf
     templates.env.globals["read_fail"] = lambda d: _rf.info(db, d)   # 읽지 못한 문서의 사유·다시 하는 단추(목록·문서 화면·알림)
@@ -1289,18 +1287,6 @@ def create_app(
             head["versions"] = [rows[i] for i in g[1:21] if i in rows]
             head["n_versions"] = len(g)
             docs.append(head)
-        # 문서마다 원본 보관소의 그 원본으로 — 학교 원본(dgx://)에서 들어온 문서만. 이 쪽 문서의 원본 줄만 한 번에 읽는다
-        dgx = {int(d["id"]): (d.get("stored_path") or "")[6:] for d in docs if (d.get("stored_path") or "").startswith("dgx://")}
-        if dgx:
-            from zzaimy.app import archive as _archive, doc_origin as _dorig
-            _archive.ensure(db)
-            rels = sorted(set(dgx.values()))
-            with db._conn() as conn:
-                arow = {str(r[0]): {"program": r[1], "program_name": r[2], "year": r[3]} for r in conn.execute(
-                    f"SELECT rel, program, program_name, year FROM archive_files WHERE rel IN ({','.join('?' * len(rels))})", rels).fetchall()}
-            for d in docs:
-                if int(d["id"]) in dgx:
-                    d["origin_href"] = _dorig.archive_location(dgx[int(d["id"])], arow.get(dgx[int(d["id"])]))["href"]
         ucount["all"] = sum(ucount.values())
         projects = db.list_projects(business) if business else []
         return templates.TemplateResponse(
@@ -1414,7 +1400,7 @@ def create_app(
     _units_cache: dict = {"at": 0.0, "v": []}
 
     def _business_units() -> list[str]:
-        """프로젝트 만들기의 사업단 선택지 — 원본 보관소 최상위 폴더(10분 재사용)."""
+        """프로젝트 만들기의 사업단 선택지 — 학교 원본 최상위 폴더(10분 재사용)."""
         import time as _t
         if _t.time() - _units_cache["at"] > 600:
             from zzaimy.app import archive as _archive
@@ -4841,7 +4827,7 @@ def create_app(
             raise HTTPException(403, "관리자만 지울 수 있습니다")
         n = lf.delete(db, key)
         if n < 0:
-            return _lib_back(err="원본 폴더는 지울 수 없습니다 — 원본 보관소의 폴더입니다")
+            return _lib_back(err="원본 폴더는 지울 수 없습니다 — 학교 원본의 폴더입니다")
         return _lib_back(ok=f"폴더를 지웠습니다 · 문서 {n:,}건은 라이브러리에 그대로 있습니다")
 
     @app.post("/library/upload")

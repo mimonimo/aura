@@ -99,7 +99,7 @@ def test_sidebar_has_one_entry_per_resource_function(tmp_path, monkeypatch):
     sidebar = page.split('id="workspaceSidebar"', 1)[1].split('</aside>', 1)[0]
     assert sidebar.count('data-chat-history') == 0                         # 대화 찾기는 맨 위 「문서·대화 검색」 하나로(사이드바 검색 단추 뺌)
     assert 'href="/criteria"' not in sidebar
-    assert 'href="/criteria"' not in page and 'href="/archive"' in page   # 라이브러리 탭(문서·원본 보관소) — 기준은 목록의 칩
+    assert 'href="/criteria"' not in page and 'href="/archive' not in page   # 라이브러리는 문서 한 목록 — 기준은 목록의 칩
     assert 'work-nav' not in sidebar
     assert '>처리 현황</div>' not in page
     assert '>접수 문서' not in page
@@ -118,5 +118,5 @@ def test_project_library_keeps_creation_and_document_search(tmp_path, monkeypatc
     assert '검색 결과' not in library
     search = client.get('/?type=all&q=없는문서')
     assert search.status_code == 200 and '검색 결과' in search.text
-    assert 'use=criteria' in library and 'href="/archive"' in library
+    assert 'use=criteria' in library and 'href="/archive' not in library
     assert 'data-page-back href="/chat"' in client.get('/criteria').text

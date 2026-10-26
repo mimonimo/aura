@@ -20,13 +20,13 @@ def setup(tmp_path):
 
 def test_archive_layout_and_zero_denominator(setup):
     app, client = setup
-    page = client.get("/archive?q=계획서").text
+    page = client.get("/dev/archive?q=계획서").text
     assert ">문서 연결됨<span>0</span>" in page                                          # 분모가 0 이어도 그린다(왼쪽 「처리 상태」 한 곳)
     assert page.index('id="archive-browse"') < page.index('id="archive-search"') < page.index('id="archive-list"')   # 왼쪽 분류 → 찾기 → 목록
-    assert ">원본 열기</a>" in page and ">계획서<" in page and "열어 보기만 해서는 등록되지 않음" in page
+    assert ">원본 열기</a>" in page and ">계획서<" in page and "열람 권한 필요" not in page   # 관리자 화면 — 등록 전 원본도 연다
     with app.state.db._conn() as conn:
         conn.execute("DELETE FROM archive_files")
-    assert client.get("/archive").status_code == 200
+    assert client.get("/dev/archive").status_code == 200
 
 
 @pytest.mark.parametrize("rel,mime,disposition", [
@@ -38,7 +38,7 @@ def test_original_response_and_cleanup(setup, tmp_path, monkeypatch, rel, mime, 
     file = tmp_path / "temporary"
     file.write_bytes(b"test")
     monkeypatch.setattr(archive_original, "fetch", lambda row: file)
-    response = client.get("/archive/original", params={"rel": rel})
+    response = client.get("/dev/archive/original", params={"rel": rel})
     assert response.status_code == 200 and response.content == b"test"
     assert response.headers["content-type"] == mime
     assert response.headers["content-disposition"].startswith(disposition)
@@ -48,43 +48,22 @@ def test_original_response_and_cleanup(setup, tmp_path, monkeypatch, rel, mime, 
 def test_missing_and_removed_never_fetch(setup, monkeypatch):
     app, client = setup
     monkeypatch.setattr(archive_original, "fetch", lambda row: pytest.fail("must not fetch"))
-    assert client.get("/archive/original?rel=../../etc/passwd").status_code == 404
+    assert client.get("/dev/archive/original?rel=../../etc/passwd").status_code == 404
     with app.state.db._conn() as conn:
         conn.execute("UPDATE archive_files SET removed_at = 'removed'")
-    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 404
+    assert client.get("/dev/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 404
 
 
-def test_private_document_and_unlinked_denied(setup, monkeypatch):
+def test_staff_never_fetches_from_original_management(setup, monkeypatch):
+    """교직원은 원본 관리의 파일 열기를 쓰지 않는다 — 문서의 「원본」(/doc/{id}/original)으로 열고, 권한 밖 문서는 없는 것과 같다."""
     app, client = setup
     assert _login(client, "zzaimy", "boot-pass-1")
     monkeypatch.setattr(archive_original, "fetch", lambda row: pytest.fail("must not fetch"))
-    assert client.get("/archive/original", params={"rel": "사업/서식.hwp"}).status_code == 403
-    from zzaimy.app import access_policy
-    monkeypatch.setattr(access_policy, "visible", lambda *a, **kw: False)
-    with app.state.db._conn() as conn:
-        conn.execute("UPDATE archive_files SET doc_id = 999 WHERE rel = '사업/계획서.pdf'")
-    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 404   # 권한 밖 문서는 없는 것과 같다
-
-
-def test_staff_can_open_only_visible_linked_document(setup, monkeypatch, tmp_path):
-    app, client = setup
-    assert _login(client, "zzaimy", "boot-pass-1")
+    assert client.get("/dev/archive/original", params={"rel": "사업/서식.hwp"}).status_code == 403
     db = app.state.db
     doc_id = db.add_document("계획서.pdf", "dgx://사업/계획서.pdf", doc_type="grant",
                              owner="someone-else", access_level="owner")
-    with db._conn() as conn:
-        conn.execute("UPDATE archive_files SET doc_id = ? WHERE rel = '사업/계획서.pdf'", (doc_id,))
-    file = tmp_path / "authorized-file"
-    file.write_bytes(b"test")
-    monkeypatch.setattr(archive_original, "fetch", lambda row: file)
-    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 404
-    assert file.exists()
-    with db._conn() as conn:
-        conn.execute("UPDATE documents SET access_level = 'public' WHERE id = ?", (doc_id,))
-    page = client.get("/archive?q=계획서").text
-    assert '<span class="ar-tag state-registered">있음</span>' in page and 'href="/doc/' in page   # 교직원은 처리 상태 대신 라이브러리에 있는지만
-    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 200
-    assert not file.exists()
+    assert client.get(f"/doc/{doc_id}/original", follow_redirects=False).status_code == 404
 
 
 @pytest.mark.parametrize("rel,size", [("../escape", 1), ("/etc/passwd", 1), ("a\\b", 1), ("a", 100_000_001)])

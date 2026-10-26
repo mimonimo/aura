@@ -1,4 +1,4 @@
-"""읽지 못한 문서 — 사유 갈래, 올린 사람의 다시 하는 길(파일 바꾸기·다시 읽기·글자 읽기 맡기기·지우기), 알림, 원본 보관소 다시 시도."""
+"""읽지 못한 문서 — 사유 갈래, 올린 사람의 다시 하는 길(파일 바꾸기·다시 읽기·글자 읽기 맡기기·지우기), 알림, 원본 관리 다시 시도."""
 import io
 import json
 import zipfile
@@ -229,24 +229,24 @@ def _failed_rows(db, rows):
 
 
 def test_archive_failed_list_and_retry(tmp_path):
-    """원본 보관소 정리 카드 — 「처리 실패」 목록(사유·찾기)에서 고른 원본을 정리함에서 빼고 다시 읽기 장부에. 스캔은 글자 읽기로."""
+    """원본 관리 정리 카드 — 「처리 실패」 목록(사유·찾기)에서 고른 원본을 정리함에서 빼고 다시 읽기 장부에. 스캔은 글자 읽기로."""
     app, _ = _app(tmp_path)
     db = app.state.db
     _failed_rows(db, [("링크/가/계획서.hwp", "HWP 형식이 아닙니다 (9바이트)"), ("링크/나/스캔.pdf", SCAN), ("링크/다/보고.pdf", "KeyError: x")])
     c = TestClient(app)
     assert _login(c, "zzaimy", "boot-pass-1")
-    assert c.get("/archive/cleanup/failed").status_code == 403
+    assert c.get("/dev/archive/cleanup/failed").status_code == 403
     assert _login(c, "zzdev", "devpass")
-    d = c.get("/archive/cleanup/failed").json()
+    d = c.get("/dev/archive/cleanup/failed").json()
     assert d["total"] == 3 and d["by_reason"] == {"형식 불일치": 1, "스캔 판독 없음": 1, "기타 판독 실패": 1}
     assert {r["name"]: r["reason"] for r in d["rows"]}["스캔.pdf"] == "스캔 판독 없음"
-    assert c.get("/archive/cleanup/failed?q=스캔").json()["total"] == 1
-    r = c.post("/archive/cleanup/retry", json={"rels": ["링크/나/스캔.pdf", "링크/다/보고.pdf", "링크/없음.pdf"], "mode": "auto"}).json()
+    assert c.get("/dev/archive/cleanup/failed?q=스캔").json()["total"] == 1
+    r = c.post("/dev/archive/cleanup/retry", json={"rels": ["링크/나/스캔.pdf", "링크/다/보고.pdf", "링크/없음.pdf"], "mode": "auto"}).json()
     assert r["retried"] == 2 and r["retry_pending"] == 2
     assert {k: v["mode"] for k, v in read_failure.archive_pending(db).items()} == {"링크/나/스캔.pdf": "ocr", "링크/다/보고.pdf": "retry"}
-    assert c.get("/archive/cleanup/failed").json()["total"] == 1
+    assert c.get("/dev/archive/cleanup/failed").json()["total"] == 1
     assert (tmp_path / ".archive-retry").exists()                              # 동기화가 다음 1분에 돌게
-    page = c.get("/archive").text
+    page = c.get("/dev/archive").text
     assert 'id="acFail"' in page and 'data-fdo="retry"' in page
 
 

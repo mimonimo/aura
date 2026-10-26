@@ -6,7 +6,7 @@
 
 ## 주기 작업(크론·서비스) (13)
 
-- `167_dgx_parse.py` — DGX 원본 보관소의 문서를 DGX 에서 가볍게 처리 — 문서함과 같은 처리기(DocumentProcessor)로 파싱·조각까지만(검토 의견 LLM·비전 판독 없이).
+- `167_dgx_parse.py` — DGX 학교 원본의 문서를 DGX 에서 가볍게 처리 — 문서함과 같은 처리기(DocumentProcessor)로 파싱·조각까지만(검토 의견 LLM·비전 판독 없이).
 - `_hosts.sh` — 주소·계정·포트는 공개 저장소에 두지 않는다. 저장소 밖 값은 두 곳에서 읽는다:
 - `generate_grounded_candidates.py` — Resumable internal-model candidate generation. Does not approve or train.
 - `sync_generated_candidates.py` — Idempotently publish generated candidates to the existing review project.
@@ -116,13 +116,13 @@
 - `156_intake_files.py` — 고른 파일들을 한 프로젝트로 문서함에 반입한다 — 실문서 파일럿용(ADR-0047).
 - `157_build_kg.py` — 온톨로지 v3 그래프를 만든다 — 사업 → 연차 → 문서 → 절, 관계마다 기준·근거(ADR-0048).
 - `158_kg_judge.py` — 그래프 연결 정밀도 점검 — 이은 절 쌍과 버린 후보 쌍을 표본으로 27B 에 판정시킨다(평가에만, 그래프에는 쓰지 않는다).
-- `161_select_core.py` — 사업별 뼈대 문서 고르기 — 원본 보관소에서 사업마다 기본계획·공고·계획서·실적보고서·평가·지침의 최종본만 고른다.
+- `161_select_core.py` — 사업별 뼈대 문서 고르기 — 학교 원본에서 사업마다 기본계획·공고·계획서·실적보고서·평가·지침의 최종본만 고른다.
 - `162_business_template.py` — 사업별 공통 양식 — 지식 그래프의 단위(여러 연차 문서에 되풀이되는 절)로 사업 × 문서 갈래(계획서·실적보고서)의 공통 뼈대를 만든다.
 - `164_sync_apply.py` — 170(VM 동기화)이 받은 편지함에 받아 둔 새 뼈대 문서를 반입하고 그래프·양식을 다시 짓는다.
-- `165_dgx_inventory.py` — DGX 원본 보관소 전체 목록 — 파일마다 경로·크기·수정 시각·형식·사업·갈래·연차(JSONL). VM 의 원본 목록 장부(app/archive)로 들인다.
+- `165_dgx_inventory.py` — DGX 학교 원본 전체 목록 — 파일마다 경로·크기·수정 시각·형식·사업·갈래·연차(JSONL). VM 의 원본 목록 장부(app/archive)로 들인다.
 - `168_import_parsed.py` — DGX 에서 가볍게 처리한 문서(scripts/167 의 JSONL, 표준 입력)를 VM 문서함에 'DGX 보관 문서'로 들인다.
 - `169_upload_templates.py` — 폐기된 목차 요약 양식 게시 경로. 기존 호출은 외부 변경 없이 차단한다.
-- `170_vm_sync.py` — VM 혼자 도는 원본 갱신 — DGX 원본 보관소를 읽기 전용 rsync 로 보고(파일 내용은 고른 것만), 원본 목록 장부·사업 분류·뼈대 반입·그래프·양식을 갱신한다.
+- `170_vm_sync.py` — VM 혼자 도는 원본 갱신 — DGX 학교 원본를 읽기 전용 rsync 로 보고(파일 내용은 고른 것만), 원본 목록 장부·사업 분류·뼈대 반입·그래프·양식을 갱신한다.
 - `172_common_templates.py` — 문서 갈래별 공통 양식 — 계획서·실적보고서처럼 어느 사업에든 쓰는 구글 독스 작업용 뼈대.
 - `172_ocr_visual_review.py` — 동일 PDF 페이지를 이미지로 판독한 결과를 원본과 나란히 보관한다.
 - `177_ontology_export.py` — 온톨로지 표준 내보내기·검사(ADR-0056) — OWL 설계도·RDF 인스턴스를 쓰고 SHACL 규칙으로 검사한다.

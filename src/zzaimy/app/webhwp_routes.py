@@ -786,7 +786,7 @@ def doc_to_webhwp(request: Request, doc_id: int, dept: str = Form(""), folder: s
 
 
 def _original_bytes(st, doc: dict) -> bytes:
-    """문서 원본 바이트 — 플랫폼에 있으면 그것, DGX 원본(dgx://)이면 원본 보관소에서 하나 받아 온다."""
+    """문서 원본 바이트 — 플랫폼에 있으면 그것, DGX 원본(dgx://)이면 학교 원본에서 하나 받아 온다."""
     sp = str(doc.get("stored_path") or "")
     if sp and not sp.startswith("dgx://") and Path(sp).exists():
         return Path(sp).read_bytes()

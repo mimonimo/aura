@@ -176,8 +176,8 @@ RULES: tuple[Rule, ...] = (
     R("data/generated/**", REGEN, "사업별 공통 양식 — 동기화 주기(162·172)가 다시 만든다"),
     R("data/inbox/parsed/.offsets.json", MOVE, "DGX 처리 결과를 읽은 자리 — 없으면 결과 파일을 처음부터 다시 훑는다"),
     R("data/inbox/parsed/**", REGEN, "DGX 처리 결과·학습셋 목록 — 170 --parsed 가 5분마다 다시 받는다"),
-    R("data/inbox/core/**", SKIP, "DGX 원본 보관소에서 받은 반입 뼈대 — 반입 뒤 documents/ 로 옮겨지고 남은 것은 다시 받는다"),
-    R("data/inbox/**", SKIP, "반입 대기 자리 — 원본은 DGX 원본 보관소에 있다"),
+    R("data/inbox/core/**", SKIP, "DGX 학교 원본에서 받은 반입 뼈대 — 반입 뒤 documents/ 로 옮겨지고 남은 것은 다시 받는다"),
+    R("data/inbox/**", SKIP, "반입 대기 자리 — 원본은 DGX 학교 원본에 있다"),
     R("data/train/**", TRAIN, "학습 자료·학습본(3층)"),
     R("data/training/**", TRAIN, "학습 자료"),
     R("data/interim/sft/**", TRAIN, "SFT 학습셋 원본"),
@@ -192,7 +192,7 @@ RULES: tuple[Rule, ...] = (
     R("data/samples/**", SKIP, "실물 표본 — 개발용"),
 
     # ---- 홈 ----
-    R("~/.ssh/id_ed25519_dgx_ro", MOVE, "DGX 원본 보관소 읽기 전용 키(DGX authorized_keys 에 등록됨)", secret=True),
+    R("~/.ssh/id_ed25519_dgx_ro", MOVE, "DGX 학교 원본 읽기 전용 키(DGX authorized_keys 에 등록됨)", secret=True),
     R("~/.ssh/id_ed25519_dgx_ro.pub", MOVE, "DGX 읽기 전용 키 공개 짝"),
     # 10-23 VM 첫 report 의 「규칙 없음」 을 보고 더함
     R("~/.config/systemd/user/zzaimy-tb-feed*", TRAIN, "학습 모니터 단위(학습 장비 담당)"),

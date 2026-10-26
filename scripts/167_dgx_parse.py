@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DGX 원본 보관소의 문서를 DGX 에서 가볍게 처리 — 문서함과 같은 처리기(DocumentProcessor)로 파싱·조각까지만(검토 의견 LLM·비전 판독 없이).
+"""DGX 학교 원본의 문서를 DGX 에서 가볍게 처리 — 문서함과 같은 처리기(DocumentProcessor)로 파싱·조각까지만(검토 의견 LLM·비전 판독 없이).
 
 분석 결과는 VM 의 검색·온톨로지·문서 분류·문서함에서도 쓴다. 원본은 DGX 에 두고(ADR-0047), 결과(글·조각·분류)만
 JSONL 로 낸다 → VM 에서 scripts/168 이 'DGX 보관 문서'로 문서함에 들인다.

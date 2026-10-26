@@ -268,14 +268,14 @@ def manual_unregistered(data_dir: Path) -> set[int]:
 def auto_register(db, data_dir: Path) -> dict:
     """반입 자료에서 찾은 새 판·미등록 규정을 기준 문서로 저절로 올린다(10-21 사용자: 반입할 때 알아서 등록돼야).
     후보 고르기(candidates)는 화면과 같은 규칙 — 기준 문서보다 새 판일 때만 후보이고, 올리면 옛 판은 사업 문서로 돌아간다(register).
-    학교 원본 보관소(DGX)에서 들어온 전체 공개 문서만 — 사용자가 올린 문서는 관리자가 고른다. 사람이 등록 해제한 문서는 다시 올리지 않는다."""
+    학교 원본(DGX)에서 들어온 전체 공개 문서만 — 사용자가 올린 문서는 관리자가 고른다. 사람이 등록 해제한 문서는 다시 올리지 않는다."""
     skip = manual_unregistered(data_dir)
     ids = []
     for x in candidates(db)["items"]:
         if int(x["id"]) in skip:
             continue
         d = db.get_document(int(x["id"])) or {}
-        # 학교 원본 보관소(DGX)에서 들어온 전체 공개 문서만 저절로 — 사용자가 올린 문서는 제목이 「…규정」이어도 기준 문서(모두의 답 근거)로
+        # 학교 원본(DGX)에서 들어온 전체 공개 문서만 저절로 — 사용자가 올린 문서는 제목이 「…규정」이어도 기준 문서(모두의 답 근거)로
         # 올리지 않는다(누구나 올린 글을 규정으로 만들 수 있게 되지 않게, 10-21 보안 검토). 그런 문서는 관리자가 화면에서 고른다
         if str(d.get("stored_path") or "").startswith("dgx://") and (d.get("access_level") or "public") == "public":
             ids.append(int(x["id"]))

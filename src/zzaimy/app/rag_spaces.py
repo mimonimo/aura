@@ -186,7 +186,7 @@ def dept_spaces(cfg: dict, accounts: dict) -> list[str]:
 
 
 def area_folders(db) -> list[dict]:
-    """원본 보관소의 최상위 폴더와 파일 수 — 원본 장부(archive_files) 경로의 첫 단계. 플랫폼 업로드처럼 경로와 다른 묶음은 뺀다."""
+    """학교 원본의 최상위 폴더와 파일 수 — 원본 장부(archive_files) 경로의 첫 단계. 플랫폼 업로드처럼 경로와 다른 묶음은 뺀다."""
     try:
         from zzaimy.app import archive
         archive.ensure(db)

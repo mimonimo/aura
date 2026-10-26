@@ -5,7 +5,7 @@
 그 위에서 바로 쓴다. 같은 양식의 판·사본이 많아 대표 하나만 고르고, hwp 는 기안기 서버(필터 서버 open→save)로 hwpx 로 바꾼다.
 - select : 문서함 kind=form 이고 원본이 hwp·hwpx 인 문서를 제목(연도·번호·괄호·○○ 를 뺀 꼴)으로 묶어 묶음마다 대표 하나
            (제목에 양식·서식이 있는 것 > hwpx > 최근). 결과 data/platform/webhwp_forms/select.json
-- convert: 대표의 원본을 원본 보관소(DGX)에서 받아 hwpx 로(hwp 는 기안기 서버 변환). 이미 한 것(원본 지문 같음)은 건너뜀
+- convert: 대표의 원본을 학교 원본(DGX)에서 받아 hwpx 로(hwp 는 기안기 서버 변환). 이미 한 것(원본 지문 같음)은 건너뜀
 - check  : 변환본마다 — 기안기에서 다시 열리는가(open), 표·문단 수, 절 제목 후보, 채우기 시험(첫 절에 문단·표, 서식 표 칸 채우기·행 늘리기),
            자가 점검(checks). 결과 report.json·report.md
 - register: 점검을 통과한 것을 app/past_forms.classify 로 판정해 잠긴 양식(source 「양식:doc-<id>」)으로 둔다 —
@@ -112,7 +112,7 @@ def convert(db, picked: list[dict], limit: int | None) -> None:
             t0 = time.time()
             try:
                 if row is None:
-                    raise FileNotFoundError("원본 보관소 대장에 없음")
+                    raise FileNotFoundError("학교 원본 대장에 없음")
                 src = archive_original.fetch(row)
                 try:
                     data = to_hwpx(Path(src), p["ext"], http)

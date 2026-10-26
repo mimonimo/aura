@@ -171,7 +171,7 @@ def _flat(t: str) -> str:
 
 
 class Programs:
-    """문서 → 사업. 원본 보관소 장부(archive_files.program·program_name) → 프로젝트 사업(projects.program) →
+    """문서 → 사업. 학교 원본 장부(archive_files.program·program_name) → 프로젝트 사업(projects.program) →
     문서 정체(identity.program) 순으로 열쇠·이름을 찾고, 사업 관리 장부(program_admin.merged_rows, 합친 줄은 합쳐 받은 줄로)의
     이름으로 바꾼다. 본문·제목의 사업 이름·별칭 수도 센다(사업 전용 판정)."""
 

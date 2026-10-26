@@ -519,7 +519,7 @@ def detail(request: Request, doc_id: int):
             "scan_asset": scan_asset,
             "original_kind": original_kind,
             "original_ext": storage.original_ext(doc),
-            # DGX 원본 보관소 문서(가벼운 처리) — 원본은 DGX 에 있고 글·조각만 여기에(ADR-0047)
+            # DGX 학교 원본 문서(가벼운 처리) — 원본은 DGX 에 있고 글·조각만 여기에(ADR-0047)
             "dgx_origin": dgx_rel, "origin_place": origin_place, "back": back,
             "suggested_criteria": suggested,
             "referencing": referencing,

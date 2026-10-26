@@ -83,7 +83,7 @@ def main() -> int:
     args = ap.parse_args()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
 
-    # 원본 보관소(DGX) 경로 장부 — 156 --origin-base 가 적는다. 폴더 경로가 사업의 강한 단서다
+    # 학교 원본(DGX) 경로 장부 — 156 --origin-base 가 적는다. 폴더 경로가 사업의 강한 단서다
     origins = {}
     led = ROOT / "data" / "platform" / "origins.jsonl"
     if led.is_file():

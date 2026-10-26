@@ -135,7 +135,7 @@ def main() -> int:
             # 실패도 남긴다 — 연동 점검(175)이 「결과 없음(놓침)」과 「실패(사유 있음)」를 가른다
             fails.write(json.dumps({"rel": rel, "version": ver, "state": state, "error": str(rec.get("error") or "")[:200],
                                     "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
-            try:                                   # 원본 보관소의 처리 상태 「실패」 — 같은 기준(app/archive_state)
+            try:                                   # 학교 원본의 처리 상태 「실패」 — 같은 기준(app/archive_state)
                 archive_state.mark_failures(db, {rel: str(rec.get("error") or state)})
             except Exception:
                 pass                               # 장부 잠금 중이면 다음 실행의 채우기(archive_state --mark-failures)가 맞춘다

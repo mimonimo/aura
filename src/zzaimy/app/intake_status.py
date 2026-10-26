@@ -3,7 +3,7 @@
 무엇을 내는가
   연동 점검(scripts/175) 결과: 원본 장부 구성·처리 대상 상태·놓침·실패·동기화 기록(pipeline·listing)
   원본 장부 나눔: 학교 원본·정리함·부산물·플랫폼 사본(ledger_breakdown, 60초 재사용)
-  DGX 처리기의 다시 하기 횟수(retry_limit)와 원본 보관소 분류 상태 이름(ARCHIVE_STATUS)
+  DGX 처리기의 다시 하기 횟수(retry_limit)와 학교 원본 분류 상태 이름(ARCHIVE_STATUS)
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ _ledger_cache: dict = {"at": 0.0, "v": None, "db": ""}
 
 
 def ledger_breakdown(db, force: bool = False) -> dict:
-    """원본 장부 전체가 무엇으로 이루어졌는지 — 학교 원본(원본 보관소 머리 숫자) · 정리함 · 부산물 폴더 · 플랫폼 사본.
+    """원본 장부 전체가 무엇으로 이루어졌는지 — 학교 원본(원본 관리가 세는 수) · 정리함 · 부산물 폴더 · 플랫폼 사본.
     「원본」이라는 말이 두 수(학교 원본, 원본 장부 전체)에 함께 쓰여 헷갈리지 않게 화면이 이 나눔을 한 줄로 보인다.
     학교 원본은 지표 모듈(archive_originals)과 같은 조건(archive_state.original_sql)으로 센다. 60초 재사용."""
     if (not force and _ledger_cache["v"] is not None and _ledger_cache["db"] == str(db.path)
@@ -106,7 +106,7 @@ def ledger_breakdown(db, force: bool = False) -> dict:
     return v
 
 
-# 연동 점검(scripts/175)의 원본 장부 구성 줄 — 학교 원본(원본 보관소가 세는 것)에 드는 줄인지와 화면 이름
+# 연동 점검(scripts/175)의 원본 장부 구성 줄 — 학교 원본(원본 관리가 세는 것)에 드는 줄인지와 화면 이름
 SCHOOL_ROWS = ("처리 대상 문서", "같은 파일 중복", "기타 비문서(회계 서식·동영상 등)", "사진·그림", "압축 파일",
                "범위 밖(지출·증빙·정산 등)")
 ROW_LABELS = {"같은 파일 중복": "같은 파일 중복(정리함 밖, 문서에 이어진 사본 포함)"}

@@ -1,13 +1,13 @@
-"""문서를 보는 곳은 라이브러리의 세 탭(프로젝트·문서 / 기준 문서 / 원본 보관소)뿐이다.
+"""문서를 보는 곳은 라이브러리 한 곳이다(기준은 목록의 칩, 학교 원본 관리는 관리자 개발 메뉴).
 자료 연결 메뉴·화면과 문서 추출 화면은 없다(가져오기는 관리자 설정, 구글 계정 연결은 프로필 설정)."""
 from tests.test_dev_pages import client  # noqa: F401
 
 
-def test_library_tabs_and_no_connections_menu(client):
-    for path in ("/?type=all", "/criteria", "/archive"):
+def test_library_one_list_and_no_connections_menu(client):
+    for path in ("/?type=all", "/criteria"):
         page = client.get(path).text
         assert 'aria-label="라이브러리"' in page, path
-        assert 'href="/criteria"' not in page and 'href="/archive"' in page, path   # 기준은 목록의 칩(ADR-0062)
+        assert 'href="/criteria"' not in page and 'href="/archive' not in page, path   # 기준은 목록의 칩(ADR-0062), 원본 보관소 탭 없음
         assert ">자료 연결<" not in page, path
     assert client.get("/connections").status_code == 404
     assert client.get("/ocr").status_code == 404

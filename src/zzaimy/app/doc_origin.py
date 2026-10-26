@@ -1,8 +1,8 @@
-"""문서 검토 화면의 길 안내 — 돌아갈 곳과 원본 보관소 위치.
+"""문서 검토 화면의 길 안내 — 돌아갈 곳과 학교 원본 위치.
 
 돌아갈 곳: 진행 중인 프로젝트에 든 문서면 그 프로젝트, 아니면 들어온 곳(쿼리 from= 또는 같은 사이트의 Referer),
-그것도 없으면 보관된 사업 묶음 · 기준 문서 · 라이브러리 순. 원본 위치는 원본 보관소 장부(archive_files)의
-사업·연도로 짧게 보이고, 전체 경로는 툴팁·복사로만 둔다.
+그것도 없으면 보관된 사업 묶음 · 기준 문서 · 라이브러리 순. 원본 위치는 원본 장부(archive_files)의
+사업·연도로 짧게 보이고, 전체 경로는 툴팁·복사로만 둔다. 위치 링크는 관리자 「원본 관리」(/dev/archive)로 간다.
 """
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ from zzaimy.graph.programs import plausible_year
 # 들어온 곳 — 열쇠 → (이름, 기본 주소). 주소 앞부분으로 Referer 를 이 열쇠로 바꾼다
 ORIGINS: dict[str, tuple[str, str]] = {
     "library": ("라이브러리", "/?type=all"),
-    "archive": ("원본 보관소", "/archive"),
+    "archive": ("원본 관리", "/dev/archive"),             # 관리자 화면 — 교직원은 들어올 일이 없다
     "search": ("검색", "/search"),
     "criteria": ("기준 문서", "/?type=all&use=criteria"),     # 옛 /criteria 탭은 라이브러리 기준 칩(ADR-0062)
     "graph": ("그래프 탐색", "/graph/explore"),
 }
-_PREFIX = (("/archive", "archive"), ("/search", "search"), ("/criteria", "criteria"), ("/graph", "graph"),
+_PREFIX = (("/dev/archive", "archive"), ("/search", "search"), ("/criteria", "criteria"), ("/graph", "graph"),
            ("/inbox", "library"))
 
 
@@ -76,13 +76,11 @@ def back_link(doc: dict, project: dict | None, from_: str = "", referer: str = "
         return {"label": "지난 사업으로", "href": f"/project/{project['id']}", "title": str(project.get("name") or "")}
     if doc.get("doc_type") == "regulation":
         return {"label": "기준 문서로", "href": ORIGINS["criteria"][1], "title": ""}
-    if str(doc.get("stored_path") or "").startswith("dgx://"):
-        return {"label": "원본 보관소로", "href": "/archive", "title": ""}
     return {"label": "라이브러리로", "href": "/?type=all", "title": ""}
 
 
 def archive_location(rel: str, row: dict | None) -> dict:
-    """원본 보관소 짧은 위치 — {label, href, path}. row 는 장부 줄(program·program_name·year), 없으면 폴더 이름으로."""
+    """학교 원본 짧은 위치 — {label, href, path}. href 는 관리자 원본 관리에서 그 원본을 찾는 주소. row 는 장부 줄(program·program_name·year), 없으면 폴더 이름으로."""
     rel = rel or ""
     name = rel.rsplit("/", 1)[-1]
     row = row or {}
@@ -90,7 +88,7 @@ def archive_location(rel: str, row: dict | None) -> dict:
     program_label = display_name(str(row.get("program_name") or ""))
     year = str(row.get("year") or "").strip()
     year = int(year) if year.isdigit() and plausible_year(year) else None
-    parts = ["원본 보관소"]
+    parts = ["학교 원본"]
     if program_label:
         parts.append(program_label + (f" › {year}년" if year else ""))
     else:
@@ -105,4 +103,4 @@ def archive_location(rel: str, row: dict | None) -> dict:
     stem = name.rsplit(".", 1)[0] if "." in name else name
     if stem:
         params["q"] = stem[:200]
-    return {"label": " · ".join(parts), "href": "/archive?" + urlencode(params) + "#archive-list", "path": rel}
+    return {"label": " · ".join(parts), "href": ORIGINS["archive"][1] + "?" + urlencode(params) + "#archive-list", "path": rel}

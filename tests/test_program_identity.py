@@ -1,4 +1,4 @@
-"""사업 정체가 섞이지 않는가 — 그래프 짓기(이름 바뀜·장부 주인·이름 조각)와 원본 보관소 묶음 이름(노드 맞추기·이름 겹침 점검).
+"""사업 정체가 섞이지 않는가 — 그래프 짓기(이름 바뀜·장부 주인·이름 조각)와 원본 관리 묶음 이름(노드 맞추기·이름 겹침 점검).
 
 이름은 모두 합성이다. 앞 단계 사업(ABCD+)과 다음 단계 사업(ABCD 3.0), 새 체계(ZETA)가 한 보관소에 있는 꼴을 재현한다."""
 
@@ -97,12 +97,12 @@ def test_archive_groups_never_share_a_shown_name_after_a_polluted_rebuild(client
           names=[") 4단계 은하 선도대학 육성사업", "0000년 " + OLD, "4단계 은하 선도대학 육성사업", "누리기술사관육성사업", OLD],
           acronyms=["ABCD+", "ABCD 3.0", "ZETA", "ABCE+"])
     _node(db, "program:abcd3", NEW, names=["4단계 은하 선도대학 육성사업"], acronyms=["ABCD 3.0"])
-    names, progs = archive_view.load_programs(db, set())
+    names, progs = archive_view.load_programs(db)
     assert progs.name_clashes() == []
     assert progs.label("program:abcd") == OLD
     assert progs.label("program:abcd30") == NEW
     assert progs.label("program:기술") == "누리기술사관육성사업"
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     tree = page[page.index('aria-label="사업별 원본 수"'):]
     tree = tree[:tree.index("</nav>")]
     assert tree.count(f">{OLD}<span>") == 1 and tree.count(f">{NEW}<span>") == 1

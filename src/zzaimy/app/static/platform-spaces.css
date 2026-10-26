@@ -290,10 +290,6 @@ body .ag-empty .ag-empty-hint { font-size:11px; color:var(--muted); max-width:23
 /* 비어 있는 사이드바 묶음 — 옅은 한 줄(누를 수 없는 글) */
 .sidebar .side-empty{color:var(--faint);font-size:12.5px;cursor:default}
 .sidebar .side-empty:hover{background:transparent}
-/* 라이브러리 탭 줄 오른쪽 — 같은 문서를 그래프로 보는 바로가기(탭이 아니라 다른 화면으로 가는 단추 모양) */
-.library-tabs { align-items:center; }
-.library-tabs a.library-graph { margin-left:auto; border:1px solid var(--line); background:#fff; color:var(--navy); font-weight:600; padding:7px 12px; }
-.library-tabs a.library-graph:hover { background:#EEF3FB; border-color:#B9C9DE; color:var(--navy); }
 /* 펼치기 — 세모 표식은 쓰지 않는다. 접고 펴는 곳은 「펼치기/접기」 글이 붙은 단추 꼴(chip-toggle) */
 summary { list-style:none; }
 summary::-webkit-details-marker { display:none; }

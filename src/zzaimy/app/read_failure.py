@@ -1,4 +1,4 @@
-"""읽지 못한 문서 — 사유 갈래, 사유마다 다시 하는 길, 글자 읽기 대기열, 원본 보관소 실패 원본 다시 시도.
+"""읽지 못한 문서 — 사유 갈래, 사유마다 다시 하는 길, 글자 읽기 대기열, 원본 관리 실패 원본 다시 시도.
 
 사람이 올린 문서(라이브러리·문서함·프로젝트·채팅 첨부·드라이브 가져오기)는 모두 처리기(pipeline.process)를 거치고, 실패하면
 documents.status = 'failed' 와 error 가 남는다. 화면(목록·문서 화면·알림)은 여기 info() 로 「읽지 못함 · 사유」와 단추를 그린다.
@@ -7,7 +7,7 @@ documents.status = 'failed' 와 error 가 남는다. 화면(목록·문서 화�
 글자 읽기 대기열(read_queue): 스캔본이 판독 모델이 없을 때 들어와 실패하면 대기열에 넣고, 판독 모델(또는 GPU 구조 추출)이
 닿을 때 한 건씩 다시 읽는다. 앱 안의 작업 줄 하나가 맡는다(start_worker).
 
-원본 보관소(archive_retry): 정리함 「처리 실패」에서 고른 원본을 정리함에서 빼고 장부에 적어 두면, 다음 동기화(scripts/217)가
+원본 관리(archive_retry): 정리함 「처리 실패」에서 고른 원본을 정리함에서 빼고 장부에 적어 두면, 다음 동기화(scripts/217)가
 DGX 원본을 하나씩 받아(archive_original.fetch) 이 서버 처리기로 다시 읽는다. 다시 실패하면 실패 장부에 새 사유를 적고
 정리함으로 돌아간다.
 """
@@ -221,7 +221,7 @@ def info(db, doc: dict | None) -> dict | None:
     replace = ("replace", "암호를 푼 파일로 바꾸기" if code == "locked" else "다른 파일로 바꾸기")
     resave = ("resave", "기안기로 열어 다시 저장") if ext in HWP_EXT else None
     if dgx:
-        acts = [("retry", "다시 읽기")]                     # 원본 보관소 문서 — 파일은 보관소 것이라 바꾸거나 지우지 않는다
+        acts = [("retry", "다시 읽기")]                     # 학교 원본 문서 — 파일은 보관소 것이라 바꾸거나 지우지 않는다
     elif code == "locked" or code == "empty" or code == "notext":
         acts = [replace]
     elif code == "scan":
@@ -287,7 +287,7 @@ def resave_hwp(path: Path) -> Path:
     return dest
 
 
-# ---------------------------------------------------------------- 원본 보관소 — 정리함 「처리 실패」 다시 시도
+# ---------------------------------------------------------------- 원본 관리 — 정리함 「처리 실패」 다시 시도
 
 def archive_pending(db) -> dict:
     return _load(db, ARCHIVE_KEY)

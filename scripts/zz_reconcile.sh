@@ -12,7 +12,7 @@ if [ "$n" -gt 0 ]; then
     scripts/zz_run.sh 12G env PYTHONPATH=src .venv/bin/python scripts/168_import_parsed.py --rels data/platform/reimport_rels.json data/inbox/parsed/parsed-*.jsonl >> /tmp/zz_sync.log 2>&1
     scripts/zz_run.sh 4G env PYTHONPATH=src .venv/bin/python scripts/175_pipeline_audit.py >> /tmp/zz_sync.log 2>&1
 fi
-# 처리 실패 문서 정리(199) — 지금 읽기 도구로 한 번 더 읽어 보고, 그래도 못 읽으면 문서함에서 뺀다(원본은 원본 보관소에 남음)
+# 처리 실패 문서 정리(199) — 지금 읽기 도구로 한 번 더 읽어 보고, 그래도 못 읽으면 문서함에서 뺀다(원본은 학교 원본에 남음)
 scripts/zz_run.sh 8G env PYTHONPATH=src .venv/bin/python scripts/199_settle_failed.py >> /tmp/zz_sync.log 2>&1
 # 규정 검색 품질 — 규정 조각 수·임베딩이 마지막 측정과 다르면 다시 잰다(215, 화면의 재측정 버튼 대신, 약 1시간)
 scripts/zz_run.sh 8G env PYTHONPATH=src .venv/bin/python scripts/215_eval_if_stale.py >> /tmp/zz_sync.log 2>&1

@@ -271,7 +271,7 @@ def test_originals_exclude_platform_copies_and_byproducts(client, tmp_path):
     v = metrics.live(db, force=True)["values"]
     assert v["archive_files"] == 5 and v["archive_originals"] == 3 and v["archive_failed"] == 1
     assert metrics.DEFS["archive_files"].label != metrics.DEFS["archive_originals"].label
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     assert metrics.tip("archive_originals").split(" · ")[0] in page          # 보관소 머리 숫자도 같은 지표 정의
 
 
