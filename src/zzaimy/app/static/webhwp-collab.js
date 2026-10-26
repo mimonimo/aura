@@ -262,6 +262,11 @@
       if (hwp.isComposing() || hwp.isProbing() || now() - hwp.lastInputAt() < 700 || pending()) { scheduleRich(); return; }
       var fs = Object.keys(richDirty);
       richDirty = {};
+      // 붙여넣기·끌어 놓기로 칸 표시까지 들어오면(칸째 복사) 칸 목록이 바뀐다 — 칸 길로는 못 보내므로 구조 고침(화면이 문서 전체 저장)으로
+      var nowList = hwp.fields(), seen = {}, dup = nowList.some(function (f) { if (seen[f]) return true; seen[f] = 1; return false; });
+      if (!o.structureMode || !o.structureMode()) {
+        if (dup || nowList.length !== fieldList.length) { emit('outside-edit'); return; }
+      }
       (function next() {
         var f = fs.shift();
         if (!f) return;
