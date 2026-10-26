@@ -212,7 +212,9 @@
   tr:hover td { background: var(--panel); }
   /* 링크는 밑줄 없이 색으로만 — 글 속 링크(클래스 없는 a)만 올렸을 때 밑줄. 단추 모양 링크는 밑줄을 긋지 않는다 */
   a { color: var(--navy); text-decoration: none; text-decoration-thickness: 1px; text-underline-offset: 3px; }
-  a:not([class]):hover { text-decoration: underline; }
+  a:not([class]):not(:has(> iconify-icon)):hover { text-decoration: underline; }
+  /* 메뉴·탭·사이드바 링크와 아이콘 달린 링크는 단추처럼 쓰이므로 클래스가 없어도 밑줄을 긋지 않는다 */
+  nav a:hover, aside a:hover, .side-nav a:hover, [role=tablist] a:hover, [role=menu] a:hover { text-decoration: none; }
 
   .pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 20px;
           padding: 3px 11px; font-size: 12px; font-weight: 600;

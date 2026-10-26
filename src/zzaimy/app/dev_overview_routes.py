@@ -295,6 +295,7 @@ def dev_dashboard(request: Request):
         "dev_now": h.dev_now_parts()["hub"],
         "system_hosts": __import__("zzaimy.app.process_flow", fromlist=["HOSTS"]).HOSTS,
         "system_links": __import__("zzaimy.app.process_flow", fromlist=["LINKS"]).LINKS,
+        "system_svg": __import__("zzaimy.app.system_diagram", fromlist=["svg"]).svg(),
         "dev_now_more": h.dev_now_parts()["more"],
         "progress": h.dev_progress(),
         "reindex_running": h.reindex_running(),
@@ -317,7 +318,6 @@ def dev_flow(request: Request):
         "coedit_svgs": [__import__("zzaimy.app.coedit_diagram", fromlist=["field_flow"]).field_flow(_co),
                         __import__("zzaimy.app.coedit_diagram", fromlist=["aura_flow"]).aura_flow(_co)],
         "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
-        "system_svg": __import__("zzaimy.app.system_diagram", fromlist=["svg"]).svg(),
     }))
 
 

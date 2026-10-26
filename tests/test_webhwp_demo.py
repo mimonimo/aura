@@ -36,13 +36,16 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     app, dev, kim = _admin(tmp_path, monkeypatch)
     assert kim.get("/dev/coedit-demo").status_code == 403
     assert kim.post("/dev/coedit-demo/new", follow_redirects=False).status_code == 403
-    page = dev.get("/dev/coedit-demo")
-    assert page.status_code == 200 and "<iframe" not in page.text and "새 시연 문서" in page.text
-    fid = _new(dev)
+    # 열자마자 빈 시연 문서가 생겨 세 칸으로 — 단추는 「처음부터 다시」 하나(세 사람 동시 작성 갈래)
+    r = dev.get("/dev/coedit-demo", follow_redirects=False)
+    assert r.status_code == 303
+    fid = int(r.headers["location"].split("id=")[-1])
     page = dev.get(f"/dev/coedit-demo?id={fid}").text
     for s in "abc":
         assert f"/webhwpctrl/aura-edit?id={fid}&amp;demo={s}" in page
-    assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "문서 비우기" in page
+    assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "처음부터 다시" in page
+    assert "AURA로 절 쓰기" not in page and 'aria-current="page">세 사람 동시 작성' in page
+    assert dev.get("/dev/coedit-demo", follow_redirects=False).status_code == 200          # 있으면 다시 만들지 않는다
     # 시연 계정 — 장부에 demo 표시·비활성·비밀번호 없음(로그인 길 없음), 다시 눌러도 그대로
     acc = json.loads((tmp_path / "accounts.json").read_text())
     for uid, name in demo.SLOTS.values():
@@ -52,10 +55,11 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "accounts.json").read_text())["demo_a"] == acc["demo_a"]
     assert webhwp.get(app.state.db, fid) is None                     # 같은 양식으로 다시 만들면 앞 시연 문서는 휴지통으로
     fid = fid2
-    # 문서는 칸 있는 공통 양식의 사본, 시연 폴더에
+    # 「새 시연 문서」 는 빈 문서 — 시연 계정마다 번호 붙은 빈 절 하나, 미리 든 글 없음, 시연 폴더에
     f = webhwp.get(app.state.db, fid)
     assert webhwp.dept_of_path(Path(app.state.data_dir), f["path"]) == demo.ROOT and not webhwp.locked(app.state.db, fid)
-    assert len(ww.fields(Path(f["path"]).read_bytes())) >= demo.MIN_FIELDS
+    fs = ww.fields(Path(f["path"]).read_bytes())
+    assert [x["name"] for x in fs] == [f"절:{i}. {n}" for i, (_u, n) in enumerate(demo.SLOTS.values(), 1)] and not any(x["text"] for x in fs)
     # 사이드바 바로가기 — 관리자 업무 화면에만
     assert 'href="/dev/coedit-demo"' in dev.get("/hwp").text and 'href="/dev/coedit-demo"' not in kim.get("/hwp").text
 
@@ -148,7 +152,8 @@ def test_long_demo_uses_business_plan_form(tmp_path, monkeypatch):
     assert webhwp.get(db, fid)["name"].startswith("시연 · 사업계획서")
     assert str(webhwp.meta(db, fid)["source"]).startswith(demo.SOURCE)
     page = dev.get(f"/dev/coedit-demo?id={fid}").text
-    assert "장문 시연 문서" in page and ">사업계획서</span>" in page        # 목록·이름표는 「시연 · 」·「 공통 양식」 없이
+    assert "AURA로 절 쓰기" in page and 'aria-current="page">AURA 함께 쓰기' in page    # 사업계획서 문서는 AURA 갈래로 열린다
+    assert dev.get("/dev/coedit-demo?mode=aura", follow_redirects=False).status_code == 200   # 이미 있으면 그 문서
     from zzaimy.app import webhwp_write as _ww
     body = "".join(__import__("zipfile").ZipFile(__import__("io").BytesIO(Path(webhwp.get(db, fid)["path"]).read_bytes())).read(n).decode()
                    for n in ["Contents/section0.xml"])

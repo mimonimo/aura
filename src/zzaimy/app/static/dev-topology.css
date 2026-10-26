@@ -22,3 +22,7 @@
 .system-links-table td:nth-child(1),.system-links-table td:nth-child(3){white-space:nowrap}
 .system-figure{margin:10px 0 0;font-size:12px}
 .system-figure a{color:var(--navy);text-decoration:none}
+.system-diagram{margin:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.system-diagram svg{display:block;width:100%;height:auto}
+.system-more{margin-top:10px}
+.system-diagram.system-roles{display:block}

@@ -24,7 +24,7 @@ POS = {
     "원본 보관 PC": (730, 670, 330),
 }
 EXTRA_HOSTS = {"구글 드라이브·독스": {"role": "보조 경로 — 드라이브 가져오기·독스 편집", "spec": "계정을 이은 사용자만"}}
-ALIAS = {"토르 02·03": "토르 03"}          # 연결 목록의 묶음 이름 → 그림에서 가리킬 상자
+GROUP = {"토르 02·03": ("토르 02", "토르 03")}   # 연결 목록의 묶음 이름 → 받는 상자들. 같은 줄 옆 상자라 곧은 선이 짧아 글이 겹친다 — 상자 아래로 잇는 선으로
 MAIN = "운영 VM"
 DASHED = {"구글 드라이브·독스"}
 
@@ -41,7 +41,7 @@ def _box_h(h: dict) -> int:
 
 def _short(what: str) -> str:
     s = what.split(" — ")[0].split("(")[0].strip()
-    return s if len(s) <= 28 else s[:27] + "…"
+    return s if len(s) <= 32 else s[:31] + "…"
 
 
 def _edge(a: tuple, b: tuple, offset: float) -> tuple[float, float, float, float]:
@@ -78,8 +78,8 @@ def svg() -> str:
            '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
            '<path d="M0,0 L10,5 L0,10 z" fill="#4a5f7d"/></marker></defs>',
            f'<rect width="{W}" height="{H}" fill="#ffffff"/>']
-    links = [(ALIAS.get(a, a), ALIAS.get(b, b), what) for a, b, what in LINKS]
-    links = [l for l in links if l[0] in rect and l[1] in rect]
+    buses = [(a, GROUP[b], what) for a, b, what in LINKS if b in GROUP and a in rect and all(t in rect for t in GROUP[b])]
+    links = [l for l in LINKS if l[0] in rect and l[1] in rect]
     total: dict[frozenset, int] = {}
     for a, b, _ in links:
         total[frozenset((a, b))] = total.get(frozenset((a, b)), 0) + 1
@@ -95,6 +95,15 @@ def svg() -> str:
         out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#4a5f7d" stroke-width="1.6"{dash} marker-end="url(#arr)"/>')
         f = 0.5 if total[key] == 1 else (0.38 if k == 0 else 0.62)
         labels.append((x1 + (x2 - x1) * f, y1 + (y2 - y1) * f, _short(what)))
+    for a, targets, what in buses:                         # 묶음으로 가는 선 — 보낸 상자 아래 → 받는 상자들 아래를 잇는 가로줄 → 위로 화살표
+        ax, ay, aw, ah = rect[a]
+        y = max(rect[t][1] + rect[t][3] for t in (a, *targets)) + 26
+        sx = ax + 30
+        xs = [rect[t][0] + rect[t][2] / 2 for t in targets]
+        out.append(f'<polyline points="{sx:.0f},{ay + ah:.0f} {sx:.0f},{y:.0f} {min(xs):.0f},{y:.0f}" fill="none" stroke="#4a5f7d" stroke-width="1.6"/>')
+        for t, tx in zip(targets, xs):
+            out.append(f'<line x1="{tx:.0f}" y1="{y:.0f}" x2="{tx:.0f}" y2="{rect[t][1] + rect[t][3]:.0f}" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>')
+        labels.append(((min(xs) + sx) / 2, y + 20, _short(what)))
     for name, h in hosts.items():
         x0, y0, bw, bh = rect[name]
         main = name == MAIN

@@ -63,25 +63,23 @@ class Svg:
 
 
 def system():
-    s = Svg(790, 492)
-    s.text(28, 38, "전체 구성 — 장비와 하는 일", size=17, weight=700, color=NAVY)
-    s.box(28, 80, 190, 112, "학교 원본 문서", ["부서·사업 폴더의", "공고·계획서·보고서·규정"], tag="입력")
-    s.box(28, 250, 190, 150, "교직원", ["브라우저로 접속", "채팅·문서함·한글 기안기", "· 로그인·부서별 열람 범위"], tag="사용자")
-    s.box(276, 80, 210, 150, "DGX", ["원본 보관·동기화", "문서 일괄 읽기(MinerU OCR)", "Writer LoRA 학습", "· GB10 · 메모리 121GB"], tag="원본·처리·학습")
-    s.box(276, 270, 210, 150, "운영 서버 (VM)", ["AURA 웹 화면·API", "PostgreSQL · pgvector 색인", "지식 그래프 · 한글 기안기", "· 상시 가동, 외부 AI 호출 없음"],
-          tag="플랫폼·데이터", strong=True)
-    s.box(560, 80, 200, 132, "젯슨 AGX 토르 02", ["Writer 27B (NVFP4)", "대화·초안·문서 에이전트", "· 사람이 기다리는 일"], tag="실시간 모델")
-    s.box(560, 260, 200, 132, "젯슨 AGX 토르 03", ["Writer 27B (NVFP4)", "반입 검토·이미지 판독", "임베딩·리랭커"], tag="실시간 모델")
-    s.arrow([(218, 136), (276, 136)], "동기화", ly=128)
-    s.arrow([(381, 230), (381, 270)], "읽은 문서·판정", lx=440, ly=254)
-    s.arrow([(218, 330), (276, 330)], "HTTPS", ly=322)
-    s.arrow([(486, 330), (523, 330), (523, 146), (560, 146)], "", both=True)
-    s.arrow([(486, 345), (560, 345)], "", both=True)
-    s.text(660, 241, "모델 호출(교내망)", size=11.5, color=MUTED, anchor="middle")
-    s.arrow([(486, 100), (560, 100)], "학습본 이관", dashed=True, ly=92)
-    s.text(28, 452, "학습본은 bf16 병합 → NVFP4 양자화 뒤 토르로 옮긴다. 작업본은 학교 Google Docs(선택)에 둘 수 있고,", size=12, color=MUTED)
-    s.text(28, 472, "문서와 첨부는 교외 AI 서비스로 나가지 않는다.", size=12, color=MUTED)
-    s.save("01-system", "AURA 전체 구성")
+    """전체 구성 — 플랫폼 화면(개발 현황 · 처리 흐름)과 같은 그림. 장비·연결 목록(process_flow.HOSTS·LINKS)에서 그린다(손그림은 장비가 바뀌어도 남아 옛 모습이 됐다)."""
+    import sys
+    sys.path.insert(0, str(HERE.parents[2] / "src"))
+    from zzaimy.app import system_diagram as sd
+    svg = sd.svg().replace("<svg xmlns", f'<svg width="{sd.W}" height="{sd.H}" xmlns', 1)
+    (HERE / "01-system.svg").write_text(svg + "\n", encoding="utf-8")
+
+
+def coedit():
+    """공동 편집 순서 — 처리 흐름 화면 「공동 편집 처리 방식」 과 같은 그림(app/coedit_diagram). 값은 공동 편집 기본 설정(webhwp_coedit.DEFAULTS)."""
+    import sys
+    sys.path.insert(0, str(HERE.parents[2] / "src"))
+    from zzaimy.app import coedit_diagram as cd
+    from zzaimy.app.webhwp_coedit import DEFAULTS
+    for name, svg in (("c4-27-coedit-field", cd.field_flow(DEFAULTS)), ("c4-27b-coedit-aura", cd.aura_flow(DEFAULTS))):
+        h = svg.split('viewBox="0 0 ', 1)[1].split('"', 1)[0].split()[1]
+        (HERE / f"{name}.svg").write_text(svg.replace("<svg xmlns", f'<svg width="{cd.W}" height="{h}" xmlns', 1) + "\n", encoding="utf-8")
 
 
 def flow():
@@ -183,6 +181,6 @@ def model():
 
 
 if __name__ == "__main__":
-    for f in (system, flow, hwp, model):
+    for f in (system, flow, hwp, model, coedit):
         f()
     print("ok")

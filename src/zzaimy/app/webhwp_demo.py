@@ -6,7 +6,9 @@
 그 밖의 요청은 표시를 무시한다. 시연 계정은 비활성·비밀번호 없음이라 로그인할 수 없고, 열 수 있는 곳은 시연 폴더(ROOT) 하나다
 (webhwp_routes._depts). 그래서 표시는 권한을 좁히기만 한다.
 
-화면: GET /dev/coedit-demo, 새 시연 문서 POST /dev/coedit-demo/new, 문서 비우기 POST /dev/coedit-demo/reset.
+화면: GET /dev/coedit-demo — 두 갈래(mode): 「세 사람 동시 작성」(빈 문서, 1·2·3 절을 한 사람씩)·「AURA 함께 쓰기」(사업계획서 양식 사본).
+고른 갈래의 시연 문서가 없으면 열 때 만든다. 「처음부터 다시」 POST /dev/coedit-demo/reset, 「AURA로 절 쓰기」 POST /dev/coedit-demo/aura,
+POST /dev/coedit-demo/new(kind=long 이면 사업계획서)는 화면 단추 없이 남긴 만들기 길. 창을 열면 칸마다 자기 차례의 쓸 자리로 커서가 간다(hwp_edit.html).
 """
 from __future__ import annotations
 
@@ -46,7 +48,7 @@ def apply(request: Request, accounts: dict) -> None:
         return
     uid = SLOTS[slot][0]
     if not (accounts.get(uid) or {}).get("demo"):
-        raise HTTPException(403, "시연 계정이 없습니다 — 공동 편집 시연 화면에서 「새 시연 문서」로 만드세요")
+        raise HTTPException(403, "시연 계정이 없습니다 — 공동 편집 시연 화면을 한 번 열면 만들어집니다")
     request.state.demo = slot
     request.state.demo_by = request.state.user
     request.state.user = uid
@@ -93,7 +95,7 @@ def docs(request: Request) -> list[dict]:
 
 
 TEMPLATE = "양식:"         # 코드로 짠 공통 양식(webhwp_templates)의 source 앞머리 — 시연은 이 양식만 쓴다
-SHORT, LONG = "양식:brief", "양식:plan"   # 「새 시연 문서」 = 1쪽 요약 보고서, 「장문 시연 문서」 = 사업계획서(17쪽, 절 36)
+SHORT, LONG = "양식:brief", "양식:plan"   # 「AURA 함께 쓰기」 = 사업계획서(17쪽, 절 36). 1쪽 요약 보고서는 make_doc 기본(만들기 길에만)
 
 
 def _template_forms(request: Request) -> dict[str, dict]:
@@ -178,6 +180,35 @@ def label(name: str) -> str:
     return stem.replace(" 공통 양식", "").strip()
 
 
+BLANK = "blank"            # 「세 사람 동시 작성」 — 양식 사본이 아닌 빈 문서(시연 계정 수만큼 번호 붙은 절, 안내 글·미리 넣은 값 없음)
+
+
+def blank_doc() -> bytes:
+    """빈 시연 문서 — 세 사람이 1·2·3 절을 하나씩 맡아 동시에 쓰는 장면. 절 제목 말고는 아무것도 없다.
+    모양·누름틀은 공통 양식과 같은 빌더(webhwp_templates.build)로."""
+    from zzaimy.app import webhwp_templates as wt
+    blocks: list[dict] = []
+    for i, (_uid, name) in enumerate(SLOTS.values(), 1):
+        blocks += [{"h": 1, "text": f"{i}. {name}"}, {"p": ""}]
+    return wt.build({"id": "demo-blank", "title": "공동 편집 시연",
+                     "cover": {"title": "공동 편집 시연", "subtitle": "세 사람이 같은 문서의 서로 다른 절을 동시에 씁니다", "page": False},
+                     "blocks": blocks, "page_number": False})
+
+
+def make_blank(request: Request) -> int:
+    """빈 시연 문서 하나 — 앞 빈 시연 문서와 옛 꼴 시연 문서는 시연 폴더 휴지통으로(장문 시연 문서는 남긴다)."""
+    from zzaimy.app import webhwp
+    db, base = request.app.state.db, _base(request)
+    template_ids = {r["id"] for r in _template_forms(request).values()}
+    user = getattr(request.state, "user", "")
+    for r in docs(request):
+        src = str(webhwp.meta(db, r["id"]).get("source", ""))
+        rest = src[len(SOURCE):] if src.startswith(SOURCE) else ""
+        if not (rest.isdigit() and int(rest) in template_ids):
+            webhwp.trash(db, base, r["id"], user=user)
+    return webhwp.add(db, base, ROOT, "시연 · 공동 편집.hwpx", blank_doc(), owner=user, source=f"{SOURCE}{BLANK}")
+
+
 def make_doc(request: Request, prefer: int | None = None, long: bool = False) -> int:
     """공통 양식 사본으로 시연 문서 하나 — 이름은 「시연 · 양식 이름」, 머리 칸은 시연용 값. 같은 양식으로 만든 앞 시연 문서와
     코드로 짠 공통 양식이 아닌 양식으로 만든 옛 시연 문서는 시연 폴더 휴지통으로(목록에 같은 이름이 쌓이지 않게)."""
@@ -196,6 +227,8 @@ def make_doc(request: Request, prefer: int | None = None, long: bool = False) ->
     user = getattr(request.state, "user", "")
     for r in docs(request):
         src = str(webhwp.meta(db, r["id"]).get("source", ""))
+        if src == SOURCE + BLANK:
+            continue
         sid = int(src[len(SOURCE):]) if src.startswith(SOURCE) and src[len(SOURCE):].isdigit() else None
         if sid == form["id"] or sid not in template_ids:
             webhwp.trash(db, base, r["id"], user=user)
@@ -209,17 +242,42 @@ def _need_login_mode(request: Request) -> None:
         raise HTTPException(403, "로그인한 관리자 계정만 여는 화면입니다")
 
 
+def is_blank(request: Request, fid: int) -> bool:
+    from zzaimy.app import webhwp
+    return str(webhwp.meta(request.app.state.db, fid).get("source", "")) == SOURCE + BLANK
+
+
 @router.get("/dev/coedit-demo", response_class=HTMLResponse)
-def coedit_demo(request: Request, id: int | None = None, aura: str = ""):
+def coedit_demo(request: Request, id: int | None = None, mode: str = "", aura: str = ""):
+    """두 갈래 — 「세 사람 동시 작성」(빈 문서, 1·2·3 절을 한 사람씩)과 「AURA 함께 쓰기」(사업계획서 양식, 27B 가 빈 절 하나를 쓴다).
+    고른 갈래의 시연 문서가 없으면 바로 만든다(열자마자 시연할 수 있게)."""
     _need_login_mode(request)
+    from zzaimy.app import webhwp
     st = request.app.state
-    items = docs(request)
-    cur = next((r for r in items if r["id"] == id), items[0] if items else None)
+    template_ids = {r["id"] for r in _template_forms(request).values()}
+    items = []
+    for r in docs(request):                              # 옛 꼴 시연 문서(지난 사업 실물 양식 사본)는 시연 폴더 휴지통으로 — 목록에 남지 않게
+        src = str(webhwp.meta(st.db, r["id"]).get("source", ""))
+        rest = src[len(SOURCE):] if src.startswith(SOURCE) else ""
+        if rest == BLANK or (rest.isdigit() and int(rest) in template_ids):
+            items.append(r)
+        else:
+            webhwp.trash(st.db, _base(request), r["id"], user=getattr(request.state, "user", ""))
+    pick = next((r for r in items if r["id"] == id), None)
+    if mode not in ("people", "aura"):
+        mode = "aura" if pick is not None and not is_blank(request, pick["id"]) else "people"
+    mine = [r for r in items if is_blank(request, r["id"]) == (mode == "people")]
+    cur = pick if pick is not None and pick in mine else (mine[0] if mine else None)
+    if cur is None:
+        ensure_accounts(request.app)
+        if not accounts_ready(request.app):
+            fid = make_blank(request) if mode == "people" else make_doc(request, long=True)
+            return RedirectResponse(f"/dev/coedit-demo?id={fid}", status_code=303)
     missing = accounts_ready(request.app)
     panes = [{"slot": s, "uid": uid, "name": st.person_name(uid) if uid not in missing else name}
              for s, (uid, name) in SLOTS.items()]
     return st.templates.TemplateResponse(request, "coedit_demo.html", {
-        "request": request, "docs": items, "cur": cur, "panes": panes, "missing": missing, "label": label,
+        "request": request, "cur": cur, "mode": mode, "panes": panes, "missing": missing, "label": label,
         "aura_note": {"1": "AURA(27B)가 빈 절을 골라 쓰는 중 — 1~2분", "busy": "AURA가 아직 앞 요청을 쓰는 중입니다"}.get(aura, "")})
 
 
@@ -229,12 +287,13 @@ def coedit_demo_new(request: Request, kind: str = Form("")):
     ensure_accounts(request.app)
     if accounts_ready(request.app):
         raise HTTPException(409, "같은 아이디의 계정이 있어 시연 계정을 만들지 못했습니다: " + ", ".join(accounts_ready(request.app)))
-    return RedirectResponse(f"/dev/coedit-demo?id={make_doc(request, long=kind == 'long')}", status_code=303)
+    fid = make_doc(request, long=True) if kind == "long" else make_blank(request)
+    return RedirectResponse(f"/dev/coedit-demo?id={fid}", status_code=303)
 
 
 @router.post("/dev/coedit-demo/reset")
 def coedit_demo_reset(request: Request, id: int = Form(...)):
-    """문서 비우기 — 같은 양식으로 새 사본을 만들고 앞 사본은 시연 폴더 휴지통으로."""
+    """처음부터 다시 — 같은 꼴(빈 문서·같은 양식)로 새로 만들고 앞 것은 시연 폴더 휴지통으로."""
     _need_login_mode(request)
     from zzaimy.app import webhwp
     db = request.app.state.db
@@ -244,7 +303,7 @@ def coedit_demo_reset(request: Request, id: int = Form(...)):
     src = str(webhwp.meta(db, id).get("source", ""))
     prefer = int(src[len(SOURCE):]) if src.startswith(SOURCE) and src[len(SOURCE):].isdigit() else None
     ensure_accounts(request.app)
-    new = make_doc(request, prefer)                      # 같은 양식의 앞 사본은 make_doc 이 휴지통으로
+    new = make_blank(request) if src == SOURCE + BLANK else make_doc(request, prefer)   # 같은 꼴의 앞 사본은 휴지통으로
     if webhwp.get(db, id) is not None:
         webhwp.trash(db, _base(request), id, user=getattr(request.state, "user", ""))
     return RedirectResponse(f"/dev/coedit-demo?id={new}", status_code=303)

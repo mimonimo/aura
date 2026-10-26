@@ -49,7 +49,7 @@ def test_settings_reuses_connection_probe(client, monkeypatch):
 def test_overview_uses_responsive_roles(client):
     response = client.get('/dev')
     assert 'system-roles' in response.text
-    assert '상세 구성도' in response.text
+    assert '<figure class="system-diagram system-roles"><svg' in response.text      # 장비 목록에서 그린 그림을 바로(10-26)
     assert '<img src="/static/topology.svg"' not in response.text
 
 
@@ -66,7 +66,7 @@ def test_training_navigation_does_not_scan_hidden_legacy_documents(client, monke
     assert response.text.index('id="training-guide"') < response.text.index('>문답 검수')
     assert '실제 SFT 학습에 들어가는 내용' in response.text
     assert '후속 문답에는 이전 질문·답변도 대화 순서대로 포함' in response.text
-    assert '근거 설명(rationale)은 현재 학습 출력에 포함되지 않습니다' in response.text
+    assert 'v1 은 채택하지 않았습니다(ADR-0069)' in response.text          # 학습셋 틀이 답에 샌 일(10-26 안내 바꿈)
     for field in ('program', 'history', 'question', 'answer', 'evidence', 'source', 'kind'):
         assert field in response.text
 
@@ -317,7 +317,7 @@ def test_history_groups_by_day_with_real_counts(client):
     days = set(log)
     assert f'<span class="cl-count">{len(days)}일 · {len(log)}건</span>' in page   # 깃 커밋이 정본
     assert page.count('class="cl-day"') == len(days)
-    assert '<details class="cl" open>' in page and "cl-chev" in page       # 펼친 채로 — 이 화면의 본문이다
+    assert '<details class="cl">' in page and "cl-chev" in page            # 2천 건 넘어 접은 채로, 영역 칩을 누르면 펼침(10-26)
     assert 'class="cl-tag"' in page and "깃 커밋" in page                  # 커밋마다 영역 표식
     assert 'class="wk-label"' not in page                               # 주간 보고 요약 블록은 논문 자료 칸으로(2026-09-22)
     assert 'href="/dev/docs#weekly"' in page

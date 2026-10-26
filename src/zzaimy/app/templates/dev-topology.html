@@ -1,20 +1,20 @@
-{# 시스템 구성 — 장비·역할·연결은 app/process_flow 의 HOSTS·LINKS 한 곳에서 읽는다(처리 흐름 화면과 같은 원본) #}
+{# 시스템 구성 — 장비·역할·연결은 app/process_flow 의 HOSTS·LINKS 한 곳에서 읽고, 그림도 그 목록에서 그린다(system_diagram — 논문 [그림 1-2] 와 같은 그림) #}
 <section class="system-overview" id="system" aria-labelledby="systemHeading">
   <header class="system-heading">
     <div><h3 id="systemHeading">시스템 구성</h3></div>
-    <span class="system-links"><a href="/dev/flow#topology">상세 구성도</a> · <a href="/dev/flow">처리 흐름</a> · <a href="/dev/flow#coedit">공동 편집 처리 방식</a></span>
+    <span class="system-links"><a href="/dev/flow">처리 흐름</a> · <a href="/dev/flow#coedit">공동 편집 처리 방식</a> · <a href="/static/topology.svg" target="_blank" rel="noopener">그림 파일</a></span>
   </header>
-  <div class="system-roles">
-    {% for h in system_hosts %}
-    <article class="system-role{% if h.name == '운영 VM' %} system-role-main{% endif %}">
-      <h4>{{ h.name }}</h4>
-      <ul><li>{{ h.role }}</li><li class="muted">{{ h.spec }}</li></ul>
-    </article>
-    {% endfor %}
+  <figure class="system-diagram system-roles">{{ system_svg | safe }}</figure>
+  <button type="button" class="btn-ghost system-more" aria-expanded="false" aria-controls="systemTable"
+          onclick="var t=document.getElementById('systemTable'),o=t.hidden;t.hidden=!o;this.setAttribute('aria-expanded',o);this.textContent=o?'장비 사양·연결 표 접기':'장비 사양·연결 표 펼치기';">장비 사양·연결 표 펼치기</button>
+  <div id="systemTable" hidden>
+    <div class="table-scroll"><table class="system-links-table">
+      <tr><th>장비</th><th>하는 일</th><th>사양</th></tr>
+      {% for h in system_hosts %}<tr><td>{{ h.name }}</td><td>{{ h.role }}</td><td class="muted">{{ h.spec }}</td></tr>{% endfor %}
+    </table></div>
+    <div class="table-scroll" style="margin-top:10px;"><table class="system-links-table">
+      <tr><th>보내는 곳</th><th></th><th>받는 곳</th><th>무엇을</th></tr>
+      {% for a, b, what in system_links %}<tr><td>{{ a }}</td><td class="muted">→</td><td>{{ b }}</td><td>{{ what }}</td></tr>{% endfor %}
+    </table></div>
   </div>
-  
-  <div class="table-scroll" style="margin-top:10px;"><table class="system-links-table">
-    <tr><th>보내는 곳</th><th></th><th>받는 곳</th><th>무엇을</th></tr>
-    {% for a, b, what in system_links %}<tr><td>{{ a }}</td><td class="muted">→</td><td>{{ b }}</td><td>{{ what }}</td></tr>{% endfor %}
-  </table></div>
 </section>

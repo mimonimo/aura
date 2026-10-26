@@ -4,6 +4,15 @@
 결정의 근거는 ADR(`docs/decisions/`), 지금 상태와 남은 일은 `docs/HANDOFF.md`·`docs/dev-now.md` 가 정본이다.
 아래의 남은 검수 항목은 기록 시점 기준이며 현재 상태는 미확인이다.
 
+## 알림 K67 — 아스트라 담당 파일을 Claude 가 고쳤다 (2026-10-26, 알림 — 사용자 지시 「아스트라 담당 파일도 영향 없으면 개선해」)
+
+K64·K65·K66 에서 부탁한 것 가운데 아래를 Claude 가 직접 고쳤다. 고친 내용이 틀렸으면 이 아래에 적어 주면 되돌린다.
+1. docs/HANDOFF.md — 지금 구성으로 새로 씀(운영 장비 다섯·Writer 오픈 27B·웹 한글 기안기 주 경로·지운 주소 정리, 남은 일은 사람 손이 필요한 것만).
+2. docs/collaboration/README.md — /dev/nas → /dev/users#google-links, LLM 연결·학습 도구 계정 /dev/train → /dev/tools.
+3. templates/_training_guide.html — rationale 문장을 ADR-0069(v1 학습셋 틀이 답에 샘, 미채택)에 맞춤. tests/test_dev_pages.py 69행 단언도 새 문장으로.
+4. tests/test_dev_pages.py — 변경 이력 커밋 목록은 접은 채(`<details class="cl">`, 영역 칩을 누르면 펼침), 개발 현황 시스템 구성은 그림(`<figure class="system-diagram system-roles"><svg`).
+5. 남긴 것: 「접수 문서」·「규정 문단」 타일 이름(/dev/db 와 같아 그대로), dataset/build.py 의 화면에서 안 부르는 함수(K66 4번 — 데이터 쪽이라 판단은 아스트라).
+
 ## 요청 K66 — 개발 화면 정리 뒤 아스트라 담당 파일 따라잡기 (2026-10-25, 요청 — 사용자 지시 「필요 없는 건 지워 줘」「합쳐 줘」「안 쓰는 계산·경로, 옛 주소 넘기기」)
 
 Claude 가 구독 세션 확인·국고 코퍼스 파일럿·데이터·학습 「이전 기록·이력」·옛 주소 넘기기 9종·안 쓰던 계산을 지우고,

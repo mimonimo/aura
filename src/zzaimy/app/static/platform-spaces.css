@@ -143,7 +143,7 @@ html:not(.sidebar-collapsed) .sidebar, body.nav-open .sidebar { transition-delay
 .developer-space main :is(button,.btn,.btn-ghost):not(.icon-btn):not([role=switch]) { min-height:32px; padding:6px 11px; font-size:12px; line-height:1.4; border-radius:7px; }
 .developer-space main .pill { white-space:nowrap; flex-shrink:0; }
 .developer-space main a:not(.btn):not(.btn-ghost):not(.doc-body a) { text-decoration:none; }
-.developer-space main a:hover { text-decoration:underline; }
+.developer-space main a:not([class]):not(:has(> iconify-icon)):hover { text-decoration:underline; }   /* 글 속 링크만 — 단추 모양·아이콘 링크는 밑줄 없이 */
 @media(pointer:coarse){.developer-space main :is(button,.btn,.btn-ghost):not(.icon-btn):not([role=switch]){min-height:44px}}
 body .topbar .searchbox { border-radius:8px; background:#f8f8f9; height:36px; padding:0 10px; }
 body .topbar .searchbox input { padding:0; height:32px; min-height:0; line-height:1.4; font-size:13px; }

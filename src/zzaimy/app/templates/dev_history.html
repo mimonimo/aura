@@ -107,7 +107,7 @@
     <span>{{ history_source }} · {{ history|length }}일 · {{ history_count }}건</span>
     {% for a, n in history_areas %}<button type="button" data-area="{{ a }}" aria-pressed="false" title="이 영역을 건드린 커밋만 보기">{{ a }} {{ n }}</button>{% endfor %}
   </div>
-  <details class="cl" open>
+  <details class="cl">{# 2천 건 넘는 목록이라 접어 둔다 — 영역 칩을 누르면 펼친다 #}
     <summary>
       <span class="cl-chev" aria-hidden="true"></span>
       전체 변경 목록 (커밋 이력)
@@ -132,6 +132,7 @@
       var on = chip.getAttribute('aria-pressed') !== 'true';
       chips.forEach(function (c) { c.setAttribute('aria-pressed', c === chip && on ? 'true' : 'false'); });
       var area = on ? chip.dataset.area : '';
+      if (on) { var box = document.querySelector('details.cl'); if (box) box.open = true; }
       document.querySelectorAll('.cl-day').forEach(function (day) {
         var shown = 0;
         day.querySelectorAll('li').forEach(function (li) {
