@@ -76,8 +76,6 @@ REGISTRY: tuple[Action, ...] = (
            ("구글", "드라이브", "google", "앱 등록")),
     Action("reindex", "검색 색인 다시 만들기", "/dev/reindex", "post", (),
            ("색인", "재색인", "검색 다시"), True),
-    Action("pii.scan", "개인정보 잔여 검사", "/dev/pii/scan", "post", (),
-           ("개인정보", "마스킹", "잔여"), True),
     Action("data.page", "학습 데이터 만들기", "/dev/train", "get", (),
            ("학습 데이터", "데이터 공방", "예시")),
 )
