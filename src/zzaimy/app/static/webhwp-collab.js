@@ -845,7 +845,10 @@
         m.flag.className = 'co-flag ' + (leftSide ? 'left' : 'right');
         m.flag.title = w.label + ' 님이 쓰는 중';
         var room = leftSide ? bodyL - view.left - 10 : view.right - bodyR - 10;
-        if (m.flag.offsetWidth > room) { m.flag.classList.add('dot'); tt.textContent = w.user === 'AURA' ? 'A' : w.label.slice(0, 1); }
+        if (m.flag.offsetWidth > room) {                // 여백이 좁다 — 사람은 머리 글자 동그라미, AURA 는 「AURA」 그대로 작게(「A」 만으로는 무엇인지 몰랐다, 10-26)
+          if (w.user === 'AURA') { m.flag.classList.add('tight'); tt.textContent = 'AURA'; }
+          else { m.flag.classList.add('dot'); tt.textContent = w.label.slice(0, 1); }
+        }
         var fw = m.flag.offsetWidth, fh = m.flag.offsetHeight;
         var fx = leftSide ? bodyL - 6 - fw : bodyR + 6;
         m.flag.style.left = (fx - L.left) + 'px'; m.flag.style.top = (b.y + Math.max(0, (h2 - fh) / 2) - L.top) + 'px';
