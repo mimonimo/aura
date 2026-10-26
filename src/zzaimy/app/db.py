@@ -302,7 +302,7 @@ class Database:
         "ALTER TABLE projects ADD COLUMN unit TEXT NOT NULL DEFAULT ''",
         # 공개 대상 — staff(교직원, 기본) · student(학생에게도 공개하는 학사 규정). 학생 검색은 student 규정만(ADR-0052)
         "ALTER TABLE documents ADD COLUMN audience TEXT NOT NULL DEFAULT 'staff'",
-        # 대화 갈래 — chat(에이전트 대화: 문서 작성·업무) · helper(떠 있는 창의 플랫폼 업무 도우미). 사이드바는 chat 만
+        # 대화 갈래 — chat(에이전트 대화: 문서 작성·업무) · helper(옆 패널의 플랫폼 업무 도우미). 사이드바는 chat 만
         "ALTER TABLE chat_sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'chat'",
         # 비공개 — 프로젝트 대화는 같은 부서 동료가 읽기 전용으로 본다. 만든 사람이 비공개로 고르면 본인만
         "ALTER TABLE chat_sessions ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0",

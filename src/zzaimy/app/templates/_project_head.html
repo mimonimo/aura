@@ -76,7 +76,7 @@
 {% if on_chat %}
 <div class="project-tabs" role="tablist" aria-label="프로젝트 작업">
   <button type="button" role="tab" id="projectTabChat" data-project-tab="projectConversations" aria-controls="projectConversations" aria-selected="true">대화·문서</button>
-  {% if show_activity %}<a role="tab" id="projectTabActivity" href="/project/{{ project.id }}/activity" aria-selected="false">진행 현황</a>{% endif %}
+  {% if show_activity %}<a role="tab" id="projectTabActivity" data-aura="project-activity" href="/project/{{ project.id }}/activity" aria-selected="false">진행 현황</a>{% endif %}
 </div>
 {% else %}
 <nav class="project-tabs pa-tabs" aria-label="프로젝트 작업">

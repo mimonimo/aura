@@ -472,7 +472,6 @@
     sessionField.value = next.dataset.session;
     history.replaceState(null, '', target.pathname);
     try {
-      sessionStorage.setItem('agentSession', next.dataset.session);
       const criteria = [...form.querySelectorAll('[name="criteria"]')].map(item => Number(item.value));
       sessionStorage.setItem('chatCriteria:' + next.dataset.session, JSON.stringify(criteria));
       sessionStorage.removeItem('chatCriteria:new');

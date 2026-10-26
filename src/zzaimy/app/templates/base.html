@@ -166,7 +166,7 @@
                display: flex; align-items: center; justify-content: center;
                font-size: 12px; }
 
-  /* 아래 여백 — 떠 있는 업무 도우미 버튼이 있으면 그 높이만큼 더(--ag-fab-room). 자체 스크롤 칸을 쓰는 화면은 그 칸 아래에 같은 값을 둔다 */
+  /* 아래 여백 — 업무 도우미 여는 둥근 단추가 있으면 그 높이만큼 더(--ag-fab-room). 자체 스크롤 칸을 쓰는 화면은 그 칸 아래에 같은 값을 둔다 */
   main { flex: 1; max-width: 1240px; width: 100%; margin: 0 auto; padding: 26px 36px max(60px, var(--ag-fab-room, 0px)); }
 
   /* 카드 — 이중 베젤 */
@@ -1011,7 +1011,7 @@ document.addEventListener('submit', function(event) {
 {% if request.state.role %}
 {% endif %}
 
-{# 떠 있는 업무 도우미(_aura_helper.html · static/aura-helper.*) — 모든 화면에서 묻고, 글을 선택한 뒤 오른쪽 버튼으로도 묻는다.
+{# 업무 도우미(_aura_helper.html · static/aura-helper.*) — 오른쪽 아래 둥근 단추로 여는 옆 패널. 모든 화면에서 묻고, 글을 선택한 뒤 오른쪽 버튼으로도 묻는다.
    입력창이 이미 있는 화면(채팅, 프로젝트 첫 화면의 새 대화 칸)과 학생(대화 화면 하나만 쓴다)에는 두지 않는다 #}
 {% set _path_parts = request.url.path.strip('/').split('/') %}
 {% if request.state.role and request.state.role != 'student' and not request.url.path.startswith('/chat') and not (_path_parts | length == 2 and _path_parts[0] == 'project') %}

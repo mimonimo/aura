@@ -138,9 +138,10 @@
       var n = byName[name], ks = kids[name] || [];
       var shown = vis ? ks.filter(function (k) { return vis[k]; }) : ks;
       var isOpen = shown.length && (vis ? true : !!open[name]);
+      // 부서 줄은 AURA 커서가 이름으로 고른다 — 선택자 [data-aura="team-dept"](platform_guide 「부서 고르기」)
       var row = h('div', {class: 'om-node' + (sel.kind === 'dept' && sel.name === name ? ' on' : '') + (vis && vis[name] === 2 ? ' hit' : ''),
         role: 'treeitem', 'aria-level': String(depth + 1), 'aria-selected': sel.kind === 'dept' && sel.name === name ? 'true' : 'false',
-        'aria-expanded': ks.length ? (isOpen ? 'true' : 'false') : null, tabindex: '-1', 'data-node': name, style: '--d:' + depth,
+        'aria-expanded': ks.length ? (isOpen ? 'true' : 'false') : null, tabindex: '-1', 'data-node': name, 'data-aura': 'team-dept', style: '--d:' + depth,
         draggable: n.can_edit ? 'true' : null});
       if (ks.length) {
         row.appendChild(h('button', {type: 'button', class: 'om-fold', 'aria-label': name + (isOpen ? ' 접기' : ' 펼치기'), tabindex: '-1',

@@ -17,14 +17,14 @@
       </div>
       <form action="/projects/bundle" method="post" enctype="multipart/form-data" id="projectCreateForm">
         {% if true %}
-        <label class="form-row"><span class="muted">업무</span><select name="sector" required data-sector-pick>{% for key, meta in sector_meta.items() %}<option value="{{ key }}"{% if key == 'grant' %} selected{% endif %}>{{ meta[1] }}</option>{% endfor %}</select></label>
+        <label class="form-row"><span class="muted">업무</span><select name="sector" required data-sector-pick data-aura="project-sector">{% for key, meta in sector_meta.items() %}<option value="{{ key }}"{% if key == 'grant' %} selected{% endif %}>{{ meta[1] }}</option>{% endfor %}</select></label>
         {% else %}<input type="hidden" name="sector" value="{{ active_tab }}">{% endif %}
         <div class="form-row"><span class="muted" data-grant-only {% if not grant_like %}hidden{% endif %}>자료(선택)</span>
           <span class="muted" data-grant-other {% if grant_like %}hidden{% endif %}>자료(선택)</span>
           <input type="file" name="file" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
         <div class="form-row">
           <span class="muted">프로젝트 이름</span>
-          <input type="text" name="name" placeholder="{{ project_hints.get(active_tab, '') or '예: 2026학년도 AID 전환 중점 전문대학 지원사업' }}">
+          <input type="text" name="name" data-aura="project-name" placeholder="{{ project_hints.get(active_tab, '') or '예: 2026학년도 AID 전환 중점 전문대학 지원사업' }}">
         </div>
         {% if business_units %}
         <label class="form-row" data-grant-only {% if not grant_like %}hidden{% endif %}><span class="muted">사업단(선택)</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label>
@@ -37,7 +37,7 @@
         </div>
         <p class="muted" data-create-hint style="margin:0 0 10px;">프로젝트 이름을 쓰거나 자료를 고르면 만들 수 있습니다.</p>
         <div style="display:flex; justify-content:flex-end; gap:10px;">
-          <button type="submit" data-create-submit disabled>만들기</button>
+          <button type="submit" data-create-submit data-aura="project-create" data-aura-final disabled>만들기</button>
         </div>
       </form>
     </div>

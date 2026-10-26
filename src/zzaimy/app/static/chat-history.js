@@ -67,7 +67,7 @@
             try {
               const response = await fetch('/api/chat/sessions/' + id, {method:'DELETE'});
               if (!response.ok || response.redirected) throw new Error(response.status === 409 ? '답변이 끝난 뒤 삭제해 주세요.' : '삭제하지 못했습니다. 다시 시도해 주세요.');
-              try { if(sessionStorage.getItem('agentSession') === id) sessionStorage.removeItem('agentSession'); sessionStorage.removeItem('chatCriteria:' + id); } catch (_) {}
+              try { sessionStorage.removeItem('chatCriteria:' + id); } catch (_) {}
               document.dispatchEvent(new CustomEvent('chat-session-deleted', {detail:{id}}));
               if(location.pathname === '/chat/' + id) { location.replace('/chat'); return; }
               document.querySelectorAll('a[href="/chat/' + id + '"]').forEach(a => a.remove());
@@ -133,7 +133,6 @@
                   throw new Error(response.status === 409 ? '답변이 끝난 뒤 삭제해 주세요.' : '삭제하지 못했습니다. 잠시 후 다시 시도하세요.');
                 }
                 try {
-                  if (sessionStorage.getItem('agentSession') === String(session.id)) sessionStorage.removeItem('agentSession');
                   sessionStorage.removeItem('chatCriteria:' + session.id);
                 } catch (_) {}
                 document.dispatchEvent(new CustomEvent('chat-session-deleted', {detail:{id:session.id}}));

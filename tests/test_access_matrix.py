@@ -324,7 +324,7 @@ def test_only_owner_or_admin_changes_a_document(world):
 
 
 def test_helper_question_never_changes_a_guessed_document(world):
-    """떠 있는 창 질문의 낱말로 짐작한 문서에는 아무 일도 저절로 하지 않는다 — 지금 보는 문서이고 바꿀 수 있을 때만."""
+    """업무 도우미 패널 질문의 낱말로 짐작한 문서에는 아무 일도 저절로 하지 않는다 — 지금 보는 문서이고 바꿀 수 있을 때만."""
     app, ids, _ = world
     plan = _client(app, "plan")
     before = app.state.db.get_document(ids["g_pub"])
