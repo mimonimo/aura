@@ -430,4 +430,8 @@ coedit:form_mode=1 이면 예전 양식 모드.
   글만 가고 서식째 블록은 관문이 막음). 서식 손놀림(붙여넣기 Ctrl/⌘+V·툴바 붙이기 포함) 뒤 0.7초에 칸 목록부터 보고, 수가 바뀌었거나 겹치면 서식째 보내기
   대신 구조 고침으로 돌린다(화면이 잠금 → 전체 저장 → 서버가 겹친 칸 이름을 고치고 새 문단을 감쌈 → 모든 화면 새 판).
 - 운영 실측: 세 화면 모두 EditMode 1 로 열림, 칸을 넘는 드래그 선택 됨, 붙여 넣은 글이 붙인 화면에서 서식째(소제목 꼴·주황 기울임·노란 형광).
-- 시험: test_structure_save_wraps_new_paragraphs_and_renames_duplicates.
+- 구조 저장이 붙여넣기를 되돌리던 것(운영 실측): 서버가 문서 전체 저장을 받을 때 모든 칸을 DB 칸 글로 덮어(남의 동시 고침을 지키려는 장치),
+  붙여 넣은 칸도 DB 의 옛 글로 되돌렸다(칸 표시가 든 칸은 서식 보존 길을 못 타 통째로). 이제 저장한 사람이 마지막으로 쓴 칸은 덮지 않고
+  (overlay keep_author), 그 칸의 DB 글을 파일 글로 맞춘다(own_changes → put, 뒤이은 써 넣기가 되돌리지 않게). 남이 쓴 칸만 DB 글로 지킨다.
+  겹친 이름은 다른 칸 안에 들어간 복사본 쪽을 새 이름으로 바꿔 원래 자리의 「절:2」 가 그 이름을 지킨다.
+- 시험: test_structure_save_wraps_new_paragraphs_and_renames_duplicates, test_structure_save_keeps_savers_own_fields.

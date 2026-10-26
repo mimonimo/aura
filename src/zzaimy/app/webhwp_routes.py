@@ -943,7 +943,8 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
     def run():
         # 칸 글은 공동 편집 표가 정답 — 이 판에 표의 칸 글을 덮어 써 저장한다(다른 사람이 동시에 쓴 칸이 사라지지 않게)
         with ce.file_lock(fid):
-            new, done, versions = ce.overlay(db, fid, data)
+            own = ce.own_changes(db, fid, data, user) if not quiet else {}
+            new, done, versions = ce.overlay(db, fid, data, keep_author=user if not quiet else "")
             wrapped = 0
             if not quiet and not isinstance((webhwp.meta(db, fid) or {}).get("paper"), dict):
                 try:                                       # 구조 저장 — 새로 생긴 칸 밖 문단은 칸으로, 같은 이름 칸은 새 이름으로(10-26 일반 편집 모드)
@@ -953,6 +954,11 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
                     wrapped = 0
             p_ = webhwp.save(db, _base(request), fid, new, user=user, quiet=bool(quiet))
             ce._mark_committed(db, fid, versions)
+            if own:                                        # 저장한 사람의 칸은 파일이 정답 — DB 칸 글도 맞춘다(뒤이은 써 넣기가 되돌리지 않게)
+                from zzaimy.app import webhwp_write as ww
+                vals = ww.field_values(new)
+                ce.put(db, fid, user, {k: vals[k] for k in own if k in vals}, client=f"{user}:save")
+                ce._mark_committed(db, fid, {k: v["version"] for k, v in ce.state(db, fid, list(own), with_text=False).items()})
         return p_, new, done, wrapped
     try:
         p, data, merged, wrapped = await run_in_threadpool(run)

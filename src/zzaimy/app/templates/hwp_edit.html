@@ -317,7 +317,6 @@
     eng.on('doc-saved', function (d) { reloadWhenSafe(d); });
     // 일반 편집 모드(10-26): 여러 칸에 걸친 고침·칸 바깥 고침(붙여 넣은 표 등) — 편집기는 이미 고쳤다. 곧바로 문서 틀 잠금을 잡고 2초 뒤 문서 전체를
     // 저장한다(서버가 새 문단을 칸으로 감싸고 같은 이름 칸을 고친다). 저장이 끝나면 저절로 잠금을 놓고 새 판으로 다시 연다
-    var autoStruct = false;
     function autoStructOn() {
       if (structMine) { touched(); return; }
       if (readonly || autoStruct) return;
@@ -382,7 +381,7 @@
 
   // ── 칸 밖 고치기(구조 잠금) — 쥔 사람만 문서 전체를 저장한다. 다른 사람은 칸만 쓰고, 저장되면 새 판을 받는다 ──
   var lockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/lock') : '', unlockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/unlock') : '';
-  var beat = null, lastWrapped = 0;
+  var beat = null, lastWrapped = 0, autoStruct = false;
   function post(url) { return fetch(url, {method: 'POST', credentials: 'same-origin'}).then(function (r) { return r.json(); }); }
   function drawStruct() {
     var b = document.querySelector('[data-struct]'); if (!b) return;

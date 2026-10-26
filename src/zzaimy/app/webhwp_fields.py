@@ -557,19 +557,31 @@ def wrap_rest(data: bytes, limit: int | None = None, dry: bool = False) -> tuple
     used = [int(x) for x in re.findall(r'name="' + PARA + r'(\d+)"', "".join(xmls.values()))]
     ids, k0 = _Ids(list(xmls.values())), max(used, default=0)
     new, k = {}, k0
-    seen: set[str] = set()
-    renamed = 0
+    # 같은 이름 칸이 둘이면(칸째 복사해 붙여 넣음) 하나만 이름을 지키고 나머지는 새 「문단:n」 으로 — 같은 이름이면 칸 글이 엉뚱한 칸에 들어간다.
+    # 지키는 쪽은 다른 칸 안에 들어가지 않은 것(원래 자리), 없으면 앞의 것. 붙여 넣은 복사본은 붙인 칸 안에 들어가 있다
+    tok = re.compile(r'(<hp:fieldBegin\b[^>]*?\s)name="([^"]*)"|<hp:fieldEnd\b')
+    occ: dict[str, list[tuple[str, int, bool]]] = {}
     for n in secs:
-        # 같은 이름 칸이 둘이면(칸째 복사해 붙여 넣음) 뒤의 것은 새 「문단:n」 으로 — 같은 이름이면 칸 글이 엉뚱한 칸에 들어간다
+        depth = 0
+        for m in tok.finditer(xmls[n]):
+            if m.group(0).startswith("<hp:fieldEnd"):
+                depth = max(0, depth - 1)
+                continue
+            if "CLICK_HERE" in m.group(1):
+                occ.setdefault(m.group(2), []).append((n, m.start(), depth > 0))
+            depth += 1
+    rename_at: set[tuple[str, int]] = set()
+    for name, lst in occ.items():
+        if len(lst) < 2:
+            continue
+        keep = next((o for o in lst if not o[2]), lst[0])
+        rename_at |= {(o[0], o[1]) for o in lst if o is not keep}
+    for n in secs:
         def rename(m, n=n):
-            nonlocal k, renamed
-            name = m.group(2)
-            if "CLICK_HERE" not in m.group(1) or name not in seen:
-                if "CLICK_HERE" in m.group(1):
-                    seen.add(name)
+            nonlocal k
+            if (n, m.start()) not in rename_at:
                 return m.group(0)
             k += 1
-            renamed += 1
             return m.group(1) + f'name="{PARA}{k}"'
         x = re.sub(r'(<hp:fieldBegin\b[^>]*?\s)name="([^"]*)"', rename, xmls[n])
         new[n], c = wrap_rest_xml(x, ids, k)

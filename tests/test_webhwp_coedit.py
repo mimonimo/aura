@@ -944,3 +944,16 @@ def test_structure_save_wraps_new_paragraphs_and_renames_duplicates(tmp_path, mo
                                      zipfile.ZipFile(io.BytesIO(kim.get(f"/hwp/{fid}/file").content)).read("Contents/section0.xml").decode())
     assert len(names) == len(set(names)) and wf.count_rest(kim.get(f"/hwp/{fid}/file").content) == 0
     assert "새 줄" in ww.field_values(kim.get(f"/hwp/{fid}/file").content).values()
+
+
+def test_structure_save_keeps_savers_own_fields(tmp_path, monkeypatch):
+    """구조 저장은 저장한 사람이 마지막으로 쓴 칸을 DB 글로 덮지 않는다(붙여 넣은 글이 되돌려지던 것), 남이 쓴 칸은 DB 글로 지킨다(10-26)."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    data = kim.get(f"/hwp/{fid}/file").content
+    kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "김 옛 글"}]})
+    park.post(f"/hwp/{fid}/ops", json={"client": "p1", "ops": [{"seq": 1, "field": "절:1. 변경 사유", "base": 0, "text": "박 새 글"}]})
+    mine, _ = ww.set_fields(data, {"칸:사업명": "김 옛 글 + 붙여 넣은 글", "절:1. 변경 사유": "박 옛 글"})
+    assert kim.post(f"/hwp/{fid}/save", content=mine, headers={"Content-Type": "application/octet-stream"}).status_code == 200
+    v = ww.field_values(kim.get(f"/hwp/{fid}/file").content)
+    assert v["칸:사업명"] == "김 옛 글 + 붙여 넣은 글" and v["절:1. 변경 사유"] == "박 새 글"

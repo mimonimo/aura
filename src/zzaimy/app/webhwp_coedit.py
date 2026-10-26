@@ -1055,14 +1055,17 @@ def file_lock(fid: int) -> threading.Lock:
         return _FILE_LOCKS.setdefault(int(fid), threading.Lock())
 
 
-def overlay(db, fid: int, data: bytes, *, have: dict | None = None, only_dirty: bool = False) -> tuple[bytes, list[str], dict]:
+def overlay(db, fid: int, data: bytes, *, have: dict | None = None, only_dirty: bool = False, keep_author: str = "") -> tuple[bytes, list[str], dict]:
     """한글 파일 바이트에 표의 칸 글을 덮어 쓴다 — (새 바이트, 파일과 달라 바꾼 필드, {필드: 써 넣은 판}).
     have 는 그 파일의 필드 값(이미 안다면 — 써 넣기는 파일 지문으로 캐시한 값), only_dirty 면 아직 안 써 넣은 칸만 본다."""
     from zzaimy.app import webhwp_write as ww
     ensure(db)
-    q = "SELECT field, version, text FROM webhwp_field_state WHERE fid = ?" + (" AND version > committed" if only_dirty else "")
+    q = "SELECT field, version, text, author FROM webhwp_field_state WHERE fid = ?" + (" AND version > committed" if only_dirty else "")
     with db._conn() as conn:
-        st = {r[0]: {"version": int(r[1]), "text": r[2]} for r in conn.execute(q, (int(fid),)).fetchall()}
+        st = {r[0]: {"version": int(r[1]), "text": r[2]} for r in conn.execute(q, (int(fid),)).fetchall()
+              if not (keep_author and r[3] == keep_author)}
+    # keep_author — 문서 전체 저장(구조 고침)을 보낸 사람이 마지막으로 쓴 칸은 그 사람의 파일이 정답이다. 덮으면 그 칸에 붙여 넣은 글·칸째 복사가
+    # DB 의 옛 글로 되돌려졌다(10-26 운영 실측). 다른 사람이 쓴 칸만 DB 글로 지킨다
     if not st or data[:2] != b"PK":
         return data, [], {}
     if have is None:
@@ -1077,6 +1080,24 @@ def overlay(db, fid: int, data: bytes, *, have: dict | None = None, only_dirty: 
         return data, [], versions
     new, done = ww.set_fields(data, diff)
     return new, done, versions
+
+
+def own_changes(db, fid: int, data: bytes, author: str) -> dict:
+    """문서 전체 저장 파일에서, 저장한 사람이 마지막으로 쓴 칸 가운데 DB 글과 다른 것 — {칸: 파일 글}. 저장 뒤 DB 를 파일에 맞춘다
+    (그대로 두면 뒤이은 써 넣기가 DB 의 옛 글로 파일을 되돌린다)."""
+    from zzaimy.app import webhwp_write as ww
+    if not author or data[:2] != b"PK":
+        return {}
+    ensure(db)
+    with db._conn() as conn:
+        st = {r[0]: r[1] for r in conn.execute("SELECT field, text, author FROM webhwp_field_state WHERE fid = ?", (int(fid),)).fetchall() if r[2] == author}
+    if not st:
+        return {}
+    try:
+        have = ww.field_values(data)
+    except Exception:
+        return {}
+    return {k: have[k] for k, v in st.items() if k in have and norm(have[k]) != norm(v)}
 
 
 def _mark_committed(db, fid: int, versions: dict) -> None:
