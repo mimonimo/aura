@@ -861,7 +861,15 @@
     function soon() { setTimeout(tick, 0); }
     eng.on('locks', function () { drawAvatars(); soon(); });
     eng.on('people', function () { drawAvatars(); soon(); });
-    eng.on('aura', function (a) { auraState = a || {}; if (following === 'AURA' && !auraState.field) stopFollow('AURA가 다 써서 따라가기를 멈췄어요'); else if (following === 'AURA' && barKind === 'follow') showFollow(); drawAvatars(); soon(); });
+    // AURA 가 쓰기 시작하면 가만히 보고 있던 화면은 저절로 그 자리로(안내 띠 없이) — 다 쓰거나 내가 손대면 멈춘다(10-26 시연: 쓰는 절이 화면 밖이었다)
+    var autoAura = false;
+    eng.on('aura', function (a) {
+      auraState = a || {};
+      if (auraState.field && !following && Date.now() - hwp.lastInputAt() > 3000) { following = 'AURA'; followAt = 0; autoAura = true; }
+      if (following === 'AURA' && !auraState.field) { if (autoAura) { following = ''; autoAura = false; } else stopFollow('AURA가 다 써서 따라가기를 멈췄어요'); }
+      else if (following === 'AURA' && barKind === 'follow') showFollow();
+      drawAvatars(); soon();
+    });
     eng.on('people', function () { if (following && following !== 'AURA' && !personOf(following)) stopFollow(eng.nameOf(following) + ' 님이 나가서 따라가기를 멈췄어요'); });
     eng.on('applied', function (f) { invalidateFrom(f); soon(); });
     hwp.onLocalEdit(function () { invalidateFrom(eng.current()); });
@@ -883,7 +891,7 @@
     function showFollow() { show('follow', followName(following) + ' 님 따라가는 중', [['그만', function () { stopFollow(); }]]); }
     function stopFollow(why) {
       if (!following) return;
-      following = '';
+      following = ''; autoAura = false;
       if (barKind === 'follow') hide('follow');
       if (why) show('follow-end', why, null, 3000);
       drawAvatars();
@@ -891,7 +899,7 @@
     function toggleFollow(u) {
       if (following === u) { stopFollow(); return; }
       if (u !== 'AURA' && !personOf(u)) return;
-      following = u; followAt = 0;
+      following = u; followAt = 0; autoAura = false;
       showFollow(); drawAvatars(); soon();
     }
     function followStep() {

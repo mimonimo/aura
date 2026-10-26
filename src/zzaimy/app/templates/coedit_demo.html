@@ -50,7 +50,7 @@
   <h1>공동 편집 시연</h1>
   <span class="note">{{ aura_note or '세 사람이 1·2·3 절이든 제목이든 어디를 고쳐도 다른 칸에 바로 보입니다 · 「AURA로 절 쓰기」 는 4 절을 씁니다' }}</span>
   <span class="grow"></span>
-  {% if cur %}<form method="post" action="/dev/coedit-demo/aura" onsubmit="this.querySelector('button').disabled = true"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn primary"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true"></iconify-icon>AURA로 절 쓰기</button></form>{% endif %}
+  {% if cur %}<form method="post" action="/dev/coedit-demo/aura" data-aura-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn primary"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true"></iconify-icon>AURA로 절 쓰기</button></form>{% endif %}
   {% if cur %}<form method="post" action="/dev/coedit-demo/reset" title="쓴 글을 모두 지운 새 문서로 다시 엽니다" onsubmit="this.querySelector('button').disabled = true"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon>처음부터 다시</button></form>{% endif %}
 </header>
 {% if cur and not missing %}
@@ -61,6 +61,19 @@
   </section>{% endfor %}
 </main>
 <script>
+  // 「AURA로 절 쓰기」 — 화면을 다시 열지 않고 요청만 보낸다(다시 열면 세 칸이 모두 새로 불러와 시연이 끊겼다, 10-26)
+  (function () {
+    var f = document.querySelector('[data-aura-form]'), note = document.querySelector('.bar .note');
+    if (!f) return;
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var b = f.querySelector('button'); b.disabled = true;
+      fetch(f.action, {method: 'POST', body: new FormData(f), credentials: 'same-origin', redirect: 'manual'}).then(function () {
+        note.textContent = 'AURA(27B)가 1~3 절을 읽고 4 절을 쓰는 중 — 1~2분 뒤 세 화면에서 써 내려갑니다';
+      }).catch(function () { note.textContent = 'AURA에게 보내지 못했습니다 — 다시 눌러 주세요'; })
+        .then(function () { setTimeout(function () { b.disabled = false; }, 5000); });
+    });
+  })();
   // 칸 머리 동그라미 색을 편집 화면 아바타와 같게(webhwp-collab.js colorOf 와 같은 셈)
   (function () {
     var P = ['#2563EB', '#16A34A', '#D97706', '#DB2777', '#7C3AED', '#0891B2', '#DC2626', '#4D7C0F'];

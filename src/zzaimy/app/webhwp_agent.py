@@ -480,7 +480,7 @@ class HwpTools:
                                  if ww.is_cont(k) and ww.section_of(k) == field and k not in vals])
         return self._after_write(fid, field, text, written, put, by, data)
 
-    STREAM_STEP, STREAM_PACE = 12, 0.06     # 흘려 쓰기 — 한 번에 보내는 글자 수·간격(초). 12자×0.06초 ≈ 초당 200자
+    STREAM_PACE, STREAM_CPS, STREAM_MAX_S = 0.12, 32, 20.0   # 흘려 쓰기 — 0.12초마다, 초당 약 32자(눈으로 따라 읽히게), 긴 절도 20초 안에
 
     def _stream_plain(self, fid: int, field: str, text: str) -> bool:
         """표·상자·도식 없는 글만 든 절은 파일을 통째로 다시 저장하지 않고 칸 공동 편집 길로 조금씩 보낸다(10-26).
@@ -500,9 +500,13 @@ class HwpTools:
         if not st.ok:
             return False
         try:
-            for i in range(self.STREAM_STEP, len(body), self.STREAM_STEP):
+            step = max(round(self.STREAM_CPS * self.STREAM_PACE), -(-len(body) * self.STREAM_PACE // self.STREAM_MAX_S))
+            last = 0.0
+            for i in range(int(step), len(body), int(step)):
                 st.write(body[:i])
-                self._mark(fid, field)
+                if time.time() - last > 1.0:               # 「AURA 쓰는 중」 표시는 1초에 한 번이면 된다(DB·알림 줄 아끼기)
+                    self._mark(fid, field)
+                    last = time.time()
                 time.sleep(self.STREAM_PACE)
             ok = st.write(body)
         finally:

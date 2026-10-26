@@ -330,7 +330,7 @@
         if (!eng.pending()) say("저장됨", 'ok');                // 보기만 한 창도 「불러오는 중」 에 머물지 않게(10-24)
         {% if request.state.demo is defined and request.state.demo %}
         // 공동 편집 시연 — 칸 차례(a·b·c)대로 그 번째 쓸 자리에 커서를 둔다(열자마자 세 사람이 각자 자리에 있게)
-        (function (slot) { var i = 'abc'.indexOf(slot), fs = hwp.fields(); if (i >= 0 && fs[i]) hwp.moveTo(fs[i], false); })({{ request.state.demo | tojson }});
+        (function (slot) { var i = 'abc'.indexOf(slot), fs = hwp.fields().filter(function (f) { return /^절:/.test(f); }); if (i >= 0 && fs[i]) hwp.moveTo(fs[i], false); })({{ request.state.demo | tojson }});
         {% endif %}
       } else { mode = 'whole'; holdLock(); }
       watchEdits();
