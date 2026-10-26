@@ -135,8 +135,8 @@
         <span class="doc-cnt">{{ papers|length }}</span></h2>
       <div class="weekly-actions" id="paper-hwp">
         {% if paper_hwp %}
-        <a class="btn-ghost" href="/dev/paper/hwp">논문 작성</a>
-        <span class="muted">웹 한글 기안기 · 공통/논문 · 교직원 함께 작성{% if paper_hwp.saved %} · 저장 {{ paper_hwp.saved }}{% endif %}</span>
+        <a class="btn primary" href="/dev/paper/hwp"><iconify-icon icon="solar:pen-new-square-linear" aria-hidden="true"></iconify-icon>논문 문서 열기</a>
+        <span class="muted">웹 한글 기안기에서 교직원이 함께 논문 작성 · 공통/논문{% if paper_hwp.saved %} · 저장 {{ paper_hwp.saved }}{% endif %}</span>
         {% else %}
         <form method="post" action="/dev/paper/hwp" data-paper-create>
           <button type="submit">논문 문서 만들기</button>
@@ -206,10 +206,12 @@
         <span class="muted">매주 월요일 오전 9시 자동 생성 · 한국시간</span>
       </div>
       <div class="doc-sub">지난 보고서</div>
-      {{ rows(weekly_docs[:3]) }}
-      {% if weekly_docs|length > 3 %}
-      <div data-weekly-more hidden>{{ rows(weekly_docs[3:]) }}</div>
-      <button type="button" class="btn-ghost" style="margin-top:6px;" onclick="var m=this.previousElementSibling;m.hidden=!m.hidden;this.textContent=m.hidden?'지난 보고서 {{ weekly_docs|length - 3 }}개 더 보기':'접기';">지난 보고서 {{ weekly_docs|length - 3 }}개 더 보기</button>
+      {# 이번 주 보고서는 위 「보고서 열기」 — 지난 보고서에 다시 늘어놓지 않는다 #}
+      {% set past = (weekly_docs | rejectattr('href', 'equalto', '/dev/weekly/' ~ weekly.stem) | list) if weekly.exists else weekly_docs %}
+      {{ rows(past[:3]) }}
+      {% if past|length > 3 %}
+      <div data-weekly-more hidden>{{ rows(past[3:]) }}</div>
+      <button type="button" class="btn-ghost" style="margin-top:6px;" onclick="var m=this.previousElementSibling;m.hidden=!m.hidden;this.textContent=m.hidden?'지난 보고서 {{ past|length - 3 }}개 더 보기':'접기';">지난 보고서 {{ past|length - 3 }}개 더 보기</button>
       {% endif %}
       <script>
         (function () {

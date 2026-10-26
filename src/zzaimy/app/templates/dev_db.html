@@ -141,6 +141,10 @@ table.dx-list tr.on td { background:#edf3fc; }
 .dx-rows-wrap th:nth-child(3) { width:64px; }
 .dx-rows-wrap th:nth-child(4) { width:86px; }
 .dx-rows-wrap table.dx-rows th { white-space:normal; }
+/* 제목 칸이 없는 조각 표(규정 조문 등) — 칸 차례가 하나 당겨진다(# · 길이 · 색인 · 본문). 차례로 정한 폭이 본문 칸에 걸려 본문이 70px 로 눌리던 것(10-26) */
+.dx-rows-wrap table.nohead th:nth-child(2) { width:72px; }
+.dx-rows-wrap table.nohead th:nth-child(3) { width:72px; }
+.dx-rows-wrap table.nohead th:nth-child(4) { width:auto; }
 .dx-rows-wrap table.dx-rows td { padding:10px; overflow-wrap:anywhere; vertical-align:top; }
 .dx-rows-wrap table.dx-rows td.head { white-space:normal; max-width:none; line-height:1.6; }
 .dx-rows-wrap table.dx-rows td.prev { min-width:0; max-width:none; width:auto; }
@@ -157,6 +161,9 @@ table.dx-list tr.on td { background:#edf3fc; }
   .dx-rows-wrap th:nth-child(3), .dx-rows-wrap td:nth-child(3) { display:none; }
   .dx-rows-wrap th:nth-child(2) { width:88px; }
   .dx-rows-wrap th:nth-child(4) { width:70px; }
+  .dx-rows-wrap table.nohead th:nth-child(3), .dx-rows-wrap table.nohead td:nth-child(3) { display:table-cell; }
+  .dx-rows-wrap table.nohead th:nth-child(2) { width:64px; }
+  .dx-rows-wrap table.nohead th:nth-child(4) { width:auto; }
   .dx-preview-button { flex-direction:column; align-items:flex-start; gap:6px; }
 }
 .dx-reader { width:min(800px,calc(100vw - 32px)); max-height:calc(100dvh - 40px); padding:0; border:1px solid var(--line); border-radius:16px; overflow:hidden; background:white; color:var(--ink); }
@@ -316,7 +323,7 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
         <div><span>원본 파일</span>{% if o.original.exists %}있음 · {{ o.original.suffix or '확장자 없음' }}{% else %}없음{% endif %}</div>
         <div><span>개인정보 가린 본문</span>{{ "{:,}".format(o.text_chars) }}자</div>
         <div><span>검토 의견 · 초안</span>{{ '있음' if o.has_review else '없음' }} · {{ '있음' if o.has_draft else '없음' }}</div>
-        {% if o.project %}<div><span>프로젝트</span><a href="/project/{{ o.project.id }}" title="{{ o.project.name }}">{{ o.project.name }}</a></div>{% endif %}
+        {% if o.project and o.doc_type != 'regulation' %}{# 규정은 사업에 묶이지 않는다 #}<div><span>프로젝트</span><a href="/project/{{ o.project.id }}" title="{{ o.project.name }}">{{ o.project.name }}</a></div>{% endif %}
         {% if o.related_criteria or o.related_criteria_id %}<div><span>관련 기준 문서</span>{% if o.related_criteria %}<a href="/dev/db?tab=docs&doc={{ o.related_criteria.id }}" title="{{ o.related_criteria.filename }}">{{ o.related_criteria.name }}</a>{% else %}<span class="muted">문서 {{ o.related_criteria_id }} (삭제됨)</span>{% endif %}</div>{% endif %}
         <div class="wide"><span>개인정보 가림</span>
           {% if not o.mask.subject %}<span class="muted">해당 없음(규정은 원문 그대로)</span>
@@ -357,8 +364,8 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
       {% if c.n_units %}
       <section class="dx-material-group" aria-label="검색 조각">
         <h4 class="dx-material-heading">검색 조각 <span>{{ c.n_units }}건</span></h4>
-        <div class="dx-rows-wrap"><table class="dx-rows">
-          {% set has_head = c.units | selectattr("heading") | list | length > 0 %}{# 제목이 하나도 없으면(규정 조문 등) 빈 칸을 보이지 않는다 #}
+        {% set has_head = c.units | selectattr("heading") | list | length > 0 %}{# 제목이 하나도 없으면(규정 조문 등) 빈 칸을 보이지 않는다 #}
+        <div class="dx-rows-wrap"><table class="dx-rows{{ '' if has_head else ' nohead' }}">
           <tr><th>#</th>{% if has_head %}<th>제목</th>{% endif %}<th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
           {% for u in c.units %}
           <tr>
@@ -513,8 +520,8 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
       <span class="muted" style="font-size:12px;">{% if receipt_label(s.receipt_no) %}{{ receipt_label(s.receipt_no) }} · {% endif %}{{ (s.created_at or '')[:16] | replace('T', ' ') }}</span>
     </div>
     {% if s.units %}
-    <div class="dx-rows-wrap" style="max-height:calc(100vh - 220px);"><table class="dx-rows">
-      {% set has_head = s.units | selectattr("heading") | list | length > 0 %}{# 제목이 하나도 없으면(규정 조문 등) 빈 칸을 보이지 않는다 #}
+    {% set has_head = s.units | selectattr("heading") | list | length > 0 %}{# 제목이 하나도 없으면(규정 조문 등) 빈 칸을 보이지 않는다 #}
+    <div class="dx-rows-wrap" style="max-height:calc(100vh - 220px);"><table class="dx-rows{{ '' if has_head else ' nohead' }}">
       <tr><th>#</th>{% if has_head %}<th>제목</th>{% endif %}<th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
       {% for u in s.units %}
       <tr id="u{{ u.id }}" class="{{ 'hit' if u.hit else '' }}">

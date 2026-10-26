@@ -69,8 +69,8 @@
    "left": "종류를 못 정한 19건 다시 읽고 분류",
    "links": [
     {
-     "label": "문서 가져오기",
-     "href": "/dev/intake"
+     "label": "반입 점검",
+     "href": "/dev/flow#intake"
     },
     {
      "label": "결정 ADR-0027",
