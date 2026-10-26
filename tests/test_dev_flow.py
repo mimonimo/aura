@@ -120,6 +120,6 @@ def test_coedit_sequence_figures_use_live_settings(tmp_path):
     app, c = _client(tmp_path)
     page = c.get("/dev/flow").text
     assert page.count('<figure class="pf-fig"><svg') == 2
-    assert "사람이 칸에 글을 칠 때" in page and "AURA(27B)가 절을 쓸 때" in page and "0.3초마다" in page
+    assert "사람이 칸에 글을 칠 때" in page and "AURA(27B)가 양식을 불러오고 절을 쓸 때" in page and "0.3초마다" in page
     app.state.db.set_setting("coedit:throttle_ms", "500")
     assert "0.5초마다" in c.get("/dev/flow").text
