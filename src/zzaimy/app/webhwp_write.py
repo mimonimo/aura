@@ -246,6 +246,97 @@ def normalize_breaks(data: bytes) -> tuple[bytes, int]:
     return (_pack(zin, new) if new else data), n
 
 
+_FRAG_TOK = re.compile(r"<[^>]+>|[^<]+")
+_PLAIN_FRAG_TAGS = re.compile(r"<(/?)(hp:t|hp:run|hp:p|hp:linesegarray|hp:lineseg)\b[^>]*?(/?)>")
+_ENT = re.compile(r"&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);|.", re.S)
+
+
+def _frag_text(frag: str) -> str:
+    """field_values 와 같은 셈으로 필드 조각의 글."""
+    f = re.sub(r"<hp:lineBreak\s*/>|</hp:p>\s*<hp:p\b[^>]*>", "\n", frag)
+    f = re.sub(r"<hp:tab\b[^>]*/>", "\t", f)
+    return _unq(re.sub(r"<[^>]+>", "", f))
+
+
+def _patch_span(frag: str, new: str, p_open: str, r_open: str, ids, made: set) -> str | None:
+    """필드 값을 통째로 다시 쓰지 않고 바뀐 글자 범위만 그 자리에서 바꾼다 — 글자 묶음(run)마다 든 서식(색·크기·글꼴·굵게)을 지킨다(10-26).
+    통째로 다시 쓰면 줄마다 첫 글자 모양으로 돌아가 사람이 칸 안에서 바꾼 서식이 파일에서 지워졌다.
+    글·문단만 든 조각(표·개체·줄 나눔·탭 없음)에서만 한다. 못 하면 None(부르는 쪽이 예전처럼 통째로)."""
+    if not frag:
+        return None
+    for m in re.finditer(r"<[^>]+>", frag):
+        if not _PLAIN_FRAG_TAGS.fullmatch(m.group(0)):
+            return None
+    frag = re.sub(r"<hp:t(\b[^>]*?)/>", r"<hp:t\1></hp:t>", frag)          # 빈 글 태그도 열고 닫는 꼴로 — 자를 자리가 생기게
+    old = _frag_text(frag)
+    new = wf.clean_text(new, None)
+    if old == new:
+        return frag
+    # 글자마다 (글자, 조각 안 시작 자리, 끝 자리), 문단 나눔은 그 문단 마지막 글 태그 닫는 자리로
+    atoms: list[tuple[str, int, int]] = []
+    in_t, last_t_end, pending_break = False, None, False
+    for m in _FRAG_TOK.finditer(frag):
+        tok = m.group(0)
+        if tok.startswith("<"):
+            if tok.startswith("<hp:t") and not tok.startswith("<hp:tab"):
+                in_t = True
+            elif tok == "</hp:t>":
+                in_t = False
+                last_t_end = m.start()
+            elif tok.startswith("<hp:p"):
+                if pending_break:
+                    if last_t_end is None:
+                        return None
+                    atoms.append(("\n", last_t_end, last_t_end))
+                    pending_break = False
+            elif tok == "</hp:p>":
+                pending_break = True
+            continue
+        if not in_t:
+            if tok.strip():
+                return None
+            continue
+        for e in _ENT.finditer(tok):
+            atoms.append((_unq(e.group(0)), m.start() + e.start(), m.start() + e.end()))
+    if "".join(a[0] for a in atoms) != old or last_t_end is None:
+        return None
+    import difflib
+
+    def anchor(i: int) -> int:
+        """글을 넣을 자리 — 바로 앞 글자 뒤(편집기처럼 앞 글자의 모양을 잇는다). 앞 글자가 없으면(칸·문단 처음) 그 자리 글자 앞."""
+        if i > 0 and atoms[i - 1][0] != "\n":
+            return atoms[i - 1][2]
+        return atoms[i][1] if i < len(atoms) else last_t_end
+
+    def next_t_open_end(at: int) -> int | None:
+        m = re.compile(r"<hp:t(?=[\s>])[^>]*>").search(out, at)
+        return m.end() if m else None
+    out = frag
+    ops = [o for o in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes() if o[0] != "equal"]
+    for _tag, i1, i2, j1, j2 in reversed(ops):          # 뒤에서부터 — 앞 자리 값이 그대로 맞다
+        for k in range(i2 - 1, i1 - 1, -1):             # 지우기는 글자 하나씩 — 글자 묶음(run) 경계·서식은 남는다
+            ch, st, en = atoms[k]
+            if ch == "\n":                              # 문단 나눔 지우기 = 두 문단 잇기(뒤 문단의 첫 글은 앞 문단 끝 묶음으로)
+                nx = next_t_open_end(st)
+                if nx is None:
+                    return None
+                out = out[:st] + out[nx:]
+            else:
+                out = out[:st] + out[en:]
+        if j2 > j1:
+            at = anchor(i1)
+            head = out[:at]
+            po = ([x.group(0) for x in _P_OPEN.finditer(head)] or [p_open])[-1]
+            ro = ([x.group(0) for x in re.finditer(r"<hp:run\b[^>]*>", head)] or [r_open])[-1]
+            lines = new[j1:j2].split("\n")
+            ins = escape(lines[0])
+            for x in lines[1:]:
+                ins += _cont(po, ro, "<hp:t>", ids, made) + escape(x)
+            out = head + ins + out[at:]
+    out = re.sub(r"<hp:linesegarray>.*?</hp:linesegarray>", "", out, flags=re.S)
+    return out if _frag_text(out) == new else None
+
+
 def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
     """칸·표 필드 값 바꾸기 — 돌려주는 것은 (새 바이트, 넣은 필드 이름). 없는 이름은 건너뛴다."""
     zin, secs = _open(data)
@@ -288,7 +379,8 @@ def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
                     i = src[j] if j < len(src) else 0
                     po, ro = opens[i - 1] if 0 < i <= len(opens) else (p, r)
                     return _cont(po, ro or r, "<hp:t>", ids, made)
-            buf.append(_value_xml(want[name], split))
+            patched = _patch_span(xml[sp[0]:sp[1]], want[name], p, r, ids, made) if p else None
+            buf.append(patched if patched is not None else _value_xml(want[name], split))
             pos = sp[1]
         buf.append(xml[pos:])
         x2 = "".join(buf)

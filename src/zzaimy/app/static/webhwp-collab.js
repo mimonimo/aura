@@ -75,7 +75,7 @@
 
   function engine(o) {
     var hwp = o.hwp, fid = o.fid, me = o.me, base = '/hwp/' + fid, client = clientId(), idb = store();
-    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 0, aura_ttl: 20, field_max: 1000000};
+    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 1, aura_ttl: 20, field_max: 1000000};
     var tooLong = {};
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
@@ -202,7 +202,7 @@
             if (outbox[f] && outbox[f].seq === r.seq) { delete outbox[f]; idb.del('outbox', op.key); }
             if (r.ok) {
               if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
-              if (conf.rich && RICH.test(f) && !op.rich) { richDirty[f] = true; scheduleRich(); }
+              if (op.rich) { lastRich[f] = richSig(op.rich); emit('rich-sent', f); }   // 서식째 보냄 — 화면이 파일에도 조용히 저장한다
               if (r.until && (!locks[f] || !heldByOther(f))) { mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until}; }
             } else if (r.reason === 'delta') {               // 바뀐 부분을 안 받았다 — 같은 글을 전체로 다시(더 새 글이 줄에 있으면 그것을 전체로)
               if (outbox[f]) outbox[f].full = true;
@@ -231,20 +231,26 @@
           retryMs = Math.min(retryMs * 2, 10000);
         });
     }
-    // ── 서식째 주고받기(시험 기능, 설정 rich=1) — 절 필드만. 글은 위 길로 먼저 보내고, 입력이 1초 멈추면 기안기 JSON 블록을 따로 보낸다 ──
-    var RICH = /^절:/, richDirty = {}, richTimer = null, lastRich = {};
-    function scheduleRich() { clearTimeout(richTimer); richTimer = setTimeout(doRich, 1000); }
+    // ── 서식째 주고받기(설정 rich, 기본 켬 10-26) — 글은 위 길(바뀐 부분)로, 서식 고침(툴바·단축키·글자 모양 창)은 그 칸을 기안기 JSON 블록째 ──
+    // 서식만 바꾸면 글이 그대로라 위 길로는 아무것도 가지 않았다. 서식을 바꿀 수 있는 손놀림(편집 화면 밖 누름 — 툴바·메뉴·창, Ctrl/⌘ 키) 뒤
+    // 손이 0.7초 멈추면 지금 칸을 꺼내 지난번 것과 견주고, 다르면 보낸다(누름 한 번에 서식이 안 바뀌었으면 보내지 않는다)
+    var RICH = /./, richDirty = {}, richTimer = null, lastRich = {};
+    function richSig(json) { return String(json || '').replace(/"\d{4}-\d\d-\d\dT[\d:.]+Z"/g, '""'); }   // 꺼낼 때마다 바뀌는 시각은 빼고 견준다
+    function scheduleRich() { clearTimeout(richTimer); richTimer = setTimeout(doRich, 700); }
     function doRich() {
-      if (hwp.isComposing() || hwp.isProbing() || now() - hwp.lastInputAt() < 1000 || pending()) { scheduleRich(); return; }
+      if (hwp.isComposing() || hwp.isProbing() || now() - hwp.lastInputAt() < 700 || pending()) { scheduleRich(); return; }
       var fs = Object.keys(richDirty);
       richDirty = {};
       (function next() {
         var f = fs.shift();
         if (!f) return;
         if (heldByOther(f)) { next(); return; }
-        hwp.exportField(f).then(function (json) {
-          if (json && json !== lastRich[f]) {
-            lastRich[f] = json;
+        (mine[f] ? Promise.resolve() : acquire(f, true)).then(function () {   // JSON 블록은 그 칸을 쥔 창만 보낼 수 있다
+          if (!mine[f]) return null;
+          return hwp.exportField(f);
+        }).then(function (json) {
+          if (json && richSig(json) !== lastRich[f]) {
+            lastRich[f] = richSig(json);
             var k = known[f], op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0,
                                     text: norm(hwp.read(f)), rich: json, at: now()};
             outbox[f] = op; idb.put('outbox', op); send();
@@ -331,6 +337,7 @@
         var d = rich.shift();
         if (!d) return;
         applying = true;
+        if (!hwp.isHwpxRich(d.rich)) lastRich[d.field] = richSig(d.rich);
         hwp.importField(d.field, d.rich).then(function (ok) {
           var hx2 = hwp.isHwpxRich && hwp.isHwpxRich(d.rich);
           if (!ok || (!hx2 && norm(hwp.read(d.field)) !== d.text)) { hwp.write(d.field, d.text); delete richField[d.field]; }
@@ -609,11 +616,16 @@
       });
       hwp.onCaret(function () {
         checkCaret();
-        // 서식 단추·Ctrl+B 같은 고침은 입력 사건이 없다 — 서식째 모드면 내 절 칸을 다시 재 본다(바뀐 것이 없으면 보내지 않는다)
-        if (conf.rich && RICH.test(curField) && mine[curField]) { richDirty[curField] = true; scheduleRich(); }
       });
       hwp.onActivity(function (e) {
         if (curField && mine[curField] && now() - lastTouch > 20000) extend();
+        // 서식을 바꿀 수 있는 손놀림 — 편집 화면(쪽) 밖 누름(툴바·메뉴·글자 모양 창)이나 Ctrl/⌘ 조합 키. 입력 사건이 없어 따로 잰다
+        if (conf.rich && e && curField && fieldSet[curField] && fieldsMode() && !heldByOther(curField)) {
+          var view = e.target && e.target.ownerDocument && e.target.ownerDocument.getElementById('hcwoViewScroll');
+          var outside = e.type === 'pointerdown' && !(view && view.contains(e.target));
+          var combo = e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !/^(Control|Meta|Shift|Alt|c|C|a|A|s|S|f|F|p|P)$/.test(e.key || '');
+          if (outside || combo) { richDirty[curField] = true; scheduleRich(); }
+        }
         // 남이 쥔 칸에서 글을 치려 하면 그때 기다리는 사람으로 알린다(같은 사람 다른 창은 빼앗지 않는다)
         if (e && e.type === 'keydown' && !e.metaKey && !e.ctrlKey && e.key && (e.key.length === 1 || /^(Backspace|Delete|Enter|Process)$/.test(e.key))
             && curField && fieldSet[curField] && fieldsMode() && heldByOther(curField) && locks[curField].user !== me) acquire(curField, true);

@@ -258,12 +258,19 @@
     }
 
     // 절 필드를 서식째(기안기 JSON 블록) 꺼내고 넣기 — 시험 기능(M3). 커서는 되돌린다
+    // 선택 영역 — 칸을 꺼내고 넣는 동안 커서뿐 아니라 사용자가 잡아 둔 선택(굵게 하려고 고른 글)도 되살린다(10-26 서식 실시간)
+    function keepSel() { try { return ctrl.SelectionMode ? ctrl.GetSelectedPos() : null; } catch (e) { return null; } }
+    function restoreSel(sel) {
+      if (!sel) return;
+      try { ctrl.SetPos(sel.slist, sel.spara, sel.spos); ctrl.SelectText(sel.spara, sel.spos, sel.epara, sel.epos); } catch (e) {}
+    }
     function exportField(name) {
       return new Promise(function (resolve) {
-        var keep = getCursor(true);
+        var keep = getCursor(true), sel = keepSel();
+        var back = function () { restoreCursor(keep); restoreSel(sel); };
         try { ctrl.MoveToField(name, true, true, true); } catch (e) { resolve(null); return; }
-        try { ctrl.GetTextFile('JSON', 'saveblock', function (d) { restoreCursor(keep); resolve(typeof d === 'string' ? d : null); }); }
-        catch (e) { restoreCursor(keep); resolve(null); }
+        try { ctrl.GetTextFile('JSON', 'saveblock', function (d) { back(); resolve(typeof d === 'string' ? d : null); }); }
+        catch (e) { back(); resolve(null); }
       });
     }
     // 서식째 넣기 — 기안기 JSON 블록(시험 기능) 또는 서버 참여자(AURA·논문 작성기)가 보낸 hwpx 조각 {"fmt":"hwpx","b64":…}.
@@ -272,10 +279,10 @@
       var fmt = 'JSON', body = json;
       try { var j = typeof json === 'string' && json.charAt(0) === '{' && json.indexOf('"fmt"') > 0 ? JSON.parse(json) : null; if (j && j.fmt === 'hwpx' && j.b64) { fmt = 'HWPX'; body = j.b64; } } catch (e) {}
       return new Promise(function (resolve) {
-        var keep = getCursor(), t = setTimeout(function () { restoreCursor(keep); resolve(false); }, 8000);
+        var keep = getCursor(), sel = keepSel(), t = setTimeout(function () { restoreCursor(keep); restoreSel(sel); resolve(false); }, 8000);
         var relock = editable[name] === false;
         if (relock) setEditable(name, true, true);                // 남이 쥔 칸은 잠겨 있다 — 넣는 동안만 푼다
-        var done = function (ok) { clearTimeout(t); if (relock) setEditable(name, false, true); restoreCursor(keep); resolve(ok); };
+        var done = function (ok) { clearTimeout(t); if (relock) setEditable(name, false, true); restoreCursor(keep); restoreSel(sel); resolve(ok); };
         try { ctrl.MoveToField(name, true, true, true); } catch (e) { done(false); return; }
         try { ctrl.SetTextFile(body, fmt, 'insertfile', function (r) { done(!(r && r.result === false)); }); }
         catch (e) { done(false); }

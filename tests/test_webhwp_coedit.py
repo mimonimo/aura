@@ -884,3 +884,18 @@ def test_open_wraps_outside_paragraphs_once(tmp_path, monkeypatch):
     kim.get(f"/hwp/{fid}/file")
     assert len(list(ce.events_since(db, fid, 0))) == n          # 두 번째 열기는 새 판을 만들지 않는다
     assert not any(wf.is_para(x["name"]) for x in ww.fields(Path(webhwp.get(db, fid)["path"]).read_bytes()))
+
+
+def test_quiet_save_keeps_screens(tmp_path, monkeypatch):
+    """서식 고침을 파일에 남기는 저장(quiet=1)은 「문서 저장」 알림을 내지 않는다 — 다른 화면은 서식을 칸 길로 이미 받았다(10-26)."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    data = kim.get(f"/hwp/{fid}/file").content
+    n = sum(1 for e in ce.events_since(db, fid, 0) if e["kind"] == "doc-saved")
+    # 같은 바이트면 저장이 알림을 아끼므로 글 하나를 바꿔 본다
+    d1, _ = ww.set_fields(data, {"절:1. 변경 사유": "서식만 바꾼 저장"})
+    assert kim.post(f"/hwp/{fid}/save?quiet=1", content=d1, headers={"Content-Type": "application/octet-stream"}).status_code == 200
+    assert sum(1 for e in ce.events_since(db, fid, 0) if e["kind"] == "doc-saved") == n
+    d2, _ = ww.set_fields(data, {"절:1. 변경 사유": "보통 저장"})
+    assert kim.post(f"/hwp/{fid}/save", content=d2, headers={"Content-Type": "application/octet-stream"}).status_code == 200
+    assert sum(1 for e in ce.events_since(db, fid, 0) if e["kind"] == "doc-saved") == n + 1

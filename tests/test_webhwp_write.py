@@ -193,3 +193,30 @@ def test_editing_one_line_keeps_other_line_styles():
     y = _xml(edited)
     assert done == [name] and ww.field_values(edited)[name].endswith("2) 둘째 항목")
     assert pp(y, "아래 항목 고침") == sub and pp(y, "끼운 항목") == sub and pp(y, "둘째 항목") == top
+
+
+def test_set_fields_keeps_run_formatting():
+    """칸 글을 써 넣을 때 바뀐 글자만 그 자리에서 고친다 — 칸 안에서 사람이 바꾼 서식(글자 묶음마다 charPr)이 파일에서 지워지지 않는다(10-26)."""
+    import io
+    import zipfile
+
+    from zzaimy.app import webhwp_demo as d
+    from zzaimy.app import webhwp_fields as wf
+    from zzaimy.app import webhwp_write as ww
+    data, _ = wf.wrap_rest(d.blank_doc())
+    z = zipfile.ZipFile(io.BytesIO(data))
+    s = z.read("Contents/section0.xml").decode()
+    i = s.find('name="절:1. 김가람"')
+    e = s.find("<hp:t/>", i)
+    s = s[:e] + ('<hp:t>신규 교직원 </hp:t></hp:run><hp:run charPrIDRef="9"><hp:t>AI 교육</hp:t></hp:run>'
+                 '<hp:run charPrIDRef="0"><hp:t>을 시작합니다.</hp:t>') + s[e + len("<hp:t/>"):]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zo:
+        for info in z.infolist():
+            zo.writestr(info, s.encode() if info.filename == "Contents/section0.xml" else z.read(info.filename))
+    data = buf.getvalue()
+    for new in ("신규 교직원 AI 교육을 3월에 시작합니다.", "신규 교직원 AI 교육을 시작합니다.\n둘째 줄", "AI 교육", "신규 AI 교육을 시작합니다."):
+        out, _ = ww.set_fields(data, {"절:1. 김가람": new})
+        assert ww.field_values(out)["절:1. 김가람"] == new
+        x = zipfile.ZipFile(io.BytesIO(out)).read("Contents/section0.xml").decode()
+        assert 'charPrIDRef="9"><hp:t>AI 교육</hp:t>' in x, new

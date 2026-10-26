@@ -316,6 +316,9 @@
     eng.on('struct', function (u) { structBy = u; drawStruct(); if (mode === 'whole') wholeLockChanged(u); });
     eng.on('doc-saved', function (d) { reloadWhenSafe(d); });
     eng.on('outside-edit', function () { if (structMine) touched(); });
+    // 서식째 보낸 뒤 — 파일에도 서식이 남게 이 화면이 조용히 저장한다(다른 화면은 새 판을 다시 불러오지 않는다). 서식 고침이 이어지면 2.5초 모아서
+    var richSaveT = null;
+    eng.on('rich-sent', function () { clearTimeout(richSaveT); richSaveT = setTimeout(quietSave, 2500); });
     eng.on('conflict', function () { var c = document.querySelector('[data-conflicts]'); if (c) c.hidden = false; });
     eng.on('aura', function (a) { auraNow = a && a.field ? a.field : ''; if (!auraNow) lastAuraField = ''; else if (follow) followAura(auraNow, auraNow !== lastAuraField); drawCoStatus(); });
     eng.start().then(function () {
@@ -451,6 +454,14 @@
       .then(function () { saving = false; saveBtn.disabled = !ready; });
   }
   saveBtn.addEventListener('click', function () { if (isNew) openSaveAs('create'); else save(false); });
+  function quietSave() {
+    if (!ready || saving || readonly || isNew || structMine) return;
+    if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1000) { clearTimeout(quietSave.t); quietSave.t = setTimeout(quietSave, 1000); return; }
+    saving = true;
+    (eng ? eng.flush() : Promise.resolve()).then(function () { return hwp.hwpx(); }).then(function (bytes) {
+      return fetch(saveUrl + (saveUrl.indexOf('?') < 0 ? '?' : '&') + 'quiet=1', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes});
+    }).catch(function () {}).then(function () { saving = false; });
+  }
   function touched() {
     if (mode === 'fields' && !structMine) return;
     dirty = true; if (!saving) say(isNew ? '저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요' : '고치는 중', '');

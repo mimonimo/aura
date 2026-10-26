@@ -929,8 +929,9 @@ def hwp_file(request: Request, fid: int):
 
 
 @router.post("/hwp/{fid}/save")
-async def hwp_save(request: Request, fid: int):
-    """기안기에서 받은 HWPX 를 그대로(본문 바이트) 저장 — 앞 판은 .판/ 으로."""
+async def hwp_save(request: Request, fid: int, quiet: int = 0):
+    """기안기에서 받은 HWPX 를 그대로(본문 바이트) 저장 — 앞 판은 .판/ 으로.
+    quiet=1 은 서식 고침을 파일에 남기는 저장(10-26) — 다른 화면은 서식을 이미 칸 길로 받았으므로 「문서 저장」 알림(새 판 다시 불러오기)을 내지 않는다."""
     _need_staff(request)
     f = _file(request, fid)
     _writable(request, fid)
@@ -943,7 +944,7 @@ async def hwp_save(request: Request, fid: int):
         # 칸 글은 공동 편집 표가 정답 — 이 판에 표의 칸 글을 덮어 써 저장한다(다른 사람이 동시에 쓴 칸이 사라지지 않게)
         with ce.file_lock(fid):
             new, done, versions = ce.overlay(db, fid, data)
-            p_ = webhwp.save(db, _base(request), fid, new, user=user)
+            p_ = webhwp.save(db, _base(request), fid, new, user=user, quiet=bool(quiet))
             ce._mark_committed(db, fid, versions)
         return p_, new, done
     try:
