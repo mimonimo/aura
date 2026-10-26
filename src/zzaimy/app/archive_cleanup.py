@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import time
 
+from zzaimy.app import read_failure as _read_failure
+
 IMAGE = ("jpg", "jpeg", "png", "bmp", "gif", "tif", "tiff", "jfif", "heic", "webp")
 ARCHIVE = ("zip", "7z", "egg", "rar", "alz", "tar", "gz")
 CATEGORIES = (
@@ -22,7 +24,8 @@ CATEGORIES = (
     # 경로 규칙으로 못 거른 지출·계약 증빙 — 서류 갈래로 알아보고 라이브러리에서 뺀 문서의 원본(scripts/187 이 옮긴다)
     ("evidence", "지출·계약 증빙", "견적서·거래명세서·영수증 같은 증빙 서류 — 라이브러리에서 뺀 문서의 원본"),
     ("pruned", "라이브러리에서 뺀 문서", "같은 본문 여분·빈 문서·도면·개인 제출물 — 라이브러리에서 뺀 문서의 원본"),
-    # 다시 시도를 다 써도 읽지 못한 원본(빈 파일·깨진 파일·형식 불일치·판독 실패) — scripts/223 이 점검 결과의 실패 목록을 옮긴다(10-26 「실패한 문서는 치우라」)
+    # 읽지 못한 원본(빈 파일·깨진 파일·형식 불일치·판독 실패) — scripts/217 이 점검 결과의 실패 목록을 옮긴다. 정리 카드에서 골라
+    # 「다시 시도」하면 정리함에서 빠져 다음 동기화가 다시 읽는다(app/read_failure)
     ("failed", "처리 실패", "빈 파일·깨진 파일·형식 불일치·판독 실패 — 읽지 못한 원본"),
 )
 MANUAL = ("evidence", "pruned", "failed")                                     # 규칙으로 고르지 않고 도구가 직접 옮기는 갈래
@@ -77,7 +80,8 @@ def summary(db, force: bool = False) -> dict:
            "cleaned_total": sum(cleaned.values()),
            "restorable": sum(n for k, n in cleaned.items() if k not in MANUAL),
            "left": sum(c[0] for c in count.values()), "left_bytes": sum(c[1] for c in count.values()),
-           "last_at": str(last)[:16], "kept_total": kept}
+           "last_at": str(last)[:16], "kept_total": kept,
+           "retry_pending": len(_read_failure.archive_pending(db))}       # 「처리 실패」에서 다시 시도로 고른, 다음 동기화가 읽을 원본
     _cache.update(at=time.time(), v=out)
     return out
 

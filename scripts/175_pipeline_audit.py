@@ -108,16 +108,9 @@ def _jsonl_rels(path: Path, key: str) -> dict[str, dict]:
 
 
 def reason(err: str, state: str = "") -> str:
-    """실패 사유 갈래. 처리기(167)는 읽었지만 글이 없는 문서를 오류 글 없이 state 「empty」로만 적기도 한다 — 그것도 글 없는 문서."""
-    e = err or ""
-    for k, label in (("암호", "암호 문서"), ("빈 파일", "빈 파일"), ("형식이 아닙니다", "형식 불일치"), ("시간 초과", "시간 초과"),
-                     ("같은 내용", "같은 내용 중복"), ("스캔 PDF", "스캔 판독 없음"), ("ModuleNotFound", "판독 환경 오류"),
-                     ("글이 없는", "글 없는 문서")):
-        if k in e:
-            return label
-    if state == "empty":
-        return "글 없는 문서"
-    return "기타 판독 실패"
+    """실패 사유 갈래 — 화면(문서함의 「읽지 못함 · 사유」)과 같은 기준(app/read_failure)."""
+    from zzaimy.app.read_failure import reason_label
+    return reason_label(err, state)
 
 
 def main() -> int:
@@ -135,6 +128,9 @@ def main() -> int:
         rows = conn.execute("SELECT rel, ext, dup_of, doc_id, seen_at, COALESCE(removed_at, ''), size, mtime FROM archive_files").fetchall()
         # 정리함(archive_cleanup)으로 옮긴 원본 — 처리 제외로 확인된 것. 대상·놓침·다시 들임에서 뺀다
         cleaned = {r[0] for r in conn.execute("SELECT rel FROM archive_cleanup").fetchall()} if _has(conn, "archive_cleanup") else set()
+    # 정리함 「처리 실패」에서 다시 시도로 고른 원본 — 다음 동기화(217)가 읽을 때까지 실패가 아니라 대기로 센다
+    from zzaimy.app.read_failure import archive_pending
+    retrying = set(archive_pending(db))
     total = len(rows)
     # 같은 파일 묶음(이름·크기·내용 — dup_of 가 묶음의 대표를 가리킨다, zzaimy/archive_dups) — DGX(165)와 VM(170)이 대표를 서로
     # 다르게 고를 수 있어, 처리된 쪽이 VM 에선 「중복」, 처리 안 된 쪽이 「대상」이 되어 놓침으로 잡힌다. 묶음 중 하나라도
@@ -191,6 +187,9 @@ def main() -> int:
             too_big_rows.append({"rel": rel, "mb": round(int(size or 0) / 1e6)})
             continue
         no_result[rel] = f"{int(size or 0)}:{int(float(mtime or 0))}"
+        if rel in retrying:
+            waiting += 1
+            continue
         if rel in fails:
             failed += 1
             why = reason(fails[rel].get("error", ""), fails[rel].get("state", ""))

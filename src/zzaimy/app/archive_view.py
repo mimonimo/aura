@@ -766,6 +766,28 @@ async def archive_cleanup_restore(request: Request):
     return JSONResponse({"restored": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 
 
+@router.get("/archive/cleanup/failed")
+def archive_cleanup_failed(request: Request, q: str = "", page: int = 1):
+    """정리함 「처리 실패」 원본 — 사유와 함께 찾기·쪽 나눔(관리자). 다시 시도 장부에 적힌 수도 준다."""
+    from zzaimy.app import read_failure
+    _dev(request)
+    return JSONResponse(read_failure.archive_failed(request.app.state.db, q=q[:100], page=page))
+
+
+@router.post("/archive/cleanup/retry")
+async def archive_cleanup_retry(request: Request):
+    """고른 「처리 실패」 원본을 정리함에서 빼고 다음 동기화에 다시 읽게 — {"rels": [...], "mode": "retry"|"ocr"}.
+    글자 읽기 맡기기(ocr)는 판독 모델이 닿을 때 읽는다."""
+    from zzaimy.app import archive_cleanup, read_failure
+    _dev(request)
+    body = await request.json()
+    rels = body.get("rels") if isinstance(body, dict) and isinstance(body.get("rels"), list) else []
+    mode = str(body.get("mode") or "retry") if isinstance(body, dict) else "retry"
+    db = request.app.state.db
+    n = read_failure.archive_retry(db, [str(r) for r in rels][:500], mode=mode, by=getattr(request.state, "user", "") or "")
+    return JSONResponse({"retried": n, **archive_cleanup.summary(db, force=True)})
+
+
 @router.get("/archive", response_class=HTMLResponse)
 def archive_page(request: Request, program: str = "", kind: str = "", q: str = "", year: str = "", round: str = "",
                  ext: str = "", state: str = "", sort: str = "name", page: str = "1", view: str = "", partial: str = ""):

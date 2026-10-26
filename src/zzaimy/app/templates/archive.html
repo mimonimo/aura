@@ -146,6 +146,23 @@
   <ul class="ac-rows" id="acRows"></ul>
   <div class="ac-sample" id="acSample" hidden></div>
   <p class="ar-note" role="status" id="acStatus"></p>
+  {# 처리 실패 — 정리함으로 옮겨진 읽지 못한 원본. 줄을 고르면 「다시 시도」(정리함에서 빼고 다음 동기화에 다시 읽기), 스캔 판독 없음은 글자 읽기 맡기기 #}
+  <div class="ac-fail" id="acFail" hidden>
+    <div class="ac-fail-head"><b>처리 실패</b><span class="ac-n" id="acFailSum"></span>
+      <button type="button" class="btn secondary" id="acFailOpen" aria-expanded="false" aria-controls="acFailBody">목록 보기</button></div>
+    <div id="acFailBody" hidden>
+      <div class="ac-bar">
+        <label class="ac-all"><input type="checkbox" id="acFailAll" aria-label="이 쪽 모두 선택"> 이 쪽 모두</label>
+        <span class="ac-n" id="acFailN">줄을 선택하면 다시 읽게 할 수 있습니다</span>
+        <span class="ac-acts" id="acFailActs" hidden>
+          <button type="button" class="btn" data-fdo="retry">다시 시도</button>
+          <button type="button" class="btn-ghost" data-fdo="clear">선택 해제</button></span>
+      </div>
+      <input type="search" class="ac-fail-q" id="acFailQ" placeholder="파일 이름·폴더 찾기" aria-label="처리 실패 원본 찾기" autocomplete="off">
+      <ul class="ac-rows" id="acFailRows"></ul>
+      <div class="ar-pager" id="acFailPager"></div>
+    </div>
+  </div>
   </div>
 </div></section>
 <style>
@@ -153,7 +170,7 @@
 .ac-sum{font-size:13.5px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
 .ac-fold{margin-left:auto}
 .ac-hist{margin:4px 0 0;font-size:12px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;min-height:1.6em}
-.ac-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:12px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#F8FAFC;font-size:12.5px;min-height:2.75rem;box-sizing:border-box}
+.ac-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:12px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#F8FAFC;font-size:12.5px;min-height:3.375rem;box-sizing:border-box}
 .ac-all{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
 .ac-n{flex:1 1 12rem;min-width:0;color:var(--muted)}
 .ac-acts{display:inline-flex;flex-wrap:wrap;gap:6px}
@@ -166,6 +183,11 @@
 .ac-sample{margin-top:10px;padding:10px 12px;border-radius:8px;background:#F5F7FB;font-size:12px;max-height:min(16rem,40vh);overflow:auto}
 .ac-sample code{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:#3B4A5E}
 @media(max-width:600px){.ac-row{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:none}.ac-row .ac-ex{grid-column:2 / -1;justify-self:start}}
+.ac-fail{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.ac-fail-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;font-size:13px}.ac-fail-head .btn{margin-left:auto}
+.ac-fail-q{margin-top:8px;width:100%;box-sizing:border-box}
+.ac-fail .ac-row{grid-template-columns:auto minmax(0,1fr) auto auto}
+.ac-why{font-size:12px;color:#9B2C2C;background:#FDECEC;border-radius:6px;padding:1px 7px;white-space:nowrap}
 </style>
 <script>
 (() => {
@@ -201,7 +223,68 @@
       : '<li class="ac-row" style="grid-template-columns:1fr"><span class="ar-note">정리할 원본이 없습니다</span></li>';
     $('acSample').hidden = true;
     bar();
+    const fc = (d.items.find(x => x.key === 'failed') || {}).cleaned || 0;
+    fstate.pending = d.retry_pending || 0;
+    $('acFail').hidden = !fc && !fstate.pending;
+    if (!$('acFailBody').hidden) loadFail();
+    else $('acFailSum').textContent = `정리함 ${n(fc)}건` + (fstate.pending ? ` · 다시 읽기 대기 ${n(fstate.pending)}건` : '');
   }
+  // 처리 실패 목록 — 한 쪽 20줄, 찾기, 줄 선택 → 작업 줄(다시 시도·선택 해제)
+  const fstate = {page: 1, q: '', rows: [], pending: 0};
+  const fpicked = () => [...document.querySelectorAll('#acFailRows input[data-rel]:checked')];
+  function fbar() {
+    const sel = fpicked(), all = document.querySelectorAll('#acFailRows input[data-rel]');
+    const scan = sel.filter(c => c.dataset.code === 'scan').length;
+    $('acFailN').textContent = sel.length ? `선택 ${sel.length}개` + (scan ? ` · 스캔 ${scan}개는 글자 읽기로` : '') : '줄을 선택하면 다시 읽게 할 수 있습니다';
+    const go = document.querySelector('#acFailActs [data-fdo=retry]');
+    go.textContent = sel.length && scan === sel.length ? '글자 읽기 맡기기' : '다시 시도';
+    $('acFailActs').hidden = !sel.length;
+    $('acFailAll').checked = sel.length > 0 && sel.length === all.length;
+    $('acFailAll').disabled = !all.length;
+    document.querySelectorAll('#acFailRows .ac-row').forEach(r => r.classList.toggle('on', !!r.querySelector('input:checked')));
+  }
+  async function loadFail() {
+    const r = await fetch(`/archive/cleanup/failed?page=${fstate.page}&q=${encodeURIComponent(fstate.q)}`, {cache: 'no-store'}).catch(() => null);
+    if (!r || !r.ok) { $('acFailSum').textContent = '목록을 불러오지 못했습니다'; return; }
+    const d = await r.json();
+    fstate.pending = d.pending; fstate.page = d.page;
+    const why = Object.entries(d.by_reason || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)} ${n(v)}`).join(' · ');
+    $('acFailSum').textContent = `정리함 ${n(d.total)}건` + (d.pending ? ` · 다시 읽기 대기 ${n(d.pending)}건` : '') + (why && !fstate.q ? ` · ${why}` : '');
+    $('acFailRows').innerHTML = d.rows.length ? d.rows.map(x => `<li class="ac-row"><input type="checkbox" data-rel="${esc(x.rel)}" data-code="${esc(x.code)}" aria-label="${esc(x.name)} 선택">
+      <div><b>${esc(x.name)}</b><small>${esc(x.folder)}</small></div><span class="ac-why">${esc(x.reason)}</span><span class="num">${esc((x.at || '').slice(0, 10))}</span></li>`).join('')
+      : `<li class="ac-row" style="grid-template-columns:1fr"><span class="ar-note">${fstate.q ? '맞는 원본이 없습니다' : '처리 실패 원본이 없습니다'}</span></li>`;
+    $('acFailPager').innerHTML = d.pages > 1 ? `<button type="button" class="btn-ghost" data-fpage="${d.page - 1}" ${d.page <= 1 ? 'disabled' : ''}>이전</button>
+      <span>${d.page} / ${d.pages}</span><button type="button" class="btn-ghost" data-fpage="${d.page + 1}" ${d.page >= d.pages ? 'disabled' : ''}>다음</button>` : '';
+    fbar();
+  }
+  $('acFailOpen').addEventListener('click', () => {
+    const open = $('acFailBody').hidden;
+    $('acFailBody').hidden = !open;
+    $('acFailOpen').setAttribute('aria-expanded', open ? 'true' : 'false');
+    $('acFailOpen').textContent = open ? '목록 접기' : '목록 보기';
+    if (open) loadFail();
+  });
+  let fq = null;
+  $('acFailQ').addEventListener('input', e => { clearTimeout(fq); fq = setTimeout(() => { fstate.q = e.target.value.trim(); fstate.page = 1; loadFail(); }, 250); });
+  $('acFailPager').addEventListener('click', e => { const b = e.target.closest('[data-fpage]'); if (b) { fstate.page = +b.dataset.fpage; loadFail(); } });
+  $('acFailRows').addEventListener('change', fbar);
+  $('acFailAll').addEventListener('change', e => { document.querySelectorAll('#acFailRows input[data-rel]').forEach(c => c.checked = e.target.checked); fbar(); });
+  $('acFailActs').addEventListener('click', async e => {
+    const b = e.target.closest('[data-fdo]'); if (!b) return;
+    if (b.dataset.fdo === 'clear') { fpicked().forEach(c => c.checked = false); fbar(); return; }
+    const rels = fpicked().map(c => c.dataset.rel);
+    const yes = window.platformConfirm ? await window.platformConfirm(`고른 원본 ${n(rels.length)}건을 정리함에서 빼고 다음 동기화 때 다시 읽습니다. 스캔본은 판독 서버가 닿을 때 읽습니다. 다시 실패하면 정리함으로 돌아옵니다.`,
+      {title: b.textContent, ok: b.textContent}) : confirm('다시 시도할까요?');
+    if (!yes) return;
+    const btns = [...document.querySelectorAll('#acFailActs button')];
+    btns.forEach(x => x.disabled = true); $('acStatus').textContent = '처리 중…';
+    try {
+      const d = await post('/archive/cleanup/retry', {rels, mode: 'auto'});
+      $('acStatus').textContent = `${n(d.retried)}건을 다시 읽기로 넘겼습니다 · 다음 동기화 때 읽습니다`;
+      paint(d);
+    } catch (err) { $('acStatus').textContent = err.message; }
+    finally { btns.forEach(x => x.disabled = false); }
+  });
   const load = () => fetch('/archive/cleanup', {cache: 'no-store'}).then(r => { if (!r.ok) throw 0; return r.json(); }).then(paint)
     .catch(() => { $('acSum').textContent = '정리 목록을 불러오지 못했습니다'; });
   async function post(url, body) {

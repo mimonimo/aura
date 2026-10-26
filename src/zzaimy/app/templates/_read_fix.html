@@ -1,0 +1,48 @@
+{# 읽지 못한 문서 — 「읽지 못함 · 사유」 한 줄과 사유마다 다시 하는 단추(app/read_failure.info). 문서 화면 머리에 쓴다.
+   첫 단추가 먼저 권하는 길이다. 파일 바꾸기는 파일을 고르면 바로 올라가 같은 문서 자리에서 다시 읽는다. #}
+{% macro read_fix(doc, rf) %}
+<div class="read-fix" id="readFix" role="alert">
+  <p class="read-fix-head"><iconify-icon icon="solar:danger-triangle-linear" aria-hidden="true"></iconify-icon>
+    <b>읽지 못함 · {{ rf.label }}</b><span class="read-fix-hint" title="{{ rf.detail }}">{{ rf.hint }}</span></p>
+  <div class="read-fix-acts">
+  {% for a in rf.actions %}
+    {% set cls = 'btn-ghost' if a.do == 'discard' else ('btn' if loop.first else 'btn secondary') %}
+    {% if a.do == 'replace' %}
+    <form action="/doc/{{ doc.id }}/replace" method="post" enctype="multipart/form-data" class="read-fix-replace">
+      <input type="file" name="file" hidden aria-label="{{ a.label }}">
+      <button type="button" class="{{ cls }}" data-pick data-busy-text="올리는 중…">{{ a.label }}</button>
+    </form>
+    {% elif a.do == 'twin' %}
+    <a class="{{ cls }}" href="/doc/{{ rf.twin }}">{{ a.label }}</a>
+    {% elif a.do == 'discard' %}
+    <form action="/doc/{{ doc.id }}/discard" method="post" data-confirm="읽지 못한 이 문서를 지웁니다. 되돌릴 수 없습니다." data-confirm-danger>
+      <button type="submit" class="{{ cls }}">{{ a.label }}</button></form>
+    {% else %}
+    <form action="/doc/{{ doc.id }}/{{ {'retry': 'reread', 'ocr': 'ocr', 'resave': 'resave'}[a.do] }}" method="post">
+      <button type="submit" class="{{ cls }}" data-busy="{{ {'retry': '다시 읽는 중…', 'ocr': '맡기는 중…', 'resave': '다시 저장하는 중…'}[a.do] }}">{{ a.label }}</button></form>
+    {% endif %}
+  {% endfor %}
+  </div>
+  {% if request.query_params.get('fix_err') %}<p class="read-fix-err">{{ request.query_params.get('fix_err') }}</p>{% endif %}
+</div>
+<style>
+.read-fix{margin-top:12px;padding:12px 14px;border:1px solid #F3C9C9;border-radius:10px;background:#FFF7F7}
+.read-fix-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:0;font-size:14px}
+.read-fix-head iconify-icon{color:var(--red)}
+.read-fix-hint{color:var(--muted);font-size:13px}
+.read-fix-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.read-fix-acts form{margin:0}
+.read-fix-err{margin:8px 0 0;color:var(--red);font-size:12.5px}
+</style>
+<script>
+document.querySelectorAll('.read-fix-replace').forEach(function (f) {
+  var input = f.querySelector('input[type=file]'), btn = f.querySelector('[data-pick]');
+  btn.addEventListener('click', function () { input.click(); });
+  input.addEventListener('change', function () {
+    if (!input.files.length) return;
+    btn.disabled = true; btn.textContent = btn.dataset.busyText;
+    f.submit();
+  });
+});
+</script>
+{% endmacro %}

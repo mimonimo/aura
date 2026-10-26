@@ -941,6 +941,8 @@ def create_app(
     # 라이브러리 탭 이름 — 탭(_library_tabs)과 안내문이 같은 이름을 쓴다
     templates.env.globals["library_tabs"] = {"docs": "문서", "archive": "원본 보관소"}
     templates.env.globals["receipt_label"] = _receipt_label
+    from zzaimy.app import read_failure as _rf
+    templates.env.globals["read_fail"] = lambda d: _rf.info(db, d)   # 읽지 못한 문서의 사유·다시 하는 단추(목록·문서 화면·알림)
     templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
     # 지표 이름·정의(metric_label·metric_tip)와 개발 화면 이름표(dev_page_name) — 화면마다 같은 이름을 쓰게
     from zzaimy.app import dev_nav as _dev_nav
@@ -5074,6 +5076,10 @@ def create_app(
         _can_edit_doc=_can_edit_doc,
     )
     app.include_router(doc_routes.router)
+    # 읽지 못한 문서 다시 하기(다시 읽기·파일 바꾸기·글자 읽기 맡기기·기안기로 다시 저장·지우기) — app/read_fix_routes
+    from zzaimy.app import read_failure as _read_failure, read_fix_routes
+    app.include_router(read_fix_routes.router)
+    _read_failure.start_worker(db, processor)          # 글자 읽기 대기열에 남은 일이 있으면 이어서(없으면 띄우지 않는다)
     # 문서 파일 열기·내려받기·내보내기(/doc/{id}/original·view·export.* 등) — 독립 라우터(app/doc_file_routes). 뒤 작업 표는 묶음 안에(앱마다)
     from zzaimy.app import doc_file_routes
     app.state.doc_file = doc_file_routes.make_doc_file_helpers(

@@ -711,11 +711,11 @@ document.addEventListener('submit', function(event) {
         </a>
         {% endfor %}
         {% if failed_docs %}
-        <h5 style="margin-top:10px;">처리 실패 {{ failed_docs|length }}</h5>
-        {% for d in failed_docs %}
-        <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
+        <h5 style="margin-top:10px;">읽지 못한 문서 {{ failed_docs|length }}</h5>
+        {% for d in failed_docs %}{% set rf = read_fail(d) %}
+        <a class="pop-item" href="/doc/{{ d.id }}#readFix" data-force-navigation>
           <iconify-icon icon="solar:danger-triangle-linear" style="color:var(--red);"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>처리 실패 · 문서에서 원인을 확인해 주세요.</small></span>
+          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>읽지 못함 · {{ rf.label }}{% if rf.actions %} — {{ rf.actions[0].label }}{% endif %}</small></span>
         </a>
         {% endfor %}
         {% endif %}

@@ -109,6 +109,7 @@
   .lib-row-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:3px; font-size:12px; color:var(--muted); }
   .lib-row-proj { color:#3F5F8A; text-decoration:none; max-width:min(48ch, 100%); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .lib-row-proj:hover { text-decoration:underline; }
   .lib-row-orig { color:#3F5F8A; text-decoration:none; } .lib-row-orig:hover { text-decoration:underline; }
+  .lib-row-fix { color:var(--red); font-weight:600; text-decoration:none; } .lib-row-fix:hover { text-decoration:underline; }
   .lib-row-no { font-variant-numeric:tabular-nums; color:#9AA6B6; }
   .lib-row-date { flex:none; font-size:12px; color:#9AA6B6; font-variant-numeric:tabular-nums; padding-top:2px; }
 
@@ -472,7 +473,8 @@
           <div class="lib-row-meta">
             <span>{{ d.kind_label or "분류 전" }}</span>
             {% if d.in_index %}<span class="pill lib-criteria" title="기준 문서 — 규정 검색·학생 공개·프로젝트 기준 선택에 씀">기준</span>{% endif %}
-            {% if d.status in run_labels %}<span class="pill {{ 'failed' if d.status == 'failed' else 'processing' }}">{{ run_labels[d.status] }}</span>{% endif %}
+            {% if d.status == 'failed' %}{% set rf = read_fail(d) %}<span class="pill failed" title="{{ rf.hint }}">읽지 못함 · {{ rf.label }}</span>{% if rf.actions %}<a class="lib-row-fix" href="/doc/{{ d.id }}#readFix">{{ rf.actions[0].label }}</a>{% endif %}
+            {% elif d.status in run_labels %}<span class="pill processing">{{ run_labels[d.status] }}</span>{% endif %}
             {% if d.decision and d.decision != 'pending' and d.doc_type not in ('regulation', 'ocr') %}<span class="pill {{ d.decision }}">담당자 {{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
             {% if d.project_name and not prog %}<a class="lib-row-proj" href="/project/{{ d.project_id }}" title="이 문서가 속한 프로젝트">{{ d.project_name }}</a>{% endif %}
             {% if show_business %}<span class="lib-row-biz">{{ sector_labels.get(d.business, d.business) }}</span>{% endif %}
