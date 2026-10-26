@@ -467,25 +467,44 @@ def _rich_kind(rich: str) -> str:
 # 좁힌다. 블록 속 개체는 글(tx) 속 「<코드/개체 이름 8자리 16진/…>」 로 나오는데, 칸 하나를 꺼내면 구역 정의(secd)·단 정의(cold)만 나온다
 # (운영 실측). 표·그림·링크·누름틀·수식·OLE 같은 다른 개체, 바이너리(bi), 모르는 최상위 열쇠가 있으면 서식을 버리고 글만 받는다.
 _JSON_TOP = {"documentPr", "dh", "ro", "sl", "cs", "bf", "cp", "tp", "nu", "bu", "pp", "st", "mp", "bi"}
-_JSON_CTRL = re.compile(r"<([0-9A-Fa-f]{2})/([0-9A-Fa-f]{8})/")
+_JSON_CTRL_ANY = re.compile(r"<\s*([0-9A-Fa-f]{1,4})\s*/\s*([0-9A-Fa-f]{8})\s*/")   # 공백·자리 수를 달리 써도 잡는다
 _JSON_CTRL_OK = {"secd", "cold"}
 
 
-def json_block_ok(raw: str) -> bool:
+def _strings(o):
+    """해석한 JSON 의 모든 글(열쇠 포함) — 원문을 훑으면 \\u003c 같은 이스케이프로 숨긴 개체 표시를 놓친다(해석 차이)."""
+    if isinstance(o, str):
+        yield o
+    elif isinstance(o, dict):
+        for k, v in o.items():
+            yield str(k)
+            yield from _strings(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _strings(v)
+
+
+def json_block(raw: str) -> str | None:
+    """검사를 통과한 JSON 블록을 다시 직렬화해 돌려준다(받는 화면에는 검사한 그대로만 간다). 통과 못 하면 None."""
     try:
         j = json.loads(raw)
     except ValueError:
-        return False
+        return None
     if not isinstance(j, dict) or not set(j) <= _JSON_TOP or j.get("bi") not in (None, {}, []):
-        return False
-    for m in _JSON_CTRL.finditer(raw):
-        try:
-            name = bytes.fromhex(m.group(2)).decode("ascii")
-        except (ValueError, UnicodeDecodeError):
-            return False
-        if name not in _JSON_CTRL_OK:
-            return False
-    return True
+        return None
+    for t in _strings(j):
+        for m in _JSON_CTRL_ANY.finditer(t):
+            try:
+                name = bytes.fromhex(m.group(2)).decode("ascii")
+            except (ValueError, UnicodeDecodeError):
+                return None
+            if name not in _JSON_CTRL_OK:
+                return None
+    return json.dumps(j, ensure_ascii=False, separators=(",", ":"))
+
+
+def json_block_ok(raw: str) -> bool:
+    return json_block(raw) is not None
 
 
 def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Path | None = None, force: bool = False,
@@ -532,7 +551,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
         if rich_kind == "hwpx" and not trusted:
             results.append({"seq": seq, "field": field, "ok": False, "reason": "rich_denied"})
             continue
-        rich = raw_rich if (rich_kind == "hwpx" or (rich_kind == "json" and conf(db, "rich") > 0 and json_block_ok(raw_rich))) else ""
+        rich = raw_rich if rich_kind == "hwpx" else ((json_block(raw_rich) or "") if (rich_kind == "json" and conf(db, "rich") > 0) else "")
         try:
             b = int(op.get("base") or 0)
         except (TypeError, ValueError):

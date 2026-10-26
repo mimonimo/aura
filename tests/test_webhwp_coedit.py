@@ -702,7 +702,7 @@ def test_rich_fragments_only_from_server_participants_and_checked(tmp_path, monk
     assert "rich" not in ce.state(db, fid)[F]                 # 모르는 열쇠 — 관문에서 서식을 버린다(json_block_ok)
     ok = json.dumps({"ro": {"a": {"tx": "글4"}}, "cs": {}, "bi": {}})
     kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 5, "field": F, "base": 3, "text": "글4", "rich": ok}]})
-    assert ce.state(db, fid)[F]["rich"] == ok
+    assert json.loads(ce.state(db, fid)[F]["rich"]) == json.loads(ok)        # 검사한 것을 다시 직렬화해 둔다
     c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
     assert "d.trusted === true || d.fromState === true" in c and "d.at + d.del > cpLen(s)" in c
 
@@ -915,3 +915,7 @@ def test_json_block_gate():
     assert not ce.json_block_ok(json.dumps({"ro": {}, "bi": {"1": "AAAA"}}))                          # 바이너리
     assert not ce.json_block_ok(json.dumps({"ro": {}, "zz": 1}))                                       # 모르는 열쇠
     assert not ce.json_block_ok("{not json")
+    hid = '{"ro":{"a":{"tx":"\\u003c02/' + b"%hlk".hex() + '/01>"}}}'                         # 이스케이프로 숨긴 링크
+    assert "<" not in hid and not ce.json_block_ok(hid)
+    assert not ce.json_block_ok(json.dumps({"ro": {"<02/" + b"tbl ".hex() + "/1>": 1}}))     # 열쇠에 숨긴 것
+    assert ce.json_block(ok) == json.dumps(json.loads(ok), ensure_ascii=False, separators=(",", ":"))
