@@ -552,6 +552,87 @@ def purge_traces(st, name: str) -> list[str]:
     return found
 
 
+def reconcile(st) -> dict:
+    """부서 흔적 맞추기 — 지금 있는 부서(rag_spaces.known_depts: 부서 RAG·폴더 짝·공간·계정 소속) 밖 이름이 남은 곳을 모두 정리한다.
+    화면에서 지운 때만이 아니라 설정 파일을 손으로 고치거나 지운 때도 「어디는 되어 있고 어디는 안 된」 상태가 남지 않게(10-27 사용자),
+    부서 지우기 끝과 동기화마다(scripts/218) 돈다. 정리: purge_traces(겸직 등급·추가 권한·최소 등급·상위 관계·사업 관리 지정·구글 설정),
+    빈 값으로 남은 부서 구글 설정 열쇠 지우기, 프로젝트 공유의 그 부서 줄 빼기, 그 부서 문서는 공통으로. 문서함 부서 폴더는 비었으면 지우고,
+    문서가 남았으면 지우지 않고 돌려준다(화면이 알린다). 돌려주는 값: {orphans: [이름], docs: 공통으로 돌린 문서 수, folders_left: [이름]}."""
+    import json as _json
+
+    dd = getattr(st, "data_dir", None)
+    accounts = getattr(st, "accounts", None) or {}
+    cfg = rag_spaces.config(dd)
+    live = set(rag_spaces.known_depts(cfg, accounts)) | {"공통"}
+    names: set[str] = set()
+    for a in accounts.values():
+        names |= set((a.get("dept_grades") or {}).keys())
+    for g in (cfg.get("grants") or {}).values():
+        names |= {str(x)[5:] for x in (g or []) if str(x).startswith("dept:")}
+    names |= {k[5:] for k in (cfg.get("min_grade") or {}) if str(k).startswith("dept:")}
+    if dd is not None:
+        over = dept_dictionary.parents_override(dd)
+        names |= set(over) | set(over.values())
+    try:
+        from zzaimy.app import program_admin
+        store = program_admin.load_store(dd)
+        for b in ("rows", "added"):
+            for r in (store.get(b) or {}).values():
+                for f in program_admin.ROLES:
+                    names |= {str(x)[5:] for x in (r.get(f) or []) if str(x).startswith("dept:")}
+    except Exception:
+        pass
+    settings = (st.db.all_settings() or {}) if st.db is not None else {}
+    for k, v in settings.items():
+        pre, _, d = k.partition(":")
+        if pre.startswith("google_") and pre != "google_account" and d:
+            if (v or "").strip():
+                names.add(d)
+            elif d not in live:
+                st.db.delete_setting(k)                       # 지운 부서의 빈 열쇠 — 남겨 두지 않는다
+    shares = {k: v for k, v in settings.items() if k.startswith("project_shares:")}
+    for v in shares.values():
+        try:
+            names |= {str(i.get("to"))[5:] for i in (_json.loads(v or "{}").get("items") or []) if str(i.get("to", "")).startswith("dept:")}
+        except Exception:
+            pass
+    docs_moved = 0
+    if st.db is not None:
+        with st.db._conn() as conn:
+            names |= {str(r[0]) for r in conn.execute("SELECT DISTINCT dept FROM documents").fetchall() if r[0]}
+    orphans = sorted(n for n in names - live if n)
+    for n in orphans:
+        purge_traces(st, n)
+        if st.db is not None:
+            with st.db._conn() as conn:
+                ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE dept = ?", (n,)).fetchall()]
+            if ids:
+                docs_moved += rag_spaces.move_docs(st.db, ids, "공통")
+    if orphans:
+        gone = {f"dept:{n}" for n in orphans}
+        for k, v in shares.items():
+            try:
+                sh = _json.loads(v or "{}")
+            except Exception:
+                continue
+            items = [i for i in (sh.get("items") or []) if i.get("to") not in gone]
+            if len(items) != len(sh.get("items") or []):
+                sh["items"] = items
+                st.db.set_setting(k, _json.dumps(sh, ensure_ascii=False))
+    folders_left = []
+    if dd is not None:
+        root = Path(dd) / "documents" / "기안기"
+        if root.is_dir():
+            for p in root.iterdir():
+                if p.is_dir() and not p.name.startswith("~") and p.name not in live:
+                    if any(x.is_file() for x in p.rglob("*")):
+                        folders_left.append(p.name)
+                    else:
+                        import shutil
+                        shutil.rmtree(p, ignore_errors=True)
+    return {"orphans": orphans, "docs": docs_moved, "folders_left": sorted(folders_left)}
+
+
 def rename_dept(st, old: str, new: str) -> dict:
     """부서 이름을 한 번에 바꾼다 — 계정 소속·겸직 등급, 확정 위계, 부서 RAG 설정(부서 RAG·폴더 짝·추가 권한·최소 등급),
     문서·조각·라이브러리 폴더의 부서, 부서 공용 구글 설정, 사업 관리 지정(dept:)·주관 부서. 바꾸기 전 판은 history/ 에 남는다.

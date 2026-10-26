@@ -142,3 +142,29 @@ def test_screen_code_uses_common_parts():
     assert "resize" not in (TEMPLATES / "team.html").read_text(encoding="utf-8")
     nav = (STATIC / "workspace-navigation.js").read_text(encoding="utf-8")
     assert "choices" in nav and "(danger ? cancel : accept).focus()" in nav
+
+
+def test_reconcile_cleans_traces_of_hand_removed_dept(org):
+    """설정 파일에서 부서를 손으로 지워도(부서 RAG 줄만 빠짐) 흔적 맞추기가 나머지를 모두 정리한다(10-27 「어디는 되어 있고 어디는 안 된 건 안 됨」)."""
+    import json
+
+    from zzaimy.app import org_routes
+    app, dev, tmp = org
+    st, db = app.state, app.state.db
+    cfg = rag_spaces.config(tmp)
+    cfg["grants"] = {"boss": ["dept:예산팀"]}
+    cfg["dept_rags"] = [r for r in cfg["dept_rags"] if r.get("dept") != "예산팀"]       # 손으로 지운 것처럼
+    rag_spaces.save_config(cfg, tmp)
+    st.accounts["park"]["dept"] = "기획처"
+    db.set_setting("google_root:예산팀", "folder-x")
+    db.set_setting("google_root_name:학생복지처", "")                                  # 있는 부서의 빈 열쇠는 그대로
+    db.set_setting("project_shares:1", json.dumps({"mode": "shared", "items": [{"to": "dept:예산팀", "level": "view"}, {"to": "dept:기획처", "level": "edit"}]}))
+    (tmp / "documents" / "기안기" / "예산팀").mkdir(parents=True, exist_ok=True)
+    got = org_routes.reconcile(st)
+    assert "예산팀" in got["orphans"]
+    assert "dept:예산팀" not in (rag_spaces.config(tmp).get("grants") or {}).get("boss", [])
+    assert not db.get_setting("google_root:예산팀", "")
+    assert [i["to"] for i in json.loads(db.get_setting("project_shares:1", "{}"))["items"]] == ["dept:기획처"]
+    assert "예산팀" not in dept_dictionary.parents_override(tmp)
+    assert not (tmp / "documents" / "기안기" / "예산팀").exists()                        # 빈 폴더는 지운다
+    assert org_routes.reconcile(st)["orphans"] == []                                   # 한 번 더 돌려도 그대로

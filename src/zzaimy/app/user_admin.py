@@ -518,7 +518,7 @@ def _delete_one(st, accounts: dict, name: str) -> int:
     new, moved = rag_spaces.delete_dept_rag(st.db, rag_spaces.config(data_dir), name)
     rag_spaces.save_config(new, data_dir)
     for k in (f"google_account_dept:{name}", f"google_root:{name}", f"google_root_name:{name}"):
-        st.db.set_setting(k, "")
+        st.db.delete_setting(k)                          # 빈 값으로 남기지 않고 지운다
     # 보안: 지운 부서에 걸린 권한 흔적도 지운다 — 같은 이름으로 다시 만들었을 때 옛 겸직 등급·위계가 되살아나지 않게
     touched = False
     for a_ in accounts.values():
@@ -534,11 +534,13 @@ def _delete_one(st, accounts: dict, name: str) -> int:
         dept_dictionary.forget_dept(data_dir, name)
     except Exception:
         pass
-    try:                                                 # 남은 흔적(RAG 최소 등급·사업 관리 dept: 지정·부서 공용 설정 등)도 함께
-        from zzaimy.app.org_routes import purge_traces
+    try:                                                 # 남은 흔적(RAG 최소 등급·사업 관리 dept: 지정·부서 공용 설정·공유 등) — 이 부서만이 아니라 없는 부서 이름 전부
+        from zzaimy.app.org_routes import purge_traces, reconcile
         purge_traces(st, name)
+        reconcile(st)
     except Exception:
-        pass
+        import logging
+        logging.getLogger("zzaimy.app.user_admin").exception("부서 흔적 맞추기 실패")
     return moved
 
 

@@ -884,6 +884,28 @@ def create_app(
     app.state.requeue_stalled_docs = _requeue_stalled_docs
 
     @app.on_event("startup")
+    def _org_reconcile_loop() -> None:
+        """부서 흔적 맞추기(org_routes.reconcile) — 켤 때와 10분마다. 설정 파일을 손으로 고치거나 지워도 계정·권한·공유·문서 부서가
+        지금 있는 부서와 어긋난 채 남지 않게(10-27). 조직 저장값 공용 잠금(org_lock.LOCK) 안에서 돈다."""
+        import threading as _th_org
+        import time as _t_org
+        if getattr(app.state, "data_dir", None) is None:
+            return
+
+        def run() -> None:
+            from zzaimy.app import org_lock, org_routes
+            while True:
+                try:
+                    with org_lock.LOCK:
+                        got = org_routes.reconcile(app.state)
+                    if got.get("orphans"):
+                        logging.getLogger("zzaimy.app.org").info("부서 흔적 맞춤: %s", got)
+                except Exception:
+                    logging.getLogger("zzaimy.app.org").exception("부서 흔적 맞추기 실패")
+                _t_org.sleep(600)
+        _th_org.Thread(target=run, name="org-reconcile", daemon=True).start()
+
+    @app.on_event("startup")
     def _warm_models() -> None:
         """임베딩·리랭커를 백그라운드로 예열 — 첫 질문의 수 초 지연 제거."""
         import os as _os
