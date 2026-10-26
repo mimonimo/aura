@@ -28,7 +28,7 @@ router = APIRouter()
 _DOC_DESC = {
     "paper/논문/README.md": "장별 원고 — 웹 기안기 논문 문서로 옮기는 원본, 장마다 상태와 그림·표 목록",
     "paper/프로젝트-기획서.md": "제출용 기획서 — 목표·개발 내용·장비·일정·기대 효과",
-    "paper/논문-원재료.md": "먼저 읽을 문서 — 문서 처리 → 검색·지식(RAG·온톨로지·GraphRAG) → 모델 → 화면 → 학습 → 개인정보 → 수치, 어떻게 구현했는지",
+    "paper/논문-원재료.md": "어떻게 만들었는지 — 문서 처리 → 검색·지식(RAG·온톨로지·GraphRAG) → 모델 → 화면 → 학습 → 개인정보 → 수치, 어떻게 구현했는지",
     "paper/실험-로그.md": "실험 시계열 — 무엇을 어떻게 재서 어떤 판정을 했는지",
     "paper/논문-양식-가이드.md": "논문집 형식과 목차 대응",
     "paper/중간-발표자료.md": "중간 발표 — 개요·계획·진척도·결과물·변경·남은 일·일정·Q&A",
@@ -58,17 +58,12 @@ _DOC_DESC = {
     "notes/2026-09-22-access-controlled-knowledge-base.md": "권한별 지식 베이스 — 권한 밖 질문(학생·타 부서 개인정보)에 어떻게 응답하나, 열람 등급·부서 범위",
     "notes/meeting-w2-20260908.md": "2주차 미팅 메모와 정합 분석",
     "notes/2026-09-02-ocr-refs.md": "OCR 엔진 후보·스캔 전처리·고도화 레퍼런스 조사",
-    "notes/2026-09-02-external-doc-sources.md": "공개 문서 소스 조사",
     "notes/table-layout.md": "표·레이아웃 원본 불일치 원인 진단",
-    "notes/automation-pipeline.md": "자동화 파이프라인 목표와 현재 위치",
-    "notes/backlog.md": "개선 백로그(9/8 실사용 리뷰)",
-    "notes/uiux-audit.md": "UI/UX 전수 조사",
     "notes/ui-glossary.md": "화면 문구 용어집",
     "notes/hwpx-agent-skills.md": "한글 에이전트 스킬 수집 노트",
 }
 # 기술 검토(조사·판단 기록)와 작업 메모(백로그·용어집 같은 내부 메모)를 나눈다
-_NOTE_MEMO = {"backlog.md", "ui-glossary.md", "uiux-audit.md", "hwpx-agent-skills.md",
-              "automation-pipeline.md"}
+_NOTE_MEMO = {"ui-glossary.md", "hwpx-agent-skills.md"}
 
 
 def _doc_topics(docs_dir: Path) -> dict[str, tuple[str, str]]:
@@ -750,12 +745,11 @@ def _paper_hwp(request: Request) -> dict:
 
 
 @router.get("/dev/docs", response_class=HTMLResponse)
-def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1):
-    """논문 자료·설계 결정·기술 검토·측정 기록 목록."""
+def dev_docs(request: Request, view: str = "current", q: str = ""):
+    """논문·설계 문서 — 핵심 자료(카드)·설계 결정·기록·자료 목록(찾기·거르기는 화면에서 바로)."""
     h = request.app.state.docs
     if view not in {"current", "decisions", "records"}:
         view = "current"
-    page = max(1, page)
     date_re = re.compile(r"\d{4}-\d{2}-\d{2}")
     head_re = re.compile(r"^-\s*\**(상태|날짜)\**\s*:\s*(.+)$")
     topics = _doc_topics(h.docs_dir)
@@ -784,6 +778,9 @@ def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1
         # 대체 고지가 과거의 '확정' 메타데이터보다 우선한다.
         if any(re.match(r"^>\s*(대체됨|폐기됨)", ln) for ln in head):
             meta["status"] = "대체됨"
+        # 「지난 기록」 고지 — 지금 구조와 어긋난 옛 기록. 목록은 접어 두고, 「지금은 …」 을 설명 대신 보인다
+        old_note = next((re.sub(r"^>\s*지난 기록\s*[—–:-]?\s*", "", ln).strip() for ln in head
+                         if re.match(r"^>\s*지난 기록", ln)), None)
         if meta["date"] and (d := date_re.search(meta["date"])):
             meta["date"] = d.group(0)
         if not meta["date"]:
@@ -799,64 +796,85 @@ def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1
                 t = re.sub(r"[*`]|\[([^\]]+)\]\([^)]*\)", r"\1", t)
                 desc_auto = t if len(t) <= 90 else t[:88].rstrip() + "…"
                 break
-        status = re.split(r"\s*[(（]", meta["status"], maxsplit=1)[0].strip()
+        # 상태는 짧은 낱말 하나(확정·제안·대체됨 …)만 칩으로, 꼬리말(「— 이번 …」·괄호)은 줄 아래 설명으로
+        raw = meta["status"]
+        m = re.match(r"(확정|제안|대체됨|폐기됨|보류|채택|시행|철회)", raw)
+        status = m.group(1) if m else re.split(r"\s*[(（—–·]", raw, maxsplit=1)[0].strip()
+        status_note = raw[len(status):].strip(" \t—–-·:()（）") if raw.startswith(status) else ""
         num = ""
         title = title or rel.rsplit("/", 1)[-1]
         # ADR 제목은 '# NNNN. 제목' 이 규칙이지만 'ADR-NNNN' · 'NNNN ·' 꼴도 번호로 읽는다
         if m := re.match(r"^(?:ADR-)?(\d{4})\s*[.·:]?\s+(.+)$", title):
             num, title = m.group(1), m.group(2).lstrip("—– ")
         desc = _DOC_DESC.get(rel, "") or desc_auto
-        # 주제별 묶음 — ADR 은 「주제 · 지금 상태(유효가 아닐 때)」, 기록 자료는 「주제 · 설명」
+        topic = ""
+        # 주제별 묶음(색인) — 주제는 거르기 칸으로, ADR 의 지금 상태(유효가 아닐 때)는 줄 아래 설명으로
         if rel in topics:
             topic, now = topics[rel]
             if rel.startswith("decisions/"):
-                desc = topic + (f" · {now}" if now and now != "유효" else "")
-                if now.startswith("대체됨"):
+                if now.startswith(("대체됨", "폐기됨")):
                     status = "대체됨"
-            else:
-                desc = f"{topic} · {desc}" if desc else topic
-        return {"href": href, "title": title, "num": num, "status": status,
-                "date": meta["date"] or first_date, "desc": desc}
+                # 줄 아래 설명 — ADR 머리의 꼬리말이 있으면 그것, 없으면 색인의 지금 상태(앞의 상태 낱말은 칩과 겹쳐 뺀다)
+                now = re.sub(r"^(유효|확정|제안|보류|대체됨|폐기됨)\s*[—–:-]?\s*", "", now or "")
+                desc = "" if status_note else now
+        if status == "폐기됨":
+            status = "대체됨"
+        if old_note is not None:
+            desc = old_note or desc
+        if status_note and status_note not in desc:
+            desc = f"{status_note} · {desc}" if desc else status_note
+        return {"href": href, "title": title, "num": num, "status": status, "topic": topic,
+                "old": old_note is not None, "date": meta["date"] or first_date, "desc": desc}
 
     from datetime import date as _date, timedelta as _td
 
     _today = _date.today()
-    return request.app.state.templates.TemplateResponse(request, "dev_docs.html", request.app.state.page_ctx(request, {
-        "docs_view": view, "docs_query": q.strip(), "docs_page": page,
-        "weekly_docs": h.weekly_list(),
-        "weekly_template": h.weekly_sections()[1],
-        "weekly_monday": (_today - _td(days=_today.weekday())).isoformat(),
-        "weekly_feedback": h.weekly_feedback((_today - _td(days=_today.weekday())).isoformat()),
-        "weekly": h.weekly_card((_today - _td(days=_today.weekday())).isoformat(), _today.isoformat()),
-        "papers": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
-                   for p in h.dev_papers() if p["file"] not in PAPER_PLANNING],
-        # 기획 단계 자료(기획서·제안 발표·논문 양식 분석)는 기록·자료 목록의 한 묶음으로
-        "planning_docs": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
-                          for p in h.dev_papers() if p["file"] in PAPER_PLANNING],
-        "paper_hwp": _paper_hwp(request),
-        "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
-                           d["title"]) for d in h.dev_doc_list("decisions")],
-        # 기술 검토(조사·판단)와 작업 메모(내부 메모)를 나눠 보인다
-        "note_docs": sorted([entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
-                             for d in h.dev_doc_list("notes") if d["file"] not in _NOTE_MEMO],
-                            key=lambda e: e["date"], reverse=True),
-        "memo_docs": sorted([entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
-                             for d in h.dev_doc_list("notes") if d["file"] in _NOTE_MEMO],
-                            key=lambda e: e["date"], reverse=True),
-        # 현황(먼저 볼 것) · 설계·계획 · 측정 기록 · 모델 카드 — docs/ 바로 아래 파일들
-        # dev-now 는 머리 제목 없이 절(## 지금 하는 일)로 시작한다 — 파일 이름 대신 화면 이름으로
-        "status_docs": [entry("dev-now.md", "/dev/doc/dev-now.md", "진행 현황"), entry("HANDOFF.md", "/dev/doc/HANDOFF.md")],
-        # 지금도 정본인 설계·계획 — 시스템 설계(27B 문서 작업·웹 기안기 공동 편집까지)와 모델 개발 계획.
-        # 나머지 9월 설계·계획 문서는 이력 쪽으로
-        "plan_docs": [entry("architecture.md", "/dev/doc/architecture.md"), entry("model-plan.md", "/dev/doc/model-plan.md")],
-        "old_plan_docs": [entry(f, f"/dev/doc/{f}") for f in (
-            "eval-plan.md", "capstone-plan.md",
-            "pilot-plan.md", "risks.md", "quality-system.md", "workflow.md")],
-        "bench_docs": [entry(f, f"/dev/doc/{f}") for f in (
+    monday = (_today - _td(days=_today.weekday())).isoformat()
+    papers = {p["file"]: entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"]) for p in h.dev_papers()}
+    first_reads = [entry("dev-now.md", "/dev/doc/dev-now.md", "진행 현황"),
+                   entry("HANDOFF.md", "/dev/doc/HANDOFF.md", "인수인계"),
+                   entry("architecture.md", "/dev/doc/architecture.md", "시스템 설계")]
+    if "논문-원재료.md" in papers:
+        first_reads.append(papers["논문-원재료.md"])
+    # 기록·자료 목록 — 갈래별로 모아 한 목록(날짜 최근 순). 「지난 기록」 고지가 붙은 것은 접어 둔다
+    note_files = [d for d in h.dev_doc_list("notes")]
+    groups = [
+        ("측정 기록", [entry(f, f"/dev/doc/{f}") for f in (
             "llm-rerank-eval.md", "retrieval-baseline-mini.md", "retrieval-weight-sweep.md",
-            "rerank-baseline.md", "embed-v0-report.md", "ocr-cer-bench.md", "ocr-duel.md")],
-        "card_docs": [entry(f"model-cards/{f}", f"/dev/doc/model-cards/{f}") for f in
-                      sorted(p.name for p in (h.docs_dir / "model-cards").glob("*.md"))],
+            "rerank-baseline.md", "embed-v0-report.md", "ocr-cer-bench.md", "ocr-duel.md")
+            if (h.docs_dir / f).is_file()]),
+        ("모델 카드", [entry(f"model-cards/{f}", f"/dev/doc/model-cards/{f}") for f in
+                    sorted(p.name for p in (h.docs_dir / "model-cards").glob("*.md"))]),
+        ("기술 검토", [entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
+                    for d in note_files if d["file"] not in _NOTE_MEMO]),
+        ("작업 메모", [entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
+                    for d in note_files if d["file"] in _NOTE_MEMO]),
+        # 9월 설계·계획 — 지금 정본은 시스템 설계·모델 개발 계획(핵심 자료)
+        ("9월 설계·계획", [entry(f, f"/dev/doc/{f}") for f in (
+            "eval-plan.md", "capstone-plan.md", "pilot-plan.md", "risks.md", "quality-system.md", "workflow.md")
+            if (h.docs_dir / f).is_file()]),
+        # 기획 단계 자료와 발표가 지난 발표 자료(「지난 기록」 고지)
+        ("기획·발표 이력", [d for f, d in papers.items() if f in PAPER_PLANNING or d["old"]]),
+    ]
+    records = sorted(({**d, "kind": k} for k, items in groups for d in items),
+                     key=lambda d: d["date"], reverse=True)
+    adrs = [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}", d["title"])
+            for d in h.dev_doc_list("decisions")][::-1]
+    return request.app.state.templates.TemplateResponse(request, "dev_docs.html", request.app.state.page_ctx(request, {
+        "docs_view": view, "docs_query": q.strip(),
+        "weekly_docs": h.weekly_list(),
+        "weekly_monday": monday,
+        "weekly": h.weekly_card(monday, _today.isoformat()),
+        # 처음 읽을 것 — 지금 상태 · 지금 구조 · 어떻게 만들었는지. 아래 갈래에 다시 늘어놓지 않는다
+        "first_reads": first_reads,
+        "paper_docs": [d for f, d in papers.items()
+                       if f not in PAPER_PLANNING and f != "논문-원재료.md" and not d["old"]],
+        "paper_hwp": _paper_hwp(request),
+        "plan_doc": entry("model-plan.md", "/dev/doc/model-plan.md", "모델 개발 계획"),
+        "adr_docs": adrs,
+        "adr_topics": [t for t in dict.fromkeys(d["topic"] for d in adrs) if t],
+        "records": records,
+        "record_kinds": [(k, len(items)) for k, items in groups if items],
     }))
 
 

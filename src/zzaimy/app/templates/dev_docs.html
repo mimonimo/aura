@@ -3,277 +3,343 @@
 {% block pagetitle %}{{ dev_page_name('/dev/docs') }}{% endblock %}
 {% block content %}
 <style>
-  /* 현재 자료와 과거 기록은 탭별로 분리한다. */
-  .weekly-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:4px 0 10px; font-size:13px; }
-  .weekly-actions .btn-ghost { padding:4px 10px; min-height:30px; }
-  .weekly-feedback { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
-  .weekly-feedback textarea { width:100%; box-sizing:border-box; font:inherit; font-size:13px; padding:8px; border:1px solid var(--line, #dfe3ea); border-radius:8px; }
-  .weekly-feedback .btn-ghost { align-self:flex-start; padding:4px 10px; min-height:30px; }
-  .weekly-st { font-size:12.5px; color:var(--muted); }
-  .weekly-st.ok { color:var(--green); font-weight:600; }
-  .weekly-st.run { color:var(--amber); font-weight:600; }
-  .weekly-st.err { color:#B45309; }
-  .weekly-preview { border:1px solid var(--line, #dfe3ea); border-radius:10px; padding:6px 14px; margin:2px 0 10px;
-                    max-height:340px; overflow:auto; font-size:13px; }
-  .doc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px;
-              align-items: start; }
-  @media (max-width: 980px) { .doc-cols { grid-template-columns: 1fr; } }
-  .doc-cols .card h2 { margin-bottom: 8px; }
-  .doc-cnt { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--faint);
-             font-variant-numeric: tabular-nums; }
-  .doc-sub { margin: 16px 0 2px; font-size: 11.5px; font-weight: 700; color: var(--faint);
-             letter-spacing: .04em; }
-  .doc-sub:first-of-type { margin-top: 6px; }
-  .doc-list { list-style: none; margin: 0; padding: 0; }
-  .doc-list li { border-top: 1px solid #EFF3F8; }
-  .doc-list li:first-child { border-top: 0; }
-  .doc-row { display: flex; align-items: baseline; gap: 10px; padding: 9px 8px; margin: 0 -8px;
-             border-radius: 10px; color: var(--ink); text-decoration: none; font-size: 13.5px;
-             line-height: 1.45; transition: background .2s var(--ease); }
-  .doc-row:hover { background: var(--panel); }
-  .doc-row:hover .doc-go { color: var(--navy); }
-  .doc-num { flex: none; width: 2.9em; font-size: 12.5px; font-weight: 600; color: var(--faint);
-             font-variant-numeric: tabular-nums; }
-  .doc-t { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-  .doc-d { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 1px; }
-  .doc-memo summary { list-style: none; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--faint);
-                      letter-spacing: .04em; margin: 14px 0 2px; }
-  .doc-memo summary::-webkit-details-marker { display: none; }
-  .doc-m { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
-           color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap:wrap; max-width:160px; }
-  .doc-st { white-space:normal; overflow-wrap:anywhere; min-width:0; }
-  .docs-nav { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
-  .docs-nav [aria-current="page"] { background:var(--navy); color:white; }
-  .docs-search { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
-  .docs-search input { flex:1 1 200px; min-width:140px; }
-  .doc-cols.history-view { display:block; }
-  .rec-kinds { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
-  .rec-kind { border:1px solid var(--line); background:#fff; border-radius:999px; padding:4px 11px; font-size:12px; color:var(--muted); cursor:pointer; }
-  .rec-kind span { opacity:.7; font-variant-numeric:tabular-nums; }
-  .rec-kind.on { background:var(--navy); border-color:var(--navy); color:#fff; }
-  .doc-num.rec-tag { width:auto; min-width:5.5em; font-size:11px; font-weight:600; color:var(--muted); }
-  .doc-cols.history-view > div:first-child { display:none; }
-  /* 상태는 한 줄 — 긴 상태 글(「제안 — 측정 결과 …」)은 말줄임, 전체는 툴팁. 줄 높이가 들쭉날쭉하지 않게 */
-  .doc-m { flex-wrap: nowrap; max-width: none; }
-  .doc-st { display: inline-block; max-width: 8em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            vertical-align: bottom; font-weight: 600; }
-  .doc-st::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 5px 0 0; border-radius: 50%;
-            vertical-align: middle; background: #CBD5E1; }
-  .doc-st.ok::before { background: var(--green); }
-  .doc-st.open::before { background: var(--amber); }
-  .doc-go { flex: none; align-self: center; font-size: 15px; color: var(--faint);
-            transition: color .2s var(--ease); }
-  /* 좁은 폭 — 상태·날짜는 제목 아래 줄로(번호 열은 그대로) */
-  @media (max-width: 520px) {
-    .doc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px;
-               row-gap: 2px; align-items: start; grid-template-areas: "t go" "m go"; }
-    .doc-row:has(.doc-num) { grid-template-columns: auto minmax(0, 1fr) auto;
-               grid-template-areas: "num t go" "num m go"; }
-    .doc-num { grid-area: num; }
-    .doc-t { grid-area: t; }
-    .doc-m { grid-area: m; }
-    .doc-go { grid-area: go; align-self: center; }
+  /* 세 탭 공통 — 탭(세그먼트), 갈래 머리, 같은 크기 카드 격자, 찾기·거르기 줄, 열 맞춘 목록, 쪽 넘김.
+     간격은 아래 네 값만 쓴다: 갈래 사이 24 · 제목 아래 12 · 카드 사이 12 · 카드 안 16(단추 줄 높이 32) */
+  .dd-page { --dd-sec:24px; --dd-head:12px; --dd-gap:12px; --dd-pad:16px; --dd-btn:32px; }
+  .dd-tabs { display:flex; gap:3px; background:#E9EEF5; border-radius:11px; padding:3px; margin:0 0 var(--dd-sec); }
+  .dd-tabs a { flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:center; gap:6px;
+               padding:8px 10px; border-radius:9px; font-size:13px; font-weight:600; color:var(--muted);
+               text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+               transition:background .2s var(--ease), color .2s var(--ease); }
+  .dd-tabs a:hover { background:rgba(255,255,255,.6); color:var(--navy); }
+  .dd-tabs a[aria-current="page"] { background:#fff; color:var(--navy); box-shadow:0 1px 3px rgba(27,59,117,.15); }
+  .dd-tabs .n { font-size:11.5px; font-weight:600; color:var(--faint); font-variant-numeric:tabular-nums; }
+
+  .dd-sec { margin:0 0 var(--dd-sec); }
+  .dd-sec > h2 { display:flex; align-items:center; gap:8px; font-size:15px; line-height:1.4; margin:0 0 var(--dd-head); }
+  .dd-sec > h2 iconify-icon { font-size:18px; color:var(--navy); }
+  .dd-cnt { margin-left:auto; font-size:12px; font-weight:600; color:var(--faint); font-variant-numeric:tabular-nums; }
+
+  /* 카드 — 문서 하나·한 줄 설명·고친 날. 같은 갈래의 카드는 같은 크기 */
+  .dd-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+             grid-auto-rows:1fr; gap:var(--dd-gap); }
+  .dd-card { display:flex; flex-direction:column; gap:8px; min-width:0; padding:var(--dd-pad); border:1px solid var(--line);
+             border-radius:12px; background:#fff; color:var(--ink); text-decoration:none;
+             transition:border-color .2s var(--ease), box-shadow .2s var(--ease); }
+  a.dd-card:hover { border-color:#AEBBCD; box-shadow:0 2px 8px rgba(27,59,117,.08); }
+  .dd-card .t { display:flex; align-items:center; gap:7px; font-size:14px; font-weight:700; line-height:1.4; }
+  .dd-card .t iconify-icon { flex:none; font-size:17px; color:var(--navy); }
+  .dd-card .d { font-size:12.5px; line-height:1.5; color:var(--muted); display:-webkit-box; -webkit-line-clamp:2;
+                -webkit-box-orient:vertical; overflow:hidden; }
+  .dd-card .f { margin-top:auto; min-height:var(--dd-btn); display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px;
+                color:var(--faint); font-variant-numeric:tabular-nums; }
+  .dd-card .f form { margin:0; display:flex; }
+  .dd-card .f :is(.btn-ghost, button) { height:var(--dd-btn); min-height:var(--dd-btn); padding:0 12px; font-size:12.5px; }
+  .dd-first .dd-card { border-color:#C5D3EA; background:var(--panel); }
+  .dd-step { flex:none; display:inline-grid; place-items:center; width:1.6em; height:1.6em; border-radius:50%;
+             background:var(--navy); color:#fff; font-size:11.5px; font-weight:700; }
+  .wk-st { font-weight:600; }
+  .wk-st.ok { color:var(--green); }
+  .wk-st.run { color:var(--amber); }
+  .wk-st.err { color:var(--red); }
+
+  /* 찾기·거르기 줄 — 찾는 칸은 바로 거른다(검색 단추 없음) */
+  .dd-sec { container-type:inline-size; }
+  @container (min-width: 28rem) { .dd-span2 { grid-column:span 2; } }
+  .dd-card .t .dd-cnt { font-size:12px; }
+  .dd-compact .dd-row { grid-template-columns:3em minmax(0,1fr) 6.4em 1em; padding:6px 8px; font-size:13px; }
+  .dd-compact .dd-st { display:none; }
+  .dd-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 var(--dd-head); }
+  .dd-tools input[type=search] { flex:1 1 14rem; min-width:0; }
+  .dd-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 var(--dd-head); }
+  .dd-chip { border:1px solid var(--line); background:#fff; border-radius:999px; padding:4px 11px; font-size:12px;
+             font-weight:600; color:var(--muted); cursor:pointer; height:30px; min-height:30px !important; line-height:1; display:inline-flex; align-items:center; }
+  .dd-chip .n { opacity:.75; font-variant-numeric:tabular-nums; margin-left:3px; }
+  .dd-chip.on, .dd-chip.on:hover { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .dd-chips .sep { width:1px; align-self:stretch; background:var(--line); margin:2px 4px; }
+
+  /* 목록 — 앞 열(번호·갈래)·제목·상태·날짜를 고정 폭 열로. 긴 상태 꼬리말은 제목 아래 줄로 */
+  .dd-list { list-style:none; margin:0; padding:0; --lead:3.4em; }
+  .dd-list.kinds { --lead:6.6em; }
+  .dd-list li { border-top:1px solid #EFF3F8; }
+  .dd-list li:first-child { border-top:0; }
+  .dd-row { display:grid; grid-template-columns:var(--lead) minmax(0,1fr) 4.6em 6.4em 1em; column-gap:12px;
+            align-items:center; padding:9px 8px; margin:0 -8px; border-radius:10px; color:var(--ink);
+            text-decoration:none; font-size:13.5px; line-height:1.45; transition:background .2s var(--ease); }
+  .dd-row:hover { background:var(--panel); }
+  .dd-row:hover .go { color:var(--navy); }
+  .dd-lead { font-size:12px; font-weight:600; color:var(--faint); font-variant-numeric:tabular-nums;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dd-list.kinds .dd-lead { font-size:11.5px; color:var(--muted); }
+  .dd-main { min-width:0; }
+  .dd-main .t { display:block; font-weight:600; overflow-wrap:anywhere; }
+  .dd-main .d { display:block; font-size:12px; color:var(--muted); margin-top:1px; white-space:nowrap;
+                overflow:hidden; text-overflow:ellipsis; }
+  .dd-meta { display:contents; }
+  .dd-st { justify-self:start; }
+  .st { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap;
+        background:#F1F5F9; color:#475569; }
+  .st.ok { background:#E7F4EC; color:var(--green); }
+  .st.open { background:#FDF3E3; color:var(--amber); }
+  .st.old { background:#EEF1F5; color:#64748B; }
+  .dd-date { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .dd-row .go { font-size:15px; color:var(--faint); transition:color .2s var(--ease); }
+  @media (max-width: 560px) {
+    .dd-row { grid-template-columns:auto minmax(0,1fr) 1em; grid-template-areas:"l m go" "l x go"; row-gap:3px; }
+    .dd-lead { grid-area:l; align-self:start; max-width:5.5em; }
+    .dd-main { grid-area:m; }
+    .dd-meta { grid-area:x; display:flex; gap:8px; align-items:center; }
+    .dd-row .go { grid-area:go; }
   }
+  .dd-foot { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:var(--dd-head); font-size:12.5px; color:var(--muted); }
+  .dd-foot .pager { margin:0 0 0 auto; }
+  .dd-none { margin:14px 0 4px; color:var(--muted); font-size:13px; }
 </style>
 
-<nav class="docs-nav" aria-label="문서 분류">
-{% for key, label in [('current','핵심 자료'), ('decisions','설계 결정'), ('records','기록·자료 목록')] %}
-<a class="btn-ghost" href="/dev/docs?view={{ key }}" {% if docs_view == key %}aria-current="page"{% endif %}>{{ label }}</a>
+<div class="dd-page">
+{% set n_adr = adr_docs|length %}
+{% set n_rec = records|rejectattr('old')|list|length %}
+<nav class="dd-tabs" aria-label="문서 분류">
+{% for key, label, n in [('current','핵심 자료', none), ('decisions','설계 결정', n_adr), ('records','기록·자료 목록', n_rec)] %}
+<a href="/dev/docs?view={{ key }}" {% if docs_view == key %}aria-current="page"{% endif %}>{{ label }}{% if n is not none %} <span class="n">{{ n }}</span>{% endif %}</a>
 {% endfor %}
 </nav>
 
-{% macro rows(items) %}
-<ul class="doc-list">
-  {% for d in items %}
-  <li><a class="doc-row" href="{{ d.href }}">
-    {# 순번 — ADR 은 제 번호, 나머지는 목록 안 차례 #}
-    <span class="doc-num">{{ d.num if d.num else loop.index }}</span>
-    <span class="doc-t">{{ d.title }}{% if d.desc %}<span class="doc-d">{{ d.desc }}</span>{% endif %}</span>
-    {% if d.status or d.date %}
-    <span class="doc-m">
-      {% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}" title="{{ d.status }}">{{ d.status }}</span>{% endif %}
-      {% if d.date %}<span>{{ d.date }}</span>{% endif %}
-    </span>
-    {% endif %}
-    <iconify-icon class="doc-go" icon="solar:alt-arrow-right-linear"></iconify-icon>
-  </a></li>
-  {% endfor %}
-</ul>
+{% macro card(d, icon, step=none) %}
+<a class="dd-card" href="{{ d.href }}">
+  <span class="t">{% if step %}<span class="dd-step">{{ step }}</span>{% else %}<iconify-icon icon="{{ icon }}" aria-hidden="true"></iconify-icon>{% endif %}{{ d.title }}</span>
+  <span class="d">{{ d.desc }}</span>
+  <span class="f">{% if d.date %}고친 날 {{ d.date }}{% endif %}</span>
+</a>
 {% endmacro %}
 
-{% if docs_view == 'decisions' %}
-<form class="docs-search control-row control-bar" method="get" action="/dev/docs" role="search">
-  <input type="hidden" name="view" value="decisions">
-  <input type="text" name="q" value="{{ docs_query }}" placeholder="결정 제목·번호 검색" aria-label="결정 제목·번호 검색">
-  <button type="submit" class="secondary">검색</button>
-</form>
-{% set found = namespace(items=[]) %}
-{% for d in adr_docs|reverse %}
-{% if not docs_query or docs_query|lower in d.title|lower or docs_query in d.num %}
-{% set found.items = found.items + [d] %}
-{% endif %}
-{% endfor %}
-{% set total_pages = [1, (found.items|length + 11) // 12]|max %}
-{% set selected_page = [docs_page, total_pages]|min %}
-<section class="card"><div class="card-in">
-<h2>설계 결정 <span class="doc-cnt">{{ found.items|length }}건</span></h2>
-<p class="muted">최근 번호 순 · 대체된 결정은 과거 이력입니다. 같은 번호의 기록은 제목으로 구분합니다.</p>
-{{ rows(found.items[(selected_page-1)*12:selected_page*12]) }}
-{% if not found.items %}<p>검색 결과가 없습니다.</p>{% endif %}
-<nav class="pager" aria-label="설계 결정 페이지">
-{% if selected_page > 1 %}<a class="mini-btn" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page-1 }}">이전</a>{% endif %}
-<span>{{ selected_page }} / {{ total_pages }}</span>
-{% if selected_page < total_pages %}<a class="mini-btn" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page+1 }}">다음</a>{% endif %}
-</nav>
-</div></section>
-{% endif %}
-<div class="doc-cols {{ 'history-view' if docs_view != 'current' else '' }}">
-  <div>
-    {% if docs_view == 'current' %}
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료
-        <span class="doc-cnt">{{ papers|length }}</span></h2>
-      <div class="weekly-actions" id="paper-hwp">
-        {% if paper_hwp %}
-        <a class="btn primary" href="/dev/paper/hwp"><iconify-icon icon="solar:pen-new-square-linear" aria-hidden="true"></iconify-icon>논문 문서 열기</a>
-        <span class="muted">웹 한글 기안기에서 교직원이 함께 논문 작성 · 공통/논문{% if paper_hwp.saved %} · 저장 {{ paper_hwp.saved }}{% endif %}</span>
-        {% else %}
-        <form method="post" action="/dev/paper/hwp" data-paper-create>
-          <button type="submit">논문 문서 만들기</button>
-        </form>
-        <script>
-        // 만들기 → 기안기 편집 화면으로. 폼 그대로 보내도 303 으로 옮겨 가지만, 답을 받아 직접 옮겨 가 화면이 그대로 남지 않게 한다(실패하면 폼 제출)
-        (function () {
-          var form = document.querySelector('[data-paper-create]');
-          if (!form || !window.fetch) return;
-          form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            var btn = form.querySelector('button');
-            if (btn.disabled) return;
-            btn.disabled = true; btn.textContent = '만드는 중…';
-            fetch(form.action, {method: 'POST', credentials: 'same-origin', headers: {'Accept': 'application/json'}})
-              .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-              .then(function (j) { location.assign(j.url); })
-              .catch(function () { btn.disabled = false; btn.textContent = '논문 문서 만들기'; HTMLFormElement.prototype.submit.call(form); });
-          });
-        })();
-        </script>
-        <span class="muted">논문 양식으로 공통/논문에 만들고 기안기로 엽니다</span>
-        {% endif %}
-      </div>
-      {{ rows(papers) }}
-    </div></div>
+{% macro st_chip(s) %}
+{%- if s -%}
+{%- set kind = 'ok' if s in ('확정','채택','시행') else 'open' if s in ('제안','보류','후보') else 'old' if s in ('대체됨','폐기됨','철회','지난 기록') else '' -%}
+{%- set label = '확정' if kind == 'ok' else '제안' if s == '후보' else '대체' if s in ('대체됨','폐기됨') else '지난' if s == '지난 기록' else s -%}
+<span class="st {{ kind }}" title="{{ s }}">{{ label }}</span>
+{%- endif -%}
+{% endmacro %}
 
+{% macro row(d, lead, st, state='', kind='', text='', old=false, hide=false) %}
+<li{% if state %} data-state="{{ state }}"{% endif %}{% if kind %} data-kind="{{ kind }}"{% endif %}{% if text %} data-text="{{ text|lower }}"{% endif %}{% if old %} data-old="1"{% endif %}{% if hide %} hidden{% endif %}><a class="dd-row" href="{{ d.href }}">
+  <span class="dd-lead">{{ lead }}</span>
+  <span class="dd-main"><span class="t">{{ d.title }}</span>{% if d.desc %}<span class="d" title="{{ d.desc }}">{{ d.desc }}</span>{% endif %}</span>
+  <span class="dd-meta"><span class="dd-st">{{ st_chip(st) }}</span><span class="dd-date">{{ d.date }}</span></span>
+  <iconify-icon class="go" icon="solar:alt-arrow-right-linear" aria-hidden="true"></iconify-icon>
+</a></li>
+{% endmacro %}
 
-    {% endif %}
+{% macro matches(d) -%}
+{{ not docs_query or (docs_query|lower) in ((d.num ~ ' ' ~ d.title ~ ' ' ~ (d.desc or '') ~ ' ' ~ (d.topic or ''))|lower) }}
+{%- endmacro %}
+
+{# ───────────── 핵심 자료 ───────────── #}
+{% if docs_view == 'current' %}
+<section class="dd-sec dd-first" aria-labelledby="dd-first">
+  <h2 id="dd-first"><iconify-icon icon="solar:flag-linear" aria-hidden="true"></iconify-icon>처음 읽을 것</h2>
+  <div class="dd-grid">
+    {% for d in first_reads %}{{ card(d, '', loop.index) }}{% endfor %}
   </div>
+</section>
 
-  <div>
-    {% if docs_view == 'current' %}
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:compass-linear"></iconify-icon>현황·설계
-        <span class="doc-cnt">{{ status_docs|length + plan_docs|length }}</span></h2>
-      <div class="doc-sub">먼저 볼 것 — 지금 상태</div>
-      {{ rows(status_docs) }}
-      <div class="doc-sub">설계·계획</div>
-      {{ rows(plan_docs) }}
-    </div></div>
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:calendar-mark-linear"></iconify-icon>주간 보고서
-        <span class="doc-cnt">{{ weekly_docs|length }}</span></h2>
-      <div class="weekly-actions" id="weekly">
-        <span class="muted">이번 주 ({{ weekly_monday }}~)</span>
-        {% if weekly.running %}
-        <span class="weekly-st run" data-weekly-running="1">작성 중 ({{ weekly.started }} 시작) — 끝나면 화면이 새로 고쳐집니다</span>
-        {% elif weekly.exists %}
-        <span class="weekly-st ok">작성됨 {{ weekly.made_at }}</span>
-        {% elif weekly.error %}
-        <span class="weekly-st err">{{ weekly.error }}</span>
-        {% elif not weekly.auto %}
-        <span class="weekly-st err">모델 연결이 필요합니다</span>
+<section class="dd-sec" aria-labelledby="dd-paper">
+  <h2 id="dd-paper"><iconify-icon icon="solar:book-2-linear" aria-hidden="true"></iconify-icon>논문 자료</h2>
+  <div class="dd-grid" id="paper-hwp">
+    <div class="dd-card">
+      <span class="t"><iconify-icon icon="solar:pen-new-square-linear" aria-hidden="true"></iconify-icon>논문 문서</span>
+      <span class="d">웹 한글 기안기에서 교직원이 함께 논문 작성 · 공통/논문</span>
+      <span class="f">
+        {% if paper_hwp %}
+        <a class="btn-ghost" href="/dev/paper/hwp">열기</a>{% if paper_hwp.saved %}<span>저장 {{ paper_hwp.saved }}</span>{% endif %}
         {% else %}
-        <span class="weekly-st">아직 없음</span>
+        <form method="post" action="/dev/paper/hwp" data-paper-create><button type="submit" class="secondary">논문 문서 만들기</button></form>
         {% endif %}
-      </div>
-      <div class="weekly-actions">
+      </span>
+    </div>
+    {% for d in paper_docs %}{{ card(d, 'solar:document-text-linear') }}{% endfor %}
+  </div>
+</section>
+
+<section class="dd-sec dd-wk" aria-labelledby="dd-plan">
+  {% set past = (weekly_docs | rejectattr('stem', 'equalto', weekly.stem) | list) %}
+  <h2 id="dd-plan"><iconify-icon icon="solar:calendar-mark-linear" aria-hidden="true"></iconify-icon>계획·주간 보고서</h2>
+  <div class="dd-grid" id="weekly">
+    {{ card(plan_doc, 'solar:compass-linear') }}
+    <div class="dd-card">
+      <span class="t"><iconify-icon icon="solar:calendar-linear" aria-hidden="true"></iconify-icon>이번 주 보고서 ({{ weekly_monday[5:] }}~)</span>
+      <span class="d">
+        {% if weekly.running %}<span class="wk-st run" data-weekly-running="1">작성 중 · {{ weekly.started }} 시작</span>
+        {% elif weekly.exists %}<span class="wk-st ok">작성됨 {{ weekly.made_at }}</span>
+        {% elif weekly.error %}<span class="wk-st err">{{ weekly.error }}</span>
+        {% elif not weekly.auto %}<span class="wk-st err">모델 연결이 필요합니다</span>
+        {% else %}아직 없음{% endif %} · 매주 월요일 오전 9시 자동 생성
+      </span>
+      <span class="f">
         {% if weekly.exists %}
         <a class="btn-ghost" href="/dev/weekly/{{ weekly.stem }}">보고서 열기</a>
         {% else %}
-        <form method="post" action="/dev/weekly/generate">
-          <button type="submit" {% if weekly.running %}disabled{% endif %}>보고서 생성</button>
-        </form>
+        <form method="post" action="/dev/weekly/generate"><button type="submit" class="secondary" {% if weekly.running %}disabled{% endif %}>보고서 생성</button></form>
         {% endif %}
-        <span class="muted">매주 월요일 오전 9시 자동 생성 · 한국시간</span>
-      </div>
-      <div class="doc-sub">지난 보고서</div>
-      {# 이번 주 보고서는 위 「보고서 열기」 — 지난 보고서에 다시 늘어놓지 않는다 #}
-      {% set past = (weekly_docs | rejectattr('href', 'equalto', '/dev/weekly/' ~ weekly.stem) | list) if weekly.exists else weekly_docs %}
-      {{ rows(past[:3]) }}
-      {% if past|length > 3 %}
-      <div data-weekly-more hidden>{{ rows(past[3:]) }}</div>
-      <button type="button" class="btn-ghost" style="margin-top:6px;" onclick="var m=this.previousElementSibling;m.hidden=!m.hidden;this.textContent=m.hidden?'지난 보고서 {{ past|length - 3 }}개 더 보기':'접기';">지난 보고서 {{ past|length - 3 }}개 더 보기</button>
-      {% endif %}
-      <script>
-        (function () {
-          if (!document.querySelector('[data-weekly-running]')) return;
-          var tick = function () {
-            fetch('/dev/weekly/status').then(function (r) { return r.json(); }).then(function (j) {
-              if (!j.running) { location.reload(); } else { setTimeout(tick, 8000); }
-            }).catch(function () { setTimeout(tick, 15000); });
-          };
-          setTimeout(tick, 8000);
-        })();
-      </script>
-    </div></div>
-    {% endif %}
-
-    {% if docs_view == 'records' %}
-    {% set groups = [('측정 기록', bench_docs), ('모델 카드', card_docs), ('기술 검토', note_docs), ('작업 메모', memo_docs), ('9월 설계·계획', old_plan_docs), ('기획·발표 이력', planning_docs)] %}
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:archive-linear"></iconify-icon>기록·자료 목록
-        <span class="doc-cnt" id="recCount">{{ groups | map(attribute=1) | map('length') | sum }}</span></h2>
-      <p class="muted" style="font-size:12px; margin:0 0 10px;">지난 측정 기록·모델 카드, 기술 검토, 작업 메모, 기획·발표 이력입니다. 지금 구조는 「핵심 자료」의 시스템 설계를 봅니다. 날짜가 곧 그 기록의 유효 범위입니다.</p>
-      <div class="docs-search" style="margin-bottom:10px;">
-        <input type="search" id="recQ" placeholder="제목·설명으로 찾기 (예: OCR, 리랭커, 개인정보)" aria-label="기록 찾기" autocomplete="off">
-      </div>
-      <div class="rec-kinds" role="group" aria-label="종류">
-        <button type="button" class="rec-kind on" data-kind="">전체</button>
-        {% for k, items in groups %}<button type="button" class="rec-kind" data-kind="{{ k }}">{{ k }} <span>{{ items | length }}</span></button>{% endfor %}
-      </div>
-      <ul class="doc-list" id="recList">
-        {% for k, items in groups %}{% for d in items | sort(attribute='date', reverse=True) %}
-        <li data-kind="{{ k }}" data-text="{{ (d.title ~ ' ' ~ (d.desc or '') ~ ' ' ~ d.href) | lower }}"><a class="doc-row" href="{{ d.href }}">
-          <span class="doc-num rec-tag">{{ k }}</span>
-          <span class="doc-t">{{ d.title }}{% if d.desc %}<span class="doc-d">{{ d.desc }}</span>{% endif %}</span>
-          {% if d.status or d.date %}<span class="doc-m">{% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}" title="{{ d.status }}">{{ d.status }}</span>{% endif %}{% if d.date %}<span>{{ d.date }}</span>{% endif %}</span>{% endif %}
-          <iconify-icon class="doc-go" icon="solar:alt-arrow-right-linear"></iconify-icon>
-        </a></li>
-        {% endfor %}{% endfor %}
+      </span>
+    </div>
+    <div class="dd-card dd-span2">
+      <span class="t"><iconify-icon icon="solar:history-linear" aria-hidden="true"></iconify-icon>지난 보고서<span class="dd-cnt">{{ past|length }}</span></span>
+      {% if past %}
+      <ul class="dd-list dd-compact" id="weeklyPast">
+        {% for d in past %}{{ row(d, d.kind, '', hide=loop.index > 2) }}{% endfor %}
       </ul>
-      <p class="muted" id="recNone" hidden>찾는 기록이 없습니다.</p>
-      <script>
-      (function () {
-        var q = document.getElementById('recQ'), kind = '', items = document.querySelectorAll('#recList > li');
-        function paint() {
-          var t = (q.value || '').trim().toLowerCase(), n = 0;
-          items.forEach(function (li) {
-            var ok = (!kind || li.dataset.kind === kind) && (!t || t.split(/\s+/).every(function (w) { return li.dataset.text.indexOf(w) >= 0; }));
-            li.hidden = !ok; if (ok) n++;
-          });
-          document.getElementById('recCount').textContent = n;
-          document.getElementById('recNone').hidden = n > 0;
-        }
-        q.addEventListener('input', paint);
-        document.querySelectorAll('.rec-kind').forEach(function (b) {
-          b.addEventListener('click', function () {
-            document.querySelectorAll('.rec-kind').forEach(function (x) { x.classList.toggle('on', x === b); });
-            kind = b.dataset.kind; paint();
-          });
-        });
-      })();
-      </script>
-    </div></div>
-    {% endif %}
+      {% else %}<span class="d">아직 없음</span>{% endif %}
+      <span class="f">{% if past|length > 2 %}<button type="button" class="btn-ghost" data-more="weeklyPast" data-n="{{ past|length - 2 }}">{{ past|length - 2 }}개 더 보기</button>{% endif %}</span>
+    </div>
   </div>
+</section>
+{% endif %}
+
+{# ───────────── 설계 결정 · 기록·자료 목록 — 같은 꼴(찾기·칩·열 맞춘 목록·쪽 넘김) ───────────── #}
+{% if docs_view == 'decisions' %}
+{% set st_n = namespace(ok=0, open=0, old=0) %}
+{% for d in adr_docs %}
+  {% if d.status in ('확정','채택','시행') %}{% set st_n.ok = st_n.ok + 1 %}{% elif d.status in ('대체됨','폐기됨','철회') %}{% set st_n.old = st_n.old + 1 %}{% else %}{% set st_n.open = st_n.open + 1 %}{% endif %}
+{% endfor %}
+<section class="card"><div class="card-in" data-list-view>
+  <div class="dd-tools" role="search">
+    <input type="search" data-q value="{{ docs_query }}" placeholder="번호·제목·내용으로 찾기" aria-label="설계 결정 찾기" autocomplete="off">
+    <span class="dd-cnt" data-count>{{ n_adr }}건</span>
+  </div>
+  <div class="dd-chips" role="group" aria-label="상태·갈래로 거르기">
+    <button type="button" class="dd-chip on" data-f="state" data-v="">전체</button>
+    <button type="button" class="dd-chip" data-f="state" data-v="ok">확정<span class="n">{{ st_n.ok }}</span></button>
+    <button type="button" class="dd-chip" data-f="state" data-v="open">제안<span class="n">{{ st_n.open }}</span></button>
+    <button type="button" class="dd-chip" data-f="state" data-v="old">대체<span class="n">{{ st_n.old }}</span></button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" class="dd-chip on" data-f="kind" data-v="">모든 갈래</button>
+    {% for t in adr_topics %}<button type="button" class="dd-chip" data-f="kind" data-v="{{ t }}">{{ t }}<span class="n">{{ adr_docs|selectattr('topic','equalto',t)|list|length }}</span></button>{% endfor %}
+  </div>
+  <ul class="dd-list" data-items>
+    {% for d in adr_docs %}
+    {% set state = 'ok' if d.status in ('확정','채택','시행') else 'old' if d.status in ('대체됨','폐기됨','철회') else 'open' %}
+    {{ row(d, d.num, d.status, state=state, kind=d.topic or '-', text=d.num ~ ' ' ~ d.title ~ ' ' ~ (d.desc or '') ~ ' ' ~ d.topic, hide=matches(d) != 'True') }}
+    {% endfor %}
+  </ul>
+  {% set hit = namespace(n=0) %}{% for d in adr_docs %}{% if matches(d) == 'True' %}{% set hit.n = hit.n + 1 %}{% endif %}{% endfor %}
+  <p class="dd-none" data-none {% if hit.n %}hidden{% endif %}>찾는 문서가 없습니다.</p>
+  <div class="dd-foot"><nav class="pager" aria-label="쪽" data-pager hidden>
+    <button type="button" class="btn-ghost" data-prev>이전</button><span data-page>1 / 1</span><button type="button" class="btn-ghost" data-next>다음</button>
+  </nav></div>
+</div></section>
+{% endif %}
+
+{% if docs_view == 'records' %}
+{% set n_old = records|selectattr('old')|list|length %}
+<section class="card"><div class="card-in" data-list-view>
+  <div class="dd-tools" role="search">
+    <input type="search" data-q value="{{ docs_query }}" placeholder="제목·설명으로 찾기 (예: OCR, 리랭커, 개인정보)" aria-label="기록 찾기" autocomplete="off">
+    <span class="dd-cnt" data-count>{{ n_rec }}건</span>
+  </div>
+  <div class="dd-chips" role="group" aria-label="갈래로 거르기">
+    <button type="button" class="dd-chip on" data-f="kind" data-v="">전체</button>
+    {% for k, n in record_kinds %}<button type="button" class="dd-chip" data-f="kind" data-v="{{ k }}">{{ k }}<span class="n">{{ records|selectattr('kind','equalto',k)|rejectattr('old')|list|length }}</span></button>{% endfor %}
+  </div>
+  <ul class="dd-list kinds" data-items>
+    {% for d in records %}
+    {{ row(d, d.kind, ('지난 기록' if d.old else d.status), kind=d.kind, text=d.title ~ ' ' ~ (d.desc or '') ~ ' ' ~ d.href, old=d.old, hide=d.old or matches(d) != 'True') }}
+    {% endfor %}
+  </ul>
+  <p class="dd-none" data-none hidden>찾는 문서가 없습니다.</p>
+  <div class="dd-foot">
+    {% if n_old %}<button type="button" class="btn-ghost" data-old-toggle aria-pressed="false">지난 기록 <span data-old-n>{{ n_old }}</span>건 보기</button>{% endif %}
+    <nav class="pager" aria-label="쪽" data-pager hidden>
+      <button type="button" class="btn-ghost" data-prev>이전</button><span data-page>1 / 1</span><button type="button" class="btn-ghost" data-next>다음</button>
+    </nav>
+  </div>
+</div></section>
+{% endif %}
+
 </div>
+<script>
+(function () {
+  // 목록 공통 — 찾는 칸은 입력 즉시, 칩은 누르는 즉시 거른다. 15줄씩 쪽 넘김. 「지난 기록」은 단추로 펼친다
+  var PAGE = 15;
+  document.querySelectorAll('[data-list-view]').forEach(function (box) {
+    var q = box.querySelector('[data-q]'), items = [].slice.call(box.querySelectorAll('[data-items] > li'));
+    var f = {state: '', kind: ''}, page = 1, showOld = false;
+    var pager = box.querySelector('[data-pager]'), oldBtn = box.querySelector('[data-old-toggle]');
+    function hit(li) {
+      var t = (q.value || '').trim().toLowerCase();
+      return (!f.state || li.dataset.state === f.state) && (!f.kind || li.dataset.kind === f.kind)
+        && (!t || t.split(/\s+/).every(function (w) { return li.dataset.text.indexOf(w) >= 0; }));
+    }
+    function paint() {
+      var shown = items.filter(function (li) { return hit(li) && (showOld || !li.dataset.old); });
+      var oldN = items.filter(function (li) { return li.dataset.old && hit(li); }).length;
+      // 칩 옆 수 — 지금 찾는 말·다른 거르기·「지난 기록」 펼침에 맞춰 다시 센다
+      box.querySelectorAll('.dd-chip').forEach(function (b) {
+        var n = b.querySelector('.n'); if (!n) return;
+        var keep = f[b.dataset.f]; f[b.dataset.f] = b.dataset.v;
+        n.textContent = items.filter(function (li) { return hit(li) && (showOld || !li.dataset.old); }).length;
+        f[b.dataset.f] = keep;
+      });
+      var pages = Math.max(1, Math.ceil(shown.length / PAGE));
+      page = Math.min(page, pages);
+      items.forEach(function (li) { li.hidden = true; });
+      shown.slice((page - 1) * PAGE, page * PAGE).forEach(function (li) { li.hidden = false; });
+      box.querySelector('[data-count]').textContent = shown.length + '건';
+      box.querySelector('[data-none]').hidden = shown.length > 0;
+      pager.hidden = pages < 2;
+      box.querySelector('[data-page]').textContent = page + ' / ' + pages;
+      box.querySelector('[data-prev]').disabled = page <= 1;
+      box.querySelector('[data-next]').disabled = page >= pages;
+      if (oldBtn) {
+        oldBtn.hidden = !oldN && !showOld;
+        oldBtn.setAttribute('aria-pressed', showOld ? 'true' : 'false');
+        oldBtn.textContent = showOld ? '지난 기록 접기' : '지난 기록 ' + oldN + '건 보기';
+      }
+    }
+    q.addEventListener('input', function () { page = 1; paint(); });
+    box.querySelectorAll('.dd-chip').forEach(function (b) {
+      b.addEventListener('click', function () {
+        box.querySelectorAll('.dd-chip[data-f="' + b.dataset.f + '"]').forEach(function (x) { x.classList.toggle('on', x === b); });
+        f[b.dataset.f] = b.dataset.v; page = 1; paint();
+      });
+    });
+    box.querySelector('[data-prev]').addEventListener('click', function () { page--; paint(); });
+    box.querySelector('[data-next]').addEventListener('click', function () { page++; paint(); });
+    if (oldBtn) oldBtn.addEventListener('click', function () { showOld = !showOld; page = 1; paint(); });
+    paint();
+  });
+  // 지난 보고서 더 보기 / 접기
+  document.querySelectorAll('[data-more]').forEach(function (b) {
+    var list = document.getElementById(b.dataset.more), extra = [].slice.call(list.children).filter(function (li) { return li.hidden; }), open = false;
+    b.addEventListener('click', function () {
+      open = !open;
+      extra.forEach(function (li) { li.hidden = !open; });
+      b.textContent = open ? '접기' : b.dataset.n + '개 더 보기';
+    });
+  });
+  // 논문 문서 만들기 → 기안기 편집 화면으로(답을 받아 직접 옮겨 간다, 실패하면 폼 제출)
+  var form = document.querySelector('[data-paper-create]');
+  if (form && window.fetch) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = form.querySelector('button');
+      if (btn.disabled) return;
+      btn.disabled = true; btn.textContent = '만드는 중…';
+      fetch(form.action, {method: 'POST', credentials: 'same-origin', headers: {'Accept': 'application/json'}})
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (j) { location.assign(j.url); })
+        .catch(function () { btn.disabled = false; btn.textContent = '논문 문서 만들기'; HTMLFormElement.prototype.submit.call(form); });
+    });
+  }
+  // 이번 주 보고서 작성 중이면 끝날 때 새로 고친다
+  if (document.querySelector('[data-weekly-running]')) {
+    var tick = function () {
+      fetch('/dev/weekly/status').then(function (r) { return r.json(); }).then(function (j) {
+        if (!j.running) { location.reload(); } else { setTimeout(tick, 8000); }
+      }).catch(function () { setTimeout(tick, 15000); });
+    };
+    setTimeout(tick, 8000);
+  }
+})();
+</script>
 {% endblock %}

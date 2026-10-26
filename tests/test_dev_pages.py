@@ -103,10 +103,10 @@ def test_dev_dashboard_labels(client):
     q = client.get("/dev/quality").text
     assert "규정 검색 품질" in q and "추출 품질 백로그" in q
     d = client.get("/dev/docs").text
-    assert "논문 자료" in d and "설계 결정" in d and "현황·설계" in d
+    assert "처음 읽을 것" in d and "논문 자료" in d and "설계 결정" in d and "계획·주간 보고서" in d
     records = client.get("/dev/docs?view=records").text
-    assert "측정 기록·모델 카드" in records and "작업 메모" in records
-    assert "측정 기록·모델 카드" not in d
+    assert 'data-v="측정 기록"' in records and 'data-v="작업 메모"' in records   # 갈래 칩
+    assert 'data-v="측정 기록"' not in d
     hpage = client.get("/dev/history").text
     assert "전체 변경 목록" in hpage and "/dev/docs#weekly" in hpage     # 주간 보고서는 논문 자료 칸으로
     assert '>문서 추출</h2>' not in r.text
@@ -243,22 +243,27 @@ def test_docs_list_pulls_status_and_date_from_adr_files(client):
     status = re.split(r"[\s(（]", status)[0]
     date = next(re.search(r"\d{4}-\d{2}-\d{2}", ln).group(0) for ln in head if "날짜" in ln)
     row = page.split(f'href="/dev/doc/decisions/{adr.name}"', 1)[1].split("</a>", 1)[0]
-    assert f'<span class="doc-num">{adr.name[:4]}</span>' in row      # ADR 번호는 따로 떼어 보인다
+    assert f'<span class="dd-lead">{adr.name[:4]}</span>' in row      # ADR 번호는 앞 열에 따로
     assert status in row and date in row                               # 상태·날짜는 파일의 머리 줄에서
+    assert '<span class="dd-st">' in row and '<span class="dd-date">' in row   # 상태·날짜는 고정 폭 열
     page = client.get("/dev/docs").text + client.get("/dev/docs?view=records").text
-    assert "측정 기록" in page and "설계·계획" in page and "먼저 볼 것" in page
+    assert "측정 기록" in page and "설계·계획" in page and "처음 읽을 것" in page
     for f in ("retrieval-baseline-mini.md", "embed-v0-report.md", "model-plan.md", "quality-system.md"):
         assert f'href="/dev/doc/{f}"' in page                          # dev_doc 이 여는 파일은 목록에도 있다
 
 
 def test_docs_decisions_supersession_and_paging(client):
+    import re
+
     page = client.get('/dev/docs?view=decisions&q=0014').text
     row = page.split('href="/dev/doc/decisions/0014-', 1)[1].split('</a>', 1)[0]
-    assert '대체됨' in row and '확정' not in row
+    assert '대체' in row and '>확정<' not in row
     page = client.get('/dev/docs?view=decisions').text
-    assert page.count('class="doc-row"') <= 12
-    assert '다음</a>' in page
-    assert '검색 결과가 없습니다' in client.get('/dev/docs?view=decisions&q=no-such-document').text
+    assert 'data-pager' in page and 'data-next' in page                # 쪽 넘김은 화면에서(15줄씩)
+    assert 'type="submit"' not in page.split('data-list-view', 1)[1].split('data-items', 1)[0]    # 찾기는 바로 거른다 — 검색 단추 없음
+    assert 'data-f="state" data-v="old"' in page                       # 상태로 거르기
+    none = client.get('/dev/docs?view=decisions&q=no-such-document').text
+    assert re.search(r'<p class="dd-none" data-none\s*>찾는 문서가 없습니다', none)   # 맞는 것이 없으면 처음부터 보인다
     assert '논문 자료' in client.get('/dev/docs?view=invalid').text
 
 

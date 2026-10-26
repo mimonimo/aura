@@ -31,7 +31,7 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 ## 측정 보고서
 
 - 검색: [리랭커 평가](llm-rerank-eval.md), [리랭커 베이스라인](rerank-baseline.md), [하이브리드 가중치 탐색](retrieval-weight-sweep.md),
-  [검색 미니 베이스라인](retrieval-baseline-mini.md), [Embed v0 시험 학습](embed-v0-report.md), [리랭킹·질의 확장 회차별 결과](archive/README.md)
+  [검색 미니 베이스라인](retrieval-baseline-mini.md), [Embed v0 시험 학습](embed-v0-report.md), [리랭킹·질의 확장 회차별 결과](archive/llm-rerank-rounds-0920.md)
 - 문서 판독: [OCR 문자 오류율](ocr-cer-bench.md), [OCR 엔진 비교](ocr-duel.md), [OCR 시각 비교](ocr-visual-review.md)
 
 ## 일정과 보고
@@ -42,7 +42,7 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 
 ## 보관
 
-- [보관한 지난 기록](archive/): 리랭킹 회차별 결과, DGX Spark 점검, 10-22 그림 촬영 기록. 지금 판단에는 쓰지 않는다
+- [보관한 지난 기록](archive/README.md): 리랭킹 회차별 결과, 1~2주차 작업 계획, DGX Spark 점검, 10-22 그림 촬영 기록. 지금 판단에는 쓰지 않는다
 
 ## 운영과 작업 기록
 
@@ -50,5 +50,5 @@ AURA의 설계·측정·결정 문서 목록이다. 설계 문서는 목적과 �
 - [서버 이전](ops/migration.md): 옮길 것·다시 만들 것·뺄 것과 새 서버 순서(scripts/209)
 - [현재 작업](dev-now.md) · 변경 기록은 깃 커밋(개발 현황 › 변경 이력)
 - [기록 자료 주제별 색인](notes/README.md): 기술 검토·작업 메모·측정·모델 카드를 결정 기록과 같은 주제로 묶었다
-- [작업 맥락](context/working-notes.md), [1~2주차 계획](instructions/W1-W2.md)
+- [작업 맥락](context/working-notes.md)
 - [착수 단계 기술 조사](../research/README.md)

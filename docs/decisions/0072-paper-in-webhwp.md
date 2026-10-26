@@ -1,6 +1,6 @@
 # 0072. 논문을 웹 기안기에서 쓰기
 
-- **상태**: 확정(로컬 시험 서버·시험). 운영 배포는 미확인
+- **상태**: 확정 (기안기 논문 문서 2313 으로 원고를 맞추는 중 — dev-now)
 - **날짜**: 2026-10-24
 - **관련**: ADR-0070(칸 단위 공동 편집), `app/paper_hwp.py`, `app/dev_docs_routes.py`(/dev/paper/hwp, /hwp/{id}/paper-toc), `templates/dev_docs.html`, `templates/hwp_edit.html`, `static/paper-toc.js`,
   `scripts/214_paper_write.py`, `tests/test_paper_hwp.py`, `docs/paper/논문-양식-가이드.md`, `docs/paper/논문/`
