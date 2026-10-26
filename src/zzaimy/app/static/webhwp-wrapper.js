@@ -220,6 +220,17 @@
       attachedDoc = d;
       d.addEventListener('keydown', function (e) { abortProbe(); lastInput = Date.now(); fire('activity', e); }, true);
       d.addEventListener('pointerdown', function (e) { abortProbe(); lastInput = Date.now(); fire('activity', e); }, true);
+      // 글자 크기 칸 화살표 — 크기가 섞인 선택이면 입력칸이 비고 기안기는 0 에서 세기 시작해 모두 1pt 가 됐다(10-26 녹화).
+      // 그때는 글자마다 지금 크기에서 1pt 씩 키우고 줄이는 기안기 동작(CharShapeHeightIncrease/Decrease)으로 바꾼다. 크기가 하나면 기안기 그대로
+      var sizeArrow = function (e) {
+        var t = e.target, up = t && t.closest && t.closest('.font_size .spinner_upper_arrow'), dn = !up && t && t.closest && t.closest('.font_size .spinner_lower_arrow');
+        if (!up && !dn) return;
+        var box = t.closest('.font_size'), inp = box && box.querySelector('input');
+        if (!inp || String(inp.value || '').trim()) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (e.type === 'pointerdown') { try { ctrl.Run(up ? 'CharShapeHeightIncrease' : 'CharShapeHeightDecrease'); } catch (x) {} fire('activity', {type: 'pointerdown', target: t}); }
+      };
+      ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(function (t) { d.addEventListener(t, sizeArrow, true); });
       d.addEventListener('compositionstart', function () { abortProbe(); composing = true; lastInput = Date.now(); }, true);
       d.addEventListener('compositionupdate', function () { composing = true; lastInput = Date.now(); fire('edit', {composing: true}); }, true);
       d.addEventListener('compositionend', function () { composing = false; lastInput = Date.now(); fire('edit', {composing: false}); }, true);

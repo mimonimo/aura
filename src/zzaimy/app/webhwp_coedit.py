@@ -569,8 +569,9 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
             st = conn.execute("SELECT version, text, client, author, rich FROM webhwp_field_state WHERE fid = ? AND field = ?", (int(fid), field)).fetchone()
             cur_v, cur_text, cur_client = (int(st[0]), st[1], st[2]) if st else (0, None, "")
             reason = ""
-            if rich and rich_kind == "json" and not (_alive(lk, now) and lk[0] == user and (lk[1] or "") == client):
-                rich = ""                                  # JSON 블록은 그 칸을 쥔 창이 보낸 것만 — 아니면 글만 받는다
+            if rich and rich_kind == "json" and _alive(lk, now) and lk[0] != user:
+                rich = ""                                  # JSON 블록은 남이 쥔 칸이면 받지 않는다(글만). 한 창은 임대를 한 칸만 쥐어, 여러 칸에 걸친 서식 고침을
+                                                           # 칸마다 보내는 동안 앞 칸 서식이 버려졌다(10-26) — 내용은 관문(json_block)이 검사한다
             if _alive(lk, now) and lk[0] != user:
                 reason = "locked"
             elif not force and b != cur_v and cur_client != ck:

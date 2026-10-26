@@ -271,10 +271,7 @@
         var f = fs.shift();
         if (!f) return;
         if (heldByOther(f)) { next(); return; }
-        (mine[f] ? Promise.resolve() : acquire(f, true)).then(function () {   // JSON 블록은 그 칸을 쥔 창만 보낼 수 있다
-          if (!mine[f]) return null;
-          return hwp.exportField(f);
-        }).then(function (json) {
+        hwp.exportField(f).then(function (json) {                       // 남이 쥔 칸은 위에서 건너뛴다(서버도 남이 쥔 칸의 JSON 블록은 받지 않는다)
           if (json && richSig(json) !== lastRich[f]) {
             lastRich[f] = richSig(json);
             var k = known[f], op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0,
@@ -652,7 +649,16 @@
           var view = e.target && e.target.ownerDocument && e.target.ownerDocument.getElementById('hcwoViewScroll');
           var outside = e.type === 'pointerdown' && !(view && view.contains(e.target));
           var combo = e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !/^(Control|Meta|Shift|Alt|c|C|a|A|s|S|f|F|p|P)$/.test(e.key || '');
-          if (outside || combo) { richDirty[curField] = true; scheduleRich(); }
+          if (outside || combo) {
+            richDirty[curField] = true;
+            // 선택이 여러 칸에 걸쳐 있으면 그 사이 칸을 모두 — 커서 칸 하나만 보내 나머지 칸 서식이 다른 화면에 가지 않았다(10-26 녹화)
+            var sel = hwp.selectionFields ? hwp.selectionFields() : null;
+            if (sel && sel[0] && sel[1] && sel[0] !== sel[1] && fieldIdx[sel[0]] !== undefined && fieldIdx[sel[1]] !== undefined) {
+              var i0 = Math.min(fieldIdx[sel[0]], fieldIdx[sel[1]]), i1 = Math.max(fieldIdx[sel[0]], fieldIdx[sel[1]]);
+              for (var q = i0; q <= i1 && q - i0 < 400; q++) richDirty[fieldList[q]] = true;
+            }
+            scheduleRich();
+          }
         }
         // 남이 쥔 칸에서 글을 치려 하면 그때 기다리는 사람으로 알린다(같은 사람 다른 창은 빼앗지 않는다)
         if (e && e.type === 'keydown' && !e.metaKey && !e.ctrlKey && e.key && (e.key.length === 1 || /^(Backspace|Delete|Enter|Process)$/.test(e.key))

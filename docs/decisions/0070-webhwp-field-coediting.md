@@ -442,3 +442,7 @@ coedit:form_mode=1 이면 예전 양식 모드.
 - 운영 실측(같은 날): 칸 안에서 기울임 — 선택이 살아 있는 채 걸리고 1초 안에 다른 두 화면 같은 자리. 굵게는 이 웹 글꼴(함초롬바탕)에 굵은 꼴이 없어 화면 차이가 안 보인다.
 - 시험: test_structure_save_wraps_new_paragraphs_and_renames_duplicates, test_structure_save_keeps_savers_own_fields,
   test_field_values_skip_nested_field_parameters.
+- 여러 칸에 걸친 서식·섞인 글자 크기(사용자 녹화 14:22): 여러 칸을 골라 서식을 바꾸면 커서 칸 하나만 서식째 보내 나머지 칸 서식이 다른 화면에
+  가지 않았다 — 이제 선택 양 끝 칸 사이의 칸을 모두 보낸다. 한 창은 임대를 한 칸만 쥐어 칸마다 잡았다 놓는 사이 앞 칸 서식이 버려지므로, 서버는
+  JSON 블록을 「남이 쥔 칸이 아니면」 받는다(내용은 관문이 검사). 글자 크기가 섞인 선택에서는 크기 칸이 비고 기안기 화살표가 0 에서 세어 모두 1pt 가
+  됐다 — 그때만 화살표를 기안기의 글자 크게/작게(CharShapeHeightIncrease/Decrease, 글자마다 지금 크기 ±1pt)로 바꾼다(래퍼).
