@@ -36,15 +36,15 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     app, dev, kim = _admin(tmp_path, monkeypatch)
     assert kim.get("/dev/coedit-demo").status_code == 403
     assert kim.post("/dev/coedit-demo/new", follow_redirects=False).status_code == 403
-    # 열자마자 빈 시연 문서가 생겨 세 칸으로 — 한 갈래(세 사람 + AURA 4 절), 단추는 「AURA로 절 쓰기」·「처음부터 다시」
+    # 열자마자 빈 시연 문서가 생겨 세 칸으로 — 한 갈래(세 사람 + AURA 4 절), 단추는 「AURA 정리 쓰기」·「새 빈 문서」
     r = dev.get("/dev/coedit-demo", follow_redirects=False)
     assert r.status_code == 303
     fid = int(r.headers["location"].split("id=")[-1])
     page = dev.get(f"/dev/coedit-demo?id={fid}").text
     for s in "abc":
         assert f"/webhwpctrl/aura-edit?id={fid}&amp;demo={s}" in page
-    assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "처음부터 다시" in page
-    assert "AURA로 절 쓰기" in page and "AURA 함께 쓰기" not in page
+    assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "새 빈 문서" in page
+    assert "AURA 정리 쓰기" in page and "AURA 함께 쓰기" not in page and "어디를 고쳐도" not in page
     assert dev.get("/dev/coedit-demo", follow_redirects=False).status_code == 200          # 있으면 다시 만들지 않는다
     # 시연 계정 — 장부에 demo 표시·비활성·비밀번호 없음(로그인 길 없음), 다시 눌러도 그대로
     acc = json.loads((tmp_path / "accounts.json").read_text())
@@ -182,5 +182,5 @@ def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
     db = app.state.db
     from zzaimy.app import webhwp_agent as wa
     assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and demo.AURA_SECTION in q
-    assert "AURA(27B)가 1~3절을 읽고 4절을 쓰는 중" in dev.get(r.headers["location"]).text
+    assert "3절까지 읽고 4절을 쓰는 중" in dev.get(r.headers["location"]).text
     assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404

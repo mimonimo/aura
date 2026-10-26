@@ -7,7 +7,7 @@
 (webhwp_routes._depts). 그래서 표시는 권한을 좁히기만 한다.
 
 화면: GET /dev/coedit-demo — 한 문서(빈 문서, 1·2·3 절은 세 사람·4 절은 AURA). 칸 밖 문단도 칸으로 감싸 제목까지 함께 고친다
-(webhwp_fields.wrap_rest). 시연 문서가 없으면 열 때 만든다. 「처음부터 다시」 POST /dev/coedit-demo/reset, 「AURA로 절 쓰기」 POST /dev/coedit-demo/aura,
+(webhwp_fields.wrap_rest). 시연 문서가 없으면 열 때 만든다. 「새 빈 문서」 POST /dev/coedit-demo/reset, 「AURA 정리 쓰기」 POST /dev/coedit-demo/aura,
 POST /dev/coedit-demo/new(kind=long 이면 사업계획서)는 화면 단추 없이 남긴 만들기 길. 창을 열면 칸마다 자기 차례의 쓸 자리로 커서가 간다(hwp_edit.html).
 """
 from __future__ import annotations
@@ -321,7 +321,7 @@ def coedit_demo(request: Request, id: int | None = None, aura: str = ""):
              for s, (uid, name) in SLOTS.items()]
     return st.templates.TemplateResponse(request, "coedit_demo.html", {
         "request": request, "cur": cur, "panes": panes, "missing": missing, "label": label,
-        "aura_note": {"1": f"AURA(27B)가 1~{len(SLOTS)}절을 읽고 {len(SLOTS) + 1}절을 쓰는 중 — 1~2분 뒤 세 화면에서 써 내려갑니다", "busy": "AURA가 아직 앞 요청을 쓰는 중입니다"}.get(aura, "")})
+        "aura_note": {"1": f"{len(SLOTS)}절까지 읽고 {len(SLOTS) + 1}절을 쓰는 중", "busy": "AURA가 앞 요청을 쓰는 중"}.get(aura, "")})
 
 
 @router.post("/dev/coedit-demo/new")
@@ -336,7 +336,7 @@ def coedit_demo_new(request: Request, kind: str = Form("")):
 
 @router.post("/dev/coedit-demo/reset")
 def coedit_demo_reset(request: Request, id: int = Form(...)):
-    """처음부터 다시 — 같은 꼴(빈 문서·같은 양식)로 새로 만들고 앞 것은 시연 폴더 휴지통으로."""
+    """새 빈 문서 — 같은 꼴(빈 문서·같은 양식)로 새로 만들고 앞 것은 시연 폴더 휴지통으로."""
     _need_login_mode(request)
     from zzaimy.app import webhwp
     db = request.app.state.db

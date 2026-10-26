@@ -24,7 +24,16 @@
   .seg a { padding:6px 12px; border-radius:7px; font-size:13px; font-weight:600; color:var(--muted); text-decoration:none; white-space:nowrap; }
   .seg a:hover { color:var(--ink); }
   .seg a[aria-current=page] { background:#fff; color:var(--ink); box-shadow:0 1px 2px rgba(15,23,42,.08); }
-  .bar .note { overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  /* AURA 진행 — 쓰는 동안만 짧게(평소 안내 문장은 두지 않는다, 10-26) */
+  .status { display:inline-flex; align-items:center; gap:8px; min-width:0; padding:5px 12px; border-radius:999px; background:#EEF2FF; color:#1B3B75; font-size:12.5px; font-weight:600; white-space:nowrap; }
+  .status[hidden] { display:none; }
+  .spin { width:12px; height:12px; border-radius:50%; border:2px solid #C7D2FE; border-top-color:#1B3B75; animation:spin .8s linear infinite; flex:none; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .btn.ghost { border-color:transparent; background:transparent; color:var(--muted); font-weight:500; }
+  .btn.ghost:hover { background:#F1F5F9; color:var(--ink); }
+  .btn.warn { border-color:#FCA5A5; background:#FEF2F2; color:#B91C1C; font-weight:600; }
+  .btn.primary[disabled] { opacity:.85; cursor:default; }
+  .btn.primary .spin { border-color:rgba(255,255,255,.35); border-top-color:#fff; }
   .bar .grow { flex:1; }
   .bar form { margin:0; }
   .btn { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 12px; font:inherit; font-size:13px; font-weight:600; border:1px solid var(--line2); border-radius:8px; background:#fff; color:var(--ink); cursor:pointer; white-space:nowrap; }
@@ -48,10 +57,10 @@
   <a class="back" href="/dev"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>개발 현황</a>
   <span class="sep" aria-hidden="true"></span>
   <h1>공동 편집 시연</h1>
-  <span class="note">{{ aura_note or '세 사람이 1·2·3 절이든 제목이든 어디를 고쳐도 다른 칸에 바로 보입니다 · 「AURA로 절 쓰기」 는 4 절을 씁니다' }}</span>
+  <span class="status" data-status{% if not aura_note %} hidden{% endif %}><span class="spin" aria-hidden="true"></span><span data-status-text>{{ aura_note }}</span></span>
   <span class="grow"></span>
-  {% if cur %}<form method="post" action="/dev/coedit-demo/aura" data-aura-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn primary"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true"></iconify-icon>AURA로 절 쓰기</button></form>{% endif %}
-  {% if cur %}<form method="post" action="/dev/coedit-demo/reset" title="쓴 글을 모두 지운 새 문서로 다시 엽니다" onsubmit="this.querySelector('button').disabled = true"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon>처음부터 다시</button></form>{% endif %}
+  {% if cur %}<form method="post" action="/dev/coedit-demo/reset" data-reset-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn ghost" title="지금 쓴 글을 지우고 빈 문서로 새로 시작"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon><span data-reset-label>새 빈 문서</span></button></form>
+  <form method="post" action="/dev/coedit-demo/aura" data-aura-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn primary" title="AURA(27B)가 1~3절을 읽고 4절 「AURA 정리」 를 씁니다"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true" data-aura-icon></iconify-icon><span data-aura-label>AURA 정리 쓰기</span></button></form>{% endif %}
 </header>
 {% if cur and not missing %}
 <main class="grid">
@@ -61,17 +70,50 @@
   </section>{% endfor %}
 </main>
 <script>
-  // 「AURA로 절 쓰기」 — 화면을 다시 열지 않고 요청만 보낸다(다시 열면 세 칸이 모두 새로 불러와 시연이 끊겼다, 10-26)
+  // 「AURA 정리 쓰기」 — 화면을 다시 열지 않고 요청만 보낸다(다시 열면 세 칸이 모두 새로 불러와 시연이 끊겼다). 단추와 상태 칩이 단계를 보인다:
+  // 읽는 중(27B 가 1~3 절을 읽고 쓸 글을 정함) → 쓰는 중(4 절에 써 내려감, 칸의 AURA 표시로 안다) → 끝나면 처음 단추로
   (function () {
-    var f = document.querySelector('[data-aura-form]'), note = document.querySelector('.bar .note');
+    var f = document.querySelector('[data-aura-form]');
     if (!f) return;
+    var b = f.querySelector('button'), label = f.querySelector('[data-aura-label]'), icon = f.querySelector('[data-aura-icon]');
+    var chip = document.querySelector('[data-status]'), chipText = document.querySelector('[data-status-text]');
+    var phase = '', since = 0, sawWriting = false;
+    function show(p) {
+      phase = p;
+      var busy = p === 'reading' || p === 'writing';
+      b.disabled = busy;
+      label.textContent = p === 'reading' ? 'AURA 읽는 중' : p === 'writing' ? 'AURA 쓰는 중' : 'AURA 정리 쓰기';
+      icon.hidden = busy;
+      var sp = b.querySelector('.spin'); if (busy && !sp) { sp = document.createElement('span'); sp.className = 'spin'; b.insertBefore(sp, label); } else if (!busy && sp) sp.remove();
+      chip.hidden = !busy && p !== 'failed';
+      chip.querySelector('.spin').hidden = !busy;
+      chipText.textContent = p === 'reading' ? '1~3절을 읽고 있어요' : p === 'writing' ? '4절을 쓰고 있어요' : p === 'failed' ? 'AURA에게 보내지 못했어요 — 다시 눌러 주세요' : '';
+    }
+    function auraNow() { try { var e = document.querySelector('iframe').contentWindow.auraCollab; var a = e && e.aura(); return a && a.field ? a.field : ''; } catch (x) { return ''; } }
+    setInterval(function () {
+      if (phase !== 'reading' && phase !== 'writing') return;
+      var w = auraNow();
+      if (w) { sawWriting = true; if (phase !== 'writing') show('writing'); }
+      else if (sawWriting || Date.now() - since > 240000) { sawWriting = false; show(''); }   // 다 썼다(또는 4분 넘게 소식 없음)
+    }, 700);
     f.addEventListener('submit', function (e) {
       e.preventDefault();
-      var b = f.querySelector('button'); b.disabled = true;
-      fetch(f.action, {method: 'POST', body: new FormData(f), credentials: 'same-origin', redirect: 'manual'}).then(function () {
-        note.textContent = 'AURA(27B)가 1~3 절을 읽고 4 절을 쓰는 중 — 1~2분 뒤 세 화면에서 써 내려갑니다';
-      }).catch(function () { note.textContent = 'AURA에게 보내지 못했습니다 — 다시 눌러 주세요'; })
-        .then(function () { setTimeout(function () { b.disabled = false; }, 5000); });
+      if (phase === 'reading' || phase === 'writing') return;
+      since = Date.now(); sawWriting = false; show('reading');
+      fetch(f.action, {method: 'POST', body: new FormData(f), credentials: 'same-origin', redirect: 'manual'})
+        .catch(function () { show('failed'); });
+    });
+  })();
+  // 「새 빈 문서」 — 쓴 글이 지워지므로 한 번 더 묻는다(그 자리에서, 4초 안에 다시 누르면)
+  (function () {
+    var f = document.querySelector('[data-reset-form]');
+    if (!f) return;
+    var b = f.querySelector('button'), label = f.querySelector('[data-reset-label]'), armed = null;
+    f.addEventListener('submit', function (e) {
+      if (armed) { b.disabled = true; label.textContent = '새로 여는 중'; return; }
+      e.preventDefault();
+      b.classList.remove('ghost'); b.classList.add('warn'); label.textContent = '쓴 글이 지워져요 · 새로 시작';
+      armed = setTimeout(function () { armed = null; b.classList.add('ghost'); b.classList.remove('warn'); label.textContent = '새 빈 문서'; }, 4000);
     });
   })();
   // 칸 머리 동그라미 색을 편집 화면 아바타와 같게(webhwp-collab.js colorOf 와 같은 셈)
