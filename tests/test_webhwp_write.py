@@ -220,3 +220,26 @@ def test_set_fields_keeps_run_formatting():
         assert ww.field_values(out)["절:1. 김가람"] == new
         x = zipfile.ZipFile(io.BytesIO(out)).read("Contents/section0.xml").decode()
         assert 'charPrIDRef="9"><hp:t>AI 교육</hp:t>' in x, new
+
+
+def test_field_values_skip_nested_field_parameters():
+    """칸 안에 칸이 든 경우(칸째 붙여넣기) 안쪽 칸의 설정값(「9Clickhere:set:…」)을 글로 읽지 않는다(10-26 운영 실측)."""
+    import io
+    import zipfile
+
+    from zzaimy.app import webhwp_demo as d
+    from zzaimy.app import webhwp_fields as wf
+    from zzaimy.app import webhwp_write as ww
+    data, _ = wf.wrap_rest(d.blank_doc())
+    z = zipfile.ZipFile(io.BytesIO(data))
+    s = z.read("Contents/section0.xml").decode()
+    i = s.find('name="절:1. 김가람"')
+    e = s.find("<hp:t/>", i)
+    inner = wf.field_xml("문단:99", "", wf._Ids([s]))
+    s = s[:e] + "<hp:t>앞 </hp:t>" + inner.replace("<hp:t/>", "<hp:t>안쪽</hp:t>") + "<hp:t> 뒤</hp:t>" + s[e + len("<hp:t/>"):]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zo:
+        for info in z.infolist():
+            zo.writestr(info, s.encode() if info.filename == "Contents/section0.xml" else z.read(info.filename))
+    v = ww.field_values(buf.getvalue())
+    assert v["절:1. 김가람"] == "앞 안쪽 뒤" and "Clickhere" not in v["절:1. 김가람"]

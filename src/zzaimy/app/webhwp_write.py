@@ -102,7 +102,7 @@ def fields(data: bytes) -> list[dict]:
         xml = secs[n]
         for m in _BEGIN.finditer(xml):
             sp = _span(xml, m.group(1), m.end())
-            text = re.sub(r"<[^>]+>", "", xml[sp[0]:sp[1]]).strip() if sp else ""
+            text = re.sub(r"<[^>]+>", "", _PARAMS.sub("", xml[sp[0]:sp[1]])).strip() if sp else ""
             name = _unq(m.group(2))
             if name.startswith("문단:"):                       # 문서 전체 공동 편집용 칸(webhwp_fields.wrap_rest) — 쓸 자리가 아니다
                 continue
@@ -128,6 +128,7 @@ def field_values(data: bytes) -> dict[str, str]:
                 continue
             sp = _span(xml, m.group(1), m.end())
             frag = xml[sp[0]:sp[1]] if sp else ""
+            frag = _PARAMS.sub("", frag)                   # 칸 안에 든 칸(칸째 붙여넣기)의 설정값은 글이 아니다 — 「9Clickhere:set:…」 가 글로 읽혔다(10-26)
             frag = re.sub(r"<hp:lineBreak\s*/>|</hp:p>\s*<hp:p\b[^>]*>", "\n", frag)
             frag = re.sub(r"<hp:tab\b[^>]*/>", "\t", frag)
             out[name] = _unq(re.sub(r"<[^>]+>", "", frag))
@@ -135,6 +136,7 @@ def field_values(data: bytes) -> dict[str, str]:
 
 
 _TOK = re.compile(r"<hp:p\b[^>]*>|</hp:p>|<hp:run\b[^>]*>|</hp:run>|<hp:t(?=[\s>])[^>]*>")
+_PARAMS = re.compile(r"<hp:parameters\b.*?</hp:parameters>", re.S)
 _LB = re.compile(r"<hp:lineBreak\s*/>")
 
 
@@ -253,6 +255,7 @@ _ENT = re.compile(r"&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);|.", re.S)
 
 def _frag_text(frag: str) -> str:
     """field_values 와 같은 셈으로 필드 조각의 글."""
+    frag = _PARAMS.sub("", frag)
     f = re.sub(r"<hp:lineBreak\s*/>|</hp:p>\s*<hp:p\b[^>]*>", "\n", frag)
     f = re.sub(r"<hp:tab\b[^>]*/>", "\t", f)
     return _unq(re.sub(r"<[^>]+>", "", f))

@@ -434,4 +434,7 @@ coedit:form_mode=1 이면 예전 양식 모드.
   붙여 넣은 칸도 DB 의 옛 글로 되돌렸다(칸 표시가 든 칸은 서식 보존 길을 못 타 통째로). 이제 저장한 사람이 마지막으로 쓴 칸은 덮지 않고
   (overlay keep_author), 그 칸의 DB 글을 파일 글로 맞춘다(own_changes → put, 뒤이은 써 넣기가 되돌리지 않게). 남이 쓴 칸만 DB 글로 지킨다.
   겹친 이름은 다른 칸 안에 들어간 복사본 쪽을 새 이름으로 바꿔 원래 자리의 「절:2」 가 그 이름을 지킨다.
-- 시험: test_structure_save_wraps_new_paragraphs_and_renames_duplicates, test_structure_save_keeps_savers_own_fields.
+- 칸 안의 칸 설정값을 글로 읽던 것(운영 실측): 칸째 붙여넣기로 칸 안에 칸이 들면 서버의 칸 글 읽기(field_values·fields·_frag_text)가 안쪽 칸의
+  설정값(<hp:parameters> — 「9Clickhere:set:42:Direction…」)까지 글로 읽어 DB 에 넣었고, 화면들이 다시 맞추며 문서에 박혔다. 설정값을 빼고 읽는다.
+- 시험: test_structure_save_wraps_new_paragraphs_and_renames_duplicates, test_structure_save_keeps_savers_own_fields,
+  test_field_values_skip_nested_field_parameters.
