@@ -1,232 +1,26 @@
 {% extends "base.html" %}
-{% block title %}{{ '조직·구성원' if team_ok else '조직도' }}{% endblock %}
-{% block pagetitle %}{{ '조직·구성원' if team_ok else '조직도' }}{% endblock %}
-{% block head %}{% if tab == 'org' %}<link rel="stylesheet" href="/static/org-chart.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/people-picker.css?v={{ asset_v }}">
-<script src="/static/people-picker.js?v={{ asset_v }}" defer></script><script src="/static/org-chart.js?v={{ asset_v }}" defer></script>{% endif %}{% endblock %}
+{% block title %}조직 관리{% endblock %}
+{% block pagetitle %}조직 관리{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/org-chart.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/people-picker.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/aura-finder.css?v={{ asset_v }}">
+<script src="/static/people-picker.js?v={{ asset_v }}" defer></script><script src="/static/dept-drive.js?v={{ asset_v }}" defer></script>
+<script src="/static/org-chart.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
-<style>
-  .tm-tabs { display:flex; gap:2px; margin:0 0 14px; border-bottom:1px solid var(--line); }
-  .tm-tabs a { padding:8px 12px 9px; margin-bottom:-1px; font-size:13px; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; }
-  .tm-tabs a:hover { color:var(--ink); }
-  .tm-tabs a[aria-current="page"] { color:var(--ink); font-weight:600; border-bottom-color:#1b3b75; }
-  .tm-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
-  .tm-head p { margin:0; font-size:12.5px; color:var(--muted); }
-  /* 부서 고르기 — 찾기 칸 + 처·단 묶음 목록(팀·센터는 들여 씀), 화살표·Enter 로 고른다 */
-  .tm-dp { position:relative; flex:none; }
-  .tm-dp-btn { display:inline-flex; align-items:baseline; gap:8px; height:34px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:#fff;
-    font:inherit; font-size:13px; color:var(--ink); cursor:pointer; box-shadow:none; }
-  .tm-dp-btn:hover { border-color:#c3cedc; }
-  .tm-dp-btn:focus-visible { outline:0; border-color:#9fb3cf; box-shadow:0 0 0 3px #1b3b7518; }
-  .tm-dp-btn b { font-weight:600; align-self:center; }
-  .tm-dp-btn small { color:var(--faint, #94a3b8); font-size:11.5px; align-self:center; }
-  .tm-dp-btn .tm-dp-go { color:var(--muted); font-size:12px; align-self:center; padding-left:8px; border-left:1px solid var(--line); }
-  .tm-dp-pop { position:absolute; left:0; top:calc(100% + 6px); z-index:60; width:min(360px, calc(100vw - 32px)); padding:8px; border:1px solid var(--line); border-radius:12px;
-    background:#fff; box-shadow:0 14px 34px rgba(15,30,60,.16); }
-  .tm-dp-pop[hidden] { display:none; }
-  .tm-dp-q { display:flex; align-items:center; gap:6px; height:34px; padding:0 10px; margin-bottom:6px; border:1px solid var(--line); border-radius:8px; }
-  .tm-dp-q:focus-within { border-color:#9fb3cf; box-shadow:0 0 0 3px #1b3b7518; }
-  .tm-dp-q iconify-icon { color:var(--faint, #94a3b8); flex:none; }
-  .tm-dp-q input { flex:1; min-width:0; border:0 !important; outline:0; box-shadow:none !important; background:transparent; padding:0 !important; font:inherit; font-size:13px; }
-  .tm-dp-list { max-height:min(420px, 60vh); overflow:auto; }
-  .tm-dp-h { margin:8px 8px 3px; font-size:11.5px; font-weight:600; color:var(--faint, #94a3b8); }
-  .tm-dp-h:first-child { margin-top:2px; }
-  .tm-dp-list a, .tm-dp-top { display:flex; align-items:baseline; gap:6px; padding:6px 9px; border-radius:7px; font-size:13px; color:var(--ink); text-decoration:none; }
-  .tm-dp-list a.kid { padding-left:24px; }
-  .tm-dp-list a.top { font-weight:600; }
-  .tm-dp-top { font-weight:600; color:var(--muted); }
-  .tm-dp-list a small { color:var(--faint, #94a3b8); font-size:11.5px; font-weight:400; }
-  .tm-dp-list a:hover, .tm-dp-list a.on { background:#f1f4f8; }
-  .tm-dp-list a[aria-current="true"] { color:#1b3b75; background:#eef3fa; }
-  .tm-dp-list [hidden] { display:none; }
-  .tm-dp-none { margin:0; padding:10px 9px; font-size:12.5px; color:var(--muted); }
-  .tm-list { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-  .tm-row { display:grid; grid-template-columns:minmax(150px,1.2fr) 150px minmax(260px,2fr) auto; align-items:center; gap:12px; padding:9px 14px; border-bottom:1px solid var(--line); font-size:13px; }
-  .tm-row:last-child { border-bottom:0; }
-  .tm-row.head { background:var(--panel, #f7f9fb); font-size:11.5px; color:var(--muted); font-weight:600; padding:7px 14px; }
-  .tm-name small { display:block; color:var(--muted); font-size:11.5px; }
-  .tm-row select { font:inherit; font-size:12.5px; padding:4px 8px; border:1px solid var(--line); border-radius:7px; background:transparent; box-shadow:none; outline:0; }
-  .tm-row select:focus-visible { border-color:#9fb3cf; box-shadow:0 0 0 3px #1b3b7518; }
-  .tm-perms { display:flex; flex-wrap:wrap; gap:6px; }
-  /* 추가 권한 — 체크박스 대신 눌러 켜고 끄는 알약(켜지면 남색 띠·체크) */
-  .tm-perms label { position:relative; display:inline-flex; align-items:center; gap:6px; padding:4px 11px 4px 9px; border:1px solid var(--line); border-radius:999px;
-    font-size:12.5px; color:var(--muted); background:#fff; cursor:pointer; user-select:none; transition:background .15s, border-color .15s, color .15s; }
-  .tm-perms label:hover { border-color:#c3cedc; color:var(--ink); }
-  .tm-perms input { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
-  .tm-perms .tm-dot { width:14px; height:14px; border-radius:50%; border:1.5px solid #c3ccd8; background:#fff; flex:none; transition:all .15s; }
-  .tm-perms label:has(input:checked) { background:#eef3fa; border-color:#b9cbe4; color:#1b3b75; font-weight:600; }
-  .tm-perms label:has(input:checked) .tm-dot { border-color:#1b3b75; background:#1b3b75 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.2l2.3 2.3 4.7-4.9' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/11px no-repeat; }
-  .tm-perms label:has(input:focus-visible) { box-shadow:0 0 0 3px #1b3b7522; }
-  .tm-fixed { color:var(--muted); font-size:12px; }
-  .tm-by { color:var(--faint, #94a3b8); font-size:11.5px; white-space:nowrap; }
-  /* 찾기 칸·등급 묶음 머리 — 구성원이 많을 때 */
-  .tm-find { margin-left:auto; display:flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:1px solid var(--line); border-radius:8px; background:#fff; }
-  .tm-find:focus-within { border-color:#9fb3cf; box-shadow:0 0 0 3px #1b3b7518; }
-  .tm-find iconify-icon { color:var(--faint, #94a3b8); flex:none; }
-  .tm-find input { width:180px; border:0 !important; outline:0; box-shadow:none !important; background:transparent; padding:0 !important; font:inherit; font-size:13px; }
-  .tm-group { display:flex; align-items:baseline; gap:6px; padding:12px 14px 5px; border-bottom:1px solid var(--line); font-size:12px; font-weight:600; color:var(--ink); background:#fff; }
-  .tm-group small { font-weight:400; color:var(--faint, #94a3b8); font-size:11.5px; }
-  .tm-row[hidden], .tm-group[hidden] { display:none; }
-  .tm-none { padding:14px; margin:0; font-size:12.5px; color:var(--muted); }
-  @media (max-width:760px) { .tm-find { margin-left:0; } .tm-find input { width:100%; } .tm-head { flex-wrap:wrap; } }
-  @media (max-width:760px) { .tm-row { grid-template-columns:1fr; } .tm-row.head { display:none; } }
-</style>
-<nav class="tm-tabs" aria-label="조직·구성원 화면">
-  <a href="/team?tab=org"{% if tab == 'org' %} aria-current="page"{% endif %}>조직도</a>
-  {% if team_ok %}<a href="/team"{% if tab != 'org' %} aria-current="page"{% endif %}>구성원</a>{% endif %}
-</nav>
 {% if err %}<p class="notice" role="alert"><span>{{ err }}</span></p>{% endif %}
 {% if ok %}<p class="notice" role="status"><span>{{ ok }}</span></p>{% endif %}
-{% if tab == 'org' %}
-<div class="oc" id="orgChart" data-team='{{ team_scope | tojson }}'>
-  <div class="oc-bar">
-    <label class="oc-find"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" data-oc-find placeholder="부서 이름·옛 이름으로 찾기" aria-label="부서 찾기" autocomplete="off"><span class="oc-found" data-oc-found aria-live="polite"></span></label>
-    <button type="button" class="oc-btn" data-oc-sugg-btn aria-pressed="false" hidden>규정 제안 보기</button>
-    <span class="oc-gap"></span>
-    <button type="button" class="oc-btn" data-oc-foldall hidden>모두 접기</button>
-    <span class="oc-zoom" role="group" aria-label="크기">
-      <button type="button" class="oc-btn" data-oc-zoom="-1" aria-label="작게" title="작게">−</button>
-      <button type="button" class="oc-btn oc-zv" data-oc-zoom="fit" title="화면 너비에 맞추기">100%</button>
-      <button type="button" class="oc-btn" data-oc-zoom="1" aria-label="크게" title="크게">+</button>
-    </span>
-    {% if org_can %}<button type="button" class="oc-btn primary" data-oc-add hidden><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>부서 더하기</button>{% endif %}
-  </div>
-  <div class="oc-sugg" data-oc-sugg hidden></div>
-  <div class="od-view" data-od-view><div class="od-stage" data-od-stage><p class="oc-none">불러오는 중</p></div></div>
-</div>
-{% else %}
-<div class="tm-head">
-  {% if depts|length > 1 %}
-  <div class="tm-dp" data-tm-dp>
-    <button type="button" class="tm-dp-btn" data-tm-dp-btn aria-haspopup="dialog" aria-expanded="false"><b>{{ dept }}</b>{% if dept_top %}<small>{{ dept_top }}</small>{% endif %}<span class="tm-dp-go">부서 바꾸기</span></button>
-    <div class="tm-dp-pop" data-tm-dp-pop role="dialog" aria-label="부서 고르기" hidden>
-      <label class="tm-dp-q"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" data-tm-dp-q placeholder="부서 이름으로 찾기 · {{ depts|length }}개" aria-label="부서 이름으로 찾기" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="tmDpList"></label>
-      <div class="tm-dp-list" id="tmDpList" role="listbox" aria-label="부서" data-tm-dp-list>
-        {% if my_depts %}<div data-tm-dp-quick><p class="tm-dp-h">내 부서</p>{% for d in my_depts %}<a role="option" href="/team?dept={{ d|urlencode }}" data-tm-dp-opt data-key="{{ d|lower }}"{% if d == dept %} aria-current="true"{% endif %}>{{ d }}</a>{% endfor %}</div>{% endif %}
-        <div data-tm-dp-quick data-tm-dp-recent hidden><p class="tm-dp-h">최근에 본 부서</p></div>
-        {% for g in dept_groups %}
-        <div data-tm-dp-group>
-          {% if g.name and g.pick %}<a role="option" class="top" href="/team?dept={{ g.name|urlencode }}" data-tm-dp-opt data-key="{{ g.name|lower }}"{% if g.name == dept %} aria-current="true"{% endif %}>{{ g.name }}{% if g.kids %}<small>아래 {{ g.kids|length }}개</small>{% endif %}</a>
-          {% elif g.name %}<span class="tm-dp-top" data-key="{{ g.name|lower }}">{{ g.name }}</span>
-          {% else %}<p class="tm-dp-h">상위 없는 부서</p>{% endif %}
-          {% for d in g.kids %}<a role="option" class="{{ 'kid' if g.name else '' }}" href="/team?dept={{ d|urlencode }}" data-tm-dp-opt data-key="{{ (d ~ ' ' ~ g.name)|lower }}"{% if d == dept %} aria-current="true"{% endif %}>{{ d }}</a>{% endfor %}
-        </div>
-        {% endfor %}
-        <p class="tm-dp-none" data-tm-dp-none hidden>찾는 부서가 없습니다</p>
-      </div>
+{# 조직 관리 — 왼쪽 부서 트리(맨 위 「전체 사용자」), 오른쪽 고른 것의 상세. 그리기와 고치기는 static/org-chart.js #}
+<div class="om" id="orgAdmin" data-admin="{{ '1' if org_admin else '' }}" data-accounts="{{ '1' if accounts_ok else '' }}"
+     data-start-dept="{{ start_dept }}" data-start-view="{{ start_view }}"
+     {% if accounts_ok %}data-roles='{{ roles | tojson }}'{% endif %}>
+  <aside class="om-side" aria-label="부서">
+    <div class="om-side-head control-row">
+      <label class="om-find"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" data-om-find placeholder="부서 찾기" aria-label="부서 찾기" autocomplete="off"></label>
+      <button type="button" class="btn-ghost" data-org-add hidden title="맨 위에 부서 더하기"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>부서</button>
     </div>
-  </div>
-  {% else %}<strong>{{ dept }}</strong>{% endif %}
-  <p>{% if actor_grade == 'lead' %}일반 직원의 추가 권한 · 바꾸면 바로 저장{% else %}같은 부서 직원의 등급과 추가 권한 · 바꾸면 바로 저장{% endif %}</p>
-  {% if rows %}<label class="tm-find"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon><input type="search" data-tm-find placeholder="이름·아이디로 찾기" aria-label="이름·아이디로 찾기" autocomplete="off"></label>{% endif %}
+    <div class="om-tree" role="tree" aria-label="부서 트리" data-om-tree><p class="om-none">불러오는 중</p></div>
+    <div class="om-top-drop" data-om-topdrop hidden>여기에 놓으면 맨 위로</div>
+  </aside>
+  <section class="om-main" data-om-main aria-live="polite"></section>
 </div>
-{% include "_dept_drive.html" %}
-<div class="tm-list" role="table" aria-label="{{ dept }} 사람">
-  <div class="tm-row head" role="row"><span>사람</span><span>등급</span><span>추가 권한</span><span></span></div>
-  {# 등급별 묶음 — 총괄 책임자 · 사업 책임자 · 행정 담당자 · 일반(같은 묶음 안은 소속·이름 차례 그대로) #}
-  {% for g, glabel in [('head', '총괄 책임자'), ('lead', '사업 책임자'), ('clerk', '행정 담당자'), ('member', '일반')] %}
-  {% set grp = rows|selectattr('grade', 'equalto', g)|list if g != 'member' else rows|rejectattr('grade', 'in', ['head', 'lead', 'clerk'])|list %}
-  {% if grp %}
-  <div class="tm-group" role="row" data-tm-group><span>{{ glabel }}</span><small data-tm-count>{{ grp|length }}명</small></div>
-  {% for r in grp %}
-  <form class="tm-row" role="row" method="post" action="/team/save" data-tm-row data-tm-key="{{ (r.name ~ ' ' ~ r.uid)|lower }}">
-    <input type="hidden" name="uid" value="{{ r.uid }}"><input type="hidden" name="dept" value="{{ dept }}">
-    <span class="tm-name">{{ r.name }}<small>{{ r.uid }}{% if r.home %} · 겸직(소속 {{ r.home }}){% endif %}</small></span>
-    {% if r.editable %}
-    {% if r.grade_editable %}<select name="grade" aria-label="{{ r.name }} 등급" onchange="this.form.requestSubmit()">{% for k, v in team_grades.items() %}<option value="{{ k }}"{% if r.grade == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>{% else %}<span class="tm-fixed">{{ r.grade_label }}</span>{% endif %}
-    <span class="tm-perms">{% for k, v in perms.items() %}{% if actor_grade != 'lead' or k in lead_grantable %}<label><input type="checkbox" name="perm" value="{{ k }}"{% if k in r.perms %} checked{% endif %} onchange="this.form.requestSubmit()"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% elif k in r.perms %}<span class="tm-fixed">{{ v }}</span>{% endif %}{% endfor %}</span>
-    {% else %}
-    <span class="tm-fixed">{{ r.grade_label }}</span><span class="tm-fixed">{{ '총괄 책임자가 정합니다' if actor_grade == 'lead' else '관리자가 정합니다' }}</span>
-    {% endif %}
-    <span class="tm-by">{% if r.by %}{{ r.by }} 님이 정함{% endif %}</span>
-  </form>
-  {% endfor %}
-  {% endif %}
-  {% endfor %}
-  {% if not rows %}<p class="tm-fixed" style="padding:14px">이 부서에 사용 중인 교직원 계정이 없습니다</p>{% endif %}
-  <p class="tm-none" data-tm-none hidden>찾는 사람이 없습니다</p>
-</div>
-{% endif %}
-<script>
-(function () {
-  // 부서 고르기 — 찾기 칸에 적으면 처·단 묶음째 거르고, 화살표·Enter 로 고른다. 최근에 본 부서는 이 브라우저에만 기억(막혀 있으면 건너뜀)
-  var dp = document.querySelector('[data-tm-dp]'); if (!dp) return;
-  var btn = dp.querySelector('[data-tm-dp-btn]'), pop = dp.querySelector('[data-tm-dp-pop]'), q = dp.querySelector('[data-tm-dp-q]');
-  var list = dp.querySelector('[data-tm-dp-list]'), none = dp.querySelector('[data-tm-dp-none]'), recentBox = dp.querySelector('[data-tm-dp-recent]');
-  var KEY = 'tm.recent', cur = {{ dept | tojson }};
-  function nameOf(a) { return (a.firstChild && a.firstChild.nodeValue || '').trim(); }
-  var known = {};
-  list.querySelectorAll('[data-tm-dp-group] [data-tm-dp-opt]').forEach(function (a) { known[nameOf(a)] = a.getAttribute('href'); });
-  var recent = [];
-  try { recent = JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch (e) { recent = []; }
-  recent = recent.filter(function (d) { return typeof d === 'string' && known[d] && d !== cur; }).slice(0, 5);
-  try { localStorage.setItem(KEY, JSON.stringify([cur].concat(recent).slice(0, 6))); } catch (e) {}
-  recent.forEach(function (d) {
-    var a = document.createElement('a');
-    a.setAttribute('role', 'option'); a.setAttribute('data-tm-dp-opt', ''); a.setAttribute('data-key', d.toLowerCase());
-    a.href = known[d]; a.textContent = d; recentBox.appendChild(a);
-  });
-  recentBox.hidden = !recent.length;
-  function opts() { return Array.prototype.filter.call(list.querySelectorAll('[data-tm-dp-opt]'), function (a) { return a.offsetParent !== null; }); }
-  function mark(a) {
-    list.querySelectorAll('.on').forEach(function (x) { x.classList.remove('on'); });
-    if (a) { a.classList.add('on'); a.scrollIntoView({block: 'nearest'}); }
-  }
-  function filter() {
-    var words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
-    list.querySelectorAll('[data-tm-dp-quick]').forEach(function (b) { b.hidden = !!words.length || (b === recentBox && !recent.length); });
-    list.querySelectorAll('[data-tm-dp-group]').forEach(function (g) {
-      var n = 0;
-      g.querySelectorAll('[data-tm-dp-opt]').forEach(function (a) {
-        var key = a.getAttribute('data-key') || '', hit = words.every(function (w) { return key.indexOf(w) >= 0; });
-        a.hidden = !hit; if (hit) n++;
-      });
-      g.hidden = !n; shown += n;
-    });
-    none.hidden = !!shown;
-    var all = opts();
-    mark(words.length ? all[0] : (all.filter(function (a) { return a.getAttribute('aria-current') === 'true'; })[0] || null));
-  }
-  function open(on) {
-    pop.hidden = !on; btn.setAttribute('aria-expanded', on ? 'true' : 'false');
-    if (on) { q.value = ''; filter(); q.focus(); }
-  }
-  btn.addEventListener('click', function () { open(pop.hidden); });
-  q.addEventListener('input', filter);
-  q.addEventListener('keydown', function (e) {
-    var all = opts(), i = all.indexOf(list.querySelector('.on'));
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (!all.length) return;
-      i = e.key === 'ArrowDown' ? Math.min(all.length - 1, i + 1) : Math.max(0, i - 1);
-      mark(all[i]);
-    } else if (e.key === 'Enter') {
-      e.preventDefault(); if (all[i]) location.href = all[i].href;
-    } else if (e.key === 'Escape') {
-      e.preventDefault(); open(false); btn.focus();
-    }
-  });
-  pop.addEventListener('keydown', function (e) { if (e.key === 'Escape') { open(false); btn.focus(); } });
-  document.addEventListener('mousedown', function (e) { if (!pop.hidden && !dp.contains(e.target)) open(false); });
-})();
-</script>
-<script>
-(function () {
-  // 찾기 — 이름·아이디로 줄을 거르고, 다 숨은 묶음은 머리도 숨긴다(글자는 textContent 로만 다룬다)
-  var box = document.querySelector('[data-tm-find]'); if (!box) return;
-  var none = document.querySelector('[data-tm-none]');
-  box.addEventListener('input', function () {
-    var words = box.value.trim().toLowerCase().split(/\s+/).filter(Boolean), shown = 0;
-    document.querySelectorAll('[data-tm-group]').forEach(function (head) {
-      var n = 0, el = head.nextElementSibling;
-      while (el && el.hasAttribute('data-tm-row')) {
-        var key = el.getAttribute('data-tm-key') || '', hit = words.every(function (w) { return key.indexOf(w) >= 0; });
-        el.hidden = !hit; if (hit) n++;
-        el = el.nextElementSibling;
-      }
-      head.hidden = !n; head.querySelector('[data-tm-count]').textContent = n + '명'; shown += n;
-    });
-    if (none) none.hidden = !!shown;
-  });
-})();
-</script>
+{% if accounts_ok %}{% include "_user_edit.html" %}{% endif %}
 {% endblock %}

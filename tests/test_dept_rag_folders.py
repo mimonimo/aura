@@ -112,8 +112,7 @@ def test_users_page_creates_dept_shared_with_rag(tmp_path):
     r = c.post("/dev/users/dept", data={"action": "create", "name": "교무처"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     assert "교무처" in c.get("/dev/rag").text                                   # 부서 RAG 로 바로 보인다
-    page = c.get("/dev/users").text
-    assert 'id="depts"' in page and "교무처" in page and 'action="/dev/users/dept"' in page
+    assert any(n["name"] == "교무처" for n in c.get("/api/org").json()["nodes"])   # 조직 관리 트리에 바로 보인다
     assert '<option value="교무처"' in c.get("/?type=all").text                 # 검색 범위·폴더 범위에서 고른다
     c.post("/dev/users/dept", data={"action": "delete", "name": "교무처"})
     assert "교무처" not in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})

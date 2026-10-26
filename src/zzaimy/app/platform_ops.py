@@ -260,7 +260,7 @@ OPS: dict[str, Op] = {o.key: o for o in (
        "/dev/rag#student-regs", ("dev",), _register_check, _register_run, 'data-rr="register"'),
     Op("dept_rag.create", "부서·부서 RAG 만들기",
        "새 부서와 빈 부서 RAG 만들기. args {name: 부서 이름}",
-       "/dev/users#depts", ("dev",), _dept_check, _dept_run, 'data-org-link'),   # 화면에서는 조직도(/team)로 가는 바로가기
+       "/team", ("dev",), _dept_check, _dept_run, 'data-org-add'),   # 조직 관리 트리 위 「부서」
     Op("project.start", "프로젝트 만들고 문서 작성 대화 시작",
        "문서를 쓰고 싶다는 담당자에게 프로젝트를 만들고 그 프로젝트의 에이전트 대화에 첫 요청을 보내기. "
        "args {sector: 업무 영역, name: 프로젝트 이름, due_date: 마감 YYYY-MM-DD(선택), first_request: 담당자 뜻을 정리한 첫 요청}",

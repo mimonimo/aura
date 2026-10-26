@@ -14,7 +14,7 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     ("검색·지식", [("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색"), ("/dev/quality", "품질·성능")]),
     ("문서 작성", [("/dev/coedit-demo", "공동 편집 시연")]),
     ("모델 학습", [("/dev/train", "데이터·학습"), ("/dev/collect", "수집 자료"), ("/dev/tools", "도구·모델 연결")]),
-    ("보안·관리", [("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검")]),
+    ("보안·관리", [("/dev/users", "구글 계정 연결"), ("/dev/pii", "개인정보·반출 점검")]),
 ]
 
 # 사이드바에 없는 개발 화면

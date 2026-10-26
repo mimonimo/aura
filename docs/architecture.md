@@ -151,7 +151,7 @@ for 절 in 목차:
 - 열람 등급 값 체계는 학교 기준이 확정되면 바꾼다. 필드와 필터 경로가 이미 있어 값 교체에 재색인이 필요 없다.
 - 작업 권한은 열람과 따로 교직원 등급으로 나눈다(`app/grades.py`, ADR-0066) — 일반·행정 담당자·사업 책임자·총괄 책임자와 관리자(최대 2명).
   권한 판단은 소속 부서 등급만 보고, 겸직 등급은 그 부서 안에서만 쓴다. 부서 단위는 두 단계(총괄 책임자 = 처·단, 사업 책임자·행정 담당자 = 팀·센터)이며
-  조직도(`app/org_routes.py`)에서 관리자와 맡은 처·단의 총괄 책임자만 고치고, 고치는 검사·쓰기·되돌리기는 공용 잠금 하나 안에서 한다.
+  조직 관리(/team, `app/org_routes.py`)에서 관리자와 맡은 처·단의 총괄 책임자만 고치고, 고치는 검사·쓰기·되돌리기는 공용 잠금 하나 안에서 한다.
 - 부서 드라이브(`app/dept_drive_routes.py`, `ingest/dept_drive.py`)는 부서 총괄 책임자가 부서 공용 학교 계정으로 연결한다. 그 계정 토큰은 부서 폴더 안
   문서를 만들고 다룰 때만 쓰고(`gdrive_files.doc_account_for`), 드라이브 찾기·가져오기·쓸 계정 목록은 본인 계정만 받는다. 관리자는 연결 상태를 확인만 한다.
 
@@ -229,11 +229,11 @@ for 절 in 목차:
 | 반입 점검(처리 흐름) · 구글 앱 등록 | dev_intake_routes.py · dev_gdrive_routes.py | /dev/intake, /dev/gdrive/* (앱 등록 화면은 /dev/users#google-links) |
 | 논문·설계 문서·주간 보고·변경 이력 | dev_docs_routes.py | /dev/docs, /dev/doc/*, /dev/paper/*, /dev/weekly*, /dev/history |
 | 한글 문서함·기안기 편집 | webhwp_routes.py | /hwp, /hwp/{id}/edit, /hwp/favorite, /webhwpctrl/ |
-| 조직도 | org_routes.py | /api/org, /org/* |
+| 조직 관리(트리·부서) | org_routes.py | /api/org, /org/* |
 | 부서 드라이브 | dept_drive_routes.py | /team/drive* |
 | 사업 관리 | program_admin.py | /programs/admin* |
 
-이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), user_admin.py(/dev/users, 조직·구성원 /team), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
+이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), user_admin.py(/dev/users 구글 연결, 조직 관리 /team·/api/org/accounts·/api/org/members), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
 앱이 띄우는 긴 배경 작업(재측정·재색인·반입 점검)은 `app/detach.py` 로 systemd scope 에 떼어 서비스 재시작에 끊기지 않는다.
 
 ## 10.2 웹 한글 기안기 공동 편집 (ADR-0070, 10-24)

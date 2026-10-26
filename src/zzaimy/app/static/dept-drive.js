@@ -1,4 +1,4 @@
-/* 부서 드라이브 — 부서가 함께 쓸 구글 계정을 연결하는 작은 카드(templates/_dept_drive.html)와 부서 폴더 위치 고르기 창.
+/* 부서 드라이브 — 부서가 함께 쓸 구글 계정을 연결하는 작은 카드(조직 관리의 부서 설정 안, org-chart.js 가 상자를 만든다)와 부서 폴더 위치 고르기 창.
    카드: <div data-dept-drive data-dept="부서"> 를 찾아 GET /team/drive?dept= 로 상태를 받아 그린다.
    위치 고르기: AuraDrivePicker.open({dept, folderName}) → Promise 취소 null, 고르면 {id, path} — 파인더 꼴(aura-finder.css)로
    왼쪽 내 드라이브·공유 드라이브, 가운데 폴더 목록(한 번 눌러 고르기, 두 번 누르거나 Enter 로 들어가기), 위 경로·뒤로·찾기.
@@ -113,16 +113,10 @@
   window.AuraDrivePicker = { open: openPicker };
 
   // ---------------------------------------------------------------- 부서 쪽 카드
+  // 확인은 공통 확인창(workspace-navigation.js 의 platformConfirm) — 연결 끊기처럼 되돌리기 어려운 것은 빨간 확인 단추
   function confirmBox(text, okLabel) {
-    return new Promise(resolve => {
-      const d = el('dialog', 'dd-confirm'); d.setAttribute('aria-label', '확인');
-      const p = el('p', null, text), row = el('div', 'dd-confirm-row');
-      const no = el('button', 'secondary', '취소'), yes = el('button', null, okLabel || '확인');
-      no.type = yes.type = 'button'; row.append(no, yes); d.append(p, row); document.body.append(d); d.showModal(); no.focus();
-      const end = v => { resolve(v); d.close(); };
-      no.onclick = () => end(false); yes.onclick = () => end(true);
-      d.addEventListener('close', () => { d.remove(); resolve(false); });
-    });
+    if (window.platformConfirm) return window.platformConfirm(text, { title: okLabel || '확인', ok: okLabel || '확인', danger: true });
+    return Promise.resolve(window.confirm(text));
   }
   window.AuraDriveConfirm = confirmBox;
 
@@ -149,7 +143,7 @@
     const msg = el('p', 'dd-msg'); msg.setAttribute('role', 'status'); box.append(msg);
     if (!s.can_manage) return;
     const acts = el('div', 'dd-acts'); box.append(acts);
-    const btn = (label, cls, fn) => { const b = el('button', cls || 'secondary', label); b.type = 'button'; b.onclick = fn; acts.append(b); return b; };
+    const btn = (label, cls, fn) => { const b = el('button', cls === '' ? null : (cls || 'btn-ghost'), label); b.type = 'button'; b.onclick = fn; acts.append(b); return b; };
     const run = async (url, data, b) => {
       msg.textContent = ''; msg.classList.remove('bad'); if (b) b.disabled = true;
       try {
@@ -167,18 +161,18 @@
     };
     if (!s.app_ready) { line('구글 앱 등록 전이라 아직 연결할 수 없습니다', 'dd-line muted'); return; }
     if (!s.connected) {
-      btn('구글 드라이브 연결', 'dd-primary', connect);
+      btn('구글 드라이브 연결', '', connect);
       line('부서가 함께 쓸 학교 계정(' + (s.domain ? '@' + s.domain : '학교 계정') + ', 부서 공용 메일 권장)으로 로그인합니다', 'dd-line dd-note');
       return;
     }
-    btn(s.personal ? '공용 계정으로 바꾸기' : '다시 연결', 'secondary', connect);
-    btn('위치 바꾸기', 'secondary', async () => {
+    btn(s.personal ? '공용 계정으로 바꾸기' : '다시 연결', 'btn-ghost', connect);
+    btn('위치 바꾸기', 'btn-ghost', async () => {
       const got = await openPicker({ dept: s.dept, folderName: s.folder_name, title: s.dept + ' 부서 폴더 위치' });
       if (got) run('/team/drive/move', { parent: got.id });
     });
-    const sync = btn('권한 맞추기', 'secondary', () => run('/team/drive/sync', {}, sync));
+    const sync = btn('권한 맞추기', 'btn-ghost', () => run('/team/drive/sync', {}, sync));
     sync.title = '부서 사람이 바뀌었거나 구글을 새로 연결했을 때 — 보통은 저절로 맞춥니다';
-    btn('연결 끊기', 'dd-danger', async () => {
+    btn('연결 끊기', 'btn-ghost danger-text', async () => {
       if (await confirmBox(s.dept + ' 부서 드라이브 연결을 끊을까요? 부서 사람의 폴더 권한을 거두고, 폴더와 문서는 ' + s.account + ' 드라이브에 남습니다.', '연결 끊기')) run('/team/drive/disconnect');
     });
   }

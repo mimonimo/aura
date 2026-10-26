@@ -37,7 +37,7 @@ def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
     c = _dev(tmp_path)
     page = c.get("/dev/users").text
-    assert "사용자·계정" in page and "zzaimy" in page and "허용 도메인 ync.ac.kr" in page
+    assert "구글 계정 연결" in page and "허용 도메인 ync.ac.kr" in page and "zzaimy" in c.get("/api/org/accounts").text
     c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})     # 부서는 만든 뒤 고른다(부서 RAG = 부서 목록)
     r = c.post("/dev/users/save", data={"uid": "Kim_ops", "is_new": "1", "name": "김담당", "role": "staff", "dept": "산학협력단",
                                         "new_pw": "init-pass-1", "google": "kim@ync.ac.kr"}, follow_redirects=False)
@@ -101,8 +101,9 @@ def test_account_status_ui_new_edit_and_reopen(tmp_path, monkeypatch):
     import pytest
 
     _fake_google(monkeypatch)
-    page = _dev(tmp_path).get("/dev/users").text
-    assert '<details' not in page and '<option value="student">' not in page
+    page = _dev(tmp_path).get("/team").text                                # 계정 편집 창은 조직 관리 「전체 사용자」(ADR-0073)
+    modal = page[page.index('id="userEdit"'):]
+    assert '<details' not in modal and '<option value="student">' not in modal
     assert 'data-account-status hidden' in page
     assert 'name="suspended"' in page and '계정 사용 중지' in page
     assert '계정과 기존 자료는 삭제되지 않습니다.' in page
@@ -113,11 +114,11 @@ def test_account_status_ui_new_edit_and_reopen(tmp_path, monkeypatch):
     script = next(s for s in re.findall(r'<script[^>]*>(.*?)</script>', page, re.S) if 'syncAccountStatus' in s)
     harness = r'''
 const assert = require('node:assert/strict');
-const control = () => ({value:'', checked:false, addEventListener(k, fn) { this[k] = fn; }});
+const control = () => ({value:'', checked:false, focus(){}, addEventListener(k, fn) { this[k] = fn; }});
 const f = {elements:{}, addEventListener(k, fn) { this[k] = fn; }};
 for (const key of ['is_new','uid','name','role','dept','google','active','suspended','new_pw']) f.elements[key] = f[key] = control();
-let isNew = true;
-const btn = {dataset:{user:'worker',role:'staff',active:'1'}, hasAttribute() {return isNew;}, addEventListener(k, fn) {this[k] = fn;}};
+global.window = {};
+const modal = {classList:{add(){}}};
 const status = {hidden:true}, title = {}, save = {}, pw = {};
 const options = {hidden:true, open:false, insertBefore(){}, appendChild(){}, querySelector(){return {};}};
 const initial = {appendChild(){}};
@@ -127,18 +128,19 @@ f.role.options = [{value:'staff'}, {value:'head'}, {value:'dev'}];
 f.dept.querySelectorAll = () => [];
 f.dept.options = [{value:''}];
 global.document = {
- getElementById() { return options; },
+ getElementById(id) { return id === 'userEdit' ? modal : options; },
  querySelector(s) { return s.includes('data-password-toggle') ? passwordToggle : s.endsWith(' form') ? f : s.includes('data-account-options') ? options : s.includes('data-initial-password') ? initial : s.includes('data-password-field') ? {} : s.includes('data-account-status') ? status : s.includes('data-save-user') ? save : s.includes('data-pw-label') ? pw : title; },
- querySelectorAll(s) { return s === '[data-modal-open="#userEdit"]' ? [btn] : []; }
+ querySelectorAll(s) { return []; }
 };
 '''
     checks = r'''
-btn.click(); assert.equal(status.hidden, true); assert.equal(f.suspended.disabled, true); assert.equal(f.active.value, '1'); assert.equal(save.textContent, '사용자 추가');
-isNew = false; btn.click(); assert.equal(status.hidden, false); assert.equal(f.suspended.checked, false); assert.equal(f.suspended.disabled, false);
+const open = u => window.omUserEdit(u);
+open(null); assert.equal(status.hidden, true); assert.equal(f.suspended.disabled, true); assert.equal(f.active.value, '1'); assert.equal(save.textContent, '사용자 추가');
+open({user:'worker', role:'staff', active:true}); assert.equal(status.hidden, false); assert.equal(f.suspended.checked, false); assert.equal(f.suspended.disabled, false);
 f.suspended.checked = true; f.suspended.change(); assert.equal(f.active.value, '');
-btn.dataset.active = ''; btn.click(); assert.equal(f.suspended.checked, true);
+open({user:'worker', role:'staff', active:false}); assert.equal(f.suspended.checked, true);
 f.suspended.checked = false; f.submit(); assert.equal(f.active.value, '1');
-isNew = true; btn.click(); assert.equal(status.hidden, true); assert.equal(f.suspended.checked, false); assert.equal(f.active.value, '1');
+open(null); assert.equal(status.hidden, true); assert.equal(f.suspended.checked, false); assert.equal(f.active.value, '1');
 '''
     subprocess.run([node, '-e', harness + script + checks], check=True, capture_output=True, text=True)
 
@@ -154,14 +156,14 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
     c2 = TestClient(c.app)
     _login(c2, "zzaimy", "boot-pass-1")
     assert c2.get("/account/google").json()["effective"] == ""
-    assert "연결 전" in c.get("/dev/users").text
+    assert c.get("/api/org/accounts").json()["users"][0]["effective"] == ""
     c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
     assert gdrive.allowed_domain() == "ync.ac.kr"
     assert "err=" in c.post("/dev/google/settings", data={"domain": "not a domain"}, follow_redirects=False).headers["location"]
     # 관리자 화면의 부서 드라이브는 확인용 — 연결은 부서 쪽(/team/drive/connect)에서. 예전 연결 요청은 안내만 한다
     c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})
     r = c.post("/dev/google/dept", data={"dept": "산학협력단", "action": "connect"}, headers={"Accept": "application/json"})
-    assert r.status_code == 400 and "조직·구성원" in r.json()["msg"]
+    assert r.status_code == 400 and "조직 관리" in r.json()["msg"]
     db.set_setting("google_account_dept:산학협력단", "dev@ync.ac.kr")
     # 연결 삭제는 토큰과 사용자·부서 이음을 함께 푼다
     db.set_setting("google_account:zzaimy", "dev@ync.ac.kr")
@@ -214,7 +216,7 @@ def test_dept_is_picked_from_known_list(tmp_path, monkeypatch):
                                                          "grants": {"zzaimy": ["dept:가상 학생처"]}}), encoding="utf-8")
     names = known_depts(db, c.app.state.accounts, tmp_path)
     assert {"가상 기획처", "가상 교무처", "가상 학생처"} <= set(names) and "공통" not in names and "" not in names
-    page = c.get("/dev/users").text
+    page = c.get("/team").text
     assert '<select name="dept">' in page and "정하지 않음(공통 RAG만)" in page and ">가상 교무처<" in page
     assert 'role="switch"' in page and 'class="ua-switch"' in page
 
@@ -236,7 +238,7 @@ def test_admin_password_is_generated_temporary_with_copy(tmp_path, monkeypatch):
     from zzaimy.app import passwords
 
     _fake_google(monkeypatch)
-    page = _dev(tmp_path).get("/dev/users").text
+    page = _dev(tmp_path).get("/team").text
     field = re.search(r'<input id="uaTempPw"[^>]*>', page).group(0)
     assert 'type="text"' in field and "readonly" in field and 'name="new_pw"' in field
     assert f'minlength="{passwords.MIN_LENGTH}"' in field
@@ -303,23 +305,6 @@ def test_disconnect_refuses_when_share_revocation_fails(tmp_path, monkeypatch):
     app.state.before_google_disconnect = lambda u, e: True
     TestClient(app).post("/account/google/disconnect", follow_redirects=False)
     assert db.get_setting("google_account:zzaimy", "") == "" and dropped == ["kim@ync.ac.kr"]
-
-
-def test_dept_card_has_only_working_buttons(tmp_path, monkeypatch):
-    """부서 카드 — 라이브러리로 옮겨만 가던 「문서 넣기」는 없고, 드라이브 연결 확인·지우기만 남는다.
-    부서 만들기·상위 부서 옮기기는 조직도(/team, ADR-0066) 한 곳으로 합쳐 카드에는 「조직도에서 부서 추가」 바로가기만(10-25)."""
-    _fake_google(monkeypatch)
-    c = _dev(tmp_path)
-    c.post("/dev/rag/dept", data={"action": "create", "name": "교무처"})
-    page = c.get("/dev/users").text
-    card = page[page.index('id="depts"'):page.index('id="peopleView"')]
-    assert "문서 넣기" not in card and 'href="/?type=all"' not in card
-    assert "연결 전" in card and "#deptEdit" not in card and "드라이브 연결" not in card     # 관리자는 확인만(연결은 부서에서)
-    assert 'data-people-open="교무처"' in card and "data-parent-open" not in card and 'id="deptCreate"' not in page
-    assert "/?type=all&amp;scope=%EA%B5%90%EB%AC%B4%EC%B2%98" in card                  # 문서 수 → 그 부서 문서 목록
-    assert "ua-steps" not in card and card.count('class="ua-lead"') == 1               # 설명은 한 줄
-    assert 'name="action" value="delete"' in card and 'href="/team" data-org-link' in card and "조직도에서 부서 추가" in card
-    assert 'id="parentPick"' not in page and page.count("조직도에서 부서 추가") == 2                 # 부서 카드 · 사용자 창
 
 
 def test_login_mode_turns_off_shared_google_fallback(tmp_path):

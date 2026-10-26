@@ -72,14 +72,15 @@ def test_view_activity_follows_program_designation():
 
 def test_grade_saved_only_for_staff_and_shown(tmp_path):
     app, c = _dev(tmp_path)
-    page = c.get("/dev/users").text
+    page = c.get("/team").text                                                # 계정 편집 창은 조직 관리(ADR-0073)
     assert 'name="grade"' in page and "data-grade-field" in page
     r = c.post("/dev/users/save", data={"uid": "kimhead", "is_new": "1", "role": "staff", "grade": "head",
                                         "new_pw": "init-pass-1"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     data = json.loads((tmp_path / "accounts.json").read_text())
     assert data["kimhead"]["grade"] == "head"
-    assert '교직원</span> · <span class="ua-nw">총괄 책임자' in c.get("/dev/users").text  # 좁은 화면에서 줄이 갈리지 않게 낱말마다 묶음
+    me = next(u for u in c.get("/api/org/accounts").json()["users"] if u["user"] == "kimhead")
+    assert (me["role_label"], me["grade_label"]) == ("교직원", "총괄 책임자")
     # 등급을 보내지 않으면 지금 값 유지
     c.post("/dev/users/save", data={"uid": "kimhead", "role": "staff", "active": "1"})
     assert json.loads((tmp_path / "accounts.json").read_text())["kimhead"]["grade"] == "head"
@@ -273,8 +274,9 @@ def test_team_page_head_grants_same_dept_only(tmp_path):
     _add(app, "park", dept="교무처", grade="member")
     _add(app, "boss2", dept="기획처", grade="head")
     boss = _client(app, "boss")
-    page = boss.get("/team").text
-    assert "kim" in page and "park" not in page
+    uids = [r["uid"] for r in boss.get("/api/org/members", params={"dept": "기획처"}).json()["rows"]]
+    assert "kim" in uids and "park" not in uids
+    assert boss.get("/api/org/members", params={"dept": "교무처"}).status_code == 403
     r = boss.post("/team/save", data={"uid": "kim", "grade": "member", "perm": ["create_project"]}, follow_redirects=False)
     assert r.status_code == 303 and app.state.accounts["kim"]["perms"] == ["create_project"]
     assert app.state.accounts["kim"]["perms_by"] == "boss" and grades.can_create_project(app.state.accounts["kim"])
@@ -284,8 +286,9 @@ def test_team_page_head_grants_same_dept_only(tmp_path):
     boss.post("/team/save", data={"uid": "kim", "grade": "head"}, follow_redirects=False)
     assert app.state.accounts["kim"]["grade"] == "member"                 # 총괄 책임자 지정은 관리자만
     kim = _client(app, "kim")
-    assert kim.get("/team").status_code == 403                             # 본인이 권한을 고르지 못한다
-    assert "/team" in boss.get("/chat").text and 'href="/team"' not in kim.get("/chat").text
+    assert kim.get("/api/org/members", params={"dept": "기획처"}).status_code == 403   # 본인이 권한을 고르지 못한다
+    assert kim.post("/api/org/members", json={"dept": "기획처", "op": "perms", "uids": ["kim"], "value": ["create_project"]}).status_code == 403
+    assert 'href="/team"' in boss.get("/chat").text and 'href="/team"' in kim.get("/chat").text   # 조직 관리는 교직원 누구나(보기)
     assert dev.get("/team?dept=교무처").status_code == 200
 
 
@@ -375,8 +378,9 @@ def test_team_page_multi_dept_head(tmp_path):
     _add(app, "lee", dept="기획처", grade="member")
     app.state.save_accounts()
     kim = _client(app, "kim")
-    page = kim.get("/team").text
-    assert "park" in page and "겸직(소속 교무처)" in page and "lee" not in page   # 맡은 부서는 가나사업단뿐
+    rows = kim.get("/api/org/members", params={"dept": "가나사업단"}).json()["rows"]
+    assert [(r["uid"], r["home"]) for r in rows if r["uid"] == "park"] == [("park", "교무처")]   # 겸직(소속 교무처)
+    assert kim.get("/api/org/members", params={"dept": "기획처"}).status_code == 403          # 맡은 부서는 가나사업단뿐
     kim.post("/team/save", data={"uid": "park", "dept": "가나사업단", "grade": "lead"}, follow_redirects=False)
     assert app.state.accounts["park"]["dept_grades"]["가나사업단"] == "lead" and app.state.accounts["park"]["grade"] == "member"
     assert kim.post("/team/save", data={"uid": "lee", "dept": "기획처", "grade": "lead"}, follow_redirects=False).status_code == 403

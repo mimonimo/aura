@@ -605,9 +605,9 @@ document.addEventListener('submit', function(event) {
       <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
     {% endif %}
     {% set _team_mgr = program_scope is defined and program_scope(request) in ('all', 'dept') or (program_scope is defined and request_grade is defined and request_grade(request) == 'lead') %}
-    {% if _team_mgr or request.state.role in ('staff', 'professor', 'head') %}{# 조직도는 교직원 누구나 보기, 구성원(권한 주기)은 책임자 이상 #}
-    <a href="{{ '/team' if _team_mgr else '/team?tab=org' }}" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="{{ '조직도와 구성원 등급·권한' if _team_mgr else '학교 조직도' }}">
-      <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>{{ '조직·구성원' if _team_mgr else '조직도' }}</a>
+    {% if _team_mgr or request.state.role in ('staff', 'professor', 'head') %}{# 조직 관리 — 트리·부서 개요는 교직원 누구나, 구성원·설정은 권한만큼 #}
+    <a href="/team" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="부서 트리와 구성원·부서 설정{{ '·계정' if request.state.role == 'dev' else '' }}">
+      <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>조직 관리</a>
     {% endif %}
     {% endif %}
   </nav>
@@ -745,7 +745,7 @@ document.addEventListener('submit', function(event) {
           <span class="um-who"><span class="um-id">{{ profile_name or request.state.user or "" }}</span><span class="um-sub">{{ sub | join(" · ") }}</span></span></div>
         <div class="um-sep"></div>
         <a class="um-item" href="/settings"><iconify-icon icon="solar:settings-linear" aria-hidden="true"></iconify-icon><span>설정</span></a>
-        {% if request.state.role == 'dev' %}<a class="um-item" href="/dev/users"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon><span>사용자·계정 관리</span></a>{% endif %}
+        {% if request.state.role == 'dev' %}<a class="um-item" href="/team?view=all"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon><span>계정 관리</span></a>{% endif %}
         <div class="um-sep"></div>
         <form action="/logout" method="post" style="margin:0;">
           <button type="submit" class="um-item um-out"><iconify-icon icon="solar:logout-2-linear" aria-hidden="true"></iconify-icon><span>로그아웃</span></button>

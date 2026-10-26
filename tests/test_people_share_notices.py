@@ -108,15 +108,15 @@ def test_notify_keeps_app_links_only(tmp_path):
     assert len(json.loads(db.get_setting("notices:a", "[]"))) == notifications.NOTICE_KEEP
 
 
-def test_team_page_search_and_grade_groups(share_world):
+def test_team_members_sorted_by_grade(share_world):
+    """조직 관리의 구성원 — 자료(JSON)는 등급 높은 차례, 이름은 원문 그대로(화면이 textContent 로 넣는다)."""
     app, _, dev, _ = share_world
-    page = dev.get("/team", params={"dept": "기획처"}).text
-    assert "data-tm-find" in page and "이름·아이디로 찾기" in page
-    heads = [h.split("<span>")[1].split("</span>")[0] for h in page.split("data-tm-group>")[1:]]
-    assert heads == ["총괄 책임자", "사업 책임자", "행정 담당자", "일반"]
-    assert 'data-tm-key="boss boss"' in page and 'type="checkbox"' in page  # 알약 토글(숨은 체크 입력) 유지
-    page2 = dev.get("/team", params={"dept": "교무처"}).text
-    assert QUOTED not in page2 and "&#34;q&#34; o&#39;neil" in page2         # 찾기 열쇠도 바꿔 넣는다
+    rows = dev.get("/api/org/members", params={"dept": "기획처"}).json()["rows"]
+    rank = {"head": 3, "lead": 2, "clerk": 2, "member": 1}
+    prim = [r for r in rows if r["primary"]]
+    assert [rank.get(r["grade"], 0) for r in prim] == sorted((rank.get(r["grade"], 0) for r in prim), reverse=True)
+    src = (STATIC / "org-chart.js").read_text(encoding="utf-8")
+    assert "innerHTML" not in src and "textContent" in src
 
 
 def test_people_picker_escapes_quotes():

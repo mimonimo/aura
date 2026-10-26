@@ -1,4 +1,4 @@
-"""조직도(/team?tab=org, org_routes) — 권한별 고치기, 옮기기·이름 바꾸기 연쇄, 지우기 막힘, 총괄 책임자 지정, 순환·세 단계 막기."""
+"""조직 관리(/team, org_routes) — 권한별 고치기, 옮기기·이름 바꾸기 연쇄, 지우기 막힘, 총괄 책임자 지정, 순환 막기(단계 수 제한 없음, ADR-0073)."""
 
 from __future__ import annotations
 
@@ -56,13 +56,14 @@ def test_tree_shape_and_view_rights(org):
     kim = _client(app, "kim")
     tk = _tree(kim)
     assert not tk["can_any"] and not any(x["can_edit"] or x["can_hold"] for x in tk["tops"])
-    assert kim.get("/team?tab=org").status_code == 200 and kim.get("/team").status_code == 403   # 일반은 조직도 보기만
+    assert kim.get("/team?tab=org").status_code == 200 and kim.get("/team").status_code == 200   # 한 화면 — 일반은 트리·개요 보기만
+    assert kim.get("/api/org/members", params={"dept": "기획팀"}).status_code == 403
     boss = _client(app, "boss")
     tb = {x["name"]: x for x in _tree(boss)["tops"]}
     assert not tb["기획처"]["can_edit"] and tb["기획처"]["can_hold"]               # 자기 처·단 자체는 못 고치고 아래만
     assert all(c["can_edit"] for c in tb["기획처"]["children"]) and not tb["학생복지처"]["can_hold"]
     page = boss.get("/team?tab=org").text
-    assert "조직도" in page and 'href="/team"' in page and "org-chart.js" in page
+    assert "조직 관리" in page and 'href="/team"' in page and "org-chart.js" in page
 
 
 def test_permissions_by_grade(org):
@@ -91,17 +92,18 @@ def test_permissions_by_grade(org):
     assert "성과평가팀" not in dept_dictionary.parents_override(tmp)
 
 
-def test_move_two_levels_cycle_and_undo(org):
+def test_move_any_depth_cycle_and_undo(org):
     app, dev, tmp = org
     r = dev.post("/org/move", json={"dept": "천마빌리지센터", "parent": "학생복지처"}).json()
     assert r["ok"] and r["undo"] == {"dept": "천마빌리지센터", "parent": "", "unset": True, "expect": {"parent": "학생복지처", "unset": False}}
     assert _names(_tree(dev))["학생복지처"] == ["천마빌리지센터", "학생지원팀"]
     assert dev.post("/org/move", json={**r["undo"]}).json()["ok"]                       # 되돌리기 — 정하기 전으로
     assert "천마빌리지센터" not in dept_dictionary.parents_override(tmp)
-    # 팀 아래로는 못 놓는다(두 단계), 아래가 있는 처·단은 다른 처·단 아래로 못 간다, 순환도 막힌다
-    assert "처·단이 아니라서" in dev.post("/org/move", json={"dept": "예산팀", "parent": "기획팀"}).json()["error"]
-    assert "아래에 부서가 있어" in dev.post("/org/move", json={"dept": "기획처", "parent": "학생복지처"}).json()["error"]
-    assert dept_dictionary.set_parent(tmp, "기획처", "기획팀")                         # 순환은 위계 함수가 거절
+    # 단계 수는 제한하지 않는다(ADR-0073) — 팀 아래 팀도 된다. 순환(자기 아래 부서 밑으로)만 막는다
+    assert dev.post("/org/move", json={"dept": "예산팀", "parent": "기획팀"}).json()["ok"]
+    assert dept_dictionary.parents_override(tmp)["예산팀"] == "기획팀"
+    assert "아래 부서라" in dev.post("/org/move", json={"dept": "기획처", "parent": "예산팀"}).json()["error"]
+    assert dept_dictionary.set_parent(tmp, "기획처", "기획팀")                         # 순환은 위계 함수도 거절
     # 맨 위로 올리면 팀도 처·단 카드가 된다
     assert dev.post("/org/move", json={"dept": "예산팀", "parent": ""}).json()["ok"]
     t = _tree(dev)
@@ -322,10 +324,10 @@ def test_checks_finish_before_any_write(org):
     app, dev, tmp = org
     _leave_traces(app, tmp, "옛사업단")
     before = _state(tmp, app)
-    bad = [("/org/create", {"name": "옛사업단", "parent": "없는처"}), ("/org/create", {"name": "옛사업단", "parent": "기획팀"}),
+    bad = [("/org/create", {"name": "옛사업단", "parent": "없는처"}),
            ("/org/create", {"name": "공통", "parent": ""}), ("/org/create", {"name": "기획팀", "parent": ""}),
            ("/org/create", {"name": "x", "parent": ""}),
-           ("/org/move", {"dept": "예산팀", "parent": "기획팀"}), ("/org/move", {"dept": "기획처", "parent": "학생복지처"}),
+           ("/org/move", {"dept": "기획처", "parent": "기획팀"}), ("/org/move", {"dept": "기획처", "parent": "기획처"}),
            ("/org/rename", {"dept": "예산팀", "name": "옛사업단"}), ("/org/rename", {"dept": "예산팀", "name": "!"}),
            ("/org/delete", {"dept": "기획팀"}), ("/org/head", {"dept": "기획팀", "user": "kim"}),
            ("/org/head", {"dept": "기획처", "user": "nobody"})]
@@ -398,18 +400,17 @@ def test_concurrent_renames_one_wins(org, monkeypatch):
     assert dept_dictionary.parents_override(tmp)[win] == "기획처"
 
 
-def test_concurrent_moves_keep_two_levels(org, monkeypatch):
+def test_concurrent_moves_make_no_cycle(org, monkeypatch):
     import time
     from zzaimy.app import org_routes
     app, dev, tmp = org
-    dev.post("/org/move", json={"dept": "학생지원팀", "parent": "기획처"})          # 학생복지처 아래를 비운다
     real = org_routes._check_place
     monkeypatch.setattr(org_routes, "_check_place", lambda st, d, p: (real(st, d, p), time.sleep(0.3))[0])
-    rs = _race(app, [("/org/move", {"dept": "천마빌리지센터", "parent": "학생복지처"}),
-                     ("/org/move", {"dept": "학생복지처", "parent": "기획처"})])
+    rs = _race(app, [("/org/move", {"dept": "학생지원팀", "parent": "기획팀"}),
+                     ("/org/move", {"dept": "기획팀", "parent": "학생지원팀"})])
     assert sorted(r.status_code for r in rs) == [200, 400]                       # 검사 뒤 상태가 바뀌어 둘 다 통과하지 않는다
     over = dept_dictionary.parents_override(tmp)
-    assert not (over.get("천마빌리지센터") == "학생복지처" and over.get("학생복지처") == "기획처")
+    assert not (over.get("학생지원팀") == "기획팀" and over.get("기획팀") == "학생지원팀")
 
 
 def test_rollback_skips_files_changed_by_others(org, monkeypatch):

@@ -62,8 +62,10 @@ async def dev_rag_min_grade(request: Request):
     걸면 그 등급 아래 교직원은 그 RAG 의 사업 문서를 검색 범위에서 빼고, 부서 RAG 면 열람에서도 뺀다(rag_spaces.search_scope·
     access_policy.viewer)."""
     from zzaimy.app import rag_spaces
+    from zzaimy.app.dept_drive_routes import wants_json
     st = request.app.state
     form = await request.form()
+    as_json = wants_json(request)                          # 조직 관리의 부서 설정은 fetch 로 보낸다 — {ok, msg}
     space, grade = str(form.get("space") or "").strip(), str(form.get("grade") or "").strip()
     wants_json = "application/json" in (request.headers.get("accept") or "")    # 화면은 제자리에서 바꾼다(다시 불러오지 않음)
 

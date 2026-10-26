@@ -1,0 +1,258 @@
+{# 계정 추가·편집 창(조직 관리의 「전체 사용자」) — 관리자만. 화면은 window.omUserEdit(계정 자료 | null) 로 연다. #}
+<style>
+  .ua-form { display:flex; flex-direction:column; gap:12px; }
+  .ua-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  .ua-form input[type=text], .ua-form input[type=password], .ua-form select { font:inherit; font-size:14px; padding:8px 12px; border:1.5px solid var(--line); border-radius:10px; }
+  .ua-form .row { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .ua-form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
+  .ua-form footer { display:flex; gap:8px; justify-content:flex-end; }
+  #userEdit { padding:20px; box-sizing:border-box; }
+  #userEdit > .card { width:540px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; border-radius:20px; box-shadow:0 24px 80px #10213b30; }
+  #userEdit > .card > .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
+  #userEdit .modal-head { flex:none; padding:22px 24px 18px; margin:0; border-bottom:1px solid var(--line); }
+  #userEdit .modal-head h2 { font-size:18px; letter-spacing:-.4px; }
+  #userEdit .ua-form { padding:22px 24px; overflow-y:auto; min-height:0; gap:18px; }
+  #userEdit .ua-form label { font-size:12px; font-weight:600; gap:7px; }
+  #userEdit input[type=text], #userEdit input[type=password], #userEdit select { width:100%; min-width:0; box-sizing:border-box; min-height:42px; border-width:1px; border-radius:8px; font-size:14px; }
+  #userEdit input[readonly] { background:var(--bg); color:var(--muted); }
+  #userEdit .ua-hint { margin:0; font-size:12px; line-height:1.6; color:var(--muted); font-weight:400; }
+  #userEdit .ua-options { border-top:1px solid var(--line); padding-top:16px; }
+  #userEdit .ua-temp-pw { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
+  #userEdit .ua-temp-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  #userEdit .ua-temp-row .mini-btn { min-height:40px; padding:6px 14px; min-width:72px; }
+  #userEdit .ua-temp-row input { flex:1 1 180px; min-width:0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.04em; background:var(--panel); }
+  #userEdit .ua-options label.check { margin-top:18px; }
+  #userEdit .ua-options label.ua-switch { flex-direction:row; align-items:center; gap:12px; margin-top:18px; padding:10px 12px; min-height:44px; box-sizing:border-box;
+    border:1px solid var(--line); border-radius:10px; font-size:14px; font-weight:600; color:var(--ink); cursor:pointer; position:relative; }
+  #userEdit .ua-switch input { position:absolute; opacity:0; width:1px; height:1px; margin:0; }
+  #userEdit .ua-switch-track { flex:none; position:relative; width:42px; height:24px; border-radius:999px; background:#CBD5E1; transition:background .15s ease; }
+  #userEdit .ua-switch-track::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.2); transition:transform .15s ease; }
+  #userEdit .ua-switch input:checked + .ua-switch-track { background:var(--red, #C0392B); }
+  #userEdit .ua-switch input:checked + .ua-switch-track::after { transform:translateX(18px); }
+  #userEdit .ua-switch input:focus-visible + .ua-switch-track { outline:2px solid #607C9E; outline-offset:2px; }
+  #userEdit .ua-switch:hover { background:var(--panel); }
+  #userEdit .ua-footer { flex:none; display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid var(--line); background:var(--bg); }
+  #userEdit .ua-footer button { min-height:40px; border-radius:8px; padding:8px 18px; }
+  #userEdit [hidden] { display:none !important; }
+  #userEdit .ua-extra { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0; }
+  #userEdit .ua-extra legend { font-size:12px; font-weight:600; padding:0 4px; }
+  #userEdit .tm-perms { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+  #userEdit .tm-perms label { position:relative; display:inline-flex; flex-direction:row; align-items:center; gap:6px; padding:4px 11px 4px 9px; border:1px solid var(--line); border-radius:999px; font-size:12.5px; color:var(--muted); background:#fff; cursor:pointer; }
+  #userEdit .tm-perms input { position:absolute; opacity:0; width:1px; height:1px; }
+  #userEdit .tm-perms .tm-dot { width:14px; height:14px; border-radius:50%; border:1.5px solid #c3ccd8; background:#fff; flex:none; }
+  #userEdit .tm-perms label:has(input:checked) { background:#eef3fa; border-color:#b9cbe4; color:#1b3b75; font-weight:600; }
+  #userEdit .tm-perms label:has(input:checked) .tm-dot { border-color:#1b3b75; background:#1b3b75 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.2l2.3 2.3 4.7-4.9' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/11px no-repeat; }
+  .ua-perm { display:inline-block; margin-left:6px; padding:0 6px; border-radius:5px; background:#eef3fa; color:#2b4a78; font-size:11.5px; }
+  #userEdit .ua-extra-list { display:flex; flex-wrap:wrap; gap:6px 14px; }
+  #userEdit .ua-extra-list label.check { flex-direction:row; align-items:center; gap:6px; margin:0; font-weight:400; font-size:13px; }
+  @media (max-width:640px) { #userEdit { padding:12px; } #userEdit > .card, #userEdit > .card > .card-in { max-height:calc(100dvh - 24px); } #userEdit .modal-head, #userEdit .ua-form, #userEdit .ua-footer { padding:18px; } }
+  #userEdit .ua-extra-rows { display:flex; flex-direction:column; gap:6px; }
+  #userEdit .ua-extra-row { display:grid; grid-template-columns:minmax(0,1fr) 150px 36px; gap:6px; align-items:center; }
+  #userEdit .ua-extra-row button { min-height:38px; padding:0; }
+  @media (max-width:640px) { #userEdit .ua-extra-row { grid-template-columns:1fr 1fr 36px; } }
+  @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } .ua-table .wide { display:none; } }
+  @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } }
+</style>
+<div class="modal-back" id="userEdit">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 data-title>사용자</h2>
+      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form id="userEditForm" action="/dev/users/save" method="post" class="ua-form">
+      <input type="hidden" name="is_new" value="">
+      <div class="row">
+        <label>아이디<input type="text" name="uid" autocomplete="off" required pattern="[a-z0-9][a-z0-9_\-]{2,31}"></label>
+        <label>이름<input type="text" name="name" autocomplete="off"></label>
+      </div>
+      <div class="row">
+        <label>역할<select name="role">{% for k, v in roles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+        <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
+          {% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}</select></label>
+      </div>
+      <p class="ua-hint">목록에 없는 부서는 왼쪽 트리에서 부서를 더한 뒤 고릅니다.</p>
+      <label data-grade-field>등급<select name="grade">{% for k, v in grades.items() %}<option value="{{ k }}"{% if k == default_grade %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+        <span class="ua-hint">일반은 공유받은 프로젝트에서만 작업(추가 권한은 여기 또는 그 부서 구성원의 줄 끝 … › 추가 권한) · 사업 책임자는 프로젝트를 만들고 자기 사업의 진행 현황을 봄 · 총괄 책임자는 부서 프로젝트 진행 현황을 모두 보고 사업 책임자를 정함</span></label>
+      <fieldset class="ua-extra" data-perm-field><legend>추가 권한 <span class="ua-hint">— 등급과 따로 이 사람에게만</span></legend>
+        <span class="tm-perms">{% for k, v in perms.items() %}<label><input type="checkbox" name="perm" value="{{ k }}"><span class="tm-dot" aria-hidden="true"></span>{{ v }}</label>{% endfor %}</span>
+      </fieldset>
+      <p class="ua-hint" data-admin-hint hidden>관리자는 최대 {{ admin_max }}명 · 지금 {{ admin_n }}명</p>
+      {% if dept_choices %}<fieldset class="ua-extra" data-extra-depts><legend>겸직 부서 <span class="ua-hint">— 소속 부서처럼 문서를 찾고 작업합니다. 부서마다 등급을 따로 정합니다</span></legend>
+        <div class="ua-extra-rows" data-extra-rows></div>
+        <template data-extra-tpl><div class="ua-extra-row">
+          <input type="text" name="extra" list="uaDeptChoices" autocomplete="off" placeholder="부서 이름" aria-label="겸직 부서">
+          <select name="extra_grade" aria-label="그 부서에서의 등급">{% for k, v in grades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+          <button type="button" class="secondary" data-extra-del aria-label="이 겸직 빼기">×</button></div></template>
+        <button type="button" class="secondary" data-extra-add style="margin-top:6px; padding:5px 11px; font-size:12.5px;">＋ 겸직 부서 더하기</button>
+        <datalist id="uaDeptChoices">{% for d in dept_choices %}<option value="{{ d }}">{{ dept_labels.get(d) or d }}</option>{% endfor %}</datalist></fieldset>{% endif %}
+      <label>본인 구글 계정<select name="google"><option value="">본인 연결 없음</option>
+        {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}{% if e.users %} — {{ e.users | join(", ") }} 사용 중{% endif %}</option>{% endfor %}</select></label>
+      <p class="ua-hint" data-effective-hint hidden></p>
+      <p class="ua-hint">학교에서 연결된 계정 전체가 관리자에게만 보입니다 — 사용자 본인 설정에는 자기 연결만 보이고, 보통은 본인이 설정에서 연결합니다.</p>
+      <div data-initial-password></div>
+      <input type="hidden" name="active" value="1">
+      <section class="ua-options" data-account-options hidden>
+        <button type="button" class="secondary" data-password-toggle aria-expanded="false" aria-controls="userPasswordFields">임시 비밀번호 만들기</button>
+        <div id="userPasswordFields" hidden>
+        {# 관리자는 비밀번호를 정하지 않는다 — 무작위 임시 비밀번호를 만들어 전달하고, 사용자는 다음 로그인 때 바꾼다(서버가 must_change 로 강제) #}
+        <div class="ua-temp-pw" data-password-field>
+          <label for="uaTempPw"><span data-pw-label>임시 비밀번호</span></label>
+          <div class="ua-temp-row">
+            <input id="uaTempPw" type="text" name="new_pw" readonly autocomplete="off" spellcheck="false" minlength="{{ password_rules.min_length }}" aria-describedby="uaTempHelp">
+            <button type="button" class="mini-btn" data-temp-new>다시 만들기</button>
+            <button type="button" class="mini-btn" data-temp-copy><span>복사</span></button>
+          </div>
+          <p class="ua-hint" id="uaTempHelp">저장하면 이 비밀번호로 바뀝니다 · 사용자에게 전달 · 다음 로그인 때 본인이 새 비밀번호로 변경</p>
+        </div>
+        </div>
+      <div data-account-status hidden>
+        <label class="ua-switch"><input type="checkbox" name="suspended" role="switch" aria-describedby="accountStatusHelp"><span class="ua-switch-track" aria-hidden="true"></span><span>계정 사용 중지</span></label>
+        <p class="ua-hint" id="accountStatusHelp">선택 후 저장하면 로그인이 차단됩니다. 계정과 기존 자료는 삭제되지 않습니다.</p>
+      </div>
+      </section>
+    </form>
+    <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="userEditForm" data-save-user>사용자 추가</button></footer>
+  </div></div>
+</div>
+
+<script>
+(function () {
+  var userForm = document.querySelector('#userEdit form');
+  var passwordToggle = document.querySelector('[data-password-toggle]');
+  var passwordFields = document.getElementById('userPasswordFields');
+  passwordToggle.addEventListener('click', function () {
+    passwordFields.hidden = !passwordFields.hidden;
+    passwordToggle.setAttribute('aria-expanded', String(!passwordFields.hidden));
+    passwordToggle.textContent = passwordFields.hidden ? '임시 비밀번호 만들기' : '임시 비밀번호 취소';
+    if (passwordFields.hidden) userForm.elements.new_pw.value = '';
+  });
+  function syncAccountStatus() {
+    userForm.elements.active.value = userForm.elements.is_new.value === '1' || !userForm.elements.suspended.checked ? '1' : '';
+  }
+  userForm.elements.suspended.addEventListener('change', syncAccountStatus);
+  userForm.addEventListener('submit', syncAccountStatus);
+  // 편집 버튼의 값을 관리 창에 채운다 — 창은 하나, 새로 만들기와 고치기를 같이 쓴다
+  // 창은 하나 — 새로 만들기(u 없음)와 고치기를 같이 쓴다. u 는 /api/org/accounts 의 계정 자료
+  function fill(u) {
+      var isNew = !u, d = u || {};
+      var btn = {dataset: {user: d.user || '', name: d.name || '', role: d.role || 'staff', grade: d.grade || '', perms: (d.perms || []).join('|'),
+        dept: d.dept || '', extra: (d.extra || []).join('|'), extraGrades: (d.extra_grades || []).join('|'), active: d.active ? '1' : '',
+        google: d.bound_ok ? (d.bound || '') : '', effective: d.effective && d.via !== '본인' ? d.effective + ' · ' + d.via : ''}};
+      var f = document.querySelector('#userEdit form');
+      f.is_new.value = isNew ? '1' : '';
+      f.uid.value = isNew ? '' : btn.dataset.user;
+      f.uid.readOnly = !isNew;
+      f.name.value = isNew ? '' : (btn.dataset.name || '');
+      f.role.querySelectorAll('[data-legacy-role]').forEach(function (option) { option.remove(); });
+      var role = isNew ? 'staff' : btn.dataset.role;
+      if (!Array.from(f.role.options).some(function (option) { return option.value === role; })) {
+        var legacy = new Option('기존 역할 유지', role);
+        legacy.dataset.legacyRole = '1';
+        f.role.add(legacy);
+      }
+      f.role.value = role;
+      // 부서는 알려진 부서 목록(user_admin.known_depts)에서만 고른다 — 목록에 없는 값이 오면 지금 값으로 보이게만 한다
+      f.dept.querySelectorAll('[data-legacy-dept]').forEach(function (option) { option.remove(); });
+      var dept = isNew ? '' : (btn.dataset.dept || '');
+      if (dept && !Array.from(f.dept.options).some(function (option) { return option.value === dept; })) {
+        var oldDept = new Option(dept + ' (목록에 없음)', dept);
+        oldDept.dataset.legacyDept = '1';
+        f.dept.add(oldDept);
+      }
+      f.dept.value = dept;
+      // 겸직 부서(여러 줄: 부서 + 그 부서에서의 등급) — 표의 data-extra·data-extra-grades 로 채운다. 교직원만 받는다
+      var extra = isNew ? [] : (btn.dataset.extra || '').split('|').filter(Boolean);
+      var extraG = isNew ? [] : (btn.dataset.extraGrades || '').split('|');
+      fillExtra(extra.map(function (d, i) { return [d, extraG[i] || 'member']; }));
+      var extraBox = document.querySelector('#userEdit [data-extra-depts]');
+      var syncExtra = function () { if (extraBox) extraBox.hidden = f.role.value !== 'staff'; };
+      // 등급은 교직원일 때만 고른다 — 관리자·학생은 등급이 없다
+      if (f.grade) f.grade.value = (!isNew && btn.dataset.grade) || '{{ default_grade }}';
+      var hasPerms = (!isNew && btn.dataset.perms ? btn.dataset.perms.split('|') : []);
+      document.querySelectorAll('#userEdit input[name="perm"]').forEach(function (cb) { cb.checked = hasPerms.indexOf(cb.value) >= 0; });
+      var syncGrade = function () {
+        var gf = document.querySelector('#userEdit [data-grade-field]'), ah = document.querySelector('#userEdit [data-admin-hint]');
+        if (gf) gf.hidden = f.role.value !== 'staff';
+        var pf = document.querySelector('#userEdit [data-perm-field]'); if (pf) pf.hidden = f.role.value !== 'staff';
+        if (ah) ah.hidden = f.role.value !== 'dev';
+      };
+      f.role.onchange = function () { syncExtra(); syncGrade(); }; f.dept.onchange = syncExtra; syncExtra(); syncGrade();
+      f.google.value = isNew ? '' : (btn.dataset.google || '');
+      // 본인 연결이 없어도 부서 공용·공용 계정으로 문서를 쓰는 사용자 — 표의 「문서 작업 계정」과 같은 말을 창에서도 한다
+      var eff = document.querySelector('#userEdit [data-effective-hint]');
+      eff.hidden = isNew || !btn.dataset.effective;
+      eff.textContent = eff.hidden ? '' : '지금 문서 작업 계정: ' + btn.dataset.effective + ' (본인 연결이 없어 대신 쓰는 계정)';
+      f.elements.suspended.checked = !isNew && btn.dataset.active !== '1';
+      f.elements.suspended.disabled = isNew;
+      document.querySelector('#userEdit [data-account-status]').hidden = isNew;
+      var options = document.querySelector('#userEdit [data-account-options]');
+      options.hidden = isNew;
+      passwordFields.hidden = true;
+      passwordToggle.setAttribute('aria-expanded', 'false');
+      passwordToggle.textContent = '임시 비밀번호 만들기';
+      var passwordField = document.querySelector('#userEdit [data-password-field]');
+      if (isNew) document.querySelector('#userEdit [data-initial-password]').appendChild(passwordField);
+      else passwordFields.appendChild(passwordField);
+      syncAccountStatus();
+      f.new_pw.value = '';
+      f.new_pw.required = isNew;
+      document.querySelector('#userEdit [data-title]').textContent = isNew ? '사용자 추가' : '사용자 편집';
+      document.querySelector('#userEdit [data-save-user]').textContent = isNew ? '사용자 추가' : '변경 사항 저장';
+      document.querySelector('#userEdit [data-pw-label]').textContent = isNew ? '임시 비밀번호(첫 로그인용)' : '임시 비밀번호';
+  }
+  window.omUserEdit = function (u) {
+    fill(u || null);
+    document.getElementById('userEdit').classList.add('open');
+    if (!u && window.omMakeTempPw) window.omMakeTempPw();
+    var first = document.querySelector('#userEdit form').elements[u ? 'name' : 'uid']; if (first) first.focus();
+  };
+  // 겸직 줄 — ＋ 더하기·× 빼기(줄 틀은 template)
+  var rowsBox = document.querySelector('#userEdit [data-extra-rows]'), tpl = document.querySelector('#userEdit [data-extra-tpl]');
+  function addExtra(dept, grade) {
+    if (!rowsBox || !tpl || !tpl.content) return;
+    var row = tpl.content.firstElementChild.cloneNode(true);
+    row.querySelector('input').value = dept || '';
+    row.querySelector('select').value = grade || 'member';
+    row.querySelector('[data-extra-del]').addEventListener('click', function () { row.remove(); });
+    rowsBox.appendChild(row);
+    return row;
+  }
+  function fillExtra(pairs) {
+    if (!rowsBox) return;
+    rowsBox.innerHTML = '';
+    pairs.forEach(function (p) { addExtra(p[0], p[1]); });
+  }
+  var addBtn = document.querySelector('#userEdit [data-extra-add]');
+  if (addBtn && addBtn.addEventListener) addBtn.addEventListener('click', function () { var r = addExtra('', 'member'); if (r) r.querySelector('input').focus(); });
+})();
+</script>
+<script>
+// 임시 비밀번호 — 브라우저에서 무작위로 만든다(헷갈리는 글자 0·O·1·l·I 빼고, 4자씩 묶어 불러 주기 쉽게).
+// 값은 이 창의 칸에만 있고 저장 뒤 서버 응답·주소·로그에 남지 않는다. 길이 규칙은 서버(passwords.problem)와 같다
+(function () {
+  var form = document.getElementById('userEditForm');
+  if (!form || !window.crypto || !crypto.getRandomValues) return;
+  var field = form.elements.new_pw, fields = document.getElementById('userPasswordFields');
+  var copy = form.querySelector('[data-temp-copy]'), min = parseInt(field.getAttribute('minlength'), 10) || 8;
+  var ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  function make() {
+    var groups = Math.max(3, Math.ceil(min / 4)), out = [], buf = new Uint32Array(groups * 4);
+    crypto.getRandomValues(buf);
+    for (var g = 0; g < groups; g++) {
+      var part = '';
+      for (var i = 0; i < 4; i++) part += ABC[buf[g * 4 + i] % ABC.length];
+      out.push(part);
+    }
+    field.value = out.join('-');
+    copy.querySelector('span').textContent = '복사';
+  }
+  form.querySelector('[data-temp-new]').addEventListener('click', make);
+  copy.addEventListener('click', function () {
+    function done(ok) { copy.querySelector('span').textContent = ok ? '복사됨' : '복사 실패 — 칸을 눌러 직접 복사'; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(field.value).then(function () { done(true); }, function () { done(false); });
+    else { field.select(); done(false); }
+  });
+  field.addEventListener('focus', function () { field.select(); });
+  // 편집 창의 「임시 비밀번호 만들기」를 펼치거나 새 사용자 창을 열면 바로 하나 만든다(기존 처리 뒤에 이어 붙는 손잡이)
+  document.querySelector('[data-password-toggle]').addEventListener('click', function () { if (!fields.hidden) make(); });
+  window.omMakeTempPw = make;          // 새 사용자 창을 열면 바로 하나 만든다(omUserEdit)
+})();
+</script>
