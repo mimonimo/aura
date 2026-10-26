@@ -278,6 +278,12 @@ class VllmClient:
 
             def _create(*a, _via=None, **kw):
                 orig = _via or _orig                                   # with_options 사본이면 그 사본의 호출
+                # 답 하나의 사용 기록(llm_budget.track) — create_fitted 를 거치지 않은 호출도 여기서 센다(진행 현황 사용량)
+                try:
+                    from zzaimy.app import llm_budget as _lb
+                    _lb.note_direct(self, kw.get("messages"), kw.get("max_tokens"))
+                except ImportError:
+                    pass
                 # Ollama 는 생각 끄기 인자가 다르다 — 호출부가 따로 정하지 않았으면 끈다
                 if ollama and "reasoning_effort" not in kw and not (
                     kw.get("extra_body") or {}).get("reasoning_effort"):

@@ -113,17 +113,18 @@ def test_rejects_non_hangul_upload(tmp_path, monkeypatch):
     assert r.status_code == 303 and "err=" in r.headers["location"]
 
 
-def test_editor_choice_saved_per_user_and_shown_in_settings(tmp_path, monkeypatch):
+def test_editor_choice_saved_per_user_and_not_in_settings(tmp_path, monkeypatch):
+    """편집기는 기본 웹 한글 기안기 — 고르기는 대화 문서 창의 단추가 하고, 내 설정 화면에는 없다."""
     app = _setup(tmp_path, monkeypatch)
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
-    assert webhwp.editor_of(app.state.db, "kim") == "gdocs"
-    r = kim.post("/hwp/editor", data={"editor": "webhwp", "back": "/settings#myEditor"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/settings")
     assert webhwp.editor_of(app.state.db, "kim") == "webhwp"
-    assert webhwp.editor_of(app.state.db, "lee") == "gdocs"
+    r = kim.post("/hwp/editor", data={"editor": "gdocs", "back": "/"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert webhwp.editor_of(app.state.db, "kim") == "gdocs"
+    assert webhwp.editor_of(app.state.db, "lee") == "webhwp"
     page = kim.get("/settings").text
-    assert "문서 편집기" in page and "웹 한글 기안기" in page
+    assert "문서 편집기" not in page and "/hwp/editor" not in page and 'id="myEditor"' not in page
     # 밖으로 나가는 되돌아갈 주소는 받지 않는다
     r = kim.post("/hwp/editor", data={"editor": "gdocs", "back": "//evil.example"}, follow_redirects=False)
     assert r.headers["location"].startswith("/hwp?")
@@ -473,7 +474,7 @@ def test_document_box_page_finder_layout_without_editor_radio(tmp_path, monkeypa
     assert page.count("hb-btn primary") == 1                                        # 새 폴더는 창 없이 목록 줄에서 바로
     assert "data-new-folder" in page and 'id="hwFolder"' not in page and "solar:add-folder-linear" in page
     assert "data-drive-open" not in page                                            # 드라이브는 왼쪽 「구글 드라이브」 에서
-    assert "복사할 폴더와 이름을 정한 뒤 기안기로 엽니다" in page and " 에 복사해" not in page
+    assert "복사할 폴더와 이름을 정한 뒤" not in page and " 에 복사해" not in page
     assert "/static/hwp-box.js" in page and "/static/hwp-box.css" in page
     inside = kim.get("/hwp?dept=기획처&folder=2026 공문").text
     assert "협조문.hwpx" in inside and 'href="/hwp?dept=%EA%B8%B0%ED%9A%8D%EC%B2%98" aria-label="위 폴더로"' in inside
@@ -521,3 +522,21 @@ def test_proxy_caches_static_editor_files_only(tmp_path, monkeypatch):
     assert r.headers.get("content-encoding") == "gzip" and r.content == b"wasm" * 5000
     _Resp.content = b"evil" * 5000                       # 같은 경로·같은 길이·같은 ETag 라도 내용이 다르면 그 내용 그대로(압축본이 섞이지 않는다)
     assert kim.get("/webhwpctrl/wasm/big.wasm", headers={"Accept-Encoding": "gzip"}).content == b"evil" * 5000
+
+
+def test_editor_open_other_and_recent_documents(tmp_path, monkeypatch):
+    """기안기 머리 「열기」 — 공용 파일 창(최근 문서·부서 폴더·드라이브)으로 같은 화면에서 다른 문서를 연다. 최근 문서는 연 순서, 새것 먼저."""
+    app = _setup(tmp_path, monkeypatch)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    a = _up(kim, app, "기획처", "가.hwpx", _hwpx())
+    b = _up(kim, app, "기획처", "나.hwpx", _hwpx())
+    assert kim.get("/api/finder/recent").json()["files"] == []
+    page = kim.get(f"/webhwpctrl/aura-edit?id={a}").text
+    assert "data-open-other" in page and "recent: true" in page
+    kim.get(f"/webhwpctrl/aura-edit?id={b}")
+    got = kim.get("/api/finder/recent").json()["files"]
+    assert [x["id"] for x in got] == [b, a] and got[0]["dept"] == "기획처"
+    lee = TestClient(app)
+    assert _login(lee, "lee", "pass-12345678")
+    assert lee.get("/api/finder/recent").json()["files"] == []                     # 사람마다 따로

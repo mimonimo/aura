@@ -16,6 +16,13 @@ from zzaimy.app import asks, context_plan, drafting, gdocs_agent
 from zzaimy.app.main import create_app
 
 
+@pytest.fixture(autouse=True)
+def _gdocs_editor(monkeypatch):
+    """이 파일은 구글 독스 작업본 쪽 도구를 본다 — 편집기 기본(웹 한글 기안기) 대신 구글 문서를 고른 사람으로."""
+    from zzaimy.app import webhwp
+    monkeypatch.setattr(webhwp, "DEFAULT_EDITOR", "gdocs")
+
+
 def _step(action, **args):
     return json.dumps({"thought": "t", "action": action, "args": args}, ensure_ascii=False)
 

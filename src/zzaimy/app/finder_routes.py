@@ -1,6 +1,7 @@
 """공용 디렉터리 창(static/aura-finder.js)의 읽기 경로 — 부서 폴더·구글 드라이브를 한 창에서 고르고, 전체에서 이름으로 찾는다.
 
 - /api/finder/drive  드라이브 폴더 하나(accept=hwp 한글만, docs 문서 갈래 전부 — 구글 문서·시트·슬라이드 포함)
+- /api/finder/recent 최근 기안기로 연 문서(지금 열 수 있는 것만, 새것 먼저)
 - /api/finder/search 쓸 수 있는 부서 폴더 전부 + (연결돼 있으면) 드라이브에서 이름 낱말로 찾기, 결과마다 위치
 쓰기·들이기는 각 화면의 경로가 맡는다(대화 작업본 묶기, 프로젝트 문서 들이기).
 """
@@ -11,7 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 
 from zzaimy.app import webhwp
-from zzaimy.app.webhwp_routes import _base, _depts, _need_staff
+from zzaimy.app.webhwp_routes import _base, _depts, _label, _need_staff, recent_files
 
 router = APIRouter()
 ACCEPT = ("hwp", "docs")
@@ -40,6 +41,27 @@ def finder_drive(request: Request, folder: str = "", drive: str = "", accept: st
     if not folder and not drive:
         out["drives"] = webhwp_drive.drives(email)
     return {"account": email, **out}
+
+
+@router.get("/api/finder/recent")
+def finder_recent(request: Request):
+    """최근 연 문서 — 지금 쓸 수 있는 부서의, 디스크에 남아 있는 것만."""
+    _need_staff(request)
+    st = request.app.state
+    base = _base(request)
+    depts = set(_depts(request))
+    out = []
+    for fid in recent_files(request):
+        r = webhwp.get(st.db, fid)
+        if not r or not Path(r["path"]).exists() or any(x in webhwp.HIDDEN for x in Path(r["path"]).parts):
+            continue
+        dept = webhwp.dept_of_path(base, r["path"])
+        if dept not in depts:
+            continue
+        m = webhwp.meta(st.db, fid)
+        out.append({"id": fid, "name": r["name"], "dept": dept, "label": _label(request, dept), "folder": webhwp.folder_of(base, r["path"]),
+                    "saved": (m.get("saved") or m.get("created") or r.get("created_at") or "")[:16].replace("T", " ")})
+    return {"files": out}
 
 
 @router.get("/api/finder/search")

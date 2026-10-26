@@ -38,8 +38,7 @@
         </div>
       </div>{% endif %}
     </div>
-    {% if can_add %}<p class="project-intake-help">끌어다 놓아도 올라갑니다 · 공고·지침은 기준 문서로</p>
-    <div class="pd-drop-hint" aria-hidden="true"><iconify-icon icon="solar:upload-linear"></iconify-icon>여기에 놓으면 프로젝트 문서로 올립니다</div>
+    {% if can_add %}<div class="pd-drop-hint" aria-hidden="true"><iconify-icon icon="solar:upload-linear"></iconify-icon>여기에 놓으면 프로젝트 문서로 올립니다</div>
     {# 올릴 파일 — 줄마다 이름·진행. 잘못 고른 파일은 올리기 전에 뺀다 #}
     <div id="intakeConfirm" class="pd-pending" role="region" aria-label="올릴 문서" hidden>
       <ul id="intakeNames" class="pd-pending-list"></ul>
@@ -154,7 +153,6 @@
           <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
       </div>
       {% if sector_criteria %}
-      <p class="criteria-picker-help">이 프로젝트에서 근거로 쓸 공고·평가 기준·지침을 고릅니다.</p>
       <div class="searchbox criteria-picker-search">
         <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
         <input type="search" id="criteriaFilter" placeholder="제목·접수번호 검색" aria-label="기준 문서 검색">
@@ -334,7 +332,7 @@
         <label class="form-row"><span class="muted">사업단</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}" {{ 'selected' if project.unit == u else '' }}>{{ u }}</option>{% endfor %}</select></label>
         {% endif %}
         {% if can_edit and not project.archived %}
-        <label class="form-row"><span class="muted">사업 — 고르면 이 프로젝트 문서가 라이브러리 사업 목록·사업 그래프에 함께 보입니다</span>
+        <label class="form-row"><span class="muted">사업</span>
           <select name="program" id="projProg"><option value="none">정하지 않음</option><option value="_new">＋ 새 사업 등록…</option>
             {% for g in program_options %}<optgroup label="{{ g.label }}">{% for it in g["items"] %}<option value="{{ it.key }}" {{ 'selected' if it.key == project_program }}>{{ it.label }}</option>{% endfor %}</optgroup>{% endfor %}
           </select></label>

@@ -381,3 +381,23 @@ def test_answer_feedback_and_run_are_recorded(tmp_path):
     assert db.answer_feedback_for(sid, "zzaimy") == {}
     qmid = [m["id"] for m in db.list_chats(sid) if m["role"] == "user"][0]
     assert c.post(f"/chat/{sid}/messages/{qmid}/feedback", data={"verdict": "good"}).status_code == 404     # 질문에는 평가 없음
+
+
+def test_usage_track_counts_direct_calls_once(monkeypatch):
+    """답 하나의 사용 기록 — create_fitted 를 거치지 않은 호출(문서 편집 계획 등)도 세고, create_fitted 호출은 두 번 세지 않는다.
+    진행 현황 사용량이 비던 원인(문서 편집 명령의 모델 호출이 기록 밖)."""
+    from zzaimy.app import llm_budget
+    from zzaimy.generate import client as cl
+
+    fake = _FakeClient()
+    monkeypatch.setattr(cl, "OpenAI", lambda **kw: fake)
+    monkeypatch.setattr(llm_budget, "context_len", lambda c: 16384)
+    c = cl.VllmClient(base_url="http://localhost:1/v1", model="m")
+    u = llm_budget.track()
+    c.client.chat.completions.create(model="m", max_tokens=2000, messages=[{"role": "user", "content": "문서 편집 계획"}])
+    assert u["calls"] == 1 and u["prompt"] > 0
+    llm_budget.create_fitted(c, [{"role": "user", "content": "답 쓰기"}], 2000)
+    assert u["calls"] == 2
+    llm_budget._USAGE.set(None)
+    c.client.chat.completions.create(model="m", max_tokens=2000, messages=[{"role": "user", "content": "기록 밖"}])
+    assert u["calls"] == 2

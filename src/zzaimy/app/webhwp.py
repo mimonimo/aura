@@ -49,9 +49,13 @@ def status(http=None, ttl: float = 60.0) -> dict:
     return val
 
 
+DEFAULT_EDITOR = "webhwp"
+
+
 def editor_of(db, user: str) -> str:
+    """한글 작업을 열 편집기 — 고른 적 없으면 웹 한글 기안기. 대화 문서 창의 한글/구글 문서 단추가 바꾼다."""
     v = (db.get_setting(f"editor:{user}", "") or "").strip() if user else ""
-    return v if v in EDITORS else "gdocs"
+    return v if v in EDITORS else DEFAULT_EDITOR
 
 
 def set_editor(db, user: str, editor: str) -> None:

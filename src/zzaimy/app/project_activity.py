@@ -1,9 +1,11 @@
-"""프로젝트 진행 현황(/project/{id}/activity) — 프로젝트 화면의 탭 하나. 하위 탭 넷: 참여자 · 요청 기록 · 문맥·토큰 · 작업 요약.
+"""프로젝트 진행 현황(/project/{id}/activity) — 프로젝트 화면의 탭 하나. 한 화면 대시보드: 위 요약 수치, 참여자 카드(누르면 그 사람으로
+요청 기록 거르기), 요청 기록(사람·찾기·날짜 묶음), 사용량(사람별·날짜별, 기간), 작업 요약(사람별 카드).
 
 - 볼 수 있는 사람: may_view → grades.can_view_activity(관리자 전부, 총괄 책임자=자기 부서 프로젝트, 사업 책임자=만든·책임자 지정 프로젝트).
   일반 등급·학생은 열지 않는다.
 - 대화는 보는 사람이 읽을 수 있는 것만 센다(main._can_read_chat — 비공개 대화·업무 상담·범위 밖 동료의 대화는 빠진다).
-- 사용량: 답마다 설정 chat_ctx_msg:<답 메시지 id>(main._answer_task 가 chat_ctx 와 같은 자리에서 저장). 그 전에 쓴 대화는
+- 사용량: 답마다 설정 chat_ctx_msg:<답 메시지 id>(main._answer_task 가 chat_ctx 와 같은 자리에서 저장). 호출은 연결의 생성 호출
+  감싸개(generate/client → llm_budget.note_direct)와 create_fitted 가 모두 센다 — 문서 편집 명령처럼 create_fitted 밖 호출만 쓰는 답도 남는다. 그 전에 쓴 대화는
   chat_ctx:<대화 id> 한 건(마지막 답)으로 대신 센다 — 화면에 「이전 기록은 대화별 마지막 답만」.
 - 작업 요약: 「요약 만들기」 를 누르면 그 사람의 요청·답 첫 줄·작업 문서 이름·작업 메모(chat_summary)를 모아 review 연결로 3~6줄.
   설정 project_activity_summary:<프로젝트 id>:<계정> = {"text", "at", "n"(요약 때의 요청 수)}. 모델이 안 닿으면 오류 문구만.
@@ -243,7 +245,11 @@ def collect(request: Request, proj: dict) -> dict:
     return {"project": {"id": pid, "name": proj.get("name") or ""}, "people": plist, "shared_to": shared_to,
             "share_mode": "implicit" if share.get("implicit") else share.get("mode"),
             "requests": requests, "usage": {"per_user": per_user, "per_day": per_day, "top": top, "legacy": legacy,
-                                            "answers": len(records)}}
+                                            "answers": len(records),
+                                            # 답 하나씩(사람·날짜·보낸 양) — 화면이 기간(최근 7일·30일)으로 다시 묶는다
+                                            "records": [{k: r[k] for k in ("user", "day", "calls", "prompt", "peak", "limit", "trimmed")}
+                                                        for r in records],
+                                            "names": {p["user"]: p["name"] for p in plist}}}
 
 
 def _client(request: Request):
