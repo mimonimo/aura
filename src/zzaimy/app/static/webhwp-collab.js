@@ -81,6 +81,7 @@
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
     var lastEdit = {f: "", at: 0}, typedAt = 0;                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
     var inbox = {}, applyTimer = null, applying = false;
+    var settled = {};   // 지문이 달라 서버 글로 바로잡은 칸의 판 — 같은 판은 한 번만(표·특수 문자로 넣어도 지문이 끝내 안 맞는 칸을 30초마다 다시 넣어 화면이 얼던 것, 10-27 긴 양식)
     var online = true, retryTimer = null, retryMs = 1000, es = null, lastId = 0, readonly = !!o.readonly;
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
     var reloading = false;   // 새 판을 다시 여는 동안(suspend → reopened) — 칸 수가 바뀐 것을 칸 밖 고침으로 잘못 알아채지 않게(10-26 양식 불러오기 뒤 저절로 문서 잠금)
@@ -554,7 +555,7 @@
           var x = srv[f], k = known[f];
           if (!x) return;
           if (!k || x.version > k.v) need.push(f);
-          else if (local[f] !== undefined && richField[f] !== x.version && fp(local[f]) !== x.fp) need.push(f);
+          else if (local[f] !== undefined && richField[f] !== x.version && settled[f] !== x.version && fp(local[f]) !== x.fp) { settled[f] = x.version; need.push(f); }
         });
         if (need.length) fetchFields(need);
         if (s.windows) learnWindows(s.windows);
@@ -618,7 +619,7 @@
           if (!x) { if (!known[f]) known[f] = {v: 0, text: norm(local[f])}; return; }
           var k = known[f];
           if (!k || x.version > k.v) inbox[f] = {field: f, version: x.version, text: x.text, rich: x.rich, fromState: true, force: true};
-          else if (x.version === k.v && !dirty[f] && !outbox[f] && richField[f] !== x.version && fp(local[f]) !== x.fp) inbox[f] = {field: f, version: x.version, text: x.text, force: true};
+          else if (x.version === k.v && !dirty[f] && !outbox[f] && richField[f] !== x.version && settled[f] !== x.version && fp(local[f]) !== x.fp) { settled[f] = x.version; inbox[f] = {field: f, version: x.version, text: x.text, force: true}; }
         });
         applyEditable(); emit('locks', locks); emit('people', peopleList());
         scheduleApply(first ? 0 : undefined);
@@ -760,7 +761,7 @@
       hwp.attach(); hwp.resetEditable();
       fieldList = readonly ? [] : hwp.fields();
       fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
-      known = {};
+      known = {}; settled = {};
       if (fieldsMode()) hwp.setFormMode(formOnly() && (!o.structureMode || !o.structureMode()));
       return resync(true).then(function () { applyInbox(); });
     }
