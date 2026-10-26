@@ -231,6 +231,24 @@
           retryMs = Math.min(retryMs * 2, 10000);
         });
     }
+    // 칸 밖 고침처럼 보일 때 — 바로 구조 저장(전체 저장 → 모든 화면 새 판)으로 넘기지 않는다. 한글 조합 중에는 칸 이름을 묻지 않아 마지막으로 안 칸이
+    // 비어 있으면 칸 밖으로 잘못 잡혔다(10-26 녹화 15:45 — 빈 줄에 한글을 치자 문서 틀 고치기로 넘어가 다른 화면이 계속 다시 불러옴).
+    // 0.4초 뒤(조합이 끝난 뒤) 칸 수가 바뀌었거나 정말 칸 밖일 때만 구조 고침으로, 칸 안이면 그 칸의 고침으로
+    var outsideT = null;
+    function checkOutside() {
+      clearTimeout(outsideT);
+      outsideT = setTimeout(function () {
+        if (hwp.isComposing()) { checkOutside(); return; }
+        if (hwp.fields().length !== fieldList.length) { emit('outside-edit'); return; }
+        var f = hwp.snapIntoField ? hwp.snapIntoField() : hwp.currentField();
+        if (f && fieldSet[f]) {
+          if (f !== curField) checkCaret();
+          if (!heldByOther(f)) { if (!mine[f]) acquire(f); dirty[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush(); }
+          return;
+        }
+        emit('outside-edit');
+      }, 400);
+    }
     // 양식 모드(칸 안만, 설정 form_mode=1)인가 — 기본은 일반 편집 모드(칸 넘는 드래그·서식째 복사, 10-26). 문서 전체가 칸으로 감싸져 있어 가능하다
     function formOnly() { return conf.form_mode > 0; }
     function normalMode() { return fieldsMode() && !hwp.formMode() && !(o.structureMode && o.structureMode()); }
@@ -238,6 +256,8 @@
     // 키(칸 처음 Backspace, 칸 끝 Delete)는 막고, 여러 칸에 걸친 고침(선택이 칸을 넘음)은 화면에 넘겨 구조 고침으로 돌린다
     function guardKey(e) {
       var k = e.key || '', mod = e.ctrlKey || e.metaKey;
+      // 한글 첫 키(Process)는 조합이 시작되기 전이다 — 칸 바깥에 선 커서를 이때 칸 안으로 옮겨 둔다(조합 중에는 칸 이름을 묻지 않는다)
+      if (k === 'Process' && !mod && !applying) { if (hwp.snapIntoField) hwp.snapIntoField(); return; }
       var edit = (!mod && (k.length === 1 || /^(Backspace|Delete|Enter|Tab)$/.test(k))) || (mod && /^[vVxX]$/.test(k));
       if (!edit || applying) return;
       var stop = function () { e.preventDefault(); e.stopImmediatePropagation(); };
@@ -245,7 +265,7 @@
       // 여러 칸에 걸친 고침·칸 바깥 고침은 편집기가 그대로 하게 두고 화면이 곧바로 문서 틀 고치기(구조 저장)로 돌린다
       if (sel && (sel[0] !== sel[1] || !sel[0])) { emit('cross-edit', {key: k, mod: mod}); return; }
       var f = hwp.snapIntoField ? hwp.snapIntoField() : hwp.currentField();
-      if (!f || !fieldSet[f]) { emit('cross-edit', {key: k, mod: mod}); return; }
+      if (!f || !fieldSet[f]) { checkOutside(); return; }            // 칸 밖처럼 보여도 바로 구조 고침으로 넘기지 않고 고친 뒤 다시 본다
       if (heldByOther(f) && locks[f].user !== me) { stop(); emit('blocked', f); acquire(f, true); return; }
       if (!sel && !mod && (k === 'Backspace' || k === 'Delete')) {
         var c = hwp.caretInField ? hwp.caretInField() : null;
@@ -625,7 +645,7 @@
         // (전에는 칸 밖 고침으로 잡혀 30초 지문 대조 때에야 다른 화면에서 지워졌다)
         if (!f && lastEdit.f && now() - lastEdit.at < 5000) f = lastEdit.f;
         if (f !== curField && !(ev && ev.composing)) checkCaret();      // 커서 칸이 바뀐 것을 먼저 반영(앞 칸을 놓고 이 칸을 잡게)
-        if (!f || !fieldSet[f]) { emit('outside-edit'); return; }
+        if (!f || !fieldSet[f]) { checkOutside(); return; }
         if (heldByOther(f)) return;
         if (!mine[f]) acquire(f);                               // 처음 고칠 때 임대를 잡는다
         dirty[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush();
