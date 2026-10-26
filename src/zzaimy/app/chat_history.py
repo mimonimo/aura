@@ -80,7 +80,8 @@ class ChatHistory:
         with closing(self.connect()) as conn:
             rows = conn.execute(f'''
                 SELECT s.*, p.name AS project_name,
-                    COALESCE((SELECT MAX(m.id) FROM chat_messages m WHERE m.session_id=s.id), 0) AS last_message
+                    COALESCE((SELECT MAX(m.id) FROM chat_messages m WHERE m.session_id=s.id), 0) AS last_message,
+                    COALESCE((SELECT m.created_at FROM chat_messages m WHERE m.session_id=s.id ORDER BY m.id DESC LIMIT 1), s.created_at) AS last_at
                 FROM chat_sessions s
                 LEFT JOIN projects p ON p.id=s.project_id
                 LEFT JOIN chat_session_preferences pref ON pref.session_id=s.id

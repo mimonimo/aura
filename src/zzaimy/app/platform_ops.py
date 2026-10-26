@@ -346,12 +346,14 @@ def pending(db, session_id: int) -> list[dict]:
     """화면에 띄울 제안 — kind run 은 [실행], go 는 화면 열기. 대상 번호 등 내부 값은 빼고 보인다.
     target 은 가리킬 화면 요소(path·anchor·selector) — 화면 위 커서·강조가 쓴다."""
     return [{"id": p["id"], "kind": p.get("kind", "run"), "label": p["label"], "plan": p["plan"], "screen": p["screen"],
-             "target": p.get("target") or {}}
+             "target": p.get("target") or {}, "act": p.get("act") or {}}
             for p in load(db, session_id) if p.get("status") == "pending"]
 
 
-def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str = "") -> dict:
-    """화면 열기 제안 — 실행할 것이 없고 그 화면(자리·요소)으로 옮겨 갈 단추만 낸다. 화면은 안내 자료에 있는 것만."""
+def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str = "", now: bool = False, text: str = "") -> dict:
+    """화면 열기 제안 — 실행할 것이 없고 그 화면(자리·요소)으로 옮겨 갈 단추만 낸다. 화면은 안내 자료에 있는 것만.
+    now 면(담당자가 열어 달라·눌러 달라고 시킨 때) 화면이 바로 옮겨 가 AURA 커서로 그 요소를 누른다 — 화면 열기·창 열기·찾기 칸 채우기처럼
+    자료를 바꾸지 않는 일만이라 따로 묻지 않는다. text 는 그 요소가 입력 칸일 때 넣을 말(찾을 사업 이름 등)."""
     from zzaimy.app import platform_guide
     path, _, anchor = str(page or "").partition("#")
     p = platform_guide.page_for(path)
@@ -367,6 +369,7 @@ def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str =
         raise OpRefused(f"이번 요청에서 제안은 {MAX_PENDING}개까지다 — finish 로 알린다.")
     item = {"id": secrets.token_hex(6), "kind": "go", "op": "open", "label": f"{p.title} 열기", "args": {}, "plan": _clip(why, 200) or p.purpose,
             "screen": url, "target": {"path": path, "anchor": anchor if url.endswith("#" + anchor) else "", "selector": sel},
+            "act": {"now": bool(now), "text": _clip(" ".join(str(text or "").split()), 80) if sel else ""},
             "status": "pending", "by": ctx.user, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
     _save(ctx.db, session_id, items + [item])
     return item

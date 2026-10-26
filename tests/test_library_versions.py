@@ -1,6 +1,8 @@
 """라이브러리 판본 묶음·쪽 나눔·옛 주소·공통 양식 사본 — 오늘 데이터 이름이 아니라 판 꼬리 모양의 일반 규칙으로."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from tests.test_app import FakeDrafter, FakeProcessor
@@ -114,7 +116,8 @@ def test_shell_names_service_hides_server_details_from_staff_and_quiet_bell(tmp_
     assert "<title>라이브러리 · 문서 · AURA</title>" in page and "행정 에이전트" not in page
     assert "기본 AI 서버" not in page                                  # 업무 사용자에게는 연결 여부만
     assert "새 알림이 없습니다" in page and 'id="notificationReadAll"' not in page
-    assert 'var KEY = "chatWidgetSession"' in page                       # 위젯은 채팅 화면의 마지막 대화를 잇지 않는다
+    helper_js = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/aura-helper.js").read_text(encoding="utf-8")
+    assert "/static/aura-helper.js" in page and 'store("session", "chatWidgetSession")' in helper_js   # 위젯은 채팅 화면의 마지막 대화를 잇지 않는다
     assert "side-hwp-box" in page and "검색 범위:" in c.get("/chat").text
 
 

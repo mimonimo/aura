@@ -486,7 +486,14 @@ def _step_label(name: str, args: dict) -> str:
               "new_work_copy": lambda a: "작업본 새로 만드는 중",
               "remove_guide_boxes": lambda a: "안내 상자 확인 중",
               "answer_question": lambda a: "답변 작성 중",
-              "ask_user": lambda a: "담당자에게 물을 값 정리 중"}
+              "ask_user": lambda a: "담당자에게 물을 값 정리 중",
+              # 플랫폼 업무 도우미(platform_helper)의 도구
+              "platform_help": lambda a: "화면 안내 찾는 중",
+              "platform_lookup": lambda a: "대상 목록 보는 중",
+              "doc_search": lambda a: f"문서에서 찾는 중 — 「{str(a.get('query', ''))[:30]}」",
+              "propose_action": lambda a: "할 일 정리 중",
+              "open_page": lambda a: "화면 여는 중",
+              "finish": lambda a: "답 정리 중"}
     f = labels.get(name)
     return f(args) if f else f"{name} 실행 중"
 
