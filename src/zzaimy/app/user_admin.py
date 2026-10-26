@@ -537,7 +537,7 @@ def _delete_one(st, accounts: dict, name: str) -> int:
     try:                                                 # 남은 흔적(RAG 최소 등급·사업 관리 dept: 지정·부서 공용 설정·공유 등) — 이 부서만이 아니라 없는 부서 이름 전부
         from zzaimy.app.org_routes import purge_traces, reconcile
         purge_traces(st, name)
-        reconcile(st)
+        reconcile(st, explicit=True)
     except Exception:
         import logging
         logging.getLogger("zzaimy.app.user_admin").exception("부서 흔적 맞추기 실패")

@@ -552,18 +552,30 @@ def purge_traces(st, name: str) -> list[str]:
     return found
 
 
-def reconcile(st) -> dict:
+RECONCILE_MAX = 5          # 한 번에 이보다 많은 부서가 「없어짐」 으로 잡히면 설정이 깨진 것으로 보고 멈춘다(사람이 지운 때는 delete_dept 가 explicit 로)
+
+
+def reconcile(st, *, explicit: bool = False) -> dict:
     """부서 흔적 맞추기 — 지금 있는 부서(rag_spaces.known_depts: 부서 RAG·폴더 짝·공간·계정 소속) 밖 이름이 남은 곳을 모두 정리한다.
     화면에서 지운 때만이 아니라 설정 파일을 손으로 고치거나 지운 때도 「어디는 되어 있고 어디는 안 된」 상태가 남지 않게(10-27 사용자),
-    부서 지우기 끝과 동기화마다(scripts/218) 돈다. 정리: purge_traces(겸직 등급·추가 권한·최소 등급·상위 관계·사업 관리 지정·구글 설정),
+    부서 지우기 끝(explicit)과 앱의 10분 주기에 돈다. 보안: 설정을 못 읽거나 부서가 비어 보이면 하지 않고, 주기 실행은 권한을 좁히는 정리만 —
+    문서를 공통으로 돌리는 것(열람이 넓어짐)은 사람이 지운 때(explicit)만, 한 번에 RECONCILE_MAX 넘게 없어졌으면 멈추고 기록만. 정리: purge_traces(겸직 등급·추가 권한·최소 등급·상위 관계·사업 관리 지정·구글 설정),
     빈 값으로 남은 부서 구글 설정 열쇠 지우기, 프로젝트 공유의 그 부서 줄 빼기, 그 부서 문서는 공통으로. 문서함 부서 폴더는 비었으면 지우고,
     문서가 남았으면 지우지 않고 돌려준다(화면이 알린다). 돌려주는 값: {orphans: [이름], docs: 공통으로 돌린 문서 수, folders_left: [이름]}."""
     import json as _json
 
     dd = getattr(st, "data_dir", None)
     accounts = getattr(st, "accounts", None) or {}
+    # 보안(fail-closed): 부서 설정을 못 읽으면(파일 없음·깨짐) 「지금 있는 부서」 가 비어 보여 모든 흔적을 지우게 된다 — 그때는 아무것도 하지 않는다
+    try:
+        import json as _j0
+        _j0.loads((Path(dd) / "rag_spaces.json").read_text(encoding="utf-8")) if dd is not None else None
+    except (OSError, ValueError):
+        return {"orphans": [], "docs": 0, "folders_left": [], "skipped": "부서 설정을 읽지 못함"}
     cfg = rag_spaces.config(dd)
     live = set(rag_spaces.known_depts(cfg, accounts)) | {"공통"}
+    if len(live) <= 1:
+        return {"orphans": [], "docs": 0, "folders_left": [], "skipped": "지금 있는 부서가 없음"}
     names: set[str] = set()
     for a in accounts.values():
         names |= set((a.get("dept_grades") or {}).keys())
@@ -601,13 +613,19 @@ def reconcile(st) -> dict:
         with st.db._conn() as conn:
             names |= {str(r[0]) for r in conn.execute("SELECT DISTINCT dept FROM documents").fetchall() if r[0]}
     orphans = sorted(n for n in names - live if n)
+    if not explicit and len(orphans) > RECONCILE_MAX:
+        logging.getLogger("zzaimy.app.org").warning("부서 흔적 맞추기 멈춤 — 없어진 부서가 %d개(설정 이상 의심): %s", len(orphans), orphans[:20])
+        return {"orphans": orphans, "docs": 0, "folders_left": [], "skipped": f"없어진 부서 {len(orphans)}개 — 설정 확인 필요"}
+    docs_left = []
     for n in orphans:
-        purge_traces(st, n)
+        purge_traces(st, n)                               # 권한을 좁히는 정리(겸직·추가 권한·최소 등급·위계·사업 지정·구글 설정)
         if st.db is not None:
             with st.db._conn() as conn:
                 ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE dept = ?", (n,)).fetchall()]
-            if ids:
+            if ids and explicit:                          # 공통으로 돌리면 열람이 넓어진다 — 사람이 부서를 지운 때만
                 docs_moved += rag_spaces.move_docs(st.db, ids, "공통")
+            elif ids:
+                docs_left.append(n)
     if orphans:
         gone = {f"dept:{n}" for n in orphans}
         for k, v in shares.items():
@@ -630,7 +648,9 @@ def reconcile(st) -> dict:
                     else:
                         import shutil
                         shutil.rmtree(p, ignore_errors=True)
-    return {"orphans": orphans, "docs": docs_moved, "folders_left": sorted(folders_left)}
+    if docs_left:
+        logging.getLogger("zzaimy.app.org").warning("없는 부서 문서가 남음(공통으로 돌리지 않음 — 부서 지우기로): %s", docs_left)
+    return {"orphans": orphans, "docs": docs_moved, "folders_left": sorted(folders_left), "docs_left": docs_left}
 
 
 def rename_dept(st, old: str, new: str) -> dict:

@@ -168,3 +168,6 @@ def test_reconcile_cleans_traces_of_hand_removed_dept(org):
     assert "예산팀" not in dept_dictionary.parents_override(tmp)
     assert not (tmp / "documents" / "기안기" / "예산팀").exists()                        # 빈 폴더는 지운다
     assert org_routes.reconcile(st)["orphans"] == []                                   # 한 번 더 돌려도 그대로
+    # 보안: 설정 파일이 깨지면 아무것도 하지 않는다(모두 「없는 부서」 로 보여 권한을 지우지 않게)
+    (tmp / "rag_spaces.json").write_text("{깨짐", encoding="utf-8")
+    assert org_routes.reconcile(st).get("skipped")
