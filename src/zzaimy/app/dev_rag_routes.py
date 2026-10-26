@@ -51,6 +51,8 @@ def dev_rag(request: Request):
         "rag_rows": rows, "rag_common": rows[0], "rag_student": rows[1], "depts": depts,
         "dept_filled": [r for r in depts if r["docs"] or r["reg_docs"]],
         "dept_empty": [r for r in depts if not (r["docs"] or r["reg_docs"])],
+        # 빈 부서는 많을 때만 한 줄로 접는다 — 몇 개뿐이면 그냥 보인다(3개를 접어 두면 표가 빈 머리만 남았다)
+        "fold_empty": sum(1 for r in depts if not (r["docs"] or r["reg_docs"])) > 8,
         "cfg": cfg, "staff_grades": staff_grades}))
 
 

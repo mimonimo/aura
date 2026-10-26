@@ -117,9 +117,12 @@
 .rg-hit .h{margin-top:4px;color:var(--ink);overflow-wrap:anywhere;}
 /* 넓은 화면: RAG 목록 칸 높이를 미리 잡아 상세 길이에 따라 아래 카드가 밀리지 않게(두 칸 안에서 스크롤) */
 @media (min-width:1100px){
-  #dept-rags .rg-split{height:clamp(420px,70vh,760px);}
-  #dept-rags .rg-split > *{height:100%;overflow:auto;box-sizing:border-box;}
-  #dept-rags .rg-side{position:static;}
+  .rg-split{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);}   /* 목록이 주인공 — 이름이 잘리지 않게 넓게, 상세는 옆에 좁게 */
+  #rrDetail{position:sticky;top:12px;}
+  /* 줄 높이는 왼쪽(요약·부서 표)이 정하고, 상세는 그 높이 안에서 스크롤 — 고정 높이로 잡으면 부서가 적을 때 큰 빈 칸이 남았다 */
+  #dept-rags .rg-split{align-items:stretch;}
+  #dept-rags .rg-split > div{min-height:22rem;}
+  #dept-rags .rg-side{position:static;height:0;min-height:100%;overflow:auto;box-sizing:border-box;}
   #rrDetail{max-height:calc(20 * 38px + 50px);overflow:auto;}
 }
 @media (max-width:560px){.rg-sum{grid-template-columns:1fr}.rg-table th:nth-child(3),.rg-table td:nth-child(3){display:none}.rg-table col.w-r{width:0}.rg-table col.w-g{width:6.5em}.rg-table col.w-n{width:4.5em}}
@@ -137,7 +140,8 @@
         {% set c = rag_common %}
         <div class="rg-card" role="button" tabindex="0" data-pick="common" aria-pressed="false">
           <b>공통 RAG</b>
-          <span class="l">사업 문서 {{ "{:,}".format(c.docs) }}건 · 기준 문서 <span data-com="reg_docs">{{ "{:,}".format(c.reg_docs) }}</span>건 · 조각 <span data-com="reg_chunks">{{ "{:,}".format(c.reg_chunks) }}</span></span>
+          <span class="l">사업 문서 {{ "{:,}".format(c.docs) }}건</span>
+          <span class="l">기준 문서 <span data-com="reg_docs">{{ "{:,}".format(c.reg_docs) }}</span>건 · 조각 <span data-com="reg_chunks">{{ "{:,}".format(c.reg_chunks) }}</span></span>
           <span class="l">모든 교직원{% if c.members %} · 부서 없는 계정 {{ c.members|length }}명{% endif %}{% if c.min_label %} · {{ c.min_label }}{% endif %}</span>
         </div>
         {% set s = rag_student %}
@@ -158,13 +162,13 @@
         <colgroup><col><col class="w-n"><col class="w-r"><col class="w-n"><col class="w-g"></colgroup>
         <thead><tr><th>부서</th><th class="n">사업 문서</th><th class="n" title="기준 문서 수 · 조각 수">기준 문서·조각</th><th class="n">쓰는 계정</th><th>최소 등급</th></tr></thead>
         <tbody>
-        {% macro drow(r, empty) %}<tr data-sid="{{ r.sid }}" tabindex="0" aria-selected="false" data-find="{{ (r.name ~ ' ' ~ r.members|join(' ') ~ ' ' ~ r.granted|join(' ')) | lower }}"{% if empty %} data-empty hidden class="rg-muted"{% endif %}>
+        {% macro drow(r, empty) %}<tr data-sid="{{ r.sid }}" tabindex="0" aria-selected="false" data-find="{{ (r.name ~ ' ' ~ r.members|join(' ') ~ ' ' ~ r.granted|join(' ')) | lower }}"{% if empty %} data-empty{% if fold_empty %} hidden{% endif %} class="rg-muted"{% endif %}>
           <td title="{{ r.name }}">{{ r.name }}</td><td class="n">{{ "{:,}".format(r.docs) }}</td>
           <td class="n">{{ "{:,}".format(r.reg_docs) }} · {{ "{:,}".format(r.reg_chunks) }}</td>
           <td class="n">{{ r.members|length + r.granted|length }}명</td><td data-min>{{ r.min_label or "—" }}</td></tr>{% endmacro %}
         {% for r in dept_filled %}{{ drow(r, false) }}{% endfor %}
         {% for r in dept_empty %}{{ drow(r, true) }}{% endfor %}
-        {% if dept_empty %}<tr class="rg-more" id="rgEmptyRow"><td colspan="5"><button type="button" class="btn-ghost" id="rgEmptyToggle" aria-expanded="false" data-n="{{ dept_empty|length }}">문서 없는 부서 {{ dept_empty|length }}개 펼치기</button></td></tr>{% endif %}
+        {% if fold_empty %}<tr class="rg-more" id="rgEmptyRow"><td colspan="5"><button type="button" class="btn-ghost" id="rgEmptyToggle" aria-expanded="false" data-n="{{ dept_empty|length }}">문서 없는 부서 {{ dept_empty|length }}개 펼치기</button></td></tr>{% endif %}
         <tr class="rg-more" id="rgNoHit" hidden><td colspan="5" class="rg-sub">맞는 부서 없음</td></tr>
         {% if not depts %}<tr class="rg-more"><td colspan="5" class="rg-sub">부서 RAG 없음</td></tr>{% endif %}
         </tbody>
@@ -256,7 +260,7 @@
   const panel = document.getElementById('rgPanel'), find = document.getElementById('rgFind');
   const emptyToggle = document.getElementById('rgEmptyToggle'), emptyRow = document.getElementById('rgEmptyRow');
   const comps = {};                         // 이 화면을 연 동안만 — 다시 열면 새로 센다
-  let cur = '', emptyOpen = false;
+  let cur = '', emptyOpen = !emptyToggle;   // 접기 줄이 없으면(빈 부서가 몇 개뿐) 늘 보인다
 
   const FIRST = 6, STEP = 20;
   const countRows = (list, unit, link) => {
