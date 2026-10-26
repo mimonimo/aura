@@ -191,7 +191,7 @@ def blank_doc() -> bytes:
     for i, (_uid, name) in enumerate(SLOTS.values(), 1):
         blocks += [{"h": 1, "text": f"{i}. {name}"}, {"p": ""}]
     data = wt.build({"id": "demo-blank", "title": "공동 편집 시연",
-                     "cover": {"title": "공동 편집 시연", "subtitle": "세 사람이 같은 문서의 서로 다른 절을 동시에 씁니다", "page": False},
+                     "cover": {"title": "공동 편집 시연", "page": False},     # 부제 없이 — 좁은 세 칸에서 세 절이 한 화면에 들게
                      "blocks": blocks, "page_number": False})
     return _bigger_text(data, BIG)
 
