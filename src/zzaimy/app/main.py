@@ -4665,7 +4665,7 @@ def create_app(
         _weekly_stop.set()
 
     def _user_admin_status(request: Request) -> dict | None:
-        """설정 화면의 '내 구글 계정' — 인증 없는 로컬 모드에는 계정이 없다."""
+        """설정 화면의 「구글 계정」 — 인증 없는 로컬 모드에는 계정이 없다."""
         if password is None:
             return None
         from zzaimy.app.user_admin import user_status

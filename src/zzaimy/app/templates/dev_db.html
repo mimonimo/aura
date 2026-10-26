@@ -79,14 +79,6 @@ details.dx-more.can[open] summary .t::after{ content:"접기"; }
 details.dx-more pre{ white-space:pre-wrap; font-family:inherit; font-size:12.5px; line-height:1.65;
             background:var(--panel); border:1px solid #EDF2F7; border-radius:10px; padding:10px 12px;
             margin:6px 0 2px; max-height:360px; overflow:auto; }
-/* 자료 묶음 — 접이식 */
-details.dx-group{ margin-top:8px; }
-details.dx-group > summary{ cursor:pointer; font-size:12.5px; font-weight:600; color:var(--ink);
-            padding:6px 0; list-style:none; display:flex; gap:6px; align-items:center; }
-details.dx-group > summary::-webkit-details-marker{ display:none; }
-details.dx-group > summary iconify-icon{ color:var(--faint); font-size:15px; transition:transform .2s var(--ease); }
-details.dx-group[open] > summary iconify-icon{ transform:rotate(90deg); }
-details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
 .dx-chips{ display:flex; gap:6px; flex-wrap:wrap; }
 .dx-chip{ display:inline-flex; gap:7px; align-items:center; border:1px solid var(--line); border-radius:9px;
           padding:5px 10px; font-size:12.5px; text-decoration:none; color:var(--ink); background:#fff; max-width:100%;
@@ -98,11 +90,6 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
 .dx-empty{ color:var(--muted); font-size:13px; padding:28px 0; text-align:center; }
 .dx-hit{ padding:10px 0; border-top:1px solid var(--panel); }
 .dx-hit:first-child{ border-top:0; }
-.dx-big{ font-size:24px; font-weight:800; color:var(--navy); font-variant-numeric:tabular-nums; }
-.dx-groups{ display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; }
-.dx-groups > div{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 14px; min-width:160px; flex:1; }
-.dx-groups .t{ font-size:10.5px; font-weight:700; letter-spacing:.06em; color:var(--faint); text-transform:uppercase; margin-bottom:6px; }
-.dx-groups .r{ display:flex; justify-content:space-between; gap:10px; font-size:12.5px; padding:2px 0; }
 .dx-foot{ margin:8px 0 0; font-size:11.5px; }
 .dx-grid { grid-template-columns:minmax(380px,420px) minmax(0,1fr); gap:24px; }
 .dx-grid > * { min-width:0; }
@@ -219,7 +206,6 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
 .dx-extract-more{margin:8px 0 0}.dx-extract-more > .dx-rows{margin-top:8px}
 </style>
 
-<p class="muted" style="font-size:12.5px; margin:0 0 14px;">운영 DB 읽기 전용 · 문서 하나의 항목·검색 조각·그래프 연결 · 학습 데이터는 <a href="/dev/train">{{ dev_page_name("/dev/train") }}</a></p>
 
 <div class="dx-tabs">
   {% for key, label in tabs %}
@@ -548,7 +534,7 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
       <span class="muted" style="font-size:12.5px; font-weight:500;">{{ view.sessions|length }}건</span></h2>
   </div>
   <div class="table-scroll"><table class="dx-rows dx-chat" style="font-size:13px;">
-    <tr><th>#</th><th>질문</th><th>시각</th><th class="dx-num">메시지</th><th class="dx-num">근거</th><th>프로젝트</th><th>올린 계정</th></tr>
+    <tr><th>#</th><th>질문</th><th>시각</th><th class="dx-num">메시지</th><th class="dx-num" title="답변에 쓴 자료 수">근거</th><th>프로젝트</th><th>올린 계정</th></tr>
     {% for s in view.sessions %}
     <tr>
       <td class="dx-mono">{{ s.id }}</td>
@@ -564,7 +550,6 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
     <tr><td colspan="7" class="dx-empty">대화 기록 없음</td></tr>
     {% endfor %}
   </table></div>
-  <p class="muted dx-foot">근거 = 답변에 쓴 자료 수</p>
 </div></div>
 {% endif %}
 

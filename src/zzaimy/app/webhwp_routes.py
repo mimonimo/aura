@@ -616,7 +616,7 @@ def _google(request: Request) -> str:
     user = getattr(request.state, "user", "")
     email = gdrive_files.account_for(st.db, user, getattr(request.state, "dept", "") or None)
     if not email:
-        raise HTTPException(409, "학교 구글 계정이 연결되어 있지 않습니다 — 설정에서 「내 학교 계정 연결」 뒤 다시 해 주세요")
+        raise HTTPException(409, "학교 구글 계정이 연결되어 있지 않습니다 — 설정 › 구글 계정에서 「구글 계정 연결」 뒤 다시 해 주세요")
     return email
 
 

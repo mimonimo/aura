@@ -27,6 +27,16 @@ EXTRA_HOSTS = {"구글 드라이브·독스": {"role": "보조 경로 — 드라
 GROUP = {"토르 02·03": ("토르 02", "토르 03")}   # 연결 목록의 묶음 이름 → 받는 상자들. 같은 줄 옆 상자라 곧은 선이 짧아 글이 겹친다 — 상자 아래로 잇는 선으로
 MAIN = "운영 VM"
 DASHED = {"구글 드라이브·독스"}
+# 장비 갈래 색(바탕, 진한 색) — 처리 흐름의 단계 그림·공동 편집 그림과 같은 색 결. 화살표는 보내는 장비의 색
+KIND = {"교직원 브라우저": "user", "구글 드라이브·독스": "user", "운영 VM": "platform",
+        "토르 02": "serve", "토르 03": "serve", "DGX": "data", "원본 보관 PC": "data"}
+COLOR = {"user": ("#e8f0fe", "#2f5fb3"), "platform": ("#f1ecfb", "#6b4fb3"),
+         "serve": ("#e6f4ea", "#2e7d4f"), "data": ("#fdf3e7", "#8a5a00")}
+LEGEND = (("user", "사용자 쪽"), ("platform", "운영 플랫폼"), ("serve", "모델 서빙"), ("data", "원본·학습"))
+
+
+def _color(name: str) -> tuple[str, str]:
+    return COLOR[KIND.get(name, "platform")]
 
 
 def _cols(n: int) -> int:
@@ -75,8 +85,8 @@ def svg() -> str:
     rect = {n: (pos[n][0], pos[n][1], pos[n][2], _box_h(hosts[n])) for n in hosts}
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" role="img" aria-label="AURA 시스템 구성도" '
            'font-family="Pretendard, \'Apple SD Gothic Neo\', \'Malgun Gothic\', sans-serif">',
-           '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
-           '<path d="M0,0 L10,5 L0,10 z" fill="#4a5f7d"/></marker></defs>',
+           '<defs>' + "".join(f'<marker id="arr-{k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
+                              f'<path d="M0,0 L10,5 L0,10 z" fill="{fg}"/></marker>' for k, (_bg, fg) in COLOR.items()) + '</defs>',
            f'<rect width="{W}" height="{H}" fill="#ffffff"/>']
     buses = [(a, GROUP[b], what) for a, b, what in LINKS if b in GROUP and a in rect and all(t in rect for t in GROUP[b])]
     links = [l for l in LINKS if l[0] in rect and l[1] in rect]
@@ -92,7 +102,8 @@ def svg() -> str:
         off = (k - (total[key] - 1) / 2) * 34 * (1 if a < b else -1)   # 같은 두 장비 사이 선이 여럿이면 나란히(방향이 반대여도 같은 기준)
         x1, y1, x2, y2 = _edge(rect[a], rect[b], off)
         dash = ' stroke-dasharray="5 4"' if a in DASHED or b in DASHED else ""
-        out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="#4a5f7d" stroke-width="1.6"{dash} marker-end="url(#arr)"/>')
+        fg, kind = _color(a)[1], KIND.get(a, "platform")
+        out.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" stroke="{fg}" stroke-width="1.8"{dash} marker-end="url(#arr-{kind})"/>')
         f = 0.5 if total[key] == 1 else (0.38 if k == 0 else 0.62)
         labels.append((x1 + (x2 - x1) * f, y1 + (y2 - y1) * f, _short(what)))
     for a, targets, what in buses:                         # 묶음으로 가는 선 — 보낸 상자 아래 → 받는 상자들 아래를 잇는 가로줄 → 위로 화살표
@@ -100,17 +111,19 @@ def svg() -> str:
         y = max(rect[t][1] + rect[t][3] for t in (a, *targets)) + 26
         sx = ax + 30
         xs = [rect[t][0] + rect[t][2] / 2 for t in targets]
-        out.append(f'<polyline points="{sx:.0f},{ay + ah:.0f} {sx:.0f},{y:.0f} {min(xs):.0f},{y:.0f}" fill="none" stroke="#4a5f7d" stroke-width="1.6"/>')
+        fg, kind = _color(a)[1], KIND.get(a, "platform")
+        out.append(f'<polyline points="{sx:.0f},{ay + ah:.0f} {sx:.0f},{y:.0f} {min(xs):.0f},{y:.0f}" fill="none" stroke="{fg}" stroke-width="1.8"/>')
         for t, tx in zip(targets, xs):
-            out.append(f'<line x1="{tx:.0f}" y1="{y:.0f}" x2="{tx:.0f}" y2="{rect[t][1] + rect[t][3]:.0f}" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>')
+            out.append(f'<line x1="{tx:.0f}" y1="{y:.0f}" x2="{tx:.0f}" y2="{rect[t][1] + rect[t][3]:.0f}" stroke="{fg}" stroke-width="1.8" marker-end="url(#arr-{kind})"/>')
         labels.append(((min(xs) + sx) / 2, y + 20, _short(what)))
     for name, h in hosts.items():
         x0, y0, bw, bh = rect[name]
         main = name == MAIN
+        bg, fg = _color(name)
         dash = ' stroke-dasharray="5 4"' if name in DASHED else ""
-        out.append(f'<rect x="{x0}" y="{y0}" width="{bw}" height="{bh}" rx="12" fill="{"#eef3fb" if main else "#f8fafc"}" '
-                   f'stroke="{"#7f9cc4" if main else "#c9d3e0"}" stroke-width="{1.6 if main else 1.2}"{dash}/>')
-        out.append(f'<text x="{x0 + 16}" y="{y0 + 27}" font-size="15.5" font-weight="700" fill="#1b2a41">{escape(name)}</text>')
+        out.append(f'<rect x="{x0}" y="{y0}" width="{bw}" height="{bh}" rx="12" fill="{bg}" fill-opacity="{1 if main else .6}" '
+                   f'stroke="{fg}" stroke-opacity="{.7 if main else .45}" stroke-width="{1.8 if main else 1.3}"{dash}/>')
+        out.append(f'<text x="{x0 + 16}" y="{y0 + 27}" font-size="15.5" font-weight="700" fill="{fg}">{escape(name)}</text>')
         parts = h.get("parts") or []
         if not parts:                                     # 칩이 없는 상자만 한 줄 설명
             role = h.get("role", "")
@@ -121,12 +134,22 @@ def svg() -> str:
         for i, part in enumerate(parts):
             cx = x0 + 16 + (i % cols) * (cw + CHIP_GAP)
             cy = y0 + 40 + (i // cols) * (CHIP_H + CHIP_GAP)
-            out.append(f'<rect x="{cx:.0f}" y="{cy}" width="{cw:.0f}" height="{CHIP_H}" rx="6" fill="#ffffff" stroke="{"#9fb5d6" if main else "#d5dce6"}"/>')
+            out.append(f'<rect x="{cx:.0f}" y="{cy}" width="{cw:.0f}" height="{CHIP_H}" rx="6" fill="#ffffff" stroke="{fg}" stroke-opacity=".3"/>')
             out.append(f'<text x="{cx + cw / 2:.0f}" y="{cy + 16}" font-size="11.5" fill="#1b2a41" text-anchor="middle">{escape(part)}</text>')
         if h.get("spec"):
-            out.append(f'<text x="{x0 + 16}" y="{y0 + bh - 10}" font-size="10.5" fill="#7a869a">{escape(h["spec"])}</text>')
+            out.append(f'<text x="{x0 + 16}" y="{y0 + bh - 10}" font-size="10.5" fill="#5f6b7a">{escape(h["spec"])}</text>')
     for mx, my, label in labels:                          # 글은 맨 위에 — 상자에 가리지 않게
         out.append(f'<text x="{mx:.0f}" y="{my - 5:.0f}" font-size="11.5" fill="#2c3a50" text-anchor="middle" '
                    f'paint-order="stroke" stroke="#ffffff" stroke-width="5">{escape(label)}</text>')
+    lx, ly = 40, H - 46                                   # 범례 — 아래 왼쪽 빈자리(토르 아래)
+    out.append(f'<text x="{lx}" y="{ly - 12}" font-size="11.5" font-weight="700" fill="#5f6b7a">화살표 색은 보내는 장비 색</text>')
+    for i, (k, label) in enumerate(LEGEND):
+        bg, fg = COLOR[k]
+        x = lx + i * 130
+        out.append(f'<rect x="{x}" y="{ly}" width="16" height="16" rx="4" fill="{bg}" stroke="{fg}" stroke-opacity=".6"/>')
+        out.append(f'<text x="{x + 22}" y="{ly + 12.5}" font-size="12" fill="#1b2a41">{escape(label)}</text>')
+    x = lx + len(LEGEND) * 130
+    out.append(f'<line x1="{x}" y1="{ly + 8}" x2="{x + 26}" y2="{ly + 8}" stroke="#5f6b7a" stroke-width="1.6" stroke-dasharray="5 4"/>')
+    out.append(f'<text x="{x + 32}" y="{ly + 12.5}" font-size="12" fill="#1b2a41">보조 경로</text>')
     out.append("</svg>")
     return "\n".join(out)

@@ -4,24 +4,9 @@
 {% block head %}<link rel="stylesheet" href="/static/dev-topology.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
 <style>
-
-  /* 섹션 구분 라벨 */
-  .dev-section { font-size: 12.5px; font-weight: 700; color: var(--faint);
-                 letter-spacing: .05em; margin: 28px 4px 12px;
-                 display: flex; align-items: center; gap: 10px; }
-  .dev-section::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-  .dev-section:first-of-type { margin-top: 6px; }
-  /* 지표 2단 — 비슷한 높이의 카드 (위에서 정렬) */
-  .dev-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%,340px), 1fr));
-               gap: 16px; align-items: start; }
-  /* 바로가기 — 규격 통일 카드(같은 높이). 아이콘·제목·설명·링크 구조 동일 */
-  .dev-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-               gap: 14px; }
-  .dev-tools .card { margin-bottom: 0; }
-  .dev-tools .card-in { display: flex; flex-direction: column; height: 100%; }
-  .dev-tools .card-in > p { flex: 1; margin: 0 0 14px; }
-  .dev-tools .tool-open { align-self: flex-start; }
   .feat-area { margin: 0 0 14px; }
+  .feat-list-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 0; }
+  .feat-list:not(.show-done) .feat-row.is-done, .feat-list:not(.show-done) .feat-area.all-done { display: none; }
   .feat-area-h { font-size: 13px; font-weight: 700; color: var(--navy); padding: 6px 0 4px; border-bottom: 1px solid var(--line); }
   .feat-area-h .muted { font-weight: 500; font-size: 12px; margin-left: 6px; }
   .feat-row { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 4px 14px; padding: 8px 0; border-bottom: 1px solid var(--panel); font-size: 13px; }
@@ -39,7 +24,6 @@
   .model-facts { margin:0; min-width:0; }
   .model-facts > div { display:grid; grid-template-columns:46px minmax(0,1fr); }
   .model-facts dd { margin:0; overflow-wrap:anywhere; }
-  .model-note { margin:12px 0 0; font-size:12px; }
   .model-columns, .model-comparison-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr); gap:24px; }
   .model-columns { color:var(--muted); font-size:11px; padding:8px 0; border-bottom:1px solid var(--line); }
   .model-comparison-row { padding:16px 0; border-bottom:1px solid var(--line); font-size:12.5px; line-height:1.6; }
@@ -116,13 +100,18 @@
       {% else %}<p class="muted">아직 영역별 진행 데이터가 없습니다.</p>
       {% endfor %}
     </div>
-    <h4 class="extract-h" style="margin-top:0;">기능별 상태</h4>
+    {# 기능 목록은 할 일(진행·보류·예정)만 먼저 — 완료는 단추로 함께 본다(31줄을 늘 늘어놓지 않게) #}
+    {% set n_done = progress.features | selectattr("status", "equalto", "done") | list | length %}
+    <h4 class="extract-h feat-list-h">기능별 상태
+      {% if n_done %}<button type="button" class="mini-btn" data-done-toggle aria-controls="featList" aria-pressed="false">완료 {{ n_done }}개도 보기</button>{% endif %}</h4>
     {# 영역별로 묶고, 기능마다 지금 상태 · 남은 것 · 근거 문서/화면 링크를 둔다. 한 줄로 다 못 적는 것은 문서 링크로 잇는다 #}
+    <div class="feat-list" id="featList">
     {% for a in progress.areas %}
-    <div class="feat-area">
-      <div class="feat-area-h">{{ loop.index }}. {{ a.name }}</div>
+    {% set open_n = a.features | rejectattr("status", "equalto", "done") | list | length %}
+    <div class="feat-area{{ ' all-done' if not open_n }}">
+      <div class="feat-area-h">{{ a.name }}</div>
       {% for f in a.features %}
-      <div class="feat-row">
+      <div class="feat-row{{ ' is-done' if f.status == 'done' }}">
         <div class="feat-head">
           {% if f.status == "done" %}<span class="pill reviewed">완료</span>
           {% elif f.status == "doing" %}<span class="pill type">진행</span>
@@ -140,6 +129,7 @@
       {% endfor %}
     </div>
     {% endfor %}
+    </div>
   </div>
   <div id="paneNow" class="tab-pane">
   <div>{{ dev_now | for_people | md_view }}</div>
@@ -151,6 +141,17 @@
 
 
 <script>
+  // 완료한 기능 함께 보기 — 처음엔 할 일만
+  (function () {
+    var b = document.querySelector("[data-done-toggle]"), list = document.getElementById("featList");
+    if (!b || !list) return;
+    var label = b.textContent;
+    b.addEventListener("click", function () {
+      var on = list.classList.toggle("show-done");
+      b.setAttribute("aria-pressed", String(on));
+      b.textContent = on ? "완료 숨기기" : label;
+    });
+  })();
   // 프로젝트 현황 탭 — 다른 개발 화면의 탭처럼 주소(?tab=build|now)에 남겨 뒤로·앞으로 가기와 링크가 탭을 따른다
   (function () {
     var KEY = { paneBuild: "build", paneNow: "now" };

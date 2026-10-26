@@ -314,6 +314,7 @@ def dev_flow(request: Request):
     return st.templates.TemplateResponse(request, "dev_flow.html", st.page_ctx(request, {
         "terms": pf.TERMS, "hosts": pf.HOSTS, "stages": pf.STAGES,
         "cycles": pf.CYCLES, "flow": pf.snapshot(db), "coedit": pf.COEDIT,
+        "flow_svg": __import__("zzaimy.app.flow_diagram", fromlist=["svg"]).svg(),
         "coedit_conf": (_co := __import__("zzaimy.app.webhwp_coedit", fromlist=["client_conf"]).client_conf(db)),
         "coedit_svgs": [__import__("zzaimy.app.coedit_diagram", fromlist=["field_flow"]).field_flow(_co),
                         __import__("zzaimy.app.coedit_diagram", fromlist=["aura_flow"]).aura_flow(_co)],

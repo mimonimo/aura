@@ -12,18 +12,12 @@
   * { box-sizing:border-box; }
   html, body { height:100%; margin:0; }
   body { font-family:"Pretendard Variable", Pretendard, system-ui, sans-serif; color:var(--ink); background:var(--bg); display:flex; flex-direction:column; }
-  /* 머리줄 — 왼쪽 돌아가기·제목·시연 갈래, 오른쪽 버튼 */
+  /* 머리줄 — 왼쪽 돌아가기·제목·AURA 진행, 오른쪽 버튼 */
   .bar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 16px; background:#fff; border-bottom:1px solid var(--line); }
-  .bar .note { font-size:12.5px; color:var(--muted); white-space:nowrap; }
   .bar a.back { display:inline-flex; align-items:center; gap:2px; color:var(--muted); text-decoration:none; font-size:13px; padding:6px 8px 6px 4px; border-radius:6px; }
   .bar a.back:hover { background:#F1F5F9; color:var(--ink); }
   .bar .sep { width:1px; height:20px; background:var(--line); }
   .bar h1 { font-size:15px; margin:0; font-weight:700; white-space:nowrap; }
-  /* 시연 갈래 — 두 칸짜리 고르기 */
-  .seg { display:inline-flex; gap:2px; padding:3px; margin-left:8px; background:#F1F5F9; border-radius:9px; }
-  .seg a { padding:6px 12px; border-radius:7px; font-size:13px; font-weight:600; color:var(--muted); text-decoration:none; white-space:nowrap; }
-  .seg a:hover { color:var(--ink); }
-  .seg a[aria-current=page] { background:#fff; color:var(--ink); box-shadow:0 1px 2px rgba(15,23,42,.08); }
   /* AURA 진행 — 쓰는 동안만 짧게(평소 안내 문장은 두지 않는다, 10-26) */
   .status { display:inline-flex; align-items:center; gap:8px; min-width:0; padding:5px 12px; border-radius:999px; background:#EEF2FF; color:#1B3B75; font-size:12.5px; font-weight:600; white-space:nowrap; }
   .status[hidden], iconify-icon[hidden] { display:none; }
@@ -40,7 +34,7 @@
   .btn:hover { background:#F8FAFC; }
   .btn.primary { background:var(--navy); border-color:var(--navy); color:#fff; }
   .btn.primary:hover { background:#16305F; }
-  .btn:focus-visible, .seg a:focus-visible { outline:2px solid #2563EB; outline-offset:1px; }
+  .btn:focus-visible, .bar a.back:focus-visible { outline:2px solid #2563EB; outline-offset:1px; }
   /* 세 칸 */
   .grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; padding:10px; }
   .pane { display:flex; flex-direction:column; min-width:0; min-height:0; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
@@ -49,7 +43,7 @@
   .pane .who .tag { font-size:11px; font-weight:600; color:var(--muted); background:#F1F5F9; border-radius:999px; padding:2px 8px; }
   .pane iframe { flex:1; width:100%; border:0; background:#fff; }
   .empty { margin:64px auto; text-align:center; color:var(--muted); font-size:14px; }
-  @media (max-width:900px) { .grid { grid-template-columns:1fr; grid-auto-rows:80vh; } .note { display:none; } }
+  @media (max-width:900px) { .grid { grid-template-columns:1fr; grid-auto-rows:80vh; } }
 </style>
 </head>
 <body>

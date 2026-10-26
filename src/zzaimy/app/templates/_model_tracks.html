@@ -2,28 +2,27 @@
   <h2 id="model-progress-title"><iconify-icon icon="solar:cpu-linear" aria-hidden="true"></iconify-icon>모델 개발·학습 현황
     <a class="h-link" href="/dev/doc/model-plan.md">모델 개발 계획 <span aria-hidden="true">↗</span></a>
   </h2>
-  <p class="muted">모델별 계획·검증은 {{ model_tracks_updated }} 기록{% if learning_now.live %} · 학습 진행은 DGX 학습 기록({{ learning_now.live_at }}, 1분마다 갱신){% endif %}</p>
+  <p class="muted">모델별 계획·검증 {{ model_tracks_updated }} 기준</p>
   <div class="model-comparison" data-model-progress>
     <div class="model-columns" aria-hidden="true"><span>모델 · 역할</span><span>현재 단계</span><span>다음 검증</span></div>
     {% for t in model_tracks %}
     <div class="model-comparison-row">
       <div class="model-identity"><span class="feat-name">{{ t.name }}</span><span class="muted">베이스 {{ t.base }}</span><span class="model-role">{{ t.role }}</span>{% if t.key == 'answer' and model_compare_runs %}<a class="btn-ghost model-compare-link" href="/dev/models/compare" style="align-self:flex-start; margin-top:4px; font-size:12px; padding:2px 10px;">모델 비교 결과</a>{% endif %}</div>
-      <div class="model-stage"><span class="model-mobile-label">현재 단계</span>{% if t.live and learning_now.live %}<b class="model-live" style="display:block; margin-bottom:6px;"><a href="/dev/train/run">{{ learning_now.live }}</a></b>{% endif %}{{ t.status }}<small>{{ t.method }}</small></div>
+      <div class="model-stage"><span class="model-mobile-label">현재 단계</span>{{ t.status }}<small>{{ t.method }}</small></div>
       <div class="model-next"><span class="model-mobile-label">다음 검증</span>{{ t.next }}</div>
     </div>
     {% endfor %}
   </div>
   <div class="learning-sequence" data-learning-sequence>
-    <h3>학습·평가 순서 <span class="muted">진행 기준</span></h3>
+    <h3>학습·평가 순서</h3>
     <ol class="learning-flow">
     {% for name, requirement, output, now in [
       ('1. 데이터 검수', '사업·문서·목차에 연결된 문답과 원문 근거 대조', '근거·구조·맥락·개인정보 검수를 통과한 승인 데이터', learning_now.data),
       ('2. 평가 준비', '학습 데이터와 평가셋 분리, 중복 검사', '학습 전 베이스라인 측정 결과', learning_now.eval),
       ('3. 학습·비교', '승인 데이터와 베이스라인 확보 후 SFT(DGX, bf16 LoRA)', '같은 평가셋·같은 정밀도로 학습 전후 비교 · 진행 그래프는 TensorBoard', learning_now.train)
     ] %}
-    <li><b>{{ name }}</b><p>{{ requirement }}</p><p class="muted">{{ output }}</p><p class="learning-now">지금: {{ now }}</p></li>
+    <li><b>{{ name }}</b><p>{{ requirement }}</p><p class="muted">{{ output }}</p><p class="learning-now">지금: {% if loop.last and learning_now.live %}<a href="/dev/train/run">{{ now }}</a>{% else %}{{ now }}{% endif %}</p></li>
     {% endfor %}
     </ol>
   </div>
-  <p class="muted model-note">「지금」은 DGX 학습 폴더 목록과 학습 기록기(1분마다)에서 바로 읽습니다 — 손으로 적지 않습니다.</p>
 </div></section>

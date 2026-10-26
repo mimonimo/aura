@@ -4,7 +4,7 @@ UPDATED = "2026-10-26"
 TRACKS = (
     {"key": "embed", "name": "ZZAIMY-Embed", "base": "KURE-v1",
      "role": "규정·사업 문서 근거 검색용 임베딩", "method": "대조학습",
-     "status": "v2 운영 채택 · 사업 문서 조각 약 158만 개 색인(pgvector)",
+     "status": "v2 운영 채택 · 사업 문서 조각 전부 색인(pgvector)",
      "next": "실사용 질문으로 만든 평가 세트로 다시 측정"},
     {"key": "rerank", "name": "ZZAIMY-Rerank", "base": "bge-reranker-v2-m3",
      "role": "검색 후보 재정렬", "method": "목록 단위 순위 학습",
@@ -14,9 +14,8 @@ TRACKS = (
      "role": "답·문서 작성 에이전트·검토·서류 종류와 사업 판정·이미지 판독",
      "method": "bf16 LoRA SFT (원본 정밀도 유지, 4비트는 메모리 부족 때 예비)",
      "status": "운영: 오픈 27B 그대로 — 검색(RAG)·지식그래프(GraphRAG)를 근거로 답한다. "
-               "SFT v1(학습 4,434 · 검증 346 · 시험 220)은 비교 뒤 채택하지 않음(ADR-0069) — 학습셋 틀이 답에 섞여 문서 작업 에이전트가 동작하지 않았다",
-     "next": "v2 학습셋(플랫폼이 실제로 보내는 요청 꼴)으로 다시 학습 → 같은 비교로 교체 판단",
-     "live": True},
+               "SFT v1 은 비교 뒤 채택하지 않음(ADR-0069) — 학습셋 틀이 답에 섞여 문서 작업 에이전트가 동작하지 않았다",
+     "next": "v2 학습셋(플랫폼이 실제로 보내는 요청 꼴)으로 다시 학습 → 같은 비교로 교체 판단"},
     {"key": "extract", "name": "ZZAIMY-Extract", "base": "Qwen3.8-27B",
      "role": "Writer 공용 베이스 · 구조화 추출(사업 정보·성과지표)", "method": "형식 강제 + 검수본 SFT",
      "status": "Writer 와 같은 모델로 운영(구조화 출력) · 전용 학습 전",

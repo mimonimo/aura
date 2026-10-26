@@ -64,8 +64,7 @@ STAGES = (
      "out": "원본 장부",
      "why": "원본은 DGX 한 곳에 두고, VM 에는 처리 결과와 색인만 둔다",
      "code": "scripts/165 · 170 · app/archive_cleanup",
-     "nums": [("archive_files", "원본 장부 전체"), ("archive_originals", "학교 원본"), ("audit_targets", "처리 대상 문서")],
-     "link": ("/dev/flow#intake", "반입 점검")},
+     "nums": [], "link": ("/dev/flow#intake", "반입 점검")},   # 원본 수는 바로 아래 「반입 점검」 칸 한 곳에
     {"n": 2, "name": "문서 읽기", "where": ["DGX", "운영 VM"], "state": "운영 중", "every": "원본이 바뀌면 1분 안에",
      "does": "원본에서 본문과 구조(제목·표·그림·쪽)를 읽는다. 학교 원본은 DGX, 직접 올린 문서는 VM 이 같은 방식으로 읽는다.",
      "how": ["한글(hwp·hwpx): kordoc 우선, 안 되면 다른 읽기 도구로",
@@ -169,17 +168,17 @@ STAGES = (
      "out": "승인 학습셋(학습·검증·시험)",
      "why": "사실을 학습시키면 모델이 수치를 지어낸다 — 일하는 방식만 가르친다",
      "code": "scripts/152 · 153 · dataset/",
-     "nums": [("trainset", "SFT 학습셋(DGX 목록)")], "link": ("/dev/train", "데이터·학습")},
+     "nums": [], "link": ("/dev/train", "데이터·학습")},   # 학습셋 수는 데이터·학습과 개발 현황 「학습·평가 순서」 에
     {"n": 12, "name": "학습", "where": ["DGX", "토르 03"], "state": "일부 운영", "every": "승인 데이터가 모이면",
      "does": "검색 두 모델은 학습본으로 운영 중이다. Writer 는 첫 SFT 학습본을 쓰지 않기로 했고(문서 작업 에이전트가 멈춤), 실제 요청 꼴로 학습 데이터를 다시 만든다.",
-     "how": ["Embed v2: 합성 질의 1,493건 대조 학습 — 정확한 질문 R@1 0.811 → 0.856(운영 중)",
-             "Rerank v1: 운영 후보 상위 10개로 순위 학습 — R@1 0.649 → 0.711(운영 중)",
-             "Writer: writer-v1 학습셋(학습 4,434 · 검증 346 · 시험 220)으로 DGX 에서 LoRA SFT(bf16, r32·2에폭) 마침(10-22)",
-             "비교(10-24): 학습 꼴 시험은 나아졌지만 문서 작성 시나리오 0/2 — 채택하지 않음, 다음 판(v2)은 플랫폼 요청 꼴로"],
+     "how": ["Embed v2: 합성 질의로 대조 학습(운영 중)",
+             "Rerank v1: 운영 후보 상위 10개로 순위 학습(운영 중)",
+             "Writer: 승인 학습셋으로 DGX 에서 LoRA SFT(bf16) — 학습 전후를 같은 시험지로 비교",
+             "첫 학습본(v1)은 문서 작성 시나리오가 멈춰 채택하지 않음, 다음 판(v2)은 플랫폼 요청 꼴로"],
      "out": "학습본, 모델 카드",
      "why": "학습 효과는 같은 시험지로 학습 전후를 견줘야 말할 수 있다",
      "code": "docs/model-cards · scripts/210",
-     "nums": [("train_live", "최근 학습 기록")], "link": ("/dev/train", "데이터·학습")},
+     "nums": [], "link": ("/dev/train/run", "학습 상태")},
     {"n": 13, "name": "서빙·교체", "where": ["토르 02", "토르 03", "운영 VM"], "state": "운영 중", "every": "학습본이 생기면",
      "does": "학습본을 토르에 올려 서빙하고, 운영 VM 이 그 서비스를 부른다.",
      "how": ["SFT 후보는 운영 설정을 바꾸지 않고 비교 주소로 견준 뒤, 나으면 교체",
@@ -257,29 +256,6 @@ def _fmt(v) -> str:
     return str(v)
 
 
-def _trainset_line() -> str | None:
-    """DGX 학습셋 목록(export.bundle.trainsets)의 승인본 한 줄 — 없으면 None(「—」)."""
-    try:
-        from zzaimy.export.bundle import trainsets
-        sets = trainsets()
-    except Exception:
-        return None
-    t = next((x for x in sets if x.get("kind") == "release"), None) or next((x for x in sets if x.get("kind") == "staging"), None)
-    if not t:
-        return None
-    return " · ".join(v for v in (t.get("name"), t.get("status_label"), t.get("summary")) if v)
-
-
-def _train_live_line() -> str | None:
-    """DGX 학습 기록기의 최근 기록(model_tracks.live_training) — 없으면 None."""
-    try:
-        from zzaimy.app.model_tracks import live_training
-        live = live_training()
-    except Exception:
-        return None
-    return f"{live['text']} ({live['at']} 기록)" if live else None
-
-
 def snapshot(db) -> dict:
     """단계별 수치 — 지표 키 → 보일 글. 산출물이 없으면 「—」."""
     from zzaimy.app import answer_flow, metrics
@@ -303,8 +279,6 @@ def snapshot(db) -> dict:
     doc_row = next((r for r in cmp_.get("rows") or [] if "정답 문서가 근거 상위" in r["label"]), None)
     for i, mode in enumerate(("cmp_fulltext", "cmp_graph", "cmp_graph_read")):
         vals[mode] = doc_row["vals"][i] if doc_row and i < len(doc_row["vals"]) else None
-    vals["trainset"] = _trainset_line()
-    vals["train_live"] = _train_live_line()
     import os
     vals["graph_read"] = "켜짐" if os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1" else "꺼짐"
     out = {k: _fmt(v) for k, v in vals.items()}

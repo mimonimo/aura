@@ -102,7 +102,7 @@ def bind_account(db, user: str, email: str) -> None:
         db.set_setting(f"google_account:{user}", email)
 
 
-NEED_ACCOUNT = "문서를 만들 구글 계정이 연결되지 않았습니다 — 설정 → 내 구글 계정에서 학교 계정(ync.ac.kr)을 연결해 주세요"
+NEED_ACCOUNT = "문서를 만들 구글 계정이 연결되지 않았습니다 — 설정 › 구글 계정에서 학교 계정(ync.ac.kr)을 연결해 주세요"
 
 
 def _shared_dept(db, dept: str | None) -> bool:
