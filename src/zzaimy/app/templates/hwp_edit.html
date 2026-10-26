@@ -407,10 +407,13 @@
     tip.querySelector('[data-outside-close]').addEventListener('click', hide);
     go.addEventListener('click', function () { hide(); structOn(); });
     hwp.onCaret(function (e) {
-      if (!e || e.type !== 'pointerup' || mode !== 'fields' || structMine || readonly) { if (structMine) hide(); return; }
+      // 사람이 실제로 누른 것만 — 문서를 열 때 커서를 옮기는 내부 동작(좌표 없는 사건)까지 잡아 열자마자 세 칸에 떴다(10-26)
+      if (!e || e.type !== 'pointerup' || !e.isTrusted || !(e.clientX || e.clientY) || mode !== 'fields' || structMine || readonly) { if (structMine) hide(); return; }
       if (hwp.isComposing && hwp.isComposing()) return;
       var fr = e.view && e.view.frameElement, cr = hwp.caretRect && hwp.caretRect();
       if (!fr || !cr) return;
+      var view = e.view.document.getElementById('hcwoViewScroll');          // 문서 쪽 영역만 — 도구 막대·메뉴 누름은 아니다
+      if (!view || !view.contains(e.target)) return;
       var o = fr.getBoundingClientRect(), px = o.left + e.clientX, py = o.top + e.clientY;
       var near = Math.abs(cr.y + cr.h / 2 - py) < 28 && Math.abs(cr.x - px) < 400;
       if (near) { hide(); return; }
