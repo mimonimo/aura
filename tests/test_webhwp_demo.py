@@ -60,8 +60,9 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     assert webhwp.dept_of_path(Path(app.state.data_dir), f["path"]) == demo.ROOT and not webhwp.locked(app.state.db, fid)
     fs = ww.fields(Path(f["path"]).read_bytes())
     assert [x["name"] for x in fs] == [f"절:{i}. {n}" for i, (_u, n) in enumerate(demo.SLOTS.values(), 1)] and not any(x["text"] for x in fs)
-    # 사이드바 바로가기 — 관리자 업무 화면에만
-    assert 'href="/dev/coedit-demo"' in dev.get("/hwp").text and 'href="/dev/coedit-demo"' not in kim.get("/hwp").text
+    # 바로가기는 개발 사이드바 「문서 작성」 한 곳(10-26 — 업무 화면 사이드바의 링크는 뺐다), 교직원 화면에는 없다
+    assert 'href="/dev/coedit-demo"' in dev.get("/dev").text and 'href="/dev/coedit-demo"' not in dev.get("/hwp").text
+    assert 'href="/dev/coedit-demo"' not in kim.get("/hwp").text
 
 
 def test_slot_acts_as_demo_user_on_editor_routes_only(tmp_path, monkeypatch):
@@ -77,7 +78,7 @@ def test_slot_acts_as_demo_user_on_editor_routes_only(tmp_path, monkeypatch):
     assert dev.get(f"/hwp/{fid}/coedit").json()["me"] == "zzdev"
     assert dev.get(f"/hwp/{fid}/coedit", headers=H("z")).json()["me"] == "zzdev"   # 없는 칸은 무시
     # 편집 경로 밖은 표시를 무시한다 — 문서함·개발 화면은 관리자 그대로
-    assert "공동 편집 시연" in dev.get("/hwp", headers=H("a")).text
+    assert dev.get("/hwp", headers=H("a")).status_code == 200 and 'me = "demo_a"' not in dev.get("/hwp", headers=H("a")).text
     assert dev.get("/dev/coedit-demo", headers=H("a")).status_code == 200
     # 관리자가 아닌 사람의 표시는 무시 — 자기 권한 그대로(시연 폴더는 못 연다)
     kfid = _up(kim, app, "기획처", "내 문서.hwpx", wt.build(wt.GRANT["budget_change"]))

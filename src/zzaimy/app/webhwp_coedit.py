@@ -612,6 +612,20 @@ def put(db, fid: int, user: str, values: dict, *, base: Path | None = None, clie
     return done, held
 
 
+def forget(db, fid: int, fields: list[str]) -> int:
+    """파일에서 없어진 칸의 칸 글·임대 줄을 지운다(AURA 가 절을 다시 써 이어 쓰기 필드가 줄었을 때) — 지운 칸 수.
+    남겨 두면 문서 글 상한(DOC_TEXT_MAX)에 옛 글이 셈해지고, 같은 이름 칸이 다시 생길 때 옛 판이 바탕이 된다."""
+    if not fields:
+        return 0
+    ensure(db)
+    with db._conn() as conn:
+        _txlock(conn, fid)
+        for f in fields:
+            conn.execute("DELETE FROM webhwp_field_state WHERE fid = ? AND field = ?", (int(fid), f))
+            conn.execute("DELETE FROM webhwp_field_locks WHERE fid = ? AND field = ?", (int(fid), f))
+    return len(fields)
+
+
 def _diff(a: str, b: str) -> tuple[int, int, str]:
     """앞뒤 같은 부분을 뺀 가운데 — (자리, 지울 글자 수, 넣을 글)."""
     n, i = min(len(a), len(b)), 0

@@ -27,7 +27,7 @@ def test_fill_fields_and_write_sections():
     data2, put = ww.write_section(data, "절:1. 변경 사유", items)
     x = _xml(data2)
     assert "장비 단가 상승 반영" in x and "기자재" in x and len(put) == 2
-    assert {f["name"]: f["text"] for f in ww.fields(data2)}["절:1. 변경 사유"] == "1) 2차년도 집행 계획 조정"   # 첫 줄은 필드 안
+    assert ww.field_values(data2)["절:1. 변경 사유"] == "1) 2차년도 집행 계획 조정\n가) 장비 단가 상승 반영"   # 글 줄은 모두 필드 안
     assert x.index("1. 변경 사유") < x.index("장비 단가 상승 반영") < x.index("2. 변경 내역")   # 그 절 자리에
     # 다시 쓰기 — 앞서 넣은 것은 지우고 새로
     data3, put2 = ww.write_section(data2, "절:1. 변경 사유", ww.parse_body("1) 새 사유"), {"절:1. 변경 사유": put})
@@ -126,3 +126,70 @@ def test_normalize_breaks_turns_old_line_breaks_into_paragraphs():
     ids = _re.findall(r'<hp:p\b[^>]*\bid="(\d+)"', _xml(new))
     assert len(ids) == len(set(ids))
     assert ww.normalize_breaks(new) == (new, 0)
+
+
+def _para_of(xml: str, text: str) -> str:
+    return next(m.group(0) for m in re.finditer(r"<hp:p\b[^>]*>(?:(?!<hp:p\b).)*?</hp:p>", xml, re.S) if text in m.group(0))
+
+
+def test_section_text_goes_inside_fields_and_tables_stay_outside():
+    """10-26: AURA 가 쓴 글 줄은 모두 누름틀 안(양식 모드에서 고칠 수 있게), 표는 필드 밖, 표 뒤 글은 이어 쓰기 필드."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    form = wt.build(wt.GRANT["budget_change"])
+    name = "절:1. 변경 사유"
+    cont = ww.cont_name(name, 2)
+    body = ("1) 2차년도 집행 계획 조정\n가) 장비 단가 상승 반영\n| 비목 | 당초 | 변경 |\n|---|---|---|\n| 기자재 | 100 | 120 |\n"
+            "2) 변경 효과\n가) 실습 장비 확보")
+    out, put = ww.write_section(form, name, ww.parse_body(body), {})
+    assert not eo.check_bytes(out)
+    vals = ww.field_values(out)
+    assert vals[name] == "1) 2차년도 집행 계획 조정\n가) 장비 단가 상승 반영"
+    assert vals[cont] == "2) 변경 효과\n가) 실습 장비 확보"
+    assert ww.is_cont(cont) and ww.section_of(cont) == name and not ww.is_cont(name) and ww.section_of(name) == name
+    x = _xml(out)
+    bid = re.search(r'fieldBegin\b[^>]*\bid="(\d+)"[^>]*name="절:1\. 변경 사유"', x).group(1)
+    end = x.index("</hp:p>", x.index(f'beginIDRef="{bid}"'))
+    assert end < x.index("기자재") < x.index("이어:절:1. 변경 사유 (2)")         # 표는 절 필드가 끝난 뒤, 이어 쓰기 필드 앞
+    for f in ww.field_values(out).values():
+        assert "기자재" not in f                                                   # 표 글은 어느 필드에도 들지 않는다
+    # 줄마다 단계 모양 — 「가)」 줄은 「1)」 줄보다 들여 쓴 문단 모양
+    pp = lambda t: re.search(r'paraPrIDRef="(\d+)"', _para_of(x, t)).group(1)
+    assert pp("장비 단가 상승 반영") != pp("2차년도 집행 계획 조정") and pp("실습 장비 확보") == pp("장비 단가 상승 반영")
+    # 에이전트가 보는 필드 목록에는 이어 쓰기 필드가 따로 나오지 않고, 그 글은 절 글 뒤에 붙는다
+    fl = ww.fields(out)
+    assert not any(f["name"].startswith(ww.CONT) for f in fl)
+    assert "실습 장비 확보" in next(f["text"] for f in fl if f["name"] == name)
+    assert not any(ww.is_cont(k) for k in ww.section_contexts(out))
+    body_now = ww.section_body(out, name, put)
+    assert body_now.index("장비 단가") < body_now.index("기자재") < body_now.index("실습 장비")
+    # 다시 쓰기 — 표 둘·이어 쓰기 필드 둘, 다시 글만으로. 앞서 쓴 표·필드가 남지 않는다
+    two = "1) 가\n| a | b |\n|---|---|\n| 1 | 2 |\n2) 나\n| c | d |\n|---|---|\n| 3 | 4 |\n3) 다"
+    out2, put2 = ww.write_section(out, name, ww.parse_body(two), {name: put})
+    v2 = ww.field_values(out2)
+    assert v2[name] == "1) 가" and v2[ww.cont_name(name, 2)] == "2) 나" and v2[ww.cont_name(name, 3)] == "3) 다"
+    assert _xml(out2).count("<hp:tbl") == _xml(form).count("<hp:tbl") + 2 and "기자재" not in _xml(out2)
+    out3, _ = ww.write_section(out2, name, ww.parse_body("1) 글만"), {name: put2})
+    v3 = ww.field_values(out3)
+    assert v3[name] == "1) 글만" and not any(ww.is_cont(k) for k in v3)
+    assert _xml(out3).count("<hp:tbl") == _xml(form).count("<hp:tbl") and not eo.check_bytes(out3)
+    x3 = _xml(out3)
+    assert "이어:" not in x3 and "실습 장비" not in x3 and "| a |" not in x3
+    # 표로 시작하는 본문 — 절 필드는 비고, 표 뒤 글은 이어 쓰기 필드
+    out4, _ = ww.write_section(out3, name, ww.parse_body("| a | b |\n|---|---|\n| 1 | 2 |\n1) 뒤 글"), {})
+    v4 = ww.field_values(out4)
+    assert v4[name] == "" and v4[ww.cont_name(name, 2)] == "1) 뒤 글"
+
+
+def test_editing_one_line_keeps_other_line_styles():
+    """사람이 AURA 가 쓴 절에서 한 줄을 고치거나 끼워도(칸 글 써 넣기 = set_fields) 다른 줄의 단계 들여쓰기는 그대로."""
+    form = wt.build(wt.GRANT["budget_change"])
+    name = "절:1. 변경 사유"
+    out, _ = ww.write_section(form, name, ww.parse_body("1) 첫 항목\n가) 아래 항목\n2) 둘째 항목"), {})
+    x = _xml(out)
+    pp = lambda xml, t: re.search(r'paraPrIDRef="(\d+)"', _para_of(xml, t)).group(1)
+    sub = pp(x, "아래 항목")
+    top = pp(x, "둘째 항목")
+    edited, done = ww.set_fields(out, {name: "1) 첫 항목\n가) 아래 항목 고침\n나) 끼운 항목\n2) 둘째 항목"})
+    y = _xml(edited)
+    assert done == [name] and ww.field_values(edited)[name].endswith("2) 둘째 항목")
+    assert pp(y, "아래 항목 고침") == sub and pp(y, "끼운 항목") == sub and pp(y, "둘째 항목") == top

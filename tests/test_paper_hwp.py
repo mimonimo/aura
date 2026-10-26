@@ -230,12 +230,20 @@ def test_rich_write_puts_tables_and_styles_into_file(tmp_path, monkeypatch):
     cap = re.search(r'<hp:p\b[^>]*styleIDRef="(\d+)"[^>]*>(?:(?!<hp:p\b).)*?\[표 1-1\] 장비별 역할', sec, re.S)
     assert cap and cap.group(1) == st["표 캡션"]["style"]
     assert f'styleIDRef="{st["팁 상자"]["style"]}"' in sec and f'styleIDRef="{st["코드"]["style"]}"' in sec
-    assert ww.field_values(data)["절:1.2 핵심내용"] == "본 프로젝트의 핵심은 두 축이다."
+    # 10-26: 앞 글 줄은 모두 절 칸 안, 표·상자 뒤 글은 이어 쓰기 칸 안(양식 모드에서 고칠 수 있게), 표 글은 어느 칸에도 들지 않는다
+    vals = {k: v for k, v in ww.field_values(data).items() if ww.section_of(k) == "절:1.2 핵심내용"}
+    assert vals["절:1.2 핵심내용"] == "본 프로젝트의 핵심은 두 축이다.\n1) 첫 단계를 한다\n2) 둘째 단계를 한다"
+    assert vals[ww.cont_name("절:1.2 핵심내용", 2)].startswith("[표 1-1] 장비별 역할") and len(vals) >= 2
+    assert not any(ww.is_cont(x["name"]) for x in ww.fields(data))
+    from zzaimy.app import webhwp_coedit as ce_
+    st_ = ce_.state(db, fid)
+    assert all(st_[k]["text"] == v for k, v in vals.items())          # 칸 글 표가 파일 값과 같다(다시 불러온 화면과 다투지 않게)
     # 다시 서식째 쓰면 앞서 넣은 문단을 지우고 새로(표가 겹치지 않는다)
     n = sec.count("[표 1-1] 장비별 역할")
     assert ph.write(db, base, fid, w, sleep=lambda s: None)["ok"]
     sec2 = zipfile.ZipFile(io.BytesIO(Path(webhwp.get(db, fid)["path"]).read_bytes())).read("Contents/section0.xml").decode()
     assert sec2.count("[표 1-1] 장비별 역할") == n
+    assert {k for k in ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes()) if ww.section_of(k) == "절:1.2 핵심내용"} == set(vals)
     # 구조 잠금을 쥔 사람이 있으면 서식째 쓰기는 하지 않는다
     assert webhwp.take_lock(db, fid, "kim")["ok"]
     assert ph.write(db, base, fid, w, sleep=lambda s: None)["why"] == "struct"
@@ -318,6 +326,9 @@ def test_toc_pages_from_editor_are_written_outside_fields(tmp_path, monkeypatch)
     assert by["1. 서론"]["field"] == "절:1.1 프로젝트 배경 및 목적" and by["1. 서론"]["from_next"]      # 장 줄은 첫 절의 쪽
     assert by["참고 문헌"]["field"] == "절:참고 문헌"
     assert by["1.2 화면 구성"]["field"] == "절:부록 1.2 화면 구성"                                        # 부록 소절도 차례대로 짝
+    # 본문 장 줄(칸 없음)이 이름이 같은 부록 절과 짝지어져 뒤 본문 줄이 모두 부록 쪽을 받던 것(10-26) — 「부록.」 줄 앞은 본문 칸만
+    body = [e for e in ents[:next(i for i, e in enumerate(ents) if e["text"].startswith("부록"))]]
+    assert body and not any(e["field"].startswith("절:부록") for e in body)
     assert all(e["field"] for e in ents)
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")

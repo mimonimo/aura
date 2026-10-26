@@ -70,11 +70,13 @@ body select:focus-visible, body .modal-back select:focus-visible {
 .llm-settings-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .llm-settings-actions button { min-height:38px; box-sizing:border-box; padding:8px 12px; font-size:12px; }
 .llm-settings-actions form { display:flex; }
-body #useForm .use-list { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; align-items:start; }
-body #useForm .use-row { grid-template-columns:minmax(180px,1fr) minmax(0,1.5fr) auto; gap:16px 24px; padding:18px; border:1px solid var(--line); border-radius:12px; }
+/* 단계별 모델 — 한 줄씩(단계 · 서버 · 모델 · 변경). 줄마다 상자를 두면 네 줄이 화면을 다 차지했다(10-26) */
+body #useForm .use-list { display:grid; grid-template-columns:minmax(0,1fr); gap:0; align-items:start; }
+body #useForm .use-row { grid-template-columns:minmax(180px,1fr) minmax(0,1.5fr) auto; gap:8px 24px; padding:10px 4px; border:0; border-bottom:1px solid var(--line); border-radius:0; }
+body #useForm .use-row:last-child { border-bottom:0; }
 body #useForm .use-name { grid-column:1; grid-row:1; line-height:1.6; }
 body #useForm .use-edit { grid-column:3; grid-row:1; align-self:center; min-height:36px; padding:6px 12px; }
-body #useForm .use-now { grid-column:2; grid-row:1; align-items:flex-start; flex-direction:column; gap:6px; }
+body #useForm .use-now { grid-column:2; grid-row:1; align-items:center; flex-direction:row; flex-wrap:wrap; gap:6px 8px; }
 body #useForm .use-model { max-width:100%; box-sizing:border-box; overflow-wrap:anywhere; line-height:1.6; }
 body #useForm .use-form { grid-column:1 / -1; width:100%; min-width:0; max-width:none; margin:0; padding:16px; }
 body #useForm .pick-group, body #useForm .chips { min-width:0; }

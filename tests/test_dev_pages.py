@@ -110,13 +110,13 @@ def test_dev_dashboard_labels(client):
     hpage = client.get("/dev/history").text
     assert "전체 변경 목록" in hpage and "/dev/docs#weekly" in hpage     # 주간 보고서는 논문 자료 칸으로
     assert '>문서 추출</h2>' not in r.text
-    assert '>문서 가져오기</h2>' not in r.text
+    assert '>원본 반입 현황</h2>' not in r.text
     assert 'href="/dev/egress"' not in r.text
 
 
 def test_developer_work_pages_have_actions_not_duplicate_plans(client):
     page = client.get('/dev/train?tab=data').text
-    assert '완료한 검수 결과 반영' in page
+    assert '완료한 검수 결과 반영' not in page and 'Label Studio' in page          # 검수 프로젝트가 없으면 반영 단추 없이 상태 한 줄(10-26)
     assert 'action="/dev/data/grounded-review-config"' not in page
     assert 'id="datasetBuildForm"' not in page and '<details' not in page
     settings = client.get('/dev/train?tab=settings').text
@@ -171,7 +171,7 @@ def test_training_workflow_is_one_page(client):
         assert response.status_code == 200
         page = response.text
         assert '<title>데이터·학습' in page
-        assert 'action="/dev/data/grounded-pull"' in page
+        assert 'action="/dev/data/grounded-pull"' not in page          # 검수 프로젝트가 없으면 「결과 반영」 단추를 두지 않는다(10-26)
         assert 'id="approved-data"' in page and 'id="training-tools"' in page
         assert 'action="/dev/train/export.zip"' in page
         assert page.count('>데이터·학습</a>') == 1

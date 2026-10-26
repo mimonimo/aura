@@ -4,8 +4,11 @@
 - set_fields(data, {이름: 값}): 칸·표 필드 값 바꾸기(줄바꿈은 진짜 문단 나눔 — 필드가 여러 문단에 걸친다)
 - normalize_breaks(data): 필드 안 줄 나눔(lineBreak)을 문단 나눔으로 — 기안기 GetFieldText 가 줄 나눔을 돌려주지 않아
   공동 편집 한 번에 줄이 모두 붙고, 한 문단이 된 긴 절은 양식 모드에서 한 글자마다 문단 길이만큼 다시 배치된다(ADR-0070)
-- write_section(data, 이름, items, written): 절 필드가 든 문단 바로 뒤에 문단·표를 넣는다. items = [("text", 글) | ("table", 행렬)].
-  앞서 같은 절에 넣은 문단(written[이름] 의 문단 id)은 지우고 새로 넣는다 — 「다시 써 줘」 가 덧붙이지 않게.
+- write_section(data, 이름, items, written): 절 본문을 쓴다. items = [("text", 글) | ("table", 행렬) | ("diagram", 글)].
+  글 줄은 모두 절 필드 안에 문단으로 넣는다(양식 모드에서 사람이 고치고 공동 편집하는 자리). 표·도식은 필드 밖 문단으로 두고,
+  표 뒤에 오는 글은 표 바로 뒤의 이어 쓰기 필드(「이어:절이름 (2)」, cont_name)에 넣는다 — 칸 글 동기화가 필드 글을 통째로
+  읽고 쓰므로 표를 필드 안에 두면 지워진다(ADR-0070 덧붙임 10-26).
+  앞서 같은 절에 쓴 것(필드 안 문단, 이어 쓰기 필드, written[이름] 의 표 문단)은 지우고 새로 넣는다 — 「다시 써 줘」 가 덧붙이지 않게.
   문단·표 모양은 서식 보존 채우기(hwpx_fill)와 같은 함수로 만든다(서식의 기본 문단·글자 모양, 실선 테두리).
 돌려주는 것은 새 hwpx 바이트(와 절 쓰기는 이번에 넣은 문단 id 목록). 파일 저장·판 남기기는 webhwp.save 가 한다.
 """
@@ -42,7 +45,29 @@ def _unq(name: str) -> str:
     return name.replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
 
+# 이어 쓰기 필드 — 절 본문이 표로 끊긴 뒤의 글을 담는다. 이름은 「이어:」 + 절 필드 이름 + 「 (n)」(n 은 2부터).
+# 「절:」 로 시작하지 않으므로 절 목록·빈 절 세기에는 나오지 않고, section_of 로 어느 절의 것인지 안다
+CONT = "이어:"
+_CONT_RE = re.compile(r"^이어:(.+) \((\d+)\)$", re.S)
+
+
+def cont_name(section: str, k: int) -> str:
+    return f"{CONT}{section} ({k})"
+
+
+def is_cont(name: str) -> bool:
+    return bool(_CONT_RE.match(name or ""))
+
+
+def section_of(name: str) -> str:
+    """필드 이름 → 그 필드가 속한 절 이름(이어 쓰기 필드면 원래 절, 아니면 그대로)."""
+    m = _CONT_RE.match(name or "")
+    return m.group(1) if m else name
+
+
 def _kind(name: str) -> str:
+    if is_cont(name):
+        return "이어"
     if name.startswith("입력:"):                            # 사람 칸(날짜·서명·결재) — 에이전트는 물어 받은 값만
         return "입력"
     return "절" if name.startswith("절:") else "칸" if name.startswith("칸:") else "표" if re.match(r"표\d+:", name) else "기타"
@@ -69,15 +94,23 @@ def _span(xml: str, bid: str, start: int) -> tuple[int, int] | None:
 
 
 def fields(data: bytes) -> list[dict]:
+    """필드 목록. 이어 쓰기 필드는 따로 내지 않고 그 글을 원래 절의 글 뒤에 잇는다(에이전트가 빈 절로 보지 않게)."""
     _, secs = _open(data)
-    out = []
+    out: list[dict] = []
+    at: dict[str, dict] = {}
     for n in sorted(secs):
         xml = secs[n]
         for m in _BEGIN.finditer(xml):
             sp = _span(xml, m.group(1), m.end())
             text = re.sub(r"<[^>]+>", "", xml[sp[0]:sp[1]]).strip() if sp else ""
             name = _unq(m.group(2))
-            out.append({"name": name, "kind": _kind(name), "text": text})
+            own = at.get(section_of(name)) if is_cont(name) else None
+            if own is not None:
+                own["text"] = "\n".join(x for x in (own["text"], text) if x)
+                continue
+            x = {"name": name, "kind": _kind(name), "text": text}
+            at.setdefault(name, x)
+            out.append(x)
     return out
 
 
@@ -136,12 +169,31 @@ def _cont(p_open: str, run_open: str, t_open: str, ids: "wf._Ids", made: set) ->
 
 
 def _value_xml(text: str, split=None) -> str:
-    """필드 값 — 여러 줄이면 split()(줄마다 새 문단을 여는 조각)으로 잇는다. split 이 없으면(문단 자리를 모름) 줄 나눔."""
+    """필드 값 — 여러 줄이면 split(j)(j 번째 줄의 새 문단을 여는 조각)으로 잇는다. split 이 없으면(문단 자리를 모름) 줄 나눔."""
     lines = wf.clean_text(text, None).split("\n")
     out = escape(lines[0])
-    for x in lines[1:]:
-        out += (split() if split else "<hp:lineBreak/>") + escape(x)
+    for j, x in enumerate(lines[1:], 1):
+        out += (split(j) if split else "<hp:lineBreak/>") + escape(x)
     return "<hp:t>" + out + "</hp:t>"
+
+
+_P_OPEN = re.compile(r"<hp:p\b[^>]*>")
+
+
+def _line_sources(frag: str, text: str) -> list[int]:
+    """새 값의 줄마다 모양을 물려받을 옛 문단 번호(0 = 필드가 든 문단) — 옛 필드 값(frag)의 줄 글과 견줘 같은 줄은 제 모양,
+    새로 끼운 줄은 바로 앞 줄의 모양. 사람이 AURA 가 쓴 절에서 한 줄을 고쳐도 다른 줄의 단계 들여쓰기가 지워지지 않게."""
+    import difflib
+    olds = [_unq(re.sub(r"<[^>]+>", "", x)) for x in _P_OPEN.split(frag)]
+    new = wf.clean_text(text, None).split("\n")
+    src = [0] * len(new)
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, olds, new, autojunk=False).get_opcodes():
+        for j in range(j1, j2):
+            if tag in ("equal", "replace") and i2 > i1:
+                src[j] = min(i1 + (j - j1), i2 - 1)
+            else:
+                src[j] = src[j - 1] if j else 0
+    return src
 
 
 def _strip_made(xml: str, made: set) -> str:
@@ -223,7 +275,17 @@ def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
             pid = (re.match(r'<hp:p\b[^>]*\bid="(\d+)"', p) or [None, None])[1] if p else None
             if pid:
                 made.add(pid)
-            split = (lambda p=p, r=r: _cont(p, r, "<hp:t>", ids, made)) if p else None
+            split = None
+            if p:
+                frag = xml[sp[0]:sp[1]]
+                opens = [(q.group(0), (re.compile(r"<hp:run\b[^>]*>").search(frag, q.end()) or [""])[0])
+                         for q in _P_OPEN.finditer(frag)] if "<hp:tbl" not in frag else []
+                src = _line_sources(frag, want[name]) if opens else []
+
+                def split(j, p=p, r=r, opens=opens, src=src):
+                    i = src[j] if j < len(src) else 0
+                    po, ro = opens[i - 1] if 0 < i <= len(opens) else (p, r)
+                    return _cont(po, ro or r, "<hp:t>", ids, made)
             buf.append(_value_xml(want[name], split))
             pos = sp[1]
         buf.append(xml[pos:])
@@ -386,9 +448,46 @@ def _drop_empty_form_tables(tail: str, form_sid: str | None = None, cols: set[in
     return tail
 
 
+_PX = re.compile(r"(<hp:p\b[^>]*>)(<hp:run\b[^>]*>)<hp:t>(.*)</hp:t></hp:run></hp:p>$", re.S)
+
+
+def _find(xml: str, name: str):
+    return next((m for m in _BEGIN.finditer(xml) if _unq(m.group(2)) == name), None)
+
+
+def _drop_conts(xml: str, name: str) -> str:
+    """이 절의 이어 쓰기 필드를 문단째 뗀다 — 여는 필드가 든 문단부터 닫는 필드가 든 문단까지(사람이 그 안에 문단을 더했어도)."""
+    while True:
+        m = next((m for m in _BEGIN.finditer(xml) if is_cont(_unq(m.group(2))) and section_of(_unq(m.group(2))) == name), None)
+        if not m:
+            return xml
+        pb = _para_bounds(xml, m.start())
+        if not pb:
+            return xml
+        sp = _span(xml, m.group(1), m.end())
+        end = xml.find("</hp:p>", sp[1]) + 7 if sp else pb[1]
+        xml = xml[:pb[0]] + xml[max(end, pb[1]):]
+
+
+def _drop_paras(xml: str, pids) -> str:
+    """문단 id 로 문단(표 문단은 표째)을 뗀다."""
+    for pid in pids:
+        m = re.search(rf'<hp:p id="{pid}"[^>]*>', xml)
+        if not m:
+            continue
+        depth = 0
+        for t in re.finditer(r"<hp:p\b|</hp:p>", xml[m.start():]):
+            depth += 1 if t.group(0) != "</hp:p>" else -1
+            if depth == 0:
+                xml = xml[:m.start()] + xml[m.start() + t.end():]
+                break
+    return xml
+
+
 def write_section(data: bytes, name: str, items: list[tuple[str, object]], written: dict[str, list[str]] | None = None
                   ) -> tuple[bytes, list[str]]:
-    """절 필드 다음에 문단·표를 넣는다 — (새 바이트, 넣은 문단 id). 앞서 넣은 것은 지운다."""
+    """절 본문 쓰기 — (새 바이트, 넣은 문단 id). 글 줄은 절 필드 안 문단으로, 표·도식은 필드 밖, 표 뒤 글은 이어 쓰기 필드로.
+    앞서 쓴 것(필드 안 글·이어 쓰기 필드·written 의 문단)은 지운다."""
     zin, secs = _open(data)
     items = [(k, wf.clean_args(v)) for k, v in (items or []) if k in ("text", "table", "diagram")]
     header = zin.read("Contents/header.xml").decode("utf-8")
@@ -406,35 +505,31 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     put: list[str] = []
     diagrams: list[str] = []
     diagram_pids: set[str] = set()
+    # 글 덩이(이웃한 글은 하나로)와 표·도식 — 첫 글 덩이는 절 필드, 표·도식 뒤 글 덩이는 이어 쓰기 필드가 된다
+    segs: list[tuple[str, object]] = []
+    for kind, val in items:
+        if kind == "text":
+            lines = hf.split_lines(str(val)) if str(val).strip() else []
+            if segs and segs[-1][0] == "text":
+                segs[-1][1].extend(lines)
+            elif lines:
+                segs.append(("text", list(lines)))
+        elif (kind == "diagram" and str(val).strip()) or (kind == "table" and isinstance(val, list) and val):
+            segs.append((kind, val))
     for n, xml in secs.items():
-        hit = next((m for m in _BEGIN.finditer(xml) if _unq(m.group(2)) == name), None)
+        hit = _find(xml, name)
         if not hit:
             continue
-        if old_ids:                                          # 앞서 이 절에 넣은 문단(표 문단 포함)을 지운다
-            for pid in old_ids:
-                m = re.search(rf'<hp:p id="{pid}"[^>]*>', xml)
-                if not m:
-                    continue
-                depth, i = 0, m.start()
-                for t in re.finditer(r"<hp:p\b|</hp:p>", xml[m.start():]):
-                    depth += 1 if t.group(0) != "</hp:p>" else -1
-                    if depth == 0:
-                        xml = xml[:m.start()] + xml[m.start() + t.end():]
-                        break
-            hit = next((m for m in _BEGIN.finditer(xml) if _unq(m.group(2)) == name), None)
-        # 본문 첫 줄은 절 필드 안에 넣는다 — 빈 필드의 안내 글(「본문 입력」)이 본문 위에 남지 않게. 나머지는 그 문단 뒤에
-        items = list(items)
-        first = ""
-        if items and items[0][0] == "text":
-            lines = hf.split_lines(str(items[0][1]))
-            if lines:
-                first, rest = lines[0], "\n".join(lines[1:])
-                items[0] = ("text", rest)
+        # 앞서 쓴 것을 지운다 — 절 필드 안(여러 문단)을 비우고, 이 절의 이어 쓰기 필드와 앞서 넣은 문단(표·도식, 예전 꼴의 필드 밖 글)을 뗀다.
+        # 필드 안부터 비운다(필드 안 문단 id 도 written 에 있어, 먼저 떼면 닫는 필드가 든 문단이 사라진다)
         sp = _span(xml, hit.group(1), hit.end())
         if sp:
-            xml = xml[:sp[0]] + _value_xml(first) + xml[sp[1]:]
-            hit = next((m for m in _BEGIN.finditer(xml) if _unq(m.group(2)) == name), None)
-        pb = _para_bounds(xml, hit.start())
+            xml = xml[:sp[0]] + "<hp:t></hp:t>" + xml[sp[1]:]
+        xml = _drop_conts(xml, name)
+        if old_ids:
+            xml = _drop_paras(xml, old_ids)
+        hit = _find(xml, name)
+        pb = _para_bounds(xml, hit.start()) if hit else None
         if not pb:
             continue
         head_text = re.sub(r"<[^>]+>", "", name)[2:] if name.startswith("절:") else ""
@@ -442,53 +537,83 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         # 새 문단의 글자는 그 자리(필드가 든 문단)의 글자 모양을 잇는다 — 양식 칸이 11pt 면 덧붙는 줄도 11pt
         here = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', xml[pb[0]:pb[1]])
         cp = here.group(1) if here else cp
-        levels = _LevelStyles(header, pp, hangs.char_height(cp))
         bf, margin = hf._table_template(xml, solid)
         if bf is None:
             header, bf = hf._inject_border_fill(header)
             margin = margin or '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>'
+        levels = _LevelStyles(header, pp, hangs.char_height(cp))      # 테두리 모양을 넣은 뒤의 header 에서(끝에 levels.header 로 바꿔 담는다)
         width = _cell_width(xml, hit.start()) or hf._text_width_hu(xml)
-        chunks = []
         form_marks = bool(para_styles.pick("1) 예") or para_styles.pick("가) 예"))
-        all_lines = ([first] if first else []) + [ln for k, v in items if k == "text" for ln in hf.split_lines(str(v))]
+        all_lines = [ln for k, v in segs if k == "text" for ln in v]
         rel = min((lv for lv in (marker_level(x) for x in all_lines) if lv is not None), default=head_level + 1)
-        if first and not form_marks and pb:
-            # 필드 안의 첫 줄도 뒤 줄과 같은 단계 모양으로(첫 줄만 왼쪽에 붙어 보이지 않게)
-            lp0, line0 = levels.for_lines([first], head_level, rel)[0]
-            p_open = re.match(r"<hp:p\b[^>]*>", xml[pb[0]:])
-            if p_open:
+
+        def paras(lines: list[str]) -> list[str]:
+            """줄마다 문단 XML(id="0") — 양식에 단계별 본문 예시가 있으면 그 모양(서식 작성자의 뜻), 없으면 공문서 단계 규칙."""
+            if form_marks:
+                out = []
+                for line in lines:
+                    lp, lc = para_styles.pick(line) or (pp, cp)
+                    if hf.marker_of(line) and len(line) > hf._ParaStyles.SHORT:
+                        lp, tab_hu = hangs.hanging(lp, lc, line[:hf._MARK.match(line).end()].strip())
+                        out.append(hf.marker_paragraph_xml(line, lp, lc, tab_hu))
+                    else:
+                        out.append(hf.paragraph_xml(line, lp, lc))
+                return out
+            return [hf.paragraph_xml(line, lp, cp) for lp, line in levels.for_lines(lines, head_level, rel)]
+
+        def joined(pxs: list[str]) -> str:
+            """필드 안에서 줄마다 문단을 나누는 조각 — 문단 모양·글자 모양은 줄마다 제 것."""
+            s_ = ""
+            for px in pxs:
+                pid = ids.new()
+                put.append(pid)
+                m_ = _PX.match(px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
+                s_ += "</hp:t></hp:run></hp:p>" + m_.group(1) + m_.group(2) + "<hp:t>" + m_.group(3)
+            return s_
+
+        # 첫 글 덩이는 절 필드 안에 — 첫 줄은 필드가 든 문단에(빈 필드의 안내 글이 본문 위에 남지 않게), 나머지 줄은 필드 안 새 문단
+        first = segs[0][1] if segs and segs[0][0] == "text" else []
+        rest_segs = segs[1:] if first else segs
+        value = "<hp:t></hp:t>"
+        if first:
+            if form_marks:
+                tail_px = paras(first[1:])
+            else:
+                all_px = paras(first)
+                tail_px = all_px[1:]
+                # 필드 안의 첫 줄도 뒤 줄과 같은 단계 모양으로(첫 줄만 왼쪽에 붙어 보이지 않게)
+                lp0 = re.search(r'paraPrIDRef="(\d+)"', all_px[0]).group(1)
+                p_open = re.match(r"<hp:p\b[^>]*>", xml[pb[0]:])
                 new_open = re.sub(r'paraPrIDRef="\d+"', f'paraPrIDRef="{lp0}"', p_open.group(0), count=1)
                 xml = xml[:pb[0]] + new_open + xml[pb[0] + len(p_open.group(0)):]
-                pb = (pb[0], pb[1] + len(new_open) - len(p_open.group(0)))
-        for kind, val in items:
+            value = "<hp:t>" + escape(wf.clean_text(first[0], None)) + joined(tail_px) + "</hp:t>"
+        hit = _find(xml, name)
+        sp = _span(xml, hit.group(1), hit.end())
+        if sp:
+            xml = xml[:sp[0]] + value + xml[sp[1]:]
+            hit = _find(xml, name)
+            sp = _span(xml, hit.group(1), hit.end())
+        pb = (pb[0], xml.find("</hp:p>", sp[1]) + 7 if sp else _para_bounds(xml, hit.start())[1])   # 필드가 끝나는 문단까지
+        chunks = []
+        k_ = 1
+        for kind, val in rest_segs:
             if kind == "text":
-                lines = hf.split_lines(str(val)) if str(val).strip() else []
-                if form_marks:
-                    # 양식에 단계별 본문 예시가 있으면 그 모양(서식 작성자의 뜻)을 따른다
-                    for line in lines:
-                        pid = ids.new()
-                        lp, lc = para_styles.pick(line) or (pp, cp)
-                        if hf.marker_of(line) and len(line) > hf._ParaStyles.SHORT:
-                            lp, tab_hu = hangs.hanging(lp, lc, line[:hf._MARK.match(line).end()].strip())
-                            px = hf.marker_paragraph_xml(line, lp, lc, tab_hu)
-                        else:
-                            px = hf.paragraph_xml(line, lp, lc)
-                        chunks.append(px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
-                        put.append(pid)
-                else:
-                    # 예시가 없는 양식 — 공문서 단계 규칙으로 들여쓰기·내어쓰기
-                    for lp, line in levels.for_lines(lines, head_level, rel):
-                        pid = ids.new()
-                        chunks.append(hf.paragraph_xml(line, lp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
-                        put.append(pid)
-            elif kind == "diagram" and str(val).strip():
+                # 표 뒤 글 — 표 바로 뒤의 이어 쓰기 필드 안에(양식 모드에서 고칠 수 있게)
+                k_ += 1
+                pxs = paras(val)
+                a_, b_ = wf.field_parts(cont_name(name, k_), "본문 이어 쓰기", ids)
+                pid = ids.new()
+                put.append(pid)
+                m_ = _PX.match(pxs[0].replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
+                chunks.append(m_.group(1) + m_.group(2) + a_ + "<hp:t>" + m_.group(3) + joined(pxs[1:]) + "</hp:t>" + b_ + "</hp:run></hp:p>")
+            elif kind == "diagram":
                 # 도식은 표시 문단으로 넣고 다 쓴 뒤 그 자리를 도식 표로 바꾼다(webhwp_style.diagram_table — header 모양 등록이 한 곳에서)
                 pid = ids.new()
                 diagrams.append(str(val))
                 diagram_pids.add(pid)
                 chunks.append(hf.paragraph_xml(f"⟦도식{len(diagrams) - 1}⟧", pp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                 put.append(pid)
-            elif kind == "table" and isinstance(val, list) and val:
+            else:
                 rows = [[str(c) for c in r] for r in val]
                 pid = ids.new()
                 chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), None, roles)
@@ -613,16 +738,54 @@ def section_contexts(data: bytes, before: int = 900, after: int = 300) -> dict[s
     out: dict[str, str] = {}
     for n in sorted(secs):
         xml = secs[n]
-        begins = list(_BEGIN.finditer(xml))
+        allb = list(_BEGIN.finditer(xml))
+        begins = [m for m in allb if not is_cont(_unq(m.group(2)))]       # 이어 쓰기 필드는 제 절의 글이라 자리 경계가 아니다
         prev_end = 0
         for k, m in enumerate(begins):
             sp = _span(xml, m.group(1), m.end())
             nxt = begins[k + 1].start() if k + 1 < len(begins) else len(xml)
+            if k:
+                prev_end = max([prev_end] + [s_[1] for c in allb if begins[k - 1].start() < c.start() < m.start()
+                                             and (s_ := _span(xml, c.group(1), c.end()))])
             head = txt(xml[prev_end:m.start()])[-before:]
             tail = txt(xml[(sp[1] if sp else m.end()):nxt])[:after]
             out.setdefault(_unq(m.group(2)), (head + ("\n[이 자리에 쓴다]\n" if head or tail else "") + tail).strip())
             prev_end = sp[1] if sp else m.end()
     return out
+
+
+def section_body(data: bytes, name: str, pids=()) -> str:
+    """절의 지금 글(문서 차례대로) — 절 필드 안 글, 그 뒤에 넣은 표(pids, 칸 글을 한 줄로)·이어 쓰기 필드 글. 절 필드가 없으면 빈 글."""
+    _, secs = _open(data)
+    for n in sorted(secs):
+        xml = secs[n]
+        hit = _find(xml, name)
+        if not hit:
+            continue
+        pb = _para_bounds(xml, hit.start())
+        a = pb[0] if pb else hit.start()
+        sp = _span(xml, hit.group(1), hit.end())
+        b = xml.find("</hp:p>", sp[1]) + 7 if sp else (pb[1] if pb else hit.end())
+        for m in _BEGIN.finditer(xml):
+            if is_cont(_unq(m.group(2))) and section_of(_unq(m.group(2))) == name and m.start() > a:
+                s_ = _span(xml, m.group(1), m.end())
+                if s_:
+                    b = max(b, xml.find("</hp:p>", s_[1]) + 7)
+        for pid in pids:
+            m = re.search(rf'<hp:p id="{re.escape(str(pid))}"[^>]*>', xml)
+            if not m or m.start() < a:
+                continue
+            depth = 0
+            for t in re.finditer(r"<hp:p\b|</hp:p>", xml[m.start():]):
+                depth += 1 if t.group(0) != "</hp:p>" else -1
+                if depth == 0:
+                    b = max(b, m.start() + t.end())
+                    break
+        frag = re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml[a:b], flags=re.S)
+        frag = re.sub(r"<hp:tbl\b.*?</hp:tbl>", lambda t: " ".join(re.sub(r"<[^>]+>", " ", t.group(0)).split()), frag, flags=re.S)
+        frag = re.sub(r"</hp:p>|<hp:lineBreak\s*/>", "\n", frag)
+        return "\n".join(ln.strip() for ln in _unq(re.sub(r"<[^>]+>", "", frag)).split("\n") if ln.strip())
+    return ""
 
 
 def section_context(data: bytes, name: str, before: int = 900, after: int = 300) -> str:

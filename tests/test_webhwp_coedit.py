@@ -836,3 +836,32 @@ def test_korean_typing_sends_at_each_commit_and_empty_field_counts():
     assert "if (!f && lastEdit.f && now() - lastEdit.at < 5000) f = lastEdit.f;" in c
     # 기안기는 빈 글 넣기를 무시한다 — 남이 칸을 비우면 칸 글을 골라 지운다
     assert "if (!t) { var cur = read(name); if (!cur) return true; if (applyDelta(name, cur, 0, cur.length, '') && !read(name)) return true; }" in w
+
+
+def test_follow_person_aura_requester_and_short_offline_blip():
+    """시연 요청(10-26) — 머리줄 아바타를 누르면 그 사람을 따라간다(화면만 굴리고 내 커서는 옮기지 않는다, 치거나 누르거나 굴리면 멈춘다).
+    AURA 는 누구 요청으로 어디를 쓰는지 보이고, 배포로 서버가 잠깐 내려가면 처음에는 「다시 연결하는 중」 으로만 보이다 닿으면 저절로 「저장됨」."""
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app"
+    w = (root / "static/webhwp-wrapper.js").read_text(encoding="utf-8")
+    c = (root / "static/webhwp-collab.js").read_text(encoding="utf-8")
+    css = (root / "static/webhwp-collab.css").read_text(encoding="utf-8")
+    html = (root / "templates/hwp_edit.html").read_text(encoding="utf-8")
+    ui = c[c.index("function ui("):]
+    # 따라가기 — 아바타·사람 줄 누르기, 고리·띠, 화면만 굴리기, 내 손이 닿으면 멈춤
+    assert "b.onclick = function () { toggleFollow(p.user); };" in ui and "r.onclick = function () { toggleFollow(p.user);" in ui
+    assert "classList.add('following')" in ui and ".co-av.following" in css
+    assert "' 님 따라가는 중', [['그만'" in ui
+    assert "hwp.scrollBy(" in ui and "hwp.moveTo(" not in ui                     # 따라가기는 커서를 옮기지 않는다(내 칸 임대가 풀렸다)
+    assert "e.type === 'keydown' || e.type === 'pointerdown' || e.type === 'wheel')) stopFollow();" in ui
+    assert "function scrollBy(dy)" in w and "scrollBy: scrollBy" in w and "m['28675'] + dy * 75" in w
+    assert "if (hwp.isComposing()) return; try { measure(false); render(); followStep(); }" in ui   # 조합 중에는 따라가기도 쉰다
+    assert "if (was === 'follow') { if (following) stopFollow(); }" in ui        # 띠를 닫으면 멈추고, 다른 안내가 끝나면 띠를 다시
+    # AURA — 누구 요청인지
+    assert "'AURA' + (n ? ' (' + n + ' 요청)' : '')" in c
+    assert "'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 을 쓰는 중'" in c
+    assert "AuraCollab.auraText(eng, a)" in html and "'AURA · '" not in ui
+    # 잠깐 끊김 — 처음에는 「다시 연결하는 중」(노랑), 오래가면 「오프라인」, 그사이 몇 초마다 다시 찔러 본다
+    assert "emit('status', 'reconnecting', '다시 연결하는 중')" in c and "OFF_GRACE = 20000" in c
+    assert "offTimer = setTimeout(probe, long ? 5000 : 2000);" in c
+    assert "resync(false, true).then(function () { if (online && pending() && !inflight) send(); });" in c
+    assert "k === 'saving' || k === 'reconnecting' ? 'busy' : 'bad'" in html

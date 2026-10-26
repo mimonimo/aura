@@ -86,7 +86,8 @@ def test_flow_page_title_is_plain(tmp_path):
     _, c = _client(tmp_path)
     page = c.get("/dev/flow").text
     title = page.split("<title>", 1)[1].split("</title>", 1)[0]
-    assert "<div" not in title and "처리 흐름" in title and page.count("왜 기성 도구 대신 직접 만들었나</h2>") == 1
+    assert "<div" not in title and "처리 흐름" in title and "왜 기성 도구 대신 직접 만들었나" not in page   # 품질·성능의 검색 설명 옆으로(10-26)
+    assert c.get("/dev/quality").text.count("왜 기성 도구 대신 직접 만들었나</h3>") == 1
 
 
 def test_flow_explains_coediting_with_live_settings(tmp_path):
@@ -119,6 +120,6 @@ def test_coedit_sequence_figures_use_live_settings(tmp_path):
     app, c = _client(tmp_path)
     page = c.get("/dev/flow").text
     assert page.count('<figure class="pf-fig"><svg') == 2
-    assert "사람이 칸에 글을 칠 때" in page and "AURA(27B)가 절을 쓸 때" in page and "300ms 마다" in page
+    assert "사람이 칸에 글을 칠 때" in page and "AURA(27B)가 절을 쓸 때" in page and "0.3초마다" in page
     app.state.db.set_setting("coedit:throttle_ms", "500")
-    assert "500ms 마다" in c.get("/dev/flow").text
+    assert "0.5초마다" in c.get("/dev/flow").text

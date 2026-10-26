@@ -129,6 +129,16 @@
         } catch (e) {}
       }
     }
+    // 화면만 위아래로 굴리기(커서는 그대로) — 따라가기가 쓴다. 세로 스크롤 값 1 = 화면 1/75px(실측, 위 restoreCursor 와 같은 값). 양수면 아래로
+    function scrollBy(dy) {
+      if (!dy || Math.abs(dy) < 1) return false;
+      try {
+        var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap;
+        if (typeof m['28675'] === 'number') { m['28675'] = Math.max(0, m['28675'] + dy * 75); ctrl.ScrollPosInfo = s; return true; }
+      } catch (e) {}
+      try { var v = doc().getElementById('hcwoViewScroll'); if (v) { v.scrollTop += dy; return true; } } catch (e) {}   // 내부 값이 없으면(제품 판이 바뀜) 화면 막대로
+      return false;
+    }
     var undoLocked = false;
     // 남의 고침을 넣으면 기안기 되돌리기 기록에 들어가 내 Ctrl+Z 가 남의 글을 지웠다(실측) — 넣은 뒤에는 되돌리기를 잠그고, 내가 고치면 푼다
     function lockUndo(on) {
@@ -342,7 +352,7 @@
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
       setFormMode: setFormMode, formMode: formMode, setReadOnly: setReadOnly, currentField: currentField,
-      getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect,
+      getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },
       attach: attach, isProbing: function () { return !!probing; },

@@ -4572,7 +4572,6 @@ def create_app(
     app.state.db_path = db_path
     app.state.processor = processor
     app.state.inbox_dir = inbox_dir
-    app.state.intake_proc = {}
     _docs = dev_docs_routes.make_docs_helpers(
         _DOCS_DIR, db_path, _dev_read=_ov.dev_read, _md_view=_md_view, _data_overview=_ov.data_overview,
         _dev_doc_list=_ov.dev_doc_list, _dev_papers=_ov.dev_papers, _PAPER_LABELS=_ov.paper_labels,

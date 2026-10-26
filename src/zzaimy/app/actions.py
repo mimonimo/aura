@@ -70,7 +70,7 @@ REGISTRY: tuple[Action, ...] = (
            ("연결 확인", "접속", "살아"), True, auto=True),
 
     # ---- 자료 관리 ----
-    Action("intake.page", "문서 가져오기", "/dev/intake", "get", (),
+    Action("intake.page", "반입 점검", "/dev/flow#intake", "get", (),
            ("가져오", "반입", "원본", "동기화")),
     Action("google.page", "Google 앱 등록 · 학교 계정 연결 현황", "/dev/users#google-links", "get", (),
            ("구글", "드라이브", "google", "앱 등록")),

@@ -1,7 +1,6 @@
-{% extends "base.html" %}
-{% block title %}{{ dev_page_name('/dev/intake') }}{% endblock %}
-{% block pagetitle %}{{ dev_page_name('/dev/intake') }}{% endblock %}
-{% block content %}
+{# 반입 점검 — 학교 원본(DGX) → 라이브러리까지의 수·빈틈·조치. 처리 흐름 화면 「반입 점검」 칸에 들어간다(10-26 — 따로 있던 「문서 가져오기」 화면을 합침).
+   넘겨받는 값: p(점검 결과)·live·lg(원본 장부)·missed·failed — dev_intake_routes.intake_ctx #}
+
 <style>
 .ik-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;align-items:stretch;margin-bottom:16px;}
 .ik-grid > .card{margin:0;height:100%;}
@@ -22,26 +21,14 @@
 .ik-alert{padding:8px 12px;border-left:3px solid #c0392b;background:rgba(192,57,43,.06);margin:6px 0;font-size:13px;}
 </style>
 
-{% set q = request.query_params %}
-{% if q.get('ok') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
-{% if q.get('err') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
-<p class="muted" style="font-size:12.5px;margin:0 0 12px;">학교 원본(DGX) → 라이브러리 · 단계별 문서 수는 <a href="/dev/flow#stage-1">처리 흐름</a> · 구글 앱 등록은 <a href="/dev/users#google-links">사용자·계정</a></p>
-
 <section class="card"><div class="card-in">
-  <h2><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>원본과 라이브러리 맞추기
-    <span class="ik-actions" style="margin-left:auto;">
-      <form method="post" action="/dev/intake/audit" data-confirm="지금 다시 점검할까요? 원본 장부 전체를 읽어 몇 분 걸립니다. 점검 결과만 새로 쓰고 문서는 바꾸지 않습니다.">
-        <button class="btn" {{ 'disabled' if running.audit }}>{{ '점검 중…' if running.audit else '다시 점검' }}</button></form>
-      <form method="post" action="/dev/intake/reconcile" data-confirm="지금 맞출까요? DGX 에서 읽었는데 라이브러리에 없는 원본을 다시 들입니다. 수십 분 걸릴 수 있고, 라이브러리에 문서가 추가됩니다.">
-        <button class="btn primary" {{ 'disabled' if running.reconcile }}>{{ '맞추는 중…' if running.reconcile else '지금 맞추기' }}</button></form>
-    </span>
-  </h2>
+  <h2 id="intake"><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>반입 점검 — 학교 원본에서 라이브러리까지</h2>
   {% if not p %}
-  <p class="muted">점검 결과 없음 · 「다시 점검」 또는 10분 동기화 때 자동</p>
+  <p class="muted">점검 결과 없음 · 동기화 때 자동으로 점검합니다</p>
   {% else %}
   <p class="ik-line" style="margin-top:0;">
     <span>{{ metric_label("archive_originals", live.at, "학교 원본") }} <b>{{ lg.originals|num }}</b></span>
-    <span class="muted">점검 {{ p.at }} · 맞추기 매일 04:30 자동</span>
+    <span class="muted">자동 — 점검은 동기화 때마다, 빠진 원본 다시 들이기는 매일 04:30 · 마지막 점검 {{ p.at }}</span>
   </p>
   <p class="muted ik-sum">처리 안 함 {{ (lg.total - lg.originals)|num }} · 따로 모은 파일 {{ lg.cleaned|num }} · 변환 중간 파일 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% if p.dgx_listing is not none %} · DGX 목록 {{ p.dgx_listing|num }}{% endif %}</p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
@@ -77,20 +64,23 @@
     <tr class="ik-quiet"><td>{{ r.label }}<span class="muted" style="font-size:11px;"> · 처리하지 않음</span></td><td class="n">{{ "{:,}".format(r.n) }}</td></tr>
     {% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">합계 {{ (p.composition or {}).values()|sum|num }} · 학교 원본 {{ p.school_rows_total|num }}{% if lg.platform %}(플랫폼 사본 포함){% endif %} · 지출·증빙·정산 문서는 범위 밖</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">지출·증빙·정산 문서는 범위 밖</p>
 </div></section>
 
 <section class="card"><div class="card-in">
   <h2>라이브러리 다음 단계 <span class="muted" style="font-weight:400;font-size:12px;">점검 {{ p.at }} 기준</span></h2>
   <table class="ik-table">
-    <tr><td>{{ metric_label("audit_graph_doc_nodes", p.at, "그래프 문서 노드") }}</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
+    {# 문서 → 조각 → 색인 → 그래프 차례로. 임베딩·어휘 색인은 조각 수와 같으면 한 줄(「모두 색인됨」) — 비슷한 수가 줄줄이 서 헷갈리던 것(10-26) #}
+    <tr><td>{{ metric_label("audit_graph_docs", p.at, "그래프 대상 사업 문서") }}</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
     <tr><td>{{ metric_label("audit_grant_chunks", p.at, "사업 문서 조각") }}</td><td class="n">{{ "{:,}".format(p.grant_chunks) }}</td></tr>
+    {% if p.embedding_index == p.grant_chunks and p.lexical_index == p.grant_chunks %}
+    <tr><td>검색 색인(임베딩·어휘)</td><td class="n">모두 색인됨</td></tr>
+    {% else %}
     <tr><td>{{ metric_label("audit_embedding_index", p.at, "임베딩 색인 조각") }}</td><td class="n">{{ "{:,}".format(p.embedding_index) }}</td></tr>
     <tr><td>{{ metric_label("audit_lexical_index", p.at, "어휘 색인 조각") }}</td><td class="n">{{ "{:,}".format(p.lexical_index) }}</td></tr>
-    <tr><td>멈춘 문서(1시간 넘게 처리 중)</td><td class="n">{{ "{:,}".format(p.stuck_docs) }}</td></tr>
-    <tr><td>{{ metric_label("audit_graph_docs", p.at, "그래프 대상 사업 문서") }}</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
-    {% set gsum = p.sync_text.get("graph", "") %}
-    {% if gsum %}<tr><td>마지막 그래프 작업({{ (p.sync.get("graph") or {}).get("at", "") }})</td><td class="n">{{ gsum }}</td></tr>{% endif %}
+    {% endif %}
+    <tr><td>{{ metric_label("audit_graph_doc_nodes", p.at, "그래프 문서 노드") }}</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
+    <tr><td>멈춘 문서</td><td class="n" title="1시간 넘게 처리 중인 문서">{{ "{:,}".format(p.stuck_docs) }}</td></tr>
   </table>
 </div></section>
 </div>
@@ -139,14 +129,13 @@
 {% endif %}
 
 <section class="card"><div class="card-in">
-  <h2>주기 작업</h2>
+  <h2>최근 실행</h2>
   <table class="ik-table">
     {% for k, label in [("full", "원본 장부 맞추기(목록이 바뀌면 바로, 아니면 1시간)"), ("parsed", "DGX 결과 받기(1분)"), ("index", "검색 색인(1분)"), ("lexical", "키워드 색인"), ("graph", "그래프"), ("audit", "점검")] %}
     <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (p.sync.get(k) or {}).get("at", "기록 없음") }}</td>
       {% set summary = p.sync_text.get(k, "") %}
-      <td>{% if k == "full" and p.dgx_listing is not none %}{{ metric_label("dgx_listing", (p.sync.get(k) or {}).get("at", ""), "DGX 목록") }} {{ p.dgx_listing|num }}{% if " · " in summary %} · {{ summary.split(" · ", 1)[1] }}{% endif %}{% elif k == "graph" %}<span class="muted">수는 「라이브러리 다음 단계」</span>{% else %}{{ summary }}{% endif %}</td></tr>
+      <td>{% if k == "full" and p.dgx_listing is not none %}{{ metric_label("dgx_listing", (p.sync.get(k) or {}).get("at", ""), "DGX 목록") }} {{ p.dgx_listing|num }}{% if " · " in summary %} · {{ summary.split(" · ", 1)[1] }}{% endif %}{% elif k == "graph" %}{{ p.sync_text.get("graph", "") or summary }}{% else %}{{ summary }}{% endif %}</td></tr>
     {% endfor %}
   </table>
 </div></section>
 {% endif %}
-{% endblock %}

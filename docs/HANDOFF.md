@@ -1,4 +1,4 @@
-# 인수인계 — 다른 세션/계정이 이어받을 때 먼저 읽는 문서
+# 인수인계 — 운영 구성과 남은 일
 
 대화 맥락 없이 작업을 이어받게 하는 다리다. 순서대로 `CLAUDE.md`(작업 지침) → 이 문서(구성·접속·사람 손이 필요한 일) →
 `PROJECT_BRIEF.md`(판단 기준). 지금 하는 일과 진행 중인 일은 `docs/dev-now.md` 가 정본이고, 구조는 `docs/architecture.md`,
@@ -86,7 +86,7 @@
 | 묶음 | 화면 |
 |---|---|
 | 개요 | 개발 현황 `/dev`, 처리 흐름 `/dev/flow`, 논문·설계 문서 `/dev/docs`, 변경 이력 `/dev/history` |
-| 문서 반입·읽기 | 문서 가져오기 `/dev/intake`, 데이터 현황 `/dev/db` |
+| 문서 반입·읽기 | 반입 점검 `/dev/flow#intake`, 데이터 현황 `/dev/db` |
 | 검색·지식 | RAG 공간 `/dev/rag`, 그래프 탐색 `/graph/explore`, 품질·성능 `/dev/quality` |
 | 문서 작성 | 공동 편집 시연 `/dev/coedit-demo` |
 | 모델 학습 | 데이터·학습 `/dev/train`, 수집 자료 `/dev/collect`, 도구·모델 연결 `/dev/tools`, 모델 비교 결과 `/dev/models/compare` |

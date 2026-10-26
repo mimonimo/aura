@@ -116,10 +116,11 @@ def test_intake_page_names_each_number(client, tmp_path):
         {"at": "2031-05-06 07:08", "archive_files": 99, "targets": 10, "in_docbox": 4, "failed": 1, "waiting": 2,
          "missed": 3, "grant_docs": 4, "graph_doc_nodes": 4, "grant_chunks": 40, "embedding_index": 40,
          "lexical_index": 40, "stuck_docs": 0, "composition": {}, "alerts": []}), encoding="utf-8")
-    page = client.get("/dev/intake").text
-    assert "처리 대상 문서 가운데 라이브러리 문서로 들어온 것" in page
-    assert "그래프 대상 사업 문서" in page and "문서함" not in page          # 12555b42 에서 줄 이름을 짧게(「… 수」 뺌)
-    assert 'data-confirm="지금 맞출까요?' in page and 'data-confirm="지금 다시 점검할까요?' in page
+    page = client.get("/dev/intake").text                                  # 옛 주소 → 처리 흐름의 반입 점검 칸(10-26)
+    panel = page.split('id="intake"', 1)[1].split('id="coedit"', 1)[0]
+    assert "처리 대상 문서 가운데 라이브러리 문서로 들어온 것" in panel
+    assert "그래프 대상 사업 문서" in panel and "문서함" not in panel          # 12555b42 에서 줄 이름을 짧게(「… 수」 뺌)
+    assert "/dev/intake/reconcile" not in page and "/dev/intake/audit" not in page and "자동" in panel   # 점검·다시 들이기는 자동 — 돌리는 단추 없음
 
 
 def test_heavy_dev_actions_ask_first(client):
@@ -139,11 +140,13 @@ def test_shared_confirm_covers_any_form_with_data_confirm():
 
 def test_dev_titles_match_sidebar_names(client):
     for href, name in [("/dev/db", "데이터 현황"), ("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검"),
-                       ("/dev/intake", "문서 가져오기"), ("/dev", "개발 현황")]:
+                       ("/dev", "개발 현황")]:
         page = client.get(href).text
         assert f"<title>{name}" in page, href
         sidebar = page.split("data-developer-navigation", 1)[1].split("</aside>", 1)[0]
         assert f'aria-current="page">{name}</a>' in sidebar, href
+    r = client.get("/dev/intake", follow_redirects=False)                    # 반입 점검은 처리 흐름의 한 칸
+    assert r.status_code == 303 and r.headers["location"] == "/dev/flow#intake"
 
 
 def test_every_nav_entry_has_a_name_and_page_name_rejects_unknown():

@@ -43,19 +43,4 @@ def dev_privacy_policy(request: Request, enabled: str = Form(...), entities: lis
         raise HTTPException(400, str(exc))
     return RedirectResponse("/dev/pii?view=policy&saved=1", status_code=303)
 
-@router.post("/dev/pii/selftest")
-def dev_pii_selftest(request: Request):
-    """합성 표본으로 실제 마스커를 검증 — 결과는 settings에 남는다."""
-    from zzaimy.app import pii_audit
-
-    pii_audit.run_selftest(request.app.state.db)
-    return RedirectResponse("/dev/pii?view=checks", status_code=303)
-
-@router.post("/dev/pii/scan")
-def dev_pii_scan(request: Request):
-    """저장·색인된 본문에 탐지 정규식을 독립 실행 — 잔여 개인정보 검사."""
-    from zzaimy.app import pii_audit
-
-    db = request.app.state.db
-    pii_audit.run_scan(db)
-    return RedirectResponse("/dev/pii?view=checks", status_code=303)
+# 자가 점검·잔여 검사는 매일 새벽 정리에서 자동(scripts/216_pii_checks.py) — 화면에서 돌리는 경로는 뺐다(10-26)

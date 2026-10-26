@@ -511,9 +511,14 @@ def toc_entries(data: bytes) -> list[dict]:
     xml = zin.read("Contents/section0.xml").decode("utf-8")
     heads = _field_heads(data)
     k = 0
+    appx = False
     out: list[dict] = []
     for _s, _e, _i, text in _toc_lines(xml):
-        hit = next((j for j in range(k, len(heads)) if _norm(heads[j][0]) == _norm(text)), None)
+        # 부록 절(「부록 4.9 업무 도우미」)은 목차에 「4.9 업무 도우미」 로 적혀 본문 절과 같다 — 본문 장 줄(칸이 없다)이 부록 칸과 짝지어지면
+        # 그 뒤 본문 줄이 모두 부록 쪽을 받았다(10-26, 4.9 장 줄 → 부록 4.9 → 5·6장이 166쪽). 「부록.」 장 줄 앞은 본문 칸하고만, 뒤는 부록 칸하고만
+        appx = appx or text.startswith("부록")
+        hit = next((j for j in range(k, len(heads)) if _norm(heads[j][0]) == _norm(text)
+                    and heads[j][1][2:].startswith("부록") == appx), None)
         if hit is not None:
             k = hit + 1
         out.append({"text": text, "field": heads[hit][1] if hit is not None else ""})
@@ -1702,6 +1707,12 @@ def write_batch(db, base: Path, fid: int, ws: list[dict], *, overwrite: bool = F
                 for f in done:
                     ok = streams[f].write(vals.get(f, ""))
                     results[f] = {"field": f, "ok": ok, "why": "" if ok else "none"}
+                    # 표 뒤 글을 담은 이어 쓰기 칸도 칸 글 표에(다시 불러온 화면의 칸 글과 같게), 없어진 이어 쓰기 칸의 줄은 지운다
+                    conts = {k: v for k, v in vals.items() if ww.is_cont(k) and ww.section_of(k) == f}
+                    if conts:
+                        ce.put(db, fid, WRITER, conts, client=CLIENT)
+                    ce.forget(db, fid, [k for k in ce.state(db, fid, with_text=False)
+                                        if ww.is_cont(k) and ww.section_of(k) == f and k not in vals])
     finally:
         for st in streams.values():
             st.close()

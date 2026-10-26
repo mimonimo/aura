@@ -85,51 +85,14 @@ def test_rag_page_sections(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("RAG 목록", "공통 RAG", "기준 문서(문서·조각)", "검색 범위 시험", "계정별 추가 권한", "추가 부서",
-                 "규정·지침", "dept:가부서", "학생 공개 규정만", "관리자, 전부"):
+    for text in ("RAG 목록", "공통 RAG", "기준 문서(문서·조각)", "검색 범위 시험",
+                 "규정·지침", "dept:가부서"):
         assert text in r.text, text
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
     assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="#student-regs"' in r.text
-    # 범위가 정해진 계정(학생·관리자)은 표에 줄을 두지 않고 한 줄 안내로
-    assert '<tr data-find="u-stu' not in r.text and "더할 것이 없어 표에서 뺐습니다" in r.text
-    # 순서: 검색 공간 → 규정·기준 문서 → 계정별 추가 권한 → 검색 범위 시험(접힘)
-    assert r.text.index("규정·지침</h2>") < r.text.index("계정별 추가 권한</h2>") < r.text.index('id="rgTryToggle"')
-    # 계정마다 한 줄 + 「설정」 창 — 부서는 열이 아니라 창의 체크 목록(부서가 늘어도 표가 넓어지지 않음)
-    assert 'data-grant-edit="u-ga"' in r.text and "나부서 더하기" not in r.text
-    assert 'data-grant-edit="u-stu"' not in r.text                     # 학생 줄은 없다
-
-
-def test_grant_table_saves_only_changed_cells(tmp_path):
-    c = _client(tmp_path)
-    rag_spaces.save_config({"grants": {"u-na": ["dept:가부서"]}}, tmp_path)
-    # 화면을 연 뒤 다른 관리자가 u-da 에 권한을 줬다 — 이번 저장에서 건드리지 않은 칸이라 그대로 남아야 한다
-    rag_spaces.save_config({"grants": {"u-na": ["dept:가부서"], "u-da": ["dept:가부서"]}}, tmp_path)
-    cells = ["u-ga\tdept:나부서", "u-na\tdept:가부서", "u-na\tdept:다부서", "u-da\tdept:나부서"]
-    r = c.post("/dev/rag/grant", data={"cell": cells, "was": ["u-na\tdept:가부서"],
-                                       "on": ["u-ga\tdept:나부서", "u-na\tdept:가부서"]}, follow_redirects=False)
-    assert r.status_code == 303 and "ok=" in r.headers["location"]
-    assert _grants(tmp_path) == {"u-ga": ["dept:나부서"], "u-na": ["dept:가부서"], "u-da": ["dept:가부서"]}
-    # 끄기도 바뀐 칸만
-    c.post("/dev/rag/grant", data={"cell": ["u-na\tdept:가부서"], "was": ["u-na\tdept:가부서"]}, follow_redirects=False)
-    assert _grants(tmp_path) == {"u-ga": ["dept:나부서"], "u-da": ["dept:가부서"]}
-    # 바뀐 칸이 없으면 저장하지 않는다
-    before = sorted(tmp_path.glob("rag_spaces.json.bak-*"))
-    r = c.post("/dev/rag/grant", data={"cell": ["u-ga\tdept:나부서"], "was": ["u-ga\tdept:나부서"], "on": ["u-ga\tdept:나부서"]},
-               follow_redirects=False)
-    assert "ok=" in r.headers["location"] and sorted(tmp_path.glob("rag_spaces.json.bak-*")) == before
-
-
-def test_grant_table_rejects_students_unknown_and_all_access(tmp_path):
-    c = _client(tmp_path)
-    rag_spaces.save_config({"grants": {}}, tmp_path)
-    for cell in ("u-stu\tdept:가부서", "u-ga\tdept:없는부서", "ghost\tdept:가부서", "zzdev\tdept:가부서"):
-        r = c.post("/dev/rag/grant", data={"cell": [cell], "on": [cell]}, follow_redirects=False)
-        assert "err=" in r.headers["location"], cell
-    assert _grants(tmp_path) == {}
-    # 한 칸이라도 거절되면 같이 보낸 칸도 저장하지 않는다
-    c.post("/dev/rag/grant", data={"cell": ["u-ga\tdept:나부서", "u-stu\tdept:가부서"], "on": ["u-ga\tdept:나부서", "u-stu\tdept:가부서"]})
-    assert _grants(tmp_path) == {}
-
+    # 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳 — 여기는 한 줄 안내(10-26)
+    assert 'id="rgGrantTable"' not in r.text and 'href="/dev/users"' in r.text
+    assert r.text.index("규정·지침</h2>") < r.text.index('id="rgTryToggle"')
 
 def _archive(db, rels):
     from zzaimy.app import archive
@@ -152,7 +115,7 @@ def test_old_area_tab_points_to_rag_space(tmp_path):
     """폴더별 담당 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 한 곳 — 옛 문서 반입 탭 넘기기는 10-25 에 지웠다."""
     c = _client(tmp_path)
     r = c.get("/dev/intake?tab=areas", follow_redirects=False)
-    assert r.status_code == 200
+    assert r.status_code == 303 and r.headers["location"] == "/dev/flow#intake"      # 반입 점검은 처리 흐름의 한 칸(10-26)
     assert "폴더별 담당 부서" not in c.get("/dev/intake").text
 
 
@@ -253,10 +216,3 @@ def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
     assert r.headers["location"] == f"/doc/{reg_t}"
 
 
-def test_grants_without_eligible_accounts_shows_one_line(tmp_path):
-    from tests.test_accounts import _app, _login
-    from fastapi.testclient import TestClient
-    c = TestClient(_app(tmp_path))
-    assert _login(c, "zzdev", "devpass")
-    t = c.get("/dev/rag").text
-    assert 'id="rgGrantTable"' not in t and "추가 권한을 줄 계정이 없습니다" in t

@@ -1,8 +1,7 @@
-"""문서 가져오기(/dev/intake*) — 원본 → 문서함 → 색인 → 그래프의 빈틈과 조치(맞추기·다시 점검).
+"""반입 점검 — 원본 → 문서함 → 색인 → 그래프의 빈틈. 화면은 처리 흐름(/dev/flow#intake), 여기는 값·목록 내려받기·옛 주소.
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
-- DB·DB 경로(db_path)·처리기(processor)·받은 문서 폴더(inbox_dir)·화면 틀·화면 공통 맥락(page_ctx)과
-  반입 작업 프로세스 표(intake_proc)는 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
+- DB·DB 경로(db_path)는 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
 - 구글 앱 등록·계정 연결(/dev/gdrive/*)은 app/dev_gdrive_routes, 화면은 사용자·계정(/dev/users#google-links).
 """
 from __future__ import annotations
@@ -10,38 +9,24 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response
 
 router = APIRouter()
 
 
-# 반입 연동 관리 — 원본 → 문서함 → 색인 → 그래프의 빈틈(scripts/175)과 조치(맞추기·다시 점검). 개발자만(/dev 미들웨어)
-_INTAKE_JOBS = {"reconcile": ("zz_reconcile.sh", Path("/tmp/intake_reconcile.log")),
-                "audit": ("175_pipeline_audit.py", Path("/tmp/intake_audit.log"))}
-
-
-def _intake_job_running(request: Request, kind: str) -> bool:
-    p = request.app.state.intake_proc.get(kind)
-    if p is not None and p.poll() is None:
-        return True
-    import subprocess
-    # 실행 중인 그 스크립트만 — 명령 줄 맨 앞이 셸·파이썬인 프로세스. 이름이 글로 들어간 다른 명령(ssh 로 상태를 묻는 셸,
-    # grep 등)까지 잡으면 놀고 있어도 「맞추는 중…」으로 보인다
-    pat = (r"^([^ ]*/)?(ba)?sh .*zz_reconcile\.sh" if kind == "reconcile"
-           else r"^([^ ]*/)?python[0-9.]* .*scripts/175_pipeline_audit")
-    return subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
-
-
-@router.get("/dev/intake", response_class=HTMLResponse)
-def dev_intake(request: Request):
-    from zzaimy.app import intake_status
-    from zzaimy.app import metrics
+def intake_ctx(request: Request) -> dict:
+    """반입 점검 칸(처리 흐름 화면, templates/_intake_panel.html)에 넘길 값 — 수치는 점검 파일·DB·원본 장부에서 바로 읽는다.
+    점검과 빠진 원본 다시 들이기는 자동이라(동기화 때·매일 04:30) 화면에서 돌리는 단추는 두지 않는다(10-26)."""
+    from zzaimy.app import intake_status, metrics
     st = request.app.state
-    db, db_path = st.db, st.db_path
-    data = intake_status.pipeline(db_path)
-    return st.templates.TemplateResponse(request, "dev_intake.html", st.page_ctx(request, {
-        "p": data, "live": metrics.live(db), "lg": intake_status.ledger_breakdown(db), "running": {k: _intake_job_running(request, k) for k in _INTAKE_JOBS},
-        "missed": intake_status.listing(db_path, "missed")[:50], "failed": intake_status.listing(db_path, "failed")[:50]}))
+    return {"p": intake_status.pipeline(st.db_path), "live": metrics.live(st.db), "lg": intake_status.ledger_breakdown(st.db),
+            "missed": intake_status.listing(st.db_path, "missed")[:50], "failed": intake_status.listing(st.db_path, "failed")[:50]}
+
+
+@router.get("/dev/intake")
+def dev_intake(request: Request):
+    """옛 「문서 가져오기」 주소 — 처리 흐름의 반입 점검 칸으로."""
+    return RedirectResponse("/dev/flow#intake", status_code=303)
 
 
 @router.get("/dev/intake/{name}.csv")
@@ -60,25 +45,6 @@ def dev_intake_csv(request: Request, name: str):
         w.writerow([r.get(c, "") for c in cols])
     return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f"attachment; filename=intake_{name}.csv"})
-
-
-@router.post("/dev/intake/{kind}")
-def dev_intake_run(request: Request, kind: str):
-    import subprocess
-    if kind not in _INTAKE_JOBS:
-        raise HTTPException(404)
-    if _intake_job_running(request, kind):
-        return RedirectResponse("/dev/intake?err=이미 실행 중입니다", status_code=303)
-    root = Path(__file__).resolve().parents[3]
-    script, log_path = _INTAKE_JOBS[kind]
-    cmd = (["bash", str(root / "scripts" / script)] if script.endswith(".sh") else
-           [str(root / "scripts" / "zz_run.sh"), "4G", "env", "PYTHONPATH=src", str(root / ".venv" / "bin" / "python"),
-            str(root / "scripts" / script)])
-    with log_path.open("w") as log_f:
-        from zzaimy.app.detach import detached
-        request.app.state.intake_proc[kind] = subprocess.Popen(detached(["nohup", *cmd], kind), stdout=log_f, stderr=subprocess.STDOUT,
-                                                               cwd=str(root), start_new_session=True)
-    return RedirectResponse("/dev/intake?ok=" + ("맞추기를 시작했습니다" if kind == "reconcile" else "점검을 시작했습니다"), status_code=303)
 
 
 # ---- 예전 Google Drive 가져오기 탭 — 폴더 연결 기능은 뺐다(문서함·채팅이 파일 단위로 가져온다).

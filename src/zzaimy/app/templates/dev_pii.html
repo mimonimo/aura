@@ -100,24 +100,22 @@
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
     {% if selftest and not selftest.error %}
       <span class="pill {{ 'reviewed' if selftest.ok else 'failed' }}">자가 점검 {{ selftest.passed }}/{{ selftest.total }} · {{ selftest.at | kst }}</span>
-    {% else %}<span class="pill processing">자가 점검 미실행</span>{% endif %}
+    {% else %}<span class="pill processing">자가 점검 기록 없음 · 새벽에 자동</span>{% endif %}
     {% if scan0 and not scan0.error %}
       <span class="pill {{ 'reviewed' if scan0.hits == 0 or not internal_policy.enabled else 'processing' }}" title="{{ '가리기 꺼짐 — 원문을 그대로 검사하므로 탐지가 나오는 것이 정상' if not internal_policy.enabled else '가린 뒤에도 남은 값' }}">{{ '원문 속 개인정보 꼴' if not internal_policy.enabled else '가린 뒤 남은 값' }} {{ scan0.hits | num }}건 · {{ scan0.at | kst }}</span>
-    {% else %}<span class="pill processing">잔여 검사 미실행</span>{% endif %}
+    {% else %}<span class="pill processing">잔여 검사 기록 없음 · 일요일 새벽에 자동</span>{% endif %}
     {% if sources %}<span class="pill type" title="{{ metric_tip('pii_recorded') }}">가리기 기록 있는 문서 {{ sources[0].recorded_subjects | num }} / 가릴 문서 {{ sources[0].subject_docs | num }}</span>{% endif %}
   </div>
 </div></div>
 <p class="privacy-help">읽기 전용 진단 · 검사 결과로 반출을 승인하거나 처리 설정을 바꾸지 않음</p>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>마스커 자가 점검
-    <form method="post" action="/dev/pii/selftest" style="margin-left:auto;">
-      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>자가 점검 실행</button>
-    </form></h2>
+    <span class="muted" style="margin-left:auto;font-size:12px;font-weight:400;">자동 — 매일 04:30</span></h2>
   <p class="muted" style="margin:0 0 12px; font-size:12.5px; line-height:1.6;">
     합성 표본(가공 번호·가짜 이름)으로 지원 유형이 가려지는지, 가리면 안 되는 것이 남는지 확인합니다. 실제 개인정보는 쓰지 않습니다.</p>
 
   {% if not selftest %}
-  <p class="muted" style="margin:0; font-size:12.5px;">아직 실행하지 않음</p>
+  <p class="muted" style="margin:0; font-size:12.5px;">아직 기록 없음 · 새벽에 자동으로 돈다</p>
   {% elif selftest.error %}
   <div style="border:1px solid #F0D9B8; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.6;">
     <span class="pill failed">실패</span>
@@ -168,9 +166,7 @@
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:magnifer-zoom-in-linear"></iconify-icon>저장 본문 잔여 검사
-    <form method="post" action="/dev/pii/scan" style="margin-left:auto;" data-confirm="저장 본문 잔여 검사를 실행할까요? 등록 문서 본문과 조각 전부를 훑어 오래 걸릴 수 있습니다. 본문은 바꾸지 않습니다.">
-      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>잔여 검사 실행</button>
-    </form></h2>
+    <span class="muted" style="margin-left:auto;font-size:12px;font-weight:400;">자동 — 일요일 04:30(몇 시간)</span></h2>
   <p class="muted" style="margin:0 0 12px; font-size:12.5px; line-height:1.6;">
     저장 본문에 마스커와 같은 정규식을 독립 실행합니다. 라벨 없는 성명·주소는 못 잡습니다. 잡힌 값은 가려 보입니다.</p>
 
@@ -179,7 +175,7 @@
     <div style="font-weight:600; font-size:13px; margin-bottom:6px;">{{ src.name }}</div>
     {% set scan = src.scan %}
     {% if not scan %}
-    <p class="muted" style="margin:0; font-size:12.5px;">아직 실행하지 않음</p>
+    <p class="muted" style="margin:0; font-size:12.5px;">아직 기록 없음 · 새벽에 자동으로 돈다</p>
     {% elif scan.error %}
     <div style="font-size:13px;"><span class="pill failed">실패</span>
       <span style="margin-left:6px;">{{ scan.error }}</span></div>

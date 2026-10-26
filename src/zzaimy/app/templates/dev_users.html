@@ -193,9 +193,7 @@
         {% elif d.drive.legacy %}<span class="muted">예전 방식(폴더만 지정)</span>
         {% else %}<span class="muted">연결 전</span>{% endif %}</td>
       <td class="act">
-        {% if d.drive.connected %}<form method="post" action="/dev/google/dept" data-ua-ajax><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="sync">
-          <button type="submit" class="secondary ua-sm" title="부서 사람이 바뀌었거나 구글을 새로 연결했을 때 — 보통은 저절로 맞춥니다">권한 맞추기</button></form>
-        <form method="post" action="/dev/google/dept" data-ua-ajax data-ua-confirm="{{ d.dept }} 부서 드라이브 연결을 끊을까요? 부서 사람의 폴더 권한을 거두고, 폴더와 문서는 {{ d.drive.by }} 드라이브에 남습니다." data-ua-ok="연결 끊기"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="disconnect">
+        {% if d.drive.connected %}<form method="post" action="/dev/google/dept" data-ua-ajax data-ua-confirm="{{ d.dept }} 부서 드라이브 연결을 끊을까요? 부서 사람의 폴더 권한을 거두고, 폴더와 문서는 {{ d.drive.by }} 드라이브에 남습니다." data-ua-ok="연결 끊기"><input type="hidden" name="dept" value="{{ d.dept }}"><input type="hidden" name="action" value="disconnect">
           <button type="submit" class="btn-ghost ua-sm" style="color:var(--red);">연결 끊기</button></form>{% endif %}
         {% if not d.members %}<form method="post" action="/dev/users/dept" data-ua-ajax data-dept-del hidden data-ua-confirm="부서 「{{ d.dept }}」을 지울까요? 부서 RAG 문서 {{ '{:,}'.format(d.docs) }}건은 공통 RAG 로 돌아갑니다." data-ua-ok="지우기">
           <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ d.dept }}">

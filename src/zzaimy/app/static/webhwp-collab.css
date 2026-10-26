@@ -50,3 +50,7 @@
 .co-av.me { margin-left:10px; cursor:default; box-shadow:0 0 0 2px #fff, 0 0 0 3px var(--c, #64748B); }
 .co-block { position:absolute; background:transparent; pointer-events:auto; cursor:not-allowed; }
 .co-block[hidden] { display:none; }
+/* 따라가는 사람 — 아바타에 그 사람 색 고리(머리줄 띠에 「○○ 님 따라가는 중 · 그만」) */
+.co-av.following { box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--c, #64748B); z-index:3; }
+.co-av.aura.following { animation:none; }
+.co-people-row.following { background:#EEF4FF; }

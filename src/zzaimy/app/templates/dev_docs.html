@@ -164,6 +164,20 @@
       {{ rows(papers) }}
     </div></div>
 
+
+    {% endif %}
+  </div>
+
+  <div>
+    {% if docs_view == 'current' %}
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:compass-linear"></iconify-icon>현황·설계
+        <span class="doc-cnt">{{ status_docs|length + plan_docs|length }}</span></h2>
+      <div class="doc-sub">먼저 볼 것 — 지금 상태</div>
+      {{ rows(status_docs) }}
+      <div class="doc-sub">설계·계획</div>
+      {{ rows(plan_docs) }}
+    </div></div>
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:calendar-mark-linear"></iconify-icon>주간 보고서
         <span class="doc-cnt">{{ weekly_docs|length }}</span></h2>
@@ -192,7 +206,11 @@
         <span class="muted">매주 월요일 오전 9시 자동 생성 · 한국시간</span>
       </div>
       <div class="doc-sub">지난 보고서</div>
-      {{ rows(weekly_docs) }}
+      {{ rows(weekly_docs[:3]) }}
+      {% if weekly_docs|length > 3 %}
+      <div data-weekly-more hidden>{{ rows(weekly_docs[3:]) }}</div>
+      <button type="button" class="btn-ghost" style="margin-top:6px;" onclick="var m=this.previousElementSibling;m.hidden=!m.hidden;this.textContent=m.hidden?'지난 보고서 {{ weekly_docs|length - 3 }}개 더 보기':'접기';">지난 보고서 {{ weekly_docs|length - 3 }}개 더 보기</button>
+      {% endif %}
       <script>
         (function () {
           if (!document.querySelector('[data-weekly-running]')) return;
@@ -204,20 +222,6 @@
           setTimeout(tick, 8000);
         })();
       </script>
-    </div></div>
-
-    {% endif %}
-  </div>
-
-  <div>
-    {% if docs_view == 'current' %}
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:compass-linear"></iconify-icon>현황·설계
-        <span class="doc-cnt">{{ status_docs|length + plan_docs|length }}</span></h2>
-      <div class="doc-sub">먼저 볼 것 — 지금 상태</div>
-      {{ rows(status_docs) }}
-      <div class="doc-sub">설계·계획</div>
-      {{ rows(plan_docs) }}
     </div></div>
     {% endif %}
 

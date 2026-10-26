@@ -79,15 +79,16 @@ def test_intake_page_names_school_originals_and_folds_graph_counts(tmp_path):
     assert page.count('<span class="ik-school">학교 원본</span>') == 2                   # 처리 대상 문서 · 같은 파일 중복
     assert "(절대 규칙 11)" not in page and "<details" not in page and "▶" not in page   # 접기 없이 한 표
     after = page.split("<h2>라이브러리 다음 단계", 1)[1].split("</section>", 1)[0]       # 제목 뒤에 「점검 … 기준」
-    assert "45,678" in after and "31,234" in after and "문서 38,573 · 조각 1,980,742" in after
+    assert "45,678" in after and "31,234" in after
+    assert "문서 38,573 · 조각 1,980,742" in page.split("최근 실행", 1)[1]                    # 마지막 그래프 작업은 최근 실행 표의 그래프 줄에(10-26)
     assert "38573" not in page
 
 
 def test_intake_has_no_drive_tab_and_doc_flow_lives_on_overview(tmp_path):
     """단계별 문서 수는 처리 흐름 한 곳 — 문서 가져오기는 한 줄 바로가기. Drive 탭은 없고 옛 주소 넘기기(/dev/nas)도 10-25 에 지웠다."""
     c, _ = _client(tmp_path)
-    page = c.get("/dev/intake").text
-    assert 'href="/dev/flow#stage-1"' in page and 'class="df"' not in page     # 단계별 문서 수는 처리 흐름 1·3단계
+    page = c.get("/dev/intake").text                                         # 옛 주소 → 처리 흐름(반입 점검 칸이 단계 표와 한 화면)
+    assert 'id="intake"' in page and 'id="stage-1"' in page and 'class="df"' not in page
     assert "tab=drive" not in page and 'id="connectedFolders"' not in page and "← 개발 현황" not in page
     assert c.get("/dev/nas?ok=저장", follow_redirects=False).status_code == 404
 

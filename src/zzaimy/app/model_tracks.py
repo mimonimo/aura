@@ -1,6 +1,6 @@
 """개발 현황과 모델 학습 화면의 공통 계획. 실행 상태는 실시간 조회 — 학습셋은 export.bundle.trainsets(DGX 목록),
 학습 진행은 train_monitor(DGX 학습 기록기, 1분마다). 화면의 「지금」은 손으로 적지 않는다."""
-UPDATED = "2026-10-24"
+UPDATED = "2026-10-26"
 TRACKS = (
     {"key": "embed", "name": "ZZAIMY-Embed", "base": "KURE-v1",
      "role": "규정·사업 문서 근거 검색용 임베딩", "method": "대조학습",
@@ -13,13 +13,9 @@ TRACKS = (
     {"key": "answer", "name": "ZZAIMY-Writer", "base": "Qwen3.8-27B (NVFP4 · MTP)",
      "role": "답·문서 작성 에이전트·검토·서류 종류와 사업 판정·이미지 판독",
      "method": "bf16 LoRA SFT (원본 정밀도 유지, 4비트는 메모리 부족 때 예비)",
-     "status": "운영은 베이스 모델 — 라이브러리 문서의 검색(RAG)과 지식그래프(GraphRAG)를 근거로 답한다. "
-               "SFT: writer-v1(학습 4,434 · 검증 346 · 시험 220)로 DGX 에서 LoRA 학습 마침(10-22), "
-               "SFT v1 비교(10-24, ADR-0069): 병합·NVFP4 재양자화본은 시험 문항 정답 겹침이 오르나(chrF 27.9 → 36.6) "
-               "문서 작업 에이전트가 동작하지 않아(작업본 0/2, 학습셋 틀 「근거 설명/답변」이 단계·메모·채팅 답에 샘) 채택하지 않음 — 운영은 오픈 27B 그대로. "
-               "문서 작성 시나리오(202, ADR-0068 새판 3회): 고쳐 쓰기 반영 3/3 · 채점 근거 3.33 · 지어낸 숫자 0",
-     "next": "다음 학습셋에 플랫폼 서빙 꼴(에이전트 단계 JSON·작업 메모·채팅 답·절 쓰기)과 플랫폼 지시를 넣어 다시 학습 → "
-             "답 꼴 점검(213) 틀 0/45 · 문서 작성(202) 작업본 생성을 넘으면 같은 비교(210·211·202)로 교체 판단",
+     "status": "운영: 오픈 27B 그대로 — 검색(RAG)·지식그래프(GraphRAG)를 근거로 답한다. "
+               "SFT v1(학습 4,434 · 검증 346 · 시험 220)은 비교 뒤 채택하지 않음(ADR-0069) — 학습셋 틀이 답에 섞여 문서 작업 에이전트가 동작하지 않았다",
+     "next": "v2 학습셋(플랫폼이 실제로 보내는 요청 꼴)으로 다시 학습 → 같은 비교로 교체 판단",
      "live": True},
     {"key": "extract", "name": "ZZAIMY-Extract", "base": "Qwen3.8-27B",
      "role": "Writer 공용 베이스 · 구조화 추출(사업 정보·성과지표)", "method": "형식 강제 + 검수본 SFT",
@@ -62,7 +58,7 @@ def live_training(runs: list[dict] | None = None) -> dict:
             head += f" · 남은 시간 약 {prog['remain']}"
     elif st.get("finished_ok"):
         # 비교 결과(모델 비교 화면의 결과 파일)가 이미 있으면 「비교 차례」 가 아니다 — 끝난 일을 할 일처럼 보이지 않게
-        head = "SFT 학습 마침 — " + ("운영 모델과 비교 끝(모델 비교 화면)" if _compare_done() else "학습 전후 비교 차례")
+        head = "SFT 학습 마침 — " + ("비교 끝, 운영 미채택(모델 비교 결과)" if _compare_done() else "학습 전후 비교 차례")
     elif stale:
         head = f"SFT 기록이 {int((_t.time() - cur['mtime']) // 60)}분째 멈춤 — 학습 상태 확인 필요"
     else:

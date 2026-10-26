@@ -2,17 +2,24 @@
 {% block title %}{{ dev_page_name('/dev/tools') }}{% endblock %}
 {% block pagetitle %}{{ dev_page_name('/dev/tools') }}{% endblock %}
 {% block content %}
-<style>
-  .ext-line { margin:8px 0 0; font-size:13px; line-height:1.7; }
-  .ext-line b { font-weight:600; }
-</style>
 
 {% include "_tools_settings.html" %}
 
-{# 외부 연결 — 채팅의 「외부 검색」 이 쓰는 웹 검색 제공자(키가 있으면 구글·네이버, 없으면 DuckDuckGo, ADR-0038) #}
+{# 외부 연결 — 학습 검수 도구(Label Studio)와 채팅 「외부 검색」 의 웹 검색 제공자(키가 있으면 구글·네이버, 없으면 DuckDuckGo, ADR-0038).
+   한 줄씩이던 두 카드를 한 곳에(10-26) #}
 <div class="card reveal" id="external"><div class="card-in">
   <h2><iconify-icon icon="solar:global-linear"></iconify-icon>외부 연결</h2>
-  <p class="ext-line">웹 검색 <b>{{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}</b>
-    <span class="muted">· 채팅에서 웹 검색을 고른 요청만</span></p>
+  {% for t in tools %}
+  <div class="tool-status-row">
+    <div class="tool-status-name"><b>{{ t.name }}</b><span class="muted">학습 데이터 {{ t.step }}</span></div>
+    <div class="tool-status-detail">{% if t.connected %}<span class="pill reviewed">연결됨</span>{% else %}<span class="pill processing">미연결</span>{% endif %}</div>
+    <button type="button" class="secondary" aria-label="{{ t.name }} 계정 관리" data-modal-open="#toolModal-{{ t.key }}">계정 관리</button>
+  </div>
+  {% endfor %}
+  <div class="tool-status-row">
+    <div class="tool-status-name"><b>웹 검색</b><span class="muted">채팅에서 「외부 검색」 을 고른 요청만</span></div>
+    <div class="tool-status-detail"><span class="pill type">{{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}</span></div>
+    <span></span>
+  </div>
 </div></div>
 {% endblock %}

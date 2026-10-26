@@ -295,20 +295,26 @@
     }, 2000); }, 1500);
   }
   // ── 같이 쓰기 ──
+  // 머리줄 상태 — 저장 상태(저장됨·저장 중·다시 연결하는 중·오프라인). 다 저장됐고 AURA 가 쓰는 중이면 누구 요청으로 어디를 쓰는지
+  // (「AURA가 김가람 님 요청으로 「4. 향후 계획」 을 쓰는 중」 — 「AURA」 만으로는 누구 일인지 몰랐다, 10-26)
+  var coStatus = null;
+  function drawCoStatus() {
+    if (!coStatus || mode !== 'fields' || structMine && (saving || dirty)) return;
+    var k = coStatus.kind, a = eng && eng.aura ? eng.aura() : null;
+    if (k === 'saved' && a && a.field) { say(AuraCollab.auraText(eng, a), 'busy'); return; }
+    say(coStatus.text, k === 'saved' ? 'ok' : k === 'saving' || k === 'reconnecting' ? 'busy' : 'bad');   // 잠깐 끊김은 노랑, 오래 끊기면 빨강
+  }
   function startCollab() {
     var bar = document.querySelector('[data-co-bar]');
     eng = window.auraCollab = AuraCollab.engine({fid: fid, me: me, hwp: hwp, readonly: readonly, structureMode: function () { return structMine; }});
     cui = AuraCollab.ui(eng, hwp, {avatars: document.querySelector('[data-people]'), bar: bar, me: me, meName: meName});
-    eng.on('status', function (kind, text) {
-      if (mode !== 'fields' || structMine && (saving || dirty)) return;
-      say(text, kind === 'saved' ? 'ok' : kind === 'saving' ? 'busy' : 'bad');
-    });
+    eng.on('status', function (kind, text) { coStatus = {kind: kind, text: text}; drawCoStatus(); });
     eng.on('error', function (m) { say(m, 'bad'); });
     eng.on('struct', function (u) { structBy = u; drawStruct(); if (mode === 'whole') wholeLockChanged(u); });
     eng.on('doc-saved', function (d) { reloadWhenSafe(d); });
     eng.on('outside-edit', function () { if (structMine) touched(); });
     eng.on('conflict', function () { var c = document.querySelector('[data-conflicts]'); if (c) c.hidden = false; });
-    eng.on('aura', function (a) { auraNow = a && a.field ? a.field : ''; if (!auraNow) lastAuraField = ''; else if (follow) followAura(auraNow, auraNow !== lastAuraField); });
+    eng.on('aura', function (a) { auraNow = a && a.field ? a.field : ''; if (!auraNow) lastAuraField = ''; else if (follow) followAura(auraNow, auraNow !== lastAuraField); drawCoStatus(); });
     eng.start().then(function () {
       if (readonly) { mode = 'view'; hwp.setReadOnly(true); say('공통 양식 — 보기 전용', 'ok'); return; }
       ready = true;
@@ -468,7 +474,7 @@
   document.querySelector('[data-reload]').addEventListener('click', function () { reloadPending = {by: '', by_name: '최신'}; dirty = false; reloadWhenSafe({by: ''}); });
 
   // ── AURA 따라가기 ── AURA 가 쓰는 동안 손대지 않으면 화면이 그 칸 앞으로 간다(칸 안이 아니라 바로 앞 — 칸 임대를 잡지 않게).
-  // 입력하거나 문서를 누르면 멈춘다(머리줄 AURA 아바타를 누르면 그 칸으로)
+  // 입력하거나 문서를 누르면 멈춘다. 공동 편집(칸) 모드에서는 머리줄 아바타를 눌러 따라가기(webhwp-collab.js ui — 화면만 굴린다)
   var follow = true, auraNow = '', lastAuraField = '';
   var auraCursor = document.querySelector('[data-aura-cursor]');
   function drawAuraCursor() {

@@ -226,7 +226,7 @@ for 절 in 목차:
 | 데이터·학습·도구 연결·학습 상태 | dev_train_routes.py | /dev/train*, /dev/tools |
 | 데이터 공방·LLM 연결 | dev_data_routes.py | /dev/data*, /dev/llm/* |
 | RAG 공간 · 개인정보 점검 | dev_rag_routes.py · dev_pii_routes.py | /dev/rag*, /dev/pii* |
-| 문서 가져오기 · 구글 앱 등록 | dev_intake_routes.py · dev_gdrive_routes.py | /dev/intake, /dev/gdrive/* (앱 등록 화면은 /dev/users#google-links) |
+| 반입 점검(처리 흐름) · 구글 앱 등록 | dev_intake_routes.py · dev_gdrive_routes.py | /dev/intake, /dev/gdrive/* (앱 등록 화면은 /dev/users#google-links) |
 | 논문·설계 문서·주간 보고·변경 이력 | dev_docs_routes.py | /dev/docs, /dev/doc/*, /dev/paper/*, /dev/weekly*, /dev/history |
 | 한글 문서함·기안기 편집 | webhwp_routes.py | /hwp, /hwp/{id}/edit, /hwp/favorite, /webhwpctrl/ |
 | 조직도 | org_routes.py | /api/org, /org/* |

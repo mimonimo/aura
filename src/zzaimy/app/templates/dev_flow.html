@@ -85,6 +85,8 @@
   {% endfor %}
 </div></div>
 
+{% include "_intake_panel.html" %}
+
 <div class="card reveal" id="coedit"><div class="card-in">
   <h2><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>공동 편집 처리 방식 — 웹 한글 기안기</h2>
   <p class="pf-lead" style="margin-bottom:10px;">칸 글은 서버 DB 에 먼저 저장돼 다른 창으로 가고, 한글 파일은 몇 초 뒤 그 글로 바뀐다.</p>
@@ -103,11 +105,6 @@
     {% for every, host, what in cycles %}<tr><td>{{ every }}</td><td style="white-space:nowrap;">{{ host }}</td><td>{{ what }}</td></tr>{% endfor %}
   </table></div>
 </div></div>
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:lightbulb-linear"></iconify-icon>왜 기성 도구 대신 직접 만들었나</h2>
-  {% include "_build_why.html" %}
-</div></div>
-
 <div class="card reveal" id="tech"><div class="card-in">
   <h2><iconify-icon icon="solar:box-linear"></iconify-icon>사용 기술</h2>
   {% include "_tech_stack.html" %}

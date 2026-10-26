@@ -60,12 +60,12 @@
 {% if review_ready %}<div class="review-summary"><span>전체 기록 <strong>{{ grounded_ls.total }}</strong> <small>이전 버전 포함</small></span><span>사람 검수 주석 <strong>{{ grounded_ls.done }}</strong></span></div>{% endif %}
 {# 상태 표시는 한 줄, 단추는 그 아래 한 줄로 모은다 — p·div 는 자리만 잡고(display:contents) 실제 줄은 .review-bar 가 만든다 #}
 <div class="review-bar">
-{% if not review_ready %}<p class="review-status"><span class="review-chips" role="status"><span class="pill">검수 현황 미확인</span>{% if grounded_note %}{% for c in grounded_note.chips %}<span class="pill {{ c.level }}"{% if c.title %} title="{{ c.title }}"{% endif %}>{{ c.text }}</span>{% endfor %}{% else %}<span class="pill processing">{{ grounded_ls.error or '응답 오류' }}</span>{% endif %}</span>
+{% if not review_ready %}<p class="review-status"><span class="review-chips" role="status">{% if grounded_note %}{% for c in grounded_note.chips %}<span class="pill {{ c.level }}"{% if c.title %} title="{{ c.title }}"{% endif %}>{{ c.text }}</span>{% endfor %}{% else %}<span class="pill processing">{{ grounded_ls.error or '응답 오류' }}</span>{% endif %}</span>
 {% if grounded_note %}<a class="btn-ghost" href="{{ grounded_note.href }}"{% if grounded_note.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ grounded_note.action }}{% if grounded_note.external %} <span aria-hidden="true">↗</span>{% endif %}</a>{% endif %}
 <a class="btn-ghost" href="/dev/train?recheck=1"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>다시 확인</a></p>{% endif %}
 <div class="review-actions">
 {% if review_ready %}<a class="btn-ghost review-primary" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 <span aria-hidden="true">↗</span></a>{% endif %}
-<form method="post" action="/dev/data/grounded-pull"><button class="btn-ghost" type="submit" {% if not review_ready %}disabled title="검수 프로젝트가 생기면 사용"{% endif %}><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>
+{% if review_ready %}<form method="post" action="/dev/data/grounded-pull"><button class="btn-ghost" type="submit"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>{% endif %}
 </div>
 </div>
 <p class="muted review-hint">{% if grounded_note and grounded_note.hint %}{{ grounded_note.hint }}<br>{% endif %}반영 전 근거·맥락·개인정보 확인 · 주석이나 AI 자체 검수만으로는 학습 승인 아님</p>

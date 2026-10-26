@@ -454,7 +454,13 @@ class HwpTools:
         from zzaimy.app import webhwp_dress
         try:
             raw = Path(f["path"]).read_bytes()
-            others = [v for k, v in ww.field_values(raw).items() if k != field]
+            have = ww.field_values(raw)
+            # 이 절의 이어 쓰기 필드(표 뒤 글)도 다시 쓰면 바뀐다 — 사람이 쥔 것이 있으면 쓰지 않는다
+            held = next((w for k in have if ww.is_cont(k) and ww.section_of(k) == field
+                         and (w := ce.holder(self.db, fid, k)) and w != ce.AGENT), None)
+            if held:
+                return f"쓰지 않았다 — {held} 님이 지금 「{field}」 의 이어 쓰기 칸을 쓰는 중이다. 다른 절을 먼저 쓰고 나중에 다시 한다."
+            others = [v for k, v in have.items() if ww.section_of(k) != field]
             items, look = webhwp_dress.dress_items(ww.parse_body(text), others)   # 참고 상자(> 줄)·표 제목(<표> 줄)은 꾸밈 스타일로
             data, put = ww.write_section(raw, field, items, written)
             data = webhwp_dress.apply(data, put, look, field)
@@ -462,9 +468,14 @@ class HwpTools:
             names = [x["name"] for x in self._fields() if x["kind"] == "절"]
             return f"그런 절 필드가 없다. 절 필드: {', '.join(names[:30])}"
         webhwp.save(self.db, self.base, fid, data, user="AURA")
-        inner = ww.field_values(data).get(field)
-        if inner is not None:                               # 절 필드 안 글도 칸 글 표에 — 써 넣기(overlay)가 AURA 글을 옛 글로 되돌리지 않게
-            ce.put(self.db, fid, ce.AGENT, {field: inner}, client="aura-agent")
+        # 절 필드와 이어 쓰기 필드의 글을 칸 글 표에 — 써 넣기(overlay)가 AURA 글을 옛 글로 되돌리지 않고, 다시 불러온 편집 화면의
+        # 칸 글이 표와 같게(지문 대조가 서로 덮지 않게). 이번에 없어진 이어 쓰기 필드의 줄은 지운다
+        vals = ww.field_values(data)
+        mine = {k: v for k, v in vals.items() if ww.section_of(k) == field}
+        if mine:
+            ce.put(self.db, fid, ce.AGENT, mine, client="aura-agent")
+        ce.forget(self.db, fid, [k for k in ce.state(self.db, fid, with_text=False)
+                                 if ww.is_cont(k) and ww.section_of(k) == field and k not in vals])
         m = webhwp.meta(self.db, fid)
         written[field] = put
         m["written"] = written
@@ -517,22 +528,7 @@ class HwpTools:
             if not first or head[:12] in re.sub(r"\s+", "", first):
                 return rec
         pids = ((m.get("written") or {}).get(field) or []) if isinstance(m.get("written"), dict) else []
-        import io
-        import zipfile
-        z = zipfile.ZipFile(io.BytesIO(data))
-        xml = "".join(z.read(n).decode("utf-8", "ignore") for n in sorted(z.namelist()) if re.match(r"Contents/section\d+\.xml$", n))
-        parts = [first]
-        for pid in pids:
-            mm = re.search(rf'<hp:p id="{re.escape(str(pid))}"[^>]*>', xml)
-            if not mm:
-                continue
-            depth = 0
-            for t in re.finditer(r"<hp:p\b|</hp:p>", xml[mm.start():]):
-                depth += 1 if t.group(0) != "</hp:p>" else -1
-                if depth == 0:
-                    parts.append(re.sub(r"<[^>]+>", " ", xml[mm.start():mm.start() + t.end()]).strip())
-                    break
-        return "\n".join(p for p in parts if p.strip())
+        return ww.section_body(data, field, pids) or first        # 필드 안 글·넣은 표·이어 쓰기 필드를 문서 차례대로
 
     def gate(self, text: str, by: str = "메인") -> str | None:
         """절 본문 관문 — check_body(메인·서브 같음) + 메인만: 남은 문맥이 모자란데 긴 본문을 직접 쓰면 거절하고 맡기기 안내."""

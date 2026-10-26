@@ -663,7 +663,6 @@ document.addEventListener('submit', function(event) {
     {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험(한 줄 + 작은 창) #}
     <button type="button" class="side-search side-viewas" onclick="document.getElementById('viewAsDialog').showModal()"
             style="opacity:.7; font-size:12.5px; justify-content:flex-start; text-align:left;"><iconify-icon icon="solar:user-id-linear"></iconify-icon>테스트 보기</button>
-    <a href="/dev/coedit-demo" style="opacity:.7; font-size:12.5px;"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>{{ dev_page_name('/dev/coedit-demo') }}</a>
     {% endif %}
     {% if request.state.role == 'dev' %}
     <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"

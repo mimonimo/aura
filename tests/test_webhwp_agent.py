@@ -163,3 +163,38 @@ def test_person_fields_only_from_user(tmp_path, monkeypatch):
     assert "채웠다: 입력:신청 일자" in hw.fill({"values": {"신청 일자": "2026. 10. 25."}, "from_user": True})
     vals = {x["name"]: x["text"] for x in ww.fields(Path(webhwp.get(db, wa.bound(db, 78))["path"]).read_bytes())}
     assert vals["입력:신청 일자"] == "2026. 10. 25." and vals["칸:담당자"] == ""      # 기존 이름(칸:담당자)은 그대로
+
+
+def test_agent_write_keeps_text_in_fields_and_coedit_state_in_step(tmp_path, monkeypatch):
+    """10-26: 표가 낀 절 — 글은 절 필드·이어 쓰기 필드 안, 칸 글 표(field_state)는 파일 값과 같고, 다시 쓰면 없어진 이어 쓰기 줄도 지운다.
+    에이전트의 빈 절 세기·필드 목록에는 이어 쓰기 필드가 따로 나오지 않는다."""
+    from zzaimy.app import webhwp_coedit as ce
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 79, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "예산 변경 신청서"})
+    fid = wa.bound(db, 79)
+    name = "절:1. 변경 사유"
+    cont = ww.cont_name(name, 2)
+    empty = lambda: sorted(x["name"] for x in hw._fields() if x["kind"] == "절" and not x["text"])
+    empty0 = empty()
+    assert "썼다" in hw.write({"field": name, "text": "1) 단가 상승\n가) 장비 단가\n| 비목 | 금액 |\n|---|---|\n| 기자재 | 120 |\n2) 효과\n가) 실습 확대"})
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    vals = ww.field_values(data)
+    assert vals[name] == "1) 단가 상승\n가) 장비 단가" and vals[cont] == "2) 효과\n가) 실습 확대"
+    st = ce.state(db, fid)
+    assert st[name]["text"] == vals[name] and st[cont]["text"] == vals[cont]
+    assert not ce.overlay(db, fid, data)[1]                       # 써 넣기가 파일을 고칠 것이 없다(표와 파일이 같다)
+    assert ww.CONT not in hw.fields({}) and not any(ww.CONT in line for line in hw.state_lines())
+    assert empty() == [n for n in empty0 if n != name]             # 빈 절은 쓴 절만 빠지고, 이어 쓰기 필드는 빈 절로 세지 않는다
+    assert all(x["kind"] != "이어" for x in hw._fields())
+    assert "실습 확대" in hw.current_body(name) or "실습" in webhwp.meta(db, fid)["body"][name]
+    # 다시 쓰기 — 표가 없는 본문이면 이어 쓰기 필드와 그 칸 글 줄이 없어진다
+    assert "썼다" in hw.write({"field": name, "text": "1) 일정 조정"})
+    data2 = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    v2 = ww.field_values(data2)
+    assert v2[name] == "1) 일정 조정" and cont not in v2 and "기자재" not in data2.decode("latin-1", "ignore")
+    st2 = ce.state(db, fid)
+    assert st2[name]["text"] == "1) 일정 조정" and cont not in st2

@@ -69,29 +69,8 @@ async def dev_rag_min_grade(request: Request):
     msg = f"{name} 최소 등급 — {grades.GRADES[grade] + ' 이상' if grade else '걸지 않음'}"
     return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#dept-rags", status_code=303)
 
-@router.post("/dev/rag/grant")
-async def dev_rag_grant(request: Request):
-    """계정 × 부서 공간 표 저장 — 화면에서 바뀐 칸만 지금 설정에 반영한다(다른 사람이 그사이 바꾼 칸은 그대로). 학생·관리자 계정은 대상이 아니다."""
-    from zzaimy.app import rag_spaces
-    st = request.app.state
-    accounts = st.accounts
-    data_dir = st.data_dir
-    form = await request.form()
-    cfg = dict(rag_spaces.config(data_dir))
-    grants, done, bad = rag_spaces.grant_changes(cfg, accounts, [str(x) for x in form.getlist("cell")],
-                                                 [str(x) for x in form.getlist("was")], [str(x) for x in form.getlist("on")],
-                                                 data_dir)
-    if bad:
-        return RedirectResponse("/dev/rag?" + urlencode({"err": "저장하지 않았습니다 — " + ", ".join(
-            f"{k.replace(chr(9), ' · ')}({why})" for k, why in bad[:5])}) + "#grants", status_code=303)
-    if not done:
-        return RedirectResponse("/dev/rag?" + urlencode({"ok": "바뀐 칸이 없습니다"}) + "#grants", status_code=303)
-    cfg["grants"] = grants
-    rag_spaces.save_config(cfg, data_dir)
-    on = [f"{u} → {sid[5:]}" for u, sid, w in done if w]
-    off = [f"{u} → {sid[5:]}" for u, sid, w in done if not w]
-    msg = f"추가 권한 {len(done)}건 저장" + (f" · 켬: {', '.join(on)}" if on else "") + (f" · 끔: {', '.join(off)}" if off else "")
-    return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#grants", status_code=303)
+# 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳에서 저장한다(user_admin — 같은 rag grants). 이 화면의 표·저장 경로는 뺐다(10-26)
+
 
 @router.post("/dev/rag/dept")
 async def dev_rag_dept(request: Request):

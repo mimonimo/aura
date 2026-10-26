@@ -77,7 +77,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 .rr-find{width:100%;box-sizing:border-box;height:34px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;margin-bottom:8px}
 .rr-list{height:340px;overflow:auto;border:1px solid #EEF1F5;border-radius:8px}
 .rr-row{position:relative;display:grid;grid-template-columns:18px minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F3F7;font-size:12.5px}
-.rr-row .a{display:flex;gap:6px}.rr-row .mini{font-size:11.5px;padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;white-space:nowrap}
+.rr-row .a{display:flex;gap:6px}.rr-row .mini{min-height:0;line-height:1.4;font-size:11.5px;padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;white-space:nowrap}
 .rr-row .mini:hover{background:#F2F5FA}
 .rr-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px;border-bottom:1px solid var(--line)}
 .rr-tab{border:0;background:none;padding:8px 12px;font:inherit;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
@@ -99,7 +99,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 .rr-row .m{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:11.5px;white-space:nowrap}
 .rr-tag{padding:1px 7px;border-radius:999px;background:#EEF1F5;color:#53647B;font-size:11px}.rr-tag.stu{background:#E5F3EA;color:#22663F}
 .rr-empty{padding:18px;color:var(--muted);font-size:12.5px;text-align:center}
-.rr-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}.rr-bar [data-for]:not([hidden]){display:inline-flex;gap:8px;flex-wrap:wrap}.rr-bar .btn{min-height:32px;font-size:12.5px}
+.rr-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;padding:6px 10px;border-radius:8px;background:#F7F9FC}.rr-bar [data-for]:not([hidden]){display:inline-flex;gap:8px;flex-wrap:wrap}.rr-bar .btn{min-height:32px;font-size:12.5px}
 .rr-all{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer}.rr-picked{flex:1;font-size:12px;color:#3F5F8A}
 .rr-status{min-height:18px;margin:10px 0 0;font-size:12.5px;color:#3F5F8A}
 @media (max-width:900px){.rr-grid{grid-template-columns:1fr}}
@@ -168,7 +168,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   <div class="rr-head"><h2>규정·지침</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
   <p class="rg-sub" style="margin:4px 0 0;">새 규정 파일 올리기는 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」</p>
   <div class="rr-reindex" id="rrReindex" hidden><span>새로 추가한 규정은 몇 분 안에 자동으로 뜻 검색에 들어갑니다(키워드 검색은 바로 됩니다).</span>
-    <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">지금 바로 만들기</button></form></div>
+</div>
   <div class="rr-tabs" role="tablist">
     <button type="button" role="tab" class="rr-tab on" data-tab="reg" aria-selected="true">검색에 쓰는 규정 <span id="rrRegCount"></span></button>
     <button type="button" role="tab" class="rr-tab" data-tab="cand" aria-selected="false">새 판·미등록 규정 <span id="rrCandCount"></span></button>
@@ -179,62 +179,18 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     <span class="rr-filter" id="rrFilter">
       <button type="button" class="rr-chip on" data-aud="">전체 <span data-n=""></span></button><button type="button" class="rr-chip" data-aud="student">학생 공개 <span data-n="student"></span></button><button type="button" class="rr-chip" data-aud="staff">교직원만 <span data-n="staff"></span></button></span>
   </div>
-  <div class="rr-list rr-one" id="rrList" aria-live="polite"></div>
-  <nav class="rr-pager" id="rrPager" aria-label="규정 목록 쪽" hidden><button type="button" class="secondary" data-page="-1">이전</button><span id="rrPageInfo"></span><button type="button" class="secondary" data-page="1">다음</button></nav>
   <div class="rr-bar"><label class="rr-all"><input type="checkbox" id="rrAll"> 이 쪽 모두</label>
     <span class="rr-picked" id="rrPicked"></span>
     <span data-for="reg"><button type="button" class="btn" data-rr="student" disabled>학생 공개</button>
       <button type="button" class="btn" data-rr="staff" disabled>교직원만</button>
       <button type="button" class="btn" data-rr="unregister" disabled>검색에서 빼기</button></span>
     <span data-for="cand" hidden><button type="button" class="btn primary" data-rr="register" disabled>검색에 추가</button></span></div>
+  <div class="rr-list rr-one" id="rrList" aria-live="polite"></div>
+  <nav class="rr-pager" id="rrPager" aria-label="규정 목록 쪽" hidden><button type="button" class="secondary" data-page="-1">이전</button><span id="rrPageInfo"></span><button type="button" class="secondary" data-page="1">다음</button></nav>
   <p class="rr-status" role="status" id="rrStatus"></p>
 </div></section>
 
-<section class="card" id="grants"><div class="card-in">
-  <h2>계정별 추가 권한</h2>
-  {% set ns = namespace(fixed=[], open=[]) %}
-  {% for a in accts %}{% if a.role in ("student", "dev") or a.all_grant %}{% set ns.fixed = ns.fixed + [a] %}{% else %}{% set ns.open = ns.open + [a] %}{% endif %}{% endfor %}
-  <p class="rg-sub" style="margin:0 0 10px;">추가 부서의 사업 문서도 검색·편집할 수 있습니다(사용자·계정 편집 창의 「추가 부서」와 같은 값).
-    {% if ns.fixed %}범위가 정해진 계정 {{ ns.fixed|length }}개({% for a in ns.fixed %}{{ names.get(a.id, a.id) }} — {% if a.role == "student" %}학생 공개 규정만{% elif a.role == "dev" %}관리자, 전부{% else %}부서 없음, 사업 문서 전부{% endif %}{{ ", " if not loop.last }}{% endfor %})는 더할 것이 없어 표에서 뺐습니다.{% endif %}</p>
-  {% if not dept_spaces or not ns.open %}
-  <p class="rg-sub" style="margin:0;">추가 권한을 줄 계정이 없습니다 — <a href="/dev/users">사용자·계정</a>에서 교직원 계정에 부서를 정하면 여기에 나옵니다.</p>
-  {% else %}
-  {% if ns.open|length > 8 %}<div class="rg-bar">
-    <input type="search" id="rgAcctFind" placeholder="계정·부서 찾기" aria-label="계정 찾기">
-    <span class="rg-sub" id="rgAcctCount"></span>
-  </div>{% endif %}
-  <div class="rg-scroll">
-  <table class="rg-table" id="rgGrantTable">
-    <thead><tr><th>계정</th><th>검색 범위</th><th>추가 부서</th><th></th></tr></thead>
-    <tbody>
-    {% for a in ns.open %}
-    <tr data-find="{{ (a.id ~ ' ' ~ names.get(a.id, a.id) ~ ' ' ~ role_labels.get(a.role, a.role) ~ ' ' ~ a.dept ~ ' ' ~ (a.grants|join(' ')))|lower }}">
-      <td title="{{ a.id }}">{{ names.get(a.id, a.id) }}<br><span class="rg-sub">{{ role_labels.get(a.role, a.role) }}{{ " · " ~ a.dept if a.dept }}</span></td>
-      <td class="rg-wrap">{% if a.space.startswith('dept:') %}공통 + {{ a.space[5:] }}{% elif a.space == 'staff' %}공통{% else %}{{ a.space }}{% endif %}</td>
-      <td class="rg-wrap">{% set extra = a.grants | select('in', dept_spaces) | list %}{% if extra %}{% for g in extra %}<span class="rg-chip">{{ g[5:] }}</span>{% endfor %}{% else %}<span class="rg-sub">—</span>{% endif %}</td>
-      <td class="c"><button type="button" class="btn" data-grant-edit="{{ a.id }}">설정</button></td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <script type="application/json" id="rgGrantData">{{ {"spaces": dept_spaces, "accts": ns.open | map(attribute='id') | list} | tojson }}</script>
-  <script type="application/json" id="rgGrantAcct">{{ dict_grants | tojson }}</script>
-  <div class="modal-back" id="rgGrantModal">
-    <div class="card"><div class="card-in">
-      <div class="modal-head"><h2 style="font-size:17px;" id="rgGrantTitle">추가 부서</h2>
-        <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-      <form method="post" action="/dev/rag/grant" id="rgGrant">
-        <input type="search" id="rgDeptFind" class="rr-find" placeholder="부서 찾기" aria-label="부서 찾기">
-        <div class="rg-dept-list" id="rgDeptList"></div>
-        <footer class="modal-foot"><span class="modal-foot-note" id="rgGrantNote" role="status"></span>
-          <button type="button" class="secondary" data-modal-close>취소</button>
-          <button type="submit" id="rgGrantSave">저장</button></footer>
-      </form>
-    </div></div>
-  </div>
-  {% endif %}
-</div></section>
+<p class="rg-sub" id="grants" style="margin:-4px 0 16px;">계정마다 더 찾을 부서(겸직)는 <a href="/dev/users">사용자·계정</a>의 편집 창에서 정합니다.</p>
 
 
 <section class="card" id="try"><div class="card-in">
@@ -264,60 +220,6 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   const num = n => Number(n || 0).toLocaleString('ko-KR');
 
   // 찾기 칸 — 줄의 data-find 에 낱말이 들어 있으면 보인다
-  const finder = (input, rows, counter) => {
-    if (!input) return;
-    const run = () => {
-      const t = input.value.trim().toLowerCase();
-      let shown = 0;
-      rows.forEach(r => { const hit = !t || r.dataset.find.includes(t); r.hidden = !hit; if (hit) shown++; });
-      if (counter) counter.textContent = t ? `${shown} / ${rows.length}개 계정` : `${rows.length}개 계정`;
-    };
-    input.addEventListener('input', run);
-    run();
-  };
-  finder(document.getElementById('rgAcctFind'), [...document.querySelectorAll('#rgGrantTable tbody tr[data-find]')],
-         document.getElementById('rgAcctCount'));
-
-  // 계정별 추가 권한 — 계정 한 줄 + 「설정」 창의 부서 체크 목록(부서가 수십 개여도 표가 넓어지지 않게). 저장은 그 계정의 칸만 보낸다
-  const grant = document.getElementById('rgGrant');
-  if (grant) {
-    const meta = JSON.parse(document.getElementById('rgGrantData').textContent);
-    const acct = JSON.parse(document.getElementById('rgGrantAcct').textContent);
-    const modal = document.getElementById('rgGrantModal'), list = document.getElementById('rgDeptList');
-    const title = document.getElementById('rgGrantTitle'), note = document.getElementById('rgGrantNote');
-    const find = document.getElementById('rgDeptFind');
-    let who = null;
-    const syncNote = () => {
-      const n = [...list.querySelectorAll('input[name=on]:not(:disabled)')].filter(b => b.checked !== (b.dataset.was === '1')).length;
-      note.textContent = n ? `변경 ${n}곳 · 저장해야 반영됩니다` : '';
-    };
-    document.querySelectorAll('[data-grant-edit]').forEach(btn => btn.addEventListener('click', () => {
-      who = btn.dataset.grantEdit;
-      const a = acct[who] || {space: '', grants: []};
-      title.textContent = `${who} — 추가 부서`;
-      list.replaceChildren();
-      meta.spaces.forEach(sp => {
-        const own = a.space === sp, on = own || a.grants.includes(sp), key = who + '\t' + sp;
-        const row = document.createElement('label');
-        row.className = 'rg-dept-row'; row.dataset.find = sp.slice(5).toLowerCase();
-        row.innerHTML = `<input type="checkbox" name="on" value="" ${on ? 'checked' : ''} ${own ? 'disabled' : ''}><span></span>`;
-        const box = row.querySelector('input'); box.value = key; box.dataset.was = (on && !own) ? '1' : '0';
-        row.querySelector('span').textContent = sp.slice(5) + (own ? ' (소속 부서)' : '');
-        if (!own) {
-          const cell = document.createElement('input'); cell.type = 'hidden'; cell.name = 'cell'; cell.value = key; row.append(cell);
-          if (box.dataset.was === '1') { const was = document.createElement('input'); was.type = 'hidden'; was.name = 'was'; was.value = key; row.append(was); }
-        }
-        list.append(row);
-      });
-      find.value = ''; syncNote();
-      modal.classList.add('open'); find.focus();
-    }));
-    list.addEventListener('change', syncNote);
-    find.addEventListener('input', () => {
-      const q = find.value.trim().toLowerCase();
-      list.querySelectorAll('.rg-dept-row').forEach(r => { r.hidden = !!q && !r.dataset.find.includes(q); });
-    });
-  }
 
   // 공간 구성 보기 — 든 것만 칸으로(빈 칸은 두지 않음). 칸마다 같은 크기, 상위 몇 줄 + 「더 보기」
   const FIRST = 6, STEP = 20;
@@ -475,7 +377,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     document.querySelector('[data-n="staff"]').textContent = num(state.reg.length - stu);
     $('rrRegCount').textContent = num(state.reg.length);
     $('rrCandCount').textContent = num(state.candTotal);
-    $('rrPicked').textContent = pick.size ? `선택 ${num(pick.size)}건` : '여러 개는 체크한 뒤 아래 버튼으로';
+    $('rrPicked').textContent = pick.size ? `선택 ${num(pick.size)}건` : '';
     document.querySelectorAll('[data-rr]').forEach(b => { b.disabled = !pick.size; });
     $('rrAll').checked = shown.length > 0 && shown.every(d => pick.has(d.id));
   }
@@ -486,7 +388,6 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     const d = await r.json();
     state.reg = d.registered; state.cand = d.items; state.candTotal = d.total;
     $('rrReindex').hidden = !d.reindex_needed;
-    $('rrReindexBtn').disabled = d.reindex_running; $('rrReindexBtn').textContent = d.reindex_running ? '임베딩 만드는 중…' : '지금 바로 만들기';
     paint();
   }
   const closeMenus = except => document.querySelectorAll('#rrList .rr-menu.open').forEach(m => {

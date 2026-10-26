@@ -46,7 +46,7 @@ def test_google_app_registration_lives_on_users_page(docs_env, tmp_path):
     assert 'action="/dev/gdrive/client"' in modal and 'name="client_id"' in modal and 'name="client_secret"' in modal
     assert '/dev/gdrive/callback' in modal                                   # 리디렉션 URI 를 보인다
     assert client.get('/dev/nas', follow_redirects=False).status_code == 404
-    assert client.get('/dev/intake?tab=drive', follow_redirects=False).status_code == 200   # 탭 값 없이 문서 반입 화면 그대로
+    assert client.get('/dev/intake?tab=drive', follow_redirects=False).headers['location'] == '/dev/flow#intake'   # 옛 반입 화면은 처리 흐름의 반입 점검 칸(10-26)
     assert client.get('/dev/google', follow_redirects=False).status_code in (404, 405)
     r = client.post('/dev/gdrive/client', data={'client_id': 'bad', 'client_secret': 'x'}, follow_redirects=False)
     assert r.headers['location'].startswith('/dev/users?err=') and r.headers['location'].endswith('#google-links')

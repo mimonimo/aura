@@ -37,19 +37,6 @@
 {% if ok %}
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 {% endif %}
-<section class="card"><div class="card-in">
-  <h2><iconify-icon icon="solar:server-linear"></iconify-icon>학습 도구 상태</h2>
-  {% for t in tools %}
-  <div class="tool-status-row">
-    <div class="tool-status-name"><b>{{ t.name }}</b><span class="muted">{{ t.step }}</span></div>
-    <div class="tool-status-detail">
-      {% if t.connected %}<span class="pill reviewed">연결됨</span>
-      {% else %}<span class="pill processing">미연결</span>{% endif %}
-    </div>
-    <button type="button" class="secondary" aria-label="{{ t.name }} 계정 관리" data-modal-open="#toolModal-{{ t.key }}">계정 관리</button>
-  </div>
-  {% endfor %}
-</div></section>
 
 {% for t in tools %}
 <div class="modal-back" id="toolModal-{{ t.key }}">
@@ -244,8 +231,8 @@
         <div class="use-now">
           {% if srv %}
             <strong>{{ srv.name }}</strong>
-            <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 기본 모델" }}</span>
-            {% if not own %}<span class="pill use-tag">자동</span>{% endif %}
+            <span class="use-model">{{ (r.model if own else none) or srv.model or "기본 모델" }}</span>
+            {% if not own %}<span class="pill use-tag" title="따로 고르지 않아 기본 서버를 따릅니다">기본 서버 따름</span>{% endif %}
           {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
         </div>
         <button type="button" class="btn-ghost use-edit" data-use-open aria-haspopup="dialog" aria-controls="useDialog-{{ r.role }}">변경</button>
@@ -484,7 +471,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var label = selected ? selected.cloneNode(true) : null;
         if (label) label.querySelectorAll('.chip-n').forEach(function(n) { n.remove(); });
         var name = document.createElement('strong'); name.textContent = label ? label.textContent.trim() : '자동';
-        var value = document.createElement('span'); value.className = 'use-model'; value.textContent = model || '서버 기본 모델';
+        var value = document.createElement('span'); value.className = 'use-model'; value.textContent = model || '기본 모델';
         now.replaceChildren(name, value);
       }
       row._paintSummary = summary;

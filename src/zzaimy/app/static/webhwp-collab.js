@@ -110,12 +110,28 @@
     function learnWindows(list) { if (!list) return; myWindows = {}; list.forEach(function (w) { if (w.user === me) myWindows[w.client] = 1; }); }
     function isMine(f) { var lk = locks[f]; return !!mine[f] && (!lk || (lk.user === me && (!lk.client || lk.client === client))); }
     function pending() { return Object.keys(outbox).length + Object.keys(dirty).length + (inflight ? 1 : 0); }
+    // 연결 끊김 — 배포로 서버가 잠깐 내려가면(10~20초) 「오프라인」 이 떠 동기화가 망가진 줄 알았다(10-26). 처음 OFF_GRACE 동안은
+    // 「다시 연결하는 중」 으로만 보이고, 그사이 몇 초마다 서버를 다시 찔러 보고(probe) 닿으면 못 보낸 글을 보내 「저장됨」 으로 돌아온다
+    var offSince = 0, offTimer = null, OFF_GRACE = 20000;
+    function probe() {
+      if (online) return;
+      resync(false, true).then(function () { if (online && pending() && !inflight) send(); });
+    }
     function status() {
       var n = pending();
-      if (!online) emit('status', 'offline', n ? '오프라인 — 연결되면 저장' : '오프라인');
-      else if (n) emit('status', 'saving', '저장 중');
+      clearTimeout(offTimer);
+      if (!online) {
+        if (!offSince) offSince = now();
+        var long = now() - offSince > OFF_GRACE;
+        if (long) emit('status', 'offline', n ? '오프라인 — 연결되면 저장' : '오프라인 — 다시 연결하는 중');
+        else emit('status', 'reconnecting', '다시 연결하는 중');
+        offTimer = setTimeout(probe, long ? 5000 : 2000);
+        return;
+      }
+      offSince = 0;
+      if (n) emit('status', 'saving', '저장 중');
       else emit('status', 'saved', '저장됨');
-      if (!n && online) { var w = waiters; waiters = []; w.forEach(function (fn) { fn(); }); }
+      if (!n) { var w = waiters; waiters = []; w.forEach(function (fn) { fn(); }); }
     }
 
     // ── 편집 가능한 칸 — 남이 임대를 쥔 칸만 잠근다(빈 칸은 바로 쓸 수 있게 두고 임대는 뒤따라 잡는다) ──
@@ -406,7 +422,7 @@
       es = new EventSource(base + '/events' + (lastId ? '?last=' + lastId : ''));
       var reopened = !!again;
       heardAt = now();
-      es.onopen = function () { heardAt = now(); if (reopened) { online = true; resync(false); send(); } reopened = false; };
+      es.onopen = function () { heardAt = now(); if (reopened) { online = true; status(); resync(false); send(); } reopened = false; };
       es.onerror = function () { reopened = true; if (es.readyState === 2) setTimeout(function () { connect(true); }, 2000); };
       es.addEventListener('beat', function () { heardAt = now(); });
       if (!watch) watch = setInterval(function () { if (es && now() - heardAt > STALE_MS) connect(true); }, 5000);
@@ -653,6 +669,14 @@
   function colorOf(u) { if (u === 'AURA') return '#1B3B75'; var h = 0; for (var i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]; }
   function where(f) { return f ? f.replace(/^(절|칸):/, '').replace(/^표\d+:/, '표 · ') : ''; }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  // AURA 는 시킨 사람에게 딸린다 — 여러 사람이 AURA 를 부르면 「AURA」 만으로는 누구 일인지 몰랐다(10-26 시연). 이름은 알림의 by_name·처음 상태의 names 로 안다
+  function auraBy(eng, a) { var b = a && a.by; return b && b !== 'AURA' ? eng.nameOf(b) : ''; }
+  function auraLabelOf(eng, a) { var n = auraBy(eng, a); return 'AURA' + (n ? ' (' + n + ' 요청)' : ''); }
+  function auraText(eng, a) {                          // 머리줄 상태 — 「AURA가 김가람 님 요청으로 「4. 향후 계획」 을 쓰는 중」
+    if (!a || !a.field) return '';
+    var n = auraBy(eng, a);
+    return 'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 을 쓰는 중';
+  }
 
   function ui(eng, hwp, o) {
     var avatars = o.avatars, bar = o.bar, layer = el('div', 'co-layer'), marks = {}, geo = {}, geoAt = 0, geoWant = '';
@@ -667,9 +691,7 @@
       if (lk.client && lk.client !== eng.client) return {user: lk.user, label: eng.nameOf(lk.user), self: true};
       return null;
     }
-    function auraLabel() {                             // AURA 는 시킨 사람에게 딸린다 — 「AURA · 김가람」
-      return 'AURA' + (auraState.by ? ' · ' + eng.nameOf(auraState.by) : '');
-    }
+    function auraLabel() { return auraLabelOf(eng, auraState); }   // 「AURA (김가람 요청)」
     function short(s) { s = String(s || '').replace(/^\d+\.\s*/, function (m) { return m.trim() + ' '; }); return s.length > 9 ? s.slice(0, 8) + '…' : s; }   // 목록 꼬리는 짧게 — 길면 자른다(전체는 풀이말)
     function heldBy(u) {                               // 그 사람이 지금 쥔 칸(쓰는 중인 곳) — 알림이 늦어도 임대로 안다
       var L = eng.locks(), out = '';
@@ -690,9 +712,12 @@
         var hf = p.user === 'AURA' ? p.field : heldBy(p.user); if (hf) p.field = hf;
         var editing = !!hf;
         var label = (p.name || p.user) + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field ? ' · ' + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : ' · 문서 보는 중');
-        b.title = label; b.setAttribute('aria-label', label + (p.field && eng.hasField(p.field) ? ' — 눌러서 그 칸으로' : ''));
+        var on = following === p.user;
+        b.title = label + (on ? ' — 눌러서 따라가기 그만' : ' — 눌러서 따라가기');
+        b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', on ? 'true' : 'false');
         if (editing) b.classList.add('editing');
-        b.onclick = function () { if (p.field && eng.hasField(p.field)) hwp.moveTo(p.field, false); };
+        if (on) b.classList.add('following');
+        b.onclick = function () { toggleFollow(p.user); };
         avatars.appendChild(b);
       });
       if (list.length > MAX) {
@@ -714,7 +739,8 @@
         var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field ? ' · ' + short(where(p.field)) : ''));
         if (p.field) sm.title = (p.page ? p.page + '쪽 · ' : '') + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중');
         r.appendChild(sm);
-        if (!p.me && p.field && eng.hasField(p.field)) r.onclick = function () { hwp.moveTo(p.field, false); popOpen = false; pop.hidden = true; };
+        if (!p.me) r.onclick = function () { toggleFollow(p.user); popOpen = false; pop.hidden = true; };   // 줄을 눌러도 따라가기(아바타와 같다)
+        if (!p.me && following === p.user) r.classList.add('following');
         pop.appendChild(r);
       });
       avatars.appendChild(pop);
@@ -740,14 +766,16 @@
       return a.y > a.view.top - h && a.y < a.view.bottom + h;
     }
     function measure(force) {
-      var want = Object.keys(wanted());
+      var want = Object.keys(wanted()), ft = followField();
+      if (ft && want.indexOf(ft) < 0) want.push(ft);          // 따라가는 사람이 보기만 하는 칸도 자리를 안다(그리지는 않는다)
       Object.keys(geo).forEach(function (f) { if (want.indexOf(f) < 0) delete geo[f]; });
       if (!want.length) { geoWant = ''; return; }
       if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1500) return;   // 누르거나 치는 중에는 재지 않는다 — 재는 동안 커서를 옮겼다 되돌려 막 누른 자리를 덮었다
       var t = Date.now(), kn = eng.known();
       var empty = function (f) { var k = kn[f]; if (k && typeof k.text === 'string') return k.text === ''; var x = hwp.read(f); return x == null || x === ''; };   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
       var cur = eng.current(), idx = eng.indexOf ? eng.indexOf : function () { return 0; }, me_ = idx(cur);
-      var pick = want.filter(function (f) { return !geo[f] && !empty(f); }).sort(function (a, b) { return Math.abs(idx(a) - me_) - Math.abs(idx(b) - me_); })[0];
+      var pick = want.filter(function (f) { return !geo[f] && !empty(f); }).sort(function (a, b) { return (b === ft) - (a === ft) || Math.abs(idx(a) - me_) - Math.abs(idx(b) - me_); })[0];
+      if (!pick && ft && geo[ft] && (stale[ft] || t - (staleAt[ft] || 0) > 1500) && !empty(ft)) pick = ft;   // 따라가는 칸은 자주(그 사람이 써서 줄이 늘면 커서가 내려간다)
       if (!pick) pick = want.filter(function (f) { return geo[f] && (stale[f] || t - (staleAt[f] || 0) > 4000 || force) && nearView(geo[f]) && !empty(f); })[0];
       if (!pick) return;
       var g = hwp.fieldGeom([pick]);
@@ -768,6 +796,7 @@
         // 남이 쓰는 칸을 누르면 기안기가 커서를 앞 칸으로 돌려놓아 친 글이 엉뚱한 칸에 들어갔다(10-24 녹화) — 칸 위에 투명 막을 두어 누름을 받고 알린다
         m.block.addEventListener('pointerdown', function (e) {
           e.preventDefault(); e.stopPropagation();
+          stopFollow();
           var h = holderOf(f);
           eng.emitLocal('blocked', f, h ? h.label : '다른 사람');
           try { var fr = document.querySelector('iframe'); if (fr) fr.blur(); if (document.activeElement) document.activeElement.blur(); } catch (x) {}
@@ -817,7 +846,7 @@
         var leftSide = (b.x - bodyL) < (bodyR - b.x);
         tt.textContent = w.label;
         m.flag.className = 'co-flag ' + (leftSide ? 'left' : 'right');
-        m.flag.title = w.label + ' · ' + where(f) + (w.user === 'AURA' ? '' : ' 쓰는 중');
+        m.flag.title = w.label + ' · ' + where(f) + ' 쓰는 중';
         var room = leftSide ? bodyL - view.left - 10 : view.right - bodyR - 10;
         if (m.flag.offsetWidth > room) { m.flag.classList.add('dot'); tt.textContent = w.user === 'AURA' ? 'A' : w.label.slice(0, 1); }
         var fw = m.flag.offsetWidth, fh = m.flag.offsetHeight;
@@ -830,16 +859,61 @@
         layer.style.width = (view.right - view.left) + 'px'; layer.style.height = (view.bottom - view.top) + 'px';
       }
     }
-    function tick() { if (hwp.isComposing()) return; try { measure(false); render(); } catch (e) {} }   // 한글 조합 중에는 손대지 않는다
+    function tick() { if (hwp.isComposing()) return; try { measure(false); render(); followStep(); } catch (e) {} }   // 한글 조합 중에는 손대지 않는다
     setInterval(tick, 250);                              // 화면 좌표는 매번 다시(스크롤·확대·창 크기), 쪽 좌표는 바뀔 때·4초마다
     function soon() { setTimeout(tick, 0); }
     eng.on('locks', function () { drawAvatars(); soon(); });
     eng.on('people', function () { drawAvatars(); soon(); });
-    eng.on('aura', function (a) { auraState = a || {}; drawAvatars(); soon(); });
+    eng.on('aura', function (a) { auraState = a || {}; if (following === 'AURA' && !auraState.field) stopFollow('AURA가 다 써서 따라가기를 멈췄어요'); else if (following === 'AURA' && barKind === 'follow') showFollow(); drawAvatars(); soon(); });
+    eng.on('people', function () { if (following && following !== 'AURA' && !personOf(following)) stopFollow(eng.nameOf(following) + ' 님이 나가서 따라가기를 멈췄어요'); });
     eng.on('applied', function (f) { invalidateFrom(f); soon(); });
     hwp.onLocalEdit(function () { invalidateFrom(eng.current()); });
     // 보이는 칸부터 받아 넣게 — 자리를 아는 칸은 화면 근처면 앞으로
     if (eng.prioritize) eng.prioritize(function (f) { var g = geo[f]; return g && nearView(g) ? -1 : (eng.indexOf ? Math.abs(eng.indexOf(f) - eng.indexOf(eng.current())) : 0); });
+
+    // ── 따라가기 ── 머리줄 아바타(또는 같이 있는 사람 줄)를 누르면 그 사람이 있는 칸이 늘 화면에 보이게 따라간다(10-26 시연 요청).
+    // 화면만 굴리고 내 커서는 옮기지 않는다 — 커서를 옮기면 내 칸 임대가 풀리고 남이 쓰는 칸에서는 「쓰는 중」 안내가 떴다.
+    // 자리는 칸 자리 재기(geo)로, 아직 모르는 칸(빈 칸 등)은 그 사람이 있는 쪽으로. 내가 치거나 문서를 누르거나 직접 굴리면 바로 멈춘다
+    var following = '', followAt = 0;
+    function personOf(u) { var l = eng.people(); for (var i = 0; i < l.length; i++) if (l[i].user === u) return l[i]; return null; }
+    function followName(u) { return u === 'AURA' ? auraLabel() : eng.nameOf(u); }
+    function followField() {
+      if (!following) return '';
+      if (following === 'AURA') return auraState.field && eng.hasField(auraState.field) ? auraState.field : '';
+      var p = personOf(following), f = heldBy(following) || (p && p.field) || '';
+      return f && eng.hasField(f) ? f : '';
+    }
+    function showFollow() { show('follow', followName(following) + ' 님 따라가는 중', [['그만', function () { stopFollow(); }]]); }
+    function stopFollow(why) {
+      if (!following) return;
+      following = '';
+      if (barKind === 'follow') hide('follow');
+      if (why) show('follow-end', why, null, 3000);
+      drawAvatars();
+    }
+    function toggleFollow(u) {
+      if (following === u) { stopFollow(); return; }
+      if (u !== 'AURA' && !personOf(u)) return;
+      following = u; followAt = 0;
+      showFollow(); drawAvatars(); soon();
+    }
+    function followStep() {
+      if (!following || Date.now() - followAt < 500 || Date.now() - hwp.lastInputAt() < 1500) return;
+      var f = followField(), g = f && geo[f], y = null, view = null, a;
+      if (g) { a = hwp.toScreen(g.page2, g.x2, g.y2); if (a) { y = a.y; view = a.view; } }      // 칸 끝 — 그 사람이 이어 쓰는 자리
+      if (y === null) {                                                                      // 자리를 아직 모른다 — 그 사람이 있는 쪽 머리로
+        var p = following === 'AURA' ? null : personOf(following);
+        if (p && p.page) { a = hwp.toScreen(p.page, 0, 0); if (a) { y = a.y; view = a.view; } }
+      }
+      if (y === null || !view) return;
+      var h = view.bottom - view.top;
+      if (y > view.top + h * 0.15 && y < view.bottom - h * 0.25) return;                     // 이미 잘 보인다 — 굴리지 않는다(화면이 떨리지 않게)
+      followAt = Date.now();
+      if (hwp.scrollBy) hwp.scrollBy(y - (view.top + h * 0.35));          // 쪽 좌표(geo)는 굴려도 그대로라 다시 재지 않는다
+    }
+    hwp.onActivity(function (e) {                         // 내가 손대면 멈춘다 — 굴리기(wheel)·누르기·키. 따라가며 굴린 화면의 scroll 사건은 빼고
+      if (following && e && (e.type === 'keydown' || e.type === 'pointerdown' || e.type === 'wheel')) stopFollow();
+    });
 
     // 안내 띠 — 한 번에 하나, 단추는 키보드로도(Esc 로 닫기)
     var barKind = '', barTimer = null;
@@ -849,14 +923,20 @@
       bar.innerHTML = '';
       bar.appendChild(el('span', 'co-bar-text', text));
       (buttons || []).forEach(function (b) { var x = el('button', 'co-btn', b[0]); x.type = 'button'; x.onclick = b[1]; bar.appendChild(x); });
-      var close = el('button', 'co-btn ghost', '닫기'); close.type = 'button'; close.onclick = function () { hide(); }; bar.appendChild(close);
+      if (kind !== 'follow') { var close = el('button', 'co-btn ghost', '닫기'); close.type = 'button'; close.onclick = function () { hide(); }; bar.appendChild(close); }   // 따라가기는 「그만」 하나
       bar.hidden = false;
       if (ms) barTimer = setTimeout(function () { hide(kind); }, ms);
     }
-    function hide(kind) { if (typeof kind === 'string' && kind !== barKind) return; clearTimeout(barTimer); bar.hidden = true; barKind = ''; }
+    function hide(kind) {
+      if (typeof kind === 'string' && kind !== barKind) return;
+      var was = barKind;
+      clearTimeout(barTimer); bar.hidden = true; barKind = '';
+      if (was === 'follow') { if (following) stopFollow(); }   // 따라가기 띠를 닫으면 따라가기도 멈춘다
+      else if (following) showFollow();                         // 다른 안내가 잠깐 덮었다 — 끝나면 따라가기 띠를 다시
+    }
     bar.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); hide(); } });
     eng.on('lease-warn', function (f, left) {
-      if (barKind !== 'warn' && barKind) return;
+      if (barKind !== 'warn' && barKind && barKind !== 'follow') return;   // 따라가기 띠는 덮어도 된다(끝나면 다시 뜬다)
       show('warn', '「' + where(f) + '」 칸을 ' + left + '초 동안 고치지 않으면 다른 사람도 쓸 수 있게 풀려요', [['계속 쓰기', function () { eng.extend(); hide('warn'); }]]);
     });
     eng.on('lease-ok', function () { hide('warn'); });
@@ -894,8 +974,9 @@
         document.body.appendChild(panel); x.focus();
       });
     }
-    return {drawAvatars: drawAvatars, refresh: soon, show: show, hide: hide, openConflicts: openConflicts, colorOf: colorOf};
+    return {drawAvatars: drawAvatars, refresh: soon, show: show, hide: hide, openConflicts: openConflicts, colorOf: colorOf,
+      follow: toggleFollow, stopFollow: stopFollow, following: function () { return following; }};
   }
 
-  window.AuraCollab = {engine: engine, ui: ui, fp: fp, norm: norm, colorOf: colorOf};
+  window.AuraCollab = {engine: engine, ui: ui, fp: fp, norm: norm, colorOf: colorOf, auraText: auraText, auraLabel: auraLabelOf};
 })();

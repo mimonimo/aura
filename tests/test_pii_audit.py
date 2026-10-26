@@ -269,16 +269,14 @@ def test_dev_pii_page_actions_and_shortcut(client):
     assert 'action="/dev/pii/selftest"' not in r.text
     checks = client.get('/dev/pii?view=checks').text
     assert "자가 점검" in checks and "잔여 검사" in checks
-    assert 'action="/dev/pii/selftest"' in checks
+    assert 'action="/dev/pii/selftest"' not in checks and "자동 — 매일 04:30" in checks     # 새벽 정리에서 자동(216, 10-26)
     assert "원문 유지" in r.text and 'action="/dev/pii/policy"' in r.text
     assert "내부 가리기 꺼짐" in r.text
     assert 'action="/dev/pii/scan"' not in r.text
     assert "가리기 기록 —" not in r.text
 
-    r = client.post("/dev/pii/selftest", follow_redirects=False)
-    assert r.status_code == 303
-    r = client.post("/dev/pii/scan", follow_redirects=False)
-    assert r.status_code == 303
+    pii_audit.run_selftest(client.app.state.db)
+    pii_audit.run_scan(client.app.state.db)
 
     page = client.get("/dev/pii?view=checks").text
     selftest = pii_audit.load_json(client.app.state.db, pii_audit.SELFTEST_KEY)
@@ -303,8 +301,7 @@ def test_dev_pii_page_shows_load_failure_without_500(client, monkeypatch):
         raise RuntimeError("spacy 모델 없음")
 
     monkeypatch.setattr(pii_audit, "_load_masker", boom)
-    r = client.post("/dev/pii/selftest", follow_redirects=False)
-    assert r.status_code == 303
+    pii_audit.run_selftest(client.app.state.db)
     page = client.get("/dev/pii?view=checks")
     assert page.status_code == 200
     assert "마스커 로드 실패: RuntimeError: spacy 모델 없음" in page.text

@@ -28,7 +28,7 @@ def _status_line(page: str) -> str:
 
 def test_unconfigured_review_status_says_what_and_where(client):
     line = _status_line(client.get("/dev/train").text)
-    assert "검수 현황 미확인" in line and "Label Studio 미연결(" in line
+    assert "검수 현황 미확인" not in line and "Label Studio 미연결(" in line      # 뜻 없는 「미확인」 칩은 뺐다(10-26)
     assert 'href="/dev/tools"' in line                          # 확인하는 곳
     assert "recheck=1" in line                                   # 다시 묻기
 
