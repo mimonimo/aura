@@ -220,20 +220,15 @@
       attachedDoc = d;
       d.addEventListener('keydown', function (e) { abortProbe(); lastInput = Date.now(); fire('activity', e); }, true);
       d.addEventListener('pointerdown', function (e) { abortProbe(); lastInput = Date.now(); fire('activity', e); }, true);
-      // 글자 크기 칸 화살표 — 크기가 섞인 선택이면 입력칸이 비고 기안기는 0 에서 세기 시작해 모두 1pt 가 됐다(10-26 녹화).
-      // 그때는 글자마다 지금 크기에서 1pt 씩 키우고 줄이는 기안기 동작(CharShapeHeightIncrease/Decrease)으로 바꾼다. 크기가 하나면 기안기 그대로
+      // 글자 크기 칸 화살표 — 늘 글자마다 지금 크기에서 1pt 씩(기안기 CharShapeHeightIncrease/Decrease). 기안기 화살표는 칸에 보이는 수(크기가 섞이면
+      // 비거나 첫 글자 크기)에서 세어 고른 글을 모두 한 크기로 맞췄다 — 섞인 크기가 0 부터·한 크기로 바뀌었다(10-26 녹화). 크기가 하나면 결과는 같다.
+      // 수를 쳐 넣는 것은 그대로 「그 크기로 맞추기」
       var sizeArrow = function (e) {
         var t = e.target, up = t && t.closest && t.closest('.font_size .spinner_upper_arrow'), dn = !up && t && t.closest && t.closest('.font_size .spinner_lower_arrow');
         if (!up && !dn) return;
-        var box = t.closest('.font_size'), inp = box && box.querySelector('input');
-        var selNow = ''; try { selNow = ctrl.SelectionMode ? JSON.stringify(ctrl.GetSelectedPos()) : ''; } catch (x) {}
-        // 크기가 섞였는가 — 입력칸이 비었거나, 바로 앞에 같은 선택에서 「글자마다」 로 바꿨다(그 뒤 칸에 첫 글자 크기가 떠 기안기가 모두 같은 크기로 맞췄다)
-        var mixed = inp && (!String(inp.value || '').trim() || (selNow && selNow === relSel));
-        if (!mixed) return;
         e.preventDefault(); e.stopImmediatePropagation();
-        if (e.type === 'pointerdown') { try { ctrl.Run(up ? 'CharShapeHeightIncrease' : 'CharShapeHeightDecrease'); } catch (x) {} relSel = selNow; fire('activity', {type: 'pointerdown', target: t}); }
+        if (e.type === 'pointerdown') { try { ctrl.Run(up ? 'CharShapeHeightIncrease' : 'CharShapeHeightDecrease'); } catch (x) {} fire('activity', {type: 'pointerdown', target: t}); }
       };
-      var relSel = '';
       ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(function (t) { d.addEventListener(t, sizeArrow, true); });
       d.addEventListener('compositionstart', function () { abortProbe(); composing = true; lastInput = Date.now(); }, true);
       d.addEventListener('compositionupdate', function () { composing = true; lastInput = Date.now(); fire('edit', {composing: true}); }, true);
