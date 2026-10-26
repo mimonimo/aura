@@ -11,18 +11,13 @@
 .quality-resolve label { flex:1; min-width:0; color:var(--muted); font-size:12px; }
 .quality-resolve input { display:block; width:100%; margin-top:5px; padding:8px; border:1px solid var(--line); font:inherit; }
 .quality-resolve button { white-space:nowrap; }
-.quality-bars { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px 24px; margin:16px 0 24px; }
-/* 막대는 넷 → 둘 → 하나로만 꺾는다(셋 + 하나처럼 한 칸만 남지 않게) */
-@media(max-width:1000px){.quality-bars{grid-template-columns:repeat(2,minmax(0,1fr));}}
-@media(max-width:560px){.quality-bars{grid-template-columns:minmax(0,1fr);}}
-.quality-bars label { display:flex; justify-content:space-between; gap:10px; font-size:13px; margin-bottom:6px; }
-.quality-bars meter { display:block; width:100%; height:12px; }
 .eval-past { margin-top:14px; }
 .eval-past > summary { color:var(--muted); }
 .eval-past-body { color:var(--muted); filter:grayscale(1); opacity:.72; margin-top:10px; }
 .eval-now { font-size:13px; margin:0 0 6px; }
 @media(max-width:700px){.quality-report { grid-template-columns:minmax(0,1fr); }.card h2 { flex-wrap:wrap; }}
-.why-slow{margin-top:14px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:#fafbfc;}
+.why-fold{margin-top:12px;}
+.why-slow{margin-top:10px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:#fafbfc;}
 .why-slow h3{font-size:13.5px;margin:0 0 6px;}
 .why-slow ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;}
 </style>
@@ -32,11 +27,10 @@
       {% if retrieval_eval.running %}
       <span class="pill processing">측정 중…</span>
       {% elif not retrieval_eval.query_set_missing %}
-      <span class="muted" style="font-size:12px; font-weight:400;">규정이 바뀌면 그날 밤 자동으로 다시 잼</span>
+      <span class="muted" style="font-size:12px; font-weight:400;">규정이 바뀌면 새벽에 자동으로 다시 잼</span>
       {% endif %}
     </span></h2>
-  <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-    합성 질의로 정답 조각을 되찾는 비율(R@5: 상위 5개 안, MRR@10: 앞에 나올수록 높음). 사업 문서 검색(GraphRAG) 측정은 아래.</p>
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">합성 질의로 정답 조각을 되찾는 비율 · R@5 상위 5개 안 · MRR@10 앞에 나올수록 높음</p>
   {% if retrieval_eval.running %}
   <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 중
     ({{ retrieval_eval.started_at_display }} 시작)
@@ -57,12 +51,6 @@
     {{ retrieval_eval.measured_at_display }} · 질의 {{ ev.n_queries }}건
     · {{ metric_label("eval_chunks", retrieval_eval.measured_at_display, "측정 당시 규정 조각") }} {{ ev.n_chunks }}개 · 측정 당시 임베딩 {{ ev.embedding_model or '미확인' }}
     {% if index_model is defined %} · 지금 색인 임베딩 {{ index_model or '미확인' }}{% endif %}</p>
-  <div class="quality-bars" aria-label="상위 5건 검색 적중률 비교">
-    {% for r in ev.rows if r.recall_at_5 is not none %}
-    <div><label for="recall-{{ loop.index }}"><span>{{ r.method }}{% if r.production %} · 운영{% endif %}</span><b>{{ "%.1f" | format(r.recall_at_5 * 100) }}%</b></label>
-      <meter id="recall-{{ loop.index }}" min="0" max="1" value="{{ r.recall_at_5 }}">{{ r.recall_at_5 }}</meter></div>
-    {% endfor %}
-  </div>
   <div class="table-scroll">
   <table style="font-size:12.5px;">
     <tr><th>방식</th><th>R@1</th><th>R@5</th><th>R@10</th><th>MRR@10</th><th>n</th></tr>
@@ -83,9 +71,7 @@
     {% endfor %}
   </table>
   </div>
-  {% for n in ev.notes %}
-  <p class="muted" style="font-size:11.5px; margin:8px 0 0; line-height:1.6;">{{ n }}</p>
-  {% endfor %}
+  {% if ev.notes %}<p class="muted" style="font-size:11.5px; margin:8px 0 0; line-height:1.6;">{{ ev.notes | join(' · ') }}</p>{% endif %}
   {% if retrieval_eval.query_set_missing %}
   <p class="muted" style="font-size:11.5px; margin:8px 0 0;">재측정 불가 —
     {{ retrieval_eval.query_set_message }}</p>
@@ -95,7 +81,7 @@
   <p class="eval-now">현재 구성 측정 없음 —
     {% if retrieval_eval.running %}측정 진행 중
     {% elif retrieval_eval.query_set_missing %}{{ retrieval_eval.query_set_message }}
-    {% else %}「재측정」 버튼으로 실행(수십 분){% endif %}</p>
+    {% else %}구성이 바뀌어 새벽에 자동으로 다시 잼{% endif %}</p>
   <p class="muted" style="font-size:12px; margin:0 0 4px;">지금 구성 · 규정 조각 {{ current_chunks | num }}개 · 임베딩 {{ index_model or '미확인' }}</p>
   <details class="chip-toggle eval-past">
     <summary>지난 측정(구성 다름) · {{ retrieval_eval.measured_at_display }} · 조각 {{ ev.n_chunks | num }}개 · {{ ev.embedding_model or '임베딩 미확인' }}</summary>
@@ -111,7 +97,7 @@
   <p style="font-size:13px; margin:0;">아직 측정 없음
     ({{ retrieval_eval.query_set_message }})</p>
   {% else %}
-  <p style="font-size:13px; margin:0;">아직 측정 없음 — 재측정을 실행하세요.</p>
+  <p style="font-size:13px; margin:0;">아직 측정 없음 — 새벽에 자동으로 잼</p>
   {% endif %}
 </div></div>
 
@@ -123,23 +109,27 @@
 {% endif %}
 
 <div class="card reveal" id="grant-search"><div class="card-in">
-  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색(GraphRAG)</h2>
-  <p class="muted" style="font-size:12.5px; margin:0 0 6px;">그래프에서 자동으로 뽑은 같은 시험지로 — 관계 질문 측정, 풀텍스트 RAG 와 비교. 27B 질문 읽기 지금 {{ '켜짐' if flow.model_read_on else '꺼짐' }}.</p>
+  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색(GraphRAG)
+    <span class="muted" style="margin-left:auto; font-size:12px; font-weight:400;">27B 질문 읽기 지금 {{ '켜짐' if flow.model_read_on else '꺼짐' }}</span></h2>
   {% include "_search_compare.html" %}
-  <div class="why-slow">
-    <h3>왜 GraphRAG 가 풀텍스트보다 느린가</h3>
-    <ol>
-      <li>전부에서 찾기가 느린 것은 아니다. 풀텍스트도 조각을 하나씩 훑지 않고 색인(키워드·벡터)을 한 번 타므로 빠르다. 범위를 좁힌 뒤의 검색은 오히려 더 가볍다.</li>
-      <li>가장 큰 차이는 27B 가 질문을 읽는 단계다. 운영 방식(③)은 찾기 전에 27B 가 「어느 사업·몇 차년도·어떤 서류·어떤 관계」 인지 한 번 읽는다 — 모델 호출 한 번이 검색 전체보다 길다(위 표 검색 한 번 ②→③ 차이).</li>
-      <li>그래프를 따라가는 일이 조금 더해진다. 사업 → 연차 → 문서로 범위를 정하고 계획서↔결과보고서 같은 짝 문서를 함께 가져온다(①→② 차이).</li>
-      <li>답 쓰기가 길어진 것은 근거가 맞아졌기 때문이다. 맞는 문서와 짝 문서를 받아 내용 있는 답을 쓰니 글이 길어진다 — 늘어난 시간 대신 정답 문서를 근거로 쓴 비율과 답 점수가 올랐다.</li>
-    </ol>
-  </div>
-  {# 검색·그래프를 왜 직접 만들었나 — 처리 흐름 화면에 따로 있던 카드를 검색 품질 설명 옆으로(10-26) #}
-  <div class="why-slow">
-    <h3>왜 기성 도구 대신 직접 만들었나</h3>
-    {% include "_build_why.html" %}
-  </div>
+  {# 설명 두 가지(느린 까닭·직접 만든 까닭)는 발표·논문용이라 접어 둔다(10-27) #}
+  <details class="chip-toggle why-fold">
+    <summary>왜 느린가 · 왜 직접 만들었나</summary>
+    <div class="why-slow">
+      <h3>왜 GraphRAG 가 풀텍스트보다 느린가</h3>
+      <ol>
+        <li>전부에서 찾기가 느린 것은 아니다. 풀텍스트도 조각을 하나씩 훑지 않고 색인(키워드·벡터)을 한 번 타므로 빠르다. 범위를 좁힌 뒤의 검색은 오히려 더 가볍다.</li>
+        <li>가장 큰 차이는 27B 가 질문을 읽는 단계다. 운영 방식(③)은 찾기 전에 27B 가 「어느 사업·몇 차년도·어떤 서류·어떤 관계」 인지 한 번 읽는다 — 모델 호출 한 번이 검색 전체보다 길다(위 표 검색 한 번 ②→③ 차이).</li>
+        <li>그래프를 따라가는 일이 조금 더해진다. 사업 → 연차 → 문서로 범위를 정하고 계획서↔결과보고서 같은 짝 문서를 함께 가져온다(①→② 차이).</li>
+        <li>답 쓰기가 길어진 것은 근거가 맞아졌기 때문이다. 맞는 문서와 짝 문서를 받아 내용 있는 답을 쓰니 글이 길어진다 — 늘어난 시간 대신 정답 문서를 근거로 쓴 비율과 답 점수가 올랐다.</li>
+      </ol>
+    </div>
+    {# 검색·그래프를 왜 직접 만들었나 — 처리 흐름 화면에 따로 있던 카드를 검색 품질 설명 옆으로(10-26) #}
+    <div class="why-slow">
+      <h3>왜 기성 도구 대신 직접 만들었나</h3>
+      {% include "_build_why.html" %}
+    </div>
+  </details>
 </div></div>
 
 {% if quality_open %}{# 담당자가 문서 화면에서 신고한 추출 문제 — 미처리 신고가 있을 때만 보인다 #}

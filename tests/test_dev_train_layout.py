@@ -77,5 +77,6 @@ def test_outputs_name_regulation_index_and_selection_controls(client):
 
 def test_training_tool_cards_share_one_shape(client):
     tools = client.get("/dev/train").text.split('id="training-tools"', 1)[1].split("</section>", 1)[0]
-    assert tools.count('class="tool-card"') == 3
+    assert tools.count('class="tool-card"') == 2            # 품질·성능 바로가기는 사이드바와 겹쳐 뺐다(10-27)
+    assert 'href="/dev/quality"' not in tools
     assert "training-tool-row" not in tools

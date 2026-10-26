@@ -21,7 +21,7 @@
   .output-note { margin:2px 0 0; font-size:12px; color:var(--muted); }
   .output-footer .output-picked { font-size:12.5px; font-weight:600; color:var(--muted); font-variant-numeric:tabular-nums; }
   .output-footer .output-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-left:auto; }
-  .tool-cards { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; }
+  .tool-cards { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; }
   @media (max-width:900px) { .tool-cards { grid-template-columns:1fr; } }
   .tool-card { display:flex; flex-direction:column; gap:6px; min-height:132px; padding:16px 18px;
     border:1px solid var(--line); border-radius:14px; background:#fff; }
@@ -32,8 +32,6 @@
   .tool-card .tool-actions .tool-entry { margin-top:0; }
   .output-empty { color:var(--muted); font-size:12px; font-weight:400; }
   /* 학습셋 줄 — 왼쪽 갈래 이름, 오른쪽 이름·상태 / 숫자 / 파일 단추 순서 */
-  .trainset-legend { display:flex; flex-wrap:wrap; gap:4px 14px; margin:10px 0 0; font-size:11.5px; color:var(--muted); }
-  .trainset-legend b { font-weight:600; color:var(--ink); margin-right:4px; }
   .trainset-list { list-style:none; margin:8px 0 4px; padding:0; display:grid; gap:8px; font-size:12.5px; }
   .trainset-list li { display:grid; grid-template-columns:84px minmax(0, 1fr); gap:4px 12px; align-items:start;
     padding:10px 12px; border:1px solid var(--line); border-radius:10px; }
@@ -71,7 +69,6 @@
         {% set kinds = {'release': ('학습 허가', '학습해도 된다는 기록', '이 학습셋으로 학습해도 된다는 기록(파일 지문으로 묶음)'),
                         'staging': ('학습셋', '학습·검증·시험 문답 묶음', '학습에 쓰는 문답 묶음(학습·검증·시험으로 나눔)'),
                         'baseline': ('학습 전 성적', '학습 뒤와 견줄 기준 점수', '학습 뒤와 견줄 기준 점수')} %}
-        <p class="trainset-legend">{% for k, v in kinds.items() %}<span><b>{{ v[0] }}</b>{{ v[1] }}</span>{% endfor %}</p>
         <ul class="trainset-list">{% for t in g.sets %}{% set kind = kinds.get(t.kind, (t.kind, '', '')) %}
           <li><span class="trainset-kind"{% if kind[2] %} title="{{ kind[2] }}"{% endif %}>{{ kind[0] }}</span>
             <div class="trainset-body">
@@ -90,7 +87,7 @@
       </div>
     </div>
     {% else %}<p class="muted">산출물 목록을 불러오지 못했습니다. 새로고침 후 다시 확인하세요.</p>{% endfor %}
-    {% if export_preview | selectattr('files') | list %}<div class="output-footer"><p class="muted">파일은 하나씩, 선택 항목은 ZIP 으로 내려받기</p><div class="output-actions"><span class="output-picked" role="status" data-output-picked></span><button type="submit" class="secondary" data-output-submit><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon>선택 항목 내려받기</button></div></div>{% endif %}
+    {% if export_preview | selectattr('files') | list %}<div class="output-footer"><div class="output-actions"><span class="output-picked" role="status" data-output-picked></span><button type="submit" class="secondary" data-output-submit><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon>선택 항목 내려받기</button></div></div>{% endif %}
   </form>
 </div></section>
 <section class="card" id="training-tools"><div class="card-in">
@@ -105,10 +102,7 @@
     <span class="tool-actions">{% if tensorboard_url %}<a class="btn-ghost tool-entry" href="{{ tensorboard_url }}" target="_blank" rel="noopener noreferrer">그래프 열기</a>{% endif %}
     <button type="button" class="secondary tool-entry" data-modal-open="#toolModal-tensorboard" aria-label="TensorBoard 주소 변경">{{ '주소 변경' if tensorboard_url else '주소 등록하기' }}</button></span>
   </div>
-  <div class="tool-card"><b>품질·성능 측정</b><p class="muted">검색 평가 비교·재측정</p>
-    <a class="btn-ghost tool-entry" href="/dev/quality">평가 결과·측정 열기</a></div>
   </div>
-  <p class="muted" style="margin:12px 0 0;font-size:12px;">학습 실행은 DGX(승인 기록·해시 확인 뒤) · 데이터는 자동 전달되지 않으며 여기서는 진행만 확인</p>
 </div></section>
 <div class="modal-back" id="toolModal-tensorboard">
   <div class="card"><div class="card-in">

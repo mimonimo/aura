@@ -1118,7 +1118,7 @@ def test_export_single_file_and_path_guard(client):
     page = client.get("/dev/train?tab=exports").text
     assert "/dev/train/export/file?path=rag/chunks.jsonl" in page
     page = client.get("/dev/train?tab=models").text
-    assert '평가 결과·측정 열기' in page and 'LLaMA Board' not in page and 'TensorBoard' in page
+    assert '평가 결과·측정 열기' not in page and 'LLaMA Board' not in page and 'TensorBoard' in page
     assert 'Writer 학습 준비와 실행 순서' not in page
     assert '학습·평가 순서' in client.get('/dev').text
     r = client.get("/dev/train/export/file", params={"path": "rag/chunks.jsonl"})

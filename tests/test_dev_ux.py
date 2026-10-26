@@ -70,8 +70,9 @@ def test_quality_chart_uses_measured_values_and_skips_unmeasured(client, monkeyp
     })
     page = client.get('/dev/quality')
     assert page.status_code == 200
-    assert page.text.count('<meter ') == 1
-    assert 'value="0.7"' in page.text and '70.0%' in page.text
+    # R@5 막대는 표와 같은 수치를 두 번 보여 줘 뺐다(10-27) — 표 한 곳에 잰 값만
+    assert '<meter ' not in page.text
+    assert '0.700' in page.text
     assert '미측정 구성' in page.text and '미측정 — 대기' in page.text
 
 

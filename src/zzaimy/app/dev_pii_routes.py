@@ -13,6 +13,19 @@ from zzaimy.app import privacy_policy
 router = APIRouter()
 
 
+def _late(at, every_days: int) -> int:
+    """자동 점검이 밀린 날 수(제때면 0) — 마지막 기록 시각과 지금을 요청 때 비교한다. 기록이 없거나 읽지 못하면 0."""
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromisoformat(str(at or "").replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if t.tzinfo is None:
+        t = t.astimezone()
+    days = (datetime.now(timezone.utc) - t).days
+    return days if days > every_days else 0
+
+
 @router.get("/dev/pii", response_class=HTMLResponse)
 def dev_pii(request: Request, q: str = "", entity: str = "", page: int = 1):
     """개인정보 마스킹 감사 — 기록·자가 점검·잔여 검사 (절대 규칙 3). 원천은 플랫폼 DB 하나.
@@ -23,12 +36,17 @@ def dev_pii(request: Request, q: str = "", entity: str = "", page: int = 1):
     st = request.app.state
     db = st.db
     sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True, q=q, entity=entity, page=page)]
+    selftest = pii_audit.load_json(db, pii_audit.SELFTEST_KEY)
+    scan = sources[0].get("scan") if sources else None
     return st.templates.TemplateResponse(request, "dev_pii.html", st.page_ctx(request, {
         "internal_policy": privacy_policy.load(db),
         "masking_entities": privacy_policy.ENTITIES,
         "history_q": q, "history_entity": entity,
         "sources": sources,
-        "selftest": pii_audit.load_json(db, pii_audit.SELFTEST_KEY),
+        "selftest": selftest,
+        # 자가 점검은 매일, 잔여 검사는 주 1회(scripts/216) — 그보다 오래됐으면 화면에 「n일 전 · 자동 실행 확인 필요」
+        "selftest_late": _late((selftest or {}).get("at"), 1),
+        "scan_late": _late((scan or {}).get("at"), 7),
         "type_names": {t: name for t, name, *_ in pii_audit.MASK_POLICY},
         "entity_labels": pii_audit.ENTITY_LABELS,
     }))
