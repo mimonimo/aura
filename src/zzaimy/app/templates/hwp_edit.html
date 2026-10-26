@@ -61,7 +61,11 @@
   .state { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); white-space:nowrap; }
   .state .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
   .state[data-kind=ok] .dot { background:var(--ok); }
-  .state[data-kind=busy] .dot { background:var(--warn); }
+  .state[data-kind=busy] .dot { background:none; width:11px; height:11px; border:2px solid var(--warn); border-right-color:transparent; box-sizing:border-box;
+    animation:st-spin .8s linear infinite; }      /* 불러오기·저장 중에는 도는 표시(10-27 「불러오는 중 옆에 도는 거」) */
+  .doc .sub .state[data-kind=busy] .dot { width:10px; height:10px; }
+  @keyframes st-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .state[data-kind=busy] .dot { animation-duration:2.4s; } }
   .state[data-kind=bad] { color:var(--bad); }
   .state[data-kind=bad] .dot { background:var(--bad); }
   .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:36px; padding:0 14px; border-radius:8px; border:1px solid #D6DEE8; background:#fff; color:#36465B; font:inherit; font-size:13.5px; font-weight:600; text-decoration:none; cursor:pointer; white-space:nowrap; }
@@ -271,7 +275,7 @@
       .then(function (r) { clearTimeout(t); if (!r.ok) loadFail(); }).catch(function () { clearTimeout(t); loadFail(); });
   })();
   // 느리기만 한 때(기안기 서버가 바쁠 때)는 실패로 보이지 않게 — 20초에 「오래 걸림」, 90초가 지나도 뜨지 않을 때만 실패
-  setTimeout(function () { if (!built) say('불러오는 중 — 오래 걸림'); }, 20000);
+  setTimeout(function () { if (!built) say('불러오는 중 — 오래 걸림', 'busy'); }, 20000);
   setTimeout(loadFail, 90000);
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     built = true; document.querySelector('[data-load-fail]').hidden = true;

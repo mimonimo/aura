@@ -1120,7 +1120,7 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
     return {"ok": True, "name": p.name, "size": len(data), "merged": merged, "wrapped": wrapped}
 
 
-_STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf)$", re.I)   # 기안기 정적 파일(경로 끝 확장자)
+_STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)   # 기안기 정적 파일(경로 끝 확장자) — 커서 그림(.cur)도: 열 때마다 수백 번 다시 묻던 것(10-27)
 _GZIP_EDITOR = re.compile(r"\.(js|css|wasm|svg)$", re.I)                       # 압축이 듣는 것(그림·woff2 는 이미 압축됨)
 _GZ_CACHE: dict[bytes, bytes] = {}
 
@@ -1169,7 +1169,7 @@ async def webhwp_proxy(request: Request, path: str):
     content = r.content
     if request.method == "GET" and r.status_code == 200 and _STATIC_EDITOR.search(raw):
         out = {k: v for k, v in out.items() if k.lower() not in ("cache-control", "pragma", "expires")}
-        out["Cache-Control"] = "private, max-age=86400"
+        out["Cache-Control"] = "private, max-age=604800"   # 판 번호(?13.82…)가 바뀌면 새 주소라 일주일 둬도 된다
         # 기안기 서버는 압축하지 않는다 — 큰 글·wasm 은 gzip 으로(수식 wasm 13MB → 7MB). 압축본은 내용 해시마다 한 번 만들어 둔다
         if (_GZIP_EDITOR.search(raw) and "gzip" in request.headers.get("accept-encoding", "")
                 and not any(k.lower() == "content-encoding" for k in out) and len(content) > 4096):
