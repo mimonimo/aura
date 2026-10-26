@@ -196,6 +196,6 @@ def test_editor_reports_unopenable_file(tmp_path, monkeypatch):
     fid = _new(dev, "long")
     db = app.state.db
     assert dev.post(f"/hwp/{fid}/opened", json={"fields": 0}).json()["broken"] is True
-    assert webhwp.meta(db, fid).get("editor_broken")
+    assert db.get_setting(f"webhwp_broken:{fid}", "")
     assert dev.post(f"/hwp/{fid}/opened", json={"fields": 12}).json()["broken"] is False
-    assert not webhwp.meta(db, fid).get("editor_broken")
+    assert not db.get_setting(f"webhwp_broken:{fid}", "")

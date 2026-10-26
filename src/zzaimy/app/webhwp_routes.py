@@ -474,32 +474,42 @@ def hwp_folder_rename(request: Request, dept: str = Form(""), folder: str = Form
 OPEN_FAIL_MIN = 10        # 서버 파일의 칸이 이만큼 넘는데 편집기가 칸을 하나도 못 잡으면 「기안기에서 안 열림」
 
 
+def editor_broken(db, fid: int) -> bool:
+    return bool((db.get_setting(f"webhwp_broken:{int(fid)}", "") or "").strip())
+
+
 @router.post("/hwp/{fid}/opened")
 async def hwp_opened(request: Request, fid: int):
-    """편집기가 문서를 연 뒤 잡은 칸 수 — 서버 파일엔 칸이 많은데 0 이면 웹 기안기가 그리지 못한 파일로 표시한다(meta editor_broken).
-    에이전트 양식 찾기(hwp_forms)가 그 양식을 후보에서 뺀다. 다시 잘 열리면 표시를 지운다(10-26 시연: 실물 변환 양식 하나가 빈 쪽으로 열림)."""
-    import json as _json
+    """편집기가 문서를 연 뒤 잡은 칸 수 — 서버 파일엔 칸이 많은데 0 이면 웹 기안기가 그리지 못한 파일로 표시한다(설정 webhwp_broken:<id>).
+    에이전트 양식 찾기(hwp_forms)가 그 양식을 후보에서 뺀다. 다시 잘 열리면 표시를 지운다(10-26 시연: 실물 변환 양식 하나가 빈 쪽으로 열림).
+    보안: 표시는 모두의 양식 후보를 바꾸므로 그 파일을 고칠 수 있는 사람(잠긴 공통 양식은 관리자)의 보고만 받는다. 칸 세기는 스레드에서,
+    표시는 문서 메타와 따로 둔 열쇠에 — 메타를 읽고 다시 쓰다 다른 저장을 덮지 않게."""
     import time as _time
+
+    from fastapi.concurrency import run_in_threadpool
 
     from zzaimy.app import webhwp_write as ww
     f = _file(request, fid)
+    db = request.app.state.db
+    role = getattr(request.state, "role", "")
+    if (webhwp.locked(db, fid) and role != "dev") or _access(request, f) != "edit":
+        return {"ok": True, "broken": editor_broken(db, fid), "counted": False}
     try:
         n = int((await request.json()).get("fields") or 0)
     except Exception:
         n = 0
-    db = request.app.state.db
-    m = webhwp.meta(db, fid)
+    key = f"webhwp_broken:{int(fid)}"
     if n == 0:
-        try:
-            server = len(ww.fields(Path(f["path"]).read_bytes()))
-        except Exception:
-            server = 0
-        if server >= OPEN_FAIL_MIN and not m.get("editor_broken"):
-            m["editor_broken"] = _time.strftime("%Y-%m-%d %H:%M")
-            db.set_setting(f"webhwp_meta:{int(fid)}", _json.dumps(m, ensure_ascii=False))
-    elif m.pop("editor_broken", None):
-        db.set_setting(f"webhwp_meta:{int(fid)}", _json.dumps(m, ensure_ascii=False))
-    return {"ok": True, "broken": bool(m.get("editor_broken"))}
+        def count() -> int:
+            try:
+                return len(ww.fields(Path(f["path"]).read_bytes()))
+            except Exception:
+                return 0
+        if await run_in_threadpool(count) >= OPEN_FAIL_MIN and not editor_broken(db, fid):
+            db.set_setting(key, _time.strftime("%Y-%m-%d %H:%M"))
+    elif editor_broken(db, fid):
+        db.set_setting(key, "")
+    return {"ok": True, "broken": editor_broken(db, fid), "counted": True}
 
 
 @router.post("/hwp/{fid}/presence")
