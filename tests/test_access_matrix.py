@@ -432,7 +432,8 @@ def test_project_search_popup_lists_colleague_projects_read_only(world):
 
 def test_colleague_sharing_never_reveals_what_the_reader_cannot_see(world):
     """보안 검토(10-16) — 동료 공유가 읽는 사람의 범위를 넘지 않는다.
-    1) 대화가 근거로 쓴 문서·첨부 가운데 내가 못 보는 것이 있으면 그 대화는 읽을 수 없다.
+    1) 대화가 근거로 쓴 문서·첨부 가운데 내가 못 보는 것은 열리지 않는다 — 대화 글은 읽되(10-27 사용자 결정, ADR-0075)
+       그 근거·첨부는 「볼 수 없는 자료」 로 이름을 가리고 /doc 주소도 막힌다.
     2) 관리자나 다른 부서 RAG 추가 권한을 받은 계정은 동료로 보지 않는다(그 사람 답에는 내가 못 보는 자료가 섞인다).
     3) 프로젝트 찾기는 동료 프로젝트를 이름으로만 — 문서 제목·비공개 대화 제목으로 떠보지 못한다."""
     app, ids, tmp = world
@@ -457,10 +458,13 @@ def test_colleague_sharing_never_reveals_what_the_reader_cannot_see(world):
     chat_topics.ChatTopics(tmp / "t.db").record(cited, [{"doc_id": hidden_doc, "title": "메모"}])
     plan = _client(app2, "plan")
     assert plan.get(f"/chat/{ok}/read").status_code == 200
-    assert plan.get(f"/chat/{leaky}/read").status_code == 404
-    assert plan.get(f"/chat/{cited}/read").status_code == 404
+    for sid_ in (leaky, cited):
+        t = plan.get(f"/chat/{sid_}/read")
+        assert t.status_code == 200 and "볼 수 없는 자료" in t.text and f'href="/doc/{hidden_doc}' not in t.text
+        assert "plan4만보는메모" not in t.text and ">메모<" not in t.text
+    assert plan.get(f"/doc/{hidden_doc}").status_code in (403, 404)
     page = plan.get(f"/project/{pid}").text
-    assert "공개대화" in page and "못보는근거대화" not in page
+    assert "공개대화" in page and "못보는근거대화" in page
     # 관리자 계정의 프로젝트는 같은 부서여도 동료 공유가 아니다
     admin_pid = db.create_project("grant", "관리자누리사업", owner="planadmin")
     assert plan.get(f"/project/{admin_pid}").status_code == 404
@@ -491,7 +495,7 @@ def test_private_chat_is_owner_only_even_for_admin(world):
 
 
 def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatch):
-    """작업 문서 공유는 대화 읽기와 같은 규칙 — 비공개 대화·못 보는 근거를 쓴 대화의 문서는 동료에게 주지 않는다.
+    """구글 작업 문서 공유는 대화 읽기보다 좁다 — 비공개 대화·못 보는 근거를 쓴 대화의 문서는 동료에게 주지 않는다(대화 글은 근거를 가려 읽는다).
     비공개로 돌리거나 공유를 끄면 바로 거둔다. 켜고 끄는 것은 담당자만, 첫 비밀번호를 안 바꾼 계정은 받지 않는다(보안 검토 10-17)."""
     from zzaimy.ingest import drive_share
     from zzaimy.app import chat_topics
@@ -526,8 +530,11 @@ def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatc
     plan = _client(app2, "plan")
     assert plan.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False).status_code == 404   # 동료는 못 바꾼다
     page = plan.get(f"/project/{pid}").text
-    assert "공개작업의 작업 문서" in page and "비공개작업" not in page and "못보는근거작업" not in page and "못보는원본복제작업" not in page
-    assert plan.get(f"/chat/{copyc}/read").status_code == 404                # 못 보는 문서의 복제본이 든 대화는 읽지도 못한다
+    assert "공개작업의 작업 문서" in page and "비공개작업" not in page                # 비공개 대화는 목록에도 없다
+    # 공개 대화 글은 읽지만(근거는 가림), 못 보는 근거를 쓴 대화의 구글 작업 문서는 목록에 올리지 않는다
+    assert "못보는근거작업의 작업 문서" not in page and "DOCLEAK001" not in page
+    t = plan.get(f"/chat/{copyc}/read")                                     # 대화 글은 읽지만 못 보는 원본의 복제본(구글 문서)은 목록에도 없다
+    assert t.status_code == 200 and "DOCCOPY0001" not in t.text and "DOCCOPY0001" not in page
     owner = _client(app2, "plan5")
     owner.get(f"/project/{pid}")
     from zzaimy.app import project_access
@@ -559,8 +566,8 @@ def test_dept_staff_cannot_publish_dept_regulation_to_students(world):
 
 def test_project_share_to_user_with_edit_lets_them_open_their_own_chat(world, monkeypatch):
     """지정 사용자에게 「함께 작업」으로 공유하면 다른 부서여도 프로젝트를 보고 그 안에 자기 대화를 연다.
-    담당자 대화·작업 문서는 담당자 검색 범위를 덮는 사람만(같은 부서 등) — 그때 작업 문서는 편집 권한.
-    「보기」 공유는 대화를 열 수 없다. 공유 설정·프로젝트 관리는 담당자만(10-21)."""
+    담당자 대화의 구글 작업 문서는 담당자 검색 범위를 덮는 사람만(같은 부서 등) — 그때 편집 권한.
+    「읽기만」 공유는 새 대화를 열 수 없다. 공유 설정·프로젝트 관리는 담당자만(10-21)."""
     from zzaimy.ingest import drive_share
     app, ids, tmp = world
     db = app.state.db
@@ -578,12 +585,12 @@ def test_project_share_to_user_with_edit_lets_them_open_their_own_chat(world, mo
     # 담당자(기획처) 범위를 덮지 못하는 다른 부서 사람에게는 담당자 대화의 작업 문서를 주지 않는다 — 근거 기록 밖 자료가 섞일 수 있다
     assert calls[-1] == {}
     page = other.get(f"/project/{pid}")
-    assert page.status_code == 200 and "함께 작업하도록 공유한" in page.text and 'name="project_id"' in page.text
+    assert page.status_code == 200 and ">함께 작업</span>" in page.text and 'name="project_id"' in page.text
     assert "공유받은 프로젝트" in page.text                                 # 사이드바에 따로
     assert other.get(f"/chat?project={pid}").status_code == 200
     assert other.post(f"/project/{pid}/shares", data={"mode": "private"}, follow_redirects=False).status_code == 404
     owner.post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:sanhak", "level": "view"}, follow_redirects=False)
-    assert other.get(f"/chat?project={pid}").status_code == 404           # 보기만 — 새 대화는 못 연다
+    assert other.get(f"/chat?project={pid}").status_code == 404           # 읽기만 — 새 대화는 못 연다
 
 
 def test_collaborator_cannot_continue_project_chat_after_share_is_revoked(world, monkeypatch):

@@ -21,7 +21,8 @@
     {% endif %}
   </div>
   <div class="project-title-block">
-    <h1 class="project-name">{{ project.name }}{% if project.archived %} <span class="pill" style="font-size:12px; vertical-align:middle;">지난 사업</span>{% endif %}</h1>
+    <h1 class="project-name">{{ project.name }}{% if project.archived %} <span class="pill" style="font-size:12px; vertical-align:middle;">지난 사업</span>
+      {% elif not can_edit and my_access in share_levels %} <span class="pill project-share-chip" style="font-size:12px; vertical-align:middle;" title="{{ owner_label }} 님이 공유 · {{ share_level_hints.get(my_access, '') }}">{{ share_levels[my_access] }}</span>{% endif %}</h1>
     <div class="project-meta">
       {{ sector_name }} 업무 · 첨부 {{ doc_counts.attached }}건 ·
       참고 {{ doc_counts.reference }}건 · 기준 문서 {{ doc_counts.rules }}건
@@ -66,11 +67,7 @@
     {% endif %}
   </div>
 </div>
-{% if not can_edit and not project.archived and my_access == 'edit' %}
-<p class="notice project-head-note"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon><span>{{ owner_label }} 님이 함께 작업하도록 공유한 프로젝트입니다 — 내 대화를 열어 묻고 문서를 씁니다. 프로젝트 설정은 담당자가 합니다.</span></p>
-{% elif not can_edit and not project.archived %}
-<p class="notice project-head-note"><iconify-icon icon="solar:eye-linear"></iconify-icon><span>참조로 공유된 {{ owner_label }} 님의 프로젝트입니다 — 읽기 전용으로 공개된 대화와 작업 문서를 봅니다.</span></p>
-{% elif project.archived %}
+{% if project.archived %}
 <p class="notice project-head-note"><iconify-icon icon="solar:archive-linear"></iconify-icon><span>지난 사업 자료입니다. 다른 프로젝트에서 참조로 연결해 근거로 쓸 수 있고, 다시 진행하려면 「보관 해제」를 누릅니다.</span></p>
 {% endif %}
 {% if request.query_params.get('ok') %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ request.query_params.get('ok') }}</span></p>{% endif %}

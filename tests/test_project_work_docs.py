@@ -70,10 +70,14 @@ def test_share_button_and_dialog_wording(tmp_path, monkeypatch):
     page = kim.get(f"/project/{pid}").text
     assert "공유 안 함</button>" in page and "공유 · 나만" not in page
     assert "나만 보기" in page and '<span class="share-mode-name">공유</span>' in page
-    assert "참조: 읽기 전용 — 공개 대화와 작업 문서를 읽습니다" in page
-    assert "함께 작업: 읽기·쓰기 — 대화를 열고 작업 문서를 고칩니다" in page
+    assert "고른 부서·사람만 받습니다. 아래 팀이나 다른 부서로는 저절로 가지 않습니다" in page
+    assert "참조" not in page.split('id="shareModal"', 1)[1].split("</form>", 1)[0]          # 옛 이름이 공유 창에 남지 않게
     assert 'class="share-owner"' in page and ">소유<" in page
-    assert "비공개 대화는 공유해도 다른 사람에게 보이지 않습니다" in page
+    assert "비공개 대화는 공유해도 보이지 않습니다. 대화의 근거 원문은 받는 사람이 볼 수 있는 자료만 열립니다" in page
+    # 권한은 두 가지 — 줄마다 고르고 그 아래 한 줄 설명, 새 줄의 기본값은 「읽기만」
+    tpl = page.split("data-share-template>", 1)[1].split("</template>", 1)[0]
+    assert '<option value="view" selected>읽기만</option>' in tpl and '<option value="edit" >함께 작업</option>' in tpl
+    assert "대화·작업 문서 보기만" in tpl
     assert 'data-share-quick="dept:기획처"' in page                    # 우리 부서 전체 바로 더하기
     assert 'data-people-picker data-pass data-kind="dept" data-purpose="share"' in page   # 찾기는 사람 고르기 부품이 서버에 묻는다
     found = kim.get("/api/people", params={"purpose": "share", "q": "lee"}).json()["people"]
@@ -86,6 +90,7 @@ def test_share_button_and_dialog_wording(tmp_path, monkeypatch):
     assert pa.shares(db, db.get_project(pid))["items"] == [{"to": "dept:기획처", "level": "view"}, {"to": "user:lee", "level": "edit"}]
     rows = page.split("data-share-rows>", 1)[1].split("data-share-empty", 1)[0]
     assert 'value="dept:기획처"' in rows and 'value="user:lee"' in rows and rows.count('<option value="edit" selected') == 1
+    assert "대화·작업 문서 보기와 고치기, 새 대화" in rows and "대화·작업 문서 보기만" in rows
 
 
 def test_project_documents_are_one_line_rows_without_more_toggle(tmp_path, monkeypatch):

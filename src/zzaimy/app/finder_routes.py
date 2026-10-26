@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 
 from zzaimy.app import webhwp
-from zzaimy.app.webhwp_routes import _base, _depts, _label, _need_staff, recent_files
+from zzaimy.app.webhwp_routes import _access, _base, _depts, _label, _need_staff, hidden_here, recent_files
 
 router = APIRouter()
 ACCEPT = ("hwp", "docs")
@@ -56,7 +56,7 @@ def finder_recent(request: Request):
         if not r or not Path(r["path"]).exists() or any(x in webhwp.HIDDEN for x in Path(r["path"]).parts):
             continue
         dept = webhwp.dept_of_path(base, r["path"])
-        if dept not in depts:
+        if dept not in depts or not _access(request, r):          # 나만 보기·공유 범위 밖 프로젝트의 작업 문서는 빼고
             continue
         m = webhwp.meta(st.db, fid)
         out.append({"id": fid, "name": r["name"], "dept": dept, "label": _label(request, dept), "folder": webhwp.folder_of(base, r["path"]),
@@ -75,13 +75,14 @@ def finder_search(request: Request, q: str = "", accept: str = "hwp"):
     base = _base(request)
     depts = set(_depts(request))
     hits = []
+    hid = hidden_here(request, "")                       # 부서 폴더에 있어도 못 여는 프로젝트 작업 문서
     for r in st.db.list_files(kind="webhwp", limit=8000):
         p = Path(r["path"])
         name = str(r["name"] or "")
         if not all(w in name.lower() for w in words):
             continue
         dept = webhwp.dept_of_path(base, r["path"])
-        if dept not in depts or not p.exists() or any(x in webhwp.HIDDEN for x in p.parts):
+        if dept not in depts or int(r["id"]) in hid or not p.exists() or any(x in webhwp.HIDDEN for x in p.parts):
             continue
         m = webhwp.meta(st.db, r["id"])
         hits.append({"id": r["id"], "name": name, "dept": dept, "folder": webhwp.folder_of(base, r["path"]),
