@@ -916,6 +916,15 @@
     }
     function tick() { if (hwp.isComposing()) return; try { measure(false); render(); followStep(); } catch (e) {} }   // 한글 조합 중에는 손대지 않는다
     setInterval(tick, 250);                              // 화면 좌표는 매번 다시(스크롤·확대·창 크기), 쪽 좌표는 바뀔 때·4초마다
+    // 스크롤하는 동안은 화면 그리기마다 다시 놓는다 — 0.25초 주기만으로는 이름표·테두리가 글을 늦게 따라와 엉뚱한 줄에 잠깐 붙었다(10-26 녹화).
+    // 자리 계산은 편집기에 지금 화면 좌표를 묻는 것이라(쪽 좌표는 그대로) 가볍다. 관성 스크롤 끝자락도 잡게 멈춘 뒤 한 번 더
+    var rafOn = false, settleT = null;
+    function onScrollDraw() {
+      if (!rafOn) { rafOn = true; requestAnimationFrame(function () { rafOn = false; try { render(); } catch (e) {} }); }
+      clearTimeout(settleT); settleT = setTimeout(function () { try { render(); } catch (e) {} }, 80);
+    }
+    hwp.onActivity(function (e) { if (e && (e.type === 'scroll' || e.type === 'wheel')) onScrollDraw(); });
+    window.addEventListener('resize', onScrollDraw);
     function soon() { setTimeout(tick, 0); }
     eng.on('locks', function () { drawAvatars(); soon(); });
     eng.on('people', function () { drawAvatars(); soon(); });
