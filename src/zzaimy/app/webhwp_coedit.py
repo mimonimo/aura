@@ -463,6 +463,31 @@ def _rich_kind(rich: str) -> str:
     return "json"
 
 
+# 사람 화면이 보낸 기안기 JSON 블록의 관문(10-26, 서식 실시간 기본 켬과 함께) — 받은 블록은 다른 사람 화면에 그대로 들어가므로 서식만 든 칸 글로
+# 좁힌다. 블록 속 개체는 글(tx) 속 「<코드/개체 이름 8자리 16진/…>」 로 나오는데, 칸 하나를 꺼내면 구역 정의(secd)·단 정의(cold)만 나온다
+# (운영 실측). 표·그림·링크·누름틀·수식·OLE 같은 다른 개체, 바이너리(bi), 모르는 최상위 열쇠가 있으면 서식을 버리고 글만 받는다.
+_JSON_TOP = {"documentPr", "dh", "ro", "sl", "cs", "bf", "cp", "tp", "nu", "bu", "pp", "st", "mp", "bi"}
+_JSON_CTRL = re.compile(r"<([0-9A-Fa-f]{2})/([0-9A-Fa-f]{8})/")
+_JSON_CTRL_OK = {"secd", "cold"}
+
+
+def json_block_ok(raw: str) -> bool:
+    try:
+        j = json.loads(raw)
+    except ValueError:
+        return False
+    if not isinstance(j, dict) or not set(j) <= _JSON_TOP or j.get("bi") not in (None, {}, []):
+        return False
+    for m in _JSON_CTRL.finditer(raw):
+        try:
+            name = bytes.fromhex(m.group(2)).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return False
+        if name not in _JSON_CTRL_OK:
+            return False
+    return True
+
+
 def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Path | None = None, force: bool = False,
               trusted: bool = False) -> list[dict]:
     """칸 변경 묶음을 차례로 반영한다. 돌려주는 것은 op 마다 {seq, field, ok, version, [conflict, reason, text, by]}.
@@ -507,7 +532,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
         if rich_kind == "hwpx" and not trusted:
             results.append({"seq": seq, "field": field, "ok": False, "reason": "rich_denied"})
             continue
-        rich = raw_rich if (rich_kind == "hwpx" or (rich_kind == "json" and conf(db, "rich") > 0)) else ""
+        rich = raw_rich if (rich_kind == "hwpx" or (rich_kind == "json" and conf(db, "rich") > 0 and json_block_ok(raw_rich))) else ""
         try:
             b = int(op.get("base") or 0)
         except (TypeError, ValueError):

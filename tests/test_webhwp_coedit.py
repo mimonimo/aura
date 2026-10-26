@@ -691,6 +691,7 @@ def test_rich_fragments_only_from_server_participants_and_checked(tmp_path, monk
         assert ce.put_rich(db, fid, F, "글", bad)["reason"] == "rich_bad"
     assert F not in ce.state(db, fid)
     # JSON 블록: 설정이 꺼져 있으면 글만, 켜져 있어도 임대를 쥔 창이 아니면 글만
+    db.set_setting("coedit:rich", "0")
     kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 2, "field": F, "base": 0, "text": "글", "rich": "{\"x\":1}"}]})
     assert ce.state(db, fid)[F]["text"] == "글" and "rich" not in ce.state(db, fid)[F]
     db.set_setting("coedit:rich", "1")
@@ -698,7 +699,10 @@ def test_rich_fragments_only_from_server_participants_and_checked(tmp_path, monk
     assert "rich" not in ce.state(db, fid)[F]
     ce.acquire(db, fid, F, "kim", "k1")
     kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 4, "field": F, "base": 2, "text": "글3", "rich": "{\"x\":3}"}]})
-    assert ce.state(db, fid)[F]["rich"] == "{\"x\":3}"
+    assert "rich" not in ce.state(db, fid)[F]                 # 모르는 열쇠 — 관문에서 서식을 버린다(json_block_ok)
+    ok = json.dumps({"ro": {"a": {"tx": "글4"}}, "cs": {}, "bi": {}})
+    kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 5, "field": F, "base": 3, "text": "글4", "rich": ok}]})
+    assert ce.state(db, fid)[F]["rich"] == ok
     c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
     assert "d.trusted === true || d.fromState === true" in c and "d.at + d.del > cpLen(s)" in c
 
@@ -899,3 +903,15 @@ def test_quiet_save_keeps_screens(tmp_path, monkeypatch):
     d2, _ = ww.set_fields(data, {"절:1. 변경 사유": "보통 저장"})
     assert kim.post(f"/hwp/{fid}/save", content=d2, headers={"Content-Type": "application/octet-stream"}).status_code == 200
     assert sum(1 for e in ce.events_since(db, fid, 0) if e["kind"] == "doc-saved") == n + 1
+
+
+def test_json_block_gate():
+    """사람 화면이 보낸 JSON 블록은 서식만 든 것만 — 표·그림·링크 같은 개체·바이너리·모르는 열쇠가 있으면 서식을 버린다(10-26 보안 점검)."""
+    secd = "<02/" + b"secd".hex() + "/0001>"
+    ok = json.dumps({"ro": {"a": {"tx": "글" + secd}}, "cs": {}, "bi": {}})
+    assert ce.json_block_ok(ok)
+    assert not ce.json_block_ok(json.dumps({"ro": {"a": {"tx": "<02/" + b"%hlk".hex() + "/01>"}}}))   # 링크
+    assert not ce.json_block_ok(json.dumps({"ro": {"a": {"tx": "<0b/" + b"tbl ".hex() + "/01>"}}}))   # 표
+    assert not ce.json_block_ok(json.dumps({"ro": {}, "bi": {"1": "AAAA"}}))                          # 바이너리
+    assert not ce.json_block_ok(json.dumps({"ro": {}, "zz": 1}))                                       # 모르는 열쇠
+    assert not ce.json_block_ok("{not json")

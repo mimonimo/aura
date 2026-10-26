@@ -406,3 +406,7 @@ B. 서버는 FastAPI 그대로, 밀어 주기는 SSE(EventSource), 변경은 fet
 - 설정 coedit:rich 기본 1(켬). 시험: test_webhwp_write.test_set_fields_keeps_run_formatting, test_webhwp_coedit.test_quiet_save_keeps_screens.
 - 남은 것(다음): 편집기를 양식 모드(EditMode 2)로 돌려 선택이 칸 경계를 넘지 못하고 복사가 글만 된다(사용자 지적). 문서 전체를 칸으로 감쌌으므로
   일반 편집 모드로 바꾸고, 칸을 넘는 고침(여러 칸 지우기·표 붙여넣기)은 알아채 구조 저장으로 돌리는 길을 시험한다.
+- 보안 점검(같은 날, 커밋 뒤 자동 점검의 지적): 서식째를 기본으로 켜면 쓸 수 있는 사람이 보낸 JSON 블록이 다른 사람 화면에 그대로 들어간다.
+  서버 관문 webhwp_coedit.json_block_ok 로 좁혔다 — 최상위 열쇠가 운영에서 본 것(documentPr·dh·ro·sl·cs·bf·cp·tp·nu·bu·pp·st·mp·bi) 안이고,
+  바이너리 목록(bi)이 비어 있고, 글 속 개체 표시 「<코드/개체 이름/…>」 가 구역 정의(secd)·단 정의(cold)뿐일 때만 서식째 받는다. 표·그림·링크·
+  누름틀·수식·OLE 가 든 블록은 서식을 버리고 글만 받는다(시험 test_json_block_gate). 표·그림 같은 고침은 구조 저장 길로만 간다.
