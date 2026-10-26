@@ -5139,7 +5139,9 @@ def main() -> None:
         responder=None,  # 지연 생성 (vLLM 연결은 첫 질문 때)
         password=password,
     )
-    uvicorn.run(app, host=host, port=port, ssl_certfile=certfile, ssl_keyfile=keyfile)
+    # 끌 때 열린 알림 흐름(SSE)이 닫히기를 끝없이 기다려 systemd 가 90초 뒤에야 강제로 껐다(배포마다 1~2분 끊김, 10-27) — 5초만 기다린다.
+    # 화면은 알림 흐름이 끊기면 스스로 다시 잇는다(webhwp-collab connect)
+    uvicorn.run(app, host=host, port=port, ssl_certfile=certfile, ssl_keyfile=keyfile, timeout_graceful_shutdown=5)
 
 
 if __name__ == "__main__":
