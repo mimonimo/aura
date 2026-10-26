@@ -22,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 
 from zzaimy.app import webhwp
 from zzaimy.app import webhwp_coedit as ce
-from zzaimy.app.webhwp_routes import _file, _need_staff
+from zzaimy.app.webhwp_routes import _access, _file, _need_staff, _not_view_only
 
 router = APIRouter()
 MAX_BODY = 8_000_000       # 한 요청 본문 상한(한글 3바이트 × 칸 글 100만 자 두어 칸, 서식째 시험 포함) — 보통은 바뀐 부분만 간다
@@ -61,6 +61,7 @@ def _editable(request: Request, fid: int) -> dict:
     f = _readable(request, fid)
     if webhwp.locked(request.app.state.db, fid):
         raise HTTPException(403, "공통 양식은 칸 공동 편집으로 고치지 않습니다 — 「사본 만들기」로 사본을 만들어 쓰세요")
+    _not_view_only(request, fid)
     return f
 
 
@@ -103,7 +104,7 @@ def hwp_coedit(request: Request, fid: int, field: list[str] | None = Query(None)
     if aura.get("by") and aura["by"] != "AURA":
         _name(db, aura["by"], names)                      # 「AURA · 이름」 — 시킨 사람 이름도 함께
     snap.update(me=_user(request), names=names, aura=aura,
-                readonly=webhwp.locked(db, fid) and getattr(request.state, "role", "") != "dev",
+                readonly=(webhwp.locked(db, fid) and getattr(request.state, "role", "") != "dev") or _access(request, webhwp.get(db, fid)) == "view",
                 fields_off=webhwp.locked(db, fid))      # 공통 양식 — 관리자도 칸 공동 편집 없이(문서 전체 잠금으로만)
     return snap
 

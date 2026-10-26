@@ -399,8 +399,13 @@ def project_page(request: Request, project_id: int, refq: str = "", tab: str = "
     if can_edit and proj.get("owner") == me and share_on and not proj.get("archived") and _ds.due(db, project_id):
         _share_sync(proj)                                 # 담당자가 열 때 10분에 한 번 — 부서에 새로 들어온 동료도 받는다
     project_chats = db.list_project_chat_sessions(project_id)
+    hidden_chats = 0
     if not can_edit:                                # 동료는 공개된 대화만 읽기 전용으로(작업 문서는 담당자 드라이브라 빼고)
-        project_chats = [cs for cs in project_chats if _can_read_chat(request, cs)]
+        readable = [cs for cs in project_chats if _can_read_chat(request, cs)]
+        # 공개인데도 못 여는 남의 대화(쓴 사람의 자료 범위가 더 넓음·못 보는 근거를 씀) — 「공개된 대화가 없습니다」 로 속이지 않게 수만 알린다
+        hidden_chats = sum(1 for cs in project_chats if cs not in readable and not cs.get("is_private")
+                           and (cs.get("channel") or "chat") == "chat")
+        project_chats = readable
     work_docs: list[dict] = []
     work_sessions: list[int] = []                 # 구글 문서가 연결된 대화 — 화면이 문서 패널과 같은 목록(드라이브 폴더)을 불러온다
     seen_urls: set[str] = set()
@@ -438,7 +443,7 @@ def project_page(request: Request, project_id: int, refq: str = "", tab: str = "
             "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
             "project_chats": project_chats,
             "drive_share": {**_ds.state(db, project_id)},
-            "work_docs": work_docs, "work_sessions": work_sessions,
+            "work_docs": work_docs, "work_sessions": work_sessions, "hidden_chats": hidden_chats,
             "project_notes": db.list_project_notes(project_id),
             **h._project_ref_ctx(request, proj, refq, h._ref_names(doc_groups)),
             **head_ctx(request, proj, doc_groups),
@@ -533,16 +538,15 @@ def project_archive(request: Request, project_id: int):
 
 def _hwp_work_docs(request: Request, proj: dict, chats: list[dict], *, owner_view: bool = False) -> list[dict]:
     """이 프로젝트의 한글 작업 문서 — 대화마다 이은 한글 파일(webhwp_agent.files_of)과 부서 한글 문서함의 「작업/<프로젝트 이름>」 폴더
-    (에이전트가 양식으로 작업본을 만드는 자리). 보는 사람이 열 수 있는 부서(webhwp.may_open)의 파일만 싣는다.
+    (에이전트가 양식으로 작업본을 만드는 자리). 보는 사람이 열 수 있는 파일만(webhwp_routes._access — 부서 폴더 규칙과 프로젝트 공유) 싣는다.
     드라이브에 최종본을 올린 파일은 담당자 화면에 구글 드라이브 열기도 함께 준다."""
     from pathlib import Path
 
     from zzaimy.app import webhwp, webhwp_agent
-    from zzaimy.app.webhwp_routes import EDIT_PAGE, _depts
+    from zzaimy.app.webhwp_routes import EDIT_PAGE, _access
     st = request.app.state
     db = st.db
-    depts = _depts(request)
-    if not depts or not getattr(st, "data_dir", None):
+    if getattr(request.state, "role", "") not in ("dev", "staff", "professor", "head") or not getattr(st, "data_dir", None):
         return []
     base = Path(st.data_dir)
     try:
@@ -561,7 +565,7 @@ def _hwp_work_docs(request: Request, proj: dict, chats: list[dict], *, owner_vie
     out = []
     for fid, chat_id in picked.items():
         f = webhwp.get(db, fid)
-        if not webhwp.may_open(base, f, depts) or not Path(f["path"]).exists():
+        if not _access(request, f) or not Path(f["path"]).exists():   # 부서 폴더 규칙 + 이 프로젝트 공유(다른 부서의 함께 작업·참조)
             continue
         m = webhwp.meta(db, fid)
         drive = (m.get("drive_out") or {}).get("url") or ""
@@ -593,7 +597,7 @@ def head_ctx(request: Request, proj: dict, doc_groups: dict | None = None) -> di
     show_activity = grades.can_view_activity(proj, user=me or getattr(request.state, "user", ""), account=_account(request),
                                              lead=lead, project_dept=owner_dept)
     lead_choices = [{"user": u, "label": _nm(u)} for u in pa.lead_choices(proj, _share_of(request, proj), accounts)] if can_edit else []
-    return {"can_edit": can_edit, **_share_ctx(request, proj), "owner_label": proj.get("owner") or "",
+    return {"can_edit": can_edit, **_share_ctx(request, proj), "owner_label": _nm(proj.get("owner") or "") if proj.get("owner") else "",
             "doc_counts": {k: len((doc_groups or {}).get(k) or []) for k in ("attached", "reference", "rules")},
             "palette": pa.PALETTE, "project_color_key": pa.color_key(db, int(proj["id"])),
             "lead": lead, "lead_label": _nm(lead), "lead_choices": lead_choices, "show_activity": show_activity}
@@ -617,9 +621,10 @@ def _share_ctx(request: Request, proj: dict) -> dict:
         name, dept = (a.get("name") or "").strip(), (a.get("dept") or "").strip()
         choices.append({"to": f"user:{u}", "label": f"{name} ({u})" if name and name != u else u, "hint": dept or "사용자"})
     names = {c["to"]: c["label"] for c in choices}
-    return {"share": share, "share_label": pa.button_label(share), "share_title": pa.describe(share),
+    hints = {c["to"]: c["hint"] for c in choices}
+    return {"share": share, "share_label": pa.button_label(share), "share_title": pa.describe(share, accounts),
             "share_levels": pa.LEVEL_LABEL, "share_level_hints": pa.LEVEL_HINT, "share_depts": depts, "share_users": users,
-            "share_choices": choices, "share_names": names, "share_own_dept": owner_dept if owner_dept in depts else "",
+            "share_choices": choices, "share_names": names, "share_hints": hints, "share_own_dept": owner_dept if owner_dept in depts else "",
             "my_access": st.project_access(request, proj)}
 
 
@@ -647,7 +652,7 @@ async def project_set_shares(request: Request, project_id: int):
     _share_sync(proj, wait=True)
     from zzaimy.ingest import drive_share as _ds
     st = _ds.state(db, project_id)
-    msg = f"공유 범위를 「{pa.describe(got)}」로 저장했습니다" + (f" — 작업 문서 권한 {st['shared']}명" if st.get("shared") else "")
+    msg = f"공유 범위를 「{pa.describe(got, accounts)}」로 저장했습니다" + (f" — 작업 문서 권한 {st['shared']}명" if st.get("shared") else "")
     if st.get("missing"):
         msg += f" · 구글 미연결 {st['missing']}명(연결하면 작업 문서도 받음)"
     if st.get("error"):

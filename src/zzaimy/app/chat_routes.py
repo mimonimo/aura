@@ -405,6 +405,15 @@ def chat_new(request: Request, project: int | None = None):
     )
 
 
+def _shared_lost(request: Request, session: dict) -> bool:
+    """남의 프로젝트 안에서 연 내 대화인데 그 프로젝트의 「함께 작업」 공유가 풀렸는가 — 이어 쓰기는 main._owned_chat 이 막는다."""
+    if not session.get("project_id"):
+        return False
+    proj = request.app.state.chat.db.get_project(int(session["project_id"]))
+    return bool(proj) and proj.get("owner") != getattr(request.state, "user", "") \
+        and request.app.state.project_access(request, proj) != "edit"
+
+
 @router.get("/chat/{session_id}/read", response_class=HTMLResponse)
 def chat_read(request: Request, session_id: int):
     """같은 부서 동료의 프로젝트 대화를 읽기 전용으로 — 입력줄·문서 패널·다시 쓰기 없이 주고받은 글만."""
@@ -415,9 +424,12 @@ def chat_read(request: Request, session_id: int):
     if not _can_read_chat(request, session):
         raise HTTPException(404, "대화를 찾을 수 없습니다.")
     project = db.get_project(int(session["project_id"])) if session.get("project_id") else None
+    mine = session.get("owner") == getattr(request.state, "user", "")
     return templates.TemplateResponse(request, "chat_read.html", ctx(request, {
         "chat_session": session, "chat_project": project, "messages": db.list_chats(session_id),
-        "sources": chat_topics.latest(session_id), "mine": session.get("owner") == getattr(request.state, "user", "")}))
+        "sources": chat_topics.latest(session_id), "mine": mine,
+        "shared_lost": mine and _shared_lost(request, session),
+        "project_open": bool(project) and bool(request.app.state.project_access(request, project))}))
 
 
 @router.post("/chat/{session_id}/messages/{message_id}/feedback")
@@ -457,6 +469,8 @@ def chat_session(request: Request, session_id: int):
     sess0 = db.get_chat_session(session_id)
     if sess0 and sess0.get("owner") != request.state.user and _can_read_chat(request, sess0):
         return RedirectResponse(f"/chat/{session_id}/read", status_code=303)     # 동료의 대화는 읽기 전용 화면으로
+    if sess0 and sess0.get("owner") == request.state.user and _shared_lost(request, sess0):
+        return RedirectResponse(f"/chat/{session_id}/read", status_code=303)     # 공유가 풀린 남의 프로젝트 안 내 대화 — 이어 쓰지 못하니 읽기 화면으로
     _owned_chat(request, session_id)
     messages = db.list_chats(session_id)
     waiting = session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user")

@@ -162,8 +162,12 @@ def button_label(share: dict) -> str:
     return f"공유 중 · {len(share['items'])}"
 
 
-def describe(share: dict) -> str:
-    """화면 한 줄 — 「나만 보기」 · 「기획처(참조) · test(함께 작업)」."""
+def describe(share: dict, accounts: dict | None = None) -> str:
+    """화면 한 줄 — 「나만 보기」 · 「기획처(참조) · 홍길동(함께 작업)」. accounts 를 주면 사람은 계정 아이디 대신 이름으로."""
     if share.get("mode") == "private" or not share.get("items"):
         return "나만 보기"
-    return " · ".join(f"{i['to'].split(':', 1)[1]}({LEVEL_LABEL.get(i['level'], i['level'])})" for i in share["items"])
+
+    def who(to: str) -> str:
+        kind, key = to.split(":", 1)
+        return (((accounts or {}).get(key) or {}).get("name") or "").strip() or key if kind == "user" else key
+    return " · ".join(f"{who(i['to'])}({LEVEL_LABEL.get(i['level'], i['level'])})" for i in share["items"])
