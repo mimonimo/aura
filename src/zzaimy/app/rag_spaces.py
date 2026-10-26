@@ -139,13 +139,16 @@ def backfill_depts(db, data_dir: str | Path) -> dict:
     return out
 
 
-def stats(db, data_dir: str | Path, accounts: dict) -> list[dict]:
-    """공간마다 실제로 들어 있는 것 — 규정 조각 수·사업 문서 수, 쓰는 계정."""
+def stats(db, data_dir: str | Path, accounts: dict, only: tuple[str, ...] | None = None) -> list[dict]:
+    """공간마다 실제로 들어 있는 것 — 규정 조각 수·사업 문서 수, 쓰는 계정. 늘 부를 때 센다(값을 담아 두지 않는다).
+    only: 셀 공간 id 만(예: 관리 화면 위 요약 카드의 student·staff — 부서 RAG 는 dept_rag_rows 가 한 번에 센다)."""
     cfg = config(data_dir)
     depts = known_depts(cfg, accounts)
     rows = []
     cases = [("student", {"role": "student", "dept": ""}), ("staff", {"role": "staff", "dept": ""})] + \
             [(f"dept:{d}", {"role": "staff", "dept": d}) for d in depts]
+    if only is not None:
+        cases = [c for c in cases if c[0] in only]
     for sid, who in cases:
         sc = search_scope(who["role"], who["dept"], None, data_dir)
         reg = db.list_regulation_chunks(**_reg_args(sc))
@@ -363,15 +366,16 @@ _DEPT_NAME = re.compile(r"^[0-9A-Za-z가-힣][0-9A-Za-z가-힣 .·()\-+&]{1,29}$
 
 
 def dept_rag_rows(db, cfg: dict, accounts: dict, depts: list[str] | None = None) -> list[dict]:
-    """부서 RAG 목록 — 부서마다 든 문서 수, 쓰는 계정(그 부서 계정), 추가 권한으로 쓰는 계정, 만든 기록.
+    """부서 RAG 목록 — 부서마다 든 사업 문서 수(검토 끝난 것), 쓰는 계정(그 부서 계정), 추가 권한으로 쓰는 계정, 만든 기록.
     depts: 부서 목록(사용자 관리의 부서 공용까지 — user_admin.known_depts). 없으면 이 설정이 아는 부서."""
     made = {str(r.get("dept")): r for r in cfg.get("dept_rags", [])}
     depts = depts if depts is not None else known_depts(cfg, accounts)
     counts: dict[str, int] = {}
-    if depts:
+    if depts:                                         # 사업 문서 수는 공간 구성(composition)·공통 RAG 와 같은 집합(_grant_where)으로 센다
+        cond, args = _grant_where({"grant": True, "grant_depts": list(depts)})
         with db._conn() as conn:
             counts = {str(r[0]): int(r[1]) for r in conn.execute(
-                f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
+                f"SELECT COALESCE(dept, '공통'), COUNT(*) FROM documents WHERE {cond} GROUP BY 1", args)}
     regs: dict[str, tuple[int, int]] = {}
     if depts:
         with db._conn() as conn:
@@ -380,7 +384,7 @@ def dept_rag_rows(db, cfg: dict, accounts: dict, depts: list[str] | None = None)
                 depts)}
     grants = cfg.get("grants", {})
     return [{"dept": d, "docs": counts.get(d, 0), "reg_docs": regs.get(d, (0, 0))[0], "reg_chunks": regs.get(d, (0, 0))[1],
-             "members": sorted(u for u, a in accounts.items() if str(a.get("dept") or "").strip() == d),
+             "members": sorted(u for u, a in accounts.items() if not a.get("demo") and str(a.get("dept") or "").strip() == d),
              "granted": sorted(u for u, g in grants.items() if f"dept:{d}" in g),
              "made": made.get(d, {}), "folders": sorted(f for f, v in cfg.get("dept_of_area", {}).items() if v == d)}
             for d in depts]

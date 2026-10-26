@@ -6,10 +6,10 @@
 """
 from __future__ import annotations
 
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from zzaimy.app import grades
 
@@ -20,25 +20,38 @@ router = APIRouter()
 
 @router.get("/dev/rag", response_class=HTMLResponse)
 def dev_rag(request: Request):
-    """RAG 공간 — 검색 공간·규정·기준 문서·계정별 추가 권한·검색 범위 시험(목록은 /dev/rag/regs 로 따로 불러온다).
-    원본 폴더별 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 에서 바꾸고 여기 「RAG 목록」 의 반입 폴더 칸에서 본다."""
+    """RAG 공간 — 위에 공통·학생 RAG 요약, 부서 RAG 목록(찾기·문서 있는 것만 기본), 고른 RAG 의 상세(구성·최소 등급·쓰는 계정),
+    규정·지침 목록(/dev/rag/regs 로 따로 불러온다), 끝에 검색 범위 시험·내려받기. 수치는 모두 이 요청에서 센다."""
     from zzaimy.app import rag_spaces
     st = request.app.state
     db, accounts = st.db, st.accounts
-    data_dir = st.data_dir
-    cfg = rag_spaces.config(data_dir)
-    grants = cfg.get("grants", {})
-    accts = [{"id": u, "role": a.get("role", "staff"), "dept": a.get("dept", ""),
-              "space": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir)["id"],
-              "all_grant": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir).get("grant_depts") is None,
-              "grants": grants.get(u, [])} for u, a in sorted(accounts.items())]
-    spaces = rag_spaces.stats(db, data_dir, accounts)
+    cfg = rag_spaces.config(st.data_dir)
+    spaces = {s["id"]: s for s in rag_spaces.stats(db, st.data_dir, accounts, only=("staff", "student"))}
+    names = {u: ((a or {}).get("name") or "").strip() or u for u, a in accounts.items()}   # 아이디 대신 이름
+    staff_grades = {k: v for k, v in grades.GRADES.items() if k != "member"}
+    mg = cfg.get("min_grade") or {}
+    grade_label = lambda sid: (staff_grades.get(mg.get(sid, "")) or "") and staff_grades[mg[sid]] + " 이상"  # noqa: E731
+    who = lambda ids: [names.get(u, u) for u in ids]  # noqa: E731
+    common, stu = spaces.get("staff") or {}, spaces.get("student") or {}
+    rows = [{"sid": "common", "comp": "space:staff", "kind": "common", "name": "공통 RAG", "docs": common.get("grant_docs", 0),
+             "reg_docs": common.get("reg_docs", 0), "reg_chunks": common.get("reg_chunks", 0),
+             "members": who(common.get("users", [])), "granted": [], "folders": [], "min_grade": mg.get("common", ""),
+             "min_label": grade_label("common"), "lib": "/?type=all&scope=" + quote("공통")},
+            {"sid": "student", "comp": "space:student", "kind": "student", "name": "학생 RAG", "docs": None,
+             "reg_docs": stu.get("reg_docs", 0), "reg_chunks": stu.get("reg_chunks", 0),
+             "members": who(stu.get("users", [])), "granted": [], "folders": [], "min_grade": "", "min_label": "", "lib": ""}]
+    for r in rag_spaces.dept_rag_rows(db, cfg, accounts, st.all_depts()):
+        sid = "dept:" + r["dept"]
+        rows.append({"sid": sid, "comp": "space:" + sid, "kind": "dept", "name": r["dept"], "docs": r["docs"],
+                     "reg_docs": r["reg_docs"], "reg_chunks": r["reg_chunks"], "members": who(r["members"]),
+                     "granted": who(r["granted"]), "folders": r["folders"], "made_at": (r.get("made") or {}).get("at", ""),
+                     "min_grade": mg.get(sid, ""), "min_label": grade_label(sid), "lib": "/?type=all&scope=" + quote(r["dept"])})
+    depts = [r for r in rows if r["kind"] == "dept"]
     return st.templates.TemplateResponse(request, "dev_rag.html", st.page_ctx(request, {
-        "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
-        "dict_grants": {a["id"]: {"space": a["space"], "grants": a["grants"]} for a in accts},
-        "dept_rags": rag_spaces.dept_rag_rows(db, cfg, accounts, st.all_depts()),
-        "staff_grades": {k: v for k, v in grades.GRADES.items() if k != "member"},
-        "names": {u: ((a or {}).get("name") or "").strip() or u for u, a in accounts.items()}}))   # 아이디 대신 이름
+        "rag_rows": rows, "rag_common": rows[0], "rag_student": rows[1], "depts": depts,
+        "dept_filled": [r for r in depts if r["docs"] or r["reg_docs"]],
+        "dept_empty": [r for r in depts if not (r["docs"] or r["reg_docs"])],
+        "cfg": cfg, "staff_grades": staff_grades}))
 
 
 @router.post("/dev/rag/min-grade")
@@ -50,10 +63,16 @@ async def dev_rag_min_grade(request: Request):
     st = request.app.state
     form = await request.form()
     space, grade = str(form.get("space") or "").strip(), str(form.get("grade") or "").strip()
+    wants_json = "application/json" in (request.headers.get("accept") or "")    # 화면은 제자리에서 바꾼다(다시 불러오지 않음)
+
+    def fail(msg: str):
+        if wants_json:
+            return JSONResponse({"error": msg}, status_code=400)
+        return RedirectResponse("/dev/rag?" + urlencode({"err": msg}) + "#dept-rags", status_code=303)
     if grade and grade not in grades.GRADES:
-        return RedirectResponse("/dev/rag?" + urlencode({"err": "등급 값이 올바르지 않습니다"}) + "#dept-rags", status_code=303)
+        return fail("등급 값이 올바르지 않습니다")
     if space != grades.COMMON_SPACE and not (space.startswith("dept:") and space[5:] in st.all_depts()):
-        return RedirectResponse("/dev/rag?" + urlencode({"err": "없는 RAG 입니다"}) + "#dept-rags", status_code=303)
+        return fail("없는 RAG 입니다")
     cfg = dict(rag_spaces.config(st.data_dir))
     mg = {k: v for k, v in (cfg.get("min_grade") or {}).items() if v}
     if grade:
@@ -67,6 +86,8 @@ async def dev_rag_min_grade(request: Request):
     rag_spaces.save_config(cfg, st.data_dir)
     name = "공통 RAG" if space == grades.COMMON_SPACE else f"{space[5:]} 부서 RAG"
     msg = f"{name} 최소 등급 — {grades.GRADES[grade] + ' 이상' if grade else '걸지 않음'}"
+    if wants_json:
+        return {"ok": msg, "space": space, "grade": grade, "label": grades.GRADES[grade] + " 이상" if grade else ""}
     return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#dept-rags", status_code=303)
 
 # 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳에서 저장한다(user_admin — 같은 rag grants). 이 화면의 표·저장 경로는 뺐다(10-26)
@@ -113,6 +134,40 @@ def dev_rag_regs(request: Request, q: str = ""):
         d["title"] = display_title({"filename": d["filename"]}) or d["filename"]
     from zzaimy.app import reindex_state
     return {**got, "reindex_needed": reindex_state.needed(st.db), "reindex_running": st.reindex_running()}
+
+@router.get("/dev/rag/regs/{did}")
+def dev_rag_reg_detail(request: Request, did: int):
+    """규정 한 건의 상세 — 조각 수·조 머리 앞부분·판(제목·본문의 날짜·학년도·번호)·같은 규정의 다른 판. 누를 때 센다."""
+    from zzaimy.app import regulation_register as rr
+    from zzaimy.app.doc_title import display_title
+    db = request.app.state.db
+    d = db.get_document(did)
+    if not d or d.get("doc_type") not in ("regulation", "grant"):
+        raise HTTPException(404, "규정을 찾지 못했습니다")
+    with db._conn() as conn:
+        heads = [str(r[0] or "") for r in conn.execute(
+            "SELECT heading FROM regulation_chunks WHERE doc_id = ? ORDER BY id", (did,))]
+        key = rr.rule_key(d.get("filename") or "")
+        mates = [dict(r) for r in conn.execute(
+            "SELECT id, filename, family, doc_type, created_at FROM documents WHERE doc_type IN ('regulation', 'grant')"
+            " AND status = 'reviewed' AND id <> ? AND (" + " OR ".join("filename LIKE ?" for _ in rr.GENRE_WORDS) + ")",
+            [did, *[f"%{w}%" for w in rr.GENRE_WORDS]])] if key else []
+    texts = rr._texts(db, [did])
+
+    def label(rev: tuple) -> str:
+        acad, no, (y, m, dd) = rev
+        parts = ([f"{y}.{m}.{dd}" if m and dd else f"{y}년"] if y else []) + ([f"{acad}학년도"] if acad else []) + ([f"제{no}호"] if no else [])
+        return " · ".join(parts)
+    rev = label(rr.revision(d.get("filename") or "", d.get("family") or "", texts.get(did, "")))
+    versions = [{"id": m["id"], "title": display_title({"filename": m["filename"] or ""}) or m["filename"] or "",
+                 "registered": m["doc_type"] == "regulation", "at": str(m.get("created_at") or "")[:10]}
+                for m in mates if rr.rule_key(m["filename"] or "") == key]
+    return {"id": did, "title": display_title({"filename": d.get("filename") or ""}) or d.get("filename") or "",
+            "filename": d.get("filename") or "", "registered": d.get("doc_type") == "regulation",
+            "kind": d.get("kind") or "", "audience": d.get("audience") or "", "dept": d.get("dept") or "공통",
+            "at": str(d.get("created_at") or "")[:10], "chunks": len(heads),
+            "headings": [h for h in dict.fromkeys(heads) if h][:8], "revision": rev, "versions": versions[:20]}
+
 
 async def _ids_from(request: Request) -> list[int]:
     body = await request.json()
@@ -186,6 +241,9 @@ def dev_rag_try(request: Request, target: str = "", q: str = "", k: int = 5):
     if target.startswith("user:"):                     # 아이디 대신 사람 이름
         acct = st.accounts.get(target[5:]) or {}
         label = f"{(acct.get('name') or '').strip() or target[5:]} 계정"
+    else:                                              # 공간 id 대신 화면의 RAG 이름
+        sid = target[6:]
+        label = {"staff": "공통 RAG", "student": "학생 RAG", "dev": "관리자 범위"}.get(sid) or (f"{sid[5:]} 부서 RAG" if sid.startswith("dept:") else label)
     res = rag_spaces.preview_search(st.db, sc, term, k=max(1, min(int(k), 10)))
     return {"label": label, "space": sc["space"], "uses_grant": bool(sc.get("grant")), "grant_depts": sc.get("grant_depts"),
             "student_only": sc.get("levels") == ("student",), **res}
