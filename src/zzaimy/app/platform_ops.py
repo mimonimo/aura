@@ -361,8 +361,9 @@ def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str =
         raise OpRefused("안내 자료에 있는 화면 주소만 연다 — platform_help 결과의 주소를 쓴다.")
     if ctx.role not in p.roles:
         raise OpRefused(f"「{p.title}」 은(는) 이 계정으로 열 수 없는 화면이다 — 열 수 있는 계정(관리자 등)에게 요청하라고 안내한다.")
-    marks = {t.selector for t in p.tasks if t.selector}
+    marks = {t.selector: t for t in p.tasks if t.selector}
     sel = selector if selector in marks else ""
+    now = bool(now) and (not sel or marks[sel].auto)        # 화면 옮기기는 바로, 요소 누르기는 자료를 바꾸지 않는 요소만 — 나머지는 가리키기만
     url = path + (f"#{anchor}" if re.fullmatch(r"[\w-]{1,40}", anchor or "") else "")
     items = load(ctx.db, session_id)
     if sum(1 for x in items if x.get("status") == "pending") >= MAX_PENDING:

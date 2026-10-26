@@ -596,6 +596,8 @@
           return;
         }
         if (a.text && /^(INPUT|TEXTAREA)$/.test(hit.tagName)) { typeInto(hit, a.text); return; }
+        // 보안: 서버가 고른 요소라도 화면에서 한 번 더 — 창 열기·링크·입력 칸·표시한 단추만 누른다(폼 제출 단추 등은 가리키기만)
+        if (!hit.matches('[data-modal-open], a[href], input, [data-aura]') || hit.closest('form[method="post" i]')) { note("이 단추는 직접 눌러 주세요."); return; }
         hit.click();
       });
     }

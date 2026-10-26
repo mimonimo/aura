@@ -366,6 +366,9 @@ def test_open_page_now_carries_text_only_for_guide_element(tmp_path, monkeypatch
     ctx = platform_ops.Ctx(db=db, data_dir=tmp_path, user="zzaimy", role="dev")
     bare = platform_ops.propose_open(ctx, sid, "/hwp", "문서함", "", now=True, text="무시")
     assert bare["act"] == {"now": True, "text": ""}               # 가리킬 요소가 없으면 넣을 말도 없다
+    # 보안: 자료를 바꾸는 단추(학생 공개)는 now 를 넣어도 바로 누르지 않고 가리키기만 — [실행] 확인을 거친다
+    risky = platform_ops.propose_open(ctx, sid, "/dev/rag#student-regs", "학생 공개", '[data-rr="student"]', now=True)
+    assert risky["target"]["selector"] == '[data-rr="student"]' and risky["act"]["now"] is False
 
 
 def test_guide_lists_cursor_targets_for_common_requests():
