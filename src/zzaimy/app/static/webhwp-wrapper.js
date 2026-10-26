@@ -232,6 +232,7 @@
       d.addEventListener('keyup', function (e) {
         var k = e.key || '';
         if (k === 'Backspace' || k === 'Delete' || k === 'Enter' || k === 'Tab' || ((k.length === 1 || k === 'Process') && !e.ctrlKey && !e.metaKey)) fire('edit', {composing: composing});
+        else if ((e.ctrlKey || e.metaKey) && /^[vVxXzZyY]$/.test(k)) { lastInput = Date.now(); fire('edit', {composing: composing}); }   // 붙여넣기·잘라내기·되돌리기 — 기안기는 문서 안 복사를 자체 클립보드로 해 paste 사건이 오지 않는다
         fire('caret', e);
       }, true);
       d.addEventListener('pointerup', function (e) { setTimeout(function () { fire('caret', e); }, 0); }, true);

@@ -436,5 +436,9 @@ coedit:form_mode=1 이면 예전 양식 모드.
   겹친 이름은 다른 칸 안에 들어간 복사본 쪽을 새 이름으로 바꿔 원래 자리의 「절:2」 가 그 이름을 지킨다.
 - 칸 안의 칸 설정값을 글로 읽던 것(운영 실측): 칸째 붙여넣기로 칸 안에 칸이 들면 서버의 칸 글 읽기(field_values·fields·_frag_text)가 안쪽 칸의
   설정값(<hp:parameters> — 「9Clickhere:set:42:Direction…」)까지 글로 읽어 DB 에 넣었고, 화면들이 다시 맞추며 문서에 박혔다. 설정값을 빼고 읽는다.
+- 사건 없는 고침(운영 실측): 기안기는 문서 안 복사·붙여넣기를 자체 클립보드로 해 paste·input 사건이 오지 않았다 — 빈 칸에 붙인 글이 다른 화면에
+  가지 않았다. 안전장치로 1.5초마다(조합·받아 넣는 중·받을 글이 기다리는 칸 빼고) 칸 수가 바뀌었으면 구조 고침으로, 지금 칸의 글이 아는 글과
+  다르면 그 칸을 보내고 서식째도 잰다. Ctrl/⌘+V·X·Z·Y 를 뗄 때도 고침으로 본다.
+- 운영 실측(같은 날): 칸 안에서 기울임 — 선택이 살아 있는 채 걸리고 1초 안에 다른 두 화면 같은 자리. 굵게는 이 웹 글꼴(함초롬바탕)에 굵은 꼴이 없어 화면 차이가 안 보인다.
 - 시험: test_structure_save_wraps_new_paragraphs_and_renames_duplicates, test_structure_save_keeps_savers_own_fields,
   test_field_values_skip_nested_field_parameters.

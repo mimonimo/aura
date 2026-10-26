@@ -682,6 +682,21 @@
         if (ops.length) { try { fetch(base + '/ops', {method: 'POST', keepalive: true, credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({client: client, ops: ops})}); } catch (e) {} }
         try { navigator.sendBeacon(base + '/leave?client=' + encodeURIComponent(client), new Blob([JSON.stringify({client: client})], {type: 'application/json'})); } catch (e) {}
       });
+      // 안전장치(10-26) — 사건 없이 바뀐 것 알아채기. 기안기의 문서 안 붙여넣기·끌어 놓기·서식 창은 입력 사건을 내지 않을 때가 있다.
+      // 1.5초마다(조합·받아 넣는 중 빼고) 칸 수가 바뀌었으면 구조 고침으로, 지금 칸의 글이 아는 글과 다르면 그 칸을 보낸다(가벼운 두 번 묻기)
+      setInterval(function () {
+        if (!started || applying || !fieldsMode() || hwp.isComposing() || hwp.isProbing() || (o.structureMode && o.structureMode())) return;
+        var n = hwp.fields().length;
+        if (n !== fieldList.length) { emit('outside-edit'); return; }
+        var f = curField;
+        if (!f || !fieldSet[f] || dirty[f] || outbox[f] || inbox[f] || heldByOther(f)) return;   // 받을 글이 기다리는 칸은 건드리지 않는다(남의 새 글을 옛 글로 덮지 않게)
+        var t = hwp.read(f), k = known[f];
+        if (t !== null && k && norm(t) !== k.text) {
+          if (!mine[f]) acquire(f);
+          dirty[f] = true; lastEdit = {f: f, at: now()}; scheduleFlush();
+          if (conf.rich) { richDirty[f] = true; scheduleRich(); }
+        }
+      }, 1500);
       return resync(true).then(function () { if (fieldsMode()) hwp.setFormMode(formOnly()); started = true; connect(); presence(true); checkCaret(); return replay(); });
     }
     // 새 판을 다시 연 뒤 — 필드 목록·편집 가능·서버 칸 글을 다시 맞춘다
