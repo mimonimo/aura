@@ -85,13 +85,16 @@ def test_rag_page_sections(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("RAG 목록", "공통 RAG", "기준 문서(문서·조각)", "검색 범위 시험",
+    for text in ("RAG 목록", "공통 RAG", "학생 RAG", "기준 문서·조각", "검색 범위 시험",
                  "규정·지침", "dept:가부서"):
         assert text in r.text, text
+    # 부서 RAG 는 문서 있는 것만 기본으로 보이고, 빈 부서는 한 줄 요약에서 펼친다 — 줄마다 같은 단추 없음
+    assert "문서 없는 부서" in r.text and 'data-comp=' not in r.text and "구성 보기" not in r.text
+    assert "합계 사업 문서" not in r.text                                      # 표 아래 합계 문장 없음
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
     assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="#student-regs"' in r.text
     # 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳 — 여기는 한 줄 안내(10-26)
-    assert 'id="rgGrantTable"' not in r.text and 'href="/dev/users"' in r.text
+    assert 'id="rgGrantTable"' not in r.text and 'href="/dev/users#depts"' in r.text
     assert r.text.index("규정·지침</h2>") < r.text.index('id="rgTryToggle"')
 
 def _archive(db, rels):
@@ -190,7 +193,7 @@ def test_space_composition_and_regulation_kind_column(tmp_path, monkeypatch):
     rows = {s["id"]: s for s in rag_spaces.stats(db, tmp_path, {"u-ga": {"role": "staff", "dept": "가부서"}})}
     assert rows["staff"]["grant_docs"] == 0                    # 부서 없는 교직원은 공통 RAG 만 — 부서 문서는 보이지 않는다
     assert rows["student"]["reg_docs"] == 1 and rows["student"]["grant"] is False
-    assert "학생 공개 규정 없음" not in c.get("/dev/rag").text
+    assert "data-stu-empty hidden" in c.get("/dev/rag").text           # 학생 공개 규정이 있으면 빈 안내는 숨김(규정을 바꾸면 화면이 다시 센다)
 
 
 def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
@@ -216,3 +219,24 @@ def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
     assert r.headers["location"] == f"/doc/{reg_t}"
 
 
+
+
+def test_rag_page_counts_are_live_and_detail_endpoints(tmp_path, monkeypatch):
+    """화면 수치는 요청 때 센다 — 문서를 더하면 다시 열 때 바로 바뀐다. 규정 상세·최소 등급 제자리 저장(JSON)."""
+    c = _client(tmp_path)
+    db, ga, na, reg_s, reg_t = _search_fixture(tmp_path, monkeypatch)
+    rows = lambda: json.loads(c.get("/dev/rag").text.split('id="rgRows">', 1)[1].split("</script>", 1)[0])  # noqa: E731
+    first = {r["sid"]: r for r in rows()}
+    assert first["dept:가부서"]["docs"] == 1 and first["student"]["reg_docs"] == 1
+    extra = db.add_document("가부서 결과.hwp", "x", doc_type="grant", dept="가부서", access_level="public")
+    db.update_document(extra, status="reviewed")
+    assert {r["sid"]: r for r in rows()}["dept:가부서"]["docs"] == 2
+    c.post("/dev/rag/regs/audience", json={"ids": [reg_t], "audience": "student"})
+    assert {r["sid"]: r for r in rows()}["student"]["reg_docs"] == 2
+    d = c.get(f"/dev/rag/regs/{reg_t}").json()
+    assert d["registered"] is True and d["chunks"] == 2 and d["audience"] == "student"
+    assert c.get("/dev/rag/regs/999999").status_code == 404
+    got = c.post("/dev/rag/min-grade", data={"space": "dept:가부서", "grade": "lead"}, headers={"Accept": "application/json"}).json()
+    assert got["grade"] == "lead" and got["label"].endswith("이상")
+    assert c.post("/dev/rag/min-grade", data={"space": "dept:없음", "grade": "lead"}, headers={"Accept": "application/json"}).status_code == 400
+    assert c.get("/dev/rag/try", params={"target": "space:dept:가부서", "q": "장비"}).json()["label"] == "가부서 부서 RAG"
