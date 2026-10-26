@@ -303,6 +303,19 @@ def _pdf_locked(file_path: Path) -> bool:
     return False
 
 
+def _hwp5_locked(file_path: Path) -> bool:
+    """열람 암호가 걸린 한글(HWP 5.0)인가 — 파일 머리(FileHeader) 속성의 「암호 설정」 비트. 판별 도구가 없거나 OLE 가 아니면 모른다고 본다."""
+    try:
+        import olefile
+        if not olefile.isOleFile(str(file_path)):
+            return False
+        with olefile.OleFileIO(str(file_path)) as ole:
+            head = ole.openstream("FileHeader").read(40)
+    except Exception:
+        return False
+    return len(head) >= 40 and bool(int.from_bytes(head[36:40], "little") & 0x02)
+
+
 def _format_mismatch(file_path: Path) -> str | None:
     """열어 보기 전에 형식을 확인한다. 맞으면 None, 아니면 사람이 읽을 이유."""
     want = _MAGIC.get(file_path.suffix.lower())
@@ -485,10 +498,20 @@ class DocumentProcessor:
             if suffix not in (".txt", ".md"):
                 self._last_parse_note = f"{suffix.lstrip('.').upper()} 본문 글자 읽기"
             return text
-        if suffix == ".hwp":
-            return self._parse_hwp_structured(file_path)
-        if suffix == ".hwpx":
-            return self._parse_hwpx_structured(file_path)
+        if suffix in (".hwp", ".hwpx"):
+            if suffix == ".hwp" and _hwp5_locked(file_path):
+                raise RuntimeError("문서 판독 실패 (암호가 걸린 한글 문서)")
+            try:
+                return self._parse_hwp_structured(file_path) if suffix == ".hwp" else self._parse_hwpx_structured(file_path)
+            except Exception as e:
+                # 우리 읽기 도구(kordoc·pyhwp·hwpx 파서)가 모두 못 읽은 한글 — 기안기 서버(한글 필터)로 열어 hwpx 로 다시 저장해
+                # 한 번 더 읽는다. 암호 문서는 풀지 않는다(UNREADABLE 과 같은 방침). 기안기가 없거나 못 열면 처음 오류 그대로
+                if "암호" in str(e) or os.environ.get("ZZAIMY_HWP_RESAVE", "1") == "0":
+                    raise
+                text = self._parse_resaved_hwp(file_path)
+                if text is None:
+                    raise
+                return text
         if suffix == ".pdf":
             # 쪽수가 많은 디지털 PDF 는 글자층을 그대로 읽는다.
             # 구조 추출(MinerU)은 이런 문서에서 제한 시간을 다 쓰고도 아무것도 내놓지 못하고
@@ -2287,6 +2310,30 @@ class DocumentProcessor:
             self._last_parse_note += f" · 그림 글자 OCR {len(self._last_image_text)}장"
         return self._compose_text(parsed, self._last_image_text)
 
+    def _parse_resaved_hwp(self, file_path: Path) -> str | None:
+        """기안기로 열어 hwpx 로 다시 저장한 사본을 읽는다 — 못 하면 None(read_failure.resave_hwp)."""
+        import shutil
+        import tempfile
+
+        from zzaimy.app import read_failure
+
+        tmp = Path(tempfile.mkdtemp(prefix="zz-resave-"))
+        try:
+            src = tmp / file_path.name
+            shutil.copyfile(file_path, src)
+            try:
+                out = read_failure.resave_hwp(src)
+            except Exception as e:
+                log.warning("기안기로 다시 저장 못 함(%s) — %s", type(e).__name__, file_path.name)
+                return None
+            text = self._parse_hwpx_structured(out)
+            if not (text or "").strip():
+                return None
+            self._last_parse_note = "기안기로 다시 저장해 읽음 · " + (self._last_parse_note or "")
+            return text
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def _parse_hwpx_structured(self, file_path: Path) -> str:
         """HWPX — 문단·표(병합 셀)·그림·캡션을 구조로. 실패하면 태그 제거 텍스트로 폴백."""
         try:
@@ -2364,7 +2411,11 @@ class DocumentProcessor:
         with zipfile.ZipFile(file_path) as zf:
             for name in sorted(zf.namelist()):
                 if name.startswith("Contents/section") and name.endswith(".xml"):
-                    xml = zf.read(name).decode("utf-8", errors="replace")
+                    raw = zf.read(name)
+                    if raw and not raw[:64].lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<"):
+                        # 섹션이 XML 이 아니다 — 배포용(암호로 잠긴) HWPX. 태그를 걷으면 깨진 바이트가 본문으로 들어가므로 실패로 남긴다
+                        raise RuntimeError("문서 판독 실패 (암호가 걸린 한글 문서 — 배포용 HWPX)")
+                    xml = raw.decode("utf-8", errors="replace")
                     text = re.sub(r"<[^>]+>", "\n", xml)
                     parts.append(re.sub(r"\n{2,}", "\n", text).strip())
         return "\n\n".join(parts)
@@ -2832,6 +2883,11 @@ class DocumentProcessor:
         except Exception as e:  # 실패도 기록이 남아야 화면에서 보인다
             log.exception("doc %d 처리 실패", doc_id)
             db.update_document(doc_id, status="failed", error=f"{type(e).__name__}: {e}")
+            try:                    # 스캔본(판독 없음)은 글자 읽기 대기열로 — 판독 서버가 닿으면 다시 읽는다(read_failure)
+                from zzaimy.app import read_failure
+                read_failure.after_failure(db, doc_id, f"{e}")
+            except Exception:
+                log.warning("doc %d 글자 읽기 대기열 넣기 실패", doc_id)
         finally:
             # 반입 중 제목이 본문 제목으로 바뀌었으면 문서 폴더 이름도 따라간다(ADR-0030). 실패해도 반입 결과는 그대로.
             try:
