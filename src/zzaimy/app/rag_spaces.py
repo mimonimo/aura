@@ -156,7 +156,8 @@ def stats(db, data_dir: str | Path, accounts: dict) -> list[dict]:
                 n_grant = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where[0]}", where[1]).fetchone()[0]
                 n_grant_reg = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where[0]} AND kind = 'regulation'",
                                            where[1]).fetchone()[0]
-        users = [u for u, a in accounts.items() if resolve(a.get("role", "staff"), a.get("dept"), data_dir)["id"] == sid]
+        users = [u for u, a in accounts.items() if not a.get("demo")      # 공동 편집 시연 계정(로그인 불가)은 쓰는 계정이 아니다
+                 and resolve(a.get("role", "staff"), a.get("dept"), data_dir)["id"] == sid]
         rows.append({"id": sid, "label": resolve(who["role"], who["dept"], data_dir)["label"], "reg_chunks": len(reg),
                      "reg_docs": len({r["doc_id"] for r in reg}), "grant": bool(sc.get("grant")),
                      "grant_depts": sc.get("grant_depts"), "grant_docs": int(n_grant), "grant_reg_docs": int(n_grant_reg),
