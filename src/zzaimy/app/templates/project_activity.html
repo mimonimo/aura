@@ -49,8 +49,8 @@
     {% if r.at[:10] != ns.day %}{% set ns.day = r.at[:10] %}<p class="pa-day" data-pa-day="{{ ns.day }}">{{ ns.day or '날짜 없음' }}</p>{% endif %}
     <a class="pa-req" href="/chat/{{ r.session }}" data-user="{{ r.user }}" data-day="{{ r.at[:10] }}" data-text="{{ (r.title ~ ' ' ~ r.text)|lower }}">
       <span class="pa-avatar sm" aria-hidden="true">{{ r.name[:1] }}</span>
-      <span class="pa-req-main"><span class="pa-req-top"><span class="pa-req-title">{{ r.title }}</span><span class="pa-sub">{{ r.name }}</span></span>
-        <span class="pa-req-head">{{ r.head }}</span></span>
+      <span class="pa-req-main"><span class="pa-req-top"><span class="pa-req-title">{{ r.head or r.title }}</span><span class="pa-sub">{{ r.name }}</span></span>
+        <span class="pa-req-conv" title="대화">{{ r.title }}</span></span>
       <span class="pa-when">{{ r.at[11:16] }}</span>
     </a>
     {% else %}

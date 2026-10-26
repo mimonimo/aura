@@ -11,7 +11,8 @@
 .pa-stat-s { font-size:11.5px; color:#8a96a6; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* 격자 — 왼쪽 참여자(좁게)·오른쪽 요청 기록(넓게), 아래 사용량·작업 요약 */
-.pa-grid { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 3fr); gap:16px; align-items:start; }
+.pa-grid { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 3fr); gap:16px; align-items:start; grid-template-areas:'people req' 'usage req' 'sum sum'; }
+.pa-people { grid-area:people; } .pa-requests { grid-area:req; } .pa-usage { grid-area:usage; } .pa-summary { grid-area:sum; }   /* 요청 기록이 오른쪽 두 줄을 차지 — 왼쪽 칸 사이 빈 공간 없게 */
 .pa-box { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; min-width:0; }
 .pa-box-head { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0 0 10px; min-height:32px; }
 .pa-box-head h2 { margin:0; font-size:14px; font-weight:650; color:var(--ink); }
@@ -56,6 +57,7 @@
 .pa-req-main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px; }
 .pa-req-top { display:flex; align-items:baseline; gap:8px; min-width:0; }
 .pa-req-title { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pa-req-conv { color:#7a8594; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }   /* 요청 글이 주인공, 대화 제목은 작게 — 같은 대화의 요청마다 제목만 되풀이되던 것 */
 .pa-req-head { color:#55606e; font-size:12.5px; line-height:1.55; white-space:pre-line; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .pa-when { flex:none; font-size:11.5px; color:#8a96a6; white-space:nowrap; font-variant-numeric:tabular-nums; }
 
@@ -84,7 +86,7 @@
 .pa-btn[disabled] { opacity:.6; cursor:default; }
 
 @media (max-width:1100px) {
-  .pa-grid { grid-template-columns:minmax(0, 1fr); }
+  .pa-grid { grid-template-columns:minmax(0, 1fr); grid-template-areas:'people' 'req' 'usage' 'sum'; }
 }
 @media (max-width:640px) {
   .pa-stats { grid-template-columns:repeat(2, minmax(0, 1fr)); }
