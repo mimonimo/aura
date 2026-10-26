@@ -181,5 +181,5 @@ def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
     db = app.state.db
     from zzaimy.app import webhwp_agent as wa
     assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and "비어 있는 절" in q
-    assert "AURA(27B)가 빈 절을 골라 쓰는 중" in dev.get(r.headers["location"]).text
+    assert "AURA(27B)에게 빈 절 하나를 맡겼습니다" in dev.get(r.headers["location"]).text
     assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404

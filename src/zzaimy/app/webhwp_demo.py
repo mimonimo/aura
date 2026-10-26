@@ -297,7 +297,7 @@ def coedit_demo(request: Request, id: int | None = None, mode: str = "", aura: s
              for s, (uid, name) in SLOTS.items()]
     return st.templates.TemplateResponse(request, "coedit_demo.html", {
         "request": request, "cur": cur, "mode": mode, "panes": panes, "missing": missing, "label": label,
-        "aura_note": {"1": "AURA(27B)가 빈 절을 골라 쓰는 중 — 1~2분", "busy": "AURA가 아직 앞 요청을 쓰는 중입니다"}.get(aura, "")})
+        "aura_note": {"1": "AURA(27B)에게 빈 절 하나를 맡겼습니다 — 1~2분 뒤 세 화면에 함께 나타납니다", "busy": "AURA가 아직 앞 요청을 쓰는 중입니다"}.get(aura, "")})
 
 
 @router.post("/dev/coedit-demo/new")

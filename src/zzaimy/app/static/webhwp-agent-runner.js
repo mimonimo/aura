@@ -107,6 +107,8 @@
       });
   }
 
+  // 글 속 줄바꿈 — 편집기는 \r\n 만 문단 나눔으로 받는다. \n 만 주면 1)…2)… 가 한 줄로 붙었다(10-26 AURA 시연)
+  function paras(items) { if (!items || typeof items.Text !== 'string') return items; var o = {}; for (var k in items) o[k] = items[k]; o.Text = items.Text.replace(/\r?\n/g, '\r\n'); return o; }
   var KINDS = {field: 1, find: 1, run: 1, exec: 1, text: 1, assert: 1, read: 1, picture: 1};
   // 단계를 차례로 — 그림만 기다림이 있어 Promise 로 잇는다. 결과 {changed, data}
   function runSteps(cmd) {
@@ -119,8 +121,8 @@
       else if (st[0] === 'find') { if (!find(st[1], st[2])) throw new Error('「' + st[1] + '」 을 ' + st[2] + '번째까지 찾지 못했습니다'); }
       else if (st[0] === 'assert') { if (!inTable()) throw new Error('표 칸이 아닙니다'); }
       else if (st[0] === 'run') { if (h.run(st[1]) === false) throw new Error(st[1] + ' 동작이 실패했습니다'); if (!/^(Move|Cancel|TableCellBlock|Table(Right|Lower)Cell$|Select$)/.test(st[1])) changed = true; }
-      else if (st[0] === 'exec') { if (h.exec(st[1], st[2]) === false) throw new Error(st[1] + ' 동작이 실패했습니다'); if (st[1] !== 'ForwardFind') changed = true; }
-      else if (st[0] === 'text') { h.insertText(st[1]); changed = true; }
+      else if (st[0] === 'exec') { if (h.exec(st[1], st[1] === 'InsertText' ? paras(st[2]) : st[2]) === false) throw new Error(st[1] + ' 동작이 실패했습니다'); if (st[1] !== 'ForwardFind') changed = true; }
+      else if (st[0] === 'text') { h.insertText(paras({Text: st[1]}).Text); changed = true; }
       else if (st[0] === 'read') { data = read(st[1]); }
       else if (st[0] === 'picture') { changed = true; return picture(cmd.id, st[1], st[2]).then(next); }
       return Promise.resolve().then(next);

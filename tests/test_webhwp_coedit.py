@@ -858,7 +858,7 @@ def test_follow_person_aura_requester_and_short_offline_blip():
     assert "if (was === 'follow') { if (following) stopFollow(); }" in ui        # 띠를 닫으면 멈추고, 다른 안내가 끝나면 띠를 다시
     # AURA — 누구 요청인지
     assert "'AURA' + (n ? ' (' + n + ' 요청)' : '')" in c
-    assert "'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 을 쓰는 중'" in c
+    assert "'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 쓰는 중'" in c
     assert "AuraCollab.auraText(eng, a)" in html and "'AURA · '" not in ui
     # 잠깐 끊김 — 처음에는 「다시 연결하는 중」(노랑), 오래가면 「오프라인」, 그사이 몇 초마다 다시 찔러 본다
     assert "emit('status', 'reconnecting', '다시 연결하는 중')" in c and "OFF_GRACE = 20000" in c

@@ -138,6 +138,8 @@
   .outside-tip { position:fixed; z-index:60; display:flex; align-items:center; gap:8px; max-width:420px; padding:8px 10px; border-radius:10px;
     background:#1F2937; color:#fff; font-size:12.5px; box-shadow:0 6px 20px rgba(15,23,42,.25); }
   .outside-tip[hidden] { display:none; }
+  .btn.struct-on { background:#FEF3C7; border-color:#F59E0B; color:#92400E; font-weight:600; }
+  .btn.struct-on[hidden] { display:none; }
   .outside-tip button { flex:none; min-height:0; padding:5px 10px; border-radius:7px; border:0; background:#fff; color:#1F2937; font-size:12px; font-weight:600; cursor:pointer; }
   .outside-tip button.ghost { background:transparent; color:#cbd5e1; padding:4px 6px; }
 </style>
@@ -152,6 +154,7 @@
     {% else %}<span class="name" data-name>새 문서</span>{% endif %}
     <span class="sub">{% if f %}<a class="where" href="{{ back }}"{% if embed %} target="_blank" rel="noopener"{% endif %} title="문서함에서 이 폴더 열기"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ ([('공동 편집 시연' if dept == '~시연' else dept)] + (folder.split('/') if folder else [])) | join(' › ') }}</span></a>{% endif %}<span class="state" data-state data-kind="busy" role="status" aria-live="polite"><span class="dot"></span><span data-msg>불러오는 중</span></span></span>
   </div>
+  {% if not readonly %}<button type="button" class="btn struct-on" data-struct-end hidden title="문서 틀 고치기를 끝내고 저장합니다 — 그동안 다른 사람은 칸 안만 씁니다"><iconify-icon icon="solar:pen-new-square-linear" aria-hidden="true"></iconify-icon>문서 틀 고치는 중 · 끝내기</button>{% endif %}
   <span class="co-avatars" data-people role="group" aria-label="지금 이 문서에 있는 사람"></span>
   {% if readonly %}<form action="/hwp/{{ f.id }}/copy" method="post" style="margin:0;" data-copy-form><button type="submit" class="btn primary" title="고른 폴더에 사본을 만들어 엽니다"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon>사본 만들기</button></form>
   {% else %}{% if not f %}<button type="button" class="btn primary" data-save disabled title="저장할 곳과 이름을 정해 만들기 — 그 뒤로는 자동 저장"><iconify-icon icon="solar:diskette-linear" aria-hidden="true"></iconify-icon><span class="label-long">만들기</span></button>{% endif %}{% endif %}
@@ -304,7 +307,7 @@
   }
   // ── 같이 쓰기 ──
   // 머리줄 상태 — 저장 상태(저장됨·저장 중·다시 연결하는 중·오프라인). 다 저장됐고 AURA 가 쓰는 중이면 누구 요청으로 어디를 쓰는지
-  // (「AURA가 김가람 님 요청으로 「4. 향후 계획」 을 쓰는 중」 — 「AURA」 만으로는 누구 일인지 몰랐다, 10-26)
+  // (「AURA가 김가람 님 요청으로 「4. 향후 계획」 쓰는 중」 — 「AURA」 만으로는 누구 일인지 몰랐다, 10-26)
   var coStatus = null;
   function drawCoStatus() {
     if (!coStatus || mode !== 'fields' || structMine && (saving || dirty)) return;
@@ -365,7 +368,9 @@
           return eng.reopened();
         }).then(function () {
           hwp.restoreCursor(cur); dirty = false; notice.hidden = true;
-          say(!who.by ? '최신 판을 불러왔습니다' : (who.by === 'AURA' ? 'AURA' : (who.by_name || who.by) + ' 님') + '의 새 판을 불러왔습니다', 'ok');
+          // AURA 명령은 시킨 사람의 편집기에서 돌아 저장자가 그 사람으로 온다 — AURA 가 그 사람 일로 쓰는 중이면 AURA 판으로 알린다(10-26)
+          var au = eng && eng.aura ? eng.aura() : {}, byAura = who.by === 'AURA' || (au.field && au.by && au.by === who.by);
+          say(!who.by ? '최신 판을 불러왔습니다' : (byAura ? AuraCollab.auraLabel(eng, au.by ? au : {by: who.by}) : (who.by_name || who.by) + ' 님') + '의 새 판을 불러왔습니다', 'ok');
         });
       }).catch(function (e) { say(e.message || '새 판을 불러오지 못했습니다', 'bad'); });
     })();
@@ -377,7 +382,8 @@
   function post(url) { return fetch(url, {method: 'POST', credentials: 'same-origin'}).then(function (r) { return r.json(); }); }
   function drawStruct() {
     var b = document.querySelector('[data-struct]'); if (!b) return;
-    var lab = b.querySelector('[data-struct-label]'), hint = b.querySelector('[data-struct-hint]');
+    var lab = b.querySelector('[data-struct-label]'), hint = b.querySelector('[data-struct-hint]'), endb = document.querySelector('[data-struct-end]');
+    if (endb) endb.hidden = !structMine;                                   // 켜진 동안 머리줄에 늘 보이게 — 메뉴 안에만 있으면 끝내는 곳을 못 찾는다(10-26)
     if (structMine) { lab.textContent = '문서 틀 고치기 끝내기'; hint.textContent = '저장'; b.disabled = false; }
     else if (structBy && structBy !== me) { lab.textContent = eng.nameOf(structBy) + ' 님이 문서 틀 고치는 중'; hint.textContent = ''; b.disabled = true; }
     else { lab.textContent = '문서 틀 고치기'; hint.textContent = '제목·표·용지'; b.disabled = false; }
@@ -399,6 +405,8 @@
   }
   var sbtn = document.querySelector('[data-struct]');
   if (sbtn) sbtn.addEventListener('click', function () { menu.hidden = true; if (structMine) structOff(); else structOn(); });
+  var ebtn = document.querySelector('[data-struct-end]');
+  if (ebtn) ebtn.addEventListener('click', function () { if (structMine) structOff(); });
   // 칸 밖 누름 알아채기 — 누른 자리와 커서 자리가 크게 떨어지면(칸 모드라 커서가 따라가지 않음) 그 자리에 안내를 띄운다.
   // 「여기 고치기」 는 문서 틀 고치기(구조 잠금)를 켠다 — 남이 쥐고 있으면 누가 고치는 중인지 알린다
   function wireOutsideTip() {          // 편집기(hwp)가 만들어진 뒤 부른다
@@ -424,7 +432,7 @@
       go.hidden = !!other;
       tip.style.left = Math.max(8, Math.min(window.innerWidth - 420, px - 40)) + 'px';
       tip.style.top = Math.max(8, Math.min(window.innerHeight - 60, py + 14)) + 'px';
-      tip.hidden = false; clearTimeout(hideT); hideT = setTimeout(hide, 7000);
+      tip.hidden = false; clearTimeout(hideT); hideT = setTimeout(hide, 10000);
     });
   }
   var cbtn = document.querySelector('[data-conflicts]');

@@ -2310,7 +2310,7 @@ class EditTools:
         except EditError as e:
             return None, "보내지 않았다 — " + str(e)
         if writes:
-            self.hw._mark(fid, f"기안기 · {label}")
+            self.hw._mark(fid, field or f"기안기 · {label}")   # 칸이 있으면 칸 이름 — 머리줄이 「「기안기 · 글 넣기」 을 쓰는 중」 이었다(10-26)
         if not editor_open(db, fid, 2):
             return c, (f"기안기를 열면 이어서 합니다 — 「{label}」 명령을 줄에 두었다(10분 안에 열면 실행). "
                        "바로 파일에 반영해야 하면 hwp_page_setup·hwp_table_edit 같은 파일 도구를 쓴다.")

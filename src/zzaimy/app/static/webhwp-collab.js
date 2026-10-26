@@ -672,10 +672,10 @@
   // AURA 는 시킨 사람에게 딸린다 — 여러 사람이 AURA 를 부르면 「AURA」 만으로는 누구 일인지 몰랐다(10-26 시연). 이름은 알림의 by_name·처음 상태의 names 로 안다
   function auraBy(eng, a) { var b = a && a.by; return b && b !== 'AURA' ? eng.nameOf(b) : ''; }
   function auraLabelOf(eng, a) { var n = auraBy(eng, a); return 'AURA' + (n ? ' (' + n + ' 요청)' : ''); }
-  function auraText(eng, a) {                          // 머리줄 상태 — 「AURA가 김가람 님 요청으로 「4. 향후 계획」 을 쓰는 중」
+  function auraText(eng, a) {                          // 머리줄 상태 — 「AURA가 김가람 님 요청으로 「4. 향후 계획」 쓰는 중」
     if (!a || !a.field) return '';
     var n = auraBy(eng, a);
-    return 'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 을 쓰는 중';
+    return 'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 쓰는 중';
   }
 
   function ui(eng, hwp, o) {
