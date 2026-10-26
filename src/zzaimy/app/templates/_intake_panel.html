@@ -30,6 +30,8 @@
     <span>{{ metric_label("archive_originals", live.at, "학교 원본") }} <b>{{ lg.originals|num }}</b></span>
     <span class="muted">자동 — 점검은 동기화 때마다, 빠진 원본 다시 들이기는 매일 04:30 · 마지막 점검 {{ p.at }}</span>
   </p>
+  {# 자동 작업이 도는지 한 줄로 — 따로 「최근 실행」 표를 두던 것(10-26 「이건 왜 있으며」) #}
+  <p class="muted ik-sum">마지막 실행 — {% for k, label in [("parsed", "결과 받기"), ("index", "색인"), ("full", "장부 맞추기"), ("graph", "그래프")] %}{{ label }} {{ ((p.sync.get(k) or {}).get("at", "") or "기록 없음")[-5:] }}{% if k == "graph" and p.sync_text.get("graph") %}({{ p.sync_text.get("graph") }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</p>
   <p class="muted ik-sum">처리 안 함 {{ (lg.total - lg.originals)|num }} · 따로 모은 파일 {{ lg.cleaned|num }} · 변환 중간 파일 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% if p.dgx_listing is not none %} · DGX 목록 {{ p.dgx_listing|num }}{% endif %}</p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
   {% endif %}
@@ -128,14 +130,4 @@
 </div></section>
 {% endif %}
 
-<section class="card"><div class="card-in">
-  <h2>최근 실행</h2>
-  <table class="ik-table">
-    {% for k, label in [("full", "원본 장부 맞추기(목록이 바뀌면 바로, 아니면 1시간)"), ("parsed", "DGX 결과 받기(1분)"), ("index", "검색 색인(1분)"), ("lexical", "키워드 색인"), ("graph", "그래프"), ("audit", "점검")] %}
-    <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (p.sync.get(k) or {}).get("at", "기록 없음") }}</td>
-      {% set summary = p.sync_text.get(k, "") %}
-      <td>{% if k == "full" and p.dgx_listing is not none %}{{ metric_label("dgx_listing", (p.sync.get(k) or {}).get("at", ""), "DGX 목록") }} {{ p.dgx_listing|num }}{% if " · " in summary %} · {{ summary.split(" · ", 1)[1] }}{% endif %}{% elif k == "graph" %}{{ p.sync_text.get("graph", "") or summary }}{% else %}{{ summary }}{% endif %}</td></tr>
-    {% endfor %}
-  </table>
-</div></section>
 {% endif %}

@@ -80,7 +80,7 @@ def test_intake_page_names_school_originals_and_folds_graph_counts(tmp_path):
     assert "(절대 규칙 11)" not in page and "<details" not in page and "▶" not in page   # 접기 없이 한 표
     after = page.split("<h2>라이브러리 다음 단계", 1)[1].split("</section>", 1)[0]       # 제목 뒤에 「점검 … 기준」
     assert "45,678" in after and "31,234" in after
-    assert "문서 38,573 · 조각 1,980,742" in page.split("최근 실행", 1)[1]                    # 마지막 그래프 작업은 최근 실행 표의 그래프 줄에(10-26)
+    assert "문서 38,573 · 조각 1,980,742" in page.split("마지막 실행", 1)[1]                  # 마지막 그래프 작업은 반입 점검 머리의 「마지막 실행」 한 줄에(10-26)
     assert "38573" not in page
 
 
