@@ -1,6 +1,7 @@
 {# 라이브러리 — 문서를 보는 곳은 여기 하나다. 제목은 「라이브러리」 하나, 탭이 문서(등록 문서 한 목록, 기준은 쓰임새 칩) / 원본 보관소(학교 원본 파일). ADR-0062
    두 화면이 같은 머리·탭·한 줄 설명을 써서 탭을 오가도 탭 줄 높이가 같다. lib_desc 로 설명 줄을 바꾼다(업무를 고른 문서 목록 등) #}
 {% set lp = request.url.path %}
+<style>main:has(.library-tabs) { max-width:min(1840px, 100%); }</style>{# 두 탭이 같은 폭 — 탭을 오갈 때 본문 폭이 들썩이지 않게 #}
 <section class="page-head library-head" aria-label="라이브러리"><h1>라이브러리</h1></section>
 <nav class="space-links library-tabs" aria-label="라이브러리">
   <a href="/?type=all" {% if lp in ('/', '/inbox') %}aria-current="page"{% endif %}>{{ library_tabs.docs }}</a>

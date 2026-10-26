@@ -248,6 +248,19 @@ def rail(conn, where: str, args: list, rep: dict[str, str] | None = None) -> lis
 # ---- 사업 한눈에 보기 — 사업을 고르면 목록 위에 사업 머리·연도 × 서류 갈래 표·주요 문서 ----
 # 지난 사업을 찾는 일이 라이브러리의 주된 쓰임이라, 사업을 고르면 문서 줄보다 먼저 사업의 모양(어느 해에 어떤 서류가 몇 건)을 보인다.
 # 표는 SQL GROUP BY 한 번으로 센다(문서 수만 건을 파이썬으로 훑지 않는다). 사업 정보는 장부(kg_external.json)에 적힌 것만 쓴다.
+def _uniq_names(names) -> list[str]:
+    """장부 부서 이름에서 점·띄어쓰기만 다른 것(LINC3.0사업단·LINC30사업단)을 하나로 — 먼저 나온 표기를 쓴다."""
+    import re
+    seen, out = set(), []
+    for n in names:
+        n = str(n or "").strip()
+        k = re.sub(r"[\W_]+", "", n).lower()
+        if n and k not in seen:
+            seen.add(k)
+            out.append(n)
+    return out
+
+
 MATRIX_COLS = 7                                  # 따로 세우는 갈래 열 수(문서 많은 순) — 나머지는 「그 밖」 한 열
 KEY_KINDS = ("plan", "report")                   # 주요 문서 — 해마다 가장 최근에 등록된 계획서·결과보고서
 
@@ -309,7 +322,7 @@ def program_facts(entry: dict | None, categories: dict | None = None) -> dict:
     return {"name": name, "aliases": terms[:8], "l1": l1, "l2": l2,
             "ministry": str(entry.get("ministry") or "").strip(), "agency": str(entry.get("agency") or "").strip(),
             "period": str(entry.get("period") or "").strip(),
-            "depts": [d for d in (school.get("depts") or []) if str(d or "").strip()][:6],
+            "depts": _uniq_names(school.get("depts") or [])[:6],
             "school_years": [int(y) for y in (school.get("years") or []) if str(y).isdigit()]}
 
 

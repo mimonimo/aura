@@ -34,7 +34,6 @@
 
   /* 사업별로 보기 — 왼쪽 목록 + 오른쪽 문서. 줄은 제목 한 줄 + 정보 한 줄 */
   /* 넓은 화면은 넓게 — 라이브러리만 본문 폭 상한을 넓히고, 왼쪽 목록은 화면 폭을 따라 줄고 는다 */
-  main:has(.lib-layout) { max-width:min(1840px, 100%); }
   .lib-layout { display:grid; grid-template-columns:clamp(220px, 17vw, 320px) minmax(0,1fr); gap:16px; align-items:start; }
   .lib-rail { position:sticky; top:72px; display:flex; flex-direction:column; max-height:calc(100vh - 96px); border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; }
   .lib-rail-h { font-size:13px; margin:0 2px 8px; }
