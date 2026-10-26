@@ -1,5 +1,6 @@
 {# 원본 보관소 — 왼쪽 분류(사업 대·중·소 → 사업 연도 → 문서 종류 → 처리 상태)와 오른쪽 원본 목록.
    화면 전체에서는 archive.html 이 part='rail'·'list' 로 나눠 넣고, 조건을 바꿀 때(partial=1)는 둘 다 한 번에 돌려준다 #}
+{% set is_admin = request.state.role == 'dev' %}
 {% set _part = part|default('all') %}
 {% if _part != 'list' %}
 <div id="archive-browse" class="ar-browse">
@@ -39,11 +40,12 @@
     {% set on = k.value == f.kind %}
     <li>{{ ri(k.label, k.n, url(kind='' if on else k.value), 'kind=' ~ ('' if on else k.value), on) }}</li>
   {% endfor %}</ul>
-  <h2 class="ar-rh"{% if head_metric is defined %} title="{{ metric_tip(head_metric) }}"{% endif %}>처리 상태</h2>
+  {# 처리 상태(연결·제외·실패·대기)는 반입 관리 정보라 관리자에게만. 교직원은 줄의 「라이브러리 문서」 단추로 이어진 문서를 연다 #}
+  {% if is_admin %}<h2 class="ar-rh"{% if head_metric is defined %} title="{{ metric_tip(head_metric) }}"{% endif %}>처리 상태</h2>
   <ul class="ar-facets" aria-label="처리 상태">{% for s in view.states %}
     {% set on = s.value == f.state %}
     <li>{{ ri(s.label, s.n, url(state='' if on else s.value), 'state=' ~ ('' if on else s.value), on, title=('라이브러리 문서와 이어진 원본 파일 수 — 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다' if s.value == 'registered' else '')) }}</li>
-  {% endfor %}</ul>
+  {% endfor %}</ul>{% endif %}
 </div>
 {% endif %}
 {% if _part != 'rail' %}
@@ -78,7 +80,7 @@
     {% if chips|length > 1 %}<li><a class="ar-chip-all" href="/archive#archive-list" data-clear="all">모두 지우기</a></li>{% endif %}</ul>{% endif %}
   {% if found %}
   <ul class="ar-list" aria-label="원본 목록">
-    <li class="ar-row ar-hrow" aria-hidden="true"><span>형식</span><span>이름</span><span class="ar-tags"><span class="ar-c">사업</span><span class="ar-c">연도</span><span class="ar-c">종류</span><span class="ar-c">상태</span></span><span class="ar-size">크기</span><span>동작</span></li>
+    <li class="ar-row ar-hrow" aria-hidden="true"><span>형식</span><span>이름</span><span class="ar-tags"><span class="ar-c">사업</span><span class="ar-c">연도</span><span class="ar-c">종류</span><span class="ar-c">{{ '상태' if is_admin else '라이브러리' }}</span></span><span class="ar-size">크기</span><span>동작</span></li>
     {% for it in found %}
     <li class="ar-row">
       <span class="ar-ext" data-ext="{{ it.ext }}">{{ it.ext_label }}</span>
@@ -90,7 +92,8 @@
         <span class="ar-c ar-c-prog"><span class="ar-tag">{{ it.program_label }}</span>{% if it.by_folder %}<span class="ar-tag folder" title="파일 이름에 사업 이름이 없어 폴더 위치로 정한 분류입니다">폴더 기준</span>{% endif %}</span>
         <span class="ar-c ar-c-year">{% if it.show_year %}<span class="ar-tag"{% if it.year_from_round %} title="연차를 사업 기간으로 환산한 사업 연도"{% endif %}>{{ it.year }}년{% if it.year_from_round %}(사업 연도){% endif %}</span>{% endif %}{% if it.show_round %}<span class="ar-tag">{{ it.round }}차년도</span>{% endif %}{% if not it.show_year and not it.show_round %}<span class="ar-dash" aria-hidden="true">–</span>{% endif %}</span>
         <span class="ar-c ar-c-kind"><span class="ar-tag">{{ it.kind_label }}</span></span>
-        <span class="ar-c ar-c-state"><span class="ar-tag state-{{ it.state }}"{% if it.why %} title="{{ it.why }}"{% endif %}>{{ it.state_label }}{% if it.why and it.state == 'excluded' %} · {{ it.why }}{% endif %}</span></span>
+        {% if is_admin %}<span class="ar-c ar-c-state"><span class="ar-tag state-{{ it.state }}"{% if it.why %} title="{{ it.why }}"{% endif %}>{{ it.state_label }}{% if it.why and it.state == 'excluded' %} · {{ it.why }}{% endif %}</span></span>
+        {% else %}<span class="ar-c ar-c-state">{% if it.doc_id %}<span class="ar-tag state-registered">있음</span>{% else %}<span class="ar-dash" aria-hidden="true">–</span>{% endif %}</span>{% endif %}
       </span>
       <span class="ar-size">{{ it.size_label }}</span>
       <div class="ar-btns" role="group" aria-label="{{ it.title }}">

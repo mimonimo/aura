@@ -109,6 +109,7 @@
   .lib-row-title:hover { text-decoration:underline; }
   .lib-row-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:3px; font-size:12px; color:var(--muted); }
   .lib-row-proj { color:#3F5F8A; text-decoration:none; max-width:min(48ch, 100%); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .lib-row-proj:hover { text-decoration:underline; }
+  .lib-row-orig { color:#3F5F8A; text-decoration:none; } .lib-row-orig:hover { text-decoration:underline; }
   .lib-row-no { font-variant-numeric:tabular-nums; color:#9AA6B6; }
   .lib-row-date { flex:none; font-size:12px; color:#9AA6B6; font-variant-numeric:tabular-nums; padding-top:2px; }
 
@@ -477,6 +478,7 @@
             {% if d.project_name and not prog %}<a class="lib-row-proj" href="/project/{{ d.project_id }}" title="이 문서가 속한 프로젝트">{{ d.project_name }}</a>{% endif %}
             {% if show_business %}<span class="lib-row-biz">{{ sector_labels.get(d.business, d.business) }}</span>{% endif %}
             <span class="lib-row-no">{{ receipt_label(d.receipt_no) or d.id }}</span>
+            {% if d.origin_href %}<a class="lib-row-orig" href="{{ d.origin_href }}" title="원본 보관소에서 이 문서의 원본 파일 보기">원본</a>{% endif %}
           </div>
           {% if d.no_chunks %}<span class="muted lib-note">본문을 찾지 못해 규정 검색에 잡히지 않습니다</span>{% endif %}
           {% if d.n_versions > 1 %}

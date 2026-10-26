@@ -1191,7 +1191,7 @@ def create_app(
             if ids:
                 rows = {int(x["id"]): dict(x) for x in conn.execute(
                     "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.sector, d.status, d.decision, d.created_at,"
-                    f" d.project_id, p.name AS project_name, {biz_col} AS business"
+                    f" d.project_id, p.name AS project_name, {biz_col} AS business, d.stored_path"
                     " FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
                     f" WHERE d.id IN ({','.join('?' * len(ids))}){acc}", [*ids, *acc_args]).fetchall()}   # 열람 조건을 다시 건다
             rail = library.rail(conn, rail_where, rail_args, rep)
@@ -1265,6 +1265,18 @@ def create_app(
             head["versions"] = [rows[i] for i in g[1:21] if i in rows]
             head["n_versions"] = len(g)
             docs.append(head)
+        # 문서마다 원본 보관소의 그 원본으로 — 학교 원본(dgx://)에서 들어온 문서만. 이 쪽 문서의 원본 줄만 한 번에 읽는다
+        dgx = {int(d["id"]): (d.get("stored_path") or "")[6:] for d in docs if (d.get("stored_path") or "").startswith("dgx://")}
+        if dgx:
+            from zzaimy.app import archive as _archive, doc_origin as _dorig
+            _archive.ensure(db)
+            rels = sorted(set(dgx.values()))
+            with db._conn() as conn:
+                arow = {str(r[0]): {"program": r[1], "program_name": r[2], "year": r[3]} for r in conn.execute(
+                    f"SELECT rel, program, program_name, year FROM archive_files WHERE rel IN ({','.join('?' * len(rels))})", rels).fetchall()}
+            for d in docs:
+                if int(d["id"]) in dgx:
+                    d["origin_href"] = _dorig.archive_location(dgx[int(d["id"])], arow.get(dgx[int(d["id"])]))["href"]
         ucount["all"] = sum(ucount.values())
         projects = db.list_projects(business) if business else []
         return templates.TemplateResponse(

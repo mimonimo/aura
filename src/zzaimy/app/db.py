@@ -70,6 +70,13 @@ CREATE TABLE IF NOT EXISTS archive_cleanup (
     at TEXT NOT NULL DEFAULT '',
     by_user TEXT NOT NULL DEFAULT ''
 );
+-- 정리 「남기기」 — 처리하지 않는 원본이지만 담당자가 그대로 두기로 한 것. 정리 목록에서만 빠지고 보관소에는 그대로 보인다
+CREATE TABLE IF NOT EXISTS archive_keep (
+    rel TEXT PRIMARY KEY,
+    category TEXT NOT NULL DEFAULT '',
+    at TEXT NOT NULL DEFAULT '',
+    by_user TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS projects (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   sector     TEXT NOT NULL,

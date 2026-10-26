@@ -728,14 +728,32 @@ def archive_cleanup_sample(request: Request, key: str):
     return JSONResponse({"key": key, "rels": archive_cleanup.sample(request.app.state.db, key)})
 
 
+def _keys(body) -> list[str]:
+    """요청의 갈래 — {"keys": [...]}(선택한 줄 여럿) 또는 {"key": "..."}."""
+    if not isinstance(body, dict):
+        return []
+    keys = body.get("keys") if isinstance(body.get("keys"), list) else [body.get("key")]
+    return [str(k) for k in keys if k][:20]
+
+
 @router.post("/archive/cleanup/move")
 async def archive_cleanup_move(request: Request):
+    """선택한 갈래를 정리함으로."""
     from zzaimy.app import archive_cleanup
     _dev(request)
-    body = await request.json()
-    key = str((body.get("key") if isinstance(body, dict) else "") or "")
-    n = archive_cleanup.move(request.app.state.db, key, by=getattr(request.state, "user", "") or "")
+    by = getattr(request.state, "user", "") or ""
+    n = sum(archive_cleanup.move(request.app.state.db, k, by=by) for k in _keys(await request.json()))
     return JSONResponse({"moved": n, **archive_cleanup.summary(request.app.state.db, force=True)})
+
+
+@router.post("/archive/cleanup/keep")
+async def archive_cleanup_keep(request: Request):
+    """선택한 갈래를 남기기 — 정리 목록에서만 빠지고 보관소에는 그대로."""
+    from zzaimy.app import archive_cleanup
+    _dev(request)
+    by = getattr(request.state, "user", "") or ""
+    n = sum(archive_cleanup.keep(request.app.state.db, k, by=by) for k in _keys(await request.json()))
+    return JSONResponse({"kept": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 
 
 @router.post("/archive/cleanup/restore")

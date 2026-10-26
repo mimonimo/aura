@@ -82,7 +82,7 @@ def test_staff_can_open_only_visible_linked_document(setup, monkeypatch, tmp_pat
     with db._conn() as conn:
         conn.execute("UPDATE documents SET access_level = 'public' WHERE id = ?", (doc_id,))
     page = client.get("/archive?q=계획서").text
-    assert ">문서 연결됨<span>1</span>" in page and 'href="/doc/' in page
+    assert '<span class="ar-tag state-registered">있음</span>' in page and 'href="/doc/' in page   # 교직원은 처리 상태 대신 라이브러리에 있는지만
     assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 200
     assert not file.exists()
 
