@@ -11,7 +11,7 @@ flock -n 9 || exit 0
 git pull -q 2>/dev/null
 export PYTHONPATH=src ZZAIMY_LIGHT_PROCESS=1 ZZAIMY_NO_VISION=1 ZZAIMY_MINERU_SLOTS=2 ZZAIMY_MIN_FREE_GB=12 ZZAIMY_WORKER_MAX_RSS_GB=5 MINERU_MODEL_SOURCE=huggingface
 log=~/dgx_cycle.log
-# 원본 보관소가 그대로면(지난 목록 뒤로 바뀐 파일·폴더가 없으면) 16만여 파일 목록·판독을 건너뛴다 — 매분 돌아도 가볍게.
+# 학교 원본가 그대로면(지난 목록 뒤로 바뀐 파일·폴더가 없으면) 16만여 파일 목록·판독을 건너뛴다 — 매분 돌아도 가볍게.
 # 파일을 넣고 빼거나 이름을 바꾸면 폴더 시각이 바뀌어 잡힌다. 혹시 놓친 것은 한 시간에 한 번 전체를 다시 훑어 잡는다.
 stamp=~/parsed/inventory_stamp.json
 changed=1

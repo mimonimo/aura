@@ -39,7 +39,7 @@ def _back(doc_id: int, back: str = "", **msg) -> RedirectResponse:
 
 
 def _process(db, processor, doc_id: int, path: Path) -> None:
-    """다시 읽기 — DGX 원본(dgx://)은 원본 보관소에서 하나 받아 읽고 원본 자리 표시를 되돌린다."""
+    """다시 읽기 — DGX 원본(dgx://)은 학교 원본에서 하나 받아 읽고 원본 자리 표시를 되돌린다."""
     doc = db.get_document(doc_id) or {}
     sp = str(doc.get("stored_path") or "")
     if not sp.startswith("dgx://"):
@@ -55,7 +55,7 @@ def _process(db, processor, doc_id: int, path: Path) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="zz-reread-"))
     try:
         if not row:
-            raise FileNotFoundError("원본 보관소에서 원본을 찾지 못했습니다")
+            raise FileNotFoundError("학교 원본에서 파일을 찾지 못했습니다")
         local = tmp / Path(sp[6:]).name
         shutil.move(str(archive_original.fetch(dict(zip(("rel", "size", "mtime"), row)))), str(local))
         processor.process(db, doc_id, local)
@@ -82,7 +82,7 @@ def replace(request: Request, background: BackgroundTasks, doc_id: int, file: Up
 
     doc = _failed(request, doc_id)
     if str(doc.get("stored_path") or "").startswith("dgx://"):
-        raise HTTPException(400, "원본 보관소 문서는 파일을 바꾸지 않습니다")
+        raise HTTPException(400, "학교 원본 문서는 파일을 바꾸지 않습니다")
     name = Path(file.filename or "").name
     if not name or Path(name).suffix.lower() not in ALLOWED_EXTENSIONS:
         return _back(doc_id, back, fix_err=f"올릴 수 없는 형식입니다{(' — ' + Path(name).suffix) if Path(name).suffix else ''}")
@@ -135,7 +135,7 @@ def resave(request: Request, background: BackgroundTasks, doc_id: int, back: str
 def discard(request: Request, doc_id: int, back: str = Form("")):
     doc = _failed(request, doc_id)
     if str(doc.get("stored_path") or "").startswith("dgx://"):
-        raise HTTPException(400, "원본 보관소 문서는 정리 카드에서 다룹니다")
+        raise HTTPException(400, "학교 원본 문서는 관리자가 원본 관리에서 다룹니다")
     st = request.app.state
     st.doc_page._drop_doc(doc)
     read_failure.dequeue(st.db, doc_id)

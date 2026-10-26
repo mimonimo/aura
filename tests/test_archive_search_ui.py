@@ -1,4 +1,4 @@
-"""원본 보관소 — 사업 → 사업 연도 → 문서 종류 훑기, 겹치는 조건(사업·연도·종류·형식·처리 상태·검색), 쪽 넘김, 표시 이름.
+"""원본 관리 — 사업 → 사업 연도 → 문서 종류 훑기, 겹치는 조건(사업·연도·종류·형식·처리 상태·검색), 쪽 넘김, 표시 이름.
 
 사업 이름은 합성 이름이다(규칙이 특정 사업에 묶이지 않았는지 본다)."""
 
@@ -62,9 +62,9 @@ def _count(html: str) -> str:
 
 
 def test_page_wording_and_labels(client):
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     assert "<title>" in page and "DGX" not in page
-    assert "원본 보관소" in page and "학교 문서 원본 파일" in page
+    assert "<title>원본 관리" in page and "원본 보관소" not in page and 'class="library-' not in page   # 라이브러리 머리·탭 없이 개발 화면
     assert "한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다" in page
     for internal in ("플랫폼 원본 대장", "OCR·분석 완료율", "미정", "파일명으로 검색", ">evidence", ">curriculum"):
         assert internal not in page, internal
@@ -84,7 +84,7 @@ def _tree(html: str) -> str:
 
 
 def test_program_groups_long_tail_and_unclassified(client):
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     tree = _tree(page)
     assert "해양미래부" not in tree                                                 # 앞 부처명만 다른 이름은 한 사업
     assert ">은하수 개척 사업<span>5</span></a>" in tree
@@ -101,17 +101,17 @@ def test_tree_follows_the_ledger_classification(client, monkeypatch):
     ledger = {"categories": {"일반재정지원": {"label": "일반재정지원"}},
               "programs": [{"name": "은하수 개척 사업", "ministry": "교육부", "category": "일반재정지원"}]}
     monkeypatch.setitem(archive_view._LEDGER, "v", ledger)
-    tree = _tree(client.get("/archive").text)
+    tree = _tree(client.get("/dev/archive").text)
     edu = tree.index("교육부 재정지원")
     assert edu < tree.index('<div class="ar-l2" data-l2><span>일반재정지원</span>') < tree.index(">은하수 개척 사업<span>")
     unknown = tree[tree.index('data-l1="장부에 없는 이름 (확인 필요)"') - 40:]
     assert 'data-open="0"' in unknown[:200] and ">별빛 부트랩 사업<span>" in unknown   # 장부 밖 이름은 접어 둔다
-    picked = _tree(client.get("/archive?program=program:b").text)                    # 고른 사업이 든 대분류는 펼친다
+    picked = _tree(client.get("/dev/archive?program=program:b").text)                    # 고른 사업이 든 대분류는 펼친다
     assert 'data-open="1"' in picked[picked.index('data-l1="장부에 없는 이름'):][:120]
 
 
 def test_view_toggle_and_table_columns(client):
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     assert 'id="arLayout" data-view="table"' in page                                 # 기본은 「목록」(표)
     views = page[page.index('aria-label="보기 방식"'):page.index("</div>", page.index('aria-label="보기 방식"'))]
     assert 'data-view-pick="table" aria-pressed="true">목록</a>' in views and 'data-view-pick="card" aria-pressed="false">카드</a>' in views
@@ -119,90 +119,90 @@ def test_view_toggle_and_table_columns(client):
     assert [re.sub(r"<[^>]+>", "", c) for c in re.findall(r"<span(?: class=\"[^\"]*\")?>([^<]*)</span>", head)] == \
         ["형식", "이름", "사업", "연도", "종류", "상태", "크기", "동작"]
     assert "localStorage" in page and "aura.archive.view" in page                    # 고른 보기는 브라우저에 남긴다
-    card = client.get("/archive?view=card&q=은하수").text
+    card = client.get("/dev/archive?view=card&q=은하수").text
     assert 'id="arLayout" data-view="card"' in card and 'data-view-pick="card" aria-pressed="true"' in card
     assert "view=card" in card[card.index('class="ar-chips"'):]                        # 조건 칩·쪽 주소가 보기를 이어 간다
-    assert _count(card) == _count(client.get("/archive?q=은하수").text)               # 보기는 조건이 아니다
+    assert _count(card) == _count(client.get("/dev/archive?q=은하수").text)               # 보기는 조건이 아니다
     assert not any(c["key"] == "view" for c in archive_view.chips(archive_view.parse_filters(view="card"), {}, {}))
     assert archive_view.parse_filters(view="bogus")["view"] == "table"
-    part = client.get("/archive?view=card&partial=1&q=은하수").text
+    part = client.get("/dev/archive?view=card&partial=1&q=은하수").text
     assert 'id="archive-browse"' in part and 'id="archive-list"' in part and 'id="arLayout"' not in part
 
 
 def test_cleanup_card_starts_folded(client):
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     card = page[page.index('id="archive-cleanup"'):page.index("</section>", page.index('id="archive-cleanup"'))]
     assert 'id="acFold" aria-expanded="false" aria-controls="acBody">펼치기</button>' in card
     assert '<div id="acBody" hidden>' in card and 'id="acRows"' in card and "<details" not in card
 
 
 def test_browse_levels_and_combined_filters(client):
-    by_name = client.get("/archive?program=해양미래부 은하수 개척 사업").text      # 어떤 표기로 와도 같은 묶음
+    by_name = client.get("/dev/archive?program=해양미래부 은하수 개척 사업").text      # 어떤 표기로 와도 같은 묶음
     assert _count(by_name) == "5건 중 1–5"
-    assert _count(client.get("/archive?program=program:a2").text) == "5건 중 1–5"   # 장부 열쇠로 와도
+    assert _count(client.get("/dev/archive?program=program:a2").text) == "5건 중 1–5"   # 장부 열쇠로 와도
     years = by_name[by_name.index('aria-label="사업 연도"'):by_name.index("</ul>", by_name.index('aria-label="사업 연도"'))]
     assert "2024년 · 1차년도" in years and "2026년 · 3차년도" in years and "연도 미상" in years
-    assert _titles(client.get("/archive?program=program:a&year=2025").text) == ["은하수 개척 결과보고서"]
-    assert _titles(client.get("/archive?program=program:a&kind=criteria&year=2026").text) == ["01_계약직원 채용 평가기준"]
-    assert _titles(client.get("/archive?program=program:a&kind=none").text) == ["깨진 문서"]
-    assert _count(client.get("/archive?program=none").text) == "2건 중 1–2"
-    assert _titles(client.get("/archive?ext=ai").text) == ["표지.ai"]
-    assert _titles(client.get("/archive?q=결과보고서 은하수").text) == ["은하수 개척 결과보고서"]
-    assert _titles(client.get("/archive?q=100%25_").text) == ["공고 100%_안내.다운로드"]   # %·_ 는 글자 그대로
-    assert _titles(client.get("/archive?q=1_0").text) == []
+    assert _titles(client.get("/dev/archive?program=program:a&year=2025").text) == ["은하수 개척 결과보고서"]
+    assert _titles(client.get("/dev/archive?program=program:a&kind=criteria&year=2026").text) == ["01_계약직원 채용 평가기준"]
+    assert _titles(client.get("/dev/archive?program=program:a&kind=none").text) == ["깨진 문서"]
+    assert _count(client.get("/dev/archive?program=none").text) == "2건 중 1–2"
+    assert _titles(client.get("/dev/archive?ext=ai").text) == ["표지.ai"]
+    assert _titles(client.get("/dev/archive?q=결과보고서 은하수").text) == ["은하수 개척 결과보고서"]
+    assert _titles(client.get("/dev/archive?q=100%25_").text) == ["공고 100%_안내.다운로드"]   # %·_ 는 글자 그대로
+    assert _titles(client.get("/dev/archive?q=1_0").text) == []
 
 
 def test_processing_states(client):
-    assert _titles(client.get("/archive?state=registered").text) == ["은하수 개척 사업계획서"]
-    excluded = client.get("/archive?state=excluded&program=program:a").text
+    assert _titles(client.get("/dev/archive?state=registered").text) == ["은하수 개척 사업계획서"]
+    excluded = client.get("/dev/archive?state=excluded&program=program:a").text
     assert _titles(excluded) == ["영수증 모음"] and "범위 밖 경로" in excluded
-    failed = client.get("/archive?state=failed").text
+    failed = client.get("/dev/archive?state=failed").text
     assert _titles(failed) == ["깨진 문서"] and "암호 문서" in failed
-    waiting = client.get("/archive?state=waiting&program=program:a").text
+    waiting = client.get("/dev/archive?state=waiting&program=program:a").text
     assert sorted(_titles(waiting)) == ["01_계약직원 채용 평가기준", "은하수 개척 결과보고서"]
-    states = client.get("/archive?program=program:a").text
+    states = client.get("/dev/archive?program=program:a").text
     assert re.search(r"처리 제외<span>1</span>", states) and re.search(r"실패<span>1</span>", states)
 
 
 def test_row_title_tags_and_buttons(client):
-    page = client.get("/archive?state=registered").text
+    page = client.get("/dev/archive?state=registered").text
     row = page[page.index('<li class="ar-row">'):page.index("</li>", page.index('<li class="ar-row">'))]
     assert "은하수 개척 사업계획서" in row and "은하수_개척" not in row.split("<code>")[0]   # 파일 이름이 아니라 제목
     assert f"<code>{LINKED}</code>" in row and "… / 2024 / 1차년도 / 계획서" in row
     assert ">원본 열기</a>" in row and 'href="/doc/7"' in row and ">등록 문서 보기</a>" in row
     assert ">열기</a>" not in row and ">문서 보기</a>" not in row
     assert "2.5 MB" in row and "1차년도" in row and "2024년" in row and "폴더 기준" not in row
-    recruit = client.get("/archive?q=채용").text                                     # 파일 이름이 사업을 부르지 않는다
+    recruit = client.get("/dev/archive?q=채용").text                                     # 파일 이름이 사업을 부르지 않는다
     assert "폴더 기준" in recruit
-    folder = client.get("/archive?q=영수증").text                                    # 상위 폴더 물려받기
+    folder = client.get("/dev/archive?q=영수증").text                                    # 상위 폴더 물려받기
     assert "폴더 기준" in folder
 
 
 def test_round_converted_year_is_marked_as_program_year(client):
-    page = client.get("/archive?q=채용").text                                        # 경로에 2026 이 없다 → 연차 환산
+    page = client.get("/dev/archive?q=채용").text                                        # 경로에 2026 이 없다 → 연차 환산
     assert "2026년(사업 연도)" in page
-    page = client.get("/archive?state=registered").text                              # 경로에 연도가 있다
+    page = client.get("/dev/archive?state=registered").text                              # 경로에 연도가 있다
     assert "(사업 연도)" not in page
 
 
 def test_paging(client):
-    first = client.get("/archive?program=별빛 부트랩 사업").text
+    first = client.get("/dev/archive?program=별빛 부트랩 사업").text
     assert _count(first) == "61건 중 1–50" and "1 / 2쪽" in first and len(_titles(first)) == 50
-    second = client.get("/archive?program=별빛 부트랩 사업&page=2").text
+    second = client.get("/dev/archive?program=별빛 부트랩 사업&page=2").text
     assert _count(second) == "61건 중 51–61" and len(_titles(second)) == 11
-    assert _count(client.get("/archive?program=별빛 부트랩 사업&page=99").text) == "61건 중 51–61"
-    assert _titles(client.get("/archive?q=은하수&sort=size").text)[0] == "은하수 개척 사업계획서"
+    assert _count(client.get("/dev/archive?program=별빛 부트랩 사업&page=99").text) == "61건 중 51–61"
+    assert _titles(client.get("/dev/archive?q=은하수&sort=size").text)[0] == "은하수 개척 사업계획서"
 
 
 def test_chips_remove_one_condition_and_keep_others(client):
-    page = client.get("/archive?q=은하수&year=2025&sort=size").text
+    page = client.get("/dev/archive?q=은하수&year=2025&sort=size").text
     chips = {k: v.replace("&amp;", "&") for v, k in re.findall(r'<a class="ar-chip" href="([^"]+)" data-clear="(\w+)"', page)}
-    assert chips["year"].startswith("/archive?q=") and "sort=size" in chips["year"] and "year" not in chips["year"]
+    assert chips["year"].startswith("/dev/archive?q=") and "sort=size" in chips["year"] and "year" not in chips["year"]
     assert "year=2025" in chips["q"] and "모두 지우기" in page
 
 
 def test_partial_returns_only_lower_sections(client):
-    part = client.get("/archive?q=은하수&partial=1").text
+    part = client.get("/dev/archive?q=은하수&partial=1").text
     assert 'id="archive-browse"' in part and 'id="archive-list"' in part
     assert "<html" not in part and 'id="arForm"' not in part and "partial" not in part
 
@@ -211,25 +211,18 @@ def test_masking_follows_internal_setting(client):
     from zzaimy.app import privacy_policy
     db = client.app.state.db
     archive.load(db, [{"rel": "연락/담당 연락처 010-1234-5678.hwp", "size": 1, "mtime": 1, "ext": "hwp"}])
-    assert "010-1234-5678" in client.get("/archive?q=연락").text                       # 기본은 꺼짐(ADR-0044)
+    assert "010-1234-5678" in client.get("/dev/archive?q=연락").text                       # 기본은 꺼짐(ADR-0044)
     privacy_policy.save(db, True, ["KR_PHONE"], "zzdev")
-    page = client.get("/archive?q=연락").text
-    assert "010-1234-5678" not in page.split('href="/archive/original')[0]
+    page = client.get("/dev/archive?q=연락").text
+    assert "010-1234-5678" not in page.split('href="/dev/archive/original')[0]
 
 
-def test_staff_cannot_open_unregistered_and_hidden_docs_excluded(client, monkeypatch):
+def test_staff_has_no_original_management(client):
+    """교직원은 원본 관리를 쓰지 않는다 — 화면·파일·정리 모두 막히고, 옛 주소는 라이브러리로."""
     assert _login(client, "zzaimy", "boot-pass-1")
-    page = client.get("/archive?q=깨진").text
-    assert "열람 권한 필요" in page and 'href="/archive/original' not in page
-    from zzaimy.app import access_policy
-    monkeypatch.setattr(access_policy, "visible", lambda *a, **kw: False)
-    client.app.state.db.add_document("x.hwp", "dgx://x", owner="other")
-    hidden = archive_view._hidden_docs(client.app.state.db, {"dept": None, "user": "zzaimy", "role": "staff"})
-    assert hidden
-    with client.app.state.db._conn() as conn:
-        conn.execute("UPDATE archive_files SET doc_id = ? WHERE doc_id = 7", (min(hidden),))
-    page = client.get("/archive?q=은하수 개척 사업").text
-    assert _titles(page) == [] and _count(page) == "0건"
+    for path in ("/dev/archive", "/dev/archive?q=깨진&partial=1", "/dev/archive/original?rel=x", "/dev/archive/cleanup"):
+        assert client.get(path).status_code == 403, path
+    assert client.get("/archive?q=깨진", follow_redirects=False).headers["location"] == "/?type=all"
 
 
 def test_helpers():
@@ -257,7 +250,7 @@ def test_platform_copies_and_converter_byproducts_are_not_originals(client):
         {"rel": "은하수/2024/my_imgs_folder/사진.jpg", "size": 1, "mtime": 1, "ext": "jpg",          # 접미가 폴더 이름 끝이 아님
          "program": "program:a", "program_name": "은하수 개척 사업"},
     ])
-    page = client.get("/archive?program=program:a").text
+    page = client.get("/dev/archive?program=program:a").text
     assert "원본.hwpx" not in page and "image10" not in page and "page1" not in page
     assert _count(page) == "6건 중 1–6"                                               # 원래 5건 + my_imgs_folder 사진
     assert "jpeg" not in page[page.index('name="ext"'):page.index("</select>", page.index('name="ext"'))]
@@ -269,13 +262,13 @@ def test_year_options_and_non_program_years(client):
     archive.load(db, [{"rel": "회계/서식/ACA0040_2000.rdf", "size": 1, "mtime": 1, "ext": "rdf", "year": 2000},
                       {"rel": "은하수/옛/1987년 자료.hwp", "size": 1, "mtime": 1, "ext": "hwp", "year": 1987,
                        "program": "program:a", "program_name": "은하수 개척 사업"}])
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     sel = page[page.index('name="year"'):page.index("</select>", page.index('name="year"'))]
     assert "none년" not in sel and ">연도 미상<" in sel and "2000년" not in sel and "1987년" not in sel
     assert ">2024년<" in sel
-    assert "2000년" not in client.get("/archive?q=ACA0040").text                       # 사업 없는 파일의 숫자는 사업 연도가 아님
-    assert _titles(client.get("/archive?year=2000").text) == []
-    assert "ACA0040_2000.rdf" in client.get("/archive?year=none&q=ACA").text
+    assert "2000년" not in client.get("/dev/archive?q=ACA0040").text                       # 사업 없는 파일의 숫자는 사업 연도가 아님
+    assert _titles(client.get("/dev/archive?year=2000").text) == []
+    assert "ACA0040_2000.rdf" in client.get("/dev/archive?year=none&q=ACA").text
 
 
 def test_rare_acronym_typo_joins_frequent_program(client):
@@ -284,13 +277,13 @@ def test_rare_acronym_typo_joins_frequent_program(client):
                        "program_name": "4단계 별빛 선도대학 육성사업"} for i in range(20)]
                  + [{"rel": "별빛/오타/ZOTA3.0 회의.hwp", "size": 1, "mtime": 1, "ext": "hwp", "program": "program:zota30",
                      "program_name": "ZOTA3.0"}])
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     assert ">ZOTA3.0<" not in page and "ZOTA3.0</option>" not in page
-    assert _count(client.get("/archive?program=4단계 별빛 선도대학 육성사업").text) == "21건 중 1–21"
+    assert _count(client.get("/dev/archive?program=4단계 별빛 선도대학 육성사업").text) == "21건 중 1–21"
 
 
 def test_layout_stacks_on_narrow_screens(client):
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     assert page.index('class="ar-rail"') < page.index('id="archive-search"') < page.index('id="archive-list"')
     css = page[page.index("@media(max-width:900px)"):]
     assert ".ar-layout{grid-template-columns:1fr}" in css and ".ar-rail{position:static" in css
@@ -298,7 +291,7 @@ def test_layout_stacks_on_narrow_screens(client):
 
 
 def test_picked_program_header_has_actions(client):
-    page = client.get("/archive?program=program:a").text
+    page = client.get("/dev/archive?program=program:a").text
     pick = page[page.index('class="ar-pick"'):page.index('class="ar-resbar"')]
     assert ">은하수 개척 사업</h2>" in pick and "원본 5건" in pick
     assert "/projects/archived?q=" in pick and "/graph/explore?id=program%3Aa" in pick and ">전체 사업 보기</a>" in pick
@@ -306,7 +299,7 @@ def test_picked_program_header_has_actions(client):
 
 
 def test_unclassified_row_has_no_project_link(client):
-    page = client.get("/archive?program=none").text
+    page = client.get("/dev/archive?program=none").text
     pick = page[page.index('class="ar-pick"'):page.index('class="ar-resbar"')]
     assert ">사업 미분류</h2>" in pick and "지난 사업에서 찾기" not in pick and "그래프" not in pick and "전체 사업 보기" in pick
 
@@ -326,11 +319,11 @@ def test_renamed_program_keeps_its_files_and_every_way_of_filtering(client):
     with db._conn() as conn:                                 # 동기화가 장부 이름을 그래프의 새 이름으로 바꾼 상태
         conn.execute("UPDATE archive_files SET program_name = '별누리 인재양성체계(구 ZETA)' WHERE program = 'program:b'")
     _graph_program(db, "program:b", "별누리 인재양성체계(구 ZETA)", ["ZETA"])
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     assert ">별누리 인재양성체계(구 ZETA)<span>61</span></a>" in _tree(page)
     for value in ("program:b", "별누리 인재양성체계(구 ZETA)", "별누리인재양성체계(구ZETA)", "ZETA", "별누리"):
-        assert _count(client.get(f"/archive?program={value}").text) == "61건 중 1–50", value
-    row_tag = client.get("/archive?program=ZETA").text
+        assert _count(client.get(f"/dev/archive?program={value}").text) == "61건 중 1–50", value
+    row_tag = client.get("/dev/archive?program=ZETA").text
     assert 'name="program" value="program:b"' in row_tag                          # 사업은 왼쪽 목록 한 곳 — 찾기 칸에는 열쇠만 싣는다
     assert "별누리 인재양성체계(구 ZETA)" in row_tag[row_tag.index('class="ar-pick"'):]     # 고른 사업 머리에는 보일 이름
     assert "program=program%3Ab" in page
@@ -340,8 +333,8 @@ def test_every_program_keeps_its_count_after_name_normalisation(client):
     """정리 전(장부 열쇠별 원본 수)과 정리 뒤(묶음별 원본 수)의 합이 같고, 그래프에 있는 사업은 미분류로 떨어지지 않는다."""
     db = client.app.state.db
     _graph_program(db, "program:a2", "해양미래부 은하수 개척 사업")
-    names, progs = archive_view.load_programs(db, set())
-    view = archive_view.browse(archive_view.program_years(archive_view.facet_rows(db, archive_view.parse_filters(), set()), progs),
+    names, progs = archive_view.load_programs(db)
+    view = archive_view.browse(archive_view.program_years(archive_view.facet_rows(db, archive_view.parse_filters()), progs),
                                archive_view.parse_filters(), progs, archive_view.kind_labels())
     shown = {p["value"]: p["n"] for p in view["programs"]}
     unclassified = (view["unclassified"] or {}).get("n", 0)
@@ -361,12 +354,12 @@ def test_shared_vocabulary_and_format_groups(client):
     archive.load(db, [{"rel": "회계/서식/ACA0040.rdf", "size": 1, "mtime": 1, "ext": "rdf"},
                       {"rel": "웹/style.css", "size": 1, "mtime": 1, "ext": "css"},
                       {"rel": "설치/setup.exe", "size": 1, "mtime": 1, "ext": "exe"}])
-    page = client.get("/archive").text
+    page = client.get("/dev/archive").text
     fmt = page[page.index('name="ext"'):page.index("</select>", page.index('name="ext"'))]
     for bad in ("RDF", "CSS", "EXE", "다운로드"):
         assert bad not in fmt, bad
     assert ">그 밖의 형식<" in fmt and ">HWP<" in fmt and "AI(일러스트)" in fmt
-    assert sorted(_titles(client.get("/archive?ext=other&q=.").text)) == sorted(
+    assert sorted(_titles(client.get("/dev/archive?ext=other&q=.").text)) == sorted(
         ["ACA0040.rdf", "공고 100%_안내.다운로드", "setup.exe", "style.css"])
     # 원본의 「문서 연결됨」과 문서의 「처리 완료」는 다른 말 — 같은 이름이면 서로 다른 수가 모순처럼 보인다
     assert vocab.ARCHIVE_STATE_LABELS["registered"] == "문서 연결됨" and vocab.STATUS_LABELS["reviewed"] == "처리 완료"
@@ -383,7 +376,7 @@ def test_counts_per_archive_key_survive_a_graph_rebuild_with_new_node_ids(client
     _graph_program(db, "program:b", "별누리 인재양성체계(구 ZETA)", ["ZETA"])
 
     def snapshot():
-        names, progs = archive_view.load_programs(db, set())
+        names, progs = archive_view.load_programs(db)
         return {k: (progs.of(k), progs.label(k), n) for k, (_nm, n) in names.items()}
     before = snapshot()
     with db._conn() as conn:                                  # 다시 지은 그래프 — 같은 사업이 다른 id 로
@@ -391,7 +384,7 @@ def test_counts_per_archive_key_survive_a_graph_rebuild_with_new_node_ids(client
     _graph_program(db, "program:zeta", "별누리 인재양성체계(구 ZETA)", ["ZETA"])
     after = snapshot()
     assert before == after and after["program:b"][1] == "별누리 인재양성체계(구 ZETA)"
-    assert _count(client.get("/archive?program=ZETA").text) == "61건 중 1–50"
+    assert _count(client.get("/dev/archive?program=ZETA").text) == "61건 중 1–50"
     with db._conn() as conn:                                  # 그래프가 아예 비어도 장부 이름으로 남는다(미분류로 안 떨어짐)
         conn.execute("DELETE FROM kg_nodes")
     gone = snapshot()
@@ -409,17 +402,17 @@ def test_program_box_ranks_exact_acronym_over_word_and_part_matches(client):
     archive.load(db, rows)
     _graph_program(db, "program:nova", "새빛 인재양성체계(구 NOVA)", ["NOVA"])
     for value in ("NOVA", "NOVA사업", "nova 사업", "program:nova", "새빛 인재양성체계(구 NOVA)"):
-        page = client.get(f"/archive?program={value}").text
+        page = client.get(f"/dev/archive?program={value}").text
         assert _count(page) == "30건 중 1–30", value
         assert "이 사업을 찾으셨나요?" not in page
-    page = client.get("/archive?program=협력").text                                  # 이름 일부가 하나만 맞음
+    page = client.get("/dev/archive?program=협력").text                                  # 이름 일부가 하나만 맞음
     assert _count(page) == "8건 중 1–8"
-    page = client.get("/archive?program=NOV").text                                   # 셋에 맞는 일부 — 0건 대신 후보(많은 순)
+    page = client.get("/dev/archive?program=NOV").text                                   # 셋에 맞는 일부 — 0건 대신 후보(많은 순)
     assert "이 사업을 찾으셨나요?" in page
     chooser = page[page.index("이 사업을 찾으셨나요?"):page.index("</ul>", page.index("이 사업을 찾으셨나요?"))]
     assert chooser.index("새빛 인재양성체계(구 NOVA)") < chooser.index("대구 NOVA 협력 사업") < chooser.index("경북 NOVA 실험실 사업")
     assert "program=program%3Adgnova" in chooser
-    full = client.get("/archive").text
+    full = client.get("/dev/archive").text
     assert ">새빛 인재양성체계(구 NOVA)<span>30</span></a>" in _tree(full)            # 사업 고르기는 왼쪽 목록 한 곳
 
 
@@ -438,6 +431,6 @@ def test_polluted_graph_aliases_never_steal_another_programs_acronym(client):
     _graph_program(db, "program:nova", "새빛 인재양성체계(구 NOVA)", ["NOVA"])
     for value, want in (("NOVA", "9건 중 1–9"), ("NOVA사업", "9건 중 1–9"), ("VEGA", "4건 중 1–4"),
                         ("ORBIT", "40건 중 1–40"), ("ORBIT+", "40건 중 1–40")):
-        assert _count(client.get(f"/archive?program={value}").text) == want, value
-    names, progs = archive_view.load_programs(db, set())
+        assert _count(client.get(f"/dev/archive?program={value}").text) == want, value
+    names, progs = archive_view.load_programs(db)
     assert not any("NOVA" in a or "VEGA" in a for a in progs.alias[progs.of("program:orbit")])

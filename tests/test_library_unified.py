@@ -78,7 +78,7 @@ def test_old_addresses_land_on_the_unified_list(tmp_path):
     assert c.get("/inbox?type=all&group=criteria").url.query == b"type=all&use=criteria"
     assert c.get("/?type=recruit").status_code == 200                      # 업무 주소는 그대로 쓴다
     page = c.get("/?type=all").text
-    assert 'href="/criteria"' not in page and ">원본 보관소</a>" in page    # 라이브러리 탭은 문서·원본 보관소 둘
+    assert 'href="/criteria"' not in page and "원본 보관소" not in page and 'href="/archive' not in page   # 라이브러리는 문서 한 목록(원본 관리는 개발 메뉴)
 
 
 def test_business_tabs_show_only_with_two_or_more_businesses(tmp_path):

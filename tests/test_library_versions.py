@@ -113,7 +113,7 @@ def test_library_list_follows_each_viewer_scope_and_permission_changes(tmp_path)
 def test_shell_names_service_hides_server_details_from_staff_and_quiet_bell(tmp_path):
     _app, c = _client(tmp_path)
     page = c.get("/?type=all").text
-    assert "<title>라이브러리 · 문서 · AURA</title>" in page and "행정 에이전트" not in page
+    assert "<title>라이브러리 · AURA</title>" in page and "행정 에이전트" not in page
     assert "기본 AI 서버" not in page                                  # 업무 사용자에게는 연결 여부만
     assert "새 알림이 없습니다" in page and 'id="notificationReadAll"' not in page
     helper_js = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/aura-helper.js").read_text(encoding="utf-8")

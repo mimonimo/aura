@@ -37,6 +37,8 @@ REGISTRY: tuple[Action, ...] = (
     Action("doc.draft", "이 문서로 초안 만들기",
            "/doc/{doc_id}/draft", "post", ("doc_id",),
            ("초안", "작성", "만들어", "계획서", "사업계획서", "써줘"), True, auto=True),
+    Action("doc.original", "이 문서의 원본 파일 열기", "/doc/{doc_id}/original", "get", ("doc_id",),
+           ("원본 파일", "원본 열기", "원본 보기", "원본 내려")),
     Action("doc.open", "문서 화면 열기", "/doc/{doc_id}", "get", ("doc_id",),
            ("열어", "보여", "확인")),
 
@@ -72,6 +74,8 @@ REGISTRY: tuple[Action, ...] = (
     # ---- 자료 관리 ----
     Action("intake.page", "반입 점검", "/dev/flow#intake", "get", (),
            ("가져오", "반입", "원본", "동기화")),
+    Action("archive.page", "원본 관리(학교 원본 정리·처리 실패)", "/dev/archive", "get", (),
+           ("원본 관리", "정리함", "처리 실패", "원본 정리", "원본 목록")),
     Action("google.page", "Google 앱 등록 · 학교 계정 연결 현황", "/dev/users#google-links", "get", (),
            ("구글", "드라이브", "google", "앱 등록")),
     Action("reindex", "검색 색인 다시 만들기", "/dev/reindex", "post", (),

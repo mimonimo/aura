@@ -67,7 +67,7 @@ def main() -> int:
     ap.add_argument("--owner", default="zzaimy")
     ap.add_argument("--timeout", type=int, default=40, help="문서 한 건의 제한 시간(분)")
     ap.add_argument("--jobs", type=int, default=2)
-    ap.add_argument("--origin-base", default="", help="이 폴더 아래 상대 경로를 원본 보관소 경로로 장부(data/platform/origins.jsonl)에 적는다")
+    ap.add_argument("--origin-base", default="", help="이 폴더 아래 상대 경로를 학교 원본 경로로 장부(data/platform/origins.jsonl)에 적는다")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 

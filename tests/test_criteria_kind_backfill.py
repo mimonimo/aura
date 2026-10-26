@@ -34,7 +34,7 @@ def _setup(tmp_path):
     db.set_document_kind(hidden, "basic_plan")
     db.add_file("attachment", "/tmp/e.pdf", name="부서 한정 계획.pdf", session_id=sid2, doc_id=hidden)
     loose = db.add_document("프로젝트 없는 공고.pdf", "/tmp/f.pdf", doc_type="grant")
-    # 원본 보관소 자동 묶음 — 반입 원본이 공고로 분류돼도 기준으로 잇지 않는다
+    # 학교 원본 자동 묶음 — 반입 원본이 공고로 분류돼도 기준으로 잇지 않는다
     bundle = db.create_project("grant", "가상 지난 사업 (연도 미상)", owner="kim", archived=True, archive_source="dgx")
     moved = db.add_document("옮겨 온 공고.pdf", "dgx://사업/옮겨 온 공고.pdf", doc_type="grant", project_id=bundle, owner="kim")
     db.set_document_kind(moved, "announcement")

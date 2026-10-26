@@ -231,7 +231,7 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
 {% if tab == 'archive' %}
 <section class="card dx-card"><div class="card-in">
 <div class="dx-head"><h2><iconify-icon icon="solar:database-linear"></iconify-icon>원본 장부 원값</h2>
-  <span class="dx-links"><a class="h-link" href="/archive{{ ('?q=' ~ (q|urlencode)) if q else '' }}#archive-list"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>원본 보관소에서 찾기</a></span></div>
+  <span class="dx-links"><a class="h-link" href="/dev/archive{{ ('?q=' ~ (q|urlencode)) if q else '' }}#archive-list"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>원본 관리에서 찾기</a></span></div>
 <p class="muted dx-foot" style="margin:0 0 4px;">{% if q %}검색 결과 {{ view.total|num }} · {% endif %}{% if lg %}{{ metric_label("archive_originals", "", "학교 원본") }} {{ lg.originals|num }}{% if view.everything %} · 처리하지 않는 파일 포함: 정리함 {{ lg.cleaned|num }} · 변환 사본 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% else %} · 처리하지 않는 파일 {{ (lg.total - lg.originals)|num }}건 제외{% endif %}{% else %}{{ view.total|num }}{% endif %}
   · <a href="/dev/db?tab=archive{{ ('&q=' ~ (q|urlencode)) if q }}{{ '' if view.everything else '&all=1' }}">{{ '학교 원본만 보기' if view.everything else '처리하지 않는 파일까지 보기' }}</a></p>
 <form method="get" action="/dev/db" class="dx-search dx-search-row control-row" role="search">
@@ -244,7 +244,7 @@ table.dx-chat th, table.dx-chat td{padding:10px 10px;vertical-align:middle}
   <tbody>
 {% for row in view.rows %}<tr>
   {% set parts = (row.rel or '').rsplit('/', 1) %}
-  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 사본">사본</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 보관소 「정리함」에 옮긴 원본 — 보관소 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
+  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 관리가 세지 않는 플랫폼 사본·변환 사본">사본</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 관리 「정리함」에 옮긴 원본 — 원본 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
   <td class="dx-nowrap">{{ row.ext or '—' }} · {{ row.size|num }}</td>
   <td class="dx-ell" title="{{ row.program_name }}">{{ row.program_name or '—' }}</td>
   <td class="dx-ell" title="{{ row.status_label or '분류 없음' }} · 장부 코드 {{ row.status or '없음' }}">{{ row.status_label or '—' }}</td>

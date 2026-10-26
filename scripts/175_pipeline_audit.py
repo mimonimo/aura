@@ -35,7 +35,7 @@ from zzaimy import doc_formats  # noqa: E402
 from zzaimy.app import archive_state  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 
-DOC_EXT = set(archive_state.DOC_EXT)       # 처리 대상·범위 밖·상한은 원본 보관소 화면과 같은 기준(app/archive_state ← zzaimy/doc_formats)
+DOC_EXT = set(archive_state.DOC_EXT)       # 처리 대상·범위 밖·상한은 원본 관리 화면과 같은 기준(app/archive_state ← zzaimy/doc_formats)
 IMG_EXT = set(doc_formats.IMAGE_EXT)
 ARC_EXT = set(doc_formats.ARCHIVE_EXT)
 OUT_OF_SCOPE = archive_state.OUT_OF_SCOPE      # 절대 규칙 11 — DGX 주기 처리(zz_dgx_cycle.sh)와 같은 기준
@@ -157,7 +157,7 @@ def main() -> int:
         if rel in cleaned:
             comp["정리함"] += 1
             continue
-        if doc_formats.is_byproduct(rel):              # 변환기 출력·웹 페이지 저장 자료 폴더 — 원본 보관소·DGX 처리(167)와 같은 규칙
+        if doc_formats.is_byproduct(rel):              # 변환기 출력·웹 페이지 저장 자료 폴더 — 원본 관리·DGX 처리(167)와 같은 규칙
             comp["부산물(변환 출력·웹 페이지 저장 자료)"] += 1
             continue
         if e in IMG_EXT:

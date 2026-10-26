@@ -1,11 +1,15 @@
-"""원본 보관소 화면 — 원본 목록 장부(app/archive)를 사업 → 연도 → 문서 종류로 훑고, 조건을 겹쳐 원본을 찾는다.
+"""원본 관리 화면(/dev/archive, 관리자) — 원본 목록 장부(app/archive)를 사업 → 연도 → 문서 종류 → 처리 상태로 훑고,
+조건을 겹쳐 원본을 찾고, 처리하지 않는 원본을 정리하고, 처리 실패 원본을 다시 읽게 한다.
+
+교직원은 이 화면을 쓰지 않는다 — 문서는 라이브러리 한 곳에서 찾고, 원본 파일은 문서 줄·문서 화면의 「원본」(/doc/{id}/original)으로
+연다(권한은 문서 경로 검사 그대로). 옛 주소 /archive 는 관리자면 여기로, 교직원이면 라이브러리로 넘긴다.
 
 - 묶음 수는 SQL 한 번(GROUP BY 사업·종류·연도·연차·처리 상태)으로 세고, 고른 조건은 파이썬에서 겹쳐 단계마다 건수를 낸다
 - 목록은 같은 조건의 SQL 에 LIMIT/OFFSET 으로 한 쪽씩
 - 사업 이름은 화면에서만 정리·묶는다(app/program_names). 장부 값은 그대로 둔다
 - 문서 종류 이름은 라이브러리와 같은 목록(doc_routing.KINDS)
 - 처리 상태는 반입 연동 점검과 같은 기준(app/archive_state)
-- 보이는 경로·제목은 내부 마스킹 설정(ADR-0044)이 켜져 있으면 같은 마스킹기로 가린다. 열람 권한은 설정과 별개로 늘 건다
+- 보이는 경로·제목은 내부 마스킹 설정(ADR-0044)이 켜져 있으면 같은 마스킹기로 가린다
 """
 
 from __future__ import annotations
@@ -16,12 +20,14 @@ from datetime import date
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.background import BackgroundTask
 
 from zzaimy.app import archive, archive_state, program_names, vocab
 
 router = APIRouter()
+
+PAGE = "/dev/archive"           # 원본 관리 화면 — 개발 메뉴 「문서 반입·읽기」(app/dev_nav)
 
 UNSORTED = vocab.UNSORTED_KIND
 NO_PROGRAM = "사업 미분류"
@@ -68,25 +74,6 @@ def short_path(rel: str) -> str:
     """저장 위치는 마지막 폴더 셋만 — 전체 경로는 펼침으로."""
     folders = rel.split("/")[:-1]
     return ("… / " if len(folders) > 3 else "") + " / ".join(folders[-3:])
-
-
-# ── 권한 ────────────────────────────────────────────────────────────────────
-class Hidden(set):
-    """볼 수 없는 문서 번호 + 등록 전 원본을 감출 최상위 폴더(areas) — 부서 RAG 에 짝지은 폴더 가운데 이 계정의 범위 밖인 것."""
-    areas: tuple = ()
-
-
-def _hidden_docs(db, scope: dict | None, data_dir=None) -> set[int]:
-    """이 사용자가 열람할 수 없는 문서 번호 — 장부의 경로·이름·집계에서도 뺀다(절대 규칙 4, 문서함과 같은 visible 규칙).
-    아직 등록되지 않은 원본(doc_id 없음)은 원본 폴더의 부서(rag_spaces.dept_of_area)로 판정한다 — 범위 밖 부서 폴더는 감춘다."""
-    if not scope or scope.get("role") == "dev":
-        return set()
-    from zzaimy.app import rag_spaces
-    from zzaimy.app.access_policy import DEFAULT_DEPT, visible
-    out = Hidden(int(d["id"]) for d in db.list_documents() if not visible(d, **scope))
-    mine = {scope.get("dept") or "", *(scope.get("also") or ()), DEFAULT_DEPT}
-    out.areas = tuple(sorted(a for a, d in rag_spaces.config(data_dir).get("dept_of_area", {}).items() if d not in mine))
-    return out
 
 
 # ── 마스킹(ADR-0044 내부 마스킹 설정) ─────────────────────────────────────────
@@ -290,10 +277,10 @@ class Programs:
         return value
 
 
-def program_index(db, hidden: set[int]) -> dict[str, tuple[str, int]]:
+def program_index(db) -> dict[str, tuple[str, int]]:
     """장부 열쇠 → (장부 이름, 원본 수) — 검색어·형식 조건과 무관한 전체 기준이라 묶음이 조건에 따라 바뀌지 않는다."""
     archive.ensure(db)
-    where, args = _base_where(parse_filters(), hidden)
+    where, args = _base_where(parse_filters())
     with db._conn() as conn:
         rows = conn.execute(f"SELECT a.program, MAX(a.program_name), COUNT(*) FROM archive_files a{where} GROUP BY a.program",
                             args).fetchall()
@@ -390,9 +377,9 @@ def graph_match(db, names: dict[str, tuple[str, int]]) -> tuple[dict[str, list[s
     return surf, label
 
 
-def load_programs(db, hidden: set[int]) -> tuple[dict[str, tuple[str, int]], "Programs"]:
+def load_programs(db) -> tuple[dict[str, tuple[str, int]], "Programs"]:
     """장부 열쇠별 원본 수와 사업 묶음 — 화면과 점검이 같은 길로 만든다."""
-    names = program_index(db, hidden)
+    names = program_index(db)
     surf, labels_g = graph_match(db, names)
     acr = _key_acronyms(names)
     return names, Programs(names, {k: surf.get(k, []) + acr.get(k, []) for k in names if k}, labels_g)
@@ -444,8 +431,8 @@ def parse_filters(q="", program="", year="", round="", kind="", ext="", state=""
             "view": view if view in VIEWS else VIEWS[0]}
 
 
-def _base_where(f: dict, hidden: set[int]) -> tuple[str, list]:
-    """묶음 수에도 목록에도 거는 조건 — 학교 원본만(archive_state.ORIGINAL_SQL)·검색어·형식·권한."""
+def _base_where(f: dict) -> tuple[str, list]:
+    """묶음 수에도 목록에도 거는 조건 — 학교 원본만(archive_state.ORIGINAL_SQL)·검색어·형식."""
     q, args = " WHERE a.removed_at = ''", []
     orig, orig_args = archive_state.original_sql("a.")
     q += " AND " + orig
@@ -460,19 +447,13 @@ def _base_where(f: dict, hidden: set[int]) -> tuple[str, list]:
     for term in f["q"].split()[:6]:          # 여러 낱말은 모두 들어간 파일만(순서 무관)
         q += " AND LOWER(a.rel) LIKE ? ESCAPE '!'"
         args.append("%" + term.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%")
-    if hidden:                               # 볼 수 없는 문서에 이어진 파일은 건수·목록 모두에서 뺀다(정수만 SQL 에 넣는다)
-        q += " AND (a.doc_id IS NULL OR a.doc_id NOT IN (" + ",".join(str(int(i)) for i in sorted(hidden)) + "))"
-    areas = getattr(hidden, "areas", ())
-    if areas:                                # 범위 밖 부서 폴더의 등록 전 원본도 이름·건수에서 뺀다
-        q += f" AND NOT (a.doc_id IS NULL AND a.area IN ({','.join('?' * len(areas))}))"
-        args += list(areas)
     return q, args
 
 
-def facet_rows(db, f: dict, hidden: set[int]) -> list[dict]:
+def facet_rows(db, f: dict) -> list[dict]:
     """사업·이름·종류·연도·연차·처리 상태별 파일 수와 크기 — 한 번의 GROUP BY."""
     archive.ensure(db)
-    where, args = _base_where(f, hidden)
+    where, args = _base_where(f)
     st, st_args = archive_state.state_sql("a.")
     sql = (f"SELECT a.program, a.program_name, a.kind, a.year, a.round, {st} AS st, a.status = 'folder', COUNT(*), SUM(a.size)"
            f" FROM archive_files a{where} GROUP BY 1, 2, 3, 4, 5, 6, 7")
@@ -597,13 +578,13 @@ def browse(rows: list[dict], f: dict, prog_of: dict[str, str], labels: dict[str,
             "states": state_items, "total": total, "registered": registered, "folder": folder, "gb": round(size / 1e9, 1)}
 
 
-def list_page(db, f: dict, hidden: set[int], keys: list[str] | None, total: int, role: str,
+def list_page(db, f: dict, keys: list[str] | None, total: int,
               prog_of: dict[str, str], labels: dict[str, str], mask) -> dict:
     """조건에 맞는 한 쪽(PAGE_SIZE개). keys 는 고른 사업 묶음의 장부 열쇠(None 이면 사업 조건 없음)."""
     from zzaimy.app.storage import title_of
     from zzaimy.graph.programs import plausible_year
 
-    where, args = _base_where(f, hidden)
+    where, args = _base_where(f)
     if keys is not None:
         where += (" AND a.program IN (" + ",".join("?" * len(keys)) + ")") if keys else " AND 1 = 0"
         args += keys
@@ -658,7 +639,7 @@ def list_page(db, f: dict, hidden: set[int], keys: list[str] | None, total: int,
             # 사업 연도 — 파일 이름·경로에 그 연도가 없으면 연차를 사업 기간으로 환산한 값이다(scripts/165·170)
             year_from_round=bool(it["year"] and it["round"] and str(it["year"]) not in it["rel"]),
             show_year=bool(prog) and plausible_year(it["year"]), show_round=bool(prog) and bool(it["round"]),
-            can_open=(bool(it["doc_id"]) or role == "dev") and not it["rel"].startswith(archive.UPLOAD_PREFIX))
+            can_open=not it["rel"].startswith(archive.UPLOAD_PREFIX))
         it["short_path"] = short_path(it["path"])
     first = (page - 1) * PAGE_SIZE + 1 if items else 0
     return {"found": items, "hits": total, "page": page, "pages": pages, "first": first, "last": first + len(items) - 1 if items else 0}
@@ -675,7 +656,7 @@ def page_url(f: dict, **change) -> str:
     if params["page"] in (1, "1"):
         params["page"] = ""
     params = {k: v for k, v in params.items() if v not in ("", None)}
-    return "/archive" + ("?" + urlencode(params) if params else "") + "#archive-list"
+    return PAGE + ("?" + urlencode(params) if params else "") + "#archive-list"
 
 
 def chips(f: dict, labels: dict[str, str], ext_labels: dict[str, str], progs: "Programs | None" = None) -> list[dict]:
@@ -710,10 +691,10 @@ def resolve_program(value: str, prog_of: "Programs") -> str:
 
 def _dev(request: Request) -> None:
     if getattr(request.state, "role", "") != "dev":
-        raise HTTPException(403, "원본 정리는 관리자만 합니다")
+        raise HTTPException(403, "원본 관리는 관리자만 합니다")
 
 
-@router.get("/archive/cleanup")
+@router.get("/dev/archive/cleanup")
 def archive_cleanup_summary(request: Request):
     """정리 — 처리하지 않는 원본의 갈래별 건수·용량과 정리함에 든 수(관리자)."""
     from zzaimy.app import archive_cleanup
@@ -721,7 +702,7 @@ def archive_cleanup_summary(request: Request):
     return JSONResponse(archive_cleanup.summary(request.app.state.db))
 
 
-@router.get("/archive/cleanup/sample")
+@router.get("/dev/archive/cleanup/sample")
 def archive_cleanup_sample(request: Request, key: str):
     from zzaimy.app import archive_cleanup
     _dev(request)
@@ -736,7 +717,7 @@ def _keys(body) -> list[str]:
     return [str(k) for k in keys if k][:20]
 
 
-@router.post("/archive/cleanup/move")
+@router.post("/dev/archive/cleanup/move")
 async def archive_cleanup_move(request: Request):
     """선택한 갈래를 정리함으로."""
     from zzaimy.app import archive_cleanup
@@ -746,7 +727,7 @@ async def archive_cleanup_move(request: Request):
     return JSONResponse({"moved": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 
 
-@router.post("/archive/cleanup/keep")
+@router.post("/dev/archive/cleanup/keep")
 async def archive_cleanup_keep(request: Request):
     """선택한 갈래를 남기기 — 정리 목록에서만 빠지고 보관소에는 그대로."""
     from zzaimy.app import archive_cleanup
@@ -756,7 +737,7 @@ async def archive_cleanup_keep(request: Request):
     return JSONResponse({"kept": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 
 
-@router.post("/archive/cleanup/restore")
+@router.post("/dev/archive/cleanup/restore")
 async def archive_cleanup_restore(request: Request):
     from zzaimy.app import archive_cleanup
     _dev(request)
@@ -766,7 +747,7 @@ async def archive_cleanup_restore(request: Request):
     return JSONResponse({"restored": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 
 
-@router.get("/archive/cleanup/failed")
+@router.get("/dev/archive/cleanup/failed")
 def archive_cleanup_failed(request: Request, q: str = "", page: int = 1):
     """정리함 「처리 실패」 원본 — 사유와 함께 찾기·쪽 나눔(관리자). 다시 시도 장부에 적힌 수도 준다."""
     from zzaimy.app import read_failure
@@ -774,7 +755,7 @@ def archive_cleanup_failed(request: Request, q: str = "", page: int = 1):
     return JSONResponse(read_failure.archive_failed(request.app.state.db, q=q[:100], page=page))
 
 
-@router.post("/archive/cleanup/retry")
+@router.post("/dev/archive/cleanup/retry")
 async def archive_cleanup_retry(request: Request):
     """고른 「처리 실패」 원본을 정리함에서 빼고 다음 동기화에 다시 읽게 — {"rels": [...], "mode": "retry"|"ocr"}.
     글자 읽기 맡기기(ocr)는 판독 모델이 닿을 때 읽는다."""
@@ -788,18 +769,25 @@ async def archive_cleanup_retry(request: Request):
     return JSONResponse({"retried": n, **archive_cleanup.summary(db, force=True)})
 
 
-@router.get("/archive", response_class=HTMLResponse)
+@router.get("/archive")
+def old_archive(request: Request):
+    """옛 원본 보관소 주소 — 관리자는 원본 관리로(조건 그대로), 교직원은 라이브러리로."""
+    if getattr(request.state, "role", "") == "dev":
+        query = request.url.query
+        return RedirectResponse(PAGE + ("?" + query if query else ""), status_code=307)
+    return RedirectResponse("/?type=all", status_code=307)
+
+
+@router.get(PAGE, response_class=HTMLResponse)
 def archive_page(request: Request, program: str = "", kind: str = "", q: str = "", year: str = "", round: str = "",
                  ext: str = "", state: str = "", sort: str = "name", page: str = "1", view: str = "", partial: str = ""):
+    _dev(request)
     st = request.app.state
     db = st.db
-    from zzaimy.app.access_policy import request_viewer
-    scope = request_viewer(request)
-    hidden = _hidden_docs(db, scope, getattr(st, "data_dir", None))
     f = parse_filters(q, program, year, round, kind, ext, state, sort, page, view)
     labels = kind_labels()
-    rows = facet_rows(db, f, hidden)
-    names, prog_of = load_programs(db, hidden)
+    rows = facet_rows(db, f)
+    names, prog_of = load_programs(db)
     program_years(rows, prog_of)
     f["program"] = resolve_program(f["program"], prog_of)
     view = browse(rows, f, prog_of, labels)
@@ -816,29 +804,29 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
             "url": lambda **kw: page_url(f, **kw)}
     data["rail_tree"] = rail_tree(view["programs"])
     data["pick"] = picked_program(f, view, data["rail_tree"])
-    data.update(list_page(db, f, hidden, keys, view["total"], scope["role"], prog_of, labels, masker(db)))
+    data.update(list_page(db, f, keys, view["total"], prog_of, labels, masker(db)))
     if data["page"] > 1:
         data["prev_url"] = page_url(f, page=data["page"] - 1)
     if data["page"] < data["pages"]:
         data["next_url"] = page_url(f, page=data["page"] + 1)
-    # 원본 수의 이름·정의는 지표 모듈에서 — 열람 제한이 없으면 학교 원본 전부(archive_originals), 있으면 열람 범위(archive_visible).
-    # 처리 상태는 왼쪽 「처리 상태」 한 곳에만 보인다(머리 숫자 칸은 두지 않는다)
-    data["head_metric"] = "archive_visible" if hidden else "archive_originals"
+    # 원본 수의 이름·정의는 지표 모듈에서(archive_originals) — 처리 상태는 왼쪽 「처리 상태」 한 곳에만 보인다
+    data["head_metric"] = "archive_originals"
     if partial:                              # 조건을 바꿀 때마다 왼쪽 분류와 원본 목록만 다시 그린다
         return st.templates.TemplateResponse(request, "_archive_results.html", data)
     overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else program_years(facet_rows(
-        db, parse_filters(), hidden), prog_of), parse_filters(), prog_of, labels)
+        db, parse_filters()), prog_of), parse_filters(), prog_of, labels)
     data["overall"] = overall
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))
 
 
-@router.get("/archive/original")
+@router.get(PAGE + "/original")
 def archive_original(request: Request, rel: str):
+    """원본 파일 한 건(관리자) — 교직원은 문서의 「원본」(/doc/{id}/original)으로 연다."""
     from pathlib import PurePosixPath
 
     from zzaimy.app import archive_original as original
-    from zzaimy.app.access_policy import visible
 
+    _dev(request)
     db = request.app.state.db
     archive.ensure(db)
     with db._conn() as conn:
@@ -849,14 +837,6 @@ def archive_original(request: Request, rel: str):
     if not row:
         raise HTTPException(404, "원본 목록에서 파일을 찾을 수 없습니다.")
     record = dict(zip(("rel", "size", "mtime", "doc_id"), row))
-    from zzaimy.app.access_policy import request_viewer
-    scope = request_viewer(request)
-    if record["doc_id"]:
-        doc = db.get_document(int(record["doc_id"]))
-        if not doc or not visible(doc, **scope):
-            raise HTTPException(404, "원본 목록에서 파일을 찾을 수 없습니다.")     # 권한 밖 문서는 없는 것과 같다
-    elif scope["role"] != "dev":
-        raise HTTPException(403, "등록되지 않은 원본은 개발자 확인 뒤 열 수 있습니다.")
     try:
         file = original.fetch(record)
     except ValueError as exc:

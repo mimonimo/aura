@@ -67,8 +67,8 @@ def _session_files(db, sids: list[int], kind: str) -> list[int]:
 
 
 def _uploaded_via(d: dict) -> str:
-    """프로젝트 문서가 어디서 왔는가 — 원본 보관소에서 가져온 문서(dgx://)는 그 출처를 그대로 보인다."""
-    return "원본 보관소에서 가져옴" if str(d.get("stored_path") or "").startswith("dgx://") else "프로젝트에 올림"
+    """프로젝트 문서가 어디서 왔는가 — 학교 원본에서 가져온 문서(dgx://)는 그 출처를 그대로 보인다."""
+    return "학교 원본에서 가져옴" if str(d.get("stored_path") or "").startswith("dgx://") else "프로젝트에 올림"
 
 
 def collect(db, project: dict | None = None, session_id: int | None = None, *,
@@ -138,7 +138,7 @@ def projects_of(db, doc: dict) -> list[int]:
 def auto_criteria_project(project: dict | None) -> bool:
     """기준 자동 연결을 받는 프로젝트인가 — 담당자가 만든 진행 중 프로젝트만.
 
-    보관 묶음은 받지 않는다: 보관 상태(archived)이거나, 원본 보관소에서 자동으로 만든 묶음(archive_source 가 찬 것,
+    보관 묶음은 받지 않는다: 보관 상태(archived)이거나, 학교 원본에서 자동으로 만든 묶음(archive_source 가 찬 것,
     archive.py 의 DGX 사업별 묶음은 'dgx')이다. 그런 묶음은 수천 건의 반입 원본을 담아 「근거 기준」의 뜻이 없다."""
     return bool(project) and not project.get("archived") and not (project.get("archive_source") or "").strip()
 
@@ -147,7 +147,7 @@ def auto_criteria_doc(doc: dict, project: dict, via: str) -> bool:
     """자동 연결할 문서인가 — 갈래 분류만으로는 정하지 않는다(분류 신뢰도 값이 없다). 둘째 단서로 출처를 본다.
 
     담당자가 그 프로젝트에 직접 올렸거나(문서 주인 = 프로젝트 주인) 그 프로젝트 대화에 첨부한 문서만.
-    원본 보관소에서 옮겨 온 문서(dgx://)는 잇지 않는다."""
+    학교 원본에서 옮겨 온 문서(dgx://)는 잇지 않는다."""
     if str(doc.get("stored_path") or "").startswith("dgx://"):
         return False
     if via == "대화 첨부":
@@ -195,7 +195,7 @@ def criteria_kind_backlog(db, accounts: dict | None = None,
     """기존 프로젝트에서 아직 기준 문서로 잇지 않은 공고·지침·기준 갈래 문서 — 소급 연결 계획.
 
     대상은 link_criteria_kind 와 같다 — 담당자가 만든 진행 중 프로젝트에 담당자가 올렸거나 그 대화에 첨부한 문서
-    (보관 묶음·원본 보관소에서 옮겨 온 문서는 빠진다).
+    (보관 묶음·학교 원본에서 옮겨 온 문서는 빠진다).
     프로젝트 소유자가 열람할 수 없는 문서(access_policy.visible)는 잇지 않고 skipped 로 돌려준다.
     accounts 는 계정 → {role, dept}; 없는 계정은 담당자(staff)·부서 없음으로 본다.
     반환: {"link": [...], "skipped": [...]}, 항목은 project_id·doc_id·via."""

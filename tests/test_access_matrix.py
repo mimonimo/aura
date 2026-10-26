@@ -146,7 +146,7 @@ def test_student_cannot_open_browse_screens(world):
     s = _client(app, "stu")
     assert s.get("/", params={"type": "all"}, follow_redirects=False).status_code in (303, 403)
     for path in ("/search?q=누리", "/graph/explore", "/graph/explore/overview", "/graph/explore/search?q=누리",
-                 f"/graph/explore/neighbors?id=year:P:1", "/graph/program", "/archive", "/dev/rag", "/dev/export",
+                 f"/graph/explore/neighbors?id=year:P:1", "/graph/program", "/archive", "/dev/archive", "/dev/rag", "/dev/export",
                  "/api/projects/browse"):
         assert s.get(path, follow_redirects=False).status_code == 403, path
     assert s.get(f"/doc/{ids['r_stu']}").status_code == 200                    # 학생 공개 규정은 읽는다
@@ -157,7 +157,7 @@ def test_student_cannot_open_browse_screens(world):
 def test_staff_cannot_open_admin_screens(world, uid):
     app, _, _ = world
     c = _client(app, uid)
-    for path in ("/dev/rag", "/dev/export", "/dev/export/regulations"):
+    for path in ("/dev/rag", "/dev/export", "/dev/export/regulations", "/dev/archive", "/dev/archive/cleanup"):
         assert c.get(path, follow_redirects=False).status_code == 403, path
 
 

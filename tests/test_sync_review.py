@@ -127,8 +127,8 @@ def test_private_upload_path_is_not_visible_to_other_user(tmp_path):
     archive.load(db, [dict(rel=rel, size=1, mtime=1)], {rel: did})
     client = TestClient(app)
     assert _login(client, "zzaimy", "boot-pass-1")
-    response = client.get("/archive", params={"q": "private-test"})
-    assert response.status_code in (200, 403, 404)
+    response = client.get("/archive", params={"q": "private-test"})          # 옛 원본 보관소 주소 — 교직원은 라이브러리로
+    assert response.status_code == 200 and response.url.path == "/"
     assert "private-test.pdf" not in response.text
 
 

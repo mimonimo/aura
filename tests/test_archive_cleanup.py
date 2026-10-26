@@ -1,4 +1,4 @@
-"""원본 보관소 정리 — 처리하지 않는 원본을 갈래별로, 정리함으로 옮기면 보관소 건수에서 빠지고 되돌리면 돌아온다."""
+"""원본 관리 정리 — 처리하지 않는 원본을 갈래별로, 정리함으로 옮기면 보관소 건수에서 빠지고 되돌리면 돌아온다."""
 from fastapi.testclient import TestClient
 
 from tests.test_accounts import _app, _login
@@ -31,9 +31,9 @@ def test_cleanup_categories_move_and_restore(tmp_path):
 def test_cleanup_routes_are_admin_only(tmp_path):
     c = TestClient(_app(tmp_path))
     assert _login(c, "zzaimy", "boot-pass-1")
-    assert c.get("/archive/cleanup").status_code == 403
-    assert c.post("/archive/cleanup/move", json={"key": "photo"}).status_code == 403
-    assert 'id="archive-cleanup"' not in c.get("/archive").text
+    assert c.get("/dev/archive/cleanup").status_code == 403
+    assert c.post("/dev/archive/cleanup/move", json={"key": "photo"}).status_code == 403
+    assert 'id="archive-cleanup"' not in c.get("/dev/archive").text
 
 
 def test_keep_drops_from_cleanup_list_but_stays_in_archive(tmp_path):
@@ -58,11 +58,11 @@ def test_cleanup_routes_take_several_keys(tmp_path):
     _put(app.state.db, [("링크/사진/a.jpg", "jpg", 100, ""), ("링크/묶음.zip", "zip", 10, "")])
     c = TestClient(app)
     assert _login(c, "zzdev", "devpass")
-    d = c.post("/archive/cleanup/move", json={"keys": ["photo", "archive"]}).json()
+    d = c.post("/dev/archive/cleanup/move", json={"keys": ["photo", "archive"]}).json()
     assert d["moved"] == 2 and d["left"] == 0
-    assert c.post("/archive/cleanup/restore", json={"key": ""}).json()["restored"] == 2
-    assert c.post("/archive/cleanup/keep", json={"keys": ["photo"]}).json()["kept"] == 1
-    page = c.get("/archive").text
+    assert c.post("/dev/archive/cleanup/restore", json={"key": ""}).json()["restored"] == 2
+    assert c.post("/dev/archive/cleanup/keep", json={"keys": ["photo"]}).json()["kept"] == 1
+    page = c.get("/dev/archive").text
     assert 'id="acActs" hidden' in page and 'data-do="keep"' in page            # 줄 선택 → 작업 줄(정리함으로·남기기·선택 해제)
 
 
@@ -71,7 +71,7 @@ def test_staff_do_not_see_processing_state(tmp_path):
     _put(app.state.db, [("링크/사진/a.jpg", "jpg", 100, "")])
     c = TestClient(app)
     assert _login(c, "zzaimy", "boot-pass-1")
-    page = c.get("/archive").text
+    page = c.get("/dev/archive").text
     assert 'aria-label="처리 상태"' not in page and "처리 제외" not in page
     assert _login(c, "zzdev", "devpass")
-    assert 'aria-label="처리 상태"' in c.get("/archive").text
+    assert 'aria-label="처리 상태"' in c.get("/dev/archive").text

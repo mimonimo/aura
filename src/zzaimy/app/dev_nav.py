@@ -10,7 +10,7 @@ from __future__ import annotations
 GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     # 묶음은 개발 현황 「구축 현황」 의 여섯 영역·처리 흐름 단계와 같은 지도 — 어느 화면에서든 같은 자리에서 찾게
     ("개요", [("/dev", "개발 현황"), ("/dev/flow", "처리 흐름"), ("/dev/docs", "논문·설계 문서")]),
-    ("문서 반입·읽기", [("/dev/db", "데이터 현황")]),
+    ("문서 반입·읽기", [("/dev/db", "데이터 현황"), ("/dev/archive", "원본 관리")]),
     ("검색·지식", [("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색"), ("/dev/quality", "품질·성능")]),
     ("문서 작성", [("/dev/coedit-demo", "공동 편집 시연")]),
     ("모델 학습", [("/dev/train", "데이터·학습"), ("/dev/collect", "수집 자료"), ("/dev/tools", "도구·모델 연결")]),
@@ -38,6 +38,8 @@ def is_active(href: str, path: str, train_tab: str) -> bool:
         return path.startswith(("/dev/doc", "/dev/paper", "/dev/weekly"))
     if href == "/dev":                             # 변경 이력은 개발 현황의 하위 화면
         return path in ("/dev", "/dev/history")
+    if href == "/dev/archive":                     # 원본 파일 한 건 열기도 원본 관리 안
+        return path.startswith("/dev/archive")
     return path == href
 
 

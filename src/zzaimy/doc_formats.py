@@ -1,6 +1,6 @@
 """문서 형식 한 곳 — 원본 처리 대상 형식(DOC_EXT)·사진·압축 형식, 확장자로 형식을 알 수 없는 파일의 실제 형식 판별.
 
-원본 보관소 화면·반입 점검(scripts/175)·DGX 목록(165)·DGX 처리(167)·VM 동기화(170)가 모두 여기서 가져간다.
+원본 관리 화면·반입 점검(scripts/175)·DGX 목록(165)·DGX 처리(167)·VM 동기화(170)가 모두 여기서 가져간다.
 앱 의존이 없어 DGX 의 가벼운 가상환경에서도 불러온다(olefile 이 없으면 옛 오피스·한글 이진 판별만 빠진다).
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ ARCHIVE_EXT = ("zip", "7z", "rar", "egg", "alz")
 DOWNLOAD_TAIL = "다운로드"
 
 # 학교 원본 문서가 아닌 부산물 폴더 — 「<문서 이름><접미>/」 아래 파일. 원본 장부에는 남기되 처리(DGX 167)·처리 대상 집계(175)·
-# 원본 보관소 목록에서 뺀다(app/archive_state 가 같은 값을 쓴다)
+# 원본 관리 목록에서 뺀다(app/archive_state 가 같은 값을 쓴다)
 # 1. 우리 변환기가 문서 옆에 만든 출력 — 접미는 변환기 코드의 출력 이름과 같다:
 #    _imgs(app/pipeline·ingest/parsers/hwpx 추출 그림), _hwp5_out(parsers/hwp5), _mineru_out(parsers/mineru), _kordoc(parsers/kordoc)
 CONVERTER_DIR_SUFFIXES = ("_imgs", "_hwp5_out", "_mineru_out", "_kordoc")
@@ -33,7 +33,7 @@ BYPRODUCT_DIR_SUFFIXES = CONVERTER_DIR_SUFFIXES + WEB_SAVE_DIR_SUFFIXES
 
 def empty_reason(name: str) -> str:
     """처리는 됐지만 글(조각)이 없는 문서의 사유 — 처리기(app/pipeline)가 글 없는 문서를 오류로 낼 때와 같은 글.
-    DGX 처리(167)·반입(168)이 오류 글 없이 빈 채로 끝난 문서에도 같은 사유를 남겨, 실패 장부·원본 보관소에 사유가 비지 않게 한다."""
+    DGX 처리(167)·반입(168)이 오류 글 없이 빈 채로 끝난 문서에도 같은 사유를 남겨, 실패 장부·학교 원본에 사유가 비지 않게 한다."""
     ext = file_ext(name).upper() or "확장자 없음"
     return f"문서 판독 실패 (글이 없는 문서 — {ext})"
 

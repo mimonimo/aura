@@ -1,6 +1,6 @@
 """개발자 화면의 수 이름 — 「학교 원본」과 「원본 장부 전체」를 나눠 부르고, 보관소 「대기」가 연동 점검과 같은 판단을 쓴다.
 
-문서 반입(/dev/intake)·데이터 현황(/dev/db)·원본 보관소(/archive)가 같은 이름으로 다른 수를 보이지 않게 하는 확인.
+문서 반입(/dev/intake)·데이터 현황(/dev/db)·원본 관리(/dev/archive)가 같은 이름으로 다른 수를 보이지 않게 하는 확인.
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def test_ledger_breakdown_adds_up(tmp_path):
         conn.execute("INSERT INTO archive_cleanup (rel, category, at, by_user) VALUES ('링크/사진.jpg', 'photo', '', '')")
     lg = intake_status.ledger_breakdown(db, force=True)
     assert lg == {"total": 4, "originals": 2, "cleaned": 1, "platform": 1, "byproduct": 0}
-    assert lg["originals"] == metrics.live(db, force=True)["values"]["archive_originals"]   # 원본 보관소 머리 숫자와 같은 정의
+    assert lg["originals"] == metrics.live(db, force=True)["values"]["archive_originals"]   # 원본 관리가 세는 수와 같은 정의
 
 
 def test_with_commas_formats_counts_not_dates():

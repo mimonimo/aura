@@ -60,7 +60,7 @@ PostgreSQL 운영 DB(문서·조각·개체·장부·의미 검색 벡터의 정
 비밀값(따로 안전하게 옮김): `.env.local`, `configs/hosts.env`, `data/platform/accounts.json`, `llm_connections.json`,
 `gdrive_oauth.json`, `gdrive_tokens.json`, `nas_sources.json`, `.session_secret`(없으면 모두 다시 로그인),
 `.collect_salt`(바뀌면 수집 자료 가명이 이어지지 않음), `initial_dev_password.txt`, `~/.ssh/id_ed25519_dgx_ro`
-(DGX 원본 보관소 읽기 전용 키), 기안기 라이선스(`~/opt/webhwp` 아래 `*licen*`, `*.lic`), 그리고 `.env.local` 의
+(DGX 학교 원본 읽기 전용 키), 기안기 라이선스(`~/opt/webhwp` 아래 `*licen*`, `*.lic`), 그리고 `.env.local` 의
 `ZZAIMY_TLS_KEY` 처럼 환경 변수가 가리키는 열쇠 파일. `ZZAIMY_TLS_CERT` 같은 인증서는 옮기되 비밀값으로 치지 않는다.
 
 ## 다시 만드는 것
@@ -89,7 +89,7 @@ PostgreSQL 운영 DB(문서·조각·개체·장부·의미 검색 벡터의 정
 | `data/platform/knowledge/eval/`, `data/eval/`, `data/interim/`(sft 빼고) | 측정 산출물과 측정 재료. 서비스가 읽지 않는다 |
 | `data/platform/tmp/`, `data/tmp/`, `*.log`, `~/app.log`, `__pycache__` | 임시와 실행 기록 |
 | `data/platform/inbox/` | 업로드 임시 자리. 처리되면 `documents/` 로 옮겨진다. report --db 로 남은 문서가 없는지 본다 |
-| `data/inbox/core/`, 그 밖의 `data/inbox/` | DGX 원본 보관소에서 받은 반입 뼈대(약 21G). 반입되면 `documents/` 로 옮겨지고, 남은 것은 동기화가 다시 받는다 |
+| `data/inbox/core/`, 그 밖의 `data/inbox/` | DGX 학교 원본에서 받은 반입 뼈대(약 21G). 반입되면 `documents/` 로 옮겨지고, 남은 것은 동기화가 다시 받는다 |
 | `data/scraped/` | 공개 국고 문서 수집본. 서비스는 읽지 않고 반입 점검(125)만 쓴다 |
 | `data/external/`, `data/dist/`, `data/vision/`, `data/samples/` | 서비스 코드가 읽지 않는 참고 자료·배포 묶음·쪽 그림 실험·실물 표본 |
 | `.venv`, `.venv-*` | 새 서버에서 다시 설치 |

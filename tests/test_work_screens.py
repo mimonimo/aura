@@ -124,7 +124,7 @@ def test_archive_origin_is_shown_as_source(client):
     pid = db.create_project("grant", "지난 묶음", archived=True)
     db.add_document("옛 결과보고.pdf", "dgx://사업/옛 결과보고.pdf", doc_type="grant", project_id=pid)
     groups = project_documents.collect(db, db.get_project(pid))
-    assert groups["attached"][0]["via"] == "원본 보관소에서 가져옴"
+    assert groups["attached"][0]["via"] == "학교 원본에서 가져옴"
     page = client.get(f"/project/{pid}").text
     assert "지난 사업</span>" in page and "보관 해제" in page
     assert 'name="question"' not in page                               # 지난 사업에서는 새 대화·문서 추가를 띄우지 않는다
@@ -236,7 +236,7 @@ def test_criteria_auto_link_skips_archive_bundles_and_foreign_documents(client):
         db.set_document_kind(d, "announcement")
     assert project_documents.link_criteria_kind(db, in_bundle) == []
     assert project_documents.link_criteria_kind(db, in_archived) == []
-    assert project_documents.link_criteria_kind(db, moved) == []          # 원본 보관소에서 옮겨 온 문서
+    assert project_documents.link_criteria_kind(db, moved) == []          # 학교 원본에서 옮겨 온 문서
     assert project_documents.link_criteria_kind(db, foreign) == []        # 담당자가 올리지 않은 문서
     plan = project_documents.criteria_kind_backlog(db)
     assert [(r["project_id"], r["doc_id"]) for r in plan["link"]] == [(user, mine)]
@@ -257,9 +257,9 @@ def test_split_numbering_lines_collapse_but_numbers_stay():
     assert html.count("시범 신청 방법") == 1
 
 
-def test_library_tab_names_come_from_one_place(client):
+def test_library_head_is_one_list(client):
     page = client.get("/?type=all").text
-    assert page.count(">문서</a>") == 1 and "<h1>라이브러리</h1>" in page    # 머리 제목은 라이브러리 하나, 탭이 이름(library_tabs)
+    assert "<h1>라이브러리</h1>" in page and "library-tabs" not in page    # 머리 제목은 라이브러리 하나, 탭 없이 한 목록
     templates = Path(__file__).resolve().parents[1] / "src" / "zzaimy" / "app" / "templates"
     for f in templates.glob("*.html"):
         assert "「프로젝트·문서」" not in f.read_text(encoding="utf-8"), f.name

@@ -1,6 +1,6 @@
 """원본 처리 상태 — 원본 장부(archive_files)의 파일마다 등록됨 · 처리 제외 · 실패 · 대기.
 
-반입 연동 점검(scripts/175)과 원본 보관소 화면이 같은 기준을 쓴다.
+반입 연동 점검(scripts/175)과 원본 관리 화면이 같은 기준을 쓴다.
 - 등록됨: 문서함 문서에 이어짐(doc_id)
 - 처리 제외: 글 문서 형식이 아님 · 같은 파일(이름·크기·내용 지문이 같음, zzaimy/archive_dups)의 중복 · 범위 밖 경로(지출·증빙 등, 절대 규칙 11) · 처리 상한보다 큼
   · 같은 파일 묶음의 대표인데 묶음의 다른 사본이 문서에 이어짐(DGX 와 VM 이 대표를 달리 골라 처리된 쪽이 사본 — 연동 점검이
@@ -25,7 +25,7 @@ OUT_OF_SCOPE = re.compile("|".join(OUT_OF_SCOPE_WORDS))
 MAX_PARSE_BYTES = 300 * 1024 * 1024                                     # scripts/167 MAX_BYTES 와 같다
 FAILED_MARK = "처리 실패"
 
-# 학교 원본이 아닌 것 — 원본 보관소 목록·건수에서 뺀다
+# 학교 원본이 아닌 것 — 원본 관리 목록·건수에서 뺀다
 # 1. 플랫폼이 보관한 사본(archive.UPLOAD_PREFIX 아래: 반입·첨부 문서의 플랫폼 저장본). 원본은 학교 폴더에 있다
 # 2. 부산물 폴더(「<문서 이름><접미>/」 아래) — 우리 변환기 출력과 웹 페이지 저장 자료 폴더. 접미 목록은 한 곳(zzaimy/doc_formats)
 from zzaimy.doc_formats import BYPRODUCT_DIR_SUFFIXES, empty_reason, is_byproduct  # noqa: E402,F401

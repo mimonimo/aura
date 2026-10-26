@@ -118,7 +118,7 @@ def test_bulk_scope_uses_searchable_department_picker(tmp_path, monkeypatch):
 
 
 def test_library_row_links_to_its_original(tmp_path):
-    """학교 원본(dgx://)에서 들어온 문서는 목록 줄에서 원본 보관소의 그 원본으로 바로 간다."""
+    """목록 줄의 「원본」 은 그 문서의 원본 파일을 바로 연다(문서 경로 권한 그대로) — 학교 원본이든 직접 올린 문서든."""
     app, c = _client(tmp_path)
     db = app.state.db
     from zzaimy.app import archive
@@ -128,5 +128,5 @@ def test_library_row_links_to_its_original(tmp_path):
         conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?", ("dgx://가상사업/2024/가상 계획서.hwp", did))
     plain = db.add_document("직접 올린 문서.pdf", "x", doc_type="grant")
     rows = {int(m.group(1)): m.group(0) for m in re.finditer(r'class="lib-row-title" href="/doc/(\d+)".*?</li>', c.get("/?type=all").text, re.S)}
-    assert 'class="lib-row-orig" href="/archive?program=program%3Agasang' in rows[did]
-    assert "lib-row-orig" not in rows[plain]
+    assert f'class="lib-row-orig" href="/doc/{did}/original"' in rows[did]
+    assert f'class="lib-row-orig" href="/doc/{plain}/original"' in rows[plain]
