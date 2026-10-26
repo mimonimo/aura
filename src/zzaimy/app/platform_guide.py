@@ -1,4 +1,4 @@
-"""플랫폼 안내 자료 — 플랫폼 업무 도우미(오른쪽 아래 떠 있는 창)가 「어디서 무엇을 누르면 되는가」 를 답할 때 근거로 쓰는 화면 설명.
+"""플랫폼 안내 자료 — 플랫폼 업무 도우미(오른쪽 옆 패널)가 「어디서 무엇을 누르면 되는가」 를 답할 때 근거로 쓰는 화면 설명.
 
 화면마다 한 항목(PAGES): 무엇을 하는 곳인지, 할 수 있는 일과 그 자리(카드·단추), 관련 플랫폼 동작(platform_ops).
 화면 이름은 개발 메뉴(dev_nav)에서, 카드 제목은 템플릿의 <h2> 에서, 처리 단계는 처리 흐름(process_flow)에서 읽는다 —
@@ -30,8 +30,10 @@ class Task:
     op: str = ""                  # 같은 일을 하는 플랫폼 동작(platform_ops) — 있으면 도우미가 대신 할 수 있다
     mark: str = ""                # 화면에서 가리킬 요소의 속성(예: data-rr="student") — 도우미가 커서·강조로 짚는다
     mark_in: str = ""             # 그 요소가 화면 템플릿이 아닌 곳(base.html 사이드바 등)에 있을 때
-    auto: bool = False            # 도우미가 바로(now) 커서로 눌러도 되는가 — 창 열기·찾기 칸처럼 자료를 바꾸지 않는 요소만 True.
+    auto: bool = False            # 도우미가 바로(now) 커서로 눌러도 되는가 — 열기·찾기·칸 채우기처럼 자료를 바꾸지 않는 요소만 True.
                                   # 보안: 자료를 바꾸는 단추(학생 공개·검색에 추가 등)는 False 로 두어 [실행] 확인을 거치게 한다(문서 속 글이 모델을 꾀어 누르게 하지 못하게)
+    final: bool = False           # 마지막 단추(저장·보내기·지우기·등록) — 담당자가 이번 요청에 직접 친 글에 verbs 가운데 하나가 있을 때만 커서가 누른다
+    verbs: tuple[str, ...] = ()   # 마지막 단추를 시키는 말(활용형까지, 예: 「저장해」) — platform_ops.commanded 가 사람이 친 글에서만 찾는다
 
     @property
     def selector(self) -> str:
@@ -60,6 +62,12 @@ PAGES: tuple[Page, ...] = (
          (Task("질문하기·문서 작업 맡기기(에이전트 대화)", "입력 칸에 묻는다. 파일을 끌어 놓으면 첨부되어 함께 읽는다. 사업 문서 내용 질문과 문서 작성은 여기서 한다."),
           Task("프로젝트 만들기", "사이드바 「프로젝트」 옆 + (프로젝트 추가) — 업무 영역·이름·마감을 적는다. 도우미에게 문서를 쓰고 싶다고 하면 프로젝트를 만들고 첫 요청까지 보내 준다.",
                op="project.start", mark='data-modal-open="#projectModal"', auto=True, mark_in="base.html"),
+          Task("새 프로젝트 업무 고르기", "프로젝트 추가 창의 「업무」 — 도우미에게 맡기면 text 에 업무 이름을 넣어 고른다.", mark='data-aura="project-sector"', auto=True,
+               mark_in="_project_modal.html"),
+          Task("새 프로젝트 이름 칸 채우기", "프로젝트 추가 창의 이름 칸 — 도우미에게 맡기면 text 에 이름을 넣는다.", mark='data-aura="project-name"', auto=True,
+               mark_in="_project_modal.html"),
+          Task("새 프로젝트 만들기 단추", "프로젝트 추가 창 아래 「만들기」", mark='data-aura="project-create"', final=True,
+               verbs=("만들어", "만들고", "생성해", "추가해"), mark_in="_project_modal.html"),
           Task("일반 질문을 웹으로 찾기", "입력 칸의 외부 검색 모드(웹)를 켠다 — 질문 글만 밖으로 나가고 문서·첨부는 나가지 않는다."),
           Task("문서 작업", "프로젝트 대화에서 「○○ 서식으로 작업하자」처럼 말하면 작업본을 만들고 절 쓰기·검토·한글 내보내기를 이어 한다.")),
          buttons=("작업 패널",), roles=("dev", "staff", "student"), name="새 채팅"),
@@ -67,8 +75,18 @@ PAGES: tuple[Page, ...] = (
          (Task("문서 올리기(사업 문서)", "쓰임새 줄 오른쪽 「문서 올리기」 — 파일(여러 개 가능)을 선택하고, 폴더(없으면 「폴더 없이」)·검색 범위(정하지 않으면 공통 RAG)·"
                "사업(선택하면 그 사업 연도 묶음에 들어감)·사업 연도·업무 갈래(모르면 「자동으로 정하기」)를 선택한 뒤 「올리기」. 올린 문서는 처리 중 → 처리 완료로 바뀐다.",
                mark='data-modal-open="#libUploadModal"', auto=True),
+          Task("문서 올리기 창의 폴더 고르기", "문서 올리기 창의 「폴더」 — 도우미에게 맡기면 text 에 폴더 이름을 넣어 고른다.", mark='data-aura="lib-up-folder"', auto=True),
+          Task("문서 올리기 창의 사업 고르기", "문서 올리기 창의 「사업」 — 도우미에게 맡기면 text 에 사업 이름을 넣어 고른다.", mark='data-aura="lib-up-prog"', auto=True),
+          Task("문서 올리기 창의 사업 연도 칸", "문서 올리기 창의 사업 연도 — 도우미에게 맡기면 text 에 연도(예: 2026)를 넣는다.", mark='data-aura="lib-up-year"', auto=True),
+          Task("문서 올리기 창의 업무 갈래 고르기", "문서 올리기 창의 업무 갈래 — 모르면 「자동으로 정하기」.", mark='data-aura="lib-up-kind"', auto=True),
+          Task("문서 올리기 창의 올리기 단추", "파일을 고른 뒤 「올리기」 — 파일 고르기는 담당자가 한다.", mark='data-aura="lib-up-submit"', final=True,
+               verbs=("올려", "올리고", "업로드해")),
           Task("새 규정·공고·지침 파일을 기준 문서로 올리기", "쓰임새에서 「기준」(주소 /?type=all&use=criteria)을 선택하면 나오는 「기준 등록」 — 업무를 선택하고 파일을 올리면 원문 그대로 규정 검색에 들어간다. "
                "이미 반입된 자료 속 규정은 다시 올리지 않고 RAG 공간에서 선택해 올린다(관리자).", mark='data-modal-open="#criteriaUploadModal"', auto=True),
+          Task("쓰임새로 거르기(기준 문서만 보기 등)", "목록 위 쓰임새 칩 — 「기준」 은 규정·지침·공고, 「작성·결과」 는 그 밖. 도우미에게 맡기면 text 에 칩 이름을 넣어 누른다.",
+               mark='data-aura="lib-use"', auto=True),
+          Task("문서 이름으로 찾기", "거르기 줄의 찾을 낱말 칸 — 제목·접수번호(「본문까지」 를 켜면 본문 낱말)로 찾는다. 도우미에게 맡기면 text 에 낱말을 넣어 찾는다.",
+               mark='data-aura="lib-q"', auto=True),
           Task("지난 사업 찾기", "위 「사업 찾기」 칸에 사업 이름이나 별칭을 넣고 「찾기」 — 하나로 좁혀지면 그 사업 한눈에 보기(연도별 서류)로 간다. "
                "도우미에게 맡기면 찾을 말을 넣어 찾아 준다.", mark='id="libFind"', auto=True),
           Task("올린 문서가 어떻게 됐는지 보기", "라이브러리에서 이름으로 찾거나 문서를 열어 상태(처리 중·처리 완료·읽지 못함)를 본다. 도우미에게 물으면 최근 올린 문서 상태를 알려 준다."),
@@ -78,13 +96,27 @@ PAGES: tuple[Page, ...] = (
           Task("폴더 만들기·폴더째 부서 RAG 로 두기", "폴더 목록의 「+ 폴더 만들기」, 폴더를 선택한 뒤 「공개 범위 바꾸기…」 — 앞으로 그 폴더로 들어오는 문서도 같은 부서로 간다.")),
          buttons=("문서 올리기", "기준 등록", "공개 범위 바꾸기…", "+ 폴더 만들기", "폴더 없이", "자동으로 정하기", "올리기"), roles=("dev", "staff"), name="라이브러리"),
     Page("/project/{id}", "project.html", "프로젝트(사업 하나) — 사업 문서·작성 원칙·기준 문서·관련 지난 사업을 모아 두고 대화로 작업하는 곳. 사이드바 「프로젝트」 에서 연다.",
-         (Task("프로젝트에 문서 넣기", "「문서 추가」"),
+         (Task("프로젝트에 문서 넣기", "「프로젝트 문서」 카드의 「문서 추가」 — 내 컴퓨터에서 올리기·문서함·구글 드라이브에서 가져오기·기준으로 연결 가운데 고른다.",
+               mark='data-aura="project-add"', auto=True),
+          Task("문서함·드라이브에서 가져오기", "「문서 추가」 › 「문서함·구글 드라이브에서 가져오기」 — 파일 찾기 창이 뜬다.", mark='data-aura="project-add-finder"', auto=True),
+          Task("공유 창 열기", "머리의 공유 단추(나만 보기·공유 표시) — 부서 전체나 사람을 더하고 「저장」.", mark='data-modal-open="#shareModal"', auto=True,
+               mark_in="_project_head.html"),
+          Task("공유 저장", "공유 창 아래 「저장」 — 작업 문서의 구글 권한도 따라 바뀐다.", mark='data-aura="share-save"', final=True,
+               verbs=("저장해", "저장하고", "저장까지", "공유해", "공유하고")),
+          Task("진행 현황 보기", "머리 아래 탭의 「진행 현황」 — 사업 책임자 이상에게 보인다.", mark='data-aura="project-activity"', auto=True,
+               mark_in="_project_head.html"),
           Task("이 사업의 기준 문서 정하기", "「기준 문서 선택」 카드에서 선택해 저장한다."),
           Task("이 프로젝트로 대화 시작", "「대화 시작」"),
           Task("끝난 사업 보관", "「프로젝트 관리」 의 「보관」 — 「지난 사업」(/projects/archived)에서 다시 본다.")),
          buttons=("문서 추가", "대화 시작", "보관"), roles=("dev", "staff"), name="프로젝트"),
     Page("/hwp", "hwp.html", "한글 문서함 — 한글 문서를 부서·공통·내 폴더에 두고 웹 한글 기안기로 브라우저에서 바로 열어 고치는 곳. 문서 작성의 주 경로다.",
          (Task("새 한글 문서 만들기", "「새 문서」 — 지금 폴더에 빈 문서를 기안기로 연다(처음 저장할 때 파일이 생긴다)", mark='data-aura="hwp-new"', auto=True),
+          Task("폴더 열기", "왼쪽 위치 목록의 부서 폴더·내 폴더, 또는 목록의 폴더 이름을 누른다. 도우미에게 맡기면 text 에 폴더 이름을 넣어 연다.",
+               mark='data-aura="hwp-folder"', auto=True),
+          Task("문서 찾아 열기", "폴더를 연 뒤 목록에서 문서 이름을 누르면 기안기로 열린다. 도우미에게 맡기면 text 에 문서 이름을 넣어 연다.",
+               mark='data-aura="hwp-file"', auto=True),
+          Task("양식으로 시작", "「양식으로 시작」 — 공통 양식 목록이 뜨고, 양식 이름 칸에 낱말을 넣어 거른다.", mark='data-modal-open="#hwTpl"', auto=True),
+          Task("양식 이름으로 거르기", "「양식으로 시작」 창의 양식 이름 칸 — 도우미에게 맡기면 text 에 찾을 말을 넣는다.", mark='data-aura="hwp-tpl-find"', auto=True),
           Task("가진 한글 파일 올리기", "「올리기」 — hwp·hwpx 를 고른 폴더에 둔다"),
           Task("여럿이 함께 고치기", "같은 문서를 여러 사람이 열면 칸(누름틀)마다 먼저 고친 사람이 쓰고 다른 칸은 동시에 고친다. 고치는 사람 이름이 칸에 보인다."),
           Task("AURA 에게 절 쓰기 맡기기", "문서를 연 채 채팅에서 「이 절 써 줘」 — AURA 가 그 절을 쓰면 열린 화면이 새 판을 불러온다"),
@@ -96,15 +128,20 @@ PAGES: tuple[Page, ...] = (
     Page("/team", "team.html", "조직 관리 — 왼쪽 부서 트리(맨 위 「전체 사용자」), 오른쪽 고른 것의 상세. 부서를 고르면 구성원(옮기기·등급 바꾸기·빼기·사람 추가)과 "
          "부서 설정(이름·상위 부서·하위 부서 추가·지우기·부서 RAG 문서 수·최소 등급·부서 드라이브), 「전체 사용자」 는 계정 목록(관리자). "
          "관리자는 전부, 총괄 책임자는 맡은 처·단 아래만 고친다.",
-         (Task("부서 만들기(부서 RAG 가 함께 생김)", "맨 위는 트리 위 「부서」, 아래 부서는 그 부서의 「부서 설정」 › 「하위 부서 추가」", "", "dept_rag.create", "data-org-add"),
+         (Task("부서 찾기", "트리 위 「부서 찾기」 칸에 이름을 넣으면 트리가 걸러진다 — 도우미에게 맡기면 text 에 부서 이름을 넣는다.", mark="data-om-find", auto=True),
+          Task("부서 고르기", "트리에서 부서 이름을 누르면 오른쪽에 구성원·부서 설정이 나온다 — 도우미에게 맡기면 text 에 부서 이름을 넣어 고른다.",
+               mark='data-aura="team-dept"', auto=True, mark_in="../static/org-chart.js"),
+          Task("부서 만들기(부서 RAG 가 함께 생김)", "맨 위는 트리 위 「부서」, 아래 부서는 그 부서의 「부서 설정」 › 「하위 부서 추가」", "", "dept_rag.create", "data-org-add"),
           Task("부서 옮기기", "트리에서 부서를 다른 부서 위로 끌어다 놓거나 「부서 설정」 › 「상위 부서 옮기기」"),
           Task("계정 만들기·고치기", "트리 맨 위 「전체 사용자」 › 「계정 추가」, 줄 끝 … › 「편집」"),
           Task("비밀번호 잊은 계정", "전체 사용자에서 계정을 열어 「임시 비밀번호 만들기」"),
           Task("부서 드라이브 연결", "그 부서의 「부서 설정」 › 부서 드라이브의 「구글 드라이브 연결」 — 총괄 책임자와 관리자")),
          roles=("dev", "staff"), name="조직 관리"),
     Page("/settings", "settings.html", "내 설정 — 프로필(성명·계정·소속 부서)·보안(비밀번호)·구글 계정 연결. 사용자 메뉴의 「설정」. 한글 작업은 기본으로 웹 한글 기안기에서 연다.",
-         (Task("성명 바꾸기", "「프로필」 의 성명을 고치면 「저장」 이 켜진다"),
-          Task("비밀번호 바꾸기", "「비밀번호 변경」 을 누르면 뜨는 창에서"),
+         (Task("성명 칸 채우기", "「프로필」 의 성명 칸 — 고치면 「저장」 이 켜진다. 도우미에게 맡기면 text 에 새 성명을 넣는다.", mark='data-aura="settings-name"', auto=True),
+          Task("성명 저장", "「프로필」 아래 「저장」", mark="data-ms-save", final=True, verbs=("저장해", "저장하고", "저장까지", "바꿔 줘", "바꿔줘", "고쳐 줘", "고쳐줘")),
+          Task("비밀번호 바꾸기", "「비밀번호 변경」 을 누르면 뜨는 창에서 — 비밀번호 칸은 담당자가 직접 친다(도우미는 창만 연다).",
+               mark='data-aura="settings-pw"', auto=True),
           Task("내 학교 구글 계정 잇기", "「구글 계정」 카드의 「구글 계정 연결」 — 드라이브 가져오기와 보조 편집기(구글 독스)에 쓴다. 한글 문서는 한글 문서함에서 바로 고친다.")),
          buttons=("저장", "비밀번호 변경", "구글 계정 연결"), roles=("dev", "staff"), name="내 설정"),
 
@@ -220,7 +257,9 @@ def render(page: Page, role: str = "dev") -> str:
         where = f" (자리 {link(page, t.anchor)})" if t.anchor else ""
         can = f" · 도우미가 대신 할 수 있음(propose_action op={t.op})" if t.op else ""
         el = f" · 가리킬 요소 {t.selector}" if t.selector else ""
-        lines.append(f"- {t.what}: {t.how}{where}{el}{can}")
+        kind = (" · 마지막 단추(담당자가 " + "·".join(f"「{v}」" for v in t.verbs[:3]) + " 처럼 시켰을 때만 바로 누름)") if t.final else \
+               (" · 바로 할 수 있음" if t.auto and t.selector else "")
+        lines.append(f"- {t.what}: {t.how}{where}{el}{kind}{can}")
     for name, what in page.terms:
         lines.append(f"· {name}: {what}")
     return "\n".join(lines)

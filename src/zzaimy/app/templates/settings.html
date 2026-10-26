@@ -76,13 +76,13 @@
   <dl class="ms-rows">
     <div class="ms-row">
       <dt>{% if name_locked %}성명{% else %}<label for="s-name">성명</label>{% endif %}</dt>
-      <dd>{% if name_locked %}{{ my_name }}<span class="ms-note">성명은 관리자가 정합니다</span>{% else %}<input id="s-name" type="text" name="name" value="{{ my_name }}" placeholder="예: 홍길동" autocomplete="name">{% endif %}</dd>
+      <dd>{% if name_locked %}{{ my_name }}<span class="ms-note">성명은 관리자가 정합니다</span>{% else %}<input id="s-name" type="text" name="name" data-aura="settings-name" value="{{ my_name }}" placeholder="예: 홍길동" autocomplete="name">{% endif %}</dd>
       <div class="ms-act"></div>
     </div>
     <div class="ms-row"><dt>계정</dt><dd>{{ uid or "로컬 모드" }}</dd><div class="ms-act"></div></div>
     <div class="ms-row"><dt>소속 부서</dt><dd>{{ acct_dept or "부서 없음" }}<span class="ms-note">관리자가 정합니다</span></dd><div class="ms-act"></div></div>
   </dl>
-  {% if not name_locked %}<div class="ms-foot"><button type="submit" data-ms-save disabled>저장</button></div>{% endif %}
+  {% if not name_locked %}<div class="ms-foot"><button type="submit" data-ms-save data-aura-final disabled>저장</button></div>{% endif %}
 </div></section>
 </form>
 {% endif %}
@@ -92,7 +92,7 @@
   <h2>보안</h2>
   <dl class="ms-rows">
     <div class="ms-row"><dt>비밀번호</dt><dd aria-label="설정됨">••••••••</dd>
-      <div class="ms-act"><button type="button" class="secondary" onclick="document.getElementById('pwDialog').showModal()">비밀번호 변경</button></div></div>
+      <div class="ms-act"><button type="button" class="secondary" data-aura="settings-pw" onclick="document.getElementById('pwDialog').showModal()">비밀번호 변경</button></div></div>
   </dl>
 </div></section>
 {% endif %}

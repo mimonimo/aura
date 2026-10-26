@@ -1432,7 +1432,7 @@ def create_app(
         me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
         if me and session.get("owner") == me:
             return True
-        # 비공개는 만든 사람만 — 관리자도 읽지 않는다. 업무 상담(떠 있는 창)·프로젝트 밖 대화도 본인만
+        # 비공개는 만든 사람만 — 관리자도 읽지 않는다. 업무 상담(업무 도우미 패널)·프로젝트 밖 대화도 본인만
         if not session.get("project_id") or (session.get("channel") or "chat") != "chat" or session.get("is_private"):
             return False
         if getattr(request.state, "role", "") == "dev":
@@ -1449,7 +1449,7 @@ def create_app(
 
     # 세션별 최근 검색 근거(연관 자료) — 채팅 사이드바에 노출한다.
     _chat_sources: dict[int, list] = {}
-    # 떠 있는 창이 보낸 「지금 보는 화면」 경로 — 에이전트 상태에 넣는다(platform_guide.where_line)
+    # 업무 도우미 패널이 보낸 「지금 보는 화면」 경로 — 에이전트 상태에 넣는다(platform_guide.where_line)
     _chat_pages: dict[int, str] = {}
 
     def _record_run(session_id: int, message_id: int, kind: str, r=None, extra: dict | None = None) -> None:

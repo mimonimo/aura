@@ -7,6 +7,8 @@
 권한은 화면과 같다 — 개발(/dev) 화면의 일은 관리자(dev)만. 제안할 때와 실행할 때 서버에서 두 번 본다(단추를 숨기는 데 기대지 않는다).
 동작마다 같은 일을 하는 화면 자리(screen)와 가리킬 요소(mark — 속성, 선택자는 [mark])를 함께 돌려준다 — 화면 위 커서·강조가 쓴다.
 대상 확인 실패·권한 없음은 OpRefused 로 알린다 — 도우미에는 까닭만 돌려주고 문서 이름은 권한 있는 계정에만 보인다.
+화면 열기(propose_open)는 커서가 할 단계(steps)를 싣는다 — 열기·찾기·칸 채우기는 시키면 바로, 마지막 단추는 담당자가 친 글(Ctx.said)에
+그 동사가 있을 때만(commanded). 커서가 실제로 한 결과는 화면이 보고하고(report) 대화의 완료 줄은 그 보고로만 생긴다.
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ from typing import Callable
 
 MAX_DOCS = 20                       # 제안 하나가 바꾸는 문서 수 상한
 MAX_PENDING = 3
+MAX_ACT_STEPS = 6                   # 화면 열기 하나에 이어 할 커서 단계(창 열기 → 칸 채우기 → 마지막 단추) 상한
 
 
 class OpRefused(Exception):
@@ -41,6 +44,8 @@ class Ctx:
     start_chat: Callable[[int | None, str], int] | None = None        # (프로젝트, 첫 요청) → 새 에이전트 대화 번호(답은 뒤에서 만든다)
     after: dict = field(default_factory=dict)                         # 실행 뒤 화면이 할 일(go: 옮겨 갈 주소)
     may_create_project: bool = True                                  # 새 프로젝트를 만들 수 있는 등급인가(사업 책임자 이상 — grades.can_create_project)
+    said: str = ""                                                   # 이번 요청에 담당자가 직접 친 글(문서·검색 결과·고른 글 아님) — 마지막 단추 허락의 근거
+    page: str = ""                                                   # 담당자가 지금 보는 화면 주소 — 같은 화면이면 열기 단추 없이 그 자리에서 한다
 
 
 @dataclass(frozen=True)
@@ -346,38 +351,126 @@ def pending(db, session_id: int) -> list[dict]:
     """화면에 띄울 제안 — kind run 은 [실행], go 는 화면 열기. 대상 번호 등 내부 값은 빼고 보인다.
     target 은 가리킬 화면 요소(path·anchor·selector) — 화면 위 커서·강조가 쓴다."""
     return [{"id": p["id"], "kind": p.get("kind", "run"), "label": p["label"], "plan": p["plan"], "screen": p["screen"],
-             "target": p.get("target") or {}, "act": p.get("act") or {}}
+             "target": p.get("target") or {}, "act": p.get("act") or {}, "reported": bool(p.get("reported"))}
             for p in load(db, session_id) if p.get("status") == "pending"]
 
 
-def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str = "", now: bool = False, text: str = "") -> dict:
-    """화면 열기 제안 — 실행할 것이 없고 그 화면(자리·요소)으로 옮겨 갈 단추만 낸다. 화면은 안내 자료에 있는 것만.
-    now 면(담당자가 열어 달라·눌러 달라고 시킨 때) 화면이 바로 옮겨 가 AURA 커서로 그 요소를 누른다 — 화면 열기·창 열기·찾기 칸 채우기처럼
-    자료를 바꾸지 않는 일만이라 따로 묻지 않는다. text 는 그 요소가 입력 칸일 때 넣을 말(찾을 사업 이름 등)."""
+# 마지막 단추를 시키는 말인지 — 사람이 친 글에서만 본다. 묻는 말(어떻게·방법)과 막는 말(하지 마·말고)이 붙으면 시킨 것이 아니다
+_ASKING = re.compile(r"어떻게|방법|하는\s*법|어디서|어디에서|뭐야|무슨\s*뜻")
+_NOT = re.compile(r"^\s*(지\s*마|지\s*말|지\s*않|말고|면\s*안|선\s*안|싶지\s*않)")
+
+
+def commanded(said: str, verbs: tuple[str, ...] | list[str]) -> bool:
+    """담당자가 이번 요청에서 그 마지막 단추를 누르라고 시켰는가 — verbs(안내 자료 Task 에 적은 활용형) 가운데 하나가 글에 있고,
+    그 뒤에 막는 말이 붙지 않았고, 글 전체가 쓰는 법을 묻는 꼴이 아닐 때만. 모델 판단과 상관없이 서버가 본다."""
+    text = " ".join(str(said or "").split())
+    if not text or not verbs or _ASKING.search(text):
+        return False
+    for v in verbs:
+        at = text.find(v)
+        while at >= 0:
+            if not _NOT.match(text[at + len(v):at + len(v) + 6]):
+                return True
+            at = text.find(v, at + 1)
+    return False
+
+
+def _page_of(path: str):
+    """열 화면 — 안내 자료의 화면. 프로젝트(/project/번호)는 있는 프로젝트일 때만(볼 권한은 그 화면이 다시 본다)."""
     from zzaimy.app import platform_guide
-    path, _, anchor = str(page or "").partition("#")
     p = platform_guide.page_for(path)
-    if p is None or "{" in p.path:
-        raise OpRefused("안내 자료에 있는 화면 주소만 연다 — platform_help 결과의 주소를 쓴다.")
+    if p is None:
+        return None, path
+    if "{" in p.path:
+        m = re.fullmatch(r"/project/(\d+)(/activity)?", path.rstrip("/"))
+        return (p, path.rstrip("/")) if m else (None, path)
+    return p, path
+
+
+def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str = "", now: bool = False, text: str = "",
+                 steps: list | None = None) -> dict:
+    """화면 열기 제안 — 실행할 것이 없고 그 화면으로 옮겨 가 커서가 할 단계(steps)를 낸다. 화면·요소는 안내 자료에 있는 것만.
+    now 면(담당자가 열어 달라·찾아 달라·채워 달라고 시킨 때) 화면이 바로 옮겨 가 단계를 차례로 한다.
+    단계마다 바로 해도 되는지(ok)를 서버가 정한다 — 열기·찾기·칸 채우기(Task.auto)는 now 면 바로,
+    마지막 단추(Task.final — 저장·보내기·지우기·등록)는 담당자가 이번 요청에 직접 친 글(ctx.said)에 그 Task 의 동사가 있을 때만(commanded).
+    그 밖의 요소(자료를 바꾸는 단추)는 가리키기만 한다. 마지막 단추 뒤의 단계는 버린다."""
+    path, _, anchor = str(page or "").partition("#")
+    p, path = _page_of(path.split("?", 1)[0])
+    if p is None:
+        raise OpRefused("안내 자료에 있는 화면 주소만 연다 — platform_help 결과의 주소를 쓴다(프로젝트는 /project/번호).")
     if ctx.role not in p.roles:
         raise OpRefused(f"「{p.title}」 은(는) 이 계정으로 열 수 없는 화면이다 — 열 수 있는 계정(관리자 등)에게 요청하라고 안내한다.")
     marks = {t.selector: t for t in p.tasks if t.selector}
-    sel = selector if selector in marks else ""
-    now = bool(now) and (not sel or marks[sel].auto)        # 화면 옮기기는 바로, 요소 누르기는 자료를 바꾸지 않는 요소만 — 나머지는 가리키기만
+    want = ([{"element": selector, "text": text}] if selector else []) + [x for x in (steps or []) if isinstance(x, dict)]
+    out: list[dict] = []
+    for x in want:
+        sel = str(x.get("element") or "")
+        task = marks.get(sel)
+        if task is None or len(out) >= MAX_ACT_STEPS:
+            continue
+        ok = bool(now) and (task.auto or (task.final and commanded(ctx.said, task.verbs)))
+        out.append({"sel": sel, "text": _clip(" ".join(str(x.get("text") or "").split()), 80), "final": task.final,
+                    "auto": task.auto, "ok": ok, "what": task.what})
+        if task.final:
+            break
     url = path + (f"#{anchor}" if re.fullmatch(r"[\w-]{1,40}", anchor or "") else "")
+    here = (ctx.page or "").split("?", 1)[0].split("#", 1)[0].rstrip("/") or ("/" if ctx.page else "")
+    same = bool(here) and platform_guide_page(here) is p and ("{" not in p.path or here == path.rstrip("/"))
+    if same and not out:
+        raise OpRefused("이미 그 화면이다 — 열기 단추는 내지 않았다. 할 일이 있으면 steps 에 안내 자료의 「가리킬 요소」 를 넣고, 없으면 finish 로 안내한다.")
     items = load(ctx.db, session_id)
     if sum(1 for x in items if x.get("status") == "pending") >= MAX_PENDING:
         raise OpRefused(f"이번 요청에서 제안은 {MAX_PENDING}개까지다 — finish 로 알린다.")
+    first = out[0] if out else {"sel": "", "text": ""}
     item = {"id": secrets.token_hex(6), "kind": "go", "op": "open", "label": f"{p.title} 열기", "args": {}, "plan": _clip(why, 200) or p.purpose,
-            "screen": url, "target": {"path": path, "anchor": anchor if url.endswith("#" + anchor) else "", "selector": sel},
-            "act": {"now": bool(now), "text": _clip(" ".join(str(text or "").split()), 80) if sel else ""},
+            "screen": url, "target": {"path": path, "anchor": anchor if url.endswith("#" + anchor) else "", "selector": first["sel"]},
+            "act": {"now": bool(now), "text": first["text"], "steps": out, "here": same},
             "status": "pending", "by": ctx.user, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
-    if item["act"]["now"]:                     # 바로 하는 일은 요청마다 하나 — 앞서 낸 바로 하기는 단추로만 남긴다
-        for x in items:
-            if x.get("status") == "pending" and x.get("kind") == "go" and (x.get("act") or {}).get("now"):
-                x["act"] = {**x["act"], "now": False}
+    # 바로 하기는 여러 개가 순서대로 이어진다(화면 이동 → 다른 화면에서 이어 하기) — 화면이 낸 차례(at·저장 순서)대로 한다
     _save(ctx.db, session_id, items + [item])
     return item
+
+
+def platform_guide_page(path: str):
+    from zzaimy.app import platform_guide
+    return platform_guide.page_for(path)
+
+
+RESULTS = {"typed": "입력함", "picked": "고름", "clicked": "누름", "opened": "옮겨 감", "missing": "자리를 찾지 못함",
+           "disabled": "단추가 꺼져 있어 누르지 못함", "pointed": "가리키기만 함(직접 눌러 주세요)", "blocked": "직접 눌러 주세요"}
+
+
+def report(db, session_id: int, pid: str, results: list) -> str:
+    """화면(AURA 커서)이 실제로 한 결과를 받아 대화에 한 줄로 남긴다 — 완료 문구는 이 결과로만 쓴다(모델 답은 예정형).
+    결과는 단계 번호와 결과 갈래만 받고, 단계 이름·넣은 말은 서버가 낸 제안에서 읽는다(화면이 보낸 글을 그대로 싣지 않는다). 제안마다 한 번."""
+    items = load(db, session_id)
+    item = next((p for p in items if p.get("id") == pid and p.get("kind") == "go"), None)
+    if item is None:
+        raise KeyError(pid)
+    if item.get("reported"):
+        return ""
+    steps = (item.get("act") or {}).get("steps") or []
+    parts: list[str] = []
+    for r in (results if isinstance(results, list) else [])[:MAX_ACT_STEPS + 1]:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("result") or "")
+        if code not in RESULTS:
+            continue
+        i = r.get("step")
+        if code == "opened" or not isinstance(i, int) or not (0 <= i < len(steps)):
+            if code == "opened":
+                parts.append(f"{item['label'].removesuffix(' 열기')} 화면으로 옮겨 감")
+            continue
+        st = steps[i]
+        what = st.get("what") or "단계"
+        parts.append(f"{what}" + (f" 「{st['text']}」" if st.get("text") and code in ("typed", "picked", "clicked") else "") + f" — {RESULTS[code]}")
+    if not parts:
+        return ""
+    item["reported"] = True
+    item["results"] = [str(x) for x in parts]
+    _save(db, session_id, items)
+    return "화면에서 한 일: " + " · ".join(parts)
 
 
 def expire(db, session_id: int) -> None:

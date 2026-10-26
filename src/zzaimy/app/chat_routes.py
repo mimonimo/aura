@@ -1,4 +1,4 @@
-"""에이전트 대화(/chat*) — 대화 화면(새 대화·이어 보기·동료 대화 읽기), 보내기(/chat/send)와 떠 있는 창 질문(/chat/ask),
+"""에이전트 대화(/chat*) — 대화 화면(새 대화·이어 보기·동료 대화 읽기), 보내기(/chat/send)와 옆 패널 질문(/chat/ask),
 진행 상태(/chat/{id}/status)·내용 JSON(/chat/{id}/messages), 답 평가·다시 받기·비공개·지우기·프로젝트 넣기,
 도우미 제안 실행(/chat/{id}/proposals/{pid}/run), 문서 훑어보기(/chat/peek/{doc_id}).
 
@@ -181,8 +181,9 @@ def make_chat_helpers(
         db.add_chat(session_id, "assistant", "멈췄습니다.")
         return True
 
-    def _helper_task(session_id: int, q: str, page: str, run_id: object = None) -> None:
-        """플랫폼 업무 도우미(app/platform_helper) — 떠 있는 창의 질문. 모델에 닿지 못하면 안내 자료에서 찾은 화면을 그대로 보인다."""
+    def _helper_task(session_id: int, q: str, page: str, run_id: object = None, said: str | None = None) -> None:
+        """플랫폼 업무 도우미(app/platform_helper) — 옆 패널의 질문. 모델에 닿지 못하면 안내 자료에서 찾은 화면을 그대로 보인다.
+        said 는 담당자가 친 글 그대로 — 커서가 마지막 단추(저장·지우기 등)를 누를지는 이 글로만 정한다."""
         from zzaimy.app import platform_helper
         from zzaimy.generate.client import VllmClient
 
@@ -213,7 +214,7 @@ def make_chat_helpers(
                                       search=_helper_search(owner, role, dept))
             ep = None
             try:
-                ep = platform_helper.run(env, VllmClient(role=platform_helper.model_role()), q)
+                ep = platform_helper.run(env, VllmClient(role=platform_helper.model_role()), q, said=q if said is None else said)
             except _Stopped:
                 return
             except Exception as e:
@@ -676,7 +677,7 @@ def chat_messages(request: Request, session_id: int):
 @router.post("/chat/{session_id}/proposals/{pid}/run")
 def chat_proposal_run(request: Request, background: BackgroundTasks, session_id: int, pid: str, back: str = Form("")):
     """도우미가 제안한 플랫폼 동작을 담당자가 [실행] 으로 누른다 — 권한·대상은 여기서 다시 본다(platform_ops.run_proposal).
-    결과와 바뀐 것은 대화에 남는다. 떠 있는 창은 JSON 을(go: 옮겨 갈 주소), 대화 화면의 폼(back)은 그 대화로 돌아간다."""
+    결과와 바뀐 것은 대화에 남는다. 옆 패널은 JSON 을(go: 옮겨 갈 주소), 대화 화면의 폼(back)은 그 대화로 돌아간다."""
     h = request.app.state.chat
     db, _chat_running, _owned_chat, _ops_ctx = h.db, h._chat_running, h._owned_chat, h._ops_ctx
     _owned_chat(request, session_id)
@@ -705,9 +706,28 @@ def chat_proposal_run(request: Request, background: BackgroundTasks, session_id:
     return out
 
 
+@router.post("/chat/{session_id}/proposals/{pid}/result")
+async def chat_proposal_result(request: Request, session_id: int, pid: str):
+    """AURA 커서가 화면에서 실제로 한 결과(입력함·누름·자리 못 찾음·꺼진 단추) — 대화에 한 줄로 남긴다(platform_ops.report).
+    완료 문구는 이 보고로만 생긴다. 몸은 {results: [{step: 번호, result: 갈래}]} — 단계 이름·넣은 말은 서버의 제안에서 읽는다."""
+    h = request.app.state.chat
+    h._owned_chat(request, session_id)
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    try:
+        line = platform_ops.report(h.db, session_id, pid, (body or {}).get("results") if isinstance(body, dict) else [])
+    except KeyError:
+        raise HTTPException(404, "제안을 찾을 수 없습니다")
+    if line:
+        h.db.add_chat(session_id, "assistant", line)
+    return {"ok": True, "message": line}
+
+
 @router.post("/chat/{session_id}/stop")
 def chat_stop(request: Request, session_id: int):
-    """떠 있는 창의 「멈춤」 — 도는 도우미 요청을 멈춘다(다음 걸음부터 하지 않는다). 멈출 것이 없으면 stopped=false."""
+    """옆 패널의 「멈춤」 — 도는 도우미 요청을 멈춘다(다음 걸음부터 하지 않는다). 멈출 것이 없으면 stopped=false."""
     h = request.app.state.chat
     h._owned_chat(request, session_id)
     return {"ok": True, "stopped": h._helper_stop(session_id)}
@@ -715,7 +735,7 @@ def chat_stop(request: Request, session_id: int):
 
 @router.get("/api/helper/suggest")
 def helper_suggest(request: Request, page: str = ""):
-    """빈 도우미 창의 추천 질문 — 지금 화면의 안내 자료(platform_guide)에서 이 계정이 할 수 있는 일 몇 개.
+    """빈 도우미 패널의 추천 질문 — 지금 화면의 안내 자료(platform_guide)에서 이 계정이 할 수 있는 일 몇 개.
     도우미가 대신 해 줄 수 있는 일(동작·가리킬 요소가 있는 것)을 먼저 둔다. 화면 항목이 없으면 빈 목록."""
     role = _ap.role_class(getattr(request.state, "role", "") or "")
     p = platform_guide.page_for(page or "/")
@@ -764,7 +784,7 @@ def chat_ask(
     session_id: int | None = Form(None),
     page: str = Form(""),
 ):
-    """화면을 떠나지 않고 묻는다 — 떠 있는 에이전트 창과 글 선택 질문이 쓴다."""
+    """화면을 떠나지 않고 묻는다 — 업무 도우미 옆 패널과 글 선택 질문이 쓴다."""
     h = request.app.state.chat
     db, _chat_running, _chat_progress, _chat_pages = h.db, h._chat_running, h._chat_progress, h._chat_pages
     _owned_chat, _schedule_answer, _can_edit_doc, _helper_task = h._owned_chat, h._schedule_answer, h._can_edit_doc, h._helper_task
@@ -790,7 +810,7 @@ def chat_ask(
         project = db.get_project(page_project)
         if not project or project.get("owner") != request.state.user:
             raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
-    # 떠 있는 창에 직접 쓴 질문은 플랫폼 업무 도우미가 받는다. 화면 글을 골라 묻는 질문(context)은 문서 내용이라 기존 답변 경로로
+    # 옆 패널에 직접 쓴 질문은 플랫폼 업무 도우미가 받는다. 화면 글을 골라 묻는 질문(context)은 문서 내용이라 기존 답변 경로로
     use_helper = (not quoted and os.environ.get("ZZAIMY_PLATFORM_HELPER", "1") != "0"
                   and getattr(request.state, "role", "") != "student")
     if session_id is not None:
@@ -804,7 +824,7 @@ def chat_ask(
         if session_id in _chat_running or (last and last[-1]["role"] == "user"):
             return {"ok": False, "error": "앞선 답변을 기다리는 중입니다", "session_id": session_id}
     if session_id is None:
-        # 도우미 대화는 「업무 상담」 — 왼쪽 사이드바(문서 작성·업무 대화)에는 싣지 않고 떠 있는 창의 기록에서 다룬다. 프로젝트에도 묶지 않는다
+        # 도우미 대화는 「업무 상담」 — 왼쪽 사이드바(문서 작성·업무 대화)에는 싣지 않고 옆 패널의 기록에서 다룬다. 프로젝트에도 묶지 않는다
         session_id = db.create_chat_session(
             title=_chat_title(q)[:60], project_id=None if use_helper else page_project,
             owner=getattr(request.state, "user", "zzaimy"),
@@ -842,7 +862,7 @@ def chat_ask(
         _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
         _chat_running.add(session_id)
         run_id = h._helper_runs[session_id] = object()
-        background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""), run_id)
+        background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""), run_id, q)
     else:
         _schedule_answer(background, session_id, asked, None, [])
     return {"ok": True, "session_id": session_id, "done": done,

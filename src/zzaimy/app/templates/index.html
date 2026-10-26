@@ -358,7 +358,7 @@
       </dl>
       <form class="lib-ov-find" action="/#libList" method="get" role="search" aria-label="이 사업 문서에서 찾기">
         <input type="hidden" name="type" value="{{ active_tab }}"><input type="hidden" name="prog" value="{{ prog }}">
-        <input type="search" name="q" value="{{ q }}" placeholder="이 사업 문서에서 찾기 — 제목·접수번호·본문" aria-label="이 사업 문서에서 찾을 낱말">
+        <input type="search" name="q" data-aura="lib-q" value="{{ q }}" placeholder="이 사업 문서에서 찾기 — 제목·접수번호·본문" aria-label="이 사업 문서에서 찾을 낱말">
         <label class="lib-body"><input type="checkbox" name="body" value="1" {{ 'checked' if body or not q }}> 본문까지</label>
         <button type="submit" class="secondary">찾기</button>
       </form>
@@ -399,7 +399,7 @@
       {% if n_rows < total_docs %}<span class="muted" style="font-size:12.5px; font-weight:500;">같은 문서의 판본 {{ "{:,}".format(total_docs - n_rows) }}건은 최신본 아래에 묶음</span>{% endif %}</h2>
     {# 쓰임새 칩 — 기준(공고·지침·규정·평가 기준·기본계획, 규정 색인 문서) / 작성·결과(그 밖). 데이터는 그대로, 목록만 거른다(ADR-0062) #}
     <nav class="lib-uses" aria-label="쓰임새">
-      {% for key, label in uses %}<a href="/?{{ use_qs }}{% if key != 'all' %}&amp;use={{ key }}{% endif %}" {% if use == key %}aria-current="true"{% endif %}
+      {% for key, label in uses %}<a data-aura="lib-use" href="/?{{ use_qs }}{% if key != 'all' %}&amp;use={{ key }}{% endif %}" {% if use == key %}aria-current="true"{% endif %}
          title="{{ metric_tip(use_metrics[key]) }}">{{ label }} <span>{{ "{:,}".format(use_counts.get(key, 0)) }}</span></a>{% endfor %}
       {% if use == 'criteria' %}<button type="button" class="secondary lib-uses-act" data-modal-open="#criteriaUploadModal" aria-label="기준 등록">
         <iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon><span class="lib-act-l">기준 등록</span><span class="lib-act-s" aria-hidden="true">등록</span></button>
@@ -420,7 +420,7 @@
         <option value="">모든 종류</option>
         {% for k, label, n in kind_counts %}<option value="{{ k or '_none' }}" {% if kind == (k or '_none') %}selected{% endif %}>{{ label }} {{ "{:,}".format(n) }}</option>{% endfor %}
       </select>
-      <input type="search" name="q" value="{{ q }}" placeholder="{{ '제목·접수번호·본문 낱말' if body else '제목·접수번호' }}" aria-label="찾을 낱말">
+      <input type="search" name="q" data-aura="lib-q" value="{{ q }}" placeholder="{{ '제목·접수번호·본문 낱말' if body else '제목·접수번호' }}" aria-label="찾을 낱말">
       <label class="lib-body" title="사업 문서 본문(어휘 색인)에 낱말이 든 문서까지 찾습니다"><input type="checkbox" name="body" value="1" {{ 'checked' if body }}> 본문까지</label>
       <button type="submit" class="secondary">찾기</button>
       {% if folder %}<input type="hidden" name="folder" value="{{ folder }}">{% endif %}
@@ -540,14 +540,14 @@
       <div class="form-row"><span class="muted">파일(여러 개 가능)</span>
         <input type="file" name="files" required multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
       <label class="form-row"><span class="muted">폴더</span>
-        <select name="folder" id="libUpFolder">
+        <select name="folder" id="libUpFolder" data-aura="lib-up-folder">
           <option value="" data-dept="">폴더 없이</option>
           {% for f in folders if f.kind == '만든' %}<option value="{{ f.key }}" data-dept="{{ f.dept }}" {{ 'selected' if folder == f.key }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept }}</option>{% endfor %}
         </select></label>
       <div id="libUpScopeRow">{{ scope_pick("dept", "up") }}</div>
       <p class="muted" id="libUpScopeNote" style="font-size:12px; margin:-4px 0 10px;" hidden></p>
       <label class="form-row"><span class="muted">사업 — 고르면 그 사업의 연도 묶음에 들어가 사업 목록·사업 그래프에서 함께 보입니다</span>
-        <select name="program" id="libUpProg">
+        <select name="program" id="libUpProg" data-aura="lib-up-prog">
           <option value="">사업 없음</option>
           <option value="_new">＋ 새 사업 등록…</option>
           {% for t in rail_tree if not t.unknown %}<optgroup label="{{ t.label }}">
@@ -561,12 +561,12 @@
         <datalist id="libMinistries">{% for m in ministries %}<option value="{{ m }}">{% endfor %}</datalist>
       </div>
       <label class="form-row" id="libUpYearRow"><span class="muted">사업 연도(선택)</span>
-        <input type="text" name="year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" placeholder="예: 2026 — 비우면 연도 미상"></label>
+        <input type="text" name="year" data-aura="lib-up-year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" placeholder="예: 2026 — 비우면 연도 미상"></label>
       <label class="form-row"><span class="muted">업무 갈래</span>
-        <select name="doc_type"><option value="auto">자동으로 정하기</option>{% for k, v in inbox_types.items() if k != 'auto' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+        <select name="doc_type" data-aura="lib-up-kind"><option value="auto">자동으로 정하기</option>{% for k, v in inbox_types.items() if k != 'auto' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
       <div style="display:flex; justify-content:flex-end; gap:10px;">
         <button type="button" data-modal-close class="secondary">취소</button>
-        <button type="submit">올리기</button>
+        <button type="submit" data-aura="lib-up-submit" data-aura-final>올리기</button>
       </div>
     </form>
   </div></div>
