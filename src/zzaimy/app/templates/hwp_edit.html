@@ -399,6 +399,13 @@
           return eng.reopened();
         }).then(function () {
           hwp.restoreCursor(cur); dirty = false; notice.hidden = true;
+          // 긴 문서는 다시 연 뒤 쪽을 차례로 그려서 첫 되돌리기가 맨 위에 걸린다(10-26 시연: AURA 가 표 든 절을 쓰자 세 화면이 1쪽으로 튐) —
+          // 그사이 사람이 치지 않았으면 몇 번 더 되돌리고, AURA 를 따라가던 화면은 AURA 자리로
+          var inp0 = hwp.lastInputAt();
+          [400, 1200, 2500].forEach(function (ms) { setTimeout(function () {
+            if (hwp.lastInputAt() !== inp0) return;
+            if (follow && auraNow) followAura(auraNow, true); else hwp.restoreCursor(cur);
+          }, ms); });
           // AURA 명령은 시킨 사람의 편집기에서 돌아 저장자가 그 사람으로 온다 — AURA 가 그 사람 일로 쓰는 중이면 AURA 판으로 알린다(10-26)
           var au = eng && eng.aura ? eng.aura() : {}, byAura = who.by === 'AURA' || (au.field && au.by && au.by === who.by);
           say(!who.by ? '최신 판을 불러왔습니다' : (byAura ? AuraCollab.auraLabel(eng, au.by ? au : {by: who.by}) : (who.by_name || who.by) + ' 님') + '의 새 판을 불러왔습니다', 'ok');
