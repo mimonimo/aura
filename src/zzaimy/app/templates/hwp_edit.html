@@ -281,8 +281,9 @@
     var saved = 0; try { saved = parseInt(localStorage.getItem(ZKEY) || '0', 10); } catch (e) {}
     var want = saved >= 30 && saved <= 400 ? saved : 0;
     {% if request.state.demo is defined and request.state.demo %}
-    // 공동 편집 시연 — 세 칸이 좁아 지난번 배율(50% 등)이 남으면 글이 안 보인다. 늘 칸 폭에 쪽 폭(A4 210mm ≈ 794px)을 맞춘다
-    want = Math.max(40, Math.min(120, Math.floor((document.documentElement.clientWidth - 48) / 794 * 100)));
+    // 공동 편집 시연 — 세 칸이 좁아 지난번 배율(50% 등)이 남으면 글이 안 보인다. 기안기의 쪽 폭 맞춤으로(모니터·창 크기마다 편집기가 맞춘다 —
+    // 쪽 폭 794px·배율 범위 같은 고정값으로 셈하지 않는다, 10-26)
+    fitWidth(); return;
     {% endif %}
     if (want) setZoom(want);
     else if (curZoom() > 1.1) setZoom(100);
