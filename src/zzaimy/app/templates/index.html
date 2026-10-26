@@ -198,7 +198,7 @@
   <label class="scope-opt"><input type="radio" name="{{ id_prefix }}_kind" value="common" {{ 'checked' if current == '공통' }}>
     <span><b>전체 공개</b><small>모든 교직원 · 기본</small></span></label>
   <label class="scope-opt{{ ' off' if scope_choices | length < 2 }}"><input type="radio" name="{{ id_prefix }}_kind" value="dept" {{ 'checked' if current != '공통' }} {{ 'disabled' if scope_choices | length < 2 }}>
-    <span><b>부서만</b><small>{% if scope_choices | length < 2 %}만든 부서가 없습니다 — 사용자·계정 › 부서{% else %}선택한 부서 사람과 관리자만{% endif %}</small></span></label>
+    <span><b>부서만</b><small>{% if scope_choices | length < 2 %}만든 부서가 없습니다 — 조직 관리에서 만듭니다{% else %}선택한 부서 사람과 관리자만{% endif %}</small></span></label>
   <select class="scope-dept" aria-label="부서" {{ 'hidden' if current == '공통' }}>{% for d in scope_choices if d != '공통' %}<option value="{{ d }}" {{ 'selected' if d == current }}>{{ d }}</option>{% endfor %}</select>
   <input type="hidden" name="{{ name }}" value="{{ current }}">
 </fieldset>

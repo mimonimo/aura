@@ -94,7 +94,7 @@ def test_rag_page_sections(tmp_path):
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
     assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="#student-regs"' in r.text
     # 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳 — 여기는 한 줄 안내(10-26)
-    assert 'id="rgGrantTable"' not in r.text and 'href="/dev/users#depts"' in r.text
+    assert 'id="rgGrantTable"' not in r.text and 'href="/team"' in r.text
     assert r.text.index("규정·지침</h2>") < r.text.index('id="rgTryToggle"')
 
 def _archive(db, rels):
