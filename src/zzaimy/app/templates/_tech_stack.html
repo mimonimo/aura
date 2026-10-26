@@ -1,6 +1,7 @@
 {# 사용 기술 — 원천 app/tech_stack.py. 파이썬 패키지 버전·라이선스는 이 서버 설치본에서, PostgreSQL 버전은 DB 에서 읽는다 #}
   <p class="muted" style="font-size:12.5px; margin:0 0 10px;">오픈소스 {{ tech.n_open }}개 · 우리 코드·데이터 {{ tech.n_ours }}개 ·
     버전은 이 서버 설치본·DB 기준, 다른 장비와 화면 동봉 JS 는 {{ tech.checked }} 확인</p>
+  <div id="techList" hidden>
   {% for area, rows in tech.areas.items() %}
   <h3 style="font-size:14px; margin:14px 0 6px;">{{ area }}</h3>
   <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:12.5px;">
@@ -17,3 +18,4 @@
     {% endfor %}
   </table></div>
   {% endfor %}
+  </div>

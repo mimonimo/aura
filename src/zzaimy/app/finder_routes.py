@@ -30,7 +30,7 @@ def finder_drive(request: Request, folder: str = "", drive: str = "", accept: st
     from zzaimy.app import webhwp_drive
     email = _email(request)
     if not email:
-        raise HTTPException(409, "학교 구글 계정이 연결되어 있지 않습니다 — 설정에서 「내 학교 계정 연결」 뒤 다시 해 주세요")
+        raise HTTPException(409, "학교 구글 계정이 연결되어 있지 않습니다 — 설정 › 구글 계정에서 「구글 계정 연결」 뒤 다시 해 주세요")
     accept = accept if accept in ACCEPT else "hwp"
     try:
         out = webhwp_drive.browse(email, folder, drive, accept=accept)

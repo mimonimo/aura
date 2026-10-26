@@ -10,12 +10,10 @@
   .ua-table td.act { text-align:right; white-space:nowrap; }
   .ua-sub { display:block; color:var(--muted); font-size:11.5px; margin-top:1px; }
   .ua-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .ua-head .spacer { margin-left:auto; }
   .ua-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
   .ua-form { display:flex; flex-direction:column; gap:12px; }
   .ua-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
   .ua-go { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0; font-size:13px; color:var(--muted); }
-  .ua-go .btn { margin-left:auto; }
   @media (max-width:640px) { .ua-table .wide { display:none; } }
 </style>
 
@@ -25,12 +23,12 @@
 <div class="card reveal" id="org-link"><div class="card-in">
   <p class="ua-go"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon>
     <span>계정 {{ users | selectattr('active') | list | length }}명 사용 중 · 부서 {{ dept_choices | length }}개</span>
-    <a class="btn" href="/team?view=all" data-org-link>조직 관리에서 계정·부서 관리</a></p>
+    <a class="h-link" href="/team?view=all" data-org-link>조직 관리에서 계정·부서 관리</a></p>
 </div></div>
 
 <div class="card reveal" id="google-links"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
-    <a class="btn-ghost spacer" href="/settings">내 학교 계정 연결</a></h2>
+    <a class="h-link" href="/settings#myGoogle">내 구글 계정 연결</a></h2>
   {# Google 앱 등록 — 플랫폼에 한 번. 계정 연결은 사용자마다(설정)·부서마다(조직 관리 › 부서 설정) #}
   <div class="ua-chips" id="googleApp" style="align-items:center;">
     <span class="pill{{ ' reviewed' if app.configured else '' }}">Google 앱 {{ '등록 완료' if app.configured else '등록 필요' }}</span>
@@ -52,7 +50,7 @@
     {% endfor %}
   </table>
   </div>
-  {% else %}<p class="muted" style="margin:0;">연결된 구글 계정이 없습니다. 사용자는 설정 화면의 '내 구글 계정'에서 연결합니다.</p>{% endif %}
+  {% else %}<p class="muted" style="margin:0;">연결된 구글 계정 없음 · 사용자마다 내 설정 「구글 계정」 에서 연결</p>{% endif %}
 </div></div>
 
 <div class="modal-back" id="googleAppEdit">

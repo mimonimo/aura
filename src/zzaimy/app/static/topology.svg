@@ -1,73 +1,73 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 790" role="img" aria-label="AURA 시스템 구성도" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">
-<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4a5f7d"/></marker></defs>
+<defs><marker id="arr-user" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2f5fb3"/></marker><marker id="arr-platform" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b4fb3"/></marker><marker id="arr-serve" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2e7d4f"/></marker><marker id="arr-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a5a00"/></marker></defs>
 <rect width="1100" height="790" fill="#ffffff"/>
-<line x1="293" y1="128" x2="440" y2="215" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<line x1="467" y1="345" x2="268" y2="500" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<line x1="550" y1="345" x2="550" y2="500" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<line x1="895" y1="670" x2="895" y2="598" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<line x1="822" y1="513" x2="623" y2="358" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<line x1="644" y1="332" x2="843" y2="487" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<line x1="657" y1="215" x2="819" y2="116" stroke="#4a5f7d" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arr)"/>
-<polyline points="760,598 760,624 205,624" fill="none" stroke="#4a5f7d" stroke-width="1.6"/>
-<line x1="205" y1="624" x2="205" y2="598" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<line x1="550" y1="624" x2="550" y2="598" stroke="#4a5f7d" stroke-width="1.6" marker-end="url(#arr)"/>
-<rect x="40" y="30" width="340" height="98" rx="12" fill="#f8fafc" stroke="#c9d3e0" stroke-width="1.2"/>
-<text x="56" y="57" font-size="15.5" font-weight="700" fill="#1b2a41">교직원 브라우저</text>
-<rect x="56" y="70" width="97" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<line x1="293" y1="128" x2="440" y2="215" stroke="#2f5fb3" stroke-width="1.8" marker-end="url(#arr-user)"/>
+<line x1="467" y1="345" x2="268" y2="500" stroke="#6b4fb3" stroke-width="1.8" marker-end="url(#arr-platform)"/>
+<line x1="550" y1="345" x2="550" y2="500" stroke="#6b4fb3" stroke-width="1.8" marker-end="url(#arr-platform)"/>
+<line x1="895" y1="670" x2="895" y2="598" stroke="#8a5a00" stroke-width="1.8" marker-end="url(#arr-data)"/>
+<line x1="822" y1="513" x2="623" y2="358" stroke="#8a5a00" stroke-width="1.8" marker-end="url(#arr-data)"/>
+<line x1="644" y1="332" x2="843" y2="487" stroke="#6b4fb3" stroke-width="1.8" marker-end="url(#arr-platform)"/>
+<line x1="657" y1="215" x2="819" y2="116" stroke="#6b4fb3" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arr-platform)"/>
+<polyline points="760,598 760,624 205,624" fill="none" stroke="#8a5a00" stroke-width="1.8"/>
+<line x1="205" y1="624" x2="205" y2="598" stroke="#8a5a00" stroke-width="1.8" marker-end="url(#arr-data)"/>
+<line x1="550" y1="624" x2="550" y2="598" stroke="#8a5a00" stroke-width="1.8" marker-end="url(#arr-data)"/>
+<rect x="40" y="30" width="340" height="98" rx="12" fill="#e8f0fe" fill-opacity="0.6" stroke="#2f5fb3" stroke-opacity="0.45" stroke-width="1.3"/>
+<text x="56" y="57" font-size="15.5" font-weight="700" fill="#2f5fb3">교직원 브라우저</text>
+<rect x="56" y="70" width="97" height="24" rx="6" fill="#ffffff" stroke="#2f5fb3" stroke-opacity=".3"/>
 <text x="105" y="86" font-size="11.5" fill="#1b2a41" text-anchor="middle">AURA 화면</text>
-<rect x="161" y="70" width="97" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<rect x="161" y="70" width="97" height="24" rx="6" fill="#ffffff" stroke="#2f5fb3" stroke-opacity=".3"/>
 <text x="210" y="86" font-size="11.5" fill="#1b2a41" text-anchor="middle">웹 한글 기안기</text>
-<rect x="267" y="70" width="97" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<rect x="267" y="70" width="97" height="24" rx="6" fill="#ffffff" stroke="#2f5fb3" stroke-opacity=".3"/>
 <text x="315" y="86" font-size="11.5" fill="#1b2a41" text-anchor="middle">공동 편집 층</text>
-<text x="56" y="118" font-size="10.5" fill="#7a869a">학교망(VPN)</text>
-<rect x="250" y="215" width="600" height="130" rx="12" fill="#eef3fb" stroke="#7f9cc4" stroke-width="1.6"/>
-<text x="266" y="242" font-size="15.5" font-weight="700" fill="#1b2a41">운영 VM</text>
-<rect x="266" y="255" width="184" height="24" rx="6" fill="#ffffff" stroke="#9fb5d6"/>
+<text x="56" y="118" font-size="10.5" fill="#5f6b7a">학교망(VPN)</text>
+<rect x="250" y="215" width="600" height="130" rx="12" fill="#f1ecfb" fill-opacity="1" stroke="#6b4fb3" stroke-opacity="0.7" stroke-width="1.8"/>
+<text x="266" y="242" font-size="15.5" font-weight="700" fill="#6b4fb3">운영 VM</text>
+<rect x="266" y="255" width="184" height="24" rx="6" fill="#ffffff" stroke="#6b4fb3" stroke-opacity=".3"/>
 <text x="358" y="271" font-size="11.5" fill="#1b2a41" text-anchor="middle">플랫폼 화면·API</text>
-<rect x="458" y="255" width="184" height="24" rx="6" fill="#ffffff" stroke="#9fb5d6"/>
+<rect x="458" y="255" width="184" height="24" rx="6" fill="#ffffff" stroke="#6b4fb3" stroke-opacity=".3"/>
 <text x="550" y="271" font-size="11.5" fill="#1b2a41" text-anchor="middle">PostgreSQL·pgvector</text>
-<rect x="650" y="255" width="184" height="24" rx="6" fill="#ffffff" stroke="#9fb5d6"/>
+<rect x="650" y="255" width="184" height="24" rx="6" fill="#ffffff" stroke="#6b4fb3" stroke-opacity=".3"/>
 <text x="742" y="271" font-size="11.5" fill="#1b2a41" text-anchor="middle">검색 색인</text>
-<rect x="266" y="287" width="184" height="24" rx="6" fill="#ffffff" stroke="#9fb5d6"/>
+<rect x="266" y="287" width="184" height="24" rx="6" fill="#ffffff" stroke="#6b4fb3" stroke-opacity=".3"/>
 <text x="358" y="303" font-size="11.5" fill="#1b2a41" text-anchor="middle">지식그래프·온톨로지</text>
-<rect x="458" y="287" width="184" height="24" rx="6" fill="#ffffff" stroke="#9fb5d6"/>
+<rect x="458" y="287" width="184" height="24" rx="6" fill="#ffffff" stroke="#6b4fb3" stroke-opacity=".3"/>
 <text x="550" y="303" font-size="11.5" fill="#1b2a41" text-anchor="middle">웹 한글 기안기 서버</text>
-<rect x="650" y="287" width="184" height="24" rx="6" fill="#ffffff" stroke="#9fb5d6"/>
+<rect x="650" y="287" width="184" height="24" rx="6" fill="#ffffff" stroke="#6b4fb3" stroke-opacity=".3"/>
 <text x="742" y="303" font-size="11.5" fill="#1b2a41" text-anchor="middle">공동 편집 서버(SSE)</text>
-<text x="266" y="335" font-size="10.5" fill="#7a869a">CPU 8 · 메모리 64GB · PostgreSQL(pgvector)</text>
-<rect x="40" y="500" width="330" height="98" rx="12" fill="#f8fafc" stroke="#c9d3e0" stroke-width="1.2"/>
-<text x="56" y="527" font-size="15.5" font-weight="700" fill="#1b2a41">토르 02</text>
-<rect x="56" y="540" width="145" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<text x="266" y="335" font-size="10.5" fill="#5f6b7a">CPU 8 · 메모리 64GB · PostgreSQL(pgvector)</text>
+<rect x="40" y="500" width="330" height="98" rx="12" fill="#e6f4ea" fill-opacity="0.6" stroke="#2e7d4f" stroke-opacity="0.45" stroke-width="1.3"/>
+<text x="56" y="527" font-size="15.5" font-weight="700" fill="#2e7d4f">토르 02</text>
+<rect x="56" y="540" width="145" height="24" rx="6" fill="#ffffff" stroke="#2e7d4f" stroke-opacity=".3"/>
 <text x="128" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">vLLM</text>
-<rect x="209" y="540" width="145" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<rect x="209" y="540" width="145" height="24" rx="6" fill="#ffffff" stroke="#2e7d4f" stroke-opacity=".3"/>
 <text x="282" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">Writer 27B</text>
-<text x="56" y="588" font-size="10.5" fill="#7a869a">Qwen3.8-27B NVFP4 · 포트 8001</text>
-<rect x="385" y="500" width="330" height="98" rx="12" fill="#f8fafc" stroke="#c9d3e0" stroke-width="1.2"/>
-<text x="401" y="527" font-size="15.5" font-weight="700" fill="#1b2a41">토르 03</text>
-<rect x="401" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<text x="56" y="588" font-size="10.5" fill="#5f6b7a">Qwen3.8-27B NVFP4 · 포트 8001</text>
+<rect x="385" y="500" width="330" height="98" rx="12" fill="#e6f4ea" fill-opacity="0.6" stroke="#2e7d4f" stroke-opacity="0.45" stroke-width="1.3"/>
+<text x="401" y="527" font-size="15.5" font-weight="700" fill="#2e7d4f">토르 03</text>
+<rect x="401" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#2e7d4f" stroke-opacity=".3"/>
 <text x="448" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">검토·판독 27B</text>
-<rect x="503" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<rect x="503" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#2e7d4f" stroke-opacity=".3"/>
 <text x="550" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">Embed v2</text>
-<rect x="605" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<rect x="605" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#2e7d4f" stroke-opacity=".3"/>
 <text x="652" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">Rerank v1</text>
-<text x="401" y="588" font-size="10.5" fill="#7a869a">임베딩 8016 · 리랭커 8015</text>
-<rect x="730" y="500" width="330" height="98" rx="12" fill="#f8fafc" stroke="#c9d3e0" stroke-width="1.2"/>
-<text x="746" y="527" font-size="15.5" font-weight="700" fill="#1b2a41">DGX</text>
-<rect x="746" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<text x="401" y="588" font-size="10.5" fill="#5f6b7a">임베딩 8016 · 리랭커 8015</text>
+<rect x="730" y="500" width="330" height="98" rx="12" fill="#fdf3e7" fill-opacity="0.6" stroke="#8a5a00" stroke-opacity="0.45" stroke-width="1.3"/>
+<text x="746" y="527" font-size="15.5" font-weight="700" fill="#8a5a00">DGX</text>
+<rect x="746" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#8a5a00" stroke-opacity=".3"/>
 <text x="793" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">원본 보관</text>
-<rect x="848" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<rect x="848" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#8a5a00" stroke-opacity=".3"/>
 <text x="895" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">MinerU 판독</text>
-<rect x="950" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#d5dce6"/>
+<rect x="950" y="540" width="94" height="24" rx="6" fill="#ffffff" stroke="#8a5a00" stroke-opacity=".3"/>
 <text x="997" y="556" font-size="11.5" fill="#1b2a41" text-anchor="middle">LoRA 학습</text>
-<text x="746" y="588" font-size="10.5" fill="#7a869a">GB10 GPU · 통합 메모리 121GB · 디스크 3.7TB</text>
-<rect x="730" y="670" width="330" height="86" rx="12" fill="#f8fafc" stroke="#c9d3e0" stroke-width="1.2"/>
-<text x="746" y="697" font-size="15.5" font-weight="700" fill="#1b2a41">원본 보관 PC</text>
+<text x="746" y="588" font-size="10.5" fill="#5f6b7a">GB10 GPU · 통합 메모리 121GB · 디스크 3.7TB</text>
+<rect x="730" y="670" width="330" height="86" rx="12" fill="#fdf3e7" fill-opacity="0.6" stroke="#8a5a00" stroke-opacity="0.45" stroke-width="1.3"/>
+<text x="746" y="697" font-size="15.5" font-weight="700" fill="#8a5a00">원본 보관 PC</text>
 <text x="746" y="718" font-size="11.5" fill="#4b5768">학교 실문서 보관(사업별 폴더)</text>
-<text x="746" y="746" font-size="10.5" fill="#7a869a">DGX 로 복사(rclone)</text>
-<rect x="720" y="30" width="340" height="86" rx="12" fill="#f8fafc" stroke="#c9d3e0" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="736" y="57" font-size="15.5" font-weight="700" fill="#1b2a41">구글 드라이브·독스</text>
+<text x="746" y="746" font-size="10.5" fill="#5f6b7a">DGX 로 복사(rclone)</text>
+<rect x="720" y="30" width="340" height="86" rx="12" fill="#e8f0fe" fill-opacity="0.6" stroke="#2f5fb3" stroke-opacity="0.45" stroke-width="1.3" stroke-dasharray="5 4"/>
+<text x="736" y="57" font-size="15.5" font-weight="700" fill="#2f5fb3">구글 드라이브·독스</text>
 <text x="736" y="78" font-size="11.5" fill="#4b5768">보조 경로 — 드라이브 가져오기·독스 편집</text>
-<text x="736" y="106" font-size="10.5" fill="#7a869a">계정을 이은 사용자만</text>
+<text x="736" y="106" font-size="10.5" fill="#5f6b7a">계정을 이은 사용자만</text>
 <text x="366" y="166" font-size="11.5" fill="#2c3a50" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">화면 · 기안기 문서 열기·저장 · 칸 글 주고받기</text>
 <text x="367" y="418" font-size="11.5" fill="#2c3a50" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">질문·문서 작성</text>
 <text x="550" y="418" font-size="11.5" fill="#2c3a50" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">새 문서 검토·서류 종류 판정 · 검색 임베딩·리랭킹</text>
@@ -76,4 +76,15 @@
 <text x="767" y="423" font-size="11.5" fill="#2c3a50" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">승인된 학습 데이터</text>
 <text x="738" y="160" font-size="11.5" fill="#2c3a50" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">보조 경로</text>
 <text x="482" y="639" font-size="11.5" fill="#2c3a50" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">학습본</text>
+<text x="40" y="732" font-size="11.5" font-weight="700" fill="#5f6b7a">화살표 색은 보내는 장비 색</text>
+<rect x="40" y="744" width="16" height="16" rx="4" fill="#e8f0fe" stroke="#2f5fb3" stroke-opacity=".6"/>
+<text x="62" y="756.5" font-size="12" fill="#1b2a41">사용자 쪽</text>
+<rect x="170" y="744" width="16" height="16" rx="4" fill="#f1ecfb" stroke="#6b4fb3" stroke-opacity=".6"/>
+<text x="192" y="756.5" font-size="12" fill="#1b2a41">운영 플랫폼</text>
+<rect x="300" y="744" width="16" height="16" rx="4" fill="#e6f4ea" stroke="#2e7d4f" stroke-opacity=".6"/>
+<text x="322" y="756.5" font-size="12" fill="#1b2a41">모델 서빙</text>
+<rect x="430" y="744" width="16" height="16" rx="4" fill="#fdf3e7" stroke="#8a5a00" stroke-opacity=".6"/>
+<text x="452" y="756.5" font-size="12" fill="#1b2a41">원본·학습</text>
+<line x1="560" y1="752" x2="586" y2="752" stroke="#5f6b7a" stroke-width="1.6" stroke-dasharray="5 4"/>
+<text x="592" y="756.5" font-size="12" fill="#1b2a41">보조 경로</text>
 </svg>

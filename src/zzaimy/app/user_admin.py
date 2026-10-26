@@ -1,7 +1,7 @@
 """사용자 관리와 사용자별 구글 계정 연결.
 
 구글 API(앱 등록, OAuth 클라이언트)는 개발자 계정이 한 번 해 두고, 관리자가 플랫폼 계정을 만들면 사용자마다 자기 학교 계정
-(ync.ac.kr)을 연결한다. 구글 허용은 그 계정 주인이 로그인해야 하므로 본인만 할 수 있다(설정 화면의 '내 구글 계정'). 관리자는
+(ync.ac.kr)을 연결한다. 구글 허용은 그 계정 주인이 로그인해야 하므로 본인만 할 수 있다(설정 화면의 「구글 계정」). 관리자는
 /dev/users 에서 계정을 만들고(역할·부서·사용 여부·비밀번호 초기화), 누가 어느 구글 계정에 이어졌는지 보고, 이음을 풀거나 이미
 연결된 계정으로 다시 지정하고, 허용 도메인·부서 공용 계정·부서 공유 드라이브를 정한다. 문서 작성은 각자 연결한 학교 계정으로
 한다.
@@ -207,8 +207,7 @@ def dev_users(request: Request, ok: str = "", err: str = ""):
     data = overview(st.db, _accounts(request), getattr(st, "data_dir", None))
     data["me"] = _user(request)
     data["redirect_uri"] = redirect_uri(request)          # Google 앱 등록 창에 보일 되돌아올 주소
-    data["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))
-    data.update(dict_candidates(st, data["dept_choices"]))
+    data["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))   # 머리 줄의 부서 수
     return st.templates.TemplateResponse(request, "dev_users.html", st.page_ctx(request, {**data, "ok": ok, "err": err}))
 
 

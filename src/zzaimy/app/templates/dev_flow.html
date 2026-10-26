@@ -4,7 +4,7 @@
 {% block content %}
 <style>
 .pf-lead{font-size:12.5px;color:var(--muted);margin:0 0 12px;}
-.pf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;}
+.pf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:12px;}
 .pf-term,.pf-host{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--card,#fff);display:flex;flex-direction:column;gap:6px;min-width:0;}
 .pf-term h3,.pf-host h3{font-size:14px;margin:0;}
 .pf-term p,.pf-host p{font-size:12.5px;margin:0;line-height:1.55;overflow-wrap:anywhere;}
@@ -14,8 +14,6 @@
 .pf-side{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
 .pf-no{font-size:11.5px;color:var(--muted);}
 .pf-side h3{font-size:15px;margin:0;line-height:1.35;}
-.pf-chips{display:flex;flex-wrap:wrap;gap:4px;}
-.pf-chip{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:#3b4757;background:#f6f8fb;}
 .pf-state{font-size:11px;border-radius:999px;padding:1px 8px;}
 .pf-state.on{background:#e8f3ec;color:#1f6b3a;}
 .pf-state.part{background:#fff4e0;color:#8a5a00;}
@@ -27,7 +25,14 @@
 .pf-row dd{margin:0;overflow-wrap:anywhere;}
 .pf-nums{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:12.5px;}
 .pf-nums span b{font-variant-numeric:tabular-nums;}
-.pf-link{font-size:12px;margin-top:8px;display:inline-block;}
+.pf-link{font-size:12px;}
+.pf-foot{display:flex;align-items:center;gap:14px;margin-top:10px;}
+.pf-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.pf-head .mini-btn{flex:none;}
+.pf-map{margin:4px 0 8px;}
+.pf-map svg{display:block;width:100%;height:auto;}
+.pf-map a:hover rect{fill:#f7f9fc;}
+.pf-more{margin-top:2px;}
 .pf-code{font-size:11px;color:var(--faint);margin:6px 0 0;overflow-wrap:anywhere;}
 .pf-cycles{width:100%;font-size:12.5px;border-collapse:collapse;}
 .pf-fig{margin:0 0 14px;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
@@ -37,7 +42,7 @@
 @media(max-width:760px){.pf-stage{grid-template-columns:minmax(0,1fr);}}
 </style>
 
-<p class="pf-lead">수치 기준 {{ flow.at }} · 기계 산출물에서 바로 읽음, 없으면 「—」</p>
+<p class="pf-lead">수치 기준 {{ flow.at }}</p>
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>핵심 용어</h2>
@@ -53,33 +58,39 @@
   </div>
 </div></div>
 
-<p class="pf-lead">장비와 장비 사이 연결은 <a href="/dev#system">개발 현황 › 시스템 구성</a> 그림에 있다.</p>
-
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>처리 단계</h2>
+  <h2 class="pf-head"><iconify-icon icon="solar:list-check-linear"></iconify-icon>처리 단계
+    <a class="h-link" href="/dev#system">장비 연결은 시스템 구성</a>
+    <button type="button" class="mini-btn" data-more-all aria-pressed="false">설명 모두 펼치기</button></h2>
+  <figure class="pf-map">{{ flow_svg | safe }}</figure>
   {% for s in stages %}
   <section class="pf-stage" id="stage-{{ s.n }}">
     <div class="pf-side">
       <span class="pf-no">{{ s.n }}단계</span>
       <h3>{{ s.name }}</h3>
-      <div class="pf-chips">{% for w in s.where %}<span class="pf-chip">{{ w }}</span>{% endfor %}</div>
       <span class="pf-state {{ 'on' if s.state == '운영 중' else 'part' }}">{{ s.state }}</span>
       <span class="pf-every">{{ s.every }}</span>
     </div>
     <div class="pf-body">
       <p>{{ s.does }}</p>
+      <div class="pf-more" id="more-{{ s.n }}" hidden>
       <ul>{% for h in s.how %}<li>{{ h }}</li>{% endfor %}</ul>
       <dl class="pf-row">
+        <dt>장비</dt><dd>{{ s.where | join(' · ') }}</dd>
         <dt>결과물</dt><dd>{{ s.out }}</dd>
         <dt>까닭</dt><dd>{{ s.why }}</dd>
       </dl>
+      {% if s.code %}<p class="pf-code">관련 코드 {{ s.code }}</p>{% endif %}
+      </div>
       {% if s.nums %}
       <div class="pf-nums">{% for key, label in s.nums %}<span>{{ label }} <b>{{ flow.vals.get(key, '—') }}</b></span>{% endfor %}</div>
       {% if s.n == 8 and flow.cmp_note %}<p class="muted" style="font-size:11.5px;margin:4px 0 0;">{{ flow.cmp_note }} · {{ flow.cmp_file }}</p>{% endif %}
       {% if s.n == 7 and flow.eval_at %}<p class="muted" style="font-size:11.5px;margin:4px 0 0;">합성 질의 측정 {{ flow.eval_at }}</p>{% endif %}
       {% endif %}
-      {% if s.code %}<p class="pf-code">관련 코드 {{ s.code }}</p>{% endif %}
-      <a class="pf-link" href="{{ s.link[0] }}">{{ s.link[1] }} 열기 →</a>
+      <div class="pf-foot">
+        <button type="button" class="mini-btn" data-more aria-controls="more-{{ s.n }}" aria-expanded="false">자세히</button>
+        <a class="pf-link" href="{{ s.link[0] }}">{{ s.link[1] }} 열기 →</a>
+      </div>
     </div>
   </section>
   {% endfor %}
@@ -106,7 +117,33 @@
   </table></div>
 </div></div>
 <div class="card reveal" id="tech"><div class="card-in">
-  <h2><iconify-icon icon="solar:box-linear"></iconify-icon>사용 기술</h2>
+  <h2 class="pf-head"><iconify-icon icon="solar:box-linear"></iconify-icon>사용 기술
+    <button type="button" class="mini-btn" data-tech-toggle aria-controls="techList" aria-expanded="false" style="margin-left:auto;">목록 펼치기</button></h2>
   {% include "_tech_stack.html" %}
 </div></div>
+<script>
+  // 단계 설명 펼치기 — 단계마다 「자세히」, 머리의 단추는 모두
+  (function () {
+    var all = document.querySelector("[data-more-all]");
+    var btns = Array.prototype.slice.call(document.querySelectorAll("[data-more]"));
+    function set(b, on) {
+      document.getElementById(b.getAttribute("aria-controls")).hidden = !on;
+      b.setAttribute("aria-expanded", String(on));
+      b.textContent = on ? "접기" : "자세히";
+    }
+    btns.forEach(function (b) { b.addEventListener("click", function () { set(b, b.getAttribute("aria-expanded") !== "true"); }); });
+    if (all) all.addEventListener("click", function () {
+      var on = all.getAttribute("aria-pressed") !== "true";
+      btns.forEach(function (b) { set(b, on); });
+      all.setAttribute("aria-pressed", String(on));
+      all.textContent = on ? "설명 모두 접기" : "설명 모두 펼치기";
+    });
+    // 사용 기술 목록 펼치기
+    var tb = document.querySelector("[data-tech-toggle]");
+    if (tb) tb.addEventListener("click", function () {
+      var box = document.getElementById("techList"), on = box.hidden;
+      box.hidden = !on; tb.setAttribute("aria-expanded", String(on)); tb.textContent = on ? "목록 접기" : "목록 펼치기";
+    });
+  })();
+</script>
 {% endblock %}

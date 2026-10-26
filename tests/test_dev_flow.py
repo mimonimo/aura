@@ -123,3 +123,22 @@ def test_coedit_sequence_figures_use_live_settings(tmp_path):
     assert "사람이 칸에 글을 칠 때" in page and "AURA(27B)가 양식을 불러오고 절을 쓸 때" in page and "0.3초마다" in page
     app.state.db.set_setting("coedit:throttle_ms", "500")
     assert "0.5초마다" in c.get("/dev/flow").text
+
+
+def test_flow_stage_map_links_every_stage_and_details_fold(tmp_path):
+    """처리 단계 한눈 그림 — 단계마다 상자 하나(누르면 그 단계), 설명은 「자세히」 로 접고, 같은 수치를 두 곳에 두지 않는다."""
+    _, c = _client(tmp_path)
+    page = c.get("/dev/flow").text
+    assert '<figure class="pf-map"><svg' in page
+    for s in process_flow.STAGES:
+        assert f'href="#stage-{s["n"]}"' in page and f'id="more-{s["n"]}" hidden' in page
+    assert 'id="techList" hidden' in page
+    assert "SFT 학습셋(DGX 목록)" not in page and "원본 장부 전체" not in page.split('id="intake"', 1)[0]
+
+
+def test_dev_hub_lists_open_features_first(tmp_path):
+    """개발 현황 기능 목록 — 할 일만 먼저, 완료는 단추로 함께 본다. 학습 기록 한 줄은 학습·평가 순서에만."""
+    _, c = _client(tmp_path)
+    hub = c.get("/dev").text
+    assert "data-done-toggle" in hub and 'class="feat-row is-done"' in hub
+    assert "손으로 적지 않습니다" not in hub and "model-live" not in hub
