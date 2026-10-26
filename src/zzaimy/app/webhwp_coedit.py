@@ -68,10 +68,30 @@ DEFAULTS = {
     "throttle_ms": 300.0,      # 입력 중 칸 글을 보내는 간격
     "pause_ms": 300.0,         # 받은 칸 글을 넣기 전에 기다리는 입력 멈춤
     "presence_ttl": 30.0,      # 같이 보는 사람 표시가 남는 시간
+    "para_wrap_max": 1500.0,   # 칸 밖 문단을 「문단:n」 칸으로 감싸는 상한(넘는 큰 문서는 감싸지 않고 문서 틀 고치기로) — 10-26
     "rich": 0.0,
     "aura_ttl": 20.0,          # AURA 작성 중 표시가 마지막 쓰기 뒤 남는 시간               # 1 이면 절 필드를 서식째(기안기 JSON 블록) 주고받는 시험 기능(M3)
 }
 _ENSURED: set[str] = set()
+
+
+def wrap_paras(db, base: Path, fid: int, path: Path, user: str) -> int:
+    """칸 밖 글 문단을 「문단:n」 칸으로 감싸 새 판으로 저장(webhwp_fields.wrap_rest) — 문서 전체를 칸 공동 편집으로.
+    이미 감쌌으면 0. 파일 잠금 안에서 다시 읽어 두 사람이 동시에 열어도 한 번만."""
+    from zzaimy.app import webhwp
+    from zzaimy.app import webhwp_fields as wf
+    if path.suffix.lower() != ".hwpx":
+        return 0
+    with file_lock(fid):
+        data = path.read_bytes()
+        try:
+            new, k = wf.wrap_rest(data, limit=int(conf(db, "para_wrap_max")))
+        except Exception:
+            return 0
+        if not k or new is data:
+            return 0
+        webhwp.save(db, base, fid, new, user=user or "AURA")
+        return k
 _FILE_LOCKS: dict[int, threading.Lock] = {}
 _FILE_LOCKS_GUARD = threading.Lock()
 

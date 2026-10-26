@@ -36,7 +36,7 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     app, dev, kim = _admin(tmp_path, monkeypatch)
     assert kim.get("/dev/coedit-demo").status_code == 403
     assert kim.post("/dev/coedit-demo/new", follow_redirects=False).status_code == 403
-    # 열자마자 빈 시연 문서가 생겨 세 칸으로 — 단추는 「처음부터 다시」 하나(세 사람 동시 작성 갈래)
+    # 열자마자 빈 시연 문서가 생겨 세 칸으로 — 한 갈래(세 사람 + AURA 4 절), 단추는 「AURA로 절 쓰기」·「처음부터 다시」
     r = dev.get("/dev/coedit-demo", follow_redirects=False)
     assert r.status_code == 303
     fid = int(r.headers["location"].split("id=")[-1])
@@ -44,7 +44,7 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     for s in "abc":
         assert f"/webhwpctrl/aura-edit?id={fid}&amp;demo={s}" in page
     assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "처음부터 다시" in page
-    assert "AURA로 절 쓰기" not in page and 'aria-current="page">세 사람 동시 작성' in page
+    assert "AURA로 절 쓰기" in page and "AURA 함께 쓰기" not in page
     assert dev.get("/dev/coedit-demo", follow_redirects=False).status_code == 200          # 있으면 다시 만들지 않는다
     # 시연 계정 — 장부에 demo 표시·비활성·비밀번호 없음(로그인 길 없음), 다시 눌러도 그대로
     acc = json.loads((tmp_path / "accounts.json").read_text())
@@ -59,7 +59,8 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     f = webhwp.get(app.state.db, fid)
     assert webhwp.dept_of_path(Path(app.state.data_dir), f["path"]) == demo.ROOT and not webhwp.locked(app.state.db, fid)
     fs = ww.fields(Path(f["path"]).read_bytes())
-    assert [x["name"] for x in fs] == [f"절:{i}. {n}" for i, (_u, n) in enumerate(demo.SLOTS.values(), 1)] and not any(x["text"] for x in fs)
+    assert [x["name"] for x in fs] == [f"절:{i}. {n}" for i, (_u, n) in enumerate(demo.SLOTS.values(), 1)] + [f"절:4. {demo.AURA_SECTION}"] \
+        and not any(x["text"] for x in fs)
     # 바로가기는 개발 사이드바 「문서 작성」 한 곳(10-26 — 업무 화면 사이드바의 링크는 뺐다), 교직원 화면에는 없다
     assert 'href="/dev/coedit-demo"' in dev.get("/dev").text and 'href="/dev/coedit-demo"' not in dev.get("/hwp").text
     assert 'href="/dev/coedit-demo"' not in kim.get("/hwp").text
@@ -152,15 +153,15 @@ def test_long_demo_uses_business_plan_form(tmp_path, monkeypatch):
     fid = int(r.headers["location"].split("id=")[-1])
     assert webhwp.get(db, fid)["name"].startswith("시연 · 사업계획서")
     assert str(webhwp.meta(db, fid)["source"]).startswith(demo.SOURCE)
-    page = dev.get(f"/dev/coedit-demo?id={fid}").text
-    assert "AURA로 절 쓰기" in page and 'aria-current="page">AURA 함께 쓰기' in page    # 사업계획서 문서는 AURA 갈래로 열린다
-    assert dev.get("/dev/coedit-demo?mode=aura", follow_redirects=False).status_code == 200   # 이미 있으면 그 문서
+    # 시연 화면은 한 갈래(빈 문서) — 양식 사본은 화면을 열면 휴지통으로 가고 빈 문서가 새로 생긴다(10-26)
     from zzaimy.app import webhwp_write as _ww
     body = "".join(__import__("zipfile").ZipFile(__import__("io").BytesIO(Path(webhwp.get(db, fid)["path"]).read_bytes())).read(n).decode()
                    for n in ["Contents/section0.xml"])
     assert "○○○○ 사업" not in body and "2026 AI 업무 도구 교육 운영" in body       # 표지 자리표시도 시연용 값
     again = int(dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False).headers["location"].split("id=")[-1])
     assert again != fid and webhwp.get(db, fid) is None
+    r = dev.get(f"/dev/coedit-demo?id={again}", follow_redirects=False)
+    assert r.status_code == 303 and webhwp.get(db, again) is None and demo.is_blank_id(app, int(r.headers["location"].split("id=")[-1]))
 
 
 def test_demo_values_fill_header_cells_only():
@@ -180,6 +181,6 @@ def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
     sid, q = sent[-1]
     db = app.state.db
     from zzaimy.app import webhwp_agent as wa
-    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and "비어 있는 절" in q
-    assert "AURA(27B)에게 빈 절 하나를 맡겼습니다" in dev.get(r.headers["location"]).text
+    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and demo.AURA_SECTION in q
+    assert "AURA(27B)가 1~3절을 읽고 4절을 쓰는 중" in dev.get(r.headers["location"]).text
     assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404

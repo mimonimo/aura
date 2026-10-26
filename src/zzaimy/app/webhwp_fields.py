@@ -486,3 +486,87 @@ def fieldize(data: bytes, slots=None, people: dict | None = None, heads: dict | 
             ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
             zout.writestr(info, body, compress_type=ct)
     return buf.getvalue(), fields
+
+
+# ── 문서 전체 공동 편집(10-26) — 칸 밖 문단도 이름 없는 칸(「문단:n」)으로 감싼다 ──
+# 칸(누름틀) 안만 여럿이 실시간으로 고칠 수 있어, 제목·소제목·안내 글·표 칸은 「문서 틀 고치기」 로 한 사람씩만 고쳤다.
+# 사용자 — 「칸 있는 곳만 수정하는 게 아니잖아. 전체 영역에 대한 수정이 가능해야 하고, 표기도 떠야」.
+# 글만 든 문단(표 칸 안 포함)을 안내 글 없는 칸으로 감싸면 칸 공동 편집(임대·바뀐 부분·이름표)이 문서 전체에 그대로 듣는다.
+# 그림·표·머리말 같은 개체가 든 문단, 머리말·꼬리말·각주·글상자 안, 이미 칸 안인 문단은 건너뛴다(그런 고침은 여전히 문서 틀).
+PARA = "문단:"
+_PLAIN_TAGS = {"hp:p", "hp:run", "hp:t", "hp:tab", "hp:lineBreak", "hp:linesegarray", "hp:lineseg", "hp:nbSpace",
+               "hp:fwSpace", "hp:hyphen", "hp:markpenBegin", "hp:markpenEnd"}
+_TAG = re.compile(r"<(hp:[A-Za-z]+)\b")
+_NO_WRAP = re.compile(r"<(hp:header|hp:footer|hp:footNote|hp:endNote|hp:drawText)\b.*?</\1>", re.S)
+
+
+def is_para(name: str) -> bool:
+    return str(name or "").startswith(PARA)
+
+
+def _plain(p: str) -> bool:
+    return all(t in _PLAIN_TAGS for t in _TAG.findall(p))
+
+
+def _wrap_para(p: str, begin: str, end: str) -> str:
+    p = _LINESEG.sub("", p)
+    m = re.search(r"<hp:run\b[^>]*?/>", p)
+    if m and p.find("<hp:run") == m.start():                    # 닫힌 꼴 run 하나뿐인 빈 문단
+        p = p[:m.start()] + re.sub(r"/>$", ">", m.group(0)) + "</hp:run>" + p[m.end():]
+    first = re.search(r"<hp:run\b[^>]*>", p)
+    if not first:
+        head = re.match(r"<hp:p\b[^>]*>", p)
+        return p[:head.end()] + f'<hp:run charPrIDRef="0">{begin}<hp:t/>{end}</hp:run>' + p[head.end():]
+    p = p[:first.end()] + begin + p[first.end():]
+    last = p.rfind("</hp:run>")
+    return p[:last] + end + p[last:]
+
+
+def wrap_rest_xml(xml: str, ids: _Ids, start: int) -> tuple[str, int]:
+    """한 섹션 — 감싼 문단 수와 함께. start 는 이어 붙일 「문단:n」 번호."""
+    skip = [(m.start(), m.end()) for m in _NO_WRAP.finditer(xml)]
+    out, pos, open_, n = [], 0, 0, start
+    for m in _LEAF_P.finditer(xml):
+        p = m.group(0)
+        b, e = p.count("<hp:fieldBegin"), p.count("<hp:fieldEnd")
+        inside = open_ > 0
+        open_ = max(0, open_ + b - e)
+        if inside or b or e or _inside(m.start(), skip) or not _plain(p):
+            continue
+        n += 1
+        begin, end = field_parts(f"{PARA}{n}", "", ids)
+        out.append(xml[pos:m.start()])
+        out.append(_wrap_para(p, begin, end))
+        pos = m.end()
+    out.append(xml[pos:])
+    return "".join(out), n - start
+
+
+def count_rest(data: bytes) -> int:
+    """감쌀 문단 수(바꾸지 않고 세기만)."""
+    _, k = wrap_rest(data, dry=True)
+    return k
+
+
+def wrap_rest(data: bytes, limit: int | None = None, dry: bool = False) -> tuple[bytes, int]:
+    """hwpx → 칸 밖 글 문단을 모두 「문단:n」 칸으로 감싼 hwpx 와 감싼 수. 감쌀 것이 없거나 limit 을 넘으면 그대로(수는 셈)."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    check_zip(zin)
+    secs = sorted([n for n in zin.namelist() if _SEC.search(n)], key=lambda s: int(re.search(r"(\d+)", s.rsplit("/", 1)[-1]).group(1)))
+    xmls = {n: zin.read(n).decode("utf-8") for n in secs}
+    used = [int(x) for x in re.findall(r'name="' + PARA + r'(\d+)"', "".join(xmls.values()))]
+    ids, k0 = _Ids(list(xmls.values())), max(used, default=0)
+    new, k = {}, k0
+    for n in secs:
+        new[n], c = wrap_rest_xml(xmls[n], ids, k)
+        k += c
+    total = k - k0
+    if dry or not total or (limit is not None and total > limit):
+        return data, total
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zout:
+        for info in zin.infolist():
+            body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
+            ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
+            zout.writestr(info, body, compress_type=ct)
+    return buf.getvalue(), total

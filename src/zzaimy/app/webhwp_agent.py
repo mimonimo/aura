@@ -452,6 +452,8 @@ class HwpTools:
         written = m.get("written") or {}
         self._mark(fid, field)
         from zzaimy.app import webhwp_dress
+        if not written.get(field) and self._stream_plain(fid, field, text):   # 글만 든 절 — 사람이 칠 때와 같은 칸 길로(앞서 칸 밖에 쓴 표가 없을 때)
+            return self._after_write(fid, field, text, written, [], by)
         try:
             raw = Path(f["path"]).read_bytes()
             have = ww.field_values(raw)
@@ -476,6 +478,43 @@ class HwpTools:
             ce.put(self.db, fid, ce.AGENT, mine, client="aura-agent")
         ce.forget(self.db, fid, [k for k in ce.state(self.db, fid, with_text=False)
                                  if ww.is_cont(k) and ww.section_of(k) == field and k not in vals])
+        return self._after_write(fid, field, text, written, put, by, data)
+
+    STREAM_STEP, STREAM_PACE = 12, 0.06     # 흘려 쓰기 — 한 번에 보내는 글자 수·간격(초). 12자×0.06초 ≈ 초당 200자
+
+    def _stream_plain(self, fid: int, field: str, text: str) -> bool:
+        """표·상자·도식 없는 글만 든 절은 파일을 통째로 다시 저장하지 않고 칸 공동 편집 길로 조금씩 보낸다(10-26).
+        통째 저장은 열린 화면이 모두 새 판을 다시 불러와 다 된 글이 한순간에 뜨고(「AURA가 불러오는 거 띡 하고 말잖아」)
+        그동안 사람 입력이 멈췄다. 칸 길이면 세 화면에서 AURA 가 써 내려가는 것이 보이고 사람은 다른 칸을 계속 쓴다."""
+        from zzaimy.app import webhwp_coedit as ce
+        from zzaimy.app import webhwp_write as ww
+        items = ww.parse_body(text)
+        if not items or any(k != "text" for k, _ in items):
+            return False
+        raw = Path(webhwp.get(self.db, fid)["path"]).read_bytes()
+        have = ww.field_values(raw)
+        if field not in have or any(ww.is_cont(k) and ww.section_of(k) == field for k in have):
+            return False
+        body = ce.norm("\n".join(str(v) for _, v in items))
+        st = ce.SectionStream(self.db, fid, field, base=self.base)
+        if not st.ok:
+            return False
+        try:
+            for i in range(self.STREAM_STEP, len(body), self.STREAM_STEP):
+                st.write(body[:i])
+                self._mark(fid, field)
+                time.sleep(self.STREAM_PACE)
+            ok = st.write(body)
+        finally:
+            st.close()
+        if ok:
+            ce.commit_now(self.db, self.base, fid)         # 파일에도 바로 — 다음 도구·내려받기가 옛 글을 읽지 않게
+        return bool(ok)
+
+    def _after_write(self, fid: int, field: str, text: str, written: dict, put, by: str, data: bytes | None = None) -> str:
+        from zzaimy.app import webhwp_write as ww
+        if data is None:
+            data = Path(webhwp.get(self.db, fid)["path"]).read_bytes()
         m = webhwp.meta(self.db, fid)
         written[field] = put
         m["written"] = written

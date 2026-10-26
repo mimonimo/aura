@@ -135,13 +135,8 @@
     body.embed .doc .name { font-size:13px; line-height:1.3; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:keep-all; overflow-wrap:anywhere; }
   }
   @media (max-width:640px) { .doc .where, .btn .label-long, .btn kbd { display:none; } .bar { gap:8px; padding:0 10px; } }
-  .outside-tip { position:fixed; z-index:60; display:flex; align-items:center; gap:8px; max-width:420px; padding:8px 10px; border-radius:10px;
-    background:#1F2937; color:#fff; font-size:12.5px; box-shadow:0 6px 20px rgba(15,23,42,.25); }
-  .outside-tip[hidden] { display:none; }
   .btn.struct-on { background:#FEF3C7; border-color:#F59E0B; color:#92400E; font-weight:600; }
   .btn.struct-on[hidden] { display:none; }
-  .outside-tip button { flex:none; min-height:0; padding:5px 10px; border-radius:7px; border:0; background:#fff; color:#1F2937; font-size:12px; font-weight:600; cursor:pointer; }
-  .outside-tip button.ghost { background:transparent; color:#cbd5e1; padding:4px 6px; }
 </style>
 </head>
 <body{% if embed %} class="embed"{% endif %}>
@@ -181,9 +176,6 @@
   {% if embed %}<button type="button" class="btn icon ghost" data-embed="close" title="문서 패널 닫기" aria-label="문서 패널 닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button>{% endif %}
 </header>
 <div class="co-bar" data-co-bar hidden role="status" aria-live="polite"></div>
-{# 칸 밖을 눌렀을 때 — 칸 모드에서는 커서가 칸 밖으로 가지 않아 「아무것도 안 된다」 로 보였다(10-26). 누른 자리에 안내와 「여기 고치기」 #}
-<div class="outside-tip" data-outside hidden role="status"><span data-outside-text>이 부분은 문서 틀(제목·표·안내 글)이라 칸처럼 바로 고칠 수 없어요.</span>
-  <button type="button" data-outside-go>여기 고치기</button><button type="button" class="ghost" data-outside-close aria-label="닫기">×</button></div>
 <div class="notice-bar" data-notice hidden><span data-notice-text></span><button type="button" data-reload>다시 불러오기</button></div>
 <p class="alert" role="alert" data-load-fail hidden>한글 편집기를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요. <button type="button" onclick="location.reload()">다시 열기</button></p>
 <div id="hwpctrl"></div>
@@ -318,7 +310,6 @@
   function startCollab() {
     var bar = document.querySelector('[data-co-bar]');
     eng = window.auraCollab = AuraCollab.engine({fid: fid, me: me, hwp: hwp, readonly: readonly, structureMode: function () { return structMine; }});
-    wireOutsideTip();
     cui = AuraCollab.ui(eng, hwp, {avatars: document.querySelector('[data-people]'), bar: bar, me: me, meName: meName});
     eng.on('status', function (kind, text) { coStatus = {kind: kind, text: text}; drawCoStatus(); });
     eng.on('error', function (m) { say(m, 'bad'); });
@@ -407,34 +398,6 @@
   if (sbtn) sbtn.addEventListener('click', function () { menu.hidden = true; if (structMine) structOff(); else structOn(); });
   var ebtn = document.querySelector('[data-struct-end]');
   if (ebtn) ebtn.addEventListener('click', function () { if (structMine) structOff(); });
-  // 칸 밖 누름 알아채기 — 누른 자리와 커서 자리가 크게 떨어지면(칸 모드라 커서가 따라가지 않음) 그 자리에 안내를 띄운다.
-  // 「여기 고치기」 는 문서 틀 고치기(구조 잠금)를 켠다 — 남이 쥐고 있으면 누가 고치는 중인지 알린다
-  function wireOutsideTip() {          // 편집기(hwp)가 만들어진 뒤 부른다
-    var tip = document.querySelector('[data-outside]'); if (!tip) return;
-    var tipText = tip.querySelector('[data-outside-text]'), go = tip.querySelector('[data-outside-go]'), hideT = null;
-    function hide() { tip.hidden = true; clearTimeout(hideT); }
-    tip.querySelector('[data-outside-close]').addEventListener('click', hide);
-    go.addEventListener('click', function () { hide(); structOn(); });
-    hwp.onCaret(function (e) {
-      // 사람이 실제로 누른 것만 — 문서를 열 때 커서를 옮기는 내부 동작(좌표 없는 사건)까지 잡아 열자마자 세 칸에 떴다(10-26)
-      if (!e || e.type !== 'pointerup' || !e.isTrusted || !(e.clientX || e.clientY) || mode !== 'fields' || structMine || readonly) { if (structMine) hide(); return; }
-      if (hwp.isComposing && hwp.isComposing()) return;
-      var fr = e.view && e.view.frameElement, cr = hwp.caretRect && hwp.caretRect();
-      if (!fr || !cr) return;
-      var view = e.view.document.getElementById('hcwoViewScroll');          // 문서 쪽 영역만 — 도구 막대·메뉴 누름은 아니다
-      if (!view || !view.contains(e.target)) return;
-      var o = fr.getBoundingClientRect(), px = o.left + e.clientX, py = o.top + e.clientY;
-      var near = Math.abs(cr.y + cr.h / 2 - py) < 28 && Math.abs(cr.x - px) < 400;
-      if (near) { hide(); return; }
-      var other = structBy && structBy !== me;
-      tipText.textContent = other ? eng.nameOf(structBy) + ' 님이 문서 틀을 고치는 중이에요 — 끝나면 고칠 수 있어요.'
-                                  : '이 부분은 문서 틀(제목·표·안내 글)이라 칸처럼 바로 고칠 수 없어요.';
-      go.hidden = !!other;
-      tip.style.left = Math.max(8, Math.min(window.innerWidth - 420, px - 40)) + 'px';
-      tip.style.top = Math.max(8, Math.min(window.innerHeight - 60, py + 14)) + 'px';
-      tip.hidden = false; clearTimeout(hideT); hideT = setTimeout(hide, 10000);
-    });
-  }
   var cbtn = document.querySelector('[data-conflicts]');
   if (cbtn) cbtn.addEventListener('click', function () { menu.hidden = true; if (cui) cui.openConflicts(); });
 

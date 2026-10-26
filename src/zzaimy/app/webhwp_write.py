@@ -104,6 +104,8 @@ def fields(data: bytes) -> list[dict]:
             sp = _span(xml, m.group(1), m.end())
             text = re.sub(r"<[^>]+>", "", xml[sp[0]:sp[1]]).strip() if sp else ""
             name = _unq(m.group(2))
+            if name.startswith("문단:"):                       # 문서 전체 공동 편집용 칸(webhwp_fields.wrap_rest) — 쓸 자리가 아니다
+                continue
             own = at.get(section_of(name)) if is_cont(name) else None
             if own is not None:
                 own["text"] = "\n".join(x for x in (own["text"], text) if x)

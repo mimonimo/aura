@@ -338,7 +338,7 @@ def _unq(name: str) -> str:
 
 
 def field_names(doc: _Doc) -> list[str]:
-    return [_unq(m.group(2)) for n in doc.sec_names for m in _FIELD.finditer(doc.secs[n])]
+    return [x for x in (_unq(m.group(2)) for n in doc.sec_names for m in _FIELD.finditer(doc.secs[n])) if not x.startswith("문단:")]
 
 
 def _resolve_field(doc: _Doc, name: str) -> str:
@@ -2267,8 +2267,28 @@ class EditTools:
         _St.db = db
         return _original_bytes(_St, d)
 
+    def _stream(self, fid: int, field: str, text: str) -> bool:
+        """칸 하나를 통째로 채우는 글이면 기안기 명령 대신 칸 공동 편집 길로 흘려 쓴다(webhwp_agent._stream_plain) — 명령은
+        시킨 사람의 편집기에서 돌아 파일을 통째로 저장하고, 다른 화면은 새 판을 다시 불러와 글이 한순간에 떴다(10-26 시연)."""
+        fn = getattr(self.hw, "_stream_plain", None)
+        if not fn or not text.strip():
+            return False
+        try:
+            if fn(fid, field, text):
+                self.hw.writes += 1
+                return True
+        except Exception:
+            return False
+        return False
+
     def live(self, fid: int, a: dict) -> str:
         db = self.hw.db
+        p_ = a.get("params") if isinstance(a.get("params"), dict) else {}
+        if a.get("action") == "insert_text" and p_.get("field") and p_.get("text"):
+            from zzaimy.app import webhwp_coedit as ce_
+            cur = (ce_.state(db, fid, [str(p_["field"])]).get(str(p_["field"])) or {}).get("text", "")
+            if not str(cur or "").strip() and self._stream(fid, str(p_["field"]), str(p_["text"])):   # 빈 칸에 넣기 = 칸 채우기
+                return f"「{p_['field']}」 칸에 글을 넣었다(열린 화면에 흘려 씀)."
         try:
             c = push(db, fid, str(a.get("action") or ""), a.get("params") if isinstance(a.get("params"), dict) else {})
         except EditError as e:
@@ -2319,6 +2339,9 @@ class EditTools:
     def native(self, fid: int, action: str, params: dict, at=None, picture=None, asset=None) -> str:
         steps, field = _nat.steps_for(action, params, at, picture)
         label = _nat.NATIVE[action]["label"]
+        if action == "InsertText" and field and isinstance(at, dict) and at.get("select") and isinstance(params, dict) \
+                and self._stream(fid, field, str(params.get("Text") or "")):
+            return f"「{field}」 칸에 글을 넣었다(열린 화면에 흘려 씀)."
         c, msg = self._send(fid, action, label, steps, field, {"params": params, "at": at}, asset=asset)
         if c is None or msg:
             return msg

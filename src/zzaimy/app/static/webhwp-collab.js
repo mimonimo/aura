@@ -667,7 +667,6 @@
   // ── 화면 — 머리줄 아바타·칸 테두리·이름표·안내 띠 ──
   var PALETTE = ['#2563EB', '#16A34A', '#D97706', '#DB2777', '#7C3AED', '#0891B2', '#DC2626', '#4D7C0F'];
   function colorOf(u) { if (u === 'AURA') return '#1B3B75'; var h = 0; for (var i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]; }
-  function where(f) { return f ? f.replace(/^(절|칸):/, '').replace(/^표\d+:/, '표 · ') : ''; }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   // AURA 는 시킨 사람에게 딸린다 — 여러 사람이 AURA 를 부르면 「AURA」 만으로는 누구 일인지 몰랐다(10-26 시연). 이름은 알림의 by_name·처음 상태의 names 로 안다
   function auraBy(eng, a) { var b = a && a.by; return b && b !== 'AURA' ? eng.nameOf(b) : ''; }
@@ -675,7 +674,7 @@
   function auraText(eng, a) {                          // 머리줄 상태 — 「AURA가 김가람 님 요청으로 「4. 향후 계획」 쓰는 중」
     if (!a || !a.field) return '';
     var n = auraBy(eng, a);
-    return 'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 쓰는 중';
+    return 'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '쓰는 중';      // 어디인지는 그 칸의 잠금 표시(이름표·테두리)로 — 칸 이름은 실 문서에서 읽을 수 없다(10-26)
   }
 
   function ui(eng, hwp, o) {
@@ -692,7 +691,6 @@
       return null;
     }
     function auraLabel() { return auraLabelOf(eng, auraState); }   // 「AURA (김가람 요청)」
-    function short(s) { s = String(s || '').replace(/^\d+\.\s*/, function (m) { return m.trim() + ' '; }); return s.length > 9 ? s.slice(0, 8) + '…' : s; }   // 목록 꼬리는 짧게 — 길면 자른다(전체는 풀이말)
     function heldBy(u) {                               // 그 사람이 지금 쥔 칸(쓰는 중인 곳) — 알림이 늦어도 임대로 안다
       var L = eng.locks(), out = '';
       Object.keys(L).forEach(function (f) { var lk = L[f]; if (f && lk && lk.user === u && lk.until * 1000 > Date.now()) out = f; });
@@ -711,7 +709,7 @@
         b.textContent = p.user === 'AURA' ? 'A' : (p.name || p.user).slice(0, 1);
         var hf = p.user === 'AURA' ? p.field : heldBy(p.user); if (hf) p.field = hf;
         var editing = !!hf;
-        var label = (p.name || p.user) + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field ? ' · ' + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중') : ' · 문서 보는 중');
+        var label = (p.name || p.user) + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field && editing ? ' · 쓰는 중' : ' · 보는 중');
         var on = following === p.user;
         b.title = label + (on ? ' — 눌러서 따라가기 그만' : ' — 눌러서 따라가기');
         b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -736,8 +734,7 @@
         var editing = !!hf2;
         r.appendChild(d); r.appendChild(el('span', '', p.name || p.user));
         // 「쓰는 중 · N쪽 · 절」 — 큰 문서에서 어디쯤인지 쪽으로 먼저 보인다. 누르면 그 칸으로
-        var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field ? ' · ' + short(where(p.field)) : ''));
-        if (p.field) sm.title = (p.page ? p.page + '쪽 · ' : '') + where(p.field) + (editing ? ' 쓰는 중' : ' 보는 중');
+        var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (p.page ? ' · ' + p.page + '쪽' : ''));
         r.appendChild(sm);
         if (!p.me) r.onclick = function () { toggleFollow(p.user); popOpen = false; pop.hidden = true; };   // 줄을 눌러도 따라가기(아바타와 같다)
         if (!p.me && following === p.user) r.classList.add('following');
@@ -822,7 +819,7 @@
         if (!vis) return;
         [m.box, m.caret, m.flag].forEach(function (x) { x.style.setProperty('--c', c); });
         var L = layer.getBoundingClientRect();
-        m.box.title = w.label + ' · ' + where(f);
+        m.box.title = w.label + ' 님이 쓰는 중';
         if (single) {                                   // 한 줄 — 칸 글 위에 옅은 바탕
           m.box.className = 'co-box hl';
           m.box.style.left = (a.x - 1 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px';
@@ -846,7 +843,7 @@
         var leftSide = (b.x - bodyL) < (bodyR - b.x);
         tt.textContent = w.label;
         m.flag.className = 'co-flag ' + (leftSide ? 'left' : 'right');
-        m.flag.title = w.label + ' · ' + where(f) + ' 쓰는 중';
+        m.flag.title = w.label + ' 님이 쓰는 중';
         var room = leftSide ? bodyL - view.left - 10 : view.right - bodyR - 10;
         if (m.flag.offsetWidth > room) { m.flag.classList.add('dot'); tt.textContent = w.user === 'AURA' ? 'A' : w.label.slice(0, 1); }
         var fw = m.flag.offsetWidth, fh = m.flag.offsetHeight;
@@ -923,7 +920,7 @@
       bar.innerHTML = '';
       bar.appendChild(el('span', 'co-bar-text', text));
       (buttons || []).forEach(function (b) { var x = el('button', 'co-btn', b[0]); x.type = 'button'; x.onclick = b[1]; bar.appendChild(x); });
-      if (kind !== 'follow') { var close = el('button', 'co-btn ghost', '닫기'); close.type = 'button'; close.onclick = function () { hide(); }; bar.appendChild(close); }   // 따라가기는 「그만」 하나
+      if (kind !== 'follow') { var close = el('button', 'co-btn ghost', '×'); close.setAttribute('aria-label', '닫기'); close.type = 'button'; close.onclick = function () { hide(); }; bar.appendChild(close); }   // 따라가기는 「그만」 하나
       bar.hidden = false;
       if (ms) barTimer = setTimeout(function () { hide(kind); }, ms);
     }
@@ -937,22 +934,25 @@
     bar.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); hide(); } });
     eng.on('lease-warn', function (f, left) {
       if (barKind !== 'warn' && barKind && barKind !== 'follow') return;   // 따라가기 띠는 덮어도 된다(끝나면 다시 뜬다)
-      show('warn', '「' + where(f) + '」 칸을 ' + left + '초 동안 고치지 않으면 다른 사람도 쓸 수 있게 풀려요', [['계속 쓰기', function () { eng.extend(); hide('warn'); }]]);
+      show('warn', left + '초 안에 이어 쓰지 않으면 이 칸이 다른 사람에게 풀려요', [['계속 쓰기', function () { eng.extend(); hide('warn'); }]]);
     });
     eng.on('lease-ok', function () { hide('warn'); });
-    eng.on('blocked', function (f, who) {
-      show('blocked', '「' + where(f) + '」 칸은 ' + who + ' 님이 쓰는 중이에요. 끝나면 바로 쓸 수 있어요', null, 6000);
+    // 남이 쓰는 칸에 글을 치려 하면 — 알림 띠 대신 그 칸 이름표만 잠깐 흔든다(칸에 이미 이름표·테두리가 있다.
+    // 띠는 문서를 밀고 칸을 오갈 때마다 켜졌다 꺼졌다 했다, 10-26)
+    eng.on('blocked', function (f) {
+      var m = marks[f]; if (!m || !m.flag) return;
+      m.flag.classList.remove('nudge'); void m.flag.offsetWidth; m.flag.classList.add('nudge');
     });
     eng.on('caret', function (f) { if (barKind === 'blocked' && !holderOf(f)) hide('blocked'); if (barKind === 'warn') hide('warn'); });
-    eng.on('freed', function (f) { if (eng.current() === f) show('free', '「' + where(f) + '」 칸이 비었어요. 이제 쓸 수 있어요', null, 3000); });
+    eng.on('freed', function () {});                    // 칸이 비면 이름표가 사라지는 것으로 충분하다(알림 띠 없음)
     var wantedField = '';
     eng.on('locks', function () { var lk = eng.locks()[wantedField]; if (barKind === 'wanted' && (!lk || lk.user !== o.me || lk.client !== eng.client)) hide('wanted'); });
     eng.on('wanted', function (f, who) {
       wantedField = f;
-      show('wanted', who + ' 님이 「' + where(f) + '」 칸을 쓰려고 기다려요', [['넘겨주기', function () { eng.handover(f); hide('wanted'); }]], 15000);
+      show('wanted', who + ' 님이 지금 내 칸을 쓰려고 기다려요', [['넘겨주기', function () { eng.handover(f); hide('wanted'); }]], 15000);
     });
     eng.on('conflict', function (c) {
-      show('conflict', '「' + where(c.field) + '」 칸에 쓴 글이 ' + (c.by ? c.by + ' 님의 글과 ' : '') + '겹쳐 내 글은 사본으로 따로 두었어요', [['내 글 보기', function () { openConflicts(); }]]);
+      show('conflict', '쓴 글이 ' + (c.by ? c.by + ' 님의 글과 ' : '') + '겹쳐 내 글은 사본으로 따로 두었어요', [['내 글 보기', function () { openConflicts(); }]]);
     });
     var panel = null;
     function openConflicts() {
@@ -963,7 +963,7 @@
         if (!list.length) panel.appendChild(el('div', 'co-panel-empty', '따로 둔 글이 없습니다'));
         list.slice(0, 20).forEach(function (c) {
           var row = el('div', 'co-panel-row');
-          row.appendChild(el('div', 'co-panel-f', where(c.field) + ' · ' + new Date(c.at).toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'})));
+          row.appendChild(el('div', 'co-panel-f', new Date(c.at).toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'})));
           row.appendChild(el('pre', 'co-panel-t', c.text));
           var cp = el('button', 'co-btn', '복사'); cp.type = 'button';
           cp.onclick = function () { try { navigator.clipboard.writeText(c.text); cp.textContent = '복사됨'; } catch (e) {} };

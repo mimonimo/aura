@@ -914,6 +914,12 @@ def hwp_file(request: Request, fid: int):
     f = _file(request, fid)
     from zzaimy.app import webhwp_coedit
     webhwp_coedit.fresh(request.app.state.db, _base(request), fid)       # 공동 편집 칸 글을 먼저 파일에 — 여는 판이 최신
+    try:                                                                  # 고칠 수 있는 사람이 열면 칸 밖 문단도 칸으로(문서 전체 공동 편집, 10-26)
+        _writable(request, fid)
+        if Path(f["path"]).exists() and not isinstance((webhwp.meta(request.app.state.db, fid) or {}).get("paper"), dict):   # 논문은 목차·쪽 번호를 XML 로 고쳐 써 뺀다
+            webhwp_coedit.wrap_paras(request.app.state.db, _base(request), fid, Path(f["path"]), getattr(request.state, "user", ""))
+    except HTTPException:
+        pass
     f = webhwp.get(request.app.state.db, fid) or f
     p = Path(f["path"])
     if not p.exists():

@@ -94,6 +94,7 @@ def test_server_commits_fields_into_hwpx_and_keeps_versions(tmp_path, monkeypatc
     app, kim, park, fid = _doc(tmp_path, monkeypatch)
     db, base = app.state.db, Path(app.state.data_dir)
     db.set_setting("coedit:commit_delay", "0.1")
+    db.set_setting("coedit:para_wrap_max", "0")          # 열 때 칸 밖 문단 감싸기(새 판 저장)는 따로 시험 — 여기서는 써 넣기만
     kim.post(f"/hwp/{fid}/ops", json={"client": "k1", "ops": [{"seq": 1, "field": "칸:사업명", "base": 0, "text": "AI 융합"}]})
     park.post(f"/hwp/{fid}/ops", json={"client": "p1", "ops": [{"seq": 1, "field": "절:1. 변경 사유", "base": 0, "text": "첫 줄\r\n둘째 줄"}]})
     deadline = time.time() + 5
@@ -858,10 +859,28 @@ def test_follow_person_aura_requester_and_short_offline_blip():
     assert "if (was === 'follow') { if (following) stopFollow(); }" in ui        # 띠를 닫으면 멈추고, 다른 안내가 끝나면 띠를 다시
     # AURA — 누구 요청인지
     assert "'AURA' + (n ? ' (' + n + ' 요청)' : '')" in c
-    assert "'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '「' + where(a.field) + '」 쓰는 중'" in c
+    assert "'AURA가 ' + (n ? n + ' 님 요청으로 ' : '') + '쓰는 중'" in c
     assert "AuraCollab.auraText(eng, a)" in html and "'AURA · '" not in ui
     # 잠깐 끊김 — 처음에는 「다시 연결하는 중」(노랑), 오래가면 「오프라인」, 그사이 몇 초마다 다시 찔러 본다
     assert "emit('status', 'reconnecting', '다시 연결하는 중')" in c and "OFF_GRACE = 20000" in c
     assert "offTimer = setTimeout(probe, long ? 5000 : 2000);" in c
     assert "resync(false, true).then(function () { if (online && pending() && !inflight) send(); });" in c
     assert "k === 'saving' || k === 'reconnecting' ? 'busy' : 'bad'" in html
+
+
+def test_open_wraps_outside_paragraphs_once(tmp_path, monkeypatch):
+    """문서 전체 공동 편집(10-26) — 고칠 수 있는 사람이 열면 칸 밖 글 문단(제목·안내 글·표 칸)을 「문단:n」 칸으로 감싸 한 번 저장.
+    다시 열면 그대로, 에이전트가 보는 칸 목록에는 끼지 않는다."""
+    from zzaimy.app import webhwp, webhwp_fields as wf
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    before = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    assert not any(wf.is_para(k) for k in before)
+    got = ww.field_values(kim.get(f"/hwp/{fid}/file").content)
+    paras = [k for k in got if wf.is_para(k)]
+    assert paras and all(k in got for k in before)               # 원래 칸은 그대로
+    assert wf.count_rest(Path(webhwp.get(db, fid)["path"]).read_bytes()) == 0
+    n = len(list(ce.events_since(db, fid, 0)))
+    kim.get(f"/hwp/{fid}/file")
+    assert len(list(ce.events_since(db, fid, 0))) == n          # 두 번째 열기는 새 판을 만들지 않는다
+    assert not any(wf.is_para(x["name"]) for x in ww.fields(Path(webhwp.get(db, fid)["path"]).read_bytes()))

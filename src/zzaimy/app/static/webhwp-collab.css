@@ -31,9 +31,18 @@
 .co-people-row .dot { width:22px; height:22px; border-radius:50%; background:var(--c, #64748B); color:#fff; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex:none; }
 .co-people-row > span:nth-child(2) { flex:none; white-space:nowrap; }
 .co-people-row small { color:#64748B; margin-left:auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-left:8px; }
-.co-bar { flex:none; display:flex; align-items:center; gap:8px; min-height:40px; padding:6px 16px; background:#EEF4FF; color:#1E3A6E; font-size:13px; border-bottom:1px solid #D6E2F7; }
+/* 안내(남이 쓰는 칸·임대 풀림·따라가기) — 편집기 위 줄로 끼우면 문서가 통째로 밀렸다 내려왔다(10-26 「뚝뚝 끊긴다」).
+   문서 아래쪽 가운데에 떠 있는 작은 알림으로 — 자리를 차지하지 않고, 저절로 사라진다 */
+.co-bar { position:fixed; z-index:50; left:50%; bottom:44px; transform:translateX(-50%); display:flex; align-items:center; gap:10px;
+  max-width:min(560px, calc(100vw - 24px)); padding:7px 8px 7px 16px; background:#1F2937; color:#fff; font-size:13px; line-height:1.4;
+  border-radius:999px; box-shadow:0 8px 24px rgba(15,23,42,.22); animation:co-bar-in .16s ease-out; }
+@keyframes co-bar-in { from { opacity:0; transform:translate(-50%, 6px); } to { opacity:1; transform:translate(-50%, 0); } }
 .co-bar[hidden] { display:none; }
-.co-bar-text { flex:1; min-width:0; }
+.co-bar-text { min-width:0; }
+.co-bar .co-btn { height:26px; border-radius:999px; border-color:transparent; background:#fff; color:#1F2937; }
+.co-bar .co-btn:hover { background:#E2E8F0; }
+.co-bar .co-btn.ghost { background:transparent; color:#CBD5E1; padding:0 8px; }
+.co-bar .co-btn.ghost:hover { color:#fff; background:transparent; }
 .co-btn { flex:none; height:28px; padding:0 12px; border-radius:6px; border:1px solid #B9C9E6; background:#fff; color:#1E3A6E; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap; }
 .co-btn:hover { background:#F5F8FE; }
 .co-btn:focus-visible { outline:2px solid #2563EB; outline-offset:1px; }
@@ -45,7 +54,7 @@
 .co-panel-row { border-top:1px solid #EEF2F7; padding:8px 2px; display:grid; grid-template-columns:1fr auto; gap:6px 8px; align-items:start; }
 .co-panel-f { grid-column:1 / -1; color:#64748B; font-size:12px; }
 .co-panel-t { margin:0; white-space:pre-wrap; word-break:break-word; font:inherit; font-size:12.5px; max-height:120px; overflow:auto; }
-@media (max-width:640px) { .co-av { width:26px; height:26px; font-size:11px; } .co-bar { padding:6px 10px; flex-wrap:wrap; } }
+@media (max-width:640px) { .co-av { width:26px; height:26px; font-size:11px; } .co-bar { border-radius:14px; flex-wrap:wrap; } }
 
 .co-av.me { margin-left:10px; cursor:default; box-shadow:0 0 0 2px #fff, 0 0 0 3px var(--c, #64748B); }
 .co-block { position:absolute; background:transparent; pointer-events:auto; cursor:not-allowed; }
@@ -54,3 +63,6 @@
 .co-av.following { box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--c, #64748B); z-index:3; }
 .co-av.aura.following { animation:none; }
 .co-people-row.following { background:#EEF4FF; }
+/* 남이 쓰는 칸에 치려 할 때 그 칸 이름표를 잠깐 흔든다 */
+.co-flag.nudge { animation:co-nudge .45s ease-in-out; }
+@keyframes co-nudge { 0%,100% { transform:translateX(0); } 20% { transform:translateX(-4px); } 40% { transform:translateX(4px); } 60% { transform:translateX(-3px); } 80% { transform:translateX(2px); } }
