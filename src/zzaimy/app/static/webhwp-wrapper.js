@@ -287,10 +287,23 @@
     }
     // ── 일반 편집 모드(10-26) — 양식 모드가 해 주던 일을 대신 ──
     // 줄 끝·문단 앞을 누르면 커서가 칸 바깥(칸 끝 표시 뒤·칸 시작 표시 앞)에 선다. 같은 문단 안에서 한 칸 옆으로 옮겨 칸 안이면 그리로
+    function before(a, b) { return a.para < b.para || (a.para === b.para && a.pos < b.pos); }
     function snapIntoField() {
-      var f = currentField(); if (f) return f;
-      try { if (ctrl.SelectionMode) return ''; } catch (e) {}          // 고르는 중(Shift+화살표·끌기)에는 옮기지 않는다
+      try { if (ctrl.SelectionMode) return currentField(); } catch (e) {}          // 고르는 중(Shift+화살표·끌기)에는 옮기지 않는다
       var p0; try { p0 = ctrl.GetPos(); } catch (e) { return ''; }
+      var f = currentField();
+      if (f) {
+        // 칸 이름이 나와도 칸 시작 표시 앞·끝 표시 뒤일 수 있다(빈 줄 왼쪽 끝을 누르면 시작 표시 앞 — 친 글이 칸 밖에 들어갔다, 10-26 실측).
+        // 그 칸의 처음·끝 자리와 견줘 밖이면 안쪽 끝으로 옮긴다
+        try {
+          ctrl.MoveToField(f, true, true, false); var s0 = ctrl.GetPos();
+          ctrl.MoveToField(f, true, false, false); var e0 = ctrl.GetPos();
+          if (s0.list === p0.list && before(p0, s0)) ctrl.SetPos(s0.list, s0.para, s0.pos);
+          else if (e0.list === p0.list && before(e0, p0)) ctrl.SetPos(e0.list, e0.para, e0.pos);
+          else ctrl.SetPos(p0.list, p0.para, p0.pos);
+        } catch (e) { try { ctrl.SetPos(p0.list, p0.para, p0.pos); } catch (x) {} }
+        return f;
+      }
       var ways = ['MoveLeft', 'MoveRight'];
       for (var i = 0; i < ways.length; i++) {
         try {

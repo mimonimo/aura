@@ -256,15 +256,13 @@
     // 키(칸 처음 Backspace, 칸 끝 Delete)는 막고, 여러 칸에 걸친 고침(선택이 칸을 넘음)은 화면에 넘겨 구조 고침으로 돌린다
     function guardKey(e) {
       var k = e.key || '', mod = e.ctrlKey || e.metaKey;
-      // 한글 첫 키(Process)는 조합이 시작되기 전이다 — 칸 바깥에 선 커서를 이때 칸 안으로 옮겨 둔다(조합 중에는 칸 이름을 묻지 않는다)
-      if (k === 'Process' && !mod && !applying) { if (hwp.snapIntoField) hwp.snapIntoField(); return; }
       var edit = (!mod && (k.length === 1 || /^(Backspace|Delete|Enter|Tab)$/.test(k))) || (mod && /^[vVxX]$/.test(k));
       if (!edit || applying) return;
       var stop = function () { e.preventDefault(); e.stopImmediatePropagation(); };
       var sel = hwp.selectionFields ? hwp.selectionFields() : null;
       // 여러 칸에 걸친 고침·칸 바깥 고침은 편집기가 그대로 하게 두고 화면이 곧바로 문서 틀 고치기(구조 저장)로 돌린다
       if (sel && (sel[0] !== sel[1] || !sel[0])) { emit('cross-edit', {key: k, mod: mod}); return; }
-      var f = hwp.snapIntoField ? hwp.snapIntoField() : hwp.currentField();
+      var f = hwp.currentField();                                      // 커서 자리 맞추기는 누름·이동 때 했다(onCaret) — 글자마다 하지 않는다
       if (!f || !fieldSet[f]) { checkOutside(); return; }            // 칸 밖처럼 보여도 바로 구조 고침으로 넘기지 않고 고친 뒤 다시 본다
       if (heldByOther(f) && locks[f].user !== me) { stop(); emit('blocked', f); acquire(f, true); return; }
       if (!sel && !mod && (k === 'Backspace' || k === 'Delete')) {
@@ -657,8 +655,10 @@
         if (!f || !dirty[f] || heldByOther(f)) return;
         collect(); send();
       });
-      hwp.onCaret(function () {
-        if (normalMode() && !applying && !hwp.isComposing() && hwp.snapIntoField) hwp.snapIntoField();   // 줄 끝·문단 앞을 눌러 칸 바깥에 선 커서는 칸 안으로
+      hwp.onCaret(function (ev) {
+        // 누르거나 이동 키로 커서가 옮겨졌을 때만 — 칸 바깥(칸 시작 표시 앞·끝 표시 뒤)에 선 커서를 칸 안으로. 글자 칠 때마다 하면 무겁다
+        var moved = !ev || ev.type === 'pointerup' || /^(Arrow|Home|End|Page)/.test(ev.key || '');
+        if (moved && normalMode() && !applying && !hwp.isComposing() && hwp.snapIntoField) hwp.snapIntoField();
         checkCaret();
       });
       // 툴바 관문(일반 편집 모드) — 고른 범위에 남이 쓰는 칸이 들어 있으면 기안기 서식 단추·목록을 막고 그 칸 이름표를 흔든다(남의 칸 서식을 바꾸지 않게)
