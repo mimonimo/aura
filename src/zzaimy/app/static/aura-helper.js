@@ -219,6 +219,9 @@
     (list || []).forEach(function (p) {
       var t = p.target || {}, act = p.act || {}, steps = act.steps || [];
       var sameHere = p.kind === "go" && cursor.here(t);
+      // 이미 해서 「화면에서 한 일」 로 보고된 단계는 카드를 다시 그리지 않는다 — 같은 일이 두 번 보이고 「여기서 하기」 가 또 남았다(10-27 점검).
+      // 마지막 단추를 허락받지 못해 멈춘 단계만 [실행] 을 남긴다
+      if (p.kind === "go" && p.reported && !steps.some(function (x) { return x.final && !x.ok; })) return;
       var box = document.createElement("div"); box.className = "ag-msg assistant ag-proposal";
       var plan = document.createElement("div"); plan.className = "ag-plan";
       plan.textContent = (p.kind === "go" ? "" : "이렇게 하겠습니다 — ") + p.plan;
