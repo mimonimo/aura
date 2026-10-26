@@ -392,6 +392,7 @@
       flushed.then(function () {
         var who = reloadPending; reloadPending = null;
         var cur = hwp.getCursor();
+        if (eng.suspend) eng.suspend();
         return loadFile().then(function () {
           fitZoom();                                   // 다시 불러와도 보던 배율 그대로(폭 맞춤으로 커지지 않게)
           if (readonly || (mode === 'whole' && !holding)) hwp.setReadOnly(true);
@@ -433,7 +434,7 @@
       return post(unlockUrl).catch(function () {});
     }).then(function () {
       hwp.setFormMode(eng.formOnly()); hwp.resetEditable(); eng.applyEditable(); drawStruct(); say("저장됨", 'ok');
-      if (lastWrapped) { lastWrapped = 0; return loadFile().then(function () { fitZoom(); return eng.reopened(); }); }   // 서버가 새 문단을 칸으로 감쌌다 — 내 화면도 새 판으로
+      if (lastWrapped) { lastWrapped = 0; if (eng.suspend) eng.suspend(); return loadFile().then(function () { fitZoom(); return eng.reopened(); }); }   // 서버가 새 문단을 칸으로 감쌌다 — 내 화면도 새 판으로
     });
   }
   var sbtn = document.querySelector('[data-struct]');
@@ -464,6 +465,7 @@
     }).catch(function () {});
   }
   function reloadAsHolder() {
+    if (eng && eng.suspend) eng.suspend();
     loadFile().then(function () { fitWidth(); return eng.reopened(); }).then(function () {
       holding = true; ready = true; hwp.setReadOnly(false); try { ctrl.EditMode = 1; } catch (e) {}
       say('이제 고칠 수 있습니다 · 최신 판', 'ok');

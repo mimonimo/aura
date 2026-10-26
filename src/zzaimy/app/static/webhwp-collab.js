@@ -83,6 +83,7 @@
     var inbox = {}, applyTimer = null, applying = false;
     var online = true, retryTimer = null, retryMs = 1000, es = null, lastId = 0, readonly = !!o.readonly;
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
+    var reloading = false;   // 새 판을 다시 여는 동안(suspend → reopened) — 칸 수가 바뀐 것을 칸 밖 고침으로 잘못 알아채지 않게(10-26 양식 불러오기 뒤 저절로 문서 잠금)
     var handlers = {}, aura = {};
     function on(k, fn) { (handlers[k] = handlers[k] || []).push(fn); }
     function emit(k) { var a = [].slice.call(arguments, 1); (handlers[k] || []).forEach(function (fn) { try { fn.apply(null, a); } catch (e) { console.warn(e); } }); }
@@ -250,6 +251,7 @@
     function checkOutside() {
       clearTimeout(outsideT);
       outsideT = setTimeout(function () {
+        if (reloading) return;
         if (hwp.isComposing()) { checkOutside(); return; }
         if (hwp.fields().length !== fieldList.length) { emit('outside-edit'); return; }
         var f = hwp.snapIntoField ? hwp.snapIntoField() : hwp.currentField();
@@ -294,6 +296,7 @@
       richDirty = {};
       // 붙여넣기·끌어 놓기로 칸 표시까지 들어오면(칸째 복사) 칸 목록이 바뀐다 — 칸 길로는 못 보내므로 구조 고침(화면이 문서 전체 저장)으로
       var nowList = hwp.fields(), seen = {}, dup = nowList.some(function (f) { if (seen[f]) return true; seen[f] = 1; return false; });
+      if (reloading) return;
       if (!o.structureMode || !o.structureMode()) {
         if (dup || nowList.length !== fieldList.length) { emit('outside-edit'); return; }
       }
@@ -736,7 +739,7 @@
       // 안전장치(10-26) — 사건 없이 바뀐 것 알아채기. 기안기의 문서 안 붙여넣기·끌어 놓기·서식 창은 입력 사건을 내지 않을 때가 있다.
       // 1.5초마다(조합·받아 넣는 중 빼고) 칸 수가 바뀌었으면 구조 고침으로, 지금 칸의 글이 아는 글과 다르면 그 칸을 보낸다(가벼운 두 번 묻기)
       setInterval(function () {
-        if (!started || applying || !fieldsMode() || hwp.isComposing() || hwp.isProbing() || (o.structureMode && o.structureMode())) return;
+        if (!started || reloading || applying || !fieldsMode() || hwp.isComposing() || hwp.isProbing() || (o.structureMode && o.structureMode())) return;
         var n = hwp.fields().length;
         if (n !== fieldList.length) { emit('outside-edit'); return; }
         var f = curField;
@@ -751,7 +754,9 @@
       return resync(true).then(function () { if (fieldsMode()) hwp.setFormMode(formOnly()); started = true; connect(); presence(true); checkCaret(); return replay(); });
     }
     // 새 판을 다시 연 뒤 — 필드 목록·편집 가능·서버 칸 글을 다시 맞춘다
+    function suspend() { reloading = true; }
     function reopened() {
+      reloading = false;
       hwp.attach(); hwp.resetEditable();
       fieldList = readonly ? [] : hwp.fields();
       fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
@@ -761,7 +766,7 @@
     }
     return {
       start: start, on: on, emitLocal: emit, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
-      handover: function (f) { return letGo(f, true); }, reopened: reopened, prioritize: function (fn) { rankOf = fn; },
+      handover: function (f) { return letGo(f, true); }, reopened: reopened, suspend: suspend, prioritize: function (fn) { rankOf = fn; },
       indexOf: function (f) { return fieldIdx[f] === undefined ? 1e9 : fieldIdx[f]; }, resync: resync, applyEditable: applyEditable,
       client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
       people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
