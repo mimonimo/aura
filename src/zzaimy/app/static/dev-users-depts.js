@@ -62,11 +62,11 @@
     const f = $('[data-dept-find]', card()); if (f) f.value = q;
     readData(); paintTree(); window.scrollTo(0, y);
   }
-  async function act(form) {
+  async function act(form) {   // 주소는 getAttribute 로 — 폼 안 name="action" 칸이 form.action 을 가려 엉뚱한 주소(Not Found)로 갔다
     const row = form.closest('tr'), msg = row && $('.ua-rowmsg', row), btn = $('button[type=submit]', form);
     if (msg) msg.textContent = '';
     if (btn) btn.disabled = true;
-    try { const j = await post(form.action, Object.fromEntries(new FormData(form))); toast(j.msg || '저장했습니다'); await refresh(); }
+    try { const j = await post(form.getAttribute('action'), Object.fromEntries(new FormData(form))); toast(j.msg || '저장했습니다'); await refresh(); }
     catch (e) { if (msg) msg.textContent = e.message; else toast(e.message, true); if (btn) btn.disabled = false; }
   }
   function confirmBox(text, okLabel) {
