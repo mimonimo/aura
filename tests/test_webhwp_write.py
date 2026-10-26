@@ -200,10 +200,9 @@ def test_set_fields_keeps_run_formatting():
     import io
     import zipfile
 
-    from zzaimy.app import webhwp_demo as d
     from zzaimy.app import webhwp_fields as wf
     from zzaimy.app import webhwp_write as ww
-    data, _ = wf.wrap_rest(d.blank_doc())
+    data, _ = wf.wrap_rest(_section_doc())
     z = zipfile.ZipFile(io.BytesIO(data))
     s = z.read("Contents/section0.xml").decode()
     i = s.find('name="절:1. 김가람"')
@@ -227,10 +226,9 @@ def test_field_values_skip_nested_field_parameters():
     import io
     import zipfile
 
-    from zzaimy.app import webhwp_demo as d
     from zzaimy.app import webhwp_fields as wf
     from zzaimy.app import webhwp_write as ww
-    data, _ = wf.wrap_rest(d.blank_doc())
+    data, _ = wf.wrap_rest(_section_doc())
     z = zipfile.ZipFile(io.BytesIO(data))
     s = z.read("Contents/section0.xml").decode()
     i = s.find('name="절:1. 김가람"')
@@ -243,3 +241,10 @@ def test_field_values_skip_nested_field_parameters():
             zo.writestr(info, s.encode() if info.filename == "Contents/section0.xml" else z.read(info.filename))
     v = ww.field_values(buf.getvalue())
     assert v["절:1. 김가람"] == "앞 안쪽 뒤" and "Clickhere" not in v["절:1. 김가람"]
+
+
+def _section_doc() -> bytes:
+    """절 하나(「1. 김가람」)와 빈 문단 — 칸 안 서식·안쪽 칸 시험용(공통 양식과 같은 빌더)."""
+    from zzaimy.app import webhwp_templates as wt
+    return wt.build({"id": "t-sec", "title": "시험", "cover": {"title": "시험", "page": False},
+                     "blocks": [{"h": 1, "text": "1. 김가람"}, {"p": ""}], "page_number": False})

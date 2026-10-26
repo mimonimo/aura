@@ -106,16 +106,6 @@
   {% endif %}
 </div></section>
 {% endif %}
-{% if p.failed %}
-<section class="card"><div class="card-in">
-  <h2>{{ metric_label("audit_failed", p.at, "실패 " ~ "{:,}".format(p.failed) ~ "건") }} <a class="h-link" href="/dev/intake/failed.csv" download><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>목록 내려받기</a></h2>
-  <table class="ik-table">
-    <tr><th>사유</th><th class="n">건수</th></tr>
-    {% for k, v in (p.failed_by_reason or {}).items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
-  </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">다시 시도: 30분마다(변환 실패는 {{ p.retry_limit ~ "번" if p.retry_limit else "정해진 횟수" }}까지, 그 밖은 원본이 바뀔 때) · 암호 문서는 제외</p>
-</div></section>
-{% endif %}
 </div>
 {% endif %}
 

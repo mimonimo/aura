@@ -25,7 +25,7 @@ def test_intake_page_shows_audit_and_lists(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/intake")
     assert r.status_code == 200
-    for text in ("처리 대상 문서 100건", "라이브러리에 들어감 90", "빠진 원본 4건", "암호 문서", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
+    for text in ("처리 대상 문서 100건", "라이브러리에 들어감 90", "빠진 원본 4건", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
         assert text in r.text, text
     csv = c.get("/dev/intake/missed.csv")
     assert csv.status_code == 200 and "링크/업무/a.pdf" in csv.text
@@ -63,15 +63,11 @@ def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
     assert "[빠진 원본]" not in names
 
 
-def test_failed_card_states_retry_rule_from_parse_script(tmp_path):
-    from zzaimy.app import intake_status
+def test_no_failed_table_on_flow_page(tmp_path):
+    """실패 원본은 동기화마다 정리함 「처리 실패」 로 옮긴다(scripts/217) — 처리 흐름에 실패 표를 두지 않는다(10-26)."""
     _audit(tmp_path, failed=7, failed_by_reason={"글 없는 문서": 7})
     page = _client(tmp_path).get("/dev/intake").text
-    limit = intake_status.retry_limit()
-    assert isinstance(limit, int) and limit > 0
-    assert f"변환 실패는 {limit}번까지" in page and "원본이 바뀔 때" in page
-    assert "/dev/intake/failed.csv" in page and "/dev/intake/missed.csv" not in page
-    assert 'class="h-link" href="/dev/intake/failed.csv" download' in page and 'class="pill"' not in page.split("failed.csv")[0][-80:]
+    assert "/dev/intake/failed.csv" not in page and "글 없는 문서" not in page
 
 
 def test_retry_limit_reads_constant_without_running(tmp_path):
@@ -92,7 +88,7 @@ def test_sync_listing_number_gets_its_own_name(tmp_path):
     (tmp_path / "sync_status.json").write_text(json.dumps({"full": {"at": "2031-02-03 04:00", "summary": "원본 4321 · 새로 1"}},
                                                           ensure_ascii=False), encoding="utf-8")
     page = _client(tmp_path).get("/dev/intake").text
-    assert "[DGX 목록] 4,321 · 새로 1" in _metric_names(page) and "원본 4321" not in page
+    assert "DGX 목록 4,321" in page and "원본 4321" not in page            # 반입 점검 머리 한 줄(「최근 실행」 표는 뺐다, 10-26)
     assert "원본 장부의 파일 전부" in page and "학교 원본 폴더의 파일" in page     # 장부 전체와 학교 원본은 이름이 다르다
 
 

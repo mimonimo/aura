@@ -13,5 +13,7 @@ newer=""; for f in "$st" data/platform/kg_external.json data/platform/class_revi
 if [ -f "$seen" ] && [ ! -f "$backlog" ] && [ -z "$newer" ] && [ -z "$(find "$seen" -mmin +59)" ]; then exit 0; fi
 flock -n /tmp/zz_sync.lock scripts/zz_run.sh 24G env PYTHONPATH=src .venv/bin/python scripts/170_vm_sync.py --max "${1:-200}" >> /tmp/zz_sync.log 2>&1 || exit 0
 touch "$seen"
+# 읽지 못한 원본(지난 점검의 실패 목록)은 정리함 「처리 실패」 갈래로 — 화면에 실패 표를 두지 않는다(10-26). 되돌리기는 217 --restore
+scripts/zz_run.sh 2G env PYTHONPATH=src .venv/bin/python scripts/217_clean_failed.py >> /tmp/zz_sync.log 2>&1
 # 연동 점검(175) — 원본 → 문서함 → 색인 → 그래프의 빈틈을 주기마다 센다(가벼움, 읽기만)
 scripts/zz_run.sh 4G env PYTHONPATH=src .venv/bin/python scripts/175_pipeline_audit.py >> /tmp/zz_sync.log 2>&1
