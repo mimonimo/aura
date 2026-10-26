@@ -1,5 +1,5 @@
-"""프로젝트 공유를 여러 계정으로 끝까지 — 다른 부서 함께 작업·참조가 프로젝트 한글 작업 문서까지 닿는지, 거두면 바로 막히는지,
-공동 편집(이름표·칸 잠금), 못 여는 대화 수 안내, 공유가 풀린 내 대화의 읽기 화면, 학생 차단(ADR-0066·project_access)."""
+"""프로젝트 공유를 여러 계정으로 끝까지 — 다른 부서 함께 작업·읽기만이 프로젝트 한글 작업 문서까지 닿는지, 거두면 바로 막히는지,
+공동 편집(이름표·칸 잠금), 다른 부서의 담당자 대화 읽기, 공유가 풀린 내 대화의 읽기 화면, 학생 차단(ADR-0066·project_access)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -65,14 +65,14 @@ def test_other_department_share_reaches_project_hwp_work_docs(tmp_path):
     assert san.post(f"/hwp/{fid}/save", content=_hwpx("고침")).status_code == 200
     assert san.post(f"/hwp/{fid}/lock").json().get("ok") is True
     san.post(f"/hwp/{fid}/unlock")
-    # 참조 — 보이고 열리지만 읽기만(저장·칸 쓰기·잠금 거절, 편집 화면은 보기 전용과 프로젝트로 돌아가기)
+    # 읽기만 — 보이고 열리지만 고치지 못함(저장·칸 쓰기·잠금 거절, 편집 화면은 보기 전용과 프로젝트로 돌아가기)
     assert "계획서 작업본" in san2.get(f"/project/{pid}").text
     assert san2.get(f"/hwp/{fid}/file").status_code == 200
     assert san2.post(f"/hwp/{fid}/save", content=_hwpx("몰래")).status_code == 403
     assert san2.post(f"/hwp/{fid}/ops", json={"client": "san2:t", "ops": []}).status_code == 403
     assert san2.post(f"/hwp/{fid}/lock").json() == {"ok": False, "by": "", "readonly": True}
     page = san2.get(f"/webhwpctrl/aura-edit?id={fid}").text
-    assert "readonly = true" in page and f'href="/project/{pid}"' in page and "\\ucc38\\uc870 \\u2014" in page
+    assert "readonly = true" in page and f'href="/project/{pid}"' in page and "\\uc77d\\uae30\\ub9cc \\uacf5\\uc720 \\u2014" in page
     assert san2.get(f"/hwp/{fid}/coedit").json()["readonly"] is True
     # 거두면 바로 — 목록에서 사라지고 주소로 열어도 404
     _share(cl["lead"], pid, [])
@@ -111,24 +111,25 @@ def test_two_accounts_coedit_same_document_see_each_other_and_field_lock(tmp_pat
     assert r["ok"] is False and r.get("by_name") == "박책임"                      # 남이 쓰는 칸은 잠김 — 누가 쓰는지 이름으로
 
 
-def test_viewer_sees_count_of_chats_closed_by_scope_and_names_not_ids(tmp_path):
+def test_other_department_reads_public_owner_chats_and_names_not_ids(tmp_path):
     app, db, pid, fid, cl = _setup(tmp_path)
     s = db.create_chat_session("개요 초안", project_id=pid, owner="lead")
     db.add_chat(s, "user", "개요 써 줘")
     p = db.create_chat_session("비밀", project_id=pid, owner="lead")
     db.set_chat_private(p, True)
     _share(cl["lead"], pid, [("user:san2", "view"), ("user:mem", "view")])
-    # 다른 부서 참조 — 담당자 대화는 자료 범위가 달라 못 열고, 그 수만 알린다(비공개 대화는 세지 않는다)
+    # 다른 부서 읽기만 — 담당자의 공개 대화는 읽는다(근거는 자기 범위 안의 것만, tests/test_project_share_rules). 비공개는 빼고
     t = cl["san2"].get(f"/project/{pid}").text
-    assert "다른 사람 대화 1개는 볼 수 있는 자료 범위가 달라 열리지 않습니다" in t and "공개된 대화가 없습니다" not in t
-    assert cl["san2"].get(f"/chat/{s}/read").status_code == 404
-    # 같은 부서 참조 — 읽기 전용 줄에 이름
+    assert f'href="/chat/{s}/read"' in t and "다른 사람 대화" not in t and "박책임 · 읽기 전용" in t
+    assert cl["san2"].get(f"/chat/{s}/read").status_code == 200
+    assert cl["san2"].get(f"/chat/{p}/read").status_code == 404
+    # 같은 부서 읽기만 — 읽기 전용 줄에 이름
     t = cl["mem"].get(f"/project/{pid}").text
     assert "박책임 · 읽기 전용" in t and "다른 사람 대화" not in t
     assert cl["mem"].get(f"/chat/{p}/read").status_code == 404
     # 공유 창·안내 문구는 계정 아이디 대신 이름
-    assert "오산학(참조)" in pa.describe(pa.shares(db, db.get_project(pid)), app.state.accounts)
-    assert "참조로 공유된 박책임 님의 프로젝트" in t
+    assert "오산학(읽기만)" in pa.describe(pa.shares(db, db.get_project(pid)), app.state.accounts)
+    assert 'title="박책임 님이 공유 · 대화·작업 문서 보기만">읽기만</span>' in t
 
 
 def test_own_chat_in_revoked_project_turns_read_only(tmp_path):

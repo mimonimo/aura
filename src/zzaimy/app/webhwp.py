@@ -145,8 +145,11 @@ def make_folder(base: Path, dept: str, parent: str, name: str) -> str:
     return sub
 
 
-def add(db, base: Path, dept: str, filename: str, data: bytes, *, owner: str, source: str = "", folder: str = "") -> int:
-    """부서 디렉터리(그 안 폴더)에 한글 파일 하나를 들인다 — 같은 이름이 있으면 「(2)」 를 붙여 따로 둔다. 돌려주는 것은 files.id."""
+def add(db, base: Path, dept: str, filename: str, data: bytes, *, owner: str, source: str = "", folder: str = "",
+        project: int | None = None) -> int:
+    """부서 디렉터리(그 안 폴더)에 한글 파일 하나를 들인다 — 같은 이름이 있으면 「(2)」 를 붙여 따로 둔다. 돌려주는 것은 files.id.
+    project 는 이 파일이 작업 문서인 프로젝트(meta project) — 권한은 폴더 이름(「작업/<프로젝트 이름>」)이 아니라 이 값으로 정한다
+    (webhwp_routes.work_projects — 같은 이름 프로젝트·이름 바꾸기·폴더 이름 바꾸기로 권한이 새지 않게)."""
     ext = Path(filename or "").suffix.lower()
     if ext not in SUFFIXES:
         raise ValueError("한글 파일(.hwp·.hwpx)만 올릴 수 있습니다")
@@ -158,9 +161,10 @@ def add(db, base: Path, dept: str, filename: str, data: bytes, *, owner: str, so
         p, n = d / f"{stem} ({n}){ext}", n + 1
     p.write_bytes(data)
     fid = db.add_file("webhwp", str(p), name=p.name, size=len(data))
-    db.set_setting(f"webhwp_meta:{fid}", json.dumps({"owner": owner, "dept": dept or COMMON, "source": source,
-                                                    "created": datetime.now().isoformat(timespec="seconds")},
-                                                   ensure_ascii=False))
+    m = {"owner": owner, "dept": dept or COMMON, "source": source, "created": datetime.now().isoformat(timespec="seconds")}
+    if project:
+        m["project"] = int(project)
+    db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
     return fid
 
 

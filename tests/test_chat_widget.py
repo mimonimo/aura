@@ -1,4 +1,4 @@
-"""화면을 떠나지 않는 에이전트 — 떠 있는 창, 글 선택 질문, 답변 다시 받기, 문서 훑어보기.
+"""화면을 떠나지 않는 에이전트 — 업무 도우미 패널, 글 선택 질문, 답변 다시 받기, 문서 훑어보기.
 
 데이터는 전부 합성이며 LLM 은 가짜 응답기로 대체한다.
 """
@@ -313,7 +313,7 @@ def test_vllm_call_without_extra_gets_thinking_off(monkeypatch):
 
 
 def test_helper_chats_stay_out_of_sidebar(tmp_path, monkeypatch):
-    """떠 있는 창의 업무 도우미 대화는 「업무 상담」 — 왼쪽 사이드바·대화 검색에는 안 나오고 창의 기록(channel=helper)에만."""
+    """업무 도우미 패널의 대화는 「업무 상담」 — 왼쪽 사이드바·대화 검색에는 안 나오고 창의 기록(channel=helper)에만."""
     monkeypatch.setenv("ZZAIMY_PLATFORM_HELPER", "1")
     c = _client(tmp_path)
     helper = c.post("/chat/ask", data={"question": "학생 RAG 등록 어떻게 해?", "page": "/dev/rag"}).json()["session_id"]

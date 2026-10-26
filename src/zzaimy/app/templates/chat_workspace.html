@@ -393,12 +393,6 @@
 
 <script>
 (function () {
-  // 이 대화를 떠 있는 에이전트가 이어받게 한다 — 화면을 옮겨도 하던 이야기가 끊기지 않는다
-  try {
-    {% if session_id %}sessionStorage.setItem("agentSession", "{{ session_id }}");
-    {% else %}sessionStorage.removeItem("agentSession");{% endif %}
-  } catch (e) {}
-
   var scroller = document.getElementById("chatScroll");
   if (scroller) scroller.scrollTop = scroller.scrollHeight;
 

@@ -34,7 +34,7 @@ def make_project_helpers(
     *,
     db, templates, ctx, _req_viewer, _visible, _dept_peers,
     _ref_scope, _doc_groups, _business_units, _program_options, _project_suggestions, _share_sync,
-    _can_read_chat, _intake_bundle, _link_past_projects, _title_from_bundle,
+    _can_read_chat, _drive_doc_open, _intake_bundle, _link_past_projects, _title_from_bundle,
 ) -> SimpleNamespace:
     """앱마다 하나 — main.create_app 이 넘긴 값과 프로젝트 화면 전용 도우미를 한 묶음(app.state.project)으로."""
     deps = dict(locals())
@@ -102,12 +102,12 @@ def _wants_json(request: Request) -> bool:
 
 
 def _require_write(request: Request, proj: dict) -> None:
-    """대화 시작·문서 추가·원칙 수정 같은 쓰기 — 소유자·관리자·함께 작업만. 참조(읽기 전용)는 403."""
+    """대화 시작·문서 추가·원칙 수정 같은 쓰기 — 소유자·관리자·함께 작업만. 읽기만 공유는 403."""
     from zzaimy.app import project_access as pa
     if proj.get("archived"):
         raise HTTPException(403, "지난 사업은 보관 해제 뒤에 고칩니다")
     if not pa.can_write(request.app.state.project_access(request, proj)):
-        raise HTTPException(403, "참조로 공유된 프로젝트는 읽기만 할 수 있습니다")
+        raise HTTPException(403, "읽기만 공유된 프로젝트는 고칠 수 없습니다")
 
 
 def _require_owner(request: Request, proj: dict) -> None:
@@ -147,7 +147,7 @@ def project_criteria_unlink(request: Request, project_id: int, criteria_doc_id: 
     proj = db.get_project(project_id)
     if proj is None:
         raise HTTPException(404)
-    _require_write(request, proj)                       # 참조(읽기 전용)는 기준 문서를 빼지 못한다
+    _require_write(request, proj)                       # 「읽기만」 은 기준 문서를 빼지 못한다
     db.remove_project_criterion(project_id, criteria_doc_id)
     return RedirectResponse(f"/project/{project_id}#projectDocuments", status_code=303)
 
@@ -256,7 +256,7 @@ def project_bundle(request: Request, background: BackgroundTasks, project_id: in
     h = request.app.state.project
     db, _intake_bundle = h.db, h._intake_bundle
     project = db.get_project(project_id)
-    # 소유자·관리자·함께 작업은 올릴 수 있고 참조(읽기 전용)는 403, 못 보는 프로젝트는 404. 올린 문서의 owner 는 문서함·드라이브에서
+    # 소유자·관리자·함께 작업은 올릴 수 있고 「읽기만」 은 403, 못 보는 프로젝트는 404. 올린 문서의 owner 는 문서함·드라이브에서
     # 가져오기(/documents/import)와 같이 올린 사람이다(_intake_bundle — 부서·등급도 올린 사람 기준)
     if project is None or not request.app.state.project_access(request, project):
         raise HTTPException(404)
@@ -288,7 +288,7 @@ def project_documents_import(request: Request, background: BackgroundTasks, proj
     if len(items) > IMPORT_LIMIT:
         raise HTTPException(400, f"한 번에 {IMPORT_LIMIT}개까지 가져올 수 있습니다")
     from zzaimy.app import webhwp
-    from zzaimy.app.webhwp_routes import _depts
+    from zzaimy.app.webhwp_routes import _access as _hwp_access, _depts
     from zzaimy.ingest import gdrive_files
     st = request.app.state
     base = Path(st.data_dir) if getattr(st, "data_dir", None) else None
@@ -310,7 +310,8 @@ def project_documents_import(request: Request, background: BackgroundTasks, proj
                     continue
                 seen.add(("dept", fid))
                 f = webhwp.get(db, fid)
-                if f is None or base is None or not webhwp.may_open(base, f, depts) or not Path(f["path"]).is_file():
+                if f is None or base is None or not webhwp.may_open(base, f, depts) or not _hwp_access(request, f) \
+                        or not Path(f["path"]).is_file():
                     rejected.append({"name": name, "why": "열 수 없는 문서입니다"})
                     continue
                 fh = open(f["path"], "rb")
@@ -399,17 +400,13 @@ def project_page(request: Request, project_id: int, refq: str = "", tab: str = "
     if can_edit and proj.get("owner") == me and share_on and not proj.get("archived") and _ds.due(db, project_id):
         _share_sync(proj)                                 # 담당자가 열 때 10분에 한 번 — 부서에 새로 들어온 동료도 받는다
     project_chats = db.list_project_chat_sessions(project_id)
-    hidden_chats = 0
-    if not can_edit:                                # 동료는 공개된 대화만 읽기 전용으로(작업 문서는 담당자 드라이브라 빼고)
-        readable = [cs for cs in project_chats if _can_read_chat(request, cs)]
-        # 공개인데도 못 여는 남의 대화(쓴 사람의 자료 범위가 더 넓음·못 보는 근거를 씀) — 「공개된 대화가 없습니다」 로 속이지 않게 수만 알린다
-        hidden_chats = sum(1 for cs in project_chats if cs not in readable and not cs.get("is_private")
-                           and (cs.get("channel") or "chat") == "chat")
-        project_chats = readable
+    if not can_edit:                                # 공유받은 사람은 비공개가 아닌 대화를 읽기 전용으로(근거는 읽는 사람 범위 안의 것만 연다)
+        project_chats = [cs for cs in project_chats if _can_read_chat(request, cs)]
     work_docs: list[dict] = []
     work_sessions: list[int] = []                 # 구글 문서가 연결된 대화 — 화면이 문서 패널과 같은 목록(드라이브 폴더)을 불러온다
     seen_urls: set[str] = set()
-    for cs in (project_chats if (can_edit or share_on) else []):    # 동료는 부서 공유가 켜졌을 때만(구글에서 열 수 있을 때)
+    # 구글 작업 문서 — 동료는 부서 공유가 켜졌고 드라이브 권한을 받는 대화(main._drive_doc_open, _share_plan 과 같은 규칙)의 것만
+    for cs in ([c for c in project_chats if can_edit or h._drive_doc_open(request, c)] if (can_edit or share_on) else []):
         for f in db.list_files(kind="google", session_id=int(cs["id"]), limit=20):
             url = f.get("path") or ""
             if url.startswith("https://") and url not in seen_urls:
@@ -443,7 +440,7 @@ def project_page(request: Request, project_id: int, refq: str = "", tab: str = "
             "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
             "project_chats": project_chats,
             "drive_share": {**_ds.state(db, project_id)},
-            "work_docs": work_docs, "work_sessions": work_sessions, "hidden_chats": hidden_chats,
+            "work_docs": work_docs, "work_sessions": work_sessions,
             "project_notes": db.list_project_notes(project_id),
             **h._project_ref_ctx(request, proj, refq, h._ref_names(doc_groups)),
             **head_ctx(request, proj, doc_groups),
@@ -538,7 +535,7 @@ def project_archive(request: Request, project_id: int):
 
 def _hwp_work_docs(request: Request, proj: dict, chats: list[dict], *, owner_view: bool = False) -> list[dict]:
     """이 프로젝트의 한글 작업 문서 — 대화마다 이은 한글 파일(webhwp_agent.files_of)과 부서 한글 문서함의 「작업/<프로젝트 이름>」 폴더
-    (에이전트가 양식으로 작업본을 만드는 자리). 보는 사람이 열 수 있는 파일만(webhwp_routes._access — 부서 폴더 규칙과 프로젝트 공유) 싣는다.
+    (에이전트가 양식으로 작업본을 만드는 자리). 보는 사람이 열 수 있는 파일만(webhwp_routes._access — 작업 문서는 프로젝트 공유대로) 싣는다.
     드라이브에 최종본을 올린 파일은 담당자 화면에 구글 드라이브 열기도 함께 준다."""
     from pathlib import Path
 
@@ -565,7 +562,7 @@ def _hwp_work_docs(request: Request, proj: dict, chats: list[dict], *, owner_vie
     out = []
     for fid, chat_id in picked.items():
         f = webhwp.get(db, fid)
-        if not _access(request, f) or not Path(f["path"]).exists():   # 부서 폴더 규칙 + 이 프로젝트 공유(다른 부서의 함께 작업·참조)
+        if not _access(request, f) or not Path(f["path"]).exists():   # 작업 문서는 프로젝트 공유대로(함께 작업·읽기만·나만 보기), 그 밖은 부서 폴더 규칙
             continue
         m = webhwp.meta(db, fid)
         drive = (m.get("drive_out") or {}).get("url") or ""
@@ -623,7 +620,8 @@ def _share_ctx(request: Request, proj: dict) -> dict:
     names = {c["to"]: c["label"] for c in choices}
     hints = {c["to"]: c["hint"] for c in choices}
     return {"share": share, "share_label": pa.button_label(share), "share_title": pa.describe(share, accounts),
-            "share_levels": pa.LEVEL_LABEL, "share_level_hints": pa.LEVEL_HINT, "share_depts": depts, "share_users": users,
+            "share_levels": {k: pa.LEVEL_LABEL[k] for k in ("edit", "view")}, "share_level_hints": pa.LEVEL_HINT,
+            "share_default_level": pa.DEFAULT_LEVEL, "share_depts": depts, "share_users": users,
             "share_choices": choices, "share_names": names, "share_hints": hints, "share_own_dept": owner_dept if owner_dept in depts else "",
             "my_access": st.project_access(request, proj)}
 
@@ -647,7 +645,7 @@ async def project_set_shares(request: Request, project_id: int):
     for to, lv in zip(form.getlist("to"), form.getlist("level")):
         to = str(to).strip()
         if (to.startswith("dept:") and to[5:] in depts) or (to.startswith("user:") and to[5:] in staff and to[5:] != proj.get("owner")):
-            items.append({"to": to, "level": lv if lv in pa.LEVELS else "view"})
+            items.append({"to": to, "level": lv if lv in pa.LEVELS else pa.DEFAULT_LEVEL})
     got = pa.set_shares(db, project_id, str(form.get("mode") or ""), items)
     _share_sync(proj, wait=True)
     from zzaimy.ingest import drive_share as _ds
@@ -721,6 +719,9 @@ def rename_project(
         raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
     if not name.strip():
         raise HTTPException(400, "프로젝트 이름을 입력하세요")
+    if name.strip() != (proj.get("name") or ""):
+        from zzaimy.app.webhwp_routes import stamp_project_files
+        stamp_project_files(request, proj)            # 옛 작업 문서(폴더 이름으로만 이어진 것)도 이름이 바뀐 뒤 그 프로젝트 공유를 따르게
     db.rename_project(project_id, name.strip())
     if due_date is not None:
         db.update_project_meta(project_id, due_date=due_date.strip())

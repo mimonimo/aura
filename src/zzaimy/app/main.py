@@ -403,8 +403,9 @@ def create_app(
         return [int(p["id"]) for p in rows if _project_access(request, p)]
 
     def _covers(viewer: str, other: str) -> bool:
-        """viewer 의 검색 범위가 other 의 범위를 다 덮는가 — other 의 대화·작업 문서에는 other 가 볼 수 있는 자료가 근거 기록 없이 섞일 수
-        있어, 그것을 볼 수 없는 사람에게는 공유로도 열지 않는다(10-16·10-21 보안 검토). 관리자(전부)의 것은 관리자만."""
+        """viewer 의 검색 범위가 other 의 범위를 다 덮는가 — 구글 드라이브 작업 문서 권한(_share_plan)에만 쓴다: 그 문서에는 other 가 볼 수
+        있는 자료가 근거 기록 없이 섞일 수 있어(10-16·10-21 보안 검토). 대화 읽기는 10-27 부터 이 관문 대신 근거를 읽는 사람 범위로 거른다
+        (_can_read_chat·chat_routes.chat_read). 관리자(전부)의 것은 관리자만."""
         a, b = accounts.get(viewer) or {}, accounts.get(other) or {}
         if not viewer or not other:
             return False
@@ -458,7 +459,7 @@ def create_app(
         share = _pa.shares(db, project, owner_dept)
         if share.get("implicit"):                       # 정하지 않은 기본값 — 예전 동료 규칙(보는 범위가 담당자보다 좁지 않은 같은 부서 교직원)
             levels = {u: "view" for u in accounts if _peer_of(u, owner)}
-        else:                                           # 작업 문서도 대화 읽기와 같은 범위 규칙 — 담당자 범위를 다 덮는 사람만 받는다
+        else:                                           # 구글 작업 문서는 담당자 범위를 다 덮는 사람만 받는다(근거 기록 없이 범위 밖 내용이 섞일 수 있어)
             levels = {u: lv for u, lv in _pa.recipients(share, accounts, owner).items() if _covers(u, owner)}
         peers = [u for u in levels if u in accounts]
         emails = {u: (db.get_setting(f"google_account:{u}", "") or "").strip() for u in peers}
@@ -585,7 +586,7 @@ def create_app(
                         _pr._visible_counts(db, [int(proj["id"])], _req_viewer(request)).get(int(proj["id"])))
                     if request.method == "POST" and re.fullmatch(r"/project/\d+/(bundle|documents/import|notes(/[^/]+)*|criteria/(link|unlink))",
                                                                  request.url.path):
-                        shared = _project_access(request, proj) == "edit"   # 「함께 작업」 은 문서 추가·원칙·기준 연결까지(참조는 막힘)
+                        shared = _project_access(request, proj) == "edit"   # 「함께 작업」 은 문서 추가·원칙·기준 연결까지(「읽기만」 은 막힘)
                     elif request.method == "POST":
                         shared = shared and proj.get("owner") == "zzdev" and request.url.path.endswith("/unarchive")
                     elif _project_access(request, proj):
@@ -1433,31 +1434,47 @@ def create_app(
         return session
 
     def _can_read_chat(request, session: dict | None) -> bool:
-        """남의 대화를 읽기 전용으로 볼 수 있는가 — 프로젝트 대화(업무 상담 제외)이고 비공개가 아니며, 만든 사람이 같은 부서 동료이고
-        그 프로젝트를 볼 수 있을 때. 관리자는 비공개가 아닌 것만. 쓰기(보내기·다시·지우기·문서 연결)는 여전히 만든 사람만(_owned_chat)."""
+        """남의 대화를 읽기 전용으로 볼 수 있는가 — 프로젝트 대화(업무 상담 제외)이고 비공개가 아니며, 그 프로젝트를 볼 수 있을 때
+        (담당자·「함께 작업」·「읽기만」, 다른 부서 공유 포함). 관리자는 비공개가 아닌 것만. 쓰기(보내기·다시·지우기·문서 연결)는
+        여전히 만든 사람만(_owned_chat). 질문과 답 글은 그대로 보이고, 답의 근거(출처 문서 링크·원문 조각·첨부)는 읽는 사람이 볼 수 있는
+        것만 연다(_reader_doc_ok, chat_routes.chat_read) — 출처 문서 주소(/doc/{id})는 원래 열람 검사(access_policy)를 그대로 거친다."""
         if not session:
             return False
         me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
         if me and session.get("owner") == me:
             return True
-        # 비공개는 만든 사람만 — 관리자도 읽지 않는다. 업무 상담(떠 있는 창)·프로젝트 밖 대화도 본인만
+        # 비공개는 만든 사람만 — 관리자도 읽지 않는다. 업무 상담(업무 도우미 패널)·프로젝트 밖 대화도 본인만
         if not session.get("project_id") or (session.get("channel") or "chat") != "chat" or session.get("is_private"):
             return False
         if getattr(request.state, "role", "") == "dev":
             return True
         proj = db.get_project(int(session["project_id"]))
-        if not (bool(proj) and _project_access(request, proj)):
+        # 10-27 사용자 결정: 공유받은 사람은 담당자 범위를 다 덮지 않아도(다른 부서) 대화 글을 읽는다. 대신 근거 열람은 계속 막는다 —
+        # 읽기 화면이 근거·첨부를 읽는 사람의 열람 범위로 거르고, 범위 밖은 「볼 수 없는 자료」 로 이름을 가린다(예전 _covers 관문을 대신함)
+        return bool(proj) and bool(_project_access(request, proj))
+
+    def _drive_doc_open(request, session: dict) -> bool:
+        """남의 대화에 이은 구글 작업 문서를 프로젝트 화면 목록에 올려도 되는가 — 드라이브 권한(_share_plan)과 같은 규칙:
+        쓴 사람 범위를 내가 다 덮고, 비공개가 아니며, 그 대화의 근거·첨부를 모두 내가 볼 수 있을 때. 구글 문서에는 근거 기록 없이
+        범위 밖 내용이 섞일 수 있어 대화 읽기(근거만 거름)보다 좁다."""
+        me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+        if me and session.get("owner") == me:
+            return True
+        if getattr(request.state, "role", "") == "dev" and me:
+            return True
+        return _covers(me, session.get("owner") or "") and _chat_open_to(session, _req_viewer(request))
+
+    def _reader_doc_ok(request, doc_id) -> bool:
+        """읽는 사람이 이 문서(근거·첨부)를 열 수 있는가 — 문서 화면(/doc/{id})과 같은 열람 규칙(access_policy.visible)."""
+        try:
+            d = db.get_document(int(doc_id))
+        except (TypeError, ValueError):
             return False
-        # 공유로 프로젝트를 봐도 남의 대화는(담당자 것 포함) 쓴 사람의 검색 범위를 내가 다 덮을 때만 — 답에 근거 기록 밖 자료가 섞일 수
-        # 있다(10-16·10-21 보안 검토). 그래서 다른 부서 참조에는 담당자 대화가 열리지 않고, 프로젝트 화면이 그 수만 알린다
-        if not _covers(me, session.get("owner") or ""):
-            return False
-        # 대화가 근거로 쓴 문서·첨부가 모두 내가 볼 수 있는 것일 때만 — 만든 사람만 보는 문서(열람 등급 owner 등)의 내용이 답에 섞였을 수 있다
-        return _chat_open_to(session, _req_viewer(request))
+        return d is not None and _visible(d, **_req_viewer(request))
 
     # 세션별 최근 검색 근거(연관 자료) — 채팅 사이드바에 노출한다.
     _chat_sources: dict[int, list] = {}
-    # 떠 있는 창이 보낸 「지금 보는 화면」 경로 — 에이전트 상태에 넣는다(platform_guide.where_line)
+    # 업무 도우미 패널이 보낸 「지금 보는 화면」 경로 — 에이전트 상태에 넣는다(platform_guide.where_line)
     _chat_pages: dict[int, str] = {}
 
     def _record_run(session_id: int, message_id: int, kind: str, r=None, extra: dict | None = None) -> None:
@@ -3784,8 +3801,9 @@ def create_app(
                 " ORDER BY d.id DESC LIMIT 6", [pattern, *acc_args]).fetchall()]
         try:
             from zzaimy.app import webhwp
-            from zzaimy.app.webhwp_routes import _base, _depts
+            from zzaimy.app.webhwp_routes import _base, _depts, hidden_here
             depts, base, words = set(_depts(request)), _base(request), term.lower().split()
+            hid = hidden_here(request, "")                 # 나만 보기·공유 밖 프로젝트의 작업 문서는 이름도 띄우지 않는다(문서함·찾기와 같게)
             files = db.list_files(kind="webhwp", limit=8000)
             if not term:                                   # 최근 고친 것부터
                 files = sorted(files, key=lambda r: str(webhwp.meta(db, r["id"]).get("saved") or r.get("created_at") or ""), reverse=True)
@@ -3794,7 +3812,7 @@ def create_app(
                 if not all(w in name.lower() for w in words):
                     continue
                 d = webhwp.dept_of_path(base, r["path"])
-                if d in depts and not any(x in webhwp.HIDDEN for x in Path(r["path"]).parts) and Path(r["path"]).exists():
+                if d in depts and int(r["id"]) not in hid and not any(x in webhwp.HIDDEN for x in Path(r["path"]).parts) and Path(r["path"]).exists():
                     out["hwp"].append({"id": r["id"], "name": name, "where": " › ".join([d, *[x for x in webhwp.folder_of(base, r["path"]).split("/") if x]])})
                 if len(out["hwp"]) >= 6:
                     break
@@ -4022,9 +4040,12 @@ def create_app(
         fid = None
         if body.get("id"):
             f = _webhwp.get(db, int(body["id"]))
-            if not _webhwp.may_open(Path(db_path).parent, f, _wr._depts(request)):
+            if not _webhwp.may_open(Path(db_path).parent, f, _wr._depts(request)) or not _wr._access(request, f):
                 raise HTTPException(404, "문서를 찾을 수 없습니다")
             fid = int(f["id"])
+            # 대화에 이으면 에이전트가 그 파일에 쓴다 — 「읽기만」 으로 받은 작업 문서는 잇지 않는다(잠긴 양식은 아래에서 사본으로)
+            if not _webhwp.locked(db, fid) and _wr._access(request, f) != "edit":
+                raise HTTPException(403, "읽기만 공유된 문서는 대화에 이을 수 없습니다 — 「복사해 쓰기」 로 사본을 만들어 이어 주세요")
             if _webhwp.locked(db, fid):                       # 잠긴 양식은 내 부서 폴더에 복사해 잇는다
                 p_ = Path(f["path"])
                 fid = _webhwp.add(db, Path(db_path).parent, getattr(request.state, "dept", "") or _webhwp.COMMON,
@@ -4321,8 +4342,9 @@ def create_app(
 
     _ATTACH_LINE = re.compile(r"^\[첨부(?:#(\d+))?\] ([^\n]+)\n?")
 
-    def _attach_view(text: str):
-        """사용자 말풍선 — 첫 줄이 첨부면 문서 보기 링크로 바꾸고 나머지는 그대로(이스케이프)."""
+    def _attach_view(text: str, allowed=None):
+        """사용자 말풍선 — 첫 줄이 첨부면 문서 보기 링크로 바꾸고 나머지는 그대로(이스케이프).
+        allowed(문서 id 모음)를 주면 그 밖의 첨부는 이름을 가리고 열지 않는다(공유받은 사람의 읽기 화면)."""
         from markupsafe import Markup, escape
 
         rest = text or ""
@@ -4332,8 +4354,11 @@ def create_app(
             if not m:
                 break
             did, name = m.group(1), m.group(2)
-            heads.append(Markup('<a class="chat-attach" href="/doc/%s">첨부 · %s</a>') % (did, name) if did
-                         else Markup('<span class="chat-attach">첨부 · %s</span>') % name)
+            if did and allowed is not None and int(did) not in allowed:
+                heads.append(Markup('<span class="chat-attach is-hidden">첨부 · 볼 수 없는 자료</span>'))
+            else:
+                heads.append(Markup('<a class="chat-attach" href="/doc/%s">첨부 · %s</a>') % (did, name) if did
+                             else Markup('<span class="chat-attach">첨부 · %s</span>') % name)
             rest = rest[m.end():]
         if not heads:
             return escape(text or "")
@@ -5016,6 +5041,7 @@ def create_app(
         _RETRIEVAL_NOTE=_RETRIEVAL_NOTE,
         _owned_chat=_owned_chat,
         _can_read_chat=_can_read_chat,
+        _reader_doc_ok=_reader_doc_ok,
         _criteria_docs=_criteria_docs,
         _viewer_sees=_viewer_sees,
         _extra_depts=_extra_depts,
@@ -5057,6 +5083,7 @@ def create_app(
         _project_suggestions=_project_suggestions,
         _share_sync=_share_sync,
         _can_read_chat=_can_read_chat,
+        _drive_doc_open=_drive_doc_open,
         _intake_bundle=_intake_bundle,
         _link_past_projects=_link_past_projects,
         _title_from_bundle=_title_from_bundle,

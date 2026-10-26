@@ -1,9 +1,9 @@
-/* 떠 있는 업무 도우미(templates/_aura_helper.html) — 묻기·지난 대화·창 모양(떠 있는 창 / 오른쪽 붙이기 / 아래 시트)과
-   도우미가 화면을 조작할 때 움직이는 AURA 커서.
-   - 창 모양·크기·열림은 이 브라우저에 기억한다(localStorage auraHelper). 페이지를 옮겨도 열린 채 이어진다.
+/* 업무 도우미(templates/_aura_helper.html) — 묻기·지난 대화·옆 패널(좁은 폭은 아래 시트)과 도우미가 화면을 조작할 때 움직이는 AURA 커서.
+   - 넓은 화면은 오른쪽 옆 패널 하나 — 열면 본문이 패널 폭만큼 좁아져 아무것도 가리지 않는다. 폭은 이 브라우저에 기억한다(localStorage auraHelper).
+   - 페이지를 옮기면 저절로 다시 열지 않는다. AURA 커서가 화면을 옮겨 이어 하는 때만 연다(sessionStorage auraQueue).
    - 대화 번호는 탭마다(sessionStorage chatWidgetSession). 기록에서 고르면 그 대화를 이어 간다.
-   - 도우미가 「바로 해 달라」 는 화면 열기(open_page now)를 내면 커서가 사이드바 메뉴를 눌러 그 화면으로 가고, 그 화면에서
-     가리킬 요소를 누르거나(창 열기) 찾기 칸에 말을 넣어 찾는다. 자료를 바꾸는 일은 [실행] 을 사람이 눌러야 한다. */
+   - 도우미가 낸 단계(open_page steps)를 커서가 차례로 한다: 화면 이동 → 창 열기 → 칸 채우기 → (서버가 허락한 때만) 마지막 단추.
+     한 일·못 한 일은 서버에 보고하고(/proposals/{id}/result) 대화의 「화면에서 한 일」 줄은 그 보고로만 생긴다. */
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
@@ -13,8 +13,15 @@
   var quote = $("agQuote"), quoteText = $("agQuoteText"), menu = $("agMenu");
   var title = $("agTitle"), sub = $("agSub"), back = $("agBack");
   var chatView = $("agChatView"), histView = $("agHistView"), histList = $("agHistList"), histFind = $("agHistFind");
-  var dockBtn = $("agDock"), newBtn = $("agNew"), histBtn = $("agHist");
+  var newBtn = $("agNew"), histBtn = $("agHist");
   var pageProject = panel.dataset.project ? Number(panel.dataset.project) : null;
+  var who = panel.dataset.who || "";
+  // 우리 화면 주소만 — 맨 앞 / 하나(「//바깥」·「/\바깥」 아님), 같은 출처. 아니면 빈 값(옮겨 가지 않는다). 서버도 거르지만 화면에서 한 번 더
+  function localUrl(u) {
+    u = String(u || "");
+    if (!/^\/(?![\/\\])/.test(u) || /[\u0000-\u001f\\]/.test(u)) return "";
+    try { var x = new URL(u, location.href); return x.origin === location.origin ? x.pathname + x.search + x.hash : ""; } catch (e) { return ""; }
+  }
 
   function store(kind, key, value) {
     try {
@@ -25,55 +32,40 @@
     return null;
   }
 
-  /* ---------- 창 모양: float(떠 있는 창) · dock(오른쪽 붙이기) · sheet(좁은 폭 아래 시트) ---------- */
-  var ui = { open: false, mode: "float", w: 400, h: 600, dw: 440 };
-  try { var saved = JSON.parse(store("local", "auraHelper") || "null"); if (saved) for (var k in ui) if (k in saved) ui[k] = saved[k]; } catch (e) {}
-  function keep() { store("local", "auraHelper", JSON.stringify(ui)); }
+  /* ---------- 자리: 넓은 화면은 오른쪽 옆 패널(본문이 그 폭만큼 좁아진다), 좁은 폭(640px 미만)은 아래 시트 ---------- */
+  var root = document.documentElement;
+  var ui = { w: 400 };
+  try { var saved = JSON.parse(store("local", "auraHelper") || "null"); if (saved && (saved.side || saved.dw)) ui.w = Number(saved.side || saved.dw) || 400; } catch (e) {}
+  function keep() { store("local", "auraHelper", JSON.stringify({ side: ui.w })); }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function narrow() { return innerWidth < 640; }
-  function shape() { return narrow() ? "sheet" : ui.mode === "dock" ? "dock" : "float"; }
   function place() {
-    var vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight, m = shape(), r;
-    if (m === "sheet") r = { l: 0, t: Math.round(vh * 0.1), w: vw, h: vh - Math.round(vh * 0.1) };
-    else if (m === "dock") { var dw = clamp(ui.dw, 360, Math.max(360, Math.min(760, vw * 0.6))); r = { l: vw - dw, t: 0, w: dw, h: vh }; }
-    else {
-      var w = clamp(ui.w, 340, Math.max(340, vw - 32)), h = clamp(ui.h, 380, Math.max(380, vh - 32));
-      r = { l: vw - 22 - w, t: vh - 22 - h, w: w, h: h };
-    }
-    panel.style.left = r.l + "px"; panel.style.top = r.t + "px"; panel.style.width = r.w + "px"; panel.style.height = r.h + "px";
-    panel.classList.toggle("ag-docked", m === "dock");
-    panel.classList.toggle("ag-sheet", m === "sheet");
-    var docked = m === "dock";
-    dockBtn.setAttribute("aria-pressed", docked ? "true" : "false");
-    dockBtn.dataset.tip = docked ? "떠 있는 창으로" : "오른쪽에 붙이기";
-    dockBtn.setAttribute("aria-label", dockBtn.dataset.tip);
+    var vw = root.clientWidth || innerWidth, sheet = narrow();
+    panel.classList.toggle("ag-sheet", sheet);
+    if (sheet) { panel.style.width = ""; root.classList.remove("ag-side"); return; }
+    var w = Math.round(clamp(ui.w, 320, Math.max(320, Math.min(720, vw * 0.5))));
+    panel.style.width = w + "px";
+    root.style.setProperty("--ag-side-w", w + "px");
+    root.classList.toggle("ag-side", isOpen());
   }
-  function still(fn) {            // 처음 그리기·창 크기 바뀜은 움직임 없이
-    panel.classList.add("ag-still"); fn(); void panel.offsetWidth;
-    requestAnimationFrame(function () { panel.classList.remove("ag-still"); });
+  function still(fn) {            // 처음 그리기·창 크기 바뀜은 움직임 없이(패널과 본문 모두)
+    root.classList.add("ag-still"); fn(); void panel.offsetWidth;
+    requestAnimationFrame(function () { requestAnimationFrame(function () { root.classList.remove("ag-still"); }); });
   }
-  still(place);
   var resizeTimer;
   addEventListener("resize", function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { still(place); }, 60); });
-  dockBtn.addEventListener("click", function () { ui.mode = ui.mode === "dock" ? "float" : "dock"; keep(); place(); });
 
-  // 크기 조절 — 떠 있는 창은 오른쪽 아래를 붙박고 왼쪽·위로 늘린다, 붙인 창은 폭만
+  // 폭 조절 — 패널 왼쪽 가장자리를 끈다. 본문도 같이 따라 좁아지고 넓어진다
   panel.querySelectorAll("[data-rz]").forEach(function (h) {
     h.addEventListener("pointerdown", function (ev) {
-      if (shape() === "sheet") return;
+      if (narrow()) return;
       ev.preventDefault(); try { h.setPointerCapture(ev.pointerId); } catch (e) {}
-      var how = h.dataset.rz, x0 = ev.clientX, y0 = ev.clientY, w0 = panel.offsetWidth, h0 = panel.offsetHeight, dock = shape() === "dock";
-      panel.classList.add("ag-dragging"); document.body.classList.add("ag-resizing");
-      function move(e) {
-        if (how !== "t") { if (dock) ui.dw = w0 + (x0 - e.clientX); else ui.w = w0 + (x0 - e.clientX); }
-        if (how !== "l" && !dock) ui.h = h0 + (y0 - e.clientY);
-        place();
-      }
+      var x0 = ev.clientX, w0 = panel.offsetWidth;
+      root.classList.add("ag-dragging");
+      function move(e) { ui.w = w0 + (x0 - e.clientX); place(); }
       function up() {
         removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
-        panel.classList.remove("ag-dragging"); document.body.classList.remove("ag-resizing");
-        if (dock) ui.dw = panel.offsetWidth; else { ui.w = panel.offsetWidth; ui.h = panel.offsetHeight; }
-        keep();
+        root.classList.remove("ag-dragging"); ui.w = panel.offsetWidth; keep();
       }
       addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
     });
@@ -87,21 +79,21 @@
       var go = function () {
         panel.inert = false; panel.setAttribute("aria-hidden", "false");
         panel.classList.add("open"); document.body.classList.add("ag-open");
-        fab.setAttribute("aria-expanded", "true");
+        fab.setAttribute("aria-expanded", "true"); place();
       };
       if (opts.instant) still(go); else go();
-      ui.open = true; keep();
     }
     showChat();
     if (sid) load(); else if (!body.children.length) render([]);
     if (!opts.noFocus) setTimeout(function () { if (isOpen()) input.focus({ preventScroll: true }); }, 200);
   }
   function close() {
-    panel.classList.remove("open"); document.body.classList.remove("ag-open");
+    panel.classList.remove("open"); document.body.classList.remove("ag-open"); root.classList.remove("ag-side");
     panel.inert = true; panel.setAttribute("aria-hidden", "true");
     fab.setAttribute("aria-expanded", "false"); clearTimeout(pollTimer);
-    ui.open = false; keep(); fab.focus({ preventScroll: true });
+    fab.focus({ preventScroll: true });
   }
+  still(place);
   fab.addEventListener("click", function () { if (isOpen()) close(); else open(); });
   $("agClose").addEventListener("click", close);
   panel.addEventListener("keydown", function (e) {
@@ -207,49 +199,71 @@
     return el;
   }
 
-  // 도우미가 낸 제안 — run 은 「이렇게 하겠습니다」 와 [실행](누르면 서버가 권한·대상을 다시 보고 실행), go 는 화면 열기.
-  // go 에 act.now 가 있으면(담당자가 열기·누르기·찾기를 시킨 때) 답이 뜨자마자 커서가 대신 한다 — 한 번만(auraDone)
+  // 도우미가 낸 제안 — run 은 「이렇게 하겠습니다」 와 [실행](누르면 서버가 권한·대상을 다시 보고 실행), go 는 화면에서 할 단계.
+  // go 에 act.now 가 있으면(담당자가 열기·찾기·칸 채우기를 시킨 때) 답이 뜨자마자 커서가 차례로 한다 — 여러 제안은 낸 차례대로 이어서, 한 번만(auraDone).
+  // 마지막 단추(저장·지우기 등)는 서버가 허락한 단계(ok)만 누르고, 아니면 가리키기만 한 뒤 [실행](사람이 누르는 허락)을 둔다.
   function doneIds() { try { return JSON.parse(store("session", "auraDone") || "[]"); } catch (e) { return []; } }
   function markDone(id) { var d = doneIds(); if (d.indexOf(id) < 0) d.push(id); store("session", "auraDone", JSON.stringify(d.slice(-40))); }
+  function segOf(p, mode) {   // mode: auto(서버 허락 그대로) · go(사람이 단추로 — 열기·칸 채우기는 함) · grant(사람이 [실행] — 마지막 단추까지) · point(가리키기만)
+    var t = p.target || {}, a = p.act || {};
+    var steps = (a.steps || []).map(function (x, i) {
+      var ok = mode === "auto" ? !!x.ok : mode === "go" ? !!(x.ok || x.auto) : mode === "grant" ? !!(x.auto || x.final) : false;
+      return { i: i, sel: x.sel, text: x.text || "", final: !!x.final, ok: ok, what: x.what || "" };
+    });
+    if (!steps.length && t.selector) steps = [{ i: -1, sel: t.selector, text: "", final: false, ok: false, what: p.label }];
+    return { id: p.kind === "go" ? p.id : "", sid: sid, mode: mode, path: localUrl(t.path || p.screen), screen: localUrl(p.screen),
+             anchor: t.anchor || "", label: p.label, here: !!a.here, steps: steps, at: 0, res: [] };
+  }
   function drawProposals(list, allowAuto) {
-    var auto = null;
+    var queue = [];
     (list || []).forEach(function (p) {
-      var t = p.target || {}, act = p.act || {};
+      var t = p.target || {}, act = p.act || {}, steps = act.steps || [];
+      var sameHere = p.kind === "go" && cursor.here(t);
       var box = document.createElement("div"); box.className = "ag-msg assistant ag-proposal";
-      box.dataset.targetPath = t.path || ""; box.dataset.targetSelector = t.selector || "";
       var plan = document.createElement("div"); plan.className = "ag-plan";
       plan.textContent = (p.kind === "go" ? "" : "이렇게 하겠습니다 — ") + p.plan;
       var row = document.createElement("div"); row.className = "ag-acts";
-      var go = document.createElement("a"); go.href = p.screen;
-      go.textContent = p.kind === "go" ? p.label : "화면에서 직접";
-      go.addEventListener("click", function (ev) {
-        ev.preventDefault();
-        if (p.kind === "go") { markDone(p.id); perform(p); return; }
-        if (cursor.here(t)) cursor.point(t, p.label); else { cursor.later(t, p.label); location.href = p.screen; }
-      });
       if (p.kind !== "go") {
         var run = document.createElement("button"); run.type = "button"; run.textContent = "실행";
         run.addEventListener("click", function () {
           if (!sid) return;
           run.disabled = true; run.textContent = "실행 중…";
-          if (cursor.here(t)) cursor.point(t, p.label);     // 같은 화면이면 그 단추 자리를 가리키며 실행
+          if (cursor.here(t)) cursor.run([segOf(p, "point")]);     // 같은 화면이면 그 단추 자리를 가리키며 실행
           fetch("/chat/" + sid + "/proposals/" + encodeURIComponent(p.id) + "/run", { method: "POST" })
             .then(function (r) { return r.json().catch(function () { return { ok: false, error: r.status === 403 ? "관리자 계정만 할 수 있는 일입니다" : "실행 결과를 받지 못했습니다" }; }); })
             .then(function (d) {
               if (!d.ok && d.detail) d.error = d.detail;
-              if (d.ok && d.go) { location.href = d.go; return; }
+              if (d.ok && localUrl(d.go)) { location.href = localUrl(d.go); return; }
               if (!d.ok) run.textContent = d.error || "실행하지 못했습니다";
               load();
             })
             .catch(function () { run.disabled = false; run.textContent = "실행"; });
         });
         row.appendChild(run);
+        var direct = document.createElement("a"); direct.href = localUrl(p.screen) || "#"; direct.textContent = "화면에서 직접";
+        direct.addEventListener("click", function (ev) { ev.preventDefault(); cursor.run([segOf(p, "point")]); });
+        row.appendChild(direct);
+      } else {
+        // 같은 화면이면 「○○ 열기」 대신 「여기서 하기」, 다른 화면이면 「○○ 열기」 — 사람이 누르면 열기·칸 채우기까지 한다
+        var go = document.createElement("a"); go.href = localUrl(p.screen) || "#";
+        go.textContent = sameHere ? "여기서 하기" : p.label;
+        go.addEventListener("click", function (ev) { ev.preventDefault(); markDone(p.id); cursor.run([segOf(p, "go")]); });
+        var finalWait = steps.some(function (x) { return x.final && !x.ok; });
+        if (finalWait) {      // 마지막 단추를 허락받지 못한 단계 — 사람이 [실행] 을 누르면 그 단추까지 누른다
+          var grant = document.createElement("button"); grant.type = "button"; grant.textContent = "실행";
+          grant.title = "마지막 단추(" + steps[steps.length - 1].what + ")까지 AURA 가 누릅니다";
+          grant.addEventListener("click", function () { markDone(p.id); grant.disabled = true; cursor.run([segOf(p, "grant")]); });
+          row.appendChild(grant);
+        }
+        if (!(sameHere && !steps.length)) row.appendChild(go);
       }
-      row.appendChild(go);
-      box.appendChild(plan); box.appendChild(row); body.appendChild(box);
-      if (allowAuto && p.kind === "go" && act.now && doneIds().indexOf(p.id) < 0) auto = p;   // 마지막 것 — 도우미가 고쳐 낸 결정이 뒤에 온다
+      box.appendChild(plan); if (row.children.length) box.appendChild(row); body.appendChild(box);
+      if (allowAuto && p.kind === "go" && act.now && !p.reported && doneIds().indexOf(p.id) < 0) queue.push(p);
     });
-    if (auto) { markDone(auto.id); setTimeout(function () { perform(auto); }, 500); }
+    if (queue.length) {
+      queue.forEach(function (p) { markDone(p.id); });
+      setTimeout(function () { cursor.run(queue.map(function (p) { return segOf(p, "auto"); })); }, 450);
+    }
   }
   // 이 화면에서 바로 시킬 수 있는 일 — 누를 때 실행한다
   function drawActions() {
@@ -518,43 +532,57 @@
   }
 
   /* ---------- AURA 커서 ---------- */
-  // 도우미가 가리키는 화면 요소로 커서가 움직여 누른다. 다른 화면이면 사이드바 메뉴를 눌러 옮겨 간 뒤 그 화면에서 이어 한다
+  // 도우미가 낸 단계를 화면에서 차례로 한다: 다른 화면이면 그 화면 메뉴를 눌러 옮겨 가고(남은 일은 sessionStorage auraQueue 에 두고 새 화면에서 잇는다),
+  // 그 화면에서 창 열기 → 칸 채우기(입력·고르기) → (허락된 때만) 마지막 단추. 한 일·못 한 일은 서버에 보고해 대화에 한 줄로 남는다(완료 문구는 그 보고로만).
   var cursor = (function () {
-    var KEY = "auraPoint", el = null, ringOn = null;
+    var QKEY = "auraQueue", el = null, ringOn = null, leaving = false;
     var calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    addEventListener("beforeunload", function () { leaving = true; });
     function pathOf(p) { try { return new URL(p || "/", location.href).pathname; } catch (e) { return p || ""; } }
     function visible(x) { var r = x.getBoundingClientRect(); return x.offsetParent !== null && r.width > 0 && r.height > 0; }
-    function find(t) {
+    function squash(t) { return String(t || "").replace(/[\s·「」()]+/g, "").toLowerCase(); }
+    function isField(x) { return /^(INPUT|TEXTAREA)$/.test(x.tagName) && !/^(checkbox|radio|file|hidden|submit|button)$/i.test(x.type || ""); }
+    // 요소 찾기 — 입력 칸·고르기 칸이 아니면서 text 가 있으면 같은 표시의 여럿 가운데 그 이름이 든 것(폴더·문서·부서·칩)
+    function find(st) {
       var hit = null;
       try {
-        if (t.selector) hit = Array.prototype.find.call(document.querySelectorAll(t.selector), visible) || null;
-        if (!hit && t.anchor) hit = document.getElementById(t.anchor);
+        var all = st.sel ? Array.prototype.filter.call(document.querySelectorAll(st.sel), function (x) { return visible(x) && !panel.contains(x); }) : [];
+        if (st.text && all.length && !isField(all[0]) && all[0].tagName !== "SELECT") {
+          var want = squash(st.text);
+          hit = all.find(function (x) { return squash(x.textContent) === want; }) || all.find(function (x) { return squash(x.textContent).indexOf(want) >= 0; }) || null;
+        } else hit = all[0] || null;
+        if (!hit && !st.sel && st.anchor) hit = document.getElementById(st.anchor);
       } catch (e) { hit = null; }
       return hit;
+    }
+    function waitFor(st, cb) {       // 앞 단계가 연 창·메뉴가 그려질 때까지 잠깐 기다린다
+      var t0 = Date.now();
+      (function look() {
+        var hit = find(st);
+        if (hit || Date.now() - t0 > 3500) { cb(hit); return; }
+        setTimeout(look, 150);
+      })();
     }
     function make() {
       if (el && el.isConnected) return el;
       el = document.createElement("div"); el.className = "aura-cursor"; el.setAttribute("aria-hidden", "true");
       el.innerHTML = '<svg class="ac-svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.2 1.6 13.6 7.3c.6.3.5 1.1-.1 1.3l-4.4 1.2-2 4.3c-.3.6-1.1.5-1.3-.1L2.2 1.6Z" fill="#1B3B75" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="aura-cursor-tag"><span class="ac-text">AURA</span></span>';
-      // 처음 자리 — 열린 도우미 창 왼쪽 아래(창이 닫혔으면 둥근 단추)
-      var from = isOpen() ? panel.getBoundingClientRect() : fab.getBoundingClientRect();
+      var from = isOpen() ? panel.getBoundingClientRect() : fab.getBoundingClientRect();   // 처음 자리 — 열린 패널 왼쪽 아래(닫혔으면 둥근 단추)
       el.style.left = Math.round(from.left + (isOpen() ? 24 : from.width / 2)) + "px";
       el.style.top = Math.round(from.top + (isOpen() ? from.height - 90 : from.height / 2)) + "px";
       document.body.appendChild(el); void el.offsetWidth;
       return el;
     }
-    // 대상으로 옮겨 가 누르는 모양을 보인 뒤 then(hit) — 대상이 없으면 바로 then(null)
-    function point(t, label, then, hit) {
-      hit = hit || find(t || {});
+    function tag(text) { make().querySelector(".ac-text").textContent = text ? "AURA · " + text : "AURA"; doing(text); }
+    // 대상으로 옮겨 가 누르는 모양을 보인 뒤 then(hit)
+    function point(hit, label, then) {
       if (!hit) { if (then) then(null); return; }
-      if (!calm) hit.scrollIntoView({ behavior: "smooth", block: "nearest" }); else hit.scrollIntoView({ block: "nearest" });
-      var c = make(); c.classList.remove("leaving");
-      c.querySelector(".ac-text").textContent = label ? "AURA · " + label : "AURA";
-      // 0.1초마다 대상 자리를 다시 재어 따라간다 — 부드러운 스크롤 중이거나 목록이 늦게 그려져 밀려도 대상 위에 있다
+      hit.scrollIntoView(calm ? { block: "nearest" } : { behavior: "smooth", block: "nearest" });
+      var c = make(); c.classList.remove("leaving"); tag(label);
       var t0 = Date.now(), pressed = false;
       if (ringOn && ringOn !== hit) ringOn.classList.remove("aura-ring");
       ringOn = hit; clearTimeout(c._follow);
-      (function track() {
+      (function track() {      // 0.1초마다 대상 자리를 다시 재어 따라간다(부드러운 스크롤·늦게 그려지는 목록)
         var r = hit.getBoundingClientRect(), age = Date.now() - t0;
         if (age > 600 && age < 2000 && (r.top < 0 || r.bottom > innerHeight)) { hit.scrollIntoView({ block: "center", behavior: "instant" }); r = hit.getBoundingClientRect(); }
         c.style.left = Math.round(r.left + Math.min(r.width / 2, 40)) + "px";
@@ -563,59 +591,114 @@
           pressed = true; hit.classList.add("aura-ring"); c.classList.add("press");
           setTimeout(function () { c.classList.remove("press"); if (then) then(hit); }, 380);
         }
-        // 도우미 창이 대상을 덮으면 가리키는 동안만 창을 비켜 보이게(옅게·누름 통과)
+        // 좁은 폭의 아래 시트가 대상을 덮으면 가리키는 동안만 시트를 옅게(누름 통과)
         var pr = panel.getBoundingClientRect();
         var over = isOpen() && !(r.right < pr.left || r.left > pr.right || r.bottom < pr.top || r.top > pr.bottom);
         panel.classList.toggle("ag-peek", !!over && age < 3200);
         if (age < 3200) { c._follow = setTimeout(track, 100); return; }
-        panel.classList.remove("ag-peek");
-        hit.classList.remove("aura-ring"); c.classList.add("leaving");
+        panel.classList.remove("ag-peek"); hit.classList.remove("aura-ring");
       })();
     }
-    function later(t, label, act) { store("session", KEY, JSON.stringify({ t: t, label: label || "", act: act || null, at: Date.now() })); }
-    function resume() {
-      var v = null;
-      try { v = JSON.parse(store("session", KEY) || "null"); } catch (e) { v = null; }
-      store("session", KEY, null);
-      if (!v || !v.t || Date.now() - v.at > 20000 || pathOf(v.t.path) !== location.pathname) return false;
-      setTimeout(function () { act(v.t, v.label, v.act); }, 450);
-      return true;
-    }
-    // 그 화면에서 할 일 — 입력 칸이면 말을 넣어 찾고, 단추·링크면 누른다(act.now 일 때만). 아니면 가리키기만
+    function fade() { if (el) el.classList.add("leaving"); doing(""); }
     function nameOf(x) { return (x.getAttribute("aria-label") || x.textContent || x.placeholder || "").replace(/\s+/g, " ").trim().slice(0, 24); }
-    function act(t, label, a) {
-      a = a || {};
-      var hit0 = find(t || {});
-      if (hit0 && a.now && !a.text) label = nameOf(hit0) || label;     // 누를 단추 이름을 커서 꼬리표에
-      point(t, label, function (hit) {
-        if (!hit) { if (a.now) note("가리킬 자리를 이 화면에서 찾지 못했습니다."); return; }
-        if (!a.now) return;
-        if (hit.disabled || hit.getAttribute("aria-disabled") === "true") {
-          make().querySelector(".ac-text").textContent = "AURA · 지금은 누를 수 없음";
-          note("「" + nameOf(hit) + "」 단추가 지금 꺼져 있어 누르지 못했습니다" + (hit.title ? " — " + hit.title : "") + ".");
-          return;
-        }
-        if (a.text && /^(INPUT|TEXTAREA)$/.test(hit.tagName)) { typeInto(hit, a.text); return; }
-        // 보안: 서버가 고른 요소라도 화면에서 한 번 더 — 창 열기·링크·입력 칸·표시한 단추만 누른다(폼 제출 단추 등은 가리키기만)
-        if (!hit.matches('[data-modal-open], a[href], input, [data-aura]') || hit.closest('form[method="post" i]')) { note("이 단추는 직접 눌러 주세요."); return; }
-        hit.click();
+
+    // ---- 차례 ----
+    // 이어 할 차례 — 누구(who)의 어느 대화(sid)이고 어느 화면(go)에서 이을지 함께 둔다. 새 화면은 같은 사람·같은 화면일 때만,
+    // 서버의 제안(아직 남은 것)으로 다시 맞춰 잇는다(resume) — 다른 탭으로 복사된 차례·로그인이 바뀐 탭·손댄 값으로는 누르지 않는다
+    function save(q, anyPage) {     // anyPage — 커서가 누른 단추가 화면을 옮길 수 있을 때(옮겨 갈 곳을 미리 모른다)
+      store("session", QKEY, q && q.length ? JSON.stringify({ q: q, at: Date.now(), who: who, go: anyPage ? "*" : pathOf(q[0].path) }) : null);
+    }
+    function report(seg) {     // 이 제안의 결과를 서버에 — 대화에 「화면에서 한 일」 한 줄이 생긴다
+      if (!seg.id || !seg.sid || !seg.res.length || seg.sent) return;
+      seg.sent = true;
+      fetch("/chat/" + seg.sid + "/proposals/" + encodeURIComponent(seg.id) + "/result", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ results: seg.res })
+      }).then(function () { if (String(seg.sid) === String(sid) && isOpen()) load(); }).catch(function () {});
+    }
+    function stop(q, seg, code, why) {
+      if (code) seg.res.push({ step: seg.steps[seg.at] ? seg.steps[seg.at].i : -1, result: code });
+      if (why) tag(why);
+      report(seg); save(null);
+      setTimeout(fade, 1600);
+    }
+    function run(q) {
+      if (!q || !q.length) { save(null); setTimeout(fade, 1200); return; }
+      var seg = q[0];
+      if (!seg.here && pathOf(seg.path) !== location.pathname) {      // 다른 화면 — 보이는 메뉴를 커서로 눌러 옮겨 간다
+        if (!seg.screen) { stop(q, seg, "missing", "열 화면 주소가 올바르지 않음"); return; }
+        seg.here = true; seg.res.push({ step: -1, result: "opened" }); save(q);
+        var link = navLink(seg.screen);
+        tag((seg.label || "화면") + " 여는 중");
+        if (link) point(link, nameOf(link) + " 여는 중", function () { location.href = seg.screen; });
+        else location.href = seg.screen;
+        return;
+      }
+      seg.here = true;
+      next(q, seg);
+    }
+    function next(q, seg) {
+      if (seg.at >= seg.steps.length) {
+        if (!seg.steps.length && seg.anchor) point(document.getElementById(seg.anchor), seg.label);
+        report(seg); q.shift(); save(q); run(q); return;
+      }
+      var st = seg.steps[seg.at];
+      waitFor(st, function (hit) {
+        if (!hit) { stop(q, seg, "missing", (st.what || "가리킬 자리") + " — 찾지 못함"); return; }
+        var field = isField(hit), pick = hit.tagName === "SELECT";
+        var what = st.what || nameOf(hit), label;
+        if (field) { what = what.replace(/ 채우기$/, ""); label = (/칸$/.test(what) ? what : what + " 칸") + "에 입력 중"; }
+        else if (pick) label = what.replace(/ 고르기$/, "") + " 고르는 중";
+        else label = "「" + (st.text || nameOf(hit)) + "」 누르는 중";
+        point(hit, st.ok ? label : nameOf(hit) + " — 직접 눌러 주세요", function (h) {
+          if (!st.ok) { stop(q, seg, st.final ? "pointed" : "blocked", ""); return; }
+          if (h.disabled || h.getAttribute("aria-disabled") === "true") { stop(q, seg, "disabled", nameOf(h) + " — 지금은 누를 수 없음"); return; }
+          if (field) { typeInto(h, st.text, function () { done(q, seg, "typed", h); }); return; }
+          if (pick) { done(q, seg, choose(h, st.text) ? "picked" : "missing", h); return; }
+          // 보안: 화면에서도 한 번 더 — 제출 단추·POST 폼 단추·마지막 단추 표시는 서버가 허락한 마지막 단계(final+ok)만 누른다
+          var submitLike = h.matches("[data-aura-final], [type=submit], form button:not([type=button])") || (h.closest('form[method="post" i]') && h.matches("button, input"));
+          if (submitLike && !st.final) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
+          if (!submitLike && !h.matches("[data-modal-open], a[href], [data-aura], [data-om-find], [data-org-add]")) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
+          seg.at++; seg.res.push({ step: st.i, result: "clicked" });
+          save(q, true);                             // 누른 단추가 화면을 옮기면 새 화면에서 남은 단계를 잇는다
+          h.click();
+          setTimeout(function () { if (leaving) return; next(q, seg); }, 500);
+        });
       });
     }
-    function typeInto(field, text) {
+    function done(q, seg, code, h) {
+      seg.res.push({ step: seg.steps[seg.at].i, result: code });
+      if (code === "missing") { stop(q, seg, "", "고를 항목을 찾지 못함"); return; }
+      seg.at++; save(q);
+      // 찾기 칸(GET 폼)이 마지막 단계면 찾기를 보낸다 — POST 폼은 보내지 않는다(마지막 단추는 따로)
+      var f = h.form;
+      if (code === "typed" && seg.at >= seg.steps.length && f && (f.getAttribute("method") || "get").toLowerCase() === "get" && !f.hasAttribute("data-tpl-search")) {
+        report(seg); q.shift(); save(q);
+        setTimeout(function () { if (f.requestSubmit) f.requestSubmit(); else f.submit(); }, 350);
+        setTimeout(function () { if (!leaving) run(q); }, 900);
+        return;
+      }
+      setTimeout(function () { next(q, seg); }, 250);
+    }
+    function typeInto(field, text, then) {
       field.focus(); field.value = "";
       var i = 0;
-      (function next() {
+      (function step() {
         if (i < text.length) {
           field.value += text[i++]; field.dispatchEvent(new Event("input", { bubbles: true }));
-          setTimeout(next, calm ? 0 : 55); return;
+          setTimeout(step, calm ? 0 : 55); return;
         }
-        setTimeout(function () {
-          var f = field.form;
-          if (f) { if (f.requestSubmit) f.requestSubmit(); else f.submit(); }
-        }, 450);
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        then();
       })();
     }
-    // 다른 화면 — 화면에 보이는 그 화면 메뉴(사이드바 등)를 커서로 누르고 옮겨 간다. 메뉴가 안 보이면 바로 옮겨 간다
+    function choose(sel, text) {
+      var want = squash(text), opts = Array.prototype.slice.call(sel.options || []);
+      var o = opts.find(function (x) { return squash(x.textContent) === want; }) || opts.find(function (x) { return want && squash(x.textContent).indexOf(want) >= 0; });
+      if (!o) return false;
+      sel.value = o.value; sel.dispatchEvent(new Event("input", { bubbles: true })); sel.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }
+    // 다른 화면 — 화면에 보이는 그 화면 메뉴(사이드바 등). 없으면 바로 옮겨 간다
     function navLink(url) {
       var want = new URL(url, location.href), best = null;
       document.querySelectorAll("a[href]").forEach(function (a) {
@@ -627,26 +710,41 @@
       });
       return best;
     }
-    function go(p) {
-      var t = p.target || {}, a = p.act || {};
-      var label = p.label || "";
-      if (pathOf(t.path || p.screen) === location.pathname) {
-        if (t.selector || t.anchor) act(t, a.text ? "「" + a.text + "」 찾기" : label, a);
-        return;
-      }
-      if (t.selector || t.anchor) later(t, a.text ? "「" + a.text + "」 찾기" : "", a);
-      var link = navLink(p.screen);
-      if (link) point({}, nameOf(link) || label, function () { location.href = p.screen; }, link);
-      else location.href = p.screen;
+    function resume() {
+      var v = null;
+      try { v = JSON.parse(store("session", QKEY) || "null"); } catch (e) { v = null; }
+      save(null);
+      if (!v || !Array.isArray(v.q) || !v.q.length || Date.now() - v.at > 20000) return false;
+      if (!who || v.who !== who || (v.go !== "*" && v.go !== location.pathname)) return false;      // 다른 사람·다른 화면(복사된 탭 등)에서는 잇지 않는다
+      var s0 = v.q[0] && v.q[0].sid;
+      if (!s0 || v.q.some(function (x) { return !x || !x.id || x.sid !== s0; })) return false;
+      // 단계·허락은 저장해 둔 값이 아니라 서버의 지금 제안에서 다시 만든다(지난·끝난 제안은 버린다)
+      fetch("/chat/" + encodeURIComponent(s0) + "/messages", { cache: "no-store" })
+        .then(function (r) { if (!r.ok || r.redirected) throw new Error(); return r.json(); })
+        .then(function (d) {
+          var live = {};
+          (d.proposals || []).forEach(function (p) { if (p.kind === "go" && !p.reported) live[p.id] = p; });
+          var q = [];
+          for (var i = 0; i < v.q.length; i++) {
+            var old = v.q[i], p = live[old.id];
+            if (!p || ["auto", "go", "grant", "point"].indexOf(old.mode) < 0) break;
+            var seg = segOf(p, old.mode);
+            seg.sid = s0; seg.here = !!old.here; seg.at = Math.max(0, Math.min(Number(old.at) || 0, seg.steps.length));
+            seg.res = Array.isArray(old.res) ? old.res.slice(0, 8) : [];
+            q.push(seg);
+          }
+          if (q.length) setTimeout(function () { run(q); }, 450); else fade();
+        })
+        .catch(function () { fade(); });
+      return true;
     }
-    return { point: point, later: later, resume: resume, go: go,
-             here: function (t) { return !!t && pathOf(t.path) === location.pathname; } };
+    return { run: run, resume: resume, here: function (t) { return !!t && pathOf(t.path) === location.pathname; } };
   })();
-  function perform(p) { cursor.go(p); }
-  // 커서가 하지 못한 일은 대화에 한 줄로 남긴다(화면에만 — 서버 기록은 바꾸지 않는다)
-  function note(text) {
-    if (!isOpen()) return;
-    var el = bubble("assistant", text, "ag-err"); el.setAttribute("role", "status"); follow(true);
+  // 커서가 하는 일을 패널 머리에도 — 끝나면 원래 부제(대화 제목)로
+  var subBefore = null;
+  function doing(text) {
+    if (text) { if (subBefore === null) subBefore = sub.textContent; sub.textContent = "AURA · " + text; sub.hidden = false; sub.classList.add("ag-doing"); }
+    else if (subBefore !== null) { setSub(subBefore); subBefore = null; sub.classList.remove("ag-doing"); }
   }
 
   /* ---------- 글을 고른 뒤 오른쪽 단추 — 고른 글이 있을 때만 우리 메뉴 ---------- */
@@ -674,8 +772,7 @@
 
   /* ---------- 시작 ---------- */
   paint();
-  var resumed = cursor.resume();
-  // 지난번에 열어 둔 채 옮겨 왔으면 그대로 연다(좁은 폭은 화면을 가리므로 AURA 가 옮겨 온 때만)
-  if (ui.open && (!narrow() || resumed)) open({ instant: true, noFocus: true });
+  // 페이지를 옮겨도 저절로 다시 열지 않는다 — AURA 커서가 화면을 옮겨 이어 하는 때만 연다
+  if (cursor.resume()) open({ instant: true, noFocus: true });
   else render([]);
 })();

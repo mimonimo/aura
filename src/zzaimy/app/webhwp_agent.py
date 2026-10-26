@@ -366,7 +366,8 @@ class HwpTools:
         cur = self.fid()
         if cur and self._empty_doc(cur):
             return self._load_into(cur, data, fields, name, src)
-        fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder)
+        fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder,
+                         project=int(self.project["id"]) if self.project and self.project.get("id") else None)
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))

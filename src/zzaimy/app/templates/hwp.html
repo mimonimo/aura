@@ -29,7 +29,7 @@
     {% if mine %}
     <div class="hb-sec">
       <p class="hb-group">내 폴더</p>
-      <a class="hb-place {{ 'on' if here and here.dept == mine }}" href="/hwp?dept={{ mine|urlencode }}" data-place="mine"{% if here and here.dept == mine %} aria-current="page"{% endif %} title="나만 보는 폴더"><iconify-icon icon="solar:user-rounded-linear" aria-hidden="true"></iconify-icon><span class="t">내 폴더</span></a>
+      <a class="hb-place {{ 'on' if here and here.dept == mine }}" href="/hwp?dept={{ mine|urlencode }}" data-place="mine" data-aura="hwp-folder"{% if here and here.dept == mine %} aria-current="page"{% endif %} title="나만 보는 폴더"><iconify-icon icon="solar:user-rounded-linear" aria-hidden="true"></iconify-icon><span class="t">내 폴더</span></a>
     </div>
     {% endif %}
     <div class="hb-sec">
@@ -38,7 +38,7 @@
       {% set quiet = [] %}
       {% for d in depts %}{% set main_ = d.count or (here and here.dept == d.dept) or d.dept == mine or d.dept == (request.state.dept or "") or depts|length <= 8 %}
       {% if not main_ %}{% set _ = quiet.append(1) %}{% endif %}
-      <a class="hb-place {{ 'on' if here and here.dept == d.dept }}" href="/hwp?dept={{ d.dept|urlencode }}" data-place="dept"{% if not main_ %} data-quiet hidden{% endif %}{% if here and here.dept == d.dept %} aria-current="page"{% endif %}><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="t">{{ d.dept }}</span><span class="n">{{ d.count }}</span></a>{% endfor %}
+      <a class="hb-place {{ 'on' if here and here.dept == d.dept }}" href="/hwp?dept={{ d.dept|urlencode }}" data-place="dept" data-aura="hwp-folder"{% if not main_ %} data-quiet hidden{% endif %}{% if here and here.dept == d.dept %} aria-current="page"{% endif %}><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="t">{{ d.dept }}</span><span class="n">{{ d.count }}</span></a>{% endfor %}
       {% if quiet %}<button type="button" class="hb-place hb-more" data-quiet-toggle aria-expanded="false"><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon><span class="t">빈 부서 폴더</span><span class="n">{{ quiet|length }}</span></button>
       <script>(function () { var b = document.querySelector('[data-quiet-toggle]'); if (!b) return; b.addEventListener('click', function () {
         var open = b.getAttribute('aria-expanded') === 'true'; document.querySelectorAll('[data-quiet]').forEach(function (a) { a.hidden = open; });
@@ -90,13 +90,13 @@
       <div class="hb-head"><span>{% if here.files %}<input type="checkbox" class="hb-pick" data-pick-all aria-label="모두 선택" title="모두 선택">{% endif %}</span><span>이름</span><span>수정일</span><span>수정한 사람</span><span></span></div>
       {% for d in here.folders %}
       <div class="hb-row" data-kind="folder" data-path="{{ d.path }}" role="listitem"><iconify-icon icon="solar:folder-bold" aria-hidden="true"></iconify-icon>
-        <span class="hb-cell"><a class="hb-name" href="/hwp?dept={{ here.dept|urlencode }}&folder={{ d.path|urlencode }}">{{ d.name }}</a><span class="hb-count" title="문서 {{ d.count }}개">{{ d.count }}개</span></span>
+        <span class="hb-cell"><a class="hb-name" href="/hwp?dept={{ here.dept|urlencode }}&folder={{ d.path|urlencode }}" data-aura="hwp-folder">{{ d.name }}</a><span class="hb-count" title="문서 {{ d.count }}개">{{ d.count }}개</span></span>
         <span class="hb-meta"></span><span class="hb-meta"></span><div class="hb-act">{% if here.may_make %}<button type="button" class="hb-ib" data-rename-folder title="이름 바꾸기" aria-label="「{{ d.name }}」 이름 바꾸기"><iconify-icon icon="solar:pen-linear" aria-hidden="true"></iconify-icon></button>{% endif %}{{ star(here.dept, d.path, d.name) }}</div></div>
       {% endfor %}
       {% for f in here.files %}
       {% set deletable = not f.locked or request.state.role == 'dev' %}
       <div class="hb-row" data-kind="file" data-id="{{ f.id }}" role="listitem"><span class="hb-ic"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>{% if deletable %}<input type="checkbox" class="hb-pick" data-pick value="{{ f.id }}" aria-label="「{{ f.name }}」 고르기">{% endif %}</span>
-        <span class="hb-cell">{% if status.ok %}<a class="hb-name" href="/hwp/{{ f.id }}/edit" title="기안기로 열기">{{ f.name }}</a>{% else %}<span class="hb-name">{{ f.name }}</span>{% endif %}</span>
+        <span class="hb-cell">{% if status.ok %}<a class="hb-name" href="/hwp/{{ f.id }}/edit" title="기안기로 열기" data-aura="hwp-file">{{ f.name }}</a>{% else %}<span class="hb-name">{{ f.name }}</span>{% endif %}</span>
         <span class="hb-meta">{{ f.saved }}</span>
         <span class="hb-meta">{% if f.editing %}<span class="hb-lock" title="편집 중인 사람이 닫으면 풀립니다">{{ f.editing }} 편집 중</span>{% else %}{{ f.saved_by or f.owner }}{% endif %}</span>
         <div class="hb-act">
@@ -133,7 +133,7 @@
   <div class="hb-dlg-head"><h2 id="hwTplTitle">양식으로 시작</h2>
     <button type="button" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></button></div>
   <form class="hb-search" data-tpl-search role="search"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
-    <input class="hb-input" type="search" name="q" placeholder="양식 이름" aria-label="양식 이름 찾기" autocomplete="off"></form>
+    <input class="hb-input" type="search" name="q" placeholder="양식 이름" aria-label="양식 이름 찾기" autocomplete="off" data-aura="hwp-tpl-find"></form>
   <div class="hb-tpl-list" data-tpl-list role="listbox" aria-label="양식"></div>
 </div></div>
 {% endif %}

@@ -1,13 +1,12 @@
-{# 떠 있는 업무 도우미 — 모양·동작은 static/aura-helper.css·aura-helper.js. 여기는 틀(단추·창·글 선택 메뉴)만 둔다 #}
+{# 업무 도우미 — 넓은 화면은 오른쪽 옆 패널(열면 본문이 그 폭만큼 좁아진다), 좁은 폭은 아래 시트.
+   모양·동작은 static/aura-helper.css·aura-helper.js. 여기는 틀(여는 단추·패널·글 선택 메뉴)만 둔다 #}
 <link rel="stylesheet" href="/static/aura-helper.css?v={{ asset_v }}">
 <button type="button" class="ag-fab" id="agFab" title="업무 도우미" aria-label="업무 도우미" aria-controls="agPanel" aria-expanded="false">
   <iconify-icon icon="solar:chat-round-line-linear"></iconify-icon></button>
 
-<section class="ag-panel" id="agPanel" role="dialog" aria-labelledby="agTitle" aria-hidden="true" inert
-         data-project="{{ project.id if project is defined and project else '' }}">
-  <div class="ag-rz ag-rz-l" data-rz="l" aria-hidden="true"></div>
-  <div class="ag-rz ag-rz-t" data-rz="t" aria-hidden="true"></div>
-  <div class="ag-rz ag-rz-tl" data-rz="tl" aria-hidden="true"></div>
+<section class="ag-panel" id="agPanel" role="complementary" aria-labelledby="agTitle" aria-hidden="true" inert
+         data-project="{{ project.id if project is defined and project else '' }}" data-who="{{ request.state.user or '' }}">
+  <div class="ag-rz" data-rz title="끌어서 폭 조절" aria-hidden="true"></div>
   <header class="ag-head">
     <button type="button" class="ag-hb" id="agBack" data-tip="대화로" aria-label="대화로 돌아가기" hidden>
       <iconify-icon icon="solar:alt-arrow-left-linear"></iconify-icon></button>
@@ -19,8 +18,6 @@
       <iconify-icon icon="solar:history-linear"></iconify-icon></button>
     <button type="button" class="ag-hb" id="agNew" data-tip="새 대화" aria-label="새 대화">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></button>
-    <button type="button" class="ag-hb ag-only-wide" id="agDock" data-tip="오른쪽에 붙이기" aria-label="오른쪽에 붙이기" aria-pressed="false">
-      <iconify-icon icon="solar:sidebar-minimalistic-linear" style="transform:scaleX(-1)"></iconify-icon></button>
     <button type="button" class="ag-hb" id="agClose" data-tip="닫기 (Esc)" aria-label="닫기">
       <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
   </header>

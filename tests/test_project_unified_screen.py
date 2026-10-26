@@ -126,7 +126,7 @@ def test_reference_share_is_read_only(tmp_path, monkeypatch):
     pa.set_shares(db, pid, "shared", [{"to": "user:lee", "level": "view"}])
     lee = _lee(app)
     page = lee.get(f"/project/{pid}")
-    assert page.status_code == 200 and "참조로 공유된" in page.text
+    assert page.status_code == 200 and 'class="pill project-share-chip"' in page.text and ">읽기만</span>" in page.text
     assert 'aria-label="프로젝트 문서" data-drop-zone' not in page.text and 'name="question"' not in page.text and 'id="noteInput"' not in page.text
     # 쓰기는 서버에서 거절 — 원칙·문서 추가·가져오기·대화 시작
     assert lee.post(f"/project/{pid}/notes", data={"content": "몰래"}, follow_redirects=False).status_code in (403, 404)
@@ -134,13 +134,13 @@ def test_reference_share_is_read_only(tmp_path, monkeypatch):
     assert lee.post(f"/project/{pid}/documents/import", json={"items": [{"source": "dept", "id": f["other"]}]}).status_code in (403, 404)
     assert lee.post("/chat/send", data={"question": "질문", "project_id": str(pid)}, follow_redirects=False).status_code in (403, 404)
     assert db.list_project_notes(pid) == [] and db.list_documents(project_id=pid) == []
-    # 권한 판단 — 참조는 쓰기 못 함, 함께 작업·소유는 쓴다
+    # 권한 판단 — 읽기만은 쓰기 못 함, 함께 작업·소유는 쓴다
     assert pa.can_write("view") is False and pa.can_write("edit") is True
-    assert pa.LEVEL_LABEL == {"view": "참조", "edit": "함께 작업"}
+    assert pa.LEVEL_LABEL == {"view": "읽기만", "edit": "함께 작업"} and pa.DEFAULT_LEVEL == "view"
 
 
 def test_write_guard_answers_403_for_reference_users(tmp_path, monkeypatch):
-    """프로젝트 경로 앞단 검사를 지나 들어온 참조 사용자(라우트 안 검사)는 403."""
+    """프로젝트 경로 앞단 검사를 지나 들어온 읽기만 사용자(라우트 안 검사)는 403."""
     app, pid, kim, _ = _world(tmp_path, monkeypatch)
     from fastapi import HTTPException
     from types import SimpleNamespace
