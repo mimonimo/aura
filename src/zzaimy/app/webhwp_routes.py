@@ -122,10 +122,8 @@ def _file(request: Request, fid: int) -> dict:
 
 
 def work_projects(db, base: Path, f: dict | None, accounts: dict, data_dir=None) -> list[dict]:
-    """이 한글 파일이 작업 문서인 진행 중 프로젝트 — 「작업/<프로젝트 이름>」 폴더(에이전트·복사해 쓰기·양식 작업이 두는 자리)나
-    프로젝트 대화에 이은 파일(webhwp_agent.files_of). 파일을 만든 사람이 지금 그 프로젝트에 쓸 수 있을 때(소유·함께 작업·관리자)만 —
+    """이 한글 파일이 작업 문서인 진행 중 프로젝트 — 「작업/<프로젝트 이름>」 폴더(에이전트·복사해 쓰기·양식 작업이 두는 자리). 파일을 만든 사람이 지금 그 프로젝트에 쓸 수 있을 때(소유·함께 작업·관리자)만 —
     같은 이름의 다른 프로젝트나 공유가 풀린 사람이 둔 파일로 권한이 새지 않게."""
-    import json as _json
 
     from zzaimy.app import project_access as pa
     from zzaimy.app import storage
@@ -139,19 +137,8 @@ def work_projects(db, base: Path, f: dict | None, accounts: dict, data_dir=None)
                 p = dict(r)
                 if storage.safe_name(p.get("name") or "")[:40] == parts[1]:
                     cands[int(p["id"])] = p
-    with db._conn() as conn:
-        rows = conn.execute("SELECT key, value FROM settings WHERE key LIKE 'chat_hwp_files:%' AND value LIKE ?",
-                            (f"%{int(f['id'])}%",)).fetchall()
-    for key, val in rows:
-        try:
-            if int(f["id"]) not in [int(x) for x in _json.loads(val or "[]")]:
-                continue
-            s = db.get_chat_session(int(str(key).split(":", 1)[1]))
-        except (ValueError, TypeError):
-            continue
-        p = db.get_project(int(s["project_id"])) if s and s.get("project_id") else None
-        if p and not p.get("archived"):
-            cands.setdefault(int(p["id"]), p)
+    # 보안: 프로젝트 대화에 이은 파일로는 넓히지 않는다 — 그 대화가 비공개이거나 보는 사람이 못 여는 범위(_covers)일 수 있어,
+    # 대화는 막혀도 거기서 나온 문서가 열리는 구멍이 된다(10-26 보안 점검). 공유로 여는 것은 「작업/<프로젝트>」 폴더의 작업 문서만
     maker = str((webhwp.meta(db, int(f["id"])) or {}).get("owner") or "")
     a = accounts.get(maker) or {}
     out = []
