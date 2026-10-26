@@ -83,7 +83,8 @@ def test_people_and_requests_per_person(tmp_path):
     assert d["requests"][-1]["head"] == "사업 개요 절을 써 줘\n예산은 빼고"
     page = _client(app, "kim").get(f"/project/{pid}/activity").text
     assert "진행 현황" in page and f'href="/chat/{ids["s1"]}"' in page and 'class="project-tabs pa-tabs"' in page
-    assert f'href="/project/{pid}"' in page and 'data-pa-tab="usage"' in page
+    assert f'href="/project/{pid}"' in page and 'id="pa-h-usage"' in page and 'data-pa-tab' not in page
+    assert 'class="pa-stats"' in page and 'data-pa-user="kim"' in page and 'data-pa-day=' in page
 
 
 def test_usage_totals_per_answer_and_legacy(tmp_path):
@@ -130,7 +131,7 @@ def test_summary_saved_and_new_activity_count(tmp_path, monkeypatch):
     db.add_chat(ids["s1"], "user", "추진 체계도")                                                 # 새 요청 하나
     p = {x["user"]: x for x in kim.get(f"/api/project/{pid}/activity").json()["people"]}["kim"]
     assert p["summary"]["new"] == 1
-    assert "새 활동 1건 — 다시 요약" in kim.get(f"/project/{pid}/activity").text
+    assert "새 활동 1건 · 다시 요약" in kim.get(f"/project/{pid}/activity").text
     app.state.activity_client = lambda: _FakeLLM(fail=True)                                       # 모델이 안 닿으면 오류 문구만
     r2 = kim.post(f"/api/project/{pid}/activity/summary", json={"user": "kim"}).json()
     assert r2["ok"] is False and r2["error"]

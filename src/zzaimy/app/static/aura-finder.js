@@ -1,5 +1,6 @@
 /* 공용 디렉터리 창(맥 파인더 꼴) — 부서 폴더·구글 드라이브를 한 창에서 고른다. 열기와 저장이 같은 창을 쓴다.
-   AuraFinder.open({title, accept:'hwp'|'docs', multiple, openLabel, projectFolder:{id,url}, start:'drive', at:{dept,folder}, note})
+   AuraFinder.open({title, accept:'hwp'|'docs', multiple, openLabel, projectFolder:{id,url}, start:'drive'|'recent', at:{dept,folder}, note, recent})
+   recent: true 면 왼쪽 맨 위에 「최근 문서」(기안기로 최근 연 한글 문서, /api/finder/recent)
    → Promise: 취소 null, 고르면 [{source:'dept', id, name, path} | {source:'drive', drive_id, name, mime, path}]
    여러 개 고르기: 줄 앞 동그라미를 누르거나 ⌘/Ctrl·Shift 누르고 클릭. 위 검색은 쓸 수 있는 부서 폴더 전부 + 드라이브.
    AuraFinder.save({title:'다른 이름으로 저장', name:'기본 이름', accept:'hwp', saveLabel, at:{dept,folder}, note, driveNote, onSave})
@@ -84,7 +85,7 @@
           list.append(r);return;
         }
         const r=el('div','af-row');r.dataset.kind='file';r.setAttribute('role','option');r.tabIndex=0;r._item=item;
-        const ck=el('button','af-check');ck.type='button';ck.setAttribute('aria-label','고르기');if(!opts.multiple)ck.hidden=true;
+        const ck=el('button','af-check');ck.type='button';ck.setAttribute('aria-label','고르기');if(!opts.multiple){ck.style.visibility='hidden';ck.tabIndex=-1;}/* 한 개 고르기 — 자리는 남겨 칸이 밀리지 않게 */
         ck.onclick=e=>{e.stopPropagation();choose(r,e,true);};
         r.append(ck,icon(fileIcon(item.name,item.mime)),el('span','af-name',stem(item.name)),el('span','af-meta',meta||''));
         r.onclick=e=>choose(r,e,false);
@@ -145,7 +146,14 @@
       // 프로젝트(저장 창, opts.projects) — 고르면 그 프로젝트의 작업 문서로(서버가 곳을 정한다)
       function goProject(p){nowLoc({src:'project',id:p.id,name:p.name});markSide('project:'+p.id);crumbs([{name:p.name}]);
         busy('프로젝트 「'+p.name+'」 의 작업 문서로 넣습니다');locOk=true;paintSel();}
-      const goLoc=l=>l.src==='dept'?goDept(l.dept,l.folder):l.src==='drive'?goDrive(l.drive,l.folder,l.trail,l.rootName):l.src==='project'?goProject(l):search(l.text);
+      async function goRecent(){
+        nowLoc({src:'recent'});markSide('recent');crumbs([{name:'최근 문서'}]);busy('불러오는 중…');
+        let j;try{j=await api('/api/finder/recent');}catch(e){busy(e.message);return;}
+        if(!d.open)return;list.replaceChildren();
+        (j.files||[]).forEach(f=>{const at=[f.label||f.dept,...(f.folder?f.folder.split('/'):[])].join(' › ');fileRow({source:'dept',id:f.id,name:f.name,path:at},[at,f.saved].filter(Boolean).join(' · '));});
+        if(!(j.files||[]).length)busy('최근 연 문서가 없습니다');
+      }
+      const goLoc=l=>l.src==='dept'?goDept(l.dept,l.folder):l.src==='drive'?goDrive(l.drive,l.folder,l.trail,l.rootName):l.src==='project'?goProject(l):l.src==='recent'?goRecent():search(l.text);
       back.onclick=()=>{const l=hist.pop();if(l)goLoc(l);};
       if(q){
         let timer=0;
@@ -202,13 +210,14 @@
       paintSel();
       if(!saving&&opts.note)say(opts.note);
       // 왼쪽 — 부서 폴더(쓸 수 있는 곳), 구글 드라이브(내 드라이브·공유 드라이브·이 프로젝트 폴더)
+      if(opts.recent&&!saving)side.append(sideBtn('최근 문서','solar:clock-circle-linear',()=>goRecent(),'recent'));
       side.append(el('p','af-group','부서 폴더'));
       const anchor=el('span');side.append(anchor);
       let my=null,drivesAdded=false;
       function addDrives(list_){if(drivesAdded||!my)return;drivesAdded=true;drives=list_||[];drives.slice().reverse().forEach(x=>my.after(sideBtn(x.name,'solar:users-group-rounded-linear',()=>goDrive(x.id,'',[]),'drive:'+x.id)));if(loc&&loc.src==='drive')markSide(loc.rootName==='프로젝트 폴더'?'drive:project':'drive:'+(loc.drive||'my'));}
       const at0=opts.at||{};
-      const toDrive=opts.start==='drive';
-      if(toDrive)goDrive('','',[]);else{nowLoc({src:'dept',dept:at0.dept||'',folder:at0.folder||''});busy('불러오는 중…');}
+      const toRecent=opts.recent&&!saving&&opts.start==='recent',toDrive=opts.start==='drive'||toRecent;   // 최근 문서로 시작해도 부서 폴더 첫 화면은 그리지 않는다
+      if(toRecent)goRecent();else if(opts.start==='drive')goDrive('','',[]);else{nowLoc({src:'dept',dept:at0.dept||'',folder:at0.folder||''});busy('불러오는 중…');}
       api('/api/hwp/browse?dept='+encodeURIComponent(at0.dept||'')+'&folder='+encodeURIComponent(at0.folder||'')).catch(e=>{if(!toDrive)busy(e.message);return null;}).then(first=>{
         if(!d.open)return;
         ((first&&first.depts)||[]).forEach(x=>anchor.before(sideBtn(x.label||x.dept,x.dept.startsWith('~')?'solar:user-rounded-linear':'solar:folder-with-files-linear',()=>goDept(x.dept,''),'dept:'+x.dept)));
@@ -220,7 +229,7 @@
         const fid=pf.id||((String(pf.url||'').match(/folders\/([A-Za-z0-9_-]{10,128})/)||[])[1]);
         if(fid)side.append(sideBtn('프로젝트 폴더','solar:folder-cloud-linear',()=>goDrive('',fid,[],'프로젝트 폴더'),'drive:project'));
         else if(pf.url){const a=el('a','af-place');a.href=pf.url;a.target='_blank';a.rel='noopener';a.append(icon('solar:folder-cloud-linear'),el('span',null,'프로젝트 폴더 ↗'));side.append(a);}
-        if(toDrive)markSide('drive:'+(loc&&loc.drive||'my'));
+        if(toRecent)markSide('recent');else if(toDrive)markSide('drive:'+(loc&&loc.drive||'my'));
         else if(first)goDept(at0.dept||'',at0.folder||'',first);
         api('/api/finder/drive?accept='+opts.accept).then(j=>addDrives(j.drives||[])).catch(()=>{});
       });

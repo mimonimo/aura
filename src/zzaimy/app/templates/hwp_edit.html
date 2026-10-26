@@ -143,6 +143,7 @@
 <header class="bar">
   {% if embed %}<button type="button" class="back" data-embed="list" title="대화의 문서 목록으로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>목록</button>{% endif %}
   {% if not embed %}<a class="back" href="{{ back }}" title="한글 문서함으로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon>문서함</a>{% endif %}
+  {% if not embed %}<button type="button" class="btn tools-btn" data-open-other title="다른 문서 열기 — 최근 문서·내 폴더·부서 폴더·드라이브"><iconify-icon icon="solar:folder-open-linear" aria-hidden="true"></iconify-icon><span class="label-long">열기</span></button>{% endif %}
   <div class="doc">
     {% if f and not readonly %}<button type="button" class="name" data-name title="눌러서 이름 바꾸기">{{ f.name }}</button>
     {% elif f %}<span class="name" data-name title="{{ f.name }}">{{ f.name }}</span>
@@ -234,6 +235,31 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.querySelector('[data-embed=full][aria-pressed=true]')) { try { parent.postMessage({aura: 'hwp', act: 'full'}, location.origin); } catch (x) {} } });
   document.querySelectorAll('[data-embed]').forEach(function (b) {
     b.onclick = function () { try { parent.postMessage({aura: 'hwp', act: b.getAttribute('data-embed')}, location.origin); } catch (e) {} };
+  });
+  // ── 다른 문서 열기 ── 문서함으로 돌아가지 않고 공용 파일 창(AuraFinder.open)에서 골라 이 화면에서 바로 연다.
+  // 편집기를 못 불러온 때도 쓸 수 있게 편집기 준비보다 먼저 건다. 부서 폴더 문서는 그 문서로 옮겨 가고, 드라이브 한글 파일은 지금 폴더(양식이면 사본 자리)로 받아서 연다
+  var openOther = document.querySelector('[data-open-other]'), opening = false;
+  if (openOther) openOther.addEventListener('click', function () {
+    if (opening || !window.AuraFinder || typeof window.AuraFinder.open !== 'function') return;
+    opening = true;
+    var cp = {{ (copy_at or {}) | tojson }}, into = readonly ? {dept: cp.dept || '', folder: cp.folder || ''} : {dept: dept, folder: folder || ''};
+    window.AuraFinder.open({title: '문서 열기', accept: 'hwp', openLabel: '열기', recent: true, start: 'recent', at: {dept: dept, folder: folder || ''}})
+      .then(function (picked) {
+        opening = false;
+        var it = picked && picked[0];
+        if (!it) return;
+        say('여는 중', 'busy');
+        var go = function () {
+          if (it.source === 'drive') {
+            var fm = document.createElement('form'); fm.method = 'post'; fm.action = '/hwp/drive/import'; fm.hidden = true;
+            [['file_id', it.drive_id], ['dept', into.dept], ['folder', into.folder]].forEach(function (kv) {
+              var i = document.createElement('input'); i.type = 'hidden'; i.name = kv[0]; i.value = kv[1]; fm.append(i); });
+            document.body.append(fm); fm.submit();
+          } else if (it.id !== fid) location.href = '/webhwpctrl/aura-edit?id=' + encodeURIComponent(it.id);
+          else say('지금 연 문서입니다', 'ok');
+        };
+        (eng && !isNew ? eng.flush() : Promise.resolve()).then(go, go);
+      }, function () { opening = false; });
   });
   // 편집기를 못 불러오면 알린다 — 스크립트가 안 왔거나 기안기 서버가 답하지 않으면 바로, 그 밖에는 90초 안에 뜨지 않을 때
   var built = false;

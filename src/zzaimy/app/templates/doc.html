@@ -301,7 +301,6 @@
     <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>
       검토 의견은 아직 없지만 색인·분류는 끝났습니다. 직접 판정할 수 있습니다.</span></p>
     {% endif %}
-    <p class="muted">검토 결과를 확인한 뒤 판정하거나 재검토를 요청하세요.</p>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <form action="/doc/{{ doc.id }}/decision" method="post">
         <input type="hidden" name="decision" value="approved">

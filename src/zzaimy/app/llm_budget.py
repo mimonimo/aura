@@ -282,6 +282,30 @@ def _note_usage(client, fitted: list[dict], messages: list[dict], max_tokens: in
         d["items"].append({"label": name, "group": group_of(name), "in": n, "out": int(max_tokens), "limit": d["limit"], "trimmed": trimmed})
 
 
+# create_fitted 가 이미 적은 호출 — 연결의 생성 호출 감싸개(generate/client)가 같은 호출을 한 번 더 세지 않게
+_NOTED: contextvars.ContextVar[bool] = contextvars.ContextVar("llm_noted", default=False)
+
+
+def note_direct(client, messages, max_tokens) -> None:
+    """create_fitted 를 거치지 않은 모델 호출(문서 편집 계획·질문 읽기·검색어 넓히기 등)도 사용 기록에 더한다.
+    연결의 생성 호출 감싸개가 부른다 — track() 이 없거나 create_fitted 안이면 아무것도 하지 않는다."""
+    if _USAGE.get() is None or _NOTED.get():
+        return
+    msgs = [m for m in (messages or []) if isinstance(m, dict)]
+    try:
+        _note_usage(client, msgs, msgs, int(max_tokens or 0))
+    except Exception:                                    # 기록 실패로 답이 멈추면 안 된다
+        pass
+
+
+def _send(client, fitted, mt, kw):
+    tok = _NOTED.set(True)
+    try:
+        return client.client.chat.completions.create(model=client.model, messages=fitted, max_tokens=mt, **kw)
+    finally:
+        _NOTED.reset(tok)
+
+
 def create_fitted(client, messages: list[dict], max_tokens: int, cuts: list[Cut] | None = None, *, floor: int = 512,
                   on_fitted=None, **kw):
     """fit_messages 로 줄여 보낸다. 그래도 서버가 한도 초과로 거절하면 실측으로 보정해 한 번만 다시 줄여 보낸다.
@@ -291,14 +315,14 @@ def create_fitted(client, messages: list[dict], max_tokens: int, cuts: list[Cut]
         on_fitted(fitted)
     _note_usage(client, fitted, messages, mt)
     try:
-        return client.client.chat.completions.create(model=client.model, messages=fitted, max_tokens=mt, **kw)
+        return _send(client, fitted, mt, kw)
     except Exception as e:
         if not note_overflow(client, fitted, e):
             raise
     fitted, mt = fit_messages(client, messages, max_tokens, cuts, floor=floor)
     if on_fitted:
         on_fitted(fitted)
-    return client.client.chat.completions.create(model=client.model, messages=fitted, max_tokens=mt, **kw)
+    return _send(client, fitted, mt, kw)
 
 
 def reset_cache() -> None:

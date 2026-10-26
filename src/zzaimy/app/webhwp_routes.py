@@ -221,6 +221,36 @@ def _touch(request: Request, dept: str, folder: str) -> None:
         logging.getLogger("zzaimy.app.webhwp").exception("최근 폴더 기록 실패")
 
 
+_RECENT_FILES_MAX = 20
+
+
+def recent_files(request: Request) -> list[int]:
+    """최근 연 문서 id(새것 먼저) — 사람마다 설정 키 하나. 지금 열 수 있는지는 쓰는 쪽(/api/finder/recent)이 다시 본다."""
+    import json as _json
+    user = getattr(request.state, "user", "")
+    if not user:
+        return []
+    try:
+        raw = _json.loads(request.app.state.db.get_setting(_place_key("recent_files", user), "[]") or "[]")
+    except ValueError:
+        return []
+    return [int(x) for x in raw if isinstance(x, int)] if isinstance(raw, list) else []
+
+
+def _touch_file(request: Request, fid: int) -> None:
+    """기안기로 연 문서를 최근 문서 맨 앞에 — 파일 창의 「최근 문서」 가 읽는다."""
+    import json as _json
+    user = getattr(request.state, "user", "")
+    if not user:
+        return
+    try:
+        items = [fid, *[x for x in recent_files(request) if x != fid]][:_RECENT_FILES_MAX]
+        request.app.state.db.set_setting(_place_key("recent_files", user), _json.dumps(items))
+    except Exception:                                                   # 기록 실패로 편집 화면이 멈추면 안 된다
+        import logging
+        logging.getLogger("zzaimy.app.webhwp").exception("최근 문서 기록 실패")
+
+
 def _side_places(request: Request, depts: list[str], here: dict | None) -> tuple[list[dict], list[dict]]:
     favs = _place_view(request, depts, _places(request, "fav"))
     fav_keys = {(x["dept"], x["folder"]) for x in favs}
@@ -875,6 +905,7 @@ def hwp_edit_page(request: Request, id: int | None = None, dept: str = "", folde
     st = request.app.state
     if id is not None:
         f = _file(request, id)
+        _touch_file(request, int(id))
         ctx = {"f": f, "dept": webhwp.dept_of_path(_base(request), f["path"]),
                "folder": webhwp.folder_of(_base(request), f["path"]), "meta": webhwp.meta(st.db, id),
                "readonly": webhwp.locked(st.db, id) and getattr(request.state, "role", "") != "dev"}

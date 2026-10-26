@@ -4618,7 +4618,7 @@ def create_app(
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, ok: str = "", err: str = ""):
-        """내 설정 — 프로필·응답 지침·비밀번호·구글 계정을 한 화면에서."""
+        """내 설정 — 프로필·비밀번호·구글 계정을 한 화면에서. 편집기는 기본 웹 한글 기안기(대화 문서 창에서 바꾼다)."""
         uid = getattr(request.state, "user", "") or ""
         acct = accounts.get(uid, {}) if password is not None else {}
         is_student = request.state.role == "student"          # 학생은 비밀번호 변경만(프로필·편집기·구글 계정 없음)
@@ -4633,11 +4633,7 @@ def create_app(
                           "name_locked": password is not None and _people.name_locked(uid, accounts),
                           "google": None if is_student else _user_admin_status(request), "ok": ok, "err": err,
                           "gimport": gst, "gimport_folder": _gimport.FOLDER_NAME,
-                          "gimport_minutes": _gimport.interval_minutes(), "gimport_stalled": _gimport.stalled(gst),
-                          # 문서 편집기 고르기(구글 문서 · 웹 한글 기안기) — 교직원·관리자만
-                          **({"editor": _webhwp.editor_of(db, uid), "editors": _webhwp.EDITORS,
-                              "editor_ok": _webhwp.status()["ok"]}
-                             if request.state.role in ("dev", *_ap.STAFF_ROLES) else {})}),
+                          "gimport_minutes": _gimport.interval_minutes(), "gimport_stalled": _gimport.stalled(gst)}),
         )
 
     @app.post("/account/google/import")

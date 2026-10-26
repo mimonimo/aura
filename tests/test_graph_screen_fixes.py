@@ -213,7 +213,7 @@ def test_archived_page_defaults_to_all_and_korean_states(tmp_path):
     assert _login(c, "zzaimy", "boot-pass-1")
     html = c.get("/projects/archived").text
     assert 'value="all" checked' in html and "진행 중 사업" in html and ">보관<" not in html
-    assert "여기서 연결해도 원래 자료는 바뀌지 않습니다." in html and "문서 보기" in html and "자료 보기" not in html
+    assert "원래 자료는 바뀌지 않습니다" not in html and "문서 보기" in html and "자료 보기" not in html
     # 보관된 묶음 화면에는 입력줄이 없다 — 빈 대화 안내도 입력줄을 가리키지 않는다
     page = c.get(f"/project/{pid}").text
     assert "위 입력줄에서" not in page and "보관 해제 뒤 대화를 시작할 수 있습니다" in page

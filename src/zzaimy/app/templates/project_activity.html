@@ -8,50 +8,50 @@
 <div id="projectWorkspace" class="pa-root" data-project="{{ project.id }}">
 {% set head_tab = 'activity' %}{% include "_project_head.html" %}
 
-<div class="pa-subtabs" role="tablist" aria-label="진행 현황">
-  <button type="button" role="tab" data-pa-tab="people" aria-selected="true">참여자 <span>{{ a.people|length }}</span></button>
-  <button type="button" role="tab" data-pa-tab="requests" aria-selected="false" tabindex="-1">요청 기록 <span>{{ a.requests|length }}</span></button>
-  <button type="button" role="tab" data-pa-tab="usage" aria-selected="false" tabindex="-1">사용량</button>
-  <button type="button" role="tab" data-pa-tab="summary" aria-selected="false" tabindex="-1">작업 요약</button>
+{% set u = a.usage %}
+{% set docs_total = a.people | sum(attribute='docs') %}
+{# 위 요약 수치 — 늘 지금 값(collect 가 대화·메시지·설정에서 센다) #}
+<div class="pa-stats" role="list" aria-label="요약">
+  <div class="pa-stat" role="listitem"><span class="pa-stat-k">요청</span><b class="pa-stat-v">{{ num(a.requests|length) }}</b><span class="pa-stat-s">답 {{ num(a.people | sum(attribute='answers')) }}</span></div>
+  <div class="pa-stat" role="listitem"><span class="pa-stat-k">참여자</span><b class="pa-stat-v">{{ num(a.people|length) }}</b><span class="pa-stat-s">{% if a.share_mode == 'implicit' %}담당자 부서 공개{% elif not a.shared_to %}담당자만{% else %}공유 {{ a.shared_to|length }}곳{% endif %}</span></div>
+  <div class="pa-stat" role="listitem"><span class="pa-stat-k">작업 문서</span><b class="pa-stat-v">{{ num(docs_total) }}</b><span class="pa-stat-s">대화 {{ num(a.people | sum(attribute='sessions')) }}개</span></div>
+  <div class="pa-stat" role="listitem"><span class="pa-stat-k">사용량</span><b class="pa-stat-v">{{ num(u.per_user | sum(attribute='prompt')) }}</b><span class="pa-stat-s">입력 토큰 · 호출 {{ num(u.per_user | sum(attribute='calls')) }}</span></div>
 </div>
 
-{# 1) 참여자 #}
-<section class="pa-panel" id="pa-people" role="tabpanel">
-  <p class="pa-note">{% if a.share_mode == 'implicit' %}담당자 부서 사람들이 봅니다(공유를 따로 정하지 않음){% elif not a.shared_to %}담당자만 봅니다{% else %}함께 보는 곳 · {% for s in a.shared_to %}{{ s.to }}({{ s.kind }}·{{ s.level }}){% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>
-  <div class="pa-list">
-    <div class="pa-row pa-head-row"><span class="pa-name">사람</span><span class="pa-num">요청</span><span class="pa-num">사용량</span><span class="pa-num">작업 문서</span><span class="pa-when">마지막 활동</span></div>
+<div class="pa-grid">
+{# 참여자 — 누르면 그 사람으로 요청 기록을 거른다(다시 누르면 모두) #}
+<section class="pa-box pa-people" aria-labelledby="pa-h-people">
+  <header class="pa-box-head"><h2 id="pa-h-people">참여자</h2><span class="pa-count">{{ a.people|length }}</span></header>
+  <div class="pa-people-list">
     {% for p in a.people %}
-    <div class="pa-row">
-      <span class="pa-name"><b class="pa-who">{{ p.name }}</b>{% if p.name != p.user %} <span class="pa-sub">{{ p.user }}</span>{% endif %}
-        {% for r in p.roles %}<span class="pa-tag{% if r == '예전 공유' %} old{% endif %}">{{ r }}</span>{% endfor %}
-        {% if p.dept %}<span class="pa-sub">{{ p.dept }}</span>{% endif %}</span>
-      <span class="pa-num">{{ num(p.requests) }}</span>
-      <span class="pa-num">{{ num(p.tokens) }}</span>
-      <span class="pa-num">{{ p.docs }}</span>
-      <span class="pa-when">{{ (p.last or '')[:16].replace('T', ' ') or '—' }}</span>
-    </div>
+    <button type="button" class="pa-person" data-pa-user="{{ p.user }}" aria-pressed="false" title="{{ p.name }} 요청만 보기">
+      <span class="pa-avatar" aria-hidden="true">{{ p.name[:1] }}</span>
+      <span class="pa-person-main">
+        <span class="pa-person-top"><b class="pa-who">{{ p.name }}</b>{% for r in p.roles %}<span class="pa-tag{% if r == '예전 공유' %} old{% endif %}">{{ r }}</span>{% endfor %}</span>
+        <span class="pa-sub">{{ p.dept or p.user }} · 마지막 활동 {{ (p.last or '')[:16].replace('T', ' ') or '없음' }}</span>
+      </span>
+      <span class="pa-person-n"><b>{{ num(p.requests) }}</b><span class="pa-sub">요청</span></span>
+    </button>
     {% else %}
     <p class="pa-empty">아직 참여한 사람이 없습니다.</p>
     {% endfor %}
   </div>
-  <p class="pa-note">요청·사용량·작업 문서는 내가 읽을 수 있는 대화만 셉니다. 비공개 대화는 빠집니다.</p>
 </section>
 
-{# 2) 요청 기록 #}
-<section class="pa-panel" id="pa-requests" role="tabpanel" hidden>
-  <div class="pa-filter">
-    <div class="pa-chips" role="group" aria-label="사람으로 거르기">
-      <button type="button" class="pa-chip" data-pa-user="" aria-pressed="true">모두</button>
-      {% for p in a.people if p.requests %}<button type="button" class="pa-chip" data-pa-user="{{ p.user }}" aria-pressed="false">{{ p.name }} <span>{{ p.requests }}</span></button>{% endfor %}
-    </div>
-    <input type="search" class="pa-search" id="paSearch" placeholder="요청·대화 제목에서 찾기" aria-label="요청 찾기">
-  </div>
-  <div class="pa-list" id="paRequests">
+{# 요청 기록 — 사람·찾기로 거르고 날짜로 묶는다 #}
+<section class="pa-box pa-requests" aria-labelledby="pa-h-req">
+  <header class="pa-box-head"><h2 id="pa-h-req">요청 기록</h2><span class="pa-count" id="paReqCount">{{ a.requests|length }}</span>
+    <span class="pa-who-on" id="paWho" hidden><span data-pa-who-name></span><button type="button" class="pa-x" data-pa-who-clear aria-label="사람 거르기 풀기">×</button></span>
+    <input type="search" class="pa-search" id="paSearch" placeholder="요청·대화 제목에서 찾기" aria-label="요청 찾기"></header>
+  <div class="pa-req-list" id="paRequests">
+    {% set ns = namespace(day='') %}
     {% for r in a.requests %}
-    <a class="pa-row pa-req" href="/chat/{{ r.session }}" data-user="{{ r.user }}" data-text="{{ (r.title ~ ' ' ~ r.text)|lower }}">
+    {% if r.at[:10] != ns.day %}{% set ns.day = r.at[:10] %}<p class="pa-day" data-pa-day="{{ ns.day }}">{{ ns.day or '날짜 없음' }}</p>{% endif %}
+    <a class="pa-req" href="/chat/{{ r.session }}" data-user="{{ r.user }}" data-day="{{ r.at[:10] }}" data-text="{{ (r.title ~ ' ' ~ r.text)|lower }}">
+      <span class="pa-avatar sm" aria-hidden="true">{{ r.name[:1] }}</span>
       <span class="pa-req-main"><span class="pa-req-top"><span class="pa-req-title">{{ r.title }}</span><span class="pa-sub">{{ r.name }}</span></span>
         <span class="pa-req-head">{{ r.head }}</span></span>
-      <span class="pa-when">{{ r.at }}</span>
+      <span class="pa-when">{{ r.at[11:16] }}</span>
     </a>
     {% else %}
     <p class="pa-empty">아직 요청이 없습니다.</p>
@@ -60,40 +60,33 @@
   </div>
 </section>
 
-{# 3) 사용량 #}
-<section class="pa-panel" id="pa-usage" role="tabpanel" hidden>
-  {% set u = a.usage %}
-  {% if not u.answers %}
-  <p class="pa-empty">아직 기록된 사용량이 없습니다. 답을 받으면 답마다 모델 호출 수와 보낸 양이 남습니다.</p>
-  {% else %}
-  {% for title, rows in [('사람별', u.per_user), ('날짜별', u.per_day)] %}
-  <h3 class="pa-h">{{ title }}</h3>
-  <div class="pa-list">
-    <div class="pa-row pa-head-row"><span class="pa-name">{{ '사람' if loop.first else '날짜' }}</span><span class="pa-bar-cell">입력 합</span><span class="pa-num">답</span><span class="pa-num">호출</span><span class="pa-num pa-wide">가장 큰 호출 / 한도</span><span class="pa-num">줄임</span></div>
-    {% for r in rows %}
-    <div class="pa-row">
-      <span class="pa-name">{{ r.name if r.name is defined else r.key }}</span>
+{# 사용량 — 사람별·날짜별, 기간은 화면에서 다시 묶는다(답 하나씩 기록 u.records) #}
+<section class="pa-box pa-usage" aria-labelledby="pa-h-usage">
+  <header class="pa-box-head"><h2 id="pa-h-usage">사용량</h2>
+    <div class="pa-seg" role="group" aria-label="묶는 방식"><button type="button" data-pa-by="user" aria-pressed="true">사람별</button><button type="button" data-pa-by="day" aria-pressed="false">날짜별</button></div>
+    <select class="pa-period" id="paPeriod" aria-label="기간"><option value="0">전체 기간</option><option value="7">최근 7일</option><option value="30">최근 30일</option></select></header>
+  <div class="pa-usage-list" id="paUsage" data-records='{{ u.records | tojson }}' data-names='{{ u.names | tojson }}' data-top="{{ u.top }}">
+    {% if not u.answers %}<p class="pa-empty">아직 기록된 사용량이 없습니다.</p>
+    {% else %}
+    <div class="pa-urow pa-uhead"><span>사람</span><span>입력 합</span><span class="n">답</span><span class="n">호출</span><span class="n">줄임</span></div>
+    {% for r in u.per_user %}
+    <div class="pa-urow"><span class="pa-uname">{{ r.name }}</span>
       <span class="pa-bar-cell"><span class="pa-bar"><i style="width:{{ ((r.prompt / u.top * 100) if u.top else 0)|round(1) }}%"></i></span><span class="pa-sub">{{ num(r.prompt) }}</span></span>
-      <span class="pa-num">{{ r.answers }}</span>
-      <span class="pa-num">{{ r.calls }}</span>
-      <span class="pa-num pa-wide">{{ num(r.peak) }} / {{ num(r.limit) if r.limit else '—' }}</span>
-      <span class="pa-num">{{ r.trimmed }}</span>
-    </div>
+      <span class="n">{{ r.answers }}</span><span class="n">{{ r.calls }}</span><span class="n">{{ r.trimmed }}</span></div>
     {% endfor %}
+    {% endif %}
   </div>
-  {% endfor %}
-  <p class="pa-note">입력 합은 모델에 보낸 글의 양입니다. 줄임은 한 번에 보낼 수 있는 양을 넘어 오래된 대화·자료를 덜어 낸 답 수입니다.
-    {% if u.legacy %}이전 기록은 대화별 마지막 답만 남아 있어 {{ u.legacy }}개 대화는 한 건씩만 셉니다.{% endif %}</p>
-  {% endif %}
+  {% if u.legacy %}<p class="pa-foot">이전 기록은 대화별 마지막 답만 남아 있어 {{ u.legacy }}개 대화는 한 건씩만 셉니다.</p>{% endif %}
 </section>
 
-{# 4) 작업 요약 #}
-<section class="pa-panel" id="pa-summary" role="tabpanel" hidden>
+{# 작업 요약 — 사람별 카드 #}
+<section class="pa-box pa-summary" aria-labelledby="pa-h-sum">
+  <header class="pa-box-head"><h2 id="pa-h-sum">작업 요약</h2></header>
   <div class="pa-cards">
   {% for p in a.people if p.requests %}
     <div class="pa-card" data-pa-summary="{{ p.user }}">
-      <div class="pa-card-head"><b class="pa-who">{{ p.name }}</b><span class="pa-sub">요청 {{ p.requests }}건{% if p.docs %} · 작업 문서 {{ p.docs }}건{% endif %}</span>
-        <button type="button" class="pa-btn" data-pa-make="{{ p.user }}">{% if p.summary and p.summary.new %}새 활동 {{ p.summary.new }}건 — 다시 요약{% elif p.summary %}다시 요약{% else %}요약 만들기{% endif %}</button></div>
+      <div class="pa-card-head"><span class="pa-avatar sm" aria-hidden="true">{{ p.name[:1] }}</span><b class="pa-who">{{ p.name }}</b><span class="pa-sub">요청 {{ p.requests }}{% if p.docs %} · 문서 {{ p.docs }}{% endif %}</span>
+        <button type="button" class="btn-ghost pa-btn" data-pa-make="{{ p.user }}">{% if p.summary and p.summary.new %}새 활동 {{ p.summary.new }}건 · 다시 요약{% elif p.summary %}다시 요약{% else %}요약 만들기{% endif %}</button></div>
       <div class="pa-card-body" data-pa-text>{% if p.summary %}{{ p.summary.text }}{% else %}<span class="pa-sub">아직 요약이 없습니다.</span>{% endif %}</div>
       <div class="pa-sub" data-pa-at>{% if p.summary %}{{ p.summary.at }} 요약 · 요청 {{ p.summary.n }}건 기준{% endif %}</div>
     </div>
@@ -101,7 +94,7 @@
     <p class="pa-empty">요약할 요청이 아직 없습니다.</p>
   {% endfor %}
   </div>
-  <p class="pa-note">요약은 요청·답 첫 줄·작업 문서 이름·작업 메모를 모아 모델이 만듭니다. 사실 확인은 대화에서 합니다.</p>
 </section>
+</div>
 </div>
 {% endblock %}
