@@ -658,7 +658,8 @@ class FormCreator:
         hw = self.hw
         name = re.sub(r"[\\/:*?\"<>|]", " ", str(a.get("title") or clean["title"]).strip())[:60] or "새 양식"
         folder = f"작업/{storage.safe_name(hw.project['name'])[:40]}" if hw.project else "작업"
-        fid = webhwp.add(self.db, hw.base, hw.dept, f"{name}.hwpx", data, owner=hw.owner, source="양식생성", folder=folder)
+        fid = webhwp.add(self.db, hw.base, hw.dept, f"{name}.hwpx", data, owner=hw.owner, source="양식생성", folder=folder,
+                         project=int(hw.project["id"]) if hw.project and hw.project.get("id") else None)
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
         m["form_design"] = {**clean, "shape": shape(clean), "at": time.time()}

@@ -355,29 +355,55 @@ def pending(db, session_id: int) -> list[dict]:
             for p in load(db, session_id) if p.get("status") == "pending"]
 
 
-# 마지막 단추를 시키는 말인지 — 사람이 친 글에서만 본다. 묻는 말(어떻게·방법)과 막는 말(하지 마·말고)이 붙으면 시킨 것이 아니다
-_ASKING = re.compile(r"어떻게|방법|하는\s*법|어디서|어디에서|뭐야|무슨\s*뜻")
-_NOT = re.compile(r"^\s*(지\s*마|지\s*말|지\s*않|말고|면\s*안|선\s*안|싶지\s*않)")
+# 마지막 단추를 시키는 말인지 — 사람이 친 글에서만 본다. 묻는 말(어떻게·방법·…까요·물음표)과 막는 말(하지 마·말고·안 돼)이 붙으면,
+# 또 동사가 시키는 꼴로 끝나지 않으면(「만들어 둔 프로젝트」·「저장해도 돼?」) 시킨 것이 아니다 — 모르면 누르지 않는 쪽(가리키기만)으로
+_ASKING = re.compile(r"어떻게|방법|하는\s*법|어디서|어디에서|뭐야|무슨\s*뜻|[?？]|까요|을까|ㄹ까|할까|될까|되나|나요|는지|은지|인가|건가|던가")
+_NOT = re.compile(r"지\s*마|지\s*말|말고|말아|말구|않|안\s*[해돼되하누눌]|면\s*안|선\s*안|서는\s*안|금지|필요\s*없|없이|못|멈춰|취소")
+_CLAUSE_END = re.compile(r"[.!。\n]|그리고|다음에|그다음|그\s*뒤")
+# 시키는 활용형(…해·…어·…려) 뒤에 올 수 있는 말 — 바로 끝나거나(줘·주세요 같은 도움말 하나까지) 다음 일로 이어질 때만
+_ORDER_TAIL = re.compile(r"\s*(?:줘요|줘|주세요|주십시오|주시고|주시오|줄래요|줄래|주라|주고|요|라|봐요|봐|놔|둬요|둬|버려|놓고|두고)?"
+                         r"\s*(?:$|[.!,~。\n]|그리고|다음에|그다음|하고\b)")
 
 
 def commanded(said: str, verbs: tuple[str, ...] | list[str]) -> bool:
     """담당자가 이번 요청에서 그 마지막 단추를 누르라고 시켰는가 — verbs(안내 자료 Task 에 적은 활용형) 가운데 하나가 글에 있고,
-    그 뒤에 막는 말이 붙지 않았고, 글 전체가 쓰는 법을 묻는 꼴이 아닐 때만. 모델 판단과 상관없이 서버가 본다."""
+    시키는 꼴로 끝나며(이어 주는 꼴 …하고·…까지 는 그대로), 그 말 마디 안에 막는 말이 없고, 글 전체가 묻는 꼴이 아닐 때만.
+    모델 판단과 상관없이 서버가 본다. said 는 담당자가 이번에 직접 친 글뿐이다(Ctx.said — 고른 글·문서·검색 결과는 들어오지 않는다)."""
     text = " ".join(str(said or "").split())
     if not text or not verbs or _ASKING.search(text):
         return False
     for v in verbs:
+        v = " ".join(str(v or "").split())
+        if not v:
+            continue
         at = text.find(v)
         while at >= 0:
-            if not _NOT.match(text[at + len(v):at + len(v) + 6]):
+            rest = text[at + len(v):]
+            end = _CLAUSE_END.search(rest)
+            clause = rest[:end.start()] if end else rest
+            joins = v.endswith(("고", "까지"))           # 이어 주는 꼴 — 뒤에 다른 일이 온다
+            if not _NOT.search(clause[:24]) and (joins or _ORDER_TAIL.match(rest)):
                 return True
             at = text.find(v, at + 1)
     return False
 
 
+# 화면 주소 — 우리 화면 경로만(맨 앞 / 하나, 빈·점 마디·역슬래시·퍼센트·콜론 없음). //바깥 주소·/\바깥 주소·javascript: 같은 것은 버린다
+_SAFE_PATH = re.compile(r"/(?:[\w\-]+(?:\.[\w\-]+)*(?:/[\w\-]+(?:\.[\w\-]+)*)*)?")
+
+
+def safe_path(path: str) -> bool:
+    return bool(_SAFE_PATH.fullmatch(str(path or "")))
+
+
 def _page_of(path: str):
     """열 화면 — 안내 자료의 화면. 프로젝트(/project/번호)는 있는 프로젝트일 때만(볼 권한은 그 화면이 다시 본다)."""
     from zzaimy.app import platform_guide
+    path = str(path or "")
+    if len(path) > 1:
+        path = path.rstrip("/")
+    if not safe_path(path):                               # 열린 리다이렉트 막기 — 「//바깥」 이 「/」(라이브러리) 아래로 맞춰지던 것(10-27 보안 점검)
+        return None, path
     p = platform_guide.page_for(path)
     if p is None:
         return None, path

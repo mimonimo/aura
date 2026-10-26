@@ -15,6 +15,13 @@
   var chatView = $("agChatView"), histView = $("agHistView"), histList = $("agHistList"), histFind = $("agHistFind");
   var newBtn = $("agNew"), histBtn = $("agHist");
   var pageProject = panel.dataset.project ? Number(panel.dataset.project) : null;
+  var who = panel.dataset.who || "";
+  // 우리 화면 주소만 — 맨 앞 / 하나(「//바깥」·「/\바깥」 아님), 같은 출처. 아니면 빈 값(옮겨 가지 않는다). 서버도 거르지만 화면에서 한 번 더
+  function localUrl(u) {
+    u = String(u || "");
+    if (!/^\/(?![\/\\])/.test(u) || /[\u0000-\u001f\\]/.test(u)) return "";
+    try { var x = new URL(u, location.href); return x.origin === location.origin ? x.pathname + x.search + x.hash : ""; } catch (e) { return ""; }
+  }
 
   function store(kind, key, value) {
     try {
@@ -204,8 +211,8 @@
       return { i: i, sel: x.sel, text: x.text || "", final: !!x.final, ok: ok, what: x.what || "" };
     });
     if (!steps.length && t.selector) steps = [{ i: -1, sel: t.selector, text: "", final: false, ok: false, what: p.label }];
-    return { id: p.kind === "go" ? p.id : "", sid: sid, path: t.path || p.screen, screen: p.screen, anchor: t.anchor || "", label: p.label,
-             here: !!a.here, steps: steps, at: 0, res: [] };
+    return { id: p.kind === "go" ? p.id : "", sid: sid, mode: mode, path: localUrl(t.path || p.screen), screen: localUrl(p.screen),
+             anchor: t.anchor || "", label: p.label, here: !!a.here, steps: steps, at: 0, res: [] };
   }
   function drawProposals(list, allowAuto) {
     var queue = [];
@@ -226,19 +233,19 @@
             .then(function (r) { return r.json().catch(function () { return { ok: false, error: r.status === 403 ? "관리자 계정만 할 수 있는 일입니다" : "실행 결과를 받지 못했습니다" }; }); })
             .then(function (d) {
               if (!d.ok && d.detail) d.error = d.detail;
-              if (d.ok && d.go) { location.href = d.go; return; }
+              if (d.ok && localUrl(d.go)) { location.href = localUrl(d.go); return; }
               if (!d.ok) run.textContent = d.error || "실행하지 못했습니다";
               load();
             })
             .catch(function () { run.disabled = false; run.textContent = "실행"; });
         });
         row.appendChild(run);
-        var direct = document.createElement("a"); direct.href = p.screen; direct.textContent = "화면에서 직접";
+        var direct = document.createElement("a"); direct.href = localUrl(p.screen) || "#"; direct.textContent = "화면에서 직접";
         direct.addEventListener("click", function (ev) { ev.preventDefault(); cursor.run([segOf(p, "point")]); });
         row.appendChild(direct);
       } else {
         // 같은 화면이면 「○○ 열기」 대신 「여기서 하기」, 다른 화면이면 「○○ 열기」 — 사람이 누르면 열기·칸 채우기까지 한다
-        var go = document.createElement("a"); go.href = p.screen;
+        var go = document.createElement("a"); go.href = localUrl(p.screen) || "#";
         go.textContent = sameHere ? "여기서 하기" : p.label;
         go.addEventListener("click", function (ev) { ev.preventDefault(); markDone(p.id); cursor.run([segOf(p, "go")]); });
         var finalWait = steps.some(function (x) { return x.final && !x.ok; });
@@ -596,7 +603,11 @@
     function nameOf(x) { return (x.getAttribute("aria-label") || x.textContent || x.placeholder || "").replace(/\s+/g, " ").trim().slice(0, 24); }
 
     // ---- 차례 ----
-    function save(q) { store("session", QKEY, q && q.length ? JSON.stringify({ q: q, at: Date.now() }) : null); }
+    // 이어 할 차례 — 누구(who)의 어느 대화(sid)이고 어느 화면(go)에서 이을지 함께 둔다. 새 화면은 같은 사람·같은 화면일 때만,
+    // 서버의 제안(아직 남은 것)으로 다시 맞춰 잇는다(resume) — 다른 탭으로 복사된 차례·로그인이 바뀐 탭·손댄 값으로는 누르지 않는다
+    function save(q, anyPage) {     // anyPage — 커서가 누른 단추가 화면을 옮길 수 있을 때(옮겨 갈 곳을 미리 모른다)
+      store("session", QKEY, q && q.length ? JSON.stringify({ q: q, at: Date.now(), who: who, go: anyPage ? "*" : pathOf(q[0].path) }) : null);
+    }
     function report(seg) {     // 이 제안의 결과를 서버에 — 대화에 「화면에서 한 일」 한 줄이 생긴다
       if (!seg.id || !seg.sid || !seg.res.length || seg.sent) return;
       seg.sent = true;
@@ -614,6 +625,7 @@
       if (!q || !q.length) { save(null); setTimeout(fade, 1200); return; }
       var seg = q[0];
       if (!seg.here && pathOf(seg.path) !== location.pathname) {      // 다른 화면 — 보이는 메뉴를 커서로 눌러 옮겨 간다
+        if (!seg.screen) { stop(q, seg, "missing", "열 화면 주소가 올바르지 않음"); return; }
         seg.here = true; seg.res.push({ step: -1, result: "opened" }); save(q);
         var link = navLink(seg.screen);
         tag((seg.label || "화면") + " 여는 중");
@@ -647,7 +659,7 @@
           if (submitLike && !st.final) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
           if (!submitLike && !h.matches("[data-modal-open], a[href], [data-aura], [data-om-find], [data-org-add]")) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
           seg.at++; seg.res.push({ step: st.i, result: "clicked" });
-          save(q);                                   // 누른 단추가 화면을 옮기면 새 화면에서 남은 단계를 잇는다
+          save(q, true);                             // 누른 단추가 화면을 옮기면 새 화면에서 남은 단계를 잇는다
           h.click();
           setTimeout(function () { if (leaving) return; next(q, seg); }, 500);
         });
@@ -703,7 +715,27 @@
       try { v = JSON.parse(store("session", QKEY) || "null"); } catch (e) { v = null; }
       save(null);
       if (!v || !Array.isArray(v.q) || !v.q.length || Date.now() - v.at > 20000) return false;
-      setTimeout(function () { run(v.q); }, 450);
+      if (!who || v.who !== who || (v.go !== "*" && v.go !== location.pathname)) return false;      // 다른 사람·다른 화면(복사된 탭 등)에서는 잇지 않는다
+      var s0 = v.q[0] && v.q[0].sid;
+      if (!s0 || v.q.some(function (x) { return !x || !x.id || x.sid !== s0; })) return false;
+      // 단계·허락은 저장해 둔 값이 아니라 서버의 지금 제안에서 다시 만든다(지난·끝난 제안은 버린다)
+      fetch("/chat/" + encodeURIComponent(s0) + "/messages", { cache: "no-store" })
+        .then(function (r) { if (!r.ok || r.redirected) throw new Error(); return r.json(); })
+        .then(function (d) {
+          var live = {};
+          (d.proposals || []).forEach(function (p) { if (p.kind === "go" && !p.reported) live[p.id] = p; });
+          var q = [];
+          for (var i = 0; i < v.q.length; i++) {
+            var old = v.q[i], p = live[old.id];
+            if (!p || ["auto", "go", "grant", "point"].indexOf(old.mode) < 0) break;
+            var seg = segOf(p, old.mode);
+            seg.sid = s0; seg.here = !!old.here; seg.at = Math.max(0, Math.min(Number(old.at) || 0, seg.steps.length));
+            seg.res = Array.isArray(old.res) ? old.res.slice(0, 8) : [];
+            q.push(seg);
+          }
+          if (q.length) setTimeout(function () { run(q); }, 450); else fade();
+        })
+        .catch(function () { fade(); });
       return true;
     }
     return { run: run, resume: resume, here: function (t) { return !!t && pathOf(t.path) === location.pathname; } };

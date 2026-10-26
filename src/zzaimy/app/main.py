@@ -3801,8 +3801,9 @@ def create_app(
                 " ORDER BY d.id DESC LIMIT 6", [pattern, *acc_args]).fetchall()]
         try:
             from zzaimy.app import webhwp
-            from zzaimy.app.webhwp_routes import _base, _depts
+            from zzaimy.app.webhwp_routes import _base, _depts, hidden_here
             depts, base, words = set(_depts(request)), _base(request), term.lower().split()
+            hid = hidden_here(request, "")                 # 나만 보기·공유 밖 프로젝트의 작업 문서는 이름도 띄우지 않는다(문서함·찾기와 같게)
             files = db.list_files(kind="webhwp", limit=8000)
             if not term:                                   # 최근 고친 것부터
                 files = sorted(files, key=lambda r: str(webhwp.meta(db, r["id"]).get("saved") or r.get("created_at") or ""), reverse=True)
@@ -3811,7 +3812,7 @@ def create_app(
                 if not all(w in name.lower() for w in words):
                     continue
                 d = webhwp.dept_of_path(base, r["path"])
-                if d in depts and not any(x in webhwp.HIDDEN for x in Path(r["path"]).parts) and Path(r["path"]).exists():
+                if d in depts and int(r["id"]) not in hid and not any(x in webhwp.HIDDEN for x in Path(r["path"]).parts) and Path(r["path"]).exists():
                     out["hwp"].append({"id": r["id"], "name": name, "where": " › ".join([d, *[x for x in webhwp.folder_of(base, r["path"]).split("/") if x]])})
                 if len(out["hwp"]) >= 6:
                     break
@@ -4042,6 +4043,9 @@ def create_app(
             if not _webhwp.may_open(Path(db_path).parent, f, _wr._depts(request)) or not _wr._access(request, f):
                 raise HTTPException(404, "문서를 찾을 수 없습니다")
             fid = int(f["id"])
+            # 대화에 이으면 에이전트가 그 파일에 쓴다 — 「읽기만」 으로 받은 작업 문서는 잇지 않는다(잠긴 양식은 아래에서 사본으로)
+            if not _webhwp.locked(db, fid) and _wr._access(request, f) != "edit":
+                raise HTTPException(403, "읽기만 공유된 문서는 대화에 이을 수 없습니다 — 「복사해 쓰기」 로 사본을 만들어 이어 주세요")
             if _webhwp.locked(db, fid):                       # 잠긴 양식은 내 부서 폴더에 복사해 잇는다
                 p_ = Path(f["path"])
                 fid = _webhwp.add(db, Path(db_path).parent, getattr(request.state, "dept", "") or _webhwp.COMMON,

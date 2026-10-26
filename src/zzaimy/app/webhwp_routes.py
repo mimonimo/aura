@@ -13,6 +13,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from zzaimy.app import access_policy as _ap
+from zzaimy.app import project_access as _pa
 from zzaimy.app import webhwp
 
 router = APIRouter()
@@ -159,42 +160,60 @@ def _chat_links(request: Request) -> dict[int, list[int]]:
     return cache
 
 
+def _folder_projects(request: Request, f: dict) -> list[dict]:
+    """「작업/<이름>」 폴더 파일이 작업 문서인 프로젝트(대화 연결 말고). 만들 때 적은 meta project 가 있으면 그 하나만 —
+    폴더 이름은 보지 않는다(같은 이름 프로젝트·프로젝트 이름 바꾸기·폴더 이름 바꾸기로 권한이 새지 않게, 10-27 보안 점검).
+    meta 가 없는 옛 파일만 이름으로 맞춘다: 만든 사람이 담당자인 같은 이름 프로젝트가 있으면 그것만, 없으면 만든 사람이 지금 쓸 수 있는
+    (함께 작업) 것, 그것도 없으면(공유가 풀렸거나 다른 사람이 둔 파일) 이 부서 사람이 담당자인 것 → 어디든 같은 이름인 것.
+    여럿이면 _access 가 모두에서 열 수 있어야 연다. 마지막 갈래(어디든 같은 이름)는 _strict 표시 — 부서 폴더 규칙도 맞아야 연다."""
+    from zzaimy.app import storage
+    st = request.app.state
+    db, base = st.db, _base(request)
+    m = webhwp.meta(db, int(f["id"])) or {}
+    rows = _project_rows(request)
+    if str(m.get("project") or "").isdigit():
+        p = next((x for x in rows if int(x["id"]) == int(m["project"])), None)
+        return [p] if p else []
+    parts = webhwp.folder_of(base, f["path"]).split("/")
+    if not (len(parts) >= 2 and parts[0] == "작업" and parts[1]):
+        return []
+    accounts = getattr(st, "accounts", {}) or {}
+    cands = [p for p in rows if storage.safe_name(p.get("name") or "")[:40] == parts[1]]
+    if not cands:
+        return []
+    maker = str(m.get("owner") or "")
+    a = accounts.get(maker) or {}
+    if maker and a:
+        owned = [p for p in cands if p.get("owner") == maker]
+        if owned:
+            return owned
+        made = []
+        for p in cands:
+            owner_dept = ((accounts.get(p.get("owner") or "") or {}).get("dept") or "").strip()
+            lv = _pa.access(p, user=maker, role=a.get("role", "staff"), dept=a.get("dept") or "",
+                            also=tuple(_ap.extra_depts(maker, getattr(st, "data_dir", None))), share=_pa.shares(db, p, owner_dept))
+            if _pa.can_write(lv):
+                made.append(p)
+        if made:
+            return made
+    fdept = webhwp.dept_of_path(base, f["path"])
+    here = [p for p in cands if ((accounts.get(p.get("owner") or "") or {}).get("dept") or "").strip() == fdept]
+    # 이 부서에 그런 담당자도 없으면(공유가 풀린 다른 부서 사람·관계없는 사람이 둔 파일) 어디든 같은 이름인 것 — 다만 그때는 부서 폴더 규칙도
+    # 함께 맞아야 연다(_strict): 담당자 쪽 공유로 남의 부서 파일이 열리지도, 공유가 풀린 뒤 그 부서 전체로 풀리지도 않게
+    return here or [{**p, "_strict": True} for p in cands]
+
+
 def work_projects(request: Request, f: dict | None) -> list[tuple[dict, list[dict], bool]]:
     """이 한글 파일이 작업 문서인 프로젝트 — [(프로젝트, 그 파일을 이은 대화들, 「작업/」 폴더로 이어졌나)]. 둘 중 하나면 작업 문서다.
-    - 「작업/<프로젝트 이름>」 폴더(에이전트·복사해 쓰기·양식 작업이 두는 자리): 파일을 만든 사람이 그 프로젝트의 담당자이거나
-      지금 쓸 수 있는(함께 작업) 프로젝트. 그런 프로젝트가 없으면 이 부서 사람이 담당자인 같은 이름의 프로젝트(공유가 풀려 만든 사람이
-      못 쓰게 된 파일도 그 프로젝트 규칙을 따른다). 같은 이름의 다른 프로젝트로 권한이 새지 않게 만든 사람 쪽을 먼저 본다.
+    - 「작업/<프로젝트 이름>」 폴더(에이전트·복사해 쓰기·양식 작업이 두는 자리) — _folder_projects(만들 때 적은 meta project 우선).
     - 그 프로젝트의 대화에 이은 파일(대화 문서 패널의 작업 문서, 대화에서 만든 파일)."""
-    from zzaimy.app import project_access as pa
-    from zzaimy.app import storage
     if not f:
         return []
     st = request.app.state
-    db, base = st.db, _base(request)
-    accounts = getattr(st, "accounts", {}) or {}
+    db = st.db
     out: dict[int, tuple[dict, list[dict], bool]] = {}
-    parts = webhwp.folder_of(base, f["path"]).split("/")
-    if len(parts) >= 2 and parts[0] == "작업" and parts[1]:
-        cands = [p for p in _project_rows(request) if storage.safe_name(p.get("name") or "")[:40] == parts[1]]
-        maker = str((webhwp.meta(db, int(f["id"])) or {}).get("owner") or "")
-        a = accounts.get(maker) or {}
-        made = []
-        for p in cands:
-            if not maker or not a:
-                continue
-            if maker == p.get("owner"):
-                made.append(p)
-                continue
-            owner_dept = ((accounts.get(p.get("owner") or "") or {}).get("dept") or "").strip()
-            lv = pa.access(p, user=maker, role=a.get("role", "staff"), dept=a.get("dept") or "",
-                           also=tuple(_ap.extra_depts(maker, getattr(st, "data_dir", None))), share=pa.shares(db, p, owner_dept))
-            if pa.can_write(lv):
-                made.append(p)
-        if not made:
-            fdept = webhwp.dept_of_path(base, f["path"])
-            made = [p for p in cands if ((accounts.get(p.get("owner") or "") or {}).get("dept") or "").strip() == fdept]
-        for p in made:
-            out[int(p["id"])] = (p, [], True)
+    for p in _folder_projects(request, f):
+        out[int(p["id"])] = (p, [], True)
     for sid in _chat_links(request).get(int(f["id"]), []) + _source_chat(db, int(f["id"])):
         sess = db.get_chat_session(int(sid))
         if not sess or not sess.get("project_id"):
@@ -220,7 +239,9 @@ def _access(request: Request, f: dict | None) -> str:
     """이 사람이 이 한글 파일에 갖는 권한 — "edit"(고치기) · "view"(읽기만) · ""(못 엶). 판단은 여기 한 곳.
     - 프로젝트 작업 문서(work_projects)는 프로젝트 공유가 정한다: 담당자·관리자·「함께 작업」 은 고치기, 「읽기만」 은 보기만,
       「나만 보기」 면 담당자와 관리자만. 부서 폴더 규칙(같은 부서면 고치기)은 여기에 쓰지 않는다 — 같은 부서라도 공유 범위 밖이면 못 연다.
-      대화에 이은 파일은 그 대화가 비공개면 대화를 쓴 사람(과 관리자)만.
+      여러 프로젝트에 걸린 파일은 걸린 프로젝트 모두에서 열 수 있어야 열고, 권한은 그 가운데 좁은 것(10-27 보안 점검 — 같은 이름의
+      다른 프로젝트·다른 프로젝트 대화에 이어 붙이기로 넓어지지 않게).
+      대화에 이은 파일은 그 대화가 비공개면(「작업/」 폴더에 있어도) 대화를 쓴 사람(과 관리자)만.
     - 그 밖의 파일은 부서 폴더 규칙(webhwp.may_open — 그 부서·겸직 교직원, 「내 폴더」 는 본인과 관리자).
     프로젝트 권한은 main._project_access 한 곳(app.state.project_access)."""
     if not f:
@@ -237,17 +258,43 @@ def _access(request: Request, f: dict | None) -> str:
     if role != "dev" and role not in _ap.STAFF_ROLES:
         return ""
     me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
-    best = ""
-    for p, chats, by_folder in links:
+    out = "edit"
+    if not folder_ok and any(p.get("_strict") for p, _c, _b in links):
+        return ""
+    for p, chats, _by_folder in links:
         lv = acc(request, p)
         if not lv:
+            return ""
+        if chats and all(c.get("is_private") and c.get("owner") != me for c in chats) and not (role == "dev" and me):
+            return ""                                   # 비공개 대화에 이은 파일 — 그 대화처럼 쓴 사람(과 관리자)만
+        if lv != "edit":
+            out = "view"
+    return out
+
+
+def stamp_project_files(request: Request, proj: dict) -> int:
+    """프로젝트 이름을 바꾸기 전에 — 「작업/<지금 이름>」 폴더의 옛 파일(meta project 없음) 가운데 이 프로젝트의 작업 문서로 맞춰지는 것에
+    meta project 를 적는다. 이름이 바뀌어 폴더 이름과 어긋나도 작업 문서 권한(공유 범위)이 그대로 남게(10-27 보안 점검). 적은 수."""
+    import json as _json
+    from zzaimy.app import storage
+    st = request.app.state
+    base = _base(request)
+    want = storage.safe_name(proj.get("name") or "")[:40]
+    if not want:
+        return 0
+    n = 0
+    for r in st.db.list_files(kind="webhwp", limit=8000):
+        parts = webhwp.folder_of(base, r["path"]).split("/")
+        if len(parts) < 2 or parts[0] != "작업" or parts[1] != want:
             continue
-        if not by_folder and all(c.get("is_private") and c.get("owner") != me for c in chats) and not (role == "dev" and me):
-            continue                                    # 비공개 대화에만 이은 파일 — 그 대화처럼 쓴 사람(과 관리자)만
-        if lv == "edit":
-            return "edit"
-        best = best or lv
-    return best
+        m = webhwp.meta(st.db, int(r["id"])) or {}
+        if m.get("project"):
+            continue
+        if any(int(p["id"]) == int(proj["id"]) and not p.get("_strict") for p in _folder_projects(request, r)):
+            m["project"] = int(proj["id"])
+            st.db.set_setting(f"webhwp_meta:{int(r['id'])}", _json.dumps(m, ensure_ascii=False))
+            n += 1
+    return n
 
 
 def _via_project(request: Request, f: dict) -> dict | None:
@@ -272,7 +319,8 @@ def hidden_here(request: Request, dept: str) -> set[int]:
     for r in st.db.list_files(kind="webhwp", limit=8000):
         if dept and webhwp.dept_of_path(base, r["path"]) != dept:
             continue
-        if not (webhwp.folder_of(base, r["path"]).startswith("작업/") or int(r["id"]) in linked or _source_chat(st.db, int(r["id"]))):
+        if not (webhwp.folder_of(base, r["path"]).startswith("작업/") or int(r["id"]) in linked or _source_chat(st.db, int(r["id"]))
+                or (webhwp.meta(st.db, int(r["id"])) or {}).get("project")):
             continue
         if not webhwp.may_open(base, r, depts):
             continue
@@ -587,6 +635,10 @@ def hwp_folder_rename(request: Request, dept: str = Form(""), folder: str = Form
     prefix = str(old.resolve()) + "/"
     for r in st.db.list_files(kind="webhwp", limit=8000):
         if str(Path(r["path"]).resolve()).startswith(prefix):
+            # 안에 내가 고칠 수 없는 파일(나만 보기·공유 밖·읽기만 프로젝트의 작업 문서)이 있으면 바꾸지 않는다 — 「작업/<프로젝트>」 폴더
+            # 이름을 바꿔 작업 문서를 부서 폴더 규칙으로 빼내지 못하게(10-27 보안 점검)
+            if _access(request, r) != "edit":
+                raise HTTPException(403, "이 폴더에는 내가 고칠 수 없는 문서가 있어 이름을 바꿀 수 없습니다")
             who = webhwp.lock_holder(st.db, r["id"]).get("user", "")
             if who and who != me:
                 who_name = webhwp.display_name(st.db, who, getattr(st, "accounts", None))
@@ -844,6 +896,7 @@ def hwp_to_drive(request: Request, fid: int):
     """지금 저장된 판을 드라이브에 최종본으로 올린다."""
     _need_staff(request)
     f = _file(request, fid)
+    _not_view_only(request, fid)                         # 최종본 표시(meta drive_out)·앞 판 지우기를 바꾸는 쓰기 — 「읽기만」 은 막는다
     from zzaimy.app import webhwp_drive, webhwp_coedit
     email = _google(request)
     webhwp_coedit.fresh(request.app.state.db, _base(request), fid)
@@ -904,6 +957,11 @@ def doc_to_webhwp(request: Request, doc_id: int, dept: str = Form(""), folder: s
     mine = getattr(request.state, "dept", "") or webhwp.COMMON
     dept = dept or (mine if mine in _depts(request) else webhwp.COMMON)
     project = st.db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
+    # 프로젝트 작업 폴더에는 그 프로젝트를 고칠 수 있는 사람(소유·함께 작업)만 — 「읽기만」·공유 밖 사람의 작업본은 「작업」 에
+    acc = getattr(st, "project_access", None)
+    if project is not None and (acc is None or not _pa.can_write(acc(request, project))):
+        project = None
+    in_project = project is not None and not folder
     folder = _check_dept(request, dept, folder or (f"작업/{storage.safe_name(project['name'])[:40]}" if project else "작업"))
     try:
         data = _original_bytes(st, doc)
@@ -912,7 +970,7 @@ def doc_to_webhwp(request: Request, doc_id: int, dept: str = Form(""), folder: s
         return RedirectResponse(f"/doc/{doc_id}?err=webhwp&msg={_q(str(e)[:120])}", status_code=303)
     title = storage.title_of(doc.get("filename") or "") or "양식"
     fid = webhwp.add(st.db, _base(request), dept, f"{title} 작업본.hwpx", work, owner=getattr(request.state, "user", ""),
-                     source=f"doc:{doc_id}", folder=folder)
+                     source=f"doc:{doc_id}", folder=folder, project=int(project["id"]) if in_project else None)
     m = webhwp.meta(st.db, fid)
     m["fields"] = [f["name"] for f in fields][:400]
     import json as _json
@@ -1029,7 +1087,8 @@ def hwp_copy(request: Request, fid: int, dept: str = Form(""), folder: str = For
     folder = _check_dept(request, dept, folder)
     p = Path(f["path"])
     new = webhwp.add(request.app.state.db, _base(request), dept, _copy_name(p, name), p.read_bytes(),
-                     owner=getattr(request.state, "user", ""), source=f"복사:{fid}", folder=folder)
+                     owner=getattr(request.state, "user", ""), source=f"복사:{fid}", folder=folder,
+                     project=int(proj["id"]) if project.strip() else None)
     _touch(request, dept, folder)
     if wants_json:
         return {"ok": True, "id": new, "url": f"{EDIT_PAGE}?id={new}"}

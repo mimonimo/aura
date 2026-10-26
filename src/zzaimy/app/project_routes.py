@@ -719,6 +719,9 @@ def rename_project(
         raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
     if not name.strip():
         raise HTTPException(400, "프로젝트 이름을 입력하세요")
+    if name.strip() != (proj.get("name") or ""):
+        from zzaimy.app.webhwp_routes import stamp_project_files
+        stamp_project_files(request, proj)            # 옛 작업 문서(폴더 이름으로만 이어진 것)도 이름이 바뀐 뒤 그 프로젝트 공유를 따르게
     db.rename_project(project_id, name.strip())
     if due_date is not None:
         db.update_project_meta(project_id, due_date=due_date.strip())
