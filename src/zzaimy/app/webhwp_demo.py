@@ -190,9 +190,28 @@ def blank_doc() -> bytes:
     blocks: list[dict] = []
     for i, (_uid, name) in enumerate(SLOTS.values(), 1):
         blocks += [{"h": 1, "text": f"{i}. {name}"}, {"p": ""}]
-    return wt.build({"id": "demo-blank", "title": "공동 편집 시연",
+    data = wt.build({"id": "demo-blank", "title": "공동 편집 시연",
                      "cover": {"title": "공동 편집 시연", "subtitle": "세 사람이 같은 문서의 서로 다른 절을 동시에 씁니다", "page": False},
                      "blocks": blocks, "page_number": False})
+    return _bigger_text(data, BIG)
+
+
+BIG = 1.6        # 시연 문서 글자 배율 — 세 칸으로 나눈 좁은 화면에서도 앞에서 보이게(시연 문서에만)
+
+
+def _bigger_text(data: bytes, k: float) -> bytes:
+    """hwpx 글자 모양(header.xml charPr height, 1/100pt)을 k 배로 — 모든 글 갈래를 같은 비율로 키운다."""
+    import io
+    import zipfile
+    src = zipfile.ZipFile(io.BytesIO(data))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        for info in src.infolist():
+            body = src.read(info.filename)
+            if info.filename == "Contents/header.xml":
+                body = re.sub(rb'(<hh:charPr\b[^>]*?\bheight=")(\d+)(")', lambda m: m.group(1) + str(round(int(m.group(2)) * k)).encode() + m.group(3), body)
+            z.writestr(info, body)
+    return out.getvalue()
 
 
 def make_blank(request: Request) -> int:
