@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import stat
 from collections import Counter
 from pathlib import Path
@@ -65,6 +66,25 @@ def _candidate(row: dict) -> tuple[dict | None, str]:
         return None, "empty_answer"
     if row.get("finish") not in ({"stop", "tool_calls"} if tool_calls else {"stop"}):
         return None, "unfinished_answer"
+    if caller.startswith("zzaimy.app.doc_agent."):
+        # The recorder sees the model reply before the agent parses or executes it.
+        # Keep rejected JSON and correction turns out of even the review queue.
+        if any(msg["role"] == "user" and any(marker in msg["content"] for marker in (
+            "도구 이름이 없거나 JSON 이 아니다.",
+            "마지막 걸음이다 — ",
+        )) for msg in messages):
+            return None, "agent_correction_turn"
+        from zzaimy.app.doc_agent import _parse
+        step = _parse(answer)
+        if tool_calls or step is None:
+            return None, "agent_step_unparsed"
+        systems = "\n".join(msg["content"] for msg in messages if msg["role"] == "system")
+        tool_block = systems.partition("\n도구:\n")[2].partition("\n\n")[0]
+        allowed = set(re.findall(r"(?m)^- ([A-Za-z_][\w-]*):", tool_block))
+        if not allowed:
+            return None, "agent_tool_catalog_missing"
+        if step["action"] not in allowed and step["action"] != "stop":
+            return None, "agent_step_unknown_tool"
     assistant = {"role": "assistant", "content": answer}
     if tool_calls:
         assistant["tool_calls"] = tool_calls
@@ -105,7 +125,9 @@ def collect(folder: Path) -> tuple[list[dict], list[dict], Counter]:
                 if pair is None:
                     counts[reason] += 1
                     if reason in {"wrong_model", "unverified_connection", "unrecorded_thinking_mode",
-                                  "thinking_enabled", "privacy_check_failed", "privacy_review"}:
+                                  "thinking_enabled", "privacy_check_failed", "privacy_review",
+                                  "agent_correction_turn", "agent_step_unparsed",
+                                  "agent_tool_catalog_missing", "agent_step_unknown_tool"}:
                         held.append({"reason": reason, "trace": {"file": path.name, "line": number},
                                      "record": row})
                     continue

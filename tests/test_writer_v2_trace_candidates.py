@@ -19,13 +19,13 @@ spec.loader.exec_module(collector)
 def _row(**updates):
     row = {"caller": "zzaimy.app.doc_agent.plan", "model": "zzaimy-writer",
            "connection_id": "internal-writer", "kind": "vllm", "external": False,
-           "messages": [{"role": "system", "content": "JSON 단계만"},
+           "messages": [{"role": "system", "content": "JSON 단계만\n도구:\n- write_section: 절 작성\n\n생각"},
                         {"role": "user", "content": "초안을 작성해 줘"}],
            "tools": [{"type": "function", "function": {"name": "write_section"}}],
            "response_format": {"type": "json_object"}, "max_tokens": 256,
            "attempt": 1, "reasoning_present": False,
            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-           "answer": '{"step":"write"}', "finish": "stop"}
+           "answer": '{"action":"write_section","args":{}}', "finish": "stop"}
     row.update(updates)
     return row
 
@@ -36,7 +36,7 @@ def test_preserves_real_request_and_answer_as_unapproved_candidate(monkeypatch):
     assert reason == "accepted_for_review"
     assert pair["status"] == "review_pending"
     assert "messages" not in pair
-    assert pair["trace_messages"][-1] == {"role": "assistant", "content": '{"step":"write"}'}
+    assert pair["trace_messages"][-1] == {"role": "assistant", "content": '{"action":"write_section","args":{}}'}
     assert pair["request"]["tools"][0]["function"]["name"] == "write_section"
     assert pair["request"]["response_format"] == {"type": "json_object"}
     assert pair["request"]["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
@@ -65,7 +65,7 @@ def test_keeps_tool_call_completion(monkeypatch):
     monkeypatch.setattr(privacy, "protect_candidate", lambda value: value)
     call = {"id": "call-1", "type": "function", "function": {
         "name": "write_section", "arguments": '{"section":"개요"}'}}
-    pair, reason = collector._candidate(_row(answer="", tool_calls=[call], finish="tool_calls"))
+    pair, reason = collector._candidate(_row(caller="zzaimy.app.delegate.run", answer="", tool_calls=[call], finish="tool_calls"))
     assert reason == "accepted_for_review"
     assert pair["trace_messages"][-1]["tool_calls"] == [call]
 
@@ -99,7 +99,22 @@ def test_collect_retains_privacy_hold_for_review(monkeypatch, tmp_path):
     candidates, held, counts = collector.collect(tmp_path)
     assert candidates == [] and counts["privacy_review"] == 1
     assert held[0]["reason"] == "privacy_review"
-    assert held[0]["record"]["answer"] == '{"step":"write"}'
+    assert held[0]["record"]["answer"] == '{"action":"write_section","args":{}}'
+
+
+def test_rejects_agent_steps_the_platform_cannot_use(monkeypatch):
+    monkeypatch.setattr(privacy, "protect_candidate", lambda value: value)
+    assert collector._candidate(_row(answer="설명을 먼저 드리겠습니다."))[1] == "agent_step_unparsed"
+    assert collector._candidate(_row(answer='{"action":"unknown"}'))[1] == "agent_step_unknown_tool"
+    assert collector._candidate(_row(messages=[
+        _row()["messages"][0],
+        {"role": "user", "content": "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라."},
+    ]))[1] == "agent_correction_turn"
+    assert collector._candidate(_row(messages=[
+        {"role": "system", "content": "도구 목록 없음"},
+        {"role": "user", "content": "초안을 작성해 줘"},
+    ]))[1] == "agent_tool_catalog_missing"
+    assert collector._candidate(_row())[1] == "accepted_for_review"
 
 
 def test_cli_requires_private_output_and_creates_private_files(monkeypatch, tmp_path):
