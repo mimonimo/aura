@@ -369,6 +369,12 @@ def test_open_page_now_carries_text_only_for_guide_element(tmp_path, monkeypatch
     # 보안: 자료를 바꾸는 단추(학생 공개)는 now 를 넣어도 바로 누르지 않고 가리키기만 — [실행] 확인을 거친다
     risky = platform_ops.propose_open(ctx, sid, "/dev/rag#student-regs", "학생 공개", '[data-rr="student"]', now=True)
     assert risky["target"]["selector"] == '[data-rr="student"]' and risky["act"]["now"] is False
+    # 바로 하기는 요청마다 하나 — 뒤에 낸 것이 남고 앞의 것은 단추로만
+    platform_ops.expire(db, sid)
+    first = platform_ops.propose_open(ctx, sid, "/hwp", "문서함", "", now=True)
+    last = platform_ops.propose_open(ctx, sid, "/hwp", "새 문서", '[data-aura="hwp-new"]', now=True)
+    nows = [p for p in platform_ops.pending(db, sid) if p["act"].get("now")]
+    assert [p["id"] for p in nows] == [last["id"]] and first["id"] != last["id"]
 
 
 def test_guide_lists_cursor_targets_for_common_requests():

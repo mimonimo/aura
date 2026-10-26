@@ -372,6 +372,10 @@ def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str =
             "screen": url, "target": {"path": path, "anchor": anchor if url.endswith("#" + anchor) else "", "selector": sel},
             "act": {"now": bool(now), "text": _clip(" ".join(str(text or "").split()), 80) if sel else ""},
             "status": "pending", "by": ctx.user, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    if item["act"]["now"]:                     # 바로 하는 일은 요청마다 하나 — 앞서 낸 바로 하기는 단추로만 남긴다
+        for x in items:
+            if x.get("status") == "pending" and x.get("kind") == "go" and (x.get("act") or {}).get("now"):
+                x["act"] = {**x["act"], "now": False}
     _save(ctx.db, session_id, items + [item])
     return item
 

@@ -247,7 +247,7 @@
       }
       row.appendChild(go);
       box.appendChild(plan); box.appendChild(row); body.appendChild(box);
-      if (allowAuto && p.kind === "go" && act.now && !auto && doneIds().indexOf(p.id) < 0) auto = p;
+      if (allowAuto && p.kind === "go" && act.now && doneIds().indexOf(p.id) < 0) auto = p;   // 마지막 것 — 도우미가 고쳐 낸 결정이 뒤에 온다
     });
     if (auto) { markDone(auto.id); setTimeout(function () { perform(auto); }, 500); }
   }
