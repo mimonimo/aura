@@ -641,6 +641,17 @@
         if (normalMode() && !applying && !hwp.isComposing() && hwp.snapIntoField) hwp.snapIntoField();   // 줄 끝·문단 앞을 눌러 칸 바깥에 선 커서는 칸 안으로
         checkCaret();
       });
+      // 툴바 관문(일반 편집 모드) — 고른 범위에 남이 쓰는 칸이 들어 있으면 기안기 서식 단추·목록을 막고 그 칸 이름표를 흔든다(남의 칸 서식을 바꾸지 않게)
+      if (hwp.setToolbarGuard) hwp.setToolbarGuard(function (e) {
+        if (!normalMode()) return false;
+        var sel = hwp.selectionFields ? hwp.selectionFields() : null, range = [];
+        if (sel && sel[0] && sel[1] && fieldIdx[sel[0]] !== undefined && fieldIdx[sel[1]] !== undefined) {
+          for (var q = Math.min(fieldIdx[sel[0]], fieldIdx[sel[1]]); q <= Math.max(fieldIdx[sel[0]], fieldIdx[sel[1]]); q++) range.push(fieldList[q]);
+        } else if (curField) range.push(curField);
+        var taken = range.filter(function (g) { return heldByOther(g) && locks[g] && locks[g].user !== me; });
+        if (taken.length && e.type === 'pointerdown') taken.forEach(function (g) { emit('blocked', g); });
+        return taken.length > 0;
+      });
       hwp.onActivity(function (e) {
         if (e && e.type === 'keydown' && normalMode() && !hwp.isComposing()) guardKey(e);
         if (curField && mine[curField] && now() - lastTouch > 20000) extend();
@@ -890,7 +901,8 @@
           m.box.style.left = (a.x - 7 - L.left) + 'px'; m.box.style.top = (top - L.top) + 'px';
           m.box.style.width = '2px'; m.box.style.height = Math.max(h1, bottom - top) + 'px';
         }
-        m.block.hidden = false;                         // 누름 막 — 칸 글 자리 전체(여러 줄이면 종이 글 폭까지)
+        m.block.hidden = !hwp.formMode();               // 누름 막 — 칸 글 자리 전체(여러 줄이면 종이 글 폭까지). 일반 편집 모드에서는 걷는다 —
+                                                        // 고침은 키 관문·툴바 관문이 막고, 막이 있으면 남의 칸을 걸친 드래그·복사까지 막혔다(10-26)
         var bl = a.x - 4, br = single ? Math.max(b.x, a.x + 8) + 4 : view.right - (a.x - view.left) + 4;
         m.block.style.left = (bl - L.left) + 'px'; m.block.style.top = (top - 2 - L.top) + 'px';
         m.block.style.width = Math.max(12, br - bl) + 'px'; m.block.style.height = (Math.max(h1, bottom - top) + 4) + 'px';

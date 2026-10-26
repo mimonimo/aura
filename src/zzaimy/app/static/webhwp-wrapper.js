@@ -219,6 +219,16 @@
       if (!d || d === attachedDoc) return !!d;
       attachedDoc = d;
       d.addEventListener('keydown', function (e) { abortProbe(); lastInput = Date.now(); fire('activity', e); }, true);
+      // 툴바 관문 — 공동 편집 층이 정한 판단(toolbarGuard)이 참이면 기안기 서식 단추·목록([data-command])의 누름을 통째로 막는다(누름·뗌·클릭 모두)
+      var tbBlocked = false;
+      ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(function (t) {
+        d.addEventListener(t, function (e) {
+          var cmd = e.target && e.target.closest && e.target.closest('[data-command]');
+          if (!cmd || !toolbarGuard) return;
+          if (t === 'pointerdown') tbBlocked = !!toolbarGuard(e);
+          if (tbBlocked) { e.preventDefault(); e.stopImmediatePropagation(); }
+        }, true);
+      });
       d.addEventListener('pointerdown', function (e) { abortProbe(); lastInput = Date.now(); fire('activity', e); }, true);
       // 글자 크기 칸 화살표 — 늘 글자마다 지금 크기에서 1pt 씩(기안기 CharShapeHeightIncrease/Decrease). 기안기 화살표는 칸에 보이는 수(크기가 섞이면
       // 비거나 첫 글자 크기)에서 세어 고른 글을 모두 한 크기로 맞췄다 — 섞인 크기가 0 부터·한 크기로 바뀌었다(10-26 녹화). 크기가 하나면 결과는 같다.
@@ -314,6 +324,7 @@
       restoreSel(sel);
       return [a, b];
     }
+    var toolbarGuard = null;
     function exportField(name) {
       return new Promise(function (resolve) {
         var keep = getCursor(true), sel = keepSel();
@@ -408,7 +419,7 @@
     function on(kind, cb) { listeners[kind].push(cb); }
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
-      setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
+      setToolbarGuard: function (fn) { toolbarGuard = fn; }, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
       getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },
