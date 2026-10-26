@@ -309,6 +309,8 @@ class HwpTools:
         for r in self.db.list_files(kind="webhwp", limit=8000):
             if not webhwp.locked(self.db, r["id"]) or not Path(r["path"]).exists():
                 continue
+            if webhwp.meta(self.db, r["id"]).get("editor_broken"):      # 웹 기안기가 그리지 못한 양식(편집기가 알려 줌) — 불러와도 빈 쪽이다
+                continue
             name = Path(r["name"]).stem
             group = webhwp.folder_of(self.base, r["path"])
             hit = sum(1 for w in words if w in name or w in group)

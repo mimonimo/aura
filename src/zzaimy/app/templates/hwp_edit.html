@@ -280,6 +280,8 @@
     if (isNew) { mode = 'new'; fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; hwp.attach(); watchEdits(); say('저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요', ''); return; }
     loadFile().then(function () {
       fitWidth(); setTools(toolsOn());
+      // 연 뒤 잡은 칸 수를 알린다 — 칸 많은 파일인데 0 이면 서버가 「기안기에서 안 열림」 으로 표시해 양식 후보에서 뺀다(긴 문서는 쪽을 그리는 몇 초 뒤에)
+      setTimeout(function () { try { fetch(fileUrl.replace(/\/file$/, '/opened'), {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fields: hwp.fields().length})}); } catch (e) {} }, 8000);
       if (/[?&]nocollab=1/.test(location.search)) { mode = 'view'; ready = true; say('같이 쓰기 끔(점검용)', 'ok'); return; }   // 점검용 — 공동 편집 층 없이 기안기만
       startCollab();
     }).catch(function (e) { say(e.message, 'bad'); });

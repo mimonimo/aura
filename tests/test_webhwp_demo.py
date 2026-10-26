@@ -188,3 +188,14 @@ def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
     dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
     assert sent[-1][1] == demo.WRITE_ASK and "AURA 이어 쓰기" in dev.get(f"/dev/coedit-demo?id={fid}").text   # 불러온 뒤엔 이어 쓰기
     assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404
+
+
+def test_editor_reports_unopenable_file(tmp_path, monkeypatch):
+    """편집기가 칸을 하나도 못 잡으면(칸 많은 파일) 「기안기에서 안 열림」 표시 — 다시 잘 열리면 지운다."""
+    app, dev, _ = _admin(tmp_path, monkeypatch)
+    fid = _new(dev, "long")
+    db = app.state.db
+    assert dev.post(f"/hwp/{fid}/opened", json={"fields": 0}).json()["broken"] is True
+    assert webhwp.meta(db, fid).get("editor_broken")
+    assert dev.post(f"/hwp/{fid}/opened", json={"fields": 12}).json()["broken"] is False
+    assert not webhwp.meta(db, fid).get("editor_broken")

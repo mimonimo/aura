@@ -471,6 +471,37 @@ def hwp_folder_rename(request: Request, dept: str = Form(""), folder: str = Form
     return {"ok": True, "name": n, "path": new_rel, "href": _where(dept, new_rel)}
 
 
+OPEN_FAIL_MIN = 10        # 서버 파일의 칸이 이만큼 넘는데 편집기가 칸을 하나도 못 잡으면 「기안기에서 안 열림」
+
+
+@router.post("/hwp/{fid}/opened")
+async def hwp_opened(request: Request, fid: int):
+    """편집기가 문서를 연 뒤 잡은 칸 수 — 서버 파일엔 칸이 많은데 0 이면 웹 기안기가 그리지 못한 파일로 표시한다(meta editor_broken).
+    에이전트 양식 찾기(hwp_forms)가 그 양식을 후보에서 뺀다. 다시 잘 열리면 표시를 지운다(10-26 시연: 실물 변환 양식 하나가 빈 쪽으로 열림)."""
+    import json as _json
+    import time as _time
+
+    from zzaimy.app import webhwp_write as ww
+    f = _file(request, fid)
+    try:
+        n = int((await request.json()).get("fields") or 0)
+    except Exception:
+        n = 0
+    db = request.app.state.db
+    m = webhwp.meta(db, fid)
+    if n == 0:
+        try:
+            server = len(ww.fields(Path(f["path"]).read_bytes()))
+        except Exception:
+            server = 0
+        if server >= OPEN_FAIL_MIN and not m.get("editor_broken"):
+            m["editor_broken"] = _time.strftime("%Y-%m-%d %H:%M")
+            db.set_setting(f"webhwp_meta:{int(fid)}", _json.dumps(m, ensure_ascii=False))
+    elif m.pop("editor_broken", None):
+        db.set_setting(f"webhwp_meta:{int(fid)}", _json.dumps(m, ensure_ascii=False))
+    return {"ok": True, "broken": bool(m.get("editor_broken"))}
+
+
 @router.post("/hwp/{fid}/presence")
 async def hwp_presence(request: Request, fid: int):
     """같은 문서를 연 사람 표시 — 편집 화면이 커서 칸이 바뀔 때·몇 초마다 알린다(공동 편집 표, 바뀌면 알림 흐름으로 다른 화면에)."""
