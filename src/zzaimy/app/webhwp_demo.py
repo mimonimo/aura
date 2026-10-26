@@ -353,7 +353,8 @@ def coedit_demo_reset(request: Request, id: int = Form(...)):
 
 
 AURA_ASK = (f"이 문서 1~{len(SLOTS)}절에 세 사람이 쓴 글을 읽고, 비어 있는 「{len(SLOTS) + 1}. {AURA_SECTION}」 절에 "
-            "핵심을 서너 줄로 정리해 써 줘. 문서에 없는 내용은 보태지 말고, 앞 절이 비어 있으면 「아직 쓴 글 없음」 이라고만 적어 줘.")
+            "핵심을 번호나 기호 없이 서너 문장으로 정리해 써 줘(한 문장에 한 줄). 문서에 없는 내용은 보태지 말고, 앞 절이 비어 있으면 "
+            "「아직 쓴 글 없음」 이라고만 적어 줘.")
 
 
 @router.post("/dev/coedit-demo/aura")

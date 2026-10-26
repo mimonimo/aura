@@ -79,7 +79,7 @@
     var tooLong = {};
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
-    var lastEdit = {f: "", at: 0};                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
+    var lastEdit = {f: "", at: 0}, typedAt = 0;                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
     var inbox = {}, applyTimer = null, applying = false;
     var online = true, retryTimer = null, retryMs = 1000, es = null, lastId = 0, readonly = !!o.readonly;
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
@@ -157,7 +157,19 @@
         }
         delete tooLong[f];
         var e = outbox[f], k = known[f];
-        if (e ? e.text === text : (k && k.text === text)) return;
+        if (e ? e.text === text : (k && k.text === text)) {
+          // 글자를 쳤는데 이 칸 글이 그대로 — 친 글이 칸 밖(칸 시작 표시 앞 등)에 들어갔다. 칸 길로는 못 보내므로 잠시 뒤 다시 보고 그래도 같으면
+          // 구조 고침(전체 저장 — 서버가 그 글을 칸으로 감쌈)으로 넘긴다(10-26 실측: 빈 줄 왼쪽 끝에 친 글이 다른 화면에 가지 않았다)
+          if (now() - typedAt < 1500 && !e) {
+            var f0 = f, t0 = text;
+            setTimeout(function () {
+              if (hwp.isComposing() || dirty[f0] || outbox[f0] || applying) return;
+              var t1 = hwp.read(f0);
+              if (t1 !== null && norm(t1) === t0 && known[f0] && known[f0].text === t0) emit('outside-edit');
+            }, 600);
+          }
+          return;
+        }
         touched[f] = 1;
         var op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0, text: text, at: now()};
         outbox[f] = op;
@@ -636,6 +648,7 @@
       fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
       hwp.onLocalEdit(function (ev) {
         if (applying || !fieldsMode()) return;
+        if (ev && ev.composing) typedAt = now();
         if (!(ev && ev.composing) && hwp.lockUndo) hwp.lockUndo(false);   // 내가 고치면 되돌리기를 다시 연다(내 고침이 맨 위)
         // 조합 중에는 기안기에 아무것도 묻지 않는다(커서 칸 이름을 물어도 조합이 끊긴다 — 실측) — 마지막으로 안 커서 칸을 쓴다
         var f = ev && ev.composing ? curField : hwp.currentField();
@@ -673,6 +686,7 @@
         return taken.length > 0;
       });
       hwp.onActivity(function (e) {
+        if (e && e.type === 'keydown' && !e.ctrlKey && !e.metaKey && ((e.key || '').length === 1 || e.key === 'Process')) typedAt = now();   // 글자 치기(지우기·이동 키 빼고)
         if (e && e.type === 'keydown' && normalMode() && !hwp.isComposing()) guardKey(e);
         if (curField && mine[curField] && now() - lastTouch > 20000) extend();
         // 서식을 바꿀 수 있는 손놀림 — 편집 화면(쪽) 밖 누름(툴바·메뉴·글자 모양 창)이나 Ctrl/⌘ 조합 키. 입력 사건이 없어 따로 잰다

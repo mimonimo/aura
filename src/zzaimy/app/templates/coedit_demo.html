@@ -59,7 +59,7 @@
   <h1>공동 편집 시연</h1>
   <span class="status" data-status{% if not aura_note %} hidden{% endif %}><span class="spin" aria-hidden="true"></span><span data-status-text>{{ aura_note }}</span></span>
   <span class="grow"></span>
-  {% if cur %}<form method="post" action="/dev/coedit-demo/reset" data-reset-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn ghost" title="지금 쓴 글을 지우고 빈 문서로 새로 시작"><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon><span data-reset-label>새 빈 문서</span></button></form>
+  {% if cur %}<form method="post" action="/dev/coedit-demo/reset" data-reset-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn ghost" title="지금 쓴 글을 지우고 빈 문서로 새로 시작" disabled><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon><span data-reset-label>새 빈 문서</span></button></form>
   <form method="post" action="/dev/coedit-demo/aura" data-aura-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn primary" title="AURA(27B)가 1~3절을 읽고 4절 「AURA 정리」 를 씁니다"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true" data-aura-icon></iconify-icon><span data-aura-label>AURA 정리 쓰기</span></button></form>{% endif %}
 </header>
 {% if cur and not missing %}
@@ -109,6 +109,7 @@
     var f = document.querySelector('[data-reset-form]');
     if (!f) return;
     var b = f.querySelector('button'), label = f.querySelector('[data-reset-label]'), armed = null;
+    b.disabled = false;                                   // 확인 단계가 붙은 뒤에야 누를 수 있게(막 열린 페이지에서 눌리면 한 번 더 묻지 않고 넘어가거나 안 먹었다)
     f.addEventListener('submit', function (e) {
       if (armed) { b.disabled = true; label.textContent = '새로 여는 중'; return; }
       e.preventDefault();
