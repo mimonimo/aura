@@ -168,7 +168,7 @@ def test_stale_lead_falls_back_to_owner():
     choices = pa.lead_choices(proj, pa.shares(db, proj), accounts)
     pa.set_lead(db, proj, "lee", choices)
     assert pa.lead(db, proj, accounts) == "lee"
-    pa.set_shares(db, 7, "shared", [{"to": "user:lee", "level": "view"}])      # 참조로 낮춤
+    pa.set_shares(db, 7, "shared", [{"to": "user:lee", "level": "view"}])      # 읽기만으로 낮춤
     assert pa.lead(db, proj, accounts) == "kim"
     pa.set_shares(db, 7, "shared", [{"to": "user:lee", "level": "edit"}])
     accounts["lee"]["active"] = False                                                         # 계정 끔

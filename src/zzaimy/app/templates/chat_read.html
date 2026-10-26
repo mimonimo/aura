@@ -17,17 +17,26 @@
     <div class="turn {{ m.role }}">
       <div class="chat-speaker">{{ person_name(chat_session.owner) if m.role == 'user' else 'AURA' }}</div>
       {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(sources) }}</div>
-      {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
+      {% else %}<div class="msg user">{{ m.content | attach_view(None if mine else attach_ok) }}</div>{% endif %}
     </div>
   {% else %}
     <p class="muted">아직 주고받은 글이 없습니다.</p>
   {% endfor %}
   </div>
+  {# 마지막 답의 근거 — 읽는 사람이 볼 수 있는 문서만 연다. 범위 밖은 이름을 가리고 열지 않는다(chat_routes.reader_evidence) #}
+  {% if evidence %}<div class="chat-read-sources" aria-label="근거 자료"><span class="chat-read-sources-label">근거</span>
+    {% for s in evidence %}{% if s.hidden %}<span class="chat-read-source is-hidden" title="내 열람 범위 밖의 자료라 열지 않습니다">{{ s.title }}</span>
+    {% elif s.doc_id %}<a class="chat-read-source" href="/doc/{{ s.doc_id }}#q={{ (s.heading or s.title) | urlencode }}" title="{{ s.title }}">{{ s.title }}</a>
+    {% else %}<span class="chat-read-source">{{ s.title }}</span>{% endif %}{% endfor %}</div>{% endif %}
 </div>
 <style>
   .chat-read { max-width: 860px; margin: 0 auto; padding: 0 16px 40px; }
   .chat-read-list { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
   .chat-read .turn.user { align-self: flex-end; max-width: 80%; }
   .chat-read .turn.assistant { align-self: stretch; }
+  .chat-read-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .chat-read-sources-label { color: var(--muted); margin-right: 2px; }
+  .chat-read-source { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: inherit; text-decoration: none; }
+  .chat-read-source.is-hidden { color: var(--muted); border-style: dashed; }
 </style>
 {% endblock %}

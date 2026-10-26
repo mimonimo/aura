@@ -63,7 +63,7 @@ def make_chat_helpers(
     *,
     db, db_path, processor, drafter, templates, ctx,
     accounts, password, chat_topics, chat_revisions, _chat_running, _chat_progress,
-    _chat_sources, _chat_pages, _RETRIEVAL_NOTE, _owned_chat, _can_read_chat, _criteria_docs,
+    _chat_sources, _chat_pages, _RETRIEVAL_NOTE, _owned_chat, _can_read_chat, _reader_doc_ok, _criteria_docs,
     _viewer_sees, _extra_depts, _local_back, _share_sync, _chat_suggestions, _intake_bundle,
     _link_past_materials, _link_past_projects, _remember_given, _schedule_answer, _set_options, _title_from_bundle,
     _link_criteria_kind, _all_depts, _chat_step, _scrub_internal, _session_viewer, _view_as,
@@ -414,9 +414,37 @@ def _shared_lost(request: Request, session: dict) -> bool:
         and request.app.state.project_access(request, proj) != "edit"
 
 
+_ATTACH_ID = re.compile(r"\[첨부#(\d+)\]")
+HIDDEN_SOURCE = "볼 수 없는 자료"
+
+
+def reader_evidence(request: Request, sources: list[dict], messages: list[dict]) -> tuple[list[dict], set[int]]:
+    """읽기 화면의 근거 — (근거 목록, 열어도 되는 첨부 문서 id). 질문·답 글은 그대로 두고, 출처 문서 링크·원문 조각·첨부는 읽는 사람이
+    볼 수 있는 문서(access_policy, 문서 화면과 같은 검사)만 연다. 범위 밖 근거는 이름을 「볼 수 없는 자료」 로 가리고 링크·조각을 뺀다.
+    문서가 아닌 근거(웹 출처 등, doc_id 없음)는 그대로."""
+    ok = request.app.state.chat._reader_doc_ok
+    seen: dict[int, bool] = {}
+
+    def opens(did) -> bool:
+        if int(did) not in seen:
+            seen[int(did)] = ok(request, did)
+        return seen[int(did)]
+    out = []
+    for s in sources or []:
+        did = s.get("doc_id")
+        if not did or opens(did):
+            out.append({**s, "hidden": False})
+        else:
+            out.append({"doc_id": None, "title": HIDDEN_SOURCE, "heading": "", "snippet": "", "origin": "", "weak": s.get("weak"),
+                        "hidden": True})
+    attach = {int(x) for m in messages for x in _ATTACH_ID.findall(m.get("content") or "") if opens(x)}
+    return out, attach
+
+
 @router.get("/chat/{session_id}/read", response_class=HTMLResponse)
 def chat_read(request: Request, session_id: int):
-    """같은 부서 동료의 프로젝트 대화를 읽기 전용으로 — 입력줄·문서 패널·다시 쓰기 없이 주고받은 글만."""
+    """공유받은 프로젝트의 남의 대화(비공개 제외)를 읽기 전용으로 — 입력줄·문서 패널·다시 쓰기 없이 주고받은 글만.
+    근거는 읽는 사람 범위 안의 것만 연다(reader_evidence)."""
     h = request.app.state.chat
     db, templates, ctx, chat_topics = h.db, h.templates, h.ctx, h.chat_topics
     _can_read_chat = h._can_read_chat
@@ -425,9 +453,11 @@ def chat_read(request: Request, session_id: int):
         raise HTTPException(404, "대화를 찾을 수 없습니다.")
     project = db.get_project(int(session["project_id"])) if session.get("project_id") else None
     mine = session.get("owner") == getattr(request.state, "user", "")
+    messages = db.list_chats(session_id)
+    evidence, attach_ok = reader_evidence(request, chat_topics.latest(session_id), messages)
     return templates.TemplateResponse(request, "chat_read.html", ctx(request, {
-        "chat_session": session, "chat_project": project, "messages": db.list_chats(session_id),
-        "sources": chat_topics.latest(session_id), "mine": mine,
+        "chat_session": session, "chat_project": project, "messages": messages,
+        "sources": [s for s in evidence if not s["hidden"]], "evidence": evidence, "attach_ok": attach_ok, "mine": mine,
         "shared_lost": mine and _shared_lost(request, session),
         "project_open": bool(project) and bool(request.app.state.project_access(request, project))}))
 

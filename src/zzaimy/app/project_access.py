@@ -2,10 +2,13 @@
 
 공유 범위는 프로젝트마다 담당자가 정한다: 나만 · 부서(일괄) · 지정한 사용자. 권한은 셋이다.
 - 소유: 만든 사람(projects.owner). 프로젝트 이름·지우기·보관·공유 설정·문서 추가·작성 원칙은 소유자와 관리자만
-- 함께 작업(level "edit"): 그 프로젝트 안에 자기 대화를 열어 묻고 문서를 쓴다(드라이브 작업 문서는 편집 권한)
-- 참조(level "view", 옛 이름 「보기」): 프로젝트 화면·공개 대화·작업 문서를 읽기 전용으로(드라이브 작업 문서는 보기 권한).
-  대화 시작·문서 추가·원칙 수정·작업본 쓰기는 막힌다
-저장 값 "view"·"edit" 는 예전 그대로다(이름만 「보기」→「참조」) — 옛 기록을 옮길 일이 없다.
+- 함께 작업(level "edit"): 대화·작업 문서 보기와 고치기 — 그 프로젝트 안에 자기 대화를 열어 묻고 문서를 쓴다(드라이브 작업 문서는 편집 권한)
+- 읽기만(level "view", 옛 이름 「보기」·「참조」): 대화·작업 문서 보기만 — 프로젝트 화면·공개 대화·작업 문서를 읽기 전용으로
+  (드라이브 작업 문서는 보기 권한). 대화 시작·문서 추가·원칙 수정·작업본 쓰기는 막힌다. 새로 고르는 줄의 기본값
+저장 값 "view"·"edit" 는 예전 그대로다(이름만 「보기」→「참조」→「읽기만」) — 옛 기록을 옮길 일이 없다.
+공유는 고른 부서·사람에게만 간다 — 부서 공유는 그 부서 소속 계정만이고 아래 팀·다른 부서로 저절로 퍼지지 않는다(recipients).
+두 규칙은 권한과 상관없이 같다: 「나만 보기」 프로젝트의 작업 문서는 담당자·관리자만(webhwp_routes._access), 공유받은 사람은 비공개가 아닌
+대화 글을 모두 읽되 근거 원문은 자기 열람 범위 안의 것만 연다(main._can_read_chat·chat_routes.reader_evidence, ADR-0074).
 사업 책임자(메인 담당자)는 설정 project_lead:<프로젝트 id> = 계정(없으면 만든 사람), 머리 아이콘 색은 project_color:<프로젝트 id> = 팔레트 열쇠.
 저장은 설정 project_shares:<프로젝트 id> = {"mode": "private"|"shared", "items": [{"to": "dept:<부서>"|"user:<계정>", "level": "view"|"edit"}]}.
 설정이 없는 옛 프로젝트는 지금까지와 같게 — 담당자 부서에 「보기」(10-16 같은 부서 동료 읽기 전용).
@@ -16,8 +19,9 @@ from __future__ import annotations
 import json
 
 LEVELS = ("view", "edit")
-LEVEL_LABEL = {"view": "참조", "edit": "함께 작업"}
-LEVEL_HINT = {"view": "읽기 전용", "edit": "읽기·쓰기"}
+LEVEL_LABEL = {"view": "읽기만", "edit": "함께 작업"}
+LEVEL_HINT = {"view": "대화·작업 문서 보기만", "edit": "대화·작업 문서 보기와 고치기, 새 대화"}
+DEFAULT_LEVEL = "view"
 
 # 프로젝트 아이콘 색 — 얇은 동그라미 팔레트. 값은 (아이콘 색, 바탕 색)
 PALETTE = {
@@ -61,7 +65,7 @@ def lead(db, project: dict, accounts: dict | None = None) -> str:
 
 
 def lead_choices(project: dict, share: dict, accounts: dict) -> list[str]:
-    """사업 책임자로 고를 수 있는 사람 — 만든 사람과 「함께 작업」으로 받는 교직원(참조는 읽기 전용이라 뺀다)."""
+    """사업 책임자로 고를 수 있는 사람 — 만든 사람과 「함께 작업」으로 받는 교직원(「읽기만」 은 고치지 못해 뺀다)."""
     owner = project.get("owner") or ""
     rec = recipients(share, accounts, owner) if share.get("mode") == "shared" else {}
     return [owner, *sorted(u for u, lv in rec.items() if lv == "edit")] if owner else sorted(u for u, lv in rec.items() if lv == "edit")
@@ -75,7 +79,7 @@ def set_lead(db, project: dict, user: str, choices: list[str]) -> str:
 
 
 def can_write(level: str) -> bool:
-    """대화 시작·문서 추가·원칙 수정·작업본 쓰기를 할 수 있는 권한인가 — 소유자·관리자(edit)·함께 작업(edit)만. 참조(view)는 못 한다."""
+    """대화 시작·문서 추가·원칙 수정·작업본 쓰기를 할 수 있는 권한인가 — 소유자·관리자(edit)·함께 작업(edit)만. 읽기만(view)은 못 한다."""
     return level == "edit"
 
 
@@ -163,7 +167,7 @@ def button_label(share: dict) -> str:
 
 
 def describe(share: dict, accounts: dict | None = None) -> str:
-    """화면 한 줄 — 「나만 보기」 · 「기획처(참조) · 홍길동(함께 작업)」. accounts 를 주면 사람은 계정 아이디 대신 이름으로."""
+    """화면 한 줄 — 「나만 보기」 · 「기획처(읽기만) · 홍길동(함께 작업)」. accounts 를 주면 사람은 계정 아이디 대신 이름으로."""
     if share.get("mode") == "private" or not share.get("items"):
         return "나만 보기"
 
