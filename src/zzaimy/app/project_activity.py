@@ -1,5 +1,6 @@
-"""프로젝트 진행 현황(/project/{id}/activity) — 프로젝트 화면의 탭 하나. 한 화면 대시보드: 위 요약 수치, 참여자 카드(누르면 그 사람으로
-요청 기록 거르기), 요청 기록(사람·찾기·날짜 묶음), 사용량(사람별·날짜별, 기간), 작업 요약(사람별 카드).
+"""프로젝트 진행 현황(/project/{id}/activity) — 프로젝트 화면의 탭 하나. 한 화면 대시보드: 위 요약 수치, 참여자 줄(누르면 그 사람으로
+아래 전부를 거르기, 기간), 사용량 그림(날짜별 막대·사람별 비율 — 화면이 request_days·usage.records 로 그림), 요청 기록(대화 묶음 conversations,
+펼치기·찾기·더 보기), 작업 요약(사람별 카드).
 
 - 볼 수 있는 사람: may_view → grades.can_view_activity(관리자 전부, 총괄 책임자=자기 부서 프로젝트, 사업 책임자=만든·책임자 지정 프로젝트).
   일반 등급·학생은 열지 않는다.
@@ -115,7 +116,7 @@ def _day(at, fallback: str = "") -> str:
 
 
 def collect(request: Request, proj: dict) -> dict:
-    """화면·API 공통 자료 — 참여자, 요청 줄, 사용량(사람별·날짜별), 저장된 요약."""
+    """화면·API 공통 자료 — 참여자, 요청 줄과 대화 묶음, 사용량(사람별·날짜별·답 하나씩), 저장된 요약."""
     st = request.app.state
     db, accounts = st.db, getattr(st, "accounts", {}) or {}
     pid = int(proj["id"])
@@ -189,6 +190,17 @@ def collect(request: Request, proj: dict) -> dict:
             p["answers"] += 1
     requests.reverse()                                   # 새 것부터
 
+    # 대화 묶음 — 요청 기록은 대화 하나가 한 줄(펼치면 그 대화의 요청들), 마지막 요청이 새 것부터
+    convs: dict[int, dict] = {}
+    for r in requests:
+        c = convs.get(r["session"])
+        if c is None:
+            c = convs[r["session"]] = {"session": r["session"], "title": r["title"], "user": r["user"], "name": r["name"],
+                                       "last": r["at"], "first": r["at"], "requests": []}
+        c["first"] = r["at"]
+        c["requests"].append(r)
+    conversations = sorted(convs.values(), key=lambda c: c["last"], reverse=True)
+
     # 사용량 — 답마다(chat_ctx_msg), 그 기록이 없는 대화는 chat_ctx(마지막 답) 한 건
     ans = [m for m in msgs if m["role"] == "assistant"]
     got = _settings(db, [f"chat_ctx_msg:{int(m['id'])}" for m in ans] + [f"chat_ctx:{sid}" for sid in by_sid])
@@ -244,7 +256,8 @@ def collect(request: Request, proj: dict) -> dict:
     plist = [p for p in plist if p["user"]]
     return {"project": {"id": pid, "name": proj.get("name") or ""}, "people": plist, "shared_to": shared_to,
             "share_mode": "implicit" if share.get("implicit") else share.get("mode"),
-            "requests": requests, "usage": {"per_user": per_user, "per_day": per_day, "top": top, "legacy": legacy,
+            "requests": requests, "conversations": conversations,
+            "request_days": [[r["user"], r["at"][:10]] for r in requests], "usage": {"per_user": per_user, "per_day": per_day, "top": top, "legacy": legacy,
                                             "answers": len(records),
                                             # 답 하나씩(사람·날짜·보낸 양) — 화면이 기간(최근 7일·30일)으로 다시 묶는다
                                             "records": [{k: r[k] for k in ("user", "day", "calls", "prompt", "peak", "limit", "trimmed")}
