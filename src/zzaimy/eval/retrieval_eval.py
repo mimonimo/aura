@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import random
@@ -424,6 +425,16 @@ def _unmeasured(method: str, note: str) -> dict:
             **{k: None for k in METRIC_KEYS}, "note": note}
 
 
+def stable_sample(queries: list, k: int, seed: int) -> list[int]:
+    """질의 k건 표본의 위치(오름차순). 질의마다 (시드·행·글) 해시로 순위를 매겨 작은 쪽부터 고른다 —
+    질의 세트에 한 건이 늘거나 빠져도 표본은 그 한 건만 바뀐다(위치 기반 random.sample 은 전부 바뀌어
+    10-26 0.733 → 10-27 0.713 처럼 리랭커 수치가 표본 탓으로 흔들렸다)."""
+    def key(j: int) -> str:
+        q = queries[j]
+        return hashlib.sha1(f"{seed}|{q.row}|{q.text}".encode("utf-8")).hexdigest()
+    return sorted(sorted(range(len(queries)), key=key)[:min(k, len(queries))])
+
+
 def evaluate(
     queries: list[Query], golds: list[set[int]], retrievers: Retrievers, *,
     no_rerank: bool = False, rerank_sample: int = RERANK_SAMPLE, seed: int = SEED,
@@ -483,7 +494,7 @@ def evaluate(
         prod = _unmeasured(METHOD_PRODUCTION, "리랭커 미적재")
     else:
         n = len(queries)
-        idx = sorted(random.Random(seed).sample(range(n), min(rerank_sample, n)))
+        idx = stable_sample(queries, rerank_sample, seed)
         rr_runs: list[list[int]] = []
         sub_hyb: list[list[int]] = []
         sub_gold: list[set[int]] = []
@@ -501,7 +512,7 @@ def evaluate(
         prod["hybrid_on_sample"] = metrics(sub_hyb, sub_gold)
         base = prod["hybrid_on_sample"]
         notes.append(
-            f"운영 구성 행은 고정 시드({seed}) 무작위 표본 {len(idx)}건 · 후보 {PRODUCTION_CANDIDATES}개(운영과 같음)로 측정 — "
+            f"운영 구성 행은 고정 시드({seed}) 해시 표본 {len(idx)}건 · 후보 {PRODUCTION_CANDIDATES}개(운영과 같음)로 측정 — "
             f"같은 표본의 하이브리드 R@1 {base['recall_at_1']:.3f}, MRR@10 {base['mrr_at_10']:.3f}"
         )
     prod["production"] = True
@@ -509,7 +520,7 @@ def evaluate(
     if retrievers.alt_dense is not None and retrievers.rerank is not None and not no_rerank:
         # 같은 표본·같은 리랭커로 대안 축의 후보를 재정렬 — 운영 구성 행과 바로 견준다
         n = len(queries)
-        idx = sorted(random.Random(seed).sample(range(n), min(rerank_sample, n)))
+        idx = stable_sample(queries, rerank_sample, seed)
         a_runs = [list(retrievers.rerank(queries[k].text, alt_cand_runs[k]))[:TOP_K] for k in idx]
         arow = _row(f"어휘+{alt_name}+리랭커", a_runs, [golds[k] for k in idx])
         arow["sample"] = {"seed": seed, "of": n}
