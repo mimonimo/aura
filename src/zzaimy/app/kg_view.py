@@ -351,12 +351,30 @@ def year_page(data: dict, year_id: str, page: int = 1) -> dict:
     return {"label": col["label"], "id": year_id, "docs": part, "page": page, "pages": pages, "total": len(docs)}
 
 
+_VIEW_CACHE: dict = {}
+
+
+def _program_view_cached(db, program_id, scope) -> dict:
+    """사업 화면 자료 — 그래프 판·사업·보는 사람 범위가 같고 5분 안이면 지난 계산(큰 사업은 문서 수천 건이라 2초, 10-28).
+    문서 권한이 바뀌는 경우를 위해 5분이 지나면 다시 센다."""
+    import time
+    key = (str(getattr(db, "path", "")), kg_store.version(db), program_id, json.dumps(scope or {}, sort_keys=True, default=str))
+    hit = _VIEW_CACHE.get(key)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    data = program_view(db, program_id, scope=scope)
+    if len(_VIEW_CACHE) > 64:
+        _VIEW_CACHE.clear()
+    _VIEW_CACHE[key] = (time.time(), data)
+    return data
+
+
 @router.get("/graph/program", response_class=HTMLResponse)
 def graph_program(request: Request, id: str = "", year: str = "", page: int = 1):
     st = request.app.state
     from zzaimy.app.access_policy import request_viewer
     scope = request_viewer(request)
-    data = program_view(st.db, id or None, scope=scope)
+    data = dict(_program_view_cached(st.db, id or None, scope))
     if year and data.get("program"):
         data["year_view"] = year_page(data, year, page)
     return st.templates.TemplateResponse(request, "kg_program.html", st.page_ctx(request, data))

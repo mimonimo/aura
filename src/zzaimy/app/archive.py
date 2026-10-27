@@ -15,6 +15,7 @@ _SCHEMA = (
     " status TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT '', year INTEGER, round INTEGER, dup_of TEXT NOT NULL DEFAULT '',"
     " doc_id INTEGER, analysis TEXT NOT NULL DEFAULT '', seen_at TEXT NOT NULL DEFAULT '')",
     "CREATE INDEX IF NOT EXISTS archive_files_program ON archive_files (program)",
+    "CREATE INDEX IF NOT EXISTS archive_files_dup ON archive_files (dup_of)",          # 중복 원본 거르기(원본 보관소 목록, 10-28)
 )
 UPLOAD_PREFIX = "_플랫폼업로드/"
 UNCLASSIFIED = "none"            # 사업 분류가 없는 원본의 보관 묶음 열쇠(담당자 프로젝트의 program '' 과 겹치지 않게)

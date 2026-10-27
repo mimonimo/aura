@@ -22,6 +22,8 @@ _SCHEMA = (
     # 갈래로 고르기(사업·연차 노드, 관계 종류) — 41만 노드를 처음부터 훑던 것(10-28 화면 측정)
     "CREATE INDEX IF NOT EXISTS kg_nodes_type ON kg_nodes (type)",
     "CREATE INDEX IF NOT EXISTS kg_edges_kind ON kg_edges (kind)",
+    # 문서의 절·관계 찾기(사업 화면 계획↔실적·절 수) — doc_id 로 41만 노드를 훑던 것
+    "CREATE INDEX IF NOT EXISTS kg_nodes_doc ON kg_nodes (doc_id, type)",
 )
 
 
