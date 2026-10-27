@@ -236,3 +236,41 @@ def test_metric_major_and_arm_major_read_the_same():
     a = mc._block({"metrics": {"chrf": {"o": 1.5, "s": 2.5}}}, ["o", "s"])
     b = mc._block({"metrics": {"o": {"chrf": 1.5}, "s": {"chrf": 2.5}}}, ["o", "s"])
     assert a["other"] == b["other"] and a["other"][0]["vals"] == {"o": 1.5, "s": 2.5}
+
+
+def test_analysis_md_rendered_safely(world):
+    """analysis.md 가 있으면 비교 화면 「분석」 절(문서 열람과 같은 렌더 — 원문 HTML 은 글자 그대로),
+    품질·성능 카드에는 결론 한 줄과 「분석 보기」."""
+    app, base, _ = world
+    d = _finished_run(base)
+    s = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+    s["verdict"] = "SFT 합친 판은 문서 작성을 못 해 운영에 넣지 않음"
+    (d / "summary.json").write_text(json.dumps(s, ensure_ascii=False))
+    (d / "analysis.md").write_text(
+        "# 학습본 비교 분석\n\n## 무엇이 문제인가\n\n- 문서를 만들지 못하고 묻기만 함\n- 학습셋 틀이 답에 섞임\n\n"
+        "## 왜 문서 작성을 못 했나\n\n학습 문답이 **한 번 묻고 답하기** 꼴이라 도구 부르기를 잃었다.\n\n"
+        "| 갈래 | 문서 만듦 |\n|---|---|\n| 오픈 모델 | 100% |\n| SFT 병합본 | 0% |\n\n"
+        "### 문답 검수 방향\n\n1. 플랫폼 요청 꼴로 다시 만든다\n\n<script>alert('x')</script> <img src=x onerror=alert(1)>\n",
+        encoding="utf-8")
+    c = _client(app, "zzdev")
+    page = c.get("/dev/models/compare/sft-compare").text
+    sec = page.split('id="analysis"')[1].split("</section>")[0]
+    assert "<h2>분석" in sec and "학습본 비교 분석" in sec
+    assert "무엇이 문제인가" in sec and "왜 문서 작성을 못 했나" in sec and "문답 검수 방향" in sec
+    assert "<li" in sec and "문서를 만들지 못하고 묻기만 함" in sec
+    assert "<table" in sec and "<th>갈래</th>" in sec and "<td>SFT 병합본</td>" in sec
+    assert "<b>한 번 묻고 답하기</b>" in sec
+    assert "<script>alert" not in page and "<img src=x" not in sec and "&lt;script&gt;" in sec
+    assert page.index('id="analysis"') < page.index('data-mc-block=')        # 묶음 표보다 위
+    assert 'href="#analysis">분석 보기' in page
+    card = c.get("/dev/quality").text.split('id="model-compare"')[1].split("</div></div>")[0]
+    assert "SFT 합친 판은 문서 작성을 못 해 운영에 넣지 않음" in card
+    assert 'href="/dev/models/compare/sft-compare#analysis">분석 보기' in card
+
+
+def test_no_analysis_no_section(world):
+    app, base, _ = world
+    _finished_run(base)
+    c = _client(app, "zzdev")
+    assert 'id="analysis"' not in c.get("/dev/models/compare").text
+    assert "분석 보기" not in c.get("/dev/quality").text

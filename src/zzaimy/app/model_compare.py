@@ -5,6 +5,7 @@
   summary.json  실행 정보·갈래(arms)·묶음(blocks: 지표·쌍대 승패·차원별 평균·서류 갈래별 점수)·메모
   samples.json  표본마다 입력·갈래별 출력·점수·판정 이유
   docs.json     갈래별로 만든 hwpx 목록(docs/<arm>/*.hwpx). 없으면 docs/ 폴더를 직접 훑는다
+  analysis.md   사람이 쓴 분석(문제·까닭·다음 방향) — 있으면 화면 「분석」 절에 문서 열람과 같은 안전한 렌더로
 
 실행이 도는 중이면 파일이 덜 차 있다 — 없는 부분은 화면이 「진행 중」 으로 보인다(summary 에 created 가 생기면 끝난 것 —
 그 뒤로는 재지 않은 칸만 「—」). 지표는 {갈래: {지표: 값}}·{지표: {갈래: 값}} 둘 다 읽는다. 파일은 읽기만 한다.
@@ -24,6 +25,7 @@ router = APIRouter()
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _FILES = ("summary.json", "samples.json", "docs.json")
+_ANALYSIS_MAX = 200_000      # analysis.md 를 읽는 최대 글자 수
 
 KIND_LABELS = {"open": "오픈 27B", "sft-lora": "SFT 어댑터", "sft-merged": "SFT 합친 판"}
 DIM_LABELS = {
@@ -188,6 +190,16 @@ def _docs(d: Path, listed) -> dict[str, list[dict]]:
     return out
 
 
+def _analysis(d: Path) -> str:
+    f = d / "analysis.md"
+    if not f.is_file() or f.is_symlink():
+        return ""
+    try:
+        return f.read_text(encoding="utf-8")[:_ANALYSIS_MAX].strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
 def load_run(base: Path, run_id: str) -> dict | None:
     d = _run_dir(base, run_id)
     if d is None:
@@ -219,6 +231,7 @@ def load_run(base: Path, run_id: str) -> dict | None:
         "notes": [str(n) for n in (s.get("notes") or []) if n] if isinstance(s.get("notes"), list) else [],
         # 결론 한 줄 — 내보내기가 적어 둔 경우만(지어내지 않는다)
         "verdict": str(s.get("verdict") or s.get("conclusion") or "").strip(),
+        "analysis": _analysis(d),
         "samples": [{"id": str(x.get("id", i)), "type": str(x.get("type") or ""), "input": x.get("input") or "",
                      "gold": x.get("gold") or "", "outputs": x.get("outputs") if isinstance(x.get("outputs"), dict) else {},
                      "scores": x.get("scores") if isinstance(x.get("scores"), dict) else {},
@@ -296,8 +309,10 @@ def _page(request: Request, run_id: str | None):
         run = load_run(base, run_id)
         if run is None:
             raise HTTPException(404, "비교 실행을 찾을 수 없습니다")
+    # 분석은 /dev/doc 문서 열람과 같은 렌더(이스케이프 뒤 제목·목록·표·굵게만 되살림 — 원문 HTML 은 글자 그대로)
+    analysis = st.docs.dev_doc_view(run["analysis"], "분석") if run and run["analysis"] else None
     return st.templates.TemplateResponse(request, "dev_model_compare.html", st.page_ctx(request, {
-        "runs": runs, "run": run, "base_shown": str(base),
+        "runs": runs, "run": run, "base_shown": str(base), "analysis": analysis,
     }))
 
 

@@ -148,7 +148,7 @@
     <a class="h-link" href="/dev/models/compare/{{ run.id }}">자세히 보기</a></h2>
   <p class="muted mc-meta">{{ run.id }} · {% if run.created %}{{ run.created }}{% else %}진행 중{% endif %}
     · 대상 {% for a in run.arms %}<span title="{{ a.model }}">{{ a.label }}{% if a.kind_label and a.label != a.kind_label %}({{ a.kind_label }}){% endif %}</span>{% if not loop.last %} · {% endif %}{% else %}진행 중{% endfor %}</p>
-  {% if run.verdict %}<p class="mc-verdict">{{ run.verdict }}</p>{% endif %}
+  {% if run.verdict or run.analysis %}<p class="mc-verdict">{{ run.verdict }}{% if run.analysis %}{% if run.verdict %} · {% endif %}<a href="/dev/models/compare/{{ run.id }}#analysis">분석 보기</a>{% endif %}</p>{% endif %}
   {% set L = run.arm_label %}
   {% if hd.pairs %}
   <ul class="mc-pairs">
