@@ -209,8 +209,19 @@ def live(db, force: bool = False) -> dict:
     """live·index 지표 전부 — {"at": 센 시각, "values": {key: int}, "as_of": {key: str}}. 60초 재사용."""
     path = str(getattr(db, "path", ""))
     with _lock:
-        if (not force and _cache["data"] is not None and _cache["path"] == path
-                and time.time() - _cache["at"] < TTL_S):
+        if not force and _cache["data"] is not None and _cache["path"] == path:
+            if time.time() - _cache["at"] < TTL_S:
+                return _cache["data"]
+            if not _cache.get("refreshing"):           # 오래된 값은 보여 주고 뒤에서 다시 센다(세기 1.4초를 화면이 기다리지 않게, 10-28)
+                _cache["refreshing"] = True
+                import threading
+
+                def _refresh() -> None:
+                    try:
+                        live(db, force=True)
+                    finally:
+                        _cache["refreshing"] = False
+                threading.Thread(target=_refresh, name="metrics-live", daemon=True).start()
             return _cache["data"]
     values = _count_live(db)
     n_idx, idx_at = _index_meta()

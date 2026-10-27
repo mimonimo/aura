@@ -970,6 +970,32 @@ def create_app(
                 pass
 
         threading.Thread(target=warm, daemon=True).start()
+
+    @app.on_event("startup")
+    def _warm_pages() -> None:
+        """재시작 뒤 첫 화면이 기다리던 준비를 뒤에서 미리 — 형태소 분석기(1초)·모델 상태(1.9초)·사업 목록(0.9초)·검색 색인(1초)·
+        지표(1.4초). 배포마다 첫 사용자가 프로젝트 화면 8초·검색 3초를 기다렸다(10-28 측정). 실패해도 그 화면이 그때 준비한다."""
+        import os as _os
+        import threading
+
+        if _os.environ.get("ZZAIMY_NO_WARMUP"):
+            return
+
+        def run() -> None:
+            steps = (
+                ("형태소", lambda: __import__("zzaimy.app.regulations", fromlist=["x"]).extract_nouns("사업 계획 예열")),
+                ("모델 상태", lambda: __import__("zzaimy.generate.model_config", fromlist=["x"]).status()),
+                ("사업 목록", lambda: __import__("zzaimy.app.kg_explore", fromlist=["x"]).programs(db)),
+                ("검색 색인", lambda: __import__("zzaimy.app.grant_lex", fromlist=["x"]).rank(db, frozenset({"사업"}))),
+                ("지표", lambda: __import__("zzaimy.app.metrics", fromlist=["x"]).live(db)),
+            )
+            for name, fn in steps:
+                try:
+                    fn()
+                except Exception as e:
+                    logging.getLogger("zzaimy.app").info("화면 예열 건너뜀(%s): %s", name, type(e).__name__)
+
+        threading.Thread(target=run, name="warm-pages", daemon=True).start()
     inbox_dir.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.state.templates = templates

@@ -105,9 +105,20 @@ def status(ttl: float = 60.0) -> dict:
                 "external": False, "source": cfg["source"]}
     key = f"{cfg['base_url']}|{cfg['model']}|{cfg.get('connection_id', '')}"
     now = time.time()
-    if _status_cache["result"] is None or _status_cache["key"] != key or now - _status_cache["at"] > ttl:
+    if _status_cache["result"] is None or _status_cache["key"] != key:
         r = probe(timeout=2.0)
         _status_cache.update(at=now, key=key, result=r)
+    elif now - _status_cache["at"] > ttl and not _status_cache.get("refreshing"):
+        # 오래된 값은 그대로 보여 주고 뒤에서 다시 묻는다 — 60초마다 그 순간 화면을 연 사람이 1.9초를 기다렸다(10-28)
+        import threading
+        _status_cache["refreshing"] = True
+
+        def _refresh() -> None:
+            try:
+                _status_cache.update(at=time.time(), key=key, result=probe(timeout=2.0))
+            finally:
+                _status_cache["refreshing"] = False
+        threading.Thread(target=_refresh, name="model-status", daemon=True).start()
     r = _status_cache["result"]
     model = cfg["model"] or (r["models"][0] if r["models"] else "")
     return {"ok": r["ok"], "configured": True, "model": model, "models": r["models"], "error": r["error"],
@@ -115,7 +126,7 @@ def status(ttl: float = 60.0) -> dict:
 
 
 def reset_status_cache() -> None:
-    _status_cache.update(at=0.0, key="", result=None)
+    _status_cache.update(at=0.0, key="", result=None, refreshing=False)
 
 
 def probe(base_url: str | None = None, timeout: float = 3.0) -> dict:
