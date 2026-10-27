@@ -105,10 +105,11 @@ def _template_forms(request: Request) -> dict[str, dict]:
     db, base = request.app.state.db, _base(request)
     webhwp_routes._ensure_templates(db, base)
     out: dict[str, dict] = {}
-    for r in db.list_files(kind="webhwp", limit=5000):
-        src = str(webhwp.meta(db, r["id"]).get("source", ""))
-        if src.startswith(TEMPLATE) and Path(r["path"]).exists() and webhwp.locked(db, r["id"]):
-            out.setdefault(src, r)
+    with webhwp.preloaded_meta(db):                      # 한글 파일 수천 개의 meta 를 하나씩 읽던 것(시연 화면 15초) — 읽기만 하는 훑기라 한 번에
+        for r in db.list_files(kind="webhwp", limit=5000):
+            src = str(webhwp.meta(db, r["id"]).get("source", ""))
+            if src.startswith(TEMPLATE) and webhwp.locked(db, r["id"]) and Path(r["path"]).exists():
+                out.setdefault(src, r)
     return out
 
 
