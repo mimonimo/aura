@@ -535,6 +535,16 @@ TEAM_GRADES = ("member", "clerk", "lead")
 LEAD_GRANTABLE = ("create_project",)          # 사업 책임자가 일반 직원에게 줄 수 있는 추가 권한
 
 
+def _grantable(actor_grade: str) -> tuple[str, ...]:
+    """구성원 화면에서 이 사람이 줄 수 있는 추가 권한 — 관리자는 전부, 총괄 책임자는 관리자 전용(SFT 문답 검수)을 뺀 전부,
+    사업 책임자는 LEAD_GRANTABLE."""
+    if actor_grade == "admin":
+        return tuple(grades.PERMS)
+    if actor_grade == "head":
+        return tuple(k for k in grades.PERMS if k not in grades.ADMIN_ONLY_PERMS)
+    return LEAD_GRANTABLE
+
+
 def _team_actor(request: Request) -> tuple[str, dict, dict, str]:
     """(나, 내 계정, {다룰 부서: 그 부서에서 내 등급}, 대표 등급) — 겸직·부서 위계를 따른다(grades.covered_depts).
     관리자는 빈 dict(모든 부서). 총괄 책임자는 맡은 부서(하위 부서 포함)에서 head, 사업 책임자는 자기가 사업 책임자인 부서에서 lead."""
@@ -635,7 +645,7 @@ def api_org_members(request: Request, dept: str = ""):
         raise HTTPException(403, "맡은 부서의 구성원만 봅니다")
     ag = "admin" if not scope else scope[dept]
     return JSONResponse({"dept": dept, "rows": _team_rows(_accounts(request), dept, ag, dd), "actor_grade": ag,
-                         "perms": grades.PERMS, "grantable": list(grades.PERMS if ag in ("admin", "head") else LEAD_GRANTABLE),
+                         "perms": grades.PERMS, "grantable": list(_grantable(ag)),
                          "grades": {k: grades.GRADES[k] for k in TEAM_GRADES},
                          "can_place": ag in ("admin", "head"),               # 옮기기·빼기·사람 추가
                          "can_primary": ag == "admin",                       # 소속 부서째 바꾸기(사람 추가 「소속으로」·소속 빼기)
@@ -724,7 +734,7 @@ def _members_op(request: Request, b: dict):
             if not perm_ok:
                 failed.append({"uid": uid, "msg": "이 사람의 추가 권한은 바꿀 수 없습니다"})
                 continue
-            grantable = set(grades.PERMS) if ag in ("admin", "head") else set(LEAD_GRANTABLE)
+            grantable = set(_grantable(ag))
             want = set(value or [])
             perms = [k for k in grades.PERMS if (k in perms and k not in grantable) or (k in grantable and k in want)]
         elif op == "move":

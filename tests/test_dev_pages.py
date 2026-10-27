@@ -66,7 +66,7 @@ def test_training_navigation_does_not_scan_hidden_legacy_documents(client, monke
     # 접어 둔 긴 안내 대신 학습셋 구성 표(갈래 × 학습·검증·시험)와 검수 가이드 화면(10-27)
     assert 'id="training-guide"' not in response.text and 'data-guide-toggle' not in response.text
     assert response.text.index('>문답 검수') < response.text.index('id="trainset-mix"') < response.text.index('id="training-tools"')
-    assert 'href="/dev/train/review-guide"' in response.text
+    assert 'href="/review#manual"' in response.text
     review = response.text.split('id="review"', 1)[1].split('</section>', 1)[0]
     assert '다시 확인' not in review and 'recheck=1' not in response.text
 

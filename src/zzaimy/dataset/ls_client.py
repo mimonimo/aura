@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import json
+
 import requests
 
 from zzaimy.dataset.labelstudio import (
@@ -174,3 +176,43 @@ class LabelStudioClient:
         if not isinstance(tasks, list) or any(not isinstance(t, dict) for t in tasks):
             raise LabelStudioError('검수 내보내기 형식 오류')
         return tasks
+
+
+    # ---- 검수자 몫(data.assignee) — 검수 화면(/review)과 검수자 만들기(scripts/218) ----
+
+    def count_tasks(self, project_id: int, filters: list[dict], timeout: float | None = None) -> int:
+        """조건(데이터 관리자 거르기 항목, 모두 만족)에 맞는 할 일 수 — 한 쪽(1건)만 받아 total 을 읽는다."""
+        q = json.dumps({"filters": {"conjunction": "and", "items": filters}}, ensure_ascii=False)
+        data = self._req("GET", "/api/tasks", timeout=timeout,
+                         params={"project": int(project_id), "page": 1, "page_size": 1, "fields": "task_only", "query": q})
+        if not isinstance(data, dict) or "total" not in data:
+            raise LabelStudioError("할 일 수 응답 형식 오류")
+        return int(data.get("total") or 0)
+
+    def iter_tasks(self, project_id: int, page_size: int = 500):
+        """프로젝트의 할 일 전부(id·data) — 쪽마다 받아 차례로 내보낸다."""
+        page, seen = 1, 0
+        while True:
+            data = self._req("GET", "/api/tasks", params={"project": int(project_id), "page": page,
+                                                         "page_size": int(page_size), "fields": "all"})
+            tasks = (data.get("tasks") if isinstance(data, dict) else data) or []
+            total = int(data.get("total") or 0) if isinstance(data, dict) else 0
+            for t in tasks:
+                yield t
+            seen += len(tasks)
+            if not tasks or len(tasks) < page_size or (total and seen >= total):
+                return
+            page += 1
+
+    def set_task_data(self, task_id: int, data: dict) -> dict:
+        """할 일의 data 를 통째로 바꾼다(PATCH) — 부르는 쪽이 원래 칸을 모두 담아 보낸다."""
+        return self._req("PATCH", f"/api/tasks/{int(task_id)}", json={"data": data})
+
+    def users(self) -> list[dict]:
+        data = self._req("GET", "/api/users/")
+        return list((data.get("results", data) if isinstance(data, dict) else data) or [])
+
+    def create_user(self, email: str, username: str, first_name: str = "") -> dict:
+        """라벨 스튜디오 사용자 만들기 — 만든 사람(토큰 주인)의 조직에 들어간다. 비밀번호는 API 로 넣지 못한다(ls_admin.setup_user)."""
+        return self._req("POST", "/api/users/", json={"email": email, "username": username, "first_name": first_name})
+

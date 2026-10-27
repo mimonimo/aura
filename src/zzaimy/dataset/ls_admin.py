@@ -52,3 +52,23 @@ def set_password(new_pw: str) -> tuple[bool, str]:
     # 유닛 파일이 바뀌었을 수 있다 — 다음 재시작을 위해 반영(실패해도 비밀번호는 이미 바뀜)
     subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=30)
     return True, last[:160]
+
+
+def setup_user(email: str, new_pw: str) -> tuple[bool, str]:
+    """검수자 라벨 스튜디오 계정의 비밀번호를 정하고 조직에 넣는다(68 헬퍼 user-setup). 값은 환경변수로만 넘긴다."""
+    if not available():
+        return False, "이 서버에는 Label Studio 프로비저닝(유닛·ls-venv)이 없습니다"
+    try:
+        r = subprocess.run(
+            [str(ls_python()), str(HELPER), "user-setup", str(unit_path())],
+            env={**os.environ, "LS_USER_EMAIL": email, "LS_PASSWORD": new_pw},
+            capture_output=True, text=True, timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "Label Studio 응답 없음(시간 초과)"
+    out = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    last = out[-1] if out else ""
+    if r.returncode != 0 or not last.startswith("PASS"):
+        return False, (last or f"헬퍼 종료 코드 {r.returncode}")[:160]
+    return True, last[:160]
+

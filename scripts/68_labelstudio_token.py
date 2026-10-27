@@ -17,6 +17,8 @@ ls-venv 의 python 으로 실행한다(label-studio·Django 가 거기 있다). 
   set-password <unit>  환경변수 LS_PASSWORD 로 받은 새 비밀번호를 그 사용자에게 설정하고
                      유닛의 LABEL_STUDIO_PASSWORD 도 같이 갱신(새 DB 부트스트랩용).
                      비밀번호는 어디에도 찍지 않는다
+  user-setup <unit>  환경변수 LS_USER_EMAIL 의 사용자(검수자, scripts/218 이 API 로 만든 계정)에게
+                     LS_PASSWORD 를 설정하고 부트스트랩 사용자의 조직에 넣는다. 비밀번호는 찍지 않는다
 
 왜 ORM 까지 가나 — label-studio 1.23.0 설치본 소스로 확인한 사실:
   - --user-token / LABEL_STUDIO_USER_TOKEN 은 사용자를 처음 만들 때만 적용된다
@@ -260,6 +262,41 @@ def cmd_set_password(unit: Path) -> int:
     return 0
 
 
+def cmd_user_setup(unit: Path) -> int:
+    email = os.environ.get("LS_USER_EMAIL", "").strip()
+    pw = os.environ.get("LS_PASSWORD", "")
+    if not email or "@" not in email:
+        print("FAIL: LS_USER_EMAIL 이 없거나 이메일 꼴이 아닙니다")
+        return 2
+    if len(pw) < 8:
+        print("FAIL: LS_PASSWORD 가 없거나 8자 미만")
+        return 2
+    booted = _boot_django(unit)
+    if booted is None:
+        return 2
+    owner, _username, _m = booted
+    from users.models import User
+    user = User.objects.filter(email=email).first()
+    if user is None:
+        print(f"FAIL: Label Studio 사용자 {email} 이(가) 없습니다 — API 로 먼저 만든다(scripts/218)")
+        return 2
+    user.set_password(pw)          # Django 해시 저장 — 평문은 어디에도 남지 않는다
+    user.save(update_fields=["password"])
+    org = getattr(owner, "active_organization", None)
+    joined = "조직 없음(생략)"
+    if org is not None:
+        if not org.has_user(user):
+            org.add_user(user)
+            joined = "조직에 넣음"
+        else:
+            joined = "이미 조직에 있음"
+        if getattr(user, "active_organization_id", None) is None:
+            user.active_organization = org
+            user.save(update_fields=["active_organization"])
+    print(f"PASS: Label Studio 사용자 {email} 비밀번호 설정, {joined}")
+    return 0
+
+
 def cmd_apply(unit: Path) -> int:
     token = _token_from_env()
     booted = _boot_django(unit)
@@ -309,6 +346,7 @@ COMMANDS = {
     "apply": cmd_apply,
     "user-get": cmd_user_get,
     "set-password": cmd_set_password,
+    "user-setup": cmd_user_setup,
 }
 
 

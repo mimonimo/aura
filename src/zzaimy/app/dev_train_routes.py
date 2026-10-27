@@ -14,11 +14,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
-from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from zzaimy.app import serving_plan
 
@@ -311,52 +309,4 @@ def _dev_data_view(request: Request, err: str = "", ok: str = ""):
     }))
 
 
-# ---- 검수 가이드 — docs/guides/sft-review-guide.md 를 앱 안에서(문서 보기와 같은 마크다운 그리기), 그림은 그 폴더에서만 ----
-_DOCS = Path(__file__).resolve().parents[3] / "docs"
-GUIDE_PATH = _DOCS / "guides" / "sft-review-guide.md"
-GUIDE_IMG_DIR = _DOCS / "images" / "guides" / "sft-review"
-_IMG_NAME = re.compile(r"[A-Za-z0-9가-힣_][A-Za-z0-9가-힣_.-]*\.(?:png|jpe?g|webp|gif)", re.I)
-_IMG_MD = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
-
-
-def _guide_img(src: str) -> str:
-    """가이드의 그림 경로 → 앱 주소. 그림 폴더 바로 안의 그림 파일만, 아니면 빈 글(그리지 않는다)."""
-    from html import unescape
-    name = Path(unescape(src)).name
-    if not _IMG_NAME.fullmatch(name):
-        return ""
-    try:
-        target = (GUIDE_PATH.parent / unescape(src)).resolve()
-    except (OSError, ValueError):
-        return ""
-    if target.parent != GUIDE_IMG_DIR.resolve() or not target.is_file():
-        return ""
-    return "/dev/train/review-guide/img/" + name
-
-
-@router.get("/dev/train/review-guide", response_class=HTMLResponse)
-def dev_train_review_guide(request: Request):
-    """검수 가이드 — 문서가 없으면 한 줄."""
-    from markupsafe import Markup
-
-    st = request.app.state
-    doc = None
-    if GUIDE_PATH.is_file():
-        doc = st.docs.dev_doc_view(GUIDE_PATH.read_text(encoding="utf-8"), GUIDE_PATH.name)
-
-        def img(m):
-            url = _guide_img(m.group(2))
-            alt = re.sub(r"<[^>]+>", "", m.group(1)).replace('"', "&quot;")    # 이미 이스케이프된 글 — 되살린 굵게·기울임만 걷는다
-            return f'<img class="guide-img" src="{url}" alt="{alt}" loading="lazy">' if url else m.group(0)
-        doc["html"] = Markup(_IMG_MD.sub(img, str(doc["html"])))
-    return st.templates.TemplateResponse(request, "dev_review_guide.html", st.page_ctx(request, {"doc": doc}))
-
-
-@router.get("/dev/train/review-guide/img/{name}")
-def dev_train_review_guide_img(name: str):
-    if not _IMG_NAME.fullmatch(name):
-        raise HTTPException(404)
-    p = GUIDE_IMG_DIR / name
-    if not p.is_file() or p.resolve().parent != GUIDE_IMG_DIR.resolve():
-        raise HTTPException(404)
-    return FileResponse(p)
+# 검수 가이드(매뉴얼)는 문답 검수 화면(/review, app/review_routes)으로 옮겼다 — 예전 주소 /dev/train/review-guide 는 거기서 넘긴다

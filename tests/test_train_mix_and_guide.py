@@ -6,9 +6,8 @@ import re
 
 import pytest
 from fastapi.testclient import TestClient
-
 from tests.test_app import FakeDrafter, FakeProcessor
-from zzaimy.app import dev_train_routes
+
 from zzaimy.app.main import create_app
 from zzaimy.export import bundle
 
@@ -84,38 +83,7 @@ def test_train_page_shows_mix_and_one_set_table(client, tmp_path, monkeypatch):
     assert "trainset-list" not in outputs                         # 같은 목록을 두 곳에 두지 않는다
 
 
-def test_review_guide_renders_markdown_and_serves_only_its_images(client, tmp_path, monkeypatch):
-    docs = tmp_path / "docs"
-    guide = docs / "guides" / "sft-review-guide.md"
-    imgs = docs / "images" / "guides" / "sft-review"
-    imgs.mkdir(parents=True)
-    guide.parent.mkdir(parents=True)
-    (imgs / "01-list.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    (docs / "secret.png").write_bytes(b"x")
-    guide.write_text("# SFT 검수 가이드\n\n## 1. 프로젝트 열기\n\n목록에서 **ZZAIMY SFT 5000 검수** 를 연다.\n\n"
-                     "![프로젝트 목록](../images/guides/sft-review/01-list.png)\n\n![밖](../secret.png)\n\n"
-                     "<script>alert(1)</script>\n", encoding="utf-8")
-    monkeypatch.setattr(dev_train_routes, "GUIDE_PATH", guide)
-    monkeypatch.setattr(dev_train_routes, "GUIDE_IMG_DIR", imgs)
-    page = client.get("/dev/train/review-guide").text
-    assert "SFT 검수 가이드" in page and "<b>ZZAIMY SFT 5000 검수</b>" in page
-    assert '<img class="guide-img" src="/dev/train/review-guide/img/01-list.png" alt="프로젝트 목록"' in page
-    assert "![밖](../secret.png)" in page and "<script>alert(1)</script>" not in page   # 폴더 밖 그림은 그리지 않고, 글은 이스케이프
-    assert re.findall(r'<a[^>]*href="([^"]+)"[^>]*class="active"', page) == ["/dev/train"]
-    r = client.get("/dev/train/review-guide/img/01-list.png")
-    assert r.status_code == 200 and r.content.startswith(b"\x89PNG")
-    for bad in ("..%2Fsecret.png", "secret.png", ".hidden.png", "01-list.txt"):
-        assert client.get(f"/dev/train/review-guide/img/{bad}").status_code == 404
-    guide.unlink()
-    assert "아직 없습니다" in client.get("/dev/train/review-guide").text
-
-
-def test_review_guide_is_dev_only(tmp_path):
-    (tmp_path / "platform").mkdir()
-    (tmp_path / "platform" / "accounts.json").write_text(json.dumps({"kim": {"pw": "kim-pass", "role": "staff", "dept": "학생처"}}))
-    app = create_app(db_path=tmp_path / "platform" / "platform.db", inbox_dir=tmp_path / "inbox",
-                     processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
-    c = TestClient(app)
-    assert c.post("/login", data={"username": "kim", "pw": "kim-pass"}, follow_redirects=False).status_code == 303
-    assert c.get("/dev/train/review-guide").status_code == 403
-    assert c.get("/dev/train/review-guide/img/01-list.png").status_code == 403
+def test_review_guide_moved_to_review_page(client):
+    """매뉴얼은 문답 검수 화면(/review) 한 곳 — 예전 주소는 거기로 넘긴다(렌더링·권한 시험은 tests/test_review_access.py)."""
+    r = client.get("/dev/train/review-guide", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/review#manual"

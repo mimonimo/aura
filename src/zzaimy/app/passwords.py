@@ -6,7 +6,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import secrets
+
 MIN_LENGTH = 8
+HASH_ROUNDS = 200_000
+
+
+def hash_pw(pw: str, salt: bytes | None = None) -> tuple[str, str]:
+    """비밀번호 해시(pbkdf2-sha256, 개별 salt) — (해시 hex, salt hex). 앱 로그인과 계정 만들기 스크립트(218)가 같은 함수를 쓴다."""
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, HASH_ROUNDS)
+    return digest.hex(), salt.hex()
 
 
 def problem(new_pw: str, current_pw: str | None = None) -> str:
@@ -23,4 +34,4 @@ def install(env) -> None:
     env.globals["password_rules"] = {"min_length": MIN_LENGTH}
 
 
-__all__ = ["MIN_LENGTH", "install", "problem"]
+__all__ = ["MIN_LENGTH", "hash_pw", "install", "problem"]

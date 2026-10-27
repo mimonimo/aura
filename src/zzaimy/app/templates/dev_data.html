@@ -287,7 +287,7 @@
 {# ---------------- 문답 검수 — Label Studio 프로젝트 전부와 진행(완료/전체). 값은 1분마다 다시 읽는다 ---------------- #}
 <section class="card" id="review"><div class="card-in">
   <div class="tr-head"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수</h2>
-    <span class="tr-tools"><a class="btn-ghost" href="/dev/train/review-guide" data-review-guide>검수 가이드</a>
+    <span class="tr-tools"><a class="btn-ghost" href="/review#manual" data-review-guide>검수 가이드</a>
     {% if review.list_href %}<a class="btn-ghost" href="{{ review.list_href }}" target="_blank" rel="noopener noreferrer">Label Studio <span aria-hidden="true">↗</span></a>{% endif %}</span></div>
   {% if review.note %}
   <p class="review-status tr-chips" role="status">{% for c in review.note.chips %}<span class="pill {{ c.level }}">{{ c.text }}</span>{% endfor %}

@@ -228,10 +228,7 @@ def create_app(
 
     # 비밀번호는 해시(pbkdf2-sha256, 개별 salt)로만 저장한다. 예전 파일의 평문 pw 는
     # 로그인에 성공하는 순간 해시로 바꿔 쓴다(승격) — 운영 중 파일을 손으로 고칠 필요 없음.
-    def _hash_pw(pw: str, salt: bytes | None = None) -> tuple[str, str]:
-        salt = salt or secrets.token_bytes(16)
-        digest = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200_000)
-        return digest.hex(), salt.hex()
+    from zzaimy.app.passwords import hash_pw as _hash_pw   # 해시 규칙 한 곳(계정 만들기 스크립트 218 도 같은 함수)
 
     def _set_pw(acct: dict, pw: str) -> None:
         acct["pw_hash"], acct["salt"] = _hash_pw(pw)
@@ -4530,6 +4527,8 @@ def create_app(
     app.state.grounded_status_note = dev_data_routes._grounded_status_note
     app.include_router(dev_data_routes.router)
     app.include_router(dev_train_routes.router)
+    from zzaimy.app import review_routes as _review_routes   # 문답 검수(/review) — 검수자·관리자, 매뉴얼 한 곳
+    app.include_router(_review_routes.router)
     app.state.all_depts = lambda: _all_depts()     # 부서 목록 — 아래(라이브러리 폴더)에서 정의되므로 부를 때 찾는다
     app.state.reindex_running = _ov.reindex_running
     app.include_router(dev_rag_routes.router)
@@ -4674,6 +4673,7 @@ def create_app(
     templates.env.globals["view_as_roles"] = {r: _ROLES.get(r, r) for r in VIEW_AS_ROLES}
     templates.env.globals["view_as_depts"] = lambda: _all_depts()
     templates.env.globals["request_grade"] = _gr.request_top_grade                  # 메뉴 보이기용(겸직 포함)
+    templates.env.globals["can_sft_review"] = _gr.request_can_review       # 사이드바 「문답 검수」(검수 권한·관리자만)
     templates.env.globals["program_scope"] = lambda request: {"admin": "all", "head": "dept", "lead": "own", "clerk": "own"}.get(_gr.request_top_grade(request), "")   # 사이드바 「사업 관리」(일반·학생은 안 보임)
     templates.env.globals["view_as_grades"] = dict(_gr.GRADES)      # 테스트 보기의 교직원 등급(select name="grade", 비우면 기본 등급)
 

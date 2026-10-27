@@ -19,7 +19,10 @@ ADMIN_MAX = 2
 STAFF = ("staff", "professor", "head")          # access_policy.STAFF_ROLES 와 같은 뜻(예전 역할 포함)
 COMMON_SPACE = "common"
 # 등급과 따로 계정마다 더 주는 권한(사용자·계정 화면) — 일반 직원에게 프로젝트 만들기만 열어 주는 식으로 쓴다
-PERMS = {"create_project": "프로젝트 만들기", "view_activity": "부서 프로젝트 진행 현황 보기"}
+# 「SFT 문답 검수」(sft_review): 검수 화면(/review — 검수 매뉴얼·라벨 스튜디오 열기·내 몫 진행)을 연다. /dev 는 열지 않는다.
+# 부서 일과 무관한 권한이라 관리자만 준다(ADMIN_ONLY_PERMS — 총괄 책임자의 구성원 화면에서는 고를 수 없다, ADR-0066 10-27 보충)
+PERMS = {"create_project": "프로젝트 만들기", "view_activity": "부서 프로젝트 진행 현황 보기", "sft_review": "SFT 문답 검수"}
+ADMIN_ONLY_PERMS = ("sft_review",)
 
 
 def has_perm(account: dict | None, key: str) -> bool:
@@ -30,6 +33,25 @@ def has_perm(account: dict | None, key: str) -> bool:
     if (a.get("role") or "") not in STAFF:
         return False
     return key in (a.get("perms") or ())                         # RAG 최소 등급의 공통 RAG 열쇠 — 부서 RAG 는 「dept:<부서>」
+
+
+def can_sft_review(account: dict | None) -> bool:
+    """검수 화면(/review)을 여는가 — 관리자, 또는 「SFT 문답 검수」 권한을 받은 교직원."""
+    return has_perm(account, "sft_review")
+
+
+def request_can_review(request) -> bool:
+    """요청한 사람이 검수 화면을 여는가 — 로그인 검사가 둔 역할(테스트 보기 중이면 고른 역할)과 계정 권한.
+    관리자가 테스트 보기로 다른 역할을 고른 동안에는 그 역할로 판정한다(계정 권한은 고른 역할에 없으므로 닫힘)."""
+    st = request.state
+    role = getattr(st, "role", "") or ""
+    if role == "dev":
+        return True
+    if getattr(st, "view_as", None):
+        return False
+    accounts = getattr(request.app.state, "accounts", None) or {}
+    acct = accounts.get(getattr(st, "user", "") or "") or {}
+    return can_sft_review({**acct, "role": role})
 
 
 def grade_of(account: dict | None) -> str:

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}문답 검수{% endblock %}
+{% block pagetitle %}문답 검수{% endblock %}
+{% block content %}
+<style>
+  .rv-top { display:flex; flex-wrap:wrap; gap:18px; align-items:center; justify-content:space-between; }
+  .rv-open { display:inline-flex; align-items:center; gap:8px; padding:12px 20px; border-radius:12px; font-size:15px; font-weight:600;
+             background:var(--navy); color:#fff; text-decoration:none; }
+  .rv-open:hover { background:var(--navy-deep); color:#fff; }
+  .rv-open.off { background:var(--panel); color:var(--faint); pointer-events:none; }
+  .rv-mine { min-width:240px; flex:1 1 280px; }
+  .rv-num { font-size:22px; font-weight:700; color:var(--ink); }
+  .rv-bar { display:block; height:8px; border-radius:4px; background:#E9EEF5; overflow:hidden; margin:6px 0 4px; max-width:420px; }
+  .rv-bar > i { display:block; height:100%; background:var(--navy); }
+  .rv-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .rv-table th, .rv-table td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:left; }
+  .rv-table td.num, .rv-table th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .rv-scroll { overflow-x:auto; }
+  .guide-doc { font-size:13.5px; line-height:1.75; }
+  .guide-doc .guide-img { display:block; width:100%; max-width:960px; height:auto; margin:10px 0 14px;
+    border:1px solid var(--line); border-radius:10px; }
+  .guide-doc blockquote { margin:8px 0; padding:6px 14px; border-left:3px solid var(--line); color:var(--muted); }
+  .rv-toc { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; padding:0; list-style:none; }
+  .rv-toc a { display:inline-block; padding:3px 10px; border:1px solid var(--line); border-radius:999px; font-size:12.5px; }
+</style>
+
+<section class="card" id="ls"><div class="card-in">
+  <div class="rv-top">
+    <div class="rv-mine">
+      <h2 style="margin:0 0 4px;">{{ proj.title }}</h2>
+      {% if mine %}
+        {% if not mine.ok %}<p class="muted" style="margin:0;" role="status">{{ mine.error }} — 잠시 뒤 다시 열어 주세요.</p>
+        {% elif mine.assigned %}
+        <p style="margin:0;"><span class="rv-num" data-mine-done>{{ '{:,}'.format(mine.done) }}</span> / <span data-mine-assigned>{{ '{:,}'.format(mine.assigned) }}</span>건 제출 · 내 몫 {{ mine.pct }}%</p>
+        <span class="rv-bar" aria-hidden="true"><i style="width:{{ mine.pct }}%"></i></span>
+        <p class="muted" style="margin:0; font-size:12.5px;">라벨 스튜디오에서 Filters › data.assignee = {{ me }} 로 거르면 내 몫만 보입니다.</p>
+        {% else %}<p class="muted" style="margin:0;" data-mine-assigned>아직 맡은 할 일이 없습니다 — 관리자가 몫을 나누면 여기 수가 보입니다.</p>{% endif %}
+      {% elif proj.id is not none %}
+        <p class="muted" style="margin:0;">전체 {{ '{:,}'.format(proj.done) }} / {{ '{:,}'.format(proj.total) }}건 제출</p>
+      {% elif not proj.url %}<p class="muted" style="margin:0;">라벨 스튜디오 주소가 아직 설정되지 않았습니다.</p>
+      {% else %}<p class="muted" style="margin:0;">라벨 스튜디오에서 이 프로젝트를 찾지 못했습니다.</p>{% endif %}
+    </div>
+    <a class="rv-open{{ '' if proj.href else ' off' }}" href="{{ proj.href or '#' }}" target="_blank" rel="noopener noreferrer" data-ls-open>라벨 스튜디오 열기 <span aria-hidden="true">↗</span></a>
+  </div>
+  {% if table is not none %}
+  <h3 style="margin:16px 0 6px; font-size:14px;">검수자별 진행</h3>
+  {% if not table.ok %}<p class="muted" style="margin:0;" role="status">{{ table.error }}</p>
+  {% elif table.rows %}
+  <div class="rv-scroll"><table class="rv-table" id="reviewerProgress">
+    <thead><tr><th>검수자</th><th class="num">맡은 수</th><th class="num">제출</th><th class="num">진행</th></tr></thead>
+    <tbody>{% for r in table.rows %}
+      <tr data-reviewer="{{ r.uid }}"><td>{{ person_name(r.uid) if person_name is defined else r.uid }} <span class="muted">{{ r.uid }}</span></td>
+        <td class="num">{{ '{:,}'.format(r.assigned) }}</td><td class="num">{{ '{:,}'.format(r.done) }}</td><td class="num">{{ r.pct }}%</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted" style="margin:0;">검수 권한을 받은 계정이 없습니다 — 조직 관리의 계정 편집에서 「SFT 문답 검수」를 줍니다.</p>{% endif %}
+  {% endif %}
+</div></section>
+
+<section class="card" id="manual"><div class="card-in">
+  <h2>{{ doc.title if doc else 'SFT 학습·검수 매뉴얼' }}</h2>
+  {% if doc %}
+  {% if doc.toc %}<ul class="rv-toc">{% for t in doc.toc if t.level == 2 %}<li><a href="#{{ t.id }}">{{ t.text }}</a></li>{% endfor %}</ul>{% endif %}
+  <div class="guide-doc">{{ doc.html }}</div>
+  {% else %}<p class="muted" style="margin:0;">매뉴얼 문서(docs/guides/sft-review-guide.md)가 아직 없습니다.</p>{% endif %}
+</div></section>
+{% endblock %}
