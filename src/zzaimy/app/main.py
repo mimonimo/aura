@@ -4659,8 +4659,8 @@ def create_app(
     app.state.llm_redirect = dev_data_routes._llm_redirect
     app.state.ls_client = _ls.ls_client
     app.state.ls_status = _ls.ls_status
-    app.state.grounded_cache = _ls.grounded_cache
-    app.state.grounded_ls_status = _ls.grounded_ls_status
+    app.state.ls_projects = _ls.ls_projects
+    app.state.ls_projects_cache = _ls.ls_projects_cache
     app.state.grounded_status_note = dev_data_routes._grounded_status_note
     app.include_router(dev_data_routes.router)
     app.include_router(dev_train_routes.router)

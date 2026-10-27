@@ -23,17 +23,16 @@ def client(tmp_path):
 
 
 def _status_line(page: str) -> str:
-    return page.split('class="review-status"', 1)[1].split("</p>", 1)[0]
+    return page.split('class="review-status', 1)[1].split("</p>", 1)[0]
 
 
 def test_unconfigured_review_status_says_what_and_where(client):
     line = _status_line(client.get("/dev/train").text)
-    assert "검수 현황 미확인" not in line and "Label Studio 미연결(" in line      # 뜻 없는 「미확인」 칩은 뺐다(10-26)
-    assert 'href="/dev/tools"' in line                          # 확인하는 곳
-    assert "recheck=1" in line                                   # 다시 묻기
+    assert "Label Studio 미연결(" in line and 'href="/dev/tools"' in line
+    assert "recheck" not in line and "다시 확인" not in line          # 단추 대신 화면이 1분마다 다시 읽는다(10-27)
 
 
-def test_connected_without_project_points_to_project_list(client, monkeypatch):
+def test_review_card_lists_projects_and_refreshes_from_cache(client, monkeypatch):
     from zzaimy.dataset.ls_client import LabelStudioClient
 
     db = client.app.state.db
@@ -41,27 +40,26 @@ def test_connected_without_project_points_to_project_list(client, monkeypatch):
     db.set_setting("labelstudio_token", "test-placeholder")
     calls = []
 
-    def status(self, project):
-        calls.append(project)
-        return {"ok": True, "error": None, "project": project, "project_id": None,
-                "total": 0, "done": 0, "pending": 0}
+    def progress(self, timeout=2):
+        calls.append(1)
+        return {"ok": True, "error": None, "projects": [{"id": 8, "title": "ZZAIMY SFT 5000 검수", "total": 5000, "done": 250}]}
 
-    monkeypatch.setattr(LabelStudioClient, "status", status)
-    line = _status_line(client.get("/dev/train").text)
-    assert "Label Studio 연결됨" in line and "프로젝트 없음" in line
-    assert f'href="{LS_URL}/projects"' in line and 'target="_blank"' in line
-    client.get("/dev/train")
-    assert len(calls) == 1                                       # 평소엔 캐시
-    client.get("/dev/train?tab=data&recheck=1")
-    assert len(calls) == 2                                       # 다시 확인은 바로 묻는다
-
-
-def test_guide_is_folded_by_default(client):
+    monkeypatch.setattr(LabelStudioClient, "projects_progress", progress)
     page = client.get("/dev/train").text
-    toggle = re.search(r"<button[^>]*data-guide-toggle[^>]*>(.*?)</button>", page, re.S)
-    assert toggle and 'aria-expanded="false"' in toggle.group(0) and "학습 문답 구성 안내" in toggle.group(1)
-    body = page.split('<div id="training-guide-body" hidden>', 1)[1]   # 기본 접힘
-    assert body.index('id="training-guide"') < body.index("</section>")
+    assert 'data-ls-project="8"' in page and f'href="{LS_URL}/projects/8/data"' in page and ">5%<" in page
+    assert "사람 검수 시작 때 생성" not in page and 'action="/dev/data/grounded-pull"' not in page
+    st = client.get("/dev/train/review-status").json()
+    assert st["ok"] and st["projects"][0]["pct"] == 5
+    assert len(calls) == 1                                       # 30초 캐시 — 화면과 1분 갱신이 LS 를 두드리지 않게
+
+
+def test_empty_project_list_is_one_line(client, monkeypatch):
+    from zzaimy.dataset.ls_client import LabelStudioClient
+    client.app.state.db.set_setting("labelstudio_url", LS_URL)
+    client.app.state.db.set_setting("labelstudio_token", "test-placeholder")
+    monkeypatch.setattr(LabelStudioClient, "projects_progress", lambda self, timeout=2: {"ok": True, "error": None, "projects": []})
+    page = client.get("/dev/train").text
+    assert "검수 프로젝트가 없습니다" in page and 'id="reviewProjects"' not in page
 
 
 def test_outputs_name_regulation_index_and_selection_controls(client):

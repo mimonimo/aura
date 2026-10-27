@@ -63,12 +63,12 @@ def test_training_navigation_does_not_scan_hidden_legacy_documents(client, monke
     response = client.get(path)
     assert response.status_code == 200
     assert '문답 검수' in response.text
-    assert response.text.index('id="training-guide"') < response.text.index('>문답 검수')
-    assert '실제 SFT 학습에 들어가는 내용' in response.text
-    assert '후속 문답에는 이전 질문·답변도 대화 순서대로 포함' in response.text
-    assert 'v1 은 채택하지 않았습니다(ADR-0069)' in response.text          # 학습셋 틀이 답에 샌 일(10-26 안내 바꿈)
-    for field in ('program', 'history', 'question', 'answer', 'evidence', 'source', 'kind'):
-        assert field in response.text
+    # 접어 둔 긴 안내 대신 학습셋 구성 표(갈래 × 학습·검증·시험)와 검수 가이드 화면(10-27)
+    assert 'id="training-guide"' not in response.text and 'data-guide-toggle' not in response.text
+    assert response.text.index('>문답 검수') < response.text.index('id="trainset-mix"') < response.text.index('id="training-tools"')
+    assert 'href="/dev/train/review-guide"' in response.text
+    review = response.text.split('id="review"', 1)[1].split('</section>', 1)[0]
+    assert '다시 확인' not in review and 'recheck=1' not in response.text
 
 
 def test_design_doc_has_no_export_buttons(client):
@@ -182,12 +182,15 @@ def test_training_actions_and_empty_outputs_are_compact(client, monkeypatch):
     from zzaimy.dataset.ls_client import LabelStudioClient
     client.app.state.db.set_setting('labelstudio_url', 'http://127.0.0.1:9')
     client.app.state.db.set_setting('labelstudio_token', 'test-placeholder')
-    monkeypatch.setattr(LabelStudioClient, 'status', lambda self, project: {
-        'ok': True, 'project_id': 1, 'total': 12, 'done': 0, 'pending': 12,
-    })
+    monkeypatch.setattr(LabelStudioClient, 'projects_progress', lambda self, timeout=2: {'ok': True, 'error': None, 'projects': [
+        {'id': 8, 'title': 'ZZAIMY SFT 5000 검수', 'total': 5000, 'done': 120},
+        {'id': 1, 'title': 'ZZAIMY 근거 기반 문답 검수', 'total': 12, 'done': 0}]})
     text = client.get('/dev/train').text
+    table = text.split('id="reviewProjects"', 1)[1].split('</table>', 1)[0]
+    assert 'ZZAIMY SFT 5000 검수' in table and '>120<' in table and '>5,000<' in table and '>2%<' in table
+    assert 'href="http://127.0.0.1:9/projects/8/data"' in table
     actions = text.split('<div class="review-actions">', 1)[1].split('</div>', 1)[0]
-    assert 'review-primary' in actions and 'action="/dev/data/grounded-pull"' in actions
+    assert 'action="/dev/data/grounded-pull"' in actions         # 근거 문답 검수 프로젝트가 있을 때만
     for row in text.split('<div class="training-output-row">')[1:]:
         row = row.split('</div>\n    ', 1)[0]
         if 'output-empty' in row:

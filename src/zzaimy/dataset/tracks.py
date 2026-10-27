@@ -4,6 +4,7 @@ import json
 import re
 
 TRACKS = ("institutional_policy", "program_retrieval")
+NAMES = {"institutional_policy": "규정·제도", "program_retrieval": "사업 문서 검색 활용"}   # 화면에 보일 갈래 이름(없으면 열쇠 그대로)
 INSTRUCTIONS = {
     "institutional_policy": """지정된 교내 규정·지침·발전계획만 근거로 적용 대상, 조건, 예외,
 계획 목표와 업무 연계를 설명하는 짧은 2턴 연결 대화를 만든다.

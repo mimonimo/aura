@@ -31,6 +31,7 @@ SUBPAGES: dict[str, str] = {
     "/dev/doc/": "/dev/docs", "/dev/paper/": "/dev/docs", "/dev/weekly/": "/dev/docs", "/dev/weekly.": "/dev/docs",   # 문서 보기·논문 자료·주간 보고
     "/dev/archive": "/dev/archive",                 # 원본 파일 한 건 열기도 원본 관리 안
     "/dev/models/": "/dev/train",
+    "/dev/train/": "/dev/train",                    # 검수 가이드·학습 상태·학습셋 표본도 데이터·학습 안
     "/dev/models/compare": "/dev/quality",          # 모델 비교는 품질·성능 안
     "/dev/collect": "/dev/train",                   # 수집 자료는 데이터·학습 안
     "/dev/train/": "/dev/train",                    # 검수 가이드 등 데이터·학습 하위

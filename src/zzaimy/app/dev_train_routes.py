@@ -14,9 +14,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from zzaimy.app import serving_plan
 
@@ -250,8 +252,33 @@ def dev_tool_url(request: Request, setting: str = Form(...), url: str = Form("")
     return RedirectResponse(dest, status_code=303)
 
 
+def _review_status(request: Request) -> dict:
+    """「문답 검수」 카드의 값 — Label Studio 프로젝트 전부와 진행(완료/전체), 각 프로젝트 주소, 닿지 않을 때의 상태 표시.
+    「완료한 검수 결과 반영」 은 근거 문답 검수 프로젝트(authored_review.PROJECT)가 있을 때만."""
+    from zzaimy.dataset.authored_review import PROJECT
+
+    st = request.app.state
+    url = (st.db.get_setting("labelstudio_url") or "").rstrip("/")
+    ls = st.ls_projects()
+    projects = [{**p, "href": f"{url}/projects/{p['id']}/data" if url else "",
+                 "pct": round(100 * p["done"] / p["total"]) if p["total"] else 0} for p in ls.get("projects") or []]
+    return {"ok": bool(ls.get("ok")), "projects": projects,
+            "note": st.grounded_status_note(ls, url),
+            "can_pull": any(p["title"] == PROJECT for p in projects),
+            "list_href": f"{url}/projects" if url else ""}
+
+
+@router.get("/dev/train/review-status")
+def dev_train_review_status(request: Request):
+    """문답 검수 진행 — 화면이 1분마다 다시 읽는다(30초 캐시)."""
+    r = _review_status(request)
+    return {"ok": r["ok"], "projects": r["projects"]}
+
+
 def _dev_data_view(request: Request, err: str = "", ok: str = ""):
-    from zzaimy.export.bundle import preview_bundle
+    from zzaimy.app.model_tracks import DECISIONS
+    from zzaimy.dataset.tracks import NAMES as TRACK_NAMES
+    from zzaimy.export.bundle import preview_bundle, set_state, trainset_track_samples, trainsets
 
     st = request.app.state
     db = st.db
@@ -259,11 +286,14 @@ def _dev_data_view(request: Request, err: str = "", ok: str = ""):
         export_preview = preview_bundle(db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
     except Exception:
         export_preview = []
-    # 「다시 확인」 — 30초 캐시를 비우고 Label Studio 에 바로 다시 묻는다
-    if request.query_params.get("recheck"):
-        st.grounded_cache["value"] = None
-    grounded_ls = st.grounded_ls_status()
-    labelstudio_url = db.get_setting("labelstudio_url")
+    sets = next((g.get("sets") or [] for g in export_preview if g.get("group") == "datasets"), None)
+    if sets is None:
+        sets = trainsets()
+    rows = [{**t, "state": set_state(t, sets, DECISIONS)} for t in sets]
+    # 학습셋 구성 — 지금 학습셋(승인된 것 먼저)의 갈래 × 학습·검증·시험 수와 갈래마다 표본 몇 건
+    staging = sorted((t for t in sets if t.get("kind") == "staging"), key=lambda t: t.get("status") not in ("sft_approved", "approved_for_sft"))
+    mix = staging[0] if staging else None
+    samples = trainset_track_samples(mix["name"]) if mix and "train.jsonl" in (mix.get("files") or []) else {}
     try:
         review_report = json.loads(db.get_setting('grounded_review_report', '{}') or '{}')
     except ValueError:
@@ -273,10 +303,60 @@ def _dev_data_view(request: Request, err: str = "", ok: str = ""):
         "development_tab": "data",
         "tab": "data",
         "export_preview": export_preview,
+        "set_rows": rows, "mix": mix, "mix_samples": samples, "track_names": TRACK_NAMES,
         "tensorboard_url": db.get_setting(_TB_SETTING, ""),
         "tensorboard_status": _tensorboard_status(),
-        "grounded_ls": grounded_ls,
-        "grounded_note": st.grounded_status_note(grounded_ls, labelstudio_url),
+        "review": _review_status(request),
         "err": err, "ok": ok,
-        "labelstudio_url": labelstudio_url,
     }))
+
+
+# ---- 검수 가이드 — docs/guides/sft-review-guide.md 를 앱 안에서(문서 보기와 같은 마크다운 그리기), 그림은 그 폴더에서만 ----
+_DOCS = Path(__file__).resolve().parents[3] / "docs"
+GUIDE_PATH = _DOCS / "guides" / "sft-review-guide.md"
+GUIDE_IMG_DIR = _DOCS / "images" / "guides" / "sft-review"
+_IMG_NAME = re.compile(r"[A-Za-z0-9가-힣_][A-Za-z0-9가-힣_.-]*\.(?:png|jpe?g|webp|gif)", re.I)
+_IMG_MD = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
+
+
+def _guide_img(src: str) -> str:
+    """가이드의 그림 경로 → 앱 주소. 그림 폴더 바로 안의 그림 파일만, 아니면 빈 글(그리지 않는다)."""
+    from html import unescape
+    name = Path(unescape(src)).name
+    if not _IMG_NAME.fullmatch(name):
+        return ""
+    try:
+        target = (GUIDE_PATH.parent / unescape(src)).resolve()
+    except (OSError, ValueError):
+        return ""
+    if target.parent != GUIDE_IMG_DIR.resolve() or not target.is_file():
+        return ""
+    return "/dev/train/review-guide/img/" + name
+
+
+@router.get("/dev/train/review-guide", response_class=HTMLResponse)
+def dev_train_review_guide(request: Request):
+    """검수 가이드 — 문서가 없으면 한 줄."""
+    from markupsafe import Markup
+
+    st = request.app.state
+    doc = None
+    if GUIDE_PATH.is_file():
+        doc = st.docs.dev_doc_view(GUIDE_PATH.read_text(encoding="utf-8"), GUIDE_PATH.name)
+
+        def img(m):
+            url = _guide_img(m.group(2))
+            alt = re.sub(r"<[^>]+>", "", m.group(1)).replace('"', "&quot;")    # 이미 이스케이프된 글 — 되살린 굵게·기울임만 걷는다
+            return f'<img class="guide-img" src="{url}" alt="{alt}" loading="lazy">' if url else m.group(0)
+        doc["html"] = Markup(_IMG_MD.sub(img, str(doc["html"])))
+    return st.templates.TemplateResponse(request, "dev_review_guide.html", st.page_ctx(request, {"doc": doc}))
+
+
+@router.get("/dev/train/review-guide/img/{name}")
+def dev_train_review_guide_img(name: str):
+    if not _IMG_NAME.fullmatch(name):
+        raise HTTPException(404)
+    p = GUIDE_IMG_DIR / name
+    if not p.is_file() or p.resolve().parent != GUIDE_IMG_DIR.resolve():
+        raise HTTPException(404)
+    return FileResponse(p)

@@ -23,6 +23,13 @@ TRACKS = (
 )
 
 
+# 학습본 운영 판단 — 학습셋·승인 기록 이름의 앞부분 → 결정. 데이터·학습 「학습·평가」 표의 상태 칸이 읽는다.
+# 판단은 비교 수치와 ADR 로 정한 사실만 적는다(새 판단은 ADR 을 쓰고 여기에 한 줄).
+DECISIONS = {
+    "writer-v1": {"label": "학습 완료 · 운영 미채택", "adr": "ADR-0069", "href": "/dev/quality#model-compare", "level": "processing"},
+}
+
+
 def _compare_done() -> bool:
     """운영 모델과의 비교 실행 결과가 하나라도 있는가(모델 비교 화면이 읽는 자리 — data/eval/model_compare, ZZAIMY_MODEL_COMPARE_DIR)."""
     import os

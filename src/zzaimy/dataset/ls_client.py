@@ -102,6 +102,26 @@ class LabelStudioClient:
             break
         return st
 
+    def projects_progress(self, timeout: float = STATUS_TIMEOUT) -> dict:
+        """검수 프로젝트 전부와 진행 — {ok, error, projects: [{id, title, total, done}]}. 목록에 수치가 없으면 progress()로 보충."""
+        try:
+            projects = self._projects(timeout=timeout)
+        except LabelStudioError as e:
+            return {"ok": False, "error": _SHORT_ERROR.get(e.kind) or f"응답 오류 ({str(e)[:60]})", "projects": []}
+        out = []
+        for p in projects:
+            row = {"id": int(p["id"]), "title": str(p.get("title") or f"프로젝트 {p['id']}"), "total": 0, "done": 0}
+            if p.get("task_number") is None or p.get("num_tasks_with_annotations") is None:
+                try:
+                    pr = self.progress(row["id"], timeout=timeout)
+                    row.update(total=pr["total"], done=pr["done"])
+                except LabelStudioError:
+                    pass
+            else:
+                row.update(total=int(p["task_number"] or 0), done=int(p["num_tasks_with_annotations"] or 0))
+            out.append(row)
+        return {"ok": True, "error": None, "projects": sorted(out, key=lambda r: -r["id"])}
+
     def ensure_project(self, title: str, label_config: str | None = None, description: str | None = None) -> int:
         """같은 제목 프로젝트가 있으면 그 id, 없으면 라벨링 설정(기본은 검수 설정)으로 생성."""
         for p in self._projects():

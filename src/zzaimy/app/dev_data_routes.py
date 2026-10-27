@@ -181,7 +181,6 @@ def dev_llm_test(cid: str):
 # 사람이 토큰을 붙여넣거나 파일을 주고받는 경로는 두지 않는다.
 _LS_PROJECT = "ZZAIMY 검수"
 _LS_STATUS_TTL = 30.0   # 연결 상태 캐시(초) — 화면마다 Label Studio 를 두드리지 않게
-_GROUNDED_PROJECT = "ZZAIMY 근거 기반 문답 검수"
 
 
 def make_ls_helpers(db) -> SimpleNamespace:
@@ -211,39 +210,30 @@ def make_ls_helpers(db) -> SimpleNamespace:
         _ls_status_cache.update(at=now, value=value)
         return value
 
-    _grounded_cache: dict = {"at": 0.0, "value": None}
+    _projects_cache: dict = {"at": 0.0, "value": None}
 
-    def _grounded_ls_status():
+    def _ls_projects() -> dict:
+        """검수 프로젝트 전부와 진행(완료/전체) — 30초 캐시. 데이터·학습 「문답 검수」 카드가 읽고, 화면이 1분마다 다시 묻는다."""
         from zzaimy.dataset.ls_client import LabelStudioError
         now = _time.monotonic()
-        if _grounded_cache["value"] is not None and now - _grounded_cache["at"] < 30:
-            return _grounded_cache["value"]
+        if _projects_cache["value"] is not None and now - _projects_cache["at"] < _LS_STATUS_TTL:
+            return _projects_cache["value"]
         try:
-            value = _ls_client().status(_GROUNDED_PROJECT)
+            value = _ls_client().projects_progress()
         except LabelStudioError:
-            value = {"ok": False, "error": "연결 설정 없음", "total": 0, "done": 0, "pending": 0, "project_id": None}
-        _grounded_cache.update(at=now, value=value)
+            value = {"ok": False, "error": "연결 설정 없음", "projects": []}
+        _projects_cache.update(at=now, value=value)
         return value
 
-    return SimpleNamespace(ls_client=_ls_client, ls_status=_ls_status,
-                           grounded_cache=_grounded_cache, grounded_ls_status=_grounded_ls_status)
+    return SimpleNamespace(ls_client=_ls_client, ls_status=_ls_status, ls_projects=_ls_projects, ls_projects_cache=_projects_cache)
 
 
 def _grounded_status_note(st: dict, ls_url: str | None) -> dict | None:
-    """검수 현황을 못 보일 때 무엇이 안 됐는지(짧은 상태 표시 몇 개)와 어디서 확인하는지.
-    연결은 됐는데 프로젝트가 없는 경우와 연결 자체가 안 된 경우를 나눈다.
-    chips: {text, level, title} — level 은 화면 pill 색(reviewed=정상·processing=확인 필요), title 은 마우스를 올리면 보이는 설명."""
-    if st.get("ok") and st.get("project_id"):
-        return None
+    """Label Studio 에 닿지 않을 때 무엇이 안 됐는지(짧은 상태 표시)와 어디서 고치는지. 닿으면 None — 카드는 프로젝트 목록을 보인다.
+    chips: {text, level, title} — level 은 화면 pill 색(reviewed=정상·processing=확인 필요)."""
     if st.get("ok"):
-        return {"chips": [{"text": "Label Studio 연결됨", "level": "reviewed", "title": ""},
-                          {"text": "검수 프로젝트 없음", "level": "processing", "title": f"프로젝트 이름: {_GROUNDED_PROJECT}"}],
-                "hint": "프로젝트는 사람 검수 시작 때 생성 · 지금 학습셋은 모델 전수 점검으로 승인",
-                "href": f"{ls_url.rstrip('/')}/projects" if ls_url else "/dev/tools",
-                "action": "Label Studio 프로젝트 목록" if ls_url else "도구·모델 연결",
-                "external": bool(ls_url)}
+        return None
     return {"chips": [{"text": f"Label Studio 미연결({st.get('error') or '응답 오류'})", "level": "processing", "title": ""}],
-            "hint": "",
             "href": "/dev/tools", "action": "도구·모델 연결", "external": False}
 
 
@@ -337,7 +327,7 @@ def dev_grounded_pull(request: Request):
             active_path = Path(active.name)
         active_path.replace(SFT_DIR / 'grounded-current.json')
         db.set_setting('grounded_review_report', _aj.dumps(report, ensure_ascii=False))
-        st.grounded_cache['value'] = None
+        st.ls_projects_cache['value'] = None          # 반영 뒤 검수 진행 표를 바로 다시 묻게
         params = {'tab': 'data', 'ok': f"검수 확인: 승인 {report['approved']}건 · 보류 {report['held']}건. 같은 승인본은 중복 등록하지 않습니다."}
     except (LabelStudioError, ValueError, TypeError, KeyError):
         params = {'tab': 'data', 'err': '검수 결과를 가져오지 못했습니다. 연결·원문·검수 형식을 확인하세요. 기존 승인본은 보존됩니다.'}

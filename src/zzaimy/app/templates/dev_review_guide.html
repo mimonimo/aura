@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}검수 가이드{% endblock %}
+{% block pagetitle %}검수 가이드{% endblock %}
+{% block content %}
+<style>
+  .guide-doc { font-size:13.5px; line-height:1.75; }
+  .guide-doc .guide-img { display:block; max-width:100%; height:auto; margin:10px 0 14px;
+    border:1px solid var(--line); border-radius:10px; }
+  .guide-doc blockquote { margin:8px 0; padding:6px 14px; border-left:3px solid var(--line); color:var(--muted); }
+  .guide-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .guide-head h2 { margin:0; }
+</style>
+<section class="card"><div class="card-in">
+  <div class="guide-head"><h2>{{ doc.title if doc else '검수 가이드' }}</h2>
+    <a class="btn-ghost" href="/dev/train#review">데이터·학습으로</a></div>
+  {% if doc %}<div class="guide-doc">{{ doc.html }}</div>
+  {% else %}<p class="muted" style="margin:0;">검수 가이드 문서(docs/guides/sft-review-guide.md)가 아직 없습니다.</p>{% endif %}
+</div></section>
+{% endblock %}

@@ -95,16 +95,19 @@ def trainsets(path: Path | str | None = None) -> list[dict]:
         parts = [f"{_SPLIT.get(k, k)} {int(v):,}" for k, v in counts.items() if isinstance(v, int)]
         if it.get("kind") == "baseline" and it.get("n_eval"):
             parts = [f"측정 {it['n_eval']}건 · 통과 {it.get('pass')} · 고칠 것 {it.get('needs_fix')}"]
-        tracks = {}
-        for sp in (it.get("splits") or {}).values():
+        tracks, split_tracks = {}, {}
+        for sk, sp in (it.get("splits") or {}).items():
             for k, v in ((sp or {}).get("tracks") or {}).items():
                 tracks[k] = tracks.get(k, 0) + int(v or 0)
+                split_tracks.setdefault(k, {})[sk] = int(v or 0)
         status = "sft_approved" if it.get("approved_by") else it.get("status")
         label = "SFT 승인본" if it.get("approved_by") else _STATUS.get(str(status), str(status or "모름"))
         out.append({"kind": it.get("kind"), "name": it.get("name"), "at": it.get("at"), "root": it.get("root") or "",
                     "status": status, "status_label": label, "older": older,
                     "training_label": _TRAINING.get(str(it.get("training") or "")) if it.get("kind") == "release" else "",
                     "summary": " · ".join(parts), "tracks": tracks, "scope": it.get("scope") or "",
+                    "counts": {k: v for k, v in counts.items() if isinstance(v, int)}, "split_tracks": split_tracks,
+                    "approved_by": it.get("approved_by") or "", "training": str(it.get("training") or ""),
                     "training_started": it.get("training_started"), "limitations": it.get("limitations") or "",
                     "required": [] if it.get("approved_by") else (it.get("required_before_training") or []),
                     "fetched_at": data.get("at"),
@@ -112,6 +115,79 @@ def trainsets(path: Path | str | None = None) -> list[dict]:
                     "files": [f for f in (it.get("mirrored") or []) if (TRAINSET_DIR / str(it.get("name")) / f).is_file()]})
     order = {"release": 0, "staging": 1, "baseline": 2}
     return sorted(out, key=lambda x: (order.get(x["kind"], 3), str(x.get("at") or "")), reverse=False)
+
+
+def set_state(item: dict, items: list[dict], decisions: dict | None = None) -> dict:
+    """표 한 줄의 상태 — {label, level, note, href}. 후보 → 승인 → 학습 중·학습 완료, 운영 판단(결정 기록)이 있으면 그것을 붙인다.
+    학습셋(staging)은 자기를 승인한 기록(release)의 학습 상태를 따른다. decisions 는 이름 앞부분 → 결정(model_tracks.DECISIONS)."""
+    if decisions is None:
+        from zzaimy.app.model_tracks import DECISIONS as decisions
+    rel = item if item.get("kind") == "release" else \
+        next((t for t in items if t.get("kind") == "release" and t.get("name") == item.get("approved_by")), None)
+    name = (rel or item).get("name") or ""
+    dec = next((d for k, d in decisions.items() if name.startswith(k)), None)
+    if dec:
+        return {"label": dec["label"], "level": dec.get("level", "processing"), "note": dec.get("adr", ""), "href": dec.get("href", "")}
+    if item.get("kind") == "baseline":
+        return {"label": "측정", "level": "type", "note": "", "href": ""}
+    training = (rel or {}).get("training", "")
+    if training == "done":
+        return {"label": "학습 완료", "level": "reviewed", "note": "", "href": ""}
+    if training == "running":
+        return {"label": "학습 중", "level": "type", "note": "", "href": ""}
+    if training == "stopped":
+        return {"label": "학습 멈춤", "level": "processing", "note": "중간 저장만 있음", "href": ""}
+    if item.get("status") in ("sft_approved", "approved_for_sft"):
+        return {"label": "승인", "level": "reviewed", "note": "", "href": ""}
+    return {"label": "후보", "level": "", "note": item.get("hold_reason") or "", "href": ""}
+
+
+def _qa(row: dict) -> tuple[str, str]:
+    """학습 줄 하나의 (마지막 질문, 학습할 답) — prompt/completion 꼴과 messages 꼴 둘 다."""
+    def text(m):
+        c = (m or {}).get("content")
+        return c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)
+    msgs = list(row.get("prompt") or row.get("messages") or [])
+    comp = list(row.get("completion") or [])
+    if not comp and msgs and msgs[-1].get("role") == "assistant":
+        comp = [msgs.pop()]
+    q = next((text(m) for m in reversed(msgs) if m.get("role") == "user"), "")
+    return q, text(comp[0]) if comp else ""
+
+
+def trainset_track_samples(name: str, per: int = 3, scan: int = 5000, cut: int = 700) -> dict[str, list[dict]]:
+    """학습셋 학습 파일에서 갈래마다 앞 per 건 — {갈래: [{q, a}]}. 갈래는 같은 차례의 색인 파일(train-index.jsonl)에서,
+    없으면 「전체」 하나. 앞 scan 줄만 읽는다(큰 파일도 화면이 느려지지 않게)."""
+    path = trainset_file(name, "train.jsonl")
+    if path is None:
+        return {}
+    idx_path = path.with_name("train-index.jsonl")
+    out: dict[str, list[dict]] = {}
+    try:
+        idx = idx_path.open(encoding="utf-8") if idx_path.is_file() else None
+        with path.open(encoding="utf-8") as fh:
+            for i, line in enumerate(fh):
+                if i >= scan:
+                    break
+                meta = {}
+                if idx is not None:
+                    try:
+                        meta = json.loads(idx.readline() or "{}")
+                    except ValueError:
+                        meta = {}
+                track = str(meta.get("track") or "전체")
+                if len(out.setdefault(track, [])) >= per or not line.strip():
+                    continue
+                try:
+                    q, a = _qa(json.loads(line))
+                except (ValueError, AttributeError):
+                    continue
+                out[track].append({"q": q[-cut:] if len(q) > cut else q, "a": a[:cut] + ("…" if len(a) > cut else "")})
+        if idx is not None:
+            idx.close()
+    except OSError:
+        return {}
+    return {k: v for k, v in out.items() if v}
 
 
 def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",

@@ -4,36 +4,34 @@
 {% block content %}
 
 <style>
+  /* 이 화면의 표(검수 프로젝트·학습셋 구성·학습셋) — 같은 글 크기·칸 여백, 숫자 칸은 오른쪽 고정 폭 */
+  .tr-scroll { overflow-x:auto; }
+  .tr-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .tr-table th, .tr-table td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
+  .tr-table th { font-size:12px; color:var(--muted); font-weight:600; white-space:nowrap; }
+  .tr-table .num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; width:1%; }
+  .tr-table .act { text-align:right; white-space:nowrap; width:1%; }
+  .tr-table .act > * + * { margin-left:6px; }
+  .tr-table [data-sample-btn] { min-width:76px; }   /* 「표본 3건」↔「접기」 로 바뀌어도 칸이 흔들리지 않게 */
+  .tr-table .sub { display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+  .tr-table tr.tr-sum td { font-weight:600; border-bottom:0; }
+  .tr-bar { display:inline-block; width:90px; height:6px; border-radius:3px; background:#E9EEF5; vertical-align:middle; margin-right:8px; overflow:hidden; }
+  .tr-bar > i { display:block; height:100%; background:var(--navy); }
+  .tr-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .tr-head h2 { margin:0; }
+  .tr-head .tr-tools { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .tr-line { font-size:12.5px; color:var(--muted); margin:10px 0 0; }
+  .tr-chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  /* 표본 — 갈래 줄 아래 한 칸 전체 */
+  .tr-sample > td { background:var(--panel); padding:12px 14px 14px; }
+  .tr-qa { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:8px 14px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .tr-qa:last-child { border-bottom:0; }
+  .tr-qa b { display:block; font-size:11.5px; color:var(--muted); font-weight:600; margin-bottom:3px; }
+  .tr-qa pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:12.5px; line-height:1.6;
+               max-height:12em; overflow:auto; background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  @media (max-width:760px) { .tr-qa { grid-template-columns:minmax(0, 1fr); } .tr-table .hide-sm { display:none; } }
+  .review-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
   .review-actions form { display:flex; margin:0; }
-  .review-actions .review-primary { background:var(--navy); border-color:var(--navy); color:white; }
-  .review-actions .review-primary:hover { background:#244b89; color:white; }
-  .review-summary { display:flex; align-items:baseline; gap:8px 20px; flex-wrap:wrap; margin:0; font-size:13px; }
-  .review-summary strong { color:var(--ink); font-size:18px; font-variant-numeric:tabular-nums; }
-  .review-summary small { font-size:12px; color:var(--muted); }
-  .step-n { width:26px; height:26px; border-radius:50%; background:#eaf0f7; color:#294b73;
-    display:inline-flex; align-items:center; justify-content:center; font-size:13px;
-    font-weight:800; flex:none; }
-  .flow-steps { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
-  .flow-step { display:flex; align-items:center; gap:9px; background:var(--panel);
-    border:1px solid var(--line); border-radius:12px; padding:10px 14px; font-size:12.5px; flex:1; min-width:180px; }
-  .flow-step b { color:var(--ink); }
-  .flow-arrow2 { display:flex; align-items:center; color:var(--faint); }
-  @media (max-width:820px){ .flow-arrow2{ display:none; } }
-  .review-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 10px; }
-  .review-bar > .review-status, .review-bar > .review-actions { display:contents; }
-  .review-chips { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px; }
-  .review-bar .btn-ghost { min-height:36px; box-sizing:border-box; }
-  .review-bar button.btn-ghost:disabled { cursor:not-allowed; }
-  .review-hint { font-size:12px; margin:0; line-height:1.6; }
-  .guide-fold { margin-bottom:20px; }
-  .guide-toggle { width:100%; justify-content:flex-start; gap:9px; background:#fff; color:var(--ink);
-    border:1px solid var(--line); border-radius:14px; padding:14px 20px; font-size:14px; }
-  .guide-toggle:hover { background:var(--panel); border-color:#94A3B8; }
-  .guide-toggle[aria-expanded="true"] { margin-bottom:12px; }
-  /* 세모 대신 「펼치기 / 접기」 글 */
-  .guide-toggle .fold-word { margin-left:auto; font-size:12px; font-weight:400; color:var(--muted); }
-  .guide-toggle .fold-word::after { content:"펼치기"; }
-  .guide-toggle[aria-expanded="true"] .fold-word::after { content:"접기"; color:#2d4f7c; }
 </style>
 
 {# 탭 둘 — 모르는 tab 값(옛 settings·models·exports 등)은 첫 탭. 수집 자료는 옛 /dev/collect(10-27 에 이 화면으로) #}
@@ -284,50 +282,87 @@
 </script>
 
 {% else %}
-{# 설명은 접어 둔다 — 한 줄 제목만 보이고 일하는 칸이 바로 아래에 온다.
-   자리를 일하는 칸 아래로 내리거나 <details> 를 쓰면 tests/test_dev_pages.py(설명이 문답 검수 앞·이 화면에 details 없음)가
-   깨져, 자리는 두고 단추+숨김 영역으로 접는다 #}
-<div class="guide-fold" id="training-guide-fold">
-  <button type="button" class="guide-toggle" aria-expanded="false" aria-controls="training-guide-body" data-guide-toggle>학습 문답 구성 안내<span class="fold-word" aria-hidden="true"></span></button>
-  <div id="training-guide-body" hidden>
-  {% include "_training_guide.html" %}
-  </div>
-</div>
+{% set split_names = (('train', '학습'), ('eval', '검증'), ('test', '시험')) %}
 
-<section class="card"><div class="card-in"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수</h2>
-{% set review_ready = grounded_ls.ok and grounded_ls.project_id %}
-{% if review_ready %}<div class="review-summary"><span>전체 기록 <strong>{{ grounded_ls.total }}</strong> <small>이전 버전 포함</small></span><span>사람 검수 주석 <strong>{{ grounded_ls.done }}</strong></span></div>{% endif %}
-{# 상태 표시는 한 줄, 단추는 그 아래 한 줄로 모은다 — p·div 는 자리만 잡고(display:contents) 실제 줄은 .review-bar 가 만든다 #}
-<div class="review-bar">
-{% if not review_ready %}<p class="review-status"><span class="review-chips" role="status">{% if grounded_note %}{% for c in grounded_note.chips %}<span class="pill {{ c.level }}"{% if c.title %} title="{{ c.title }}"{% endif %}>{{ c.text }}</span>{% endfor %}{% else %}<span class="pill processing">{{ grounded_ls.error or '응답 오류' }}</span>{% endif %}</span>
-{% if grounded_note %}<a class="btn-ghost" href="{{ grounded_note.href }}"{% if grounded_note.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ grounded_note.action }}{% if grounded_note.external %} <span aria-hidden="true">↗</span>{% endif %}</a>{% endif %}
-<a class="btn-ghost" href="/dev/train?recheck=1"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>다시 확인</a></p>{% endif %}
-<div class="review-actions">
-{% if review_ready %}<a class="btn-ghost review-primary" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 <span aria-hidden="true">↗</span></a>{% endif %}
-{% if review_ready %}<form method="post" action="/dev/data/grounded-pull"><button class="btn-ghost" type="submit"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>{% endif %}
-</div>
-</div>
-{% if grounded_note and grounded_note.hint %}<p class="muted review-hint">{{ grounded_note.hint }}</p>{% endif %}
-{% if grounded_review_report %}
-<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
-<strong>최근 검수 반영</strong>
-<p>확인 {{ grounded_review_report.total }}건 · 승인 {{ grounded_review_report.approved }}건 · 보류 {{ grounded_review_report.held }}건</p>
-<p class="muted">확인 시각 {{ grounded_review_report.checked_at }} · 최신 승인본만 반출합니다. 검수 변경 후 다시 가져오세요.</p>
-{% if grounded_review_report.issues %}<div><h3>보류 사유</h3><ul>{% for reason, count in grounded_review_report.issues.items() %}<li>{{ {'review_missing_or_ambiguous':'검수 누락 또는 복수 검수 충돌', 'review_incomplete':'검수 4항목 확인 필요', 'not_accepted':'채택되지 않음', 'source_changed_or_missing':'원문 변경 또는 삭제', 'history_changed':'이전 대화 변경', 'parent_missing':'앞선 문답 누락', 'privacy_requires_revision':'개인정보 수정 필요', 'unsupported_number':'근거에 없는 수치', 'duplicate_conversation':'중복 문답'}.get(reason, '문답 구조·검수 기록 재확인') }}: {{ count }}건</li>{% endfor %}</ul></div>{% endif %}
-</div>
-{% endif %}
+{# ---------------- 문답 검수 — Label Studio 프로젝트 전부와 진행(완료/전체). 값은 1분마다 다시 읽는다 ---------------- #}
+<section class="card" id="review"><div class="card-in">
+  <div class="tr-head"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수</h2>
+    <span class="tr-tools"><a class="btn-ghost" href="/dev/train/review-guide" data-review-guide>검수 가이드</a>
+    {% if review.list_href %}<a class="btn-ghost" href="{{ review.list_href }}" target="_blank" rel="noopener noreferrer">Label Studio <span aria-hidden="true">↗</span></a>{% endif %}</span></div>
+  {% if review.note %}
+  <p class="review-status tr-chips" role="status">{% for c in review.note.chips %}<span class="pill {{ c.level }}">{{ c.text }}</span>{% endfor %}
+    <a class="btn-ghost" href="{{ review.note.href }}">{{ review.note.action }}</a></p>
+  {% elif review.projects %}
+  <div class="tr-scroll"><table class="tr-table" id="reviewProjects">
+    <thead><tr><th>프로젝트</th><th>진행</th><th class="num">완료</th><th class="num">전체</th><th class="act"><span class="sr-only">열기</span></th></tr></thead>
+    <tbody>{% for p in review.projects %}
+      <tr data-ls-project="{{ p.id }}"><td>{{ p.title }}</td>
+        <td><span class="tr-bar" aria-hidden="true"><i style="width:{{ p.pct }}%"></i></span><span data-pct>{{ p.pct }}%</span></td>
+        <td class="num" data-done>{{ '{:,}'.format(p.done) }}</td><td class="num" data-total>{{ '{:,}'.format(p.total) }}</td>
+        <td class="act">{% if p.href %}<a class="mini-btn" href="{{ p.href }}" target="_blank" rel="noopener noreferrer">열기 <span aria-hidden="true">↗</span></a>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted" style="margin:0; font-size:13px;">Label Studio 에 검수 프로젝트가 없습니다.</p>{% endif %}
+  {% if review.can_pull %}<div class="review-actions"><form method="post" action="/dev/data/grounded-pull"><button class="btn-ghost" type="submit"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form></div>{% endif %}
+  {% if grounded_review_report %}
+  <p class="tr-line">최근 반영 {{ grounded_review_report.checked_at }} · 확인 {{ grounded_review_report.total }} · 승인 {{ grounded_review_report.approved }} · 보류 {{ grounded_review_report.held }}{% if grounded_review_report.issues %} — {% for reason, count in grounded_review_report.issues.items() %}{{ {'review_missing_or_ambiguous':'검수 누락·충돌', 'review_incomplete':'검수 항목 덜 채움', 'not_accepted':'채택 안 됨', 'source_changed_or_missing':'원문 바뀜·없음', 'history_changed':'앞 대화 바뀜', 'parent_missing':'앞 문답 없음', 'privacy_requires_revision':'개인정보 고칠 것', 'unsupported_number':'근거 없는 수치', 'duplicate_conversation':'중복 문답'}.get(reason, '기록 재확인') }} {{ count }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
+  {% endif %}
+</div></section>
+
+{# ---------------- 학습셋 구성 — 지금 학습셋의 갈래 × 학습·검증·시험 수, 갈래마다 표본 몇 건 ---------------- #}
+<section class="card" id="trainset-mix"><div class="card-in">
+  <div class="tr-head"><h2><iconify-icon icon="solar:layers-linear"></iconify-icon>학습셋 구성</h2>
+    {% if mix %}<span class="tr-tools"><span class="pill {{ 'reviewed' if mix.status in ('sft_approved', 'approved_for_sft') else '' }}">{{ mix.name }}</span></span>{% endif %}</div>
+  {% if mix and mix.split_tracks %}
+  <div class="tr-scroll"><table class="tr-table">
+    <thead><tr><th>갈래</th>{% for k, n in split_names %}<th class="num">{{ n }}</th>{% endfor %}<th class="num">합계</th><th class="act"><span class="sr-only">표본</span></th></tr></thead>
+    <tbody>{% for track, by in mix.split_tracks.items() %}
+      <tr><td>{{ track_names.get(track, track) }}{% if track in track_names %}<span class="sub">{{ track }}</span>{% endif %}</td>
+        {% for k, n in split_names %}<td class="num">{{ '{:,}'.format(by.get(k, 0)) }}</td>{% endfor %}
+        <td class="num">{{ '{:,}'.format(by.values() | sum) }}</td>
+        <td class="act">{% if mix_samples.get(track) %}<button type="button" class="mini-btn" data-sample-btn aria-expanded="false" aria-controls="sample-{{ loop.index }}">표본 {{ mix_samples[track] | length }}건</button>{% endif %}</td></tr>
+      {% if mix_samples.get(track) %}<tr class="tr-sample" id="sample-{{ loop.index }}" hidden><td colspan="6">{% for x in mix_samples[track] %}
+        <div class="tr-qa"><div><b>질문</b><pre>{{ x.q }}</pre></div><div><b>학습할 답</b><pre>{{ x.a }}</pre></div></div>{% endfor %}</td></tr>{% endif %}
+    {% endfor %}
+      <tr class="tr-sum"><td>합계</td>{% for k, n in split_names %}<td class="num">{{ '{:,}'.format(mix.counts.get(k, 0)) }}</td>{% endfor %}<td class="num">{{ '{:,}'.format(mix.counts.values() | sum) }}</td><td></td></tr>
+    </tbody>
+  </table></div>
+  {% if mix_samples.get('전체') %}<p class="tr-line">갈래 색인 파일이 없어 갈래별 표본은 없습니다 · <a href="/dev/train/trainset/{{ mix.name }}/train.jsonl/view">학습 파일 표본</a></p>{% endif %}
+  {% elif mix %}<p class="tr-line" style="margin:0;">{{ mix.summary or '갈래 수가 목록에 없습니다' }}</p>
+  {% else %}<p class="muted" style="margin:0; font-size:13px;">DGX 학습셋 목록을 아직 받지 못했습니다.</p>{% endif %}
 </div></section>
 
 {% include "_training_outputs.html" %}
 <script>
 (() => {
-  const toggle = document.querySelector('[data-guide-toggle]');
-  const body = document.getElementById('training-guide-body');
-  toggle?.addEventListener('click', () => {
-    const open = toggle.getAttribute('aria-expanded') !== 'true';
-    toggle.setAttribute('aria-expanded', String(open));
-    if (body) body.hidden = !open;
-  });
+  // 표본 펼치기 — 갈래 줄 아래 칸
+  document.querySelectorAll('[data-sample-btn]').forEach(btn => btn.addEventListener('click', () => {
+    const row = document.getElementById(btn.getAttribute('aria-controls'));
+    const open = btn.getAttribute('aria-expanded') !== 'true';
+    btn.setAttribute('aria-expanded', String(open));
+    if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+    btn.textContent = open ? '접기' : btn.dataset.label;
+    if (row) row.hidden = !open;
+  }));
+  // 검수 진행은 1분마다 다시 읽는다(서버 30초 캐시) — 손으로 누르는 단추 없이
+  const table = document.getElementById('reviewProjects');
+  if (!table) return;
+  const fmt = n => Number(n || 0).toLocaleString();
+  setInterval(async () => {
+    try {
+      const r = await fetch('/dev/train/review-status', {credentials: 'same-origin'});
+      if (!r.ok) return;
+      const d = await r.json();
+      (d.projects || []).forEach(p => {
+        const tr = table.querySelector('[data-ls-project="' + p.id + '"]');
+        if (!tr) return;
+        tr.querySelector('[data-done]').textContent = fmt(p.done);
+        tr.querySelector('[data-total]').textContent = fmt(p.total);
+        tr.querySelector('[data-pct]').textContent = p.pct + '%';
+        tr.querySelector('.tr-bar > i').style.width = p.pct + '%';
+      });
+    } catch (e) { /* 다음 차례에 다시 */ }
+  }, 60000);
 })();
 </script>
 {% endif %}
