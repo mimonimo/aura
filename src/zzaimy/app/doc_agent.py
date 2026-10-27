@@ -492,7 +492,7 @@ def _step_label(name: str, args: dict) -> str:
               "platform_lookup": lambda a: "대상 목록 보는 중",
               "doc_search": lambda a: f"문서에서 찾는 중 — 「{str(a.get('query', ''))[:30]}」",
               "propose_action": lambda a: "할 일 정리 중",
-              "open_page": lambda a: "화면 여는 중",
+              "open_page": lambda a: "화면에서 할 일 준비 중",   # 같은 화면에서 칸만 채울 때도 쓴다 — 「여는 중」 은 이미 열린 화면에서 어색했다(10-27)
               "finish": lambda a: "답 정리 중"}
     f = labels.get(name)
     return f(args) if f else f"{name} 실행 중"

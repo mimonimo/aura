@@ -30,7 +30,8 @@ SYSTEM = """당신은 대학 행정 업무 플랫폼 AURA 의 플랫폼 업무 �
   상태의 「지금 보는 화면」 이 질문의 맥락이다. 그 화면으로 옮겨 가야 하면 open_page 로 화면 열기 단추를 함께 낸다.
 - 담당자가 화면 조작을 시키면(「문서함 열어 줘」, 「새 문서 만들어 줘」, 「라이브러리에서 ○○ 사업 찾아 줘」, 「성명 ○○로 바꿔 줘」 처럼 열기·찾기·칸 채우기·누르기)
   open_page 에 now=true 를 넣는다 — 화면이 바로 그 화면으로 옮겨 가 AURA 커서가 steps 를 차례로 한다(창 열기 → 칸 채우기 → 마지막 단추).
-  steps 의 element 는 안내 자료의 「가리킬 요소」 만 쓴다. 찾기 칸·입력 칸이면 text 에 넣을 말을, 목록에서 하나를 고르는 요소(폴더·문서·부서·칩)면 text 에 그 이름을 넣는다.
+  steps 의 element 는 안내 자료의 「가리킬 요소」 나, 지금 화면에서 할 일이면 상태의 「지금 화면의 칸·단추」 번호(c3 처럼)를 쓴다 —
+  안내 자료에 없는 칸·단추라도 지금 화면 목록에 있으면 그 번호로 바로 한다(말로만 안내하지 않는다). 찾기 칸·입력 칸이면 text 에 넣을 말을, 목록에서 하나를 고르는 요소(폴더·문서·부서·칩)면 text 에 그 이름을 넣는다.
   쓰는 법만 물었으면 now 를 넣지 않는다. 시킨 일이 있는 화면을 고른다(지금 화면이 아니라 그 일이 있는 화면, 예: 새 문서는 문서함 /hwp 의 「새 문서」).
   다른 화면에서 이어 할 일이 있으면 open_page 를 그 차례대로 한 번 더 낸다 — 커서가 앞 화면 일을 마치고 옮겨 가 이어 한다.
 - 「마지막 단추」(저장·보내기·지우기·등록)는 담당자가 그 일을 하라고 직접 말했을 때만 steps 맨 끝에 넣는다. 바로 누를지는 서버가 담당자 글을 보고 정하고,
@@ -74,6 +75,7 @@ class Env:
     on_step: Callable[[str], None] | None = None
     project: dict | None = None              # 지금 보는 프로젝트(이 계정의 것만)
     search: Callable[[str], list[dict]] | None = None   # 문서 찾기 — 이 계정의 열람 범위 안에서만(main 이 범위를 묶어 건넨다)
+    controls: list | None = None             # 지금 화면에 보이는 칸·단추(platform_ops.clean_controls) — 그 자리에서 다룰 수 있는 요소
 
 
 def model_role() -> str:
@@ -155,7 +157,7 @@ def tools(env: Env) -> list[doc_agent.Tool]:
                        t_propose, writes=True),
         doc_agent.Tool("open_page", "화면 열기 단추 내기(그 화면으로 옮겨 가 커서가 할 일). args {page: 안내 자료의 주소(#자리 포함 가능, 프로젝트는 /project/번호), why: 한 줄, "
                        "now: 담당자가 열기·찾기·칸 채우기·누르기를 시켰으면 true(바로 옮겨 가 커서가 차례로 함, 선택), "
-                       "steps: [{element: 안내 자료의 「가리킬 요소」, text: 칸에 넣을 말이나 고를 이름(선택)}] 차례대로(선택, 최대 "
+                       "steps: [{element: 안내 자료의 「가리킬 요소」 또는 지금 화면의 칸·단추 번호(c3), text: 칸에 넣을 말이나 고를 이름(선택)}] 차례대로(선택, 최대 "
                        f"{platform_ops.MAX_ACT_STEPS}개 — 마지막 단추는 맨 끝)}}", t_open, writes=True),
         doc_agent.Tool("finish", "담당자에게 안내·제안을 알리며 마치기(물을 것이 있으면 여기서 묻는다). args {message}", t_finish, final=True),
     ]
@@ -182,6 +184,8 @@ def state(env: Env) -> str:
     if env.project:
         lines.append(f"지금 보는 프로젝트: ({env.project['id']}) {env.project.get('name', '')} — 문서 질문·작성은 chat.handoff 에 이 project_id 를 넣어 넘긴다")
     lines.append("업무 영역(project.start 의 sector): " + ", ".join(f"{k}={v}" for k, v in env.ctx.sectors.items()))
+    if env.controls:
+        lines.append("지금 화면의 칸·단추(steps 의 element 에 번호를 쓴다 — 단추는 마지막 단추):\n" + platform_ops.controls_text(env.controls))
     proposed = platform_ops.pending(env.db, env.session_id)
     if proposed:
         lines.append("이번 요청에서 올린 제안: " + " / ".join(p["plan"][:120] for p in proposed))
@@ -197,6 +201,7 @@ def run(env: Env, client, request: str, said: str | None = None) -> doc_agent.Ep
     platform_ops.expire(env.db, env.session_id)
     env.ctx.said = request if said is None else said
     env.ctx.page = env.page
+    env.ctx.controls = list(env.controls or [])
     ep = doc_agent.run(client, request, lambda: state(env), tools(env), on_step=env.on_step, max_steps=MAX_STEPS,
                        max_writes=platform_ops.MAX_PENDING, system=SYSTEM)
     rec = {"session": env.session_id, "request": request[:1500], "page": env.page, "role": env.role,

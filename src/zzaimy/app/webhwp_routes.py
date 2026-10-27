@@ -310,22 +310,30 @@ def _via_project(request: Request, f: dict) -> dict | None:
 
 def hidden_here(request: Request, dept: str) -> set[int]:
     """부서 폴더 규칙으로는 보이지만 이 사람이 못 여는 파일 id — 나만 보기·공유 범위 밖 프로젝트의 작업 문서. 문서함 목록·폴더 수·찾기에서 뺀다.
-    작업 문서가 될 수 있는 파일(「작업/」 폴더나 대화에 이은 것)만 판단한다."""
+    작업 문서가 될 수 있는 파일(「작업/」 폴더나 대화에 이은 것)만 판단한다. 한 요청에서 한 번만 훑고(목록·폴더 수가 같이 쓴다),
+    파일마다 meta 를 따로 읽지 않고 한 번에 읽는다 — 천여 개 파일을 두 번씩 따로 읽어 문서함이 수십 초 걸렸다(10-27)."""
+    every = getattr(request.state, "_hwp_hidden", None)
+    if every is None:
+        every = request.state._hwp_hidden = _hidden_all(request)
+    return {fid for fid, d in every.items() if not dept or d == dept}
+
+
+def _hidden_all(request: Request) -> dict[int, str]:
     st = request.app.state
     base = _base(request)
     linked = _chat_links(request)
     depts = _depts(request)
-    out: set[int] = set()
-    for r in st.db.list_files(kind="webhwp", limit=8000):
-        if dept and webhwp.dept_of_path(base, r["path"]) != dept:
-            continue
-        if not (webhwp.folder_of(base, r["path"]).startswith("작업/") or int(r["id"]) in linked or _source_chat(st.db, int(r["id"]))
-                or (webhwp.meta(st.db, int(r["id"])) or {}).get("project")):
-            continue
-        if not webhwp.may_open(base, r, depts):
-            continue
-        if not _access(request, r):
-            out.add(int(r["id"]))
+    out: dict[int, str] = {}
+    with webhwp.preloaded_meta(st.db):
+        for r in st.db.list_files(kind="webhwp", limit=8000):
+            fid = int(r["id"])
+            if not (webhwp.folder_of(base, r["path"]).startswith("작업/") or fid in linked or _source_chat(st.db, fid)
+                    or (webhwp.meta(st.db, fid) or {}).get("project")):
+                continue
+            if not webhwp.may_open(base, r, depts):
+                continue
+            if not _access(request, r):
+                out[fid] = webhwp.dept_of_path(base, r["path"])
     return out
 
 

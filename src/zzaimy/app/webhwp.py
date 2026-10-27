@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import re
 import os
@@ -97,11 +99,28 @@ def dept_of_path(base: Path, path: str) -> str:
     return rel.parts[0] if len(rel.parts) >= 2 else ""
 
 
+# 한 요청 안에서 여러 파일의 meta 를 읽을 때(문서함 목록의 권한 거르기) 미리 한 번에 읽어 둔 값 — preloaded_meta 안에서만 쓴다
+_META_PRELOAD: contextvars.ContextVar = contextvars.ContextVar("webhwp_meta_preload", default=None)
+
+
 def meta(db, fid: int) -> dict:
+    pre = _META_PRELOAD.get()
     try:
+        if pre is not None:
+            return dict(json.loads(pre.get(f"webhwp_meta:{int(fid)}") or "{}"))
         return dict(json.loads(db.get_setting(f"webhwp_meta:{int(fid)}", "{}") or "{}"))
     except ValueError:
         return {}
+
+
+@contextlib.contextmanager
+def preloaded_meta(db):
+    """이 안에서는 meta() 가 DB 를 파일마다 읽지 않고 한 번 읽은 값을 쓴다 — 읽기만 하는 훑기에서만(안에서 meta 를 고치면 안 보인다)."""
+    tok = _META_PRELOAD.set(db.settings_with_prefix("webhwp_meta:"))
+    try:
+        yield
+    finally:
+        _META_PRELOAD.reset(tok)
 
 
 HIDDEN = (".판", ".휴지통")
