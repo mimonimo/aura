@@ -43,8 +43,8 @@ DEFAULT_CHARS = 900                # 분량을 주지 않았을 때 어림 글�
 PAGE_CHARS = 1200                  # 「1쪽」 어림 글자 수(개조식 본문)
 
 
-DEFAULT_PARALLEL = 2               # 연결 하나의 동시 서브 호출 — 연결 설정 parallel 이 없을 때
-MAX_PARALLEL = 4                   # 한 번에 맡기는 절 수 상한(모든 연결 합)
+DEFAULT_PARALLEL = 4               # 연결 하나의 동시 서브 호출 — 연결 설정 parallel 이 없을 때(vLLM 이 묶어 처리, 한 절씩이면 절 쓰기 한 턴이 6,700초였다 10-27)
+MAX_PARALLEL = 6                   # 한 번에 맡기는 절 수 상한(모든 연결 합)
 QUERY_SHARE = 0.03                 # 검색어 만들기 출력 몫
 CHECK_SHARE = 0.30                 # 자기 점검(고친 본문 포함) 출력 몫 상한
 MAX_QUERIES = 3
@@ -261,9 +261,30 @@ SUB_SYSTEM = """당신은 대학 행정 문서의 절 하나를 쓰는 작성자
 _UNK_HEAD = re.compile(r"(?m)^[ \t]*\[확인 필요\][ \t]*:?[ \t]*(?:\n|$)")
 
 
+_LATIN_WORD = re.compile(r"[A-Za-z]{2,}")
+
+
+def strip_reasoning(text: str) -> str:
+    """본문에 섞여 나온 영어 생각 줄(「Need ensure no ○○. None.」)을 뺀다 — 10-27 시나리오에서 서브 본문에 섞여 관문에 막혔다.
+    줄 글자 대부분이 라틴 문자이고 영어 낱말이 셋 이상이며 한글이 거의 없는 줄만 — 「AI」「LINC 3.0」 같은 용어가 든 한국어 줄, 표 줄은 그대로."""
+    out = []
+    for ln in (text or "").splitlines():
+        t = ln.strip()
+        if t and not t.startswith("|"):
+            hangul = len(re.findall(r"[가-힣]", t))
+            latin = sum(len(w) for w in _LATIN_WORD.findall(t))
+            if len(_LATIN_WORD.findall(t)) >= 3 and latin >= 3 * max(1, hangul):
+                continue
+        out.append(ln)
+    return "\n".join(out)
+
+
 def parse_sub(raw: str) -> tuple[str, list[str]]:
     """서브 답 → (본문, 확인 필요 목록). 「[확인 필요]」 머리는 줄 첫머리에 홀로 선 것만(본문 표 칸·개요 속 「[확인 필요]」 글은 머리가 아니다), 여럿이면 마지막."""
-    raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S).strip()
+    raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S)
+    if "</think>" in raw:                                  # 여는 표시 없이 생각 글 뒤에 닫는 표시만 오는 서버(vLLM 생각 켬)
+        raw = raw.rsplit("</think>", 1)[1]
+    raw = strip_reasoning(raw).strip()
     heads = list(_UNK_HEAD.finditer(raw))
     m0 = re.search(r"(?m)^[ \t]*\[본문\][ \t]*\n?", raw) or re.search(r"\[본문\]\s*\n?", raw)
     start = m0.end() if m0 else 0
@@ -581,7 +602,9 @@ class Delegator:
         miss = [w for w in words if w not in body]
         want = target_chars(job["length"])
         chk = rec.get("check") or {}
-        return (f"「{section[2:]}」 을 맡겨 썼다({len(body)}자, 요청 분량 약 {want}자).\n"
+        short = (f" — 요청의 {round(100 * len(body) / want)}%: 근거가 없어 짧은 것이 아니면 redo_note 로 더 쓰게 맡긴다"
+                 if want and len(body) < want * 0.5 else "")
+        return (f"「{section[2:]}」 을 맡겨 썼다({len(body)}자, 요청 분량 약 {want}자{short}).\n"
                 f"쓴 값: {', '.join(facts_in(body)) or '(수치 없음)'}\n"
                 f"비운 칸·확인 필요: {'; '.join(unknown) or '없음'}\n"
                 f"검토 재료: 수치 관문 통과 · 요지 낱말 {len(words) - len(miss)}/{len(words)} 반영"
@@ -841,7 +864,7 @@ TOOL_DESC = ("절을 같은 모델의 깨끗한 문맥(서브)에 맡겨 쓰기 
              "앞 절 요지, 담당자 원문 인용은 코드가 지시서에 채운다. 서브는 그 절의 양식 글·작성방법·근거만 보고 쓰고 모르는 값은 「확인 필요」 로 돌려준다. "
              "args {section: 절 필드 이름, gist: 이 절에 담을 요지(한두 문장), form: 형식(번호 문단·표·도식), length: 분량(예: 800자, 1쪽), "
              "redo_note: 다시 맡길 때만 — 돌아온 절에서 고칠 점}. 서로 다른 빈 절 여럿은 args {sections: [{section, gist, form, length}, …]} 로 한 번에 "
-             "맡기면 동시에 쓴다(상태 글의 동시 상한까지).")
+             "맡기면 동시에 쓴다(상태 글의 동시 상한까지) — 빈 절이 여럿이면 하나씩 직접 쓰거나 하나씩 맡기는 것보다 묶어 맡기는 편이 몇 배 빠르다.")
 
 REVISE_DESC = ("이미 쓴 절 고쳐 쓰기 — 담당자가 쓴 절을 고쳐 달라고 할 때(「더 구체적으로」「표로」「줄여」「문체」「항목 더하기」). 지금 글과 지시, 그 절의 "
                "작성방법·근거를 서브가 깨끗한 문맥으로 보고 고친다. 지시의 뜻은 서브가 점검표로 만들고 코드가 결과를 점검한다. "

@@ -22,6 +22,7 @@ from __future__ import annotations
 from zzaimy.app import korean_text as _ko
 
 import json
+import os
 import time
 import re
 from dataclasses import dataclass, field
@@ -280,6 +281,22 @@ def _log_line(i: int, name: str, args: dict, outcome: str) -> str:
     return f"{i}. {name} {a[:160]} → {outcome}"
 
 
+
+def step_tokens(client=None) -> int:
+    """걸음 하나의 출력 상한 — 걸음 JSON 에 절 본문(hwp_write text)이 들어가므로 700 이면 900자 넘는 절이 잘려 「형식 오류」 로 멈췄다
+    (10-27 시나리오). 출력 몫을 잡는 만큼 입력(지난 걸음)이 줄어드니 문맥의 1/16 까지만 — 256K 면 4096, 16K 면 1024.
+    ZZAIMY_AGENT_STEP_TOKENS 로 위 상한을 바꾼다."""
+    from zzaimy.app import llm_budget
+    try:
+        cap = max(700, int(os.environ.get("ZZAIMY_AGENT_STEP_TOKENS") or 4096))
+    except ValueError:
+        cap = 4096
+    try:
+        room = llm_budget.work_len(client) // 16 if client is not None else cap
+    except Exception:
+        room = 700
+    return max(700, min(cap, room))
+
 def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on_step: Callable[[str], None] | None = None,
         max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None,
         system: str | None = None, on_act: Callable[[str, dict, str], None] | None = None) -> Episode:
@@ -335,7 +352,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             cuts += [llm_budget.OUTPUT]
             try:
                 with llm_budget.label(f"에이전트 · {_i + 1}단계"):
-                    resp = llm_budget.create_fitted(client, messages, 700, cuts, floor=300,
+                    resp = llm_budget.create_fitted(client, messages, step_tokens(client), cuts, floor=300,
                                                     temperature=0.6 if repeats else 0.2,     # 되풀이를 거절당한 뒤엔 조금 넓게
                                                     extra_body=getattr(client, "_extra", {}))
                 raw = resp.choices[0].message.content or ""

@@ -308,7 +308,9 @@ class HwpTools:
                          "hwp_fill {values, from_user: true} 로 넣는다(모르면 ask_user 로 한 번에 묻는다).")
         if empty:
             lines.append("작성 순서: ① 담당자가 알려 준 값·프로젝트 정보(프로젝트 이름은 사업명 칸)로 채울 수 있는 칸을 hwp_fill 한 번에 모두 채운다 "
-                         "② 빈 절을 하나씩 hwp_write 로 쓴다 ③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
+                         + ("② 빈 절이 여럿이면 delegate_section {sections: […]} 로 묶어 맡겨 동시에 쓰고(짧은 절만 hwp_write 로 직접) "
+                            if self.delegating and self.delegate_cap > 1 else "② 빈 절을 하나씩 hwp_write 로 쓴다 ")
+                         + "③ 그래도 모르는 값만 마지막에 ask_user 로 한 번에 묻는다 — 칸 하나 때문에 쓰기를 멈추지 않는다.")
         lines.append("쓰기·고쳐 쓰기 요청(「채워」「계속 써」「더 구체적으로」「표로」)이면 이번 요청에서 먼저 쓴다: 지금 있는 근거·담당자 값으로 hwp_write(또는 "
                      "delegate_section)를 하고, 모르는 값은 본문에 「확인 필요」 로 남긴 뒤 묻는다 — 값이 모자라다는 까닭으로 쓰지 않고 묻기만 하고 끝내지 않는다. "
                      + ("담당자가 이미 쓴 절을 고쳐 달라고 하면(더 구체적으로·표로·줄여·문체·항목 더하기) 다시 찾거나 묻지 말고 먼저 hwp_revise {field, instruction: 담당자 지시 그대로} "
