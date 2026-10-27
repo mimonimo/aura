@@ -1,4 +1,5 @@
-"""RAG 공간 관리(/dev/rag*, ADR-0053) — 공간별 자료 수·쓰는 계정, 부서 RAG 와 다른 부서에 열기, 규정·기준 문서, 검색 범위 시험.
+"""RAG 공간 관리(/dev/rag*, ADR-0053) — 공간별 자료 수·쓰는 계정, 부서 RAG 와 다른 부서에 열기, 검색 범위 시험.
+기준 문서(규정) 관리는 라이브러리 「기준」 칩(criteria_regs_routes)으로 옮겼다(10-27).
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·데이터 폴더(data_dir)·계정(accounts)·화면 틀·화면 공통 맥락(page_ctx)과 다른 화면과 함께 쓰는 도우미(부서 목록 all_depts·
@@ -16,12 +17,12 @@ from zzaimy.app import grades
 router = APIRouter()
 
 
-# RAG 공간 관리(ADR-0053) — 공간별 자료 수·쓰는 계정, 부서 RAG 열어 주기, 폴더→부서 짝, 학생 공개 규정. 개발자만(/dev 미들웨어)
+# RAG 공간 관리(ADR-0053) — 공간별 자료 수·쓰는 계정, 부서 RAG 열어 주기, 폴더→부서 짝. 개발자만(/dev 미들웨어)
 
 @router.get("/dev/rag", response_class=HTMLResponse)
 def dev_rag(request: Request):
     """RAG 공간 — 위에 공통·학생 RAG 요약, 부서 RAG 목록(찾기·문서 있는 것만 기본), 고른 RAG 의 상세(구성·최소 등급·쓰는 계정),
-    규정·지침 목록(/dev/rag/regs 로 따로 불러온다), 끝에 검색 범위 시험·내려받기. 수치는 모두 이 요청에서 센다."""
+    끝에 검색 범위 시험·내려받기. 수치는 모두 이 요청에서 센다."""
     from zzaimy.app import rag_spaces
     st = request.app.state
     db, accounts = st.db, st.accounts
@@ -125,83 +126,6 @@ async def dev_rag_dept(request: Request):
                                 + "#dept-rags", status_code=303)
     return RedirectResponse("/dev/rag?" + urlencode({"err": "알 수 없는 요청"}) + "#dept-rags", status_code=303)
 
-# 규정·기준 문서 — 반입한 규정을 골라 기준 문서로 올리고(조문 조각), 학생 공개를 정한다(regulation_register)
-@router.get("/dev/rag/regs")
-def dev_rag_regs(request: Request, q: str = ""):
-    from zzaimy.app import regulation_register
-    st = request.app.state
-    got = regulation_register.candidates(st.db, q)
-    from zzaimy.app.doc_title import display_title     # 화면에는 확장자 뗀 제목, 파일 이름은 filename 에 그대로
-    for d in got["registered"]:
-        d["title"] = display_title({"filename": d.get("filename") or ""}) or d.get("filename") or ""
-    for d in got["items"]:
-        d["filename"] = d.get("title") or ""
-        d["title"] = display_title({"filename": d["filename"]}) or d["filename"]
-    from zzaimy.app import reindex_state
-    return {**got, "reindex_needed": reindex_state.needed(st.db), "reindex_running": st.reindex_running()}
-
-@router.get("/dev/rag/regs/{did}")
-def dev_rag_reg_detail(request: Request, did: int):
-    """규정 한 건의 상세 — 조각 수·조 머리 앞부분·판(제목·본문의 날짜·학년도·번호)·같은 규정의 다른 판. 누를 때 센다."""
-    from zzaimy.app import regulation_register as rr
-    from zzaimy.app.doc_title import display_title
-    db = request.app.state.db
-    d = db.get_document(did)
-    if not d or d.get("doc_type") not in ("regulation", "grant"):
-        raise HTTPException(404, "규정을 찾지 못했습니다")
-    with db._conn() as conn:
-        heads = [str(r[0] or "") for r in conn.execute(
-            "SELECT heading FROM regulation_chunks WHERE doc_id = ? ORDER BY id", (did,))]
-        key = rr.rule_key(d.get("filename") or "")
-        mates = [dict(r) for r in conn.execute(
-            "SELECT id, filename, family, doc_type, created_at FROM documents WHERE doc_type IN ('regulation', 'grant')"
-            " AND status = 'reviewed' AND id <> ? AND (" + " OR ".join("filename LIKE ?" for _ in rr.GENRE_WORDS) + ")",
-            [did, *[f"%{w}%" for w in rr.GENRE_WORDS]])] if key else []
-    texts = rr._texts(db, [did])
-
-    def label(rev: tuple) -> str:
-        acad, no, (y, m, dd) = rev
-        parts = ([f"{y}.{m}.{dd}" if m and dd else f"{y}년"] if y else []) + ([f"{acad}학년도"] if acad else []) + ([f"제{no}호"] if no else [])
-        return " · ".join(parts)
-    rev = label(rr.revision(d.get("filename") or "", d.get("family") or "", texts.get(did, "")))
-    versions = [{"id": m["id"], "title": display_title({"filename": m["filename"] or ""}) or m["filename"] or "",
-                 "registered": m["doc_type"] == "regulation", "at": str(m.get("created_at") or "")[:10]}
-                for m in mates if rr.rule_key(m["filename"] or "") == key]
-    return {"id": did, "title": display_title({"filename": d.get("filename") or ""}) or d.get("filename") or "",
-            "filename": d.get("filename") or "", "registered": d.get("doc_type") == "regulation",
-            "kind": d.get("kind") or "", "audience": d.get("audience") or "", "dept": d.get("dept") or "공통",
-            "at": str(d.get("created_at") or "")[:10], "chunks": len(heads),
-            "headings": [h for h in dict.fromkeys(heads) if h][:8], "revision": rev, "versions": versions[:20]}
-
-
-async def _ids_from(request: Request) -> list[int]:
-    body = await request.json()
-    return [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]
-
-@router.post("/dev/rag/regs/register")
-async def dev_rag_regs_register(request: Request):
-    from zzaimy.app import regulation_register
-    st = request.app.state
-    return regulation_register.register(st.db, await _ids_from(request), st.data_dir, by=request.state.user or "")
-
-@router.post("/dev/rag/regs/unregister")
-async def dev_rag_regs_unregister(request: Request):
-    from zzaimy.app import regulation_register
-    st = request.app.state
-    return regulation_register.unregister(st.db, await _ids_from(request), st.data_dir, by=request.state.user or "")
-
-@router.post("/dev/rag/regs/audience")
-async def dev_rag_regs_audience(request: Request):
-    db = request.app.state.db
-    body = await request.json()
-    aud = "student" if body.get("audience") == "student" else "staff"
-    n = 0
-    for did in [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]:
-        d = db.get_document(did)
-        if d and d.get("doc_type") == "regulation":
-            db.set_document_audience(did, aud)
-            n += 1
-    return {"changed": n, "audience": aud}
 
 @router.get("/dev/rag/targets")
 def dev_rag_targets(request: Request, q: str = "", limit: int = 30):

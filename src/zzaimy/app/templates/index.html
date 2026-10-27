@@ -30,6 +30,30 @@
   .lib-uses a span { font-weight:500; font-variant-numeric:tabular-nums; opacity:.85; }
   .lib-uses .lib-uses-act { margin-left:auto; }
   .pill.lib-criteria { background:#E8F0FE; color:var(--navy); }
+  /* 기준 칩의 관리자 도구 — 학생 공개·검색에서 빼기(작업 줄·줄 끝 …), 새 판·미등록 창 */
+  .lib-uses-acts { margin-left:auto; display:inline-flex; flex-wrap:wrap; gap:8px; }
+  .pill.lib-stu { background:#E5F3EA; color:#22663F; }
+  .lib-crit-acts { display:inline-flex; flex-wrap:wrap; gap:6px; align-items:center; padding-left:8px; border-left:1px solid var(--line); }
+  .lib-row > .row-menu, .lib-row > .lib-row-gap { flex:none; width:32px; margin-top:-4px; }
+  #critCandModal > .card { width:min(1040px, 94vw); }
+  .cc-tools { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 8px; }
+  .cc-tools input[type=search] { flex:1 1 220px; min-width:0; }
+  .cc-split { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:14px; align-items:start; }
+  .cc-list { border:1px solid #EEF1F5; border-radius:8px; min-height:12rem; }
+  .cc-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:10px; min-height:38px; padding:0 10px; border-bottom:1px solid #F1F3F7; font-size:12.5px; cursor:pointer; }
+  .cc-row:hover { background:#F7F9FC; } .cc-row.cur { box-shadow:inset 3px 0 0 var(--navy); background:#EEF3FB; }
+  .cc-row input { width:16px; height:16px; margin:0; accent-color:var(--navy); }
+  .cc-row .t { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-row .m { color:var(--muted); font-size:11.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .cc-empty { margin:0; padding:18px; text-align:center; color:var(--muted); font-size:12.5px; }
+  .cc-side { min-width:0; border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:12.5px; }
+  .cc-side h3 { margin:0 0 4px; font-size:14px; overflow-wrap:anywhere; }
+  .cc-side dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 12px; margin:8px 0 0; }
+  .cc-side dt { color:var(--muted); } .cc-side dd { margin:0; overflow-wrap:anywhere; }
+  .cc-side ul { margin:4px 0 0; padding-left:18px; }
+  .cc-foot { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:8px 0 0; font-size:12.5px; }
+  .cc-foot .cc-pager { margin-left:auto; display:inline-flex; align-items:center; gap:8px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .cc-foot .cc-pager[hidden] { display:none; }
   .lib-note { display:block; font-size:11.5px; margin-top:3px; }
 
   /* 사업별로 보기 — 왼쪽 목록 + 오른쪽 문서. 줄은 제목 한 줄 + 정보 한 줄 */
@@ -181,7 +205,8 @@
   @media (max-width: 600px) {
     .lib-uses { flex-wrap:nowrap; gap:6px; }
     .lib-uses a { padding:0 10px; min-height:32px; font-size:12.5px; }
-    .lib-uses .lib-uses-act { flex:none; min-height:32px; padding:0 10px; }
+    .lib-uses .lib-uses-act, .lib-uses-acts > button { flex:none; min-height:32px; padding:0 10px; }
+    .lib-uses-acts { flex:none; gap:6px; }
     .lib-act-l { display:none; } .lib-act-s { display:inline; }
     .intake-toolbar.lib-filters { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
     .intake-toolbar.lib-filters > *, .lib-more > * { width:100%; min-width:0; max-width:none; box-sizing:border-box; margin:0; }
@@ -408,8 +433,10 @@
     <nav class="lib-uses" aria-label="쓰임새">
       {% for key, label in uses %}<a data-aura="lib-use" href="/?{{ use_qs }}{% if key != 'all' %}&amp;use={{ key }}{% endif %}" {% if use == key %}aria-current="true"{% endif %}
          title="{{ metric_tip(use_metrics[key]) }}">{{ label }} <span>{{ "{:,}".format(use_counts.get(key, 0)) }}</span></a>{% endfor %}
-      {% if use == 'criteria' %}<button type="button" class="secondary lib-uses-act" data-modal-open="#criteriaUploadModal" aria-label="기준 등록">
-        <iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon><span class="lib-act-l">기준 등록</span><span class="lib-act-s" aria-hidden="true">등록</span></button>
+      {% if use == 'criteria' %}<span class="lib-uses-acts">
+        {% if crit_admin %}<button type="button" class="secondary" data-modal-open="#critCandModal" data-crit="cand-open" aria-label="새 판·미등록 규정">새 판·미등록 <span id="critCandN"></span></button>{% endif %}
+        <button type="button" class="secondary" data-modal-open="#criteriaUploadModal" aria-label="기준 등록">
+        <iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon><span class="lib-act-l">기준 등록</span><span class="lib-act-s" aria-hidden="true">등록</span></button></span>
       {% else %}<button type="button" class="secondary lib-uses-act" data-modal-open="#libUploadModal" aria-label="문서 올리기">
         <iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon><span class="lib-act-l">문서 올리기</span><span class="lib-act-s" aria-hidden="true">올리기</span></button>{% endif %}
     </nav>
@@ -427,6 +454,11 @@
         <option value="">모든 종류</option>
         {% for k, label, n in kind_counts %}<option value="{{ k or '_none' }}" {% if kind == (k or '_none') %}selected{% endif %}>{{ label }} {{ "{:,}".format(n) }}</option>{% endfor %}
       </select>
+      {% if crit_admin %}<select name="aud" aria-label="공개 대상">
+        <option value="">공개 대상 전체</option>
+        <option value="student" {{ 'selected' if aud == 'student' }}>학생 공개 {{ "{:,}".format(aud_counts.get('student', 0)) }}</option>
+        <option value="staff" {{ 'selected' if aud == 'staff' }}>교직원만 {{ "{:,}".format(aud_counts.get('staff', 0)) }}</option>
+      </select>{% endif %}
       <input type="search" name="q" data-aura="lib-q" value="{{ q }}" placeholder="{{ '제목·접수번호·본문 낱말' if body else '제목·접수번호' }}" aria-label="찾을 낱말">
       <label class="lib-body" title="사업 문서 본문(어휘 색인)에 낱말이 든 문서까지 찾습니다"><input type="checkbox" name="body" value="1" {{ 'checked' if body }}> 본문까지</label>
       <button type="submit" class="secondary">찾기</button>
@@ -469,6 +501,11 @@
           </ul></span>{% endif %}
         <button type="button" class="secondary" id="libBulkGo" disabled>적용</button>
       </span>
+      {% if crit_admin %}<span class="lib-crit-acts" id="libCritActs" hidden>
+        <button type="button" class="secondary" data-crit="student">학생 공개</button>
+        <button type="button" class="secondary" data-crit="staff">교직원만</button>
+        <button type="button" class="secondary" data-crit="unregister">검색에서 빼기</button>
+      </span>{% endif %}
       <span class="lib-bulk-msg" id="libBulkMsg" role="status"></span>
     </div>{% endif %}
     <ul class="lib-rows" data-doc-list>
@@ -480,6 +517,7 @@
           <div class="lib-row-meta">
             <span>{{ d.kind_label or "분류 전" }}</span>
             {% if d.in_index %}<span class="pill lib-criteria" title="기준 문서 — 규정 검색·학생 공개·프로젝트 기준 선택에 씀">기준</span>{% endif %}
+            {% if crit_admin and d.in_index and d.audience == 'student' %}<span class="pill lib-stu">학생 공개</span>{% endif %}
             {% if d.status == 'failed' %}{% set rf = read_fail(d) %}<span class="pill failed" title="{{ rf.hint }}">읽지 못함 · {{ rf.label }}</span>{% if rf.actions %}<a class="lib-row-fix" href="/doc/{{ d.id }}#readFix">{{ rf.actions[0].label }}</a>{% endif %}
             {% elif d.status in run_labels %}<span class="pill processing">{{ run_labels[d.status] }}</span>{% endif %}
             {% if d.decision and d.decision != 'pending' and d.doc_type not in ('regulation', 'ocr') %}<span class="pill {{ d.decision }}">담당자 {{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
@@ -502,6 +540,10 @@
           {% endif %}
         </div>
         <span class="lib-row-date">{{ (d.created_at or '')[:10] }}</span>
+        {% if crit_admin %}{% if d.in_index %}<span class="row-menu"><button type="button" data-crit-menu aria-haspopup="menu" aria-expanded="false" aria-label="{{ doc_title(d) }} 작업">…</button><div class="row-menu-list" role="menu" hidden>
+          <button type="button" role="menuitem" data-crit-one="{{ 'staff' if d.audience == 'student' else 'student' }}" data-id="{{ d.id }}">{{ '교직원만으로' if d.audience == 'student' else '학생 공개로' }}</button>
+          <button type="button" role="menuitem" class="danger-text" data-crit-one="unregister" data-id="{{ d.id }}">검색에서 빼기</button></div></span>
+        {% else %}<span class="lib-row-gap" aria-hidden="true"></span>{% endif %}{% endif %}
       </li>
       {% endfor %}
     </ul><!-- /lib-rows -->
@@ -535,7 +577,7 @@
 </div>
 </div>
 {# 기준 등록 — 새 파일을 기준 문서로(/criteria/upload: doc_type=regulation, 원문 유지, 규정 조각 적재).
-   이미 반입된 사업 문서 가운데 규정을 기준 문서로 올리는 길은 RAG 공간 「규정·기준 문서」(개발자, regulation_register) #}
+   이미 반입된 사업 문서 가운데 규정을 기준 문서로 올리는 길은 이 칩의 「새 판·미등록」(관리자, /criteria/regs — regulation_register) #}
 {# 문서 올리기 — 프로젝트 없이 라이브러리에 바로. 폴더를 고르면 그 폴더의 검색 범위, 아니면 선택한 범위(기본 공통 RAG) #}
 <div id="libUploadModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="libUploadTitle">
   <div class="card"><div class="card-in">
@@ -627,7 +669,7 @@
           <select name="sector">{% for sec, label in sector_labels.items() %}<option value="{{ sec }}" {% if sec == active_tab %}selected{% endif %}>{{ label }}{{ " (모든 업무에 적용)" if sec == "common" else "" }}</option>{% endfor %}</select></label>
         <div class="form-row"><span class="muted">공고·규정·지침·평가 기준 파일(여러 개 가능) — 원문 그대로 규정 검색에 들어갑니다</span>
           <input type="file" name="file" required multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
-        {% if request.state.role == 'dev' %}<p class="muted" style="font-size:12px; margin:0 0 10px;">이미 반입된 자료 속 규정은 파일을 다시 올리지 않고 <a href="/dev/rag#student-regs">RAG 공간 › 규정·기준 문서</a>에서 골라 올립니다.</p>{% endif %}
+        {% if crit_admin %}<p class="muted" style="font-size:12px; margin:0 0 10px;">이미 반입된 규정은 「새 판·미등록」에서 고릅니다.</p>{% endif %}
         <div style="display:flex; justify-content:flex-end; gap:10px;">
           <button type="button" data-modal-close class="secondary">취소</button>
           <button type="submit" disabled>등록</button>
@@ -636,6 +678,32 @@
     </div>
   </div>
 </div>
+{% if crit_admin %}
+{# 새 판·미등록 — 반입 자료 속 규정 후보(같은 규정의 판 묶음은 최신 판 하나)를 골라 검색에 추가(/criteria/regs, regulation_register) #}
+<div id="critCandModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="critCandTitle">
+  <div class="card"><div class="card-in">
+    <div class="modal-head">
+      <h2 id="critCandTitle"><iconify-icon icon="solar:library-linear"></iconify-icon>새 판·미등록 규정</h2>
+      <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+    </div>
+    <div class="cc-tools control-row">
+      <input type="search" id="ccFind" placeholder="규정 이름으로 찾기" aria-label="규정 찾기">
+      <select id="ccKind" aria-label="갈래"></select>
+    </div>
+    <div class="lib-bulk" id="ccBar">
+      <label class="lib-bulk-all"><input type="checkbox" id="ccAll"> 이 쪽 모두</label>
+      <span class="lib-bulk-n" id="ccN"></span>
+      <span class="lib-crit-acts" id="ccActs" hidden><button type="button" id="ccReg" data-crit="register">검색에 추가</button><button type="button" class="btn-ghost" id="ccClear">선택 해제</button></span>
+    </div>
+    <div class="cc-split">
+      <div><div class="cc-list" id="ccList" aria-live="polite"><p class="cc-empty">불러오는 중…</p></div>
+        <div class="cc-foot"><span class="lib-bulk-msg" id="ccMsg" role="status"></span>
+          <span class="cc-pager" id="ccPager" hidden><button type="button" class="secondary" data-page="-1">이전</button><span id="ccPage"></span><button type="button" class="secondary" data-page="1">다음</button></span></div></div>
+      <aside class="cc-side" id="ccSide" aria-live="polite"><p class="muted" style="margin:0;">규정을 고르면 판·조 머리가 보입니다</p></aside>
+    </div>
+  </div></div>
+</div>
+{% endif %}
 <script>
 (function () {
   // 검색 범위 선택 — 공통 RAG / 부서 RAG(부서를 고를 때만 목록)
@@ -659,6 +727,7 @@
     var n = chosen().length;
     document.getElementById("libPickN").textContent = n ? "선택한 문서 " + n + "건" : "문서를 선택하면 폴더에 담거나 공개 범위를 바꿀 수 있습니다";
     acts.hidden = !n;
+    var ca = document.getElementById("libCritActs"); if (ca) ca.hidden = !n;
     document.getElementById("libPickAll").checked = n > 0 && n === picks().length;
   };
   document.addEventListener("change", function (e) { if (e.target.classList && e.target.classList.contains("lib-pick")) paint(); });
@@ -798,6 +867,142 @@
     else if (e.key === "Escape") { hits.hidden = true; }
   });
   box.addEventListener("blur", function () { setTimeout(function () { hits.hidden = true; }, 150); });
+})();
+(function () {
+  // 기준 문서 관리(관리자, 기준 칩) — 학생 공개·교직원만·검색에서 빼기(작업 줄·줄 끝 …)와 새 판·미등록 창. 서버도 관리자만 받는다
+  var cand = document.getElementById("critCandModal");
+  if (!cand) return;
+  var $ = function (id) { return document.getElementById(id); };
+  var num = function (n) { return Number(n || 0).toLocaleString("ko-KR"); };
+  var esc = function (t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+  var post = function (url, body) {
+    return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (r) {
+      if (!r.ok) throw new Error(r.status === 403 ? "관리자만 바꿀 수 있습니다" : "처리하지 못했습니다. 잠시 뒤 다시 해 주세요.");
+      return r.json();
+    });
+  };
+  var say = function (el, t, err) { if (el) { el.textContent = t; el.style.color = err ? "var(--red)" : ""; } };
+  async function change(kind, ids, btns, out) {
+    if (!ids.length) return;
+    if (kind === "unregister" && !(await window.platformConfirm(num(ids.length) + "건을 검색에서 뺍니다. 일반 문서로 남고, 다시 넣으려면 「새 판·미등록」에서 추가합니다.",
+        { title: "검색에서 빼기", ok: "빼기", danger: true }))) return;
+    btns.forEach(function (b) { b.disabled = true; });
+    say(out, "처리 중…");
+    try {
+      var msg;
+      if (kind === "unregister") {
+        var d = await post("/criteria/regs/unregister", { ids: ids });
+        msg = [d.unregistered ? num(d.unregistered) + "건을 검색에서 뺐습니다" : "", d.kept ? "처음부터 기준 문서로 올린 " + num(d.kept) + "건은 그대로 둡니다" : ""].filter(Boolean).join(" · ") || "바뀐 것 없음";
+      } else {
+        var a = await post("/criteria/regs/audience", { ids: ids, audience: kind });
+        msg = num(a.changed) + "건을 " + (kind === "student" ? "학생 공개로" : "교직원만으로") + " 바꿨습니다";
+      }
+      say(out, msg + " — 새로 고칩니다");
+      setTimeout(function () { location.reload(); }, 700);
+    } catch (e) { say(out, e.message, true); btns.forEach(function (b) { b.disabled = false; }); }
+  }
+  var picked = function () { return Array.prototype.slice.call(document.querySelectorAll("input.lib-pick:checked")).map(function (c) { return Number(c.value); }); };
+  document.querySelectorAll("#libCritActs [data-crit]").forEach(function (b) {
+    b.addEventListener("click", function () { change(b.dataset.crit, picked(), Array.prototype.slice.call(document.querySelectorAll("#libCritActs button")), $("libBulkMsg")); });
+  });
+  // 줄 끝 … — 공용 줄 메뉴(row-menu)
+  var closeMenus = function (except) {
+    document.querySelectorAll(".lib-row .row-menu-list:not([hidden])").forEach(function (m) { if (m !== except) { m.hidden = true; m.previousElementSibling.setAttribute("aria-expanded", "false"); } });
+  };
+  document.addEventListener("click", function (e) {
+    var m = e.target.closest("[data-crit-menu]");
+    if (m) { var list = m.nextElementSibling, open = list.hidden; closeMenus(list); list.hidden = !open; m.setAttribute("aria-expanded", String(open)); if (open) list.querySelector("button").focus(); return; }
+    var one = e.target.closest("[data-crit-one]");
+    if (one) { closeMenus(); change(one.dataset.critOne, [Number(one.dataset.id)], [one], $("libBulkMsg") || null); return; }
+    if (!e.target.closest(".lib-row .row-menu")) closeMenus();
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenus(); });
+
+  // 새 판·미등록 — 찾기·갈래 뒤 20건씩, 체크하면 「검색에 추가」, 줄을 누르면 옆에 판·조 머리
+  var PER = 20, KIND = { regulation: "규정", guideline: "지침" };
+  var st = { items: [], total: 0, page: 0, kind: "", pick: new Set(), cur: 0, loaded: false };
+  var kindOf = function (d) { return KIND[d.kind] || "기타"; };
+  function rows() { return st.items.filter(function (d) { return !st.kind || kindOf(d) === st.kind; }); }
+  function paint() {
+    var all = rows(), pages = Math.max(1, Math.ceil(all.length / PER));
+    st.page = Math.min(Math.max(0, st.page), pages - 1);
+    var at = st.page * PER, shown = all.slice(at, at + PER);
+    var kinds = {}; st.items.forEach(function (d) { kinds[kindOf(d)] = (kinds[kindOf(d)] || 0) + 1; });
+    $("ccKind").innerHTML = [["", "갈래 전체 " + num(st.items.length)]].concat(Object.keys(kinds).sort().map(function (k) { return [k, k + " " + num(kinds[k])]; }))
+      .map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === st.kind ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("");
+    $("ccList").innerHTML = shown.map(function (d) {
+      var name = esc(d.title || d.filename), on = st.pick.has(d.id);
+      return '<div class="cc-row' + (st.cur === d.id ? " cur" : "") + '" data-id="' + d.id + '"><input type="checkbox"' + (on ? " checked" : "") + ' aria-label="' + name + ' 선택">'
+        + '<span class="t" title="' + name + '">' + name + '</span><span class="m">' + kindOf(d) + (d.versions > 1 ? " · 판 " + num(d.versions) : "") + "</span></div>";
+    }).join("") || '<p class="cc-empty">' + (st.loaded ? "새 판·미등록 규정 없음" : "불러오는 중…") + "</p>";
+    $("ccN").textContent = st.pick.size ? "선택 " + num(st.pick.size) + "건" : num(all.length) + "건";
+    $("ccActs").hidden = !st.pick.size;
+    $("ccAll").checked = shown.length > 0 && shown.every(function (d) { return st.pick.has(d.id); });
+    $("ccAll").disabled = !shown.length;
+    $("ccPager").hidden = all.length <= PER;
+    $("ccPage").textContent = all.length ? num(at + 1) + "–" + num(at + shown.length) + " / " + num(all.length) : "";
+    $("ccPager").querySelector('[data-page="-1"]').disabled = st.page <= 0;
+    $("ccPager").querySelector('[data-page="1"]').disabled = st.page >= pages - 1;
+    if (!st.cur || !all.some(function (d) { return d.id === st.cur; })) { st.cur = shown[0] ? shown[0].id : 0; if (st.cur) { markCur(); detail(); } }
+  }
+  function markCur() { document.querySelectorAll("#ccList .cc-row").forEach(function (r) { r.classList.toggle("cur", Number(r.dataset.id) === st.cur); }); }
+  var seq = 0;
+  async function detail() {
+    var id = st.cur, box = $("ccSide"), my = ++seq;
+    if (!id) { box.innerHTML = '<p class="muted" style="margin:0;">새 판·미등록 규정 없음</p>'; return; }
+    try {
+      var r = await fetch("/criteria/regs/" + id, { cache: "no-store" });
+      if (!r.ok) throw new Error();
+      var d = await r.json();
+      if (my !== seq) return;
+      box.innerHTML = "<h3>" + esc(d.title) + '</h3><p class="muted" style="margin:0;">' + esc([KIND[d.kind] || "기타", "부서 " + d.dept].join(" · ")) + "</p>"
+        + "<dl><dt>판</dt><dd>" + esc(d.revision || "제목·본문에 날짜 없음") + "</dd><dt>들어온 날</dt><dd>" + esc(d.at || "—") + "</dd><dt>파일</dt><dd>" + esc(d.filename) + "</dd></dl>"
+        + (d.versions.length ? '<p class="muted" style="margin:10px 0 0;">같은 규정의 다른 판 ' + num(d.versions.length) + "건</p><ul>" + d.versions.map(function (v) {
+            return '<li><a href="/doc/' + v.id + '" target="_blank" rel="noopener">' + esc(v.title) + '</a> <span class="muted">' + (v.registered ? "검색에 씀" : "일반 문서") + (v.at ? " · " + esc(v.at) : "") + "</span></li>"; }).join("") + "</ul>" : "")
+        + '<p style="margin:10px 0 0;"><a class="btn-ghost" href="/doc/' + d.id + '" target="_blank" rel="noopener">원문 열기</a></p>';
+    } catch (e) { if (my === seq) box.innerHTML = '<p class="muted" style="margin:0;">상세를 불러오지 못했습니다. 다시 골라 주세요.</p>'; }
+  }
+  async function load() {
+    try {
+      var r = await fetch("/criteria/regs?" + new URLSearchParams({ q: $("ccFind").value }), { cache: "no-store" });
+      if (!r.ok) throw new Error();
+      var d = await r.json();
+      st.items = d.items || []; st.total = d.total || 0; st.loaded = true;
+      if (!$("ccFind").value) $("critCandN").textContent = num(st.total);
+    } catch (e) { say($("ccMsg"), "목록을 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요.", true); }
+    paint();
+  }
+  var timer = 0;
+  $("ccFind").addEventListener("input", function () { st.page = 0; clearTimeout(timer); timer = setTimeout(load, 250); });
+  $("ccKind").addEventListener("change", function (e) { st.kind = e.target.value; st.page = 0; paint(); });
+  $("ccPager").addEventListener("click", function (e) { var b = e.target.closest("[data-page]"); if (b) { st.page += Number(b.dataset.page); paint(); } });
+  $("ccList").addEventListener("change", function (e) {
+    var r = e.target.closest(".cc-row"); if (!r || e.target.type !== "checkbox") return;
+    var id = Number(r.dataset.id); if (e.target.checked) st.pick.add(id); else st.pick.delete(id); paint();
+  });
+  $("ccList").addEventListener("click", function (e) {
+    var r = e.target.closest(".cc-row"); if (!r || e.target.type === "checkbox") return;
+    st.cur = Number(r.dataset.id); markCur(); detail();
+  });
+  $("ccAll").addEventListener("change", function (e) {
+    var all = rows().slice(st.page * PER, st.page * PER + PER);
+    all.forEach(function (d) { if (e.target.checked) st.pick.add(d.id); else st.pick.delete(d.id); }); paint();
+  });
+  $("ccClear").addEventListener("click", function () { st.pick.clear(); paint(); });
+  var reg = $("ccReg"), changed = false;
+  reg.addEventListener("click", async function () {
+    var ids = Array.from(st.pick); if (!ids.length) return;
+    reg.disabled = true; say($("ccMsg"), "처리 중…");
+    try {
+      var d = await post("/criteria/regs/register", { ids: ids });
+      say($("ccMsg"), num(d.registered) + "건을 검색에 추가했습니다 · 조각 " + num(d.chunks) + "개" + (d.skipped ? " · 본문이 없어 건너뜀 " + num(d.skipped) + "건" : "") + " · 뜻 검색에는 몇 분 안에 들어갑니다");
+      st.pick.clear(); changed = true; await load();
+    } catch (e) { say($("ccMsg"), e.message, true); }
+    finally { reg.disabled = false; }
+  });
+  // 창을 닫으면 목록(기준 문서 수)을 다시 센다 — 추가한 것이 있을 때만
+  cand.addEventListener("click", function (e) { if (changed && (e.target === cand || e.target.closest("[data-modal-close]"))) location.reload(); });
+  load();
 })();
 (function () {
   // 기준 등록 창 — 파일을 선택 전에는 「등록」을 끈다

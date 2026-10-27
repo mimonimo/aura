@@ -295,10 +295,10 @@ def _handoff_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
 OPS: dict[str, Op] = {o.key: o for o in (
     Op("regs.audience", "기준 문서 공개 대상 바꾸기",
        "등록된 기준 문서(규정)를 학생 공개(학생 RAG 에 넣기) 또는 교직원만으로. args {documents: [문서 번호 또는 제목], audience: student|staff}",
-       "/dev/rag#student-regs", ("dev",), _audience_check, _audience_run, 'data-rr="student"'),
+       "/?type=all&use=criteria", ("dev",), _audience_check, _audience_run, 'data-crit="student"'),
     Op("regs.register", "규정 후보를 기준 문서로 등록",
        "반입 자료의 규정 후보(사업 문서로 들어온 규정·지침)를 기준 문서로 올리기. args {documents: [문서 번호 또는 제목]}",
-       "/dev/rag#student-regs", ("dev",), _register_check, _register_run, 'data-rr="register"'),
+       "/?type=all&use=criteria", ("dev",), _register_check, _register_run, 'data-crit="register"'),
     Op("dept_rag.create", "부서·부서 RAG 만들기",
        "새 부서와 빈 부서 RAG 만들기. args {name: 부서 이름}",
        "/team", ("dev",), _dept_check, _dept_run, 'data-org-add'),   # 조직 관리 트리 위 「부서」

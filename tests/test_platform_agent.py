@@ -41,7 +41,7 @@ def test_guide_buttons_and_anchors_exist_in_templates():
                 assert t.mark in where.read_text(encoding="utf-8"), f"{p.path} 「{t.what}」 의 요소 {t.mark} 가 {where.name} 에 없다"
     for op in platform_ops.OPS.values():
         path, _, anchor = op.screen.partition("#")
-        page = platform_guide.BY_PATH[path]
+        page = platform_guide.page_for(path)
         src = (platform_guide.TEMPLATES / page.template).read_text(encoding="utf-8")
         if anchor:
             assert f'id="{anchor}"' in src
@@ -52,9 +52,11 @@ def test_guide_buttons_and_anchors_exist_in_templates():
 
 def test_lookup_puts_current_page_first_and_explains_terms():
     got = platform_guide.lookup("학생 RAG 등록 어떻게 해?", current="/dev/rag")
-    assert got.startswith("■ RAG 공간")
-    assert "학생 RAG:" in got and "/dev/rag#student-regs" in got and "「학생 공개」" in got
-    assert "op=regs.audience" in got and '[data-rr="student"]' in got        # 가리킬 요소도 함께
+    assert got.startswith("■ 라이브러리")                                   # 학생 공개 지정은 라이브러리 「기준」 칩(10-27)
+    assert platform_guide.lookup("검색 범위 시험", current="/dev/rag").startswith("■ RAG 공간")
+    assert "/?type=all&use=criteria" in got and "「학생 공개」" in got
+    assert "학생 RAG:" in platform_guide.render(platform_guide.BY_PATH["/dev/rag"], "dev")   # 화면의 말 풀이
+    assert "op=regs.audience" in got and '[data-crit="student"]' in got      # 기준 문서 관리는 라이브러리 「기준」 칩 — 가리킬 요소도 함께
     staff = platform_guide.lookup("학생 RAG 등록", current="/dev/rag", role="staff")
     assert "지금 계정으로는 열 수 없음" in staff
 
@@ -100,7 +102,7 @@ STEPS = lambda reg: [  # noqa: E731
     _step("platform_help", query="학생 RAG 등록"),
     _step("platform_lookup", what="registered", query="학사"),
     _step("propose_action", op="regs.audience", args={"documents": [str(reg)], "audience": "student"}),
-    _step("finish", message="학생 RAG 는 학생 계정이 찾는 규정 묶음입니다. RAG 공간(/dev/rag#student-regs)의 「등록된 기준 문서」 에서 골라 「학생 공개」 를 누르면 됩니다. "
+    _step("finish", message="학생 RAG 는 학생 계정이 찾는 규정 묶음입니다. 라이브러리 기준 칩(/?type=all&use=criteria)에서 골라 「학생 공개」 를 누르면 됩니다. "
                             "아래 [실행] 을 누르면 학사 운영 규정을 학생 공개로 바꿉니다."),
 ]
 
@@ -127,10 +129,10 @@ def test_platform_question_explains_and_offers_run_button(tmp_path, monkeypatch)
     assert "(%d) 학사 운영 규정.hwp" % reg in ep["steps"][1]["observation"]
 
     got = c.get(f"/chat/{sid}/messages").json()
-    assert "/dev/rag#student-regs" in got["messages"][-1]["content"]
+    assert "/?type=all&use=criteria" in got["messages"][-1]["content"]
     [prop] = got["proposals"]
-    assert "학사 운영 규정" in prop["plan"] and "학생 공개" in prop["plan"] and prop["screen"] == "/dev/rag#student-regs"
-    assert prop["kind"] == "run" and prop["target"] == {"path": "/dev/rag", "anchor": "student-regs", "selector": '[data-rr="student"]'}
+    assert "학사 운영 규정" in prop["plan"] and "학생 공개" in prop["plan"] and prop["screen"] == "/?type=all&use=criteria"
+    assert prop["kind"] == "run" and prop["target"] == {"path": "/?type=all&use=criteria", "anchor": "", "selector": '[data-crit="student"]'}
     assert db.get_document(reg).get("audience") != "student"       # 제안만 — 누르기 전에는 바꾸지 않는다
 
     r = c.post(f"/chat/{sid}/proposals/{prop['id']}/run").json()
@@ -196,7 +198,7 @@ def test_staff_account_cannot_propose_or_run_admin_actions(tmp_path, monkeypatch
 
     # 관리자 대화에 올라온 제안도 남의 계정은 누를 수 없고, 교직원 계정은 자기 대화에 심어진 제안도 실행하지 못한다
     platform_ops._save(db, sid, [{"id": "abc123", "op": "regs.audience", "label": "x", "args": {"ids": [reg], "audience": "student"},
-                                  "plan": "p", "screen": "/dev/rag#student-regs", "status": "pending"}])
+                                  "plan": "p", "screen": "/?type=all&use=criteria", "status": "pending"}])
     r = staff.post(f"/chat/{sid}/proposals/abc123/run")
     assert r.status_code == 403
     assert db.get_document(reg).get("audience") != "student"
@@ -323,8 +325,8 @@ def test_open_page_points_at_element_and_respects_role(tmp_path, monkeypatch):
     dev = platform_ops.Ctx(db=db, data_dir=tmp_path, user="zzaimy", role="dev")
     item = platform_ops.propose_open(dev, sid, "/?type=all", "문서 올리기 창을 엽니다", '[data-modal-open="#libUploadModal"]')
     assert item["kind"] == "go" and item["target"]["selector"] == '[data-modal-open="#libUploadModal"]'
-    bad = platform_ops.propose_open(dev, sid, "/dev/rag#student-regs", "학생 공개", "[onclick=x]")
-    assert bad["target"]["selector"] == "" and bad["screen"] == "/dev/rag#student-regs"     # 안내 자료에 없는 요소는 버린다
+    bad = platform_ops.propose_open(dev, sid, "/dev/rag#try", "검색 범위 시험", "[onclick=x]")
+    assert bad["target"]["selector"] == "" and bad["screen"] == "/dev/rag#try"     # 안내 자료에 없는 요소는 버린다
     staff = platform_ops.Ctx(db=db, data_dir=tmp_path, user="zzaimy", role="staff")
     for page in ("/dev/rag", "/somewhere"):
         try:
@@ -368,8 +370,8 @@ def test_open_page_now_carries_text_only_for_guide_element(tmp_path, monkeypatch
     bare = platform_ops.propose_open(ctx, sid, "/hwp", "문서함", "", now=True, text="무시")
     assert bare["act"]["text"] == "" and bare["act"]["steps"] == []          # 가리킬 요소가 없으면 넣을 말도 없다
     # 보안: 자료를 바꾸는 단추(학생 공개)는 now 를 넣어도 바로 누르지 않고 가리키기만 — [실행] 확인을 거친다
-    risky = platform_ops.propose_open(ctx, sid, "/dev/rag#student-regs", "학생 공개", '[data-rr="student"]', now=True)
-    assert risky["target"]["selector"] == '[data-rr="student"]' and risky["act"]["steps"][0]["ok"] is False
+    risky = platform_ops.propose_open(ctx, sid, "/?type=all&use=criteria", "학생 공개", '[data-crit="student"]', now=True)
+    assert risky["target"]["selector"] == '[data-crit="student"]' and risky["act"]["steps"][0]["ok"] is False
     # 바로 하기는 여러 개가 낸 차례대로 이어진다(화면 이동 → 다른 화면에서 이어 하기)
     platform_ops.expire(db, sid)
     first = platform_ops.propose_open(ctx, sid, "/?type=all", "라이브러리", "", now=True)

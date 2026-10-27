@@ -6,8 +6,8 @@
 <script src="/static/people-picker.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 {% block content %}
-{# RAG 공간(ADR-0053) — 위: RAG 목록(공통·학생 요약 + 부서 RAG 표, 고른 RAG 의 상세) · 가운데: 규정·지침(목록 + 상세) · 끝: 작은 도구 줄.
-   수치는 모두 이 요청에서 센 값(dev_rag_routes.dev_rag · /dev/rag/regs · /dev/rag/space). #}
+{# RAG 공간(ADR-0053) — 위: RAG 목록(공통·학생 요약 + 부서 RAG 표, 고른 RAG 의 상세) · 끝: 작은 도구 줄.
+   기준 문서(규정)의 학생 공개·등록은 라이브러리 「기준」 칩(관리자). 수치는 모두 이 요청에서 센 값(dev_rag_routes.dev_rag · /dev/rag/space). #}
 <style>
 .rg-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:16px;align-items:start;}
 .rg-side{position:sticky;top:12px;min-width:0;border:1px solid var(--line);border-radius:12px;background:#fff;padding:14px 16px;}
@@ -63,45 +63,6 @@
 .rg-cnt .b i{display:block;height:100%;background:#9DB4D6;}
 .rg-comp-more{margin-top:4px;}
 
-/* 규정·지침 */
-.rr-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.rr-head h2{margin:0}
-.rr-reindex{margin:10px 0;padding:8px 12px;border-radius:10px;background:#FFF8EB;border:1px solid #F1D9A8;font-size:12.5px;color:#7A5A12}
-.rr-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 10px;border-bottom:1px solid var(--line)}
-.rr-tab{border:0;background:none;box-shadow:none;padding:8px 12px;font:inherit;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;cursor:pointer;min-height:0}
-.rr-tab:hover{background:none;color:var(--ink)}
-.rr-tab.on{color:var(--ink);font-weight:600;border-bottom-color:var(--navy)}
-.rr-tab span{color:var(--ink);font-weight:400;margin-left:4px;font-variant-numeric:tabular-nums}.rr-tab span.zero{color:var(--faint)}
-.rr-tools{margin:0 0 8px}
-.rr-tools select{flex:0 1 auto}
-/* 작업 줄 — 늘 같은 높이: 고른 것이 없으면 건수, 고르면 「선택 n건 · 작업 · 선택 해제」 */
-.rr-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:44px;box-sizing:border-box;margin:0 0 6px;padding:4px 10px;border-radius:8px;background:#F7F9FC}
-.rr-bar.picked{background:#EAF0FA}
-.rr-bar .btn,.rr-bar button{min-height:32px;font-size:12.5px;padding:0 12px}
-.rr-acts{display:inline-flex;gap:6px;flex-wrap:wrap}
-.rr-all{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer}
-.rr-count{flex:1;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}.rr-bar.picked .rr-count{color:var(--navy);font-weight:600}
-.rr-list{border:1px solid #EEF1F5;border-radius:8px;min-height:calc(var(--rr-per) * 38px);}
-.rr-row{position:relative;display:grid;grid-template-columns:18px minmax(0,1fr) auto 28px;align-items:center;gap:10px;height:38px;box-sizing:border-box;padding:0 6px 0 10px;border-bottom:1px solid #F1F3F7;font-size:12.5px;cursor:pointer}
-.rr-row:hover{background:#F7F9FC}.rr-row.on{background:#F1F5FC}.rr-row.cur{box-shadow:inset 3px 0 0 var(--navy);background:#EEF3FB}
-.rr-row input{width:16px;height:16px;margin:0;accent-color:var(--navy)}
-.rr-row .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rr-row .m{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:11.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.rr-dots{width:28px;height:28px;min-height:0;padding:0;border:0;border-radius:6px;background:none;box-shadow:none;color:var(--muted);font-size:16px;line-height:1;cursor:pointer}
-.rr-dots:hover,.rr-dots[aria-expanded=true]{background:#E6ECF5;color:var(--ink)}
-.rr-menu{position:absolute;right:6px;top:calc(100% - 4px);z-index:20;display:none;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(27,59,117,.14);padding:4px}
-.rr-menu.open{display:block}
-.rr-menu button{display:block;width:100%;min-height:0;text-align:left;border:0;background:none;box-shadow:none;border-radius:7px;padding:7px 10px;font-size:12.5px;font-weight:400;color:var(--ink)}
-.rr-menu button:hover{background:#EEF3FB}
-.rr-tag{padding:1px 7px;border-radius:999px;background:#EEF1F5;color:#53647B;font-size:11px}.rr-tag.stu{background:#E5F3EA;color:#22663F}
-.rr-empty{padding:18px;margin:0;color:var(--muted);font-size:12.5px;text-align:center}
-.rr-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:40px;margin:6px 0 0}
-.rr-pager{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-.rr-pager button{min-height:30px;padding:0 12px;font-size:12px}
-.rr-pager[data-off]{visibility:hidden}
-.rr-status{flex:1 1 200px;margin:0;font-size:12.5px;color:#3F5F8A;min-height:18px}
-.rr-status.err{color:var(--red)}
-.rr-vers a{color:inherit}
-
 /* 화면 끝 작은 도구 줄 */
 .rg-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 16px;}
 #rgTryModal > .card{width:min(960px,94vw);overflow:visible;}   /* 고르기 목록이 창 밖으로 펼쳐지게 — 결과 칸만 스크롤 */
@@ -118,12 +79,10 @@
 /* 넓은 화면: RAG 목록 칸 높이를 미리 잡아 상세 길이에 따라 아래 카드가 밀리지 않게(두 칸 안에서 스크롤) */
 @media (min-width:1100px){
   .rg-split{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);}   /* 목록이 주인공 — 이름이 잘리지 않게 넓게, 상세는 옆에 좁게 */
-  #rrDetail{position:sticky;top:12px;}
   /* 줄 높이는 왼쪽(요약·부서 표)이 정하고, 상세는 그 높이 안에서 스크롤 — 고정 높이로 잡으면 부서가 적을 때 큰 빈 칸이 남았다 */
   #dept-rags .rg-split{align-items:stretch;}
   #dept-rags .rg-split > div{min-height:22rem;}
   #dept-rags .rg-side{position:static;height:0;min-height:100%;overflow:auto;box-sizing:border-box;}
-  #rrDetail{max-height:calc(20 * 38px + 50px);overflow:auto;}
 }
 @media (max-width:560px){.rg-sum{grid-template-columns:1fr}.rg-table th:nth-child(3),.rg-table td:nth-child(3){display:none}.rg-table col.w-r{width:0}.rg-table col.w-g{width:6.5em}.rg-table col.w-n{width:4.5em}}
 </style>
@@ -149,7 +108,7 @@
           <b>학생 RAG</b>
           <span class="l">학생 공개 규정 <span data-stu="reg_docs">{{ "{:,}".format(s.reg_docs) }}</span>건 · 조각 <span data-stu="reg_chunks">{{ "{:,}".format(s.reg_chunks) }}</span></span>
           <span class="l">학생 계정 {{ s.members|length }}명</span>
-          <span class="w" data-stu-empty{% if s.reg_docs %} hidden{% endif %}>학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다 · <a href="#student-regs">학생 공개 규정 지정</a></span>
+          <span class="w" data-stu-empty{% if s.reg_docs %} hidden{% endif %}>학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다 · <a href="/?type=all&amp;use=criteria">기준 문서에서 학생 공개 지정</a></span>
         </div>
       </div>
 
@@ -180,44 +139,10 @@
   <script type="application/json" id="rgRows">{{ rag_rows | tojson }}</script>
 </div></section>
 
-<section class="card" id="student-regs"><div class="card-in">
-  <div class="rr-head"><h2>규정·지침</h2><span class="rg-sub rg-num" id="rrSummary">불러오는 중…</span></div>
-  <div class="rr-reindex" id="rrReindex" hidden>새로 추가한 규정은 몇 분 안에 뜻 검색에도 들어갑니다(낱말 검색은 바로 됩니다).</div>
-  <div class="rr-tabs" role="tablist">
-    <button type="button" role="tab" class="rr-tab on" data-tab="reg" aria-selected="true">검색에 쓰는 규정<span id="rrRegCount"></span></button>
-    <button type="button" role="tab" class="rr-tab" data-tab="cand" aria-selected="false">새 판·미등록<span id="rrCandCount"></span></button>
-  </div>
-  <div class="rr-tools control-row control-bar">
-    <input type="search" id="rrFind" placeholder="규정 이름으로 찾기" aria-label="규정 찾기">
-    <select id="rrAud" aria-label="공개 범위"></select>
-    <select id="rrKind" aria-label="갈래"></select>
-    <select id="rrSort" aria-label="정렬">
-      <option value="name">이름순</option><option value="new">최근 들어온 순</option><option value="chunks">조각 많은 순</option>
-    </select>
-  </div>
-  <div class="rg-split">
-    <div>
-      <div class="rr-bar" id="rrBar">
-        <label class="rr-all"><input type="checkbox" id="rrAll"> 이 쪽 모두</label>
-        <span class="rr-count" id="rrCount"></span>
-        <span class="rr-acts" data-for="reg" hidden><button type="button" class="btn secondary" data-rr="student">학생 공개</button><button type="button" class="btn secondary" data-rr="staff">교직원만</button><button type="button" class="btn secondary" data-rr="unregister">검색에서 빼기</button></span>
-        <span class="rr-acts" data-for="cand" hidden><button type="button" class="btn" data-rr="register">검색에 추가</button></span>
-        <button type="button" class="btn-ghost" id="rrClear" hidden>선택 해제</button>
-      </div>
-      <div class="rr-list" id="rrList" style="--rr-per:20" aria-live="polite"></div>
-      <div class="rr-foot">
-        <p class="rr-status" role="status" id="rrStatus"></p>
-        <nav class="rr-pager" id="rrPager" aria-label="규정 목록 쪽" data-off><button type="button" class="secondary" data-page="-1">이전</button><span id="rrPageInfo"></span><button type="button" class="secondary" data-page="1">다음</button></nav>
-      </div>
-    </div>
-    <aside class="rg-side" id="rrDetail" aria-live="polite"><p class="rg-sub" style="margin:0;">불러오는 중…</p></aside>
-  </div>
-</div></section>
-
 <div class="rg-tools control-row">
   <button type="button" class="btn-ghost" id="rgTryToggle" data-modal-open="#rgTryModal"><iconify-icon icon="solar:magnifer-linear"></iconify-icon>검색 범위 시험</button>
   <button type="button" class="btn-ghost" data-modal-open="#rgExportModal"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기</button>
-  <a class="btn-ghost" href="/?type=all&amp;use=criteria">규정 파일 올리기</a>
+  <a class="btn-ghost" href="/?type=all&amp;use=criteria">기준 문서</a>
 </div>
 
 <div id="rgTryModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="rgTryTitle">
@@ -416,25 +341,6 @@
       if (vis[i]) { vis[i].focus(); pick(vis[i].dataset.sid); }
     }
   });
-  // 규정 공개 범위·등록이 바뀌면 학생·공통 RAG 수를 서버에서 다시 센다(화면에 담아 둔 값을 쓰지 않음)
-  document.addEventListener('rag:regs-changed', async () => {
-    Object.keys(comps).forEach(k => delete comps[k]);
-    for (const [sid, target] of [['student', 'space:student'], ['common', 'space:staff']]) {
-      try {
-        const res = await fetch('/dev/rag/space?target=' + target, {cache: 'no-store'});
-        if (!res.ok) continue;
-        const d = await res.json(), r = bySid[sid];
-        r.reg_docs = d.reg_docs; r.reg_chunks = d.reg_chunks;
-        if (sid === 'student') {
-          document.querySelectorAll('[data-stu]').forEach(x => { x.textContent = num(d[x.dataset.stu]); });
-          document.querySelector('[data-stu-empty]').hidden = d.reg_docs > 0;
-        } else {
-          document.querySelectorAll('[data-com]').forEach(x => { x.textContent = num(d[x.dataset.com]); });
-        }
-      } catch (e) { /* 다음 변경 때 다시 센다 */ }
-    }
-    if (cur === 'student' || cur === 'common') pick(cur);
-  });
   const want = new URLSearchParams(location.search).get('sel');
   pick(bySid[want] ? want : 'common');
 
@@ -471,183 +377,4 @@
 })();
 </script>
 
-<script>
-(() => {
-  // 규정·지침 — 찾기·공개 범위·갈래·정렬 뒤 20건씩. 체크하면 작업 줄, 줄 끝 … 은 한 줄 작업, 줄을 누르면 오른쪽 상세
-  const $ = id => document.getElementById(id);
-  const PER = 20;
-  const state = {tab: 'reg', aud: '', kind: '', sort: 'name', reg: [], cand: [], candTotal: 0, page: {reg: 0, cand: 0},
-                 pick: {reg: new Set(), cand: new Set()}, cur: {reg: 0, cand: 0}};
-  const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const num = n => Number(n || 0).toLocaleString('ko-KR');
-  const KIND = {regulation: '규정', guideline: '지침'};
-  const kindOf = d => KIND[d.kind] || '기타';
-  const flat = t => String(t || '').replace(/\s+/g, '').toLowerCase();
-  const aud = d => d.audience === 'student' ? 'student' : 'staff';
-  const list = () => state.tab === 'reg' ? state.reg : state.cand;
-  function filtered() {
-    const f = state.tab === 'reg' ? flat($('rrFind').value) : '';       // 새 판 탭은 서버가 찾는다
-    const out = list().filter(d => (!f || flat(d.title || d.filename).includes(f))
-      && (state.tab !== 'reg' || !state.aud || aud(d) === state.aud) && (!state.kind || kindOf(d) === state.kind));
-    const by = {name: (a, b) => String(a.title).localeCompare(String(b.title), 'ko', {numeric: true}), new: (a, b) => b.id - a.id,
-                chunks: (a, b) => (b.chunks || b.versions || 0) - (a.chunks || a.versions || 0)}[state.sort];
-    return out.sort(by);
-  }
-  function pageRows() {
-    const rows = filtered(), pages = Math.max(1, Math.ceil(rows.length / PER));
-    state.page[state.tab] = Math.min(Math.max(0, state.page[state.tab]), pages - 1);
-    const at = state.page[state.tab] * PER;
-    return {rows, pages, at, shown: rows.slice(at, at + PER)};
-  }
-  function row(d) {
-    const picked = state.pick[state.tab].has(d.id), name = esc(d.title || d.filename);
-    let meta, menu;
-    if (state.tab === 'reg') {
-      const stu = aud(d) === 'student';
-      meta = `<span class="rr-tag">${kindOf(d)}</span><span class="rr-tag${stu ? ' stu' : ''}">${stu ? '학생 공개' : '교직원만'}</span>${num(d.chunks)}조각`;
-      menu = `<button type="button" role="menuitem" data-one="${stu ? 'staff' : 'student'}" data-id="${d.id}">${stu ? '교직원만으로' : '학생 공개로'}</button>`
-           + `<button type="button" role="menuitem" data-one="unregister" data-id="${d.id}">검색에서 빼기</button>`;
-    } else {
-      meta = `<span class="rr-tag">${kindOf(d)}</span>${d.versions > 1 ? '판 ' + num(d.versions) : ''}`;
-      menu = `<button type="button" role="menuitem" data-one="register" data-id="${d.id}">검색에 추가</button>`;
-    }
-    return `<div class="rr-row${picked ? ' on' : ''}${state.cur[state.tab] === d.id ? ' cur' : ''}" data-id="${d.id}"><input type="checkbox"${picked ? ' checked' : ''} aria-label="${name} 선택">`
-      + `<span class="t" title="${name}">${name}</span><span class="m">${meta}</span>`
-      + `<button type="button" class="rr-dots" data-menu aria-haspopup="menu" aria-expanded="false" aria-label="${name} 작업">…</button><div class="rr-menu" role="menu">${menu}</div></div>`;
-  }
-  function options(sel, items, val) {
-    sel.innerHTML = items.map(([v, t]) => `<option value="${esc(v)}"${v === val ? ' selected' : ''}>${esc(t)}</option>`).join('');
-  }
-  function paint() {
-    const {rows, pages, at, shown} = pageRows(), pick = state.pick[state.tab];
-    document.querySelectorAll('.rr-tab').forEach(t => { const on = t.dataset.tab === state.tab; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
-    const base = list();
-    const stu = state.reg.filter(d => aud(d) === 'student').length;
-    $('rrAud').hidden = state.tab !== 'reg';
-    options($('rrAud'), [['', `공개 범위 전체 ${num(state.reg.length)}`], ['student', `학생 공개 ${num(stu)}`], ['staff', `교직원만 ${num(state.reg.length - stu)}`]], state.aud);
-    const kinds = {}; base.forEach(d => { kinds[kindOf(d)] = (kinds[kindOf(d)] || 0) + 1; });
-    if (state.kind && !kinds[state.kind]) kinds[state.kind] = 0;
-    options($('rrKind'), [['', `갈래 전체 ${num(base.length)}`], ...Object.keys(kinds).sort().map(k => [k, `${k} ${num(kinds[k])}`])], state.kind);
-    $('rrSort').querySelector('[value=chunks]').textContent = state.tab === 'reg' ? '조각 많은 순' : '판 많은 순';
-    document.querySelectorAll('.rr-acts').forEach(x => { x.hidden = x.dataset.for !== state.tab || !pick.size; });
-    $('rrClear').hidden = !pick.size;
-    $('rrBar').classList.toggle('picked', pick.size > 0);
-    $('rrCount').textContent = pick.size ? `선택 ${num(pick.size)}건` : `${num(rows.length)}건`;
-    $('rrList').innerHTML = shown.map(row).join('') || `<p class="rr-empty">${state.tab === 'reg' ? '맞는 규정 없음' : '새 판·미등록 규정 없음'}</p>`;
-    $('rrPager').toggleAttribute('data-off', rows.length <= PER);
-    $('rrPageInfo').textContent = rows.length ? `${num(at + 1)}–${num(at + shown.length)} / ${num(rows.length)}` : '';
-    $('rrPager').querySelector('[data-page="-1"]').disabled = state.page[state.tab] <= 0;
-    $('rrPager').querySelector('[data-page="1"]').disabled = state.page[state.tab] >= pages - 1;
-    $('rrSummary').textContent = `${num(state.reg.length)}건 · 학생 공개 ${num(stu)}건 · 조각 ${num(state.reg.reduce((a, d) => a + (d.chunks || 0), 0))}`;
-    const cnt = (el, n) => { el.textContent = num(n); el.classList.toggle('zero', !n); };
-    cnt($('rrRegCount'), state.reg.length); cnt($('rrCandCount'), state.candTotal);
-    $('rrAll').checked = shown.length > 0 && shown.every(d => pick.has(d.id));
-    $('rrAll').disabled = !shown.length;
-    if (!state.cur[state.tab] || !base.some(d => d.id === state.cur[state.tab])) {
-      const first = shown[0];
-      state.cur[state.tab] = first ? first.id : 0;
-      if (first) markCur(); detail();
-    }
-  }
-  function markCur() { document.querySelectorAll('#rrList .rr-row').forEach(r => r.classList.toggle('cur', Number(r.dataset.id) === state.cur[state.tab])); }
-  let detailSeq = 0;
-  async function detail() {
-    const id = state.cur[state.tab], box = $('rrDetail'), seq = ++detailSeq;
-    if (!id) { box.innerHTML = `<p class="rg-sub" style="margin:0;">${state.tab === 'reg' ? '검색에 쓰는 규정 없음' : '새 판·미등록 규정 없음'}</p>`; return; }
-    box.querySelectorAll('dd,p').forEach(x => x.style.opacity = '.5');
-    try {
-      const r = await fetch('/dev/rag/regs/' + id, {cache: 'no-store'});
-      if (!r.ok) throw new Error();
-      const d = await r.json();
-      if (seq !== detailSeq) return;
-      const vers = d.versions.length ? d.versions.map(v => `<li><a href="/doc/${v.id}" target="_blank" rel="noopener">${esc(v.title)}</a> <span class="rg-sub">${v.registered ? '검색에 씀' : '일반 문서'}${v.at ? ' · ' + esc(v.at) : ''}</span></li>`).join('') : '';
-      box.innerHTML = `<h3>${esc(d.title)}</h3><p class="rg-meta">${esc([KIND[d.kind] || '기타', d.registered ? (d.audience === 'student' ? '학생 공개' : '교직원만') : '검색에 아직 안 씀', '부서 ' + d.dept].join(' · '))}</p>`
-        + `<dl class="rg-kv"><dt>조각</dt><dd>${d.registered ? num(d.chunks) + '개' : '검색에 추가하면 만듦'}</dd>`
-        + `<dt>판</dt><dd>${esc(d.revision || '제목·본문에 날짜 없음')}</dd><dt>들어온 날</dt><dd>${esc(d.at || '—')}</dd><dt>파일</dt><dd>${esc(d.filename)}</dd></dl>`
-        + (d.headings.length ? `<div class="rg-sec"><h4>조 머리</h4><p>${d.headings.map(h => `<span class="rg-chip">${esc(h)}</span>`).join('')}${d.chunks > d.headings.length ? ' <span class="rg-sub">…</span>' : ''}</p></div>` : '')
-        + (vers ? `<div class="rg-sec"><h4>같은 규정의 다른 판 ${num(d.versions.length)}건</h4><ul class="rr-vers" style="margin:0;padding-left:18px;font-size:12.5px;">${vers}</ul></div>` : '')
-        + `<div class="rg-sec"><a class="btn secondary" href="/doc/${d.id}" target="_blank" rel="noopener">원문 열기</a></div>`;
-    } catch (e) {
-      if (seq === detailSeq) box.innerHTML = '<p class="rg-sub" style="margin:0;">상세를 불러오지 못했습니다. 잠시 뒤 다시 골라 주세요.</p>';
-    }
-  }
-  let timer = 0;
-  async function load() {
-    const q = state.tab === 'cand' ? $('rrFind').value : '';
-    try {
-      const r = await fetch('/dev/rag/regs?' + new URLSearchParams({q}), {cache: 'no-store'});
-      if (!r.ok) throw new Error();
-      const d = await r.json();
-      state.reg = d.registered; state.cand = d.items; state.candTotal = d.total;
-      $('rrReindex').hidden = !d.reindex_needed;
-    } catch (e) { status('목록을 불러오지 못했습니다. 잠시 뒤 화면을 다시 열어 주세요.', true); }
-    paint();
-  }
-  function status(t, err) { $('rrStatus').textContent = t; $('rrStatus').classList.toggle('err', !!err); }
-  const closeMenus = except => document.querySelectorAll('#rrList .rr-menu.open').forEach(m => {
-    if (m === except) return;
-    m.classList.remove('open'); m.previousElementSibling.setAttribute('aria-expanded', 'false');
-  });
-  document.querySelectorAll('.rr-tab').forEach(t => t.addEventListener('click', () => {
-    if (state.tab === t.dataset.tab) return;
-    state.tab = t.dataset.tab; state.kind = ''; $('rrFind').value = ''; status('');
-    paint(); load();
-  }));
-  $('rrAud').addEventListener('change', e => { state.aud = e.target.value; state.page.reg = 0; paint(); });
-  $('rrKind').addEventListener('change', e => { state.kind = e.target.value; state.page[state.tab] = 0; paint(); });
-  $('rrSort').addEventListener('change', e => { state.sort = e.target.value; state.page[state.tab] = 0; paint(); });
-  $('rrPager').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (!b) return; state.page[state.tab] += Number(b.dataset.page); paint(); });
-  $('rrFind').addEventListener('input', () => {
-    state.page[state.tab] = 0;
-    if (state.tab === 'reg') paint(); else { clearTimeout(timer); timer = setTimeout(load, 250); }
-  });
-  $('rrList').addEventListener('change', e => {
-    const r = e.target.closest('.rr-row'); if (!r || e.target.type !== 'checkbox') return;
-    const id = Number(r.dataset.id), pick = state.pick[state.tab]; e.target.checked ? pick.add(id) : pick.delete(id); paint();
-  });
-  $('rrAll').addEventListener('change', e => { pageRows().shown.forEach(d => e.target.checked ? state.pick[state.tab].add(d.id) : state.pick[state.tab].delete(d.id)); paint(); });
-  $('rrClear').addEventListener('click', () => { state.pick[state.tab].clear(); paint(); });
-  document.addEventListener('click', e => { if (!e.target.closest('#rrList .rr-row [data-menu], #rrList .rr-menu')) closeMenus(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
-  async function post(url, body) {
-    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-    if (!r.ok) throw new Error(r.status === 403 ? '권한이 없습니다' : '처리하지 못했습니다. 잠시 뒤 다시 해 주세요.');
-    return r.json();
-  }
-  async function act(kind, ids, btns) {
-    if (kind === 'unregister' && window.platformConfirm
-        && !await window.platformConfirm(`${num(ids.length)}건을 검색에서 뺍니다. 일반 문서로 남고, 다시 넣으려면 「새 판·미등록」 에서 추가합니다.`, {title: '검색에서 빼기', ok: '빼기', danger: true})) return;
-    btns.forEach(b => { b.disabled = true; });
-    status('처리 중…');
-    try {
-      if (kind === 'register') { const d = await post('/dev/rag/regs/register', {ids}); status(`${num(d.registered)}건을 검색에 추가했습니다 · 조각 ${num(d.chunks)}개` + (d.skipped ? ` · 본문이 없어 건너뜀 ${num(d.skipped)}건` : '')); }
-      else if (kind === 'unregister') { const d = await post('/dev/rag/regs/unregister', {ids}); status([d.unregistered ? `${num(d.unregistered)}건을 검색에서 뺐습니다` : '', d.kept ? `처음부터 기준 문서로 올린 ${num(d.kept)}건은 뺄 수 없어 그대로 둡니다` : ''].filter(Boolean).join(' · ') || '바뀐 것 없음'); }
-      else { const d = await post('/dev/rag/regs/audience', {ids, audience: kind}); status(`${num(d.changed)}건을 ${kind === 'student' ? '학생 공개로' : '교직원만으로'} 바꿨습니다`); }
-      ids.forEach(id => { state.pick.reg.delete(id); state.pick.cand.delete(id); });
-      await load();
-      document.dispatchEvent(new CustomEvent('rag:regs-changed'));
-      if (ids.includes(state.cur[state.tab])) detail();
-    } catch (err) { status(err.message, true); }
-    finally { btns.forEach(b => { b.disabled = false; }); }
-  }
-  $('rrList').addEventListener('click', e => {
-    const m = e.target.closest('[data-menu]');
-    if (m) {
-      const menu = m.nextElementSibling, open = !menu.classList.contains('open');
-      closeMenus(menu); menu.classList.toggle('open', open); m.setAttribute('aria-expanded', String(open));
-      if (open) menu.querySelector('button').focus();
-      return;
-    }
-    const b = e.target.closest('[data-one]');
-    if (b) { closeMenus(); act(b.dataset.one, [Number(b.dataset.id)], [b]); return; }
-    const r = e.target.closest('.rr-row');
-    if (r && e.target.type !== 'checkbox') { state.cur[state.tab] = Number(r.dataset.id); markCur(); detail(); }
-  });
-  document.querySelectorAll('[data-rr]').forEach(b => b.addEventListener('click', () => {
-    const ids = [...state.pick[b.dataset.rr === 'register' ? 'cand' : 'reg']];
-    if (ids.length) act(b.dataset.rr, ids, [...document.querySelectorAll('[data-rr]')]);
-  }));
-  load();
-})();
-</script>
 {% endblock %}

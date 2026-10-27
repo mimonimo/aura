@@ -122,17 +122,16 @@ def test_rag_page_sections(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("RAG 목록", "공통 RAG", "학생 RAG", "기준 문서·조각", "검색 범위 시험",
-                 "규정·지침", "dept:가부서"):
+    for text in ("RAG 목록", "공통 RAG", "학생 RAG", "기준 문서·조각", "검색 범위 시험", "dept:가부서"):
         assert text in r.text, text
     # 부서 RAG 는 문서 있는 것만 기본으로 보이고, 빈 부서는 한 줄 요약에서 펼친다 — 줄마다 같은 단추 없음
     assert "문서 없는 부서" in r.text and 'data-comp=' not in r.text and "구성 보기" not in r.text
     assert "합계 사업 문서" not in r.text                                      # 표 아래 합계 문장 없음
-    # 학생 공간이 비면 그 줄에 안내와 지정 링크
-    assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="#student-regs"' in r.text
+    # 학생 공간이 비면 그 줄에 안내와 지정 링크(학생 공개 지정은 라이브러리 「기준」 칩)
+    assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="/?type=all&amp;use=criteria"' in r.text
     # 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳 — 여기는 한 줄 안내(10-26)
     assert 'id="rgGrantTable"' not in r.text and 'href="/team"' in r.text
-    assert r.text.index("규정·지침</h2>") < r.text.index('id="rgTryToggle"')
+    assert 'id="student-regs"' not in r.text and "/dev/rag/regs" not in r.text     # 규정 관리는 라이브러리로 옮겼다(10-27)
 
 def _archive(db, rels):
     from zzaimy.app import archive
@@ -234,21 +233,21 @@ def test_space_composition_and_regulation_kind_column(tmp_path, monkeypatch):
     assert "data-stu-empty hidden" in c.get("/dev/rag").text           # 학생 공개 규정이 있으면 빈 안내는 숨김(규정을 바꾸면 화면이 다시 센다)
 
 
-def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
+def test_student_audience_set_and_unset_from_library_criteria(tmp_path, monkeypatch):
     c = _client(tmp_path)
     db, ga, na, reg_s, reg_t = _search_fixture(tmp_path, monkeypatch)
-    page = c.get("/dev/rag").text
-    assert 'id="rrList"' in page and 'data-rr="student"' in page        # 목록은 /dev/rag/regs 에서 불러와 골라 바꾼다
-    assert 'id="rrPager"' in page and "이 쪽 모두" in page                # 20건씩 쪽으로 — 한 번에 다 펼치지 않는다
-    regs = {d["id"]: d for d in c.get("/dev/rag/regs").json()["registered"]}
+    page = c.get("/?type=all&use=criteria").text
+    assert 'data-crit="student"' in page and "이 쪽 모두" in page            # 라이브러리 기준 칩 — 체크 뒤 작업 줄
+    regs = {d["id"]: d for d in c.get("/criteria/regs").json()["registered"]}
     assert reg_t in regs and ga not in regs
-    assert c.post("/dev/rag/regs/audience", json={"ids": [reg_t, ga], "audience": "student"}).json()["changed"] == 1
+    assert c.post("/criteria/regs/audience", json={"ids": [reg_t, ga], "audience": "student"}).json()["changed"] == 1
     assert db.get_document(reg_t)["audience"] == "student" and db.get_document(ga).get("audience") != "student"
-    c.post("/dev/rag/regs/audience", json={"ids": [reg_t], "audience": "staff"})
-    r = c.post(f"/doc/{reg_t}/audience", data={"audience": "student", "back": "/dev/rag#student-regs"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/dev/rag#student-regs"
+    c.post("/criteria/regs/audience", json={"ids": [reg_t], "audience": "staff"})
+    back = "/?type=all&use=criteria"
+    r = c.post(f"/doc/{reg_t}/audience", data={"audience": "student", "back": back}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == back
     assert db.get_document(reg_t)["audience"] == "student"
-    c.post(f"/doc/{reg_s}/audience", data={"audience": "staff", "back": "/dev/rag#student-regs"})
+    c.post(f"/doc/{reg_s}/audience", data={"audience": "staff", "back": back})
     assert db.get_document(reg_s)["audience"] == "staff"
     # 사업 문서는 규정 갈래여도 학생 공개가 되지 않는다(기존 규칙 그대로)
     assert c.post(f"/doc/{ga}/audience", data={"audience": "student", "back": "/dev/rag"}).status_code == 400
@@ -269,11 +268,11 @@ def test_rag_page_counts_are_live_and_detail_endpoints(tmp_path, monkeypatch):
     extra = db.add_document("가부서 결과.hwp", "x", doc_type="grant", dept="가부서", access_level="public")
     db.update_document(extra, status="reviewed")
     assert {r["sid"]: r for r in rows()}["dept:가부서"]["docs"] == 2
-    c.post("/dev/rag/regs/audience", json={"ids": [reg_t], "audience": "student"})
+    c.post("/criteria/regs/audience", json={"ids": [reg_t], "audience": "student"})
     assert {r["sid"]: r for r in rows()}["student"]["reg_docs"] == 2
-    d = c.get(f"/dev/rag/regs/{reg_t}").json()
+    d = c.get(f"/criteria/regs/{reg_t}").json()
     assert d["registered"] is True and d["chunks"] == 2 and d["audience"] == "student"
-    assert c.get("/dev/rag/regs/999999").status_code == 404
+    assert c.get("/criteria/regs/999999").status_code == 404
     got = c.post("/dev/rag/min-grade", data={"space": "dept:가부서", "grade": "lead"}, headers={"Accept": "application/json"}).json()
     assert got["grade"] == "lead" and got["label"].endswith("이상")
     assert c.post("/dev/rag/min-grade", data={"space": "dept:없음", "grade": "lead"}, headers={"Accept": "application/json"}).status_code == 400

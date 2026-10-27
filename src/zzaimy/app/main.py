@@ -1219,6 +1219,22 @@ def create_app(
             args.append(kind)
             rail_cond.append("d.kind = ?")
             rail_args.append(kind)
+        # 기준 칩의 관리자 거르기 — 기준 문서(규정)의 공개 대상(학생 공개·교직원만). 교직원 화면은 지금 그대로
+        crit_admin = use == "criteria" and getattr(request.state, "role", "") == "dev"
+        aud = (request.query_params.get("aud") or "").strip()
+        aud_counts: dict[str, int] = {}
+        if crit_admin:
+            with db._conn() as conn:
+                aud_counts = {str(x[0]): int(x[1]) for x in conn.execute(
+                    "SELECT COALESCE(NULLIF(d.audience, ''), 'staff'), COUNT(*) FROM documents d WHERE "
+                    + " AND ".join(cond) + " AND d.doc_type = 'regulation' GROUP BY 1", args).fetchall()}
+        if crit_admin and aud in ("student", "staff"):
+            cond.append("d.doc_type = 'regulation' AND COALESCE(NULLIF(d.audience, ''), 'staff') = ?")
+            args.append(aud)
+            rail_cond.append("d.doc_type = 'regulation' AND COALESCE(NULLIF(d.audience, ''), 'staff') = ?")
+            rail_args.append(aud)
+        else:
+            aud = ""
         where = " WHERE " + " AND ".join(cond)
         rail_where = " WHERE " + " AND ".join(rail_cond)
         PER = 50
@@ -1247,7 +1263,7 @@ def create_app(
             if ids:
                 rows = {int(x["id"]): dict(x) for x in conn.execute(
                     "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.sector, d.status, d.decision, d.created_at,"
-                    f" d.project_id, p.name AS project_name, {biz_col} AS business, d.stored_path"
+                    f" d.project_id, p.name AS project_name, {biz_col} AS business, d.stored_path, d.audience"
                     " FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
                     f" WHERE d.id IN ({','.join('?' * len(ids))}){acc}", [*ids, *acc_args]).fetchall()}   # 열람 조건을 다시 건다
             rail = library.rail(conn, rail_where, rail_args, rep)
@@ -1328,6 +1344,7 @@ def create_app(
             "index.html",
             ctx(request, {
                 "documents": docs, "active_tab": business or "all", "q": q or "", "use": use,
+                "crit_admin": crit_admin, "aud": aud, "aud_counts": aud_counts,
                 "uses": library.USES, "use_counts": ucount, "use_metrics": library.USE_METRICS,
                 "business_counts": bcount, "business_tabs": library.show_business_tabs(bcount, INBOX_TYPES),
                 "unknown_type": unknown_type,
@@ -4682,6 +4699,8 @@ def create_app(
     app.state.all_depts = lambda: _all_depts()     # 부서 목록 — 아래(라이브러리 폴더)에서 정의되므로 부를 때 찾는다
     app.state.reindex_running = _ov.reindex_running
     app.include_router(dev_rag_routes.router)
+    from zzaimy.app import criteria_regs_routes        # 기준 문서 관리(/criteria/regs*) — 라이브러리 「기준」 칩, 관리자만(처리마다 역할 검사)
+    app.include_router(criteria_regs_routes.router)
     app.include_router(dev_pii_routes.router)
     # 문서 반입(/dev/intake*) — 독립 라우터(app/dev_intake_routes). 문서·보고(/dev/docs·/dev/doc/·/dev/paper·
     # /dev/history·/dev/weekly*) — 독립 라우터(app/dev_docs_routes). 개발 현황 묶음(_ov)의 문서 도우미를 넘긴다

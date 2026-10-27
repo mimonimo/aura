@@ -142,7 +142,7 @@
   function plain(text) {
     return String(text || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$)/g, "$1$2").replace(/^#{1,6}\s+/gm, "");
   }
-  // 답 속 화면 주소(/dev/rag#student-regs 등)는 누르면 그 화면으로 — 글은 textContent 로만 넣는다
+  // 답 속 화면 주소(/?type=all&use=criteria·/dev/rag#try 등)는 누르면 그 화면으로 — 글은 textContent 로만 넣는다
   function linkify(el, text) {
     var re = /(^|[\s(「])(\/(?:dev|chat|graph|project|projects|settings|search|hwp|team|programs)(?:[\/#?][\w\/#?=&.-]*)?)/g, at = 0, m;
     while ((m = re.exec(text))) {
