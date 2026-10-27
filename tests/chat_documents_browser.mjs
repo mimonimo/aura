@@ -172,12 +172,9 @@ try {
    const layout=await evaluate(`(()=>{const r=id=>{const b=document.getElementById(id).getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom}};return {input:r('chatInput'),mode:r('answerMode'),send:r('sendBtn'),overflow:chatForm.scrollWidth>chatForm.clientWidth}})()`);
    assert.equal(layout.overflow,false,JSON.stringify({width,web,layout}));
    assert.ok(layout.mode.right<=layout.send.left,JSON.stringify({width,web,layout}));
-   assert.ok(Math.abs(layout.mode.top-layout.send.top)<2);
-   if(width>520) {
-    assert.ok(layout.input.right<=layout.mode.left);
-   } else {
-    assert.ok(layout.input.bottom<=layout.mode.top);
-   }
+   assert.ok(Math.abs(layout.mode.bottom-layout.send.bottom)<2);   // 설정 묶음이 두 줄로 꺾여도 보내기는 도구줄 아래 오른쪽
+   // 두 줄 입력 상자 — 입력칸은 위 전체 폭, 답변 설정·보내기는 아래 도구줄(폭과 상관없이 입력칸과 겹치지 않는다)
+   assert.ok(layout.input.bottom<=layout.mode.top,JSON.stringify({width,web,layout}));
   }
  }
  // 처음 여는 편집기도 iframe 이 load 될 때까지 「문서를 불러오는 중…」 덮개를 둔다(느린 응답을 1.5초 붙잡아 본다)

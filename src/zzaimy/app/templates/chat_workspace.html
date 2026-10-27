@@ -268,35 +268,41 @@
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
     {% set am = answer_mode or {'mode': 'rag', 'choices': [], 'picked': [], 'label': ''} %}
     <input type="hidden" name="web" id="webField" value="{{ 'model' if am.mode == 'model' and not is_student else '' }}">
-    <button type="button" class="dock-btn" id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부"{% if is_student %} hidden{% endif %}><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
     <textarea name="question" id="chatInput" rows="1" placeholder="{{ '학사 관련 질문을 입력하세요' if is_student else '질문이나 수정할 내용을 입력하세요' }}"
               aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
-    <div class="chat-answer-mode" id="answerMode" data-mode="{{ am.mode }}"{% if is_student %} hidden{% endif %}>
-      <div class="chat-mode-seg" role="group" aria-label="답변 방식">
-        <button type="button" data-mode="model" data-aura="answer-general" aria-pressed="{{ 'true' if am.mode == 'model' else 'false' }}" title="모델이 바로 답합니다. 확인이 필요하면 인터넷 검색을 권합니다">일반</button>
-        <button type="button" data-mode="rag" data-aura="answer-rag" aria-pressed="{{ 'true' if am.mode == 'rag' else 'false' }}" title="내 계정의 RAG 문서를 근거로 답합니다">RAG</button>
-      </div>
-      {% if am.choices | length > 1 %}
-      <div class="chat-rag-pick" id="ragPick"{% if am.mode != 'rag' %} hidden{% endif %}>
-        <input type="hidden" name="rags_pick" value="1">
-        <button type="button" class="chat-rag-btn" id="ragPickBtn" data-aura="answer-rag-pick" aria-haspopup="true" aria-expanded="false" aria-controls="ragPickMenu" title="쓸 RAG 고르기"><span id="ragPickLabel">{{ am.label or '전체' }}</span><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
-        <div class="chat-rag-menu" id="ragPickMenu" role="group" aria-label="쓸 RAG" hidden>
-          {% for c in am.choices %}<label><input type="checkbox" name="rags" value="{{ c }}"{% if not am.picked or c in am.picked %} checked{% endif %}><span>{{ c }}</span></label>{% endfor %}
+    {# 도구줄 — 왼쪽은 첨부와 답변 설정(방식·범위·깊이) 한 묶음, 오른쪽은 보내기. 단추는 모두 32px 고스트 칩 #}
+    <div class="dock-tools">
+      <button type="button" class="dock-btn" id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부"{% if is_student %} hidden{% endif %}><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
+      <div class="chat-answer-mode" id="answerMode" data-mode="{{ am.mode }}"{% if is_student %} hidden{% endif %} role="group" aria-label="답변 설정">
+        <div class="chat-mode-seg" role="group" aria-label="답변 방식">
+          <button type="button" data-mode="model" data-aura="answer-general" aria-pressed="{{ 'true' if am.mode == 'model' else 'false' }}" title="모델이 바로 답합니다. 확인이 필요하면 인터넷 검색을 권합니다">일반</button>
+          <button type="button" data-mode="rag" data-aura="answer-rag" aria-pressed="{{ 'true' if am.mode == 'rag' else 'false' }}" title="내 계정의 RAG 문서를 근거로 답합니다">RAG</button>
         </div>
-      </div>
-      {% endif %}
-      {% if am.effort_levels %}{% set eff = am.effort or 'fast' %}
-      <div class="chat-effort" id="effortPick">
-        <input type="hidden" name="effort" id="effortField" value="{{ eff }}">
-        <button type="button" class="chat-effort-btn" id="effortBtn" data-aura="answer-effort" aria-haspopup="true" aria-expanded="false" aria-controls="effortMenu" title="답변 깊이"><span id="effortLabel">{% for lv, nm, hint in am.effort_levels if lv == eff %}{{ nm }}{% endfor %}</span><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
-        <div class="chat-effort-menu" id="effortMenu" role="menu" aria-label="답변 깊이" hidden>
-          {% for lv, nm, hint in am.effort_levels %}<button type="button" role="menuitemradio" data-effort="{{ lv }}" data-aura="answer-effort-{{ lv }}" aria-checked="{{ 'true' if lv == eff else 'false' }}"><b>{{ nm }}</b><span>{{ hint }}</span></button>{% endfor %}
+        {% if am.choices | length > 1 %}
+        <div class="chat-rag-pick" id="ragPick"{% if am.mode != 'rag' %} hidden{% endif %}>
+          <input type="hidden" name="rags_pick" value="1">
+          <button type="button" class="chat-chip chat-rag-btn" id="ragPickBtn" data-aura="answer-rag-pick" aria-haspopup="true" aria-expanded="false" aria-controls="ragPickMenu" title="쓸 RAG 고르기"><iconify-icon icon="solar:database-linear" aria-hidden="true"></iconify-icon><span class="chat-chip-key">RAG 범위</span><span class="chat-chip-val" id="ragPickLabel">{{ am.label or '전체' }}</span><iconify-icon class="chat-chip-caret" icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
+          {# 고르기 창 — 범위·깊이 같은 꼴(제목 + 한 줄 설명, 고른 것은 오른쪽 체크). 입력 상자 왼쪽에 맞춰 상자 위로 겹쳐 뜬다 #}
+          <div class="chat-pop chat-rag-menu" id="ragPickMenu" role="group" aria-label="쓸 RAG" hidden>
+            <div class="chat-pop-head">쓸 RAG <small>여럿 고를 수 있음</small></div>
+            {% for c in am.choices %}<label class="chat-pop-item"><input type="checkbox" name="rags" value="{{ c }}"{% if not am.picked or c in am.picked %} checked{% endif %}><span class="chat-pop-text"><b>{{ c }}</b><span>{{ '모든 부서가 함께 쓰는 문서' if c == '공통' else c ~ ' 부서 문서' }}</span></span><span class="chat-pop-check" aria-hidden="true"></span></label>{% endfor %}
+          </div>
         </div>
+        {% endif %}
+        {% if am.effort_levels %}{% set eff = am.effort or 'fast' %}
+        <div class="chat-effort" id="effortPick">
+          <input type="hidden" name="effort" id="effortField" value="{{ eff }}">
+          <button type="button" class="chat-chip chat-effort-btn" id="effortBtn" data-aura="answer-effort" aria-haspopup="true" aria-expanded="false" aria-controls="effortMenu" title="답변 깊이"><iconify-icon icon="solar:lightbulb-linear" aria-hidden="true"></iconify-icon><span class="sr-only">답변 깊이 </span><span class="chat-chip-val" id="effortLabel">{% for lv, nm, hint in am.effort_levels if lv == eff %}{{ nm }}{% endfor %}</span><iconify-icon class="chat-chip-caret" icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
+          <div class="chat-pop chat-effort-menu" id="effortMenu" role="menu" aria-label="답변 깊이" hidden>
+            <div class="chat-pop-head" aria-hidden="true">답변 깊이</div>
+            {% for lv, nm, hint in am.effort_levels %}<button type="button" class="chat-pop-item" role="menuitemradio" data-effort="{{ lv }}" data-aura="answer-effort-{{ lv }}" aria-checked="{{ 'true' if lv == eff else 'false' }}"><span class="chat-pop-text"><b>{{ nm }}</b><span>{{ hint }}</span></span><span class="chat-pop-check" aria-hidden="true"></span></button>{% endfor %}
+          </div>
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
+      <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
+        <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
     </div>
-    <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
-      <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>
   <div class="dock-hint" id="dockHint" hidden>보낼 내용을 입력하세요.</div>
   <div class="chat-dock-footer"><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서에서 확인하세요.' }}</span><span id="chatCtx" class="chat-ctx" hidden><span class="chat-ctx-bar"><span></span></span><span class="chat-ctx-text"></span></span></div>
@@ -452,10 +458,28 @@
     Object.keys(body).forEach(function (k) { [].concat(body[k]).forEach(function (v) { fd.append(k, v); }); });
     try { fetch("/api/chat/answer-mode", {method: "POST", body: fd}).catch(function () {}); } catch (e) {}
   }
-  function openRag(on) {
+  // 고르기 창(범위·깊이) 공통 — 위·아래 화살표로 항목을 옮겨 다니고, 키보드로 열면 고른 항목에 초점을 둔다
+  function popItems(menu) { return Array.prototype.slice.call(menu.querySelectorAll("[role=menuitemradio], input[type=checkbox]")); }
+  function popNav(menu) {
+    menu.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") return;
+      var items = popItems(menu), i = items.indexOf(document.activeElement);
+      e.preventDefault();
+      if (e.key === "Home") i = 0; else if (e.key === "End") i = items.length - 1;
+      else i = (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[i].focus();
+    });
+  }
+  function popFocus(menu) {
+    var items = popItems(menu);
+    var on = items.filter(function (x) { return x.checked || x.getAttribute("aria-checked") === "true"; })[0] || items[0];
+    if (on) on.focus();
+  }
+  function openRag(on, keyboard) {
     if (!ragMenu) return;
     ragMenu.hidden = !on;
     ragBtn.setAttribute("aria-expanded", String(on));
+    if (on && keyboard) popFocus(ragMenu);
   }
   function setMode(mode, save) {
     mode = mode === "model" ? "model" : "rag";
@@ -471,7 +495,8 @@
     b.addEventListener("click", function () { setMode(b.dataset.mode, true); });
   });
   if (ragBtn) {
-    ragBtn.addEventListener("click", function () { openRag(ragMenu.hidden); });
+    ragBtn.addEventListener("click", function (e) { openRag(ragMenu.hidden, e.detail === 0); });
+    popNav(ragMenu);
     document.addEventListener("click", function (e) { if (!ragPick.contains(e.target)) openRag(false); });
     ragPick.addEventListener("keydown", function (e) { if (e.key === "Escape") { openRag(false); ragBtn.focus(); } });
     ragMenu.addEventListener("change", function (e) {
@@ -487,8 +512,12 @@
   var effortPick = document.getElementById("effortPick");
   if (effortPick) {
     var effortBtn = document.getElementById("effortBtn"), effortMenu = document.getElementById("effortMenu");
-    var openEffort = function (on) { effortMenu.hidden = !on; effortBtn.setAttribute("aria-expanded", String(on)); };
-    effortBtn.addEventListener("click", function () { openEffort(effortMenu.hidden); });
+    var openEffort = function (on, keyboard) {
+      effortMenu.hidden = !on; effortBtn.setAttribute("aria-expanded", String(on));
+      if (on && keyboard) popFocus(effortMenu);
+    };
+    effortBtn.addEventListener("click", function (e) { openEffort(effortMenu.hidden, e.detail === 0); });
+    popNav(effortMenu);
     document.addEventListener("click", function (e) { if (!effortPick.contains(e.target)) openEffort(false); });
     effortPick.addEventListener("keydown", function (e) { if (e.key === "Escape") { openEffort(false); effortBtn.focus(); } });
     effortMenu.querySelectorAll("[data-effort]").forEach(function (b) {
@@ -496,7 +525,7 @@
         document.getElementById("effortField").value = b.dataset.effort;
         document.getElementById("effortLabel").textContent = b.querySelector("b").textContent;
         effortMenu.querySelectorAll("[data-effort]").forEach(function (x) { x.setAttribute("aria-checked", String(x === b)); });
-        openEffort(false);
+        openEffort(false); effortBtn.focus();
         savePref({effort: b.dataset.effort});
       });
     });

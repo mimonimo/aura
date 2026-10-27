@@ -249,12 +249,6 @@ body .doc-title-row .doc-full-btn[aria-pressed=true]{background:#edf3fb;color:#2
 .chat-ctx-bar{width:46px;height:4px;border-radius:4px;background:#e6ebf1;overflow:hidden}
 .chat-ctx-bar>span{display:block;height:100%;background:#8aa2c2;border-radius:4px}
 .chat-ctx.is-high .chat-ctx-bar>span{background:#c9944a}
-/* 답 앞 단계 추론(생각 과정) — 옅게 접어 둔다 */
-.chat-cot{margin:2px 0 6px}
-.chat-cot-btn{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;min-height:24px;border:1px solid #e3e8ef;border-radius:999px;background:#fff;color:#7a8698;font-size:11.5px;font-weight:500;box-shadow:none;cursor:pointer}
-.chat-cot-btn span{color:#9aa5b4}
-.chat-cot-btn:hover{background:#f5f7fa}
-.chat-cot-body{margin-top:6px;padding:8px 12px;border-left:2px solid #e3e8ef;color:#6b7686;font-size:12.5px;line-height:1.7;white-space:pre-wrap}
 /* 문맥 관리 창 */
 .chat-ctx{cursor:pointer;border-radius:999px;padding:2px 6px}
 .chat-ctx:hover{background:#f1f4f8;color:#526176}

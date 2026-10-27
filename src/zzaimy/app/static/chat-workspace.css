@@ -29,15 +29,6 @@ main:has(#chatWorkspace) { flex:none; min-height:0; height:calc(100dvh - var(--w
 #chatScroll .act-btn { color:#65758A; border-radius:6px; min-height:30px; padding:5px 8px; font-size:11.5px; }
 #chatScroll .turn { margin-bottom:6px; }
 #chatScroll .chat-waiting { color:#65758A; border-left:2px solid #AAB8CA; padding-left:14px; }
-#chatForm { flex-shrink:0; max-width:900px; border-radius:14px; padding:12px 14px 9px; border:1px solid #CBD5E1; box-shadow:0 4px 18px #26385008; }
-#chatForm:focus-within { border-color:#8295AD; box-shadow:0 0 0 3px #8295AD12; }
-#chatForm .dock-row { align-items:center; }
-#chatForm textarea { line-height:1.7; font-size:14px; box-shadow:none; }
-#chatForm .dock-btn { width:36px; height:36px; border-radius:8px; background:#F7F9FC; }
-#sendBtn { border-radius:8px; background:var(--navy); border-color:var(--navy); min-height:38px; padding:9px 14px; font-size:13px; white-space:nowrap; transition:background-color .12s ease; box-shadow:none; }
-#sendBtn:hover:not(:disabled) { background:#294F87; border-color:#294F87; }
-#sendBtn:disabled { background:#E9EEF4; border-color:#E9EEF4; color:#8996A7; cursor:default; opacity:1 !important; }
-.chat-dock-footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 12px; padding:8px 6px 1px; border-top:1px solid #EEF1F5; color:#79889B; font-size:11px; }
 .chat-edit-note { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:7px 10px; margin-bottom:6px; background:#F1F5FA; border-radius:7px; font-size:12px; color:#42566E; }
 .chat-edit-note button { white-space:nowrap; }
 #chatLatest { position:absolute; bottom:155px; left:50%; transform:translateX(-50%); border-radius:20px; font-size:12px; box-shadow:0 3px 14px #23354D10; }
@@ -71,10 +62,6 @@ main:has(#chatWorkspace) { flex:none; min-height:0; height:calc(100dvh - var(--w
   .chat-workspace-head button { padding:8px; font-size:11px; }
   .chat-main .starter { grid-template-columns:1fr; }
   #chatScroll .card-in { padding:14px 4px !important; }
-  #chatForm { padding:8px; }
-  #chatForm .dock-row { gap:4px; }
-  #chatForm textarea { padding:8px 4px; }
-  #sendBtn { padding:9px; }
   #chatAside, #chatAside.closed { width:100vw; }
   #chatAside .aside-in { width:100%; padding:0 16px 20px; }
   #chatKeyboardHint { display:none; }
@@ -105,44 +92,6 @@ main:has(#chatWorkspace) { flex:none; min-height:0; height:calc(100dvh - var(--w
 body .chat-workspace-head { max-width:none; align-items:flex-start; }
 body .chat-head-actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
 body .chat-workspace-head h1 { font-size:16px; line-height:1.5; }
-body #chatForm .dock-row { padding:12px 14px; border-radius:18px; background:#fff; align-items:center; box-shadow:0 4px 20px #15243c08; }
-body #chatForm .dock-row textarea { min-height:44px; padding:10px 0; }
-body #chatForm .dock-row { display:flex; flex-wrap:nowrap; min-width:0; }
-body #chatForm{container-type:inline-size}
-@container(max-width:520px){body #chatForm .dock-row{flex-wrap:wrap}body #chatForm .dock-row textarea{flex-basis:calc(100% - 56px);order:1}body #chatForm #attachButton{order:0}body #chatForm .chat-web-chip{order:2}body #chatForm .chat-answer-mode{order:3;margin-left:auto}body #chatForm #sendBtn{order:4}}
-/* 답변 방식 토글(일반·RAG)과 RAG 고르기 — 입력줄 오른쪽 한 자리. 단추 높이는 32px 로 같고, 고르기 창은 위로 겹쳐 뜬다(줄이 밀리지 않게) */
-body #chatForm .chat-answer-mode { position:relative; display:inline-flex; align-items:center; gap:6px; flex:0 0 auto; min-width:0; margin:0 4px; }
-body #chatForm .chat-answer-mode[hidden] { display:none; }
-body #chatForm .chat-mode-seg { display:inline-flex; align-items:center; gap:2px; padding:2px; border-radius:999px; background:#f1f3f6; }
-body #chatForm .chat-mode-seg button { min-height:0; height:32px; padding:0 12px; border:0; border-radius:999px; background:transparent; color:#526176; font:inherit; font-size:12px; line-height:32px; white-space:nowrap; box-shadow:none; cursor:pointer; }
-body #chatForm .chat-mode-seg button[aria-pressed=true] { background:#fff; color:#285f95; font-weight:600; box-shadow:0 1px 2px #15243c1f; }
-body #chatForm .chat-mode-seg button:focus-visible, body #chatForm .chat-rag-btn:focus-visible { outline:2px solid #497bfb; outline-offset:2px; }
-body #chatForm .chat-rag-pick { position:relative; min-width:0; }
-body #chatForm .chat-rag-pick[hidden] { display:none; }
-body #chatForm .chat-rag-btn { display:inline-flex; align-items:center; gap:4px; min-height:0; height:32px; max-width:14em; padding:0 10px 0 12px; border:1px solid #d8e5f5; border-radius:999px; background:#edf4fc; color:#285f95; font:inherit; font-size:12px; line-height:1; box-shadow:none; cursor:pointer; }
-body #chatForm .chat-rag-btn span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-body #chatForm .chat-rag-menu { position:absolute; right:0; bottom:calc(100% + 8px); z-index:30; display:flex; flex-direction:column; gap:2px; min-width:11em; max-height:16em; overflow:auto; padding:6px; border:1px solid #dedfe3; border-radius:12px; background:#fff; box-shadow:0 8px 24px #15243c1f; }
-body #chatForm .chat-rag-menu[hidden] { display:none; }
-body #chatForm .chat-rag-menu label { display:flex; align-items:center; gap:8px; min-height:32px; padding:0 8px; border-radius:8px; color:#23354d; font-size:13px; white-space:nowrap; cursor:pointer; }
-body #chatForm .chat-rag-menu label:hover { background:#f3f6fa; }
-body #chatForm .chat-rag-menu input { flex:none; margin:0; }
-/* 답변 깊이(빠르게·꼼꼼하게) — RAG 고르기와 같은 꼴, 고르기 창은 위로 겹쳐 뜬다 */
-body #chatForm .chat-effort { position:relative; min-width:0; }
-body #chatForm .chat-effort-btn { display:inline-flex; align-items:center; gap:4px; min-height:0; height:32px; padding:0 8px 0 10px; border:1px solid #dedfe3; border-radius:999px; background:#fff; color:#526176; font:inherit; font-size:12px; line-height:1; white-space:nowrap; box-shadow:none; cursor:pointer; }
-body #chatForm .chat-effort-btn:focus-visible, body #chatForm .chat-effort-menu button:focus-visible { outline:2px solid #497bfb; outline-offset:2px; }
-body #chatForm .chat-effort-menu { position:absolute; right:0; bottom:calc(100% + 8px); z-index:30; display:flex; flex-direction:column; gap:2px; width:15em; max-width:calc(100vw - 32px); padding:6px; border:1px solid #dedfe3; border-radius:12px; background:#fff; box-shadow:0 8px 24px #15243c1f; }
-body #chatForm .chat-effort-menu[hidden] { display:none; }
-body #chatForm .chat-effort-menu button { display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; min-height:0; padding:7px 10px; border:0; border-radius:8px; background:transparent; color:#23354d; font:inherit; text-align:left; box-shadow:none; cursor:pointer; }
-body #chatForm .chat-effort-menu button:hover { background:#f3f6fa; }
-body #chatForm .chat-effort-menu button[aria-checked=true] { background:#edf4fc; color:#285f95; }
-body #chatForm .chat-effort-menu b { font-size:13px; font-weight:600; }
-body #chatForm .chat-effort-menu span { font-size:11px; color:#6b7889; line-height:1.4; }
-body #chatForm .chat-web-chip{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;width:auto;white-space:nowrap;padding:6px 8px;border:0;border-left:1px solid #e0e6ef;border-radius:0;background:transparent;color:#376b9e;font-size:12px;box-shadow:none;line-height:20px}
-body #chatForm .chat-web-chip[hidden]{display:none!important}
-.chat-tools #webSearchToggle[aria-pressed=true]{background:#edf4fc;color:#285f95}
-@media(max-width:600px){body #chatForm .dock-row{flex-wrap:wrap}body #chatForm .dock-row textarea{flex-basis:calc(100% - 56px);order:1}body #chatForm #attachButton{order:0}body #chatForm .chat-web-chip{order:2}body #chatForm .chat-answer-mode{order:3;margin-left:auto}body #chatForm #sendBtn{order:4}}
-@media(max-width:600px){body #chatForm .chat-answer-mode{margin:0}body #chatForm .chat-mode-seg button{padding:0 10px}body #chatForm .chat-rag-btn{max-width:9em}body #chatForm .chat-effort-btn{padding:0 6px 0 8px}body #chatForm .dock-row{padding:8px;gap:4px}}
-body #chatForm .dock-btn { background:transparent; }
 body .chat-tools button { justify-content:flex-start; }
 body .chat-doc-editor { margin:12px 0; height:calc(100% - 24px); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
 body .chat-doc-editor header { padding:12px 16px; gap:8px; }
@@ -156,8 +105,6 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 #chatScroll .chat-sg-continue button{background:#1B3B75;border:1px solid #1B3B75;color:#fff}
 #chatScroll .chat-sg-continue button:hover{background:#16305F;border-color:#16305F}
 #chatScroll .chat-sg-continue button:focus-visible{outline:2px solid #497BFB;outline-offset:2px}
-/* 질문 당시의 모드와 출처는 현재 입력창 선택과 독립적으로 표시한다. */
-.chat-message-mode { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:6px; background:#f1f4f8; color:#526176; font-size:11px; line-height:1.5; white-space:nowrap; }
 .web-citation { display:flex; align-items:baseline; gap:6px; font-size:13px; line-height:1.6; }
 .web-citation a { min-width:0; overflow-wrap:anywhere; color:#315c91; text-decoration:none; }
 .web-citation a:hover { text-decoration:underline; }
@@ -369,3 +316,84 @@ body #chatForm { max-width:1040px; }
   #chatScroll .chat-suggestion-form .chat-form-pick { margin-top:2px; }
   #chatScroll .chat-suggestion-form .chat-form-tools { flex-wrap:wrap; }
 }
+
+/* ---- 입력창(컴포저) — 둥근 상자 하나에 위는 입력칸, 아래는 도구줄.
+   도구줄 왼쪽은 첨부와 답변 설정 묶음(일반·RAG 토글, RAG 범위, 답변 깊이), 오른쪽은 보내기.
+   단추는 모두 높이 32px·모서리 8px·테두리 없는 고스트 꼴. 고르기 창(범위·깊이)은 같은 꼴로 위로 겹쳐 뜬다 ---- */
+body #chatForm { container-type:inline-size; max-width:780px; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
+body #chatForm:focus-within { border:0; box-shadow:none; }
+body #chatForm .dock-row { position:relative; display:flex; flex-direction:column; align-items:stretch; gap:2px; min-width:0; padding:8px 8px 8px; border:1px solid #dcdfe4; border-radius:20px; background:#fff; box-shadow:0 2px 12px #15243c0a; transition:border-color .12s ease, box-shadow .12s ease; }
+body #chatForm .dock-row:focus-within { border-color:#a6b1c0; box-shadow:0 0 0 3px #64748b12; }
+body #chatForm.warn .dock-row { border-color:var(--amber); }
+body #chatForm .dock-row #chatInput { display:block; flex:none; width:100%; min-width:0; min-height:44px; max-height:190px; margin:0; padding:8px 8px 4px; border:0; border-radius:0; background:transparent; box-shadow:none; resize:none; font:inherit; font-size:14.5px; line-height:1.6; color:var(--ink); }
+body #chatForm .dock-tools { display:flex; align-items:flex-end; gap:4px; min-width:0; }
+body #chatForm .dock-tools > [hidden] { display:none; }
+/* 공통 단추 꼴 — 첨부·칩·보내기 */
+body #chatForm .dock-btn, body #chatForm .chat-chip, body #sendBtn { flex:none; height:32px; min-height:32px; border-radius:8px; box-shadow:none; font:inherit; cursor:pointer; transition:background-color .12s ease, color .12s ease; }
+body #chatForm .dock-btn { width:32px; padding:0; border:0; background:transparent; color:#5b6b80; font-size:18px; }
+body #chatForm .dock-btn:hover { background:#f1f3f6; color:#23354d; }
+body #chatForm .chat-answer-mode { position:static; display:flex; flex:1 1 auto; flex-wrap:wrap; align-items:center; gap:4px; min-width:0; margin:0; }
+body #chatForm .chat-answer-mode[hidden] { display:none; }
+body #chatForm .chat-mode-seg { display:inline-flex; flex:none; align-items:center; gap:2px; height:32px; padding:2px; border-radius:8px; background:#f1f3f6; }
+body #chatForm .chat-mode-seg button { height:28px; min-height:0; padding:0 11px; border:0; border-radius:6px; background:transparent; color:#5b6b80; font:inherit; font-size:12.5px; line-height:28px; white-space:nowrap; box-shadow:none; cursor:pointer; }
+body #chatForm .chat-mode-seg button:hover { background:transparent; color:#23354d; }
+body #chatForm .chat-mode-seg button[aria-pressed=true] { background:#fff; color:#1f3a64; font-weight:600; box-shadow:0 1px 2px #15243c1f; }
+body #chatForm .chat-rag-pick, body #chatForm .chat-effort { position:static; display:inline-flex; min-width:0; }
+body #chatForm .chat-rag-pick[hidden] { display:none; }
+body #chatForm .chat-chip { display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:100%; padding:0 8px 0 9px; border:0; background:transparent; color:#4d5d72; font-size:12.5px; line-height:1; white-space:nowrap; }
+body #chatForm .chat-chip:hover, body #chatForm .chat-chip[aria-expanded=true] { background:#f1f3f6; color:#23354d; }
+body #chatForm .chat-chip iconify-icon { flex:none; font-size:15px; color:#8592a5; }
+body #chatForm .chat-chip .chat-chip-caret { font-size:12px; margin-left:-1px; transition:transform .12s ease; }
+body #chatForm .chat-chip[aria-expanded=true] .chat-chip-caret { transform:rotate(180deg); }
+body #chatForm .chat-chip-key { color:#8592a5; }
+body #chatForm .chat-chip-key::after { content:":"; }
+body #chatForm .chat-chip-val { min-width:0; max-width:12em; overflow:hidden; text-overflow:ellipsis; color:#2f3f55; font-weight:500; }
+body #sendBtn { display:inline-flex; align-items:center; justify-content:center; width:32px; margin-left:auto; padding:0; border:0; background:var(--navy); color:#fff; }
+body #sendBtn:hover:not(:disabled) { background:#294f87; }
+body #sendBtn:disabled { background:#e6e9ee; color:#a0a8b4; cursor:default; opacity:1 !important; }
+body #sendBtn iconify-icon { font-size:18px; }
+body #chatForm :is(.dock-btn, .chat-chip, .chat-mode-seg button, #sendBtn):focus-visible { outline:2px solid #497bfb; outline-offset:1px; }
+/* 고르기 창 — 범위·깊이 같은 꼴. 입력 상자 왼쪽 끝에 맞춰 상자 위로 겹쳐 뜨므로(입력칸을 가리지 않고) 입력줄이 밀리지 않는다 */
+body #chatForm .chat-pop { position:absolute; left:4px; bottom:calc(100% + 8px); z-index:40; display:flex; flex-direction:column; gap:1px; width:280px; max-width:calc(100vw - 40px); max-height:min(340px, 60dvh); overflow:auto; padding:6px; border:1px solid #e3e7ec; border-radius:12px; background:#fff; box-shadow:0 12px 32px #15243c24; }
+body #chatForm .chat-pop[hidden] { display:none; }
+body #chatForm .chat-pop-head { padding:6px 10px 4px; color:#8592a5; font-size:11.5px; font-weight:600; }
+body #chatForm .chat-pop-head small { margin-left:4px; font-size:11px; font-weight:400; }
+body #chatForm .chat-pop-item { position:relative; display:flex; align-items:center; gap:12px; width:100%; min-height:44px; margin:0; padding:7px 10px; border:0; border-radius:8px; background:transparent; color:#23354d; font:inherit; text-align:left; box-shadow:none; cursor:pointer; }
+body #chatForm .chat-pop-item:hover, body #chatForm .chat-pop-item:focus-visible, body #chatForm .chat-pop-item:has(input:focus-visible) { background:#f3f6fa; outline:none; }
+body #chatForm .chat-pop-item:focus-visible, body #chatForm .chat-pop-item:has(input:focus-visible) { box-shadow:inset 0 0 0 2px #497bfb; }
+body #chatForm .chat-pop-item input { position:absolute; width:1px; height:1px; margin:0; opacity:0; pointer-events:none; }
+body #chatForm .chat-pop-text { display:flex; flex:1; flex-direction:column; gap:2px; min-width:0; }
+body #chatForm .chat-pop-text b { font-size:13px; font-weight:600; }
+body #chatForm .chat-pop-text span { overflow:hidden; color:#6b7889; font-size:11.5px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+body #chatForm .chat-pop-check { flex:none; width:16px; height:16px; position:relative; }
+body #chatForm :is(.chat-pop-item[aria-checked=true], .chat-pop-item:has(input:checked)) .chat-pop-check::after { content:""; position:absolute; left:5px; top:1px; width:5px; height:10px; border:solid #285f95; border-width:0 2px 2px 0; transform:rotate(45deg); }
+body #chatForm :is(.chat-pop-item[aria-checked=true], .chat-pop-item:has(input:checked)) b { color:#1f3a64; }
+/* 입력창 아래 안내와 문맥 사용 — 작게, 입력 상자 안쪽 가장자리에 맞춘다 */
+body #chatForm .chat-dock-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:2px 16px; padding:6px 14px 0; border-top:0; color:#8a96a6; font-size:11px; line-height:1.5; }
+body #chatForm .chat-dock-footer #chatSendState { flex:1 1 auto; min-width:0; }
+body #chatForm .chat-ctx { margin-right:-6px; font-size:11px; }
+body #chatForm .dock-hint { padding:4px 14px 0; }
+@container (max-width:560px) {
+  body #chatForm .chat-chip-key { display:none; }
+  body #chatForm .chat-chip-val { max-width:8em; }
+  body #chatForm .chat-mode-seg button { padding:0 9px; }
+}
+@container (max-width:380px) {
+  body #chatForm .chat-chip { padding:0 6px; gap:4px; }
+  body #chatForm .chat-chip-val { max-width:6.5em; }
+}
+@media (max-width:600px) {
+  body #chatForm .dock-row { padding:6px; border-radius:18px; }
+  body #chatForm .chat-dock-footer { padding:6px 10px 0; }
+}
+@media (prefers-reduced-motion:reduce) { body #chatForm .chat-chip .chat-chip-caret { transition:none; } }
+
+/* 대화 머리 칩 — 질문 당시 방식(「RAG」·「일반」…)과 생각 과정 펼치기/접기를 같은 작은 칩 꼴로 */
+.chat-message-mode, body #chatScroll .chat-cot-btn { display:inline-flex; align-items:center; gap:4px; height:22px; min-height:0; padding:0 8px; border:0; border-radius:6px; background:#f1f3f6; color:#5b6b80; font:inherit; font-size:11px; font-weight:500; line-height:22px; white-space:nowrap; box-shadow:none; vertical-align:middle; }
+.chat-message-mode { margin-left:6px; }
+body #chatScroll .chat-cot { margin:0 0 6px; }
+body #chatScroll .chat-cot-btn { cursor:pointer; }
+body #chatScroll .chat-cot-btn span { color:#285f95; }
+body #chatScroll .chat-cot-btn:hover { background:#e8ecf1; }
+body #chatScroll .chat-cot-btn:focus-visible { outline:2px solid #497bfb; outline-offset:1px; }
+body #chatScroll .chat-cot-body { margin-top:6px; padding:8px 12px; border-left:2px solid #e3e8ef; color:#6b7686; font-size:12.5px; line-height:1.7; white-space:pre-wrap; }

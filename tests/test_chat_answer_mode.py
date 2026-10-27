@@ -109,7 +109,7 @@ def test_rag_mode_uses_account_scope_and_narrows_only(staff):
     app, r, login = staff
     kim = login("kim", "kim-pass")
     page = kim.get("/chat").text
-    menu = page.split('id="ragPickMenu"', 1)[1].split("</div>", 1)[0]
+    menu = page.split('id="ragPickMenu"', 1)[1].split('id="effortPick"', 1)[0]     # 고르기 창(머리줄 + 항목들)
     assert 'value="공통" checked' in menu and 'value="기획처" checked' in menu    # 기본 = 고를 수 있는 것 전부
     kim.post("/chat/send", data={"question": "사업 목표 알려줘"})
     assert _wait(lambda: len(r.seen) == 1)

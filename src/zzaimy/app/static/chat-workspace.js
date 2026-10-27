@@ -572,7 +572,7 @@
     if (webOf && webField) webField.value = kept;
   });
   input.addEventListener('input', () => { paint(); resize(); });
-  // 첨부 단추는 파일 선택 하나만 — 답변 방식(일반·RAG)은 입력줄 오른쪽 토글에서 정한다
+  // 첨부 단추는 파일 선택 하나만 — 답변 방식(일반·RAG)은 입력창 아래 도구줄 토글에서 정한다
   document.getElementById('attachButton').addEventListener('click', () => file.click());
   function editQuestion(button) {
     if (waiting || sending) { notify('답변 작성이 끝난 뒤 수정해 주세요.'); return; }

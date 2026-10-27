@@ -11,12 +11,12 @@ def test_effort_is_remembered_per_account(staff):  # noqa: F811
     app, r, login = staff
     kim = login("kim", "kim-pass")
     page = kim.get("/chat").text
-    assert 'id="effortField" value="deep"' in page and '<span id="effortLabel">꼼꼼하게</span>' in page
+    assert 'id="effortField" value="deep"' in page and '<span class="chat-chip-val" id="effortLabel">꼼꼼하게</span>' in page
     assert ">꼼꼼하게</b>" in page and 'data-aura="answer-effort"' in page
     got = kim.post("/api/chat/answer-mode", data={"effort": "deep"}).json()
     assert got["effort"] == "deep" and got["effort_label"] == "꼼꼼하게" and got["mode"] == "rag"
     page = login("kim", "kim-pass").get("/chat").text                    # 새 로그인(다른 기기)에서도
-    assert 'id="effortField" value="deep"' in page and '<span id="effortLabel">꼼꼼하게</span>' in page
+    assert 'id="effortField" value="deep"' in page and '<span class="chat-chip-val" id="effortLabel">꼼꼼하게</span>' in page
     assert 'id="effortField" value="deep"' in login("zzdev", "dev-pass").get("/chat").text   # 다른 계정은 그대로
     kim.post("/api/chat/answer-mode", data={"effort": "max"})             # 모르는 값은 무시
     assert kim.post("/api/chat/answer-mode", data={"mode": "model"}).json()["effort"] == "deep"   # 방식만 바꿔도 깊이는 그대로
