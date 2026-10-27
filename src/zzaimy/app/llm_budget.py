@@ -79,10 +79,14 @@ def context_len(client) -> int:
 
 def work_len(client) -> int:
     """몫 계산 기준 — 기본은 문맥 한도 그대로. 몫은 상한일 뿐이고 실제 양은 요구에 맞춘다(출력은 요청 분량에서, 근거는 찾은 만큼,
-    대화 기억은 대화 길이만큼). 운영에서 따로 묶어야 할 때만 연결 설정 work_context 나 ZZAIMY_WORK_CONTEXT 로 상한을 둔다."""
+    대화 기억은 대화 길이만큼). 운영에서 따로 묶어야 할 때만 연결 설정 work_context 나 ZZAIMY_WORK_CONTEXT 로 상한을 둔다.
+    대화에서 고른 답변 깊이(app/effort — 「빠르게」 는 가볍게 묶고 「꼼꼼하게」 는 묶지 않음)이 있으면 그 상한도 함께 본다."""
+    from zzaimy.app import effort
+
     cap = int(getattr(client, "work_context", 0) or 0) or int(os.environ.get("ZZAIMY_WORK_CONTEXT", "0") or 0)
     n = context_len(client)
-    return min(n, cap) if cap > 0 else n
+    caps = [c for c in (cap, effort.work_cap()) if c > 0]
+    return min([n, *caps])
 
 
 def served_context_len(client) -> int | None:

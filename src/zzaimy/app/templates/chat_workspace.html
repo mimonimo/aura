@@ -187,7 +187,7 @@
   {% set value_form_open = (not waiting) and messages and messages[-1].role == 'assistant' and (suggestions or []) | selectattr('text', 'equalto', '필요한 값 입력') | list | length > 0 %}
   {% for m in messages %}
     <div class="turn {{ m.role }}" data-message-id="{{ m.id }}">
-      <div class="chat-speaker">{{ '나' if m.role == 'user' else 'AURA' }}{% if m.role == 'user' and m.mode and not is_student %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': 'RAG', 'model': '일반', 'web': '인터넷 검색'}.get(m.mode, '') }}{% if m.mode == 'document' and (rag_tags or {}).get(m.id) %} · {{ rag_tags[m.id] }}{% endif %}</span>{% endif %}</div>
+      <div class="chat-speaker">{{ '나' if m.role == 'user' else 'AURA' }}{% if m.role == 'user' and m.mode and not is_student %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': 'RAG', 'model': '일반', 'web': '인터넷 검색'}.get(m.mode, '') }}{% if m.mode == 'document' and (rag_tags or {}).get(m.id) %} · {{ rag_tags[m.id] }}{% endif %}{% if (effort_tags or {}).get(m.id) %} · {{ effort_tags[m.id] }}{% endif %}</span>{% endif %}</div>
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
@@ -282,6 +282,15 @@
         <button type="button" class="chat-rag-btn" id="ragPickBtn" data-aura="answer-rag-pick" aria-haspopup="true" aria-expanded="false" aria-controls="ragPickMenu" title="쓸 RAG 고르기"><span id="ragPickLabel">{{ am.label or '전체' }}</span><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
         <div class="chat-rag-menu" id="ragPickMenu" role="group" aria-label="쓸 RAG" hidden>
           {% for c in am.choices %}<label><input type="checkbox" name="rags" value="{{ c }}"{% if not am.picked or c in am.picked %} checked{% endif %}><span>{{ c }}</span></label>{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if am.effort_levels %}{% set eff = am.effort or 'fast' %}
+      <div class="chat-effort" id="effortPick">
+        <input type="hidden" name="effort" id="effortField" value="{{ eff }}">
+        <button type="button" class="chat-effort-btn" id="effortBtn" data-aura="answer-effort" aria-haspopup="true" aria-expanded="false" aria-controls="effortMenu" title="답변 깊이"><span id="effortLabel">{% for lv, nm, hint in am.effort_levels if lv == eff %}{{ nm }}{% endfor %}</span><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
+        <div class="chat-effort-menu" id="effortMenu" role="menu" aria-label="답변 깊이" hidden>
+          {% for lv, nm, hint in am.effort_levels %}<button type="button" role="menuitemradio" data-effort="{{ lv }}" data-aura="answer-effort-{{ lv }}" aria-checked="{{ 'true' if lv == eff else 'false' }}"><b>{{ nm }}</b><span>{{ hint }}</span></button>{% endfor %}
         </div>
       </div>
       {% endif %}
@@ -471,6 +480,25 @@
       if (!on.length) { e.target.checked = true; on = [e.target]; }      // 하나는 남긴다 — 다 끄면 RAG 가 아니다
       document.getElementById("ragPickLabel").textContent = on.length === boxes.length ? "전체" : on.map(function (x) { return x.value; }).join("·");
       savePref({rags_pick: "1", rags: on.map(function (x) { return x.value; })});
+    });
+  }
+
+  /* ---- 답변 깊이: 빠르게(생각 없이 바로) · 꼼꼼하게(생각을 거쳐 넓게 보고 점검) — 계정에 기억한다 ---- */
+  var effortPick = document.getElementById("effortPick");
+  if (effortPick) {
+    var effortBtn = document.getElementById("effortBtn"), effortMenu = document.getElementById("effortMenu");
+    var openEffort = function (on) { effortMenu.hidden = !on; effortBtn.setAttribute("aria-expanded", String(on)); };
+    effortBtn.addEventListener("click", function () { openEffort(effortMenu.hidden); });
+    document.addEventListener("click", function (e) { if (!effortPick.contains(e.target)) openEffort(false); });
+    effortPick.addEventListener("keydown", function (e) { if (e.key === "Escape") { openEffort(false); effortBtn.focus(); } });
+    effortMenu.querySelectorAll("[data-effort]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.getElementById("effortField").value = b.dataset.effort;
+        document.getElementById("effortLabel").textContent = b.querySelector("b").textContent;
+        effortMenu.querySelectorAll("[data-effort]").forEach(function (x) { x.setAttribute("aria-checked", String(x === b)); });
+        openEffort(false);
+        savePref({effort: b.dataset.effort});
+      });
     });
   }
 

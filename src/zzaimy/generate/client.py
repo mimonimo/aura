@@ -99,6 +99,49 @@ _DEFAULT_NO_THINK = {"chat_template_kwargs": {"enable_thinking": False}}
 _DEFAULT_THINK = {"chat_template_kwargs": {"enable_thinking": True}}
 
 
+def _has_args(eb: dict, want: dict) -> bool:
+    """extra_body 에 want 의 값이 이미 다 들어 있는가(안쪽 dict 는 그 키만 견준다)."""
+    for k, v in (want or {}).items():
+        if isinstance(v, dict):
+            inner = eb.get(k)
+            if not isinstance(inner, dict) or any(inner.get(kk) != vv for kk, vv in v.items()):
+                return False
+        elif eb.get(k) != v:
+            return False
+    return True
+
+
+def _with_effort_thinking(cli, kw: dict) -> dict:
+    """답변 깊이 「꼼꼼하게」(app/effort)일 때 이 호출의 생각을 켠다 — 켜는 인자는 연결 설정(cli.think_extra), 모델 이름은 보지 않는다.
+    호출부가 이미 켰으면(답 쓰기의 answer_gen_options) 그대로 둔다. 출력 한도가 있으면 생각 몫(think_tokens)을 문맥 한도 안에서
+    더하고, 시간 제한을 정하지 않았으면 생각용 시간 제한을 준다. 「빠르게」·정하지 않은 호출은 손대지 않는다."""
+    from zzaimy.app import effort
+
+    think = getattr(cli, "think_extra", None)
+    if not think or not effort.thinking():
+        return kw
+    eb = dict(kw.get("extra_body") or {})
+    if _has_args(eb, think):
+        return kw
+    for k, v in think.items():                     # 같은 이름의 인자는 안쪽 값만 덮는다
+        eb[k] = {**eb[k], **v} if isinstance(v, dict) and isinstance(eb.get(k), dict) else v
+    out = dict(kw, extra_body=eb)
+    add, asked = effort.think_tokens(), int(kw.get("max_tokens") or 0)
+    if add and asked:
+        room = add
+        try:
+            from zzaimy.app import llm_budget
+
+            need = llm_budget.estimate_messages(kw.get("messages") or []) * llm_budget._CORRECTION.get(llm_budget._base(cli), 1.0)
+            room = max(0, min(add, llm_budget.context_len(cli) - int(need) - asked))
+        except Exception:
+            pass
+        out["max_tokens"] = asked + room
+    if "timeout" not in kw and effort.think_timeout():
+        out["timeout"] = effort.think_timeout()
+    return out
+
+
 def _rejects_schema(exc: Exception) -> bool:
     status = getattr(exc, "status_code", None)
     if status not in (400, 422):
@@ -296,6 +339,9 @@ class VllmClient:
                 # 끄는 인자는 연결 설정(no_think)을 따른다 — 호출부가 같은 이름의 인자를 정했으면 그 값이 먼저다
                 elif self._no_think and not _no_extra and not (set(self._no_think) & set(kw.get("extra_body") or {})):
                     kw = dict(kw, extra_body={**(kw.get("extra_body") or {}), **self._no_think})
+                # 답변 깊이 「꼼꼼하게」(app/effort) — 이 요청의 호출은 생각을 켜고 출력 한도에 생각 몫을 더한다(내부 서버만, 거절한 적 없을 때)
+                if not ollama and not _no_extra and self.think_extra:
+                    kw = _with_effort_thinking(self, kw)
                 if _no_schema and kw.get("response_format"):
                     kw = schema_as_prompt(kw)
                 try:

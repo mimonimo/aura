@@ -100,7 +100,10 @@ def strip_reasoning(text: str) -> str:
 
 
 def answer_think() -> bool:
-    return os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on")
+    """답 쓰기에 생각을 켜는가 — 운영 설정(ZZAIMY_ANSWER_THINK=1) 또는 이 질문에 고른 답변 깊이 「꼼꼼하게」(app/effort)."""
+    from zzaimy.app import effort
+
+    return effort.thinking() or os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
 _NOT_SET = object()
@@ -125,7 +128,10 @@ def answer_gen_options(client) -> tuple[int, dict]:
     eb = dict(extra or {})
     for k, v in think.items():                       # 같은 이름의 인자는 안쪽 값만 덮는다(chat_template_kwargs 의 다른 값은 둔다)
         eb[k] = {**eb[k], **v} if isinstance(v, dict) and isinstance(eb.get(k), dict) else v
-    return (int(os.environ.get("ZZAIMY_ANSWER_THINK_MAX_TOKENS", "8192")),
+    from zzaimy.app import effort
+
+    # 출력 한도 = 답 몫 + 생각 몫(꼼꼼하게의 think_tokens) — 생각이 한도를 다 먹어 답이 비지 않게
+    return (int(os.environ.get("ZZAIMY_ANSWER_THINK_MAX_TOKENS", "") or max(8192, limit + effort.think_tokens())),
             {"extra_body": eb, "timeout": float(os.environ.get("ZZAIMY_ANSWER_THINK_TIMEOUT", "900"))})
 
 

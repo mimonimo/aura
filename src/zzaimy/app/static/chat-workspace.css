@@ -126,11 +126,22 @@ body #chatForm .chat-rag-menu[hidden] { display:none; }
 body #chatForm .chat-rag-menu label { display:flex; align-items:center; gap:8px; min-height:32px; padding:0 8px; border-radius:8px; color:#23354d; font-size:13px; white-space:nowrap; cursor:pointer; }
 body #chatForm .chat-rag-menu label:hover { background:#f3f6fa; }
 body #chatForm .chat-rag-menu input { flex:none; margin:0; }
+/* 답변 깊이(빠르게·꼼꼼하게) — RAG 고르기와 같은 꼴, 고르기 창은 위로 겹쳐 뜬다 */
+body #chatForm .chat-effort { position:relative; min-width:0; }
+body #chatForm .chat-effort-btn { display:inline-flex; align-items:center; gap:4px; min-height:0; height:32px; padding:0 8px 0 10px; border:1px solid #dedfe3; border-radius:999px; background:#fff; color:#526176; font:inherit; font-size:12px; line-height:1; white-space:nowrap; box-shadow:none; cursor:pointer; }
+body #chatForm .chat-effort-btn:focus-visible, body #chatForm .chat-effort-menu button:focus-visible { outline:2px solid #497bfb; outline-offset:2px; }
+body #chatForm .chat-effort-menu { position:absolute; right:0; bottom:calc(100% + 8px); z-index:30; display:flex; flex-direction:column; gap:2px; width:15em; max-width:calc(100vw - 32px); padding:6px; border:1px solid #dedfe3; border-radius:12px; background:#fff; box-shadow:0 8px 24px #15243c1f; }
+body #chatForm .chat-effort-menu[hidden] { display:none; }
+body #chatForm .chat-effort-menu button { display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; min-height:0; padding:7px 10px; border:0; border-radius:8px; background:transparent; color:#23354d; font:inherit; text-align:left; box-shadow:none; cursor:pointer; }
+body #chatForm .chat-effort-menu button:hover { background:#f3f6fa; }
+body #chatForm .chat-effort-menu button[aria-checked=true] { background:#edf4fc; color:#285f95; }
+body #chatForm .chat-effort-menu b { font-size:13px; font-weight:600; }
+body #chatForm .chat-effort-menu span { font-size:11px; color:#6b7889; line-height:1.4; }
 body #chatForm .chat-web-chip{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;width:auto;white-space:nowrap;padding:6px 8px;border:0;border-left:1px solid #e0e6ef;border-radius:0;background:transparent;color:#376b9e;font-size:12px;box-shadow:none;line-height:20px}
 body #chatForm .chat-web-chip[hidden]{display:none!important}
 .chat-tools #webSearchToggle[aria-pressed=true]{background:#edf4fc;color:#285f95}
 @media(max-width:600px){body #chatForm .dock-row{flex-wrap:wrap}body #chatForm .dock-row textarea{flex-basis:calc(100% - 56px);order:1}body #chatForm #attachButton{order:0}body #chatForm .chat-web-chip{order:2}body #chatForm .chat-answer-mode{order:3;margin-left:auto}body #chatForm #sendBtn{order:4}}
-@media(max-width:600px){body #chatForm .chat-answer-mode{margin:0}body #chatForm .chat-mode-seg button{padding:0 10px}body #chatForm .chat-rag-btn{max-width:9em}body #chatForm .dock-row{padding:8px;gap:4px}}
+@media(max-width:600px){body #chatForm .chat-answer-mode{margin:0}body #chatForm .chat-mode-seg button{padding:0 10px}body #chatForm .chat-rag-btn{max-width:9em}body #chatForm .chat-effort-btn{padding:0 6px 0 8px}body #chatForm .dock-row{padding:8px;gap:4px}}
 body #chatForm .dock-btn { background:transparent; }
 body .chat-tools button { justify-content:flex-start; }
 body .chat-doc-editor { margin:12px 0; height:calc(100% - 24px); border:1px solid var(--line); border-radius:14px; overflow:hidden; }

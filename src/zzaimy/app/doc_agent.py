@@ -292,8 +292,9 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     on_act(도구, 인자, start|done|fail) 은 화면 표시용(작성 카드) — 실패해도 걸음에는 영향이 없다."""
     reg = {t.name: t for t in tools}
     system = (system or SYSTEM).format(max_writes=max_writes, tools="\n".join(f"- {t.name}: {t.desc}" for t in tools))
-    from zzaimy.app import llm_budget
+    from zzaimy.app import effort, llm_budget
 
+    max_steps = effort.steps(max_steps)                # 답변 깊이 「꼼꼼하게」 면 걸음 한도를 넓힌다(app/effort, 정하지 않았거나 빠르게면 그대로)
     ep = Episode()
     turns: list[tuple[str, str]] = []                  # 지난 걸음 (고른 JSON, 결과 글)
     log: list[str] = []                                # 지금까지 한 걸음 — 한 줄씩

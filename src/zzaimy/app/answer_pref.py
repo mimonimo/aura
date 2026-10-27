@@ -5,11 +5,14 @@
   만들고, 요청·저장된 값은 늘 그 집합과 겹치는 것만 남긴다. 범위 밖 값만 왔으면 사업 문서를 쓰지 않는 쪽으로 닫는다.
 - 질문마다 보낸 사람과 그때 고른 RAG 를 남긴다(설정 chat_msg_rags:<메시지>). 공유 프로젝트의 대화는 주인과 보낸 사람이
   다를 수 있어, 답은 보낸 사람이 고른 RAG 를 대화 주인의 범위와 보낸 사람의 범위 둘 다와 겹치는 것만 쓴다(narrow_shared).
+- 같은 설정에 답변 깊이(effort — 「빠르게」·「꼼꼼하게」, app/effort)도 기억한다. 처음은 빠르게.
 - 판단(인터넷에서 찾아볼지)은 모델이 하고, 여기는 저장·교집합·표시 글만 맡는다.
 """
 from __future__ import annotations
 
 import json
+
+from zzaimy.app import effort as _effort
 
 MODES = ("rag", "model")          # 입력줄 토글 두 갈래 — 폼 web 값으로는 "" 와 "model"
 COMMON = "공통"
@@ -109,7 +112,7 @@ def label(picked: list[str], choices: list[str]) -> str:
 
 
 def load(db, user: str) -> dict:
-    """계정의 저장된 선택 {mode, rags}. 없거나 깨졌으면 RAG·전부."""
+    """계정의 저장된 선택 {mode, rags, effort}. 없거나 깨졌으면 RAG·전부·빠르게."""
     try:
         v = json.loads(db.get_setting(_key(user), "") or "{}")
     except ValueError:
@@ -118,14 +121,17 @@ def load(db, user: str) -> dict:
         v = {}
     mode = v.get("mode") if v.get("mode") in MODES else "rag"
     rags = [str(x) for x in v.get("rags") or [] if isinstance(x, str)]
-    return {"mode": mode, "rags": rags}
+    return {"mode": mode, "rags": rags, "effort": _effort.clean(v.get("effort")) or _effort.DEFAULT}
 
 
-def save(db, user: str, *, mode: str | None = None, rags=None, choices: list[str] | None = None) -> dict:
-    """방식·고른 RAG 를 저장한다(주어진 것만). RAG 는 고를 수 있는 것과 겹치는 것만, 전부 고르면 빈 목록(= 기본 전부)."""
+def save(db, user: str, *, mode: str | None = None, rags=None, choices: list[str] | None = None,
+         effort: str | None = None) -> dict:
+    """방식·고른 RAG·답변 깊이를 저장한다(주어진 것만). RAG 는 고를 수 있는 것과 겹치는 것만, 전부 고르면 빈 목록(= 기본 전부)."""
     cur = load(db, user)
     if mode in MODES:
         cur["mode"] = mode
+    if _effort.clean(effort):
+        cur["effort"] = _effort.clean(effort)
     if rags is not None:
         keep = clean(rags, choices or [])
         cur["rags"] = [] if set(keep) == set(choices or []) else keep
@@ -147,11 +153,12 @@ def initial_mode(pref: dict, *, project: bool, has_files: bool, last_mode: str |
 
 def view(db, user: str, scope: dict | None, all_depts: list[str] | None, *, project: bool = False,
          has_files: bool = False, last_mode: str | None = None) -> dict:
-    """화면에 넘길 값 {mode, choices, picked, label}. picked 가 비면 전부."""
+    """화면에 넘길 값 {mode, choices, picked, label, effort}. picked 가 비면 전부."""
     pref = load(db, user)
     choices = rag_choices(scope, all_depts)
     picked = clean(pref["rags"], choices)
     if set(picked) == set(choices):
         picked = []
     return {"mode": initial_mode(pref, project=project, has_files=has_files, last_mode=last_mode),
-            "choices": choices, "picked": picked, "label": label(picked, choices)}
+            "choices": choices, "picked": picked, "label": label(picked, choices), "effort": pref["effort"],
+            "effort_levels": [(lv, _effort.LABELS[lv], _effort.HINTS[lv]) for lv in _effort.LEVELS]}

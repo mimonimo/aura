@@ -32,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
-from zzaimy.app import llm_budget
+from zzaimy.app import effort, llm_budget
 
 MAX_REDO = 1                       # 같은 절을 다시 맡기는 횟수(요청 하나에서)
 BRIEF_SHARE = 0.12                 # 지시서(메모·개요·앞 절·인용)에 쓰는 문맥 몫
@@ -500,7 +500,8 @@ class Delegator:
             job["outline"] = parse_outline(raw)
             job["rec"]["outline"] = job["outline"][:400]
         job["body"], job["unknown"] = body, unknown
-        if self.quality and body:
+        # 자기 점검은 답변 깊이 「빠르게」 에서 건너뛴다(app/effort — 정하지 않은 호출·「꼼꼼하게」 는 지금처럼 한다)
+        if self.quality and body and effort.self_check():
             self._check(job, client, limit, out_tokens)
 
     def _check(self, job: dict, client, limit: int, out_tokens: int) -> None:

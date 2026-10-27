@@ -601,10 +601,10 @@ class Database:
             if conn.execute("SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)).fetchone() is None:
                 return False
             names = table_names(conn)
-            # 메시지마다 남긴 설정(문맥 사용량 chat_ctx_msg·앞 단계 추론 chat_cot·질문의 RAG 선택 chat_msg_rag·chat_msg_rags)은
+            # 메시지마다 남긴 설정(문맥 사용량 chat_ctx_msg·앞 단계 추론 chat_cot·질문의 RAG 선택 chat_msg_rag·chat_msg_rags·답변 깊이 chat_msg_effort)은
             # 메시지를 지우기 전에 id 를 모아 함께 지운다
             mids = [int(r[0]) for r in conn.execute("SELECT id FROM chat_messages WHERE session_id = ?", (session_id,)).fetchall()]
-            keys = [f"{p}:{m}" for m in mids for p in ("chat_ctx_msg", "chat_cot", "chat_msg_rag", "chat_msg_rags")]
+            keys = [f"{p}:{m}" for m in mids for p in ("chat_ctx_msg", "chat_cot", "chat_msg_rag", "chat_msg_rags", "chat_msg_effort")]
             keys += [f"chat_ctx:{int(session_id)}", f"chat_summary:{int(session_id)}"]
             for i in range(0, len(keys), 500):
                 part = keys[i:i + 500]

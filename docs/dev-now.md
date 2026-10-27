@@ -46,6 +46,7 @@
 
 - 공동 편집 시연 화면이 15초(느린 요청 기록): 공통 양식을 찾으며 한글 파일 수천 개의 meta 를 하나씩 읽었다 — 한 번에 읽는 preloaded_meta 로. 원본 관리 정리 요약 6초는 재시작 직후 첫 계산(이후 캐시)이라 그대로.
 
+- 답변 깊이 두 단계: 입력줄 방식 토글 옆 깊이 단추 「빠르게」(기본 — 생각 끔, 작업 몫 32,768 토큰, 맡긴 절 자기 점검 건너뜀)·「꼼꼼하게」(생각 켬 + 출력 한도에 생각 몫, 작업 몫은 256K 그대로, 자기 점검, 걸음 한도 1.5배). 계정마다 기억(/api/chat/answer-mode 의 effort), 질문마다 남겨(chat_msg_effort) 꼼꼼하게만 질문 머리에 「· 꼼꼼하게」. 표는 app/effort.py 한 곳, 요청마다 contextvar 로 나름(대화 답·도우미). 정하지 않은 호출(반입·배치)은 그대로, 학생은 단추 없음. ADR-0076 7항, 도우미 안내(platform_guide)에 「답변 깊이 고르기」.
 - 27B 256K 뒤 작업 몫 점검: 대화 기억 창·맡긴 절 근거·출력은 문맥 한도의 몫이 상한이고 실제 양은 요구에서 정한다(출력은 요청 분량 × 여유, 근거는 찾은 조각만큼, 대화 기억은 대화 길이만큼). 고정 상한은 두지 않고, 운영에서 묶어야 할 때만 연결 설정 work_context·ZZAIMY_WORK_CONTEXT(llm_budget.work_len).
 
 - 처리 주소도 화면을 따라(사용자 「옛날 주소 안쓰는건 지우고, 교체할건 교체」, 넘기기·별칭 없이 부르는 곳을 바꾸고 옛 것 지움): 계정 저장·여러 명 바꾸기 POST /dev/users/save·bulk → /team/accounts/save·bulk, 구글 연결 삭제 /dev/google/revoke → /team/google/revoke, 구글 앱 등록 /dev/gdrive/client → /team/google/client(같은 일을 하던 /dev/gdrive/revoke 는 지움), 수집 자료 /dev/collect/{make,file,peek} → /dev/train/collect/…, 근거 문답 검수 반영 /dev/data/grounded-pull → /dev/train/grounded-pull·승인본 /dev/data/{id}.jsonl → /dev/train/data/{id}.jsonl(옛 데이터 공방 화면 앞부분), 빠진 원본 목록 /dev/intake/missed.csv → /dev/flow/intake/missed.csv(부르는 화면이 없던 failed.csv 는 지움). /team/* 은 /dev 앞부분 막기를 받지 않아 옮긴 관리자 처리마다 user_admin.need_admin 으로 막고, 교직원(일반·총괄 책임자)·학생은 403·로그인 안 함은 로그인 화면·관리자는 성공·막힌 요청은 아무것도 바꾸지 않음을 tests/test_moved_admin_routes.py 가 본다. 구글 허용 콜백 /dev/gdrive/callback 은 콘솔 등록 값이라 그대로.

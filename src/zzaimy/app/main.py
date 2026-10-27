@@ -3498,7 +3498,11 @@ def create_app(
         usage_ = _lb_usage.track()                                # 이 답변에서 모델에 보낸 양 — 화면 「문맥 사용」 표시
         _chat_usage_live[session_id] = usage_                     # 답을 쓰는 동안에도 화면이 지금까지의 호출을 본다
         try:
-            _answer_task_impl(session_id, q, stored, criteria, web)
+            # 답변 깊이(app/effort) — 이 질문을 보낼 때 고른 단계(chat_send 가 질문에 남김, 없으면 빠르게). 이 블록 안의 모델 호출이 읽는다
+            from zzaimy.app import effort as _effort
+            _q_last = next((m for m in reversed(db.list_chats(session_id, limit=4)) if m.get("role") == "user"), None)
+            with _effort.use(_effort.of_message(db, (_q_last or {}).get("id"))):
+                _answer_task_impl(session_id, q, stored, criteria, web)
         finally:
             _chat_usage_live.pop(session_id, None)
             if usage_["calls"]:
