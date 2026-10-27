@@ -330,6 +330,14 @@ def locks(db, fid: int) -> dict:
     return {r[0]: {"user": r[1], "until": float(r[2]), "since": float(r[3] or 0), "wanted": r[4] or "", "client": r[5] or ""} for r in rows}
 
 
+def struct_holders(db) -> dict[int, str]:
+    """살아 있는 구조 잠금 전부 — {fid: 쥔 사람}. 문서함 목록이 파일마다 따로 묻지 않게 한 번에 읽는다."""
+    ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute("SELECT fid, user_id FROM webhwp_field_locks WHERE field = ? AND lease_until > ?", (STRUCT, time.time())).fetchall()
+    return {int(r[0]): r[1] for r in rows}
+
+
 def holder(db, fid: int, field: str) -> str:
     return (locks(db, fid).get(field) or {}).get("user", "")
 

@@ -337,6 +337,13 @@ def _hidden_all(request: Request) -> dict[int, str]:
     return out
 
 
+def _browse(request: Request, dept: str, folder: str) -> dict:
+    """한 폴더 보기 — 못 여는 파일은 처음부터 빼고(폴더의 최근 수정 시각에도 안 들어가게), 수정한 사람이 나면 「나」."""
+    st = request.app.state
+    return webhwp.browse(st.db, _base(request), dept, folder, skip=hidden_here(request, dept),
+                         me=getattr(request.state, "user", "") or "", accounts=getattr(st, "accounts", None))
+
+
 def _prune(request: Request, here: dict | None) -> dict | None:
     """문서함 한 폴더 보기에서 못 여는 파일을 빼고, 그 파일만 들어 있던 하위 폴더는 숨기고 남은 폴더의 수를 고친다."""
     if not here:
@@ -537,7 +544,7 @@ def hwp_home(request: Request, dept: str = "", folder: str = "", ok: str = "", e
     mine = getattr(request.state, "dept", "") or webhwp.COMMON
     dept = dept if dept in depts else (mine if mine in depts else (depts[0] if depts else ""))
     folder = _check_dept(request, dept, folder) if dept else ""
-    here = _prune(request, webhwp.browse(st.db, _base(request), dept, folder) if dept else None)
+    here = _prune(request, _browse(request, dept, folder) if dept else None)
     if here:
         here["label"] = _label(request, dept)
         here["may_make"] = _may_make(request, dept)
@@ -924,7 +931,7 @@ def hwp_browse_api(request: Request, dept: str = "", folder: str = ""):
     mine = getattr(request.state, "dept", "") or webhwp.COMMON
     dept = dept if dept in depts else (mine if mine in depts else (depts[0] if depts else ""))
     folder = _check_dept(request, dept, folder) if dept else ""
-    here = _prune(request, webhwp.browse(st.db, _base(request), dept, folder) if dept else None)
+    here = _prune(request, _browse(request, dept, folder) if dept else None)
     if here:
         here["label"], here["may_make"] = _label(request, dept), _may_make(request, dept)
     mine = _mine(request)

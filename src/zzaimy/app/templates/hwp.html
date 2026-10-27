@@ -4,6 +4,9 @@
 {% block head %}<link rel="stylesheet" href="/static/hwp-box.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/aura-finder.css?v={{ asset_v }}"><script src="/static/aura-finder.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 <div class="hb-toasts" data-toasts aria-live="polite">{% if ok %}<p class="hb-toast" role="status">{{ ok }}</p>{% endif %}{% if err %}<p class="hb-toast err" role="alert">{{ err }}</p>{% endif %}</div>
+{% macro when(x) -%}
+{% if x.at %}<time class="hb-meta hb-when" datetime="{{ x.at }}" title="{{ x.full }}" data-rel>{{ x.when }}</time>{% else %}<span class="hb-meta hb-when">—</span>{% endif %}
+{%- endmacro %}
 {% macro star(dept, folder, label) -%}
 {% set starred = (dept, folder) in fav_keys %}<form class="hb-fav" action="/hwp/favorite" method="post" data-fav>
   <input type="hidden" name="dept" value="{{ dept }}"><input type="hidden" name="folder" value="{{ folder }}"><input type="hidden" name="on" value="{{ '0' if starred else '1' }}">
@@ -59,7 +62,7 @@
   <section class="hb-main" data-dept-view aria-label="{{ here.dept }}">
     <div class="hb-bar">
       <div class="hb-loc">
-        <button type="button" class="hb-btn hb-side-open" data-side-open aria-controls="hbSide" aria-expanded="false"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>폴더</button>
+        <button type="button" class="hb-btn hb-side-open" data-side-open aria-controls="hbSide" aria-expanded="false" aria-label="위치 목록 열기"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="l">폴더</span></button>
         {% if here.crumbs %}<a class="hb-back" href="/hwp?dept={{ here.dept|urlencode }}{% if parent %}&folder={{ parent|urlencode }}{% endif %}" aria-label="위 폴더로" title="위 폴더로"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></a>
         {% else %}<span class="hb-back" aria-disabled="true"><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></span>{% endif %}
         <div class="hb-path" aria-label="경로">
@@ -70,14 +73,20 @@
       </div>
       <div class="hb-tools">
         {# 한글 편집기가 꺼져 있어도 단추는 숨기지 않고 까닭과 함께 막아 둔다(내려받기·올리기는 그대로 된다) #}
-        {% if not status.ok %}<span class="hb-status" id="hbEditorOff"><span class="hb-dot" aria-hidden="true"></span>한글 편집기 연결 안 됨</span>
-        {% elif request.state.role == 'dev' %}<span class="hb-status" title="한글 편집기 연결됨" role="img" aria-label="한글 편집기 연결됨"><span class="hb-dot on" aria-hidden="true"></span></span>{% endif %}
+        {# 편집기가 끊겼을 때만 까닭을 보인다(연결된 평소 상태는 표시 없음). 좁으면 점만 남고 문구는 title 에 #}
+        {% if not status.ok %}<span class="hb-status" id="hbEditorOff" title="한글 편집기 연결 안 됨"><span class="hb-dot" aria-hidden="true"></span><span class="l">한글 편집기 연결 안 됨</span></span>{% endif %}
         {% if status.ok %}<a class="hb-btn primary" href="/hwp/new?dept={{ here.dept|urlencode }}{% if here.folder %}&folder={{ here.folder|urlencode }}{% endif %}" data-aura="hwp-new"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</a>
+        {# 보조 단추 — 넓으면 줄에 그대로, 좁으면 「더보기」 단추가 여는 작은 메뉴(같은 단추 한 벌, 자리만 바뀐다) #}
+        <button type="button" class="hb-btn ghost hb-more-btn" data-more aria-haspopup="true" aria-expanded="false" aria-controls="hbSub" title="더보기" aria-label="더보기"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon></button>
+        <div class="hb-sub" id="hbSub" data-sub>
         <button type="button" class="hb-btn ghost" data-modal-open="#hwTpl" data-tpl-open title="양식으로 시작" aria-label="양식으로 시작"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon><span class="l">양식으로 시작</span><span class="s" aria-hidden="true">양식</span></button>
         {% else %}<button type="button" class="hb-btn primary" data-aura="hwp-new" disabled aria-describedby="hbEditorOff" title="한글 편집기 연결 안 됨"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon>새 문서</button>
+        <button type="button" class="hb-btn ghost hb-more-btn" data-more aria-haspopup="true" aria-expanded="false" aria-controls="hbSub" title="더보기" aria-label="더보기"><iconify-icon icon="solar:menu-dots-bold" aria-hidden="true"></iconify-icon></button>
+        <div class="hb-sub" id="hbSub" data-sub>
         <button type="button" class="hb-btn ghost" disabled aria-label="양식으로 시작" aria-describedby="hbEditorOff" title="한글 편집기 연결 안 됨"><iconify-icon icon="solar:documents-linear" aria-hidden="true"></iconify-icon><span class="l">양식으로 시작</span><span class="s" aria-hidden="true">양식</span></button>{% endif %}
         <button type="button" class="hb-btn ghost" data-pick-file title="내 컴퓨터의 한글 파일 올리기" aria-label="올리기"><iconify-icon icon="solar:upload-linear" aria-hidden="true"></iconify-icon><span class="l">올리기</span><span class="s" aria-hidden="true">올리기</span></button>
         {% if here.may_make %}<button type="button" class="hb-btn ghost" data-new-folder title="새 폴더" aria-label="새 폴더"><iconify-icon icon="solar:add-folder-linear" aria-hidden="true"></iconify-icon><span class="l">새 폴더</span><span class="s" aria-hidden="true">새 폴더</span></button>{% endif %}
+        </div>
       </div>
     </div>
     <form action="/hwp/upload" method="post" enctype="multipart/form-data" data-upload{% if here.sorts %} data-sort{% endif %} hidden>
@@ -87,18 +96,18 @@
     <div class="hb-selbar" data-selbar hidden><span data-sel-count></span><button type="button" class="hb-btn" data-sel-delete><iconify-icon icon="solar:trash-bin-minimalistic-linear" aria-hidden="true"></iconify-icon>지우기</button><button type="button" class="hb-btn ghost" data-sel-clear>선택 해제</button></div>
     <div class="hb-list" role="list" data-dept-list data-may-make="{{ 'on' if here.may_make else '' }}">
       {% if here.folders or here.files %}
-      <div class="hb-head"><span>{% if here.files %}<input type="checkbox" class="hb-pick" data-pick-all aria-label="모두 선택" title="모두 선택">{% endif %}</span><span>이름</span><span>수정일</span><span>수정한 사람</span><span></span></div>
+      <div class="hb-head"><span>{% if here.files %}<input type="checkbox" class="hb-pick" data-pick-all aria-label="모두 선택" title="모두 선택">{% endif %}</span><span>이름</span><span>수정일</span><span class="hb-col-who">수정한 사람</span><span></span></div>
       {% for d in here.folders %}
       <div class="hb-row" data-kind="folder" data-path="{{ d.path }}" role="listitem"><iconify-icon icon="solar:folder-bold" aria-hidden="true"></iconify-icon>
-        <span class="hb-cell"><a class="hb-name" href="/hwp?dept={{ here.dept|urlencode }}&folder={{ d.path|urlencode }}" data-aura="hwp-folder">{{ d.name }}</a><span class="hb-count" title="문서 {{ d.count }}개">{{ d.count }}개</span></span>
-        <span class="hb-meta"></span><span class="hb-meta"></span><div class="hb-act">{% if here.may_make %}<button type="button" class="hb-ib" data-rename-folder title="이름 바꾸기" aria-label="「{{ d.name }}」 이름 바꾸기"><iconify-icon icon="solar:pen-linear" aria-hidden="true"></iconify-icon></button>{% endif %}{{ star(here.dept, d.path, d.name) }}</div></div>
+        <span class="hb-cell"><a class="hb-name" href="/hwp?dept={{ here.dept|urlencode }}&folder={{ d.path|urlencode }}" data-aura="hwp-folder">{{ d.name }}</a></span>
+        {{ when(d) }}<span class="hb-meta hb-count">{{ '비어 있음' if not d.count else '문서 ' ~ d.count ~ '개' }}</span><div class="hb-act">{% if here.may_make %}<button type="button" class="hb-ib" data-rename-folder title="이름 바꾸기" aria-label="「{{ d.name }}」 이름 바꾸기"><iconify-icon icon="solar:pen-linear" aria-hidden="true"></iconify-icon></button>{% endif %}{{ star(here.dept, d.path, d.name) }}</div></div>
       {% endfor %}
       {% for f in here.files %}
       {% set deletable = not f.locked or request.state.role == 'dev' %}
       <div class="hb-row" data-kind="file" data-id="{{ f.id }}" role="listitem"><span class="hb-ic"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>{% if deletable %}<input type="checkbox" class="hb-pick" data-pick value="{{ f.id }}" aria-label="「{{ f.name }}」 고르기">{% endif %}</span>
         <span class="hb-cell">{% if status.ok %}<a class="hb-name" href="/hwp/{{ f.id }}/edit" title="기안기로 열기" data-aura="hwp-file">{{ f.name }}</a>{% else %}<span class="hb-name">{{ f.name }}</span>{% endif %}</span>
-        <span class="hb-meta">{{ f.saved }}</span>
-        <span class="hb-meta">{% if f.editing %}<span class="hb-lock" title="편집 중인 사람이 닫으면 풀립니다">{{ f.editing }} 편집 중</span>{% else %}{{ f.saved_by or f.owner }}{% endif %}</span>
+        {{ when(f) }}
+        <span class="hb-meta hb-who">{% if f.editing %}<span class="hb-lock" title="편집 중인 사람이 닫으면 풀립니다">{{ f.editing }} 편집 중</span>{% elif f.by %}<span class="hb-av" aria-hidden="true">{{ (f.by_name or f.by)[:1] }}</span><span class="t" title="{{ f.by_name or f.by }}">{{ '나' if f.by_me else (f.by_name or f.by) }}</span>{% else %}—{% endif %}</span>
         <div class="hb-act">
           {% if f.locked %}<form action="/hwp/{{ f.id }}/copy" method="post" data-copy="{{ f.id }}" data-name="{{ f.name }}"><button type="submit" class="hb-ib" title="사본 만들기" aria-label="「{{ f.name }}」 사본 만들기"><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon></button></form>{% endif %}
           <a class="hb-ib" href="/hwp/{{ f.id }}/file" title="내려받기" aria-label="「{{ f.name }}」 내려받기"><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon></a>
@@ -112,7 +121,7 @@
   <section class="hb-main hb-drive" data-drive-view hidden aria-label="구글 드라이브">
     <div class="hb-bar">
       <div class="hb-loc">
-        <button type="button" class="hb-btn hb-side-open" data-side-open aria-controls="hbSide" aria-expanded="false"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon>폴더</button>
+        <button type="button" class="hb-btn hb-side-open" data-side-open aria-controls="hbSide" aria-expanded="false" aria-label="위치 목록 열기"><iconify-icon icon="solar:folder-with-files-linear" aria-hidden="true"></iconify-icon><span class="l">폴더</span></button>
         <button type="button" class="hb-back" data-drive-back aria-label="뒤로" title="뒤로" disabled><iconify-icon icon="solar:alt-arrow-left-linear" aria-hidden="true"></iconify-icon></button>
         <div class="hb-path" data-drive-path aria-label="경로"></div>
       </div>

@@ -265,32 +265,106 @@ def listing(db, base: Path, depts: list[str]) -> list[dict]:
     return [{"dept": d, "count": count[d]} for d in depts]
 
 
-def browse(db, base: Path, dept: str, folder: str = "") -> dict:
-    """부서 안 한 폴더 — 하위 폴더(빈 폴더도)와 그 폴더의 문서. 디스크에 없는 장부 줄은 뺀다."""
+def _at(*vals) -> datetime | None:
+    """장부·meta 의 시각 글(시간대가 있든 없든)을 이 서버 시간대의 시각으로 — 읽을 수 없으면 None."""
+    for v in vals:
+        try:
+            d = datetime.fromisoformat(str(v or "").strip())
+        except ValueError:
+            continue
+        return d.astimezone()                               # 시간대 없는 값(meta 의 saved·created)은 서버 시각으로 본다
+    return None
+
+
+def when(d: datetime | None, now: datetime | None = None) -> str:
+    """목록에 보일 짧은 시각 — 방금·N분 전·N시간 전(오늘)·어제·N일 전(1주 안)·날짜. 화면 스크립트(hwp-box.js rel)와 같은 규칙."""
+    if d is None:
+        return "—"
+    now = (now or datetime.now()).astimezone()
+    sec = (now - d).total_seconds()
+    if sec < 60:
+        return "방금"
+    if sec < 3600:
+        return f"{int(sec // 60)}분 전"
+    days = (now.date() - d.date()).days
+    if days == 0:
+        return f"{int(sec // 3600)}시간 전"
+    if days == 1:
+        return "어제"
+    if days < 7:
+        return f"{days}일 전"
+    return f"{d.month}월 {d.day}일" if d.year == now.year else f"{d.year}. {d.month}. {d.day}."
+
+
+def _stamp(d: datetime | None) -> dict:
+    """시각 한 칸 — at(기계 값, 스크립트가 다시 셈), when(짧은 말), full(마우스를 올리면 보이는 정확한 시각)."""
+    if d is None:
+        return {"at": "", "when": "—", "full": ""}
+    return {"at": d.isoformat(timespec="seconds"), "when": when(d), "full": f"{d.year}년 {d.month}월 {d.day}일 {d:%H:%M}"}
+
+
+def browse(db, base: Path, dept: str, folder: str = "", *, skip: set[int] | frozenset = frozenset(), me: str = "",
+           accounts: dict | None = None) -> dict:
+    """부서 안 한 폴더 — 하위 폴더(빈 폴더도)와 그 폴더의 문서. 디스크에 없는 장부 줄·skip(이 사람이 못 여는 것)은 뺀다.
+    폴더 줄에는 안의 가장 최근 수정 시각, 문서 줄에는 수정 시각·수정한 사람(이름, 본인이면 me). 장부·meta·잠금은 한 번씩만 읽는다."""
+    from zzaimy.app import webhwp_coedit
     here = folder_dir(base, dept, folder)
+    cur = clean_folder(folder)
     folders = []
     if here.is_dir():
         for c in sorted(here.iterdir(), key=lambda x: x.name):
             if c.is_dir() and c.name not in HIDDEN and not c.name.startswith("."):
                 n = sum(1 for x in c.rglob("*") if x.suffix.lower() in SUFFIXES and not any(p in HIDDEN for p in x.parts))
-                folders.append({"name": c.name, "path": clean_folder(f"{folder}/{c.name}"), "count": n})
+                folders.append({"name": c.name, "path": clean_folder(f"{cur}/{c.name}"), "count": n})
+    holders = webhwp_coedit.struct_holders(db)
+    names: dict[str, str] = {}
+
+    def name_of(uid: str) -> str:
+        if uid not in names:
+            names[uid] = _display(db, uid, accounts)
+        return names[uid]
+
+    latest: dict[str, datetime] = {}                        # 하위 폴더 이름 → 안(아래 폴더까지)의 가장 최근 수정 시각
     files = []
-    for r in db.list_files(kind="webhwp", limit=5000):
-        p = Path(r["path"])
-        if dept_of_path(base, r["path"]) != dept or folder_of(base, r["path"]) != clean_folder(folder) or not p.exists():
-            continue
-        m = meta(db, r["id"])
-        files.append({"id": r["id"], "name": r["name"], "size": r["size"], "owner": m.get("owner", ""),
-                      "locked": str(m.get("source", "")).startswith("양식:"),
-                      "editing": _display(db, lock_holder(db, r["id"]).get("user", "")),
-                      "saved": (m.get("saved") or m.get("created") or r.get("created_at") or "")[:16].replace("T", " "),
-                      "saved_by": m.get("saved_by", "")})
-    files.sort(key=lambda x: x["saved"], reverse=True)
+    with preloaded_meta(db):
+        rr = root(base).resolve()                           # 경로 풀기는 줄마다 한 번(부서·폴더를 따로 풀면 천여 개에서 1초 가까이 걸렸다)
+        for r in db.list_files(kind="webhwp", limit=8000):
+            if int(r["id"]) in skip:
+                continue
+            try:
+                parts = Path(r["path"]).resolve().relative_to(rr).parts
+            except (ValueError, OSError):
+                continue
+            if len(parts) < 2 or parts[0] != dept:
+                continue
+            fo = "/".join(parts[1:-1])
+            if fo != cur and not (fo.startswith(cur + "/") if cur else bool(fo)):
+                continue
+            if not Path(r["path"]).exists():
+                continue
+            m = meta(db, r["id"])
+            d = _at(m.get("saved"), m.get("created"), r.get("created_at"))
+            if fo != cur:
+                child = fo[len(cur) + 1:] if cur else fo
+                child = child.split("/", 1)[0]
+                if d and (child not in latest or d > latest[child]):
+                    latest[child] = d
+                continue
+            by = m.get("saved_by") or m.get("owner") or ""
+            files.append({"id": r["id"], "name": r["name"], "size": r["size"], "owner": m.get("owner", ""),
+                          "locked": str(m.get("source", "")).startswith("양식:"),
+                          "editing": name_of(holders[int(r["id"])]) if holders.get(int(r["id"])) else "",
+                          "saved": (m.get("saved") or m.get("created") or r.get("created_at") or "")[:16].replace("T", " "),
+                          "saved_by": m.get("saved_by", ""), "by": by, "by_name": name_of(by) if by else "",
+                          "by_me": bool(me) and by == me, "_d": d, **_stamp(d)})
+    files.sort(key=lambda x: x.pop("_d") or datetime.min.astimezone(), reverse=True)
+    for fx in folders:
+        fx.update(_stamp(latest.get(fx["name"])))
     crumbs, acc = [], []
-    for seg in [x for x in clean_folder(folder).split("/") if x]:
+    for seg in [x for x in cur.split("/") if x]:
         acc.append(seg)
         crumbs.append({"name": seg, "path": "/".join(acc)})
-    return {"dept": dept, "folder": clean_folder(folder), "folders": folders, "files": files, "crumbs": crumbs}
+    return {"dept": dept, "folder": cur, "folders": folders, "files": files, "crumbs": crumbs}
 
 
 def display_name(db, user: str, accounts: dict | None = None) -> str:

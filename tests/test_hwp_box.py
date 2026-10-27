@@ -60,7 +60,8 @@ def test_recent_folders_record_opens_and_work_per_user(tmp_path, monkeypatch):
     assert "최근 폴더" not in lee.get("/hwp").text                                       # 비면 절을 숨긴다
 
 
-def test_editor_version_hidden_for_staff_and_shown_as_plain_status_for_admin(tmp_path, monkeypatch):
+def test_editor_version_hidden_and_connected_state_has_no_bare_dot(tmp_path, monkeypatch):
+    """편집기 판 번호는 누구에게도 안 보이고, 연결된 평소 상태는 머리 줄에 뜻 모를 점을 두지 않는다(끊겼을 때만 문구)."""
     app, kim, _ = _two(tmp_path, monkeypatch)
     app.state.accounts["boss"] = app.state.new_account("boss", PW, "dev")
     page = kim.get("/hwp").text
@@ -68,7 +69,7 @@ def test_editor_version_hidden_for_staff_and_shown_as_plain_status_for_admin(tmp
     dev = TestClient(app)
     assert _login(dev, "boss", PW)
     dpage = dev.get("/hwp").text
-    assert "한글 편집기 연결됨" in dpage and "13.82.0.208" not in dpage
+    assert "hb-dot" not in dpage and "13.82.0.208" not in dpage
 
 
 def test_drive_status_is_200_and_editor_down_keeps_buttons_disabled(tmp_path, monkeypatch):
@@ -254,13 +255,13 @@ def test_repath_files_treats_underscore_and_percent_literally(tmp_path):
 
 
 def test_list_wording_and_quiet_row_actions(tmp_path, monkeypatch):
-    """목록 말·꼴 — 수정일·수정한 사람, 폴더 문서 수는 이름 옆, 줄 동작은 아이콘 단추(이름은 title·aria-label), 드라이브 아래 안내 줄 없음."""
+    """목록 말·꼴 — 수정일·수정한 사람, 빈 폴더는 사람 열에 「비어 있음」·시각 「—」, 줄 동작은 아이콘 단추(이름은 title·aria-label), 드라이브 아래 안내 줄 없음."""
     app, kim, _ = _two(tmp_path, monkeypatch)
     kim.post("/hwp/folder", data={"dept": "기획처", "folder": "", "name": "결과보고서"})
     _up(kim, app, "기획처", "협조문.hwpx", _hwpx())
     page = kim.get("/hwp?dept=기획처").text
-    assert "<span>수정일</span><span>수정한 사람</span>" in page and "고친 때" not in page and "고친 사람" not in page
-    assert 'class="hb-count" title="문서 0개">0개</span>' in page and ">문서 0<" not in page
+    assert '<span>수정일</span><span class="hb-col-who">수정한 사람</span>' in page and "고친 때" not in page and "고친 사람" not in page
+    assert '<span class="hb-meta hb-when">—</span><span class="hb-meta hb-count">비어 있음</span>' in page
     assert "두 번 눌러" not in page and 'aria-label="「결과보고서」 이름 바꾸기"' in page
     assert 'aria-label="「협조문.hwpx」 내려받기"' in page and 'aria-label="「협조문.hwpx」 지우기"' in page
     assert ">내려받기</a>" not in page and ">지우기</button></form>" not in page
@@ -275,3 +276,43 @@ def test_remove_files_under_removes_detached_rows_only_in_that_folder(tmp_path):
     db.add_file("intake", "/b/2026-국고-0072 계획_수정2/원본.pdf", name="원본")
     assert db.remove_files_under("/b/2026-국고-0072 계획_수정") == 1
     assert [r["path"] for r in db.list_files(kind="intake")] == ["/b/2026-국고-0072 계획_수정2/원본.pdf"]
+
+
+def test_list_times_are_relative_folders_show_latest_inside_and_people_by_name(tmp_path, monkeypatch):
+    """수정 시각은 짧은 말(방금·N분 전·어제·날짜)에 정확한 시각을 title 로, 폴더 줄은 안(아래 폴더까지)의 가장 최근 수정·문서 수,
+    수정한 사람은 계정 아이디가 아니라 이름(본인이면 「나」). 못 여는 파일은 폴더 시각에도 안 들어간다."""
+    import json
+    from datetime import datetime, timedelta
+    app, kim, lee = _two(tmp_path, monkeypatch)
+    db = app.state.db
+    kim.post("/hwp/folder", data={"dept": "기획처", "folder": "", "name": "보고"})
+    kim.post("/hwp/folder", data={"dept": "기획처", "folder": "보고", "name": "안쪽"})
+    fid = _up(kim, app, "기획처", "회의록.hwpx", _hwpx(), folder="보고/안쪽")
+    old = _up(kim, app, "기획처", "옛 공문.hwpx", _hwpx())
+    m = webhwp.meta(db, old)
+    m.update(saved=(datetime.now() - timedelta(days=40)).isoformat(timespec="seconds"), saved_by="lee")
+    db.set_setting(f"webhwp_meta:{old}", json.dumps(m, ensure_ascii=False))
+    db.set_setting("user:lee:name", "이영희")
+    page = kim.get("/hwp?dept=기획처").text
+    row = page.split('data-path="보고"', 1)[1].split("</div></div>", 1)[0]
+    assert ">방금</time>" in row and 'title="' in row and ">문서 1개<" in row          # 안쪽 폴더의 문서까지 센 최근 시각
+    orow = page.split(f'data-id="{old}"', 1)[1].split('class="hb-act"', 1)[0]
+    assert "월 " in orow and "일</time>" in orow and "분 전" not in orow               # 1주 넘으면 날짜
+    assert ">이영희</span>" in orow and ">lee<" not in orow and '>이</span>' in orow  # 아이디가 아닌 이름·첫 글자 동그라미
+    inner = kim.get("/hwp?dept=기획처&folder=보고/안쪽").text
+    frow = inner.split(f'data-id="{fid}"', 1)[1].split('class="hb-act"', 1)[0]
+    assert '<span class="t" title=' in frow and ">나</span>" in frow                  # 본인은 「나」
+    # 규칙 자체
+    now = datetime(2026, 10, 27, 15, 0).astimezone()
+    w = lambda **k: webhwp.when(now - timedelta(**k), now)
+    assert [w(seconds=10), w(minutes=3), w(hours=2), w(days=1), w(days=3), w(days=10)] == ["방금", "3분 전", "2시간 전", "어제", "3일 전", "10월 17일"]
+    assert webhwp.when(None) == "—" and webhwp.when(datetime(2025, 3, 2).astimezone(), now) == "2025. 3. 2."
+
+
+def test_row_click_never_starts_rename_and_header_folds_extra_buttons():
+    """이름 바꾸기는 연필 단추·F2 로만(줄 두 번 누르기로 열리지 않는다), 머리 줄 보조 단추는 좁으면 「더보기」 메뉴로."""
+    js = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/hwp-box.js").read_text()
+    css = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/hwp-box.css").read_text()
+    html = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/templates/hwp.html").read_text()
+    assert "dblclick" not in js and "'F2'" in js and "contenteditable" not in html
+    assert "data-more" in html and "data-sub" in html and "@container hbbar" in css and "@container hblist" in css

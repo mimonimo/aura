@@ -229,13 +229,33 @@
       });
     }, function () { if (meta) { meta.textContent = keep; meta.classList.remove('hb-err'); } });
   }
-  function bindFolderRow(row) {                             // 이름 바꾸기는 줄의 연필 단추(두 번 눌러 바꾸기도 그대로 둔다)
+  // 이름 바꾸기는 줄의 연필 단추와 F2(초점이 그 줄에 있을 때)로만 — 줄·이름을 누르면(한 번·두 번·천천히 두 번) 늘 들어가기/열기.
+  // 예전에는 줄의 빈 곳을 두 번 누르면 이름 칸이 열려, 이름 옆(문서 수·빈 칸)을 눌러 안 들어가지자 다시 누른 사람이 이름 바꾸기에 빠졌다
+  function bindFolderRow(row) {
     var b = row.querySelector('[data-rename-folder]');
     if (b) b.addEventListener('click', function () { renameRow(row); });
-    if (dList0 && dList0.dataset.mayMake) row.addEventListener('dblclick', function (e) { if (!e.target.closest('a,button,input,form')) renameRow(row); });
   }
   function iconBtn(ic, label) { var b = el('button', 'hb-ib'); b.type = 'button'; b.title = label; b.setAttribute('aria-label', label); b.append(icon(ic)); return b; }
   if (dList0) dList0.querySelectorAll('.hb-row[data-kind=folder]').forEach(bindFolderRow);
+  if (dList0) {
+    // 줄 어디를 눌러도 그 줄의 이름 링크로(단추·고르기 칸·글자 끌어 고르기는 그대로). Ctrl·⌘·가운데 단추는 새 탭
+    dList0.addEventListener('click', function (e) {
+      var row = e.target.closest('.hb-row'); if (!row || row.classList.contains('editing')) return;
+      if (e.target.closest('a,button,input,form,label,.hb-act')) return;
+      var sel = window.getSelection && String(window.getSelection() || ''); if (sel) return;
+      var a = row.querySelector('a.hb-name'); if (!a) return;
+      if (e.metaKey || e.ctrlKey) window.open(a.href, '_blank'); else a.click();
+    });
+    dList0.addEventListener('auxclick', function (e) {
+      var row = e.target.closest('.hb-row'); if (e.button !== 1 || !row || e.target.closest('a,button,input,form')) return;
+      var a = row.querySelector('a.hb-name'); if (a) window.open(a.href, '_blank');
+    });
+    dList0.addEventListener('keydown', function (e) {
+      if (e.key !== 'F2' || e.target.closest('input')) return;
+      var row = e.target.closest('.hb-row[data-kind=folder]');
+      if (row && !row.classList.contains('editing') && row.querySelector('[data-rename-folder]')) { e.preventDefault(); renameRow(row); }
+    });
+  }
   var nf = box.querySelector('[data-new-folder]');
   if (nf && dList0) nf.addEventListener('click', function () {
     if (dList0.querySelector('.hb-row.editing')) return;
@@ -243,18 +263,17 @@
     var head = dList0.querySelector('.hb-head');
     if (!head) {
       head = el('div', 'hb-head'); head.setAttribute('aria-hidden', 'true');
-      ['', '이름', '수정일', '수정한 사람', ''].forEach(function (t) { head.append(el('span', '', t)); });
+      ['', '이름', '수정일', '수정한 사람', ''].forEach(function (t, i) { head.append(el('span', i === 3 ? 'hb-col-who' : '', t)); });
       dList0.prepend(head);
     }
     var row = el('div', 'hb-row'); row.dataset.kind = 'folder'; row.setAttribute('role', 'listitem');
-    row.append(icon('solar:folder-bold'), el('span', 'hb-cell'), el('span', 'hb-meta'), el('span', 'hb-meta'), el('div', 'hb-act'));
+    row.append(icon('solar:folder-bold'), el('span', 'hb-cell'), el('span', 'hb-meta hb-when', '—'), el('span', 'hb-meta hb-count'), el('div', 'hb-act'));
     head.after(row);
     editName(row, freeName(), function (v) {
       return postJSON('/hwp/folder', folderForm({folder: box.dataset.folder || '', name: v})).then(function (j) {
         var a = el('a', 'hb-name', j.name); a.href = j.href;
-        var cell = row.querySelector('.hb-cell'), cnt = el('span', 'hb-count', '0개'); cnt.title = '문서 0개';
-        cell.prepend(a); cell.append(cnt); row.dataset.path = j.path;
-        var metas = row.querySelectorAll('.hb-meta'); metas[0].textContent = ''; metas[0].classList.remove('hb-err');
+        row.querySelector('.hb-cell').prepend(a); row.dataset.path = j.path;
+        var metas = row.querySelectorAll('.hb-meta'); metas[0].textContent = '—'; metas[0].classList.remove('hb-err'); metas[1].textContent = '비어 있음';
         var act = row.querySelector('.hb-act'), rb = iconBtn('solar:pen-linear', '이름 바꾸기'); rb.setAttribute('data-rename-folder', '');
         act.append(rb, makeStar(box.dataset.dept || '', j.path, j.name));
         bindFolderRow(row);
@@ -498,5 +517,39 @@
       else if (e.key === 'ArrowUp') { e.preventDefault(); choose(sel - 1); }
       else if (e.key === 'Enter') { e.preventDefault(); var all = items(); if (all[sel]) all[sel].click(); }
     });
+  }
+  // 수정 시각 — 서버가 그린 짧은 말(방금·N분 전·어제·날짜)을 1분마다 지금 기준으로 다시 센다. 규칙은 webhwp.when 과 같다
+  function rel(d, now) {
+    var sec = (now - d) / 1000;
+    if (sec < 60) return '방금';
+    if (sec < 3600) return Math.floor(sec / 60) + '분 전';
+    var day = function (x) { return new Date(x.getFullYear(), x.getMonth(), x.getDate()); };
+    var days = Math.round((day(now) - day(d)) / 86400000);
+    if (days === 0) return Math.floor(sec / 3600) + '시간 전';
+    if (days === 1) return '어제';
+    if (days < 7) return days + '일 전';
+    return d.getFullYear() === now.getFullYear() ? (d.getMonth() + 1) + '월 ' + d.getDate() + '일' : d.getFullYear() + '. ' + (d.getMonth() + 1) + '. ' + d.getDate() + '.';
+  }
+  function paintTimes() {
+    var now = new Date();
+    box.querySelectorAll('time[data-rel]').forEach(function (t) {
+      var d = new Date(t.getAttribute('datetime')); if (!isNaN(d)) t.textContent = rel(d, now);
+    });
+  }
+  setInterval(paintTimes, 60000);
+
+  // 머리 줄 「더보기」 — 좁은 폭에서만 보이고, 보조 단추(양식·올리기·새 폴더)를 겹쳐 뜨는 작은 메뉴로 연다(줄이 밀리지 않게)
+  var moreBtn = box.querySelector('[data-more]'), sub = box.querySelector('[data-sub]');
+  if (moreBtn && sub) {
+    var shut = function () { sub.classList.remove('open'); moreBtn.setAttribute('aria-expanded', 'false'); };
+    moreBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var on = !sub.classList.contains('open');
+      sub.classList.toggle('open', on); moreBtn.setAttribute('aria-expanded', String(on));
+      if (on) { var first = sub.querySelector('button:not([disabled])'); if (first) first.focus(); }
+    });
+    sub.addEventListener('click', function (e) { if (e.target.closest('button')) shut(); });
+    document.addEventListener('click', function (e) { if (!e.target.closest('[data-sub],[data-more]')) shut(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sub.classList.contains('open')) { shut(); moreBtn.focus(); } });
   }
 })();
