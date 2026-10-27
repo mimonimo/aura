@@ -95,7 +95,7 @@ def test_db_browser_shortens_long_names_and_keeps_full_title(client):
 def test_dev_dashboard_labels(client):
     r = client.get("/dev")
     assert r.status_code == 200
-    assert "접수 문서" in r.text and "규정 문단" in r.text   # 규모 타일 — /dev/db 와 같은 이름
+    assert "등록 문서" in r.text and "규정 문단" in r.text   # 규모 타일 — /dev/db 와 같은 이름
     assert "구축 현황" in r.text and "영역별 완료 비율" in r.text and "진행 현황" in r.text
     # 허브 — 상세 카드는 전용 페이지로 갔고, 바로가기 카드만 남는다
     for link in ("/dev/quality", "/dev/docs", "/dev/history", "/dev/train", "/dev/pii"):

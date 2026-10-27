@@ -41,6 +41,7 @@ WHAT = {
     "evidence": "지출·계약 증빙 갈래",
     "evidence_title": "제목이 지출·계약 증빙인 문서(갈래는 본문으로 달리 붙었어도)",
     "dup": "같은 본문 여분(사업마다 한 건만 남김)",
+    "near": "제목이 같고 본문이 거의 같은 여분(같은 사업 안, 겹침 doc_family.NEAR_DUP 이상 — 최신 판 하나만 남김)",
     "tiny": "본문 100자 미만(양식 제외)",
     "drawing": "도면 갈래",
     "personal": "개인 제출물 갈래(수기·응모작 등)",
@@ -61,6 +62,9 @@ def targets(db, what: str = "evidence") -> list[int]:
     evidence — 지출·계약 증빙 갈래(doc_routing.excluded_kinds, 절대 규칙 11). 경로만으로 고르지 않는다: 「정산·집행」 폴더에도
                사업계획서·실적보고서·집행 요령이 있다(그것은 남긴다)
     dup      — 본문이 글자 하나 다르지 않은 문서 묶음에서, 같은 사업 안의 여분. 남기는 쪽은 사본·인수인계 경로가 아닌 것 → 최신
+    near     — 같은 사업 안에서 판 꼬리를 뗀 제목(library.version_key)이 같고 본문 겹침이 doc_family.NEAR_DUP 이상인 여분.
+               반입의 같은 내용 판정(doc_family.judge)과 같은 잣대 — 남기는 쪽은 dup 과 같다. 겹침이 그보다 낮은 옛 판은 남긴다
+               (라이브러리는 판본으로 묶어 최신 판을 보이고, 검색은 계열의 최종본을 쓴다)
     tiny     — 처리는 끝났는데 본문이 TINY 자 미만(시안·빈 표·그림만 있는 파일). 양식은 빈 칸이 본문이라 남긴다
     drawing·personal — 서류 갈래(guess_kind)가 도면·개인 제출물"""
     with db._conn() as conn:
@@ -104,7 +108,39 @@ def targets(db, what: str = "evidence") -> list[int]:
                     keep = min(ids, key=lambda d: (bool(_COPYISH.search(rel.get(d, ""))), -d))
                     out += [d for d in ids if d != keep]
             return sorted(out)
+        if what == "near":
+            return _near_dups(conn, school)
     raise SystemExit(f"모르는 갈래: {what} — {', '.join(WHAT)}")
+
+
+NEAR_GROUP_MAX = 60          # 한 제목 묶음에서 견줄 문서 수 상한 — 흔한 제목(「붙임」 등)이 비교를 키우지 않게, 넘는 것은 남긴다
+
+
+def _near_dups(conn, school: set[int]) -> list[int]:
+    from zzaimy.app.doc_family import NEAR_DUP, similarity
+    from zzaimy.app.library import version_key
+    rel = {int(r[0]): r[1] for r in conn.execute("SELECT doc_id, MIN(rel) FROM archive_files WHERE doc_id IS NOT NULL GROUP BY doc_id")}
+    groups: dict[tuple, list[int]] = {}
+    for did, name, prog in conn.execute(
+            "SELECT d.id, d.filename, p.program FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
+            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND LENGTH(COALESCE(d.masked_text, '')) >= ?", (TINY,)):
+        did = int(did)
+        if did in school:
+            groups.setdefault((version_key(name or ""), (prog or "").split("|", 1)[0]), []).append(did)
+    out: list[int] = []
+    for ids in groups.values():
+        if len(ids) < 2:
+            continue
+        ids = sorted(ids, key=lambda d: (bool(_COPYISH.search(rel.get(d, ""))), -d))[:NEAR_GROUP_MAX]   # 남길 쪽이 앞
+        texts = {int(a): (b or "") for a, b in conn.execute(
+            f"SELECT id, masked_text FROM documents WHERE id IN ({','.join('?' * len(ids))})", ids)}
+        kept: list[int] = []
+        for d in ids:
+            if any(similarity(texts.get(d, ""), texts.get(k, "")) >= NEAR_DUP for k in kept):
+                out.append(d)
+            else:
+                kept.append(d)
+    return sorted(out)
 
 
 def _cols(conn, table: str) -> list[str]:
