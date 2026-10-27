@@ -355,9 +355,11 @@ _VIEW_CACHE: dict = {}
 
 
 def _program_view_cached(db, program_id, scope) -> dict:
-    """사업 화면 자료 — 그래프 판·사업·보는 사람 범위가 같고 5분 안이면 지난 계산(큰 사업은 문서 수천 건이라 2초, 10-28).
-    문서 권한이 바뀌는 경우를 위해 5분이 지나면 다시 센다."""
+    """사업 화면 자료 — 관리자(전부 보는 범위)만 그래프 판·사업이 같고 5분 안이면 지난 계산(큰 사업은 문서 수천 건이라 2초, 10-28).
+    다른 계정은 문서 권한이 바뀌면 바로 따라야 해서 재사용하지 않는다(10-28 보안 점검)."""
     import time
+    if scope is not None and scope.get("role") != "dev":
+        return program_view(db, program_id, scope=scope)  # 권한으로 거르는 화면은 늘 지금 권한으로(재사용하면 권한을 바꾼 뒤 5분 동안 옛 범위가 보인다)
     key = (str(getattr(db, "path", "")), kg_store.version(db), program_id, json.dumps(scope or {}, sort_keys=True, default=str))
     hit = _VIEW_CACHE.get(key)
     if hit and time.time() - hit[0] < 300:
