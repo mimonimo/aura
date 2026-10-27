@@ -411,6 +411,9 @@ def _page_of(path: str):
     if "{" in p.path:
         m = re.fullmatch(r"/project/(\d+)(/activity)?", path.rstrip("/"))
         return (p, path.rstrip("/")) if m else (None, path)
+    if "?" in p.path and path == p.path.split("?", 1)[0]:
+        # 안내 자료 주소가 물음표 꼴(라이브러리 「/?type=all」)이면 그 주소 그대로 연다 — 앞에서 물음표 뒤를 떼어 「/」(새 채팅)가 열렸다(10-27)
+        return p, p.path
     return p, path
 
 
@@ -467,7 +470,7 @@ def _verbs_of(label: str) -> tuple[str, ...]:
     return (s + "해", s + "하고", s + "까지", s + " 해", s + " 눌러", s + "을 눌러", s + "를 눌러", s + " 단추 눌러", s + " 버튼 눌러")
 
 
-def _resolve(ctx: Ctx, p, same: bool, element: str):
+def _resolve(ctx: Ctx, p, same: bool, element: str, text: str = ""):
     """도우미가 준 요소를 (선택자, 안내 자료 Task 또는 None, 화면 요소 또는 None) 로 — 안내 자료 선택자, 지금 화면 번호(c3),
     그리고 이름(「성명」「성명 입력 칸」)을 안내 자료의 할 일 이름·지금 화면의 칸 이름에 맞춰 본다. 못 찾으면 None."""
     marks = {t.selector: t for t in p.tasks if t.selector}
@@ -482,9 +485,15 @@ def _resolve(ctx: Ctx, p, same: bool, element: str):
     want = _squash_el(re.sub(r"(입력\s*)?(칸|란|창|단추|버튼)$", "", el))
     if len(want) < 2:
         return None
-    for t in p.tasks:                                  # 안내 자료의 할 일 이름(「성명 칸 채우기」)
-        if t.selector and want in _squash_el(t.what):
-            return t.selector, t, None
+    # 안내 자료의 할 일 이름(「성명 칸 채우기」) — 하나로 정해질 때만. 「찾기」 처럼 여럿에 걸리는 말은 같은 이름일 때만 고른다
+    # (10-27: 두 번째 단계 「찾기」 가 「문서 이름으로 찾기」 칸으로 잘못 맞춰졌다)
+    named = [t for t in p.tasks if t.selector and want in _squash_el(t.what)]
+    if len(named) > 1:                                 # 넣을 글이 있으면 칸 채우기(마지막 단추 아님), 없으면 누르는 쪽으로 좁힌다
+        named = [t for t in named if (not t.final) == bool(text)] or named
+    exact = [t for t in named if _squash_el(t.what) == want]
+    if len(named) == 1 or len(exact) == 1:
+        t = named[0] if len(named) == 1 else exact[0]
+        return t.selector, t, None
     hits = [c for c in controls.values() if want == _squash_el(c["label"])] or [c for c in controls.values() if want in _squash_el(c["label"])]
     if len(hits) == 1:
         return f'[data-aura-c="{hits[0]["id"]}"]', None, hits[0]
@@ -511,7 +520,7 @@ def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str =
     out: list[dict] = []
     missed: list[str] = []
     for x in want:
-        got = _resolve(ctx, p, same, str(x.get("element") or ""))
+        got = _resolve(ctx, p, same, str(x.get("element") or ""), str(x.get("text") or ""))
         if got is None:
             missed.append(str(x.get("element") or "")[:30])
             continue

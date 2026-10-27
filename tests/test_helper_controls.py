@@ -48,3 +48,13 @@ def test_controls_only_count_on_current_screen(tmp_path):
     ctx, sid = _ctx(tmp_path, said="문서함 열어줘", controls=[{"id": "c1", "kind": "button", "label": "새 문서"}])
     item = platform_ops.propose_open(ctx, sid, "/hwp", "문서함", now=True, steps=[{"element": "c1"}])
     assert all("data-aura-c" not in x["sel"] for x in item["act"]["steps"])     # 다른 화면에서는 이 화면 번호를 쓰지 않는다
+
+
+def test_library_keeps_query_and_ambiguous_name_is_not_guessed(tmp_path):
+    ctx, sid = _ctx(tmp_path, said="라이브러리에서 LINC 3.0 사업 찾아 줘")
+    ctx.page = "/settings"
+    item = platform_ops.propose_open(ctx, sid, "/?type=all", "LINC 3.0 찾기", now=True,
+                                     steps=[{"element": "사업 찾기", "text": "LINC 3.0"}, {"element": "찾기"}])
+    assert item["screen"] == "/?type=all"                                     # 「/」(새 채팅)로 잘리지 않는다
+    sels = [x["sel"] for x in item["act"]["steps"]]
+    assert sels == ['[id="libFind"]']                                         # 여럿에 걸리는 「찾기」 는 고르지 않는다

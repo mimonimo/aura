@@ -152,7 +152,7 @@ def test_open_page_refuses_outside_or_odd_paths(tmp_path, page):
 
 def test_open_page_keeps_our_paths(tmp_path):
     ctx, sid = _ctx(tmp_path)
-    for page, screen in (("/", "/"), ("/hwp", "/hwp"), ("/hwp/", "/hwp"), ("/project/3#notes", "/project/3#notes"), ("/settings", "/settings")):
+    for page, screen in (("/", "/?type=all"), ("/hwp", "/hwp"), ("/hwp/", "/hwp"), ("/project/3#notes", "/project/3#notes"), ("/settings", "/settings")):
         item = platform_ops.propose_open(ctx, sid, page, "열기")
         assert item["screen"] == screen and item["target"]["path"].startswith("/") and not item["target"]["path"].startswith("//")
         platform_ops.expire(ctx.db, sid)
