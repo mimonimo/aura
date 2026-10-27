@@ -86,7 +86,7 @@ FINAL_PROMPT = """최종 결과물:
 
 def compact(db, session_id: int, client, *, force: bool = False) -> bool:
     """창 밖으로 밀려난 대화를 요약에 접는다(답이 끝난 뒤 부른다). 고쳤으면 True."""
-    limit = llm_budget.context_len(client)
+    limit = llm_budget.work_len(client)
     msgs = [m for m in db.list_chats(session_id, limit=400) if m.get("role") in ("user", "assistant")]
     s = load(db, session_id)
     upto = int(s.get("upto") or 0)

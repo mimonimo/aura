@@ -42,6 +42,8 @@
 
 ### 2026-10-27
 
+- 27B 256K 뒤 작업 몫 상한: 대화 기억 창·맡긴 절의 근거·출력 상한을 문맥 한도의 몫으로 재던 것이 256K 에서 16배로 커져(출력 상한 약 7.8만 토큰) 요청 하나가 수 분 걸릴 수 있었다. 몫은 llm_budget.work_len = min(문맥 한도, 작업 상한 65,536 — 연결 설정 work_context·ZZAIMY_WORK_CONTEXT) 으로, 한도에 맞춰 넣기는 그대로 256K.
+
 - 옛 주소·옛 코드 정리: 옛 주소를 넘기지 않고 지움(북마크가 깨지는 것은 감수) — /dev/intake·/dev/collect(화면)·/archive·/criteria·/inbox·/?group=·/project/{id}?tab=·/hwp/{id}/edit(쓰던 곳은 /webhwpctrl/aura-edit?id= 로 바꿈). 쓰는 화면이 없는 주소도 지움 — /dev/google/settings·dept·folders, /team/save(구성원 등급·권한은 /api/org/members 한 길), /dev/users/dept·dept-parent·/dev/rag/dept(부서는 조직도 /org/*), /dev/eval/run(새벽 자동), /dev/gdrive/auth, /dev/llm/role, /dev/data/grounded-review-config, /doc/{id}/quality-report·/boxes, /institution, /api/chat-documents/create, /account/google/import, /api/hwp/drive, 옛 독스 작업 화면 /gdocs/*(gdocs_work.html·gdocs-work.css/js·drive-browser.js). 아무도 부르지 않는 함수 39개도 지움(vulture 후보를 src·templates·static·scripts·tests 전체 grep 으로 확인). 화면 문구: 웹 검색 줄 「일반 답의 「인터넷에서 찾아보기」 를 누른 요청만」, 「외부 검색」 안내를 「인터넷 검색」 으로, 처리 흐름의 규정 링크를 라이브러리 「기준」 칩으로, 「모델 비교 결과 보기」 → 「모델 비교 보기」.
 - 품질·성능 「사업 문서 검색(GraphRAG)」 카드에 「질문 하나로 비교」: 질문과 문서 수(1~20)를 넣으면 풀텍스트·온톨로지·27B 질문 읽기 세 칸에 걸린 시간과 찾은 문서(문서 화면 링크)를 나란히(POST /dev/quality/retrieval-compare, 관리자만).
 - 공유 프로젝트 대화의 RAG 고르기: 답은 대화 주인의 저장값이 아니라 그 질문을 보낸 사람이 고른 RAG 로 — 질문마다 보낸 사람과 선택을 남기고(chat_msg_rags:<메시지>), 주인 범위와 보낸 사람 범위 둘 다와 겹치는 것만 쓴다(넓히지 않음, answer_pref.narrow_shared). 대화를 지우면 함께 지운다.

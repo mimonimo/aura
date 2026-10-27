@@ -244,7 +244,7 @@ class HwpTools:
     def limit(self) -> int:
         from zzaimy.app import llm_budget
         try:
-            return llm_budget.context_len(self.client) if self.client is not None else int(os.environ.get("ZZAIMY_WRITER_CONTEXT", llm_budget.DEFAULT_CONTEXT))
+            return llm_budget.work_len(self.client) if self.client is not None else int(os.environ.get("ZZAIMY_WRITER_CONTEXT", llm_budget.DEFAULT_CONTEXT))
         except Exception:
             return llm_budget.DEFAULT_CONTEXT
 

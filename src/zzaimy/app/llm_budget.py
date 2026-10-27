@@ -77,6 +77,17 @@ def context_len(client) -> int:
     return found or default
 
 
+WORK_CONTEXT = 65536             # 작업 몫(대화 기억·근거·맡긴 절 출력 상한)을 재는 기준의 상한 — 한도가 아주 큰 모델(256K)에서
+                                 # 몫이 그만큼 커지면 토르에서 요청 하나가 수 분씩 걸린다. 한도(긴 첨부를 잘리지 않게 담는 끝)는 그대로 쓰고,
+                                 # 몫만 이 값까지. 연결 설정 work_context 나 ZZAIMY_WORK_CONTEXT 로 바꾼다(모델 이름에 묶지 않는다).
+
+
+def work_len(client) -> int:
+    """몫 계산 기준 — min(문맥 한도, 작업 상한). 한도에 맞춰 넣기(fit)는 context_len, 「얼마나 담을까」 는 이것."""
+    cap = int(getattr(client, "work_context", 0) or 0) or int(os.environ.get("ZZAIMY_WORK_CONTEXT", str(WORK_CONTEXT)))
+    return min(context_len(client), cap)
+
+
 def served_context_len(client) -> int | None:
     """서버가 알려 준 문맥 한도만(없으면 연결 설정 context, 그것도 없으면 None) — 호출부가 자기 기본값을 쓸 수 있게."""
     n = context_len(client)

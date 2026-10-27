@@ -456,7 +456,7 @@ class AgentResponder:
                         if hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
         # 대화 기억 — 작업 메모(목표·결정·진행·남은 일)와 문맥 한도 몫만큼의 최근 대화(chat_memory). 개수로 자르지 않는다
         from zzaimy.app import chat_memory
-        _ctx_len = llm_budget.context_len(VllmClient(role="answer"))
+        _ctx_len = llm_budget.work_len(VllmClient(role="answer"))
         memo, history = ("", [])
         if session_id:
             _all = db.list_chats(session_id, limit=2)

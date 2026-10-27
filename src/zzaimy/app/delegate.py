@@ -360,7 +360,7 @@ class Delegator:
 
     def limit(self, client=None) -> int:
         try:
-            return llm_budget.context_len(client or self.client)
+            return llm_budget.work_len(client or self.client)
         except Exception:
             return llm_budget.DEFAULT_CONTEXT
 

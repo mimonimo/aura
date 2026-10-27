@@ -2275,7 +2275,7 @@ def create_app(
             return False
         from zzaimy.app import llm_budget as _lb_agent
         try:
-            _ctx_len_agent = _lb_agent.context_len(client)          # 대화 기억에 쓰는 몫은 이 모델의 문맥 한도 기준
+            _ctx_len_agent = _lb_agent.work_len(client)          # 대화 기억에 쓰는 몫은 이 모델의 문맥 한도 기준
         except Exception:
             _ctx_len_agent = _lb_agent.DEFAULT_CONTEXT
         before = len(db.list_chats(session_id))

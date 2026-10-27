@@ -519,7 +519,7 @@ class FormCreator:
 
     def limit(self) -> int:
         try:
-            return llm_budget.context_len(self.client)
+            return llm_budget.work_len(self.client)
         except Exception:
             return llm_budget.DEFAULT_CONTEXT
 
