@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
 from datetime import datetime
@@ -1295,10 +1294,6 @@ def insert_image(email: str, doc: str, section_index: int, uri: str, *, user: st
     _batch(email, doc, reqs, http)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "figure", "section": sec["heading"], "caption": caption[:60]})
     return {"ok": True, "section": sec["heading"]}
-
-
-def data_dir_default() -> Path:
-    return Path(os.environ.get("ZZAIMY_DATA_DIR", "data/platform"))
 
 
 def _is_instruction_box(tbl: dict) -> bool:

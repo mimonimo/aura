@@ -104,28 +104,6 @@ def test_insert_goes_to_section_end_scrubbed_and_audited(docs_env):
         gdocs.insert_into_section("staff@example.ac.kr", "docA", 9, "x", user="kim", data_dir=tmp_path)
 
 
-def test_work_page_ask_insert_replace(docs_env, tmp_path):
-    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
-                     processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
-    client = TestClient(app)
-    page = client.get("/gdocs/work", params={"doc": "https://docs.google.com/document/d/docA/edit", "account": "staff@example.ac.kr"})
-    assert page.status_code == 200 and "1. 추진 배경" in page.text and "docs.google.com/document/d/docA/edit" in page.text
-    listing = client.get("/gdocs/work")
-    assert listing.status_code == 200
-    assert 'data-drive-account' in listing.text and 'data-drive-files' in listing.text
-    assert 'Google Docs 주소 또는 문서 ID' not in listing.text
-    assert '연결된 Drive' in listing.text
-    ask = client.post("/gdocs/ask", data={"doc": "docA", "account": "staff@example.ac.kr", "question": "추진 배경을 보강해 줘"})
-    assert ask.status_code == 200 and "답변" in ask.text
-    ins = client.post("/gdocs/insert", data={"doc": "docA", "account": "staff@example.ac.kr", "section": "3", "text": "새 과제를 더한다"}, follow_redirects=False)
-    assert ins.status_code == 303 and "ok=" in ins.headers["location"]
-    rep = client.post("/gdocs/replace", data={"doc": "docA", "account": "staff@example.ac.kr", "old": "세부", "new": "상세"}, follow_redirects=False)
-    assert "ok=" in rep.headers["location"]
-    bad = client.post("/gdocs/insert", data={"doc": "docA", "account": "staff@example.ac.kr", "section": "3", "text": ""}, follow_redirects=False)
-    assert "err=" in bad.headers["location"]
-    assert len(gdocs.recent_writes(tmp_path)) == 2
-
-
 def test_chat_answer_reads_linked_google_doc_and_reports_read_failure(docs_env, tmp_path, monkeypatch):
     """대화에 연결된 구글 독스는 편집 에이전트가 맡고(모델이 없으면 문서를 바꾸지 않았다고 말함), 못 읽으면 읽은 척하지 않는다."""
     import json as _json
@@ -311,9 +289,6 @@ def test_drafting_request_without_document_creates_one_and_writes(docs_env, tmp_
     # 질문(초안 요청이 아님)은 문서를 만들지 않고 보통 답변
     r = client.post("/chat/send", data={"question": "휴학 처리 기준이 뭐야?"}, follow_redirects=False)
     assert "합성 답변" in client.get(r.headers["location"]).text
-    # 명시적 만들기 경로
-    made = client.post("/api/chat-documents/create", data={"title": "새 문서"})
-    assert made.status_code == 200 and made.json()["doc"] == "newdoc"
 
 
 def test_formatting_ops_style_bold_and_table(docs_env, tmp_path, monkeypatch):

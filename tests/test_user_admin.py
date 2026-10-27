@@ -38,7 +38,7 @@ def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
     c = _dev(tmp_path)
     page = c.get("/team").text
     assert "학교 계정 연결 현황" in page and "허용 도메인 ync.ac.kr" in page and "zzaimy" in c.get("/api/org/accounts").text
-    c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})     # 부서는 만든 뒤 고른다(부서 RAG = 부서 목록)
+    c.post("/org/create", json={"name": "산학협력단"})     # 부서는 만든 뒤 고른다(부서 RAG = 부서 목록)
     r = c.post("/dev/users/save", data={"uid": "Kim_ops", "is_new": "1", "name": "김담당", "role": "staff", "dept": "산학협력단",
                                         "new_pw": "init-pass-1", "google": "kim@ync.ac.kr"}, follow_redirects=False)
     assert r.status_code == 303 and "ok=" in r.headers["location"]
@@ -157,13 +157,12 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
     _login(c2, "zzaimy", "boot-pass-1")
     assert c2.get("/account/google").json()["effective"] == ""
     assert c.get("/api/org/accounts").json()["users"][0]["effective"] == ""
-    c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
+    gdrive.set_domain("ync.ac.kr")                                            # 허용 도메인은 설정 값(화면 없음 — 옛 /dev/google/settings 는 10-27 에 없앰)
     assert gdrive.allowed_domain() == "ync.ac.kr"
-    assert "err=" in c.post("/dev/google/settings", data={"domain": "not a domain"}, follow_redirects=False).headers["location"]
-    # 관리자 화면의 부서 드라이브는 확인용 — 연결은 부서 쪽(/team/drive/connect)에서. 예전 연결 요청은 안내만 한다
-    c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})
-    r = c.post("/dev/google/dept", data={"dept": "산학협력단", "action": "connect"}, headers={"Accept": "application/json"})
-    assert r.status_code == 400 and "조직 관리" in r.json()["msg"]
+    with pytest.raises(ValueError):
+        gdrive.set_domain("not a domain")
+    assert c.post("/dev/google/dept", data={"dept": "산학협력단", "action": "connect"}).status_code in (404, 405)   # 부서 드라이브는 부서 쪽(/team/drive/*)
+    c.post("/org/create", json={"name": "산학협력단"})
     db.set_setting("google_account_dept:산학협력단", "dev@ync.ac.kr")
     # 연결 삭제는 토큰과 사용자·부서 이음을 함께 푼다
     db.set_setting("google_account:zzaimy", "dev@ync.ac.kr")
@@ -179,7 +178,7 @@ def test_callback_is_open_to_staff_and_returns_to_settings(tmp_path, monkeypatch
     r = c.get("/dev/gdrive/callback?code=x&state=y", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/settings?ok=")
     assert c.app.state.db.get_setting("google_account:zzaimy") == "kim@ync.ac.kr"
-    assert c.get("/dev/intake", follow_redirects=False).status_code == 403                      # 다른 /dev 는 여전히 막힘
+    assert c.get("/dev/flow", follow_redirects=False).status_code == 403                        # 다른 /dev 는 여전히 막힘
 
 
 def test_exchange_code_rejects_other_domain(monkeypatch, tmp_path):

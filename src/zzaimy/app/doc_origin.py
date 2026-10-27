@@ -16,11 +16,10 @@ ORIGINS: dict[str, tuple[str, str]] = {
     "library": ("라이브러리", "/?type=all"),
     "archive": ("원본 관리", "/dev/archive"),             # 관리자 화면 — 교직원은 들어올 일이 없다
     "search": ("검색", "/search"),
-    "criteria": ("기준 문서", "/?type=all&use=criteria"),     # 옛 /criteria 탭은 라이브러리 기준 칩(ADR-0062)
+    "criteria": ("기준 문서", "/?type=all&use=criteria"),     # 라이브러리 기준 칩(ADR-0062)
     "graph": ("그래프 탐색", "/graph/explore"),
 }
-_PREFIX = (("/dev/archive", "archive"), ("/search", "search"), ("/criteria", "criteria"), ("/graph", "graph"),
-           ("/inbox", "library"))
+_PREFIX = (("/dev/archive", "archive"), ("/search", "search"), ("/graph", "graph"))
 
 
 def origin_of_path(path: str) -> str:

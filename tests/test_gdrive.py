@@ -92,7 +92,7 @@ def test_oauth_flow_stores_tokens_only_on_valid_state(drive_env, tmp_path):
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
                      processor=FakeProcessor(), drafter=FakeDrafter())
     client = TestClient(app)
-    r = client.get("/dev/gdrive/auth", follow_redirects=False)
+    r = client.get("/account/google/connect", follow_redirects=False)     # 허용 시작은 본인 연결 한 곳(옛 /dev/gdrive/auth 는 10-27 에 없앰)
     assert r.status_code == 303 and r.headers["location"].startswith(gdrive.AUTH_URL)
     state = dict(httpx.URL(r.headers["location"]).params)["state"]
     assert "drive.readonly" in r.headers["location"] and "access_type=offline" in r.headers["location"]

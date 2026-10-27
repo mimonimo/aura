@@ -4,11 +4,11 @@ from tests.test_dev_pages import client  # noqa: F401
 
 
 def test_library_one_list_and_no_connections_menu(client):
-    for path in ("/?type=all", "/criteria"):
+    for path in ("/?type=all", "/?type=all&use=criteria"):
         page = client.get(path).text
         assert 'aria-label="라이브러리"' in page, path
         assert 'href="/criteria"' not in page and 'href="/archive' not in page, path   # 기준은 목록의 칩(ADR-0062), 원본 보관소 탭 없음
         assert ">자료 연결<" not in page, path
     assert client.get("/connections").status_code == 404
     assert client.get("/ocr").status_code == 404
-    assert "접수·첨부 문서" not in client.get("/criteria").text      # 같은 목록은 라이브러리에만 둔다
+    assert "접수·첨부 문서" not in client.get("/?type=all&use=criteria").text      # 같은 목록은 라이브러리에만 둔다

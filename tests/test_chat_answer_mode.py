@@ -160,3 +160,42 @@ def test_retrieval_compare_runs_three_modes_for_dev_only(staff, monkeypatch):
     assert out["modes"][0]["hits"][0]["filename"] == "a.pdf"
     assert login("kim", "kim-pass").post("/dev/quality/retrieval-compare", data={"question": "x"},
                                          follow_redirects=False).status_code in (303, 403, 404)
+    page = login("zzdev", "dev-pass").get("/dev/quality").text           # 화면 — 「사업 문서 검색(GraphRAG)」 카드 안의 비교 폼
+    card = page.split('id="grant-search"', 1)[1].split('id="model-compare"', 1)[0]
+    assert 'id="rcForm"' in card and 'name="question"' in card and 'name="k"' in card and 'min="1" max="20"' in card
+    assert "fetch('/dev/quality/retrieval-compare'" in page and 'href="/doc/${' in page
+    assert login("zzdev", "dev-pass").post("/dev/quality/retrieval-compare", data={"question": "x", "k": "99"}).json()["k"] == 20
+
+
+def test_answer_uses_the_senders_pick_stored_on_the_message(staff):
+    """답은 이 질문을 보낸 사람이 그때 고른 RAG 로 — 계정의 저장값이 나중에 바뀌어도 그 질문의 선택이 남는다(chat_msg_rags:<메시지>)."""
+    app, r, login = staff
+    kim = login("kim", "kim-pass")
+    res = kim.post("/chat/send", data={"question": "공통만", "rags_pick": "1", "rags": ["공통"]}, follow_redirects=False)
+    sid = int(res.headers["location"].rsplit("/", 1)[1])
+    assert _wait(lambda: len(r.seen) == 1)
+    db = app.state.db
+    mid = [m for m in db.list_chats(sid) if m["role"] == "user"][-1]["id"]
+    assert answer_pref.message_pick(db, mid) == {"by": "kim", "rags": ["공통"]}
+    assert r.seen[0]["scope"]["grant_depts"] == ["공통"]
+    # 다른 사람(공유 프로젝트의 동료)이 보낸 질문으로 적혀 있으면 그 사람의 선택·범위로 — 주인의 저장값(전부)을 쓰지 않는다
+    kim.post("/api/chat/answer-mode", data={"rags_pick": "1", "rags": ["공통", "기획처"]})
+    db.set_setting(f"chat_msg_rags:{mid}", json.dumps({"by": "zzdev", "rags": ["기획처"]}))
+    kim.post(f"/chat/{sid}/retry", follow_redirects=False)
+    assert _wait(lambda: len(r.seen) == 2)
+    assert r.seen[1]["scope"]["grant_depts"] == ["기획처"]
+
+
+def test_shared_pick_is_within_both_owner_and_sender_scope():
+    owner = {"space": "dept:기획처", "role": "staff", "user": "kim", "dept": "기획처", "grant": True, "grant_depts": ["기획처", "공통"]}
+    sender = {"space": "dept:산학협력단", "role": "staff", "user": "park", "dept": "산학협력단", "grant": True, "grant_depts": ["산학협력단", "공통"]}
+    both = answer_pref.narrow_shared(owner, sender, [])                       # 보낸 사람 기본(전부) — 주인 범위와 겹치는 공통만
+    assert both["grant_depts"] == ["공통"] and both["grant"] is True
+    shut = answer_pref.narrow_shared(owner, sender, ["산학협력단"])            # 주인 범위 밖 — 넓히지 않고 닫는다
+    assert shut["grant"] is False and shut["grant_depts"] == []
+    sneaky = answer_pref.narrow_shared(owner, sender, ["기획처"])              # 보낸 사람 범위 밖 값 — 닫는다
+    assert sneaky["grant"] is False
+    dev = {"space": "dev", "role": "dev", "grant": True, "grant_depts": None}
+    assert answer_pref.narrow_shared(dev, sender, [], ["기획처", "산학협력단"])["grant_depts"] == ["공통", "산학협력단"]
+    assert answer_pref.narrow_shared(owner, owner, []) is owner              # 같은 사람·기본 = 그대로
+    assert answer_pref.narrow_shared(owner, None, [])["grant"] is False      # 보낸 사람 범위를 모르면 닫는다

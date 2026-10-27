@@ -64,7 +64,7 @@ def test_page_is_dev_only_and_makes_bundle(tmp_path):
         c = TestClient(app)
         assert c.post("/login", data={"username": u, "pw": pw}, follow_redirects=False).status_code == 303
         return c
-    assert login("kim", "kim-pass").get("/dev/collect").status_code == 403
+    assert login("kim", "kim-pass").get("/dev/train?tab=collect").status_code == 403
     dev = login("zzdev", "dev-pass")
     page = dev.get("/dev/train?tab=collect").text
     assert "대화 메시지" in page and "업무 도우미 기록" in page
@@ -129,8 +129,7 @@ def test_collect_is_a_tab_of_train_page(tmp_path):
                      drafter=FakeDrafter(), responder=FakeResponder(), password="boot-pass-1")
     c = TestClient(app)
     c.post("/login", data={"username": "zzdev", "pw": "dev-pass"}, follow_redirects=False)
-    r = c.get("/dev/collect", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/dev/train?tab=collect"
+    assert c.get("/dev/collect", follow_redirects=False).status_code in (404, 405)   # 옛 주소는 없앴다(10-27)
     r = c.post("/dev/collect/make", data={}, follow_redirects=False)            # 고른 항목 없음 — 탭으로 돌아가 까닭을 보인다
     assert r.status_code == 303 and r.headers["location"].startswith("/dev/train?tab=collect&err=")
     page = c.get(r.headers["location"]).text

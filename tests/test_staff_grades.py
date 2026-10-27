@@ -12,6 +12,16 @@ from zzaimy.app import access_guard, access_policy, grades, program_admin, rag_s
 from zzaimy.ingest import gdocs, gdrive
 
 
+def _team(c, uid, dept="기획처", grade=None, perm=None):
+    """구성원 등급·추가 권한 바꾸기 — 조직 관리 구성원 탭과 같은 POST /api/org/members(옛 /team/save 는 10-27 에 없앴다)."""
+    r = None
+    if grade is not None:
+        r = c.post("/api/org/members", json={"dept": dept, "op": "grade", "uids": [uid], "value": grade})
+    if perm is not None and (r is None or r.status_code == 200):
+        r = c.post("/api/org/members", json={"dept": dept, "op": "perms", "uids": [uid], "value": perm})
+    return r
+
+
 @pytest.fixture(autouse=True)
 def _no_google(monkeypatch):
     monkeypatch.setattr(gdrive, "list_accounts", lambda: [])
@@ -154,7 +164,7 @@ def test_min_grade_narrows_scope_and_view(tmp_path):
 
 def test_rag_screen_sets_min_grade(tmp_path):
     app, c = _dev(tmp_path)
-    c.post("/dev/rag/dept", data={"action": "create", "name": "기획처"})
+    c.post("/org/create", json={"name": "기획처"})
     page = c.get("/dev/rag").text
     assert 'action="/dev/rag/min-grade"' in page and "걸지 않음" in page
     r = c.post("/dev/rag/min-grade", data={"space": "dept:기획처", "grade": "head"}, follow_redirects=False)
@@ -277,13 +287,13 @@ def test_team_page_head_grants_same_dept_only(tmp_path):
     uids = [r["uid"] for r in boss.get("/api/org/members", params={"dept": "기획처"}).json()["rows"]]
     assert "kim" in uids and "park" not in uids
     assert boss.get("/api/org/members", params={"dept": "교무처"}).status_code == 403
-    r = boss.post("/team/save", data={"uid": "kim", "grade": "member", "perm": ["create_project"]}, follow_redirects=False)
-    assert r.status_code == 303 and app.state.accounts["kim"]["perms"] == ["create_project"]
+    r = _team(boss, "kim", grade="member", perm=["create_project"])
+    assert r.status_code == 200 and app.state.accounts["kim"]["perms"] == ["create_project"]
     assert app.state.accounts["kim"]["perms_by"] == "boss" and grades.can_create_project(app.state.accounts["kim"])
-    assert boss.post("/team/save", data={"uid": "park", "perm": ["create_project"]}, follow_redirects=False).status_code == 403
-    boss.post("/team/save", data={"uid": "boss2", "grade": "member"}, follow_redirects=False)
+    assert _team(boss, "park", dept="교무처", perm=["create_project"]).status_code == 403
+    _team(boss, "boss2", grade="member")
     assert app.state.accounts["boss2"]["grade"] == "head"                 # 다른 총괄 책임자는 못 바꿈
-    boss.post("/team/save", data={"uid": "kim", "grade": "head"}, follow_redirects=False)
+    _team(boss, "kim", grade="head")
     assert app.state.accounts["kim"]["grade"] == "member"                 # 총괄 책임자 지정은 관리자만
     kim = _client(app, "kim")
     assert kim.get("/api/org/members", params={"dept": "기획처"}).status_code == 403   # 본인이 권한을 고르지 못한다
@@ -322,14 +332,14 @@ def test_lead_grants_perms_to_members_only_and_head_sets_grades(tmp_path):
     _add(app, "lead2", dept="기획처", grade="lead")
     lead = _client(app, "lead1")
     assert lead.get("/team").status_code == 200
-    lead.post("/team/save", data={"uid": "kim", "perm": ["create_project"]}, follow_redirects=False)
+    _team(lead, "kim", perm=["create_project"])
     assert app.state.accounts["kim"]["perms"] == ["create_project"] and app.state.accounts["kim"]["perms_by"] == "lead1"
-    lead.post("/team/save", data={"uid": "kim", "grade": "lead", "perm": ["create_project"]}, follow_redirects=False)
+    _team(lead, "kim", grade="lead", perm=["create_project"])
     assert app.state.accounts["kim"]["grade"] == "member"                  # 등급은 총괄 책임자가
-    lead.post("/team/save", data={"uid": "lead2", "perm": ["view_activity"]}, follow_redirects=False)
+    _team(lead, "lead2", perm=["view_activity"])
     assert "perms" not in app.state.accounts["lead2"]                      # 다른 사업 책임자는 못 바꿈
     boss = _client(app, "boss")
-    boss.post("/team/save", data={"uid": "kim", "grade": "clerk"}, follow_redirects=False)
+    _team(boss, "kim", grade="clerk")
     assert app.state.accounts["kim"]["grade"] == "clerk" and grades.label("clerk") == "행정 담당자"
     assert grades.can_create_project(app.state.accounts["kim"])
 
@@ -341,10 +351,10 @@ def test_lead_cannot_grant_what_it_lacks(tmp_path):
     _add(app, "lead1", dept="기획처", grade="lead")
     _add(app, "kim", dept="기획처", grade="member")
     lead = _client(app, "lead1")
-    lead.post("/team/save", data={"uid": "kim", "perm": ["create_project", "view_activity"]}, follow_redirects=False)
+    _team(lead, "kim", perm=["create_project", "view_activity"])
     assert app.state.accounts["kim"]["perms"] == ["create_project"]
-    _client(app, "boss").post("/team/save", data={"uid": "kim", "perm": ["create_project", "view_activity"]}, follow_redirects=False)
-    lead.post("/team/save", data={"uid": "kim", "perm": []}, follow_redirects=False)
+    _team(_client(app, "boss"), "kim", perm=["create_project", "view_activity"])
+    _team(lead, "kim", perm=[])
     assert app.state.accounts["kim"]["perms"] == ["view_activity"]           # 총괄 책임자가 준 권한은 남는다
 
 
@@ -369,7 +379,9 @@ def test_multi_dept_grades_and_hierarchy(monkeypatch):
 
 def test_team_page_multi_dept_head(tmp_path):
     """겸직 총괄 책임자: 기획처 일반이지만 가나사업단 총괄 책임자면 가나사업단 사람의 등급을 그 사업단에서만 정한다."""
-    app, _ = _dev(tmp_path)
+    app, dev = _dev(tmp_path)
+    for n in ("기획처", "교무처", "가나사업단"):
+        assert dev.post("/org/create", json={"name": n}).json()["ok"]
     _add(app, "kim", dept="기획처", grade="member")
     app.state.accounts["kim"]["dept_grades"] = {"가나사업단": "head"}
     _add(app, "park", dept="교무처", grade="member")
@@ -380,6 +392,6 @@ def test_team_page_multi_dept_head(tmp_path):
     rows = kim.get("/api/org/members", params={"dept": "가나사업단"}).json()["rows"]
     assert [(r["uid"], r["home"]) for r in rows if r["uid"] == "park"] == [("park", "교무처")]   # 겸직(소속 교무처)
     assert kim.get("/api/org/members", params={"dept": "기획처"}).status_code == 403          # 맡은 부서는 가나사업단뿐
-    kim.post("/team/save", data={"uid": "park", "dept": "가나사업단", "grade": "lead"}, follow_redirects=False)
+    _team(kim, "park", dept="가나사업단", grade="lead")
     assert app.state.accounts["park"]["dept_grades"]["가나사업단"] == "lead" and app.state.accounts["park"]["grade"] == "member"
-    assert kim.post("/team/save", data={"uid": "lee", "dept": "기획처", "grade": "lead"}, follow_redirects=False).status_code == 403
+    assert _team(kim, "lee", dept="기획처", grade="lead").status_code == 403

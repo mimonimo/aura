@@ -10,11 +10,9 @@
 
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from zzaimy.ingest.parsers.base import ParsedTable, ParseResult
 
@@ -54,16 +52,6 @@ def _norm(text: str) -> str:
     """비교용 정규화 — CID 폰트 PDF는 공백이 NBSP(\\xa0)로 추출되는 등
     파서마다 공백 표현이 달라, 정규화 없이 비교하면 전부 빗나간다."""
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip()
-
-
-def load_ground_truth(path: Path) -> GroundTruth:
-    """합성 샘플 생성기가 함께 쓰는 정답 JSON을 읽는다."""
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return GroundTruth(
-        n_pages=data["n_pages"],
-        page_texts={int(k): v for k, v in data["page_texts"].items()},
-        tables=[GroundTruthTable(**t) for t in data["tables"]],
-    )
 
 
 def _match_table(truth: GroundTruthTable, candidates: list[ParsedTable]) -> ParsedTable | None:

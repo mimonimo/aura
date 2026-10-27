@@ -23,7 +23,7 @@ def test_intake_page_shows_audit_and_lists(tmp_path):
     (tmp_path / "pipeline_missed.jsonl").write_text(json.dumps({"rel": "링크/업무/a.pdf", "ext": "pdf", "seen_at": "2026-10-05 01:00"},
                                                                ensure_ascii=False) + "\n", encoding="utf-8")
     c = _client(tmp_path)
-    r = c.get("/dev/intake")
+    r = c.get("/dev/flow")
     assert r.status_code == 200
     for text in ("처리 대상 문서 100건", "라이브러리에 들어감 90", "빠진 원본 4건", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
         assert text in r.text, text
@@ -33,7 +33,7 @@ def test_intake_page_shows_audit_and_lists(tmp_path):
 
 
 def test_intake_page_without_audit(tmp_path):
-    r = _client(tmp_path).get("/dev/intake")
+    r = _client(tmp_path).get("/dev/flow")
     assert r.status_code == 200 and "점검 결과 없음" in r.text
 
 
@@ -55,7 +55,7 @@ def _metric_names(page: str) -> str:
 
 def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
     _audit(tmp_path)
-    page = _client(tmp_path).get("/dev/intake").text
+    page = _client(tmp_path).get("/dev/flow").text
     assert "/dev/intake/missed.csv" not in page and "/dev/intake/failed.csv" not in page   # 빈 표 카드 없음
     assert "빠진 원본 예시" not in page
     names = _metric_names(page)
@@ -66,7 +66,7 @@ def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
 def test_no_failed_table_on_flow_page(tmp_path):
     """실패 원본은 동기화마다 정리함 「처리 실패」 로 옮긴다(scripts/217) — 처리 흐름에 실패 표를 두지 않는다(10-26)."""
     _audit(tmp_path, failed=7, failed_by_reason={"글 없는 문서": 7})
-    page = _client(tmp_path).get("/dev/intake").text
+    page = _client(tmp_path).get("/dev/flow").text
     assert "/dev/intake/failed.csv" not in page and "글 없는 문서" not in page
 
 
@@ -87,7 +87,7 @@ def test_sync_listing_number_gets_its_own_name(tmp_path):
     _audit(tmp_path)
     (tmp_path / "sync_status.json").write_text(json.dumps({"full": {"at": "2031-02-03 04:00", "summary": "원본 4321 · 새로 1"}},
                                                           ensure_ascii=False), encoding="utf-8")
-    page = _client(tmp_path).get("/dev/intake").text
+    page = _client(tmp_path).get("/dev/flow").text
     assert "DGX 목록 4,321" in page and "원본 4321" not in page            # 반입 점검 머리 한 줄(「최근 실행」 표는 뺐다, 10-26)
     assert "원본 장부의 파일 전부" in page and "학교 원본 폴더의 파일" in page     # 장부 전체와 학교 원본은 이름이 다르다
 

@@ -78,6 +78,3 @@ def build(docs: list[tuple[int, list[Section]]], min_docs: int = 2, codes: dict[
     out.sort(key=lambda u: (-len(u.docs), u.label))
     return out
 
-
-def label_clean(title: str) -> str:
-    return re.sub(r"\s+", " ", _NUM.sub("", title or "")).strip()

@@ -25,8 +25,6 @@ def platform_dir(base: Path | None = None) -> Path:
 
 
 # ---- 1층 문서 ----
-def documents_dir(base: Path | None = None) -> Path:
-    return platform_dir(base) / "documents"
 
 
 # ---- 2층 지식 ----
@@ -86,22 +84,12 @@ def train_dir() -> Path:
     return Path(os.environ.get("ZZAIMY_TRAIN_DIR", "data/train"))
 
 
-def train_datasets(model: str, version: str = "") -> Path:
-    p = train_dir() / "datasets" / model
-    return p / version if version else p
-
-
 def train_baselines(model: str) -> Path:
     return train_dir() / "baselines" / model
 
 
 def train_models(model: str, version: str = "") -> Path:
     p = train_dir() / "models" / model
-    return p / version if version else p
-
-
-def train_runs(model: str, version: str = "") -> Path:
-    p = train_dir() / "runs" / model
     return p / version if version else p
 
 

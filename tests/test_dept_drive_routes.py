@@ -31,7 +31,7 @@ def env(tmp_path, monkeypatch):
     dev = TestClient(app)
     assert _login(dev, "zzdev", "devpass")
     for n in ("기획처", "기획팀", "학생처"):
-        assert dev.post("/dev/users/dept", data={"action": "create", "name": n}, headers=J).json()["ok"]
+        assert dev.post("/org/create", json={"name": n}).json()["ok"]
     app.state.accounts["zzaimy"].update(dept="기획처", grade="lead")
     staff = TestClient(app)
     assert _login(staff, "zzaimy", "boot-pass-1")
@@ -100,25 +100,24 @@ def test_exchange_rejects_purpose_mismatch(monkeypatch):
 def test_admin_table_json_actions(env, monkeypatch):
     app, dev, staff = env
     db = app.state.db
-    r = dev.post("/dev/users/dept-parent", data={"dept": "기획팀", "parent": "기획처"}, headers=J)
+    r = dev.post("/org/move", json={"dept": "기획팀", "parent": "기획처"})
     assert r.status_code == 200 and r.json()["ok"]
     nodes = {n["name"]: n for n in dev.get("/api/org").json()["nodes"]}
     assert nodes["기획팀"]["parent"] == "기획처"                                # 조직 관리 트리(ADR-0073)
-    r = dev.post("/dev/users/dept-parent", data={"dept": "기획처", "parent": "없는부서"}, headers=J)
+    r = dev.post("/org/move", json={"dept": "기획처", "parent": "없는부서"})
     assert r.status_code == 400 and not r.json()["ok"]
-    r = dev.post("/dev/users/dept", data={"action": "create", "name": "새부서"}, headers=J)
+    r = dev.post("/org/create", json={"name": "새부서"})
     assert r.json()["ok"] and r.json()["name"] == "새부서"
-    assert dev.post("/dev/users/dept", data={"action": "delete", "name": "새부서"}, headers=J).json()["ok"]
-    # 폼 그대로(자바스크립트 없이)는 예전처럼 돌아간다
-    r = dev.post("/dev/users/dept", data={"action": "delete", "name": "없는부서"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/team?err=")
+    assert dev.post("/org/delete", json={"dept": "새부서"}).json()["ok"]
+    r = dev.post("/org/delete", json={"dept": "없는부서"})
+    assert r.status_code == 400 and not r.json()["ok"]
     # 비상 연결 끊기 — 준 권한을 거두고 설정을 비운다
     for k, v in (("google_root", "FOLDER1"), ("google_root_by", f"office@{DOM}"), ("google_account_dept", f"office@{DOM}"),
                  ("google_root_shared", "1"), ("gdept", json.dumps({f"kim@{DOM}": "P1"}))):
         db.set_setting(f"{k}:학생처", v)
     deleted = []
     monkeypatch.setattr(dept_drive, "_delete", lambda by, folder, pid, http: deleted.append(pid) or True)
-    r = dev.post("/dev/google/dept", data={"dept": "학생처", "action": "disconnect"}, headers=J)
+    r = dev.post("/team/drive/disconnect", data={"dept": "학생처"}, headers=J)
     assert r.json()["ok"] and deleted == ["P1"] and db.get_setting("google_root:학생처") == ""
     assert db.get_setting("google_account_dept:학생처") == ""
     # 부서 구성원 — 조직 관리의 구성원 탭 자료

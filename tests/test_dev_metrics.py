@@ -116,7 +116,7 @@ def test_intake_page_names_each_number(client, tmp_path):
         {"at": "2031-05-06 07:08", "archive_files": 99, "targets": 10, "in_docbox": 4, "failed": 1, "waiting": 2,
          "missed": 3, "grant_docs": 4, "graph_doc_nodes": 4, "grant_chunks": 40, "embedding_index": 40,
          "lexical_index": 40, "stuck_docs": 0, "composition": {}, "alerts": []}), encoding="utf-8")
-    page = client.get("/dev/intake").text                                  # 옛 주소 → 처리 흐름의 반입 점검 칸(10-26)
+    page = client.get("/dev/flow").text                                    # 처리 흐름의 반입 점검 칸
     panel = page.split('id="intake"', 1)[1].split('id="coedit"', 1)[0]
     assert "처리 대상 문서 가운데 라이브러리 문서로 들어온 것" in panel
     assert "그래프 대상 사업 문서" in panel and "문서함" not in panel          # 12555b42 에서 줄 이름을 짧게(「… 수」 뺌)
@@ -125,7 +125,7 @@ def test_intake_page_names_each_number(client, tmp_path):
 
 def test_heavy_dev_actions_ask_first(client):
     q = client.get("/dev/quality").text
-    assert "/dev/eval/run" not in q or 'data-confirm="규정 검색 품질을 다시 잴까요?' in q
+    assert "/dev/eval/run" not in q                                          # 다시 재기는 새벽 자동 — 단추·주소 없음
 
 
 def test_shared_confirm_covers_any_form_with_data_confirm():
@@ -133,7 +133,6 @@ def test_shared_confirm_covers_any_form_with_data_confirm():
     assert "'confirm' in form.dataset" in js and "'ownConfirm' in form.dataset" in js
     # 확인창은 공용 대화상자 하나 — 브라우저 기본 confirm() 을 띄우지 않고, 구글 문서 화면도 따로 묻지 않는다
     assert "window.confirm(" not in js and "showModal()" in js
-    assert "form[data-confirm]" not in (ROOT / "src/zzaimy/app/static/gdocs-work.js").read_text(encoding="utf-8")
 
 
 # ---- 이름표 ----
@@ -145,8 +144,7 @@ def test_dev_titles_match_sidebar_names(client):
         assert f"<title>{name}" in page, href
         sidebar = page.split("data-developer-navigation", 1)[1].split("</aside>", 1)[0]
         assert f'aria-current="page">{name}</a>' in sidebar, href
-    r = client.get("/dev/intake", follow_redirects=False)                    # 반입 점검은 처리 흐름의 한 칸
-    assert r.status_code == 303 and r.headers["location"] == "/dev/flow#intake"
+    assert client.get("/dev/intake", follow_redirects=False).status_code == 404   # 옛 주소는 없앴다 — 반입 점검은 처리 흐름의 한 칸
 
 
 def test_every_nav_entry_has_a_name_and_page_name_rejects_unknown():

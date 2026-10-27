@@ -368,7 +368,7 @@
             box-shadow: 0 1px 3px rgba(27,59,117,.15); }
   .tab-pane { display: none; }
   .tab-pane.on { display: block; }
-  /* 화면 탭(주소로 넘기는 탭) — 데이터 현황·데이터·학습이 함께 쓴다 */
+  /* 화면 탭(주소로 넘기는 탭) — 데이터·학습이 쓴다 */
   .dx-tabs { display: flex; gap: 4px; background: #f3f4f6; border-radius: 11px; padding: 5px;
              margin: 0 0 24px; width: max-content; max-width: 100%; overflow-x: auto; }
   .dx-tabs a { text-decoration: none; color: var(--muted); font-size: 13px; font-weight: 600;
@@ -608,7 +608,7 @@ document.addEventListener('submit', function(event) {
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
     {% if request.state.role != 'student' %}
-    <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox', '/criteria') else '' }}">
+    <a href="/?type=all" class="{{ 'active' if request.url.path == '/' else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
     <a href="/hwp" data-nav="side-hwp-box" class="{{ 'active' if request.url.path.startswith('/hwp') else '' }}" title="부서 폴더·구글 드라이브의 문서 — 한글은 웹 기안기로 열기">
       <iconify-icon icon="solar:document-text-linear"></iconify-icon>문서함</a>
@@ -791,7 +791,7 @@ document.addEventListener('submit', function(event) {
   <div class="topbar">
     <button type="button" class="navtoggle" id="navToggle" aria-label="메뉴 열기">
       <iconify-icon icon="solar:hamburger-menu-linear"></iconify-icon></button>
-    {% if request.url.path in ('/', '/inbox', '/criteria') %}
+    {% if request.url.path == '/' %}
     <a class="icon-btn" data-page-back href="/chat" aria-label="뒤로가기" title="뒤로가기"><iconify-icon icon="solar:arrow-left-linear"></iconify-icon></a>
     {% endif %}
     <span class="page-title">{% block pagetitle %}문서 검토함{% endblock %}</span>

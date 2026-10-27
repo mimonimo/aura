@@ -453,21 +453,6 @@ def _self_contained(text: str) -> bool:
     return bool(_COMPLETE_TAIL.search(t))  # 20~39자는 문장이 끝났을 때만
 
 
-def _has_body(text: str) -> bool:
-    """표제 말고 본문이 있는가 — '제N조(제목) 본문…' 또는 '표제 줄 + 본문 줄'.
-
-    목차 줄("제4조)-이해관계 직무의 회피(")·장 제목("제1장 총칙")·불릿 표제("정보제공
-    동의현황")는 한 줄뿐이고 제목 괄호 뒤에 이어지는 말이 없다 → 본문 없음.
-    """
-    m = _ART_TITLE.match(text)
-    if m:
-        body = text[m.end():]
-    else:
-        lines = text.splitlines()
-        body = "\n".join(lines[1:]) if len(lines) >= 2 else ""
-    return len(re.sub(r"[\W_]+", "", body)) >= 6
-
-
 def split_regulation(text: str) -> list[RegulationChunk]:
     """조문형이면 제N조 단위로, 아니면 문단 묶음(약 700자)으로 나눈다."""
     text = text.strip()

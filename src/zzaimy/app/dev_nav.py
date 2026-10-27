@@ -17,7 +17,6 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 
 # 사이드바에 없는 개발 화면
 EXTRA = {"/dev/history": "변경 이력",                              # 개발 현황 머리의 「변경 이력」
-         "/dev/intake": "반입 점검",                               # 처리 흐름 화면의 한 칸(옛 「문서 가져오기」 — 주소는 그리로 넘긴다)
          "/dev/models/compare": "모델 비교",                         # 품질·성능 「모델 비교」 카드의 「자세히 보기」
          "/dev/archive/doc/": "반입 결과 보기"}                       # 원본 관리 줄·문서 화면 「관리」 에서 문서 하나(/dev/archive/doc/{id})
 
@@ -32,8 +31,6 @@ SUBPAGES: dict[str, str] = {
     "/dev/models/": "/dev/train",
     "/dev/train/": "/dev/train",                    # 검수 가이드·학습 상태·학습셋 표본도 데이터·학습 안
     "/dev/models/compare": "/dev/quality",          # 모델 비교는 품질·성능 안
-    "/dev/collect": "/dev/train",                   # 수집 자료는 데이터·학습 안
-    "/dev/train/": "/dev/train",                    # 검수 가이드 등 데이터·학습 하위
 }
 
 

@@ -466,7 +466,7 @@ def test_other_paths_share_the_lock(org):
         done.append("store")
 
     def team():
-        _client(app, "boss").post("/team/save", data={"uid": "kim", "dept": "기획팀", "perm": ["create_project"]}, follow_redirects=False)
+        _client(app, "boss").post("/api/org/members", json={"dept": "기획팀", "op": "perms", "uids": ["kim"], "value": ["create_project"]})
         done.append("team")
     with org_lock.LOCK:
         ts = [threading.Thread(target=save), threading.Thread(target=team)]

@@ -6,7 +6,7 @@ def test_home_and_spaces_keep_work_tools(tmp_path, monkeypatch):
     home = client.get('/', follow_redirects=False)
     assert home.status_code == 303 and home.headers['location'] == '/chat'
     assert 'chatWorkspace' in client.get('/').text
-    for route in ('/inbox', '/criteria', '/dev'):
+    for route in ('/?type=all', '/?type=all&use=criteria', '/dev'):
         page = client.get(route)
         assert page.status_code == 200
         assert '/static/platform-spaces.css' in page.text
@@ -104,8 +104,7 @@ def test_sidebar_has_one_entry_per_resource_function(tmp_path, monkeypatch):
     assert '>처리 현황</div>' not in page
     assert '>접수 문서' not in page
     assert 'name="sector"' in page
-    old = client.get('/criteria', follow_redirects=False)
-    assert old.status_code == 303 and old.headers['location'] == '/?type=all&use=criteria'
+    assert client.get('/criteria', follow_redirects=False).status_code == 404     # 옛 기준 문서 주소는 없앴다
 
 
 def test_project_library_keeps_creation_and_document_search(tmp_path, monkeypatch):
@@ -119,4 +118,4 @@ def test_project_library_keeps_creation_and_document_search(tmp_path, monkeypatc
     search = client.get('/?type=all&q=없는문서')
     assert search.status_code == 200 and '검색 결과' in search.text
     assert 'use=criteria' in library and 'href="/archive' not in library
-    assert 'data-page-back href="/chat"' in client.get('/criteria').text
+    assert 'data-page-back href="/chat"' in client.get('/?type=all&use=criteria').text

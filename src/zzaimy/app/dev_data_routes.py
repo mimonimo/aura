@@ -85,26 +85,6 @@ def dev_llm_deactivate():
     model_config.reset_status_cache()
     return _llm_redirect("기본 연결을 해제했습니다 — 환경변수 설정을 씁니다")
 
-@router.post("/dev/llm/role")
-def dev_llm_role(role: str = Form(...), cid: str = Form(""), model: str = Form("")):
-    """용도마다 쓸 서버와 모델을 정한다 — 문서 작업·이미지 판독·임베딩·학습."""
-    from zzaimy.generate import llm_connections, model_config
-
-    try:
-        llm_connections.set_role(role, cid.strip(), model.strip())
-    except ValueError as e:
-        return _llm_redirect(str(e), ok=False)
-    model_config.reset_status_cache()
-    _live_models_cache().clear()
-    label = llm_connections.ROLES.get(role, role)
-    if not cid.strip():
-        return _llm_redirect(f"「{label}」은(는) 문서 작업 기본 서버를 씁니다")
-    conn = llm_connections.get(cid.strip()) or {}
-    picked = f" · 모델 {model.strip()}" if model.strip() else ""
-    tail = (" 임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다."
-            if role == "embed" else "")
-    return _llm_redirect(f"「{label}」은(는) 「{conn.get('name', '')}」{picked} 로 정했습니다.{tail}")
-
 @router.post("/dev/llm/roles")
 async def dev_llm_roles(request: Request):
     """단계별 모델을 한 번에 저장한다 — 화면의 '변경사항 저장' 하나에 대응한다.
@@ -238,37 +218,6 @@ def _grounded_status_note(st: dict, ls_url: str | None) -> dict | None:
 
 
 # ---- 근거 문답 검수(Label Studio) 반영 — 데이터·학습 화면의 「문답 검수」 카드 ----
-
-@router.post("/dev/data/grounded-review-config")
-def dev_grounded_review_config(request: Request):
-    st = request.app.state
-    from zzaimy.dataset.authored_review import PROJECT, upgrade_config
-    from zzaimy.dataset.ls_client import LabelStudioError
-    from datetime import datetime, timezone
-    from urllib.parse import urlencode
-    from xml.etree.ElementTree import ParseError
-    try:
-        cli = st.ls_client()
-        status = cli.status(PROJECT)
-        if not status.get('ok') or not status.get('project_id'):
-            raise ValueError('검수 프로젝트 연결을 확인하세요.')
-        pid = status['project_id']
-        project = cli._req('GET', f'/api/projects/{pid}')
-        old = project.get('label_config', '')
-        new = upgrade_config(old)
-        if new != old:
-            backup = Path(st.data_dir) / 'labelstudio-backup'
-            backup.mkdir(parents=True, exist_ok=True, mode=0o700)
-            stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
-            target = backup / f'project-{pid}-config-{stamp}.json'
-            with target.open('x', encoding='utf-8') as out:
-                _aj.dump({'project_id': pid, 'label_config': old}, out, ensure_ascii=False)
-            target.chmod(0o600)
-            cli._req('PATCH', f'/api/projects/{pid}', json={'label_config': new})
-        params = {'tab': 'data', 'ok': '검수 4항목을 준비했습니다. 기존 주석은 보존하며 자동 승인하지 않습니다.'}
-    except (LabelStudioError, ValueError, ParseError):
-        params = {'tab': 'data', 'err': '검수 설정을 변경하지 못했습니다. 연결 상태와 기존 라벨 설정을 확인하세요.'}
-    return RedirectResponse('/dev/train?' + urlencode(params), status_code=303)
 
 @router.post("/dev/data/grounded-pull")
 def dev_grounded_pull(request: Request):

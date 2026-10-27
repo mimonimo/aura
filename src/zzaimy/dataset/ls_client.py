@@ -17,7 +17,6 @@ import requests
 from zzaimy.dataset.labelstudio import (
     LABEL_CONFIG,
     export_to_label_studio,
-    import_from_label_studio,
 )
 
 # 상태 조회 전용 시간 제한(초) — 화면을 붙잡지 않도록 짧게
@@ -165,13 +164,6 @@ class LabelStudioClient:
         return {"total": total, "done": done,
                 "pending": max(0, total - done)}
 
-    def pull_reviewed(self, project_id: int) -> list[dict]:
-        """검수 완료 결과를 가져와 학습 쌍(build.py 형식)으로 되돌린다."""
-        data = self._req(
-            "GET", f"/api/projects/{project_id}/export?exportType=JSON",
-        )
-        anns = data if isinstance(data, list) else data.get("results", [])
-        return import_from_label_studio(anns)
 
     def export_tasks(self, project_id: int) -> list[dict]:
         """Export review records unchanged; predictions are not approvals."""

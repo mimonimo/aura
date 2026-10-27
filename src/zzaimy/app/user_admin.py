@@ -9,10 +9,10 @@
 - 사용자: GET /account/google(상태 JSON), GET /account/google/connect(허용 화면으로), POST /account/google/disconnect
 - 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): POST /dev/users/save(역할·교직원 등급·부서 —
   등급과 관리자 상한은 grades, ADR-0066),
-  POST /dev/google/{settings,dept,revoke}, POST /dev/users/dept(부서 만들기·지우기·사전에서 여러 개 만들기 create_many),
-  POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary), POST /dev/users/bulk(여러 명).
-  화면은 조직 관리(/team) 한 곳이다 — 계정·부서·구성원, 관리자에게는 구글 앱 등록과 학교 계정 연결 현황(_team_google.html, 옛 /dev/users 화면은
-  10-27 에 없앴다)까지 그 화면에서 다룬다. 고치기 경로(POST /dev/users/*·/dev/google/*)는 관리자 막기(/dev)를 그대로 쓰려고 주소를 두었다. 계정의 겸직 부서는
+  POST /dev/google/revoke(연결 지우기), POST /dev/users/bulk(여러 명).
+  화면은 조직 관리(/team) 한 곳이다 — 계정·부서·구성원, 관리자에게는 구글 앱 등록과 학교 계정 연결 현황(_team_google.html)까지
+  그 화면에서 다룬다. 고치기 경로(POST /dev/users/*·/dev/google/*)는 관리자 막기(/dev)를 그대로 쓰려고 주소를 두었다. 부서 만들기·지우기·
+  상위 부서는 조직 관리의 트리(org_routes /org/*)에서 한다. 계정의 겸직 부서는
   줄마다 부서 + 그 부서에서의 등급(account["dept_grades"] 한 곳 — 일반 겸직도 member 로 적는다)
 - 조직 관리: GET /team(부서 트리 + 상세), GET /api/org/accounts(전체 사용자)·/api/org/members(구성원), POST /api/org/members
   (옮기기·등급·추가 권한·빼기·사람 추가). 트리 자료와 부서 고치기는 org_routes(이 라우터에 함께 붙는다)
@@ -384,43 +384,6 @@ def dev_users_bulk(request: Request, op: str = Form(""), value: str = Form(""), 
     return JSONResponse({"ok": bool(done), "msg": msg, "done": done, "failed": failed}, status_code=200 if done else 400)
 
 
-# ---------------- 관리자: 구글 연동 ----------------
-
-@router.post("/dev/google/settings")
-def dev_google_settings(request: Request, domain: str = Form("")):
-    try:
-        d = gdrive.set_domain(domain)
-    except ValueError as e:
-        return _back(str(e), ok=False)
-    return _back(f"허용 도메인을 저장했습니다({d or '제한 없음'})")
-
-
-def _reply(request: Request, msg: str, ok: bool = True, **extra):
-    """부서 표의 동작 응답 — 화면이 fetch 로 보내면(Accept: application/json) {ok, msg, …}, 폼 그대로면 조직 관리로 돌아간다."""
-    from zzaimy.app.dept_drive_routes import wants_json
-    if wants_json(request):
-        return JSONResponse({"ok": ok, "msg": msg, **extra}, status_code=200 if ok else 400)
-    return RedirectResponse(f"/team?{'ok' if ok else 'err'}={quote(msg)}", status_code=303)
-
-
-@router.post("/dev/google/dept")
-def dev_google_dept(request: Request, dept: str = Form(""), action: str = Form("sync")):
-    """관리자 화면의 부서 드라이브 — 확인용이라 권한 맞추기(sync)와 비상 연결 끊기(disconnect)만 한다. 연결은 그 부서가
-    조직 관리의 부서 설정에서 부서가 함께 쓸 구글 계정으로 한다(dept_drive_routes)."""
-    from zzaimy.app import dept_drive_routes
-    st = request.app.state
-    dept = dept.strip()
-    if not dept or dept not in known_depts(st.db, _accounts(request), getattr(st, "data_dir", None)):
-        return _reply(request, "부서를 목록에서 골라 주세요", ok=False)
-    if action == "sync":
-        msg, good = dept_drive_routes.sync_now(request, dept)
-    elif action == "disconnect":
-        msg, good = dept_drive_routes.disconnect_now(request, dept)
-    else:
-        msg, good = "부서 드라이브는 조직 관리에서 그 부서의 부서 설정으로 연결합니다", False
-    return _reply(request, msg, good, dept=dept)
-
-
 from zzaimy.app.dept_drive_routes import router as _dept_drive_router  # noqa: E402  부서 쪽 연결(/team/drive*)
 
 router.include_router(_dept_drive_router)
@@ -466,7 +429,7 @@ def delete_dept(st, accounts: dict, name: str, kids: str = "lift") -> tuple[str,
     """부서를 지운다 — (오류 문장, 공통 RAG 로 돌린 문서 수). 소속 계정이 있으면(함께 지울 아래 부서 포함) 하나도 지우지 않는다.
     아래 부서는 kids 대로 — lift: 지운 부서의 자리(그 상위, 없으면 맨 위 처·단)로 올리고, with: 함께 지운다.
     부서 RAG 문서는 공통으로, 부서 열어 주기(주는 쪽·받는 쪽)·폴더 짝·부서 공용 설정을 풀고, 겸직 등급·확정 위계에서도 뺀다.
-    사용자·계정 화면(/dev/users/dept)과 조직 관리(org_routes)가 같은 이 함수를 쓴다."""
+    조직 관리(org_routes /org/delete)가 이 함수를 쓴다."""
     from zzaimy.app import dept_dictionary
     data_dir = getattr(st, "data_dir", None)
     name = " ".join((name or "").split())
@@ -530,105 +493,6 @@ def delete_message(name: str, plan: dict, moved: int) -> str:
     if plan["lift"]:
         msg += f" · 아래 부서 {len(plan['lift'])}개는 " + (f"「{plan['up']}」 아래로" if plan["up"] else "처·단으로")
     return msg + f" · 문서 {moved}건은 공통 RAG 로"
-
-
-@router.post("/dev/users/dept")
-@org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
-def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""), names: list[str] = Form([]),
-                   kids: str = Form("lift")):
-    """부서 만들기·지우기 — 부서 목록은 RAG 공간 설정(dept_rags)에 하나로 둔다. 만든 부서는 부서 RAG·검색 범위·폴더 범위·계정 부서에서
-    바로 고를 수 있다. 지우면 그 부서 문서는 공통 RAG 로 돌아가고 부서 열어 주기·폴더 짝·부서 공용 설정도 풀린다(계정이 있으면 못 지운다)."""
-    from zzaimy.app import rag_spaces
-    st = request.app.state
-    data_dir = getattr(st, "data_dir", None)
-    cfg = dict(rag_spaces.config(data_dir))
-    name = " ".join((name or "").split())
-    from zzaimy.app import dept_dictionary
-    dic = dept_dictionary.load(data_dir)
-    if action == "create_many":
-        # 「사전에서 고르기」 — 관리자가 고른 사전 이름만 만든다(이미 있는 부서·별칭이 같은 부서는 건너뜀). 만드는 길은 하나씩 만들기와 같다
-        plan = dept_dictionary.plan_create(dic, known_depts(st.db, _accounts(request), data_dir), [n for n in names if n.strip()])
-        made = []
-        for n in plan["create"]:
-            cfg, err = rag_spaces.create_dept_rag(cfg, n, by=_user(request))
-            if not err:
-                made.append(n)
-        if not made:
-            return _reply(request, "만들 부서가 없습니다 — 고른 부서가 이미 있거나 사전에서 만들 수 없는 갈래입니다", ok=False)
-        rag_spaces.save_config(cfg, data_dir)
-        msg = f"부서 {len(made)}개를 만들었습니다: {', '.join(made[:8])}{' …' if len(made) > 8 else ''}"
-        if plan["skip"]:
-            msg += f" · 건너뜀 {len(plan['skip'])}개"
-        return _reply(request, msg)
-    if action == "create":
-        name = dic.normalize(name) or name             # 별칭(옛 이름·줄임말)으로 적어도 사전의 정식 이름으로
-        new, err = rag_spaces.create_dept_rag(cfg, name, by=_user(request))
-        if err:
-            return _reply(request, err, ok=False)
-        rag_spaces.save_config(new, data_dir)
-        return _reply(request, f'부서 「{name}」을 만들었습니다 — 계정 부서·부서 RAG·검색 범위에서 고를 수 있습니다', name=name)
-    if action == "delete":
-        # 하나(name) 또는 여럿(names) — 아래 부서는 kids(lift 위로 올리기·with 함께 지우기). 여럿이면 하나씩 지우고 걸린 것은 까닭과 함께 돌려준다
-        accounts = _accounts(request)
-        want = list(dict.fromkeys(" ".join(n.split()) for n in ([name] if name else []) + list(names) if n.strip()))
-        if not want:
-            return _reply(request, "지울 부서를 골라 주세요", ok=False)
-        deleted, failed, moved_all, msgs = [], [], 0, []
-        for n in want:
-            if n in deleted:                              # 앞에서 함께 지운 아래 부서
-                continue
-            plan = delete_plan(st, accounts, n, kids) if n in known_depts(st.db, accounts, data_dir) else None
-            err, moved = delete_dept(st, accounts, n, kids)
-            if err:
-                failed.append({"name": n, "msg": err})
-                continue
-            deleted += plan["targets"]
-            moved_all += moved
-            msgs.append(delete_message(n, plan, moved))
-        if not deleted:
-            return _reply(request, failed[0]["msg"] if len(failed) == 1 else f"{len(failed)}개 모두 지우지 못했습니다 — {failed[0]['msg']}",
-                          ok=False, failed=failed)
-        msg = msgs[0] if len(msgs) == 1 and not failed else f"부서 {len(deleted)}개를 지웠습니다 · 문서 {moved_all}건은 공통 RAG 로"
-        if failed:
-            msg += f" · {len(failed)}개는 지우지 못했습니다({failed[0]['msg']})"
-        return _reply(request, msg, deleted=deleted, failed=failed)
-    return _reply(request, "알 수 없는 요청", ok=False)
-
-
-@router.post("/dev/users/dept-parent")
-@org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
-def dev_users_dept_parent(request: Request, dept: str = Form(""), parent: str = Form("")):
-    """부서의 상위 부서를 정한다(관리자만) — 상위 부서의 총괄 책임자가 하위 부서도 맡는 권한 판정에 쓰이는 확정 관계.
-    비우면 상위 없음. 둘 다 부서 목록에 있어야 하고, 순환(하위를 상위로)은 막는다. 이전 판은 history/ 에 남는다."""
-    if getattr(request.state, "role", "") != "dev":
-        raise HTTPException(403, "관리자만 상위 부서를 정합니다")
-    from zzaimy.app import dept_dictionary
-    st = request.app.state
-    data_dir = getattr(st, "data_dir", None)
-    known = known_depts(st.db, _accounts(request), data_dir)
-    dept, parent = " ".join(dept.split()), " ".join(parent.split())
-    if dept not in known or (parent and parent not in known):
-        return _reply(request, "부서와 상위 부서는 부서 목록에서 골라 주세요", ok=False)
-    if data_dir is None:
-        return _reply(request, "설정 위치가 없습니다", ok=False)
-    err = dept_dictionary.set_parent(data_dir, dept, parent)
-    if err:
-        return _reply(request, err, ok=False)
-    msg = f"「{dept}」 의 상위 부서를 「{parent}」 로 정했습니다" if parent else f"「{dept}」 의 상위 부서를 비웠습니다"
-    return _reply(request, msg)
-
-
-@router.get("/dev/google/folders")
-def dev_google_folders(request: Request, parent: str = 'root', q: str = '', token: str = ''):
-    from zzaimy.ingest.folder_picker import browse
-    import httpx
-    email = (request.app.state.db.get_setting(f"google_account:{_user(request)}", "") or "").strip()
-    if not email or email not in connected_emails():
-        return JSONResponse({'error': '본인의 학교 계정을 먼저 연결해 주세요.', 'connect': '/account/google/connect'}, status_code=409)
-    try:
-        return JSONResponse(browse(email, parent, q, token))
-    except (ValueError, httpx.HTTPError):
-        return JSONResponse({'error': '목록을 불러오지 못했습니다. 계정 연결과 폴더 권한을 확인한 뒤 다시 시도해 주세요.'}, status_code=400)
 
 
 def unlink_google(db, accounts: dict, email: str) -> None:
@@ -897,46 +761,6 @@ def _members_op(request: Request, b: dict):
     if not done:
         msg = failed[0]["msg"] if failed else "바뀐 것이 없습니다"
     return JSONResponse({"ok": bool(done), "msg": msg, "done": done, "failed": failed}, status_code=200 if done else 400)
-
-
-@router.post("/team/save")
-@org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
-def team_save(request: Request, uid: str = Form(...), grade: str = Form(""), perm: list[str] = Form([]), dept: str = Form("")):
-    st = request.app.state
-    me, _, scope, _ag = _team_actor(request)
-    accounts = _accounts(request)
-    dd = getattr(st, "data_dir", None)
-    a = accounts.get(uid.strip().lower())
-    dept = (dept or "").strip() or str((a or {}).get("dept") or "").strip()
-    back = lambda m, good=True: RedirectResponse(f"/team?dept={quote(dept)}&{'ok' if good else 'err'}={quote(m)}", status_code=303)
-    if not a or a.get("role") not in grades.STAFF or not a.get("active", True):
-        return back("바꿀 수 있는 교직원 계정이 아닙니다", False)
-    if dept not in grades.depts_of(uid.strip().lower(), a, dd):
-        return back("이 부서에 속한 사람이 아닙니다", False)
-    if scope and dept not in scope:
-        raise HTTPException(403, "맡은 부서가 아닌 곳의 권한은 바꿀 수 없습니다")
-    ag = "admin" if not scope else scope[dept]
-    cur = _member_grade(uid.strip().lower(), a, dept, dd)
-    perm_ok, grade_ok = _can_touch(ag, cur)
-    if not perm_ok:
-        return back("이 사람의 권한은 바꿀 수 없습니다 — 사업 책임자는 일반 직원의 추가 권한만, 등급은 총괄 책임자가 정합니다", False)
-    if grade and grade != cur:
-        if not grade_ok or grade not in TEAM_GRADES:
-            return back("등급(사업 책임자·행정 담당자 지정)은 총괄 책임자가 정합니다", False)
-        if str(a.get("dept") or "").strip() == dept:
-            a["grade"] = grade
-        else:                                            # 겸직 부서의 등급은 그 부서에만(소속 부서 등급은 그대로)
-            a.setdefault("dept_grades", {})[dept] = grade
-    # 사업 책임자는 자기가 가진 권한만 나눠 준다(프로젝트 만들기) — 부서 전체 진행 현황 보기처럼 자기에게 없는 권한은 줄 수도 뺄 수도 없다
-    grantable = set(grades.PERMS) if ag in ("admin", "head") else set(LEAD_GRANTABLE)
-    keep = {k for k in (a.get("perms") or ()) if k not in grantable}
-    a["perms"] = [k for k in grades.PERMS if k in keep or (k in grantable and k in set(perm))]
-    if not a["perms"]:
-        a.pop("perms", None)
-    a["perms_by"] = me
-    a["updated_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-    st.save_accounts()
-    return back(f"{a.get('name') or uid} 님의 권한을 저장했습니다")
 
 
 # 조직 관리(/team)의 트리 자료·부서 고치기 — org_routes. main.py 가 이 라우터만 붙이므로 여기서 함께 붙인다

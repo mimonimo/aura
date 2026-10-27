@@ -99,34 +99,6 @@ async def dev_rag_min_grade(request: Request):
 # 겸직 부서는 계정의 부서별 등급(dept_grades) 한 곳 — 사용자·계정 편집 창에서 정한다
 
 
-@router.post("/dev/rag/dept")
-async def dev_rag_dept(request: Request):
-    """부서 RAG 만들기·지우기 — action=create(name) | delete(name, 든 문서는 공통 RAG 로)."""
-    from zzaimy.app import rag_spaces
-    st = request.app.state
-    db, accounts = st.db, st.accounts
-    data_dir = st.data_dir
-    form = await request.form()
-    action, name = str(form.get("action") or ""), " ".join(str(form.get("name") or "").split())
-    cfg = dict(rag_spaces.config(data_dir))
-    if action == "create":
-        new, err = rag_spaces.create_dept_rag(cfg, name, by=request.state.user or "")
-        if err:
-            return RedirectResponse("/dev/rag?" + urlencode({"err": err}) + "#dept-rags", status_code=303)
-        rag_spaces.save_config(new, data_dir)
-        return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 만들었습니다 — 문서 화면·문서 올리기에서 공개 범위를 「부서만」으로 고르면 들어갑니다"})
-                                + "#dept-rags", status_code=303)
-    if action == "delete" and name in st.all_depts():
-        if any(str(a.get("dept") or "").strip() == name for a in accounts.values()):
-            return RedirectResponse("/dev/rag?" + urlencode({"err": f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 사용자·계정에서 부서를 먼저 바꿉니다"})
-                                    + "#dept-rags", status_code=303)
-        new, moved = rag_spaces.delete_dept_rag(db, cfg, name)
-        rag_spaces.save_config(new, data_dir)
-        return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 지웠습니다 · 문서 {moved}건은 공통 RAG 로"})
-                                + "#dept-rags", status_code=303)
-    return RedirectResponse("/dev/rag?" + urlencode({"err": "알 수 없는 요청"}) + "#dept-rags", status_code=303)
-
-
 @router.get("/dev/rag/targets")
 def dev_rag_targets(request: Request, q: str = "", limit: int = 30):
     """검색 범위 시험의 대상 찾기 — 사람 고르기 부품(people-picker)이 읽는 꼴로 공간과 계정을 함께 돌려준다.

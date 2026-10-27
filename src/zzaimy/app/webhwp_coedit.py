@@ -982,17 +982,6 @@ def sanitize_fragment(data: bytes, *, strip_fields: bool = True) -> tuple[bytes,
     return buf.getvalue(), ""
 
 
-def strip_fragment_fields(data: bytes) -> bytes:
-    """(예전 이름) 조각의 누름틀을 떼어 다시 만든 조각 — 검사를 못 지나면 원본(넣는 쪽 sanitize_fragment 가 거절한다)."""
-    new, why = sanitize_fragment(data)
-    return data if why else new
-
-
-def fragment_problem(data: bytes) -> str:
-    """조각을 남의 화면에 넣어도 되는지 — 문제가 있으면 까닭, 없으면 빈 글(sanitize_fragment 와 같은 검사)."""
-    return sanitize_fragment(data)[1]
-
-
 def conflicts(db, fid: int, user: str | None = None, limit: int = 50) -> list[dict]:
     ensure(db)
     q = "SELECT id, field, user_id, base_version, server_version, text, reason, at FROM webhwp_conflicts WHERE fid = ?"
@@ -1240,19 +1229,6 @@ def schedule_commit(db, base: Path, fid: int, wait: float | None = None) -> None
         t.daemon = True
         _TIMERS[int(fid)] = {"timer": t, "first": first}
         t.start()
-
-
-def flush_all(db, base: Path) -> None:
-    """프로세스를 내리기 전 — 기다리는 써 넣기를 바로."""
-    with _TIMERS_GUARD:
-        items = list(_TIMERS.items())
-        _TIMERS.clear()
-    for fid, x in items:
-        x["timer"].cancel()
-        try:
-            commit_now(db, base, fid)
-        except Exception:
-            log.exception("써 넣기 실패")
 
 
 def snapshot(db, fid: int, me: str = "", *, light: bool = False) -> dict:

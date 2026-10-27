@@ -610,7 +610,7 @@ def chat_send(
     web = (web or "").strip().lower()[:8]            # "" = RAG, "model" = 일반(모델 지식), "1" = 인터넷 검색(일반 답의 제안에서)
     user_ = getattr(request.state, "user", "") or ""
     if rags_pick and getattr(request.state, "role", "") != "student":
-        # 입력줄에서 고른 RAG — 계정 범위와 겹치는 것만 저장한다(넓히지 않는다). 답 만들기는 이 저장값을 읽는다
+        # 입력줄에서 고른 RAG — 계정 범위와 겹치는 것만 저장한다(넓히지 않는다). 질문마다 보낸 사람의 선택으로 남겨 답 만들기가 읽는다
         scope_ = h._owner_scope(user_)
         _answer_pref.save(db, user_, rags=rags, choices=_answer_pref.rag_choices(scope_, h._all_depts()))
 
@@ -728,6 +728,7 @@ def chat_send(
     _set_options(session_id, [])
     mid_ = db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
     if not web and getattr(request.state, "role", "") != "student":
+        _answer_pref.remember_pick(db, int(mid_), user_)          # 공유 프로젝트 대화도 보낸 사람이 고른 RAG 로 답한다
         scope_ = h._owner_scope(user_)
         choices_ = _answer_pref.rag_choices(scope_, h._all_depts())
         tag = _answer_pref.label(_answer_pref.load(db, user_)["rags"], choices_)

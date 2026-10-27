@@ -50,7 +50,7 @@ def compare(db, question: str, k: int = 6, depts: list[str] | None = None) -> di
 
 @router.post("/dev/quality/retrieval-compare")
 def retrieval_compare(request: Request, question: str = Form(""), k: int = Form(6)):
-    """질문 하나를 세 검색 방식으로 나란히 — JSON. 품질·성능 화면의 「검색 방식 비교」가 부른다."""
+    """질문 하나를 세 검색 방식으로 나란히 — JSON. 품질·성능 「사업 문서 검색(GraphRAG)」 카드의 「질문 하나로 비교」가 부른다."""
     if getattr(request.state, "role", "") != "dev":
         raise HTTPException(403, "관리자 계정만 쓸 수 있습니다")
     if not question.strip():

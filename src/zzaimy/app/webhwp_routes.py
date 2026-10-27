@@ -1,4 +1,4 @@
-"""웹 한글 기안기 화면·프록시 — 부서 문서함(/hwp), 기안기로 열기(/hwp/{id}/edit), 저장, 편집기 고르기, 기안기 서버 프록시(/webhwpctrl/).
+"""웹 한글 기안기 화면·프록시 — 부서 문서함(/hwp), 기안기로 열기(/webhwpctrl/aura-edit?id=), 저장, 편집기 고르기, 기안기 서버 프록시(/webhwpctrl/).
 
 기안기 서버(Tomcat)는 127.0.0.1 에만 열려 있다. 브라우저는 플랫폼 주소의 /webhwpctrl/ 로 들어오고 이 프록시가 그대로 넘긴다 —
 로그인 검사는 앱의 인증 단계가 먼저 한다(학생은 허용 목록 밖이라 저절로 막힌다). 규칙·저장 자리는 app/webhwp.
@@ -828,17 +828,6 @@ def _google(request: Request) -> str:
     return email
 
 
-@router.get("/api/hwp/drive")
-def hwp_drive_list(request: Request, q: str = "", page: str = ""):
-    """내 드라이브의 한글 파일 목록(가져오기 창)."""
-    _need_staff(request)
-    from zzaimy.app import webhwp_drive
-    try:
-        return {"account": (email := _google(request)), **webhwp_drive.list_files(email, q, page)}
-    except RuntimeError as e:
-        raise HTTPException(502, str(e))
-
-
 def _dept_drives(request: Request) -> list[dict]:
     """왼쪽 「<부서> 드라이브」 — 내가 속한 부서(소속·추가 부서)의 연결된 부서 드라이브 폴더. 그 폴더는 부서 사람의 학교 계정에
     편집 권한이 주어져 있어(ingest/dept_drive 맞추기) 내 계정으로 연다 — 부서 계정의 다른 파일은 건드리지 않는다."""
@@ -1266,13 +1255,6 @@ async def hwp_new_save(request: Request, dept: str = "", title: str = "", folder
                      owner=getattr(request.state, "user", ""), source="new", folder=folder)
     _touch(request, dept, folder)
     return {"ok": True, "id": fid, "url": f"{EDIT_PAGE}?id={fid}"}
-
-
-@router.get("/hwp/{fid}/edit")
-def hwp_edit(request: Request, fid: int):
-    _need_staff(request)
-    _file(request, fid)
-    return RedirectResponse(f"{EDIT_PAGE}?id={int(fid)}", status_code=303)
 
 
 @router.get("/hwp/{fid}/file")

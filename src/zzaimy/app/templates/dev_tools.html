@@ -5,7 +5,7 @@
 
 {% include "_tools_settings.html" %}
 
-{# 외부 연결 — 학습 검수 도구(Label Studio)와 채팅 「외부 검색」 의 웹 검색 제공자(키가 있으면 구글·네이버, 없으면 DuckDuckGo, ADR-0038).
+{# 외부 연결 — 학습 검수 도구(Label Studio)와 일반 답 「인터넷에서 찾아보기」 의 웹 검색 제공자(키가 있으면 구글·네이버, 없으면 DuckDuckGo, ADR-0038).
    한 줄씩이던 두 카드를 한 곳에(10-26) #}
 <div class="card reveal" id="external"><div class="card-in">
   <h2><iconify-icon icon="solar:global-linear"></iconify-icon>외부 연결</h2>
@@ -17,7 +17,7 @@
   </div>
   {% endfor %}
   <div class="tool-status-row">
-    <div class="tool-status-name"><b>웹 검색</b><span class="muted">채팅에서 「외부 검색」 을 고른 요청만</span></div>
+    <div class="tool-status-name"><b>웹 검색</b><span class="muted">일반 답의 「인터넷에서 찾아보기」 를 누른 요청만</span></div>
     <div class="tool-status-detail"><span class="pill type">{{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}</span></div>
     <span></span>
   </div>

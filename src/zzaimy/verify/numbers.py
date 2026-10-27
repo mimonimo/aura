@@ -95,11 +95,6 @@ _DECLARED = re.compile(r"단위\s*[:：]?\s*(" + _UNIT_ALT + r")")
 _PAREN_UNIT = re.compile(r"\s*[(（]\s*(?:단위\s*[:：]?\s*)?(" + _UNIT_ALT + r")\s*[)）]")
 
 
-def declared_units(text: str) -> set[int]:
-    """글에 선언된 금액 단위(「(단위: 백만원)」) — 배수 집합. 원 단위 선언(1)은 뺀다."""
-    return {_MONEY_UNIT[u] for u in _DECLARED.findall(text or "") if _MONEY_UNIT[u] > 1}
-
-
 def _decl_at(text: str, pos: int) -> int | None:
     """그 숫자에 걸리는 단위 선언 — 같은 덩이(빈 줄로 나뉜 문단·표) 안에서 그 숫자와 가장 가까운 선언 하나(표 위·아래 어느 쪽이든).
     보안: 글 어딘가의 선언을 모두 곱해 보면, 선언을 여러 개 넣는 것만으로 아무 숫자나 근거 값과 맞출 수 있다."""

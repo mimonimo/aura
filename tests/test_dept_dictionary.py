@@ -208,17 +208,13 @@ def test_api_depts_staff_only_and_fields(tmp_path):
 
 def test_dev_users_dictionary_candidates_and_bulk_create(tmp_path):
     app, c = _client(tmp_path)
-    c.post("/dev/users/dept", data={"action": "create", "name": "기획처"})
+    c.post("/org/create", json={"name": "기획처"})
     page = c.get("/team").text
-    # 화면에서는 사전 고르기를 뺐다(10-23 사용자: 쓰기 복잡). 부서 추가는 조직도(10-25). 서버의 여러 개 만들기 길은 남는다
+    # 화면에서는 사전 고르기를 뺐다(10-23 사용자: 쓰기 복잡). 부서 추가는 조직도(10-25). 여러 개 만들기 주소도 10-27 에 없앴다
     assert "사전에서 고르기" not in page and 'name="names"' not in page
-    r = c.post("/dev/users/dept", data={"action": "create_many", "names": ["기획팀", "학생처", "새이름과", "기획처"]},
-               follow_redirects=False)
-    assert "ok=" in r.headers["location"] and "2개" in unquote(r.headers["location"])
-    known = rag_spaces.known_depts(rag_spaces.config(tmp_path), {})
-    assert {"기획처", "기획팀", "학생처"} <= set(known) and "새이름과" not in known
+    assert c.post("/dev/users/dept", data={"action": "create_many", "names": ["기획팀"]}, follow_redirects=False).status_code in (404, 405)
     # 별칭으로 만들면 정식 이름으로
-    c.post("/dev/users/dept", data={"action": "create", "name": "다라사업단"})
+    c.post("/org/create", json={"name": "다라사업단"})
     assert "다라2.0사업단" in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})
     page = c.get("/team").text
     assert "규정 제안" not in page and 'data-parent-open="기획팀"' not in page      # 상위 부서는 조직도에서 옮긴다(10-25)
@@ -227,23 +223,23 @@ def test_dev_users_dictionary_candidates_and_bulk_create(tmp_path):
 def test_dept_parent_route_admin_only_and_no_cycle(tmp_path):
     app, c = _client(tmp_path)
     for n in ("기획처", "다라2.0사업단"):
-        c.post("/dev/users/dept", data={"action": "create", "name": n})
-    r = c.post("/dev/users/dept-parent", data={"dept": "다라2.0사업단", "parent": "기획처"}, follow_redirects=False)
-    assert "ok=" in r.headers["location"] and dd.children_map(tmp_path) == {"기획처": ["다라2.0사업단"]}
-    r = c.post("/dev/users/dept-parent", data={"dept": "기획처", "parent": "다라2.0사업단"}, follow_redirects=False)
-    assert "err=" in r.headers["location"] and "순환" in unquote(r.headers["location"])
-    r = c.post("/dev/users/dept-parent", data={"dept": "기획처", "parent": "없는부서"}, follow_redirects=False)
-    assert "err=" in r.headers["location"]
+        c.post("/org/create", json={"name": n})
+    r = c.post("/org/move", json={"dept": "다라2.0사업단", "parent": "기획처"})       # 상위 부서는 조직도 옮기기 한 곳(옛 /dev/users/dept-parent 는 10-27 에 없앰)
+    assert r.json()["ok"] and dd.children_map(tmp_path) == {"기획처": ["다라2.0사업단"]}
+    r = c.post("/org/move", json={"dept": "기획처", "parent": "다라2.0사업단"})
+    assert r.status_code == 400 and not r.json()["ok"]
+    r = c.post("/org/move", json={"dept": "기획처", "parent": "없는부서"})
+    assert r.status_code == 400
     staff = TestClient(app)
     assert _login(staff, "zzaimy", "boot-pass-1")
-    assert staff.post("/dev/users/dept-parent", data={"dept": "다라2.0사업단", "parent": ""}, follow_redirects=False).status_code == 403
+    assert staff.post("/org/move", json={"dept": "다라2.0사업단", "parent": ""}).status_code == 403
     assert dd.children_map(tmp_path) == {"기획처": ["다라2.0사업단"]}
 
 
 def test_dual_post_rows_save_dept_grades(tmp_path):
     app, c = _client(tmp_path)
     for n in ("기획처", "다라2.0사업단", "학생처"):
-        c.post("/dev/users/dept", data={"action": "create", "name": n})
+        c.post("/org/create", json={"name": n})
     page = c.get("/team").text                                                # 계정 편집 창은 조직 관리(ADR-0073)
     assert "겸직 부서" in page and "data-extra-add" in page and 'name="extra_grade"' in page
     r = c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",

@@ -567,13 +567,6 @@ def page_context(request: Request) -> dict:
             "days": {c["key"]: c["days"] for c in sources if c["n"]}}
 
 
-@router.get("/dev/collect")
-def collect_page(request: Request, err: str = ""):
-    """옛 주소 — 데이터·학습의 「수집 자료」 탭으로 넘긴다(옛 링크·즐겨찾기용)."""
-    _st(request)
-    return _back(err)
-
-
 @router.get("/dev/collect/peek/{key}")
 def collect_peek(request: Request, key: str):
     st = _st(request)

@@ -14,7 +14,6 @@
 - 부서 드라이브 실제 연결 — 부서 총괄 책임자가 학교 계정으로 「구글 드라이브 연결」.
 - 서버 이전 — 도구(scripts/209) 준비 끝, 실제 이전 때 묶기.
 - 한글 문서함 양식 정리 백업 — 10-30 무렵 지움.
-- 검색 방식 비교 화면 — /dev/quality 「사업 문서 검색(GraphRAG)」 절에 질문 입력과 세 방식 결과 표를 붙인다(뒤 길 POST /dev/quality/retrieval-compare 는 있음, ADR-0076).
 - 권한·조직 — 같은 부서 안 동료 문서 검토 권한, 업로드 때 부서·등급 고르는 화면.
 - 사업 관리 — 성과지표 목표 대비 실적 화면, 결과보고서 초안 연결.
 - 문서 반입 — 글자 손상 다시 읽기 15건(10-27 재측정: 「글자 단위 분해」 오탐을 고친 기준, 글자층 직독 8·MinerU 7 — 깨진 글자층 2건이 핵심), 종류 못 정한 2,583건 판정(2,541건은 처리 결과 파일 밖이라 27B 판정을 못 받은 10-02 반입분 — scripts/191 --from-db, 27B 일괄은 지시 뒤), DGX 원본 폴더 재정리(경로 대응표 먼저). 고친 손상 기준은 배포 뒤 검색 지표 재측정.
@@ -42,6 +41,10 @@
 ## 최근 작업
 
 ### 2026-10-27
+
+- 옛 주소·옛 코드 정리: 옛 주소를 넘기지 않고 지움(북마크가 깨지는 것은 감수) — /dev/intake·/dev/collect(화면)·/archive·/criteria·/inbox·/?group=·/project/{id}?tab=·/hwp/{id}/edit(쓰던 곳은 /webhwpctrl/aura-edit?id= 로 바꿈). 쓰는 화면이 없는 주소도 지움 — /dev/google/settings·dept·folders, /team/save(구성원 등급·권한은 /api/org/members 한 길), /dev/users/dept·dept-parent·/dev/rag/dept(부서는 조직도 /org/*), /dev/eval/run(새벽 자동), /dev/gdrive/auth, /dev/llm/role, /dev/data/grounded-review-config, /doc/{id}/quality-report·/boxes, /institution, /api/chat-documents/create, /account/google/import, /api/hwp/drive, 옛 독스 작업 화면 /gdocs/*(gdocs_work.html·gdocs-work.css/js·drive-browser.js). 아무도 부르지 않는 함수 39개도 지움(vulture 후보를 src·templates·static·scripts·tests 전체 grep 으로 확인). 화면 문구: 웹 검색 줄 「일반 답의 「인터넷에서 찾아보기」 를 누른 요청만」, 「외부 검색」 안내를 「인터넷 검색」 으로, 처리 흐름의 규정 링크를 라이브러리 「기준」 칩으로, 「모델 비교 결과 보기」 → 「모델 비교 보기」.
+- 품질·성능 「사업 문서 검색(GraphRAG)」 카드에 「질문 하나로 비교」: 질문과 문서 수(1~20)를 넣으면 풀텍스트·온톨로지·27B 질문 읽기 세 칸에 걸린 시간과 찾은 문서(문서 화면 링크)를 나란히(POST /dev/quality/retrieval-compare, 관리자만).
+- 공유 프로젝트 대화의 RAG 고르기: 답은 대화 주인의 저장값이 아니라 그 질문을 보낸 사람이 고른 RAG 로 — 질문마다 보낸 사람과 선택을 남기고(chat_msg_rags:<메시지>), 주인 범위와 보낸 사람 범위 둘 다와 겹치는 것만 쓴다(넓히지 않음, answer_pref.narrow_shared). 대화를 지우면 함께 지운다.
 
 - 데이터·학습 「검수·학습」 탭 정리: 문답 검수 카드는 Label Studio 프로젝트 전부를 표로(완료/전체·진행 막대·열기, 1분마다 다시 읽음 — 「다시 확인」 단추와 틀린 안내 문구 지움)와 「검수 가이드」(docs/guides/sft-review-guide.md 를 앱 안에서, 그림은 그 폴더 jpg·png 만, /dev/train/review-guide). 접어 둔 「학습 문답 구성 안내」 대신 학습셋 구성 표(갈래 × 학습·검증·시험, 갈래마다 표본 3건 펼치기 — 색인 파일의 갈래로). 학습·평가는 학습셋 표 하나(이름·상태·학습/검증/시험·날짜·파일), 상태는 후보 → 승인 → 학습 완료, 운영 판단은 model_tracks.DECISIONS(writer-v1 은 학습 완료 · 운영 미채택, ADR-0069 → 품질·성능 모델 비교). 산출물 카드의 학습셋 목록은 한 줄로(같은 목록 두 곳 금지).
 - 수집 자료를 데이터·학습 안으로: 사이드바 「모델 학습」 의 따로 있던 「수집 자료」 를 빼고 데이터·학습 화면의 탭 둘(검수·학습 / 수집 자료, /dev/train?tab=collect)로. 옛 주소 /dev/collect 는 그 탭으로 넘기고, 묶음 만들기·내려받기·구조 보기 주소(/dev/collect/…)는 그대로 두되 끝나면 탭으로 돌아온다. 탭 줄 꼴은 데이터 현황과 같은 것(base.html 공통), 도우미 안내·구현 설명서·사용 설명서 주소도 맞춤.

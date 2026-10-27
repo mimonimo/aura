@@ -3,6 +3,8 @@
 - 계정마다 마지막으로 고른 방식과 고른 RAG 를 서버에 기억한다(설정 chat_mode_pref:<계정>). 처음은 RAG.
 - RAG 고르기는 좁히기만 한다. 고를 수 있는 RAG 는 그 계정의 검색 범위(rag_spaces.search_scope 결과의 grant_depts)에서
   만들고, 요청·저장된 값은 늘 그 집합과 겹치는 것만 남긴다. 범위 밖 값만 왔으면 사업 문서를 쓰지 않는 쪽으로 닫는다.
+- 질문마다 보낸 사람과 그때 고른 RAG 를 남긴다(설정 chat_msg_rags:<메시지>). 공유 프로젝트의 대화는 주인과 보낸 사람이
+  다를 수 있어, 답은 보낸 사람이 고른 RAG 를 대화 주인의 범위와 보낸 사람의 범위 둘 다와 겹치는 것만 쓴다(narrow_shared).
 - 판단(인터넷에서 찾아볼지)은 모델이 하고, 여기는 저장·교집합·표시 글만 맡는다.
 """
 from __future__ import annotations
@@ -60,6 +62,42 @@ def narrow(scope: dict, picked, choices: list[str]) -> dict:
     out.setdefault("user", scope.get("user") or "")
     out["space"] = f"{scope.get('space', '')}|pick:{','.join(keep) or '-'}"
     return out
+
+
+def narrow_shared(owner_scope: dict, sender_scope: dict | None, picked, all_depts: list[str] | None = None) -> dict:
+    """보낸 사람이 고른 RAG 로 대화 주인의 범위를 좁힌다 — 보낸 사람이 고를 수 있는 것 안에서, 다시 주인의 범위 안에서만(넓히지 않는다).
+    고른 것이 없으면(기본 = 전부) 보낸 사람이 고를 수 있는 전부. 보낸 사람 범위와 하나도 겹치지 않으면 사업 문서를 쓰지 않는다."""
+    sender_choices = rag_choices(sender_scope, all_depts)
+    raw = [str(x).strip() for x in (picked or []) if str(x).strip()]
+    want = clean(raw, sender_choices) if raw else list(sender_choices)
+    owner_choices = rag_choices(owner_scope, all_depts)
+    if not want:
+        if not owner_choices:
+            return owner_scope
+        return narrow(owner_scope, ["\x00"], owner_choices)       # 겹치는 것 없음 — 닫는다
+    return narrow(owner_scope, want, owner_choices)
+
+
+def _msg_key(mid: int) -> str:
+    return f"chat_msg_rags:{int(mid)}"
+
+
+def remember_pick(db, mid: int, user: str) -> None:
+    """질문 하나에 보낸 사람과 그때 고른 RAG(빈 목록 = 전부)를 남긴다 — 답 만들기가 대화 주인이 아니라 보낸 사람의 선택을 쓰게."""
+    db.set_setting(_msg_key(mid), json.dumps({"by": user or "", "rags": load(db, user)["rags"]}, ensure_ascii=False))
+
+
+def message_pick(db, mid: int | None) -> dict | None:
+    """remember_pick 으로 남긴 값 {by, rags}. 없거나 깨졌으면 None."""
+    if not mid:
+        return None
+    try:
+        v = json.loads(db.get_setting(_msg_key(mid), "") or "null")
+    except ValueError:
+        return None
+    if not isinstance(v, dict) or not isinstance(v.get("by"), str):
+        return None
+    return {"by": v["by"], "rags": [str(x) for x in v.get("rags") or [] if isinstance(x, str)]}
 
 
 def label(picked: list[str], choices: list[str]) -> str:

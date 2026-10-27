@@ -79,7 +79,7 @@ def test_criteria_chip_script_is_scoped_and_filters_have_counts(client):
     b = _doc(db, "가상 내규.pdf", doc_type="regulation")
     db.set_document_kind(b, None)
     db.add_document("처리중 기준.pdf", "/tmp/x.pdf", doc_type="regulation")   # 접수 상태 그대로
-    page = client.get("/criteria").text                                # 옛 기준 문서 탭 → 라이브러리 「기준」 칩
+    page = client.get("/?type=all&use=criteria").text                                # 옛 기준 문서 탭 → 라이브러리 「기준」 칩
     script = page.split('<script>\n(function () {', 1)
     assert len(script) == 2                                            # 화면 스크립트는 함수로 감싼다
     assert "var status " not in page and "var status=" not in page

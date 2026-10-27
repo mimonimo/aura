@@ -243,15 +243,6 @@ def admin_over(accounts: dict, uid: str, role: str, active: bool) -> bool:
     return admin_count(accounts, except_uid=uid) >= ADMIN_MAX
 
 
-def rag_allowed(space: str, account: dict | None, cfg: dict) -> bool:
-    """RAG 공간에 최소 등급이 걸려 있으면 그 이상만 — rag_spaces 설정 {"min_grade": {"common": "lead", "dept:기획처": "head"}}.
-    걸려 있지 않으면 지금 규칙(부서·겸직·열어 받은 부서) 그대로. 관리자는 늘 허용."""
-    need = ((cfg or {}).get("min_grade") or {}).get(space)
-    if not need:
-        return True
-    return at_least(grade_of(account), need)
-
-
 def rag_blocked(cfg: dict | None, grade: str) -> set[str]:
     """이 등급이 닿지 못하는 RAG 의 문서 부서 이름(공통 RAG 는 「공통」). 등급이 빈 값(걸지 않음·학생)이거나 관리자면 빈 집합 —
     걸린 것이 없으면 늘 빈 집합이라 지금 동작과 같다."""

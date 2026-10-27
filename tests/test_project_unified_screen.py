@@ -49,14 +49,6 @@ def test_one_screen_with_documents_principles_and_drop_zone(tmp_path, monkeypatc
     assert 'data-modal-open="#linkModal"' in menu
 
 
-def test_old_tab_addresses_lead_to_the_same_screen(tmp_path, monkeypatch):
-    app, pid, kim, _ = _world(tmp_path, monkeypatch)
-    r = kim.get(f"/project/{pid}?tab=context&bundle=1+2", follow_redirects=False)
-    assert r.status_code == 307 and r.headers["location"] == f"/project/{pid}?bundle=1+2#projectContext"
-    r = kim.get(f"/project/{pid}?tab=chat", follow_redirects=False)
-    assert r.status_code == 307 and r.headers["location"] == f"/project/{pid}"
-
-
 def test_import_from_department_folder_goes_through_intake(tmp_path, monkeypatch):
     app, pid, kim, f = _world(tmp_path, monkeypatch)
     db = app.state.db

@@ -449,18 +449,6 @@ def expand(db, hit: dict) -> str:
     return text[:EXPAND_TO]
 
 
-def docs_under(db, program: str) -> set[int]:
-    """그래프에서 사업 노드 아래(연차 경유) 문서 번호 — 관계 전체를 읽지 않고 SQL 로."""
-    with db._conn() as conn:
-        years = [r[0] for r in conn.execute("SELECT dst FROM kg_edges WHERE kind = 'contains' AND src = ? AND dst LIKE 'year:%'",
-                                            (program,)).fetchall()]
-        srcs = [program, *years]
-        rows = conn.execute(
-            "SELECT n.doc_id FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst WHERE e.kind = 'contains'"
-            f" AND e.src IN ({','.join('?' * len(srcs))}) AND e.dst LIKE 'doc:%' AND n.doc_id IS NOT NULL", srcs).fetchall()
-    return {int(r[0]) for r in rows}
-
-
 def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: set[int] | None = None,
            depts: list[str] | None = None, reader=None, graph: bool | None = None) -> dict:
     """질문 → {steps, hits:[{chunk_id, doc_id, content, path, score}]}. steps 는 리즈닝 단계 기록(graph/retrieve 와 같은 말).

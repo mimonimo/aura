@@ -125,7 +125,7 @@ def test_postgres_http_pages_and_search(pg_runtime):
     project = db.list_all_projects()[0]['id']
     doc = db.add_document('검증 문서.pdf', '/fixture.pdf', 'regulation', project_id=project)
     db.update_document(doc, status='reviewed', masked_text='검증 문서 본문')
-    for url in ('/project/' + str(project), '/criteria', '/search?q=검증',
+    for url in ('/project/' + str(project), '/?type=all&use=criteria', '/search?q=검증',
                 '/dev/archive', '/api/chat/sessions', '/api/projects/search?q=사업'):
         response = client.get(url)
         assert response.status_code == 200, url

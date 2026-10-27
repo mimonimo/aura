@@ -180,5 +180,5 @@ def test_staff_cannot_import_or_change_review_config(tmp_path):
     from tests.test_accounts import _app, _login
     c = TestClient(_app(tmp_path))
     assert _login(c, 'zzaimy', 'boot-pass-1')
-    for path in ('grounded-pull', 'grounded-review-config'):
+    for path in ('grounded-pull',):
         assert c.post('/dev/data/'+path).status_code == 403

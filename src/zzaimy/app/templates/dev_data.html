@@ -34,7 +34,7 @@
   .review-actions form { display:flex; margin:0; }
 </style>
 
-{# 탭 둘 — 모르는 tab 값(옛 settings·models·exports 등)은 첫 탭. 수집 자료는 옛 /dev/collect(10-27 에 이 화면으로) #}
+{# 탭 둘 — 모르는 tab 값은 첫 탭 #}
 <nav class="dx-tabs" aria-label="데이터·학습">
   <a href="/dev/train" data-train-tab="data" class="{{ 'on' if tab != 'collect' }}"{% if tab != 'collect' %} aria-current="page"{% endif %}>검수·학습</a>
   <a href="/dev/train?tab=collect" data-train-tab="collect" class="{{ 'on' if tab == 'collect' }}"{% if tab == 'collect' %} aria-current="page"{% endif %}>수집 자료</a>
@@ -50,7 +50,7 @@
 {% endif %}
 
 {% if tab == 'collect' %}
-{# ---------------- 수집 자료 — 운영 기록의 가린 사본 묶음(collect.py, 옛 /dev/collect) ---------------- #}
+{# ---------------- 수집 자료 — 운영 기록의 가린 사본 묶음(collect.py) ---------------- #}
 <style>
   .col-table { width:100%; border-collapse:collapse; font-size:13px; }
   .col-table th, .col-table td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }

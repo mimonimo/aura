@@ -32,16 +32,6 @@ def dev_gdrive_client(client_id: str = Form(""), client_secret: str = Form("")):
     return _users_redirect("Google 앱 등록을 저장했습니다 — 사용자는 설정에서 학교 계정을 연결합니다")
 
 
-@router.get("/dev/gdrive/auth")
-def dev_gdrive_auth(request: Request):
-    from zzaimy.ingest import gdrive
-
-    try:
-        return RedirectResponse(gdrive.auth_url(_gdrive_redirect_uri(request), getattr(request.state, "user", "")), status_code=303)
-    except ValueError as e:
-        return _users_redirect(str(e), ok=False)
-
-
 @router.get("/dev/gdrive/callback")
 def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     from zzaimy.ingest import gdrive

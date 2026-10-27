@@ -975,11 +975,6 @@ def apply_display(cards: list, link: dict) -> int:
     return n
 
 
-def program_periods(cards: list, ledger: dict) -> dict[str, tuple[int, int | None]]:
-    """카드 id → 사업 기간(주인 항목 기준). ledger_link 참조."""
-    return ledger_link(cards, ledger)["periods"]
-
-
 def ledger_spans(ledger: dict, cards: list | None = None) -> list[dict]:
     """장부 사업마다 {id, name, start, end, terms} — 카드가 있으면 주인 카드 id 를 쓴다. ledger_link 참조."""
     return ledger_link(cards or [], ledger)["spans"]

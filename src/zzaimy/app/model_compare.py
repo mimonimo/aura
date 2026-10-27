@@ -1,4 +1,4 @@
-"""모델 비교 결과(/dev/models/compare) — VM 의 비교 실행이 남긴 파일을 읽어 보여 준다.
+"""모델 비교(/dev/models/compare) — VM 의 비교 실행이 남긴 파일을 읽어 보여 준다.
 품질·성능(/dev/quality)의 「모델 비교」 카드가 마지막 실행의 요약(headline)을 보이고, 이 화면은 그 「자세히 보기」다.
 
 결과 자리: data/eval/model_compare/<run-id>/ (ZZAIMY_MODEL_COMPARE_DIR 로 바꿀 수 있다)

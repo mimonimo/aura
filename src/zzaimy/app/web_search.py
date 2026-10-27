@@ -1,7 +1,7 @@
-"""외부 검색 모드 — 문서 작업이 아닌 일반 질문(장비 사양 비교 같은 것)을 27B 가 웹 검색 결과로 답한다(ADR-0038).
+"""인터넷 검색 — 문서 작업이 아닌 일반 질문(장비 사양 비교 같은 것)을 27B 가 웹 검색 결과로 답한다(ADR-0038, 입력줄은 ADR-0076).
 
 원칙:
-- 담당자가 그 메시지에 '외부 검색' 을 켰을 때만 쓴다. 밖으로 나가는 것은 질문 글뿐이다 — 문서·첨부·교내 자료는 보내지 않는다.
+- 일반 답 아래 「인터넷에서 찾아보기」 를 누른 요청만 쓴다. 밖으로 나가는 것은 질문 글뿐이다 — 문서·첨부·교내 자료는 보내지 않는다.
 - 검색은 키가 있으면 구글 CSE·네이버 API, 없으면 DuckDuckGo HTML 결과를 쓰고, 상위 쪽 몇 개를 받아 글만 남긴다. 답은 교내 27B 가 그 자료만 근거로 만들고
   문장마다 [n] 출처 번호를 단다. 자료에 없는 것은 모른다고 한다(브리프 규칙 1: 수치는 인출, 생성하지 않는다).
 - 모델은 계획한 4종 그대로(Writer 27B). 외부 모델 참조(egress)와는 다른 길이다.
@@ -144,13 +144,13 @@ def search(query: str, k: int = 5, http=None) -> list[dict]:
 
     which = provider()
     if which == "off":
-        raise Blocked("외부 검색이 관리자 설정으로 꺼져 있습니다.")
+        raise Blocked("인터넷 검색이 관리자 설정으로 꺼져 있습니다.")
     if which == "google":
         return search_google(query, k, http)
     if which == "naver":
         return search_naver(query, k, http)
     if which != "duckduckgo":
-        raise Blocked("외부 검색 제공자 설정을 알 수 없어 보내지 않았습니다.")
+        raise Blocked("인터넷 검색 제공자 설정을 알 수 없어 보내지 않았습니다.")
     http = http or httpx.Client(timeout=20, headers=_UA, follow_redirects=True)
     r = http.post(SEARCH_URL, data={"q": query, "kl": "kr-kr"}, headers=_UA)
     if r.status_code != 200:
@@ -215,7 +215,7 @@ def answer_with_web(question: str, client=None, k: int = 4, http=None, max_token
     """웹 검색 → 상위 쪽 글 → 27B 답. 돌려주는 것: {answer, sources:[{n,title,url}], searched: n}.
     질문에 개인정보가 있으면 Blocked — 보내지 않는다. 질문 글은 기록에 남기지 않는다."""
     if provider() == "off":
-        raise Blocked("외부 검색이 관리자 설정으로 꺼져 있습니다. 외부 검색을 끄고 물어 주세요.")
+        raise Blocked("인터넷 검색이 관리자 설정으로 꺼져 있습니다. 「RAG」 나 「일반」 으로 물어 주세요.")
     if screen_question(question):
         raise Blocked("질문에 개인정보(주민번호·계좌·전화 같은 것)가 있어 외부로 보내지 않았습니다. 그 부분을 빼고 다시 물어 주세요.")
     results = search(question, k=k, http=http)
@@ -242,7 +242,7 @@ def answer_with_web(question: str, client=None, k: int = 4, http=None, max_token
 def render(result: dict) -> str:
     """채팅에 남길 글 — 답 + 출처 목록."""
     if not result.get("answer"):
-        return "외부 검색에서 쓸 만한 자료를 찾지 못했습니다. 질문을 더 구체적으로 적어 주세요."
+        return "인터넷 검색에서 쓸 만한 자료를 찾지 못했습니다. 질문을 더 구체적으로 적어 주세요."
     lines = [result["answer"], "", f"출처(외부 검색 · {provider()}):"]
     lines += [f"[{s['n']}] {s['title']} — {s['url']}" for s in result["sources"]]
     return "\n".join(lines)

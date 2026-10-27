@@ -447,16 +447,6 @@ def live_since(db, fid: int, since: int, user: str) -> tuple[int, list[dict]]:
     return last, sorted(out.values(), key=lambda x: x["v"])
 
 
-def merge_live(db, fid: int, data: bytes, user: str) -> tuple[bytes, list[str]]:
-    """저장하려는 판에 칸 글 표(서버가 정답)를 덮어 쓴다 — 동시에 다른 칸을 쓴 사람의 글이 사라지지 않게. (새 바이트, 바꾼 필드)."""
-    from zzaimy.app import webhwp_coedit as ce
-    try:
-        new, done, versions = ce.overlay(db, fid, data)
-    except Exception:
-        return data, []
-    return new, done
-
-
 def locked(db, fid: int) -> bool:
     """플랫폼이 만든 공통 양식(source 「양식:」) — 모두의 한글 완성본이 이 파일을 원본 서식으로 쓰므로 관리자만 고치고 지운다."""
     return str(meta(db, fid).get("source", "")).startswith("양식:")

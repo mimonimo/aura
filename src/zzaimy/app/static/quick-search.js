@@ -7,7 +7,7 @@
   const RECENT='auraQuickRecent';
   const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;};
   const ic=n=>{const i=document.createElement('iconify-icon');i.setAttribute('icon',n);i.setAttribute('aria-hidden','true');return i;};
-  const href=(k,it)=>k==='chats'?'/chat/'+it.id:k==='projects'?'/project/'+it.id:k==='docs'?'/doc/'+it.id:'/hwp/'+it.id+'/edit';
+  const href=(k,it)=>k==='chats'?'/chat/'+it.id:k==='projects'?'/project/'+it.id:k==='docs'?'/doc/'+it.id:'/webhwpctrl/aura-edit?id='+it.id;
   const recent=()=>{try{return JSON.parse(localStorage.getItem(RECENT)||'[]');}catch(_){return [];}};
   const remember=x=>{try{const r=recent().filter(y=>y.url!==x.url);r.unshift(x);localStorage.setItem(RECENT,JSON.stringify(r.slice(0,8)));}catch(_){}};
   let d=null;

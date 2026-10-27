@@ -21,9 +21,9 @@ from pathlib import Path
 
 DB = Path("data/platform/platform.db")
 ROUTES = [
-    "/", "/criteria", "/chat", "/graph/explore", "/graph/program", "/settings",
+    "/", "/?type=all&use=criteria", "/chat", "/graph/explore", "/graph/program", "/settings",
     "/dev", "/dev/archive",
-    "/dev/train", "/dev/rag", "/dev/intake",
+    "/dev/train", "/dev/rag", "/dev/flow",
     "/dev/pii", "/dev/quality", "/dev/docs", "/dev/history", "/team",
     "/dev/doc/quality-system.md", "/dev/doc/HANDOFF.md",
     "/dev/paper/논문-원재료.md", "/dev/weekly.md",

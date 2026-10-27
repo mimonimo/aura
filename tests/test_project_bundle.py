@@ -485,7 +485,7 @@ def test_document_store_page_lists_intake_documents_and_basic_plan_kind(tmp_path
     db.update_document(d, status="reviewed"); db.set_document_kind(d, "plan")
     page = c.get("/?type=all").text
     assert "사업계획서 합본" in page and f'href="/doc/{d}"' in page and "AID" in page and "계획서" in page
-    assert "접수·첨부 문서" not in c.get("/criteria").text
+    assert "접수·첨부 문서" not in c.get("/?type=all&use=criteria").text
 
 
 def test_finishing_command_asks_before_removing_boxes(tmp_path, monkeypatch):
@@ -522,11 +522,12 @@ def test_receipt_number_can_be_changed_and_institution_saved(tmp_path):
     assert r.headers["location"].endswith("err=receipt")
     page = c.get(f"/doc/{d1}").text
     assert 'name="receipt_no"' in page and 'value="2026-국고-0099"' in page          # 접수번호 수정 창(관리 모달)
-    c.post("/institution", data={"대학명": "영남이공대학교", "주소": "", "총장": "홍길동", "대표전화": ""}, follow_redirects=False)
     from zzaimy.app import institution
+    for k, v in (("대학명", "영남이공대학교"), ("총장", "홍길동")):
+        institution.set_fact(db, k, v)
     f = institution.facts(db)
     assert f["대학명"] == "영남이공대학교" and f["총장"] == "홍길동"
-    page = c.get("/criteria").text
+    page = c.get("/?type=all&use=criteria").text
     assert 'id="institution"' not in page
     assert 'action="/institution"' not in page
     assert "없음 — 문서에 ○○○ 로 남습니다" not in page

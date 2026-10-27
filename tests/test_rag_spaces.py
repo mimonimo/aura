@@ -153,9 +153,8 @@ def test_area_folders_from_ledger(tmp_path):
 def test_old_area_tab_points_to_rag_space(tmp_path):
     """폴더별 담당 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 한 곳 — 옛 문서 반입 탭 넘기기는 10-25 에 지웠다."""
     c = _client(tmp_path)
-    r = c.get("/dev/intake?tab=areas", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/dev/flow#intake"      # 반입 점검은 처리 흐름의 한 칸(10-26)
-    assert "폴더별 담당 부서" not in c.get("/dev/intake").text
+    assert c.get("/dev/intake?tab=areas", follow_redirects=False).status_code == 404   # 옛 주소는 없앴다(10-27)
+    assert "폴더별 담당 부서" not in c.get("/dev/flow").text
 
 
 def _search_fixture(tmp_path, monkeypatch):

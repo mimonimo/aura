@@ -103,15 +103,16 @@ def test_delete_chat_session_removes_its_settings(tmp_path):
     db = app.state.db
     sid = db.create_chat_session(title="t", owner="kim")
     other = db.create_chat_session(title="u", owner="kim")
-    db.add_chat(sid, "user", "질문")
+    qid = db.add_chat(sid, "user", "질문")
     mid = db.add_chat(sid, "assistant", "답")
     omid = db.add_chat(other, "assistant", "다른 답")
+    db.set_setting(f"chat_msg_rags:{qid}", "{}")                          # 질문의 RAG 선택도 함께 지운다
     for k in (f"chat_ctx_msg:{mid}", f"chat_cot:{mid}", f"chat_ctx:{sid}", f"chat_summary:{sid}",
               f"chat_ctx_msg:{omid}", f"chat_cot:{omid}", f"chat_ctx:{other}", f"chat_summary:{other}"):
         db.set_setting(k, "{}")
     assert db.delete_chat_session(sid)
     left = db.all_settings()
-    assert not any(k in left for k in (f"chat_ctx_msg:{mid}", f"chat_cot:{mid}", f"chat_ctx:{sid}", f"chat_summary:{sid}"))
+    assert not any(k in left for k in (f"chat_ctx_msg:{mid}", f"chat_cot:{mid}", f"chat_ctx:{sid}", f"chat_summary:{sid}", f"chat_msg_rags:{qid}"))
     assert all(k in left for k in (f"chat_ctx_msg:{omid}", f"chat_cot:{omid}", f"chat_ctx:{other}", f"chat_summary:{other}"))
     db.delete_setting(f"chat_cot:{omid}")
     assert db.get_setting(f"chat_cot:{omid}", "없음") == "없음"

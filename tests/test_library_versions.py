@@ -60,14 +60,6 @@ def test_library_shows_latest_version_with_count(tmp_path):
     assert "문서 4건" in page and "판본 2건은 최신본 아래에 묶음" in page
 
 
-def test_inbox_redirects_to_library_keeping_filters(tmp_path):
-    _app, c = _client(tmp_path)
-    r = c.get("/inbox", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/?type=all"
-    r = c.get("/inbox?type=recruit&q=이력서", follow_redirects=False)
-    assert r.headers["location"].startswith("/?type=recruit&q=")
-
-
 def test_library_hides_empty_groups_and_flags_unknown_business(tmp_path):
     app, c = _client(tmp_path)
     app.state.db.add_document("공문.hwp", "x", doc_type="grant")

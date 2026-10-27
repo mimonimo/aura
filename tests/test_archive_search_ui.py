@@ -219,11 +219,11 @@ def test_masking_follows_internal_setting(client):
 
 
 def test_staff_has_no_original_management(client):
-    """교직원은 원본 관리를 쓰지 않는다 — 화면·파일·정리 모두 막히고, 옛 주소는 라이브러리로."""
+    """교직원은 원본 관리를 쓰지 않는다 — 화면·파일·정리 모두 막힌다."""
     assert _login(client, "zzaimy", "boot-pass-1")
     for path in ("/dev/archive", "/dev/archive?q=깨진&partial=1", "/dev/archive/original?rel=x", "/dev/archive/cleanup"):
         assert client.get(path).status_code == 403, path
-    assert client.get("/archive?q=깨진", follow_redirects=False).headers["location"] == "/?type=all"
+    assert client.get("/archive?q=깨진", follow_redirects=False).status_code == 404     # 옛 주소는 없앴다(10-27)
 
 
 def test_helpers():

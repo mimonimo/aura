@@ -428,10 +428,6 @@ def active() -> dict | None:
     return get(data["active"]) if data["active"] else None
 
 
-def active_id() -> str:
-    return _load()["active"]
-
-
 def add(name: str, kind: str, base_url: str, model: str, api_key: str, vision_model: str = "") -> dict:
     if kind not in KINDS:
         raise ValueError("연결 종류가 올바르지 않습니다")
@@ -517,37 +513,9 @@ def deactivate() -> None:
     _save(data)
 
 
-def set_external(cid: str) -> dict:
-    """외부 AI 참조(이그레스 게이트웨이)가 쓸 연결 지정 — 외부 서버만."""
-    conn = get(cid)
-    if conn is None:
-        raise ValueError("없는 연결입니다")
-    if not conn["external"]:
-        raise ValueError("교내 서버는 외부 AI 참조용으로 지정할 수 없습니다")
-    data = _load()
-    data["external"] = cid
-    _save(data)
-    return conn
-
-
-def clear_external() -> None:
-    data = _load()
-    data["external"] = ""
-    _save(data)
-
-
 def external() -> dict | None:
     data = _load()
     return get(data["external"]) if data["external"] else None
-
-
-def external_credentials() -> dict | None:
-    """이그레스 게이트웨이용 — 지정된 외부 연결의 종류·주소·키·모델. 없으면 None(환경변수 경로)."""
-    conn = external()
-    if conn is None:
-        return None
-    return {"kind": conn["kind"], "base_url": conn["base_url"], "api_key": resolve_key(conn),
-            "model": conn.get("model", ""), "vision_model": conn.get("vision_model", ""), "name": conn["name"]}
 
 
 def resolve_key(conn: dict) -> str:

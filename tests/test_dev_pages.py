@@ -89,7 +89,7 @@ def test_dev_dashboard_labels(client):
     for link in ("/dev/quality", "/dev/docs", "/dev/history", "/dev/train", "/dev/pii"):
         assert f'href="{link}"' in r.text
     q = client.get("/dev/quality").text
-    assert "규정 검색 품질" in q and "추출 품질 백로그" in q
+    assert "규정 검색 품질" in q and "추출 품질 백로그" not in q            # 남은 신고가 없으면 줄도 없다(신고 단추는 없앴다)
     d = client.get("/dev/docs").text
     assert "처음 읽을 것" in d and "논문 자료" in d and "설계 결정" in d and "계획·주간 보고서" in d
     records = client.get("/dev/docs?view=records").text

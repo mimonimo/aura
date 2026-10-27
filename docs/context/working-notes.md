@@ -45,7 +45,7 @@
   프로젝트 추가는 사이드바 「프로젝트」 + 하나(공용 창 _project_modal.html).
 - 단계별 문서 수는 처리 흐름(/dev/flow) 한 곳에서 지표 모듈(metrics)로 읽는다(옛 「문서 흐름」 줄 _doc_flow.html 은 10-25 에 지움). 문서 상태는 「처리 완료」, 원본 상태는
   「문서 연결됨」(한 문서에 원본 여럿)으로 이름을 나눈다.
-- 개발자 메뉴 「문서 반입」 = DGX 원본 동기화(/dev/intake). 구글 앱 등록은 조직 관리 관리자 칸(/team#google-links), 폴더별 담당 부서는 RAG 공간(/dev/rag). 옛 주소(/dev/nas·?tab=drive·areas) 넘기기는 10-25 에 지웠다.
+- 반입 점검(DGX 원본 동기화 결과)은 처리 흐름의 한 칸(/dev/flow#intake). 구글 앱 등록은 조직 관리 관리자 칸(/team#google-links), 폴더별 담당 부서는 라이브러리 폴더의 공개 범위. 옛 주소는 넘기지 않고 지운다(10-27 — /dev/intake·/dev/collect·/archive·/criteria·/inbox·/hwp/{id}/edit 등).
 - 원본 관리 「정리」(관리자): 처리하지 않는 원본(사진·압축·범위 밖·중복·크기 초과)을 정리함으로 옮기면 원본 목록·건수에서 빠진다
   (archive_cleanup 표, archive_state.original_sql). 되돌릴 수 있고 원본 파일은 지우지 않는다 — 실제 삭제는 정리함 확인 뒤 따로.
 - 원본 관리(/dev/archive, 관리자 전용 — 교직원은 문서의 「원본」 으로 원본을 연다)의 칩(연도·문서 종류·처리 상태)은 토글이다 — 고른 칩을 다시 누르면 그 조건이 풀린다.

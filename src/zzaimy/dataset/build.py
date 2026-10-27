@@ -175,34 +175,6 @@ def preview_sources(db) -> list[dict]:
     return out
 
 
-def build_preference_pairs(db) -> list[dict]:
-    """DPO 선호쌍 — 초안 재작성 이력에서 (이전 초안=rejected, 현재 초안=chosen).
-
-    같은 재료 문서에 대한 개선 쌍만 쓴다(같은 입력·더 나은 출력). 재작성 이력이
-    쌓여 있어야 나오며(drafter가 덮어쓰기 전 이전본을 보존), 없으면 빈 리스트.
-    DPO 실행은 GPU 확보 후지만 데이터는 지금부터 축적된다.
-    """
-    out: list[dict] = []
-    for d in db.list_documents():
-        cur = (d.get("draft") or "").strip()
-        body = (d.get("masked_text") or "").strip()
-        if not cur or not body:
-            continue
-        hist = db.list_draft_history(d["id"])
-        if not hist:
-            continue
-        prev = (hist[-1]["draft"] or "").strip()
-        if not prev or prev == cur:
-            continue
-        out.append(protect_candidate({
-            "prompt": _DRAFT_INSTRUCTION + f"\n\n[재료 문서]\n{body[:5000]}",
-            "chosen": cur,
-            "rejected": prev,
-            "meta": {"source": "dpo", "doc_id": d["id"]},
-        }))
-    return out
-
-
 def export_dataset(db, sources: list[str], name: str) -> dict:
     """소스들을 변환·정제해 JSONL로 쓰고 대장(datasets)에 기록한다."""
     sources = [s for s in sources if s in _BUILDERS]

@@ -234,7 +234,7 @@ def test_admin_can_register_candidate_and_create_dept(tmp_path):
 def test_widget_sends_page_and_draws_run_buttons(tmp_path):
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
                      processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
-    html = TestClient(app).get("/inbox").text
+    html = TestClient(app).get("/?type=all").text
     assert "/static/aura-helper.js" in html and "/static/aura-helper.css" in html
     js = (platform_guide.TEMPLATES.parent / "static" / "aura-helper.js").read_text(encoding="utf-8")
     assert 'fd.append("page", location.pathname)' in js

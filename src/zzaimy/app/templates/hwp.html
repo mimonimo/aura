@@ -105,7 +105,7 @@
       {% for f in here.files %}
       {% set deletable = not f.locked or request.state.role == 'dev' %}
       <div class="hb-row" data-kind="file" data-id="{{ f.id }}" role="listitem"><span class="hb-ic"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>{% if deletable %}<input type="checkbox" class="hb-pick" data-pick value="{{ f.id }}" aria-label="「{{ f.name }}」 고르기">{% endif %}</span>
-        <span class="hb-cell">{% if status.ok %}<a class="hb-name" href="/hwp/{{ f.id }}/edit" title="기안기로 열기" data-aura="hwp-file">{{ f.name }}</a>{% else %}<span class="hb-name">{{ f.name }}</span>{% endif %}</span>
+        <span class="hb-cell">{% if status.ok %}<a class="hb-name" href="/webhwpctrl/aura-edit?id={{ f.id }}" title="기안기로 열기" data-aura="hwp-file">{{ f.name }}</a>{% else %}<span class="hb-name">{{ f.name }}</span>{% endif %}</span>
         {{ when(f) }}
         <span class="hb-meta hb-who">{% if f.editing %}<span class="hb-lock" title="편집 중인 사람이 닫으면 풀립니다">{{ f.editing }} 편집 중</span>{% elif f.by %}<span class="hb-av" aria-hidden="true">{{ (f.by_name or f.by)[:1] }}</span><span class="t" title="{{ f.by_name or f.by }}">{{ '나' if f.by_me else (f.by_name or f.by) }}</span>{% else %}—{% endif %}</span>
         <div class="hb-act">

@@ -168,9 +168,8 @@ def test_editor_page_lives_under_webhwpctrl_and_new_document_saves(tmp_path, mon
     j = kim.post("/hwp/new?dept=기획처&title=회의록", content=_hwpx("회의")).json()
     assert j["ok"] and j["url"] == f"/webhwpctrl/aura-edit?id={j['id']}"
     assert Path(webhwp.get(app.state.db, j["id"])["path"]).name == "회의록.hwpx"
-    r = kim.get(f"/hwp/{j['id']}/edit", follow_redirects=False)
-    assert r.headers["location"] == f"/webhwpctrl/aura-edit?id={j['id']}"
-    assert "회의록.hwpx" in kim.get(r.headers["location"]).text
+    assert kim.get(f"/hwp/{j['id']}/edit", follow_redirects=False).status_code == 404      # 옛 별칭 주소는 없앴다
+    assert "회의록.hwpx" in kim.get(j["url"]).text
 
 
 def test_proxy_refuses_paths_outside_editor_app(tmp_path, monkeypatch):
@@ -337,8 +336,6 @@ def test_drive_import_and_upload_final(tmp_path, monkeypatch):
     from zzaimy.ingest import gdrive_files
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
-    monkeypatch.setattr(gdrive_files, "account_for", lambda db, u, d=None: "")
-    assert kim.get("/api/hwp/drive").status_code == 409
     monkeypatch.setattr(gdrive_files, "account_for", lambda db, u, d=None: "kim@ync.ac.kr")
     monkeypatch.setattr(gdrive_files, "_headers", lambda e, h: {})
     calls = []
@@ -362,8 +359,6 @@ def test_drive_import_and_upload_final(tmp_path, monkeypatch):
             return _R()
 
     monkeypatch.setattr(webhwp_drive, "_http", lambda: _H())
-    j = kim.get("/api/hwp/drive").json()
-    assert [f["name"] for f in j["files"]] == ["계획서.hwpx"]                     # 한글 파일만
     r = kim.post("/hwp/drive/import", data={"file_id": "F1aaaaaaaaaa", "dept": "기획처", "folder": ""}, follow_redirects=False)
     assert r.status_code == 303 and "aura-edit?id=" in r.headers["location"]
     fid = int(r.headers["location"].split("=")[-1])

@@ -65,10 +65,10 @@ def client(tmp_path):
 
 
 def test_index_page_renders(client):
-    """첫 화면은 채팅이고, 문서 라이브러리는 /inbox 에서 프로젝트부터 보여 준다."""
+    """첫 화면은 채팅이고, 문서 라이브러리는 /?type=all 에서 프로젝트부터 보여 준다."""
     r = client.get("/", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].endswith("/chat")
-    r = client.get("/inbox")
+    r = client.get("/?type=all")
     assert r.status_code == 200
     assert "프로젝트" in r.text
 
@@ -190,9 +190,9 @@ def test_sector_tab_filters_documents(client):
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": ("이력서.pdf", b"%PDF", "application/pdf")})
     # 문서 표는 검색 결과로 나온다 — 업무 탭이 표를 거른다
-    all_page = client.get("/inbox?q=pdf").text
+    all_page = client.get("/?type=all&q=pdf").text
     assert 'href="/doc/1">공고문</a>' in all_page and 'href="/doc/2">이력서</a>' in all_page
-    recruit_page = client.get("/inbox?type=recruit&q=pdf").text
+    recruit_page = client.get("/?type=recruit&q=pdf").text
     table = recruit_page.split("data-doc-list>", 1)[-1].split("<!-- /lib-rows -->", 1)[0]
     assert '<a class="lib-row-title" href="/doc/2">이력서</a>' in table
     assert 'href="/doc/1"' not in table
@@ -266,7 +266,7 @@ def test_regulation_docs_share_one_library_list_with_criteria_chip(client):
     table = lambda page: page.split("<th>접수번호</th>", 1)[-1].split("</table>", 1)[0]
     every = table(client.get("/?type=all").text)
     assert ">계획서</a>" in every and ">학칙</a>" in every  # 한 목록(ADR-0062) — 화면에는 제목(확장자 없이)
-    criteria = client.get("/criteria").text                # 옛 기준 문서 탭 → 기준 칩
+    criteria = client.get("/?type=all&use=criteria").text                # 옛 기준 문서 탭 → 기준 칩
     assert ">학칙</a>" in table(criteria) and ">계획서</a>" not in table(criteria)
     assert 'aria-current="true"' in criteria.split('aria-label="쓰임새"', 1)[1].split("</nav>", 1)[0]
 
@@ -357,7 +357,7 @@ def test_receipt_number_scheme(client):
                 files={"file": ("b.pdf", b"%PDF", "application/pdf")})
     client.post("/upload", data={"doc_type": "grant"},
                 files={"file": ("c.pdf", b"%PDF", "application/pdf")})
-    page = client.get("/inbox?q=pdf").text
+    page = client.get("/?type=all&q=pdf").text
     assert "2026-채용-00001" in page      # 표시는 일련번호 다섯 자리(receipt_label)
     assert "2026-채용-00002" in page
     assert "2026-00001" in page           # 섹터별 독립 일련번호 — 사업 문서 기본 코드(국고)는 표시에서 뺀다
@@ -416,12 +416,12 @@ def test_project_rename_and_delete(client):
     r = client.post("/projects/1/rename", data={"name": "2026 하반기 조교"},
                     follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/inbox?type=recruit").text
+    page = client.get("/?type=recruit").text
     assert "2026 하반기 조교" in page and "임시 이름" not in page
     # 삭제 — 프로젝트는 사라지고 문서는 남는다(연결만 해제)
     r = client.post("/projects/1/delete", follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/inbox?type=recruit&q=pdf").text
+    page = client.get("/?type=recruit&q=pdf").text
     assert "2026 하반기 조교" not in page
     assert ">지원서</a>" in page
 
@@ -577,7 +577,7 @@ def test_criteria_bulk_upload(client):
         ("file", ("내규C.pdf", b"%PDF", "application/pdf")),
     ], follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/criteria").text
+    page = client.get("/?type=all&use=criteria").text
     assert ">공고A</a>" in page and ">공고B</a>" in page and ">내규C</a>" in page
 
 
@@ -587,7 +587,7 @@ def test_tiles_filter_document_list(client):
     client.post("/doc/1/decision", data={"decision": "approved"})  # 판정 완료
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": ("대기문서.pdf", b"%PDF", "application/pdf")})  # 판정 대기
-    page = client.get("/inbox?type=recruit&flt=pending").text
+    page = client.get("/?type=recruit&flt=pending").text
     table = page.split("data-doc-list>", 1)[-1].split("<!-- /lib-rows -->", 1)[0]
     assert "대기문서" in table and "완료문서" not in table
     assert "담당자 확인 전" in page  # 걸린 필터가 표시된다
@@ -874,8 +874,8 @@ def test_recent_uploads_are_findable_in_library(client):
                 files={"file": ("이력서R.pdf", b"%PDF", "application/pdf")})
     client.post("/criteria/upload", data={"sector": "common"},
                 files={"file": ("규정R.pdf", b"%PDF", "application/pdf")})
-    assert "이력서R" in client.get("/inbox?q=이력서R").text
-    assert ">규정R</a>" in client.get("/criteria").text
+    assert "이력서R" in client.get("/?type=all&q=이력서R").text
+    assert ">규정R</a>" in client.get("/?type=all&use=criteria").text
 
 
 def test_docx_restoration_export(client):
@@ -1000,16 +1000,11 @@ def test_removed_egress_routes_cannot_mutate_data(client, path):
 
 
 def test_quality_report_loop(client):
-    """신고 → /dev 백로그 노출 → 처리 완료 (품질 체계 5계층)."""
+    """남아 있는 신고 → /dev 백로그 노출 → 처리 완료 (품질 체계 5계층). 문서 화면의 신고 단추와 주소는 없앴다."""
     db = client.app.state.db
     doc_id = db.add_document("표깨짐_예시.pdf", "/tmp/x", doc_type="grant")
-
-    r = client.post(
-        f"/doc/{doc_id}/quality-report",
-        data={"kind": "table", "note": "4쪽 신청서 표 병합 어긋남"},
-        follow_redirects=False,
-    )
-    assert r.status_code == 303
+    db.add_quality_report(doc_id, "table", "4쪽 신청서 표 병합 어긋남", reporter="kim")
+    assert client.post(f"/doc/{doc_id}/quality-report", data={"kind": "table"}, follow_redirects=False).status_code in (404, 405)
 
     open_reports = db.list_quality_reports()
     assert open_reports and open_reports[0]["doc_id"] == doc_id
@@ -1028,17 +1023,6 @@ def test_quality_report_loop(client):
     assert r.status_code == 303
     assert db.quality_report_stats()["open"] == 0
     assert db.quality_report_stats()["done"] == 1
-
-
-def test_quality_report_rejects_bad_kind(client):
-    db = client.app.state.db
-    doc_id = db.add_document("문서.pdf", "/tmp/x", doc_type="grant")
-    r = client.post(
-        f"/doc/{doc_id}/quality-report",
-        data={"kind": "nonsense"},
-        follow_redirects=False,
-    )
-    assert r.status_code == 400
 
 
 def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
@@ -1201,7 +1185,7 @@ def test_sidebar_shows_model_server_status(client, monkeypatch, tmp_path):
     model_config.reset_status_cache()
     page = client.get("/").text
     assert "기본 AI 서버 · " in page and "qwen-x" in page and "side-connection-line" in page   # 개발자에게는 서버·모델 이름까지 한 줄로(10-27)
-    client.get("/"); client.get("/criteria")
+    client.get("/"); client.get("/?type=all&use=criteria")
     assert len(calls) == 1                                          # 60초 캐시 — 화면마다 다시 묻지 않는다
     model_config.set_override("", ""); model_config.reset_status_cache()
 

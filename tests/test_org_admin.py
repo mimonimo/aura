@@ -76,11 +76,8 @@ def test_delete_lifts_or_takes_children(org):
     assert r.json()["ok"] and set(r.json()["deleted"]) == {"기획팀", "기획2파트"}
     names = _nodes(dev)
     assert "기획팀" not in names and "기획2파트" not in names and "기획2파트" not in dept_dictionary.parents_override(tmp)
-    # 사용자·계정 쪽 경로도 같은 함수 — 여럿 지우기
-    J = {"Accept": "application/json"}
-    r = dev.post("/dev/users/dept", data={"action": "delete", "names": ["학생복지처", "없는부서"], "kids": "lift"}, headers=J)
-    j = r.json()
-    assert j["ok"] and j["deleted"] == ["학생복지처"] and j["failed"][0]["name"] == "없는부서"
+    r = dev.post("/org/delete", json={"dept": "학생복지처"})
+    assert r.json()["ok"] and r.json()["deleted"] == ["학생복지처"]
     assert dept_dictionary.parents_override(tmp)["학생지원팀"] == ""          # 맨 위 부서의 아래는 맨 위로 올라간다
 
 

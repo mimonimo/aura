@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import os
 import re
 import time
 from pathlib import Path
@@ -336,38 +335,6 @@ def dev_reindex(request: Request, back: str = Form("/dev")):
 def dev_eval_status(request: Request):
     state = request.app.state.overview.retrieval_eval_state()
     return {"running": bool(state["running"]), "failed": bool(state["last_error"])}
-
-
-@router.post("/dev/eval/run")
-def dev_eval_run(request: Request):
-    """규정 검색 품질 재측정 — 재색인과 같은 방식(배경 실행·같은 잠금)으로 53을 돌린다.
-
-    합성 질의 세트가 없으면 실행하지 않고 그 사실을 돌려준다 — 가짜 수치는 없다.
-    """
-    import subprocess
-    import sys
-
-    from zzaimy.eval import retrieval_eval as rev
-
-    db_path = request.app.state.db_path
-    if not rev.QUERIES_PATH.exists():
-        return HTMLResponse(f"아직 측정 없음 ({rev.NO_QUERY_SET_MSG})", status_code=409)
-    if rev.running_state(Path(db_path).parent / "eval"):
-        return HTMLResponse("이미 측정 중입니다", status_code=409)
-    root = Path(__file__).resolve().parents[3]
-    from zzaimy.app.detach import detached
-    proc = subprocess.Popen(
-        detached(["nohup", sys.executable, str(root / "scripts" / "53_eval_retrieval.py"),
-                  "--db", str(Path(db_path).resolve())], "eval"),
-        stdout=open(rev.LOG_PATH, "w"),
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        cwd=root,
-        env={**os.environ, "PYTHONPATH": str(root / "src")},
-    )
-    # 측정 스크립트가 표시를 쓰기 전에 화면이 먼저 돌아오면 「측정 중」 이 안 보인다 — 띄운 즉시 쓴다
-    rev.mark_running(Path(db_path).parent / "eval", pid=proc.pid)
-    return RedirectResponse("/dev/quality", status_code=303)
 
 
 @router.post("/dev/route-all")

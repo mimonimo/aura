@@ -54,25 +54,6 @@ _ANSWER = {
 }
 
 
-def parse_answer(text: str) -> dict:
-    """담당자가 대화로 알려 준 기관 정보 — '총장은 홍길동, 대표전화는 053-650-9000' 같은 말에서 값을 꺼낸다."""
-    out: dict = {}
-    for k, rx in _ANSWER.items():
-        m = rx.search(text or "")
-        if m:
-            out[k] = m.group(1).strip()
-    return out
-
-
-def ask_for_missing(facts: dict) -> str:
-    """비어 있는 값을 묻는 한 줄 — 에이전트가 모르는 값을 지어내지 않고 요청한다."""
-    missing = [k for k in KEYS if not (facts.get(k) or "").strip()]
-    if not missing:
-        return ""
-    return ("기관 정보 중 " + "·".join(missing) + " 을(를) 문서함에서 찾지 못했습니다. 알려 주시면 기억해 두고 이후 작성에 넣겠습니다"
-            " — 예: \"총장은 홍길동, 대표전화는 (번호)\".")
-
-
 def form_option(facts: dict) -> dict:
     """대화 선택지에 실어 보내는 입력 양식 — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 template 에 넣은 문장을 질문으로 보낸다
     (kind=form 규격). 양식을 못 그리는 화면은 question 을 버튼으로 쓴다."""

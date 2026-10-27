@@ -17,13 +17,6 @@ DEFAULT_DEPT = "공통"
 _PUBLIC_TYPES = {"regulation", "criteria", "announcement"}
 
 
-def default_level(doc_type: str | None, owner: str | None = None) -> str:
-    """유형과 소유자로 정하는 기본 등급. 공개 수집분(owner=corpus)은 언제나 공개."""
-    if owner == "corpus" or (doc_type or "") in _PUBLIC_TYPES:
-        return "public"
-    return "dept"
-
-
 def classify(doc_type: str | None, *, owner: str | None = None, dept: str | None = None,
              access_level: str | None = None, uploader_dept: str | None = None,
              project_dept: str | None = None) -> tuple[str, str]:

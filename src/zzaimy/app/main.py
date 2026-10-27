@@ -352,7 +352,7 @@ def create_app(
     _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|account/password|logout)$")
 
     _PROJECT_PATH = re.compile(r"^/projects?/(\d+)(?:/|$)")
-    _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/(?:quality-report|webhwp)$")   # 문서를 볼 수 있는 누구나 하는 POST(품질 신고·기안기 작업본 만들기)
+    _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/webhwp$")   # 문서를 볼 수 있는 누구나 하는 POST(기안기 작업본 만들기)
 
     def _student_allowed(method: str, path: str) -> bool:
         return bool((_STUDENT_POST if method == "POST" else _STUDENT_GET).match(path))
@@ -618,9 +618,6 @@ def create_app(
                         shared = True                     # 진행 현황은 등급으로 따로 판단(project_activity.may_view — 총괄은 공유 대상이 아니어도 부서 프로젝트)
                     if not shared:
                         raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
-            # 기관 정보(대학명·총장 등)는 모든 사용자 문서에 함께 쓰인다 — 관리자만 바꾼다
-            if request.url.path == "/institution" and request.method == "POST" and request.state.role != "dev":
-                raise HTTPException(403, "기관 정보는 관리자만 바꿀 수 있습니다")
 
         dependencies = [Depends(check_auth)]
     else:
@@ -1091,14 +1088,6 @@ def create_app(
 
     app.state.ctx = ctx                              # 화면 틀 — 따로 둔 라우터(webhwp_routes 등)도 같은 틀로 그린다
 
-    @app.get("/inbox")
-    def inbox(request: Request):
-        """옛 문서함 주소 — 라이브러리 등록 문서 목록과 같은 화면이라 그쪽으로 보낸다(걸린 조건은 그대로)."""
-        qs = list(request.query_params.multi_items())
-        if not any(k == "type" for k, _v in qs):
-            qs.insert(0, ("type", "all"))
-        return RedirectResponse("/?" + urlencode(qs), status_code=303)
-
     @app.get("/", response_class=HTMLResponse)
     def index(
         request: Request,
@@ -1123,15 +1112,8 @@ def create_app(
 
         if getattr(request.state, "role", "") == "student":
             return RedirectResponse("/chat", status_code=303)        # 학생 첫 화면은 대화(ADR-0052)
-        if not any((type, q, project, flt, prog, folder, pq, request.query_params.get("page"), request.query_params.get("use"),
-                    request.query_params.get("group"))):
+        if not any((type, q, project, flt, prog, folder, pq, request.query_params.get("page"), request.query_params.get("use"))):
             return RedirectResponse("/chat", status_code=303)
-        if "group" in request.query_params:
-            # 옛 「문서 출처」 선택(group=…) — 「기준 문서 탭에 등록」 은 기준 칩으로, 나머지 출처 구분은 없어졌다(ADR-0062)
-            qs = [(k, v) for k, v in request.query_params.multi_items() if k not in ("group", "use")]
-            if request.query_params.get("group") == "criteria":
-                qs.append(("use", "criteria"))
-            return RedirectResponse("/?" + urlencode(qs or [("type", "all")]), status_code=303)
         business = type if type in INBOX_TYPES else None
         # 없는 업무 값은 조용히 전체로 떨어뜨리지 않고 알린다
         unknown_type = type if type and type != "all" and business is None else ""
@@ -1576,7 +1558,7 @@ def create_app(
                 logging.getLogger("zzaimy.app.web").warning("모델 지식 답변 실패 (대화 %s): %s", session_id, type(e).__name__)
                 db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({_ko.reason(e)}). 잠시 뒤 다시 해 주세요.")
             return
-        # 외부 검색 모드: 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
+        # 인터넷 검색(일반 답의 「인터넷에서 찾아보기」): 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
         if web:
             _chat_step(session_id, "웹 검색과 답변 작성 중")
             from zzaimy.app import web_search
@@ -1589,7 +1571,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", str(e))
             except Exception as e:
                 logging.getLogger("zzaimy.app.web").warning("외부 검색 실패 (대화 %s): %s", session_id, type(e).__name__)   # 질문 글은 남기지 않는다
-                db.add_chat(session_id, "assistant", f"외부 검색을 쓰지 못했습니다({_ko.reason(e)}) — 검색 결과가 없는 것과 다릅니다. 잠시 뒤 다시 하거나 외부 검색을 끄고 물어 주세요.")
+                db.add_chat(session_id, "assistant", f"인터넷 검색을 쓰지 못했습니다({_ko.reason(e)}) — 검색 결과가 없는 것과 다릅니다. 잠시 뒤 다시 하거나 「RAG」·「일반」 으로 물어 주세요.")
             return
         # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
         attachment_text = None
@@ -1647,8 +1629,15 @@ def create_app(
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
         scope = _owner_scope(owner)
-        # 입력줄에서 RAG 를 좁혀 골랐으면 그 RAG 만 — 계정 범위와 겹치는 것만 남긴다(넓히지 않는다, app/answer_pref)
-        scope = _answer_pref.narrow(scope, _answer_pref.load(db, owner)["rags"], _answer_pref.rag_choices(scope, _all_depts()))
+        # 입력줄에서 RAG 를 좁혀 골랐으면 그 RAG 만(app/answer_pref) — 이 질문을 보낸 사람이 고른 값을, 대화 주인의 범위와
+        # 보낸 사람의 범위 둘 다와 겹치는 것만 쓴다(공유 프로젝트 대화에서 주인의 선택이 남의 질문에 쓰이지 않게, 넓히지 않는다)
+        _asked = next((m for m in reversed(db.list_chats(session_id, limit=6)) if m.get("role") == "user"), None)
+        _pick = _answer_pref.message_pick(db, (_asked or {}).get("id"))
+        if _pick is not None:
+            _sender = _pick["by"] or owner
+            scope = _answer_pref.narrow_shared(scope, scope if _sender == owner else _owner_scope(_sender), _pick["rags"], _all_depts())
+        else:                                        # 남긴 값이 없는 지난 질문 — 대화 주인의 저장값
+            scope = _answer_pref.narrow(scope, _answer_pref.load(db, owner)["rags"], _answer_pref.rag_choices(scope, _all_depts()))
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
         # 문서 작업 에이전트 — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
@@ -1827,26 +1816,6 @@ def create_app(
     _COMMON_PREFIX = "공통 양식으로 새 문서를 만들어 줘. "
     _FORM_TITLE = re.compile(r"서식|양식")
 
-    def _project_forms(project: dict | None, session_id: int, q: str) -> list[dict]:
-        """프로젝트·대화 첨부 가운데 요청한 서류 갈래의 작성 서식 — 제목에 서식·양식이 있고, 요청 갈래(gdocs_templates.PICK)의 낱말도 맞는 것.
-        서류 갈래를 모르는 요청이면 제목에 서식·양식만 있으면 된다. 일반 낱말 규칙(사업 이름 규칙 없음)."""
-        from zzaimy.ingest import gdocs_templates
-
-        if not project:
-            return []
-        spec = gdocs_templates.pick(q)
-        pats = dict(gdocs_templates.PICK).get(spec["id"], ()) if spec else ()
-        cands = [db.get_document(i) for i in db.get_project_criteria_ids(int(project["id"]))]
-        cands += db.list_documents(project["sector"], project_id=int(project["id"]))
-        out, seen = [], set()
-        for d in cands:
-            if not d or d["id"] in seen:
-                continue
-            seen.add(d["id"])
-            title = storage.title_of(d.get("filename") or "")
-            if _FORM_TITLE.search(title) and all(re.search(p_, title) for p_ in pats[-1:]):
-                out.append(d)
-        return out
 
     def _project_doc_candidates(project: dict | None, session_id: int) -> list[dict]:
         """이 대화가 짚을 수 있는 문서 — 프로젝트 기준 문서·프로젝트 접수 문서·대화 첨부(같은 문서는 한 번)."""
@@ -3218,7 +3187,7 @@ def create_app(
                 # 편집기를 웹 한글 기안기로 고른 사람 — 부서 한글 문서함에 두고 기안기 링크를 준다(드라이브에는 올리지 않는다)
                 fid_ = _webhwp.add(db, Path(db.path).parent, acct_.get("dept") or _webhwp.COMMON, name, data,
                                    owner=owner, source=f"대화-{session_id}")
-                where = f"부서 한글 문서함({acct_.get('dept') or _webhwp.COMMON})에 두었습니다 — 기안기로 열기: /hwp/{fid_}/edit"
+                where = f"부서 한글 문서함({acct_.get('dept') or _webhwp.COMMON})에 두었습니다 — 기안기로 열기: /webhwpctrl/aura-edit?id={fid_}"
                 if not _webhwp.status()["ok"]:
                     where += " (지금은 기안기 서버에 연결되지 않아 내려받기만 됩니다)"
             else:
@@ -3877,11 +3846,6 @@ def create_app(
 
     CRITERIA_LIST = "/?type=all&use=criteria"     # 기준 문서 목록 — 라이브러리 한 목록의 「기준」 칩(ADR-0062)
 
-    @app.get("/criteria")
-    def criteria(request: Request):
-        """옛 기준 문서 탭 — 라이브러리 목록의 「기준」 칩으로 넘긴다(북마크·걸린 링크가 깨지지 않게)."""
-        return RedirectResponse(CRITERIA_LIST, status_code=303)
-
     @app.post("/criteria/upload")
     def criteria_upload(
         background: BackgroundTasks,
@@ -4463,123 +4427,6 @@ def create_app(
             _save_accounts()
         return _go("ok", "비밀번호를 변경했습니다")
 
-    # ---- 문서 작업 — 구글 독스를 화면 안에 두고 에이전트가 같은 문서를 읽고, 담당자가 누른 자리에만 쓴다(ADR-0029) ----
-
-    def _usable_google(request: Request) -> set[str]:
-        """이 담당자가 쓸 수 있는 구글 계정(본인·부서 공용, 관리자는 전부) — 남이 연결한 계정은 고를 수 없다."""
-        from zzaimy.ingest import gdrive_files
-        return gdrive_files.usable_accounts(db, getattr(request.state, "user", ""), getattr(request.state, "dept", "") or None,
-                                            getattr(request.state, "role", ""))
-
-    def _gdocs_accounts(request: Request) -> list[dict]:
-        from zzaimy.ingest import gdocs, gdrive
-
-        mine = _usable_google(request)
-        return [{**a, "docs_ok": gdocs.has_docs_scope(a["email"])} for a in gdrive.list_accounts() if a["email"] in mine]
-
-    def _gdocs_account(request: Request, account: str) -> str:
-        if account and account not in _usable_google(request):
-            raise HTTPException(403, "이 계정으로 쓸 수 있는 구글 계정이 아닙니다 — 설정에서 본인 학교 계정을 연결해 주세요")
-        return account
-
-    def _gdocs_page(request: Request, doc: str, account: str, **extra):
-        from zzaimy.ingest import gdocs
-
-        accounts_ = _gdocs_accounts(request)
-        account = _gdocs_account(request, account) or (accounts_[0]["email"] if accounts_ else "")
-        ctx_ = {"doc_id": "", "account": account, "accounts": accounts_, "info": None, "embed_url": "",
-                "question": "", "answer": "", "draft_text": "", "writes": [], "ok": "", "err": ""}
-        ctx_.update(extra)
-        if doc.strip():
-            try:
-                did = gdocs.doc_id(doc)
-                ctx_["doc_id"] = did
-                ctx_["embed_url"] = gdocs.embed_url(did)
-                if not account:
-                    ctx_["err"] = "허용된 구글 계정이 없습니다"
-                else:
-                    ctx_["info"] = gdocs.get(account, did)
-                    ctx_["writes"] = [w for w in gdocs.recent_writes(Path(db_path).parent) if w.get("doc") == did][:10]
-            except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
-                ctx_["err"] = str(e)
-        return templates.TemplateResponse(request, "gdocs_work.html", ctx(request, ctx_))
-
-    @app.get("/gdocs/work", response_class=HTMLResponse)
-    def gdocs_work(request: Request, doc: str = "", account: str = "", ok: str = "", err: str = ""):
-        return _gdocs_page(request, doc, account, ok=ok, err=err)
-
-    @app.post("/gdocs/ask", response_class=HTMLResponse)
-    def gdocs_ask(request: Request, doc: str = Form(""), account: str = Form(""), question: str = Form("")):
-        """문서 본문을 첨부처럼 붙여 에이전트에게 묻는다 — 문서는 저장하지 않는다."""
-        _gdocs_account(request, account)
-        from zzaimy.app import access_guard as ag
-        from zzaimy.ingest import gdocs
-
-        q = question.strip()
-        if not q:
-            return _gdocs_page(request, doc, account, err="질문을 적어 주세요")
-        owner = getattr(request.state, "user", "zzaimy")
-        role, dept = _acct_role_dept(owner)
-        note = ag.pii_request(q)
-        if note:
-            ag.audit(Path(db_path).parent, owner, "pii", q, dept, role)
-            return _gdocs_page(request, doc, account, question=q, answer=note)
-        try:
-            info = gdocs.get(account, doc)
-        except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
-            return _gdocs_page(request, doc, account, question=q, err=str(e))
-        material = f"[문서: {info['title']}]\n{info['text']}"[:12000]
-        try:
-            import inspect as _insp
-
-            r_ = responder or _default_responder()
-            kw = dict(attachment_text=material, criteria_ids=ag.allowed_doc_ids(db, [], dept, role, owner))
-            if "scope" in _insp.signature(r_.answer).parameters:
-                kw["scope"] = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent,
-                                              grade=_gr.user_grade(accounts.get(owner), _view_as(owner)))
-            answer = r_.answer(db, q, **kw)
-            # 범위 밖 부서 자료를 가리키는 질문 — 대화 화면과 같은 안내(검색은 원래 범위 안에서만 돈다)
-            scope_msg = ag.scope_note(q, dept, role, sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()}),
-                                      _seen_depts(owner) if role in _ap.STAFF_ROLES else ())
-            if scope_msg:
-                ag.audit(Path(db_path).parent, owner, "scope", q, dept, role)
-                answer = scope_msg + "\n\n" + answer
-        except Exception as e:
-            from zzaimy.generate.client import describe_llm_error
-
-            answer = describe_llm_error(e)
-        answer = _scrub_internal(answer)
-        return _gdocs_page(request, doc, account, question=q, answer=answer, draft_text=answer)
-
-    @app.post("/gdocs/insert")
-    def gdocs_insert(request: Request, doc: str = Form(""), account: str = Form(""), section: int = Form(0),
-                     text: str = Form("")):
-        from zzaimy.ingest import gdocs
-
-        _gdocs_account(request, account)
-        owner = getattr(request.state, "user", "zzaimy")
-        try:
-            r = gdocs.insert_into_section(account, doc, section, text, user=owner, data_dir=Path(db_path).parent,
-                                          scrub=_scrub_internal)
-        except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
-            return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
-        msg = f"「{r['section']}」 아래에 {r['chars']}자를 넣었습니다"
-        return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'ok': msg})}", status_code=303)
-
-    @app.post("/gdocs/replace")
-    def gdocs_replace(request: Request, doc: str = Form(""), account: str = Form(""), old: str = Form(""),
-                      new: str = Form("")):
-        from zzaimy.ingest import gdocs
-
-        _gdocs_account(request, account)
-        owner = getattr(request.state, "user", "zzaimy")
-        try:
-            r = gdocs.replace_text(account, doc, old, new, user=owner, data_dir=Path(db_path).parent, scrub=_scrub_internal)
-        except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
-            return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
-        msg = f"{r['count']}곳을 바꿨습니다"
-        return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'ok': msg})}", status_code=303)
-
     def _project_by_name(owner: str, name: str) -> dict | None:
         from zzaimy.app.project_search import search as _ps
 
@@ -4605,31 +4452,6 @@ def create_app(
             return {"items": []}
         return {"items": [{"id": d["id"], "name": storage.title_of(d.get("filename") or "")}
                           for d in _drive_new(getattr(request.state, "user", ""))]}
-
-    @app.post("/api/chat-documents/create")
-    def chat_doc_create(request: Request, session_id: int | None = Form(None), title: str = Form(""),
-                        project_id: int | None = Form(None), account: str = Form("")):
-        """주소 없이 새 구글 독스를 만들어 대화에 잇는다 — 드라이브 ZZAIMY/<연도>/<프로젝트|대화> 폴더 안에."""
-        from zzaimy.app import chat_documents
-        from zzaimy.ingest import gdrive_files
-
-        owner = getattr(request.state, "user", "zzaimy")
-        proj = db.get_project(project_id) if project_id else None
-        if proj and proj.get("owner") != owner:
-            raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
-        _gdocs_account(request, account)
-        if session_id:
-            chat_documents.owned(db, session_id, owner)
-        name = (title or (proj or {}).get("name") or "새 문서").strip()[:60]
-        if not session_id:
-            session_id = db.create_chat_session(name, project_id=project_id, owner=owner)
-        try:
-            made = gdrive_files.auto_document(db, session_id, owner, name, project_name=(proj or {}).get("name"),
-                                              email=account or None)
-            _share_sync(proj)
-        except (PermissionError, ValueError) as e:
-            raise HTTPException(400, str(e))
-        return {"session_id": session_id, **made}
 
     @app.post("/api/chat-documents/{sid}/confirm-mode")
     def chat_doc_confirm_mode(request: Request, sid: int, on: str = Form("")):
@@ -4722,7 +4544,7 @@ def create_app(
     app.state.docs = _docs
     app.include_router(dev_intake_routes.router)
     app.include_router(dev_docs_routes.router)
-    # 모델 비교 결과(/dev/models/compare*) — VM 비교 실행이 남긴 파일을 읽기만 한다(app/model_compare)
+    # 모델 비교(/dev/models/compare*) — VM 비교 실행이 남긴 파일을 읽기만 한다(app/model_compare)
     from zzaimy.app import model_compare
     model_compare.install(templates.env)
     app.include_router(model_compare.router)
@@ -4778,21 +4600,6 @@ def create_app(
                           "gimport": gst, "gimport_folder": _gimport.FOLDER_NAME,
                           "gimport_minutes": _gimport.interval_minutes(), "gimport_stalled": _gimport.stalled(gst)}),
         )
-
-    @app.post("/account/google/import")
-    def account_google_import(request: Request):
-        """지금 가져오기 — 내 드라이브 「ZZAIMY 가져오기」 폴더의 새·바뀐 파일을 라이브러리로."""
-        from zzaimy.ingest import gdrive_files
-        uid = getattr(request.state, "user", "") or ""
-        email = (db.get_setting(f"google_account:{uid}", "") or "").strip() if uid else ""
-        if not email or not gdrive_files.has_file_scope(email):
-            return RedirectResponse("/settings?err=" + _q("구글 계정을 먼저 연결해 주세요") + "#myGoogle", status_code=303)
-        try:
-            got = _gimport.run_for_user(db, processor, inbox_dir, uid, email, dept=(accounts.get(uid, {}) or {}).get("dept", ""))
-        except Exception as e:
-            return RedirectResponse("/settings?err=" + _q(f"가져오지 못했습니다 — {e}") + "#myGoogle", status_code=303)
-        msg = f"새로 가져온 문서 {len(got['imported'])}건" + (f" · 건너뜀 {len(got['errors'])}건" if got["errors"] else "")
-        return RedirectResponse("/settings?ok=" + _q(msg) + "#myGoogle", status_code=303)
 
     @app.post("/settings")
     def settings_save(
@@ -5026,15 +4833,6 @@ def create_app(
 
     def _doc_scope(request: Request) -> dict:
         return _req_viewer(request)
-
-    @app.post("/institution")
-    def set_institution(request: Request, 대학명: str = Form(""), 주소: str = Form(""), 총장: str = Form(""), 대표전화: str = Form("")):
-        """기관 정보 설정 — 문서함에서 인출한 값을 담당자가 바로잡거나 없는 값(총장 등)을 채운다. 빈 값은 인출값으로 돌아간다."""
-        from zzaimy.app import institution
-
-        for k, v in (("대학명", 대학명), ("주소", 주소), ("총장", 총장), ("대표전화", 대표전화)):
-            institution.set_fact(db, k, v)
-        return RedirectResponse("/criteria#institution", status_code=303)
 
     # 구글 드라이브 자동 가져오기(「ZZAIMY 가져오기」 폴더, 10분마다) — 구글 앱이 등록된 운영에서만 돈다
     if password is not None:

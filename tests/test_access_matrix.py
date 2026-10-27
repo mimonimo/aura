@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from tests.test_app import FakeDrafter, FakeProcessor
 from zzaimy.app import access_guard, access_policy, grant_search, library_folders, rag_spaces
-from zzaimy.app.main import QUALITY_KIND_LABELS, create_app
+from zzaimy.app.main import create_app
 from zzaimy.graph import kg_store
 
 ACCOUNTS = {
@@ -148,7 +148,7 @@ def test_student_cannot_open_browse_screens(world):
     s = _client(app, "stu")
     assert s.get("/", params={"type": "all"}, follow_redirects=False).status_code in (303, 403)
     for path in ("/search?q=누리", "/graph/explore", "/graph/explore/overview", "/graph/explore/search?q=누리",
-                 f"/graph/explore/neighbors?id=year:P:1", "/graph/program", "/archive", "/dev/archive", "/dev/rag", "/dev/export",
+                 f"/graph/explore/neighbors?id=year:P:1", "/graph/program", "/dev/archive", "/dev/rag", "/dev/export",
                  "/api/projects/browse"):
         assert s.get(path, follow_redirects=False).status_code == 403, path
     assert s.get(f"/doc/{ids['r_stu']}").status_code == 200                    # 학생 공개 규정은 읽는다
@@ -319,7 +319,7 @@ def test_view_as_back_is_local_only(world):
 
 def test_only_owner_or_admin_changes_a_document(world):
     """볼 수 있다고 바꿀 수 있지 않다 — 지우기·판정·초안·다시 읽기·갈래·접수번호·검토 의견은 올린 사람과 관리자만(10-16).
-    품질 신고만 볼 수 있는 누구나. 기관 정보는 관리자만."""
+    기관 정보 설정 주소(/institution)는 쓰는 화면이 없어 없앴다."""
     app, ids, _ = world
     db = app.state.db
     plan = _client(app, "plan")
@@ -330,12 +330,9 @@ def test_only_owner_or_admin_changes_a_document(world):
         r = plan.post(f"/doc/{ids['g_pub']}/{path}", data=data, follow_redirects=False)
         assert r.status_code == 403, path
     assert db.get_document(ids["g_pub"]) is not None                    # 공통 문서가 지워지지 않았다
-    r = plan.post(f"/doc/{ids['g_pub']}/quality-report", data={"kind": next(iter(QUALITY_KIND_LABELS))}, follow_redirects=False)
-    assert r.status_code == 303
     san = _client(app, "sanhak")                                          # 자기가 올린 문서는 바꾼다
     assert san.post(f"/doc/{ids['o_san']}/review", data={"opinion": "보완"}, follow_redirects=False).status_code == 303
-    assert plan.post("/institution", data={"대학명": "x"}, follow_redirects=False).status_code == 403
-    assert _client(app, "zzdev").post("/institution", data={"대학명": ""}, follow_redirects=False).status_code == 303
+    assert _client(app, "zzdev").post("/institution", data={"대학명": ""}, follow_redirects=False).status_code in (404, 405)
 
 
 def test_helper_question_never_changes_a_guessed_document(world):
@@ -387,9 +384,7 @@ def test_google_account_of_another_user_cannot_be_used(world, monkeypatch):
     assert got == {"a@ync.ac.kr", "d@ync.ac.kr"}
     assert plan.get("/api/chat-documents/browse", params={"account": "b@ync.ac.kr"}).status_code == 400
     assert plan.post("/api/chat-documents/connect", data={"doc": "x", "account": "b@ync.ac.kr"}).status_code == 400
-    assert plan.post("/gdocs/replace", data={"doc": "x", "account": "b@ync.ac.kr", "old": "a", "new": "b"},
-                     follow_redirects=False).status_code == 403
-    assert plan.get("/gdocs/work", params={"doc": "x", "account": "b@ync.ac.kr"}).status_code == 403
+    assert plan.get("/gdocs/work", params={"doc": "x", "account": "b@ync.ac.kr"}).status_code == 404     # 옛 독스 작업 화면은 없앴다
 
 
 def test_same_department_colleague_reads_project_and_shared_chats_read_only(world):

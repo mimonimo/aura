@@ -712,10 +712,6 @@ class Dictionary:
         scored.sort(key=lambda x: x[:5])
         return [self.view(x[5]) for x in scored[:max(1, min(int(limit or 10), 100))]]
 
-    def suggested_parent(self, name: str) -> str:
-        """규정에서 뽑은 상위 조직(제안) — 관리자 덮어쓰기와 상관없이."""
-        u = self.by_name.get(self.normalize(name) or name)
-        return (u or {}).get("parent") or ""
 
     def children_map(self) -> dict[str, list[str]]:
         """확정 관계만 — 관리자가 저장한 상위 부서(dept_parents.json). 권한 판정용이라 자동 추출 위계는 넣지 않는다."""

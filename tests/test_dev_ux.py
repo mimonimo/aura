@@ -79,7 +79,7 @@ def test_quality_chart_uses_measured_values_and_skips_unmeasured(client, monkeyp
 def test_quality_report_full_note_and_resolution_preserved(client):
     client.post('/upload', data={'doc_type': 'grant'}, files={'file': ('합성.pdf', b'%PDF', 'application/pdf')})
     note = '긴 품질 설명\n' * 30
-    client.post('/doc/1/quality-report', data={'kind': 'table', 'note': note})
+    client.app.state.db.add_quality_report(1, 'table', note, reporter='kim')
     page = client.get('/dev/quality')
     assert 'class="quality-report"' in page.text
     assert note.strip() in page.text

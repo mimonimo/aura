@@ -60,7 +60,7 @@ def _tensorboard_status() -> dict:
 
 @router.get("/dev/train", response_class=HTMLResponse)
 def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "data"):
-    # 도구·모델 연결은 /dev/tools. 수집 자료(옛 /dev/collect)는 이 화면의 탭(10-27) — 모르는 tab 값은 첫 탭
+    # 도구·모델 연결은 /dev/tools. 수집 자료는 이 화면의 탭 — 모르는 tab 값은 첫 탭
     if tab == "collect":
         from zzaimy.app import collect
         st = request.app.state

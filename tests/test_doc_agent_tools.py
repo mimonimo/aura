@@ -427,7 +427,7 @@ def test_must_change_account_cannot_use_chat_or_other_posts(tmp_path, monkeypatc
     assert r.status_code == 303 and r.headers["location"].startswith("/settings")
     if n is not None:
         assert len(app.state.db.list_chat_sessions()) == n
-    r = c.post("/api/chat-documents/create", data={"title": "x"}, follow_redirects=False)
+    r = c.post("/api/chat-documents/connect", data={"doc": "x"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/settings")
 
 

@@ -35,14 +35,11 @@ def test_archive_page_renders(tmp_path):
     archive.load(app.state.db, [{"rel": "앵커/1차년도/계획서.hwp", "size": 1, "mtime": 1, "ext": "hwp", "area": "앵커",
                                  "program": "program:rise", "program_name": "RISE사업", "status": "auto", "kind": "plan"}])
     c = TestClient(app)
-    assert _login(c, "zzaimy", "boot-pass-1")                  # 교직원 — 원본 관리는 없고, 옛 주소는 라이브러리로
+    assert _login(c, "zzaimy", "boot-pass-1")                  # 교직원 — 원본 관리는 없다
     assert c.get("/dev/archive?program=program:rise").status_code == 403
-    old = c.get("/archive?program=program:rise", follow_redirects=False)
-    assert old.status_code == 307 and old.headers["location"] == "/?type=all"
+    assert c.get("/archive?program=program:rise", follow_redirects=False).status_code == 404   # 옛 주소는 없앴다(10-27)
     assert "/dev/archive" not in c.get("/?type=all").text and "원본 보관소" not in c.get("/?type=all").text
-    assert _login(c, "zzdev", "devpass")                         # 관리자 — 옛 주소는 조건 그대로 원본 관리로
-    old = c.get("/archive?program=program:rise", follow_redirects=False)
-    assert old.status_code == 307 and old.headers["location"] == "/dev/archive?program=program:rise"
+    assert _login(c, "zzdev", "devpass")                         # 관리자
     r = c.get("/dev/archive?program=program:rise")
     assert r.status_code == 200 and "앵커/1차년도/계획서.hwp" in r.text and "RISE사업" in r.text
     assert 'href="/dev/archive"' in r.text and "원본 관리" in r.text           # 개발 사이드바 「문서 반입·읽기」 의 한 칸

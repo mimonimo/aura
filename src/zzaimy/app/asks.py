@@ -340,6 +340,3 @@ def compose(template: str, values: dict) -> str:
             parts.append(seg.replace(m.group(0), v))
     return "; ".join(parts)
 
-
-def render_given(given: dict) -> str:
-    return ("[담당자가 알려 준 값]\n" + "\n".join(f"{k}: {v}" for k, v in given.items())) if given else ""

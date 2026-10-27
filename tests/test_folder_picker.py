@@ -32,14 +32,11 @@ def test_invalid_or_deleted_folder_rejected(monkeypatch):
 def test_browser_uses_current_user_only_and_save_rechecks(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
     c = _dev(tmp_path)
-    assert c.get('/dev/google/folders?email=kim@ync.ac.kr').status_code == 409
+    assert c.get('/dev/google/folders?email=kim@ync.ac.kr').status_code == 404        # 쓰는 화면이 없어 10-27 에 없앴다
     db = c.app.state.db
     db.set_setting('google_account:zzdev', 'dev@ync.ac.kr')
     seen = []
-    monkeypatch.setattr(fp, 'browse', lambda email, *args: seen.append(email) or {'items':[], 'next':'', 'current':None})
-    assert c.get('/dev/google/folders?email=kim@ync.ac.kr').status_code == 200
-    assert seen == ['dev@ync.ac.kr']
-    c.post('/dev/rag/dept', data={'action': 'create', 'name': '행정'})
+    c.post("/org/create", json={"name": '행정'})
     # 부서 폴더 위치 바꾸기(부서 쪽 /team/drive/move) — 고른 폴더를 부서 계정으로 다시 보고, 쓸 수 없으면 옮기지 않는다
     from zzaimy.ingest import dept_drive
     moved = []

@@ -330,11 +330,6 @@ def embed_search(query: str, top_k: int = 12,
     return _index.search(query, top_k, min_sim)
 
 
-def dense_floor() -> float | None:
-    """현재 인덱스의 무관 기준선 — 화면·점검용(없으면 None)."""
-    return _index.noise_floor()
-
-
 def embed_texts(texts: list[str]):
     """텍스트 목록을 정규화 벡터(ndarray)로 — 모델이 없으면 None.
 

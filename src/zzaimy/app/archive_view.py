@@ -4,7 +4,7 @@
 문서 하나의 반입 결과(개요·조각·색인·그래프)는 하위 화면 「반입 결과 보기」(/dev/archive/doc/{id})에서 본다.
 
 교직원은 이 화면을 쓰지 않는다 — 문서는 라이브러리 한 곳에서 찾고, 원본 파일은 문서 줄·문서 화면의 「원본」(/doc/{id}/original)으로
-연다(권한은 문서 경로 검사 그대로). 옛 주소 /archive 는 관리자면 여기로, 교직원이면 라이브러리로 넘긴다.
+연다(권한은 문서 경로 검사 그대로).
 
 - 묶음 수는 SQL 한 번(GROUP BY 사업·종류·연도·연차·처리 상태)으로 세고, 고른 조건은 파이썬에서 겹쳐 단계마다 건수를 낸다
 - 목록은 같은 조건의 SQL 에 LIMIT/OFFSET 으로 한 쪽씩
@@ -22,7 +22,7 @@ from datetime import date
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.background import BackgroundTask
 
 from zzaimy.app import archive, archive_state, program_names, vocab
@@ -788,15 +788,6 @@ async def archive_cleanup_retry(request: Request):
     db = request.app.state.db
     n = read_failure.archive_retry(db, [str(r) for r in rels][:500], mode=mode, by=getattr(request.state, "user", "") or "")
     return JSONResponse({"retried": n, **archive_cleanup.summary(db, force=True)})
-
-
-@router.get("/archive")
-def old_archive(request: Request):
-    """옛 원본 보관소 주소 — 관리자는 원본 관리로(조건 그대로), 교직원은 라이브러리로."""
-    if getattr(request.state, "role", "") == "dev":
-        query = request.url.query
-        return RedirectResponse(PAGE + ("?" + query if query else ""), status_code=307)
-    return RedirectResponse("/?type=all", status_code=307)
 
 
 @router.get(PAGE, response_class=HTMLResponse)

@@ -72,7 +72,7 @@ def test_intake_page_names_school_originals_and_folds_graph_counts(tmp_path):
     _audit(tmp_path)
     c, db = _client(tmp_path)
     _put(db, [("링크/a.hwp", "hwp", "", None)])
-    page = c.get("/dev/intake").text
+    page = c.get("/dev/flow").text
     assert "학교 원본" in page
     # 처리하지 않는 파일(따로 모은 파일·변환 중간 파일)은 학교 원본 수에서 빼고 짧은 한 줄로 — DGX 파일은 그대로
     assert "처리 안 함 0 · 따로 모은 파일 0 · 변환 중간 파일 0" in page
@@ -87,7 +87,7 @@ def test_intake_page_names_school_originals_and_folds_graph_counts(tmp_path):
 def test_intake_has_no_drive_tab_and_doc_flow_lives_on_overview(tmp_path):
     """단계별 문서 수는 처리 흐름 한 곳 — 문서 가져오기는 한 줄 바로가기. Drive 탭은 없고 옛 주소 넘기기(/dev/nas)도 10-25 에 지웠다."""
     c, _ = _client(tmp_path)
-    page = c.get("/dev/intake").text                                         # 옛 주소 → 처리 흐름(반입 점검 칸이 단계 표와 한 화면)
+    page = c.get("/dev/flow").text                                           # 반입 점검 칸이 단계 표와 한 화면
     assert 'id="intake"' in page and 'id="stage-1"' in page and 'class="df"' not in page
     assert "tab=drive" not in page and 'id="connectedFolders"' not in page and "← 개발 현황" not in page
     assert c.get("/dev/nas?ok=저장", follow_redirects=False).status_code == 404

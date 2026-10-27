@@ -259,9 +259,8 @@ def test_dev_shows_no_measurement_without_artifact(tmp_path, monkeypatch):
     assert "아직 측정 없음" in r.text and "51_synth_queries" in r.text
     assert "0.583" not in r.text and "한 번에 정답" not in r.text  # 손으로 쓴 수치·표현 제거
     assert "embed-v0-report.md" in c.get("/dev/docs?view=records").text  # 과거 실험은 기록 탭으로 분리
-    # 질의 세트가 없으면 재측정은 깨끗이 거절 — 실행도, 가짜 수치도 없다
-    r2 = c.post("/dev/eval/run", follow_redirects=False)
-    assert r2.status_code == 409 and "51_synth_queries" in r2.text
+    # 손으로 다시 재는 주소는 없다(새벽 자동) — 실행도, 가짜 수치도 없다
+    assert c.post("/dev/eval/run", follow_redirects=False).status_code in (404, 405)
     assert not (tmp_path / "eval").exists()
 
 

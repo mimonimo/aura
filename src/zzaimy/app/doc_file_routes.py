@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from urllib.parse import quote as _q
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from zzaimy.app import korean_text as _ko
 from zzaimy.app import original_preview as _op
@@ -544,114 +544,6 @@ def doc_images_zip(request: Request, doc_id: int):
         headers={"Content-Disposition":
                  f"attachment; filename*=UTF-8''{_q(stem)}_images.zip"},
     )
-
-
-@router.get("/doc/{doc_id}/boxes", response_class=HTMLResponse)
-def doc_boxes_view(request: Request, doc_id: int):
-    """인식 영역 뷰어 — 전 페이지를 신뢰도 색 박스와 함께 세로로.
-
-        각 페이지 이미지는 /doc/{id}/boxes/{n}.png 라우트를 재사용한다.
-        """
-    h = request.app.state.doc_file
-    db, db_path = h.db, h.db_path
-    import json as _bj
-
-    doc = db.get_document(doc_id)
-    lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
-    if doc is None or not lines_file.exists():
-        raise HTTPException(404)
-    payload = _bj.loads(lines_file.read_text())
-    pages = sorted(
-        (int(p) for p in (payload.get("page_sizes") or {})), key=int
-    )
-    from markupsafe import escape as html_escape
-
-    title = html_escape(doc["filename"])
-    imgs = "".join(
-        f'<figure><figcaption>{p}쪽</figcaption>'
-        f'<img src="/doc/{doc_id}/boxes/{p}.png" loading="lazy" alt="{p}쪽"></figure>'
-        for p in pages
-    )
-    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>인식 영역 · {title}</title><style>
-body{{margin:0;background:#f4f5f7;font-family:system-ui,'Apple SD Gothic Neo',sans-serif;color:#1a1a1a}}
-header{{position:sticky;top:0;background:#fff;border-bottom:1px solid #e3e5e8;padding:12px 18px;
- display:flex;align-items:center;gap:16px;flex-wrap:wrap}}
-header h1{{font-size:15px;margin:0;font-weight:600}}
-.legend{{display:flex;gap:14px;font-size:12.5px;color:#555}}
-.legend span{{display:inline-flex;align-items:center;gap:5px}}
-.dot{{width:11px;height:11px;border-radius:2px;border:2px solid}}
-.g{{border-color:#22a04c}}.o{{border-color:#e68c1e}}
-main{{max-width:1000px;margin:0 auto;padding:18px}}
-figure{{margin:0 0 22px;background:#fff;border:1px solid #e3e5e8;border-radius:10px;overflow:hidden}}
-figcaption{{padding:7px 12px;font-size:12px;color:#666;border-bottom:1px solid #eee}}
-figure img{{width:100%;display:block}}
-</style></head><body>
-<header><h1>인식 영역 — {title}</h1>
-<div class="legend"><span><i class="dot g"></i>확신(확정)</span>
-<span><i class="dot o"></i>낮은 확신(재판독 대상)</span></div></header>
-<main>{imgs or '<p>표시할 페이지가 없습니다.</p>'}</main></body></html>"""
-
-
-@router.get("/doc/{doc_id}/boxes/{page_no}.png")
-def doc_boxes_image(request: Request, doc_id: int, page_no: int):
-    """인식 박스 시각화 — 페이지 위에 OCR이 읽은 영역을 신뢰도 색으로.
-
-        초록 = 확신, 주황 = 낮은 확신(재판독 대상). 검수용.
-        """
-    h = request.app.state.doc_file
-    db, db_path = h.db, h.db_path
-    import io as _io
-    import json as _bj
-
-    from fastapi.responses import Response
-    from PIL import ImageDraw
-
-    doc = db.get_document(doc_id)
-    lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
-    if doc is None or not lines_file.exists():
-        raise HTTPException(404)
-    payload = _bj.loads(lines_file.read_text())
-    sizes = payload.get("page_sizes") or {}
-    if str(page_no) not in sizes:
-        raise HTTPException(404)
-    src = Path(doc["stored_path"])
-    if src.suffix.lower() == ".pdf":
-        import pypdfium2 as pdfium
-
-        pdf = pdfium.PdfDocument(str(src))
-        try:
-            page = pdf[page_no - 1]
-            mw = float(sizes[str(page_no)][0])
-            scale = 1.6 * mw / max(page.get_width(), 1.0)
-            img = page.render(scale=scale).to_pil()
-            f = scale * page.get_width() / mw
-        finally:
-            pdf.close()
-    else:
-        from PIL import Image as _Img
-
-        scan = next(
-            (a for a in db.list_doc_assets(doc_id)
-             if a["kind"] == "scan" and Path(a["path"]).exists()), None,
-        )
-        img = _Img.open(scan["path"] if scan else src).convert("RGB")
-        f = img.width / float(sizes[str(page_no)][0])
-    draw = ImageDraw.Draw(img)
-    for ln in payload.get("lines") or []:
-        if int(ln.get("page_no") or 0) != page_no:
-            continue
-        try:
-            x0, y0, x1, y1 = (float(v) * f for v in ln["bbox"].split(","))
-        except (KeyError, ValueError):
-            continue
-        score = float(ln.get("score") or 1.0)
-        color = (34, 160, 76) if score >= 0.85 else (230, 140, 30)
-        draw.rectangle([x0, y0, x1, y1], outline=color, width=2)
-    buf = _io.BytesIO()
-    img.save(buf, format="PNG")
-    return Response(buf.getvalue(), media_type="image/png")
 
 
 @router.get("/doc/{doc_id}/asset/{asset_id}")

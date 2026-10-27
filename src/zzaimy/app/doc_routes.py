@@ -35,12 +35,6 @@ def make_doc_page_helpers(
 ) -> SimpleNamespace:
     """앱마다 하나 — main.create_app 이 넘긴 값과 문서 화면 전용 도우미를 한 묶음(app.state.doc_page)으로."""
     deps = dict(locals())
-    from zzaimy.app.main import QUALITY_KIND_LABELS   # 품질 신고 갈래 — 정본은 main(같은 표)
-
-    # ---- 추출 품질 신고 루프 (품질 체계 5계층, docs/quality-system.md) ----
-
-    _QUALITY_KINDS = set(QUALITY_KIND_LABELS)
-
     def _doc_folder_ctx(doc_id: int, request: Request) -> dict:
         """문서 화면의 폴더 고르기 — 만든 폴더 목록(이 계정의 범위 안)과 지금 담긴 폴더."""
         from zzaimy.app import library_folders as lf
@@ -85,7 +79,7 @@ def make_doc_page_helpers(
 
     return SimpleNamespace(
         **deps,
-        _QUALITY_KINDS=_QUALITY_KINDS, _doc_folder_ctx=_doc_folder_ctx, move_to_folder=move_to_folder, _box_page_list=_box_page_list,
+        _doc_folder_ctx=_doc_folder_ctx, move_to_folder=move_to_folder, _box_page_list=_box_page_list,
         _drop_doc=_drop_doc, _RECEIPT_RE=_RECEIPT_RE,
     )
 
@@ -260,23 +254,6 @@ async def docs_set_scope(request: Request):
         raise HTTPException(400, f"없는 부서 RAG: {dept}")
     ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:5000]
     return {"moved": rag_spaces.move_docs(db, ids, dept), "dept": dept}
-
-
-@router.post("/doc/{doc_id}/quality-report")
-def doc_quality_report(
-    request: Request, doc_id: int,
-    kind: str = Form(...), note: str = Form(""),
-):
-    h = request.app.state.doc_page
-    db, _QUALITY_KINDS = h.db, h._QUALITY_KINDS
-    if db.get_document(doc_id) is None:
-        raise HTTPException(404, "없는 문서입니다")
-    if kind not in _QUALITY_KINDS:
-        raise HTTPException(400, "알 수 없는 신고 유형입니다")
-    db.add_quality_report(
-        doc_id, kind, note.strip(), reporter=request.state.user
-    )
-    return RedirectResponse(f"/doc/{doc_id}?reported=1", status_code=303)
 
 
 @router.post("/doc/{doc_id}/folder")

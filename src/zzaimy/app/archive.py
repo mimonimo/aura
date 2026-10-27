@@ -7,7 +7,6 @@ DGX 에서 scripts/165 가 목록을 만들고 VM 에서 이 모듈로 들인다
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 _SCHEMA = (
@@ -326,12 +325,3 @@ def find(db, program: str = "", kind: str = "", text: str = "", limit: int = 50)
     keys = ("rel", "size", "ext", "program_name", "kind", "year", "round", "doc_id")
     return [dict(zip(keys, r)) for r in rows]
 
-
-def parse_jsonl(text: str) -> list[dict]:
-    out = []
-    for line in text.splitlines():
-        try:
-            out.append(json.loads(line))
-        except ValueError:
-            continue
-    return out

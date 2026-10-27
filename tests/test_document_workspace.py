@@ -86,10 +86,10 @@ def test_library_lists_all_registered_types_without_search(workspace):
     client, db = workspace
     criteria = db.add_document(filename='library-criteria.txt', stored_path='absent', doc_type='regulation')
     extract = db.add_document(filename='library-extract.txt', stored_path='absent', doc_type='ocr')
-    page = client.get('/inbox?type=all').text
+    page = client.get('/?type=all').text
     for doc_id in (1, criteria, extract):
         assert f'href="/doc/{doc_id}"' in page
-    filtered = client.get('/inbox?type=all&group=criteria').text      # 옛 출처 선택 → 기준 칩(ADR-0062)
+    filtered = client.get('/?type=all&use=criteria').text        # 기준 칩(ADR-0062)
     assert f'href="/doc/{criteria}"' in filtered
     assert f'href="/doc/{extract}"' not in filtered
     assert 'name="group"' not in filtered and 'name="use" value="criteria"' in filtered

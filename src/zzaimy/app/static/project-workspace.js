@@ -20,7 +20,7 @@
       if (next>=0) { event.preventDefault(); activate(tabs[next].dataset.projectTab, true); }
     });
   });
-  // 탭은 「대화·문서」 하나(「진행 현황」은 다른 화면으로 가는 링크). 옛 ?tab=context 주소는 서버가 같은 화면의 #projectContext 로 잇는다
+  // 탭은 「대화·문서」 하나(「진행 현황」은 다른 화면으로 가는 링크)
   try { activate(sessionStorage.getItem(key) || 'projectConversations'); } catch (_) { activate('projectConversations'); }
   function revealLinkedSection() {
     const section = document.getElementById((location.hash || '').slice(1));

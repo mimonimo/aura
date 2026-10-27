@@ -210,9 +210,10 @@ PAGES: tuple[Page, ...] = (
     Page("/dev/tools", "dev_tools.html", "도구·모델 연결 — 학습 도구 주소·계정, LLM 연결과 단계별 모델, 외부 연결(웹 검색 제공자).",
          (Task("모델 서버 연결 확인", "LLM 연결 카드의 「연결 확인」"),
           Task("문서 작업 기본 서버 바꾸기", "LLM 연결 카드의 「기본 서버로 지정」"))),
-    Page("/dev/quality", "dev_quality.html", "품질·성능 — 검색 품질 측정(GraphRAG 와 풀텍스트 비교), 모델 비교(마지막 비교 실행의 점수·문서 작성·속도 요약)와 담당자가 신고한 추출 문제.",
-         (Task("모델 비교 결과 보기", "「모델 비교」 카드에서 요약·결론을 보고, 「분석 보기」 로 분석 글을, 「자세히 보기」 로 묶음별 표·표본·만든 문서를 연다(지난 실행은 카드 아래 실행 이름)", "model-compare"),),
-         buttons=("자세히 보기",)),
+    Page("/dev/quality", "dev_quality.html", "품질·성능 — 검색 품질 측정(GraphRAG 와 풀텍스트 비교, 질문 하나로 세 방식 나란히 비교), 모델 비교(마지막 비교 실행의 점수·문서 작성·속도 요약).",
+         (Task("질문 하나로 검색 방식 비교", "「사업 문서 검색(GraphRAG)」 카드의 「질문 하나로 비교」 — 질문과 문서 수(1~20)를 넣고 「비교」, 풀텍스트·온톨로지·27B 질문 읽기 세 칸에 걸린 시간과 찾은 문서가 나란히 나온다", "rcForm"),
+          Task("모델 비교 보기", "「모델 비교」 카드에서 요약·결론을 보고, 「분석 보기」 로 분석 글을, 「자세히 보기」 로 묶음별 표·표본·만든 문서를 연다(지난 실행은 카드 아래 실행 이름)", "model-compare"),),
+         buttons=("비교", "자세히 보기")),
     Page("/dev/models/compare", "dev_model_compare.html", "모델 비교 — 품질·성능 「모델 비교」 카드의 자세히 보기. 비교 실행마다 결론 한 줄과 「분석」(문제·까닭·다음 방향, 실행 폴더의 analysis.md), 둘 중 나은 답 고르기·항목별 평균·지표·속도·문항 종류별 표, 표본 출력과 판정 이유, 갈래별로 만든 문서 내려받기.",
          buttons=("내려받기",)),
     Page("/dev/pii", "dev_pii.html", "개인정보·반출 점검 — 처리 원칙(ADR-0006) 한 줄, 내부 마스킹 설정, 잔여 검사·자가 점검.",
@@ -229,7 +230,7 @@ BY_PATH = {p.path: p for p in PAGES}
 def page_for(path: str) -> Page | None:
     """주소(경로)에 맞는 항목 — /project/7 은 /project/{id}, /dev/rag/… 처럼 하위 경로는 위 화면."""
     path = (path or "").split("?", 1)[0].split("#", 1)[0].rstrip("/") or "/"
-    if path in ("/", "/inbox", "/criteria"):
+    if path == "/":
         return BY_PATH["/?type=all"]
     if re.fullmatch(r"/project/\d+", path):
         return BY_PATH["/project/{id}"]

@@ -17,8 +17,8 @@ def _dev(tmp_path):
 def test_dept_rag_create_move_and_delete(tmp_path):
     app, c = _dev(tmp_path)
     db = app.state.db
-    r = c.post("/dev/rag/dept", data={"action": "create", "name": "교무처"}, follow_redirects=False)
-    assert "ok=" in r.headers["location"]
+    r = c.post("/org/create", json={"name": "교무처"})
+    assert r.json()["ok"]
     assert "교무처" in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})
     assert "공통" not in [x["dept"] for x in rag_spaces.dept_rag_rows(db, rag_spaces.config(tmp_path), {})]
     d = db.add_document("지침.hwp", "x", doc_type="grant")
@@ -26,14 +26,14 @@ def test_dept_rag_create_move_and_delete(tmp_path):
     assert c.post("/docs/scope", json={"ids": [d], "dept": "교무처"}).json()["moved"] == 1
     assert (db.get_document(d)["dept"], db.get_document(d)["access_level"]) == ("교무처", "dept")
     assert c.post("/docs/scope", json={"ids": [d], "dept": "없는부서"}).status_code == 400
-    c.post("/dev/rag/dept", data={"action": "delete", "name": "교무처"})
+    c.post("/org/delete", json={"dept": "교무처"})
     assert (db.get_document(d)["dept"], db.get_document(d)["access_level"]) == ("공통", "public")      # 지우면 공통으로
 
 
 def test_library_folders_upload_and_scope(tmp_path):
     app, c = _dev(tmp_path)
     db = app.state.db
-    c.post("/dev/rag/dept", data={"action": "create", "name": "교무처"})
+    c.post("/org/create", json={"name": "교무처"})
     r = c.post("/library/folders", data={"name": "학사 지침", "dept": "공통"}, follow_redirects=False)
     assert "folder=f%3A" in r.headers["location"]
     key = next(f["key"] for f in lf.folders(db, tmp_path) if f["name"] == "학사 지침")
@@ -109,19 +109,19 @@ def test_owner_cannot_move_doc_into_other_dept(tmp_path):
 
 def test_users_page_creates_dept_shared_with_rag(tmp_path):
     app, c = _dev(tmp_path)
-    r = c.post("/dev/users/dept", data={"action": "create", "name": "교무처"}, follow_redirects=False)
-    assert "ok=" in r.headers["location"]
+    r = c.post("/org/create", json={"name": "교무처"})
+    assert r.json()["ok"]
     assert "교무처" in c.get("/dev/rag").text                                   # 부서 RAG 로 바로 보인다
     assert any(n["name"] == "교무처" for n in c.get("/api/org").json()["nodes"])   # 조직 관리 트리에 바로 보인다
     assert '<option value="교무처"' in c.get("/?type=all").text                 # 검색 범위·폴더 범위에서 고른다
-    c.post("/dev/users/dept", data={"action": "delete", "name": "교무처"})
+    c.post("/org/delete", json={"dept": "교무처"})
     assert "교무처" not in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})
 
 
 def test_doc_and_bulk_folder_moves(tmp_path):
     app, c = _dev(tmp_path)
     db = app.state.db
-    c.post("/dev/users/dept", data={"action": "create", "name": "교무처"})
+    c.post("/org/create", json={"name": "교무처"})
     c.post("/library/folders", data={"name": "교무 지침", "dept": "교무처"})
     key = next(f["key"] for f in lf.folders(db, tmp_path) if f["name"] == "교무 지침")
     a = db.add_document("가.hwp", "x", doc_type="grant")

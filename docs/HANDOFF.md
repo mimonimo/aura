@@ -85,21 +85,16 @@
 
 | 묶음 | 화면 |
 |---|---|
-| 개요 | 개발 현황 `/dev`, 처리 흐름 `/dev/flow`, 논문·설계 문서 `/dev/docs`, 변경 이력 `/dev/history` |
-| 문서 반입·읽기 | 반입 점검 `/dev/flow#intake`, 데이터 현황 `/dev/db` |
-| 검색·지식 | RAG 공간 `/dev/rag`, 그래프 탐색 `/graph/explore`, 품질·성능 `/dev/quality` |
-| 문서 작성 | 공동 편집 시연 `/dev/coedit-demo` |
-| 모델 학습 | 데이터·학습 `/dev/train`, 수집 자료 `/dev/collect`, 도구·모델 연결 `/dev/tools`, (모델 비교는 품질·성능 `/dev/quality#model-compare`, 자세히 `/dev/models/compare`) |
-| 모델 학습 | 데이터·학습 `/dev/train`(탭: 검수·학습, 수집 자료 `?tab=collect`), 도구·모델 연결 `/dev/tools`, 모델 비교 결과 `/dev/models/compare` |
-| 보안·관리 | 구글 계정 연결 `/dev/users`(구글 앱 등록·학교 계정 연결 현황), 개인정보·반출 점검 `/dev/pii` |
 | 개발 | 개발 현황 `/dev`(변경 이력 `/dev/history`), 처리 흐름 `/dev/flow`(반입 점검 `/dev/flow#intake`), 논문·설계 문서 `/dev/docs`, 공동 편집 시연 `/dev/coedit-demo` |
-| 관리 | 원본 관리 `/dev/archive`(장부 값·장부 전체 범위, 문서 하나의 반입 결과 보기 `/dev/archive/doc/{id}`), RAG 공간 `/dev/rag`, 데이터·학습 `/dev/train`, 도구·모델 연결 `/dev/tools`, 개인정보·반출 점검 `/dev/pii` |
-| 지표 | 품질·성능 `/dev/quality` |
+| 관리 | 원본 관리 `/dev/archive`(장부 값·장부 전체 범위, 문서 하나의 반입 결과 보기 `/dev/archive/doc/{id}`), RAG 공간 `/dev/rag`, 데이터·학습 `/dev/train`(탭: 검수·학습, 수집 자료 `?tab=collect`), 도구·모델 연결 `/dev/tools`, 개인정보·반출 점검 `/dev/pii` |
+| 지표 | 품질·성능 `/dev/quality`(사업 문서 검색 측정과 질문 하나로 세 방식 비교, 모델 비교 `#model-compare`, 자세히 `/dev/models/compare`) |
 
 업무 화면에 있는 것은 개발 사이드바에 두지 않는다(10-27): 그래프 탐색 `/graph/explore` 는 라이브러리·문서·채팅에서, 구글 앱 등록·학교 계정 연결 현황은 조직 관리 `/team#google-links`(관리자만)에서 연다.
 
-계정·부서·구성원 관리는 개발 화면이 아니라 업무 화면 사이드바의 조직 관리 `/team` 한 곳이다(ADR-0073). `/dev/intake` 는 처리 흐름의 반입 점검 칸으로 넘긴다.
-옛 주소 `/dev/data`·`/dev/nas`·`/dev/api/intake` 와 구독 인증 상태 확인은 지웠다(10-25).
+계정·부서·구성원 관리는 개발 화면이 아니라 업무 화면 사이드바의 조직 관리 `/team` 한 곳이다(ADR-0073). 부서 만들기·지우기·상위 부서는
+조직도(`/org/*`), 구성원 등급·추가 권한은 `POST /api/org/members` 한 길이다.
+옛 주소는 넘기지 않고 지웠다 — 북마크가 깨지는 것은 감수한다(10-27): `/dev/intake`(→ `/dev/flow#intake`), `/dev/collect`(→ `/dev/train?tab=collect`),
+`/archive`, `/criteria`(→ `/?type=all&use=criteria`), `/inbox`(→ `/?type=all`), `/?group=…`, `/project/{id}?tab=…`, `/hwp/{id}/edit`(→ `/webhwpctrl/aura-edit?id=`).
 
 ## 5. 사람 손이 필요한 남은 일
 

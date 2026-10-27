@@ -4,7 +4,6 @@
 보관·불러오기, 작업 폴더 부서 공유, 작성 원칙, 아이콘 색·사업 책임자, 이름·기한·사업단·사업 바꾸기, 지우기.
 
 프로젝트 화면은 탭 하나(「대화·문서」)에 대화·작업 문서(왼쪽)와 프로젝트 문서·작성 원칙·관련 지난 사업(오른쪽)을 함께 둔다.
-옛 「작성 원칙·기준 문서」 탭 주소(?tab=context)는 같은 화면의 작성 원칙 자리(#projectContext)로 이어진다.
 
 - 프로젝트 찾기 JSON(/api/projects/browse)은 main, 프로젝트 검색 API(/api/projects/search)는 app/project_search 에 그대로 있다.
 - DB·화면 틀·화면 공통 맥락(ctx)과 묶음 반입(_intake_bundle — 배경 판독·뒤 단계 줄)·지난 사업 자동 참조(_link_past_projects)·
@@ -348,11 +347,7 @@ def project_documents_import(request: Request, background: BackgroundTasks, proj
 
 
 @router.get("/project/{project_id}", response_class=HTMLResponse)
-def project_page(request: Request, project_id: int, refq: str = "", tab: str = ""):
-    if tab:                                               # 옛 탭 주소 — 탭은 「대화·문서」 하나. 작성 원칙·기준 문서는 같은 화면 오른쪽
-        rest = [(k, v) for k, v in request.query_params.multi_items() if k != "tab"]
-        hint = "#projectContext" if tab in ("context", "guide", "criteria", "refs") else ""
-        return RedirectResponse(f"/project/{project_id}" + (f"?{urlencode(rest)}" if rest else "") + hint, status_code=307)
+def project_page(request: Request, project_id: int, refq: str = ""):
     h = request.app.state.project
     db, templates, ctx, _req_viewer = h.db, h.templates, h.ctx, h._req_viewer
     _visible, _doc_groups, _program_options, _project_suggestions = h._visible, h._doc_groups, h._program_options, h._project_suggestions

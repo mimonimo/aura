@@ -28,6 +28,15 @@
 .mc-sum td:first-child,.mc-sum th:first-child{text-align:left;}
 .mc-sum .mc-group td{color:var(--muted);font-size:11.5px;padding-top:8px;}
 .mc-older{font-size:12px;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.rc-bar input[type=search]{flex:1 1 260px;min-width:0;}
+.rc-bar input[type=number]{width:6em;}
+.rc-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;margin-top:10px;}
+.rc-col{border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;}
+.rc-col h3{display:flex;align-items:baseline;gap:8px;font-size:13px;margin:0 0 8px;}
+.rc-col h3 .sec{margin-left:auto;color:var(--muted);font-weight:400;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.rc-col ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.6;}
+.rc-col li{overflow-wrap:anywhere;margin:0 0 4px;}
+.rc-col .w{color:var(--muted);font-size:11.5px;}
 </style>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 품질
@@ -120,6 +129,15 @@
   <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색(GraphRAG)
     <span class="muted" style="margin-left:auto; font-size:12px; font-weight:400;">27B 질문 읽기 지금 {{ '켜짐' if flow.model_read_on else '꺼짐' }}</span></h2>
   {% include "_search_compare.html" %}
+  {# 질문 하나로 세 방식 나란히 — POST /dev/quality/retrieval-compare(app/retrieval_compare, 관리자만). 답은 만들지 않고 찾은 문서만 #}
+  <h4 class="extract-h">질문 하나로 비교</h4>
+  <form class="control-row control-bar rc-bar" id="rcForm" data-own-confirm>
+    <input type="search" name="question" placeholder="비교할 질문" maxlength="400" required aria-label="비교할 질문">
+    <label class="muted" style="font-size:12px;">문서 수 <input type="number" name="k" value="6" min="1" max="20" aria-label="문서 수(1~20)"></label>
+    <button class="btn" type="submit">비교</button>
+  </form>
+  <p class="muted" id="rcStatus" aria-live="polite" style="font-size:12px; margin:8px 0 0;"></p>
+  <div class="rc-cols" id="rcOut" hidden></div>
   {# 설명 두 가지(느린 까닭·직접 만든 까닭)는 발표·논문용이라 접어 둔다(10-27) #}
   <details class="chip-toggle why-fold">
     <summary>왜 느린가 · 왜 직접 만들었나</summary>
@@ -139,6 +157,43 @@
     </div>
   </details>
 </div></div>
+
+<script>
+(function () {
+  const form = document.getElementById('rcForm');
+  if (!form) return;
+  const status = document.getElementById('rcStatus'), out = document.getElementById('rcOut');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const col = m => `<div class="rc-col"><h3>${esc(m.label)}<span class="sec">${esc(m.sec)}초</span></h3>`
+    + (m.error ? `<p class="muted" style="margin:0;font-size:12px;">실패 — ${esc(m.error)}</p>`
+      : (m.hits.length ? '<ol>' + m.hits.map(h => `<li><a href="/doc/${encodeURIComponent(h.doc_id)}">${esc(h.filename || ('문서 ' + h.doc_id))}</a>`
+          + ((h.path || []).length || h.relation ? `<div class="w">${esc([(h.path || []).join(' › '), h.relation].filter(Boolean).join(' · '))}</div>` : '') + '</li>').join('') + '</ol>'
+        : '<p class="muted" style="margin:0;font-size:12px;">찾은 문서 없음</p>'))
+    + '</div>';
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = form.querySelector('button[type=submit]');
+    const fd = new FormData(form);
+    const k = Math.max(1, Math.min(20, parseInt(fd.get('k'), 10) || 6));
+    fd.set('k', String(k));
+    btn.disabled = true;
+    status.textContent = '세 방식으로 찾는 중…';
+    try {
+      const r = await fetch('/dev/quality/retrieval-compare', {method: 'POST', body: fd, headers: {Accept: 'application/json'}});
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : '비교하지 못했습니다');
+      status.textContent = `「${d.question}」 · 문서 ${d.k}개까지`;
+      out.innerHTML = (d.modes || []).map(col).join('');
+      out.hidden = false;
+    } catch (err) {
+      status.textContent = err.message;
+      out.hidden = true;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
 
 {# 모델 비교 — 비교 실행(VM 의 210~213 → 212 내보내기)이 남긴 파일에서 읽은 마지막 실행 요약. 자세히는 /dev/models/compare #}
 {% set mc = model_compare %}
@@ -178,7 +233,7 @@
 <p class="muted" id="model-compare" style="font-size:12.5px; margin:4px 4px 12px;">모델 비교 — 아직 비교 실행 결과 없음</p>
 {% endif %}
 
-{% if quality_open %}{# 담당자가 문서 화면에서 신고한 추출 문제 — 미처리 신고가 있을 때만 보인다 #}
+{% if quality_open %}{# 예전에 문서 화면에서 신고한 추출 문제 가운데 남은 것 — 있을 때만 보인다(신고 단추는 없앴다) #}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 백로그
     <span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span></h2>
@@ -195,8 +250,6 @@
   </article>
   {% endfor %}
 </div></div>
-{% else %}
-<p class="muted" style="font-size:12.5px; margin:4px 4px 0;">추출 품질 백로그 — 담당자가 문서 화면에서 신고한 미처리 문제 없음(누적 처리 {{ quality.done }}건)</p>
 {% endif %}
 
 

@@ -95,7 +95,7 @@ STAGES = (
      "why": "키워드는 사업 이름 같은 드문 말에, 의미 색인은 표현이 다른 질문에 강하다",
      "code": "app/grant_lex · app/embed_search · app/regulations",
      "nums": [("grant_chunks", "사업 문서 조각"), ("embedding_index", "의미 색인 조각"), ("regulation_chunks", "규정 조각")],
-     "link": ("/dev/rag#student-regs", "RAG 공간 — 규정·기준 문서")},
+     "link": ("/?type=all&use=criteria", "라이브러리 — 기준 문서(규정·지침)")},
     {"n": 5, "name": "지식그래프 구축", "where": ["운영 VM"], "state": "운영 중", "every": "문서가 바뀌면 15분에 한 번까지",
      "does": "문서를 사업 → 연차 → 문서 → 절로 세우고, 근거가 있는 관계만 잇는다.",
      "how": ["노드 8종: 사업 묶음 · 사업 · 기관 · 연차 · 문서 · 절 · 단위과제 · 성과지표",

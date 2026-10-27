@@ -67,15 +67,10 @@ def test_criteria_tag_marks_only_regulation_index_documents(tmp_path):
     assert metrics.DEFS["documents_use_criteria"].definition.split(" — ")[0] in page
 
 
-def test_old_addresses_land_on_the_unified_list(tmp_path):
+def test_old_addresses_are_gone(tmp_path):
     _app, c = _client(tmp_path)
-    for old, new in (("/criteria", "/?type=all&use=criteria"),
-                     ("/?type=all&group=criteria", "/?type=all&use=criteria"),
-                     ("/?type=grant&group=extract&q=a", "/?type=grant&q=a"),
-                     ("/?group=reference", "/?type=all")):
-        r = c.get(old, follow_redirects=False)
-        assert r.status_code == 303 and r.headers["location"] == new, old
-    assert c.get("/inbox?type=all&group=criteria").url.query == b"type=all&use=criteria"
+    for old in ("/criteria", "/inbox", "/archive"):                         # 옛 주소는 넘기지 않고 없앴다(10-27)
+        assert c.get(old, follow_redirects=False).status_code == 404, old
     assert c.get("/?type=recruit").status_code == 200                      # 업무 주소는 그대로 쓴다
     page = c.get("/?type=all").text
     assert 'href="/criteria"' not in page and "원본 보관소" not in page and 'href="/archive' not in page   # 라이브러리는 문서 한 목록(원본 관리는 개발 메뉴)

@@ -186,11 +186,6 @@ def _when(program_key: str) -> tuple[str, int | None]:
     return "", None
 
 
-def _year_of(program_key: str) -> str:
-    """수행 연도만(연차는 _when) — 연도 필터에 연차가 섞이지 않게."""
-    return _when(program_key)[0]
-
-
 def _units(db, project_ids: list[int]) -> dict[int, list[str]]:
     """묶음마다 사업단(원본 최상위 폴더) — 문서가 많은 순."""
     if not project_ids:
