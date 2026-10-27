@@ -129,6 +129,19 @@
         } catch (e) {}
       }
     }
+    // 남의 글을 넣은 뒤 보던 화면 지키기 — 넣으려고 커서를 칸으로 옮겼다 되돌리면 기안기가 다음 장면에서 화면을 내 커서 쪽(대개 문서 맨 위)으로
+    // 끌어올리고, 따라가기가 다시 내려 0.2~0.3초마다 깜빡였다(10-27 시연, 실측 1148→248px). 화면 막대 자리를 지금 바로, 그리고 기안기가
+    // 끌어올린 그 장면(그리기 전) 안에서 한 번 더 되돌린다 — 맨 위 화면은 그려지지 않는다(실측: 열한 장면 내내 1148)
+    function viewTop() { try { var v = doc().getElementById('hcwoViewScroll'); return v ? v.scrollTop : null; } catch (e) { return null; } }
+    function holdView(top) {
+      if (top == null) return;
+      var v, W;
+      try { v = doc().getElementById('hcwoViewScroll'); W = frame().contentWindow; } catch (e) { return; }
+      if (!v || !W) return;
+      var fix = function () { if (Math.abs(v.scrollTop - top) > 1) v.scrollTop = top; };
+      fix();
+      W.requestAnimationFrame(function () { fix(); W.requestAnimationFrame(fix); });
+    }
     // 화면만 위아래로 굴리기(커서는 그대로) — 따라가기가 쓴다. 세로 스크롤 값 1 = 화면 1/75px(실측, 위 restoreCursor 와 같은 값). 양수면 아래로
     function scrollBy(dy) {
       if (!dy || Math.abs(dy) < 1) return false;
@@ -361,10 +374,10 @@
       var fmt = 'JSON', body = json;
       try { var j = typeof json === 'string' && json.charAt(0) === '{' && json.indexOf('"fmt"') > 0 ? JSON.parse(json) : null; if (j && j.fmt === 'hwpx' && j.b64) { fmt = 'HWPX'; body = j.b64; } } catch (e) {}
       return new Promise(function (resolve) {
-        var keep = getCursor(), sel = keepSel(), t = setTimeout(function () { restoreCursor(keep); restoreSel(sel); resolve(false); }, 8000);
+        var keep = getCursor(), sel = keepSel(), top = viewTop(), t = setTimeout(function () { restoreCursor(keep); restoreSel(sel); holdView(top); resolve(false); }, 8000);
         var relock = editable[name] === false;
         if (relock) setEditable(name, true, true);                // 남이 쥔 칸은 잠겨 있다 — 넣는 동안만 푼다
-        var done = function (ok) { clearTimeout(t); if (relock) setEditable(name, false, true); restoreCursor(keep); restoreSel(sel); resolve(ok); };
+        var done = function (ok) { clearTimeout(t); if (relock) setEditable(name, false, true); restoreCursor(keep); restoreSel(sel); holdView(top); resolve(ok); };
         try { ctrl.MoveToField(name, true, true, true); } catch (e) { done(false); return; }
         try { ctrl.SetTextFile(body, fmt, 'insertfile', function (r) { done(!(r && r.result === false)); }); }
         catch (e) { done(false); }
@@ -441,7 +454,7 @@
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
       setToolbarGuard: function (fn) { toolbarGuard = fn; }, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
-      getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
+      getCursor: getCursor, restoreCursor: restoreCursor, viewTop: viewTop, holdView: holdView, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, bodyTop: bodyTop, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },
       attach: attach, isProbing: function () { return !!probing; },

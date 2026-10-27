@@ -353,7 +353,7 @@
       if (!keys.length) return;
       var idle = now() - hwp.lastInputAt();
       if (hwp.isComposing() || hwp.isProbing() || idle < conf.pause_ms) { scheduleApply(Math.max(30, conf.pause_ms - idle + 20)); return; }
-      var cur = null, rich = [], t0 = performance.now(), wrote = false;
+      var cur = null, viewAt = null, rich = [], t0 = performance.now(), wrote = false;
       order(keys);
       for (var i = 0; i < keys.length; i++) {
         if (i && performance.now() - t0 > SLICE_MS) break;          // 나머지는 다음 조각에
@@ -370,7 +370,7 @@
         if (d.rich && (conf.rich || hx)) { rich.push(d); known[f] = {v: d.version, text: d.text}; if (hx) richField[f] = d.version; else delete richField[f]; continue; }
         delete richField[f];
         if (local !== null && norm(local) !== d.text) {
-          cur = cur || hwp.getCursor();
+          if (!cur) { cur = hwp.getCursor(); viewAt = hwp.viewTop ? hwp.viewTop() : null; }
           applying = true; wrote = true;
           // 바뀐 부분만 그 자리에(통째 쓰기는 칸 전체를 다시 그려 451쪽 문서의 5만 자 절에서 2~4초 걸렸다). 내 화면 글이 바뀌기 전 글과 같을 때만,
           // 넣은 뒤 글이 안 맞으면 전체 쓰기로
@@ -386,7 +386,7 @@
         known[f] = {v: d.version, text: d.text}; touched[f] = 1;
         emit('applied', f, d);
       }
-      if (cur) hwp.restoreCursor(cur);
+      if (cur) { hwp.restoreCursor(cur); if (hwp.holdView) hwp.holdView(viewAt); }   // 남의 글 넣은 뒤 보던 화면 그대로(깜빡임 막기)
       if (wrote && hwp.lockUndo) hwp.lockUndo(true);
       if (Object.keys(inbox).length) { clearTimeout(applyTimer); applyTimer = setTimeout(applyInbox, 0); }   // 남은 것은 쉬었다가(입력이 끼면 위에서 미룬다)
       if (Object.keys(outbox).length) scheduleFlush();
