@@ -53,7 +53,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-EVALDOCS = Path(os.environ.get("ZZAIMY_EVALDOCS") or Path.home() / "ops" / "evaldocs")   # 공개 공고·기본계획·사업 서식(저장소 밖)
+EVALDOCS = Path(os.environ.get("ZZAIMY_EVALDOCS") or next(                                # 공개 공고·기본계획·사업 서식(저장소 밖)
+    (d for d in (Path.home() / "ops" / "evaldocs", Path(__file__).resolve().parents[1] / "data" / "scraped" / "uniall") if d.is_dir()),
+    Path.home() / "ops" / "evaldocs"))                                                   # ops 사본이 없으면 수집해 둔 공개 원본 폴더
 EVIDENCE_DOCS = ["(공고문) 2026년 지방대학 특성화 선도대학 육성사업 공고.hwpx",
                  "(붙임) 2026년 지방대학 특성화 선도대학 육성사업 기본계획.hwpx"]
 FORM_DOC = "(서식2-1) 2026년 지방대학 특성화 선도대학 육성사업 사업계획서 서식(단독형).hwpx"
