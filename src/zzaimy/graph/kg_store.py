@@ -19,6 +19,9 @@ _SCHEMA = (
     " evidence TEXT NOT NULL DEFAULT '[]', weight REAL NOT NULL DEFAULT 1.0, PRIMARY KEY (src, dst, kind))",
     # 들어오는 관계 조회(탐색 화면·연차→사업) — 기본 키는 src 쪽만 빠르다
     "CREATE INDEX IF NOT EXISTS kg_edges_dst ON kg_edges (dst)",
+    # 갈래로 고르기(사업·연차 노드, 관계 종류) — 41만 노드를 처음부터 훑던 것(10-28 화면 측정)
+    "CREATE INDEX IF NOT EXISTS kg_nodes_type ON kg_nodes (type)",
+    "CREATE INDEX IF NOT EXISTS kg_edges_kind ON kg_edges (kind)",
 )
 
 

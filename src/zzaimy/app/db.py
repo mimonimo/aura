@@ -253,6 +253,10 @@ def _like_prefix(prefix: str) -> str:
     """LIKE 앞부분 일치 패턴 — 글자 그대로의 \\ % _ 를 이스케이프한다(ESCAPE '\\' 와 함께)."""
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
+
+# 설정을 쓰거나 지운 뒤 부르는 갈고리 (db, key, value 또는 None) — 요청 안에서 한 번에 읽어 둔 값(webhwp.meta)을 쓰기와 맞춘다
+SETTING_HOOKS: list = []
+
 class Database:
     # 스키마 추가분 — 기존 DB에 없으면 붙인다 (개발 단계 간이 마이그레이션)
     _MIGRATIONS = [
@@ -308,6 +312,20 @@ class Database:
         "ALTER TABLE chat_sessions ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0",
     ]
 
+    # 문서 번호·갈래로 찾는 표의 색인 — PostgreSQL 이전 때 기본 키만 옮겨져 문서 조각(182만 줄)을 문서 하나 찾을 때마다
+    # 처음부터 훑었다(한 번 0.2초, 하루 수백만 번 — 10-28 화면 측정). 운영에는 CONCURRENTLY 로 먼저 만들고, 여기서는 없을 때만 만든다
+    _INDEXES = (
+        ("doc_chunks_doc", "doc_chunks (doc_id, seq)"),
+        ("regulation_chunks_doc", "regulation_chunks (doc_id)"),
+        ("doc_assets_doc", "doc_assets (doc_id)"),
+        ("reviews_doc", "reviews (doc_id)"),
+        ("quality_reports_doc", "quality_reports (doc_id)"),
+        ("draft_history_doc", "draft_history (doc_id)"),
+        ("mask_events_doc", "mask_events (doc_id)"),
+        ("documents_project", "documents (project_id)"),
+        ("documents_status", "documents (status)"),
+    )
+
     def __init__(self, path: Path | str) -> None:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +348,13 @@ class Database:
                     conn.execute(stmt)
                 except sqlite3.OperationalError:
                     pass  # 이미 있는 컬럼
+            idx_have: set[str] = set()
+            if getattr(conn, 'dialect', '') == 'postgres':      # 있는 색인은 다시 보내지 않는다(IF NOT EXISTS 라도 잠금을 잡는다)
+                idx_have = {str(r[0]) for r in conn.execute(
+                    "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()").fetchall()}
+            for name, target in self._INDEXES:
+                if name not in idx_have:
+                    conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
             if getattr(conn, 'dialect', '') == 'postgres':
                 install_functions(conn)
 
@@ -1029,10 +1054,14 @@ class Database:
                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+        for hook in SETTING_HOOKS:
+            hook(self, key, value)
 
     def delete_setting(self, key: str) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+        for hook in SETTING_HOOKS:
+            hook(self, key, None)
 
     def get_setting(self, key: str, default: str = "") -> str:
         with self._conn() as conn:

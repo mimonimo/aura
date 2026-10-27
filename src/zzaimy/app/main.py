@@ -640,7 +640,9 @@ def create_app(
         """느린 요청 기록 — 1.5초 넘게 걸린 화면·요청을 경로(질의 문자열 없이)·걸린 시간만 남긴다. 「느리다」 는 말이 오면 여기부터 본다."""
         import time as _t
         t0 = _t.monotonic()
-        resp = await call_next(request)
+        from zzaimy.app import webhwp as _wh_req
+        with _wh_req.request_scope():                     # 요청 안의 한글 파일 meta 읽기를 한 번에(webhwp.request_scope)
+            resp = await call_next(request)
         ms = int((_t.monotonic() - t0) * 1000)
         if ms >= 1500 and not request.url.path.startswith("/static/") and "text/event-stream" not in (resp.headers.get("content-type") or ""):
             try:
@@ -2125,7 +2127,9 @@ def create_app(
                             "question": f"{title}으로 작업하자"})
         for d in docs:
             title = storage.title_of(d.get("filename") or "")
-            pages = [p for p in _sparse_pages_of(d) if p not in set(db.vision_pages(int(d["id"])))]
+            sparse = _sparse_pages_of(d)
+            done_ = set(db.vision_pages(int(d["id"]))) if sparse else set()     # 쪽마다 다시 묻던 것(71번, 10-28)
+            pages = [p for p in sparse if p not in done_]
             if pages:
                 out.append({"kind": "read", "doc_id": d["id"], "text": f"{_ko.quote(title, '의')} {len(pages)}쪽은 그림이라 글이 없습니다. 판독해 둘까요? (쪽 {', '.join(map(str, pages[:8]))}{' …' if len(pages) > 8 else ''})",
                             "question": f"{title} 그림 쪽 판독해 줘"})

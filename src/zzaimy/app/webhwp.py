@@ -103,8 +103,53 @@ def dept_of_path(base: Path, path: str) -> str:
 _META_PRELOAD: contextvars.ContextVar = contextvars.ContextVar("webhwp_meta_preload", default=None)
 
 
+# 요청 하나 동안의 meta 읽기 — 파일마다 따로 읽는 훑기가 화면 곳곳에 있어(채팅 문서 상태 5초·명령 확인 2초, 10-28 느린 요청 기록)
+# 한 요청에서 BULK_AFTER 번을 넘게 읽으면 그때부터 한 번에 읽은 값을 쓴다. 쓰기·지우기는 db.SETTING_HOOKS 로 그 값에도 반영한다.
+_META_REQ: contextvars.ContextVar = contextvars.ContextVar("webhwp_meta_req", default=None)
+BULK_AFTER = 20
+_PREFIX = "webhwp_meta:"
+
+
+@contextlib.contextmanager
+def request_scope():
+    """요청 하나를 감싼다(main 의 미들웨어). 밖(배경 작업·스크립트)에서는 meta 가 지금처럼 파일마다 읽는다."""
+    tok = _META_REQ.set({"n": 0, "pre": None, "db": None})
+    try:
+        yield
+    finally:
+        _META_REQ.reset(tok)
+
+
+def _req_pre(db):
+    st = _META_REQ.get()
+    if st is None:
+        return None
+    if st["db"] is None:
+        st["db"] = db
+    elif st["db"] is not db:
+        return None
+    if st["pre"] is None:
+        st["n"] += 1
+        if st["n"] > BULK_AFTER:
+            st["pre"] = db.settings_with_prefix(_PREFIX)
+    return st["pre"]
+
+
+def _on_setting(db, key: str, value) -> None:
+    if not str(key).startswith(_PREFIX):
+        return
+    for pre in (_META_REQ.get() or {}).get("pre"), _META_PRELOAD.get():
+        if pre is not None:
+            if value is None:
+                pre.pop(key, None)
+            else:
+                pre[key] = value
+
+
 def meta(db, fid: int) -> dict:
     pre = _META_PRELOAD.get()
+    if pre is None:
+        pre = _req_pre(db)
     try:
         if pre is not None:
             return dict(json.loads(pre.get(f"webhwp_meta:{int(fid)}") or "{}"))
@@ -454,3 +499,12 @@ def locked(db, fid: int) -> bool:
 
 def may_open(base: Path, f: dict | None, depts: list[str]) -> bool:
     return bool(f) and dept_of_path(base, f["path"]) in depts
+
+
+def _register_hook() -> None:
+    from zzaimy.app import db as _db
+    if _on_setting not in _db.SETTING_HOOKS:
+        _db.SETTING_HOOKS.append(_on_setting)
+
+
+_register_hook()

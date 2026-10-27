@@ -9,13 +9,33 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import threading
+
+
+_ENV_LOCAL = Path(__file__).resolve().parents[3] / '.env.local'
+_KEYS = ('ZZAIMY_DATABASE_URL', 'ZZAIMY_PLATFORM_SQLITE_PATH', 'ZZAIMY_DATABASE_SCHEMA')
+_CONFIG_CACHE: dict = {}
 
 
 def postgres_config(path):
+    """연결 설정 — 같은 경로·환경·.env.local 이면 한 번 읽은 값을 쓴다(연결마다 파일을 다시 읽어 7ms 씩 들었다, 10-28 화면 측정)."""
+    try:
+        mtime = _ENV_LOCAL.stat().st_mtime_ns
+    except OSError:
+        mtime = 0
+    key = (str(path), os.getcwd(), mtime, tuple(os.environ.get(k) for k in _KEYS))
+    if key not in _CONFIG_CACHE:
+        if len(_CONFIG_CACHE) > 64:
+            _CONFIG_CACHE.clear()
+        _CONFIG_CACHE[key] = _postgres_config(path)
+    return _CONFIG_CACHE[key]
+
+
+def _postgres_config(path):
     # CLI/index jobs must select the same backend as systemd, even when their
     # shell did not export EnvironmentFile. Read only DB keys, never mutate env.
     from dotenv import dotenv_values
-    local = dotenv_values(Path(__file__).resolve().parents[3] / '.env.local')
+    local = dotenv_values(_ENV_LOCAL)
     def setting(key, default=''):
         return os.environ.get(key, local.get(key) or default)
     dsn = setting('ZZAIMY_DATABASE_URL')
@@ -86,10 +106,59 @@ _IDENTITY_TABLES = frozenset(('documents', 'reviews', 'chat_sessions', 'chat_mes
     'mask_events', 'chat_sources', 'chat_revisions', 'chunk_questions'))
 
 
+# 연결 재사용 — 요청 하나가 DB 를 수십 번 부르고, 부를 때마다 새로 연결하면(13ms + 설정 4번) 화면마다 1초 가까이 들었다(10-28).
+# 프로세스(pid)·설정(dsn·schema·읽기 전용)마다 쉬는 연결을 몇 개 들고 있다가 내준다. 돌려받을 때 열린 거래는 되돌리고
+# 세션 설정(시간 한도)을 처음 값으로 되돌린다 — 앞 사용자가 바꾼 SET 이 다음 사용자에게 새지 않게.
+_POOL: dict = {}
+_POOL_LOCK = threading.Lock()
+POOL_SIZE = int(os.environ.get('ZZAIMY_DB_POOL', '16') or 0)
+_RESET = "SET lock_timeout = '10s'; SET statement_timeout = '60s'"
+
+
+def _pool_take(key):
+    with _POOL_LOCK:
+        idle = _POOL.get(key)
+        while idle:
+            raw = idle.pop()
+            if not raw.closed:
+                return raw
+    return None
+
+
+def _pool_give(key, raw) -> None:
+    from psycopg.pq import TransactionStatus
+    try:
+        if raw.closed:
+            return
+        if raw.info.transaction_status != TransactionStatus.IDLE:
+            raw.rollback()
+        auto = raw.autocommit
+        raw.autocommit = True
+        raw.execute(_RESET)
+        raw.autocommit = auto
+    except Exception:
+        try:
+            raw.close()
+        except Exception:
+            pass
+        return
+    with _POOL_LOCK:
+        idle = _POOL.setdefault(key, [])
+        if len(idle) < POOL_SIZE:
+            idle.append(raw)
+            return
+    raw.close()
+
+
 class PostgresConnection:
     dialect = 'postgres'
 
     def __init__(self, dsn, schema, readonly=False):
+        self._key = (os.getpid(), dsn, schema, bool(readonly))
+        raw = _pool_take(self._key) if POOL_SIZE > 0 else None
+        if raw is not None:
+            self.raw = raw
+            return
         import psycopg
         from psycopg import sql
         self.raw = psycopg.connect(dsn, connect_timeout=10, autocommit=True, row_factory=_row_factory)
@@ -135,11 +204,21 @@ class PostgresConnection:
     def __exit__(self, kind, value, traceback):
         try:
             self.raw.commit() if kind is None else self.raw.rollback()
+        except Exception:
+            self.raw.close()
+            raise
         finally:
             self.close()
 
     def close(self):
-        self.raw.close()
+        """돌려주기 — 쉬는 연결 묶음에 넣는다(가득 찼거나 상태가 이상하면 닫는다). 두 번 불러도 한 번만."""
+        if getattr(self, "_released", False):
+            return
+        self._released = True
+        if POOL_SIZE > 0:
+            _pool_give(self._key, self.raw)
+        else:
+            self.raw.close()
 
     def commit(self):
         self.raw.commit()
