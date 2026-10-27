@@ -3517,9 +3517,8 @@ def create_app(
         _chat_running.add(session_id)
         background.add_task(_answer_task, session_id, q, stored, criteria, web, retrieval)
 
-    app.state.schedule_answer = _schedule_answer      # 채팅과 같은 답 길(문서 작업 에이전트 포함) — 공동 편집 시연의 「AURA로 쓰기」 가 쓴다
+    app.state.schedule_answer = _schedule_answer      # 채팅과 같은 답 길(문서 작업 에이전트 포함)을 다른 라우터가 부를 때
     app.state.chat_running = lambda sid: sid in _chat_running
-    app.state.chat_step = lambda sid: ((_chat_progress.get(sid) or {}).get("steps") or [""])[-1]   # 지금 단계 이름 — 공동 편집 시연 머리줄이 보인다
 
     install_chat_revisions(app, db, chat_revisions, _schedule_answer,
                            lambda sid: sid in _chat_running, inbox_dir,

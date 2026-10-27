@@ -929,6 +929,10 @@
         var h1 = Math.max(10, hwp.unitPx(g.h)), h2 = Math.max(10, hwp.unitPx(g.h2)), m = mark(f), c = colorOf(w.user);
         seen[f] = 1;
         var top = a.y, bottom = b.y + h2, single = g.page === g.page2 && Math.abs(b.y - a.y) < 2;
+        if (g.page !== g.page2) {                       // 쪽을 넘은 칸 — 표시는 커서가 있는 쪽의 글 자리 위에서 시작(쪽 사이 회색 여백을 가로지르지 않게, 10-27)
+          var pt = hwp.toScreen(g.page2, g.x2, hwp.bodyTop ? hwp.bodyTop() : 0);
+          if (pt) top = Math.min(pt.y, b.y);
+        }
         var vis = bottom > view.top && top < view.bottom;
         m.box.hidden = m.caret.hidden = m.flag.hidden = m.block.hidden = !vis;
         if (!vis) return;

@@ -44,7 +44,7 @@ def test_page_admin_only_and_three_panes(tmp_path, monkeypatch):
     for s in "abc":
         assert f"/webhwpctrl/aura-edit?id={fid}&amp;demo={s}" in page
     assert page.count("<iframe") == 3 and "김가람" in page and "시연 계정" in page and "새 빈 문서" in page
-    assert "AURA 양식 불러오기" in page and "AURA 정리 쓰기" not in page and "어디를 고쳐도" not in page
+    assert "AURA 양식 만들기" in page and "AURA 정리 쓰기" not in page and "어디를 고쳐도" not in page
     assert dev.get("/dev/coedit-demo", follow_redirects=False).status_code == 200          # 있으면 다시 만들지 않는다
     # 시연 계정 — 장부에 demo 표시·비활성·비밀번호 없음(로그인 길 없음), 다시 눌러도 그대로
     acc = json.loads((tmp_path / "accounts.json").read_text())
@@ -172,42 +172,85 @@ def test_demo_values_fill_header_cells_only():
 
 
 def test_scenario_is_virtual_and_current():
-    """시연 시나리오 — 사업명에 시연용 가상 사업임이 드러나고 연도·날짜는 오늘에서. 요청 글은 칸 이름을 박지 않고 설정만 준다(칸 고르기는 27B)."""
+    """시연 시나리오 — 사업명에 시연용 가상 사업임이 드러나고 연도·날짜는 오늘에서. 양식 요청은 칸 이름을 박지 않고 설정만 준다(짜임은 27B)."""
     from datetime import date
     d = date(2031, 5, 4)
     sc = demo.scenario(d)
     assert "2031" in sc["사업명"] and "시연" in sc["사업명"] and "가상" in sc["사업명"] and sc["작성일"] == "2031. 05. 04."
-    fa, wr = demo.form_ask(d), demo.write_ask(d)
+    fr = demo.form_request(d)
     for k, v in sc.items():
-        assert f"- {k}: {v}" in fa and f"- {k}: {v}" in wr        # 수치 관문의 근거(요청 글)에 설정이 그대로
-    assert "hwp_start" in fa and "hwp_fill" in fa and "hwp_replace" in fa and "최근" in fa and "쓰지 마" in fa
-    assert "칸:" not in fa and "절:" not in wr                       # 특정 양식의 칸 이름을 요청에 박지 않는다
-    assert "가)" in wr and "표·도식 없이" in wr and "hwp_write" in wr and "작성 요령" in wr and "(예시)" in wr and "서너 문장" not in wr
-    # 꾸민 수치에는 「예시」 표시
-    assert all("예시" in v for k, v in sc.items() if k in ("총사업비", "참여 대상"))
+        assert f"- {k}: {v}" in fr                                   # 수치 관문의 근거(요청 글)에 설정이 그대로
+    assert "칸:" not in fr and "절:" not in fr
+    assert all("예시" in v for k, v in sc.items() if k in ("총사업비", "참여 대상"))   # 꾸민 수치에는 「예시」
 
 
-def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
-    """「AURA로 쓰기」 — 시연 계정 김가람의 대화를 문서에 잇고 채팅과 같은 답 길(schedule_answer)로 요청을 보낸다. 쓰는 중이면 다시 보내지 않는다."""
-    app, dev, _ = _admin(tmp_path, monkeypatch)
-    fid = _new(dev)
-    sent = []
-    monkeypatch.setattr(app.state, "schedule_answer", lambda bg, sid, q, stored, crit, *a, **k: sent.append((sid, q)), raising=False)
-    r = dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
-    assert r.status_code == 303 and "aura=1" in r.headers["location"]
-    sid, q = sent[-1]
-    db = app.state.db
+DESIGN = {"title": "가상 사업계획서", "cover": False, "summary": ["사업명", "사업 기간", "총사업비", "주관 부서"],
+          "sections": [{"level": 1, "title": t, "guide": g, "length": "500자 내외"} for t, g in
+                       (("추진 배경", "사업이 필요한 까닭을 쓴다."), ("사업 목표", "목표와 성과 지표를 쓴다."),
+                        ("추진 전략", "전략과 과제를 쓴다."), ("추진 체계", "조직과 역할을 쓴다."), ("기대 효과", "효과를 쓴다."))],
+          "why": "짧은 계획서"}
+BODY = ("1) 필요성\n가) 지역 기업의 생성형 AI 활용 수요가 늘어 실무 인재 양성이 필요함.\n나) 재학생 120명(예시)을 대상으로 실습 중심 교과를 운영함.\n"
+        "2) 방향\n가) AI 기초·응용 교과와 현장 실습 과제를 잇는 과정을 마련함.")
+
+
+def test_aura_makes_form_then_writes_sections_in_order(tmp_path, monkeypatch):
+    """「AURA 양식 만들기」 — 27B 설계(가짜 연결)로 짧은 사업계획서를 빈 문서에 넣고 요약 칸을 채운다. 「이어 쓰기」 — 빈 본문 절을 1절부터
+    차례로 세 개, 같은 관문·흘려 쓰기 길로. 단계·걸린 초가 남고, 결과 글은 실제로 쓴 절 수 그대로다(근거 없는 수치 글은 고쳐 쓴 뒤에만)."""
+    from tests.test_delegate import FakeClient
     from zzaimy.app import webhwp_agent as wa
-    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and q == demo.form_ask()   # 빈 문서면 양식 불러오기
-    assert dev.get(f"/dev/coedit-demo/state?id={fid}").json() == {"loaded": False, "busy": False}
-    monkeypatch.setattr(app.state, "chat_running", lambda s_: True, raising=False)
-    monkeypatch.setattr(app.state, "chat_step", lambda s_: "절 쓰는 중 — 「2. 추진 배경」", raising=False)
-    assert dev.get(f"/dev/coedit-demo/state?id={fid}").json()["step"] == "절 쓰는 중 — 「2. 추진 배경」"   # 머리줄에 지금 단계
-    monkeypatch.setattr(app.state, "chat_running", lambda s_: False, raising=False)
-    m = webhwp.meta(db, fid); m["form_loaded"] = "양식복사:1"; db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+    app, dev, _ = _admin(tmp_path, monkeypatch)
+    db = app.state.db
+    fid = _new(dev)
+    monkeypatch.setattr(wa.HwpTools, "STREAM_PACE", 0.001)
+    sc = demo.scenario()
+    answers = [json.dumps(DESIGN, ensure_ascii=False),
+               json.dumps({"칸:사업명": sc["사업명"], "칸:사업 기간": sc["사업 기간"], "칸:총사업비": sc["총사업비"], "칸:없는 칸": "x"}, ensure_ascii=False),
+               BODY.replace("120명", "300명"),          # 1절 첫 초안 — 설정에 없는 수치(300) → 관문이 막는다
+               BODY, BODY, BODY]                        # 2절 초안(미리), 1절 고쳐 쓰기, 3절
+    client = FakeClient(answers)
+    monkeypatch.setattr(demo, "make_client", lambda: client)
+    r = dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    assert r.status_code == 303
+    st = dev.get(f"/dev/coedit-demo/state?id={fid}").json()
+    assert st["loaded"] and not st["busy"] and "만들어" in st["step"]
+    names = [x["name"] for x in ww.fields(Path(webhwp.get(db, fid)["path"]).read_bytes())]
+    secs = [n for n in names if n.startswith("절:")]
+    assert secs[:3] == ["절:1. 추진 배경", "절:2. 사업 목표", "절:3. 추진 전략"]
+    vals = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    assert vals["칸:사업명"] == sc["사업명"] and vals["칸:총사업비"] == sc["총사업비"]
+    assert "AURA 이어 쓰기" in dev.get(f"/dev/coedit-demo?id={fid}").text
+    run = demo.run_state(db, fid)
+    assert [x["step"].split(" —")[0] for x in run["log"]][:2] == ["양식 설계 중", "양식 넣는 중"] and all("sec" in x for x in run["log"])
+    # 이어 쓰기 — 1·2·3 절 차례로
     dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
-    assert sent[-1][1] == demo.write_ask() and "AURA 이어 쓰기" in dev.get(f"/dev/coedit-demo?id={fid}").text   # 불러온 뒤엔 이어 쓰기
-    assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404
+    run = demo.run_state(db, fid)
+    steps = [x["step"] for x in run["log"]]
+    assert steps[1].startswith("1. 추진 배경 쓰는 중 (1/3)") and any("고쳐 쓰는 중" in x for x in steps) and steps[-1].startswith("3. 추진 전략 쓰는 중")
+    vals = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    for n in secs[:3]:
+        assert "1) 필요성" in vals[n] and "300명" not in vals[n]
+    assert not vals[secs[3]]
+    last = [m for m in db.list_chats(int(webhwp.meta(db, fid)["demo_session"]), limit=50) if m["role"] == "assistant"][-1]["content"]
+    assert last.startswith("3개 절을 썼습니다") and run["step"].startswith("3개 절을 썼습니다")
+
+
+def test_room_guard_blocks_long_text_in_narrow_cells_and_guide_boxes(tmp_path, monkeypatch):
+    """짧은 값 칸(좁은 표 칸)에 여러 문장, 작성방법 안내 상자 안 필드에 글 — 쓰기·칸 채우기 모두 막고 까닭(폭·글자 예산)을 알린다."""
+    from zzaimy.app import webhwp_agent as wa
+    app, dev, _ = _admin(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    hw = wa.HwpTools(db, base, 601, "kim", demo.ROOT, None, lambda: [])
+    fid = _new(dev, "long")
+    wa.attach(db, 601, fid)
+    rooms = hw.rooms()
+    narrow = next((k for k, v in rooms.items() if v["budget"] is not None), None)
+    if narrow:
+        long_text = "지역 구분은 대학 소재지의 행정구역 기준을 따라 기재함. " * 3
+        assert "짧은 값 칸" in hw.write({"field": narrow, "text": long_text})
+        assert "짧은 값 칸" in hw.fill({"values": {narrow: long_text[:140]}})
+        assert any("짧은 값 칸" in ln for ln in hw.state_lines())
+    rooms[next(iter(rooms))]["guide"] = True
+    assert "안내 상자" in hw.room_problem(next(iter(rooms)), "글", rooms)
 
 
 def test_editor_reports_unopenable_file(tmp_path, monkeypatch):

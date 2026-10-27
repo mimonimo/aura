@@ -55,7 +55,7 @@
   <span class="status" data-status{% if not aura_note %} hidden{% endif %}><span class="spin" aria-hidden="true"></span><span data-status-text>{{ aura_note }}</span></span>
   <span class="grow"></span>
   {% if cur %}<form method="post" action="/dev/coedit-demo/reset" data-reset-form><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn ghost" title="지금 쓴 글을 지우고 빈 문서로 새로 시작" disabled><iconify-icon icon="solar:restart-linear" aria-hidden="true"></iconify-icon><span data-reset-label>새 빈 문서</span></button></form>
-  <form method="post" action="/dev/coedit-demo/aura" data-aura-form data-loaded="{{ '1' if loaded else '' }}"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn primary"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true" data-aura-icon></iconify-icon><span data-aura-label>{{ 'AURA 이어 쓰기' if loaded else 'AURA 양식 불러오기' }}</span></button></form>{% endif %}
+  <form method="post" action="/dev/coedit-demo/aura" data-aura-form data-loaded="{{ '1' if loaded else '' }}"><input type="hidden" name="id" value="{{ cur.id }}"><button type="submit" class="btn primary"><iconify-icon icon="solar:magic-stick-3-linear" aria-hidden="true" data-aura-icon></iconify-icon><span data-aura-label>{{ 'AURA 이어 쓰기' if loaded else 'AURA 양식 만들기' }}</span></button></form>{% endif %}
 </header>
 {% if cur and not missing %}
 <main class="grid">
@@ -65,29 +65,31 @@
   </section>{% endfor %}
 </main>
 <script>
-  // AURA 단추 — 빈 문서면 「양식 불러오기」(27B 가 공통 양식에서 찾아 이 문서에 불러옴 → 세 화면이 함께 새 판을 받는다),
-  // 불러온 뒤엔 「이어 쓰기」(빈 절을 차례로 써 내려감). 화면을 다시 열지 않고 요청만 보내고, 단계는 /dev/coedit-demo/state 로 본다.
+  // AURA 단추 — 빈 문서면 「양식 만들기」(27B 가 가상 사업의 짧은 사업계획서 양식을 설계해 넣음 → 세 화면이 함께 새 판을 받는다),
+  // 넣은 뒤엔 「이어 쓰기」(빈 절을 1절부터 차례로 써 내려감). 화면을 다시 열지 않고 요청만 보내고, 단계·결과는 /dev/coedit-demo/state 로 본다.
   (function () {
     var f = document.querySelector('[data-aura-form]');
     if (!f) return;
     var id = f.querySelector('[name=id]').value;
     var b = f.querySelector('button'), label = f.querySelector('[data-aura-label]'), icon = f.querySelector('[data-aura-icon]');
     var chip = document.querySelector('[data-status]'), chipText = document.querySelector('[data-status-text]');
-    var loaded = f.dataset.loaded === '1', busy = false, failed = false, asked = 0, step = '';
-    function idle() { return loaded ? 'AURA 이어 쓰기' : 'AURA 양식 불러오기'; }
+    var loaded = f.dataset.loaded === '1', busy = false, failed = false, asked = 0, step = '', doneUntil = 0;
+    function idle() { return loaded ? 'AURA 이어 쓰기' : 'AURA 양식 만들기'; }
     function draw() {
       b.disabled = busy;
-      label.textContent = busy ? (loaded ? 'AURA 쓰는 중' : 'AURA 양식 찾는 중') : idle();
+      label.textContent = busy ? (loaded ? 'AURA 쓰는 중' : 'AURA 양식 만드는 중') : idle();
       icon.hidden = busy;
       var sp = b.querySelector('.spin'); if (busy && !sp) { sp = document.createElement('span'); sp.className = 'spin'; b.insertBefore(sp, label); } else if (!busy && sp) sp.remove();
-      chip.hidden = !busy && !failed;
+      var showDone = !busy && step && Date.now() < doneUntil;             // 마친 뒤 결과 한 줄(쓴 절 수 그대로)을 잠시
+      chip.hidden = !busy && !failed && !showDone;
       chip.querySelector('.spin').hidden = !busy;
-      chipText.textContent = failed ? 'AURA에게 보내지 못했어요 — 다시 눌러 주세요' : busy ? (step || (loaded ? '빈 절을 차례로 쓰고 있어요' : '양식을 불러와 시연용 가상 사업으로 채우고 있어요')) : '';   // 지금 단계(찾는 중·절 쓰는 중)를 그대로
+      chipText.textContent = failed ? 'AURA에게 보내지 못했어요 — 다시 눌러 주세요' : (busy || showDone) ? (step || 'AURA 시작') : '';   // 지금 단계(「2. 추진 전략 쓰는 중 (2/3)」)·결과
     }
     function poll() {
       fetch('/dev/coedit-demo/state?id=' + encodeURIComponent(id), {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (s) {
         loaded = !!s.loaded; step = s.step || '';
-        if (busy && !s.busy && Date.now() - asked > 4000) busy = false;   // 요청이 막 들어간 몇 초는 아직 돌기 전일 수 있다
+        if (s.busy) busy = true;
+        else if (busy && Date.now() - asked > 4000) { busy = false; doneUntil = Date.now() + 12000; }   // 요청이 막 들어간 몇 초는 아직 돌기 전일 수 있다
         draw();
       }).catch(function () {});
     }

@@ -1,47 +1,47 @@
-<svg width="1060" height="766" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 766" role="img" aria-label="② AURA(27B)가 양식을 불러오고 절을 쓸 때" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">
+<svg width="1060" height="712" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 712" role="img" aria-label="② AURA(27B)가 양식을 만들고 절을 쓸 때" font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">
 <defs>
 <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2f5fb3"/></marker>
 <marker id="arS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b4fb3"/></marker>
 <marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2e7d4f"/></marker>
 <marker id="arF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5f6b7a"/></marker>
 </defs>
-<rect width="1060" height="766" fill="#ffffff"/>
-<text x="24" y="30" font-size="16" font-weight="700" fill="#1b2a41">② AURA(27B)가 양식을 불러오고 절을 쓸 때</text>
+<rect width="1060" height="712" fill="#ffffff"/>
+<text x="24" y="30" font-size="16" font-weight="700" fill="#1b2a41">② AURA(27B)가 양식을 만들고 절을 쓸 때</text>
 <text x="24" y="52" font-size="12.5" fill="#5b6b82">사람과 같은 칸 길로 흘려 써서 열린 화면에 바로 보인다</text>
-<rect x="16" y="102" width="1028" height="266" rx="10" fill="#f7f9fc" stroke="#e6ebf2"/>
-<text x="1030" y="119" font-size="11" font-weight="700" fill="#7a869a" text-anchor="end">양식 불러오기</text>
-<rect x="16" y="372" width="1028" height="212" rx="10" fill="#fbfcfe" stroke="#e6ebf2"/>
-<text x="1030" y="389" font-size="11" font-weight="700" fill="#7a869a" text-anchor="end">절 쓰기</text>
-<rect x="16" y="588" width="1028" height="104" rx="10" fill="#f7f9fc" stroke="#e6ebf2"/>
-<text x="1030" y="605" font-size="11" font-weight="700" fill="#7a869a" text-anchor="end">마무리</text>
+<rect x="16" y="102" width="1028" height="212" rx="10" fill="#f7f9fc" stroke="#e6ebf2"/>
+<text x="1030" y="119" font-size="11" font-weight="700" fill="#7a869a" text-anchor="end">양식 만들기</text>
+<rect x="16" y="318" width="1028" height="212" rx="10" fill="#fbfcfe" stroke="#e6ebf2"/>
+<text x="1030" y="335" font-size="11" font-weight="700" fill="#7a869a" text-anchor="end">절 쓰기</text>
+<rect x="16" y="534" width="1028" height="104" rx="10" fill="#f7f9fc" stroke="#e6ebf2"/>
+<text x="1030" y="551" font-size="11" font-weight="700" fill="#7a869a" text-anchor="end">마무리</text>
 <rect x="232" y="64" width="176" height="36" rx="8" fill="#e8f0fe" stroke="#2f5fb3" stroke-opacity=".35"/>
 <text x="320" y="80" font-size="13" font-weight="700" fill="#2f5fb3" text-anchor="middle">김가람</text>
 <text x="320" y="94" font-size="10.5" fill="#5f6b7a" text-anchor="middle">AURA 에게 요청한 사람</text>
-<line x1="320" y1="100" x2="320" y2="718" stroke="#2f5fb3" stroke-opacity=".22" stroke-width="2"/>
+<line x1="320" y1="100" x2="320" y2="664" stroke="#2f5fb3" stroke-opacity=".22" stroke-width="2"/>
 <rect x="452" y="64" width="176" height="36" rx="8" fill="#f1ecfb" stroke="#6b4fb3" stroke-opacity=".35"/>
 <text x="540" y="80" font-size="13" font-weight="700" fill="#6b4fb3" text-anchor="middle">AURA 서버</text>
 <text x="540" y="94" font-size="10.5" fill="#5f6b7a" text-anchor="middle">27B 문서 작업</text>
-<line x1="540" y1="100" x2="540" y2="718" stroke="#6b4fb3" stroke-opacity=".22" stroke-width="2"/>
+<line x1="540" y1="100" x2="540" y2="664" stroke="#6b4fb3" stroke-opacity=".22" stroke-width="2"/>
 <rect x="672" y="64" width="176" height="36" rx="8" fill="#e6f4ea" stroke="#2e7d4f" stroke-opacity=".35"/>
 <text x="760" y="80" font-size="13" font-weight="700" fill="#2e7d4f" text-anchor="middle">열려 있는 화면</text>
 <text x="760" y="94" font-size="10.5" fill="#5f6b7a" text-anchor="middle">같은 문서를 연 사람들</text>
-<line x1="760" y1="100" x2="760" y2="718" stroke="#2e7d4f" stroke-opacity=".22" stroke-width="2"/>
+<line x1="760" y1="100" x2="760" y2="664" stroke="#2e7d4f" stroke-opacity=".22" stroke-width="2"/>
 <rect x="862" y="64" width="176" height="36" rx="8" fill="#f1f3f5" stroke="#5f6b7a" stroke-opacity=".35"/>
 <text x="950" y="80" font-size="13" font-weight="700" fill="#5f6b7a" text-anchor="middle">한글 파일</text>
 <text x="950" y="94" font-size="10.5" fill="#5f6b7a" text-anchor="middle">hwpx</text>
-<line x1="950" y1="100" x2="950" y2="718" stroke="#5f6b7a" stroke-opacity=".22" stroke-width="2"/>
+<line x1="950" y1="100" x2="950" y2="664" stroke="#5f6b7a" stroke-opacity=".22" stroke-width="2"/>
 <circle cx="44" cy="132" r="11" fill="#2f5fb3"/>
 <text x="44" y="136" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
 <text x="64" y="136" font-size="11.5" fill="#8a5a00" font-weight="600">0초</text>
 <line x1="328" y1="138" x2="530" y2="138" stroke="#2f5fb3" stroke-width="2" marker-end="url(#arA)"/>
-<text x="430" y="114" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">「사업계획서 양식을 불러와 가상 사업 문서로</text>
-<text x="430" y="128" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">만들어 줘」</text>
+<text x="430" y="114" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">「AURA 양식 만들기」 — 가상 사업</text>
+<text x="430" y="128" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">설정과 함께</text>
 <circle cx="44" cy="186" r="11" fill="#6b4fb3"/>
 <text x="44" y="190" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
 <text x="64" y="190" font-size="11.5" fill="#8a5a00" font-weight="600">몇십 초</text>
-<rect x="404" y="166" width="271" height="40" rx="8" fill="#ffffff" stroke="#6b4fb3" stroke-width="1.4"/>
-<text x="540" y="183" font-size="12" fill="#1b2a41" text-anchor="middle">27B 가 공통 양식에서 최근·칸 많은</text>
-<text x="540" y="198" font-size="12" fill="#1b2a41" text-anchor="middle">사업계획서를 고름</text>
+<rect x="393" y="166" width="294" height="40" rx="8" fill="#ffffff" stroke="#6b4fb3" stroke-width="1.4"/>
+<text x="540" y="183" font-size="12" fill="#1b2a41" text-anchor="middle">27B 가 짧은 사업계획서 양식을 설계(절</text>
+<text x="540" y="198" font-size="12" fill="#1b2a41" text-anchor="middle">차례·작성방법)</text>
 <circle cx="44" cy="240" r="11" fill="#6b4fb3"/>
 <text x="44" y="244" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
 <text x="64" y="244" font-size="11.5" fill="#8a5a00" font-weight="600">바로</text>
@@ -52,44 +52,41 @@
 <text x="64" y="298" font-size="11.5" fill="#8a5a00" font-weight="600">바로</text>
 <line x1="548" y1="300" x2="750" y2="300" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
 <text x="650" y="276" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">새 판을 알림 → 모든 화면이 양식을 함께</text>
-<text x="650" y="290" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">받음</text>
-<circle cx="44" cy="348" r="11" fill="#6b4fb3"/>
+<text x="650" y="290" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">받음 · 요약 칸 채움</text>
+<circle cx="44" cy="348" r="11" fill="#2f5fb3"/>
 <text x="44" y="352" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
-<text x="64" y="352" font-size="11.5" fill="#8a5a00" font-weight="600">몇십 초</text>
-<line x1="548" y1="354" x2="750" y2="354" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
-<text x="650" y="330" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">27B 가 표지·기본 칸의 옛 사업명·연도를</text>
-<text x="650" y="344" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">가상 사업 값으로 바꿈</text>
-<circle cx="44" cy="402" r="11" fill="#2f5fb3"/>
+<text x="64" y="352" font-size="11.5" fill="#8a5a00" font-weight="600">다음 요청</text>
+<line x1="328" y1="354" x2="530" y2="354" stroke="#2f5fb3" stroke-width="2" marker-end="url(#arA)"/>
+<text x="430" y="330" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">「AURA 이어 쓰기」 — 1절부터 차례로</text>
+<text x="430" y="344" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">세 개</text>
+<circle cx="44" cy="402" r="11" fill="#6b4fb3"/>
 <text x="44" y="406" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">6</text>
-<text x="64" y="406" font-size="11.5" fill="#8a5a00" font-weight="600">다음 요청</text>
-<line x1="328" y1="408" x2="530" y2="408" stroke="#2f5fb3" stroke-width="2" marker-end="url(#arA)"/>
-<text x="430" y="398" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">「빈 절을 차례로 써 줘」</text>
+<text x="64" y="406" font-size="11.5" fill="#8a5a00" font-weight="600">절마다 몇십 초</text>
+<rect x="376" y="382" width="329" height="40" rx="8" fill="#ffffff" stroke="#6b4fb3" stroke-width="1.4"/>
+<text x="540" y="399" font-size="12" fill="#1b2a41" text-anchor="middle">27B 가 절 초안(설정 밖 숫자·좁은</text>
+<text x="540" y="414" font-size="12" fill="#1b2a41" text-anchor="middle">칸·안내 상자는 관문이 막음), 다음 절은 미리</text>
 <circle cx="44" cy="456" r="11" fill="#6b4fb3"/>
 <text x="44" y="460" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">7</text>
-<text x="64" y="460" font-size="11.5" fill="#8a5a00" font-weight="600">1~3분</text>
-<rect x="387" y="436" width="306" height="40" rx="8" fill="#ffffff" stroke="#6b4fb3" stroke-width="1.4"/>
-<text x="540" y="453" font-size="12" fill="#1b2a41" text-anchor="middle">27B: 작성방법 읽기 → 소제목·항목 갖춘</text>
-<text x="540" y="468" font-size="12" fill="#1b2a41" text-anchor="middle">초안 → 점검 · 설정 밖 숫자 거절</text>
-<circle cx="44" cy="510" r="11" fill="#6b4fb3"/>
+<text x="64" y="460" font-size="11.5" fill="#8a5a00" font-weight="600">0.12초마다</text>
+<line x1="548" y1="462" x2="750" y2="462" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
+<text x="650" y="438" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">칸 길로 조금씩 보냄(초당 약 32자) ·</text>
+<text x="650" y="452" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">머리줄에 「2. … 쓰는 중 (2/3)」</text>
+<circle cx="44" cy="510" r="11" fill="#2e7d4f"/>
 <text x="44" y="514" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">8</text>
-<text x="64" y="514" font-size="11.5" fill="#8a5a00" font-weight="600">0.12초마다</text>
-<line x1="548" y1="516" x2="750" y2="516" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
-<text x="650" y="506" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">칸 길로 조금씩 보냄(초당 약 32자)</text>
-<circle cx="44" cy="564" r="11" fill="#2e7d4f"/>
+<text x="64" y="514" font-size="11.5" fill="#8a5a00" font-weight="600">바로</text>
+<rect x="601" y="490" width="318" height="40" rx="8" fill="#ffffff" stroke="#2e7d4f" stroke-width="1.4"/>
+<text x="760" y="507" font-size="12" fill="#1b2a41" text-anchor="middle">열린 화면에 써 내려감 · 가만히 있던 화면은</text>
+<text x="760" y="522" font-size="12" fill="#1b2a41" text-anchor="middle">그 자리로 따라감</text>
+<circle cx="44" cy="564" r="11" fill="#6b4fb3"/>
 <text x="44" y="568" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">9</text>
-<text x="64" y="568" font-size="11.5" fill="#8a5a00" font-weight="600">바로</text>
-<rect x="601" y="544" width="318" height="40" rx="8" fill="#ffffff" stroke="#2e7d4f" stroke-width="1.4"/>
-<text x="760" y="561" font-size="12" fill="#1b2a41" text-anchor="middle">열린 화면에 써 내려감 · 가만히 있던 화면은</text>
-<text x="760" y="576" font-size="12" fill="#1b2a41" text-anchor="middle">그 자리로 따라감</text>
+<text x="64" y="568" font-size="11.5" fill="#8a5a00" font-weight="600">몇 초 뒤</text>
+<line x1="548" y1="570" x2="940" y2="570" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
+<text x="745" y="560" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">다 쓰면 그 칸만 파일에 넣고 칸을 놓음</text>
 <circle cx="44" cy="618" r="11" fill="#6b4fb3"/>
 <text x="44" y="622" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">10</text>
-<text x="64" y="622" font-size="11.5" fill="#8a5a00" font-weight="600">몇 초 뒤</text>
-<line x1="548" y1="624" x2="940" y2="624" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
-<text x="745" y="614" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">다 쓰면 그 칸만 파일에 넣고 칸을 놓음</text>
-<circle cx="44" cy="672" r="11" fill="#6b4fb3"/>
-<text x="44" y="676" font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">11</text>
-<text x="64" y="676" font-size="11.5" fill="#8a5a00" font-weight="600">끝</text>
-<line x1="532" y1="678" x2="330" y2="678" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
-<text x="430" y="668" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">「다 썼습니다」</text>
-<text x="24" y="746" font-size="12" fill="#5b6b82">다시 불러오기는 양식을 바꿀 때 한 번뿐이다. AURA 가 쓴 글도 칸 안에 들어가 사람이 바로 고칠 수 있다.</text>
+<text x="64" y="622" font-size="11.5" fill="#8a5a00" font-weight="600">끝</text>
+<line x1="532" y1="624" x2="330" y2="624" stroke="#6b4fb3" stroke-width="2" marker-end="url(#arS)"/>
+<text x="430" y="600" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">「n개 절을 썼습니다」 — 실제로 쓴 수</text>
+<text x="430" y="614" font-size="12" fill="#1b2a41" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="5">그대로</text>
+<text x="24" y="692" font-size="12" fill="#5b6b82">문서를 다시 여는 것은 양식을 넣을 때 한 번뿐이다. AURA 가 쓴 글도 칸 안에 들어가 사람이 바로 고칠 수 있다.</text>
 </svg>

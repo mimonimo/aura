@@ -185,6 +185,45 @@ def lead_lines(data: bytes, limit: int = 20, width: int = 60) -> list[str]:
     return out
 
 
+HU_PER_MM = 283.465               # HWPUNIT(1/7200 인치) — 1mm
+CHAR_MM = 3.6                     # 본문 글자 한 자의 가로 폭(10pt 한글 근사) — 칸에 들어갈 글자 수 어림
+NARROW_MM = 70                    # 이보다 좁은 표 칸은 「짧은 값 칸」 — 여러 문장짜리 본문 자리가 아니다
+NARROW_LINES = 3                  # 짧은 값 칸에 둘 줄 수(넘으면 칸이 세로로 늘어 글자가 한두 자씩 쌓인다)
+
+
+def field_rooms(data: bytes) -> dict[str, dict]:
+    """필드마다 자리 — {이름: {cell_mm: 든 표 칸 폭(mm, 표 밖이면 None), budget: 짧은 값 칸이면 글자 수 예산, guide: 작성방법 안내 상자 안인가}}.
+    양식 칸 이름이 아니라 자리의 모양(칸 폭·안내 상자 표시)으로 읽는다 — 쓰는 쪽에 알리고 관문이 쓴다."""
+    import io
+    import zipfile
+    from zzaimy.app import webhwp_fields as wf
+    from zzaimy.app import webhwp_write as ww
+    out: dict[str, dict] = {}
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        secs = [n for n in z.namelist() if re.match(r"Contents/section\d+\.xml$", n)]
+    except (zipfile.BadZipFile, OSError):
+        return out
+    for n in sorted(secs):
+        xml = z.read(n).decode("utf-8", "ignore")
+        boxes = wf._guide_spans(xml)                        # 작성방법·작성요령·예시 상자(표) — 그 안은 쓸 자리가 아니다
+        for m in ww._BEGIN.finditer(xml):
+            name = ww._unq(m.group(2))
+            if name in out or name.startswith("문단:"):
+                continue
+            hu = ww._cell_width(xml, m.start())
+            mm = round(hu / HU_PER_MM) if hu else None
+            title = re.sub(r"^(칸|절|입력|표\d+):", "", name)
+            guide = any(a <= m.start() < b for a, b in boxes) or bool(wf._NOTE.search(title))   # 상자 안이거나 이름이 「~기재」 꼴 안내 문장
+            if hu and not guide:                                          # 같은 칸 안에서 이 필드 앞 글이 작성방법 안내로 시작하면 안내 상자다
+                tc = xml.rfind("<hp:tc", 0, m.start())
+                cell_head = re.sub(r"<[^>]+>", "", ww._PARAMS.sub("", xml[tc:m.start()])).strip()
+                guide = bool(wf._GUIDE.search(cell_head[:200]))
+            budget = int(mm / CHAR_MM) * NARROW_LINES if mm and mm < NARROW_MM else None
+            out[name] = {"cell_mm": mm, "budget": budget, "guide": guide}
+    return out
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -219,6 +258,28 @@ class HwpTools:
         f = webhwp.get(self.db, self.fid() or 0)
         return ww.fields(Path(f["path"]).read_bytes()) if f else []
 
+    def rooms(self) -> dict[str, dict]:
+        """작업본 필드의 자리(field_rooms) — 짧은 값 칸의 글자 예산·안내 상자 표시."""
+        f = webhwp.get(self.db, self.fid() or 0)
+        if not f:
+            return {}
+        try:
+            return field_rooms(Path(f["path"]).read_bytes())
+        except Exception:
+            return {}
+
+    def room_problem(self, field: str, text: str, rooms: dict | None = None) -> str:
+        """이 자리에 이 글을 넣으면 안 되는 까닭(없으면 빈 글) — 안내 상자, 또는 짧은 값 칸에 예산보다 긴 글."""
+        r = (rooms if rooms is not None else self.rooms()).get(field) or {}
+        if r.get("guide"):
+            return f"「{field}」 은(는) 양식의 작성방법·안내 상자 안이다 — 쓸 자리가 아니다. 사업 내용을 쓸 본문 절을 고른다."
+        b = r.get("budget")
+        n = len(re.sub(r"\s+", "", text or ""))
+        if b is not None and n > b:
+            return (f"「{field}」 은(는) 폭 약 {r['cell_mm']}mm 의 짧은 값 칸이다 — {b}자 안쪽의 짧은 값(낱말·숫자)만 넣는다(지금 {n}자). "
+                    "설명 글은 본문 절에 쓰고, 이 칸 값을 모르면 비워 둔다.")
+        return ""
+
     def state_lines(self) -> list[str]:
         fid = self.fid()
         if not fid:
@@ -230,8 +291,14 @@ class HwpTools:
         empty = [x["name"] for x in fl if not x["text"]]
         lines = [f"편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 「{Path(f['name']).stem}」(필드 {len(fl)}개, 빈 필드 {len(empty)}개)"]
         needs = self.needs_map()
+        rooms = self.rooms()
+
+        def _room(n: str) -> str:
+            r = rooms.get(n) or {}
+            return "(안내 상자 — 쓰지 않음)" if r.get("guide") else (f"(짧은 값 칸 · {r['budget']}자 안쪽)" if r.get("budget") is not None else "")
         lines.append("필드(이름 — 상태): " + "; ".join(
-            f"{x['name']} — {'비어 있음' if not x['text'] else '채움'}" + (f"(작성방법 요구: {'·'.join(needs[x['name']])})" if needs.get(x["name"]) and not x["text"] else "")
+            f"{x['name']} — {'비어 있음' if not x['text'] else '채움'}" + _room(x["name"])
+            + (f"(작성방법 요구: {'·'.join(needs[x['name']])})" if needs.get(x["name"]) and not x["text"] else "")
             for x in fl[:80]))
         held = webhwp.lock_holder(self.db, fid)
         if held and held["user"] != "AURA":
@@ -483,19 +550,25 @@ class HwpTools:
         person = [k for k in values if k.startswith("입력:")] if not a.get("from_user") else []
         for k in person:
             values.pop(k)
-        long_, fake = {}, []
+        long_, fake, misfit = {}, [], []
+        rooms = self.rooms()
         for k, v in list(values.items()):
-            if _too_long(v):                                # 여러 줄·표·긴 글은 칸 값이 아니다 — 절 쓰기로(칸 안에 문단·표로 들어간다)
+            why_ = self.room_problem(k, v, rooms)
+            if why_:                                        # 안내 상자·짧은 값 칸에 긴 글 — 넣지 않고 까닭을 알린다
+                misfit.append(why_)
+                values.pop(k)
+            elif _too_long(v):                                # 여러 줄·표·긴 글은 칸 값이 아니다 — 절 쓰기로(칸 안에 문단·표로 들어간다)
                 long_[k] = values.pop(k)
             elif _placeholder(v):                           # 양식의 예시 글자(○○·000)를 그대로 넣지 않는다 — 모르면 비워 두고 묻는다
                 fake.append(k)
                 values.pop(k)
         ask = (f" 사람 칸이라 넣지 않았다 — ask_user 로 담당자에게 물어 받은 값만 from_user: true 와 함께 넣는다: {', '.join(person)}."
                if person else "")
+        bad = (" 넣지 않은 자리: " + " ".join(misfit[:4])) if misfit else ""
         if not values:
-            return ("넣은 것 없음." + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
+            return ("넣은 것 없음." + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
-                    + ("" if long_ or fake or person else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
+                    + ("" if long_ or fake or person or misfit else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
         miss = [k for k in values if k not in have]
@@ -513,6 +586,7 @@ class HwpTools:
                 + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
                 + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else "")
+                + (f" ·{bad}" if bad else "")
                 + (f" ·{ask}" if ask else ""))
 
     def write(self, a: dict, by: str = "메인") -> str:
@@ -529,7 +603,7 @@ class HwpTools:
         if field.startswith("입력:"):
             return "쓰지 않았다 — 「입력:」 은 사람 칸(날짜·서명·결재)이다. ask_user 로 물어 받은 값을 hwp_fill(from_user: true)로 넣는다."
         text = ww.drop_heading_echo(text, field)            # 절 머리와 같은 첫 줄은 빼고 넣는다
-        why = self.gate(text, by=by)                       # by 는 코드가 정한다(모델 인자로 바꿀 수 없다)
+        why = self.room_problem(field, text) or self.gate(text, by=by)   # 자리(안내 상자·짧은 값 칸) 먼저, 그다음 본문 관문. by 는 코드가 정한다
         if why:
             return "쓰지 않았다 — " + why
         from zzaimy.app import webhwp_coedit as ce
