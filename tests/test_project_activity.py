@@ -84,7 +84,11 @@ def test_people_and_requests_per_person(tmp_path):
     page = _client(app, "kim").get(f"/project/{pid}/activity").text
     assert "진행 현황" in page and f'href="/chat/{ids["s1"]}"' in page and 'class="project-tabs pa-tabs"' in page
     assert f'href="/project/{pid}"' in page and 'id="pa-h-usage"' in page and 'data-pa-tab' not in page
-    assert 'class="pa-stats"' in page and 'data-pa-user="kim"' in page and 'data-pa-day=' in page
+    assert 'class="pa-stats"' in page and 'data-pa-user="kim"' in page and 'id="paDayChart"' in page
+    convs = {c["session"]: c for c in d["conversations"]}                                       # 대화 하나가 한 줄 — 제목은 한 번만
+    assert len(convs[ids["s1"]]["requests"]) == 2 and convs[ids["s1"]]["user"] == "kim"
+    assert d["conversations"][0]["session"] == ids["s2"] and page.count(">계획서 초안</a>") == 1
+    assert [u for u, _ in d["request_days"]] == ["lee", "kim", "kim"] and all(len(day) == 10 for _, day in d["request_days"])
 
 
 def test_usage_totals_per_answer_and_legacy(tmp_path):
