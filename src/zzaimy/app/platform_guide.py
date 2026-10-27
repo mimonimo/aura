@@ -68,7 +68,12 @@ PAGES: tuple[Page, ...] = (
                mark_in="_project_modal.html"),
           Task("새 프로젝트 만들기 단추", "프로젝트 추가 창 아래 「만들기」", mark='data-aura="project-create"', final=True,
                verbs=("만들어", "만들고", "생성해", "추가해"), mark_in="_project_modal.html"),
-          Task("일반 질문을 웹으로 찾기", "입력 칸의 외부 검색 모드(웹)를 켠다 — 질문 글만 밖으로 나가고 문서·첨부는 나가지 않는다."),
+          Task("일반 모드로 묻기", "입력 칸 오른쪽 「일반」 — 문서 없이 모델이 바로 답한다. 확인이 필요한 답이면 끝에 「인터넷에서 찾아보기」 선택지가 붙고, "
+               "누르면 같은 질문을 인터넷 검색으로 다시 묻는다(질문 글만 밖으로 나가고 문서·첨부는 나가지 않는다).", mark='data-aura="answer-general"', auto=True),
+          Task("RAG 모드로 묻기", "입력 칸 오른쪽 「RAG」 — 내 계정의 RAG(공통·부서) 문서를 근거로 답한다. 프로젝트 대화와 첨부가 있으면 처음부터 RAG 다.",
+               mark='data-aura="answer-rag"', auto=True),
+          Task("쓸 RAG 좁히기", "RAG 를 고른 뒤 옆의 범위 단추(처음은 「전체」) — 쓸 RAG 만 체크한다. 내 계정 범위 밖은 고를 수 없다. 고른 값은 계정에 기억된다.",
+               mark='data-aura="answer-rag-pick"', auto=True),
           Task("문서 작업", "프로젝트 대화에서 「○○ 서식으로 작업하자」처럼 말하면 작업본을 만들고 절 쓰기·검토·한글 내보내기를 이어 한다.")),
          buttons=("작업 패널",), roles=("dev", "staff", "student"), name="새 채팅"),
     Page("/?type=all", "index.html", "라이브러리 — 들어온 문서 전부를 찾고 폴더로 묶는 곳. 사업 문서와 기준 문서(규정·지침·공고)를 함께 본다.",

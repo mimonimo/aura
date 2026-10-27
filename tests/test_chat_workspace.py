@@ -25,7 +25,7 @@ def test_question_modes_survive_reload_and_regeneration(tmp_path, monkeypatch):
     monkeypatch.setattr(web_search, 'answer_from_model', model)
     monkeypatch.setattr(web_search, 'answer_with_web', web)
     client = candidate_client(tmp_path, monkeypatch)
-    for value, expected, label in [('', 'document', '문서 작업'), ('model', 'model', '기본 대화'), ('1', 'web', '웹 검색')]:
+    for value, expected, label in [('', 'document', 'RAG'), ('model', 'model', '일반'), ('1', 'web', '인터넷 검색')]:
         client.post('/chat/send', data={'question': '모드 질문', 'web': value})
         sid = {'document': 1, 'model': 2, 'web': 3}[expected]
         rows = client.app.state.db.list_chats(sid)

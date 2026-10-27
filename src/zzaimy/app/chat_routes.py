@@ -24,6 +24,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from zzaimy.app import access_policy as _ap
+from zzaimy.app import answer_pref as _answer_pref
 from zzaimy.app import korean_text as _ko
 from zzaimy.app import platform_guide, platform_ops, storage
 from zzaimy.app.chat_history import display_title as _chat_title
@@ -51,7 +52,7 @@ async def _form_fields(request: Request) -> dict:
 def _strip_attach_prefix(text: str) -> str:
     """저장된 사용자 메시지에서 첨부 표시줄을 떼고 질문만 남긴다."""
     lines = (text or "").split("\n")
-    while len(lines) > 1 and (lines[0].startswith("[첨부") or lines[0].startswith("[실험 · ")):
+    while len(lines) > 1 and lines[0].startswith("[첨부"):
         lines.pop(0)
     return "\n".join(lines)
 
@@ -63,7 +64,7 @@ def make_chat_helpers(
     *,
     db, db_path, processor, drafter, templates, ctx,
     accounts, password, chat_topics, chat_revisions, _chat_running, _chat_progress,
-    _chat_sources, _chat_pages, _RETRIEVAL_NOTE, _owned_chat, _can_read_chat, _reader_doc_ok, _criteria_docs,
+    _chat_sources, _chat_pages, _owner_scope, _owned_chat, _can_read_chat, _reader_doc_ok, _criteria_docs,
     _viewer_sees, _extra_depts, _seen_depts, _local_back, _share_sync, _chat_suggestions, _intake_bundle,
     _link_past_materials, _link_past_projects, _remember_given, _schedule_answer, _set_options, _title_from_bundle,
     _link_criteria_kind, _all_depts, _chat_step, _scrub_internal, _session_viewer, _view_as,
@@ -84,6 +85,30 @@ def make_chat_helpers(
         extra = [d for d in _seen_depts(getattr(request.state, "user", "")) if d != dept]
         mine = [d for d in [dept, *extra] if d and d != "공통"]
         return "검색 범위: 전체 공개 문서" + (" + " + "·".join(mine) + " 문서" if mine else "")
+
+    def _answer_mode(request: Request, session: dict | None, project: dict | None, messages: list) -> dict | None:
+        """입력줄의 답변 방식(일반·RAG)과 고를 수 있는 RAG — 학생은 학사 RAG 하나라 고를 것이 없다(None)."""
+        if getattr(request.state, "role", "") == "student":
+            return None
+        user = getattr(request.state, "user", "") or ""
+        has_files = False
+        if session:
+            with db._conn() as conn:
+                has_files = conn.execute("SELECT 1 FROM files WHERE session_id = ? LIMIT 1", (int(session["id"]),)).fetchone() is not None
+            has_files = has_files or bool(db.get_setting(f"chat_google_doc:{int(session['id'])}", "") not in ("", "{}"))
+        last = next((m.get("mode") for m in reversed(messages or []) if m.get("role") == "user" and m.get("mode") in ("model", "document")), None)
+        return _answer_pref.view(db, user, _owner_scope(user), _all_depts(), project=bool(project),
+                                 has_files=has_files, last_mode=last)
+
+    def _rag_tags(messages: list) -> dict:
+        """메시지마다 좁혀 고른 RAG 이름(「공통·기획처」) — 보낼 때 남긴 값(chat_msg_rag:<메시지>)."""
+        out = {}
+        for m in messages or []:
+            if m.get("role") == "user" and m.get("mode") == "document" and m.get("id"):
+                t = db.get_setting(f"chat_msg_rag:{int(m['id'])}", "")
+                if t:
+                    out[m["id"]] = t
+        return out
 
     def _recommended_criteria(session_id: int | None, messages: list) -> list[int]:
         """이 대화에 맞는 기준 — 프로젝트에 연결된 것, 없으면 오간 말과 겹치는 것.
@@ -378,7 +403,8 @@ def make_chat_helpers(
         return _acts.suggest(question, page, extra)
 
     return SimpleNamespace(**deps,
-                           _scope_label=_scope_label, _recommended_criteria=_recommended_criteria, _process_attachment=_process_attachment, _ops_ctx=_ops_ctx,
+                           _scope_label=_scope_label, _recommended_criteria=_recommended_criteria,
+                           _answer_mode=_answer_mode, _rag_tags=_rag_tags, _process_attachment=_process_attachment, _ops_ctx=_ops_ctx,
                            _helper_search=_helper_search, _helper_task=_helper_task, _helper_runs=_helper_runs, _helper_stop=_helper_stop,
                            doc_agent_failure=doc_agent_failure, _find_document=_find_document,
                            _run_action=_run_action, _page_actions=_page_actions, _may_create_project=_may_create_project)
@@ -402,6 +428,7 @@ def chat_new(request: Request, project: int | None = None):
             "recommended_criteria": db.get_project_criteria_ids(project) if project else [],
             "chat_session": None, "chat_project": chat_project, "chat_topic": "",
             "scope_label": _scope_label(request),
+            "answer_mode": h._answer_mode(request, None, chat_project, []),
         }),
     )
 
@@ -527,6 +554,8 @@ def chat_session(request: Request, session_id: int):
             "chat_session": session, "chat_project": project, "chat_topic": topic,
             "answer_feedback": db.answer_feedback_for(session_id, getattr(request.state, "user", "") or ""),
             "scope_label": _scope_label(request),
+            "answer_mode": h._answer_mode(request, session, project, messages),
+            "rag_tags": h._rag_tags(messages),
         }),
     )
 
@@ -542,6 +571,20 @@ def chat_status(request: Request, session_id: int):
             "progress": ({**prog, "now": time.time()} if prog else prog)}
 
 
+@router.post("/api/chat/answer-mode")
+def chat_answer_mode(request: Request, mode: str = Form(""), rags: list[str] = Form([]), rags_pick: str = Form("")):
+    """입력줄의 「일반」·「RAG」 토글과 RAG 고르기를 계정에 기억한다. RAG 는 계정 범위와 겹치는 것만(넓히지 않는다)."""
+    h = request.app.state.chat
+    if getattr(request.state, "role", "") == "student":
+        raise HTTPException(403, "학생 계정은 학사 RAG 하나로 답합니다")
+    user = getattr(request.state, "user", "") or ""
+    choices = _answer_pref.rag_choices(h._owner_scope(user), h._all_depts())
+    got = _answer_pref.save(h.db, user, mode=mode if mode in _answer_pref.MODES else None,
+                            rags=rags if rags_pick else None, choices=choices)
+    picked = _answer_pref.clean(got["rags"], choices)
+    return {"ok": True, "mode": got["mode"], "picked": picked or choices, "label": _answer_pref.label(picked, choices)}
+
+
 @router.post("/chat/send")
 def chat_send(
     request: Request,
@@ -553,19 +596,23 @@ def chat_send(
     attachment: list[UploadFile] = File([]),
     project_id: int | None = Form(None),
     web: str = Form(""),
-    retrieval: str = Form(""),
+    rags: list[str] = Form([]),
+    rags_pick: str = Form(""),
 ):
     h = request.app.state.chat
     db, db_path, chat_revisions, _chat_running = h.db, h.db_path, h.chat_revisions, h._chat_running
-    _RETRIEVAL_NOTE, _owned_chat, _intake_bundle, _link_past_materials = h._RETRIEVAL_NOTE, h._owned_chat, h._intake_bundle, h._link_past_materials
+    _owned_chat, _intake_bundle, _link_past_materials = h._owned_chat, h._intake_bundle, h._link_past_materials
     _link_past_projects, _remember_given, _schedule_answer, _set_options = h._link_past_projects, h._remember_given, h._schedule_answer, h._set_options
     _title_from_bundle, _process_attachment = h._title_from_bundle, h._process_attachment
     from zzaimy.app.main import ALLOWED_EXTENSIONS, INBOX_TYPES
     from zzaimy.app.responder import normalize_input
-    from zzaimy.app.grant_search import GRAPH_MODES
 
-    # 검색 방식 실험(풀텍스트 RAG 대조)은 관리자만 — 다른 계정이 보내도 운영 기본으로
-    retrieval = retrieval if getattr(request.state, "role", "") == "dev" and retrieval in GRAPH_MODES else ""
+    web = (web or "").strip().lower()[:8]            # "" = RAG, "model" = 일반(모델 지식), "1" = 인터넷 검색(일반 답의 제안에서)
+    user_ = getattr(request.state, "user", "") or ""
+    if rags_pick and getattr(request.state, "role", "") != "student":
+        # 입력줄에서 고른 RAG — 계정 범위와 겹치는 것만 저장한다(넓히지 않는다). 답 만들기는 이 저장값을 읽는다
+        scope_ = h._owner_scope(user_)
+        _answer_pref.save(db, user_, rags=rags, choices=_answer_pref.rag_choices(scope_, h._all_depts()))
 
     q = normalize_input(question).strip()          # 전각 영문·숫자(ＡＩＤ)·「。、」를 고쳐야 검색어가 맞는다
     if form_fields:
@@ -675,14 +722,19 @@ def chat_send(
         markers.append(f"[첨부#{att_doc}] {attachment.filename}")
     if markers:
         shown = "\n".join(markers) + "\n" + q
+        if web == "model":
+            web = ""                                  # 첨부는 RAG 길에서만 읽는다 — 일반 답은 파일을 보지 않는다
 
     _set_options(session_id, [])
-    if retrieval and not web:
-        shown = f"[실험 · {_RETRIEVAL_NOTE[retrieval]}]\n" + shown     # 화면 기록용 — 검색에 쓰는 질문(q)은 그대로
-    db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
+    mid_ = db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
+    if not web and getattr(request.state, "role", "") != "student":
+        scope_ = h._owner_scope(user_)
+        choices_ = _answer_pref.rag_choices(scope_, h._all_depts())
+        tag = _answer_pref.label(_answer_pref.load(db, user_)["rags"], choices_)
+        if tag:
+            db.set_setting(f"chat_msg_rag:{int(mid_)}", tag)     # 이 질문이 쓴 RAG(좁혔을 때만) — 대화의 방식 표시
     chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
-    _schedule_answer(background, session_id, q, stored, criteria, (web or "").strip().lower()[:8],   # "1"=웹 검색, "model"=모델 지식
-                     retrieval="" if web else retrieval)
+    _schedule_answer(background, session_id, q, stored, criteria, web)
     return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
 

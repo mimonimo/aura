@@ -150,23 +150,25 @@ try {
  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.chat-file-library .chat-doc-files')).flexGrow`),'1');
  const template=await readFile(process.cwd()+'/src/zzaimy/app/templates/chat_workspace.html','utf8');
  const row=template.split('<div class="dock-row">')[1].split('<div class="dock-hint"')[0];
- const modeScript=template.split('  var webBtn =')[1].split('  /* ---- 답변 복사')[0];
+ const modeScript=template.split('  var webField =')[1].split('  /* ---- 답변 복사')[0];
  const dockCss=await readFile(root+'chat-workspace.css','utf8');
  // Match production order: base, page inline, workspace, then platform overrides.
  const base=await readFile(process.cwd()+'/src/zzaimy/app/templates/base.html','utf8');
  const baseCss=[...base.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join('\n');
  const productionCss=baseCss+(await readFile(root+'chat-documents.css','utf8'))+template.split('<style>')[1].split('</style>')[0]+dockCss+(await readFile(root+'platform-spaces.css','utf8'));
  await evaluate(`document.body.innerHTML='<form id="chatForm" class="chat-dock" style="width:780px;margin:60px auto"><div class="dock-row">'+${JSON.stringify(row)}+'</form>';document.head.querySelector('style').textContent=${JSON.stringify(productionCss)};`);
- await evaluate('var webBtn ='+modeScript);
- for(const [value,web] of [['1','1'],['model','model'],['','']]) {
-  await evaluate(`answerMode.value=${JSON.stringify(value)};answerMode.dispatchEvent(new Event('change'));`);
+ await evaluate(`document.querySelectorAll('[hidden]').forEach(n=>{if(n.id==='answerMode')n.hidden=false});window.fetch=async()=>({ok:true,json:async()=>({})});`);
+ await evaluate('var webField ='+modeScript.replace(/\{\{[^}]*\}\}|\{%[^%]*%\}/g,''));
+ for(const [mode,web] of [['model','model'],['rag','']]) {
+  await evaluate(`document.querySelector('.chat-mode-seg [data-mode=${mode}]').click();`);
   assert.equal(await evaluate(`webField.value`),web);
+  assert.equal(await evaluate(`document.querySelector('.chat-mode-seg [data-mode=${mode}]').getAttribute('aria-pressed')`),'true');
  }
- assert.equal(await evaluate(`document.querySelectorAll('#answerMode option').length`),3);
- assert.equal(await evaluate(`document.getElementById('webSearchToggle')`),null);
+ assert.equal(await evaluate(`document.querySelectorAll('.chat-mode-seg button').length`),2);
+ assert.equal(await evaluate(`document.getElementById('retrievalMode')`),null);
  for(const width of [280,360,520,780]) {
   for(const web of [false,true]) {
-   await evaluate(`document.getElementById('chatForm').style.width='${width}px';setMode(${JSON.stringify(web?'1':'model')});`);
+   await evaluate(`document.getElementById('chatForm').style.width='${width}px';setMode(${JSON.stringify(web?'rag':'model')});`);
    const layout=await evaluate(`(()=>{const r=id=>{const b=document.getElementById(id).getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom}};return {input:r('chatInput'),mode:r('answerMode'),send:r('sendBtn'),overflow:chatForm.scrollWidth>chatForm.clientWidth}})()`);
    assert.equal(layout.overflow,false,JSON.stringify({width,web,layout}));
    assert.ok(layout.mode.right<=layout.send.left,JSON.stringify({width,web,layout}));

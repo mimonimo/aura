@@ -563,10 +563,16 @@
     if (!question?.trim()) return;
     input.value = question;
     paint(); resize();
+    // 「인터넷에서 찾아보기」 같은 제안은 그 질문만 다른 답 길(web 값)로 — 입력줄의 방식은 그대로 둔다
+    const webOf = suggestion.querySelector('[name=web]');
+    const webField = form.querySelector('#webField');
+    const kept = webField ? webField.value : '';
+    if (webOf && webField) webField.value = webOf.value;
     form.requestSubmit();
+    if (webOf && webField) webField.value = kept;
   });
   input.addEventListener('input', () => { paint(); resize(); });
-  // 첨부 단추는 파일 선택 하나만 — 답변 방식(웹 검색 포함)은 입력줄 오른쪽 선택에서 정한다
+  // 첨부 단추는 파일 선택 하나만 — 답변 방식(일반·RAG)은 입력줄 오른쪽 토글에서 정한다
   document.getElementById('attachButton').addEventListener('click', () => file.click());
   function editQuestion(button) {
     if (waiting || sending) { notify('답변 작성이 끝난 뒤 수정해 주세요.'); return; }

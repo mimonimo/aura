@@ -90,7 +90,7 @@ SCAN_N = 500                          # 화면 구조 보기 — 앞에서 이�
 FIELD_NOTES: dict[str, str] = {
     "id": "기록 번호(표 안에서 하나)", "session_id": "대화 가명(s_…) — 같은 대화는 같은 값", "session": "대화 가명(s_…) — 같은 대화는 같은 값",
     "message_id": "답 메시지 번호(대화 메시지의 id)", "role": "말한 쪽(user 질문 · assistant 답)", "content": "메시지 글(가림)",
-    "mode": "답변 방식(문서 근거·외부 검색·모델 지식)", "created_at": "기록 시각", "at": "기록 시각",
+    "mode": "답변 방식(RAG·일반·인터넷 검색)", "created_at": "기록 시각", "at": "기록 시각",
     "owner": "대화 주인 가명(u_…)", "user": "사용한 사람 가명(u_…)", "by": "누른 사람 가명(u_…) 또는 고른 주체", "by_user": "사람 가명(u_…)",
     "channel": "대화 창 갈래(chat 채팅 · helper 도우미 등)", "project_id": "프로젝트 번호", "kind": "기록 갈래",
     "model": "답에 쓴 모델 정보", "llm": "부른 모델 정보(이름·주소 갈래)", "timing": "단계별 걸린 시간(초)",

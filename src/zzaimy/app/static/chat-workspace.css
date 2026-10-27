@@ -110,14 +110,27 @@ body #chatForm .dock-row textarea { min-height:44px; padding:10px 0; }
 body #chatForm .dock-row { display:flex; flex-wrap:nowrap; min-width:0; }
 body #chatForm{container-type:inline-size}
 @container(max-width:520px){body #chatForm .dock-row{flex-wrap:wrap}body #chatForm .dock-row textarea{flex-basis:calc(100% - 56px);order:1}body #chatForm #attachButton{order:0}body #chatForm .chat-web-chip{order:2}body #chatForm .chat-answer-mode{order:3;margin-left:auto}body #chatForm #sendBtn{order:4}}
-body #chatForm .chat-answer-mode { flex:0 0 auto; width:128px; max-width:38%; min-width:0; height:36px; margin:0 4px; padding:0 24px 0 12px; border:1px solid transparent; border-radius:999px; background-color:#f1f3f6; color:#526176; font:inherit; font-size:12px; line-height:1.4; cursor:pointer; box-shadow:none; }
-body #chatForm .chat-answer-mode.on { color:#285f95; background-color:#edf4fc; border-color:#d8e5f5; }
-body #chatForm .chat-answer-mode:focus-visible { outline:2px solid #497bfb; outline-offset:2px; }
+/* 답변 방식 토글(일반·RAG)과 RAG 고르기 — 입력줄 오른쪽 한 자리. 단추 높이는 32px 로 같고, 고르기 창은 위로 겹쳐 뜬다(줄이 밀리지 않게) */
+body #chatForm .chat-answer-mode { position:relative; display:inline-flex; align-items:center; gap:6px; flex:0 0 auto; min-width:0; margin:0 4px; }
+body #chatForm .chat-answer-mode[hidden] { display:none; }
+body #chatForm .chat-mode-seg { display:inline-flex; align-items:center; gap:2px; padding:2px; border-radius:999px; background:#f1f3f6; }
+body #chatForm .chat-mode-seg button { min-height:0; height:32px; padding:0 12px; border:0; border-radius:999px; background:transparent; color:#526176; font:inherit; font-size:12px; line-height:32px; white-space:nowrap; box-shadow:none; cursor:pointer; }
+body #chatForm .chat-mode-seg button[aria-pressed=true] { background:#fff; color:#285f95; font-weight:600; box-shadow:0 1px 2px #15243c1f; }
+body #chatForm .chat-mode-seg button:focus-visible, body #chatForm .chat-rag-btn:focus-visible { outline:2px solid #497bfb; outline-offset:2px; }
+body #chatForm .chat-rag-pick { position:relative; min-width:0; }
+body #chatForm .chat-rag-pick[hidden] { display:none; }
+body #chatForm .chat-rag-btn { display:inline-flex; align-items:center; gap:4px; min-height:0; height:32px; max-width:14em; padding:0 10px 0 12px; border:1px solid #d8e5f5; border-radius:999px; background:#edf4fc; color:#285f95; font:inherit; font-size:12px; line-height:1; box-shadow:none; cursor:pointer; }
+body #chatForm .chat-rag-btn span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+body #chatForm .chat-rag-menu { position:absolute; right:0; bottom:calc(100% + 8px); z-index:30; display:flex; flex-direction:column; gap:2px; min-width:11em; max-height:16em; overflow:auto; padding:6px; border:1px solid #dedfe3; border-radius:12px; background:#fff; box-shadow:0 8px 24px #15243c1f; }
+body #chatForm .chat-rag-menu[hidden] { display:none; }
+body #chatForm .chat-rag-menu label { display:flex; align-items:center; gap:8px; min-height:32px; padding:0 8px; border-radius:8px; color:#23354d; font-size:13px; white-space:nowrap; cursor:pointer; }
+body #chatForm .chat-rag-menu label:hover { background:#f3f6fa; }
+body #chatForm .chat-rag-menu input { flex:none; margin:0; }
 body #chatForm .chat-web-chip{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;width:auto;white-space:nowrap;padding:6px 8px;border:0;border-left:1px solid #e0e6ef;border-radius:0;background:transparent;color:#376b9e;font-size:12px;box-shadow:none;line-height:20px}
 body #chatForm .chat-web-chip[hidden]{display:none!important}
 .chat-tools #webSearchToggle[aria-pressed=true]{background:#edf4fc;color:#285f95}
 @media(max-width:600px){body #chatForm .dock-row{flex-wrap:wrap}body #chatForm .dock-row textarea{flex-basis:calc(100% - 56px);order:1}body #chatForm #attachButton{order:0}body #chatForm .chat-web-chip{order:2}body #chatForm .chat-answer-mode{order:3;margin-left:auto}body #chatForm #sendBtn{order:4}}
-@media(max-width:600px){body #chatForm .chat-answer-mode{width:112px;padding-left:8px;margin:0;font-size:11px}body #chatForm .dock-row{padding:8px;gap:4px}}
+@media(max-width:600px){body #chatForm .chat-answer-mode{margin:0}body #chatForm .chat-mode-seg button{padding:0 10px}body #chatForm .chat-rag-btn{max-width:9em}body #chatForm .dock-row{padding:8px;gap:4px}}
 body #chatForm .dock-btn { background:transparent; }
 body .chat-tools button { justify-content:flex-start; }
 body .chat-doc-editor { margin:12px 0; height:calc(100% - 24px); border:1px solid var(--line); border-radius:14px; overflow:hidden; }

@@ -36,6 +36,7 @@ from fastapi.templating import Jinja2Templates
 
 from zzaimy.app import paths as _paths
 from zzaimy.app import grades as _gr
+from zzaimy.app import answer_pref as _answer_pref
 from zzaimy.app import storage
 from zzaimy.app import korean_text as _ko
 from zzaimy.app.chat_history import display_title as _chat_title
@@ -312,6 +313,13 @@ def create_app(
             return None
         return {"role": v["role"], "dept": str(v.get("dept") or ""),
                 "grade": str(v.get("grade") or "") if v["role"] == "staff" and v.get("grade") in _gr.GRADES else ""}
+
+    def _owner_scope(owner: str) -> dict:
+        """계정의 대화 검색 범위(RAG 공간) — 답 만들기와 입력줄의 RAG 고르기가 같은 값을 쓴다."""
+        from zzaimy.app import access_guard as _ag_scope
+        role_, dept_ = _acct_role_dept(owner)
+        return _ag_scope.search_scope(dept_, role_, "" if _view_as(owner) else owner, Path(db_path).parent,
+                                      grade=_gr.user_grade(accounts.get(owner), _view_as(owner)))
 
     def _acct_role_dept(user: str) -> tuple[str, str | None]:
         """계정의 지금 역할·부서 — 계정 설정에 「테스트 보기」를 얹은 값. 화면 요청·뒤에서 도는 답변·도우미가 같은 값을 쓴다."""
@@ -1558,8 +1566,12 @@ def create_app(
 
             try:
                 _t_m = time.time()
-                _mid = db.add_chat(session_id, "assistant", web_search.render_model(web_search.answer_from_model(q)))
+                res_m = web_search.answer_from_model(q)
+                _mid = db.add_chat(session_id, "assistant", web_search.render_model(res_m))
                 _record_run(session_id, _mid, "model", extra={"total_sec": round(time.time() - _t_m, 2)})
+                if res_m.get("offer_web"):
+                    # 모델이 「이 답은 인터넷에서 확인해야 한다」고 표시했다 — 같은 질문을 웹 검색 길로 다시 묻는 선택지 하나
+                    _set_options(session_id, [{"kind": "web", "text": "인터넷에서 찾아보기", "question": q, "web": "1"}])
             except Exception as e:
                 logging.getLogger("zzaimy.app.web").warning("모델 지식 답변 실패 (대화 %s): %s", session_id, type(e).__name__)
                 db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({_ko.reason(e)}). 잠시 뒤 다시 해 주세요.")
@@ -1634,8 +1646,9 @@ def create_app(
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
-        scope = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent,
-                                grade=_gr.user_grade(accounts.get(owner), _view_as(owner)))
+        scope = _owner_scope(owner)
+        # 입력줄에서 RAG 를 좁혀 골랐으면 그 RAG 만 — 계정 범위와 겹치는 것만 남긴다(넓히지 않는다, app/answer_pref)
+        scope = _answer_pref.narrow(scope, _answer_pref.load(db, owner)["rags"], _answer_pref.rag_choices(scope, _all_depts()))
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
         # 문서 작업 에이전트 — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
@@ -3509,22 +3522,14 @@ def create_app(
             text = scope_msg + "\n\n" + text
         db.add_chat(session_id, "assistant", text)
 
-    _RETRIEVAL_NOTE = {"fulltext": "풀텍스트 RAG — 그래프 단계 끔", "graph": "온톨로지 + RAG(운영 기본)",
-                       "graph_read": "온톨로지 + RAG, 27B 질문 읽기"}
-
     _chat_usage_live: dict[int, dict] = {}                         # 답을 쓰는 중인 대화의 문맥 사용(실시간 표시)
 
-    def _answer_task(session_id, q, stored, criteria, web="", retrieval=""):
-        from zzaimy.app import grant_search as _gs_mode
+    def _answer_task(session_id, q, stored, criteria, web=""):
         from zzaimy.app import llm_budget as _lb_usage
         usage_ = _lb_usage.track()                                # 이 답변에서 모델에 보낸 양 — 화면 「문맥 사용」 표시
         _chat_usage_live[session_id] = usage_                     # 답을 쓰는 동안에도 화면이 지금까지의 호출을 본다
         try:
-            # 관리자 실험(GraphRAG 비교) — 이 답변 안의 사업 문서 검색만 그 모드로. 기본("")은 운영 그대로
-            with _gs_mode.graph_mode(retrieval):
-                if retrieval:
-                    _chat_step(session_id, f"[실험] 검색 방식: {_RETRIEVAL_NOTE.get(retrieval, retrieval)}")
-                _answer_task_impl(session_id, q, stored, criteria, web)
+            _answer_task_impl(session_id, q, stored, criteria, web)
         finally:
             _chat_usage_live.pop(session_id, None)
             if usage_["calls"]:
@@ -3560,12 +3565,12 @@ def create_app(
                        "memo_share": _cm3.SUMMARY_SHARE, "limit": lim}
         return u
 
-    def _schedule_answer(background, session_id, q, stored, criteria, web="", retrieval=""):
+    def _schedule_answer(background, session_id, q, stored, criteria, web=""):
         import time
 
         _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
         _chat_running.add(session_id)
-        background.add_task(_answer_task, session_id, q, stored, criteria, web, retrieval)
+        background.add_task(_answer_task, session_id, q, stored, criteria, web)
 
     app.state.schedule_answer = _schedule_answer      # 채팅과 같은 답 길(문서 작업 에이전트 포함)을 다른 라우터가 부를 때
     app.state.chat_running = lambda sid: sid in _chat_running
@@ -4657,6 +4662,8 @@ def create_app(
     app.state.auto_route = _auto_route
     app.state.local_path = _LOCAL_PATH
     app.include_router(dev_overview_routes.router)
+    from zzaimy.app import retrieval_compare as _retrieval_compare   # 검색 방식 비교(/dev/quality/retrieval-compare)
+    app.include_router(_retrieval_compare.router)
     app.include_router(dev_gdrive_routes.router)
 
     # 재색인 표시가 켜지면 앱이 알아서 돌린다 — 규정이 들어올 때마다 켜지는데 사람이 누르기를 기다리면 표시가 늘 떠 있다.
@@ -5089,7 +5096,7 @@ def create_app(
         _chat_progress=_chat_progress,
         _chat_sources=_chat_sources,
         _chat_pages=_chat_pages,
-        _RETRIEVAL_NOTE=_RETRIEVAL_NOTE,
+        _owner_scope=_owner_scope,
         _owned_chat=_owned_chat,
         _can_read_chat=_can_read_chat,
         _reader_doc_ok=_reader_doc_ok,

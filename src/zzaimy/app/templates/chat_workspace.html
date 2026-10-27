@@ -187,7 +187,7 @@
   {% set value_form_open = (not waiting) and messages and messages[-1].role == 'assistant' and (suggestions or []) | selectattr('text', 'equalto', '필요한 값 입력') | list | length > 0 %}
   {% for m in messages %}
     <div class="turn {{ m.role }}" data-message-id="{{ m.id }}">
-      <div class="chat-speaker">{{ '나' if m.role == 'user' else 'AURA' }}{% if m.role == 'user' and m.mode and not is_student %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': '문서 작업', 'model': '기본 대화', 'web': '웹 검색'}.get(m.mode, '') }}</span>{% endif %}</div>
+      <div class="chat-speaker">{{ '나' if m.role == 'user' else 'AURA' }}{% if m.role == 'user' and m.mode and not is_student %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': 'RAG', 'model': '일반', 'web': '인터넷 검색'}.get(m.mode, '') }}{% if m.mode == 'document' and (rag_tags or {}).get(m.id) %} · {{ rag_tags[m.id] }}{% endif %}</span>{% endif %}</div>
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
@@ -236,7 +236,7 @@
         <div class="chat-form-state"><span class="chat-form-done">채움</span></div>
       </li>{% endfor %}
     </ol>
-    <div class="chat-form-foot"><span class="chat-form-tip"></span><span class="chat-form-status" role="status" data-form-status></span><button type="submit" class="primary" data-form-submit>{{ sg.submit or '저장' }}</button></div></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion{% if sg.kind %} chat-sg-{{ sg.kind }}{% endif %}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="{{ 'primary' if sg.kind == 'continue' else 'secondary' }}" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
+    <div class="chat-form-foot"><span class="chat-form-tip"></span><span class="chat-form-status" role="status" data-form-status></span><button type="submit" class="primary" data-form-submit>{{ sg.submit or '저장' }}</button></div></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion{% if sg.kind %} chat-sg-{{ sg.kind }}{% endif %}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}">{% if sg.web %}<input type="hidden" name="web" value="{{ sg.web }}">{% endif %}<button type="submit" class="{{ 'primary' if sg.kind == 'continue' else 'secondary' }}" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
   </div>
   {% endif %}
     </div>
@@ -266,23 +266,26 @@
   <div id="criteriaInputs" hidden></div>
   <div class="dock-row">
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
-    <input type="hidden" name="web" id="webField" value="">
+    {% set am = answer_mode or {'mode': 'rag', 'choices': [], 'picked': [], 'label': ''} %}
+    <input type="hidden" name="web" id="webField" value="{{ 'model' if am.mode == 'model' and not is_student else '' }}">
     <button type="button" class="dock-btn" id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부"{% if is_student %} hidden{% endif %}><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
     <textarea name="question" id="chatInput" rows="1" placeholder="{{ '학사 관련 질문을 입력하세요' if is_student else '질문이나 수정할 내용을 입력하세요' }}"
               aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
-    <select id="answerMode" class="chat-answer-mode" aria-label="답변 방식"{% if is_student %} hidden{% endif %} title="답변 방식 — 문서 작업: 등록 문서를 근거로 답하고 작업 문서를 고칩니다 · 기본 대화: 문서 없이 모델이 답합니다 · 웹 검색: 질문만 밖으로 보내 웹에서 찾습니다">
-      <option value="">문서 작업</option>
-      <option value="model">기본 대화</option>
-      <option value="1">웹 검색</option>
-    </select>
-    {% if request.state.role == 'dev' %}{# 관리자 실험 — GraphRAG 와 풀텍스트 RAG 비교(scripts/188, docs/notes/2026-10-13-graphrag-vs-fulltext.md). 기본은 운영 그대로 #}
-    <select name="retrieval" id="retrievalMode" class="chat-answer-mode" aria-label="검색 방식(관리자 실험)" title="검색 방식(관리자 실험) — 문서 작업 답변의 사업 문서 검색만 바꿉니다">
-      <option value="">검색: 기본</option>
-      <option value="graph">검색: 온톨로지+RAG</option>
-      <option value="fulltext">검색: 풀텍스트 RAG</option>
-      <option value="graph_read">검색: 온톨로지+RAG·27B 읽기</option>
-    </select>
-    {% endif %}
+    <div class="chat-answer-mode" id="answerMode" data-mode="{{ am.mode }}"{% if is_student %} hidden{% endif %}>
+      <div class="chat-mode-seg" role="group" aria-label="답변 방식">
+        <button type="button" data-mode="model" data-aura="answer-general" aria-pressed="{{ 'true' if am.mode == 'model' else 'false' }}" title="모델이 바로 답합니다. 확인이 필요하면 인터넷 검색을 권합니다">일반</button>
+        <button type="button" data-mode="rag" data-aura="answer-rag" aria-pressed="{{ 'true' if am.mode == 'rag' else 'false' }}" title="내 계정의 RAG 문서를 근거로 답합니다">RAG</button>
+      </div>
+      {% if am.choices | length > 1 %}
+      <div class="chat-rag-pick" id="ragPick"{% if am.mode != 'rag' %} hidden{% endif %}>
+        <input type="hidden" name="rags_pick" value="1">
+        <button type="button" class="chat-rag-btn" id="ragPickBtn" data-aura="answer-rag-pick" aria-haspopup="true" aria-expanded="false" aria-controls="ragPickMenu" title="쓸 RAG 고르기"><span id="ragPickLabel">{{ am.label or '전체' }}</span><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
+        <div class="chat-rag-menu" id="ragPickMenu" role="group" aria-label="쓸 RAG" hidden>
+          {% for c in am.choices %}<label><input type="checkbox" name="rags" value="{{ c }}"{% if not am.picked or c in am.picked %} checked{% endif %}><span>{{ c }}</span></label>{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>
@@ -310,11 +313,6 @@
         <span class="badge-n" id="criteriaCount" hidden>0</span>
       </label>
       <div class="aside-empty" id="extNote" hidden>민감정보는 토큰으로 바뀌어 나가고, 답은 교내 모델이 만듭니다.</div>
-      <label class="aside-item" style="cursor:pointer;">
-        <input type="checkbox" id="webBtn" style="flex:none;">
-        <span class="nm">외부 검색 모드 (웹)</span>
-      </label>
-      <div class="aside-empty" id="webNote" hidden>일반 질문을 웹 검색 결과로 답합니다. 질문만 밖으로 나가고 문서·첨부는 나가지 않습니다.</div>
     </div>
 
     <div class="aside-sec">
@@ -432,23 +430,49 @@
     });
   });
 
-  /* ---- 답변 모드: 문서 작업(기본) · 웹 검색 · 기본 대화 ---- */
-  var webBtn = document.getElementById("webBtn");
+  /* ---- 답변 방식: 일반(모델 지식, 필요하면 인터넷 검색을 권함) · RAG(내 계정의 RAG) ---- */
   var webField = document.getElementById("webField");
-  var webNote = document.getElementById("webNote");
   var answerMode = document.getElementById("answerMode");
   var chatInputEl = document.getElementById("chatInput");
-  // 답변 방식 셋(ADR-0038) — 문서 작업(""), 기본 대화("model"), 웹 검색("1"). 보내는 값은 web 칸 하나다.
-  function setMode(mode) {
-    mode = mode === "1" || mode === "model" ? mode : "";
-    webField.value = mode;
-    if (webBtn) webBtn.checked = mode === "1";
-    if (webNote) webNote.hidden = mode !== "1";
-    if (answerMode) { answerMode.value = mode; answerMode.classList.toggle('on', mode !== ""); }
-    if (chatInputEl) chatInputEl.placeholder = mode === "1" ? "웹에서 찾아볼 내용을 입력하세요" : mode === "model" ? "궁금한 내용을 입력하세요" : "질문이나 수정할 내용을 입력하세요";
+  var ragPick = document.getElementById("ragPick");
+  var ragBtn = document.getElementById("ragPickBtn");
+  var ragMenu = document.getElementById("ragPickMenu");
+  // 고른 방식·RAG 는 계정에 기억한다(서버) — 다른 기기·새 대화에서도 같은 값으로 연다
+  function savePref(body) {
+    var fd = new FormData();
+    Object.keys(body).forEach(function (k) { [].concat(body[k]).forEach(function (v) { fd.append(k, v); }); });
+    try { fetch("/api/chat/answer-mode", {method: "POST", body: fd}).catch(function () {}); } catch (e) {}
   }
-  if (answerMode) answerMode.addEventListener('change', function () { setMode(answerMode.value); });
-  if (webBtn) webBtn.addEventListener("change", function () { setMode(webBtn.checked ? "1" : ""); });
+  function openRag(on) {
+    if (!ragMenu) return;
+    ragMenu.hidden = !on;
+    ragBtn.setAttribute("aria-expanded", String(on));
+  }
+  function setMode(mode, save) {
+    mode = mode === "model" ? "model" : "rag";
+    if (answerMode.hidden) mode = "rag";
+    webField.value = mode === "model" ? "model" : "";
+    answerMode.dataset.mode = mode;
+    answerMode.querySelectorAll(".chat-mode-seg [data-mode]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.mode === mode)); });
+    if (ragPick) { ragPick.hidden = mode !== "rag"; openRag(false); }
+    if (chatInputEl && !answerMode.hidden) chatInputEl.placeholder = mode === "model" ? "궁금한 내용을 입력하세요" : "질문이나 수정할 내용을 입력하세요";
+    if (save) savePref({mode: mode});
+  }
+  answerMode.querySelectorAll(".chat-mode-seg [data-mode]").forEach(function (b) {
+    b.addEventListener("click", function () { setMode(b.dataset.mode, true); });
+  });
+  if (ragBtn) {
+    ragBtn.addEventListener("click", function () { openRag(ragMenu.hidden); });
+    document.addEventListener("click", function (e) { if (!ragPick.contains(e.target)) openRag(false); });
+    ragPick.addEventListener("keydown", function (e) { if (e.key === "Escape") { openRag(false); ragBtn.focus(); } });
+    ragMenu.addEventListener("change", function (e) {
+      var boxes = Array.prototype.slice.call(ragMenu.querySelectorAll("input[name=rags]"));
+      var on = boxes.filter(function (x) { return x.checked; });
+      if (!on.length) { e.target.checked = true; on = [e.target]; }      // 하나는 남긴다 — 다 끄면 RAG 가 아니다
+      document.getElementById("ragPickLabel").textContent = on.length === boxes.length ? "전체" : on.map(function (x) { return x.value; }).join("·");
+      savePref({rags_pick: "1", rags: on.map(function (x) { return x.value; })});
+    });
+  }
 
   /* ---- 답변 복사·다시 시도 ---- */
   document.getElementById('chatScroll').addEventListener('click', function(event) {
@@ -474,6 +498,8 @@
   var fileInput = document.getElementById("chatFile");
   var chips = document.getElementById("dockChips");
   if (fileInput) fileInput.addEventListener("change", renderChips);
+  // 파일을 붙이면 RAG 로 — 첨부는 RAG 답에서만 읽는다(계정에 기억한 방식은 바꾸지 않는다)
+  if (fileInput) fileInput.addEventListener("change", function () { if (fileInput.files.length) setMode("rag", false); });
 
   var dropZone = document.querySelector(".chat-main");
   if (dropZone && fileInput) {

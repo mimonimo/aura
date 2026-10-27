@@ -251,10 +251,24 @@ def render(result: dict) -> str:
 _MODEL_PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 지금은 문서·검색 없이 당신이 학습한 지식만으로 답하는 모드다.
 - 아는 범위에서 담백하게 답하고, 확실하지 않은 수치·날짜·최신 정보는 "확실하지 않다"고 밝힌다. 지어내지 않는다.
 - 한국어로, 서술형으로. 규정·공고 같은 교내 문서 근거가 필요한 질문이면 그렇다고 말한다.
+- 답을 다 쓴 뒤 맨 끝 줄에 아래 둘 가운데 하나만 그대로 쓴다. 이 줄은 화면에 보이지 않고 다음 단계를 정하는 데 쓰인다.
+  [인터넷 확인: 필요] — 답의 핵심이 최신 정보·바뀌었을 수 있는 사실·당신이 모르거나 확실하지 않은 내용이라 인터넷 검색으로 확인해야 할 때
+  [인터넷 확인: 불필요] — 학습한 지식만으로 믿을 만하게 답했을 때
 
 [질문]
 {question}
 """
+
+# 모델이 답 끝에 단 표시 — 인터넷에서 찾아볼지는 모델이 정한다(코드는 표시만 읽는다)
+_OFFER_MARK = re.compile(r"[\s*`_]*\[\s*인터넷\s*확인\s*[:：]\s*(필요|불필요)\s*\][\s*`_.]*$")
+
+
+def _split_offer(text: str) -> tuple[str, bool]:
+    """답 끝의 표시를 떼고 (답, 인터넷에서 찾아볼까 물을지)."""
+    m = _OFFER_MARK.search(text or "")
+    if not m:
+        return (text or "").strip(), False
+    return text[:m.start()].strip(), m.group(1) == "필요"
 
 
 def answer_from_model(question: str, client=None, max_tokens: int = 1200) -> dict:
@@ -266,10 +280,14 @@ def answer_from_model(question: str, client=None, max_tokens: int = 1200) -> dic
     resp = client.client.chat.completions.create(
         model=client.model, messages=[{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
         temperature=0.3, max_tokens=max_tokens, extra_body=getattr(client, "_extra", None) or {})
-    return {"answer": (resp.choices[0].message.content or "").strip(), "sources": [], "mode": "model"}
+    answer, offer = _split_offer(resp.choices[0].message.content or "")
+    return {"answer": answer, "sources": [], "mode": "model", "offer_web": offer}
 
 
 def render_model(result: dict) -> str:
     if not result.get("answer"):
         return "모델이 답을 내지 못했습니다."
-    return "(모델 지식 기반 답변 — 출처 없음, 학습 시점 이후 정보나 세부 수치는 확인이 필요합니다)\n\n" + result["answer"]
+    text = "(모델 지식 기반 답변 — 출처 없음, 학습 시점 이후 정보나 세부 수치는 확인이 필요합니다)\n\n" + result["answer"]
+    if result.get("offer_web"):
+        text += "\n\n인터넷에서 찾아볼까요?"
+    return text
