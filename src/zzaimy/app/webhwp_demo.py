@@ -7,7 +7,8 @@
 (webhwp_routes._depts). 그래서 표시는 권한을 좁히기만 한다.
 
 화면: GET /dev/coedit-demo — 한 문서(제목만 있는 빈 문서 → 「AURA 양식 만들기」 로 27B 가 시연 시나리오(scenario)의 가상 사업에 맞는 짧은
-사업계획서 양식을 설계해 넣고 요약 칸을 채움 → 「AURA 이어 쓰기」 로 빈 본문 절을 1절부터 차례로 세 개 — DemoRun). 칸 밖 문단도 칸으로 감싸 제목까지 함께 고친다
+사업계획서 양식을 설계해 넣고 요약 칸을 채움 → 「AURA 이어 쓰기」 로 빈 본문 절을 1절부터 차례로 세 개, 빈 절이 없으면
+27B 가 고른 절 하나를 문서 끝에 만들어 씀 — DemoRun). 칸 밖 문단도 칸으로 감싸 제목까지 함께 고친다
 (webhwp_fields.wrap_rest). 시연 문서가 없으면 열 때 만든다. 「새 빈 문서」 POST /dev/coedit-demo/reset, 「AURA 양식 만들기 / 이어 쓰기」 POST /dev/coedit-demo/aura(단계·결과는 GET /dev/coedit-demo/state),
 POST /dev/coedit-demo/new(kind=long 이면 사업계획서)는 화면 단추 없이 남긴 만들기 길. 창을 열면 칸마다 자기 차례의 쓸 자리로 커서가 간다(hwp_edit.html).
 """
@@ -401,6 +402,10 @@ SECTION_SYSTEM = """당신은 대학 사업계획서의 한 절을 쓰는 AURA �
 FILL_SYSTEM = """문서 머리 요약 표의 칸에 넣을 값을 가상 사업 설정에서 고른다. JSON 하나만 답한다: {"칸 이름 그대로": "값", ...}.
 설정에 맞는 값이 없는 칸은 넣지 않는다. 값은 짧게(설정 글 그대로나 그 일부)."""
 
+NEXT_SYSTEM = """사업계획서의 빈 절을 모두 썼다. 이 문서에 아직 없지만 이 사업을 평가하는 사람이 찾을 절 하나를 고른다.
+문서 차례·앞 절 요지·가상 사업 설정을 보고 고른다. 이미 있는 절과 겹치지 않게. 새 절은 문서 끝(마지막 절 다음)에 붙는다.
+JSON 하나만 답한다: {"title": 절 제목(번호 없이 명사구, 34자 안쪽), "guide": 작성방법 한두 문장(무엇을 어떤 차례로 쓸지), "why": 고른 까닭 한 문장}"""
+
 RUN_KEY = "coedit_demo_run:{fid}"
 RUN_STALE = 900.0          # 이보다 오래 소식이 없으면 끊긴 실행으로 본다(배포 재시작 등)
 make_client = None         # 시험에서 가짜 연결로 바꾼다 — 기본은 서빙 27B(VllmClient)
@@ -524,12 +529,56 @@ class DemoRun:
                 f"[쓸 절] {field[2:]}\n[작성방법] {guide[:600]}" + (f"\n\n[앞서 쓴 글이 거절된 까닭 — 고쳐 쓴다] {why}" if why else ""))
         return self.ask(SECTION_SYSTEM, user)
 
+    def add_section(self) -> str:
+        """빈 절이 없을 때 — 27B 가 문서 차례·설정을 보고 덧붙일 절(제목·작성방법)을 하나 고르고, 코드는 그 절을 문서 끝에 같은 짜임
+        (제목 문단 → 작성방법 상자 → 빈 절 필드, 목차가 있으면 목차 줄도)으로 넣는다(webhwp_edit_ops.section_insert — 판 남기기·점검·저장 알림).
+        새 절 필드 이름, 못 넣었으면 「!」 로 시작하는 까닭. 누가 문서 구조 잠금을 쥐고 있으면 넣지 않는다. 한 번 누름에 한 절."""
+        import json as _json
+        from zzaimy.app import webhwp, webhwp_coedit as ce
+        from zzaimy.app import webhwp_edit_ops as eo
+        from zzaimy.app import webhwp_form_create as fc
+        who = ce.holder(self.db, self.fid, ce.STRUCT)
+        if who and who != ce.AGENT:
+            name = next((v[1] for v in SLOTS.values() if v[0] == who), who)
+            return f"!{name} 님이 문서 짜임을 고치는 중이라 새 절을 만들지 않았습니다 — 끝나면 다시 눌러 주세요"
+        self.step("새 절 고르는 중 — 빈 절이 없어 문서에 맞는 절을 하나 더")
+        secs = [x["name"] for x in self.hw._fields() if x["kind"] == "절"]
+        gist = webhwp.meta(self.db, self.fid).get("gist") or {}
+        prev = "\n".join(f"- {f[2:]}: {str(gist.get(f) or '')[:120]}" for f in secs) or "(없음)"
+        user = f"[가상 사업 설정]\n{scenario_text()}\n\n[문서 차례와 절 요지]\n{prev}"
+        why = ""
+        for _ in range(2):                                       # 거절되면 까닭을 붙여 한 번 더
+            got = fc.parse_design(self.ask(NEXT_SYSTEM, user + (f"\n\n[앞 제안이 거절된 까닭] {why}" if why else ""),
+                                           out_tokens=500, temperature=0.3)) or {}
+            title, guide = str(got.get("title") or "").strip(), str(got.get("guide") or "").strip()
+            if not title:
+                why = "JSON 의 title 이 없다"
+                continue
+            ce.fresh(self.db, self.base, self.fid)               # 아직 파일에 안 들어간 칸 글부터 — 구조를 바꾸는 저장이 옛 글을 덮지 않게
+            out = eo.apply(self.db, self.base, self.fid, lambda d: eo.section_insert(d, {"title": title, "guide": guide}), user=ce.AGENT)
+            new = [x["name"] for x in self.hw._fields() if x["kind"] == "절" and x["name"] not in secs]
+            if new:
+                m = webhwp.meta(self.db, self.fid)
+                if isinstance(m.get("form_design"), dict):       # 설계 기록에도 — 절 수·차례가 문서와 같게
+                    m["form_design"].setdefault("sections", []).append({"level": 1, "title": title, "heading": new[0][2:], "guide": guide,
+                                                                        "parent": False, "added": True})
+                    self.db.set_setting(f"webhwp_meta:{self.fid}", _json.dumps(m, ensure_ascii=False))
+                self.hw._mark(self.fid, new[0])
+                return new[0]
+            why = out.replace("바꾸지 않았다 — ", "")[:200]
+        return f"!새 절을 만들지 않았습니다 — AURA 의 절 제안을 쓸 수 없었습니다({why})"
+
     def write_sections(self, n: int = 3) -> str:
         from concurrent.futures import ThreadPoolExecutor
+        from zzaimy.app.korean_text import josa
         self.db.add_chat(self.sid, "user", write_request())
         todo = self.targets(n)
-        if not todo:
-            return "쓸 빈 본문 절이 없습니다."
+        added = ""
+        if not todo:                                             # 빈 절이 없으면 문서에 맞는 절을 하나 더 만들어 쓴다(한 번 누름에 한 절)
+            added = self.add_section()
+            if added.startswith("!"):
+                return added[1:] + "."
+            todo = [added]
         done: list[tuple[str, str]] = []
         failed: list[str] = []
         with ThreadPoolExecutor(max_workers=1) as pool:          # 한 절을 흘려 쓰는 동안 다음 절 초안을 미리 만든다(기다림 줄이기)
@@ -537,7 +586,7 @@ class DemoRun:
             fut = pool.submit(self.draft, todo[0], [])
             for i, field in enumerate(todo):
                 text = fut.result()
-                self.step(f"{field[2:]} 쓰는 중 ({i + 1}/{len(todo)})")
+                self.step(f"{field[2:]} — 새 절을 만들고 쓰는 중" if field == added else f"{field[2:]} 쓰는 중 ({i + 1}/{len(todo)})")
                 if i + 1 < len(todo):
                     fut = pool.submit(self.draft, todo[i + 1], done + [(field, text)])
                 res = self.hw.write({"field": field, "text": text})
@@ -549,6 +598,9 @@ class DemoRun:
                     failed.append(f"{field[2:]}({res[7:80]})")
                 else:
                     done.append((field, text))
+        if added:
+            return (f"새 절 「{added[2:]}」{josa(added[2:], '을')} 만들고 썼습니다." if done
+                    else f"새 절 「{added[2:]}」{josa(added[2:], '을')} 만들었지만 쓰지 못했습니다: " + "; ".join(failed) + ".")
         msg = (f"{len(done)}개 절을 썼습니다: " + ", ".join(f[2:] for f, _ in done) if done else "절을 쓰지 못했습니다")
         return msg + (". 못 쓴 절: " + "; ".join(failed) if failed else "") + "."
 
@@ -585,7 +637,7 @@ def form_loaded(request: Request, fid: int) -> bool:
 @router.post("/dev/coedit-demo/aura")
 def coedit_demo_aura(request: Request, background: BackgroundTasks, id: int = Form(...)):
     """「AURA 양식 만들기 / 이어 쓰기」 — 빈 문서면 27B 가 가상 사업의 짧은 사업계획서 양식을 설계해 넣고 요약 칸을 채운다,
-    넣은 뒤면 빈 본문 절을 1절부터 차례로 세 개 쓴다(DemoRun). 기록은 시연 계정 김가람의 대화(문서에 이어 둔다)에 남는다."""
+    넣은 뒤면 빈 본문 절을 1절부터 차례로 세 개 쓴다(DemoRun). 빈 절이 없으면 27B 가 고른 절 하나를 만들어 쓴다(add_section). 기록은 시연 계정 김가람의 대화(문서에 이어 둔다)에 남는다."""
     import json as _json
     import time as _time
     _need_login_mode(request)

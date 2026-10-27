@@ -1029,6 +1029,150 @@ def table_insert(data: bytes, a: dict) -> tuple[bytes, str]:
     return doc.pack(), f"표{no} 을 만들었다({nr}행×{nc}열{', 머리줄 있음' if head is not False and all(grid[0]) else ''})."
 
 
+# ── 절 덧붙이기 ──
+_FIELD_CTRL = re.compile(r"<hp:ctrl>\s*<hp:fieldBegin\b.*?</hp:fieldBegin>\s*</hp:ctrl>|<hp:ctrl>\s*<hp:fieldEnd\b[^>]*/>\s*</hp:ctrl>", re.S)
+_T_ANY = re.compile(r"<hp:t>(?:(?!</hp:t>).)*</hp:t>|<hp:t/>", re.S)
+_HANGUL_NO = "가나다라마바사아자차카타파하"
+GUIDE_MAX = 220                       # 작성방법 상자 글(양식 만들기와 같은 상한)
+SECTION_TITLE_MAX = 34                # 절 제목(번호 빼고) — 양식 만들기(webhwp_form_create)와 같은 상한, 필드 이름 40자 안
+
+
+def _prev_sibs(xml: str, me: tuple[int, int, int]) -> list[tuple[int, int, int]]:
+    """me 와 같은 칸·같은 깊이에서 그 앞에 오는 문단들 — 가까운 것부터."""
+    box = _container(xml, me[0])
+    return [p for p in reversed(_paras(xml)) if p[2] == me[2] and p[1] <= me[0] and box[0] <= p[0] < box[1]]
+
+
+def _section_parts(doc: _Doc, field: str) -> dict:
+    """절 필드의 짜임 — 제목 문단 → 작성방법 상자(0개 이상) → 필드 문단. 제목 문단은 필드 이름(「절:」 뒤)과 글이 같아야 한다."""
+    n, at = _find_field(doc, field)
+    xml = doc.secs[n]
+    me, _ = _siblings(xml, at)
+    guides, head = [], None
+    for p in _prev_sibs(xml, me):
+        seg = xml[p[0]:p[1]]
+        if _is_guide_para(seg):
+            guides.insert(0, p)
+            continue
+        head = p
+        break
+    key = lambda t: re.sub(r"\s+", "", t)
+    if head is None or not key(_text(xml[head[0]:head[1]])).startswith(key(_resolve_field(doc, field).split(":", 1)[-1])):
+        raise EditError(f"「{field}」 의 제목 문단을 찾지 못했다(제목 → 작성방법 → 쓸 자리 꼴이 아니다).")
+    return {"sec": n, "head": head, "guides": guides, "field": me, "heading": _text(xml[head[0]:head[1]])}
+
+
+def _fresh_para(seg: str, text: str, ids) -> str:
+    """seg 와 같은 문단·글자 모양의 새 문단 하나(글 한 줄) — 필드·줄 배치 캐시·쪽 나눔은 물려받지 않는다."""
+    head = re.match(r"<hp:p\b[^>]*>", seg).group(0)
+    head = re.sub(r'\bid="\d+"', f'id="{ids.new()}"', head, count=1)
+    head = re.sub(r'\b(pageBreak|columnBreak)="1"', r'\1="0"', head)
+    cp = "0"
+    for m in re.finditer(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"[^>]*>((?:(?!</hp:run>).)*)</hp:run>', seg, re.S):
+        if _text(m.group(2)):
+            cp = m.group(1)
+            break
+    return f'{head}<hp:run charPrIDRef="{cp}"><hp:t>{escape(text)}</hp:t></hp:run></hp:p>'
+
+
+def _clone_box(seg: str, text: str, ids) -> str:
+    """작성방법 상자 문단을 복제해 상자 글만 바꾼다 — 문단·표 id 는 새로, 필드·줄 배치 캐시는 뺀다."""
+    seg = wf._LINESEG.sub("", _FIELD_CTRL.sub("", seg))
+    seg = re.sub(r'(<hp:(?:p|tbl)\b[^>]*?\bid=")(\d+)"', lambda m: f'{m.group(1)}{ids.new()}"', seg)
+    seg = re.sub(r'^(<hp:p\b[^>]*?)\bpageBreak="1"', r'\1pageBreak="0"', seg)
+    done = []
+
+    def put(m):
+        if done or not _text(m.group(0)):
+            return "<hp:t/>" if _text(m.group(0)) else m.group(0)
+        done.append(1)
+        return f"<hp:t>{escape(text)}</hp:t>"
+    return _T_ANY.sub(put, seg)
+
+
+def _next_number(heading: str, title: str) -> str:
+    """앞 절 번호 다음 번호 — 「4.」 → 「5.」, 「다.」 → 「라.」, 「3)」 → 「4)」, 번호가 없으면 없음."""
+    from zzaimy.app.webhwp_form_create import strip_number
+    rest = strip_number(heading)
+    pre = heading[:len(heading) - len(rest)].strip() if heading.endswith(rest) else ""
+    if m := re.fullmatch(r"(\d+)\.", pre):
+        return f"{int(m.group(1)) + 1}. {title}"
+    if m := re.fullmatch(r"(\d+)\)", pre):
+        return f"{int(m.group(1)) + 1}) {title}"
+    if (m := re.fullmatch(r"([가-하])\.", pre)) and m.group(1) in _HANGUL_NO[:-1]:
+        return f"{_HANGUL_NO[_HANGUL_NO.index(m.group(1)) + 1]}. {title}"
+    return title
+
+
+@_guarded
+def section_insert(data: bytes, a: dict) -> tuple[bytes, str]:
+    """절 하나 덧붙이기 — after(절 필드, 기본은 문서의 마지막 절) 뒤에 같은 짜임(빈 문단 → 제목 문단 → 작성방법 상자 → 빈 절 필드)으로.
+    제목·안내 글은 부르는 쪽(27B)이 정하고, 번호는 앞 절 다음 번호, 필드 이름은 양식 만들기와 같은 꼴(「절:」+번호 붙은 제목, 40자).
+    모양은 앞 절의 제목·상자·필드 문단을 그대로 물려받는다. 목차(본문 절 제목과 같은 줄이 첫 제목 앞에 둘 이상)가 있으면 목차 줄도 하나 덧붙인다."""
+    from zzaimy.app.korean_text import josa
+    from zzaimy.app.webhwp_form_create import strip_number
+    doc = _Doc(data)
+    title = strip_number(str(a.get("title") or ""))
+    if not 2 <= len(title) <= SECTION_TITLE_MAX:
+        raise EditError(f"절 제목(title)은 번호 빼고 2~{SECTION_TITLE_MAX}자다.")
+    secs = [x for x in field_names(doc) if x.startswith("절:")]
+    if not secs:
+        raise EditError("이 문서에는 절 필드가 없다 — 절을 덧붙일 짜임을 모른다.")
+    after = _resolve_field(doc, str(a.get("after") or secs[-1]))
+    parts = {}
+    for f in secs:
+        try:
+            parts[f] = _section_parts(doc, f)
+        except EditError:
+            if f == after:
+                raise
+    key = lambda t: re.sub(r"[\s·,.()「」]", "", strip_number(t))
+    if any(key(p["heading"]) == key(title) for p in parts.values()):
+        raise EditError(f"「{title}」 과 같은 절이 이미 있다 — 다른 절을 고른다.")
+    me = parts[after]
+    heading = _next_number(me["heading"], title)
+    name = ("절:" + heading)[:40]
+    if name in field_names(doc):
+        raise EditError(f"필드 「{name}」 이 이미 있다.")
+    n, xml = me["sec"], doc.secs[me["sec"]]
+    fseg = xml[me["field"][0]:me["field"][1]]
+    hint = (re.search(r'<hp:stringParam name="Direction">([^<]*)<', fseg) or [None, "본문 입력"])[1]
+    ids = doc.ids
+    pp, cp = doc.refs()                   # 빈 문단·쓸 자리는 본문 기본 모양 — 앞 절 필드 문단은 쓴 뒤 내어쓰기 모양이 들어 있을 수 있다
+    body = lambda inner: (f'<hp:p id="{ids.new()}" paraPrIDRef="{pp}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+                          f'<hp:run charPrIDRef="{cp}">{inner}</hp:run></hp:p>')
+    guide = re.sub(r"\s+", " ", str(a.get("guide") or "")).strip()[:GUIDE_MAX]
+    block = (body("<hp:t/>")
+             + _fresh_para(xml[me["head"][0]:me["head"][1]], heading, ids)
+             + (_clone_box(xml[me["guides"][0][0]:me["guides"][0][1]], f"【작성방법】 {guide}", ids) if guide and me["guides"] else "")
+             + body(wf.field_xml(name, _unq(hint), ids)))
+    _n, _s, end = _section_span(doc, after)
+    doc.secs[n] = xml[:end] + block + xml[end:]
+    # 목차 — 첫 절 제목 앞에 놓인 글 문단 가운데 절 제목(쪽 번호·점선 빼고)과 같은 줄
+    toc = ""
+    first = min(((doc.sec_names.index(p["sec"]), p["head"][0]) for p in parts.values()))
+    line_key = lambda t: re.sub(r"\s+", "", re.sub(r"[\s·…\-.]*\d{0,3}\s*$", "", t))
+    heads = {re.sub(r"\s+", "", p["heading"]): p["heading"] for p in parts.values()}
+    hits = []
+    for si, sn in enumerate(doc.sec_names[:first[0] + 1]):
+        sx = doc.secs[sn]
+        for s, e, d in _paras(sx):
+            if (si, s) >= first or d or re.search(r"<hp:p\b", sx[s:e][1:]):
+                continue
+            k = line_key(_text(sx[s:e]))
+            if k in heads:
+                hits.append((sn, s, e, heads[k]))
+    if len(hits) >= 2:
+        sn, s, e, old = next((h for h in hits if h[3] == me["heading"]), hits[-1])
+        last = max((h for h in hits if h[0] == sn), key=lambda h: h[1])
+        sx = doc.secs[sn]
+        line = _text(sx[s:e]).replace(old, heading, 1)
+        line = re.sub(r"(\S)(\s*)\d{1,3}\s*$", r"\1", line) if line != heading else line
+        doc.secs[sn] = sx[:last[2]] + _fresh_para(sx[s:e], line, ids) + sx[last[2]:]
+        toc = " 목차에도 한 줄 넣었다."
+    return doc.pack(), f"절 「{heading}」{josa(heading, '을')} 덧붙였다(필드 {name}).{toc}"
+
+
 TABLE_OPS = ("add_rows", "delete_rows", "add_cols", "delete_cols", "set_cells", "merge", "split", "widths", "head",
              "align", "shade", "valign")
 

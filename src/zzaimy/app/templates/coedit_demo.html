@@ -68,7 +68,7 @@
 </main>
 <script>
   // AURA 단추 — 빈 문서면 「양식 만들기」(27B 가 가상 사업의 짧은 사업계획서 양식을 설계해 넣음 → 세 화면이 함께 새 판을 받는다),
-  // 넣은 뒤엔 「이어 쓰기」(빈 절을 1절부터 차례로 써 내려감). 화면을 다시 열지 않고 요청만 보내고, 단계·결과는 /dev/coedit-demo/state 로 본다.
+  // 넣은 뒤엔 「이어 쓰기」(빈 절을 1절부터 차례로 써 내려감, 빈 절이 없으면 새 절 하나를 만들어 씀). 화면을 다시 열지 않고 요청만 보내고, 단계·결과는 /dev/coedit-demo/state 로 본다.
   (function () {
     var f = document.querySelector('[data-aura-form]');
     if (!f) return;

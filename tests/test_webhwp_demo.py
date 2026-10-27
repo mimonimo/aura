@@ -314,3 +314,95 @@ def test_replace_reports_split_runs():
         raise AssertionError("바꾸면 안 된다")
     except eo.EditError as e:
         assert "쪼개져" in str(e)
+
+
+SHORT = {**DESIGN, "sections": DESIGN["sections"][:2]}
+
+
+def _written_form(tmp_path, monkeypatch, extra):
+    """양식(절 둘) 만들기 → 이어 쓰기로 두 절 다 쓰기까지 마친 시연 문서, 그다음 이어 쓰기에 쓸 가짜 답(extra)."""
+    from tests.test_delegate import FakeClient
+    from zzaimy.app import webhwp_agent as wa
+    app, dev, _ = _admin(tmp_path, monkeypatch)
+    fid = _new(dev)
+    monkeypatch.setattr(wa.HwpTools, "STREAM_PACE", 0.001)
+    client = FakeClient([json.dumps(SHORT, ensure_ascii=False), "{}", BODY, BODY, *extra])
+    monkeypatch.setattr(demo, "make_client", lambda: client)
+    dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    vals = ww.field_values(Path(webhwp.get(app.state.db, fid)["path"]).read_bytes())
+    assert [k for k in vals if k.startswith("절:")] == ["절:1. 추진 배경", "절:2. 사업 목표"] and all(vals[k] for k in vals if k.startswith("절:"))
+    return app, dev, fid, client
+
+
+def _secs(app, fid):
+    return {k: v for k, v in ww.field_values(Path(webhwp.get(app.state.db, fid)["path"]).read_bytes()).items() if k.startswith("절:")}
+
+
+def test_continue_adds_one_section_when_none_empty(tmp_path, monkeypatch):
+    """빈 절이 없으면 「이어 쓰기」 가 27B 가 고른 절 하나를 문서 끝에 같은 짜임(제목 → 작성방법 상자 → 빈 절 필드)으로 만들고 바로 쓴다.
+    겹치는 제안은 까닭을 붙여 한 번 더 묻는다. 앞 판은 남고(되돌리기), 한 번 누름에 한 절."""
+    prop = {"title": "성과 지표", "guide": "성과 지표와 목표값을 설정에 있는 수치로 쓴다.", "why": "평가자가 찾는 절"}
+    app, dev, fid, client = _written_form(tmp_path, monkeypatch, [json.dumps({"title": "추진 배경", "guide": "x"}, ensure_ascii=False),
+                                                                  json.dumps(prop, ensure_ascii=False), BODY])
+    db = app.state.db
+    before = len(webhwp.meta(db, fid).get("aura_undo") or [])
+    dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    secs = _secs(app, fid)
+    assert list(secs) == ["절:1. 추진 배경", "절:2. 사업 목표", "절:3. 성과 지표"] and "1) 필요성" in secs["절:3. 성과 지표"]
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    ctx = ww.section_context(data, "절:3. 성과 지표")
+    assert "3. 성과 지표" in ctx and "【작성방법】 성과 지표와 목표값을" in ctx
+    run = demo.run_state(db, fid)
+    steps = [x["step"] for x in run["log"]]
+    assert steps[0].startswith("새 절 고르는 중") and "3. 성과 지표 — 새 절을 만들고 쓰는 중" in steps
+    assert run["step"] == "새 절 「3. 성과 지표」를 만들고 썼습니다."
+    assert "같은 절이 이미 있다" in client.sent[-2][-1]["content"]          # 겹친 제안의 까닭을 붙여 다시 물었다
+    assert len(webhwp.meta(db, fid)["aura_undo"]) == before + 1              # 절을 넣기 전 판
+    assert webhwp.meta(db, fid)["form_design"]["sections"][-1]["heading"] == "3. 성과 지표"
+    from zzaimy.app import webhwp_edit_ops as eo
+    assert not eo.check_bytes(data)
+
+
+def test_continue_add_section_bad_proposal_changes_nothing(tmp_path, monkeypatch):
+    app, dev, fid, _ = _written_form(tmp_path, monkeypatch, ["절을 하나 더 만들면 좋겠습니다.", json.dumps({"guide": "제목 없음"})])
+    before = Path(webhwp.get(app.state.db, fid)["path"]).read_bytes()
+    dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    assert Path(webhwp.get(app.state.db, fid)["path"]).read_bytes() == before
+    st = demo.run_state(app.state.db, fid)
+    assert not st["busy"] and st["step"].startswith("새 절을 만들지 않았습니다 — AURA 의 절 제안을 쓸 수 없었습니다")
+
+
+def test_continue_add_section_respects_structure_lock(tmp_path, monkeypatch):
+    app, dev, fid, client = _written_form(tmp_path, monkeypatch, [json.dumps({"title": "성과 지표", "guide": "g"}, ensure_ascii=False), BODY])
+    db = app.state.db
+    assert ce.acquire(db, fid, ce.STRUCT, "demo_b", "wb")["ok"]
+    asked = len(client.sent)
+    before = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
+    assert Path(webhwp.get(db, fid)["path"]).read_bytes() == before and len(client.sent) == asked
+    assert demo.run_state(db, fid)["step"].startswith("이나래 님이 문서 짜임을 고치는 중이라 새 절을 만들지 않았습니다")
+
+
+def test_section_insert_keeps_shape_and_toc():
+    """절 덧붙이기 연산 — 앞 절 다음 번호, 같은 제목·상자 모양, 목차 줄, 점검 통과. 겹치는 제목·빈 제목은 바꾸지 않는다."""
+    import io as _io
+    import zipfile as _zf
+    from zzaimy.app import webhwp_edit_ops as eo
+    spec = {"id": "t", "title": "T", "cover": ["T"], "page_number": False,
+            "blocks": [{"toc": True}, {"h": 1, "text": "1. 개요"}, {"guide": "개요를 쓴다"}, {"h": 1, "text": "2. 목표"}, {"guide": "목표를 쓴다"}]}
+    data = wt.build(spec)
+    new, msg = eo.section_insert(data, {"title": "3. 추진 일정", "guide": "일정을 쓴다"})
+    assert "3. 추진 일정" in msg and "목차에도" in msg and not eo.check_bytes(new)
+    assert [x["name"] for x in ww.fields(new) if x["name"].startswith("절:")] == ["절:1. 개요", "절:2. 목표", "절:3. 추진 일정"]
+    x = _zf.ZipFile(_io.BytesIO(new)).read("Contents/section0.xml").decode()
+    lines = [eo._text(x[s:e]) for s, e, d in eo._paras(x) if d == 0]
+    toc = [ln for ln in lines if ln.endswith("·" * 5)]
+    assert [t.split(" ·")[0] for t in toc] == ["1. 개요", "2. 목표", "3. 추진 일정"]
+    assert "【작성방법】 일정을 쓴다" in ww.section_context(new, "절:3. 추진 일정")
+    for bad in ({"title": "목표"}, {"title": ""}, {"title": "가" * 40}, {"title": "일정", "after": "없는 절"}):
+        try:
+            eo.section_insert(data, bad)
+            raise AssertionError(bad)
+        except eo.EditError:
+            pass
