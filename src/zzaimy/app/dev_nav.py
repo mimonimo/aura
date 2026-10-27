@@ -19,8 +19,7 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 EXTRA = {"/dev/history": "변경 이력",                              # 개발 현황 머리의 「변경 이력」
          "/dev/intake": "반입 점검",                               # 처리 흐름 화면의 한 칸(옛 「문서 가져오기」 — 주소는 그리로 넘긴다)
          "/dev/models/compare": "모델 비교",                         # 품질·성능 「모델 비교」 카드의 「자세히 보기」
-         "/dev/archive/doc/": "반입 결과 보기",                       # 원본 관리 줄·문서 화면 「관리」 에서 문서 하나(/dev/archive/doc/{id})
-         "/dev/collect": "수집 자료"}                                # 데이터·학습으로 합치는 중 — 사이드바에서는 뺐다(10-27)
+         "/dev/archive/doc/": "반입 결과 보기"}                       # 원본 관리 줄·문서 화면 「관리」 에서 문서 하나(/dev/archive/doc/{id})
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
 
