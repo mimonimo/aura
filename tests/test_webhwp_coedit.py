@@ -1011,3 +1011,21 @@ def test_editor_shares_one_event_stream_per_document():
     if node:
         r = subprocess.run([node, "--test", str(Path(__file__).resolve().parent / "coedit_events.test.cjs")], capture_output=True, text=True, timeout=60)
         assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_remote_text_above_keeps_view_in_place():
+    """위쪽 칸에 남의 글이 늘거나 줄어도 쓰던 사람의 커서·읽던 사람의 화면이 제자리(10-27 세 창 실측 +1,744px·303px 밀림).
+    넣기 전 기준점(화면의 커서 또는 화면 맨 위 문단)을 잡고 넣은 뒤 같은 셈으로 밀린 px 만큼 한 번 굴린다 — 단위(× 75) 가정 없이.
+    동작은 헤드리스 크롬 세 창 + 가짜 기안기(tests/coedit_view_browser.mjs)가 본다(크롬이 없으면 코드 모양만)."""
+    import os
+    import shutil
+    import subprocess
+    w = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-wrapper.js").read_text()
+    c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
+    assert "(y1 - c.y) * 75" not in w and "function viewAnchor(" in w and "function stableTop()" in w
+    assert "hwp.getCursor(false, true)" in c and "holdView(viewAt)" not in c
+    node, chrome = shutil.which("node"), os.environ.get("CHROME_BIN") or "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if node and Path(chrome).exists():
+        root = Path(__file__).resolve().parents[1]
+        r = subprocess.run([node, str(root / "tests/coedit_view_browser.mjs")], cwd=root, capture_output=True, text=True, timeout=180)
+        assert r.returncode == 0 and "coedit view browser: ok" in r.stdout, r.stdout[-3000:] + r.stderr[-3000:]

@@ -4,7 +4,7 @@
  *
  * AuraHwpWrapper.create(ctrl, box) → {
  *   fields(), read(name), readMany(names), write(name, text), applyDelta(name, text0, at, del, ins), setEditable(name, on), setFormMode(on), formMode(),
- *   setReadOnly(on), currentField(), getCursor(), restoreCursor(c), moveTo(name, select), caretRect(),
+ *   setReadOnly(on), currentField(), getCursor(abs, anchored), restoreCursor(c), moveTo(name, select), caretRect(),
  *   fieldGeom(names) → {이름: {page,x,y,h,page2,x2,y2,h2}} | null(쪽 좌표), toScreen(page,x,y), bodyLeft(), unitPx(v), onLocalEdit(cb), onCaret(cb), onActivity(cb), attach(),
  *   isComposing(), lastInputAt(), exportField(name) → Promise<json>, importField(name, json) → Promise<bool>,
  *   open(blob, name) → Promise, hwpx() → Promise<Uint8Array>, run(action), exec(action, items), insertText(text) }
@@ -82,10 +82,11 @@
     function scrollItems() { try { var m = ctrl.ScrollPosInfo.m_Set.m_SetItemMap, o = {}; Object.keys(m).forEach(function (k) { o[k] = m[k]; }); return o; } catch (e) { return null; } }
     // 커서 저장·되돌리기 — 문단 번호(GetPos)는 문서 처음부터 세므로, 위쪽 칸의 문단 수가 바뀌면(남이 줄을 넣거나 AURA 가 절을 씀) 엉뚱한 칸으로 갔다
     // (451쪽 실측: AURA 전체 초안 뒤 네 번 중 네 번). 그래서 커서가 든 칸 처음에서 센 자리(칸 기준)로 저장하고 그 칸 처음에서 다시 센다.
-    // abs 면 문단 번호 그대로(같은 작업 단위 안에서 바로 되돌릴 때 — 칸 자리 재기). 화면은 커서가 보이던 높이를 지키도록 스크롤을 맞춘다
+    // abs 면 문단 번호 그대로(같은 작업 단위 안에서 바로 되돌릴 때 — 칸 자리 재기).
+    // anchored 면 「보던 자리」 기준점도 잡는다(아래 viewAnchor) — 남의 글을 넣어 위쪽이 늘거나 줄어도 그 자리가 화면 같은 높이에 남게
     function caretY() { var A = app(); try { var k = A.hwpCaret.KNi(), p = toScreen(k.page, k.x, k.y); return p ? p.y : null; } catch (e) { return null; } }
-    function getCursor(abs) {
-      var c, v0 = viewTop();
+    function getCursor(abs, anchored) {
+      var c, v0 = stableTop();
       try { c = {pos: ctrl.GetPos(), scroll: scrollItems(), view: v0}; } catch (e) { return null; }
       if (abs) return c;
       try {
@@ -98,40 +99,102 @@
         }
       } catch (e) {}
       c.y = caretY();
+      if (anchored) { try { c.anchor = viewAnchor(c); } catch (e) { c.anchor = null; } try { ctrl.SetPos(c.pos.list, c.pos.para, c.pos.pos); } catch (e) {} }
       return c;
     }
+    // ── 보던 자리 지키기(10-27 세 칸 실측) ──
+    // 위쪽 칸에 남이 139자(4~5줄)를 치자, 4쪽에서 쓰던 사람은 화면이 +1,744px 굴러 커서가 화면 밖(y 402 → −1221)으로, 읽기만 하던 사람은 글이
+    // 303px 밀려 내려갔다. 예전 되돌리기는 커서가 화면에 있을 때만 「커서 높이 차 × 75」 를 기안기 내부 스크롤 값에 더했는데(75 는 배율 1 가정),
+    // 받은 묶음마다 다시 더해지고 곧이어 holdView(옛 화면 자리)가 화면 막대를 되돌려 내부 값과 화면이 어긋난 채 쌓였다. 커서가 화면 밖이면 아무것도 안 했다.
+    // 이제 넣기 전에 기준점 하나를 잡는다 — 커서가 화면에 있으면 커서, 아니면 화면 맨 위에 보이는 문단(칸 기준 자리). 넣은 뒤 그 기준점의 쪽 좌표를
+    // 다시 읽고, 같은 순간에 옛 쪽 좌표와 새 쪽 좌표를 둘 다 화면 px 로 바꿔(CalcCaretPos) 그 차만큼 화면 막대를 한 번 굴린다. 단위를 가정하지 않고
+    // (같은 순간 같은 셈이라 스크롤·배율이 빠진다), 목표는 「넣기 전 화면 자리 + 차」 한 값이라 여러 번 되돌려도(묶음·다시 불러오기 뒤 되풀이) 같은 자리다.
+    function pageY(page, x, y) { var A = app(); try { var p = A.hxe.CalcCaretPos(page, x, y); return p && p.x > -1e5 && typeof p.y === 'number' ? p.y : null; } catch (e) { return null; } }
+    function caretPt() { var A = app(); try { var k = A.hwpCaret.KNi(); return k && typeof k.y === 'number' ? {page: k.page, x: k.x, y: k.y} : null; } catch (e) { return null; } }
+    function frameBox() { try { var r = frame().getBoundingClientRect(); return {top: r.top, bottom: r.bottom}; } catch (e) { return null; } }
+    function relOf(pos) {                       // 자리 → 그 칸 처음에서 센 자리(칸 밖이면 null)
+      try {
+        ctrl.SetPos(pos.list, pos.para, pos.pos);
+        var f = ctrl.GetCurFieldName(0) || '';
+        if (!f || ctrl.MoveToField(f, true, true, false) === false) return null;
+        var s0 = ctrl.GetPos();
+        if (s0.list !== pos.list || pos.para < s0.para) return null;
+        return {field: f, dp: pos.para - s0.para, pos: pos.para === s0.para ? pos.pos - s0.pos : pos.pos};
+      } catch (e) { return null; }
+    }
+    function gotoRel(rel) {
+      try {
+        if (ctrl.MoveToField(rel.field, true, true, false) === false) return false;
+        var s0 = ctrl.GetPos();
+        ctrl.SetPos(s0.list, s0.para + rel.dp, rel.dp ? rel.pos : s0.pos + rel.pos);
+        return true;
+      } catch (e) { return false; }
+    }
+    // 화면 맨 위에 보이는 본문 문단 — 본문 목록의 문단 번호를 늘려 가며(두 배씩) 화면 위를 넘는 첫 문단을 찾고 그 사이를 반씩 좁힌다(1만 문단에 약 28번)
+    function topPara(list, top) {
+      var at = function (i) {
+        try { if (ctrl.SetPos(list, i, 0) === false) return null; var g = ctrl.GetPos(); if (g.para !== i || g.list !== list) return null; } catch (e) { return null; }
+        var k = caretPt(); if (!k) return null; var s = toScreen(k.page, k.x, k.y); return s ? s.y : null;
+      };
+      var y0 = at(0); if (y0 == null) return null;
+      if (y0 >= top) return 0;
+      var lo = 0, hi = 1, yh;
+      while (hi < 1000000) { yh = at(hi); if (yh == null || yh >= top) break; lo = hi; hi *= 2; }
+      if (yh == null) { var a = lo, b = hi; while (b - a > 1) { var m = (a + b) >> 1; if (at(m) == null) b = m; else a = m; } hi = b; }
+      while (hi - lo > 1) { var mid = (lo + hi) >> 1, ym = at(mid); if (ym != null && ym >= top) hi = mid; else lo = mid; }
+      return at(hi) != null ? hi : lo;
+    }
+    function viewAnchor(c) {
+      var fb = frameBox(), k = caretPt();
+      if (!fb || !k || !geomReady()) return null;
+      var s = toScreen(k.page, k.x, k.y);
+      if (c.rel && s && s.y >= fb.top && s.y < fb.bottom) return {kind: 'caret', page: k.page, x: k.x, y: k.y, sy: s.y};
+      var top = Math.max(fb.top, s && s.view ? s.view.top : fb.top), para = topPara(0, top);   // 본문 목록(0)
+      if (para == null) return null;
+      var pos = {list: 0, para: para, pos: 0}, k2;
+      try { ctrl.SetPos(0, para, 0); k2 = caretPt(); } catch (e) { return null; }
+      if (!k2) return null;
+      var s2 = toScreen(k2.page, k2.x, k2.y);
+      return {kind: 'read', rel: relOf(pos), pos: pos, page: k2.page, x: k2.x, y: k2.y, sy: s2 ? s2.y : null};
+    }
+    // 넣은 뒤 기준점이 내려간(+)·올라간(−) 화면 px — 커서 기준이면 이미 되돌린 커서 자리에서, 읽기 기준이면 그 자리로 잠깐 다녀와서(커서는 부르는 쪽이 되돌린다)
+    function anchorShift(a, view0) {
+      var k = null;
+      if (a.kind === 'caret') k = caretPt();
+      else if (a.rel ? gotoRel(a.rel) : (function () { try { return ctrl.SetPos(a.pos.list, a.pos.para, a.pos.pos) !== false; } catch (e) { return false; } })()) k = caretPt();
+      if (!k) return null;
+      var y0 = pageY(a.page, a.x, a.y), y1 = pageY(k.page, k.x, k.y);
+      if (y0 != null && y1 != null) return y1 - y0;
+      var s = toScreen(k.page, k.x, k.y), v = viewTop();
+      return s && a.sy != null && v != null && view0 != null ? (s.y + v) - (a.sy + view0) : null;   // 쪽 좌표를 못 바꾸면 화면 막대 자리로
+    }
+    var lastHold = null;   // 마지막 되돌리기 기록 {기준점 갈래, 넣기 전 화면 자리, 밀린 px, 목표, 맞춘 뒤 화면 자리} — 실측·시험에서 본다
     function restoreCursor(c) {
       if (!c || !c.pos) return;
+      var shift = null;
+      if (c.anchor && c.anchor.kind === 'read') shift = anchorShift(c.anchor, c.view);
       var done = false;
-      if (c.rel) {
-        try {
-          if (ctrl.MoveToField(c.rel.field, true, true, false) !== false) {
-            var s0 = ctrl.GetPos();
-            ctrl.SetPos(s0.list, s0.para + c.rel.dp, c.rel.dp ? c.rel.pos : s0.pos + c.rel.pos); done = true;
-          }
-        } catch (e) {}
-      }
+      if (c.rel) done = gotoRel(c.rel);
       if (!done) { try { ctrl.SetPos(c.pos.list, c.pos.para, c.pos.pos); } catch (e) {} }
+      if (c.anchor && c.anchor.kind === 'caret') shift = anchorShift(c.anchor, c.view);
+      var target = c.view;
+      if (target != null && shift != null && Math.abs(shift) >= 1) target = Math.max(0, target + shift);
       if (c.scroll) {                         // 바뀐 때만 되돌린다(같은 값을 다시 넣으면 기안기가 화면을 다시 그린다)
         try {
-          var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap, diff = false;
-          Object.keys(c.scroll).forEach(function (k) { if (m[k] !== c.scroll[k]) { m[k] = c.scroll[k]; diff = true; } });
+          var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap, diff = false, V = '28675';
+          Object.keys(c.scroll).forEach(function (k) {
+            var want = c.scroll[k];
+            // 세로 값은 목표 화면 자리에 맞춘다 — 내부 값과 화면 px 의 비는 저장할 때 같은 순간에 잰 두 값에서(배율마다 다르다, 가정하지 않는다)
+            if (k === V && target !== c.view) { if (!(c.view > 0 && want > 0)) return; want = Math.max(0, Math.round(target * want / c.view)); }
+            if (m[k] !== want) { m[k] = want; diff = true; }
+          });
           if (diff) ctrl.ScrollPosInfo = s;
         } catch (e) {}
       }
-      // 커서가 보이던 높이 지키기 — 위쪽 글이 늘거나 줄어 커서가 밀렸으면 그만큼 스크롤(세로 스크롤 값 1 = 화면 1/75px, 실측)
-      if (c.y != null && c.rel) {
-        try {
-          var y1 = caretY(), fr = frame().getBoundingClientRect();
-          if (y1 != null && Math.abs(y1 - c.y) > 2 && c.y > fr.top && c.y < fr.bottom) {
-            var s2 = ctrl.ScrollPosInfo, m2 = s2.m_Set.m_SetItemMap;
-            if (typeof m2['28675'] === 'number') { m2['28675'] = Math.max(0, m2['28675'] + (y1 - c.y) * 75); ctrl.ScrollPosInfo = s2; return; }
-          }
-        } catch (e) {}
-      }
       // 커서를 칸으로 옮겼다 되돌리는 모든 일(남의 글 넣기·칸 자리 재기·칸 내보내기)에서 보던 화면 그대로 — 기안기가 다음 장면에서
-      // 화면을 커서 쪽으로 끌어올려 AURA 를 따라가던 화면이 깜빡였다(10-27). 커서 높이를 맞춰 굴린 때(위)는 그 값을 둔다
-      if (c.view != null) holdView(c.view);
+      // 화면을 커서 쪽으로 끌어올려 AURA 를 따라가던 화면이 깜빡였다(10-27). 목표는 넣기 전 화면 자리 + 기준점이 밀린 만큼 — 한 번만 정한다
+      if (target != null) holdView(target);
+      if (c.anchor) lastHold = {kind: c.anchor.kind, view0: c.view, shift: shift, target: target, after: viewTop()};
     }
     // 남의 글을 넣은 뒤 보던 화면 지키기 — 넣으려고 커서를 칸으로 옮겼다 되돌리면 기안기가 다음 장면에서 화면을 내 커서 쪽(대개 문서 맨 위)으로
     // 끌어올리고, 따라가기가 다시 내려 0.2~0.3초마다 깜빡였다(10-27 시연, 실측 1148→248px). 화면 막대 자리를 지금 바로, 그리고 기안기가
@@ -140,6 +203,8 @@
     // 지킬 자리는 한 곳(holdTop)에 둔다 — 따라가기(scrollBy)가 굴리면 그 자리가 새 목표가 된다. 굴림이 지키기를 거두게 했더니 기안기의
     // 늦은 「커서 쪽으로 끌어올리기」 가 그대로 그려져 두 자리를 오갔다(10-27 세 칸 실측 232회). 일부러 커서를 옮기면(moveTo) 지키기를 놓는다
     var holdTop = null, holdUntil = 0;
+    // 지키는 중이면 그 목표가 「지금 화면 자리」 다 — 묶음이 잇따라 들어와 지키기 도중에 다시 잴 때, 기안기가 잠깐 끌어올린 값을 기준으로 삼아 차가 쌓이지 않게
+    function stableTop() { return holdTop != null && Date.now() < holdUntil ? holdTop : viewTop(); }
     function holdView(top) {
       if (top == null) return;
       var v, W;
@@ -385,10 +450,10 @@
       var fmt = 'JSON', body = json;
       try { var j = typeof json === 'string' && json.charAt(0) === '{' && json.indexOf('"fmt"') > 0 ? JSON.parse(json) : null; if (j && j.fmt === 'hwpx' && j.b64) { fmt = 'HWPX'; body = j.b64; } } catch (e) {}
       return new Promise(function (resolve) {
-        var keep = getCursor(), sel = keepSel(), top = viewTop(), t = setTimeout(function () { restoreCursor(keep); restoreSel(sel); holdView(top); resolve(false); }, 8000);
+        var keep = getCursor(false, true), sel = keepSel(), t = setTimeout(function () { restoreCursor(keep); restoreSel(sel); resolve(false); }, 8000);
         var relock = editable[name] === false;
         if (relock) setEditable(name, true, true);                // 남이 쥔 칸은 잠겨 있다 — 넣는 동안만 푼다
-        var done = function (ok) { clearTimeout(t); if (relock) setEditable(name, false, true); restoreCursor(keep); restoreSel(sel); holdView(top); resolve(ok); };
+        var done = function (ok) { clearTimeout(t); if (relock) setEditable(name, false, true); restoreCursor(keep); restoreSel(sel); resolve(ok); };
         try { ctrl.MoveToField(name, true, true, true); } catch (e) { done(false); return; }
         try { ctrl.SetTextFile(body, fmt, 'insertfile', function (r) { done(!(r && r.result === false)); }); }
         catch (e) { done(false); }
@@ -465,7 +530,7 @@
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
       setToolbarGuard: function (fn) { toolbarGuard = fn; }, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
-      getCursor: getCursor, restoreCursor: restoreCursor, viewTop: viewTop, holdView: holdView, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
+      getCursor: getCursor, restoreCursor: restoreCursor, viewTop: viewTop, lastHold: function () { return lastHold; }, holdView: holdView, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, bodyTop: bodyTop, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },
       attach: attach, isProbing: function () { return !!probing; },

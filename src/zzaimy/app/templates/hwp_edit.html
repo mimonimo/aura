@@ -423,7 +423,7 @@
       var flushed = eng ? eng.flush() : Promise.resolve();
       flushed.then(function () {
         var who = reloadPending; reloadPending = null;
-        var cur = hwp.getCursor();
+        var cur = hwp.getCursor(false, true);   // 보던 자리 기준점째 — 새 판에서 그 자리가 밀린 만큼 화면을 맞춘다
         if (eng.suspend) eng.suspend();
         return loadFile().then(function () {
           fitZoom();                                   // 다시 불러와도 보던 배율 그대로(폭 맞춤으로 커지지 않게)
@@ -470,7 +470,7 @@
     }).then(function () {
       hwp.setFormMode(eng.formOnly()); hwp.resetEditable(); eng.applyEditable(); drawStruct(); say("저장됨", 'ok');
       if (lastWrapped) {                       // 서버가 새 문단을 칸으로 감쌌다 — 내 화면도 새 판으로, 보던 자리 그대로(10-27: 28쪽 표를 고친 사람이 1쪽으로 튐)
-        lastWrapped = 0; var cur = hwp.getCursor(); if (eng.suspend) eng.suspend();
+        lastWrapped = 0; var cur = hwp.getCursor(false, true); if (eng.suspend) eng.suspend();
         return loadFile().then(function () { fitZoom(); return eng.reopened(); }).then(function () { keepCursor(cur); });
       }
     });
