@@ -57,7 +57,7 @@ def live_training(runs: list[dict] | None = None) -> dict:
             head += f" · 남은 시간 약 {prog['remain']}"
     elif st.get("finished_ok"):
         # 비교 결과(모델 비교 화면의 결과 파일)가 이미 있으면 「비교 차례」 가 아니다 — 끝난 일을 할 일처럼 보이지 않게
-        head = "SFT 학습 마침 — " + ("비교 끝, 운영 미채택(모델 비교 결과)" if _compare_done() else "학습 전후 비교 차례")
+        head = "SFT 학습 마침 — " + ("비교 끝, 운영 미채택(품질·성능 › 모델 비교)" if _compare_done() else "학습 전후 비교 차례")
     elif stale:
         head = f"SFT 기록이 {int((_t.time() - cur['mtime']) // 60)}분째 멈춤 — 학습 상태 확인 필요"
     else:

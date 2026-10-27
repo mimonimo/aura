@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}모델 비교 결과{% endblock %}
-{% block pagetitle %}모델 비교 결과{% endblock %}
+{% block title %}{{ dev_page_name('/dev/models/compare') }} · {{ dev_nav_parent('/dev/models/compare')[1] }}{% endblock %}
+{% block pagetitle %}{% set up = dev_nav_parent('/dev/models/compare') %}<a class="page-crumb" href="{{ up[0] }}#model-compare">{{ up[1] }}</a><span class="page-crumb-sep" aria-hidden="true">›</span>{{ dev_page_name('/dev/models/compare') }}{% endblock %}
 {% block content %}
 <style>
   .mc-head { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; justify-content:space-between; }
@@ -44,7 +44,7 @@
 
 <section class="card"><div class="card-in">
   <div class="mc-head">
-    <h2>{% if run %}{{ run.id }}{% else %}모델 비교 결과{% endif %}</h2>
+    <h2>{% if run %}{{ run.id }}{% else %}{{ dev_page_name('/dev/models/compare') }}{% endif %}</h2>
     {% if runs|length > 1 %}
     <div class="mc-runs" aria-label="비교 실행">
       {% for r in runs %}<a class="btn-ghost{% if run and r.id == run.id %} active{% endif %}" href="/dev/models/compare/{{ r.id }}">{{ r.id }}</a>{% endfor %}

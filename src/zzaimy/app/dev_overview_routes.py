@@ -300,7 +300,7 @@ def dev_dashboard(request: Request):
         "dev_now_more": h.dev_now_parts()["more"],
         "progress": h.dev_progress(),
         "reindex_running": h.reindex_running(),
-        # 모델 비교 결과가 하나라도 있을 때만 Writer 줄에 바로가기
+        # 모델 비교 결과가 하나라도 있을 때만 Writer 줄에 바로가기(품질·성능 「모델 비교」 카드로)
         "model_compare_runs": model_compare.list_runs(model_compare.root(st.db_path)),
     }))
 
@@ -326,8 +326,9 @@ def dev_flow(request: Request):
 
 @router.get("/dev/quality", response_class=HTMLResponse)
 def dev_quality(request: Request):
-    """품질·성능 — 규정 검색 정확도(기계 산출물)와 추출 품질 백로그."""
+    """품질·성능 — 규정 검색 정확도(기계 산출물), 사업 문서 검색, 모델 비교, 추출 품질 백로그."""
     from zzaimy.app import metrics as _metrics_mod
+    from zzaimy.app import model_compare
 
     st = request.app.state
     db, db_path, h = st.db, st.db_path, st.overview
@@ -342,6 +343,8 @@ def dev_quality(request: Request):
         "current_chunks": _metrics_mod.live(db)["values"].get("regulation_chunks", 0),
         # 사업 문서 검색 측정(관계 질문·풀텍스트 RAG 비교) — 결과 파일은 data/eval
         "flow": __import__("zzaimy.app.answer_flow", fromlist=["snapshot"]).snapshot(db, Path(db_path).parent.parent / "eval"),
+        # 모델 비교 — 마지막 비교 실행 요약(결과 파일은 data/eval/model_compare, 자세히는 /dev/models/compare)
+        "model_compare": model_compare.quality_card(db_path),
     }))
 
 

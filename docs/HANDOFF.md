@@ -23,7 +23,7 @@
 | 원본 보관 PC | 학교 실문서 보관(사업별 폴더) | DGX 로 rclone 복사 |
 
 - Writer 는 오픈 모델 그대로다. Writer SFT v1 병합본은 같은 시험으로 비교한 결과 문서 작업 에이전트가 동작하지 않아 채택하지 않았고,
-  토르 02 는 10-24 오픈 모델로 되돌렸다(ADR-0069 확정). 비교 결과는 `/dev/models/compare`, 비교 도구는 `scripts/210`~`213`·`202`.
+  토르 02 는 10-24 오픈 모델로 되돌렸다(ADR-0069 확정). 비교 결과는 품질·성능 「모델 비교」(`/dev/quality#model-compare`, 자세히 `/dev/models/compare`), 비교 도구는 `scripts/210`~`213`·`202`.
 - 검색 학습본 Embed v2·Rerank v1 은 운영 채택 상태다(ADR-0020·0021). 색인과 질의 임베딩 모델은 한 짝이라 한쪽만 바꾸지 않는다.
 - 옛 DGX Spark 는 쓰지 않는다. 계획에 없는 모델은 올리지 않는다(절대 규칙 9).
 - LLM 연결은 `/dev/tools` 에서 등록하고 `data/platform/llm_connections.json` 에 저장된다. 역할에 정한 서버가 연결을 받지 않으면
@@ -89,7 +89,7 @@
 | 문서 반입·읽기 | 반입 점검 `/dev/flow#intake`, 데이터 현황 `/dev/db` |
 | 검색·지식 | RAG 공간 `/dev/rag`, 그래프 탐색 `/graph/explore`, 품질·성능 `/dev/quality` |
 | 문서 작성 | 공동 편집 시연 `/dev/coedit-demo` |
-| 모델 학습 | 데이터·학습 `/dev/train`, 수집 자료 `/dev/collect`, 도구·모델 연결 `/dev/tools`, 모델 비교 결과 `/dev/models/compare` |
+| 모델 학습 | 데이터·학습 `/dev/train`, 수집 자료 `/dev/collect`, 도구·모델 연결 `/dev/tools`, (모델 비교는 품질·성능 `/dev/quality#model-compare`, 자세히 `/dev/models/compare`) |
 | 보안·관리 | 구글 계정 연결 `/dev/users`(구글 앱 등록·학교 계정 연결 현황), 개인정보·반출 점검 `/dev/pii` |
 
 계정·부서·구성원 관리는 개발 화면이 아니라 업무 화면 사이드바의 조직 관리 `/team` 한 곳이다(ADR-0073). `/dev/intake` 는 처리 흐름의 반입 점검 칸으로 넘긴다.

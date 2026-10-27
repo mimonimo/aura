@@ -20,9 +20,19 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 # 사이드바에 없는 개발 화면
 EXTRA = {"/dev/history": "변경 이력",                              # 개발 현황 머리의 「변경 이력」
          "/dev/intake": "반입 점검",                               # 처리 흐름 화면의 한 칸(옛 「문서 가져오기」 — 주소는 그리로 넘긴다)
-         "/dev/models/compare": "모델 비교 결과"}                     # 개발 현황 모델 표의 Writer 줄에서 들어간다
+         "/dev/models/compare": "모델 비교"}                         # 품질·성능 「모델 비교」 카드의 「자세히 보기」
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
+
+# 하위 화면 → 사이드바의 어느 화면 안인가(주소 앞부분). 가장 긴 앞부분이 이긴다 —
+# /dev/models/compare 는 품질·성능, 그 밖의 /dev/models/… 는 데이터·학습.
+SUBPAGES: dict[str, str] = {
+    "/dev/history": "/dev",                         # 변경 이력은 개발 현황 안
+    "/dev/doc/": "/dev/docs", "/dev/paper/": "/dev/docs", "/dev/weekly/": "/dev/docs", "/dev/weekly.": "/dev/docs",   # 문서 보기·논문 자료·주간 보고
+    "/dev/archive": "/dev/archive",                 # 원본 파일 한 건 열기도 원본 관리 안
+    "/dev/models/": "/dev/train",
+    "/dev/models/compare": "/dev/quality",          # 모델 비교는 품질·성능 안
+}
 
 
 def page_name(href: str) -> str:
@@ -30,17 +40,23 @@ def page_name(href: str) -> str:
     return NAMES[href]
 
 
-def is_active(href: str, path: str, train_tab: str) -> bool:
-    """사이드바에서 지금 화면을 고른다. 「데이터·학습」은 /dev/train, 「도구·모델 연결」은 /dev/tools."""
-    if href == "/dev/train":
-        return path == "/dev/train" or path.startswith("/dev/models/")
-    if href == "/dev/docs":                        # 문서 보기·논문 자료·주간 보고는 논문·설계 문서의 하위 화면
-        return path.startswith(("/dev/doc", "/dev/paper", "/dev/weekly"))
-    if href == "/dev":                             # 변경 이력은 개발 현황의 하위 화면
-        return path in ("/dev", "/dev/history")
-    if href == "/dev/archive":                     # 원본 파일 한 건 열기도 원본 관리 안
-        return path.startswith("/dev/archive")
-    return path == href
+def owner(path: str) -> str:
+    """지금 주소가 속한 사이드바 화면 — 사이드바 주소 그대로면 그것, 아니면 SUBPAGES 의 가장 긴 앞부분."""
+    if any(path == href for _, links in GROUPS for href, _ in links):
+        return path
+    hits = [pre for pre in SUBPAGES if path.startswith(pre)]
+    return SUBPAGES[max(hits, key=len)] if hits else ""
+
+
+def parent(path: str) -> tuple[str, str] | None:
+    """하위 화면이면 (사이드바 화면 주소, 이름) — 화면 머리의 「품질·성능 › 모델 비교」 처럼 쓴다."""
+    own = owner(path)
+    return (own, NAMES[own]) if own and own != path else None
+
+
+def is_active(href: str, path: str, train_tab: str = "") -> bool:
+    """사이드바에서 지금 화면을 고른다(owner 와 같으면 켬)."""
+    return owner(path) == href
 
 
 def in_developer_space(path: str, role: str) -> bool:
@@ -55,3 +71,4 @@ def install(env) -> None:
     env.globals["dev_page_name"] = page_name
     env.globals["dev_nav_groups"] = GROUPS
     env.globals["dev_nav_active"] = is_active
+    env.globals["dev_nav_parent"] = parent

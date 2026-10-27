@@ -20,6 +20,14 @@
 .why-slow{margin-top:10px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:#fafbfc;}
 .why-slow h3{font-size:13.5px;margin:0 0 6px;}
 .why-slow ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;}
+.mc-meta{font-size:12.5px;margin:0 0 8px;}
+.mc-verdict{font-size:13px;margin:0 0 10px;}
+.mc-pairs{list-style:none;margin:0 0 10px;padding:0;font-size:12.5px;line-height:1.7;}
+.mc-pairs small{color:var(--muted);}
+.mc-sum td,.mc-sum th{text-align:right;font-variant-numeric:tabular-nums;}
+.mc-sum td:first-child,.mc-sum th:first-child{text-align:left;}
+.mc-sum .mc-group td{color:var(--muted);font-size:11.5px;padding-top:8px;}
+.mc-older{font-size:12px;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
 </style>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 품질
@@ -131,6 +139,44 @@
     </div>
   </details>
 </div></div>
+
+{# 모델 비교 — 비교 실행(VM 의 210~213 → 212 내보내기)이 남긴 파일에서 읽은 마지막 실행 요약. 자세히는 /dev/models/compare #}
+{% set mc = model_compare %}
+{% if mc.run %}{% set run, hd = mc.run, mc.head %}
+<div class="card reveal" id="model-compare"><div class="card-in">
+  <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>모델 비교
+    <a class="h-link" href="/dev/models/compare/{{ run.id }}">자세히 보기</a></h2>
+  <p class="muted mc-meta">{{ run.id }} · {% if run.created %}{{ run.created }}{% else %}진행 중{% endif %}
+    · 대상 {% for a in run.arms %}<span title="{{ a.model }}">{{ a.label }}{% if a.kind_label and a.label != a.kind_label %}({{ a.kind_label }}){% endif %}</span>{% if not loop.last %} · {% endif %}{% else %}진행 중{% endfor %}</p>
+  {% if run.verdict %}<p class="mc-verdict">{{ run.verdict }}</p>{% endif %}
+  {% set L = run.arm_label %}
+  {% if hd.pairs %}
+  <ul class="mc-pairs">
+    {% for p in hd.pairs %}<li>{{ L.get(p.a, p.a) }} 대 {{ L.get(p.b, p.b) }} — 점수 {{ p.score|mc_num }}{% if p.ci_low is not none and p.ci_high is not none %} (95% 구간 {{ p.ci_low|mc_num }}~{{ p.ci_high|mc_num }}){% endif %}
+      <small>· 이김 {{ p.win }} · 비김 {{ p.tie }} · 짐 {{ p.loss }} · {{ p.block }}</small></li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% macro cell(v, pct) %}{% if pct and v is not none %}{{ "%.1f"|format(v * 100) }}%{% else %}{{ v|mc_num }}{% endif %}{% endmacro %}
+  {% if hd.doc_rows or hd.speed_rows %}
+  <div class="table-scroll">
+  <table class="mc-sum" style="font-size:12.5px;">
+    <tr><th>지표</th>{% for a in hd.arms %}<th>{{ a.label }}</th>{% endfor %}</tr>
+    {% for title, rows in [(hd.doc_title, hd.doc_rows), (hd.speed_title, hd.speed_rows)] if rows %}
+    <tr class="mc-group"><td colspan="{{ hd.arms|length + 1 }}">{{ title }}</td></tr>
+    {% for r in rows %}<tr><td>{{ r.name }}</td>{% for a in hd.arms %}<td>{{ cell(r.vals.get(a.key), r.pct) }}</td>{% endfor %}</tr>{% endfor %}
+    {% endfor %}
+  </table>
+  </div>
+  {% elif not hd.pairs %}
+  <p class="muted" style="font-size:12.5px; margin:0;">요약할 수치가 아직 없음{% if not run.finished %} — 진행 중{% endif %}</p>
+  {% endif %}
+  {% if mc.runs|length > 1 %}
+  <p class="muted mc-older">지난 실행{% for r in mc.runs[1:] %} <a class="btn-ghost" href="/dev/models/compare/{{ r.id }}">{{ r.id }}</a>{% endfor %}</p>
+  {% endif %}
+</div></div>
+{% else %}
+<p class="muted" id="model-compare" style="font-size:12.5px; margin:4px 4px 12px;">모델 비교 — 아직 비교 실행 결과 없음</p>
+{% endif %}
 
 {% if quality_open %}{# 담당자가 문서 화면에서 신고한 추출 문제 — 미처리 신고가 있을 때만 보인다 #}
 <div class="card reveal"><div class="card-in">

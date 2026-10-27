@@ -131,6 +131,10 @@
             position: sticky; top: 0; z-index: 40; width: 100%; }
   .page-title { font-size: 16.5px; font-weight: 700; margin-right: auto;
                 letter-spacing: -0.01em; }
+  /* 하위 화면 머리의 윗 화면 이름(「품질·성능 › 모델 비교」) — 누르면 윗 화면으로 */
+  .page-title .page-crumb { color: var(--muted); font-weight: 500; text-decoration: none; }
+  .page-title .page-crumb:hover { color: var(--ink); text-decoration: underline; }
+  .page-title .page-crumb-sep { color: var(--muted); font-weight: 400; margin: 0 6px; }
   .searchbox { display: flex; align-items: center; gap: 8px; background: var(--panel);
                border: 1px solid var(--line); border-radius: 22px; padding: 8px 16px;
                transition: box-shadow .35s var(--ease), border-color .35s var(--ease); }

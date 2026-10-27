@@ -1,4 +1,5 @@
 """모델 비교 결과(/dev/models/compare) — VM 의 비교 실행이 남긴 파일을 읽어 보여 준다.
+품질·성능(/dev/quality)의 「모델 비교」 카드가 마지막 실행의 요약(headline)을 보이고, 이 화면은 그 「자세히 보기」다.
 
 결과 자리: data/eval/model_compare/<run-id>/ (ZZAIMY_MODEL_COMPARE_DIR 로 바꿀 수 있다)
   summary.json  실행 정보·갈래(arms)·묶음(blocks: 지표·쌍대 승패·차원별 평균·서류 갈래별 점수)·메모
@@ -216,6 +217,8 @@ def load_run(base: Path, run_id: str) -> dict | None:
                           set(s.get("percent_keys") or []) if isinstance(s.get("percent_keys"), list) else None)
                    for b in blocks if isinstance(b, dict)] if isinstance(blocks, list) else None,
         "notes": [str(n) for n in (s.get("notes") or []) if n] if isinstance(s.get("notes"), list) else [],
+        # 결론 한 줄 — 내보내기가 적어 둔 경우만(지어내지 않는다)
+        "verdict": str(s.get("verdict") or s.get("conclusion") or "").strip(),
         "samples": [{"id": str(x.get("id", i)), "type": str(x.get("type") or ""), "input": x.get("input") or "",
                      "gold": x.get("gold") or "", "outputs": x.get("outputs") if isinstance(x.get("outputs"), dict) else {},
                      "scores": x.get("scores") if isinstance(x.get("scores"), dict) else {},
@@ -223,6 +226,30 @@ def load_run(base: Path, run_id: str) -> dict | None:
                    if samples is not None else None,
         "docs": _docs(d, docs_listed) if (docs_listed is not None or (d / "docs").is_dir()) else None,
     }
+
+
+def headline(run: dict) -> dict:
+    """품질·성능 카드용 짧은 요약 — load_run 결과에서 고르기만 한다(수치를 새로 만들지 않는다).
+    pairs: 대조군이 아닌 쌍대 점수(95% 구간), docs: 회차별로 돈 묶음(문서 작성)의 비율 지표, speed: 속도 지표."""
+    blocks = run.get("blocks") or []
+    pairs = [{"block": b["title"], **p} for b in blocks for p in (b["pairwise"] or [])
+             if not p["control"] and p["score"] is not None]
+    doc = next((b for b in blocks if b["runs"] and b["other"]), None)
+    doc_rows = sorted(doc["other"], key=lambda r: not r["pct"])[:4] if doc else []
+    speed_blocks = [b for b in blocks if b["speed"]]
+    sp = next((b for b in speed_blocks if not b["other"] and not b["pairwise"]), speed_blocks[0] if speed_blocks else None)
+    used = {a for r in doc_rows + (sp["speed"] if sp else []) for a, v in r["vals"].items() if v is not None}
+    return {"pairs": pairs, "doc_title": doc["title"] if doc else "", "doc_rows": doc_rows,
+            "speed_title": sp["title"] if sp else "", "speed_rows": sp["speed"] if sp else [],
+            "arms": [a for a in run["arms"] if a["key"] in used]}
+
+
+def quality_card(db_path) -> dict:
+    """품질·성능 「모델 비교」 카드 — 마지막 실행 요약과 실행 목록."""
+    base = root(db_path)
+    runs = list_runs(base)
+    run = load_run(base, runs[0]["id"]) if runs else None
+    return {"runs": runs, "run": run, "head": headline(run) if run else None}
 
 
 def safe_doc(run_dir: Path, rel: str) -> Path | None:

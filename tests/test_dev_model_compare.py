@@ -1,5 +1,6 @@
-"""모델 비교 결과 화면(/dev/models/compare) — 관리자만, 덜 찬 결과도 그린다, 문서 내려받기는 실행의 docs/ 안만,
-개발 현황 Writer 줄의 바로가기는 결과가 있을 때만."""
+"""모델 비교 화면(/dev/models/compare) — 관리자만, 덜 찬 결과도 그린다, 문서 내려받기는 실행의 docs/ 안만,
+품질·성능(/dev/quality)의 「모델 비교」 카드가 마지막 실행 요약을 보이고 이 화면은 그 자세히 보기,
+개발 현황 Writer 줄의 바로가기는 결과가 있을 때만(그 카드로)."""
 from __future__ import annotations
 
 import json
@@ -110,10 +111,57 @@ def test_doc_download_stays_inside_docs(world):
 def test_dev_link_only_when_runs_exist(world):
     app, base, _ = world
     c = _client(app, "zzdev")
-    assert 'href="/dev/models/compare"' not in c.get("/dev").text
+    assert "/dev/quality#model-compare" not in c.get("/dev").text
     _partial_run(base)
     page = c.get("/dev").text
-    assert 'href="/dev/models/compare"' in page and "모델 비교 결과" in page
+    assert 'href="/dev/quality#model-compare"' in page and "모델 비교 결과" in page
+    assert 'href="/dev/models/compare"' not in page                 # 바로가기는 한 곳(품질·성능 카드)으로만
+
+
+def test_quality_card_without_runs(world):
+    app, _, _ = world
+    page = _client(app, "zzdev").get("/dev/quality").text
+    assert 'id="model-compare"' in page and "아직 비교 실행 결과 없음" in page
+    assert "/dev/models/compare" not in page
+
+
+def test_quality_card_shows_latest_run_from_files(world):
+    """카드 수치는 결과 파일에서만 — 대상·쌍대 점수(95% 구간, 대조군 빼고)·문서 작성·속도·결론, 지난 실행."""
+    app, base, _ = world
+    _partial_run(base, "run-1")
+    d = _finished_run(base)
+    s = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+    s["verdict"] = "합친 판은 운영 모델보다 못해 채택하지 않음"
+    (d / "summary.json").write_text(json.dumps(s, ensure_ascii=False))
+    page = _client(app, "zzdev").get("/dev/quality").text
+    card = page.split('id="model-compare"')[1].split("</div></div>")[0]
+    assert "sft-compare" in card and "2026-10-24 06:02" in card
+    assert "오픈 모델(오픈 27B)" in card and "SFT 병합본(SFT 합친 판)" in card
+    assert "SFT 병합본 대 오픈 모델 — 점수 0.31 (95% 구간 0.26~0.35)" in card
+    assert "0.52" not in card                                        # 대조군(같은 모델 두 번)은 요약에서 뺀다
+    assert "문서 작성" in card and "100.0%" in card and "82.0%" in card  # 문서 작성 묶음의 비율 지표
+    assert "첫 글자까지" in card and "24.32" in card                     # 속도 묶음
+    assert "합친 판은 운영 모델보다 못해 채택하지 않음" in card
+    assert 'href="/dev/models/compare/sft-compare">자세히 보기' in card
+    assert 'href="/dev/models/compare/run-1"' in card                   # 지난 실행
+
+
+def test_compare_page_belongs_to_quality(world):
+    from zzaimy.app import dev_nav
+    app, base, _ = world
+    _partial_run(base)
+    page = _client(app, "zzdev").get("/dev/models/compare/run-1").text
+    assert '<a class="page-crumb" href="/dev/quality#model-compare">품질·성능</a>' in page
+    assert '<a href="/dev/quality" class="active" aria-current="page">' in page      # 사이드바도 품질·성능
+    assert '<a href="/dev/train" class="active"' not in page
+    for path in ("/dev/models/compare", "/dev/models/compare/run-1"):
+        assert dev_nav.owner(path) == "/dev/quality"
+        assert dev_nav.is_active("/dev/quality", path, "") and not dev_nav.is_active("/dev/train", path, "")
+        assert dev_nav.parent(path) == ("/dev/quality", "품질·성능")
+    assert dev_nav.owner("/dev/models/other") == "/dev/train"
+    assert dev_nav.owner("/dev/history") == "/dev" and dev_nav.owner("/dev/doc/x.md") == "/dev/docs"
+    assert dev_nav.owner("/dev/archive/7") == "/dev/archive" and dev_nav.owner("/dev/quality") == "/dev/quality"
+    assert dev_nav.parent("/dev/quality") is None and dev_nav.owner("/dev/없는") == ""
 
 
 def test_labels_and_percent_keys_from_summary():
