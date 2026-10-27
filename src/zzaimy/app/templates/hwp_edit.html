@@ -265,24 +265,40 @@
         (eng && !isNew ? eng.flush() : Promise.resolve()).then(go, go);
       }, function () { opening = false; });
   });
-  // 편집기를 못 불러오면 알린다 — 스크립트가 안 왔거나 기안기 서버가 답하지 않으면 바로, 그 밖에는 90초 안에 뜨지 않을 때
-  var built = false;
-  function loadFail() { if (built) return; document.querySelector('[data-load-fail]').hidden = false; say('불러오지 못함', 'bad'); }
+  // 편집기를 못 불러오면 먼저 스스로 다시 연다(두 번까지, 5초·15초 뒤) — 한 창에 편집기 여럿(공동 편집 시연)을 한꺼번에 열면
+  // 브라우저의 같은 주소 연결 수(6개)에 막혀 잠깐 늦을 뿐인 때가 많다. 그래도 안 되면 그때 알리고 「다시 열기」 를 둔다.
+  var built = false, failed = false, retryKey = 'hwpRetry:' + location.pathname + location.search;
+  function retries() { try { return +(sessionStorage.getItem(retryKey) || 0); } catch (e) { return 9; } }
+  function loadFail() {
+    if (built || failed) return; failed = true;
+    var n = retries();
+    if (n < 2) {
+      try { sessionStorage.setItem(retryKey, String(n + 1)); } catch (e) {}
+      say('연결이 늦어 다시 여는 중 (' + (n + 1) + '/2)', 'busy');
+      setTimeout(function () { location.reload(); }, n ? 15000 : 5000);
+      return;
+    }
+    try { sessionStorage.removeItem(retryKey); } catch (e) {}
+    document.querySelector('[data-load-fail]').hidden = false; say('불러오지 못함', 'bad');
+  }
   if (window.__hwpLoadFail || typeof window.BuildWebHwpCtrl !== 'function') { loadFail(); return; }
-  (function probe() {
-    var ac = window.AbortController ? new AbortController() : null, t = setTimeout(function () { if (ac) ac.abort(); }, 5000);
+  // 기안기 서버가 살아 있는지 — 답이 늦은 것은 실패로 치지 않고(최대 세 번 다시 물음), 서버가 아니라고 답할 때만 실패
+  (function probe(k) {
+    var ac = window.AbortController ? new AbortController() : null, t = setTimeout(function () { if (ac) ac.abort(); }, 8000);
     fetch('/webhwpctrl/version.txt', {cache: 'no-store', credentials: 'same-origin', signal: ac ? ac.signal : undefined})
-      .then(function (r) { clearTimeout(t); if (!r.ok) loadFail(); }).catch(function () { clearTimeout(t); loadFail(); });
-  })();
+      .then(function (r) { clearTimeout(t); if (!r.ok) loadFail(); })
+      .catch(function () { clearTimeout(t); if (built) return; if (k < 3) setTimeout(function () { probe(k + 1); }, 3000); else loadFail(); });
+  })(1);
   // 느리기만 한 때(기안기 서버가 바쁠 때)는 실패로 보이지 않게 — 20초에 「오래 걸림」, 90초가 지나도 뜨지 않을 때만 실패
   setTimeout(function () { if (!built) say('불러오는 중 — 오래 걸림', 'busy'); }, 20000);
   setTimeout(loadFail, 90000);
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     built = true; document.querySelector('[data-load-fail]').hidden = true;
+    try { sessionStorage.removeItem(retryKey); } catch (e) {}
     hwp = window.auraHwp = AuraHwpWrapper.create(ctrl, box);
     fit();
     if (isNew) { mode = 'new'; fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; hwp.attach(); watchEdits(); say('저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요', ''); return; }
-    loadFile().then(function () {
+    loadFile().catch(function () { say('파일을 다시 받는 중', 'busy'); return new Promise(function (ok) { setTimeout(ok, 3000); }).then(loadFile); }).then(function () {
       fitWidth(); setTools(toolsOn());
       // 연 뒤 잡은 칸 수를 알린다 — 칸 많은 파일인데 0 이면 서버가 「기안기에서 안 열림」 으로 표시해 양식 후보에서 뺀다(긴 문서는 쪽을 그리는 몇 초 뒤에)
       setTimeout(function () { try { fetch(fileUrl.replace(/\/file$/, '/opened'), {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fields: hwp.fields().length})}); } catch (e) {} }, 8000);
