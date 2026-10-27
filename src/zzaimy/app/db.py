@@ -1040,6 +1040,12 @@ class Database:
             ).fetchone()
             return row["value"] if row else default
 
+    def settings_with_prefix(self, prefix: str) -> dict[str, str]:
+        """앞머리가 같은 설정 전부를 한 번에 — 파일마다 따로 읽으면(천여 번) 화면이 느려졌다(10-27 문서함)."""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT key, value FROM settings WHERE key LIKE ? ESCAPE '\\'", (_like_prefix(prefix),)).fetchall()
+            return {r["key"]: r["value"] for r in rows if str(r["key"]).startswith(prefix)}
+
     def all_settings(self) -> dict[str, str]:
         with self._conn() as conn:
             rows = conn.execute("SELECT key, value FROM settings").fetchall()
