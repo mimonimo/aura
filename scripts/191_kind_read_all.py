@@ -9,7 +9,11 @@ VM 은 DGX 처리 결과를 받을 때마다(170 --parsed, 1분) 새 문서만 �
 적어 같은 판을 주기마다 되풀이하지 않는다(판이 바뀌거나 지시가 바뀌면 다시 본다).
 판정 줄마다 판정한 모델 정보(llm — 서빙 이름·digest 또는 바탕 가중치, generate.model_info)를 남긴다. 예전 줄(llm 없음)은 「모름」.
 --redo-model 이면 지금 모델과 다른(또는 모르는) 모델이 내린 판정을 앞에서 다시 본다 — 모델을 바꾼 뒤 재판정할 때.
+--from-db 면 처리 결과 파일에 줄이 없는 DGX 보관 문서(처리 결과 파일이 생기기 전에 들인 문서)도 문서함 본문으로 판정한다(VM, 갈래가 빈 것만).
+판은 원본 장부(archive_files)의 크기:시각이라 192 가 같은 규칙으로 반영한다. 1분 주기에는 넣지 않는다 — 한 번에 많은 27B 호출이라 따로 띄운다.
 사용(DGX): PYTHONPATH=src .venv-parse/bin/python scripts/191_kind_read_all.py [--max-sec 900] [--redo evidence] [--redo-model]
+사용(VM, 처리 결과 밖 문서): env PYTHONPATH=src .venv/bin/python scripts/191_kind_read_all.py --parsed data/inbox/parsed --role review \
+          --out-name kind27b-vm.jsonl --from-db [--max-sec 3600]
 """
 from __future__ import annotations
 
@@ -86,8 +90,40 @@ def scan_meta(parsed_dir: str) -> dict[str, dict]:
     return out
 
 
-def load_text(parsed_dir: str, meta: dict) -> dict:
-    """목록 줄 하나의 본문 — 그 파일의 그 위치 한 줄만 읽는다."""
+def db_orphans(db, known: set[str]) -> dict[str, dict]:
+    """처리 결과 파일에 줄이 없는 DGX 보관 문서 가운데 갈래가 빈 것 — 판정 대상 목록(본문은 담지 않고 문서 번호만).
+
+    처리 결과 파일(parsed-*.jsonl)이 생기기 전에 들인 문서는 위 목록에 없어 갈래 판정을 한 번도 받지 못한다. 기준 문서(regulation)와
+    담당자가 고친 갈래(identity.kind_by_hand)는 뺀다(192 도 건드리지 않는다). 판은 원본 장부의 지금 판(크기:시각, 192 와 같은 꼴)이고,
+    장부에 없는 원본(지워진 원본)은 뺀다."""
+    with db._conn() as conn:
+        ver = {r[0]: f"{int(r[1] or 0)}:{int(float(r[2] or 0))}"
+               for r in conn.execute("SELECT rel, size, mtime FROM archive_files WHERE removed_at = ''").fetchall()}
+        rows = [tuple(r) for r in conn.execute(
+            "SELECT id, stored_path, filename, identity FROM documents WHERE stored_path LIKE 'dgx://%' AND status = 'reviewed'"
+            " AND (kind IS NULL OR kind = '') AND doc_type <> 'regulation'").fetchall()]
+    out: dict[str, dict] = {}
+    for did, sp, fname, ident in rows:
+        rel = str(sp)[len("dgx://"):]
+        if rel in known or rel not in ver:
+            continue
+        try:
+            idn = json.loads(ident or "{}")
+        except ValueError:
+            idn = {}
+        if idn.get("kind_by_hand"):
+            continue
+        out[rel] = {"rel": rel, "version": ver[rel], "doc_kind": "", "filename": idn.get("original_filename") or fname or Path(rel).name,
+                    "_db": int(did)}
+    return out
+
+
+def load_text(parsed_dir: str, meta: dict, db=None) -> dict:
+    """목록 줄 하나의 본문 — 그 파일의 그 위치 한 줄만 읽는다. 문서함에서 온 대상(_db)은 문서함 본문."""
+    if "_db" in meta:
+        with db._conn() as conn:
+            row = conn.execute("SELECT masked_text FROM documents WHERE id = ?", (meta["_db"],)).fetchone()
+        return {"masked_text": (tuple(row)[0] if row else "") or ""}
     with (Path(parsed_dir) / meta["_file"]).open("rb") as fh:
         fh.seek(meta["_at"])
         try:
@@ -111,6 +147,8 @@ def main() -> int:
     ap.add_argument("--redo-model", action="store_true",
                     help="지금 판정 모델과 다른 모델(또는 모델 정보가 없는 예전 줄)이 내린 판정을 먼저 다시 본다")
     ap.add_argument("--role", default="", help="이 용도의 연결(VllmClient)로 판정한다 — VM 운영은 review(토르 03). 비우면 --url 의 Ollama(대량 일괄 때만)")
+    ap.add_argument("--from-db", action="store_true",
+                    help="처리 결과 파일에 없는 DGX 보관 문서(갈래 빈 것)도 문서함 본문으로 판정한다(VM — ZZAIMY_PLATFORM_SQLITE_PATH 또는 data/platform/platform.db)")
     ap.add_argument("--max-sec", type=int, default=0, help="이 시간(초)이 지나면 멈춘다(0 = 끝까지)")
     ap.add_argument("--out-name", default="kind27b-0.jsonl", help="판정을 덧붙일 파일 이름(같은 폴더) — VM 은 kind27b-vm.jsonl")
     args = ap.parse_args()
@@ -138,6 +176,14 @@ def main() -> int:
     except (OSError, ValueError):
         skipped = {}
     docs = scan_meta(args.parsed)
+    db = None
+    if args.from_db:
+        import os
+        from zzaimy.app.db import Database
+        db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
+        extra = db_orphans(db, set(docs))
+        print(f"처리 결과 밖 문서함 문서 {len(extra)}", flush=True)
+        docs.update(extra)
     def _key(d: dict) -> str:
         return f"{d.get('version') or ''}|{kind_read.PROMPT_VER}"
     todo = [r for r, d in docs.items() if done.get(r) != str(d.get("version") or "") and skipped.get(r) != _key(d)]
@@ -165,7 +211,7 @@ def main() -> int:
         for i, rel in enumerate(todo, 1):
             if args.max_sec and time.time() - t0 > args.max_sec:
                 break
-            d = {**docs[rel], **load_text(args.parsed, docs[rel])}
+            d = {**docs[rel], **load_text(args.parsed, docs[rel], db)}
             got = kind_read.judge(complete, Path(d.get("filename") or rel).stem, d.get("masked_text") or "", str(Path(rel).parent))
             prev = last.get(rel, {}).get("kind")
             if got and not got[0] and prev in excluded:                 # 앞 판정이 빠지는 갈래였는데 이제 모름 — 갈래를 비우라고 적는다

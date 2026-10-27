@@ -52,3 +52,48 @@ def test_meta_scan_reads_only_new_lines(tmp_path):
         fh.write('{"rel": "c", "state": "par')
     again = m.scan_meta(str(tmp_path))
     assert set(again) == {"a", "b"} and m.load_text(str(tmp_path), again["b"])["masked_text"] == "본문 b"
+
+
+def test_from_db_judges_documents_missing_from_parsed_files(tmp_path, monkeypatch):
+    """처리 결과 파일이 생기기 전에 들인 DGX 보관 문서도 --from-db 면 문서함 본문으로 판정한다 — 판은 원본 장부의 크기:시각."""
+    from zzaimy.app import archive
+    from zzaimy.app.db import Database
+    m = _load()
+    db = Database(tmp_path / "p.db")
+    archive.ensure(db)
+    ids = {n: db.add_document(f"{n}.pdf", f"dgx://x/{n}.pdf") for n in ("orphan", "parsed", "ruled", "gone", "hand")}
+    with db._conn() as conn:
+        for n, did in ids.items():
+            conn.execute("UPDATE documents SET status = 'reviewed', masked_text = ? WHERE id = ?", (f"{n} 본문", did))
+            if n != "gone":
+                conn.execute("INSERT INTO archive_files (rel, size, mtime) VALUES (?, 10, 20)", (f"x/{n}.pdf",))
+        conn.execute("UPDATE documents SET kind = 'plan' WHERE id = ?", (ids["ruled"],))
+        conn.execute("UPDATE documents SET identity = ? WHERE id = ?", (json.dumps({"kind_by_hand": True}), ids["hand"]))
+    parsed = tmp_path / "parsed"
+    parsed.mkdir()
+    (parsed / "parsed-0.jsonl").write_text(json.dumps({"rel": "x/parsed.pdf", "state": "parsed", "masked_text": "본문", "version": "10:20",
+                                                       "filename": "parsed.pdf"}) + "\n", encoding="utf-8")
+    seen: dict[str, str] = {}
+
+    def judge(complete, title, text, folder=""):
+        seen[title] = text
+        return ("report", "근거")
+
+    monkeypatch.setattr(m.kind_read, "judge", judge)
+    monkeypatch.setattr(m.s190, "make_complete", lambda url, model, role: (lambda msgs: "", {"name": "t"}))
+    monkeypatch.setenv("ZZAIMY_PLATFORM_SQLITE_PATH", str(tmp_path / "p.db"))
+    monkeypatch.setattr(sys, "argv", ["191", "--parsed", str(parsed), "--out-name", "kind27b-vm.jsonl"])
+    assert m.main() == 0
+    assert set(seen) == {"parsed"}                       # 기본은 처리 결과 파일만
+    seen.clear()
+    monkeypatch.setattr(sys, "argv", ["191", "--parsed", str(parsed), "--out-name", "kind27b-vm.jsonl", "--from-db"])
+    assert m.main() == 0
+    assert seen == {"orphan": "orphan 본문"}             # 갈래 있음·지워진 원본·담당자가 고친 갈래·이미 판정한 것은 뺀다
+    got = [json.loads(l) for l in (parsed / "kind27b-vm.jsonl").read_text(encoding="utf-8").splitlines()]
+    row = next(g for g in got if g["rel"] == "x/orphan.pdf")
+    assert row["version"] == "10:20" and row["kind"] == "report"
+    # 192 가 같은 판으로 받아 반영한다
+    spec = importlib.util.spec_from_file_location("s192", ROOT / "scripts" / "192_kind_apply.py")
+    s192 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(s192)
+    assert (ids["orphan"], "", "report") in s192.plan(db, s192.load([str(parsed / "kind27b-vm.jsonl")]))

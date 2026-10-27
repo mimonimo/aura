@@ -311,8 +311,10 @@ def ocr_damage_signals(text: str) -> list[str]:
     # 글자 단위 분해 — 한 글자 토큰이 '연달아' 이어지는 구간만 센다. 개조식 공문은 '및'·'등'·'각'
     # 같은 한 글자 낱말이 흩어져 많아 단순 비율로는 멀쩡한 문서가 손상으로 몰린다.
     # 진짜 분해는 '첨 단 신 소 재'처럼 셋 이상 잇따른다.
+    # 분모는 한글로만 된 어절 전부다. 한 글자 어절만 세면 자간 띄운 머리글(「영 남 …」) 하나에 흩어진 「및」·「등」 몇 개만으로
+    # 비율이 넘쳐 멀쩡한 글자층 문서가 손상으로 몰린다(측정: 글자층 직독 손상 판정의 대부분이 이 오탐).
     words = [w for w in normalize(text).split(" ") if w]
-    hangul_tokens = [w for w in words if _HANGUL.fullmatch(w)]
+    hangul_tokens = [w for w in words if _HANGUL_RUN.fullmatch(w)]
     if len(hangul_tokens) >= OCR_SYLLABLE_MIN_TOKENS and not is_table:
         in_runs = run = 0
         for w in words:
