@@ -84,7 +84,7 @@ def test_grade_saved_only_for_staff_and_shown(tmp_path):
     app, c = _dev(tmp_path)
     page = c.get("/team").text                                                # 계정 편집 창은 조직 관리(ADR-0073)
     assert 'name="grade"' in page and "data-grade-field" in page
-    r = c.post("/dev/users/save", data={"uid": "kimhead", "is_new": "1", "role": "staff", "grade": "head",
+    r = c.post("/team/accounts/save", data={"uid": "kimhead", "is_new": "1", "role": "staff", "grade": "head",
                                         "new_pw": "init-pass-1"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     data = json.loads((tmp_path / "accounts.json").read_text())
@@ -92,27 +92,27 @@ def test_grade_saved_only_for_staff_and_shown(tmp_path):
     me = next(u for u in c.get("/api/org/accounts").json()["users"] if u["user"] == "kimhead")
     assert (me["role_label"], me["grade_label"]) == ("교직원", "총괄 책임자")
     # 등급을 보내지 않으면 지금 값 유지
-    c.post("/dev/users/save", data={"uid": "kimhead", "role": "staff", "active": "1"})
+    c.post("/team/accounts/save", data={"uid": "kimhead", "role": "staff", "active": "1"})
     assert json.loads((tmp_path / "accounts.json").read_text())["kimhead"]["grade"] == "head"
-    r = c.post("/dev/users/save", data={"uid": "kimhead", "role": "staff", "grade": "boss", "active": "1"}, follow_redirects=False)
+    r = c.post("/team/accounts/save", data={"uid": "kimhead", "role": "staff", "grade": "boss", "active": "1"}, follow_redirects=False)
     assert "err=" in r.headers["location"]
     # 새 계정 기본은 사업 책임자
-    c.post("/dev/users/save", data={"uid": "newbie", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})
+    c.post("/team/accounts/save", data={"uid": "newbie", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})
     assert json.loads((tmp_path / "accounts.json").read_text())["newbie"]["grade"] == "lead"
 
 
 def test_admin_limit_two(tmp_path):
     app, c = _dev(tmp_path)
-    r = c.post("/dev/users/save", data={"uid": "sysadm", "is_new": "1", "role": "dev", "new_pw": "init-pass-1"}, follow_redirects=False)
+    r = c.post("/team/accounts/save", data={"uid": "sysadm", "is_new": "1", "role": "dev", "new_pw": "init-pass-1"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     data = json.loads((tmp_path / "accounts.json").read_text())
     assert data["sysadm"]["role"] == "dev" and "grade" not in data["sysadm"]
-    r = c.post("/dev/users/save", data={"uid": "third", "is_new": "1", "role": "dev", "new_pw": "init-pass-1"}, follow_redirects=False)
+    r = c.post("/team/accounts/save", data={"uid": "third", "is_new": "1", "role": "dev", "new_pw": "init-pass-1"}, follow_redirects=False)
     assert "err=" in r.headers["location"] and "third" not in json.loads((tmp_path / "accounts.json").read_text())
-    r = c.post("/dev/users/save", data={"uid": "zzaimy", "role": "dev", "active": "1"}, follow_redirects=False)
+    r = c.post("/team/accounts/save", data={"uid": "zzaimy", "role": "dev", "active": "1"}, follow_redirects=False)
     assert "err=" in r.headers["location"]
     # 이미 관리자인 계정은 그대로 저장된다
-    r = c.post("/dev/users/save", data={"uid": "sysadm", "role": "dev", "active": "1", "name": "관리"}, follow_redirects=False)
+    r = c.post("/team/accounts/save", data={"uid": "sysadm", "role": "dev", "active": "1", "name": "관리"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
 
 

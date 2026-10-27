@@ -159,7 +159,7 @@ def test_training_workflow_is_one_page(client):
         assert response.status_code == 200
         page = response.text
         assert '<title>데이터·학습' in page
-        assert 'action="/dev/data/grounded-pull"' not in page          # 검수 프로젝트가 없으면 「결과 반영」 단추를 두지 않는다(10-26)
+        assert 'action="/dev/train/grounded-pull"' not in page          # 검수 프로젝트가 없으면 「결과 반영」 단추를 두지 않는다(10-26)
         assert 'id="approved-data"' in page and 'id="training-tools"' in page
         assert 'action="/dev/train/export.zip"' in page
         assert page.count('>데이터·학습</a>') == 1
@@ -190,7 +190,7 @@ def test_training_actions_and_empty_outputs_are_compact(client, monkeypatch):
     assert 'ZZAIMY SFT 5000 검수' in table and '>120<' in table and '>5,000<' in table and '>2%<' in table
     assert 'href="http://127.0.0.1:9/projects/8/data"' in table
     actions = text.split('<div class="review-actions">', 1)[1].split('</div>', 1)[0]
-    assert 'action="/dev/data/grounded-pull"' in actions         # 근거 문답 검수 프로젝트가 있을 때만
+    assert 'action="/dev/train/grounded-pull"' in actions         # 근거 문답 검수 프로젝트가 있을 때만
     for row in text.split('<div class="training-output-row">')[1:]:
         row = row.split('</div>\n    ', 1)[0]
         if 'output-empty' in row:

@@ -7,11 +7,12 @@
 한다.
 
 - 사용자: GET /account/google(상태 JSON), GET /account/google/connect(허용 화면으로), POST /account/google/disconnect
-- 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): POST /dev/users/save(역할·교직원 등급·부서 —
+- 관리자(개발자 역할만 — 처리마다 need_admin 으로 막는다): POST /team/accounts/save(역할·교직원 등급·부서 —
   등급과 관리자 상한은 grades, ADR-0066),
-  POST /dev/google/revoke(연결 지우기), POST /dev/users/bulk(여러 명).
+  POST /team/google/revoke(연결 지우기), POST /team/accounts/bulk(여러 명).
   화면은 조직 관리(/team) 한 곳이다 — 계정·부서·구성원, 관리자에게는 구글 앱 등록과 학교 계정 연결 현황(_team_google.html)까지
-  그 화면에서 다룬다. 고치기 경로(POST /dev/users/*·/dev/google/*)는 관리자 막기(/dev)를 그대로 쓰려고 주소를 두었다. 부서 만들기·지우기·
+  그 화면에서 다룬다. 고치기 경로도 화면을 따라 /team/accounts/*·/team/google/* 이다(옛 /dev/users/*·/dev/google/* 는 10-27 에 지움) —
+  /dev 앞부분 막기(main.check_auth)를 받지 않으니 처리마다 need_admin 을 먼저 부른다. 부서 만들기·지우기·
   상위 부서는 조직 관리의 트리(org_routes /org/*)에서 한다. 계정의 겸직 부서는
   줄마다 부서 + 그 부서에서의 등급(account["dept_grades"] 한 곳 — 일반 겸직도 member 로 적는다)
 - 조직 관리: GET /team(부서 트리 + 상세), GET /api/org/accounts(전체 사용자)·/api/org/members(구성원), POST /api/org/members
@@ -45,6 +46,13 @@ def redirect_uri(request: Request) -> str:
     """구글에 등록한 되돌아올 주소 — main.py 의 _gdrive_redirect_uri 와 같은 경로(콘솔에 새 주소를 넣지 않아도 되게)."""
     base = os.environ.get("ZZAIMY_PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
     return f"{base}/dev/gdrive/callback"
+
+
+def need_admin(request: Request) -> None:
+    """관리자(개발자 역할)만 — /dev 밖으로 옮긴 관리자 처리(/team/accounts/*·/team/google/*)가 처음에 부른다.
+    역할은 check_auth 가 정한 request.state.role(테스트 보기 중이면 고른 역할)이라 /dev 앞부분 막기와 같은 판정이다."""
+    if getattr(request.state, "role", "") != "dev":
+        raise HTTPException(403, "관리자 계정만 하는 일입니다")
 
 
 def _user(request: Request) -> str:
@@ -211,14 +219,15 @@ def dict_candidates(st, existing: list[str]) -> dict:
             "dict_skipped": len(plan["skip"]), "dept_labels": labels}
 
 
-@router.post("/dev/users/save")
+@router.post("/team/accounts/save")
 @org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
-def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
+def team_accounts_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
                    role: str = Form("staff"), dept: str = Form(""), active: str = Form(""), new_pw: str = Form(""),
                    google: str = Form(""), extra: list[str] = Form([]), grade: str = Form(""),
                    perm: list[str] = Form([]), extra_grade: list[str] = Form([])):
     """사용자 추가·수정 — 역할·부서·사용 여부, 임시 비밀번호(새 계정은 필수, 기존 계정은 왔을 때만 초기화), 구글 계정 이음.
     관리자가 넣은 비밀번호는 임시다 — 계정에 must_change 를 달아 다음 로그인 때 본인이 바꾸게 한다. 값은 응답에 싣지 않는다."""
+    need_admin(request)
     st = request.app.state
     accounts = _accounts(request)
     uid = uid.strip().lower()
@@ -252,7 +261,7 @@ def _sync_drives_later(st, accounts: dict) -> None:
 def _save_one(st, accounts: dict, me: str, *, uid: str, new: bool, name: str, role: str, dept: str, on: bool,
               new_pw: str = "", google: str | None = None, extra: list[str] = (), extra_grade: list[str] = (),
               grade: str = "", perm: list[str] = ()) -> str:
-    """계정 하나를 검사하고 저장한다 — 문제면 사람이 읽을 문장, 저장했으면 빈 값. 편집 창(dev_users_save)과 여러 명 바꾸기(bulk)가
+    """계정 하나를 검사하고 저장한다 — 문제면 사람이 읽을 문장, 저장했으면 빈 값. 편집 창(team_accounts_save)과 여러 명 바꾸기(bulk)가
     같은 이 함수를 쓴다. google 이 None 이면 구글 이음은 그대로 둔다."""
     if role not in ROLES:
         return "역할 값이 올바르지 않습니다"
@@ -336,11 +345,12 @@ def _save_one(st, accounts: dict, me: str, *, uid: str, new: bool, name: str, ro
 BULK_OPS = {"dept": "부서를 옮겼습니다", "role": "역할을 바꿨습니다", "suspend": "사용 중지했습니다", "activate": "다시 사용하게 했습니다"}
 
 
-@router.post("/dev/users/bulk")
+@router.post("/team/accounts/bulk")
 @org_lock.serialized                                   # 조직·계정 저장값 공용 잠금(org_lock)
-def dev_users_bulk(request: Request, op: str = Form(""), value: str = Form(""), uids: list[str] = Form([])):
+def team_accounts_bulk(request: Request, op: str = Form(""), value: str = Form(""), uids: list[str] = Form([])):
     """고른 사용자 여러 명을 한 번에 — 부서 옮기기(value=부서, 빈 값은 부서 없음)·역할 바꾸기(value=역할)·사용 중지·다시 사용.
     사람마다 편집 창과 같은 검사(_save_one)를 거치고, 걸린 사람은 건너뛰어 까닭을 함께 돌려준다. 응답은 JSON {ok, msg, done, failed}."""
+    need_admin(request)
     st = request.app.state
     accounts = _accounts(request)
     me = _user(request)
@@ -497,7 +507,7 @@ def delete_message(name: str, plan: dict, moved: int) -> str:
 
 def unlink_google(db, accounts: dict, email: str) -> None:
     """구글 계정 연결 해제 — 보관 토큰과 그 계정으로 이어진 사용자·부서 이음을 모두 푼다.
-    사용자·계정 화면의 연결 삭제와 /dev/gdrive/revoke 가 같은 이 함수를 쓴다(토큰만 지우면 사용자 이음이 죽은 계정을 가리킨다)."""
+    조직 관리 「학교 계정 연결 현황」 의 연결 삭제(/team/google/revoke)가 쓴다(토큰만 지우면 사용자 이음이 죽은 계정을 가리킨다)."""
     for uid, e in bindings(db, accounts).items():
         if e == email:
             db.set_setting(f"google_account:{uid}", "")
@@ -507,9 +517,10 @@ def unlink_google(db, accounts: dict, email: str) -> None:
     gdrive.revoke(email)
 
 
-@router.post("/dev/google/revoke")
-def dev_google_revoke(request: Request, email: str = Form("")):
+@router.post("/team/google/revoke")
+def team_google_revoke(request: Request, email: str = Form("")):
     """연결된 구글 계정을 지운다 — unlink_google."""
+    need_admin(request)
     email = email.strip()
     if not email:
         return _back("계정을 골라 주세요", ok=False)

@@ -104,7 +104,7 @@ def main() -> int:
     n = count_pairs(data)
     if n == 0:
         print(f"학습 예시가 없습니다 — {data}", file=sys.stderr)
-        print("데이터 공방(/dev/data)에서 수치 검증을 통과한 예시를 먼저 만드십시오.", file=sys.stderr)
+        print("데이터·학습(/dev/train)에서 수치 검증을 통과한 예시를 먼저 만드십시오.", file=sys.stderr)
         return 2
 
     print(f"학습을 시작합니다 — 예시 {n}건 · 순위 {args.rank} · 길이 {args.seq_len}")

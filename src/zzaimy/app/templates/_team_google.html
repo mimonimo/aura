@@ -1,5 +1,5 @@
 {# 조직 관리(/team) 의 관리자 부분 — 구글 앱 등록(처음 한 번)·허용 도메인·학교 계정 연결 현황.
-   동작은 /dev/google/revoke·/dev/gdrive/client(관리자만)가 하고 /team#google-links 로 돌아온다 #}
+   동작은 /team/google/revoke·/team/google/client(관리자만)가 하고 /team#google-links 로 돌아온다 #}
 <style>
   .team-google { margin-top:16px; }
   .ua-table { width:100%; border-collapse:collapse; font-size:13px; }
@@ -31,7 +31,7 @@
       <td>{{ e.email }}{% if not e.docs_ok %}<span class="ua-sub">문서 편집 권한 확인 필요</span>{% endif %}</td>
       <td>{{ e.users | join(', ') if e.users else '—' }}{% if e.shared %}<span class="ua-sub">대신 쓰는 사용자: {{ e.shared | join(', ') }}</span>{% endif %}</td>
       <td class="wide">{{ e.granted_at }}</td>
-      <td class="act"><form action="/dev/google/revoke" method="post" data-confirm-danger data-confirm-ok="연결 삭제" data-confirm="{{ e.email }} 연결을 지울까요? 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다.">
+      <td class="act"><form action="/team/google/revoke" method="post" data-confirm-danger data-confirm-ok="연결 삭제" data-confirm="{{ e.email }} 연결을 지울까요? 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다.">
         <input type="hidden" name="email" value="{{ e.email }}"><button type="submit" class="mini-btn">연결 삭제</button></form></td>
     </tr>
     {% endfor %}
@@ -44,7 +44,7 @@
   <div class="card"><div class="card-in">
     <div class="modal-head"><h2 style="font-size:17px;">Google 앱 등록</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/gdrive/client" method="post" class="ua-form" id="googleAppForm">
+    <form action="/team/google/client" method="post" class="ua-form" id="googleAppForm">
       {% if app.configured %}<p class="muted" style="margin:0; font-size:12.5px;">등록된 앱 {{ app.client_id_hint }}{% if app.set_at %} · {{ app.set_at }}{% endif %} — 바꿀 때만 새 값을 넣습니다</p>{% endif %}
       <label>클라이언트 ID<input type="text" name="client_id" placeholder="….apps.googleusercontent.com" autocomplete="off" required></label>
       <label>클라이언트 보안 비밀번호<input type="password" name="client_secret" autocomplete="new-password" required></label>

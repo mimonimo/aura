@@ -248,7 +248,7 @@ def main() -> int:
     for name, rows_ in (("pipeline_missed.jsonl", missed_rows), ("pipeline_failed.jsonl", failed_rows)):
         tmpf = PLAT / f".{name}.tmp"
         tmpf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows_), encoding="utf-8")
-        tmpf.replace(PLAT / name)                         # 화면의 목록 내려받기(/dev/intake)가 읽는다
+        tmpf.replace(PLAT / name)                         # 처리 흐름의 목록 내려받기(/dev/flow/intake/missed.csv)가 읽는다
     out = {"at": now.strftime("%Y-%m-%d %H:%M"), "reimport": len(reimport), "composition": dict(comp), "archive_files": total, "targets": target, "in_docbox": done, "failed": failed,
            "waiting": waiting, "too_big": too_big, "too_big_rows": too_big_rows[:50], "missed": sum(missed.values()), "missed_by_ext": dict(missed), "missed_by_dir": dict(missed_dirs.most_common(15)),
            "missed_examples": examples, "failed_by_reason": dict(fail_why), "stuck_docs": stuck, "grant_chunks": n_chunks,

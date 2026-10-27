@@ -545,7 +545,7 @@ def made(data_dir: Path) -> list[dict]:
     return out
 
 
-PAGE = "/dev/train?tab=collect"       # 화면은 데이터·학습의 한 탭(10-27) — 만들기·내려받기 주소는 그대로 /dev/collect/…
+PAGE = "/dev/train?tab=collect"       # 화면은 데이터·학습의 한 탭(10-27) — 만들기·내려받기·구조 보기는 /dev/train/collect/…(옛 /dev/collect/… 는 10-27 에 지움)
 
 
 def _back(err: str = "") -> RedirectResponse:
@@ -567,7 +567,7 @@ def page_context(request: Request) -> dict:
             "days": {c["key"]: c["days"] for c in sources if c["n"]}}
 
 
-@router.get("/dev/collect/peek/{key}")
+@router.get("/dev/train/collect/peek/{key}")
 def collect_peek(request: Request, key: str):
     st = _st(request)
     if key not in BY_KEY:
@@ -575,7 +575,7 @@ def collect_peek(request: Request, key: str):
     return peek(st.db, _data_dir(request), key)
 
 
-@router.post("/dev/collect/make")
+@router.post("/dev/train/collect/make")
 def collect_make(request: Request, keys: list[str] = Form([]), since: str = Form(""), until: str = Form(""),
                  period: str = Form("")):
     st = _st(request)
@@ -605,7 +605,7 @@ def collect_make(request: Request, keys: list[str] = Form([]), since: str = Form
     return _back()
 
 
-@router.get("/dev/collect/file/{name}")
+@router.get("/dev/train/collect/file/{name}")
 def collect_file(request: Request, name: str):
     _st(request)
     if not re.fullmatch(r"collect-\d{8}-\d{6}\.zip", name):

@@ -121,11 +121,11 @@ def test_peek_route_is_dev_only(tmp_path):
         c = TestClient(app)
         assert c.post("/login", data={"username": u, "pw": pw}, follow_redirects=False).status_code == 303
         return c
-    assert login("kim", "kim-pass").get("/dev/collect/peek/chat_messages").status_code == 403
+    assert login("kim", "kim-pass").get("/dev/train/collect/peek/chat_messages").status_code == 403
     dev = login("zzdev", "dev-pass")
-    r = dev.get("/dev/collect/peek/helper")
+    r = dev.get("/dev/train/collect/peek/helper")
     assert r.status_code == 200 and r.json()["fields"][-1]["name"] == "split"
-    assert dev.get("/dev/collect/peek/nope").status_code == 404
+    assert dev.get("/dev/train/collect/peek/nope").status_code == 404
     page = dev.get("/dev/train?tab=collect").text
     assert 'data-peek="chat_messages"' in page and "구조·표본 보기" in page and "manifest.json" in page
 

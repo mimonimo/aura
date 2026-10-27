@@ -1,6 +1,9 @@
-"""구글 드라이브 연결(/dev/gdrive/*) — 관리자가 클라이언트 ID·비밀을 넣고, 담당자가 자기 계정으로 한 번 허용한다(읽기 전용, ADR-0028).
+"""구글 드라이브 연결 — 관리자가 클라이언트 ID·비밀을 넣고(/team/google/client), 담당자가 자기 계정으로 한 번 허용한다
+(되돌아오는 주소 /dev/gdrive/callback, 읽기 전용, ADR-0028).
 
-- /dev 경로는 main.check_auth 가 개발자만 들인다. 되돌아오는 주소(/dev/gdrive/callback)만 예외로 모든 계정이 온다.
+- 앱 등록은 화면(조직 관리)을 따라 /team/google/client — /dev 앞부분 막기를 받지 않으니 user_admin.need_admin 으로 관리자만.
+- 되돌아오는 주소(/dev/gdrive/callback)는 구글 콘솔에 등록한 값이라 그대로 둔다 — main.check_auth 의 /dev 막기에서 예외로 모든 계정이 온다.
+  옛 /dev/gdrive/client·/dev/gdrive/revoke 는 10-27 에 지웠다(연결 삭제는 user_admin 의 /team/google/revoke 한 곳).
 - DB·계정 표(accounts)·서비스 안 경로 판정식(local_path)은 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
 - 앱 등록과 계정 목록은 조직 관리의 학교 계정 연결 현황(/team#google-links) — 관리자 동작은 그리로 되돌아간다.
 """
@@ -11,6 +14,7 @@ from urllib.parse import quote as _q
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
+from zzaimy.app.user_admin import need_admin
 from zzaimy.app.user_admin import redirect_uri as _gdrive_redirect_uri
 
 router = APIRouter()
@@ -21,8 +25,9 @@ def _users_redirect(msg: str, ok: bool = True) -> RedirectResponse:
     return RedirectResponse(f"/team?{'ok' if ok else 'err'}={_q(msg)}#google-links", status_code=303)
 
 
-@router.post("/dev/gdrive/client")
-def dev_gdrive_client(client_id: str = Form(""), client_secret: str = Form("")):
+@router.post("/team/google/client")
+def team_google_client(request: Request, client_id: str = Form(""), client_secret: str = Form("")):
+    need_admin(request)
     from zzaimy.ingest import gdrive
 
     try:
@@ -65,11 +70,3 @@ def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error
 
     gdrive_files.bind_account(request.app.state.db, getattr(request.state, "user", ""), email)   # 허용을 누른 계정에 묶인다
     return done(f"구글 계정 {email} 을 연결했습니다 — 이 플랫폼 계정의 문서는 그 드라이브에 만들어집니다")
-
-
-@router.post("/dev/gdrive/revoke")
-def dev_gdrive_revoke(request: Request, email: str = Form("")):
-    from zzaimy.app.user_admin import unlink_google
-
-    unlink_google(request.app.state.db, request.app.state.accounts, email.strip())            # 사용자·계정 화면의 연결 삭제와 같은 동작
-    return _users_redirect(f"구글 계정 {email} 연결을 지웠습니다 — 이 계정으로 이어진 사용자·부서 연결도 풀었습니다")

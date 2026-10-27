@@ -57,7 +57,7 @@ Codex는 `codex.md`, Claude는 `claude.md`에 자신의 기록을 작성한다.
 | 운영 환경변수 | 운영 VM `~/zzaimy-capstone/.env.local` |
 | 플랫폼 계정 | 해당 환경 `data/platform/accounts.json` |
 | LLM 서버 연결·발급 키 | 해당 환경 `data/platform/llm_connections.json`, `/dev/tools` |
-| 구글 앱 등록 | 해당 환경 `data/platform/gdrive_oauth.json`, `/dev/users#google-links` |
+| 구글 앱 등록 | 해당 환경 `data/platform/gdrive_oauth.json`, `/team#google-links`(조직 관리, 관리자만) |
 | 학습 도구 계정·연결 | `/dev/tools`, `scripts/68_labelstudio_token.sh` |
 
 보관 위치 공유가 자격 증명 존재나 사용 권한을 보장하지 않는다. 비밀값은 새 문서나

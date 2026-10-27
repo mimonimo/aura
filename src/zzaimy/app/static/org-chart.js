@@ -3,7 +3,7 @@
  *         이름 바꾸기·상위 부서 옮기기·하위 부서 추가·지우기·부서 드라이브)
  *   전체 사용자(관리자): 계정 목록(찾기·역할·부서·사용 여부 거르기·쪽 나누기, 체크 → 역할·부서 옮기기·사용 중지·다시 사용, 계정 추가·편집)
  * 자료: GET /api/org · /api/org/members · /api/org/accounts. 고치기: /org/move·rename·delete·create·head, POST /api/org/members,
- *       /dev/users/bulk, /dev/rag/min-grade, /org/rag-lend. 단추는 서버가 준 권한(can_edit·can_hold·team·admin)대로만 보이고 서버가 매번 다시 본다.
+ *       /team/accounts/bulk, /dev/rag/min-grade, /org/rag-lend. 단추는 서버가 준 권한(can_edit·can_hold·team·admin)대로만 보이고 서버가 매번 다시 본다.
  * 확인창은 공통(window.platformConfirm), 입력 창은 같은 꼴(confirm-dialog)의 formDialog 하나. 글자는 모두 textContent 로 넣는다.
  */
 (function () {
@@ -725,7 +725,7 @@
     paint();
   }
   function bulk(op, uids, value) {
-    return postForm('/dev/users/bulk', {op: op, value: value || '', uids: uids}).then(function (j) {
+    return postForm('/team/accounts/bulk', {op: op, value: value || '', uids: uids}).then(function (j) {
       toast(j.msg); acc.chosen = {}; return load().then(renderAccounts);
     });
   }

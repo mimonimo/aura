@@ -242,7 +242,7 @@ def test_dual_post_rows_save_dept_grades(tmp_path):
         c.post("/org/create", json={"name": n})
     page = c.get("/team").text                                                # 계정 편집 창은 조직 관리(ADR-0073)
     assert "겸직 부서" in page and "data-extra-add" in page and 'name="extra_grade"' in page
-    r = c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",
+    r = c.post("/team/accounts/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",
                                         "extra": ["다라2.0사업단", "학생처", "기획처", "없는부서"],
                                         "extra_grade": ["head", "member", "lead", "head"]}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
@@ -252,7 +252,7 @@ def test_dual_post_rows_save_dept_grades(tmp_path):
     me = next(u for u in c.get("/api/org/accounts").json()["users"] if u["user"] == "zzaimy")
     assert me["extra"] == ["다라2.0사업단", "학생처"] and me["extra_grades"] == ["head", "member"]
     # 겸직을 빼면 빠진다
-    c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",
+    c.post("/team/accounts/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",
                                     "extra": ["학생처"], "extra_grade": ["clerk"]})
     a = app.state.accounts["zzaimy"]
     assert a["dept_grades"] == {"학생처": "clerk"}

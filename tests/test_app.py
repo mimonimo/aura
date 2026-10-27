@@ -1042,7 +1042,7 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
     ds = db.list_datasets()[0]
     assert ds["n_pairs"] == 1
 
-    r = client.get(f"/dev/data/{ds['id']}.jsonl")
+    r = client.get(f"/dev/train/data/{ds['id']}.jsonl")
     assert r.status_code == 409  # 후보 생성은 학습 승인과 다르다.
 
 

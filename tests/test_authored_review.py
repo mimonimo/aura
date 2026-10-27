@@ -150,14 +150,14 @@ def test_import_route_idempotent_and_revoked_snapshot_not_downloadable(tmp_path,
     monkeypatch.setattr(db, 'get_document', lambda *a: {'id':1})
     monkeypatch.setattr(db, 'list_doc_chunks', lambda *a: [{'id':2,'kind':'text','content':'교육과정을 개선합니다.'}])
     for _ in range(2):
-        response = c.post('/dev/data/grounded-pull', follow_redirects=False)
+        response = c.post('/dev/train/grounded-pull', follow_redirects=False)
         assert 'ok=' in response.headers['location']
     assert db.count_datasets() == 1
     ds = db.list_datasets()[0]
-    assert c.get(f"/dev/data/{ds['id']}.jsonl").status_code == 200
+    assert c.get(f"/dev/train/data/{ds['id']}.jsonl").status_code == 200
     rows[0]['annotations'] = []
-    assert 'ok=' in c.post('/dev/data/grounded-pull', follow_redirects=False).headers['location']
-    assert c.get(f"/dev/data/{ds['id']}.jsonl").status_code == 409
+    assert 'ok=' in c.post('/dev/train/grounded-pull', follow_redirects=False).headers['location']
+    assert c.get(f"/dev/train/data/{ds['id']}.jsonl").status_code == 409
     report = json.loads(db.get_setting('grounded_review_report'))
     assert report['approved'] == 0 and report['held'] == 1
 
@@ -181,4 +181,4 @@ def test_staff_cannot_import_or_change_review_config(tmp_path):
     c = TestClient(_app(tmp_path))
     assert _login(c, 'zzaimy', 'boot-pass-1')
     for path in ('grounded-pull',):
-        assert c.post('/dev/data/'+path).status_code == 403
+        assert c.post('/dev/train/'+path).status_code == 403

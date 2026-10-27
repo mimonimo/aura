@@ -102,9 +102,9 @@ def test_oauth_flow_stores_tokens_only_on_valid_state(drive_env, tmp_path):
     from urllib.parse import unquote
     assert "staff@example.ac.kr" in unquote(ok.headers["location"])
     assert "staff@example.ac.kr" in [a["email"] for a in gdrive.list_accounts()]
-    client.post("/dev/gdrive/revoke", data={"email": "staff@example.ac.kr"}, follow_redirects=False)
+    client.post("/team/google/revoke", data={"email": "staff@example.ac.kr"}, follow_redirects=False)
     assert gdrive.list_accounts() == []
-    r = client.post("/dev/gdrive/client", data={"client_id": "bad", "client_secret": "x"}, follow_redirects=False)
+    r = client.post("/team/google/client", data={"client_id": "bad", "client_secret": "x"}, follow_redirects=False)
     assert "err=" in r.headers["location"]
 
 

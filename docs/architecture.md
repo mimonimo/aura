@@ -226,7 +226,7 @@ for 절 in 목차:
 | 데이터·학습·도구 연결·학습 상태 | dev_train_routes.py | /dev/train*, /dev/tools |
 | 근거 문답 검수 반영·LLM 연결 | dev_data_routes.py | /dev/data/grounded-*, /dev/llm/* |
 | RAG 공간 · 개인정보 점검 | dev_rag_routes.py · dev_pii_routes.py | /dev/rag*, /dev/pii* |
-| 반입 점검(처리 흐름) · 구글 앱 등록 | dev_intake_routes.py · dev_gdrive_routes.py | 화면은 /dev/flow#intake, 내려받기 /dev/intake/{missed,failed}.csv, /dev/gdrive/callback·client·revoke (앱 등록 화면은 조직 관리 /team#google-links) |
+| 반입 점검(처리 흐름) · 구글 앱 등록 | dev_intake_routes.py · dev_gdrive_routes.py | 화면은 /dev/flow#intake, 빠진 원본 내려받기 /dev/flow/intake/missed.csv, 구글 앱 등록 POST /team/google/client(관리자만, 화면은 조직 관리 /team#google-links), 허용 콜백 /dev/gdrive/callback(콘솔 등록 값이라 그대로, 로그인한 누구나) |
 | 논문·설계 문서·주간 보고·변경 이력 | dev_docs_routes.py | /dev/docs, /dev/doc/*, /dev/paper/*, /dev/weekly*, /dev/history |
 | 한글 문서함·기안기 편집 | webhwp_routes.py | /hwp, /hwp/favorite, /webhwpctrl/ (편집 화면 /webhwpctrl/aura-edit?id=) |
 | 조직 관리(트리·부서) | org_routes.py | /api/org, /org/* |
@@ -236,7 +236,7 @@ for 절 in 목차:
 | 부서 드라이브 | dept_drive_routes.py | /team/drive* |
 | 사업 관리 | program_admin.py | /programs/admin* |
 
-이 밖에 예전부터 따로 있던 라우터: collect.py(데이터·학습의 「수집 자료」 탭 /dev/train?tab=collect, 만들기·내려받기 /dev/collect/*), model_compare.py(/dev/models/compare), user_admin.py(조직 관리 /team — 계정·구성원·관리자용 구글 연결, /dev/users/save·bulk, /api/org/accounts·/api/org/members), data_explorer.py(반입 결과 보기 /dev/archive/doc/{id} 조립), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
+이 밖에 예전부터 따로 있던 라우터: collect.py(데이터·학습의 「수집 자료」 탭 /dev/train?tab=collect, 만들기·내려받기·구조 보기 /dev/train/collect/{make,file,peek}), model_compare.py(/dev/models/compare), user_admin.py(조직 관리 /team — 계정·구성원·관리자용 구글 연결, POST /team/accounts/save·bulk·/team/google/revoke — /dev 밖이라 처리마다 need_admin 으로 관리자만, /api/org/accounts·/api/org/members), data_explorer.py(반입 결과 보기 /dev/archive/doc/{id} 조립), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
 앱이 띄우는 긴 배경 작업(재측정·재색인·반입 점검)은 `app/detach.py` 로 systemd scope 에 떼어 서비스 재시작에 끊기지 않는다.
 
 ## 10.2 웹 한글 기안기 공동 편집 (ADR-0070, 10-24)

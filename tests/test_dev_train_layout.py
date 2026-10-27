@@ -47,7 +47,7 @@ def test_review_card_lists_projects_and_refreshes_from_cache(client, monkeypatch
     monkeypatch.setattr(LabelStudioClient, "projects_progress", progress)
     page = client.get("/dev/train").text
     assert 'data-ls-project="8"' in page and f'href="{LS_URL}/projects/8/data"' in page and ">5%<" in page
-    assert "사람 검수 시작 때 생성" not in page and 'action="/dev/data/grounded-pull"' not in page
+    assert "사람 검수 시작 때 생성" not in page and 'action="/dev/train/grounded-pull"' not in page
     st = client.get("/dev/train/review-status").json()
     assert st["ok"] and st["projects"][0]["pct"] == 5
     assert len(calls) == 1                                       # 30초 캐시 — 화면과 1분 갱신이 LS 를 두드리지 않게

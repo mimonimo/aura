@@ -2,13 +2,13 @@
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·DB 경로(db_path)는 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
-- 구글 앱 등록·계정 연결(/dev/gdrive/*)은 app/dev_gdrive_routes, 화면은 조직 관리(/team#google-links, 관리자만).
+- 구글 앱 등록(/team/google/client)·허용 콜백(/dev/gdrive/callback)은 app/dev_gdrive_routes, 화면은 조직 관리(/team#google-links, 관리자만).
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 router = APIRouter()
@@ -23,20 +23,19 @@ def intake_ctx(request: Request) -> dict:
             "missed": intake_status.listing(st.db_path, "missed")[:50], "failed": intake_status.listing(st.db_path, "failed")[:50]}
 
 
-@router.get("/dev/intake/{name}.csv")
-def dev_intake_csv(request: Request, name: str):
+@router.get("/dev/flow/intake/missed.csv")
+def dev_intake_missed_csv(request: Request):
+    """처리 흐름 「반입 점검」 칸의 빠진 원본 목록 내려받기. 실패 목록(옛 failed.csv)은 처리 흐름에 표가 없어(10-26) 10-27 에 지웠다 —
+    실패 원본은 정리함 「처리 실패」(원본 관리)에서 본다."""
     import csv
     import io
     from zzaimy.app import intake_status
-    if name not in ("missed", "failed"):
-        raise HTTPException(404)
-    rows = intake_status.listing(request.app.state.db_path, name)
+    rows = intake_status.listing(request.app.state.db_path, "missed")
     buf = io.StringIO()
-    cols = ["rel", "ext", "seen_at"] if name == "missed" else ["rel", "reason", "error"]
+    cols = ["rel", "ext", "seen_at"]
     w = csv.writer(buf)
     w.writerow(cols)
     for r in rows:
         w.writerow([r.get(c, "") for c in cols])
     return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f"attachment; filename=intake_{name}.csv"})
-
+                    headers={"Content-Disposition": "attachment; filename=intake_missed.csv"})

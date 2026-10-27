@@ -1,4 +1,4 @@
-"""반입 연동 관리(/dev/intake) — 점검 결과(scripts/175)를 읽어 보이고, 목록을 내려받는다."""
+"""반입 점검(처리 흐름 /dev/flow#intake) — 점검 결과(scripts/175)를 읽어 보이고, 빠진 원본 목록을 내려받는다(/dev/flow/intake/missed.csv)."""
 from __future__ import annotations
 
 import json
@@ -27,9 +27,11 @@ def test_intake_page_shows_audit_and_lists(tmp_path):
     assert r.status_code == 200
     for text in ("처리 대상 문서 100건", "라이브러리에 들어감 90", "빠진 원본 4건", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
         assert text in r.text, text
-    csv = c.get("/dev/intake/missed.csv")
+    assert 'href="/dev/flow/intake/missed.csv"' in r.text
+    csv = c.get("/dev/flow/intake/missed.csv")
     assert csv.status_code == 200 and "링크/업무/a.pdf" in csv.text
-    assert c.get("/dev/intake/nope.csv").status_code == 404
+    for gone in ("/dev/intake/missed.csv", "/dev/intake/failed.csv", "/dev/flow/intake/failed.csv"):   # 옛 주소·쓰지 않던 실패 목록은 지웠다(10-27)
+        assert c.get(gone).status_code == 404, gone
 
 
 def test_intake_page_without_audit(tmp_path):
@@ -56,7 +58,7 @@ def _metric_names(page: str) -> str:
 def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
     _audit(tmp_path)
     page = _client(tmp_path).get("/dev/flow").text
-    assert "/dev/intake/missed.csv" not in page and "/dev/intake/failed.csv" not in page   # 빈 표 카드 없음
+    assert "/intake/missed.csv" not in page and "/intake/failed.csv" not in page   # 빈 표 카드 없음
     assert "빠진 원본 예시" not in page
     names = _metric_names(page)
     assert "[빠짐 0]" in names and "[실패 0]" in names                  # 0 은 처리 대상 범례에서 한 번만
@@ -67,7 +69,7 @@ def test_no_failed_table_on_flow_page(tmp_path):
     """실패 원본은 동기화마다 정리함 「처리 실패」 로 옮긴다(scripts/217) — 처리 흐름에 실패 표를 두지 않는다(10-26)."""
     _audit(tmp_path, failed=7, failed_by_reason={"글 없는 문서": 7})
     page = _client(tmp_path).get("/dev/flow").text
-    assert "/dev/intake/failed.csv" not in page and "글 없는 문서" not in page
+    assert "/intake/failed.csv" not in page and "글 없는 문서" not in page
 
 
 def test_retry_limit_reads_constant_without_running(tmp_path):

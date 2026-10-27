@@ -93,7 +93,7 @@ URL="$(PYTHONPATH=src "$PLAT_PY" -c \
 code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Token $TOKEN" \
   "$URL/api/current-user/whoami" || true)"
 if [ "$code" = "200" ]; then
-  echo "PASS: whoami 200 ($URL) — /dev/data 에서 연결됨으로 보입니다"
+  echo "PASS: whoami 200 ($URL) — 데이터·학습(/dev/train)에서 연결됨으로 보입니다"
   exit 0
 fi
 local_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Token $TOKEN" \

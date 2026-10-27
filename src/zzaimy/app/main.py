@@ -4477,7 +4477,7 @@ def create_app(
 
     # 개발 현황(/dev·/dev/flow·/dev/quality*·/dev/eval/*·/dev/reindex·/dev/route-all) — 독립 라우터
     # (app/dev_overview_routes). 개발 현황 도우미 묶음(_ov)은 앱마다 만들고 문서·보고·RAG 공간 라우터와 자동 재색인이 함께 쓴다.
-    # 구글 드라이브 연결(/dev/gdrive/*) — 독립 라우터(app/dev_gdrive_routes)
+    # 구글 드라이브 연결(앱 등록 /team/google/client · 허용 콜백 /dev/gdrive/callback) — 독립 라우터(app/dev_gdrive_routes)
     from zzaimy.app import dev_gdrive_routes, dev_overview_routes
     _ov = dev_overview_routes.make_overview_helpers(db, db_path, _DOCS_DIR)
     app.state.overview = _ov
@@ -4531,7 +4531,7 @@ def create_app(
     from zzaimy.app import criteria_regs_routes        # 기준 문서 관리(/criteria/regs*) — 라이브러리 「기준」 칩, 관리자만(처리마다 역할 검사)
     app.include_router(criteria_regs_routes.router)
     app.include_router(dev_pii_routes.router)
-    # 문서 반입(/dev/intake*) — 독립 라우터(app/dev_intake_routes). 문서·보고(/dev/docs·/dev/doc/·/dev/paper·
+    # 반입 점검 내려받기(/dev/flow/intake/missed.csv) — 독립 라우터(app/dev_intake_routes). 문서·보고(/dev/docs·/dev/doc/·/dev/paper·
     # /dev/history·/dev/weekly*) — 독립 라우터(app/dev_docs_routes). 개발 현황 묶음(_ov)의 문서 도우미를 넘긴다
     from zzaimy.app import dev_docs_routes, dev_intake_routes
     app.state.db_path = db_path

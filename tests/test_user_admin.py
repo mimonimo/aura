@@ -30,7 +30,7 @@ def test_staff_cannot_open_user_admin(tmp_path, monkeypatch):
     c = TestClient(_app(tmp_path))
     assert _login(c, "zzaimy", "boot-pass-1")
     assert 'id="google-links"' not in c.get("/team").text                         # 학교 계정 연결 현황은 관리자에게만
-    assert c.post("/dev/users/save", data={"uid": "x", "is_new": "1"}, follow_redirects=False).status_code == 403
+    assert c.post("/team/accounts/save", data={"uid": "x", "is_new": "1"}, follow_redirects=False).status_code == 403
 
 
 def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
@@ -39,7 +39,7 @@ def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
     page = c.get("/team").text
     assert "학교 계정 연결 현황" in page and "허용 도메인 ync.ac.kr" in page and "zzaimy" in c.get("/api/org/accounts").text
     c.post("/org/create", json={"name": "산학협력단"})     # 부서는 만든 뒤 고른다(부서 RAG = 부서 목록)
-    r = c.post("/dev/users/save", data={"uid": "Kim_ops", "is_new": "1", "name": "김담당", "role": "staff", "dept": "산학협력단",
+    r = c.post("/team/accounts/save", data={"uid": "Kim_ops", "is_new": "1", "name": "김담당", "role": "staff", "dept": "산학협력단",
                                         "new_pw": "init-pass-1", "google": "kim@ync.ac.kr"}, follow_redirects=False)
     assert r.status_code == 303 and "ok=" in r.headers["location"]
     data = json.loads((tmp_path / "accounts.json").read_text())
@@ -63,7 +63,7 @@ def test_user_save_rejects_bad_input_and_self_lockout(tmp_path, monkeypatch):
     c = _dev(tmp_path)
 
     def err(data):
-        r = c.post("/dev/users/save", data=data, follow_redirects=False)
+        r = c.post("/team/accounts/save", data=data, follow_redirects=False)
         return "err=" in r.headers["location"]
     assert err({"uid": "ab", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})             # 아이디 짧음
     assert err({"uid": "kim.ops", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})        # 점(세션 토큰 구분자)
@@ -81,16 +81,16 @@ def test_user_save_rejects_bad_input_and_self_lockout(tmp_path, monkeypatch):
 def test_deactivate_and_reset_password(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
     c = _dev(tmp_path)
-    r = c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "new_pw": "reset-pass-9", "active": "1"},
+    r = c.post("/team/accounts/save", data={"uid": "zzaimy", "role": "staff", "new_pw": "reset-pass-9", "active": "1"},
                follow_redirects=False)
     assert "임시 비밀번호" in unquote(r.headers["location"]) and "reset-pass-9" not in r.headers["location"]
     assert json.loads((tmp_path / "accounts.json").read_text())["zzaimy"]["must_change"] is True
     c2 = TestClient(c.app)
     assert _login(c2, "zzaimy", "reset-pass-9")
-    c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff"})                            # 사용 끔
+    c.post("/team/accounts/save", data={"uid": "zzaimy", "role": "staff"})                            # 사용 끔
     assert c2.get("/settings", follow_redirects=False).status_code in (303, 401)               # 세션 즉시 무효
     assert not _login(TestClient(c.app), "zzaimy", "reset-pass-9")
-    c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "active": "1"})
+    c.post("/team/accounts/save", data={"uid": "zzaimy", "role": "staff", "active": "1"})
     assert _login(TestClient(c.app), "zzaimy", "reset-pass-9")
 
 
@@ -166,7 +166,7 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
     db.set_setting("google_account_dept:산학협력단", "dev@ync.ac.kr")
     # 연결 삭제는 토큰과 사용자·부서 이음을 함께 푼다
     db.set_setting("google_account:zzaimy", "dev@ync.ac.kr")
-    c.post("/dev/google/revoke", data={"email": "dev@ync.ac.kr"})
+    c.post("/team/google/revoke", data={"email": "dev@ync.ac.kr"})
     assert revoked == ["dev@ync.ac.kr"] and db.get_setting("google_account:zzaimy") == "" and db.get_setting("google_account_dept:산학협력단") == ""
 
 
@@ -220,7 +220,7 @@ def test_dept_is_picked_from_known_list(tmp_path, monkeypatch):
     assert 'role="switch"' in page and 'class="ua-switch"' in page
 
     def save(dept):
-        r = c.post("/dev/users/save", data={"uid": "lee_ops", "is_new": "1", "role": "staff", "dept": dept,
+        r = c.post("/team/accounts/save", data={"uid": "lee_ops", "is_new": "1", "role": "staff", "dept": dept,
                                             "new_pw": "init-pass-1"}, follow_redirects=False)
         return r.headers["location"]
     assert "err=" in save("가상 교무쳐")                        # 오타 — 새 부서가 생기지 않는다

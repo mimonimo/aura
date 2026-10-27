@@ -103,7 +103,7 @@
 {% set empty = sources | rejectattr('n') | list %}
 <div class="card reveal" id="collect"><div class="card-in">
   <h2><iconify-icon icon="solar:database-linear"></iconify-icon>수집 자료</h2>
-  <form action="/dev/collect/make" method="post" id="collectForm">
+  <form action="/dev/train/collect/make" method="post" id="collectForm">
     <div class="col-period">
       <div class="chips" role="radiogroup" aria-label="기간">{% for v, label in periods %}
         <label class="chip"><input type="radio" name="period" value="{{ v }}" {{ 'checked' if v == 'all' }}>{{ label }}</label>{% endfor %}
@@ -175,7 +175,7 @@
       <tr><td>{{ m.made_at or m.name }}{% if m.mask_failed %}<span class="sub" style="color:var(--red);">가림 실패 {{ m.mask_failed }}칸 — 「[가림 실패]」로 바뀜</span>{% endif %}</td>
         <td class="hide-sm">{{ m.items }}</td><td class="hide-sm">{{ m.period }}</td>
         <td class="num">{{ '{:,}'.format(m.rows) }}</td><td class="num">{{ '{:,.1f}'.format(m.bytes / 1048576) }} MB</td>
-        <td><a class="btn secondary" href="/dev/collect/file/{{ m.name }}">내려받기</a></td></tr>
+        <td><a class="btn secondary" href="/dev/train/collect/file/{{ m.name }}">내려받기</a></td></tr>
     {% endfor %}</tbody>
   </table></div>
   {% else %}<p class="muted" style="font-size:13px;">아직 만든 묶음이 없습니다.</p>{% endif %}
@@ -272,7 +272,7 @@
       btn.textContent = open ? '접기' : '구조·표본 보기';
       if (!open || loaded) return;
       loaded = true;
-      fetch('/dev/collect/peek/' + encodeURIComponent(btn.dataset.peek), {credentials: 'same-origin'})
+      fetch('/dev/train/collect/peek/' + encodeURIComponent(btn.dataset.peek), {credentials: 'same-origin'})
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (d) { row.firstElementChild.innerHTML = render(d); })
         .catch(function () { loaded = false; row.firstElementChild.innerHTML = '<p class="muted" style="margin:0;">불러오지 못했습니다 — 다시 눌러 주세요.</p>'; });
@@ -303,7 +303,7 @@
     {% endfor %}</tbody>
   </table></div>
   {% else %}<p class="muted" style="margin:0; font-size:13px;">Label Studio 에 검수 프로젝트가 없습니다.</p>{% endif %}
-  {% if review.can_pull %}<div class="review-actions"><form method="post" action="/dev/data/grounded-pull"><button class="btn-ghost" type="submit"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form></div>{% endif %}
+  {% if review.can_pull %}<div class="review-actions"><form method="post" action="/dev/train/grounded-pull"><button class="btn-ghost" type="submit"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form></div>{% endif %}
   {% if grounded_review_report %}
   <p class="tr-line">최근 반영 {{ grounded_review_report.checked_at }} · 확인 {{ grounded_review_report.total }} · 승인 {{ grounded_review_report.approved }} · 보류 {{ grounded_review_report.held }}{% if grounded_review_report.issues %} — {% for reason, count in grounded_review_report.issues.items() %}{{ {'review_missing_or_ambiguous':'검수 누락·충돌', 'review_incomplete':'검수 항목 덜 채움', 'not_accepted':'채택 안 됨', 'source_changed_or_missing':'원문 바뀜·없음', 'history_changed':'앞 대화 바뀜', 'parent_missing':'앞 문답 없음', 'privacy_requires_revision':'개인정보 고칠 것', 'unsupported_number':'근거 없는 수치', 'duplicate_conversation':'중복 문답'}.get(reason, '기록 재확인') }} {{ count }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
   {% endif %}

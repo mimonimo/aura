@@ -68,16 +68,16 @@ def test_page_is_dev_only_and_makes_bundle(tmp_path):
     dev = login("zzdev", "dev-pass")
     page = dev.get("/dev/train?tab=collect").text
     assert "대화 메시지" in page and "업무 도우미 기록" in page
-    r = dev.post("/dev/collect/make", data={"keys": ["chat_messages"]}, follow_redirects=False)
+    r = dev.post("/dev/train/collect/make", data={"keys": ["chat_messages"]}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/dev/train?tab=collect"
     for _ in range(100):
-        if "/dev/collect/file/collect-" in (page := dev.get("/dev/train?tab=collect").text):
+        if "/dev/train/collect/file/collect-" in (page := dev.get("/dev/train?tab=collect").text):
             break
         time.sleep(0.1)
-    name = page.split("/dev/collect/file/")[1].split('"')[0]
-    got = dev.get(f"/dev/collect/file/{name}")
+    name = page.split("/dev/train/collect/file/")[1].split('"')[0]
+    got = dev.get(f"/dev/train/collect/file/{name}")
     assert got.status_code == 200 and got.content[:2] == b"PK"
-    assert dev.get("/dev/collect/file/..%2Fplatform.db").status_code == 404
+    assert dev.get("/dev/train/collect/file/..%2Fplatform.db").status_code == 404
 
 
 def test_resolve_period_quick_ranges():
@@ -111,10 +111,10 @@ def test_page_groups_empty_rows_and_period_chips(tmp_path):
     assert page.count('class="col-pick"') == len(cat) - n_empty
     assert "<th class=\"hide-sm\">있는 곳</th>" not in page and "platform_helper_episodes.jsonl" in page
     # 빠른 기간 — 이번 달(오늘 기준)로도 만들어진다
-    r = c.post("/dev/collect/make", data={"keys": ["helper"], "period": "month"}, follow_redirects=False)
+    r = c.post("/dev/train/collect/make", data={"keys": ["helper"], "period": "month"}, follow_redirects=False)
     assert r.status_code == 303 and "err" not in r.headers["location"]
     for _ in range(100):
-        if "/dev/collect/file/collect-" in c.get("/dev/train?tab=collect").text:
+        if "/dev/train/collect/file/collect-" in c.get("/dev/train?tab=collect").text:
             break
         time.sleep(0.1)
 
@@ -130,7 +130,7 @@ def test_collect_is_a_tab_of_train_page(tmp_path):
     c = TestClient(app)
     c.post("/login", data={"username": "zzdev", "pw": "dev-pass"}, follow_redirects=False)
     assert c.get("/dev/collect", follow_redirects=False).status_code in (404, 405)   # 옛 주소는 없앴다(10-27)
-    r = c.post("/dev/collect/make", data={}, follow_redirects=False)            # 고른 항목 없음 — 탭으로 돌아가 까닭을 보인다
+    r = c.post("/dev/train/collect/make", data={}, follow_redirects=False)            # 고른 항목 없음 — 탭으로 돌아가 까닭을 보인다
     assert r.status_code == 303 and r.headers["location"].startswith("/dev/train?tab=collect&err=")
     page = c.get(r.headers["location"]).text
     assert "항목을 하나 이상 고르세요" in page and 'id="collectForm"' in page

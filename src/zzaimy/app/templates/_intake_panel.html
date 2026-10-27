@@ -91,7 +91,7 @@
 <div class="ik-grid">
 {% if p.missed %}
 <section class="card"><div class="card-in">
-  <h2>{{ metric_label("audit_missed", p.at, "빠진 원본 " ~ "{:,}".format(p.missed) ~ "건") }} <a class="h-link" href="/dev/intake/missed.csv" download><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>목록 내려받기</a></h2>
+  <h2>{{ metric_label("audit_missed", p.at, "빠진 원본 " ~ "{:,}".format(p.missed) ~ "건") }} <a class="h-link" href="/dev/flow/intake/missed.csv" download><iconify-icon icon="solar:download-minimalistic-linear" aria-hidden="true"></iconify-icon>목록 내려받기</a></h2>
   {% if p.missed_by_ext %}
   <table class="ik-table">
     <tr><th>형식</th><th class="n">건수</th></tr>

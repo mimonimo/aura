@@ -112,13 +112,13 @@ def test_accounts_bulk_and_page(org):
     app, dev, _ = org
     assert dev.get("/api/org/accounts").json()["users"]
     assert _client(app, "boss").get("/api/org/accounts").status_code == 403
-    r = dev.post("/dev/users/bulk", data={"op": "dept", "value": "학생복지처", "uids": ["kim", "park"]})
+    r = dev.post("/team/accounts/bulk", data={"op": "dept", "value": "학생복지처", "uids": ["kim", "park"]})
     assert r.json()["ok"] and {app.state.accounts[u]["dept"] for u in ("kim", "park")} == {"학생복지처"}
-    r = dev.post("/dev/users/bulk", data={"op": "suspend", "uids": ["kim", "zzdev"]})
+    r = dev.post("/team/accounts/bulk", data={"op": "suspend", "uids": ["kim", "zzdev"]})
     j = r.json()
     assert j["done"] == ["kim"] and j["failed"][0]["uid"] == "zzdev" and app.state.accounts["kim"]["active"] is False
-    assert dev.post("/dev/users/bulk", data={"op": "activate", "uids": ["kim"]}).json()["ok"]
-    assert dev.post("/dev/users/bulk", data={"op": "role", "value": "student", "uids": ["kim"]}).status_code == 400
+    assert dev.post("/team/accounts/bulk", data={"op": "activate", "uids": ["kim"]}).json()["ok"]
+    assert dev.post("/team/accounts/bulk", data={"op": "role", "value": "student", "uids": ["kim"]}).status_code == 400
     page = dev.get("/team").text
     assert 'id="orgAdmin"' in page and 'data-accounts="1"' in page and 'id="userEdit"' in page and "data-org-add" in page
     boss_page = _client(app, "boss").get("/team").text
@@ -132,7 +132,7 @@ def test_screen_code_uses_common_parts():
     src = (STATIC / "org-chart.js").read_text(encoding="utf-8")
     assert "innerHTML" not in src and "insertAdjacentHTML" not in src and "location.reload" not in src
     for path in ("/api/org", "/api/org/members", "/api/org/accounts", "/org/move", "/org/rename", "/org/delete", "/org/create", "/org/head",
-                 "/dev/users/bulk", "/dev/rag/min-grade"):
+                 "/team/accounts/bulk", "/dev/rag/min-grade"):
         assert path in src
     assert "platformConfirm" in src and "bulk-bar" in src and "row-menu" in src and "confirm-dialog" in src
     assert "resize" not in (TEMPLATES / "team.html").read_text(encoding="utf-8")
