@@ -64,8 +64,9 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
 
         # 타일마다 지표 이름(metric) — 화면이 지표 모듈의 정의를 툴팁으로 붙인다
         tiles = [
-            {"icon": "solar:documents-linear", "label": "접수 문서", "metric": "documents",
-             "value": n_docs, "sub": f"검토 완료 {n_reviewed} · 최근 7일 {n_recent}"},
+            # 머리 수치는 실제로 반입돼 검색·작성에 쓰이는 등록 문서 — 학교 원본·원본 장부 같은 수집 단계 수는 원본 관리·반입 점검에만
+            {"icon": "solar:documents-linear", "label": "등록 문서", "metric": "documents",
+             "value": n_docs, "sub": f"처리 완료 {n_reviewed:,} · 사업 문서 조각 {mv['grant_chunks']:,} · 최근 7일 {n_recent:,}"},
             {"icon": "solar:folder-2-linear", "label": "프로젝트", "metric": "projects_active",
              "value": n_proj, "sub": f"진행 중 · 지난 사업 묶음 {mv['projects_archived']:,}개는 별도"},
             {"icon": "solar:chat-round-line-linear", "label": "대화",

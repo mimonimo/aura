@@ -85,8 +85,8 @@
     // abs 면 문단 번호 그대로(같은 작업 단위 안에서 바로 되돌릴 때 — 칸 자리 재기). 화면은 커서가 보이던 높이를 지키도록 스크롤을 맞춘다
     function caretY() { var A = app(); try { var k = A.hwpCaret.KNi(), p = toScreen(k.page, k.x, k.y); return p ? p.y : null; } catch (e) { return null; } }
     function getCursor(abs) {
-      var c;
-      try { c = {pos: ctrl.GetPos(), scroll: scrollItems()}; } catch (e) { return null; }
+      var c, v0 = viewTop();
+      try { c = {pos: ctrl.GetPos(), scroll: scrollItems(), view: v0}; } catch (e) { return null; }
       if (abs) return c;
       try {
         var f = ctrl.GetCurFieldName(0) || '';
@@ -94,6 +94,7 @@
           var s0 = ctrl.GetPos();
           if (s0.list === c.pos.list && c.pos.para >= s0.para) c.rel = {field: f, dp: c.pos.para - s0.para, pos: c.pos.para === s0.para ? c.pos.pos - s0.pos : c.pos.pos};
           ctrl.SetPos(c.pos.list, c.pos.para, c.pos.pos);
+          holdView(v0);                       // 읽기만 하려고 커서를 칸 처음에 다녀왔다 — 화면은 그대로
         }
       } catch (e) {}
       c.y = caretY();
@@ -124,27 +125,35 @@
           var y1 = caretY(), fr = frame().getBoundingClientRect();
           if (y1 != null && Math.abs(y1 - c.y) > 2 && c.y > fr.top && c.y < fr.bottom) {
             var s2 = ctrl.ScrollPosInfo, m2 = s2.m_Set.m_SetItemMap;
-            if (typeof m2['28675'] === 'number') { m2['28675'] = Math.max(0, m2['28675'] + (y1 - c.y) * 75); ctrl.ScrollPosInfo = s2; }
+            if (typeof m2['28675'] === 'number') { m2['28675'] = Math.max(0, m2['28675'] + (y1 - c.y) * 75); ctrl.ScrollPosInfo = s2; return; }
           }
         } catch (e) {}
       }
+      // 커서를 칸으로 옮겼다 되돌리는 모든 일(남의 글 넣기·칸 자리 재기·칸 내보내기)에서 보던 화면 그대로 — 기안기가 다음 장면에서
+      // 화면을 커서 쪽으로 끌어올려 AURA 를 따라가던 화면이 깜빡였다(10-27). 커서 높이를 맞춰 굴린 때(위)는 그 값을 둔다
+      if (c.view != null) holdView(c.view);
     }
     // 남의 글을 넣은 뒤 보던 화면 지키기 — 넣으려고 커서를 칸으로 옮겼다 되돌리면 기안기가 다음 장면에서 화면을 내 커서 쪽(대개 문서 맨 위)으로
     // 끌어올리고, 따라가기가 다시 내려 0.2~0.3초마다 깜빡였다(10-27 시연, 실측 1148→248px). 화면 막대 자리를 지금 바로, 그리고 기안기가
     // 끌어올린 그 장면(그리기 전) 안에서 한 번 더 되돌린다 — 맨 위 화면은 그려지지 않는다(실측: 열한 장면 내내 1148)
     function viewTop() { try { var v = doc().getElementById('hcwoViewScroll'); return v ? v.scrollTop : null; } catch (e) { return null; } }
+    // 지킬 자리는 한 곳(holdTop)에 둔다 — 따라가기(scrollBy)가 굴리면 그 자리가 새 목표가 된다. 굴림이 지키기를 거두게 했더니 기안기의
+    // 늦은 「커서 쪽으로 끌어올리기」 가 그대로 그려져 두 자리를 오갔다(10-27 세 칸 실측 232회). 일부러 커서를 옮기면(moveTo) 지키기를 놓는다
+    var holdTop = null, holdUntil = 0;
     function holdView(top) {
       if (top == null) return;
       var v, W;
       try { v = doc().getElementById('hcwoViewScroll'); W = frame().contentWindow; } catch (e) { return; }
       if (!v || !W) return;
-      var fix = function () { if (Math.abs(v.scrollTop - top) > 1) v.scrollTop = top; };
+      holdTop = top; holdUntil = Date.now() + 400;
+      var fix = function () { if (holdTop != null && Date.now() < holdUntil && Math.abs(v.scrollTop - holdTop) > 1) v.scrollTop = holdTop; };
       fix();
-      W.requestAnimationFrame(function () { fix(); W.requestAnimationFrame(fix); });
+      W.requestAnimationFrame(function () { fix(); W.requestAnimationFrame(function () { fix(); W.requestAnimationFrame(fix); }); });
     }
     // 화면만 위아래로 굴리기(커서는 그대로) — 따라가기가 쓴다. 세로 스크롤 값 1 = 화면 1/75px(실측, 위 restoreCursor 와 같은 값). 양수면 아래로
     function scrollBy(dy) {
       if (!dy || Math.abs(dy) < 1) return false;
+      if (holdTop != null && Date.now() < holdUntil) { var vt = viewTop(); if (vt != null) holdTop = Math.max(0, vt + dy); }   // 지키는 중이면 굴린 자리(지금 화면 + 이동량)가 새 목표
       try {
         var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap;
         if (typeof m['28675'] === 'number') { m['28675'] = Math.max(0, m['28675'] + dy * 75); ctrl.ScrollPosInfo = s; return true; }
@@ -161,7 +170,7 @@
     }
     // 내 커서가 있는 쪽(1부터) — 기안기 KeyIndicator, 칸 자리 재기 없이 바로. 같이 있는 사람 목록에 「N쪽」 으로
     function caretPage() { try { var k = ctrl.KeyIndicator(); return k && k.result ? (k.prnpageno || 0) : 0; } catch (e) { return 0; } }
-    function moveTo(name, select) { try { return ctrl.MoveToField(name, true, true, !!select) !== false; } catch (e) { return false; } }
+    function moveTo(name, select) { holdTop = null; try { return ctrl.MoveToField(name, true, true, !!select) !== false; } catch (e) { return false; } }   // 일부러 옮기는 커서 — 화면 지키기를 거둔다
     function caretRect() {
       try {
         var fr = frame(), el = fr.contentDocument.getElementById('HWP_CURSOR_VIEW');
@@ -347,6 +356,7 @@
     // 선택 영역 양 끝이 든 칸 — [시작 칸, 끝 칸] 또는 null(선택 없음). 선택은 되살린다
     function selectionFields() {
       var sel = keepSel(); if (!sel) return null;
+      var v0 = viewTop();
       var a = '', b = '';
       try {
         // 끝이 칸 사이(칸 끝 표시 뒤·시작 표시 앞)에 걸리면 이름이 비어 나온다 — 시작은 한 칸 오른쪽, 끝은 한 칸 왼쪽(선택 안쪽)으로 옮겨 다시 묻는다
@@ -356,6 +366,7 @@
         if (!b) { ctrl.Run('MoveLeft'); b = ctrl.GetCurFieldName(0) || ''; }
       } catch (e) {}
       restoreSel(sel);
+      holdView(v0);
       return [a, b];
     }
     var toolbarGuard = null;

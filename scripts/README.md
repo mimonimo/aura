@@ -130,7 +130,7 @@
 - `182_criteria_kind_backfill.py` — 공고 갈래 기준 문서 소급 연결 — 기존 프로젝트의 공고·지침·평가 기준·규정·기본계획 갈래 문서를 프로젝트 기준 문서로 잇는다.
 - `183_byproduct_cleanup.py` — 부산물 폴더 문서 정리(소급) — 규칙이 생기기 전에 처리·반입된 부산물 폴더 속 파일을 문서함·장부에서 걷는다.
 - `186_school_program_ledger.py` — 교내 재정지원사업 현황(연도별 엑셀) → 외부 확인 장부(kg_external.json)의 사업 이름·별칭·연도 보강.
-- `187_remove_outscope_docs.py` — 필요 없는 문서를 라이브러리에서 뺀다 — 지출·계약 증빙(절대 규칙 11)·같은 본문 여분·빈 문서·도면·개인 제출물(--what).
+- `187_remove_outscope_docs.py` — 필요 없는 문서를 라이브러리에서 뺀다 — 지출·계약 증빙(절대 규칙 11)·같은 본문 여분·제목이 같고 본문이 거의 같은 여분(near)·빈 문서·도면·개인 제출물(--what).
 - `188_ledger_review_apply.py` — 검토를 마친 장부 변경(configs/ledger_reviews/*.json)을 외부 확인 장부(kg_external.json)에 적용한다.
 - `191_kind_read_all.py` — 서류 갈래 27B 일괄 판정 — DGX 처리 결과(scripts/167 parsed-*.jsonl)의 문서마다 app/kind_read 로 갈래를 정해 ~/parsed/kind27
 - `192_kind_apply.py` — 27B 갈래 판정(scripts/191 → kind27b-*.jsonl)을 문서 갈래(documents.kind)에 반영한다(VM).
