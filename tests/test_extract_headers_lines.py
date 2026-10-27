@@ -227,3 +227,15 @@ def test_image_documents_go_to_vision_first_and_keep_table_chunks(tmp_path, monk
     assert "비전 판독" in proc._last_parse_note
     chunks = proc._md_chunks(do_mask=False)
     assert [c["kind"] for c in chunks] == ["heading", "table"] and chunks[1]["page_no"] == 1
+
+
+def test_spaced_letterhead_in_normal_text_is_not_syllable_split():
+    """자간 띄운 머리글 한 줄이 섞인 멀쩡한 본문 — 흩어진 「및」·「등」·「각」 과 머리글 하나로 손상 판정을 받지 않는다."""
+    from zzaimy.app.chunk_quality import ocr_damage_signals
+
+    text = ("가 나 다 라 마 바 사\n참여 신청 안내\n1. 신청 기간 : 다음 달 말까지 학과 사무실에 제출\n"
+            "2. 제출 서류 : 신청서와 추천서 원본 및 재학 증명서 사본 등 필요 서류\n"
+            "3. 선정 방법 : 서류 심사 및 면접 심사를 거쳐 각 학과별로 최종 선정\n"
+            "4. 유의 사항 : 기한 내 제출하지 않은 서류는 접수하지 않으며 결과는 개별 통보\n"
+            "5. 문의 : 담당 부서 행정실 담당자에게 전화 또는 전자우편으로 문의")
+    assert "글자 단위 분해" not in ocr_damage_signals(text)
