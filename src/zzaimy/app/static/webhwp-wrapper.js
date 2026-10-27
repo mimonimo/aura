@@ -137,18 +137,21 @@
     // 끌어올리고, 따라가기가 다시 내려 0.2~0.3초마다 깜빡였다(10-27 시연, 실측 1148→248px). 화면 막대 자리를 지금 바로, 그리고 기안기가
     // 끌어올린 그 장면(그리기 전) 안에서 한 번 더 되돌린다 — 맨 위 화면은 그려지지 않는다(실측: 열한 장면 내내 1148)
     function viewTop() { try { var v = doc().getElementById('hcwoViewScroll'); return v ? v.scrollTop : null; } catch (e) { return null; } }
+    // 일부러 굴린 화면(따라가기 scrollBy)은 지키지 않는다 — 지키기가 따라가기를 되돌려 시작·끝에 두 자리를 오가며 깜빡였다(10-27 세 칸 실측)
+    var holdGen = 0;
     function holdView(top) {
       if (top == null) return;
-      var v, W;
+      var v, W, gen = ++holdGen;
       try { v = doc().getElementById('hcwoViewScroll'); W = frame().contentWindow; } catch (e) { return; }
       if (!v || !W) return;
-      var fix = function () { if (Math.abs(v.scrollTop - top) > 1) v.scrollTop = top; };
+      var fix = function () { if (gen === holdGen && Math.abs(v.scrollTop - top) > 1) v.scrollTop = top; };
       fix();
       W.requestAnimationFrame(function () { fix(); W.requestAnimationFrame(fix); });
     }
     // 화면만 위아래로 굴리기(커서는 그대로) — 따라가기가 쓴다. 세로 스크롤 값 1 = 화면 1/75px(실측, 위 restoreCursor 와 같은 값). 양수면 아래로
     function scrollBy(dy) {
       if (!dy || Math.abs(dy) < 1) return false;
+      holdGen++;                              // 기다리던 화면 지키기는 거둔다 — 이 굴림이 새 「보던 화면」 이다
       try {
         var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap;
         if (typeof m['28675'] === 'number') { m['28675'] = Math.max(0, m['28675'] + dy * 75); ctrl.ScrollPosInfo = s; return true; }
@@ -165,7 +168,7 @@
     }
     // 내 커서가 있는 쪽(1부터) — 기안기 KeyIndicator, 칸 자리 재기 없이 바로. 같이 있는 사람 목록에 「N쪽」 으로
     function caretPage() { try { var k = ctrl.KeyIndicator(); return k && k.result ? (k.prnpageno || 0) : 0; } catch (e) { return 0; } }
-    function moveTo(name, select) { try { return ctrl.MoveToField(name, true, true, !!select) !== false; } catch (e) { return false; } }
+    function moveTo(name, select) { holdGen++; try { return ctrl.MoveToField(name, true, true, !!select) !== false; } catch (e) { return false; } }   // 일부러 옮기는 커서 — 화면 지키기를 거둔다
     function caretRect() {
       try {
         var fr = frame(), el = fr.contentDocument.getElementById('HWP_CURSOR_VIEW');
