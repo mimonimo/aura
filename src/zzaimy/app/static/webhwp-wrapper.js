@@ -198,6 +198,14 @@
       catch (e) { leftMargin = 0; }
       return leftMargin;
     }
+    var topMargin = null;
+    function bodyTop() {                      // 쪽 위 여백(HWPUNIT, 머리말 포함) — 여러 쪽에 걸친 칸 표시를 쪽 글 자리 안에서 시작하려고
+      if (topMargin !== null) return topMargin;
+      if (composing && Date.now() - lastInput < 3000) return 0;
+      try { var a = ctrl.CreateAction('PageSetup'), s = a.CreateSet(); a.GetDefault(s); var pd = s.Item('PageDef'); topMargin = (pd.Item('TopMargin') || 0) + (pd.Item('HeaderLen') || 0); }
+      catch (e) { topMargin = 0; }
+      return topMargin;
+    }
     // 쪽 좌표 → 편집 화면(바깥 문서) 좌표. 보이는 종이 칸(view)도 함께
     function toScreen(page, x, y) {
       var A = app();
@@ -434,7 +442,7 @@
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
       setToolbarGuard: function (fn) { toolbarGuard = fn; }, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
       getCursor: getCursor, restoreCursor: restoreCursor, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
-      fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, unitPx: unitPx, geomReady: geomReady,
+      fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, bodyTop: bodyTop, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },
       attach: attach, isProbing: function () { return !!probing; },
       isComposing: function () { return composing && Date.now() - lastInput < 3000; },     // 조합 끝 사건을 놓쳐도 3초 뒤엔 풀린다

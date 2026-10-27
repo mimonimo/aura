@@ -123,3 +123,18 @@ def test_last_step_never_runs_writing_tools_and_needs_found_evidence():
     ep = doc_agent.run(_client([_step("finish_x"), _step("write_section", section="1"), _step("write_section", section="2")]),
                        "q", lambda: "s", _answer_tools([]), max_steps=2)
     assert ep.stop == "steps" and ep.writes == 2
+
+
+def test_finish_claiming_writes_is_refused_once_when_nothing_changed():
+    """쓰기 도구가 모두 거절됐는데 「채웠습니다」 로 끝맺으면 한 번 돌려보낸다 — 결과대로 고친 끝맺음은 받는다(운영 10-27 거짓 완료)."""
+    tools = [doc_agent.Tool("hwp_write", "쓰기", lambda a: "쓰지 않았다 — 근거에 없는 수치", writes=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    replies = [_step("hwp_write", field="1. 개요", text="x"), _step("finish", message="세 절을 채웠습니다"),
+               _step("finish", message="수치 근거가 없어 1절을 쓰지 못했습니다")]
+    ep = doc_agent.run(_client(replies), "써 줘", lambda: "상태", tools)
+    assert ep.finished and ep.final_message.startswith("수치 근거가 없어")
+    assert "실제로 바뀐 것이 없다" in ep.steps[1]["observation"]
+    # 실제로 쓴 뒤의 끝맺음은 그대로
+    tools[0] = doc_agent.Tool("hwp_write", "쓰기", lambda a: "「1. 개요」 을 썼다", writes=True)
+    ep = doc_agent.run(_client([_step("hwp_write", field="1. 개요", text="x"), _step("finish", message="1절을 썼습니다")]), "써 줘", lambda: "상태", tools)
+    assert ep.final_message == "1절을 썼습니다"

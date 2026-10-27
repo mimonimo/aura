@@ -301,6 +301,8 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     rejected: dict[str, tuple[int, str, str]] = {}     # 거절·실패한 걸음 (몇째, 안내, 자료) — 같은 인자로 다시 오면 되풀이로 센다
     fail_count: dict[str, int] = {}
     searched = nudged = False
+    changed: list[str] = []                                 # 이번 요청에서 실제로 바뀐 것(쓰기 도구가 거절 글이 아닌 결과를 낸 걸음) — 끝맺음 대조용
+    claim_checked = False
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
     grace = last_step_tools(tools)
     for _i in range(max_steps + 1):
@@ -396,6 +398,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             note = (f"담당자 요청에 이 작업({name}) 지시가 없어 하지 않았다 — 되돌리기 어려운 작업은 담당자가 직접 말할 때만 한다. "
                    "필요하면 finish 로 제안만 한다.")
             rejected[key] = (len(log) + 1, note, "")
+        elif (name == "finish" and not claim_checked and any(t.writes for t in tools)
+              and _claims_change(str(args.get("message") or "")) and not changed):
+            claim_checked = True                                       # 한 번만 — 결과대로 고쳐 쓰면 받는다
+            note = ("끝맺음 글이 문서를 쓰거나 고쳤다고 말하지만, 이번 요청에서 실제로 바뀐 것이 없다(쓰기 도구 결과가 모두 거절·실패). "
+                    "한 일 그대로 다시 finish 한다 — 쓰지 못했으면 무엇을 왜 못 썼는지, 다음에 무엇을 할지.")
         elif tool.writes and ep.writes >= max_writes:
             note = f"이번 요청의 쓰기 한도({max_writes})에 닿았다 — finish 로 지금까지 한 일과 다음 할 일을 알린다."
         else:
@@ -413,6 +420,8 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 first_obs[key] = (len(log) + 1, data)
                 if tool.writes:
                     ep.writes += 1
+                    if not data.lstrip().startswith(_REFUSED):
+                        changed.append(name)
                 if tool.gathers:
                     searched = True
             except Retry as e:                                         # 코드가 쓴 안내(+ 함께 보일 자료)
@@ -454,6 +463,17 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             return ep
     ep.stop = "steps"
     return ep
+
+
+# 쓰기 도구가 아무것도 바꾸지 않았을 때 돌려주는 글의 머리(도구들이 쓰는 거절·실패 글) — 이 글로 시작하면 바뀐 것으로 세지 않는다
+_REFUSED = ("쓰지 않았다", "넣은 것 없음", "바꾸지 않았다", "바뀐 것이 없다", "하지 않았다", "보내지 않았다", "양식을 만들지",
+            "그런 ", "이 대화에 한글 작업본이 없다", "text 가 비었다", "넣지 않았다", "못 ")
+_CLAIM = re.compile(r"(썼|채웠|작성했|작성하였|넣었|고쳤|수정했|반영했|만들었|불러왔|바꿨|완료했|마쳤)")
+
+
+def _claims_change(message: str) -> bool:
+    """끝맺음 글이 문서를 바꿨다고 말하는가(과거형 완료 동사)."""
+    return bool(_CLAIM.search(message or ""))
 
 
 def _act(on_act, name: str, args: dict, phase: str) -> None:
