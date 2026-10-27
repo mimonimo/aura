@@ -590,10 +590,20 @@
     function visible(x) { var r = x.getBoundingClientRect(); return x.offsetParent !== null && r.width > 0 && r.height > 0; }
     function squash(t) { return String(t || "").replace(/[\s·「」()]+/g, "").toLowerCase(); }
     function isField(x) { return /^(INPUT|TEXTAREA)$/.test(x.tagName) && !/^(checkbox|radio|file|hidden|submit|button)$/i.test(x.type || ""); }
+    // 접힌 펼침 메뉴(사용자 메뉴 등) 안의 항목이면 그 메뉴를 열어 보이게 한다 — 여는 단추가 화면에 보일 때만(10-27 사용자 메뉴로 옮긴 문답 검수·테스트 보기·개발 현황)
+    function reveal(x) {
+      var pop = x && x.closest && x.closest(".popover[id]");
+      if (!pop || pop.classList.contains("open") || panel.contains(x)) return false;
+      var opener = document.querySelector('[data-pop="' + pop.id + '"]');
+      if (!opener || !visible(opener)) return false;
+      opener.click();
+      return visible(x);
+    }
     // 요소 찾기 — 입력 칸·고르기 칸이 아니면서 text 가 있으면 같은 표시의 여럿 가운데 그 이름이 든 것(폴더·문서·부서·칩)
     function find(st) {
       var hit = null;
       try {
+        if (st.sel) Array.prototype.some.call(document.querySelectorAll(st.sel), function (x) { return !visible(x) && reveal(x); });
         var all = st.sel ? Array.prototype.filter.call(document.querySelectorAll(st.sel), function (x) { return visible(x) && !panel.contains(x); }) : [];
         if (st.text && all.length && !isField(all[0]) && all[0].tagName !== "SELECT") {
           var want = squash(st.text);
@@ -750,13 +760,15 @@
     // 다른 화면 — 화면에 보이는 그 화면 메뉴(사이드바 등). 없으면 바로 옮겨 간다
     function navLink(url) {
       var want = new URL(url, location.href), best = null;
+      var tucked = null;
       document.querySelectorAll("a[href]").forEach(function (a) {
-        if (best || panel.contains(a) || !visible(a)) return;
+        if (best || panel.contains(a)) return;
         var u; try { u = new URL(a.href, location.href); } catch (e) { return; }
         if (u.origin !== location.origin || u.pathname !== want.pathname) return;
         if (want.search && u.search !== want.search && !(want.pathname === "/" && u.search.indexOf("type=") >= 0)) return;
-        best = a;
+        if (visible(a)) best = a; else if (!tucked && a.closest(".popover[id]")) tucked = a;
       });
+      if (!best && tucked && reveal(tucked)) best = tucked;     // 사용자 메뉴 안의 바로가기 — 메뉴를 열고 그 항목을 짚는다
       return best;
     }
     function resume() {

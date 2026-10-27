@@ -379,7 +379,8 @@ def test_stage_models_save_once_atomically(client, monkeypatch, tmp_path):
 
     page = client.get("/dev/tools").text
     assert 'action="/dev/llm/roles"' in page and 'id="useSave"' in page
-    assert page.count('name="role"') == len(lc.ROLES)      # 단계마다 한 줄, 저장 버튼은 하나
+    body = page.split('id="workspaceContent"', 1)[1]           # 본문만 — 사용자 메뉴의 테스트 보기 창(역할 고르기)은 어느 화면에나 있다(10-27)
+    assert body.count('name="role"') == len(lc.ROLES)      # 단계마다 한 줄, 저장 버튼은 하나
     # 고르는 칸은 선택창이 아니라 칩이다 — 목록이 OS 팝업으로 떠 스크롤을 가로채지 않게
     assert "data-role-pick" in page and 'class="chips' in page
     assert "data-role-server" not in page and "data-role-model" not in page

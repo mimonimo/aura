@@ -34,7 +34,7 @@
 
   /* ── 사이드바 ── */
   .sidebar { width: 248px; background: #fff; border-right: 1px solid var(--line);
-             position: fixed; left: 0; top: 0; bottom: 0; z-index: 45; overflow-y: auto;
+             position: fixed; left: 0; top: 0; bottom: 0; z-index: 45; overflow: hidden;
              display: flex; flex-direction: column; padding: 20px 14px 16px; }
   .side-brand { display: block; padding: 2px 10px 18px; text-decoration: none; }
   .side-brand img { height: 34px; width: auto; display: block; }
@@ -57,7 +57,27 @@
 
   .side-label { margin: 18px 12px 6px; font-size: 11px; font-weight: 700;
                 color: var(--faint); letter-spacing: 0.08em; }
-  .side-section { padding: 0 4px; flex: 1 0 232px; min-height: 232px; overflow-y: auto; }   /* 낮은 화면에서도 최근 대화가 다섯 줄은 보이게 — 모자라면 사이드바 전체가 굴러간다 */
+  /* 사이드바 가운데(프로젝트·공유·최근 대화)는 한 칸으로 굴러간다 — 위(로고·검색·메뉴)와 아래(AI 상태·사용자)는 그대로.
+     묶음마다 앞 몇 줄만(내·공유 프로젝트 5, 최근 대화 8) 보이고 「n개 더 보기」 로 펼친다. 안쪽 스크롤은 두지 않는다(10-27) */
+  .side-top { flex: none; }
+  .side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -14px; padding: 0 14px 8px; }
+  .side-scroll > .side-label:first-child { margin-top: 18px; }
+  .side-section { padding: 0 4px; }
+  .side-list:not(.is-open)[data-side-limit="5"] > :nth-child(n+6),
+  .side-list:not(.is-open)[data-side-limit="8"] > :nth-child(n+9) { display: none; }
+  .side-nav.side-list a { font-size: 13.5px; padding: 8px 12px; }
+  .side-list .side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-list .side-meta { margin-left: auto; flex: none; font-size: 11.5px; color: var(--faint); }
+  .side-more-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .side-more { appearance: none; border: 0; box-shadow: none; background: none; min-height: 0; margin: 2px 0 0; padding: 5px 12px; border-radius: 7px;
+               font: inherit; font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; text-align: left; }
+  .side-more:hover { background: var(--panel); color: var(--ink); }
+  .side-more[hidden] + .side-more-all { margin-left: auto; }
+  /* 아주 낮은 화면 — 가운데 칸이 실처럼 줄지 않게 사이드바 전체를 한 칸으로 굴린다(그래도 스크롤은 하나) */
+  @media (max-height: 600px) {
+    .sidebar { overflow-y: auto; }
+    .side-scroll { flex: none; overflow: visible; }
+  }
   .side-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
                border-radius: 9px; font-size: 13px; color: var(--muted);
                text-decoration: none; white-space: nowrap; overflow: hidden;
@@ -68,10 +88,9 @@
   .count-pill { margin-left: 5px; background: #FDECEC; color: var(--red);
                 border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
 
-    .side-bottom { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
-  .side-viewas { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; font: inherit;
-                 color: inherit; padding: 8px 12px; border-radius: 8px; cursor: pointer; text-align: left; }
-  .side-viewas:hover { background: var(--panel); }
+  .side-bottom { flex: none; border-top: 1px solid var(--line); padding-top: 6px; }
+  .side-bottom .side-nav { margin-bottom: 2px; }
+  .side-bottom + .side-user { border-top: 0; margin-top: 2px; padding-top: 0; }
   .view-as-dialog { border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; width: min(360px, 92vw); }
   .view-as-dialog h2 { margin: 0 0 6px; font-size: 16px; }
   .view-as-dialog p { margin: 0 0 14px; font-size: 12.5px; }
@@ -90,7 +109,7 @@
   .side-searchbox span { flex: 1; }
   .side-searchbox iconify-icon { font-size: 15px; }
   .side-kbd { padding: 0 5px; border: 1px solid #e3e7ed; border-radius: 5px; background: #fff; color: #8d98a7; font: 500 10.5px/1.6 inherit; }
-  .side-user { display: flex; align-items: center; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .side-user { flex: none; display: flex; align-items: center; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
   .side-user .menu-wrap:last-child { order: -1; flex: 1; min-width: 0; }
   .side-user .user-chip { width: 100%; border: 0; background: transparent; box-shadow: none; border-radius: 9px; padding: 6px 8px;
                           font-size: 13px; font-weight: 500; color: var(--ink); justify-content: flex-start; max-width: none; }
@@ -121,7 +140,8 @@
   .user-menu .um-item iconify-icon { font-size: 16px; color: var(--muted); }
   .user-menu .um-item.um-out:hover iconify-icon, .user-menu .um-item.um-out:hover span { color: #b42318; }
   .user-menu .um-sep { height: 1px; background: var(--line); margin: 4px 6px; }
-  .side-note { font-size: 11px; color: var(--faint); padding: 10px 12px 0; line-height: 1.5; }
+  .side-note { font-size: 11px; color: var(--faint); padding: 2px 12px 4px; line-height: 1.5; }
+  .user-menu .um-item[aria-current="page"] { background: var(--panel); }
 
   /* ── 우측 컬럼 ── */
   .content-col { margin-left: 248px; min-width: 0; display: flex;
@@ -608,7 +628,7 @@ document.addEventListener('submit', function(event) {
   {% if developer_space %}
     {% include "_developer_sidebar.html" %}
   {% else %}
-  <nav class="side-nav">
+  <nav class="side-nav side-top">
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
     {% if request.state.role != 'student' %}
@@ -621,16 +641,14 @@ document.addEventListener('submit', function(event) {
       <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
     {% endif %}
     {% set _team_mgr = program_scope is defined and program_scope(request) in ('all', 'dept') or (program_scope is defined and request_grade is defined and request_grade(request) == 'lead') %}
-    {% if _team_mgr or request.state.role in ('staff', 'professor', 'head') %}{# 조직 관리 — 트리·부서 개요는 교직원 누구나, 구성원·설정은 권한만큼 #}
+    {% if _team_mgr or request.state.role in ('staff', 'professor', 'head') %}{# 조직 관리 — 트리·부서 개요는 교직원 누구나, 구성원·설정·계정은 권한만큼(사용자 메뉴의 「계정 관리」 는 같은 화면이라 뺐다 10-27) #}
     <a href="/team" class="{{ 'active' if request.url.path.startswith('/team') else '' }}" title="부서 트리와 구성원·부서 설정{{ '·계정' if request.state.role == 'dev' else '' }}">
       <iconify-icon icon="solar:users-group-two-rounded-linear"></iconify-icon>조직 관리</a>
     {% endif %}
-    {% if can_sft_review is defined and can_sft_review(request) %}{# 문답 검수 — 검수 권한을 받은 계정과 관리자만(ADR-0066 10-27) #}
-    <a href="/review" data-nav="side-review" class="{{ 'active' if request.url.path.startswith('/review') else '' }}" title="SFT 학습 문답 검수 — 매뉴얼·라벨 스튜디오·내 몫 진행">
-      <iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>문답 검수</a>
-    {% endif %}
     {% endif %}
   </nav>
+  {# 가운데 한 칸만 굴러간다(10-27) — 위 메뉴와 아래 사용자 줄은 그대로, 묶음마다 몇 줄만 보이고 「n개 더 보기」 로 펼친다(안쪽 스크롤 없음) #}
+  <div class="side-scroll" data-side-scroll>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
   {% set _can_make_project = can_create_project is not defined or can_create_project(request) %}
   {% if side_projects or _can_make_project %}{# 만들 수 없고 비어 있으면 묶음째 감춘다 #}
@@ -639,31 +657,33 @@ document.addEventListener('submit', function(event) {
   {% if not side_projects %}<span class="side-item side-empty">아직 프로젝트가 없습니다</span>{% endif %}
   {% endif %}
   {% if side_projects %}
-  <nav class="side-nav" style="max-height:180px; overflow-y:auto;">
+  <nav class="side-nav side-list" id="sideProjects" data-side-limit="5" aria-label="내 프로젝트">
     {% for pj in side_projects %}
-    <a href="/project/{{ pj.id }}" style="font-size:13.5px; padding:8px 12px;"
+    <a href="/project/{{ pj.id }}"
        class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }}">
       <iconify-icon icon="solar:folder-2-linear"{% if project_color is defined %} style="color:{{ project_color(pj.id) }}"{% endif %}></iconify-icon>
-      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pj.name }}</span>
-      <span class="muted" style="margin-left:auto; font-size:11.5px;" title="프로젝트에 등록된 문서 {{ pj.n_docs }}건"><span class="sr-only">프로젝트에 등록된 문서 </span>{{ pj.n_docs }}<span class="sr-only">건</span></span></a>
+      <span class="side-name">{{ pj.name }}</span>
+      <span class="side-meta" title="프로젝트에 등록된 문서 {{ pj.n_docs }}건"><span class="sr-only">프로젝트에 등록된 문서 </span>{{ pj.n_docs }}<span class="sr-only">건</span></span></a>
     {% endfor %}
   </nav>
+  <button type="button" class="side-more" data-side-more="sideProjects" aria-controls="sideProjects" aria-expanded="false"{% if side_projects|length <= 5 %} hidden{% endif %}>{{ side_projects|length - 5 }}개 더 보기</button>
   {% endif %}
   {% if side_shared %}
   <div class="side-label">공유받은 프로젝트</div>
-  <nav class="side-nav" style="max-height:140px; overflow-y:auto;">
+  <nav class="side-nav side-list" id="sideShared" data-side-limit="5" aria-label="공유받은 프로젝트">
     {% for pj in side_shared %}
-    <a href="/project/{{ pj.id }}" style="font-size:13.5px; padding:8px 12px;"
+    <a href="/project/{{ pj.id }}"
        class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }} — {{ person_name(pj.owner) }} 님이 공유">
       <iconify-icon icon="solar:users-group-rounded-linear"{% if project_color is defined %} style="color:{{ project_color(pj.id) }}"{% endif %}></iconify-icon>
-      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pj.name }}</span>
-      <span class="muted" style="margin-left:auto; font-size:11.5px;">{{ person_name(pj.owner) }}</span></a>
+      <span class="side-name">{{ pj.name }}</span>
+      <span class="side-meta">{{ person_name(pj.owner) }}</span></a>
     {% endfor %}
   </nav>
+  <button type="button" class="side-more" data-side-more="sideShared" aria-controls="sideShared" aria-expanded="false"{% if side_shared|length <= 5 %} hidden{% endif %}>{{ side_shared|length - 5 }}개 더 보기</button>
   {% endif %}
   {% endif %}
   <div class="side-label side-history-heading"><span>최근 대화</span></div>
-  <div class="side-section" id="chatSessionList">
+  <div class="side-section side-list" id="chatSessionList" data-side-limit="8">
     {% for cs in chat_sessions %}
       <div class="side-session-row">
       <a class="side-item {{ 'active' if request.url.path == '/chat/' ~ cs.id else '' }}"
@@ -675,29 +695,25 @@ document.addEventListener('submit', function(event) {
       <span class="side-item">채팅 기록이 없습니다</span>
     {% endfor %}
   </div>
+  <div class="side-more-row">
+    <button type="button" class="side-more" data-side-more="chatSessionList" aria-controls="chatSessionList" aria-expanded="false"{% if chat_sessions|length <= 8 %} hidden{% endif %}>{{ chat_sessions|length - 8 }}개 더 보기</button>
+    {% if chat_sessions %}<button type="button" class="side-more side-more-all" data-chat-history>모든 대화</button>{% endif %}
+  </div>
+  </div>
   {% endif %}
-  <div class="side-bottom side-nav">
+  <div class="side-bottom">
     {% if developer_space %}
-    <a href="/chat"><iconify-icon icon="solar:arrow-left-linear"></iconify-icon>업무 화면으로</a>
-    {% else %}
-    {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험(한 줄 + 작은 창) #}
-    <button type="button" class="side-search side-viewas" onclick="document.getElementById('viewAsDialog').showModal()"
-            style="opacity:.7; font-size:12.5px; justify-content:flex-start; text-align:left;"><iconify-icon icon="solar:user-id-linear"></iconify-icon>테스트 보기</button>
+    <nav class="side-nav"><a href="/chat"><iconify-icon icon="solar:arrow-left-linear"></iconify-icon>업무 화면으로</a></nav>
     {% endif %}
-    {% if request.state.role == 'dev' %}
-    <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"
-       style="opacity:.7; font-size:12.5px;">
-      <iconify-icon icon="solar:code-square-linear"></iconify-icon>{{ dev_page_name('/dev') }}</a>
-    {% endif %}
-    {% endif %}
+    {# AI 서버 상태는 사용자 줄 바로 위 한 줄로 남긴다 — 메뉴 안에 넣으면 끊겼을 때 열어 보기 전엔 모른다(10-27) #}
     {% if llm_status is defined %}
-    <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok and request.state.role == 'dev' else '' }}">
+    <div class="side-note" title="{{ llm_status.error if not llm_status.ok and request.state.role == 'dev' else '' }}">
       {% if llm_status.ok and request.state.role != 'dev' %}
       <span class="side-connection-status"><span style="color:var(--green);" aria-hidden="true">●</span> AI 연결됨</span>
       {% elif llm_status.ok %}{# 서버·모델 이름은 개발자에게만 — 한 줄로, 전체 이름은 마우스를 올리면(10-27) #}
       {% set _dev_src = llm_status.source[4:] if (llm_status.source is defined and llm_status.source.startswith('연결: ')) else (llm_status.source | default('서버명 미등록')) %}
       <span class="side-connection-line" title="기본 AI 서버 · {{ _dev_src }}{{ (' · ' ~ llm_status.model) if llm_status.model }}"><span style="color:var(--green);" aria-hidden="true">●</span> {{ _dev_src }}{% if llm_status.model %} · {{ llm_status.model }}{% endif %}</span>
-      {% else %}<span style="color:var(--amber);" aria-hidden="true">●</span> AI 미연결 · 답변 대기{% endif %}</div>
+      {% else %}<span class="side-connection-line"><span style="color:var(--amber);" aria-hidden="true">●</span> AI 미연결 · 답변 대기</span>{% endif %}</div>
     {% endif %}
   </div>
   <div class="side-user">
@@ -752,24 +768,79 @@ document.addEventListener('submit', function(event) {
     </div>
     {% endif %}
     <div class="menu-wrap">
-      <button type="button" class="user-chip" data-pop="userPop">
+      <button type="button" class="user-chip" data-pop="userPop" data-aura="user-menu" aria-haspopup="menu" title="설정·로그아웃{{ '·관리 메뉴' if request.state.real_role is defined and request.state.real_role == 'dev' else '' }}">
         <span class="avatar" aria-hidden="true">{{ (profile_name or request.state.user or "담")[:1] | upper }}</span>
         {{ profile_name or request.state.user or "담당자" }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
       </button>
-      <div class="popover user-menu" id="userPop">
+      {# 사용자 메뉴(10-27) — 내 것(설정)과 권한이 있을 때만 보이는 관리 항목(문답 검수·테스트 보기·개발 현황), 맨 아래 로그아웃.
+         계정 관리는 사이드바 「조직 관리」 와 같은 화면이라 두지 않는다. data-aura 표시는 도우미가 이 항목을 짚는 자리(platform_guide) #}
+      <div class="popover user-menu" id="userPop" role="menu" aria-label="사용자 메뉴">
         {% set sub = [role_labels.get(request.state.role, "담당자"), profile_dept or ""] | select | list %}
         <div class="um-head"><span class="avatar" aria-hidden="true">{{ (profile_name or request.state.user or "담")[:1] | upper }}</span>
           <span class="um-who"><span class="um-id">{{ profile_name or request.state.user or "" }}</span><span class="um-sub">{{ sub | join(" · ") }}</span></span></div>
         <div class="um-sep"></div>
-        <a class="um-item" href="/settings"><iconify-icon icon="solar:settings-linear" aria-hidden="true"></iconify-icon><span>설정</span></a>
-        {% if request.state.role == 'dev' %}<a class="um-item" href="/team?view=all"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon><span>계정 관리</span></a>{% endif %}
-        <div class="um-sep"></div>
+        <a class="um-item" role="menuitem" href="/settings" data-aura="menu-settings"{% if request.url.path.startswith('/settings') %} aria-current="page"{% endif %}><iconify-icon icon="solar:settings-linear" aria-hidden="true"></iconify-icon><span>설정</span></a>
+        {% if can_sft_review is defined and can_sft_review(request) %}{# 문답 검수 — 검수 권한을 받은 계정과 관리자만(ADR-0066 10-27). 관리자는 데이터·학습 「문답 검수」 카드로도 #}
+        <a class="um-item" role="menuitem" href="/review" data-aura="menu-review"{% if request.url.path.startswith('/review') %} aria-current="page"{% endif %}><iconify-icon icon="solar:checklist-minimalistic-linear" aria-hidden="true"></iconify-icon><span>문답 검수</span></a>
+        {% endif %}
+        {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험(작은 창). 보는 중에는 위 띠의 「다른 계정으로」 #}
+        <button type="button" class="um-item" role="menuitem" data-aura="menu-view-as" aria-haspopup="dialog" onclick="document.getElementById('viewAsDialog').showModal()"><iconify-icon icon="solar:user-id-linear" aria-hidden="true"></iconify-icon><span>테스트 보기</span></button>
+        {% endif %}
+        {% if request.state.role == 'dev' %}
+        <a class="um-item" role="menuitem" href="/dev" data-aura="menu-dev"{% if request.url.path == '/dev' %} aria-current="page"{% endif %}><iconify-icon icon="solar:code-square-linear" aria-hidden="true"></iconify-icon><span>{{ dev_page_name('/dev') }}</span></a>
+        {% endif %}
+        <div class="um-sep" role="separator"></div>
         <form action="/logout" method="post" style="margin:0;">
-          <button type="submit" class="um-item um-out"><iconify-icon icon="solar:logout-2-linear" aria-hidden="true"></iconify-icon><span>로그아웃</span></button>
+          <button type="submit" class="um-item um-out" role="menuitem"><iconify-icon icon="solar:logout-2-linear" aria-hidden="true"></iconify-icon><span>로그아웃</span></button>
         </form>
       </div>
     </div>
   </div>
+<script>
+/* 사이드바 묶음 「n개 더 보기」/「접기」 — 줄 수는 목록이 바뀌어도(대화 새로 고침) 다시 센다. 펼친 상태는 이 브라우저에만 기억 */
+(function () {
+  document.querySelectorAll('[data-side-more]').forEach(function (btn) {
+    var list = document.getElementById(btn.dataset.sideMore);
+    if (!list) return;
+    var limit = +list.dataset.sideLimit || 5, key = 'sideOpen:' + list.id;
+    function sync() {
+      var extra = list.children.length - limit, open = list.classList.contains('is-open');
+      btn.hidden = extra <= 0;
+      btn.textContent = open ? '접기' : extra + '개 더 보기';
+      btn.setAttribute('aria-expanded', String(open && extra > 0));
+    }
+    try { if (localStorage.getItem(key) === '1') list.classList.add('is-open'); } catch (_) {}
+    var act = list.querySelector('.active');          // 지금 화면의 줄이 접힌 쪽에 있으면 펼쳐 둔다
+    if (act) { while (act.parentElement !== list) act = act.parentElement; if (Array.prototype.indexOf.call(list.children, act) >= limit) list.classList.add('is-open'); }
+    btn.addEventListener('click', function () {
+      var open = list.classList.toggle('is-open');
+      try { localStorage.setItem(key, open ? '1' : '0'); } catch (_) {}
+      sync();
+      if (!open) btn.scrollIntoView({block: 'nearest'});
+    });
+    new MutationObserver(sync).observe(list, {childList: true});
+    sync();
+  });
+})();
+/* 사용자 메뉴 키보드 — 열면 첫 항목으로, 위·아래 화살표로 옮기고, 항목을 누르거나 밖으로 나가면 닫는다(Esc·바깥 누르기는 공용 펼침 창 처리) */
+(function () {
+  var pop = document.getElementById('userPop'), chip = document.querySelector('[data-pop="userPop"]');
+  if (!pop || !chip) return;
+  var items = function () { return Array.prototype.slice.call(pop.querySelectorAll('[role=menuitem]')); };
+  function close(focusChip) { pop.classList.remove('open'); chip.setAttribute('aria-expanded', 'false'); if (focusChip) chip.focus(); }
+  chip.addEventListener('click', function () { setTimeout(function () { var f = items()[0]; if (f && pop.classList.contains('open')) f.focus({preventScroll: true}); }, 0); });
+  chip.addEventListener('keydown', function (e) {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !pop.classList.contains('open')) { e.preventDefault(); chip.click(); }
+  });
+  pop.addEventListener('keydown', function (e) {
+    var list = items(), i = list.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); list[(i + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length].focus(); }
+    else if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); list[e.key === 'Home' ? 0 : list.length - 1].focus(); }
+  });
+  pop.addEventListener('click', function (e) { if (e.target.closest('[role=menuitem]:not([type=submit])')) close(false); });
+  pop.addEventListener('focusout', function (e) { if (pop.classList.contains('open') && e.relatedTarget && !pop.contains(e.relatedTarget) && e.relatedTarget !== chip) close(false); });
+})();
+</script>
 </aside>
 
 <div class="nav-backdrop" id="navBackdrop"></div>
@@ -782,7 +853,7 @@ document.addEventListener('submit', function(event) {
     <button type="submit">원래대로</button>
   </form>
   {% endif %}
-  {% if request.state.real_role is defined and request.state.real_role == 'dev' and not developer_space %}{# 테스트 보기 창 — 사이드바 「테스트 보기」 와 위 띠 「다른 계정으로」 가 연다(보는 중에도 바로 바꾸기) #}
+  {% if request.state.real_role is defined and request.state.real_role == 'dev' %}{# 테스트 보기 창 — 사용자 메뉴 「테스트 보기」 와 위 띠 「다른 계정으로」 가 연다(보는 중에도 바로 바꾸기). 개발 화면에서 열면 적용 뒤 첫 화면으로(/view-as) #}
     <dialog id="viewAsDialog" class="view-as-dialog" aria-labelledby="viewAsTitle">
       <form method="post" action="/view-as">
         <h2 id="viewAsTitle">테스트 보기</h2>

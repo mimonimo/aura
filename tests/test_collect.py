@@ -136,7 +136,7 @@ def test_collect_is_a_tab_of_train_page(tmp_path):
     assert "항목을 하나 이상 고르세요" in page and 'id="collectForm"' in page
     assert "/dev/collect\"" not in page and 'href="/dev/collect"' not in page
     assert '<a href="/dev/train?tab=collect" data-train-tab="collect" class="on" aria-current="page">수집 자료</a>' in page
-    assert "문답 검수" not in page                                               # 다른 탭 본문은 안 그린다
+    assert "문답 검수" not in page.split('id="workspaceContent"', 1)[1]            # 다른 탭 본문은 안 그린다(사용자 메뉴의 「문답 검수」 는 본문 밖, 10-27)
     first = c.get("/dev/train").text
     assert 'data-train-tab="data" class="on"' in first and 'id="collectForm"' not in first
     assert "/dev/collect" not in dev_nav.NAMES and "수집 자료" not in dev_nav.NAMES.values()

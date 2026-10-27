@@ -112,7 +112,9 @@ def test_perm_is_admin_only_and_gates_review_not_dev(tmp_path, monkeypatch):
     assert page.status_code == 200
     assert 'href="http://ls.test/projects/8/data"' in page.text and "라벨 스튜디오 열기" in page.text
     assert 'data-mine-done>2</span> / <span data-mine-assigned>3</span>' in page.text   # kim: 맡은 3 · 제출 2
-    assert 'href="/review"' in page.text                                   # 사이드바 「문답 검수」
+    menu = page.text.split('id="userPop"', 1)[1].split('</form>', 1)[0]
+    assert 'href="/review"' in menu and 'data-aura="menu-review"' in menu   # 사용자 메뉴 「문답 검수」(10-27 — 사이드바 본 메뉴에는 없다)
+    assert 'href="/review"' not in page.text.split('class="side-nav side-top"', 1)[1].split('</nav>', 1)[0]
     assert kim.get("/review/guide/img/01-list.png").status_code == 200
     assert kim.get("/dev").status_code == 403 and kim.get("/dev/train").status_code == 403
     assert kim.get("/dev/train/review-guide", follow_redirects=False).status_code == 403

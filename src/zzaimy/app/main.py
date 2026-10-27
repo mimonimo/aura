@@ -4673,7 +4673,7 @@ def create_app(
     templates.env.globals["view_as_roles"] = {r: _ROLES.get(r, r) for r in VIEW_AS_ROLES}
     templates.env.globals["view_as_depts"] = lambda: _all_depts()
     templates.env.globals["request_grade"] = _gr.request_top_grade                  # 메뉴 보이기용(겸직 포함)
-    templates.env.globals["can_sft_review"] = _gr.request_can_review       # 사이드바 「문답 검수」(검수 권한·관리자만)
+    templates.env.globals["can_sft_review"] = _gr.request_can_review       # 사용자 메뉴 「문답 검수」(검수 권한·관리자만, 10-27)
     templates.env.globals["program_scope"] = lambda request: {"admin": "all", "head": "dept", "lead": "own", "clerk": "own"}.get(_gr.request_top_grade(request), "")   # 사이드바 「사업 관리」(일반·학생은 안 보임)
     templates.env.globals["view_as_grades"] = dict(_gr.GRADES)      # 테스트 보기의 교직원 등급(select name="grade", 비우면 기본 등급)
 
