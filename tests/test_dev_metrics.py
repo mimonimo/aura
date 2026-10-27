@@ -103,7 +103,7 @@ def test_num():
 
 def test_dev_pages_show_metric_definitions(client):
     page = client.get("/dev").text
-    assert "등록된 문서 전부" in page                       # 접수 문서 타일의 정의 툴팁
+    assert "등록된 문서 전부" in page                       # 등록 문서 타일의 정의 툴팁
     assert "문서에서 뽑은 개체" in page and "개체(그래프)" not in page
     assert "그래프 노드" in page and "지식그래프와 별개" in page
     assert "/graph\"" not in page                         # 404 였던 그래프 링크

@@ -87,3 +87,22 @@ def test_prune_new_leaves_direct_uploads(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "backup", lambda db_, ids, out: 0)
     assert m.prune_new(db, whats=("evidence",)) == 1
     assert removed == [school]
+
+
+def test_near_duplicates_keep_newest(tmp_path):
+    """제목이 같고 본문이 거의 같은 여분만 — 본문이 꽤 다른 옛 판은 판본이라 남긴다."""
+    db = _app(tmp_path).state.db
+    archive.ensure(db)
+    body = "".join(f"{i}번째 문단은 사업 추진 내용을 적습니다. " for i in range(60))
+    other = "".join(f"{i}째 줄 전혀 다른 성과 지표 설명이 이어집니다. " for i in range(60))
+    ids = {}
+    for name, fn, text in (("old", "계획서_v1.hwp", body + "끝"), ("new", "계획서_v2.hwp", body + "마지막"),
+                           ("ver", "계획서_v3.hwp", other), ("upload", "계획서.hwp", body)):
+        d = db.add_document(fn, "x", doc_type="grant")
+        ids[name] = d
+        with db._conn() as conn:
+            conn.execute("UPDATE documents SET masked_text = ?, kind = 'plan', status = 'reviewed' WHERE id = ?", (text, d))
+            if name != "upload":
+                conn.execute("INSERT INTO archive_files (rel, size, mtime, ext, dup_of, doc_id) VALUES (?, 1, 0, 'hwp', '', ?)",
+                             (f"링크/{fn}", d))
+    assert rm.targets(db, "near") == [ids["old"]]          # 최신 판(new)과 다른 판(ver)·직접 올린 문서는 남는다
