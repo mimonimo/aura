@@ -2,7 +2,7 @@
 
 - /dev 경로는 main.check_auth 가 개발자만 들인다. 되돌아오는 주소(/dev/gdrive/callback)만 예외로 모든 계정이 온다.
 - DB·계정 표(accounts)·서비스 안 경로 판정식(local_path)은 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
-- 앱 등록과 계정 목록은 사용자·계정 화면(/dev/users#google-links) — 관리자 동작은 그리로 되돌아간다.
+- 앱 등록과 계정 목록은 조직 관리의 학교 계정 연결 현황(/team#google-links) — 관리자 동작은 그리로 되돌아간다.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ router = APIRouter()
 
 def _users_redirect(msg: str, ok: bool = True) -> RedirectResponse:
     """관리자 동작 뒤 사용자·계정 화면의 「학교 계정 연결 현황」 으로."""
-    return RedirectResponse(f"/dev/users?{'ok' if ok else 'err'}={_q(msg)}#google-links", status_code=303)
+    return RedirectResponse(f"/team?{'ok' if ok else 'err'}={_q(msg)}#google-links", status_code=303)
 
 
 @router.post("/dev/gdrive/client")

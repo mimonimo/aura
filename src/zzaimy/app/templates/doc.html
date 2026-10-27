@@ -206,6 +206,7 @@
       </form>
       {% endif %}
       {% if request.state.role == 'dev' %}
+      <a class="btn secondary" href="/dev/archive/doc/{{ doc.id }}" title="개요·마스킹 기록·조각·검색 색인·그래프 연관(관리자)">반입 결과 보기</a>
       <button type="button" class="secondary" data-modal-close data-modal-open="#receiptEditModal">접수번호 수정</button>
       <form action="/doc/{{ doc.id }}/delete" method="post" class="doc-manage-danger" data-confirm="이 문서와 조각·검색 색인·그래프·원본 파일을 함께 지웁니다. 되돌릴 수 없습니다.">
         <button type="submit" class="btn-ghost">문서 삭제</button>

@@ -59,9 +59,7 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2 class="pf-head"><iconify-icon icon="solar:list-check-linear"></iconify-icon>처리 단계
-    <a class="h-link" href="/dev#system">장비 연결은 시스템 구성</a>
-    <button type="button" class="mini-btn" data-more-all aria-pressed="false">설명 모두 펼치기</button></h2>
+  <h2 class="pf-head"><iconify-icon icon="solar:list-check-linear"></iconify-icon>처리 단계</h2>
   <figure class="pf-map">{{ flow_svg | safe }}</figure>
   {% for s in stages %}
   <section class="pf-stage" id="stage-{{ s.n }}">
@@ -117,14 +115,15 @@
   </table></div>
 </div></div>
 <div class="card reveal" id="tech"><div class="card-in">
+  {# 목록이 길 때(12줄 넘게)만 접어 두고 펼치기 단추를 단다 — 짧으면 그냥 보인다 #}
+  {% set tech_fold = (tech.n_open + tech.n_ours) > 12 %}
   <h2 class="pf-head"><iconify-icon icon="solar:box-linear"></iconify-icon>사용 기술
-    <button type="button" class="mini-btn" data-tech-toggle aria-controls="techList" aria-expanded="false" style="margin-left:auto;">목록 펼치기</button></h2>
+    {% if tech_fold %}<button type="button" class="mini-btn" data-tech-toggle aria-controls="techList" aria-expanded="false" style="margin-left:auto;">목록 펼치기</button>{% endif %}</h2>
   {% include "_tech_stack.html" %}
 </div></div>
 <script>
-  // 단계 설명 펼치기 — 단계마다 「자세히」, 머리의 단추는 모두
+  // 단계 설명 펼치기 — 단계마다 「자세히」
   (function () {
-    var all = document.querySelector("[data-more-all]");
     var btns = Array.prototype.slice.call(document.querySelectorAll("[data-more]"));
     function set(b, on) {
       document.getElementById(b.getAttribute("aria-controls")).hidden = !on;
@@ -132,12 +131,6 @@
       b.textContent = on ? "접기" : "자세히";
     }
     btns.forEach(function (b) { b.addEventListener("click", function () { set(b, b.getAttribute("aria-expanded") !== "true"); }); });
-    if (all) all.addEventListener("click", function () {
-      var on = all.getAttribute("aria-pressed") !== "true";
-      btns.forEach(function (b) { set(b, on); });
-      all.setAttribute("aria-pressed", String(on));
-      all.textContent = on ? "설명 모두 접기" : "설명 모두 펼치기";
-    });
     // 사용 기술 목록 펼치기
     var tb = document.querySelector("[data-tech-toggle]");
     if (tb) tb.addEventListener("click", function () {

@@ -36,10 +36,11 @@ def test_editor_actions_keep_contract_and_escape_answer(docs_env, tmp_path):
     assert not any(c[1].endswith(':batchUpdate') for c in docs_env[1])
 
 
-def test_google_app_registration_lives_on_users_page(docs_env, tmp_path):
-    """앱 등록은 플랫폼에 한 번 — 사용자·계정 「학교 계정 연결 현황」 에서. 예전 Drive 탭 주소 넘기기는 10-25 에 지웠다."""
+def test_google_app_registration_lives_on_team_page(docs_env, tmp_path):
+    """앱 등록은 플랫폼에 한 번 — 조직 관리(관리자) 「학교 계정 연결 현황」 에서. 옛 /dev/users 화면은 10-27 에 지웠다."""
     client = client_for(tmp_path)
-    page = client.get('/dev/users').text
+    assert client.get('/dev/users', follow_redirects=False).status_code == 404
+    page = client.get('/team').text
     card = page.split('id="google-links"', 1)[1].split('</div></div>', 1)[0]
     assert 'Google 앱 등록 완료' in card and 'data-modal-open="#googleAppEdit"' in card and '앱 설정 변경' in card
     modal = page.split('id="googleAppEdit"', 1)[1].split('</form>', 1)[0]
@@ -49,4 +50,4 @@ def test_google_app_registration_lives_on_users_page(docs_env, tmp_path):
     assert client.get('/dev/intake?tab=drive', follow_redirects=False).headers['location'] == '/dev/flow#intake'   # 옛 반입 화면은 처리 흐름의 반입 점검 칸(10-26)
     assert client.get('/dev/google', follow_redirects=False).status_code in (404, 405)
     r = client.post('/dev/gdrive/client', data={'client_id': 'bad', 'client_secret': 'x'}, follow_redirects=False)
-    assert r.headers['location'].startswith('/dev/users?err=') and r.headers['location'].endswith('#google-links')
+    assert r.headers['location'].startswith('/team?err=') and r.headers['location'].endswith('#google-links')

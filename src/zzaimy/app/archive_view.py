@@ -1,6 +1,8 @@
 """원본 관리 화면(/dev/archive, 관리자) — 원본 목록 장부(app/archive)를 사업 → 연도 → 문서 종류 → 처리 상태로 훑고,
 조건을 겹쳐 원본을 찾고, 처리하지 않는 원본을 정리하고, 처리 실패 원본을 다시 읽게 한다.
 
+문서 하나의 반입 결과(개요·조각·색인·그래프)는 하위 화면 「반입 결과 보기」(/dev/archive/doc/{id})에서 본다.
+
 교직원은 이 화면을 쓰지 않는다 — 문서는 라이브러리 한 곳에서 찾고, 원본 파일은 문서 줄·문서 화면의 「원본」(/doc/{id}/original)으로
 연다(권한은 문서 경로 검사 그대로). 옛 주소 /archive 는 관리자면 여기로, 교직원이면 라이브러리로 넘긴다.
 
@@ -24,10 +26,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from starlette.background import BackgroundTask
 
 from zzaimy.app import archive, archive_state, program_names, vocab
+from zzaimy.app.intake_status import ARCHIVE_STATUS
 
 router = APIRouter()
 
-PAGE = "/dev/archive"           # 원본 관리 화면 — 개발 메뉴 「문서 반입·읽기」(app/dev_nav)
+PAGE = "/dev/archive"           # 원본 관리 화면 — 개발 메뉴 「관리」(app/dev_nav)
 
 UNSORTED = vocab.UNSORTED_KIND
 NO_PROGRAM = "사업 미분류"
@@ -411,7 +414,16 @@ PAGE_SIZE = 50
 SORTS = {"name": ("경로·이름순", "a.rel"),
          "size": ("큰 파일 먼저", "a.size DESC, a.rel"),
          "year": ("최근 연도 먼저", "a.year IS NULL, a.year DESC, a.round IS NULL, a.round DESC, a.rel")}
-FILTER_KEYS = ("q", "program", "year", "round", "kind", "ext", "state")
+FILTER_KEYS = ("q", "program", "year", "round", "kind", "ext", "state", "scope")
+# 보는 범위 — 기본은 학교 원본만(archive_state.original_sql), 「all」 은 장부 전체(플랫폼 사본·변환 부산물·정리함 포함).
+# 옛 데이터 현황 「원본 장부」 탭(?tab=archive&all=1)이 하던 장부 전체 보기를 여기 한 곳으로 옮겼다(10-27)
+SCOPES = {"": "학교 원본", "all": "장부 전체(사본·부산물·정리함 포함)"}
+
+# 처리 기록(analysis) 값 가운데 뜻이 바로 안 읽히는 것 — 줄의 장부 값에 짧은 풀이(마우스를 올리면)
+ANALYSIS_NOTES = {
+    "가벼운 처리": "DGX 에서 판독·조각까지만 하고 검토 의견 생성은 건너뛴 처리 — 원본은 DGX 에 두고 글·조각만 들임, OCR 품질 미검사",
+    "부산물": "변환기 출력·웹 페이지 저장 자료 폴더의 파일 — 처리 대상 아님",
+}
 
 
 def _int(v) -> int | str:
@@ -422,21 +434,22 @@ def _int(v) -> int | str:
 VIEWS = ("table", "card")                 # 원본 목록 보기 — 「목록」(표, 기본)·「카드」. 조건이 아니라 보는 방식이라 칩·조건 지우기에 넣지 않는다
 
 
-def parse_filters(q="", program="", year="", round="", kind="", ext="", state="", sort="", page="1", view="") -> dict:
+def parse_filters(q="", program="", year="", round="", kind="", ext="", state="", sort="", page="1", view="", scope="") -> dict:
     y = NONE if year == NONE else _int(year)
     return {"q": (q or "").strip()[:200], "program": (program or "").strip()[:200], "year": y, "round": _int(round),
             "kind": kind if kind == NONE or re.fullmatch(r"[a-z_]{1,24}", kind or "") else "",
             "ext": ext_of(ext), "state": state if state in archive_state.STATES else "",
             "sort": sort if sort in SORTS else "name", "page": max(1, _int(page) or 1),
-            "view": view if view in VIEWS else VIEWS[0]}
+            "view": view if view in VIEWS else VIEWS[0], "scope": scope if scope in SCOPES else ""}
 
 
 def _base_where(f: dict) -> tuple[str, list]:
-    """묶음 수에도 목록에도 거는 조건 — 학교 원본만(archive_state.ORIGINAL_SQL)·검색어·형식."""
+    """묶음 수에도 목록에도 거는 조건 — 학교 원본만(archive_state.original_sql, 범위 「장부 전체」면 빼지 않음)·검색어·형식."""
     q, args = " WHERE a.removed_at = ''", []
-    orig, orig_args = archive_state.original_sql("a.")
-    q += " AND " + orig
-    args += orig_args
+    if f.get("scope") != "all":
+        orig, orig_args = archive_state.original_sql("a.")
+        q += " AND " + orig
+        args += orig_args
     if f["ext"] == vocab.OTHER_FORMAT:         # 원본 문서 형식 갈래(app/vocab.FORMAT_GROUPS) 밖의 파일 전부
         allowed = vocab.original_formats()
         q += f" AND LOWER(REPLACE(a.ext, '.', '')) NOT IN ({', '.join('?' * len(allowed))})"
@@ -613,11 +626,13 @@ def list_page(db, f: dict, keys: list[str] | None, total: int,
     with db._conn() as conn:
         rows = conn.execute(
             "SELECT a.rel, a.size, a.ext, a.program, a.program_name, a.kind, a.year, a.round, a.doc_id, a.status, a.dup_of,"
-            f" a.analysis, d.filename, {st} FROM archive_files a LEFT JOIN documents d ON d.id = a.doc_id"
+            f" a.analysis, d.filename, {st}, a.seen_at,"
+            " EXISTS (SELECT 1 FROM archive_cleanup ac WHERE ac.rel = a.rel)"
+            " FROM archive_files a LEFT JOIN documents d ON d.id = a.doc_id"
             + where + " ORDER BY " + SORTS[f["sort"]][1] + " LIMIT ? OFFSET ?",
             st_args + args + [PAGE_SIZE, (page - 1) * PAGE_SIZE]).fetchall()
     cols = ("rel", "size", "ext", "program", "program_name", "kind", "year", "round", "doc_id", "status", "dup_of", "analysis",
-            "doc_name", "state")
+            "doc_name", "state", "seen_at", "cleaned")
     items = [dict(zip(cols, r)) for r in rows]
     surf = prog_of.surfaces
     for it in items:
@@ -641,6 +656,12 @@ def list_page(db, f: dict, keys: list[str] | None, total: int,
             show_year=bool(prog) and plausible_year(it["year"]), show_round=bool(prog) and bool(it["round"]),
             can_open=not it["rel"].startswith(archive.UPLOAD_PREFIX))
         it["short_path"] = short_path(it["path"])
+        # 장부 값 그대로 — 펼치면 경로와 함께 보인다(옛 데이터 현황 「원본 장부」 탭의 원값 열을 여기로 옮김, 10-27)
+        an = str(it["analysis"] or "")
+        it.update(original=archive_state.is_original(it["rel"]), cleaned=bool(it["cleaned"]),
+                  status_label=ARCHIVE_STATUS.get(it["status"] or "", it["status"] or ""),
+                  analysis_note=next((v for k, v in ANALYSIS_NOTES.items() if an.startswith(k)), ""),
+                  seen_label=(it["seen_at"] or "")[:16].replace("T", " "))
     first = (page - 1) * PAGE_SIZE + 1 if items else 0
     return {"found": items, "hits": total, "page": page, "pages": pages, "first": first, "last": first + len(items) - 1 if items else 0}
 
@@ -662,7 +683,7 @@ def page_url(f: dict, **change) -> str:
 def chips(f: dict, labels: dict[str, str], ext_labels: dict[str, str], progs: "Programs | None" = None) -> list[dict]:
     """걸린 조건 — 하나씩 지울 수 있게 그 조건만 뺀 주소를 붙인다."""
     names = progs.name if progs else {}
-    label = {"q": lambda v: f"‘{v}’", "program": lambda v: NO_PROGRAM if v == NONE else names.get(v, v),
+    label = {"scope": lambda v: SCOPES.get(v, v), "q": lambda v: f"‘{v}’", "program": lambda v: NO_PROGRAM if v == NONE else names.get(v, v),
              "year": lambda v: "연도 미상" if v == NONE else f"{v}년", "round": lambda v: f"{v}차년도",
              "kind": lambda v: UNSORTED if v == NONE else kind_label(v, labels), "ext": lambda v: ext_labels.get(v, v.upper()),
              "state": lambda v: archive_state.STATES.get(v, v)}
@@ -780,11 +801,12 @@ def old_archive(request: Request):
 
 @router.get(PAGE, response_class=HTMLResponse)
 def archive_page(request: Request, program: str = "", kind: str = "", q: str = "", year: str = "", round: str = "",
-                 ext: str = "", state: str = "", sort: str = "name", page: str = "1", view: str = "", partial: str = ""):
+                 ext: str = "", state: str = "", sort: str = "name", page: str = "1", view: str = "", scope: str = "",
+                 partial: str = ""):
     _dev(request)
     st = request.app.state
     db = st.db
-    f = parse_filters(q, program, year, round, kind, ext, state, sort, page, view)
+    f = parse_filters(q, program, year, round, kind, ext, state, sort, page, view, scope)
     labels = kind_labels()
     rows = facet_rows(db, f)
     names, prog_of = load_programs(db)
@@ -796,7 +818,7 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
         keys = prog_of.keys_of(f["program"])
     exts = ext_options(db)
     ext_names = {e["value"]: e["label"] for e in exts}
-    data = {"f": f, "view": view, "sorts": SORTS, "states": archive_state.STATES, "exts": exts, "page_size": PAGE_SIZE,
+    data = {"f": f, "view": view, "sorts": SORTS, "scopes": SCOPES, "states": archive_state.STATES, "exts": exts, "page_size": PAGE_SIZE,
             "chips": chips(f, labels, ext_names, prog_of),
             "program_label": NO_PROGRAM if f["program"] == NONE else prog_of.name.get(f["program"], f["program"]),
             "program_choices": prog_of.choices, "active": any(f[k] for k in FILTER_KEYS), "nokey": NONE,
@@ -813,10 +835,29 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     data["head_metric"] = "archive_originals"
     if partial:                              # 조건을 바꿀 때마다 왼쪽 분류와 원본 목록만 다시 그린다
         return st.templates.TemplateResponse(request, "_archive_results.html", data)
-    overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else program_years(facet_rows(
+    overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"] or f["scope"]) else program_years(facet_rows(
         db, parse_filters()), prog_of), parse_filters(), prog_of, labels)
     data["overall"] = overall
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))
+
+
+@router.get(PAGE + "/doc/{did}", response_class=HTMLResponse)
+def archive_doc_result(request: Request, did: int):
+    """반입 결과 보기(관리자) — 문서 하나의 개요·마스킹 기록·추출·검색 자료(색인 유무)·그래프 연관(app/data_explorer).
+    원본 관리 줄의 「반입 결과」 와 문서 화면 「관리」 에서 연다. 옛 데이터 현황 「문서」 탭의 자리(10-27)."""
+    from zzaimy.app import data_explorer as dx
+
+    _dev(request)
+    st = request.app.state
+    db = st.db
+    doc = db.get_document(did)
+    if not doc:
+        raise HTTPException(404, "문서를 찾지 못했습니다")
+    index = dx.embedding_index()
+    scope = {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
+    view = dx.doc_result(db, doc, index=index, related_fn=lambda d: dx.related_from_kg(db, d, scope))
+    return st.templates.TemplateResponse(request, "dev_doc_result.html", st.page_ctx(request, {
+        "s": view, "index": index, "extract_page": dx.EXTRACT_PAGE}))
 
 
 @router.get(PAGE + "/original")

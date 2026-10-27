@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{# 반입 결과 보기(관리자) — 문서 하나가 반입되며 남긴 것: 개요·마스킹 기록·추출·검색 자료(색인 유무)·그래프 연관.
+   원본 관리의 문서 줄과 문서 화면 「관리」 에서 연다(사이드바에는 없다). 조립은 app/data_explorer.doc_result #}
+{% block title %}{{ dev_page_name('/dev/archive/doc/') }} — {{ doc_title(s.overview) }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/archive/doc/') }}{% endblock %}
+{% block head %}<script src="/static/data-explorer.js?v={{ asset_v }}" defer></script>{% endblock %}
+{% block content %}
+
+<style>
+/* 반입 결과 보기 — 이 페이지 전용 스코프(.dx-*) */
+.dx-card > .card-in{ padding:18px 20px; }
+.dx-head{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
+.dx-head h2{ margin:0; min-width:0; flex:1; }
+.dx-title{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dx-links{ margin-left:auto; display:flex; gap:6px; flex:none; }
+.dx-links .h-link{ margin-left:0; }
+.dx-rows-wrap{ max-height:560px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
+.dx-rows-wrap table.dx-rows th{ position:sticky; top:0; background:#F8FAFC; z-index:1; }
+.dx-num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+td.dx-num{ color:var(--muted); }
+.dx-mono{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; color:#334155; white-space:nowrap; }
+.dx-pill{ font-size:11px; padding:2px 8px; white-space:nowrap; }
+.dx-pills{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.dx-sec{ margin-top:16px; padding-top:14px; border-top:1px solid var(--panel); }
+.dx-sec h3{ font-size:13px; margin:0 0 10px; color:var(--navy); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.dx-sec h3 .muted{ font-weight:500; font-size:12px; }
+.dx-sec h3 .h-link{ margin-left:auto; }
+.dx-kv{ display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:10px 16px; font-size:13px; }
+.dx-kv > div > span:first-child{ display:block; font-size:10.5px; font-weight:700; letter-spacing:.05em;
+            color:var(--faint); text-transform:uppercase; margin-bottom:3px; }
+.dx-kv .wide{ grid-column:1 / -1; }
+table.dx-rows{ font-size:12.5px; }
+table.dx-rows th{ padding:6px 8px; white-space:nowrap; }
+table.dx-rows td{ padding:6px 8px; vertical-align:top; }
+table.dx-rows td.prev{ max-width:0; width:100%; }
+table.dx-rows td.head{ max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+table.dx-rows tr.hit td{ background:#FFF8E6; }
+/* 긴 본문 — 한 줄 미리보기, 펼치면 전문 */
+details.dx-more summary{ list-style:none; cursor:default; color:var(--ink);
+            display:flex; gap:8px; align-items:baseline; min-width:0; }
+details.dx-more summary::-webkit-details-marker{ display:none; }
+details.dx-more summary .p{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+details.dx-more summary .t{ flex:none; color:var(--faint); font-size:11px; display:none; }
+details.dx-more.can summary{ cursor:pointer; }
+details.dx-more.can summary .t{ display:inline; }
+details.dx-more.can summary .t::after{ content:"펼치기"; }
+details.dx-more.can[open] summary .p{ display:none; }
+details.dx-more.can[open] summary .t{ color:var(--navy); }
+details.dx-more.can[open] summary .t::after{ content:"접기"; }
+details.dx-more pre{ white-space:pre-wrap; font-family:inherit; font-size:12.5px; line-height:1.65;
+            background:var(--panel); border:1px solid #EDF2F7; border-radius:10px; padding:10px 12px;
+            margin:6px 0 2px; max-height:360px; overflow:auto; }
+.dx-chips{ display:flex; gap:6px; flex-wrap:wrap; }
+.dx-chip{ display:inline-flex; gap:7px; align-items:center; border:1px solid var(--line); border-radius:9px;
+          padding:5px 10px; font-size:12.5px; text-decoration:none; color:var(--ink); background:#fff; max-width:100%;
+          transition:all .2s var(--ease); }
+.dx-chip:hover{ border-color:#94A3B8; background:var(--panel); }
+.dx-chip .k{ font-size:10.5px; color:var(--faint); font-weight:700; flex:none; }
+.dx-chip .l{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:300px; }
+.dx-chip .w{ font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; flex:none; }
+.dx-empty{ color:var(--muted); font-size:13px; padding:28px 0; text-align:center; }
+.dx-card > .card-in { padding:22px; }
+.dx-title { white-space:normal; overflow-wrap:anywhere; line-height:1.5; }
+.dx-rows-wrap { overscroll-behavior:contain; scrollbar-gutter:stable; }
+.dx-kv { gap:16px; line-height:1.6; }
+.dx-kv > div { min-width:0; overflow-wrap:anywhere; }
+.dx-kv > div > span:first-child { font-size:12px; letter-spacing:0; color:var(--muted); }
+.dx-rows-wrap { container-type:inline-size; }
+.dx-rows-wrap table { width:100%; min-width:0; table-layout:fixed; }
+.dx-rows-wrap th:first-child { width:64px; }
+.dx-rows-wrap th:nth-child(2) { width:96px; }
+.dx-rows-wrap th:nth-child(3) { width:64px; }
+.dx-rows-wrap th:nth-child(4) { width:86px; }
+.dx-rows-wrap table.dx-rows th { white-space:normal; }
+/* 제목 칸이 없는 조각 표(규정 조문 등) — 칸 차례가 하나 당겨진다(# · 길이 · 색인 · 본문). 차례로 정한 폭이 본문 칸에 걸려 본문이 70px 로 눌리던 것(10-26) */
+.dx-rows-wrap table.nohead th:nth-child(2) { width:72px; }
+.dx-rows-wrap table.nohead th:nth-child(3) { width:72px; }
+.dx-rows-wrap table.nohead th:nth-child(4) { width:auto; }
+.dx-rows-wrap table.dx-rows td { padding:10px; overflow-wrap:anywhere; vertical-align:top; }
+.dx-rows-wrap table.dx-rows td.head { white-space:normal; max-width:none; line-height:1.6; }
+.dx-rows-wrap table.dx-rows td.prev { min-width:0; max-width:none; width:auto; }
+.dx-preview-button { display:flex; align-items:center; gap:12px; width:100%; border:0; background:transparent; box-shadow:none; color:var(--ink); text-align:left; padding:6px 0; font-size:13px; font-weight:400; }
+.dx-preview-button span { flex:1; min-width:0; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; overflow-wrap:anywhere; line-height:1.6; }
+.dx-preview-button small { flex:none; color:var(--navy); }
+.dx-materials-title { display:block; margin-bottom:14px; }
+.dx-materials-summary { margin:0 0 20px; }
+.dx-material-group + .dx-material-group { margin-top:24px; }
+.dx-material-heading { display:flex; align-items:center; gap:8px; margin:0 0 10px; font-size:14px; font-weight:600; }
+.dx-material-heading span { color:var(--muted); font-size:12px; font-weight:400; }
+@container (max-width:680px) {
+  .dx-rows-wrap th:first-child, .dx-rows-wrap td:first-child,
+  .dx-rows-wrap th:nth-child(3), .dx-rows-wrap td:nth-child(3) { display:none; }
+  .dx-rows-wrap th:nth-child(2) { width:88px; }
+  .dx-rows-wrap th:nth-child(4) { width:70px; }
+  .dx-rows-wrap table.nohead th:nth-child(3), .dx-rows-wrap table.nohead td:nth-child(3) { display:table-cell; }
+  .dx-rows-wrap table.nohead th:nth-child(2) { width:64px; }
+  .dx-rows-wrap table.nohead th:nth-child(4) { width:auto; }
+  .dx-preview-button { flex-direction:column; align-items:flex-start; gap:6px; }
+}
+.dx-reader { width:min(800px,calc(100vw - 32px)); max-height:calc(100dvh - 40px); padding:0; border:1px solid var(--line); border-radius:16px; overflow:hidden; background:white; color:var(--ink); }
+.dx-reader::backdrop { background:#18202d66; }
+.dx-reader-head { display:flex; align-items:center; gap:16px; padding:20px 24px; border-bottom:1px solid var(--line); }
+.dx-reader-head h2 { margin:0; flex:1; min-width:0; overflow-wrap:anywhere; font-size:17px; }
+.dx-reader-head button { flex:none; }
+.dx-reader pre { margin:0; padding:24px; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:14px; line-height:1.85; max-height:65dvh; overflow:auto; overscroll-behavior:contain; }
+@media(max-width:600px) { .dx-card > .card-in { padding:16px; } .dx-links { margin-left:0; flex-wrap:wrap; } .dx-reader pre { padding:18px; } }
+.dx-extract-more{margin:8px 0 0}.dx-extract-more > .dx-rows{margin-top:8px}
+</style>
+
+<section class="card dx-card dx-detail" id="dxDetail"><div class="card-in">
+    {% set o = s.overview %}
+    <div class="dx-head">
+      <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span class="dx-title" title="{{ o.filename }}">{{ doc_title(o) }}</span></h2>
+      <span class="dx-links">
+        <a class="h-link" href="/doc/{{ o.id }}"><iconify-icon icon="solar:eye-linear"></iconify-icon>문서 화면</a>
+        <a class="h-link" href="/graph/explore?id=doc:{{ o.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프</a>
+      </span>
+    </div>
+    <div class="dx-pills">
+      <span class="pill type dx-pill">{{ doc_type_labels.get(o.doc_type, o.doc_type) }}</span>
+      <span class="pill {{ o.status }} dx-pill">{{ status_labels.get(o.status, o.status) }}</span>
+      {% if o.decision and o.decision != 'pending' %}<span class="pill dx-pill">{{ decision_labels.get(o.decision, o.decision) }}</span>{% endif %}
+      {% if o.owner %}<span class="muted" style="font-size:12px;">올린 계정 {{ o.owner }}</span>{% endif %}
+    </div>
+
+    <div class="dx-sec">
+      <h3>개요</h3>
+      <div class="dx-kv">
+        {% if receipt_label(o.receipt_no) %}<div><span>접수번호</span><b class="dx-mono" style="font-size:12.5px;">{{ receipt_label(o.receipt_no) }}</b></div>{% endif %}
+        <div><span>접수 시각</span>{{ (o.created_at or '')[:16] | replace('T', ' ') or '—' }}</div>
+        {% set sector_name = sector_labels.get(o.sector, o.sector) %}
+        <div><span>계열 · 부서</span>{{ sector_name }}{% if o.dept and o.dept != sector_name %} · {{ o.dept }}{% endif %}</div>
+        <div><span>원본 파일</span>{% if o.original.exists %}있음 · {{ o.original.suffix or '확장자 없음' }}{% else %}없음{% endif %}</div>
+        <div><span>개인정보 가린 본문</span>{{ "{:,}".format(o.text_chars) }}자</div>
+        <div><span>검토 의견 · 초안</span>{{ '있음' if o.has_review else '없음' }} · {{ '있음' if o.has_draft else '없음' }}</div>
+        {% if o.project and o.doc_type != 'regulation' %}{# 규정은 사업에 묶이지 않는다 #}<div><span>프로젝트</span><a href="/project/{{ o.project.id }}" title="{{ o.project.name }}">{{ o.project.name }}</a></div>{% endif %}
+        {% if o.related_criteria or o.related_criteria_id %}<div><span>관련 기준 문서</span>{% if o.related_criteria %}<a href="/dev/archive/doc/{{ o.related_criteria.id }}" title="{{ o.related_criteria.filename }}">{{ o.related_criteria.name }}</a>{% else %}<span class="muted">문서 {{ o.related_criteria_id }} (삭제됨)</span>{% endif %}</div>{% endif %}
+        <div class="wide"><span>개인정보 가림</span>
+          {% if not o.mask.subject %}<span class="muted">해당 없음(규정은 원문 그대로)</span>
+          {% elif not o.mask.recorded %}<span class="muted">기록 없음</span>
+          {% elif not o.mask.rows %}<span class="dx-pills"><span class="pill reviewed dx-pill">가린 항목 0건</span>
+            <span class="muted" style="font-size:12px;">{{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }}</span></span>
+          {% else %}<span class="dx-pills">
+            {% for m in o.mask.rows %}<span class="pill type dx-pill">{{ m.label }} {{ m.n }}</span>{% endfor %}
+            <span class="muted" style="font-size:12px;">총 {{ o.mask.total }}건 · {{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }}</span></span>
+          {% endif %}
+        </div>
+        {% if o.error %}<div class="wide"><span>오류</span><span style="color:var(--red);">{{ o.error }}</span></div>{% endif %}
+        {% if o.parse_note %}<div class="wide"><span>읽기 메모</span>{{ o.parse_note }}</div>{% endif %}
+      </div>
+    </div>
+
+    {% set c = s.chunks %}
+    <div class="dx-sec">
+      <h3 class="dx-materials-title">추출·검색 자료</h3>
+        <div class="dx-pills dx-materials-summary">
+          <span class="pill dx-pill">항목 {{ c.n_extract }}</span>
+          {% for k in c.kinds %}<span class="pill dx-pill" style="background:#fff; border:1px solid var(--line);">{{ k.label }} {{ k.n }}</span>{% endfor %}
+          {% if c.n_units %}
+            <span class="pill type dx-pill">검색 조각 {{ c.n_units }}</span>
+            {% if c.n_embedded is not none %}
+              <span class="pill {{ 'reviewed' if c.n_embedded == c.n_units else 'processing' }} dx-pill">검색 색인 {{ c.n_embedded }}/{{ c.n_units }}</span>
+            {% elif index.exists %}<span class="pill processing dx-pill">검색 색인 미확인</span>
+            {% else %}<span class="pill dx-pill">검색 색인 없음</span>{% endif %}
+          {% elif c.n_grant is not none %}
+            <span class="pill type dx-pill">검색 조각 {{ c.n_grant }}</span>
+          {% elif o.doc_type == 'grant' %}
+            <span class="muted">검토 뒤 검색 색인에 들어감</span>
+          {% else %}
+            <span class="muted">검색 색인 없음</span>
+          {% endif %}
+        </div>
+
+      {% if c.n_units %}
+      <section class="dx-material-group" aria-label="검색 조각">
+        <h4 class="dx-material-heading">검색 조각 <span>{{ c.n_units }}건</span></h4>
+        {% set has_head = c.units | selectattr("heading") | list | length > 0 %}{# 제목이 하나도 없으면(규정 조문 등) 빈 칸을 보이지 않는다 #}
+        <div class="dx-rows-wrap"><table class="dx-rows{{ '' if has_head else ' nohead' }}">
+          <tr><th>#</th>{% if has_head %}<th>제목</th>{% endif %}<th class="dx-num">길이</th><th>색인</th><th>본문</th></tr>
+          {% for u in c.units %}
+          <tr>
+            <td class="dx-mono">{{ u.id }}</td>
+            {% if has_head %}<td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>{% endif %}
+            <td class="dx-num">{{ "{:,}".format(u.length) }}</td>
+            <td>{% if u.embedded is none %}<span class="muted">미확인</span>{% elif u.embedded %}<span class="pill reviewed dx-pill">있음</span>{% else %}<span class="pill processing dx-pill">없음</span>{% endif %}</td>
+            <td class="prev"><details class="dx-more can"><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary><pre>{{ u.content }}</pre></details></td>
+          </tr>
+          {% endfor %}
+        </table></div>
+      </section>
+      {% endif %}
+
+      <section class="dx-material-group" aria-label="항목">
+        <h4 class="dx-material-heading">항목 <span>{{ c.n_extract }}건 · 본문·표·그림</span></h4>
+        {% if c.extract %}
+        <div class="dx-rows-wrap"><table class="dx-rows">
+          <tr><th>#</th><th>종류</th><th class="dx-num">쪽</th><th class="dx-num">길이</th><th>본문</th></tr>
+          {% for r in c.extract %}
+          {% if loop.index0 == extract_page %}</table>
+          <details class="chip-toggle dx-extract-more"><summary>더 보기 · 나머지 {{ "{:,}".format(c.extract|length - extract_page) }}건</summary>
+          <table class="dx-rows">{% endif %}
+          <tr>
+            <td class="dx-mono">{{ r.seq + 1 if r.seq is not none else loop.index }}</td>
+            <td><span class="pill dx-pill">{{ r.kind_label }}</span></td>
+            <td class="dx-num">{{ r.page_no if r.page_no is not none else '—' }}</td>
+            <td class="dx-num">{{ "{:,}".format(r.length) }}</td>
+            <td class="prev"><details class="dx-more can"><summary><span class="p">{{ r.preview or '—' }}</span><span class="t"></span></summary><pre>{{ r.content }}</pre></details></td>
+          </tr>
+          {% endfor %}
+        </table>{% if c.extract|length > extract_page %}</details>{% endif %}</div>
+        {% else %}<p class="muted" style="font-size:12.5px; margin:4px 0 0;">항목 없음</p>{% endif %}
+      </section>
+    </div>
+
+    {% set r = s.related %}
+    <div class="dx-sec">
+      <h3>연관 (지식 그래프)
+        {% if r.available and r.in_graph %}<span class="muted">이어진 노드 {{ r.n }}</span>{% endif %}
+        <a class="h-link" href="/graph/explore?id=doc:{{ o.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프에서 보기</a></h3>
+      {% if not r.available %}<p class="dx-empty" style="padding:12px 0;">그래프 미생성</p>
+      {% elif not r.in_graph %}<p class="dx-empty" style="padding:12px 0;">그래프에 없는 문서 (그래프에는 사업 문서만 들어갑니다)</p>
+      {% elif not r.groups %}<p class="dx-empty" style="padding:12px 0;">이어진 문서·개체 없음</p>
+      {% else %}
+        {% for g in r.groups %}
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11.5px; font-weight:700; color:var(--muted); margin-bottom:5px;">{{ g.label }}
+            <span class="muted" style="font-weight:500;">{{ g.nodes|length }}</span></div>
+          <div class="dx-chips">
+            {% for it in g.nodes %}
+            <a class="dx-chip" href="{{ it.href }}" title="{{ it.label }}">
+              <span class="k">{{ it.kind_label }}</span><span class="l">{{ it.label }}</span>
+              {% if it.note %}<span class="w">{{ it.note }}</span>{% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+</div></section>
+{% endblock %}

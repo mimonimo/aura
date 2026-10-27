@@ -43,7 +43,7 @@
   자세한 층과 흐름은 architecture 10.2, 시연은 `/dev/coedit-demo`(ADR-0071).
 - 27B 문서 작업 에이전트가 양식 고르기(없으면 실물을 참고해 설계) → 근거 찾기 → 관문(근거 없는 숫자·남은 예시 글자 거절) → 절 쓰기를
   거쳐 hwpx 의 절 자리에 바로 쓴다. 무엇을 쓸지는 27B 가 정하고 코드는 도구·관문·기록만 맡는다(architecture 9·10.3, ADR-0060·0065·0068).
-- 구글 독스는 보조 경로다. 학교 계정을 이은 사용자만 쓰고, 구글 앱 등록은 `/dev/users#google-links`(ADR-0029).
+- 구글 독스는 보조 경로다. 학교 계정을 이은 사용자만 쓰고, 구글 앱 등록은 조직 관리 `/team#google-links`(관리자만, ADR-0029).
 - 한글 완성본은 원본 hwpx 에 서식 보존으로 채운다(ADR-0035). .hwp 원본은 hwpx 로 바꿔 쓴다.
 - 캡스톤 논문도 기안기 문서(한글 문서함 공통/논문)로 쓴다(ADR-0072). 원고는 `docs/paper/논문/`.
 
@@ -91,6 +91,11 @@
 | 문서 작성 | 공동 편집 시연 `/dev/coedit-demo` |
 | 모델 학습 | 데이터·학습 `/dev/train`, 수집 자료 `/dev/collect`, 도구·모델 연결 `/dev/tools`, (모델 비교는 품질·성능 `/dev/quality#model-compare`, 자세히 `/dev/models/compare`) |
 | 보안·관리 | 구글 계정 연결 `/dev/users`(구글 앱 등록·학교 계정 연결 현황), 개인정보·반출 점검 `/dev/pii` |
+| 개발 | 개발 현황 `/dev`(변경 이력 `/dev/history`), 처리 흐름 `/dev/flow`(반입 점검 `/dev/flow#intake`), 논문·설계 문서 `/dev/docs`, 공동 편집 시연 `/dev/coedit-demo` |
+| 관리 | 원본 관리 `/dev/archive`(장부 값·장부 전체 범위, 문서 하나의 반입 결과 보기 `/dev/archive/doc/{id}`), RAG 공간 `/dev/rag`, 데이터·학습 `/dev/train`, 도구·모델 연결 `/dev/tools`, 개인정보·반출 점검 `/dev/pii` |
+| 지표 | 품질·성능 `/dev/quality` |
+
+업무 화면에 있는 것은 개발 사이드바에 두지 않는다(10-27): 그래프 탐색 `/graph/explore` 는 라이브러리·문서·채팅에서, 구글 앱 등록·학교 계정 연결 현황은 조직 관리 `/team#google-links`(관리자만)에서 연다.
 
 계정·부서·구성원 관리는 개발 화면이 아니라 업무 화면 사이드바의 조직 관리 `/team` 한 곳이다(ADR-0073). `/dev/intake` 는 처리 흐름의 반입 점검 칸으로 넘긴다.
 옛 주소 `/dev/data`·`/dev/nas`·`/dev/api/intake` 와 구독 인증 상태 확인은 지웠다(10-25).

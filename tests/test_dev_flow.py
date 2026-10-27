@@ -24,7 +24,8 @@ def test_flow_page_lists_every_stage_term_and_host(tmp_path):
         assert s["name"] in page and f'id="stage-{s["n"]}"' in page
     for t in process_flow.TERMS:
         assert t["name"] in page
-    assert 'href="/dev#system"' in page                                    # 장비는 개발 현황 시스템 구성 한 곳에
+    assert 'href="/dev#system"' not in page and "설명 모두 펼치기" not in page   # 처리 단계 머리에 덧단 것은 뺐다(10-27), 장비는 개발 현황 한 곳
+    assert "자세히" in page                                                  # 단계마다 펼치기는 그대로
     hub = c.get("/dev").text
     for h in process_flow.HOSTS:
         assert h["name"] in hub

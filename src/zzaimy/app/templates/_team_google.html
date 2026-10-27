@@ -1,9 +1,7 @@
-{% extends "base.html" %}
-{% block title %}{{ dev_page_name('/dev/users') }}{% endblock %}
-{% block pagetitle %}{{ dev_page_name('/dev/users') }}{% endblock %}
-{% block content %}
-<script>if (location.hash === '#depts') location.replace('/team');   /* 옛 주소 — 부서 표는 조직 관리로 옮겼다 */</script>
+{# 조직 관리(/team) 의 관리자 부분 — 구글 앱 등록(처음 한 번)·허용 도메인·학교 계정 연결 현황.
+   옛 개발 화면 「구글 계정 연결」(10-27 에 없앰)을 그대로 옮겼다. 동작은 /dev/google/*·/dev/gdrive/client(관리자만)이 하고 /team#google-links 로 돌아온다 #}
 <style>
+  .team-google { margin-top:16px; }
   .ua-table { width:100%; border-collapse:collapse; font-size:13px; }
   .ua-table th { text-align:left; font-size:12px; color:var(--muted); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
   .ua-table td { padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
@@ -13,20 +11,9 @@
   .ua-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
   .ua-form { display:flex; flex-direction:column; gap:12px; }
   .ua-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
-  .ua-go { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0; font-size:13px; color:var(--muted); }
   @media (max-width:640px) { .ua-table .wide { display:none; } }
 </style>
-
-{% if err %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ err }}</span></p>{% endif %}
-{% if ok %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>{% endif %}
-
-<div class="card reveal" id="org-link"><div class="card-in">
-  <p class="ua-go"><iconify-icon icon="solar:users-group-rounded-linear" aria-hidden="true"></iconify-icon>
-    <span>계정 {{ users | selectattr('active') | list | length }}명 사용 중 · 부서 {{ dept_choices | length }}개</span>
-    <a class="h-link" href="/team?view=all" data-org-link>조직 관리에서 계정·부서 관리</a></p>
-</div></div>
-
-<div class="card reveal" id="google-links"><div class="card-in">
+<div class="card reveal"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
     <a class="h-link" href="/settings#myGoogle">내 구글 계정 연결</a></h2>
   {# Google 앱 등록 — 플랫폼에 한 번. 계정 연결은 사용자마다(설정)·부서마다(조직 관리 › 부서 설정) #}
@@ -66,5 +53,3 @@
     </form>
   </div></div>
 </div>
-
-{% endblock %}

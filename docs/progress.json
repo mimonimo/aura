@@ -86,8 +86,8 @@
    "left": "미분류 문서 확인(처리 흐름 6단계 미분류 경고)",
    "links": [
     {
-     "label": "데이터 현황",
-     "href": "/dev/db"
+     "label": "원본 관리",
+     "href": "/dev/archive"
     }
    ]
   },

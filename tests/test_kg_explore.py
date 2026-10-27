@@ -137,7 +137,7 @@ def test_explore_default_overview_and_selection_query(tmp_path):
     assert '"sel": ["program:A", "program:C"]' in c.get("/graph/explore", params={"sel": "program:A,program:C"}).text
     assert '"sel": ["doc:' + str(d1) + '"]' in c.get("/graph/explore", params={"id": f"doc:{d1}"}).text   # 옛 id= 링크는 하나 고르기
     assert 'data-tab="onto"' in c.get("/graph/explore", params={"tab": "onto"}).text
-    assert "업무 화면으로" in page and "side-hwp-box" not in page     # 개발 메뉴의 화면은 개발 사이드바
+    assert "업무 화면으로" not in page and "side-hwp-box" in page     # 그래프 탐색은 업무 화면 — 개발 메뉴에서 뺐다(10-27)
     staff = TestClient(app)
     assert _login(staff, "zzaimy", "boot-pass-1")
     sp = staff.get("/graph/explore", params={"tab": "onto"}).text

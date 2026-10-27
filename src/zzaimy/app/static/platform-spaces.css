@@ -23,9 +23,8 @@ body input[type=file]:disabled::file-selector-button { opacity:.5; cursor:not-al
 .sidebar-service-name { grid-column:1 / -1; margin:0; padding:6px 0 0; font-size:11px; font-weight:500; line-height:1.6; color:var(--muted); letter-spacing:-.01em; }
 .sidebar-header .sidebar-close { position:static; grid-column:2; grid-row:1; width:30px; height:30px; margin:0; padding:0; border-radius:8px; background:transparent; color:#727984; font-size:17px; }
 .sidebar-header .sidebar-close:hover { background:#e8eaee; }
-.side-connection-status, .side-connection-device, .side-connection-model { display:block; line-height:1.5; }
-.side-connection-device { margin-top:5px; color:var(--muted); font-weight:600; overflow-wrap:anywhere; }
-.side-connection-model { margin-top:2px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.side-connection-status { display:block; line-height:1.5; }
+.side-connection-line { display:block; line-height:1.5; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .nav-ready .sidebar { transition:transform .22s ease, visibility 0s linear .22s; }
 .nav-ready .content-col { transition:margin-left .22s ease; }
 html:not(.sidebar-collapsed) .sidebar, body.nav-open .sidebar { transition-delay:0s; }

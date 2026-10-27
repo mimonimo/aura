@@ -4,7 +4,7 @@
 사이드바·사용자 메뉴·설정 머리·사람 칩·편집 잠금 안내처럼 사람을 보이는 곳은 이 함수 하나를 쓴다
 (템플릿은 전역 person_name(uid), 라우터는 request.app.state.person_name(uid)).
 
-장부 이름은 관리자가 정한다(/dev/users). 장부에 이름이 있으면 본인이 설정에서 바꿀 수 없다 — name_locked.
+장부 이름은 관리자가 정한다(조직 관리 /team 계정 목록). 장부에 이름이 있으면 본인이 설정에서 바꿀 수 없다 — name_locked.
 """
 
 from __future__ import annotations

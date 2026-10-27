@@ -2,16 +2,17 @@
 
 구글 API(앱 등록, OAuth 클라이언트)는 개발자 계정이 한 번 해 두고, 관리자가 플랫폼 계정을 만들면 사용자마다 자기 학교 계정
 (ync.ac.kr)을 연결한다. 구글 허용은 그 계정 주인이 로그인해야 하므로 본인만 할 수 있다(설정 화면의 「구글 계정」). 관리자는
-/dev/users 에서 계정을 만들고(역할·부서·사용 여부·비밀번호 초기화), 누가 어느 구글 계정에 이어졌는지 보고, 이음을 풀거나 이미
+조직 관리(/team)에서 계정을 만들고(역할·부서·사용 여부·비밀번호 초기화), 누가 어느 구글 계정에 이어졌는지 보고, 이음을 풀거나 이미
 연결된 계정으로 다시 지정하고, 허용 도메인·부서 공용 계정·부서 공유 드라이브를 정한다. 문서 작성은 각자 연결한 학교 계정으로
 한다.
 
 - 사용자: GET /account/google(상태 JSON), GET /account/google/connect(허용 화면으로), POST /account/google/disconnect
-- 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): GET /dev/users, POST /dev/users/save(역할·교직원 등급·부서 —
+- 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): POST /dev/users/save(역할·교직원 등급·부서 —
   등급과 관리자 상한은 grades, ADR-0066),
   POST /dev/google/{settings,dept,revoke}, POST /dev/users/dept(부서 만들기·지우기·사전에서 여러 개 만들기 create_many),
   POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary), POST /dev/users/bulk(여러 명).
-  화면은 조직 관리(/team) 한 곳이다 — 계정·부서·구성원을 그 화면에서 다루고, /dev/users 에는 구글 앱 등록과 학교 계정 연결 현황만. 계정의 겸직 부서는
+  화면은 조직 관리(/team) 한 곳이다 — 계정·부서·구성원, 관리자에게는 구글 앱 등록과 학교 계정 연결 현황(_team_google.html, 옛 /dev/users 화면은
+  10-27 에 없앴다)까지 그 화면에서 다룬다. 고치기 경로(POST /dev/users/*·/dev/google/*)는 관리자 막기(/dev)를 그대로 쓰려고 주소를 두었다. 계정의 겸직 부서는
   줄마다 부서 + 그 부서에서의 등급(rag grants dept: 와 account["dept_grades"] 를 함께 맞춘다)
 - 조직 관리: GET /team(부서 트리 + 상세), GET /api/org/accounts(전체 사용자)·/api/org/members(구성원), POST /api/org/members
   (옮기기·등급·추가 권한·빼기·사람 추가). 트리 자료와 부서 고치기는 org_routes(이 라우터에 함께 붙는다)
@@ -196,19 +197,11 @@ def _drop_token_if_orphan(db, request: Request, email: str) -> None:
 
 # ---------------- 관리자: 사용자 ----------------
 
-def _back(msg: str, ok: bool = True, to: str = "/dev/users") -> RedirectResponse:
-    sep = "&" if "?" in to else "?"
-    return RedirectResponse(f"{to}{sep}{'ok' if ok else 'err'}={quote(msg)}", status_code=303)
-
-
-@router.get("/dev/users", response_class=HTMLResponse)
-def dev_users(request: Request, ok: str = "", err: str = ""):
-    st = request.app.state
-    data = overview(st.db, _accounts(request), getattr(st, "data_dir", None))
-    data["me"] = _user(request)
-    data["redirect_uri"] = redirect_uri(request)          # Google 앱 등록 창에 보일 되돌아올 주소
-    data["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))   # 머리 줄의 부서 수
-    return st.templates.TemplateResponse(request, "dev_users.html", st.page_ctx(request, {**data, "ok": ok, "err": err}))
+def _back(msg: str, ok: bool = True, to: str = "/team#google-links") -> RedirectResponse:
+    """관리자 동작 뒤 돌아갈 곳 — 기본은 조직 관리의 학교 계정 연결 현황(구글 앱·허용 도메인·연결 삭제). 조각(#…)은 물음표 뒤로 보낸다."""
+    path, _, frag = to.partition("#")
+    sep = "&" if "?" in path else "?"
+    return RedirectResponse(f"{path}{sep}{'ok' if ok else 'err'}={quote(msg)}" + (f"#{frag}" if frag else ""), status_code=303)
 
 
 def dict_candidates(st, existing: list[str]) -> dict:
@@ -417,11 +410,11 @@ def dev_google_settings(request: Request, domain: str = Form("")):
 
 
 def _reply(request: Request, msg: str, ok: bool = True, **extra):
-    """부서 표의 동작 응답 — 화면이 fetch 로 보내면(Accept: application/json) {ok, msg, …}, 폼 그대로면 /dev/users 로 돌아간다."""
+    """부서 표의 동작 응답 — 화면이 fetch 로 보내면(Accept: application/json) {ok, msg, …}, 폼 그대로면 조직 관리로 돌아간다."""
     from zzaimy.app.dept_drive_routes import wants_json
     if wants_json(request):
         return JSONResponse({"ok": ok, "msg": msg, **extra}, status_code=200 if ok else 400)
-    return RedirectResponse(f"/dev/users?{'ok' if ok else 'err'}={quote(msg)}#depts", status_code=303)
+    return RedirectResponse(f"/team?{'ok' if ok else 'err'}={quote(msg)}", status_code=303)
 
 
 @router.post("/dev/google/dept")
@@ -739,7 +732,7 @@ def _team_rows(accounts: dict, dept: str, actor_grade: str = "admin", data_dir=N
 @router.get("/team", response_class=HTMLResponse)
 def team_page(request: Request, dept: str = "", ok: str = "", err: str = "", tab: str = "", view: str = ""):
     """조직 관리 — 왼쪽 부서 트리(맨 위 「전체 사용자」), 오른쪽 고른 것의 상세(구성원·부서 설정 / 계정 목록) 한 화면.
-    옛 주소(?tab=org, /dev/users#depts)도 이리로 온다. 자료는 화면이 /api/org·/api/org/members·/api/org/accounts 로 받고,
+    관리자에게는 아래에 학교 계정 연결 현황(구글 앱 등록·허용 도메인·연결 삭제)도 보인다. 자료는 화면이 /api/org·/api/org/members·/api/org/accounts 로 받고,
     고치기는 그 경로들이 권한을 매번 다시 본다. 교직원 누구나 트리와 부서 개요를 보고, 구성원·설정은 권한만큼만 보인다."""
     st = request.app.state
     from zzaimy.app.org_routes import Actor
@@ -749,7 +742,8 @@ def team_page(request: Request, dept: str = "", ok: str = "", err: str = "", tab
            "start_view": "all" if view == "all" and admin else "", "ok": ok, "err": err}
     if admin:                                               # 계정 편집 창(전체 사용자) — 고르기 칸과 등급·권한 이름
         data = overview(st.db, _accounts(request), getattr(st, "data_dir", None))
-        ctx.update({k: data[k] for k in ("roles", "grades", "perms", "default_grade", "admin_max", "admin_n", "emails")})
+        ctx.update({k: data[k] for k in ("roles", "grades", "perms", "default_grade", "admin_max", "admin_n", "emails", "domain", "app")})
+        ctx["redirect_uri"] = redirect_uri(request)       # Google 앱 등록 창에 보일 되돌아올 주소
         ctx["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))
         ctx["dept_labels"] = dict_candidates(st, ctx["dept_choices"])["dept_labels"]
         ctx["password_rules"] = {"min_length": passwords.MIN_LENGTH}

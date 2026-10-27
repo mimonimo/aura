@@ -1,4 +1,4 @@
-"""데이터 열람(/dev/db) — 문서 중심 탐색기 조립 함수와 화면 스모크.
+"""반입 결과 보기(/dev/archive/doc/{id}) — 문서 하나 들여다보기 조립 함수와 화면 스모크. 옛 데이터 현황(/dev/db)은 10-27 에 없앴다.
 
 수치는 전부 DB에서 나온 것이어야 하고, 마스킹 기록은 유형·건수만 보여야 한다.
 """
@@ -62,50 +62,6 @@ def _seed(db: Database) -> dict:
 # --- 목록·개요 ---
 
 
-def test_list_docs_counts_chunks_and_filters(db):
-    ids = _seed(db)
-    docs = {d["id"]: d for d in dx.list_docs(db)}
-    assert docs[ids["reg"]]["n_units"] == 2 and docs[ids["reg"]]["n_chunks"] == 1
-    assert docs[ids["intake"]]["n_units"] == 0 and docs[ids["intake"]]["n_chunks"] == 3
-    assert [d["id"] for d in dx.list_docs(db, doc_type="recruit")] == [ids["intake"]]
-    assert [d["id"] for d in dx.list_docs(db, q="학칙")] == [ids["reg"]]
-    receipt = docs[ids["intake"]]["receipt_no"]
-    assert receipt.startswith("2026-채용-")
-    assert [d["id"] for d in dx.list_docs(db, q=receipt)] == [ids["intake"]]
-    assert {t["doc_type"]: t["n"] for t in dx.type_counts(db)} == {"regulation": 1, "recruit": 1}
-
-
-def test_list_docs_shortens_long_names_but_keeps_full(db):
-    long = "가" * 200 + ".pdf"
-    db.add_document(long, "/x/long.pdf", doc_type="grant")
-    d = dx.list_docs(db)[0]
-    assert d["filename"] == long
-    assert len(d["name"]) <= dx.NAME_CHARS and d["name"].endswith("…")
-
-
-def test_list_docs_counts_only_selected_page_and_empty_results(db):
-    ids = _seed(db)
-    rows = dx.list_docs(db, limit=1)
-    assert len(rows) == 1 and rows[0]['id'] == ids['intake']
-    assert rows[0]['n_chunks'] == 3 and rows[0]['n_units'] == 0
-    assert dx.list_docs(db, q='no-matching-document') == []
-    assert dx.list_docs(db, limit=0) == []
-
-
-def test_archive_tab_shows_unlinked_files_and_filters(db):
-    from zzaimy.app.archive import ensure
-    ensure(db)
-    with db._conn() as conn:
-        conn.execute("INSERT INTO archive_files(rel, program_name, ext) VALUES (?, ?, ?)",
-                     ('사업/사진.jpg', '시험사업', 'jpg'))
-    view = dx.archive_tab(db, q='시험사업')
-    assert view['total'] == 1
-    assert view['rows'][0]['doc_id'] is None
-    assert view['rows'][0]['rel'] == '사업/사진.jpg'
-    assert dx.archive_tab(db, q='없는사업')['total'] == 0
-    assert dx.archive_tab(db, page=1)['rows'] == []
-
-
 def test_doc_overview_reports_masking_by_type_and_count_only(db):
     ids = _seed(db)
     doc = db.get_document(ids["intake"])
@@ -167,36 +123,6 @@ def test_embedding_index_reads_meta_and_npz_ids(tmp_path):
     assert info["ids"] == frozenset({11, 12})
 
 
-def test_regulation_docs_count_embedded_units(db):
-    ids = _seed(db)
-    units = db.chunks_for_docs([ids["reg"]])
-    docs = dx.regulation_docs(db, frozenset({u["id"] for u in units}))
-    assert [d["id"] for d in docs] == [ids["reg"]]
-    assert docs[0]["title"] == "학칙" and docs[0]["n_units"] == 2 and docs[0]["n_embedded"] == 2
-    assert dx.regulation_docs(db, None)[0]["n_embedded"] is None
-
-
-def test_regulation_tab_marks_search_hits_in_selected_doc(db):
-    ids = _seed(db)
-    units = db.chunks_for_docs([ids["reg"]])
-    calls: list[str] = []
-
-    def fake_search(text: str) -> list[dict]:
-        calls.append(text)
-        return [units[1]]
-
-    view = dx.regulation_tab(db, q="휴학", doc_id=ids["reg"], search_fn=fake_search)
-    assert calls == ["휴학"]
-    assert [h["heading"] for h in view["hits"]] == ["제2조(휴학)"]
-    assert [u["hit"] for u in view["selected"]["units"]] == [False, True]
-    # 빈 질의는 검색하지 않는다 · 접수 문서를 고르면 규정 선택은 비어 있다
-    view = dx.regulation_tab(db, q="  ", doc_id=ids["intake"], search_fn=fake_search)
-    assert calls == ["휴학"] and view["hits"] == [] and view["selected"] is None
-
-
-# --- 연관(그래프) ---
-
-
 def test_related_for_doc_groups_neighbors_by_edge_kind():
     graph = {
         "nodes": [
@@ -236,65 +162,37 @@ def test_related_for_doc_groups_neighbors_by_edge_kind():
 # --- 채팅·코퍼스·탭 ---
 
 
-def test_chat_sessions_view_counts_messages_and_known_sources(db):
-    sid = db.create_chat_session("질병 휴학 기준")
-    db.add_chat(sid, "user", "질병 휴학 기준이 뭐야")
-    db.add_chat(sid, "assistant", "진단서가 필요합니다.")
-    other = db.create_chat_session("다른 질문")
-    rows = {r["id"]: r for r in dx.chat_sessions_view(db, {sid: [{"title": "학칙"}] * 3})}
-    assert rows[sid]["n_messages"] == 2 and rows[sid]["n_answers"] == 1 and rows[sid]["n_sources"] == 3
-    assert rows[other]["n_messages"] == 0 and rows[other]["n_sources"] is None   # 이번 프로세스가 모르는 세션
-
-
-def test_normalize_tab_maps_legacy_table_urls():
-    assert dx.normalize_tab("corpus") == "docs"  # retired pilot collection
-    assert dx.normalize_tab("", "regulation_chunks") == "regulation"
-    assert dx.normalize_tab("", "chat_messages") == "chat"
-    assert dx.normalize_tab("nope", "documents") == "docs"
-
-
 # --- 화면 스모크 ---
 
 
-def test_dev_db_renders_tabs_and_document_detail(client):
+def test_doc_result_page_shows_overview_chunks_and_graph(client, tmp_path):
     long = "가" * 200
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": (long + ".pdf", b"%PDF", "application/pdf")})
-    r = client.get("/dev/db")
-    assert r.status_code == 200
-    for key in ("tab=docs", "tab=regulation", "tab=chat"):
-        assert f'href="/dev/db?{key}"' in r.text
-    assert 'href="/dev/db?tab=corpus"' not in r.text
-    assert f'title="{long}.pdf"' in r.text and (long + ".pdf") not in r.text.split('title="')[0]
-    assert "추출·검색 자료" in r.text
-
-    detail = client.get("/dev/db?tab=docs&doc=1")
+    detail = client.get("/dev/archive/doc/1")
     assert detail.status_code == 200
+    assert "반입 결과 보기" in detail.text and f'title="{long}.pdf"' in detail.text
     assert "합성 마스킹 본문" not in detail.text            # 본문 전문은 조각으로만, 원문 덤프 없음
     assert "추출·검색 자료" in detail.text and "연관 (지식 그래프)" in detail.text
     assert 'href="/graph/explore?id=doc:1"' in detail.text and 'href="/doc/1"' in detail.text
-    assert client.get("/dev/db?tab=docs&doc=999").status_code == 200   # 없는 문서 → 목록만
+    assert client.get("/dev/archive/doc/999").status_code == 404
+    doc = client.get("/doc/1").text                          # 문서 화면 「관리」 에서 관리자에게만
+    assert 'href="/dev/archive/doc/1"' in doc
 
 
-def test_dev_db_other_tabs_and_legacy_urls(client):
-    assert client.get("/dev/db?tab=regulation").status_code == 200
-    corpus = client.get("/dev/db?tab=corpus", follow_redirects=False)   # 거둔 공개 문서 모음 탭 — 넘기기 없이 문서 탭 그대로(10-25)
-    assert corpus.status_code == 200 and "국고 코퍼스" not in corpus.text
-    chat = client.get("/dev/db?tab=chat")
-    assert chat.status_code == 200 and "대화 기록 없음" in chat.text
-    legacy = client.get("/dev/db?table=regulation_chunks")
-    assert legacy.status_code == 200 and "규정 문서 없음" in legacy.text
-
-
-def test_dev_corpus_redirects_into_data_explorer(client):
-    assert client.get("/dev/corpus", follow_redirects=False).status_code == 404   # 옛 주소 안내는 없앴다
+def test_old_data_explorer_urls_are_gone(client):
+    """데이터 현황은 없앴다(10-27) — 옛 주소는 넘기지 않고 지운다. 원본 장부는 원본 관리, 문서 하나는 반입 결과 보기, 기준 문서는 RAG 공간."""
+    for url in ("/dev/db", "/dev/db?tab=archive", "/dev/db?tab=docs&doc=1", "/dev/db?tab=regulation", "/dev/db?tab=chat",
+                "/dev/db?table=documents", "/dev/corpus"):
+        assert client.get(url, follow_redirects=False).status_code == 404, url
+    assert 'href="/dev/db' not in client.get("/dev").text
 
 
 def test_short_content_also_has_full_reader(client, tmp_path):
     db = Database(tmp_path / "test.db")
     ids = _seed(db)
-    regulation = client.get(f"/dev/db?tab=regulation&doc={ids['reg']}").text
-    document = client.get(f"/dev/db?tab=docs&doc={ids['intake']}").text
+    regulation = client.get(f"/dev/archive/doc/{ids['reg']}").text
+    document = client.get(f"/dev/archive/doc/{ids['intake']}").text
     assert '<pre>휴학은 학기 단위로 신청한다.</pre>' in regulation
     assert '<pre>도장</pre>' in document
     assert 'id="dxDetail"' in regulation
@@ -302,6 +200,7 @@ def test_short_content_also_has_full_reader(client, tmp_path):
     assert 'aria-label="항목"' in document
     assert 'class="dx-group"' not in document
     assert 'box-shadow:inset 3px' not in document
+    assert f'href="/dev/archive/doc/{ids["reg"]}"' in document          # 관련 기준 문서도 반입 결과 보기로
 
 
 def test_table_chunk_preview_is_readable():
@@ -329,14 +228,13 @@ def test_grant_docs_count_grant_index_chunks(db):
         {"kind": "table", "page_no": 1, "content": "| 항목 | 값 |"},
         {"kind": "heading", "page_no": 1, "content": "1. 개요"},
     ])
-    row = {d["id"]: d for d in dx.list_docs(db)}[g]
-    assert row["n_units"] == 0 and row["n_grant"] == 2
     view = dx.doc_chunks_view(db, g, None, db.get_document(g))
     assert view["n_grant"] == 2
     assert dx.doc_chunks_view(db, g, None)["n_grant"] is None
 
 
-def test_ledger_tab_shows_raw_values_and_points_to_archive(client, tmp_path):
+def test_ledger_tab_moved_to_archive_with_raw_values(client, tmp_path):
+    """옛 「원본 장부」 탭은 원본 관리 한 곳으로(10-27) — 장부 원값은 원본 관리 줄에서 펼치고, 장부 전체는 「범위」 로."""
     from zzaimy.app import archive
     db = Database(tmp_path / "test.db")
     archive.ensure(db)
@@ -345,14 +243,13 @@ def test_ledger_tab_shows_raw_values_and_points_to_archive(client, tmp_path):
                      " (?, ?, ?, ?, ?, ?, ?, '')", ('가상사업/폴더/아주긴이름의계획서.hwp', '가상사업', 'hwp', 'auto', '가상사업/대표.hwp',
                                                     '처리 실패: 시험', '2031-01-02T03:04:05'))
         conn.execute("INSERT INTO archive_files(rel, ext, removed_at) VALUES (?, ?, '')", (archive.UPLOAD_PREFIX + "반입/원본.pdf", 'pdf'))
-    page = client.get("/dev/db?tab=archive&q=가상 계획서").text
-    assert 'type="search" name="q"' in page and 'href="/dev/archive?q=' in page
-    assert 'title="가상사업/폴더/아주긴이름의계획서.hwp"' in page and 'title="가상사업/대표.hwp"' in page
+    page = client.get("/dev/archive?q=가상 계획서").text
     assert ">규칙으로 확정<" in page and '장부 코드 auto"' in page                  # 분류 상태는 코드 대신 이름(코드는 툴팁)
-    assert "2031-01-02 03:04" in page and "처리 실패: 시험" in page
+    assert "가상사업/대표.hwp" in page and "2031-01-02 03:04" in page and "반입 결과" in page and "처리 실패: 시험" in page
     assert 'class="side-searchbox"' not in page                 # 개발자 사이드바에는 빠른 찾기 상자를 두지 않는다(업무 화면 쪽은 아래 시험)
-    assert "사본·부산물" in client.get("/dev/db?tab=archive&q=반입").text
-    assert dx.archive_tab(db, q='가상 계획서')['total'] == 1 and dx.archive_tab(db, q='100%')['total'] == 0
+    assert "반입/원본.pdf" not in client.get("/dev/archive?q=반입").text            # 기본은 학교 원본만
+    wide = client.get("/dev/archive?q=반입&scope=all").text                       # 장부 전체 — 플랫폼 사본까지
+    assert "반입/원본.pdf" in wide and ">사본·부산물<" in wide and "장부 전체(사본·부산물·정리함 포함)" in wide
 
 
 def test_global_search_box_keeps_query_only_on_search_page(client):

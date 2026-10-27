@@ -1,6 +1,6 @@
-"""비밀번호 규칙 한 곳 — 본인 변경(/account/password)·관리자 임시 비밀번호(/dev/users)·화면 실시간 체크가 같은 값을 쓴다.
+"""비밀번호 규칙 한 곳 — 본인 변경(/account/password)·관리자 임시 비밀번호(조직 관리 /team)·화면 실시간 체크가 같은 값을 쓴다.
 
-화면(settings.html·dev_users.html)은 `password_rules` 전역으로 같은 값을 받아 입력하는 동안 체크 표시만 하고,
+화면(settings.html·_user_edit.html)은 `password_rules` 전역으로 같은 값을 받아 입력하는 동안 체크 표시만 하고,
 받아들일지는 언제나 서버가 problem() 으로 정한다. 비밀번호 값은 돌려주는 글·로그에 넣지 않는다.
 """
 

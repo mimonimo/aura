@@ -24,7 +24,7 @@ def _seed(tmp_path):
     # 기록 파일은 줄마다 키가 다르다 — 묶음에서는 같은 키·같은 차례가 되어야 한다
     lines = [{"at": "2026-10-17T10:00:00", "session": sid, "request": "학생 RAG 등록", "role": "dev", "steps": []},
              {"at": "2026-10-18T09:00:00", "session": sid2, "request": "전화 010-9876-5432 바꿔 줘", "role": "staff",
-              "page": "/dev/users", "finished": True}]
+              "page": "/team", "finished": True}]
     (tmp_path / "platform" / "platform_helper_episodes.jsonl").write_text(
         "".join(json.dumps(x, ensure_ascii=False) + "\n" for x in lines), encoding="utf-8")
     (tmp_path / "eval").mkdir()

@@ -82,6 +82,9 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
 .ar-where summary{cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;list-style:none}
 .ar-where summary::-webkit-details-marker{display:none}.ar-where summary:hover{color:var(--navy)}
 .ar-where code{display:block;margin:4px 0 2px;padding:6px 8px;border-radius:6px;background:var(--panel);font-size:11.5px;overflow-wrap:anywhere;white-space:normal}
+.ar-ledger{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));gap:4px 12px;margin:4px 0 2px;font-size:11.5px}
+.ar-ledger>div{min-width:0}.ar-ledger dt{color:var(--muted);font-weight:600}.ar-ledger dd{margin:0;color:var(--ink);overflow-wrap:anywhere}
+.ar-help{border-bottom:1px dotted var(--muted);cursor:help}
 .ar-tags{display:flex;flex-wrap:wrap;gap:4px;min-width:0}.ar-c{display:contents}.ar-dash{display:none}
 .ar-tag{display:inline-block;padding:1px 8px;border-radius:10px;background:#F1F3F6;color:#4F5966;font-size:11.5px;line-height:1.6}
 .ar-tag.folder{background:#fff;border:1px dashed #AABFD8;padding:0 7px}
@@ -355,6 +358,7 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
         <div class="ar-more">
           <label>사업 연도<select name="year"><option value="">전체</option>{% for y in overall.years if y.year and y.year != nokey %}<option value="{{ y.year }}" {{ 'selected' if y.year == f.year }}>{{ y.year }}년</option>{% endfor %}{% if overall.years|selectattr('year', 'equalto', nokey)|list %}<option value="{{ nokey }}" {{ 'selected' if f.year == nokey }}>연도 미상</option>{% endif %}</select></label>
           <label>형식<select name="ext"><option value="">전체</option>{% for e in exts %}<option value="{{ e.value }}" {{ 'selected' if e.value == f.ext }}>{{ e.label }}</option>{% endfor %}</select></label>
+          <label>범위<select name="scope">{% for k, v in scopes.items() %}<option value="{{ k }}" {{ 'selected' if k == f.scope }}>{{ v }}</option>{% endfor %}</select></label>
           <label>정렬<select name="sort">{% for k, s in sorts.items() %}<option value="{{ k }}" {{ 'selected' if k == f.sort }}>{{ s[0] }}</option>{% endfor %}</select></label>
           <input type="hidden" name="kind" value="{{ f.kind }}"><input type="hidden" name="state" value="{{ f.state }}">
           <input type="hidden" name="round" value="{{ f.round }}"><input type="hidden" name="view" value="{{ '' if f.view == 'table' else f.view }}">

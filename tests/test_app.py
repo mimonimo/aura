@@ -1200,7 +1200,7 @@ def test_sidebar_shows_model_server_status(client, monkeypatch, tmp_path):
     monkeypatch.setattr(model_config, "probe", fake_probe)
     model_config.reset_status_cache()
     page = client.get("/").text
-    assert "서버 연결됨" in page and "qwen-x" in page               # 개발자에게는 서버·모델 이름까지
+    assert "기본 AI 서버 · " in page and "qwen-x" in page and "side-connection-line" in page   # 개발자에게는 서버·모델 이름까지 한 줄로(10-27)
     client.get("/"); client.get("/criteria")
     assert len(calls) == 1                                          # 60초 캐시 — 화면마다 다시 묻지 않는다
     model_config.set_override("", ""); model_config.reset_status_cache()

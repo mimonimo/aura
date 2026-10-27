@@ -78,7 +78,7 @@ DECISION_LABELS = {
 }
 
 # 외부 AI 참조 관리 — 자동 분류 결과·제출 경로·제거 항목의 화면 표시명
-# (dev_egress.html과 데이터 열람 개요가 같은 이름을 쓴다. 저장 값은 영문 키 그대로)
+# (dev_egress.html과 반입 결과 보기가 같은 이름을 쓴다. 저장 값은 영문 키 그대로)
 EGRESS_VERDICT_LABELS = {"safe": "안전", "review": "확인 필요", "blocked": "차단"}
 EGRESS_SOURCE_LABELS = {"manual": "직접 제출"}
 EGRESS_REMOVED_LABELS = {
@@ -796,7 +796,7 @@ def create_app(
         # 문서를 만든다(10-21 사용자: 「공용 계정 사용」 표시로 발견). 부서 드라이브·공유는 각자 연결한 계정 기준이다
         db.set_setting("google_fallback_shared", "0")
         logging.getLogger("zzaimy.app").warning("google_fallback_shared 를 껐습니다 — 로그인 모드에서는 각자 연결한 학교 계정만 씁니다")
-    # 사용자 관리·사용자별 구글 계정 연결(/dev/users, /account/google) — 계정 표와 저장 함수를 라우터에 넘긴다
+    # 사용자 관리·사용자별 구글 계정 연결(조직 관리 /team, /account/google) — 계정 표와 저장 함수를 라우터에 넘긴다
     from zzaimy.app.user_admin import router as user_admin_router
     app.state.accounts = accounts
     app.state.data_dir = Path(db_path).parent      # 부서 목록(user_admin.known_depts)이 RAG 공간 설정을 읽는 자리
@@ -4616,13 +4616,12 @@ def create_app(
             db.add_chat(sid, "assistant", "적용됨:\n" + "\n".join(f"- {ln}" for ln in lines))
         return {"ok": True, "applied": lines}
 
-    # 개발 현황(/dev·/dev/flow·/dev/db·/dev/quality*·/dev/eval/*·/dev/reindex·/dev/route-all) — 독립 라우터
+    # 개발 현황(/dev·/dev/flow·/dev/quality*·/dev/eval/*·/dev/reindex·/dev/route-all) — 독립 라우터
     # (app/dev_overview_routes). 개발 현황 도우미 묶음(_ov)은 앱마다 만들고 문서·보고·RAG 공간 라우터와 자동 재색인이 함께 쓴다.
     # 구글 드라이브 연결(/dev/gdrive/*) — 독립 라우터(app/dev_gdrive_routes)
     from zzaimy.app import dev_gdrive_routes, dev_overview_routes
     _ov = dev_overview_routes.make_overview_helpers(db, db_path, _DOCS_DIR)
     app.state.overview = _ov
-    app.state.chat_sources = _chat_sources
     app.state.auto_route = _auto_route
     app.state.local_path = _LOCAL_PATH
     app.include_router(dev_overview_routes.router)

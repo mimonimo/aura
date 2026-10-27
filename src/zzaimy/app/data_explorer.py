@@ -1,9 +1,9 @@
-"""데이터 열람(/dev/db) 조립 — 문서·규정·국고 코퍼스·채팅 기록을 화면용 dict로 모은다.
+"""반입 결과 보기(/dev/archive/doc/{id}, 관리자) 조립 — 문서 하나가 반입되며 남긴 것을 화면용 dict로 모은다.
 
-행·열 덤프 대신 문서 하나를 축으로 본다: 개요(접수번호·상태·원본·마스킹 기록),
-RAG 조각(추출 조각·검색 단위·임베딩 유무), 지식 그래프에서 이어진 문서·개체.
-전부 순수 함수다 — DB와 파일 경로를 인자로 받고, 모델이 필요한 검색·그래프 생성은
-호출부가 함수로 넘긴다(테스트에서는 가짜를 넣는다).
+개요(접수번호·상태·원본·마스킹 기록), RAG 조각(추출 조각·검색 단위·임베딩 유무), 지식 그래프에서 이어진 문서·개체.
+전부 순수 함수다 — DB와 파일 경로를 인자로 받고, 그래프 조회는 호출부가 함수로 넘긴다(테스트에서는 가짜를 넣는다).
+옛 데이터 현황 화면(10-27 에 없앰)의 「문서」 탭이 하던 문서 하나 들여다보기를 원본 관리 쪽 한 화면으로 옮겼다.
+원본 장부 값은 원본 관리 줄, 기준 문서 목록은 RAG 공간이 맡는다.
 
 원문 개인정보 값은 어디에도 내지 않는다: 본문은 저장된 마스킹본(doc_chunks·
 regulation_chunks)만, 마스킹 기록은 유형·건수만 낸다.
@@ -19,20 +19,11 @@ from datetime import datetime
 from pathlib import Path
 
 from zzaimy.app.embed_search import INDEX_PATH
-from zzaimy.app.intake_status import ARCHIVE_STATUS
 from zzaimy.app.pii_audit import ENTITY_LABELS, is_masking_subject
 
 from zzaimy.app import paths as _paths
 
 META_PATH = _paths.index_meta()
-
-TABS: list[tuple[str, str]] = [
-    ("archive", "원본 장부"),
-    ("docs", "문서"),
-    ("regulation", "기준 문서"),
-    ("chat", "대화 기록"),
-]
-_TAB_KEYS = {k for k, _ in TABS}
 
 # doc_chunks.kind — 파서 산출 조각의 종류
 KIND_LABELS = {
@@ -61,24 +52,14 @@ EDGE_LABELS: dict[str, str] = {
 WEIGHTED_EDGES = {"similar", "relates", "mentions"}
 
 PREVIEW_CHARS = 90     # 목록 미리보기 길이 — 펼치면 전문
-HIT_PREVIEW_CHARS = 200
-NAME_CHARS = 60        # 목록의 파일명 표시 길이
-LIST_LIMIT = 500
-RECENT_LIMIT = 20      # 검색어가 없을 때 — 전체 목록은 문서함(라이브러리)이 맡는다
+NAME_CHARS = 60        # 프로젝트·관련 기준 문서 이름 표시 길이
+EXTRACT_PAGE = 100     # 추출 내용은 앞 100건만 펼쳐 두고 나머지는 「더 보기」로
+
+
+PAGE = "/dev/archive/doc"      # 반입 결과 보기 — 원본 관리의 하위 화면(사이드바에는 없다, app/dev_nav EXTRA)
 
 
 # --- 공통 ---
-
-
-def normalize_tab(tab: str, table: str = "") -> str:
-    """탭 이름 정규화. 예전 표 브라우저 주소(?table=…)는 가장 가까운 탭으로 보낸다."""
-    if tab in _TAB_KEYS:
-        return tab
-    if table.startswith("regulation"):
-        return "regulation"
-    if table.startswith("chat"):
-        return "chat"
-    return "docs"
 
 
 def shorten(text: str | None, n: int = PREVIEW_CHARS) -> str:
@@ -143,121 +124,6 @@ def embedding_index(meta_path: Path = META_PATH, npz_path: Path = INDEX_PATH) ->
 
 
 # --- 문서 ---
-
-
-def type_counts(db) -> list[dict]:
-    """문서 유형별 건수 — 필터 선택지."""
-    with db._conn() as conn:  # noqa: SLF001 — 읽기 전용 집계
-        rows = conn.execute(
-            "SELECT doc_type, COUNT(*) FROM documents GROUP BY doc_type ORDER BY 2 DESC"
-        ).fetchall()
-    return [{"doc_type": r[0] or "", "n": int(r[1])} for r in rows]
-
-
-ARCHIVE_COLS = ('rel', 'ext', 'size', 'mtime', 'program_name', 'status', 'doc_id', 'dup_of', 'analysis', 'seen_at')
-
-# 처리 기록(analysis) 값 가운데 뜻이 바로 안 읽히는 것 — 화면에 짧은 풀이(마우스를 올리면)
-ANALYSIS_NOTES = {
-    "가벼운 처리": "DGX 에서 판독·조각까지만 하고 검토 의견 생성은 건너뛴 처리 — 원본은 DGX 에 두고 글·조각만 들임, OCR 품질 미검사",
-    "부산물": "변환기 출력·웹 페이지 저장 자료 폴더의 파일 — 처리 대상 아님",
-}
-EXTRACT_PAGE = 100     # 문서 자세히의 추출 내용은 앞 100건만 펼쳐 두고 나머지는 「더 보기」로
-
-
-def archive_tab(db, q: str = '', page: int = 0, everything: bool = False) -> dict:
-    """원본 장부(archive_files) 원값 — 개발자가 장부 자체를 확인하는 화면. 사업·연도·처리 상태로 훑는 일반 목록은
-    원본 관리(/dev/archive)가 맡는다. 여기서는 정리된 이름 대신 장부에 적힌 값(분류 상태 코드·문서 번호·같은 파일 대표·
-    처리 기록·목록에서 본 때)을 그대로 보이고, 원본 관리가 빼는 플랫폼 사본·변환 부산물도 함께 보인다."""
-    from zzaimy.app.archive import ensure
-    from zzaimy.app.archive_state import is_original, original_sql
-    ensure(db)
-    page = max(0, page)
-    where = "removed_at = ''"
-    args = []
-    if not everything:                               # 기본은 학교 원본만 — 정리함·부산물·플랫폼 사본은 「모두 보기」에서
-        osql, oargs = original_sql()
-        where += " AND " + osql
-        args += oargs
-    for term in q.split()[:6]:                       # 여러 낱말은 모두 들어간 것만(원본 관리와 같은 규칙)
-        where += " AND (rel LIKE ? ESCAPE '!' OR program_name LIKE ? ESCAPE '!')"
-        like = '%' + term.replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
-        args += [like, like]
-    with db._conn() as conn:
-        total = conn.execute(f'SELECT COUNT(*) FROM archive_files WHERE {where}', args).fetchone()[0]
-        rows = conn.execute(
-            f'SELECT {", ".join(ARCHIVE_COLS)} FROM archive_files WHERE {where}'
-            ' ORDER BY rel LIMIT ? OFFSET ?', [*args, 50, page * 50]).fetchall()
-        rels = [r[ARCHIVE_COLS.index('rel')] for r in rows]
-        cleaned = {x[0] for x in conn.execute(
-            f"SELECT rel FROM archive_cleanup WHERE rel IN ({','.join('?' * len(rels))})", rels).fetchall()} if rels else set()
-    out = []
-    for r in rows:
-        row = dict(zip(ARCHIVE_COLS, r))
-        row['original'] = is_original(row['rel'] or '')
-        row['cleaned'] = row['rel'] in cleaned          # 원본 관리 「정리함」 — 원본 목록·건수에서는 빠진다
-        row['status_label'] = ARCHIVE_STATUS.get(row['status'] or '', row['status'] or '')
-        an = str(row['analysis'] or '')
-        row['analysis_note'] = next((v for k, v in ANALYSIS_NOTES.items() if an.startswith(k)), '')
-        out.append(row)
-    return {'rows': out, 'total': total, 'page': page, 'has_next': (page + 1) * 50 < total, 'everything': everything}
-
-
-def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> list[dict]:
-    """문서 목록 — 접수번호·파일명·유형·상태·조각 수(추출 조각·검색 단위)."""
-    sql = (
-        "SELECT d.id, d.receipt_no, d.filename, d.doc_type, d.status, d.decision,"
-        " d.sector, d.dept, d.owner, d.created_at, d.project_id, d.identity"
-        " FROM documents d"
-    )
-    cond: list[str] = []
-    params: list = []
-    if doc_type:
-        cond.append("d.doc_type = ?")
-        params.append(doc_type)
-    if q.strip():
-        from zzaimy.app.doc_title import receipt_queries
-        rq = receipt_queries(q)                       # 화면의 접수번호 꼴(2026-43149)
-        cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?" + "".join(" OR d.receipt_no = ?" for _ in rq) + ")")
-        params += [f"%{q.strip()}%"] * 2 + rq
-    if cond:
-        sql += " WHERE " + " AND ".join(cond)
-    sql += " ORDER BY d.id DESC LIMIT ?"
-    params.append(int(limit))
-    with db._conn() as conn:  # noqa: SLF001 — 본문 컬럼 없이 가볍게 읽는다
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-        if rows:
-            ids = [r['id'] for r in rows]
-            placeholders = ','.join('?' for _ in ids)
-            # Bound counts to this page and scan each chunk table once, not once per document.
-            for table, field in (('doc_chunks', 'n_chunks'), ('regulation_chunks', 'n_units')):
-                counts = dict(conn.execute(
-                    f'SELECT doc_id, COUNT(*) FROM {table} WHERE doc_id IN ({placeholders}) GROUP BY doc_id',
-                    ids).fetchall())
-                for row in rows:
-                    row[field] = counts.get(row['id'], 0)
-            # 사업 문서(grant)는 regulation_chunks 가 아니라 추출 조각의 글(본문·표·그림 속 글자)을
-            # 그대로 사업 문서 색인(grant_search)에 쓴다 — 검토 끝난 문서만.
-            grant_ids = [r['id'] for r in rows if r.get('doc_type') == 'grant' and r.get('status') == 'reviewed']
-            grant_counts = _grant_index_counts(conn, grant_ids)
-            for row in rows:
-                row['n_grant'] = grant_counts.get(row['id'], 0) if row['id'] in grant_ids else None
-    from zzaimy.app.doc_title import display_title
-    for r in rows:
-        r["title"] = display_title(r) or r["filename"]        # 화면에는 본문 제목(없으면 확장자 뗀 파일 이름)
-        r["name"] = shorten(r["title"], NAME_CHARS)
-    return rows
-
-
-def _grant_index_counts(conn, doc_ids: list[int]) -> dict[int, int]:
-    """사업 문서 색인에 들어가는 조각 수(grant_search.TEXT_KINDS 와 같은 종류)."""
-    if not doc_ids:
-        return {}
-    from zzaimy.app.grant_search import TEXT_KINDS
-    marks = ','.join('?' for _ in doc_ids)
-    kinds = ','.join('?' for _ in TEXT_KINDS)
-    return dict(conn.execute(
-        f'SELECT doc_id, COUNT(*) FROM doc_chunks WHERE doc_id IN ({marks}) AND kind IN ({kinds}) GROUP BY doc_id',
-        [*doc_ids, *TEXT_KINDS]).fetchall())
 
 
 def mask_summary(db, doc: dict) -> dict:
@@ -566,131 +432,18 @@ def related_from_kg(db, doc_id: int, scope: dict) -> dict:
     return {"available": True, "in_graph": True, "groups": out, "n": sum(len(g["nodes"]) for g in out)}
 
 
-def docs_tab(
-    db, q: str = "", doc_type: str = "", doc_id: int | None = None,
+def doc_result(
+    db, doc: dict,
     graph_fn: Callable[[], dict | None] | None = None,
     related_fn: Callable[[int], dict] | None = None,
     index: dict | None = None,
     file_exists: Callable[[str], bool] | None = None,
 ) -> dict:
-    """문서 탭 — 목록(검색·유형 필터)과 선택 문서의 개요·조각·연관."""
-    searching = bool(q.strip() or doc_type)
-    limit = LIST_LIMIT if searching else RECENT_LIMIT
-    view: dict = {
-        "docs": list_docs(db, q=q, doc_type=doc_type, limit=limit),
-        "types": type_counts(db),
-        "selected": None,
-        "limit": limit,
-        "searching": searching,
-    }
-    doc = db.get_document(doc_id) if doc_id else None
-    if doc is None and doc_id is None and view["docs"]:
-        doc = db.get_document(int(view["docs"][0]["id"]))     # 빈 상세 패널 대신 첫 문서를 바로 연다
-    view["selected_id"] = int(doc["id"]) if doc else None
-    if doc:
-        ids = (index or {}).get("ids")
-        view["selected"] = {
-            "overview": doc_overview(db, doc, file_exists),
-            "chunks": doc_chunks_view(db, int(doc["id"]), ids, doc),
-            "related": related_fn(int(doc["id"])) if related_fn else related_for_doc(graph_fn() if graph_fn else None, int(doc["id"])),
-        }
-    return view
-
-
-# --- 규정 ---
-
-
-def regulation_docs(db, embedded_ids: frozenset[int] | None = None) -> list[dict]:
-    """규정 문서 목록 — 제목·조각 수·임베딩된 조각 수·계열·부서."""
-    from zzaimy.app.doc_title import display_title
-    with db._conn() as conn:  # noqa: SLF001
-        docs = [dict(r) for r in conn.execute(
-            "SELECT d.id, d.receipt_no, d.filename, d.sector, d.dept, d.status,"
-            " d.owner, d.created_at, COUNT(r.id) AS n_units,"
-            " MIN(r.reg_title) AS reg_title"
-            " FROM documents d LEFT JOIN regulation_chunks r ON r.doc_id = d.id"
-            " WHERE d.doc_type = 'regulation' GROUP BY d.id ORDER BY d.id DESC"
-        ).fetchall()]
-        emb: dict[int, int] = {}
-        if embedded_ids is not None:
-            for doc_id, cid in conn.execute("SELECT doc_id, id FROM regulation_chunks"):
-                if int(cid) in embedded_ids:
-                    emb[int(doc_id)] = emb.get(int(doc_id), 0) + 1
-    for d in docs:
-        d["title"] = d.get("reg_title") or display_title({"filename": d["filename"]}) or _stem(d["filename"])
-        d["name"] = shorten(d["title"], NAME_CHARS)
-        d["n_embedded"] = None if embedded_ids is None else emb.get(int(d["id"]), 0)
-    return docs
-
-
-def search_hits(hits: Iterable[dict], preview_chars: int = HIT_PREVIEW_CHARS) -> list[dict]:
-    """검색 결과 조각 → 순위·문서·표제·점수(있으면)·미리보기."""
-    out = []
-    for rank, h in enumerate(hits, start=1):
-        out.append({
-            "rank": rank,
-            "id": h.get("id"),
-            "doc_id": h.get("doc_id"),
-            "reg_title": h.get("reg_title") or "",
-            "heading": h.get("heading") or "",
-            "score": h.get("score"),
-            "preview": shorten(h.get("content") or "", preview_chars),
-        })
-    return out
-
-
-def regulation_tab(
-    db, q: str = "", doc_id: int | None = None,
-    search_fn: Callable[[str], list[dict]] | None = None,
-    index: dict | None = None,
-) -> dict:
-    """규정 탭 — 규정 문서 목록, 검색 결과, 선택 규정의 조각(조문 단위)."""
+    """문서 하나의 반입 결과 — 개요·추출·검색 자료·그래프 연관."""
     ids = (index or {}).get("ids")
-    hits = search_hits(search_fn(q)) if (q.strip() and search_fn) else []
-    view: dict = {"docs": regulation_docs(db, ids), "hits": hits, "selected": None}
-    doc = db.get_document(doc_id) if doc_id else None
-    if doc and doc.get("doc_type") == "regulation":
-        hit_ids = {h["id"] for h in hits}
-        units = unit_rows(db.chunks_for_docs([int(doc["id"])]), ids)
-        for u in units:
-            u["hit"] = u["id"] in hit_ids
-        view["selected"] = {
-            "id": doc["id"],
-            "filename": doc.get("filename") or "",
-            "title": (units[0]["reg_title"] if units else "") or _stem(doc.get("filename") or ""),
-            "receipt_no": doc.get("receipt_no") or "",
-            "sector": doc.get("sector") or "common",
-            "dept": doc.get("dept") or "공통",
-            "created_at": doc.get("created_at") or "",
-            "units": units,
-            "n_units": len(units),
-            "n_embedded": None if ids is None else sum(1 for u in units if u["embedded"]),
-        }
-    return view
-
-
-# --- 채팅 기록 ---
-
-
-def chat_sessions_view(
-    db, sources_by_session: dict[int, list] | None = None, limit: int = 200,
-) -> list[dict]:
-    """채팅 세션 — 질문(제목)·시각·메시지 수·근거 수(이번 프로세스가 기억하는 세션만)."""
-    with db._conn() as conn:  # noqa: SLF001
-        rows = [dict(r) for r in conn.execute(
-            "SELECT s.id, s.title, s.created_at, s.owner, s.project_id,"
-            " p.name AS project_name,"
-            " (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS n_messages,"
-            " (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id"
-            "   AND m.role = 'assistant') AS n_answers"
-            " FROM chat_sessions s LEFT JOIN projects p ON p.id = s.project_id"
-            " ORDER BY s.id DESC LIMIT ?", (int(limit),)
-        ).fetchall()]
-    for r in rows:
-        src = (sources_by_session or {}).get(int(r["id"]))
-        r["n_sources"] = None if src is None else len(src)
-    return rows
-
-
-def chat_tab(db, sources_by_session: dict[int, list] | None = None) -> dict:
-    return {"sessions": chat_sessions_view(db, sources_by_session)}
+    did = int(doc["id"])
+    return {
+        "overview": doc_overview(db, doc, file_exists),
+        "chunks": doc_chunks_view(db, did, ids, doc),
+        "related": related_fn(did) if related_fn else related_for_doc(graph_fn() if graph_fn else None, did),
+    }

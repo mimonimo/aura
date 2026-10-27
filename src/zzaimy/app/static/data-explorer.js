@@ -1,24 +1,5 @@
+// 반입 결과 보기(/dev/archive/doc/{id}) — 긴 본문은 한 줄 미리보기, 누르면 읽기 창
 (() => {
-  document.querySelectorAll('.dx-search').forEach(form => {
-    const input = form.querySelector('[name=q]');
-    if (input && !input.hasAttribute('aria-label')) input.setAttribute('aria-label', '자료 검색');
-    if (input?.value || form.querySelector('[name=type]')?.value) {
-      const reset = document.createElement('a');
-      reset.className = 'btn-ghost'; reset.textContent = '초기화';
-      reset.href = '/dev/db?' + new URLSearchParams({tab: form.querySelector('[name=tab]').value});
-      form.append(reset);
-    }
-  });
-  document.querySelectorAll('tr[data-href]').forEach(row => {
-    row.addEventListener('click', event => {
-      if (event.target.closest('a,button,input') || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const link = row.querySelector('a[href]');
-      if (link) link.click();
-    });
-    const link = row.querySelector('a[href]');
-    if (link && document.getElementById('dxDetail') && matchMedia('(max-width:1200px)').matches) link.hash = 'dxDetail';
-    if (row.classList.contains('on')) link?.setAttribute('aria-current', 'true');
-  });
   if (typeof HTMLDialogElement === 'undefined') return;
   const dialog = document.createElement('dialog'); dialog.className = 'dx-reader';
   dialog.setAttribute('aria-labelledby', 'dxReaderTitle');

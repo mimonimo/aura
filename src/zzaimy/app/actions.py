@@ -76,7 +76,7 @@ REGISTRY: tuple[Action, ...] = (
            ("가져오", "반입", "원본", "동기화")),
     Action("archive.page", "원본 관리(학교 원본 정리·처리 실패)", "/dev/archive", "get", (),
            ("원본 관리", "정리함", "처리 실패", "원본 정리", "원본 목록")),
-    Action("google.page", "Google 앱 등록 · 학교 계정 연결 현황", "/dev/users#google-links", "get", (),
+    Action("google.page", "Google 앱 등록 · 학교 계정 연결 현황", "/team#google-links", "get", (),
            ("구글", "드라이브", "google", "앱 등록")),
     Action("reindex", "검색 색인 다시 만들기", "/dev/reindex", "post", (),
            ("색인", "재색인", "검색 다시"), True),

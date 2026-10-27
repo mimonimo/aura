@@ -1,8 +1,8 @@
-"""개발 현황(/dev) — 허브와 그 아래 화면: 처리 흐름(/dev/flow)·데이터 현황(/dev/db)·품질·성능(/dev/quality*)·
+"""개발 현황(/dev) — 허브와 그 아래 화면: 처리 흐름(/dev/flow)·품질·성능(/dev/quality*)·
 규정 검색 재측정(/dev/eval/*)·재색인(/dev/reindex)·문서 갈래 일괄 다시 정하기(/dev/route-all).
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
-- DB·DB 경로(db_path)·화면 틀·화면 공통 맥락(page_ctx)·대화 근거 표(chat_sources)·문서 갈래 정하기(auto_route)와
+- DB·DB 경로(db_path)·화면 틀·화면 공통 맥락(page_ctx)·문서 갈래 정하기(auto_route)와
   개발 현황 도우미 묶음(overview — make_overview_helpers 가 앱마다 만든다)은 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
   문서·보고 라우터(dev_docs_routes)와 RAG 공간(dev_rag_routes)도 이 묶음의 docs/ 읽기·목록·재색인 도우미를 넘겨 받는다.
 - 재색인·재측정은 배경 실행(zzaimy.app.detach.detached). 앱 시작 때 도는 자동 재색인 스레드는 main 에 두고 이 묶음을 부른다.
@@ -242,49 +242,6 @@ def make_overview_helpers(db, db_path, _DOCS_DIR: Path) -> SimpleNamespace:
     )
 
 
-@router.get("/dev/db", response_class=HTMLResponse)
-def dev_db(
-    request: Request, tab: str = "", q: str = "", type: str = "",
-    doc: int | None = None, table: str = "", page: int = 0,
-):
-    """데이터 열람 — 문서 중심 탐색기. 탭: 원본 장부·문서·규정·채팅 기록.
-
-    표·행 덤프 대신 문서 하나의 개요(마스킹 기록)·RAG 조각(임베딩 유무)·그래프
-    연관을 본다. 조립은 zzaimy.app.data_explorer(순수 함수)가 하고, 모델이
-    필요한 검색·그래프 생성은 여기서 함수로 넘긴다. 예전 ?table= 주소는
-    가장 가까운 탭으로 보낸다.
-    """
-    from zzaimy.app import data_explorer as dx
-
-    st = request.app.state
-    db = st.db
-    tab = dx.normalize_tab(tab, table)
-    index = dx.embedding_index() if tab != "archive" else {}
-    ledger = None
-    if tab == "archive":
-        from zzaimy.app import intake_status
-        view = dx.archive_tab(db, q=q, page=page, everything=request.query_params.get("all") == "1")
-        ledger = intake_status.ledger_breakdown(db)
-    elif tab == "docs":
-        scope = {"dept": getattr(request.state, "dept", "") or None,
-                 "user": request.state.user, "role": request.state.role}
-        view = dx.docs_tab(db, q=q, doc_type=type, doc_id=doc, index=index,
-                           related_fn=lambda did: dx.related_from_kg(db, did, scope))
-    elif tab == "regulation":
-        def _search(text: str) -> list[dict]:
-            from zzaimy.app.regulations import find_relevant
-
-            return find_relevant(db, text, top_k=10)   # 채팅과 같은 운영 검색 경로
-
-        view = dx.regulation_tab(db, q=q, doc_id=doc, search_fn=_search, index=index)
-    else:
-        view = dx.chat_tab(db, sources_by_session=st.chat_sources)
-    return st.templates.TemplateResponse(request, "dev_db.html", st.page_ctx(request, {
-        "tab": tab, "tabs": dx.TABS, "q": q, "type": type, "doc_id": doc,
-        "view": view, "index": index, "lg": ledger, "extract_page": dx.EXTRACT_PAGE,
-    }))
-
-
 @router.get("/dev", response_class=HTMLResponse)
 def dev_dashboard(request: Request):
     # 허브 — 요약과 바로가기만. 상세는 전용 페이지(/dev/quality·/dev/docs·/dev/history)
@@ -292,7 +249,7 @@ def dev_dashboard(request: Request):
     from zzaimy.app import model_compare
     h = st.overview
     return st.templates.TemplateResponse(request, "dev.html", st.page_ctx(request, {
-        "overview": h.data_overview(),   # 규모 타일 — /dev/db 와 같은 원천
+        "overview": h.data_overview(),   # 규모 타일
         "dev_now": h.dev_now_parts()["hub"],
         "system_hosts": __import__("zzaimy.app.process_flow", fromlist=["HOSTS"]).HOSTS,
         "system_links": __import__("zzaimy.app.process_flow", fromlist=["LINKS"]).LINKS,

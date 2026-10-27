@@ -23,5 +23,5 @@
 ## 결과
 
 - 옛 /graph 화면과 그 화면만 쓰던 /graph.json·/graph/evidence 는 없앴다(같은 날). 문서·대화·문서함의 그래프 링크는 /graph/explore 로 간다.
-  사업별 표(/graph/program)는 그대로 둔다. 데이터 열람(/dev/db)의 문서 연관은 옛 문서 그래프(build_graph)를 계속 쓴다.
+  사업별 표(/graph/program)는 그대로 둔다. 반입 결과 보기(/dev/archive/doc/{id}, 옛 데이터 열람)의 문서 연관은 옛 문서 그래프(build_graph)를 계속 쓴다.
 - Memgraph 같은 그래프 DB 는 쓰지 않는다. 보기는 이 화면으로 충분하고, 권한 필터를 같은 DB 에서 거는 구조를 지킨다.

@@ -1,4 +1,4 @@
-"""사용자 관리(/dev/users)와 사용자별 구글 계정 연결 — 관리자만, 자기 잠금 방지, 도메인 제한, 미연결 사용자 대체 설정."""
+"""사용자 관리(조직 관리 /team)와 사용자별 구글 계정 연결 — 관리자만, 자기 잠금 방지, 도메인 제한, 미연결 사용자 대체 설정."""
 
 from __future__ import annotations
 
@@ -29,15 +29,15 @@ def test_staff_cannot_open_user_admin(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
     c = TestClient(_app(tmp_path))
     assert _login(c, "zzaimy", "boot-pass-1")
-    assert c.get("/dev/users", follow_redirects=False).status_code == 403
+    assert 'id="google-links"' not in c.get("/team").text                         # 학교 계정 연결 현황은 관리자에게만
     assert c.post("/dev/users/save", data={"uid": "x", "is_new": "1"}, follow_redirects=False).status_code == 403
 
 
 def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
     c = _dev(tmp_path)
-    page = c.get("/dev/users").text
-    assert "구글 계정 연결" in page and "허용 도메인 ync.ac.kr" in page and "zzaimy" in c.get("/api/org/accounts").text
+    page = c.get("/team").text
+    assert "학교 계정 연결 현황" in page and "허용 도메인 ync.ac.kr" in page and "zzaimy" in c.get("/api/org/accounts").text
     c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})     # 부서는 만든 뒤 고른다(부서 RAG = 부서 목록)
     r = c.post("/dev/users/save", data={"uid": "Kim_ops", "is_new": "1", "name": "김담당", "role": "staff", "dept": "산학협력단",
                                         "new_pw": "init-pass-1", "google": "kim@ync.ac.kr"}, follow_redirects=False)

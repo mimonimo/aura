@@ -1,6 +1,6 @@
 """개발자 화면의 수 이름 — 「학교 원본」과 「원본 장부 전체」를 나눠 부르고, 보관소 「대기」가 연동 점검과 같은 판단을 쓴다.
 
-문서 반입(/dev/intake)·데이터 현황(/dev/db)·원본 관리(/dev/archive)가 같은 이름으로 다른 수를 보이지 않게 하는 확인.
+문서 반입(/dev/intake)·원본 관리(/dev/archive)가 같은 이름으로 다른 수를 보이지 않게 하는 확인.
 """
 from __future__ import annotations
 
@@ -98,10 +98,9 @@ def test_dev_db_ledger_labels_and_dead_corpus_tab(tmp_path):
     _put(db, [("링크/a.hwp", "hwp", "", 1)])
     with db._conn() as conn:
         conn.execute("UPDATE archive_files SET status = 'agent', analysis = '가벼운 처리'")
-    page = c.get("/dev/db?tab=archive").text
-    assert ">에이전트 검토 판정<" in page and "원본 장부 전체(부산물·정리함 포함)" in page and "학교 원본" in page
-    assert '<span class="dx-help">가벼운 처리</span>' in page and "검토 의견 생성은 건너뛴" in page
-    assert c.get("/dev/db?tab=corpus", follow_redirects=False).status_code == 200      # 옛 탭 넘기기 없이 문서 탭(10-25)
+    page = c.get("/dev/archive").text                                        # 원본 장부 원값은 원본 관리 줄에서(10-27)
+    assert ">에이전트 검토 판정<" in page and "학교 원본" in page
+    assert '<span class="ar-help" title="DGX 에서 판독·조각까지만 하고 검토 의견 생성은 건너뛴' in page and ">가벼운 처리</span>" in page
 
 
 def test_archive_cleanup_text_has_no_internal_rule_number():
@@ -112,6 +111,6 @@ def test_long_extraction_list_folds_after_first_page(tmp_path):
     c, db = _client(tmp_path)
     c.post("/upload", data={"doc_type": "recruit"}, files={"file": ("긴문서.pdf", b"%PDF", "application/pdf")})
     db.replace_doc_chunks(1, [{"kind": "text", "page_no": 1, "content": f"조각 {i}"} for i in range(130)])
-    page = c.get("/dev/db?tab=docs&doc=1").text
+    page = c.get("/dev/archive/doc/1").text
     head, more = page.split('<details class="chip-toggle dx-extract-more">', 1)
     assert "더 보기 · 나머지 30건" in more and "조각 99" in head and "조각 100" not in head and "조각 129" in more

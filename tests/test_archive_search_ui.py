@@ -88,7 +88,8 @@ def test_program_groups_long_tail_and_unclassified(client):
     tree = _tree(page)
     assert "해양미래부" not in tree                                                 # 앞 부처명만 다른 이름은 한 사업
     assert ">은하수 개척 사업<span>5</span></a>" in tree
-    assert "통합공고 사업" not in page                                              # 사업 아닌 값은 사업 미분류로
+    shown = re.sub(r'<dl class="ar-ledger".*?</dl>', "", page, flags=re.S)        # 펼친 장부 값(원값 그대로)은 빼고 본다
+    assert "통합공고 사업" not in shown and "통합공고 사업" in page                 # 사업 아닌 값은 사업 미분류로, 장부 원값은 펼침에만
     assert tree.count('class="ar-ri l3') == 15                                       # 사업 15개 모두 — 위 12개만 자르지 않는다
     assert 'class="ar-l1' in tree and 'class="ar-l1-h"' in tree                     # 대분류 머리(접기·펼치기 단추)
     assert tree.index("사업 미분류") > tree.index("별빛 부트랩 사업")               # 미분류는 맨 아래

@@ -127,9 +127,8 @@ def test_accounts_bulk_and_page(org):
     boss_page = _client(app, "boss").get("/team").text
     assert 'data-accounts=""' in boss_page and 'id="userEdit"' not in boss_page
     assert _client(app, "kim").get("/team?tab=org").status_code == 200       # 옛 주소도 같은 화면
-    users = dev.get("/dev/users").text
-    assert 'id="depts"' not in users and "data-user-table" not in users and 'href="/team?view=all" data-org-link' in users
-    assert "location.replace('/team')" in users                                # 옛 #depts 주소는 조직 관리로
+    assert dev.get("/dev/users", follow_redirects=False).status_code == 404      # 구글 연결도 조직 관리로(10-27), 옛 주소는 지웠다
+    assert 'id="google-links"' in page and 'id="google-links"' not in boss_page      # 학교 계정 연결 현황은 관리자에게만
 
 
 def test_screen_code_uses_common_parts():

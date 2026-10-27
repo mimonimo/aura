@@ -346,7 +346,7 @@
     panel.innerHTML = `<h3>${esc(title)}</h3><p class="rg-meta">${esc(range)}</p><dl class="rg-kv">${facts}</dl>`
       + (r.kind !== 'student' ? `<div class="rg-sec"><h4>최소 등급</h4><div class="rg-min" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"></div></div>` : '')
       + `<div class="rg-sec"><h4>쓰는 계정</h4><p>${users ? `<span class="rg-sub">${esc(users)}</span>` : ''}${r.kind === 'common' && !r.members.length ? '' : people(r.members, r.kind === 'student' ? '학생 계정 없음' : '없음')}</p></div>`
-      + (r.kind === 'dept' ? `<div class="rg-sec"><h4>겸직으로 더 찾는 계정</h4><p>${people(r.granted, '없음')} <a class="rg-sub" href="/dev/users">사용자·계정에서 정하기</a></p></div>` : '')
+      + (r.kind === 'dept' ? `<div class="rg-sec"><h4>겸직으로 더 찾는 계정</h4><p>${people(r.granted, '없음')} <a class="rg-sub" href="/team?view=all">조직 관리 계정 목록에서 정하기</a></p></div>` : '')
       + `<div class="rg-sec"><h4>구성</h4><div data-comp><p class="rg-sub">세는 중…</p></div></div>`;
     const mg = panel.querySelector('.rg-min');
     if (mg) { mg.append(minForm(r)); mg.insertAdjacentHTML('beforeend', '<span class="rg-sub" data-min-note></span>'); }

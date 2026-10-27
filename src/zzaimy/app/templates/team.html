@@ -22,5 +22,5 @@
   </aside>
   <section class="om-main" data-om-main aria-live="polite"></section>
 </div>
-{% if accounts_ok %}{% include "_user_edit.html" %}{% endif %}
+{% if accounts_ok %}<section class="team-google" id="google-links" aria-label="학교 계정 연결 현황">{% include "_team_google.html" %}</section>{% include "_user_edit.html" %}{% endif %}
 {% endblock %}

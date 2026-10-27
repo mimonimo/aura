@@ -111,7 +111,7 @@ def test_admin_table_json_actions(env, monkeypatch):
     assert dev.post("/dev/users/dept", data={"action": "delete", "name": "새부서"}, headers=J).json()["ok"]
     # 폼 그대로(자바스크립트 없이)는 예전처럼 돌아간다
     r = dev.post("/dev/users/dept", data={"action": "delete", "name": "없는부서"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/dev/users?err=")
+    assert r.status_code == 303 and r.headers["location"].startswith("/team?err=")
     # 비상 연결 끊기 — 준 권한을 거두고 설정을 비운다
     for k, v in (("google_root", "FOLDER1"), ("google_root_by", f"office@{DOM}"), ("google_account_dept", f"office@{DOM}"),
                  ("google_root_shared", "1"), ("gdept", json.dumps({f"kim@{DOM}": "P1"}))):

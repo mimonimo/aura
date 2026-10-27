@@ -678,12 +678,9 @@ document.addEventListener('submit', function(event) {
     <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok and request.state.role == 'dev' else '' }}">
       {% if llm_status.ok and request.state.role != 'dev' %}
       <span class="side-connection-status"><span style="color:var(--green);" aria-hidden="true">●</span> AI 연결됨</span>
-      {% elif llm_status.ok %}{# 서버·모델 이름은 개발자에게만 #}
-      <span class="side-connection-status"><span style="color:var(--green);" aria-hidden="true">●</span> 기본 AI 서버 연결됨</span>
-      {% if llm_status.source is defined and llm_status.source.startswith('연결: ') %}
-      <span class="side-connection-device">{{ llm_status.source[4:] }}</span>
-      {% else %}<span class="side-connection-device">{{ llm_status.source | default('서버명 미등록') }}</span>{% endif %}
-      {% if llm_status.model %}<span class="side-connection-model" title="{{ llm_status.model }}">{{ llm_status.model }}</span>{% endif %}
+      {% elif llm_status.ok %}{# 서버·모델 이름은 개발자에게만 — 한 줄로, 전체 이름은 마우스를 올리면(10-27) #}
+      {% set _dev_src = llm_status.source[4:] if (llm_status.source is defined and llm_status.source.startswith('연결: ')) else (llm_status.source | default('서버명 미등록')) %}
+      <span class="side-connection-line" title="기본 AI 서버 · {{ _dev_src }}{{ (' · ' ~ llm_status.model) if llm_status.model }}"><span style="color:var(--green);" aria-hidden="true">●</span> {{ _dev_src }}{% if llm_status.model %} · {{ llm_status.model }}{% endif %}</span>
       {% else %}<span style="color:var(--amber);" aria-hidden="true">●</span> AI 미연결 · 답변 대기{% endif %}</div>
     {% endif %}
   </div>

@@ -2,7 +2,7 @@
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·DB 경로(db_path)는 main.create_app 이 app.state 에 올려 둔 것을 읽는다.
-- 구글 앱 등록·계정 연결(/dev/gdrive/*)은 app/dev_gdrive_routes, 화면은 사용자·계정(/dev/users#google-links).
+- 구글 앱 등록·계정 연결(/dev/gdrive/*)은 app/dev_gdrive_routes, 화면은 조직 관리(/team#google-links, 관리자만).
 """
 from __future__ import annotations
 

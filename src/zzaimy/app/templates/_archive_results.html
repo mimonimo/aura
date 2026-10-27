@@ -84,7 +84,15 @@
       <span class="ar-ext" data-ext="{{ it.ext }}">{{ it.ext_label }}</span>
       <div class="ar-main">
         <span class="ar-name" title="{{ it.title }}">{{ it.title }}</span>
-        {% if it.short_path %}<details class="ar-where"><summary>{{ it.short_path }}</summary><code>{{ it.path }}</code></details>{% endif %}
+        <details class="ar-where"><summary>{% if not it.original %}<span class="ar-tag" title="학교 원본이 아닌 플랫폼 사본·변환 부산물">사본·부산물</span> {% endif %}{% if it.cleaned %}<span class="ar-tag" title="정리함에 옮긴 원본 — 학교 원본 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span> {% endif %}{{ it.short_path or '위치·장부 값' }}</summary><code>{{ it.path }}</code>
+          <dl class="ar-ledger" aria-label="장부 값">
+            <div><dt>장부 사업</dt><dd>{{ it.program_name or '—' }}</dd></div>
+            <div><dt>분류 상태</dt><dd title="장부 코드 {{ it.status or '없음' }}">{{ it.status_label or '—' }}</dd></div>
+            <div><dt>반입 결과</dt><dd>{% if it.doc_id %}<a href="/dev/archive/doc/{{ it.doc_id }}" title="개요·마스킹 기록·조각·검색 색인·그래프 연관">문서 #{{ it.doc_id }} 보기</a>{% else %}—{% endif %}</dd></div>
+            <div><dt>같은 파일 대표</dt><dd>{{ it.dup_of or '—' }}</dd></div>
+            <div><dt>처리 기록</dt><dd>{% if it.analysis_note %}<span class="ar-help" title="{{ it.analysis_note }}">{{ it.analysis }}</span>{% else %}{{ it.analysis or '—' }}{% endif %}</dd></div>
+            <div><dt>목록에서 본 때</dt><dd>{{ it.seen_label or '—' }}</dd></div>
+          </dl></details>
       </div>
       <span class="ar-tags">
         <span class="ar-c ar-c-prog"><span class="ar-tag">{{ it.program_label }}</span>{% if it.by_folder %}<span class="ar-tag folder" title="파일 이름에 사업 이름이 없어 폴더 위치로 정한 분류입니다">폴더 기준</span>{% endif %}</span>
