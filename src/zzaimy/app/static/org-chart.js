@@ -278,7 +278,7 @@
     var n = h('span', {class: 'bulk-n'});
     var bar = h('div', {class: 'bulk-bar', role: 'toolbar', 'aria-label': '고른 것에 할 일', hidden: true}, [n]);
     actions.forEach(function (a) { bar.appendChild(h('button', {type: 'button', class: 'btn-ghost' + (a.danger ? ' danger-text' : ''), text: a.label, onclick: a.run})); });
-    bar.append(h('span', {class: 'bulk-gap'}), h('button', {type: 'button', class: 'btn-ghost', text: '선택 해제', onclick: onClear}));
+    bar.append(h('span', {class: 'bulk-gap'}), h('button', {type: 'button', class: 'btn-ghost bulk-clear', text: '선택 해제', onclick: onClear}));
     return {el: bar, set: function (k) { n.textContent = k + unit + ' 선택'; bar.hidden = !k; }};
   }
   // 입력 창 — 공통 확인창과 같은 꼴(confirm-dialog). submit 은 Promise — 도는 동안 단추 잠금, 실패하면 창 안에 까닭

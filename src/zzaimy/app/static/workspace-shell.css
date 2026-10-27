@@ -174,17 +174,27 @@ main td :is(button, .btn, .btn-ghost, .mini-btn) { white-space:nowrap; }
 /* 목록 일괄 작업 — 행을 고르면 목록 위에 뜨는 작업 줄(선택 n개 · 동작 · 선택 해제). 자리는 늘 잡아 두어 뜨고 질 때 목록이 밀리지 않는다 */
 .list-tools { position:relative; min-height:var(--control-h); margin:0 0 10px; }
 .list-tools > .control-bar { min-height:var(--control-h); }
-.bulk-bar { position:absolute; inset:0; z-index:3; display:flex; align-items:center; flex-wrap:nowrap; gap:8px; padding:0 8px 0 14px;
-  border:1px solid #b9cbe4; border-radius:10px; background:#eef3fa; overflow-x:auto; scrollbar-width:none; }
+.bulk-bar { position:absolute; inset:0; z-index:3; display:flex; align-items:center; flex-wrap:nowrap; gap:2px; padding:0 6px 0 16px;
+  border:1px solid #c9d6ea; border-radius:10px; background:#eef3fa; overflow-x:auto; scrollbar-width:none; }
 .bulk-bar[hidden] { display:none; }
-.bulk-bar .bulk-n { flex:none; font-size:13px; font-weight:600; color:var(--navy); margin-right:4px; white-space:nowrap; }
-.bulk-bar :is(button, .btn-ghost, select) { flex:none; height:30px; min-height:30px; padding:0 12px; font-size:12.5px; border-radius:8px; }
-.bulk-bar select { padding-right:34px; background-position:right 10px center; font-weight:500; }
+.bulk-bar .bulk-n { flex:none; font-size:13px; font-weight:700; color:var(--navy); white-space:nowrap; padding-right:14px; margin-right:6px; border-right:1px solid #c9d6ea; line-height:20px; }
+/* 작업 단추는 줄 안의 글 단추 — 칸마다 테두리·흰 바탕을 두면 알약이 다닥다닥 붙어 보였다(10-27). 올리면 옅게 칠한다 */
+main .bulk-bar :is(button, .btn-ghost), .bulk-bar :is(button, .btn-ghost) { flex:none; height:32px; min-height:32px; padding:0 14px; font-size:13px; font-weight:500;
+  border:0; border-radius:8px; background:transparent; color:#2b3644; box-shadow:none; }
+main .bulk-bar :is(button, .btn-ghost):hover, .bulk-bar :is(button, .btn-ghost):hover { background:#dde7f5; color:var(--ink); }
+.bulk-bar select { height:32px; padding-right:34px; background-position:right 10px center; font-weight:500; }
 .bulk-bar .bulk-gap { flex:1 0 8px; }
-.bulk-bar .danger-text { color:var(--red); }
-/* 행 고르기 칸 — 표 첫 칸 */
+main .bulk-bar .danger-text, .bulk-bar .danger-text { color:var(--red); }
+main .bulk-bar .danger-text:hover, .bulk-bar .danger-text:hover { background:#fbe9e8; color:var(--red); }
+main .bulk-bar .bulk-clear, .bulk-bar .bulk-clear { color:var(--muted); }
+/* 행 고르기 칸 — 표 첫 칸. 늘 보이면 표가 체크 상자로 덮여 보여, 줄에 올리거나 하나라도 고르면 그때 보인다(칸 자리는 늘 잡아 두어 표가 움직이지 않는다).
+   손가락 화면(올림 없음)은 늘 보인다 */
 .pick-cell { width:28px; padding-right:0 !important; }
-.pick-cell input { width:16px; height:16px; margin:0; accent-color:var(--navy); cursor:pointer; vertical-align:middle; }
+.pick-cell input { width:16px; height:16px; margin:0; accent-color:var(--navy); cursor:pointer; vertical-align:middle; opacity:0; transition:opacity .12s; }
+tbody tr:hover .pick-cell input, table:hover thead .pick-cell input, .pick-cell input:focus-visible, .pick-cell input:checked,
+table:has(.pick-cell input:checked) .pick-cell input { opacity:1; }
+.pick-cell input:disabled { opacity:0 !important; cursor:default; }
+@media (hover:none) { .pick-cell input { opacity:1; } }
 /* 행 끝 … 메뉴 — 단추 하나, 메뉴는 겹쳐 띄운다(다른 줄을 밀지 않는다) */
 .row-menu { position:relative; display:inline-block; }
 .row-menu > button { width:32px; height:32px; min-height:32px; padding:0; border-radius:8px; background:transparent; border:1px solid transparent; color:var(--muted); font-size:18px; line-height:1; }
