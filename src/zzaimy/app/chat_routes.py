@@ -866,7 +866,9 @@ def chat_ask(
         _chat_pages[session_id] = page
     else:
         _chat_pages.pop(session_id, None)
-    found = _page_actions(page, q, _ap.request_viewer(request))
+    # 업무 도우미는 27B 가 할 일을 고른다(open_page·propose_action) — 낱말 맞추기 단추는 에이전트 대화에만. 도우미에 남겨 두니
+    # 「김예시 입력해줘」 의 「예시」 에 「학습 데이터 만들기」 가 붙어 나왔다(10-27)
+    found = [] if use_helper else _page_actions(page, q, _ap.request_viewer(request))
     # 문서를 바꾸는 일은 지금 보고 있는 문서(화면 주소)이고 그 문서를 바꿀 수 있는 계정일 때만 — 질문 낱말로 짐작한 문서에는
     # 하지 않는다(10-16: 「…계획서의 성과지표」 질문에 짐작한 남의 문서의 사업 정보 읽기가 저절로 돌았다). 학생은 어떤 일도 없다
     page_doc_id = int(doc_match[1]) if doc_match else None
