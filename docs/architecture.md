@@ -237,6 +237,7 @@ for 절 in 목차:
 | 사업 관리 | program_admin.py | /programs/admin* |
 
 이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), model_compare.py(/dev/models/compare), user_admin.py(조직 관리 /team — 계정·구성원·관리자용 구글 연결, /api/org/accounts·/api/org/members), data_explorer.py(반입 결과 보기 /dev/archive/doc/{id} 조립), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
+이 밖에 예전부터 따로 있던 라우터: collect.py(데이터·학습의 「수집 자료」 탭 /dev/train?tab=collect, 만들기·내려받기 /dev/collect/*), model_compare.py(/dev/models/compare), user_admin.py(/dev/users 구글 연결, 조직 관리 /team·/api/org/accounts·/api/org/members), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
 앱이 띄우는 긴 배경 작업(재측정·재색인·반입 점검)은 `app/detach.py` 로 systemd scope 에 떼어 서비스 재시작에 끊기지 않는다.
 
 ## 10.2 웹 한글 기안기 공동 편집 (ADR-0070, 10-24)

@@ -427,7 +427,7 @@
    "links": [
     {
      "label": "수집 자료",
-     "href": "/dev/collect"
+     "href": "/dev/train?tab=collect"
     }
    ]
   },

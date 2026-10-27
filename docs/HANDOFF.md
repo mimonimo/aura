@@ -90,6 +90,7 @@
 | 검색·지식 | RAG 공간 `/dev/rag`, 그래프 탐색 `/graph/explore`, 품질·성능 `/dev/quality` |
 | 문서 작성 | 공동 편집 시연 `/dev/coedit-demo` |
 | 모델 학습 | 데이터·학습 `/dev/train`, 수집 자료 `/dev/collect`, 도구·모델 연결 `/dev/tools`, (모델 비교는 품질·성능 `/dev/quality#model-compare`, 자세히 `/dev/models/compare`) |
+| 모델 학습 | 데이터·학습 `/dev/train`(탭: 검수·학습, 수집 자료 `?tab=collect`), 도구·모델 연결 `/dev/tools`, 모델 비교 결과 `/dev/models/compare` |
 | 보안·관리 | 구글 계정 연결 `/dev/users`(구글 앱 등록·학교 계정 연결 현황), 개인정보·반출 점검 `/dev/pii` |
 | 개발 | 개발 현황 `/dev`(변경 이력 `/dev/history`), 처리 흐름 `/dev/flow`(반입 점검 `/dev/flow#intake`), 논문·설계 문서 `/dev/docs`, 공동 편집 시연 `/dev/coedit-demo` |
 | 관리 | 원본 관리 `/dev/archive`(장부 값·장부 전체 범위, 문서 하나의 반입 결과 보기 `/dev/archive/doc/{id}`), RAG 공간 `/dev/rag`, 데이터·학습 `/dev/train`, 도구·모델 연결 `/dev/tools`, 개인정보·반출 점검 `/dev/pii` |

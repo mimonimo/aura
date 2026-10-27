@@ -133,7 +133,7 @@ RULES: tuple[Rule, ...] = (
     R("data/platform/cache/**", REGEN, "캐시(글자 좌표·쪽 그림·복원 PDF·미리보기) — 쓰일 때 다시 만든다"),
     R("data/platform/knowledge/index/**", REGEN, "검색 색인 — scripts/66_reindex.sh·170 --index 로 DB 조각에서 다시"),
     R("data/platform/knowledge/exports/**", REGEN, "외부 이용 묶음 — scripts/140 으로 다시"),
-    R("data/platform/exports/**", REGEN, "수집 자료 묶음 — /dev/collect 에서 다시"),
+    R("data/platform/exports/**", REGEN, "수집 자료 묶음 — 데이터·학습 「수집 자료」 탭에서 다시"),
     R("data/platform/ontology/**", REGEN, "온톨로지 내보내기 — scripts/177 로 다시"),
     R("data/platform/webhwp_forms/**", REGEN, "기안기 양식 고르기 작업 자리 — scripts/200·208 로 다시"),
     R("data/platform/chunk_embeddings*", REGEN, "옛 자리 색인 — 재색인으로 다시"),

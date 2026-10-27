@@ -368,6 +368,14 @@
             box-shadow: 0 1px 3px rgba(27,59,117,.15); }
   .tab-pane { display: none; }
   .tab-pane.on { display: block; }
+  /* 화면 탭(주소로 넘기는 탭) — 데이터 현황·데이터·학습이 함께 쓴다 */
+  .dx-tabs { display: flex; gap: 4px; background: #f3f4f6; border-radius: 11px; padding: 5px;
+             margin: 0 0 24px; width: max-content; max-width: 100%; overflow-x: auto; }
+  .dx-tabs a { text-decoration: none; color: var(--muted); font-size: 13px; font-weight: 600;
+               padding: 8px 18px; border-radius: 9px; white-space: nowrap;
+               transition: background .25s var(--ease), color .25s var(--ease); }
+  .dx-tabs a:hover { background: rgba(255,255,255,.6); color: var(--navy); }
+  .dx-tabs a.on { background: #fff; color: var(--navy); box-shadow: 0 1px 3px rgba(27,59,117,.15); }
   pre.doc-text { white-space: pre-wrap; font-family: inherit; font-size: 14px;
                  line-height: 1.8; background: var(--panel); border: 1px solid #EDF2F7;
                  border-radius: 12px; padding: 15px 17px; max-height: 440px;

@@ -24,7 +24,8 @@ def client(tmp_path):
 
 
 def _active_nav(page: str) -> list[str]:
-    return re.findall(r'<a[^>]*href="([^"]+)"[^>]*aria-current="page"', page)
+    """사이드바에서 켜진 메뉴 — 화면 안 탭 줄(class="on")은 세지 않는다."""
+    return re.findall(r'<a[^>]*href="([^"]+)"[^>]*class="active"[^>]*aria-current="page"', page)
 
 
 # ---- 도구·모델 연결 ----

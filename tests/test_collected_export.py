@@ -126,7 +126,7 @@ def test_peek_route_is_dev_only(tmp_path):
     r = dev.get("/dev/collect/peek/helper")
     assert r.status_code == 200 and r.json()["fields"][-1]["name"] == "split"
     assert dev.get("/dev/collect/peek/nope").status_code == 404
-    page = dev.get("/dev/collect").text
+    page = dev.get("/dev/train?tab=collect").text
     assert 'data-peek="chat_messages"' in page and "구조·표본 보기" in page and "manifest.json" in page
 
 

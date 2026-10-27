@@ -66,12 +66,12 @@ def test_page_is_dev_only_and_makes_bundle(tmp_path):
         return c
     assert login("kim", "kim-pass").get("/dev/collect").status_code == 403
     dev = login("zzdev", "dev-pass")
-    page = dev.get("/dev/collect").text
+    page = dev.get("/dev/train?tab=collect").text
     assert "대화 메시지" in page and "업무 도우미 기록" in page
     r = dev.post("/dev/collect/make", data={"keys": ["chat_messages"]}, follow_redirects=False)
-    assert r.status_code == 303
+    assert r.status_code == 303 and r.headers["location"] == "/dev/train?tab=collect"
     for _ in range(100):
-        if "/dev/collect/file/collect-" in (page := dev.get("/dev/collect").text):
+        if "/dev/collect/file/collect-" in (page := dev.get("/dev/train?tab=collect").text):
             break
         time.sleep(0.1)
     name = page.split("/dev/collect/file/")[1].split('"')[0]
@@ -99,7 +99,7 @@ def test_page_groups_empty_rows_and_period_chips(tmp_path):
                      drafter=FakeDrafter(), responder=FakeResponder(), password="boot-pass-1")
     c = TestClient(app)
     c.post("/login", data={"username": "zzdev", "pw": "dev-pass"}, follow_redirects=False)
-    page = c.get("/dev/collect").text
+    page = c.get("/dev/train?tab=collect").text
     for label in ("전체", "오늘", "최근 7일", "최근 30일", "이번 달", "직접 지정"):
         assert f'>{label}</label>' in page
     assert 'name="period" value="all" checked' in page
@@ -114,6 +114,32 @@ def test_page_groups_empty_rows_and_period_chips(tmp_path):
     r = c.post("/dev/collect/make", data={"keys": ["helper"], "period": "month"}, follow_redirects=False)
     assert r.status_code == 303 and "err" not in r.headers["location"]
     for _ in range(100):
-        if "/dev/collect/file/collect-" in c.get("/dev/collect").text:
+        if "/dev/collect/file/collect-" in c.get("/dev/train?tab=collect").text:
             break
         time.sleep(0.1)
+
+
+def test_collect_is_a_tab_of_train_page(tmp_path):
+    """수집 자료는 데이터·학습의 탭(10-27) — 옛 주소는 그 탭으로 넘기고, 사이드바에는 데이터·학습만 켜진다."""
+    import re
+    from zzaimy.app import dev_nav
+    _seed(tmp_path)
+    (tmp_path / "platform" / "accounts.json").write_text(json.dumps({"zzdev": {"pw": "dev-pass", "role": "dev"}}))
+    app = create_app(db_path=tmp_path / "platform" / "platform.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=FakeResponder(), password="boot-pass-1")
+    c = TestClient(app)
+    c.post("/login", data={"username": "zzdev", "pw": "dev-pass"}, follow_redirects=False)
+    r = c.get("/dev/collect", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/dev/train?tab=collect"
+    r = c.post("/dev/collect/make", data={}, follow_redirects=False)            # 고른 항목 없음 — 탭으로 돌아가 까닭을 보인다
+    assert r.status_code == 303 and r.headers["location"].startswith("/dev/train?tab=collect&err=")
+    page = c.get(r.headers["location"]).text
+    assert "항목을 하나 이상 고르세요" in page and 'id="collectForm"' in page
+    assert "/dev/collect\"" not in page and 'href="/dev/collect"' not in page
+    assert '<a href="/dev/train?tab=collect" data-train-tab="collect" class="on" aria-current="page">수집 자료</a>' in page
+    assert "문답 검수" not in page                                               # 다른 탭 본문은 안 그린다
+    first = c.get("/dev/train").text
+    assert 'data-train-tab="data" class="on"' in first and 'id="collectForm"' not in first
+    assert "/dev/collect" not in dev_nav.NAMES and "수집 자료" not in dev_nav.NAMES.values()
+    on = re.findall(r'<a[^>]*href="([^"]+)"[^>]*class="active"[^>]*aria-current="page"', page)
+    assert on == ["/dev/train"]                                                  # 탭에서도 사이드바는 데이터·학습

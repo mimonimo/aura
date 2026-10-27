@@ -72,7 +72,7 @@ PostgreSQL 운영 DB(문서·조각·개체·장부·의미 검색 벡터의 정
 | 그래프와 `kg_built.stamp`, `.kg-dirty`, `program_core_docs.json` | `env PYTHONPATH=src .venv/bin/python scripts/157_build_kg.py --full`(약 22분) 또는 `touch data/platform/.kg-dirty` 로 1분 주기에 맡김 |
 | `data/platform/ontology/` | `env PYTHONPATH=src .venv/bin/python scripts/177_ontology_export.py` |
 | `data/platform/knowledge/exports/` | `env PYTHONPATH=src .venv/bin/python scripts/140_export_knowledge.py` |
-| `data/platform/exports/`(수집 자료 묶음) | `/dev/collect` 에서 다시 만든다 |
+| `data/platform/exports/`(수집 자료 묶음) | 데이터·학습 「수집 자료」 탭(/dev/train?tab=collect)에서 다시 만든다 |
 | `data/platform/webhwp_forms/` | `PYTHONPATH=src .venv/bin/python scripts/200_webhwp_forms.py all` |
 | `data/platform/cache/`, `data/cache/` | 쓰일 때 스스로 다시 만든다 |
 | `data/inbox/parsed/`(`.offsets.json` 빼고), `archive_facts.jsonl` | 5분 주기 `zz_parsed.sh`(170 --parsed), 10분 주기 `zz_sync.sh` 가 DGX 에서 다시 받는다 |

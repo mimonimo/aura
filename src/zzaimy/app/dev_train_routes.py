@@ -1,5 +1,7 @@
 """데이터·학습(/dev/train)과 도구·모델 연결(/dev/tools) — 학습 도구 연결·반출 묶음·학습 상태·학습셋 보기.
 
+데이터·학습은 탭 둘: 「검수·학습」(기본)과 「수집 자료」(tab=collect — 운영 기록의 가린 사본 묶음, 값은 collect.page_context).
+
 도구는 각자 프로세스로 돌고 플랫폼은 연결·임베드만 한다(ADR-0011). GPU 도구는 DGX 에서 돈다. 주소는 설정에 저장
 (없으면 미연결로 표시). 반출 묶음은 선택 항목만 개방 표준으로 내보낸다(ADR-0012).
 
@@ -55,8 +57,13 @@ def _tensorboard_status() -> dict:
 
 
 @router.get("/dev/train", response_class=HTMLResponse)
-def dev_train(request: Request, err: str = "", ok: str = ""):
-    # 데이터·학습 화면 하나 — 도구·모델 연결은 /dev/tools. 옛 탭 주소(tab=settings·models·exports) 넘기기는 10-25 에 지웠다
+def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "data"):
+    # 도구·모델 연결은 /dev/tools. 수집 자료(옛 /dev/collect)는 이 화면의 탭(10-27) — 모르는 tab 값은 첫 탭
+    if tab == "collect":
+        from zzaimy.app import collect
+        st = request.app.state
+        return st.templates.TemplateResponse(request, "dev_data.html", st.page_ctx(request, {
+            "tab": "collect", "err": err, "ok": ok, **collect.page_context(request)}))
     return _dev_data_view(request, err, ok)
 
 
@@ -264,6 +271,7 @@ def _dev_data_view(request: Request, err: str = "", ok: str = ""):
     return st.templates.TemplateResponse(request, "dev_data.html", st.page_ctx(request, {
         "grounded_review_report": review_report,
         "development_tab": "data",
+        "tab": "data",
         "export_preview": export_preview,
         "tensorboard_url": db.get_setting(_TB_SETTING, ""),
         "tensorboard_status": _tensorboard_status(),

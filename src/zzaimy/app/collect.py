@@ -1,7 +1,7 @@
 """수집 자료 — 베타·실사용에서 쌓이는 대화·평가·실행 기록을 한 목록으로 보고, 기간·항목을 골라 한 번에 내려받는다.
 
 플랫폼 개선(검색·답변 품질 측정, 학습 데이터 후보, 오류 분석)에 쓸 자료가 DB 표와 기록 파일(jsonl) 여러 곳에 흩어져 있다.
-여기 SOURCES 한 곳에만 적는다(열쇠·이름·설명 명사구·쓰임·있는 곳·시각 칸). 화면(/dev/collect)은 건수·기간·크기를 보인다.
+여기 SOURCES 한 곳에만 적는다(열쇠·이름·설명 명사구·쓰임·있는 곳·시각 칸). 화면(데이터·학습의 「수집 자료」 탭, /dev/train?tab=collect)은 건수·기간·크기를 보인다.
 
 내려받기 묶음(zip)은 늘 가린 사본이다 — 원문은 내보내지 않는다.
 - 글 칸: 접수 문서와 같은 개인정보 검사기(PiiMasker)로 가리고 고위험 꼴(주민번호·전화·메일 등)을 한 번 더 쓸어 낸다.
@@ -29,9 +29,10 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -544,8 +545,15 @@ def made(data_dir: Path) -> list[dict]:
     return out
 
 
-@router.get("/dev/collect", response_class=HTMLResponse)
-def collect_page(request: Request):
+PAGE = "/dev/train?tab=collect"       # 화면은 데이터·학습의 한 탭(10-27) — 만들기·내려받기 주소는 그대로 /dev/collect/…
+
+
+def _back(err: str = "") -> RedirectResponse:
+    return RedirectResponse(PAGE + (("&err=" + quote(err)) if err else ""), status_code=303)
+
+
+def page_context(request: Request) -> dict:
+    """데이터·학습 「수집 자료」 탭에 넣을 값 — 항목 목록(건수·기간), 만든 묶음, 만드는 중인 일."""
     st = _st(request)
     d = _data_dir(request)
     with _lock:
@@ -554,10 +562,16 @@ def collect_page(request: Request):
     sources = catalog(st.db, d)
     sources.sort(key=lambda c: not c["n"])                          # 빈 항목은 아래로(접어 둔다)
     firsts = [c["first"] for c in sources if c["first"]]
-    return st.templates.TemplateResponse(request, "dev_collect.html", st.page_ctx(request, {
-        "request": request, "sources": sources, "made": made(d), "running": running, "failed": failed,
-        "periods": PERIODS, "today": time.strftime("%Y-%m-%d"), "earliest": min(firsts) if firsts else time.strftime("%Y-%m-%d"),
-        "days": {c["key"]: c["days"] for c in sources if c["n"]}}))
+    return {"sources": sources, "made": made(d), "running": running, "failed": failed,
+            "periods": PERIODS, "today": time.strftime("%Y-%m-%d"), "earliest": min(firsts) if firsts else time.strftime("%Y-%m-%d"),
+            "days": {c["key"]: c["days"] for c in sources if c["n"]}}
+
+
+@router.get("/dev/collect")
+def collect_page(request: Request, err: str = ""):
+    """옛 주소 — 데이터·학습의 「수집 자료」 탭으로 넘긴다(옛 링크·즐겨찾기용)."""
+    _st(request)
+    return _back(err)
 
 
 @router.get("/dev/collect/peek/{key}")
@@ -574,14 +588,14 @@ def collect_make(request: Request, keys: list[str] = Form([]), since: str = Form
     st = _st(request)
     keys = [k for k in keys if k in BY_KEY]
     if not keys:
-        return RedirectResponse("/dev/collect?err=" + "항목을 하나 이상 고르세요", status_code=303)
+        return _back("항목을 하나 이상 고르세요")
     since, until = resolve_period(period, since, until, time.strftime("%Y-%m-%d"))
     until = (until + "T99") if until else ""       # 끝 날짜 그날까지 넣는다
     d, db, by = _data_dir(request), st.db, getattr(request.state, "user", "") or ""
     jid = secrets.token_hex(4)
     with _lock:
         if any(j["state"] == "running" for j in _jobs.values()):
-            return RedirectResponse("/dev/collect?err=" + "이미 만드는 중입니다", status_code=303)
+            return _back("이미 만드는 중입니다")
         _jobs[jid] = {"state": "running", "keys": keys, "at": time.strftime("%H:%M")}
 
     def run():
@@ -595,7 +609,7 @@ def collect_make(request: Request, keys: list[str] = Form([]), since: str = Form
             _jobs[jid].update(state=state, err=err)
     threading.Thread(target=run, name="collect-export", daemon=True).start()
     log.info("수집 자료 묶음 만들기 user=%s keys=%s %s~%s", by, ",".join(keys), since, until)
-    return RedirectResponse("/dev/collect", status_code=303)
+    return _back()
 
 
 @router.get("/dev/collect/file/{name}")

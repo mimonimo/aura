@@ -33,6 +33,7 @@ SUBPAGES: dict[str, str] = {
     "/dev/models/": "/dev/train",
     "/dev/models/compare": "/dev/quality",          # 모델 비교는 품질·성능 안
     "/dev/collect": "/dev/train",                   # 수집 자료는 데이터·학습 안
+    "/dev/train/": "/dev/train",                    # 검수 가이드 등 데이터·학습 하위
 }
 
 
