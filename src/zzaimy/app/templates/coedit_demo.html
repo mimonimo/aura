@@ -19,7 +19,8 @@
   .bar .sep { width:1px; height:20px; background:var(--line); }
   .bar h1 { font-size:15px; margin:0; font-weight:700; white-space:nowrap; }
   /* AURA 진행 — 쓰는 동안만 짧게(평소 안내 문장은 두지 않는다, 10-26) */
-  .status { display:inline-flex; align-items:center; gap:8px; min-width:0; padding:5px 12px; border-radius:999px; background:#EEF2FF; color:#1B3B75; font-size:12.5px; font-weight:600; white-space:nowrap; }
+  .status { display:inline-flex; align-items:center; gap:8px; min-width:0; padding:5px 12px; border-radius:999px; background:#EEF2FF; color:#1B3B75; font-size:12.5px; font-weight:600; white-space:nowrap; max-width:48vw; overflow:hidden; }
+  .status [data-status-text] { overflow:hidden; text-overflow:ellipsis; }
   .status[hidden], iconify-icon[hidden] { display:none; }
   .spin { width:12px; height:12px; border-radius:50%; border:2px solid #C7D2FE; border-top-color:#1B3B75; animation:spin .8s linear infinite; flex:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -72,7 +73,7 @@
     var id = f.querySelector('[name=id]').value;
     var b = f.querySelector('button'), label = f.querySelector('[data-aura-label]'), icon = f.querySelector('[data-aura-icon]');
     var chip = document.querySelector('[data-status]'), chipText = document.querySelector('[data-status-text]');
-    var loaded = f.dataset.loaded === '1', busy = false, failed = false, asked = 0;
+    var loaded = f.dataset.loaded === '1', busy = false, failed = false, asked = 0, step = '';
     function idle() { return loaded ? 'AURA 이어 쓰기' : 'AURA 양식 불러오기'; }
     function draw() {
       b.disabled = busy;
@@ -81,11 +82,11 @@
       var sp = b.querySelector('.spin'); if (busy && !sp) { sp = document.createElement('span'); sp.className = 'spin'; b.insertBefore(sp, label); } else if (!busy && sp) sp.remove();
       chip.hidden = !busy && !failed;
       chip.querySelector('.spin').hidden = !busy;
-      chipText.textContent = failed ? 'AURA에게 보내지 못했어요 — 다시 눌러 주세요' : busy ? (loaded ? '빈 절을 차례로 쓰고 있어요' : '공통 양식에서 사업계획서 양식을 찾고 있어요') : '';
+      chipText.textContent = failed ? 'AURA에게 보내지 못했어요 — 다시 눌러 주세요' : busy ? (step || (loaded ? '빈 절을 차례로 쓰고 있어요' : '양식을 불러와 시연용 가상 사업으로 채우고 있어요')) : '';   // 지금 단계(찾는 중·절 쓰는 중)를 그대로
     }
     function poll() {
       fetch('/dev/coedit-demo/state?id=' + encodeURIComponent(id), {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (s) {
-        loaded = !!s.loaded;
+        loaded = !!s.loaded; step = s.step || '';
         if (busy && !s.busy && Date.now() - asked > 4000) busy = false;   // 요청이 막 들어간 몇 초는 아직 돌기 전일 수 있다
         draw();
       }).catch(function () {});

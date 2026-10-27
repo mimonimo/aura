@@ -158,7 +158,7 @@ def test_long_demo_uses_business_plan_form(tmp_path, monkeypatch):
     from zzaimy.app import webhwp_write as _ww
     body = "".join(__import__("zipfile").ZipFile(__import__("io").BytesIO(Path(webhwp.get(db, fid)["path"]).read_bytes())).read(n).decode()
                    for n in ["Contents/section0.xml"])
-    assert "○○○○ 사업" not in body and "2026 AI 업무 도구 교육 운영" in body       # 표지 자리표시도 시연용 값
+    assert "○○○○ 사업" not in body and demo.scenario()["사업명"] in body       # 표지 자리표시도 시연용 값
     again = int(dev.post("/dev/coedit-demo/new", data={"kind": "long"}, follow_redirects=False).headers["location"].split("id=")[-1])
     assert again != fid and webhwp.get(db, fid) is None
     r = dev.get(f"/dev/coedit-demo?id={again}", follow_redirects=False)
@@ -168,7 +168,23 @@ def test_long_demo_uses_business_plan_form(tmp_path, monkeypatch):
 def test_demo_values_fill_header_cells_only():
     vals = demo.demo_values([{"kind": "칸", "name": "칸:보고 부서", "text": ""}, {"kind": "칸", "name": "칸:보고 일자", "text": "2026. 1. 1."},
                              {"kind": "절", "name": "절:1. 개요", "text": ""}, {"kind": "칸", "name": "칸:사업명", "text": ""}])
-    assert vals == {"칸:보고 부서": "기획팀", "칸:사업명": "2026 AI 업무 도구 교육 운영"}
+    assert vals == {"칸:보고 부서": "기획팀", "칸:사업명": demo.scenario()["사업명"]}
+
+
+def test_scenario_is_virtual_and_current():
+    """시연 시나리오 — 사업명에 시연용 가상 사업임이 드러나고 연도·날짜는 오늘에서. 요청 글은 칸 이름을 박지 않고 설정만 준다(칸 고르기는 27B)."""
+    from datetime import date
+    d = date(2031, 5, 4)
+    sc = demo.scenario(d)
+    assert "2031" in sc["사업명"] and "시연" in sc["사업명"] and "가상" in sc["사업명"] and sc["작성일"] == "2031. 05. 04."
+    fa, wr = demo.form_ask(d), demo.write_ask(d)
+    for k, v in sc.items():
+        assert f"- {k}: {v}" in fa and f"- {k}: {v}" in wr        # 수치 관문의 근거(요청 글)에 설정이 그대로
+    assert "hwp_start" in fa and "hwp_fill" in fa and "hwp_replace" in fa and "최근" in fa and "쓰지 마" in fa
+    assert "칸:" not in fa and "절:" not in wr                       # 특정 양식의 칸 이름을 요청에 박지 않는다
+    assert "가)" in wr and "표·도식 없이" in wr and "hwp_write" in wr and "작성 요령" in wr and "(예시)" in wr and "서너 문장" not in wr
+    # 꾸민 수치에는 「예시」 표시
+    assert all("예시" in v for k, v in sc.items() if k in ("총사업비", "참여 대상"))
 
 
 def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
@@ -182,11 +198,15 @@ def test_aura_button_runs_chat_agent_path(tmp_path, monkeypatch):
     sid, q = sent[-1]
     db = app.state.db
     from zzaimy.app import webhwp_agent as wa
-    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and q == demo.FORM_ASK   # 빈 문서면 양식 불러오기
+    assert wa.bound(db, sid) == fid and db.get_chat_session(sid)["owner"] == demo.SLOTS["a"][0] and q == demo.form_ask()   # 빈 문서면 양식 불러오기
     assert dev.get(f"/dev/coedit-demo/state?id={fid}").json() == {"loaded": False, "busy": False}
+    monkeypatch.setattr(app.state, "chat_running", lambda s_: True, raising=False)
+    monkeypatch.setattr(app.state, "chat_step", lambda s_: "절 쓰는 중 — 「2. 추진 배경」", raising=False)
+    assert dev.get(f"/dev/coedit-demo/state?id={fid}").json()["step"] == "절 쓰는 중 — 「2. 추진 배경」"   # 머리줄에 지금 단계
+    monkeypatch.setattr(app.state, "chat_running", lambda s_: False, raising=False)
     m = webhwp.meta(db, fid); m["form_loaded"] = "양식복사:1"; db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
     dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
-    assert sent[-1][1] == demo.WRITE_ASK and "AURA 이어 쓰기" in dev.get(f"/dev/coedit-demo?id={fid}").text   # 불러온 뒤엔 이어 쓰기
+    assert sent[-1][1] == demo.write_ask() and "AURA 이어 쓰기" in dev.get(f"/dev/coedit-demo?id={fid}").text   # 불러온 뒤엔 이어 쓰기
     assert dev.post("/dev/coedit-demo/aura", data={"id": 999999}, follow_redirects=False).status_code == 404
 
 
@@ -199,3 +219,52 @@ def test_editor_reports_unopenable_file(tmp_path, monkeypatch):
     assert db.get_setting(f"webhwp_broken:{fid}", "")
     assert dev.post(f"/hwp/{fid}/opened", json={"fields": 12}).json()["broken"] is False
     assert not db.get_setting(f"webhwp_broken:{fid}", "")
+
+
+def test_load_into_blank_reports_cover_and_replace_keeps_coedit_state(tmp_path, monkeypatch):
+    """빈 시연 문서에 양식을 불러오면 도구 답에 문서 앞부분 글(표지·머리)이 함께 간다 — 27B 가 옛 사업명·연도를 보고 고칠지 정한다.
+    칸 밖 글을 찾아 바꾸면(hwp_replace) 공동 편집 칸 글 표도 파일에 맞춘다(다음 문서 저장이 옛 글로 되돌리지 않게)."""
+    from zzaimy.app import webhwp_agent as wa
+    from zzaimy.app import webhwp_edit_ops as eo
+    app, dev, _ = _admin(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    fid = _new(dev)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 501, demo.SLOTS["a"][0], demo.ROOT, None, lambda: [])
+    wa.attach(db, 501, fid)
+    tid = next(line.split()[0] for line in hw.forms({"query": "사업계획서"}).splitlines() if line.startswith("tpl:"))
+    msg = hw.start({"form": tid})
+    assert "이어진 빈 문서에 양식" in msg and "문서 앞부분 글" in msg and demo.form_loaded_id(app, fid)
+    lines = wa.lead_lines(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    assert lines and all(f"「{x}」" in msg for x in lines[:3])
+    dev.get(f"/hwp/{fid}/file", headers=H("a"))                     # 열면 칸 밖 문단을 「문단:n」 칸으로 감싼다
+    vals = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    para = next(k for k, v in vals.items() if k.startswith("문단:") and len(v.strip()) >= 2)
+    word = vals[para].strip()[:2]
+    ce.put(db, fid, "demo_b", {para: vals[para]})                    # 사람이 쓴 적 있는 칸 — 표에 글이 있다
+    out = eo.EditTools(hw).run("hwp_replace", {"find": word, "replace": "시연"})
+    assert "곳을 바꿨다" in out, out
+    now = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())[para]
+    assert "시연" in now and ce.norm(ce.state(db, fid)[para]["text"]) == ce.norm(now)
+
+
+def test_replace_reports_split_runs():
+    """찾는 글이 글자 모양 경계로 쪼개져 있으면 「찾지 못했다」 에 까닭과 다른 길을 붙인다."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    import io as _io
+    import zipfile as _zf
+    data = wt.build(wt.GRANT["budget_change"])
+    z = _zf.ZipFile(_io.BytesIO(data))
+    sec = z.read("Contents/section0.xml").decode()
+    m = __import__("re").search(r"<hp:t>([^<]{4,})</hp:t>", sec)
+    t = m.group(1)
+    split = sec.replace(m.group(0), f"<hp:t>{t[:2]}</hp:t></hp:run><hp:run charPrIDRef=\"0\"><hp:t>{t[2:]}</hp:t>", 1)
+    out = _io.BytesIO()
+    with _zf.ZipFile(out, "w") as w:
+        for info in z.infolist():
+            w.writestr(info, split.encode() if info.filename == "Contents/section0.xml" else z.read(info.filename))
+    try:
+        eo.replace_text(out.getvalue(), {"find": t[:4], "replace": "x"})
+        raise AssertionError("바꾸면 안 된다")
+    except eo.EditError as e:
+        assert "쪼개져" in str(e)

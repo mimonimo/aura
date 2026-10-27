@@ -6,7 +6,8 @@
 그 밖의 요청은 표시를 무시한다. 시연 계정은 비활성·비밀번호 없음이라 로그인할 수 없고, 열 수 있는 곳은 시연 폴더(ROOT) 하나다
 (webhwp_routes._depts). 그래서 표시는 권한을 좁히기만 한다.
 
-화면: GET /dev/coedit-demo — 한 문서(제목만 있는 빈 문서 → AURA 가 양식을 불러오면 세 사람과 AURA 가 여러 쪽을 함께 쓴다). 칸 밖 문단도 칸으로 감싸 제목까지 함께 고친다
+화면: GET /dev/coedit-demo — 한 문서(제목만 있는 빈 문서 → AURA 가 양식을 불러와 표지·기본 칸을 시연 시나리오(scenario)의 가상 사업으로 채우면
+세 사람과 AURA 가 여러 쪽을 함께 쓴다). 칸 밖 문단도 칸으로 감싸 제목까지 함께 고친다
 (webhwp_fields.wrap_rest). 시연 문서가 없으면 열 때 만든다. 「새 빈 문서」 POST /dev/coedit-demo/reset, 「AURA 양식 불러오기 / 이어 쓰기」 POST /dev/coedit-demo/aura(단계는 GET /dev/coedit-demo/state),
 POST /dev/coedit-demo/new(kind=long 이면 사업계획서)는 화면 단추 없이 남긴 만들기 길. 창을 열면 칸마다 자기 차례의 쓸 자리로 커서가 간다(hwp_edit.html).
 """
@@ -138,14 +139,42 @@ def pick_form(request: Request, prefer: int | None = None, long: bool = False) -
     return best[1]
 
 
-def demo_values(fields: list[dict]) -> dict[str, str]:
-    """시연 문서의 머리 칸(표지·보고 정보)에 넣을 시연용 값 — 칸 이름 낱말로만 고른다. 본문(절)은 시연 때 쓰도록 비워 둔다."""
+def scenario(today=None) -> dict[str, str]:
+    """시연 시나리오 — 시연 문서가 될 가상 사업의 설정. 실제 사업이 아니라는 것이 사업명에 드러나고, 연도·날짜는 오늘에서 셈한다.
+    이 값은 재료일 뿐 칸 이름에 묶지 않는다 — 어느 칸·어느 글에 넣을지는 27B 가 양식을 보고 정한다(form_ask·write_ask).
+    숫자는 여기 준 것만 근거가 된다(요청 글이 수치 관문의 근거라, 설정 밖 숫자는 본문 관문이 막는다). 꾸민 수치에는 「예시」 를 붙인다."""
     from datetime import date
-    rules = [(("일자", "날짜", "작성일"), date.today().strftime("%Y. %m. %d.")),
-             (("부서", "소속"), "기획팀"),
-             (("보고자", "작성자", "담당자", "책임자", "성명"), SLOTS["a"][1]),
-             (("사업명", "과제명", "제목", "프로그램명"), "2026 AI 업무 도구 교육 운영"),
-             (("기관", "대학명", "학교"), "영남이공대학교")]
+    d = today or date.today()
+    y = d.year
+    return {
+        "사업명": f"{y} AI 융합 실무인재 양성사업(시연용 가상 사업)",
+        "주관 기관": "영남이공대학교",
+        "주관 부서": "기획팀",
+        "사업 책임자": SLOTS["a"][1],
+        "참여 인력": f"{SLOTS['b'][1]}(교육 운영), {SLOTS['c'][1]}(산학 협력)",
+        "작성일": d.strftime("%Y. %m. %d."),
+        "사업 기간": f"{y}. 3. 1. ~ {y + 1}. 2. 28.",
+        "총사업비": "5억 원(예시)",
+        "참여 대상": "3개 학과 재학생 120명(예시)",
+        "목표": "생성형 AI 를 실무에 쓰는 전문 기술 인재 양성, 지역 기업 현장 과제 해결",
+        "주요 내용": "AI 기초·응용 교과 개설, 현장 실습 과제, 지역 기업 협력 프로젝트, 교원 연수",
+        "성과 지표(예시)": "교과 이수 학생 100명, 기업 협력 과제 10건, 만족도 4.0점(5점 만점)",
+    }
+
+
+def scenario_text(today=None) -> str:
+    return "\n".join(f"- {k}: {v}" for k, v in scenario(today).items())
+
+
+def demo_values(fields: list[dict]) -> dict[str, str]:
+    """만들기 길(make_doc — 화면 단추 없는 장문 시연 문서)의 머리 칸 값 — 칸 이름 낱말로만 고른다. 본문(절)은 시연 때 쓰도록 비워 둔다.
+    화면 시연(빈 문서 → 양식 불러오기)은 이 규칙을 쓰지 않고 27B 가 시나리오(scenario)를 보고 칸을 고른다."""
+    sc = scenario()
+    rules = [(("일자", "날짜", "작성일"), sc["작성일"]),
+             (("부서", "소속"), sc["주관 부서"]),
+             (("보고자", "작성자", "담당자", "책임자", "성명"), sc["사업 책임자"]),
+             (("사업명", "과제명", "제목", "프로그램명"), sc["사업명"]),
+             (("기관", "대학명", "학교"), sc["주관 기관"])]
     out: dict[str, str] = {}
     for f in fields:
         if f.get("kind") != "칸" or f.get("text"):
@@ -164,8 +193,8 @@ def demo_cover(data: bytes) -> bytes:
     from datetime import date
     from zzaimy.app import paper_hwp
     today = date.today()
-    pairs = [("○○○○ 사업", demo_values([{"kind": "칸", "name": "칸:사업명", "text": ""}])["칸:사업명"]),
-             ("○○대학교", "영남이공대학교"), ("20○○. ○.", f"{today.year}. {today.month}."), ("20○○년", f"{today.year}년")]
+    sc = scenario(today)
+    pairs = [("○○○○ 사업", sc["사업명"]), ("○○대학교", sc["주관 기관"]), ("20○○. ○.", f"{today.year}. {today.month}."), ("20○○년", f"{today.year}년")]
     for old, new in pairs:
         data, _ = paper_hwp.stamp_dept(data, [old], new)
     return data
@@ -321,7 +350,11 @@ def coedit_demo_state(request: Request, id: int):
     from zzaimy.app import webhwp
     st = request.app.state
     sid = int(webhwp.meta(st.db, id).get("demo_session") or 0)
-    return {"loaded": form_loaded(request, id), "busy": bool(sid and getattr(st, "chat_running", lambda _s: False)(sid))}
+    busy = bool(sid and getattr(st, "chat_running", lambda _s: False)(sid))
+    out = {"loaded": form_loaded(request, id), "busy": busy}
+    if busy:                                             # 지금 AURA 단계(찾는 중·절 쓰는 중 …) — 「빈 절을 쓰고 있어요」 만으로는 무엇을 하는지 안 보였다
+        out["step"] = str(getattr(st, "chat_step", lambda _s: "")(sid) or "")[:80]
+    return out
 
 
 @router.post("/dev/coedit-demo/reset")
@@ -342,10 +375,36 @@ def coedit_demo_reset(request: Request, id: int = Form(...)):
     return RedirectResponse(f"/dev/coedit-demo?id={new}", status_code=303)
 
 
-FORM_ASK = ("이 빈 문서에 사업계획서를 쓰려고 해. 공통 양식에서 사업계획서 양식을 찾아, 후보 가운데 칸 수가 가장 많은(수십 쪽 분량) 것을 이 문서에 불러와 줘. "
-            "불러오기만 하고 아직 쓰지는 마.")
-WRITE_ASK = ("이 문서는 시연용이야 — 가상의 「AI 융합 실무인재 양성사업」 사업계획서라고 보고, 아직 비어 있는 절 가운데 앞에서부터 세 개를 "
-             "차례로 써 줘. 근거 문서가 없으니 숫자·기관 이름은 지어내지 말고, 절마다 서너 문장으로.")
+def form_ask(today=None) -> str:
+    """「AURA 양식 불러오기」 요청 — 양식 고르기·불러오기와, 불러온 문서를 시연 시나리오의 가상 사업 문서로 바꾸기까지.
+    어떤 양식을 고르고 어느 칸·어느 글을 고칠지는 27B 가 정한다(양식 칸 이름을 코드에 두지 않는다)."""
+    return ("이 빈 문서를 아래 「시연용 가상 사업」 의 사업계획서로 만들려고 해. 차례대로 해 줘.\n"
+            "1) hwp_forms 로 공통 양식에서 사업계획서 양식을 찾아. 후보 가운데 양식 이름의 연도가 가장 최근이고 칸 수가 많은(여러 쪽 분량) "
+            "사업계획서를 골라 hwp_start 로 이 문서에 불러와. 오래된 연도의 양식은 더 나은 후보가 없을 때만 고른다.\n"
+            "2) 불러온 문서를 이 가상 사업의 문서로 바꿔: 표지·머리의 사업명·기관·부서·책임자·작성일·사업 기간 같은 기본 칸은 hwp_fill 로 "
+            "아래 값을 넣고(이 값은 내가 알려 주는 값이라 「입력:」 칸도 from_user: true 로 넣어도 된다), 칸 밖 글(표지 제목·연도·날짜 줄)에 "
+            "양식의 옛 사업명·옛 연도·옛 날짜·자리표시(○○ 등)가 남아 있으면 hwp_replace 로 아래 값에 맞게 바꿔. 문서 앞부분에 옛 연도·옛 사업명이 "
+            "남지 않게 하고, 다 바꿨는지 hwp_replace(replace 없이 find 만)로 옛 연도가 0곳인지 확인해.\n"
+            "3) 절 본문은 아직 쓰지 마 — 다음 요청(이어 쓰기)에서 쓴다.\n"
+            "시연용 가상 사업 설정(실제 사업이 아니다 — 여기 없는 값은 지어내지 말고 비워 둔다):\n" + scenario_text(today))
+
+
+def write_ask(today=None) -> str:
+    """「AURA 이어 쓰기」 요청 — 빈 절 몇 개를 실제 사업계획서답게(구조가 있는 글) 써 내려가게. 표는 쓰지 않게 해 열린 세 화면에
+    흘려 쓰기(칸 공동 편집 길, webhwp_agent._stream_plain)로 보이게 한다. 수치는 시나리오 값만(본문 관문이 그 밖의 숫자를 막는다)."""
+    sc = scenario(today)
+    return (f"이 문서는 시연용 가상 사업 「{sc['사업명']}」 의 사업계획서야. 아직 비어 있는 사업 내용 절 가운데 앞에서부터 세 개를 차례로 써 줘.\n"
+            "- 쓸 절은 사업 내용 절(추진 배경·목표·추진 전략·세부 내용 같은 것)이다. 양식의 제출 서류·규격·작성 요령·제본 같은 안내 부분의 절은 "
+            "건너뛴다. 세 개를 쓰면 멈춘다.\n"
+            "- 먼저 표지·개요의 기본 칸(사업명·기관·부서·책임자·기간 등)이 비었거나 양식의 옛 값이면 hwp_fill 로 아래 값을 한 번에 넣는다.\n"
+            "- 가상 사업이라 찾을 근거 문서가 없다 — 찾기 없이 아래 설정만 보고, 절마다 바로 hwp_write 로 하나씩 직접 쓴다(맡기지 않는다 — "
+            "쓰는 대로 열린 화면에 글이 흘러 들어가게).\n"
+            "- 실제 사업계획서 품질로: 절마다 그 절의 작성방법 안내를 따르고, 「1)」「2)」 소제목 두세 개와 그 아래 「가)」「나)」 항목을 두며, "
+            "항목마다 무엇을·왜·어떻게 하는지 한두 문장으로 풀어 쓴다. 절 하나에 500~800자쯤, 앞 절과 내용이 이어지게.\n"
+            "- 표·도식 없이 글과 항목으로만 쓴다(열린 화면에 써 내려가는 것이 보이게).\n"
+            "- 숫자·날짜·기관·사람 이름은 아래 설정에 있는 것만 그대로 쓴다. 설정에 「예시」 가 붙은 수치는 본문에도 「(예시)」 를 붙인다. "
+            "설정에 없는 숫자는 쓰지 말고 「확인 필요」 로 남긴다.\n"
+            "시연용 가상 사업 설정(실제 사업이 아니다):\n" + scenario_text(today))
 
 
 def form_loaded_id(app, fid: int) -> bool:
@@ -380,7 +439,7 @@ def coedit_demo_aura(request: Request, background: BackgroundTasks, id: int = Fo
     webhwp_agent.attach(db, sid, id)
     if getattr(st, "chat_running", lambda _s: False)(sid):
         return RedirectResponse(f"/dev/coedit-demo?id={id}&aura=busy", status_code=303)
-    ask = WRITE_ASK if form_loaded(request, id) else FORM_ASK      # 빈 문서면 양식 불러오기, 불러왔으면 이어 쓰기
+    ask = write_ask() if form_loaded(request, id) else form_ask()   # 빈 문서면 양식 불러오기(+ 가상 사업으로 바꾸기), 불러왔으면 이어 쓰기
     db.add_chat(sid, "user", ask)
     st.schedule_answer(background, sid, ask, None, [])
     return RedirectResponse(f"/dev/coedit-demo?id={id}&aura=1", status_code=303)

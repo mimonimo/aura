@@ -883,8 +883,11 @@
       var t = Date.now(), kn = eng.known();
       var empty = function (f) { var k = kn[f]; if (k && typeof k.text === 'string') return k.text === ''; var x = hwp.read(f); return x == null || x === ''; };   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
       var cur = eng.current(), idx = eng.indexOf ? eng.indexOf : function () { return 0; }, me_ = idx(cur);
-      var pick = want.filter(function (f) { return !geo[f] && !empty(f); }).sort(function (a, b) { return (b === ft) - (a === ft) || Math.abs(idx(a) - me_) - Math.abs(idx(b) - me_); })[0];
-      if (!pick && ft && geo[ft] && (stale[ft] || t - (staleAt[ft] || 0) > 1500) && !empty(ft)) pick = ft;   // 따라가는 칸은 자주(그 사람이 써서 줄이 늘면 커서가 내려간다)
+      // AURA 를 따라가는 칸은 비어 있어도 잰다 — 빈 칸을 건너뛰면 AURA 가 쓰기 시작한 먼 쪽 절의 자리를 몰라 화면이 따라가지 못했다(10-27 운영 2340).
+      // 빈 칸 안내 글이 지워지는 것은 곧 AURA 글로 채워질 칸이라 괜찮다
+      var auraFt = following === 'AURA' ? ft : '';
+      var pick = want.filter(function (f) { return !geo[f] && (!empty(f) || f === auraFt); }).sort(function (a, b) { return (b === ft) - (a === ft) || Math.abs(idx(a) - me_) - Math.abs(idx(b) - me_); })[0];
+      if (!pick && ft && geo[ft] && (stale[ft] || t - (staleAt[ft] || 0) > 1500) && (!empty(ft) || ft === auraFt)) pick = ft;   // 따라가는 칸은 자주(그 사람이 써서 줄이 늘면 커서가 내려간다)
       if (!pick) pick = want.filter(function (f) { return geo[f] && (stale[f] || t - (staleAt[f] || 0) > 4000 || force) && nearView(geo[f]) && !empty(f); })[0];
       if (!pick) return;
       var g = hwp.fieldGeom([pick]);

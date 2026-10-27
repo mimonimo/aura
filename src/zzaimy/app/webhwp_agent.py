@@ -6,6 +6,7 @@
   빌더로 만들어 작업본으로 연다(app/webhwp_form_create). 이 대화에서 hwp_forms 로 먼저 찾아본 뒤에만 돈다.
 - hwp_start {form, title}: 고른 양식으로 작업본을 부서 디렉터리(「작업/<프로젝트>」)에 만들고 이 대화에 잇는다. 이 대화에 이어진 문서가 비어 있으면(칸 글 합 EMPTY_CHARS 미만)
   새로 만들지 않고 그 문서에 양식을 불러온다 — 함께 연 화면 모두에 바로 뜬다(공동 편집 시연의 「빈 문서 → 양식 불러오기」). 한글 원본은 hwpx 로 바꾸고 쓸 자리 필드를 박는다.
+  답에 문서 앞부분 글(lead_lines — 표지·머리, 칸 밖 글 포함)을 붙여, 양식의 옛 사업명·연도·날짜를 이 문서에 맞게 고칠지 에이전트가 정하게 한다.
 - hwp_fields {}: 작업본의 필드와 채움 상태(빈 필드가 먼저).
 - hwp_fill {values: {필드: 값}, from_user}: 칸·표 필드 값 넣기. 사람 칸(「입력:」)은 담당자에게 물어 받은 값만(from_user: true).
 - hwp_write {field, text}: 절 필드에 본문 쓰기(번호 문단 + 마크다운 표). 같은 절을 다시 쓰면 앞 내용을 지우고 새로.
@@ -156,6 +157,32 @@ def body_shape(text: str) -> dict:
 def missing_needs(need: list[str], shape: dict) -> list[str]:
     have = {"표": shape.get("tables", 0) > 0, "도식": shape.get("diagrams", 0) > 0, "출처": shape.get("sources", False)}
     return [n for n in need if not have.get(n, True)]
+
+
+def lead_lines(data: bytes, limit: int = 20, width: int = 60) -> list[str]:
+    """문서 앞부분 글 줄(표지·머리) — 칸 안팎을 가리지 않고 첫 섹션의 글 문단을 차례대로(같은 글은 한 번, 줄마다 width 자까지).
+    양식을 불러온 뒤 에이전트가 표지의 사업명·연도·날짜를 이 문서에 맞게 고칠지 판단하는 재료다(칸은 hwp_fill, 칸 밖 글은 hwp_replace)."""
+    import io
+    import zipfile
+    from zzaimy.app import webhwp_edit_ops as eo
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        secs = sorted([n for n in z.namelist() if re.match(r"Contents/section\d+\.xml$", n)],
+                      key=lambda n: int(re.search(r"(\d+)\.xml$", n).group(1)))
+        xml = z.read(secs[0]).decode("utf-8", "ignore") if secs else ""
+    except (zipfile.BadZipFile, KeyError, OSError):
+        return []
+    out: list[str] = []
+    for s, e, _d in eo._paras(xml):
+        seg = xml[s:e]
+        if re.search(r"<hp:p\b", seg[1:]):                # 표를 품은 바깥 문단은 건너뛰고 칸 안 문단을 읽는다
+            continue
+        t = eo._text(seg)
+        if t and t not in out:
+            out.append(t[:width])
+        if len(out) >= limit:
+            break
+    return out
 
 
 class HwpTools:
@@ -317,18 +344,19 @@ class HwpTools:
             if words and not hit:
                 continue
             pri = 0 if group.startswith("공통 양식") else 1
-            scored.append((-hit, pri, name, f"tpl:{r['id']} 「{name}」({group})"))
+            year = max((int(y) for y in re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", name)), default=0)   # 같은 맞음이면 최근 연도 양식이 앞에(목록 상한에 잘리지 않게)
+            scored.append((-hit, pri, -year, name, f"tpl:{r['id']} 「{name}」({group})"))
         scored.sort()
         from zzaimy.app import webhwp_write as ww
         for x in scored[:15]:                              # 칸 수를 함께 — 「수십 쪽 양식」 처럼 분량으로 고를 때 쓴다(큰 파일은 건너뜀)
             n = ""
             try:
-                p_ = Path(webhwp.get(self.db, int(x[3][4:x[3].index(" ")]))["path"])
+                p_ = Path(webhwp.get(self.db, int(x[-1][4:x[-1].index(" ")]))["path"])
                 if p_.stat().st_size < 3_000_000:
                     n = f" · 칸 {len(ww.fields(p_.read_bytes()))}개"
             except Exception:
                 pass
-            out.append(x[3] + n)
+            out.append(x[-1] + n)
         return (("양식 후보(form 에 앞의 id 를 쓴다 — 목적에 맞는 것이 없으면 hwp_form_create 로 새로 설계한다):\n" + "\n".join(out)) if out
                 else "맞는 양식이 없다 — 검색어를 바꿔 한 번 더 찾거나, 목적에 맞는 양식을 hwp_form_create 로 설계해 만든다.")
 
@@ -377,7 +405,7 @@ class HwpTools:
         for x in fields:
             kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
         return (f"작업본 「{name}」 을 {self.dept}/{folder} 에 만들고 이 대화에 이었다(필드 {len(fields)}개: "
-                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다.")
+                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data))
 
     EMPTY_CHARS = 200          # 이어진 문서의 칸 글 합이 이만큼 안 되면 「빈 문서」 — 양식을 새 작업본이 아니라 그 문서에 불러온다
 
@@ -413,7 +441,15 @@ class HwpTools:
         for x in fields:
             kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
         return (f"이어진 빈 문서에 양식 「{name}」 을 불러왔다(필드 {len(fields)}개: " + ", ".join(f"{k} {v}" for k, v in kinds.items())
-                + "). 이 문서를 연 화면에 바로 뜬다. hwp_fields 로 빈 필드를 보고 채운다.")
+                + "). 이 문서를 연 화면에 바로 뜬다. hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data))
+
+    def _lead_note(self, data: bytes) -> str:
+        """양식 앞부분 글 — 표지·머리에 양식의 옛 사업명·연도·날짜가 그대로 있는지 에이전트가 보고 고치게(고칠지는 에이전트가 정한다)."""
+        lines = lead_lines(data)
+        if not lines:
+            return ""
+        return (" 문서 앞부분 글(표지·머리, 칸 밖 글 포함): " + " / ".join(f"「{x}」" for x in lines)
+                + " — 이 문서에 맞지 않는 양식의 사업명·연도·날짜·자리표시가 있으면 칸은 hwp_fill, 칸 밖 글은 hwp_replace 로 고친다.")
 
     def fields(self, a: dict) -> str:
         if not self.fid():
