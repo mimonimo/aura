@@ -97,16 +97,34 @@ def _in(ids: list, size: int = 5000):
         yield part, ",".join("?" * len(part))
 
 
+_SKELETON: dict = {}
+
+
+def _skeleton(db) -> tuple[dict, list]:
+    """사업·연차 뼈대(노드 1만여·관계 5만여) — 권한과 상관없어 그래프 판(kg_store.version)마다 한 번만 읽는다.
+    요청마다 읽고 바꾸느라 사업 화면이 3초 걸렸다(10-28 측정)."""
+    key = (str(getattr(db, "path", "")), kg_store.version(db))
+    hit = _SKELETON.get("v")
+    if hit and hit[0] == key:
+        return hit[1], hit[2]
+    with db._conn() as conn:
+        base = {r["id"]: _node(r) for r in _rows(conn, "SELECT * FROM kg_nodes WHERE type IN ('program', 'program_group', 'year')")}
+        struct = [_edge(r) for r in _rows(conn, "SELECT * FROM kg_edges WHERE (kind = 'contains' AND (src LIKE 'program:%' OR src LIKE 'year:%'"
+                                                 " OR src LIKE 'group:%')) OR kind IN ('integrated_into', 'succeeded_by', 'related')")]
+    _SKELETON["v"] = (key, base, struct)
+    return base, struct
+
+
 def _subgraph(db, program_id: str | None, scope: dict | None) -> tuple[dict, list, dict | None]:
     """고른 사업 하나를 그리는 데 필요한 노드·관계만 읽는다.
 
     그래프 전체(노드 수십만)와 문서 본문까지 읽으면 화면이 수십 초 걸린다. 그래서 사업·연차 뼈대(분류 관계)는 전부, 문서·지표·대응 관계는 고른 사업 것만 읽고, 절 수·관계 수는 SQL 로 센다."""
     from zzaimy.app.access_policy import visible
 
+    base0, struct0 = _skeleton(db)
+    base = {k: dict(v) for k, v in base0.items()}                  # 화면마다 고쳐 쓰므로 사본(뼈대 자체는 그래프 판마다 한 번 읽는다)
+    struct = [dict(e) for e in struct0]
     with db._conn() as conn:
-        base = {r["id"]: _node(r) for r in _rows(conn, "SELECT * FROM kg_nodes WHERE type IN ('program', 'program_group', 'year')")}
-        struct = [_edge(r) for r in _rows(conn, "SELECT * FROM kg_edges WHERE (kind = 'contains' AND (src LIKE 'program:%' OR src LIKE 'year:%'"
-                                                 " OR src LIKE 'group:%')) OR kind IN ('integrated_into', 'succeeded_by', 'related')")]
         dev = scope is None or scope.get("role") == "dev"
         if dev:
             allowed_docs = None

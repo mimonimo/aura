@@ -291,6 +291,7 @@ def program_index(db) -> dict[str, tuple[str, int]]:
 
 
 _PAREN = re.compile(r"\([^()]*\)")
+_GRAPH_MATCH: dict = {}
 
 
 def _name_sig(name: str) -> tuple[str, set[str]]:
@@ -383,7 +384,14 @@ def graph_match(db, names: dict[str, tuple[str, int]]) -> tuple[dict[str, list[s
 def load_programs(db) -> tuple[dict[str, tuple[str, int]], "Programs"]:
     """장부 열쇠별 원본 수와 사업 묶음 — 화면과 점검이 같은 길로 만든다."""
     names = program_index(db)
-    surf, labels_g = graph_match(db, names)
+    from zzaimy.graph import kg_store
+    key = (str(getattr(db, "path", "")), kg_store.version(db), hash(tuple(sorted(names.items()))))
+    hit = _GRAPH_MATCH.get("v")
+    if hit and hit[0] == key:                           # 장부 사업 × 그래프 노드 맞추기(1초) — 장부·그래프가 그대로면 지난 결과(10-28)
+        surf, labels_g = hit[1]
+    else:
+        surf, labels_g = graph_match(db, names)
+        _GRAPH_MATCH["v"] = (key, (surf, labels_g))
     acr = _key_acronyms(names)
     return names, Programs(names, {k: surf.get(k, []) + acr.get(k, []) for k in names if k}, labels_g)
 
