@@ -5,7 +5,7 @@
   만들고, 요청·저장된 값은 늘 그 집합과 겹치는 것만 남긴다. 범위 밖 값만 왔으면 사업 문서를 쓰지 않는 쪽으로 닫는다.
 - 질문마다 보낸 사람과 그때 고른 RAG 를 남긴다(설정 chat_msg_rags:<메시지>). 공유 프로젝트의 대화는 주인과 보낸 사람이
   다를 수 있어, 답은 보낸 사람이 고른 RAG 를 대화 주인의 범위와 보낸 사람의 범위 둘 다와 겹치는 것만 쓴다(narrow_shared).
-- 같은 설정에 답변 깊이(effort — 「빠르게」·「꼼꼼하게」, app/effort)도 기억한다. 처음은 빠르게.
+- 같은 설정에 답변 깊이(effort — 「빠르게」·「꼼꼼하게」, app/effort)도 기억한다. 처음은 꼼꼼하게(생각 켬).
 - 판단(인터넷에서 찾아볼지)은 모델이 하고, 여기는 저장·교집합·표시 글만 맡는다.
 """
 from __future__ import annotations
@@ -112,7 +112,7 @@ def label(picked: list[str], choices: list[str]) -> str:
 
 
 def load(db, user: str) -> dict:
-    """계정의 저장된 선택 {mode, rags, effort}. 없거나 깨졌으면 RAG·전부·빠르게."""
+    """계정의 저장된 선택 {mode, rags, effort}. 없거나 깨졌으면 RAG·전부·꼼꼼하게."""
     try:
         v = json.loads(db.get_setting(_key(user), "") or "{}")
     except ValueError:

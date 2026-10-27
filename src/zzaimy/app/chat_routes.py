@@ -112,7 +112,7 @@ def make_chat_helpers(
         return out
 
     def _effort_tags(messages: list) -> dict:
-        """메시지마다 고른 답변 깊이 이름 — 기본(빠르게)이 아닐 때만(「꼼꼼하게」). 보낼 때 남긴 값(chat_msg_effort:<메시지>)."""
+        """메시지마다 고른 답변 깊이 이름 — 기본(꼼꼼하게)이 아닐 때만(「빠르게」). 보낼 때 남긴 값(chat_msg_effort:<메시지>)."""
         out = {}
         for m in messages or []:
             if m.get("role") == "user" and m.get("id"):
@@ -249,8 +249,8 @@ def make_chat_helpers(
                                       say=say, on_step=step,
                                       search=_helper_search(owner, role, dept))
             ep = None
-            # 답변 깊이(app/effort) — 도우미도 계정이 고른 단계로(학생은 기본)
-            level = _effort.DEFAULT if _ap.role_class(role) == "student" else _answer_pref.load(db, owner)["effort"]
+            # 답변 깊이(app/effort) — 도우미는 화면 조작·짧은 안내라 늘 빠르게(생각 끔). 기본 깊이(꼼꼼하게)는 대화 답에만
+            level = _effort.FAST
             try:
                 with _effort.use(level):
                     ep = platform_helper.run(env, VllmClient(role=platform_helper.model_role()), q, said=q if said is None else said)
@@ -748,6 +748,8 @@ def chat_send(
     if getattr(request.state, "role", "") != "student":
         # 답변 깊이 — 입력줄에 보이던 값(없으면 계정에 기억한 값). 기본이 아니면 질문에 남겨 답 만들기·대화 표시가 읽는다
         _effort.remember(db, int(mid_), _effort.clean(effort) or _answer_pref.load(db, user_)["effort"])
+    else:
+        _effort.remember(db, int(mid_), _effort.FAST)          # 학생(학사 질문, 고르는 단추 없음)은 바로 답하는 쪽
     if not web and getattr(request.state, "role", "") != "student":
         _answer_pref.remember_pick(db, int(mid_), user_)          # 공유 프로젝트 대화도 보낸 사람이 고른 RAG 로 답한다
         scope_ = h._owner_scope(user_)

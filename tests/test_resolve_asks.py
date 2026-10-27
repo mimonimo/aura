@@ -304,6 +304,8 @@ class _FollowsState:
 
 
 def test_fact_asks_resolve_quickly_decision_ask_is_not_searched_and_run_closes_with_summary(tmp_path, monkeypatch):
+    from zzaimy.app import effort as _effort
+    monkeypatch.setattr(_effort, "DEFAULT", _effort.FAST)          # 걸음 한도 자체를 보는 시험 — 기본 깊이(꼼꼼하게 1.5배)와 떼어 둔다
     from zzaimy.generate import client as _gc
 
     monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")

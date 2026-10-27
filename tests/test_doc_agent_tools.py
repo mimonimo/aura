@@ -550,6 +550,8 @@ def test_read_found_rechecks_the_viewer_scope(tmp_path, monkeypatch):
 
 
 def test_step_limit_answers_from_the_evidence_found_so_far(tmp_path, monkeypatch):
+    from zzaimy.app import effort as _effort
+    monkeypatch.setattr(_effort, "DEFAULT", _effort.FAST)          # 걸음 한도 자체를 보는 시험 — 기본 깊이(꼼꼼하게 1.5배)와 떼어 둔다
     import functools
 
     from zzaimy.app import doc_agent

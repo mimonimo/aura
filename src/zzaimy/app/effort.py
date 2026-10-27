@@ -1,7 +1,7 @@
 """답변 깊이 — 대화 입력줄의 두 단계(「빠르게」·「꼼꼼하게」). 요청 하나에 값 하나를 실어 모델 호출 쪽 설정이 이 표 하나만 읽는다.
 
-- 빠르게(기본): 27B 생각 끔(지금까지와 같음), 작업 몫(llm_budget.work_len)을 가볍게 묶고(기본 32,768 토큰 — 대화 기억·근거·출력 몫의
-  기준), 맡긴 절의 자기 점검은 건너뛴다. 에이전트 걸음 한도는 지금 그대로.
+- 빠르게(기본): 27B 생각 끔(지금까지와 같음), 문맥은 꼼꼼하게와 같이 한도 그대로(사용자 10-27 「컨텍스트는 둘다 똑같지?」 — 묶어야 하면
+  ZZAIMY_EFFORT_FAST_CONTEXT), 맡긴 절의 자기 점검은 건너뛴다. 에이전트 걸음 한도는 지금 그대로.
 - 꼼꼼하게: 답·에이전트 호출에 생각을 켜고(출력 한도에 생각 몫을 더한다 — 안 더하면 한도를 생각에 다 써 답이 빈다),
   작업 몫은 문맥 한도 그대로, 맡긴 절 자기 점검을 하고, 걸음 한도를 1.5배로.
 - 값을 정하지 않은 호출(반입·배치·측정 등 대화 밖)은 아무것도 바꾸지 않는다 — 표의 "" 줄.
@@ -19,9 +19,9 @@ import os
 
 FAST, DEEP = "fast", "deep"
 LEVELS = (FAST, DEEP)
-DEFAULT = FAST
+DEFAULT = DEEP                     # 기본은 생각을 거치는 쪽(사용자 10-27 「생각모드가 기본이고, 간단한 거 물을 때는 끄는 건」)
 LABELS = {FAST: "빠르게", DEEP: "꼼꼼하게"}
-HINTS = {FAST: "생각 단계 없이 바로 답합니다", DEEP: "생각을 거쳐 자료를 넓게 보고 점검합니다 — 느립니다"}
+HINTS = {FAST: "간단한 질문 — 생각 단계 없이 바로 답합니다", DEEP: "생각을 거쳐 자료를 넓게 보고 점검합니다(기본)"}
 
 _CUR: contextvars.ContextVar[str] = contextvars.ContextVar("answer_effort", default="")
 
@@ -37,7 +37,7 @@ def _plans() -> dict[str, dict]:
     """단계 → 설정. 숫자는 환경변수로 바꿀 수 있다(모델을 바꿔도 코드는 그대로)."""
     return {
         "": {"thinking": False, "work_cap": 0, "step_scale": 1.0, "self_check": True},
-        FAST: {"thinking": False, "work_cap": _int_env("ZZAIMY_EFFORT_FAST_CONTEXT", 32768), "step_scale": 1.0,
+        FAST: {"thinking": False, "work_cap": _int_env("ZZAIMY_EFFORT_FAST_CONTEXT", 0), "step_scale": 1.0,
                "self_check": False},
         DEEP: {"thinking": True, "work_cap": 0, "step_scale": 1.5, "self_check": True,
                "think_tokens": _int_env("ZZAIMY_EFFORT_THINK_TOKENS", 8192),

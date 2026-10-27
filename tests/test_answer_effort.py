@@ -11,13 +11,13 @@ def test_effort_is_remembered_per_account(staff):  # noqa: F811
     app, r, login = staff
     kim = login("kim", "kim-pass")
     page = kim.get("/chat").text
-    assert 'id="effortField" value="fast"' in page and '<span id="effortLabel">빠르게</span>' in page
+    assert 'id="effortField" value="deep"' in page and '<span id="effortLabel">꼼꼼하게</span>' in page
     assert ">꼼꼼하게</b>" in page and 'data-aura="answer-effort"' in page
     got = kim.post("/api/chat/answer-mode", data={"effort": "deep"}).json()
     assert got["effort"] == "deep" and got["effort_label"] == "꼼꼼하게" and got["mode"] == "rag"
     page = login("kim", "kim-pass").get("/chat").text                    # 새 로그인(다른 기기)에서도
     assert 'id="effortField" value="deep"' in page and '<span id="effortLabel">꼼꼼하게</span>' in page
-    assert 'id="effortField" value="fast"' in login("zzdev", "dev-pass").get("/chat").text   # 다른 계정은 그대로
+    assert 'id="effortField" value="deep"' in login("zzdev", "dev-pass").get("/chat").text   # 다른 계정은 그대로
     kim.post("/api/chat/answer-mode", data={"effort": "max"})             # 모르는 값은 무시
     assert kim.post("/api/chat/answer-mode", data={"mode": "model"}).json()["effort"] == "deep"   # 방식만 바꿔도 깊이는 그대로
 
@@ -43,16 +43,16 @@ def test_send_carries_effort_to_the_answer_and_tags_only_non_default(staff, monk
     kim = login("kim", "kim-pass")
     kim.post("/chat/send", data={"question": "빠른 질문", "effort": "fast"}, follow_redirects=False)
     assert _wait(lambda: len(seen) == 1)
-    assert seen[0] == ("fast", False, 32768)                              # 빠르게: 생각 끔, 작업 몫 묶음
+    assert seen[0] == ("fast", False, 262144)                             # 빠르게: 생각만 끔, 문맥은 꼼꼼하게와 같다(10-27)
     kim.post("/api/chat/answer-mode", data={"effort": "deep"})
     kim.post("/chat/send", data={"question": "꼼꼼한 질문"}, follow_redirects=False)   # 폼 값이 없으면 계정 값
     assert _wait(lambda: len(seen) == 2)
     assert seen[1] == ("deep", True, 262144)                              # 꼼꼼하게: 생각 켬, 문맥 한도 그대로
     pages = [kim.get(u).text for u in {f"/chat/{s['id']}" for s in _sessions(app, "kim")}]
-    tagged = [p for p in pages if "· 꼼꼼하게</span>" in p]
+    tagged = [p for p in pages if "· 빠르게</span>" in p]
     assert len(tagged) == 1, [p.split("chat-message-mode")[1:3] for p in pages]
-    assert "꼼꼼한 질문" in tagged[0]
-    assert all("· 빠르게" not in p for p in pages)                         # 기본은 붙이지 않는다
+    assert "빠른 질문" in tagged[0]
+    assert all("· 꼼꼼하게</span>" not in p for p in pages)                       # 기본(꼼꼼하게)은 붙이지 않는다
 
 
 def _sessions(app, owner):
@@ -67,12 +67,12 @@ def test_unset_effort_changes_nothing(monkeypatch):
     monkeypatch.delenv("ZZAIMY_WORK_CONTEXT", raising=False)
     assert llm_budget.work_len(NS(work_context=0)) == 262144
     with effort.use("fast"):
-        assert llm_budget.work_len(NS(work_context=0)) == 32768 and not effort.self_check() and effort.steps(14) == 14
+        assert llm_budget.work_len(NS(work_context=0)) == 262144 and not effort.self_check() and effort.steps(14) == 14
         assert llm_budget.work_len(NS(work_context=16000)) == 16000        # 운영 상한이 더 작으면 그것
     with effort.use("deep"):
         assert llm_budget.work_len(NS(work_context=0)) == 262144 and effort.self_check() and effort.steps(14) == 21
     with effort.use("이상한 값"):
-        assert effort.current() == "fast"
+        assert effort.current() == effort.DEFAULT == "deep"
 
 
 def test_client_turns_thinking_on_only_for_deep(monkeypatch, tmp_path):
