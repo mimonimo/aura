@@ -181,7 +181,7 @@ def make_chat_helpers(
         db.add_chat(session_id, "assistant", "멈췄습니다.")
         return True
 
-    def _helper_task(session_id: int, q: str, page: str, run_id: object = None, said: str | None = None) -> None:
+    def _helper_task(session_id: int, q: str, page: str, run_id: object = None, said: str | None = None, controls: list | None = None) -> None:
         """플랫폼 업무 도우미(app/platform_helper) — 옆 패널의 질문. 모델에 닿지 못하면 안내 자료에서 찾은 화면을 그대로 보인다.
         said 는 담당자가 친 글 그대로 — 커서가 마지막 단추(저장·지우기 등)를 누를지는 이 글로만 정한다."""
         from zzaimy.app import platform_helper
@@ -209,7 +209,7 @@ def make_chat_helpers(
             project = db.get_project(int(sess["project_id"])) if sess.get("project_id") else None
             before = len(db.list_chats(session_id))
             env = platform_helper.Env(db=db, data_dir=Path(db_path).parent, session_id=session_id, user=owner, role=_ap.role_class(role), dept=dept,
-                                      page=page, ctx=_ops_ctx(owner, role), project=project,
+                                      page=page, ctx=_ops_ctx(owner, role), project=project, controls=controls or [],
                                       say=say, on_step=step,
                                       search=_helper_search(owner, role, dept))
             ep = None
@@ -813,6 +813,7 @@ def chat_ask(
     context: str = Form(""),
     session_id: int | None = Form(None),
     page: str = Form(""),
+    controls: str = Form(""),
 ):
     """화면을 떠나지 않고 묻는다 — 업무 도우미 옆 패널과 글 선택 질문이 쓴다."""
     h = request.app.state.chat
@@ -892,7 +893,8 @@ def chat_ask(
         _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
         _chat_running.add(session_id)
         run_id = h._helper_runs[session_id] = object()
-        background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""), run_id, q)
+        background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""), run_id, q,
+                            platform_ops.clean_controls(controls[:40000]) if controls else [])
     else:
         _schedule_answer(background, session_id, asked, None, [])
     return {"ok": True, "session_id": session_id, "done": done,

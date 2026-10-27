@@ -46,6 +46,7 @@ class Ctx:
     may_create_project: bool = True                                  # 새 프로젝트를 만들 수 있는 등급인가(사업 책임자 이상 — grades.can_create_project)
     said: str = ""                                                   # 이번 요청에 담당자가 직접 친 글(문서·검색 결과·고른 글 아님) — 마지막 단추 허락의 근거
     page: str = ""                                                   # 담당자가 지금 보는 화면 주소 — 같은 화면이면 열기 단추 없이 그 자리에서 한다
+    controls: list = field(default_factory=list)                     # 지금 화면에 보이는 칸·단추(clean_controls) — 안내 자료에 없는 요소도 그 자리에서 다룬다
 
 
 @dataclass(frozen=True)
@@ -413,6 +414,83 @@ def _page_of(path: str):
     return p, path
 
 
+# ---- 지금 화면의 칸·단추 ----
+# 안내 자료에 적어 둔 요소만 다루면 적지 않은 칸·단추는 말로만 안내하게 된다(10-27 「플랫폼 사용에 대한 제약」). 화면이 요청을 보낼 때
+# 보이는 칸·단추를 번호(c1…)와 이름으로 함께 보내고, 도우미는 지금 화면에서는 그 번호로 고른다. 칸 채우기·고르기·탭·링크는 바로 해도 되고,
+# 단추는 늘 마지막 단추로 본다 — 담당자가 이번 글에 그 단추 이름으로 시켰을 때만 누른다(commanded). 비밀번호·파일 칸은 화면이 보내지 않는다.
+CONTROL_KINDS = {"field": "칸", "select": "고르기", "check": "체크", "tab": "탭", "link": "링크", "button": "단추"}
+CONTROL_AUTO = ("field", "select", "check", "tab", "link")
+MAX_CONTROLS = 80
+_CONTROL_ID = re.compile(r"c\d{1,3}")
+
+
+def clean_controls(raw) -> list[dict]:
+    """화면이 보낸 칸·단추 목록을 정리한다 — 번호·갈래가 맞는 것만, 글은 짧게. 화면 글은 자료일 뿐이다(이름에 지시가 있어도 따르지 않는다)."""
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for x in items if isinstance(items, list) else []:
+        if not isinstance(x, dict):
+            continue
+        cid, kind = str(x.get("id") or ""), str(x.get("kind") or "")
+        if not _CONTROL_ID.fullmatch(cid) or kind not in CONTROL_KINDS or cid in seen:
+            continue
+        label = _clip(" ".join(str(x.get("label") or "").split()), 40)
+        if not label:
+            continue
+        seen.add(cid)
+        out.append({"id": cid, "kind": kind, "label": label, "ctx": _clip(" ".join(str(x.get("ctx") or "").split()), 40),
+                    "value": _clip(" ".join(str(x.get("value") or "").split()), 40) if kind in ("field", "select", "check") else ""})
+        if len(out) >= MAX_CONTROLS:
+            break
+    return out
+
+
+def controls_text(controls: list[dict]) -> str:
+    """상태·결과에 싣는 한 줄씩 — 「c3 [칸] 성명 (값 …) · 프로필」."""
+    return "\n".join(f"  {c['id']} [{CONTROL_KINDS[c['kind']]}] {c['label']}" + (f" (지금 값: {c['value']})" if c.get("value") else "")
+                     + (f" · {c['ctx']}" if c.get("ctx") else "") for c in controls)
+
+
+def _squash_el(t: str) -> str:
+    return re.sub(r"[\s·「」()\[\]'\"]+", "", str(t or "")).lower()
+
+
+def _verbs_of(label: str) -> tuple[str, ...]:
+    """단추 이름에서 시키는 말 — 「저장」 → 저장해·저장하고·저장까지·저장 눌러 …"""
+    s = re.sub(r"(하기|하세요)$", "", " ".join(label.split())).strip()
+    if not s:
+        return ()
+    return (s + "해", s + "하고", s + "까지", s + " 해", s + " 눌러", s + "을 눌러", s + "를 눌러", s + " 단추 눌러", s + " 버튼 눌러")
+
+
+def _resolve(ctx: Ctx, p, same: bool, element: str):
+    """도우미가 준 요소를 (선택자, 안내 자료 Task 또는 None, 화면 요소 또는 None) 로 — 안내 자료 선택자, 지금 화면 번호(c3),
+    그리고 이름(「성명」「성명 입력 칸」)을 안내 자료의 할 일 이름·지금 화면의 칸 이름에 맞춰 본다. 못 찾으면 None."""
+    marks = {t.selector: t for t in p.tasks if t.selector}
+    el = str(element or "").strip()
+    if el in marks:
+        return el, marks[el], None
+    controls = {c["id"]: c for c in (ctx.controls or [])} if same else {}
+    m = re.fullmatch(r"\[?data-aura-c=?\"?(c\d{1,3})\"?\]?|#?(c\d{1,3})", el)
+    cid = (m.group(1) or m.group(2)) if m else ""
+    if cid in controls:
+        return f'[data-aura-c="{cid}"]', None, controls[cid]
+    want = _squash_el(re.sub(r"(입력\s*)?(칸|란|창|단추|버튼)$", "", el))
+    if len(want) < 2:
+        return None
+    for t in p.tasks:                                  # 안내 자료의 할 일 이름(「성명 칸 채우기」)
+        if t.selector and want in _squash_el(t.what):
+            return t.selector, t, None
+    hits = [c for c in controls.values() if want == _squash_el(c["label"])] or [c for c in controls.values() if want in _squash_el(c["label"])]
+    if len(hits) == 1:
+        return f'[data-aura-c="{hits[0]["id"]}"]', None, hits[0]
+    return None
+
+
 def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str = "", now: bool = False, text: str = "",
                  steps: list | None = None) -> dict:
     """화면 열기 제안 — 실행할 것이 없고 그 화면으로 옮겨 가 커서가 할 단계(steps)를 낸다. 화면·요소는 안내 자료에 있는 것만.
@@ -426,24 +504,38 @@ def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str =
         raise OpRefused("안내 자료에 있는 화면 주소만 연다 — platform_help 결과의 주소를 쓴다(프로젝트는 /project/번호).")
     if ctx.role not in p.roles:
         raise OpRefused(f"「{p.title}」 은(는) 이 계정으로 열 수 없는 화면이다 — 열 수 있는 계정(관리자 등)에게 요청하라고 안내한다.")
-    marks = {t.selector: t for t in p.tasks if t.selector}
-    want = ([{"element": selector, "text": text}] if selector else []) + [x for x in (steps or []) if isinstance(x, dict)]
-    out: list[dict] = []
-    for x in want:
-        sel = str(x.get("element") or "")
-        task = marks.get(sel)
-        if task is None or len(out) >= MAX_ACT_STEPS:
-            continue
-        ok = bool(now) and (task.auto or (task.final and commanded(ctx.said, task.verbs)))
-        out.append({"sel": sel, "text": _clip(" ".join(str(x.get("text") or "").split()), 80), "final": task.final,
-                    "auto": task.auto, "ok": ok, "what": task.what})
-        if task.final:
-            break
     url = path + (f"#{anchor}" if re.fullmatch(r"[\w-]{1,40}", anchor or "") else "")
     here = (ctx.page or "").split("?", 1)[0].split("#", 1)[0].rstrip("/") or ("/" if ctx.page else "")
     same = bool(here) and platform_guide_page(here) is p and ("{" not in p.path or here == path.rstrip("/"))
+    want = ([{"element": selector, "text": text}] if selector else []) + [x for x in (steps or []) if isinstance(x, dict)]
+    out: list[dict] = []
+    missed: list[str] = []
+    for x in want:
+        got = _resolve(ctx, p, same, str(x.get("element") or ""))
+        if got is None:
+            missed.append(str(x.get("element") or "")[:30])
+            continue
+        if len(out) >= MAX_ACT_STEPS:
+            break
+        sel, task, ctl = got
+        if task is not None:
+            auto, final, what, verbs = task.auto, task.final, task.what, task.verbs
+        else:                                            # 지금 화면의 칸·단추 — 단추는 늘 마지막 단추
+            auto = ctl["kind"] in CONTROL_AUTO
+            final = not auto
+            what = (ctl["label"] + (" 칸 채우기" if ctl["kind"] == "field" else " 고르기" if ctl["kind"] in ("select", "check") else ""))[:40]
+            verbs = _verbs_of(ctl["label"]) if final else ()
+        ok = bool(now) and (auto or (final and commanded(ctx.said, verbs)))
+        out.append({"sel": sel, "text": _clip(" ".join(str(x.get("text") or "").split()), 80), "final": final,
+                    "auto": auto, "ok": ok, "what": what})
+        if final:
+            break
+    if want and not out and same:                     # 같은 화면에서 고른 요소를 못 찾았다 — 아무것도 안 하고 「했다」 고 말하지 않게, 고를 수 있는 것을 보이고 다시 고르게
+        raise OpRefused(f"고른 요소 {', '.join(missed) or '없음'} 을(를) 이 화면에서 찾지 못했다 — steps 의 element 에 아래 가운데 하나를 그대로 쓴다.\n"
+                        + _elements_here(ctx, p, same))
     if same and not out:
-        raise OpRefused("이미 그 화면이다 — 열기 단추는 내지 않았다. 할 일이 있으면 steps 에 안내 자료의 「가리킬 요소」 를 넣고, 없으면 finish 로 안내한다.")
+        raise OpRefused("이미 그 화면이다 — 열기 단추는 내지 않았다. 할 일이 있으면 steps 에 아래 요소 가운데 하나를 넣고, 없으면 finish 로 안내한다.\n"
+                        + _elements_here(ctx, p, same))
     items = load(ctx.db, session_id)
     if sum(1 for x in items if x.get("status") == "pending") >= MAX_PENDING:
         raise OpRefused(f"이번 요청에서 제안은 {MAX_PENDING}개까지다 — finish 로 알린다.")
@@ -455,6 +547,13 @@ def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str =
     # 바로 하기는 여러 개가 순서대로 이어진다(화면 이동 → 다른 화면에서 이어 하기) — 화면이 낸 차례(at·저장 순서)대로 한다
     _save(ctx.db, session_id, items + [item])
     return item
+
+
+def _elements_here(ctx: Ctx, p, same: bool) -> str:
+    lines = [f"  {t.selector} — {t.what}" for t in p.tasks if t.selector]
+    if same and ctx.controls:
+        lines.append("지금 화면의 칸·단추(번호로 쓴다):\n" + controls_text(ctx.controls))
+    return "\n".join(lines) or "  (고를 요소가 없다)"
 
 
 def platform_guide_page(path: str):

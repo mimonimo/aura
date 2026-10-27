@@ -339,6 +339,50 @@
     fetch("/chat/" + sid + "/stop", { method: "POST" })
       .then(function () { load(); }).catch(function () { paint(); });
   }
+  // 지금 화면의 칸·단추 — 요청과 함께 보내 도우미가 안내 자료에 없는 요소도 번호(c1…)로 고르게 한다(10-27 「플랫폼 사용에 대한 제약」).
+  // 보이는 것만, 도우미 패널 안·비밀번호·파일·숨은 칸은 빼고, 값은 칸 갈래에서만 짧게. 번호는 이 화면이 그려진 동안만 맞는다
+  function scanControls() {
+    var out = [], n = 0, root = document.querySelector("main") || document.body;
+    Array.prototype.forEach.call(document.querySelectorAll("[data-aura-c]"), function (x) { x.removeAttribute("data-aura-c"); });
+    var nodes = root.querySelectorAll("input, textarea, select, button, a[href], [role=button], [role=tab]");
+    function shown(x) { var r = x.getBoundingClientRect(); return x.offsetParent !== null && r.width > 0 && r.height > 0; }
+    function labelOf(x) {
+      var t = x.getAttribute("aria-label") || "";
+      if (!t && x.id) { var l = document.querySelector('label[for="' + x.id.replace(/"/g, "") + '"]'); if (l) t = l.textContent; }
+      if (!t && x.closest("label")) t = x.closest("label").textContent;
+      if (!t && /^(INPUT|TEXTAREA|SELECT)$/.test(x.tagName)) {
+        var row = x.closest("tr, .row, .field, .form-row, li, dd, div");
+        var prev = row && row.previousElementSibling;
+        t = x.placeholder || (row && row.querySelector("label, th, dt, .label") ? row.querySelector("label, th, dt, .label").textContent : "") || (prev ? prev.textContent : "");
+      }
+      return (t || x.textContent || x.title || x.value || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    }
+    function ctxOf(x) {
+      var box = x.closest("section, fieldset, form, .card, [class*=card], tr, li");
+      var h = box && box.querySelector("h1, h2, h3, h4, legend, caption, th, td, strong");
+      var t = h && !h.contains(x) ? h.textContent : "";
+      return (t || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    }
+    for (var i = 0; i < nodes.length && out.length < 80; i++) {
+      var x = nodes[i];
+      if (panel.contains(x) || !shown(x) || x.disabled) continue;
+      var tg = x.tagName, ty = (x.type || "").toLowerCase(), kind;
+      if (tg === "INPUT" && /^(hidden|password|file|image)$/.test(ty)) continue;
+      if (tg === "SELECT") kind = "select";
+      else if (tg === "TEXTAREA" || (tg === "INPUT" && !/^(checkbox|radio|submit|button|reset)$/.test(ty))) kind = "field";
+      else if (tg === "INPUT" && /^(checkbox|radio)$/.test(ty)) kind = "check";
+      else if (x.getAttribute("role") === "tab") kind = "tab";
+      else if (tg === "A") { if (/^(javascript:|mailto:|tel:)/i.test(x.getAttribute("href") || "") || /logout/i.test(x.getAttribute("href") || "")) continue; kind = "link"; }
+      else kind = "button";
+      var label = labelOf(x);
+      if (!label) continue;
+      var id = "c" + (++n);
+      x.setAttribute("data-aura-c", id);
+      out.push({ id: id, kind: kind, label: label, ctx: ctxOf(x), value: kind === "field" ? String(x.value || "").slice(0, 40)
+        : kind === "select" ? ((x.options[x.selectedIndex] || {}).text || "") : kind === "check" ? (x.checked ? "켬" : "끔") : "" });
+    }
+    return out;
+  }
   function submit() {
     var q = input.value.trim();
     if (!q || waiting || posting) return;
@@ -348,6 +392,7 @@
     fd.append("question", q);
     if (quoted) fd.append("context", quoted);
     fd.append("page", location.pathname);
+    try { fd.append("controls", JSON.stringify(scanControls())); } catch (e) {}
     if (body.querySelector(".ag-empty")) body.innerHTML = "";
     var mine = bubble("user", quoted ? "「" + quoted.slice(0, 120) + "」\n" + q : q);
     var wait = waitBubble("요청 확인 중");
@@ -660,7 +705,7 @@
           // 보안: 화면에서도 한 번 더 — 제출 단추·POST 폼 단추·마지막 단추 표시는 서버가 허락한 마지막 단계(final+ok)만 누른다
           var submitLike = h.matches("[data-aura-final], [type=submit], form button:not([type=button])") || (h.closest('form[method="post" i]') && h.matches("button, input"));
           if (submitLike && !st.final) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
-          if (!submitLike && !h.matches("[data-modal-open], a[href], [data-aura], [data-om-find], [data-org-add]")) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
+          if (!submitLike && !h.matches("[data-modal-open], a[href], [data-aura], [data-aura-c], [data-om-find], [data-org-add]")) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
           seg.at++; seg.res.push({ step: st.i, result: "clicked" });
           save(q, true);                             // 누른 단추가 화면을 옮기면 새 화면에서 남은 단계를 잇는다
           h.click();
