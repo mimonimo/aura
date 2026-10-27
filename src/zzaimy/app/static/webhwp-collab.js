@@ -77,6 +77,9 @@
     var hwp = o.hwp, fid = o.fid, me = o.me, base = '/hwp/' + fid, client = clientId(), idb = store();
     var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 1, aura_ttl: 20, form_mode: 0, field_max: 1000000};
     var tooLong = {};
+    // 보기만 하는 화면(따라가기 중) — 남의 글을 넣은 뒤 내 커서를 되돌리지 않는다. 되돌리면 기안기가 화면을 내 커서 쪽으로 끌어올리고
+    // 따라가기가 다시 내려 두 자리를 오가며 깜빡였다(10-27, 화면 지키기만으로는 기안기의 늦은 끌어올림을 못 막음). 화면은 글을 넣는 자리에 그대로
+    var passiveFn = null;
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
     var lastEdit = {f: "", at: 0}, typedAt = 0;                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
@@ -354,6 +357,7 @@
       var idle = now() - hwp.lastInputAt();
       if (hwp.isComposing() || hwp.isProbing() || idle < conf.pause_ms) { scheduleApply(Math.max(30, conf.pause_ms - idle + 20)); return; }
       var cur = null, viewAt = null, rich = [], t0 = performance.now(), wrote = false;
+      var passive = !!(passiveFn && passiveFn()) && Date.now() - hwp.lastInputAt() > 1500;
       order(keys);
       for (var i = 0; i < keys.length; i++) {
         if (i && performance.now() - t0 > SLICE_MS) break;          // 나머지는 다음 조각에
@@ -370,7 +374,7 @@
         if (d.rich && (conf.rich || hx)) { rich.push(d); known[f] = {v: d.version, text: d.text}; if (hx) richField[f] = d.version; else delete richField[f]; continue; }
         delete richField[f];
         if (local !== null && norm(local) !== d.text) {
-          if (!cur) { cur = hwp.getCursor(); viewAt = hwp.viewTop ? hwp.viewTop() : null; }
+          if (!cur && !passive) { cur = hwp.getCursor(); viewAt = hwp.viewTop ? hwp.viewTop() : null; }
           applying = true; wrote = true;
           // 바뀐 부분만 그 자리에(통째 쓰기는 칸 전체를 다시 그려 451쪽 문서의 5만 자 절에서 2~4초 걸렸다). 내 화면 글이 바뀌기 전 글과 같을 때만,
           // 넣은 뒤 글이 안 맞으면 전체 쓰기로
@@ -766,7 +770,7 @@
       return resync(true).then(function () { applyInbox(); });
     }
     return {
-      start: start, on: on, emitLocal: emit, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
+      start: start, on: on, setPassive: function (fn) { passiveFn = fn; }, emitLocal: emit, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
       handover: function (f) { return letGo(f, true); }, reopened: reopened, suspend: suspend, prioritize: function (fn) { rankOf = fn; },
       indexOf: function (f) { return fieldIdx[f] === undefined ? 1e9 : fieldIdx[f]; }, resync: resync, applyEditable: applyEditable,
       client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
@@ -1012,6 +1016,7 @@
     // 화면만 굴리고 내 커서는 옮기지 않는다 — 커서를 옮기면 내 칸 임대가 풀리고 남이 쓰는 칸에서는 「쓰는 중」 안내가 떴다.
     // 자리는 칸 자리 재기(geo)로, 아직 모르는 칸(빈 칸 등)은 그 사람이 있는 쪽으로. 내가 치거나 문서를 누르거나 직접 굴리면 바로 멈춘다
     var following = '', followAt = 0;
+    if (eng.setPassive) eng.setPassive(function () { return !!following; });   // 따라가는 화면은 보기만 — 남의 글 넣은 뒤 내 커서를 되돌리지 않는다
     function personOf(u) { var l = eng.people(); for (var i = 0; i < l.length; i++) if (l[i].user === u) return l[i]; return null; }
     function followName(u) { return u === 'AURA' ? auraLabel() : eng.nameOf(u); }
     function followField() {
