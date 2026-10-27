@@ -3,7 +3,7 @@
 vLLM 은 입력 토큰 + max_tokens 가 max_model_len 을 넘으면 400 으로 거절한다. 답변·에이전트 경로의 호출은 모두
 fit_messages(또는 create_fitted)를 거친다:
 - 한도: 서빙 엔드포인트의 /v1/models 가 돌려주는 max_model_len 을 연결(base_url·모델)마다 한 번 읽어 둔다.
-  읽지 못하면 연결 설정(context), 그다음 ZZAIMY_WRITER_CONTEXT(기본 16384 = configs/serving.yaml writer.max_model_len)를 쓴다.
+  읽지 못하면 연결 설정(context), 그다음 ZZAIMY_WRITER_CONTEXT(기본 16384 — 모르는 서버에 너무 크게 보내지 않게 작게 잡는다)를 쓴다.
 - 토큰 수: 이 장비에는 토크나이저가 없다(transformers·tokenizers 미설치). 서버가 vLLM 이면 /tokenize 로 실제 수를
   한 번 재어 어림의 오차를 보정하고, 아니면 아래 글자 갈래별 비율로 넉넉히(크게) 어림한다.
 - 줄이는 순서는 호출부가 정한다(cuts) — 요청과 에이전트가 찾은 근거는 맨 뒤, 첨부·연결 문서·오래된 대화가 먼저.
@@ -19,7 +19,7 @@ import time
 import urllib.request
 from dataclasses import dataclass
 
-DEFAULT_CONTEXT = 16384            # configs/serving.yaml writer.max_model_len — 서버에서 읽지 못할 때만
+DEFAULT_CONTEXT = 16384            # 서버에서 읽지 못할 때만 — 운영 27B 는 서버가 262144 를 알려 준다(configs/serving.yaml)
 SAFETY_TOKENS = 128                # 대화 틀(chat template)의 특수 토큰·역할 머리 등 어림에 안 잡히는 몫
 
 # 글자 갈래별 토큰 비율(글자 하나당 토큰). Qwen 계열 BPE(어휘 약 15만)는 자주 쓰는 한글 음절·낱말을 한 토큰으로

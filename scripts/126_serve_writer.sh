@@ -25,7 +25,7 @@ PORT="${PORT:-8001}"
 MODEL="${MODEL:-/models/Qwen3.8-27B}"
 NAME="zzaimy-writer-$PORT"
 SERVED="${SERVED:-zzaimy-writer}"
-MAXLEN="${MAXLEN:-16384}"
+MAXLEN="${MAXLEN:-262144}"       # 모델 최대 문맥(256K). KV 캐시가 이보다 작으면 vLLM 이 시작을 거절한다 — UTIL 을 올리거나 MAXLEN 을 낮춘다
 UTIL="${UTIL:-0.60}"
 EXTRA="${EXTRA:-}"                 # 예: --quantization modelopt (NVFP4 판은 설정 파일이 알려 주므로 보통 비워 둔다)
 

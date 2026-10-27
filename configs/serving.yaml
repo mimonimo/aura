@@ -5,7 +5,7 @@ writer:                                   # ③ZZAIMY-Writer (Qwen3.8-27B) — A
   image: ghcr.io/nvidia-ai-iot/vllm:qwen3.8-next-jetson-thor-latest   # Qwen3.8 전용 빌드. 기본 젯슨 빌드(gemma4 태그, vLLM 0.19)는 양자화 lm_head 를 못 받는다
   model: /models/Qwen3.8-27B-NVFP4       # nvidia/Qwen3.8-27B-NVFP4 — 무게 54GB→14GB, 요청 1개 10.4~10.9 tok/s(bf16 2.4~4.5)
   served_name: zzaimy-writer
-  max_model_len: 16384
+  max_model_len: 262144                  # 모델 최대(config max_position_embeddings). 10-27 16384 → 262144, KV 캐시 토르02 387,818·토르03 재부팅 뒤 확인
   hosts:
     thor-02: { port: 8001, roles: [answer], util: 0.35 }              # 대화·초안 — 사람이 기다리는 일
     thor-03: { port: 8001, roles: [review, vision, query_expand], util: 0.35 }   # 반입 검토·이미지 판독 — 배치

@@ -198,7 +198,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
                             evidence=ev, command=command.strip())
     # 절 하나를 통째로 쓰면 JSON 이 2048 토큰을 넘어 잘린다. 절 작성(focus)은 넉넉히 주고, 잘리면 한 번 더 짧게 쓰라고 청한다.
     max_tokens = 8192 if focus is not None else 2048
-    # 입력+출력이 서빙 모델의 문맥 한도(서버의 max_model_len, 지금 운영 16,384) 안에 들어가야 한다. 넘으면 vLLM 이 400 으로 거절한다.
+    # 입력+출력이 서빙 모델의 문맥 한도(서버의 max_model_len, 지금 운영 262,144) 안에 들어가야 한다. 넘으면 vLLM 이 400 으로 거절한다.
     # 토큰은 글자 갈래별 비율로 넉넉히 어림한다(llm_budget).
     prompt, max_tokens = _fit_context(prompt, max_tokens, rendered_materials, visible_text, _context_of(client))
     data = None

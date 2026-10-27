@@ -616,6 +616,24 @@ def create_app(
     app.state.shared_project_ids = _shared_project_ids
     app.state.dept_peers = _dept_peers           # 같은 부서 동료 — 프로젝트 찾기(project_search)가 읽기 전용으로 함께 보인다
 
+    _slow_log = Path(db_path).parent / "slow_requests.jsonl"
+
+    @app.middleware("http")
+    async def _note_slow(request: Request, call_next):
+        """느린 요청 기록 — 1.5초 넘게 걸린 화면·요청을 경로(질의 문자열 없이)·걸린 시간만 남긴다. 「느리다」 는 말이 오면 여기부터 본다."""
+        import time as _t
+        t0 = _t.monotonic()
+        resp = await call_next(request)
+        ms = int((_t.monotonic() - t0) * 1000)
+        if ms >= 1500 and not request.url.path.startswith("/static/") and "text/event-stream" not in (resp.headers.get("content-type") or ""):
+            try:
+                with _slow_log.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps({"at": _t.strftime("%Y-%m-%dT%H:%M:%S"), "method": request.method,
+                                        "path": request.url.path, "status": resp.status_code, "ms": ms}, ensure_ascii=False) + "\n")
+            except OSError:
+                pass
+        return resp
+
     from fastapi import status as _status
     from fastapi.responses import JSONResponse
 
