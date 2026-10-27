@@ -345,6 +345,7 @@ def run_variant(variant: str, label: str, tmp: Path, out_dir: Path, judge_on: bo
             if ep.get("request", "")[:40] == q[:40]:
                 row["thoughts"] = [(s_.get("action"), str(s_.get("thought") or "")[:200]) for s_ in ep.get("steps") or [] if s_.get("action")]
                 row["observations"] = [(s_.get("action"), str(s_.get("observation") or "")[:200]) for s_ in ep.get("steps") or [] if s_.get("action")][:40]
+                row["errors"] = [{k: s_.get(k) for k in ("error", "raw") if s_.get(k)} for s_ in ep.get("steps") or [] if s_.get("error")]
             if f:
                 data = Path(f["path"]).read_bytes()
                 xml = _xml(data)

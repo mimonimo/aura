@@ -355,7 +355,8 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                                                   if last else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라.")}]
             step = None
         if step is None:
-            ep.steps.append({"error": "형식 오류 두 번" + (" — 걸음 한도 뒤 마지막 걸음" if last else "")})
+            ep.steps.append({"error": "형식 오류 두 번" + (" — 걸음 한도 뒤 마지막 걸음" if last else ""),
+                             "raw": raw[-400:]})                       # 무엇을 냈는지 — 원인(생각 새기·잘림·빈 답)을 기록에서 가린다
             if last:                                                   # 한도 안내로 끝낸다(낱말 규칙 경로로 물러나지 않는다)
                 break
             ep.stop = "format"
