@@ -111,6 +111,25 @@ def _has_args(eb: dict, want: dict) -> bool:
     return True
 
 
+def _split_think(resp) -> None:
+    """서버가 생각 글을 본문 앞에 「…</think>」 로 붙여 보낸 응답에서 본문만 남긴다 — 생각 글은 reasoning_content 로 옮긴다.
+    생각을 켠 호출(답변 깊이 「꼼꼼하게」)에서 생긴다(서버에 생각 나누기 설정이 없을 때). 생각이 없는 응답은 그대로."""
+    try:
+        for ch in resp.choices or []:
+            msg = ch.message
+            c = getattr(msg, "content", None) or ""
+            if "</think>" in c:
+                thought, _, answer = c.rpartition("</think>")
+                msg.content = answer.lstrip()
+                try:
+                    if not getattr(msg, "reasoning_content", None):
+                        msg.reasoning_content = thought.replace("<think>", "").strip()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 def _with_effort_thinking(cli, kw: dict) -> dict:
     """답변 깊이 「꼼꼼하게」(app/effort)일 때 이 호출의 생각을 켠다 — 켜는 인자는 연결 설정(cli.think_extra), 모델 이름은 보지 않는다.
     호출부가 이미 켰으면(답 쓰기의 answer_gen_options) 그대로 둔다. 출력 한도가 있으면 생각 몫(think_tokens)을 문맥 한도 안에서
@@ -365,6 +384,7 @@ class VllmClient:
                     else:
                         raise
                 if not kw.get("stream"):
+                    _split_think(resp)                                # 생각을 켠 호출의 「…</think>」 는 답이 아니다
                     _record(kw, resp)
                     model_config.record_usage(
                         self.connection_id, kw.get("model", self.model), getattr(resp, "usage", None)

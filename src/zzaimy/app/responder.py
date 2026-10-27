@@ -285,6 +285,17 @@ class AgentResponder:
                                           stream=True, stream_options={"include_usage": True}, **gen)
         parts: list[str] = []
         finish, last, usage = "", 0.0, None
+        # 생각을 켠 호출(답변 깊이 「꼼꼼하게」)은 서버가 생각 글을 본문에 「…</think>」 로 붙여 보낸다 — 그 뒤만 답이다.
+        # 생각이 끝나기 전에는 화면에 흘리지 않는다(10-27 운영에서 영어 생각 글이 답에 그대로 보였다)
+        from zzaimy.app import effort as _effort
+        _kw = ((gen or {}).get("extra_body") or {}).get("chat_template_kwargs") or {}
+        think_on = bool(_effort.thinking() or _kw.get("enable_thinking"))
+
+        def visible(final: bool = False) -> str:
+            t = "".join(parts)
+            if "</think>" in t:
+                return t.split("</think>")[-1].lstrip()
+            return t if (final or not think_on) else ""
         for chunk in stream:
             if getattr(chunk, "usage", None):
                 usage = chunk.usage
@@ -299,10 +310,12 @@ class AgentResponder:
             now = _time.monotonic()
             if parts and now - last >= 0.4:
                 last = now
-                try:
-                    on_partial("".join(parts))
-                except Exception:
-                    pass
+                shown = visible()
+                if shown:
+                    try:
+                        on_partial(shown)
+                    except Exception:
+                        pass
         if usage is not None and usage_out is not None:
             usage_out.append(usage)
         if usage is not None:                                     # 조각 응답은 사용량 기록을 건너뛰므로 여기서
@@ -310,7 +323,7 @@ class AgentResponder:
                 model_config.record_usage(getattr(client, "connection_id", None), client.model, usage)
             except Exception:
                 pass
-        return "".join(parts), finish
+        return visible(final=True), finish
 
     def answer(
         self,
