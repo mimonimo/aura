@@ -1036,14 +1036,14 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
     )
     r = client.get("/dev/train")
     assert r.status_code == 200 and "데이터·학습" in r.text
-    # 화면의 기록 기반 후보 생성(/dev/data/build)은 10-25 에 지웠다 — 후보 묶음은 변환기로 직접 만들어 내려받기 가드만 본다
+    # 화면의 기록 기반 후보 생성(/dev/data/build)은 10-25, 승인본 내려받기 주소는 10-28 에 지웠다 — 승인본 가드만 본다
     from zzaimy.dataset.build import export_dataset
     export_dataset(db, ["review"], "t1")
     ds = db.list_datasets()[0]
     assert ds["n_pairs"] == 1
-
-    r = client.get(f"/dev/train/data/{ds['id']}.jsonl")
-    assert r.status_code == 409  # 후보 생성은 학습 승인과 다르다.
+    from zzaimy.dataset.privacy import approved_bytes
+    with pytest.raises(ValueError):                   # 후보 생성은 학습 승인과 다르다(승인본 가드)
+        approved_bytes(Path(ds["path"]))
 
 
 def test_md_view_renders_code_fence_not_raw(client):

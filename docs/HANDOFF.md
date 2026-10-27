@@ -97,7 +97,7 @@
 `/archive`, `/criteria`(→ `/?type=all&use=criteria`), `/inbox`(→ `/?type=all`), `/?group=…`, `/project/{id}?tab=…`, `/hwp/{id}/edit`(→ `/webhwpctrl/aura-edit?id=`).
 처리 주소도 화면을 따라 옮기고 옛 것은 지웠다(10-27): `/dev/users/save·bulk` → `/team/accounts/save·bulk`, `/dev/google/revoke` → `/team/google/revoke`,
 `/dev/gdrive/client` → `/team/google/client`(옛 `/dev/gdrive/revoke` 는 같은 일이 둘이라 지움), `/dev/collect/{make,file,peek}` → `/dev/train/collect/…`,
-`/dev/data/grounded-pull`·`/dev/data/{id}.jsonl` → `/dev/train/grounded-pull`·`/dev/train/data/{id}.jsonl`, `/dev/intake/missed.csv` → `/dev/flow/intake/missed.csv`
+`/dev/data/grounded-pull` → `/dev/train/grounded-pull`(승인본 내려받기 `/dev/data/{id}.jsonl` 은 10-28 삭제 — 화면 링크 없음), `/dev/intake/missed.csv` → `/dev/flow/intake/missed.csv`
 (쓰지 않던 failed.csv 는 지움). `/team/…` 아래 관리자 처리는 /dev 앞부분 막기를 받지 않으므로 처리마다 `user_admin.need_admin` 으로 막는다.
 구글 허용 콜백 `/dev/gdrive/callback` 은 구글 콘솔에 등록한 주소라 그대로 둔다.
 

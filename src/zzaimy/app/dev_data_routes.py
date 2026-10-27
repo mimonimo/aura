@@ -1,4 +1,4 @@
-"""LLM 연결 관리(/dev/llm/*)와 근거 문답 검수 반영(/dev/train/grounded-pull, 승인본 내려받기 /dev/train/data/{id}.jsonl) — 연결 등록·확인·기본 지정, Label Studio 검수 결과 반영·승인 JSONL.
+"""LLM 연결 관리(/dev/llm/*)와 근거 문답 검수 반영(/dev/train/grounded-pull) — 연결 등록·확인·기본 지정, Label Studio 검수 결과 반영.
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·데이터 폴더(data_dir)와 Label Studio 연결 도우미(make_ls_helpers 가 앱마다 만든다)는 main.create_app 이
@@ -281,18 +281,3 @@ def dev_grounded_pull(request: Request):
     except (LabelStudioError, ValueError, TypeError, KeyError):
         params = {'tab': 'data', 'err': '검수 결과를 가져오지 못했습니다. 연결·원문·검수 형식을 확인하세요. 기존 승인본은 보존됩니다.'}
     return RedirectResponse('/dev/train?' + urlencode(params), status_code=303)
-
-@router.get("/dev/train/data/{dataset_id}.jsonl")
-def dev_data_download(request: Request, dataset_id: int):
-    from fastapi.responses import Response
-    from zzaimy.dataset.privacy import approved_bytes
-
-    ds = request.app.state.db.get_dataset(dataset_id)
-    if ds is None or not Path(ds["path"]).exists():
-        raise HTTPException(404, "데이터셋 파일이 없습니다")
-    try:
-        payload = approved_bytes(Path(ds["path"]))
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    return Response(payload, media_type="application/jsonl",
-                    headers={"Content-Disposition": f'attachment; filename="dataset-{dataset_id}.jsonl"'})

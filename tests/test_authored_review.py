@@ -153,11 +153,8 @@ def test_import_route_idempotent_and_revoked_snapshot_not_downloadable(tmp_path,
         response = c.post('/dev/train/grounded-pull', follow_redirects=False)
         assert 'ok=' in response.headers['location']
     assert db.count_datasets() == 1
-    ds = db.list_datasets()[0]
-    assert c.get(f"/dev/train/data/{ds['id']}.jsonl").status_code == 200
     rows[0]['annotations'] = []
     assert 'ok=' in c.post('/dev/train/grounded-pull', follow_redirects=False).headers['location']
-    assert c.get(f"/dev/train/data/{ds['id']}.jsonl").status_code == 409
     report = json.loads(db.get_setting('grounded_review_report'))
     assert report['approved'] == 0 and report['held'] == 1
 
