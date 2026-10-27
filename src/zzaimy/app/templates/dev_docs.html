@@ -21,8 +21,12 @@
   .dd-cnt { margin-left:auto; font-size:12px; font-weight:600; color:var(--faint); font-variant-numeric:tabular-nums; }
 
   /* 카드 — 문서 하나·한 줄 설명·고친 날. 같은 갈래의 카드는 같은 크기 */
-  .dd-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+  /* 열 수는 갈래 폭으로만 정한다(4 → 2 → 1). 빈 열을 남기지 않아 카드 줄이 탭 줄과 같은 폭을 채운다 */
+  .dd-grid { --dd-cols:4; display:grid; grid-template-columns:repeat(var(--dd-cols), minmax(0, 1fr));
              grid-auto-rows:1fr; gap:var(--dd-gap); }
+  .dd-span2 { grid-column:span 2; }
+  @container (max-width: 52rem) { .dd-grid { --dd-cols:2; } }
+  @container (max-width: 28rem) { .dd-grid { --dd-cols:1; } .dd-span2 { grid-column:auto; } }
   .dd-card { display:flex; flex-direction:column; gap:8px; min-width:0; padding:var(--dd-pad); border:1px solid var(--line);
              border-radius:12px; background:#fff; color:var(--ink); text-decoration:none;
              transition:border-color .2s var(--ease), box-shadow .2s var(--ease); }
@@ -45,7 +49,6 @@
 
   /* 찾기·거르기 줄 — 찾는 칸은 바로 거른다(검색 단추 없음) */
   .dd-sec { container-type:inline-size; }
-  @container (min-width: 28rem) { .dd-span2 { grid-column:span 2; } }
   .dd-card .t .dd-cnt { font-size:12px; }
   .dd-compact .dd-row { grid-template-columns:3em minmax(0,1fr) 6.4em 1em; padding:6px 8px; font-size:13px; }
   .dd-compact .dd-st { display:none; }
