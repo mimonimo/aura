@@ -1,0 +1,4 @@
+{# 규정 검색 측정 중이면 카드 머리의 「측정 중…」 표시만 바꾼다 — 끝나면 같은 자리에 「측정 완료 · 새로 보기」 #}
+<script>
+(function poll(){setTimeout(async function(){try{const r=await fetch('/dev/eval/status');if(!r.ok)throw Error();const s=await r.json();if(!s.running){const el=document.getElementById('eval-live');if(!el)return;const a=document.createElement('a');a.href=location.pathname;a.className='pill '+(s.failed?'processing':'reviewed');a.id='eval-live';a.style.marginLeft='8px';a.textContent=s.failed?'측정 오류 · 새로 보기':'측정 완료 · 새로 보기';el.replaceWith(a);return;}}catch(e){}poll();},8000);})();
+</script>

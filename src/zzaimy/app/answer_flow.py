@@ -211,14 +211,52 @@ def compare_rows(eval_dir: Path) -> dict:
         vals = [get(m, *path) for m, _ in modes]
         if all(v is None for v in vals):
             continue
-        rows.append({"group": group, "label": label, "vals": [_cell(v, kind) for v in vals],
+        rows.append({"group": group, "label": label, "vals": [_cell(v, kind) for v in vals], "path": path, "kind": kind,
+                     "raw": vals,
                      "diff": _diff(vals[0], vals[-1], kind, lower_better=group == "시간" or label.startswith(better_low[1]))})
     ans_n = {lab: get(m, "answer", "n") for m, lab in modes}
     return {"file": name, "made": data.get("made", ""), "modes": [lab for _, lab in modes], "rows": rows,
             "diff_label": f"차이 ({'①→' + '②③'[len(modes) - 2]})", "latest": _latest_single(eval_dir, name),
             "adopted": [m == adopted_mode() for m, _ in modes],
             "n_sec": get(modes[0][0], "search", "section", "n"), "n_rel": get(modes[0][0], "search", "relation", "n"),
-            "n_ans": max([v for v in ans_n.values() if v] or [0]) or None, "summary": _why_line(summ)}
+            "n_ans": max([v for v in ans_n.values() if v] or [0]) or None, "summary": _why_line(summ),
+            "keys": [m for m, _ in modes]}
+
+
+# 품질·성능 첫 화면의 짧은 표 — 결과 파일의 같은 칸을 짧은 이름으로 고르기만 한다(수치는 새로 만들지 않는다)
+MODE_SHORT = {"fulltext": "풀텍스트", "graph": "GraphRAG(코드)", "graph_read": "GraphRAG(27B)"}
+KEY_ROWS = (
+    (("search", "section", "counts", "doc_hit"), "문서 한 부분 질문 — 정답 문서가 상위 5건에"),
+    (("search", "relation", "counts"), "관계 질문 — 양쪽 문서가 모두 상위에"),
+    (("answer", "evidence_has_gold_counts"), "답이 정답 문서를 근거로"),
+    (("answer", "judge", "correct_mean"), "답 채점 평균(0~2점)"),
+    (("answer", "wall_sec_median"), "답이 나오기까지(보통)"),
+)
+
+
+def _short(v, kind: str) -> str:
+    if kind == "cnt":
+        return f"{v['rate'] * 100:.0f}%" if isinstance(v, dict) and v.get("n") else "—"
+    return _cell(v, kind)
+
+
+def overview(compare: dict) -> dict:
+    """첫 화면 카드·타일 — 풀텍스트와 지금 운영 방식 두 칸만, 핵심 줄 다섯까지. 비교 측정이 없으면 빈 dict."""
+    if not compare or "fulltext" not in compare.get("keys", []):
+        return {}
+    keys = compare["keys"]
+    op = keys.index(adopted_mode()) if adopted_mode() in keys else len(keys) - 1
+    by_path = {r["path"]: r for r in compare["rows"]}
+    rows = []
+    for path, label in KEY_ROWS:
+        r = by_path.get(path)
+        if not r:
+            continue
+        a, b = r["raw"][0], r["raw"][op]
+        rows.append({"label": label, "full": _short(a, r["kind"]), "op": _short(b, r["kind"]),
+                     "diff": _diff(a, b, r["kind"], lower_better=r["group"] == "시간")})
+    return {"made": compare.get("made", ""), "op_label": MODE_SHORT.get(keys[op], compare["modes"][op]),
+            "full_label": MODE_SHORT["fulltext"], "rows": rows, "head": rows[0] if rows else None}
 
 
 def _why_line(summ: dict) -> list[str]:

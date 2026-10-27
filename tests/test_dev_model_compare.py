@@ -1,5 +1,5 @@
 """모델 비교 화면(/dev/models/compare) — 관리자만, 덜 찬 결과도 그린다, 문서 내려받기는 실행의 docs/ 안만,
-품질·성능(/dev/quality)의 「모델 비교」 카드가 마지막 실행 요약을 보이고 이 화면은 그 자세히 보기,
+품질·성능(/dev/quality)의 「모델 비교」 카드가 마지막 실행 요약을 보이고 이 화면은 그 자세히,
 개발 현황 Writer 줄의 바로가기는 결과가 있을 때만(그 카드로)."""
 from __future__ import annotations
 
@@ -135,15 +135,17 @@ def test_quality_card_shows_latest_run_from_files(world):
     (d / "summary.json").write_text(json.dumps(s, ensure_ascii=False))
     page = _client(app, "zzdev").get("/dev/quality").text
     card = page.split('id="model-compare"')[1].split("</div></div>")[0]
-    assert "sft-compare" in card and "2026-10-24 06:02" in card
-    assert "오픈 모델(오픈 27B)" in card and "SFT 병합본(SFT 합친 판)" in card
-    assert "SFT 병합본 대 오픈 모델 — 점수 0.31 (95% 구간 0.26~0.35)" in card
+    assert "2026-10-24 06:02" in card
+    assert '>오픈 27B</th>' in card and '>SFT 합친 판</th>' in card and 'title="SFT 병합본"' in card   # 칸 이름은 짧게(갈래 종류 이름), 원래 이름은 풍선 도움말
+    assert "SFT 합친 판 대 오픈 27B 점수 0.31 (95% 구간 0.26~0.35)" in card
     assert "0.52" not in card                                        # 대조군(같은 모델 두 번)은 요약에서 뺀다
-    assert "문서 작성" in card and "100.0%" in card and "82.0%" in card  # 문서 작성 묶음의 비율 지표
+    assert "100.0%" in card and "82.0%" in card                      # 문서 작성 묶음의 비율 지표
     assert "첫 글자까지" in card and "24.32" in card                     # 속도 묶음
+    assert card.count("<tr>") <= 5                                   # 머리 + 핵심 줄 넷까지
     assert "합친 판은 운영 모델보다 못해 채택하지 않음" in card
-    assert 'href="/dev/models/compare/sft-compare">자세히 보기' in card
-    assert 'href="/dev/models/compare/run-1"' in card                   # 지난 실행
+    assert 'href="/dev/models/compare/sft-compare">자세히' in card and card.count("<a ") == 1   # 들어가는 단추 하나
+    tiles = page.split('class="q-tiles"', 1)[1].split("</nav>", 1)[0]
+    assert "합친 판은 운영 모델보다 못해 채택하지 않음" in tiles and 'href="#model-compare"' in tiles
 
 
 def test_compare_page_belongs_to_quality(world):
@@ -162,6 +164,20 @@ def test_compare_page_belongs_to_quality(world):
     assert dev_nav.owner("/dev/history") == "/dev" and dev_nav.owner("/dev/doc/x.md") == "/dev/docs"
     assert dev_nav.owner("/dev/archive/7") == "/dev/archive" and dev_nav.owner("/dev/quality") == "/dev/quality"
     assert dev_nav.parent("/dev/quality") is None and dev_nav.owner("/dev/없는") == ""
+
+
+def test_short_names_are_generic():
+    """칸 이름 — 결과 파일의 짧은 이름이 먼저, 없으면 하나뿐인 갈래 종류 이름, 그다음 괄호를 뗀 이름. 겹치면 원래 이름."""
+    from zzaimy.app import model_compare as mc
+    arms = [{"key": "a", "label": "큰 모델 (NVFP4, 토르)", "kind_label": "오픈 27B"},
+            {"key": "b", "label": "학습본 v1 (LoRA)", "kind_label": "SFT 어댑터"},
+            {"key": "c", "label": "학습본 v2 (LoRA)", "kind_label": "SFT 어댑터"},
+            {"key": "d", "label": "기타 판", "kind_label": "", "short": "짧은 판"}]
+    mc._short_names(arms, {"a": "운영 27B"})
+    assert [a["short"] for a in arms] == ["운영 27B", "학습본 v1", "학습본 v2", "짧은 판"]
+    same = [{"key": "x", "label": "판 (1)", "kind_label": ""}, {"key": "y", "label": "판 (2)", "kind_label": ""}]
+    mc._short_names(same, {})
+    assert [a["short"] for a in same] == ["판 (1)", "판 (2)"]
 
 
 def test_labels_and_percent_keys_from_summary():
@@ -265,7 +281,7 @@ def test_analysis_md_rendered_safely(world):
     assert 'href="#analysis">분석 보기' in page
     card = c.get("/dev/quality").text.split('id="model-compare"')[1].split("</div></div>")[0]
     assert "SFT 합친 판은 문서 작성을 못 해 운영에 넣지 않음" in card
-    assert 'href="/dev/models/compare/sft-compare#analysis">분석 보기' in card
+    assert "분석 보기" not in card                                    # 분석은 자세히 화면에서(카드는 들어가는 단추 하나)
 
 
 def test_no_analysis_no_section(world):

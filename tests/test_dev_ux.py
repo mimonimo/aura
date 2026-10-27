@@ -68,7 +68,7 @@ def test_quality_chart_uses_measured_values_and_skips_unmeasured(client, monkeyp
             {'method': '미측정 구성', 'production': False, 'recall_at_1': None, 'recall_at_5': None, 'note': '대기', 'n': 0},
         ]},
     })
-    page = client.get('/dev/quality')
+    page = client.get('/dev/quality/regulation')                         # 방식별 전체 표는 자세히 화면(10-27)
     assert page.status_code == 200
     # R@5 막대는 표와 같은 수치를 두 번 보여 줘 뺐다(10-27) — 표 한 곳에 잰 값만
     assert '<meter ' not in page.text

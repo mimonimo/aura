@@ -253,10 +253,11 @@ def test_dev_shows_no_measurement_without_artifact(tmp_path, monkeypatch):
     monkeypatch.setattr(rev, "QUERIES_PATH", tmp_path / "없는_질의세트.jsonl")
     monkeypatch.setattr(rev, "LOG_PATH", tmp_path / "eval.log")
     c = _client(tmp_path)
-    r = c.get("/dev/quality")
+    r = c.get("/dev/quality/regulation")
     assert r.status_code == 200
     assert "규정 검색 품질" in r.text
     assert "아직 측정 없음" in r.text and "51_synth_queries" in r.text
+    assert "아직 측정 없음" in c.get("/dev/quality").text
     assert "0.583" not in r.text and "한 번에 정답" not in r.text  # 손으로 쓴 수치·표현 제거
     assert "embed-v0-report.md" in c.get("/dev/docs?view=records").text  # 과거 실험은 기록 탭으로 분리
     # 손으로 다시 재는 주소는 없다(새벽 자동) — 실행도, 가짜 수치도 없다
@@ -281,7 +282,7 @@ def test_dev_renders_artifact_table(tmp_path, monkeypatch):
         ],
         "notes": [rev.SELF_RETRIEVAL_NOTE],
     }, ensure_ascii=False), encoding="utf-8")
-    r = _client(tmp_path).get("/dev/quality")
+    r = _client(tmp_path).get("/dev/quality/regulation")
     assert r.status_code == 200
     assert "0.500" in r.text and "0.625" in r.text and "운영 구성" in r.text
     assert "미측정" in r.text and "리랭커 미적재" in r.text

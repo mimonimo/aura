@@ -17,7 +17,9 @@ GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 
 # 사이드바에 없는 개발 화면
 EXTRA = {"/dev/history": "변경 이력",                              # 개발 현황 머리의 「변경 이력」
-         "/dev/models/compare": "모델 비교",                         # 품질·성능 「모델 비교」 카드의 「자세히 보기」
+         "/dev/models/compare": "모델 비교",                         # 품질·성능 「모델 비교」 카드의 「자세히」
+         "/dev/quality/regulation": "규정 검색 품질",                # 품질·성능 「규정 검색 품질」 카드의 「자세히」
+         "/dev/quality/grant-search": "사업 문서 검색",              # 품질·성능 「사업 문서 검색」 카드의 「자세히」
          "/dev/archive/doc/": "반입 결과 보기"}                       # 원본 관리 줄·문서 화면 「관리」 에서 문서 하나(/dev/archive/doc/{id})
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
@@ -31,6 +33,7 @@ SUBPAGES: dict[str, str] = {
     "/dev/models/": "/dev/train",
     "/dev/train/": "/dev/train",                    # 검수 가이드·학습 상태·학습셋 표본도 데이터·학습 안
     "/dev/models/compare": "/dev/quality",          # 모델 비교는 품질·성능 안
+    "/dev/quality/": "/dev/quality",                # 규정 검색·사업 문서 검색 자세히도 품질·성능 안
 }
 
 

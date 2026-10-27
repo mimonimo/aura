@@ -160,8 +160,9 @@ def test_retrieval_compare_runs_three_modes_for_dev_only(staff, monkeypatch):
     assert out["modes"][0]["hits"][0]["filename"] == "a.pdf"
     assert login("kim", "kim-pass").post("/dev/quality/retrieval-compare", data={"question": "x"},
                                          follow_redirects=False).status_code in (303, 403, 404)
-    page = login("zzdev", "dev-pass").get("/dev/quality").text           # 화면 — 「사업 문서 검색(GraphRAG)」 카드 안의 비교 폼
-    card = page.split('id="grant-search"', 1)[1].split('id="model-compare"', 1)[0]
+    page = login("zzdev", "dev-pass").get("/dev/quality/grant-search").text   # 화면 — 「사업 문서 검색」 자세히 화면의 비교 폼(10-27 첫 화면에서 옮김)
+    card = page.split('id="one-question"', 1)[1]
+    assert 'id="rcForm"' not in login("zzdev", "dev-pass").get("/dev/quality").text
     assert 'id="rcForm"' in card and 'name="question"' in card and 'name="k"' in card and 'min="1" max="20"' in card
     assert "fetch('/dev/quality/retrieval-compare'" in page and 'href="/doc/${' in page
     assert login("zzdev", "dev-pass").post("/dev/quality/retrieval-compare", data={"question": "x", "k": "99"}).json()["k"] == 20

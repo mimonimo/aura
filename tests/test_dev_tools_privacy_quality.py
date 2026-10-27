@@ -116,7 +116,9 @@ def test_quality_folds_measurement_from_other_config(client, tmp_path, monkeypat
     monkeypatch.setattr(rev, "LOG_PATH", tmp_path / "eval.log")
     monkeypatch.setattr(embed_search, "_index_model_name", lambda: "zzaimy-embed-v2")
     _write_eval(tmp_path, "KURE-v1", 539)
-    page = client.get("/dev/quality").text
+    main = client.get("/dev/quality").text
+    assert "현재 구성 측정 없음" in main and "0.625" not in main          # 첫 화면은 타일·카드에 한 줄만, 옛 수치는 없음
+    page = client.get("/dev/quality/regulation").text
     assert "현재 구성 측정 없음" in page and "지난 측정(구성 다름)" in page
     top = page.split("현재 구성 측정 없음", 1)[0]
     assert "0.625" not in top                                   # 옛 수치는 위에 내걸지 않는다
@@ -131,5 +133,34 @@ def test_quality_same_config_shows_numbers_plainly(client, tmp_path, monkeypatch
     monkeypatch.setattr(rev, "LOG_PATH", tmp_path / "eval.log")
     monkeypatch.setattr(embed_search, "_index_model_name", lambda: "KURE-v1")
     _write_eval(tmp_path, "KURE-v1", 539)
-    page = client.get("/dev/quality").text
+    assert "0.625" in client.get("/dev/quality").text                     # 운영 구성 줄은 첫 화면 카드에
+    page = client.get("/dev/quality/regulation").text
     assert "0.625" in page and "지난 측정(구성 다름)" not in page and "현재 구성 측정 없음" not in page
+
+
+def test_quality_overview_is_tiles_and_short_cards(client, tmp_path, monkeypatch):
+    """품질·성능 첫 화면(10-27) — 영역마다 같은 크기 타일 한 칸, 카드는 핵심 줄만, 자세히는 카드마다 하나.
+    측정 중 표시는 카드 머리 배지 한 곳(카드 밖 떠 있는 문장 없음). 자세히 화면도 사이드바는 품질·성능."""
+    import os
+    from zzaimy.app import dev_nav, embed_search
+
+    monkeypatch.setattr(rev, "QUERIES_PATH", tmp_path / "없음.jsonl")
+    monkeypatch.setattr(rev, "LOG_PATH", tmp_path / "eval.log")
+    monkeypatch.setattr(embed_search, "_index_model_name", lambda: "KURE-v1")
+    _write_eval(tmp_path, "KURE-v1", 539)
+    (tmp_path / "eval" / rev.RUNNING_NAME).write_text(json.dumps({"pid": os.getpid(), "started_at": "2026-10-27T03:00:00+09:00"}))
+    page = client.get("/dev/quality").text
+    tiles = page.split('class="q-tiles"', 1)[1].split("</nav>", 1)[0]
+    assert tiles.count('class="q-tile"') == 4
+    for name in ("규정 검색", "사업 문서 검색", "모델 비교", "추출 품질"):
+        assert name in tiles
+    assert "R@1 0.500 · MRR 0.625" in tiles
+    assert "측정 상태를 확인하고 있습니다" not in page and page.count('id="eval-live"') == 1
+    assert 'class="pill processing" id="eval-live"' in page.split('id="regulation"', 1)[1].split("</h2>", 1)[0]
+    for href in ("/dev/quality/regulation", "/dev/quality/grant-search"):
+        assert page.count(f'href="{href}"') == 1
+        sub = client.get(href)
+        assert sub.status_code == 200 and '<a href="/dev/quality" class="active" aria-current="page">' in sub.text
+        assert dev_nav.owner(href) == "/dev/quality" and dev_nav.parent(href)[0] == "/dev/quality"
+    for k in ('id="rcForm"', "왜 느린가", ">R@10</th>"):          # 비교 폼·설명·전체 표는 자세히 화면에만
+        assert k not in page, (k, page[max(0, page.find(k) - 300):page.find(k) + 40])

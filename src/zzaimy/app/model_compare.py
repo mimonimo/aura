@@ -1,5 +1,5 @@
 """모델 비교(/dev/models/compare) — VM 의 비교 실행이 남긴 파일을 읽어 보여 준다.
-품질·성능(/dev/quality)의 「모델 비교」 카드가 마지막 실행의 요약(headline)을 보이고, 이 화면은 그 「자세히 보기」다.
+품질·성능(/dev/quality)의 「모델 비교」 카드가 마지막 실행의 요약(headline)을 보이고, 이 화면은 그 「자세히」다.
 
 결과 자리: data/eval/model_compare/<run-id>/ (ZZAIMY_MODEL_COMPARE_DIR 로 바꿀 수 있다)
   summary.json  실행 정보·갈래(arms)·묶음(blocks: 지표·쌍대 승패·차원별 평균·서류 갈래별 점수)·메모
@@ -217,8 +217,10 @@ def load_run(base: Path, run_id: str) -> dict | None:
                     arm_keys.append(str(k))
         arms = [{"key": k} for k in arm_keys]
     arms = [{"key": str(a["key"]), "label": str(a.get("label") or a["key"]), "model": str(a.get("model") or ""),
-             "kind": str(a.get("kind") or ""), "kind_label": KIND_LABELS.get(str(a.get("kind") or ""), "")}
+             "kind": str(a.get("kind") or ""), "kind_label": KIND_LABELS.get(str(a.get("kind") or ""), ""),
+             "short": str(a.get("short") or "")}
             for a in arms]
+    _short_names(arms, s.get("labels") if isinstance(s.get("labels"), dict) else {})
     blocks = s.get("blocks")
     docs_listed = _read(d / "docs.json") if (d / "docs.json").exists() else None
     return {
@@ -241,6 +243,21 @@ def load_run(base: Path, run_id: str) -> dict | None:
     }
 
 
+def _short_names(arms: list[dict], labels: dict) -> None:
+    """화면에 쓸 짧은 이름 — 결과 파일이 적어 둔 짧은 이름(갈래의 short, labels 표의 갈래 키)이 먼저,
+    없으면 갈래 종류 이름(오픈 27B·SFT 합친 판…)이 그 실행에서 하나뿐일 때 그것, 그래도 없으면 이름의 괄호 부분을 뗀 것.
+    모델마다 따로 적지 않는다. 짧은 이름끼리 겹치면 원래 이름으로 둔다."""
+    kinds = [a["kind_label"] for a in arms if a["kind_label"]]
+    for a in arms:
+        given = str(a.get("short") or labels.get(a["key"]) or "").strip()
+        trimmed = re.sub(r"\s*[(（][^()（）]*[)）]", "", a["label"]).strip() or a["label"]
+        a["short"] = given or (a["kind_label"] if a["kind_label"] and kinds.count(a["kind_label"]) == 1 else trimmed)
+    shorts = [a["short"] for a in arms]
+    for a in arms:
+        if shorts.count(a["short"]) > 1:
+            a["short"] = a["label"]
+
+
 def headline(run: dict) -> dict:
     """품질·성능 카드용 짧은 요약 — load_run 결과에서 고르기만 한다(수치를 새로 만들지 않는다).
     pairs: 대조군이 아닌 쌍대 점수(95% 구간), docs: 회차별로 돈 묶음(문서 작성)의 비율 지표, speed: 속도 지표."""
@@ -252,9 +269,16 @@ def headline(run: dict) -> dict:
     speed_blocks = [b for b in blocks if b["speed"]]
     sp = next((b for b in speed_blocks if not b["other"] and not b["pairwise"]), speed_blocks[0] if speed_blocks else None)
     used = {a for r in doc_rows + (sp["speed"] if sp else []) for a, v in r["vals"].items() if v is not None}
+    # 첫 화면 카드의 짧은 표 — 문서 작성 두 줄 + 속도 두 줄까지
+    key_rows = doc_rows[:2] + (sp["speed"][:2] if sp else [])
+    key_used = {a for r in key_rows for a, v in r["vals"].items() if v is not None}
+    verdict = run.get("verdict") or ""
     return {"pairs": pairs, "doc_title": doc["title"] if doc else "", "doc_rows": doc_rows,
             "speed_title": sp["title"] if sp else "", "speed_rows": sp["speed"] if sp else [],
-            "arms": [a for a in run["arms"] if a["key"] in used]}
+            "arms": [a for a in run["arms"] if a["key"] in used],
+            "key_rows": key_rows, "key_arms": [a for a in run["arms"] if a["key"] in key_used],
+            # 타일 한 줄 — 결론의 앞부분(「 — 」·「 · 」 앞). 결론이 없으면 비운다(지어내지 않는다)
+            "verdict_short": re.split(r"\s+[—·]\s+|[.。]\s", verdict, maxsplit=1)[0].strip() if verdict else ""}
 
 
 def quality_card(db_path) -> dict:

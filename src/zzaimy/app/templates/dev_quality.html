@@ -2,244 +2,153 @@
 {% block title %}{{ dev_page_name('/dev/quality') }}{% endblock %}
 {% block pagetitle %}{{ dev_page_name('/dev/quality') }}{% endblock %}
 {% block content %}
+{# 첫 화면은 한눈에 — 영역마다 요약 타일 한 칸과 짧은 카드(핵심 수치 + 핵심 줄 몇 개). 전체 표·측정 방법·비교 도구·설명은
+   카드마다 「자세히」 하나로(규정 /dev/quality/regulation · 사업 문서 /dev/quality/grant-search · 모델 /dev/models/compare). 수치는 결과 파일·DB 에서만(10-27) #}
+{% include "_quality_style.html" %}
 <style>
-.dev-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px;align-items:start;}
-.quality-report { display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,auto); gap:12px 20px; padding:16px 0; border-bottom:1px solid var(--line); font-size:13px; }
+.q-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:1fr;gap:12px;margin:0 0 16px;}
+.q-tile{display:flex;flex-direction:column;gap:4px;min-width:0;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel,#fff);color:inherit;text-decoration:none;}
+a.q-tile:hover{border-color:#94A3B8;}
+.q-tile .t-name{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+.q-tile .t-val{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.3;overflow-wrap:anywhere;}
+@media(max-width:1000px){.q-tiles{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:520px){.q-tile{padding:12px;}.q-tile .t-val{font-size:16px;}}
+.q-tile .t-sub{font-size:12px;color:var(--muted);margin-top:auto;overflow-wrap:anywhere;}
+.q-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px;align-items:stretch;}
+.q-cards > .card{margin:0;min-width:0;}
+.q-cards > .card > .card-in{height:100%;box-sizing:border-box;}
+.q-head{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 10px;}
+.q-head div{min-width:0;}
+.q-head b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;}
+.q-head span{font-size:12px;color:var(--muted);}
+.q-line{font-size:12.5px;margin:8px 0 0;overflow-wrap:anywhere;}
+.quality-report { display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,auto); gap:12px 20px; padding:12px 0; border-bottom:1px solid var(--line); font-size:13px; }
+.quality-report:last-child{border-bottom:0;}
 .quality-report p { margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
 .quality-report a { overflow-wrap:anywhere; }
 .quality-resolve { display:flex; align-items:flex-end; gap:8px; }
 .quality-resolve label { flex:1; min-width:0; color:var(--muted); font-size:12px; }
-.quality-resolve input { display:block; width:100%; margin-top:5px; padding:8px; border:1px solid var(--line); font:inherit; }
+.quality-resolve input { display:block; width:100%; margin-top:5px; padding:8px; border:1px solid var(--line); font:inherit; box-sizing:border-box; }
 .quality-resolve button { white-space:nowrap; }
-.eval-past { margin-top:14px; }
-.eval-past > summary { color:var(--muted); }
-.eval-past-body { color:var(--muted); filter:grayscale(1); opacity:.72; margin-top:10px; }
-.eval-now { font-size:13px; margin:0 0 6px; }
-@media(max-width:700px){.quality-report { grid-template-columns:minmax(0,1fr); }.card h2 { flex-wrap:wrap; }}
-.why-fold{margin-top:12px;}
-.why-slow{margin-top:10px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:#fafbfc;}
-.why-slow h3{font-size:13.5px;margin:0 0 6px;}
-.why-slow ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;}
-.mc-meta{font-size:12.5px;margin:0 0 8px;}
-.mc-verdict{font-size:13px;margin:0 0 10px;}
-.mc-pairs{list-style:none;margin:0 0 10px;padding:0;font-size:12.5px;line-height:1.7;}
-.mc-pairs small{color:var(--muted);}
-.mc-sum td,.mc-sum th{text-align:right;font-variant-numeric:tabular-nums;}
-.mc-sum td:first-child,.mc-sum th:first-child{text-align:left;}
-.mc-sum .mc-group td{color:var(--muted);font-size:11.5px;padding-top:8px;}
-.mc-older{font-size:12px;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
-.rc-bar input[type=search]{flex:1 1 260px;min-width:0;}
-.rc-bar input[type=number]{width:6em;}
-.rc-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;margin-top:10px;}
-.rc-col{border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;}
-.rc-col h3{display:flex;align-items:baseline;gap:8px;font-size:13px;margin:0 0 8px;}
-.rc-col h3 .sec{margin-left:auto;color:var(--muted);font-weight:400;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;}
-.rc-col ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.6;}
-.rc-col li{overflow-wrap:anywhere;margin:0 0 4px;}
-.rc-col .w{color:var(--muted);font-size:11.5px;}
+@media(max-width:700px){.quality-report { grid-template-columns:minmax(0,1fr); }}
 </style>
-<div class="card reveal"><div class="card-in">
+
+{% set ev = retrieval_eval.result %}
+{% set mc = model_compare %}
+{% set run, hd = mc.run, mc.head %}
+<nav class="q-tiles" aria-label="영역별 요약">
+  <a class="q-tile" href="#regulation">
+    <span class="t-name"><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 · 운영 구성</span>
+    {% if reg_prod and not reg_stale %}
+    <span class="t-val">R@1 {{ "%.3f"|format(reg_prod.recall_at_1) }} · MRR {{ "%.3f"|format(reg_prod.mrr_at_10) }}</span>
+    <span class="t-sub">{{ retrieval_eval.measured_at_display }} 측정</span>
+    {% else %}
+    <span class="t-val">{{ '측정 중…' if retrieval_eval.running else ('현재 구성 측정 없음' if reg_stale else '측정 없음') }}</span>
+    <span class="t-sub">{% if ev %}지난 측정 {{ retrieval_eval.measured_at_display }}{% else %}새벽에 자동으로 잼{% endif %}</span>
+    {% endif %}
+  </a>
+  <a class="q-tile" href="#grant-search">
+    <span class="t-name"><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색 · 정답 문서 상위 5건</span>
+    {% if grant.head %}
+    <span class="t-val">{{ grant.head.op }} <span class="muted" style="font-size:13px; font-weight:400;">풀텍스트 {{ grant.head.full }}</span></span>
+    <span class="t-sub">{{ grant.op_label }} · {{ grant.made }} 측정</span>
+    {% else %}
+    <span class="t-val">측정 없음</span><span class="t-sub">풀텍스트 비교 기록 없음</span>
+    {% endif %}
+  </a>
+  <a class="q-tile" href="#model-compare">
+    <span class="t-name"><iconify-icon icon="solar:cpu-linear"></iconify-icon>모델 비교 · 결론</span>
+    {% if run %}
+    <span class="t-val">{{ hd.verdict_short or ('진행 중' if not run.finished else '결론 미기록') }}</span>
+    <span class="t-sub">{{ run.created or '진행 중' }}</span>
+    {% else %}
+    <span class="t-val">실행 없음</span><span class="t-sub">비교 결과 파일 없음</span>
+    {% endif %}
+  </a>
+  {% if quality_open %}<a class="q-tile" href="#extract">{% else %}<div class="q-tile">{% endif %}
+    <span class="t-name"><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 · 남은 신고</span>
+    <span class="t-val">{{ quality.open | num }}건</span>
+    <span class="t-sub">{{ '처리할 것 있음' if quality_open else '남은 것 없음' }}</span>
+  {% if quality_open %}</a>{% else %}</div>{% endif %}
+</nav>
+
+<div class="q-cards">
+<div class="card reveal" id="regulation"><div class="card-in">
   <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 품질
-    <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-      {% if retrieval_eval.running %}
-      <span class="pill processing">측정 중…</span>
-      {% elif not retrieval_eval.query_set_missing %}
-      <span class="muted" style="font-size:12px; font-weight:400;">규정이 바뀌면 새벽에 자동으로 다시 잼</span>
-      {% endif %}
-    </span></h2>
-  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">합성 질의로 정답 조각을 되찾는 비율 · R@5 상위 5개 안 · MRR@10 앞에 나올수록 높음</p>
-  {% if retrieval_eval.running %}
-  <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 중
-    ({{ retrieval_eval.started_at_display }} 시작)
-    · 완료되면 결과 확인 링크가 나타납니다.</p>
-  {% endif %}
-  {% if retrieval_eval.last_error %}
-  <p class="muted" style="font-size:12px; margin:0 0 10px; color:var(--red);">
-    이전 측정 실패: {{ retrieval_eval.last_error }}</p>
-  {% endif %}
-  {% set ev = retrieval_eval.result %}
-  {# 측정 당시 구성(임베딩·규정 조각 수)이 지금 운영 색인과 다르면 그 수치는 지금 구성의 성능이 아니다 —
-     맨 위에는 「현재 구성 측정 없음」을 두고, 지난 수치는 회색으로 접어 둔다(새 수치를 지어내지 않는다) #}
-  {% set embed_differs = ev and index_model and ev.embedding_model and ev.embedding_model != index_model %}
-  {% set chunks_differ = ev and current_chunks and ev.n_chunks and ev.n_chunks != current_chunks %}
-  {% set stale = ev and (embed_differs or chunks_differ) %}
-  {% if ev %}{% set eval_body %}
-  <p class="muted" style="font-size:12px; margin:0 0 8px;">마지막 측정
-    {{ retrieval_eval.measured_at_display }} · 질의 {{ ev.n_queries }}건
-    · {{ metric_label("eval_chunks", retrieval_eval.measured_at_display, "측정 당시 규정 조각") }} {{ ev.n_chunks }}개 · 측정 당시 임베딩 {{ ev.embedding_model or '미확인' }}
-    {% if index_model is defined %} · 지금 색인 임베딩 {{ index_model or '미확인' }}{% endif %}</p>
+    {% if retrieval_eval.running %}<span class="pill processing" id="eval-live" role="status" style="margin-left:8px;">측정 중…</span>{% endif %}
+    <a class="h-link" href="/dev/quality/regulation">자세히</a></h2>
+  {% if reg_stale %}
+  <p class="eval-now">현재 구성 측정 없음 — {% if retrieval_eval.running %}측정 진행 중{% elif retrieval_eval.query_set_missing %}질의 세트 없음{% else %}새벽에 자동으로 다시 잼{% endif %}</p>
+  {% elif reg_prod %}
+  <div class="q-head">
+    <div><b>{{ "%.3f"|format(reg_prod.recall_at_1) }}</b><span>R@1 · 첫 결과가 정답</span></div>
+    <div><b>{{ "%.3f"|format(reg_prod.mrr_at_10) }}</b><span>MRR@10</span></div>
+  </div>
   <div class="table-scroll">
-  <table style="font-size:12.5px;">
-    <tr><th>방식</th><th>R@1</th><th>R@5</th><th>R@10</th><th>MRR@10</th><th>n</th></tr>
-    {% for r in ev.rows %}
-    <tr>
-      <td{% if r.production %} style="font-weight:600;"{% endif %}>{{ r.method }}
-        {% if r.production %}<span class="pill type" style="margin-left:6px;">운영 구성</span>{% endif %}</td>
-      {% if r.recall_at_1 is none %}
-      <td colspan="4" class="muted">미측정{% if r.note %} — {{ r.note }}{% endif %}</td>
-      {% else %}
-      <td>{{ "%.3f" | format(r.recall_at_1) }}</td>
-      <td>{{ "%.3f" | format(r.recall_at_5) }}</td>
-      <td>{{ "%.3f" | format(r.recall_at_10) }}</td>
-      <td>{{ "%.3f" | format(r.mrr_at_10) }}</td>
-      {% endif %}
-      <td>{{ r.n }}</td>
-    </tr>
+  <table class="q-table">
+    <tr><th>방식</th><th class="num">R@1</th><th class="num">R@5</th><th class="num">MRR@10</th></tr>
+    {% for r in reg_key_rows %}
+    <tr{% if r.production %} class="q-on"{% endif %}><td>{{ r.method }}{% if r.production %} <span class="pill type">운영 구성</span>{% endif %}</td>
+      <td class="num">{{ "%.3f"|format(r.recall_at_1) }}</td><td class="num">{{ "%.3f"|format(r.recall_at_5) }}</td><td class="num">{{ "%.3f"|format(r.mrr_at_10) }}</td></tr>
     {% endfor %}
   </table>
   </div>
-  {% if ev.notes %}<p class="muted" style="font-size:11.5px; margin:8px 0 0; line-height:1.6;">{{ ev.notes | join(' · ') }}</p>{% endif %}
-  {% if retrieval_eval.query_set_missing %}
-  <p class="muted" style="font-size:11.5px; margin:8px 0 0;">재측정 불가 —
-    {{ retrieval_eval.query_set_message }}</p>
-  {% endif %}
-  {% endset %}{% endif %}
-  {% if stale %}
-  <p class="eval-now">현재 구성 측정 없음 —
-    {% if retrieval_eval.running %}측정 진행 중
-    {% elif retrieval_eval.query_set_missing %}{{ retrieval_eval.query_set_message }}
-    {% else %}구성이 바뀌어 새벽에 자동으로 다시 잼{% endif %}</p>
-  <p class="muted" style="font-size:12px; margin:0 0 4px;">지금 구성 · 규정 조각 {{ current_chunks | num }}개 · 임베딩 {{ index_model or '미확인' }}</p>
-  <details class="chip-toggle eval-past">
-    <summary>지난 측정(구성 다름) · {{ retrieval_eval.measured_at_display }} · 조각 {{ ev.n_chunks | num }}개 · {{ ev.embedding_model or '임베딩 미확인' }}</summary>
-    <div class="eval-past-body">
-  {{ eval_body }}
-    </div>
-  </details>
+  <p class="muted q-line">{{ retrieval_eval.measured_at_display }} 측정 · 합성 질의 {{ ev.n_queries | num }}건</p>
   {% elif ev %}
-  {{ eval_body }}
-  {% elif retrieval_eval.running %}
-  <p style="font-size:13px; margin:0;">아직 측정 없음 — 첫 측정이 진행 중입니다.</p>
-  {% elif retrieval_eval.query_set_missing %}
-  <p style="font-size:13px; margin:0;">아직 측정 없음
-    ({{ retrieval_eval.query_set_message }})</p>
+  <p class="q-line">운영 구성 미측정 — 방식별 값은 자세히에서</p>
   {% else %}
-  <p style="font-size:13px; margin:0;">아직 측정 없음 — 새벽에 자동으로 잼</p>
+  <p class="q-line">아직 측정 없음 — {% if retrieval_eval.running %}첫 측정이 진행 중{% else %}새벽에 자동으로 잼{% endif %}</p>
   {% endif %}
+  {% if retrieval_eval.last_error %}<p class="q-line" style="color:var(--red);">이전 측정 실패</p>{% endif %}
 </div></div>
-
-{% if retrieval_eval.running %}
-<p id="eval-live" role="status">측정 상태를 확인하고 있습니다. 이 화면을 벗어나도 측정은 계속됩니다.</p>
-<script>
-(function poll(){setTimeout(async function(){try{const r=await fetch('/dev/eval/status');if(!r.ok)throw Error();const s=await r.json();if(!s.running){const el=document.getElementById('eval-live');el.textContent=s.failed?'측정이 끝났지만 오류가 있습니다. ':'측정이 완료됐습니다. ';const a=document.createElement('a');a.href='/dev/quality';a.textContent='결과 확인';el.appendChild(a);return;}}catch(e){}poll();},8000);})();
-</script>
-{% endif %}
 
 <div class="card reveal" id="grant-search"><div class="card-in">
-  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색(GraphRAG)
-    <span class="muted" style="margin-left:auto; font-size:12px; font-weight:400;">27B 질문 읽기 지금 {{ '켜짐' if flow.model_read_on else '꺼짐' }}</span></h2>
-  {% include "_search_compare.html" %}
-  {# 질문 하나로 세 방식 나란히 — POST /dev/quality/retrieval-compare(app/retrieval_compare, 관리자만). 답은 만들지 않고 찾은 문서만 #}
-  <h4 class="extract-h">질문 하나로 비교</h4>
-  <form class="control-row control-bar rc-bar" id="rcForm" data-own-confirm>
-    <input type="search" name="question" placeholder="비교할 질문" maxlength="400" required aria-label="비교할 질문">
-    <label class="muted" style="font-size:12px;">문서 수 <input type="number" name="k" value="6" min="1" max="20" aria-label="문서 수(1~20)"></label>
-    <button class="btn" type="submit">비교</button>
-  </form>
-  <p class="muted" id="rcStatus" aria-live="polite" style="font-size:12px; margin:8px 0 0;"></p>
-  <div class="rc-cols" id="rcOut" hidden></div>
-  {# 설명 두 가지(느린 까닭·직접 만든 까닭)는 발표·논문용이라 접어 둔다(10-27) #}
-  <details class="chip-toggle why-fold">
-    <summary>왜 느린가 · 왜 직접 만들었나</summary>
-    <div class="why-slow">
-      <h3>왜 GraphRAG 가 풀텍스트보다 느린가</h3>
-      <ol>
-        <li>전부에서 찾기가 느린 것은 아니다. 풀텍스트도 조각을 하나씩 훑지 않고 색인(키워드·벡터)을 한 번 타므로 빠르다. 범위를 좁힌 뒤의 검색은 오히려 더 가볍다.</li>
-        <li>가장 큰 차이는 27B 가 질문을 읽는 단계다. 운영 방식(③)은 찾기 전에 27B 가 「어느 사업·몇 차년도·어떤 서류·어떤 관계」 인지 한 번 읽는다 — 모델 호출 한 번이 검색 전체보다 길다(위 표 검색 한 번 ②→③ 차이).</li>
-        <li>그래프를 따라가는 일이 조금 더해진다. 사업 → 연차 → 문서로 범위를 정하고 계획서↔결과보고서 같은 짝 문서를 함께 가져온다(①→② 차이).</li>
-        <li>답 쓰기가 길어진 것은 근거가 맞아졌기 때문이다. 맞는 문서와 짝 문서를 받아 내용 있는 답을 쓰니 글이 길어진다 — 늘어난 시간 대신 정답 문서를 근거로 쓴 비율과 답 점수가 올랐다.</li>
-      </ol>
-    </div>
-    {# 검색·그래프를 왜 직접 만들었나 — 처리 흐름 화면에 따로 있던 카드를 검색 품질 설명 옆으로(10-26) #}
-    <div class="why-slow">
-      <h3>왜 기성 도구 대신 직접 만들었나</h3>
-      {% include "_build_why.html" %}
-    </div>
-  </details>
+  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색
+    <a class="h-link" href="/dev/quality/grant-search">자세히</a></h2>
+  {% if grant.rows %}
+  <div class="table-scroll">
+  <table class="q-table">
+    <tr><th>지표</th><th class="num">{{ grant.full_label }}</th><th class="num">{{ grant.op_label }} <span class="pill reviewed">운영</span></th><th class="num">차이</th></tr>
+    {% for r in grant.rows %}
+    <tr><td>{{ r.label }}</td><td class="num">{{ r.full }}</td><td class="num">{{ r.op }}</td>
+      <td class="num q-diff {{ '' if not r.diff or r.diff.zero else ('good' if r.diff.good else 'bad') }}">{{ r.diff.text if r.diff else '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="muted q-line">{{ grant.made }} 측정 · 같은 시험지{% if flow.compare.n_sec %} · 질문 {{ (flow.compare.n_sec or 0) + (flow.compare.n_rel or 0) }}개{% endif %}</p>
+  {% else %}
+  <p class="q-line">풀텍스트 RAG 비교 기록 없음</p>
+  {% endif %}
 </div></div>
 
-<script>
-(function () {
-  const form = document.getElementById('rcForm');
-  if (!form) return;
-  const status = document.getElementById('rcStatus'), out = document.getElementById('rcOut');
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const col = m => `<div class="rc-col"><h3>${esc(m.label)}<span class="sec">${esc(m.sec)}초</span></h3>`
-    + (m.error ? `<p class="muted" style="margin:0;font-size:12px;">실패 — ${esc(m.error)}</p>`
-      : (m.hits.length ? '<ol>' + m.hits.map(h => `<li><a href="/doc/${encodeURIComponent(h.doc_id)}">${esc(h.filename || ('문서 ' + h.doc_id))}</a>`
-          + ((h.path || []).length || h.relation ? `<div class="w">${esc([(h.path || []).join(' › '), h.relation].filter(Boolean).join(' · '))}</div>` : '') + '</li>').join('') + '</ol>'
-        : '<p class="muted" style="margin:0;font-size:12px;">찾은 문서 없음</p>'))
-    + '</div>';
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    const btn = form.querySelector('button[type=submit]');
-    const fd = new FormData(form);
-    const k = Math.max(1, Math.min(20, parseInt(fd.get('k'), 10) || 6));
-    fd.set('k', String(k));
-    btn.disabled = true;
-    status.textContent = '세 방식으로 찾는 중…';
-    try {
-      const r = await fetch('/dev/quality/retrieval-compare', {method: 'POST', body: fd, headers: {Accept: 'application/json'}});
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : '비교하지 못했습니다');
-      status.textContent = `「${d.question}」 · 문서 ${d.k}개까지`;
-      out.innerHTML = (d.modes || []).map(col).join('');
-      out.hidden = false;
-    } catch (err) {
-      status.textContent = err.message;
-      out.hidden = true;
-    } finally {
-      btn.disabled = false;
-    }
-  });
-})();
-</script>
-
-{# 모델 비교 — 비교 실행(VM 의 210~213 → 212 내보내기)이 남긴 파일에서 읽은 마지막 실행 요약. 자세히는 /dev/models/compare #}
-{% set mc = model_compare %}
-{% if mc.run %}{% set run, hd = mc.run, mc.head %}
 <div class="card reveal" id="model-compare"><div class="card-in">
   <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>모델 비교
-    <a class="h-link" href="/dev/models/compare/{{ run.id }}">자세히 보기</a></h2>
-  <p class="muted mc-meta">{{ run.id }} · {% if run.created %}{{ run.created }}{% else %}진행 중{% endif %}
-    · 대상 {% for a in run.arms %}<span title="{{ a.model }}">{{ a.label }}{% if a.kind_label and a.label != a.kind_label %}({{ a.kind_label }}){% endif %}</span>{% if not loop.last %} · {% endif %}{% else %}진행 중{% endfor %}</p>
-  {% if run.verdict or run.analysis %}<p class="mc-verdict">{{ run.verdict }}{% if run.analysis %}{% if run.verdict %} · {% endif %}<a href="/dev/models/compare/{{ run.id }}#analysis">분석 보기</a>{% endif %}</p>{% endif %}
-  {% set L = run.arm_label %}
-  {% if hd.pairs %}
-  <ul class="mc-pairs">
-    {% for p in hd.pairs %}<li>{{ L.get(p.a, p.a) }} 대 {{ L.get(p.b, p.b) }} — 점수 {{ p.score|mc_num }}{% if p.ci_low is not none and p.ci_high is not none %} (95% 구간 {{ p.ci_low|mc_num }}~{{ p.ci_high|mc_num }}){% endif %}
-      <small>· 이김 {{ p.win }} · 비김 {{ p.tie }} · 짐 {{ p.loss }} · {{ p.block }}</small></li>{% endfor %}
-  </ul>
-  {% endif %}
+    {% if run %}<a class="h-link" href="/dev/models/compare/{{ run.id }}">자세히</a>{% endif %}</h2>
+  {% if run %}
+  {% set S = {} %}{% for a in run.arms %}{% set _ = S.update({a.key: a.short}) %}{% endfor %}
+  {% if run.verdict %}<p class="q-line" style="margin:0 0 10px;">{{ run.verdict }}</p>{% endif %}
   {% macro cell(v, pct) %}{% if pct and v is not none %}{{ "%.1f"|format(v * 100) }}%{% else %}{{ v|mc_num }}{% endif %}{% endmacro %}
-  {% if hd.doc_rows or hd.speed_rows %}
+  {% if hd.key_rows %}
   <div class="table-scroll">
-  <table class="mc-sum" style="font-size:12.5px;">
-    <tr><th>지표</th>{% for a in hd.arms %}<th>{{ a.label }}</th>{% endfor %}</tr>
-    {% for title, rows in [(hd.doc_title, hd.doc_rows), (hd.speed_title, hd.speed_rows)] if rows %}
-    <tr class="mc-group"><td colspan="{{ hd.arms|length + 1 }}">{{ title }}</td></tr>
-    {% for r in rows %}<tr><td>{{ r.name }}</td>{% for a in hd.arms %}<td>{{ cell(r.vals.get(a.key), r.pct) }}</td>{% endfor %}</tr>{% endfor %}
-    {% endfor %}
+  <table class="q-table">
+    <tr><th>지표</th>{% for a in hd.key_arms %}<th class="num" title="{{ a.label }}">{{ a.short }}</th>{% endfor %}</tr>
+    {% for r in hd.key_rows %}<tr><td>{{ r.name }}</td>{% for a in hd.key_arms %}<td class="num">{{ cell(r.vals.get(a.key), r.pct) }}</td>{% endfor %}</tr>{% endfor %}
   </table>
   </div>
   {% elif not hd.pairs %}
-  <p class="muted" style="font-size:12.5px; margin:0;">요약할 수치가 아직 없음{% if not run.finished %} — 진행 중{% endif %}</p>
+  <p class="q-line">요약할 수치가 아직 없음{% if not run.finished %} — 진행 중{% endif %}</p>
   {% endif %}
-  {% if mc.runs|length > 1 %}
-  <p class="muted mc-older">지난 실행{% for r in mc.runs[1:] %} <a class="btn-ghost" href="/dev/models/compare/{{ r.id }}">{{ r.id }}</a>{% endfor %}</p>
+  {% set p = hd.pairs[0] if hd.pairs else none %}
+  <p class="muted q-line">{{ run.created or '진행 중' }}{% if p %} · {{ S.get(p.a, p.a) }} 대 {{ S.get(p.b, p.b) }} 점수 {{ p.score|mc_num }}{% if p.ci_low is not none and p.ci_high is not none %} (95% 구간 {{ p.ci_low|mc_num }}~{{ p.ci_high|mc_num }}){% endif %}{% endif %}</p>
+  {% else %}
+  <p class="q-line">아직 비교 실행 결과 없음</p>
   {% endif %}
 </div></div>
-{% else %}
-<div class="card reveal" id="model-compare"><div class="card-in">
-  <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>모델 비교</h2>
-  <p class="muted" style="font-size:12.5px; margin:0;">아직 비교 실행 결과 없음</p>
-</div></div>
-{% endif %}
 
 {% if quality_open %}{# 예전에 문서 화면에서 신고한 추출 문제 가운데 남은 것 — 있을 때만 보인다(신고 단추는 없앴다) #}
-<div class="card reveal"><div class="card-in">
+<div class="card reveal" id="extract"><div class="card-in">
   <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 백로그
-    <span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span></h2>
+    <span class="pill processing" style="margin-left:8px;">미처리 {{ quality.open }}</span></h2>
   {% for r in quality_open %}
   <article class="quality-report">
     <div><span class="pill">{{ quality_kind_labels.get(r.kind, r.kind) }}</span>
@@ -254,6 +163,7 @@
   {% endfor %}
 </div></div>
 {% endif %}
+</div>
 
-
+{% if retrieval_eval.running %}{% include "_quality_eval_poll.html" %}{% endif %}
 {% endblock %}

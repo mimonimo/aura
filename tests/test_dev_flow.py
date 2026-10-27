@@ -88,7 +88,8 @@ def test_flow_page_title_is_plain(tmp_path):
     page = c.get("/dev/flow").text
     title = page.split("<title>", 1)[1].split("</title>", 1)[0]
     assert "<div" not in title and "처리 흐름" in title and "왜 기성 도구 대신 직접 만들었나" not in page   # 품질·성능의 검색 설명 옆으로(10-26)
-    assert c.get("/dev/quality").text.count("왜 기성 도구 대신 직접 만들었나</h3>") == 1
+    assert c.get("/dev/quality/grant-search").text.count("왜 기성 도구 대신 직접 만들었나</h2>") == 1   # 품질·성능 첫 화면은 짧게, 설명은 자세히로(10-27)
+    assert "왜 기성 도구 대신 직접 만들었나" not in c.get("/dev/quality").text
 
 
 def test_flow_explains_coediting_with_live_settings(tmp_path):

@@ -87,7 +87,7 @@
 |---|---|
 | 개발 | 개발 현황 `/dev`(변경 이력 `/dev/history`), 처리 흐름 `/dev/flow`(반입 점검 `/dev/flow#intake`), 논문·설계 문서 `/dev/docs`, 공동 편집 시연 `/dev/coedit-demo` |
 | 관리 | 원본 관리 `/dev/archive`(장부 값·장부 전체 범위, 문서 하나의 반입 결과 보기 `/dev/archive/doc/{id}`), RAG 공간 `/dev/rag`, 데이터·학습 `/dev/train`(탭: 검수·학습, 수집 자료 `?tab=collect`), 도구·모델 연결 `/dev/tools`, 개인정보·반출 점검 `/dev/pii` |
-| 지표 | 품질·성능 `/dev/quality`(사업 문서 검색 측정과 질문 하나로 세 방식 비교, 모델 비교 `#model-compare`, 자세히 `/dev/models/compare`) |
+| 지표 | 품질·성능 `/dev/quality`(영역별 요약 타일과 짧은 카드, 자세히 — 규정 검색 `/dev/quality/regulation`, 사업 문서 검색 비교·질문 하나로 세 방식 비교 `/dev/quality/grant-search`, 모델 비교 `/dev/models/compare`) |
 
 업무 화면에 있는 것은 개발 사이드바에 두지 않는다(10-27): 그래프 탐색 `/graph/explore` 는 라이브러리·문서·채팅에서, 구글 앱 등록·학교 계정 연결 현황은 조직 관리 `/team#google-links`(관리자만)에서 연다.
 

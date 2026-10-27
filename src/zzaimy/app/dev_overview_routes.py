@@ -280,28 +280,57 @@ def dev_flow(request: Request):
     }))
 
 
+def _regulation_ctx(st) -> dict:
+    """규정 검색 측정 — 결과 파일·지금 색인 구성. 첫 화면 카드와 자세히(/dev/quality/regulation)가 같이 쓴다."""
+    from zzaimy.app import metrics as _metrics_mod
+    from zzaimy.eval import retrieval_eval as _rev
+
+    ev = st.overview.retrieval_eval_state()
+    index_model = __import__("zzaimy.app.embed_search", fromlist=["_index_model_name"])._index_model_name()
+    current = _metrics_mod.live(st.db)["values"].get("regulation_chunks", 0)
+    res = ev["result"]
+    # 측정 당시 구성(임베딩·규정 조각 수)이 지금 운영 색인과 다르면 그 수치는 지금 구성의 성능이 아니다
+    stale = bool(res) and bool((index_model and res.get("embedding_model") and res["embedding_model"] != index_model)
+                               or (current and res.get("n_chunks") and res["n_chunks"] != current))
+    rows = (res or {}).get("rows") or []
+    prod = next((r for r in rows if r.get("production") and r.get("recall_at_1") is not None), None)
+    base = next((r for r in rows if r.get("method") == _rev.METHOD_HYBRID and not r.get("production")), None)
+    return {"retrieval_eval": ev, "index_model": index_model, "current_chunks": current, "reg_stale": stale,
+            "reg_prod": prod, "reg_key_rows": [r for r in (prod, base) if r]}
+
+
 @router.get("/dev/quality", response_class=HTMLResponse)
 def dev_quality(request: Request):
-    """품질·성능 — 규정 검색 정확도(기계 산출물), 사업 문서 검색, 모델 비교, 추출 품질 백로그."""
-    from zzaimy.app import metrics as _metrics_mod
-    from zzaimy.app import model_compare
+    """품질·성능 — 영역마다 요약 타일 한 칸과 짧은 카드. 전체 표·설명·비교 도구는 영역마다 「자세히」 화면에."""
+    from zzaimy.app import answer_flow, model_compare
 
     st = request.app.state
-    db, db_path, h = st.db, st.db_path, st.overview
+    db, db_path = st.db, st.db_path
+    flow = answer_flow.snapshot(db, Path(db_path).parent.parent / "eval")
     return st.templates.TemplateResponse(request, "dev_quality.html", st.page_ctx(request, {
-        "retrieval_eval": h.retrieval_eval_state(),
-        # 지금 색인을 만든 임베딩 — 측정 당시 임베딩과 다르면 화면이 「옛 측정」 경고를 띄운다
-        "index_model": __import__("zzaimy.app.embed_search", fromlist=["_index_model_name"])._index_model_name(),
-        "reindex_running": h.reindex_running(),
+        **_regulation_ctx(st),
         "quality": db.quality_report_stats(),
         "quality_open": db.list_quality_reports(status="open", limit=10),
-        # 지금 규정 조각 수 — 측정 당시 조각 수와 다르면 지난 측정을 「구성 다름」으로 접는다
-        "current_chunks": _metrics_mod.live(db)["values"].get("regulation_chunks", 0),
-        # 사업 문서 검색 측정(관계 질문·풀텍스트 RAG 비교) — 결과 파일은 data/eval
-        "flow": __import__("zzaimy.app.answer_flow", fromlist=["snapshot"]).snapshot(db, Path(db_path).parent.parent / "eval"),
+        # 사업 문서 검색 측정(풀텍스트 RAG 비교) — 결과 파일은 data/eval. 첫 화면은 풀텍스트·운영 두 칸만
+        "flow": flow, "grant": answer_flow.overview(flow["compare"]),
         # 모델 비교 — 마지막 비교 실행 요약(결과 파일은 data/eval/model_compare, 자세히는 /dev/models/compare)
         "model_compare": model_compare.quality_card(db_path),
     }))
+
+
+@router.get("/dev/quality/regulation", response_class=HTMLResponse)
+def dev_quality_regulation(request: Request):
+    """규정 검색 품질 자세히 — 방식별 전체 표, 측정 방법 메모, 구성이 달라진 지난 측정."""
+    st = request.app.state
+    return st.templates.TemplateResponse(request, "dev_quality_regulation.html", st.page_ctx(request, _regulation_ctx(st)))
+
+
+@router.get("/dev/quality/grant-search", response_class=HTMLResponse)
+def dev_quality_grant(request: Request):
+    """사업 문서 검색 자세히 — 풀텍스트 RAG 비교 전체 표, 질문 하나로 세 방식 비교, 느린 까닭·직접 만든 까닭."""
+    st = request.app.state
+    flow = __import__("zzaimy.app.answer_flow", fromlist=["snapshot"]).snapshot(st.db, Path(st.db_path).parent.parent / "eval")
+    return st.templates.TemplateResponse(request, "dev_quality_grant.html", st.page_ctx(request, {"flow": flow}))
 
 
 @router.post("/dev/quality/{report_id}/done")
