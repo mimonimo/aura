@@ -1490,7 +1490,11 @@ def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
         out.append(xml[pos:])
         doc.secs[n] = "".join(out)
     if not total:
-        raise EditError(f"「{find[:30]}」 을 찾지 못했다(0곳).")
+        key = re.sub(r"\s+", " ", find).strip()
+        split = any(key in _text(doc.secs[n][s:e]) for n, s, e in _scope_spans(doc, a))
+        raise EditError(f"「{find[:30]}」 을 찾지 못했다(0곳)." + (
+            " 문서에는 있지만 글자 모양 경계로 쪼개져 있다 — 더 짧은 조각(연도·낱말 하나)으로 나눠 바꾸거나, 기안기가 열려 있으면 "
+            "hwp_action AllReplace 로 바꾼다." if split else ""))
     return doc.pack(), f"「{find[:30]}」 → 「{rep[:30]}」 {total}곳을 바꿨다."
 
 
@@ -2245,7 +2249,24 @@ class EditTools:
         out = apply(db, base, fid, fn)
         if not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "작업본 파일", "공통 양식")):
             self.hw.writes += 1
+            if name == "hwp_replace":
+                self._sync_fields(fid)
         return out
+
+    def _sync_fields(self, fid: int) -> None:
+        """파일에서 글을 바꾼 뒤 공동 편집 칸 글 표를 파일에 맞춘다 — 표에 옛 글이 남아 있으면 다음 문서 저장의 덮어 쓰기(overlay)가
+        바꾼 글을 옛 글로 되돌린다. 표에 있는 칸만 같은 칸 길(webhwp_coedit.put)로 — 열린 화면에도 그 칸이 바로 바뀐다."""
+        from zzaimy.app import webhwp_coedit as ce
+        from zzaimy.app import webhwp_write as ww
+        db = self.hw.db
+        try:
+            vals = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+            st = ce.state(db, fid)
+        except Exception:
+            return
+        diff = {k: vals[k] for k, v in st.items() if k in vals and ce.norm(vals[k]) != ce.norm(v.get("text", ""))}
+        if diff:
+            ce.put(db, fid, ce.AGENT, diff, client="aura-agent")
 
     def _image(self, ref: str) -> bytes:
         db = self.hw.db
