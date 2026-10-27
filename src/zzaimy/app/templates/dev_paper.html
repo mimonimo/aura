@@ -22,14 +22,21 @@
     .doc-layout.has-toc { grid-template-columns: minmax(0, 1fr); }
     .doc-toc { grid-column: 1; grid-row: auto; position: static; max-height: none;
                border: 1px solid var(--line); border-radius: 12px; padding: 4px 14px; }
+    .doc-toc .doc-toc-head .mini-btn { display: inline-flex; }
+    .doc-toc.is-closed > ol { display: none; }
   }
-  .doc-toc summary { list-style: none; cursor: pointer; display: flex; align-items: center;
-                     gap: 6px; padding: 6px 0; font-size: 11.5px; font-weight: 700;
-                     color: var(--faint); letter-spacing: .04em; }
-  .doc-toc summary::-webkit-details-marker { display: none; }
-  .doc-toc summary iconify-icon { font-size: 15px; transition: transform .2s var(--ease); }
-  .doc-toc[open] summary iconify-icon { transform: rotate(180deg); }
+  /* 목차 머리 — 「목차」 이름표, 좁은 폭에서만 펼치기/접기 단추(세모 없음) */
+  .doc-toc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px;
+                  font-size: 11.5px; font-weight: 700; color: var(--faint); letter-spacing: .04em; }
+  .doc-toc-head .mini-btn { display: none; }
   .doc-toc ol { list-style: none; margin: 0 0 8px; padding: 0; border-left: 2px solid var(--line); }
+  .doc-toc ol ol { margin: 0; border-left: 0; }
+  .doc-toc-row { display: flex; align-items: center; gap: 6px; }
+  .doc-toc-row > a { flex: 1 1 auto; min-width: 0; }
+  /* 아래 항목이 많은 절(예: 날짜별 기록 30개)은 접어 두고 「n개 펼치기」 — 목차 길이를 절 수만큼으로 */
+  .doc-toc-more { flex: none; border: 0; background: transparent; box-shadow: none; padding: 2px 4px; min-height: 0;
+                  font-size: 11.5px; font-weight: 600; color: var(--navy); cursor: pointer; border-radius: 6px; }
+  .doc-toc-more:hover { background: var(--panel); }
   .doc-toc li a { display: block; padding: 4px 0 4px 12px; margin-left: -2px; color: var(--muted);
                   text-decoration: none; line-height: 1.45; border-left: 2px solid transparent;
                   transition: color .2s var(--ease), border-color .2s var(--ease); }
@@ -87,14 +94,27 @@
   </div>
   <div class="doc-layout {{ 'has-toc' if doc.toc|length >= 3 else '' }}">
     {% if doc.toc|length >= 3 %}
-    <details class="doc-toc" id="docToc">
-      <summary><iconify-icon icon="solar:alt-arrow-down-linear"></iconify-icon>목차</summary>
-      <ol>
-        {% for t in doc.toc %}
-        <li class="lv{{ t.level }}"><a href="#{{ t.id }}">{{ t.text }}</a></li>
+    {# 목차 — 절(##) 아래 항목(###)이 많으면 그 절만 접는다. 묶음은 여기서 만든다(첫 항목이 ### 이면 그것이 머리) #}
+    {% set groups = [] %}
+    {% for t in doc.toc %}{% if t.level == 2 or not groups %}{% set _ = groups.append({"head": t, "kids": []}) %}{% else %}{% set _ = groups[-1].kids.append(t) %}{% endif %}{% endfor %}
+    <nav class="doc-toc" id="docToc" aria-label="목차">
+      <div class="doc-toc-head"><span>목차</span>
+        <button type="button" class="mini-btn" id="docTocFold" aria-expanded="false" aria-controls="docTocList">펼치기</button></div>
+      <ol id="docTocList">
+        {% for g in groups %}
+        {% set fold = g.kids|length > 6 %}
+        <li class="lv{{ g.head.level }}">
+          <div class="doc-toc-row"><a href="#{{ g.head.id }}">{{ g.head.text }}</a>
+            {% if fold %}<button type="button" class="doc-toc-more" aria-expanded="false" aria-controls="docTocSub{{ loop.index }}" data-n="{{ g.kids|length }}">{{ g.kids|length }}개 펼치기</button>{% endif %}</div>
+          {% if g.kids %}
+          <ol class="doc-toc-sub" id="docTocSub{{ loop.index }}"{% if fold %} hidden{% endif %}>
+            {% for t in g.kids %}<li class="lv{{ t.level }}"><a href="#{{ t.id }}">{{ t.text }}</a></li>{% endfor %}
+          </ol>
+          {% endif %}
+        </li>
         {% endfor %}
       </ol>
-    </details>
+    </nav>
     {% endif %}
     <article class="doc-body">{{ doc.html }}</article>
   </div>
@@ -127,20 +147,44 @@
   (function () {
     var toc = document.getElementById("docToc");
     if (!toc) return;
-    var wide = window.matchMedia("(min-width: 1101px)");
-    toc.open = wide.matches;                       // 넓은 폭은 펼친 채 옆에 고정, 좁으면 접이식
-    wide.addEventListener("change", function (e) { toc.open = e.matches; });
+    // 좁은 폭(목차가 본문 위)에서는 접어 두고 펼치기/접기 단추로 — 넓은 폭은 CSS 가 늘 펼쳐 둔다
+    var fold = document.getElementById("docTocFold");
+    toc.classList.add("is-closed");
+    fold.addEventListener("click", function () {
+      var closed = toc.classList.toggle("is-closed");
+      fold.setAttribute("aria-expanded", String(!closed));
+      fold.textContent = closed ? "펼치기" : "접기";
+    });
+    // 항목이 많은 절의 「n개 펼치기」
+    toc.querySelectorAll(".doc-toc-more").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var sub = document.getElementById(b.getAttribute("aria-controls"));
+        sub.hidden = !sub.hidden;
+        b.setAttribute("aria-expanded", String(!sub.hidden));
+        b.textContent = sub.hidden ? b.dataset.n + "개 펼치기" : "접기";
+        if (current) { var c = current; current = null; mark(c); }
+      });
+    });
+    // 목차를 누르면(좁은 폭) 고른 절로 가면서 목차를 접는다
+    toc.addEventListener("click", function (e) {
+      if (e.target.closest("a[href^='#']") && fold.offsetParent) { toc.classList.add("is-closed"); fold.setAttribute("aria-expanded", "false"); fold.textContent = "펼치기"; }
+    });
+    var current = null;
     var links = toc.querySelectorAll("a[href^='#']");
     var byId = {};
     links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
     var heads = document.querySelectorAll(".doc-body h4[id], .doc-body h5[id]");
     if (!("IntersectionObserver" in window) || !heads.length) return;
-    var current = null;
     function mark(id) {
       if (current === id) return;
       current = id;
       links.forEach(function (a) { a.classList.remove("on"); });
-      if (byId[id]) byId[id].classList.add("on");
+      var a = byId[id];
+      if (!a) return;
+      // 접힌 절 안의 항목이면 그 절 머리에 표시
+      var sub = a.closest(".doc-toc-sub");
+      if (sub && sub.hidden) a = sub.parentElement.querySelector(".doc-toc-row > a");
+      a.classList.add("on");
     }
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (en) { if (en.isIntersecting) mark(en.target.id); });

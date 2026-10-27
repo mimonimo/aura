@@ -12,13 +12,14 @@
   .tl { list-style: none; margin: 4px 0 0; padding: 0; }
   .tl-day { display: grid; grid-template-columns: 92px 22px minmax(0, 1fr); gap: 0 10px;
             padding-bottom: 26px; }
-  .tl-day:last-child { padding-bottom: 4px; }
+  .tl-day:last-child, .tl-day:has(+ .tl-day[hidden]) { padding-bottom: 4px; }
+  .tl-day[hidden] { display: none; }
   .tl-date { text-align: right; font-size: 13px; font-weight: 700; color: var(--navy);
              font-variant-numeric: tabular-nums; padding-top: 3px; white-space: nowrap; }
   .tl-rail { position: relative; }
   .tl-rail::before { content: ""; position: absolute; left: 50%; top: 14px; bottom: -26px;
                      width: 2px; margin-left: -1px; background: #E2E8F0; }
-  .tl-day:last-child .tl-rail::before { display: none; }
+  .tl-day:last-child .tl-rail::before, .tl-day:has(+ .tl-day[hidden]) .tl-rail::before { display: none; }
   .tl-rail::after { content: ""; position: absolute; left: 50%; top: 7px; width: 10px; height: 10px;
                     margin-left: -5px; border-radius: 50%; background: #fff;
                     border: 2px solid var(--navy); }
@@ -89,14 +90,18 @@
   {# 손으로 적는 요약(dev-now.md 「최근 작업」)이라 커밋보다 늦을 수 있다 — 빠짐없는 목록은 아래 변경 이력 #}
   <p class="muted" style="font-size:12px; margin:0 0 8px;">진행 현황 요약 · 마지막 {{ dev_now_days[0].day }}{% if history and history[0].day|length >= 10 and history[0].day[:10] > dev_now_days[0].day[:10] %} · 그 뒤는 아래 변경 이력(커밋, 마지막 {{ history[0].day }}){% endif %}</p>
   <ol class="tl">
+    {# 30일을 한 번에 늘어놓지 않는다 — 최근 7일만, 나머지는 아래 「더 보기」로 7일씩(10-27) #}
     {% for d in dev_now_days %}
-    <li class="tl-day">
+    <li class="tl-day"{% if loop.index > 7 %} hidden{% endif %}>
       <div class="tl-date">{{ d.day }}</div>
       <div class="tl-rail"></div>
       <div class="tl-body">{{ d.body | md_view }}</div>
     </li>
     {% endfor %}
   </ol>
+  {% if dev_now_days|length > 7 %}
+  <p style="margin:14px 0 0;"><button type="button" class="btn-ghost" id="tlMore">이전 기록 더 보기 <span class="muted" id="tlLeft">{{ dev_now_days|length - 7 }}일 남음</span></button></p>
+  {% endif %}
 </div></div>
 {% endif %}
 
@@ -124,6 +129,16 @@
   </details>
 </div></div>
 <script>
+(function () {
+  // 작업 기록 — 「이전 기록 더 보기」 를 누를 때마다 7일씩 더
+  var more = document.getElementById('tlMore');
+  if (more) more.addEventListener('click', function () {
+    var rest = document.querySelectorAll('.tl > .tl-day[hidden]');
+    Array.prototype.slice.call(rest, 0, 7).forEach(function (d) { d.hidden = false; });
+    var left = rest.length - Math.min(7, rest.length);
+    if (left) document.getElementById('tlLeft').textContent = left + '일 남음'; else more.parentElement.remove();
+  });
+})();
 (function () {
   // 영역 칩 — 누르면 그 영역을 건드린 커밋만 남긴다(다시 누르면 전체)
   var chips = document.querySelectorAll('.cl-areas button[data-area]');

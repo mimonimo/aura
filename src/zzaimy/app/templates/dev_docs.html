@@ -6,14 +6,8 @@
   /* 세 탭 공통 — 탭(세그먼트), 갈래 머리, 같은 크기 카드 격자, 찾기·거르기 줄, 열 맞춘 목록, 쪽 넘김.
      간격은 아래 네 값만 쓴다: 갈래 사이 24 · 제목 아래 12 · 카드 사이 12 · 카드 안 16(단추 줄 높이 32) */
   .dd-page { --dd-sec:24px; --dd-head:12px; --dd-gap:12px; --dd-pad:16px; --dd-btn:32px; }
-  .dd-tabs { display:flex; gap:3px; background:#E9EEF5; border-radius:11px; padding:3px; margin:0 0 var(--dd-sec); }
-  .dd-tabs a { flex:1 1 0; min-width:0; display:flex; align-items:center; justify-content:center; gap:6px;
-               padding:8px 10px; border-radius:9px; font-size:13px; font-weight:600; color:var(--muted);
-               text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-               transition:background .2s var(--ease), color .2s var(--ease); }
-  .dd-tabs a:hover { background:rgba(255,255,255,.6); color:var(--navy); }
-  .dd-tabs a[aria-current="page"] { background:#fff; color:var(--navy); box-shadow:0 1px 3px rgba(27,59,117,.15); }
-  .dd-tabs .n { font-size:11.5px; font-weight:600; color:var(--faint); font-variant-numeric:tabular-nums; }
+  /* 탭은 공통 .dx-tabs(base.html) — 아래 갈래와의 간격만 이 화면 값 */
+  .dd-page .dx-tabs { margin-bottom:var(--dd-sec); }
 
   .dd-sec { margin:0 0 var(--dd-sec); }
   .dd-sec > h2 { display:flex; align-items:center; gap:8px; font-size:15px; line-height:1.4; margin:0 0 var(--dd-head); }
@@ -102,7 +96,7 @@
 <div class="dd-page">
 {% set n_adr = adr_docs|length %}
 {% set n_rec = records|rejectattr('old')|list|length %}
-<nav class="dd-tabs" aria-label="문서 분류">
+<nav class="dx-tabs" aria-label="문서 분류">
 {% for key, label, n in [('current','핵심 자료', none), ('decisions','설계 결정', n_adr), ('records','기록·자료 목록', n_rec)] %}
 <a href="/dev/docs?view={{ key }}" {% if docs_view == key %}aria-current="page"{% endif %}>{{ label }}{% if n is not none %} <span class="n">{{ n }}</span>{% endif %}</a>
 {% endfor %}

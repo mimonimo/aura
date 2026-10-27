@@ -224,6 +224,8 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
     const fc = (d.items.find(x => x.key === 'failed') || {}).cleaned || 0;
     fstate.pending = d.retry_pending || 0;
     $('acFail').hidden = !fc && !fstate.pending;
+    // 정리할 것·처리 실패·되돌릴 것이 하나도 없으면 펼칠 것이 없다 — 단추를 감춘다(자리는 머리 줄 끝이라 밀림 없음)
+    $('acFold').hidden = !rows.length && !fc && !fstate.pending && !d.restorable;
     if (!$('acFailBody').hidden) loadFail();
     else $('acFailSum').textContent = `정리함 ${n(fc)}건` + (fstate.pending ? ` · 다시 읽기 대기 ${n(fstate.pending)}건` : '');
   }

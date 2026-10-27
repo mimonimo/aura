@@ -18,7 +18,7 @@
       <td class="num">{{ '%.0f%%' % (r.name * 100) if r.name is not none else '—' }}</td><td class="num">{{ '%.0f%%' % (r.model * 100) if r.model is not none else '—' }}</td></tr>{% endfor %}
     {% if flow.timing %}<tr class="flow-time"><td>검색 한 번 걸린 시간(중앙값)</td><td></td><td class="num">{{ flow.timing.name }}초</td><td class="num">{{ flow.timing.model }}초</td></tr>{% endif %}
   </table></div>
-  {% else %}<p class="muted" style="font-size:12.5px;">아직 측정하지 않았습니다. 관계 질문 측정을 돌리면 여기에 결과가 나옵니다.</p>{% endif %}
+  {% else %}<p class="muted" style="font-size:12.5px;">측정 기록 없음</p>{% endif %}
   {% endif %}
   <h4 class="extract-h">풀텍스트 RAG 와 비교 <span class="muted" style="font-weight:400; font-size:12px;">{% if flow.compare %}{{ flow.compare.made }} · {{ flow.compare.file }} · 같은 시험지 — 절 질문 {{ flow.compare.n_sec }} · 관계 질문 {{ flow.compare.n_rel }}{% if flow.compare.n_ans %} · 답변 {{ flow.compare.n_ans }}문{% endif %}, 그래프에서 자동으로 뽑은 질문{% endif %}</span></h4>
   {% if flow.compare %}
@@ -31,4 +31,4 @@
   <p class="muted" style="font-size:12px; margin:0 0 8px;">차이는 ① 풀텍스트 RAG 에서 운영 방식으로 바꿨을 때 — 초록은 나아짐, 빨강은 나빠짐(시간·근거 밖 숫자는 낮을수록 좋음).</p>
   {% if flow.compare.latest %}<p class="muted" style="font-size:12px; margin:0 0 8px;">최근 단독 측정 {{ flow.compare.latest.made }} · {{ flow.compare.latest.mode }} · 시험지 {{ flow.compare.latest.set }} —
     {% for k, v in flow.compare.latest.vals %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %} (시험지가 달라 위 표와 섞지 않음)</p>{% endif %}
-  {% else %}<p class="muted" style="font-size:12.5px;">측정 전 — scripts/188 을 돌리면 여기에 나옵니다.</p>{% endif %}
+  {% else %}<p class="muted" style="font-size:12.5px;">측정 기록 없음 · scripts/188</p>{% endif %}

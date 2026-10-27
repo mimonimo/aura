@@ -368,14 +368,18 @@
             box-shadow: 0 1px 3px rgba(27,59,117,.15); }
   .tab-pane { display: none; }
   .tab-pane.on { display: block; }
-  /* 화면 탭(주소로 넘기는 탭) — 데이터·학습이 쓴다 */
-  .dx-tabs { display: flex; gap: 4px; background: #f3f4f6; border-radius: 11px; padding: 5px;
-             margin: 0 0 24px; width: max-content; max-width: 100%; overflow-x: auto; }
-  .dx-tabs a { text-decoration: none; color: var(--muted); font-size: 13px; font-weight: 600;
-               padding: 8px 18px; border-radius: 9px; white-space: nowrap;
+  /* 화면 탭(주소로 넘기는 탭) — 개발 화면 공통(데이터·학습·논문·설계 문서·개인정보). 같은 화면 안 탭(.tabbar)과
+     같은 꼴: 본문 폭을 다 쓰고 탭은 같은 폭으로 나눈다. 좁으면 글자 폭까지만 줄고 가로로 넘긴다 */
+  .dx-tabs { display: flex; gap: 3px; background: #E9EEF5; border-radius: 11px; padding: 3px;
+             margin: 0 0 16px; overflow-x: auto; scrollbar-width: none; }
+  .dx-tabs a { flex: 1 1 0; min-width: max-content; display: flex; align-items: center; justify-content: center; gap: 6px;
+               text-decoration: none; color: var(--muted); font-size: 13px; font-weight: 600;
+               padding: 8px 14px; border-radius: 9px; white-space: nowrap;
                transition: background .25s var(--ease), color .25s var(--ease); }
   .dx-tabs a:hover { background: rgba(255,255,255,.6); color: var(--navy); }
-  .dx-tabs a.on { background: #fff; color: var(--navy); box-shadow: 0 1px 3px rgba(27,59,117,.15); }
+  .dx-tabs a.on, .dx-tabs a[aria-current="page"] { background: #fff; color: var(--navy); box-shadow: 0 1px 3px rgba(27,59,117,.15); }
+  .dx-tabs a:focus-visible { outline: 2px solid #607c9e; outline-offset: -2px; }
+  .dx-tabs .n { font-size: 11.5px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; }
   pre.doc-text { white-space: pre-wrap; font-family: inherit; font-size: 14px;
                  line-height: 1.8; background: var(--panel); border: 1px solid #EDF2F7;
                  border-radius: 12px; padding: 15px 17px; max-height: 440px;

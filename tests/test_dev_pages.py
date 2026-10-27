@@ -83,7 +83,8 @@ def test_design_doc_has_no_export_buttons(client):
 def test_dev_dashboard_labels(client):
     r = client.get("/dev")
     assert r.status_code == 200
-    assert "등록 문서" in r.text and "규정 문단" in r.text   # 규모 타일
+    assert "등록 문서" in r.text and 'href="/dev/flow"' in r.text   # 규모는 등록 문서 한 줄 + 단계별 수치는 처리 흐름으로
+    assert "규정 문단" not in r.text.split('id="paneBuild"', 1)[0]       # 단계별 수는 되풀이하지 않는다(10-27)
     assert "구축 현황" in r.text and "영역별 완료 비율" in r.text and "진행 현황" in r.text
     # 허브 — 상세 카드는 전용 페이지로 갔고, 바로가기 카드만 남는다
     for link in ("/dev/quality", "/dev/docs", "/dev/history", "/dev/train", "/dev/pii"):

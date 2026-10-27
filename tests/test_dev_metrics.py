@@ -104,8 +104,7 @@ def test_num():
 def test_dev_pages_show_metric_definitions(client):
     page = client.get("/dev").text
     assert "등록된 문서 전부" in page                       # 등록 문서 타일의 정의 툴팁
-    assert "문서에서 뽑은 개체" in page and "개체(그래프)" not in page
-    assert "그래프 노드" in page and "지식그래프와 별개" in page
+    assert "개체(그래프)" not in page and "그래프 노드" not in page.split('id="paneBuild"', 1)[0]   # 단계별 수는 처리 흐름에만(10-27)
     assert "/graph\"" not in page                         # 404 였던 그래프 링크
     lib = client.get("/?type=all").text
     assert "지금 계정이 볼 수 있는 등록 문서" in lib
@@ -246,8 +245,9 @@ def test_project_tile_counts_active_projects_only(client, tmp_path):
     metrics._cache.update(at=0.0, path=None, data=None)
     got = metrics.live(db, force=True)["values"]
     assert got["projects_active"] == 1 and got["projects_archived"] == 3
-    page = client.get("/dev").text
-    assert "프로젝트 1" in page and "지난 사업 묶음 3개는 별도" in page
+    # 개발 현황 화면은 등록 문서 한 줄만 보인다(10-27) — 프로젝트 수는 규모 요약(주간 보고 등)에 그대로 남는다
+    tiles = {t["label"]: t for t in client.app.state.overview.data_overview()["tiles"]}
+    assert tiles["프로젝트"]["value"] == 1 and "지난 사업 묶음 3개는 별도" in tiles["프로젝트"]["sub"]
 
 
 def test_dev_role_label_comes_from_access_guard(client):

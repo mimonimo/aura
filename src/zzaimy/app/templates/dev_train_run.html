@@ -17,6 +17,9 @@
   .tr-chart svg { width:100%; height:120px; display:block; }
   .tr-runs { display:flex; flex-wrap:wrap; gap:6px; }
 </style>
+<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <a href="/dev/train" class="btn-ghost">← {{ dev_page_name('/dev/train') }}</a>
+</p>
 <section class="card"><div class="card-in">
   <div class="tr-head">
     <h2>학습 점검{% if run %} · {{ run.name }}{% endif %}</h2>

@@ -230,7 +230,10 @@
   {% endif %}
 </div></div>
 {% else %}
-<p class="muted" id="model-compare" style="font-size:12.5px; margin:4px 4px 12px;">모델 비교 — 아직 비교 실행 결과 없음</p>
+<div class="card reveal" id="model-compare"><div class="card-in">
+  <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>모델 비교</h2>
+  <p class="muted" style="font-size:12.5px; margin:0;">아직 비교 실행 결과 없음</p>
+</div></div>
 {% endif %}
 
 {% if quality_open %}{# 예전에 문서 화면에서 신고한 추출 문제 가운데 남은 것 — 있을 때만 보인다(신고 단추는 없앴다) #}

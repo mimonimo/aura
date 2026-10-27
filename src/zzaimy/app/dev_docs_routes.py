@@ -579,6 +579,11 @@ def make_docs_helpers(_DOCS_DIR: Path, db_path, *, _dev_read, _md_view, _data_ov
     )
 
 
+# 핵심 자료의 화면 이름 — 논문·설계 문서 카드와 열람 화면 제목이 같은 이름을 쓴다
+DOC_LABELS = {"dev-now.md": "진행 현황", "HANDOFF.md": "인수인계", "architecture.md": "시스템 설계",
+              "model-plan.md": "모델 개발 계획"}
+
+
 @router.get("/dev/doc/{name:path}", response_class=HTMLResponse)
 def dev_doc(request: Request, name: str):
     h = request.app.state.docs
@@ -594,9 +599,12 @@ def dev_doc(request: Request, name: str):
     if name not in allowed:
         raise HTTPException(404)
     fname = name.rsplit("/", 1)[-1]
+    doc = h.dev_doc_view(h.dev_read(name), fname)
+    if doc["title"] == fname and name in DOC_LABELS:
+        doc["title"] = DOC_LABELS[name]      # 첫 줄 제목(# )이 없는 문서(dev-now.md)는 목록 카드와 같은 이름으로
     return request.app.state.templates.TemplateResponse(request, "dev_paper.html", request.app.state.page_ctx(request, {
         "fname": fname,
-        "doc": h.dev_doc_view(h.dev_read(name), fname),
+        "doc": doc,
         "papers": h.dev_papers(),
         # 설계·기술 문서는 논문 자료가 아니라 hwpx·docx 내보내기가 없다
         "show_export": False, "page_title": "설계·기술 문서",
@@ -831,9 +839,7 @@ def dev_docs(request: Request, view: str = "current", q: str = ""):
     _today = _date.today()
     monday = (_today - _td(days=_today.weekday())).isoformat()
     papers = {p["file"]: entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"]) for p in h.dev_papers()}
-    first_reads = [entry("dev-now.md", "/dev/doc/dev-now.md", "진행 현황"),
-                   entry("HANDOFF.md", "/dev/doc/HANDOFF.md", "인수인계"),
-                   entry("architecture.md", "/dev/doc/architecture.md", "시스템 설계")]
+    first_reads = [entry(f, f"/dev/doc/{f}", DOC_LABELS[f]) for f in ("dev-now.md", "HANDOFF.md", "architecture.md")]
     if "논문-원재료.md" in papers:
         first_reads.append(papers["논문-원재료.md"])
     # 기록·자료 목록 — 갈래별로 모아 한 목록(날짜 최근 순). 「지난 기록」 고지가 붙은 것은 접어 둔다
@@ -870,7 +876,7 @@ def dev_docs(request: Request, view: str = "current", q: str = ""):
         "paper_docs": [d for f, d in papers.items()
                        if f not in PAPER_PLANNING and f != "논문-원재료.md" and not d["old"]],
         "paper_hwp": _paper_hwp(request),
-        "plan_doc": entry("model-plan.md", "/dev/doc/model-plan.md", "모델 개발 계획"),
+        "plan_doc": entry("model-plan.md", "/dev/doc/model-plan.md", DOC_LABELS["model-plan.md"]),
         "adr_docs": adrs,
         "adr_topics": [t for t in dict.fromkeys(d["topic"] for d in adrs) if t],
         "records": records,

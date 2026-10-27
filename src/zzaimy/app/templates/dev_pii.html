@@ -3,7 +3,7 @@
 {% block pagetitle %}{{ dev_page_name('/dev/pii') }}{% endblock %}
 {% block head %}
 <style>
-.privacy-page{max-width:1200px;margin:0 auto;min-width:0}
+.privacy-page{min-width:0}
 .privacy-page .card{margin-bottom:20px}
 .privacy-page h2{flex-wrap:wrap;gap:12px}
 .privacy-page .pill{display:inline-flex;white-space:nowrap;flex-shrink:0;line-height:1.5;margin:2px;width:max-content;max-width:none}
@@ -27,12 +27,7 @@
 .privacy-record h3{font-size:14px;margin:0 0 6px}.privacy-record p{font-size:13px;line-height:1.7;margin:0 0 6px}.privacy-record > div:empty{display:none}
 .privacy-page .table-scroll{overflow-x:auto}
 .privacy-page table{min-width:640px}
-/* 탭 — 다른 화면과 같은 밑줄 탭 */
-.privacy-nav{display:flex;gap:2px;margin:12px 0 20px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
-.privacy-nav a{padding:8px 12px;margin-bottom:-1px;font-size:13.5px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
-.privacy-nav a:hover{color:var(--ink)}
-.privacy-nav a[aria-current=page]{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
-.privacy-nav a:focus-visible{outline:2px solid #416ca4;outline-offset:3px}
+/* 탭은 공통 .dx-tabs(base.html) */
 .privacy-notice{padding:14px 16px;background:#fff8eb;border:1px solid #ead9b9;border-radius:12px;line-height:1.7;margin:16px 0}
 .privacy-principles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}
 .privacy-principles:has(>article:nth-child(2):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -40,11 +35,10 @@
 .privacy-principles h3{font-size:15px;margin:0 0 10px}
 .privacy-principles p{margin:0;line-height:1.7;font-size:13px}
 .privacy-page .privacy-help{font-size:13px;line-height:1.7;color:var(--muted)}
-.privacy-principle{margin:0 0 12px}
 /* 과거 처리 기록 찾기 줄 — 저장소·문서명·유형·조회 */
 .privacy-filter{margin:0 0 16px}
 .privacy-filter input[type=text]{max-width:360px}
-@media(max-width:760px){.privacy-principles{grid-template-columns:1fr}.privacy-page h2 form{margin-left:0!important}.privacy-nav a{flex:1;text-align:center;padding:10px 6px}.privacy-page .card-in{padding:18px}}
+@media(max-width:760px){.privacy-principles{grid-template-columns:1fr}.privacy-page h2 form{margin-left:0!important}.privacy-page .card-in{padding:18px}}
 @media(max-width:760px){.privacy-principles:has(>article:nth-child(2):last-child){grid-template-columns:1fr}}
 </style>
 {% endblock %}
@@ -52,16 +46,17 @@
 {% set selected = request.query_params.get('view', 'policy') %}
 {% if selected not in ['policy', 'checks', 'history'] %}{% set selected = 'policy' %}{% endif %}
 <div class="privacy-page">
-<nav class="privacy-nav" aria-label="개인정보 점검 메뉴">
+<nav class="privacy-nav dx-tabs" aria-label="개인정보 점검 메뉴">
 {% for key, label in [('policy','처리 정책'),('checks','점검 도구'),('history','과거 처리 기록')] %}
 <a href="/dev/pii?view={{ key }}" {% if selected == key %}aria-current="page"{% endif %}>{{ label }}</a>
 {% endfor %}
 </nav>
-{% if selected == 'policy' %}<p class="privacy-help privacy-principle">처리 원칙 · 기준 문서(규정·지침·공고)는 원문 그대로 두고, 그 밖의 문서는 내부 마스킹 설정을 따릅니다 — <a href="/dev/doc/decisions/0006-criteria-no-masking.md">ADR-0006</a></p>{% endif %}
 
 {% if selected == 'policy' %}
 <div class="card"><div class="card-in">
-  <h2>내부 마스킹 설정</h2>
+  <h2><iconify-icon icon="solar:shield-user-linear"></iconify-icon>내부 마스킹 설정
+    <a href="/dev/doc/decisions/0006-criteria-no-masking.md" class="h-link">ADR-0006</a></h2>
+  <p class="privacy-help" style="margin:0;">기준 문서(규정·지침·공고)는 원문 그대로, 그 밖의 문서는 이 설정을 따름</p>
   {% if request.query_params.get('saved') %}<p role="status">설정을 저장했습니다. 이후 처리부터 적용됩니다.</p>{% endif %}
   <form method="post" action="/dev/pii/policy" id="privacyPolicyForm">
   <input type="hidden" name="enabled" id="privacyEnabledValue" value="{{ 'on' if internal_policy.enabled else 'off' }}">

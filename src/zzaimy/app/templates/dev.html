@@ -4,6 +4,11 @@
 {% block head %}<link rel="stylesheet" href="/static/dev-topology.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
 <style>
+  .dev-scale { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin:4px 0 0; font-size:13px; }
+  .dev-scale b { font-variant-numeric:tabular-nums; }
+  .dev-scale .muted { font-size:12.5px; }
+  .dev-scale a { margin-left:auto; font-size:12.5px; color:var(--navy); text-decoration:none; }
+  .dev-scale a:hover { text-decoration:underline; }
   .feat-area { margin: 0 0 14px; }
   .feat-list-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 0; }
   .feat-list:not(.show-done) .feat-row.is-done, .feat-list:not(.show-done) .feat-area.all-done { display: none; }
@@ -68,19 +73,20 @@
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:target-linear"></iconify-icon>프로젝트 현황
     <a href="/dev/history" class="h-link"><iconify-icon icon="solar:history-linear"></iconify-icon>변경 이력</a></h2>
-  {# 규모 요약 — 큰 숫자 블록 대신 한 줄. 수치는 _data_overview() #}
-  <div style="display:flex; gap:6px 8px; flex-wrap:wrap; align-items:center; margin-top:4px; font-size:12.5px;">
-    <span class="muted" style="font-weight:600;">현재 규모</span>
-    {% for t in overview.tiles %}
-    <span class="pill" title="{{ t.sub }}{% if t.metric %} — {{ metric_tip(t.metric) }}{% endif %}" style="font-variant-numeric:tabular-nums;">{{ t.label }} {{ "{:,}".format(t.value) }}</span>
-    {% endfor %}
-  </div>
+  {# 규모는 등록 문서 한 줄만 — 단계별 수(조각·색인·그래프·규정 문단 …)는 처리 흐름 화면이 정본이라 여기서 되풀이하지 않는다(10-27).
+     수치는 _data_overview() 의 첫 타일(지표 documents) #}
+  {% set t = overview.tiles[0] %}
+  <p class="dev-scale">
+    <span title="{{ t.sub }}{% if t.metric %} — {{ metric_tip(t.metric) }}{% endif %}">{{ t.label }} <b>{{ "{:,}".format(t.value) }}</b></span>
+    <span class="muted">{{ t.sub }}</span>
+    <a href="/dev/flow">단계별 수치 — {{ dev_page_name('/dev/flow') }}</a>
+  </p>
 
   {# 문서 수의 단계별 흐름은 처리 흐름 화면의 1·3단계 수치가 정본 — 여기서는 되풀이하지 않는다 #}
   {% include "dev-topology.html" %}
 
   {# 구축 현황(기능 상태표)과 진행 현황(dev-now.md 서술)은 원천이 달라 탭으로 나란히 둔다 #}
-  <div class="tabbar" style="max-width:520px; margin:18px 0 14px;">
+  <div class="tabbar" style="margin-top:18px;">
     <button type="button" class="on" data-tab="paneBuild">구축 현황</button>
     <button type="button" data-tab="paneNow">진행 현황</button>
   </div>
@@ -133,7 +139,6 @@
   </div>
   <div id="paneNow" class="tab-pane">
   <div>{{ dev_now | for_people | md_view }}</div>
-  <p style="margin:10px 0 0;"><a href="/dev/history" class="btn-ghost">날짜별 작업 기록 — 변경 이력</a></p>
   </div>
 </div></div>
 

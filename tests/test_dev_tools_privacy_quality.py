@@ -71,7 +71,7 @@ def test_pii_tab_bar_comes_first_on_every_tab(client):
     for view in ("policy", "checks", "history"):
         page = client.get(f"/dev/pii?view={view}").text
         body = page.split('<div class="privacy-page">', 1)[1]
-        assert body.lstrip().startswith('<nav class="privacy-nav"'), view
+        assert body.lstrip().startswith('<nav class="privacy-nav'), view
         assert "외부 연결" not in body.split("</nav>", 1)[0]
 
 

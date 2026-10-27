@@ -22,7 +22,8 @@
 </style>
 
 <section class="card"><div class="card-in">
-  <h2 id="intake"><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>반입 점검 — 학교 원본에서 라이브러리까지</h2>
+  <h2 id="intake"><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>반입 점검 — 학교 원본에서 라이브러리까지
+    <a href="/dev/archive" class="h-link">{{ dev_page_name('/dev/archive') }}</a></h2>
   {% if not p %}
   <p class="muted">점검 결과 없음 · 동기화 때 자동으로 점검합니다</p>
   {% else %}
@@ -57,14 +58,11 @@
 
 <section class="card"><div class="card-in">
   <h2>{{ metric_label("archive_files", p.at, "원본 파일 구성") }}</h2>
-  <style>.ik-table .ik-quiet td{color:var(--muted);font-size:12px}</style>
   <table class="ik-table">
     {% for r in p.rows | selectattr("school") %}
     <tr><td>{{ r.label }}<span class="ik-school">학교 원본</span></td><td class="n">{{ "{:,}".format(r.n) }}</td></tr>
     {% endfor %}
-    {% for r in p.rows | rejectattr("school") %}
-    <tr class="ik-quiet"><td>{{ r.label }}<span class="muted" style="font-size:11px;"> · 처리하지 않음</span></td><td class="n">{{ "{:,}".format(r.n) }}</td></tr>
-    {% endfor %}
+    {# 처리하지 않는 파일의 갈래별 수는 위 「처리 안 함」 한 줄과 원본 관리(범위·형식 거르기)에 있다 — 여기서 되풀이하지 않는다(10-27) #}
   </table>
   <p class="muted" style="font-size:12px;margin:8px 0 0;">지출·증빙·정산 문서는 범위 밖</p>
 </div></section>
