@@ -204,7 +204,7 @@ def test_aura_makes_form_then_writes_sections_in_order(tmp_path, monkeypatch):
     monkeypatch.setattr(wa.HwpTools, "STREAM_PACE", 0.001)
     sc = demo.scenario()
     answers = [json.dumps(DESIGN, ensure_ascii=False),
-               json.dumps({"칸:사업명": sc["사업명"], "칸:사업 기간": sc["사업 기간"], "칸:총사업비": sc["총사업비"], "칸:없는 칸": "x"}, ensure_ascii=False),
+               json.dumps({"사업명": sc["사업명"], "칸:사업 기간": sc["사업 기간"], "총 사업비": sc["총사업비"], "없는 칸": "x"}, ensure_ascii=False),   # 27B 는 앞머리 없이·띄어 쓰기 달리 답하기도 한다(10-27 운영)
                BODY.replace("120명", "300명"),          # 1절 첫 초안 — 설정에 없는 수치(300) → 관문이 막는다
                BODY, BODY, BODY]                        # 2절 초안(미리), 1절 고쳐 쓰기, 3절
     client = FakeClient(answers)

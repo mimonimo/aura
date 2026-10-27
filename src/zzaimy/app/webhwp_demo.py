@@ -484,9 +484,14 @@ class DemoRun:
         if not cells:
             return []
         self.step("요약 칸 채우는 중")
-        raw = self.ask(FILL_SYSTEM, "칸: " + ", ".join(cells) + "\n가상 사업 설정:\n" + scenario_text(), out_tokens=600, temperature=0.1)
-        vals = fc.parse_design(raw) or {}
-        vals = {k: str(v) for k, v in vals.items() if k in cells and str(v or "").strip()}
+        # 27B 에는 보이는 이름(「사업명」)으로 묻고, 답의 이름은 앞머리(「칸:」)가 있든 없든·띄어쓰기가 달라도 그 칸으로 맞춘다 —
+        # 칸 이름 그대로만 받으니 27B 가 「사업명」 으로 답한 값이 모두 버려져 요약 표가 빈 채로 남았다(10-27 운영)
+        shown = {c.split(":", 1)[-1].strip(): c for c in cells}
+        key = lambda t: re.sub(r"\s+", "", str(t or "")).split(":", 1)[-1]
+        by_key = {key(c): c for c in cells}
+        raw = self.ask(FILL_SYSTEM, "칸: " + ", ".join(shown) + "\n가상 사업 설정:\n" + scenario_text(), out_tokens=600, temperature=0.1)
+        got = fc.parse_design(raw) or {}
+        vals = {by_key[key(k)]: str(v) for k, v in got.items() if key(k) in by_key and str(v or "").strip()}
         if not vals:
             return []
         out = self.hw.fill({"values": vals, "from_user": True})
