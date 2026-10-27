@@ -716,9 +716,15 @@ async def hwp_opened(request: Request, fid: int):
 
 @router.post("/hwp/{fid}/presence")
 async def hwp_presence(request: Request, fid: int):
-    """같은 문서를 연 사람 표시 — 편집 화면이 커서 칸이 바뀔 때·몇 초마다 알린다(공동 편집 표, 바뀌면 알림 흐름으로 다른 화면에)."""
+    """같은 문서를 연 사람 표시 — 편집 화면이 커서 칸이 바뀔 때·몇 초마다 알린다(공동 편집 표, 바뀌면 알림 흐름으로 다른 화면에).
+    없는(지웠거나 볼 수 없는) 문서는 조용히 넘긴다 — 시연 「새 빈 문서」 처럼 문서가 바뀌는 사이 옛 창이 보낸 것이다(people 이 없어 화면은 그대로)."""
     _need_staff(request)
-    _file(request, fid)
+    try:
+        _file(request, fid)
+    except HTTPException as e:
+        if e.status_code == 404:
+            return {"ok": False, "gone": True}
+        raise
     from starlette.concurrency import run_in_threadpool
     from zzaimy.app import webhwp_coedit as ce
     try:

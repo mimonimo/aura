@@ -208,7 +208,12 @@ async def hwp_lease(request: Request, fid: int):
 
 @router.post("/hwp/{fid}/leave")
 async def hwp_leave(request: Request, fid: int):
-    _readable(request, fid)
+    try:
+        _readable(request, fid)
+    except HTTPException as e:       # 창을 닫는 사이 문서가 지워졌다(시연 「새 빈 문서」) — 뺄 것도 없으니 조용히
+        if e.status_code == 404:
+            return {"ok": False, "gone": True}
+        raise
     body = await _json(request)
     raw = body.get("client") or request.query_params.get("client") or ""
     client = _client(raw) if raw else ""

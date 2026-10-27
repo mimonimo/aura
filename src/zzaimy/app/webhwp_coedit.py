@@ -1016,13 +1016,11 @@ def presence(db, fid: int, user: str, client: str, field: str, page: int = 0) ->
     changed = False
     with db._conn() as conn:
         row = conn.execute("SELECT field, at, page FROM webhwp_presence WHERE fid = ? AND client = ?", (int(fid), ck)).fetchone()
-        if row:
-            changed = row[0] != field or int(row[2] or 0) != page or now - float(row[1] or 0) > conf(db, "presence_ttl")
-            conn.execute("UPDATE webhwp_presence SET field = ?, at = ?, page = ? WHERE fid = ? AND client = ?", (field, now, page, int(fid), ck))
-        else:
-            changed = True
-            conn.execute("INSERT INTO webhwp_presence (fid, client, user_id, field, at, page) VALUES (?, ?, ?, ?, ?, ?)",
-                         (int(fid), ck, user, field, now, page))
+        changed = not row or row[0] != field or int(row[2] or 0) != page or now - float(row[1] or 0) > conf(db, "presence_ttl")
+        # 한 줄 쓰기(upsert) — 같은 창의 presence 두 개가 함께 오면 둘 다 「없음」 을 보고 INSERT 해 기본 키가 겹쳤다(500)
+        conn.execute("INSERT INTO webhwp_presence (fid, client, user_id, field, at, page) VALUES (?, ?, ?, ?, ?, ?)"
+                     " ON CONFLICT (fid, client) DO UPDATE SET field = excluded.field, at = excluded.at, page = excluded.page",
+                     (int(fid), ck, user, field, now, page))
     if changed:
         emit(db, fid, "presence", {"user": user, "client": client, "field": field, "page": page})
 

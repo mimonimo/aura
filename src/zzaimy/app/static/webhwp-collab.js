@@ -73,6 +73,88 @@
     };
   }
 
+  // ── 알림 흐름 나눠 쓰기 ──
+  // 알림 흐름(SSE)은 끝없이 열려 있는 요청이다. 크롬은 HTTP/1.1 한 출처에 연결을 6개까지만 열어, 편집 화면마다 하나씩 열면 세 칸 시연 탭 둘로
+  // 꽉 차 다른 요청(AURA 단추·상태 읽기·칸 보내기)이 브라우저 안에서 줄만 서고 나가지 않았다. 그래서 같은 브라우저에서는 문서마다 한 화면(이끄미)만
+  // EventSource 를 열고, 받은 알림 원문을 BroadcastChannel 로 같은 문서를 연 다른 화면(iframe·탭)에 넘긴다. 이끄미는 Web Locks 로 정한다 —
+  // 이끄미 창이 닫히면 락이 풀려 기다리던 화면이 이어받고 마지막 알림 번호(last) 뒤부터 받는다. 채널이 오래 조용하면(이끄미가 얼었거나 연결이
+  // 반쯤 죽음) 락을 빼앗아 이어받는다. 둘 중 하나라도 없는 브라우저에서는 예전처럼 화면마다 따로 연다.
+  var KINDS = ['field-updated', 'lock-changed', 'lock-wanted', 'presence', 'doc-saved', 'aura', 'beat'];
+  var STALE_MS = 45000, FOLLOW_STALE_MS = 30000, hubs = {};
+  function eventHub(url, key) {
+    if (hubs[key]) return hubs[key];
+    var shared = !!(window.BroadcastChannel && window.navigator && navigator.locks && navigator.locks.request && window.AbortController);
+    var subs = [], es = null, leading = false, lastSeen = 0, heardAt = now(), opened = false, ch = null, cur = null, watch = null, seen = {}, seenQ = [];
+    var lockName = 'aura-sse-' + key, jitter = Math.floor(Math.random() * 5000);
+    function last() { var v = lastSeen; subs.forEach(function (s) { v = Math.max(v, +(s.last && s.last()) || 0); }); return v; }
+    function deliver(m) {
+      if (!m || typeof m !== 'object') return;
+      heardAt = now();
+      if (m.id) {                                     // 이끄미가 바뀌는 틈에 같은 알림이 두 번 와도 한 번만
+        if (seen[m.id]) return;
+        seen[m.id] = 1; seenQ.push(m.id); if (seenQ.length > 500) delete seen[seenQ.shift()];
+        lastSeen = Math.max(lastSeen, m.id);
+      }
+      subs.slice().forEach(function (s) { try { s.msg(m); } catch (e) { console.warn(e); } });
+    }
+    function out(m) { deliver(m); if (ch) { try { ch.postMessage(m); } catch (e) {} } }
+    function open(again) {
+      if (es) es.close();
+      var mine = es = new EventSource(url + (last() ? '?last=' + last() : ''));
+      var reopened = !!again;
+      heardAt = now();
+      mine.onopen = function () { if (es !== mine) return; heardAt = now(); opened = true; out({t: 'open', again: reopened}); reopened = false; };
+      mine.onerror = function () { if (es !== mine) return; reopened = true; if (mine.readyState === 2) setTimeout(function () { if (es === mine && leading) open(true); }, 2000); };
+      KINDS.forEach(function (k) {
+        mine.addEventListener(k, function (ev) { if (es === mine) out({t: 'ev', kind: k, data: ev.data, id: k === 'beat' ? 0 : (+ev.lastEventId || 0)}); });
+      });
+    }
+    function lead(tok) {
+      return function () {
+        if (cur !== tok) return;                      // 그사이 빼앗기로 바꿨다 — 바로 놓는다
+        leading = true;
+        open(opened || lastSeen > 0);                 // 이어받기면 모든 화면이 서버 정답을 다시 맞춘다(옛 이끄미가 끊긴 틈)
+        return new Promise(function () {});           // 창이 닫히거나 빼앗길 때까지 쥔다
+      };
+    }
+    function settled(tok) {                           // 락을 빼앗겼거나(AbortError) 기다리던 요청을 거뒀다
+      return function () {
+        if (cur !== tok) return;
+        leading = false;
+        if (es) { es.close(); es = null; }
+        heardAt = now();
+        queue();
+      };
+    }
+    function queue() {
+      var tok = cur = {ac: new AbortController()};
+      navigator.locks.request(lockName, {signal: tok.ac.signal}, lead(tok)).then(settled(tok), settled(tok));
+    }
+    function steal() {
+      var old = cur, tok = cur = {};
+      if (old && old.ac) old.ac.abort();
+      heardAt = now();
+      navigator.locks.request(lockName, {steal: true}, lead(tok)).then(settled(tok), settled(tok));
+    }
+    function start() {
+      if (shared) {
+        try { ch = new BroadcastChannel('aura-ev-' + key); } catch (e) { ch = null; shared = false; }
+      }
+      if (shared) { ch.onmessage = function (e) { if (!leading) deliver(e.data); }; queue(); }
+      else { leading = true; open(false); }
+      watch = setInterval(function () {
+        var quiet = now() - heardAt;
+        if (leading) { if (es && quiet > STALE_MS) open(true); }       // 서버가 15초마다 beat 를 보낸다 — 45초 조용하면 새로 붙는다
+        else if (shared && quiet > FOLLOW_STALE_MS + jitter) steal();   // 이끄미가 beat 를 넘기지 않는다 — 이어받는다
+      }, 5000);
+    }
+    var hub = hubs[key] = {
+      add: function (s) { subs.push(s); if (!watch) start(); },
+      state: function () { return {shared: shared, leading: leading, open: !!es, last: last(), subs: subs.length}; }
+    };
+    return hub;
+  }
+
   function engine(o) {
     var hwp = o.hwp, fid = o.fid, me = o.me, base = '/hwp/' + fid, client = clientId(), idb = store();
     var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 1, aura_ttl: 20, form_mode: 0, field_max: 1000000};
@@ -85,7 +167,7 @@
     var lastEdit = {f: "", at: 0}, typedAt = 0;                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
     var inbox = {}, applyTimer = null, applying = false;
     var settled = {};   // 지문이 달라 서버 글로 바로잡은 칸의 판 — 같은 판은 한 번만(표·특수 문자로 넣어도 지문이 끝내 안 맞는 칸을 30초마다 다시 넣어 화면이 얼던 것, 10-27 긴 양식)
-    var online = true, retryTimer = null, retryMs = 1000, es = null, lastId = 0, readonly = !!o.readonly;
+    var online = true, retryTimer = null, retryMs = 1000, lastId = 0, readonly = !!o.readonly;
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
     var reloading = false;   // 새 판을 다시 여는 동안(suspend → reopened) — 칸 수가 바뀐 것을 칸 밖 고침으로 잘못 알아채지 않게(10-26 양식 불러오기 뒤 저절로 문서 잠금)
     var handlers = {}, aura = {};
@@ -483,18 +565,11 @@
 
     // ── 알림 흐름 ──
     // 연결이 조용히 죽으면(망이 잠깐 끊긴 뒤 반쯤 열린 채) EventSource 는 오류를 내지 않는다 — 서버가 BEAT 마다 보내는 beat 알림이
-    // STALE_MS 동안 하나도 오지 않으면 새로 붙고 서버 정답을 다시 맞춘다(놓친 「문서 저장」 은 last 뒤 알림으로 다시 온다)
-    var heardAt = now(), STALE_MS = 45000, watch = null;
-    function connect(again) {
-      if (es) es.close();
-      es = new EventSource(base + '/events' + (lastId ? '?last=' + lastId : ''));
-      var reopened = !!again;
-      heardAt = now();
-      es.onopen = function () { heardAt = now(); if (reopened) { online = true; status(); resync(false); send(); } reopened = false; };
-      es.onerror = function () { reopened = true; if (es.readyState === 2) setTimeout(function () { connect(true); }, 2000); };
-      es.addEventListener('beat', function () { heardAt = now(); });
-      if (!watch) watch = setInterval(function () { if (es && now() - heardAt > STALE_MS) connect(true); }, 5000);
-      function h(kind, fn) { es.addEventListener(kind, function (ev) { heardAt = now(); lastId = Math.max(lastId, +ev.lastEventId || 0); var d = {}; try { d = JSON.parse(ev.data); } catch (e) {} learn(d); fn(d); }); }
+    // STALE_MS 동안 하나도 오지 않으면 새로 붙고 서버 정답을 다시 맞춘다(놓친 「문서 저장」 은 last 뒤 알림으로 다시 온다).
+    // 연결은 같은 브라우저의 같은 문서 화면들이 나눠 쓴다(eventHub) — 받은 알림을 다루는 길은 화면마다 그대로다(내 창이 보낸 것 거르기 포함)
+    var H = {};
+    function connect() {
+      function h(kind, fn) { H[kind] = fn; }
       h('field-updated', function (d) {
         if (d.client === client && d.by === me) return;    // 내 창이 보낸 것(창 번호만으로는 남의 글을 놓칠 수 있어 사람도 본다)
         var f = d.field, k = known[f];
@@ -534,6 +609,13 @@
       });
       h('doc-saved', function (d) { if (d.by !== me) emit('doc-saved', d); });
       h('aura', function (d) { setAura(d.field ? d : {}, d.ttl); });
+      eventHub(base + '/events', String(fid)).add({last: function () { return lastId; }, msg: function (m) {
+        if (m.t === 'open') { if (m.again) { online = true; status(); resync(false); send(); } return; }
+        if (m.t !== 'ev' || m.kind === 'beat' || !H[m.kind]) return;
+        lastId = Math.max(lastId, m.id || 0);
+        var d = {}; try { d = JSON.parse(m.data); } catch (e) {}
+        learn(d); H[m.kind](d);
+      }});
     }
     var auraTimer = null;
     function setAura(a, ttl) {                       // AURA 작성 중 표시 — 마지막 쓰기 뒤 aura_ttl 초 지나면 저절로 지운다
@@ -1123,5 +1205,5 @@
       follow: toggleFollow, stopFollow: stopFollow, following: function () { return following; }};
   }
 
-  window.AuraCollab = {engine: engine, ui: ui, fp: fp, norm: norm, colorOf: colorOf, auraText: auraText, auraLabel: auraLabelOf};
+  window.AuraCollab = {engine: engine, eventHub: eventHub, hubs: function () { var o = {}; Object.keys(hubs).forEach(function (k) { o[k] = hubs[k].state(); }); return o; }, ui: ui, fp: fp, norm: norm, colorOf: colorOf, auraText: auraText, auraLabel: auraLabelOf};
 })();

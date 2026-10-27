@@ -804,7 +804,7 @@ def test_sse_sends_named_beat_so_client_can_spot_dead_stream(tmp_path, monkeypat
         server.should_exit = True
         th.join(5)
     js = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text(encoding="utf-8")
-    assert "addEventListener('beat'" in js and "STALE_MS" in js and "connect(true)" in js
+    assert "'beat'" in js and "STALE_MS" in js and "open(true)" in js   # 알림 흐름을 연 화면(이끄미)이 beat 로 죽은 연결을 알아챈다
 
 
 def test_prune_drops_old_rows_and_rows_of_deleted_documents(tmp_path, monkeypatch):
@@ -957,3 +957,57 @@ def test_structure_save_keeps_savers_own_fields(tmp_path, monkeypatch):
     assert kim.post(f"/hwp/{fid}/save", content=mine, headers={"Content-Type": "application/octet-stream"}).status_code == 200
     v = ww.field_values(kim.get(f"/hwp/{fid}/file").content)
     assert v["칸:사업명"] == "김 옛 글 + 붙여 넣은 글" and v["절:1. 변경 사유"] == "박 새 글"
+
+
+def test_presence_is_one_upsert_and_gone_doc_is_quiet(tmp_path, monkeypatch):
+    """같은 창의 presence 두 개가 함께 와 둘 다 「줄 없음」 을 읽어도 기본 키가 겹치지 않는다(upsert). 지운 문서로 온 presence·leave 는 조용히 넘긴다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    ce.presence(db, fid, "kim", "k1", "칸:사업명", 2)
+    real = db._conn
+
+    class Blind:                     # 앞 요청이 줄을 넣기 전에 읽은 것처럼 — 읽기만 「없음」 으로
+        def __init__(self, c):
+            self.c = c
+
+        def __enter__(self):
+            self.c.__enter__()
+            return self
+
+        def __exit__(self, *a):
+            return self.c.__exit__(*a)
+
+        def execute(self, sql, *args):
+            if sql.startswith("SELECT field, at, page FROM webhwp_presence"):
+                return self.c.execute("SELECT field, at, page FROM webhwp_presence WHERE 1 = 0")
+            return self.c.execute(sql, *args)
+
+        def __getattr__(self, k):
+            return getattr(self.c, k)
+
+    monkeypatch.setattr(db, "_conn", lambda: Blind(real()))
+    ce.presence(db, fid, "kim", "k1", "칸:예산", 5)                # 예전에는 INSERT 가 겹쳐 500
+    monkeypatch.setattr(db, "_conn", real)
+    with db._conn() as c:
+        rows = c.execute("SELECT field, page FROM webhwp_presence WHERE fid = ?", (fid,)).fetchall()
+    assert [tuple(r) for r in rows] == [("칸:예산", 5)]
+    webhwp.trash(db, Path(app.state.data_dir), fid, user="kim")
+    r = kim.post(f"/hwp/{fid}/presence", json={"client": "k1", "field": ""})
+    assert r.status_code == 200 and r.json() == {"ok": False, "gone": True}        # people 이 없어 화면 목록은 그대로
+    r = kim.post(f"/hwp/{fid}/leave", json={"client": "k1"})
+    assert r.status_code == 200 and r.json()["gone"] is True
+    assert kim.post("/hwp/999999/presence", json={"client": "k1"}).json()["gone"] is True
+
+
+def test_editor_shares_one_event_stream_per_document():
+    """편집 화면의 알림 흐름은 같은 브라우저의 같은 문서 화면들이 하나를 나눠 쓴다(HTTP/1.1 한 출처 연결 6개 고갈 방지).
+    동작은 node 시험(tests/coedit_events.test.cjs)이 창 여럿을 흉내 내어 본다."""
+    import shutil
+    import subprocess
+    c = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/static/webhwp-collab.js").read_text()
+    assert c.count("new EventSource(") == 1 and "navigator.locks.request(" in c and "new BroadcastChannel('aura-ev-'" in c
+    assert "{steal: true}" in c and "'?last=' + last()" in c
+    node = shutil.which("node")
+    if node:
+        r = subprocess.run([node, "--test", str(Path(__file__).resolve().parent / "coedit_events.test.cjs")], capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stdout + r.stderr

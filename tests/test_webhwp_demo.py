@@ -98,8 +98,11 @@ def test_demo_user_cannot_open_non_demo_documents(tmp_path, monkeypatch):
         for path in ("coedit", "file", "state", "conflicts", "events"):
             assert dev.get(f"/hwp/{target}/{path}", headers=H("a")).status_code == 404, path
         for path, body in (("ops", {"client": "x", "ops": []}), ("lease", {"field": "칸:사업명", "client": "x"}),
-                           ("presence", {"client": "x"}), ("leave", {"client": "x"}), ("lock", None), ("save", None)):
+                           ("lock", None), ("save", None)):
             assert dev.post(f"/hwp/{target}/{path}", headers=H("a"), json=body).status_code == 404, path
+        for path in ("presence", "leave"):            # 볼 수 없는 문서는 없는 문서와 같은 답 — 아무것도 하지 않고 조용히(지운 문서로 온 옛 창과 같은 길)
+            assert dev.post(f"/hwp/{target}/{path}", headers=H("a"), json={"client": "x"}).json() == {"ok": False, "gone": True}, path
+        assert not ce.people(app.state.db, target)
     # 새 문서 화면도 시연 폴더 밖 부서로는 열지 못한다
     assert dev.get(f"/webhwpctrl/aura-edit?dept=기획처&demo=a").status_code == 403
     assert dev.get(f"/hwp/{fid}/coedit", headers=H("a")).status_code == 200
