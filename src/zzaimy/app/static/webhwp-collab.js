@@ -34,6 +34,70 @@
     if (typeof d.ins !== 'string' || !(d.at >= 0) || !(d.del >= 0) || d.at + d.del > cpLen(s)) return null;
     var a = u16At(s, d.at), b = u16At(s.slice(a), d.del) + a; return s.slice(0, a) + d.ins + s.slice(b);
   }
+  // ── 문단 단위(10-27) — 칸 글을 문단(\n) 목록으로 맞추기·세 갈래 합치기·문단 번호 옮기기. 서버 webhwp_paras.py 와 같은 규칙 ──
+  // 바뀐 덩이 [[i1, i2, j1, j2]] — 앞뒤 같은 문단을 빼고 가운데는 가장 긴 공통 문단열(LCS)로 맞춘다(너무 크면 한 덩이)
+  function paraHunks(a, b) {
+    var n = a.length, m = b.length, s0 = 0, e = 0, out = [];
+    while (s0 < n && s0 < m && a[s0] === b[s0]) s0++;
+    while (e < n - s0 && e < m - s0 && a[n - 1 - e] === b[m - 1 - e]) e++;
+    var A = a.slice(s0, n - e), B = b.slice(s0, m - e), N = A.length, M = B.length;
+    if (!N && !M) return out;
+    if (!N || !M || N * M > 4e6) return [[s0, n - e, s0, m - e]];
+    var L = [], i, j;
+    for (i = 0; i <= N; i++) L.push(new Int32Array(M + 1));
+    for (i = N - 1; i >= 0; i--) for (j = M - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    var hi = 0, hj = 0; i = 0; j = 0;
+    while (i < N && j < M) {
+      if (A[i] === B[j]) { if (hi < i || hj < j) out.push([s0 + hi, s0 + i, s0 + hj, s0 + j]); i++; j++; hi = i; hj = j; }
+      else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++;
+    }
+    if (hi < N || hj < M) out.push([s0 + hi, s0 + N, s0 + hj, s0 + M]);
+    return out;
+  }
+  // 옛 글의 문단 p 가 새 글의 몇째 문단인지(지워졌으면 그 자리 다음 문단, 바뀐 덩이 안이면 새 덩이의 같은 자리)
+  function mapPara(oldText, newText, p) {
+    var a = oldText.split('\n'), b = newText.split('\n'), hs = paraHunks(a, b), shift = 0;
+    for (var k = 0; k < hs.length; k++) {
+      var h = hs[k];
+      if (p < h[0]) break;
+      if (p < h[1]) { var q = h[3] > h[2] ? Math.min(h[2] + p - h[0], h[3] - 1) : h[2]; return Math.max(0, Math.min(q, b.length - 1)); }
+      shift = h[3] - h[1];
+    }
+    return Math.max(0, Math.min(p + shift, b.length - 1));
+  }
+  // 세 갈래 합치기 — {text, clash: [겹친 문단]}. 겹치면 mine, 같은 자리 새 문단끼리는 theirs 다음 mine, 같은 고침은 한 번
+  function merge3(base, mine, theirs) {
+    var B = base.split('\n'), M = mine.split('\n'), T = theirs.split('\n'), hs = [];
+    paraHunks(B, M).forEach(function (h) { hs.push(h.concat(['m'])); });
+    paraHunks(B, T).forEach(function (h) { hs.push(h.concat(['t'])); });
+    hs.sort(function (x, y) { return x[0] - y[0] || x[1] - y[1] || (x[4] < y[4] ? -1 : x[4] > y[4] ? 1 : 0); });
+    function touch(lo, hi, h) { if (h[0] === h[1]) return (lo < h[0] && h[0] < hi) || (lo === hi && hi === h[0]); if (lo === hi) return h[0] < lo && lo < h[1]; return h[0] < hi && lo < h[1]; }
+    var groups = [];
+    hs.forEach(function (h) {
+      var g = groups[groups.length - 1];
+      if (g && touch(g.lo, g.hi, h)) { g.hs.push(h); g.lo = Math.min(g.lo, h[0]); g.hi = Math.max(g.hi, h[1]); }
+      else groups.push({lo: h[0], hi: h[1], hs: [h]});
+    });
+    function side(g, who, src) {
+      var out = [], i = g.lo;
+      g.hs.filter(function (h) { return h[4] === who; }).sort(function (x, y) { return x[0] - y[0] || x[1] - y[1]; }).forEach(function (h) { out = out.concat(B.slice(i, h[0]), src.slice(h[2], h[3])); i = h[1]; });
+      return out.concat(B.slice(i, g.hi));
+    }
+    var res = [], clash = [], pos = 0;
+    groups.forEach(function (g) {
+      res = res.concat(B.slice(pos, g.lo));
+      var hasM = g.hs.some(function (h) { return h[4] === 'm'; }), hasT = g.hs.some(function (h) { return h[4] === 't'; });
+      var m = side(g, 'm', M), t = side(g, 't', T);
+      if (!hasT) res = res.concat(m);
+      else if (!hasM) res = res.concat(t);
+      else if (m.join('\n') === t.join('\n')) res = res.concat(m);
+      else if (g.lo === g.hi) res = res.concat(t, m);
+      else { clash.push(res.length); res = res.concat(m); }
+      pos = g.hi;
+    });
+    res = res.concat(B.slice(pos));
+    return {text: res.join('\n'), clash: clash};
+  }
   function now() { return Date.now(); }
   function clientId() {
     try { var v = sessionStorage.getItem('aura-coedit-client'); if (v) return v; } catch (e) {}
@@ -79,7 +143,7 @@
   // EventSource 를 열고, 받은 알림 원문을 BroadcastChannel 로 같은 문서를 연 다른 화면(iframe·탭)에 넘긴다. 이끄미는 Web Locks 로 정한다 —
   // 이끄미 창이 닫히면 락이 풀려 기다리던 화면이 이어받고 마지막 알림 번호(last) 뒤부터 받는다. 채널이 오래 조용하면(이끄미가 얼었거나 연결이
   // 반쯤 죽음) 락을 빼앗아 이어받는다. 둘 중 하나라도 없는 브라우저에서는 예전처럼 화면마다 따로 연다.
-  var KINDS = ['field-updated', 'lock-changed', 'lock-wanted', 'presence', 'doc-saved', 'aura', 'beat'];
+  var KINDS = ['field-updated', 'lock-changed', 'lock-wanted', 'para-lock', 'presence', 'doc-saved', 'aura', 'beat'];
   var STALE_MS = 45000, FOLLOW_STALE_MS = 30000, hubs = {};
   function eventHub(url, key) {
     if (hubs[key]) return hubs[key];
@@ -157,7 +221,7 @@
 
   function engine(o) {
     var hwp = o.hwp, fid = o.fid, me = o.me, base = '/hwp/' + fid, client = clientId(), idb = store();
-    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 1, aura_ttl: 20, form_mode: 0, field_max: 1000000};
+    var conf = {lease: 300, grace: 30, warn: 60, hash_check: 30, throttle_ms: 300, pause_ms: 300, presence_ttl: 30, rich: 1, aura_ttl: 20, form_mode: 0, field_max: 1000000, para_lock: 1};
     var tooLong = {};
     // 보기만 하는 화면(따라가기 중) — 남의 글을 넣은 뒤 내 커서를 되돌리지 않는다. 되돌리면 기안기가 화면을 내 커서 쪽으로 끌어올리고
     // 따라가기가 다시 내려 두 자리를 오가며 깜빡였다(10-27, 화면 지키기만으로는 기안기의 늦은 끌어올림을 못 막음). 화면은 글을 넣는 자리에 그대로
@@ -171,6 +235,34 @@
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
     var reloading = false;   // 새 판을 다시 여는 동안(suspend → reopened) — 칸 수가 바뀐 것을 칸 밖 고침으로 잘못 알아채지 않게(10-26 양식 불러오기 뒤 저절로 문서 잠금)
     var handlers = {}, aura = {};
+    // 문단 단위(10-27) — 글만 든 칸은 커서가 든 문단만 쥔다(남은 같은 칸의 다른 문단을 동시에 고친다). 서버가 칸째로 돌려주는 칸(표·그림·서식째),
+    // 양식 모드, 설정 para_lock=0 은 칸째 임대 그대로. paraLocks: 사람+창 → {field, para, until}, myPara: 이 창이 쥔 문단
+    var paraLocks = {}, myPara = null, curPara = -1, wholeOnly = {}, flying = {};
+    function paraOn(f) { return conf.para_lock > 0 && !!f && f !== STRUCT && !(wholeOnly[f] > now()) && !richField[f] && !hwp.formMode(); }   // 서버가 칸째라 한 칸은 1분 동안 칸째(서식째 고침 뒤 글을 고치면 다시 문단 단위)
+    function paraHeldByOther(f, p) {
+      var t = now(), out = null;
+      Object.keys(paraLocks).forEach(function (k) {
+        var x = paraLocks[k];
+        if (x.field === f && x.para === p && x.until * 1000 > t && (x.user !== me || (x.client !== client && !otherWindowGone(x.client)))) out = x;
+      });
+      return out;
+    }
+    // 커서 문단 — 칸 처음에서 센 문단 번호. 조합 중·재는 중에는 묻지 않는다(조합이 끊긴다) — 마지막으로 안 값을 쓴다
+    function caretParaNow() {
+      if (!hwp.caretPara || hwp.isComposing() || hwp.isProbing() || applying) return null;
+      var c = hwp.caretPara();
+      if (c && c.field) curPara = c.para;
+      return c;
+    }
+    // 처음 고칠 때 잡기 — 문단 단위 칸이면 커서 문단, 아니면 칸째
+    function claim(f) {
+      if (paraOn(f)) {
+        if (curPara < 0) caretParaNow();
+        if (curPara >= 0 && !(myPara && myPara.field === f && myPara.para === curPara)) acquirePara(f, curPara);
+        if (curPara >= 0) return;
+      }
+      if (!mine[f]) acquire(f);
+    }
     function on(k, fn) { (handlers[k] = handlers[k] || []).push(fn); }
     function emit(k) { var a = [].slice.call(arguments, 1); (handlers[k] || []).forEach(function (fn) { try { fn.apply(null, a); } catch (e) { console.warn(e); } }); }
     function nameOf(u) { return u === 'AURA' ? 'AURA' : (names[u] || u); }
@@ -281,6 +373,7 @@
       inflight = true; lastSend = now(); status();
       var bySeq = {};
       ops.forEach(function (op) { bySeq[op.seq] = op; });
+      flying = bySeq;
       // 보내는 것은 바뀐 부분만 — 서버가 안 받으면(판 어긋남·지문 다름) 그 칸만 전체 글로 다시(op.full)
       post('/ops', {client: client, ops: ops.map(function (op) {
         var k = known[op.field];
@@ -294,13 +387,17 @@
         var x = {seq: op.seq, field: op.field, base: op.base, text: op.text}; if (op.rich) x.rich = op.rich; return x;
       })})
         .then(function (j) {
-          inflight = false; online = true; retryMs = 1000;
+          inflight = false; online = true; retryMs = 1000; flying = {};
           (j.results || []).forEach(function (r) {
             var op = bySeq[r.seq], f = r.field;
             if (!op) return;
             if (outbox[f] && outbox[f].seq === r.seq) { delete outbox[f]; idb.del('outbox', op.key); }
             if (r.ok) {
-              if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
+              if (r.merged) {
+                // 서버가 같은 칸의 남의 문단 고침과 합쳤다 — 합친 글을 받을 줄에 둔다(입력이 멈추면 아직 안 보낸 내 고침 위에 얹는다).
+                // 아는 판은 올리지 않는다 — 그사이 보내는 내 고침도 옛 판 바탕이라 서버가 다시 합친다
+                if (!known[f] || r.version > known[f].v) { inbox[f] = {field: f, version: r.version, text: r.text}; scheduleApply(); }
+              } else if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
               if (op.rich) { lastRich[f] = richSig(op.rich); emit('rich-sent', f); }   // 서식째 보냄 — 화면이 파일에도 조용히 저장한다
               if (r.until && (!locks[f] || !heldByOther(f))) { mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until}; }
             } else if (r.reason === 'delta') {               // 바뀐 부분을 안 받았다 — 같은 글을 전체로 다시(더 새 글이 줄에 있으면 그것을 전체로)
@@ -313,14 +410,14 @@
               idb.put('conflicts', copy);
               emit('conflict', copy);
               known[f] = {v: r.version, text: r.text};
-              inbox[f] = {field: f, version: r.version, text: r.text, force: true};
+              inbox[f] = {field: f, version: r.version, text: r.text, force: true, reject: true};   // 서버가 내 글을 안 받았다 — 서버 글 그대로(합치지 않음)
               scheduleApply();
             }
           });
           if (Object.keys(outbox).length || Object.keys(dirty).length) scheduleFlush(); else status();
         })
         .catch(function (e) {
-          inflight = false;
+          inflight = false; flying = {};
           if (e.status && e.status < 500 && e.status !== 408 && e.status !== 429) {   // 받지 않는 요청(권한 등) — 다시 보내도 같다. 보낼 줄은 남겨 둔다
             emit('error', e.message); online = true; status(); return;
           }
@@ -343,7 +440,7 @@
         var f = hwp.snapIntoField ? hwp.snapIntoField() : hwp.currentField();
         if (f && fieldSet[f]) {
           if (f !== curField) checkCaret();
-          if (!heldByOther(f)) { if (!mine[f]) acquire(f); dirty[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush(); }
+          if (!heldByOther(f)) { claim(f); dirty[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush(); }
           return;
         }
         emit('outside-edit');
@@ -365,6 +462,10 @@
       var f = hwp.currentField();                                      // 커서 자리 맞추기는 누름·이동 때 했다(onCaret) — 글자마다 하지 않는다
       if (!f || !fieldSet[f]) { checkOutside(); return; }            // 칸 밖처럼 보여도 바로 구조 고침으로 넘기지 않고 고친 뒤 다시 본다
       if (heldByOther(f) && locks[f].user !== me) { stop(); emit('blocked', f); acquire(f, true); return; }
+      if (paraOn(f)) {                                                 // 남이 쓰는 문단 — 막고 그 사람에게 기다림을 알린다(같은 칸의 다른 문단은 그대로 쓴다)
+        var cp = caretParaNow(), hp = cp && cp.field === f ? paraHeldByOther(f, cp.para) : null;
+        if (hp && hp.user !== me) { stop(); emit('blocked', f + '\u0001' + cp.para, nameOf(hp.user)); acquirePara(f, cp.para, true); return; }
+      }
       if (!sel && !mod && (k === 'Backspace' || k === 'Delete')) {
         var c = hwp.caretInField ? hwp.caretInField() : null;
         if (c && c.field === f && ((k === 'Backspace' && c.at <= 0) || (k === 'Delete' && c.at >= c.len))) stop();   // 칸 표시를 지우지 않게(이웃 문단과 잇기는 문서 틀 고치기에서)
@@ -432,13 +533,25 @@
       if (x.del > k.text.length / 2 && k.text.length < 20000) return null;
       return [{at: cpLen(k.text.slice(0, x.at)), del: cpLen(k.text.slice(x.at, x.at + x.del)), ins: x.ins}];
     }
+    // 합친 글 넣기 — 문단 덩이마다(아래부터) 그 덩이만 바꾼 글과의 차를 그 자리에. 대리 쌍 글·결과가 안 맞으면 false(부르는 쪽이 통째 쓰기)
+    function applyParas(f, L, T) {
+      if (SUR.test(L) || SUR.test(T)) return false;
+      var a = L.split('\n'), tp = T.split('\n'), hs = paraHunks(a, tp), t = L;
+      for (var h = hs.length - 1; h >= 0; h--) {
+        var x = hs[h], nb = a.slice(0, x[0]).concat(tp.slice(x[2], x[3]), a.slice(x[1])), s2 = nb.join('\n'), dd = diffText(t, s2);
+        if (!hwp.applyDelta(f, t, dd.at, dd.del, dd.ins)) return false;
+        t = s2; a = nb;
+      }
+      var after = hwp.read(f);
+      return after !== null && norm(after) === T;
+    }
     function applyInbox() {
       applyTimer = null;
       var keys = Object.keys(inbox);
       if (!keys.length) return;
       var idle = now() - hwp.lastInputAt();
       if (hwp.isComposing() || hwp.isProbing() || idle < conf.pause_ms) { scheduleApply(Math.max(30, conf.pause_ms - idle + 20)); return; }
-      var cur = null, rich = [], t0 = performance.now(), wrote = false;
+      var cur = null, rich = [], t0 = performance.now(), wrote = false, moved = {};
       var passive = !!(passiveFn && passiveFn()) && Date.now() - hwp.lastInputAt() > 1500;
       order(keys);
       for (var i = 0; i < keys.length; i++) {
@@ -455,27 +568,42 @@
         if (d.rich && hwp.isHwpxRich && hwp.isHwpxRich(d.rich) && !hx) d.rich = null;
         if (d.rich && (conf.rich || hx)) { rich.push(d); known[f] = {v: d.version, text: d.text}; if (hx) richField[f] = d.version; else delete richField[f]; continue; }
         delete richField[f];
-        if (local !== null && norm(local) !== d.text) {
+        // 문단 단위 — 이 칸에 아직 안 보낸 내 고침이 있으면(내 글 ≠ 아는 판 글) 남의 글을 통째로 덮지 않고, 아는 판을 바탕으로 문단 세 갈래 합치기
+        // (서버와 같은 규칙). 서버가 내 글을 거절한 답(reject)은 서버 글 그대로
+        var ln = local === null ? null : norm(local), kt = known[f] && typeof known[f].text === 'string' ? known[f].text : null, target = d.text;
+        if (ln !== null && kt !== null && ln !== kt && !d.reject && paraOn(f) && /\n/.test(kt + ln + d.text)) target = merge3(kt, ln, d.text).text;   // 한 문단 칸은 예전처럼(서버도)
+        if (ln !== null && ln !== target) {
           if (!cur && !passive) cur = hwp.getCursor(false, true);   // 커서와 함께 보던 자리 기준점(커서가 화면에 있으면 커서, 아니면 화면 맨 위 문단)
           applying = true; wrote = true;
           // 바뀐 부분만 그 자리에(통째 쓰기는 칸 전체를 다시 그려 451쪽 문서의 5만 자 절에서 2~4초 걸렸다). 내 화면 글이 바뀌기 전 글과 같을 때만,
-          // 넣은 뒤 글이 안 맞으면 전체 쓰기로
-          var okd = false, steps = hwp.applyDelta ? stepsFor(d, local) : null;
-          if (steps) {
+          // 넣은 뒤 글이 안 맞으면 전체 쓰기로. 합친 글은 바뀐 문단 덩이마다 그 자리만(내가 쓰는 문단은 건드리지 않는다)
+          var okd = false, steps = target === d.text && hwp.applyDelta ? stepsFor(d, local) : null;
+          if (target !== d.text) okd = !!hwp.applyDelta && applyParas(f, ln, target);
+          else if (steps) {
             var t = known[f].text;
             okd = steps.every(function (st) { var a = u16At(t, st.at), b = u16At(t.slice(a), st.del) + a, ok = hwp.applyDelta(f, t, a, b - a, st.ins); t = t.slice(0, a) + st.ins + t.slice(b); return ok; });
             if (okd) { var after = hwp.read(f); okd = after !== null && norm(after) === d.text; }
           }
-          if (!okd) hwp.write(f, d.text);
+          if (!okd) hwp.write(f, target);
           applying = false;
+          moved[f] = [ln, target];
         }
         known[f] = {v: d.version, text: d.text}; touched[f] = 1;
+        if (target !== d.text) {                               // 내 고침이 남았다 — 새 판 위에서 다시 보낸다(아직 안 떠난 묶음은 새 판 바탕으로 다시 만든다)
+          if (outbox[f] && !flying[outbox[f].seq]) { idb.del('outbox', outbox[f].key); delete outbox[f]; }
+          dirty[f] = true;
+        }
         emit('applied', f, d);
       }
-      if (cur) hwp.restoreCursor(cur);   // 남의 글 넣은 뒤 — 기준점이 밀린 만큼 화면을 한 번 굴려 보던 자리 그대로(되돌리기가 지키기까지 한다)
+      // 같은 칸 위쪽에 문단이 들거나 빠졌으면 커서·보던 자리의 칸 기준 문단 번호를 새 글로 옮긴다(문단 맞추기)
+      if (moved[curField] && curPara >= 0) curPara = mapPara(moved[curField][0], moved[curField][1], curPara);
+      if (cur) {
+        [cur.rel, cur.anchor && cur.anchor.rel].forEach(function (r) { if (r && moved[r.field]) r.dp = mapPara(moved[r.field][0], moved[r.field][1], r.dp); });
+        hwp.restoreCursor(cur);   // 남의 글 넣은 뒤 — 기준점이 밀린 만큼 화면을 한 번 굴려 보던 자리 그대로(되돌리기가 지키기까지 한다)
+      }
       if (wrote && hwp.lockUndo) hwp.lockUndo(true);
       if (Object.keys(inbox).length) { clearTimeout(applyTimer); applyTimer = setTimeout(applyInbox, 0); }   // 남은 것은 쉬었다가(입력이 끼면 위에서 미룬다)
-      if (Object.keys(outbox).length) scheduleFlush();
+      if (Object.keys(outbox).length || Object.keys(dirty).length) scheduleFlush();
       (function next() {                                // 서식째 받은 절 — 기안기 JSON 블록으로 그 칸을 바꾼다. 안 되면 글만
         var d = rich.shift();
         if (!d) return;
@@ -511,6 +639,34 @@
       return acquiring[f];
     }
     function holderLabel(f) { var lk = locks[f]; if (!lk) return ''; return nameOf(lk.user); }
+    // 문단 임대 — 서버가 그 칸을 문단으로 못 나누면(표·그림·서식째, 설정 꺼짐) 칸째로 잡고 whole 을 준다
+    var acquiringPara = '';
+    function acquirePara(f, p, quiet) {
+      var key = f + '\u0001' + p;
+      if (acquiringPara === key) return Promise.resolve({ok: false});
+      acquiringPara = key;
+      return post('/lease', {field: f, para: p, client: client, action: 'acquire'}).then(function (r) {
+        if (r.ok && r.whole) {
+          wholeOnly[f] = now() + 60000; myPara = null;
+          mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until, since: r.since};
+        } else if (r.ok) {
+          Object.keys(mine).forEach(function (g) { delete mine[g]; if (locks[g] && locks[g].user === me && locks[g].client === client) delete locks[g]; });
+          myPara = {field: f, para: r.para, until: r.until};
+        } else {
+          names[r.by] = r.by_name || names[r.by];
+          if (r.whole) locks[f] = {user: r.by, client: r.client || '', until: r.until};
+          else paraLocks[r.by + '\u001f' + (r.client || '')] = {user: r.by, client: r.client || '', field: f, para: p, until: r.until};
+          if (!quiet) emit('blocked', r.whole ? f : key, nameOf(r.by));
+        }
+        applyEditable(); emit('locks', locks);
+        return r;
+      }).catch(function () { return {ok: false}; }).then(function (r) { acquiringPara = ''; return r; });
+    }
+    function releasePara() {
+      if (!myPara) return Promise.resolve();
+      var was = myPara; myPara = null;
+      return flushNow().then(function () { return post('/lease', {field: was.field, para: was.para, client: client, action: 'release'}); }).catch(function () {});
+    }
     function letGo(f, now_) {
       if (!mine[f]) return Promise.resolve();
       return flushNow().then(function () {
@@ -522,7 +678,7 @@
     function extend() {
       lastTouch = now();
       return post('/lease', {action: 'touch', client: client}).then(function (r) {
-        Object.keys(r.until || {}).forEach(function (f) { mine[f] = r.until[f]; if (locks[f]) locks[f].until = r.until[f]; });
+        Object.keys(r.until || {}).forEach(function (f) { if (myPara && myPara.field === f) myPara.until = r.until[f]; if (!mine[f] && myPara && myPara.field === f) return; mine[f] = r.until[f]; if (locks[f]) locks[f].until = r.until[f]; });
         emit('lease-ok');
       }).catch(function () {});
     }
@@ -535,6 +691,8 @@
       presence(true);
       if (!fieldsMode()) return;
       if (prev && mine[prev]) letGo(prev, true);              // 다른 칸으로 옮기면 보낼 것을 보내고 바로 놓는다(한 사람 한 칸)
+      if (prev && myPara && myPara.field === prev) releasePara();
+      curPara = -1;
       if (f && fieldSet[f]) {
         hwp.setEditable(f, !heldByOther(f), true);             // 지금 칸은 상태를 다시 맞춘다(오래된 속성이 남아 막히지 않게)
         if (heldByOther(f)) {
@@ -575,6 +733,11 @@
         var f = d.field, k = known[f];
         if (k && d.version <= k.v) return;
         d.receivedAt = now();
+        // 같은 문단을 둘 다 고쳐 내 글이 덮였다(나중 것이 남음) — 내 앞 글을 충돌 사본으로 두고 알린다
+        if (d.conflict && d.conflict.user === me && (!d.conflict.client || d.conflict.client === client) && k) {
+          var lost = {key: fid + '|c' + d.conflict.id + '|p', fid: fid, field: f, text: k.text, reason: 'para', by: d.by_name || d.by || '', at: now(), id: d.conflict.id};
+          idb.put('conflicts', lost); emit('conflict', lost);
+        }
         if (d.ins !== undefined) {                          // 바뀐 부분 — 이어지는 판이면 받을 글을 만들어 두고, 넣을 때는 그 자리만 고친다
           var q = inbox[f], baseText = q && q.version === d.base ? q.text : (!q && k && k.v === d.base ? k.text : null);
           if (baseText === null) { fetchFields([f]); return; }       // 판이 끊겼다 — 칸 글 전체를 받는다
@@ -600,7 +763,17 @@
         }
         applyEditable(); emit('locks', locks);
       });
-      h('lock-wanted', function (d) { if (d.holder === me) emit('wanted', d.field, nameOf(d.by)); });
+      h('lock-wanted', function (d) {
+        if (d.para !== undefined) { if (d.holder === me && (!d.holder_client || d.holder_client === client)) emit('wanted', d.field, nameOf(d.by), d.para); return; }
+        if (d.holder === me) emit('wanted', d.field, nameOf(d.by));
+      });
+      h('para-lock', function (d) {                    // 문단 임대 — 잡음·옮김(위에 문단이 들거나 빠져 번호가 바뀜)·놓음
+        var k = d.user + '\u001f' + (d.client || '');
+        if (d.user === me && d.client === client) myPara = d.gone ? null : {field: d.field, para: d.para, until: d.until};
+        else if (d.gone) { if (paraLocks[k] && paraLocks[k].field === d.field) delete paraLocks[k]; }
+        else paraLocks[k] = {user: d.user, client: d.client || '', field: d.field, para: d.para, until: d.until};
+        emit('locks', locks);
+      });
       h('presence', function (d) {
         var k = d.user + '\u001f' + d.client;          // 같이 보는 사람은 사람+창으로 가른다(서버도 그렇게 묶는다)
         if (d.left) delete people[k];
@@ -695,6 +868,12 @@
           locks[f] = lk;
           if (lk.user === me && (!lk.client || lk.client === client) && mine[f] === undefined) mine[f] = lk.until;
         });
+        paraLocks = {};
+        (s.para_locks || []).forEach(function (x) {
+          x.until -= skew;
+          if (x.user === me && x.client === client) myPara = {field: x.field, para: x.para, until: x.until};
+          else paraLocks[x.user + '\u001f' + x.client] = x;
+        });
         var t = now();
         (s.people || []).forEach(function (p) { if (!(p.client === client && p.user === me)) people[p.user + '\u001f' + p.client] = {user: p.user, field: p.field, page: p.page || 0, at: t}; });
         if (s.windows) learnWindows(s.windows);
@@ -748,14 +927,18 @@
         if (f !== curField && !(ev && ev.composing)) checkCaret();      // 커서 칸이 바뀐 것을 먼저 반영(앞 칸을 놓고 이 칸을 잡게)
         if (!f || !fieldSet[f]) { checkOutside(); return; }
         if (heldByOther(f)) return;
-        if (!mine[f]) acquire(f);                               // 처음 고칠 때 임대를 잡는다
+        // 남이 쥔 문단 — 칸째 임대와 같이 보내지 않는다(30초 지문 대조가 되돌린다). 글자 키는 키 관문이 먼저 막는다
+        var hp = paraOn(f) && curPara >= 0 ? paraHeldByOther(f, curPara) : null;
+        if (hp && hp.user !== me) { emit('blocked', f + '\u0001' + curPara, nameOf(hp.user)); return; }
+        claim(f);                                               // 처음 고칠 때 임대를 잡는다(문단 단위 칸은 커서 문단)
         dirty[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush();
-        if (mine[f] && now() - lastTouch > 15000 && mine[f] * 1000 - now() < (conf.lease - 15) * 1000) extend();
+        if ((mine[f] || myPara) && now() - lastTouch > 15000 && (myPara || mine[f] * 1000 - now() < (conf.lease - 15) * 1000)) extend();
       });
       if (hwp.onCommit) hwp.onCommit(function () {           // 글자 하나 확정 — 그 칸만 바로 읽어 보낸다(조합이 끝난 이 순간만 읽어도 안전)
         if (applying || !fieldsMode()) return;
         var f = lastEdit.f;
         if (!f || !dirty[f] || heldByOther(f)) return;
+        if (paraOn(f)) { caretParaNow(); claim(f); }            // 확정 순간은 물어도 안전 — 커서 문단이 바뀌었으면(Enter 뒤) 그 문단을 잡는다
         collect(); send();
       });
       hwp.onCaret(function (ev) {
@@ -763,6 +946,7 @@
         var moved = !ev || ev.type === 'pointerup' || /^(Arrow|Home|End|Page)/.test(ev.key || '');
         if (moved && normalMode() && !applying && !hwp.isComposing() && hwp.snapIntoField) hwp.snapIntoField();
         checkCaret();
+        if ((moved || /^(Enter|Backspace|Delete)$/.test(ev && ev.key || '')) && paraOn(curField)) caretParaNow();   // 커서 문단(문단 단위 임대)
       });
       // 툴바 관문(일반 편집 모드) — 고른 범위에 남이 쓰는 칸이 들어 있으면 기안기 서식 단추·목록을 막고 그 칸 이름표를 흔든다(남의 칸 서식을 바꾸지 않게)
       if (hwp.setToolbarGuard) hwp.setToolbarGuard(function (e) {
@@ -809,6 +993,8 @@
           var was = locks[f].user; delete locks[f]; changed = true;
           if (f === curField && was !== me) emit('freed', f);
         });
+        if (myPara && myPara.until * 1000 <= t) myPara = null;          // 문단 임대가 쉬는 동안 풀렸다 — 다음 고침에 다시 잡는다
+        Object.keys(paraLocks).forEach(function (k) { if (paraLocks[k].until * 1000 <= t) { delete paraLocks[k]; changed = true; } });
         Object.keys(mine).forEach(function (f) {
           var left = mine[f] * 1000 - t;
           if (left <= 0) { delete mine[f]; emit('lease-ok'); }        // 쉬는 동안 풀렸다 — 다시 고치면 저절로 다시 잡는다(안내 없음)
@@ -833,7 +1019,7 @@
         if (!f || !fieldSet[f] || dirty[f] || outbox[f] || inbox[f] || heldByOther(f)) return;   // 받을 글이 기다리는 칸은 건드리지 않는다(남의 새 글을 옛 글로 덮지 않게)
         var t = hwp.read(f), k = known[f];
         if (t !== null && k && norm(t) !== k.text) {
-          if (!mine[f]) acquire(f);
+          claim(f);
           dirty[f] = true; lastEdit = {f: f, at: now()}; scheduleFlush();
           if (conf.rich) { richDirty[f] = true; scheduleRich(); }
         }
@@ -853,7 +1039,8 @@
     }
     return {
       start: start, on: on, setPassive: function (fn) { passiveFn = fn; }, emitLocal: emit, flush: flushNow, extend: extend, release: function (f) { return letGo(f || curField, true); },
-      handover: function (f) { return letGo(f, true); }, reopened: reopened, suspend: suspend, prioritize: function (fn) { rankOf = fn; },
+      handover: function (f, p) { return p !== undefined ? releasePara() : letGo(f, true); },
+      paraLocks: function () { return Object.keys(paraLocks).map(function (k) { return paraLocks[k]; }); }, myPara: function () { return myPara; }, paraOn: paraOn, reopened: reopened, suspend: suspend, prioritize: function (fn) { rankOf = fn; },
       indexOf: function (f) { return fieldIdx[f] === undefined ? 1e9 : fieldIdx[f]; }, resync: resync, applyEditable: applyEditable,
       client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
       people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
@@ -892,6 +1079,7 @@
     function heldBy(u) {                               // 그 사람이 지금 쥔 칸(쓰는 중인 곳) — 알림이 늦어도 임대로 안다
       var L = eng.locks(), out = '';
       Object.keys(L).forEach(function (f) { var lk = L[f]; if (f && lk && lk.user === u && lk.until * 1000 > Date.now()) out = f; });
+      if (!out && eng.paraLocks) eng.paraLocks().forEach(function (x) { if (x.user === u && x.until * 1000 > Date.now()) out = x.field; });   // 문단을 쥐고 쓰는 중
       return out;
     }
     function drawAvatars() {
@@ -946,6 +1134,12 @@
     function wanted() {
       var out = {};
       Object.keys(eng.locks()).forEach(function (f) { var h = holderOf(f); if (h && eng.hasField(f)) out[f] = {kind: 'hold', user: h.user, label: h.label}; });
+      // 문단 임대 — 같은 칸의 그 문단만 그 사람 색으로(열쇠 「칸\u0001문단」, 칸 표시와 같은 그림)
+      if (eng.paraLocks) eng.paraLocks().forEach(function (x) {
+        if (x.until * 1000 <= Date.now() || !eng.hasField(x.field) || out[x.field]) return;
+        if (x.user === o.me && x.client === eng.client) return;
+        out[x.field + '\u0001' + x.para] = {kind: 'hold', user: x.user, label: eng.nameOf(x.user)};
+      });
       if (auraState.field && eng.hasField(auraState.field) && !out[auraState.field]) out[auraState.field] = {kind: 'hold', user: 'AURA', label: auraLabel()};
       // 남의 커서만 있는 칸(보는 중)은 문서 위에 그리지 않는다 — 재려면 커서를 그 칸에 넣어야 해서 빈 칸 안내 글이 지워졌다(10-24). 아바타 풀이말로만 보인다
       return out;
@@ -954,6 +1148,7 @@
     // 큰 문서에서는 재기 한 번이 칸마다 커서를 두 번 옮겨 451쪽·20칸에 46~65ms였다 — 이제 칸마다 자리를 기억해 두고 한 번에 한 칸만 잰다:
     // 처음 보는 칸(내 커서 칸에서 가까운 칸부터), 그다음 화면 근처 칸 중 바뀌었을 수 있는 칸(앞쪽 칸 글이 바뀜·4초 지남). 화면 밖 칸은 화면에 들어올 때 잰다
     var stale = {}, staleAt = {};
+    function fieldOf(k) { var i = String(k).indexOf('\u0001'); return i < 0 ? k : k.slice(0, i); }   // 문단 표시 열쇠 「칸\u0001문단」 → 칸
     function nearView(g) {
       var a = hwp.toScreen(g.page, g.x, g.y);
       if (!a) return false;
@@ -967,8 +1162,8 @@
       if (!want.length) { geoWant = ''; return; }
       if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1500) return;   // 누르거나 치는 중에는 재지 않는다 — 재는 동안 커서를 옮겼다 되돌려 막 누른 자리를 덮었다
       var t = Date.now(), kn = eng.known();
-      var empty = function (f) { var k = kn[f]; if (k && typeof k.text === 'string') return k.text === ''; var x = hwp.read(f); return x == null || x === ''; };   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
-      var cur = eng.current(), idx = eng.indexOf ? eng.indexOf : function () { return 0; }, me_ = idx(cur);
+      var empty = function (f) { f = fieldOf(f); var k = kn[f]; if (k && typeof k.text === 'string') return k.text === ''; var x = hwp.read(f); return x == null || x === ''; };   // 빈 칸은 재지 않는다(커서가 들어가면 기안기 안내 글이 지워진다)
+      var cur = eng.current(), idx = eng.indexOf ? function (f) { return eng.indexOf(fieldOf(f)); } : function () { return 0; }, me_ = idx(cur);
       // AURA 를 따라가는 칸은 비어 있어도 잰다 — 빈 칸을 건너뛰면 AURA 가 쓰기 시작한 먼 쪽 절의 자리를 몰라 화면이 따라가지 못했다(10-27 운영 2340).
       // 빈 칸 안내 글이 지워지는 것은 곧 AURA 글로 채워질 칸이라 괜찮다
       var auraFt = following === 'AURA' ? ft : '';
@@ -984,7 +1179,7 @@
     // 칸 글이 바뀌면 그 칸과 뒤쪽 칸 자리가 밀렸을 수 있다
     function invalidateFrom(f) {
       var idx = eng.indexOf ? eng.indexOf : function () { return 0; }, i = f ? idx(f) : -1;
-      Object.keys(geo).forEach(function (g) { if (!f || idx(g) >= i) stale[g] = 1; });
+      Object.keys(geo).forEach(function (g) { if (!f || idx(fieldOf(g)) >= i) stale[g] = 1; });
     }
     function mark(f) {
       var m = marks[f];
@@ -995,7 +1190,7 @@
         m.block.addEventListener('pointerdown', function (e) {
           e.preventDefault(); e.stopPropagation();
           stopFollow();
-          var h = holderOf(f);
+          var h = holderOf(f) || wanted()[f];
           eng.emitLocal('blocked', f, h ? h.label : '다른 사람');
           try { var fr = document.querySelector('iframe'); if (fr) fr.blur(); if (document.activeElement) document.activeElement.blur(); } catch (x) {}
         });
@@ -1172,11 +1367,15 @@
     });
     eng.on('caret', function (f) { if (barKind === 'blocked' && !holderOf(f)) hide('blocked'); if (barKind === 'warn') hide('warn'); });
     eng.on('freed', function () {});                    // 칸이 비면 이름표가 사라지는 것으로 충분하다(알림 띠 없음)
-    var wantedField = '';
-    eng.on('locks', function () { var lk = eng.locks()[wantedField]; if (barKind === 'wanted' && (!lk || lk.user !== o.me || lk.client !== eng.client)) hide('wanted'); });
-    eng.on('wanted', function (f, who) {
-      wantedField = f;
-      show('wanted', who + ' 님이 지금 내 칸을 쓰려고 기다려요', [['넘겨주기', function () { eng.handover(f); hide('wanted'); }]], 15000);
+    var wantedField = '', wantedPara;
+    eng.on('locks', function () {
+      if (barKind !== 'wanted') return;
+      if (wantedPara !== undefined) { var mp = eng.myPara && eng.myPara(); if (!mp || mp.field !== wantedField || mp.para !== wantedPara) hide('wanted'); return; }
+      var lk = eng.locks()[wantedField]; if (!lk || lk.user !== o.me || lk.client !== eng.client) hide('wanted');
+    });
+    eng.on('wanted', function (f, who, para) {
+      wantedField = f; wantedPara = para;
+      show('wanted', who + ' 님이 지금 내 ' + (para !== undefined ? '문단' : '칸') + '을 쓰려고 기다려요', [['넘겨주기', function () { eng.handover(f, para); hide('wanted'); }]], 15000);
     });
     eng.on('conflict', function (c) {
       show('conflict', '쓴 글이 ' + (c.by ? c.by + ' 님의 글과 ' : '') + '겹쳐 내 글은 사본으로 따로 두었어요', [['내 글 보기', function () { openConflicts(); }]]);
@@ -1205,5 +1404,5 @@
       follow: toggleFollow, stopFollow: stopFollow, following: function () { return following; }};
   }
 
-  window.AuraCollab = {engine: engine, eventHub: eventHub, hubs: function () { var o = {}; Object.keys(hubs).forEach(function (k) { o[k] = hubs[k].state(); }); return o; }, ui: ui, fp: fp, norm: norm, colorOf: colorOf, auraText: auraText, auraLabel: auraLabelOf};
+  window.AuraCollab = {paraHunks: paraHunks, mapPara: mapPara, merge3: merge3, engine: engine, eventHub: eventHub, hubs: function () { var o = {}; Object.keys(hubs).forEach(function (k) { o[k] = hubs[k].state(); }); return o; }, ui: ui, fp: fp, norm: norm, colorOf: colorOf, auraText: auraText, auraLabel: auraLabelOf};
 })();

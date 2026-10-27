@@ -264,6 +264,16 @@
       try {
         names.forEach(function (n) {
           try {
+            var cut = n.indexOf('\u0001');
+            if (cut > 0) {                              // 문단 임대 표시 「칸\u0001문단」 — 그 칸의 그 문단 처음·끝
+              var fn = n.slice(0, cut), dp = +n.slice(cut + 1), line = (read(fn) || '').split('\n')[dp];
+              if (line === undefined || ctrl.MoveToField(fn, true, true, false) === false) return;
+              var s0 = ctrl.GetPos(), p0 = dp ? 0 : s0.pos;
+              ctrl.SetPos(s0.list, s0.para + dp, p0); var pa = A.hwpCaret.KNi();
+              ctrl.SetPos(s0.list, s0.para + dp, p0 + line.length); var pb = A.hwpCaret.KNi();
+              if (pa && pb && typeof pa.y === 'number') out[n] = {page: pa.page, x: pa.x, y: pa.y, h: pa.h, page2: pb.page, x2: pb.x, y2: pb.y, h2: pb.h};
+              return;
+            }
             if (ctrl.MoveToField(n, true, true, false) === false) return;
             var a = A.hwpCaret.KNi();
             ctrl.MoveToField(n, true, false, false);
@@ -411,6 +421,8 @@
       return '';
     }
     // 커서가 칸 글의 몇 번째 글자 앞에 있는지 — {field, at, len}. 칸 처음에서 Backspace·칸 끝에서 Delete 는 칸 표시를 지우므로 막는 데 쓴다
+    // 커서 문단 — {field, para}(칸 처음에서 센 문단 번호). 문단 단위 공동 편집의 임대 자리. 조합 중에는 부르지 않는다(부르는 쪽이 거른다)
+    function caretPara() { var c = getCursor(); return c && c.rel ? {field: c.rel.field, para: c.rel.dp} : null; }
     function caretInField() {
       var c = getCursor(); if (!c || !c.rel) return null;
       var t = read(c.rel.field) || '', lines = t.split('\n'), at = 0;
@@ -529,7 +541,7 @@
     function on(kind, cb) { listeners[kind].push(cb); }
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
-      setToolbarGuard: function (fn) { toolbarGuard = fn; }, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
+      setToolbarGuard: function (fn) { toolbarGuard = fn; }, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, caretPara: caretPara, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
       getCursor: getCursor, restoreCursor: restoreCursor, viewTop: viewTop, lastHold: function () { return lastHold; }, holdView: holdView, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, bodyTop: bodyTop, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },

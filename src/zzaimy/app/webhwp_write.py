@@ -135,6 +135,23 @@ def field_values(data: bytes) -> dict[str, str]:
     return out
 
 
+_OBJ = re.compile(r"<hp:(tbl|pic|equation|container|ole|rect|ellipse|line|arc|polygon|curve|connectLine|textart|video)\b")
+
+
+def rich_fields(data: bytes) -> set[str]:
+    """글 말고 개체(표·그림·수식·도형)가 든 필드 이름 — 공동 편집에서 문단 단위로 나눠 고치지 않고 칸째 임대한다(ADR-0070 문단 단위 덧붙임).
+    기안기 GetFieldText 는 표·그림을 글로 돌려주지 않아 문단 번호가 화면과 어긋난다."""
+    _, secs = _open(data)
+    out: set[str] = set()
+    for n in sorted(secs):
+        xml = secs[n]
+        for m in _BEGIN.finditer(xml):
+            sp = _span(xml, m.group(1), m.end())
+            if sp and _OBJ.search(xml, sp[0], sp[1]):
+                out.add(_unq(m.group(2)))
+    return out
+
+
 _TOK = re.compile(r"<hp:p\b[^>]*>|</hp:p>|<hp:run\b[^>]*>|</hp:run>|<hp:t(?=[\s>])[^>]*>")
 _PARAMS = re.compile(r"<hp:parameters\b.*?</hp:parameters>", re.S)
 _LB = re.compile(r"<hp:lineBreak\s*/>")

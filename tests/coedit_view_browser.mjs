@@ -93,7 +93,7 @@ const server = createServer(async (req, res) => {
     json(res, {results});
     return;
   }
-  if (p === '/hwp/1/lease') { const b = await body(req); json(res, b.action === 'touch' ? {until: {}} : {ok: true, until: Date.now() / 1000 + 300, since: Date.now() / 1000}); return; }
+  if (p === '/hwp/1/lease') { const b = await body(req); json(res, b.action === 'touch' ? {until: {}} : {ok: true, para: b.para, until: Date.now() / 1000 + 300, since: Date.now() / 1000}); return; }
   if (p === '/hwp/1/presence') { json(res, {people: []}); return; }
   if (p.startsWith('/hwp/1/')) { json(res, {}); return; }
   res.writeHead(404); res.end();

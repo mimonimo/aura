@@ -4,7 +4,7 @@
 - 변경은 칸 글 전체 {seq, field, base, text} 또는 바뀐 부분 {seq, field, base, at, del, ins, fp}(서버가 맞춰 보고 안 맞으면 delta 로 돌려보냄)
 - GET  /hwp/{id}/events      알림 흐름(SSE) — field-updated · lock-changed · lock-wanted · presence · doc-saved · committed · conflict
 - POST /hwp/{id}/ops         칸 변경 묶음 {client, ops: [{seq, field, base, text, rich?}]} → op 마다 결과
-- POST /hwp/{id}/lease       임대 {field, client, action: acquire|touch|grace|release}
+- POST /hwp/{id}/lease       임대 {field, client, action: acquire|touch|grace|release, [para — 문단 임대]}
 - POST /hwp/{id}/leave       창을 닫을 때(sendBeacon) — 같이 보는 사람에서 빼고 이 창의 임대를 유예로
 - GET  /hwp/{id}/conflicts   내 충돌 사본(관리자는 모두)
 권한은 편집 화면과 같다(교직원·관리자, 열 수 있는 부서의 파일). 잠긴 공통 양식은 관리자만 고친다(읽기는 된다).
@@ -195,6 +195,16 @@ async def hwp_lease(request: Request, fid: int):
         return {"ok": True, "until": await run_in_threadpool(ce.touch, st.db, fid, user, fields, client or None)}
     if not field:
         raise HTTPException(400, "field 가 필요합니다(구조 잠금은 /lock)")
+    para = body.get("para")
+    if isinstance(para, bool) or (para is not None and not isinstance(para, int)) or (isinstance(para, int) and not 0 <= para < 1_000_000):
+        raise HTTPException(400, "para 는 0 이상의 정수입니다")
+    if action == "acquire" and para is not None:      # 문단 임대(글만 든 칸) — 나눌 수 없는 칸이면 서버가 칸째로 잡고 whole 을 돌려준다
+        r = await run_in_threadpool(ce.acquire_para, st.db, fid, field, para, user, client)
+        if not r["ok"]:
+            r["by_name"] = _name(st.db, r["by"], {})
+        return r
+    if action == "release" and para is not None:
+        return {"ok": await run_in_threadpool(lambda: ce.release_para(st.db, fid, user, client, base=Path(st.data_dir)))}
     if action == "acquire":
         r = await run_in_threadpool(ce.acquire, st.db, fid, field, user, client)
         if not r["ok"]:
@@ -227,6 +237,8 @@ async def hwp_leave(request: Request, fid: int):
         for f, x in ce.locks(st.db, fid).items():
             if x["user"] == user and f != ce.STRUCT and client and x["client"] == client:
                 ce.release(st.db, fid, f, user, base=Path(st.data_dir))
+        if client:
+            ce.release_para(st.db, fid, user, client, base=Path(st.data_dir))
     await run_in_threadpool(run)
     return {"ok": True}
 

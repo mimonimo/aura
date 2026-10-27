@@ -53,7 +53,10 @@ CREATE TABLE IF NOT EXISTS webhwp_events (id INTEGER PRIMARY KEY AUTOINCREMENT, 
   data TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS webhwp_events_fid ON webhwp_events (fid, id);
 CREATE TABLE IF NOT EXISTS webhwp_presence (fid INTEGER NOT NULL, client TEXT NOT NULL, user_id TEXT NOT NULL,
-  field TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0, PRIMARY KEY (fid, client))
+  field TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0, PRIMARY KEY (fid, client));
+CREATE TABLE IF NOT EXISTS webhwp_para_locks (fid INTEGER NOT NULL, user_id TEXT NOT NULL, client TEXT NOT NULL, field TEXT NOT NULL,
+  para INTEGER NOT NULL DEFAULT 0, lease_until DOUBLE PRECISION NOT NULL DEFAULT 0, since DOUBLE PRECISION NOT NULL DEFAULT 0,
+  PRIMARY KEY (fid, user_id, client))
 """
 
 # 설정 기본값(초, ms 는 이름에) — 하드코딩하지 않고 conf() 로 읽는다
@@ -72,6 +75,7 @@ DEFAULTS = {
     "form_mode": 0.0,          # 1 이면 예전처럼 양식 모드(칸 안만 고침·칸 넘는 선택 없음), 0 이면 일반 편집 모드(10-26 — 칸 넘는 드래그·서식째 복사)   # 칸 밖 문단을 「문단:n」 칸으로 감싸는 상한(넘는 큰 문서는 감싸지 않고 문서 틀 고치기로) — 10-26
     "rich": 1.0,               # 서식째(기안기 JSON 블록) 주고받기 — 글자 색·크기·글꼴·굵게도 실시간(10-26 기본 켬, ADR-0070 덧붙임)
     "aura_ttl": 20.0,          # AURA 작성 중 표시가 마지막 쓰기 뒤 남는 시간
+    "para_lock": 1.0,          # 1 이면 글만 든 칸은 문단 단위로 동시에 고친다(임대는 커서 문단, 서버가 문단 세 갈래 합치기), 0 이면 칸 단위(예전) — 10-27
 }
 _ENSURED: set[str] = set()
 
@@ -131,7 +135,8 @@ def ensure(db) -> None:
             conn.executescript(_SCHEMA)
         # 고친 기록에 바뀐 부분 칸(delta) — 앞서 만든 표에는 칸을 더한다(다른 프로세스가 먼저 더했으면 그대로)
         for table, col, ddl in (("webhwp_field_edits", "delta", "TEXT NOT NULL DEFAULT ''"),
-                                ("webhwp_presence", "page", "INTEGER NOT NULL DEFAULT 0")):   # 같이 있는 사람의 쪽 번호
+                                ("webhwp_presence", "page", "INTEGER NOT NULL DEFAULT 0"),    # 같이 있는 사람의 쪽 번호
+                                ("webhwp_field_state", "base0", "TEXT")):                     # 첫 고침 바로 앞 글(판 0) — 문단 합치기의 바탕
             try:
                 with db._conn() as conn:
                     conn.execute(f"SELECT {col} FROM {table} LIMIT 0")
@@ -261,7 +266,7 @@ def emit(db, fid: int, kind: str, data: dict, conn=None) -> None:
 KEEP_SECONDS = {"webhwp_events": 1800, "webhwp_field_ops": 7 * 86400, "webhwp_field_edits": 30 * 86400,
                 "webhwp_presence": 86400, "webhwp_conflicts": 30 * 86400}
 _PER_DOC = ("webhwp_field_state", "webhwp_field_edits", "webhwp_field_ops", "webhwp_field_locks",
-            "webhwp_conflicts", "webhwp_events", "webhwp_presence")
+            "webhwp_conflicts", "webhwp_events", "webhwp_presence", "webhwp_para_locks")
 
 
 def prune(db, now: float | None = None) -> dict:
@@ -273,6 +278,8 @@ def prune(db, now: float | None = None) -> dict:
         for table, keep in KEEP_SECONDS.items():
             cur = c.execute(f"DELETE FROM {table} WHERE at < ?", (now - keep,))
             out[table] = max(0, getattr(cur, "rowcount", 0) or 0)
+        cur = c.execute("DELETE FROM webhwp_para_locks WHERE lease_until < ?", (now - 3600,))   # 풀린 문단 임대
+        out["webhwp_para_locks"] = max(0, getattr(cur, "rowcount", 0) or 0)
         for table in _PER_DOC:
             cur = c.execute(f"DELETE FROM {table} WHERE fid NOT IN (SELECT id FROM files)")
             out[table] = out.get(table, 0) + max(0, getattr(cur, "rowcount", 0) or 0)
@@ -353,7 +360,11 @@ def acquire(db, fid: int, field: str, user: str, client: str = "", *, ttl: float
     with db._conn() as conn:
         _txlock(conn, fid)
         row = _lock_row(conn, fid, field)
-        if _alive(row, now) and row[0] != user:
+        pl = None if field == STRUCT else _para_holder(conn, fid, field, user, client, now)
+        if pl and not (_alive(row, now) and row[0] != user):
+            # 칸째 임대(AURA 절 쓰기·서식째 고침·문단으로 못 나누는 칸)는 그 칸 문단을 남이 쥐고 있으면 잡지 않는다
+            out = {"ok": False, "by": pl[0], "client": pl[1], "until": float(pl[2]), "since": 0.0, "para": int(pl[3])}
+        elif _alive(row, now) and row[0] != user:
             if row[5] != user:                         # 기다리는 사람이 생기면 쥔 사람의 입력 없음 시간을 짧게
                 until = min(float(row[2]), float(row[3] or now) + conf(db, "lease_contended")) if ttl is None else float(row[2])
                 conn.execute("UPDATE webhwp_field_locks SET wanted_by = ?, lease_until = ? WHERE fid = ? AND field = ?",
@@ -374,6 +385,7 @@ def acquire(db, fid: int, field: str, user: str, client: str = "", *, ttl: float
             if not mine or (row[1] or "") != client:
                 emit(db, fid, "lock-changed", {"field": field, "user": user, "client": client, "until": until}, conn=conn)
             if field != STRUCT and client:
+                _drop_para(conn, fid, user, client)            # 칸째 잡으면 이 창의 문단 임대는 놓는다(한 창에 한 곳)
                 # 한 창에 한 칸 — 이 창이 쥐고 있던 다른 칸은 놓는다(칸을 옮겨 다니며 임대가 쌓이지 않게)
                 for (other,) in conn.execute("SELECT field FROM webhwp_field_locks WHERE fid = ? AND user_id = ? AND client = ? AND field <> ? AND field <> ?",
                                              (int(fid), user, client, field, STRUCT)).fetchall():
@@ -401,7 +413,143 @@ def touch(db, fid: int, user: str, fields: list[str] | None = None, client: str 
             until = now + _lease_for(db, wanted)
             conn.execute("UPDATE webhwp_field_locks SET lease_until = ?, touched = ? WHERE fid = ? AND field = ?", (until, now, int(fid), f))
             out[f] = until
+        for f, cl in conn.execute("SELECT field, client FROM webhwp_para_locks WHERE fid = ? AND user_id = ? AND lease_until > ?",
+                                  (int(fid), user, now)).fetchall():
+            if (client is not None and (cl or "") != client) or (fields is not None and f not in fields):
+                continue
+            until = now + conf(db, "lease")
+            conn.execute("UPDATE webhwp_para_locks SET lease_until = ? WHERE fid = ? AND user_id = ? AND client = ?", (until, int(fid), user, cl))
+            out.setdefault(f, until)
     return out
+
+
+# ── 문단 임대(10-27) — 글만 든 칸은 커서가 든 문단만 쥔다. 한 창에 한 곳(문단 하나 또는 칸 하나) ──
+def _para_holder(conn, fid: int, field: str, user: str, client: str, now: float, para: int | None = None):
+    """그 칸(para 를 주면 그 문단)을 쥔 남의 문단 임대 하나 — (사람, 창, 기한, 문단) 또는 None. 같은 사람의 다른 창도 남이다."""
+    q = "SELECT user_id, client, lease_until, para FROM webhwp_para_locks WHERE fid = ? AND field = ? AND lease_until > ? AND NOT (user_id = ? AND client = ?)"
+    args = [int(fid), field, now, user, client]
+    if para is not None:
+        q += " AND para = ?"
+        args.append(int(para))
+    return conn.execute(q + " ORDER BY since LIMIT 1", args).fetchone()
+
+
+def _drop_para(conn, fid: int, user: str, client: str) -> None:
+    row = conn.execute("SELECT field, para FROM webhwp_para_locks WHERE fid = ? AND user_id = ? AND client = ?", (int(fid), user, client)).fetchone()
+    if row:
+        conn.execute("DELETE FROM webhwp_para_locks WHERE fid = ? AND user_id = ? AND client = ?", (int(fid), user, client))
+        emit(None, fid, "para-lock", {"user": user, "client": client, "field": row[0], "para": int(row[1]), "gone": True}, conn=conn)
+
+
+_FILE_RICH: dict[int, tuple] = {}
+
+
+def rich_field(db, fid: int, field: str, conn=None) -> bool:
+    """문단으로 나눠 고치지 않는 칸 — 서식째(기안기 JSON 블록·hwpx 조각)가 남아 있거나, 파일에서 표·그림 같은 개체가 든 칸."""
+    if conn is not None:
+        r = conn.execute("SELECT rich FROM webhwp_field_state WHERE fid = ? AND field = ?", (int(fid), field)).fetchone()
+        if r and r[0]:
+            return True
+    from zzaimy.app import webhwp, webhwp_write as ww
+    f = webhwp.get(db, fid)
+    p = Path(f["path"]) if f else None
+    if not p or not p.exists():
+        return False
+    st_ = p.stat()
+    key = (st_.st_mtime_ns, st_.st_size)
+    hit = _FILE_RICH.get(int(fid))
+    if not (hit and hit[0] == key):
+        try:
+            hit = (key, ww.rich_fields(p.read_bytes()))
+        except Exception:
+            hit = (key, set())
+        _FILE_RICH[int(fid)] = hit
+    return field in hit[1]
+
+
+def para_mode(db, fid: int, field: str, conn=None) -> bool:
+    return conf(db, "para_lock") > 0 and field != STRUCT and not rich_field(db, fid, field, conn)
+
+
+def acquire_para(db, fid: int, field: str, para: int, user: str, client: str) -> dict:
+    """문단 임대 — 칸을 남이 칸째 쥐었거나 그 문단을 남이 쥐었으면 {"ok": False, "by", "para"}(쥔 사람에게 기다림을 알린다).
+    문단으로 나눌 수 없는 칸(개체·서식째·설정 꺼짐)이면 칸째 임대(acquire)로 넘기고 {"whole": True}."""
+    ensure(db)
+    if not para_mode(db, fid, field):
+        out = dict(acquire(db, fid, field, user, client))
+        out["whole"] = True
+        return out
+    now, para = time.time(), max(0, int(para))
+    with db._conn() as conn:
+        _txlock(conn, fid)
+        row = _lock_row(conn, fid, field)
+        if _alive(row, now) and not (row[0] == user and (row[1] or "") == client):
+            out = {"ok": False, "by": row[0], "client": row[1] or "", "until": float(row[2]), "whole": True}
+        else:
+            pl = _para_holder(conn, fid, field, user, client, now, para)
+            if pl:
+                emit(db, fid, "lock-wanted", {"field": field, "para": para, "by": user, "holder": pl[0], "holder_client": pl[1]}, conn=conn)
+                out = {"ok": False, "by": pl[0], "client": pl[1], "until": float(pl[2]), "para": para}
+            else:
+                until = now + conf(db, "lease")
+                mine = conn.execute("SELECT field, para, since FROM webhwp_para_locks WHERE fid = ? AND user_id = ? AND client = ?",
+                                    (int(fid), user, client)).fetchone()
+                since = float(mine[2]) if mine and mine[0] == field and int(mine[1]) == para else now
+                if mine:
+                    conn.execute("UPDATE webhwp_para_locks SET field = ?, para = ?, lease_until = ?, since = ? WHERE fid = ? AND user_id = ? AND client = ?",
+                                 (field, para, until, since, int(fid), user, client))
+                else:
+                    conn.execute("INSERT INTO webhwp_para_locks (fid, user_id, client, field, para, lease_until, since) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                 (int(fid), user, client, field, para, until, since))
+                if _alive(row, now):                    # 이 창이 칸째 쥐고 있었다 — 문단으로 바꾼다
+                    conn.execute("DELETE FROM webhwp_field_locks WHERE fid = ? AND field = ?", (int(fid), field))
+                    emit(db, fid, "lock-changed", {"field": field, "user": "", "released_by": user, "client": client}, conn=conn)
+                for (other,) in conn.execute("SELECT field FROM webhwp_field_locks WHERE fid = ? AND user_id = ? AND client = ? AND field <> ?",
+                                             (int(fid), user, client, STRUCT)).fetchall():
+                    conn.execute("DELETE FROM webhwp_field_locks WHERE fid = ? AND field = ?", (int(fid), other))
+                    emit(db, fid, "lock-changed", {"field": other, "user": "", "released_by": user, "client": client}, conn=conn)
+                if not mine or mine[0] != field or int(mine[1]) != para:
+                    emit(db, fid, "para-lock", {"user": user, "client": client, "field": field, "para": para, "until": until}, conn=conn)
+                out = {"ok": True, "by": user, "until": until, "since": since, "para": para}
+    HUB.wake(fid)
+    return out
+
+
+def release_para(db, fid: int, user: str, client: str, base: Path | None = None) -> bool:
+    """이 창의 문단 임대 놓기 — 놓을 때 한글 파일 써 넣기를 바로 뒤로 잡는다(칸째 놓기와 같은 순서)."""
+    ensure(db)
+    with db._conn() as conn:
+        _txlock(conn, fid)
+        had = conn.execute("SELECT 1 FROM webhwp_para_locks WHERE fid = ? AND user_id = ? AND client = ?", (int(fid), user, client)).fetchone()
+        _drop_para(conn, fid, user, client)
+    if had:
+        if base is not None:
+            schedule_commit(db, base, fid, wait=0.0)
+        HUB.wake(fid)
+    return bool(had)
+
+
+def para_locks(db, fid: int) -> list[dict]:
+    """살아 있는 문단 임대 — [{user, client, field, para, until}]."""
+    ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute("SELECT user_id, client, field, para, lease_until FROM webhwp_para_locks WHERE fid = ? AND lease_until > ?",
+                            (int(fid), time.time())).fetchall()
+    return [{"user": r[0], "client": r[1], "field": r[2], "para": int(r[3]), "until": float(r[4])} for r in rows]
+
+
+def _remap_paras(conn, fid: int, field: str, old: str, new: str, delta: tuple | None = None) -> None:
+    """칸 글이 바뀌면 그 칸 문단 임대의 문단 번호를 새 글로 옮긴다(위에 문단이 들거나 빠져도 같은 문단을 가리키게)."""
+    rows = conn.execute("SELECT user_id, client, para, lease_until FROM webhwp_para_locks WHERE fid = ? AND field = ?", (int(fid), field)).fetchall()
+    if not rows:
+        return
+    from zzaimy.app import webhwp_paras as wp
+    m = None if delta else wp.para_map(old, new)
+    for u, cl, p, until in rows:
+        p2 = wp.map_delta(old, *delta, int(p)) if delta else (m[int(p)] if int(p) < len(m) else len(wp.paras(new)) - 1)
+        if p2 != int(p):
+            conn.execute("UPDATE webhwp_para_locks SET para = ? WHERE fid = ? AND user_id = ? AND client = ?", (p2, int(fid), u, cl))
+            emit(None, fid, "para-lock", {"user": u, "client": cl, "field": field, "para": p2, "until": float(until)}, conn=conn)   # 화면의 이름표도 같은 문단으로
 
 
 def release(db, fid: int, field: str, user: str, *, grace: bool = False, base: Path | None = None) -> bool:
@@ -516,6 +664,25 @@ def json_block_ok(raw: str) -> bool:
     return json_block(raw) is not None
 
 
+def _text_at(conn, fid: int, field: str, version: int, base0: str | None) -> str | None:
+    """그 칸의 판 version 글 — 판 0 은 첫 고침 바로 앞 글(base0), 그 뒤는 고친 기록(스냅숏 + 바뀐 부분)으로. 기록이 지워졌으면 None."""
+    if version <= 0:
+        return base0
+    cur = None
+    for v, text, delta in conn.execute("SELECT version, text, delta FROM webhwp_field_edits WHERE fid = ? AND field = ? AND version <= ? ORDER BY id",
+                                       (int(fid), field, int(version))).fetchall():
+        if delta:
+            if cur is None:
+                continue
+            d = json.loads(delta)
+            cur = cur[:d["at"]] + d["ins"] + cur[d["at"] + d["del"]:]
+        else:
+            cur = text
+        if int(v) == int(version):
+            return cur
+    return None
+
+
 def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Path | None = None, force: bool = False,
               trusted: bool = False) -> list[dict]:
     """칸 변경 묶음을 차례로 반영한다. 돌려주는 것은 op 마다 {seq, field, ok, version, [conflict, reason, text, by]}.
@@ -574,24 +741,52 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                 results.append(json.loads(seen[0]))
                 continue
             lk = _lock_row(conn, fid, field)
-            st = conn.execute("SELECT version, text, client, author, rich FROM webhwp_field_state WHERE fid = ? AND field = ?", (int(fid), field)).fetchone()
+            st = conn.execute("SELECT version, text, client, author, rich, base0 FROM webhwp_field_state WHERE fid = ? AND field = ?", (int(fid), field)).fetchone()
             cur_v, cur_text, cur_client = (int(st[0]), st[1], st[2]) if st else (0, None, "")
             reason = ""
-            if rich and rich_kind == "json" and _alive(lk, now) and lk[0] != user:
+            if rich and rich_kind == "json" and ((_alive(lk, now) and lk[0] != user) or _para_holder(conn, fid, field, user, client, now)):
                 rich = ""                                  # JSON 블록은 남이 쥔 칸이면 받지 않는다(글만). 한 창은 임대를 한 칸만 쥐어, 여러 칸에 걸친 서식 고침을
                                                            # 칸마다 보내는 동안 앞 칸 서식이 버려졌다(10-26) — 내용은 관문(json_block)이 검사한다
-            if _alive(lk, now) and lk[0] != user:
+            locked_by = lk[0] if _alive(lk, now) and lk[0] != user else ""
+            if not locked_by and force and field != STRUCT:      # 서버 참여자(AURA)의 칸째 쓰기는 사람이 그 칸 문단을 쥐었으면 쓰지 않는다
+                ph = _para_holder(conn, fid, field, user, client, now)
+                locked_by = ph[0] if ph else ""
+            if locked_by:
                 reason = "locked"
             elif not force and b != cur_v and cur_client != ck:
                 reason = "version"
             elif st is None and conn.execute("SELECT COUNT(*) FROM webhwp_field_state WHERE fid = ?", (int(fid),)).fetchone()[0] >= FIELDS_MAX:
                 results.append({"seq": seq, "field": field, "ok": False, "reason": "too_many"})
                 continue
+            # 문단 단위(10-27): 그 사이 다른 창이 같은 칸을 고쳤어도(판 어긋남) 글만 든 칸이면 보낸 쪽이 본 판을 바탕으로 문단 세 갈래 합치기 —
+            # 서로 다른 문단 고침은 모두 남고, 같은 문단을 둘 다 고쳤으면 나중에 온 이 고침을 남기고 앞 글은 충돌 사본으로
+            merged = None
+            old_text = cur_text if st is not None else None
+            if reason == "version" and not rich and st is not None and para_mode(db, fid, field, conn):
+                bt = _text_at(conn, fid, field, b, st[5])
+                mine_t = None
+                if bt is not None and is_delta:
+                    if 0 <= d_at <= len(bt) and 0 <= d_del <= len(bt) - d_at:
+                        mine_t = bt[:d_at] + d_ins + bt[d_at + d_del:]
+                        if d_fp and fingerprint(mine_t) != d_fp:
+                            mine_t = None
+                elif bt is not None:
+                    mine_t = text
+                # 문단이 하나뿐인 칸(이름·날짜 같은 한 줄 칸)은 나눌 문단이 없다 — 예전처럼 판 어긋남 충돌 사본(보낸 쪽 글을 따로 둔다)
+                if mine_t is not None and "\n" in (bt + mine_t + (cur_text or "")):
+                    from zzaimy.app import webhwp_paras as wp
+                    text, clash = wp.merge3(bt, mine_t, cur_text or "")
+                    merged = {"clash": clash}
+                    reason, is_delta = "", False
+                    if len(text) > TEXT_MAX:
+                        results.append({"seq": seq, "field": field, "ok": False, "reason": "too_long", "max": TEXT_MAX})
+                        continue
             if is_delta:
                 # 바뀐 부분은 보낸 쪽이 본 판(base)이 지금 판일 때만 — 아니면(남이 쥠·판 어긋남·지문 다름) 「delta」 로 돌려보내
                 # 편집 화면이 칸 글 전체로 다시 보낸다(그러면 위 규칙대로 충돌 사본까지). 이 답은 기록하지 않는다(같은 seq 로 다시 와도 다시 본다)
                 # 아직 표에 없는 칸은 파일의 지금 값이 바탕(편집 화면도 파일에서 연 글에 대해 바뀐 부분을 셌다)
                 cur = cur_text if st is not None else (_file_values(db, fid).get(field, "") if b == 0 else "")
+                old_text = cur
                 ok_d = not reason and b == cur_v and 0 <= d_at <= len(cur) and 0 <= d_del <= len(cur) - d_at
                 if ok_d:
                     text = cur[:d_at] + d_ins + cur[d_at + d_del:]
@@ -616,19 +811,24 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                 conn.execute("DELETE FROM webhwp_conflicts WHERE fid = ? AND user_id = ? AND id NOT IN (SELECT id FROM webhwp_conflicts"
                              " WHERE fid = ? AND user_id = ? ORDER BY id DESC LIMIT ?)", (int(fid), user, int(fid), user, CONFLICTS_KEEP))
                 res = {"seq": seq, "field": field, "ok": False, "conflict": cid or 0, "reason": reason, "version": cur_v,
-                       "text": cur_text or "", "by": (lk[0] if reason == "locked" else (st[3] if st else ""))}
+                       "text": cur_text or "", "by": (locked_by if reason == "locked" else (st[3] if st else ""))}
                 results.append(_result(conn, fid, ck, seq, res))
                 event = ("conflict", {"field": field, "user": user, "reason": reason})
             elif st is not None and cur_text == text and (st[4] or "") == rich:
-                results.append(_result(conn, fid, ck, seq, {"seq": seq, "field": field, "ok": True, "version": cur_v}))
+                same = {"seq": seq, "field": field, "ok": True, "version": cur_v}
+                if merged is not None:                         # 합쳐 보니 지금 글 그대로(내 고침이 이미 들어 있음)
+                    same.update({"merged": True, "text": text, "clash": 0})
+                results.append(_result(conn, fid, ck, seq, same))
             else:
                 v = cur_v + 1
                 if st is None:
-                    conn.execute("INSERT INTO webhwp_field_state (fid, field, version, text, rich, author, client, at, committed)"
-                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)", (int(fid), field, v, text, rich, user, ck, now))
+                    base0 = old_text if old_text is not None else (_file_values(db, fid).get(field) if b == 0 else None)
+                    conn.execute("INSERT INTO webhwp_field_state (fid, field, version, text, rich, author, client, at, committed, base0)"
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)", (int(fid), field, v, text, rich, user, ck, now, base0))
                 else:
+                    # 합친 글은 보낸 창이 아직 다 본 글이 아니다 — 창 열쇠를 비워 그 창의 다음 옛 판 고침도 합치기를 타게(같은 창 덮어쓰기 예외를 막음)
                     conn.execute("UPDATE webhwp_field_state SET version = ?, text = ?, rich = ?, author = ?, client = ?, at = ?"
-                                 " WHERE fid = ? AND field = ?", (v, text, rich, user, ck, now, int(fid), field))
+                                 " WHERE fid = ? AND field = ?", (v, text, rich, user, "" if merged is not None else ck, now, int(fid), field))
                 # 고친 기록 — 바뀐 부분만, SNAP_EVERY 판마다·처음·전체 글로 온 고침은 칸 글 전체(history 가 스냅숏 + 바뀐 부분으로 되살린다)
                 snap = not is_delta or st is None or v % SNAP_EVERY == 0
                 delta_json = "" if snap else json.dumps({"base": cur_v, "at": d_at, "del": d_del, "ins": d_ins}, ensure_ascii=False)
@@ -640,8 +840,24 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                 if _alive(lk, now) and lk[0] == user and (lk[1] or "") == client:
                     until = now + _lease_for(db, lk[5] or "")
                     conn.execute("UPDATE webhwp_field_locks SET lease_until = ?, touched = ? WHERE fid = ? AND field = ?", (until, now, int(fid), field))
+                elif conn.execute("UPDATE webhwp_para_locks SET lease_until = ? WHERE fid = ? AND user_id = ? AND client = ? AND field = ? AND lease_until > ?",
+                                  (now + conf(db, "lease"), int(fid), user, client, field, now)).rowcount:
+                    until = now + conf(db, "lease")             # 문단 임대도 고치면 늘어난다
+                # 문단 임대의 문단 번호를 새 글로(위쪽에 문단이 들거나 빠짐)
+                if old_text is not None:
+                    _remap_paras(conn, fid, field, old_text, text, (d_at, d_del, d_ins) if is_delta else None)
                 # 알림도 바뀐 부분만(받는 화면은 판이 이어지면 그 자리에 넣고, 끊기면 칸 글을 다시 받는다). 전체 글로 온 고침은 전체 글
-                if is_delta:
+                if merged is not None:                         # 합친 글 — 받는 화면에는 지금 판에서 바뀐 부분만
+                    m_at, m_del, m_ins = _diff(cur_text or "", text)
+                    data = {"field": field, "version": v, "base": cur_v, "at": m_at, "del": m_del, "ins": m_ins, "fp": fingerprint(text),
+                            "by": user, "client": client, "merged": True}
+                    if merged["clash"]:                        # 같은 문단을 둘 다 고침 — 덮인 쪽(앞 글을 쓴 사람)의 글을 충돌 사본으로
+                        sql = ("INSERT INTO webhwp_conflicts (fid, field, user_id, base_version, server_version, text, reason, at)"
+                               " VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                        args = (int(fid), field, st[3] or "", cur_v, v, cur_text or "", "para", now)
+                        cid = (conn.execute(sql + " RETURNING id", args).fetchone()[0] if _pg(conn) else conn.execute(sql, args).lastrowid)
+                        data["conflict"] = {"id": cid or 0, "user": st[3] or "", "client": craw(cur_client), "paras": merged["clash"][:50]}
+                elif is_delta:
                     data = {"field": field, "version": v, "base": cur_v, "at": d_at, "del": d_del, "ins": d_ins, "fp": fingerprint(text),
                             "by": user, "client": client}
                 else:
@@ -651,6 +867,8 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                     data["trusted"] = rich_kind == "hwpx"          # 화면은 hwpx 조각을 서버가 검사한 것만 넣는다
                 emit(db, fid, "field-updated", data, conn=conn)
                 res = {"seq": seq, "field": field, "ok": True, "version": v}
+                if merged is not None:                         # 보낸 화면은 합친 글을 받아 아직 안 보낸 제 고침을 그 위에 다시 얹는다
+                    res.update({"merged": True, "text": text, "clash": len(merged["clash"])})
                 if until:
                     res["until"] = until
                 results.append(_result(conn, fid, ck, seq, res))
@@ -1233,5 +1451,5 @@ def schedule_commit(db, base: Path, fid: int, wait: float | None = None) -> None
 
 def snapshot(db, fid: int, me: str = "", *, light: bool = False) -> dict:
     """편집 화면이 처음 열 때·다시 이어질 때 받는 전체 상태. light 면 칸 글 없이 판·지문만(30초 지문 대조 — 451쪽에서 칸 글 전체가 758KB였다)."""
-    return {"fields": state(db, fid, with_text=not light), "locks": locks(db, fid), "people": people(db, fid), "windows": windows(db, fid), "last": last_event_id(db, fid),
+    return {"fields": state(db, fid, with_text=not light), "locks": locks(db, fid), "para_locks": para_locks(db, fid), "people": people(db, fid), "windows": windows(db, fid), "last": last_event_id(db, fid),
             "conf": client_conf(db), "now": time.time()}
