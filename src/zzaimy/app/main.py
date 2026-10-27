@@ -352,8 +352,25 @@ def create_app(
     from zzaimy.app.access_policy import visible as _visible
 
     def _extra_depts(user: str | None) -> list[str]:
-        """계정별 추가 권한으로 받은 부서 RAG 이름들(RAG 공간 설정 grants) — 열람 검사와 목록 SQL 이 같은 값을 쓴다."""
-        return _ap.extra_depts(user, Path(db_path).parent)
+        """겸직 부서(계정 dept_grades) — 열람 검사와 목록 SQL 이 같은 값을 쓴다."""
+        if not user:
+            return []
+        return _ap.extra_depts(user, Path(db_path).parent, account=accounts.get(user) or {})
+
+    def _seen_depts(user: str | None) -> list[str]:
+        """소속 밖에서 더 찾는 부서 — 겸직 부서 + 내 부서들에 부서 RAG 를 열어 준 부서(검색 범위 안내·표시용)."""
+        if not user:
+            return []
+        own = ((accounts.get(user) or {}).get("dept") or "").strip()
+        also = _extra_depts(user)
+        return [*also, *[d for d in _ap.lent_depts(own, also, Path(db_path).parent) if d not in also]]
+
+    def _scope_depts(user: str) -> set[str]:
+        """이 계정이 부서 제한 문서를 보는 부서 — 소속·겸직·열어 받은 부서(dept_grants)."""
+        a = accounts.get(user) or {}
+        own = (a.get("dept") or "").strip()
+        also = _extra_depts(user)
+        return {own, *also, *_ap.lent_depts(own, also, Path(db_path).parent)} - {""}
 
     def _req_viewer(request: Request) -> dict:
         """요청의 보는 사람 — 열람 규칙은 access_policy 한 곳(visible·doc_sql)."""
@@ -368,7 +385,7 @@ def create_app(
         if getattr(request.state, "role", "") not in _ap.STAFF_ROLES or not dept:
             return ()
         me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
-        # 동료는 교직원 계열이고 보는 범위가 나보다 넓지 않은 계정만 — 관리자나 다른 부서 RAG 추가 권한을 받은 계정의 대화·답에는
+        # 동료는 교직원 계열이고 보는 범위가 나보다 넓지 않은 계정만 — 관리자나 다른 부서에 겸직하는 계정의 대화·답에는
         # 내가 볼 수 없는 자료가 섞일 수 있다
         mine = {dept, *_extra_depts(me)} if me else {dept}
         return tuple(u for u, a in accounts.items()
@@ -413,13 +430,11 @@ def create_app(
             return a.get("role", "staff") == "dev"
         if a.get("role", "staff") == "dev":
             return True
-        mine = {(a.get("dept") or "").strip(), *_extra_depts(viewer)} - {""}
-        theirs = {(b.get("dept") or "").strip(), *_extra_depts(other)} - {""}
-        return theirs <= mine
+        return _scope_depts(other) <= _scope_depts(viewer)
 
     def _peer_of(viewer: str, other: str) -> bool:
         """other 가 viewer 의 같은 부서 동료인가(대화 읽기·작업 문서 공유 같은 기준) — 둘 다 교직원 계열, 같은 부서, 첫 비밀번호를
-        바꾼(쓰기 시작한) 계정, other 가 받은 추가 권한 부서를 viewer 도 볼 수 있을 때."""
+        바꾼(쓰기 시작한) 계정, other 의 겸직 부서를 viewer 도 볼 수 있을 때."""
         a, b = accounts.get(viewer) or {}, accounts.get(other) or {}
         dept = (a.get("dept") or "").strip()
         if not viewer or not other or viewer == other or not dept or (b.get("dept") or "").strip() != dept:
@@ -1430,7 +1445,7 @@ def create_app(
 
     def _criteria_docs(request: Request | None = None) -> list[dict]:
         counts = db.regulation_chunk_counts()
-        # 기준 문서 목록도 열람 규칙 그대로 — 부서 제한 규정은 그 부서(와 추가 권한) 계정에만. 요청이 없으면 부르는 쪽이 거른다
+        # 기준 문서 목록도 열람 규칙 그대로 — 부서 제한 규정은 그 부서(와 겸직·열어 받은 부서) 계정에만. 요청이 없으면 부르는 쪽이 거른다
         v = _req_viewer(request) if request is not None else None
         return [
             d | {"n_chunks": counts.get(d["id"], 0)}
@@ -1598,7 +1613,7 @@ def create_app(
         if ag.injection_like(q):
             ag.audit(data_dir, owner, "injection", q, dept, role)
         depts = sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()})
-        scope_msg = ag.scope_note(q, dept, role, depts, _extra_depts(owner) if role in _ap.STAFF_ROLES else ())
+        scope_msg = ag.scope_note(q, dept, role, depts, _seen_depts(owner) if role in _ap.STAFF_ROLES else ())
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
@@ -3692,7 +3707,7 @@ def create_app(
             try:
                 from zzaimy.app import grant_lex, grant_search
 
-                # 채팅 검색과 같은 범위(RAG 공간·계정별 추가 권한, ADR-0053) — 검색창이 공간 제한을 우회하지 않게
+                # 채팅 검색과 같은 범위(RAG 공간·겸직·부서 열어 주기, ADR-0053) — 검색창이 공간 제한을 우회하지 않게
                 ids = []
                 if space.get("grant"):
                     user = None if request.state.role == "dev" else (request.state.user or "")
@@ -4503,7 +4518,7 @@ def create_app(
             answer = r_.answer(db, q, **kw)
             # 범위 밖 부서 자료를 가리키는 질문 — 대화 화면과 같은 안내(검색은 원래 범위 안에서만 돈다)
             scope_msg = ag.scope_note(q, dept, role, sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()}),
-                                      _extra_depts(owner) if role in _ap.STAFF_ROLES else ())
+                                      _seen_depts(owner) if role in _ap.STAFF_ROLES else ())
             if scope_msg:
                 ag.audit(Path(db_path).parent, owner, "scope", q, dept, role)
                 answer = scope_msg + "\n\n" + answer
@@ -5061,7 +5076,7 @@ def create_app(
         _reader_doc_ok=_reader_doc_ok,
         _criteria_docs=_criteria_docs,
         _viewer_sees=_viewer_sees,
-        _extra_depts=_extra_depts,
+        _extra_depts=_extra_depts, _seen_depts=_seen_depts,
         _local_back=_local_back,
         _share_sync=_share_sync,
         _chat_suggestions=_chat_suggestions,

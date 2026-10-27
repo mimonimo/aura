@@ -27,22 +27,64 @@ DEFAULT = {
     ],
     # 부서가 정해진 교직원은 공간을 따로 적지 않아도 dept:<부서> 공간을 받는다 — 그 부서 사업 문서 + 공통·그 부서 규정
     "dept_default": {"regulation": {}, "grant": True},
-    # 계정별 추가 권한 — {"계정": ["dept:산학협력단", …]}. 그 공간의 사업 문서 부서가 검색 범위에 더해진다
-    "grants": {},
+    # 부서 RAG 열어 주기(부서 단위) — {"주는 부서": ["받는 부서", …]}. 받는 부서 교직원은 주는 부서의 사업 문서·규정도 찾고 연다.
+    # 계정 하나에 따로 주는 권한은 두지 않는다(10-27 — 「부서 RAG 는 부서 기반, 다른 부서에 주려면 부서에 권한을」)
+    "dept_grants": {},
 }
+
+# 예전 설정 열쇠 — 계정별 추가 권한. 읽을 때 버리고 저장할 때도 남기지 않는다(뜻을 잃은 값이 다시 살아나지 않게)
+_DROPPED = ("grants",)
 
 
 def config(data_dir: str | Path | None = None) -> dict:
-    # 늘 새 사본을 돌려준다 — 받은 쪽이 고쳐도(예: grants 바꾸고 저장) 모듈 기본값 DEFAULT 가 바뀌어 다른 계정·요청에 번지지 않게
+    # 늘 새 사본을 돌려준다 — 받은 쪽이 고쳐도(예: dept_grants 바꾸고 저장) 모듈 기본값 DEFAULT 가 바뀌어 다른 계정·요청에 번지지 않게
     import copy
     if data_dir is not None:
         p = Path(data_dir) / "rag_spaces.json"
         try:
             got = json.loads(p.read_text(encoding="utf-8"))
-            return {**copy.deepcopy(DEFAULT), **got}
-        except (OSError, ValueError):
+            out = {**copy.deepcopy(DEFAULT), **{k: v for k, v in got.items() if k not in _DROPPED}}
+            out["dept_grants"] = _clean_grants(out.get("dept_grants"))
+            return out
+        except (OSError, ValueError, AttributeError):
             pass
     return copy.deepcopy(DEFAULT)
+
+
+def _clean_grants(raw) -> dict:
+    """dept_grants 를 {주는 부서: [받는 부서…]} 꼴로 — 빈 이름·자기 자신·「공통」·겹친 값은 뺀다."""
+    out: dict[str, list[str]] = {}
+    for owner, to in (raw or {}).items() if isinstance(raw, dict) else ():
+        owner = str(owner or "").strip()
+        if not owner or owner == "공통":
+            continue
+        got = [d for d in dict.fromkeys(str(x or "").strip() for x in (to or ())) if d and d not in (owner, "공통")]
+        if got:
+            out[owner] = sorted(got)
+    return out
+
+
+def lent_to(cfg: dict, depts) -> list[str]:
+    """이 부서들(받는 쪽)에 부서 RAG 를 열어 준 부서들 — 주는 부서 이름 목록(받는 부서 자신은 뺀다)."""
+    mine = {str(d or "").strip() for d in depts or () if str(d or "").strip()}
+    if not mine:
+        return []
+    return sorted(o for o, to in (cfg.get("dept_grants") or {}).items() if o not in mine and mine & set(to or ()))
+
+
+def receivers(cfg: dict, owner: str) -> list[str]:
+    """이 부서가 자기 부서 RAG 를 열어 준 부서들."""
+    return list((cfg.get("dept_grants") or {}).get(owner, []))
+
+
+def set_receivers(cfg: dict, owner: str, to: list[str]) -> dict:
+    """owner 의 받는 부서를 to 로 바꾼 새 설정(빈 목록이면 열쇠를 지운다)."""
+    import copy
+    new = copy.deepcopy(cfg)
+    gr = dict(new.get("dept_grants") or {})
+    gr[owner] = list(to)
+    new["dept_grants"] = _clean_grants(gr)
+    return new
 
 
 def dept_of_rel(rel: str, data_dir: str | Path | None = None) -> str:
@@ -72,18 +114,22 @@ def resolve(role: str, dept: str | None, data_dir: str | Path | None = None) -> 
 def search_scope(role: str, dept: str | None, user: str | None = None, data_dir: str | Path | None = None,
                  grade: str = "") -> dict:
     """검색에 넘길 범위 — 공간에서 만든다. 규정은 levels·dept·user(열람 등급 규칙), 사업 문서는 grant(쓰나)·grant_depts(부서).
-    계정별 추가 권한(grants)이 있으면 그 공간들의 사업 문서 부서를 더한다(학생에게는 더하지 않는다).
+    더하는 부서: 계정의 겸직 부서(계정 dept_grades)와, 내 부서들(소속·겸직)에 부서 RAG 를 열어 준 부서(dept_grants).
+    학생에게는 더하지 않는다.
     grade: 계정의 교직원 등급(grades.user_grade). 설정 min_grade 로 최소 등급이 걸린 RAG 에 못 미치면 그 RAG 의 사업 문서
     부서를 범위에서 뺀다(ADR-0066). 빈 값이거나 걸린 것이 없으면 지금 동작 그대로."""
     cfg = config(data_dir)
     sp = resolve(role, dept, data_dir)
-    extra = [] if role == "student" else cfg.get("grants", {}).get(user or "", [])
+    extra: list[str] = []
+    from zzaimy.app import access_policy
+    if role in access_policy.STAFF_ROLES:
+        own = (dept or "").strip()
+        member = [d for d in access_policy.extra_depts(user, data_dir) if d != own]
+        extra = [*member, *[d for d in lent_to(cfg, [own, *member]) if d not in member]]
     if extra and sp.get("grant_depts") is not None:
         depts = list(sp["grant_depts"])
-        for sid in extra:
-            if sid.startswith("dept:") and sid[5:] not in depts:
-                depts.append(sid[5:])
-        sp = {**sp, "grant": True, "grant_depts": depts, "id": sp["id"] + "+" + ",".join(extra)}
+        depts += [d for d in extra if d not in depts]
+        sp = {**sp, "grant": True, "grant_depts": depts, "id": sp["id"] + "+" + ",".join(f"dept:{d}" for d in extra)}
     if grade and role != "dev" and sp.get("grant_depts") is not None:
         from zzaimy.app import grades
         blocked = grades.rag_blocked(cfg, grade)
@@ -94,8 +140,9 @@ def search_scope(role: str, dept: str | None, user: str | None = None, data_dir:
         scope["levels"] = ("student",)
     elif role != "dev":
         scope.update({"user": user or "", "dept": dept or "공통"})
-        more = [sid[5:] for sid in extra if sid.startswith("dept:") and sid[5:] != (dept or "공통")]
-        if more:                                    # 추가 권한 부서의 규정도 — 사업 문서와 같은 범위(규정 검색은 reg_depts 를 쓴다)
+        gd = sp.get("grant_depts")
+        more = [d for d in extra if d != (dept or "공통") and (gd is None or d in gd)]   # 최소 등급으로 빠진 부서는 규정도 뺀다
+        if more:                                    # 겸직·열어 받은 부서의 규정도 — 사업 문서와 같은 범위(규정 검색은 reg_depts 를 쓴다)
             scope["reg_depts"] = [dept or "공통", *more]
     scope["grant"] = bool(sp.get("grant"))
     scope["grant_depts"] = sp.get("grant_depts")
@@ -103,7 +150,7 @@ def search_scope(role: str, dept: str | None, user: str | None = None, data_dir:
 
 
 def _reg_args(sc: dict) -> dict:
-    """공간 범위 → 규정 조각 조건(levels·dept). 추가 권한 부서가 있으면 dept 는 부서 목록(reg_depts)."""
+    """공간 범위 → 규정 조각 조건(levels·dept). 겸직·열어 받은 부서가 있으면 dept 는 부서 목록(reg_depts)."""
     out = {k: sc[k] for k in ("levels",) if k in sc}
     if sc.get("reg_depts"):
         out["dept"] = list(sc["reg_depts"])
@@ -120,6 +167,7 @@ def save_config(cfg: dict, data_dir: str | Path) -> None:
     if p.is_file():
         shutil.copy(p, p.with_name(f"rag_spaces.json.bak-{time.strftime('%Y%m%d%H%M%S')}"))
     tmp = p.with_suffix(".tmp")
+    cfg = {k: v for k, v in cfg.items() if k not in _DROPPED}
     tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(p)
     from zzaimy.app import org_lock
@@ -180,11 +228,6 @@ def known_depts(cfg: dict, accounts: dict) -> list[str]:
     return sorted(out - {"공통"})
 
 
-def dept_spaces(cfg: dict, accounts: dict) -> list[str]:
-    """계정별 추가 권한으로 줄 수 있는 부서 공간."""
-    return [f"dept:{d}" for d in known_depts(cfg, accounts)]
-
-
 def area_folders(db) -> list[dict]:
     """학교 원본의 최상위 폴더와 파일 수 — 원본 장부(archive_files) 경로의 첫 단계. 플랫폼 업로드처럼 경로와 다른 묶음은 뺀다."""
     try:
@@ -196,39 +239,6 @@ def area_folders(db) -> list[dict]:
     except Exception:
         return []
     return [{"folder": str(r[0]), "files": int(r[1])} for r in rows]
-
-
-def grant_changes(cfg: dict, accounts: dict, cells: list[str], was: list[str], on: list[str],
-                  data_dir: str | Path | None = None) -> tuple[dict, list, list]:
-    """계정 × 부서 공간 표의 저장 — 화면에 보인 칸(cells) 가운데 처음 값(was)과 지금 값(on)이 다른 칸만 지금 설정에 반영한다.
-    칸 열쇠는 「계정\\t공간」. 돌려주는 것: (새 grants, 반영한 [(계정, 공간, 켬?)], 거절한 [(칸, 사유)])."""
-    grants = {u: list(v) for u, v in cfg.get("grants", {}).items()}
-    allowed = set(dept_spaces(cfg, accounts))
-    was_s, on_s = set(was), set(on)
-    done, bad = [], []
-    for key in dict.fromkeys(cells):
-        want = key in on_s
-        if want == (key in was_s):
-            continue
-        user, _, sid = key.partition("\t")
-        role = accounts.get(user, {}).get("role")
-        if user not in accounts:
-            bad.append((key, "없는 계정"))
-        elif role in ("student", "dev"):
-            bad.append((key, "학생·관리자 계정은 추가 권한 대상이 아님"))
-        elif sid not in allowed:
-            bad.append((key, "없는 부서 공간"))
-        elif want and resolve(role or "staff", accounts[user].get("dept"), data_dir).get("grant_depts") is None:   # 전부 검색(관리자 꼴)
-            bad.append((key, "이미 사업 문서 전부를 검색하는 계정"))
-        else:
-            cur = grants.setdefault(user, [])
-            if want and sid not in cur:
-                cur.append(sid)
-            elif not want and sid in cur:
-                cur.remove(sid)
-            done.append((user, sid, want))
-    grants = {u: sorted(v) for u, v in grants.items() if v}
-    return grants, done, bad
 
 
 def _grant_where(sc: dict, a: str = "") -> tuple[str, list] | None:
@@ -366,7 +376,7 @@ _DEPT_NAME = re.compile(r"^[0-9A-Za-z가-힣][0-9A-Za-z가-힣 .·()\-+&]{1,29}$
 
 
 def dept_rag_rows(db, cfg: dict, accounts: dict, depts: list[str] | None = None) -> list[dict]:
-    """부서 RAG 목록 — 부서마다 든 사업 문서 수(검토 끝난 것), 쓰는 계정(그 부서 계정), 추가 권한으로 쓰는 계정, 만든 기록.
+    """부서 RAG 목록 — 부서마다 든 사업 문서 수(검토 끝난 것), 쓰는 계정(그 부서 계정), 겸직으로 쓰는 계정, 열어 준 부서, 만든 기록.
     depts: 부서 목록(사용자 관리의 부서 공용까지 — user_admin.known_depts). 없으면 이 설정이 아는 부서."""
     made = {str(r.get("dept")): r for r in cfg.get("dept_rags", [])}
     depts = depts if depts is not None else known_depts(cfg, accounts)
@@ -382,10 +392,12 @@ def dept_rag_rows(db, cfg: dict, accounts: dict, depts: list[str] | None = None)
             regs = {str(r[0]): (int(r[1]), int(r[2])) for r in conn.execute(
                 f"SELECT dept, COUNT(DISTINCT doc_id), COUNT(*) FROM regulation_chunks WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept",
                 depts)}
-    grants = cfg.get("grants", {})
+    from zzaimy.app import grades
     return [{"dept": d, "docs": counts.get(d, 0), "reg_docs": regs.get(d, (0, 0))[0], "reg_chunks": regs.get(d, (0, 0))[1],
              "members": sorted(u for u, a in accounts.items() if not a.get("demo") and str(a.get("dept") or "").strip() == d),
-             "granted": sorted(u for u, g in grants.items() if f"dept:{d}" in g),
+             "granted": sorted(u for u, a in accounts.items() if not a.get("demo") and str(a.get("dept") or "").strip() != d
+                               and d in grades.dept_grades(a)),
+             "lend_to": receivers(cfg, d), "lend_from": lent_to(cfg, [d]),
              "made": made.get(d, {}), "folders": sorted(f for f, v in cfg.get("dept_of_area", {}).items() if v == d)}
             for d in depts]
 
@@ -417,20 +429,19 @@ def move_docs(db, ids: list[int], dept: str) -> int:
 
 
 def delete_dept_rag(db, cfg: dict, name: str) -> tuple[dict, int]:
-    """부서 RAG 를 지운다 — 든 문서는 공통 RAG 로 돌리고, 추가 권한·폴더 짝에서도 뺀다. (새 설정, 공통으로 돌린 문서 수)."""
+    """부서 RAG 를 지운다 — 든 문서는 공통 RAG 로 돌리고, 열어 주기(주는 쪽·받는 쪽 모두)·폴더 짝에서도 뺀다. (새 설정, 공통으로 돌린 문서 수)."""
     with db._conn() as conn:
         ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE dept = ?", (name,))]
     moved = move_docs(db, ids, "공통")
     new = dict(cfg)
     new["dept_rags"] = [r for r in cfg.get("dept_rags", []) if str(r.get("dept")) != name]
-    new["grants"] = {u: [s for s in g if s != f"dept:{name}"] for u, g in cfg.get("grants", {}).items()}
-    new["grants"] = {u: g for u, g in new["grants"].items() if g}
+    new["dept_grants"] = _clean_grants({o: [d for d in to if d != name] for o, to in (cfg.get("dept_grants") or {}).items() if o != name})
     new["dept_of_area"] = {f: v for f, v in cfg.get("dept_of_area", {}).items() if v != name}
     return new, moved
 
 
 def rename_dept_rag(db, cfg: dict, old: str, new: str) -> tuple[dict, int]:
-    """부서 이름을 바꾼다 — 부서 RAG·폴더 짝·공간의 부서·추가 권한(dept:)·최소 등급 열쇠와 그 부서 문서(조각까지)를 함께.
+    """부서 이름을 바꾼다 — 부서 RAG·폴더 짝·공간의 부서·열어 주기(주는 쪽·받는 쪽)·최소 등급 열쇠와 그 부서 문서(조각까지)를 함께.
     (새 설정, 옮긴 문서 수). 문서의 열람 등급은 그대로 둔다(부서 제한 문서는 새 이름의 부서 제한)."""
     import copy
     new_cfg = copy.deepcopy(cfg)
@@ -440,7 +451,11 @@ def rename_dept_rag(db, cfg: dict, old: str, new: str) -> tuple[dict, int]:
     for sp in new_cfg.get("spaces", []):
         if sp.get("depts"):
             sp["depts"] = [new if d == old else d for d in sp["depts"]]
-    new_cfg["grants"] = {u: list(dict.fromkeys(key_new if s == key_old else s for s in g)) for u, g in new_cfg.get("grants", {}).items()}
+    ren = lambda d: new if d == old else d  # noqa: E731
+    merged: dict[str, list[str]] = {}
+    for o, to in (new_cfg.get("dept_grants") or {}).items():
+        merged.setdefault(ren(o), []).extend(ren(d) for d in to)
+    new_cfg["dept_grants"] = _clean_grants(merged)
     if new_cfg.get("min_grade"):
         new_cfg["min_grade"] = {(key_new if k == key_old else k): v for k, v in new_cfg["min_grade"].items()}
     n = 0

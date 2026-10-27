@@ -72,7 +72,7 @@ def scope_note(question: str, dept: str | None, role: str, depts: list[str], als
     """질문이 사용자 범위 밖의 부서 자료를 가리키면 안내문, 아니면 None.
 
     판정은 계정 범위로 한다 — 플랫폼이 아는 부서 이름(부서 RAG·계정의 부서) 가운데 질문에 나온 것이 이 계정의 범위
-    (소속 부서 + 계정별 추가 권한 부서) 밖이면 안내한다. 검색은 원래 범위 안에서만 돌므로(search_scope) 이 안내는 답의 머리말일 뿐
+    (소속 부서 + 겸직 부서 + 열어 받은 부서) 밖이면 안내한다. 검색은 원래 범위 안에서만 돌므로(search_scope) 이 안내는 답의 머리말일 뿐
     근거를 거르는 관문이 아니다. 안내에는 그 부서 이름만 — 범위 밖 문서의 제목·건수·있고 없음은 싣지 않는다.
     학생은 부서 자료 전체가 범위 밖이다.
     """
@@ -95,7 +95,7 @@ def scope_note(question: str, dept: str | None, role: str, depts: list[str], als
 
 def reg_kwargs(scope: dict) -> dict:
     """규정 검색(regulations.find_relevant·sparse_search·hybrid_candidates)에 넘길 범위 인자만 — 검색 범위 dict 를 통째로
-    넘기면 모르는 열쇠(space·grant…)로 호출이 깨진다. 부서는 소속 부서 + 추가 권한 부서(reg_depts)."""
+    넘기면 모르는 열쇠(space·grant…)로 호출이 깨진다. 부서는 소속 부서 + 겸직·열어 받은 부서(reg_depts)."""
     out = {k: scope[k] for k in ("user", "levels") if scope.get(k) is not None}
     if scope.get("reg_depts"):
         out["dept"] = list(scope["reg_depts"])

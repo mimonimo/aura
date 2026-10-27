@@ -1,4 +1,4 @@
-"""RAG 공간(ADR-0053) — 역할·부서 → 공간, 계정별 추가 권한, 부서 다시 붙이기, 관리 화면."""
+"""RAG 공간(ADR-0053) — 역할·부서 → 공간, 부서 RAG 열어 주기(부서 단위), 부서 다시 붙이기, 관리 화면."""
 from __future__ import annotations
 
 import json
@@ -20,21 +20,62 @@ def test_resolve_spaces(tmp_path):
     assert rag_spaces.resolve("nobody", "", tmp_path)["grant"] is False     # 모르는 역할은 가장 좁게
 
 
-def test_search_scope_grants_add_depts_but_never_to_students(tmp_path):
-    rag_spaces.save_config({"grants": {"kim": ["dept:앵커사업단"], "stu": ["dept:앵커사업단"]}}, tmp_path)
+def test_dept_grant_opens_scope_only_after_grant_and_never_to_students(tmp_path):
+    """부서 RAG 는 부서 기반 — 앵커사업단이 LINC사업단에 열어 줘야 LINC사업단 교직원이 앵커사업단 사업 문서·규정까지 찾는다."""
+    before = rag_spaces.search_scope("staff", "LINC사업단", "kim", tmp_path)
+    assert before["grant_depts"] == ["LINC사업단", "공통"] and "reg_depts" not in before
+    rag_spaces.save_config({"dept_grants": {"앵커사업단": ["LINC사업단"]}}, tmp_path)
     sc = rag_spaces.search_scope("staff", "LINC사업단", "kim", tmp_path)
-    assert sc["grant_depts"] == ["LINC사업단", "공통", "앵커사업단"] and sc["space"].startswith("dept:LINC사업단+")
-    st = rag_spaces.search_scope("student", "", "stu", tmp_path)
+    assert sc["grant_depts"] == ["LINC사업단", "공통", "앵커사업단"] and sc["space"] == "dept:LINC사업단+dept:앵커사업단"
+    assert sc["reg_depts"] == ["LINC사업단", "앵커사업단"]                       # 규정도 같은 범위
+    # 받는 쪽만 — 앵커사업단 사람은 LINC사업단 RAG 를 받지 않고, 다른 부서·부서 없는 교직원도 그대로
+    assert rag_spaces.search_scope("staff", "앵커사업단", "lee", tmp_path)["grant_depts"] == ["앵커사업단", "공통"]
+    assert rag_spaces.search_scope("staff", "기획처", "park", tmp_path)["grant_depts"] == ["기획처", "공통"]
+    assert rag_spaces.search_scope("staff", "", "kim", tmp_path)["grant_depts"] == ["공통"]
+    # 학생은 부서가 같아도 받지 않는다
+    st = rag_spaces.search_scope("student", "LINC사업단", "stu", tmp_path)
     assert st["grant"] is False and st["levels"] == ("student",)
-    # 부서 없는 교직원은 공통 RAG — 추가 권한으로 부서 RAG 를 더 받는다
-    assert rag_spaces.search_scope("staff", "", "kim", tmp_path)["grant_depts"] == ["공통", "앵커사업단"]
+    # 거두면 바로 빠진다
+    rag_spaces.save_config(rag_spaces.set_receivers(rag_spaces.config(tmp_path), "앵커사업단", []), tmp_path)
+    assert rag_spaces.config(tmp_path)["dept_grants"] == {}
+    assert rag_spaces.search_scope("staff", "LINC사업단", "kim", tmp_path)["grant_depts"] == ["LINC사업단", "공통"]
+
+
+def test_dept_grant_respects_min_grade(tmp_path):
+    """열어 받은 부서 RAG 에도 그 RAG 의 최소 등급이 그대로 걸린다(ADR-0066)."""
+    rag_spaces.save_config({"dept_grants": {"앵커사업단": ["LINC사업단"]}, "min_grade": {"dept:앵커사업단": "head"}}, tmp_path)
+    low = rag_spaces.search_scope("staff", "LINC사업단", "kim", tmp_path, grade="member")
+    assert low["grant_depts"] == ["LINC사업단", "공통"] and "reg_depts" not in low
+    high = rag_spaces.search_scope("staff", "LINC사업단", "kim", tmp_path, grade="head")
+    assert "앵커사업단" in high["grant_depts"]
+
+
+def test_old_account_grants_key_is_ignored(tmp_path):
+    """예전 계정별 추가 권한(grants)은 읽을 때 버리고 저장할 때도 남지 않는다 — 검색 범위를 넓히지 않는다."""
+    (tmp_path / "rag_spaces.json").write_text(json.dumps({"grants": {"kim": ["dept:앵커사업단"]}}), encoding="utf-8")
+    assert "grants" not in rag_spaces.config(tmp_path)
+    assert rag_spaces.search_scope("staff", "LINC사업단", "kim", tmp_path)["grant_depts"] == ["LINC사업단", "공통"]
+    rag_spaces.save_config({**rag_spaces.config(tmp_path), "grants": {"kim": ["dept:x"]}}, tmp_path)
+    assert "grants" not in json.loads((tmp_path / "rag_spaces.json").read_text(encoding="utf-8"))
+
+
+def test_dept_grants_cleaned_on_delete_and_rename(tmp_path):
+    db = Database(tmp_path / "t.db")
+    cfg = {**rag_spaces.config(tmp_path), "dept_rags": [{"dept": "가"}, {"dept": "나"}, {"dept": "다"}],
+           "dept_grants": {"가": ["나", "다"], "나": ["가"]}}
+    new, _ = rag_spaces.rename_dept_rag(db, cfg, "나", "나2")              # 주는 쪽·받는 쪽 이름 모두 따라간다
+    assert new["dept_grants"] == {"가": ["나2", "다"], "나2": ["가"]}
+    gone, _ = rag_spaces.delete_dept_rag(db, new, "가")                     # 주는 쪽 열쇠도, 받는 쪽 목록에서도 빠진다
+    assert gone["dept_grants"] == {}
+    gone2, _ = rag_spaces.delete_dept_rag(db, new, "다")
+    assert gone2["dept_grants"] == {"가": ["나2"], "나2": ["가"]}
 
 
 def test_save_config_keeps_backup(tmp_path):
-    rag_spaces.save_config({"grants": {}}, tmp_path)
-    rag_spaces.save_config({"grants": {"a": ["dept:x"]}}, tmp_path)
+    rag_spaces.save_config({"dept_grants": {}}, tmp_path)
+    rag_spaces.save_config({"dept_grants": {"a": ["b"]}}, tmp_path)
     assert list(tmp_path.glob("rag_spaces.json.bak-*"))
-    assert rag_spaces.config(tmp_path)["grants"] == {"a": ["dept:x"]}
+    assert rag_spaces.config(tmp_path)["dept_grants"] == {"a": ["b"]}
 
 
 def test_dept_of_rel(tmp_path):
@@ -75,10 +116,6 @@ def _client(tmp_path):
         "u-da": {"role": "head", "dept": "다부서"}, "u-stu": {"role": "student"},
     })
     return c
-
-
-def _grants(tmp_path):
-    return json.loads((tmp_path / "rag_spaces.json").read_text(encoding="utf-8"))["grants"]
 
 
 def test_rag_page_sections(tmp_path):
@@ -154,8 +191,9 @@ def test_search_preview_keeps_account_scope(tmp_path, monkeypatch):
     assert docs("user:u-ga") == {ga}                       # 가부서 계정은 나부서 문서를 못 본다
     assert docs("user:u-na") == {na}
     assert docs("space:dev") == {ga, na}
-    rag_spaces.save_config({"grants": {"u-ga": ["dept:나부서"]}}, tmp_path)
-    assert docs("user:u-ga") == {ga, na}                   # 추가 권한을 주면 실제 검색과 같이 넓어진다
+    rag_spaces.save_config({"dept_grants": {"나부서": ["가부서"]}}, tmp_path)
+    assert docs("user:u-ga") == {ga, na}                   # 나부서가 가부서에 열어 주면 실제 검색과 같이 넓어진다
+    assert docs("user:u-na") == {na}                       # 주는 쪽은 그대로
     st = c.get("/dev/rag/try", params={"target": "user:u-stu", "q": "장학금 지급 기준"}).json()
     assert st["grant"] == [] and st["student_only"] is True
     assert {h["doc_id"] for h in st["regulation"]} == {reg_s}          # 학생은 학생 공개 규정만

@@ -121,7 +121,7 @@ def test_rename_cascades(org):
     app.state.accounts["lee"]["dept_grades"] = {"기획팀": "lead"}
     app.state.save_accounts()
     cfg = rag_spaces.config(tmp)
-    cfg["grants"] = {"lee": ["dept:기획팀"]}
+    cfg["dept_grants"] = {"기획팀": ["예산팀"], "예산팀": ["기획팀"]}
     cfg["min_grade"] = {"dept:기획팀": "lead"}
     cfg["dept_of_area"] = {"plan": "기획팀"}
     rag_spaces.save_config(cfg, tmp)
@@ -138,7 +138,8 @@ def test_rename_cascades(org):
     cfg = rag_spaces.config(tmp)
     assert {"dept": "기획조정팀"}.items() <= next(x for x in cfg["dept_rags"] if x["dept"] == "기획조정팀").items()
     assert not any(x["dept"] == "기획팀" for x in cfg["dept_rags"])
-    assert cfg["grants"]["lee"] == ["dept:기획조정팀"] and cfg["min_grade"] == {"dept:기획조정팀": "lead"}
+    assert cfg["dept_grants"] == {"기획조정팀": ["예산팀"], "예산팀": ["기획조정팀"]}      # 주는 쪽·받는 쪽 모두
+    assert cfg["min_grade"] == {"dept:기획조정팀": "lead"}
     assert cfg["dept_of_area"] == {"plan": "기획조정팀"}
     assert dept_dictionary.parents_override(tmp)["기획조정팀"] == "기획처" and "기획팀" not in dept_dictionary.parents_override(tmp)
     with db._conn() as c:
@@ -159,21 +160,25 @@ def test_delete_blocked_with_members_and_cleans_up(org):
     assert "기획팀" in rag_spaces.known_depts(rag_spaces.config(tmp), app.state.accounts)
     app.state.accounts["lee"]["dept_grades"] = {"예산팀": "head"}
     app.state.save_accounts()
+    cfg = rag_spaces.config(tmp)
+    cfg["dept_grants"] = {"예산팀": ["기획팀"], "기획팀": ["예산팀", "학생지원팀"]}
+    rag_spaces.save_config(cfg, tmp)
     assert dev.post("/org/delete", json={"dept": "예산팀"}).json()["ok"]
+    assert rag_spaces.config(tmp)["dept_grants"] == {"기획팀": ["학생지원팀"]}           # 주는 쪽·받는 쪽 모두에서 빠진다
     assert "dept_grades" not in app.state.accounts["lee"] and "예산팀" not in dept_dictionary.parents_override(tmp)
 
 
 def test_head_designation(org):
     app, dev, tmp = org
-    # 소속이 다른 사람 — 겸직 등급과 겸직 부서(추가 권한)
+    # 소속이 다른 사람 — 겸직 등급(겸직 부서도 이것 한 곳)
     assert dev.post("/org/head", json={"dept": "학생복지처", "user": "kim"}).json()["ok"]
     kim = app.state.accounts["kim"]
     assert kim["dept_grades"] == {"학생복지처": "head"} and kim["grade"] == "member"
-    assert "dept:학생복지처" in rag_spaces.config(tmp)["grants"]["kim"]
+    assert "학생복지처" in grades.depts_of("kim", kim, tmp) and "grants" not in rag_spaces.config(tmp)
     assert "학생지원팀" in grades.covered_depts("kim", kim, tmp)
     assert [h["user"] for h in {x["name"]: x for x in _tree(dev)["tops"]}["학생복지처"]["heads"]] == ["kim"]
     assert dev.post("/org/head", json={"dept": "학생복지처", "user": "kim", "on": False}).json()["ok"]
-    assert "dept_grades" not in app.state.accounts["kim"] and "kim" not in rag_spaces.config(tmp)["grants"]
+    assert "dept_grades" not in app.state.accounts["kim"]
     # 소속인 사람 — 계정 등급
     _add(app, "park", dept="학생복지처", grade="lead")
     assert dev.post("/org/head", json={"dept": "학생복지처", "user": "park"}).json()["ok"]
@@ -232,7 +237,7 @@ def _leave_traces(app, tmp, name):
     app.state.accounts["kim"]["dept_grades"] = {name: "head"}
     app.state.save_accounts()
     cfg = rag_spaces.config(tmp)
-    cfg["min_grade"] = {f"dept:{name}": "member"}         # 추가 권한(grants)이 남으면 부서 목록에 그대로 보여 「이미 있는 부서」로 막힌다
+    cfg["min_grade"] = {f"dept:{name}": "member"}         # 흔적이 부서 목록에 남으면 「이미 있는 부서」로 막힌다
     rag_spaces.save_config(cfg, tmp)
     over = dept_dictionary.parents_override(tmp)
     over["예산팀"] = name                                                        # 남의 부서를 옛 이름 아래로 가리키는 관계

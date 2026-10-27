@@ -3,7 +3,7 @@
  *         이름 바꾸기·상위 부서 옮기기·하위 부서 추가·지우기·부서 드라이브)
  *   전체 사용자(관리자): 계정 목록(찾기·역할·부서·사용 여부 거르기·쪽 나누기, 체크 → 역할·부서 옮기기·사용 중지·다시 사용, 계정 추가·편집)
  * 자료: GET /api/org · /api/org/members · /api/org/accounts. 고치기: /org/move·rename·delete·create·head, POST /api/org/members,
- *       /dev/users/bulk, /dev/rag/min-grade. 단추는 서버가 준 권한(can_edit·can_hold·team·admin)대로만 보이고 서버가 매번 다시 본다.
+ *       /dev/users/bulk, /dev/rag/min-grade, /org/rag-lend. 단추는 서버가 준 권한(can_edit·can_hold·team·admin)대로만 보이고 서버가 매번 다시 본다.
  * 확인창은 공통(window.platformConfirm), 입력 창은 같은 꼴(confirm-dialog)의 formDialog 하나. 글자는 모두 textContent 로 넣는다.
  */
 (function () {
@@ -529,6 +529,22 @@
           .catch(function (e) { toast(e.message, null, true); sel_.value = n.min_grade || ''; }).then(function () { sel_.disabled = false; });
       });
       facts.append(h('dt', {text: '최소 등급'}), h('dd', {}, [sel_]));
+    }
+    if (n.can_lend && window.PeoplePicker) {                // 다른 부서에 열기 — 관리자·이 부서 총괄 책임자(서버가 다시 본다, /org/rag-lend)
+      var lend = h('div', {'data-people-picker': true, 'data-endpoint': '/org/rag-lend/targets/' + encodeURIComponent(n.name),
+                           'data-placeholder': '부서 이름으로 찾기', 'aria-label': '열어 줄 부서'});
+      var chipsOf = function (list) { return (list || []).map(function (d) { return {user: d, label: d, dept: '부서'}; }); };
+      window.PeoplePicker.set(lend, chipsOf(n.lend_to));
+      var lendBusy = false;
+      lend.addEventListener('pp:change', function (e) {
+        var want = e.detail.map(function (p) { return p.user; });
+        if (lendBusy || want.join('\t') === (n.lend_to || []).join('\t')) return;
+        lendBusy = true; lend.style.pointerEvents = 'none'; lend.style.opacity = '.6';
+        postJSON('/org/rag-lend', {dept: n.name, to: want}).then(function (j) { n.lend_to = j.to; toast(j.msg); })
+          .catch(function (x) { toast(x.message, null, true); })
+          .then(function () { lendBusy = false; lend.style.pointerEvents = ''; lend.style.opacity = ''; window.PeoplePicker.set(lend, chipsOf(n.lend_to)); });
+      });
+      facts.append(h('dt', {text: '다른 부서에 열기'}), h('dd', {}, [lend]));
     }
     var acts = h('div', {class: 'om-acts'});
     function btn(label, fn, cls) { acts.appendChild(h('button', {type: 'button', class: 'btn-ghost' + (cls ? ' ' + cls : ''), text: label, onclick: fn})); }

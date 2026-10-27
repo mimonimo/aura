@@ -2,7 +2,7 @@
 
 나중에 붙이면 전체를 다시 색인해야 하므로(브리프 절대 규칙 4) 반입할 때 정한다. 값은 셋이다.
   public  전체 공개 — 공통 RAG. 별도로 정하지 않은 문서는 모두 여기(2026-10-13 결정: 기본은 공통, 부서 RAG 는 고를 때만)
-  dept    부서 제한 — 부서 RAG 로 지정한 문서. 그 부서 계정(과 관리자·추가 권한 계정)만 본다
+  dept    부서 제한 — 부서 RAG 로 지정한 문서. 그 부서 계정(겸직 포함)과 관리자, 그 부서가 RAG 를 열어 준 부서 계정만 본다
   owner   담당자 한정 — 올린 사람만 본다(민감한 접수 서류)
 등급 값 체계는 학교와 확정 전이지만(미해결 질문 7번) 필드와 기본 규칙을 먼저 둔다.
 근거: docs/notes/2026-09-22-access-controlled-knowledge-base.md.
@@ -48,10 +48,12 @@ def role_class(role: str | None) -> str:
     return "staff" if role in STAFF_ROLES else (role or "")
 
 
-def visible(doc: dict, *, dept: str | None, user: str | None, role: str, also: tuple | list = ()) -> bool:
+def visible(doc: dict, *, dept: str | None, user: str | None, role: str, also: tuple | list = (),
+            lent: tuple | list = ()) -> bool:
     """이 문서를 이 사용자가 볼 수 있는가 — 열람 규칙의 원본. 목록 SQL(doc_sql)·검색 조건이 같은 뜻이다(tests/test_access_matrix).
-    관리자=전부, 학생=학생 공개 규정만, 교직원=전체 공개 + 공통·자기 부서·추가 권한 부서의 부서 제한 문서 + 자기가 올린 문서.
-    also: 계정별 추가 권한으로 더 받은 부서 RAG(rag_spaces grants) — 그 부서 문서도 연다."""
+    관리자=전부, 학생=학생 공개 규정만, 교직원=전체 공개 + 공통·자기 부서·겸직 부서·열어 받은 부서의 부서 제한 문서 + 자기가 올린 문서.
+    also: 겸직 부서(계정 dept_grades) — 그 부서 문서도 연다(고치기도 — can_edit).
+    lent: 내 부서에 부서 RAG 를 열어 준 부서(rag_spaces dept_grants) — 보기만(고치기는 못 함)."""
     if not doc:
         return False
     if role == "dev":
@@ -64,19 +66,35 @@ def visible(doc: dict, *, dept: str | None, user: str | None, role: str, also: t
     if level == "public" or (bool(user) and doc.get("owner") == user):
         return True
     if level == "dept":
-        return d == DEFAULT_DEPT or (bool(dept) and d == dept) or d in (also or ())
+        return d == DEFAULT_DEPT or (bool(dept) and d == dept) or d in (also or ()) or d in (lent or ())
     return False
 
 
-def extra_depts(user: str | None, data_dir=None) -> list[str]:
-    """계정별 추가 권한으로 받은 부서 RAG 이름들(RAG 공간 설정 grants). 학생·관리자에게는 주지 않는다(rag_spaces.grant_changes)."""
-    if not user or data_dir is None:
+def extra_depts(user: str | None, data_dir=None, account: dict | None = None) -> list[str]:
+    """겸직 부서 — 계정의 부서별 등급(dept_grades, 일반 포함)에 적힌 부서(소속 부서 빼고). 교직원만.
+    account 를 주지 않으면 계정 표(data_dir/accounts.json)에서 찾는다."""
+    if not user:
+        return []
+    if account is None:
+        if data_dir is None:
+            return []
+        account = _account(user, data_dir)
+    from zzaimy.app import grades
+    own = str((account or {}).get("dept") or "").strip()
+    return [d for d in grades.dept_grades(account) if d != own]
+
+
+def lent_depts(dept: str | None, also=(), data_dir=None) -> list[str]:
+    """내 부서들(소속·겸직)에 부서 RAG 를 열어 준 부서(rag_spaces dept_grants) — 보기·검색만."""
+    if data_dir is None:
         return []
     from zzaimy.app import rag_spaces
-    return [s[5:] for s in rag_spaces.config(data_dir).get("grants", {}).get(user, []) if str(s).startswith("dept:")]
+    mine = [x for x in ((dept or "").strip(), *also) if x]
+    return [d for d in rag_spaces.lent_to(rag_spaces.config(data_dir), mine) if d not in mine]
 
 
-def can_edit(doc: dict, *, role: str, dept: str | None, user: str | None, also: tuple | list = ()) -> bool:
+def can_edit(doc: dict, *, role: str, dept: str | None, user: str | None, also: tuple | list = (),
+             lent: tuple | list = ()) -> bool:
     """이 문서를 바꿀(작업할) 수 있는가 — 관리자, 올린 사람, 또는 문서 부서가 이 교직원의 부서(소속 + 추가로 받은 부서)인 경우.
     공통(전체 공개) 문서는 올린 사람·관리자만 — 교직원 누구나 공통 문서를 바꾸지 않게. 담당자 한정(owner) 문서는 올린 사람만(10-21)."""
     if not doc:
@@ -96,30 +114,33 @@ def viewer(role: str | None, dept: str | None, user: str | None, data_dir=None, 
     """열람 판정에 넘기는 보는 사람 — visible(doc, **viewer)·doc_sql(viewer) 가 같은 값을 쓴다. 계정의 모르는 역할은 교직원으로 보지 않고
     가장 좁게(학생과 같은 범위). visible 에 역할을 직접 넘기는 내부 호출(역할 빈 값)은 예전처럼 공개·공통만 본다.
     grade: 교직원 등급(grades.user_grade). RAG 공간 설정에 최소 등급(min_grade)이 걸려 있고 거기 못 미치면 그 부서 RAG 는
-    소속·추가 부서에서 빠진다(ADR-0066). 주지 않으면 계정 표에서 찾는다 — 걸린 것이 없으면 계정 표도 읽지 않고 지금 동작 그대로."""
+    소속·겸직·열어 받은 부서에서 빠진다(ADR-0066). 주지 않으면 계정 표에서 찾는다 — 걸린 것이 없으면 계정 표도 읽지 않고 지금 동작 그대로.
+    lent: 내 부서들에 부서 RAG 를 열어 준 부서(보기만 — can_edit 은 쓰지 않는다)."""
     role = role or ""
     if role not in ("dev", "student", *STAFF_ROLES):
         role = "student"
     also = tuple(extra_depts(user, data_dir)) if role in STAFF_ROLES else ()
     dept = (dept or "").strip() or None
+    lent = tuple(lent_depts(dept, also, data_dir)) if role in STAFF_ROLES else ()
     if role in STAFF_ROLES and data_dir is not None:
-        dept, also = _grade_narrow(dept, also, user, data_dir, grade)
-    return {"role": role, "dept": dept, "user": user or "", "also": also}
+        dept, also, lent = _grade_narrow(dept, also, user, data_dir, grade, lent)
+    return {"role": role, "dept": dept, "user": user or "", "also": also, "lent": lent}
 
 
-def _grade_narrow(dept, also, user, data_dir, grade):
-    """최소 등급이 걸린 부서 RAG 를 소속·추가 부서에서 뺀다. 공통 RAG 의 최소 등급은 검색 범위(rag_spaces.search_scope)에서만
+def _grade_narrow(dept, also, user, data_dir, grade, lent=()):
+    """최소 등급이 걸린 부서 RAG 를 소속·겸직·열어 받은 부서에서 뺀다. 공통 RAG 의 최소 등급은 검색 범위(rag_spaces.search_scope)에서만
     쓴다 — 전체 공개 문서는 열람 등급이 「전체 공개」라 열람까지 막지 않는다."""
     from zzaimy.app import grades, rag_spaces
     cfg = rag_spaces.config(data_dir)
     if not cfg.get("min_grade"):
-        return dept, also
+        return dept, also, tuple(lent)
     if grade is None:
         grade = grades.grade_of(_account(user, data_dir)) if user else ""
     blocked = grades.rag_blocked(cfg, grade or "") - {DEFAULT_DEPT}
     if not blocked:
-        return dept, also
-    return (None if dept in blocked else dept), tuple(x for x in also if x not in blocked)
+        return dept, also, tuple(lent)
+    return ((None if dept in blocked else dept), tuple(x for x in also if x not in blocked),
+            tuple(x for x in lent if x not in blocked))
 
 
 def _account(user: str, data_dir) -> dict:
@@ -132,7 +153,7 @@ def _account(user: str, data_dir) -> dict:
 
 
 def request_viewer(request) -> dict:
-    """요청의 보는 사람 — 로그인 검사(main.check_auth)가 request.state 에 둔 역할·부서·계정과 RAG 공간 설정의 추가 권한."""
+    """요청의 보는 사람 — 로그인 검사(main.check_auth)가 request.state 에 둔 역할·부서·계정, 겸직 부서와 열어 받은 부서."""
     st = request.state
     data_dir = getattr(request.app.state, "data_dir", None)
     user = "" if getattr(st, "view_as", None) else getattr(st, "user", "")      # 테스트 보기 중에는 개발자 자기 문서를 빼고
@@ -155,7 +176,7 @@ def doc_sql(v: dict, alias: str = "d.") -> tuple[str, list]:
     if role == "student":
         return (f" AND COALESCE({a}access_level, 'public') = 'public' AND {a}doc_type = 'regulation'"
                 f" AND COALESCE({a}audience, 'staff') = 'student'"), []
-    mine = [x for x in [v.get("dept") or "", *(v.get("also") or ())] if x]
+    mine = list(dict.fromkeys(x for x in [v.get("dept") or "", *(v.get("also") or ()), *(v.get("lent") or ())] if x))
     dept_in = f" OR COALESCE({a}dept, '{DEFAULT_DEPT}') IN ({','.join('?' * len(mine))})" if mine else ""
     user = v.get("user") or ""
     own = f" OR ({a}owner = ? AND {a}owner <> '')" if user else ""

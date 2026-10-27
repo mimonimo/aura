@@ -213,7 +213,7 @@ def test_dept_is_picked_from_known_list(tmp_path, monkeypatch):
     db = c.app.state.db
     db.set_setting("google_root:가상 기획처", "0AbCdEfGhIjKlMnOp")
     (tmp_path / "rag_spaces.json").write_text(json.dumps({"dept_of_area": {"폴더갑": "가상 교무처"},
-                                                         "grants": {"zzaimy": ["dept:가상 학생처"]}}), encoding="utf-8")
+                                                         "dept_rags": [{"dept": "가상 학생처"}]}), encoding="utf-8")
     names = known_depts(db, c.app.state.accounts, tmp_path)
     assert {"가상 기획처", "가상 교무처", "가상 학생처"} <= set(names) and "공통" not in names and "" not in names
     page = c.get("/team").text

@@ -8,7 +8,7 @@
 `app/access_policy.py` 가 원본이다.
 
 - `visible(doc, **viewer)` — 문서 한 건 판정. `doc_sql(viewer)` — 같은 뜻의 SQL 조건(목록·건수·칩·폴더·사업 목록).
-- `viewer(role, dept, user, data_dir)` / `request_viewer(request)` — 보는 사람. 계정별 추가 권한 부서(`also`, RAG 공간 설정의 grants)를 함께 싣는다.
+- `viewer(role, dept, user, data_dir)` / `request_viewer(request)` — 보는 사람. 겸직 부서(`also`, 계정 dept_grades)와 열어 받은 부서(`lent`, RAG 공간 설정 dept_grants — 보기·검색만, 고치기 없음)를 함께 싣는다(10-27, 계정별 grants 는 없앰).
   화면·라우트마다 따로 만들던 범위 dict(문서함·문서 화면·그래프·원본 장부·프로젝트 참조)를 모두 이것으로 바꿨다.
 
 | 계정 | 볼 수 있는 문서 |

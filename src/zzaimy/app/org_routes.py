@@ -71,6 +71,10 @@ class Actor:
         """이 처·단 아래에 부서를 놓거나 만들 수 있나 — 맨 위(parent 빈 값)는 관리자만."""
         return self.admin if not parent else (self.admin or parent in self.covered)
 
+    def can_lend(self, dept: str) -> bool:
+        """이 부서의 부서 RAG 를 다른 부서에 열 수 있나 — 관리자, 또는 그 부서를 맡은 총괄 책임자(맡은 처·단과 그 아래, ADR-0066)."""
+        return self.admin or dept in self.covered
+
     @property
     def can_any(self) -> bool:
         return self.admin or bool(self.covered)
@@ -208,7 +212,8 @@ def tree(st, actor: Actor) -> dict:
             sugg.append({"dept": d, "parent": sp, "can": actor.can_edit(d) and actor.can_hold(sp)})
     # 조직 관리 트리 — 부서마다 바로 위 부서(parent, 없으면 맨 위). 단계 수에 제한이 없다. 화면은 이것으로 세로 트리를 그린다
     team_all, team_depts = _team_view(st, actor)
-    mins = (rag_spaces.config(dd).get("min_grade") or {}) if actor.admin else {}
+    lend_cfg = rag_spaces.config(dd)
+    mins = (lend_cfg.get("min_grade") or {}) if actor.admin else {}
     nodes = []
     for d in depts:
         row = node(d)
@@ -218,6 +223,9 @@ def tree(st, actor: Actor) -> dict:
         row["team"] = team_all or d in team_depts           # 구성원을 볼 수 있나(관리자·총괄 책임자·그 부서 사업 책임자)
         if actor.admin:
             row["min_grade"] = mins.get(f"dept:{d}", "")
+        if actor.can_lend(d):                              # 부서 RAG 를 열어 준 부서 — 열 수 있는 사람에게만
+            row["can_lend"] = True
+            row["lend_to"] = rag_spaces.receivers(lend_cfg, d)
         nodes.append(row)
     out = {"nodes": nodes, "tops": out_tops, "loose": [node(d) for d in loose], "suggestions": sugg,
            "admin": actor.admin, "can_any": actor.can_any, "can_top": actor.admin}
@@ -469,7 +477,7 @@ def _write_all(st, depts: tuple[str, ...], fn, targets: tuple[str, ...] = ()):
 
 def traces(st, name: str) -> list[str]:
     """지금 없는 부서 이름에 남은 권한 흔적 — 같은 이름으로 다시 만들거나 이름을 바꿔 차지하면 옛 권한이 되살아나는 것들.
-    계정 겸직 등급(dept_grades)·추가 권한(grants dept:)·최소 등급(min_grade dept:)·확정 위계(dept_parents)·
+    계정 겸직 등급(dept_grades)·부서 열어 주기(dept_grants 주는 쪽·받는 쪽)·최소 등급(min_grade dept:)·확정 위계(dept_parents)·
     사업 관리의 부서 지정(dept:)·부서 공용 구글 설정. 돌려주는 값은 사람이 읽을 갈래 목록(빈 목록이면 흔적 없음)."""
     dd = getattr(st, "data_dir", None)
     key = f"dept:{name}"
@@ -479,9 +487,10 @@ def traces(st, name: str) -> list[str]:
     if n:
         out.append(f"계정 겸직 등급 {n}건")
     cfg = rag_spaces.config(dd)
-    n = sum(1 for g in (cfg.get("grants") or {}).values() if key in (g or []))
+    dg_ = cfg.get("dept_grants") or {}
+    n = (1 if name in dg_ else 0) + sum(1 for to in dg_.values() if name in (to or []))
     if n:
-        out.append(f"추가 권한 {n}건")
+        out.append(f"부서 열어 주기 {n}건")
     if key in (cfg.get("min_grade") or {}):
         out.append("RAG 최소 등급")
     over = dept_dictionary.parents_override(dd)
@@ -522,10 +531,11 @@ def purge_traces(st, name: str) -> list[str]:
         org_lock.save_accounts(st)
     if dd is not None:
         cfg = rag_spaces.config(dd)
-        gr = {u: [x for x in (g or []) if x != key] for u, g in (cfg.get("grants") or {}).items()}
+        gr = {o: [x for x in (to or []) if x != name] for o, to in (cfg.get("dept_grants") or {}).items() if o != name}
+        gr = {o: to for o, to in gr.items() if to}
         mg = {k: v for k, v in (cfg.get("min_grade") or {}).items() if k != key}
-        if gr != (cfg.get("grants") or {}) or mg != (cfg.get("min_grade") or {}):
-            cfg["grants"] = {u: g for u, g in gr.items() if g}
+        if gr != (cfg.get("dept_grants") or {}) or mg != (cfg.get("min_grade") or {}):
+            cfg["dept_grants"] = gr
             if "min_grade" in cfg:
                 cfg["min_grade"] = mg
             rag_spaces.save_config(cfg, dd)
@@ -559,7 +569,7 @@ def reconcile(st, *, explicit: bool = False) -> dict:
     """부서 흔적 맞추기 — 지금 있는 부서(rag_spaces.known_depts: 부서 RAG·폴더 짝·공간·계정 소속) 밖 이름이 남은 곳을 모두 정리한다.
     화면에서 지운 때만이 아니라 설정 파일을 손으로 고치거나 지운 때도 「어디는 되어 있고 어디는 안 된」 상태가 남지 않게(10-27 사용자),
     부서 지우기 끝(explicit)과 앱의 10분 주기에 돈다. 보안: 설정을 못 읽거나 부서가 비어 보이면 하지 않고, 주기 실행은 권한을 좁히는 정리만 —
-    문서를 공통으로 돌리는 것(열람이 넓어짐)은 사람이 지운 때(explicit)만, 한 번에 RECONCILE_MAX 넘게 없어졌으면 멈추고 기록만. 정리: purge_traces(겸직 등급·추가 권한·최소 등급·상위 관계·사업 관리 지정·구글 설정),
+    문서를 공통으로 돌리는 것(열람이 넓어짐)은 사람이 지운 때(explicit)만, 한 번에 RECONCILE_MAX 넘게 없어졌으면 멈추고 기록만. 정리: purge_traces(겸직 등급·부서 열어 주기·최소 등급·상위 관계·사업 관리 지정·구글 설정),
     빈 값으로 남은 부서 구글 설정 열쇠 지우기, 프로젝트 공유의 그 부서 줄 빼기, 그 부서 문서는 공통으로. 문서함 부서 폴더는 비었으면 지우고,
     문서가 남았으면 지우지 않고 돌려준다(화면이 알린다). 돌려주는 값: {orphans: [이름], docs: 공통으로 돌린 문서 수, folders_left: [이름]}."""
     import json as _json
@@ -579,8 +589,8 @@ def reconcile(st, *, explicit: bool = False) -> dict:
     names: set[str] = set()
     for a in accounts.values():
         names |= set((a.get("dept_grades") or {}).keys())
-    for g in (cfg.get("grants") or {}).values():
-        names |= {str(x)[5:] for x in (g or []) if str(x).startswith("dept:")}
+    for o, to in (cfg.get("dept_grants") or {}).items():
+        names |= {o, *(to or [])}
     names |= {k[5:] for k in (cfg.get("min_grade") or {}) if str(k).startswith("dept:")}
     if dd is not None:
         over = dept_dictionary.parents_override(dd)
@@ -618,7 +628,7 @@ def reconcile(st, *, explicit: bool = False) -> dict:
         return {"orphans": orphans, "docs": 0, "folders_left": [], "skipped": f"없어진 부서 {len(orphans)}개 — 설정 확인 필요"}
     docs_left = []
     for n in orphans:
-        purge_traces(st, n)                               # 권한을 좁히는 정리(겸직·추가 권한·최소 등급·위계·사업 지정·구글 설정)
+        purge_traces(st, n)                               # 권한을 좁히는 정리(겸직·부서 열어 주기·최소 등급·위계·사업 지정·구글 설정)
         if st.db is not None:
             with st.db._conn() as conn:
                 ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE dept = ?", (n,)).fetchall()]
@@ -654,7 +664,7 @@ def reconcile(st, *, explicit: bool = False) -> dict:
 
 
 def rename_dept(st, old: str, new: str) -> dict:
-    """부서 이름을 한 번에 바꾼다 — 계정 소속·겸직 등급, 확정 위계, 부서 RAG 설정(부서 RAG·폴더 짝·추가 권한·최소 등급),
+    """부서 이름을 한 번에 바꾼다 — 계정 소속·겸직 등급, 확정 위계, 부서 RAG 설정(부서 RAG·폴더 짝·부서 열어 주기·최소 등급),
     문서·조각·라이브러리 폴더의 부서, 부서 공용 구글 설정, 사업 관리 지정(dept:)·주관 부서. 바꾸기 전 판은 history/ 에 남는다.
     돌려주는 값: {"accounts": 바꾼 계정 수, "docs": 옮긴 문서 수}."""
     dd = getattr(st, "data_dir", None)
@@ -731,7 +741,7 @@ def _org_rename(request: Request, b: dict):
         return _fail(f"이미 있는 부서 이름입니다: {new}")
     if not rag_spaces._DEPT_NAME.match(new):
         return _fail("부서 이름은 2~30자의 한글·영문·숫자로 적습니다")
-    # 보안: 지운 부서의 권한 흔적이 남은 이름으로는 바꾸지 않는다 — 바꾸는 순간 그 흔적(겸직 등급·추가 권한·위계·사업 지정)을 차지한다
+    # 보안: 지운 부서의 권한 흔적이 남은 이름으로는 바꾸지 않는다 — 바꾸는 순간 그 흔적(겸직 등급·부서 열어 주기·위계·사업 지정)을 차지한다
     left = traces(st, new)
     if left:
         return _fail(f"{new} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 이 이름으로 바꿀 수 없습니다 — "
@@ -801,7 +811,7 @@ def _org_create(request: Request, b: dict):
     _, err = rag_spaces.create_dept_rag(rag_spaces.config(dd), name, by=actor.user)     # 이름 꼴·중복 검사만(쓰지 않음)
     if err:
         return _fail(err)
-    # 보안: 같은 이름의 지운 부서가 남긴 권한 흔적 — 정리는 남의 겸직 등급·추가 권한·사업 지정을 지우는 일이라 관리자만.
+    # 보안: 같은 이름의 지운 부서가 남긴 권한 흔적 — 정리는 남의 겸직 등급·부서 열어 주기·사업 지정을 지우는 일이라 관리자만.
     # 총괄 책임자는 흔적 있는 이름으로 만들지 못한다(관리자에게 요청)
     left = traces(st, name)
     if left and not actor.admin:
@@ -830,6 +840,52 @@ def _org_create(request: Request, b: dict):
     return {"ok": True, "msg": msg, "name": name, "cleaned": cleaned}
 
 
+@router.get("/org/rag-lend/targets/{dept}")
+def org_rag_lend_targets(request: Request, dept: str, q: str = "", limit: int = 30):
+    """받을 부서 찾기 — 부서 고르기 칩(people-picker, data-endpoint)이 읽는 꼴. 부서 목록은 조직 관리와 같은 원본(user_admin.known_depts)."""
+    actor = Actor(request)
+    dept = _name(dept)
+    _need(actor.can_lend(dept), "이 부서 RAG 는 관리자나 이 부서 총괄 책임자가 엽니다")
+    words = [w for w in (q or "").lower().split() if w]
+    names = [d for d in _known(request.app.state) if d != dept and all(w in d.lower() for w in words)]
+    return {"people": [{"user": d, "name": d, "dept": "부서", "grade_label": ""} for d in names[:max(1, min(int(limit or 30), 80))]],
+            "depts": [], "my_dept": ""}
+
+
+@router.post("/org/rag-lend")
+async def org_rag_lend(request: Request):
+    """부서 RAG 를 다른 부서에 열기 — {dept: 주는 부서, to: [받는 부서…]} 로 받는 부서 목록을 통째로 정한다(ADR-0053 보충).
+    관리자와 그 부서를 맡은 총괄 책임자만(Actor.can_lend). 계정 하나에 주는 길은 없다 — 받는 쪽은 늘 부서."""
+    b = await _body(request)
+    return await run_in_threadpool(_locked, _org_rag_lend, request, b)
+
+
+def _org_rag_lend(request: Request, b: dict):
+    st = request.app.state
+    actor = Actor(request)
+    dept = _name(b.get("dept"))
+    known = set(_known(st))
+    if dept not in known:
+        return _fail("없는 부서입니다")
+    _need(actor.can_lend(dept), "이 부서 RAG 는 관리자나 이 부서 총괄 책임자가 엽니다")
+    raw = b.get("to")
+    if not isinstance(raw, list):
+        return _fail("받는 부서 목록이 필요합니다")
+    to = list(dict.fromkeys(_name(x) for x in raw if _name(x)))
+    bad = [x for x in to if x not in known or x in (dept, "공통")]
+    if bad:
+        return _fail("열 수 없는 부서: " + ", ".join(bad))
+    dd = getattr(st, "data_dir", None)
+
+    def write():
+        cfg = rag_spaces.set_receivers(rag_spaces.config(dd), dept, to)
+        rag_spaces.save_config(cfg, dd)
+        return rag_spaces.receivers(cfg, dept)
+    got = _write_all(st, (), write)
+    msg = f"{dept} 부서 RAG — " + (", ".join(got) + "에 열었습니다" if got else "다른 부서에 열지 않음")
+    return {"ok": True, "msg": msg, "dept": dept, "to": got}
+
+
 @router.post("/org/head")
 async def org_head(request: Request):
     b = await _body(request)
@@ -837,7 +893,7 @@ async def org_head(request: Request):
 
 
 def _org_head(request: Request, b: dict):
-    """처·단의 총괄 책임자 지정(관리자만) — 소속이 그 부서면 계정 등급을, 아니면 겸직 등급(dept_grades)과 겸직 부서(추가 권한)를.
+    """처·단의 총괄 책임자 지정(관리자만) — 소속이 그 부서면 계정 등급을, 아니면 겸직 등급(dept_grades — 겸직 부서도 이것 한 곳)을.
     on=false 면 뺀다(소속은 사업 책임자로, 겸직은 그 부서 겸직째 푼다)."""
     st = request.app.state
     actor = Actor(request)
@@ -874,14 +930,5 @@ def _set_head(st, a: dict, uid: str, dept: str, on: bool, primary: bool) -> None
             a["dept_grades"] = dg
         else:
             a.pop("dept_grades", None)
-        if dd is not None:                                 # 겸직 부서(추가 권한)도 같이 — 계정 화면과 같은 짝
-            cfg = rag_spaces.config(dd)
-            gr = {u: list(v) for u, v in (cfg.get("grants") or {}).items()}
-            mine = [s for s in gr.get(uid, []) if s != f"dept:{dept}"]
-            if on:
-                mine.append(f"dept:{dept}")
-            gr[uid] = mine
-            cfg["grants"] = {u: v for u, v in gr.items() if v}
-            rag_spaces.save_config(cfg, dd)
     a["updated_at"] = datetime.datetime.now().isoformat(timespec="seconds")
     org_lock.save_accounts(st)

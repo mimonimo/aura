@@ -303,7 +303,7 @@ def search(db, q: str, scope: dict, limit: int = 40) -> list[dict]:
 def _scope_key(scope: dict | None) -> tuple:
     if scope is None or scope.get("role") == "dev":
         return ("all",)
-    return (scope.get("role"), scope.get("user"), scope.get("dept"), tuple(scope.get("also") or ()))
+    return (scope.get("role"), scope.get("user"), scope.get("dept"), tuple(scope.get("also") or ()), tuple(scope.get("lent") or ()))
 
 
 def program_doc_sets(db, scope: dict | None = None) -> dict[str, set[int]]:

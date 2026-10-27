@@ -1366,7 +1366,7 @@ class Database:
             cond.append("sector IN (?, 'common')")
             params.append(sector)
         if dept:
-            # dept 는 부서 하나 또는 목록(소속 부서 + 계정별 추가 권한 부서)
+            # dept 는 부서 하나 또는 목록(소속 부서 + 겸직·열어 받은 부서)
             ds = [dept] if isinstance(dept, str) else [x for x in dept if x]
             cond.append(f"dept IN ({','.join('?' * len(ds))}, '공통')")
             params.extend(ds)

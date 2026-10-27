@@ -240,7 +240,7 @@ def test_dept_parent_route_admin_only_and_no_cycle(tmp_path):
     assert dd.children_map(tmp_path) == {"기획처": ["다라2.0사업단"]}
 
 
-def test_dual_post_rows_save_grants_and_grades(tmp_path):
+def test_dual_post_rows_save_dept_grades(tmp_path):
     app, c = _client(tmp_path)
     for n in ("기획처", "다라2.0사업단", "학생처"):
         c.post("/dev/users/dept", data={"action": "create", "name": n})
@@ -251,17 +251,15 @@ def test_dual_post_rows_save_grants_and_grades(tmp_path):
                                         "extra_grade": ["head", "member", "lead", "head"]}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     a = app.state.accounts["zzaimy"]
-    assert a["dept_grades"] == {"다라2.0사업단": "head"}                       # 일반은 따로 적지 않음, 소속·모르는 부서는 뺌
-    grants = rag_spaces.config(tmp_path)["grants"]["zzaimy"]
-    assert sorted(grants) == ["dept:다라2.0사업단", "dept:학생처"]
+    assert a["dept_grades"] == {"다라2.0사업단": "head", "학생처": "member"}   # 겸직은 이 한 곳(일반도 member), 소속·모르는 부서는 뺌
+    assert "grants" not in rag_spaces.config(tmp_path)                       # 계정별 RAG 권한은 두지 않는다
     me = next(u for u in c.get("/api/org/accounts").json()["users"] if u["user"] == "zzaimy")
     assert me["extra"] == ["다라2.0사업단", "학생처"] and me["extra_grades"] == ["head", "member"]
-    # 겸직을 빼면 둘 다에서 빠진다
+    # 겸직을 빼면 빠진다
     c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "dept": "기획처", "active": "1", "grade": "member",
                                     "extra": ["학생처"], "extra_grade": ["clerk"]})
     a = app.state.accounts["zzaimy"]
     assert a["dept_grades"] == {"학생처": "clerk"}
-    assert rag_spaces.config(tmp_path)["grants"]["zzaimy"] == ["dept:학생처"]
 
 
 def test_deleting_dept_clears_stale_grants(tmp_path):

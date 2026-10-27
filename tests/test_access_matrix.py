@@ -16,7 +16,8 @@ ACCOUNTS = {
     "plan": {"pw": "plan-pass", "role": "staff", "dept": "기획처"},
     "sanhak": {"pw": "san-pass", "role": "staff", "dept": "산학협력단"},
     "stu": {"pw": "stu-pass", "role": "student"},
-    "granted": {"pw": "gr-pass", "role": "staff", "dept": "산학협력단"},     # 기획처 부서 RAG 를 추가 권한으로 받은 계정
+    "granted": {"pw": "gr-pass", "role": "staff", "dept": "산학협력단", "dept_grades": {"기획처": "member"}},   # 기획처 겸직(일반)
+    "lent": {"pw": "lent-pass", "role": "staff", "dept": "연구처"},           # 기획처가 부서 RAG 를 연구처에 열어 줘서 받는 계정
 }
 PW = {"zzdev": "devpass", **{k: v["pw"] for k, v in ACCOUNTS.items()}}
 
@@ -35,6 +36,7 @@ SEES = {
     "plan": {"g_pub", "g_plan", "r_stu", "r_staff", "r_plan"},
     "sanhak": {"g_pub", "g_san", "o_san", "r_stu", "r_staff"},
     "granted": {"g_pub", "g_san", "g_plan", "r_stu", "r_staff", "r_plan"},
+    "lent": {"g_pub", "g_plan", "r_stu", "r_staff", "r_plan"},
     "stu": {"r_stu"},
 }
 
@@ -48,7 +50,7 @@ def world(tmp_path):
     (tmp_path / "accounts.json").write_text(json.dumps({
         "zzdev": {"pw": "devpass", "role": "dev"}, "zzaimy": {"pw": "boot-pass-1", "role": "staff"}, **ACCOUNTS}))
     (tmp_path / "rag_spaces.json").write_text(json.dumps({
-        "dept_rags": [{"dept": "기획처"}, {"dept": "산학협력단"}], "grants": {"granted": ["dept:기획처"]}}))
+        "dept_rags": [{"dept": "기획처"}, {"dept": "산학협력단"}], "dept_grants": {"기획처": ["연구처"]}}))
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(),
                      password="boot-pass-1")
     db = app.state.db
@@ -106,7 +108,7 @@ def test_visible_and_sql_agree(world, uid):
     assert by_py == by_sql == SEES[uid]
 
 
-@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted"])
+@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted", "lent"])
 def test_library_lists_only_visible(world, uid):
     app, ids, _ = world
     c = _client(app, uid)
@@ -117,10 +119,10 @@ def test_library_lists_only_visible(world, uid):
     other = c.get("/", params={"type": "all", "scope": "기획처"}).text
     assert (_stem("g_plan") in other) == ("g_plan" in SEES[uid])
     # 범위 밖 부서의 폴더는 이름도 보이지 않는다
-    assert ("기획처전용폴더" in page) == (uid in ("zzdev", "plan", "granted"))
+    assert ("기획처전용폴더" in page) == (uid in ("zzdev", "plan", "granted", "lent"))
 
 
-@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted", "stu"])
+@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted", "lent", "stu"])
 def test_document_paths_404_outside_scope(world, uid):
     app, ids, _ = world
     c = _client(app, uid)
@@ -132,7 +134,7 @@ def test_document_paths_404_outside_scope(world, uid):
                 assert code in (403, 404), (uid, k, path, code)
 
 
-@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted"])
+@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted", "lent"])
 def test_search_page_follows_rule(world, uid):
     app, ids, _ = world
     page = _client(app, uid).get("/search", params={"q": "누리"}).text
@@ -161,7 +163,7 @@ def test_staff_cannot_open_admin_screens(world, uid):
         assert c.get(path, follow_redirects=False).status_code == 403, path
 
 
-@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted"])
+@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted", "lent"])
 def test_graph_hides_outside_docs_names_and_counts(world, uid):
     app, ids, _ = world
     c = _client(app, uid)
@@ -188,7 +190,7 @@ def test_graph_hides_outside_docs_names_and_counts(world, uid):
         assert all("n_docs" not in n["info"] for n in hits)                 # 그래프 전체 문서 수(권한 밖 포함)는 싣지 않는다
 
 
-@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted", "stu"])
+@pytest.mark.parametrize("uid", ["zzdev", "plan", "sanhak", "granted", "lent", "stu"])
 def test_chat_evidence_stays_in_scope(world, uid):
     """채팅 근거 — 사업 문서 검색 조건(grant_search._access)과 규정 조각 조건(list_regulation_chunks)이 계정 범위 밖 문서를 내지 않는다."""
     app, ids, data_dir = world
@@ -215,16 +217,29 @@ def test_scope_note_for_other_department_requests(world):
     assert note and "기획처 자료는 열람 권한이 없습니다" in note and _stem("g_plan") not in note
     assert access_guard.scope_note("기획처 RAG 에서 예산 자료 찾아 줘", "기획처", "staff", depts) is None
     assert access_guard.scope_note("기획처 자료 찾아 줘", "산학협력단", "staff", depts,
-                                   access_policy.extra_depts("granted", data_dir)) is None          # 추가 권한 계정
+                                   access_policy.extra_depts("granted", data_dir)) is None          # 기획처 겸직 계정
     assert access_guard.scope_note("기획처 자료 찾아 줘", None, "staff", depts)                      # 부서 없는 교직원도
     assert access_guard.scope_note("기획처 자료 찾아 줘", None, "dev", depts) is None
 
 
 def test_rag_space_grants_reach_regulations(world):
-    """추가 권한 부서는 사업 문서뿐 아니라 그 부서 규정도 채팅 근거 범위에 든다(reg_depts)."""
+    """겸직 부서와 열어 받은 부서는 사업 문서뿐 아니라 그 부서 규정도 채팅 근거 범위에 든다(reg_depts)."""
     _, ids, data_dir = world
     sc = rag_spaces.search_scope("staff", "산학협력단", "granted", data_dir)
     assert sc["reg_depts"] == ["산학협력단", "기획처"] and "기획처" in sc["grant_depts"]
+    sc = rag_spaces.search_scope("staff", "연구처", "lent", data_dir)
+    assert sc["reg_depts"] == ["연구처", "기획처"] and "기획처" in sc["grant_depts"]
+
+
+def test_lent_dept_sees_but_does_not_edit(world):
+    """부서 RAG 를 열어 받은 부서는 보기·검색만 — 그 부서 문서를 고치지는 못한다(겸직은 고친다)."""
+    app, ids, data_dir = world
+    lent = access_policy.viewer("staff", "연구처", "lent", data_dir)
+    assert lent["lent"] == ("기획처",) and lent["also"] == ()
+    doc = app.state.db.get_document(ids["g_plan"])
+    assert access_policy.visible(doc, **lent) and not access_policy.can_edit(doc, **lent)
+    dual = access_policy.viewer("staff", "산학협력단", "granted", data_dir)
+    assert access_policy.can_edit(doc, **dual)
 
 
 def test_legacy_professor_head_roles_count_as_staff():

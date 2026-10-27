@@ -120,7 +120,7 @@ def test_view_as_can_pick_grade(tmp_path):
 def _cfg(tmp_path, **more):
     cfg = rag_spaces.config(tmp_path)
     cfg["dept_rags"] = [{"dept": "기획처"}, {"dept": "산학협력단"}]
-    cfg["grants"] = {"kim": ["dept:산학협력단"]}
+    cfg["dept_grants"] = {"산학협력단": ["기획처"]}          # 산학협력단이 기획처에 부서 RAG 를 열어 줌
     cfg.update(more)
     rag_spaces.save_config(cfg, tmp_path)
 
@@ -351,7 +351,6 @@ def test_lead_cannot_grant_what_it_lacks(tmp_path):
 def test_multi_dept_grades_and_hierarchy(monkeypatch):
     """겸직: 기획처 일반이면서 ○○사업단 총괄 책임자. 위계: 산학협력단 총괄 책임자는 하위 ○○사업단도 맡는다. 사업의 총괄을 부서로 지정."""
     monkeypatch.setattr(grades, "_children", lambda data_dir=None: {"산학협력단": ["가나사업단"]})
-    monkeypatch.setattr(access_policy, "extra_depts", lambda user, data_dir=None: [])
     kim = {"role": "staff", "grade": "member", "dept": "기획처", "dept_grades": {"가나사업단": "head"}}
     assert grades.grade_in("kim", kim, "기획처") == "member" and grades.grade_in("kim", kim, "가나사업단") == "head"
     assert grades.covered_depts("kim", kim) == {"가나사업단"} and grades.top_grade("kim", kim) == "head"

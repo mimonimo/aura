@@ -29,7 +29,7 @@ def folders(db, data_dir: Path, viewer: dict | None = None) -> list[dict]:
     acc, acc_args = ap.doc_sql(viewer) if viewer else ("", [])
     keep = None
     if viewer and viewer.get("role") != "dev":
-        keep = {ap.DEFAULT_DEPT, viewer.get("dept") or ap.DEFAULT_DEPT, *(viewer.get("also") or ())}
+        keep = {ap.DEFAULT_DEPT, viewer.get("dept") or ap.DEFAULT_DEPT, *(viewer.get("also") or ()), *(viewer.get("lent") or ())}
     from zzaimy.app import rag_spaces
     cfg = _cfg(data_dir)
     areas = {f["folder"] for f in rag_spaces.area_folders(db)}

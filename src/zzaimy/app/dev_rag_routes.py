@@ -1,4 +1,4 @@
-"""RAG 공간 관리(/dev/rag*, ADR-0053) — 공간별 자료 수·쓰는 계정, 계정별 추가 권한, 부서 RAG, 규정·기준 문서, 검색 범위 시험.
+"""RAG 공간 관리(/dev/rag*, ADR-0053) — 공간별 자료 수·쓰는 계정, 부서 RAG 와 다른 부서에 열기, 규정·기준 문서, 검색 범위 시험.
 
 - 개발자(dev)만 — /dev 경로는 main.check_auth 가 막는다.
 - DB·데이터 폴더(data_dir)·계정(accounts)·화면 틀·화면 공통 맥락(page_ctx)과 다른 화면과 함께 쓰는 도우미(부서 목록 all_depts·
@@ -16,7 +16,7 @@ from zzaimy.app import grades
 router = APIRouter()
 
 
-# RAG 공간 관리(ADR-0053) — 공간별 자료 수·쓰는 계정, 계정별 추가 권한, 폴더→부서 짝, 학생 공개 규정. 개발자만(/dev 미들웨어)
+# RAG 공간 관리(ADR-0053) — 공간별 자료 수·쓰는 계정, 부서 RAG 열어 주기, 폴더→부서 짝, 학생 공개 규정. 개발자만(/dev 미들웨어)
 
 @router.get("/dev/rag", response_class=HTMLResponse)
 def dev_rag(request: Request):
@@ -35,16 +35,16 @@ def dev_rag(request: Request):
     common, stu = spaces.get("staff") or {}, spaces.get("student") or {}
     rows = [{"sid": "common", "comp": "space:staff", "kind": "common", "name": "공통 RAG", "docs": common.get("grant_docs", 0),
              "reg_docs": common.get("reg_docs", 0), "reg_chunks": common.get("reg_chunks", 0),
-             "members": who(common.get("users", [])), "granted": [], "folders": [], "min_grade": mg.get("common", ""),
+             "members": who(common.get("users", [])), "granted": [], "lend_to": [], "lend_from": [], "folders": [], "min_grade": mg.get("common", ""),
              "min_label": grade_label("common"), "lib": "/?type=all&scope=" + quote("공통")},
             {"sid": "student", "comp": "space:student", "kind": "student", "name": "학생 RAG", "docs": None,
              "reg_docs": stu.get("reg_docs", 0), "reg_chunks": stu.get("reg_chunks", 0),
-             "members": who(stu.get("users", [])), "granted": [], "folders": [], "min_grade": "", "min_label": "", "lib": ""}]
+             "members": who(stu.get("users", [])), "granted": [], "lend_to": [], "lend_from": [], "folders": [], "min_grade": "", "min_label": "", "lib": ""}]
     for r in rag_spaces.dept_rag_rows(db, cfg, accounts, st.all_depts()):
         sid = "dept:" + r["dept"]
         rows.append({"sid": sid, "comp": "space:" + sid, "kind": "dept", "name": r["dept"], "docs": r["docs"],
                      "reg_docs": r["reg_docs"], "reg_chunks": r["reg_chunks"], "members": who(r["members"]),
-                     "granted": who(r["granted"]), "folders": r["folders"], "made_at": (r.get("made") or {}).get("at", ""),
+                     "granted": who(r["granted"]), "lend_to": r["lend_to"], "lend_from": r["lend_from"], "folders": r["folders"], "made_at": (r.get("made") or {}).get("at", ""),
                      "min_grade": mg.get(sid, ""), "min_label": grade_label(sid), "lib": "/?type=all&scope=" + quote(r["dept"])})
     depts = [r for r in rows if r["kind"] == "dept"]
     return st.templates.TemplateResponse(request, "dev_rag.html", st.page_ctx(request, {
@@ -94,7 +94,8 @@ async def dev_rag_min_grade(request: Request):
         return {"ok": msg, "space": space, "grade": grade, "label": grades.GRADES[grade] + " 이상" if grade else ""}
     return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#dept-rags", status_code=303)
 
-# 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳에서 저장한다(user_admin — 같은 rag grants). 이 화면의 표·저장 경로는 뺐다(10-26)
+# 다른 부서에 열기(dept_grants)는 부서 단위 — 저장은 조직 관리와 같은 POST /org/rag-lend(관리자·그 부서 총괄 책임자, org_routes).
+# 겸직 부서는 계정의 부서별 등급(dept_grades) 한 곳 — 사용자·계정 편집 창에서 정한다
 
 
 @router.post("/dev/rag/dept")

@@ -96,11 +96,11 @@ def test_members_ops_follow_grade_rules(org):
     r = boss.post("/api/org/members", json={"dept": "기획팀", "op": "move", "uids": ["kim"], "value": "예산팀"})
     assert r.json()["ok"] and app.state.accounts["kim"]["dept"] == "예산팀"
     r = boss.post("/api/org/members", json={"dept": "기획팀", "op": "add", "uids": ["lee"], "value": "extra"})
-    assert r.json()["ok"] and "dept:기획팀" in rag_spaces.config(tmp)["grants"]["lee"]
+    assert r.json()["ok"] and app.state.accounts["lee"]["dept_grades"].get("기획팀") == "member"    # 겸직(일반)
     r = boss.post("/api/org/members", json={"dept": "기획팀", "op": "add", "uids": ["lee"], "value": "primary"})
     assert r.status_code == 403                                               # 소속째 옮겨 오기는 관리자만
     r = boss.post("/api/org/members", json={"dept": "기획팀", "op": "remove", "uids": ["lee"]})
-    assert r.json()["ok"] and "dept:기획팀" not in rag_spaces.config(tmp)["grants"].get("lee", [])
+    assert r.json()["ok"] and "기획팀" not in (app.state.accounts["lee"].get("dept_grades") or {})
     r = boss.post("/api/org/members", json={"dept": "예산팀", "op": "remove", "uids": ["park"]})
     assert r.status_code == 400 and "관리자" in r.json()["msg"]               # 소속 비우기는 관리자만(걸린 사람 까닭)
     r = dev.post("/api/org/members", json={"dept": "예산팀", "op": "remove", "uids": ["park"]})
@@ -151,7 +151,7 @@ def test_reconcile_cleans_traces_of_hand_removed_dept(org):
     app, dev, tmp = org
     st, db = app.state, app.state.db
     cfg = rag_spaces.config(tmp)
-    cfg["grants"] = {"boss": ["dept:예산팀"]}
+    cfg["dept_grants"] = {"기획처": ["예산팀"], "예산팀": ["기획처"]}
     cfg["dept_rags"] = [r for r in cfg["dept_rags"] if r.get("dept") != "예산팀"]       # 손으로 지운 것처럼
     rag_spaces.save_config(cfg, tmp)
     st.accounts["park"]["dept"] = "기획처"
@@ -161,7 +161,7 @@ def test_reconcile_cleans_traces_of_hand_removed_dept(org):
     (tmp / "documents" / "기안기" / "예산팀").mkdir(parents=True, exist_ok=True)
     got = org_routes.reconcile(st)
     assert "예산팀" in got["orphans"]
-    assert "dept:예산팀" not in (rag_spaces.config(tmp).get("grants") or {}).get("boss", [])
+    assert rag_spaces.config(tmp)["dept_grants"] == {}                                # 주는 쪽·받는 쪽 모두
     assert not db.get_setting("google_root:예산팀", "")
     assert [i["to"] for i in json.loads(db.get_setting("project_shares:1", "{}"))["items"]] == ["dept:기획처"]
     assert "예산팀" not in dept_dictionary.parents_override(tmp)
@@ -170,3 +170,35 @@ def test_reconcile_cleans_traces_of_hand_removed_dept(org):
     # 보안: 설정 파일이 깨지면 아무것도 하지 않는다(모두 「없는 부서」 로 보여 권한을 지우지 않게)
     (tmp / "rag_spaces.json").write_text("{깨짐", encoding="utf-8")
     assert org_routes.reconcile(st).get("skipped")
+
+
+def test_rag_lend_is_dept_based_and_only_admin_or_owner_head(org):
+    """부서 RAG 다른 부서에 열기(/org/rag-lend) — 관리자와 그 부서를 맡은 총괄 책임자만, 받는 쪽은 늘 부서."""
+    app, dev, tmp = org
+    _add(app, "stu1", role="student", dept="학생지원팀")
+    boss, kim, lee = _client(app, "boss"), _client(app, "kim"), _client(app, "lee")
+    # 받기 전에는 학생지원팀 사람이 예산팀 RAG 를 찾지 못한다
+    assert "예산팀" not in rag_spaces.search_scope("staff", "학생지원팀", "lee", tmp)["grant_depts"]
+    # 권한 없는 사람: 그 부서 일반·다른 처·단 사업 책임자 — 거절, 설정 그대로
+    assert kim.post("/org/rag-lend", json={"dept": "예산팀", "to": ["학생지원팀"]}).status_code == 403
+    assert lee.post("/org/rag-lend", json={"dept": "예산팀", "to": ["학생지원팀"]}).status_code == 403
+    assert lee.get("/org/rag-lend/targets/예산팀").status_code == 403
+    assert rag_spaces.config(tmp)["dept_grants"] == {}
+    # 기획처 총괄 책임자는 맡은 하위 부서(예산팀)를 연다 — 남의 처·단(학생복지처)은 못 연다
+    assert boss.post("/org/rag-lend", json={"dept": "학생복지처", "to": ["기획처"]}).status_code == 403
+    names = [p["user"] for p in boss.get("/org/rag-lend/targets/예산팀", params={"q": "학생"}).json()["people"]]
+    assert "학생지원팀" in names and "예산팀" not in names
+    r = boss.post("/org/rag-lend", json={"dept": "예산팀", "to": ["학생지원팀"]}).json()
+    assert r["ok"] and r["to"] == ["학생지원팀"] and rag_spaces.config(tmp)["dept_grants"] == {"예산팀": ["학생지원팀"]}
+    assert "예산팀" in rag_spaces.search_scope("staff", "학생지원팀", "lee", tmp)["grant_depts"]
+    assert not rag_spaces.search_scope("student", "학생지원팀", "stu1", tmp)["grant"]       # 학생은 받지 않는다
+    assert _client(app, "stu1").post("/org/rag-lend", json={"dept": "학생지원팀", "to": ["기획처"]}).status_code == 403
+    # 트리 자료 — 열 수 있는 사람에게만 받는 부서를 보인다
+    assert _nodes(boss)["예산팀"]["lend_to"] == ["학생지원팀"] and "lend_to" not in _nodes(kim)["예산팀"]
+    # 모르는 부서·자기 자신은 거절
+    assert dev.post("/org/rag-lend", json={"dept": "예산팀", "to": ["없는부서"]}).status_code == 400
+    assert dev.post("/org/rag-lend", json={"dept": "예산팀", "to": ["예산팀"]}).status_code == 400
+    # 관리자가 거두면 바로 빠진다
+    assert dev.post("/org/rag-lend", json={"dept": "예산팀", "to": []}).json()["to"] == []
+    assert rag_spaces.config(tmp)["dept_grants"] == {}
+    assert "예산팀" not in rag_spaces.search_scope("staff", "학생지원팀", "lee", tmp)["grant_depts"]

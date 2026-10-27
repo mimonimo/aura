@@ -193,6 +193,41 @@ def _dept_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
     return f"부서 「{a['name']}」 과 부서 RAG 를 만들었습니다.", [f"부서 RAG 「{a['name']}」 새로 만듦(문서 0건)"]
 
 
+def _lend_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
+    """부서 RAG 다른 부서에 열기 — 관리자, 또는 그 부서를 맡은 총괄 책임자(조직 관리 /org/rag-lend 와 같은 규칙)."""
+    from zzaimy.app import access_policy, grades, rag_spaces
+    sq = lambda v: " ".join(str(v or "").split())  # noqa: E731
+    dept = sq(a.get("dept"))
+    known = set(ctx.depts())
+    if dept not in known:
+        raise OpRefused(f"「{dept}」 부서를 찾지 못했다.", ", ".join(sorted(known)[:20]))
+    if ctx.role != "dev" and dept not in grades.covered_depts(ctx.user, access_policy._account(ctx.user, ctx.data_dir),
+                                                               ctx.data_dir, "head"):
+        raise OpRefused("이 부서 RAG 는 관리자나 이 부서 총괄 책임자가 연다.")
+    whole = isinstance(a.get("to"), list)                # 실행 때 다시 확인 — 제안에 정리해 둔 받는 부서 목록 그대로
+    add = [sq(x) for x in ((a.get("to") if whole else a.get("add")) or []) if sq(x)]
+    drop = set() if whole else {sq(x) for x in (a.get("remove") or []) if sq(x)}
+    bad = [x for x in [*add, *drop] if x not in known or x in (dept, "공통")]
+    if bad:
+        raise OpRefused("열 수 없는 부서: " + ", ".join(bad))
+    if not whole and not add and not drop:
+        raise OpRefused("더하거나 뺄 부서를 적는다.")
+    cur = [] if whole else rag_spaces.receivers(rag_spaces.config(ctx.data_dir), dept)
+    to = [d for d in dict.fromkeys([*cur, *add]) if d not in drop]
+    plan = ", ".join(to) if to else "열어 준 부서 없음"
+    return f"「{dept}」 부서 RAG 를 받는 부서를 바꿉니다 — {plan}.", {"dept": dept, "to": to}
+
+
+def _lend_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
+    from zzaimy.app import org_lock, rag_spaces
+    with org_lock.LOCK:
+        cfg = rag_spaces.set_receivers(rag_spaces.config(ctx.data_dir), a["dept"], a["to"])
+        rag_spaces.save_config(cfg, ctx.data_dir)
+    got = rag_spaces.receivers(cfg, a["dept"])
+    return (f"「{a['dept']}」 부서 RAG — " + (", ".join(got) + "에 열었습니다." if got else "다른 부서에 열지 않습니다."),
+            [f"{a['dept']} 부서 RAG 받는 부서: {', '.join(got) or '없음'}"])
+
+
 def _clip(t, n: int) -> str:
     return " ".join(str(t or "").split())[:n]
 
@@ -267,6 +302,10 @@ OPS: dict[str, Op] = {o.key: o for o in (
     Op("dept_rag.create", "부서·부서 RAG 만들기",
        "새 부서와 빈 부서 RAG 만들기. args {name: 부서 이름}",
        "/team", ("dev",), _dept_check, _dept_run, 'data-org-add'),   # 조직 관리 트리 위 「부서」
+    Op("dept_rag.lend", "부서 RAG 다른 부서에 열기",
+       "부서 RAG 를 다른 부서가 함께 찾게 열거나 거두기 — 받는 쪽은 늘 부서(계정 하나에 주지 않는다). "
+       "args {dept: 주는 부서, add: [받을 부서], remove: [거둘 부서]}",
+       "/dev/rag#dept-rags", ("dev", "staff"), _lend_check, _lend_run),
     Op("project.start", "프로젝트 만들고 문서 작성 대화 시작",
        "문서를 쓰고 싶다는 담당자에게 프로젝트를 만들고 그 프로젝트의 에이전트 대화에 첫 요청을 보내기. "
        "args {sector: 업무 영역, name: 프로젝트 이름, due_date: 마감 YYYY-MM-DD(선택), first_request: 담당자 뜻을 정리한 첫 요청}",

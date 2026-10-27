@@ -13,7 +13,7 @@
   POST /dev/users/dept-parent(상위 부서 — 관리자가 확인한 관계만 권한에 쓰인다, dept_dictionary), POST /dev/users/bulk(여러 명).
   화면은 조직 관리(/team) 한 곳이다 — 계정·부서·구성원, 관리자에게는 구글 앱 등록과 학교 계정 연결 현황(_team_google.html, 옛 /dev/users 화면은
   10-27 에 없앴다)까지 그 화면에서 다룬다. 고치기 경로(POST /dev/users/*·/dev/google/*)는 관리자 막기(/dev)를 그대로 쓰려고 주소를 두었다. 계정의 겸직 부서는
-  줄마다 부서 + 그 부서에서의 등급(rag grants dept: 와 account["dept_grades"] 를 함께 맞춘다)
+  줄마다 부서 + 그 부서에서의 등급(account["dept_grades"] 한 곳 — 일반 겸직도 member 로 적는다)
 - 조직 관리: GET /team(부서 트리 + 상세), GET /api/org/accounts(전체 사용자)·/api/org/members(구성원), POST /api/org/members
   (옮기기·등급·추가 권한·빼기·사람 추가). 트리 자료와 부서 고치기는 org_routes(이 라우터에 함께 붙는다)
 
@@ -79,8 +79,8 @@ def user_status(db, uid: str, dept: str | None) -> dict:
 
 def known_depts(db, accounts: dict, data_dir=None) -> list[str]:
     """알려진 부서 — 계정에 지정된 부서, 부서 공용 계정·저장 위치를 정한 부서, RAG 공간 설정(원본 폴더 담당 부서
-    dept_of_area · 공간의 depts · 계정별 추가 권한 dept:<부서>). 사용자 편집 화면이 쓴다.
-    rag_spaces.known_depts(폴더 짝·계정·공간) 위에 부서 공용 설정·추가 권한 부서를 더한다.
+    dept_of_area · 공간의 depts). 사용자 편집 화면이 쓴다.
+    rag_spaces.known_depts(폴더 짝·계정·공간) 위에 부서 공용 설정 부서를 더한다.
     「공통」은 문서 쪽 꼬리표(부서 없는 사업 문서)라 사용자 부서가 아니다 — 부서를 정하지 않으면 공통 RAG 만 찾는다."""
     from zzaimy.app import rag_spaces
 
@@ -88,17 +88,13 @@ def known_depts(db, accounts: dict, data_dir=None) -> list[str]:
     names = set(rag_spaces.known_depts(cfg, accounts or {}))          # 폴더 짝·계정·공간 설정 — /dev/rag 와 같은 목록
     names |= {k.split(":", 1)[1].strip() for k, v in (db.all_settings() if db is not None else {}).items()
               if k.startswith(("google_account_dept:", "google_root:")) and (v or "").strip()}
-    for granted in (cfg.get("grants") or {}).values():
-        names |= {str(sid)[5:].strip() for sid in granted or [] if str(sid).startswith("dept:")}
     return sorted(n for n in names if n and n != "공통")
 
 
 def _extras(uid: str, a: dict, data_dir=None) -> list[str]:
-    """겸직 부서 — RAG 추가 권한(grants dept:)과 부서별 등급(dept_grades)을 합친 것(소속 부서 빼고)."""
+    """겸직 부서 — 부서별 등급(dept_grades, 일반 겸직 포함)에 적힌 부서(소속 부서 빼고)."""
     from zzaimy.app import access_policy
-    out = list(access_policy.extra_depts(uid, data_dir)) if data_dir else []
-    out += [d for d in grades.dept_grades(a) if d not in out]
-    return [d for d in out if d and d != str(a.get("dept") or "").strip()]
+    return access_policy.extra_depts(uid, data_dir, account=a)
 
 
 class _SettingsSnap:
@@ -315,8 +311,8 @@ def _save_one(st, accounts: dict, me: str, *, uid: str, new: bool, name: str, ro
     else:
         accounts[uid].pop("grade", None)
         accounts[uid].pop("perms", None)
-    # 겸직 부서(여러 줄: 부서 + 그 부서에서의 등급) — RAG 추가 권한(grants dept:)과 부서별 등급(dept_grades) 둘 다 맞춘다.
-    # 교직원만 받는다(학생·관리자는 비운다). 소속 부서·모르는 부서는 빼고, 일반은 따로 적지 않는다(없으면 일반)
+    # 겸직 부서(여러 줄: 부서 + 그 부서에서의 등급) — 부서별 등급(dept_grades) 한 곳에 적는다(일반 겸직은 member).
+    # 교직원만 받는다(학생·관리자는 비운다). 소속 부서·모르는 부서는 뺀다
     pairs: dict[str, str] = {}
     if role == "staff":
         for i, d in enumerate(extra):
@@ -324,22 +320,12 @@ def _save_one(st, accounts: dict, me: str, *, uid: str, new: bool, name: str, ro
             g = (extra_grade[i] if i < len(extra_grade) else "").strip() or "member"
             if d and d in known and d != dept and g in grades.GRADES:
                 pairs[d] = g
-    dg = {d: g for d, g in pairs.items() if g != "member"}
+    dg = dict(pairs)
     if dg:
         accounts[uid]["dept_grades"] = dg
     else:
         accounts[uid].pop("dept_grades", None)
     st.save_accounts()
-    if data_dir is not None:
-        from zzaimy.app import rag_spaces
-        want = sorted(pairs)
-        cfg = rag_spaces.config(data_dir)
-        grants = dict(cfg.get("grants", {}))
-        if sorted(s[5:] for s in grants.get(uid, []) if str(s).startswith("dept:")) != want:
-            others = [s for s in grants.get(uid, []) if not str(s).startswith("dept:")]
-            grants[uid] = others + [f"dept:{d}" for d in want]
-            cfg["grants"] = {u: v for u, v in grants.items() if v}
-            rag_spaces.save_config(cfg, data_dir)
     if google is not None:
         old = (st.db.get_setting(f"google_account:{uid}", "") or "").strip()
         if google != old:
@@ -479,7 +465,7 @@ def delete_plan(st, accounts: dict, name: str, kids: str = "lift") -> dict:
 def delete_dept(st, accounts: dict, name: str, kids: str = "lift") -> tuple[str, int]:
     """부서를 지운다 — (오류 문장, 공통 RAG 로 돌린 문서 수). 소속 계정이 있으면(함께 지울 아래 부서 포함) 하나도 지우지 않는다.
     아래 부서는 kids 대로 — lift: 지운 부서의 자리(그 상위, 없으면 맨 위 처·단)로 올리고, with: 함께 지운다.
-    부서 RAG 문서는 공통으로, 추가 권한·폴더 짝·부서 공용 설정을 풀고, 겸직 등급·확정 위계에서도 뺀다.
+    부서 RAG 문서는 공통으로, 부서 열어 주기(주는 쪽·받는 쪽)·폴더 짝·부서 공용 설정을 풀고, 겸직 등급·확정 위계에서도 뺀다.
     사용자·계정 화면(/dev/users/dept)과 조직 관리(org_routes)가 같은 이 함수를 쓴다."""
     from zzaimy.app import dept_dictionary
     data_dir = getattr(st, "data_dir", None)
@@ -551,7 +537,7 @@ def delete_message(name: str, plan: dict, moved: int) -> str:
 def dev_users_dept(request: Request, action: str = Form(""), name: str = Form(""), names: list[str] = Form([]),
                    kids: str = Form("lift")):
     """부서 만들기·지우기 — 부서 목록은 RAG 공간 설정(dept_rags)에 하나로 둔다. 만든 부서는 부서 RAG·검색 범위·폴더 범위·계정 부서에서
-    바로 고를 수 있다. 지우면 그 부서 문서는 공통 RAG 로 돌아가고 추가 권한·폴더 짝·부서 공용 설정도 풀린다(계정이 있으면 못 지운다)."""
+    바로 고를 수 있다. 지우면 그 부서 문서는 공통 RAG 로 돌아가고 부서 열어 주기·폴더 짝·부서 공용 설정도 풀린다(계정이 있으면 못 지운다)."""
     from zzaimy.app import rag_spaces
     st = request.app.state
     data_dir = getattr(st, "data_dir", None)

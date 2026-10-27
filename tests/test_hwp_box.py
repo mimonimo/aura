@@ -163,10 +163,8 @@ def test_new_folder_and_rename_only_where_writable(tmp_path, monkeypatch):
     assert "folder=%ED%9A%8C%EC%9D%98" in _side(kim.get("/hwp?dept=기획처").text)        # 즐겨찾기도 따라온다
     assert lee.post("/hwp/folder-rename", data={"dept": "기획처", "folder": "회의", "name": "x"}, headers=J).status_code == 403
     # 안의 문서를 다른 사람이 편집 중이면 이름을 바꾸지 않는다
-    from zzaimy.app import rag_spaces
-    cfg = rag_spaces.config(app.state.data_dir)
-    cfg["grants"] = {"lee": ["dept:기획처"]}
-    rag_spaces.save_config(cfg, app.state.data_dir)
+    app.state.accounts["lee"]["dept_grades"] = {"기획처": "member"}     # 기획처 겸직(일반)
+    app.state.save_accounts()
     assert lee.post(f"/hwp/{fid}/lock").json()["ok"]
     assert kim.post("/hwp/folder-rename", data={"dept": "기획처", "folder": "회의", "name": "y"}, headers=J).status_code == 409
 

@@ -72,7 +72,8 @@ def _uploaded_via(d: dict) -> str:
 
 
 def collect(db, project: dict | None = None, session_id: int | None = None, *,
-            dept: str | None = None, user: str | None = None, role: str = "", also: tuple | list = ()) -> dict[str, list[dict]]:
+            dept: str | None = None, user: str | None = None, role: str = "", also: tuple | list = (),
+            lent: tuple | list = ()) -> dict[str, list[dict]]:
     """세 갈래 문서 목록. 항목은 문서 행(dict)에 group·group_label·via(어디서 왔는가)를 더한 것."""
     pid = int(project["id"]) if project and project.get("id") else None
     sids = session_ids(db, pid, session_id)
@@ -86,7 +87,7 @@ def collect(db, project: dict | None = None, session_id: int | None = None, *,
         return cache[did]
 
     def _add(d: dict | None, group: str, via: str) -> None:
-        if not d or int(d["id"]) in seen or not visible(d, dept=dept, user=user, role=role, also=also):
+        if not d or int(d["id"]) in seen or not visible(d, dept=dept, user=user, role=role, also=also, lent=lent):
             return
         seen.add(int(d["id"]))
         groups[group].append(dict(d, group=group, group_label=GROUP_LABELS[group], via=via))

@@ -328,6 +328,31 @@
     return tpl;
   }
 
+  // 다른 부서에 열기 — 고른 부서 칩이 바뀔 때마다 받는 부서 목록을 통째로 저장한다(관리자·그 부서 총괄 책임자, 서버가 다시 검사)
+  function lendPicker(r, el) {
+    const note = panel.querySelector('[data-lend-note]');
+    const chipsOf = list => list.map(d => ({user: d, label: d, dept: '부서'}));
+    window.PeoplePicker.set(el, chipsOf(r.lend_to));
+    let busy = false;
+    el.addEventListener('pp:change', async e => {
+      const want = e.detail.map(p => p.user);
+      if (busy || want.join('\t') === r.lend_to.join('\t')) return;
+      busy = true; el.style.pointerEvents = 'none'; el.style.opacity = '.6'; note.textContent = '저장 중…';
+      try {
+        const res = await fetch('/org/rag-lend', {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+                                                  body: JSON.stringify({dept: r.name, to: want})});
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || !d.ok) throw new Error(d.error || d.detail || '저장하지 못했습니다');
+        r.lend_to = d.to; note.textContent = d.to.length ? '저장했습니다' : '열어 준 부서 없음';
+        rows.filter(x => x.kind === 'dept').forEach(x => { x.lend_from = rows.filter(o => o.kind === 'dept' && (o.lend_to || []).includes(x.name)).map(o => o.name); });
+      } catch (err) { note.textContent = err.message; }
+      finally {
+        busy = false; el.style.pointerEvents = ''; el.style.opacity = '';
+        if (el.isConnected) window.PeoplePicker.set(el, chipsOf(r.lend_to));
+      }
+    });
+  }
+
   function pick(sid, focus) {
     const r = bySid[sid]; if (!r) return;
     cur = sid;
@@ -340,14 +365,18 @@
                 : '이 부서 계정은 공통 RAG 와 함께 찾음';
     const facts = (r.docs != null ? `<dt>사업 문서</dt><dd>${r.lib ? `<a href="${esc(r.lib)}">${num(r.docs)}건</a>` : num(r.docs) + '건'}</dd>` : '')
       + `<dt>기준 문서</dt><dd>${num(r.reg_docs)}건 · 조각 ${num(r.reg_chunks)}</dd>`
+      + (r.lend_from.length ? `<dt>열어 받은 RAG</dt><dd>${esc(r.lend_from.join(', '))}</dd>` : '')
       + (r.folders.length ? `<dt>반입 폴더</dt><dd>${esc(r.folders.join(', '))}</dd>` : '')
       + (r.made_at ? `<dt>만든 날</dt><dd>${esc(r.made_at)}</dd>` : '');
     const users = r.kind === 'common' ? (r.members.length ? '모든 교직원 · 부서 없는 계정 ' : '모든 교직원') : '';
     panel.innerHTML = `<h3>${esc(title)}</h3><p class="rg-meta">${esc(range)}</p><dl class="rg-kv">${facts}</dl>`
       + (r.kind !== 'student' ? `<div class="rg-sec"><h4>최소 등급</h4><div class="rg-min" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"></div></div>` : '')
       + `<div class="rg-sec"><h4>쓰는 계정</h4><p>${users ? `<span class="rg-sub">${esc(users)}</span>` : ''}${r.kind === 'common' && !r.members.length ? '' : people(r.members, r.kind === 'student' ? '학생 계정 없음' : '없음')}</p></div>`
-      + (r.kind === 'dept' ? `<div class="rg-sec"><h4>겸직으로 더 찾는 계정</h4><p>${people(r.granted, '없음')} <a class="rg-sub" href="/team?view=all">조직 관리 계정 목록에서 정하기</a></p></div>` : '')
+      + (r.kind === 'dept' && r.granted.length ? `<div class="rg-sec"><h4>겸직 계정</h4><p>${people(r.granted, '없음')}</p></div>` : '')
+      + (r.kind === 'dept' ? `<div class="rg-sec"><h4>다른 부서에 열기</h4><div class="rg-lend" data-people-picker data-endpoint="/org/rag-lend/targets/${encodeURIComponent(r.name)}" data-placeholder="부서 이름으로 찾기" aria-label="열어 줄 부서"></div><p class="rg-sub" data-lend-note aria-live="polite"></p></div>` : '')
       + `<div class="rg-sec"><h4>구성</h4><div data-comp><p class="rg-sub">세는 중…</p></div></div>`;
+    const lend = panel.querySelector('.rg-lend');
+    if (lend) { if (window.PeoplePicker) lendPicker(r, lend); else document.addEventListener('DOMContentLoaded', () => lendPicker(r, lend), {once: true}); }
     const mg = panel.querySelector('.rg-min');
     if (mg) { mg.append(minForm(r)); mg.insertAdjacentHTML('beforeend', '<span class="rg-sub" data-min-note></span>'); }
     if (focus) panel.scrollIntoView({block: 'nearest'});

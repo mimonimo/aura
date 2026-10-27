@@ -87,8 +87,9 @@ def at_least(grade: str, need: str) -> bool:
 
 
 # ---------------------------------------------------------------- 겸직(여러 부서)과 부서 위계
-# 한 사람이 여러 부서에 속할 수 있다(소속 부서 + 추가 부서 — rag_spaces grants). 부서마다 등급을 따로 줄 수 있다
-# (account["dept_grades"] = {"○○사업단": "head"}) — 기획처에선 일반, ○○사업단에선 총괄 책임자 같은 겸직. 따로 정하지 않은 추가 부서는 일반.
+# 한 사람이 여러 부서에 속할 수 있다(소속 부서 + 겸직 부서). 겸직은 계정의 부서별 등급 한 곳에 적는다
+# (account["dept_grades"] = {"○○사업단": "head", "기획처": "member"}) — 일반 겸직도 「member」 로 적는다(10-27, 예전 rag grants 대신).
+# 다른 부서 사람에게 부서 RAG 를 주는 것은 계정이 아니라 부서 단위(rag_spaces dept_grants)다.
 # 부서 위계(산학협력단이 ○○사업단을 관리)는 dept_dictionary.parent_of 로 — 상위 부서의 총괄 책임자는 하위 부서도 맡는다.
 
 
@@ -100,14 +101,9 @@ def dept_grades(account: dict | None) -> dict:
 
 
 def depts_of(user: str, account: dict | None, data_dir=None) -> list[str]:
-    """이 사람이 속한 부서 — 소속 부서 먼저, 그다음 추가 부서(겸직)·부서별 등급을 받은 부서."""
+    """이 사람이 속한 부서 — 소속 부서 먼저, 그다음 겸직 부서(부서별 등급에 적힌 부서)."""
     a = account or {}
     out = [str(a.get("dept") or "").strip()] if str(a.get("dept") or "").strip() else []
-    try:
-        from zzaimy.app import access_policy
-        out += [d for d in access_policy.extra_depts(user, data_dir) if d not in out]
-    except Exception:
-        pass
     out += [d for d in dept_grades(a) if d not in out]
     return out
 
@@ -249,7 +245,7 @@ def admin_over(accounts: dict, uid: str, role: str, active: bool) -> bool:
 
 def rag_allowed(space: str, account: dict | None, cfg: dict) -> bool:
     """RAG 공간에 최소 등급이 걸려 있으면 그 이상만 — rag_spaces 설정 {"min_grade": {"common": "lead", "dept:기획처": "head"}}.
-    걸려 있지 않으면 지금 규칙(부서·추가 권한) 그대로. 관리자는 늘 허용."""
+    걸려 있지 않으면 지금 규칙(부서·겸직·열어 받은 부서) 그대로. 관리자는 늘 허용."""
     need = ((cfg or {}).get("min_grade") or {}).get(space)
     if not need:
         return True

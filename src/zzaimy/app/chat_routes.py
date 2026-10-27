@@ -64,7 +64,7 @@ def make_chat_helpers(
     db, db_path, processor, drafter, templates, ctx,
     accounts, password, chat_topics, chat_revisions, _chat_running, _chat_progress,
     _chat_sources, _chat_pages, _RETRIEVAL_NOTE, _owned_chat, _can_read_chat, _reader_doc_ok, _criteria_docs,
-    _viewer_sees, _extra_depts, _local_back, _share_sync, _chat_suggestions, _intake_bundle,
+    _viewer_sees, _extra_depts, _seen_depts, _local_back, _share_sync, _chat_suggestions, _intake_bundle,
     _link_past_materials, _link_past_projects, _remember_given, _schedule_answer, _set_options, _title_from_bundle,
     _link_criteria_kind, _all_depts, _chat_step, _scrub_internal, _session_viewer, _view_as,
     _auto_route, _identify_document, _can_edit_doc,
@@ -81,7 +81,7 @@ def make_chat_helpers(
             return "검색 범위: 학생 공개 규정"
         if role == "dev":
             return "검색 범위: 모든 문서(관리자)"
-        extra = [d for d in _extra_depts(getattr(request.state, "user", "")) if d != dept]
+        extra = [d for d in _seen_depts(getattr(request.state, "user", "")) if d != dept]
         mine = [d for d in [dept, *extra] if d and d != "공통"]
         return "검색 범위: 전체 공개 문서" + (" + " + "·".join(mine) + " 문서" if mine else "")
 

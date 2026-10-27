@@ -68,14 +68,13 @@ def test_upload_lands_in_department_directory_and_other_department_cannot_open(t
 def test_extra_department_and_common_are_shared(tmp_path, monkeypatch):
     app = _setup(tmp_path, monkeypatch)
     from zzaimy.app import rag_spaces
-    cfg = rag_spaces.config(app.state.data_dir)
-    cfg["grants"] = {"lee": ["dept:기획처"]}
-    rag_spaces.save_config(cfg, app.state.data_dir)
+    app.state.accounts["lee"]["dept_grades"] = {"기획처": "member"}     # 기획처 겸직(일반)
+    app.state.save_accounts()
     kim, lee = TestClient(app), TestClient(app)
     assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
     a = _up(kim, app, "기획처", "공문.hwpx", _hwpx())
     b = _up(kim, app, "공통", "안내.hwpx", _hwpx())
-    assert lee.get(f"/hwp/{a}/file").status_code == 200          # 추가 부서로 받은 기획처
+    assert lee.get(f"/hwp/{a}/file").status_code == 200          # 겸직 부서 기획처
     assert lee.get(f"/hwp/{b}/file").status_code == 200          # 공통
 
 
@@ -238,10 +237,10 @@ def test_rag_spaces_config_returns_a_copy(tmp_path):
     """설정 파일이 없을 때 받은 기본값을 고쳐도 다음 호출에 번지지 않는다(시험 사이 권한이 새던 버그)."""
     from zzaimy.app import rag_spaces
     a = rag_spaces.config(tmp_path)
-    a["grants"] = {"x": ["dept:기획처"]}
+    a["dept_grants"] = {"x": ["기획처"]}
     a.setdefault("dept_of_area", {})["가"] = "나"
     b = rag_spaces.config(tmp_path)
-    assert b.get("grants", {}).get("x") is None and "가" not in b.get("dept_of_area", {})
+    assert b.get("dept_grants", {}).get("x") is None and "가" not in b.get("dept_of_area", {})
 
 
 def test_common_templates_built_once_and_fillable(tmp_path, monkeypatch):
@@ -292,9 +291,8 @@ def test_concurrent_editing_shares_fields_and_merges_on_save(tmp_path, monkeypat
     """같은 문서를 둘이 동시에 — 칸에 쓴 글은 서로 받지만, 저장은 편집 잠금을 쥔 사람만(서버가 409 로 막는다). 잠금 쥔 사람이 저장할 때 상대 칸 글을 합친다."""
     app = _setup(tmp_path, monkeypatch)
     from zzaimy.app import rag_spaces, webhwp_templates as wt, webhwp_write as ww
-    cfg = rag_spaces.config(app.state.data_dir)
-    cfg["grants"] = {"lee": ["dept:기획처"]}
-    rag_spaces.save_config(cfg, app.state.data_dir)
+    app.state.accounts["lee"]["dept_grades"] = {"기획처": "member"}     # 기획처 겸직(일반)
+    app.state.save_accounts()
     kim, lee = TestClient(app), TestClient(app)
     assert _login(kim, "kim", "pass-12345678") and _login(lee, "lee", "pass-12345678")
     form = wt.build(wt.GRANT["budget_change"])
