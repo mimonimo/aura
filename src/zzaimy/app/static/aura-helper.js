@@ -729,6 +729,7 @@
     }
     function typeInto(field, text, then) {
       field.focus(); field.value = "";
+      field.dispatchEvent(new Event("input", { bubbles: true }));   // 비우기만 해도 화면이 알게(10-27: 찾기 칸을 비웠는데 목록은 옛 낱말로 걸러진 채)
       var i = 0;
       (function step() {
         if (i < text.length) {
