@@ -282,7 +282,7 @@
         <div class="chat-rag-pick" id="ragPick"{% if am.mode != 'rag' %} hidden{% endif %}>
           <input type="hidden" name="rags_pick" value="1">
           <button type="button" class="chat-chip chat-rag-btn" id="ragPickBtn" data-aura="answer-rag-pick" aria-haspopup="true" aria-expanded="false" aria-controls="ragPickMenu" title="쓸 RAG 고르기"><iconify-icon icon="solar:database-linear" aria-hidden="true"></iconify-icon><span class="chat-chip-key">RAG 범위</span><span class="chat-chip-val" id="ragPickLabel">{{ am.label or '전체' }}</span><iconify-icon class="chat-chip-caret" icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
-          {# 고르기 창 — 범위·깊이 같은 꼴(제목 + 한 줄 설명, 고른 것은 오른쪽 체크). 입력 상자 왼쪽에 맞춰 상자 위로 겹쳐 뜬다 #}
+          {# 고르기 창 — 범위·깊이 같은 꼴(제목 + 한 줄 설명, 고른 것은 오른쪽 체크). 누른 단추 옆에, 아래가 넉넉하면 아래로 뜬다(placePop) #}
           <div class="chat-pop chat-rag-menu" id="ragPickMenu" role="group" aria-label="쓸 RAG" hidden>
             <div class="chat-pop-head">쓸 RAG <small>여럿 고를 수 있음</small></div>
             {% for c in am.choices %}<label class="chat-pop-item"><input type="checkbox" name="rags" value="{{ c }}"{% if not am.picked or c in am.picked %} checked{% endif %}><span class="chat-pop-text"><b>{{ c }}</b><span>{{ '모든 부서가 함께 쓰는 문서' if c == '공통' else c ~ ' 부서 문서' }}</span></span><span class="chat-pop-check" aria-hidden="true"></span></label>{% endfor %}
@@ -475,10 +475,27 @@
     var on = items.filter(function (x) { return x.checked || x.getAttribute("aria-checked") === "true"; })[0] || items[0];
     if (on) on.focus();
   }
+  // 고르기 창 자리 — 누른 단추 바로 옆(왼쪽 맞춤, 상자 밖으로 넘치면 안쪽으로)에, 아래가 넉넉하면 아래로·아니면 위로 연다.
+  // 입력 상자 왼쪽 끝에서 위로만 열어 첫 화면 제목을 가리고 단추와 떨어져 보였다(10-28)
+  function placePop(menu, btn) {
+    var host = menu.offsetParent;
+    if (!host) return;
+    var h = host.getBoundingClientRect(), b = btn.getBoundingClientRect();
+    var w = menu.offsetWidth, need = menu.offsetHeight + 12;
+    var left = Math.max(4, Math.min(b.left - h.left, h.width - w - 4));
+    menu.style.left = left + "px";
+    var below = window.innerHeight - b.bottom, above = b.top;
+    if (below >= need || below > above) {
+      menu.style.top = (b.bottom - h.top + 8) + "px"; menu.style.bottom = "auto"; menu.dataset.dir = "down";
+    } else {
+      menu.style.top = "auto"; menu.style.bottom = (h.bottom - b.top + 8) + "px"; menu.dataset.dir = "up";
+    }
+  }
   function openRag(on, keyboard) {
     if (!ragMenu) return;
     ragMenu.hidden = !on;
     ragBtn.setAttribute("aria-expanded", String(on));
+    if (on) placePop(ragMenu, ragBtn);
     if (on && keyboard) popFocus(ragMenu);
   }
   function setMode(mode, save) {
@@ -514,9 +531,11 @@
     var effortBtn = document.getElementById("effortBtn"), effortMenu = document.getElementById("effortMenu");
     var openEffort = function (on, keyboard) {
       effortMenu.hidden = !on; effortBtn.setAttribute("aria-expanded", String(on));
+      if (on) placePop(effortMenu, effortBtn);
       if (on && keyboard) popFocus(effortMenu);
     };
     effortBtn.addEventListener("click", function (e) { openEffort(effortMenu.hidden, e.detail === 0); });
+    window.addEventListener("resize", function () { if (!effortMenu.hidden) placePop(effortMenu, effortBtn); if (ragMenu && !ragMenu.hidden) placePop(ragMenu, ragBtn); });
     popNav(effortMenu);
     document.addEventListener("click", function (e) { if (!effortPick.contains(e.target)) openEffort(false); });
     effortPick.addEventListener("keydown", function (e) { if (e.key === "Escape") { openEffort(false); effortBtn.focus(); } });
