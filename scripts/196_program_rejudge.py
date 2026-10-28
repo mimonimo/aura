@@ -128,6 +128,7 @@ def ask(complete, c: dict, entries: list[dict]) -> dict | None:
             + (f"지금 묶인 사업: {c['cur']} — 같은 본문이 다른 사업 폴더에도 있다: {', '.join(c['others'])}. 두 사업 모두에 쓰인 공용 자료면 "
                "본문·제목이 더 직접 가리키는 사업을, 가릴 수 없으면 지금 사업을 고른다.\n" if c.get("why") == "dup_cross" else "")
             + f"본문 첫머리:\n<<<\n{c['head'] or '(본문 없음)'}\n>>>\n\n사업 목록:\n" + "\n".join(f"- {n}" for n in names))
+    user = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff]", " ", user)   # 제어 문자·깨진 대리 문자 — 요청이 늘 끊기던 원본 5건(10-28)
     raw = complete([{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}])
     m = re.search(r"\{.*\}", raw or "", re.S)
     if not m:
