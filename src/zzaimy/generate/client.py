@@ -111,13 +111,30 @@ def _has_args(eb: dict, want: dict) -> bool:
     return True
 
 
-def _split_think(resp) -> None:
+def _thinking_on(kw: dict) -> bool:
+    """이 호출에서 생각을 켰는가 — 연결 설정이 무엇이든 chat_template_kwargs.enable_thinking 이나 think 인자가 참이면."""
+    eb = kw.get("extra_body") or {}
+    ctk = eb.get("chat_template_kwargs") if isinstance(eb, dict) else None
+    return bool((isinstance(ctk, dict) and ctk.get("enable_thinking")) or (isinstance(eb, dict) and eb.get("think") is True))
+
+
+def _split_think(resp, thinking_on: bool = False) -> None:
     """서버가 생각 글을 본문 앞에 「…</think>」 로 붙여 보낸 응답에서 본문만 남긴다 — 생각 글은 reasoning_content 로 옮긴다.
-    생각을 켠 호출(답변 깊이 「꼼꼼하게」)에서 생긴다(서버에 생각 나누기 설정이 없을 때). 생각이 없는 응답은 그대로."""
+    생각을 켠 호출(답변 깊이 「꼼꼼하게」)에서 생긴다(서버에 생각 나누기 설정이 없을 때). 생각이 없는 응답은 그대로.
+    생각을 켠 호출이 한도에 걸려(finish_reason length) 닫는 표시 없이 끝나면 그 글은 전부 생각이다 — 본문을 비워 호출부의
+    「빈 답이면 한도를 넓혀 다시」 로 보낸다(10-28 agent-v3: 끝나지 않은 생각 글이 초안과 함께 사업계획서 본문에 들어갔다)."""
     try:
         for ch in resp.choices or []:
             msg = ch.message
             c = getattr(msg, "content", None) or ""
+            if thinking_on and c and "</think>" not in c and getattr(ch, "finish_reason", "") == "length":
+                try:
+                    if not getattr(msg, "reasoning_content", None):
+                        msg.reasoning_content = c.replace("<think>", "").strip()
+                except Exception:
+                    pass
+                msg.content = ""
+                continue
             if "</think>" in c:
                 thought, _, answer = c.rpartition("</think>")
                 msg.content = answer.lstrip()
@@ -384,7 +401,7 @@ class VllmClient:
                     else:
                         raise
                 if not kw.get("stream"):
-                    _split_think(resp)                                # 생각을 켠 호출의 「…</think>」 는 답이 아니다
+                    _split_think(resp, _thinking_on(kw))              # 생각을 켠 호출의 「…</think>」 는 답이 아니다
                     _record(kw, resp)
                     model_config.record_usage(
                         self.connection_id, kw.get("model", self.model), getattr(resp, "usage", None)
@@ -395,6 +412,7 @@ class VllmClient:
                         wider = min(max(asked * 4, _THINKING_FLOOR), _THINKING_CEILING)
                         if wider > asked:
                             resp2 = orig(*a, **dict(kw, max_tokens=wider))
+                            _split_think(resp2, _thinking_on(kw))     # 넓혀도 생각만 하다 끊기면 빈 답으로(호출부가 다룬다)
                             model_config.record_usage(
                                 self.connection_id, kw.get("model", self.model),
                                 getattr(resp2, "usage", None),

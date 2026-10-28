@@ -37,3 +37,21 @@ def test_stream_without_thinking_unchanged(monkeypatch):
     with effort.use("fast"):
         text, _ = AgentResponder._stream(object(), [], 1000, [], None, lambda s: None, gen={"extra_body": {}})
     assert text == "답 입니다"
+
+
+def test_cut_off_thinking_is_not_answer():
+    from types import SimpleNamespace
+    from zzaimy.generate.client import _split_think, _thinking_on
+    msg = SimpleNamespace(content="But rule: need source... 가) 초안 글", reasoning_content=None)
+    resp = SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="length")])
+    _split_think(resp, _thinking_on({"extra_body": {"chat_template_kwargs": {"enable_thinking": True}}}))
+    assert msg.content == "" and "초안" in msg.reasoning_content
+
+
+def test_cut_off_without_thinking_kept():
+    from types import SimpleNamespace
+    from zzaimy.generate.client import _split_think
+    msg = SimpleNamespace(content="가) 길게 쓴 본문", reasoning_content=None)
+    resp = SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="length")])
+    _split_think(resp, False)
+    assert msg.content == "가) 길게 쓴 본문"
