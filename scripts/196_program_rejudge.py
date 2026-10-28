@@ -4,7 +4,7 @@
 왜: 폴더 단위 「사업 아님」 판정(class_review.jsonl)은 그 폴더에 섞인 사업 문서(「2020 P-TECH사업 결과보고서」)까지
 기관 일반 업무로 보내고, 파일 이름 뽑기는 「3차년도 지방보조사업」「수익 비수익 사업」 같은 일반어를 사업 묶음으로 세운다.
 코드가 낱말로 사업을 정하지 않는다 — 코드는 다시 볼 후보를 고르고(장부 이름이 제목·본문에 나오는 「사업 아님」 원본,
-사업 이름이 아닌 묶음에 든 원본, 폴더째 한 사업으로 잡혔는데 파일 제목에는 다른 장부 사업 이름만 나오는 원본), 27B 가 제목·폴더·본문 첫머리와 외부 확인 장부(kg_external.json)의 사업 목록을 보고 정한다.
+사업 이름이 아닌 묶음에 든 원본, 폴더째 한 사업으로 잡혔는데 파일 제목에는 다른 장부 사업 이름만 나오는 원본, 같은 본문이 서로 다른 사업 폴더에 든 원본), 27B 가 제목·폴더·본문 첫머리와 외부 확인 장부(kg_external.json)의 사업 목록을 보고 정한다.
 
 판정은 같은 검토 장부에 파일 단위 줄(「file」)로 덧붙인다 — 원본 장부 맞추기(170)와 그래프(157)가 폴더 판정보다 먼저 쓴다
 (graph.programs.apply_reviews). 답이 장부에 없는 이름이거나 「모름」·확신 낮음이면 적지 않는다. 줄마다 판정 모델을 남긴다.
@@ -73,9 +73,28 @@ def candidates(db, lg: pt.Ledger, entries: list[dict], done: set[str]) -> list[d
         rows = [dict(r) for r in conn.execute(
             "SELECT a.rel, a.program, a.program_name, a.status, a.doc_id, d.filename, d.masked_text FROM archive_files a"
             " JOIN documents d ON d.id = a.doc_id WHERE a.removed_at = '' AND a.doc_id IS NOT NULL").fetchall()]
+    # 같은 본문이 서로 다른 사업 폴더에 든 원본 — 어느 사업 것인지 파일마다 다시 본다(10-27 문서함 정리 뒤 208건, 같은 사업 안 여분은 187 dup 이 뺀다)
+    import hashlib
+    progs_of: dict[str, set] = {}
+    sig = {}
+    for r in rows:
+        t = r.get("masked_text") or ""
+        if len(t) >= 200 and r.get("program"):
+            h = hashlib.sha1(t.encode("utf-8")).hexdigest()
+            sig[r["rel"]] = h
+            progs_of.setdefault(h, set()).add(r.get("program_name") or r["program"])
     out = []
     for r in rows:
         if r["rel"] in done:
+            continue
+        h = sig.get(r["rel"])
+        if h and len(progs_of.get(h, ())) > 1:
+            head = (r.get("masked_text") or "")[:1500]
+            title = Path(r["rel"]).stem
+            others = sorted(progs_of[h] - {r.get("program_name") or r["program"]})
+            hint = (mentioned(title, entries) or mentioned(head, entries))[:6]
+            out.append({**r, "why": "dup_cross", "title": title, "head": head, "hint": hint,
+                        "cur": r.get("program_name") or "", "others": others[:4]})
             continue
         head = (r.get("masked_text") or "")[:1500]
         title = Path(r["rel"]).stem
@@ -106,6 +125,8 @@ def ask(complete, c: dict, entries: list[dict]) -> dict | None:
     names = [e["name"] for e in entries]
     user = (f"제목: {c['title']}\n폴더: {str(Path(c['rel']).parent)}\n"
             + (f"제목·본문에 이름이 나오는 사업: {', '.join(c['hint'])}\n" if c["hint"] else "")
+            + (f"지금 묶인 사업: {c['cur']} — 같은 본문이 다른 사업 폴더에도 있다: {', '.join(c['others'])}. 두 사업 모두에 쓰인 공용 자료면 "
+               "본문·제목이 더 직접 가리키는 사업을, 가릴 수 없으면 지금 사업을 고른다.\n" if c.get("why") == "dup_cross" else "")
             + f"본문 첫머리:\n<<<\n{c['head'] or '(본문 없음)'}\n>>>\n\n사업 목록:\n" + "\n".join(f"- {n}" for n in names))
     raw = complete([{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}])
     m = re.search(r"\{.*\}", raw or "", re.S)
@@ -147,7 +168,8 @@ def main() -> int:
     if args.limit:
         todo = todo[:args.limit]
     print(f"다시 볼 원본 {len(todo)}건(사업 아님 판정인데 장부 사업 이름이 나옴 {sum(c['why'] == 'nonprogram' for c in todo)}"
-          f" · 사업 이름 아닌 묶음 {sum(c['why'] == 'not_name' for c in todo)})", flush=True)
+          f" · 사업 이름 아닌 묶음 {sum(c['why'] == 'not_name' for c in todo)}"
+          f" · 같은 본문이 다른 사업에 {sum(c['why'] == 'dup_cross' for c in todo)})", flush=True)
     if not todo:
         return 0
     complete, llm = s190.make_complete(args.url, args.model, args.role)
