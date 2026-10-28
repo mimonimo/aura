@@ -607,6 +607,10 @@ class HwpTools:
         if field.startswith("입력:"):
             return "쓰지 않았다 — 「입력:」 은 사람 칸(날짜·서명·결재)이다. ask_user 로 물어 받은 값을 hwp_fill(from_user: true)로 넣는다."
         text = ww.drop_heading_echo(text, field)            # 절 머리와 같은 첫 줄은 빼고 넣는다
+        from zzaimy.app.delegate import strip_reasoning
+        text = strip_reasoning(text).strip()                # 본문에 섞인 영어 생각 줄 — 메인·서브 모든 쓰기가 지나는 이 자리에서(10-28)
+        if not text:
+            return "text 가 생각 글뿐이었다 — 문서에 넣을 본문만 다시 쓴다."
         why = self.room_problem(field, text) or self.gate(text, by=by)   # 자리(안내 상자·짧은 값 칸) 먼저, 그다음 본문 관문. by 는 코드가 정한다
         if why:
             return "쓰지 않았다 — " + why

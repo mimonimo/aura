@@ -261,19 +261,31 @@ SUB_SYSTEM = """당신은 대학 행정 문서의 절 하나를 쓰는 작성자
 _UNK_HEAD = re.compile(r"(?m)^[ \t]*\[확인 필요\][ \t]*:?[ \t]*(?:\n|$)")
 
 
-_LATIN_WORD = re.compile(r"[A-Za-z]{2,}")
+_EN_WORD = re.compile(r"(?<![A-Za-z])(?=[A-Za-z']*[a-z])[A-Za-z']{2,}")   # 소문자가 든 영어 낱말 — 「AI」「LINC」「ICT」 같은 대문자 약칭은 세지 않는다
+
+
+# 영어 문장에 거의 늘 나오는 낱말 — 경로(docs/images/…)·이름(Label Studio, vLLM)만 나열된 줄은 생각 글로 보지 않는다
+_EN_FUNC = frozenset("""a an the is are was be it its this that these not no but so or and to of for with if then
+need needs ensure maybe could should would must can let lets let's we i you also just okay ok wait actually check
+avoid say says use keep make done""".split())
 
 
 def strip_reasoning(text: str) -> str:
-    """본문에 섞여 나온 영어 생각 줄(「Need ensure no ○○. None.」)을 뺀다 — 10-27 시나리오에서 서브 본문에 섞여 관문에 막혔다.
-    줄 글자 대부분이 라틴 문자이고 영어 낱말이 셋 이상이며 한글이 거의 없는 줄만 — 「AI」「LINC 3.0」 같은 용어가 든 한국어 줄, 표 줄은 그대로."""
+    """본문에 섞여 나온 영어 생각 줄을 뺀다 — 서브·메인이 생각을 끈 채 본문 사이에 「But "역량 강화" abstract? Need avoid. Could say …」 처럼
+    한글을 섞어 생각을 적었고(10-28 agent-v3 문서 「1. 사업 개요」), 그대로 사업계획서에 들어갔다.
+    한국어 사업 문서의 한 줄에 (대문자 약칭이 아닌) 영어 낱말이 셋 넘게 나오는 일은 드물다 — 영어 문장 낱말(but·need·maybe …)로 시작하거나, 영어 문장 낱말을 품고 영어 글자가 한글보다 많은 줄을 생각으로 본다 — 「단계 추론(chain-of-thought)은 …」 같은 한국어 문장, 경로·이름만 나열한 줄, 코드 줄, 주소·전자우편 줄, 표 줄은 그대로."""
     out = []
     for ln in (text or "").splitlines():
         t = ln.strip()
-        if t and not t.startswith("|"):
-            hangul = len(re.findall(r"[가-힣]", t))
-            latin = sum(len(w) for w in _LATIN_WORD.findall(t))
-            if len(_LATIN_WORD.findall(t)) >= 3 and latin >= 3 * max(1, hangul):
+        code = (bool(re.match(r"\s*(def|class|import|from|return|async|await)\s", t)) or "->" in t or "==" in t
+                or bool(re.match(r"\s*[A-Za-z_][\w.\[\]\"']*\s*(=|\()", t)))       # 대입·호출로 시작하는 코드 줄
+        words = _EN_WORD.findall(t) if t and not t.startswith("|") and "http" not in t and "@" not in t and not code else []
+        if words:
+            first = re.match(r"[\s>*\-•·]*([A-Za-z']+)", t)
+            starts_en = bool(first) and first.group(1).lower() in _EN_FUNC and len(words) >= 2
+            en_heavy = (len(words) >= 3 and any(w.lower() in _EN_FUNC for w in words)
+                        and sum(len(w) for w in words) > len(re.findall(r"[가-힣]", t)))
+            if starts_en or en_heavy:
                 continue
         out.append(ln)
     return "\n".join(out)
