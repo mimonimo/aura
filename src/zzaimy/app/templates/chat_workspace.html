@@ -262,9 +262,9 @@
   <div class="chat-edit-note" id="chatEditNote" hidden><span id="chatEditText"></span><button type="button" id="chatEditCancel" class="act-btn">취소</button></div>
   {% if session_id %}<input type="hidden" name="session_id" value="{{ session_id }}">{% endif %}
   {% if chat_project %}<input type="hidden" name="project_id" value="{{ chat_project.id }}">{% endif %}
-  <div class="dock-chips" id="dockChips"></div>
   <div id="criteriaInputs" hidden></div>
   <div class="dock-row">
+  <div class="dock-chips" id="dockChips"></div>{# 첨부·기준 칩은 입력 상자 안 위쪽 줄에 #}
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
     {% set am = answer_mode or {'mode': 'rag', 'choices': [], 'picked': [], 'label': ''} %}
     <input type="hidden" name="web" id="webField" value="{{ 'model' if am.mode == 'model' and not is_student else '' }}">
@@ -643,13 +643,25 @@
     if (pickedLabel) pickedLabel.textContent = picked.size ? picked.size + "건 선택" : "";
     renderChips();
   }
+  var chipThumbUrl = null;
   function renderChips() {
     if (!chips) return;
     chips.innerHTML = "";
+    if (chipThumbUrl) { URL.revokeObjectURL(chipThumbUrl); chipThumbUrl = null; }
     if (fileInput && fileInput.files.length) {
       var f = document.createElement("span");
-      f.className = "dock-chip";
-      f.innerHTML = '<iconify-icon icon="solar:paperclip-linear"></iconify-icon>';
+      f.className = "dock-chip dock-chip-file";
+      var picked0 = fileInput.files[0];
+      // 사진이면 작은 미리보기, 아니면 클립 아이콘
+      if (/^image\//.test(picked0.type || "") && window.URL && URL.createObjectURL) {
+        chipThumbUrl = URL.createObjectURL(picked0);
+        var th = document.createElement("img");
+        th.className = "dock-chip-thumb"; th.alt = ""; th.src = chipThumbUrl;
+        f.appendChild(th);
+      } else {
+        f.innerHTML = '<iconify-icon icon="solar:paperclip-linear"></iconify-icon>';
+      }
+      f.title = picked0.name;
       var fn = document.createElement("span");
       fn.textContent = fileInput.files[0].name;
       f.appendChild(fn);

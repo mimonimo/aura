@@ -39,7 +39,21 @@
     send.querySelector('iconify-icon').setAttribute('icon', sending ? 'solar:hourglass-linear' : 'solar:arrow-up-linear');
     form.setAttribute('aria-busy', String(sending));
   }
-  function notify(text) { hint.textContent = text; hint.hidden = false; }
+  // 안내는 입력 상자 아래 상태 글 자리에 몇 초 띄웠다가 원래 글로 돌린다 — 새 줄을 끼워 넣지 않아 배치가 흔들리지 않는다
+  const footer = status ? status.closest('.chat-dock-footer') : null;
+  let flash = null, flashTimer = 0;
+  function notify(text) {
+    if (!footer) { hint.textContent = text; hint.hidden = false; return; }
+    if (!flash) {
+      flash = document.createElement('span');
+      flash.className = 'chat-dock-flash'; flash.setAttribute('role', 'alert');
+      footer.append(flash);
+    }
+    flash.textContent = text; flash.title = text; flash.hidden = false;
+    footer.classList.add('is-flash');
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { flash.hidden = true; footer.classList.remove('is-flash'); }, text.length > 30 ? 6000 : 4000);
+  }
   // 대화 칸 고정(chat-scroll.js) — 보낸 뒤·답이 온 뒤 늦게 늘어나는 높이에도 최신 글에 남고, 사용자가 스크롤하면 놓는다
   const pin = window.ChatScroll ? window.ChatScroll.createPin(scroller) : {
     toBottom() { scroller.scrollTop = scroller.scrollHeight; }, toLatest() { scroller.scrollTop = scroller.scrollHeight; },
@@ -96,6 +110,7 @@
     if (!panel || !progress || !Array.isArray(progress.steps) || !progress.steps.length) return;
     const steps = progress.steps.filter(step => typeof step === 'string');
     if (!steps.length) return;
+    const wasNear = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;   // 단계·쓰는 글이 늘어도 맨 아래에 있던 사람은 따라 내려간다
     panel.querySelector('[data-progress-label]').textContent = steps[steps.length - 1];
     if (Number.isFinite(progress.started_at)) {
       const now0 = Number.isFinite(progress.now) ? progress.now : Date.now() / 1000;
@@ -131,9 +146,7 @@
         draft.setAttribute('aria-live', 'off');
         panel.append(draft);
       }
-      const near = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
       draft.innerHTML = lightMarkdown(progress.partial);
-      if (near) scroller.scrollTop = scroller.scrollHeight;
     } else if (draft) draft.remove();
     // 작성 카드 — 에이전트가 문서에 쓰는 동안 지금 쓰는 절과 이번 요청에서 쓴 절
     const writing = progress.writing && typeof progress.writing === 'object' ? progress.writing : null;
@@ -154,6 +167,7 @@
       const done = (writing.done || []).filter(x => typeof x === 'string');
       card.querySelector('small').textContent = done.length ? '이번 요청에서 쓴 절 ' + done.length + '개 · ' + done.join(', ') : '';
     } else if (card) card.remove();
+    if (wasNear) scroller.scrollTop = scroller.scrollHeight;
     // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
     root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps, writing}}));
   }
@@ -183,7 +197,17 @@
     list.hidden = !list.hidden;
     button.setAttribute('aria-expanded', String(!list.hidden));
     button.textContent = list.hidden ? '작업 내역' : '접기';
+    if (!list.hidden) revealEnd(button.closest('.chat-progress'), true);
   });
+  // 펼친 카드의 끝이 대화 칸 아래로 넘치면 끝이 보이게 굴린다 — 카드 머리는 화면 밖으로 밀어내지 않는다
+  function revealEnd(el, smooth) {
+    if (!el) return;
+    const box = scroller.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const over = r.bottom - box.bottom + 12;
+    if (over <= 0) return;
+    const by = Math.min(over, Math.max(0, r.top - box.top - 12));
+    if (by > 0) scroller.scrollTo({top: scroller.scrollTop + by, behavior: smooth ? 'smooth' : 'auto'});
+  }
   // 필요한 값 입력 — 채운 수·저장 단추 글, 키보드 이동, 「이름: 값」 붙여 넣어 나눠 채우기, 모름·나중에, 자료 값 확인/고치기.
   // 붙여 넣기 나누기는 서버 asks.parse_pairs 와 같은 규칙(물었던 이름만, 「이름: 값」·「이름은 값」, 끝말 「입니다」 떼기)
   const PAIR_SEP = /[;\n]|,\s*(?=[^,]{1,40}?\s*(?:[:：]|은|는|이|가)\s)/;
@@ -510,9 +534,27 @@
     }
     timer = setTimeout(poll, 4000);
   }
-  form.addEventListener('submit', async event => {
-    event.preventDefault();
+  form.addEventListener('submit', event => { event.preventDefault(); sendChat(); });
+  // pick: 답 아래 선택지처럼 입력칸을 거치지 않고 보낼 질문·답 길({question, web}) — 입력칸 글은 건드리지 않는다
+  async function sendChat(pick = null) {
     if (sending || waiting) return;
+    if (pick) {
+      sending = true; hint.hidden = true; paint();
+      const payload = new FormData(form);
+      payload.set('question', pick.question);
+      if (pick.web != null) payload.set('web', pick.web);
+      try {
+        const response = await fetch(form.action, {method:'POST', body:payload});
+        if (!response.ok) { notify('전송하지 못했습니다. 잠시 후 다시 선택해 주세요.'); return; }
+        installPage(await response.text(), response.url, true);
+      } catch (_) {
+        notify('전송 결과를 확인하지 못했습니다. 대화 기록에서 전송 여부를 확인해 주세요.');
+      } finally {
+        sending = false; paint();
+        if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+      }
+      return;
+    }
     if (editor) { editor.querySelector('textarea').focus(); notify('질문 수정을 저장하거나 취소한 뒤 보내세요.'); return; }
     if (!input.value.trim()) { notify('보낼 내용을 입력하세요.'); input.focus(); return; }
     if (mustAttach && !file.files.length) {
@@ -546,7 +588,7 @@
       paint();
       if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
     }
-  });
+  }
   // 답변 갱신으로 교체되는 제안에도 같은 비동기 채팅 전송 경로를 사용한다.
   scroller.addEventListener('submit', event => {
     const suggestion = event.target.closest('form.chat-suggestion');
@@ -561,15 +603,10 @@
     }
     const question = suggestion.querySelector('[name=question]')?.value;
     if (!question?.trim()) return;
-    input.value = question;
-    paint(); resize();
+    // 질문은 입력칸에 넣지 않고 바로 보낸다(입력칸에 잠깐 비쳤다 사라지지 않게).
     // 「인터넷에서 찾아보기」 같은 제안은 그 질문만 다른 답 길(web 값)로 — 입력줄의 방식은 그대로 둔다
     const webOf = suggestion.querySelector('[name=web]');
-    const webField = form.querySelector('#webField');
-    const kept = webField ? webField.value : '';
-    if (webOf && webField) webField.value = webOf.value;
-    form.requestSubmit();
-    if (webOf && webField) webField.value = kept;
+    sendChat({question, web: webOf ? webOf.value : null});
   });
   input.addEventListener('input', () => { paint(); resize(); });
   // 첨부 단추는 파일 선택 하나만 — 답변 방식(일반·RAG)은 입력창 아래 도구줄 토글에서 정한다

@@ -412,3 +412,21 @@ body #sendBtn { width:36px; height:36px; min-height:36px; border-radius:50%; }
 body #sendBtn:disabled { background:#eef1f5; color:#b3bbc6; }
 body #sendBtn:not(:disabled) { box-shadow:0 2px 6px #1f3a6433; }
 body #chatForm .chat-dock-footer { color:#8d99ab; font-size:12px; }
+
+/* ---- 첨부·기준 칩은 입력 상자 안 위쪽 줄(입력칸 위)에, 여러 개면 줄바꿈. 사진이면 작은 미리보기 ---- */
+body #chatForm .dock-row .dock-chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 0 2px; }
+body #chatForm .dock-row .dock-chips:empty { display:none; }
+body #chatForm .dock-row .dock-chip { gap:6px; min-height:30px; padding:3px 8px 3px 9px; border:1px solid #dfe5ee; border-radius:10px; background:#f5f7fa; color:#2f3f55; font-size:12.5px; max-width:min(100%, 320px); box-sizing:border-box; }
+body #chatForm .dock-row .dock-chip > iconify-icon { flex:none; font-size:15px; color:#6b7a8f; }
+body #chatForm .dock-row .dock-chip-thumb { flex:none; width:40px; height:40px; margin:-1px 2px -1px -6px; border-radius:7px; object-fit:cover; background:#e9edf2; }
+body #chatForm .dock-row .dock-chip button { flex:none; width:20px; height:20px; min-height:0; border-radius:50%; align-items:center; justify-content:center; color:#7c899b; font-size:15px; box-shadow:none; }
+body #chatForm .dock-row .dock-chip button:hover { background:#e6eaf0; color:#23354d; }
+
+/* ---- 입력 상자 아래 한 줄 안내 — 잠깐 상태 글 자리에 띄운다(줄 높이를 바꾸지 않는다) ---- */
+body #chatForm .chat-dock-footer { position:relative; box-sizing:border-box; min-height:calc(1.5em + 6px); }
+body #chatForm .chat-dock-flash { position:absolute; left:14px; right:14px; top:6px; overflow:hidden; color:#b4541f; font-weight:500; white-space:nowrap; text-overflow:ellipsis; animation:dock-flash-in .18s ease; }
+body #chatForm .chat-dock-flash[hidden] { display:none; }
+body #chatForm .chat-dock-footer.is-flash > :not(.chat-dock-flash) { visibility:hidden; }
+@keyframes dock-flash-in { from { opacity:0; transform:translateY(2px); } to { opacity:1; transform:none; } }
+@media (max-width:600px) { body #chatForm .chat-dock-flash { left:10px; right:10px; } }
+@media (prefers-reduced-motion:reduce) { body #chatForm .chat-dock-flash { animation:none; } }
