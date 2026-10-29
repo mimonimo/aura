@@ -792,10 +792,19 @@ def drop_heading_echo(text: str, field: str) -> str:
     return "\n".join(rest) if any(x.strip() for x in rest) else text
 
 
+_EMPH = re.compile(r"(\*\*|__)(?=\S)(.+?)(?<=\S)\1")
+
+
+def drop_emphasis(text: str) -> str:
+    """마크다운 굵게(**글**·__글__) 표시를 떼고 글만 남긴다 — 한글 문서에는 표시가 글자 그대로 들어갔다(10-30 「**합계** **500**」).
+    문서 서식은 굵게를 쓰지 않는다(house_style). 홑 별표(각주·목록 머리)는 그대로."""
+    return _EMPH.sub(lambda m: m.group(2), text or "")
+
+
 def parse_body(text: str) -> list[tuple[str, object]]:
     """에이전트가 쓴 절 본문(글 + 마크다운 표 | a | b | + ```도식 블록) → items. 표 구분 줄(|---|)은 버린다."""
     items: list[tuple[str, object]] = []
-    lines = wf.clean_text(text).split("\n")
+    lines = drop_emphasis(wf.clean_text(text)).split("\n")
     buf: list[str] = []
     table: list[list[str]] = []
     fence: list[str] | None = None

@@ -90,7 +90,7 @@ def canonical_values(text: str) -> set[str]:
 # 같은 값의 단위 바꿈 — 「500(백만원)」 처럼 숫자 바로 뒤 괄호의 금액 단위, 표·문단의 「(단위: 백만원)」 선언.
 # 그 단위로 환산한 값도 같은 값으로 본다(5억 = 500,000,000원 = 500백만원 = 500(백만원), 단위가 백만원인 표의 500).
 _MONEY_UNIT = {"원": 1, "천원": 10**3, "만원": 10**4, "백만원": 10**6, "천만원": 10**7, "억원": 10**8}
-_UNIT_ALT = "천만원|백만원|천원|만원|억원|원"
+_UNIT_ALT = r"천만\s?원|백만\s?원|천\s?원|만\s?원|억\s?원|원"     # 「백만 원」 처럼 띄어 쓴 단위도(10-30 「(단위 : 백만 원, %)」 표)
 _DECLARED = re.compile(r"단위\s*[:：]?\s*(" + _UNIT_ALT + r")")
 _PAREN_UNIT = re.compile(r"\s*[(（]\s*(?:단위\s*[:：]?\s*)?(" + _UNIT_ALT + r")\s*[)）]")
 
@@ -106,7 +106,7 @@ def _decl_at(text: str, pos: int) -> int | None:
     for d in _DECLARED.finditer(text, start, end):
         g = abs(d.start() - pos)
         if gap is None or g < gap:
-            best, gap = _MONEY_UNIT[d.group(1)], g
+            best, gap = _MONEY_UNIT[re.sub(r"\s", "", d.group(1))], g
     return best if best and best > 1 else None
 
 
@@ -121,7 +121,7 @@ def _money_value(text: str, m: re.Match, draft: bool = False) -> str | None:
         return _fmt(num)
     pm = _PAREN_UNIT.match(text, m.end())
     if pm:
-        return _fmt(num * _MONEY_UNIT[pm.group(1)])
+        return _fmt(num * _MONEY_UNIT[re.sub(r"\s", "", pm.group(1))])
     # 단위 선언으로 금액이 되는 것은 표 칸의 숫자만, 뒤에 셈 단위(명·건·%·개…)가 붙지 않은 것만 — 문장 속 아무 숫자나
     # 선언 하나로 금액이 되어 근거의 금액과 맞춰지지 않게(보안)
     if not m.group(2) and not _COUNTER_AFTER.match(text, m.end()):
