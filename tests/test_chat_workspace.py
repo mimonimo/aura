@@ -16,10 +16,10 @@ def candidate_client(tmp_path, monkeypatch):
 def test_question_modes_survive_reload_and_regeneration(tmp_path, monkeypatch):
     from zzaimy.app import web_search
     calls = []
-    def model(q):
+    def model(q, **kw):
         calls.append('model')
         return {'answer': '기본 답변'}
-    def web(q):
+    def web(q, **kw):
         calls.append('web')
         return {'answer': '웹 답변', 'sources': [{'n': 1, 'title': '공식 자료', 'url': 'https://example.com/'}]}
     monkeypatch.setattr(web_search, 'answer_from_model', model)

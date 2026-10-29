@@ -211,46 +211,93 @@ _PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 아래
 """
 
 
-def answer_with_web(question: str, client=None, k: int = 4, http=None, max_tokens: int = 1500) -> dict:
+
+def _context_messages(history: dict | None) -> list[dict]:
+    """대화 맥락 — 작업 메모(앞 대화 요약)와 최근 대화를 그대로 넣는다. 일반·인터넷 답이 질문 한 줄만 보고
+    「K 로 바꾸면?」 같은 이어진 질문의 앞 내용을 몰랐다(10-29). history: {summary, recent:[{role, content}], platform}."""
+    if not history:
+        return []
+    out = []
+    head = []
+    if history.get("platform"):
+        head.append("[이 플랫폼] " + history["platform"])
+    if history.get("summary"):
+        head.append("[지난 대화 작업 메모]\n" + history["summary"])
+    if head:
+        out.append({"role": "system", "content": "\n\n".join(head)})
+    for m in history.get("recent") or []:
+        if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip():
+            out.append({"role": m["role"], "content": str(m["content"])[:6000]})
+    return out
+
+
+_QUERY_PROMPT = """아래 대화의 마지막 질문을 인터넷에서 찾기 위한 검색어 한 줄을 쓴다.
+- 「우리 대학」「우리대학」「본교」 처럼 가리키는 말은 기관 이름 「{org}」 로 바꾼다(기관 이름이 비었으면 그대로).
+- 앞 대화에 나온 대상(사람·직군·제도·숫자)을 빠뜨리지 않는다. 질문의 직군(예: 직원·교원·조교)을 다른 직군으로 바꾸지 않는다.
+- 검색어만 한 줄로. 따옴표·설명 없이.
+
+[마지막 질문]
+{question}"""
+
+
+def search_query(question: str, client, history: dict | None = None, org: str = "") -> str:
+    """대화를 보고 웹 검색어를 27B 가 만든다 — 실패하면 질문 그대로."""
+    try:
+        msgs = _context_messages(history) + [{"role": "user", "content": _QUERY_PROMPT.format(org=org, question=question.strip())}]
+        resp = client.client.chat.completions.create(model=client.model, messages=msgs, temperature=0.0, max_tokens=60,
+                                                     extra_body=getattr(client, "_extra", None) or {})
+        q = (resp.choices[0].message.content or "").strip().splitlines()[0].strip().strip('"「」')
+        return q[:200] if len(q) >= 2 else question
+    except Exception:
+        return question
+
+def answer_with_web(question: str, client=None, k: int = 4, http=None, max_tokens: int = 1500,
+                    history: dict | None = None, org: str = "") -> dict:
     """웹 검색 → 상위 쪽 글 → 27B 답. 돌려주는 것: {answer, sources:[{n,title,url}], searched: n}.
     질문에 개인정보가 있으면 Blocked — 보내지 않는다. 질문 글은 기록에 남기지 않는다."""
     if provider() == "off":
         raise Blocked("인터넷 검색이 관리자 설정으로 꺼져 있습니다. 「RAG」 나 「일반」 으로 물어 주세요.")
     if screen_question(question):
         raise Blocked("질문에 개인정보(주민번호·계좌·전화 같은 것)가 있어 외부로 보내지 않았습니다. 그 부분을 빼고 다시 물어 주세요.")
-    results = search(question, k=k, http=http)
+    if client is None:
+        from zzaimy.generate.client import VllmClient
+
+        client = VllmClient()
+    query = search_query(question, client, history, org) if history else question
+    if query != question and screen_question(query):
+        query = question
+    results = search(query, k=k, http=http)
     sources = []
     for i, s in enumerate(results, 1):
         body = fetch_text(s["url"], http=http) or s.get("snippet", "")
         if body:
             sources.append({"n": i, "title": s["title"], "url": s["url"], "text": body})
     if not sources:
-        return {"answer": "", "sources": [], "searched": len(results)}
-    if client is None:
-        from zzaimy.generate.client import VllmClient
-
-        client = VllmClient()
+        return {"answer": "", "sources": [], "searched": len(results), "query": query if query != question else ""}
     packed = "\n\n".join(f"[{s['n']}] {s['title']} ({s['url']})\n{s['text'][:3500]}" for s in sources)
     prompt = _PROMPT.format(question=question.strip(), sources=packed)
     resp = client.client.chat.completions.create(
-        model=client.model, messages=[{"role": "user", "content": prompt}], temperature=0.2, max_tokens=max_tokens,
-        extra_body=getattr(client, "_extra", None) or {})
+        model=client.model, messages=_context_messages(history) + [{"role": "user", "content": prompt}], temperature=0.2,
+        max_tokens=max_tokens, extra_body=getattr(client, "_extra", None) or {})
     answer = (resp.choices[0].message.content or "").strip()
-    return {"answer": answer, "sources": [{"n": s["n"], "title": s["title"], "url": s["url"]} for s in sources], "searched": len(results)}
+    return {"answer": answer, "sources": [{"n": s["n"], "title": s["title"], "url": s["url"]} for s in sources],
+            "searched": len(results), "query": query if query != question else ""}   # 질문과 다르게 찾았을 때만 화면에 검색어
 
 
 def render(result: dict) -> str:
     """채팅에 남길 글 — 답 + 출처 목록."""
     if not result.get("answer"):
         return "인터넷 검색에서 쓸 만한 자료를 찾지 못했습니다. 질문을 더 구체적으로 적어 주세요."
-    lines = [result["answer"], "", f"출처(외부 검색 · {provider()}):"]
-    lines += [f"[{s['n']}] {s['title']} — {s['url']}" for s in result["sources"]]
+    lines = [result["answer"], "", "출처(인터넷 검색" + (f", 검색어 「{result['query']}」" if result.get("query") else "") + "):"]
+    lines += [f"[{s['n']}] {s['title']} ({s['url']})" for s in result["sources"]]
     return "\n".join(lines)
 
 
 _MODEL_PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 지금은 문서·검색 없이 당신이 학습한 지식만으로 답하는 모드다.
 - 아는 범위에서 담백하게 답하고, 확실하지 않은 수치·날짜·최신 정보는 "확실하지 않다"고 밝힌다. 지어내지 않는다.
-- 한국어로, 서술형으로. 규정·공고 같은 교내 문서 근거가 필요한 질문이면 그렇다고 말한다.
+- 한국어로, 서술형으로. 규정·공고 같은 교내 문서 근거가 필요한 질문이면 그렇다고 말한다(「RAG」 로 물으면 교내 문서에서 찾는다).
+- 앞 대화가 있으면 이어진 질문으로 읽는다(「그럼」「그거」 가 가리키는 것은 앞 대화에서 찾는다).
+- [이 플랫폼] 줄이 있으면 이 플랫폼·모델에 관한 사실은 그 줄을 따른다.
 - 답을 다 쓴 뒤 맨 끝 줄에 아래 둘 가운데 하나만 그대로 쓴다. 이 줄은 화면에 보이지 않고 다음 단계를 정하는 데 쓰인다.
   [인터넷 확인: 필요] — 답의 핵심이 최신 정보·바뀌었을 수 있는 사실·당신이 모르거나 확실하지 않은 내용이라 인터넷 검색으로 확인해야 할 때
   [인터넷 확인: 불필요] — 학습한 지식만으로 믿을 만하게 답했을 때
@@ -271,14 +318,15 @@ def _split_offer(text: str) -> tuple[str, bool]:
     return text[:m.start()].strip(), m.group(1) == "필요"
 
 
-def answer_from_model(question: str, client=None, max_tokens: int = 1200) -> dict:
-    """검색 없이 27B 의 학습 지식만으로 답한다. 밖으로 나가는 것이 없다. 출처가 없으므로 화면이 그 사실을 붙인다."""
+def answer_from_model(question: str, client=None, max_tokens: int = 1200, history: dict | None = None) -> dict:
+    """검색 없이 27B 의 학습 지식만으로 답한다. 밖으로 나가는 것이 없다. 출처가 없으므로 화면이 그 사실을 붙인다.
+    history 를 주면 작업 메모·최근 대화를 함께 넣어 이어진 질문을 앞 내용과 이어 답한다."""
     if client is None:
         from zzaimy.generate.client import VllmClient
 
         client = VllmClient()
     resp = client.client.chat.completions.create(
-        model=client.model, messages=[{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
+        model=client.model, messages=_context_messages(history) + [{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
         temperature=0.3, max_tokens=max_tokens, extra_body=getattr(client, "_extra", None) or {})
     answer, offer = _split_offer(resp.choices[0].message.content or "")
     return {"answer": answer, "sources": [], "mode": "model", "offer_web": offer}
@@ -287,7 +335,7 @@ def answer_from_model(question: str, client=None, max_tokens: int = 1200) -> dic
 def render_model(result: dict) -> str:
     if not result.get("answer"):
         return "모델이 답을 내지 못했습니다."
-    text = "(모델 지식 기반 답변 — 출처 없음, 학습 시점 이후 정보나 세부 수치는 확인이 필요합니다)\n\n" + result["answer"]
+    text = result["answer"] + "\n\n(문서·인터넷 확인 없이 모델이 아는 내용으로 답했습니다. 최신 정보와 수치는 확인해 주세요.)"
     if result.get("offer_web"):
         text += "\n\n인터넷에서 찾아볼까요?"
     return text

@@ -68,7 +68,7 @@ def test_reasoning_is_split_from_answer():
     assert r.startswith("[1단계") and a.startswith("| 비목")
     assert split_reasoning("[1단계: 질문 파악] 쓰는 중")[1] is None
     assert strip_reasoning("[1단계: 질문 파악] x\n본문만") == "본문만"
-    assert json.dumps(cm.SUMMARY_PROMPT.format(limit=100, final=cm.FINAL_PROMPT))
+    assert json.dumps(cm.SUMMARY_PROMPT.format(limit=100, final_head=cm.FINAL_HEAD, final_rule=cm.FINAL_PROMPT))
 
 
 def test_final_line_kept_unless_user_changes_it(monkeypatch):
@@ -85,7 +85,7 @@ def test_final_line_kept_unless_user_changes_it(monkeypatch):
     assert "결과보고서" in cm.parts(cm.keep_final(old, changed, ["계획서 말고 결과보고서로 바꾸자"]))["최종 결과물"]
     assert cm.keep_final("", step, []) == step                                   # 이전 줄이 없으면 새 것
     assert cm.parts("최종 결과물:\n- 가\n지금 목표:\n- 나")["최종 결과물"] == "- 가"
-    assert "최종 결과물" in cm.SUMMARY_PROMPT.format(limit=100, final=cm.FINAL_PROMPT)
+    assert "최종 결과물" in cm.SUMMARY_PROMPT.format(limit=100, final_head=cm.FINAL_HEAD, final_rule=cm.FINAL_PROMPT)
     monkeypatch.setenv("ZZAIMY_MEMO_GOAL_LOCK", "0")
     assert not cm.goal_lock()
 
@@ -97,3 +97,11 @@ def test_keep_final_accepts_concrete_line_over_unsettled_one():
     settled = "최종 결과물:\n- 「2027 AI 교육 사업계획서」 한글 문서\n지금 목표:\n- 절 채우기"
     step = "최종 결과물:\n- 표 서식 고치기\n지금 목표:\n- 표"
     assert "사업계획서" in cm.parts(cm.keep_final(settled, step, ["표 머리줄 색 바꿔"[:5]]))["최종 결과물"]
+
+
+def test_memo_drops_prompt_echo_lines():
+    from zzaimy.app import chat_memory as cm
+    memo = ("지금 목표:\n- 담당자가 결국 얻으려는 최종 결과물을 한두 줄로. 처음엔 막연했어도\n"
+            "- 영남이공대학교 직원 정년퇴임 연령 확인\n확정된 것:\n- 담당자가 정했거나 알려 준 것(이름·날짜)\n- 없음")
+    out = cm.drop_echo(memo)
+    assert "직원 정년퇴임 연령 확인" in out and "결국 얻으려는" not in out and "정했거나 알려 준 것" not in out

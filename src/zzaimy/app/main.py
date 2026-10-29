@@ -1557,6 +1557,38 @@ def create_app(
         except Exception:
             pass
 
+    ATTACH_SHARE = 0.25          # 첨부 글이 차지할 수 있는 문맥 몫 — 나머지는 대화·근거·답 자리
+
+    def _fit_attachment(text: str | None) -> str | None:
+        """첨부에서 읽은 글을 문맥의 일정 몫(ATTACH_SHARE)까지만 — 넘치면 앞부분과 「줄였다」 표시.
+        사진 한 장의 판독 글이 418K 토큰으로 문맥 한도(262K)를 넘겨 답이 멈췄다(10-29). 판독이 같은 줄을 되풀이한 것도 걸러 낸다."""
+        if not text:
+            return text
+        from zzaimy.app import llm_budget as _lb
+        from zzaimy.generate.client import VllmClient as _VC
+        # 같은 줄이 잇달아 되풀이되면(판독 모델이 맴돈 경우) 한 번만 남긴다
+        lines, out, last, rep = text.splitlines(), [], None, 0
+        for ln in lines:
+            rep = rep + 1 if ln.strip() and ln == last else 0
+            if rep < 2:
+                out.append(ln)
+            last = ln
+        text = "\n".join(out)
+        try:
+            cap = int(_lb.work_len(_VC()) * ATTACH_SHARE)
+        except Exception:
+            cap = 16000
+        if _lb.estimate_tokens(text) <= cap:
+            return text
+        lo, hi = 0, len(text)
+        while lo < hi:                                        # 몫에 맞는 가장 긴 앞부분
+            mid = (lo + hi + 1) // 2
+            if _lb.estimate_tokens(text[:mid]) <= cap:
+                lo = mid
+            else:
+                hi = mid - 1
+        return text[:lo] + f"\n\n(첨부가 길어 앞부분 {lo:,}자만 넣었습니다. 전체는 {len(text):,}자)"
+
     def _answer_task_impl(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
         web: str = "",
@@ -1566,14 +1598,29 @@ def create_app(
         is_student = password is not None and accounts.get(_sess0.get("owner") or "", {}).get("role") == "student"
         if is_student:
             web = ""
-        # 모델 지식 모드: 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 머리에 붙인다
+        # 일반·인터넷 답도 같은 대화 맥락(작업 메모 + 최근 대화)을 넣는다 — 질문 한 줄만 보내 이어진 질문을 몰랐다(10-29)
+        def _general_history() -> dict:
+            from zzaimy.app import chat_memory as _cm, llm_budget as _lb
+            from zzaimy.generate.client import VllmClient as _VC
+            try:
+                _cli = _VC()
+                n = _lb.context_len(_cli)
+                msgs = [m for m in db.list_chats(session_id, limit=400) if m.get("role") in ("user", "assistant")]
+                last_q = next((int(m["id"]) for m in reversed(msgs) if m["role"] == "user"), None)
+                summary, recent = _cm.window(db, session_id, n, exclude_ids={last_q} if last_q else set())
+                plat = f"답하는 모델 {getattr(_cli, 'model', '') or '미확인'} · 한 번에 읽는 양(문맥) {n:,} 토큰"
+                return {"summary": summary, "recent": [{"role": m["role"], "content": m.get("content") or ""} for m in recent],
+                        "platform": plat}
+            except Exception:
+                return {}
+        # 모델 지식 모드: 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 끝에 붙인다
         if web == "model":
             _chat_step(session_id, "모델 지식으로 답변 작성 중")
             from zzaimy.app import web_search
 
             try:
                 _t_m = time.time()
-                res_m = web_search.answer_from_model(q)
+                res_m = web_search.answer_from_model(q, history=_general_history())
                 _mid = db.add_chat(session_id, "assistant", web_search.render_model(res_m))
                 _record_run(session_id, _mid, "model", extra={"total_sec": round(time.time() - _t_m, 2)})
                 if res_m.get("offer_web"):
@@ -1589,7 +1636,8 @@ def create_app(
             from zzaimy.app import web_search
 
             try:
-                res = web_search.answer_with_web(q)
+                from zzaimy.app import institution as _inst
+                res = web_search.answer_with_web(q, history=_general_history(), org=_inst.facts(db).get("대학명", ""))
                 _mid = db.add_chat(session_id, "assistant", web_search.render(res))
                 _record_run(session_id, _mid, "web")
             except web_search.Blocked as e:
@@ -1608,6 +1656,7 @@ def create_app(
                 log_note = f"({_ko.reason(e)})"
                 db.add_chat(session_id, "assistant", f"첨부 문서를 읽지 못했습니다 {log_note}")
                 return
+            attachment_text = _fit_attachment(attachment_text)
 
         r = responder or _default_responder()
         # 프로젝트에 묶인 세션이면 지침·메모를 맥락으로, 연결 기준을 기본 근거로 쓴다

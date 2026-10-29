@@ -29,6 +29,8 @@ def load(db, session_id: int) -> dict:
         v = json.loads(db.get_setting(f"chat_summary:{int(session_id)}", "") or "{}")
     except ValueError:
         v = {}
+    if isinstance(v, dict) and v.get("text"):
+        v["text"] = drop_echo(v["text"])                     # 예전 메모에 남은 지시 글 줄도 읽을 때 뺀다
     return v if isinstance(v, dict) else {}
 
 
@@ -67,21 +69,32 @@ def window(db, session_id: int, context_len: int, *, exclude_ids: set[int] | Non
 
 
 SUMMARY_PROMPT = """아래는 행정 업무 대화의 [지난 작업 메모]와 그 뒤에 이어진 [대화]다. 둘을 합쳐 새 작업 메모를 쓴다.
-형식(제목 줄 그대로, 갈래마다 「- 」 짧은 항목 줄):
-{final}지금 목표:
-- 담당자가 결국 얻으려는 최종 결과물을 한두 줄로. 처음엔 막연했어도 대화에서 구체화된 만큼 분명하게(문서 이름·용도·마감·범위), 그 결과물을 정하는
-  핵심 조건(대상·규모·예산·기간처럼 대화에서 정해진 것)을 함께 적는다. 지금 하고 있는 한 단계(절 채우기·서식 고치기)는 목표가 아니라 진행 상황에 적는다.
+형식: 아래 제목 줄을 그대로 쓰고, 그 밑에 「- 」 로 시작하는 짧은 항목 줄로 대화에서 나온 내용을 적는다. 적을 것이 없으면 「- 없음」.
+{final_head}지금 목표:
 확정된 것:
-- 담당자가 정했거나 알려 준 것(이름·날짜·금액·부서·방향은 원문 그대로).
 진행 상황:
-- 만든·연 문서와 쓴 부분, 끝낸 일.
 남은 일·물어볼 것:
-- 아직 안 한 일, 담당자에게 받아야 할 값·결정.
+
+갈래마다 담을 것(이 설명 글은 메모에 옮겨 적지 않는다):
+{final_rule}· 지금 목표: 담당자가 결국 얻으려는 결과물과 그것을 정하는 핵심 조건(대상·규모·예산·기간 등 대화에서 정해진 것). 처음엔 막연했어도 대화에서
+  구체화된 만큼 분명하게. 지금 하는 한 단계(절 채우기·서식 고치기)는 목표가 아니라 진행 상황에 적는다. 문서 작업이 아닌 질문이면 그 질문의 요지.
+· 확정된 것: 담당자가 정했거나 알려 준 것(이름·날짜·금액·부서·방향은 원문 그대로).
+· 진행 상황: 만든·연 문서와 쓴 부분, 끝낸 일, 이미 답한 질문과 그 답의 요지.
+· 남은 일·물어볼 것: 아직 안 한 일, 담당자에게 받아야 할 값·결정.
 규칙: 대화에 없는 사실을 보태지 않는다. 바뀐 결정은 새 것만 남긴다. 인사·되풀이·과정 설명·근거 문서 본문은 버린다. 모두 {limit}자 안에서."""
-FINAL_PROMPT = """최종 결과물:
-- 담당자가 결국 받을 문서 한 줄 — 문서 이름·용도·대상·마감(대화에 나온 만큼). 담당자가 다른 문서로 바꾸자고 하지 않았으면 [지난 작업 메모]의 이 줄을
-  그대로 두고, 대화에서 더 분명해진 것만 보탠다. 지금 하는 단계(절 쓰기·고쳐 쓰기·표 만들기·서식 바꾸기)를 여기에 적지 않는다.
+FINAL_HEAD = "최종 결과물:\n"
+FINAL_PROMPT = """· 최종 결과물: 담당자가 결국 받을 문서 한 줄(문서 이름·용도·대상·마감, 대화에 나온 만큼). 담당자가 다른 문서로 바꾸자고 하지 않았으면
+  [지난 작업 메모]의 이 줄을 그대로 두고 더 분명해진 것만 보탠다. 문서를 만들지 않는 대화면 「- 없음」. 지금 하는 단계는 여기에 적지 않는다.
 """
+
+# 메모가 지시 글을 그대로 옮겨 적은 줄 — 「- 담당자가 결국 얻으려는 최종 결과물을 한두 줄로…」 가 메모 내용으로 남았다(10-29)
+_PROMPT_ECHO = ("담당자가 결국 얻으려는", "담당자가 결국 받을 문서", "처음엔 막연했어도", "지금 하는 단계(", "지금 하고 있는 한 단계",
+                "담당자가 정했거나 알려 준 것", "만든·연 문서와 쓴 부분", "아직 안 한 일, 담당자에게", "이 설명 글은 메모에")
+
+
+def drop_echo(text: str) -> str:
+    """메모에서 지시 글을 옮겨 적은 줄을 뺀다."""
+    return "\n".join(ln for ln in (text or "").splitlines() if not any(e in ln for e in _PROMPT_ECHO)).strip()
 
 
 def compact(db, session_id: int, client, *, force: bool = False) -> bool:
@@ -106,7 +119,8 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
     cap_tokens = max(200, int(limit * SUMMARY_SHARE))
     cap_chars = cap_tokens * 2                               # 한국어 어림(글자 ≈ 토큰의 2배 안쪽)
     convo = "\n".join(f"[{'담당자' if m['role'] == 'user' else 'AURA'}] {str(m.get('content') or '')[:MSG_CAP]}" for m in fresh)
-    messages = [{"role": "system", "content": SUMMARY_PROMPT.format(limit=cap_chars, final=FINAL_PROMPT if goal_lock() else "")},
+    messages = [{"role": "system", "content": SUMMARY_PROMPT.format(limit=cap_chars, final_head=FINAL_HEAD if goal_lock() else "",
+                                                                         final_rule=FINAL_PROMPT if goal_lock() else "")},
                 {"role": "user", "content": f"[지난 작업 메모]\n{s.get('text') or '(없음 — 대화 처음)'}\n\n[대화]\n{convo}"}]
     try:
         resp = llm_budget.create_fitted(client, messages, cap_tokens + 64, [llm_budget.Cut(msg=1, text=convo)], floor=200,
@@ -116,6 +130,7 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
         return False
     if not text:
         return False
+    text = drop_echo(text)
     if goal_lock():
         text = keep_final(s.get("text") or "", text, [str(m.get("content") or "") for m in fresh if m.get("role") == "user"])
     try:                                                     # 메모 갱신도 화면의 호출 목록에(배경 호출이라 답의 기록에 덧붙인다)

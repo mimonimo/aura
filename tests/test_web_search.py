@@ -49,7 +49,7 @@ def test_search_fetch_and_answer_with_sources(monkeypatch):
     assert res["searched"] == 2 and [s["n"] for s in res["sources"]] == [1, 2]
     assert "[웹 자료]" in fc.prompts[0] and "[1] NVIDIA B200 사양 (https://example.org/b200)" in fc.prompts[0]
     out = web_search.render(res)
-    assert "[1]" in out and "출처(외부 검색 · duckduckgo):" in out and "[2] H200 소개 — https://example.org/h200" in out
+    assert "[1]" in out and "출처(인터넷 검색):" in out and "[2] H200 소개 (https://example.org/h200)" in out
     assert "찾지 못했습니다" in web_search.render({"answer": "", "sources": [], "searched": 0})
 
 
@@ -86,7 +86,7 @@ def test_model_knowledge_mode_has_no_network_and_flags_no_sources():
     res = web_search.answer_from_model("B200 과 H200 의 차이", client=fc)
     assert res["mode"] == "model" and res["sources"] == [] and "학습한 지식만으로" in fc.prompts[0]
     out = web_search.render_model(res)
-    assert out.startswith("(모델 지식 기반 답변 — 출처 없음") and "B200" in out
+    assert out.startswith("B200") and "모델이 아는 내용으로 답했습니다" in out
 
 
 

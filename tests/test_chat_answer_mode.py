@@ -75,8 +75,8 @@ def test_general_mode_skips_retrieval_and_offer_chip_runs_web_search(staff, monk
     app, r, login = staff
     calls = []
     monkeypatch.setattr(web_search, "answer_from_model",
-                        lambda q: calls.append(("model", q)) or {"answer": "아는 만큼의 답", "offer_web": True})
-    monkeypatch.setattr(web_search, "answer_with_web", lambda q: calls.append(("web", q)) or {
+                        lambda q, **kw: calls.append(("model", q)) or {"answer": "아는 만큼의 답", "offer_web": True})
+    monkeypatch.setattr(web_search, "answer_with_web", lambda q, **kw: calls.append(("web", q)) or {
         "answer": "웹 답 [1]", "sources": [{"n": 1, "title": "공식 자료", "url": "https://example.com/"}]})
     kim = login("kim", "kim-pass")
     res = kim.post("/chat/send", data={"question": "올해 최저임금은?", "web": "model"}, follow_redirects=False)
@@ -97,7 +97,7 @@ def test_general_mode_skips_retrieval_and_offer_chip_runs_web_search(staff, monk
 
 def test_general_answer_without_offer_has_no_chip(staff, monkeypatch):
     app, r, login = staff
-    monkeypatch.setattr(web_search, "answer_from_model", lambda q: {"answer": "공문서 두문은 기관명·수신으로 시작합니다", "offer_web": False})
+    monkeypatch.setattr(web_search, "answer_from_model", lambda q, **kw: {"answer": "공문서 두문은 기관명·수신으로 시작합니다", "offer_web": False})
     kim = login("kim", "kim-pass")
     sid = int(kim.post("/chat/send", data={"question": "공문 두문 구성", "web": "model"}, follow_redirects=False)
               .headers["location"].rsplit("/", 1)[1])
