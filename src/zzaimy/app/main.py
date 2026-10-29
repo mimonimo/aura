@@ -1608,7 +1608,9 @@ def create_app(
                 msgs = [m for m in db.list_chats(session_id, limit=400) if m.get("role") in ("user", "assistant")]
                 last_q = next((int(m["id"]) for m in reversed(msgs) if m["role"] == "user"), None)
                 summary, recent = _cm.window(db, session_id, n, exclude_ids={last_q} if last_q else set())
-                plat = f"답하는 모델 {getattr(_cli, 'model', '') or '미확인'} · 한 번에 읽는 양(문맥) {n:,} 토큰"
+                from zzaimy.generate import model_info as _mi
+                plat = (f"이 대화에 답하는 모델은 {_mi.label(_mi.stamp(_cli))}(교내 서버에서 서빙)이고, 한 번에 읽을 수 있는 양(문맥)은 "
+                        f"{n:,} 토큰(약 {n // 1024}K)이다. 이 모델·플랫폼에 관한 질문은 이 사실로 답한다.")
                 return {"summary": summary, "recent": [{"role": m["role"], "content": m.get("content") or ""} for m in recent],
                         "platform": plat}
             except Exception:

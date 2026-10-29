@@ -64,7 +64,13 @@ WEAK_EVIDENCE_NOTE = (
 # 생각에 쓸 몫만큼 출력 한도와 시간 제한을 넓힌다(생각 글은 reasoning_content 로 따로 오고 답 글에는 섞지 않는다).
 # 생각을 켜는 인자(chat_template_kwargs)는 그 인자를 받는 서버(client._extra 에 있는 경우)에만 보낸다. 측정: scripts/188 --think-compare
 def answer_cot() -> bool:
-    """답 생성 전 단계 추론(CoT) — 기본 켬. 끄려면 ZZAIMY_ANSWER_COT=0."""
+    """답 생성 전 단계 추론(CoT) — 기본 켬. 끄려면 ZZAIMY_ANSWER_COT=0.
+    답변 깊이 「빠르게」 는 바로 답하는 단계라 단계 추론을 붙이지 않는다 — 27B 가 단계 머리·「[답]」 을 빼먹고 생각 글을 쓰면
+    그 글이 답 앞에 그대로 나왔다(10-30 모드별 시험 「…확인하려는 요청입니다 … 먼저 답하고」)."""
+    from zzaimy.app import effort
+
+    if effort.current() == effort.FAST:
+        return False
     return os.environ.get("ZZAIMY_ANSWER_COT", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
