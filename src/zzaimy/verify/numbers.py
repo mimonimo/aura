@@ -239,6 +239,8 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
             continue                                          # 목록 번호 「1. 」「2) 」
         if _YEAR_LIKE.match(surface):
             continue
+        if re.fullmatch(r"\d{2}(?:\.(?:0?[1-9]|1[0-2]))?", surface) and src[max(0, m.start() - 1):m.start()] in ("’", "'", "‘"):
+            continue                                          # 줄인 연도 「’26」「’26.9월」 — 날짜다
         before, after1 = src[max(0, m.start() - 1):m.start()], src[m.end(1):m.end(1) + 2]
         if (before in ("-", "/", ":", "~", ".") and m.start() >= 2 and src[m.start() - 2].isdigit()) or re.match(r"[-/:]\d", after1) \
                 or re.match(r"\.\d", after1):

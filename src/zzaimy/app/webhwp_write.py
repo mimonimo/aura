@@ -808,6 +808,7 @@ def parse_body(text: str) -> list[tuple[str, object]]:
     buf: list[str] = []
     table: list[list[str]] = []
     fence: list[str] | None = None
+    plain_fence = False                                     # 이름표 없는 ``` 덩이 — 화살표가 있으면 도식, 없으면 표시 줄만 뗀 글
 
     def flush_text():
         if buf and any(x.strip() for x in buf):
@@ -818,13 +819,19 @@ def parse_body(text: str) -> list[tuple[str, object]]:
         s = ln.strip()
         if fence is not None:                               # ```도식 … ``` 블록
             if s.startswith("```"):
-                items.append(("diagram", "\n".join(fence)))
+                if plain_fence and not any(a in "\n".join(fence) for a in ("↓", "→", "->", "⇒", "▶")):
+                    buf.extend(fence)                       # 그림이 아닌 덩이 — 글로(표시 줄 「```」 은 버린다)
+                else:
+                    items.append(("diagram", "\n".join(fence)))
                 fence = None
             else:
                 fence.append(ln)
             continue
-        if re.match(r"^```\s*(도식|diagram|flow)", s):
-            flush_text()
+        if re.match(r"^```\s*(도식|diagram|flow)", s) or re.fullmatch(r"```\s*\w*", s):
+            # 이름표 없는 「```」 도 덩이로 — 글자 그대로 문서에 들어갔다(10-30 「``` [사업 신청] ↓ [선정 평가]」)
+            plain_fence = not re.match(r"^```\s*(도식|diagram|flow)", s)
+            if not plain_fence:
+                flush_text()
             if table:
                 items.append(("table", table))
                 table = []
@@ -843,7 +850,10 @@ def parse_body(text: str) -> list[tuple[str, object]]:
     if table:
         items.append(("table", table))
     if fence:
-        items.append(("diagram", "\n".join(fence)))
+        if plain_fence and not any(a in "\n".join(fence) for a in ("↓", "→", "->", "⇒", "▶")):
+            buf.extend(fence)
+        else:
+            items.append(("diagram", "\n".join(fence)))
     flush_text()
     return items
 
