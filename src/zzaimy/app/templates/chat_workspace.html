@@ -283,9 +283,9 @@
           <input type="hidden" name="rags_pick" value="1">
           <button type="button" class="chat-chip chat-rag-btn" id="ragPickBtn" data-aura="answer-rag-pick" aria-haspopup="true" aria-expanded="false" aria-controls="ragPickMenu" title="쓸 RAG 고르기"><iconify-icon icon="solar:database-linear" aria-hidden="true"></iconify-icon><span class="chat-chip-key">RAG 범위</span><span class="chat-chip-val" id="ragPickLabel">{{ am.label or '전체' }}</span><iconify-icon class="chat-chip-caret" icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></button>
           {# 고르기 창 — 범위·깊이 같은 꼴(제목 + 한 줄 설명, 고른 것은 오른쪽 체크). 누른 단추 옆에, 아래가 넉넉하면 아래로 뜬다(placePop) #}
-          <div class="chat-pop chat-rag-menu" id="ragPickMenu" role="group" aria-label="쓸 RAG" hidden>
-            <div class="chat-pop-head">쓸 RAG <small>여럿 고를 수 있음</small></div>
-            {% for c in am.choices %}<label class="chat-pop-item"><input type="checkbox" name="rags" value="{{ c }}"{% if not am.picked or c in am.picked %} checked{% endif %}><span class="chat-pop-text"><b>{{ c }}</b><span>{{ '모든 부서가 함께 쓰는 문서' if c == '공통' else c ~ ' 부서 문서' }}</span></span><span class="chat-pop-check" aria-hidden="true"></span></label>{% endfor %}
+          <div class="chat-pop chat-rag-menu" id="ragPickMenu" role="group" aria-label="RAG 범위" hidden>
+            <div class="chat-pop-head">RAG 범위</div>
+            {% for c in am.choices %}<label class="chat-pop-item"><input type="checkbox" name="rags" value="{{ c }}"{% if not am.picked or c in am.picked %} checked{% endif %}><span class="chat-pop-text"><b>{{ c }}</b>{% if c == '공통' %}<span>모든 부서 공용</span>{% endif %}</span><span class="chat-pop-check" aria-hidden="true"></span></label>{% endfor %}
           </div>
         </div>
         {% endif %}

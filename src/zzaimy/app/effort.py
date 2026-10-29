@@ -21,7 +21,7 @@ FAST, DEEP = "fast", "deep"
 LEVELS = (FAST, DEEP)
 DEFAULT = DEEP                     # 기본은 생각을 거치는 쪽(사용자 10-27 「생각모드가 기본이고, 간단한 거 물을 때는 끄는 건」)
 LABELS = {FAST: "빠르게", DEEP: "꼼꼼하게"}
-HINTS = {FAST: "간단한 질문 — 생각 단계 없이 바로 답합니다", DEEP: "생각을 거쳐 자료를 넓게 보고 점검합니다(기본)"}
+HINTS = {FAST: "간단한 질문에 바로 답함", DEEP: "자료를 넓게 보고 점검(기본)"}
 
 _CUR: contextvars.ContextVar[str] = contextvars.ContextVar("answer_effort", default="")
 

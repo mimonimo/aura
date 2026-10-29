@@ -397,3 +397,18 @@ body #chatScroll .chat-cot-btn span { color:#285f95; }
 body #chatScroll .chat-cot-btn:hover { background:#e8ecf1; }
 body #chatScroll .chat-cot-btn:focus-visible { outline:2px solid #497bfb; outline-offset:1px; }
 body #chatScroll .chat-cot-body { margin-top:6px; padding:8px 12px; border-left:2px solid #e3e8ef; color:#6b7686; font-size:12.5px; line-height:1.7; white-space:pre-wrap; }
+
+/* ---- 입력창 다듬기(10-29 「입력창 개선」): 두 줄 높이·큰 글자·둥근 상자·선명한 보내기 단추 ---- */
+body #chatForm .dock-row { gap:6px; padding:12px 12px 10px 14px; border-color:#d6dbe3; border-radius:24px; box-shadow:0 4px 20px #15243c10; }
+body #chatForm .dock-row:focus-within { border-color:#9aa8bb; box-shadow:0 4px 22px #15243c14, 0 0 0 3px #3d6fd61a; }
+body #chatForm .dock-row #chatInput { min-height:56px; padding:4px 4px 2px; font-size:15.5px; line-height:1.65; }
+body #chatForm .dock-row #chatInput::placeholder { color:#8d99ab; }
+body #chatForm .dock-tools { align-items:center; gap:6px; }
+body #chatForm .dock-btn, body #chatForm .chat-chip { height:34px; min-height:34px; border-radius:10px; }
+body #chatForm .chat-chip { font-size:13px; padding:0 10px; }
+body #chatForm .chat-mode-seg { height:34px; border-radius:10px; }
+body #chatForm .chat-mode-seg button { height:30px; line-height:30px; padding:0 13px; font-size:13px; border-radius:8px; }
+body #sendBtn { width:36px; height:36px; min-height:36px; border-radius:50%; }
+body #sendBtn:disabled { background:#eef1f5; color:#b3bbc6; }
+body #sendBtn:not(:disabled) { box-shadow:0 2px 6px #1f3a6433; }
+body #chatForm .chat-dock-footer { color:#8d99ab; font-size:12px; }
