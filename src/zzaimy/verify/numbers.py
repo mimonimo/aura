@@ -208,7 +208,7 @@ def verify_numbers(draft: str, evidence_texts: list[str]) -> NumberAudit:
     )
 
 
-_YEAR_LIKE = re.compile(r"^(?:19|20)\d{2}$")
+_YEAR_LIKE = re.compile(r"^(?:19|20)\d{2}(?:\.(?:0?[1-9]|1[0-2]))?$")   # 연도와 「연도.월」(2023.3·2024.12) — 날짜 표기는 수치가 아니다
 
 
 def mask_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
