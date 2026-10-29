@@ -627,13 +627,17 @@ class Delegator:
                 + ("\n모자라면 같은 section 에 redo_note(고칠 점)를 주어 한 번 더 맡긴다." if n < MAX_REDO else ""))
 
     def _parallel(self, fn, jobs: list[dict], clients: list) -> None:
-        """모델 호출만 동시에 — 자리마다 연결 하나. 실행 흐름의 문맥(호출 이름표·사용 기록)은 자리마다 복사해 넘긴다."""
+        """모델 호출만 동시에 — 자리마다 연결 하나. 실행 흐름의 문맥(호출 이름표·사용 기록)은 자리마다 복사해 넘긴다.
+        서브 호출은 생각을 끈다(effort.no_thinking) — 생각은 메인 에이전트의 판단에만 쓴다."""
+        def run(j, c):
+            with effort.no_thinking():
+                return fn(j, c)
         if len(jobs) <= 1:
             for j, c in zip(jobs, clients):
-                fn(j, c)
+                run(j, c)
             return
         with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
-            futs = [ex.submit(contextvars.copy_context().run, fn, j, c) for j, c in zip(jobs, clients)]
+            futs = [ex.submit(contextvars.copy_context().run, run, j, c) for j, c in zip(jobs, clients)]
             for fu in futs:
                 fu.result()
 
@@ -776,6 +780,11 @@ class Reviser:
             return {}
 
     def run(self, a: dict) -> str:
+        """고쳐 쓰기도 서브 호출이라 생각을 끈다(effort.no_thinking, 10-30)."""
+        with effort.no_thinking():
+            return self._run(a)
+
+    def _run(self, a: dict) -> str:
         from zzaimy.app import chat_memory, webhwp
         from zzaimy.app import webhwp_agent as _wa
         from zzaimy.app import webhwp_write as ww

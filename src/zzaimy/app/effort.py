@@ -70,8 +70,22 @@ def plan(level: str | None = None) -> dict:
     return _plans()[clean(level if level is not None else current())]
 
 
+_NO_THINK: contextvars.ContextVar[bool] = contextvars.ContextVar("answer_effort_no_think", default=False)
+
+
 def thinking() -> bool:
-    return bool(plan()["thinking"])
+    return bool(plan()["thinking"]) and not _NO_THINK.get()
+
+
+@contextlib.contextmanager
+def no_thinking():
+    """이 블록 안의 모델 호출은 단계(깊이)는 그대로 두고 생각만 끈다 — 맡긴 절 쓰기(서브)는 자기 단계(검색어·개요·본문·점검)가 있어
+    생각까지 켜면 긴 본문과 생각이 출력 한도를 나눠 쓰다 끊겨 빈 본문으로 돌아왔다(10-30 agent-v4, 절당 527초·본문 없음 되풀이)."""
+    tok = _NO_THINK.set(True)
+    try:
+        yield
+    finally:
+        _NO_THINK.reset(tok)
 
 
 def work_cap() -> int:

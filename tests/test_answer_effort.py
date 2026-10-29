@@ -144,3 +144,12 @@ def test_agent_steps_follow_effort(monkeypatch):
         with effort.use(level):
             doc_agent.run(NS(model="m", _extra={}), "요청", lambda: "상태", tools, max_steps=4)
         assert n["calls"] == steps, level
+
+
+def test_no_thinking_block_keeps_level_but_turns_off_thinking():
+    from zzaimy.app import effort
+    with effort.use(effort.DEEP):
+        assert effort.thinking() and effort.self_check()
+        with effort.no_thinking():
+            assert not effort.thinking() and effort.self_check()     # 깊이(자기 점검)는 그대로, 생각만 끔
+        assert effort.thinking()
