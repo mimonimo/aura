@@ -205,13 +205,13 @@ class SliceDrafter:
                 + (f" · 누락: {', '.join(m.name for m in coverage.missing)}"
                    if coverage.missing else " · 누락 없음")
                 + (" · 수치 검증 통과" if audit.ok
-                   else " · 근거 없는 수치 {}건 — {}".format(
+                   else " · 근거 없는 수치 {}건({})".format(
                        len(audit.violations),
                        " / ".join(audit.contexts[:3])
                        + (" 외" if len(audit.contexts) > 3 else ""),
                    ))
                 + ("" if not budget_issues
-                   else " · 예산 검산 불일치 {}건 — {}".format(
+                   else " · 예산 검산 불일치 {}건({})".format(
                        len(budget_issues), " / ".join(budget_issues[:2])
                    ))
             )

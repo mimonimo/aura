@@ -97,14 +97,14 @@
 {% include "_intake_panel.html" %}
 
 <div class="card reveal" id="coedit"><div class="card-in">
-  <h2><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>공동 편집 처리 방식 — 웹 한글 기안기</h2>
+  <h2><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>웹 한글 기안기 공동 편집 처리 방식</h2>
   <p class="pf-lead" style="margin-bottom:10px;">칸 글은 서버 DB 에 먼저 저장돼 다른 창으로 가고, 한글 파일은 몇 초 뒤 그 글로 바뀐다.</p>
   {% for s in coedit_svgs %}<figure class="pf-fig">{{ s|safe }}</figure>{% endfor %}
   <div class="table-scroll"><table class="pf-cycles pf-co">
     <tr><th>처리 방식</th><th>사용자가 보는 것</th><th>뒤에서 일어나는 일</th><th>걸리는 시간</th><th>동시에 하면</th></tr>
     {% for r in coedit %}<tr><td style="white-space:nowrap;font-weight:600;">{{ r.what }}</td><td>{{ r.see }}</td><td>{{ r.back }}</td><td>{{ r.lag }}</td><td>{{ r.together }}</td></tr>{% endfor %}
   </table></div>
-  <p class="pf-code">지금 설정 — 보내기 간격 {{ coedit_conf.throttle_ms|int }}ms · 받은 글 넣기 전 입력 멈춤 {{ coedit_conf.pause_ms|int }}ms · 한글 파일 써 넣기 {{ coedit_conf.commit_delay|int }}초 조용하면(계속 고치면 {{ coedit_conf.commit_max|int }}초마다) · 칸 빌림 {{ coedit_conf.lease|int }}초(남이 기다리면 {{ coedit_conf.lease_contended|int }}초) · 다른 칸으로 옮긴 뒤 {{ coedit_conf.grace|int }}초 뒤 놓음 · 지문 대조 {{ coedit_conf.hash_check|int }}초 · 걸리는 시간은 ADR-0070 실측</p>
+  <p class="pf-code">지금 설정: 보내기 간격 {{ coedit_conf.throttle_ms|int }}ms · 받은 글 넣기 전 입력 멈춤 {{ coedit_conf.pause_ms|int }}ms · 한글 파일 써 넣기 {{ coedit_conf.commit_delay|int }}초 조용하면(계속 고치면 {{ coedit_conf.commit_max|int }}초마다) · 칸 빌림 {{ coedit_conf.lease|int }}초(남이 기다리면 {{ coedit_conf.lease_contended|int }}초) · 다른 칸으로 옮긴 뒤 {{ coedit_conf.grace|int }}초 뒤 놓음 · 지문 대조 {{ coedit_conf.hash_check|int }}초 · 걸리는 시간은 ADR-0070 실측</p>
 </div></div>
 
 <div class="card reveal"><div class="card-in">

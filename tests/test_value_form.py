@@ -76,7 +76,7 @@ def test_value_form_rows_have_pick_hint_and_source(tmp_path):
     form = client.get(f'/chat/{sid}').text.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
     assert form.count('data-pick ') == 2 and 'data-pick-all' in form and 'name="later"' not in form   # 비우면 저절로 다음 차례
     assert 'is-filled is-suggested' in form and 'data-accept-value>확인</button>' in form and 'data-edit-value>고치기</button>' in form
-    assert '자료에서 찾음 · 확인 전 — 《가상 공고》' in form and 'title="협약 기간"' in form   # 설명은 원래 설명, 출처는 따로
+    assert '자료에서 찾음 · 확인 전 · 《가상 공고》' in form and 'title="협약 기간"' in form   # 설명은 원래 설명, 출처는 따로
     assert '2개 중 1개 채움' in form and 'data-form-submit>확인</button>' in form
 
 

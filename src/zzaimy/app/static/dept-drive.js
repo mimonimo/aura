@@ -87,7 +87,7 @@
         (j.items || []).forEach(folderRow);
         next = j.next || '';
         if (next) { const m = el('button', 'af-btn', '더 보기'); m.type = 'button'; m.style.margin = '8px auto'; m.style.display = 'block'; m.onclick = () => { m.remove(); load(true); }; list.append(m); }
-        if (!list.children.length) busy(q.value.trim() ? '찾는 폴더가 없습니다' : '아래 폴더가 없습니다 · 여기로 옮길 수 있습니다');
+        if (!list.children.length) busy(q.value.trim() ? '찾는 폴더가 없습니다' : '아래 폴더 없음. 여기로 옮기면 됩니다');
         paint();
       }
       function place(label, ic, id, shared) {
@@ -135,7 +135,7 @@
       const a = el('a', 'mini-btn'); a.href = 'https://drive.google.com/drive/folders/' + encodeURIComponent(s.folder); a.target = '_blank'; a.rel = 'noopener';
       a.append(icon('solar:square-top-down-linear'), document.createTextNode(s.folder_name)); body.append(a);
       line((s.shared ? '공용 계정 ' : '개인 계정 ') + s.account + ' · 접근 ' + s.granted + '명' + (s.unlinked ? ' · 구글 미연결 ' + s.unlinked + '명' : ''));
-      if (s.personal) line('개인 계정으로 연결돼 있습니다 — 부서가 함께 쓸 계정으로 바꾸기를 권합니다', 'dd-line dd-warn');
+      if (s.personal) line('개인 계정으로 연결됨. 부서 공용 계정으로 바꾸세요', 'dd-line dd-warn');
       if (s.error) line(s.error, 'dd-line dd-bad');
     } else {
       line('연결 전', 'dd-line muted');
@@ -171,7 +171,7 @@
       if (got) run('/team/drive/move', { parent: got.id });
     });
     const sync = btn('권한 맞추기', 'btn-ghost', () => run('/team/drive/sync', {}, sync));
-    sync.title = '부서 사람이 바뀌었거나 구글을 새로 연결했을 때 — 보통은 저절로 맞춥니다';
+    sync.title = '부서 사람이 바뀌었거나 구글을 새로 연결했을 때(보통은 저절로 맞춤)';
     btn('연결 끊기', 'btn-ghost danger-text', async () => {
       if (await confirmBox(s.dept + ' 부서 드라이브 연결을 끊을까요? 부서 사람의 폴더 권한을 거두고, 폴더와 문서는 ' + s.account + ' 드라이브에 남습니다.', '연결 끊기')) run('/team/drive/disconnect');
     });

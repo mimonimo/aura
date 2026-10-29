@@ -101,7 +101,7 @@
             var p = el('p', 'hb-empty', '이 폴더는 비어 있습니다.'); p.append(el('br'), '새 문서를 쓰거나 한글 파일을 올리세요.'); list.append(p);
           }
           if ((j.deleted || []).length) toast((j.deleted.length) + '개를 휴지통으로 옮겼습니다');
-          if ((j.rejected || []).length) toast((j.rejected.length) + '개는 지우지 못했습니다 — ' + (j.rejected[0].why || ''), true);
+          if ((j.rejected || []).length) toast((j.rejected.length) + '개는 지우지 못했습니다. ' + (j.rejected[0].why || ''), true);
           paintPicks();
         })
         .catch(function (err) { toast(err.message, true); })
@@ -118,7 +118,7 @@
       at: {dept: box.dataset.copyDept || '', folder: box.dataset.copyFolder || ''},
       note: '사본은 고른 곳에 두고 기안기로 엽니다', projects: true,
       onSave: function (at) {
-        if (at.target === 'drive') return Promise.reject(new Error('사본은 부서 폴더·내 폴더·프로젝트에만 만들 수 있습니다 — 왼쪽에서 고르세요'));
+        if (at.target === 'drive') return Promise.reject(new Error('사본은 부서 폴더·내 폴더·프로젝트에만 만듭니다. 왼쪽에서 고르세요'));
         var body = new FormData(); body.append('name', at.name);
         if (at.target === 'project') body.append('project', at.project_id);
         else { body.append('dept', at.dept); body.append('folder', at.folder || ''); }
@@ -304,8 +304,8 @@
         return p.then(function () {
           var fd = new FormData(); fd.append('dept', up.dept.value); fd.append('folder', up.folder.value); fd.append('file', f);
           return postJSON(up.action, fd).then(function (j) {
-            (j.ok ? oks : errs).push((many ? f.name + ' — ' : '') + (j.message || ''));
-          }).catch(function (err) { errs.push((many ? f.name + ' — ' : '') + err.message); });
+            (j.ok ? oks : errs).push((many ? f.name + ': ' : '') + (j.message || ''));
+          }).catch(function (err) { errs.push((many ? f.name + ': ' : '') + err.message); });
         });
       }, Promise.resolve()).then(function () {
         var u = new URL(location.href); u.searchParams.delete('ok'); u.searchParams.delete('err');

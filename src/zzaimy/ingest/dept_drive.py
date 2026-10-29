@@ -104,7 +104,7 @@ def connect(db, dept: str, account: str, parent: str = "root", http=None, shared
     r = http.post(f"{gdrive.API}/files", headers=gdrive_files._headers(account, http), params={"supportsAllDrives": "true"},
                   json={"name": folder_name(dept), "mimeType": gdrive.FOLDER, "parents": [parent or "root"]})
     if r.status_code != 200:
-        raise PermissionError(f"부서 폴더를 만들지 못했습니다({r.status_code}) — 그 위치에 쓸 권한과 계정 허용을 확인해 주세요")
+        raise PermissionError(f"부서 폴더를 만들지 못했습니다({r.status_code}). 그 위치에 쓸 권한과 계정 허용을 확인해 주세요")
     fid = r.json()["id"]
     if old_by and old_folder:
         revoke_all(db, dept, http)                        # 옛 폴더에 준 권한은 그 계정으로 거둔다(새 폴더는 맞추기에서 다시 준다)
@@ -181,12 +181,12 @@ def sync(db, dept: str, accounts: dict, data_dir=None, http=None) -> dict:
                 granted.pop(email)
                 removed += 1
             else:
-                err = err or "권한을 거두지 못했습니다 — 다음 맞추기에서 다시"
+                err = err or "권한을 거두지 못했습니다. 다음 맞추기에서 다시"
         todo = [e for e in target if e not in granted]
         if todo:
             try:
                 if not gdrive_files.has_file_scope(by):
-                    raise PermissionError("부서 폴더를 만든 계정의 허용이 없습니다 — 그 계정을 다시 연결해 주세요")
+                    raise PermissionError("부서 폴더를 만든 계정의 허용이 없습니다. 그 계정을 다시 연결해 주세요")
                 http = http or gdrive._http()
                 h = gdrive_files._headers(by, http)
                 for email in todo:
@@ -218,7 +218,7 @@ def move(db, dept: str, parent: str, http=None) -> str:
     try:
         gdrive_files.move_document(by, folder, parent or "root", http=http)
     except PermissionError:
-        raise PermissionError("그 위치로 옮길 권한이 없습니다 — 공유 드라이브라면 부서 계정이 관리자(콘텐츠 관리자 이상)여야 합니다")
+        raise PermissionError("그 위치로 옮길 권한이 없습니다. 공유 드라이브라면 부서 계정이 관리자(콘텐츠 관리자 이상)여야 합니다")
     except RuntimeError as e:
-        raise RuntimeError(f"부서 폴더를 옮기지 못했습니다 — {e}")
+        raise RuntimeError(f"부서 폴더를 옮기지 못했습니다: {e}")
     return parent or "root"

@@ -73,7 +73,7 @@ def test_quality_chart_uses_measured_values_and_skips_unmeasured(client, monkeyp
     # R@5 막대는 표와 같은 수치를 두 번 보여 줘 뺐다(10-27) — 표 한 곳에 잰 값만
     assert '<meter ' not in page.text
     assert '0.700' in page.text
-    assert '미측정 구성' in page.text and '미측정 — 대기' in page.text
+    assert '미측정 구성' in page.text and '미측정 (대기)' in page.text
 
 
 def test_quality_report_full_note_and_resolution_preserved(client):

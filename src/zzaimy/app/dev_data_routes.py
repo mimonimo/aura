@@ -83,7 +83,7 @@ def dev_llm_deactivate():
 
     llm_connections.deactivate()
     model_config.reset_status_cache()
-    return _llm_redirect("기본 연결을 해제했습니다 — 환경변수 설정을 씁니다")
+    return _llm_redirect("기본 연결을 해제했습니다. 환경변수 설정을 씁니다")
 
 @router.post("/dev/llm/roles")
 async def dev_llm_roles(request: Request):
@@ -151,10 +151,10 @@ def dev_llm_test(cid: str):
     if r["ok"]:
         shown = ", ".join(r["models"][:6]) + (" …" if len(r["models"]) > 6 else "")
         llm_connections.record_check(cid, True, f"모델 {len(r['models'])}개")
-        return _llm_redirect(f"「{conn['name']}」 연결 확인 — 모델 {len(r['models'])}개 ({shown})")
+        return _llm_redirect(f"「{conn['name']}」 연결 확인, 모델 {len(r['models'])}개 ({shown})")
     llm_connections.record_check(cid, False, r["error"])
     tail = f" {r['hint']}" if r.get("hint") else ""
-    return _llm_redirect(f"「{conn['name']}」 연결 실패 — {r['error']}.{tail}", ok=False)
+    return _llm_redirect(f"「{conn['name']}」 연결 실패: {r['error']}.{tail}", ok=False)
 
 # ---- Label Studio 자동 연동 (API) — 페이지 버튼 한 번으로 왕복 ----
 # 주소·토큰은 서버 구축 때 scripts/68_labelstudio_token.sh 가 설정에 넣는다.

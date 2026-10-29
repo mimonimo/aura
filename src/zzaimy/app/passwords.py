@@ -25,7 +25,7 @@ def problem(new_pw: str, current_pw: str | None = None) -> str:
     if len(new_pw or "") < MIN_LENGTH:
         return f"새 비밀번호는 {MIN_LENGTH}자 이상이어야 합니다"
     if current_pw is not None and new_pw == current_pw:
-        return "새 비밀번호가 현재 비밀번호와 같습니다 — 다른 비밀번호를 정해 주세요"
+        return "새 비밀번호가 현재 비밀번호와 같습니다. 다른 비밀번호를 정해 주세요"
     return ""
 
 

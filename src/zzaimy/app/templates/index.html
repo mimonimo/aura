@@ -220,11 +220,11 @@
 {% block content %}
 {% macro scope_pick(name, id_prefix, current='공통') -%}
 <fieldset class="scope-pick" data-scope-pick>
-  <legend class="muted">공개 범위 — 누가 이 문서를 찾고 볼 수 있나</legend>
+  <legend class="muted">공개 범위</legend>
   <label class="scope-opt"><input type="radio" name="{{ id_prefix }}_kind" value="common" {{ 'checked' if current == '공통' }}>
     <span><b>전체 공개</b><small>모든 교직원 · 기본</small></span></label>
   <label class="scope-opt{{ ' off' if scope_choices | length < 2 }}"><input type="radio" name="{{ id_prefix }}_kind" value="dept" {{ 'checked' if current != '공통' }} {{ 'disabled' if scope_choices | length < 2 }}>
-    <span><b>부서만</b><small>{% if scope_choices | length < 2 %}만든 부서가 없습니다 — 조직 관리에서 만듭니다{% else %}선택한 부서 사람과 관리자만{% endif %}</small></span></label>
+    <span><b>부서만</b><small>{% if scope_choices | length < 2 %}만든 부서가 없습니다. 조직 관리에서 만듭니다{% else %}선택한 부서 사람과 관리자만{% endif %}</small></span></label>
   <select class="scope-dept" aria-label="부서" {{ 'hidden' if current == '공통' }}>{% for d in scope_choices if d != '공통' %}<option value="{{ d }}" {{ 'selected' if d == current }}>{{ d }}</option>{% endfor %}</select>
   <input type="hidden" name="{{ name }}" value="{{ current }}">
 </fieldset>
@@ -316,7 +316,7 @@
   <nav class="lib-folders" aria-label="폴더">
     <a href="/?type=all" class="lib-rail-item{{ ' on' if not folder }}"><span>모든 폴더</span></a>
     {% for f in folders %}
-    <a href="/?type=all&amp;folder={{ f.key | urlencode }}" class="lib-rail-item{{ ' on' if folder == f.key }}" title="{{ f.name }} — {{ '학교 원본 폴더' if f.kind == '원본' else '라이브러리에서 만든 폴더' }} · 공개 {{ '전체' if f.dept == '공통' else f.dept }}">
+    <a href="/?type=all&amp;folder={{ f.key | urlencode }}" class="lib-rail-item{{ ' on' if folder == f.key }}" title="{{ f.name }}: {{ '학교 원본 폴더' if f.kind == '원본' else '라이브러리에서 만든 폴더' }} · 공개 {{ '전체' if f.dept == '공통' else f.dept }}">
       <iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ f.name }}</span>
       <em class="lib-scope{{ ' dept' if f.dept != '공통' }}" title="공개 범위">{{ '전체' if f.dept == '공통' else f.dept }}</em><small>{{ "{:,}".format(f.docs) }}</small></a>
     {% endfor %}
@@ -352,7 +352,7 @@
     <form class="lib-find" action="/" method="get" role="search" aria-label="사업 찾기">
       <input type="hidden" name="type" value="{{ active_tab }}">
       <label class="lib-find-l" for="libFind">사업 찾기</label>
-      <div class="lib-find-box"><input type="search" id="libFind" name="pq" value="{{ pq }}" autocomplete="off" placeholder="사업 이름이나 별칭 — 띄어쓰기는 무시합니다"
+      <div class="lib-find-box"><input type="search" id="libFind" name="pq" value="{{ pq }}" autocomplete="off" placeholder="사업 이름이나 별칭"
         aria-controls="libFindHits" aria-autocomplete="list"><ul class="lib-find-hits" id="libFindHits" role="listbox" aria-label="맞는 사업" hidden></ul></div>
       <button type="submit" class="secondary">찾기</button>
     </form>
@@ -390,14 +390,14 @@
       </dl>
       <form class="lib-ov-find" action="/#libList" method="get" role="search" aria-label="이 사업 문서에서 찾기">
         <input type="hidden" name="type" value="{{ active_tab }}"><input type="hidden" name="prog" value="{{ prog }}">
-        <input type="search" name="q" data-aura="lib-q" value="{{ q }}" placeholder="이 사업 문서에서 찾기 — 제목·접수번호·본문" aria-label="이 사업 문서에서 찾을 낱말">
+        <input type="search" name="q" data-aura="lib-q" value="{{ q }}" placeholder="제목·접수번호·본문에서 찾기" aria-label="이 사업 문서에서 찾을 낱말">
         <label class="lib-body"><input type="checkbox" name="body" value="1" {{ 'checked' if body or not q }}> 본문까지</label>
         <button type="submit" class="secondary">찾기</button>
       </form>
       <div class="lib-ov-body">
         <div class="lib-mx-wrap">
           <table class="lib-mx" data-matrix>
-            <caption class="sr-only">연도별 서류 갈래 문서 수 — 칸을 누르면 아래 목록이 그 문서로 좁혀집니다</caption>
+            <caption class="sr-only">연도별 서류 갈래 문서 수. 칸을 누르면 아래 목록이 그 문서로 좁혀집니다</caption>
             <thead><tr><th scope="col" style="text-align:left;">연도</th>
               {% for c in ov.m.cols %}<th scope="col"><a href="{{ ov_base }}&amp;kind={{ (c.kind or '_none') | urlencode }}#libList">{{ c.label }}</a></th>{% endfor %}
               {% if ov.m.rest %}<th scope="col" title="문서가 적은 갈래를 합친 수">그 밖</th>{% endif %}<th scope="col" class="t">합계</th></tr></thead>
@@ -412,7 +412,7 @@
           </table>
         </div>
         <div class="lib-key" aria-label="주요 문서">
-          <p class="lib-sub-h">주요 문서 — 해마다 가장 최근의 계획서·결과보고서</p>
+          <p class="lib-sub-h">주요 문서(해마다 가장 최근 계획서·결과보고서)</p>
           {% if ov.key_docs %}<ul>{% for y in ov.key_docs %}<li><b>{{ y.label }}</b>
             {% for k, d in y.docs %}<a href="/doc/{{ d.id }}"><em>{{ kind_labels.get(k, k) }}</em>{{ doc_title(d) }}</a>{% endfor %}</li>{% endfor %}</ul>
           {% else %}<p class="muted" style="font-size:12.5px; margin:0;">계획서·결과보고서로 분류된 문서가 아직 없습니다.</p>{% endif %}
@@ -484,12 +484,12 @@
     {% if made_folders or request.state.role == 'dev' %}
     <div class="lib-bulk" id="libBulk">
       <label class="lib-bulk-all"><input type="checkbox" id="libPickAll"> 이 쪽 모두</label>
-      <span class="lib-bulk-n" id="libPickN">문서를 선택하면 폴더에 담거나 공개 범위를 바꿀 수 있습니다</span>
+      <span class="lib-bulk-n" id="libPickN">문서를 고르면 폴더 담기·공개 범위 바꾸기</span>
       <span class="lib-bulk-g" id="libBulkActs" hidden>
         <select id="libBulkAct" aria-label="선택한 문서에 할 일">
           <option value="" selected disabled>할 일 선택…</option>
           {% if made_folders %}<optgroup label="폴더">{% for f in made_folders %}<option value="folder:{{ f.key }}">「{{ f.name }}」 폴더에 담기</option>{% endfor %}<option value="folder:">폴더에서 빼기</option></optgroup>{% endif %}
-          {% if request.state.role == 'dev' and scope_choices | length > 1 %}<optgroup label="공개 범위"><option value="scope:">공개 범위 바꾸기 — 부서 찾아 고르기</option></optgroup>{% endif %}
+          {% if request.state.role == 'dev' and scope_choices | length > 1 %}<optgroup label="공개 범위"><option value="scope:">공개 범위 바꾸기</option></optgroup>{% endif %}
           {% if request.state.role == 'dev' %}<optgroup label="관리"><option value="delete:">선택한 문서 삭제</option></optgroup>{% endif %}
         </select>
         {# 부서가 많아 메뉴에 늘어놓지 않고 찾아 고른다 — 「공개 범위 바꾸기」를 고르면 나온다 #}
@@ -516,7 +516,7 @@
           <a class="lib-row-title" href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
           <div class="lib-row-meta">
             <span>{{ d.kind_label or "분류 전" }}</span>
-            {% if d.in_index %}<span class="pill lib-criteria" title="기준 문서 — 규정 검색·학생 공개·프로젝트 기준 선택에 씀">기준</span>{% endif %}
+            {% if d.in_index %}<span class="pill lib-criteria" title="기준 문서(규정 검색·학생 공개·프로젝트 기준 선택에 씀)">기준</span>{% endif %}
             {% if crit_admin and d.in_index and d.audience == 'student' %}<span class="pill lib-stu">학생 공개</span>{% endif %}
             {% if d.status == 'failed' %}{% set rf = read_fail(d) %}<span class="pill failed" title="{{ rf.hint }}">읽지 못함 · {{ rf.label }}</span>{% if rf.actions %}<a class="lib-row-fix" href="/doc/{{ d.id }}#readFix">{{ rf.actions[0].label }}</a>{% endif %}
             {% elif d.status in run_labels %}<span class="pill processing">{{ run_labels[d.status] }}</span>{% endif %}
@@ -524,7 +524,7 @@
             {% if d.project_name and not prog %}<a class="lib-row-proj" href="/project/{{ d.project_id }}" title="이 문서가 속한 프로젝트">{{ d.project_name }}</a>{% endif %}
             {% if show_business %}<span class="lib-row-biz">{{ sector_labels.get(d.business, d.business) }}</span>{% endif %}
             <span class="lib-row-no">{{ receipt_label(d.receipt_no) or d.id }}</span>
-            <a class="lib-row-orig" href="/doc/{{ d.id }}/original" target="_blank" rel="noopener" title="원본 파일 열기 — 한글·워드·엑셀·PPT는 PDF로 바꿔 보여 줍니다(내려받기는 문서 화면)">원본</a>
+            <a class="lib-row-orig" href="/doc/{{ d.id }}/original" target="_blank" rel="noopener" title="원본 파일 열기. 한글·워드·엑셀·PPT는 PDF로 보여 줌(내려받기는 문서 화면)">원본</a>
           </div>
           {% if d.no_chunks %}<span class="muted lib-note">본문을 찾지 못해 규정 검색에 잡히지 않습니다</span>{% endif %}
           {% if d.n_versions > 1 %}
@@ -534,7 +534,7 @@
               {% for v in d.versions %}
               <li><a href="/doc/{{ v.id }}">{{ doc_title(v) }}</a><span class="muted">{{ receipt_label(v.receipt_no) or v.id }} · {{ (v.created_at or '')[:10] }}</span>{% if v.project_name %}<span class="muted">{{ v.project_name }}</span>{% endif %}</li>
               {% endfor %}
-              {% if d.n_versions - 1 > d.versions|length %}<li class="muted">그 밖의 판본 {{ d.n_versions - 1 - d.versions|length }}개 — 제목으로 찾으면 모두 보입니다.</li>{% endif %}
+              {% if d.n_versions - 1 > d.versions|length %}<li class="muted">그 밖의 판본 {{ d.n_versions - 1 - d.versions|length }}개. 제목으로 찾으면 모두 보입니다.</li>{% endif %}
             </ul>
           </details>
           {% endif %}
@@ -586,16 +586,16 @@
       <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
     </div>
     <form action="/library/upload" method="post" enctype="multipart/form-data" id="libUploadForm">
-      <div class="form-row"><span class="muted">파일(여러 개 가능)</span>
+      <div class="form-row"><span class="muted">파일</span>
         <input type="file" name="files" required multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
       <label class="form-row"><span class="muted">폴더</span>
         <select name="folder" id="libUpFolder" data-aura="lib-up-folder">
           <option value="" data-dept="">폴더 없이</option>
-          {% for f in folders if f.kind == '만든' %}<option value="{{ f.key }}" data-dept="{{ f.dept }}" {{ 'selected' if folder == f.key }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept }}</option>{% endfor %}
+          {% for f in folders if f.kind == '만든' %}<option value="{{ f.key }}" data-dept="{{ f.dept }}" {{ 'selected' if folder == f.key }}>{{ f.name }} ({{ '전체 공개' if f.dept == '공통' else f.dept }})</option>{% endfor %}
         </select></label>
       <div id="libUpScopeRow">{{ scope_pick("dept", "up") }}</div>
       <p class="muted" id="libUpScopeNote" style="font-size:12px; margin:-4px 0 10px;" hidden></p>
-      <label class="form-row"><span class="muted">사업 — 고르면 그 사업의 연도 묶음에 들어가 사업 목록·사업 그래프에서 함께 보입니다</span>
+      <label class="form-row"><span class="muted">사업(고르면 그 사업의 연도 묶음에 들어감)</span>
         <select name="program" id="libUpProg" data-aura="lib-up-prog">
           <option value="">사업 없음</option>
           <option value="_new">＋ 새 사업 등록…</option>
@@ -604,13 +604,13 @@
           </optgroup>{% endfor %}
         </select></label>
       <div id="libUpNew" hidden>
-        <label class="form-row"><span class="muted">새 사업 이름 — 재정지원사업 현황의 사업명처럼</span><input type="text" name="new_program" maxlength="80" placeholder="예: 2027 지역 맞춤형 인재양성 사업"></label>
-        <label class="form-row"><span class="muted">지원기관 — 사업 목록의 대분류·중분류가 이것으로 정해집니다</span>
+        <label class="form-row"><span class="muted">새 사업 이름(재정지원사업 현황의 사업명)</span><input type="text" name="new_program" maxlength="80" placeholder="예: 2027 지역 맞춤형 인재양성 사업"></label>
+        <label class="form-row"><span class="muted">지원기관(사업 목록의 대분류·중분류)</span>
           <input type="text" name="new_ministry" maxlength="40" list="libMinistries" placeholder="예: 교육부, 고용노동부, 대구광역시"></label>
         <datalist id="libMinistries">{% for m in ministries %}<option value="{{ m }}">{% endfor %}</datalist>
       </div>
       <label class="form-row" id="libUpYearRow"><span class="muted">사업 연도(선택)</span>
-        <input type="text" name="year" data-aura="lib-up-year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" placeholder="예: 2026 — 비우면 연도 미상"></label>
+        <input type="text" name="year" data-aura="lib-up-year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" placeholder="예: 2026, 비우면 연도 미상"></label>
       <label class="form-row"><span class="muted">업무 갈래</span>
         <select name="doc_type" data-aura="lib-up-kind"><option value="auto">자동으로 정하기</option>{% for k, v in inbox_types.items() if k != 'auto' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
       <div style="display:flex; justify-content:flex-end; gap:10px;">
@@ -667,7 +667,7 @@
       <form action="/criteria/upload" method="post" enctype="multipart/form-data" id="criteriaUploadForm">
         <label class="form-row"><span class="muted">업무</span>
           <select name="sector">{% for sec, label in sector_labels.items() %}<option value="{{ sec }}" {% if sec == active_tab %}selected{% endif %}>{{ label }}{{ " (모든 업무에 적용)" if sec == "common" else "" }}</option>{% endfor %}</select></label>
-        <div class="form-row"><span class="muted">공고·규정·지침·평가 기준 파일(여러 개 가능) — 원문 그대로 규정 검색에 들어갑니다</span>
+        <div class="form-row"><span class="muted">공고·규정·지침·평가 기준 파일. 원문 그대로 규정 검색에 들어갑니다</span>
           <input type="file" name="file" required multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
         {% if crit_admin %}<p class="muted" style="font-size:12px; margin:0 0 10px;">이미 반입된 규정은 「새 판·미등록」에서 고릅니다.</p>{% endif %}
         <div style="display:flex; justify-content:flex-end; gap:10px;">
@@ -725,7 +725,7 @@
   var acts = document.getElementById("libBulkActs");
   var paint = function () {
     var n = chosen().length;
-    document.getElementById("libPickN").textContent = n ? "선택한 문서 " + n + "건" : "문서를 선택하면 폴더에 담거나 공개 범위를 바꿀 수 있습니다";
+    document.getElementById("libPickN").textContent = n ? "선택한 문서 " + n + "건" : "문서를 고르면 폴더 담기·공개 범위 바꾸기";
     acts.hidden = !n;
     var ca = document.getElementById("libCritActs"); if (ca) ca.hidden = !n;
     document.getElementById("libPickAll").checked = n > 0 && n === picks().length;
@@ -781,7 +781,7 @@
     b.disabled = true;
     fetch("/docs/" + kind, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (d) { document.getElementById("libBulkMsg").textContent = d.moved + "건 " + (kind === "delete" ? "삭제" : "적용") + " — 새로 고칩니다"; setTimeout(function () { location.reload(); }, 800); })
+      .then(function (d) { document.getElementById("libBulkMsg").textContent = d.moved + "건 " + (kind === "delete" ? "삭제" : "적용") + ". 새로 고칩니다"; setTimeout(function () { location.reload(); }, 800); })
       .catch(function (e) { document.getElementById("libBulkMsg").textContent = "적용하지 못했습니다(" + e.message + ")"; b.disabled = false; });
   });
   paint();
@@ -897,7 +897,7 @@
         var a = await post("/criteria/regs/audience", { ids: ids, audience: kind });
         msg = num(a.changed) + "건을 " + (kind === "student" ? "학생 공개로" : "교직원만으로") + " 바꿨습니다";
       }
-      say(out, msg + " — 새로 고칩니다");
+      say(out, msg + ". 새로 고칩니다");
       setTimeout(function () { location.reload(); }, 700);
     } catch (e) { say(out, e.message, true); btns.forEach(function (b) { b.disabled = false; }); }
   }

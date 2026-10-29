@@ -246,7 +246,7 @@ def register(db, doc_ids: list[int], data_dir: Path, by: str = "") -> dict:
         _log(data_dir, {"action": "register", "by": by, "docs": done, "chunks": made})
         replaced = superseded(db, done)
         if replaced:
-            demote(db, replaced, data_dir, by=by, reason="옛 판 — 같은 규정의 새 판을 기준 문서로 올림")
+            demote(db, replaced, data_dir, by=by, reason="옛 판. 같은 규정의 새 판을 기준 문서로 올림")
     return {"registered": len(done), "skipped": len(skipped), "chunks": made, "replaced": len(replaced)}
 
 

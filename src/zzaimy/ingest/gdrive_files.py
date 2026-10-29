@@ -58,7 +58,7 @@ def ensure_folder(email: str, parts: list[str], http=None, root: str = "root") -
                           params={"supportsAllDrives": "true"},
                           json={"name": name, "mimeType": gdrive.FOLDER, "parents": [parent]})
             if r.status_code != 200:
-                raise PermissionError("드라이브에 폴더를 만들 권한이 없습니다 — 계정 허용을 다시 해 주세요(파일 만들기 범위)")
+                raise PermissionError("드라이브에 폴더를 만들 권한이 없습니다. 계정 허용을 다시 해 주세요(파일 만들기 범위)")
             fid = r.json()["id"]
         parent = fid
     return parent
@@ -70,7 +70,7 @@ def create_document(email: str, title: str, folder_id: str | None = None, body: 
     h = _headers(email, http)
     r = http.post(gdocs.DOCS_API, headers=h, json={"title": title})
     if r.status_code != 200:
-        raise PermissionError("구글 독스를 만들지 못했습니다 — 계정 허용(문서 편집 범위)을 확인해 주세요")
+        raise PermissionError("구글 독스를 만들지 못했습니다. 계정 허용(문서 편집 범위)을 확인해 주세요")
     doc_id = r.json()["documentId"]
     text = f"{title}\n" + (body + "\n" if body else "")
     reqs = [{"insertText": {"location": {"index": 1}, "text": text}},
@@ -102,7 +102,7 @@ def bind_account(db, user: str, email: str) -> None:
         db.set_setting(f"google_account:{user}", email)
 
 
-NEED_ACCOUNT = "문서를 만들 구글 계정이 연결되지 않았습니다 — 설정 › 구글 계정에서 학교 계정(ync.ac.kr)을 연결해 주세요"
+NEED_ACCOUNT = "문서를 만들 구글 계정이 연결되지 않았습니다. 설정 › 구글 계정에서 학교 계정(ync.ac.kr)을 연결해 주세요"
 
 
 def _shared_dept(db, dept: str | None) -> bool:
@@ -174,7 +174,7 @@ def move_document(email: str, doc_id: str, folder_id: str, http=None) -> dict:
                    params={"addParents": folder_id, "removeParents": parents, "supportsAllDrives": "true", "fields": "id,parents"},
                    json={})
     if r.status_code == 403:
-        raise PermissionError("이 문서를 옮길 권한이 없습니다 — 플랫폼이 만든 문서만 옮길 수 있습니다")
+        raise PermissionError("이 문서를 옮길 권한이 없습니다. 플랫폼이 만든 문서만 옮깁니다")
     if r.status_code != 200:
         raise RuntimeError(f"문서 옮기기 실패({r.status_code})")
     return {"ok": True, "folder": folder_id}
@@ -199,7 +199,7 @@ def auto_document(db, session_id: int, owner: str, title: str, project_name: str
     if not email:
         raise ValueError(NEED_ACCOUNT)
     if not has_file_scope(email):
-        raise PermissionError("드라이브에 파일을 만들 권한이 없습니다 — 원천 관리에서 구글 계정 허용을 다시 해 주세요")
+        raise PermissionError("드라이브에 파일을 만들 권한이 없습니다. 원천 관리에서 구글 계정 허용을 다시 해 주세요")
     http = http or gdrive._http()
     folder = ensure_folder(email, project_parts(project_name, title), http, root=root_for(db, dept))
     doc_id = create_document(email, title, folder, http=http)
@@ -232,7 +232,7 @@ def rename_document(email: str, doc_id: str, title: str, http=None) -> dict:
     r = http.patch(f"{gdrive.API}/files/{doc_id}", headers=_headers(email, http),
                    params={"supportsAllDrives": "true", "fields": "id,name"}, json={"name": title})
     if r.status_code == 403:
-        raise PermissionError("이 문서의 이름을 바꿀 권한이 없습니다 — 플랫폼이 만든 문서만 바꿀 수 있습니다")
+        raise PermissionError("이 문서의 이름을 바꿀 권한이 없습니다. 플랫폼이 만든 문서만 바꿉니다")
     if r.status_code != 200:
         raise RuntimeError(f"이름 바꾸기 실패({r.status_code})")
     return {"ok": True, "title": r.json().get("name", title)}
@@ -330,7 +330,7 @@ def upload_file(email: str, data: bytes, name: str, source_mime: str, folder_id:
     r = http.post(UPLOAD, headers=_headers(email, http), params={"uploadType": "multipart", "supportsAllDrives": "true",
                                                                 "fields": "id,name,mimeType"}, files=files)
     if r.status_code == 403:
-        raise PermissionError("드라이브에 올릴 권한이 없습니다 — 계정 허용을 다시 해 주세요")
+        raise PermissionError("드라이브에 올릴 권한이 없습니다. 계정 허용을 다시 해 주세요")
     if r.status_code != 200:
         raise RuntimeError(f"드라이브 업로드 실패({r.status_code}): {r.text[:120]}")
     out = r.json()

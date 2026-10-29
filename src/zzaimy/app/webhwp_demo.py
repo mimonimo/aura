@@ -50,7 +50,7 @@ def apply(request: Request, accounts: dict) -> None:
         return
     uid = SLOTS[slot][0]
     if not (accounts.get(uid) or {}).get("demo"):
-        raise HTTPException(403, "시연 계정이 없습니다 — 공동 편집 시연 화면을 한 번 열면 만들어집니다")
+        raise HTTPException(403, "시연 계정이 없습니다. 공동 편집 시연 화면을 한 번 열면 만들어집니다")
     request.state.demo = slot
     request.state.demo_by = request.state.user
     request.state.user = uid
@@ -469,14 +469,14 @@ class DemoRun:
         sc = scenario()
         req = form_request()
         self.db.add_chat(self.sid, "user", req)
-        self.step("양식 설계 중 — 절 차례·작성방법")
+        self.step("양식 설계 중(절 차례·작성방법)")
         creator = fc.FormCreator(self.client, self.db, self.sid, self.hw, req, refs=False, review=False)   # 시연은 빠르게 — 참고 양식·자기 검토 없이 한 번
         clean, probs, _tries = creator.design({"purpose": f"시연용 가상 사업 「{sc['사업명']}」 의 짧은 사업계획서", "kind": "사업계획서",
                                                "title": sc["사업명"], "cover": False})
         if clean is None:
-            return "양식을 만들지 못했습니다 — 설계가 관문을 지나지 못했습니다: " + "; ".join(probs[:3])
+            return "양식을 만들지 못했습니다. 설계가 관문을 지나지 못했습니다: " + "; ".join(probs[:3])
         heads = [x["heading"] for x in clean["sections"]]
-        self.step(f"양식 넣는 중 — 절 {len(heads)}개")
+        self.step(f"양식 넣는 중(절 {len(heads)}개)")
         data = _bigger_text(fc.build(clean), BIG)
         fields = ww.fields(data)
         self.hw._load_into(self.fid, data, fields, clean["title"], "양식생성")
@@ -484,7 +484,7 @@ class DemoRun:
         m["form_design"] = {**clean, "shape": fc.shape(clean), "at": _time.time()}
         self.db.set_setting(f"webhwp_meta:{self.fid}", _json.dumps(m, ensure_ascii=False))
         filled = self.fill_summary(fields)
-        return (f"양식 「{clean['title']}」 을 만들어 이 문서에 넣었습니다 — 절 {len(heads)}개: " + " / ".join(heads)
+        return (f"양식 「{clean['title']}」 을 만들어 이 문서에 넣었습니다. 절 {len(heads)}개: " + " / ".join(heads)
                 + (f". 요약 칸 {len(filled)}개를 가상 사업 값으로 채웠습니다({', '.join(f[2:] for f in filled)})." if filled else ". 요약 칸은 비워 두었습니다."))
 
     def fill_summary(self, fields: list[dict]) -> list[str]:
@@ -540,8 +540,8 @@ class DemoRun:
         who = ce.holder(self.db, self.fid, ce.STRUCT)
         if who and who != ce.AGENT:
             name = next((v[1] for v in SLOTS.values() if v[0] == who), who)
-            return f"!{name} 님이 문서 짜임을 고치는 중이라 새 절을 만들지 않았습니다 — 끝나면 다시 눌러 주세요"
-        self.step("새 절 고르는 중 — 빈 절이 없어 문서에 맞는 절을 하나 더")
+            return f"!{name} 님이 문서 짜임을 고치는 중이라 새 절을 만들지 않았습니다. 끝나면 다시 눌러 주세요"
+        self.step("새 절 고르는 중(빈 절이 없어 문서에 맞는 절을 하나 더)")
         secs = [x["name"] for x in self.hw._fields() if x["kind"] == "절"]
         gist = webhwp.meta(self.db, self.fid).get("gist") or {}
         prev = "\n".join(f"- {f[2:]}: {str(gist.get(f) or '')[:120]}" for f in secs) or "(없음)"
@@ -566,7 +566,7 @@ class DemoRun:
                 self.hw._mark(self.fid, new[0])
                 return new[0]
             why = out.replace("바꾸지 않았다 — ", "")[:200]
-        return f"!새 절을 만들지 않았습니다 — AURA 의 절 제안을 쓸 수 없었습니다({why})"
+        return f"!새 절을 만들지 않았습니다. AURA 의 절 제안을 쓸 수 없었습니다({why})"
 
     def write_sections(self, n: int = 3) -> str:
         from concurrent.futures import ThreadPoolExecutor
@@ -582,11 +582,11 @@ class DemoRun:
         done: list[tuple[str, str]] = []
         failed: list[str] = []
         with ThreadPoolExecutor(max_workers=1) as pool:          # 한 절을 흘려 쓰는 동안 다음 절 초안을 미리 만든다(기다림 줄이기)
-            self.step(f"{todo[0][2:]} — 초안 만드는 중")
+            self.step(f"{todo[0][2:]} 초안 만드는 중")
             fut = pool.submit(self.draft, todo[0], [])
             for i, field in enumerate(todo):
                 text = fut.result()
-                self.step(f"{field[2:]} — 새 절을 만들고 쓰는 중" if field == added else f"{field[2:]} 쓰는 중 ({i + 1}/{len(todo)})")
+                self.step(f"{field[2:]}, 새 절을 만들고 쓰는 중" if field == added else f"{field[2:]} 쓰는 중 ({i + 1}/{len(todo)})")
                 if i + 1 < len(todo):
                     fut = pool.submit(self.draft, todo[i + 1], done + [(field, text)])
                 res = self.hw.write({"field": field, "text": text})
@@ -610,7 +610,7 @@ class DemoRun:
         try:
             msg = self.make_form() if what == "form" else self.write_sections()
         except Exception as e:                                   # 연결 끊김 등 — 화면에 까닭을 남긴다(오류 글은 옮기지 않는다)
-            msg = f"AURA 가 멈췄습니다({type(e).__name__}) — 다시 눌러 주세요."
+            msg = f"AURA 가 멈췄습니다({type(e).__name__}). 다시 눌러 주세요."
         self.db.add_chat(self.sid, "assistant", msg)
         self.step(msg[:120], busy=False)
 

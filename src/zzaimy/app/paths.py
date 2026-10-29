@@ -98,12 +98,12 @@ def writer_baseline() -> Path:
 
 
 LAYOUT = {
-    "documents": "1층 문서 — 반입·첨부·생성·보고",
-    "knowledge/index": "2층 지식 — 조각 임베딩·문서 벡터·질문 색인",
-    "knowledge/eval": "2층 지식 — 검색 품질 측정",
-    "knowledge/exports": "2층 지식 — 외부 이용 묶음",
+    "documents": "1층 문서(반입·첨부·생성·보고)",
+    "knowledge/index": "2층 지식(조각 임베딩·문서 벡터·질문 색인)",
+    "knowledge/eval": "2층 지식(검색 품질 측정)",
+    "knowledge/exports": "2층 지식(외부 이용 묶음)",
     "cache": "재생성 가능한 캐시",
-    "backups": "백업 한 곳 — 조각·색인 스냅샷과 일괄 정리·소급의 되돌리기 기록(옛 backup/ 를 10-19 합침)",
+    "backups": "백업(조각·색인 스냅샷, 일괄 정리·소급의 되돌리기 기록. 옛 backup/ 를 10-19 합침)",
 }
 
 

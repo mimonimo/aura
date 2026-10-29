@@ -152,7 +152,7 @@
       <a class="btn secondary" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 구글 시트·슬라이드·문서로, 한글 파일은 구글 문서로 바꿔 엽니다. PDF·그림은 드라이브 미리보기로 엽니다. 구글에서 고친 내용은 이 화면의 본문에 반영되지 않습니다.">
         <iconify-icon icon="solar:square-top-up-linear"></iconify-icon>구글에서 열기</a>
       {% if hwp_work %}
-      <form action="/doc/{{ doc.id }}/webhwp" method="post" style="margin:0;"><button type="submit" class="btn secondary" title="이 한글 양식을 기안기 작업본으로 — 부서 한글 문서함에 복사하고 쓸 자리를 잡아 기안기로 엽니다">
+      <form action="/doc/{{ doc.id }}/webhwp" method="post" style="margin:0;"><button type="submit" class="btn secondary" title="이 한글 양식을 부서 한글 문서함에 복사해 기안기 작업본으로 열기">
         <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>기안기로 작업</button></form>
       {% endif %}
       {% if doc.doc_type == 'grant' %}
@@ -161,9 +161,9 @@
       {% endif %}
       <button type="button" class="secondary" data-modal-open="#documentManageModal" style="margin-left:auto;">관리</button>
     </div>
-    {% if request.query_params.get('err') == 'webhwp' %}<p class="notice" role="alert">기안기 작업본을 만들지 못했습니다 — {{ request.query_params.get('msg', '') }}</p>{% endif %}
+    {% if request.query_params.get('err') == 'webhwp' %}<p class="notice" role="alert">기안기 작업본을 만들지 못했습니다. {{ request.query_params.get('msg', '') }}</p>{% endif %}
     {% if request.query_params.get('err') in ('receipt', 'receipt_dup') %}
-    <p class="notice" role="alert">{{ '이미 사용하는 접수번호입니다.' if request.query_params.get('err') == 'receipt_dup' else '접수번호 형식을 확인해 주세요. 예: 2026-국고-0004' }} <button type="button" class="btn-ghost" data-modal-open="#receiptEditModal">다시 수정</button></p>
+    <p class="notice" role="alert">{{ '이미 사용하는 접수번호입니다.' if request.query_params.get('err') == 'receipt_dup' else '접수번호 형식을 확인하세요(예: 2026-국고-0004)' }} <button type="button" class="btn-ghost" data-modal-open="#receiptEditModal">다시 수정</button></p>
     {% endif %}
     {% if doc.doc_type not in ('regulation', 'ocr') %}{{ program_meta() }}{% endif %}
     {% if doc.status == "failed" %}
@@ -185,7 +185,7 @@
         <span class="doc-manage-v">{{ doc.filename }}{{ original_ext if original_ext and not doc.filename.lower().endswith(original_ext) else '' }}</span></div>
       {% if can_edit and made_folders %}
       <form action="/doc/{{ doc.id }}/folder" method="post" class="doc-manage-row"><label class="doc-manage-k" for="dmFolder">폴더</label>
-        <select id="dmFolder" name="folder"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept }}</option>{% endfor %}</select>
+        <select id="dmFolder" name="folder"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} ({{ '전체 공개' if f.dept == '공통' else f.dept }})</option>{% endfor %}</select>
         <button type="submit" class="secondary">담기</button>
       </form>{% endif %}
       {% if can_edit and (scope_choices | length > 1 or (doc.dept or '공통') != '공통') %}
@@ -196,7 +196,7 @@
       </form>
       {% else %}
       <div class="doc-manage-row"><span class="doc-manage-k">공개 범위</span>
-        <span class="doc-manage-v">{{ '전체 공개 — 모든 교직원이 찾고 봄' if (doc.dept or '공통') == '공통' else doc.dept ~ ' — 그 부서 사람과 관리자만' }}</span></div>
+        <span class="doc-manage-v">{{ '전체 공개(모든 교직원)' if (doc.dept or '공통') == '공통' else doc.dept ~ '(부서원과 관리자만)' }}</span></div>
       {% endif %}
     </div>
     <div class="document-form-actions doc-manage-actions">
@@ -253,11 +253,11 @@
       <div class="document-analysis-meta">{{ program_meta(false) }}</div>
       {% endif %}
       {% if analyzing %}
-      <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }} — 끝나면 자동 갱신됩니다.</span></p>
+      <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }}. 끝나면 자동 갱신됩니다.</span></p>
       {% elif doc.coverage and doc.coverage.startswith("맥락 분석 실패") %}
       {# 예외 이름(APIConnectionError 등)은 담당자에게 뜻이 없다 — 상태만 알린다 #}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>
-        {{ "요약" if doc.doc_type == "regulation" else "분석" }} 대기 — AI 모델 서버가 연결되면 만들 수 있습니다.</span></p>
+        {{ "요약" if doc.doc_type == "regulation" else "분석" }} 대기. 모델 서버가 연결되면 만듭니다.</span></p>
       {% endif %}
       {% if has_analysis %}
       <div class="draft-body">{{ doc.ai_review | md_view }}</div>
@@ -298,7 +298,7 @@
       {% endif %}</h2>
     {% if not doc.ai_review or "검토 의견 생성 대기" in doc.ai_review %}
     <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>
-      검토 의견은 아직 없지만 색인·분류는 끝났습니다. 직접 판정할 수 있습니다.</span></p>
+      검토 의견은 아직 없음. 색인·분류는 끝나 직접 판정하면 됩니다.</span></p>
     {% endif %}
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <form action="/doc/{{ doc.id }}/decision" method="post">

@@ -165,7 +165,7 @@
   var suggestCache = {};
   function emptyState() {
     var box = document.createElement("div"); box.className = "ag-empty";
-    var hi = document.createElement("p"); hi.className = "ag-hi"; hi.textContent = "무엇을 도와드릴까요?";
+    var hi = document.createElement("p"); hi.className = "ag-hi"; hi.textContent = "무엇을 할까요?";
     var chips = document.createElement("div"); chips.className = "ag-chips";
     box.appendChild(hi); box.appendChild(chips); body.appendChild(box);
     var page = location.pathname;
@@ -224,7 +224,7 @@
       if (p.kind === "go" && p.reported && !steps.some(function (x) { return x.final && !x.ok; })) return;
       var box = document.createElement("div"); box.className = "ag-msg assistant ag-proposal";
       var plan = document.createElement("div"); plan.className = "ag-plan";
-      plan.textContent = (p.kind === "go" ? "" : "이렇게 하겠습니다 — ") + p.plan;
+      plan.textContent = (p.kind === "go" ? "" : "할 일: ") + p.plan;
       var row = document.createElement("div"); row.className = "ag-acts";
       if (p.kind !== "go") {
         var run = document.createElement("button"); run.type = "button"; run.textContent = "실행";
@@ -413,7 +413,7 @@
         // 답을 기다리는 동안 적은 다음 질문도 버리지 않는다
         input.value = q + (input.value ? "\n\n" + input.value : "");
         setQuote(sentQuote); grow(); paint();
-        var er = bubble("assistant", error && error.said ? error.said + " — 입력은 그대로 두었습니다." :
+        var er = bubble("assistant", error && error.said ? error.said + " 입력은 그대로 두었습니다." :
           "보내지 못했습니다. 입력은 그대로 두었으니 잠시 뒤 다시 보내 주세요.", "ag-err");
         er.setAttribute("role", "status"); follow(true); input.focus();
       });
@@ -701,21 +701,21 @@
       }
       var st = seg.steps[seg.at];
       waitFor(st, function (hit) {
-        if (!hit) { stop(q, seg, "missing", (st.what || "가리킬 자리") + " — 찾지 못함"); return; }
+        if (!hit) { stop(q, seg, "missing", (st.what || "가리킬 자리") + "을(를) 찾지 못함"); return; }
         var field = isField(hit), pick = hit.tagName === "SELECT";
         var what = st.what || nameOf(hit), label;
         if (field) { what = what.replace(/ 채우기$/, ""); label = (/칸$/.test(what) ? what : what + " 칸") + "에 입력 중"; }
         else if (pick) label = what.replace(/ 고르기$/, "") + " 고르는 중";
         else label = "「" + (st.text || nameOf(hit)) + "」 누르는 중";
-        point(hit, st.ok ? label : nameOf(hit) + " — 직접 눌러 주세요", function (h) {
+        point(hit, st.ok ? label : nameOf(hit) + ": 직접 누르세요", function (h) {
           if (!st.ok) { stop(q, seg, st.final ? "pointed" : "blocked", ""); return; }
-          if (h.disabled || h.getAttribute("aria-disabled") === "true") { stop(q, seg, "disabled", nameOf(h) + " — 지금은 누를 수 없음"); return; }
+          if (h.disabled || h.getAttribute("aria-disabled") === "true") { stop(q, seg, "disabled", nameOf(h) + ": 지금은 꺼져 있음"); return; }
           if (field) { typeInto(h, st.text, function () { done(q, seg, "typed", h); }); return; }
           if (pick) { done(q, seg, choose(h, st.text) ? "picked" : "missing", h); return; }
           // 보안: 화면에서도 한 번 더 — 제출 단추·POST 폼 단추·마지막 단추 표시는 서버가 허락한 마지막 단계(final+ok)만 누른다
           var submitLike = h.matches("[data-aura-final], [type=submit], form button:not([type=button])") || (h.closest('form[method="post" i]') && h.matches("button, input"));
-          if (submitLike && !st.final) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
-          if (!submitLike && !h.matches("[data-modal-open], a[href], [data-aura], [data-aura-c], [data-om-find], [data-org-add]")) { stop(q, seg, "blocked", nameOf(h) + " — 직접 눌러 주세요"); return; }
+          if (submitLike && !st.final) { stop(q, seg, "blocked", nameOf(h) + ": 직접 누르세요"); return; }
+          if (!submitLike && !h.matches("[data-modal-open], a[href], [data-aura], [data-aura-c], [data-om-find], [data-org-add]")) { stop(q, seg, "blocked", nameOf(h) + ": 직접 누르세요"); return; }
           seg.at++; seg.res.push({ step: st.i, result: "clicked" });
           save(q, true);                             // 누른 단추가 화면을 옮기면 새 화면에서 남은 단계를 잇는다
           h.click();

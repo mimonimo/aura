@@ -34,7 +34,7 @@ def team_google_client(request: Request, client_id: str = Form(""), client_secre
         gdrive.set_client(client_id, client_secret)
     except ValueError as e:
         return _users_redirect(str(e), ok=False)
-    return _users_redirect("Google 앱 등록을 저장했습니다 — 사용자는 설정에서 학교 계정을 연결합니다")
+    return _users_redirect("Google 앱 등록을 저장했습니다. 사용자는 설정에서 학교 계정을 연결합니다")
 
 
 @router.get("/dev/gdrive/callback")
@@ -69,4 +69,4 @@ def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error
     from zzaimy.ingest import gdrive_files
 
     gdrive_files.bind_account(request.app.state.db, getattr(request.state, "user", ""), email)   # 허용을 누른 계정에 묶인다
-    return done(f"구글 계정 {email} 을 연결했습니다 — 이 플랫폼 계정의 문서는 그 드라이브에 만들어집니다")
+    return done(f"구글 계정 {email} 을 연결했습니다. 이 계정의 문서는 그 드라이브에 만들어집니다")

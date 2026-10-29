@@ -213,7 +213,7 @@ def test_sheet_fill_scope(world):
     boss = _client(app, "boss")                                   # 기획처 총괄 책임자
     assert "data-pa-sheet" in boss.get("/programs/admin").text
     r = _upload(boss, x24)
-    assert r.status_code == 200 and "다른 부서 사업 — 건너뜀" in r.text and "우리 부서 사업 줄만" in r.text
+    assert r.status_code == 200 and "건너뛴 다른 부서 사업" in r.text and "우리 부서 사업 줄만" in r.text
     token = r.text.split('name="token" value="')[1].split('"')[0]
     loc = boss.post("/programs/admin/sheet/apply", data={"token": token}, follow_redirects=False).headers["location"]
     assert "done=" not in loc                                     # 되돌리기는 관리자만

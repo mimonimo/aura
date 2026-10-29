@@ -22,17 +22,17 @@
 </style>
 
 <section class="card"><div class="card-in">
-  <h2 id="intake"><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>반입 점검 — 학교 원본에서 라이브러리까지
+  <h2 id="intake"><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>반입 점검: 학교 원본에서 라이브러리까지
     <a href="/dev/archive" class="h-link">{{ dev_page_name('/dev/archive') }}</a></h2>
   {% if not p %}
   <p class="muted">점검 결과 없음 · 동기화 때 자동으로 점검합니다</p>
   {% else %}
   <p class="ik-line" style="margin-top:0;">
     <span>{{ metric_label("archive_originals", live.at, "학교 원본") }} <b>{{ lg.originals|num }}</b></span>
-    <span class="muted">자동 — 점검은 동기화 때마다, 빠진 원본 다시 들이기는 매일 04:30 · 마지막 점검 {{ p.at }}</span>
+    <span class="muted">자동. 점검은 동기화 때마다, 빠진 원본 다시 들이기는 매일 04:30 · 마지막 점검 {{ p.at }}</span>
   </p>
   {# 자동 작업이 도는지 한 줄로 — 따로 「최근 실행」 표를 두던 것(10-26 「이건 왜 있으며」) #}
-  <p class="muted ik-sum">마지막 실행 — {% for k, label in [("parsed", "결과 받기"), ("index", "색인"), ("full", "장부 맞추기"), ("graph", "그래프")] %}{{ label }} {{ ((p.sync.get(k) or {}).get("at", "") or "기록 없음")[-5:] }}{% if k == "graph" and p.sync_text.get("graph") %}({{ p.sync_text.get("graph") }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <p class="muted ik-sum">마지막 실행: {% for k, label in [("parsed", "결과 받기"), ("index", "색인"), ("full", "장부 맞추기"), ("graph", "그래프")] %}{{ label }} {{ ((p.sync.get(k) or {}).get("at", "") or "기록 없음")[-5:] }}{% if k == "graph" and p.sync_text.get("graph") %}({{ p.sync_text.get("graph") }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</p>
   <p class="muted ik-sum">처리 안 함 {{ (lg.total - lg.originals)|num }} · 따로 모은 파일 {{ lg.cleaned|num }} · 변환 중간 파일 {{ lg.byproduct|num }}{% if lg.platform %} · 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% if p.dgx_listing is not none %} · DGX 목록 {{ p.dgx_listing|num }}{% endif %}</p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
   {% endif %}

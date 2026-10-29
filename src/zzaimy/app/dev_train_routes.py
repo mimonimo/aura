@@ -231,9 +231,9 @@ def dev_train_ls_password(request: Request, new_pw: str = Form(...), confirm: st
         return _train_redirect(request, "비밀번호 확인이 일치하지 않습니다", ok=False)
     ok, msg = ls_admin.set_password(new_pw)
     if not ok:
-        return _train_redirect(request, f"Label Studio 비밀번호 재설정 실패 — {msg}", ok=False)
+        return _train_redirect(request, f"Label Studio 비밀번호 재설정 실패: {msg}", ok=False)
     return _train_redirect(
-        request, "Label Studio 비밀번호를 재설정했습니다 — 새 비밀번호로 로그인하세요")
+        request, "Label Studio 비밀번호를 재설정했습니다. 새 비밀번호로 로그인하세요")
 
 
 @router.post("/dev/train/url")

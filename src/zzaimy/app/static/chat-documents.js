@@ -248,7 +248,7 @@
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
  async function connect(){const d=dialog('드라이브에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
  try{const data=await api('/api/chat-documents/accounts');if(!d.isConnected)return;
- fields.innerHTML='<label>구글 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">구글 문서를 선택하면 이 대화에서 작업할 수 있습니다. 다른 형식은 문서 추가를 이용해 주세요. 원본은 이동하거나 삭제하지 않습니다.</p>';
+ fields.innerHTML='<label>구글 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">고른 구글 문서를 이 대화에서 작업합니다. 다른 형식은 문서 추가로. 원본은 옮기거나 지우지 않습니다.</p>';
  data.accounts.filter(a=>a.docs_ok).forEach(a=>{const o=document.createElement('option');o.value=a.email;o.textContent=a.email;fields.querySelector('select').append(o);});
  if(!fields.querySelector('option')){fields.replaceChildren();status.textContent='문서 편집 권한이 있는 연결 계정이 없습니다.';const a=document.createElement('a');a.href=opener.dataset.connections;a.textContent='계정 연결 설정';fields.append(a);submit.hidden=true;return;}
  const account=f.elements.account,list=fields.querySelector('.drive-picker-list'),path=fields.querySelector('.drive-picker-path');
@@ -310,11 +310,11 @@
    }
    frame.hidden=true;box.hidden=false;
    box.innerHTML='<div class="chat-doc-hwp-card"><iconify-icon icon="solar:document-add-linear" aria-hidden="true"></iconify-icon><strong>이 대화에 한글 문서가 없습니다</strong>'
-     +'<p>부서 폴더나 구글 드라이브의 한글 파일을 가져와 바로 편집하거나, 지금 구글 작업본을 원본 서식(한글)에 채워 한글 문서로 만들 수 있습니다.</p>'
+     +'<p>부서 폴더·구글 드라이브의 한글 파일을 가져와 편집하거나, 지금 구글 작업본을 원본 서식(한글)에 채워 한글 문서로 만듭니다.</p>'
      +'<div class="chat-doc-hwp-actions"><button type="button" data-hwp-pick>파일 가져오기</button><button type="button" class="secondary" data-hwp-make>구글 작업본을 한글로</button></div><p role="status" data-hwp-msg></p></div>';
    box.querySelector('[data-hwp-pick]').onclick=openFinder;
    const btn=box.querySelector('[data-hwp-make]'), msg=box.querySelector('[data-hwp-msg]');
-   const wait=()=>{msg.textContent='만드는 중… 끝나면 대화에도 결과가 남습니다';btn.disabled=true;hwpPoll=setInterval(async()=>{const s2=await api('/api/chat/'+sid+'/hwp').catch(()=>null);if(s2&&s2.file){clearInterval(hwpPoll);hwpPoll=null;pickEditor('webhwp',s2);}else if(s2&&!s2.busy){clearInterval(hwpPoll);hwpPoll=null;btn.disabled=false;msg.textContent='만들지 못했습니다 — 대화의 안내를 확인해 주세요';}},3000);};
+   const wait=()=>{msg.textContent='만드는 중. 결과는 대화에도 남습니다';btn.disabled=true;hwpPoll=setInterval(async()=>{const s2=await api('/api/chat/'+sid+'/hwp').catch(()=>null);if(s2&&s2.file){clearInterval(hwpPoll);hwpPoll=null;pickEditor('webhwp',s2);}else if(s2&&!s2.busy){clearInterval(hwpPoll);hwpPoll=null;btn.disabled=false;msg.textContent='만들지 못했습니다. 대화의 안내를 보세요';}},3000);};
    if(st&&st.busy)wait();
    btn.onclick=async()=>{try{await api('/api/chat/'+sid+'/hwp/export',{method:'POST'});wait();}catch(e){msg.textContent=e.message;}};
  }
@@ -664,7 +664,7 @@
      connectButton.onclick=()=>editorKind==='webhwp'?openFinder():connect();workDocs.after(connectButton);
      connectButton.classList.add('chat-file-import');
      const tidy=()=>{workDocs.querySelectorAll(':scope>.chat-file-empty').forEach(x=>x.remove());countHeading(workHeading,'작업 문서',workDocs.querySelectorAll('.chat-doc-file').length);
-       if(!workDocs.querySelector('.chat-doc-file'))workDocs.append(elx('p','chat-file-empty','아직 작업 문서가 없습니다 — 「파일 가져오기」로 부서 폴더나 드라이브의 문서를 고르거나, 대화에서 문서를 쓰자고 하면 AURA 가 양식으로 만듭니다.'));
+       if(!workDocs.querySelector('.chat-doc-file'))workDocs.append(elx('p','chat-file-empty','작업 문서 없음. 「파일 가져오기」로 부서 폴더·드라이브 문서를 고르거나 대화에서 문서를 쓰자고 하면 AURA 가 양식으로 만듭니다.'));
        if(workDocs.dataset.driveError&&!workDocs.querySelector('.chat-file-note-soft'))workDocs.append(elx('p','chat-file-note-soft','구글 드라이브 작업 문서를 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.'));
        workNote.hidden=!workDocs.querySelector('.chat-doc-file');};
      workDocs.addEventListener('hwp-painted',tidy);tidy();

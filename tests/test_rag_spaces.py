@@ -128,7 +128,7 @@ def test_rag_page_sections(tmp_path):
     assert "문서 없는 부서" in r.text and 'data-comp=' not in r.text and "구성 보기" not in r.text
     assert "합계 사업 문서" not in r.text                                      # 표 아래 합계 문장 없음
     # 학생 공간이 비면 그 줄에 안내와 지정 링크(학생 공개 지정은 라이브러리 「기준」 칩)
-    assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="/?type=all&amp;use=criteria"' in r.text
+    assert "학생 공개 규정 없음(학생 계정이 찾을 문서 없음)" in r.text and 'href="/?type=all&amp;use=criteria"' in r.text
     # 계정별 추가 권한(겸직 부서)은 사용자·계정 편집 창 한 곳 — 여기는 한 줄 안내(10-26)
     assert 'id="rgGrantTable"' not in r.text and 'href="/team"' in r.text
     assert 'id="student-regs"' not in r.text and "/dev/rag/regs" not in r.text     # 규정 관리는 라이브러리로 옮겼다(10-27)

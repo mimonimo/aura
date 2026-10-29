@@ -108,7 +108,7 @@
           <b>학생 RAG</b>
           <span class="l">학생 공개 규정 <span data-stu="reg_docs">{{ "{:,}".format(s.reg_docs) }}</span>건 · 조각 <span data-stu="reg_chunks">{{ "{:,}".format(s.reg_chunks) }}</span></span>
           <span class="l">학생 계정 {{ s.members|length }}명</span>
-          <span class="w" data-stu-empty{% if s.reg_docs %} hidden{% endif %}>학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다 · <a href="/?type=all&amp;use=criteria">기준 문서에서 학생 공개 지정</a></span>
+          <span class="w" data-stu-empty{% if s.reg_docs %} hidden{% endif %}>학생 공개 규정 없음(학생 계정이 찾을 문서 없음) · <a href="/?type=all&amp;use=criteria">기준 문서에서 학생 공개 지정</a></span>
         </div>
       </div>
 

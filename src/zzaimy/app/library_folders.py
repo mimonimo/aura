@@ -73,7 +73,7 @@ def create(db, data_dir: Path, name: str, dept: str, by: str = "", allowed: list
     if not _NAME.match(name):
         return None, "폴더 이름은 1~40자의 한글·영문·숫자로 적습니다"
     if dept != "공통" and dept not in (allowed if allowed is not None else rag_spaces.known_depts(_cfg(data_dir), {})):
-        return None, f"없는 부서 RAG: {dept} — RAG 공간에서 먼저 만듭니다"
+        return None, f"없는 부서 RAG: {dept}. RAG 공간에서 먼저 만듭니다"
     if name in {f["name"] for f in folders(db, data_dir)}:
         return None, f"「{name}」 폴더가 이미 있습니다"
     with db._conn() as conn:

@@ -208,7 +208,7 @@ def test_program_admin_permissions(world):
     page = dev.get("/programs/admin").text
     assert "가나다 혁신사업" in page and "라마바 지원사업" not in page and "사업 아닌 것" not in page   # 현행(올해 진행)
     past = dev.get("/programs/admin?tab=past").text
-    assert "라마바 지원사업" in past and "data-pa-new>" not in past and "확인용" in past             # 지난 사업은 읽기만
+    assert "라마바 지원사업" in past and "data-pa-new>" not in past and "끝난 사업(읽기만)" in past             # 지난 사업은 읽기만
     assert "data-pa-new>" in page and "교육부 재정지원" in page
     assert _client(app, "plain").get("/programs/admin").status_code == 403
     assert _client(app, "plain").post("/programs/admin/save", data={"key": "x"}).status_code == 403

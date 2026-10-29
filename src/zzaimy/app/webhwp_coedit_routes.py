@@ -60,7 +60,7 @@ def _editable(request: Request, fid: int) -> dict:
     공통 양식은 모두의 한글 완성본이 원본 서식으로 쓰는 파일이라, 관리자가 고칠 때는 문서 전체 잠금(편집 화면의 필드 없는 문서와 같은 길)으로만."""
     f = _readable(request, fid)
     if webhwp.locked(request.app.state.db, fid):
-        raise HTTPException(403, "공통 양식은 칸 공동 편집으로 고치지 않습니다 — 「사본 만들기」로 사본을 만들어 쓰세요")
+        raise HTTPException(403, "공통 양식은 칸 공동 편집으로 고치지 않습니다. 「사본 만들기」로 사본을 만들어 쓰세요")
     _not_view_only(request, fid)
     return f
 
@@ -123,7 +123,7 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
     wake = asyncio.Event()
     me = _user(request)
     if ce.HUB.count(fid, me) >= STREAMS_PER_USER:
-        raise HTTPException(429, "이 문서를 연 창이 너무 많습니다 — 쓰지 않는 창을 닫아 주세요")
+        raise HTTPException(429, "이 문서를 연 창이 너무 많습니다. 쓰지 않는 창을 닫아 주세요")
     names: dict = {}
 
     async def stream():

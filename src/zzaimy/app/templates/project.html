@@ -11,7 +11,7 @@
 <form id="intakeForm" action="/project/{{ project.id }}/bundle" method="post" enctype="multipart/form-data" hidden>
   <input type="file" name="file" id="intakeFile" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.tif,.tiff,.txt,.md">
 </form>
-{% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 첨부 문서 {{ received[-1] }}건. 본문을 읽고 열람 화면을 준비하는 중이며, 끝나면 상태가 「처리 완료」로 바뀝니다.</span></p>{% endif %}
+{% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다(기준 문서 {{ received[0] }}건, 첨부 문서 {{ received[-1] }}건). 본문을 읽는 중이며 끝나면 상태가 「처리 완료」로 바뀝니다.</span></p>{% endif %}
 <section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
 {% if (can_edit or my_access == 'edit') and not project.archived %}
 <div class="project-chat-row project-start">
@@ -91,7 +91,7 @@
       {% endfor %}
     </ul>
     {% if can_add %}<form action="/project/{{ project.id }}/notes" method="post" class="pn-add">
-      <input type="text" name="content" id="noteInput" maxlength="300" required autocomplete="off" aria-label="원칙 추가" placeholder="원칙 추가 — 예: 근거 조항 함께 적기">
+      <input type="text" name="content" id="noteInput" maxlength="300" required autocomplete="off" aria-label="원칙 추가" placeholder="원칙 추가(예: 근거 조항 함께 적기)">
       <button type="submit" class="secondary" id="noteSave" disabled>추가</button>
     </form>{% endif %}
   </div>
@@ -111,7 +111,7 @@
     {% if project_chats %}
     <div class="project-conversations">
       {% for cs in project_chats %}
-      {% set cs_title = cs.title | chat_title(project.name) %}{% set own_chat = cs.owner == request.state.user %}<div class="project-conversation-row"><a class="project-conversation" href="/chat/{{ cs.id }}{{ '' if own_chat else '/read' }}" title="{{ cs_title }}"><iconify-icon icon="solar:{{ 'lock-keyhole' if cs.is_private else 'chat-line' }}-linear"{% if cs.is_private %} title="비공개 — 본인만 봅니다"{% endif %}></iconify-icon><span>{{ cs_title }}</span>{% if not own_chat %}<span class="muted" style="font-size:12px; flex:none;">{{ person_name(cs.owner) }} · 읽기 전용</span>{% endif %}<iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>{% if own_chat %}<form action="/chat/{{ cs.id }}/private" method="post" class="project-conversation-share"><input type="hidden" name="private" value="{{ '0' if cs.is_private else '1' }}"><input type="hidden" name="back" value="/project/{{ project.id }}"><button type="submit" class="secondary" title="{{ '공유받은 사람도 읽을 수 있게 합니다' if cs.is_private else '본인만 보게 합니다' }}">{{ '공개로' if cs.is_private else '비공개로' }}</button></form>{% endif %}</div>
+      {% set cs_title = cs.title | chat_title(project.name) %}{% set own_chat = cs.owner == request.state.user %}<div class="project-conversation-row"><a class="project-conversation" href="/chat/{{ cs.id }}{{ '' if own_chat else '/read' }}" title="{{ cs_title }}"><iconify-icon icon="solar:{{ 'lock-keyhole' if cs.is_private else 'chat-line' }}-linear"{% if cs.is_private %} title="비공개(본인만 봄)"{% endif %}></iconify-icon><span>{{ cs_title }}</span>{% if not own_chat %}<span class="muted" style="font-size:12px; flex:none;">{{ person_name(cs.owner) }} · 읽기 전용</span>{% endif %}<iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>{% if own_chat %}<form action="/chat/{{ cs.id }}/private" method="post" class="project-conversation-share"><input type="hidden" name="private" value="{{ '0' if cs.is_private else '1' }}"><input type="hidden" name="back" value="/project/{{ project.id }}"><button type="submit" class="secondary" title="{{ '공유받은 사람도 읽을 수 있게 합니다' if cs.is_private else '본인만 보게 합니다' }}">{{ '공개로' if cs.is_private else '비공개로' }}</button></form>{% endif %}</div>
       {% endfor %}
     </div>
     {% else %}<p class="project-empty">{% if project.archived %}대화가 없습니다. 보관 해제 뒤 대화를 시작할 수 있습니다.{% elif not can_edit and my_access != 'edit' %}공개된 대화가 없습니다.{% else %}대화가 없습니다. 위 입력줄에서 첫 대화를 시작합니다.{% endif %}</p>{% endif %}
@@ -128,7 +128,7 @@
       {% set hwp = w.kind == 'hwp' %}
       <div class="pw-row" data-kind="{{ w.kind }}">
         <iconify-icon icon="solar:{{ 'document-text' if hwp else 'document-add' }}-linear" aria-hidden="true"></iconify-icon>
-        <span class="pw-main"><span class="pw-name">{% if w.chat_id %}<a href="/chat/{{ w.chat_id }}" title="{{ w.name }} — 대화의 문서 패널에서 고칩니다">{{ w.name }}</a>{% else %}<a href="{{ w.url }}" target="_blank" rel="noopener" title="{{ w.name }}">{{ w.name }}</a>{% endif %}</span>
+        <span class="pw-main"><span class="pw-name">{% if w.chat_id %}<a href="/chat/{{ w.chat_id }}" title="{{ w.name }} (대화의 문서 패널에서 고침)">{{ w.name }}</a>{% else %}<a href="{{ w.url }}" target="_blank" rel="noopener" title="{{ w.name }}">{{ w.name }}</a>{% endif %}</span>
           <span class="pw-meta">{{ '한글' if hwp else '구글' }}{% if w.where %} · {{ w.where }}{% endif %}{% if w.created_at %} · {{ w.created_at[:10] }}{% endif %}</span></span>
         <span class="pw-open">{% if hwp %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 한글 문서로 열기 (새 창)">한글 문서 <span aria-hidden="true">↗</span></a>{% if w.drive_url %}<a class="pw-btn" href="{{ w.drive_url }}" target="_blank" rel="noopener" title="드라이브에 올린 최종본" aria-label="{{ w.name }} 구글 드라이브로 열기 (새 창)">드라이브 <span aria-hidden="true">↗</span></a>{% endif %}{% else %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 구글 문서로 열기 (새 창)">구글 문서 <span aria-hidden="true">↗</span></a>{% endif %}</span>
       </div>
@@ -496,7 +496,7 @@
         }
         xhr = null; cancelBtn.textContent = "취소";
         up.forEach(function (p) { p.r.state.textContent = "실패"; p.r.li.classList.add("is-bad"); });
-        say("올리지 못했습니다" + (d && d.detail ? " — " + d.detail : "") + ". 다시 올려 주세요."); render();
+        say("올리지 못했습니다" + (d && d.detail ? ": " + d.detail : "") + ". 다시 올려 주세요."); render();
       });
       xhr.addEventListener("error", function () { xhr = null; cancelBtn.textContent = "취소"; say("연결이 끊겨 올리지 못했습니다. 다시 올려 주세요."); render(); });
       xhr.addEventListener("abort", function () { reset(); cancelBtn.textContent = "취소"; say("올리기를 멈췄습니다."); });
@@ -547,7 +547,7 @@
               return;
             }
             reset(); cancelBtn.hidden = false;
-            say("가져오지 못했습니다" + (bad.length ? " — " + bad.join(", ") : d.detail ? " — " + d.detail : (d.skipped || []).length ? " — 들일 수 없는 형식: " + d.skipped.join(", ") : "") + ".");
+            say("가져오지 못했습니다" + (bad.length ? ": " + bad.join(", ") : d.detail ? ": " + d.detail : (d.skipped || []).length ? ". 들일 수 없는 형식: " + d.skipped.join(", ") : "") + ".");
           });
       }).catch(function () { reset(); cancelBtn.hidden = false; say("가져오지 못했습니다. 잠시 뒤 다시 해 주세요."); });
     });
@@ -576,7 +576,7 @@
         });
       });
       if (failed && !rows.length) {
-        if (!work.children.length) { st.hidden = false; st.textContent = "작업 문서 목록을 불러오지 못했습니다. 대화의 문서 패널에서 확인해 주세요."; }
+        if (!work.children.length) { st.hidden = false; st.textContent = "작업 문서 목록을 불러오지 못했습니다. 대화의 문서 패널에서 확인하세요."; }
         return;
       }
       if (!failed) work.querySelectorAll('.pw-row[data-kind="gdoc"]').forEach(function (x) { x.remove(); });
@@ -589,7 +589,7 @@
         var line = document.createElement("div"); line.className = "pw-row"; line.dataset.kind = "gdoc";
         var ic = document.createElement("iconify-icon"); ic.setAttribute("icon", "solar:document-add-linear"); ic.setAttribute("aria-hidden", "true");
         var name = document.createElement("span"); name.className = "pw-name";
-        var a = document.createElement("a"); a.href = "/chat/" + row.sid; a.title = nm + " — 대화의 문서 패널에서 고칩니다"; a.textContent = nm; name.appendChild(a);
+        var a = document.createElement("a"); a.href = "/chat/" + row.sid; a.title = nm + " (대화의 문서 패널에서 고침)"; a.textContent = nm; name.appendChild(a);
         var meta = document.createElement("span"); meta.className = "pw-meta"; meta.textContent = "구글";
         var openBox = document.createElement("span"); openBox.className = "pw-open";
         var open = document.createElement("a"); open.className = "pw-btn"; open.href = url; open.target = "_blank"; open.rel = "noopener";

@@ -72,7 +72,7 @@ def test_other_department_share_reaches_project_hwp_work_docs(tmp_path):
     assert san2.post(f"/hwp/{fid}/ops", json={"client": "san2:t", "ops": []}).status_code == 403
     assert san2.post(f"/hwp/{fid}/lock").json() == {"ok": False, "by": "", "readonly": True}
     page = san2.get(f"/webhwpctrl/aura-edit?id={fid}").text
-    assert "readonly = true" in page and f'href="/project/{pid}"' in page and "\\uc77d\\uae30\\ub9cc \\uacf5\\uc720 \\u2014" in page
+    assert "readonly = true" in page and f'href="/project/{pid}"' in page and "\\uc77d\\uae30\\ub9cc \\uacf5\\uc720(" in page
     assert san2.get(f"/hwp/{fid}/coedit").json()["readonly"] is True
     # 거두면 바로 — 목록에서 사라지고 주소로 열어도 404
     _share(cl["lead"], pid, [])

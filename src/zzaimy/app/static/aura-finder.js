@@ -123,7 +123,7 @@
         if(rootName&&!trail.length)crumbs([{name:root}]);
         const at=where;
         let j;try{j=await api('/api/finder/drive?accept='+opts.accept+'&drive='+encodeURIComponent(drive||'')+'&folder='+encodeURIComponent(folder||''));}
-        catch(e){busy(e.status===409?(saving?'학교 구글 계정을 연결하면 드라이브에 저장할 수 있습니다 · 설정 › 구글 계정':'학교 구글 계정을 연결하면 드라이브 파일을 고를 수 있습니다 · 설정 › 구글 계정'):e.message);return;}
+        catch(e){busy(e.status===409?(saving?'드라이브에 저장하려면 학교 구글 계정 연결 · 설정 › 구글 계정':'드라이브 파일을 고르려면 학교 구글 계정 연결 · 설정 › 구글 계정'):e.message);return;}
         if(!d.open)return;list.replaceChildren();
         j.folders.forEach(f=>folderRow(f.name,'폴더',()=>goDrive(drive,f.id,[...trail,f],rootName)));
         j.files.forEach(f=>fileRow({source:'drive',drive_id:f.id,name:f.name,mime:f.mimeType,path:at},[kindOf(f.name,f.mimeType),(f.modifiedTime||'').slice(0,10)].filter(Boolean).join(' · ')));

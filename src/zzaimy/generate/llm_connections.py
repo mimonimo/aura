@@ -191,7 +191,7 @@ def _check_pick(role: str, cid: str) -> None:
     if conn is None:
         raise ValueError("없는 연결입니다")
     if conn.get("external"):
-        raise ValueError("외부 서버는 용도에 지정할 수 없습니다 — 교내 문서는 나가지 않습니다")
+        raise ValueError("외부 서버는 용도에 지정할 수 없습니다. 교내 문서는 나가지 않습니다")
 
 
 def set_role(role: str, cid: str, model: str = "") -> dict:

@@ -153,7 +153,7 @@
       {% if empty %}<tr class="col-more"><td colspan="6"><button type="button" class="btn-ghost" id="colEmptyBtn" aria-expanded="false"
           data-show="비어 있는 항목 {{ empty | length }}개 보기" data-hide="비어 있는 항목 접기">비어 있는 항목 {{ empty | length }}개 보기</button></td></tr>{% endif %}
       {% for s in empty %}
-        <tr class="col-empty" hidden><td class="pick"><input type="checkbox" disabled aria-label="{{ s.name }} — 자료 없음"></td>
+        <tr class="col-empty" hidden><td class="pick"><input type="checkbox" disabled aria-label="{{ s.name }}: 자료 없음"></td>
           <td><b title="있는 곳: {{ s.where }}">{{ s.name }}</b>{% if s.past %} <span class="pill" title="{{ s.past }}" style="font-size:10.5px;">지난 기록</span>{% endif %}<span class="sub">{{ s.desc }}</span></td>
           <td class="hide-sm">{{ s.use }}</td>
           <td class="num">0</td>
@@ -166,13 +166,13 @@
 
 <div class="card reveal" id="collect-made"><div class="card-in">
   <h2><iconify-icon icon="solar:archive-down-linear"></iconify-icon>만든 묶음</h2>
-  {% if running %}<p class="muted" style="font-size:13px;">만드는 중({{ running[0].at }} 시작) — 끝나면 이 목록에 생깁니다. 새로 고침해 확인합니다.</p>{% endif %}
+  {% if running %}<p class="muted" style="font-size:13px;">만드는 중({{ running[0].at }} 시작). 끝나면 이 목록에 생깁니다.</p>{% endif %}
   {% if failed %}<p class="notice">지난 만들기가 실패했습니다({{ failed[0].err }}).</p>{% endif %}
   {% if made %}
   <div class="col-scroll"><table class="col-table">
     <thead><tr><th>파일</th><th class="hide-sm">항목</th><th class="hide-sm">기간</th><th class="num">줄</th><th class="num">크기</th><th></th></tr></thead>
     <tbody>{% for m in made %}
-      <tr><td>{{ m.made_at or m.name }}{% if m.mask_failed %}<span class="sub" style="color:var(--red);">가림 실패 {{ m.mask_failed }}칸 — 「[가림 실패]」로 바뀜</span>{% endif %}</td>
+      <tr><td>{{ m.made_at or m.name }}{% if m.mask_failed %}<span class="sub" style="color:var(--red);">가림 실패 {{ m.mask_failed }}칸(「[가림 실패]」로 바뀜)</span>{% endif %}</td>
         <td class="hide-sm">{{ m.items }}</td><td class="hide-sm">{{ m.period }}</td>
         <td class="num">{{ '{:,}'.format(m.rows) }}</td><td class="num">{{ '{:,.1f}'.format(m.bytes / 1048576) }} MB</td>
         <td><a class="btn secondary" href="/dev/train/collect/file/{{ m.name }}">내려받기</a></td></tr>
@@ -275,7 +275,7 @@
       fetch('/dev/train/collect/peek/' + encodeURIComponent(btn.dataset.peek), {credentials: 'same-origin'})
         .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (d) { row.firstElementChild.innerHTML = render(d); })
-        .catch(function () { loaded = false; row.firstElementChild.innerHTML = '<p class="muted" style="margin:0;">불러오지 못했습니다 — 다시 눌러 주세요.</p>'; });
+        .catch(function () { loaded = false; row.firstElementChild.innerHTML = '<p class="muted" style="margin:0;">불러오지 못했습니다. 다시 누르세요.</p>'; });
     });
   });
 })();
@@ -305,7 +305,7 @@
   {% else %}<p class="muted" style="margin:0; font-size:13px;">Label Studio 에 검수 프로젝트가 없습니다.</p>{% endif %}
   {% if review.can_pull %}<div class="review-actions"><form method="post" action="/dev/train/grounded-pull"><button class="btn-ghost" type="submit"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form></div>{% endif %}
   {% if grounded_review_report %}
-  <p class="tr-line">최근 반영 {{ grounded_review_report.checked_at }} · 확인 {{ grounded_review_report.total }} · 승인 {{ grounded_review_report.approved }} · 보류 {{ grounded_review_report.held }}{% if grounded_review_report.issues %} — {% for reason, count in grounded_review_report.issues.items() %}{{ {'review_missing_or_ambiguous':'검수 누락·충돌', 'review_incomplete':'검수 항목 덜 채움', 'not_accepted':'채택 안 됨', 'source_changed_or_missing':'원문 바뀜·없음', 'history_changed':'앞 대화 바뀜', 'parent_missing':'앞 문답 없음', 'privacy_requires_revision':'개인정보 고칠 것', 'unsupported_number':'근거 없는 수치', 'duplicate_conversation':'중복 문답'}.get(reason, '기록 재확인') }} {{ count }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
+  <p class="tr-line">최근 반영 {{ grounded_review_report.checked_at }} · 확인 {{ grounded_review_report.total }} · 승인 {{ grounded_review_report.approved }} · 보류 {{ grounded_review_report.held }}{% if grounded_review_report.issues %} · {% for reason, count in grounded_review_report.issues.items() %}{{ {'review_missing_or_ambiguous':'검수 누락·충돌', 'review_incomplete':'검수 항목 덜 채움', 'not_accepted':'채택 안 됨', 'source_changed_or_missing':'원문 바뀜·없음', 'history_changed':'앞 대화 바뀜', 'parent_missing':'앞 문답 없음', 'privacy_requires_revision':'개인정보 고칠 것', 'unsupported_number':'근거 없는 수치', 'duplicate_conversation':'중복 문답'}.get(reason, '기록 재확인') }} {{ count }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
   {% endif %}
 </div></section>
 

@@ -77,9 +77,9 @@
      수치는 _data_overview() 의 첫 타일(지표 documents) #}
   {% set t = overview.tiles[0] %}
   <p class="dev-scale">
-    <span title="{{ t.sub }}{% if t.metric %} — {{ metric_tip(t.metric) }}{% endif %}">{{ t.label }} <b>{{ "{:,}".format(t.value) }}</b></span>
+    <span title="{{ t.sub }}{% if t.metric %} ({{ metric_tip(t.metric) }}){% endif %}">{{ t.label }} <b>{{ "{:,}".format(t.value) }}</b></span>
     <span class="muted">{{ t.sub }}</span>
-    <a href="/dev/flow">단계별 수치 — {{ dev_page_name('/dev/flow') }}</a>
+    <a href="/dev/flow">단계별 수치: {{ dev_page_name('/dev/flow') }}</a>
   </p>
 
   {# 문서 수의 단계별 흐름은 처리 흐름 화면의 1·3단계 수치가 정본 — 여기서는 되풀이하지 않는다 #}

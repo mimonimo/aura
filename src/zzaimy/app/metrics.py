@@ -58,44 +58,44 @@ _DEFS = [
     # 원본 관리(/dev/archive) — 원본 장부(archive_files)
     # 원본 장부에는 학교 원본 말고도 플랫폼 사본(반입·첨부 저장본)과 부산물 폴더(그림 추출·웹 페이지 저장 자료)가 함께 있다 — 같은
     # 「원본」이라도 장부 전체·학교 원본·DGX 목록은 다른 집합이라 이름을 따로 둔다(archive_state.original_sql)
-    Metric("archive_files", "원본 장부 파일 수", "원본 장부의 파일 전부 — 학교 원본에 플랫폼 사본·부산물 폴더(그림 추출·웹 페이지 저장 자료)까지, 사진·압축·같은 파일 중복 포함, 지운 파일 제외", "live"),
-    Metric("archive_originals", "학교 원본 수", "학교 원본 폴더의 파일 — 플랫폼 사본·부산물 폴더(그림 추출·웹 페이지 저장 자료)·정리함 제외, 지운 파일 제외(원본 관리가 세는 수). 원본 장부 전체(부산물·정리함 포함)와 다르다", "live"),
-    Metric("archive_failed", "처리 실패 원본 수", "학교 원본 가운데 처리 상태가 실패인 것 — 판독·반입 실패가 원본 장부에 적힌 처리 대상(원본 관리 「실패」)", "live"),
-    Metric("dgx_listing", "DGX 원본 목록 수", "마지막 원본 동기화 때 DGX 원본 폴더 목록의 파일 — 변환 부산물 포함, 플랫폼 사본 제외", "sync"),
+    Metric("archive_files", "원본 장부 파일 수", "원본 장부의 파일 전부. 학교 원본에 플랫폼 사본·부산물 폴더(그림 추출·웹 페이지 저장 자료)까지, 사진·압축·같은 파일 중복 포함, 지운 파일 제외", "live"),
+    Metric("archive_originals", "학교 원본 수", "학교 원본 폴더의 파일. 플랫폼 사본·부산물 폴더(그림 추출·웹 페이지 저장 자료)·정리함 제외, 지운 파일 제외(원본 관리가 세는 수). 원본 장부 전체(부산물·정리함 포함)와 다르다", "live"),
+    Metric("archive_failed", "처리 실패 원본 수", "학교 원본 가운데 처리 상태가 실패인 것. 판독·반입 실패가 원본 장부에 적힌 처리 대상(원본 관리 「실패」)", "live"),
+    Metric("dgx_listing", "DGX 원본 목록 수", "마지막 원본 동기화 때 DGX 원본 폴더 목록의 파일. 변환 부산물 포함, 플랫폼 사본 제외", "sync"),
     Metric("archive_unique", "중복 제외 원본 수", "같은 파일 묶음마다 대표 하나만 센 원본 장부 파일", "live"),
-    Metric("archive_linked", "원본 연결 수", "라이브러리 문서와 이어진 원본 파일 — 한 문서에 원본이 여럿이면 각각 셈", "live"),
+    Metric("archive_linked", "원본 연결 수", "라이브러리 문서와 이어진 원본 파일. 한 문서에 원본이 여럿이면 각각 셈", "live"),
     Metric("archive_removed", "지운 원본 수", "원본 장부에 남아 있지만 보관소에서 지워진 파일", "live"),
     # 라이브러리 — documents
-    Metric("documents", "등록 문서 수", "라이브러리에 등록된 문서 전부 — 모든 업무·처리 상태, 열람 권한과 무관", "live"),
+    Metric("documents", "등록 문서 수", "라이브러리에 등록된 문서 전부. 모든 업무·처리 상태, 열람 권한과 무관", "live"),
     Metric("documents_light", "DGX 보관 문서 수", "원본을 DGX 에 두고 처리 결과만 들인 등록 문서(가벼운 처리)", "live"),
     Metric("documents_full", "원본 반입·업로드 문서 수", "원본 파일까지 플랫폼에 들어온 등록 문서", "live"),
     Metric("documents_reviewed", "처리 완료 문서 수", "등록 문서 가운데 처리(판독·조각·검토)가 끝난 것", "live"),
-    Metric("documents_visible", "열람 가능 등록 문서", "지금 계정이 볼 수 있는 등록 문서 — 선택한 업무·조건 적용", "view"),
-    Metric("documents_use_criteria", "기준 쓰임 문서", "열람 가능 등록 문서 가운데 갈래가 공고·지침·규정·심사 기준·기본계획이거나 규정 색인에 든 것 — 선택한 업무·검색어 적용(라이브러리 「기준」 칩)", "view"),
-    Metric("documents_use_work", "작성·결과 문서", "열람 가능 등록 문서 가운데 기준 쓰임이 아닌 것 — 계획서·보고서·양식·현황표·분류 전 등, 선택한 업무·검색어 적용(라이브러리 「작성·결과」 칩)", "view"),
-    Metric("grant_reviewed", "처리 완료 사업 문서 수", "사업 문서(국고) 가운데 처리 완료된 것 — 검색 범위(RAG 공간)가 세는 집합", "live"),
-    Metric("grant_regulation_kind", "규정 갈래 사업 문서 수", "처리 완료 사업 문서 가운데 서류 갈래가 규정인 것 — 사업 문서 검색으로 찾음, 규정 색인과 별개", "live"),
-    Metric("student_regulations", "학생 공개 규정 수", "처리 완료 규정 문서(기준 문서) 가운데 학생 공개로 지정된 것 — 학생 계정 검색의 대상", "live"),
+    Metric("documents_visible", "열람 가능 등록 문서", "지금 계정이 볼 수 있는 등록 문서. 선택한 업무·조건 적용", "view"),
+    Metric("documents_use_criteria", "기준 쓰임 문서", "열람 가능 등록 문서 가운데 갈래가 공고·지침·규정·심사 기준·기본계획이거나 규정 색인에 든 것. 선택한 업무·검색어 적용(라이브러리 「기준」 칩)", "view"),
+    Metric("documents_use_work", "작성·결과 문서", "열람 가능 등록 문서 가운데 기준 쓰임이 아닌 것. 계획서·보고서·양식·현황표·분류 전 등, 선택한 업무·검색어 적용(라이브러리 「작성·결과」 칩)", "view"),
+    Metric("grant_reviewed", "처리 완료 사업 문서 수", "사업 문서(국고) 가운데 처리 완료된 것. 검색 범위(RAG 공간)가 세는 집합", "live"),
+    Metric("grant_regulation_kind", "규정 갈래 사업 문서 수", "처리 완료 사업 문서 가운데 서류 갈래가 규정인 것. 사업 문서 검색으로 찾음, 규정 색인과 별개", "live"),
+    Metric("student_regulations", "학생 공개 규정 수", "처리 완료 규정 문서(기준 문서) 가운데 학생 공개로 지정된 것. 학생 계정 검색의 대상", "live"),
     # 프로젝트 — 진행 중 프로젝트와 보관된 지난 사업(사업·연도 묶음)은 같은 표에 있지만 다른 집합이다
-    Metric("projects_active", "프로젝트 수", "진행 중인 프로젝트(보관되지 않은 것) — 사이드바·업무 화면의 프로젝트", "live"),
-    Metric("projects_archived", "지난 사업 묶음 수", "보관된 지난 사업 — 학교 원본에서 사업·연도별로 묶어 둔 것", "live"),
+    Metric("projects_active", "프로젝트 수", "진행 중인 프로젝트(보관되지 않은 것). 사이드바·업무 화면의 프로젝트", "live"),
+    Metric("projects_archived", "지난 사업 묶음 수", "보관된 지난 사업. 학교 원본에서 사업·연도별로 묶어 둔 것", "live"),
     # 조각·색인
-    Metric("grant_chunks", "사업 문서 조각 수", "처리 완료 사업 문서의 본문·표·그림 글 조각 — 검색 색인에 들어갈 대상", "live"),
-    Metric("embedding_index", "임베딩 색인 조각 수", "사업 문서 임베딩 색인에 들어간 조각 — 색인을 마지막으로 만든 때 기준", "index"),
+    Metric("grant_chunks", "사업 문서 조각 수", "처리 완료 사업 문서의 본문·표·그림 글 조각. 검색 색인에 들어갈 대상", "live"),
+    Metric("embedding_index", "임베딩 색인 조각 수", "사업 문서 임베딩 색인에 들어간 조각. 색인을 마지막으로 만든 때 기준", "index"),
     Metric("embedding_pending", "색인 대기 조각 수", "사업 문서 조각 수에서 임베딩 색인 조각 수를 뺀 것", "live"),
     Metric("regulation_chunks", "규정 색인 조각 수", "기준 문서(규정·지침)를 문단 단위로 자른 규정 검색 조각", "live"),
     Metric("regulation_docs", "규정 색인 문서 수", "규정 조각이 하나라도 있는 기준 문서", "live"),
     # 그래프·개체
-    Metric("entities", "문서에서 뽑은 개체 수", "문서에서 뽑은 사업·부서·연도 이름(entities 표) — 지식그래프와 별개", "live"),
-    Metric("graph_nodes", "그래프 노드 수", "지식그래프 저장소(kg_nodes)의 노드 전부 — 사업·연차·문서·절·지표", "live"),
+    Metric("entities", "문서에서 뽑은 개체 수", "문서에서 뽑은 사업·부서·연도 이름(entities 표). 지식그래프와 별개", "live"),
+    Metric("graph_nodes", "그래프 노드 수", "지식그래프 저장소(kg_nodes)의 노드 전부. 사업·연차·문서·절·지표", "live"),
     Metric("graph_edges", "그래프 관계 수", "지식그래프 저장소(kg_edges)의 관계 전부", "live"),
     Metric("graph_doc_nodes", "그래프 문서 노드 수", "지식그래프에 들어간 문서 노드", "live"),
     # 학습 데이터
-    Metric("dataset_pairs", "학습 데이터쌍", "데이터 묶음에 담긴 문답 쌍 — 검수 전 후보 포함, 학습 승인과 별개", "live"),
+    Metric("dataset_pairs", "학습 데이터쌍", "데이터 묶음에 담긴 문답 쌍. 검수 전 후보 포함, 학습 승인과 별개", "live"),
     # 반입 연동 점검(scripts/175)
     Metric("audit_targets", "처리 대상 문서 수", "원본 가운데 문서 형식·부산물 폴더 밖·범위 안(지출·증빙 제외)·중복 아님인 파일", "audit"),
     Metric("audit_in_library", "처리 대상 중 라이브러리 반영", "처리 대상 문서 가운데 라이브러리 문서로 들어온 것", "audit"),
-    Metric("audit_failed", "처리 대상 중 실패", "처리 대상 문서 가운데 판독에 실패해 실패 장부에 사유가 남은 것 — 원본 관리 「실패」와 같은 집합, 실패가 원본 장부에 아직 옮겨 적히지 않은 만큼 더 많을 수 있음", "audit"),
+    Metric("audit_failed", "처리 대상 중 실패", "처리 대상 문서 가운데 판독에 실패해 실패 장부에 사유가 남은 것. 원본 관리 「실패」와 같은 집합, 실패가 원본 장부에 아직 옮겨 적히지 않은 만큼 더 많을 수 있음", "audit"),
     Metric("audit_waiting", "처리 대상 중 대기", "들어오거나 바뀐 지 6시간이 안 돼 아직 결과가 없는 것", "audit"),
     Metric("audit_missed", "처리 대상 중 놓침", "들어오거나 바뀐 지 6시간이 넘었는데 결과가 없는 것", "audit"),
     Metric("audit_graph_docs", "그래프 대상 사업 문서 수", "처리 완료 사업 문서에서 범위 밖 갈래(지출·계약 증빙)를 뺀 것", "audit"),
@@ -104,12 +104,12 @@ _DEFS = [
     Metric("audit_embedding_index", "임베딩 색인 조각 수(점검 시)", "사업 문서 임베딩 색인에 들어간 조각", "audit"),
     Metric("audit_lexical_index", "어휘 색인 조각 수(점검 시)", "사업 문서 어휘(낱말) 색인에 들어간 조각", "audit"),
     # 개인정보
-    Metric("pii_subjects", "마스킹 대상 문서 수", "마스킹 정책 대상 유형의 등록 문서 — 처리 상태 무관", "live"),
+    Metric("pii_subjects", "마스킹 대상 문서 수", "마스킹 정책 대상 유형의 등록 문서. 처리 상태 무관", "live"),
     Metric("pii_recorded", "마스킹 기록 있는 문서", "마스킹 대상 가운데 가린 기록이 남은 문서", "live"),
     Metric("pii_unrecorded", "처리 완료·기록 없는 문서", "마스킹 대상 가운데 처리는 끝났는데 가린 기록이 없는 문서(기록 기능 도입 전 처리분)", "live"),
-    Metric("pii_scan_chunks", "잔여 검사 조각 수", "잔여 검사가 훑은 조각 — 사업 문서의 모든 갈래 조각 + 규정 조각", "scan"),
+    Metric("pii_scan_chunks", "잔여 검사 조각 수", "잔여 검사가 훑은 조각. 사업 문서의 모든 갈래 조각 + 규정 조각", "scan"),
     # 품질 측정
-    Metric("eval_chunks", "측정 당시 규정 조각 수", "검색 품질을 잰 때의 규정 조각 수 — 지금 조각 수와 다를 수 있음", "eval"),
+    Metric("eval_chunks", "측정 당시 규정 조각 수", "검색 품질을 잰 때의 규정 조각 수. 지금 조각 수와 다를 수 있음", "eval"),
 ]
 
 DEFS: dict[str, Metric] = {m.key: m for m in _DEFS}

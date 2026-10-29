@@ -314,7 +314,7 @@ class VllmClient:
             cfg = {**cfg, **model_config._options({}), "kind": "vllm", "connection_id": "", "external": False,
                    "vision_model": "", "api_key": os.environ.get("VLLM_API_KEY", "none")}
         if OpenAI is None:
-            raise RuntimeError("openai 패키지가 없습니다 — 생성 서버 호출에 필요합니다")
+            raise RuntimeError("openai 패키지가 없습니다(생성 서버 호출에 필요)")
         self.kind = cfg.get("kind", "vllm")
         self.connection_id = cfg.get("connection_id", "")
         self.structured = cfg.get("structured") or "auto"

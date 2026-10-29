@@ -551,7 +551,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     if noop:
         p["ops"] = [o for o in p["ops"] if o not in noop]
         if not p["ops"]:
-            p["reply"] = "이번에는 문서를 실제로 바꾸는 편집이 나오지 않았습니다 — 같은 요청을 다시 보내거나 절 번호·바꿀 내용을 짚어 주세요."
+            p["reply"] = "이번에는 문서를 실제로 바꾸는 편집이 나오지 않았습니다. 같은 요청을 다시 보내거나 절 번호·바꿀 내용을 짚어 주세요."
     # 모델이 물어야 한다고 한 값 — 호출부가 입력 양식 선택지로 띄운다(chat_asks 에 쌓아 둠, 답이 오면 지운다)
     if p.get("asks"):
         try:

@@ -326,20 +326,20 @@ def _org_move(request: Request, b: dict):
         return _fail("설정 위치가 없습니다")
     over = dept_dictionary.parents_override(dd)
     before = {"dept": dept, "parent": over.get(dept, ""), "unset": dept not in over}
-    _need(actor.can_edit(dept), "이 부서는 옮길 수 없습니다 — 맡은 처·단의 하위 부서만 고칩니다")
+    _need(actor.can_edit(dept), "이 부서는 옮길 수 없습니다. 맡은 처·단의 하위 부서만 고칩니다")
     if "expect" in b:
         # 되돌리기 — 옮긴 뒤 그 사이에 다른 변경(다시 옮김·지움·이름 바꿈)이 있으면 하지 않는다. 권한은 아래에서 지금 기준으로 다시 본다
         exp = b.get("expect") or {}
         now = None if dept not in over else over[dept]
         want = None if exp.get("unset") else _name(exp.get("parent"))
         if now != want:
-            return _fail("그 사이에 조직도가 바뀌어 되돌리지 않았습니다 — 화면을 새로 보고 다시 옮겨 주세요", 409)
+            return _fail("그 사이에 조직도가 바뀌어 되돌리지 않았습니다. 화면을 새로 고친 뒤 다시 옮겨 주세요", 409)
     if unset:
         # 관리자가 정하기 전으로 — 이름 갈래에 따라 처·단이 되거나 상위 없는 부서가 되므로 관리자만
         _need(actor.admin, "되돌리기 전 자리는 관리자만 정합니다")
         _write_all(st, (), lambda: dept_dictionary.clear_parent(dd, dept))
-        return {"ok": True, "msg": f"{dept} — 옮기기 전으로 되돌렸습니다", "undo": None}
-    _need(actor.can_hold(parent), "그 자리에는 놓을 수 없습니다 — 맨 위(처·단)로 올리기와 다른 처·단 아래로 옮기기는 관리자가 합니다")
+        return {"ok": True, "msg": f"{dept}: 옮기기 전으로 되돌렸습니다", "undo": None}
+    _need(actor.can_hold(parent), "그 자리에는 놓을 수 없습니다. 맨 위(처·단)로 올리기와 다른 처·단 아래로 옮기기는 관리자가 합니다")
     err = _check_place(st, dept, parent)                 # 두 단계 — 쓰기 전에 모두 본다(순환은 set_parent 가 쓰기 전에 본다)
     if err:
         return _fail(err)
@@ -348,7 +348,7 @@ def _org_move(request: Request, b: dict):
         return _fail(err)
     msg = f"{dept} → {parent} 아래로 옮겼습니다" if parent else f"{dept} → 처·단(맨 위)으로 올렸습니다"
     if "expect" in b:
-        return {"ok": True, "msg": f"{dept} — 옮기기 전으로 되돌렸습니다", "undo": None}
+        return {"ok": True, "msg": f"{dept}: 옮기기 전으로 되돌렸습니다", "undo": None}
     # 되돌리기 — 옮기기 전 자리와 지금 자리(expect). 정하기 전으로 돌리는 것(unset)은 관리자만 받는다
     undo = {**before, "expect": {"parent": parent, "unset": False}}
     if before["unset"] and not actor.admin:
@@ -465,12 +465,12 @@ def _write_all(st, depts: tuple[str, ...], fn, targets: tuple[str, ...] = ()):
             snap.restore(journal)
         except Exception:
             log.exception("조직도 되돌리기 실패 — 저장값이 중간 상태일 수 있습니다")
-            raise HTTPException(500, "저장하다 멈췄고 되돌리기도 실패했습니다 — 관리자에게 알려 주세요(history/ 의 이전 판으로 복구)")
+            raise HTTPException(500, "저장하다 멈췄고 되돌리기도 실패했습니다. 관리자에게 알려 주세요(history/ 의 이전 판으로 복구)")
         if snap.conflicts:
             log.error("조직도 되돌리기: 그 사이 다른 쓰기가 있어 덮지 않은 파일 %s", snap.conflicts)
             raise HTTPException(500, "저장하다 멈췄고, 그 사이 다른 변경이 있던 파일(" + ", ".join(snap.conflicts)
-                                + ")은 되돌리지 않았습니다 — 관리자에게 알려 주세요")
-        raise HTTPException(500, "저장하다 멈춰 바꾸기 전으로 되돌렸습니다 — 잠시 뒤 다시 해 주세요")
+                                + ")은 되돌리지 않았습니다. 관리자에게 알려 주세요")
+        raise HTTPException(500, "저장하다 멈춰 바꾸기 전으로 되돌렸습니다. 잠시 뒤 다시 해 주세요")
     finally:
         org_lock.stop_journal()
 
@@ -625,7 +625,7 @@ def reconcile(st, *, explicit: bool = False) -> dict:
     orphans = sorted(n for n in names - live if n)
     if not explicit and len(orphans) > RECONCILE_MAX:
         logging.getLogger("zzaimy.app.org").warning("부서 흔적 맞추기 멈춤 — 없어진 부서가 %d개(설정 이상 의심): %s", len(orphans), orphans[:20])
-        return {"orphans": orphans, "docs": 0, "folders_left": [], "skipped": f"없어진 부서 {len(orphans)}개 — 설정 확인 필요"}
+        return {"orphans": orphans, "docs": 0, "folders_left": [], "skipped": f"없어진 부서 {len(orphans)}개, 설정 확인 필요"}
     docs_left = []
     for n in orphans:
         purge_traces(st, n)                               # 권한을 좁히는 정리(겸직·부서 열어 주기·최소 등급·위계·사업 지정·구글 설정)
@@ -734,7 +734,7 @@ def _org_rename(request: Request, b: dict):
     known = _known(st)
     if old not in known:
         return _fail("없는 부서입니다")
-    _need(actor.can_edit(old), "이 부서의 이름은 바꿀 수 없습니다 — 맡은 처·단의 하위 부서만 고칩니다")
+    _need(actor.can_edit(old), "이 부서의 이름은 바꿀 수 없습니다. 맡은 처·단의 하위 부서만 고칩니다")
     if not new or new == old:
         return _fail("새 이름을 적어 주세요")
     if new in known or new == "공통":
@@ -744,7 +744,7 @@ def _org_rename(request: Request, b: dict):
     # 보안: 지운 부서의 권한 흔적이 남은 이름으로는 바꾸지 않는다 — 바꾸는 순간 그 흔적(겸직 등급·부서 열어 주기·위계·사업 지정)을 차지한다
     left = traces(st, new)
     if left:
-        return _fail(f"{new} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 이 이름으로 바꿀 수 없습니다 — "
+        return _fail(f"{new} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 이 이름으로 바꿀 수 없습니다. "
                      "관리자가 같은 이름으로 부서를 새로 만들면 남은 기록이 정리됩니다", 409)
     got = _write_all(st, (old,), lambda: rename_dept(st, old, new), targets=(new,))
     return {"ok": True, "msg": f"이름 바꿈: {old} → {new} · 계정 {got['accounts']}개 · 문서 {got['docs']}건",
@@ -768,14 +768,14 @@ def _org_delete(request: Request, b: dict):
         return _fail("아래 부서를 어떻게 할지 골라 주세요")
     if name not in _known(st):
         return _fail("없는 부서입니다")
-    _need(actor.can_edit(name), "이 부서는 지울 수 없습니다 — 맡은 처·단의 하위 부서만 고칩니다")
+    _need(actor.can_edit(name), "이 부서는 지울 수 없습니다. 맡은 처·단의 하위 부서만 고칩니다")
     accounts = getattr(st, "accounts", None) or {}
     plan = delete_plan(st, accounts, name, kids)
     _need(all(actor.can_edit(d) for d in plan["targets"]), "함께 지울 아래 부서 가운데 고칠 수 없는 부서가 있습니다")
     if plan["lift"]:
-        _need(actor.can_hold(plan["up"]), "아래 부서를 올릴 자리(맨 위 처·단)는 관리자만 정합니다 — 함께 지우기를 고르거나 관리자에게 요청해 주세요")
+        _need(actor.can_hold(plan["up"]), "아래 부서를 올릴 자리(맨 위 처·단)는 관리자만 정합니다. 함께 지우기를 고르거나 관리자에게 요청해 주세요")
     if plan["blocked"]:                                   # 쓰기 전에 막는다(delete_dept 도 다시 본다)
-        return _fail(f"{', '.join('「' + d + '」' for d in plan['blocked'][:3])} 부서에 사람이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요", 409)
+        return _fail(f"{', '.join('「' + d + '」' for d in plan['blocked'][:3])} 부서에 사람이 있어 지울 수 없습니다. 먼저 사람을 다른 부서로 옮기세요", 409)
     err, moved = _write_all(st, tuple(plan["targets"]), lambda: delete_dept(st, accounts, name, kids), targets=("공통",))
     if err:
         return _fail(err, 409)
@@ -796,7 +796,7 @@ def _org_create(request: Request, b: dict):
     known = _known(st)
     if parent and parent not in known:
         return _fail("처·단은 조직도에 있는 이름으로 골라 주세요")
-    _need(actor.can_hold(parent), "그 자리에는 부서를 더할 수 없습니다 — 맡은 처·단 아래에만 더합니다")
+    _need(actor.can_hold(parent), "그 자리에는 부서를 더할 수 없습니다. 맡은 처·단 아래에만 더합니다")
     if dd is None:
         return _fail("설정 위치가 없습니다")
     name = dept_dictionary.load(dd).normalize(raw) or raw      # 별칭(옛 이름·줄임말)으로 적어도 사전의 정식 이름으로
@@ -815,7 +815,7 @@ def _org_create(request: Request, b: dict):
     # 총괄 책임자는 흔적 있는 이름으로 만들지 못한다(관리자에게 요청)
     left = traces(st, name)
     if left and not actor.admin:
-        return _fail(f"{name} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 만들 수 없습니다 — 관리자에게 요청해 주세요", 409)
+        return _fail(f"{name} 은(는) 예전 부서의 권한 기록({', '.join(left)})이 남아 있어 만들 수 없습니다. 관리자에게 요청해 주세요", 409)
     # 여기까지 검사 — 아래부터 쓰기(도중 실패면 모두 되돌린다)
 
     def write() -> list[str]:
@@ -882,7 +882,7 @@ def _org_rag_lend(request: Request, b: dict):
         rag_spaces.save_config(cfg, dd)
         return rag_spaces.receivers(cfg, dept)
     got = _write_all(st, (), write)
-    msg = f"{dept} 부서 RAG — " + (", ".join(got) + "에 열었습니다" if got else "다른 부서에 열지 않음")
+    msg = f"{dept} 부서 RAG: " + (", ".join(got) + "에 열었습니다" if got else "다른 부서에 열지 않음")
     return {"ok": True, "msg": msg, "dept": dept, "to": got}
 
 

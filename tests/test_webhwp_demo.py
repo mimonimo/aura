@@ -223,7 +223,7 @@ def test_aura_makes_form_then_writes_sections_in_order(tmp_path, monkeypatch):
     assert vals["칸:사업명"] == sc["사업명"] and vals["칸:총사업비"] == sc["총사업비"]
     assert "AURA 이어 쓰기" in dev.get(f"/dev/coedit-demo?id={fid}").text
     run = demo.run_state(db, fid)
-    assert [x["step"].split(" —")[0] for x in run["log"]][:2] == ["양식 설계 중", "양식 넣는 중"] and all("sec" in x for x in run["log"])
+    assert [x["step"].split("(")[0] for x in run["log"]][:2] == ["양식 설계 중", "양식 넣는 중"] and all("sec" in x for x in run["log"])
     # 이어 쓰기 — 1·2·3 절 차례로
     dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
     run = demo.run_state(db, fid)
@@ -355,7 +355,7 @@ def test_continue_adds_one_section_when_none_empty(tmp_path, monkeypatch):
     assert "3. 성과 지표" in ctx and "【작성방법】 성과 지표와 목표값을" in ctx
     run = demo.run_state(db, fid)
     steps = [x["step"] for x in run["log"]]
-    assert steps[0].startswith("새 절 고르는 중") and "3. 성과 지표 — 새 절을 만들고 쓰는 중" in steps
+    assert steps[0].startswith("새 절 고르는 중") and "3. 성과 지표, 새 절을 만들고 쓰는 중" in steps
     assert run["step"] == "새 절 「3. 성과 지표」를 만들고 썼습니다."
     assert "같은 절이 이미 있다" in client.sent[-2][-1]["content"]          # 겹친 제안의 까닭을 붙여 다시 물었다
     assert len(webhwp.meta(db, fid)["aura_undo"]) == before + 1              # 절을 넣기 전 판
@@ -370,7 +370,7 @@ def test_continue_add_section_bad_proposal_changes_nothing(tmp_path, monkeypatch
     dev.post("/dev/coedit-demo/aura", data={"id": fid}, follow_redirects=False)
     assert Path(webhwp.get(app.state.db, fid)["path"]).read_bytes() == before
     st = demo.run_state(app.state.db, fid)
-    assert not st["busy"] and st["step"].startswith("새 절을 만들지 않았습니다 — AURA 의 절 제안을 쓸 수 없었습니다")
+    assert not st["busy"] and st["step"].startswith("새 절을 만들지 않았습니다. AURA 의 절 제안을 쓸 수 없었습니다")
 
 
 def test_continue_add_section_respects_structure_lock(tmp_path, monkeypatch):

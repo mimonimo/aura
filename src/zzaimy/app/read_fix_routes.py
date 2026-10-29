@@ -85,7 +85,7 @@ def replace(request: Request, background: BackgroundTasks, doc_id: int, file: Up
         raise HTTPException(400, "학교 원본 문서는 파일을 바꾸지 않습니다")
     name = Path(file.filename or "").name
     if not name or Path(name).suffix.lower() not in ALLOWED_EXTENSIONS:
-        return _back(doc_id, back, fix_err=f"올릴 수 없는 형식입니다{(' — ' + Path(name).suffix) if Path(name).suffix else ''}")
+        return _back(doc_id, back, fix_err=f"올릴 수 없는 형식입니다{('(' + Path(name).suffix + ')') if Path(name).suffix else ''}")
     st = request.app.state
     path = read_failure.replace_file(st.db, doc, name, file.file)
     st.db.update_document(doc_id, status="processing")

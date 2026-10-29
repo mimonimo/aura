@@ -243,7 +243,7 @@ def info(db, doc: dict | None) -> dict | None:
             acts = [a for a in acts if a[0] != "twin"]
     hint = HINT[code]
     if waiting:
-        hint = "글자 읽기 대기 중 — 판독 서버가 닿으면 읽습니다"
+        hint = "글자 읽기 대기 중. 판독 서버가 닿으면 읽습니다"
     elif gave_up:
         hint = f"글자 읽기를 {MAX_TRIES}번 맡겼지만 읽지 못했습니다"
     return {"code": code, "label": LABEL[code], "hint": hint, "detail": err[:300], "queued": waiting, "gave_up": gave_up,

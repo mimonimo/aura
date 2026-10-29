@@ -107,7 +107,7 @@ def _writable(request: Request, fid: int) -> None:
     다른 사람이 편집 잠금을 잡고 있으면 409(편집 화면의 잠금만 믿지 않고 서버에서도 막는다)."""
     st = request.app.state
     if webhwp.locked(st.db, fid) and getattr(request.state, "role", "") != "dev":
-        raise HTTPException(403, "공통 양식은 관리자만 고칠 수 있습니다 — 「사본 만들기」로 내 부서 폴더에 사본을 만들어 쓰세요")
+        raise HTTPException(403, "공통 양식은 관리자만 고칩니다. 「사본 만들기」로 내 부서 폴더에 사본을 만들어 쓰세요")
     _not_view_only(request, fid)
     holder = webhwp.lock_holder(st.db, fid).get("user", "")
     if holder and holder != getattr(request.state, "user", ""):
@@ -607,7 +607,7 @@ def hwp_folder(request: Request, dept: str = Form(""), folder: str = Form(""), n
     _need_staff(request)
     folder = _check_dept(request, dept, folder)
     if not _may_make(request, dept):
-        raise HTTPException(403, "여기에는 폴더를 만들 수 없습니다 — 내 부서 폴더나 내 폴더에서 만드세요")
+        raise HTTPException(403, "여기에는 폴더를 만들 수 없습니다. 내 부서 폴더나 내 폴더에서 만드세요")
     try:
         n = _folder_name(name)
         if webhwp.folder_dir(_base(request), dept, f"{folder}/{n}").exists():
@@ -824,7 +824,7 @@ def _google(request: Request) -> str:
     user = getattr(request.state, "user", "")
     email = gdrive_files.account_for(st.db, user, getattr(request.state, "dept", "") or None)
     if not email:
-        raise HTTPException(409, "학교 구글 계정이 연결되어 있지 않습니다 — 설정 › 구글 계정에서 「구글 계정 연결」 뒤 다시 해 주세요")
+        raise HTTPException(409, "학교 구글 계정이 연결되어 있지 않습니다. 설정 › 구글 계정에서 「구글 계정 연결」 뒤 다시 해 주세요")
     return email
 
 
@@ -1082,7 +1082,7 @@ def hwp_copy(request: Request, fid: int, dept: str = Form(""), folder: str = For
             raise HTTPException(400, "프로젝트 번호가 올바르지 않습니다")
         proj = next((p for p in _writable_projects(request) if int(p["id"]) == pid), None)
         if proj is None:
-            raise HTTPException(403, "이 프로젝트에는 복사할 수 없습니다 — 소유하거나 「함께 작업」으로 공유받은 프로젝트만 됩니다")
+            raise HTTPException(403, "이 프로젝트에는 복사할 수 없습니다. 소유하거나 「함께 작업」으로 공유받은 프로젝트만 됩니다")
         dept = _work_dept(request)
         if not dept:
             raise HTTPException(400, "소속 부서가 있어야 프로젝트 작업본을 만들 수 있습니다")

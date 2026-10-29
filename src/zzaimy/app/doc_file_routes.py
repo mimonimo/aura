@@ -222,7 +222,7 @@ def doc_view(request: Request, doc_id: int):
 
     def fail(e: Exception) -> str:
         if isinstance(e, (FileNotFoundError, RuntimeError, ValueError)):
-            return f"구글 열람본을 만들지 못했습니다 — {e}"
+            return f"구글 열람본을 만들지 못했습니다: {e}"
         return f"구글 열람본을 만들지 못했습니다({_ko.reason(e)})"
 
     _VIEW_JOBS.start(doc_id, work, _op.STEPS_GOOGLE, fail)
@@ -321,7 +321,7 @@ def doc_original(request: Request, doc_id: int):
                 return "이 서버에 문서 변환기(LibreOffice)가 없어 미리보기를 만들 수 없습니다. 원본을 내려받아 열어 주세요."
             return "미리보기 PDF 를 만들지 못했습니다. 원본을 내려받아 열어 주세요."
         if isinstance(e, (FileNotFoundError, RuntimeError, ValueError)):
-            return f"원본을 열 수 없습니다 — {e}"
+            return f"원본을 열 수 없습니다: {e}"
         return f"미리보기를 만들지 못했습니다({_ko.reason(e)})"
 
     def work(set_step):
@@ -370,7 +370,7 @@ def doc_original_download(request: Request, doc_id: int):
     try:
         path, temp = _original_file(doc)
     except (FileNotFoundError, ValueError) as e:
-        return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(f"원본을 열 수 없습니다 — {e}"), status_code=303)
+        return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(f"원본을 열 수 없습니다: {e}"), status_code=303)
     except RuntimeError as e:                                          # DGX 연결 문제·동시 요청
         return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(str(e)), status_code=303)
     return FileResponse(path, filename=name, content_disposition_type="attachment",

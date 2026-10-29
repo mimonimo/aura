@@ -52,8 +52,8 @@ def _fallback_note(key: str, served: str) -> str:
     if not served or fb == served:
         return f"비상용 VM {fb}"
     if key == "embed":
-        return f"비상용 VM {fb} — 서비스 모델과 달라 서비스가 꺼지면 뜻 검색이 어긋납니다(ZZAIMY_EMBED_MODEL)"
-    return f"비상용 VM {fb} — 서비스 모델과 달라 서비스가 꺼지면 재정렬 기준이 바뀝니다(ZZAIMY_RERANK_MODEL)"
+        return f"비상용 VM {fb}. 서비스 모델과 달라 서비스가 꺼지면 뜻 검색이 어긋납니다(ZZAIMY_EMBED_MODEL)"
+    return f"비상용 VM {fb}. 서비스 모델과 달라 서비스가 꺼지면 재정렬 기준이 바뀝니다(ZZAIMY_RERANK_MODEL)"
 
 
 def status(ttl: float = _TTL) -> list[dict]:
@@ -71,7 +71,7 @@ def status(ttl: float = _TTL) -> list[dict]:
             got = _health(url)
             _cache[key] = (time.time(), got)
         host = url.split("//")[-1].split("/")[0]
-        detail = got["detail"] if got["ok"] else "응답 없음 — VM 으로 물러납니다"
+        detail = got["detail"] if got["ok"] else "응답 없음. VM 으로 물러납니다"
         if key == "rerank" and got["ok"]:
             # 하한은 모델마다 다시 재야 하는 값이다(scripts/105) — 화면에 지금 값을 적어
             # 모델만 바꾸고 하한을 안 고친 상태가 눈에 보이게 한다

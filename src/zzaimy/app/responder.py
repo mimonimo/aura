@@ -586,7 +586,7 @@ class AgentResponder:
         out, flagged = flag_unsupported(out, [user_content])
         self.last_flagged = flagged
         if flagged:
-            out += f"\n\n※ 근거 문서에서 찾지 못한 수치 {len(flagged)}개에 「(근거 확인 필요)」를 붙였습니다 — 원문에서 확인해 주세요."
+            out += f"\n\n※ 근거 문서에서 찾지 못한 수치 {len(flagged)}개에 「(근거 확인 필요)」를 붙였습니다. 원문에서 확인해 주세요."
         self.last_timing["generate_sec"] = round(_time.time() - _t2, 2)
         toks = [getattr(u, "completion_tokens", None) for u in usages if u is not None]
         if any(isinstance(t, int) for t in toks):

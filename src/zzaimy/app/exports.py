@@ -155,7 +155,7 @@ def _onto_file(name: str, media: str, fallback: Path | None = None):
     def make(request: Request):
         p = pick(request)
         if p is None:
-            raise HTTPException(404, f"{name} — {NONE}")
+            raise HTTPException(404, f"{name}: {NONE}")
         return FileResponse(p, media_type=media, filename=f"aura-{name}")
 
     def info(request: Request) -> str | None:

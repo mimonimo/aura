@@ -45,7 +45,7 @@
     <div class="modal-head"><h2 style="font-size:17px;">Google 앱 등록</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form action="/team/google/client" method="post" class="ua-form" id="googleAppForm">
-      {% if app.configured %}<p class="muted" style="margin:0; font-size:12.5px;">등록된 앱 {{ app.client_id_hint }}{% if app.set_at %} · {{ app.set_at }}{% endif %} — 바꿀 때만 새 값을 넣습니다</p>{% endif %}
+      {% if app.configured %}<p class="muted" style="margin:0; font-size:12.5px;">등록된 앱 {{ app.client_id_hint }}{% if app.set_at %} · {{ app.set_at }}{% endif %}. 바꿀 때만 새 값 입력</p>{% endif %}
       <label>클라이언트 ID<input type="text" name="client_id" placeholder="….apps.googleusercontent.com" autocomplete="off" required></label>
       <label>클라이언트 보안 비밀번호<input type="password" name="client_secret" autocomplete="new-password" required></label>
       <p class="muted" style="margin:0; font-size:12px; overflow-wrap:anywhere;">리디렉션 URI <code style="user-select:all;">{{ redirect_uri }}</code> · <a href="/dev/doc/notes/2026-09-22-google-drive-source.md" target="_blank" rel="noopener">설정 안내</a></p>

@@ -1643,7 +1643,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", str(e))
             except Exception as e:
                 logging.getLogger("zzaimy.app.web").warning("외부 검색 실패 (대화 %s): %s", session_id, type(e).__name__)   # 질문 글은 남기지 않는다
-                db.add_chat(session_id, "assistant", f"인터넷 검색을 쓰지 못했습니다({_ko.reason(e)}) — 검색 결과가 없는 것과 다릅니다. 잠시 뒤 다시 하거나 「RAG」·「일반」 으로 물어 주세요.")
+                db.add_chat(session_id, "assistant", f"인터넷 검색을 쓰지 못했습니다({_ko.reason(e)}). 검색 결과가 없다는 뜻은 아닙니다. 잠시 뒤 다시 하거나 「RAG」·「일반」 으로 물어 주세요.")
             return
         # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
         attachment_text = None
@@ -1781,7 +1781,7 @@ def create_app(
                     _chat_sources[session_id] = []
                     return
             if made:
-                why_txt = f" — {dec['why']}" if dec.get("why") else ""
+                why_txt = f"({dec['why']})" if dec.get("why") else ""
                 others = [c["label"] for c in cands if c["id"] != dec["choice"] and c["kind"] != "common"][:2]
                 hint = (" 다른 양식으로 하려면 " + ", ".join(f"「{o}」" for o in others) + " 또는 「공통 양식으로 새 문서」라고 말해 주세요."
                         if others else " 다른 양식으로 하려면 「공통 양식으로 새 문서」 또는 서식 이름을 말해 주세요.")
@@ -2105,7 +2105,7 @@ def create_app(
                 if spec.get("intro", "").startswith("대화에서 정한 목차"):
                     n_ch = sum(1 for b_ in spec["blocks"] if b_.get("h") == 1)
                     n_sec = sum(1 for b_ in spec["blocks"] if b_.get("h") == 2)
-                    note = f" 대화에서 정한 목차(장 {n_ch}개·절 {n_sec}개)로 뼈대를 깔았습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
+                    note = f" 대화에서 정한 목차(장 {n_ch}개·절 {n_sec}개)로 뼈대를 깔았습니다. 회색 작성 지침은 다 쓴 뒤 지웁니다."
                 else:
                     note = f" {_ko.quote(spec['title'].replace('(구글 독스)', '').strip(), '을')} 적용했습니다. 회색 작성 지침은 다 쓴 뒤 지웁니다."
             except Exception as e:
@@ -2634,7 +2634,7 @@ def create_app(
             _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, sess_))])
             resolved_now.append(name)
             db.add_chat(session_id, "assistant", _scrub_internal(
-                f"「{name}」 값을 자료에서 찾음: 《{title}》 — {value} (확인 전 — 「필요한 값 입력」에서 확인하거나 고쳐 주세요)"))
+                f"「{name}」 값을 자료에서 찾음: 《{title}》, {value} (확인 전. 「필요한 값 입력」에서 확인하거나 고쳐 주세요)"))
             return f"자료 제안으로 남겼다(담당자 확인 전) — {name} (《{title}》)"
 
         def t_read(a: dict) -> str:
@@ -2803,7 +2803,7 @@ def create_app(
             have = {x["name"] for x in pend}
             _asks.set_pending(db, session_id, pend + [x for x in items if x["name"] not in have])
             _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, db.get_chat_session(session_id)))])
-            msg = str(a.get("message") or "자료에서 찾지 못한 값이 있어 여쭙니다 — 아래 「필요한 값 입력」에 적어 주세요.")
+            msg = str(a.get("message") or "자료에서 찾지 못한 값이 있습니다. 아래 「필요한 값 입력」에 적어 주세요.")
             db.add_chat(session_id, "assistant", _scrub_internal(msg + "\n" + ", ".join(x["name"] for x in items)))
             return "물었다."
 
@@ -2947,12 +2947,12 @@ def create_app(
         if not ep.finished and resolved_now:
             left_ = [x["name"] for x in _asks.pending(db, session_id) if x["name"] not in resolved_now]
             msg_ = ("이번 요청에서 자료로 찾은 값: " + ", ".join(f"「{n_}」" for n_ in resolved_now)
-                    + " — 「필요한 값 입력」에서 확인해 주세요.")
+                    + ". 「필요한 값 입력」에서 확인해 주세요.")
             if gave_up:
                 msg_ += " 자료에서 못 찾은 값: " + ", ".join(f"「{n_}」" for n_ in sorted(gave_up)) + "."
             rest_ = [n_ for n_ in left_ if n_ not in gave_up]
             if rest_:
-                msg_ += " 남은 값: " + ", ".join(f"「{n_}」" for n_ in rest_) + " — 직접 적어 주시거나 다시 찾아 달라고 해 주세요."
+                msg_ += " 남은 값: " + ", ".join(f"「{n_}」" for n_ in rest_) + ". 직접 적거나 다시 찾아 달라고 하세요."
             if not ep.writes:
                 db.add_chat(session_id, "assistant", _scrub_internal(msg_))
         if not ep.finished and ep.writes and hw is not None and hw.fid():
@@ -2964,7 +2964,7 @@ def create_app(
             left_c = [re.sub(r"^(칸|표\d+):", "", x["name"]) for x in fl_ if x["kind"] != "절" and not x["text"]]
             msg = f"이번 요청에서 절·칸 {len(ok_)}곳을 썼습니다."
             if left_s:
-                msg += f" 남은 빈 절은 {len(left_s)}개이고, 다음은 「{left_s[0]}」입니다 — 「계속 써 줘」라고 하면 이어 씁니다."
+                msg += f" 남은 빈 절은 {len(left_s)}개이고, 다음은 「{left_s[0]}」입니다. 「계속 써 줘」라고 하면 이어 씁니다."
             if left_c:
                 msg += (f" 자료에 없어 비워 둔 칸 {len(left_c)}개(" + ", ".join(f"「{c_}」" for c_ in left_c[:6])
                         + (" 등" if len(left_c) > 6 else "") + ")는 값을 알려 주시면 채웁니다.")
@@ -2976,7 +2976,7 @@ def create_app(
             left = [x for x in sections() if drafting.writable(x) and drafting.is_unfilled(x)]
             msg = "이번 요청에서 " + (", ".join(f"「{d}」" for d in done if d) or f"{ep.writes}개 절") + " 을 썼습니다."
             if left:
-                msg += f" 남은 빈 절은 {len(left)}개이고, 다음은 「{left[0]['heading']}」입니다 — 「계속 써 줘」라고 하면 이어 씁니다."
+                msg += f" 남은 빈 절은 {len(left)}개이고, 다음은 「{left[0]['heading']}」입니다. 「계속 써 줘」라고 하면 이어 씁니다."
             db.add_chat(session_id, "assistant", _scrub_internal(msg))
         if len(db.list_chats(session_id)) > before:
             return True                                          # 무엇이든 남겼다(쓰기 결과·답·물음)
@@ -2997,9 +2997,9 @@ def create_app(
         local_only = _asks.remember(db, session_, given, global_ok=_session_viewer(session_id)[1] == "dev")
         left_asks = [a for a in pend if a["name"] not in given]
         _asks.set_pending(db, session_id, left_asks)
-        text = "기억했습니다 — " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 작성하는 절과 기입란에 넣습니다."
+        text = "기억했습니다: " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 쓰는 절과 기입란에 넣습니다."
         if local_only:
-            text += (f"\n{', '.join(local_only)} 은(는) 이 프로젝트(대화)의 값으로만 기억했습니다 — 기관 정보 설정은 관리자만 바꿉니다.")
+            text += (f"\n{', '.join(local_only)} 은(는) 이 프로젝트(대화)의 값으로만 기억했습니다. 기관 정보 설정은 관리자만 바꿉니다.")
         opts = []
         if left_asks:
             text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
@@ -3044,7 +3044,7 @@ def create_app(
             # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌리면 「자료 필요」만 되풀이한다.
             # 필요한 자료를 한 번에 알리고 모델은 부르지 않는다
             need = drafting.needed_sources(info)
-            text = ("이 문서는 한 번의 회의·운영을 적는 기록이라 이번 자료가 있어야 씁니다 — 문서함의 다른 회의·회차 값은 옮기지 않습니다.\n"
+            text = ("이 문서는 한 번의 회의·운영을 적는 기록이라 이번 자료가 있어야 씁니다. 문서함의 다른 회의·회차 값은 옮기지 않습니다.\n"
                     "필요한 자료: " + (", ".join(need[:10]) if need else "회의·운영 기록") +
                     "\n프로젝트에 올리거나 대화에 붙인 뒤 다시 「초안 써 줘」라고 하면 절마다 채웁니다.")
             db.add_chat(session_id, "assistant", _scrub_internal(text))
@@ -3147,8 +3147,8 @@ def create_app(
         new_ = [a for a in pend if a["name"] not in pend_before]
         if new_:
             older = len(pend) - len(new_)
-            parts_.append("이번 절에서 자료에 없어 비워 둔 값 — " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in new_[:6])
-                          + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개는 「필요한 값 입력」에서 이어서 받습니다)" if older else ""))
+            parts_.append("이번 절에서 자료에 없어 비워 둔 값: " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in new_[:6])
+                          + ". 알려 주면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개는 「필요한 값 입력」에서 이어서 받습니다)" if older else ""))
         elif pend:
             parts_.append(f"아직 비어 있는 값 {len(pend)}개는 「필요한 값 입력」에서 채울 수 있습니다.")
         text = "\n\n".join(parts_)
@@ -3210,7 +3210,7 @@ def create_app(
                                       "application/vnd.openxmlformats-officedocument.wordprocessingml.document", folder_, reuse=False)
                 db.add_file("google", up_["url"], name=name_, session_id=session_id)
                 return (f"{reason} Word 파일 {_ko.quote(name_, '로')} 내보냈습니다"
-                        f"{f'(회색 작성 지침 {n_guides}곳은 뺐고, 작업본에는 남아 있습니다)' if n_guides else ''} — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
+                        f"{f'(회색 작성 지침 {n_guides}곳은 뺐고, 작업본에는 남아 있습니다)' if n_guides else ''}. 한글에서 열어 hwpx 로 저장하면 됩니다. "
                         f"{up_['url']}")
             except Exception as e:
                 logging.getLogger("zzaimy.app.gdocs").exception("Word 내보내기 실패 (대화 %s)", session_id)
@@ -3262,7 +3262,7 @@ def create_app(
                 # 편집기를 웹 한글 기안기로 고른 사람 — 부서 한글 문서함에 두고 기안기 링크를 준다(드라이브에는 올리지 않는다)
                 fid_ = _webhwp.add(db, Path(db.path).parent, acct_.get("dept") or _webhwp.COMMON, name, data,
                                    owner=owner, source=f"대화-{session_id}")
-                where = f"부서 한글 문서함({acct_.get('dept') or _webhwp.COMMON})에 두었습니다 — 기안기로 열기: /webhwpctrl/aura-edit?id={fid_}"
+                where = f"부서 한글 문서함({acct_.get('dept') or _webhwp.COMMON})에 두었습니다. 기안기로 열기: /webhwpctrl/aura-edit?id={fid_}"
                 if not _webhwp.status()["ok"]:
                     where += " (지금은 기안기 서버에 연결되지 않아 내려받기만 됩니다)"
             else:
@@ -3274,7 +3274,7 @@ def create_app(
                 up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
                 db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]) if src.get("id") else None)
                 where = up["url"]
-            text = (f"{_ko.quote(name, '을')} 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
+            text = (f"{_ko.quote(name, '을')} 만들었습니다. 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
                     f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {where}")
             if rep["folded"]:
                 text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
@@ -3282,9 +3282,9 @@ def create_app(
             if real_skipped:
                 text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in real_skipped)
             if rep["duplicates"]:
-                text += f"\n작업본에 같은 문단·표가 두 번 있는 곳 {len(rep['duplicates'])}건은 앞의 것만 넣었습니다 — 작업본에서 정리해 주세요: " + "; ".join(rep["duplicates"][:3])
+                text += f"\n작업본에 같은 문단·표가 두 번 있는 곳 {len(rep['duplicates'])}건은 앞의 것만 넣었습니다. 작업본에서 정리해 주세요: " + "; ".join(rep["duplicates"][:3])
             if rep.get("checks"):
-                text += (f"\n자가 점검에서 문제 {len(rep['checks'])}건이 나왔습니다 — 한글에서 열리지 않거나 모양이 틀릴 수 있어 제출하지 마세요: "
+                text += (f"\n자가 점검에서 문제 {len(rep['checks'])}건이 나왔습니다. 한글에서 열리지 않거나 모양이 틀릴 수 있으니 제출하지 마세요: "
                          + "; ".join(rep["checks"][:3]))
             if remove:
                 text += f"\n안내 상자 {rep['boxes_removed']}개를 뺀 제출본입니다. 한글에서 열어 표지·직인란·쪽수를 확인하세요."
@@ -4143,7 +4143,7 @@ def create_app(
             fid = int(f["id"])
             # 대화에 이으면 에이전트가 그 파일에 쓴다 — 「읽기만」 으로 받은 작업 문서는 잇지 않는다(잠긴 양식은 아래에서 사본으로)
             if not _webhwp.locked(db, fid) and _wr._access(request, f) != "edit":
-                raise HTTPException(403, "읽기만 공유된 문서는 대화에 이을 수 없습니다 — 「복사해 쓰기」 로 사본을 만들어 이어 주세요")
+                raise HTTPException(403, "읽기만 공유된 문서는 대화에 이을 수 없습니다. 「복사해 쓰기」로 사본을 만들어 이어 주세요")
             if _webhwp.locked(db, fid):                       # 잠긴 양식은 내 부서 폴더에 복사해 잇는다
                 p_ = Path(f["path"])
                 fid = _webhwp.add(db, Path(db_path).parent, getattr(request.state, "dept", "") or _webhwp.COMMON,
@@ -4800,7 +4800,7 @@ def create_app(
             raise HTTPException(403, "관리자만 지울 수 있습니다")
         n = lf.delete(db, key)
         if n < 0:
-            return _lib_back(err="원본 폴더는 지울 수 없습니다 — 학교 원본의 폴더입니다")
+            return _lib_back(err="학교 원본 폴더는 지울 수 없습니다")
         return _lib_back(ok=f"폴더를 지웠습니다 · 문서 {n:,}건은 라이브러리에 그대로 있습니다")
 
     @app.post("/library/upload")
@@ -4833,7 +4833,7 @@ def create_app(
             with db._conn() as conn:
                 row = conn.execute("SELECT label FROM kg_nodes WHERE id = ? AND type = 'program'", (program,)).fetchone()
             if not row:                                    # 그래프에 없는 사업 열쇠는 받지 않는다(새 사업은 「새 사업 등록」으로)
-                return _lib_back(folder, err="없는 사업입니다 — 목록에서 고르거나 「새 사업 등록」으로 만듭니다")
+                return _lib_back(folder, err="없는 사업입니다. 목록에서 고르거나 「새 사업 등록」으로 만드세요")
             prog_label = row[0] or program.split(":", 1)[1]
         else:
             program = ""

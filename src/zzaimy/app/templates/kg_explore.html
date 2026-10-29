@@ -5,7 +5,7 @@
 {% macro item(p, kid=false) -%}
 <div class="gx-item{% if kid %} kid{% endif %}" data-id="{{ p.id }}" data-type="{{ p.type }}" data-label="{{ p.label }}">
   <label class="gx-chk" title="여러 개 선택"><input type="checkbox" aria-label="{{ p.label }} 선택"></label>
-  <button type="button" class="gx-name" title="{{ p.label }} — 이것만 보기"><i data-type="{{ p.type }}"></i><span>{{ p.label }}</span></button>
+  <button type="button" class="gx-name" title="{{ p.label }}만 보기"><i data-type="{{ p.type }}"></i><span>{{ p.label }}</span></button>
   <span class="gx-n" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건">{{ "{:,}".format(p.n_docs) }}</span>
 </div>
 {%- endmacro %}
@@ -333,7 +333,7 @@
     if (!state.sel.length && isolated) {
       // 관계 없는 작은 사업 — 그림에서 빼 둔 수와 보이기 토글
       var t = el("button", "gx-iso", (showIsolated ? "관계 없는 사업 " + isolated + "개 숨기기" : "관계 없는 사업 " + isolated + "개 보이기"));
-      t.type = "button"; t.title = "다른 사업과 이어진 관계가 없고 문서가 30건 미만인 사업 — 왼쪽 목록에서는 늘 고를 수 있습니다";
+      t.type = "button"; t.title = "다른 사업과 이어진 관계가 없고 문서가 30건 미만인 사업(왼쪽 목록에서는 고를 수 있음)";
       t.addEventListener("click", function () { showIsolated = !showIsolated; drawn = ""; render(); });
       box.appendChild(t);
     }
@@ -580,7 +580,7 @@
         var row = el("button", "gx-row"); row.type = "button";
         var dot = el("i"); dot.style.background = COLOR[m.node.type] || "#8892A6"; row.appendChild(dot);
         row.appendChild(el("span", null, m.node.short || String(m.node.label).replace(/_+/g, " ")));
-        row.title = (m.edge.basis || "") + (m.edge.evidence && m.edge.evidence.length ? " — " + m.edge.evidence[0] : "");
+        row.title = (m.edge.basis || "") + (m.edge.evidence && m.edge.evidence.length ? ": " + m.edge.evidence[0] : "");
         row.addEventListener("click", function () {
           var on = revealMember(id, m);
           if (on.data("added") !== 1) { on.data("added", 1); relayout(false); }
@@ -740,7 +740,7 @@
     var before = cy.nodes().length;
     var url = "/graph/explore/neighbors?id=" + encodeURIComponent(id) + (more ? "&more=" + encodeURIComponent(more) : "");
     return fetch(url, { credentials: "same-origin" }).then(function (r) {
-      if (!r.ok) throw new Error(r.status === 404 ? "그래프에 없거나 볼 수 없는 노드입니다 — 그래프에는 사업 문서만 들어갑니다" : "불러오지 못했습니다");
+      if (!r.ok) throw new Error(r.status === 404 ? "그래프에 없거나 볼 수 없는 노드입니다. 그래프에는 사업 문서만 들어갑니다" : "불러오지 못했습니다");
       return r.json();
     }).then(function (d) {
       var fresh = cy.nodes().length === 0;
@@ -782,7 +782,7 @@
         var added = cy.nodes().length - before;
         var total = d.groups.reduce(function (a, g) { return a + (g.total || 0); }, 0);
         toast(added > 0 ? "이웃 " + added + "개를 펼쳤습니다" + (total > added ? " · 나머지는 오른쪽 목록에서 더 받기" : "")
-              : (total > 0 ? "이웃 " + fmt(total) + "개가 모두 이미 그림에 있습니다" : "더 펼칠 이웃이 없습니다 — 이 노드에 이어진 관계·문서가 없습니다"));
+              : (total > 0 ? "이웃 " + fmt(total) + "개가 모두 이미 그림에 있습니다" : "더 펼칠 이웃이 없습니다(이어진 관계·문서 없음)"));
       }
       if (quiet) return;
       relayout(fresh);
@@ -865,7 +865,7 @@
         + (sh.n_warnings ? " · 경고 " + fmt(sh.n_warnings) + "건" : "")));
       sh.violations.slice(0, 8).forEach(function (v) {
         // 예시는 노드 이름으로, 내부 id 는 툴팁에만
-        var q = el("q", null, "[" + (v.severity || "위반") + "] " + v.message + " — " + fmt(v.n) + "건");
+        var q = el("q", null, "[" + (v.severity || "위반") + "] " + v.message + " (" + fmt(v.n) + "건)");
         var ex = (v.examples || []).slice(0, 2);
         if (ex.length) {
           q.appendChild(document.createTextNode(" (예: "));
@@ -951,7 +951,7 @@
     var id = ev.target.id();
     if (!state.sel.length) setSel([id]);
     else if (!loaded[id]) expand(id);
-    else toast("이미 펼친 노드입니다 — 오른쪽 목록에서 관계별로 더 받거나 다른 노드를 두 번 누르세요");
+    else toast("이미 펼친 노드입니다. 오른쪽 목록에서 관계별로 더 받거나 다른 노드를 두 번 누르세요");
   });
   cy.on("tap", "edge", function (ev) { if (state.tab === "kg") showEdge(ev.target); });
   function farLabels() { cy.nodes(".ov.small").toggleClass("far", cy.zoom() < 1.6); }

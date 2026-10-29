@@ -151,7 +151,7 @@ class KordocParser:
     def parse(self, path: Path, work_dir: Path | None = None) -> ParseResult:
         exe = _bin()
         if exe is None:
-            raise RuntimeError("kordoc 이 없다 — ~/opt/kordoc 에 설치하거나 ZZAIMY_KORDOC 을 준다")
+            raise RuntimeError("kordoc 이 없다. ~/opt/kordoc 에 설치하거나 ZZAIMY_KORDOC 을 준다")
         work = Path(work_dir) if work_dir else path.parent / f"{path.stem}_kordoc"
         work.mkdir(parents=True, exist_ok=True)
         out = work / "kordoc.json"

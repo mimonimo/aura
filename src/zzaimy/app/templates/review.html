@@ -29,12 +29,12 @@
     <div class="rv-mine">
       <h2 style="margin:0 0 4px;">{{ proj.title }}</h2>
       {% if mine %}
-        {% if not mine.ok %}<p class="muted" style="margin:0;" role="status">{{ mine.error }} — 잠시 뒤 다시 열어 주세요.</p>
+        {% if not mine.ok %}<p class="muted" style="margin:0;" role="status">{{ mine.error }}. 잠시 뒤 다시 여세요.</p>
         {% elif mine.assigned %}
         <p style="margin:0;"><span class="rv-num" data-mine-done>{{ '{:,}'.format(mine.done) }}</span> / <span data-mine-assigned>{{ '{:,}'.format(mine.assigned) }}</span>건 제출 · 내 몫 {{ mine.pct }}%</p>
         <span class="rv-bar" aria-hidden="true"><i style="width:{{ mine.pct }}%"></i></span>
         <p class="muted" style="margin:0; font-size:12.5px;">라벨 스튜디오에서 Filters › data.assignee = {{ me }} 로 거르면 내 몫만 보입니다.</p>
-        {% else %}<p class="muted" style="margin:0;" data-mine-assigned>아직 맡은 할 일이 없습니다 — 관리자가 몫을 나누면 여기 수가 보입니다.</p>{% endif %}
+        {% else %}<p class="muted" style="margin:0;" data-mine-assigned>맡은 할 일 없음. 관리자가 나누면 여기 표시</p>{% endif %}
       {% elif proj.id is not none %}
         <p class="muted" style="margin:0;">전체 {{ '{:,}'.format(proj.done) }} / {{ '{:,}'.format(proj.total) }}건 제출</p>
       {% elif not proj.url %}<p class="muted" style="margin:0;">라벨 스튜디오 주소가 아직 설정되지 않았습니다.</p>
@@ -53,7 +53,7 @@
         <td class="num">{{ '{:,}'.format(r.assigned) }}</td><td class="num">{{ '{:,}'.format(r.done) }}</td><td class="num">{{ r.pct }}%</td></tr>
     {% endfor %}</tbody>
   </table></div>
-  {% else %}<p class="muted" style="margin:0;">검수 권한을 받은 계정이 없습니다 — 조직 관리의 계정 편집에서 「SFT 문답 검수」를 줍니다.</p>{% endif %}
+  {% else %}<p class="muted" style="margin:0;">검수 권한을 받은 계정 없음. 조직 관리의 계정 편집에서 「SFT 문답 검수」를 준다.</p>{% endif %}
   {% endif %}
 </div></section>
 

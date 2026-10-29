@@ -89,7 +89,7 @@
       if (!r.ok) throw new Error('평가를 저장하지 못했습니다');
       acts.querySelectorAll('[data-feedback]').forEach(b => { const on = b.dataset.feedback === v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
       acts.parentElement.querySelector('.feedback-form')?.remove();
-      status.textContent = v ? '평가를 남겼습니다 — 개선에 씁니다.' : '평가를 거뒀습니다.';
+      status.textContent = v ? '평가를 남겼습니다. 개선에 씁니다.' : '평가를 거뒀습니다.';
     };
     try {
       if (btn.classList.contains('on')) { await send(''); return; }
@@ -279,7 +279,7 @@
       if (row.classList.contains('is-suggested') && area.value !== area.defaultValue && !row.classList.contains('is-edited')) {
         row.classList.add('is-edited'); row.classList.remove('is-accepted');
         const note = row.querySelector('[data-source-state]');
-        if (note) note.textContent = '자료 값을 고쳐 적음 — ' + note.textContent.replace(/^자료에서 찾음 · 확인 (?:전|함) — /, '');
+        if (note) note.textContent = '자료 값을 고쳐 적음 · ' + note.textContent.replace(/^자료에서 찾음 · 확인 (?:전|함)\s*(?:—|·|,|:)?\s*/, '');
       }
     }
     const {filled, later, typed} = valueCounts(form_);
@@ -446,7 +446,7 @@
     for (const [key, value] of [...payload.entries()]) {                                  // 비운 칸은 보내지 않는다
       if (key.startsWith('field_') && !String(value).trim()) payload.delete(key);
     }
-    const label = filled ? filled + '개 저장 — 에이전트가 반영 중' : '이 칸들은 다음 차례로 — 다음 값을 불러오는 중';
+    const label = filled ? filled + '개 저장, 에이전트가 반영 중' : '이 칸들은 다음 차례로. 다음 값을 불러오는 중';
     const sent = document.createElement('div');
     sent.className = 'chat-form-sent'; sent.setAttribute('role', 'status');
     sent.innerHTML = '<span class="chat-progress-dot" aria-hidden="true"></span><span></span>';

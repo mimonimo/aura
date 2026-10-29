@@ -18,7 +18,7 @@
     <tr{% if r.production %} class="q-on"{% endif %}>
       <td>{{ r.method }}{% if r.production %} <span class="pill type">운영 구성</span>{% endif %}</td>
       {% if r.recall_at_1 is none %}
-      <td colspan="4" class="muted">미측정{% if r.note %} — {{ r.note }}{% endif %}</td>
+      <td colspan="4" class="muted">미측정{% if r.note %} ({{ r.note }}){% endif %}</td>
       {% else %}
       <td class="num">{{ "%.3f" | format(r.recall_at_1) }}</td>
       <td class="num">{{ "%.3f" | format(r.recall_at_5) }}</td>
@@ -38,7 +38,7 @@
   <p class="muted" style="font-size:12.5px; margin:0 0 10px;">합성 질의로 정답 조각을 되찾는 비율 · R@5 상위 5개 안 · MRR@10 앞에 나올수록 높음 · 규정이 바뀌면 새벽에 자동으로 다시 잼</p>
   {% if retrieval_eval.last_error %}<p style="font-size:12px; margin:0 0 10px; color:var(--red);">이전 측정 실패: {{ retrieval_eval.last_error }}</p>{% endif %}
   {% if reg_stale %}
-  <p class="eval-now">현재 구성 측정 없음 —
+  <p class="eval-now">현재 구성 측정 없음.
     {% if retrieval_eval.running %}측정 진행 중{% elif retrieval_eval.query_set_missing %}{{ retrieval_eval.query_set_message }}{% else %}구성이 바뀌어 새벽에 자동으로 다시 잼{% endif %}</p>
   <p class="muted" style="font-size:12px; margin:0 0 14px;">지금 구성 · 규정 조각 {{ current_chunks | num }}개 · 임베딩 {{ index_model or '미확인' }}</p>
   <h3 style="font-size:13px; margin:0 0 6px;">지난 측정(구성 다름) · 조각 {{ ev.n_chunks | num }}개 · {{ ev.embedding_model or '임베딩 미확인' }}</h3>
@@ -46,9 +46,9 @@
   {% elif ev %}
   {{ body(ev) }}
   {% else %}
-  <p style="font-size:13px; margin:0;">아직 측정 없음{% if retrieval_eval.running %} — 첫 측정이 진행 중입니다.{% elif retrieval_eval.query_set_missing %} ({{ retrieval_eval.query_set_message }}){% else %} — 새벽에 자동으로 잼{% endif %}</p>
+  <p style="font-size:13px; margin:0;">아직 측정 없음{% if retrieval_eval.running %}. 첫 측정 진행 중{% elif retrieval_eval.query_set_missing %} ({{ retrieval_eval.query_set_message }}){% else %}. 새벽에 자동으로 잼{% endif %}</p>
   {% endif %}
-  {% if ev and retrieval_eval.query_set_missing %}<p class="muted" style="font-size:12px; margin:8px 0 0;">재측정 불가 — {{ retrieval_eval.query_set_message }}</p>{% endif %}
+  {% if ev and retrieval_eval.query_set_missing %}<p class="muted" style="font-size:12px; margin:8px 0 0;">재측정 불가: {{ retrieval_eval.query_set_message }}</p>{% endif %}
 </div></div>
 {% if retrieval_eval.running %}{% include "_quality_eval_poll.html" %}{% endif %}
 {% endblock %}

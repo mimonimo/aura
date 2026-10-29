@@ -879,9 +879,9 @@ def plan_create(d: Dictionary, existing: list[str], names: list[str] | None = No
         elif any(_flat(n) in have for n in names_u):
             skip.append({"name": u["name"], "why": "이미 있는 부서"})
         elif u.get("ambiguous"):
-            skip.append({"name": u["name"], "why": "애매함 — " + u["ambiguous"]})
+            skip.append({"name": u["name"], "why": "애매함: " + u["ambiguous"]})
         elif u.get("weak") and not u.get("review"):
-            skip.append({"name": u["name"], "why": "검토 전 — 조 제목·상위 언급에서만 나옴"})
+            skip.append({"name": u["name"], "why": "검토 전(조 제목·상위 언급에서만 나옴)"})
         elif u["kind"] not in CREATABLE:
             skip.append({"name": u["name"], "why": f"{KINDS.get(u['kind'], u['kind'])} 은 사전에만"})
         else:

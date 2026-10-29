@@ -45,17 +45,17 @@
   }
   function getJSON(url) {
     return fetch(url, {headers: {Accept: 'application/json'}, credentials: 'same-origin', cache: 'no-store'})
-      .then(function (r) { return readJSON(r, '불러오지 못했습니다 — 잠시 뒤 다시 해 주세요'); });
+      .then(function (r) { return readJSON(r, '불러오지 못했습니다. 잠시 뒤 다시 해 주세요'); });
   }
   function postJSON(path, body) {
     return fetch(path, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify(body)})
-      .then(function (r) { return readJSON(r, '저장하지 못했습니다 — 잠시 뒤 다시 해 주세요'); });
+      .then(function (r) { return readJSON(r, '저장하지 못했습니다. 잠시 뒤 다시 해 주세요'); });
   }
   function postForm(path, fields) {
     var body = new URLSearchParams();
     Object.keys(fields).forEach(function (k) { [].concat(fields[k]).forEach(function (v) { body.append(k, v); }); });
     return fetch(path, {method: 'POST', credentials: 'same-origin', headers: {Accept: 'application/json'}, body: body})
-      .then(function (r) { return readJSON(r, '저장하지 못했습니다 — 잠시 뒤 다시 해 주세요'); });
+      .then(function (r) { return readJSON(r, '저장하지 못했습니다. 잠시 뒤 다시 해 주세요'); });
   }
   var toastTimer = null;
   function toast(msg, undo, isErr) {
@@ -408,7 +408,7 @@
             r.editable ? {label: '추가 권한', run: function () { permsDialog(n, m, r); }} : null,
             m.can_place && r.primary ? {label: '다른 부서로 옮기기', run: function () { moveMembers(n, m, [r.uid]); }} : null,
             m.can_place ? {label: r.primary ? '이 부서에서 빼기' : '겸직 풀기', danger: true, disabled: r.primary && !m.can_primary,
-              title: r.primary && !m.can_primary ? '소속을 비우는 것은 관리자가 합니다 — 다른 부서로 옮기세요' : '', run: function () { removeMembers(n, m, [r.uid]); }} : null];
+              title: r.primary && !m.can_primary ? '소속 비우기는 관리자만 합니다. 다른 부서로 옮기세요' : '', run: function () { removeMembers(n, m, [r.uid]); }} : null];
           return h('tr', {'data-uid': r.uid}, [h('td', {class: 'pick-cell'}, [cb]),
             h('td', {}, [h('span', {class: 'om-who', text: r.name}), h('small', {class: 'om-sub', text: r.uid + (r.home ? ' · 겸직(소속 ' + r.home + ')' : '')})]),
             h('td', {class: 'om-nw', text: r.grade_label}), perms,
@@ -481,7 +481,7 @@
           wrap.appendChild(h('label', {}, [r, h('span', {}, [h('b', {text: c[1]}), h('small', {text: c[2]})])]));
         });
         form.appendChild(wrap);
-      } else form.appendChild(h('p', {class: 'om-note', text: '겸직으로 넣습니다 — 소속 부서는 그대로입니다'}));
+      } else form.appendChild(h('p', {class: 'om-note', text: '겸직으로 넣음(소속 부서는 그대로)'}));
       if (window.PeoplePicker) window.PeoplePicker.mount(pp);
       pp.ppTaken = function () { return picked.map(function (p) { return p.user; }).concat(m.rows.map(function (r) { return r.uid; })); };
       pp.addEventListener('pp:pick', function (e) {
@@ -615,7 +615,7 @@
   function openDelete(n) {
     var ks = kids[n.name] || [], desc = descendants(n.name);
     var people = desc.filter(function (d) { return byName[d].n; });
-    if (n.n) { toast('「' + n.name + '」 에 소속 ' + n.n + '명이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요', null, true); return; }
+    if (n.n) { toast('「' + n.name + '」 에 소속 ' + n.n + '명이 있어 지울 수 없습니다. 먼저 사람을 다른 부서로 옮기세요', null, true); return; }
     var where = n.parent ? '「' + n.parent + '」 아래' : '맨 위';
     var msg = '「' + n.name + '」 을(를) 지웁니다. 부서 RAG 문서 ' + (n.docs || 0) + '건은 공통 RAG 로 돌아가고, 겸직은 풀립니다. 되돌릴 수 없습니다.';
     var o = {title: '부서 지우기', ok: '지우기', danger: true, busy: '지우는 중…', run: function (v) {
@@ -627,7 +627,7 @@
       });
     }};
     if (ks.length) o.choices = [
-      {value: 'lift', label: '아래 부서 ' + ks.length + '개를 위로 올리기', hint: ks.slice(0, 3).join(', ') + (ks.length > 3 ? ' 등' : '') + ' — ' + where + '로 옮겨 그대로 둡니다'},
+      {value: 'lift', label: '아래 부서 ' + ks.length + '개를 위로 올리기', hint: ks.slice(0, 3).join(', ') + (ks.length > 3 ? ' 등' : '') + '. ' + where + '로 옮겨 그대로 둡니다'},
       {value: 'with', label: '아래 부서도 함께 지우기', hint: '아래 부서 ' + desc.length + '개를 모두 지웁니다' + (people.length ? ' · 사람이 있는 아래 부서 ' + people.length + '개가 있어 지금은 할 수 없습니다' : '')}];
     confirmBox(msg, o);
   }
@@ -743,7 +743,7 @@
   function bulkActive(uids, on) {
     if (!uids.length) return;
     if (on) return bulk('activate', uids).catch(function (e) { toast(e.message, null, true); });
-    confirmBox(uids.length + '명의 로그인을 막습니다. 계정과 자료는 지우지 않으며 다시 사용으로 되돌릴 수 있습니다.',
+    confirmBox(uids.length + '명의 로그인을 막습니다. 계정과 자료는 그대로 두며 나중에 다시 켤 수 있습니다.',
       {title: '사용 중지', ok: '사용 중지', danger: true, busy: '바꾸는 중…', run: function () { return bulk('suspend', uids); }});
   }
 

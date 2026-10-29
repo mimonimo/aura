@@ -78,7 +78,7 @@ a.q-tile:hover{border-color:#94A3B8;}
     {% if retrieval_eval.running %}<span class="pill processing" id="eval-live" role="status" style="margin-left:8px;">측정 중…</span>{% endif %}
     <a class="h-link" href="/dev/quality/regulation">자세히</a></h2>
   {% if reg_stale %}
-  <p class="eval-now">현재 구성 측정 없음 — {% if retrieval_eval.running %}측정 진행 중{% elif retrieval_eval.query_set_missing %}질의 세트 없음{% else %}새벽에 자동으로 다시 잼{% endif %}</p>
+  <p class="eval-now">현재 구성 측정 없음. {% if retrieval_eval.running %}측정 진행 중{% elif retrieval_eval.query_set_missing %}질의 세트 없음{% else %}새벽에 자동으로 다시 잼{% endif %}</p>
   {% elif reg_prod %}
   <div class="q-head">
     <div><b>{{ "%.3f"|format(reg_prod.recall_at_1) }}</b><span>R@1 · 첫 결과가 정답</span></div>
@@ -95,9 +95,9 @@ a.q-tile:hover{border-color:#94A3B8;}
   </div>
   <p class="muted q-line">{{ retrieval_eval.measured_at_display }} 측정 · 합성 질의 {{ ev.n_queries | num }}건</p>
   {% elif ev %}
-  <p class="q-line">운영 구성 미측정 — 방식별 값은 자세히에서</p>
+  <p class="q-line">운영 구성 미측정. 방식별 값은 자세히에서</p>
   {% else %}
-  <p class="q-line">아직 측정 없음 — {% if retrieval_eval.running %}첫 측정이 진행 중{% else %}새벽에 자동으로 잼{% endif %}</p>
+  <p class="q-line">아직 측정 없음. {% if retrieval_eval.running %}첫 측정이 진행 중{% else %}새벽에 자동으로 잼{% endif %}</p>
   {% endif %}
   {% if retrieval_eval.last_error %}<p class="q-line" style="color:var(--red);">이전 측정 실패</p>{% endif %}
 </div></div>
@@ -136,7 +136,7 @@ a.q-tile:hover{border-color:#94A3B8;}
   </table>
   </div>
   {% elif not hd.pairs %}
-  <p class="q-line">요약할 수치가 아직 없음{% if not run.finished %} — 진행 중{% endif %}</p>
+  <p class="q-line">요약할 수치가 아직 없음{% if not run.finished %} (진행 중){% endif %}</p>
   {% endif %}
   {% set p = hd.pairs[0] if hd.pairs else none %}
   <p class="muted q-line">{{ run.created or '진행 중' }}{% if p %} · {{ S.get(p.a, p.a) }} 대 {{ S.get(p.b, p.b) }} 점수 {{ p.score|mc_num }}{% if p.ci_low is not none and p.ci_high is not none %} (95% 구간 {{ p.ci_low|mc_num }}~{{ p.ci_high|mc_num }}){% endif %}{% endif %}</p>

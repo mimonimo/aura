@@ -34,8 +34,8 @@
             var now = measure();
             tries++;
             if (same(prev, now) && ordered(now)) { resolve(now); return; }
-            if (tries >= 6) { reject(new Error('쪽 배치가 아직 끝나지 않았습니다 — 잠시 뒤 다시 눌러 주세요')); return; }
-            prev = now; say('목차 쪽 번호를 재는 중 — 쪽 배치를 기다립니다(' + tries + ')', 'busy'); again();
+            if (tries >= 6) { reject(new Error('쪽 배치가 아직 끝나지 않았습니다. 잠시 뒤 다시 누르세요')); return; }
+            prev = now; say('목차 쪽 번호를 재는 중, 쪽 배치 기다림(' + tries + ')', 'busy'); again();
           }, 1500);
         })();
       }).then(function (pages) { hwp.restoreCursor(cur); return pages; }, function (e) { hwp.restoreCursor(cur); throw e; });

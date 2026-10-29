@@ -449,7 +449,7 @@ def test_same_page_gives_no_open_button_and_screen_reports_result(tmp_path, monk
     assert p["act"]["here"] is True and p["act"]["steps"][0]["ok"] is True
     before = len(c.get(f"/chat/{sid}/messages").json()["messages"])
     r = c.post(f"/chat/{sid}/proposals/{p['id']}/result", json={"results": [{"step": 0, "result": "typed", "what": "<b>가짜</b>"}]}).json()
-    assert r["message"] == "화면에서 한 일: 성명 칸 채우기 「홍길동」 — 입력함"        # 단계 이름·넣은 말은 서버 것
+    assert r["message"] == "화면에서 한 일: 성명 칸 채우기 「홍길동」(입력함)"        # 단계 이름·넣은 말은 서버 것
     msgs = c.get(f"/chat/{sid}/messages").json()["messages"]
     assert len(msgs) == before + 1 and msgs[-1]["content"] == r["message"]
     assert c.post(f"/chat/{sid}/proposals/{p['id']}/result", json={"results": [{"step": 0, "result": "typed"}]}).json()["message"] == ""

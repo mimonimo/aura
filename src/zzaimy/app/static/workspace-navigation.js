@@ -72,7 +72,7 @@
         catch (e) {
           working = false; accept.disabled = cancel.disabled = false; accept.textContent = label;
           dialog.querySelectorAll('.confirm-choices input').forEach(i => { i.disabled = false; });
-          errBox.textContent = (e && e.message) || '처리하지 못했습니다 — 잠시 뒤 다시 해 주세요'; errBox.hidden = false;
+          errBox.textContent = (e && e.message) || '처리하지 못했습니다. 잠시 뒤 다시 해 주세요'; errBox.hidden = false;
         }
       });
       dialog.addEventListener('cancel', event => { if (working) event.preventDefault(); });

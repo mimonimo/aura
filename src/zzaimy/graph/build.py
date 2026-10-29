@@ -267,7 +267,7 @@ def _add_relation_layer(db, nodes: list[dict], docs: list[dict], doc_ids: set[in
         for i, a in enumerate(ordered):
             for b in ordered[i + 1 : i + 1 + _SAME_PROGRAM_MAX]:
                 add_edge(f"d{a}", f"d{b}", "same_law", 0.8,
-                         why=f"같은 근거 조항을 인용합니다 — {law}.",
+                         why=f"같은 근거 조항을 인용합니다: {law}.",
                          evidence=[law])
 
     # ④ 남은 개체(기관 등) 언급 — 허브·역할 명칭을 걸러낸 것만

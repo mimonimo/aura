@@ -47,7 +47,7 @@
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ t.role }}</p>
     <dl class="kv">
-      <dt>상태</dt><dd>{% if t.connected %}연결됨{% else %}미연결{% if ls.error %} — {{ ls.error }}{% endif %}{% endif %}</dd>
+      <dt>상태</dt><dd>{% if t.connected %}연결됨{% else %}미연결{% if ls.error %}({{ ls.error }}){% endif %}{% endif %}</dd>
       <dt>주소</dt><dd>{% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.url }}</a>{% else %}미설정{% endif %}</dd>
       <dt>로그인 아이디</dt><dd>{% if ls_username %}<code>{{ ls_username }}</code>{% else %}미확인{% endif %}</dd>
       <dt>API 키</dt><dd>{{ "설정됨" if ls_token_set else "미설정" }}</dd>
@@ -340,7 +340,7 @@
       <dt>상태</dt><dd>{% if c.live.ok %}연결됨 · 모델 {{ c.live.models | length }}개{% else %}응답 없음{% if c.live.error %} ({{ c.live.error }}){% endif %}{% endif %}</dd>
       <dt>최근 확인</dt><dd>{% if c.checked_at %}{{ c.checked_at | kst }} · {{ c.check_text }}{% else %}확인 전{% endif %}</dd>
       <dt>기본 모델</dt><dd>{{ c.model or "자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
-      <dt>사용 가능한 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
+      <dt>사용 가능한 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개: {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
       <dt>API 키</dt><dd>{{ c.api_key_masked }}</dd>
       <dt>맡은 단계</dt><dd>{% set mine = llm_roles | selectattr('id', 'equalto', c.id) | list %}{% if mine %}{{ mine | map(attribute='label') | join(', ') }}{% else %}없음{% endif %}</dd>
     </dl>

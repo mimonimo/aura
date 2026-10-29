@@ -9,7 +9,7 @@
     <div class="chat-heading">
       <span class="chat-eyebrow">{% if chat_project %}{% if project_open %}<a href="/project/{{ chat_project.id }}">{{ chat_project.name }}</a>{% else %}{{ chat_project.name }}{% endif %} · {% endif %}읽기 전용</span>
       <h1>{{ chat_session.title or '대화' }}</h1>
-      <p class="chat-scope">{% if shared_lost %}프로젝트 공유가 풀려 이 대화는 읽기만 합니다.{% else %}{{ person_name(chat_session.owner) }} 님의 대화입니다. 대화를 이어 가거나 고치는 것은 만든 사람만 할 수 있습니다.{% endif %}</p>
+      <p class="chat-scope">{% if shared_lost %}프로젝트 공유가 풀려 이 대화는 읽기만 합니다.{% else %}{{ person_name(chat_session.owner) }} 님의 대화입니다. 이어 쓰기·고치기는 만든 사람만 합니다.{% endif %}</p>
     </div>
   </header>
   <div class="chat-read-list">

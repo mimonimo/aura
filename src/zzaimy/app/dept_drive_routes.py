@@ -166,7 +166,7 @@ def sync_now(request: Request, dept: str) -> tuple[str, bool]:
 def disconnect_now(request: Request, dept: str) -> tuple[str, bool]:
     ok, email = dept_drive.disconnect(request.app.state.db, dept)
     if not ok:
-        return "폴더 권한을 다 거두지 못해 연결을 끊지 않았습니다 — 잠시 뒤 다시 시도해 주세요", False
+        return "폴더 권한을 다 거두지 못해 연결을 끊지 않았습니다. 잠시 뒤 다시 시도해 주세요", False
     if email:
         _drop_if_orphan(request, email)
     return f"{dept} 부서 드라이브 연결을 끊었습니다 · 폴더와 문서는 {email or '그 계정'} 드라이브에 남아 있습니다", True
@@ -205,7 +205,7 @@ def team_drive_folders(request: Request, dept: str = "", parent: str = "root", q
     try:
         got = browse(by, parent or "root", q, token)
     except (ValueError, httpx.HTTPError):
-        return JSONResponse({"detail": "폴더를 불러오지 못했습니다 — 잠시 뒤 다시 시도해 주세요"}, status_code=400)
+        return JSONResponse({"detail": "폴더를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요"}, status_code=400)
     here = (st.db.get_setting(f"google_root:{dept}", "") or "").strip()
     got["items"] = [x for x in got.get("items", []) if x.get("id") != here]      # 부서 폴더 자신은 고를 수 없다
     return JSONResponse({**got, "account": by, "folder_name": dept_drive.folder_name(dept)})

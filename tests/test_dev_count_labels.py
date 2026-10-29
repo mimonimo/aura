@@ -100,7 +100,7 @@ def test_dev_db_ledger_labels_and_dead_corpus_tab(tmp_path):
         conn.execute("UPDATE archive_files SET status = 'agent', analysis = '가벼운 처리'")
     page = c.get("/dev/archive").text                                        # 원본 장부 원값은 원본 관리 줄에서(10-27)
     assert ">에이전트 검토 판정<" in page and "학교 원본" in page
-    assert '<span class="ar-help" title="DGX 에서 판독·조각까지만 하고 검토 의견 생성은 건너뛴' in page and ">가벼운 처리</span>" in page
+    assert '<span class="ar-help" title="DGX 에서 판독·조각까지만 하고 검토 의견은 만들지 않은' in page and ">가벼운 처리</span>" in page
 
 
 def test_archive_cleanup_text_has_no_internal_rule_number():

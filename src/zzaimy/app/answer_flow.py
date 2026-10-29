@@ -54,7 +54,7 @@ def snapshot(db, eval_dir: Path) -> dict:
     rows = []
     if rel:
         name, model = (rel.get("name") or {}).get("summary") or {}, (rel.get("model") or {}).get("summary") or {}
-        for key, label in (("plan_report", "계획 대비 실적 — 계획서·실적보고서 둘 다"), ("lineage", "앞·뒤 단계·편입 사업"),
+        for key, label in (("plan_report", "계획 대비 실적(계획서·실적보고서 둘 다)"), ("lineage", "앞·뒤 단계·편입 사업"),
                            ("evaluates", "평가 의견")):
             if key in name or key in model:
                 rows.append({"label": label, "n": (model.get(key) or name.get(key) or {}).get("n"),
@@ -73,8 +73,8 @@ def snapshot(db, eval_dir: Path) -> dict:
 
 
 # 세 방식 — ① 그래프 없이 전체에서 찾기 ② 그래프로 좁히되 질문 해석은 코드(이름·연도·갈래 낱말 맞추기) ③ 질문 해석을 27B 가(운영)
-COMPARE_MODES = (("fulltext", "① 풀텍스트 RAG — 그래프 없이"), ("graph", "② GraphRAG — 질문 해석: 코드(낱말 맞추기)"),
-                 ("graph_read", "③ GraphRAG — 질문 해석: 27B"))
+COMPARE_MODES = (("fulltext", "① 풀텍스트 RAG(그래프 없이)"), ("graph", "② GraphRAG, 질문 해석은 코드(낱말 맞추기)"),
+                 ("graph_read", "③ GraphRAG, 질문 해석은 27B"))
 
 
 def adopted_mode() -> str:
@@ -185,25 +185,25 @@ def compare_rows(eval_dir: Path) -> dict:
             v = v.get(k) if isinstance(v, dict) else None
         return v
     spec = (
-        ("검색", "특정 문서의 한 부분을 묻는 질문 — 그 문서가 상위 5건에", ("search", "section", "counts", "doc_hit"), "cnt"),
-        ("검색", "  같은 질문 — 같은 사업·같은 해의 거의 같은 문서까지 인정", ("search", "section", "counts", "twin_hit"), "cnt"),
-        ("검색", "  같은 질문 — 같은 사업 문서면 인정", ("search", "section", "counts", "prog_hit"), "cnt"),
-        ("검색", "관계를 묻는 질문 — 관계 양쪽 문서가 모두 상위에", ("search", "relation", "counts"), "cnt"),
+        ("검색", "특정 문서의 한 부분을 묻는 질문: 그 문서가 상위 5건에", ("search", "section", "counts", "doc_hit"), "cnt"),
+        ("검색", "  같은 질문, 같은 사업·같은 해의 거의 같은 문서까지 인정", ("search", "section", "counts", "twin_hit"), "cnt"),
+        ("검색", "  같은 질문, 같은 사업 문서면 인정", ("search", "section", "counts", "prog_hit"), "cnt"),
+        ("검색", "관계를 묻는 질문: 관계 양쪽 문서가 모두 상위에", ("search", "relation", "counts"), "cnt"),
         ("검색", "  계획서와 그 결과보고서", ("search", "relation", "plan_report", "counts"), "cnt"),
         ("검색", "  전신·후속 사업", ("search", "relation", "lineage", "counts"), "cnt"),
         ("검색", "  평가 결과와 평가받은 문서", ("search", "relation", "evaluates", "counts"), "cnt"),
-        ("시간", "검색 한 번 — 보통(중앙값)", ("search", "sec_median"), "sec"),
-        ("시간", "검색 한 번 — 느린 쪽(10건 중 9번째)", ("search", "sec_p90"), "sec"),
-        ("시간", "답이 나오기까지 — 보통(중앙값)", ("answer", "wall_sec_median"), "sec"),
-        ("시간", "답이 나오기까지 — 느린 쪽(10건 중 9번째)", ("answer", "wall_sec_p90"), "sec"),
+        ("시간", "검색 한 번, 보통(중앙값)", ("search", "sec_median"), "sec"),
+        ("시간", "검색 한 번, 느린 쪽(10건 중 9번째)", ("search", "sec_p90"), "sec"),
+        ("시간", "답이 나오기까지, 보통(중앙값)", ("answer", "wall_sec_median"), "sec"),
+        ("시간", "답이 나오기까지, 느린 쪽(10건 중 9번째)", ("answer", "wall_sec_p90"), "sec"),
         ("시간", "  그중 근거 문서 찾기(규정·사업 문서)", ("answer", "search_sec_median"), "sec"),
         ("시간", "  그중 27B 가 답을 쓰는 시간", ("answer", "generate_sec_median"), "sec"),
         ("답변", "답이 정답 문서를 근거로 썼나", ("answer", "evidence_has_gold_counts"), "cnt"),
         ("답변", "정답 문서의 숫자가 답에 들어간 비율(평균)", ("answer", "fact_recall_mean"), "ratio"),
         ("답변", "근거 문서에 없는 숫자가 답에 나온 비율(낮을수록 좋음)", ("answer", "unsupported_number_ratio"), "ratio"),
-        ("답변", "관계를 묻는 질문 — 답이 양쪽 문서를 근거로 썼나", ("answer", "relation_both_sides"), "cnt"),
-        ("답변", "답 채점 — 완전히 맞은 답(2점) 비율", ("answer", "judge", "correct_full"), "cnt"),
-        ("답변", "답 채점 — 평균 점수(0~2점, 어느 방식 답인지 가리고 매김)", ("answer", "judge", "correct_mean"), "num"),
+        ("답변", "관계를 묻는 질문: 답이 양쪽 문서를 근거로 썼나", ("answer", "relation_both_sides"), "cnt"),
+        ("답변", "답 채점: 완전히 맞은 답(2점) 비율", ("answer", "judge", "correct_full"), "cnt"),
+        ("답변", "답 채점: 평균 점수(0~2점, 어느 방식 답인지 가리고 매김)", ("answer", "judge", "correct_mean"), "num"),
     )
     rows = []
     better_low = ("시간", "근거 문서에 없는 숫자")
@@ -226,8 +226,8 @@ def compare_rows(eval_dir: Path) -> dict:
 # 품질·성능 첫 화면의 짧은 표 — 결과 파일의 같은 칸을 짧은 이름으로 고르기만 한다(수치는 새로 만들지 않는다)
 MODE_SHORT = {"fulltext": "풀텍스트", "graph": "GraphRAG(코드)", "graph_read": "GraphRAG(27B)"}
 KEY_ROWS = (
-    (("search", "section", "counts", "doc_hit"), "문서 한 부분 질문 — 정답 문서가 상위 5건에"),
-    (("search", "relation", "counts"), "관계 질문 — 양쪽 문서가 모두 상위에"),
+    (("search", "section", "counts", "doc_hit"), "문서 한 부분 질문: 정답 문서가 상위 5건에"),
+    (("search", "relation", "counts"), "관계 질문: 양쪽 문서가 모두 상위에"),
     (("answer", "evidence_has_gold_counts"), "답이 정답 문서를 근거로"),
     (("answer", "judge", "correct_mean"), "답 채점 평균(0~2점)"),
     (("answer", "wall_sec_median"), "답이 나오기까지(보통)"),
@@ -276,8 +276,8 @@ def _why_line(summ: dict) -> list[str]:
     sec = lambda v: f"{v}초"                                 # noqa: E731
     lines = []
     for label, path, f in (
-            ("특정 문서의 한 부분을 묻는 질문 — 그 문서가 상위 5건에", ("search", "section", "doc_at_k"), pct),
-            ("관계를 묻는 질문 — 관계 양쪽 문서가 모두 상위에", ("search", "relation", "ok"), pct),
+            ("특정 문서의 한 부분을 묻는 질문(그 문서가 상위 5건에)", ("search", "section", "doc_at_k"), pct),
+            ("관계를 묻는 질문(양쪽 문서가 모두 상위에)", ("search", "relation", "ok"), pct),
             ("답 채점 평균(0~2점, 어느 방식 답인지 가리고 매김)", ("answer", "judge", "correct_mean"), str),
             ("답이 나오기까지(보통)", ("answer", "wall_sec_median"), sec)):
         vals = [r(summ[m], *path) for m, _ in modes]

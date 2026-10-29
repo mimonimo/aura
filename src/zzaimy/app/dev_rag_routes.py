@@ -90,7 +90,7 @@ async def dev_rag_min_grade(request: Request):
         cfg.pop("min_grade", None)
     rag_spaces.save_config(cfg, st.data_dir)
     name = "공통 RAG" if space == grades.COMMON_SPACE else f"{space[5:]} 부서 RAG"
-    msg = f"{name} 최소 등급 — {grades.GRADES[grade] + ' 이상' if grade else '걸지 않음'}"
+    msg = f"{name} 최소 등급: {grades.GRADES[grade] + ' 이상' if grade else '걸지 않음'}"
     if wants_json:
         return {"ok": msg, "space": space, "grade": grade, "label": grades.GRADES[grade] + " 이상" if grade else ""}
     return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#dept-rags", status_code=303)
@@ -114,7 +114,7 @@ def dev_rag_targets(request: Request, q: str = "", limit: int = 30):
     spaces = [("student", "student", None), ("staff", "staff", None), ("dev", "dev", None)] + \
              [(f"dept:{d}", "staff", d) for d in rag_spaces.known_depts(cfg, accounts)]
     for sid, role, dept in spaces:
-        label = "관리자 — 모든 문서" if sid == "dev" else rag_spaces.resolve(role, dept, st.data_dir)["label"]
+        label = "관리자(모든 문서)" if sid == "dev" else rag_spaces.resolve(role, dept, st.data_dir)["label"]
         if hit(sid, label):
             out.append({"user": f"space:{sid}", "name": label, "dept": "검색 공간", "grade_label": ""})
     for u, a in sorted(accounts.items()):

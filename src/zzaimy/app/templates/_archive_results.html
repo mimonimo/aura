@@ -4,7 +4,7 @@
 {% if _part != 'list' %}
 <div id="archive-browse" class="ar-browse">
   {% macro ri(label, n, href, set, on, cls='', name='', title='') -%}
-  <a class="ar-ri{{ ' ' ~ cls if cls }}{{ ' on' if on }}" href="{{ href }}" data-set="{{ set }}" aria-pressed="{{ 'true' if on else 'false' }}"{% if name %} data-name="{{ name|lower }}"{% endif %} title="{{ title or label }}{{ ' — 다시 누르면 풉니다' if on }}">{{ label }}<span>{{ "{:,}".format(n) }}</span></a>
+  <a class="ar-ri{{ ' ' ~ cls if cls }}{{ ' on' if on }}" href="{{ href }}" data-set="{{ set }}" aria-pressed="{{ 'true' if on else 'false' }}"{% if name %} data-name="{{ name|lower }}"{% endif %} title="{{ title or label }}{{ ' (다시 누르면 풂)' if on }}">{{ label }}<span>{{ "{:,}".format(n) }}</span></a>
   {%- endmacro %}
   {% set all_n = (view.programs|sum(attribute='n')) + (view.unclassified.n if view.unclassified else 0) %}
   {% set known_any = rail_tree|rejectattr('unknown')|list %}
@@ -42,7 +42,7 @@
   <h2 class="ar-rh"{% if head_metric is defined %} title="{{ metric_tip(head_metric) }}"{% endif %}>처리 상태</h2>
   <ul class="ar-facets" aria-label="처리 상태">{% for s in view.states %}
     {% set on = s.value == f.state %}
-    <li>{{ ri(s.label, s.n, url(state='' if on else s.value), 'state=' ~ ('' if on else s.value), on, title=('라이브러리 문서와 이어진 원본 파일 수 — 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다' if s.value == 'registered' else '')) }}</li>
+    <li>{{ ri(s.label, s.n, url(state='' if on else s.value), 'state=' ~ ('' if on else s.value), on, title=('라이브러리 문서와 이어진 원본 파일 수. 한 문서에 원본이 여럿이면 문서 수와 다름' if s.value == 'registered' else '')) }}</li>
   {% endfor %}</ul>
 </div>
 {% endif %}
@@ -84,7 +84,7 @@
       <span class="ar-ext" data-ext="{{ it.ext }}">{{ it.ext_label }}</span>
       <div class="ar-main">
         <span class="ar-name" title="{{ it.title }}">{{ it.title }}</span>
-        <details class="ar-where"><summary>{% if not it.original %}<span class="ar-tag" title="학교 원본이 아닌 플랫폼 사본·변환 부산물">사본·부산물</span> {% endif %}{% if it.cleaned %}<span class="ar-tag" title="정리함에 옮긴 원본 — 학교 원본 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span> {% endif %}{{ it.short_path or '위치·장부 값' }}</summary><code>{{ it.path }}</code>
+        <details class="ar-where"><summary>{% if not it.original %}<span class="ar-tag" title="학교 원본이 아닌 플랫폼 사본·변환 부산물">사본·부산물</span> {% endif %}{% if it.cleaned %}<span class="ar-tag" title="정리함에 옮긴 원본. 학교 원본 목록·건수에서 빠지며 되돌리기 가능(원본 파일은 그대로)">정리함</span> {% endif %}{{ it.short_path or '위치·장부 값' }}</summary><code>{{ it.path }}</code>
           <dl class="ar-ledger" aria-label="장부 값">
             <div><dt>장부 사업</dt><dd>{{ it.program_name or '—' }}</dd></div>
             <div><dt>분류 상태</dt><dd title="장부 코드 {{ it.status or '없음' }}">{{ it.status_label or '—' }}</dd></div>

@@ -38,7 +38,7 @@ def require(name: str, *, path: Path | None = None) -> str:
     """꼭 있어야 하는 값. 없으면 어디에 넣을지 알려 주는 오류."""
     value = get(name, path=path)
     if not value:
-        raise SystemExit(f"접속 정보 {name} 가 없습니다 — configs/hosts.env 에 {name}=계정@주소 를 넣으십시오"
+        raise SystemExit(f"접속 정보 {name} 가 없습니다. configs/hosts.env 에 {name}=계정@주소 를 넣으십시오"
                          "(형식: configs/hosts.env.example).")
     return value
 

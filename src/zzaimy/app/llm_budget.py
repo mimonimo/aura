@@ -207,7 +207,7 @@ def fit_messages(client, messages: list[dict], max_tokens: int, cuts: list[Cut] 
         if len(shorter) < len(block):
             m["content"] = content.replace(block, shorter, 1)
     if over() > 0:
-        raise ContextOverflow(f"문맥 한도({limit}) 안에 요청과 근거를 담을 수 없습니다 — 입력 어림 {need()}토큰, 출력 {max_tokens}토큰")
+        raise ContextOverflow(f"문맥 한도({limit}) 안에 요청과 근거를 담을 수 없습니다(입력 어림 {need()}토큰, 출력 {max_tokens}토큰)")
     return [m for m in msgs if m], max_tokens
 
 

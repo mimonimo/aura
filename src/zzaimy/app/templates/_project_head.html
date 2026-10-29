@@ -30,7 +30,7 @@
       · {% if can_edit and not project.archived %}<span class="project-lead-wrap"><button type="button" class="project-lead-chip" id="projectLead" aria-haspopup="true" aria-expanded="false" aria-controls="projectLeadPop" title="사업 책임자 바꾸기">책임 {{ lead_label }}</button>
         <form class="project-pop project-lead-pop" id="projectLeadPop" action="/project/{{ project.id }}/lead" method="post" hidden aria-label="사업 책임자">
           {% for c in lead_choices %}<button type="submit" name="user" value="{{ c.user }}" aria-pressed="{{ 'true' if c.user == lead else 'false' }}">{{ c.label }}{% if c.user == project.owner %}<small>만든 사람</small>{% endif %}</button>{% endfor %}
-          {% if lead_choices|length < 2 %}<p>함께 작업으로 공유한 사람을 사업 책임자로 고를 수 있습니다</p>{% endif %}
+          {% if lead_choices|length < 2 %}<p>사업 책임자는 함께 작업으로 공유한 사람 가운데서 고름</p>{% endif %}
         </form></span>{% else %}<span class="project-lead-text">책임 {{ lead_label }}</span>{% endif %}
       · 만든 날 {{ project.created_at[:10] }}</div>
   </div>
@@ -44,9 +44,9 @@
     {% endif %}
     {% if can_edit and not project.archived %}
     {% set share_icon = 'lock-keyhole' if share.mode == 'private' or not share['items'] else 'users-group-rounded' %}
-    {% if on_chat %}<button type="button" class="secondary" data-modal-open="#shareModal" title="공유 범위 — {{ share_title }}">
+    {% if on_chat %}<button type="button" class="secondary" data-modal-open="#shareModal" title="공유 범위: {{ share_title }}">
       <iconify-icon icon="solar:{{ share_icon }}-linear"></iconify-icon>{{ share_label }}</button>
-    {% else %}<a class="btn secondary" href="/project/{{ project.id }}#share" title="공유 범위 — {{ share_title }}">
+    {% else %}<a class="btn secondary" href="/project/{{ project.id }}#share" title="공유 범위: {{ share_title }}">
       <iconify-icon icon="solar:{{ share_icon }}-linear"></iconify-icon>{{ share_label }}</a>{% endif %}
     {% endif %}
     {% if can_edit %}
@@ -68,7 +68,7 @@
   </div>
 </div>
 {% if project.archived %}
-<p class="notice project-head-note"><iconify-icon icon="solar:archive-linear"></iconify-icon><span>지난 사업 자료입니다. 다른 프로젝트에서 참조로 연결해 근거로 쓸 수 있고, 다시 진행하려면 「보관 해제」를 누릅니다.</span></p>
+<p class="notice project-head-note"><iconify-icon icon="solar:archive-linear"></iconify-icon><span>지난 사업 자료입니다. 다른 프로젝트에 참조로 연결해 근거로 쓰고, 다시 진행하려면 「보관 해제」를 누릅니다.</span></p>
 {% endif %}
 {% if request.query_params.get('ok') %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ request.query_params.get('ok') }}</span></p>{% endif %}
 {% if request.query_params.get('err') %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ request.query_params.get('err') }}</span></p>{% endif %}

@@ -102,7 +102,7 @@ def test_owner_sees_reason_and_replaces_locked_file(tmp_path):
     assert db.get_document(did)["status"] == "failed"
     page = c.get("/?type=all").text
     assert "읽지 못함 · 암호 문서" in page and f'/doc/{did}#readFix">암호를 푼 파일로 바꾸기' in page
-    assert "읽지 못한 문서 1" in page and "읽지 못함 · 암호 문서 — 암호를 푼 파일로 바꾸기" in page     # 종 알림
+    assert "읽지 못한 문서 1" in page and "읽지 못함 · 암호 문서 · 암호를 푼 파일로 바꾸기" in page     # 종 알림
     doc_page = c.get(f"/doc/{did}").text
     assert 'id="readFix"' in doc_page and f'action="/doc/{did}/replace"' in doc_page and "처리 실패:" not in doc_page
     r = c.post(f"/doc/{did}/replace", files={"file": ("계획서(암호 해제).hwpx", b"PK fine", "x")}, follow_redirects=False)

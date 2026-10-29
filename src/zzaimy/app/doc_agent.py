@@ -247,7 +247,7 @@ def failure_message(ep: Episode) -> str:
              if s_.get("action") == "search" and s_.get("args", {}).get("query")
              and not str(s_.get("observation", "")).startswith(("같은 도구를", "도구 실패")) and "찾지 못함" not in str(s_.get("observation", ""))]
     got = f" 찾은 자료: {', '.join(dict.fromkeys(found))} 검색 결과." if found else ""
-    return f"요청을 끝내지 못했습니다 — {what}.{kept}{got} 요청을 조금 좁혀 다시 말해 주세요."
+    return f"요청을 끝내지 못했습니다. {what}.{kept}{got} 요청을 조금 좁혀 다시 말해 주세요."
 
 
 def _parse(raw: str) -> dict | None:
@@ -505,21 +505,21 @@ def _act(on_act, name: str, args: dict, phase: str) -> None:
 
 def _step_label(name: str, args: dict) -> str:
     """화면 진행 표시 — 에이전트가 지금 무엇을 하는지."""
-    labels = {"search": lambda a: f"찾는 중 — 「{a.get('query', '')[:30]}」",
-              "read_found": lambda a: f"찾은 문서 이어 읽는 중 — 「{str(a.get('document', ''))[:30]}」",
-              "read_section": lambda a: f"절 읽는 중 — 「{a.get('section', '')[:30]}」",
-              "write_section": lambda a: f"절 쓰는 중 — 「{a.get('section', '')[:30]}」",
+    labels = {"search": lambda a: f"「{a.get('query', '')[:30]}」 찾는 중",
+              "read_found": lambda a: f"「{str(a.get('document', ''))[:30]}」 이어 읽는 중",
+              "read_section": lambda a: f"「{a.get('section', '')[:30]}」 절 읽는 중",
+              "write_section": lambda a: f"「{a.get('section', '')[:30]}」 절 쓰는 중",
               "delegate_section": lambda a: (f"절 {len(a['sections'])}개 맡겨 쓰는 중(동시에)" if isinstance(a.get("sections"), list)
-                                             else f"절 맡겨 쓰는 중 — 「{str(a.get('section', ''))[:30]}」"),
-              "hwp_revise": lambda a: f"절 고쳐 쓰는 중 — 「{str(a.get('field', ''))[:30]}」",
-              "rewrite_section": lambda a: f"절 다시 쓰는 중 — 「{a.get('section', '')[:30]}」",
-              "review_section": lambda a: f"절 검토 중 — 「{a.get('section', '')[:30]}」",
+                                             else f"「{str(a.get('section', ''))[:30]}」 절 맡겨 쓰는 중"),
+              "hwp_revise": lambda a: f"「{str(a.get('field', ''))[:30]}」 절 고쳐 쓰는 중",
+              "rewrite_section": lambda a: f"「{a.get('section', '')[:30]}」 절 다시 쓰는 중",
+              "review_section": lambda a: f"「{a.get('section', '')[:30]}」 절 검토 중",
               "create_document": lambda a: "문서 만드는 중",
-              "hwp_form_create": lambda a: f"양식 설계 중 — 「{str(a.get('title') or a.get('kind') or '')[:30]}」(참고 양식 찾기 → 설계 → 검토)",
-              "open_project_document": lambda a: f"작업본 여는 중 — 「{str(a.get('document', ''))[:30]}」",
-              "read_document": lambda a: f"그림 쪽 판독 중 — 「{str(a.get('document', ''))[:30]}」",
+              "hwp_form_create": lambda a: f"「{str(a.get('title') or a.get('kind') or '')[:30]}」 양식 설계 중(참고 양식 찾기, 설계, 검토)",
+              "open_project_document": lambda a: f"「{str(a.get('document', ''))[:30]}」 작업본 여는 중",
+              "read_document": lambda a: f"「{str(a.get('document', ''))[:30]}」 그림 쪽 읽는 중",
               "remember_values": lambda a: "알려 준 값 기억하는 중",
-              "resolve_from_evidence": lambda a: f"자료에서 찾은 값 기억하는 중 — 「{str(a.get('name', ''))[:30]}」",
+              "resolve_from_evidence": lambda a: f"자료에서 찾은 「{str(a.get('name', ''))[:30]}」 값 기억하는 중",
               "edit_document": lambda a: "문서 고치는 중",
               "export_hwp": lambda a: "한글 완성본 만드는 중",
               "new_work_copy": lambda a: "작업본 새로 만드는 중",
@@ -529,7 +529,7 @@ def _step_label(name: str, args: dict) -> str:
               # 플랫폼 업무 도우미(platform_helper)의 도구
               "platform_help": lambda a: "화면 안내 찾는 중",
               "platform_lookup": lambda a: "대상 목록 보는 중",
-              "doc_search": lambda a: f"문서에서 찾는 중 — 「{str(a.get('query', ''))[:30]}」",
+              "doc_search": lambda a: f"문서에서 「{str(a.get('query', ''))[:30]}」 찾는 중",
               "propose_action": lambda a: "할 일 정리 중",
               "open_page": lambda a: "화면에서 할 일 준비 중",   # 같은 화면에서 칸만 채울 때도 쓴다 — 「여는 중」 은 이미 열린 화면에서 어색했다(10-27)
               "finish": lambda a: "답 정리 중"}

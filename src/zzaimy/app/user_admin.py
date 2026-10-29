@@ -182,7 +182,7 @@ def my_google_disconnect(request: Request):
     if not revoked:
         # 거두지 못한 공유가 남은 채 토큰을 지우면 그 공유를 다시는 거둘 수 없고, 몰래 토큰을 남기면 끊겠다는 뜻을 어긴다 —
         # 끊지 않고 그대로 알린다(다시 시도하거나 관리자가 드라이브에서 정리)
-        return RedirectResponse("/settings?err=" + quote("작업 문서 공유 권한을 거두지 못해 연결을 끊지 않았습니다 — 잠시 뒤 다시 시도해 주세요. "
+        return RedirectResponse("/settings?err=" + quote("작업 문서 공유 권한을 거두지 못해 연결을 끊지 않았습니다. 잠시 뒤 다시 해 보고, "
                                                           "계속되면 관리자에게 알려 주세요.") + "#myGoogle", status_code=303)
     db.set_setting(f"google_account:{uid}", "")
     _drop_token_if_orphan(db, request, email)
@@ -240,9 +240,9 @@ def team_accounts_save(request: Request, uid: str = Form(""), is_new: str = Form
     if err:
         return _back(err, ok=False, to="/team?view=all")
     _sync_drives_later(st, accounts)
-    msg = f"{uid} 계정을 만들었습니다 — 임시 비밀번호를 전달하세요. 첫 로그인 때 새 비밀번호로 바꾸게 됩니다" if new else f"{uid} 계정을 저장했습니다"
+    msg = f"{uid} 계정을 만들었습니다. 임시 비밀번호를 전달하세요. 첫 로그인 때 새 비밀번호로 바꿉니다" if new else f"{uid} 계정을 저장했습니다"
     if new_pw and not new:
-        msg += " — 임시 비밀번호로 바꿨습니다. 다음 로그인 때 새 비밀번호로 바꾸게 됩니다"
+        msg += ". 임시 비밀번호로 바꿨습니다. 다음 로그인 때 새 비밀번호로 바꿉니다"
     return _back(msg, to="/team?view=all")
 
 
@@ -283,7 +283,7 @@ def _save_one(st, accounts: dict, me: str, *, uid: str, new: bool, name: str, ro
     # 관리자는 개발자와 시스템 전체 관리자 둘까지(ADR-0066) — 이미 사용 중인 관리자 계정을 그대로 고쳐 저장하는 것은 막지 않는다
     was_admin = not new and accounts[uid].get("role") == "dev" and accounts[uid].get("active", True)
     if not was_admin and grades.admin_over(accounts, uid, role, on):
-        return f"관리자는 최대 {grades.ADMIN_MAX}명까지 둘 수 있습니다 — 다른 관리자 계정을 교직원으로 바꾸거나 사용 중지한 뒤 지정해 주세요"
+        return f"관리자는 최대 {grades.ADMIN_MAX}명까지입니다. 다른 관리자 계정을 교직원으로 바꾸거나 사용 중지한 뒤 지정해 주세요"
     if grade and grade not in grades.GRADES:
         return "등급 값이 올바르지 않습니다"
     others_dev = [u for u, a in accounts.items() if u != uid and a.get("role") == "dev" and a.get("active", True)]
@@ -292,10 +292,10 @@ def _save_one(st, accounts: dict, me: str, *, uid: str, new: bool, name: str, ro
     data_dir = getattr(st, "data_dir", None)
     known = set(known_depts(st.db, accounts, data_dir))
     if dept and dept not in known:
-        return "부서는 목록에서 골라 주세요 — 새 부서는 조직 관리에서 먼저 만듭니다"
+        return "부서는 목록에서 골라 주세요. 새 부서는 조직 관리에서 먼저 만듭니다"
     if google:
         if google not in connected_emails():
-            return "연결(허용)된 구글 계정만 지정할 수 있습니다 — 그 사용자가 먼저 설정 화면에서 연결해야 합니다"
+            return "연결(허용)된 구글 계정만 지정됩니다. 그 사용자가 먼저 설정 화면에서 연결해야 합니다"
         dom = gdrive.allowed_domain()
         if dom and not google.lower().endswith("@" + dom):
             return f"{dom} 계정만 지정할 수 있습니다"
@@ -390,7 +390,7 @@ def team_accounts_bulk(request: Request, op: str = Form(""), value: str = Form("
     label = BULK_OPS[op]
     msg = f"{len(done)}명 {label}" + (f" · {len(failed)}명은 바꾸지 못했습니다" if failed else "")
     if failed and not done:
-        msg = failed[0]["msg"] if len(failed) == 1 else f"{len(failed)}명 모두 바꾸지 못했습니다 — {failed[0]['msg']}"
+        msg = failed[0]["msg"] if len(failed) == 1 else f"{len(failed)}명 모두 바꾸지 못했습니다({failed[0]['msg']})"
     return JSONResponse({"ok": bool(done), "msg": msg, "done": done, "failed": failed}, status_code=200 if done else 400)
 
 
@@ -450,7 +450,7 @@ def delete_dept(st, accounts: dict, name: str, kids: str = "lift") -> tuple[str,
     plan = delete_plan(st, accounts, name, kids)
     if plan["blocked"]:
         who = ", ".join(f"「{d}」" for d in plan["blocked"][:3]) + (" 등" if len(plan["blocked"]) > 3 else "")
-        return f"{who} 부서에 사람이 있어 지울 수 없습니다 — 먼저 사람을 다른 부서로 옮기세요", 0
+        return f"{who} 부서에 사람이 있어 지울 수 없습니다. 먼저 사람을 다른 부서로 옮기세요", 0
     if data_dir is not None:
         for c in plan["lift"]:                            # 지우기 전에 올린다(forget_dept 가 이 부서를 가리키던 관계를 지우므로)
             err = dept_dictionary.set_parent(data_dir, c, plan["up"])
@@ -703,7 +703,7 @@ def _members_op(request: Request, b: dict):
     if op == "add" and value not in ("primary", "extra"):
         return fail("소속으로 넣을지 겸직으로 넣을지 골라 주세요")
     if op == "add" and value == "primary" and ag != "admin":
-        return fail("다른 부서 사람을 소속으로 옮겨 오는 것은 관리자가 합니다 — 겸직으로 넣을 수 있습니다", 403)
+        return fail("다른 부서 사람을 소속으로 옮겨 오는 것은 관리자가 합니다. 겸직으로는 넣을 수 있습니다", 403)
     if op == "grade" and (ag not in ("admin", "head") or value not in TEAM_GRADES):
         return fail("등급(사업 책임자·행정 담당자 지정)은 총괄 책임자가 정합니다", 403 if value in TEAM_GRADES else 400)
     done, failed = [], []
@@ -739,7 +739,7 @@ def _members_op(request: Request, b: dict):
             perms = [k for k in grades.PERMS if (k in perms and k not in grantable) or (k in grantable and k in want)]
         elif op == "move":
             if primary != dept:
-                failed.append({"uid": uid, "msg": "겸직인 사람은 옮기지 않습니다 — 빼기로 이 부서 겸직을 푸세요"})
+                failed.append({"uid": uid, "msg": "겸직인 사람은 옮기지 않습니다. 빼기로 이 부서 겸직을 푸세요"})
                 continue
             if not grade_ok and ag != "admin":
                 failed.append({"uid": uid, "msg": "총괄 책임자는 관리자가 옮깁니다"})
@@ -749,7 +749,7 @@ def _members_op(request: Request, b: dict):
         elif op == "remove":
             if primary == dept:
                 if ag != "admin":
-                    failed.append({"uid": uid, "msg": "소속을 비우는 것은 관리자가 합니다 — 다른 부서로 옮겨 주세요"})
+                    failed.append({"uid": uid, "msg": "소속을 비우는 것은 관리자가 합니다. 다른 부서로 옮겨 주세요"})
                     continue
                 new_dept = ""
             else:
@@ -778,7 +778,7 @@ def _members_op(request: Request, b: dict):
         _sync_drives_later(st, accounts)
     label = {"grade": "등급을 바꿨습니다", "perms": "추가 권한을 저장했습니다", "move": f"「{value}」 로 옮겼습니다",
              "remove": "이 부서에서 뺐습니다", "add": "이 부서에 넣었습니다"}[op]
-    msg = f"{len(done)}명 — {label}" + (f" · {len(failed)}명은 바꾸지 못했습니다({failed[0]['msg']})" if failed else "")
+    msg = f"{len(done)}명: {label}" + (f" · {len(failed)}명은 바꾸지 못했습니다({failed[0]['msg']})" if failed else "")
     if not done:
         msg = failed[0]["msg"] if failed else "바뀐 것이 없습니다"
     return JSONResponse({"ok": bool(done), "msg": msg, "done": done, "failed": failed}, status_code=200 if done else 400)

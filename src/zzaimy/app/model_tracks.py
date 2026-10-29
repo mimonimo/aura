@@ -13,8 +13,8 @@ TRACKS = (
     {"key": "answer", "name": "ZZAIMY-Writer", "base": "Qwen3.8-27B (NVFP4 · MTP)",
      "role": "답·문서 작성 에이전트·검토·서류 종류와 사업 판정·이미지 판독",
      "method": "bf16 LoRA SFT (원본 정밀도 유지, 4비트는 메모리 부족 때 예비)",
-     "status": "운영: 오픈 27B 그대로 — 검색(RAG)·지식그래프(GraphRAG)를 근거로 답한다. "
-               "SFT v1 은 비교 뒤 채택하지 않음(ADR-0069) — 학습셋 틀이 답에 섞여 문서 작업 에이전트가 동작하지 않았다",
+     "status": "운영: 오픈 27B 그대로. 검색(RAG)·지식그래프(GraphRAG)를 근거로 답한다. "
+               "SFT v1 은 비교 뒤 채택하지 않음(ADR-0069). 학습셋 틀이 답에 섞여 문서 작업 에이전트가 동작하지 않았다",
      "next": "v2 학습셋(플랫폼이 실제로 보내는 요청 꼴)으로 다시 학습 → 같은 비교로 교체 판단"},
     {"key": "extract", "name": "ZZAIMY-Extract", "base": "Qwen3.8-27B",
      "role": "Writer 공용 베이스 · 구조화 추출(사업 정보·성과지표)", "method": "형식 강제 + 검수본 SFT",
@@ -64,9 +64,9 @@ def live_training(runs: list[dict] | None = None) -> dict:
             head += f" · 남은 시간 약 {prog['remain']}"
     elif st.get("finished_ok"):
         # 비교 결과(모델 비교 화면의 결과 파일)가 이미 있으면 「비교 차례」 가 아니다 — 끝난 일을 할 일처럼 보이지 않게
-        head = "SFT 학습 마침 — " + ("비교 끝, 운영 미채택(품질·성능 › 모델 비교)" if _compare_done() else "학습 전후 비교 차례")
+        head = "SFT 학습 마침 · " + ("비교 끝, 운영 미채택(품질·성능 › 모델 비교)" if _compare_done() else "학습 전후 비교 차례")
     elif stale:
-        head = f"SFT 기록이 {int((_t.time() - cur['mtime']) // 60)}분째 멈춤 — 학습 상태 확인 필요"
+        head = f"SFT 기록이 {int((_t.time() - cur['mtime']) // 60)}분째 멈춤. 학습 상태 확인 필요"
     else:
         head = f"SFT 멈춤 · {prog.get('step', '?')}/{prog.get('total', '?')}단계(중간 저장에서 이어 돌릴 수 있음)"
     if len(loss) >= 2:
@@ -86,7 +86,7 @@ def learning_now(sets: list[dict] | None = None) -> dict[str, str]:
         return {"data": "DGX 학습 폴더 목록을 아직 받지 못함", "eval": "—", "train": "—"}
     data = (f"{st['name']} · {st['status_label']} · {st['summary']}" if st else "학습셋 없음")
     if rel and rel.get("hold_reason"):
-        data += f" — 보류: {rel['hold_reason'][:80]}"
+        data += f" · 보류: {rel['hold_reason'][:80]}"
     ev = f"학습 전 측정 {base['summary']} ({base['status_label']})" if base else "학습 전 측정 없음"
     train = (rel or {}).get("training_label") or "학습 시작 전"
     if rel:

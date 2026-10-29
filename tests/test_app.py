@@ -1279,7 +1279,7 @@ def test_llm_probe_diagnoses_network_in_plain_words(client, tmp_path):
     # 화면: 배너에 사유와 할 일, 표에는 마지막 확인이 남는다
     from urllib.parse import unquote
     loc = unquote(client.post(f"/dev/llm/{hub['id']}/test", follow_redirects=False).headers["location"])
-    assert "연결 실패 — 서버까지 통신이 막혀 있음" in loc and "관리자에게 요청하세요" in loc
+    assert "연결 실패: 서버까지 통신이 막혀 있음" in loc and "관리자에게 요청하세요" in loc
     # 통신이 막힌 연결은 화면에서 '응답 없음' 으로 보이고, 실패 사유가 사람 말로 남는다
     page = client.get("/dev/tools").text
     assert "응답 없음" in page and "서버까지 통신이 막혀 있음" in page

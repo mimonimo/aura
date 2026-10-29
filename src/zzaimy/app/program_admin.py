@@ -121,7 +121,7 @@ def row_version(store: dict, key: str) -> str:
     return hashlib.sha256(json.dumps(part, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
-STALE = "다른 사람이 먼저 고쳤습니다 — 새로 불러온 뒤 다시 저장해 주세요"
+STALE = "다른 사람이 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장해 주세요"
 
 
 def store_hash(data_dir=None) -> str:
@@ -921,7 +921,7 @@ def apply_year_table(cur_years: dict, payload: dict, by: str, o: dict) -> tuple[
             continue
         if p.get("remove"):
             if y in ys:
-                program_sheet.add_log(o, by, "", y, "", "직접 — 연도 지움", y)
+                program_sheet.add_log(o, by, "", y, "", "직접(연도 지움)", y)
                 ys.pop(y)
             continue
         cur = ys.setdefault(y, {})
@@ -1027,8 +1027,8 @@ def _check_people(want: dict, allowed: dict, old: dict, accounts: dict) -> str:
             name = (a.get("name") or "").strip() or u
             if not a or not a.get("active", True):
                 return f"{name}: 사용 중인 계정이 아닙니다"
-            return (f"{name}: {ROLE_LABEL[f]}로 지정할 수 없습니다 — "
-                    + {"heads": "총괄 책임자 등급만", "leads": "사업 책임자 이상이고 같은 부서", "clerks": "행정 담당자 이상이고 같은 부서"}[f])
+            return (f"{name}: {ROLE_LABEL[f]}로 지정할 수 없습니다. "
+                    + {"heads": "총괄 책임자 등급만 됩니다", "leads": "같은 부서의 사업 책임자 이상만 됩니다", "clerks": "같은 부서의 행정 담당자 이상만 됩니다"}[f])
     return ""
 
 
@@ -1065,9 +1065,9 @@ def _save_row(request: Request, form):
         if old["hidden"]:
             raise HTTPException(404, "사업을 찾을 수 없습니다")
         if not owns(old, scope, user, acct):
-            raise HTTPException(403, "다른 부서 사업은 고칠 수 없습니다 — 「수정 신청」으로 관리자에게 요청합니다")
+            raise HTTPException(403, "다른 부서 사업은 고칠 수 없습니다. 「수정 신청」으로 관리자에게 요청하세요")
     if old is not None and stage(old, int(time.strftime("%Y"))) == "past":
-        return _back("지난 사업은 확인용입니다 — 고치지 않습니다", ok=False)
+        return _back("지난 사업은 보기만 됩니다", ok=False)
     ok_sets = dict(zip(ROLES, ({c["user"] for c in cs} for cs in _choices(accounts, scope, acct))))
     want = {f: list(dict.fromkeys(str(x) for x in form.getlist(f) if str(x))) for f in ROLES}
     if scope == "dept":
@@ -1306,7 +1306,7 @@ def programs_admin_merge(request: Request, key: str = Form(""), into: str = Form
     program_sheet.add_log(so, user, "합치기", src["name"], dst["name"], "합치기")
     program_sheet.add_log(do, user, "합치기", src["name"], dst["name"], "합치기")
     save_store(store, st.data_dir)
-    return _back(f"「{src['name']}」을 「{dst['name']}」에 합쳤습니다 — 연도 값·지정을 옮기고 프로젝트 {moved}개를 다시 이었습니다",
+    return _back(f"「{src['name']}」을 「{dst['name']}」에 합쳤습니다. 연도 값·지정을 옮기고 프로젝트 {moved}개를 다시 이었습니다",
                  anchor=f"&row={quote(into)}")
 
 
@@ -1353,11 +1353,11 @@ def programs_admin_unmerge(request: Request, key: str = Form("")):
     program_sheet.add_log(do, user, "떼어 내기", src["name"], dname, "떼어 내기")
     save_store(store, st.data_dir)
     if not u:
-        tail = " — 예전에 합친 줄이라 연도 값은 돌려놓지 못했습니다"
+        tail = ". 예전에 합친 줄이라 연도 값은 돌려놓지 못했습니다"
     elif whole:
-        tail = f" — 연도 값·지정·프로젝트 {back}개를 돌려놓았습니다"
+        tail = f". 연도 값·지정·프로젝트 {back}개를 돌려놓았습니다"
     else:
-        tail = f" — 「{dname}」이 합친 뒤 고쳐져 그쪽 연도 값은 그대로 두었습니다(겹치는 해는 확인해 주세요)"
+        tail = f". 「{dname}」이 합친 뒤 고쳐져 그쪽 연도 값은 그대로 두었습니다(겹치는 해는 확인해 주세요)"
     return _back(f"「{src['name']}」을 「{dname}」에서 떼어 냈습니다{tail}", anchor=f"&row={quote(key)}")
 
 
@@ -1419,7 +1419,7 @@ async def programs_admin_request(request: Request):
     if r is None:
         raise HTTPException(404, "사업을 찾을 수 없습니다")
     if stage(r, int(time.strftime("%Y"))) == "past":
-        return _back("지난 사업은 확인용입니다", ok=False)
+        return _back("지난 사업은 보기만 됩니다", ok=False)
     kind = str(form.get("kind") or "")
     reason = _clean(form.get("reason"), 300)
     q = {"kind": kind, "key": key, "name": r["name"], "by": user, "at": time.strftime("%Y-%m-%d %H:%M"), "reason": reason, "status": "wait"}
@@ -1459,12 +1459,12 @@ async def programs_admin_request(request: Request):
     reqs = store.setdefault("requests", [])
     q["id"] = max((x["id"] for x in reqs), default=0) + 1
     reqs.append(q)
-    add_note(store, admin_users(accounts), f"새 신청 #{q['id']} — 「{r['name']}」 {'지정' if kind == 'assign' else '수정'} 신청", q["id"])
+    add_note(store, admin_users(accounts), f"새 신청 #{q['id']}: 「{r['name']}」 {'지정' if kind == 'assign' else '수정'} 신청", q["id"])
     save_store(store, st.data_dir)
     from zzaimy.app.notifications import notify                # 종(알림)에도 — 관리자에게
     notify(getattr(st, "db", None), admin_users(accounts),
-           f"사업 관리 신청: {r['name']} — {'지정' if kind == 'assign' else '수정'} 신청", "/programs/admin?view=requests")
-    return _back(f"신청 #{q['id']}을 보냈습니다 — 관리자가 승인하면 반영됩니다")
+           f"사업 관리 신청: {r['name']} {'지정' if kind == 'assign' else '수정'} 신청", "/programs/admin?view=requests")
+    return _back(f"신청 #{q['id']}을 보냈습니다. 관리자가 승인하면 반영됩니다")
 
 
 def _recheck(q: dict, accounts: dict, data_dir) -> str:
@@ -1514,21 +1514,21 @@ def programs_admin_decide(request: Request, id: str = Form(""), decision: str = 
         if r is None:
             return _back("사업이 없어졌습니다", ok=False)
         if r["hidden"] or stage(r, int(time.strftime("%Y"))) == "past":
-            return _back(f"신청 #{q['id']}: 사업이 숨겨졌거나 끝나 반영하지 않습니다 — 반려로 처리해 주세요", ok=False)
+            return _back(f"신청 #{q['id']}: 사업이 숨겨졌거나 끝나 반영하지 않습니다. 반려로 처리해 주세요", ok=False)
         bad = _recheck(q, accounts=getattr(st, "accounts", None) or {}, data_dir=st.data_dir)
         if bad:
-            return _back(f"신청 #{q['id']}: {bad} — 반려로 처리해 주세요", ok=False)
+            return _back(f"신청 #{q['id']}: {bad}. 반려로 처리해 주세요", ok=False)
         via = f"신청 #{q['id']} 승인"
         if q["kind"] == "assign":
             set_field(store, r, q["role"], list(dict.fromkeys([*r[q["role"]], *q["users"]])), user, via)
         else:
             set_field(store, r, q["field"], q.get("value") or "", user, via, q.get("year") or "")
     q.update({"status": decision, "done_by": user, "done_at": time.strftime("%Y-%m-%d %H:%M"), "note": note})
-    add_note(store, [q["by"]], f"신청 #{q['id']} 「{q['name']}」 {'승인' if decision == 'ok' else '반려'}" + (f" — {note}" if note else ""), q["id"])
+    add_note(store, [q["by"]], f"신청 #{q['id']} 「{q['name']}」 {'승인' if decision == 'ok' else '반려'}" + (f": {note}" if note else ""), q["id"])
     save_store(store, st.data_dir)
     from zzaimy.app.notifications import notify                # 종(알림)에도 — 신청자에게
     notify(getattr(st, "db", None), [q["by"]],
-           f"사업 관리 신청 {'승인' if decision == 'ok' else '반려'}: {q['name']}" + (f" — {note}" if note else ""), "/programs/admin?view=requests")
+           f"사업 관리 신청 {'승인' if decision == 'ok' else '반려'}: {q['name']}" + (f": {note}" if note else ""), "/programs/admin?view=requests")
     return RedirectResponse(f"/programs/admin?view=requests&ok={quote('신청 #' + str(q['id']) + (' 승인' if decision == 'ok' else ' 반려'))}",
                             status_code=303)
 
@@ -1762,10 +1762,10 @@ async def _sources(request: Request, form, token: str, scope: str = "all", user:
                 continue
             data = await f.read(MAX_UPLOAD + 1)
             if len(data) > MAX_UPLOAD:
-                errs.append(f"{name}: {MAX_UPLOAD // (1024 * 1024)}MB 보다 큽니다 — 필요한 시트만 남겨 다시 올려 주세요")
+                errs.append(f"{name}: {MAX_UPLOAD // (1024 * 1024)}MB 보다 큽니다. 필요한 시트만 남겨 다시 올려 주세요")
                 continue
             if total + len(data) > MAX_TOTAL or len(data) > room:
-                errs.append(f"{name}: 한 번에 읽는 파일 합계가 너무 큽니다 — 나눠서 올려 주세요")
+                errs.append(f"{name}: 한 번에 읽는 파일 합계가 너무 큽니다. 나눠서 올려 주세요")
                 continue
             total += len(data)
             room -= len(data)
@@ -1844,7 +1844,7 @@ async def programs_admin_sheet_apply(request: Request):
         for p in [*_tmp(request.app.state.data_dir).glob(f"{token}-*"), _tmp(request.app.state.data_dir) / f"{token}.who"]:
             p.unlink(missing_ok=True)
     c = summary["cells"]
-    msg = (f"가져왔습니다 — 맞춘 사업 {len(summary['matched'])}개 · 새 줄 {len(summary['new'])}개 · 세부 과제 {summary['tasks']}줄 · "
+    msg = (f"가져왔습니다. 맞춘 사업 {len(summary['matched'])}개 · 새 줄 {len(summary['new'])}개 · 세부 과제 {summary['tasks']}줄 · "
            f"채운 칸 {c['fill']}개 · 바뀐 칸 {c['change']}개")
     if c["kept"]:
         msg += f" · 손으로 고친 칸 {c['kept']}개는 그대로"
@@ -1865,13 +1865,13 @@ def programs_admin_sheet_undo(request: Request, stamp: str = Form(""), h: str = 
     if not re.fullmatch(r"\d{14}(?:-\d+)?", stamp or "") or not src.is_file():
         return _back("되돌릴 판을 찾지 못했습니다", ok=False)
     if store_hash(d) != h:
-        return _back("가져온 뒤 다른 저장이 있어 되돌리지 않습니다 — 줄의 변경 기록에서 칸별로 되돌립니다", ok=False)
+        return _back("가져온 뒤 다른 저장이 있어 되돌리지 않습니다. 줄의 변경 기록에서 칸별로 되돌리세요", ok=False)
     try:
         old = json.loads(src.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return _back("되돌릴 판을 읽지 못했습니다", ok=False)
     save_store(old, d)
-    return _back("가져오기를 되돌렸습니다 — 가져오기 앞 판으로 돌아갔습니다(지금 판은 history 에 남겼습니다)")
+    return _back("가져오기를 되돌렸습니다. 지금 판은 history 에 남겼습니다")
 
 
 # ---------------------------------------------------------------- 프로젝트 연결
@@ -1925,7 +1925,7 @@ def _row_for(request: Request, key: str, live_only: bool = True) -> tuple[dict, 
         raise HTTPException(404, "사업을 찾을 수 없습니다")
     past = stage(r, int(time.strftime("%Y"))) == "past"
     if live_only and past:
-        raise HTTPException(409, "지난 사업은 확인용입니다")
+        raise HTTPException(409, "지난 사업은 보기만 됩니다")
     return r, scope, user, acct
 
 
@@ -1933,7 +1933,7 @@ def _may_link(r: dict, scope: str, user: str, acct: dict) -> None:
     """프로젝트 잇기·새 프로젝트 — 고칠 수 있는 사업(관리자·맡은 부서 총괄 책임자) 또는 지정된 사업만. 읽기만 하는 사업은 403."""
     if owns(r, scope, user, acct) or any(user in r[f] for f in ROLES):
         return
-    raise HTTPException(403, "이 사업에는 프로젝트를 잇지 못합니다 — 맡은 부서 사업이나 지정된 사업만")
+    raise HTTPException(403, "이 사업에는 프로젝트를 잇지 못합니다. 맡은 부서 사업이나 지정된 사업만")
 
 
 def trim_projects(request: Request, rows: list[dict], user: str, acct: dict) -> None:

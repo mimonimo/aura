@@ -65,7 +65,7 @@ def test_page_wording_and_labels(client):
     page = client.get("/dev/archive").text
     assert "<title>" in page and "DGX" not in page
     assert "<title>원본 관리" in page and "원본 보관소" not in page and 'class="library-' not in page   # 라이브러리 머리·탭 없이 개발 화면
-    assert "한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다" in page
+    assert "한 문서에 원본이 여럿이면 문서 수와 다름" in page
     for internal in ("플랫폼 원본 대장", "OCR·분석 완료율", "미정", "파일명으로 검색", ">evidence", ">curriculum"):
         assert internal not in page, internal
     from zzaimy.app.doc_routing import KINDS

@@ -77,7 +77,7 @@ def test_value_form_is_reshown_from_pending_asks_with_jump(tmp_path):
     page = client.get(f'/chat/{sid}').text
     form = page.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
     assert '>가상 미래교육 사업단</textarea>' in form
-    assert '자료에서 찾음 · 확인 전 — 《가상 공고 제2099-1호》' in form
+    assert '자료에서 찾음 · 확인 전 · 《가상 공고 제2099-1호》' in form
     assert '>확인</button>' in form
     # 저장된 옛 칸(값 없음)이 있어도 지금 값으로 다시 만든 칸 하나만
     db.set_setting(f'chat_options:{sid}', json.dumps([asks.form_option([{'name': '가상 사업단명', 'hint': ''}])], ensure_ascii=False))

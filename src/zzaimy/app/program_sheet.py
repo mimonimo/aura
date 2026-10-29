@@ -242,7 +242,7 @@ class SheetError(ValueError):
 
 
 def _too_big(what: str) -> SheetError:
-    return SheetError(f"{what} — 파일을 나누거나 필요한 시트만 남겨 다시 올려 주세요")
+    return SheetError(f"{what}. 파일을 나누거나 필요한 시트만 남겨 다시 올려 주세요")
 
 
 def _check_zip(p: Path) -> None:
@@ -344,7 +344,7 @@ def _load_xls(p: Path) -> list[Sheet]:
     try:
         import xlrd                                       # 선택 의존 — 없으면 아래 안내
     except ImportError:
-        raise ValueError("옛 엑셀(.xls) 형식입니다 — 엑셀에서 「다른 이름으로 저장 → Excel 통합 문서(.xlsx)」로 저장해 올려 주세요")
+        raise ValueError("옛 엑셀(.xls) 형식입니다. 엑셀에서 「다른 이름으로 저장 → Excel 통합 문서(.xlsx)」로 저장해 올려 주세요")
     book = xlrd.open_workbook(str(p), formatting_info=True)
     if book.nsheets > MAX_SHEETS:
         raise _too_big(f"시트가 너무 많습니다({book.nsheets}개)")
@@ -509,7 +509,7 @@ def _safe_xml(raw: bytes):
     try:
         px.Parse(raw, True)
     except _Bad:
-        raise SheetError("XML 안에 DOCTYPE·ENTITY 선언이 있어 읽지 않습니다 — xlsx 로 저장해 올려 주세요")
+        raise SheetError("XML 안에 DOCTYPE·ENTITY 선언이 있어 읽지 않습니다. xlsx 로 저장해 올려 주세요")
     except expat.ExpatError as e:
         raise SheetError(f"XML 을 읽지 못했습니다({str(e)[:60]})")
     try:
@@ -524,7 +524,7 @@ def _load_xmlss(p: Path) -> list[Sheet]:
     ns = "{urn:schemas-microsoft-com:office:spreadsheet}"
     raw = p.read_bytes()
     if re.search(rb"<!(?:DOCTYPE|ENTITY)", raw[:65536], re.I):
-        raise SheetError("XML 안에 DOCTYPE·ENTITY 선언이 있어 읽지 않습니다 — xlsx 로 저장해 올려 주세요")
+        raise SheetError("XML 안에 DOCTYPE·ENTITY 선언이 있어 읽지 않습니다. xlsx 로 저장해 올려 주세요")
     root = _safe_xml(raw)
     if sum(1 for _ in root.iter(ns + "Worksheet")) > MAX_SHEETS:
         raise _too_big("시트가 너무 많습니다")
@@ -593,7 +593,7 @@ def load_sheets(path) -> list[Sheet]:
         raise _too_big(f"파일이 {p.stat().st_size // (1024 * 1024)}MB 로 {MAX_BYTES // (1024 * 1024)}MB 보다 큽니다")
     kind = file_kind(p)
     if kind == "lock":
-        raise SheetError("엑셀이 열어 둔 잠금 파일(~$)입니다 — 원래 파일을 고르세요")
+        raise SheetError("엑셀이 열어 둔 잠금 파일(~$)입니다. 원래 파일을 고르세요")
     loader = {"xlsx": _load_xlsx, "xls": _load_xls, "html": _load_html, "mht": _load_mht, "xmlss": _load_xmlss}.get(kind)
     if loader is None:
         raise SheetError("엑셀 파일 꼴을 알아보지 못했습니다(xlsx·xls·웹 페이지로 저장한 html 을 읽습니다)")

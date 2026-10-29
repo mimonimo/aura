@@ -85,7 +85,7 @@
       var showDone = !busy && step && Date.now() < doneUntil;             // 마친 뒤 결과 한 줄(쓴 절 수 그대로)을 잠시
       chip.hidden = !busy && !failed && !showDone;
       chip.querySelector('.spin').hidden = !busy;
-      chipText.textContent = failed ? 'AURA에게 보내지 못했어요 — 다시 눌러 주세요' : (busy || showDone) ? (step || 'AURA 시작') : '';   // 지금 단계(「2. 추진 전략 쓰는 중 (2/3)」)·결과
+      chipText.textContent = failed ? 'AURA에 보내지 못함. 다시 누르세요' : (busy || showDone) ? (step || 'AURA 시작') : '';   // 지금 단계(「2. 추진 전략 쓰는 중 (2/3)」)·결과
     }
     function poll() {
       fetch('/dev/coedit-demo/state?id=' + encodeURIComponent(id), {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (s) {

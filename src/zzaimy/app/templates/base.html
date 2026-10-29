@@ -634,10 +634,10 @@ document.addEventListener('submit', function(event) {
     {% if request.state.role != 'student' %}
     <a href="/?type=all" class="{{ 'active' if request.url.path == '/' else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
-    <a href="/hwp" data-nav="side-hwp-box" class="{{ 'active' if request.url.path.startswith('/hwp') else '' }}" title="부서 폴더·구글 드라이브의 문서 — 한글은 웹 기안기로 열기">
+    <a href="/hwp" data-nav="side-hwp-box" class="{{ 'active' if request.url.path.startswith('/hwp') else '' }}" title="부서 폴더·구글 드라이브 문서(한글은 웹 기안기로 열기)">
       <iconify-icon icon="solar:document-text-linear"></iconify-icon>문서함</a>
     {% if program_scope is defined and program_scope(request) %}
-    <a href="/programs/admin" class="{{ 'active' if request.url.path.startswith('/programs/admin') else '' }}" title="교내 사업 장부 — 분류·부서·기간·예산·총괄 책임자·사업 책임자">
+    <a href="/programs/admin" class="{{ 'active' if request.url.path.startswith('/programs/admin') else '' }}" title="교내 사업 장부: 분류·부서·기간·예산·총괄 책임자·사업 책임자">
       <iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>사업 관리</a>
     {% endif %}
     {% set _team_mgr = program_scope is defined and program_scope(request) in ('all', 'dept') or (program_scope is defined and request_grade is defined and request_grade(request) == 'lead') %}
@@ -673,7 +673,7 @@ document.addEventListener('submit', function(event) {
   <nav class="side-nav side-list" id="sideShared" data-side-limit="5" aria-label="공유받은 프로젝트">
     {% for pj in side_shared %}
     <a href="/project/{{ pj.id }}"
-       class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }} — {{ person_name(pj.owner) }} 님이 공유">
+       class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }} ({{ person_name(pj.owner) }} 님이 공유)">
       <iconify-icon icon="solar:users-group-rounded-linear"{% if project_color is defined %} style="color:{{ project_color(pj.id) }}"{% endif %}></iconify-icon>
       <span class="side-name">{{ pj.name }}</span>
       <span class="side-meta">{{ person_name(pj.owner) }}</span></a>
@@ -748,7 +748,7 @@ document.addEventListener('submit', function(event) {
         {% for d in failed_docs %}{% set rf = read_fail(d) %}
         <a class="pop-item" href="/doc/{{ d.id }}#readFix" data-force-navigation>
           <iconify-icon icon="solar:danger-triangle-linear" style="color:var(--red);"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>읽지 못함 · {{ rf.label }}{% if rf.actions %} — {{ rf.actions[0].label }}{% endif %}</small></span>
+          <span class="notification-copy"><strong>{{ doc_title(d) }}</strong><small>읽지 못함 · {{ rf.label }}{% if rf.actions %} · {{ rf.actions[0].label }}{% endif %}</small></span>
         </a>
         {% endfor %}
         {% endif %}
@@ -848,7 +848,7 @@ document.addEventListener('submit', function(event) {
   {% if request.state.view_as is defined and request.state.view_as %}
   <form method="post" action="/view-as/clear" class="view-as-bar" role="status">
     <input type="hidden" name="back" value="{{ request.url.path if request.url.path != '/chat' else '/' }}">
-    <span>테스트 보기 중 — {{ (request.state.view_as.dept ~ ' ') if request.state.view_as.dept else '' }}{{ view_as_roles.get(request.state.view_as.role, request.state.view_as.role) }} 계정의 화면·검색 범위입니다.</span>
+    <span>테스트 보기 중: {{ (request.state.view_as.dept ~ ' ') if request.state.view_as.dept else '' }}{{ view_as_roles.get(request.state.view_as.role, request.state.view_as.role) }} 계정의 화면·검색 범위입니다.</span>
     <button type="button" onclick="document.getElementById('viewAsDialog').showModal()">다른 계정으로</button>
     <button type="submit">원래대로</button>
   </form>
@@ -1003,7 +1003,7 @@ document.addEventListener('submit', function(event) {
       const box = document.createElement('div');
       box.className = 'drive-toast'; box.setAttribute('role', 'status');
       const text = document.createElement('span');
-      text.textContent = '드라이브에서 ' + items.length + '건을 가져왔습니다 — ' + items.slice(0, 2).map(i => '「' + i.name + '」').join(', ') + (items.length > 2 ? ' 외' : '');
+      text.textContent = '드라이브에서 ' + items.length + '건을 가져왔습니다. ' + items.slice(0, 2).map(i => '「' + i.name + '」').join(', ') + (items.length > 2 ? ' 외' : '');
       const go = document.createElement('a');
       go.href = items.length === 1 ? '/doc/' + items[0].id : '/?type=all'; go.textContent = '보기';
       const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', '알림 닫기');

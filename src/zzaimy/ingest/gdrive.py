@@ -180,12 +180,12 @@ def exchange_code(code: str, state: str, redirect_uri: str, http=None, user: str
     with _lock:
         got = _pending_states.pop(state, None)
     if got is None:
-        raise ValueError("허용 요청이 만료됐거나 일치하지 않습니다 — 다시 시도해 주세요")
+        raise ValueError("허용 요청이 만료됐거나 일치하지 않습니다. 다시 시도해 주세요")
     started_by = got[1] if isinstance(got, tuple) else ""
     if started_by != (user or ""):
-        raise ValueError("허용을 시작한 계정과 지금 로그인한 계정이 다릅니다 — 본인 계정으로 로그인한 채 다시 연결해 주세요")
+        raise ValueError("허용을 시작한 계정과 지금 로그인한 계정이 다릅니다. 본인 계정으로 로그인한 채 다시 연결해 주세요")
     if purpose is not None and (got[2] if isinstance(got, tuple) and len(got) > 2 else "") != purpose:
-        raise ValueError("허용 요청이 일치하지 않습니다 — 다시 시도해 주세요")
+        raise ValueError("허용 요청이 일치하지 않습니다. 다시 시도해 주세요")
     c = client_config()
     http = http or _http()
     r = http.post(TOKEN_URL, data={"code": code, "client_id": c["client_id"], "client_secret": c["client_secret"],
@@ -194,13 +194,13 @@ def exchange_code(code: str, state: str, redirect_uri: str, http=None, user: str
         raise ValueError(f"토큰 교환 실패({r.status_code}): {r.text[:160]}")
     tok = r.json()
     if not tok.get("refresh_token"):
-        raise ValueError("갱신 토큰이 오지 않았습니다 — 구글 계정 설정에서 이 앱의 접근 권한을 지우고 다시 허용해 주세요")
+        raise ValueError("갱신 토큰이 오지 않았습니다. 구글 계정 설정에서 이 앱의 접근 권한을 지우고 다시 허용해 주세요")
     email = _whoami(tok["access_token"], http) or f"account-{secrets.token_hex(3)}"
     dom = allowed_domain()
     if dom and not email.lower().endswith("@" + dom):
         # 받은 토큰은 보관하지 않고 구글 쪽 허용도 거둔다 — 교외 계정으로 문서가 만들어지지 않게
         http.post("https://oauth2.googleapis.com/revoke", params={"token": tok["refresh_token"]})
-        raise ValueError(f"{dom} 계정만 쓸 수 있습니다 — 학교 구글 계정으로 다시 허용해 주세요 (받은 계정: {email})")
+        raise ValueError(f"{dom} 계정만 씁니다. 학교 구글 계정으로 다시 허용해 주세요 (받은 계정: {email})")
     with _lock:
         t = _tokens()
         t[email] = {"refresh_token": tok["refresh_token"], "access_token": tok.get("access_token", ""),
@@ -249,7 +249,7 @@ def access_token(email: str, http=None) -> str:
     t = _tokens()
     acc = t.get(email)
     if not acc:
-        raise ValueError(f"허용된 구글 계정이 아닙니다: {email or '(없음)'} — 먼저 계정 허용을 해 주세요")
+        raise ValueError(f"허용된 구글 계정이 아닙니다: {email or '(없음)'}. 먼저 계정 허용을 해 주세요")
     if acc.get("access_token") and time.time() < float(acc.get("expires_at", 0)):
         return acc["access_token"]
     c = client_config()
@@ -257,7 +257,7 @@ def access_token(email: str, http=None) -> str:
     r = http.post(TOKEN_URL, data={"refresh_token": acc["refresh_token"], "client_id": c.get("client_id", ""),
                                    "client_secret": c.get("client_secret", ""), "grant_type": "refresh_token"})
     if r.status_code != 200:
-        raise ValueError(f"토큰 갱신 실패({r.status_code}) — 계정 허용을 다시 해 주세요")
+        raise ValueError(f"토큰 갱신 실패({r.status_code}). 계정 허용을 다시 해 주세요")
     tok = r.json()
     with _lock:
         t = _tokens()
@@ -311,9 +311,9 @@ class GDriveBackend:
     def _get(self, url: str, **params):
         r = self._client().get(url, headers=self._headers(), params=params)
         if r.status_code == 401:
-            raise PermissionError("구글 접근 권한이 없습니다 — 계정 허용을 다시 해 주세요")
+            raise PermissionError("구글 접근 권한이 없습니다. 계정 허용을 다시 해 주세요")
         if r.status_code == 404:
-            raise FileNotFoundError("드라이브에서 폴더나 파일을 찾지 못했습니다 — 공유 여부와 ID 를 확인해 주세요")
+            raise FileNotFoundError("드라이브에서 폴더나 파일을 찾지 못했습니다. 공유 여부와 ID 를 확인해 주세요")
         if r.status_code != 200:
             raise RuntimeError(f"드라이브 응답 {r.status_code}: {r.text[:120]}")
         return r

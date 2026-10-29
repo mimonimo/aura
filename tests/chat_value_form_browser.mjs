@@ -92,7 +92,7 @@ try {
   // 저장 — 마지막 칸에서 Enter. 보내는 값을 가로채 본다: 비운 칸은 빠지고 미룬 값은 later 로
   await evaluate(`window.__sent=null;const real=window.fetch;window.fetch=async(u,o)=>{if(o&&o.method==='POST'){window.__sent=[...o.body.entries()].map(([k,v])=>k+'='+v);return real('/chat/1');}return real(u,o)}`);
   await evaluate(`${F('가상 목표')}.focus()`); await key('Enter');
-  assert.deepEqual(await evaluate(`[document.querySelector('#chatValueForm')?.classList.contains('is-sent'), document.querySelector('.chat-form-sent')?.textContent]`), [true, '4개 저장 — 에이전트가 반영 중']);
+  assert.deepEqual(await evaluate(`[document.querySelector('#chatValueForm')?.classList.contains('is-sent'), document.querySelector('.chat-form-sent')?.textContent]`), [true, '4개 저장, 에이전트가 반영 중']);
   await wait(800);
   const sent = await evaluate('window.__sent');
   assert.ok(sent.includes('field_가상 이름=합성 사업단') && sent.includes('field_가상 기간=2099. 1. 1. ~ 2099. 12. 31.'), sent.join(' | '));

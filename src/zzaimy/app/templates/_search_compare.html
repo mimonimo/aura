@@ -12,7 +12,7 @@
   </table></div>
   {% else %}<p class="muted" style="font-size:12.5px;">측정 기록 없음</p>{% endif %}
   {% endif %}
-  {% if flow.compare %}<p class="muted" style="font-size:12px; margin:0 0 8px;">{{ flow.compare.made }} · {{ flow.compare.file }} · 같은 시험지 — 절 질문 {{ flow.compare.n_sec }} · 관계 질문 {{ flow.compare.n_rel }}{% if flow.compare.n_ans %} · 답변 {{ flow.compare.n_ans }}문{% endif %}, 그래프에서 자동으로 뽑은 질문</p>{% endif %}
+  {% if flow.compare %}<p class="muted" style="font-size:12px; margin:0 0 8px;">{{ flow.compare.made }} · {{ flow.compare.file }} · 같은 시험지: 절 질문 {{ flow.compare.n_sec }} · 관계 질문 {{ flow.compare.n_rel }}{% if flow.compare.n_ans %} · 답변 {{ flow.compare.n_ans }}문{% endif %}, 그래프에서 자동으로 뽑은 질문</p>{% endif %}
   {% if flow.compare %}
   <div class="table-scroll"><table class="q-table">
     <tr><th>지표 <span class="muted" style="font-weight:400;">비율(맞힌 수/질문 수, 오차 범위)</span></th>{% for m in flow.compare.modes %}<th class="num">{{ m }}{% if flow.compare.adopted and flow.compare.adopted[loop.index0] %}<br><span class="pill reviewed" style="font-size:11px;">채택 · 운영 중</span>{% endif %}</th>{% endfor %}<th class="num">{{ flow.compare.diff_label }}</th></tr>
@@ -20,7 +20,7 @@
     <tr><td>{{ r.label }}</td>{% for v in r.vals %}<td class="num">{{ v }}</td>{% endfor %}
       <td class="num q-diff {{ '' if not r.diff or r.diff.zero else ('good' if r.diff.good else 'bad') }}">{{ r.diff.text if r.diff else '—' }}</td></tr>{% endfor %}
   </table></div>
-  <p class="muted" style="font-size:12px; margin:8px 0 0;">차이는 ① 풀텍스트 RAG 에서 운영 방식으로 바꿨을 때 — 초록은 나아짐, 빨강은 나빠짐(시간·근거 밖 숫자는 낮을수록 좋음).</p>
-  {% if flow.compare.latest %}<p class="muted" style="font-size:12px; margin:6px 0 0;">최근 단독 측정 {{ flow.compare.latest.made }} · {{ flow.compare.latest.mode }} · 시험지 {{ flow.compare.latest.set }} —
+  <p class="muted" style="font-size:12px; margin:8px 0 0;">차이는 ① 풀텍스트 RAG 대비 운영 방식 값. 초록은 나아짐, 빨강은 나빠짐(시간·근거 밖 숫자는 낮을수록 좋음).</p>
+  {% if flow.compare.latest %}<p class="muted" style="font-size:12px; margin:6px 0 0;">최근 단독 측정 {{ flow.compare.latest.made }} · {{ flow.compare.latest.mode }} · 시험지 {{ flow.compare.latest.set }}:
     {% for k, v in flow.compare.latest.vals %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %} (시험지가 달라 위 표와 섞지 않음)</p>{% endif %}
   {% else %}<p class="muted" style="font-size:12.5px;">측정 기록 없음 · scripts/188</p>{% endif %}

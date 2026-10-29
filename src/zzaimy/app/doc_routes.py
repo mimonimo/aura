@@ -213,7 +213,7 @@ def doc_identity(request: Request, doc_id: int):
     r = _identify_document(db, doc_id)
     return RedirectResponse(
         f"/doc/{doc_id}?" + ("ok=" if r["ok"] else "err=")
-        + _q(("사업 정보를 정리했습니다 — " + " · ".join(r["identity"].values()))
+        + _q(("사업 정보를 정리했습니다: " + " · ".join(r["identity"].values()))
              if r["ok"] else r["error"]),
         status_code=303,
     )

@@ -323,8 +323,8 @@ def make_chat_helpers(
             if key == "doc.identity":
                 r = _identify_document(db, int(ctx["doc_id"]))
                 if not r["ok"]:
-                    return f"사업 정보를 읽지 못했습니다 — {r['error']}"
-                return "사업 정보를 정리했습니다 — " + " · ".join(r["identity"].values())
+                    return f"사업 정보를 읽지 못했습니다({r['error']})"
+                return "사업 정보를 정리했습니다: " + " · ".join(r["identity"].values())
             if key == "doc.analyze":
                 doc_id = int(ctx["doc_id"])
                 if db.get_document(doc_id) is None:
@@ -371,7 +371,7 @@ def make_chat_helpers(
                 if ident.get("organizer") or ident.get("period"):
                     bits = [v for v in (ident.get("organizer"), ident.get("period"),
                                         ident.get("scale")) if v]
-                    steps.append("공고에서 확인한 것 — " + " · ".join(bits))
+                    steps.append("공고에서 확인한 것: " + " · ".join(bits))
                 return " / ".join(steps) + f" (프로젝트 {pid})"
             if key == "doc.draft":
                 doc_id = int(ctx["doc_id"])
@@ -396,7 +396,7 @@ def make_chat_helpers(
                 _lcm.record_check(cid, pr["ok"],
                                   f"모델 {len(pr['models'])}개" if pr["ok"] else pr["error"])
                 return (f"「{conn['name']}」 연결됨 · 모델 {len(pr['models'])}개"
-                        if pr["ok"] else f"「{conn['name']}」 연결 실패 — {pr['error']}")
+                        if pr["ok"] else f"「{conn['name']}」 연결 실패: {pr['error']}")
         except Exception as e:                      # 어떤 실패도 대화를 끊지 않는다
             return f"처리하지 못했습니다 ({_ko.reason(e)})"
         return ""
@@ -690,7 +690,7 @@ def chat_send(
             owner=getattr(request.state, "user", "zzaimy"),
         )
         if grade_note:
-            db.add_chat(session_id, "assistant", PROJECT_GRADE_NOTE + " — 올린 파일은 이 대화의 첨부로 읽습니다.")
+            db.add_chat(session_id, "assistant", PROJECT_GRADE_NOTE + ". 올린 파일은 이 대화의 첨부로 읽습니다.")
     else:
         _owned_chat(request, session_id)
     if made_project is not None:
@@ -700,8 +700,8 @@ def chat_send(
         lines = [f"[첨부#{d}] {storage.title_of((db.get_document(d) or {}).get('filename') or '')}" for d in [*made["criteria"], *made["intake"]]]
         lines += [f"[참조 보관 사업] {r['name']} (문서 {r['n_docs']}건)" for r in refs]
         db.add_chat(session_id, "user", "\n".join(lines) + "\n" + q)
-        note = (f"프로젝트 {_ko.quote(made_project['name'], '을')} 만들었습니다 — 기준 문서 {len(made['criteria'])}건, 접수 문서 {len(made['intake'])}건. "
-                f"추출이 끝나면 아래 선택지로 양식 작성을 시작하거나 그림 쪽 판독을 요청할 수 있습니다.")
+        note = (f"프로젝트 {_ko.quote(made_project['name'], '을')} 만들었습니다. 기준 문서 {len(made['criteria'])}건, 접수 문서 {len(made['intake'])}건. "
+                f"추출이 끝나면 아래 선택지에서 양식 작성이나 그림 쪽 판독을 고릅니다.")
         if past:
             note += " 지난 자료 " + ", ".join(_ko.quote(storage.title_of(d.get('filename') or '')) for d in past[:4]) + _ko.josa(storage.title_of(past[:4][-1].get('filename') or ''), '을') + " 기준으로 이었습니다."
         db.add_chat(session_id, "assistant", note)
@@ -789,12 +789,12 @@ def chat_proposal_run(request: Request, background: BackgroundTasks, session_id:
     _owned_chat(request, session_id)
     go = ""
     if session_id in _chat_running:
-        out = {"ok": False, "error": "답변을 만드는 중입니다 — 끝난 뒤 눌러 주세요"}
+        out = {"ok": False, "error": "답변을 만드는 중입니다. 끝난 뒤 눌러 주세요"}
     else:
         try:
             ctx_ = _ops_ctx(request.state.user, request.state.role, background)
             text = platform_ops.run_proposal(ctx_, session_id, pid)
-            db.add_chat(session_id, "assistant", "실행했습니다 — " + text)
+            db.add_chat(session_id, "assistant", "실행했습니다: " + text)
             go = ctx_.after.get("go", "")
             out = {"ok": True, "message": text, "go": go}
         except KeyError:
@@ -803,9 +803,9 @@ def chat_proposal_run(request: Request, background: BackgroundTasks, session_id:
             if request.state.role != "dev" and "관리자" in str(e):
                 raise HTTPException(403, "관리자 계정만 할 수 있는 일입니다")
             out = {"ok": False, "error": str(e)}
-            db.add_chat(session_id, "assistant", f"실행하지 않았습니다 — {e}")
+            db.add_chat(session_id, "assistant", f"실행하지 않았습니다({e})")
         except Exception as e:
-            out = {"ok": False, "error": f"실행하지 못했습니다({_ko.reason(e)}) — 바뀐 것은 없습니다"}
+            out = {"ok": False, "error": f"실행하지 못했습니다({_ko.reason(e)}). 바뀐 것은 없습니다"}
             db.add_chat(session_id, "assistant", out["error"])
     if back == f"/chat/{session_id}":
         return RedirectResponse(go or back, status_code=303)

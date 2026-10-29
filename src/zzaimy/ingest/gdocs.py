@@ -82,11 +82,11 @@ def _read(email: str, doc: str, http):
 
 def _raise(r) -> None:
     if r.status_code == 401:
-        raise PermissionError("구글 접근 권한이 없습니다 — 계정 허용을 다시 해 주세요")
+        raise PermissionError("구글 접근 권한이 없습니다. 계정 허용을 다시 해 주세요")
     if r.status_code == 403:
-        raise PermissionError("이 문서를 고칠 권한이 없거나 허용 범위에 문서 편집이 없습니다 — 계정 허용을 다시 해 주세요")
+        raise PermissionError("이 문서를 고칠 권한이 없거나 허용 범위에 문서 편집이 없습니다. 계정 허용을 다시 해 주세요")
     if r.status_code == 404:
-        raise FileNotFoundError("구글 독스에서 문서를 찾지 못했습니다 — 주소와 공유 여부를 확인해 주세요")
+        raise FileNotFoundError("구글 독스에서 문서를 찾지 못했습니다. 주소와 공유 여부를 확인해 주세요")
     if r.status_code != 200:
         raise RuntimeError(f"구글 독스 응답 {r.status_code}: {r.text[:120]}")
 
@@ -518,7 +518,7 @@ def insert_into_section(email: str, doc: str, section_index: int, text: str, *, 
     secs = {s["index"]: s for s in info["sections"]}
     sec = secs.get(int(section_index))
     if sec is None:
-        raise ValueError("절을 다시 골라 주세요 — 문서 구조가 바뀌었습니다")
+        raise ValueError("문서 구조가 바뀌었습니다. 절을 다시 골라 주세요")
     try:
         r = _read(email, doc, http)
         _raise(r)
@@ -1336,7 +1336,7 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     info = get(email, doc, http)
     sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
     if sec is None:
-        raise ValueError("절을 다시 골라 주세요 — 문서 구조가 바뀌었습니다")
+        raise ValueError("문서 구조가 바뀌었습니다. 절을 다시 골라 주세요")
     r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())

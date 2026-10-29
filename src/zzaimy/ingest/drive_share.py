@@ -74,7 +74,7 @@ def _revoke(db, pid: int, granted: dict[str, dict], keys: list[str], fallback_by
         fid = key.split("|", 1)[0]
         try:
             if not by or not gdrive_files.has_file_scope(by):
-                raise PermissionError("권한을 준 구글 계정의 허용이 없어 거두지 못했습니다 — 그 계정을 다시 연결해 주세요")
+                raise PermissionError("권한을 준 구글 계정의 허용이 없어 거두지 못했습니다. 그 계정을 다시 연결해 주세요")
             http = http or gdrive._http()
             r = http.delete(f"{gdrive.API}/files/{fid}/permissions/{g.get('id')}", headers=gdrive_files._headers(by, http),
                             params={"supportsAllDrives": "true"})

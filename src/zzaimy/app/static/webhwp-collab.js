@@ -302,7 +302,7 @@
       if (!online) {
         if (!offSince) offSince = now();
         var long = now() - offSince > OFF_GRACE;
-        if (long) emit('status', 'offline', n ? '오프라인 — 연결되면 저장' : '오프라인 — 다시 연결하는 중');
+        if (long) emit('status', 'offline', n ? '오프라인. 연결되면 저장' : '오프라인. 다시 연결하는 중');
         else emit('status', 'reconnecting', '다시 연결하는 중');
         offTimer = setTimeout(probe, long ? 5000 : 2000);
         return;
@@ -331,7 +331,7 @@
         if (text === null) return;
         text = norm(text);
         if (text.length > conf.field_max) {                    // 상한을 넘는 글은 보내지 않고 알린다(잘라 보내면 끝 글이 사라진다)
-          if (!tooLong[f]) { tooLong[f] = 1; emit('error', '「' + f.replace(/^(절|칸):/, '') + '」 칸은 ' + conf.field_max.toLocaleString() + '자까지 같이 쓸 수 있어요 — 넘는 동안은 저장되지 않아요'); }
+          if (!tooLong[f]) { tooLong[f] = 1; emit('error', '「' + f.replace(/^(절|칸):/, '') + '」 칸은 ' + conf.field_max.toLocaleString() + '자까지 같이 쓸 수 있어요. 넘는 동안은 저장되지 않아요'); }
           return;
         }
         delete tooLong[f];
@@ -1097,7 +1097,7 @@
         var editing = !!hf;
         var label = (p.name || p.user) + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field && editing ? ' · 쓰는 중' : ' · 보는 중');
         var on = following === p.user;
-        b.title = label + (on ? ' — 눌러서 따라가기 그만' : ' — 눌러서 따라가기');
+        b.title = label + (on ? ' (눌러서 따라가기 멈춤)' : ' (눌러서 따라가기)');
         b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', on ? 'true' : 'false');
         if (editing) b.classList.add('editing');
         if (on) b.classList.add('following');

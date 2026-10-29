@@ -70,8 +70,8 @@ def trainset_sample(path: Path, start: int = 0, n: int = 20) -> tuple[list[dict]
                     rows.append({"raw": line[:2000]})
     return rows, total
 _STATUS = {"sft_approved": "SFT 승인", "approved_for_sft": "비교 기준 채택", "candidate_not_sft_approved": "후보(승인 전)",
-           "baseline_responses_unjudged": "측정 채점 전", "quality_review_pending": "보류 — 품질 검토 대기"}
-_TRAINING = {"running": "학습 중", "done": "학습 완료(어댑터 저장)", "stopped": "학습 멈춤 — 중간 저장만 있음", "": "학습 시작 전"}
+           "baseline_responses_unjudged": "측정 채점 전", "quality_review_pending": "보류(품질 검토 대기)"}
+_TRAINING = {"running": "학습 중", "done": "학습 완료(어댑터 저장)", "stopped": "학습 멈춤(중간 저장만 있음)", "": "학습 시작 전"}
 _SPLIT = {"train": "학습", "eval": "검증", "test": "시험"}
 
 
@@ -232,9 +232,9 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
     if ds_files:
         desc = f"검수 승인 JSONL {len(ds_files)}개"
     elif approved:
-        desc = f"승인된 학습셋 {len(approved)}개 — 학습은 DGX 에서 하고, 최근 학습셋 파일은 이 서버로 받아 개발자 계정이 내려받거나 표본을 볼 수 있습니다(학교 원문 발췌 포함)"
+        desc = f"승인된 학습셋 {len(approved)}개. 학습은 DGX 에서 하고, 최근 학습셋 파일은 이 서버에서 개발자 계정이 내려받거나 표본을 봄(학교 원문 발췌 포함)"
     elif remote:
-        desc = "DGX 에 학습셋 후보만 있음(승인 전) — 아래 목록"
+        desc = "DGX 에 학습셋 후보만 있음(승인 전, 아래 목록)"
     else:
         desc = "승인된 학습 데이터 없음 · DGX 학습셋 목록도 아직 받지 못함"
     tree.append({"group": "datasets", "label": "학습 데이터", "desc": desc, "files": ds_files, "sets": remote})

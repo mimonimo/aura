@@ -91,9 +91,9 @@ def judge(run: dict, now: float | None = None, all_runs: list[dict] | None = Non
 
     # 1. 진행·멈춤
     if nxt:
-        out.append({"key": "진행", "level": "ok", "text": f"{prog.get('step', '?')}/{prog.get('total', '?')}단계에서 멈춘 뒤 중간 저장으로 재개 — 「{nxt}」"})
+        out.append({"key": "진행", "level": "ok", "text": f"{prog.get('step', '?')}/{prog.get('total', '?')}단계에서 멈춘 뒤 중간 저장으로 재개, 「{nxt}」"})
     elif running and now - run["mtime"] > 10 * 60:
-        out.append({"key": "진행", "level": "bad", "text": f"기록이 {int((now - run['mtime']) // 60)}분째 갱신 없음 — 학습·장비 멈춤 확인 필요"})
+        out.append({"key": "진행", "level": "bad", "text": f"기록이 {int((now - run['mtime']) // 60)}분째 갱신 없음, 학습·장비 멈춤 확인 필요"})
     elif prog.get("step") is not None:
         txt = f"{prog['step']}/{prog['total']}단계 · 단계당 {prog.get('sec_per_step')}초 · 남은 시간 약 {prog.get('remain')}"
         out.append({"key": "진행", "level": "ok" if running else "info", "text": txt if running else txt + " (지금은 멈춰 있음)"})
@@ -101,43 +101,43 @@ def judge(run: dict, now: float | None = None, all_runs: list[dict] | None = Non
         out.append({"key": "진행", "level": "ok" if st.get("finished_ok") else "bad",
                     "text": "학습 완료" if st.get("finished_ok") else f"{st.get('ended')}에 끝까지 못 가고 멈춤"})
     else:
-        out.append({"key": "진행", "level": "info", "text": "학습 단계 기록 없음 — 모델 올리는 중이거나 시작 전"})
+        out.append({"key": "진행", "level": "info", "text": "학습 단계 기록 없음, 모델 올리는 중이거나 시작 전"})
 
     # 2. 손실 추세
     if len(loss) < 3:
-        out.append({"key": "손실", "level": "info", "text": f"손실 값 {len(loss)}개 — 3개(약 30단계)부터 추세 판단"})
+        out.append({"key": "손실", "level": "info", "text": f"손실 값 {len(loss)}개, 3개(약 30단계)부터 추세 판단"})
     else:
         k = max(1, min(3, len(loss) // 3))
         first = statistics.mean(r["loss"] for r in loss[:k])
         last = statistics.mean(r["loss"] for r in loss[-k:])
         change = (last - first) / first * 100 if first else 0
         if change <= -2:
-            out.append({"key": "손실", "level": "ok", "text": f"처음 {first:.3f} → 최근 {last:.3f} ({change:+.0f}%) — 내려가는 중"})
+            out.append({"key": "손실", "level": "ok", "text": f"처음 {first:.3f} → 최근 {last:.3f} ({change:+.0f}%), 내려가는 중"})
         elif change < 2:
             out.append({"key": "손실", "level": "warn" if len(loss) >= 10 else "info",
-                        "text": f"처음 {first:.3f} → 최근 {last:.3f} ({change:+.1f}%) — 변화 거의 없음"})
+                        "text": f"처음 {first:.3f} → 최근 {last:.3f} ({change:+.1f}%), 변화 거의 없음"})
         else:
-            out.append({"key": "손실", "level": "bad", "text": f"처음 {first:.3f} → 최근 {last:.3f} ({change:+.0f}%) — 오르고 있음(학습률·데이터 확인)"})
+            out.append({"key": "손실", "level": "bad", "text": f"처음 {first:.3f} → 최근 {last:.3f} ({change:+.0f}%), 오르고 있음(학습률·데이터 확인)"})
 
     # 3. 기울기 튐
     grads = [r["grad"] for r in loss if r["grad"] is not None]
     if len(grads) >= 4:
         med = statistics.median(grads[:-1])
         if med and grads[-1] > 5 * med:
-            out.append({"key": "안정성", "level": "warn", "text": f"최근 기울기 크기 {grads[-1]:.2f} — 평소({med:.2f})의 5배 넘게 튐"})
+            out.append({"key": "안정성", "level": "warn", "text": f"최근 기울기 크기 {grads[-1]:.2f}, 평소({med:.2f})의 5배 넘게 튐"})
         else:
-            out.append({"key": "안정성", "level": "ok", "text": f"기울기 크기 평소 {med:.2f} · 최근 {grads[-1]:.2f} — 튐 없음"})
+            out.append({"key": "안정성", "level": "ok", "text": f"기울기 크기 평소 {med:.2f} · 최근 {grads[-1]:.2f}, 튐 없음"})
 
     # 4. 과적합(검증 손실)
     if not ev:
-        out.append({"key": "검증", "level": "info", "text": "검증 손실 없음 — 학습 중 평가 꺼짐(외우기만 하는지 보려면 평가 켜기)"})
+        out.append({"key": "검증", "level": "info", "text": "검증 손실 없음, 학습 중 평가 꺼짐(외우기만 하는지 보려면 평가 켜기)"})
     else:
         best = min(ev, key=lambda r: r["eval_loss"])
         last = ev[-1]
         if len(ev) >= 2 and last["eval_loss"] > best["eval_loss"] * 1.02:
-            out.append({"key": "검증", "level": "warn", "text": f"검증 손실 최저 {best['eval_loss']:.3f}(에폭 {best['epoch']}) → 최근 {last['eval_loss']:.3f} — 오르기 시작(외우기 의심) · 최저 근처 체크포인트가 후보"})
+            out.append({"key": "검증", "level": "warn", "text": f"검증 손실 최저 {best['eval_loss']:.3f}(에폭 {best['epoch']}) → 최근 {last['eval_loss']:.3f}, 오르기 시작(외우기 의심) · 최저 근처 체크포인트가 후보"})
         else:
-            out.append({"key": "검증", "level": "ok", "text": f"검증 손실 최근 {last['eval_loss']:.3f} — 최저 근처 유지"})
+            out.append({"key": "검증", "level": "ok", "text": f"검증 손실 최근 {last['eval_loss']:.3f}, 최저 근처 유지"})
 
     # 5. 메모리 여유
     mems = [g["mem"] for g in gpu if g["mem"] is not None]
@@ -145,10 +145,10 @@ def judge(run: dict, now: float | None = None, all_runs: list[dict] | None = Non
         cur, peak = mems[-1], max(mems)
         level = "bad" if cur > MEM_WARN_MIB else ("warn" if peak > MEM_WARN_MIB else "ok")
         out.append({"key": "메모리", "level": level,
-                    "text": f"지금 {cur / 1024:.0f}GB · 최고 {peak / 1024:.0f}GB / 전체 {MEM_TOTAL_MIB / 1024:.0f}GB — 여유 20GB 아래면 보호 장치가 학습 중단"})
+                    "text": f"지금 {cur / 1024:.0f}GB · 최고 {peak / 1024:.0f}GB / 전체 {MEM_TOTAL_MIB / 1024:.0f}GB, 여유 20GB 아래면 보호 장치가 학습 중단"})
     cks = st.get("checkpoints") or []
     out.append({"key": "중간 저장", "level": "ok" if cks else "info",
-                "text": f"{len(cks)}개 · 최근 {cks[-1]}" if cks else "아직 없음 — 멈추면 처음부터 다시"})
+                "text": f"{len(cks)}개 · 최근 {cks[-1]}" if cks else "아직 없음, 멈추면 처음부터 다시"})
     return out
 
 

@@ -121,7 +121,7 @@ def test_delete_chat_session_removes_its_settings(tmp_path):
 def test_finder_save_mode_is_the_only_save_dialog():
     js = (APP / "static/aura-finder.js").read_text(encoding="utf-8")
     assert "window.AuraFinder={open,save}" in js and "'/hwp/folder'" in js and "새 폴더" in js
-    assert "학교 구글 계정을 연결하면 드라이브에 저장할 수 있습니다" in js
+    assert "드라이브에 저장하려면 학교 구글 계정 연결" in js
     edit = (APP / "templates/hwp_edit.html").read_text(encoding="utf-8")
     assert "AuraFinder.save(" in edit and '<dialog class="sa"' not in edit and "data-sa-" not in edit
     assert "/hwp/save-as?dept=" in edit and "/hwp/save-as/drive?name=" in edit and "&keep=1" in edit

@@ -257,7 +257,7 @@ def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
     for a in shown:
         s = suggested.get(a["name"]) or {}
         found = bool(s.get("value"))
-        hint = (f"자료에서 찾음 · 확인 전 — 《{s.get('title', '')}》" if found else a.get("hint") or "")
+        hint = (f"자료에서 찾음 · 확인 전 · 《{s.get('title', '')}》" if found else a.get("hint") or "")
         fields.append({"name": a["name"], "label": a["name"], "placeholder": hint, "required": False, "value": s.get("value") or "",
                        "hint": a.get("hint") or "", "source": str(s.get("title") or "") if found else "", "suggested": found})
     return {"kind": "form", "text": "필요한 값 입력", "fields": fields, "more": len(asks) - len(shown),

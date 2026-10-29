@@ -12,11 +12,11 @@ from importlib import metadata
 STACK: list[tuple] = [
     # ── RAG
     ("RAG", "PostgreSQL", "문서·조각·권한·부서(RAG 공간)·그래프 저장, 검색 단계 권한 필터", None, "", "PostgreSQL License", "운영 VM", "ADR-0049·0053"),
-    ("RAG", "PostgreSQL 전문 색인(tsvector·GIN)", "사업 문서 어휘 색인(grant_lex) — 명사 겹침 후보 추리기", None, "", "PostgreSQL License", "운영 VM", "app/grant_lex.py"),
-    ("RAG", "Kiwi(kiwipiepy)", "한국어 형태소 분석 — 질문·조각의 명사 뽑기", "kiwipiepy", "", "", "운영 VM", "app/regulations.py"),
-    ("RAG", "pgvector", "의미 검색 벡터(조각 임베딩 halfvec 1024) + HNSW 색인 — 권한·부서·범위를 같은 SQL 에서", None, "0.8.7", "PostgreSQL License",
+    ("RAG", "PostgreSQL 전문 색인(tsvector·GIN)", "사업 문서 어휘 색인(grant_lex), 명사 겹침으로 후보 추리기", None, "", "PostgreSQL License", "운영 VM", "app/grant_lex.py"),
+    ("RAG", "Kiwi(kiwipiepy)", "한국어 형태소 분석, 질문·조각의 명사 뽑기", "kiwipiepy", "", "", "운영 VM", "app/regulations.py"),
+    ("RAG", "pgvector", "의미 검색 벡터(조각 임베딩 halfvec 1024) + HNSW 색인. 권한·부서·범위를 같은 SQL 에서", None, "0.8.7", "PostgreSQL License",
      "운영 VM", "ADR-0057"),
-    ("RAG", "ZZAIMY-Embed v2 (베이스 KURE-v1)", "의미 검색 임베딩 — 우리 데이터로 학습한 모델", None, "v2", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0021·모델 카드"),
+    ("RAG", "ZZAIMY-Embed v2 (베이스 KURE-v1)", "의미 검색 임베딩, 우리 데이터로 학습한 모델", None, "v2", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0021·모델 카드"),
     ("RAG", "ZZAIMY-Rerank v1 (베이스 bge-reranker-v2-m3)", "규정 후보 재정렬(사업 문서는 대결에서 손해라 끔)", None, "v1", "Apache 2.0 계열(model-plan)", "토르 03", "ADR-0020·모델 카드"),
     ("RAG", "Qwen3.8-27B(Writer) + vLLM", "답변·문서 작성 에이전트, 그래프 짝 판정", None, "NVFP4", "Apache 2.0 계열(model-plan)·vLLM Apache-2.0",
      "토르 02·03", "configs/serving.yaml"),
@@ -31,10 +31,10 @@ STACK: list[tuple] = [
     # ── 온톨로지
     ("온톨로지", "자체 코드(사업 카드·별칭·표시명)", "노드 종류 8·관계 종류 정의, 같은 사업 카드 합치기, 사업 아님 걸러내기", None, "", "우리 코드",
      "graph/programs.py", "ADR-0048"),
-    ("온톨로지", "외부 확인 장부(kg_external.json)", "사업 체계·이름 변경·편입·주관 부처·전담기관 — 항목마다 출처 URL", None, "", "우리 데이터", "운영 VM data/platform",
+    ("온톨로지", "외부 확인 장부(kg_external.json)", "사업 체계·이름 변경·편입·주관 부처·전담기관, 항목마다 출처 URL", None, "", "우리 데이터", "운영 VM data/platform",
      "ADR-0055"),
     ("온톨로지", "자체 코드(온톨로지 점검)", "규칙 위반·고립 노드·근거 없는 관계 점검", None, "", "우리 코드", "scripts/174_ontology_audit.py", ""),
-    ("온톨로지", "rdflib", "온톨로지 설계도(OWL)·인스턴스(RDF) 내보내기 — Protégé·WebVOWL 로 열린다", "rdflib", "", "", "운영 VM", "ADR-0056"),
+    ("온톨로지", "rdflib", "온톨로지 설계도(OWL)·인스턴스(RDF) 내보내기(Protégé·WebVOWL 로 열림)", "rdflib", "", "", "운영 VM", "ADR-0056"),
     ("온톨로지", "pySHACL", "표준 검사 규칙(SHACL, graph/shapes.ttl)으로 그래프 검사", "pyshacl", "", "", "운영 VM", "ADR-0056"),
     # ── 문서 읽기
     ("문서 읽기", "kordoc", "한글(hwp/hwpx)·docx·xlsx 구조 읽기 1순위", None, "4.15.7", "MIT", "DGX", "ADR-0033·0051"),

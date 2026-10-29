@@ -59,21 +59,21 @@ SOURCES: tuple[Source, ...] = (
     Source("answer_feedback", "답 평가", "도움됨/아쉬움과 사유·메모", "실패 사례 모으기·평가 세트",
            table="answer_feedback"),
     Source("chat_sources", "대화 근거", "답에 붙은 근거 문서·대목", "검색 정답 후보", table="chat_sources"),
-    Source("webhwp_edits", "한글 기안기 칸 고친 기록", "공동 편집 문서의 칸마다 고친 판(사람·AURA, 시각, 글) — 30일 보관", "공동 편집 분석·작성 학습 후보",
+    Source("webhwp_edits", "한글 기안기 칸 고친 기록", "공동 편집 문서의 칸마다 고친 판(사람·AURA, 시각, 글). 30일 보관", "공동 편집 분석·작성 학습 후보",
            table="webhwp_field_edits", time_key="at", epoch=True),
     Source("doc_agent", "문서 작업 에이전트 기록", "요청·도구 고르기·관찰·마침(문서 작업 에이전트)", "리즈닝 학습 후보",
            file="doc_agent_episodes.jsonl", time_key="at"),
     Source("helper", "업무 도우미 기록", "도우미의 요청·도구·제안", "도우미 개선", file="platform_helper_episodes.jsonl", time_key="at"),
-    Source("drafting", "절 작성 기록", "절 작성 재료·지시·초안·점수", "작성 품질·학습 후보", file="drafting_episodes.jsonl", time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
+    Source("drafting", "절 작성 기록", "절 작성 재료·지시·초안·점수", "작성 품질·학습 후보", file="drafting_episodes.jsonl", time_key="at", past="옛 독스 작성 경로. 기안기 경로는 문서 작업 에이전트 기록에 남음"),
     Source("context_plan", "맥락 계획 기록", "절마다 찾을 맥락 계획과 찾은 것", "맥락 구성 리즈닝", file="context_plan_episodes.jsonl",
-           time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
+           time_key="at", past="옛 독스 작성 경로. 기안기 경로는 문서 작업 에이전트 기록에 남음"),
     Source("form_choice", "양식 고르기 기록", "요청에 맞는 양식 후보와 고른 까닭", "양식 고르기 개선", file="form_choice_episodes.jsonl",
-           time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
-    Source("fill_gaps", "못 채운 칸 기록", "채우지 못한 칸과 까닭·필요 자료", "자료 보강 목록", file="fill_gaps.jsonl", time_key="at", past="옛 독스 작성 경로 — 기안기 경로는 문서 작업 에이전트 기록에 남음"),
+           time_key="at", past="옛 독스 작성 경로. 기안기 경로는 문서 작업 에이전트 기록에 남음"),
+    Source("fill_gaps", "못 채운 칸 기록", "채우지 못한 칸과 까닭·필요 자료", "자료 보강 목록", file="fill_gaps.jsonl", time_key="at", past="옛 독스 작성 경로. 기안기 경로는 문서 작업 에이전트 기록에 남음"),
     Source("platform_actions", "도우미 실행 기록", "담당자가 [실행]을 누른 동작과 결과", "동작 오류 분석", file="platform_actions.jsonl",
            time_key="at"),
     Source("gdocs_audit", "구글 문서 작업 기록", "작업 문서 편집 동작·글자 수", "문서 편집 오류 분석", file="gdocs_audit.jsonl",
-           time_key="at", past="구글 독스 편집 기록 — 독스는 보조 경로라 거의 쌓이지 않음"),
+           time_key="at", past="독스는 보조 경로라 거의 쌓이지 않음"),
 )
 BY_KEY = {s.key: s for s in SOURCES}
 
@@ -88,7 +88,7 @@ SCAN_N = 500                          # 화면 구조 보기 — 앞에서 이�
 
 # 필드 뜻 — 여러 기록에 두루 쓰이는 키 이름 하나에 한 줄. 여기 없는 키는 manifest 에 뜻을 비워 둔다
 FIELD_NOTES: dict[str, str] = {
-    "id": "기록 번호(표 안에서 하나)", "session_id": "대화 가명(s_…) — 같은 대화는 같은 값", "session": "대화 가명(s_…) — 같은 대화는 같은 값",
+    "id": "기록 번호(표 안에서 하나)", "session_id": "대화 가명(s_…), 같은 대화는 같은 값", "session": "대화 가명(s_…), 같은 대화는 같은 값",
     "message_id": "답 메시지 번호(대화 메시지의 id)", "role": "말한 쪽(user 질문 · assistant 답)", "content": "메시지 글(가림)",
     "mode": "답변 방식(RAG·일반·인터넷 검색)", "created_at": "기록 시각", "at": "기록 시각",
     "owner": "대화 주인 가명(u_…)", "user": "사용한 사람 가명(u_…)", "by": "누른 사람 가명(u_…) 또는 고른 주체", "by_user": "사람 가명(u_…)",

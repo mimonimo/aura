@@ -645,7 +645,7 @@ async def project_set_shares(request: Request, project_id: int):
     _share_sync(proj, wait=True)
     from zzaimy.ingest import drive_share as _ds
     st = _ds.state(db, project_id)
-    msg = f"공유 범위를 「{pa.describe(got, accounts)}」로 저장했습니다" + (f" — 작업 문서 권한 {st['shared']}명" if st.get("shared") else "")
+    msg = f"공유 범위를 「{pa.describe(got, accounts)}」로 저장했습니다" + (f" · 작업 문서 권한 {st['shared']}명" if st.get("shared") else "")
     if st.get("missing"):
         msg += f" · 구글 미연결 {st['missing']}명(연결하면 작업 문서도 받음)"
     if st.get("error"):

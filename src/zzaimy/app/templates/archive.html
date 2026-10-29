@@ -135,7 +135,7 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
   <div id="acBody" hidden>
   <div class="ac-bar" id="acBar">
     <label class="ac-all"><input type="checkbox" id="acAll" aria-label="모든 갈래 선택"> 모두</label>
-    <span class="ac-n" id="acN">갈래를 선택하면 정리함으로 옮기거나 그대로 남길 수 있습니다</span>
+    <span class="ac-n" id="acN">갈래를 고르면 정리함으로 옮기기·그대로 두기</span>
     <span class="ac-acts" id="acActs" hidden>
       <button type="button" class="btn" data-do="move">정리함으로</button>
       <button type="button" class="btn secondary" data-do="keep" title="정리 목록에서만 빼고 원본 목록에는 그대로 둡니다">남기기</button>
@@ -151,7 +151,7 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
     <div id="acFailBody" hidden>
       <div class="ac-bar">
         <label class="ac-all"><input type="checkbox" id="acFailAll" aria-label="이 쪽 모두 선택"> 이 쪽 모두</label>
-        <span class="ac-n" id="acFailN">줄을 선택하면 다시 읽게 할 수 있습니다</span>
+        <span class="ac-n" id="acFailN">다시 읽을 줄을 고르세요</span>
         <span class="ac-acts" id="acFailActs" hidden>
           <button type="button" class="btn" data-fdo="retry">다시 시도</button>
           <button type="button" class="btn-ghost" data-fdo="clear">선택 해제</button></span>
@@ -198,7 +198,7 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
     const keys = picked(), all = document.querySelectorAll('#acRows input[data-key]');
     const items = (data ? data.items : []).filter(x => keys.includes(x.key));
     $('acN').textContent = keys.length ? `선택 ${keys.length}개 · 원본 ${n(items.reduce((a, x) => a + x.n, 0))}건 · ${size(items.reduce((a, x) => a + x.bytes, 0))}`
-                                       : '갈래를 선택하면 정리함으로 옮기거나 그대로 남길 수 있습니다';
+                                       : '갈래를 고르면 정리함으로 옮기기·그대로 두기';
     $('acActs').hidden = !keys.length;
     $('acAll').checked = keys.length > 0 && keys.length === all.length;
     $('acAll').disabled = !all.length;
@@ -235,7 +235,7 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
   function fbar() {
     const sel = fpicked(), all = document.querySelectorAll('#acFailRows input[data-rel]');
     const scan = sel.filter(c => c.dataset.code === 'scan').length;
-    $('acFailN').textContent = sel.length ? `선택 ${sel.length}개` + (scan ? ` · 스캔 ${scan}개는 글자 읽기로` : '') : '줄을 선택하면 다시 읽게 할 수 있습니다';
+    $('acFailN').textContent = sel.length ? `선택 ${sel.length}개` + (scan ? ` · 스캔 ${scan}개는 글자 읽기로` : '') : '다시 읽을 줄을 고르세요';
     const go = document.querySelector('#acFailActs [data-fdo=retry]');
     go.textContent = sel.length && scan === sel.length ? '글자 읽기 맡기기' : '다시 시도';
     $('acFailActs').hidden = !sel.length;
@@ -289,7 +289,7 @@ main:has(#arLayout){max-width:min(1840px,100%)}  /* 원본 목록은 칸이 많�
     .catch(() => { $('acSum').textContent = '정리 목록을 불러오지 못했습니다'; });
   async function post(url, body) {
     const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-    if (!r.ok) throw new Error(r.status === 403 ? '관리자만 할 수 있습니다' : '처리하지 못했습니다. 잠시 뒤 다시 해 보세요');
+    if (!r.ok) throw new Error(r.status === 403 ? '관리자 전용입니다' : '처리하지 못했습니다. 잠시 뒤 다시 해 보세요');
     return r.json();
   }
   async function run(btn, url, body, msg, title, ok, done) {

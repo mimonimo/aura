@@ -65,7 +65,7 @@ MASK_POLICY: list[tuple[str, str, bool, str, str]] = [
      "지원자 인적사항이 들어온다"),
     ("auto", "행정 문서", True,
      "접수 직후",
-     "유형을 정하지 않은 일반 접수분 — 무엇이 들어올지 몰라 전부 가린다"),
+     "유형을 정하지 않은 일반 접수분. 무엇이 들어올지 몰라 전부 가린다"),
     ("ocr", "문서 추출", True,
      "구조화 조각을 저장하기 전에",
      "검토 없이 추출만 하는 경로라 저장되는 조각 자체가 안전해야 한다"),
@@ -152,7 +152,7 @@ SELFTEST_CASES: list[dict] = [
      "text": "계좌번호: {v} (합성은행)"},
     {"entity_type": "KR_NAME", "value": "홍길동", "note": "라벨 문맥 있음",
      "text": "성명: {v}, 소속: 산학협력단"},
-    {"entity_type": "KR_NAME", "value": "김영남", "note": "서식 표 — 띄어 쓴 라벨·콜론 없음",
+    {"entity_type": "KR_NAME", "value": "김영남", "note": "서식 표(띄어 쓴 라벨·콜론 없음)",
      "text": "대학명 영남이공대학교 성 명 {v} 학 과 사이버보안과"},
     {"entity_type": "KR_STUDENT_ID", "value": "2437030", "note": "학번 라벨(띄어쓰기)",
      "text": "학 번 {v} 교육일자 2026.09.01"},
@@ -237,7 +237,7 @@ def run_selftest(db: Database | None = None) -> dict:
         if leaked:
             detail = "값이 그대로 남아 있음"
         elif not tagged:
-            detail = f"가려졌으나 {token} 토큰이 아님 — 다른 유형으로 잡힘"
+            detail = f"가려졌으나 {token} 토큰이 아님(다른 유형으로 잡힘)"
         else:
             detail = "가려짐"
         label = ENTITY_LABELS.get(case["entity_type"], case["entity_type"])

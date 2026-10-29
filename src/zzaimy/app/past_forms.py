@@ -461,33 +461,33 @@ def judge(m: dict, title: str, purpose: str) -> tuple[str, str] | None:
     t = re.sub(r"\s+", "", title or "")
     personal_kind = next((w for w in PERSONAL_WORDS if w in t), "")
     if m["rrn"]:
-        return "personal", f"개인 서류 — 주민등록번호 꼴 {m['rrn']}"
+        return "personal", f"개인 서류: 주민등록번호 꼴 {m['rrn']}"
     if m["accounts"]:
-        return "personal", f"개인 서류 — 계좌번호 {m['accounts']}"
+        return "personal", f"개인 서류: 계좌번호 {m['accounts']}"
     if m["addresses"] and (m["name_count"] or m["mobiles"]):
-        return "personal", f"개인 서류 — 주소 {m['addresses']} + 이름 {m['name_count']}·휴대전화 {m['mobiles']}"
+        return "personal", f"개인 서류: 주소 {m['addresses']} + 이름 {m['name_count']}·휴대전화 {m['mobiles']}"
     if m["mobiles"] and m["name_count"]:
-        return "personal", f"개인 서류 — 휴대전화 {m['mobiles']} + 사람 이름 {m['name_count']}"
+        return "personal", f"개인 서류: 휴대전화 {m['mobiles']} + 사람 이름 {m['name_count']}"
     pii = m["name_count"] + m["mobiles"] + m["emails"] + m["signed"]
     if personal_kind and pii:
         return "personal", f"개인 서류(제목 「{personal_kind}」) + 개인 정보 {pii}(이름·휴대전화·전자우편·서명)"
     g = m.get("garbled", 0.0)
     if g >= GARBLED_SHARE:
-        return "garbled", f"변환 품질 낮음 — 깨진 글자 {g:.1%} ≥ {GARBLED_SHARE:.0%}"
+        return "garbled", f"변환 품질 낮음: 깨진 글자 {g:.1%} ≥ {GARBLED_SHARE:.0%}"
     ts, cc, bs = template_signals(m), concrete(m), m.get("blank_share")
     if purpose in ("회의록", "명단") and ts <= TEMPLATE_SIGNALS_MAX and bs is not None and bs < RECORD_BLANK_SHARE \
             and m["dates"] + m["name_count"] + m["filled_rows"] >= RECORD_CONCRETE:
-        return "record", (f"한 번 쓴 기록({purpose}) — 빈 칸 {bs:.0%} < {RECORD_BLANK_SHARE:.0%}, 날짜 {m['dates']}·이름 "
+        return "record", (f"한 번 쓴 기록({purpose}): 빈 칸 {bs:.0%} < {RECORD_BLANK_SHARE:.0%}, 날짜 {m['dates']}·이름 "
                           f"{m['name_count']}·채운 행 {m['filled_rows']}, 양식 표시 {ts}")
     if ts <= TEMPLATE_SIGNALS_MAX:
         if bs is not None and bs < FILLED_BLANK_SHARE and cc >= FILLED_CONCRETE:
-            return "filled", f"채워진 제출본 — 빈 칸 {bs:.0%} < {FILLED_BLANK_SHARE:.0%}, 구체 값 {cc}, 양식 표시 {ts}"
+            return "filled", f"채워진 제출본: 빈 칸 {bs:.0%} < {FILLED_BLANK_SHARE:.0%}, 구체 값 {cc}, 양식 표시 {ts}"
         if m["chars"] >= FILLED_PROSE_CHARS and m["dates"] >= FILLED_PROSE_DATES:
-            return "filled", f"채워진 제출본(긴 글) — 글자 {m['chars']}, 날짜 {m['dates']}, 양식 표시 {ts}"
+            return "filled", f"채워진 제출본(긴 글): 글자 {m['chars']}, 날짜 {m['dates']}, 양식 표시 {ts}"
     if not m.get("fields"):
-        return "nofields", "쓸 자리 없음 — 누름틀 필드 0"
+        return "nofields", "쓸 자리 없음(누름틀 필드 0)"
     if purpose == OTHER and ts == 0 and (bs is None or bs < LOW_VALUE_BLANK):
-        return "lowvalue", f"쓸모 적음 — 목적 모름, 양식 표시 0, 빈 칸 {('-' if bs is None else f'{bs:.0%}')} < {LOW_VALUE_BLANK:.0%}"
+        return "lowvalue", f"쓸모 적음: 목적 모름, 양식 표시 0, 빈 칸 {('-' if bs is None else f'{bs:.0%}')} < {LOW_VALUE_BLANK:.0%}"
     return None
 
 
@@ -576,8 +576,8 @@ def plain_reason(c: dict, title: str = "") -> str:
     return {"broken": "파일이 열리지 않아 올리지 않았습니다",
             "empty": "내용이 없는 빈 파일이라 올리지 않았습니다",
             "garbled": "글자가 깨져 있어 올리지 않았습니다",
-            "record": "이미 쓴 기록이라 올리지 않았습니다 — 빈 양식을 올려 주세요",
-            "filled": "이미 채워진 문서라 올리지 않았습니다 — 빈 양식을 올려 주세요",
+            "record": "이미 쓴 기록이라 올리지 않았습니다. 빈 양식을 올려 주세요",
+            "filled": "이미 채워진 문서라 올리지 않았습니다. 빈 양식을 올려 주세요",
             "nofields": "채울 자리를 찾지 못해 양식으로 쓸 수 없습니다",
             "lowvalue": "양식으로 쓸 만한 자리가 없어 올리지 않았습니다"}.get(code, "양식으로 쓸 수 없어 올리지 않았습니다")
 

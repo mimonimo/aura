@@ -128,7 +128,7 @@ def _audience_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     todo = [r for r in rows if (r.get("audience") or "staff") != aud]
     if not todo:
         raise OpRefused(f"고른 기준 문서는 이미 {AUD[aud]}이다 — 바꿀 것이 없다.")
-    plan = (f"기준 문서 {len(todo)}건을 「{AUD[aud]}」{_ro(AUD[aud])} 바꿉니다 — {_names(todo)}. "
+    plan = (f"기준 문서 {len(todo)}건을 「{AUD[aud]}」{_ro(AUD[aud])} 바꿉니다: {_names(todo)}. "
             + ("학생 계정이 찾는 학생 RAG 에 들어갑니다." if aud == "student" else "학생 RAG 에서 빠집니다."))
     return plan, {"ids": [int(r["id"]) for r in todo], "audience": aud}
 
@@ -153,9 +153,9 @@ def _register_pool(ctx: Ctx) -> list[dict]:
 
 def _register_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     rows = _pick(_register_pool(ctx), a.get("documents"))
-    plan = (f"반입 자료의 규정 후보 {len(rows)}건을 기준 문서로 등록합니다 — {_names(rows)}. "
+    plan = (f"반입 자료의 규정 후보 {len(rows)}건을 기준 문서로 등록합니다: {_names(rows)}. "
             "조문 단위로 잘라 규정 검색에 넣고, 같은 규정의 옛 판이 기준 문서로 있으면 사업 문서로 돌립니다. "
-            "몇 분 안에 자동으로 뜻 검색에 들어갑니다.")
+            "몇 분 안에 뜻 검색에도 들어갑니다.")
     return plan, {"ids": [int(r["id"]) for r in rows]}
 
 
@@ -181,7 +181,7 @@ def _dept_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     _, err = rag_spaces.create_dept_rag(dict(rag_spaces.config(ctx.data_dir)), name)
     if err:
         raise OpRefused(err)
-    return (f"부서 「{name}」 을 만듭니다 — 빈 부서 RAG 가 함께 생기고, 계정 부서·문서 공개 범위에서 고를 수 있게 됩니다.", {"name": name})
+    return (f"부서 「{name}」 을 만듭니다. 빈 부서 RAG 가 함께 생기고, 계정 부서·문서 공개 범위의 고르기 목록에 나옵니다.", {"name": name})
 
 
 def _dept_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
@@ -215,7 +215,7 @@ def _lend_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     cur = [] if whole else rag_spaces.receivers(rag_spaces.config(ctx.data_dir), dept)
     to = [d for d in dict.fromkeys([*cur, *add]) if d not in drop]
     plan = ", ".join(to) if to else "열어 준 부서 없음"
-    return f"「{dept}」 부서 RAG 를 받는 부서를 바꿉니다 — {plan}.", {"dept": dept, "to": to}
+    return f"「{dept}」 부서 RAG 를 받는 부서를 바꿉니다: {plan}.", {"dept": dept, "to": to}
 
 
 def _lend_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
@@ -224,7 +224,7 @@ def _lend_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
         cfg = rag_spaces.set_receivers(rag_spaces.config(ctx.data_dir), a["dept"], a["to"])
         rag_spaces.save_config(cfg, ctx.data_dir)
     got = rag_spaces.receivers(cfg, a["dept"])
-    return (f"「{a['dept']}」 부서 RAG — " + (", ".join(got) + "에 열었습니다." if got else "다른 부서에 열지 않습니다."),
+    return (f"「{a['dept']}」 부서 RAG: " + (", ".join(got) + "에 열었습니다." if got else "다른 부서에 열지 않습니다."),
             [f"{a['dept']} 부서 RAG 받는 부서: {', '.join(got) or '없음'}"])
 
 
@@ -260,7 +260,7 @@ def _project_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
     sid = ctx.start_chat(pid, a["first_request"])
     ctx.after["go"] = f"/chat/{sid}"
     return (f"프로젝트 「{a['name']}」를 만들고 에이전트 대화에 첫 요청을 보냈습니다.",
-            [f"프로젝트 「{a['name']}」 새로 만듦 (/project/{pid})", f"에이전트 대화 /chat/{sid} 시작 — 첫 요청 「{a['first_request'][:80]}」"])
+            [f"프로젝트 「{a['name']}」 새로 만듦 (/project/{pid})", f"에이전트 대화 /chat/{sid} 시작, 첫 요청 「{a['first_request'][:80]}」"])
 
 
 def _own_project(ctx: Ctx, pid) -> int | None:
@@ -281,7 +281,7 @@ def _handoff_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
         raise OpRefused("question(에이전트 대화에 넘길 질문)이 비었다.")
     pid = _own_project(ctx, a.get("project_id"))
     where = f"프로젝트 {pid} 의 " if pid else ""
-    return f"{where}에이전트 대화를 새로 열어 「{q}」 를 묻습니다 — 문서 내용 질문·문서 작성은 거기서 이어 합니다.", {"question": q, "project_id": pid}
+    return f"{where}에이전트 대화를 새로 열어 「{q}」 를 묻습니다. 문서 내용 질문·문서 작성은 거기서 이어 합니다.", {"question": q, "project_id": pid}
 
 
 def _handoff_run(ctx: Ctx, a: dict) -> tuple[str, list[str]]:
@@ -637,7 +637,7 @@ def report(db, session_id: int, pid: str, results: list) -> str:
             continue
         st = steps[i]
         what = st.get("what") or "단계"
-        parts.append(f"{what}" + (f" 「{st['text']}」" if st.get("text") and code in ("typed", "picked", "clicked") else "") + f" — {RESULTS[code]}")
+        parts.append(f"{what}" + (f" 「{st['text']}」" if st.get("text") and code in ("typed", "picked", "clicked") else "") + f"({RESULTS[code]})")
     if not parts:
         return ""
     item["reported"] = True
@@ -687,7 +687,7 @@ def run_proposal(ctx: Ctx, session_id: int, pid: str) -> str:
     if item.get("kind") == "go":
         raise OpRefused("화면 열기 제안은 실행할 것이 없습니다.")
     if item.get("status") != "pending":
-        raise OpRefused("이미 실행했거나 지난 제안입니다." if item.get("status") == "done" else "지난 제안입니다 — 다시 요청해 주세요.")
+        raise OpRefused("이미 실행했거나 지난 제안입니다." if item.get("status") == "done" else "지난 제안입니다. 다시 요청해 주세요.")
     op = OPS[item["op"]]
     _allowed(op, ctx.role)
     item["status"] = "running"                            # 두 번 눌러도 한 번만

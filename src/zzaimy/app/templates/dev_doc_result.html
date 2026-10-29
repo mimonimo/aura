@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {# 반입 결과 보기(관리자) — 문서 하나가 반입되며 남긴 것: 개요·마스킹 기록·추출·검색 자료(색인 유무)·그래프 연관.
    원본 관리의 문서 줄과 문서 화면 「관리」 에서 연다(사이드바에는 없다). 조립은 app/data_explorer.doc_result #}
-{% block title %}{{ dev_page_name('/dev/archive/doc/') }} — {{ doc_title(s.overview) }}{% endblock %}
+{% block title %}{{ dev_page_name('/dev/archive/doc/') }} · {{ doc_title(s.overview) }}{% endblock %}
 {% block pagetitle %}{{ dev_page_name('/dev/archive/doc/') }}{% endblock %}
 {% block head %}<script src="/static/data-explorer.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}

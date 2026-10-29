@@ -81,7 +81,7 @@ def test_program_request_notices_in_bell(share_world):
     d = dev.get("/api/notifications/notices").json()
     assert d["count"] == 1
     n = d["items"][0]
-    assert n["text"] == "사업 관리 신청: 마바사 지원사업 — 지정 신청" and n["href"] == "/programs/admin?view=requests"
+    assert n["text"] == "사업 관리 신청: 마바사 지원사업 지정 신청" and n["href"] == "/programs/admin?view=requests"
     dev.post("/programs/admin/request/decide", data={"id": "1", "decision": "no", "note": "부서 협의 먼저"})
     b = boss.get("/api/notifications/notices").json()
     assert b["count"] == 1 and "반려" in b["items"][0]["text"] and "부서 협의 먼저" in b["items"][0]["text"]

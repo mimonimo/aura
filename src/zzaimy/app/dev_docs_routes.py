@@ -26,25 +26,25 @@ router = APIRouter()
 
 # 문서 한 줄 설명 — 목록에서 제목 아래에 보인다. 없는 파일은 설명 없이 제목만.
 _DOC_DESC = {
-    "paper/논문/README.md": "장별 원고 — 웹 기안기 논문 문서로 옮기는 원본, 장마다 상태와 그림·표 목록",
-    "paper/프로젝트-기획서.md": "제출용 기획서 — 목표·개발 내용·장비·일정·기대 효과",
-    "paper/논문-원재료.md": "어떻게 만들었는지 — 문서 처리 → 검색·지식(RAG·온톨로지·GraphRAG) → 모델 → 화면 → 학습 → 개인정보 → 수치, 어떻게 구현했는지",
-    "paper/실험-로그.md": "실험 시계열 — 무엇을 어떻게 재서 어떤 판정을 했는지",
+    "paper/논문/README.md": "장별 원고. 웹 기안기 논문 문서로 옮기는 원본, 장마다 상태와 그림·표 목록",
+    "paper/프로젝트-기획서.md": "제출용 기획서(목표·개발 내용·장비·일정·기대 효과)",
+    "paper/논문-원재료.md": "구현 설명. 문서 처리 → 검색·지식(RAG·온톨로지·GraphRAG) → 모델 → 화면 → 학습 → 개인정보 → 수치",
+    "paper/실험-로그.md": "실험 시계열. 무엇을 어떻게 재서 어떻게 판정했는지",
     "paper/논문-양식-가이드.md": "논문집 형식과 목차 대응",
-    "paper/중간-발표자료.md": "중간 발표 — 개요·계획·진척도·결과물·변경·남은 일·일정·Q&A",
+    "paper/중간-발표자료.md": "중간 발표(개요·계획·진척도·결과물·변경·남은 일·일정·Q&A)",
     "paper/발표-자료-모음.md": "PPT 장마다 넣을 수치·비교 표·화면 캡처와 그 화면 위치",
     "paper/제안발표-내용.md": "제안 발표 슬라이드 원고",
     "HANDOFF.md": "장비·접속 요령, 사람 손이 필요한 남은 일",
     "dev-now.md": "지금 하는 일·다음 일·최근 작업",
-    "architecture.md": "지금 구조의 정본 — 데이터 흐름·검색·27B 문서 작업 에이전트·웹 기안기 공동 편집(칸 글 DB → hwpx 써 넣기)·권한",
+    "architecture.md": "지금 구조의 정본. 데이터 흐름·검색·27B 문서 작업 에이전트·웹 기안기 공동 편집(칸 글 DB → hwpx 써 넣기)·권한",
     "model-plan.md": "모델 4종의 학습 데이터·순서·채택 기준",
-    "eval-plan.md": "평가 계획 — 평가셋·지표·베이스라인 절차",
-    "capstone-plan.md": "13주 실행 계획 — 주차별 목표와 현황",
+    "eval-plan.md": "평가셋·지표·베이스라인 절차",
+    "capstone-plan.md": "13주 실행 계획, 주차별 목표와 현황",
     "pilot-plan.md": "실물 문서 파일럿 계획",
-    "risks.md": "위험 관리 — 개인정보·환각·파싱·운영",
-    "quality-system.md": "품질 5계층 체계 — 문제를 어느 계층에서 막는가",
+    "risks.md": "위험 관리(개인정보·환각·파싱·운영)",
+    "quality-system.md": "품질 5계층 체계. 문제를 어느 계층에서 막는가",
     "workflow.md": "저장소·결정·보고 방식",
-    "retrieval-baseline-mini.md": "검색 기준선(9/4) — 어휘·임베딩·하이브리드",
+    "retrieval-baseline-mini.md": "검색 기준선(9/4), 어휘·임베딩·하이브리드",
     "retrieval-weight-sweep.md": "하이브리드 가중 스윕(9/4)",
     "rerank-baseline.md": "리랭커 학습 전 기준선(9/4)",
     "llm-rerank-eval.md": "리랭커 학습본·LLM 리랭킹 비교(9/20)",
@@ -53,9 +53,9 @@ _DOC_DESC = {
     "ocr-duel.md": "OCR 엔진 대결(9/8)",
     "model-cards/zzaimy-embed-v2.md": "운영 임베딩 학습본 카드",
     "model-cards/zzaimy-rerank-v1.md": "운영 리랭커 학습본 카드",
-    "notes/2026-09-22-external-split-and-blockchain.md": "외부 모델 반분 위탁·블록체인 — 채택 안 함(이유·대안)",
-    "notes/2026-09-22-vllm-vs-ollama.md": "서빙 엔진 비교 — 실측과 vLLM 통일 이유",
-    "notes/2026-09-22-access-controlled-knowledge-base.md": "권한별 지식 베이스 — 권한 밖 질문(학생·타 부서 개인정보)에 어떻게 응답하나, 열람 등급·부서 범위",
+    "notes/2026-09-22-external-split-and-blockchain.md": "외부 모델 반분 위탁·블록체인, 채택 안 함(이유·대안)",
+    "notes/2026-09-22-vllm-vs-ollama.md": "서빙 엔진 비교, 실측과 vLLM 통일 이유",
+    "notes/2026-09-22-access-controlled-knowledge-base.md": "권한별 지식 베이스. 권한 밖 질문(학생·타 부서 개인정보)에 대한 응답, 열람 등급·부서 범위",
     "notes/meeting-w2-20260908.md": "2주차 미팅 메모와 정합 분석",
     "notes/2026-09-02-ocr-refs.md": "OCR 엔진 후보·스캔 전처리·고도화 레퍼런스 조사",
     "notes/table-layout.md": "표·레이아웃 원본 불일치 원인 진단",
@@ -449,8 +449,8 @@ def make_docs_helpers(_DOCS_DIR: Path, db_path, *, _dev_read, _md_view, _data_ov
             body = None
         if not body:
             # 모델이 없으면 원자료(현재 상태 문서)를 그대로 보인다 — 커밋 목록을 쏟지 않는다
-            body = ("(모델이 응답하지 않아 자동 작성을 못 했습니다. 아래는 현재 상태 문서의 내용입니다 — "
-                    "모델 연결 뒤 '다시 만들기'를 누르십시오.)\n\n" + (now_text or "(기록 없음)"))
+            body = ("(모델이 응답하지 않아 자동 작성을 못 했습니다. 아래는 현재 상태 문서의 내용입니다. "
+                    "모델 연결 뒤 '다시 만들기'를 누르세요.)\n\n" + (now_text or "(기록 없음)"))
             return body                      # 실패본은 캐시하지 않는다
 
         # 정량 지표는 결정론으로 그대로 붙인다.

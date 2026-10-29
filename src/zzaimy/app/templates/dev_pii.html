@@ -73,7 +73,7 @@
       document.getElementById('privacyEnabledValue').value=toggle.checked?'on':'off';
       document.getElementById('privacyEntities').hidden=!toggle.checked;
       document.getElementById('privacySwitchLabel').textContent=toggle.checked?'켜짐':'꺼짐 · 원문 활용';
-      document.getElementById('privacySaveStatus').textContent='저장하지 않은 변경 — 「설정 저장」 을 눌러야 적용됩니다.';
+      document.getElementById('privacySaveStatus').textContent='저장하지 않은 변경. 「설정 저장」을 눌러야 적용됨';
     });
   })();
   </script>
@@ -97,7 +97,7 @@
     <span class="pill failed">실패</span>
     <span style="margin-left:6px;">{{ selftest.error }}</span>
     <div class="muted" style="margin-top:6px; font-size:12px;">
-      {{ selftest.at | kst }} — 도구 점검 실패입니다. 실제 반입 처리의 성공 여부는 해당 처리 기록에서 별도로 확인하세요.</div>
+      {{ selftest.at | kst }} 도구 점검 실패. 실제 반입 처리 결과는 그 처리 기록에서 확인</div>
   </div>
   {% else %}
   <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">
@@ -129,7 +129,7 @@
       <td style="white-space:nowrap;"><span class="pill type" style="font-size:11px;" title="{{ e }}">{{ entity_labels.get(e, e) }}</span></td>
       <td><span class="pill processing">미확인</span></td>
       <td class="muted" style="font-size:12px;">표본 없음</td>
-      <td class="muted" style="font-size:12px;">마스커가 지원하지만 자가 점검 표본이 없는 유형입니다 — pii_audit.SELFTEST_CASES에 추가해야 합니다.</td>
+      <td class="muted" style="font-size:12px;">가리기는 되지만 자가 점검 표본이 없는 유형. pii_audit.SELFTEST_CASES 에 추가 필요</td>
     </tr>
     {% endfor %}
   </table>
@@ -221,7 +221,7 @@
 <button type="submit" class="secondary">조회</button></form>
 {% for src in sources[:1] %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>가리기 기록 — {{ src.name }}</h2>
+  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>가리기 기록: {{ src.name }}</h2>
   {% if not src.stats.total and not src.docs and not history_q and not history_entity %}
   <p class="muted pii-empty" style="margin:0; font-size:12.5px;">가리기 기록 없음</p>
   {% else %}
@@ -253,13 +253,13 @@
   {% endif %}
   {% if src.unrecorded %}
   <p class="muted" style="margin:0 0 10px; font-size:12px; line-height:1.6;">
-    {{ metric_label("pii_unrecorded", "", "처리는 끝났는데 기록이 없는 문서 " ~ (src.unrecorded | num) ~ "건") }} — 기록 기능 도입 전에 처리된 문서입니다.
+    {{ metric_label("pii_unrecorded", "", "처리는 끝났는데 기록이 없는 문서 " ~ (src.unrecorded | num) ~ "건") }}. 기록 기능 도입 전에 처리한 문서
     {% if src.not_reviewed %}나머지 {{ src.not_reviewed | num }}건은 아직 처리 완료가 아닌 문서(처리 중·실패)입니다.{% endif %}
     당시 가렸는지는 여기서 확인되지 않습니다(미확인). 재처리하면 기록이 생깁니다.</p>
   {% endif %}
   {% if src.unknown_types %}
   <p class="muted" style="margin:0 0 10px; font-size:12px;">
-    정책표에 없는 문서 유형: {{ src.unknown_types | join(', ') }} — 가렸는지 미확인.</p>
+    정책표에 없는 문서 유형: {{ src.unknown_types | join(', ') }} (가렸는지 미확인)</p>
   {% endif %}
 
   {% if src.docs %}

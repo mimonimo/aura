@@ -337,7 +337,7 @@
   <nav class="pa-tabs" aria-label="사업 갈래" data-pa-tabs>
     <a href="/programs/admin?tab=all&year={{ year or 0 }}" data-tab="all" class="{{ 'on' if tab == 'all' and listing else '' }}"{% if tab == 'all' and listing %} aria-current="page"{% endif %}>전체 <span>{{ n_all }}</span></a>
     <a href="/programs/admin?tab=current{% if year %}&year={{ year }}{% endif %}" data-tab="current" class="{{ 'on' if tab == 'current' and listing else '' }}"{% if tab == 'current' and listing %} aria-current="page"{% endif %}>현행 사업 <span>{{ n_cur }}</span></a>
-    <a href="/programs/admin?tab=past&year=0" data-tab="past" class="{{ 'on' if tab == 'past' and listing else '' }}"{% if tab == 'past' and listing %} aria-current="page"{% endif %} title="끝난 사업 — 확인용(읽기만)">지난 사업 <span>{{ n_past }}</span></a>
+    <a href="/programs/admin?tab=past&year=0" data-tab="past" class="{{ 'on' if tab == 'past' and listing else '' }}"{% if tab == 'past' and listing %} aria-current="page"{% endif %} title="끝난 사업(읽기만)">지난 사업 <span>{{ n_past }}</span></a>
     {% if (scope == 'all' and reqs) or (scope == 'dept' and n_mine) %}<a href="/programs/admin?view=requests" class="{{ 'on' if view == 'requests' else '' }}">{{ '신청' if scope == 'all' else '내 신청' }} <span>{{ n_wait if scope == 'all' else n_mine }}</span></a>{% endif %}
     {% if scope == 'all' and (removed or view == 'removed') %}<a href="/programs/admin?view=removed" class="{{ 'on' if view == 'removed' else '' }}" data-pa-removed-tab>뺀 사업 <span>{{ removed | length }}</span></a>{% endif %}
   </nav>
@@ -381,7 +381,7 @@
       {% else %}<span class="l1">목록에서 뺌{% if x.reason %} · {{ x.reason }}{% endif %}</span>{% if x.note %}<span class="l2" title="{{ x.note }}">{{ x.note }}</span>{% endif %}{% endif %}</td>
     <td><span class="l1">{{ x.at or '—' }}</span>{% if x.by %}<span class="l2">{{ x.by }}</span>{% endif %}</td>
     <td class="act" style="text-align:right;">{% if x.kind == 'merged' %}
-      <form method="post" action="/programs/admin/unmerge" style="margin:0;"><input type="hidden" name="key" value="{{ x.key }}"><button type="submit" class="pa-b"{% if not x.undo_full %} title="예전에 합친 줄 — 이름만 떼어 냅니다"{% endif %}>떼어 내기</button></form>
+      <form method="post" action="/programs/admin/unmerge" style="margin:0;"><input type="hidden" name="key" value="{{ x.key }}"><button type="submit" class="pa-b"{% if not x.undo_full %} title="예전에 합친 줄. 이름만 떼어 냅니다"{% endif %}>떼어 내기</button></form>
       {% else %}<form method="post" action="/programs/admin/hide" style="margin:0;"><input type="hidden" name="key" value="{{ x.key }}"><input type="hidden" name="hidden" value="0"><button type="submit" class="pa-b">다시 넣기</button></form>{% endif %}</td>
   </tr>{% else %}<tr><td colspan="4" class="pa-empty">뺀 사업이 없습니다</td></tr>{% endfor %}
   </tbody>
@@ -536,7 +536,7 @@
 </table>
 </div></div>
 {% else %}
-<p class="pa-empty">{% if tab == 'past' %}지난 사업이 없습니다.{% elif scope == 'all' %}사업이 없습니다 — 「가져오기」로 현황 엑셀을 읽거나 「줄 추가」로 더합니다.{% elif scope == 'dept' %}볼 수 있는 사업이 없습니다.{% else %}사업 책임자·행정 담당자로 지정된 사업이 없습니다.{% endif %}</p>
+<p class="pa-empty">{% if tab == 'past' %}지난 사업이 없습니다.{% elif scope == 'all' %}사업이 없습니다. 「가져오기」로 현황 엑셀을 읽거나 「줄 추가」로 더합니다.{% elif scope == 'dept' %}볼 수 있는 사업이 없습니다.{% else %}사업 책임자·행정 담당자로 지정된 사업이 없습니다.{% endif %}</p>
 {% endif %}
 <p class="pa-empty" data-pa-none hidden>거르기에 맞는 사업이 없습니다 · <button type="button" class="pa-clear" data-pa-clear-all>거르기 모두 지우기</button></p>
 </div>
@@ -615,7 +615,7 @@
       <div class="pa-seg" role="group" aria-label="신청 갈래" style="margin:4px 0 12px;"><a href="#" data-kind="assign" aria-current="true">지정 신청</a><a href="#" data-kind="edit">수정 신청</a></div>
       <input type="hidden" name="kind" value="assign">
       <div data-kind-box="assign" class="pa-grid">
-        <label class="pa-f w3">자리<select name="role" data-pa-req-role><option value="heads">총괄 책임자 — 나를 지정</option><option value="leads">사업 책임자 — 우리 부서 사람</option><option value="clerks">행정 담당자 — 우리 부서 사람</option></select></label>
+        <label class="pa-f w3">자리<select name="role" data-pa-req-role><option value="heads">총괄 책임자(나)</option><option value="leads">사업 책임자(우리 부서 사람)</option><option value="clerks">행정 담당자(우리 부서 사람)</option></select></label>
         <div class="pa-f w3" data-pa-req-people hidden>사람<div data-people-picker data-name="users" data-grade="lead" data-scope="dept" data-pa-req-pp></div></div>
       </div>
       <div data-kind-box="edit" class="pa-grid" hidden>
@@ -722,7 +722,7 @@
         <ul id="pvNew" class="pa-files" hidden>{% for n in sm.new %}<li>{{ n.name }} <span class="muted">{{ n.years | join(', ') }}</span></li>{% endfor %}</ul>{% endif %}
       {% if sm.ambiguous %}<div><button type="button" class="pa-toggle-link" data-pa-unfold="pvAmb" aria-expanded="false">애매해서 건너뛸 이름 {{ sm.ambiguous | length }}개 펼치기</button>
         <ul id="pvAmb" class="pa-files" hidden>{% for n, c in sm.ambiguous %}<li>{{ n }} <span class="muted">→ {{ c | join(' / ') }}</span></li>{% endfor %}</ul></div>{% endif %}
-      {% if sm.skipped %}<div><button type="button" class="pa-toggle-link" data-pa-unfold="pvSkip" aria-expanded="false">다른 부서 사업 — 건너뜀 {{ sm.skipped | length }}개 펼치기</button>
+      {% if sm.skipped %}<div><button type="button" class="pa-toggle-link" data-pa-unfold="pvSkip" aria-expanded="false">건너뛴 다른 부서 사업 {{ sm.skipped | length }}개 펼치기</button>
         <ul id="pvSkip" class="pa-files" hidden>{% for n in sm.skipped %}<li>{{ n }}</li>{% endfor %}</ul></div>{% endif %}
       {% if sm.not_program %}<p class="pa-empty">사업 아님으로 둔 이름 {{ sm.not_program | length }}개는 건너뜁니다</p>{% endif %}
       <form method="post" action="/programs/admin/sheet/apply" id="paApply" style="margin-top:12px;">
@@ -744,7 +744,7 @@
       {% else %}<p class="pa-empty">문서함에 「사업명」 머리줄이 있는 엑셀이 없습니다</p>{% endif %}
       {% if other_docs %}<button type="button" class="pa-toggle-link" data-pa-unfold="paOther" aria-expanded="false">다른 엑셀 {{ other_docs | length }}개 보기</button>
         <div id="paOther" class="pa-dcards" hidden data-pa-otherdocs>{% for d in other_docs %}<label class="pa-dcard"><input type="checkbox" name="doc" value="{{ d.id }}"><span class="nm" title="{{ d.name }}">{{ d.name }}</span><span class="at">{{ d.at }}</span></label>{% endfor %}</div>{% endif %}
-      <div><button type="button" class="pa-toggle-link" data-pa-unfold="paAdv" aria-expanded="false">고급 — 문서 번호로 고르기</button>
+      <div><button type="button" class="pa-toggle-link" data-pa-unfold="paAdv" aria-expanded="false">고급 · 문서 번호로 고르기</button>
         <div id="paAdv" hidden><label class="pa-f">문서 번호<input type="text" name="doc_ids" inputmode="numeric" autocomplete="off" placeholder="쉼표로 여럿 · 예: 101, 102" pattern="[0-9, ]*"></label></div></div>
     </form>
     <footer class="pa-df"><span class="ferr" data-pa-import-err></span><span class="sp"></span><button type="button" class="pa-b" data-modal-close>취소</button><button type="submit" form="paSheetForm" class="pa-b primary" data-busy="읽는 중">미리보기</button></footer>
@@ -831,7 +831,7 @@
     });
     i.addEventListener('blur', function () {
       var n = parseWon(i.value); i.classList.toggle('bad', !!i.value.trim() && n == null);
-      i.title = i.classList.contains('bad') ? '금액을 읽지 못했습니다 — 숫자나 1.2억·3천만 꼴' : (n != null ? n.toLocaleString('en-US') + '원' : '');
+      i.title = i.classList.contains('bad') ? '금액을 읽지 못했습니다(숫자나 1.2억·3천만 꼴)' : (n != null ? n.toLocaleString('en-US') + '원' : '');
       if (n != null) i.value = n.toLocaleString('en-US');
     });
   }
@@ -1067,7 +1067,7 @@
     if (uf) {
       var tg = document.getElementById(uf.dataset.paUnfold); uf.dataset.lab = uf.dataset.lab || uf.textContent;
       tg.hidden = !tg.hidden; uf.setAttribute('aria-expanded', tg.hidden ? 'false' : 'true');
-      uf.textContent = tg.hidden ? uf.dataset.lab : uf.dataset.lab.replace(/펼치기|보기|고르기$/, '접기').replace(/^고급 — 문서 번호로 접기$/, '고급 접기'); return;
+      uf.textContent = tg.hidden ? uf.dataset.lab : uf.dataset.lab.replace(/펼치기|보기|고르기$/, '접기').replace(/^고급 · 문서 번호로 접기$/, '고급 접기'); return;
     }
     var nr = t.closest('[data-pa-notes-read]');
     if (nr) { fetch('/programs/admin/notes/read', {method: 'POST', credentials: 'same-origin'}).then(function () { var s = nr.closest('[data-pa-notes]'); if (s) s.remove(); }); return; }
@@ -1290,7 +1290,7 @@
   function yeRender() {
     var t = eBox.querySelector('[data-pa-ye]'), ys = Object.keys(ye).sort();
     var h = '<thead><tr><th>연도</th>' + EF.map(function (f) { return '<th>' + f[1] + '</th>'; }).join('') + split.map(function (f) { return '<th class="n">' + esc(labels[f]) + '</th>'; }).join('') + '<th class="n">합계</th><th></th></tr></thead><tbody>';
-    if (!ys.length) h += '<tr><td colspan="' + (EF.length + split.length + 3) + '" class="pa-empty" style="padding:10px;">연도별 값이 없습니다 — 아래에서 연도를 골라 더합니다</td></tr>';
+    if (!ys.length) h += '<tr><td colspan="' + (EF.length + split.length + 3) + '" class="pa-empty" style="padding:10px;">연도별 값이 없습니다. 아래에서 연도를 골라 더합니다</td></tr>';
     ys.forEach(function (y) {
       var v = ye[y], hand = v.hand || [], hasT = v.tasks && v.tasks.length;
       function cls(f) { return 'cell' + (v.excel && hand.indexOf(f) < 0 ? ' ex' : '') + (hand.indexOf(f) >= 0 || (v.touched || {})[f] ? ' hd' : ''); }

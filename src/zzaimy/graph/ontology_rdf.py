@@ -58,7 +58,7 @@ def schema_graph(schema: dict, kinds: dict[str, str]):
         g.add((c, RDFS.label, Literal(label, lang="ko")))
     g.add((Z.InstitutionalDoc, RDF.type, OWL.Class))
     g.add((Z.InstitutionalDoc, RDFS.subClassOf, Z.Doc))
-    g.add((Z.InstitutionalDoc, RDFS.label, Literal("기관 업무 문서(사업 아님 — 검토가 정함)", lang="ko")))
+    g.add((Z.InstitutionalDoc, RDFS.label, Literal("기관 업무 문서(사업 아님, 검토가 정함)", lang="ko")))
     for c in ("Statement", "LedgerStatement"):
         g.add((Z[c], RDF.type, OWL.Class))
     g.add((Z.LedgerStatement, RDFS.subClassOf, Z.Statement))
