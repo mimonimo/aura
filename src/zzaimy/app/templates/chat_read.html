@@ -3,7 +3,7 @@
 {% block pagetitle %}대화 읽기{% endblock %}
 {% block content %}
 {# 공유받은 프로젝트의 남의 대화, 또는 공유가 풀린 프로젝트 안 내 대화 — 읽기 전용(입력줄·문서 패널·다시 쓰기 없음). 대화는 만든 사람만 이어 간다 #}
-<link rel="stylesheet" href="/static/chat-workspace.css">
+<link rel="stylesheet" href="/static/chat-workspace.css?v={{ asset_v }}">
 <div class="chat-read">
   <header class="chat-workspace-head">
     <div class="chat-heading">

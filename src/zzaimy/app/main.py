@@ -709,12 +709,14 @@ def create_app(
             headers=getattr(exc, "headers", None),
         )
     class _FreshStatic(StaticFiles):
-        """정적 파일은 매번 바뀌었는지 묻게 한다(no-cache, 안 바뀌었으면 304 로 가볍다).
-        그러지 않으면 배포 뒤 브라우저가 옛 CSS 를 그대로 써 새 화면이 깨져 보인다."""
+        """정적 파일 캐시 — 주소에 배포 판(?v=asset_v)이 붙은 요청은 1년 그대로 쓰게 하고(배포하면 주소가 바뀌어 새 파일을 받는다),
+        판이 없는 요청만 매번 묻게 한다(no-cache). 매번 묻게만 하면 서버 재시작 중이거나 망이 잠깐 끊긴 순간 CSS 만 못 받아
+        화면 꾸밈이 통째로 빠졌다(10-30)."""
 
-        def file_response(self, *args, **kwargs):
-            resp = super().file_response(*args, **kwargs)
-            resp.headers["Cache-Control"] = "no-cache"
+        async def get_response(self, path, scope):
+            resp = await super().get_response(path, scope)
+            versioned = b"v=" in (scope.get("query_string") or b"")
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable" if versioned else "no-cache"
             return resp
 
     app.mount(
