@@ -29,6 +29,9 @@
 - LLM 연결은 `/dev/tools` 에서 등록하고 `data/platform/llm_connections.json` 에 저장된다. 역할에 정한 서버가 연결을 받지 않으면
   같은 모델을 내는 다른 교내 연결로 넘긴다(외부 연결로는 넘기지 않음).
 - vLLM 은 생각 모드가 기본으로 켜져 있어, 클라이언트가 기본으로 끈다. 끄지 않은 호출은 한도를 생각에 다 써서 조용히 실패한다.
+  생각을 켠 호출이 한도에 걸려 닫는 표시 없이 끊기면 그 글은 본문으로 쓰지 않고 한도를 넓혀 한 번 더 묻는다(client._split_think, 10-28).
+- 두 토르의 Writer 는 문맥 262,144(256K)로 서빙한다(`configs/serving.yaml`, `scripts/126_serve_writer.sh`). 앱은 서버가 알려 준 문맥 길이를
+  그대로 쓰고(llm_budget.context_len, 서빙을 바꾸면 앱 재시작), 묶어야 할 때만 연결 설정 `work_context` 나 `ZZAIMY_WORK_CONTEXT`. 기본은 최대치.
 
 ### 데이터가 도는 길
 
@@ -60,6 +63,13 @@
 - DGX: 학습 환경은 `~/zzaimy-capstone/.venv-train`(고정 판 `configs/training-env.txt`), 읽기 환경은 `.venv-parse`. 공용 장비라 MinerU 동시 실행과
   가용 메모리 하한을 지킨다(`scripts/167`). 학습본 이관은 병합 → NVFP4 → `116` 으로 두 토르.
 - 서버 이전: `scripts/209_migration_manifest.py`, 절차는 `docs/ops/migration.md`.
+- 속도(10-28): DB 는 연결을 다시 쓰고(database_backend 의 연결 묶음, 프로세스·설정마다 16개), 문서 번호·갈래 색인은 앱이 없을 때만
+  만든다(db._INDEXES·kg_store). 운영에 새 색인을 넣을 때는 쓰기를 막지 않게 CONCURRENTLY 로 먼저 만든다. 배치는 `zz_run.sh` 가 낮은
+  CPU·디스크 순위로 돌린다(그래프 전체 재구축 동안 웹이 느려지던 것). 앱은 켤 때 무거운 준비(형태소·모델 상태·사업 목록·색인·지표)를 뒤에서 한다.
+- 점검 도구(VM 에서 `.env.local` 과 함께): 모드별 질문 시험 `scripts/219`, 화면 전수 점검 `220`, 화면별 시간·프로파일 `221`,
+  화면별 SQL 시간 `222`, 문서 본문 생각 글 새김 점검 `223`. 느린 요청은 `data/platform/slow_requests.jsonl`(1.5초 넘는 것)부터 본다.
+- 문서 작성 시나리오 측정: `scripts/202_webhwp_scenario_eval.py --variant noforms --label <이름>`(결과 `~/ops/scn1027/`). 양식을 매번
+  새로 만들어 절 수가 달라지므로 같은 조건 비교는 `--variant forms`(고정 양식).
 
 ## 2. 정본과 배포
 
