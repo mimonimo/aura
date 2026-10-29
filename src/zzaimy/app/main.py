@@ -1636,8 +1636,7 @@ def create_app(
             from zzaimy.app import web_search
 
             try:
-                from zzaimy.app import institution as _inst
-                res = web_search.answer_with_web(q, history=_general_history(), org=_inst.facts(db).get("대학명", ""))
+                res = web_search.answer_with_web(q, history=_general_history())
                 _mid = db.add_chat(session_id, "assistant", web_search.render(res))
                 _record_run(session_id, _mid, "web")
             except web_search.Blocked as e:

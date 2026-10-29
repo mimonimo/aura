@@ -110,3 +110,19 @@ def test_search_provider_switches_with_keys(monkeypatch):
     assert web_search.search("B200", http=http) == [{"title": "NVIDIA B200", "url": "https://example.org/b", "snippet": "설명"}]
     monkeypatch.setenv("ZZAIMY_WEB_SEARCH", "naver")
     assert web_search.search("B200", http=http) == [{"title": "B200 소개", "url": "https://example.org/n", "snippet": "네이버 & 설명"}]
+
+
+def test_search_query_only_uses_user_words():
+    from types import SimpleNamespace
+    from zzaimy.app import web_search as ws
+
+    def fake(text):
+        msg = SimpleNamespace(content=text)
+        return SimpleNamespace(client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kw: SimpleNamespace(choices=[SimpleNamespace(message=msg)])))), model="m", _extra={})
+    hist = {"recent": [{"role": "user", "content": "우리대학 직원 정년퇴임 연령은?"},
+                       {"role": "assistant", "content": "직원인사 규정 제35조 기밀 내용 61세"}]}
+    # 답에서 온 낱말(제35조·61세)이 섞이면 질문 그대로
+    assert ws.search_query("교원은?", fake("직원인사 규정 제35조 61세"), hist) == "교원은?"
+    # 담당자가 쓴 낱말만이면 그 검색어
+    assert ws.search_query("교원은?", fake("우리대학 교원 정년퇴임 연령"), hist) == "우리대학 교원 정년퇴임 연령"

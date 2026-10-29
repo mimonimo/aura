@@ -232,24 +232,48 @@ def _context_messages(history: dict | None) -> list[dict]:
 
 
 _QUERY_PROMPT = """아래 대화의 마지막 질문을 인터넷에서 찾기 위한 검색어 한 줄을 쓴다.
-- 「우리 대학」「우리대학」「본교」 처럼 가리키는 말은 기관 이름 「{org}」 로 바꾼다(기관 이름이 비었으면 그대로).
-- 앞 대화에 나온 대상(사람·직군·제도·숫자)을 빠뜨리지 않는다. 질문의 직군(예: 직원·교원·조교)을 다른 직군으로 바꾸지 않는다.
+- 담당자가 쓴 말(질문들)에 나온 낱말만 쓴다. 답·메모에 나온 낱말은 쓰지 않는다.
+- 앞 질문에 나온 대상(직군·제도·숫자)을 이어진 질문에 채워 넣는다. 질문의 직군(예: 직원·교원·조교)을 다른 직군으로 바꾸지 않는다.
 - 검색어만 한 줄로. 따옴표·설명 없이.
+
+[담당자가 쓴 말]
+{user_text}
 
 [마지막 질문]
 {question}"""
 
+_WORD = re.compile(r"[0-9A-Za-z가-힣]+")
+
+
+def _only_user_words(query: str, user_text: str) -> bool:
+    """검색어 낱말이 모두 담당자가 직접 쓴 말에 있는가 — 답·작업 메모·교내 문서에서 온 글이 밖(검색 엔진)으로 나가지 않게
+    (10-29 보안 점검). 조사가 붙은 꼴도 받도록 낱말 앞 두 글자 이상이 담당자 글에 있으면 같은 낱말로 본다."""
+    flat = user_text
+    for w in _WORD.findall(query):
+        if w in flat:
+            continue
+        if len(w) >= 3 and w[:-1] in flat:
+            continue
+        return False
+    return True
+
 
 def search_query(question: str, client, history: dict | None = None, org: str = "") -> str:
-    """대화를 보고 웹 검색어를 27B 가 만든다 — 실패하면 질문 그대로."""
+    """이어진 질문의 웹 검색어를 27B 가 만든다 — 담당자가 쓴 말의 낱말만으로(아니면 질문 그대로). 기관 이름은 넣지 않는다(밖으로
+    보낼 때 기관 이름을 가리는 반출 규칙 app/egress 와 같게 — 담당자가 직접 쓴 이름만 그대로 나간다)."""
+    user_text = "\n".join(str(m.get("content") or "") for m in (history or {}).get("recent") or [] if m.get("role") == "user")
+    user_text = (user_text + "\n" + question).strip()
     try:
-        msgs = _context_messages(history) + [{"role": "user", "content": _QUERY_PROMPT.format(org=org, question=question.strip())}]
+        msgs = [{"role": "user", "content": _QUERY_PROMPT.format(user_text=user_text[-3000:], question=question.strip())}]
         resp = client.client.chat.completions.create(model=client.model, messages=msgs, temperature=0.0, max_tokens=60,
                                                      extra_body=getattr(client, "_extra", None) or {})
         q = (resp.choices[0].message.content or "").strip().splitlines()[0].strip().strip('"「」')
-        return q[:200] if len(q) >= 2 else question
     except Exception:
         return question
+    if len(q) < 2 or not _only_user_words(q, user_text):
+        return question
+    return q[:200]
+
 
 def answer_with_web(question: str, client=None, k: int = 4, http=None, max_tokens: int = 1500,
                     history: dict | None = None, org: str = "") -> dict:
@@ -263,7 +287,7 @@ def answer_with_web(question: str, client=None, k: int = 4, http=None, max_token
         from zzaimy.generate.client import VllmClient
 
         client = VllmClient()
-    query = search_query(question, client, history, org) if history else question
+    query = search_query(question, client, history) if history else question
     if query != question and screen_question(query):
         query = question
     results = search(query, k=k, http=http)
