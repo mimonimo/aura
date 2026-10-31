@@ -8,6 +8,8 @@
 !data/**/.gitkeep
 
 *.pdf
+# 우리가 만든 사용 매뉴얼(시험 화면만, 실문서 없음) 하나만 예외 — 원본은 docs/guides/aura-user-manual.html
+!docs/guides/AURA-사용-매뉴얼.pdf
 *.hwp
 *.hwpx
 *.doc

@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AURA 사용 매뉴얼</title>
+<style>
+  :root {
+    --ink: #1f2733;
+    --sub: #5a6472;
+    --line: #d9dee6;
+    --soft: #f3f5f8;
+    --accent: #1e3a6e;
+    --red: #e0312b;
+  }
+  @page { size: A4; margin: 14mm 15mm 14mm 15mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: var(--ink); }
+  body {
+    font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Nanum Gothic", sans-serif;
+    font-size: 10.2pt; line-height: 1.62; word-break: keep-all;
+  }
+  .page { page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  h1 { font-size: 22pt; font-weight: 600; margin: 0 0 2mm; letter-spacing: -0.3px; }
+  h2 { font-size: 15pt; font-weight: 600; margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 2px solid var(--accent); color: var(--accent); }
+  h3 { font-size: 11.5pt; font-weight: 600; margin: 4mm 0 1.5mm; }
+  p { margin: 0 0 2mm; }
+  .lead { color: var(--sub); margin-bottom: 4mm; }
+  .meta { color: var(--sub); font-size: 9pt; }
+  figure { margin: 2mm 0 3mm; text-align: center; break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 4px; display: block; }
+  figure.mid img { width: 86%; margin: 0 auto; }
+  figure.small img { width: 74%; margin: 0 auto; }
+  figure.s60 img { width: 62%; margin: 0 auto; }
+  figure.login img { width: 30%; margin: 0 auto; }
+  figcaption { font-size: 8.6pt; color: var(--sub); margin-top: 1.2mm; }
+  ol, ul { margin: 0 0 2mm; padding-left: 6mm; }
+  li { margin: 0.6mm 0; }
+  .card { display: grid; grid-template-columns: 22mm 1fr; gap: 1mm 3mm; margin: 1mm 0 3mm; }
+  .card .k { color: var(--accent); font-weight: 600; }
+  .card .v { }
+  .say { background: var(--soft); border-left: 3px solid var(--accent); padding: 2mm 3mm; margin: 2mm 0 3mm; border-radius: 0 4px 4px 0; }
+  .say::before { content: "이렇게 설명하면 된다"; display: block; font-size: 8.6pt; color: var(--sub); margin-bottom: 0.6mm; }
+  table { width: 100%; border-collapse: collapse; margin: 1.5mm 0 3mm; font-size: 9.4pt; break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 1.4mm 2mm; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 600; }
+  .num { display: inline-block; width: 5mm; height: 5mm; line-height: 5mm; border-radius: 50%; background: var(--red); color: #fff; text-align: center; font-size: 8pt; margin-right: 1mm; }
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2mm 6mm; margin-top: 2mm; }
+  .legend div { font-size: 9.6pt; }
+  .note { font-size: 8.8pt; color: var(--sub); }
+  .q { display: inline-block; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 0 2mm; margin: 0.5mm 0; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+  .toc { columns: 2; font-size: 9.6pt; margin: 2mm 0 0; padding-left: 5mm; }
+  .ex { border: 1px solid var(--line); border-radius: 4px; padding: 2mm 3mm; margin: 1.5mm 0; font-size: 9.4pt; break-inside: avoid; }
+  .ex .t { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- 1쪽: 한눈에 보기 -->
+<section class="page">
+  <h1>AURA 사용 매뉴얼</h1>
+  <p class="lead">로그인, 채팅(교내 문서에서 찾아 답하기와 일반 답하기), 답변 깊이, 데이터 분류(문답 검수)를 짧게 정리했다. 화면 사진은 시험 서버에서 시험 계정과 지어낸 자료로 찍은 시험 화면이다.</p>
+  <h2>한눈에 보기</h2>
+  <figure>
+    <img src="../images/manual/m03-overview.jpg" alt="새 채팅 첫 화면과 주요 단추 번호">
+    <figcaption>그림 1. 새 채팅 첫 화면(시험 화면). 빨간 번호가 자주 쓰는 단추다.</figcaption>
+  </figure>
+  <div class="legend">
+    <div><span class="num">1</span>새 채팅: 새 대화를 연다.</div>
+    <div><span class="num">2</span>최근 대화: 지난 대화를 다시 연다.</div>
+    <div><span class="num">3</span>입력칸: 질문을 쓴다. 엔터로 보내고 Shift+엔터는 줄바꿈.</div>
+    <div><span class="num">4</span>첨부: 사진·문서를 같이 읽게 한다.</div>
+    <div><span class="num">5</span>일반 / RAG: 답하는 방식을 고른다.</div>
+    <div><span class="num">6</span>RAG 범위: 찾아볼 문서 묶음(공통·부서).</div>
+    <div><span class="num">7</span>답변 깊이: 꼼꼼하게(기본) / 빠르게.</div>
+    <div><span class="num">8</span>보내기: 질문을 보낸다.</div>
+    <div><span class="num">9</span>사용자 메뉴: 설정, 문답 검수, 로그아웃.</div>
+  </div>
+  <h3>차례</h3>
+  <ol class="toc">
+    <li>접속과 로그인</li>
+    <li>RAG와 일반, 무엇을 고르나</li>
+    <li>RAG: 교내 문서에서 찾아 답하기</li>
+    <li>일반: 모델이 아는 범위로 답하기</li>
+    <li>이어서 묻기, 첨부, 답 아래 단추</li>
+    <li>답변 깊이: 꼼꼼하게와 빠르게</li>
+    <li>데이터 분류(문답 검수)</li>
+    <li>자주 묻는 것</li>
+  </ol>
+</section>
+
+<!-- 1. 접속과 로그인 -->
+<section class="page">
+  <h2>1. 접속과 로그인</h2>
+  <div class="card">
+    <div class="k">무엇인가</div><div class="v">AURA 에 내 계정으로 들어가는 첫 단계다.</div>
+    <div class="k">언제 쓰나</div><div class="v">처음 계정을 받았을 때, 로그아웃된 뒤 다시 들어갈 때.</div>
+  </div>
+  <h3>어떻게 하나</h3>
+  <ol>
+    <li>학교 안 망에서, 또는 VPN 을 켠 뒤 브라우저(크롬 권장)로 https://aura.ync.ac.kr 에 들어간다. 학교 밖에서 VPN 없이는 열리지 않는다.</li>
+    <li>아이디<span class="num">1</span>와 비밀번호<span class="num">2</span>를 넣고 「로그인」<span class="num">3</span>을 누른다.</li>
+  </ol>
+  <figure class="login">
+    <img src="../images/manual/m01-login.jpg" alt="로그인 화면">
+    <figcaption>그림 2. 로그인 화면. 1 아이디, 2 비밀번호, 3 로그인.</figcaption>
+  </figure>
+  <ol start="3">
+    <li>관리자에게 처음 받은 비밀번호로 들어가면 「내 설정」 화면이 먼저 열리고 「첫 비밀번호를 바꿔 주세요」<span class="num">1</span>가 보인다.</li>
+    <li>「비밀번호 변경」<span class="num">2</span>을 눌러 현재 비밀번호와 새 비밀번호(8자 이상, 지금 것과 다르게)를 넣는다. 바꾸기 전에는 다른 화면으로 가지 않는다.</li>
+  </ol>
+  <figure class="s60">
+    <img src="../images/manual/m02-password.jpg" alt="첫 비밀번호 바꾸기">
+    <figcaption>그림 3. 첫 로그인 뒤 내 설정. 1 안내, 2 비밀번호 변경(시험 계정).</figcaption>
+  </figure>
+  <h3>결과</h3>
+  <p>비밀번호를 바꾸면 채팅 첫 화면(그림 1)이 열린다. 로그인은 7일 동안 유지된다.</p>
+  <div class="say">학교 망이나 VPN 에서 aura.ync.ac.kr 로 들어가서 받은 아이디로 로그인하세요. 처음엔 비밀번호를 바꾸라는 화면이 나오니 거기서 새 비밀번호로 바꾸면 됩니다.</div>
+</section>
+
+<!-- 2. RAG 와 일반 -->
+<section class="page">
+  <h2>2. RAG와 일반, 무엇을 고르나</h2>
+  <p>채팅 입력칸 아래에 「일반」과 「RAG」 두 단추가 있다. 질문을 보내기 전에 둘 중 하나를 고른다. 고른 것은 내 계정에 기억된다.</p>
+  <table>
+    <tr><th style="width:28%">방식</th><th>무엇인가</th><th style="width:30%">밖으로 나가는 것</th></tr>
+    <tr><td>RAG(교내 문서에서 찾아 답하기)</td><td>내 계정이 볼 수 있는 교내 문서(규정, 사업 문서)를 먼저 찾고, 그 문서를 근거로 답한다. 답에 근거 문서 이름과 조항이 붙는다.</td><td>없음. 교내 장비 안에서만 찾는다.</td></tr>
+    <tr><td>일반(모델이 아는 범위로 답하기)</td><td>문서를 찾지 않고 모델이 배운 지식으로 바로 답한다. 답 끝에 「문서·인터넷 확인 없이 답했다」는 표시가 붙는다.</td><td>없음.</td></tr>
+    <tr><td>인터넷에서 찾아보기</td><td>일반 답 끝에 확인이 필요하다고 나오면 누를 수 있는 단추다. 인터넷 검색 결과로 다시 답한다.</td><td>질문 낱말만 검색에 쓴다. 문서·첨부는 나가지 않는다.</td></tr>
+  </table>
+  <h3>고르는 기준</h3>
+  <table>
+    <tr><th style="width:42%">이런 질문이면</th><th style="width:22%">고를 것</th><th>예시 질문</th></tr>
+    <tr><td>우리 학교 규정, 사업 계획서·보고서 내용</td><td>RAG</td><td>「우리 대학 직원 정년은 몇 살이야?」<br>「영남이공대학교 총장 임기는?」</td></tr>
+    <tr><td>일반 지식, 문장 다듬기, 개념 설명</td><td>일반</td><td>「Qwen 27B 문맥 크기 알려줘」<br>「이 문장 공문 말투로 바꿔 줘」</td></tr>
+    <tr><td>최신 바깥 정보(올해 바뀐 제도, 공고 일정)</td><td>일반으로 묻고, 답 아래 「인터넷에서 찾아보기」</td><td>「올해 최저임금은?」</td></tr>
+  </table>
+  <p class="note">헷갈리면 RAG 로 묻는다. 교내 문서에 답이 없으면 그렇다고 말해 준다.</p>
+  <div class="say">학교 규정이나 사업 문서에 있는 걸 물을 땐 RAG, 그냥 일반 상식이나 글 다듬기는 일반을 고르세요. RAG 는 학교 문서를 찾아서 어느 조항인지까지 붙여 줍니다.</div>
+</section>
+
+<!-- 3. RAG -->
+<section class="page">
+  <h2>3. RAG: 교내 문서에서 찾아 답하기</h2>
+  <div class="card">
+    <div class="k">무엇인가</div><div class="v">교내 문서를 찾아 근거를 붙여 답하는 방식. 영어로 RAG(검색 증강 생성)라고 부른다.</div>
+    <div class="k">언제 쓰나</div><div class="v"><span class="q">우리 대학 직원 정년은 몇 살이야?</span> <span class="q">영남이공대학교 총장 임기는?</span> 처럼 학교 규정·사업 문서에 답이 있는 질문.</div>
+  </div>
+  <h3>어떻게 하나</h3>
+  <ol>
+    <li>왼쪽 「새 채팅」을 누르고 입력칸 아래에서 「RAG」를 고른다.</li>
+    <li>필요하면 「RAG 범위」<span class="num">1</span>를 눌러 찾아볼 문서 묶음<span class="num">2</span>을 고른다. 「공통」은 모든 부서 공용 문서, 그 아래는 내 부서 문서다. 처음에는 모두 골라져 있다(「전체」). 체크를 빼면 그 묶음은 찾지 않는다.</li>
+    <li>질문을 쓰고 보내기(위 화살표) 또는 엔터를 누른다.</li>
+  </ol>
+  <figure>
+    <img src="../images/manual/m04-rag-scope.jpg" alt="RAG 범위 고르기 창">
+    <figcaption>그림 4. RAG 범위. 1 범위 단추, 2 고르기 창(공통, 기획처). 시험 계정의 부서는 지어낸 것이다.</figcaption>
+  </figure>
+  <p>범위를 좁혀도 내 계정이 볼 수 없는 문서까지 넓어지지는 않는다. 볼 수 있는 문서 안에서만 고른다.</p>
+  <div class="say">RAG 를 고르고 물으면 학교 문서에서 찾아서 답해요. RAG 범위에서 공통만 고르면 학교 전체 규정만, 우리 부서만 고르면 부서 문서만 찾습니다.</div>
+</section>
+
+<section class="page">
+  <h2>3. RAG: 답이 어떻게 보이나</h2>
+  <p>보내면 답을 만드는 동안 지금 하는 일이 한 줄로 보인다. 「작업 내역」<span class="num">1</span>을 누르면 그동안 거친 단계<span class="num">2</span>가 펼쳐진다. 다시 누르면 접힌다.</p>
+  <figure class="mid">
+    <img src="../images/manual/m06-progress.jpg" alt="답을 만드는 중 작업 내역">
+    <figcaption>그림 5. 답을 만드는 중. 1 작업 내역 펼치기/접기, 2 단계 목록(시험 화면).</figcaption>
+  </figure>
+  <p>답이 오면 문장마다 근거 문서 이름과 조항이 붙는다. 「생각 과정 펼치기」<span class="num">1</span>를 누르면 답을 쓰기 전에 거친 단계([1단계], [2단계] …)를 볼 수 있다. 파란 문서 이름<span class="num">2</span>을 누르면 그 문서의 해당 대목이 오른쪽에 열린다. 답 아래 단추<span class="num">3</span>는 5절에서 설명한다.</p>
+  <figure class="mid">
+    <img src="../images/manual/m07-rag-answer.jpg" alt="RAG 답과 생각 과정">
+    <figcaption>그림 6. RAG 답. 1 생각 과정, 2 근거 문서, 3 답 아래 단추. 시험 화면이며 「(시험본)」 문서와 수치는 촬영용 시험 자료다.</figcaption>
+  </figure>
+</section>
+
+<section class="page">
+  <h2>3. RAG: 근거 문서 확인</h2>
+  <p>답에 붙은 문서 이름을 누르면 오른쪽 창에 그 문서가 열리고, 답이 기댄 대목이 노란색으로 칠해진다. 「새 탭에서 열기」로 문서 전체를 볼 수 있다.</p>
+  <figure>
+    <img src="../images/manual/m08-source.jpg" alt="근거 문서 창">
+    <figcaption>그림 7. 근거 문서 창. 답이 기댄 조항이 칠해져 보인다(시험 문서).</figcaption>
+  </figure>
+  <h3>결과 읽는 법</h3>
+  <ul>
+    <li>숫자·날짜는 근거 문서에 있는 것만 쓴다. 근거에 없는 숫자에는 「(근거 확인 필요)」가 붙는다.</li>
+    <li>찾은 문서에 답이 없으면 지어내지 않고 「관련 근거를 찾지 못했습니다」로 시작해 답한다. 근거가 약하면 그 사실을 먼저 밝힌다.</li>
+    <li>최종 판단과 수치는 언제나 원문에서 한 번 더 확인한다. 입력칸 아래에도 같은 안내가 있다.</li>
+  </ul>
+  <div class="say">예를 들어 「우리 대학 직원 정년은 몇 살이야?」 하고 물으면, 인사 규정을 찾아서 정년이 몇 세인지 몇 조 몇 항인지까지 붙여 답해요. 문서 이름을 누르면 그 조항이 바로 보이니까 원문 확인도 쉽습니다.</div>
+</section>
+
+<!-- 4. 일반 -->
+<section class="page">
+  <h2>4. 일반: 모델이 아는 범위로 답하기</h2>
+  <div class="card">
+    <div class="k">무엇인가</div><div class="v">교내 문서를 찾지 않고 모델이 아는 지식으로 바로 답하는 방식.</div>
+    <div class="k">언제 쓰나</div><div class="v"><span class="q">Qwen 27B 문맥 크기 알려줘</span> <span class="q">이 문장 공문 말투로 바꿔 줘</span> 처럼 학교 문서가 필요 없는 질문.</div>
+  </div>
+  <h3>어떻게 하나</h3>
+  <ol>
+    <li>입력칸 아래에서 「일반」<span class="num">1</span>을 고른다. 일반에서는 RAG 범위 단추가 사라진다.</li>
+    <li>질문을 쓰고 보낸다.</li>
+  </ol>
+  <figure class="s60">
+    <img src="../images/manual/m09-general-pick.jpg" alt="일반 고르기">
+    <figcaption>그림 8. 1 「일반」을 고르고 질문을 쓴 모습.</figcaption>
+  </figure>
+  <h3>결과</h3>
+  <p>답 끝에 「(문서·인터넷 확인 없이 모델이 아는 내용으로 답했습니다. 최신 정보와 수치는 확인해 주세요.)」가 붙는다. 모델이 확인이 더 필요하다고 보면 「인터넷에서 찾아볼까요?」와 함께 「인터넷에서 찾아보기」<span class="num">1</span> 단추가 뜬다. 누르면 같은 질문을 인터넷 검색으로 다시 답하고 출처를 붙인다. 이때 밖으로는 질문 낱말만 나간다.</p>
+  <figure class="s60">
+    <img src="../images/manual/m10-general-answer.jpg" alt="일반 답과 인터넷에서 찾아보기">
+    <figcaption>그림 9. 일반 답. 1 인터넷에서 찾아보기(시험 화면, 답은 촬영용 시험 답).</figcaption>
+  </figure>
+  <div class="say">일반은 학교 문서 없이 AI 가 아는 대로 바로 답해요. 그래서 빠르지만 출처는 없어요. 최신 정보가 필요하면 답 밑에 뜨는 「인터넷에서 찾아보기」를 누르면 됩니다.</div>
+</section>
+
+<!-- 5. 이어서 묻기, 첨부, 단추 -->
+<section class="page">
+  <h2>5. 이어서 묻기, 첨부, 답 아래 단추</h2>
+  <h3>이어서 묻기</h3>
+  <p>같은 대화 안에서는 앞 대화를 기억한다. 그래서 짧게 이어 물어도 된다. 예를 들어 <span class="q">Qwen 27B 문맥 크기 알려줘</span> 다음에 <span class="q">K로 바꾸면?</span> 이라고만 써도 앞 답의 숫자를 받아 이어 답한다. 주제가 바뀌면 「새 채팅」으로 새 대화를 여는 편이 낫다.</p>
+  <figure class="mid">
+    <img src="../images/manual/m11-followup.jpg" alt="이어서 묻기">
+    <figcaption>그림 10. 이어서 묻기. 두 번째 질문 「K로 바꾸면?」에 앞 답을 이어 받아 답한다(시험 화면).</figcaption>
+  </figure>
+  <h3>첨부</h3>
+  <p>입력칸 왼쪽 클립 단추(그림 1의 4)를 누르거나 파일을 입력칸에 끌어 놓는다. 사진, PDF, 한글, 워드, 엑셀, 파워포인트 파일을 읽어 질문에 반영한다. 예: 공문 사진을 붙이고 <span class="q">이 공문 요점 세 줄로</span>. 파일을 붙인 질문은 RAG 로 시작한다.</p>
+  <h3>답 아래 단추</h3>
+  <table>
+    <tr><th style="width:26%">단추</th><th>하는 일</th></tr>
+    <tr><td>복사</td><td>답 글을 복사한다.</td></tr>
+    <tr><td>도움됨</td><td>좋은 답이었다고 알린다. 품질 개선에 쓰인다.</td></tr>
+    <tr><td>아쉬움</td><td>까닭을 고르고 한 줄 의견을 남긴다(예: 근거가 틀림, 묻는 것에 안 맞음).</td></tr>
+    <tr><td>다시 쓰기(둥근 화살표)</td><td>같은 질문으로 답을 다시 만든다. 그 뒤 대화는 이력에 보관된다.</td></tr>
+    <tr><td>내 질문 옆 연필</td><td>질문을 고쳐 다시 묻는다.</td></tr>
+  </table>
+  <div class="say">한 대화 안에서는 앞 내용을 기억하니까 「그럼 K로 바꾸면?」처럼 짧게 이어 물어도 돼요. 답이 아쉬우면 「아쉬움」을 눌러 이유를 남겨 주세요.</div>
+</section>
+
+<!-- 6. 답변 깊이 -->
+<section class="page">
+  <h2>6. 답변 깊이: 꼼꼼하게와 빠르게</h2>
+  <div class="card">
+    <div class="k">무엇인가</div><div class="v">답을 만들기 전에 얼마나 생각하고 점검할지 정하는 설정. 기본은 「꼼꼼하게」다.</div>
+    <div class="k">언제 쓰나</div><div class="v">간단한 사실 확인은 「빠르게」, 여러 조항을 맞춰 봐야 하는 질문은 「꼼꼼하게」.</div>
+  </div>
+  <h3>어떻게 하나</h3>
+  <ol>
+    <li>입력칸 아래 전구 단추<span class="num">1</span>를 누르면 바로 아래에 고르기 창<span class="num">2</span>이 뜬다.</li>
+    <li>「빠르게」 또는 「꼼꼼하게」를 누른다. 고른 쪽에 체크가 붙고 계정에 기억된다.</li>
+  </ol>
+  <figure class="mid">
+    <img src="../images/manual/m05-effort.jpg" alt="답변 깊이 고르기 창">
+    <figcaption>그림 11. 답변 깊이. 1 단추, 2 고르기 창(빠르게, 꼼꼼하게).</figcaption>
+  </figure>
+  <table>
+    <tr><th style="width:18%">깊이</th><th>하는 일</th><th style="width:26%">걸리는 시간(대략)</th></tr>
+    <tr><td>꼼꼼하게(기본)</td><td>생각 과정을 거쳐 자료를 넓게 보고 스스로 점검한 뒤 답한다. 「생각 과정 펼치기」로 단계를 볼 수 있다.</td><td>RAG 1~2분</td></tr>
+    <tr><td>빠르게</td><td>생각 단계 없이 바로 답한다. 간단한 질문에 알맞다.</td><td>RAG 30~50초</td></tr>
+    <tr><td>일반 방식</td><td>문서를 찾지 않아 더 빠르다.</td><td>몇 초</td></tr>
+  </table>
+  <p class="note">시간은 질문 길이, 찾은 문서 양, 그때 서버에 몰린 요청에 따라 달라진다. 답을 기다리는 동안 다음 질문을 미리 써 둘 수 있다.</p>
+  <div class="say">답변 깊이는 AI 가 얼마나 생각하고 답할지예요. 기본인 「꼼꼼하게」는 1~2분쯤 걸리지만 꼼꼼히 확인하고, 간단한 건 「빠르게」로 바꾸면 30~50초 안에 나옵니다.</div>
+</section>
+
+<!-- 7. 데이터 분류 -->
+<section class="page">
+  <h2>7. 데이터 분류(문답 검수)</h2>
+  <div class="card">
+    <div class="k">무엇인가</div><div class="v">AI 학습에 쓸 문답(질문과 답 한 쌍)을 사람이 한 건씩 보고 채택·수정·폐기로 나누는 일. 학습 전에 나쁜 문답을 걸러 낸다.</div>
+    <div class="k">누가 하나</div><div class="v">검수 권한을 받은 계정(예: review01~03)과 관리자. 권한은 관리자가 조직 관리에서 준다.</div>
+    <div class="k">어디서 하나</div><div class="v">AURA 「문답 검수」 화면에서 라벨 스튜디오(Label Studio, 문답 판정 도구)를 연다.</div>
+  </div>
+  <h3>들어가기</h3>
+  <ol>
+    <li>검수 계정으로 AURA 에 로그인한다.</li>
+    <li>왼쪽 아래 내 이름(사용자 메뉴)을 누르고 「문답 검수」<span class="num">1</span>를 누른다. 검수 권한이 없는 계정에는 이 줄이 없다.</li>
+  </ol>
+  <figure class="s60">
+    <img src="../images/manual/m12-user-menu.jpg" alt="사용자 메뉴의 문답 검수">
+    <figcaption>그림 12. 사용자 메뉴. 1 문답 검수(시험 검수 계정).</figcaption>
+  </figure>
+  <ol start="3">
+    <li>문답 검수 화면에서 「라벨 스튜디오 열기」<span class="num">1</span>를 누르면 검수 프로젝트가 새 탭으로 열린다. 라벨 스튜디오 로그인은 관리자가 따로 준 전자우편 아이디와 첫 비밀번호로 하고, 처음 들어가면 비밀번호를 바꾼다.</li>
+    <li>같은 화면 아래 「SFT 학습·검수 매뉴얼」<span class="num">2</span>에 판정 기준 전체가 있다. 내 몫 수와 제출 수도 이 화면에 보인다.</li>
+  </ol>
+  <figure class="mid">
+    <img src="../images/manual/m13-review.jpg" alt="문답 검수 화면">
+    <figcaption>그림 13. 문답 검수 화면. 1 라벨 스튜디오 열기, 2 검수 매뉴얼. 시험 서버라 라벨 스튜디오가 연결되지 않아 위 안내 글이 보인다.</figcaption>
+  </figure>
+</section>
+
+<section class="page">
+  <h2>7. 데이터 분류: 내 몫 찾기와 검수 화면</h2>
+  <ol>
+    <li>할 일 목록 위 「Filters」<span class="num">1</span> › Add Filter 를 누르고, 칸은 assignee, 조건은 equal, 값은 내 아이디로 거른다. 내 몫만 남는다.</li>
+    <li>목록의 한 줄<span class="num">2</span>을 누르면 검수 화면이 열린다. 위에서부터 차례로 연다.</li>
+  </ol>
+  <figure class="mid">
+    <img src="../images/manual/m14-ls-tasks.jpg" alt="라벨 스튜디오 할 일 목록">
+    <figcaption>그림 14. 할 일 목록. 1 Filters, 2 할 일 한 건(라벨 스튜디오 화면, 검수 가이드 캡처).</figcaption>
+  </figure>
+  <ol start="3">
+    <li>왼쪽 「질문(앞 대화 포함)」<span class="num">1</span>에서 사용자가 준 근거와 질문을 읽는다.</li>
+    <li>오른쪽 「학습 답」<span class="num">2</span>이 판정할 대상이다. 이 답이 근거에 맞는지 본다.</li>
+  </ol>
+  <figure class="mid">
+    <img src="../images/manual/m15-ls-review.jpg" alt="검수 화면">
+    <figcaption>그림 15. 검수 화면. 1 질문과 근거, 2 학습 답(검수 가이드 캡처, 계정 표시는 가림).</figcaption>
+  </figure>
+</section>
+
+<section class="page">
+  <h2>7. 데이터 분류: 판정하고 제출하기</h2>
+  <ol>
+    <li>화면을 내려 판정<span class="num">1</span>에서 채택·수정·폐기 가운데 하나를 꼭 고른다(단축키 1·2·3).</li>
+    <li>문제 표시<span class="num">2</span>에서 해당하는 것을 모두 고른다. 없으면 비워 둔다(단축키 4 근거 밖 사실·숫자, 5 묻는 것에 안 맞음, 6 틀 문구 섞임, 7 개인정보).</li>
+    <li>수정을 골랐으면 수정본 칸<span class="num">3</span>에 고친 답 전체를 쓰고 「Add」<span class="num">4</span>를 누른다. 「0 / 1 submissions」가 「1 / 1」로 바뀌어야 들어간 것이다.</li>
+    <li>「Submit」<span class="num">5</span>을 누르면 저장되고 다음 건으로 넘어간다. 고칠 땐 그 건을 다시 열어 「Update」.</li>
+  </ol>
+  <figure class="mid">
+    <img src="../images/manual/m16-ls-decide.jpg" alt="판정 칸과 수정본">
+    <figcaption>그림 16. 1 판정, 2 문제 표시, 3 수정본, 4 Add, 5 Submit(검수 가이드 캡처, 계정 표시는 가림).</figcaption>
+  </figure>
+  <h3>판정 기준(검수 가이드 6절 요약)</h3>
+  <table>
+    <tr><th style="width:16%">판정</th><th>고르는 때</th></tr>
+    <tr><td>채택</td><td>답의 사실·숫자가 근거에 있고, 묻는 것에 답했고, 생성용 틀 문구와 개인정보가 없다. 말투가 조금 딱딱한 정도는 채택.</td></tr>
+    <tr><td>수정</td><td>방향은 맞는데 한두 군데만 고치면 된다(근거 밖 문장 하나, 답 끝 「검색 계획: {…}」 줄 등).</td></tr>
+    <tr><td>폐기</td><td>답의 뼈대가 근거 밖이거나, 묻는 것과 다른 답이거나, 개인정보가 있다.</td></tr>
+  </table>
+</section>
+
+<section class="page">
+  <h2>7. 데이터 분류: 판정 예시</h2>
+  <p>아래 두 건은 검수 가이드 8절의 실제 문답을 줄인 것이다.</p>
+  <div class="ex"><div class="t">좋은 문답: 채택(라벨 스튜디오 #6016)</div>
+    근거: 과정 개발은 전공 전임교원 1인 이상 참여가 원칙, 외부 위탁은 전임교원이 없거나 위탁이 질적 완성도가 높을 때만.<br>
+    질문: 시간이 없으니까 아무 조건 없이 외부에 맡긴다고 쓰면 돼?<br>
+    학습 답: 시간 부족만으로 무조건 위탁 가능하다고 쓰지 않습니다. 해당 분야 전임교원이 없거나 질적 완성도가 높다고 판단되는 경우인지 검토해야 합니다.<br>
+    판단: 근거의 두 조건으로 잘못된 요청을 바로잡았고 근거 밖 내용이 없다. 채택, 문제 표시 없음.</div>
+  <div class="ex"><div class="t">고칠 문답: 수정(라벨 스튜디오 #2849)</div>
+    질문: 변경신청은 냈지만 결정은 아직 없는 상황에서 운영 보고 초안을 써 달라.<br>
+    학습 답: 결정 전 변경안을 실적으로 쓰지 않고 표로 나눠 정리했다. 그런데 답 끝에 「검색 계획: {"documents": …}」 JSON 줄이 붙어 있다.<br>
+    판단: 사용자는 보고 초안만 원했으므로 그 줄은 필요 없다. 수정, 틀 문구 섞임 표시. 수정본에는 그 줄을 지운 답 전체를 쓰고 Add 를 누른다.</div>
+  <h3>자주 틀리는 판정</h3>
+  <ul>
+    <li>질문 머리말에 「연습이다」 같은 문구가 있다고 폐기하지 않는다. 질문은 고칠 수 없으니 틀 문구 섞임만 표시하고, 답이 좋으면 채택한다.</li>
+    <li>「확인 필요」로 남긴 답은 지어내지 않은 맞는 답이다. 채택한다.</li>
+    <li>판단이 서지 않으면 수정을 고르고 수정본에 「검토 필요: 까닭」을 적는다.</li>
+    <li>하루 60~80건, 한 건에 1~3분이 알맞다. 5분을 넘기면 위처럼 「검토 필요」로 넘긴다.</li>
+  </ul>
+  <div class="say">문답 검수는 AI 가 배울 문답을 사람이 먼저 보고 좋은 건 채택, 조금 고칠 건 수정, 틀린 건 폐기로 나누는 일이에요. 기준은 답 내용이 질문에 준 근거 안에 있는지, 묻는 것에 맞게 답했는지입니다.</div>
+</section>
+
+<!-- 8. 자주 묻는 것 -->
+<section class="page">
+  <h2>8. 자주 묻는 것</h2>
+  <h3>답이 너무 느려요</h3>
+  <p>「꼼꼼하게」는 생각 단계를 거쳐 1~2분쯤 걸린다. 간단한 질문은 답변 깊이를 「빠르게」로 바꾸거나, 학교 문서가 필요 없으면 「일반」으로 묻는다. 기다리는 동안 「작업 내역」으로 어디까지 했는지 볼 수 있다. 여러 사람이 한꺼번에 물으면 더 걸릴 수 있다.</p>
+  <h3>답에 「(근거 확인 필요)」가 붙어 있어요</h3>
+  <p>그 숫자나 내용이 찾은 근거 문서에 없다는 뜻이다. 틀렸다는 뜻은 아니지만 그대로 쓰지 말고 원문에서 확인한다. 문서 이름을 눌러 근거를 열어 본다.</p>
+  <h3>RAG 로 물었는데 「관련 근거를 찾지 못했습니다」라고 해요</h3>
+  <p>내 계정이 볼 수 있는 문서 안에 답이 없거나, RAG 범위를 너무 좁힌 경우다. 「RAG 범위」를 「전체」로 되돌리거나 낱말을 바꿔 다시 묻는다. 그래도 없으면 담당 부서에 문서 등록을 요청한다.</p>
+  <h3>화면이 깨져 보이거나 단추가 눌리지 않아요</h3>
+  <p>브라우저에서 새로고침(윈도우 F5 또는 Ctrl+Shift+R, 맥 Cmd+Shift+R)을 한다. 그래도 같으면 로그아웃했다 다시 로그인한다. 학교 밖이라면 VPN 이 켜져 있는지 먼저 본다.</p>
+  <h3>「문답 검수」 메뉴가 안 보여요</h3>
+  <p>검수 권한이 없는 계정이다. 관리자에게 권한을 요청한다.</p>
+  <p class="meta" style="margin-top:8mm">이 매뉴얼의 화면 사진은 시험 서버(시험 계정, 지어낸 부서·사람·문서)에서 찍었고, 라벨 스튜디오 화면 세 장은 기존 검수 가이드의 캡처에서 계정 표시를 가려 썼다. 판정 기준 전체는 docs/guides/sft-review-guide.md(문답 검수 화면에도 같은 글)를 본다.</p>
+</section>
+
+</body>
+</html>
