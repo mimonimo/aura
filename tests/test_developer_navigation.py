@@ -39,7 +39,7 @@ def _user_menu(page):
 
 
 def test_user_menu_holds_admin_entries_and_sidebar_scrolls_once(tmp_path):
-    """사용자 메뉴(10-27) — 관리자: 설정·문답 검수·테스트 보기·개발 현황·로그아웃, 검수자: 설정·문답 검수·로그아웃, 교직원: 설정·로그아웃.
+    """사용자 메뉴(10-27) — 관리자: 설정·사용 매뉴얼·문답 검수·테스트 보기·개발 현황·로그아웃, 검수자: 설정·사용 매뉴얼·문답 검수·로그아웃, 교직원: 설정·사용 매뉴얼·로그아웃(11-01 매뉴얼 추가).
     계정 관리(= 조직 관리)는 없고, 사이드바 본 메뉴·아래 묶음에도 문답 검수·테스트 보기·개발 현황이 없다. 가운데는 한 칸으로 굴러간다(안쪽 max-height 없음)."""
     app = _app(tmp_path)
     for i in range(7):
@@ -50,7 +50,7 @@ def test_user_menu_holds_admin_entries_and_sidebar_scrolls_once(tmp_path):
         page = dev.get(url).text
         menu = _user_menu(page)
         labels = [x.split('<span>', 1)[1].split('</span>', 1)[0] for x in menu.split('class="um-item')[1:]]
-        assert labels == ['설정', '문답 검수', '테스트 보기', '개발 현황', '로그아웃'], (url, labels)
+        assert labels == ['설정', '사용 매뉴얼', '문답 검수', '테스트 보기', '개발 현황', '로그아웃'], (url, labels)
         for mark in ('menu-settings', 'menu-review', 'menu-view-as', 'menu-dev'):
             assert f'data-aura="{mark}"' in menu
         assert '계정 관리' not in page and 'href="/team?view=all"' not in page
@@ -68,7 +68,7 @@ def test_user_menu_holds_admin_entries_and_sidebar_scrolls_once(tmp_path):
     staff = TestClient(app)
     assert _login(staff, 'zzaimy', 'boot-pass-1')
     labels = [x.split('<span>', 1)[1].split('</span>', 1)[0] for x in _user_menu(staff.get('/chat').text).split('class="um-item')[1:]]
-    assert labels == ['설정', '로그아웃']
+    assert labels == ['설정', '사용 매뉴얼', '로그아웃']
     app.state.accounts['zzaimy']['perms'] = ['sft_review']        # 검수 권한을 받은 교직원
     labels = [x.split('<span>', 1)[1].split('</span>', 1)[0] for x in _user_menu(staff.get('/chat').text).split('class="um-item')[1:]]
-    assert labels == ['설정', '문답 검수', '로그아웃']
+    assert labels == ['설정', '사용 매뉴얼', '문답 검수', '로그아웃']
