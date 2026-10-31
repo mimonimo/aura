@@ -1319,3 +1319,9 @@ def test_static_files_are_revalidated(client):
     """배포 뒤 옛 CSS 가 남지 않게 정적 파일은 no-cache(바뀌지 않았으면 304)."""
     r = client.get("/static/chat-workspace.css")
     assert r.status_code == 200 and r.headers.get("cache-control") == "no-cache"
+
+
+def test_help_manual_pdf_and_menu_link(client):
+    r = client.get("/help/manual")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content[:4] == b"%PDF"
+    assert 'href="/help/manual"' in client.get("/chat").text

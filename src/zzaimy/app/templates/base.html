@@ -780,6 +780,7 @@ document.addEventListener('submit', function(event) {
           <span class="um-who"><span class="um-id">{{ profile_name or request.state.user or "" }}</span><span class="um-sub">{{ sub | join(" · ") }}</span></span></div>
         <div class="um-sep"></div>
         <a class="um-item" role="menuitem" href="/settings" data-aura="menu-settings"{% if request.url.path.startswith('/settings') %} aria-current="page"{% endif %}><iconify-icon icon="solar:settings-linear" aria-hidden="true"></iconify-icon><span>설정</span></a>
+        {% if request.state.role != 'student' %}<a class="um-item" role="menuitem" href="/help/manual" target="_blank" rel="noopener" data-aura="menu-manual"><iconify-icon icon="solar:book-2-linear" aria-hidden="true"></iconify-icon><span>사용 매뉴얼</span></a>{% endif %}
         {% if can_sft_review is defined and can_sft_review(request) %}{# 문답 검수 — 검수 권한을 받은 계정과 관리자만(ADR-0066 10-27). 관리자는 데이터·학습 「문답 검수」 카드로도 #}
         <a class="um-item" role="menuitem" href="/review" data-aura="menu-review"{% if request.url.path.startswith('/review') %} aria-current="page"{% endif %}><iconify-icon icon="solar:checklist-minimalistic-linear" aria-hidden="true"></iconify-icon><span>문답 검수</span></a>
         {% endif %}

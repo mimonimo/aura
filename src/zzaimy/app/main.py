@@ -4667,6 +4667,15 @@ def create_app(
     from zzaimy.app import webhwp as _webhwp
     from zzaimy.app import webhwp_agent as _wa_files
 
+    @app.get("/help/manual")
+    def help_manual(request: Request):
+        """사용 매뉴얼 PDF(docs/guides/AURA-사용-매뉴얼.pdf) — 브라우저에서 바로 연다(사용자 메뉴 「사용 매뉴얼」)."""
+        from fastapi.responses import FileResponse
+        p = Path(__file__).resolve().parents[3] / "docs" / "guides" / "AURA-사용-매뉴얼.pdf"
+        if not p.is_file():
+            raise HTTPException(404, "매뉴얼 파일이 없습니다")
+        return FileResponse(p, media_type="application/pdf", headers={"Content-Disposition": "inline; filename*=UTF-8''AURA-manual.pdf"})
+
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, ok: str = "", err: str = ""):
         """내 설정 — 프로필·비밀번호·구글 계정을 한 화면에서. 편집기는 기본 웹 한글 기안기(대화 문서 창에서 바꾼다)."""
