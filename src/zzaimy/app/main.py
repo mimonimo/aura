@@ -344,9 +344,10 @@ def create_app(
 
     _DOC_PATH = re.compile(r"^/(?:doc|chat/peek|api/doc)/(\d+)(?:/|$)")   # api/doc: 구글 열람본 만들기(드라이브로 나가는 길)
     # 학생 허용 경로 — 대화(보내기·읽기·다시·지우기)와 문서 읽기(학생 공개 규정만, 열람 판정은 _DOC_PATH 가 한다)
-    _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|settings$|logout$)")
+    _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|settings$|logout$|api/chat/sessions(?:/\d+)?$)")
+    # 학생도 「모든 대화」 창(내 대화 목록·이름 바꾸기·보관·지우기 — 본인 대화만, chat_history 가 owner 로 막는다)
     # 학생도 내 설정(비밀번호 변경만)은 쓴다 — 바꾸는 길은 본인 계정·현재 비밀번호 확인(/account/password)뿐
-    _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|account/password|logout)$")
+    _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|account/password|logout|api/chat/sessions/\d+)$")
 
     _PROJECT_PATH = re.compile(r"^/projects?/(\d+)(?:/|$)")
     _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/webhwp$")   # 문서를 볼 수 있는 누구나 하는 POST(기안기 작업본 만들기)
@@ -735,6 +736,13 @@ def create_app(
     chat_revisions = ChatRevisions(Path(db_path))
     from zzaimy.app.chat_history import ChatHistory, install_routes as install_chat_history
     chat_history = ChatHistory(Path(db_path))
+
+    def _view_key(owner: str) -> str:
+        """테스트 보기 칸 — 고른 역할·부서·등급. 보기마다 대화 기록을 따로 두어 개발자 자기 대화가 학생 보기에 섞이지 않게."""
+        va = _view_as(owner) if owner else None
+        return f"{va['role']}:{va['dept']}:{va['grade']}" if va else ""
+    chat_history.view_key_of = _view_key
+    db.view_key_of = _view_key
     # 대화의 근거·주제 — 기록 목록이 '일반 대화' 대신 근거 문서의 사업·규정 이름을 보인다
     from zzaimy.app.chat_topics import ChatTopics
 

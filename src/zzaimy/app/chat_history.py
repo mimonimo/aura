@@ -42,6 +42,9 @@ def query_forms(query: str) -> list[str]:
 
 
 class ChatHistory:
+    # 계정의 지금 테스트 보기 칸(main 이 채운다) — 개발자가 학생·교직원으로 보는 동안은 그 보기에서 만든 대화만 목록에
+    view_key_of = staticmethod(lambda owner: "")
+
     def __init__(self, path):
         self.path = path
         with closing(self.connect()) as conn, conn:
@@ -85,9 +88,9 @@ class ChatHistory:
                 FROM chat_sessions s
                 LEFT JOIN projects p ON p.id=s.project_id
                 LEFT JOIN chat_session_preferences pref ON pref.session_id=s.id
-                WHERE s.owner=? AND COALESCE(pref.archived,0)=? AND COALESCE(s.channel,'chat')=?{where_q}
+                WHERE s.owner=? AND COALESCE(s.view_key,'')=? AND COALESCE(pref.archived,0)=? AND COALESCE(s.channel,'chat')=?{where_q}
                 ORDER BY last_message DESC, s.id DESC LIMIT ? OFFSET ?
-            ''', (owner, int(archived), 'helper' if channel == 'helper' else 'chat', *match_args, limit, offset)).fetchall()
+            ''', (owner, self.view_key_of(owner), int(archived), 'helper' if channel == 'helper' else 'chat', *match_args, limit, offset)).fetchall()
         return [dict(row) | {'title': display_title(row['title'])} for row in rows]
 
     def change(self, owner, session_id, title=None, archived=None):

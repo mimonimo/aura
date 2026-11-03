@@ -310,6 +310,8 @@ class Database:
         "ALTER TABLE chat_sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'chat'",
         # 비공개 — 프로젝트 대화는 같은 부서 동료가 읽기 전용으로 본다. 만든 사람이 비공개로 고르면 본인만
         "ALTER TABLE chat_sessions ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0",
+        # 테스트 보기 칸 — 개발자가 「테스트 보기」(학생·교직원·부서)로 만든 대화는 그 보기에서만 목록에 보인다. 평소 대화는 빈 값
+        "ALTER TABLE chat_sessions ADD COLUMN view_key TEXT NOT NULL DEFAULT ''",
     ]
 
     # 문서 번호·갈래로 찾는 표의 색인 — PostgreSQL 이전 때 기본 키만 옮겨져 문서 조각(182만 줄)을 문서 하나 찾을 때마다
@@ -325,6 +327,9 @@ class Database:
         ("documents_project", "documents (project_id)"),
         ("documents_status", "documents (status)"),
     )
+
+    # 계정의 지금 테스트 보기 칸(main 이 채운다) — 새 대화에 적고 대화 목록이 같은 칸만 보인다
+    view_key_of = staticmethod(lambda owner: "")
 
     def __init__(self, path: Path | str) -> None:
         self.path = str(path)
@@ -609,9 +614,10 @@ class Database:
     ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO chat_sessions (title, created_at, project_id, owner, channel)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (title[:60], _now(), project_id, owner, "helper" if channel == "helper" else "chat"),
+                "INSERT INTO chat_sessions (title, created_at, project_id, owner, channel, view_key)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (title[:60], _now(), project_id, owner, "helper" if channel == "helper" else "chat",
+                 self.view_key_of(owner)),
             )
             return int(cur.lastrowid or 0)
 

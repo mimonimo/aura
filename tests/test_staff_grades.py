@@ -395,3 +395,19 @@ def test_team_page_multi_dept_head(tmp_path):
     _team(kim, "park", dept="가나사업단", grade="lead")
     assert app.state.accounts["park"]["dept_grades"]["가나사업단"] == "lead" and app.state.accounts["park"]["grade"] == "member"
     assert _team(kim, "lee", dept="기획처", grade="lead").status_code == 403
+
+
+def test_view_as_keeps_chat_history_apart(tmp_path):
+    """테스트 보기마다 대화 기록이 따로 — 학생으로 보는 동안 개발자 자기 대화가 사이드바·대화 목록에 나오지 않는다."""
+    app, c = _dev(tmp_path)
+    db = app.state.db
+    mine = db.create_chat_session("개발자 대화", owner="zzdev")
+    c.post("/view-as", data={"role": "student", "back": "/"}, follow_redirects=False)
+    test = db.create_chat_session("학생 보기 대화", owner="zzdev")
+    ids = [s["id"] for s in c.get("/api/chat/sessions").json()["sessions"]]
+    assert test in ids and mine not in ids
+    c.post("/view-as/clear", data={"back": "/"}, follow_redirects=False)
+    ids = [s["id"] for s in c.get("/api/chat/sessions").json()["sessions"]]
+    assert mine in ids and test not in ids
+    c.post("/view-as", data={"role": "staff", "back": "/"}, follow_redirects=False)
+    assert c.get("/api/chat/sessions").json()["sessions"] == []        # 교직원 보기는 또 다른 칸
