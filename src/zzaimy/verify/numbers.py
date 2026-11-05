@@ -233,6 +233,26 @@ _SPAN = re.compile(r"((?:19|20)\d{2})\s*년\s*(\d{1,2})\s*월(?:\s*\d{1,2}\s*일
                    r"((?:19|20)\d{2})\s*년\s*(\d{1,2})\s*월(?:\s*\d{1,2}\s*일)?\s*(?:까지)?\s*[=＝:]?\s*(?:약\s*)?(\d+)\s*개월")
 
 
+# 날짜 더하기·빼기 — 「2014년 3월 + 20년 = 2034년 3월」 「1970년 7월 + 65세 = 2035년 7월」
+_DATE_ADD = re.compile(r"((?:19|20)\d{2})\s*년(?:\s*(\d{1,2})\s*월)?(?:\s*\d{1,2}\s*일)?(?:생)?\s*([+\-−])\s*(?:만\s*)?(\d{1,3})\s*(?:년|세|살)"
+                       r"(?:\s*(\d{1,2})\s*개월)?\s*[=＝]\s*((?:19|20)\d{2})\s*년(?:\s*(\d{1,2})\s*월)?")
+
+
+def wrong_dates(text: str) -> list[tuple[int, int]]:
+    """틀린 날짜 셈의 결과 자리 — 연도는 수치 점검에서 빼므로 셈으로 적힌 것만 따로 맞춰 본다."""
+    bad = []
+    for m in _DATE_ADD.finditer(text or ""):
+        y, mo = int(m.group(1)), int(m.group(2) or 0)
+        sign = -1 if m.group(3) in "-−" else 1
+        n, extra = int(m.group(4)), int(m.group(5) or 0)
+        months = y * 12 + (mo or 1) - 1 + sign * (n * 12 + extra)
+        want_y, want_m = divmod(months, 12)
+        got_y, got_m = int(m.group(6)), int(m.group(7) or 0)
+        if got_y != want_y or (mo and got_m and got_m != want_m + 1):
+            bad.append((m.start(6), m.end()))
+    return bad
+
+
 def _amount_value(s: str):
     """「3억 3,750만 원」·「75%」·「18개월」 의 값(Fraction) — 이어진 단위는 합산, % 는 100 으로 나눈다."""
     from fractions import Fraction
@@ -329,12 +349,17 @@ def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[st
     return _rewrite_unsupported(text, evidence_texts, mark=True)
 
 
+def b_end(spans, pos):
+    return next(b for a, b in spans if a <= pos < b)
+
+
 def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tuple[str, list[str]]:
     allowed_surface, allowed_canonical, allowed_money = _allowed(evidence_texts)
     out, masked, last = [], [], 0
     src = text or ""
     spans, derived = derived_spans(src)                  # 맞게 셈한 결과는 근거 있는 값(같은 값을 뒤에 다시 써도)
     allowed_canonical = allowed_canonical | derived
+    bad_dates = wrong_dates(src) if mark else []         # 틀린 날짜 셈 — 연도라도 표시(대화 답만)
     for m in _NUM_UNIT.finditer(src):
         if any(a <= m.start() < b for a, b in spans):
             continue
@@ -344,6 +369,14 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
         after = src[m.end():m.end() + 2]
         if src[line_start:m.start()].strip() == "" and re.match(r"[.)]\s", after):
             continue                                          # 목록 번호 「1. 」「2) 」
+        if m.start() < last:
+            continue
+        if any(a <= m.start() < b for a, b in bad_dates):
+            end = b_end(bad_dates, m.start())
+            out.append(src[last:end] + FLAG)
+            masked.append(src[m.start():end].strip())
+            last = end
+            continue
         if _YEAR_LIKE.match(surface):
             continue
         if re.fullmatch(r"\d{2}(?:\.(?:0?[1-9]|1[0-2]))?", surface) and src[max(0, m.start() - 1):m.start()] in ("’", "'", "‘"):

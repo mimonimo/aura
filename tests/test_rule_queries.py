@@ -60,3 +60,9 @@ def test_calculation_check_is_bounded():
     flag_unsupported(("1" * 3000 + " × ") * 3 + "= 5", ["1"])
     flag_unsupported("1만 " * 300 + "× 2 = 3", ["1"])
     assert time.time() - t < 2
+
+
+def test_wrong_date_addition_is_flagged():
+    t, f = flag_unsupported("2014년 3월 + 20년 = 2015년 3월이므로", ["20년 이상"])
+    assert "2015년 3월(근거 확인 필요)" in t and f == ["2015년 3월"]
+    assert flag_unsupported("2014년 3월 + 20년 = 2034년 3월, 1970년 7월 + 65세 = 2035년 7월", ["20년 65세"])[1] == []
