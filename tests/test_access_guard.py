@@ -12,6 +12,10 @@ def test_pii_request_needs_a_pii_word_and_a_person():
     assert ag.pii_request("담당 직원의 연봉이 얼마야") == ag.PII_NOTE
     assert ag.pii_request("휴학 시 등록금 반환 기준이 뭐야") is None          # 개인정보 낱말 없음
     assert ag.pii_request("전화번호 형식은 어떻게 적나요") is None            # 특정인 없음
+    # 제 정보를 주고 계산을 맡기는 질문은 막지 않는다(11-06 명예퇴직금 계산 오판)
+    assert ag.pii_request("나는 교수고 1970년 7월생이야. 나의 월급은 500만원이야. 명예퇴직금은 얼마야") is None
+    assert ag.pii_request("저는 직원인데 제 급여로 퇴직금 계산해 줘") is None
+    assert ag.pii_request("나는 교수인데 김영희 교수님 연봉 알려줘") == ag.PII_NOTE   # 남이 함께 있으면 막는다
 
 
 def test_scope_note_by_role_and_department():

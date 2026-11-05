@@ -30,6 +30,10 @@ _SYSTEM = """당신은 영남이공대학교 행정 담당자(교직원)를 돕�
   차이를 한 줄로 밝힙니다. 질문이 특정 연도의 판을 물으면 그 판을 따릅니다.
 - 앞선 대화는 맥락일 뿐 근거가 아닙니다. 수치·날짜·기한·자격 같은 사실은 이번 메시지에 실린 근거 자료에 있는 것만
   씁니다. 앞 대화에만 나오고 이번 근거에 없는 사실은 "이번에 찾은 자료에서는 확인되지 않았습니다"라고 밝힙니다.
+- 담당자가 자신을 교수(교원)·직원 등으로 밝히면 그 주체에 적용되는 규정으로 답합니다(교수는 교원 규정).
+- 담당자가 자기 값(생년월·입사일·월급 등, 가정한 값 포함)을 주고 계산을 청하면 거절하지 않고, 근거 규정의 식·산정표에 그 값을 넣어
+  계산합니다. 셈은 한 줄에 하나씩 「식 = 결과」 꼴로 보입니다(예: 500만 원 × 75% × 18개월 = 6,750만 원, 기간은
+  2034년 3월 ~ 2035년 8월 = 18개월). 근거에 식·표가 없으면 계산하지 않고 그 사실을 밝힙니다.
 - 근거가 없는 내용은 추측하지 않습니다. 근거가 없으면 정중하게 그 사실을 알리고,
   어떤 규정·기준 문서를 등록하면 도움이 될지 한 문장으로 안내합니다.
 - 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다. 같은 문장을 반복하지 않습니다.
@@ -261,6 +265,50 @@ _SYSTEM_STUDENT = """당신은 영남이공대학교 학생의 학사 질문에 
 - 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다."""
 
 
+_RULE_QUERY_PROMPT = """교내 규정집에서 아래 질문의 근거 조항을 찾을 검색어를 1~4개 만든다. 한 줄에 하나, 명사구 2~6낱말, 다른 말 없이.
+- 앞선 대화에서 정해진 주체(교원·직원·학생·조교)와 제도 이름을 넣는다(「나는 교수」 → 교원).
+- 답에 다른 조항이 필요하면(예: 명예퇴직을 물으면 정년 조항, 금액을 물으면 산정표·지급 기준) 그 조항 검색어도 넣는다.
+- 담당자 개인 값(생년월·금액)은 검색어에 넣지 않는다."""
+
+
+def rule_queries(question: str, recent: list[dict] | None = None) -> list[str]:
+    """규정 검색어 — 27B 가 질문과 최근 대화에서 만든다(주체·이어지는 조항). 실패하면 빈 목록(질문 그대로 찾는 길만 남는다)."""
+    if os.environ.get("ZZAIMY_RULE_QUERIES", "1") == "0":
+        return []
+    try:
+        from zzaimy.generate.client import VllmClient
+        from zzaimy.app import effort as _effort
+        ctx = "\n".join(f"{'담당자' if m.get('role') == 'user' else 'AURA'}: {strip_reasoning(str(m.get('content') or ''))[:300]}"
+                        for m in (recent or [])[-4:])
+        msgs = [{"role": "system", "content": _RULE_QUERY_PROMPT},
+                {"role": "user", "content": (f"[앞선 대화]\n{ctx}\n\n" if ctx else "") + f"[질문]\n{question[:1200]}"}]
+        with _effort.no_thinking():
+            client = VllmClient(role="answer")
+            resp = client.client.chat.completions.create(model=client.model, messages=msgs, max_tokens=80, temperature=0.0,
+                                                         extra_body=getattr(client, "_extra", None) or {})
+        lines = [re.sub(r"^[\s\-*·\d.)]+", "", x).strip() for x in (resp.choices[0].message.content or "").splitlines()]
+        out = [x for x in lines if 2 <= len(x) <= 40 and not re.search(r"\d{3,}", x)]
+        return list(dict.fromkeys(out))[:4]
+    except Exception:
+        return []
+
+
+def merge_rule_hits(first: list[dict], more: list[list[dict]], cap: int = 8) -> list[dict]:
+    """질문 그대로 찾은 조항을 앞에, 검색어마다 찾은 조항을 번갈아 뒤에 — 같은 조항은 한 번, 약한 근거는 센 근거가 있으면 뺀다."""
+    seen, out = set(), []
+    def key(h):
+        return (h.get("doc_id"), h.get("heading") or "", (h.get("content") or "")[:60])
+    pools = [list(first)] + [list(x) for x in more]
+    i = 0
+    while len(out) < cap and any(i < len(p) for p in pools):
+        for p in pools:
+            if i < len(p) and key(p[i]) not in seen and len(out) < cap:
+                seen.add(key(p[i])); out.append(p[i])
+        i += 1
+    strong = [h for h in out if not h.get("weak_evidence")]
+    return strong if strong else out[:1]
+
+
 def compose_system(profile: dict, audience: str = "staff") -> str:
     """기본 시스템 프롬프트에 담당자 프로필·지침을 얹는다 (설정 화면에서 저장). 학생 계정은 학사 질문 안내 지시(audience="student")."""
     if audience == "student":
@@ -376,8 +424,17 @@ class AgentResponder:
             from concurrent.futures import ThreadPoolExecutor
             # 규정 검색은 사업 문서 검색(질문 읽기·그래프)과 서로 기대지 않는다 — 함께 돌려 기다리는 시간을 줄인다
             _pool = ThreadPoolExecutor(max_workers=1)
-            _reg_future = _pool.submit(lambda: (find_relevant(db, attachment_text or question, sector=scope.get("sector"),
-                                                              **reg_kwargs(scope)), _time.time()))
+            _recent = db.list_chats(session_id, limit=6)[:-1] if session_id else []
+
+            def _find_rules():
+                # 질문 그대로 + 27B 가 만든 검색어(주체·이어지는 조항)로 — 묶음 질문(명예퇴직+정년+산정표)에 조항 하나만 남지 않게(11-06)
+                kw_ = dict(sector=scope.get("sector"), **reg_kwargs(scope))
+                first = find_relevant(db, attachment_text or question, **kw_)
+                qs = [] if attachment_text else rule_queries(question, _recent)
+                self.last_timing["rule_queries"] = qs
+                more = [find_relevant(db, x, **kw_) for x in qs]
+                return merge_rule_hits(first, more), _time.time()
+            _reg_future = _pool.submit(_find_rules)
             _t1 = _time.time()
             blocks = []
             # 사업 문서 계열(국고 계획서·실적보고서·평가 …) — 규정과 따로 찾고 따로 건넨다(절대 규칙 6, ADR-0049).

@@ -219,6 +219,82 @@ def mask_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[st
 
 FLAG = "(근거 확인 필요)"
 
+# ---------------------------------------------------------------- 셈으로 나온 값
+# 담당자가 준 값(월급·생년월)을 규정의 식에 넣어 셈한 결과는 근거 글에 없다. 셈을 「식 = 결과」 로 보이면 여기서 다시 셈해
+# 맞을 때만 결과를 근거 있는 값으로 본다 — 틀린 셈의 결과와, 식의 근거 없는 항(지어낸 월급 등)은 그대로 표시된다(11-06 명예퇴직금 계산).
+_OPERAND = r"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:조|억|천만|백만|십만|만|천)?\s*(?:원|%|퍼센트|개월|월|년|명|일|배)?"
+_AMOUNT = _OPERAND + r"(?:\s*" + _OPERAND + r")*"
+_OP = r"\s*[×xX*÷/+\-−]\s*"
+_CALC = re.compile(r"(" + _AMOUNT + r"(?:" + _OP + _AMOUNT + r")+)\s*[=＝]\s*(?:약\s*)?(" + _AMOUNT + r")")
+# 기간 셈 — 「2034년 3월 ~ 2035년 8월 = 18개월」
+_SPAN = re.compile(r"((?:19|20)\d{2})\s*년\s*(\d{1,2})\s*월(?:\s*\d{1,2}\s*일)?\s*(?:부터|~|∼|-|－|에서)\s*"
+                   r"((?:19|20)\d{2})\s*년\s*(\d{1,2})\s*월(?:\s*\d{1,2}\s*일)?\s*(?:까지)?\s*[=＝:]?\s*(?:약\s*)?(\d+)\s*개월")
+
+
+def _amount_value(s: str):
+    """「3억 3,750만 원」·「75%」·「18개월」 의 값(Fraction) — 이어진 단위는 합산, % 는 100 으로 나눈다."""
+    from fractions import Fraction
+    total, pct, any_ = Fraction(0), False, False
+    for m in _NUM_UNIT.finditer(s):
+        total += Fraction(m.group(1).replace(",", "")) * _UNIT_VALUE.get(m.group(2) or "", 1)
+        any_ = True
+    if not any_:
+        return None
+    if re.search(r"%|퍼센트", s):
+        pct = True
+    return total / 100 if pct else total
+
+
+def _eval_calc(expr: str):
+    from fractions import Fraction
+    parts = re.split(r"\s*([×xX*÷/+\-−])\s*", expr.strip())
+    vals, ops = [], []
+    for i, p in enumerate(parts):
+        if i % 2:
+            ops.append(p)
+        else:
+            v = _amount_value(p)
+            if v is None:
+                return None
+            vals.append(v)
+    # 곱·나눗셈 먼저
+    acc, out_ops, cur = [], [], vals[0]
+    for op, v in zip(ops, vals[1:]):
+        if op in "×xX*":
+            cur = cur * v
+        elif op in "÷/":
+            if v == 0:
+                return None
+            cur = cur / v
+        else:
+            acc.append(cur); out_ops.append(op); cur = v
+    acc.append(cur)
+    res = acc[0]
+    for op, v in zip(out_ops, acc[1:]):
+        res = res + v if op == "+" else res - v
+    return res
+
+
+def derived_spans(text: str) -> tuple[list[tuple[int, int]], set[str]]:
+    """맞게 셈한 결과의 자리와 값 — (결과 글의 (시작, 끝) 목록, 결과 정준값). 반올림(「약」)은 0.5% 까지 같은 값으로 본다."""
+    spans: list[tuple[int, int]] = []
+    vals: set[str] = set()
+    src = text or ""
+    for m in _CALC.finditer(src):
+        got, want = _eval_calc(m.group(1)), _amount_value(m.group(2))
+        if got is None or want is None:
+            continue
+        if abs(want - got) <= max(abs(got) / 200, 0.5):
+            spans.append((m.start(2), m.end(2)))
+            vals.add(_fmt(Decimal(want.numerator) / Decimal(want.denominator)))   # 결과 전체 값만(「1억 800만」 의 800 따로는 아니다)
+    for m in _SPAN.finditer(src):
+        y1, m1, y2, m2, n = (int(m.group(i)) for i in range(1, 6))
+        diff = (y2 - y1) * 12 + (m2 - m1)
+        if 1 <= m1 <= 12 and 1 <= m2 <= 12 and abs(diff - n) <= 1:     # 그 달을 넣고 빼는 셈법 차이까지
+            spans.append((m.start(5), m.end(5)))
+            vals.add(str(n))
+    return spans, vals
+
 
 def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
     """근거에 없는 수치 바로 뒤에 「(근거 확인 필요)」를 붙인다 — 대화 답은 수치를 지우지 않고, 어느 수치를 원문에서 확인해야 하는지
@@ -230,7 +306,11 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
     allowed_surface, allowed_canonical, allowed_money = _allowed(evidence_texts)
     out, masked, last = [], [], 0
     src = text or ""
+    spans, derived = derived_spans(src)                  # 맞게 셈한 결과는 근거 있는 값(같은 값을 뒤에 다시 써도)
+    allowed_canonical = allowed_canonical | derived
     for m in _NUM_UNIT.finditer(src):
+        if any(a <= m.start() < b for a, b in spans):
+            continue
         surface = m.group(1).replace(",", "")
         unit = m.group(2)
         line_start = src.rfind("\n", 0, m.start()) + 1

@@ -52,11 +52,20 @@ def _dept_words(depts: list[str]) -> list[str]:
     return [d for d in depts if d and d not in ("공통", "common", "전체")]
 
 
+# 말하는 사람 자신 — 「나는 교수고 월급은 500만원」 처럼 제 정보를 주고 계산을 맡기는 질문은 남의 정보 조회가 아니다(11-06 오판)
+_SELF = re.compile(r"^(?:나|저|제|내|본인|우리|저희)(?:는|도|가|의|이|은)?$")
+
+
 def pii_request(question: str) -> str | None:
-    """특정인의 개인정보를 묻는 질문이면 안내문, 아니면 None. 권한과 무관하게 적용한다."""
+    """특정인(남)의 개인정보를 묻는 질문이면 안내문, 아니면 None. 권한과 무관하게 적용한다.
+    지칭이 말하는 사람 자신(나는 교수·제가 직원)뿐이면 묻는 사람이 제 값을 준 것이라 막지 않는다."""
     q = question or ""
-    if any(w in q for w in _PII_WORDS) and _PERSON.search(q):
-        return PII_NOTE
+    if not any(w in q for w in _PII_WORDS):
+        return None
+    for m in _PERSON.finditer(q):
+        name = re.match(r"[가-힣]+", m.group(0))
+        if not (name and _SELF.match(name.group(0))):
+            return PII_NOTE
     return None
 
 
