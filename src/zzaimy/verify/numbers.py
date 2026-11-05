@@ -223,7 +223,9 @@ FLAG = "(근거 확인 필요)"
 # 담당자가 준 값(월급·생년월)을 규정의 식에 넣어 셈한 결과는 근거 글에 없다. 셈을 「식 = 결과」 로 보이면 여기서 다시 셈해
 # 맞을 때만 결과를 근거 있는 값으로 본다 — 틀린 셈의 결과와, 식의 근거 없는 항(지어낸 월급 등)은 그대로 표시된다(11-06 명예퇴직금 계산).
 _OPERAND = r"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:조|억|천만|백만|십만|만|천)?\s*(?:원|%|퍼센트|개월|월|년|명|일|배)?"
-_AMOUNT = _OPERAND + r"(?:\s*" + _OPERAND + r")*"
+# 이어진 금액(「1억 800만」)은 앞 덩이가 큰 단위로 끝날 때만 잇는다 — 숫자를 여러 갈래로 나눠 보는 되짚기 폭주(ReDoS)를 막는다
+_BIG = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s?(?:조|억|천만|백만|십만|만|천)"
+_AMOUNT = r"(?:" + _BIG + r"\s?)*" + _OPERAND
 _OP = r"\s*[×xX*÷/+\-−]\s*"
 _CALC = re.compile(r"(" + _AMOUNT + r"(?:" + _OP + _AMOUNT + r")+)\s*[=＝]\s*(?:약\s*)?(" + _AMOUNT + r")")
 # 기간 셈 — 「2034년 3월 ~ 2035년 8월 = 18개월」
@@ -275,12 +277,37 @@ def _eval_calc(expr: str):
     return res
 
 
+def _calc_iter(src: str):
+    """셈 줄만 — 400자 넘는 줄은 보지 않는다(검사 시간 상한)."""
+    pos = 0
+    for line in src.split("\n"):
+        if len(line) <= 400 and ("=" in line or "＝" in line):
+            for m in _CALC.finditer(line):
+                yield _Shift(m, pos)
+        pos += len(line) + 1
+
+
+class _Shift:
+    """줄 안 일치를 글 전체 자리로 옮긴 것."""
+    def __init__(self, m, off):
+        self._m, self._o = m, off
+
+    def group(self, i):
+        return self._m.group(i)
+
+    def start(self, i=0):
+        return self._m.start(i) + self._o
+
+    def end(self, i=0):
+        return self._m.end(i) + self._o
+
+
 def derived_spans(text: str) -> tuple[list[tuple[int, int]], set[str]]:
     """맞게 셈한 결과의 자리와 값 — (결과 글의 (시작, 끝) 목록, 결과 정준값). 반올림(「약」)은 0.5% 까지 같은 값으로 본다."""
     spans: list[tuple[int, int]] = []
     vals: set[str] = set()
     src = text or ""
-    for m in _CALC.finditer(src):
+    for m in _calc_iter(src):
         got, want = _eval_calc(m.group(1)), _amount_value(m.group(2))
         if got is None or want is None:
             continue

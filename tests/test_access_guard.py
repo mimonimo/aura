@@ -16,6 +16,8 @@ def test_pii_request_needs_a_pii_word_and_a_person():
     assert ag.pii_request("나는 교수고 1970년 7월생이야. 나의 월급은 500만원이야. 명예퇴직금은 얼마야") is None
     assert ag.pii_request("저는 직원인데 제 급여로 퇴직금 계산해 줘") is None
     assert ag.pii_request("나는 교수인데 김영희 교수님 연봉 알려줘") == ag.PII_NOTE   # 남이 함께 있으면 막는다
+    assert ag.pii_request("제 교수님 연락처 알려줘") == ag.PII_NOTE                    # 「제·우리」 는 남을 가리킨다
+    assert ag.pii_request("우리 담당자 전화번호 알려줘") == ag.PII_NOTE
 
 
 def test_scope_note_by_role_and_department():

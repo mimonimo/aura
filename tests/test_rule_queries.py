@@ -45,3 +45,11 @@ def test_correct_calculation_result_is_supported():
     text, flagged = flag_unsupported("800만 원 × 75% × 12개월 = 7,200만 원", ev)
     assert "800만" in flagged                                      # 근거 없는 항은 셈이 맞아도 표시
     assert flag_unsupported("2034년 3월 ~ 2035년 3월 = 12개월", ev)[1] == []
+
+
+def test_calculation_check_is_bounded():
+    import time
+    t = time.time()
+    flag_unsupported(("1" * 3000 + " × ") * 3 + "= 5", ["1"])
+    flag_unsupported("1만 " * 300 + "× 2 = 3", ["1"])
+    assert time.time() - t < 2
