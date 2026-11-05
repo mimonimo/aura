@@ -343,6 +343,42 @@ def derived_spans(text: str) -> tuple[list[tuple[int, int]], set[str]]:
     return spans, vals
 
 
+def _won_text(v, like: str) -> str:
+    """셈 결과를 모델이 쓴 꼴(억·만·맨숫자)로 — 4500만 → 「4,500만」, 1.08억 → 「1억 800만」."""
+    from fractions import Fraction
+    v = Fraction(v)
+    if v.denominator != 1 and "%" not in like:
+        v = Fraction(round(v))
+    n = int(v) if v.denominator == 1 else None
+    if n is None:
+        return _fmt(Decimal(v.numerator) / Decimal(v.denominator))
+    if "억" in like or ("만" in like and n >= 10**8):
+        eok, rest = divmod(n, 10**8)
+        man = rest // 10**4
+        return f"{eok:,}억" + (f" {man:,}만" if man else "")
+    if "만" in like and n % 10**4 == 0:
+        return f"{n // 10**4:,}만"
+    return f"{n:,}"
+
+
+def fix_calculations(text: str) -> tuple[str, list[str]]:
+    """틀린 셈(「500만 원 × 75% × 12개월 = 6,750만 원」)의 결과를 다시 셈한 값으로 바꾼다 — 같은 틀린 값을 글의 다른 곳(결론)에 쓴 것도.
+    돌려주는 것은 (새 글, 「틀린 값 → 바른 값」 목록). 날짜·기간은 손대지 않는다(점검 표시만)."""
+    src = text or ""
+    fixes: dict[str, str] = {}
+    for m in _calc_iter(src):
+        got, want = _eval_calc(m.group(1)), _amount_value(m.group(2))
+        if got is None or want is None or "%" in m.group(2) or abs(want - got) <= max(abs(got) / 200, 0.5):
+            continue
+        num = re.match(r"[\d,.\s조억천백십만]+?(?=\s*(?:원|개월|월|년|명|일|배)?\s*$)", m.group(2).strip())
+        wrong = (num.group(0) if num else m.group(2)).strip()
+        fixes[wrong] = _won_text(got, wrong)
+    out = src
+    for wrong, right in fixes.items():
+        out = re.sub(r"(?<![\d,])" + re.escape(wrong) + r"(?![\d,])", right, out)
+    return out, [f"{w} → {r}" for w, r in fixes.items()]
+
+
 def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
     """근거에 없는 수치 바로 뒤에 「(근거 확인 필요)」를 붙인다 — 대화 답은 수치를 지우지 않고, 어느 수치를 원문에서 확인해야 하는지
     보이게 한다(문서 초안은 mask_unsupported 로 가린다). 판정은 mask_unsupported 와 같다. 돌려주는 것은 (새 글, 표시한 수치)."""

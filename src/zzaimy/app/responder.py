@@ -652,8 +652,11 @@ class AgentResponder:
         except Exception:
             self.last_model = {}
         # 마지막 점검 — 모델에 건넨 글(질문·첨부·근거)에 없는 수치는 지우지 않고 「(근거 확인 필요)」를 붙인다(절대 규칙 1: 수치는 인출만)
-        from zzaimy.verify.numbers import flag_unsupported
+        from zzaimy.verify.numbers import fix_calculations, flag_unsupported
+        out, fixed = fix_calculations(out)                  # 틀린 셈 결과는 코드가 다시 셈해 바꾼다(27B 곱셈 실수, 11-06)
         out, flagged = flag_unsupported(out, [user_content])
+        if fixed:
+            out += "\n\n※ 셈이 맞지 않은 값을 다시 계산해 고쳤습니다: " + ", ".join(fixed[:4]) + "."
         self.last_flagged = flagged
         if flagged:
             out += f"\n\n※ 근거 문서에서 찾지 못한 수치 {len(flagged)}개에 「(근거 확인 필요)」를 붙였습니다. 원문에서 확인해 주세요."

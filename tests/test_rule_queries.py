@@ -66,3 +66,13 @@ def test_wrong_date_addition_is_flagged():
     t, f = flag_unsupported("2014년 3월 + 20년 = 2015년 3월이므로", ["20년 이상"])
     assert "2015년 3월(근거 확인 필요)" in t and f == ["2015년 3월"]
     assert flag_unsupported("2014년 3월 + 20년 = 2034년 3월, 1970년 7월 + 65세 = 2035년 7월", ["20년 65세"])[1] == []
+
+
+def test_wrong_calculation_is_recomputed():
+    from zzaimy.verify.numbers import fix_calculations
+    t = "명예퇴직수당은 6,750만 원입니다.\n* 500만 원 × 75% × 12개월 = 6,750만 원."
+    out, fixed = fix_calculations(t)
+    assert "6,750만" not in out and out.count("4,500만 원") == 2 and fixed == ["6,750만 → 4,500만"]
+    out, fixed = fix_calculations("800만 원 × 75% × 18개월 = 1억 원")
+    assert "1억 800만 원" in out
+    assert fix_calculations("500만 원 × 75% × 12개월 = 4,500만 원")[1] == []
