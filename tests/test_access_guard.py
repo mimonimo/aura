@@ -18,6 +18,8 @@ def test_pii_request_needs_a_pii_word_and_a_person():
     assert ag.pii_request("나는 교수인데 김영희 교수님 연봉 알려줘") == ag.PII_NOTE   # 남이 함께 있으면 막는다
     assert ag.pii_request("제 교수님 연락처 알려줘") == ag.PII_NOTE                    # 「제·우리」 는 남을 가리킨다
     assert ag.pii_request("우리 담당자 전화번호 알려줘") == ag.PII_NOTE
+    assert ag.pii_request("나는 교수인데 홍길동의 연락처 알려줘") == ag.PII_NOTE        # 자기 지칭 + 남의 개인정보
+    assert ag.pii_request("저는 직원이고 총무과장 전화번호 알려줘") == ag.PII_NOTE
 
 
 def test_scope_note_by_role_and_department():

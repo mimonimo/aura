@@ -35,6 +35,13 @@ def test_merge_rule_hits_interleaves_and_drops_weak():
     assert [h["heading"] for h in out] == ["제5조", "별표"]
 
 
+def test_merge_prefers_strong_copy_of_same_article():
+    first = [{"doc_id": 9, "heading": "정관", "content": "명퇴", "weak_evidence": True}]
+    more = [[{"doc_id": 5, "heading": "제5조", "content": "교원 정년 만 65세", "weak_evidence": True}],
+            [{"doc_id": 5, "heading": "제5조", "content": "교원 정년 만 65세"}]]
+    assert [h["heading"] for h in responder.merge_rule_hits(first, more)] == ["제5조"]
+
+
 def test_correct_calculation_result_is_supported():
     ev = ["월보수액 × 75% × 잔여월수. 월급은 500만원이라고 가정"]
     text, flagged = flag_unsupported("500만 원 × 75% × 12개월 = 4,500만 원", ev)

@@ -55,6 +55,8 @@ def _dept_words(depts: list[str]) -> list[str]:
 # 말하는 사람 자신 — 「나는 교수고 월급은 500만원」 처럼 제 정보를 주고 계산을 맡기는 질문은 남의 정보 조회가 아니다(11-06 오판)
 # 주어 꼴만 — 「제·내·나의·우리」 는 「제 교수님·우리 담당자」 처럼 남을 가리키므로 넣지 않는다(보안 점검 11-06)
 _SELF = re.compile(r"^(?:나는|나도|저는|저도|제가|내가|본인은|본인이)$")
+_OTHER_TAIL = r"(?:씨|님|교수|선생|직원|학생|담당자|팀장|과장|부장|처장|단장|대표|원장|총장|학과장)$"   # 남을 가리키는 끝말
+_SELF_OWN = {"나의", "내", "제", "저의", "본인", "본인의"}         # 자기 값 앞에 오는 말
 
 
 def pii_request(question: str) -> str | None:
@@ -67,6 +69,13 @@ def pii_request(question: str) -> str | None:
         name = re.match(r"[가-힣]+", m.group(0))
         if not (name and _SELF.match(name.group(0))):
             return PII_NOTE
+        # 지칭이 자기 자신이어도 개인정보 낱말 바로 앞이 남(「홍길동의 연락처」·「총무과장 전화번호」)이면 막는다 — 제 값(「나의 월급」·「제 급여」)만 통과
+        for w in _PII_WORDS:
+            for wm in re.finditer(re.escape(w), q):
+                prev = re.findall(r"[가-힣A-Za-z]+", q[max(0, wm.start() - 12):wm.start()])
+                tok = prev[-1] if prev else ""
+                if tok and tok not in _SELF_OWN and (tok.endswith("의") or re.search(_OTHER_TAIL, tok)):
+                    return PII_NOTE
     return None
 
 

@@ -295,18 +295,24 @@ def rule_queries(question: str, recent: list[dict] | None = None) -> list[str]:
 
 def merge_rule_hits(first: list[dict], more: list[list[dict]], cap: int = 8) -> list[dict]:
     """질문 그대로 찾은 조항을 앞에, 검색어마다 찾은 조항을 번갈아 뒤에 — 같은 조항은 한 번, 약한 근거는 센 근거가 있으면 뺀다."""
-    seen, out = set(), []
     def key(h):
         return (h.get("doc_id"), h.get("heading") or "", (h.get("content") or "")[:60])
     pools = [list(first)] + [list(x) for x in more]
+    strong_keys = {key(h) for p in pools for h in p if not h.get("weak_evidence")}
+    seen, out, weak = set(), [], []
     i = 0
-    while len(out) < cap and any(i < len(p) for p in pools):
+    while any(i < len(p) for p in pools):
         for p in pools:
-            if i < len(p) and key(p[i]) not in seen and len(out) < cap:
-                seen.add(key(p[i])); out.append(p[i])
+            if i < len(p):
+                h, k = p[i], key(p[i])
+                if k in seen:
+                    continue
+                if h.get("weak_evidence") and k in strong_keys:
+                    continue                                 # 같은 조항이 다른 검색어에서 센 근거로 나오면 그쪽을 쓴다
+                seen.add(k)
+                (weak if h.get("weak_evidence") else out).append(h)
         i += 1
-    strong = [h for h in out if not h.get("weak_evidence")]
-    return strong if strong else out[:1]
+    return out[:cap] if out else weak[:1]
 
 
 def compose_system(profile: dict, audience: str = "staff") -> str:
