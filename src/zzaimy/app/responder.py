@@ -229,7 +229,7 @@ def _cite(hit: dict) -> str:
     title = hit.get("reg_title") or "문서"
     heading = (hit.get("heading") or "").strip()
     head = f"《{title} · {heading}》" if heading else f"《{title}》"
-    return f"{head}\n{(hit.get('content') or '')[:600]}"
+    return f"{head}\n{(hit.get('content') or '')[:2000 if hit.get('full') else 600]}"
 
 
 def pack_criteria_context(ordered: list[dict], budget: int = 6000) -> tuple[str, list[dict]]:
@@ -269,6 +269,7 @@ _SYSTEM_STUDENT = """당신은 영남이공대학교 학생의 학사 질문에 
 _RULE_QUERY_PROMPT = """교내 규정집에서 아래 질문의 근거 조항을 찾을 검색어를 1~4개 만든다. 한 줄에 하나, 명사구 2~6낱말, 다른 말 없이.
 - 앞선 대화에서 정해진 주체(교원·직원·학생·조교)와 제도 이름을 넣는다(「나는 교수」 → 교원).
 - 답에 다른 조항이 필요하면(예: 명예퇴직을 물으면 정년 조항, 금액을 물으면 산정표·지급 기준) 그 조항 검색어도 넣는다.
+- 규정집에 쓰이는 공식 용어로 쓴다(일상 말 → 규정 말: 월급 → 보수·월보수액, 퇴직금 → 퇴직수당, 교수 → 교원).
 - 담당자 개인 값(생년월·금액)은 검색어에 넣지 않는다."""
 
 
@@ -292,6 +293,40 @@ def rule_queries(question: str, recent: list[dict] | None = None) -> list[str]:
         return list(dict.fromkeys(out))[:4]
     except Exception:
         return []
+
+
+def follow_refs(db, hits: list[dict], cap: int = 3) -> list[dict]:
+    """찾은 조문이 가리키는 같은 규정의 조각을 덧붙인다 — 「산정표(별표)에 따라」 면 별표 조각, 「제3조에 따라」 면 그 조.
+    별표가 부칙 조각 끝에 붙어 있어 검색에는 안 잡히던 일(11-08 명예퇴직수당 산정표). 같은 문서 안이라 열람 범위는 그대로다."""
+    out, seen = [], {(h.get("doc_id"), h.get("heading") or "") for h in hits}
+    for h in hits:
+        if h.get("weak_evidence") or h.get("doc_id") is None:
+            continue
+        text = h.get("content") or ""
+        want_table = "별표" in text and "[별" not in text
+        own = re.match(r"제\s*(\d+)\s*조", h.get("heading") or "")
+        arts = {n for n in re.findall(r"제\s*(\d+)\s*조(?!의)", text) if not own or n != own.group(1)}
+        if not (want_table or arts):
+            continue
+        try:
+            chunks = db.chunks_for_docs([int(h["doc_id"])])
+        except Exception:
+            continue
+        for c in chunks:
+            head, body = (c.get("heading") or "").strip(), c.get("content") or ""
+            hit_table = want_table and re.search(r"\[\s*별\s*표", body)
+            m = re.match(r"제\s*(\d+)\s*조", head)
+            hit_art = m and m.group(1) in arts
+            key = (c.get("doc_id"), head)
+            if (hit_table or hit_art) and key not in seen:
+                seen.add(key)
+                if hit_table:                                  # 별표는 조각 끝에 붙어 있다 — 표부터 보이게 앞을 자른다
+                    body = body[body.find("[") if "[" in body else 0:]
+                out.append({"doc_id": c.get("doc_id"), "heading": head + (" · 별표" if hit_table else ""), "content": body,
+                            "reg_title": h.get("reg_title"), "full": True})
+                if len(out) >= cap:
+                    return out
+    return out
 
 
 def merge_rule_hits(first: list[dict], more: list[list[dict]], cap: int = 8) -> list[dict]:
@@ -440,7 +475,8 @@ class AgentResponder:
                 qs = [] if attachment_text else rule_queries(question, _recent)
                 self.last_timing["rule_queries"] = qs
                 more = [find_relevant(db, x, **kw_) for x in qs]
-                return merge_rule_hits(first, more), _time.time()
+                merged = merge_rule_hits(first, more)
+                return merged + follow_refs(db, merged), _time.time()
             _reg_future = _pool.submit(_find_rules)
             _t1 = _time.time()
             blocks = []

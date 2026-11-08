@@ -101,3 +101,13 @@ def test_date_lines_are_not_recomputed_as_amounts():
     assert out == t and fixed == []
     _, f = flag_unsupported(t, ["월급은 500만 원이라고 가정, 월보수액×75%×잔여월수, 20년 이상, 만 65세"])
     assert "500만" not in f and "6,750만" not in f
+
+
+def test_follow_refs_brings_the_annex_table():
+    class DB:
+        def chunks_for_docs(self, ids):
+            return [{"doc_id": 7, "heading": "제4조(지급액의 산정)", "content": "산정표(별표)에 따라 산정"},
+                    {"doc_id": 7, "heading": "제1조(시행일)", "content": "이 규정은 시행한다. [별 표] 명예퇴직수당 지급액 산정표 | 1년이상 5년이내 | 월보수액×75%×잔여월수"}]
+    hits = [{"doc_id": 7, "heading": "제4조(지급액의 산정)", "content": "명예퇴직수당은 산정표(별표)에 따라 산정한다", "reg_title": "명예퇴직수당 지급 규정"}]
+    extra = responder.follow_refs(DB(), hits)
+    assert len(extra) == 1 and extra[0]["content"].startswith("[별 표]") and extra[0]["full"]
