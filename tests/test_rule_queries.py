@@ -85,3 +85,10 @@ def test_critique_text_is_not_written_as_body():
     assert check_body(leak, None, 262144) and "점검" in check_body(leak, None, 262144)
     ok = "1) 1학년 대상 AI 기초 교과 운영\n가) 신입생 전체 대상 정규 교과로 운영함\n나) 자료에 없는 학점은 확인 필요"
     assert check_body(ok, None, 262144) is None
+
+
+def test_reused_computed_amount_is_supported():
+    ev = ["월보수 × 75% × 잔여월수, 월급은 500만 원이라고 가정, 60월"]
+    t = "500만 원 × 75% × 60 = 2억 2,500만 원\n합계: 2억 2,500만 원 + 2,250만 원 = 2억 4,750만 원"
+    _, f = flag_unsupported(t, ev)
+    assert "2억" not in f and "2,500만" not in f

@@ -395,6 +395,12 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
     src = text or ""
     spans, derived = derived_spans(src)                  # 맞게 셈한 결과는 근거 있는 값(같은 값을 뒤에 다시 써도)
     allowed_canonical = allowed_canonical | derived
+    if derived:
+        # 셈한 값을 다음 식에 다시 쓴 이어진 금액(「2억 2,500만 원 + …」)은 합친 값으로 본다 — 「2억」「2,500만」 을 따로 보면 근거 없음이 된다
+        for am in re.finditer(r"(?:" + _BIG + r"\s?)+(?:\d{1,3}(?:,\d{3})+|\d+)?", src):
+            v = _amount_value(am.group(0))
+            if v is not None and _fmt(Decimal(v.numerator) / Decimal(v.denominator)) in derived:
+                spans.append((am.start(), am.end()))
     bad_dates = wrong_dates(src) if mark else []         # 틀린 날짜 셈 — 연도라도 표시(대화 답만)
     for m in _NUM_UNIT.finditer(src):
         if any(a <= m.start() < b for a, b in spans):
