@@ -41,3 +41,16 @@ def test_search_body_hits_follow_rag_space(tmp_path, monkeypatch):
     monkeypatch.setattr(access_guard, "search_scope", lambda *a, **k: {"grant": True, "grant_depts": ["가부서", "공통"], "dept": "가부서", "user": "zzaimy"})
     c.get("/search", params={"q": "감사보고"})
     assert calls == [["가부서", "공통"]]
+
+
+def test_hidden_docs_matches_access_rule():
+    """어휘 검색의 뒤 거르기 — 공개·본인·열어 받은 부서 문서는 보이고, 남의 비공개·담당자 한정은 숨긴다(_access 와 같은 규칙)."""
+    import sqlite3
+    from zzaimy.app.grant_lex import _hidden_docs
+    c = sqlite3.connect(":memory:")
+    c.execute("CREATE TABLE documents (id INTEGER, owner TEXT, access_level TEXT, dept TEXT)")
+    c.executemany("INSERT INTO documents VALUES (?,?,?,?)", [
+        (1, "kim", "public", "기획처"), (2, "me", "private", "기획처"), (3, "kim", "private", "기획처"),
+        (4, "kim", "dept", "기획처"), (5, "kim", "dept", "산학협력단"), (6, "kim", None, None)])
+    assert _hidden_docs(c, "me", ["기획처"]) == {3, 5}
+    assert _hidden_docs(c, "me", None) == {3, 4, 5}

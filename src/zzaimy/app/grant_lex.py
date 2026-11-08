@@ -147,6 +147,15 @@ def _access_sql(user: str | None, depts: list[str] | None = None) -> tuple[str, 
     return _access(user, depts)
 
 
+def _hidden_docs(conn, user: str, depts: list[str] | None) -> set[int]:
+    """이 계정이 못 보는 사업 문서 — 공개가 아니고, 본인이 올린 것도 아니며, 열어 받은 부서의 부서 문서도 아닌 것(grant_search._access 와 같은 규칙)."""
+    rows = conn.execute("SELECT id, COALESCE(owner, ''), access_level, COALESCE(dept, '공통') FROM documents"
+                        " WHERE COALESCE(access_level, 'public') <> 'public'").fetchall()
+    ok_depts = set(depts or [])
+    return {int(r[0]) for r in rows
+            if r[1] != user and not (depts and r[2] == "dept" and r[3] in ok_depts)}
+
+
 def rank(db, query: frozenset[str], scope_docs: set[int] | None = None, user: str | None = None,
          min_overlap: int = 1, limit: int = CANDIDATE_LIMIT, depts: list[str] | None = None) -> list[int]:
     """질의 명사 → 조각 id 순위(규정 검색과 같은 점수 규칙). 범위(scope_docs)·열람 권한은 후보를 뽑을 때 SQL 로 자른다."""
@@ -179,10 +188,21 @@ def rank(db, query: frozenset[str], scope_docs: set[int] | None = None, user: st
             if not pick:
                 return []
             tsq = " | ".join(pick)
-            rows = conn.execute(
-                "SELECT g.chunk_id, g.nouns FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
-                " WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + acc + " LIMIT ?",
-                (tsq, *scope_args, *acc_args, max(limit, 20000))).fetchall()
+            if user is not None:
+                # 계정 조건(공개 OR 본인 OR 부서)을 SQL 에 넣으면 플래너가 색인을 버려 2초 검색이 46초가 됐다(11-08 측정). 후보는 계정 조건
+                # 없이 뽑고(갈래·부서 조건은 그대로), 이 계정이 못 보는 문서(비공개 문서 가운데 남의 것 — 적다)를 빼 같은 결과를 낸다
+                base, base_args = _access_sql(None, depts)
+                hidden = _hidden_docs(conn, user, depts)
+                rows = [r for r in conn.execute(
+                    "SELECT g.chunk_id, g.nouns, g.doc_id FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
+                    " WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + base + " LIMIT ?",
+                    (tsq, *scope_args, *base_args, max(limit, 20000) + len(hidden) * 40)).fetchall()
+                        if int(r[2]) not in hidden]
+            else:
+                rows = conn.execute(
+                    "SELECT g.chunk_id, g.nouns FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
+                    " WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + acc + " LIMIT ?",
+                    (tsq, *scope_args, *acc_args, max(limit, 20000))).fetchall()
         else:                                             # 시험용 SQLite — 색인 없이 훑는다(작은 DB)
             all_rows = conn.execute("SELECT g.chunk_id, g.nouns FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
                                     " WHERE 1=1" + scope_sql + acc, (*scope_args, *acc_args)).fetchall()
