@@ -2873,7 +2873,10 @@ def create_app(
             return msg
 
         tools = [
-            doc_agent.Tool("search", "근거 찾기. args {source: project|library|criteria|rules, query: 검색어(명사 2~6낱말), for: 무엇을 위해}", t_search,
+            doc_agent.Tool("search", "근거 찾기. args {source: project|library|criteria|rules, query: 검색어(명사 2~6낱말), for: 무엇을 위해}. "
+                           "source 고르기: rules=교내 규정·학칙·정관(정년·수당·휴가·임기 같은 제도 질문은 이것부터, 빠름), "
+                           "project=이 프로젝트에 올린 문서(공고·기본계획·서식), criteria=이 프로젝트의 기준 문서, "
+                           "library=문서함 전체의 지난 사업 문서(계획서·보고서·회의 자료, 넓고 느림 — 지난 사례·수치가 필요할 때)", t_search,
                            gathers=True),
             doc_agent.Tool("read_found", "이번 search 결과에 나온 문서를 이어 읽기(맞는 문서를 찾았는데 결과가 잘려 표·목록의 나머지가 필요할 때). "
                            "args {document: 결과의 《제목》 또는 (문서 번호), around: 이어 볼 낱말이나 표 머리(선택), "

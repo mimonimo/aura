@@ -114,7 +114,10 @@ def answer_think() -> bool:
     """답 쓰기에 생각을 켜는가 — 운영 설정(ZZAIMY_ANSWER_THINK=1) 또는 이 질문에 고른 답변 깊이 「꼼꼼하게」(app/effort)."""
     from zzaimy.app import effort
 
-    return effort.thinking() or os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on")
+    # 꼼꼼하게는 마지막 답을 쓸 때만 생각을 켠다 — 에이전트 걸음은 생각 없이 빠르게(effort.thinking 은 기본 끔), 셈·여러 규정을 엮는 답은
+    # 생각을 켠 판이 맞았다(11-08 시연: 끈 판은 정년퇴직일을 학기 말로 잡지 못함)
+    return (effort.thinking() or effort.current() == effort.DEEP
+            or os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on"))
 
 
 _NOT_SET = object()
