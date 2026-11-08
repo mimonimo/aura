@@ -92,3 +92,12 @@ def test_reused_computed_amount_is_supported():
     t = "500만 원 × 75% × 60 = 2억 2,500만 원\n합계: 2억 2,500만 원 + 2,250만 원 = 2억 4,750만 원"
     _, f = flag_unsupported(t, ev)
     assert "2억" not in f and "2,500만" not in f
+
+
+def test_date_lines_are_not_recomputed_as_amounts():
+    from zzaimy.verify.numbers import fix_calculations
+    t = "2014년 3월 + 20년 = 2034년 3월\n1970년 7월 + 65년 = 2035년 7월\n2034년 3월 ~ 2035년 8월 = 18개월\n500만 원 × 75% × 18개월 = 6,750만 원"
+    out, fixed = fix_calculations(t)
+    assert out == t and fixed == []
+    _, f = flag_unsupported(t, ["월급은 500만 원이라고 가정, 월보수액×75%×잔여월수, 20년 이상, 만 65세"])
+    assert "500만" not in f and "6,750만" not in f

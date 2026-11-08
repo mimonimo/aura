@@ -370,6 +370,9 @@ def fix_calculations(text: str) -> tuple[str, list[str]]:
         got, want = _eval_calc(m.group(1)), _amount_value(m.group(2))
         if got is None or want is None or "%" in m.group(2) or abs(want - got) <= max(abs(got) / 200, 0.5):
             continue
+        whole = m.group(1) + m.group(2)
+        if re.search(r"(?:19|20)\d{2}\s*년|\d\s*월(?!급)|\d\s*일|\d\s*년", whole) and not re.search(r"원", m.group(2)):
+            continue                                         # 날짜·기간 셈(「2014년 3월 + 20년」)은 금액 셈이 아니다 — 바꾸지 않는다(날짜는 wrong_dates 가 표시)
         num = re.match(r"[\d,.\s조억천백십만]+?(?=\s*(?:원|개월|월|년|명|일|배)?\s*$)", m.group(2).strip())
         wrong = (num.group(0) if num else m.group(2)).strip()
         fixes[wrong] = _won_text(got, wrong)

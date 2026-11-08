@@ -2795,7 +2795,11 @@ def create_app(
                 # 찾은 근거를 버리지 않고 답의 근거로 — 이어 읽은 글(잘린 결과의 나머지)을 앞에, 검색 조각은 뒤에
                 ordered = [e for e in found if e.get("read")] + [e for e in found if not e.get("read")]
                 kw["evidence"] = list({(e["title"], e["text"][:200]): e for e in ordered}.values())
-            text = r.answer(db, str(a.get("question") or q), **kw)
+            ask_q = str(a.get("question") or q)
+            if q.strip() and q.strip() not in ask_q:
+                # 에이전트가 고쳐 쓴 질문만 넘기면 담당자가 준 값(월급·생년월)이 빠져 계산·수치 점검의 근거가 사라진다(11-08)
+                ask_q = f"{ask_q}\n\n[담당자 원문]\n{q.strip()}"
+            text = r.answer(db, ask_q, **kw)
             answer_timing.update(getattr(r, "last_timing", None) or {})    # 걸음 기록용 — 근거 찾기·생성 시간
             src = getattr(r, "last_sources", None)
             if src is not None:
