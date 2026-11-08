@@ -532,9 +532,25 @@ def _step_label(name: str, args: dict) -> str:
               "doc_search": lambda a: f"문서에서 「{str(a.get('query', ''))[:30]}」 찾는 중",
               "propose_action": lambda a: "할 일 정리 중",
               "open_page": lambda a: "화면에서 할 일 준비 중",   # 같은 화면에서 칸만 채울 때도 쓴다 — 「여는 중」 은 이미 열린 화면에서 어색했다(10-27)
-              "finish": lambda a: "답 정리 중"}
+              "finish": lambda a: "답 정리 중",
+              # 한글 기안기 도구 — 도구 이름(hwp_fields 등)이 화면에 그대로 나오지 않게(11-06 시연 녹화)
+              "hwp_forms": lambda a: "쓸 양식 찾는 중",
+              "hwp_start": lambda a: "한글 작업본 만드는 중",
+              "hwp_fields": lambda a: "문서의 칸·절 확인 중",
+              "hwp_fill": lambda a: "칸 채우는 중",
+              "hwp_write": lambda a: f"「{str(a.get('field', ''))[:30]}」 절 쓰는 중",
+              "hwp_tables": lambda a: "표 목록 보는 중",
+              "hwp_style": lambda a: "표 서식 고치는 중"}
     f = labels.get(name)
-    return f(args) if f else f"{name} 실행 중"
+    if f:
+        return f(args)
+    try:
+        from zzaimy.app.webhwp_edit_ops import LABELS as _ops
+        if name in _ops:
+            return f"{_ops[name]} 중"
+    except Exception:
+        pass
+    return "문서 작업 중"
 
 
 def record(data_dir: Path, rec: dict) -> None:
