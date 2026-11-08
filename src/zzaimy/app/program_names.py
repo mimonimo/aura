@@ -310,3 +310,34 @@ def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = No
         for r in raws:
             out[r] = rep
     return out
+
+
+# ── 글이 부르는 사업 · 같은 사업인가 ─────────────────────────────────────────
+def program_mentions(text: str) -> list[str]:
+    """제목·글이 부르는 사업 이름들(사업 분류기와 같은 추출 규칙, 사업 이름다운 것만). 없으면 빈 목록."""
+    from zzaimy.graph.programs import _mentions
+
+    out: list[str] = []
+    for n in _mentions(text or "")[0]:
+        if is_program_name(n) and n not in out:
+            out.append(n)
+    return out
+
+
+def mention_year(text: str) -> int | None:
+    """제목·글에 적힌 첫 사업 연도(있을 법한 연도만) — 앞머리 때 꼬리표(「2027 ○○사업」)가 먼저, 없으면 「N년」 표기."""
+    from zzaimy.graph.programs import _first_year, plausible_year
+
+    lead = split_year_round(text or "")[1]
+    return lead if lead and plausible_year(lead) else _first_year(text or "")
+
+
+def same_program(a: str, b: str, ledger: dict | None = None) -> bool:
+    """두 사업 이름이 같은 사업인가 — 같은 열쇠(group_key), 한쪽 열쇠가 다른 쪽을 품음(앞 수식어·끝말 차이),
+    외부 확인 장부가 출처와 함께 같은 사업으로 적은 이름 묶음 가운데 하나. 이름을 코드에 적지 않는다."""
+    ka, kb = group_key(a), group_key(b)
+    if not ka or not kb:
+        return False
+    if ka == kb or (min(len(ka), len(kb)) >= 4 and (ka in kb or kb in ka)):
+        return True
+    return any(ka in s and kb in s for s in _ledger_sets(ledger))

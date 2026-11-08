@@ -2369,6 +2369,21 @@ def create_app(
         _before_id = max([int(m_["id"]) for m_ in db.list_chats(session_id, limit=1)] or [0])
         crit_ids = _scoped_criteria(session_id)
         mats_box: dict = {}
+        # 입력은 채팅이 먼저 — 물어 둔 값에 「이름: 값」(쌍점) 꼴로 답한 글은 모델 해석 없이 바로 기억한다(칸에 적어 보낸 값과 같은 길).
+        # 「이름: 확인 필요」 는 그 자리를 「확인 필요」 로, 「이름: 자료 값」 은 자료 제안 값으로(asks.norm_answers).
+        # 「이름은 …이야」 처럼 말로 한 답은 끝말이 값에 섞일 수 있어 모델이 remember_values 로 값만 떼어 넣는다
+        told_now: dict = {}
+        foreign_of: dict[int, str] = {}                          # 프로젝트 문서마다 다른 사업 이름(같은 사업·모름은 빈 글)
+        _pend0 = _asks.pending(db, session_id)
+        if _pend0:
+            _sess0 = db.get_chat_session(session_id)
+            _pairs0 = _asks.parse_pairs(q, [a_["name"] for a_ in _pend0])
+            _pairs0 = {k_: v_ for k_, v_ in _pairs0.items()
+                       if re.search(rf"(?:^|[\n;,])\s*{re.escape(k_)}\s*[:：]", q) and len(re.sub(r"\s+", "", v_)) >= 2}
+            told_now = _asks.norm_answers(db, _sess0, _pairs0)
+            if told_now:
+                _asks.remember(db, _sess0, told_now, global_ok=_session_viewer(session_id)[1] == "dev")
+                _asks.set_pending(db, session_id, [a_ for a_ in _pend0 if a_["name"] not in told_now])
 
         def link() -> dict:
             return chat_documents.binding(db, session_id, owner) or {}
@@ -2421,6 +2436,12 @@ def create_app(
                     where = ("criteria" if int(d["id"]) in crit_ids else "project" if int(d["id"]) in proj_ids
                              else "양식" if d.get("kind") == "form" else "찾기 대상 아님")
                     tags = [where] + (["그림 쪽 판독 전"] if _unread_pages(d) else [])
+                    if int(d["id"]) not in foreign_of:          # 걸음마다 상태를 다시 짜므로 문서마다 한 번만 본다
+                        foreign_of[int(d["id"])] = _asks.source_program(db, db.get_chat_session(session_id),
+                                                                        {"doc_id": d["id"], "title": storage.title_of(d.get("filename") or "")})[0]
+                    other_ = foreign_of[int(d["id"])]
+                    if other_:
+                        tags.append(f"다른 사업 「{other_[:30]}」 · 참고만, 이 사업의 값으로 쓰지 않음")
                     rows_.append(f"「{storage.title_of(d.get('filename') or '')[:50]}」({', '.join(tags)})")
                 lines.append("프로젝트 문서(괄호 안은 search 의 source): " + (", ".join(rows_) or "(없음)"))
                 if project and not crit_ids:
@@ -2439,6 +2460,9 @@ def create_app(
             else:
                 cands = _form_candidates(session_id, project, q)
                 lines.append("연결된 문서: 없음. 만들 때 고를 양식 후보:\n" + form_choice.render_candidates(cands))
+            if told_now:
+                lines.append("이번 요청에서 담당자가 채팅으로 알려 준 값(이미 기억함 — remember_values 다시 하지 않는다): "
+                             + ", ".join(f"{k_}: {v_[:40]}" for k_, v_ in told_now.items()))
             pend = _asks.pending(db, session_id)
             if pend:
                 sug_ = _asks.suggestions(db, db.get_chat_session(session_id))
@@ -2449,8 +2473,8 @@ def create_app(
                               else " · 이번 요청에서 자료에서 못 찾음 — 더 찾지 않는다" if a_["name"] in gave_up else "")
                     return f"{a_['name']}({k_}{extra_})"
                 lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(_tag(a) for a in pend[:10])
-                             + " — 사실 값만 search 로 찾고, 결과에 그대로 있으면 바로 다음 걸음에 resolve_from_evidence 로 출처와 함께 남긴다. "
-                               "결정 값(담당자가 정할 목표·계획)은 찾지 않고 묻는다. 방금 결과에 받지 못한 값의 글이 있으면 바로 resolve_from_evidence.")
+                             + " — 이번 요청에 필요한 값만 다룬다. 사실 값만 search 로 찾고(프로젝트 문서, 지난 자료는 library), 이 사업 문서의 결과에 그대로 있으면 "
+                               "바로 다음 걸음에 resolve_from_evidence 로 출처와 함께 남긴다. 결정 값(담당자가 정할 목표·계획)은 찾지 않고 묻는다.")
             # 대화 기억 — 작업 메모(목표·결정·진행·남은 일) + 문맥 한도 몫만큼의 최근 대화(chat_memory). 지금 요청은 따로 들어간다
             from zzaimy.app import chat_memory as _cm
             from zzaimy.app.responder import strip_reasoning as _strip_r
@@ -2467,6 +2491,8 @@ def create_app(
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
         found_docs: dict[int, dict] = {}                        # 이번 요청의 search 결과에 나온 문서 — read_found 가 읽을 수 있는 것만
+        searched_src: set[str] = set()                          # 이번 요청에서 찾아본 곳(project·criteria·library·rules)
+        ask_gate: list[bool] = []                               # 묻기 전 지난 자료 찾기 안내 — 한 요청에 한 번
 
         def asks_in(query: str) -> list[dict]:
             """이 검색어가 다루는 받지 못한 값 — 값 이름의 낱말이 검색어에 모두 있을 때(값마다 찾기 횟수를 세는 데 쓴다)."""
@@ -2481,6 +2507,7 @@ def create_app(
             src, query = str(a.get("source") or "library"), str(a.get("query") or "").strip()
             if not query:
                 return "query 가 비었다."
+            searched_src.add(src)
             targets = asks_in(query)
             if targets and all(_asks.norm_kind(x.get("kind")) == _asks.DECISION for x in targets):
                 raise doc_agent.Retry("이 검색어는 결정 값(" + ", ".join(f"「{x['name']}」" for x in targets)
@@ -2645,8 +2672,10 @@ def create_app(
             # 확인 전 제안 — 「필요한 값 입력」 칸에 미리 채워 담당자가 「확인」 하거나 고친다. 그 전에는 담당자 값이 아니다
             _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, sess_))])
             resolved_now.append(name)
+            note_ = str((_asks.suggestions(db, sess_).get(name) or {}).get("note") or "")
             db.add_chat(session_id, "assistant", _scrub_internal(
-                f"「{name}」 값을 자료에서 찾음: 《{title}》, {value} (확인 전. 「필요한 값 입력」에서 확인하거나 고쳐 주세요)"))
+                f"「{name}」 값을 자료에서 찾음: 《{title}》, {value} (확인 전" + (f" · {note_}" if note_ else "")
+                + f". 맞으면 「{name}: 자료 값」, 다르면 「{name}: 값」 으로 답해 주세요)"))
             return f"자료 제안으로 남겼다(담당자 확인 전) — {name} (《{title}》)"
 
         def t_read(a: dict) -> str:
@@ -2759,6 +2788,7 @@ def create_app(
             # 물었던 값만, 담당자 글에 두 글자 이상 그대로 이어진 값만 받는다 — 모델이 값을 지어 넣거나 다른 이름으로 쓰지 않게
             given = {str(k).strip(): str(v).strip()[:_asks.VALUE_MAX] for k, v in vals.items()
                      if str(k).strip() in asked and len(re.sub(r"\s+", "", str(v))) >= 2 and re.sub(r"\s+", "", str(v)) in said}
+            given = _asks.norm_answers(db, db.get_chat_session(session_id), given)   # 「확인 필요로 둬」·「자료 값으로」
             dropped = [str(k) for k in vals if str(k).strip() not in given]
             if not given:
                 return ("받은 값이 없다 — 물었던 값(상태의 받지 못한 값)만, 담당자 요청 글에 있는 그대로 기억한다."
@@ -2811,16 +2841,29 @@ def create_app(
 
         def t_ask(a: dict) -> str:
             items = [{"name": str(x.get("name"))[:60], "hint": _ko.clip(str(x.get("why") or x.get("hint") or ""), 120),
-                      "kind": _asks.norm_kind(x.get("kind"))}
+                      "kind": _asks.norm_kind(x.get("kind")), "how": _ko.clip(str(x.get("how") or "").strip(), 100)}
                      for x in (a.get("items") or []) if isinstance(x, dict) and x.get("name")]
             if not items:
                 return "items 가 비었다."
+            sess_ = db.get_chat_session(session_id)
+            sug_ = _asks.suggestions(db, sess_)
+            # 사실 값(수·비율·지난 실적·이름 등 자료에 있을 수 있는 값)은 묻기 전에 지난 자료(library)부터 — 한 요청에 한 번 안내한다
+            facts_ = [x["name"] for x in items if x["kind"] != _asks.DECISION and x["name"] not in gave_up and x["name"] not in sug_]
+            if facts_ and "library" not in searched_src and not ask_gate:
+                ask_gate.append(True)
+                raise doc_agent.Retry("묻기 전에 사실 값(" + ", ".join(f"「{n_}」" for n_ in facts_[:6]) + ")은 search source=library 로 "
+                                      "지난 자료(이전 사업 보고서·공시 자료 같은 과거 문서)에서 먼저 찾는다. 찾으면 그 값과 출처를 묻는 항목의 how 에 적고, "
+                                      "그래도 없는 값만 묻는다. 담당자가 정할 값이면 kind 를 결정으로 적어 다시 ask_user(이 안내는 한 번만 나온다).")
+            # 처리 안(how)에 적은 수치는 이번 요청의 검색 결과에 그대로 있는 것만 — 아니면 기본 안으로 둔다(지어낸 지난 값을 내보이지 않게)
+            seen_ = re.sub(r"\s+", "", "\n".join(str(f_.get("text") or "") for f_ in found))
+            for x in items:
+                if x["how"] and any(re.sub(r"\s+", "", n_) not in seen_ for n_ in re.findall(r"\d[\d,.]*\d|\d", x["how"])):
+                    x["how"] = ""
             pend = _asks.pending(db, session_id)
             have = {x["name"] for x in pend}
-            _asks.set_pending(db, session_id, pend + [x for x in items if x["name"] not in have])
-            _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, db.get_chat_session(session_id)))])
-            msg = str(a.get("message") or "자료에서 찾지 못한 값이 있습니다. 아래 「필요한 값 입력」에 적어 주세요.")
-            db.add_chat(session_id, "assistant", _scrub_internal(msg + "\n" + ", ".join(x["name"] for x in items)))
+            _asks.set_pending(db, session_id, pend + [{k_: v_ for k_, v_ in x.items() if k_ != "how"} for x in items if x["name"] not in have])
+            _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), sug_)])
+            db.add_chat(session_id, "assistant", _scrub_internal(_asks.ask_message(items, sug_, str(a.get("message") or ""))))
             return "물었다."
 
         def t_finish(a: dict) -> str:
@@ -2867,7 +2910,9 @@ def create_app(
             doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(이번 요청에서 search 로 찾은 근거로). "
                            "args {question}", t_answer,
                            final=True, needs_evidence=True),
-            doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why, kind: 사실(자료에 있을 수 있는 값) 또는 결정(담당자가 정할 목표·계획)}], message}", t_ask, final=True),
+            doc_agent.Tool("ask_user", "이번 요청에 꼭 필요한데 요청 글·이 사업 문서·지난 자료(library)에서 찾지 못한 값만 묻기(정해진 목록을 묻지 않는다). "
+                           "args {items: [{name, why, kind: 사실(자료에 있을 수 있는 값) 또는 결정(담당자가 정할 목표·계획), "
+                           "how: 이 값을 어떻게 할지 한 구절(예: 지난 자료에서 찾은 값과 출처를 쓸지, 「확인 필요」 로 둘지)}], message: 한 문장 머리말}", t_ask, final=True),
             doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
         ]
         if hw is not None:
@@ -2963,12 +3008,12 @@ def create_app(
         if not ep.finished and resolved_now:
             left_ = [x["name"] for x in _asks.pending(db, session_id) if x["name"] not in resolved_now]
             msg_ = ("이번 요청에서 자료로 찾은 값: " + ", ".join(f"「{n_}」" for n_ in resolved_now)
-                    + ". 「필요한 값 입력」에서 확인해 주세요.")
+                    + ". 맞으면 「이름: 자료 값」, 다르면 「이름: 값」 으로 답해 주세요.")
             if gave_up:
                 msg_ += " 자료에서 못 찾은 값: " + ", ".join(f"「{n_}」" for n_ in sorted(gave_up)) + "."
             rest_ = [n_ for n_ in left_ if n_ not in gave_up]
             if rest_:
-                msg_ += " 남은 값: " + ", ".join(f"「{n_}」" for n_ in rest_) + ". 직접 적거나 다시 찾아 달라고 하세요."
+                msg_ += " 남은 값: " + ", ".join(f"「{n_}」" for n_ in rest_) + ". 채팅으로 알려 주시거나 「확인 필요」 로 두라고 하세요."
             if not ep.writes:
                 db.add_chat(session_id, "assistant", _scrub_internal(msg_))
         if not ep.finished and ep.writes and hw is not None and hw.fid():
@@ -3164,9 +3209,10 @@ def create_app(
         if new_:
             older = len(pend) - len(new_)
             parts_.append("이번 절에서 자료에 없어 비워 둔 값: " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in new_[:6])
-                          + ". 알려 주면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개는 「필요한 값 입력」에서 이어서 받습니다)" if older else ""))
+                          + ". 채팅으로 「이름: 값」 처럼 알려 주시면 기억해 두고 이후 작성에 넣습니다(「확인 필요」 로 두셔도 됩니다)."
+                          + (f" 앞 절에서 모은 빈 값 {older}개도 이어서 받습니다." if older else ""))
         elif pend:
-            parts_.append(f"아직 비어 있는 값 {len(pend)}개는 「필요한 값 입력」에서 채울 수 있습니다.")
+            parts_.append(f"아직 비어 있는 값 {len(pend)}개는 채팅으로 알려 주시거나 「필요한 값 입력」에서 채울 수 있습니다.")
         text = "\n\n".join(parts_)
         left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x) and x.get("heading") not in skip_]
         opts = []

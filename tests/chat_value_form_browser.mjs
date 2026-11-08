@@ -59,6 +59,10 @@ try {
 
   // ── 값 폼 ──
   await open('/chat/1', 1440);
+  // 처음에는 접힌 한 줄(입력은 채팅이 먼저) — 「입력 칸 열기」로 펼친다
+  assert.deepEqual(await evaluate(`[document.querySelector('#chatValueForm').classList.contains('is-folded'), getComputedStyle(document.querySelector('#chatValueForm .chat-form-list')).display]`), [true, 'none']);
+  await mouse('#chatValueForm [data-form-toggle]');
+  assert.equal(await evaluate(`document.querySelector('#chatValueForm [data-form-toggle]').textContent`), '입력 칸 접기');
   assert.equal(await evaluate(`document.querySelector('[data-form-count]').textContent`), '6개 중 1개 채움');
   assert.equal(await evaluate(`document.querySelector('[data-form-submit]').textContent`), '1개 확인 · 빈 칸 5개는 다음에');
   // 한 열 목록 — 칸마다 한 줄(이름 칸·입력 칸이 같은 줄), 긴 설명은 한 줄 말줄임 + 툴팁
@@ -99,10 +103,12 @@ try {
   assert.ok(!sent.some(x => x.startsWith('field_가상 목표') || x.startsWith('field_가상 금액')), sent.join(' | '));
   // 800px 에서도 한 줄 목록(이름 위, 칸·나중에 아래)이 칸 밖으로 넘치지 않는다
   await open('/chat/1', 800);
+  await mouse('#chatValueForm [data-form-toggle]');
   assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll('#chatValueForm textarea')].every(t=>t.getBoundingClientRect().right<=document.querySelector('#chatValueForm').getBoundingClientRect().right)`), true);
 
   // 줄 선택 — 실제 마우스로 줄 앞 체크, Shift+체크로 범위, 빈 칸 선택 → 하나 빼기 → 선택한 줄만 자료에서 찾기, 전체 선택·해제
   await open('/chat/1', 1440);
+  await mouse('#chatValueForm [data-form-toggle]');
   const tools = () => evaluate(`[...document.querySelectorAll('#chatValueForm [data-bulk]')].filter(b=>!b.hidden).map(b=>b.textContent)`);
   const pickRow = n => `#chatValueForm li:nth-child(${n}) [data-pick]`;
   const picks = () => evaluate(`[...document.querySelectorAll('#chatValueForm [data-pick]')].map(b=>b.checked)`);
@@ -127,6 +133,7 @@ try {
   assert.deepEqual(await evaluate(`(()=>{const b=document.querySelector('[data-form-submit]');return [b.textContent,b.disabled,b.classList.contains('is-skip')]})()`), ['모두 다음에 받기', false, true]);
   // 채운 줄은 오른쪽에 「채움」
   await open('/chat/1', 1440);
+  await mouse('#chatValueForm [data-form-toggle]');
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('#chatValueForm li.is-filled .chat-form-done')).display`), 'flex');
 
   // ── 새 대화 문서 패널 ──

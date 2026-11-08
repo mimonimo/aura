@@ -146,8 +146,109 @@ def remember(db, session_: dict | None, given: dict, *, global_ok: bool = False)
     return local_only
 
 
+# 채팅 답의 처리 말 — 「확인 필요로 둬」 는 그 자리를 「확인 필요」 로 남기라는 답, 「자료 값으로」 는 자료 제안을 그대로 쓰라는 답
+_LEAVE = re.compile(r"^「?확인\s*필요」?\s*(?:(?:으로|로)\b.*|(?:으로|로)?\s*(?:둬|두|남겨|해|처리).*)?$")
+_ACCEPT = re.compile(r"^(?:(?:자료|찾은|제안|그)\s*값\s*(?:으로|로|을|를)?(?:\s*(?:써|쓰|사용|해|둬|넣).*)?|그대로(?:\s*(?:써|쓰|사용|둬).*)?|맞(?:음|아요|습니다)\.?)$")
+
+
+def norm_answers(db, session_: dict | None, given: dict) -> dict:
+    """담당자 답을 기억할 값으로 — 「확인 필요로 둬」 → 「확인 필요」(그 자리는 비워 두고 이어 쓴다),
+    「자료 값으로」 → 그 이름의 자료 제안 값(제안이 없으면 받지 않는다). 나머지는 적은 그대로."""
+    sug = suggestions(db, session_)
+    out: dict = {}
+    for k, v in (given or {}).items():
+        t = str(v or "").strip()
+        if _LEAVE.match(t):
+            out[k] = UNCONFIRMED
+        elif _ACCEPT.match(t):
+            if (sug.get(k) or {}).get("value"):
+                out[k] = sug[k]["value"]
+        elif t:
+            out[k] = t
+    return out
+
+
+def ask_message(items: list[dict], suggested: dict | None = None, lead: str = "") -> str:
+    """묻는 글 — 값마다 처리할 길을 한 줄씩: 자료 제안이 있으면 그 값·출처, 모델이 찾은 처리 안(how), 없으면 갈래에 맞는 기본 안.
+    입력은 채팅이 먼저다 — 「이름: 값」 으로 답하거나 「확인 필요」 로 남기라고 알린다."""
+    suggested = suggested or {}
+    rows = []
+    for a in items:
+        s = suggested.get(a["name"]) or {}
+        if s.get("value"):
+            how = (f"자료 값 「{str(s['value'])[:40]}」(《{str(s.get('title') or '')[:40]}》" + (f" · {s['note']}" if s.get("note") else "")
+                   + ") 그대로 쓸지, 고칠지")
+        elif a.get("how"):
+            how = str(a["how"])
+        elif norm_kind(a.get("kind")) == DECISION:
+            how = "정해서 알려 주시거나 「확인 필요」 로 둠"
+        else:
+            how = "자료에 없음 · 알려 주시거나 「확인 필요」 로 둠"
+        rows.append(f"- {a['name']}: {how}")
+    head = (lead or "").strip() or "이번 요청에 필요한데 자료에서 찾지 못한 값입니다."
+    tail = "채팅으로 「이름: 값」 처럼 답해 주세요. 「확인 필요」 로 답한 값은 그 자리를 표시해 두고 이어 씁니다."
+    return "\n".join([head, *rows, tail])
+
+
 def _squash(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
+
+
+def project_programs(db, session_: dict | None) -> tuple[list[str], int | None]:
+    """이 대화의 프로젝트가 다루는 사업 이름들과 연도 — 프로젝트 이름이 부르는 사업, 프로젝트에 이은 사업(program:…|연도)의 이름.
+    프로젝트가 없거나 사업 이름을 알 수 없으면 ([], None)."""
+    from zzaimy.app import program_names as _pn
+
+    pid = (session_ or {}).get("project_id")
+    proj = db.get_project(int(pid)) if pid else None
+    if not proj:
+        return [], None
+    name = str(proj.get("name") or "")
+    names = _pn.program_mentions(name)
+    key, _s, tail = str(proj.get("program") or "").partition("|")
+    if key:
+        label = ""
+        try:
+            with db._conn() as conn:
+                row = conn.execute("SELECT label FROM kg_nodes WHERE id = ?", (key,)).fetchone()
+            label = str(row["label"]) if row else ""
+        except Exception:
+            label = ""
+        label = label or key.removeprefix("program:")
+        names += [n for n in (_pn.program_mentions(label) or [label]) if n and n not in names]
+    year = int(tail) if tail.isdigit() else _pn.mention_year(name)
+    return names, year
+
+
+def source_program(db, session_: dict | None, hit: dict) -> tuple[str, str]:
+    """검색 결과 하나의 출처 문서가 이 프로젝트와 다른 사업의 문서인가 — (다른 사업 이름, 연도 알림).
+
+    출처의 사업은 문서 정체(identity.program)와 제목이 부르는 사업 이름으로 본다. 어느 하나라도 프로젝트의 사업과 같으면
+    (program_names.same_program) 같은 사업이다. 프로젝트나 출처의 사업 이름을 알 수 없으면 판정하지 않는다(("", "")).
+    같은 사업인데 연도가 다르면 다른 연도 자료라는 알림을 돌려준다(값은 받되 담당자가 올해 값인지 보게)."""
+    from zzaimy.app import program_names as _pn
+    from zzaimy.app import storage
+
+    mine, my_year = project_programs(db, session_)
+    if not mine:
+        return "", ""
+    did = hit.get("doc_id")
+    doc = db.get_document(int(did)) if did is not None else None
+    titles = [str(hit.get("title") or "")] + ([storage.title_of(doc.get("filename") or "")] if doc else [])
+    ident = (db.get_doc_identity(int(did)) or {}) if did is not None else {}
+    theirs = [str(ident["program"]).strip()] if str(ident.get("program") or "").strip() else []
+    for t in titles:
+        theirs += [n for n in _pn.program_mentions(t) if n not in theirs]
+    if not theirs:
+        return "", ""
+    if not any(_pn.same_program(t, m) for t in theirs for m in mine):
+        ledger = _pn.load_ledger()                         # 이름이 달라 보일 때만 장부(이름 바뀜·별칭)를 본다
+        if not any(_pn.same_program(t, m, ledger) for t in theirs for m in mine):
+            return theirs[0], ""
+    year = next((y for y in (_pn.mention_year(t) for t in titles) if y), None)
+    if my_year and year and year != my_year:
+        return "", f"{year}년 자료 · 올해 값인지 확인"
+    return "", ""
 
 
 def resolve_from_evidence(db, session_: dict | None, name: str, value: str, source_title: str,
@@ -182,6 +283,14 @@ def resolve_from_evidence(db, session_: dict | None, name: str, value: str, sour
     own = [h for h in same if h.get("doc_id") is not None and int(h["doc_id"]) in allowed_docs]
     if not own:
         return "이 출처는 이 프로젝트의 문서(프로젝트·기준 문서)가 아니다 — 값은 프로젝트 문서의 검색 결과로만 채운다."
+    # 프로젝트에 올라 있어도 다른 사업의 문서(참고로 올린 다른 사업 공고·계획)는 이 사업의 값이 아니다
+    checked = [(h, source_program(db, session_, h)) for h in own]
+    own = [h for h, (other, _n) in checked if not other]
+    if not own:
+        other = checked[0][1][0]
+        mine = (project_programs(db, session_)[0] or [""])[0]
+        return (f"《{source_title[:40]}》 은(는) 다른 사업(「{other}」)의 문서다 — 이 프로젝트" + (f"(「{mine}」)" if mine else "")
+                + "의 값으로 채우지 않는다. 참고 자료로만 쓰고, 이 값은 담당자에게 묻거나 「확인 필요」 로 둔다.")
     hit = next((h for h in own if want in _squash(h.get("text"))), None)
     if hit is None:
         return "그 값이 이 출처의 검색 결과 글에 그대로 없다 — 결과에 적힌 글자 그대로만 기억한다."
@@ -190,6 +299,9 @@ def resolve_from_evidence(db, session_: dict | None, name: str, value: str, sour
     sug = suggestions(db, session_)
     sug[name] = {"value": value.strip()[:VALUE_MAX], "title": str(hit.get("title") or "")[:120], "doc_id": hit.get("doc_id"),
                  "chunk_id": hit.get("chunk_id"), "run": run, "at": datetime.now().isoformat(timespec="seconds")}
+    note = next((n for h, (_o, n) in checked if h is hit), "")
+    if note:
+        sug[name]["note"] = note
     db.set_setting(key + ":suggested", json.dumps(sug, ensure_ascii=False))
     return ""
 

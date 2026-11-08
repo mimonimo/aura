@@ -197,6 +197,12 @@ body #chatForm { max-width:1040px; }
 }
 
 #chatScroll .chat-jump-form { align-self:flex-start; margin:2px 4px 0; font-size:12.5px; padding:6px 12px; min-height:32px; }
+/* 필요한 값 입력 — 입력은 채팅이 먼저라 칸은 접어 두고 단추로 연다(접힌 동안은 제목·채운 수·여는 단추 한 줄) */
+#chatScroll .chat-suggestion-form.is-folded { padding:8px 12px; }
+#chatScroll .chat-suggestion-form.is-folded .chat-form-head { align-items:center; }
+#chatScroll .chat-suggestion-form.is-folded :is(.chat-form-list, .chat-form-foot, .chat-form-tools, .chat-form-bar, .chat-form-more, [data-pick-all]) { display:none; }
+#chatScroll .chat-suggestion-form .chat-form-chat { font-size:12px; color:#65758A; }
+#chatScroll .chat-suggestion-form .chat-form-toggle { margin-left:auto; font-size:12px; padding:4px 10px; min-height:28px; border-radius:8px; }
 
 /* 필요한 값 입력 — 다듬은 꼴: 빈 원 대신 채우면 초록 체크만, 「나중에」 는 줄에 올리거나 초점이 갈 때만 보이는 글자 단추,
    머리에 채운 비율 막대, 안내는 아래 줄로 */

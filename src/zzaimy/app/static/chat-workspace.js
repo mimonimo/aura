@@ -181,11 +181,26 @@
     const live = panel.querySelector('.chat-step-sec[data-live-from]');
     if (live) live.textContent = ' · ' + Math.max(0, Math.floor(Date.now() / 1000 - Number(live.dataset.clockSkew || 0) - Number(live.dataset.liveFrom))) + '초';
   }, 1000);
-  // 답이 「필요한 값 입력」을 가리키면 그 칸으로 데려간다(칸은 마지막 답 아래, 받지 못한 값이 있는 동안 늘 있다)
+  // 필요한 값 입력은 접어 둔다(입력은 채팅이 먼저) — 「입력 칸 열기」로 펼치고 「입력 칸 접기」로 다시 접는다
+  function foldValueForm(valueForm, open) {
+    valueForm.classList.toggle('is-folded', !open);
+    const button = valueForm.querySelector('[data-form-toggle]');
+    if (button) { button.setAttribute('aria-expanded', String(open)); button.textContent = open ? '입력 칸 접기' : '입력 칸 열기'; }
+  }
+  scroller.addEventListener('click', event => {
+    const button = event.target.closest('[data-form-toggle]');
+    if (!button) return;
+    const valueForm = button.closest('form');
+    const open = valueForm.classList.contains('is-folded');
+    foldValueForm(valueForm, open);
+    if (open) { revealEnd(valueForm, true); ([...valueForm.querySelectorAll('textarea:not(:disabled)')].find(t => !t.value) || valueForm.querySelector('textarea:not(:disabled)'))?.focus({preventScroll:true}); }
+  });
+  // 답이 「필요한 값 입력」을 가리키면 그 칸을 펼쳐 데려간다(칸은 마지막 답 아래, 받지 못한 값이 있는 동안 늘 있다)
   scroller.addEventListener('click', event => {
     if (!event.target.closest('[data-jump-form]')) return;
     const valueForm = document.getElementById('chatValueForm');
     if (!valueForm) return;
+    foldValueForm(valueForm, true);
     pin.release();
     valueForm.scrollIntoView({block:'center'});
     ([...valueForm.querySelectorAll('textarea:not(:disabled)')].find(t => !t.value) || valueForm.querySelector('textarea:not(:disabled)'))?.focus({preventScroll:true});   // 빈 칸부터
