@@ -76,3 +76,12 @@ def test_wrong_calculation_is_recomputed():
     out, fixed = fix_calculations("800만 원 × 75% × 18개월 = 1억 원")
     assert "1억 800만 원" in out
     assert fix_calculations("500만 원 × 75% × 12개월 = 4,500만 원")[1] == []
+
+
+def test_critique_text_is_not_written_as_body():
+    from zzaimy.app.webhwp_agent import check_body
+    leak = ("2) 사업 목표 가)에서 '기초 AI 리터러시'라는 추상적 표현만 있고, [근거 7]에 명시된 항목이 누락됨.\n"
+            "- (1) 구체성 — [본문] 3) 주요 추진 과제 가)에서 방법만 있고 대상이 누락됨.\n[본문]")
+    assert check_body(leak, None, 262144) and "점검" in check_body(leak, None, 262144)
+    ok = "1) 1학년 대상 AI 기초 교과 운영\n가) 신입생 전체 대상 정규 교과로 운영함\n나) 자료에 없는 학점은 확인 필요"
+    assert check_body(ok, None, 262144) is None

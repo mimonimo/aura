@@ -93,6 +93,18 @@ def _ph_lines(text: str) -> list[str]:
     return [ln.strip()[:60] for ln in (text or "").splitlines() if _placeholder(ln)]
 
 
+# 점검 메모의 꼴 — 기준표 이름을 단 줄(「(1) 구체성 —」), 근거 번호를 가리키는 지적(「[근거 7]에 명시된」), 「…누락됨」, 머리표 「[본문]」「[고칠 점]」.
+# 자기 점검 답의 「고칠 점」 이 [본문] 아래로 들어가 문서에 그대로 쓰인 일(11-08 시연 녹화 「사업 요약」)을 막는다
+_CRITIQUE = re.compile(r"\(\d\)\s*(?:구체성|근거|작성방법|개요)\s*[—\-:]|\[근거\s*\d+\]\s*에|누락됨|추상적 표현만|^\s*\[(?:본문|고칠 점|판정|개요)\]", re.M)
+
+
+def critique_lines(text: str) -> list[str]:
+    """본문에 섞인 점검 메모 줄 — 두 줄 이상이거나 머리표가 있으면 섞인 것으로 본다(한 번 쓴 「누락됨」 같은 낱말만으로는 막지 않는다)."""
+    hits = [ln.strip()[:70] for ln in (text or "").splitlines() if _CRITIQUE.search(ln)]
+    heads = any(re.match(r"^\s*\[(?:본문|고칠 점|판정|개요)\]", ln) for ln in (text or "").splitlines())
+    return hits if (len(hits) >= 2 or heads) else []
+
+
 def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
     """절 본문 품질 관문 — 메인 직접 쓰기와 서브(절 맡기기)가 같은 것을 지난다. 통과면 None, 아니면 거절 까닭.
     - 양식 예시 글자(○○·OO·000·□□)가 남은 줄
@@ -101,6 +113,9 @@ def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
     from zzaimy.app import llm_budget
     from zzaimy.verify.numbers import mask_unsupported
 
+    crit = critique_lines(text)
+    if crit:
+        return ("점검·검토 메모(고칠 점)가 본문에 섞였다 — 문서에 들어갈 본문만 쓴다: " + " / ".join(crit[:3]))
     ph = _ph_lines(text)
     if ph:
         return ("양식 예시 글자(○○·000 등)가 남았다 — 모르는 값은 그 줄을 빼고 「확인 필요」 로 돌린다: " + " / ".join(ph[:4]))
