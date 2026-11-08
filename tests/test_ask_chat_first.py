@@ -157,3 +157,10 @@ def test_agent_resolve_refuses_and_state_marks_reference_only(tmp_path, monkeypa
     assert "다른 사업" in obs[0]
     assert asks.suggestions(db, db.get_chat_session(sid)) == {}
     assert not any("자료에서 찾음" in m["content"] for m in db.list_chats(sid))
+
+
+def test_search_run_gate_constant_present():
+    import inspect
+    from zzaimy.app import main
+    src = inspect.getsource(main)
+    assert "SEARCH_RUN_MAX" in src and "찾기는 충분하다" in src

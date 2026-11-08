@@ -2336,6 +2336,7 @@ def create_app(
 
     _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
 
+    SEARCH_RUN_MAX = int(os.environ.get("ZZAIMY_AGENT_SEARCH_RUN", "6"))   # 쓰기 없이 이어 찾기 상한(넘으면 쓰기로 돌려보냄)
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
                     "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_form_create": "양식 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
                     "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기",
@@ -2489,6 +2490,7 @@ def create_app(
         notes: list[str] = []                                   # 에이전트가 찾은 근거 — 절 쓰기 재료로 넘긴다
         search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
+        search_run = {"n": 0}                                  # 쓰기 없이 이어진 찾기 수 — 찾기만 되풀이하다 걸음 한도를 다 쓰지 않게(11-08 시연: 18분 찾기만, 절 0)
         found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
         found_docs: dict[int, dict] = {}                        # 이번 요청의 search 결과에 나온 문서 — read_found 가 읽을 수 있는 것만
         searched_src: set[str] = set()                          # 이번 요청에서 찾아본 곳(project·criteria·library·rules)
@@ -2507,6 +2509,12 @@ def create_app(
             src, query = str(a.get("source") or "library"), str(a.get("query") or "").strip()
             if not query:
                 return "query 가 비었다."
+            search_run["n"] += 1
+            if search_run["n"] > SEARCH_RUN_MAX:
+                search_run["n"] = 0
+                raise doc_agent.Retry(f"쓰기 없이 찾기를 {SEARCH_RUN_MAX}번 넘게 했다 — 찾기는 충분하다. 지금까지 찾은 근거로 할 일을 한다: "
+                                      "절을 채우는 요청이면 빈 절을 delegate_section(절마다 맡은 쪽이 다시 찾는다)이나 hwp_write 로 쓰고, "
+                                      "자료에 없는 수치는 「확인 필요」 로 둔 뒤 끝에 묻는다. 질문이면 answer_question.")
             searched_src.add(src)
             targets = asks_in(query)
             if targets and all(_asks.norm_kind(x.get("kind")) == _asks.DECISION for x in targets):
