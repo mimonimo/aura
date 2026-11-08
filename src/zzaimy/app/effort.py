@@ -2,7 +2,7 @@
 
 - 빠르게(기본): 27B 생각 끔(지금까지와 같음), 문맥은 꼼꼼하게와 같이 한도 그대로(사용자 10-27 「컨텍스트는 둘다 똑같지?」 — 묶어야 하면
   ZZAIMY_EFFORT_FAST_CONTEXT), 맡긴 절의 자기 점검은 건너뛴다. 에이전트 걸음 한도는 지금 그대로.
-- 꼼꼼하게: 답·에이전트 호출에 생각을 켜고(출력 한도에 생각 몫을 더한다 — 안 더하면 한도를 생각에 다 써 답이 빈다),
+- 꼼꼼하게: 27B 안쪽 생각은 기본 끔(ZZAIMY_EFFORT_DEEP_THINK=1 이면 답·에이전트 호출에 켜고 출력 한도에 생각 몫을 더한다), 답은 단계 추론,
   작업 몫은 문맥 한도 그대로, 맡긴 절 자기 점검을 하고, 걸음 한도를 1.5배로.
 - 값을 정하지 않은 호출(반입·배치·측정 등 대화 밖)은 아무것도 바꾸지 않는다 — 표의 "" 줄.
 
@@ -39,7 +39,10 @@ def _plans() -> dict[str, dict]:
         "": {"thinking": False, "work_cap": 0, "step_scale": 1.0, "self_check": True},
         FAST: {"thinking": False, "work_cap": _int_env("ZZAIMY_EFFORT_FAST_CONTEXT", 0), "step_scale": 1.0,
                "self_check": False},
-        DEEP: {"thinking": True, "work_cap": 0, "step_scale": 1.5, "self_check": True,
+        # 꼼꼼하게도 27B 안쪽 생각은 기본 끔 — 걸음마다 생각을 켜니 질문 하나에 12분(11-08 시연 녹화: 생각 6,800토큰·걸음 여러 번).
+        # 걸음마다 남기는 단계 추론([N단계])과 답의 단계 추론(responder.COT_RULE)은 그대로다. 켜려면 ZZAIMY_EFFORT_DEEP_THINK=1
+        DEEP: {"thinking": os.environ.get("ZZAIMY_EFFORT_DEEP_THINK", "0").strip().lower() in ("1", "true", "yes", "on"),
+               "work_cap": 0, "step_scale": 1.5, "self_check": True,
                "think_tokens": _int_env("ZZAIMY_EFFORT_THINK_TOKENS", 8192),
                "think_timeout": float(_int_env("ZZAIMY_ANSWER_THINK_TIMEOUT", 900))},
     }

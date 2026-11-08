@@ -5,6 +5,19 @@ from types import SimpleNamespace as NS
 from tests.test_chat_answer_mode import _wait, staff  # noqa: F401 — 같은 시험 앱
 from tests.test_model_swap import _client, _ok
 from zzaimy.app import delegate, doc_agent, effort, llm_budget, responder
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _deep_think_on(monkeypatch):
+    """이 파일은 「꼼꼼하게 + 생각 켬」 의 동작을 본다 — 운영 기본은 끔(11-08), 켜는 설정으로 시험한다."""
+    monkeypatch.setenv("ZZAIMY_EFFORT_DEEP_THINK", "1")
+
+
+def test_deep_thinking_is_off_by_default(monkeypatch):
+    monkeypatch.delenv("ZZAIMY_EFFORT_DEEP_THINK", raising=False)
+    with effort.use("deep"):
+        assert effort.thinking() is False and effort.plan()["step_scale"] == 1.5 and responder.answer_cot()
 
 
 def test_effort_is_remembered_per_account(staff):  # noqa: F811

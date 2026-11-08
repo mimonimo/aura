@@ -22,6 +22,7 @@ def test_non_stream_keeps_only_text_after_think():
 
 def test_stream_hides_thinking_until_close_tag(monkeypatch):
     from zzaimy.app import llm_budget
+    monkeypatch.setenv("ZZAIMY_EFFORT_DEEP_THINK", "1")                 # 생각을 켠 꼼꼼하게(운영 기본은 끔)
     chunks = [_chunk("Need concise. "), _chunk("Let's produce final.\n</th"), _chunk("ink>\n\n[답] 본문"), _chunk(" 끝", "stop")]
     monkeypatch.setattr(llm_budget, "create_fitted", lambda *a, **k: iter(chunks))
     shown = []

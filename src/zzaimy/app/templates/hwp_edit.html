@@ -289,8 +289,24 @@
       .then(function (r) { clearTimeout(t); if (!r.ok) loadFail(); })
       .catch(function () { clearTimeout(t); if (built) return; if (k < 3) setTimeout(function () { probe(k + 1); }, 3000); else loadFail(); });
   })(1);
-  // 느리기만 한 때(기안기 서버가 바쁠 때)는 실패로 보이지 않게 — 20초에 「오래 걸림」, 90초가 지나도 뜨지 않을 때만 실패
-  setTimeout(function () { if (!built) say('불러오는 중(오래 걸림)', 'busy'); }, 20000);
+  // 불러오기 남은 시간: 이 브라우저에서 최근 5번 연 시간의 중앙값으로 「약 N초 남음」, 넘기면 지난 시간만 알린다(「오래 걸림」 만 보이던 것을 바꿈, 11-08).
+  // 느리기만 한 때(기안기 서버가 바쁠 때)는 실패로 보이지 않게, 90초가 지나도 뜨지 않을 때만 실패
+  var loadT0 = Date.now(), loadKey = 'hwpLoadSecs', loadDone = false;
+  function pastSecs() {
+    try { var a = JSON.parse(localStorage.getItem(loadKey) || '[]'); if (!a.length) return 15; a.sort(function (x, y) { return x - y; }); return a[Math.floor(a.length / 2)]; }
+    catch (e) { return 15; }
+  }
+  function keepSecs(sec) {
+    try { var a = JSON.parse(localStorage.getItem(loadKey) || '[]'); a.push(Math.round(sec)); localStorage.setItem(loadKey, JSON.stringify(a.slice(-5))); } catch (e) {}
+  }
+  var loadEta = pastSecs();
+  var loadTick = setInterval(function () {
+    if (loadDone || failed) { clearInterval(loadTick); return; }
+    var el = (Date.now() - loadT0) / 1000;
+    if (el < 3) return;
+    var left = Math.round(loadEta - el);
+    say(left > 0 ? '불러오는 중 · 약 ' + left + '초 남음' : '불러오는 중 · 평소보다 늦음 · ' + Math.round(el) + '초째', 'busy');
+  }, 1000);
   setTimeout(loadFail, 90000);
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     built = true; document.querySelector('[data-load-fail]').hidden = true;
@@ -299,6 +315,7 @@
     fit();
     if (isNew) { mode = 'new'; fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; hwp.attach(); watchEdits(); say('저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요', ''); return; }
     loadFile().catch(function () { say('파일을 다시 받는 중', 'busy'); return new Promise(function (ok) { setTimeout(ok, 3000); }).then(loadFile); }).then(function () {
+      if (!loadDone) { loadDone = true; keepSecs((Date.now() - loadT0) / 1000); }
       fitWidth(); setTools(toolsOn());
       // 연 뒤 잡은 칸 수를 알린다 — 칸 많은 파일인데 0 이면 서버가 「기안기에서 안 열림」 으로 표시해 양식 후보에서 뺀다(긴 문서는 쪽을 그리는 몇 초 뒤에)
       setTimeout(function () { try { fetch(fileUrl.replace(/\/file$/, '/opened'), {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fields: hwp.fields().length})}); } catch (e) {} }, 8000);

@@ -534,8 +534,23 @@ class HwpTools:
         lines = lead_lines(data)
         if not lines:
             return ""
+        # 아는 값을 함께 건넨다 — 무엇으로 바꿀지 몰라 「○○○○ 사업」「○○대학교 · 20○○. ○.」 을 그대로 둔 일(11-08 시연). 바꿀지는 에이전트가 정한다
+        from datetime import date
+        from zzaimy.app import institution
+        known = []
+        if self.project and self.project.get("name"):
+            known.append(f"사업 이름 「{self.project['name']}」")
+        try:
+            uni = institution.facts(self.db).get("대학명") or ""
+        except Exception:
+            uni = ""
+        if uni:
+            known.append(f"대학 이름 「{uni}」")
+        known.append(f"작성 연월 「{date.today().year}. {date.today().month}.」")
         return (" 문서 앞부분 글(표지·머리, 칸 밖 글 포함): " + " / ".join(f"「{x}」" for x in lines)
-                + " — 이 문서에 맞지 않는 양식의 사업명·연도·날짜·자리표시가 있으면 칸은 hwp_fill, 칸 밖 글은 hwp_replace 로 고친다.")
+                + " — 이 문서에 맞지 않는 양식의 사업명·연도·날짜·자리표시(○○ 등)가 있으면 칸은 hwp_fill, 칸 밖 글은 hwp_replace 로 고친다. "
+                + "아는 값: " + ", ".join(known) + " — 아는 값으로 바꿀 수 있는 자리표시는 담당자에게 묻지 말고 바로 바꾼 뒤 답에 바꾼 것을 알린다. "
+                + "모르는 값의 자리표시만 남겨 묻는다.")
 
     def fields(self, a: dict) -> str:
         if not self.fid():
