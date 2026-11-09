@@ -1935,7 +1935,10 @@ def create_app(
         session_ = db.get_chat_session(session_id) or {}
         if not session_.get("project_id"):
             return []
-        return [i for i in db.get_project_criteria_ids(int(session_["project_id"])) if _viewer_sees(session_id, db.get_document(i) or {})]
+        # 같은 내용을 다시 올려 기존 문서와 연결된 기준 문서는 기존 문서(다 읽은 것)로 — 다시 올린 쪽은 조각이 없어 찾기가 늘 비었다(11-09)
+        from zzaimy.app.read_failure import resolve_linked
+        docs = resolve_linked(db, [d for d in (db.get_document(i) for i in db.get_project_criteria_ids(int(session_["project_id"]))) if d])
+        return [int(d["id"]) for d in docs if _viewer_sees(session_id, d)]
 
     app.state.scoped_criteria = _scoped_criteria
 
