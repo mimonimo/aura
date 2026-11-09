@@ -654,6 +654,8 @@ class HwpTools:
         from zzaimy.app import webhwp_dress
         if not written.get(field) and self._stream_plain(fid, field, text):   # 글만 든 절 — 사람이 칠 때와 같은 칸 길로(앞서 칸 밖에 쓴 표가 없을 때)
             return self._after_write(fid, field, text, written, [], by)
+        if not written.get(field):                          # 표·상자 든 절 — 글을 먼저 칸 길로 흘려 보이고, 아래에서 표째 다시 넣는다(11-09)
+            self._stream_preview(fid, field, text)
         try:
             raw = Path(f["path"]).read_bytes()
             have = ww.field_values(raw)
@@ -714,6 +716,52 @@ class HwpTools:
         if ok:
             ce.commit_now(self.db, self.base, fid)         # 파일에도 바로 — 다음 도구·내려받기가 옛 글을 읽지 않게
         return bool(ok)
+
+    PREVIEW_MAX_S = 12.0
+
+    @staticmethod
+    def preview_text(text: str) -> str:
+        """표·상자·도식이 든 본문의 흘려 쓰기 판 — 글은 그대로, 표는 줄마다 칸을 띄어 이은 글(곧 표째 다시 들어간다)."""
+        from zzaimy.app import webhwp_write as ww
+        out = []
+        for k, v in ww.parse_body(text):
+            if k == "table":
+                out.append("\n".join("   ".join(str(c) for c in row) for row in v if any(str(c).strip() for c in row)))
+            elif isinstance(v, str):
+                out.append(re.sub(r"^```\S*\s*|```$", "", v.strip()).strip() if k == "diagram" else v)
+        return "\n".join(x for x in out if x and x.strip())
+
+    def _stream_preview(self, fid: int, field: str, text: str) -> bool:
+        """표 든 절도 쓰는 모습이 보이게 — 글 판(preview_text)을 칸 길로 조금씩 보낸다. 파일에는 쓰지 않는다(바로 뒤 write_section 이
+        표째 저장하고 열린 화면은 새 판을 받는다). 칸이 없거나 이미 이어 쓰기 칸이 있으면 건너뛴다(그대로 표째 쓰기)."""
+        from zzaimy.app import webhwp_coedit as ce
+        from zzaimy.app import webhwp_write as ww
+        try:
+            raw = Path(webhwp.get(self.db, fid)["path"]).read_bytes()
+            have = ww.field_values(raw)
+            if field not in have or any(ww.is_cont(k) and ww.section_of(k) == field for k in have):
+                return False
+            body = ce.norm(self.preview_text(text))
+            if not body:
+                return False
+            st = ce.SectionStream(self.db, fid, field, base=self.base)
+            if not st.ok:
+                return False
+            try:
+                step = max(round(self.STREAM_CPS * self.STREAM_PACE), -(-len(body) * self.STREAM_PACE // self.PREVIEW_MAX_S))
+                last = 0.0
+                for i in range(int(step), len(body), int(step)):
+                    if not st.write(body[:i]):
+                        return False
+                    if time.time() - last > 1.0:
+                        self._mark(fid, field)
+                        last = time.time()
+                    time.sleep(self.STREAM_PACE)
+                return st.write(body)
+            finally:
+                st.close()
+        except Exception:
+            return False
 
     def _after_write(self, fid: int, field: str, text: str, written: dict, put, by: str, data: bytes | None = None) -> str:
         from zzaimy.app import webhwp_write as ww
@@ -800,7 +848,14 @@ class HwpTools:
             return ""
         import io
         import zipfile
-        z = zipfile.ZipFile(io.BytesIO(Path(f["path"]).read_bytes()))
+        for i in range(3):                                   # 맡긴 절을 다 쓴 차례로 넣는 동안 다른 서브의 점검이 읽을 수 있다 — 저장 중이면 잠깐 뒤 다시
+            try:
+                z = zipfile.ZipFile(io.BytesIO(Path(webhwp.get(self.db, self.fid() or 0)["path"]).read_bytes()))
+                break
+            except (OSError, zipfile.BadZipFile, TypeError):
+                if i == 2:
+                    raise
+                time.sleep(0.2)
         return re.sub(r"<[^>]+>", " ", "".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist()
                                               if re.match(r"Contents/section\d+\.xml$", n)))
 

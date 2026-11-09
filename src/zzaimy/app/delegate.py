@@ -28,7 +28,7 @@ import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
 
@@ -641,6 +641,23 @@ class Delegator:
             for fu in futs:
                 fu.result()
 
+    def _parallel_each(self, fn, jobs: list[dict], clients: list, done) -> None:
+        """_parallel 과 같되, 끝나는 자리부터 done(job) 을 이 흐름(호출한 쪽)에서 바로 부른다 — 절 여럿을 맡겨 쓸 때 다 쓴 절부터
+        작업본에 넣어 열린 기안기에 차례로 나타나게(11-09 시연: 절 셋을 다 쓴 뒤 한꺼번에 들어가 그동안 오른쪽 문서가 그대로였다).
+        파일 고치기(done)는 여전히 한 흐름에서 하나씩이다."""
+        def run(j, c):
+            with effort.no_thinking():
+                fn(j, c)
+                return j
+        if len(jobs) <= 1:
+            for j, c in zip(jobs, clients):
+                done(run(j, c))
+            return
+        with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+            futs = [ex.submit(contextvars.copy_context().run, run, j, c) for j, c in zip(jobs, clients)]
+            for fu in as_completed(futs):
+                done(fu.result())
+
     def run(self, a: dict) -> str:
         items = a.get("sections") if isinstance(a.get("sections"), list) else None
         if items is not None:
@@ -676,8 +693,17 @@ class Delegator:
         for j, c in zip(jobs, clients):                       # 찾기는 차례대로(검색·형태소 분석기는 한 흐름에서)
             ev, cinfo, raw_ev = self._evidence(j["section"], j["gist"], self.limit(c), j.get("queries"))
             j.update(ev=ev, cinfo=cinfo, raw_ev=raw_ev)
-        self._parallel(self._write, jobs, clients)
-        msgs += [self._commit(j) for j in jobs]               # 쓰기(파일 고치기)는 차례대로
+        if jobs and getattr(self.hw, "_mark", None) and self.hw.fid():
+            try:                                              # 쓰는 동안 기안기에 AURA 가 어디를 쓰는지 — 첫 절 자리에 커서
+                self.hw._mark(self.hw.fid(), jobs[0]["section"])
+            except Exception:
+                pass
+        reports: dict[int, str] = {}
+
+        def commit(j: dict) -> None:                         # 다 쓴 절부터 바로 작업본에(파일 고치기는 이 흐름에서 하나씩)
+            reports[id(j)] = self._commit(j)
+        self._parallel_each(self._write, jobs, clients, commit)
+        msgs += [reports[id(j)] for j in jobs]                # 보고는 맡긴 차례대로
         if over:
             msgs.append("동시 상한(" + str(cap) + "개)을 넘은 절은 맡기지 않았다: " + ", ".join(str(x.get("section") or "")[:30] for x in over)
                         + " — 다음 걸음에 다시 맡긴다.")

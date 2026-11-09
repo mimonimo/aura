@@ -302,3 +302,70 @@ def test_parse_sub_header_only_at_line_start():
     assert body.startswith("| 구분 |") and "| 비전 | [확인 필요] |" in body and unk == ["비전 문구: 근거 없음"]
     assert delegate.parse_sub("1) 내용임\n[확인 필요]\n- 없음") == ("1) 내용임", [])
     assert delegate.revise_problems({"길이": "그대로", "더할 항목": ["취업 통계"]}, "1) 가", "1) 나", ["취업 통계: 근거 없음"]) == []
+
+
+def test_parallel_delegation_commits_each_section_as_it_finishes(tmp_path, monkeypatch):
+    """절 여럿 동시 맡기기 — 다 쓴 절부터 바로 작업본에 넣는다(느린 절을 기다리지 않는다, 11-09). 보고는 맡긴 차례대로."""
+    import threading
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=99)
+    uniq = list(dict.fromkeys(secs))[:2]
+    assert len(uniq) == 2
+    first_in = threading.Event()
+
+    class Slow(FakeClient):
+        def __init__(self, answers):
+            super().__init__(answers)
+            create = self.client.chat.completions.create
+
+            def slow_create(model, messages, max_tokens, **kw):
+                first_in.wait(10)                          # 빠른 절이 작업본에 들어갈 때까지 붙잡는다 — 한꺼번에 넣으면 10초 뒤 풀린다
+                return create(model, messages, max_tokens, **kw)
+            self.client.chat.completions.create = slow_create
+
+    slow, fast = Slow(["[본문]\n1) 느린 절 내용임\n[확인 필요]\n- 없음"]), FakeClient(["[본문]\n1) 빠른 절 내용임\n[확인 필요]\n- 없음"])
+    hw.client, hw.delegating = fast, True
+    dlg = delegate.Delegator(fast, db, hw.sid, hw, "써 줘", pool=[(slow, 1), (fast, 1)], quality=False)
+    assert dlg.slots() == [slow, fast]
+    seen = []
+    commit = dlg._commit
+
+    def spy(job):
+        seen.append((job["section"], first_in.is_set()))
+        r = commit(job)
+        first_in.set()
+        return r
+    dlg._commit = spy
+    import time as _t
+    t0 = _t.monotonic()
+    out = dlg.run({"sections": [{"section": n, "gist": "내용"} for n in uniq]})
+    assert _t.monotonic() - t0 < 8, "느린 절을 기다리지 않고 빠른 절을 먼저 넣어야 한다"
+    assert seen[0][0] == uniq[1] and seen[1][0] == uniq[0]      # 빠른 절(두 번째 자리)이 먼저 들어갔다
+    vals = {x["name"]: x["text"] for x in hw._fields()}
+    assert "빠른 절" in vals[uniq[1]] and "느린 절" in vals[uniq[0]]
+    assert out.index(uniq[0][2:]) < out.index(uniq[1][2:])     # 보고는 맡긴 차례대로
+
+
+def test_table_section_streams_text_preview_then_writes_table(tmp_path, monkeypatch):
+    """표 든 절 — 글 판을 칸 길로 먼저 흘려 보이고(쓰는 모습), 그다음 표째 저장한다(11-09)."""
+    from zzaimy.app import webhwp_coedit as ce
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=97)
+    monkeypatch.setattr(wa.HwpTools, "STREAM_PACE", 0.001)
+    sent = []
+    orig = ce.SectionStream.write
+
+    def spy(self, text):
+        sent.append(text)
+        return orig(self, text)
+    monkeypatch.setattr(ce.SectionStream, "write", spy)
+    body = "추진 일정은 다음과 같음\n\n| 구분 | 기간 |\n|---|---|\n| 1학기 | 2027. 3. ~ 2027. 8. |\n| 2학기 | 2027. 9. ~ 2028. 2. |"
+    out = hw.write({"field": secs[0], "text": body})
+    assert out.startswith("「"), out
+    assert len(sent) > 2 and "1학기" in sent[-1] and "|" not in sent[-1]      # 표는 칸을 띄어 이은 글로 흘렸다
+    assert sent[0] and len(sent[0]) < len(sent[-1])                           # 조금씩
+    assert wa.HwpTools.preview_text(body).splitlines()[1].startswith("구분")
+    import io
+    import zipfile
+    z = zipfile.ZipFile(io.BytesIO(Path(webhwp.get(db, hw.fid())["path"]).read_bytes()))
+    xml = "".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.startswith("Contents/section"))
+    assert "1학기" in xml and "<hp:tbl" in xml                              # 파일에는 표째 들어갔다
+    assert "1학기   2027" not in xml                                           # 흘려 보인 글 판은 파일에 남지 않았다

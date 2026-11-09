@@ -1029,3 +1029,14 @@ def test_remote_text_above_keeps_view_in_place():
         root = Path(__file__).resolve().parents[1]
         r = subprocess.run([node, str(root / "tests/coedit_view_browser.mjs")], cwd=root, capture_output=True, text=True, timeout=180)
         assert r.returncode == 0 and "coedit view browser: ok" in r.stdout, r.stdout[-3000:] + r.stderr[-3000:]
+
+
+def test_reload_keeps_previous_view_instead_of_blank():
+    """AURA·다른 사람이 문서 전체를 새로 저장해 다시 열 때 — 보던 화면을 덮어 두고 다 그린 뒤 걷는다(흰 화면 없이, 11-09)."""
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app"
+    w = (root / "static/webhwp-wrapper.js").read_text()
+    h = (root / "templates/hwp_edit.html").read_text()
+    assert "function freeze()" in w and "freeze: freeze" in w
+    body = h[h.index("function reloadWhenSafe"):h.index("function thawNow")]
+    assert "hwp.freeze" in body and body.index("hwp.freeze") < body.index("loadFile()")
+    assert "thawNow()" in body                                 # 실패해도 덮개를 걷는다

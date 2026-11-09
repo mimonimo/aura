@@ -442,6 +442,7 @@
         var who = reloadPending; reloadPending = null;
         var cur = hwp.getCursor(false, true);   // 보던 자리 기준점째 — 새 판에서 그 자리가 밀린 만큼 화면을 맞춘다
         if (eng.suspend) eng.suspend();
+        thaw = hwp.freeze ? hwp.freeze() : function () {};   // 다시 여는 동안 흰 화면 대신 보던 화면(11-09)
         return loadFile().then(function () {
           fitZoom();                                   // 다시 불러와도 보던 배율 그대로(폭 맞춤으로 커지지 않게)
           if (readonly || (mode === 'whole' && !holding)) hwp.setReadOnly(true);
@@ -449,13 +450,16 @@
         }).then(function () {
           dirty = false; notice.hidden = true;
           keepCursor(cur);
+          setTimeout(thawNow, 700);                    // 보던 자리로 돌아가 그려진 뒤 걷는다
           // AURA 명령은 시킨 사람의 편집기에서 돌아 저장자가 그 사람으로 온다 — AURA 가 그 사람 일로 쓰는 중이면 AURA 판으로 알린다(10-26)
           var au = eng && eng.aura ? eng.aura() : {}, byAura = who.by === 'AURA' || (au.field && au.by && au.by === who.by);
           say(!who.by ? '최신 판을 불러왔습니다' : (byAura ? AuraCollab.auraLabel(eng, au.by ? au : {by: who.by}) : (who.by_name || who.by) + ' 님') + '의 새 판을 불러왔습니다', 'ok');
         });
-      }).catch(function (e) { say(e.message || '새 판을 불러오지 못했습니다', 'bad'); });
+      }).catch(function (e) { thawNow(); say(e.message || '새 판을 불러오지 못했습니다', 'bad'); });
     })();
   }
+  var thaw = null;
+  function thawNow() { if (thaw) { var t = thaw; thaw = null; t(); } }
 
   // ── 칸 밖 고치기(구조 잠금) — 쥔 사람만 문서 전체를 저장한다. 다른 사람은 칸만 쓰고, 저장되면 새 판을 받는다 ──
   var lockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/lock') : '', unlockUrl = fileUrl ? fileUrl.replace(/\/file$/, '/unlock') : '';

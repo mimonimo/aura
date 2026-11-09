@@ -472,6 +472,39 @@
       });
     }
     function isHwpxRich(json) { return typeof json === 'string' && /^\{"fmt":\s*"hwpx"/.test(json); }
+    // 보던 화면을 그대로 덮어 두기 — 새 판을 다시 여는 동안 흰 화면 대신 앞 화면을 보이고, 다 그려지면 걷는다(11-09).
+    // 편집 틀(같은 출처)의 보이는 캔버스를 한 장으로 옮겨 그 위에 얹는다. 못 그리면 덮지 않는다(아무것도 바꾸지 않음)
+    function freeze() {
+      try {
+        var fr = frame(), d = fr.contentDocument, o = fr.getBoundingClientRect();
+        if (!o.width || !o.height) return function () {};
+        var dpr = window.devicePixelRatio || 1, out = document.createElement('canvas');
+        out.width = Math.round(o.width * dpr); out.height = Math.round(o.height * dpr);
+        var g = out.getContext('2d'), n = 0;
+        g.fillStyle = getComputedStyle(fr).backgroundColor || '#fff';
+        Array.prototype.forEach.call(d.querySelectorAll('canvas'), function (c) {
+          var r = c.getBoundingClientRect();
+          if (!c.width || r.width < 2 || r.height < 2 || r.bottom < 0 || r.right < 0 || r.top > o.height || r.left > o.width) return;
+          g.drawImage(c, r.left * dpr, r.top * dpr, r.width * dpr, r.height * dpr); n++;
+        });
+        if (!n) return function () {};
+        out.toDataURL('image/png').length;                 // 그릴 수 없는 캔버스면 여기서 예외 — 덮지 않는다
+        var cover = document.createElement('div');
+        cover.className = 'hwp-freeze';
+        cover.setAttribute('aria-hidden', 'true');
+        Object.assign(cover.style, {position: 'fixed', left: o.left + 'px', top: o.top + 'px', width: o.width + 'px', height: o.height + 'px',
+          zIndex: 50, pointerEvents: 'none', transition: 'opacity .25s ease'});
+        Object.assign(out.style, {width: '100%', height: '100%', display: 'block'});
+        cover.appendChild(out);
+        document.body.appendChild(cover);
+        var gone = false;
+        return function () {
+          if (gone) return; gone = true;
+          cover.style.opacity = '0';
+          setTimeout(function () { cover.remove(); }, 300);
+        };
+      } catch (e) { return function () {}; }
+    }
     function open(blob, name) {
       return new Promise(function (resolve, reject) {
         try {
@@ -547,7 +580,7 @@
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },
       attach: attach, isProbing: function () { return !!probing; },
       isComposing: function () { return composing && Date.now() - lastInput < 3000; },     // 조합 끝 사건을 놓쳐도 3초 뒤엔 풀린다
-      lastInputAt: function () { return lastInput; }, exportField: exportField, importField: importField, isHwpxRich: isHwpxRich, open: open, hwpx: hwpx,
+      lastInputAt: function () { return lastInput; }, exportField: exportField, importField: importField, isHwpxRich: isHwpxRich, open: open, freeze: freeze, hwpx: hwpx,
       run: run, exec: exec, insertText: function (t) { return exec('InsertText', {Text: String(t)}); },
       resetEditable: function () { editable = {}; },
       inspect: inspect, findNth: findNth, insertPicture: insertPicture, inTable: inTable
