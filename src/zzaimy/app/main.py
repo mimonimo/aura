@@ -246,6 +246,47 @@ def create_app(
         for k, v in fresh.items():
             accounts[k] = v
 
+    _ROLE_RANK = {"student": 0, "staff": 1, "professor": 1, "head": 1, "dev": 2}
+
+    def _merge_accounts(base: dict, mem: dict, disk: dict) -> dict:
+        """메모리(앱이 고친 것)와 파일(밖에서 고친 것)을 마지막 맞춘 표(base) 기준 세 갈래로 합친다 — 회수가 항상 이긴다(11-10 보안 검토).
+        · 어느 쪽이든 지웠으면(base 에 있었는데 한쪽에 없으면) 지운다. 새로 더한 계정은 한쪽에만 있어도 살린다.
+        · 필드는 한쪽만 바꿨으면 그 값, 둘 다 다르게 바꿨으면 보안 필드는 더 제한적인 쪽: active 는 하나라도 false 면 false,
+          role 은 낮은 권한, 그 밖(dept·pw_hash 등)은 파일 값(밖의 관리 조치)을 따른다.
+        · 마지막으로 어느 쪽이든 active=false 면 결과도 false(되살리기 없음)."""
+        out: dict = {}
+        for k in set(base) | set(mem) | set(disk):
+            in_b, in_m, in_d = k in base, k in mem, k in disk
+            if in_b and (not in_m or not in_d):
+                continue                                   # 한쪽이 지웠다 — 지운 쪽이 이긴다
+            if not in_m:
+                out[k] = dict(disk[k]); continue           # 밖에서 새로 더함
+            if not in_d:
+                out[k] = dict(mem[k]); continue            # 앱이 새로 더함(아직 파일에 없음)
+            b, m, d = base.get(k) or {}, mem[k], disk[k]
+            row: dict = {}
+            for f in set(b) | set(m) | set(d):
+                mv, dv, bv = m.get(f), d.get(f), b.get(f)
+                m_ch, d_ch = mv != bv, dv != bv
+                if m_ch and not d_ch:
+                    val = mv
+                elif d_ch and not m_ch:
+                    val = dv
+                elif not m_ch and not d_ch:
+                    val = bv
+                elif f == "active":
+                    val = bool(mv if mv is not None else True) and bool(dv if dv is not None else True)
+                elif f == "role":
+                    val = min((mv, dv), key=lambda r: _ROLE_RANK.get(str(r or "staff"), 1))
+                else:
+                    val = dv                               # 둘 다 다르게 바꾼 그 밖의 필드 — 밖의 관리 조치를 따른다
+                if val is not None or f in m or f in d:
+                    row[f] = val
+            if m.get("active") is False or d.get("active") is False:
+                row["active"] = False                      # 회수는 항상 이긴다
+            out[k] = row
+        return out
+
     def _sync_accounts_from_disk() -> bool:
         """계정 파일이 앱 밖에서 바뀌었으면(관리 스크립트로 계정 추가·비활성 등) 메모리 계정 표를 다시 읽는다 — 재시작 없이(11-10).
         같은 dict 를 고쳐 쓰므로 app.state.accounts 를 쥔 쪽도 새 값을 본다. 바뀌지 않았으면 stat 한 번뿐."""
@@ -258,31 +299,26 @@ def create_app(
                 return False
             fresh = _read_accounts_file()
             if fresh is None or _accounts_mtime() != m:
-                return False                               # 읽는 사이 또 바뀌었거나 못 읽음 — 다음 요청에 다시
-            _apply_accounts(fresh)
+                return False                               # 읽는 사이 또 바뀌었거나 못 읽음 — 지금 표(메모리의 회수 포함)를 그대로, 다음 요청에 다시
+            merged = _merge_accounts(_acct_seen["base"], dict(accounts), fresh)
+            _apply_accounts(merged)
             _acct_seen["mtime"] = m
-            _mark_synced()
+            if merged != fresh:
+                _acct_seen["base"] = _aj.loads(_aj.dumps(fresh))
+                _save_accounts()                           # 메모리에만 있던 회수·변경을 파일에도(파일 쪽이 되살리지 못하게)
+            else:
+                _mark_synced()
             return True
 
     def _save_accounts() -> None:
         """계정 표 쓰기 — 조직도·사용자 화면과 같은 잠금(org_lock) 안에서, 임시 파일에 쓴 뒤 바꿔 끼운다(쓰다 끊겨도 반쪽 파일이 남지 않게).
-        파일이 앱 밖에서 바뀌었으면 세 갈래로 합친다(11-10): 앱이 이번에 고친 계정만 메모리 값, 나머지는 파일 값(밖에서 비활성·삭제·추가한 것을
-        덮지 않는다). 파일을 못 읽으면 쓰지 않고 멈춘다 — 모르는 바깥 변경을 덮어쓰지 않게."""
+        파일이 앱 밖에서 바뀌었으면 세 갈래로 합친다(_merge_accounts — 회수가 이기고 보안 필드는 더 제한적인 쪽). 파일을 못 읽으면 쓰지 않고 멈춘다 — 모르는 바깥 변경을 덮어쓰지 않게."""
         with _org_lock.LOCK:
             if _acct_seen["mtime"] is not None and _accounts_mtime() not in (None, _acct_seen["mtime"]):
                 disk = _read_accounts_file()
                 if disk is None:
                     raise RuntimeError("계정 파일을 읽지 못해 저장을 멈췄습니다 — 파일을 확인한 뒤 다시 하세요")
-                base = _acct_seen["base"]
-                merged = {}
-                for k in set(base) | set(disk) | set(accounts):
-                    mine_changed = accounts.get(k) != base.get(k)
-                    if mine_changed:
-                        if k in accounts:
-                            merged[k] = accounts[k]           # 앱이 이번에 고치거나 더한 계정
-                    elif k in disk:
-                        merged[k] = disk[k]                   # 밖에서 고치거나 더한(또는 그대로인) 계정
-                _apply_accounts(merged)
+                _apply_accounts(_merge_accounts(_acct_seen["base"], dict(accounts), disk))
             tmp = accounts_path.with_suffix(".tmp")
             tmp.write_text(_aj.dumps(accounts, ensure_ascii=False, indent=1))
             tmp.chmod(0o600)

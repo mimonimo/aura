@@ -141,3 +141,66 @@ def test_account_table_never_empty_during_reload(tmp_path):
     finally:
         stop.set(); t.join()
     assert not seen_empty and "m29" in app.state.accounts
+
+
+def _bump(path, ns=11_000_000):
+    st = path.stat(); os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + ns))
+
+
+def _login_ok(client, uid, pw):
+    return client.post("/login", data={"username": uid, "pw": pw}, follow_redirects=False).headers.get("location") == "/"
+
+
+def test_revocation_in_memory_survives_reload_from_disk(tmp_path):
+    """메모리에서 막은 계정(파일 쓰기 전)이 파일 다시 읽기로 되살아나지 않는다 — 파일 쪽은 다른 계정만 바뀜."""
+    app = _app(tmp_path)
+    path = tmp_path / "accounts.json"
+    _add_account_on_disk(path, "rv1", "pw-rv1-xx")
+    client = TestClient(app)
+    assert _login_ok(client, "rv1", "pw-rv1-xx")
+    app.state.accounts["rv1"] = {**app.state.accounts["rv1"], "active": False}   # 앱이 막음(저장 전)
+    acc = json.loads(path.read_text()); acc["zzaimy"]["name"] = "밖에서 고침"
+    path.write_text(json.dumps(acc, ensure_ascii=False)); _bump(path)
+    TestClient(app).get("/login")                       # 다시 읽기
+    assert app.state.accounts["rv1"]["active"] is False
+    assert json.loads(path.read_text())["rv1"]["active"] is False   # 파일에도 회수가 남는다
+    assert app.state.accounts["zzaimy"]["name"] == "밖에서 고침"
+    assert not _login_ok(TestClient(app), "rv1", "pw-rv1-xx")
+
+
+def test_merge_never_revives_disabled_or_deleted_and_role_takes_lower(tmp_path):
+    app = _app(tmp_path)
+    path = tmp_path / "accounts.json"
+    for u in ("a1", "a2", "a3"):
+        _add_account_on_disk(path, u, "pw-" + u + "-xx")
+    TestClient(app).get("/login")                       # 셋 다 맞춘 상태(base)
+    # 밖: a1 막음, a2 지움, a3 학생으로 낮춤
+    acc = json.loads(path.read_text())
+    acc["a1"]["active"] = False
+    del acc["a2"]
+    acc["a3"]["role"] = "student"
+    path.write_text(json.dumps(acc, ensure_ascii=False)); _bump(path)
+    # 앱(아직 다시 읽기 전): a1·a2 이름 고치고 a3 를 관리자로 올림 → 저장
+    st = app.state.accounts
+    st["a1"] = {**st["a1"], "name": "메모리"}
+    st["a2"] = {**st["a2"], "name": "메모리"}
+    st["a3"] = {**st["a3"], "role": "dev"}
+    app.state.save_accounts()
+    disk = json.loads(path.read_text())
+    assert disk["a1"]["active"] is False and disk["a1"]["name"] == "메모리"
+    assert "a2" not in disk and "a2" not in st
+    assert disk["a3"]["role"] == "student"
+    assert not _login_ok(TestClient(app), "a1", "pw-a1-xx") and not _login_ok(TestClient(app), "a2", "pw-a2-xx")
+
+
+def test_unreadable_file_keeps_memory_revocation(tmp_path):
+    app = _app(tmp_path)
+    path = tmp_path / "accounts.json"
+    _add_account_on_disk(path, "rv2", "pw-rv2-xx")
+    TestClient(app).get("/login")
+    app.state.accounts["rv2"] = {**app.state.accounts["rv2"], "active": False}
+    path.write_text('{"rv2": {"active": true')       # 반쯤 쓰인 파일
+    _bump(path)
+    TestClient(app).get("/login")
+    assert app.state.accounts["rv2"]["active"] is False
+    assert not _login_ok(TestClient(app), "rv2", "pw-rv2-xx")
