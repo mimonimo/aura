@@ -334,6 +334,8 @@ def _format_mismatch(file_path: Path) -> str | None:
         return None
     kind = file_path.suffix.lstrip(".").upper()
     size = file_path.stat().st_size
+    if size == 0:
+        return f"빈 파일입니다 ({kind}, 0바이트) — 올리는 중 끊겼거나 내용 없이 저장된 파일"
     if head.lstrip()[:15].lower().startswith((b"<!doctype html", b"<html")):
         return f"{kind} 가 아니라 웹 페이지가 저장돼 있습니다 ({size:,}바이트) — 내려받기가 막힌 파일"
     return f"{kind} 형식이 아닙니다 ({size:,}바이트)"

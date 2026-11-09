@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections import Counter
 
@@ -61,6 +62,38 @@ def has_contact_block(names) -> bool:
 def set_fact(db, key: str, value: str) -> None:
     if key in KEYS:
         db.set_setting(f"institution:{key}", (value or "").strip())
+        if key == "대학명":
+            _RUNTIME["대학명"] = (value or "").strip()
+
+
+# 이 설치의 기관 이름 — 프롬프트·외부 전송 가림·규정 발행 기관 판정이 같은 값을 본다. 코드에 학교 이름을 박지 않는다
+# (다른 대학에 설치해도 그 학교 이름으로 동작). 우선순위: 환경 변수 ZZAIMY_INSTITUTION_NAME > 설정·문서에서 읽은 값(remember)
+_RUNTIME: dict[str, str] = {}
+
+
+def remember(db) -> str:
+    """앱이 뜰 때(그리고 기관 정보가 바뀔 때) 기관 이름을 읽어 둔다 — 실패해도 앱은 뜬다."""
+    try:
+        _RUNTIME["대학명"] = (facts(db).get("대학명") or "").strip()
+    except Exception:
+        pass
+    return _RUNTIME.get("대학명", "")
+
+
+def name(default: str = "우리 대학") -> str:
+    n = (os.environ.get("ZZAIMY_INSTITUTION_NAME") or _RUNTIME.get("대학명") or "").strip()
+    return n or default
+
+
+def aliases() -> tuple[str, ...]:
+    """기관 이름과 흔한 줄임(「○○대학교」 → 「○○대학」「○○대」). 이름을 모르면 빈 묶음."""
+    n = name("")
+    if not n:
+        return ()
+    out = [n]
+    if n.endswith("대학교"):
+        out += [n[:-1], n[:-2]]
+    return tuple(dict.fromkeys(x for x in out if len(x) >= 3))
 
 
 _ANSWER = {
@@ -75,7 +108,7 @@ def form_option(facts: dict) -> dict:
     """대화 선택지에 실어 보내는 입력 양식 — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 template 에 넣은 문장을 질문으로 보낸다
     (kind=form 규격). 양식을 못 그리는 화면은 question 을 버튼으로 쓴다."""
     missing = [k for k in BASE_KEYS if not (facts.get(k) or "").strip()]
-    hints = {"총장": "예: 홍길동", "대표전화": "예: 053-000-0000", "주소": "예: 대구광역시 남구 현충로 170", "대학명": "예: 영남이공대학교"}
+    hints = {"총장": "예: 홍길동", "대표전화": "예: 000-000-0000", "주소": "예: ○○시 ○○구 ○○로 00", "대학명": "예: ○○대학교"}
     fields = [{"name": k, "label": k + (" 성명" if k == "총장" else ""), "placeholder": hints.get(k, ""), "required": False} for k in missing]
     template = ", ".join(f"{k}은 {{{k}}}" if k in ("총장", "대학명") else f"{k}는 {{{k}}}" for k in missing)
     return {"kind": "form", "text": "기관 정보 입력", "fields": fields, "template": template,

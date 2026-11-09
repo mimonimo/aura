@@ -275,7 +275,8 @@ def test_student_chat_is_academic_qa():
     """학생 대화 화면은 학사 질문용 — 예시 질문, 첨부·문서 패널·답변 방식 숨김, 답 지시는 학생 안내(교직원 업무 관점 아님)."""
     from zzaimy.app.responder import compose_system
     assert "학사 질문" in compose_system({}, "student") and "교직원" not in compose_system({}, "student").split("\n")[0]
-    assert compose_system({}).startswith("당신은 영남이공대학교 행정 담당자")
+    first = compose_system({}).split("\n")[0]
+    assert first.startswith("당신은 ") and "행정 담당자" in first and "〔기관〕" not in first   # 학교 이름은 기관 정보에서(11-10)
 
 
 def test_student_chat_page_shows_academic_examples(world):
