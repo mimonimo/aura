@@ -5,6 +5,20 @@
 """
 from __future__ import annotations
 
+import os
+
+
+class TooBig(RuntimeError):
+    """기안기 변환 서버가 받지 못하는 큰 파일(웹 한글 기안기 업로드 한도, 운영 실측 약 56MB)."""
+
+
+def upload_max() -> int:
+    """기안기 변환 서버가 받는 한 파일 크기 상한(바이트) — 설치마다 다를 수 있어 설정(ZZAIMY_WEBHWP_UPLOAD_MAX_MB)으로."""
+    try:
+        return int(float(os.environ.get("ZZAIMY_WEBHWP_UPLOAD_MAX_MB", "55")) * 1024 * 1024)
+    except ValueError:
+        return 55 * 1024 * 1024
+
 
 def convert(data: bytes, src_format: str, out_format: str, out_name: str, http=None) -> bytes:
     """기안기 필터 서버로 형식 바꾸기 — open(파일→문서 데이터, src_format) → save(out_format) → 받기.
@@ -15,15 +29,20 @@ def convert(data: bytes, src_format: str, out_format: str, out_name: str, http=N
     own = http is None
     http = http or httpx.Client(timeout=httpx.Timeout(240, connect=20))
     src_ext = ".hwp" if src_format.upper() == "HWP" else ".hwpx"
+    if len(data) > upload_max():
+        raise TooBig(f"파일이 {len(data) // (1024 * 1024)}MB 로 한글 변환 한도(약 {upload_max() // (1024 * 1024)}MB)를 넘습니다")
     try:
         base = webhwp.base_url()
         try:
             r = http.post(f"{base}/webhwpctrl/open", files={"openFile": ("x" + src_ext, data)},
                           data={"format": src_format.upper(), "args": ""}, timeout=240)
+            if r.status_code in (413, 500) and len(data) > 20 * 1024 * 1024:
+                # 기안기가 큰 파일을 받지 않으면 500(MaxUploadSizeExceeded)을 낸다 — 연결 문제가 아니라 크기 문제다
+                raise TooBig(f"파일이 {len(data) // (1024 * 1024)}MB 로 한글 변환 서버가 받지 않았습니다")
             r.raise_for_status()
             j = r.json()
         except httpx.HTTPError as e:
-            raise RuntimeError(f"기안기 서버에 연결하지 못했습니다({type(e).__name__})") from e
+            raise RuntimeError(f"한글 변환 서버가 응답하지 않습니다({type(e).__name__}) — 잠시 뒤 다시 하거나 관리자에게 알립니다") from e
         if not j.get("json"):
             raise RuntimeError("기안기가 이 한글 파일을 열지 못했습니다(옛 판·암호 문서일 수 있습니다)")
         try:
@@ -33,7 +52,7 @@ def convert(data: bytes, src_format: str, out_format: str, out_name: str, http=N
             s.raise_for_status()
             sj = s.json()
         except httpx.HTTPError as e:
-            raise RuntimeError(f"기안기 서버에 연결하지 못했습니다({type(e).__name__})") from e
+            raise RuntimeError(f"한글 변환 서버가 응답하지 않습니다({type(e).__name__}) — 잠시 뒤 다시 하거나 관리자에게 알립니다") from e
         if not sj.get("result"):
             raise RuntimeError(f"기안기가 {out_format} 로 저장하지 못했습니다")
         try:

@@ -167,6 +167,24 @@ def _tidy_weekly_md(body: str) -> str:
     return "\n".join(out).strip()
 
 
+_CLAIM = re.compile(r"(?:절|항목|섹션|부분)[^\d\n]{0,6}\(?\s*(\d{1,3})\s*개|(\d{1,3})\s*개\s*(?:의\s*)?(?:절|섹션)")
+
+
+def finish_claims(msg: str) -> list[int]:
+    """끝내는 말이 「다 썼다」 고 내세우는 절 수 — 「작성 완료된 절(10개)」「10개 절을 모두 작성」 꼴. 완료·작성 낱말이 함께 있을 때만 센다
+    (「남은 빈 절 3개」 처럼 남은 것을 말한 수는 빼려고 「남은·빈·남아」 가 앞에 붙은 수는 건너뛴다)."""
+    out = []
+    for m in _CLAIM.finditer(msg or ""):
+        before = msg[max(0, m.start() - 12):m.start()] + m.group(0)
+        if re.search(r"남은|빈\s*절|남아|비어|못\s*쓴|미작성", before):
+            continue
+        around = msg[max(0, m.start() - 20):m.end() + 20]
+        if not re.search(r"완료|작성했|채웠|썼|마쳤|작성\s*완|모두\s*작성", around):
+            continue
+        out.append(int(m.group(1) or m.group(2)))
+    return out
+
+
 def _asset_version() -> str:
     """정적 파일 판 — 정적 폴더에서 가장 최근에 바뀐 파일 시각(배포마다 달라짐)."""
     try:
@@ -2674,6 +2692,7 @@ def create_app(
         search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         lead_checked = {"done": False}                         # 끝내기 전 앞부분 자리표시 되짚기 — 요청마다 한 번
+        finish_checked = {"done": False}                       # 끝내는 말의 절 수가 문서 기록과 다를 때 되돌리기 — 요청마다 한 번
         try:                                                     # 이번 요청에서 문서를 새로 열었거나 고쳤을 때만 되짚는다(지우기만 하다 0곳인 요청까지 막지 않게 — 11-09 대화 165)
             lead_start = {"fid": hw.fid() if hw is not None else None, "writes": int(getattr(hw, "writes", 0) or 0)}
         except Exception:
@@ -3119,6 +3138,25 @@ def create_app(
                                       "칸이면 hwp_fill, 칸 밖 글이면 hwp_replace 로 바꾼 뒤 finish 한다. 모르는 값의 자리표시만 남기고 답에 무엇이 남았는지 알린다.",
                                       data="\n".join(left_))
             msg = str(a.get("message") or "").strip()
+            if msg and touched_:
+                # 끝내는 말을 문서 기록과 맞춘다 — 「작성 완료된 절(10개)」 라고 했는데 실제로 쓴 곳은 5곳이던 일(11-10 시나리오 A).
+                # 말한 수가 기록보다 크면 한 번 되돌려 고치게 하고, 빈 절이 남았으면 기록 기준 한 줄을 늘 덧붙인다
+                try:
+                    fl_ = hw._fields()
+                except Exception:
+                    fl_ = []
+                secs_ = [x for x in fl_ if x.get("kind") == "절"]
+                filled_ = [x for x in secs_ if str(x.get("text") or "").strip()]
+                empty_ = [x["name"][2:] for x in secs_ if not str(x.get("text") or "").strip()]
+                claimed = finish_claims(msg)
+                if secs_ and claimed and max(claimed) > len(filled_) and not finish_checked["done"]:
+                    finish_checked["done"] = True
+                    raise doc_agent.Retry(f"끝내는 말의 수가 문서 기록과 다르다 — 지금 문서의 절 {len(secs_)}개 가운데 글이 든 절은 {len(filled_)}개, "
+                                          f"빈 절은 {len(empty_)}개다. 실제로 쓴 것만 말하고, 빈 절은 남았다고 알려 finish 한다.",
+                                          data="빈 절: " + ", ".join(empty_[:12]))
+                if secs_ and empty_:
+                    msg += (f"\n\n(문서 기록: 절 {len(secs_)}개 가운데 {len(filled_)}개를 썼고 빈 절 {len(empty_)}개가 남았습니다. "
+                            f"다음은 「{empty_[0]}」 — 「계속 써 줘」라고 하면 이어 씁니다.)")
             if msg:
                 db.add_chat(session_id, "assistant", _scrub_internal(msg))
             return msg

@@ -539,7 +539,15 @@ class HwpTools:
         out = []
         for d in self.project_docs() or []:
             if storage.original_ext(d) in (".hwp", ".hwpx"):
-                out.append(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:50]}」(이 프로젝트 문서{' · 양식' if d.get('kind') == 'form' else ''})")
+                big = ""
+                try:                                        # 변환 한도를 넘는 큰 원본 — 고르면 구조 사본으로 연다는 것을 미리(에이전트가 다른 길로 새지 않게)
+                    from zzaimy.app import webhwp_convert
+                    p_ = str(d.get("stored_path") or "")
+                    if p_ and "://" not in p_ and Path(p_).exists() and Path(p_).stat().st_size > webhwp_convert.upload_max():
+                        big = " · 큰 원본(고르면 목차·표 머리를 옮긴 구조 사본으로 연다)"
+                except Exception:
+                    pass
+                out.append(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:50]}」(이 프로젝트 문서{' · 양식' if d.get('kind') == 'form' else ''}{big})")
         words = [w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", q)]
         scored = []
         for r in self.db.list_files(kind="webhwp", limit=8000):
@@ -586,6 +594,7 @@ class HwpTools:
         form = str(a.get("form") or "").strip()
         title = re.sub(r"[\\/:*?\"<>|]", " ", str(a.get("title") or "").strip())[:60]
         folder = f"작업/{storage.safe_name(self.project['name'])[:40]}" if self.project else "작업"
+        skel_note = ""
         if form.startswith("tpl:") and form[4:].isdigit():
             t = webhwp.get(self.db, int(form[4:]))
             if not t or not webhwp.locked(self.db, t["id"]):
@@ -603,9 +612,30 @@ class HwpTools:
             class _St:
                 db = self.db
             rep = {}
-            data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d), blank=True, report=rep)
             name = title or (storage.title_of(d.get("filename") or "") + " 작업본")
-            src = f"doc:{d['id']}"
+            try:
+                data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d), blank=True, report=rep)
+            except webhwp_convert.TooBig as e:
+                # 그림이 많은 큰 원본(지난 결과보고서 등)은 변환 서버가 받지 않는다 — 반입 때 읽어 둔 조각에서 목차·표 머리를 옮긴
+                # 구조 사본으로 연다(사용자가 준 양식의 짜임을 따르는 것이 핵심, 11-10 시나리오 A). 그림·서식은 빠진다
+                from zzaimy.app import form_skeleton, institution
+                try:
+                    facts = institution.facts(self.db)
+                except Exception:
+                    facts = {}
+                try:
+                    data, fields, info = form_skeleton.skeleton_hwpx(self.db, d, name, facts)
+                except ValueError as e2:
+                    return (f"「{storage.title_of(d.get('filename') or '')}」 은 {e} — 구조 사본도 만들지 못했다({str(e2)[:100]}). "
+                            "담당자에게 원본이 너무 크다고 알리고, 그림을 뺀 한글 파일이나 hwpx 로 다시 올려 달라고 하거나 "
+                            "hwp_form_create 로 그 문서의 목차를 참고해 설계한다.")
+                src = f"doc:{d['id']}:구조사본"
+                skel_note = (f" 원본이 커서({e}) 반입 때 읽은 글에서 목차·표 머리를 옮긴 구조 사본으로 열었다(절 {info['sections']}개 · 표 {info['tables']}개"
+                        + (f", 상한을 넘은 뒤쪽 절 {info['dropped_sections']}개 생략" if info.get("dropped_sections") else "")
+                        + (f", 한 절에 둘째 이상인 표 {info['extra_tables']}개는 절 글로 쓴다" if info.get("extra_tables") else "")
+                        + "). 그림·서식은 빠졌고 옛 값은 옮기지 않았다 — 담당자에게도 이 점을 한 줄로 알린다.")
+            else:
+                src = f"doc:{d['id']}"
         else:
             return "form 은 hwp_forms 결과의 id(tpl:… 또는 doc:…)다."
         blank_note = (f" 고른 양식은 값이 채워진 지난 문서라 표 칸의 옛 값 {rep['blanked']}칸을 비운 사본으로 시작했다 — 옛 수치는 이 해의 값이 아니다. "
@@ -620,7 +650,7 @@ class HwpTools:
                 return (f"「{dup['name']}」 작업본이 이미 있다(#{dup['id']}) — 그 문서를 고치는 요청이면 hwp_switch {{doc: \"{dup['name']}\"}} 로 바꾼 뒤 "
                         "hwp_fields·hwp_revise 로 고친다. 담당자가 정말 새 문서를 원하면 hwp_start 에 new: true 를 준다.")
         if cur and self._empty_doc(cur):
-            return self._load_into(cur, data, fields, name, src) + blank_note
+            return self._load_into(cur, data, fields, name, src) + blank_note + skel_note
         fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder,
                          project=int(self.project["id"]) if self.project and self.project.get("id") else None)
         m = webhwp.meta(self.db, fid)
@@ -633,7 +663,7 @@ class HwpTools:
         for x in fields:
             kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
         return (f"작업본 「{name}」 을 {self.dept}/{folder} 에 만들고 이 대화에 이었다(필드 {len(fields)}개: "
-                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data) + blank_note)
+                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data) + blank_note + skel_note)
 
     EMPTY_CHARS = 200          # 이어진 문서의 칸 글 합이 이만큼 안 되면 「빈 문서」 — 양식을 새 작업본이 아니라 그 문서에 불러온다
 
