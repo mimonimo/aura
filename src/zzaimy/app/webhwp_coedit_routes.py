@@ -109,6 +109,27 @@ def hwp_coedit(request: Request, fid: int, field: list[str] | None = Query(None)
     return snap
 
 
+_READ_LOCKS: dict[tuple, asyncio.Lock] = {}
+
+
+async def _shared_events(db, fid: int, last_id: int) -> list[dict]:
+    """같은 문서 알림 흐름들이 한 번만 읽는다 — 기다리는 창은 이벤트 루프에서 기다려(작업 스레드를 붙잡지 않아) 변경 요청이 밀리지 않는다."""
+    hit = ce.shared_lookup(db, fid, last_id)
+    if hit is not None:
+        return hit
+    key = (id(asyncio.get_running_loop()), str(getattr(db, "path", id(db))), int(fid))   # 잠금은 이 이벤트 루프·이 DB 의 것
+    if len(_READ_LOCKS) > 2000:
+        _READ_LOCKS.clear()
+    lk = _READ_LOCKS.setdefault(key, asyncio.Lock())
+    async with lk:
+        hit = ce.shared_lookup(db, fid, last_id)               # 기다리는 사이 다른 창이 읽어 두었으면 그것
+        if hit is not None:
+            return hit
+        gen = ce.HUB.generation(fid)
+        evs = await run_in_threadpool(lambda: ce.events_since(db, fid, last_id, 20, full=False))
+        return ce.shared_put(db, fid, gen, last_id, evs)
+
+
 @router.get("/hwp/{fid}/events")
 async def hwp_events(request: Request, fid: int, last: int = 0):
     _readable(request, fid)
@@ -138,7 +159,7 @@ async def hwp_events(request: Request, fid: int, last: int = 0):
                 if await request.is_disconnected():
                     break
                 wake.clear()
-                evs = await run_in_threadpool(lambda: ce.events_since(db, fid, last_id, 20, full=False))
+                evs = await _shared_events(db, fid, last_id)   # 창 N 개가 한 번 읽은 것을 나눠 쓴다
                 for e in evs:
                     if e["id"] in seen or e["id"] <= last_id - 20 or e["id"] <= floor:
                         continue

@@ -212,6 +212,11 @@ class _Hub:
     def __init__(self):
         self.lock = threading.Lock()
         self.waiters: dict[int, set] = {}
+        self.gen: dict[int, int] = {}      # 문서마다 깨운 횟수 — 같이 읽은 알림(shared_events)이 아직 새것인지 가린다
+
+    def generation(self, fid: int) -> int:
+        with self.lock:
+            return self.gen.get(int(fid), 0)
 
     def count(self, fid: int, user: str) -> int:
         with self.lock:
@@ -229,6 +234,7 @@ class _Hub:
 
     def wake(self, fid: int) -> None:
         with self.lock:
+            self.gen[int(fid)] = self.gen.get(int(fid), 0) + 1
             targets = list(self.waiters.get(int(fid), ()))
         for loop, ev, _ in targets:
             try:
@@ -308,6 +314,34 @@ def events_since(db, fid: int, last_id: int, lookback: int = 0, *, full: bool = 
                 if e["kind"] == "field-updated" and "text" not in d and d.get("field") in cur:
                     d["text"] = cur[d["field"]]["text"]
     return out
+
+
+_SHARED: dict[tuple, dict] = {}
+
+
+def _skey(db, fid: int) -> tuple:
+    return (str(getattr(db, "path", id(db))), int(fid))      # 한 프로세스에 앱(DB)이 여럿이어도(시험) 섞이지 않게
+
+
+def shared_lookup(db, fid: int, last_id: int, lookback: int = 20, max_age: float = 0.5) -> list[dict] | None:
+    """알림 흐름(SSE)들이 같이 읽은 알림에서 꺼내기 — 없거나 낡았으면 None(부르는 쪽이 읽고 shared_put).
+    한 문서에 창이 N 개면 변경 하나에 N 번 읽던 것을 한 번으로(11-10 부하 시험: 16창에서 읽기가 변경×창 수로 늘어 초당 33건에서 막혔다).
+    같은 프로세스가 깨운 뒤(세대 번호)·max_age 안의 읽기만 나눠 쓰고, 늦게 붙은 창(더 앞 번호부터 필요한 창)이나 500줄을 꽉 채운 읽기는 따로.
+    돌려주는 알림은 창마다 이름을 덧붙이므로 복사본. DB 를 읽지 않으므로 이벤트 루프에서 바로 불러도 된다."""
+    fid, start = int(fid), max(0, int(last_id) - lookback)
+    c = _SHARED.get(_skey(db, fid))
+    if not (c and c["gen"] == HUB.generation(fid) and time.time() - c["at"] < max_age and c["after"] <= start
+            and (len(c["events"]) < 500 or c["after"] == start)):
+        return None
+    return [{"id": e["id"], "kind": e["kind"], "data": dict(e["data"])} for e in c["events"] if e["id"] > start]
+
+
+def shared_put(db, fid: int, gen: int, last_id: int, events: list[dict], lookback: int = 20) -> list[dict]:
+    """읽은 알림을 같은 문서의 다른 창이 쓰게 남긴다 — gen 은 읽기 전에 본 세대(읽는 사이 깨움이 있으면 다음 창이 다시 읽는다)."""
+    if len(_SHARED) > 500:
+        _SHARED.clear()                                       # 문서가 아주 많이 열렸다 닫혀도 자라지 않게
+    _SHARED[_skey(db, fid)] = {"gen": gen, "at": time.time(), "after": max(0, int(last_id) - lookback), "events": events}
+    return [{"id": e["id"], "kind": e["kind"], "data": dict(e["data"])} for e in events]
 
 
 def last_event_id(db, fid: int) -> int:
