@@ -1289,9 +1289,18 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
     from zzaimy.app import webhwp_coedit as ce
     db, user = request.app.state.db, getattr(request.state, "user", "")
 
+    base_sha = (request.headers.get("x-base-sha") or "").strip().lower()
+
     def run():
         # 칸 글은 공동 편집 표가 정답 — 이 판에 표의 칸 글을 덮어 써 저장한다(다른 사람이 동시에 쓴 칸이 사라지지 않게)
         with ce.file_lock(fid):
+            if base_sha and not quiet:
+                # 내가 연 판 뒤에 다른 사람이 문서 전체를 새로 저장했다 — 그대로 덮으면 그 사람이 칸 밖에 쓴 글이 사라진다(11-10 9명 동시 실측).
+                # 덮지 않고 알린다: 화면은 세 판 합치기(/rescue)로 내 칸 밖 고침만 지금 판에 옮긴다
+                import hashlib
+                cur = Path(webhwp.get(db, fid)["path"])
+                if cur.exists() and hashlib.sha256(cur.read_bytes()).hexdigest() != base_sha:
+                    raise _Stale()
             own = ce.own_changes(db, fid, data, user) if not quiet else {}
             new, done, versions = ce.overlay(db, fid, data, keep_author=user if not quiet else "")
             wrapped = 0
@@ -1311,10 +1320,72 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
         return p_, new, done, wrapped
     try:
         p, data, merged, wrapped = await run_in_threadpool(run)
+    except _Stale:
+        raise HTTPException(409, "stale: 연 뒤에 다른 사람이 새 판을 저장했습니다")
     except ValueError as e:
         raise HTTPException(400, str(e))
     _touch(request, webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"]))
     return {"ok": True, "name": p.name, "size": len(data), "merged": merged, "wrapped": wrapped}
+
+
+class _Stale(Exception):
+    """저장하려는 문서의 바탕 판이 지금 파일과 다르다(그 사이 다른 사람이 새 판을 저장)."""
+
+
+@router.post("/hwp/{fid}/rescue")
+async def hwp_rescue(request: Request, fid: int):
+    """칸 밖 고침 살리기(11-10) — 다른 사람이 문서 틀을 고쳐 새 판을 저장해 내 화면을 다시 열어야 할 때, 내 화면이 칸 밖에 쓴 글을
+    세 판(base=내가 연 판, mine=내 화면, theirs=지금 파일)으로 합쳐 지금 판에 옮긴다. 옮기지 못한 글은 충돌 사본(webhwp_conflicts)으로 남기고
+    돌려준다 — 어떤 경우에도 소리 없이 버리지 않는다. 다른 사람이 문서 틀을 쥐고 있으면 기다리라고 돌려준다(그 사람 저장이 덮지 않게)."""
+    _need_staff(request)
+    f = _file(request, fid)
+    if webhwp.locked(request.app.state.db, fid) and getattr(request.state, "role", "") != "dev":
+        raise HTTPException(403, "공통 양식은 관리자만 고칩니다")
+    _not_view_only(request, fid)                      # 문서 틀 잠금은 아래에서 「기다림」 으로 돌려준다(_writable 의 409 대신)
+    form = await request.form()
+    try:
+        base_b = await form["base"].read()
+        mine_b = await form["mine"].read()
+    except Exception:
+        raise HTTPException(400, "base·mine 두 판이 필요합니다")
+    if len(base_b) > MAX_BYTES or len(mine_b) > MAX_BYTES:
+        raise HTTPException(413, "파일이 너무 큽니다")
+    from starlette.concurrency import run_in_threadpool
+    from zzaimy.app import webhwp_coedit as ce
+    from zzaimy.app import webhwp_merge as wm
+    db, user = request.app.state.db, getattr(request.state, "user", "")
+    holder = webhwp.lock_holder(db, fid)
+    if holder.get("user") and holder["user"] != user:
+        return {"ok": False, "wait": True, "by": holder["user"],
+                "by_name": webhwp.display_name(db, holder["user"], getattr(request.app.state, "accounts", None))}
+
+    def run():
+        import time as _t
+        with ce.file_lock(fid):
+            cur = Path(webhwp.get(db, fid)["path"])
+            theirs = cur.read_bytes()
+            merged, rep = wm.merge_outside(base_b, mine_b, theirs)
+            saved = False
+            if merged is not None:
+                try:
+                    from zzaimy.app import webhwp_fields as wf
+                    merged, _w = wf.wrap_rest(merged, limit=int(ce.conf(db, "para_wrap_max")))
+                except Exception:
+                    pass
+                webhwp.save(db, _base(request), fid, merged, user=user)
+                saved = True
+            lost = [t for t in rep.get("lost") or [] if t]
+            if lost:
+                ce.ensure(db)
+                with db._conn() as conn:
+                    conn.execute("INSERT INTO webhwp_conflicts (fid, field, user_id, base_version, server_version, text, reason, at)"
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (int(fid), "(칸 밖)", user, 0, 0, "\n".join(lost), "struct", _t.time()))
+        return saved, rep, lost
+    saved, rep, lost = await run_in_threadpool(run)
+    if saved:
+        _touch(request, webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"]))
+    return {"ok": True, "saved": saved, "moved": int(rep.get("moved") or 0), "lost": lost,
+            "skipped_deletes": int(rep.get("skipped_deletes") or 0), "error": rep.get("error", "")}
 
 
 _STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)   # 기안기 정적 파일(경로 끝 확장자) — 커서 그림(.cur)도: 열 때마다 수백 번 다시 묻던 것(10-27)

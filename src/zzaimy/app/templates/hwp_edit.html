@@ -339,11 +339,39 @@
     }).catch(function (e) { say(e.message, 'bad'); unblock(); });
   });
   setTimeout(fit, 300);
+  // 연 판(바탕)을 기억한다 — 다른 사람이 새 판을 저장해 다시 열어야 할 때, 내 화면이 칸 밖에 쓴 글을 세 판 합치기로 지금 판에 옮긴다(11-10)
+  var baseBlob = null, baseSha = '', outsidePending = false;
   function loadFile() {
     return fetch(fileUrl, {credentials: 'same-origin', cache: 'no-store'}).then(function (r) {
       if (!r.ok) throw new Error('파일을 받지 못했습니다(' + r.status + ')');
       return r.blob();
-    }).then(function (blob) { return hwp.open(blob, name); });
+    }).then(function (blob) {
+      baseBlob = blob; baseSha = '';
+      try { blob.arrayBuffer().then(function (b) { return crypto.subtle.digest('SHA-256', b); }).then(function (h) {
+        if (baseBlob === blob) baseSha = Array.from(new Uint8Array(h)).map(function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+      }).catch(function () {}); } catch (e) {}
+      return hwp.open(blob, name);
+    });
+  }
+  // 칸 밖 고침 살리기 — 내 화면(mine)과 연 판(base)을 보내 서버가 지금 판에 옮긴다. 다른 사람이 문서 틀을 쥐고 있으면 놓을 때까지 기다린다.
+  // 옮기지 못한 글은 서버가 충돌 사본으로 남기고, 이 화면도 「내 글 보기」 에 남긴다 — 어떤 경우에도 소리 없이 버리지 않는다
+  function rescueOutside() {
+    if (!outsidePending || !baseBlob || readonly) return Promise.resolve();
+    var rescueUrl = fileUrl.replace(/\/file$/, '/rescue');
+    return Promise.resolve(hwp.hwpx()).then(function (mine) {
+      var fd = new FormData();
+      fd.append('base', baseBlob, 'base.hwpx');
+      fd.append('mine', new Blob([mine]), 'mine.hwpx');
+      return fetch(rescueUrl, {method: 'POST', credentials: 'same-origin', body: fd}).then(function (r) { return r.json(); });
+    }).then(function (j) {
+      if (j && j.wait) {
+        say((j.by_name || j.by || '다른 사람') + ' 님이 문서 틀을 고치는 중 · 끝나면 내가 칸 밖에 쓴 글을 옮깁니다', 'busy');
+        return new Promise(function (res) { setTimeout(res, 3000); }).then(rescueOutside);
+      }
+      outsidePending = false;
+      (j && j.lost || []).forEach(function (t) { if (eng && eng.keepCopy) eng.keepCopy('(칸 밖)', t, 'struct', ''); });
+      if (j && j.moved) say('칸 밖에 쓴 글 ' + j.moved + '곳을 새 판에 옮겼습니다', 'ok');
+    }).catch(function (e) { say('칸 밖에 쓴 글을 옮기지 못했습니다 — 화면을 닫지 말고 다시 시도해 주세요', 'bad'); throw e; });
   }
 
   // ── 처음 배율 — 넓은 화면에서 「폭 맞춤」 이 너무 크게 보여(125~200%) 처음엔 100%, 사람이 바꾼 배율은 기억해 다음에도(이 브라우저) ──
@@ -394,15 +422,29 @@
     cui = AuraCollab.ui(eng, hwp, {avatars: document.querySelector('[data-people]'), bar: bar, me: me, meName: meName});
     eng.on('status', function (kind, text) { coStatus = {kind: kind, text: text}; drawCoStatus(); });
     eng.on('error', function (m) { say(m, 'bad'); });
-    eng.on('struct', function (u) { structBy = u; drawStruct(); if (mode === 'whole') wholeLockChanged(u); });
+    eng.on('struct', function (u) {
+      structBy = u; drawStruct(); if (mode === 'whole') wholeLockChanged(u);
+      if (mode === 'fields' && !structMine) {
+        if (u && u !== me) hwp.setFormMode(true);           // 남이 문서 틀을 고치는 동안 칸 밖 입력을 막아 그 저장에 묻히지 않게(11-10)
+        else if (!u) { hwp.setFormMode(eng.formOnly()); if (outsidePending && !reloadPending) rescueOutside().catch(function () {}); }
+      }
+    });
     eng.on('doc-saved', function (d) { reloadWhenSafe(d); });
     // 일반 편집 모드(10-26): 여러 칸에 걸친 고침·칸 바깥 고침(붙여 넣은 표 등) — 편집기는 이미 고쳤다. 곧바로 문서 틀 잠금을 잡고 2초 뒤 문서 전체를
     // 저장한다(서버가 새 문단을 칸으로 감싸고 같은 이름 칸을 고친다). 저장이 끝나면 저절로 잠금을 놓고 새 판으로 다시 연다
     function autoStructOn() {
       if (structMine) { touched(); return; }
-      if (readonly || autoStruct) return;
+      if (readonly) return;
+      if (structBy && structBy !== me) { holdOutside(); return; }     // 남이 문서 틀을 쥐고 있다 — 잠금을 청하지 않고 살릴 것으로
+      if (autoStruct) return;
       autoStruct = true;
-      structOn().then(function (ok) { if (ok) touched(); else autoStruct = false; });
+      structOn().then(function (ok) { if (ok) touched(); else { autoStruct = false; holdOutside(); } });
+    }
+    // 남이 문서 틀을 고치는 동안 내가 칸 밖에 쓴 글 — 버리지 않고 표시해 두었다가 다시 열기 전에 옮긴다. 그 사이 칸 밖 입력은 막는다(칸 안만)
+    function holdOutside() {
+      outsidePending = true;
+      if (mode === 'fields') hwp.setFormMode(true);
+      say((structBy ? eng.nameOf(structBy) + ' 님이 ' : '다른 사람이 ') + '문서 틀을 고치는 중 · 방금 칸 밖에 쓴 글은 그 저장 뒤 옮깁니다. 그동안 칸 안만 쓸 수 있습니다', 'busy');
     }
     eng.on('cross-edit', autoStructOn);
     eng.on('outside-edit', autoStructOn);
@@ -479,7 +521,8 @@
       if (!reloadPending) return;
       if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1500 || saving) { setTimeout(wait, 500); return; }
       var flushed = eng ? eng.flush() : Promise.resolve();
-      flushed.then(function () {
+      flushed.then(rescueOutside).then(function () {
+        if (!reloadPending) return;                    // 살리기 저장이 새 판 알림을 다시 냈다 — 그 알림이 다시 연다
         var who = reloadPending; reloadPending = null;
         var cur = hwp.getCursor(false, true);   // 보던 자리 기준점째 — 새 판에서 그 자리가 밀린 만큼 화면을 맞춘다
         var au0 = eng && eng.aura ? eng.aura() : {}, byAura0 = who.by === 'AURA' || (au0.field && au0.by && au0.by === who.by);
@@ -588,7 +631,8 @@
     if (!ready || saving || readonly || !canSaveWhole()) { if (then && !saving) then(); return Promise.resolve(); }
     saving = true; saveBtn.disabled = true; say('저장 중', 'busy');
     return (eng ? eng.flush() : Promise.resolve()).then(function () { return hwp.hwpx(); }).then(function (bytes) {
-      return fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes})
+      var hd = {'Content-Type': 'application/octet-stream'}; if (baseSha) hd['X-Base-Sha'] = baseSha;
+      return fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: hd, body: bytes})
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.detail || ('저장하지 못했습니다(' + r.status + ')')); e.status = r.status; throw e; } return j; }); });
     }).then(function (j) {
       dirty = false;
@@ -596,7 +640,18 @@
       say((auto ? '자동 저장됨 · ' : '저장됨 · ') + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
       if (autoStruct && structMine && auto) { autoStruct = false; structOff(); }   // 저절로 잡은 잠금은 저장이 끝나면 놓는다
       if (then) then();
-    }).catch(function (e) { say(e.message, 'bad'); if (e.status === 409) { ready = false; holding = false; clearTimeout(idleTimer); } })
+    }).catch(function (e) {
+      if (e.status === 409 && /^stale/.test(e.message || '')) {
+        // 연 뒤에 다른 사람이 새 판을 저장했다 — 문서 전체로 덮지 않고 내 칸 밖 고침만 세 판 합치기로 옮긴 뒤 새 판을 연다(11-10)
+        outsidePending = true; dirty = false;
+        say('다른 사람이 새 판을 저장해 내 고침만 옮겨 넣는 중', 'busy');
+        var unlockAfter = structMine;
+        return rescueOutside().then(function () {
+          if (unlockAfter) { structMine = false; holding = false; clearInterval(beat); autoStruct = false; return post(unlockUrl).catch(function () {}); }
+        }).then(function () { drawStruct(); if (!reloadPending) reloadWhenSafe({by: ''}); });
+      }
+      say(e.message, 'bad'); if (e.status === 409) { ready = false; holding = false; clearTimeout(idleTimer); }
+    })
       .then(function () { saving = false; saveBtn.disabled = !ready; });
   }
   saveBtn.addEventListener('click', function () { if (isNew) openSaveAs('create'); else save(false); });
