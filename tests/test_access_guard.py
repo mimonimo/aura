@@ -149,3 +149,11 @@ def test_upload_route_uses_uploader_department(tmp_path):
 
     d = Database(tmp_path / "t.db").get_document(1)
     assert d["dept"] == "학생처" and d["access_level"] == "owner"
+
+
+def test_pii_word_used_as_form_field_is_not_a_request():
+    # 기안문 요청에 「모르는 연락처 칸은 비워 둬」 — 양식 칸을 가리킨 말이다(11-09 오판). 남의 연락처를 묻는 말은 그대로 막는다
+    assert ag.pii_request("총장님께 올릴 내부 보고 공문을 작성해 줘. 모르는 연락처 칸은 비워 둬.") is None
+    assert ag.pii_request("결재권자 전화번호 란은 그대로 두고 총장님 보고 공문 써 줘") is None
+    assert ag.pii_request("총장님 연락처 알려줘") == ag.PII_NOTE
+    assert ag.pii_request("김영희 교수님 전화번호 칸에 뭐라고 적혀 있어? 그리고 김영희 교수님 전화번호 알려줘") == ag.PII_NOTE

@@ -220,6 +220,21 @@ def project_programs(db, session_: dict | None) -> tuple[list[str], int | None]:
     return names, year
 
 
+def _project_criteria(db, session_: dict | None) -> set[int]:
+    """대화가 속한 프로젝트의 기준 문서 id — 같은 내용을 다시 올려 기존 문서와 연결된 반입은 기존 문서 id 도 함께."""
+    pid = (session_ or {}).get("project_id")
+    if not pid:
+        return set()
+    from zzaimy.app.read_failure import twin_of
+    out: set[int] = set()
+    for i in db.get_project_criteria_ids(int(pid)):
+        out.add(int(i))
+        t = twin_of(db, db.get_document(int(i)))
+        if t is not None:
+            out.add(int(t))
+    return out
+
+
 def source_program(db, session_: dict | None, hit: dict) -> tuple[str, str]:
     """검색 결과 하나의 출처 문서가 이 프로젝트와 다른 사업의 문서인가 — (다른 사업 이름, 연도 알림).
 
@@ -233,6 +248,10 @@ def source_program(db, session_: dict | None, hit: dict) -> tuple[str, str]:
     if not mine:
         return "", ""
     did = hit.get("doc_id")
+    if did is not None and int(did) in _project_criteria(db, session_):
+        # 이 프로젝트의 기준 문서(공고·기본계획·지침)는 이 사업이 따르는 공고다 — 사업 이름이 프로젝트 이름과 달라도 남의 사업이 아니다.
+        # 「2027 AI 교육 사업」 프로젝트에 올린 「지방대학 특성화 육성사업 공고」 를 다른 사업으로 표시해 에이전트가 「공고가 없다」고 되물었다(11-09)
+        return "", ""
     doc = db.get_document(int(did)) if did is not None else None
     titles = [str(hit.get("title") or "")] + ([storage.title_of(doc.get("filename") or "")] if doc else [])
     ident = (db.get_doc_identity(int(did)) or {}) if did is not None else {}

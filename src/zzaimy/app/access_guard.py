@@ -59,11 +59,20 @@ _OTHER_TAIL = r"(?:씨|님|교수|선생|직원|학생|담당자|팀장|과장|�
 _SELF_OWN = {"나의", "내", "제", "저의", "본인", "본인의"}         # 자기 값 앞에 오는 말
 
 
+# 개인정보 낱말이 문서 칸 이름으로 쓰인 것 — 「연락처 칸은 비워 둬」·「모르는 전화번호 란」 은 값을 묻는 말이 아니라 양식 칸을 가리킨다(11-09 기안문 오판)
+_FIELD_AFTER = re.compile(r"^\s*(?:칸|란|항목|자리|필드|빈칸|기입란|입력란)")
+
+
+def _asks_for(q: str, m: re.Match) -> bool:
+    """이 개인정보 낱말이 값을 묻는 자리인가 — 바로 뒤가 칸·란 같은 양식 칸 이름이면 아니다."""
+    return not _FIELD_AFTER.match(q[m.end():m.end() + 6])
+
+
 def pii_request(question: str) -> str | None:
     """특정인(남)의 개인정보를 묻는 질문이면 안내문, 아니면 None. 권한과 무관하게 적용한다.
     지칭이 말하는 사람 자신(나는 교수·제가 직원)뿐이면 묻는 사람이 제 값을 준 것이라 막지 않는다."""
     q = question or ""
-    if not any(w in q for w in _PII_WORDS):
+    if not any(_asks_for(q, m) for w in _PII_WORDS for m in re.finditer(re.escape(w), q)):
         return None
     for m in _PERSON.finditer(q):
         name = re.match(r"[가-힣]+", m.group(0))

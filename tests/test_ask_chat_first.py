@@ -164,3 +164,13 @@ def test_search_run_gate_constant_present():
     from zzaimy.app import main
     src = inspect.getsource(main)
     assert "SEARCH_RUN_MAX" in src and "찾기는 충분하다" in src
+
+
+def test_project_criteria_notice_is_not_a_different_program(tmp_path):
+    # 프로젝트의 기준 문서(이 사업이 따르는 공고)는 사업 이름이 프로젝트와 달라도 남의 사업이 아니다(11-09: 「공고가 없다」 오판)
+    db = Database(tmp_path / "t.db")
+    sid = _project_session(db)
+    db.add_project_criteria(int(db.get_chat_session(sid)["project_id"]), [PROJECT_DOC])
+    assert asks.source_program(db, db.get_chat_session(sid), {"doc_id": PROJECT_DOC, "title": OTHER_NOTICE}) == ("", "")
+    why = _resolve(db, sid, OTHER_NOTICE)
+    assert "다른 사업" not in (why or "")

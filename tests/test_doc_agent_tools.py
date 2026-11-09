@@ -204,7 +204,8 @@ def test_injected_step_cannot_switch_the_working_document(agent_app, tmp_path, m
     client.post("/chat/send", data={"question": "다음 절 이어서 써 줘", "session_id": str(sid)}, follow_redirects=False)
     assert copied == [] and not db.get_setting(f"chat_google_doc:{sid}")
     obs = [s_["observation"] for s_ in _episodes(tmp_path)[-1]["steps"][:2]]
-    assert all("짚지 않아" in o for o in obs)
+    # 작업본 열기(쓰기로 이어짐)는 막고, 판독은 읽기만이라 이 프로젝트에 올린 문서면 읽는다 — 작업 문서는 그대로(11-09)
+    assert "짚지 않아" in obs[0] and "짚지 않아" not in obs[1]
 
 
 def test_remember_values_rejects_unasked_names_and_one_char_values(agent_app, tmp_path, monkeypatch):

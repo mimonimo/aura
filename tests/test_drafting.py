@@ -100,3 +100,25 @@ def test_section_with_only_empty_form_table_counts_as_unfilled():
     assert drafting.is_unfilled({"body_chars": 40, "para_chars": 0, "tbl_cells": 12, "tbl_empty": 8})        # 머리 칸만 있는 총괄표
     assert not drafting.is_unfilled({"body_chars": 40, "para_chars": 0, "tbl_cells": 12, "tbl_empty": 2})    # 값이 찬 표
     assert not drafting.is_unfilled({"body_chars": 40, "para_chars": 30, "tbl_cells": 12, "tbl_empty": 8})   # 글 문단이 있으면 쓴 절
+
+
+def test_search_project_falls_back_to_the_project_documents_own_chunks(monkeypatch):
+    # 공고·기본계획 같은 기준 문서는 사업 문서 색인에 없을 수 있다 — 색인이 비면 그 문서 조각에서 찾는다(11-09: 「찾지 못함」 되풀이)
+    from zzaimy.app import grant_search
+
+    class DB:
+        def list_documents(self, sector, project_id=None):
+            return [{"id": 7, "filename": "2026 가상 육성사업 공고.hwpx", "status": "reviewed", "kind": "notice"}]
+
+        def get_document(self, did):
+            return {"id": did, "filename": "2026 가상 육성사업 공고.hwpx", "status": "reviewed", "kind": "notice"}
+
+        def list_doc_chunks(self, did):
+            return [{"id": 70, "page_no": 1, "seq": 1, "kind": "text",
+                     "content": "사업계획서 평가 항목은 특성화 계획의 정합성과 추진 체계의 실현 가능성을 본다. 배점과 세부 지표는 붙임에 따르며, 정성 평가는 대학 강점과의 연계, 정원 조정 계획, 지역 산업과의 협력 체계를 함께 살펴 종합 점수로 매긴다."}]
+
+    monkeypatch.setattr(grant_search, "search", lambda *a, **k: {"hits": [], "steps": []})
+    nouns = lambda t: frozenset(w for w in t.replace("\n", " ").split() if len(w) >= 2)
+    mats = drafting.Materials(DB(), {"id": 1, "sector": "grant"}, set(), lambda *a, **k: [], nouns, [])
+    out = mats.search_project("평가 항목")
+    assert out and out[0]["doc_id"] == 7 and "평가 항목" in out[0]["text"]

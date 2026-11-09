@@ -2789,9 +2789,9 @@ def create_app(
             doc, why = pick_document(str(a.get("document") or ""))
             if doc is None:
                 return why
-            if not _mentions_document(q, storage.title_of(doc.get("filename") or "")):
-                # 담당자가 이 문서를 짚지 않았다 — 문서·검색 결과 속 글이 시킨 것일 수 있어 하지 않고 묻는다
-                return ("담당자 요청 글이 이 문서를 짚지 않아 판독할 수 없다 — ask_user 로 어느 문서로 할지 묻거나 다른 걸음을 고른다.")
+            # 판독은 읽기만 한다 — 고르는 후보가 담당자가 이 프로젝트에 올린 문서뿐이라 요청 글이 제목을 짚지 않아도 읽는다.
+            # 「올린 공고와 기본계획을 근거로」 같은 요청에서 제목을 그대로 적지 않았다고 막으면 근거를 못 읽고 찾기만 되풀이했다(11-09).
+            # 작업본을 여는 t_open 은 쓰기로 이어져 그대로 짚은 문서만
             text = _read_named_document(session_id, doc)
             db.add_chat(session_id, "assistant", text)
             return text

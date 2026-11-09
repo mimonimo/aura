@@ -218,10 +218,9 @@ class Materials:
         ids = {int(d["id"]) for d in self.past_docs()}
         if not ids or sc.get("role") == "student":
             return []
-        from zzaimy.app import grant_search
-        hits = [h for h in grant_search.search(self.db, query, k=k + 3, user=sc.get("user"), prefer_docs=ids,
-                                                 depts=sc.get("grant_depts"))["hits"] if int(h.get("doc_id") or 0) in ids]
-        out = [self._hit(h) for h in hits if useful_chunk(h.get("content") or "")][:k]
+        # 사업 문서 색인에 없는 프로젝트 문서(공고·기본계획 같은 기준 문서)도 있다 — 색인에서 못 찾으면 그 문서 조각에서 찾는다(_search_docs).
+        # 색인만 보던 때는 공고·기본계획을 올린 프로젝트에서도 「찾지 못함」이 나와 에이전트가 「공고가 없다」고 되물었다(11-09)
+        out = self._search_docs(query, ids, k)
         self._sink(out, "프로젝트 문서")
         return out
 
