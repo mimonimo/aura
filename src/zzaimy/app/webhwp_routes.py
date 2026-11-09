@@ -1320,6 +1320,18 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
 _STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)   # 기안기 정적 파일(경로 끝 확장자) — 커서 그림(.cur)도: 열 때마다 수백 번 다시 묻던 것(10-27)
 _GZIP_EDITOR = re.compile(r"\.(js|css|wasm|svg)$", re.I)                       # 압축이 듣는 것(그림·woff2 는 이미 압축됨)
 _GZ_CACHE: dict[bytes, bytes] = {}
+# 여럿이 나눠 쓸 수 있는 기안기 정적 자산 — 편집기 배포물 폴더의 정해진 확장자만, 쿼리는 비었거나 판 번호뿐(11-10 보안 검토).
+# 문서 내려받기·변환·API(경로에 확장자가 없거나 배포물 폴더 밖)와 문서·사용자·세션 값이 쿼리에 실린 요청은 절대 담지 않는다
+_SHARED_DIRS = ("js/", "css/", "wasm/", "img/", "image/", "images/", "font/", "fonts/", "lib/", "commonFrame/", "resources/", "res/")
+_SHARED_EXT = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)
+_SHARED_QUERY = re.compile(r"^(?:v=)?[0-9][0-9.]{0,31}$")
+
+
+def _shared_static(raw: str, query: str) -> bool:
+    if not _SHARED_EXT.search(raw) or not raw.startswith(_SHARED_DIRS):
+        return False
+    return query == "" or bool(_SHARED_QUERY.match(query))
+
 
 
 def _gzipped(body: bytes) -> bytes:
@@ -1367,7 +1379,7 @@ async def webhwp_proxy(request: Request, path: str):
     if jar:
         headers["cookie"] = jar
     body = await _body(request)
-    if request.method == "GET" and _STATIC_EDITOR.search(raw):
+    if request.method == "GET" and _shared_static(raw, request.url.query):
         # 편집기 정적 파일은 (경로·쿼리)마다 한 번만 받아 메모리·디스크에 둔다 — 여럿이 동시에 처음 열어도 기안기 서버·압축을 한 번만(11-10 9명 동시 85초)
         from zzaimy.app.webhwp_static_cache import CACHE as _sc
         if _sc._disk is None:
@@ -1380,8 +1392,9 @@ async def webhwp_proxy(request: Request, path: str):
             return rr.status_code, dict(rr.headers), rr.content
 
         try:
-            ent = await _sc.get(_sc.key(raw, request.url.query), webhwp.status().get("version", ""), _fetch,
-                                lambda b: bool(_GZIP_EDITOR.search(raw)) and len(b) > 4096)
+            ver = webhwp.status().get("version", "")
+            ent = (await _sc.get(_sc.key(raw, request.url.query), ver, _fetch,
+                                 lambda b: bool(_GZIP_EDITOR.search(raw)) and len(b) > 4096)) if ver else None
         except httpx.HTTPError:
             raise HTTPException(503, "웹 한글 기안기 서버에 연결하지 못했습니다")
         if ent is not None:

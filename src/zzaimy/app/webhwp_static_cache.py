@@ -20,7 +20,22 @@ import time
 from pathlib import Path
 
 _MEM_MAX = int(os.environ.get("ZZAIMY_WEBHWP_STATIC_CACHE_MB", "256")) * 1024 * 1024   # 메모리 상한(넘으면 오래된 것부터 뺌)
+_DISK_MAX = int(os.environ.get("ZZAIMY_WEBHWP_STATIC_DISK_MB", "512")) * 1024 * 1024   # 디스크 상한(넘으면 오래된 것부터 지움)
+_ITEM_MAX = int(os.environ.get("ZZAIMY_WEBHWP_STATIC_ITEM_MB", "32")) * 1024 * 1024    # 항목 하나 상한(편집기 wasm 13MB) — 넘으면 담지 않는다
+_KEYS_MAX = 600                                                 # 열쇠 수 상한 — 넘으면 새 열쇠는 담지 않는다(쿼리로 열쇠를 무한히 늘리지 못하게)
+_WAIT_MAX = 64                                                  # 한 열쇠를 기다리는 요청 수 상한 — 넘으면 캐시 없이 평소대로
 _KEEP_HEADERS = ("content-type", "last-modified", "etag")       # 캐시에 담는 응답 머리(쿠키·세션은 담지 않는다)
+
+
+def cacheable_response(headers: dict) -> bool:
+    """여럿이 나눠 써도 되는 응답인가 — 세션 쿠키를 주거나, 사람마다 다르다고(private·no-store·Vary: Cookie/Authorization) 밝힌 응답은 아니다."""
+    h = {str(k).lower(): str(v).lower() for k, v in (headers or {}).items()}
+    if "set-cookie" in h:
+        return False
+    if any(x in h.get("cache-control", "") for x in ("private", "no-store")):
+        return False
+    vary = h.get("vary", "")
+    return not any(x in vary for x in ("cookie", "authorization", "*"))
 
 
 class Entry:
@@ -38,7 +53,8 @@ class StaticCache:
         self._locks: dict[tuple, asyncio.Lock] = {}
         self._guard = threading.Lock()
         self._disk: Path | None = None
-        self.stats = {"upstream": 0, "mem": 0, "disk": 0, "waited": 0}
+        self._waiting: dict[str, int] = {}
+        self.stats = {"upstream": 0, "mem": 0, "disk": 0, "waited": 0, "bypass": 0}
 
     # ---- 열쇠·자리 ----
     @staticmethod
@@ -49,6 +65,7 @@ class StaticCache:
         d = Path(base) / "cache" / "webhwp_static"
         try:
             d.mkdir(parents=True, exist_ok=True)
+            os.chmod(d, 0o700)                               # 앱 계정만 — 파일 이름은 열쇠의 해시(쿼리 원문을 드러내지 않는다)
             self._disk = d
         except OSError:
             self._disk = None
@@ -105,15 +122,39 @@ class StaticCache:
                 if data is None:
                     continue
                 tmp = f.with_suffix(suf + ".tmp")
-                tmp.write_bytes(data)
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
                 os.replace(tmp, f.with_suffix(suf))
             tmp = f.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps({"key": key, "version": e.version, "headers": e.headers,
-                                       "sha256": hashlib.sha256(e.body).hexdigest(), "size": len(e.body)},
-                                      ensure_ascii=False), encoding="utf-8")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"key": key, "version": e.version, "headers": e.headers,
+                                     "sha256": hashlib.sha256(e.body).hexdigest(), "size": len(e.body)}, ensure_ascii=False))
             os.replace(tmp, f.with_suffix(".json"))
+            self._trim_disk()
         except OSError:
             pass
+
+    def _trim_disk(self) -> None:
+        """디스크 상한을 넘으면 오래된 항목부터 지운다."""
+        if self._disk is None:
+            return
+        items = []
+        for m in self._disk.glob("*.json"):
+            parts = [m.with_suffix(x) for x in (".json", ".bin", ".gz")]
+            size = sum(p.stat().st_size for p in parts if p.exists())
+            items.append((m.stat().st_mtime, size, parts))
+        total = sum(i[1] for i in items)
+        for _t, size, parts in sorted(items):
+            if total <= _DISK_MAX:
+                break
+            for p_ in parts:
+                try:
+                    p_.unlink()
+                except OSError:
+                    pass
+            total -= size
 
     # ---- 꺼내기 ----
     async def get(self, key: str, version: str, fetch, want_gzip) -> Entry | None:
@@ -123,6 +164,25 @@ class StaticCache:
         if e is not None and (not version or e.version == version):
             self.stats["mem"] += 1
             return e
+        with self._guard:
+            if key not in self._mem and len(self._mem) >= _KEYS_MAX:
+                self.stats["bypass"] += 1
+                return None                                  # 열쇠가 너무 많다 — 담지 않고 평소대로
+            if self._waiting.get(key, 0) >= _WAIT_MAX:
+                self.stats["bypass"] += 1
+                return None
+            self._waiting[key] = self._waiting.get(key, 0) + 1
+        try:
+            return await self._get_locked(key, version, fetch, want_gzip)
+        finally:
+            with self._guard:
+                n = self._waiting.get(key, 1) - 1
+                if n <= 0:
+                    self._waiting.pop(key, None)
+                else:
+                    self._waiting[key] = n
+
+    async def _get_locked(self, key: str, version: str, fetch, want_gzip) -> Entry | None:
         lk = self._lock(key)
         if lk.locked():
             self.stats["waited"] += 1
@@ -139,8 +199,8 @@ class StaticCache:
                 return e
             status, headers, body = await fetch()
             self.stats["upstream"] += 1
-            if status != 200:
-                return None
+            if status != 200 or not cacheable_response(headers) or len(body) > _ITEM_MAX:
+                return None                                  # 사람마다 다를 수 있는 응답·너무 큰 응답은 담지 않는다
             keep = {k: v for k, v in headers.items() if k.lower() in _KEEP_HEADERS}
             gz = None
             if want_gzip(body):
