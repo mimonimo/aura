@@ -2826,6 +2826,13 @@ def create_app(
                     if note_:
                         return f"「{query}」(project) — 찾지 못함. " + note_
                 return f"「{query}」({src}) — 찾지 못함"
+            outside_note = ""
+            if src == "library" and project:
+                # 프로젝트 대화에서 문서함을 찾으면 프로젝트 밖 자료다 — 이름이 같은 다른 행사·다른 해 자료를 이 프로젝트의 사실로 쓰지 않게(11-10 대화 176)
+                for h in hits[:4]:
+                    h["note"] = ((h.get("note") or "") + " · " if h.get("note") else "") + "프로젝트 밖 자료"
+                outside_note = ("이 결과는 이 프로젝트에 올린 자료가 아니라 문서함 자료다 — 질문이 짚은 대상(행사·사업·연도)이 이 프로젝트의 것과 같은지"
+                                " 먼저 따지고, 다르면 쓰지 않거나 답에 「이 프로젝트 자료에는 없다」를 먼저 밝힌 뒤 다른 행사·연도 자료라고 구분한다.")
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
             for h in hits[:4]:                                  # 이어 읽을 수 있는 문서 — 이번 검색(열람 범위 안)이 낸 것만
                 if h.get("doc_id") is not None:
@@ -2854,6 +2861,8 @@ def create_app(
                                   "chunk_id": h.get("chunk_id")} for h in hits[:4])   # 모델에게 보인 글 그대로
             if any(len(h["text"]) > 500 for h in hits[:4] if h.get("doc_id") is not None):
                 hint = (hint + "\n" if hint else "") + "잘린 결과가 있다 — 필요한 부분이 잘렸으면 read_found 로 그 문서를 이어 읽는다."
+            if outside_note:
+                hint = outside_note + ("\n" + hint if hint else "")
             return (hint + "\n" + shown) if hint else shown        # 관찰은 길이 상한에서 잘리므로 일치 단서를 앞에 둔다
 
         def found_texts(did: int) -> tuple[list[str], list[int]]:

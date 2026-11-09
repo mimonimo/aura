@@ -388,6 +388,26 @@ def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[st
     return _rewrite_unsupported(text, evidence_texts, mark=True)
 
 
+_MD = re.compile(r"(0?[1-9]|1[0-2])\.(0?[1-9]|[12]\d|3[01])")
+_RANGE_SEP = "~∼〜–—-"
+_WEEKDAY_AFTER = re.compile(r"\.?\s*[(（]\s*[월화수목금토일]")
+
+
+def _month_day(src: str, m: re.Match) -> bool:
+    """「11.30」「6.25」처럼 월.일로 쓴 날짜 덩이인가 — 기간 기호(~)·요일 괄호·「월」 같은 날짜 맥락이 붙은 것만(소수 4.95 는 아님).
+    날짜는 수치가 아니다 — 근거 표시가 날짜·기간 중간에 끼어 「11.30(근거 확인 필요).~12.1.」처럼 깨지지 않게(11-10 대화 174)."""
+    surface = m.group(1)
+    if not _MD.fullmatch(surface):
+        return False
+    after = src[m.end(1):m.end(1) + 4]
+    before = src[max(0, m.start(1) - 3):m.start(1)].rstrip()
+    if re.match(r"\.?\s*[" + re.escape(_RANGE_SEP) + "]", after) or (before and before[-1] in _RANGE_SEP):
+        return True
+    if _WEEKDAY_AFTER.match(after):
+        return True
+    return False
+
+
 def b_end(spans, pos):
     return next(b for a, b in spans if a <= pos < b)
 
@@ -424,6 +444,8 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
             continue
         if _YEAR_LIKE.match(surface):
             continue
+        if _month_day(src, m):
+            continue                                          # 월.일 날짜(「11.30.~12.1.」「6.25(월)」) — 날짜는 수치 점검 대상이 아니다
         if re.fullmatch(r"\d{2}(?:\.(?:0?[1-9]|1[0-2]))?", surface) and src[max(0, m.start() - 1):m.start()] in ("’", "'", "‘"):
             continue                                          # 줄인 연도 「’26」「’26.9월」 — 날짜다
         before, after1 = src[max(0, m.start() - 1):m.start()], src[m.end(1):m.end(1) + 2]

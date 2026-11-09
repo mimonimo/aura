@@ -315,13 +315,23 @@ class VllmClient:
                    "vision_model": "", "api_key": os.environ.get("VLLM_API_KEY", "none")}
         if OpenAI is None:
             raise RuntimeError("openai 패키지가 없습니다(생성 서버 호출에 필요)")
+        chosen_url = base_url or cfg["base_url"]
+        if not base_url:
+            # 같은 모델을 내는 내부 서버가 여럿이면 덜 바쁜 곳으로(llm_pool — 외부·키 다른 서버로는 넘기지 않는다)
+            try:
+                from zzaimy.generate import llm_pool, llm_connections as _lc
+                if llm_pool.enabled():
+                    chosen_url = llm_pool.pick(llm_pool.twins(cfg, _lc._load().get("connections") or [], _lc.resolve_key)) or chosen_url
+            except Exception:
+                chosen_url = base_url or cfg["base_url"]
+        self._base_url = chosen_url
         self.kind = cfg.get("kind", "vllm")
         self.connection_id = cfg.get("connection_id", "")
         self.structured = cfg.get("structured") or "auto"
         self.context_default = int(cfg.get("context") or 0)
         # 시간 제한·재시도는 어느 OpenAI 호환 서버든 같은 규약(429·5xx 는 SDK 가 백오프 재시도)
         self.client = OpenAI(
-            base_url=base_url or cfg["base_url"], api_key=cfg["api_key"],
+            base_url=chosen_url, api_key=cfg["api_key"],
             timeout=float(timeout if timeout is not None else os.environ.get("ZZAIMY_LLM_TIMEOUT", "180")),
             max_retries=int(max_retries if max_retries is not None else os.environ.get("ZZAIMY_LLM_RETRIES", "3")),
         )
@@ -382,7 +392,8 @@ class VllmClient:
                     kw = schema_as_prompt(kw)
                 try:
                     from zzaimy.generate import llm_gate as _gate     # 동시 호출 수 문 — 몰리면 차례를 기다린다(11-10)
-                    with _gate.slot():
+                    from zzaimy.generate import llm_pool as _pool     # 서버별 처리 중 수 — 쌍둥이 서버 고르기(llm_pool.pick)
+                    with _gate.slot(), _pool.track(getattr(self, "_base_url", "") or ""):
                         resp = orig(*a, **kw)
                 except TypeError:
                     raise

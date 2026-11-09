@@ -107,6 +107,30 @@ def source_notes(question: str, reg_titles: list[str], has_grant: bool) -> list[
     return notes
 
 
+_YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+
+
+def _years(text: str) -> set[str]:
+    return set(_YEAR.findall(text or ""))
+
+
+def target_notes(project_name: str, outside_titles: list[str]) -> list[str]:
+    """프로젝트 대화에서 프로젝트 밖(문서함) 자료가 근거에 섞였을 때 붙일 대상 일치 지시(11-10 대화 176: 프로젝트에 없는 「페스티벌」을
+    문서함의 다른 해·다른 행사 자료로 답함). 이름이 같은 다른 행사·다른 해 자료를 이 프로젝트의 사실처럼 쓰지 않게 한다."""
+    titles = [t for t in dict.fromkeys(x.strip() for x in outside_titles if x and x.strip())][:4]
+    if not titles:
+        return []
+    py = _years(project_name)
+    odd = [t for t in titles if py and _years(t) and not (_years(t) & py)]
+    note = ("[대상 확인 — 다음 근거는 이 프로젝트(" + (project_name or "이 프로젝트") + ")에 올린 자료가 아니라 문서함에서 찾은 자료입니다: "
+            + ", ".join(f"《{t}》" for t in titles) + ". 질문이 짚은 대상(행사·사업·연도)이 이 프로젝트의 것과 같은지 먼저 따집니다."
+            " 이 프로젝트 자료에 그 대상이 없으면 답 첫머리에 \"이 프로젝트 자료에는 없습니다\"라고 밝히고, 문서함 자료는"
+            " \"《문서 이름》(다른 행사·다른 해 자료)\" 처럼 무엇인지 구분해 참고로만 쓰거나 쓰지 않습니다.")
+    if odd:
+        note += " 특히 " + ", ".join(f"《{t}》" for t in odd) + "는 연도가 이 프로젝트와 다릅니다."
+    return [note + "]"]
+
+
 # 답 쓰기(생성 단계)의 생각 모드 손잡이 — 기본은 끈다(운영 동작). ZZAIMY_ANSWER_THINK=1 이면 내부 vLLM 에 생각을 켜고
 # 생각에 쓸 몫만큼 출력 한도와 시간 제한을 넓힌다(생각 글은 reasoning_content 로 따로 오고 답 글에는 섞지 않는다).
 # 생각을 켜는 인자(chat_template_kwargs)는 그 인자를 받는 서버(client._extra 에 있는 경우)에만 보낸다. 측정: scripts/188 --think-compare
@@ -152,14 +176,31 @@ def strip_reasoning(text: str) -> str:
     return text or ""
 
 
-def answer_think() -> bool:
-    """답 쓰기에 생각을 켜는가 — 운영 설정(ZZAIMY_ANSWER_THINK=1) 또는 이 질문에 고른 답변 깊이 「꼼꼼하게」(app/effort)."""
+# 생각이 값을 하는 질문 — 셈·기간·날짜 따지기·비교·자격 판단·여러 조건. 단순 사실 확인(「일시·장소는?」「3줄로 요약」)은 생각 없이도 맞고,
+# 꼼꼼하게(기본)에서 생각을 늘 켜니 동시 4건에서 사실 질문 하나가 생각 8천 토큰·6분(11-10 대화 176)이 걸렸다
+_REASONING_CUE = re.compile(r"계산|셈|합계|합산|총액|차액|차이|비교|증감|증가율|감소율|비율|퍼센트|%|평균|며칠|몇\s*년|몇\s*개월|몇\s*살|"
+                            r"언제부터|언제까지|만료|기한|정년|퇴직|연금|자격|요건|해당되|가능한지|가능해|받을\s*수|따져|판단|검토|"
+                            r"어느\s*쪽|어떤\s*게\s*나|유리|불리|만약|경우에|조건")
+
+
+def needs_reasoning(question: str | None) -> bool:
+    """이 질문이 생각(추론)을 켤 만한가 — 셈·기간·자격·비교 꼴 낱말, 숫자 둘 이상, 긴 다조건 질문."""
+    q = question or ""
+    return bool(_REASONING_CUE.search(q)) or len(re.findall(r"\d+", q)) >= 2 or len(q) > 160
+
+
+def answer_think(question: str | None = None) -> bool:
+    """답 쓰기에 생각을 켜는가 — 운영 설정(ZZAIMY_ANSWER_THINK=1)·걸음 생각(effort.thinking)이면 늘, 답변 깊이 「꼼꼼하게」(기본)면
+    셈·기간·자격·비교처럼 생각이 값을 하는 질문일 때만(question 을 주면). question 을 안 주면 예전처럼 꼼꼼하게면 켠다."""
     from zzaimy.app import effort
 
     # 꼼꼼하게는 마지막 답을 쓸 때만 생각을 켠다 — 에이전트 걸음은 생각 없이 빠르게(effort.thinking 은 기본 끔), 셈·여러 규정을 엮는 답은
     # 생각을 켠 판이 맞았다(11-08 시연: 끈 판은 정년퇴직일을 학기 말로 잡지 못함)
-    return (effort.thinking() or effort.current() == effort.DEEP
-            or os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on"))
+    if effort.thinking() or os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    if effort.current() != effort.DEEP:
+        return False
+    return True if question is None else needs_reasoning(question)
 
 
 _NOT_SET = object()
@@ -174,11 +215,11 @@ def _think_extra(client, extra: dict) -> dict | None:
     return think or None
 
 
-def answer_gen_options(client) -> tuple[int, dict]:
+def answer_gen_options(client, question: str | None = None) -> tuple[int, dict]:
     """답 생성 호출의 (출력 한도, 추가 인자). 생각을 끈 기본은 지금까지와 같다 — 3,072 토큰, client._extra 그대로."""
     extra = getattr(client, "_extra", {})
     limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
-    think = _think_extra(client, extra) if answer_think() else None
+    think = _think_extra(client, extra) if answer_think(question) else None
     if not think:
         return limit, {"extra_body": extra}
     eb = dict(extra or {})
@@ -606,6 +647,20 @@ class AgentResponder:
             if context.strip() == NO_EVIDENCE_NOTE.strip():
                 context = ""
         search_ctx = context
+        if project and project.get("id"):
+            # 프로젝트 대화 — 프로젝트에 올린 문서(기존 문서 연결 원본 포함)가 아닌 근거가 섞이면 대상 일치를 먼저 따지게 한다
+            try:
+                from zzaimy.app.read_failure import resolve_linked
+                _own = {int(d["id"]) for d in resolve_linked(db, db.list_documents(project.get("sector") or "", project_id=int(project["id"])))}
+                _own |= {int(x) for x in (criteria_ids or [])}
+                _outside = [str(e.get("title") or "") for e in ev
+                            if (e.get("doc_id") is not None and int(e["doc_id"]) not in _own) or "프로젝트 밖" in str(e.get("note") or "")]
+                _outside += [str(h.get("filename") or "") for h in (locals().get("grant_hits") or [])
+                             if h.get("doc_id") is not None and int(h["doc_id"]) not in _own]
+                for note in target_notes(str(project.get("name") or ""), _outside):
+                    search_ctx = (search_ctx + "\n\n" if search_ctx else "") + note
+            except Exception:
+                pass
         context = "\n\n".join(x for x in (ev_block, search_ctx) if x)
         # 실제 검색된 등록 문서의 근거. LLM 성공/실패와 무관하게 저장.
         def _mk(h: dict, origin: str, linkable: bool) -> dict:
@@ -673,8 +728,8 @@ class AgentResponder:
             on_progress("답변 작성 중")
         # 목차·개요처럼 긴 답은 짧은 상한(1,024 토큰)에서 중간에 끊긴다. 상한을 넉넉히 두고, 그래도 끊기면 한 번 잇는다
         # 생각 모드는 기본 끔 — ZZAIMY_ANSWER_THINK=1 일 때만 켜고 한도·시간 제한을 넓힌다(answer_gen_options)
-        limit, gen = answer_gen_options(client)
-        self.last_timing["think"] = answer_think() and bool(_think_extra(client, getattr(client, "_extra", {}) or {}))
+        limit, gen = answer_gen_options(client, question)
+        self.last_timing["think"] = answer_think(question) and bool(_think_extra(client, getattr(client, "_extra", {}) or {}))
         usages: list = []
         # 문맥 한도 — 요청과 에이전트가 찾은 근거는 끝까지 남기고, 첨부·연결 문서 → 오래된 대화 → 출력 상한(바닥까지)
         # → 검색 근거 → 에이전트 근거 차례로 줄인다(llm_budget). 다 줄여도 넘으면 보내지 않는다(ContextOverflow)
@@ -749,6 +804,11 @@ class AgentResponder:
         if flagged:
             out += f"\n\n※ 근거 문서에서 찾지 못한 수치 {len(flagged)}개에 「(근거 확인 필요)」를 붙였습니다. 원문에서 확인해 주세요."
         self.last_timing["generate_sec"] = round(_time.time() - _t2, 2)
+        try:   # 어느 서버가 답을 썼는지(llm_pool 이 쌍둥이 서버에 나눈 결과) — scripts/answer_timing_report.py 가 서버별로 묶는다
+            from urllib.parse import urlparse
+            self.last_timing["server"] = urlparse(str(getattr(client, "_base_url", "") or "")).netloc
+        except Exception:
+            pass
         toks = [getattr(u, "completion_tokens", None) for u in usages if u is not None]
         if any(isinstance(t, int) for t in toks):
             self.last_timing["completion_tokens"] = sum(t for t in toks if isinstance(t, int))
