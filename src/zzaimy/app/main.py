@@ -215,7 +215,7 @@ def create_app(
 
     from zzaimy.app import org_lock as _org_lock
 
-    _acct_seen: dict = {"mtime": None}
+    _acct_seen: dict = {"mtime": None, "base": {}}    # base: 마지막으로 파일과 맞춘 계정 표(깊은 사본) — 저장 때 세 갈래 합치기 기준
 
     def _accounts_mtime():
         try:
@@ -223,8 +223,31 @@ def create_app(
         except OSError:
             return None
 
+    def _read_accounts_file():
+        """계정 파일을 끝까지 읽고 검증한 표, 아니면 None(쓰는 도중·깨짐·권한 오류 — 지금 표를 그대로 둔다, fail-closed)."""
+        try:
+            fresh = _aj.loads(accounts_path.read_text())
+        except (OSError, ValueError):
+            return None
+        if not isinstance(fresh, dict) or not fresh:
+            return None
+        if not all(isinstance(k, str) and isinstance(v, dict) and (v.get("pw_hash") or v.get("pw")) for k, v in fresh.items()):
+            return None                                       # 한 줄이라도 꼴이 틀리면 통째로 받지 않는다
+        return fresh
+
+    def _mark_synced() -> None:
+        _acct_seen["base"] = _aj.loads(_aj.dumps(accounts))
+
+    def _apply_accounts(fresh: dict) -> None:
+        """새 표를 빈 순간 없이 바꿔 끼운다 — 빠진 계정은 먼저 빼고(즉시 거부), 남은 계정은 줄마다 새 dict 로 한 번에 갈아 끼운다.
+        읽는 쪽은 잠금 없이 accounts.get 을 하므로 clear() 처럼 표가 비는 순간을 만들지 않는다."""
+        for k in [k for k in accounts if k not in fresh]:
+            accounts.pop(k, None)
+        for k, v in fresh.items():
+            accounts[k] = v
+
     def _sync_accounts_from_disk() -> bool:
-        """계정 파일이 앱 밖에서 바뀌었으면(관리 스크립트로 계정 추가 등) 메모리 계정 표를 다시 읽는다 — 재시작 없이 로그인되게(11-10).
+        """계정 파일이 앱 밖에서 바뀌었으면(관리 스크립트로 계정 추가·비활성 등) 메모리 계정 표를 다시 읽는다 — 재시작 없이(11-10).
         같은 dict 를 고쳐 쓰므로 app.state.accounts 를 쥔 쪽도 새 값을 본다. 바뀌지 않았으면 stat 한 번뿐."""
         m = _accounts_mtime()
         if m is None or m == _acct_seen["mtime"]:
@@ -233,34 +256,39 @@ def create_app(
             m = _accounts_mtime()
             if m is None or m == _acct_seen["mtime"]:
                 return False
-            try:
-                fresh = _aj.loads(accounts_path.read_text())
-            except (OSError, ValueError):
-                return False                               # 쓰는 도중이거나 깨진 파일 — 지금 표를 그대로 둔다
-            if not isinstance(fresh, dict) or not fresh:
-                return False
-            accounts.clear()
-            accounts.update(fresh)
+            fresh = _read_accounts_file()
+            if fresh is None or _accounts_mtime() != m:
+                return False                               # 읽는 사이 또 바뀌었거나 못 읽음 — 다음 요청에 다시
+            _apply_accounts(fresh)
             _acct_seen["mtime"] = m
+            _mark_synced()
             return True
 
     def _save_accounts() -> None:
         """계정 표 쓰기 — 조직도·사용자 화면과 같은 잠금(org_lock) 안에서, 임시 파일에 쓴 뒤 바꿔 끼운다(쓰다 끊겨도 반쪽 파일이 남지 않게).
-        앱 밖에서 더해진 계정(파일에는 있고 메모리에 없는 것)은 덮어 지우지 않고 살린다(11-10)."""
+        파일이 앱 밖에서 바뀌었으면 세 갈래로 합친다(11-10): 앱이 이번에 고친 계정만 메모리 값, 나머지는 파일 값(밖에서 비활성·삭제·추가한 것을
+        덮지 않는다). 파일을 못 읽으면 쓰지 않고 멈춘다 — 모르는 바깥 변경을 덮어쓰지 않게."""
         with _org_lock.LOCK:
             if _acct_seen["mtime"] is not None and _accounts_mtime() not in (None, _acct_seen["mtime"]):
-                try:
-                    disk = _aj.loads(accounts_path.read_text())
-                    if isinstance(disk, dict):
-                        for k_, v_ in disk.items():
-                            accounts.setdefault(k_, v_)
-                except (OSError, ValueError):
-                    pass
+                disk = _read_accounts_file()
+                if disk is None:
+                    raise RuntimeError("계정 파일을 읽지 못해 저장을 멈췄습니다 — 파일을 확인한 뒤 다시 하세요")
+                base = _acct_seen["base"]
+                merged = {}
+                for k in set(base) | set(disk) | set(accounts):
+                    mine_changed = accounts.get(k) != base.get(k)
+                    if mine_changed:
+                        if k in accounts:
+                            merged[k] = accounts[k]           # 앱이 이번에 고치거나 더한 계정
+                    elif k in disk:
+                        merged[k] = disk[k]                   # 밖에서 고치거나 더한(또는 그대로인) 계정
+                _apply_accounts(merged)
             tmp = accounts_path.with_suffix(".tmp")
             tmp.write_text(_aj.dumps(accounts, ensure_ascii=False, indent=1))
             tmp.chmod(0o600)
             tmp.replace(accounts_path)
             _acct_seen["mtime"] = _accounts_mtime()
+            _mark_synced()
             _org_lock.note(accounts_path)
 
     def _now_iso() -> str:
@@ -305,6 +333,7 @@ def create_app(
         try:
             accounts = _aj.loads(accounts_path.read_text())
             _acct_seen["mtime"] = _accounts_mtime()
+            _mark_synced()
         except (OSError, ValueError):
             # 첫 기동 — 개발자 비밀번호는 운영자가 정한 값(ZZAIMY_DEV_PASSWORD)이거나, 없으면 무작위로 만들어 0600 파일에만 둔다.
             # 무작위 비밀번호로 만든 계정은 로그인 뒤 비밀번호를 바꿀 때까지 설정 화면으로만 간다. 있는 계정 파일은 건드리지 않는다
@@ -603,9 +632,12 @@ def create_app(
             if user is None:
                 # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
                 raise HTTPException(401, detail="login-required")
-            request.state.real_role = _ap.role_class(accounts.get(user, {}).get("role", "staff"))   # 예전 교수·부서장 → 교직원
+            acct_ = accounts.get(user)                    # 한 번만 집는다 — 그 사이 계정 표가 바뀌어도 이 요청은 한 값으로(11-10)
+            if acct_ is None or not acct_.get("active", True):
+                raise HTTPException(401, detail="login-required")   # 지워졌거나 막힌 계정 — 기본 역할로 넘어가지 않는다(fail-closed)
+            request.state.real_role = _ap.role_class(acct_.get("role", "staff"))   # 예전 교수·부서장 → 교직원
             request.state.role = request.state.real_role
-            request.state.dept = accounts.get(user, {}).get("dept", "")     # 검색·대화 범위(부서). 비면 전체
+            request.state.dept = acct_.get("dept", "")     # 검색·대화 범위(부서). 비면 전체
             request.state.user = user
             # 개발자 「테스트 보기」 — 고른 역할·부서로 이 요청을 판정한다. 끄고 켜는 경로(/view-as)만은 원래 권한으로
             va = _view_as(user)

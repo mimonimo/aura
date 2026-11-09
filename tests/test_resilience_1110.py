@@ -90,3 +90,54 @@ def test_llm_gate_limits_concurrency_and_counts_waiting(monkeypatch):
     assert seen == [1] and gate.waiting() == 0 and gate.running() == 0
     monkeypatch.delenv("ZZAIMY_LLM_SLOTS")
     importlib.reload(llm_gate)
+
+
+def test_broken_or_partial_account_file_keeps_current_table(tmp_path):
+    app = _app(tmp_path)
+    path = tmp_path / "accounts.json"
+    before = dict(app.state.accounts)
+    for bad in ('{"zzaimy": {"role": "staff"', "[]", "{}", '{"x": {"role": "dev"}}'):   # 반쯤 쓰임·꼴 틀림·비밀번호 없는 줄
+        path.write_text(bad)
+        st = path.stat(); os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 7_000_000))
+        TestClient(app).get("/login")
+        assert set(app.state.accounts) == set(before)
+        assert "x" not in app.state.accounts
+
+
+def test_deactivated_outside_is_rejected_and_app_save_does_not_revive(tmp_path):
+    app = _app(tmp_path)
+    client = TestClient(app)
+    path = tmp_path / "accounts.json"
+    _add_account_on_disk(path, "member2", "pw-member-2")
+    r = client.post("/login", data={"username": "member2", "pw": "pw-member-2"}, follow_redirects=False)
+    assert r.headers["location"] == "/"
+    acc = json.loads(path.read_text()); acc["member2"]["active"] = False
+    path.write_text(json.dumps(acc, ensure_ascii=False))
+    st = path.stat(); os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 9_000_000))
+    # 앱이 다른 계정을 고쳐 저장해도(아직 다시 읽기 전) 밖에서 막은 계정을 되살리지 않는다
+    app.state.accounts["zzaimy"]["name"] = "담당자2"
+    app.state.save_accounts()
+    disk = json.loads(path.read_text())
+    assert disk["member2"]["active"] is False and disk["zzaimy"]["name"] == "담당자2"
+    assert client.get("/", follow_redirects=False).status_code in (303, 307, 401)   # 그 세션은 바로 무효
+
+
+def test_account_table_never_empty_during_reload(tmp_path):
+    app = _app(tmp_path)
+    path = tmp_path / "accounts.json"
+    seen_empty = []
+    stop = threading.Event()
+
+    def reader():
+        while not stop.is_set():
+            if not app.state.accounts.get("zzaimy"):
+                seen_empty.append(1)
+
+    t = threading.Thread(target=reader); t.start()
+    try:
+        for i in range(30):
+            _add_account_on_disk(path, f"m{i}", "pw-1234-x")
+            TestClient(app).get("/login")
+    finally:
+        stop.set(); t.join()
+    assert not seen_empty and "m29" in app.state.accounts
