@@ -2403,6 +2403,15 @@ def create_app(
         hw = (_wa.HwpTools(db, Path(db_path).parent, session_id, owner, (accounts.get(owner, {}) or {}).get("dept", "") if password is not None else "",
                            project, lambda: _project_doc_candidates(project, session_id))
               if (_webhwp.editor_of(db, owner) == "webhwp" or _wa.bound(db, session_id)) and not link().get("doc") else None)
+        if hw is not None and project and project.get("id"):
+            # 프로젝트의 다른 작업본으로 바꾸기는 대화 주인이 이 프로젝트를 고칠 수 있을 때만(담당자·함께 작업, 관리자) — 읽기만 공유는 아니다
+            from zzaimy.app import project_access as _pacc
+            _acct = accounts.get(owner, {}) or {}
+            _odept = ((accounts.get(project.get("owner") or "", {}) or {}).get("dept") or "").strip()
+            _share = _pacc.shares(db, project, _odept)
+            hw.project_edit = (_acct.get("role") == "dev" or project.get("owner") == owner
+                               or (not _share.get("implicit") and _pacc.can_write(_pacc.access(project, user=owner, role=_acct.get("role", ""), dept=_acct.get("dept", "") or "",
+                                                                                           also=tuple(_extra_depts(owner)), share=_share))))
 
         def mats():
             if "m" not in mats_box:

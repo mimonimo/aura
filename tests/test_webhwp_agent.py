@@ -229,7 +229,7 @@ def test_switch_to_existing_work_doc_instead_of_new_copy(tmp_path, monkeypatch):
 
 
 def test_project_work_docs_from_other_chats_are_switchable(tmp_path, monkeypatch):
-    """같은 프로젝트의 다른 대화에서 만든 작업본도 고를 수 있다(새 대화에서 「그 계획서를 고쳐 줘」)."""
+    """같은 프로젝트의 다른 대화에서 만든 작업본도 고를 수 있다(새 대화에서 「그 계획서를 고쳐 줘」) — 대화 주인이 그 프로젝트를 고칠 수 있을 때만."""
     app = _setup(tmp_path, monkeypatch)
     db, base = app.state.db, Path(app.state.data_dir)
     wt.ensure_all(db, base)
@@ -238,5 +238,32 @@ def test_project_work_docs_from_other_chats_are_switchable(tmp_path, monkeypatch
     tid = next(line.split()[0] for line in a.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
     a.start({"form": tid, "title": "AI 사업 계획서"})
     b = wa.HwpTools(db, base, 82, "kim", "기획처", proj, lambda: [])
+    b.project_edit = True
     assert any("AI 사업 계획서" in ln and "hwp_switch" in ln for ln in b.state_lines())
     assert "바꿨다" in b.switch({"doc": "AI 사업 계획서"}) and wa.bound(db, 82) == wa.bound(db, 81)
+
+
+def test_switch_never_reaches_docs_outside_allowed_list(tmp_path, monkeypatch):
+    """우회 막기(11-09 보안 검토): 프로젝트를 고칠 권한이 없으면(읽기만 공유 등) 다른 대화 작업본은 목록에도 없고 바꿀 수 없다.
+    다른 프로젝트의 같은 이름 작업본은 권한이 있어도 고르지 못한다. 잠긴 공통 양식도 고르지 못한다."""
+    from zzaimy.app import project_access as pa
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    own = wa.HwpTools(db, base, 91, "lee", "기획처", {"id": 7, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in own.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    own.start({"form": tid, "title": "AI 사업 계획서"})
+    theirs = wa.bound(db, 91)
+    # 읽기만 공유 — 대화 주인이 프로젝트를 고칠 수 없다(project_edit 거짓)
+    ro = wa.HwpTools(db, base, 92, "kim", "기획처", {"id": 7, "name": "AI 사업"}, lambda: [])
+    assert not pa.can_write(pa.access({"id": 7, "owner": "lee"}, user="kim", role="staff", dept="기획처",
+                                      share={"mode": "shared", "items": [{"to": "user:kim", "level": "view"}]}))
+    assert ro.work_docs() == [] and "고를 작업본이 없다" in ro.switch({"doc": "AI 사업 계획서"})
+    assert "고를 작업본이 없다" in ro.switch({"doc": str(theirs)}) and wa.bound(db, 92) is None
+    # 다른 프로젝트의 같은 이름 작업본 — 권한이 있어도(내 프로젝트 8) 그 파일은 목록 밖
+    other = wa.HwpTools(db, base, 93, "kim", "기획처", {"id": 8, "name": "AI 사업"}, lambda: [])
+    other.project_edit = True
+    assert all(d["id"] != theirs for d in other.work_docs())
+    assert wa.bound(db, 93) != theirs and "바꿨다" not in other.switch({"doc": f"#{theirs}"})
+    # 잠긴 공통 양식은 목록에 없다
+    assert all(not wa.webhwp.locked(db, d["id"]) for d in other.work_docs())

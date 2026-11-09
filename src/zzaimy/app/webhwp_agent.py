@@ -279,6 +279,7 @@ class HwpTools:
         self.doc_visible = None                     # (doc) -> bool — 참고 양식으로 볼 반입 문서의 열람 범위(없으면 반입 문서는 참고하지 않음)
         self.revising = False                       # 고쳐 쓰기 도구(hwp_revise)가 켜졌는가(상태 글의 안내)
         self.delegate_cap = 1                       # 한 번에 맡길 수 있는 절 수(서브 연결 자리 수 — 상태 글의 안내)
+        self.project_edit = False                   # 대화 주인이 이 프로젝트를 고칠 권한(담당자·함께 작업)이 있는가 — 있을 때만 프로젝트의 다른 작업본으로 바꿀 수 있다
 
     def limit(self) -> int:
         from zzaimy.app import llm_budget
@@ -300,7 +301,9 @@ class HwpTools:
             return self._wd_cache
         ids = list(files_of(self.db, self.sid))
         pid = int(self.project["id"]) if self.project and self.project.get("id") else None
-        if pid:
+        # 프로젝트의 다른 대화 작업본은 대화 주인이 이 프로젝트를 고칠 수 있을 때만(읽기만 공유·남의 프로젝트는 이름이 같아도 열지 않는다 — 11-09 보안 검토).
+        # 프로젝트 번호(meta project)로만 맞추고, 프로젝트 작업 폴더 밖·잠긴 양식은 빼며, 이름 맞추기는 이 허용 목록 안에서만 한다
+        if pid and self.project_edit:
             key = f"작업/{storage.safe_name(self.project['name'])[:40]}"
             try:
                 rows = self.db.list_files(kind="webhwp", limit=5000)
@@ -308,7 +311,8 @@ class HwpTools:
                 rows = []
             for r in rows:
                 rid = int(r["id"])
-                if rid not in ids and key in str(r.get("path") or "") and webhwp.meta(self.db, rid).get("project") == pid:
+                if (rid not in ids and key in str(r.get("path") or "") and webhwp.meta(self.db, rid).get("project") == pid
+                        and not webhwp.locked(self.db, rid)):
                     ids.append(rid)
         out = []
         for i in ids:
