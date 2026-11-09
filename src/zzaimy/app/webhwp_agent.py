@@ -239,6 +239,23 @@ def field_rooms(data: bytes) -> dict[str, dict]:
     return out
 
 
+
+def past_doc_form(db, t: dict) -> bool:
+    """지난 문서에서 모은 양식인가(값이 채워져 있을 수 있는 완성본) — 문서함 「지난 사업 문서」 아래이거나 출처가 「양식:doc-」.
+    플랫폼이 짠 공통 양식·올린 빈 양식은 아니다. 실제로 비울지는 form_blank.looks_filled 가 내용으로 정한다."""
+    import unicodedata
+
+    from zzaimy.app import past_forms
+    path = unicodedata.normalize("NFC", str((t or {}).get("path") or "")).replace("\\", "/")
+    if f"/{past_forms.ROOT}/" in path:
+        return True
+    try:
+        src = str(webhwp.meta(db, int(t["id"])).get("source") or "")
+    except Exception:
+        src = ""
+    return src.startswith("양식:doc-")
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -437,9 +454,15 @@ class HwpTools:
         for x in scored[:15]:                              # 칸 수를 함께 — 「수십 쪽 양식」 처럼 분량으로 고를 때 쓴다(큰 파일은 건너뜀)
             n = ""
             try:
-                p_ = Path(webhwp.get(self.db, int(x[-1][4:x[-1].index(" ")]))["path"])
+                t_ = webhwp.get(self.db, int(x[-1][4:x[-1].index(" ")]))
+                p_ = Path(t_["path"])
                 if p_.stat().st_size < 3_000_000:
-                    n = f" · 칸 {len(ww.fields(p_.read_bytes()))}개"
+                    raw_ = p_.read_bytes()
+                    n = f" · 칸 {len(ww.fields(raw_))}개"
+                    if past_doc_form(self.db, t_):
+                        from zzaimy.app import form_blank
+                        if form_blank.looks_filled(raw_):
+                            n += " · 값이 채워진 지난 문서(고르면 옛 값을 비운 사본으로 시작)"
             except Exception:
                 pass
             out.append(x[-1] + n)
@@ -461,7 +484,8 @@ class HwpTools:
             t = webhwp.get(self.db, int(form[4:]))
             if not t or not webhwp.locked(self.db, t["id"]):
                 return "그런 양식이 없다 — hwp_forms 결과의 id 를 쓴다."
-            data, fields = webhwp_convert.work_form(Path(t["path"]).read_bytes(), ".hwpx")
+            rep: dict = {}
+            data, fields = webhwp_convert.work_form(Path(t["path"]).read_bytes(), ".hwpx", blank=past_doc_form(self.db, t), report=rep)
             name = title or Path(t["name"]).stem.replace(" 공통 양식", "")
             src = f"양식복사:{t['id']}"
         elif form.startswith("doc:") and form[4:].isdigit():
@@ -472,14 +496,18 @@ class HwpTools:
 
             class _St:
                 db = self.db
-            data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d))
+            rep = {}
+            data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d), blank=True, report=rep)
             name = title or (storage.title_of(d.get("filename") or "") + " 작업본")
             src = f"doc:{d['id']}"
         else:
             return "form 은 hwp_forms 결과의 id(tpl:… 또는 doc:…)다."
+        blank_note = (f" 고른 양식은 값이 채워진 지난 문서라 표 칸의 옛 값 {rep['blanked']}칸을 비운 사본으로 시작했다 — 옛 수치는 이 해의 값이 아니다. "
+                      "필요하면 search 로 그 문서를 근거로 찾아 출처와 함께 쓰고, 연도·차년도 글자를 바꾸기로 옛 값을 새 해 값처럼 만들지 않는다."
+                      if rep.get("blanked") else "")
         cur = self.fid()
         if cur and self._empty_doc(cur):
-            return self._load_into(cur, data, fields, name, src)
+            return self._load_into(cur, data, fields, name, src) + blank_note
         fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder,
                          project=int(self.project["id"]) if self.project and self.project.get("id") else None)
         m = webhwp.meta(self.db, fid)
@@ -491,7 +519,7 @@ class HwpTools:
         for x in fields:
             kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
         return (f"작업본 「{name}」 을 {self.dept}/{folder} 에 만들고 이 대화에 이었다(필드 {len(fields)}개: "
-                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data))
+                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data) + blank_note)
 
     EMPTY_CHARS = 200          # 이어진 문서의 칸 글 합이 이만큼 안 되면 「빈 문서」 — 양식을 새 작업본이 아니라 그 문서에 불러온다
 

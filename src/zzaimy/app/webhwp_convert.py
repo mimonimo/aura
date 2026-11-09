@@ -58,7 +58,16 @@ def to_hwpx(data: bytes, ext: str, http=None) -> bytes:
     return out
 
 
-def work_form(data: bytes, ext: str, http=None) -> tuple[bytes, list[dict]]:
-    """한글 파일 → (필드를 박은 hwpx, 필드 목록)."""
+def work_form(data: bytes, ext: str, http=None, blank: bool = False, report: dict | None = None) -> tuple[bytes, list[dict]]:
+    """한글 파일 → (필드를 박은 hwpx, 필드 목록).
+    blank: 값이 채워진 완성본(지난 문서)이면 표 칸의 값을 비운 사본으로(form_blank — 옛 값이 새 문서에 남지 않게).
+    report 를 주면 비운 칸 수를 report["blanked"] 에 적는다."""
     from zzaimy.app import webhwp_fields
-    return webhwp_fields.fieldize(to_hwpx(data, ext, http))
+    hx = to_hwpx(data, ext, http)
+    if blank:
+        from zzaimy.app import form_blank
+        if form_blank.looks_filled(hx):
+            hx, n = form_blank.blank_values(hx)
+            if report is not None:
+                report["blanked"] = n
+    return webhwp_fields.fieldize(hx)

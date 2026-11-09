@@ -629,6 +629,24 @@ def _drop_paras(xml: str, pids) -> str:
     return xml
 
 
+def _body_char(sections, header: str) -> str | None:
+    """양식 본문 글자 모양 id — 표·상자 밖 최상위 문단 가운데 긴 문장(굵지 않은 것)에 가장 많이 쓴 글자 모양. 없으면 None."""
+    from collections import Counter
+    bold = {m.group(1) for m in re.finditer(r"<hh:charPr\b[^>]*\bid=\"(\d+)\"[^>]*>(?:(?!</hh:charPr>).)*<hh:bold\b", header, re.S)}
+    # 검정이 아닌 글자(파란 작성방법·빨간 안내)는 본문 본보기가 아니다
+    bold |= {m.group(1) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\btextColor="#(?!000000)[0-9A-Fa-f]{6}"', header)}
+    seen: Counter = Counter()
+    for s_ in sections:
+        for (a, b), t in zip(s_.paras, s_.texts):
+            block = s_.xml[a:b]
+            if len(t or "") <= hf._ParaStyles.SHORT or "<hp:tbl" in block or "<hp:pic" in block or wf._is_heading(t):
+                continue
+            m = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', block)
+            if m and m.group(1) not in bold:
+                seen[m.group(1)] += 1
+    return seen.most_common(1)[0][0] if seen else None
+
+
 def write_section(data: bytes, name: str, items: list[tuple[str, object]], written: dict[str, list[str]] | None = None
                   ) -> tuple[bytes, list[str]]:
     """절 본문 쓰기 — (새 바이트, 넣은 문단 id). 글 줄은 절 필드 안 문단으로, 표·도식은 필드 밖, 표 뒤 글은 이어 쓰기 필드로.
@@ -644,6 +662,7 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     roles = hf._role_styles(sec_objs, header)
     para_styles = hf._ParaStyles(sec_objs, header)
     hangs = hf._HangRegistry(header)
+    body_cp = _body_char(sec_objs, header)
     old_ids = set((written or {}).get(name, []))
     ids = wf._Ids([header, *secs.values()])
     new: dict[str, str] = {}
@@ -682,6 +701,9 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         # 새 문단의 글자는 그 자리(필드가 든 문단)의 글자 모양을 잇는다 — 양식 칸이 11pt 면 덧붙는 줄도 11pt
         here = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', xml[pb[0]:pb[1]])
         cp = here.group(1) if here else cp
+        # 다만 그 자리가 제목 문단의 큰 글자를 물려받았으면(제목 바로 뒤에 박은 필드) 양식 본문 글자로 — 새 본문만 커 보이던 것(11-09)
+        if body_cp and hangs.char_height(cp) > hangs.char_height(body_cp) + 100:
+            cp = body_cp
         bf, margin = hf._table_template(xml, solid)
         if bf is None:
             header, bf = hf._inject_border_fill(header)
