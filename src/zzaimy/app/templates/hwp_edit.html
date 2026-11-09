@@ -86,6 +86,11 @@
   .notice-bar button { height:28px; padding:0 10px; border-radius:6px; border:1px solid #E5C77A; background:#fff; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
   #hwpctrl { flex:1; min-height:0; background:#fff; }
   #hwpctrl iframe { display:block; border:0; }
+  /* 불러오는 동안 편집기 입력 막기 — 다 불러오기 전에 친 글은 문서가 열리며 사라졌다(11-09 공동 편집 시험) */
+  .load-block { position:fixed; z-index:40; display:flex; justify-content:center; align-items:flex-start; cursor:progress; background:transparent; }
+  .load-block[hidden] { display:none; }
+  .load-block span { margin-top:28px; padding:6px 12px; border-radius:999px; background:var(--panel, #fff); color:var(--muted, #555);
+    border:1px solid var(--line, #dde); font-size:12.5px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
   .menu-wrap { position:relative; }
   .menu { position:absolute; right:0; top:42px; min-width:220px; background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 32px rgba(15,23,42,.14); padding:6px; z-index:20; }
   .menu[hidden], .menu [hidden] { display:none; }
@@ -184,6 +189,7 @@
 <div class="notice-bar" data-notice hidden><span data-notice-text></span><button type="button" data-reload>다시 불러오기</button></div>
 <p class="alert" role="alert" data-load-fail hidden>한글 편집기를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요. <button type="button" onclick="location.reload()">다시 열기</button></p>
 <div id="hwpctrl"></div>
+<div class="load-block" data-load-block aria-hidden="true"><span>불러오는 중 · 다 열리면 입력할 수 있습니다</span></div>
 <div class="aura-cursor" data-aura-cursor hidden aria-hidden="true"><svg class="ac-svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.2 1.6 13.6 7.3c.6.3.5 1.1-.1 1.3l-4.4 1.2-2 4.3c-.3.6-1.1.5-1.3-.1L2.2 1.6Z" fill="#1B3B75" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="tag"><span class="ac-text">AURA</span><span class="ac-dots"><i></i><i></i><i></i></span></span></div>
 <script src="/webhwpctrl/js/hwpctrlapp/utils/util.js" onerror="window.__hwpLoadFail=1"></script>
 <script src="/webhwpctrl/js/hwpctrlapp/hwpCtrlApp.js" onerror="window.__hwpLoadFail=1"></script>
@@ -201,6 +207,15 @@
   var state = document.querySelector('[data-state]'), msg = document.querySelector('[data-msg]');
   var saveBtn = document.querySelector('[data-save]') || document.createElement('button');
   var box = document.getElementById('hwpctrl');
+  var loadBlock = document.querySelector('[data-load-block]');
+  function placeBlock() {
+    if (!loadBlock || loadBlock.hidden) return;
+    var r = box.getBoundingClientRect();
+    loadBlock.style.left = r.left + 'px'; loadBlock.style.top = r.top + 'px'; loadBlock.style.width = r.width + 'px'; loadBlock.style.height = r.height + 'px';
+  }
+  function unblock() { if (loadBlock) loadBlock.hidden = true; window.removeEventListener('resize', placeBlock); }
+  window.addEventListener('resize', placeBlock); placeBlock(); setTimeout(placeBlock, 300);
+  setTimeout(unblock, 120000);                               // 어떤 까닭으로 열림 신호가 안 와도 2분 뒤에는 풀어 둔다(막힌 채 남지 않게)
   var isNew = {{ 'false' if f else 'true' }};
   var fileUrl = {{ (('/hwp/' ~ f.id ~ '/file') if f else '') | tojson }}, saveUrl = {{ (('/hwp/' ~ f.id ~ '/save') if f else '') | tojson }};
   var name = {{ (f.name if f else '새 문서.hwpx') | tojson }}, dept = {{ dept | tojson }}, folder = {{ (folder or '') | tojson }};
@@ -279,7 +294,7 @@
       return;
     }
     try { sessionStorage.removeItem(retryKey); } catch (e) {}
-    document.querySelector('[data-load-fail]').hidden = false; say('불러오지 못함', 'bad');
+    document.querySelector('[data-load-fail]').hidden = false; say('불러오지 못함', 'bad'); unblock();
   }
   if (window.__hwpLoadFail || typeof window.BuildWebHwpCtrl !== 'function') { loadFail(); return; }
   // 기안기 서버가 살아 있는지 — 답이 늦은 것은 실패로 치지 않고(최대 세 번 다시 물음), 서버가 아니라고 답할 때만 실패
@@ -313,15 +328,15 @@
     try { sessionStorage.removeItem(retryKey); } catch (e) {}
     hwp = window.auraHwp = AuraHwpWrapper.create(ctrl, box);
     fit();
-    if (isNew) { mode = 'new'; fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; hwp.attach(); watchEdits(); say('저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요', ''); return; }
+    if (isNew) { unblock(); mode = 'new'; fitWidth(); setTools(true); ready = true; saveBtn.disabled = false; hwp.attach(); watchEdits(); say('저장 전 · 만들기를 눌러 저장할 곳과 이름을 정하세요', ''); return; }
     loadFile().catch(function () { say('파일을 다시 받는 중', 'busy'); return new Promise(function (ok) { setTimeout(ok, 3000); }).then(loadFile); }).then(function () {
       if (!loadDone) { loadDone = true; keepSecs((Date.now() - loadT0) / 1000); }
       fitWidth(); setTools(toolsOn());
       // 연 뒤 잡은 칸 수를 알린다 — 칸 많은 파일인데 0 이면 서버가 「기안기에서 안 열림」 으로 표시해 양식 후보에서 뺀다(긴 문서는 쪽을 그리는 몇 초 뒤에)
       setTimeout(function () { try { fetch(fileUrl.replace(/\/file$/, '/opened'), {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fields: hwp.fields().length})}); } catch (e) {} }, 8000);
-      if (/[?&]nocollab=1/.test(location.search)) { mode = 'view'; ready = true; say('같이 쓰기 끔(점검용)', 'ok'); return; }   // 점검용 — 공동 편집 층 없이 기안기만
+      if (/[?&]nocollab=1/.test(location.search)) { unblock(); mode = 'view'; ready = true; say('같이 쓰기 끔(점검용)', 'ok'); return; }   // 점검용 — 공동 편집 층 없이 기안기만
       startCollab();
-    }).catch(function (e) { say(e.message, 'bad'); });
+    }).catch(function (e) { say(e.message, 'bad'); unblock(); });
   });
   setTimeout(fit, 300);
   function loadFile() {
@@ -397,6 +412,7 @@
     eng.on('conflict', function () { var c = document.querySelector('[data-conflicts]'); if (c) c.hidden = false; });
     eng.on('aura', function (a) { auraNow = a && a.field ? a.field : ''; if (!auraNow) lastAuraField = ''; else if (follow) followAura(auraNow, auraNow !== lastAuraField); drawCoStatus(); });
     eng.start().then(function () {
+      unblock();                                              // 공동 편집 층까지 열렸다 — 이제 입력을 받는다
       if (readonly) { mode = 'view'; hwp.setReadOnly(true); say({{ ((readonly_why or '공통 양식') ~ '(보기 전용)') | tojson }}, 'ok'); return; }
       ready = true;
       setTimeout(fitZoom, 300);

@@ -198,3 +198,45 @@ def test_agent_write_keeps_text_in_fields_and_coedit_state_in_step(tmp_path, mon
     assert v2[name] == "1) 일정 조정" and cont not in v2 and "기자재" not in data2.decode("latin-1", "ignore")
     st2 = ce.state(db, fid)
     assert st2[name]["text"] == "1) 일정 조정" and cont not in st2
+
+
+def test_switch_to_existing_work_doc_instead_of_new_copy(tmp_path, monkeypatch):
+    """이미 만든 작업본(계획서)을 고치자는 요청 — 지금 이어진 것이 다른 문서(기안문)여도 새 「(2)」 사본을 만들지 않고 그 문서로 바꾼다(11-09)."""
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 78, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    out = hw.forms({"query": "예산 변경"})
+    tid = next(line.split()[0] for line in out.splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "AI 사업 계획서"})
+    plan = wa.bound(db, 78)
+    hw.EMPTY_CHARS = 0                       # 빈 문서에 양식을 불러오는 장면이 아니라 문서마다 새 작업본(두 번째 시작이 첫 문서에 덮이지 않게)
+    hw.start({"form": tid, "title": "AI 사업 보고 기안문"})
+    memo = wa.bound(db, 78)
+    assert plan != memo
+    # 상태에 다른 작업본이 보이고 바꾸는 길을 알린다
+    assert any("다른 작업본" in ln and "AI 사업 계획서" in ln and "hwp_switch" in ln for ln in hw.state_lines())
+    # 같은 이름으로 새로 만들려 하면 막고 hwp_switch 를 알린다(파일이 늘지 않는다)
+    before = len(hw.work_docs())
+    msg = hw.start({"form": tid, "title": "AI 사업 계획서"})
+    assert "이미 있다" in msg and "hwp_switch" in msg and wa.bound(db, 78) == memo and len(hw.work_docs()) == before
+    # 이름 일부나 번호로 바꾼다
+    assert "바꿨다" in hw.switch({"doc": "계획서"}) and wa.bound(db, 78) == plan
+    assert "이미 지금 작업본" in hw.switch({"doc": f"#{plan}"})
+    assert "그런 작업본이 없다" in hw.switch({"doc": "회의록"})
+    # 담당자가 정말 새 문서를 원하면 new: true
+    assert "만들고 이 대화에 이었다" in hw.start({"form": tid, "title": "AI 사업 계획서", "new": True})
+
+
+def test_project_work_docs_from_other_chats_are_switchable(tmp_path, monkeypatch):
+    """같은 프로젝트의 다른 대화에서 만든 작업본도 고를 수 있다(새 대화에서 「그 계획서를 고쳐 줘」)."""
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    proj = {"id": 5, "name": "AI 사업"}
+    a = wa.HwpTools(db, base, 81, "kim", "기획처", proj, lambda: [])
+    tid = next(line.split()[0] for line in a.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    a.start({"form": tid, "title": "AI 사업 계획서"})
+    b = wa.HwpTools(db, base, 82, "kim", "기획처", proj, lambda: [])
+    assert any("AI 사업 계획서" in ln and "hwp_switch" in ln for ln in b.state_lines())
+    assert "바꿨다" in b.switch({"doc": "AI 사업 계획서"}) and wa.bound(db, 82) == wa.bound(db, 81)

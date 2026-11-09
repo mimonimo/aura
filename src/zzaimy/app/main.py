@@ -2347,7 +2347,7 @@ def create_app(
 
     SEARCH_RUN_MAX = int(os.environ.get("ZZAIMY_AGENT_SEARCH_RUN", "6"))   # 쓰기 없이 이어 찾기 상한(넘으면 쓰기로 돌려보냄)
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
-                    "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_form_create": "양식 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
+                    "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_switch": "작업 문서 바꾸기", "hwp_form_create": "양식 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
                     "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기",
                     "delegate_section": "절 맡기기", "hwp_revise": "고쳐 쓰기"}
 
@@ -2993,8 +2993,11 @@ def create_app(
                           "review_section", "edit_document", "remove_guide_boxes", "export_hwp", "new_work_copy"}
             tools = [t_ for t_ in tools if t_.name not in _docs_only] + [
                 doc_agent.Tool("hwp_forms", "쓸 한글 양식 찾기 — 이 프로젝트의 한글 양식(사업이 준 서식)이 먼저, 그다음 공문·국고 사업·학교 양식. args {query: 문서 갈래 낱말}", hw.forms),
-                doc_agent.Tool("hwp_start", "고른 양식으로 한글 작업본을 만들어 이 대화에 잇기(담당자가 문서를 쓰자고 했을 때). args {form: hwp_forms 의 id, title: 문서 제목}",
+                doc_agent.Tool("hwp_start", "고른 양식으로 한글 작업본을 만들어 이 대화에 잇기(담당자가 새 문서를 쓰자고 했을 때 — 이미 있는 작업본을 고치는 요청이면 hwp_switch). "
+                               "args {form: hwp_forms 의 id, title: 문서 제목, new: 같은 이름 작업본이 있는데도 담당자가 새 문서를 원할 때만 true}",
                                hw.start, writes=True),
+                doc_agent.Tool("hwp_switch", "이 대화·프로젝트에 이미 있는 다른 한글 작업본으로 바꿔 잇기 — 요청이 그 문서(이름이나 계획서·기안문 같은 갈래)를 짚을 때. "
+                               "상태의 「다른 작업본」 목록에서 고른다. args {doc: 작업본 이름(일부여도 됨) 또는 번호}", hw.switch),
                 doc_agent.Tool("hwp_form_create", _wfc.TOOL_DESC, hw.form_create, writes=True),
                 doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태 보기. args {}", hw.fields),
                 doc_agent.Tool("hwp_fill", "칸·표 필드에 짧은 값 넣기(이름·날짜·금액·한 줄 요약 — 근거로 찾았거나 담당자가 알려 준 값만, 양식 예시 글자 ○○·000 은 넣지 않음). "

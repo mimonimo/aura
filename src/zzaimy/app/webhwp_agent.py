@@ -49,6 +49,13 @@ def files_of(db, session_id: int) -> list[int]:
     return [i for i in ids if webhwp.get(db, i)]
 
 
+def _title_key(name: str) -> str:
+    """작업본 이름 견주기 — 확장자·「 (2)」 같은 같은 이름 꼬리·띄어쓰기를 뺀다."""
+    t = re.sub(r"\.(hwpx?|docx?)$", "", str(name or "").strip(), flags=re.I)
+    t = re.sub(r"\s*\(\d+\)$", "", t)
+    return re.sub(r"\s+", "", t).lower()
+
+
 def attach(db, session_id: int, fid: int) -> None:
     """한글 파일을 이 대화의 작업 문서로 잇는다(지금 작업본으로 두고 목록 맨 앞에)."""
     ids = [i for i in files_of(db, session_id) if i != int(fid)]
@@ -285,6 +292,53 @@ class HwpTools:
         f = bound(self.db, self.sid)
         return f if f and webhwp.get(self.db, f) else None
 
+    def work_docs(self) -> list[dict]:
+        """고칠 수 있는 기존 작업본 — 이 대화에 이은 것, 그리고 같은 프로젝트의 작업본(지금 것 먼저). [{id, name}]
+        「사업계획서의 ○○ 절을 고쳐 줘」 처럼 이미 만든 문서를 짚을 때 새로 만들지 않고 그 문서로 바꾸게(11-09: 기안문에 이어진 대화에서
+        계획서를 고쳐 달라자 공통 양식으로 「(2)」 사본을 새로 만들었다)."""
+        if getattr(self, "_wd_cache", None) is not None:
+            return self._wd_cache
+        ids = list(files_of(self.db, self.sid))
+        pid = int(self.project["id"]) if self.project and self.project.get("id") else None
+        if pid:
+            key = f"작업/{storage.safe_name(self.project['name'])[:40]}"
+            try:
+                rows = self.db.list_files(kind="webhwp", limit=5000)
+            except Exception:
+                rows = []
+            for r in rows:
+                rid = int(r["id"])
+                if rid not in ids and key in str(r.get("path") or "") and webhwp.meta(self.db, rid).get("project") == pid:
+                    ids.append(rid)
+        out = []
+        for i in ids:
+            f = webhwp.get(self.db, i)
+            if f and "/.판/" not in str(f.get("path") or "") and Path(f["path"]).exists():
+                out.append({"id": int(i), "name": Path(f["name"]).stem})
+        self._wd_cache = out[:20]
+        return self._wd_cache
+
+    def switch(self, a: dict) -> str:
+        """이미 있는 작업본으로 바꿔 잇기 — args {doc: 작업본 이름(일부여도 됨) 또는 번호}."""
+        want = str(a.get("doc") or a.get("name") or "").strip()
+        docs = self.work_docs()
+        if not docs:
+            return "고를 작업본이 없다 — 새 문서를 쓰자는 요청이면 hwp_forms → hwp_start."
+        pick = None
+        if want.lstrip("#").isdigit():
+            pick = next((d for d in docs if d["id"] == int(want.lstrip("#"))), None)
+        if pick is None and want:
+            k = _title_key(want)
+            pick = (next((d for d in docs if _title_key(d["name"]) == k), None)
+                    or next((d for d in docs if k and (k in _title_key(d["name"]) or _title_key(d["name"]) in k)), None))
+        if pick is None:
+            return "그런 작업본이 없다 — 고를 수 있는 것: " + ", ".join(f"「{d['name']}」(#{d['id']})" for d in docs)
+        if pick["id"] == self.fid():
+            return f"「{pick['name']}」 은(는) 이미 지금 작업본이다 — hwp_fields 로 필드를 보고 고친다."
+        attach(self.db, self.sid, pick["id"])
+        self._wd_cache = None
+        return f"지금 작업본을 「{pick['name']}」 로 바꿨다 — hwp_fields 로 필드를 보고 이 문서를 고친다(새로 만들지 않는다)."
+
     def _fields(self) -> list[dict]:
         from zzaimy.app import webhwp_write as ww
         f = webhwp.get(self.db, self.fid() or 0)
@@ -315,13 +369,20 @@ class HwpTools:
     def state_lines(self) -> list[str]:
         fid = self.fid()
         if not fid:
-            return ["편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 없음. 담당자가 문서를 쓰자고 하면 hwp_forms 로 양식을 고르고 hwp_start 로 만든다"
+            have = self.work_docs()
+            pre = ([f"이 프로젝트의 작업본: " + ", ".join(f"「{d['name']}」" for d in have[:8])
+                    + " — 요청이 그중 하나를 고치자는 것이면 hwp_switch {doc} 로 이어서 고친다(새로 만들지 않는다)."] if have else [])
+            return pre + ["편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 없음. 담당자가 문서를 쓰자고 하면 hwp_forms 로 양식을 고르고 hwp_start 로 만든다"
                     "(프로젝트에 사업이 준 한글 양식이 있으면 그것을 쓴다. 후보가 여럿이라 정하기 어렵거나 담당자가 정할 일이면 ask_user 로 묻는다). "
                     "찾아본 양식 가운데 목적에 맞는 것이 없으면 hwp_form_create 로 양식부터 설계해 만든다."]
         f = webhwp.get(self.db, fid)
         fl = self._fields()
         empty = [x["name"] for x in fl if not x["text"]]
         lines = [f"편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 「{Path(f['name']).stem}」(필드 {len(fl)}개, 빈 필드 {len(empty)}개)"]
+        others = [d for d in self.work_docs() if d["id"] != fid]
+        if others:
+            lines.append("이 대화·프로젝트의 다른 작업본: " + ", ".join(f"「{d['name']}」" for d in others[:8])
+                         + " — 요청이 그 문서(이름이나 계획서·기안문·보고서 같은 갈래)를 짚으면 hwp_switch {doc} 로 바꾼 뒤 고친다. 같은 문서를 hwp_start 로 새로 만들지 않는다.")
         needs = self.needs_map()
         rooms = self.rooms()
 
@@ -506,6 +567,13 @@ class HwpTools:
                       "필요하면 search 로 그 문서를 근거로 찾아 출처와 함께 쓰고, 연도·차년도 글자를 바꾸기로 옛 값을 새 해 값처럼 만들지 않는다."
                       if rep.get("blanked") else "")
         cur = self.fid()
+        if not a.get("new"):
+            # 같은 이름의 작업본이 이미 있으면 새로 만들지 않는다 — 그 문서를 고치는 요청이 「(2)」 사본으로 새던 것(11-09)
+            dup = next((d for d in self.work_docs() if _title_key(d["name"]) == _title_key(name)
+                        and not (d["id"] == cur and self._empty_doc(cur))), None)
+            if dup:
+                return (f"「{dup['name']}」 작업본이 이미 있다(#{dup['id']}) — 그 문서를 고치는 요청이면 hwp_switch {{doc: \"{dup['name']}\"}} 로 바꾼 뒤 "
+                        "hwp_fields·hwp_revise 로 고친다. 담당자가 정말 새 문서를 원하면 hwp_start 에 new: true 를 준다.")
         if cur and self._empty_doc(cur):
             return self._load_into(cur, data, fields, name, src) + blank_note
         fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder,
@@ -514,6 +582,7 @@ class HwpTools:
         m["session"] = self.sid
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
         attach(self.db, self.sid, fid)
+        self._wd_cache = None
         self.writes += 1
         kinds = {}
         for x in fields:

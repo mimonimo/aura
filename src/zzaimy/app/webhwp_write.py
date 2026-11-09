@@ -783,7 +783,7 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
             else:
                 rows = [[str(c) for c in r] for r in val]
                 pid = ids.new()
-                chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), None, roles)
+                chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), None, roles, char_hu=hangs.char_height(cp))
                               .replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                 put.append(pid)
         # 줄 배치 캐시는 글이 바뀐 필드 문단에서만 지운다(새 문단·표는 처음부터 없다). 문서 전체에서 지우면 상자 밖으로 글이 넘친다

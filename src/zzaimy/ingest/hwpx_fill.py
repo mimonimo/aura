@@ -529,9 +529,45 @@ def paragraph_xml(text: str, pp: str, cp: str) -> str:
 SHORT_TABLE_ROWS = 10      # 이 행 수 이하의 새 표는 쪽에서 나누지 않는다(통째로 다음 쪽) — 긴 표는 칸 단위로 나누고 머리줄을 되풀이
 
 
+def _vis_len(text: str) -> float:
+    """화면 글자 폭 어림 — 한글·전각은 1, 숫자·영문·기호는 0.55."""
+    return sum(1.0 if ord(ch) >= 0x2E80 else 0.55 for ch in text)
+
+
+def _min_col_widths(rows: list[list[str]], n_cols: int, char_hu: int) -> list[int]:
+    """열마다 끊으면 안 되는 가장 긴 낱말(띄어쓰기 없는 덩이 — 「80%」「핵심성과지표」)이 한 줄에 들어갈 최소 폭(칸 안 여백 포함).
+    너무 긴 덩이(12자 넘음)는 어차피 줄이 바뀌니 12자로 누른다."""
+    out = []
+    for c in range(n_cols):
+        tok = 0.0
+        for row in rows:
+            cell = str(row[c]) if c < len(row) else ""
+            for ln in split_lines(cell) or [""]:
+                for w in ln.split():
+                    tok = max(tok, _vis_len(w))
+        out.append(int(min(max(tok, 2.0), 12.0) * char_hu * 1.05) + 1300)
+    return out
+
+
+def _fit_widths(col_ws: list[int], mins: list[int], width_hu: int) -> list[int]:
+    """최소 폭에 못 미치는 열을 최소로 올리고, 모자란 만큼을 최소보다 넉넉한 열에서 넉넉한 만큼에 비례해 덜어 낸다.
+    최소 폭 합이 표 폭보다 크면 최소 폭 비율로 나눈다."""
+    if sum(mins) >= width_hu:
+        return [max(int(width_hu * m / sum(mins)), 1000) for m in mins]
+    ws = [max(w, m) for w, m in zip(col_ws, mins)]
+    over = sum(ws) - width_hu
+    if over > 0:
+        spare = [max(w - m, 0) for w, m in zip(ws, mins)]
+        tot = sum(spare)
+        if tot > 0:
+            ws = [w - int(over * sp / tot) for w, sp in zip(ws, spare)]
+    return ws
+
+
 def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int,
-              widths: list[float] | None = None, roles: dict[str, tuple[str, str, str]] | None = None) -> str:
-    """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 본문 폭을 균등 분할.
+              widths: list[float] | None = None, roles: dict[str, tuple[str, str, str]] | None = None, char_hu: int | None = None) -> str:
+    """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 칸 글 길이에 맞춰 나눈다.
+    어느 쪽이든 열마다 끊으면 안 되는 낱말이 들어갈 최소 폭은 지킨다(char_hu: 글자 크기, 1/100pt — 없으면 10pt).
     roles(서식 표의 역할별 모양, _role_styles)가 있으면 머리 행·라벨 열·본문 칸에 그 테두리·문단·글자 모양을 쓴다."""
     roles = roles or {}
     label = "label" in roles and _label_like(rows)
@@ -548,6 +584,8 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
             longest = max((len(ln) for row in rows for ln in (split_lines(str(row[c])) if c < len(row) else [""]) or [""]), default=0)
             weights.append(min(max(longest, 4), 30))
         col_ws = [max(int(width_hu * w / sum(weights)), 1000) for w in weights]
+    # 짧은 값 열(「목표 80%」)이 긴 글 열에 밀려 「80%」 가 세로로 끊기던 것(11-09 결과보고서) — 끊으면 안 되는 낱말 폭은 지킨다
+    col_ws = _fit_widths(col_ws, _min_col_widths(rows, n_cols, int(char_hu or 1000)), width_hu)
     row_h = 1200
     trs = []
     for r, row in enumerate(rows):

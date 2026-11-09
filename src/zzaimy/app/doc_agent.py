@@ -551,6 +551,7 @@ def _step_label(name: str, args: dict) -> str:
               # 한글 기안기 도구 — 도구 이름(hwp_fields 등)이 화면에 그대로 나오지 않게(11-06 시연 녹화)
               "hwp_forms": lambda a: "쓸 양식 찾는 중",
               "hwp_start": lambda a: "한글 작업본 만드는 중",
+              "hwp_switch": lambda a: f"「{str(a.get('doc') or '')[:30]}」 작업본으로 바꾸는 중",
               "hwp_fields": lambda a: "문서의 칸·절 확인 중",
               "hwp_fill": lambda a: "칸 채우는 중",
               "hwp_write": lambda a: f"「{str(a.get('field', ''))[:30]}」 절 쓰는 중",
