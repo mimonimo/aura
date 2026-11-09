@@ -608,3 +608,19 @@ def test_read_found_stops_after_per_document_budget(agent_app, tmp_path, monkeyp
     assert len(steps) == da.READ_PER_DOC + 1
     assert all("가상지표" in s_["observation"] for s_ in steps[:da.READ_PER_DOC])
     assert "이미 4번 읽었다" in steps[-1]["observation"] and "write_section" in steps[-1]["observation"]
+
+
+def test_lead_placeholder_pattern_catches_form_leftovers_only():
+    # 끝내기 전 앞부분 자리표시 되짚기(t_finish)가 보는 꼴 — 양식 자리표시만, 실제 값은 아니다(11-09 회의록 표지)
+    from zzaimy.app.main import _PLACEHOLDER as P
+    assert P.search("「○○○○ 위원회」 제○차 회의록") and P.search("○○사업단 · 20○○. ○. ○.") and P.search("예산 000 원")
+    assert not P.search("2027학년도 1학년 AI 교육 사업 계획서") and not P.search("영남이공대학교 기획처 · 2026. 11.")
+
+
+def test_step_parser_tolerates_an_extra_closing_brace():
+    # 하나 더 닫은 답(「}}}}」) 한 번에 요청 전체가 끝나던 일(11-09 운영 대화 161) — 첫 객체만 읽는다
+    from zzaimy.app.doc_agent import _parse
+    raw = '{"thought": "값을 채운다.", "action": "hwp_fill", "args": {"values": {"사업명": "가상 사업"}}}}'
+    assert _parse(raw) == {"thought": "값을 채운다.", "action": "hwp_fill", "args": {"values": {"사업명": "가상 사업"}}}
+    assert _parse('생각 글 {"action": "finish", "args": {}} 뒤 글') == {"action": "finish", "args": {}}
+    assert _parse('{"thought": "x"}') is None and _parse("") is None

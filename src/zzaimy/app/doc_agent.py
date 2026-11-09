@@ -261,14 +261,18 @@ def failure_message(ep: Episode) -> str:
 
 
 def _parse(raw: str) -> dict | None:
-    m = re.search(r"\{.*\}", raw or "", re.S)
-    if not m:
-        return None
-    try:
-        got = json.loads(m.group(0))
-    except ValueError:
-        return None
-    return got if isinstance(got, dict) and got.get("action") else None
+    """걸음 답 → JSON. 첫 「{」 부터 한 객체만 읽는다 — 뒤에 덧붙은 닫는 괄호·글(「}}}}」 처럼 하나 더 닫은 답)은 버린다.
+    하나 더 닫은 꼴 한 번에 형식 오류 두 번으로 요청 전체가 끝나 칸 하나도 채우지 못했다(11-09 운영 재현, 대화 161)."""
+    text = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S)
+    dec = json.JSONDecoder()
+    for m in re.finditer(r"\{", text):
+        try:
+            got, _end = dec.raw_decode(text, m.start())
+        except ValueError:
+            continue
+        if isinstance(got, dict) and got.get("action"):
+            return got
+    return None
 
 
 def step_info() -> tuple[int, int] | None:
@@ -347,7 +351,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         step = None
         extra: list[dict] = []
         t_decide = time.monotonic()                                    # 걸음 기록에 시간을 남긴다 — 고르기(27B)와 도구 실행을 따로
-        for _try in range(2):
+        for _try in range(3):                                  # 형식 오류는 꼴 예시를 붙여 두 번까지 다시 청한다
             messages = [{"role": "system", "content": system}, {"role": "user", "content": f"[담당자 요청]\n{request}"}]
             for call, res in turns:
                 messages += [{"role": "assistant", "content": call}, {"role": "user", "content": res}]
@@ -379,10 +383,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 break
             extra = [{"role": "assistant", "content": raw[:800]},
                      {"role": "user", "content": ("마지막 걸음이다 — " + ", ".join(grace) + " 또는 stop 가운데 하나를 고른 JSON 하나만 다시 답하라."
-                                                  if last else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라.")}]
+                                                  if last else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라 — "
+                                                  '꼴: {"thought": "한두 문장", "action": "도구 이름", "args": {...}} (괄호 수를 맞추고 JSON 밖에 글을 쓰지 않는다).')}]
             step = None
         if step is None:
-            ep.steps.append({"error": "형식 오류 두 번" + (" — 걸음 한도 뒤 마지막 걸음" if last else ""),
+            ep.steps.append({"error": "형식 오류 세 번" + (" — 걸음 한도 뒤 마지막 걸음" if last else ""),
                              "raw": raw[-400:]})                       # 무엇을 냈는지 — 원인(생각 새기·잘림·빈 답)을 기록에서 가린다
             if last:                                                   # 한도 안내로 끝낸다(낱말 규칙 경로로 물러나지 않는다)
                 break

@@ -373,3 +373,34 @@ def test_table_section_streams_text_preview_then_writes_table(tmp_path, monkeypa
     xml = "".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.startswith("Contents/section"))
     assert "1학기" in xml and "<hp:tbl" in xml                              # 파일에는 표째 들어갔다
     assert "1학기   2027" not in xml                                           # 흘려 보인 글 판은 파일에 남지 않았다
+
+
+def test_project_search_includes_this_chats_work_copy(tmp_path, monkeypatch):
+    # 「이 사업계획서를 바탕으로 공문」 — 방금 쓴 작업본 글이 search source=project 에 나와야 한다(11-09 운영 대화 161: 찾지 못함 되풀이)
+    import json as _json
+    from fastapi.testclient import TestClient
+    from tests.test_doc_agent_tools import _step, _use_agent
+    from tests.test_webhwp import _login
+    monkeypatch.delenv("ZZAIMY_RERANK_URL", raising=False)
+    monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    from tests.test_webhwp import _setup as _s
+    app0 = _s(tmp_path, monkeypatch)
+    db = app0.state.db
+    pid = db.create_project("교육", "가상 융합 교육 사업", owner="kim")
+    db0_sid = db.create_chat_session("공문 대화", project_id=pid, owner="kim")
+    from zzaimy.app import webhwp_templates as _wt
+    _wt.ensure_all(db, Path(app0.state.data_dir))
+    hw = wa.HwpTools(db, Path(app0.state.data_dir), db0_sid, "kim", "기획처", db.get_project(pid), lambda: [])
+    out = hw.forms({"query": "사업계획서"})
+    tid = next(line.split()[0] for line in out.splitlines() if line.split() and line.split()[0].startswith("tpl:"))
+    hw.start({"form": tid, "title": "가상 융합 교육 사업계획서"})
+    sec = next(x["name"] for x in hw._fields() if x["kind"] == "절")
+    hw.write({"field": sec, "text": "1) 가상 융합 교육은 1학년 전체를 대상으로 기초 코딩과 데이터 문해 과정을 한 학기 동안 운영함\n2) 운영 성과는 이수율과 만족도로 점검함"})
+    _use_agent(monkeypatch, [_step("search", source="project", query="융합 교육 운영 과정", **{"for": "공문 근거"}), _step("finish", message="끝")])
+    c = TestClient(app0)
+    assert _login(c, "kim", "pass-12345678")
+    c.post("/chat/send", data={"question": "이 사업계획서 내용으로 내부 보고 공문 써 줘", "session_id": str(db0_sid)}, follow_redirects=False)
+    eps = sorted(tmp_path.rglob("doc_agent_episodes.jsonl"))
+    assert eps, "에이전트 기록이 없다"
+    obs = _json.loads(eps[-1].read_text(encoding="utf-8").splitlines()[-1])["steps"][0]["observation"]
+    assert "작업본" in obs and "기초 코딩" in obs

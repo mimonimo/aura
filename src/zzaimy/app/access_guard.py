@@ -59,20 +59,38 @@ _OTHER_TAIL = r"(?:씨|님|교수|선생|직원|학생|담당자|팀장|과장|�
 _SELF_OWN = {"나의", "내", "제", "저의", "본인", "본인의"}         # 자기 값 앞에 오는 말
 
 
-# 개인정보 낱말이 문서 칸 이름으로 쓰인 것 — 「연락처 칸은 비워 둬」·「모르는 전화번호 란」 은 값을 묻는 말이 아니라 양식 칸을 가리킨다(11-09 기안문 오판)
-_FIELD_AFTER = re.compile(r"^\s*(?:칸|란|항목|자리|필드|빈칸|기입란|입력란)")
+# 개인정보 낱말이 문서 칸 이름으로 쓰인 것 — 「연락처 칸은 비워 둬」 는 값을 묻는 말이 아니라 양식 칸을 가리킨다(11-09 기안문 오판).
+# 좁게만 푼다(보안 검토 11-09): 판정은 정규화한 글(NFKC·폭 없는 글자 제거·공백 제거)로 하고, 낱말 바로 앞에 사람 지칭이 붙었거나
+# 칸 뒤 같은 마디에 값을 묻는 말(알려·조회·찾아·뭐·얼마 …)이 있으면 칸 이름으로 보지 않는다 — 부정·작성 지시를 덧붙여 조회를 통과시키지 못하게
+_ZW = re.compile(r"[\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff\u00ad]")
+_FIELD_AFTER = re.compile(r"^(?:칸|란|항목|자리|필드|빈칸|기입란|입력란)")
+_ASK_VERB = re.compile(r"알려|조회|찾아|찾아서|확인해|뭐|무엇|얼마|어떻게되|몇번|번호는|번호가|보여|말해|적어줘|채워줘|넣어줘")
+_NEAR_PERSON = re.compile(r"(?:씨|님|교수|선생|직원|학생|담당자|팀장|과장|부장|처장|단장|대표|원장|총장|학과장)의?$")
 
 
-def _asks_for(q: str, m: re.Match) -> bool:
-    """이 개인정보 낱말이 값을 묻는 자리인가 — 바로 뒤가 칸·란 같은 양식 칸 이름이면 아니다."""
-    return not _FIELD_AFTER.match(q[m.end():m.end() + 6])
+def _norm(q: str) -> str:
+    """판정용 글 — 전각·호환 글자를 NFKC 로 맞추고 폭 없는 글자를 지우며 공백은 한 칸으로(특수 글자로 판정만 피해 가지 못하게)."""
+    import unicodedata
+    return re.sub(r"\s+", " ", _ZW.sub("", unicodedata.normalize("NFKC", q or ""))).strip()
+
+
+def _asks_for(c: str, m: re.Match) -> bool:
+    """정규화한 글 c 에서 이 개인정보 낱말이 값을 묻는 자리인가 — 양식 칸 이름으로만 쓰였을 때만 아니다."""
+    tail = c[m.end():]
+    if not _FIELD_AFTER.match(tail):
+        return True
+    if _NEAR_PERSON.search(c[max(0, m.start() - 10):m.start()]) or _PERSON.search(c[max(0, m.start() - 10):m.start()]):
+        return True                                        # 「김영희 교수님 연락처 칸」 — 사람에 붙은 칸은 그 사람의 값을 가리킨다
+    clause = re.split(r"[.!?。\n]", tail, maxsplit=1)[0]
+    return bool(_ASK_VERB.search(clause))                  # 「연락처 칸에 들어갈 번호 알려줘」 — 칸을 핑계로 값을 묻는다
 
 
 def pii_request(question: str) -> str | None:
     """특정인(남)의 개인정보를 묻는 질문이면 안내문, 아니면 None. 권한과 무관하게 적용한다.
     지칭이 말하는 사람 자신(나는 교수·제가 직원)뿐이면 묻는 사람이 제 값을 준 것이라 막지 않는다."""
-    q = question or ""
-    if not any(_asks_for(q, m) for w in _PII_WORDS for m in re.finditer(re.escape(w), q)):
+    q = _norm(question)                                    # 판정은 정규화한 글로 — 사람 지칭·자기 값 판단도 같은 글을 본다
+    c = q.replace(" ", "")                                 # 개인정보 낱말은 띄어 쓴 꼴(「연 락 처」)까지 붙인 글에서 찾는다
+    if not any(_asks_for(c, m) for w in _PII_WORDS for m in re.finditer(re.escape(w.replace(" ", "")), c)):
         return None
     for m in _PERSON.finditer(q):
         name = re.match(r"[가-힣]+", m.group(0))

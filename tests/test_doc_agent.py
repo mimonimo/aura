@@ -52,7 +52,7 @@ def test_on_act_reports_tool_start_and_end_and_never_breaks_the_loop():
 
 def test_repeated_call_is_refused_and_bad_output_ends_loop():
     tools = [doc_agent.Tool("search", "찾기", lambda a: "결과"), doc_agent.Tool("finish", "끝", lambda a: "", final=True)]
-    ep = doc_agent.run(_client([_step("search", query="a"), _step("search", query="a"), "x", "y"]), "q", lambda: "s", tools)
+    ep = doc_agent.run(_client([_step("search", query="a"), _step("search", query="a"), "x", "y", "z"]), "q", lambda: "s", tools)
     assert "이미 썼다" in ep.steps[1]["observation"] and not ep.finished and "형식 오류" in ep.steps[-1]["error"]
 
 

@@ -122,6 +122,8 @@ _live_models_cache: dict = {}
 _LIVE_TTL = 120.0
 
 
+_PLACEHOLDER = re.compile(r"○{2,}|◯{2,}|0{3,}|20[○◯]{2}|[○◯]\s*차")      # 양식 자리표시 꼴 — 끝내기 전 앞부분 되짚기(t_finish)
+
 def _live_models_cached(cid: str, ttl: float = _LIVE_TTL) -> dict:
     """연결이 지금 내어 주는 모델 목록 — 화면에서 고르라고 보여 준다.
 
@@ -2497,6 +2499,19 @@ def create_app(
         notes: list[str] = []                                   # 에이전트가 찾은 근거 — 절 쓰기 재료로 넘긴다
         search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
+        lead_checked = {"done": False}                         # 끝내기 전 앞부분 자리표시 되짚기 — 요청마다 한 번
+
+        def _lead_placeholders() -> list[str]:
+            """연결된 한글 작업본 앞부분 줄 가운데 자리표시(○○·000·20○○ 꼴)가 남은 줄."""
+            if hw is None or not hw.fid():
+                return []
+            try:
+                f_ = _webhwp.get(db, hw.fid())
+                lines_ = _wa.lead_lines(Path(f_["path"]).read_bytes()) if f_ else []
+            except Exception:
+                return []
+            return [x for x in lines_ if _PLACEHOLDER.search(x)][:8]
+
         search_run = {"n": 0}                                  # 쓰기 없이 이어진 찾기 수 — 찾기만 되풀이하다 걸음 한도를 다 쓰지 않게(11-08 시연: 18분 찾기만, 절 0)
         found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
         found_docs: dict[int, dict] = {}                        # 이번 요청의 search 결과에 나온 문서 — read_found 가 읽을 수 있는 것만
@@ -2511,6 +2526,32 @@ def create_app(
                 if all(w in query for w in words_) or sum(1 for w in _asks.ask_keys(a_["name"]) if len(w) >= 2 and w in query) >= 2:
                     out_.append(a_)
             return out_
+
+        def _work_hits(query: str, k: int = 3) -> list[dict]:
+            """이 대화에 이은 한글 작업본들의 칸·절 글 가운데 검색어 낱말이 든 것 — 작업본 이름과 칸 이름을 제목으로."""
+            from zzaimy.app import webhwp_write as _ww
+            words = {w for w in (extract_nouns(query) or ()) if len(w) >= 2}
+            if not words:
+                return []
+            scored = []
+            for fid_ in _wa.files_of(db, session_id):
+                f_ = _webhwp.get(db, fid_)
+                if not f_:
+                    continue
+                try:
+                    fl_ = _ww.fields(Path(f_["path"]).read_bytes())
+                except Exception:
+                    continue
+                name_ = storage.title_of(Path(f_["path"]).name)
+                for x in fl_:
+                    t_ = str(x.get("text") or "").strip()
+                    if len(t_) < 40:
+                        continue
+                    n_ = sum(1 for w in words if w in t_) + sum(1 for w in words if w in str(x.get("name") or ""))
+                    if n_:
+                        scored.append((-n_, {"title": f"작업본 {name_} · {str(x.get('name') or '').split(':', 1)[-1]}", "text": t_,
+                                             "note": "이 대화의 한글 작업본"}))
+            return [h for _n, h in sorted(scored, key=lambda z: z[0])][:k]
 
         def t_search(a: dict) -> str:
             src, query = str(a.get("source") or "library"), str(a.get("query") or "").strip()
@@ -2539,6 +2580,10 @@ def create_app(
                 if fn is None:
                     return "source 는 project·criteria·library·rules 가운데 하나."
                 hits = fn(query)
+                if src == "project":
+                    # 이 대화에서 만든·연 한글 작업본 본문도 이 프로젝트의 근거다 — 「이 사업계획서를 바탕으로 공문」 처럼 방금 쓴 문서가 근거인
+                    # 요청에서 작업본을 읽을 길이 없어 공고만 되풀이해 읽다 멈췄다(11-09 운영 대화 161). 작업본 글을 앞에 둔다
+                    hits = _work_hits(query) + hits
             def _missed() -> None:
                 for x in targets:
                     if _asks.norm_kind(x.get("kind")) != _asks.DECISION:
@@ -2882,6 +2927,14 @@ def create_app(
             return "물었다."
 
         def t_finish(a: dict) -> str:
+            left_ = _lead_placeholders()
+            if left_ and not lead_checked["done"]:
+                # 작업본을 열 때 「앞부분 자리표시는 아는 값으로 바꾼다」 고 알렸는데 그대로 끝내려 한다 — 한 번만 되짚는다(11-09 회의록 표지 ○○ 그대로).
+                # 바꿀지·무엇으로 바꿀지는 에이전트가 정한다 — 모르는 값(제○차 등)은 남겨도 된다
+                lead_checked["done"] = True
+                raise doc_agent.Retry("끝내기 전에: 문서 앞부분(표지·머리)에 자리표시가 남아 있다 — 담당자 요청 글·프로젝트·기관 정보로 알 수 있는 값은 "
+                                      "칸이면 hwp_fill, 칸 밖 글이면 hwp_replace 로 바꾼 뒤 finish 한다. 모르는 값의 자리표시만 남기고 답에 무엇이 남았는지 알린다.",
+                                      data="\n".join(left_))
             msg = str(a.get("message") or "").strip()
             if msg:
                 db.add_chat(session_id, "assistant", _scrub_internal(msg))
@@ -2890,7 +2943,7 @@ def create_app(
         tools = [
             doc_agent.Tool("search", "근거 찾기. args {source: project|library|criteria|rules, query: 검색어(명사 2~6낱말), for: 무엇을 위해}. "
                            "source 고르기: rules=교내 규정·학칙·정관(정년·수당·휴가·임기 같은 제도 질문은 이것부터, 빠름), "
-                           "project=이 프로젝트에 올린 문서(공고·기본계획·서식), criteria=이 프로젝트의 기준 문서, "
+                           "project=이 프로젝트에 올린 문서(공고·기본계획·서식)와 이 대화에서 만든 한글 작업본 본문(방금 쓴 계획서 등), criteria=이 프로젝트의 기준 문서, "
                            "library=문서함 전체의 지난 사업 문서(계획서·보고서·회의 자료, 넓고 느림 — 지난 사례·수치가 필요할 때)", t_search,
                            gathers=True),
             doc_agent.Tool("read_found", "이번 search 결과에 나온 문서를 이어 읽기(맞는 문서를 찾았는데 결과가 잘려 표·목록의 나머지가 필요할 때). "
