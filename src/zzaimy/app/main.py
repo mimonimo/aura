@@ -2978,6 +2978,10 @@ def create_app(
                     hits_ = list(mats().search_project(query_) or [])[:3]
                     if crit_ids:
                         hits_ += list(mats().search_criteria(query_) or [])[:3]
+                    if len(hits_) < 3:
+                        # 프로젝트·기준 문서에 근거가 모자라면 문서함(지난 실적보고서·예결산 등)에서 채운다 — 결과보고서처럼 근거가
+                        # 지난 사업 문서에 있는 요청에서 맡긴 절이 「근거에 수치 없음」으로 비던 것(11-09). 다른 기관 자료는 search_library 가 표시
+                        hits_ += list(mats().search_library(query_) or [])[:3 - len(hits_) + 1]
                     return hits_
 
                 # 서브 연결 묶음 — 검토 연결(서빙 장비 둘째) 위주로 동시 상한만큼, 메인 연결은 하나(메인은 맡기는 동안 기다린다).

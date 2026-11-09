@@ -270,3 +270,31 @@ def test_marker_depth_follows_first_appearance():
     assert l_sub > l_top == l_top2                                             # 「가.」 가 「1)」 보다 안쪽
     assert int(re.search(r'<hh:lineSpacing type="PERCENT" value="(\d+)"', blk2).group(1)) >= 160
     assert int(re.search(r'<hc:prev value="(-?\d+)"', blk2).group(1)) > 0      # 둘째 첫째 단계 항목 위는 문단 간격
+
+
+def test_new_body_text_uses_form_body_char_not_heading_char():
+    """제목 바로 뒤에 박은 필드가 제목의 큰 글자를 물려받아도 새 본문은 양식 본문 글자로(11-09 결과보고서 — 본문만 크게 보이던 것)."""
+    from zzaimy.app import webhwp_templates as wt
+    form = wt.build({"id": "t-body", "title": "시험", "cover": {"title": "시험", "page": False},
+                     "blocks": [{"h": 1, "text": "1. 추진 배경"}, {"p": ""},
+                                {"p": "본 사업은 지역 산업 수요에 맞춘 인재를 길러 내기 위한 대학의 중장기 계획에 따라 추진하는 사업임."}],
+                     "page_number": False})
+    name = next(f["name"] for f in ww.fields(form) if f["kind"] == "절")
+    z = zipfile.ZipFile(io.BytesIO(form))
+    head = z.read("Contents/header.xml").decode()
+    heights = {m.group(1): int(m.group(2)) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\bheight="(\d+)"', head)}
+    big = max(heights, key=heights.get)
+    x = z.read("Contents/section0.xml").decode()
+    # 필드가 든 문단의 글자를 가장 큰 글자로 바꿔 「제목 글자를 물려받은 필드」 를 만든다
+    i = x.index("fieldBegin")
+    a = x.rfind("<hp:p ", 0, i)
+    b = x.index("</hp:p>", i)
+    x = x[:a] + re.sub(r'charPrIDRef="\d+"', f'charPrIDRef="{big}"', x[a:b]) + x[b:]
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as zo:
+        for info in z.infolist():
+            zo.writestr(info, x.encode() if info.filename == "Contents/section0.xml" else z.read(info.filename))
+    data, _ = ww.write_section(out.getvalue(), name, ww.parse_body("1) 새로 쓴 본문 첫 줄\n가) 새로 쓴 둘째 줄"))
+    p = _para_of(_xml(data), "새로 쓴 둘째 줄")
+    cp = re.findall(r'charPrIDRef="(\d+)"', p)[-1]
+    assert heights.get(cp, 0) < heights[big]
