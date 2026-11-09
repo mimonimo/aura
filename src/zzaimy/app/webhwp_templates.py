@@ -29,7 +29,7 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-BUILD = 13          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
+BUILD = 14          # 만드는 방식(build)이 바뀌면 올린다 — 정의가 같아도 운영의 양식이 새 방식으로 다시 만들어진다
 TEXT_W = hs.text_width()      # A4 본문 폭(HWPUNIT) — 여백은 house_style.PAGE 한 곳(좌우 20mm → 170mm)
 TOC_LEADER = " " + "·" * 24      # 목차 줄 끝 점선 — 절 필드 박기(webhwp_fields)가 목차 줄을 제목으로 보지 않는 표시이기도 하다
 
@@ -156,6 +156,8 @@ def _table(doc, t: dict) -> dict | None:
             "line": hs.TYPE["table"]["line"]}
     if t.get("kind") in ("summary", "schedule", "budget"):     # 갈래 표는 머리줄·라벨을 빌더가 안다 — 짐작을 끈다
         opts.update(head_rows=g["head_rows"], labels_only=True)
+    if t.get("plain"):                                        # 공문 두문·결문 — 선·음영 없는 줄(webhwp_style.style_table plain)
+        opts["plain"] = True
     return opts
 
 
@@ -231,6 +233,7 @@ def build(spec: dict) -> bytes:
     모양은 house_style 한 곳 — 글자 체계(TYPE)·표 디자인(TABLE·HOUSE)·색(PALETTE)."""
     from hwpx import HwpxDocument
 
+    spec = localize(spec)                              # 기관 값 자리가 남아 있으면 안내 글로(ensure_all 은 기관 정보로 먼저 바꿔 넘긴다)
     blocks = spec.get("blocks") or []
     check_blocks(blocks)
     doc = HwpxDocument.new()
@@ -327,13 +330,19 @@ def _people(block, labels):
     return {"table": {**block["table"], "people": list(labels)}}
 
 
-def _kv(rows, people=()):
-    b = {"table": {"columns": ["항목", "내용"], "rows": [list(r) for r in rows], "widths": [1, 4]}}
+def _kv(rows, people=(), plain=False):
+    b = {"table": {"columns": ["항목", "내용"], "rows": [list(r) for r in rows], "widths": [1, 6] if plain else [1, 4]}}
+    if plain:
+        b["table"]["plain"] = True
     return _people(b, people) if people else b
 
 
-def _grid(rows, widths, people=()):
+def _grid(rows, widths, people=(), merges=(), plain=False):
     b = {"table": {"columns": list(rows[0]), "form": True, "rows": [list(r) for r in rows], "widths": widths}}
+    if merges:
+        b["table"]["merges"] = [list(m) for m in merges]
+    if plain:
+        b["table"]["plain"] = True
     return _people(b, people) if people else b
 
 
@@ -341,11 +350,44 @@ def _list(head, n=1, widths=None):
     return {"table": {"columns": head, "rows": [[""] * len(head) for _ in range(n)], "widths": widths or [1] * len(head)}}
 
 
+# 기관 값 자리 — 양식 정의에는 기관명을 박지 않는다. ensure_all 이 기관 정보(institution.facts)로 바꾸고, 모르면 괄호 안내 글로 둔다
+_INST = {"{기관명}": ("대학명", "(행정기관명)"), "{주소}": ("주소", "")}
+
+
+def localize(spec, facts: dict | None = None):
+    """정의 안의 기관 값 자리({기관명}·{발신명의}·{주소})를 기관 정보로 바꾼 사본. facts 가 없거나 값이 비면 안내 글."""
+    f = facts or {}
+    rep = {k: (str(f.get(key) or "").strip() or empty) for k, (key, empty) in _INST.items()}
+    name = str(f.get("대학명") or "").strip()
+    rep["{발신명의}"] = f"{name}총장" if name else "(발신명의)"
+
+    def walk(x):
+        if isinstance(x, str):
+            for k, v in rep.items():
+                x = x.replace(k, v)
+            return x
+        if isinstance(x, list):
+            return [walk(i) for i in x]
+        if isinstance(x, dict):
+            return {k: walk(v) for k, v in x.items()}
+        return x
+    return walk(spec)
+
+
+# 공문 서식(행정업무의 운영 및 혁신에 관한 규정 시행규칙 별지 기안문) — 두문(행정기관명·수신·(경유)) → 본문(제목·내용·붙임 … 끝.) →
+# 결문(발신명의·기안자·검토자·결재권자·협조자·시행·접수·우편번호·주소·홈페이지·전화·전송·전자우편·공개구분). 두문·결문은 표가 아니라 줄로
+# 보이게 선 없는 줄 표(plain)로 짠다 — 칸 이름이 그대로 누름틀(「칸:수신」…)이 되어 에이전트가 같은 이름으로 짚는다
 _SIGN = _list(["기안자", "검토자", "결재권자"], 1)                       # 결재란 — 직위 머리행 + 서명 칸(서명이 들어갈 높이)
 _SIGN["table"]["tall"] = {1: 36}
 _SIGN["table"]["keep"] = True          # 결재란은 비어 있어도 본문 표가 지우지 않는다
-_FOOT = _grid([["시행(번호·일자)", "", "접수(번호·일자)", ""], ["우편번호", "", "주소", ""], ["전화", "", "전송", ""],
-               ["전자우편", "", "공개구분", ""]], [1, 2, 1, 2], people=["시행(번호·일자)", "접수(번호·일자)"])   # 문서 번호는 전자결재가 매긴다
+_SIGN_LINE = {"table": {**_SIGN["table"], "plain": True}}     # 공문 결문의 결재 줄 — 선 없이(국고 서식의 결재란은 칸 그대로)
+_COOP = _kv([["협조자", ""]], people=["협조자"], plain=True)
+_FOOT = _grid([["시행(번호·일자)", "", "접수(번호·일자)", ""], ["우편번호", "", "주소", "{주소}"], ["홈페이지", "", "전자우편", ""],
+               ["전화", "", "전송(팩스)", ""], ["공개구분", "", "", ""]], [1, 2, 1, 2],
+              people=["시행(번호·일자)", "접수(번호·일자)"], merges=[[4, 1, 1, 3]], plain=True)   # 문서 번호는 전자결재가 매긴다
+_HEAD_GUIDE = G("두문 — 수신은 받는 기관(내부결재면 「내부결재」 그대로), (경유)는 거쳐 갈 기관이 있을 때만 적고 없으면 비운다. "
+                "제목은 무엇을 하는지 한 줄로 적는다(예: 「○○ 사업 추진 계획 보고」). 결문의 전화·전송(팩스)·전자우편은 처리과 연락처이고, "
+                "모르면 비워 둔다.")
 
 # 절마다 【작성방법】 상자 — 사업 문서(SPECS)와 같은 헬퍼(H·G)·같은 수치 규칙(NUM_RULE·BUDGET_RULE)·같은 근거 붙이기(_with_sources).
 # check_spec 이 15종 모두에 돈다(맨 아래 절마다 작성방법이나 표).
@@ -353,23 +395,21 @@ _RELATED = G("결재·발송의 근거를 「가. 관련 규정·계획·공문(
              "옮기고, 근거가 없으면 이 항목을 지운다.")
 
 OFFICIAL = {
-    "draft": {"id": "draft", "title": "기안문(내부결재) 공통 양식", "cover": ["영남이공대학교"], "blocks": [
-        _kv([["수신", "내부결재"], ["(경유)", ""], ["제목", ""]]),
-        {"p": ""},
+    "draft": {"id": "draft", "title": "기안문(내부결재) 공통 양식", "cover": ["{기관명}"], "blocks": [
+        _kv([["수신", "내부결재"], ["(경유)", ""], ["제목", ""]], plain=True), _HEAD_GUIDE,
         H(1, "1. 관련"), _RELATED,
         H(1, "2. 추진 내용"),
         G("무엇을 왜 언제 누가 하는지를 가. 목적 → 나. 일시·장소 → 다. 대상·내용 → 라. 소요 예산 차례로 개조식으로 적는다. "
           + NUM_RULE + ". " + BUDGET_RULE + "."),
         {"p": "붙임  1. (붙임 문서 이름) 1부.  끝."},
-        {"p": ""}, _SIGN, {"p": ""}, _FOOT]},
-    "outgoing": {"id": "outgoing", "title": "시행문(대외 발송) 공통 양식", "cover": ["영남이공대학교"], "blocks": [
-        _kv([["수신", ""], ["(경유)", ""], ["제목", ""]]),
-        {"p": ""},
+        {"p": ""}, _SIGN_LINE, _COOP, _FOOT]},          # 내부결재 문서는 발신명의를 적지 않는다
+    "outgoing": {"id": "outgoing", "title": "시행문(대외 발송) 공통 양식", "cover": ["{기관명}"], "blocks": [
+        _kv([["수신", ""], ["(경유)", ""], ["제목", ""]], plain=True), _HEAD_GUIDE,
         H(1, "1. 관련"), _RELATED,
         H(1, "2. 요청 사항"),
         G("받는 기관이 할 일을 가. 요청 내용 → 나. 회신 기한·방법 → 다. 담당 부서 차례로 적는다. " + NUM_RULE + "."),
         {"p": "붙임  1. (붙임 문서 이름) 1부.  끝."},
-        {"p": ""}, {"p": "영남이공대학교총장"}, {"p": ""}, _SIGN, {"p": ""}, _FOOT]},
+        {"sign": ["", "", "{발신명의}"]}, _SIGN_LINE, _COOP, _FOOT]},
     "cooperation": {"id": "cooperation", "title": "협조문(부서 간) 공통 양식", "cover": ["업무 협조 요청"], "blocks": [
         _kv([["수신", ""], ["발신", ""], ["제목", ""], ["회신 기한", ""]]),
         {"p": ""},
@@ -450,8 +490,15 @@ def ensure_all(db, base: Path, *, owner: str = "zzaimy") -> list[dict]:
     from zzaimy.app import webhwp
     from zzaimy.ingest.gdocs_templates import SPECS
 
+    from zzaimy.app import institution
+
+    try:
+        inst = institution.facts(db)
+    except Exception:
+        inst = {}
     out = []
     for sid, spec in [*SPECS.items(), *OFFICIAL.items(), *GRANT.items()]:
+        spec = localize(spec, inst)
         folder = f"{FOLDER}/공문" if sid in OFFICIAL else (f"{FOLDER}/국고 사업" if sid in GRANT else FOLDER)
         fp = fingerprint(spec)
         key = f"webhwp_template:{sid}"
