@@ -375,6 +375,11 @@ def _kind_complete(messages: list[dict]) -> str:
                                                  extra_body=getattr(client, "_extra", {}), timeout=60)
     return resp.choices[0].message.content or ""
 
+
+import threading as _threading_active
+ACTIVE_DOCS: set[int] = set()          # 이 프로세스에서 지금 처리 중인 문서 번호
+_ACTIVE_LOCK = _threading_active.Lock()
+
 class DocumentProcessor:
     """실제 처리기. 테스트에서는 FakeProcessor로 대체된다."""
 
@@ -2494,6 +2499,19 @@ class DocumentProcessor:
         return masked.text
 
     def process(self, db: Database, doc_id: int, file_path: Path, defer_review: bool = False) -> None:
+        """처리 중인 문서 번호를 ACTIVE_DOCS 에 두고 처리한다 — 멈춘 문서 되살리기(main._requeue_stalled_docs)가
+        지금 처리 중인 큰 파일(스캔 PDF 수십 분)을 겹쳐 다시 돌리지 않게(11-10)."""
+        with _ACTIVE_LOCK:
+            if int(doc_id) in ACTIVE_DOCS:
+                return                                     # 이미 이 프로세스에서 처리 중 — 겹쳐 돌리지 않는다
+            ACTIVE_DOCS.add(int(doc_id))
+        try:
+            self._process(db, doc_id, file_path, defer_review)
+        finally:
+            with _ACTIVE_LOCK:
+                ACTIVE_DOCS.discard(int(doc_id))
+
+    def _process(self, db: Database, doc_id: int, file_path: Path, defer_review: bool = False) -> None:
         """defer_review — 검토 의견(27B, 문서당 ~3분)은 뒤로 미루고 문서는 먼저 쓸 수 있게 한다(묶음 접수: 자료를 올리고 바로 작성).
         미룬 검토는 한 줄 대기열(_REVIEW_QUEUE)이 한 건씩 이어 쓴다 — 서빙 장비의 27B 는 동시 요청을 보내도 처리량이 늘지 않는다."""
         self.configure_privacy(db)

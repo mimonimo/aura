@@ -381,7 +381,9 @@ class VllmClient:
                 if _no_schema and kw.get("response_format"):
                     kw = schema_as_prompt(kw)
                 try:
-                    resp = orig(*a, **kw)
+                    from zzaimy.generate import llm_gate as _gate     # 동시 호출 수 문 — 몰리면 차례를 기다린다(11-10)
+                    with _gate.slot():
+                        resp = orig(*a, **kw)
                 except TypeError:
                     raise
                 except Exception as e:

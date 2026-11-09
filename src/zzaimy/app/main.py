@@ -215,13 +215,52 @@ def create_app(
 
     from zzaimy.app import org_lock as _org_lock
 
-    def _save_accounts() -> None:
-        """계정 표 쓰기 — 조직도·사용자 화면과 같은 잠금(org_lock) 안에서, 임시 파일에 쓴 뒤 바꿔 끼운다(쓰다 끊겨도 반쪽 파일이 남지 않게)."""
+    _acct_seen: dict = {"mtime": None}
+
+    def _accounts_mtime():
+        try:
+            return accounts_path.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def _sync_accounts_from_disk() -> bool:
+        """계정 파일이 앱 밖에서 바뀌었으면(관리 스크립트로 계정 추가 등) 메모리 계정 표를 다시 읽는다 — 재시작 없이 로그인되게(11-10).
+        같은 dict 를 고쳐 쓰므로 app.state.accounts 를 쥔 쪽도 새 값을 본다. 바뀌지 않았으면 stat 한 번뿐."""
+        m = _accounts_mtime()
+        if m is None or m == _acct_seen["mtime"]:
+            return False
         with _org_lock.LOCK:
+            m = _accounts_mtime()
+            if m is None or m == _acct_seen["mtime"]:
+                return False
+            try:
+                fresh = _aj.loads(accounts_path.read_text())
+            except (OSError, ValueError):
+                return False                               # 쓰는 도중이거나 깨진 파일 — 지금 표를 그대로 둔다
+            if not isinstance(fresh, dict) or not fresh:
+                return False
+            accounts.clear()
+            accounts.update(fresh)
+            _acct_seen["mtime"] = m
+            return True
+
+    def _save_accounts() -> None:
+        """계정 표 쓰기 — 조직도·사용자 화면과 같은 잠금(org_lock) 안에서, 임시 파일에 쓴 뒤 바꿔 끼운다(쓰다 끊겨도 반쪽 파일이 남지 않게).
+        앱 밖에서 더해진 계정(파일에는 있고 메모리에 없는 것)은 덮어 지우지 않고 살린다(11-10)."""
+        with _org_lock.LOCK:
+            if _acct_seen["mtime"] is not None and _accounts_mtime() not in (None, _acct_seen["mtime"]):
+                try:
+                    disk = _aj.loads(accounts_path.read_text())
+                    if isinstance(disk, dict):
+                        for k_, v_ in disk.items():
+                            accounts.setdefault(k_, v_)
+                except (OSError, ValueError):
+                    pass
             tmp = accounts_path.with_suffix(".tmp")
             tmp.write_text(_aj.dumps(accounts, ensure_ascii=False, indent=1))
             tmp.chmod(0o600)
             tmp.replace(accounts_path)
+            _acct_seen["mtime"] = _accounts_mtime()
             _org_lock.note(accounts_path)
 
     def _now_iso() -> str:
@@ -265,6 +304,7 @@ def create_app(
     if password is not None:
         try:
             accounts = _aj.loads(accounts_path.read_text())
+            _acct_seen["mtime"] = _accounts_mtime()
         except (OSError, ValueError):
             # 첫 기동 — 개발자 비밀번호는 운영자가 정한 값(ZZAIMY_DEV_PASSWORD)이거나, 없으면 무작위로 만들어 0600 파일에만 둔다.
             # 무작위 비밀번호로 만든 계정은 로그인 뒤 비밀번호를 바꿀 때까지 설정 화면으로만 간다. 있는 계정 파일은 건드리지 않는다
@@ -645,6 +685,11 @@ def create_app(
         import time as _t
         t0 = _t.monotonic()
         from zzaimy.app import webhwp as _wh_req
+        if password is not None:
+            try:
+                _sync_accounts_from_disk()                # 앱 밖에서 고친 계정 파일 — 재시작 없이 반영
+            except Exception:
+                pass
         with _wh_req.request_scope():                     # 요청 안의 한글 파일 meta 읽기를 한 번에(webhwp.request_scope)
             resp = await call_next(request)
         ms = int((_t.monotonic() - t0) * 1000)
@@ -902,7 +947,9 @@ def create_app(
         DGX 원본(dgx://)은 결과 들이기(168)가 맡으므로 여기서 다루지 않는다."""
         import threading
         from datetime import datetime as _dt, timedelta as _td
-        cut = (_dt.now() - _td(minutes=min_age_min)).isoformat(timespec="seconds")
+        from datetime import timezone as _tz
+        # 문서 시각(db._now)과 같은 꼴(지역 시간대 붙은 ISO)로 — 꼴이 다르면 글자 비교가 어긋난다
+        cut = (_dt.now(_tz.utc).astimezone() - _td(minutes=min_age_min)).isoformat(timespec="seconds")
         try:
             from zzaimy.app.pipeline import REVIEW_PENDING
             with db._conn() as conn:                    # 재시작으로 끊긴 미룬 검토 — 「쓰는 중」으로 남지 않게 비운다(문서 화면에서 다시 만든다)
@@ -911,13 +958,19 @@ def create_app(
             pass
         with db._conn() as conn:
             rows = [dict(r) for r in conn.execute(
-                "SELECT id, stored_path FROM documents WHERE status IN ('received', 'processing') AND created_at < ?"
+                "SELECT id, stored_path FROM documents WHERE status IN ('received', 'processing') AND created_at <= ?"
                 " AND stored_path NOT LIKE 'dgx://%' ORDER BY id", (cut,)).fetchall()]
-        todo = [(int(r["id"]), Path(r["stored_path"])) for r in rows if r["stored_path"] and Path(r["stored_path"]).is_file()]
+        from zzaimy.app.pipeline import ACTIVE_DOCS as _active
+        # 지금 이 프로세스가 처리 중인 문서(큰 스캔 PDF 는 수십 분)는 건드리지 않는다 — 끊긴 것만 다시
+        todo = [(int(r["id"]), Path(r["stored_path"])) for r in rows
+                if int(r["id"]) not in _active and r["stored_path"] and Path(r["stored_path"]).is_file()]
 
         def run():
             for did, path in todo:
                 try:
+                    cur = db.get_document(did) or {}
+                    if cur.get("status") not in ("received", "processing"):
+                        continue                           # 그새 다른 흐름이 끝냈다
                     processor.process(db, did, path)
                 except Exception as e:
                     logging.getLogger(__name__).warning("멈춘 문서 다시 처리 실패 doc=%s: %s", did, e)
@@ -927,10 +980,24 @@ def create_app(
 
     @app.on_event("startup")
     def _recover_stalled_docs() -> None:
+        """켤 때 — 이 프로세스는 아직 아무것도 처리하지 않으므로 「받음·처리 중」은 모두 끊긴 것이다(나이 제한 없이, 11-10:
+        재시작 몇 분 전에 올린 문서가 다음 재시작까지 「처리 중」으로 갇혔다). 그 뒤로는 30분마다, 세 시간 넘게 멈춘 것만 다시(처리 중인 것은 빼고)."""
+        import threading as _th_rq
+        import time as _t_rq
         try:
-            _requeue_stalled_docs()
+            _requeue_stalled_docs(min_age_min=0)
         except Exception:
             pass
+
+        def loop() -> None:
+            while True:
+                _t_rq.sleep(1800)
+                try:
+                    _requeue_stalled_docs(min_age_min=180)   # 대기열에서 차례를 기다리는 문서와 겹치지 않게 넉넉히
+                except Exception:
+                    logging.getLogger(__name__).warning("멈춘 문서 되살리기 실패", exc_info=True)
+        if os.environ.get("ZZAIMY_REQUEUE_LOOP", "1") != "0":
+            _th_rq.Thread(target=loop, name="requeue-loop", daemon=True).start()
 
     app.state.requeue_stalled_docs = _requeue_stalled_docs
 
@@ -3747,6 +3814,18 @@ def create_app(
 
     _chat_usage_live: dict[int, dict] = {}                         # 답을 쓰는 중인 대화의 문맥 사용(실시간 표시)
 
+    def _answer_failure_text(e: Exception) -> str:
+        """답 실패 안내 — 모델 서버에 닿지 않음·시간 초과·그 밖을 구분해 담당자가 할 일을 알린다(내부 주소·스택은 싣지 않는다)."""
+        name = type(e).__name__
+        msg = str(e)[:300].lower()
+        if "timeout" in name.lower() or "timed out" in msg or "timeout" in msg:
+            return ("답을 만드는 데 시간이 너무 걸려 멈췄습니다(모델 서버가 바쁘거나 응답이 늦음). 잠시 뒤 같은 요청을 다시 보내 주세요. "
+                    "문서 작업이었다면 이미 쓴 부분은 문서에 남아 있고, 「계속 써 줘」로 이어 쓸 수 있습니다.")
+        if "connect" in name.lower() or "connection" in msg or "refused" in msg or "unreachable" in msg:
+            return ("모델 서버에 연결하지 못해 답을 만들지 못했습니다(서버 점검·네트워크 끊김). 잠시 뒤 다시 보내 주세요. "
+                    "계속되면 관리자에게 알려 주세요.")
+        return "답을 만드는 중 오류가 나서 멈췄습니다. 같은 요청을 다시 보내 주세요. 계속되면 관리자에게 알려 주세요."
+
     def _answer_task(session_id, q, stored, criteria, web=""):
         from zzaimy.app import llm_budget as _lb_usage
         usage_ = _lb_usage.track()                                # 이 답변에서 모델에 보낸 양 — 화면 「문맥 사용」 표시
@@ -3757,6 +3836,15 @@ def create_app(
             _q_last = next((m for m in reversed(db.list_chats(session_id, limit=4)) if m.get("role") == "user"), None)
             with _effort.use(_effort.of_message(db, (_q_last or {}).get("id"))):
                 _answer_task_impl(session_id, q, stored, criteria, web)
+        except Exception as e:
+            # 답을 만드는 도중 깨지면(모델 서버 끊김·시간 초과 등) 대화가 「처리 중」에 갇히지 않게 까닭을 남긴다(11-10)
+            logging.getLogger("zzaimy.app.chat").exception("답변 실패 session=%s", session_id)
+            try:
+                last_ = db.list_chats(session_id, limit=1)
+                if last_ and last_[-1]["role"] == "user":
+                    db.add_chat(session_id, "assistant", _answer_failure_text(e))
+            except Exception:
+                pass
         finally:
             _chat_usage_live.pop(session_id, None)
             if usage_["calls"]:

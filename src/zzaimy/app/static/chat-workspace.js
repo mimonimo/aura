@@ -540,7 +540,7 @@
         installPage(await page.text(), page.url);
         return;
       }
-      status.textContent = '요청 처리 중입니다.';
+      status.textContent = state.llm_wait > 0 ? `모델 대기 중 · 앞에 ${state.llm_wait}건` : '요청 처리 중입니다.';   // 여럿이 한꺼번에 요청해 차례를 기다릴 때
       showProgress(state.progress);
       timer = setTimeout(poll, state.progress && state.progress.partial ? 1000 : 3000);   // 답이 흘러나오는 동안은 1초마다
       return;

@@ -582,8 +582,13 @@ def chat_status(request: Request, session_id: int):
     _owned_chat(request, session_id)
     messages = db.list_chats(session_id)
     prog = _chat_progress.get(session_id)
-    return {"waiting": session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user"),
-            "progress": ({**prog, "now": time.time()} if prog else prog)}
+    running = session_id in _chat_running
+    out = {"waiting": running or (bool(messages) and messages[-1]["role"] == "user"),
+           "progress": ({**prog, "now": time.time()} if prog else prog)}
+    if running:
+        from zzaimy.generate import llm_gate as _gate      # 여럿이 한꺼번에 요청해 모델 호출이 차례를 기다리는 수(11-10)
+        out["llm_wait"] = _gate.waiting()
+    return out
 
 
 @router.post("/api/chat/answer-mode")
