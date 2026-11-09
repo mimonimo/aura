@@ -264,16 +264,8 @@ DESIGN_SYSTEM = """당신은 대학 행정 문서의 양식을 설계한다. 담
 
 
 def parse_design(raw: str) -> dict | None:
-    raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S).strip()
-    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
-    a, b = raw.find("{"), raw.rfind("}")
-    if a < 0 or b <= a:
-        return None
-    try:
-        v = json.loads(raw[a:b + 1])
-    except ValueError:
-        return None
-    return v if isinstance(v, dict) else None
+    from zzaimy.generate import model_json          # 생각 글·울타리·덧붙인 괄호·파이썬 꼴이 섞여도 읽는다(모델 교체 대비)
+    return model_json.loads(raw or "")
 
 
 def _clip(text: str, tokens: int) -> str:

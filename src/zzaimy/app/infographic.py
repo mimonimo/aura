@@ -123,10 +123,11 @@ def parse_spec(text: str) -> dict | None:
     """모델이 낸 도식 글(JSON)을 spec 으로. JSON 이 아니면 None."""
     import json
 
+    from zzaimy.generate import model_json          # 생각 글·울타리가 섞여도 읽는다(모델 교체 대비)
     try:
         data = json.loads(text)
     except Exception:
-        return None
+        data = model_json.loads(text or "")
     if not isinstance(data, dict) or not isinstance(data.get("blocks"), list):
         return None
     return data

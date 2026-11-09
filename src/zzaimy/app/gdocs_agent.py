@@ -211,13 +211,12 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
             extra_body=getattr(client, "_extra", None) or {},
         )
         raw = (resp.choices[0].message.content or "").strip()
-        raw = raw.strip("`").removeprefix("json").strip() if raw.startswith("`") else raw
-        try:
-            data = json.loads(raw)
+        from zzaimy.generate import model_json      # 울타리·생각 글·파이썬 꼴이 섞여도 읽는다(모델 교체 대비)
+        data = model_json.loads(raw)
+        if data is not None:
             break
-        except json.JSONDecodeError:
-            if attempt == 1:
-                raise
+        if attempt == 1:
+            raise json.JSONDecodeError("편집 계획 응답에 JSON 이 없다", raw[:200], 0)
     raw_ops = []
     for o in data.get("ops", []):
         # insert 에 표 칸(table·cells)을 함께 실은 계획은 칸이 버려지므로 insert 와 fill 둘로 나눈다

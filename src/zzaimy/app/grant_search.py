@@ -164,6 +164,7 @@ def _encode_batch(texts: list[str]):
         return _encode_batch(texts[:mid]) + _encode_batch(texts[mid:])
 
 
+_PG_DIM: dict[str, int | None] = {"n": None}   # pgvector 색인의 벡터 차원(모델 교체 감지)
 PG_EF_SEARCH = 300          # 측정(scripts/178): ef 300 에서 recall@10 0.915·@50 0.963, 질의 15ms
 
 
@@ -186,6 +187,16 @@ def _dense_pg(db, qv, top_k: int, scope_docs: set[int] | None, user: str | None,
         with db._conn() as conn:
             if getattr(conn, "dialect", "") != "postgres":
                 return None
+            if _PG_DIM.get("n") is None:                                  # 색인 차원 — 한 번만 읽는다
+                r_ = conn.execute("SELECT vector_dims(emb::vector) FROM grant_vec LIMIT 1").fetchone()
+                _PG_DIM["n"] = int(r_[0]) if r_ and r_[0] else 0
+            if _PG_DIM["n"] and _PG_DIM["n"] != len(qv):              # 임베딩 모델을 바꿔 차원이 다르다 — 어휘 단독(색인 재생성 전까지)
+                from zzaimy.app.embed_search import dims_ok
+
+                class _Shape:
+                    shape = (0, _PG_DIM["n"])
+                dims_ok(qv, _Shape(), "사업 문서 의미 검색(pgvector)")
+                return []
             conn.execute(f"SET hnsw.ef_search = {PG_EF_SEARCH}")
             conn.execute("SET hnsw.iterative_scan = relaxed_order")      # 거르는 조건이 있어도 k 개를 채운다
             rows = conn.execute(
@@ -217,6 +228,9 @@ def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope
         return []
     import numpy as np
     q = np.asarray(qv, dtype=np.float32)
+    from zzaimy.app.embed_search import dims_ok
+    if not dims_ok(q, vecs, "사업 문서 의미 검색"):           # 임베딩 모델을 바꿔 차원이 다르면 어휘 단독(색인 재생성 전까지)
+        return []
     if allowed is not None:
         sims = vecs @ q
         out = []

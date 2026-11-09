@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 
@@ -43,18 +42,8 @@ def _normalize(text: str) -> str:
 
 def parse_json(raw: str) -> dict:
     """모델이 돌려준 글에서 JSON 한 덩어리만 꺼낸다. 못 꺼내면 빈 dict."""
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
-        text = re.sub(r"\n?```$", "", text.strip())
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return {}
-    try:
-        got = json.loads(text[start:end + 1])
-    except ValueError:
-        return {}
-    return got if isinstance(got, dict) else {}
+    from zzaimy.generate import model_json          # 생각 글·울타리·파이썬 꼴이 섞여도 읽는다(모델 교체 대비)
+    return model_json.loads(raw or "") or {}
 
 
 def verify(found: dict, source: str) -> tuple[dict, list[str]]:

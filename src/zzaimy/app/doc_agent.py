@@ -262,17 +262,52 @@ def failure_message(ep: Episode) -> str:
 
 def _parse(raw: str) -> dict | None:
     """걸음 답 → JSON. 첫 「{」 부터 한 객체만 읽는다 — 뒤에 덧붙은 닫는 괄호·글(「}}}}」 처럼 하나 더 닫은 답)은 버린다.
-    하나 더 닫은 꼴 한 번에 형식 오류 두 번으로 요청 전체가 끝나 칸 하나도 채우지 못했다(11-09 운영 재현, 대화 161)."""
-    text = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S)
-    dec = json.JSONDecoder()
-    for m in re.finditer(r"\{", text):
-        try:
-            got, _end = dec.raw_decode(text, m.start())
-        except ValueError:
-            continue
-        if isinstance(got, dict) and got.get("action"):
-            return got
-    return None
+    하나 더 닫은 꼴 한 번에 형식 오류 두 번으로 요청 전체가 끝나 칸 하나도 채우지 못했다(11-09 운영 재현, 대화 161).
+    모델을 바꿔도 읽히게(11-10): 생각 글·울타리·파이썬 꼴은 model_json 이 걷고, 도구 이름·인자 열쇠의 다른 이름
+    (tool·name·function / arguments·parameters·input, 인자를 JSON 글로 준 꼴)은 action·args 로 맞춘다."""
+    from zzaimy.generate import model_json
+
+    got = model_json.loads(raw, key="action") or _normalize(model_json.loads(raw))
+    if got is None:
+        return None
+    return _normalize(got)
+
+
+_ACTION_KEYS = ("action", "tool", "tool_name", "name", "function")
+_ARGS_KEYS = ("args", "arguments", "parameters", "input", "params")
+
+
+def _normalize(got: dict | None) -> dict | None:
+    """다른 모델의 걸음 꼴 → {thought, action, args}. 도구 이름이 없으면 None."""
+    if not isinstance(got, dict):
+        return None
+    fn = got.get("function") if isinstance(got.get("function"), dict) else None     # {"function": {"name", "arguments"}} 꼴
+    src = fn or got
+    action = next((src.get(k) for k in _ACTION_KEYS if isinstance(src.get(k), str) and src.get(k).strip()), None)
+    if not action:
+        return None
+    args = next((src.get(k) for k in _ARGS_KEYS if k in src), {})
+    if isinstance(args, str):                                       # 인자를 JSON 글로 준 꼴(OpenAI tool_call 의 arguments)
+        from zzaimy.generate import model_json
+        args = model_json.loads(args) or {}
+    out = dict(got)
+    out["action"] = action.strip()
+    out["args"] = args if isinstance(args, dict) else {}
+    return out
+
+
+def _tool_call_text(msg) -> str:
+    """서버가 도구 호출 꼴(message.tool_calls)로 돌려준 걸음을 JSON 글로 — 본문이 비어도 걸음을 잃지 않게."""
+    try:
+        calls = getattr(msg, "tool_calls", None) or []
+        if not calls:
+            return ""
+        fn = getattr(calls[0], "function", None)
+        name = getattr(fn, "name", "") or ""
+        args = getattr(fn, "arguments", "") or "{}"
+        return json.dumps({"action": name, "args": args if isinstance(args, dict) else str(args)}, ensure_ascii=False)
+    except Exception:
+        return ""
 
 
 def step_info() -> tuple[int, int] | None:
@@ -356,6 +391,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         step = None
         extra: list[dict] = []
         t_decide = time.monotonic()                                    # 걸음 기록에 시간을 남긴다 — 고르기(27B)와 도구 실행을 따로
+        out_tokens = step_tokens(client)
         for _try in range(3):                                  # 형식 오류는 꼴 예시를 붙여 두 번까지 다시 청한다
             messages = [{"role": "system", "content": system}, {"role": "user", "content": f"[담당자 요청]\n{request}"}]
             for call, res in turns:
@@ -371,10 +407,16 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             cuts += [llm_budget.OUTPUT]
             try:
                 with llm_budget.label(f"에이전트 · {_i + 1}단계"):
-                    resp = llm_budget.create_fitted(client, messages, step_tokens(client), cuts, floor=300,
+                    resp = llm_budget.create_fitted(client, messages, out_tokens, cuts, floor=300,
                                                     temperature=0.6 if repeats else 0.2,     # 되풀이를 거절당한 뒤엔 조금 넓게
                                                     extra_body=getattr(client, "_extra", {}))
-                raw = resp.choices[0].message.content or ""
+                msg_ = resp.choices[0].message
+                cut_ = getattr(resp.choices[0], "finish_reason", "") == "length"
+                raw = msg_.content or ""
+                if not _parse(raw):            # 모델마다 걸음이 다른 자리에 올 수 있다 — 도구 호출 꼴, 생각 칸(reasoning)으로 샌 답
+                    alt = _tool_call_text(msg_) or str(getattr(msg_, "reasoning_content", "") or getattr(msg_, "reasoning", "") or "")
+                    if alt and _parse(alt):
+                        raw = alt
             except llm_budget.ContextOverflow as e:
                 ep.steps.append({"error": f"문맥 한도: {str(e)[:160]}"})
                 ep.stop = "steps" if last else "overflow"
@@ -386,6 +428,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             step = _parse(raw)
             if step and (step.get("action") in allowed or (last and step.get("action") == "stop")):
                 break
+            if cut_:                       # 출력 한도에 잘렸다 — 생각 모드가 켜진 모델·긴 절 본문. 다음 청은 한도를 두 배로(문맥의 1/4 까지)
+                try:
+                    out_tokens = min(out_tokens * 2, max(out_tokens, llm_budget.work_len(client) // 4))
+                except Exception:
+                    out_tokens = out_tokens * 2
             extra = [{"role": "assistant", "content": raw[:800]},
                      {"role": "user", "content": ("마지막 걸음이다 — " + ", ".join(grace) + " 또는 stop 가운데 하나를 고른 JSON 하나만 다시 답하라."
                                                   if last else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라 — "
