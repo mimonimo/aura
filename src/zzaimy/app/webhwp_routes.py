@@ -1408,6 +1408,19 @@ def _gzipped(body: bytes) -> bytes:
     return got
 
 
+@router.get("/webhwp-prefetch")
+def webhwp_prefetch(request: Request):
+    """편집기 정적 파일 미리 받기 목록 — 교직원 화면이 남는 시간에 받아 브라우저 캐시에 둔다(처음 한글 문서를 열 때 기다리지 않게, 11-10).
+    판(version)이 바뀌면 다시 받는다."""
+    _need_staff(request)
+    from zzaimy.app.webhwp_static_cache import CACHE as _sc
+    if _sc._disk is None:
+        _sc.set_dir(_base(request))
+    st = webhwp.status()
+    urls = ["/webhwpctrl/" + k for k in _sc.largest(40)] if st.get("ok") else []
+    return {"version": st.get("version", ""), "urls": urls}
+
+
 @router.api_route("/webhwpctrl/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"])
 async def webhwp_proxy(request: Request, path: str):
     """기안기 서버로 그대로 넘긴다 — 교직원·관리자만(인증은 앱 단계에서 이미)."""
@@ -1425,6 +1438,32 @@ async def webhwp_proxy(request: Request, path: str):
     if jar:
         headers["cookie"] = jar
     body = await _body(request)
+    if request.method == "GET" and _STATIC_EDITOR.search(raw):
+        # 편집기 정적 파일은 (경로·쿼리)마다 한 번만 받아 메모리·디스크에 둔다 — 여럿이 동시에 처음 열어도 기안기 서버·압축을 한 번만(11-10 9명 동시 85초)
+        from zzaimy.app.webhwp_static_cache import CACHE as _sc
+        if _sc._disk is None:
+            _sc.set_dir(_base(request))
+        params = list(request.query_params.multi_items())
+
+        async def _fetch():
+            async with httpx.AsyncClient(timeout=120) as client:
+                rr = await client.get(url, params=params, headers={k: v for k, v in headers.items() if k.lower() not in ("range", "if-none-match", "if-modified-since")})
+            return rr.status_code, dict(rr.headers), rr.content
+
+        try:
+            ent = await _sc.get(_sc.key(raw, request.url.query), webhwp.status().get("version", ""), _fetch,
+                                lambda b: bool(_GZIP_EDITOR.search(raw)) and len(b) > 4096)
+        except httpx.HTTPError:
+            raise HTTPException(503, "웹 한글 기안기 서버에 연결하지 못했습니다")
+        if ent is not None:
+            out = dict(ent.headers)
+            out["Cache-Control"] = "private, max-age=604800"
+            content = ent.body
+            if ent.gz is not None and "gzip" in request.headers.get("accept-encoding", ""):
+                content = ent.gz
+                out["Content-Encoding"] = "gzip"
+                out["Vary"] = "Accept-Encoding"
+            return Response(content, status_code=200, headers=out)
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             r = await client.request(request.method, url, params=list(request.query_params.multi_items()),
@@ -1441,7 +1480,8 @@ async def webhwp_proxy(request: Request, path: str):
         # 기안기 서버는 압축하지 않는다 — 큰 글·wasm 은 gzip 으로(수식 wasm 13MB → 7MB). 압축본은 내용 해시마다 한 번 만들어 둔다
         if (_GZIP_EDITOR.search(raw) and "gzip" in request.headers.get("accept-encoding", "")
                 and not any(k.lower() == "content-encoding" for k in out) and len(content) > 4096):
-            content = _gzipped(content)
+            from starlette.concurrency import run_in_threadpool
+            content = await run_in_threadpool(_gzipped, content)   # 큰 파일 압축이 이벤트 루프를 막지 않게
             out = {k: v for k, v in out.items() if k.lower() != "content-length"}
             out["Content-Encoding"] = "gzip"
             out["Vary"] = "Accept-Encoding"
