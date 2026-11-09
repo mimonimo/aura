@@ -518,7 +518,8 @@
             <span>{{ d.kind_label or "분류 전" }}</span>
             {% if d.in_index %}<span class="pill lib-criteria" title="기준 문서(규정 검색·학생 공개·프로젝트 기준 선택에 씀)">기준</span>{% endif %}
             {% if crit_admin and d.in_index and d.audience == 'student' %}<span class="pill lib-stu">학생 공개</span>{% endif %}
-            {% if d.status == 'failed' %}{% set rf = read_fail(d) %}<span class="pill failed" title="{{ rf.hint }}">읽지 못함 · {{ rf.label }}</span>{% if rf.actions %}<a class="lib-row-fix" href="/doc/{{ d.id }}#readFix">{{ rf.actions[0].label }}</a>{% endif %}
+            {% set tw = linked_twin(d) %}{% if tw %}<a class="pill linked" href="/doc/{{ tw }}" title="같은 내용의 문서가 이미 있어 그 문서를 씁니다">기존 문서 연결</a>
+            {% elif d.status == 'failed' %}{% set rf = read_fail(d) %}<span class="pill failed" title="{{ rf.hint }}">읽지 못함 · {{ rf.label }}</span>{% if rf.actions %}<a class="lib-row-fix" href="/doc/{{ d.id }}#readFix">{{ rf.actions[0].label }}</a>{% endif %}
             {% elif d.status in run_labels %}<span class="pill processing">{{ run_labels[d.status] }}</span>{% endif %}
             {% if d.decision and d.decision != 'pending' and d.doc_type not in ('regulation', 'ocr') %}<span class="pill {{ d.decision }}">담당자 {{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
             {% if d.project_name and not prog %}<a class="lib-row-proj" href="/project/{{ d.project_id }}" title="이 문서가 속한 프로젝트">{{ d.project_name }}</a>{% endif %}

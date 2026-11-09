@@ -501,6 +501,9 @@ class AgentResponder:
                     with db._conn() as conn:
                         own = {int(r[0]) for r in conn.execute(
                             "SELECT id FROM documents WHERE project_id = ?", (int(project["id"]),)).fetchall()}
+                    # 같은 내용을 다시 올려 기존 문서와 연결된 반입은 조각이 없다 — 기존 문서를 이 프로젝트 문서로 친다
+                    from zzaimy.app.read_failure import twin_of
+                    own |= {t for t in (twin_of(db, db.get_document(i)) for i in list(own)) if t is not None}
                     # 프로젝트에 참조로 붙은 과거 사업 보관 묶음의 문서를 먼저 본다 — 없거나 맞는 조각이 없으면 평소대로
                     from zzaimy.app import project_refs
                     ref_ids = [r["ref_project_id"] for r in project_refs.list_refs(db, int(project["id"]))]

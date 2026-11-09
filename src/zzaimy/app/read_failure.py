@@ -200,17 +200,59 @@ def _kick(db) -> None:
     t.start()
 
 
+# ---------------------------------------------------------------- 같은 내용 다시 올림 — 실패가 아니라 기존 문서와 연결
+
+def twin_of(db, doc: dict | None) -> int | None:
+    """같은 내용의 문서가 이미 있어 그 문서와 연결된 반입이면 기존 문서 id — 아니면 None.
+    처리기는 이런 반입을 status 'failed' 와 「같은 내용의 문서가 이미 있습니다 — #id …」로 막아 조각을 두 번 만들지 않는다.
+    다시 올린 것은 오류가 아니므로 화면은 「읽지 못함」이 아니라 「기존 문서 연결」로, 에이전트·검색은 기존 문서를 쓴다."""
+    if not doc or doc.get("status") != "failed":
+        return None
+    if db is not None and "error" not in doc:
+        doc = db.get_document(int(doc["id"])) or doc
+    err = str(doc.get("error") or "")
+    if classify(err) != "dup":
+        return None
+    import re
+    m = re.search(r"#(\d+)", err)
+    if m:
+        return int(m.group(1))
+    v = doc.get("version_of")
+    return int(v) if v else None
+
+
+def resolve_linked(db, docs: list[dict]) -> list[dict]:
+    """문서 목록에서 기존 문서와 연결된 반입을 그 기존 문서(다 읽은 것)로 바꾼다 — 같은 문서는 한 번만, 순서는 그대로.
+    기존 문서를 찾지 못했거나 아직 다 읽지 않았으면 원래 줄을 둔다."""
+    out: list[dict] = []
+    seen: set[int] = set()
+    for d in docs:
+        tid = twin_of(db, d)
+        if tid is not None:
+            t = db.get_document(tid) if db is not None else None
+            if t and t.get("status") == "reviewed":
+                d = t
+        if int(d["id"]) in seen:
+            continue
+        seen.add(int(d["id"]))
+        out.append(d)
+    return out
+
+
 # ---------------------------------------------------------------- 화면 — 사유와 단추
 
 def info(db, doc: dict | None) -> dict | None:
     """실패한 문서의 {code, label, hint, detail, queued, gave_up, actions:[{do, label}], twin} — 실패가 아니면 None.
-    actions 의 첫째가 가장 먼저 권하는 길이다. do: replace·ocr·resave·retry·discard·twin."""
+    actions 의 첫째가 가장 먼저 권하는 길이다. do: replace·ocr·resave·retry·discard·twin.
+    같은 내용 다시 올림(기존 문서와 연결, twin_of)은 실패로 치지 않아 None — 화면은 「기존 문서 연결」로 따로 그린다."""
     if not doc or doc.get("status") != "failed":
         return None
     if db is not None and ("error" not in doc or "stored_path" not in doc):
         doc = db.get_document(int(doc["id"])) or doc       # 목록 줄은 열을 줄여 가져온다 — 사유·원본 자리는 문서에서
     err = str(doc.get("error") or "")
     code = classify(err)
+    if code == "dup" and twin_of(db, doc) is not None:
+        return None
     dgx = str(doc.get("stored_path") or "").startswith("dgx://")
     from zzaimy.app import storage
     ext = storage.original_ext(doc)

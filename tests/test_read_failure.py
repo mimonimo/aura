@@ -84,7 +84,10 @@ def test_actions_per_reason(tmp_path):
     assert acts("HWP 형식이 아닙니다 (12바이트)", "a.hwp") == ["replace", "resave", "discard"]
     assert acts("HWP 형식이 아닙니다 (12바이트)", "a.pdf") == ["replace", "discard"]
     assert acts("KeyError: x", "a.hwp") == ["retry", "resave", "replace", "discard"]
-    assert acts("같은 내용의 문서가 이미 있습니다 — #1 계획서") == ["twin", "discard"]
+    did_ = db.add_document(filename="d.hwpx", stored_path=str(tmp_path / "d.hwpx"))
+    db.update_document(did_, status="failed", error="같은 내용의 문서가 이미 있습니다 — #1 계획서")
+    assert read_failure.info(db, db.get_document(did_)) is None          # 같은 내용 다시 올림은 실패가 아니라 기존 문서 연결
+    assert read_failure.twin_of(db, db.get_document(did_)) == 1
     did = db.add_document(filename="x.pdf", stored_path="dgx://링크/x.pdf")
     db.update_document(did, status="failed", error="KeyError: x")
     assert [a["do"] for a in read_failure.info(db, db.get_document(did))["actions"]] == ["retry"]   # 보관소 문서는 바꾸거나 지우지 않는다
@@ -292,3 +295,28 @@ def test_worker_drains_queue_in_background(tmp_path, monkeypatch):
             break
         time.sleep(0.05)
     assert db.get_document(did)["status"] == "reviewed" and read_failure.queued(db) == {}
+
+
+DUP = "같은 내용의 문서가 이미 있습니다 — #{} 기본계획.hwpx"
+
+
+def test_same_content_upload_links_to_existing_doc_instead_of_failure(tmp_path):
+    """같은 문서를 다시 올리면 「읽지 못함」·종 알림 없이 「기존 문서 연결」, 프로젝트 재료·후보는 기존 문서로 바뀐다."""
+    app, proc = _app(tmp_path)
+    db = app.state.db
+    c = TestClient(app)
+    assert _login(c, "zzaimy", "boot-pass-1")
+    _upload(c, "기본계획.hwpx", b"PK fine")
+    orig = max(proc.calls)
+    _upload(c, "기본계획 사본.hwpx", b"PK fine2")
+    dup = max(proc.calls)
+    db.update_document(dup, status="failed", error=DUP.format(orig))
+    page = c.get("/?type=all").text
+    assert "기존 문서 연결" in page and "읽지 못함 · 같은 내용 중복" not in page and "읽지 못한 문서" not in page
+    doc_page = c.get(f"/doc/{dup}").text
+    assert 'id="readFix"' not in doc_page and f'href="/doc/{orig}">기존 문서 열기' in doc_page
+    assert all(int(d["id"]) != dup for d in db.failed_documents(limit=50))
+    got = read_failure.resolve_linked(db, [db.get_document(dup), db.get_document(orig)])
+    assert [int(d["id"]) for d in got] == [orig]                         # 기존 문서로 바뀌고 같은 문서는 한 번만
+    db.update_document(orig, status="failed", error="KeyError: x")       # 기존 문서가 아직 못 읽은 상태면 원래 줄을 둔다
+    assert [int(d["id"]) for d in read_failure.resolve_linked(db, [db.get_document(dup)])] == [dup]

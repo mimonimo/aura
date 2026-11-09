@@ -39,6 +39,7 @@ from zzaimy.app import grades as _gr
 from zzaimy.app import answer_pref as _answer_pref
 from zzaimy.app import storage
 from zzaimy.app import korean_text as _ko
+from zzaimy.app.read_failure import resolve_linked as _rf_linked
 from zzaimy.app.chat_history import display_title as _chat_title
 from zzaimy.app.db import Database
 from zzaimy.generate import model_info as _model_info
@@ -1037,6 +1038,7 @@ def create_app(
     templates.env.globals["receipt_label"] = _receipt_label
     from zzaimy.app import read_failure as _rf
     templates.env.globals["read_fail"] = lambda d: _rf.info(db, d)   # 읽지 못한 문서의 사유·다시 하는 단추(목록·문서 화면·알림)
+    templates.env.globals["linked_twin"] = lambda d: _rf.twin_of(db, d)   # 같은 내용 다시 올림 → 기존 문서 id(「기존 문서 연결」로 표시)
     templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
     # 지표 이름·정의(metric_label·metric_tip)와 개발 화면 이름표(dev_page_name) — 화면마다 같은 이름을 쓰게
     from zzaimy.app import dev_nav as _dev_nav
@@ -1916,6 +1918,8 @@ def create_app(
             if d:
                 cands.append(d)
         seen: set[int] = set()
+        # 같은 내용을 다시 올려 기존 문서와 연결된 반입은 기존 문서로 바꿔 짚는다(열기·판독·찾기가 다 읽은 문서를 쓴다)
+        cands = _rf_linked(db, cands)
         # 대화 주인의 열람 범위 밖 문서는 제목조차 모델·담당자에게 보이지 않는다(문서 화면·검색과 같은 규칙)
         return [d for d in cands if not (d["id"] in seen or seen.add(d["id"])) and _viewer_sees(session_id, d)]
 

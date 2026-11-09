@@ -590,7 +590,8 @@ class Database:
             return [dict(r) for r in rows]
 
     def failed_documents(self, limit: int = 5, owner: str | None = None) -> list[dict]:
-        sql = "SELECT * FROM documents WHERE status = 'failed'"
+        # 같은 내용을 다시 올린 반입은 실패가 아니라 기존 문서와 연결된 것이라 「읽지 못한 문서」 알림에 넣지 않는다(read_failure.twin_of)
+        sql = "SELECT * FROM documents WHERE status = 'failed' AND COALESCE(error, '') NOT LIKE '%같은 내용%'"
         params: list = []
         if owner:
             sql += " AND owner = ?"

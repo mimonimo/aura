@@ -166,7 +166,10 @@
     <p class="notice" role="alert">{{ '이미 사용하는 접수번호입니다.' if request.query_params.get('err') == 'receipt_dup' else '접수번호 형식을 확인하세요(예: 2026-국고-0004)' }} <button type="button" class="btn-ghost" data-modal-open="#receiptEditModal">다시 수정</button></p>
     {% endif %}
     {% if doc.doc_type not in ('regulation', 'ocr') %}{{ program_meta() }}{% endif %}
-    {% if doc.status == "failed" %}
+    {% set tw = linked_twin(doc) %}
+    {% if tw %}
+      <p class="notice"><iconify-icon icon="solar:link-linear" aria-hidden="true"></iconify-icon><span>같은 내용의 문서가 이미 있어 그 문서와 연결했습니다.</span> <a class="btn-ghost" href="/doc/{{ tw }}">기존 문서 열기</a></p>
+    {% elif doc.status == "failed" %}
       {% from "_read_fix.html" import read_fix with context %}{{ read_fix(doc, read_fail(doc)) }}
     {% elif doc.status != "reviewed" %}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>처리 중입니다. 끝나면 화면이 자동으로 갱신됩니다.</span></p>

@@ -190,6 +190,9 @@ class Materials:
         if not self.project:
             return []
         docs = self.db.list_documents(self.project["sector"], project_id=int(self.project["id"]))
+        # 같은 내용을 다시 올려 기존 문서와 연결된 반입은 기존 문서(다 읽은 것)를 재료로 쓴다(read_failure.resolve_linked)
+        from zzaimy.app.read_failure import resolve_linked
+        docs = resolve_linked(self.db, docs)
         return [d for d in docs if d.get("status") == "reviewed" and int(d["id"]) not in self.form_source_ids
                 and (self.visible is None or self.visible(d))
                 and d.get("kind") != "form"]
