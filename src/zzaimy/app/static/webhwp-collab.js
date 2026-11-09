@@ -1128,7 +1128,10 @@
         var editing = !!hf2;
         r.appendChild(d); r.appendChild(el('span', '', p.name || p.user));
         // 「쓰는 중 · N쪽 · 절」 — 큰 문서에서 어디쯤인지 쪽으로 먼저 보인다. 누르면 그 칸으로
-        var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (p.page ? ' · ' + p.page + '쪽' : ''));
+        // 8명 넘게 붙어도 누가 어느 칸에 있는지 — 「쓰는 중 · 사업명 · 3쪽」(칸 밖 본문 문단은 「본문」)
+        var fname = !p.me && editing && p.field ? (/^문단:/.test(p.field) ? '본문' : String(p.field).replace(/^(절|칸|입력|표\d*):/, '')) : '';
+        var sm = el('small', '', p.me ? '' : (editing ? '쓰는 중' : '보는 중') + (fname ? ' · ' + fname : '') + (p.page ? ' · ' + p.page + '쪽' : ''));
+        if (fname) sm.title = fname;
         r.appendChild(sm);
         if (!p.me) r.onclick = function () { toggleFollow(p.user); popOpen = false; pop.hidden = true; };   // 줄을 눌러도 따라가기(아바타와 같다)
         if (!p.me && following === p.user) r.classList.add('following');
