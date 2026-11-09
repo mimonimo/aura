@@ -1053,7 +1053,13 @@
       client: client, fieldsMode: fieldsMode, hasField: function (f) { return !!fieldSet[f]; }, heldByOther: heldByOther, current: function () { return curField; }, locks: function () { return locks; },
       people: peopleList, nameOf: nameOf, mine: function () { return mine; }, known: function () { return known; },
       pending: pending, aura: function () { return aura; }, formOnly: formOnly, setReadOnly: function (v) { readonly = !!v; },
-      conflicts: function () { return idb.all('conflicts').then(function (r) { return r.filter(function (x) { return x.fid === fid; }).sort(function (a, b) { return b.at - a.at; }); }); }
+      conflicts: function () { return idb.all('conflicts').then(function (r) { return r.filter(function (x) { return x.fid === fid; }).sort(function (a, b) { return b.at - a.at; }); }); },
+      // 화면이 옮기지 못한 내 글을 사본으로 남긴다(칸 밖 고침 살리기에서 서버가 돌려준 글 — 11-10). 「내 글 보기」 목록과 알림에 같이 뜬다
+      keepCopy: function (field, text, reason, by) {
+        if (!text) return;
+        var copy = {key: fid + '|s' + now() + '|' + Math.random().toString(36).slice(2, 8), fid: fid, field: field || '(칸 밖)', text: String(text), reason: reason || 'struct', by: by || '', at: now(), id: 0};
+        idb.put('conflicts', copy); emit('conflict', copy);
+      }
     };
   }
 
