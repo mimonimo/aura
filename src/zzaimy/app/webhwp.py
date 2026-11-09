@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import json
+import threading
 import re
 import os
 import shutil
@@ -251,6 +252,21 @@ def save(db, base: Path, fid: int, data: bytes, *, user: str, quiet: bool = Fals
     p = Path(f["path"])
     if not data or data[:2] != b"PK" and data[:4] != b"\xd0\xcf\x11\xe0":
         raise ValueError("한글 파일 형식이 아닙니다")
+    with _save_lock(p):
+        return _save_locked(db, fid, f, p, data, user=user, quiet=quiet)
+
+
+_SAVE_LOCKS: dict[str, threading.Lock] = {}
+_SAVE_LOCKS_GUARD = threading.Lock()
+
+
+def _save_lock(p: Path) -> threading.Lock:
+    """파일마다 저장 한 번에 하나 — 절 여럿을 동시에 쓰거나(맡겨 쓰기) 자동 저장과 겹쳐도 앞 판 옮기기·쓰기가 섞이지 않게."""
+    with _SAVE_LOCKS_GUARD:
+        return _SAVE_LOCKS.setdefault(str(p), threading.Lock())
+
+
+def _save_locked(db, fid: int, f: dict, p: Path, data: bytes, *, user: str, quiet: bool) -> Path:
     if p.exists():
         if p.read_bytes() == data:                          # 바뀐 것이 없는 자동 저장 — 쓰지도, 판을 남기지도 않는다
             return p
@@ -259,21 +275,26 @@ def save(db, base: Path, fid: int, data: bytes, *, user: str, quiet: bool = Fals
         olds = _versions(vdir, p)
         # 자동 저장은 몇 초마다 돌므로 판은 VERSION_GAP 마다 하나만 남긴다(그 사이 저장은 같은 자리에 덮어쓴다), 판은 최근 VERSION_KEEP 개
         recent = olds and (datetime.now() - datetime.fromtimestamp(olds[-1].stat().st_mtime)).total_seconds() < VERSION_GAP
-        if recent:
-            p.unlink()
-        else:
+        # 앞 판은 복사로 남기고 원래 자리는 새 글로 한 번에 바꾼다(os.replace) — 옮기거나 지운 뒤 쓰면 그 사이에 읽는 쪽(다른 절을 쓰는
+        # 흐름·편집 화면)이 「파일 없음」 으로 멈췄다(11-09, 맡겨 쓰기 시험이 반쯤 실패)
+        if not recent:
             dest = vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}{p.suffix}"
             n = 1
             while dest.exists():                            # 같은 초에 두 번 — 앞 판을 덮지 않게
                 n += 1
                 dest = vdir / f"{p.stem} {datetime.now():%Y%m%d-%H%M%S}-{n}{p.suffix}"
-            shutil.move(str(p), str(dest))
+            shutil.copy2(str(p), str(dest))
             for old in _versions(vdir, p)[:-VERSION_KEEP]:
                 old.unlink(missing_ok=True)
     # 기안기는 HWPX 로 돌려준다 — 옛 hwp 를 고쳤으면 확장자를 hwpx 로 바꿔 쓴다(장부도 따라)
+    old_path = p
     if data[:2] == b"PK" and p.suffix.lower() == ".hwp":
         p = p.with_suffix(".hwpx")
-    p.write_bytes(data)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, p)
+    if p != old_path and old_path.exists():               # hwp → hwpx 로 바뀐 경우 옛 파일은 판으로 남겼으니 지운다
+        old_path.unlink(missing_ok=True)
     if str(p) != f["path"]:
         with db._conn() as conn:
             conn.execute("UPDATE files SET path = ?, name = ?, size = ? WHERE id = ?", (str(p), p.name, len(data), int(fid)))

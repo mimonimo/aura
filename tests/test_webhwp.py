@@ -533,3 +533,40 @@ def test_editor_open_other_and_recent_documents(tmp_path, monkeypatch):
     lee = TestClient(app)
     assert _login(lee, "lee", "pass-12345678")
     assert lee.get("/api/finder/recent").json()["files"] == []                     # 사람마다 따로
+
+
+def test_concurrent_saves_never_leave_file_missing(tmp_path):
+    """절 여럿을 동시에 저장해도 — 앞 판 옮기기와 쓰기가 섞여 「파일 없음」 으로 멈추지 않고, 읽는 쪽도 늘 파일을 본다(11-09)."""
+    import threading
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    fid = webhwp.add(db, tmp_path, "기획처", "가.hwpx", _hwpx(), owner="kim")
+    p = Path(webhwp.get(db, fid)["path"])
+    errors: list[Exception] = []
+    stop = threading.Event()
+
+    def writer(k):
+        try:
+            for i in range(15):
+                webhwp.save(db, tmp_path, fid, _hwpx() + bytes([k, i]), user="kim")
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    def reader():
+        while not stop.is_set():
+            try:
+                assert p.read_bytes()[:2] == b"PK"
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+                return
+
+    r = threading.Thread(target=reader)
+    r.start()
+    ws = [threading.Thread(target=writer, args=(k,)) for k in range(3)]
+    for w in ws:
+        w.start()
+    for w in ws:
+        w.join()
+    stop.set()
+    r.join()
+    assert not errors and p.exists()

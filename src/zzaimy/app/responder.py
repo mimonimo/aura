@@ -65,6 +65,48 @@ WEAK_EVIDENCE_NOTE = (
 )
 
 
+# 근거의 성격·적용 대상 — 질문이 교내 규정을 짚었는데 근거가 사업 문서(사업비 관리 지침 등)뿐이거나, 근거 규정의 적용 대상이
+# 질문의 주체와 다를 때 답에 그 사실을 밝히게 하는 지시. 11-09 시연: 「우리 대학 여비 규정」 질문에 LINC 3.0 사업비 지침을
+# 「교직원에게 직접 적용되는 최신 기준」처럼, 「직원 육아휴직」 질문에 산학협력단 직원 취업규칙을 대학 직원 기준처럼 답했다.
+_ASKS_SCHOOL_RULE = re.compile(r"(우리\s*(?:대학|학교)|교내|학교|학칙|규정|규칙|내규)")
+# 규정 이름 → 적용 대상(앞에 있는 것이 먼저 맞는다 — 「산학협력단 직원」 이 「직원」 보다 먼저)
+_AUDIENCES = (("산학협력단", "산학협력단 직원"), ("교원", "교원"), ("교수", "교원"), ("학칙", "학생"), ("학사", "학생"),
+              ("학생", "학생"), ("장학", "학생"), ("직원", "대학 직원"))
+
+
+def audience_of(text: str) -> str | None:
+    """글(질문·규정 이름)이 가리키는 적용 대상 — 모르면 None."""
+    t = re.sub(r"\s+", "", text or "")
+    for key, who in _AUDIENCES:
+        if key in t:
+            return who
+    return None
+
+
+def source_notes(question: str, reg_titles: list[str], has_grant: bool) -> list[str]:
+    """답 쓰기에 덧붙일 근거 성격·적용 대상 지시(없으면 빈 목록)."""
+    notes: list[str] = []
+    if not reg_titles and has_grant and _ASKS_SCHOOL_RULE.search(question or ""):
+        notes.append("[근거 성격 주의 — 찾은 근거는 교내 규정이 아니라 사업 문서(사업 계획서·사업비 관리 지침·보고서)뿐입니다."
+                     " 답 첫머리에 \"찾은 자료에 교내 규정은 없습니다\"라고 먼저 밝히고, 사업 문서의 기준은"
+                     " \"《문서 이름》(그 사업에 적용되는 기준)에 따르면 ~\" 처럼 어느 사업의 기준인지 밝혀 씁니다."
+                     " 사업 지침을 학교 전체·교직원 전체에 적용되는 기준처럼 말하지 않습니다.]")
+    asked = audience_of(question)
+    if asked and reg_titles:
+        found = {audience_of(t) for t in reg_titles}
+        found.discard(None)
+        others = sorted(found - {asked})
+        if others:
+            if asked in found:
+                notes.append(f"[적용 대상 주의 — 질문의 대상은 {asked}입니다. 근거 가운데 {asked}에게 적용되는 규정을 앞세워 답하고,"
+                             f" {'·'.join(others)} 규정은 대상이 다르므로 쓰려면 \"{others[0]}의 경우 ~\" 처럼 구분해 밝힙니다.]")
+            else:
+                notes.append(f"[적용 대상 주의 — 질문의 대상은 {asked}인데 찾은 규정은 {'·'.join(others)}에게 적용되는 것뿐입니다."
+                             f" 답 첫머리에 \"{asked}에게 적용되는 규정은 찾은 자료에 없습니다\"라고 밝히고, 근거 규정은"
+                             f" \"{others[0]}의 경우 ~\" 처럼 대상을 밝혀 참고로만 씁니다.]")
+    return notes
+
+
 # 답 쓰기(생성 단계)의 생각 모드 손잡이 — 기본은 끈다(운영 동작). ZZAIMY_ANSWER_THINK=1 이면 내부 vLLM 에 생각을 켜고
 # 생각에 쓸 몫만큼 출력 한도와 시간 제한을 넓힌다(생각 글은 reasoning_content 로 따로 오고 답 글에는 섞지 않는다).
 # 생각을 켜는 인자(chat_template_kwargs)는 그 인자를 받는 서버(client._extra 에 있는 경우)에만 보낸다. 측정: scripts/188 --think-compare
@@ -542,6 +584,8 @@ class AgentResponder:
                 # 다른 사업·연도 질문의 답에 끼어들지 않게
                 blocks = blocks[1:]
                 hits = []
+            for note in source_notes(question, [str(h.get("reg_title") or "") for h in (hits or [])], bool(grant_hits)):
+                blocks.append(note)
             if not blocks:
                 # 기준 미달이라 근거가 하나도 남지 않은 경우. 있는 척하지 않는다.
                 blocks.append(NO_EVIDENCE_NOTE)
