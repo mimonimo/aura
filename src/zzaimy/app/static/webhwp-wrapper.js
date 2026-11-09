@@ -351,8 +351,13 @@
       // 글자 하나가 확정된 뒤 — 거품 단계(기안기가 그 글자를 문서에 넣은 다음)라 이때는 칸을 읽어도 조합이 끊기지 않는다.
       // 한글은 다음 글자를 치는 순간 새 조합이 시작돼 「조합 중」 이 쉬지 않고 이어지므로, 확정 글을 여기서 바로 보내야 늦지 않는다
       d.addEventListener('compositionend', function () { fire('commit', {}); }, false);
+      // 명령 실행기가 AURA 명령 뒤 꾸며 보내는 input 사건(isTrusted=false)은 사람 입력이 아니다 — 입력 시각을 올리지 않고 표시만 달아 알린다.
+      // 사람 입력으로 치면 공동 편집이 AURA 가 넣은 글을 내 글로 보내 「겹쳐 사본으로 따로 두었어요」 가 떴고 따라가기·화면 되돌리기가 멈췄다(11-09)
       ['input', 'paste', 'cut', 'drop'].forEach(function (t) {
-        d.addEventListener(t, function () { lastInput = Date.now(); fire('edit', {composing: composing}); }, true);
+        d.addEventListener(t, function (e) {
+          if (e && e.isTrusted === false) { fire('edit', {composing: composing, synthetic: true}); return; }
+          lastInput = Date.now(); fire('edit', {composing: composing});
+        }, true);
       });
       d.addEventListener('keyup', function (e) {
         var k = e.key || '';

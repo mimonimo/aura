@@ -419,13 +419,38 @@
   var reloadPending = null;
   // 다시 연 뒤 보던 자리로 — 긴 문서는 쪽을 차례로 그려서 첫 되돌리기가 맨 위에 걸린다(10-26 시연: AURA 가 표 든 절을 쓰자 세 화면이 1쪽으로 튐).
   // 그사이 사람이 치지 않았으면 몇 번 더 되돌리고, AURA 를 따라가던 화면은 AURA 자리로
-  function keepCursor(cur) {
+  // target: 방금 바뀐 칸(AURA 가 쓰는 칸, 없으면 글이 바뀐 첫 칸) — 커서는 그대로 두고 화면만 그 칸으로 굴린다. 공동 편집(칸) 모드에서는
+  // followAura 가 커서를 옮기지 않으므로 이것이 없으면 보던 사람 커서(대개 1쪽)로 돌아갔다(11-09 시연: 표로 고친 뒤 1쪽으로 튐)
+  function keepCursor(cur, target) {
     hwp.restoreCursor(cur);
     var inp0 = hwp.lastInputAt();
-    [400, 1200, 2500].forEach(function (ms) { setTimeout(function () {
+    [150, 400, 1200, 2500].forEach(function (ms) { setTimeout(function () {
       if (hwp.lastInputAt() !== inp0) return;
+      if (target && follow && showField(target)) return;
+      if (ms === 150) return;
       if (follow && auraNow) followAura(auraNow, true); else hwp.restoreCursor(cur);
     }, ms); });
+  }
+  function snapFields() { try { var fs = hwp.fields(); return fs.length ? hwp.readMany(fs) : null; } catch (e) { return null; } }
+  function changedField(before) {
+    if (!before) return '';
+    try {
+      var fs = hwp.fields(), now = hwp.readMany(fs);
+      for (var i = 0; i < fs.length; i++) if (before[fs[i]] !== now[fs[i]]) return fs[i];
+    } catch (e) {}
+    return '';
+  }
+  // 칸 머리가 화면 위쪽 1/3 쯤 오게 굴린다 — 이미 잘 보이면 그대로(떨리지 않게). 자리를 못 재면 false
+  function showField(f) {
+    if (!f || !hwp.fieldGeom || !hwp.toScreen || !hwp.scrollBy) return false;
+    var g = hwp.fieldGeom([f]); g = g && g[f];
+    if (!g) return false;
+    var a = hwp.toScreen(g.page, g.x, g.y);
+    if (!a || !a.view) return false;
+    var h = a.view.bottom - a.view.top;
+    if (a.y > a.view.top + h * 0.08 && a.y < a.view.bottom - h * 0.35) return true;
+    hwp.scrollBy(a.y - (a.view.top + h * 0.3));
+    return true;
   }
   function reloadWhenSafe(d) {
     if (structMine) return;
@@ -441,6 +466,8 @@
       flushed.then(function () {
         var who = reloadPending; reloadPending = null;
         var cur = hwp.getCursor(false, true);   // 보던 자리 기준점째 — 새 판에서 그 자리가 밀린 만큼 화면을 맞춘다
+        var au0 = eng && eng.aura ? eng.aura() : {}, byAura0 = who.by === 'AURA' || (au0.field && au0.by && au0.by === who.by);
+        var before = byAura0 ? snapFields() : null;   // AURA 가 고친 판이면 어느 칸이 바뀌었는지 견줄 앞 글
         if (eng.suspend) eng.suspend();
         thaw = hwp.freeze ? hwp.freeze() : function () {};   // 다시 여는 동안 흰 화면 대신 보던 화면(11-09)
         return loadFile().then(function () {
@@ -449,7 +476,8 @@
           return eng.reopened();
         }).then(function () {
           dirty = false; notice.hidden = true;
-          keepCursor(cur);
+          var au1 = eng && eng.aura ? eng.aura() : {};
+          keepCursor(cur, byAura0 ? ((au1.field && hwp.fields().indexOf(au1.field) >= 0 && au1.field) || changedField(before)) : '');
           setTimeout(thawNow, 700);                    // 보던 자리로 돌아가 그려진 뒤 걷는다
           // AURA 명령은 시킨 사람의 편집기에서 돌아 저장자가 그 사람으로 온다 — AURA 가 그 사람 일로 쓰는 중이면 AURA 판으로 알린다(10-26)
           var au = eng && eng.aura ? eng.aura() : {}, byAura = who.by === 'AURA' || (au.field && au.by && au.by === who.by);
