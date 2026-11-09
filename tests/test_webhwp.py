@@ -502,8 +502,13 @@ def test_proxy_caches_static_editor_files_only(tmp_path, monkeypatch):
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
         async def request(self, *a, **k): return _Resp()
+        async def get(self, *a, **k): return _Resp()
 
     monkeypatch.setattr("httpx.AsyncClient", _Client)
+    from zzaimy.app import webhwp as _wh, webhwp_static_cache as _sc
+    monkeypatch.setattr(_sc, "CACHE", _sc.StaticCache())     # 시험마다 빈 캐시
+    ver = {"v": "13.82"}
+    monkeypatch.setattr(_wh, "status", lambda *a, **k: {"ok": True, "version": ver["v"], "error": ""})
     kim = TestClient(app)
     assert _login(kim, "kim", "pass-12345678")
     r = kim.get("/webhwpctrl/wasm/eqeditwa.wasm")
@@ -513,7 +518,9 @@ def test_proxy_caches_static_editor_files_only(tmp_path, monkeypatch):
     _Resp.content = b"wasm" * 5000                       # 큰 정적 파일은 gzip 으로(받는 쪽이 풀어 같은 바이트)
     r = kim.get("/webhwpctrl/wasm/big.wasm", headers={"Accept-Encoding": "gzip"})
     assert r.headers.get("content-encoding") == "gzip" and r.content == b"wasm" * 5000
-    _Resp.content = b"evil" * 5000                       # 같은 경로·같은 길이·같은 ETag 라도 내용이 다르면 그 내용 그대로(압축본이 섞이지 않는다)
+    _Resp.content = b"evil" * 5000                       # 같은 판(version)의 정적 파일은 한 번 받은 것을 쓴다(11-10 동시 열기 캐시) —
+    assert kim.get("/webhwpctrl/wasm/big.wasm", headers={"Accept-Encoding": "gzip"}).content == b"wasm" * 5000
+    ver["v"] = "13.83"                                   # 기안기 판이 바뀌면 새로 받는다(압축본이 옛 내용과 섞이지 않는다)
     assert kim.get("/webhwpctrl/wasm/big.wasm", headers={"Accept-Encoding": "gzip"}).content == b"evil" * 5000
 
 
