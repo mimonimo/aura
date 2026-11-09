@@ -228,6 +228,9 @@
     var passiveFn = null;
     var names = {}, known = {}, locks = {}, people = {}, mine = {};
     var outbox = {}, dirty = {}, inflight = false, flushTimer = null, lastSend = 0, seqN = 0;
+    // typedIn — 이 칸에 사람이 실제로 친 것이 있다(보낸 글이 받아들여지면 지운다). 치지 않은 칸의 글이 거절되면(AURA 가 그 칸을 새로 씀)
+    // 내 글이 아니므로 충돌 사본·알림 없이 서버 글로 맞춘다(11-09 시연: 아무것도 안 고쳤는데 「겹쳐 사본으로」 가 떴다)
+    var typedIn = {};
     var lastEdit = {f: "", at: 0}, typedAt = 0;                        // 마지막으로 고친 칸 — 확정 때 바로 보내기·빈 칸 경계 처리에 쓴다
     var inbox = {}, applyTimer = null, applying = false;
     var settled = {};   // 지문이 달라 서버 글로 바로잡은 칸의 판 — 같은 판은 한 번만(표·특수 문자로 넣어도 지문이 끝내 안 맞는 칸을 30초마다 다시 넣어 화면이 얼던 것, 10-27 긴 양식)
@@ -350,7 +353,7 @@
           return;
         }
         touched[f] = 1;
-        var op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0, text: text, at: now()};
+        var op = {key: fid + '|' + client + '|' + f, fid: fid, client: client, seq: nextSeq(), field: f, base: k ? k.v : 0, text: text, at: now(), user: !!typedIn[f]};
         outbox[f] = op;
         idb.put('outbox', op);
       });
@@ -398,6 +401,7 @@
                 // 아는 판은 올리지 않는다 — 그사이 보내는 내 고침도 옛 판 바탕이라 서버가 다시 합친다
                 if (!known[f] || r.version > known[f].v) { inbox[f] = {field: f, version: r.version, text: r.text}; scheduleApply(); }
               } else if (!known[f] || r.version >= known[f].v) known[f] = {v: r.version, text: op.text};
+              if (!dirty[f] && !outbox[f]) delete typedIn[f];
               if (op.rich) { lastRich[f] = richSig(op.rich); emit('rich-sent', f); }   // 서식째 보냄 — 화면이 파일에도 조용히 저장한다
               if (r.until && (!locks[f] || !heldByOther(f))) { mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until}; }
             } else if (r.reason === 'delta') {               // 바뀐 부분을 안 받았다 — 같은 글을 전체로 다시(더 새 글이 줄에 있으면 그것을 전체로)
@@ -406,9 +410,12 @@
             } else if (r.reason === 'too_long' || r.reason === 'too_big') {
               emit('error', r.reason === 'too_long' ? '칸 글이 ' + (r.max || conf.field_max).toLocaleString() + '자를 넘어 저장하지 않았어요' : '이 문서의 칸 글 합계가 상한을 넘어 저장하지 않았어요');
             } else if (r.conflict !== undefined) {
-              var copy = {key: fid + '|c' + r.conflict + '|' + op.seq, fid: fid, field: f, text: op.text, reason: r.reason, by: r.by_name || r.by || '', at: now(), id: r.conflict};
-              idb.put('conflicts', copy);
-              emit('conflict', copy);
+              if (op.user !== false) {                         // 내가 친 글만 사본으로 — 치지 않은 칸(옛 줄의 op 는 user 표시가 없어 사본으로 둔다)
+                var copy = {key: fid + '|c' + r.conflict + '|' + op.seq, fid: fid, field: f, text: op.text, reason: r.reason, by: r.by_name || r.by || '', at: now(), id: r.conflict};
+                idb.put('conflicts', copy);
+                emit('conflict', copy);
+              }
+              if (!dirty[f] && !outbox[f]) delete typedIn[f];
               known[f] = {v: r.version, text: r.text};
               inbox[f] = {field: f, version: r.version, text: r.text, force: true, reject: true};   // 서버가 내 글을 안 받았다 — 서버 글 그대로(합치지 않음)
               scheduleApply();
@@ -917,6 +924,7 @@
       fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
       hwp.onLocalEdit(function (ev) {
         if (applying || !fieldsMode()) return;
+        if (ev && ev.synthetic) return;                         // AURA 명령 뒤 꾸민 사건 — 내 고침이 아니다(명령은 문서째 저장으로 반영된다)
         if (ev && ev.composing) typedAt = now();
         if (!(ev && ev.composing) && hwp.lockUndo) hwp.lockUndo(false);   // 내가 고치면 되돌리기를 다시 연다(내 고침이 맨 위)
         // 조합 중에는 기안기에 아무것도 묻지 않는다(커서 칸 이름을 물어도 조합이 끊긴다 — 실측) — 마지막으로 안 커서 칸을 쓴다
@@ -931,7 +939,7 @@
         var hp = paraOn(f) && curPara >= 0 ? paraHeldByOther(f, curPara) : null;
         if (hp && hp.user !== me) { emit('blocked', f + '\u0001' + curPara, nameOf(hp.user)); return; }
         claim(f);                                               // 처음 고칠 때 임대를 잡는다(문단 단위 칸은 커서 문단)
-        dirty[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush();
+        dirty[f] = true; typedIn[f] = true; lastEdit = {f: f, at: now()}; status(); scheduleFlush();
         if ((mine[f] || myPara) && now() - lastTouch > 15000 && (myPara || mine[f] * 1000 - now() < (conf.lease - 15) * 1000)) extend();
       });
       if (hwp.onCommit) hwp.onCommit(function () {           // 글자 하나 확정 — 그 칸만 바로 읽어 보낸다(조합이 끝난 이 순간만 읽어도 안전)
