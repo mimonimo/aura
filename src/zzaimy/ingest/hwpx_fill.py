@@ -540,13 +540,23 @@ def _min_col_widths(rows: list[list[str]], n_cols: int, char_hu: int) -> list[in
     out = []
     for c in range(n_cols):
         tok = 0.0
-        for row in rows:
+        phrase = 0.0                                   # 한 줄에 두고 싶은 짧은 덩이 — 날짜(「2018. 10. 06(토)」)·짧은 값(「협동관 컨벤션홀」)
+        for i, row in enumerate(rows):
             cell = str(row[c]) if c < len(row) else ""
             for ln in split_lines(cell) or [""]:
                 for w in ln.split():
                     tok = max(tok, _vis_len(w))
-        out.append(int(min(max(tok, 2.0), 12.0) * char_hu * 1.05) + 1300)
+                for d in (_DATE_BIT.findall(ln) if i or len(rows) == 1 else []):        # 날짜는 띄어 쓴 「2018. 10. 06(토)」 도 한 덩이
+                    phrase = max(phrase, _vis_len(d.strip()))
+        cells = [str(row[c]) for row in rows[1:] if c < len(row) and str(row[c]).strip()]
+        if cells and all(_vis_len(x) <= 9 for x in cells):    # 열 전체가 짧은 값이면 값 하나가 한 줄에
+            phrase = max(phrase, max(_vis_len(x) for x in cells))
+        out.append(int(max(min(max(tok, 2.0), 12.0), min(phrase, 16.0)) * char_hu * 1.05) + 1300)
     return out
+
+
+# 날짜 덩이 — 「2018. 10. 06(토)」「2018.11.03」「2027. 3.」「11. 30.(금)」
+_DATE_BIT = re.compile(r"(?:\d{4}\s*\.\s*)?\d{1,2}\s*\.\s*\d{1,2}\s*\.?\s*(?:\([월화수목금토일]\))?|\d{4}\s*\.\s*\d{1,2}\s*\.")
 
 
 def _fit_widths(col_ws: list[int], mins: list[int], width_hu: int) -> list[int]:

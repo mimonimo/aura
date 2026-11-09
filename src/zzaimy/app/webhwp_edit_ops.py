@@ -1633,6 +1633,15 @@ def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
                 total += k[0]
         out.append(xml[pos:])
         doc.secs[n] = "".join(out)
+    if not total and not a.get("_variant"):
+        # 앞뒤 공백·전각 공백(\u3000)·줄 안 빈칸 차이로 놓치지 않게 — 찾는 글의 공백 꼴을 바꿔 한 번 더 찾는다(바꾸는 범위는 문서에 있는 글 그대로)
+        for v in dict.fromkeys([find.strip(), find.replace("\u3000", " "), find.replace(" ", "\u3000"),
+                                find.strip().replace("\u3000", " "), find.strip().replace(" ", "\u3000")]):
+            if v and v.strip() and v != find:
+                try:
+                    return replace_text(data, {**a, "find": v, "_variant": True})
+                except EditError:
+                    pass
     if not total:
         key = re.sub(r"\s+", " ", find).strip()
         split = any(key in _text(doc.secs[n][s:e]) for n, s, e in _scope_spans(doc, a))

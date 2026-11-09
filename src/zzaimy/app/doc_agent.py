@@ -314,7 +314,8 @@ def step_tokens(client=None) -> int:
 
 def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on_step: Callable[[str], None] | None = None,
         max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None,
-        system: str | None = None, on_act: Callable[[str, dict, str], None] | None = None) -> Episode:
+        system: str | None = None, on_act: Callable[[str, dict, str], None] | None = None,
+        scope: Callable[[], str] | None = None) -> Episode:
     """에이전트 루프. state() 는 매 걸음 새로 읽는 상태 글(연결 문서·절 목록은 쓰기 뒤 달라진다).
 
     매 걸음 모델에 보내는 글: 시스템 + 지난 걸음(고른 JSON·결과) + 이번 상태·「지금까지 한 걸음」 기록·요청.
@@ -410,7 +411,12 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         run_s = 0.0
         name, args = step["action"], step.get("args") if isinstance(step.get("args"), dict) else {}
         tool = reg[name]
-        key = name + json.dumps(args, ensure_ascii=False, sort_keys=True)
+        # 같은 걸음 판정 열쇠에 지금 작업 대상(scope, 한글 작업본 번호 등)을 넣는다 — 작업본을 바꾼 뒤 같은 인자는 새 시도다(11-10 대화 165)
+        try:
+            _scope = str(scope() or "") if scope else ""
+        except Exception:
+            _scope = ""
+        key = name + ("@" + _scope if _scope else "") + json.dumps(args, ensure_ascii=False, sort_keys=True)
         done = False                                                   # 최종 도구가 실제로 일을 마쳤는가
         data, note = "", ""                                            # data: 도구·문서에서 온 글(울타리 안), note: 코드가 쓴 안내
         if tool.final and key in rejected and key not in final_retried:

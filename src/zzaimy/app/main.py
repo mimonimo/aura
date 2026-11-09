@@ -122,7 +122,7 @@ _live_models_cache: dict = {}
 _LIVE_TTL = 120.0
 
 
-_PLACEHOLDER = re.compile(r"○{2,}|◯{2,}|0{3,}|20[○◯]{2}|[○◯]\s*차")      # 양식 자리표시 꼴 — 끝내기 전 앞부분 되짚기(t_finish)
+_PLACEHOLDER = re.compile(r"○{2,}|◯{2,}|(?<![\d,.])0{3,}(?![\d,.])|20[○◯]{2}|[○◯]\s*차")      # 양식 자리표시 꼴 — 끝내기 전 앞부분 되짚기(t_finish)
 
 def _live_models_cached(cid: str, ttl: float = _LIVE_TTL) -> dict:
     """연결이 지금 내어 주는 모델 목록 — 화면에서 고르라고 보여 준다.
@@ -3106,6 +3106,7 @@ def create_app(
                            # 한글 기안기는 칸 채우기가 가볍고 여러 번이다 — 한 요청에서 작업본 만들기·칸·절을 끝까지 쓰게 한도를 넉넉히
                            # 서식이 길면(절 수십 개) 근거 읽기·칸·절 쓰기에 걸음이 많다 — 한글 작업본이 있을 때 한도를 절 수에 맞춰 늘린다
                            max_writes=(30 if hw is not None else doc_agent.MAX_WRITES),
+                           scope=((lambda: str(hw.fid() or "")) if hw is not None else None),
                            **({"max_steps": hw.step_budget()} if hw is not None else {}))
         # 에이전트 걸음의 생각(thought)도 답과 함께 「생각 과정」 으로 — 걸음마다 [N단계: 도구] 생각
         try:
