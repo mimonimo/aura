@@ -188,21 +188,16 @@ def rank(db, query: frozenset[str], scope_docs: set[int] | None = None, user: st
             if not pick:
                 return []
             tsq = " | ".join(pick)
-            if user is not None:
-                # 계정 조건(공개 OR 본인 OR 부서)을 SQL 에 넣으면 플래너가 색인을 버려 2초 검색이 46초가 됐다(11-08 측정). 후보는 계정 조건
-                # 없이 뽑고(갈래·부서 조건은 그대로), 이 계정이 못 보는 문서(비공개 문서 가운데 남의 것 — 적다)를 빼 같은 결과를 낸다
-                base, base_args = _access_sql(None, depts)
-                hidden = _hidden_docs(conn, user, depts)
-                rows = [r for r in conn.execute(
-                    "SELECT g.chunk_id, g.nouns, g.doc_id FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
-                    " WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + base + " LIMIT ?",
-                    (tsq, *scope_args, *base_args, max(limit, 20000) + len(hidden) * 40)).fetchall()
-                        if int(r[2]) not in hidden]
-            else:
-                rows = conn.execute(
-                    "SELECT g.chunk_id, g.nouns FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
-                    " WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + acc + " LIMIT ?",
-                    (tsq, *scope_args, *acc_args, max(limit, 20000))).fetchall()
+            # 열람·부서·갈래 조건을 조각 색인과 함께 SQL 에 넣으면 플래너가 색인을 버려 2초 검색이 26~46초가 됐다(11-08·11-09 측정).
+            # 후보는 색인 조건만으로 뽑고, 볼 수 있는 문서 목록(documents 만 읽어 빠르다)으로 걸러 같은 결과를 낸다
+            allowed = None
+            if acc:
+                allowed = {int(r[0]) for r in conn.execute("SELECT d.id FROM documents d WHERE 1=1" + acc, tuple(acc_args)).fetchall()}
+            cap = max(limit, 20000)
+            rows = [r for r in conn.execute(
+                "SELECT g.chunk_id, g.nouns, g.doc_id FROM grant_lex g WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + " LIMIT ?",
+                (tsq, *scope_args, cap + 50000)).fetchall()
+                    if allowed is None or int(r[2]) in allowed][:cap]
         else:                                             # 시험용 SQLite — 색인 없이 훑는다(작은 DB)
             all_rows = conn.execute("SELECT g.chunk_id, g.nouns FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
                                     " WHERE 1=1" + scope_sql + acc, (*scope_args, *acc_args)).fetchall()
