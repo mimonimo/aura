@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -127,8 +126,10 @@ def read(client, question: str, programs: list[dict], timeout: float | None = No
             response_format={"type": "json_schema", "json_schema": {"name": "GraphQuery", "schema": SCHEMA}},
             extra_body=getattr(client, "_extra", None) or None)
         raw = (resp.choices[0].message.content or "").strip()
-        raw = raw[raw.find("{"): raw.rfind("}") + 1] if "{" in raw else raw
-        data = json.loads(raw)
+        from zzaimy.generate import model_json      # 생각 글·울타리·파이썬 꼴이 섞여도 읽는다(모델 교체 대비)
+        data = model_json.loads(raw)
+        if data is None:
+            raise ValueError("질문 읽기 응답에 JSON 이 없다")
         nos = [int(n) for n in data.get("programs") or [] if str(n).strip().lstrip("-").isdigit()]
         ids = list(dict.fromkeys(ids_by_no[n - 1] for n in nos if 1 <= n <= len(ids_by_no)))
         names = [str(n) for n in nos]

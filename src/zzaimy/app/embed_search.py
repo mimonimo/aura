@@ -82,6 +82,25 @@ def remote_vectors(texts: list[str], timeout: float | None = None):
 
 
 
+_DIM_WARNED: set[str] = set()
+
+
+def dims_ok(qv, vectors, where: str) -> bool:
+    """질의 벡터와 색인 벡터의 차원이 같은가 — 임베딩 모델을 바꾸면(차원이 다르면) 행렬 곱이 깨지거나 엉뚱한 순위가 나온다.
+    다르면 그 자리에서 한 번만 경고를 남기고 False — 부르는 쪽은 의미 검색 없이 어휘 검색으로 간다(색인을 새 모델로 다시 만들 때까지)."""
+    try:
+        q = int(getattr(qv, "shape", [len(qv)])[-1])
+        v = int(vectors.shape[1])
+    except Exception:
+        return True
+    if q == v:
+        return True
+    if where not in _DIM_WARNED:
+        _DIM_WARNED.add(where)
+        log.warning("%s: 임베딩 차원 불일치(질의 %d · 색인 %d) — 임베딩 모델이 바뀐 것 같다. 색인을 새 모델로 다시 만들 때까지 어휘 검색만 쓴다", where, q, v)
+    return False
+
+
 def _file_mtime(p: Path) -> float:
     """파일 시각 — 없으면 -1(나중에 생기면 달라져 다시 읽는다)."""
     try:
@@ -214,6 +233,8 @@ class EmbedIndex:
         if qv is None:
             return []
         qv = qv[0]
+        if not dims_ok(qv, vectors, "규정 의미 검색"):
+            return []
         sims = vectors @ qv  # type: ignore[operator]
         order = sims.argsort()[-top_k:][::-1]
         floor = self.noise_floor() if min_sim is None else min_sim

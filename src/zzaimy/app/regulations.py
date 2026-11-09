@@ -133,7 +133,8 @@ def _get_kiwi():
         from kiwipiepy import Kiwi
 
         _kiwi = Kiwi()
-        for w in _USER_WORDS:
+        from zzaimy.app import institution as _inst
+        for w in list(_USER_WORDS) + list(_inst.aliases()):      # 이 설치의 기관 이름도 통단어로
             _kiwi.add_user_word(w, "NNP")
     return _kiwi
 

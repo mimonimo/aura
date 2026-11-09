@@ -33,7 +33,16 @@ KINDS = ("regulation", "guideline")
 MIN_CHARS = 80
 
 
-OURS = ("영남이공대학교", "영남이공대학")
+_LEGACY_OURS = ("영남이공대학교", "영남이공대학")   # 기관 이름을 모를 때만(첫 설치 문서함) — 이름이 정해지면 그 이름을 쓴다
+
+
+def ours() -> tuple[str, ...]:
+    """우리 학교 이름 묶음 — 이 설치의 기관 정보(institution.aliases)에서. 모르면 예전 값."""
+    from zzaimy.app import institution
+    return institution.aliases() or _LEGACY_OURS
+
+
+OURS = _LEGACY_OURS                                  # 예전 이름(가져다 쓰는 곳 호환) — 판정은 ours() 로
 # 제목 첫머리의 발행 기관 — '금오공과대학교연구비관리규정' · '대전보건대학 교외 …' · '한국연구재단 …'
 _ISSUER = re.compile(r"^[\s(\[]{0,5}([가-힣]{1,30}?(?:대학교|대학|재단))")
 # 기관 이름이 아니라 대학의 갈래를 이르는 말 — '전문대학 교육역량강화사업' · '산학협력선도전문대학 육성사업'
@@ -58,7 +67,7 @@ def issuer(title: str) -> str:
     if not m:
         return ""
     name = m.group(1)
-    if name in OURS or _GENERIC_SCHOOL.search(name):
+    if name in ours() or _GENERIC_SCHOOL.search(name):
         return ""
     return name
 
@@ -76,10 +85,10 @@ def rule_key(title: str) -> str:
         prev = s
         s = _NUM_HEAD.sub("", s)
     s = _ORDER_NO.sub("", s)
-    s = _PAREN.sub(lambda m: "" if (_REV_PAREN.search(m.group(1)) or m.group(1).strip() in OURS
+    s = _PAREN.sub(lambda m: "" if (_REV_PAREN.search(m.group(1)) or m.group(1).strip() in ours()
                                     or _ABBR_PAREN.match(m.group(1))) else m.group(0), s)
     s = _ACAD_YEAR.sub("", s)
-    for o in OURS:
+    for o in sorted(ours(), key=len, reverse=True):
         s = s.replace(o, "")
     s = re.sub(r"[^가-힣A-Za-z0-9()]", "", s)          # '＋'·'+' 도 뗀다('LINC＋' = 'LINC(＋)')
     return s.lower()
