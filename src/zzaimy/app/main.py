@@ -1017,6 +1017,8 @@ def create_app(
     templates.env.globals["feedback_reasons"] = ("근거 문서가 틀림", "숫자·사실이 틀림", "질문과 다른 답", "너무 길거나 짧음", "느림", "기타")
     # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다
     templates.env.globals["asset_v"] = _asset_version()
+    # 한 요청에 올릴 수 있는 자료 크기(MB) — 웹 서버 한도(nginx client_max_body_size 512m)보다 조금 작게. 넘으면 화면이 나눠 보낸다
+    templates.env.globals["upload_max_mb"] = int(os.environ.get("ZZAIMY_UPLOAD_MAX_MB", "480") or 480)
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     # 사람 이름 한 곳(app/people) — 장부 이름 → 내 설정 성명 → 아이디. 사이드바·사용자 메뉴·설정·사람 칩·잠금 안내가 같은 값을 쓴다
     from zzaimy.app import people as _people
@@ -2235,9 +2237,27 @@ def create_app(
     def _looks_like_reading(q: str) -> bool:
         return bool(_READ_WORDS.search(q or ""))
 
+    def _read_failed_note(docs: list[dict]) -> str:
+        """읽지 못한(반입 실패) 문서가 있으면 문서마다 사유와 다시 올리는 법 — 에이전트가 엉뚱한 기술 문구로 끝나지 않고 담당자에게 알리게."""
+        from zzaimy.app import read_failure as _rf
+        lines = []
+        for d in docs:
+            inf = _rf.info(db, d) if d and d.get("status") == "failed" else None
+            if inf:
+                t_ = storage.title_of(d.get("filename") or "")
+                how = inf["actions"][0]["label"] if inf.get("actions") else "다른 파일로 바꾸기"
+                lines.append(f"「{t_}」 — {inf['label']}: {inf['hint']}(문서 화면의 「{how}」 또는 프로젝트 「문서 추가」로 다시 올림)")
+        if not lines:
+            return ""
+        return ("올린 문서 가운데 읽지 못한 것이 있다 — 본문이 없어 근거로 쓸 수 없다. 담당자에게 사유를 알리고 다시 올려 달라고 한다(지어내지 않는다):\n"
+                + "\n".join(lines[:6]))
+
     def _read_named_document(session_id: int, doc: dict) -> str:
         """지목한 문서의 그림 쪽을 지금 판독한다(대화의 배경 작업 안에서 돈다). 결과 문장을 돌려준다."""
         title = storage.title_of(doc.get("filename") or "")
+        failed = _read_failed_note([doc])
+        if failed:                                          # 올릴 때 읽지 못한 문서 — 그림 쪽 판독 문제가 아니다(11-09 대화 166)
+            return failed
         fn = getattr(processor, "read_image_pages", None)
         if not fn:
             return f"「{title}」 판독 기능이 없습니다."
@@ -2608,6 +2628,10 @@ def create_app(
                 if src == "criteria":
                     return (f"「{query}」(criteria) — 찾지 못함. 이 프로젝트의 기준 문서에서 맞는 글이 없다"
                             + ("" if crit_ids else "(이어진 기준 문서가 없다)") + " — 공고·지침이 프로젝트 문서로 올라와 있으면 source=project 로 찾는다.")
+                if src == "project" and project:
+                    note_ = _read_failed_note(db.list_documents(project["sector"], project_id=int(project["id"])))
+                    if note_:
+                        return f"「{query}」(project) — 찾지 못함. " + note_
                 return f"「{query}」({src}) — 찾지 못함"
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
             for h in hits[:4]:                                  # 이어 읽을 수 있는 문서 — 이번 검색(열람 범위 안)이 낸 것만

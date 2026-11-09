@@ -308,7 +308,9 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
             if role == "body" and not align:
                 # 금액·큰 수는 오른쪽, 기호·짧은 값은 가운데(학교 표의 거의 모든 값 칸), 긴 글은 문단 기본
                 align = hs.value_align(c["text"], heads.get(c["c"], "")) or ("CENTER" if (c["r"], c["c"]) in marks else "")
-                if not align and c["field"]:                  # 쓸 자리(누름틀) 칸 — 양쪽 정렬이면 좁은 칸의 안내 글이 벌어진다
+                if not align:
+                    # 긴 글 칸도 왼쪽 — 문단 기본(양쪽·배분)을 두면 좁은 칸에서 줄이 꺾일 때 글자 사이가 벌어진다
+                    # (「N C S 기 반」「[ 확 인 필요]」, 11-09 결과보고서). 쓸 자리(누름틀) 칸의 안내 글도 같은 까닭
                     align = "LEFT"
             # 칸 여백 — 학교 표의 절반이 510/510/141/141(좌우 1.8mm). 좁으면 글이 선에 붙는다
             x = re.sub(r'(<hp:tc\b[^>]*\bhasMargin=")0', r"\g<1>1", x, count=1)

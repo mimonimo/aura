@@ -859,6 +859,35 @@ class HwpTools:
                                  if ww.is_cont(k) and ww.section_of(k) == field and k not in vals])
         return self._after_write(fid, field, text, written, put, by, data)
 
+    def cross_fill(self) -> str:
+        """표 사이 같은 값 맞추기(table_consistency) — 절을 나눠 쓴 뒤 한 표에만 「확인 필요」로 남은 같은 행·열 칸을 문서 안 값으로.
+        채운 것과 남은 칸을 짧게 돌려준다(남은 칸은 근거를 다시 찾거나 담당자에게 물을 재료). 바꿀 것이 없으면 빈 글."""
+        from zzaimy.app import table_consistency as tc
+        from zzaimy.app import webhwp_coedit as ce
+        from zzaimy.app import webhwp_write as ww
+        fid = self.fid()
+        f = webhwp.get(self.db, fid) if fid else None
+        if not f or webhwp.locked(self.db, fid):
+            return ""
+        try:
+            raw = Path(f["path"]).read_bytes()
+            data, filled, left = tc.cross_fill(raw)
+        except Exception:
+            return ""
+        if filled:
+            webhwp.save(self.db, self.base, fid, data, user="AURA")
+            before, after = ww.field_values(raw), ww.field_values(data)
+            changed = {k: v for k, v in after.items() if before.get(k) != v}
+            if changed:                                     # 칸 글 표도 새 글로 — 써 넣기가 옛 「확인 필요」로 되돌리지 않게
+                ce.put(self.db, fid, ce.AGENT, changed, client="aura-agent")
+        parts = []
+        if filled:
+            parts.append("다른 표의 같은 행·열 값으로 채운 칸: " + "; ".join(filled[:8]))
+        if left:
+            parts.append("아직 「확인 필요」인 표 칸: " + "; ".join(left[:8]) + (" 외" if len(left) > 8 else "")
+                         + " — 근거에 있으면 hwp_fill·hwp_write 로 채우고, 없으면 끝에 담당자에게 묻는다.")
+        return "\n".join(parts)
+
     STREAM_PACE, STREAM_CPS, STREAM_MAX_S = 0.12, 32, 20.0   # 흘려 쓰기 — 0.12초마다, 초당 약 32자(눈으로 따라 읽히게), 긴 절도 20초 안에
 
     def _stream_plain(self, fid: int, field: str, text: str) -> bool:

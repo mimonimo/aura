@@ -60,5 +60,50 @@
     }
   }
   form.addEventListener("input", paint); form.addEventListener("change", paint); paint();
+
+  // 큰 자료 — 합계가 한 요청 한도(upload-batch.js)를 넘으면 프로젝트를 먼저 만들고 파일은 묶음으로 나눠 차례로 올린다.
+  // 한도 안이면 예전처럼 한 번에(기준 문서·첨부 나누기가 묶음 단위라 작은 묶음은 그대로 둔다)
+  function tell(text) { hint.hidden = !text; hint.textContent = text || ""; }
+  form.addEventListener("submit", function (e) {
+    var U = window.AuraUpload, files = Array.from((form.elements.file && form.elements.file.files) || []);
+    if (!U || !files.length || U.total(files) <= U.maxBytes()) return;
+    e.preventDefault();
+    var plan = U.batches(files);
+    if (plan.tooBig.length) {
+      tell(plan.tooBig.map(function (f) { return "「" + f.name + "」(" + U.mb(f.size) + ")"; }).join(", ")
+           + " 은(는) 한 번에 올릴 수 있는 크기(" + U.mb(plan.cap) + ")보다 큽니다. 쪽을 나눈 파일로 올려 주세요.");
+      return;
+    }
+    submit.disabled = true;
+    var fd = new FormData(form); fd.delete("file");
+    if (!String(fd.get("name") || "").trim()) fd.set("name", files[0].name.replace(/\.[^.]+$/, ""));
+    tell("프로젝트를 만드는 중입니다…");
+    var counts = {c: 0, i: 0, skipped: []};
+    fetch(form.action, {method: "POST", body: fd, credentials: "same-origin"}).then(function (r) {
+      var m = (r.url || "").match(/\/project\/(\d+)/);
+      if (!r.ok || !m) throw new Error("프로젝트를 만들지 못했습니다(" + r.status + ")");
+      var pid = m[1], url = "/project/" + pid + "/bundle", k = 0, all = U.total(files), sentBefore = 0;
+      var next = function () {
+        if (k >= plan.batches.length) {
+          var q = "bundle=" + counts.c + "+" + counts.i;
+          if (counts.skipped.length) q += "&err=" + encodeURIComponent("올리지 못한 파일: " + counts.skipped.join(", "));
+          location.href = "/project/" + pid + "?" + q;
+          return;
+        }
+        var b = plan.batches[k], size = U.total(b);
+        return U.sendBatch(url, b, function (loaded, tot) {
+          var pct = Math.round((sentBefore + loaded / tot * size) / all * 100);
+          tell("자료를 나눠 올리는 중 " + (k + 1) + "/" + plan.batches.length + " · " + pct + "% (" + U.mb(all) + ")");
+        }).then(function (d) {
+          counts.c += d.criteria || 0; counts.i += d.intake || 0; counts.skipped = counts.skipped.concat(d.skipped || []);
+          sentBefore += size; k += 1; return next();
+        }).catch(function (err) {
+          tell(err.message + ". 프로젝트는 만들어졌으니 프로젝트 화면의 「문서 추가」로 남은 파일을 올려 주세요.");
+          setTimeout(function () { location.href = "/project/" + pid + "?err=" + encodeURIComponent(err.message); }, 4000);
+        });
+      };
+      return next();
+    }).catch(function (err) { submit.disabled = false; tell(err.message); });
+  });
 })();
 </script>

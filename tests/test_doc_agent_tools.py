@@ -624,3 +624,22 @@ def test_step_parser_tolerates_an_extra_closing_brace():
     assert _parse(raw) == {"thought": "값을 채운다.", "action": "hwp_fill", "args": {"values": {"사업명": "가상 사업"}}}
     assert _parse('생각 글 {"action": "finish", "args": {}} 뒤 글') == {"action": "finish", "args": {}}
     assert _parse('{"thought": "x"}') is None and _parse("") is None
+
+
+def test_failed_project_documents_are_reported_not_misread(agent_app, tmp_path, monkeypatch):
+    """올린 문서를 읽지 못했으면 찾기·판독이 그 사유와 다시 올리는 법을 알린다 — 「판독할 그림 쪽이 없거나 판독 모델이 꺼져 있습니다」
+    같은 엉뚱한 기술 문구로 끝나지 않게(11-09 대화 166)."""
+    app, client = agent_app
+    db = app.state.db
+    pid = db.create_project("grant", "프로그램 결과보고", owner="zzaimy")
+    did = db.add_document(filename="두드림 캠프 결과.pdf", stored_path=str(tmp_path / "x.pdf"), doc_type="grant",
+                          sector="grant", project_id=pid)
+    db.update_document(did, status="failed", error="RuntimeError: PDF 가 아니라 웹 페이지가 저장돼 있습니다 (938,225바이트) — 내려받기가 막힌 파일")
+    sid = db.create_chat_session("문서 대화", project_id=pid, owner="zzaimy")
+    _use_agent(monkeypatch, [_step("search", source="project", query="프로그램 운영 결과", **{"for": "결과보고서 근거"}),
+                             _step("read_document", document="두드림 캠프 결과"),
+                             _step("finish", message="")])
+    client.post("/chat/send", data={"question": "올린 자료로 결과보고서 초안 써 줘", "session_id": str(sid)}, follow_redirects=False)
+    obs = [s_["observation"] for s_ in _episodes(tmp_path)[-1]["steps"][:2]]
+    assert "읽지 못한" in obs[0] and "두드림 캠프 결과" in obs[0] and "다시 올" in obs[0]
+    assert "판독할 그림 쪽" not in obs[1] and "읽지 못한" in obs[1]

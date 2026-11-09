@@ -707,6 +707,13 @@ class Delegator:
             reports[id(j)] = self._commit(j)
         self._parallel_each(self._write, jobs, clients, commit)
         msgs += [reports[id(j)] for j in jobs]                # 보고는 맡긴 차례대로
+        if any(j.get("body") for j in jobs) and hasattr(self.hw, "cross_fill"):
+            try:                                              # 절마다 따로 쓴 표 — 같은 행·열 칸이 한쪽만 「확인 필요」면 맞춘다
+                note = self.hw.cross_fill()
+            except Exception:
+                note = ""
+            if note:
+                msgs.append(note)
         if over:
             msgs.append("동시 상한(" + str(cap) + "개)을 넘은 절은 맡기지 않았다: " + ", ".join(str(x.get("section") or "")[:30] for x in over)
                         + " — 다음 걸음에 다시 맡긴다.")
