@@ -729,6 +729,8 @@ def create_app(
         name="static",
     )
     db = Database(db_path)
+    from zzaimy.app import institution as _inst_boot
+    _inst_boot.remember(db)                  # 이 설치의 기관 이름 — 프롬프트·외부 전송 가림·규정 판정이 같은 값을 본다(코드에 학교 이름 없음)
     from zzaimy.app import privacy_policy
     from functools import partial
     _scrub_internal = partial(privacy_policy.scrub_internal, db)
