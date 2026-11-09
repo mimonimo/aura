@@ -126,3 +126,60 @@ def test_edit_screen_rescue_flow_node():
         pytest.skip("node 없음")
     r = subprocess.run([node, "--test", str(Path(__file__).resolve().parent / "coedit_rescue.test.cjs")], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+
+
+def _bomb(n_mb: int) -> bytes:
+    """section0.xml 을 풀면 n_mb MB 가 되는 작은 hwpx — 압축 폭탄."""
+    buf = io.BytesIO()
+    src = zipfile.ZipFile(io.BytesIO(_doc(["제목"])))
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in src.infolist():
+            if info.filename == "Contents/section0.xml":
+                z.writestr(info.filename, b"<hs:sec>" + b" " * (n_mb * 1024 * 1024) + b"</hs:sec>", compress_type=zipfile.ZIP_DEFLATED)
+            else:
+                z.writestr(info, src.read(info.filename))
+    return buf.getvalue()
+
+
+def _many_entries(n: int) -> bytes:
+    buf = io.BytesIO()
+    src = zipfile.ZipFile(io.BytesIO(_doc(["제목"])))
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in src.infolist():
+            z.writestr(info, src.read(info.filename))
+        for i in range(n):
+            z.writestr(f"BinData/x{i}.bin", b"")
+    return buf.getvalue()
+
+
+def test_merge_refuses_zip_bomb_and_too_many_entries():
+    base = _doc(["제목", "첫째 문단"])
+    bomb = _bomb(20)
+    assert len(bomb) < 200 * 1024                                 # 작게 보내도
+    merged, rep = wm.merge_outside(base, bomb, base)
+    assert merged is None and rep["too_big"] and rep["error"]    # 풀지 않고 거절
+    merged, rep = wm.merge_outside(base, _many_entries(wm.MERGE_MAX_ENTRIES + 1), base)
+    assert merged is None and rep["too_big"] and "항목" in rep["error"]
+    merged, rep = wm.merge_outside(_bomb(20), _doc(["제목", "첫째 문단", "새 글"]), base)   # base 도 같은 한도
+    assert merged is None and rep["too_big"]
+
+
+def test_merge_streaming_read_stops_when_declared_size_lies(monkeypatch):
+    """선언 크기를 믿지 않는다 — 실제로 풀린 양이 한도를 넘으면 그 자리에서 멈춘다."""
+    big = _bomb(1)                                                 # 풀면 1MB
+    monkeypatch.setattr(wm, "_open", lambda data: zipfile.ZipFile(io.BytesIO(data)))   # 선언 검사가 속은 것처럼(거짓 file_size)
+    monkeypatch.setattr(wm, "MERGE_MAX_UNZIPPED", 512 * 1024)
+    merged, rep = wm.merge_outside(_doc(["제목"]), big, _doc(["제목"]))
+    assert merged is None and rep["too_big"]
+
+
+def test_rescue_with_bomb_keeps_copy_not_silent(tmp_path, monkeypatch):
+    """한도를 넘는 판은 합치지 않고 keep 으로 돌려준다(화면이 내 판 전체를 사본으로) — 파일은 그대로, 기록도 남는다."""
+    app, kim, park, fid = _app(tmp_path, monkeypatch, ["제목", "첫째 문단"])
+    base = _file(app, fid)
+    j = kim.post(f"/hwp/{fid}/rescue", files={"base": ("b", base), "mine": ("m", _bomb(20))}).json()
+    assert j["ok"] is False and j["keep"] and j["error"]
+    assert _file(app, fid) == base
+    rows = kim.get(f"/hwp/{fid}/conflicts").json()
+    rows = rows.get("conflicts", rows) if isinstance(rows, dict) else rows
+    assert any("옮기지 못함" in (r.get("text") or "") for r in rows)

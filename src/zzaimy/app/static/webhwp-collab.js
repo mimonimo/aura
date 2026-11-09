@@ -1055,9 +1055,10 @@
       pending: pending, aura: function () { return aura; }, formOnly: formOnly, setReadOnly: function (v) { readonly = !!v; },
       conflicts: function () { return idb.all('conflicts').then(function (r) { return r.filter(function (x) { return x.fid === fid; }).sort(function (a, b) { return b.at - a.at; }); }); },
       // 화면이 옮기지 못한 내 글을 사본으로 남긴다(칸 밖 고침 살리기에서 서버가 돌려준 글 — 11-10). 「내 글 보기」 목록과 알림에 같이 뜬다
-      keepCopy: function (field, text, reason, by) {
+      keepCopy: function (field, text, reason, by, blob) {
         if (!text) return;
         var copy = {key: fid + '|s' + now() + '|' + Math.random().toString(36).slice(2, 8), fid: fid, field: field || '(칸 밖)', text: String(text), reason: reason || 'struct', by: by || '', at: now(), id: 0};
+        if (blob) copy.blob = blob;           // 글을 골라낼 수 없을 때 — 내 화면 판 전체(hwpx)
         idb.put('conflicts', copy); emit('conflict', copy);
       }
     };
@@ -1410,7 +1411,13 @@
           row.appendChild(el('pre', 'co-panel-t', c.text));
           var cp = el('button', 'co-btn', '복사'); cp.type = 'button';
           cp.onclick = function () { try { navigator.clipboard.writeText(c.text); cp.textContent = '복사됨'; } catch (e) {} };
-          row.appendChild(cp); panel.appendChild(row);
+          row.appendChild(cp);
+          if (c.blob) {                        // 글을 골라내지 못한 사본 — 내 화면 판 전체를 한글 파일로 받는다
+            var dl = el('button', 'co-btn', '한글 파일로 받기'); dl.type = 'button';
+            dl.onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(c.blob); a.download = '내 화면 사본.hwpx'; a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000); };
+            row.appendChild(dl);
+          }
+          panel.appendChild(row);
         });
         var x = el('button', 'co-btn ghost', '닫기'); x.type = 'button'; x.onclick = function () { panel.remove(); panel = null; }; panel.appendChild(x);
         panel.addEventListener('keydown', function (e) { if (e.key === 'Escape') { panel.remove(); panel = null; } });

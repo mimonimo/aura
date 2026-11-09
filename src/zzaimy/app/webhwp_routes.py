@@ -1375,15 +1375,22 @@ async def hwp_rescue(request: Request, fid: int):
                 webhwp.save(db, _base(request), fid, merged, user=user)
                 saved = True
             lost = [t for t in rep.get("lost") or [] if t]
-            if lost:
+            if rep.get("error"):                           # 한도 초과·못 푸는 판 — 합치지 않았다. 글은 내 화면이 사본으로 남기고, 여기엔 그 사실을 남긴다
+                lost = []
+                rec = f"(칸 밖 글을 자동으로 옮기지 못함: {rep['error']}) 내 화면의 판은 그 사람 브라우저 사본으로 남겼습니다"
+            else:
+                rec = "\n".join(lost)
+            if lost or rep.get("error"):
                 ce.ensure(db)
                 with db._conn() as conn:
                     conn.execute("INSERT INTO webhwp_conflicts (fid, field, user_id, base_version, server_version, text, reason, at)"
-                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (int(fid), "(칸 밖)", user, 0, 0, "\n".join(lost), "struct", _t.time()))
+                                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (int(fid), "(칸 밖)", user, 0, 0, rec, "struct", _t.time()))
         return saved, rep, lost
     saved, rep, lost = await run_in_threadpool(run)
     if saved:
         _touch(request, webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"]))
+    if rep.get("error"):
+        return {"ok": False, "keep": True, "saved": False, "moved": 0, "lost": [], "error": rep["error"]}
     return {"ok": True, "saved": saved, "moved": int(rep.get("moved") or 0), "lost": lost,
             "skipped_deletes": int(rep.get("skipped_deletes") or 0), "error": rep.get("error", "")}
 

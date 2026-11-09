@@ -61,3 +61,14 @@ test('살릴 것이 없으면 보내지 않는다', async () => {
   await p.ctx.rescueOutside();
   assert.strictEqual(p.calls.length, 0);
 });
+
+test('서버가 합치지 못한 판(한도 초과)은 내 화면 판 전체를 사본으로 남긴다', async () => {
+  const p = page([{ok: false, keep: true, error: '한글 파일 본문이 너무 큽니다'}]);
+  const kept = [];
+  p.ctx.eng = {keepCopy: (f, t, r, by, blob) => kept.push({t, blob})};
+  await p.ctx.rescueOutside();
+  assert.strictEqual(kept.length, 1);
+  assert.ok(kept[0].blob && kept[0].t.includes('사본'));
+  assert.strictEqual(p.ctx.outsidePending, false);
+  assert.ok(p.says.some(([t, k]) => k === 'bad' && t.includes('사본')));
+});

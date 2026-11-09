@@ -52,9 +52,54 @@ def _has_field(p: str) -> bool:
     return "<hp:fieldBegin" in p or "<hp:fieldEnd" in p
 
 
-def _sections(data: bytes) -> tuple[zipfile.ZipFile, dict[str, str]]:
+# 풀기 한도 — 합치기는 칸 밖 문단만 보므로 문서 열기(webhwp_fields.MAX_UNZIPPED 300MB)보다 작게. 세 판 각각에 건다(보안 검토 11-10).
+MERGE_MAX_UNZIPPED = 64 * 1024 * 1024     # 한 판에서 실제로 풀어 읽는 본문·머리 XML 합계
+MERGE_MAX_ENTRIES = 2000                  # 한 판의 zip 항목 수
+_CHUNK = 1024 * 1024
+
+
+class TooBig(ValueError):
+    """한도를 넘는 판 — 합치지 않는다(부르는 쪽은 충돌 사본·안내로)."""
+
+
+def _open(data: bytes) -> zipfile.ZipFile:
+    """풀기 전에 잰다 — 항목 수, 선언 크기·압축률(공용 webhwp_fields.check_zip), 합치기 한도."""
+    from zzaimy.app import webhwp_fields as wf
     zin = zipfile.ZipFile(io.BytesIO(data))
-    return zin, {n: zin.read(n).decode("utf-8") for n in zin.namelist() if _SEC.search(n)}
+    infos = zin.infolist()
+    if len(infos) > MERGE_MAX_ENTRIES:
+        raise TooBig(f"한글 파일 항목이 너무 많습니다({len(infos)}개)")
+    try:
+        wf.check_zip(zin)
+    except ValueError as e:
+        raise TooBig(str(e)) from e
+    want = sum(i.file_size for i in infos if _SEC.search(i.filename) or i.filename == _HEADER)
+    if want > MERGE_MAX_UNZIPPED:
+        raise TooBig("한글 파일 본문이 너무 큽니다(합치기 한도 초과)")
+    return zin
+
+
+def _read(zin: zipfile.ZipFile, name: str, budget: list[int]) -> str:
+    """흘려 읽기 — 선언 크기를 믿지 않고 실제로 풀린 양을 세어 한도를 넘는 순간 멈춘다."""
+    parts = []
+    with zin.open(name) as f:
+        while True:
+            chunk = f.read(_CHUNK)
+            if not chunk:
+                break
+            budget[0] -= len(chunk)
+            if budget[0] < 0:
+                raise TooBig("한글 파일 본문이 너무 큽니다(합치기 한도 초과)")
+            parts.append(chunk)
+    return b"".join(parts).decode("utf-8")
+
+
+def _sections(data: bytes, with_header: bool = False) -> tuple[zipfile.ZipFile, dict[str, str], str]:
+    zin = _open(data)
+    budget = [MERGE_MAX_UNZIPPED]
+    secs = {n: _read(zin, n, budget) for n in zin.namelist() if _SEC.search(n)}
+    header = _read(zin, _HEADER, budget) if with_header and _HEADER in zin.namelist() else ""
+    return zin, secs, header
 
 
 def _ids_in(header: str, kind: str) -> set[str]:
@@ -91,15 +136,17 @@ def _fresh_para(src: str, anchor: str, theirs_header: str, used_ids: set[str]) -
 
 def merge_outside(base: bytes, mine: bytes, theirs: bytes) -> tuple[bytes | None, dict]:
     """(합친 theirs 바이트 또는 None(옮길 것 없음), 보고 {moved, lost: [글], skipped_deletes}).
-    lost 는 옮기지 못한 내 문단 글 — 부르는 쪽이 충돌 사본으로 남긴다."""
+    lost 는 옮기지 못한 내 문단 글 — 부르는 쪽이 충돌 사본으로 남긴다.
+    판이 한도(항목 수·압축률·풀린 크기)를 넘거나 풀 수 없으면 합치지 않고 error 와 too_big/unreadable 을 돌려준다 — 부르는 쪽이 사본·안내로."""
     rep = {"moved": 0, "lost": [], "skipped_deletes": 0}
     try:
-        _, bs = _sections(base)
-        _, ms = _sections(mine)
-        tz, ts = _sections(theirs)
+        _, bs, _h = _sections(base)
+        _, ms, _h = _sections(mine)
+        tz, ts, header = _sections(theirs, with_header=True)
+    except TooBig as e:
+        return None, {**rep, "error": str(e), "too_big": True}
     except Exception:
-        return None, {**rep, "error": "한글 파일을 풀지 못했습니다"}
-    header = tz.read(_HEADER).decode("utf-8") if _HEADER in tz.namelist() else ""
+        return None, {**rep, "error": "한글 파일을 풀지 못했습니다", "unreadable": True}
     used_ids = set(re.findall(r'\bid="(\d+)"', "".join(ts.values())))
     new_secs: dict[str, str] = {}
     for name in sorted(ms):

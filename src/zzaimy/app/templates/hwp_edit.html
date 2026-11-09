@@ -358,15 +358,23 @@
   function rescueOutside() {
     if (!outsidePending || !baseBlob || readonly) return Promise.resolve();
     var rescueUrl = fileUrl.replace(/\/file$/, '/rescue');
+    var mineBlob = null;
     return Promise.resolve(hwp.hwpx()).then(function (mine) {
+      mineBlob = new Blob([mine]);
       var fd = new FormData();
       fd.append('base', baseBlob, 'base.hwpx');
-      fd.append('mine', new Blob([mine]), 'mine.hwpx');
+      fd.append('mine', mineBlob, 'mine.hwpx');
       return fetch(rescueUrl, {method: 'POST', credentials: 'same-origin', body: fd}).then(function (r) { return r.json(); });
     }).then(function (j) {
       if (j && j.wait) {
         say((j.by_name || j.by || '다른 사람') + ' 님이 문서 틀을 고치는 중 · 끝나면 내가 칸 밖에 쓴 글을 옮깁니다', 'busy');
         return new Promise(function (res) { setTimeout(res, 3000); }).then(rescueOutside);
+      }
+      if (j && j.keep) {          // 한도 초과·못 푸는 판 — 서버가 합치지 않았다. 내 화면 판 전체를 사본으로 남기고 알린다(버리지 않음)
+        outsidePending = false;
+        if (eng && eng.keepCopy) eng.keepCopy('(칸 밖)', '칸 밖에 쓴 글을 자동으로 옮기지 못했습니다(' + (j.error || '') + ') · 내 화면 판 전체를 사본으로 남겼습니다', 'struct', '', mineBlob);
+        say('칸 밖에 쓴 글을 자동으로 옮기지 못해 내 화면 판을 사본으로 남겼습니다 · 「내 글 보기」', 'bad');
+        return;
       }
       outsidePending = false;
       (j && j.lost || []).forEach(function (t) { if (eng && eng.keepCopy) eng.keepCopy('(칸 밖)', t, 'struct', ''); });
