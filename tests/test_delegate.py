@@ -360,9 +360,13 @@ def test_table_section_streams_text_preview_then_writes_table(tmp_path, monkeypa
     body = "추진 일정은 다음과 같음\n\n| 구분 | 기간 |\n|---|---|\n| 1학기 | 2027. 3. ~ 2027. 8. |\n| 2학기 | 2027. 9. ~ 2028. 2. |"
     out = hw.write({"field": secs[0], "text": body})
     assert out.startswith("「"), out
-    assert len(sent) > 2 and "1학기" in sent[-1] and "|" not in sent[-1]      # 표는 칸을 띄어 이은 글로 흘렸다
+    assert len(sent) > 2 and sent[-1] == "추진 일정은 다음과 같음"             # 글만 흘리고 표는 흘리지 않는다(평문 표 줄이 표 위에 보이지 않게)
+    assert not any("1학기" in x for x in sent)
     assert sent[0] and len(sent[0]) < len(sent[-1])                           # 조금씩
-    assert wa.HwpTools.preview_text(body).splitlines()[1].startswith("구분")
+    assert wa.HwpTools.preview_text(body) == "추진 일정은 다음과 같음"
+    # 개조식 줄은 깊이만큼 앞을 띄워 흘린다(곧 들어갈 단계 들여쓰기와 비슷하게)
+    assert wa.HwpTools.preview_text("가. 목적\n1) 역량 강화\n2) 질 제고\n나. 대상").splitlines() == [
+        "\u3000가. 목적", "\u3000\u30001) 역량 강화", "\u3000\u30002) 질 제고", "\u3000나. 대상"]
     import io
     import zipfile
     z = zipfile.ZipFile(io.BytesIO(Path(webhwp.get(db, hw.fid())["path"]).read_bytes()))

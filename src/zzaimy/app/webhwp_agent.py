@@ -693,6 +693,8 @@ class HwpTools:
         items = ww.parse_body(text)
         if not items or any(k != "text" for k, _ in items):
             return False
+        if any(ww.marker_level(ln) is not None for _, v in items for ln in str(v).split("\n")):
+            return False                                    # 개조식(1.·가.·1) …) 절은 단계 들여쓰기·문단 간격이 든 표째 쓰기로(11-09)
         raw = Path(webhwp.get(self.db, fid)["path"]).read_bytes()
         have = ww.field_values(raw)
         if field not in have or any(ww.is_cont(k) and ww.section_of(k) == field for k in have):
@@ -721,15 +723,17 @@ class HwpTools:
 
     @staticmethod
     def preview_text(text: str) -> str:
-        """표·상자·도식이 든 본문의 흘려 쓰기 판 — 글은 그대로, 표는 줄마다 칸을 띄어 이은 글(곧 표째 다시 들어간다)."""
+        """흘려 쓰기 판 — 글은 항목 깊이만큼 앞을 띄워(곧 들어갈 문단 모양과 비슷하게), 표는 넣지 않는다(칸을 띄어 이은 줄이
+        표 위에 평문으로 보였다가 표로 바뀌어 지저분했다 — 11-09 시연). 표는 바로 뒤 표째 저장에서 제자리에 들어간다."""
         from zzaimy.app import webhwp_write as ww
-        out = []
+        lines = []
         for k, v in ww.parse_body(text):
-            if k == "table":
-                out.append("\n".join("   ".join(str(c) for c in row) for row in v if any(str(c).strip() for c in row)))
-            elif isinstance(v, str):
-                out.append(re.sub(r"^```\S*\s*|```$", "", v.strip()).strip() if k == "diagram" else v)
-        return "\n".join(x for x in out if x and x.strip())
+            if k == "text" and isinstance(v, str):
+                lines += [x for x in v.split("\n") if x.strip()]
+            elif k == "diagram" and isinstance(v, str):
+                lines += [x for x in re.sub(r"^```\S*\s*|```$", "", v.strip()).strip().split("\n") if x.strip()]
+        depths = ww.marker_depths(lines)
+        return "\n".join("\u3000" * d + ln.strip() for d, ln in zip(depths, lines))
 
     def _stream_preview(self, fid: int, field: str, text: str) -> bool:
         """표 든 절도 쓰는 모습이 보이게 — 글 판(preview_text)을 칸 길로 조금씩 보낸다. 파일에는 쓰지 않는다(바로 뒤 write_section 이

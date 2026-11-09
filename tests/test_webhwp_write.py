@@ -248,3 +248,25 @@ def _section_doc() -> bytes:
     from zzaimy.app import webhwp_templates as wt
     return wt.build({"id": "t-sec", "title": "시험", "cover": {"title": "시험", "page": False},
                      "blocks": [{"h": 1, "text": "1. 김가람"}, {"p": ""}], "page_number": False})
+
+
+def test_marker_depth_follows_first_appearance():
+    """부호 깊이는 처음 나온 차례로 — 「1)」 아래 「가.」 처럼 편람 차례와 다르게 써도 아래 항목이 더 들여 써진다(11-09 시연 예산 절)."""
+    assert ww.marker_depths(["1) 총사업비", "가. 5억 원", "나. 세부 구성", "2) 편성 기준", "가. 대상 기준"]) == [1, 2, 2, 1, 2]
+    assert ww.marker_depths(["가. 목적", "1) 역량", "가) 세부", "2) 질", "나. 대상", "설명 줄"]) == [1, 2, 3, 2, 1, 1]
+    form = wt.build(wt.GRANT["budget_change"])
+    name = "절:1. 변경 사유"
+    out, _ = ww.write_section(form, name, ww.parse_body("1) 총사업비\n가. 본 사업의 총사업비는 5억 원임\n2) 편성 기준"), {})
+    x = _xml(out)
+    head = zipfile.ZipFile(io.BytesIO(out)).read("Contents/header.xml").decode("utf-8")
+
+    def left(t):
+        pid = re.search(r'paraPrIDRef="(\d+)"', _para_of(x, t)).group(1)
+        blk = re.search(rf'<hh:paraPr\b[^>]*\bid="{pid}"[^>]*>.*?</hh:paraPr>', head, re.S).group(0)
+        return int(re.search(r'<hc:left value="(-?\d+)"', blk).group(1)), blk
+    l_top, _ = left("총사업비")
+    l_sub, _ = left("본 사업의 총사업비는")
+    l_top2, blk2 = left("편성 기준")
+    assert l_sub > l_top == l_top2                                             # 「가.」 가 「1)」 보다 안쪽
+    assert int(re.search(r'<hh:lineSpacing type="PERCENT" value="(\d+)"', blk2).group(1)) >= 160
+    assert int(re.search(r'<hc:prev value="(-?\d+)"', blk2).group(1)) > 0      # 둘째 첫째 단계 항목 위는 문단 간격
