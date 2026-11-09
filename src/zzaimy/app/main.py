@@ -2629,7 +2629,7 @@ def create_app(
                     return (f"「{query}」(criteria) — 찾지 못함. 이 프로젝트의 기준 문서에서 맞는 글이 없다"
                             + ("" if crit_ids else "(이어진 기준 문서가 없다)") + " — 공고·지침이 프로젝트 문서로 올라와 있으면 source=project 로 찾는다.")
                 if src == "project" and project:
-                    note_ = _read_failed_note(db.list_documents(project["sector"], project_id=int(project["id"])))
+                    note_ = _read_failed_note([d_ for d_ in db.list_documents(project["sector"], project_id=int(project["id"])) if _viewer_sees(session_id, d_)])   # 대화 주인이 볼 수 있는 문서만(보안 검토 11-09)
                     if note_:
                         return f"「{query}」(project) — 찾지 못함. " + note_
                 return f"「{query}」({src}) — 찾지 못함"
