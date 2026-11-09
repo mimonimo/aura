@@ -562,6 +562,8 @@
 </style>
 <link rel="stylesheet" href="/static/workspace-shell.css?v={{ asset_v }}">
 <script src="/static/chat-history.js?v={{ asset_v }}" defer></script>
+<script>window.AURA_UPLOAD_MAX_MB = {{ upload_max_mb | default(480) }};</script>
+<script src="/static/upload-batch.js?v={{ asset_v }}" defer></script>
 <link rel="stylesheet" href="/static/project-search.css?v={{ asset_v }}">
 <script src="/static/project-search.js?v={{ asset_v }}" defer></script>
 <script src="/static/workspace-navigation.js?v={{ asset_v }}" defer></script>

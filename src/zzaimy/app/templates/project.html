@@ -58,7 +58,7 @@
         <div class="pw-row">
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
           <span class="pw-main"><span class="pw-name"><a href="/doc/{{ d.id }}" title="{{ doc_title(d) }}">{{ doc_title(d) }}</a></span>
-            <span class="pw-meta">{% set tw = linked_twin(d) %}{% if tw %}<a class="pw-tag linked" href="/doc/{{ tw }}" title="같은 내용의 문서가 이미 있어 그 문서를 씁니다">기존 문서 연결</a> · {% elif d.status == 'failed' %}{% set rf = read_fail(d) %}<span class="pw-tag failed" title="{{ rf.hint }}">읽지 못함 · {{ rf.label }}</span>{% if rf.actions %}<a class="pw-fix" href="/doc/{{ d.id }}#readFix">{{ rf.actions[0].label }}</a> · {% endif %}{% elif show_status %}<span class="pw-tag {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% endif %}{% if show_decision %}<span class="pw-tag {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}{% if key == 'rules' %}{{ kind_labels.get(d.kind or '', '분류 전') }} · {% endif %}{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:10] }}</span></span>
+            <span class="pw-meta">{% set tw = linked_twin(d) %}{% if tw %}<a class="pw-tag linked" href="/doc/{{ tw }}" title="같은 내용의 문서가 이미 있어 그 문서를 씁니다">기존 문서 연결</a> · {% elif d.status == 'failed' %}{% set rf = read_fail(d) %}<span class="pw-tag failed" title="{{ rf.hint }}">읽지 못함 · {{ rf.label }}</span>{% if rf.actions %}<a class="pw-fix" href="/doc/{{ d.id }}#readFix">{{ rf.actions[0].label }}</a> · {% endif %}{% elif show_status %}<span class="pw-tag {{ d.status }}"{% if d.status in ('received', 'processing') %} data-reading-doc="{{ d.id }}" data-since="{{ d.created_at }}"{% endif %}>{{ status_labels.get(d.status, d.status) }}</span>{% endif %}{% if show_decision %}<span class="pw-tag {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}{% if key == 'rules' %}{{ kind_labels.get(d.kind or '', '분류 전') }} · {% endif %}{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:10] }}</span></span>
           {% if can_add and key == 'rules' and d.id in linked_criteria %}
           <form class="pw-act" action="/project/{{ project.id }}/criteria/unlink" method="post" data-confirm="기준에서 뺄까요? 원본 문서는 유지됩니다.">
             <input type="hidden" name="criteria_doc_id" value="{{ d.id }}"><button type="submit" class="pw-btn" aria-label="{{ doc_title(d) }} 기준에서 빼기">기준에서 빼기</button></form>
@@ -471,6 +471,34 @@
       if (!up.length || xhr) return;
       pending.filter(function (p) { return !p.ok; }).forEach(function (p) { p.r.li.remove(); });
       pending = up;
+      var U = window.AuraUpload, files = up.map(function (p) { return p.file; });
+      if (U && U.total(files) > U.maxBytes()) {
+        // 합계가 한 요청 한도를 넘으면 묶음으로 나눠 차례로(웹 서버가 통째로 막고 아무 말이 없던 것, 11-09)
+        var plan = U.batches(files);
+        if (plan.tooBig.length) {
+          plan.tooBig.forEach(function (f) { var p = up.find(function (x) { return x.file === f; }); if (p) { p.r.state.textContent = "너무 큼"; p.r.li.classList.add("is-bad"); } });
+          say("한 번에 올릴 수 있는 크기(" + U.mb(plan.cap) + ")보다 큰 파일이 있습니다. 쪽을 나눈 파일로 올리거나 그 파일을 빼 주세요."); return;
+        }
+        up.forEach(function (p) { var x = p.r.li.querySelector(".pd-up-x"); if (x) x.hidden = true; p.r.li.classList.add("is-up"); p.r.state.textContent = "기다림"; });
+        submitBtn.disabled = true; xhr = {abort: function () {}};
+        var sum = {c: 0, i: 0, skipped: []}, k = 0;
+        var step = function () {
+          if (k >= plan.batches.length) { say("문서를 등록했습니다. 본문을 읽는 중입니다…"); done(sum.c, sum.i, sum.skipped); return; }
+          var b = plan.batches[k], rows = b.map(function (f) { return up.find(function (x) { return x.file === f; }); });
+          say("자료를 나눠 올리는 중 " + (k + 1) + "/" + plan.batches.length + "…");
+          U.sendBatch(intakeForm.action, b, function (loaded, tot) {
+            var pct = Math.round(loaded / tot * 100);
+            rows.forEach(function (p) { p.r.fill.style.width = pct + "%"; p.r.state.textContent = pct >= 100 ? "받는 중" : pct + "%"; });
+          }).then(function (d) {
+            rows.forEach(function (p) { p.r.fill.style.width = "100%"; p.r.state.textContent = "등록함"; p.r.li.classList.add("is-done"); });
+            sum.c += d.criteria || 0; sum.i += d.intake || 0; sum.skipped = sum.skipped.concat(d.skipped || []); k += 1; step();
+          }).catch(function (err) {
+            xhr = null; rows.forEach(function (p) { p.r.state.textContent = "실패"; p.r.li.classList.add("is-bad"); });
+            say(err.message + (k ? " (앞 묶음 " + k + "개는 등록했습니다)" : "") + ". 실패한 파일만 다시 올려 주세요."); render();
+          });
+        };
+        step(); return;
+      }
       var fd = new FormData(), total = 0, starts = [];
       up.forEach(function (p) { fd.append("file", p.file); starts.push(total); total += p.file.size || 1; });
       up.forEach(function (p) { var x = p.r.li.querySelector(".pd-up-x"); if (x) x.hidden = true; p.r.li.classList.add("is-up"); p.r.state.textContent = "0%"; });
@@ -496,7 +524,8 @@
         }
         xhr = null; cancelBtn.textContent = "취소";
         up.forEach(function (p) { p.r.state.textContent = "실패"; p.r.li.classList.add("is-bad"); });
-        say("올리지 못했습니다" + (d && d.detail ? ": " + d.detail : "") + ". 다시 올려 주세요."); render();
+        say(xhr.status === 413 ? "한 번에 올릴 수 있는 크기를 넘었습니다. 파일을 나눠 올려 주세요." :
+            "올리지 못했습니다" + (d && d.detail ? ": " + d.detail : "") + ". 다시 올려 주세요."); render();
       });
       xhr.addEventListener("error", function () { xhr = null; cancelBtn.textContent = "취소"; say("연결이 끊겨 올리지 못했습니다. 다시 올려 주세요."); render(); });
       xhr.addEventListener("abort", function () { reset(); cancelBtn.textContent = "취소"; say("올리기를 멈췄습니다."); });
@@ -655,5 +684,32 @@
     });
   }
 })();
+
+  // 읽는 중인 문서 — 올린 지 몇 분째인지 보이고, 다 읽으면 화면을 한 번 새로 그린다. 큰 스캔 PDF(170MB)는 25분 안팎 걸린다(11-09)
+  (function () {
+    var tags = Array.from(document.querySelectorAll("[data-reading-doc]"));
+    if (!tags.length) return;
+    var base = {};
+    tags.forEach(function (t) { base[t.dataset.readingDoc] = t.textContent; });
+    function mins(since) { var t = Date.parse(String(since || "").replace(" ", "T")); return isNaN(t) ? null : Math.max(0, Math.round((Date.now() - t) / 60000)); }
+    function tick() {
+      var left = tags.filter(function (t) { return !t.dataset.done; });
+      if (!left.length) return;
+      Promise.all(left.map(function (t) {
+        return fetch("/doc/" + t.dataset.readingDoc + "/status", {credentials: "same-origin"}).then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (d && !d.processing) { t.dataset.done = "1"; return true; }
+            var m = mins(t.dataset.since);
+            t.textContent = base[t.dataset.readingDoc] + (m != null ? " · " + m + "분째" : "");
+            t.title = "큰 스캔 문서는 글자 판독에 시간이 걸립니다(100MB 안팎 15분 정도). 이 화면은 다 읽으면 저절로 새로 그립니다.";
+            return false;
+          }).catch(function () { return false; });
+      })).then(function (fin) {
+        if (fin.some(Boolean) && tags.every(function (t) { return t.dataset.done; })) { location.reload(); return; }
+        setTimeout(tick, 15000);
+      });
+    }
+    tick();
+  })();
 </script>
 {% endblock %}
