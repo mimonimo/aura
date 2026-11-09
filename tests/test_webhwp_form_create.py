@@ -93,8 +93,11 @@ def test_build_makes_fields_guides_tables_and_cover_break():
     head = [c for c in ws._cells(tbl) if ws.roles(tbl).get((c["r"], c["c"])) == "head"]
     ref = re.search(r'borderFillIDRef="(\d+)"', head[0]["xml"]).group(1)
     assert re.search(rf'<hh:borderFill\b[^>]*\bid="{ref}".*?faceColor="{ws.HOUSE["head_fill"]}"', hdr, re.S)
-    first = re.search(r'<hp:p\b[^>]*pageBreak="1"[^>]*>(?:(?!<hp:p\b).)*?1\. 사업 개요', xml, re.S)
-    assert first, "표지면 첫 절 앞에서 쪽을 나눈다"
+    # 표지는 한 쪽 — 제목·작성 연월·기관명 뒤에서 쪽을 나누고, 요약 표와 첫 절은 다음 쪽부터(11-09 표지 꼴)
+    brk = re.search(r'<hp:p\b[^>]*pageBreak="1"', xml)
+    assert brk, "표지 뒤에서 쪽을 나눈다"
+    assert xml.index(clean["title"]) < brk.start() < xml.index("1. 사업 개요")
+    assert "(행정기관명)" in xml[:brk.start()]                    # 기관 정보 없이 만들면 기관명 자리는 안내 글
 
 
 def fc_xml(data: bytes, pat: str = r"Contents/section\d+\.xml$") -> str:
