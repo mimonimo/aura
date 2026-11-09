@@ -643,3 +643,29 @@ def test_failed_project_documents_are_reported_not_misread(agent_app, tmp_path, 
     obs = [s_["observation"] for s_ in _episodes(tmp_path)[-1]["steps"][:2]]
     assert "읽지 못한" in obs[0] and "두드림 캠프 결과" in obs[0] and "다시 올" in obs[0]
     assert "판독할 그림 쪽" not in obs[1] and "읽지 못한" in obs[1]
+
+
+def test_read_document_without_image_pages_continues_not_final(agent_app, tmp_path, monkeypatch):
+    """글이 이미 읽힌 문서에 판독(read_document)을 쓰면 「판독할 그림 쪽이 없습니다」가 최종 답이 되어 요청이 끝나지 않는다 —
+    그 문서 앞부분을 건네고 다음 걸음으로 이어진다(11-10 대화 172: 작년 결과보고서를 양식으로 쓰라는 요청이 4초 만에 끝남)."""
+    app, client = agent_app
+    db = app.state.db
+    pid = db.create_project("grant", "페스티벌 결과보고", owner="zzaimy")
+    did = db.add_document(filename="2017 LINC+ 페스티벌 결과보고서.hwp", stored_path=str(tmp_path / "x.hwp"), doc_type="grant",
+                          sector="grant", project_id=pid)
+    db.update_document(did, status="reviewed")
+    db.append_doc_chunks(did, [{"content": "1 | 행사개요 □ 행사개요 ◦ (행사명) 2017 산학협력 EXPO", "bbox": "text"},
+                               {"content": "2 | 프로그램 및 이벤트", "bbox": "text"}])
+    monkeypatch.setattr(FakeProcessor, "read_image_pages",
+                        lambda self, db_, doc_id, **k: {"read": 0, "pages": [], "reason": "판독할 그림 쪽이 없습니다"}, raising=False)
+    sid = db.create_chat_session("문서 대화", project_id=pid, owner="zzaimy")
+    _use_agent(monkeypatch, [_step("read_document", document="2017 LINC+ 페스티벌 결과보고서"),
+                             _step("finish", message="작년 보고서 차례를 확인했습니다. 이 양식으로 새 작업본을 만들까요?")])
+    client.post("/chat/send", data={"question": "작년 결과보고서 파일을 양식으로 새 보고서를 써 줘", "session_id": str(sid)},
+                follow_redirects=False)
+    ep = _episodes(tmp_path)[-1]
+    assert len(ep["steps"]) >= 2 and ep["steps"][1]["action"] == "finish"          # 판독 걸음에서 끝나지 않았다
+    obs0 = ep["steps"][0]["observation"]
+    assert "글이 이미 읽혀" in obs0 and "행사개요" in obs0 and f"doc:{did}" in obs0
+    msgs = [m["content"] for m in db.list_chats(sid) if m["role"] == "assistant"]
+    assert not any("판독 모델이 꺼져" in m or "판독할 그림 쪽이 없" in m for m in msgs)

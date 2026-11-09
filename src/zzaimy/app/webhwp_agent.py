@@ -49,6 +49,10 @@ def files_of(db, session_id: int) -> list[int]:
     return [i for i in ids if webhwp.get(db, i)]
 
 
+# 새 문서를 분명히 청하는 말 — 「기존(작업본|문서|것) 말고」「새로 만들어」「새 작업본」
+_NEW_DOC_ASK = re.compile(r"(기존|이전|지금|원래)\s*(작업본|문서|것|파일)?\s*(말고|대신|아니라)|새\s*(작업본|문서|파일)\s*(을|를|으로|로)?\s*(만들|작성|열)|새로\s*(만들|작성|열)")
+
+
 def _title_key(name: str) -> str:
     """작업본 이름 견주기 — 확장자·「 (2)」 같은 같은 이름 꼬리·띄어쓰기를 뺀다."""
     t = re.sub(r"\.(hwpx?|docx?)$", "", str(name or "").strip(), flags=re.I)
@@ -642,7 +646,9 @@ class HwpTools:
                       "필요하면 search 로 그 문서를 근거로 찾아 출처와 함께 쓰고, 연도·차년도 글자를 바꾸기로 옛 값을 새 해 값처럼 만들지 않는다."
                       if rep.get("blanked") else "")
         cur = self.fid()
-        if not a.get("new"):
+        # 담당자가 「기존 작업본 말고」「새로 만들어」처럼 새 문서를 분명히 청했으면 같은 이름이 있어도 새로 만든다(11-10 대화 172)
+        wants_new = bool(a.get("new")) or bool(_NEW_DOC_ASK.search(re.sub(r"\s+", " ", self.request or "")))
+        if not wants_new:
             # 같은 이름의 작업본이 이미 있으면 새로 만들지 않는다 — 그 문서를 고치는 요청이 「(2)」 사본으로 새던 것(11-09)
             dup = next((d for d in self.work_docs() if _title_key(d["name"]) == _title_key(name)
                         and not (d["id"] == cur and self._empty_doc(cur))), None)

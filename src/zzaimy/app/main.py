@@ -2415,22 +2415,51 @@ def create_app(
         return ("올린 문서 가운데 읽지 못한 것이 있다 — 본문이 없어 근거로 쓸 수 없다. 담당자에게 사유를 알리고 다시 올려 달라고 한다(지어내지 않는다):\n"
                 + "\n".join(lines[:6]))
 
-    def _read_named_document(session_id: int, doc: dict) -> str:
-        """지목한 문서의 그림 쪽을 지금 판독한다(대화의 배경 작업 안에서 돈다). 결과 문장을 돌려준다."""
+    def _doc_outline(doc: dict, limit: int = 1800) -> str:
+        """이미 글이 읽힌 문서의 앞부분(차례·첫 조각들) — 판독할 그림 쪽이 없을 때 다음 걸음 재료로 건넨다."""
+        try:
+            rows = db.list_doc_chunks(int(doc["id"]))
+        except Exception:
+            rows = []
+        out, n = [], 0
+        for r in rows:
+            t = re.sub(r"\s+", " ", str(r.get("content") or "")).strip()
+            if not t:
+                continue
+            out.append(t[:300])
+            n += len(out[-1])
+            if n >= limit:
+                break
+        return "\n".join(out)
+
+    def _read_named_document_result(session_id: int, doc: dict) -> tuple[bool, str, str]:
+        """지목한 문서의 그림 쪽 판독 — (판독했나, 담당자·모델에게 줄 문장, 함께 보일 자료).
+        판독하지 못한 경우(읽기 실패 문서·그림 쪽 없음·판독 꺼짐·오류)는 False — 이 문장은 요청을 끝내는 답이 아니라 다음 걸음 안내다(11-10 대화 172)."""
         title = storage.title_of(doc.get("filename") or "")
         failed = _read_failed_note([doc])
         if failed:                                          # 올릴 때 읽지 못한 문서 — 그림 쪽 판독 문제가 아니다(11-09 대화 166)
-            return failed
+            return False, failed, ""
         fn = getattr(processor, "read_image_pages", None)
         if not fn:
-            return f"「{title}」 판독 기능이 없습니다."
+            return False, f"「{title}」 판독 기능이 없습니다.", ""
         try:
             res = fn(db, int(doc["id"]))
         except Exception as e:
-            return f"「{title}」 판독에 실패했습니다({_ko.reason(e)})."
+            return False, f"「{title}」 판독에 실패했습니다({_ko.reason(e)}).", ""
         if not res.get("read"):
-            return f"「{title}」 에 판독할 그림 쪽이 없거나 판독 모델이 꺼져 있습니다. {res.get('reason') or ''}".strip()
-        return f"{_ko.quote(title, '의')} 그림 쪽 {res['read']}쪽(쪽 {', '.join(map(str, res['pages']))})을 판독해 조각 {res.get('chunks', 0)}개를 더했습니다. 이제 그 내용으로 작성을 요청할 수 있습니다."
+            outline = _doc_outline(doc) if doc.get("status") == "reviewed" else ""
+            if outline:                                     # 글이 이미 읽힌 문서 — 판독할 것이 없을 뿐, 내용은 쓸 수 있다
+                return False, (f"「{title}」 은(는) 글이 이미 읽혀 있어 따로 판독할 그림 쪽이 없다 — 아래가 그 문서 앞부분이다. "
+                               f"내용은 read_found·search 로 읽고, 양식으로 쓰려면 hwp_start {{form: \"doc:{int(doc['id'])}\"}} 로 연다."), outline
+            return False, (f"「{title}」 에 판독할 그림 쪽이 없거나 판독 모델이 꺼져 있습니다. {res.get('reason') or ''}").strip(), ""
+        return True, f"{_ko.quote(title, '의')} 그림 쪽 {res['read']}쪽(쪽 {', '.join(map(str, res['pages']))})을 판독해 조각 {res.get('chunks', 0)}개를 더했습니다. 이제 그 내용으로 작성을 요청할 수 있습니다.", ""
+
+    def _read_named_document(session_id: int, doc: dict) -> str:
+        """지목한 문서의 그림 쪽을 지금 판독한다(대화의 배경 작업 안에서 돈다 — 모델이 돌지 못한 대비 경로). 결과 문장을 돌려준다."""
+        ok, text, outline = _read_named_document_result(session_id, doc)
+        if not ok and outline:
+            return text.split(" — 아래가")[0] + ". 이 문서의 내용으로 무엇을 할지 다시 말씀해 주세요(예: 「이 문서를 양식으로 새 보고서를 써 줘」)."
+        return text
 
     def _project_evidence(session_id: int, q: str, limit: int = 6) -> list[dict]:
         """대화가 속한 프로젝트의 접수 문서·첨부에서 명령과 낱말이 겹치는 조각 — 명사 겹침으로 고른다(어휘 검색과 같은 키).
@@ -3038,7 +3067,10 @@ def create_app(
             # 판독은 읽기만 한다 — 고르는 후보가 담당자가 이 프로젝트에 올린 문서뿐이라 요청 글이 제목을 짚지 않아도 읽는다.
             # 「올린 공고와 기본계획을 근거로」 같은 요청에서 제목을 그대로 적지 않았다고 막으면 근거를 못 읽고 찾기만 되풀이했다(11-09).
             # 작업본을 여는 t_open 은 쓰기로 이어져 그대로 짚은 문서만
-            text = _read_named_document(session_id, doc)
+            ok, text, outline = _read_named_document_result(session_id, doc)
+            if not ok:
+                # 판독하지 못했다는 안내는 요청을 끝내는 답이 아니다 — 관찰로 돌려주고 다음 걸음(읽기·양식 열기·알리기)을 고르게 한다(11-10 대화 172)
+                raise doc_agent.Retry(text, outline)
             db.add_chat(session_id, "assistant", text)
             return text
 
@@ -3179,7 +3211,7 @@ def create_app(
                            t_write, writes=True),
             doc_agent.Tool("open_project_document", "프로젝트 문서(작성 서식 등)의 작업본을 만들어 이 대화의 작업 문서로 잇기(담당자가 그 문서로 작업하자고 할 때). "
                            "args {document: 상태의 프로젝트 문서 제목}", t_open, writes=True),
-            doc_agent.Tool("read_document", "프로젝트 문서의 글자 없는 그림 쪽을 판독해 검색 재료로 더하기(담당자가 판독을 청할 때). "
+            doc_agent.Tool("read_document", "프로젝트 문서의 글자 없는 그림 쪽을 판독해 검색 재료로 더하기(담당자가 판독을 청할 때만 — 글이 읽힌 문서의 내용은 read_found·search 로, 양식으로 쓸 문서는 hwp_start 로). "
                            "args {document: 상태의 프로젝트 문서 제목}", t_read_doc, final=True),
             doc_agent.Tool("remember_values", "담당자가 이번 요청에서 알려 준 값(받지 못한 값 등)을 기억해 이후 절·기입란에 쓰기. "
                            "args {values: {이름: 담당자가 적은 값 그대로}}", t_remember),
