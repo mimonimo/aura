@@ -117,7 +117,9 @@ def scrub(text: str) -> ScrubResult:
             removed.append("PERSON")
 
     # 2) 기관 식별자 데니리스트 (대소문자 구분 — 약어 오탐 방지)
-    for term, repl in _INSTITUTION_TERMS:
+    from zzaimy.app import institution as _inst
+    terms = [(a, "한 대학") for a in _inst.aliases() if a not in dict(_INSTITUTION_TERMS)] + list(_INSTITUTION_TERMS)
+    for term, repl in sorted(terms, key=lambda t: len(t[0]), reverse=True):   # 이 설치의 기관 이름도 밖으로 내보내지 않는다(긴 이름 먼저)
         if term in working:
             working = working.replace(term, repl)
             removed.append(f"ORG:{term}")

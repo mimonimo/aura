@@ -13,7 +13,7 @@ from zzaimy.app import llm_budget
 from zzaimy.app.db import Database
 from zzaimy.app.regulations import compose_review_context
 
-_SYSTEM = """당신은 영남이공대학교 행정 담당자(교직원)를 돕는 AI 에이전트입니다.
+_SYSTEM = """당신은 〔기관〕 행정 담당자(교직원)를 돕는 AI 에이전트입니다.
 사용자는 학생이 아니라 업무를 처리하는 교직원입니다. 학생 관련 규정을 물어도
 그것은 담당자가 민원·서류를 처리하기 위한 것이므로, 처리 절차·확인 사항·근거 조항
 중심의 업무 관점으로 답합니다.
@@ -297,7 +297,7 @@ def pack_criteria_context(ordered: list[dict], budget: int = 6000) -> tuple[str,
     return header + "\n\n".join(parts), included
 
 
-_SYSTEM_STUDENT = """당신은 영남이공대학교 학생의 학사 질문에 답하는 AI 안내 도우미입니다.
+_SYSTEM_STUDENT = """당신은 〔기관〕 학생의 학사 질문에 답하는 AI 안내 도우미입니다.
 학생은 수강·휴학·복학·졸업·학적·계절학기·편입·학사경고처럼 자기 학교생활에 관한 것을 묻습니다. 사업 문서 작성이나 교직원 업무는 다루지 않습니다.
 
 답변 원칙:
@@ -398,9 +398,11 @@ def merge_rule_hits(first: list[dict], more: list[list[dict]], cap: int = 8) -> 
 
 def compose_system(profile: dict, audience: str = "staff") -> str:
     """기본 시스템 프롬프트에 담당자 프로필·지침을 얹는다 (설정 화면에서 저장). 학생 계정은 학사 질문 안내 지시(audience="student")."""
+    from zzaimy.app import institution as _inst
+    org = _inst.name()                                      # 이 설치의 기관 이름 — 코드에 학교 이름을 박지 않는다
     if audience == "student":
-        return _SYSTEM_STUDENT
-    parts = [_SYSTEM]
+        return _SYSTEM_STUDENT.replace("〔기관〕", org)
+    parts = [_SYSTEM.replace("〔기관〕", org)]
     # 호칭·개인 응답 지침은 설정 화면에서 뺐다(10-17) — 화면에 없는 옛 값이 답을 바꾸지 않게 쓰지 않는다. 지침은 프로젝트 「작성 원칙」
     dept = (profile.get("dept") or "").strip()
     if dept:
