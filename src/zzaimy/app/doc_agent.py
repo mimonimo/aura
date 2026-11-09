@@ -282,6 +282,7 @@ def step_info() -> tuple[int, int] | None:
 
 KEEP_STEPS = 3                     # 문맥을 줄여도 빼지 않는 최근 걸음 수
 REPEAT_LIMIT = 3                   # 같은 걸음을 잇달아 이만큼 거절하면 멈춘다
+NOOP_LIMIT = 3                     # 같은 쓰기 도구가 잇달아 이만큼 아무것도 바꾸지 못하면(찾기 0곳 등) 이번 요청에서는 더 하지 않는다
 
 
 def _summary(data: str) -> str:
@@ -336,6 +337,9 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     changed: list[str] = []                                 # 이번 요청에서 실제로 바뀐 것(쓰기 도구가 거절 글이 아닌 결과를 낸 걸음) — 끝맺음 대조용
     claim_checked = False
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
+    final_retried: set[str] = set()                    # 관문에 한 번 되돌려진 끝내기 걸음 — 같은 인자로 다시 오면 받는다(관문은 한 번만, 끝낼 수 없는 상태가 없게)
+    noop_run: dict[str, int] = {}                      # 쓰기 도구마다 잇달아 아무것도 바꾸지 못한 수(찾기 0곳 등)
+    noop_args: dict[str, list[str]] = {}               # 그때 찾던 글 — 끝맺음 안내에 쓴다
     grace = last_step_tools(tools)
     for _i in range(max_steps + 1):
         last = _i == max_steps                         # 한도 뒤 마지막 걸음 — 이번에 근거를 찾았고 답하기 도구가 있을 때만
@@ -409,7 +413,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         key = name + json.dumps(args, ensure_ascii=False, sort_keys=True)
         done = False                                                   # 최종 도구가 실제로 일을 마쳤는가
         data, note = "", ""                                            # data: 도구·문서에서 온 글(울타리 안), note: 코드가 쓴 안내
+        if tool.final and key in rejected and key not in final_retried:
+            final_retried.add(key)                                     # 끝내기 관문(자리표시 되짚기·끝맺음 점검)은 한 번만 — 다시 내면 받는다(11-09 대화 165)
+            rejected.pop(key, None)
         duplicate = (key in first_obs and not tool.final) or key in rejected
+        blocked = (not duplicate and tool.writes and noop_run.get(name, 0) >= NOOP_LIMIT)
         if duplicate:
             repeats += 1
             if key in rejected:
@@ -425,6 +433,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 others = [t.name for t in tools if t.name != name]
                 note += ("\n같은 걸음을 잇달아 되풀이했다. 다음은 이 가운데 하나만: 찾은 근거로 쓰기·답하기("
                         + ", ".join(others) + f"), 다른 인자의 {name}, 또는 finish.")
+        elif blocked:
+            repeats += 1                                               # 막힌 걸음도 되풀이로 센다 — 계속 고집하면 걸음 한도 전에 멈춘다
+            tried = ", ".join(f"「{x}」" for x in dict.fromkeys(noop_args.get(name, [])) if x)[:200]
+            note = (f"{name} 가 잇달아 {noop_run[name]}번 아무것도 바꾸지 못했다{(' (' + tried + ')') if tried else ''} — 이번 요청에서는 더 하지 않는다. "
+                    "찾던 글이 이 작업본에 없으면 다른 작업본에 있는지 결과 안내를 보고 hwp_switch 하거나, finish 로 무엇을 찾지 못했는지 담당자에게 알린다.")
         elif tool.needs_evidence and not searched and not nudged:     # 관문은 모델 인자(facts 등)로 건너뛸 수 없다
             nudged = True                                              # 한 번만 — 같은 자리를 맴돌지 않게
             note = SEARCH_FIRST
@@ -456,6 +469,10 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     ep.writes += 1
                     if not data.lstrip().startswith(_REFUSED):
                         changed.append(name)
+                        noop_run.clear()                               # 무엇이든 바뀌면 처음부터 센다
+                    else:
+                        noop_run[name] = noop_run.get(name, 0) + 1
+                        noop_args.setdefault(name, []).append(str(args.get("find") or args.get("field") or args.get("section") or "")[:30])
                 if tool.gathers:
                     searched = True
             except Retry as e:                                         # 코드가 쓴 안내(+ 함께 보일 자료)
@@ -477,12 +494,12 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 note = (f"도구 실패({type(e).__name__}) — 오류 글은 위 자료. 이 걸음으로는 아무것도 바꾸지 않았다. "
                        + ("인자를 바꿔 다시 하거나 다른 걸음을 고른다." if again < 2
                           else "같은 도구가 두 번 실패했다 — 다른 걸음을 고르거나 finish 로 무엇이 안 됐는지 담당자에게 알린다."))
-        if not duplicate:
+        if not duplicate and not blocked:
             repeats = 0
         obs = "\n".join(x for x in (note, data) if x)                # 기록용(episodes) — 모델에는 아래처럼 나눠 건넨다
         ep.steps.append({"thought": str(step.get("thought") or "")[:500], "action": name, "args": args, "observation": obs[:OBS_CHARS],
                          "decide_s": decide_s, "run_s": run_s})
-        outcome = ("같은 걸음 — 거절" if duplicate else _summary(data) if done
+        outcome = ("같은 걸음 — 거절" if duplicate else "막음 — 잇달아 바꾼 것 없음" if blocked else _summary(data) if done
                    else "실패" if name in [f_["action"] for f_ in ep.failures[-1:]] and data else "하지 않음")
         log.append(_log_line(len(log) + 1, name, args, outcome))
         turns.append((json.dumps({"thought": step.get("thought"), "action": name, "args": args}, ensure_ascii=False),

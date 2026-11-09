@@ -2509,6 +2509,10 @@ def create_app(
         search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         lead_checked = {"done": False}                         # 끝내기 전 앞부분 자리표시 되짚기 — 요청마다 한 번
+        try:                                                     # 이번 요청에서 문서를 새로 열었거나 고쳤을 때만 되짚는다(지우기만 하다 0곳인 요청까지 막지 않게 — 11-09 대화 165)
+            lead_start = {"fid": hw.fid() if hw is not None else None, "writes": int(getattr(hw, "writes", 0) or 0)}
+        except Exception:
+            lead_start = {"fid": None, "writes": 0}
 
         def _lead_placeholders() -> list[str]:
             """연결된 한글 작업본 앞부분 줄 가운데 자리표시(○○·000·20○○ 꼴)가 남은 줄."""
@@ -2936,7 +2940,8 @@ def create_app(
             return "물었다."
 
         def t_finish(a: dict) -> str:
-            left_ = _lead_placeholders()
+            touched_ = hw is not None and (hw.fid() != lead_start["fid"] or int(getattr(hw, "writes", 0) or 0) > lead_start["writes"])
+            left_ = _lead_placeholders() if touched_ else []
             if left_ and not lead_checked["done"]:
                 # 작업본을 열 때 「앞부분 자리표시는 아는 값으로 바꾼다」 고 알렸는데 그대로 끝내려 한다 — 한 번만 되짚는다(11-09 회의록 표지 ○○ 그대로).
                 # 바꿀지·무엇으로 바꿀지는 에이전트가 정한다 — 모르는 값(제○차 등)은 남겨도 된다

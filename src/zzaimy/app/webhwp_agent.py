@@ -322,6 +322,41 @@ class HwpTools:
         self._wd_cache = out[:20]
         return self._wd_cache
 
+    def _filled(self, fid: int) -> int:
+        """작업본에 글이 든 필드 수 — 같은 이름 작업본 가운데 원본(더 채운 쪽)을 고르는 데 쓴다."""
+        from zzaimy.app import webhwp_write as ww
+        try:
+            f = webhwp.get(self.db, fid)
+            return sum(1 for x in ww.fields(Path(f["path"]).read_bytes()) if x["text"]) if f else 0
+        except Exception:
+            return 0
+
+    def _best_of(self, same: list[dict], want: str = "") -> dict:
+        """같은·비슷한 이름 작업본이 여럿이면 — 이름을 그대로 짚었으면 그것, 아니면 「 (2)」 같은 사본 꼬리가 없는 원본, 더 채운 쪽.
+        11-09 대화 165: 잘못 생긴 「(2)」 사본(빈 공통 양식)에 이어진 채 원본의 표지 글을 지우려다 0곳만 되풀이했다."""
+        exact = [d for d in same if d["name"].strip() == want.strip()]
+        if len(exact) == 1:
+            return exact[0]
+        return max(same, key=lambda d: (not re.search(r"\s*\(\d+\)$", d["name"]), self._filled(d["id"])))
+
+    def docs_with_text(self, text: str) -> list[dict]:
+        """이 글이 든 다른 작업본(허용 목록 work_docs 안에서만) — 찾기 0곳일 때 어디 있는지 알린다."""
+        from zzaimy.app.webhwp_edit_ops import count_text
+        text = str(text or "").strip()
+        if not text:
+            return []
+        out = []
+        for d in self.work_docs():
+            if d["id"] == self.fid():
+                continue
+            try:
+                f = webhwp.get(self.db, d["id"])
+                if f and count_text(Path(f["path"]).read_bytes(), text) > 0:
+                    out.append(d)
+            except Exception:
+                continue
+        return out[:3]
+
     def switch(self, a: dict) -> str:
         """이미 있는 작업본으로 바꿔 잇기 — args {doc: 작업본 이름(일부여도 됨) 또는 번호}."""
         want = str(a.get("doc") or a.get("name") or "").strip()
@@ -333,8 +368,9 @@ class HwpTools:
             pick = next((d for d in docs if d["id"] == int(want.lstrip("#"))), None)
         if pick is None and want:
             k = _title_key(want)
-            pick = (next((d for d in docs if _title_key(d["name"]) == k), None)
-                    or next((d for d in docs if k and (k in _title_key(d["name"]) or _title_key(d["name"]) in k)), None))
+            same = [d for d in docs if _title_key(d["name"]) == k] or [
+                d for d in docs if k and (k in _title_key(d["name"]) or _title_key(d["name"]) in k)]
+            pick = self._best_of(same, want) if same else None
         if pick is None:
             return "그런 작업본이 없다 — 고를 수 있는 것: " + ", ".join(f"「{d['name']}」(#{d['id']})" for d in docs)
         if pick["id"] == self.fid():
@@ -384,6 +420,11 @@ class HwpTools:
         empty = [x["name"] for x in fl if not x["text"]]
         lines = [f"편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 「{Path(f['name']).stem}」(필드 {len(fl)}개, 빈 필드 {len(empty)}개)"]
         others = [d for d in self.work_docs() if d["id"] != fid]
+        cur_ = Path(f["name"]).stem
+        orig_ = [d for d in others if _title_key(d["name"]) == _title_key(cur_)]
+        if orig_ and re.search(r"\s*\(\d+\)$", cur_):
+            lines.append(f"주의: 지금 작업본 「{cur_}」 은(는) 같은 이름 문서의 사본이다 — 원본 「{orig_[0]['name']}」 이(가) 있다. "
+                         "요청이 앞서 쓴 그 문서(내용·표지 글)를 짚으면 hwp_switch 로 원본으로 바꾼 뒤 한다.")
         if others:
             lines.append("이 대화·프로젝트의 다른 작업본: " + ", ".join(f"「{d['name']}」" for d in others[:8])
                          + " — 요청이 그 문서(이름이나 계획서·기안문·보고서 같은 갈래)를 짚으면 hwp_switch {doc} 로 바꾼 뒤 고친다. 같은 문서를 hwp_start 로 새로 만들지 않는다.")

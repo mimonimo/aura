@@ -2391,6 +2391,16 @@ class EditTools:
             return "모르는 도구."
         self.hw._mark(fid, LABELS.get(name, name))
         out = apply(db, base, fid, fn)
+        if name == "hwp_replace" and out.startswith("바꾸지 않았다") and "찾지 못했다" in out:
+            try:                                                    # 이 글이 든 다른 작업본(허용 목록 안)을 알린다 — 없는 글로 되풀이하지 않게(11-09 대화 165)
+                elsewhere = self.hw.docs_with_text(str(a.get("find") or ""))
+            except Exception:
+                elsewhere = []
+            if elsewhere:
+                out += (" 이 글은 다른 작업본 " + ", ".join(f"「{d['name']}」(#{d['id']})" for d in elsewhere)
+                        + " 에 있다 — 요청이 그 문서를 짚은 것이면 hwp_switch {doc} 로 바꾼 뒤 다시 한다.")
+            else:
+                out += " 이 대화·프로젝트의 다른 작업본에도 없다 — 다른 낱말로 되풀이하지 말고 finish 로 찾지 못했다고 알린다."
         if not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "작업본 파일", "공통 양식")):
             self.hw.writes += 1
             if name == "hwp_replace":
