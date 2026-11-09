@@ -265,7 +265,15 @@ def create_app(
                 out[k] = dict(mem[k]); continue            # 앱이 새로 더함(아직 파일에 없음)
             b, m, d = base.get(k) or {}, mem[k], disk[k]
             row: dict = {}
-            for f in set(b) | set(m) | set(d):
+            # 비밀번호(해시·솔트·옛 평문)는 한 덩어리로만 고른다 — 칸마다 따로 합치면 남의 솔트와 내 해시가 섞여 엉뚱한 자격이 된다(11-10 보안 검토).
+            # 한쪽만 바꿨으면 그쪽 덩어리, 둘 다 바꿨으면 파일(밖의 관리 조치 — 초기화 등) 덩어리
+            _cred = ("pw_hash", "salt", "pw")
+            cb, cm, cd = ({f: x.get(f) for f in _cred} for x in (b, m, d))
+            src_c = m if (cm != cb and cd == cb) else d if cd != cb else (m if not b else b)
+            for f in _cred:
+                if src_c.get(f) is not None:
+                    row[f] = src_c.get(f)
+            for f in (set(b) | set(m) | set(d)) - set(_cred):
                 mv, dv, bv = m.get(f), d.get(f), b.get(f)
                 m_ch, d_ch = mv != bv, dv != bv
                 if m_ch and not d_ch:

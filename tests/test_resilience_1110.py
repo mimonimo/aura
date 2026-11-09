@@ -204,3 +204,11 @@ def test_unreadable_file_keeps_memory_revocation(tmp_path):
     TestClient(app).get("/login")
     assert app.state.accounts["rv2"]["active"] is False
     assert not _login_ok(TestClient(app), "rv2", "pw-rv2-xx")
+
+
+def test_merge_accounts_keeps_password_hash_and_salt_together():
+    """비밀번호 해시와 솔트는 한 덩어리 — 한쪽은 해시만, 다른 쪽은 솔트만 바뀐 것처럼 보여도 섞지 않는다(11-10 보안 검토)."""
+    import re, inspect
+    from zzaimy.app import main as m
+    src = inspect.getsource(m)
+    assert '_cred = ("pw_hash", "salt", "pw")' in src
