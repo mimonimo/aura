@@ -1040,3 +1040,21 @@ def test_reload_keeps_previous_view_instead_of_blank():
     body = h[h.index("function reloadWhenSafe"):h.index("function thawNow")]
     assert "hwp.freeze" in body and body.index("hwp.freeze") < body.index("loadFile()")
     assert "thawNow()" in body                                 # 실패해도 덮개를 걷는다
+
+
+def test_reload_by_aura_scrolls_to_changed_field_and_ignores_synthetic_input():
+    """AURA 가 고친 새 판을 다시 열면 화면은 바뀐 칸(AURA 칸, 없으면 글이 바뀐 첫 칸)으로 — 1쪽으로 튀지 않게.
+    명령 실행기가 꾸며 보내는 input 사건은 사람 입력이 아니다 — 입력 시각을 올리지 않고, 공동 편집은 보내지 않는다(11-09)."""
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app"
+    w = (root / "static/webhwp-wrapper.js").read_text()
+    h = (root / "templates/hwp_edit.html").read_text()
+    c = (root / "static/webhwp-collab.js").read_text()
+    body = h[h.index("function reloadWhenSafe"):h.index("function thawNow")]
+    assert "snapFields()" in body and body.index("snapFields()") < body.index("loadFile()")
+    assert "changedField(before)" in body and "keepCursor(cur, " in body
+    keep = h[h.index("function keepCursor"):h.index("function reloadWhenSafe")]
+    assert "showField(target)" in keep and "function showField" in keep and "hwp.scrollBy" in keep
+    assert "isTrusted === false" in w and "synthetic: true" in w
+    edit = w[w.index("isTrusted === false"):w.index("isTrusted === false") + 200]
+    assert "lastInput" not in edit.split("return;")[0]               # 꾸민 사건은 입력 시각을 올리지 않는다
+    assert "ev.synthetic" in c and "typedIn[f] = true" in c and "op.user !== false" in c

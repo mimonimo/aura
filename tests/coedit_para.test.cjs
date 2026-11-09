@@ -130,3 +130,25 @@ test('두 창이 한 칸의 다른 문단을 동시에 — 두 글 모두 남고
   assert.deepStrictEqual({...K.s.caret}, {para: 2, pos: 4});
   assert.ok(P.eng.myPara() && P.eng.myPara().field === srv.F, '박다온은 문단 임대를 쥐었다(칸째가 아님)');
 });
+
+test('AURA 명령 뒤 꾸민 입력 사건(synthetic)은 내 고침으로 보내지 않는다 — 친 글만 보내고, 거절되면 그 글만 사본(11-09)', async () => {
+  const base = '가) 첫째\n나) 둘째';
+  const srv = server(base);
+  const ctx = context({fetch: srv.fetchFor('kim'), EventSource: srv.ES});
+  const ed = editor(srv.F, base);
+  const eng = ctx.AuraCollab.engine({fid: 1, me: 'kim', hwp: ed.hwp});
+  const copies = [];
+  eng.on('conflict', (c) => copies.push(c));
+  await eng.start();
+  // 명령 실행기가 칸 글을 바꾸고 꾸민 input 사건을 보냈다 — 엔진은 이것을 보내지 않는다
+  ed.s.text = base + '\n다) AURA 가 넣은 글';
+  ed.s.cbs.edit.forEach((cb) => cb({composing: false, synthetic: true}));
+  await wait(200);
+  assert.strictEqual(srv.st.v, 0, '꾸민 사건으로 보낸 고침이 없다');
+  assert.ok(!eng.pending(), '보낼 줄이 비었다');
+  // 사람이 치면 보낸다
+  ed.s.text = base; ed.s.put(1, 5); ed.s.type('!');
+  for (let i = 0; i < 100 && srv.st.text !== '가) 첫째\n나) 둘째!'; i++) await wait(10);
+  assert.strictEqual(srv.st.text, '가) 첫째\n나) 둘째!');
+  assert.strictEqual(copies.length, 0);
+});

@@ -236,7 +236,7 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
     """표 하나에 서식을 입힌다 — opts 는 HOUSE·TABLE 을 덮는 값.
     HOUSE: head_fill·label_fill·outer·inner·head_bottom(SOLID 굵게|DOUBLE 이중선|THIN 안쪽 선과 같게)·font_pt·head_bold·head_align·body_align.
     TABLE: total_fill·zebra·num_align. 그 밖: keep_borders(양식 선·음영은 두고 글·정렬·여백만), row_height(행 높이를 이 값으로 — 새로 만든 표),
-    marks([[행, 열]…] 0부터 — 일정표의 추진 기간 칸 음영), line(칸 글 줄 간격 %).
+    marks([[행, 열]…] 0부터 — 일정표의 추진 기간 칸 음영), line(칸 글 줄 간격 %), plain(선·음영 없는 줄 표 — 공문 두문·결문).
     칸 쓰임: 머리줄·라벨(house_style.cell_roles), 합계 줄(첫 칸이 합계·계·소계), 금액 칸(머리가 금액·원 단위이거나 큰 수)."""
     o = {**HOUSE, **{k: hs.TABLE[k] for k in ("total_fill", "zebra", "zebra_fill", "num_align")}, **(opts or {})}
     o["outer"], o["inner"] = _width(o["outer"]), _width(o["inner"])
@@ -298,7 +298,11 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
             if total and c["r"] > 0:                          # 합계 줄 위 선도 머리줄 아래 선 굵기
                 top = _width(hs.TABLE["total_rule_width"])
             bf = hdr.border(left, right, top, bottom, _color(fill), "SOLID", bk, top_kind=tk)
+            if o.get("plain"):                                # 선 없는 줄 표 — 공문 두문·결문(수신·제목·결재·시행 줄)은 표가 아니라 줄로 보인다
+                bf = hdr.border("", "", "", "", "none")
             align = o["head_align"] if role in ("head", "label") else o.get("body_align") or ""
+            if o.get("plain") and role == "label":
+                align = "LEFT"
             if total and role != "head" and c["c"] == 0:
                 align = "CENTER"
             if role == "body" and not align:
