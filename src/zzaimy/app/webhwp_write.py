@@ -451,8 +451,11 @@ class _LevelStyles:
         self.cache: dict[tuple[int, int], str] = {}
         self.added: list[str] = []
 
-    def pp(self, left: int, hang: int) -> str:
-        key = (left, hang)
+    LINE_MIN = 160                     # 공문서 본문 줄 간격(%) — 바탕 모양이 이보다 좁으면 넓힌다
+    TOP_GAP_PT = 4                     # 첫째 단계 항목 위 문단 간격(pt) — 「가.」「나.」 덩이가 붙어 보이지 않게
+
+    def pp(self, left: int, hang: int, gap: int = 0) -> str:
+        key = (left, hang, gap)
         if key in self.cache:
             return self.cache[key]
         m = re.search(rf'<hh:paraPr\b[^>]*\bid="{self.base}"[^>]*>.*?</hh:paraPr>', self.header, re.S)
@@ -465,6 +468,11 @@ class _LevelStyles:
 
         def margins(block: str, div: int) -> str:
             block = re.sub(r'<hc:intent value="-?\d+"', f'<hc:intent value="{-(hang // div)}"', block, count=1)
+            if gap:
+                block = re.sub(r'<hc:prev value="-?\d+"', f'<hc:prev value="{gap * 200 // div}"', block, count=1)
+            ls = re.search(r'<hh:lineSpacing type="PERCENT" value="(\d+)"', block)
+            if ls and int(ls.group(1)) < self.LINE_MIN:
+                block = block[:ls.start(1)] + str(self.LINE_MIN) + block[ls.end(1):]
             return re.sub(r'<hc:left value="-?\d+"', f'<hc:left value="{(left + hang) // div}"', block, count=1)
         case = re.search(r"<hp:case\b.*?</hp:case>", body, re.S)
         if case:
@@ -483,23 +491,46 @@ class _LevelStyles:
         return new_id
 
     def for_lines(self, lines: list[str], base_level: int, rel_min: int | None = None) -> list[tuple[str, str]]:
-        """줄마다 (문단 모양 id, 글) — 단계는 절 제목(base_level) 아래부터 센다. rel_min 은 본문 전체의 가장 얕은 단계
-        (표·도식으로 끊긴 글 덩이마다 따로 세면 같은 「2)」 가 덩이마다 다르게 들여써진다)."""
+        """줄마다 (문단 모양 id, 글). 깊이는 부호가 처음 나온 차례로 정한다(marker_depths) — 「1)」 아래 「가.」 처럼 편람 차례와
+        다르게 써도 아래 항목은 늘 위 항목보다 들여 쓴다. 깊이는 글 덩이(표·도식으로 끊긴)를 건너 이어 센다(같은 부호는 같은 깊이)."""
         out, cont_left = [], 0
-        if rel_min is None:
-            rel_min = min((lv for lv in (marker_level(x) for x in lines) if lv is not None), default=base_level + 1)
+        stack = getattr(self, "_stack", None)
+        if stack is None:
+            stack = self._stack = []
         for ln in lines:
             lv = marker_level(ln)
             if lv is None:
                 out.append((self.pp(cont_left, 0) if cont_left else self.base, ln.strip()))
                 continue
-            depth = max(0, lv - min(rel_min, base_level + 1)) + 1          # 절 제목 바로 아래 단계가 한 글자 들여쓰기
+            depth = _push_depth(stack, lv)
             mk = re.match(r"^\s*(\S+)", ln).group(1)
             hang = int(self.ch * (len(mk) * 0.55 + 0.5))                 # 부호 폭(대략 반각 글자) + 빈칸
             left = depth * self.ch
             cont_left = left + hang
-            out.append((self.pp(left, hang), mk + " " + ln.strip()[len(mk):].strip()))
+            gap = self.TOP_GAP_PT if depth == 1 and out else 0
+            out.append((self.pp(left, hang, gap), mk + " " + ln.strip()[len(mk):].strip()))
         return out
+
+
+def _push_depth(stack: list[int], lv: int) -> int:
+    """부호 단계 lv 의 깊이(1부터) — 이미 나온 부호면 그 깊이로 돌아가고, 처음 나온 부호면 지금 항목 아래로 한 단계 내려간다."""
+    if lv in stack:
+        del stack[stack.index(lv) + 1:]
+    else:
+        stack.append(lv)
+    return len(stack)
+
+
+def marker_depths(lines: list[str]) -> list[int]:
+    """줄마다 항목 깊이(부호 없는 줄은 바로 앞 항목의 깊이, 맨 앞이면 0)."""
+    stack: list[int] = []
+    out, cur = [], 0
+    for ln in lines:
+        lv = marker_level(ln)
+        if lv is not None:
+            cur = _push_depth(stack, lv)
+        out.append(cur)
+    return out
 
 
 def _top_paras(xml: str, end: int):
