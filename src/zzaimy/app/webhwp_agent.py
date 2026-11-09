@@ -571,6 +571,14 @@ class HwpTools:
         self.db.set_setting(f"webhwp_activity:{fid}", json.dumps({"by": self.owner or "AURA", "field": field, "at": time.time()}, ensure_ascii=False))   # 누가 시킨 AURA 인지 — 다시 맞출 때도 「AURA · 이름」
         ce.emit(self.db, fid, "aura", {"field": field, "ttl": ce.conf(self.db, "aura_ttl"), "by": self.owner})   # 누가 시킨 AURA 인지(화면에 「AURA · 이름」)
 
+    def _user_text(self) -> str:
+        """이 대화에서 담당자가 쓴 글(빈칸 없이 이어 붙임) — 「담당자가 알려 준 값」 인지 대조용."""
+        try:
+            chats = self.db.list_chats(self.sid)
+        except Exception:
+            return ""
+        return re.sub(r"\s+", "", " ".join(str(c.get("content") or "") for c in chats if c.get("role") == "user"))
+
     def fill(self, a: dict) -> str:
         from zzaimy.app import webhwp_write as ww
         g = self._guard()
@@ -584,6 +592,30 @@ class HwpTools:
         person = [k for k in values if k.startswith("입력:")] if not a.get("from_user") else []
         for k in person:
             values.pop(k)
+        # 공문 결문의 연락처 칸(우편번호·주소·홈페이지·전자우편·전화·전송)은 기관 정보 값만 — 자료에서 찾은 값은 남의 기관 것일 수 있다
+        # (11-09: 다른 대학 홈페이지·전자우편이 들어감). 담당자가 알려 준 값(from_user)은 그대로 둔다
+        inst_blank: list[str] = []
+        from zzaimy.app import institution
+        if any(institution.contact_key(k) for k in values):
+            try:
+                names = [x["name"] for x in self._fields()]
+            except Exception:
+                names = list(values)
+            if institution.has_contact_block(names):
+                try:
+                    known = institution.facts(self.db)
+                except Exception:
+                    known = {}
+                said = self._user_text()
+                for k in [k for k in values if institution.contact_key(k)]:
+                    if a.get("from_user") and re.sub(r"\s+", "", values[k]) and re.sub(r"\s+", "", values[k]) in said:
+                        continue                            # 담당자가 이 대화에서 직접 알려 준 값
+                    v = str(known.get(institution.contact_key(k)) or "").strip()
+                    if v:
+                        values[k] = v
+                    else:
+                        values.pop(k)
+                        inst_blank.append(k)
         long_, fake, misfit = {}, [], []
         rooms = self.rooms()
         for k, v in list(values.items()):
@@ -599,10 +631,13 @@ class HwpTools:
         ask = (f" 사람 칸이라 넣지 않았다 — ask_user 로 담당자에게 물어 받은 값만 from_user: true 와 함께 넣는다: {', '.join(person)}."
                if person else "")
         bad = (" 넣지 않은 자리: " + " ".join(misfit[:4])) if misfit else ""
+        if inst_blank:
+            bad += (f" 결문 연락처는 기관 정보에 값이 없어 비워 둠(다른 기관 문서의 값은 넣지 않는다 — 담당자가 알려 주면 from_user: true): "
+                    f"{', '.join(inst_blank)}.")
         if not values:
             return ("넣은 것 없음." + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
-                    + ("" if long_ or fake or person or misfit else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
+                    + ("" if long_ or fake or person or misfit or inst_blank else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
         miss = [k for k in values if k not in have]
