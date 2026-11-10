@@ -229,6 +229,8 @@ def test_switch_to_existing_work_doc_instead_of_new_copy(tmp_path, monkeypatch):
     # 담당자 요청 글이 「기존 작업본 말고 새 작업본을 만들어」처럼 새 문서를 분명히 청하면 new 없이도 새로 만든다(11-10 대화 172)
     hw.request = "기존 작업본 말고, 올린 작년 보고서 파일을 양식으로 새 작업본을 만들어 줘"
     n0 = len(hw.work_docs())
+    # 짚은 「작년 보고서 파일」 이 이 대화 문서에 없다 — 다른 양식으로 대충 시작하지 않고 한 번 묻게 한다(11-10 요구사항대로)
+    assert "찾지 못했다" in hw.start({"form": tid, "title": "AI 사업 계획서"}) and len(hw.work_docs()) == n0
     assert "만들고 이 대화에 이었다" in hw.start({"form": tid, "title": "AI 사업 계획서"}) and len(hw.work_docs()) == n0 + 1
     hw.request = "사업계획서의 기대 성과 절을 고쳐 써 줘"
     assert "이미 있다" in hw.start({"form": tid, "title": "AI 사업 계획서"})

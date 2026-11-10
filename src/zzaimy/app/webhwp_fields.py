@@ -99,7 +99,21 @@ def _wrap_placeholder(p: str, fxml_begin: str, fxml_end: str) -> str | None:
     return p.replace(ts[0], f"{fxml_begin}{ts[0]}{fxml_end}", 1)
 
 
-_GUIDE = re.compile(r"【\s*(작성\s*방법|작성\s*요령|작성\s*가이드|증빙\s*자료|유의\s*사항|작성\s*예시)|작성\s*요령|작성\s*예시|※\s*작성|\(예시\)|<예시>")
+def _wrap_span(p: str, fxml_begin: str, fxml_end: str) -> str | None:
+    """문단의 글 조각(<hp:t>) 전체를 필드로 — 첫 글 조각 앞에 여는 조각, 끝 글 조각 뒤에 닫는 조각. 글 조각 사이에 다른 개체(표·그림)가 있으면 하지 않는다."""
+    first, last = p.find("<hp:t>"), p.rfind("</hp:t>")
+    if first < 0 or last < 0 or re.search(r"<hp:(tbl|pic|rect|ctrl)\b", p[first:last]):
+        return None
+    last += len("</hp:t>")
+    return p[:first] + fxml_begin + p[first:last] + fxml_end + p[last:]
+
+
+_GUIDE = re.compile(r"【\s*(작성\s*방법|작성\s*요령|작성\s*가이드|증빙\s*자료|유의\s*사항|작성\s*예시)|작성\s*요령|작성\s*예시|※\s*작성|\(예시\)|<예시>"
+                    r"|제출\s*요령|작성\s*및\s*제출")
+# 서식 설명 쪽의 머리 — 「사업계획서 작성 및 제출 요령」「작성 안내」「유의사항」 처럼 표 첫머리가 서식 안내인 쪽(그 안의 번호 줄은 본문 절이 아니다)
+_GUIDE_HEAD = re.compile(r"요령|작성\s*방법|작성\s*안내|작성\s*서식|유의\s*사항|작성\s*지침|일러두기")
+# 목차 쪽 — 「사업계획서 목차」「차례」 머리의 표. 그 안의 번호 줄(쪽 번호가 붙은 제목)은 본문 절이 아니다(11-10 대화 187: 목차 줄이 절 12개로 잡힘)
+_TOC_HEAD = re.compile(r"^\s*(?:\S+\s+){0,3}(?:목\s*차|차\s*례)\s*$")
 _TOC = re.compile(r"(\s\d{1,3}$|·{3,}|…{2,}|\.{4,}|-{4,})")
 
 
@@ -110,7 +124,7 @@ def _is_heading(t: str) -> bool:
 
 
 # 작성 안내 문장 — 「~기재」「~가능」「~작성」「~(반올림)」 으로 끝나는 번호 줄은 제목이 아니라 서식의 안내다
-_NOTE = re.compile(r"(기재|가능|작성|기입|삭제|추가|반올림|생략|제출|첨부|유의|참고)\s*(할\s*것|하시오|함|바람|합니다|\))?\s*[.)]?\s*$")
+_NOTE = re.compile(r"(기재|가능|작성|기입|삭제|추가|반올림|생략|제출|첨부|유의|참고|불가|금지|준수)\s*(할\s*것|하시오|함|바람|합니다|\))?\s*[.)]?\s*$")
 
 
 _INSTRUCT = re.compile(r"작성|기재|기입|제출|유의|참고|하여야|해야|바랍니다|할\s*것|하시오|가능하|불가|해당\s*시|경우에는|으로\s*한다")
@@ -122,16 +136,70 @@ def _real_label(t: str) -> bool:
         return False
     core = re.sub(r"[\s\d.,%()\-·:~/]", "", t)
     return (not re.fullmatch(r"[ㅇOo○◯ㅁ0명원개년월일]*", core) and not re.search(r"ㅇㅇ|OO|○○|ㅁㅁ", t)
-            and not re.search(r"목차|차례", t))
+            and not re.search(r"목차|차례", t)
+            and not re.search(r"(?:^|[\s(])[OoㅇＯ○◯](?:개|명|%|건|원|\)|\s|$)", t))     # 「O개 학과(O%)」 — 예시 값이지 라벨이 아니다
+
+
+# 칸 안 작성 안내 — 라벨 오른쪽 칸에 「~을 요약 기술」「~를 작성」 처럼 무엇을 쓸지 적어 둔 글. 그 글이 쓸 자리다(쓰면 안내가 바뀐다)
+_INSTR_CELL = re.compile(r"(기술|작성|기재|제시|서술|요약)\s*(하시오|할\s*것|함|바람)?\s*[.)]?\s*$")
+
+
+def _instruction_cell(t: str) -> bool:
+    return 10 <= len(t) <= 200 and bool(_INSTR_CELL.search(t)) and not re.match(r"^\s*[※*]", t)
+
+
+def _all_tables(xml: str) -> list[tuple[int, int]]:
+    """모든 표 범위(겹친 표 포함) — 여는 태그와 짝이 맞는 닫는 태그까지."""
+    out, stack = [], []
+    for m in re.finditer(r"<hp:tbl\b|</hp:tbl>", xml):
+        if m.group(0) == "</hp:tbl>":
+            if stack:
+                out.append((stack.pop(), m.end()))
+        else:
+            stack.append(m.start())
+    return sorted(out)
+
+
+def _own_paras(tbl: str) -> list[str]:
+    """표 자신의 문단 글(안쪽 표의 글은 빼고) — 차례대로, 빈 문단 빼고."""
+    inner = [(a + 1, b + 1) for a, b in _all_tables(tbl[1:])]          # 겉 표 자신은 빼고 안쪽 표만
+    top = [(a, b) for a, b in inner if not any(x < a and b <= y for x, y in inner)]
+    body = tbl
+    for a, b in sorted(top, reverse=True):
+        body = body[:a] + body[b:]
+    return [t for t in (_text(m.group(0)) for m in _LEAF_P.finditer(body)) if t]
 
 
 def _guide_spans(xml: str) -> list[tuple[int, int]]:
-    """작성방법·작성요령·예시 상자(표) 범위 — 그 안의 번호 줄·칸은 쓸 자리가 아니다."""
+    """작성방법·작성요령·예시 상자(표)와 서식 설명 쪽·목차 표 범위 — 그 안의 번호 줄·칸은 쓸 자리가 아니다.
+    안쪽 표는 글 어디에든 안내 표시가 있으면, 겉 표(안에 표를 품은 것)는 첫머리 두 문단이 서식 안내·목차 머리일 때만
+    (본문 전체를 감싼 겉 표가 안쪽 작성방법 상자 때문에 통째로 안내가 되지 않게, 11-10 대화 187)."""
     out = []
-    for m in re.finditer(r"<hp:tbl\b(?:(?!<hp:tbl\b).)*?</hp:tbl>", xml, re.S):
-        if _GUIDE.search(_text(m.group(0))):
-            out.append((m.start(), m.end()))
+    for a, b in _all_tables(xml):
+        t = xml[a:b]
+        nested = "<hp:tbl" in t[1:]
+        head = _own_paras(t)[:2] if nested else [x for x in (_text(m.group(0)) for m in _LEAF_P.finditer(t)) if x][:2]
+        if (not nested and _GUIDE.search(_text(t))) or any(_TOC_HEAD.match(h) or (_GUIDE_HEAD.search(h) and len(h) <= 40) for h in head):
+            out.append((a, b))
     return out
+
+
+def _grid_cell(xml: str, pos: int, tables: list[tuple[int, int]]) -> bool:
+    """이 자리가 여러 열 표의 한 칸 안인가(한 줄을 다 차지한 칸이 아닌) — 총괄표 칸의 「1. OOO」 같은 번호 글은 표 내용이지 절 제목이 아니다."""
+    inner = [(a, b) for a, b in tables if a <= pos < b]
+    if not inner:
+        return False
+    a, b = max(inner)                                        # 가장 안쪽 표
+    m = re.match(r"<hp:tbl\b[^>]*>", xml[a:b])
+    cols = re.search(r'colCnt="(\d+)"', m.group(0)) if m else None
+    if not cols or int(cols.group(1)) <= 1:
+        return False
+    tc = xml.rfind("<hp:tc", a, pos)
+    if tc < 0:
+        return False
+    end = xml.find("</hp:tc>", pos)
+    span = re.search(r'<hp:cellSpan\b[^>]*colSpan="(\d+)"', xml[tc:end if end > 0 else b])
+    return not span or int(span.group(1)) < int(cols.group(1))
 
 
 def _inside(pos: int, spans: list[tuple[int, int]]) -> bool:
@@ -283,17 +351,24 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names, slots: Slots | None = None,
                     lab = ctexts[ci - 1]
                     mine = person is None or person and lab in person
                     target = (names(f"입력:{lab}" if mine else f"칸:{lab}"), lab)
+                elif (ctexts[ci] and ci > 0 and _real_label(ctexts[ci - 1]) and not listlike and _instruction_cell(ctexts[ci])
+                      and len([x for x in _LEAF_P.findall(c) if _text(x)]) == 1):
+                    # 라벨 옆 칸의 작성 안내(「~을 요약 기술」) — 그 글을 필드로 감싸 쓸 자리로(안내는 필드 안내문으로 남긴다, 11-10 대화 187 요약본)
+                    lab = ctexts[ci - 1]
+                    target = (names(f"칸:{lab}"), lab, ctexts[ci][:60])
                 if target:
                     pm = _LEAF_P.search(c)
                     if pm:
                         para = pm.group(0)
                         if ctexts[ci]:                       # 예시 글자(ㅇㅇㅇ) 칸 — 그 글자를 필드로 감싼다
-                            a, b = field_parts(target[0], f"{target[1]} 입력", ids)
+                            a, b = field_parts(target[0], target[2] if len(target) > 2 else f"{target[1]} 입력", ids)
                             np_ = _wrap_placeholder(para, a, b)
+                            if np_ is None and len(target) > 2:      # 작성 안내 글이 여러 조각(run) — 첫 조각 앞부터 끝 조각 뒤까지 감싼다
+                                np_ = _wrap_span(para, a, b)
                             if np_ is None:
                                 continue
                         else:
-                            np_ = _inject_into_para(para, field_xml(target[0], f"{target[1]} 입력", ids))
+                            np_ = _inject_into_para(para, field_xml(target[0], target[2] if len(target) > 2 else f"{target[1]} 입력", ids))
                         c2 = c[:pm.start()] + np_ + c[pm.end():]
                         r2 = r2.replace(c, c2, 1)
                         out.append({"name": target[0], "kind": target[0].split(":", 1)[0] if target[0].startswith(("칸:", "입력:")) else "표"})
@@ -307,9 +382,10 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names, slots: Slots | None = None,
     tno = 0
     pos = 0
     pieces = []
+    guide0 = _guide_spans(xml)                          # 서식 설명 쪽·목차 표 안의 표도 칸을 박지 않는다
     for m in re.finditer(r"<hp:tbl\b(?:(?!<hp:tbl\b).)*?</hp:tbl>", xml, re.S):
         tno += 1
-        if _GUIDE.search(_text(m.group(0))):            # 작성방법·예시 상자 — 칸을 박지 않는다
+        if _GUIDE.search(_text(m.group(0))) or _inside(m.start(), guide0):   # 작성방법·예시 상자 — 칸을 박지 않는다
             continue
         pieces.append((m.start(), m.end(), do_table_rows(m.group(0), tno)))
     if pieces:
@@ -328,6 +404,7 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names, slots: Slots | None = None,
 
     guides = _guide_spans(xml)
     tables = [(m.start(), m.end()) for m in re.finditer(r"<hp:tbl\b.*?</hp:tbl>", xml, re.S)]
+    all_tables = _all_tables(xml)
     leaves = [(m.start(), m.end(), "" if "fieldBegin" in m.group(0) else _text(m.group(0)), "<hp:tbl" in m.group(0))
               for m in _LEAF_P.finditer(xml)]             # 이미 필드를 박은 칸은 빈 자리로 본다
 
@@ -348,7 +425,8 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names, slots: Slots | None = None,
         if slots is not None:                           # 만든 쪽이 아는 제목 차례 — 짐작하지 않는다(표 칸 안 글은 제목이 아니다)
             if "fieldBegin" in p or has_tbl or not t or _inside(a, tables) or not slots.take(t):
                 continue
-        elif "fieldBegin" in p or has_tbl or not _is_heading(t) or _inside(a, guides) or not slot_follows(i):
+        elif ("fieldBegin" in p or has_tbl or not _is_heading(t) or _inside(a, guides) or _grid_cell(xml, a, all_tables)
+              or not slot_follows(i)):
             continue
         name = names(f"절:{t}")
         out.append({"name": name, "kind": "절"})
@@ -603,3 +681,145 @@ def wrap_rest(data: bytes, limit: int | None = None, dry: bool = False) -> tuple
             ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
             zout.writestr(info, body, compress_type=ct)
     return buf.getvalue(), total
+
+
+# ── 첨부 서식을 제출본 꼴로(11-10 사용자: 「작성 서식·예시 등등 이런 부분은 지우고 실제 필요한 부분을 가지고 작업」) ──
+# 사업이 준 작성 서식에는 서식 설명 쪽(작성·제출 요령, 규격, 제출 서류, 유의사항), 【작성방법】 상자, 견본 값(「예) 수도권」), 서식 번호 머리가
+# 들어 있다. 작업본은 표지·장·절 제목·쓸 자리·제출용 표 틀만 남기고, 뺀 안내는 다음 쓸 자리 이름으로 묶어 돌려준다(작업본 기록 meta guides —
+# 에이전트가 절마다 읽는다). 가르는 기준은 일반 낱말·모양(상자 표, 안내 머리, ※ 안내 줄, 예시 표시)이다.
+_SAMPLE = re.compile(r"^\s*(?:예\s*\)|\(\s*예\s*시?\s*\)|예시\s*[:)\]]|<\s*예시?\s*>)")
+_FORM_NO = re.compile(r"^\s*[\[【〔<(]\s*(?:서식|별지|별첨|양식|붙임)\s*(?:제\s*)?[\dⅠ-Ⅹ][\d\-–.]*\s*(?:호)?\s*[\]】〕>)]")
+_NOTE_LINE = re.compile(r"^\s*[※*]\s*\S")
+
+
+def _top_level(xml: str) -> list[tuple[int, int]]:
+    """맨 바깥 문단 범위(표 칸 안 문단이 아닌 것)."""
+    out, depth, start = [], 0, 0
+    for m in re.finditer(r"<hp:p\b[^>]*?(/?)>|</hp:p>", xml):
+        if m.group(0).startswith("</"):
+            depth -= 1
+            if depth == 0:
+                out.append((start, m.end()))
+        elif m.group(1) != "/":
+            if depth == 0:
+                start = m.start()
+            depth += 1
+    return out
+
+
+def clear_samples(data: bytes) -> tuple[bytes, int]:
+    """표 칸의 견본 값(「예) 수도권」「(예시) …」)을 비운다 — 비운 칸은 라벨 옆 빈 칸이 되어 쓸 자리로 잡힌다. 안내 상자·서식 설명 쪽 안은 그대로."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    check_zip(zin)
+    new, n_ = {}, 0
+    for name in zin.namelist():
+        if not _SEC.search(name):
+            continue
+        xml = zin.read(name).decode("utf-8")
+        guides = _guide_spans(xml)
+        cells = [(m.start(), m.end()) for m in _TC.finditer(xml)]
+        parts, pos = [], 0
+        for m in _LEAF_P.finditer(xml):
+            if "<hp:tbl" in m.group(0) or _inside(m.start(), guides) or not _inside(m.start(), cells):
+                continue
+            t = _text(m.group(0))
+            if not t or not _SAMPLE.match(t) or len(t) > 80:
+                continue
+            parts.append(xml[pos:m.start()])
+            parts.append(re.sub(r"<hp:t>[^<]*</hp:t>", "<hp:t></hp:t>", m.group(0)))
+            pos = m.end()
+            n_ += 1
+        if parts:
+            parts.append(xml[pos:])
+            new[name] = "".join(parts)
+    if not new:
+        return data, 0
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zout:
+        for info in zin.infolist():
+            body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
+            zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    return buf.getvalue(), n_
+
+
+def _block_kind(xml: str, a: int, b: int, guides: list[tuple[int, int]]) -> str | None:
+    """맨 바깥 문단 하나가 뺄 덩어리면 그 갈래, 아니면 None. 필드(쓸 자리)가 든 문단은 늘 남긴다."""
+    p = xml[a:b]
+    if "fieldBegin" in p:
+        return None
+    t = _text(p)
+    if "<hp:tbl" in p:
+        if "<hp:pic" in p:
+            return None
+        tb = _all_tables(p)
+        outer = p[tb[0][0]:tb[0][1]] if tb else ""
+        first = (_own_paras(outer)[:1] or [""])[0]
+        if _TOC_HEAD.match(first):
+            return None                                   # 목차 표는 제출본에도 있다
+        rows = len(re.findall(r"<hp:tr\b", outer)) - sum(len(re.findall(r"<hp:tr\b", p[x:y])) for x, y in tb[1:] if not any(x2 < x and y <= y2 for x2, y2 in tb[1:]))
+        # 안내 상자 — 첫 줄이 【작성방법】 같은 안내 표시이거나, 한 줄짜리 상자에 안내 표시가 든 것(제출용 표의 칸 글 「(예시)」 로는 빼지 않는다)
+        if re.match(r"^\s*【", first) and _GUIDE.search(first) or re.match(r"^\s*【[^】]{2,20}】", first) and _INSTRUCT.search(t) \
+                or rows == 1 and _GUIDE.search(t):
+            return "작성방법 상자"
+        if _GUIDE_HEAD.search(first) and len(first) <= 40:
+            return "서식 설명 쪽"                           # 「사업계획서 작성 및 제출 요령」 처럼 첫머리가 서식 안내인 쪽
+        return None
+    if not t:
+        return None
+    if _FORM_NO.match(t) and len(t) <= 60:
+        return "서식 번호 머리"
+    if _NOTE_LINE.match(t) and (_INSTRUCT.search(t) or "예시" in t) and len(t) <= 300:
+        return "안내 줄"
+    if re.match(r"^\s*#\s*\S", t) and len(t) <= 30:
+        return "서식 표시 줄"                               # 「# 사업계획서 표지」 처럼 서식 쪽 이름을 적은 줄
+    return None
+
+
+def submission_clean(data: bytes) -> tuple[bytes, dict[str, str], list[str]]:
+    """필드를 박은 작업본 → (제출본 꼴 작업본, {다음 쓸 자리 이름: 뺀 안내 글}, 뺀 덩어리 목록). 쓸 자리가 없는 쪽 첫머리 안내는 「서식 안내」 로 묶는다."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    check_zip(zin)
+    new: dict[str, str] = {}
+    guides_out: dict[str, str] = {}
+    removed: list[str] = []
+    order = sorted((n for n in zin.namelist() if _SEC.search(n)), key=lambda s: int(re.search(r"(\d+)", s.rsplit("/", 1)[-1]).group(1)))
+    xmls = {n: zin.read(n).decode("utf-8") for n in order}
+    for si, name in enumerate(order):
+        xml = xmls[name]
+        guides = _guide_spans(xml)
+        cut = []
+        for a, b in _top_level(xml):
+            k = _block_kind(xml, a, b, guides)
+            if k:
+                cut.append((a, b, k))
+        if not cut:
+            continue
+        # 남는 문단이 하나도 없으면 빈 문단 하나는 둔다(구역 설정·쪽 모양을 품은 첫 문단은 지우지 않는다)
+        keep_first = _top_level(xml)[0] if _top_level(xml) else None
+        for a, b, k in reversed(cut):
+            frag = xml[a:b]
+            txt = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", frag, flags=re.S))
+            nxt = re.search(r'<hp:fieldBegin\b[^>]*name="([^"]*)"', xml[b:])
+            if not nxt:
+                later = "".join(xmls[n] for n in order[si + 1:])
+                nxt = re.search(r'<hp:fieldBegin\b[^>]*name="([^"]*)"', later)
+            key = "서식 안내" if k == "서식 설명 쪽" or not nxt else nxt.group(1)
+            if txt:
+                guides_out[key] = (txt + ("\n" + guides_out[key] if key in guides_out else ""))[:4000]
+            removed.insert(0, f"{k}: {txt[:60]}")
+            if keep_first and a == keep_first[0] and "<hp:secPr" in frag:
+                # 구역 설정이 든 첫 문단 — 글·표만 비우고 문단은 남긴다
+                head = re.match(r"<hp:p\b[^>]*>", frag).group(0)
+                sec = re.search(r"<hp:run\b[^>]*>\s*<hp:secPr\b.*?</hp:secPr>.*?</hp:run>", frag, re.S)
+                xml = xml[:a] + head + (re.sub(r"<hp:tbl\b.*</hp:tbl>", "", sec.group(0), flags=re.S) if sec else "") + "</hp:p>" + xml[b:]
+            else:
+                xml = xml[:a] + xml[b:]
+        new[name] = xml
+    if not new:
+        return data, {}, []
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zout:
+        for info in zin.infolist():
+            body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
+            zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    return buf.getvalue(), guides_out, removed

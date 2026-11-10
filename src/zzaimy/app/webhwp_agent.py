@@ -61,6 +61,45 @@ _FORM_LIKE_TITLE = re.compile(r"양식|서식|보고서|계획서|기안문|회�
 
 
 _NEW_DOC_ASK = re.compile(r"(기존|이전|지금|원래)\s*(작업본|문서|것|파일)?\s*(말고|대신|아니라)|새\s*(작업본|문서|파일)\s*(을|를|으로|로)?\s*(만들|작성|열)|새로\s*(만들|작성|열)")
+# 지금 작업본에 이어 쓰라는 말 / 기존 양식 없이 새로 설계하라는 말 / 올린 문서를 짚는 말(11-10 사용자: 「요구사항대로」)
+_CONTINUE_ASK = re.compile(r"이어서|이어\s*(써|쓰|작성)|(지금|현재|이)\s*(작업본|문서|파일)\s*에\s*(이어|계속|써|쓰|작성|채워)|계속\s*(써|작성|채워)")
+_FRESH_ASK = re.compile(r"양식\s*(을|은|도)?\s*(부터\s*)?새로|새\s*양식|새로\s*설계|처음부터\s*(설계|새로)|양식\s*(없이|쓰지\s*말고)")
+_REF_ASK = re.compile(r"(올린|첨부한|첨부된|보낸|올려\s*둔|올려둔)\s*([^\s,.。]{1,20}(?:\s+[^\s,.。]{1,20}){0,3}?)\s*(양식|서식|파일|문서)\s*(으로|로|에|을|를|대로|기준)")
+_REF_GENERIC = {"이", "그", "저", "빈", "새", "그것", "이것"}
+
+
+def _nfc(s: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFC", str(s or ""))
+
+
+def _doc_key(s: str) -> str:
+    """문서 이름 맞추기 열쇠 — NFC(맥에서 올린 이름의 자모 분리)·공백·괄호·부호를 뺀 글."""
+    return re.sub(r"[\s\[\]【】()（）「」『』<>〈〉\"'·,._\-]+", "", _nfc(s)).lower()
+
+
+def designated_docs(request: str, docs: list[dict]) -> list[dict]:
+    """담당자 글이 짚은 문서 — 따옴표로 든 이름이 제목에 들어 있거나, 다른 후보에 없는 제목 낱말이 둘 이상 담당자 글에 있는 문서.
+    하나로 맞으면 그 문서, 비기면 비긴 문서들, 없으면 빈 목록(고르는 것은 에이전트, 코드는 지정이 있는데 다른 것으로 시작하는 것만 막는다)."""
+    req = _nfc(request)
+    R = _doc_key(req)
+    if not R or not docs:
+        return []
+    titles = {int(d["id"]): _nfc(storage.title_of(d.get("filename") or d.get("name") or "")) for d in docs}
+    for q in re.findall(r"[「『\"']([^」』\"']{2,60})[」』\"']", req):
+        k = _doc_key(q)
+        hit = [d for d in docs if k and k in _doc_key(titles[int(d["id"])])]
+        if hit:
+            return hit
+    words = {int(d["id"]): {w for w in re.findall(r"[가-힣A-Za-z]{2,}|\d+(?:-\d+)+", titles[int(d["id"])])} for d in docs}
+    common = set.intersection(*words.values()) if len(words) > 1 else set()
+    score = {i: sum(1 for w in ws - common if _doc_key(w) in R) for i, ws in words.items()}
+    best = max(score.values())
+    if best < 2:
+        return []
+    return [d for d in docs if score[int(d["id"])] == best]
+
+
 
 
 def _title_key(name: str) -> str:
@@ -839,6 +878,10 @@ class HwpTools:
         if not out:
             return "맞는 양식이 없다 — 검색어를 바꿔 한 번 더 찾거나, 목적에 맞는 양식을 hwp_form_create 로 설계해 만든다."
         head = "양식 후보(form 에 앞의 id 를 쓴다):"
+        named = designated_docs(self.request or "", self.project_form_docs() or [])
+        if len(named) == 1:
+            head = (f"담당자가 짚은 문서: doc:{named[0]['id']} 「{storage.title_of(named[0].get('filename') or '')[:50]}」 — 이것으로 hwp_start 한다(다른 후보로 바꾸지 않는다).\n"
+                    + head)
         parts = []
         if n_proj:
             parts.append("【이 프로젝트·대화에 올린 문서 — 사업이 준 양식이나 작년 문서가 있으면 이것을 살려 쓴다(값이 든 것은 옛 값을 비운 사본, 큰 원본은 구조 사본)】\n"
@@ -865,9 +908,47 @@ class HwpTools:
             self._remember_forms(now)
         return out
 
+    def request_gate(self, form: str, wants_new: bool) -> str | None:
+        """담당자 요구대로 시작하는지 — (c) 지금 작업본에 이어 쓰라 했으면 새 작업본을 만들지 않고, (b) 양식 없이 새로 설계하라 했으면 기존 양식으로
+        시작하지 않고, (a) 올린 문서를 짚었으면 그 문서로만, (d) 짚은 문서를 못 찾으면 비슷한 후보를 보여 한 번 묻게 한다. 판단은 에이전트, 여기는 관문."""
+        req = re.sub(r"\s+", " ", _nfc(self.request or ""))
+        if not req.strip():
+            return None
+        cur = self.fid()
+        if _CONTINUE_ASK.search(req) and cur and not wants_new and not self._empty_doc(cur):
+            return (f"담당자가 지금 작업본에 이어 쓰라고 했다 — 새 작업본을 만들지 않는다. 지금 문서 「{Path(webhwp.get(self.db, cur)['name']).stem}」 의 "
+                    "빈 절을 hwp_fields 로 보고 delegate_section·hwp_write 로 쓴다.")
+        cands = self.project_form_docs() or []              # 양식으로 살려 쓸 문서만 — 「공고문 참고해서」 처럼 근거 문서를 짚은 말로 공고문을 양식으로 열지 않게
+        named = designated_docs(req, cands)
+        if _FRESH_ASK.search(req) and not named:
+            return "담당자가 기존 양식 없이 새로 설계하라고 했다 — hwp_start 로 양식을 고르지 않고 hwp_form_create 로 설계한다."
+        if len(named) == 1:
+            want = f"doc:{named[0]['id']}"
+            if form != want:
+                return (f"담당자가 「{storage.title_of(named[0].get('filename') or '')}」({want}) 를 짚었다 — 그 문서로 hwp_start {{form: \"{want}\"}} 한다. "
+                        "공통 양식·작년 문서 같은 다른 후보로 바꾸지 않는다.")
+            return None
+        if len(named) > 1 and form not in {f"doc:{d['id']}" for d in named}:
+            return ("담당자 글에 맞는 문서가 여럿이다 — " + ", ".join(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:40]}」" for d in named)
+                    + ". 어느 것인지 ask_user 로 한 번 묻는다(대충 하나를 고르지 않는다).")
+        m = _REF_ASK.search(req)
+        if m and not named and m.group(2).strip() not in _REF_GENERIC and form.startswith(("tpl:", "doc:")):
+            key = f"form_ref_asked:{self.sid}"
+            if not (self.db.get_setting(key, "") or "").strip():
+                self.db.set_setting(key, str(int(time.time())))
+                near = ", ".join(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:40]}」" for d in (self.project_form_docs() or cands)[:6])
+                return (f"담당자가 짚은 「{m.group(2).strip()} {m.group(3)}」 을(를) 이 프로젝트·대화 문서에서 찾지 못했다 — 다른 양식으로 대충 시작하지 않는다. "
+                        + (f"비슷한 후보: {near}. " if near else "올린 한글 문서가 없다. ")
+                        + "어느 문서인지(또는 올려 달라고) ask_user 로 한 번 묻는다.")
+        return None
+
     def start(self, a: dict) -> str:
         from zzaimy.app import webhwp_convert
         form = str(a.get("form") or "").strip()
+        _wants_new = bool(a.get("new")) or bool(a.get("carry")) or bool(_NEW_DOC_ASK.search(re.sub(r"\s+", " ", self.request or "")))
+        g = self.request_gate(form, _wants_new)
+        if g:
+            return g
         title = re.sub(r"[\\/:*?\"<>|]", " ", str(a.get("title") or "").strip())[:60]
         folder = f"작업/{storage.safe_name(self.project['name'])[:40]}" if self.project else "작업"
         skel_note = ""
@@ -893,7 +974,7 @@ class HwpTools:
             rep = {}
             name = title or (storage.title_of(d.get("filename") or "") + " 작업본")
             try:
-                data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d), blank=True, report=rep)
+                data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d), blank=True, report=rep, clean=True)
             except webhwp_convert.TooBig as e:
                 # 그림이 많은 큰 원본(지난 결과보고서 등)은 변환 서버가 받지 않는다 — 반입 때 읽어 둔 조각에서 목차·표 머리를 옮긴
                 # 구조 사본으로 연다(사용자가 준 양식의 짜임을 따르는 것이 핵심, 11-10 시나리오 A). 그림·서식은 빠진다
@@ -937,8 +1018,14 @@ class HwpTools:
             fields = ww.fields(data)
             carry_note = (f" 앞 작업본 「{Path(webhwp.get(self.db, cur)['name']).stem}」 에서 이름이 같은 {len(moved)}개 필드의 글을 옮겼다"
                           + (f"({', '.join(moved[:8])})" if moved else "") + " — 이름이 맞지 않아 옮기지 못한 글은 hwp_fields 로 빈 절을 보고 앞 문서 글을 나눠 쓴다.")
+        clean_note = (f" 첨부 서식을 제출본 꼴로 정리했다 — 서식 설명 쪽·작성방법 상자·견본 값 등 {len(rep.get('removed') or [])}덩어리를 뺐고"
+                      f"{'(견본 값 ' + str(rep['samples']) + '칸 비움)' if rep.get('samples') else ''}, 뺀 안내는 절마다 기록해 두어 쓸 때 읽힌다(hwp_fields·맡기기)."
+                      + (f" 서식 전체 안내(분량·단위·작성 원칙 — 문서에는 넣지 않는다): {(rep.get('guides') or {}).get('서식 안내', '')[:600]}"
+                         if (rep.get("guides") or {}).get("서식 안내") else "")
+                      if rep.get("removed") else "")
         if cur and self._empty_doc(cur) and not a.get("carry"):         # 옮겨 담기는 앞 작업본을 남기고 새 작업본으로(덮지 않는다)
-            out = self._load_into(cur, data, fields, name, src) + blank_note + skel_note
+            out = self._load_into(cur, data, fields, name, src) + blank_note + skel_note + clean_note
+            self._keep_guides(cur, rep.get("guides") or {})
             if src.startswith("양식복사:"):
                 self._remember_forms(cur)
             return out
@@ -947,6 +1034,7 @@ class HwpTools:
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+        self._keep_guides(fid, rep.get("guides") or {})
         attach(self.db, self.sid, fid)
         if src.startswith("양식복사:"):
             self._remember_forms(fid)
@@ -956,7 +1044,8 @@ class HwpTools:
         for x in fields:
             kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
         return (f"작업본 「{name}」 을 {self.dept}/{folder} 에 만들고 이 대화에 이었다(필드 {len(fields)}개: "
-                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data) + blank_note + skel_note + carry_note)
+                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data) + blank_note + skel_note + carry_note
+                + clean_note)
 
     EMPTY_CHARS = 200          # 이어진 문서의 칸 글 합이 이만큼 안 되면 「빈 문서」 — 양식을 새 작업본이 아니라 그 문서에 불러온다
 

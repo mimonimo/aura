@@ -103,6 +103,8 @@ def fields(data: bytes) -> list[dict]:
         for m in _BEGIN.finditer(xml):
             sp = _span(xml, m.group(1), m.end())
             text = re.sub(r"<[^>]+>", "", _PARAMS.sub("", xml[sp[0]:sp[1]])).strip() if sp else ""
+            if text and _is_own_hint(m.group(0), text):
+                text = ""                                  # 칸 안 작성 안내를 감싼 필드 — 안내 글 그대로면 아직 안 쓴 칸이다
             name = _unq(m.group(2))
             if name.startswith("문단:"):                       # 문서 전체 공동 편집용 칸(webhwp_fields.wrap_rest) — 쓸 자리가 아니다
                 continue
@@ -114,6 +116,14 @@ def fields(data: bytes) -> list[dict]:
             at.setdefault(name, x)
             out.append(x)
     return out
+
+
+def _is_own_hint(begin: str, text: str) -> bool:
+    """필드 글이 그 필드의 안내문(Direction) 그대로인가 — 양식 칸의 「~을 요약 기술」 을 감싼 필드(webhwp_fields._instruction_cell)."""
+    d = re.search(r'<hp:stringParam name="Direction">([^<]*)</hp:stringParam>', begin)
+    hint = re.sub(r"\s+", " ", _unq(d.group(1))).strip() if d else ""
+    t = re.sub(r"\s+", " ", _unq(text)).strip()
+    return len(hint) >= 10 and (t == hint or (len(hint) >= 60 and t.startswith(hint)))
 
 
 def field_values(data: bytes) -> dict[str, str]:
