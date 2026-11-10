@@ -785,7 +785,13 @@
     if (art) {
       var am = new RegExp("제\\s*" + art[1] + "\\s*조" + (art[2] ? "\\s*의\\s*" + art[2] : "(?!\\s*의\\s*\\d)") + "\\s*[(（]").exec(text)
             || new RegExp("제\\s*" + art[1] + "\\s*조(?!\\s*의\\s*\\d)").exec(text);
-      if (am) return { at: am.index, end: Math.min(text.length, am.index + 160) };
+      if (am) {
+        // 그 조항만 칠한다 — 다음 조·장·절 머리 앞까지(160자로 자르면 짧은 조항은 다음 장·조까지 칠해졌다, 11-10), 너무 길면 1,500자까지
+        var rest = text.slice(am.index + am[0].length);
+        var nx = /\n\s*(?:제\s*\d+\s*(?:조|장|절|관)|부\s*칙)/.exec(rest);
+        var end = am.index + am[0].length + (nx ? nx.index : rest.length);
+        return { at: am.index, end: Math.min(text.length, end, am.index + 1500) };
+      }
     }
     for (var n of [40, 16]) {
       var head = bare.slice(0, n);
