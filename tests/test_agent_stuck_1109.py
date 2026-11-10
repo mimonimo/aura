@@ -51,3 +51,16 @@ def test_switch_prefers_original_over_copy_and_filled(tmp_path, monkeypatch):
     monkeypatch.setattr(hw, "_filled", lambda fid: {1: 30, 2: 0}[fid], raising=False)
     assert hw._best_of(docs, "사업계획서")["id"] == 1                    # 사본 꼬리 없는 원본, 더 채운 쪽
     assert hw._best_of(docs, "2027학년도 AI 교육 사업계획서 (2)")["id"] == 2   # 이름을 그대로 짚으면 그것
+
+
+def test_repeated_search_without_writes_is_banned_next_step_instead_of_stopping():
+    """쓰기 0 인 채 같은 찾기를 되풀이하면 멈추지 않고 다음 걸음에서 찾기를 빼 쓰기로 넘어가게 한다(11-10 대화 190)."""
+    wrote = []
+    tools = [doc_agent.Tool("search", "찾기", lambda a: "결과"),
+             doc_agent.Tool("delegate_section", "맡기기", lambda a: wrote.append(a) or "맡겨 썼다(3개)", writes=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    q = _step("search", query="작성 요령")
+    replies = [q, q, q, q, _step("delegate_section", sections=["1", "2", "3"]), _step("finish", message="세 절을 썼습니다")]
+    ep = doc_agent.run(_client(replies), "빈 절을 모두 채워 써 줘", lambda: "s", tools)
+    assert wrote and ep.finished and ep.stop == "finished"
+    assert "쓸 수 없다" in json.dumps(ep.steps, ensure_ascii=False) or wrote

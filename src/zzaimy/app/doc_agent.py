@@ -335,6 +335,8 @@ KEEP_STEPS = 3                     # 문맥을 줄여도 빼지 않는 최근 �
 REPEAT_LIMIT = 3                   # 같은 걸음을 잇달아 이만큼 거절하면 멈춘다
 WRAP_UP = ("같은 걸음을 잇달아 되풀이했다 — 이번 요청은 여기서 마친다. finish 만 고른다: 이번에 쓴 것, 근거에 없어 「확인 필요」로 둔 칸, "
            "남은 빈 절(「계속 써 줘」로 이어 씀)을 담당자에게 알린다.")
+NO_MORE = ("{tool} 를 잇달아 되풀이했다 — 이번 걸음에는 {tool} 를 쓸 수 없다. 지금까지 찾은 근거로 할 일을 한다: 문서를 채우는 요청이면 빈 절을 "
+           "delegate_section(sections 로 여럿을 한 번에, 맡은 쪽이 다시 찾는다)이나 hwp_write 로 쓰고, 답하는 요청이면 답하고, 할 수 없으면 finish 로 까닭을 알린다.")
 NOOP_LIMIT = 3                     # 같은 쓰기 도구가 잇달아 이만큼 아무것도 바꾸지 못하면(찾기 0곳 등) 이번 요청에서는 더 하지 않는다
 
 
@@ -392,6 +394,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     claim_checked = False
     empty_asked = set()                                # 빈 끝맺음·빈 답을 되물은 도구 — 도구마다 한 번(11-10 gpt-oss: 끝냈는데 남길 글이 비었다)
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
+    dup_tool = ""                                      # 마지막으로 되풀이한 도구
     final_retried: set[str] = set()                    # 관문에 한 번 되돌려진 끝내기 걸음 — 같은 인자로 다시 오면 받는다(관문은 한 번만, 끝낼 수 없는 상태가 없게)
     noop_run: dict[str, int] = {}                      # 쓰기 도구마다 잇달아 아무것도 바꾸지 못한 수(찾기 0곳 등)
     noop_args: dict[str, list[str]] = {}               # 그때 찾던 글 — 끝맺음 안내에 쓴다
@@ -406,12 +409,19 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         wrap = (not last and repeats >= REPEAT_LIMIT - 1 and changed and "finish" in reg)
         if wrap:
             allowed = {"finish"}
+        # 아직 아무것도 바꾸지 않았는데 같은 도구를 잇달아 되풀이하면(찾기 맴돌기) 다음 걸음은 그 도구를 빼고 고르게 한다 —
+        # 되풀이 멈춤(stop=repeat)으로 쓰기 0 인 채 끝나던 일(11-10 대화 190: 빈 절 42개, 「작성 요령」 찾기만 아홉 번)
+        banned = (dup_tool if (not last and not wrap and not changed and repeats >= REPEAT_LIMIT - 1 and dup_tool
+                               and len(allowed - {dup_tool}) > 1) else "")
+        if banned:
+            allowed = allowed - {banned}
         _STEP.set((_i + 1, max_steps))
         st = state()
         # 상태(문서 제목·절 이름·최근 대화)와 걸음 기록도 문서에서 온 글을 품으므로 울타리 안에 둔다
         current = (fenced("상태", st) + "\n\n" + fenced("지금까지 한 걸음 — 같은 걸음을 되풀이하지 않는다", "\n".join(log) or "(아직 없음)")
                    + ("\n\n[안내] " + LAST_STEP.format(max_steps=max_steps, tools=", ".join(grace)) if last
                       else "\n\n[안내] " + WRAP_UP if wrap
+                      else "\n\n[안내] " + NO_MORE.format(tool=banned) if banned
                       else "\n\n위 [담당자 요청]에 대해 다음 걸음을 JSON 으로."))
         step = None
         extra: list[dict] = []
@@ -460,7 +470,8 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     out_tokens = out_tokens * 2
             extra = [{"role": "assistant", "content": raw[:800]},
                      {"role": "user", "content": ("마지막 걸음이다 — " + ", ".join(grace) + " 또는 stop 가운데 하나를 고른 JSON 하나만 다시 답하라."
-                                                  if last else "finish 를 고른 JSON 하나만 다시 답하라 — " + WRAP_UP if wrap else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라 — "
+                                                  if last else "finish 를 고른 JSON 하나만 다시 답하라 — " + WRAP_UP if wrap
+                                                  else NO_MORE.format(tool=banned) + " JSON 하나만 다시 답하라." if banned and step and step.get("action") == banned else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라 — "
                                                   '꼴: {"thought": "한두 문장", "action": "도구 이름", "args": {...}} (괄호 수를 맞추고 JSON 밖에 글을 쓰지 않는다).')}]
             step = None
         if step is None:
@@ -498,6 +509,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         blocked = (not duplicate and tool.writes and noop_run.get(name, 0) >= NOOP_LIMIT)
         if duplicate:
             repeats += 1
+            dup_tool = name
             if key in rejected:
                 at, why_, before = rejected[key]
                 data = before[:700]
