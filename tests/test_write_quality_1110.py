@@ -120,3 +120,14 @@ def test_absent_marker_refused_for_new_documents():
         assert d.from_past() is True
     finally:
         wh.meta = orig
+
+
+def test_last_section_does_not_claim_sign_table_and_double_markers_collapse():
+    """끝 절(기안문 2. 추진 내용)의 「서식 표」 에 결문의 결재 표가 잡히지 않는다, 줄 머리 같은 부호 두 번은 하나로(11-10 대화 192)."""
+    from zzaimy.app import webhwp_fields as wf
+    from zzaimy.app import webhwp_templates as t
+    from zzaimy.app import webhwp_write as ww
+    hx, _ = wf.fieldize(t.build(t.OFFICIAL["draft"]))
+    assert ww.section_form_heads(hx, "절:2. 추진 내용") == []
+    assert ww.drop_double_markers("가. 가. 목적\n나. 기간") == "가. 목적\n나. 기간"
+    assert ww.drop_double_markers("가. 나. 그대로") == "가. 나. 그대로"

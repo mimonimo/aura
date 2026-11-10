@@ -673,6 +673,9 @@ def section_form_heads(data: bytes, name: str) -> list[list[str]]:
             if b > nxt:
                 break
             frag = tail[a:b]
+            if "<hp:tbl" in frag and any(_kind(_unq(m.group(2))) == "입력" for m in _BEGIN.finditer(frag)):
+                break                                       # 사람 칸(기안자·결재란 등, 입력:)을 품은 표 — 절 본문 영역이 끝났다. 끝 절이면 다음 절 필드가 없어
+                                                            # 결문의 결재 표까지 「이 절의 서식 표」 로 넘겨 본문에 결재 표를 다시 쓰던 일(11-10 대화 192)
             if "<hp:tbl" not in frag or len(re.findall(r"<hp:tr\b", frag)) < 2:
                 continue
             h = _head_cells(frag)
@@ -1086,6 +1089,14 @@ def drop_guides(data: bytes, names) -> tuple[bytes, dict[str, str]]:
         if changed:
             new[n] = xml
     return (_pack(zin, new) if new else data), got
+
+
+_DUP_MARK = re.compile(r"(?m)^(\s*)((?:\d{1,2}|[가-하])[.)]|\((?:\d{1,2}|[가-하])\)|[①-⑳])\s+\2(?=\s)")
+
+
+def drop_double_markers(text: str) -> str:
+    """줄 머리에 같은 항목 부호가 두 번(「가. 가. 목적」) 오면 하나로 — 지시서의 「가. 목적(…)」 요지를 서브가 부호째 옮겨 쓰던 일(11-10 대화 192)."""
+    return _DUP_MARK.sub(r"\1\2", text or "")
 
 
 def drop_heading_echo(text: str, field: str) -> str:

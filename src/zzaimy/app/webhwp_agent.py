@@ -1275,7 +1275,7 @@ class HwpTools:
             return "text 가 비었다."
         if field.startswith("입력:"):
             return "쓰지 않았다 — 「입력:」 은 사람 칸(날짜·서명·결재)이다. ask_user 로 물어 받은 값을 hwp_fill(from_user: true)로 넣는다."
-        text = ww.drop_heading_echo(text, field)            # 절 머리와 같은 첫 줄은 빼고 넣는다(번호만 다른 「1. 제목」 도)
+        text = ww.drop_heading_echo(ww.drop_double_markers(text), field)            # 절 머리와 같은 첫 줄은 빼고 넣는다(번호만 다른 「1. 제목」 도)
         if field.startswith("절:"):
             text = self._unify_numbering(fid, text)          # 한 문서 안 항목 부호를 하나로(첫 절이 정한 꼴, 11-10)
         from zzaimy.app.delegate import strip_reasoning
