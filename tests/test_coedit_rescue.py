@@ -208,7 +208,9 @@ def test_save_that_wipes_almost_all_text_is_refused(tmp_path, monkeypatch):
         r = kim.post(f"/hwp/{fid}/save{q}", content=_doc([""]))
         assert r.status_code == 409 and r.json()["detail"].startswith("wiped")
     assert len(_texts(_file(app, fid))) == 30
+    assert kim.post(f"/hwp/{fid}/save?quiet=1", content=_doc(["짧게"])).status_code == 409   # 조용한 저장은 크게 줄이지 못한다
     assert kim.post(f"/hwp/{fid}/save", content=_doc(long[:20])).status_code == 200   # 일부를 지우는 보통 저장은 그대로
+    assert kim.post(f"/hwp/{fid}/save", content=_doc(["새로 쓴 한 줄"])).status_code == 200   # 사람이 누른 저장은 글이 있으면 그대로
 
 
 def test_edit_screen_does_not_save_while_reloading():
@@ -218,3 +220,14 @@ def test_edit_screen_does_not_save_while_reloading():
     q = q[:q.index("function touched()")]
     assert "reloading" in q and "reloadPending" in q and "X-Base-Sha" in q
     assert "reloading = true" in html and "function rebase(" in html
+
+
+def test_wipe_check_does_not_unpack_zip_bombs():
+    """빈 판 거절의 글자 세기는 합치기와 같은 풀기 한도를 쓴다 — 압축 폭탄은 세지 않고(-1) 넘긴다."""
+    from zzaimy.app.webhwp_routes import _plain_len
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("Contents/section0.xml", "<hp:t>" + "가" * (60 * 1024 * 1024) + "</hp:t>")
+    assert _plain_len(buf.getvalue()) == -1
+    assert _plain_len(_doc(["가나다"])) == 3

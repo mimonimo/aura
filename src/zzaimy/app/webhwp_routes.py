@@ -1303,7 +1303,7 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
                 # 다른 사람 판 위에 옛 판 전체를 덮었다(11-10)
                 if hashlib.sha256(old_bytes).hexdigest() != base_sha:
                     raise _Stale()
-            if _wiped(old_bytes, data):
+            if _wiped(old_bytes, data, quiet=bool(quiet)):
                 raise _Wiped()
             own = ce.own_changes(db, fid, data, user) if not quiet else {}
             new, done, versions = ce.overlay(db, fid, data, keep_author=user if not quiet else "")
@@ -1340,27 +1340,24 @@ class _Wiped(Exception):
 
 
 def _plain_len(raw: bytes) -> int:
-    """HWPX 본문 글자 수(태그 뺀 글) — 읽지 못하면 -1."""
-    import io
-    import zipfile
+    """HWPX 본문 글자 수(태그 뺀 글) — 읽지 못하거나 한도를 넘으면 -1. 풀기는 합치기와 같은 한도(항목 수·압축률·실제로 풀린 양)로(압축 폭탄)."""
+    from zzaimy.app import webhwp_merge as wm
     try:
-        with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            n = 0
-            for name in z.namelist():
-                if re.match(r"Contents/section\d+\.xml$", name):
-                    n += sum(len(t.strip()) for t in re.findall(r"<hp:t(?:\s[^>]*)?>([^<]*)</hp:t>", z.read(name).decode("utf-8", "replace")))
-            return n
+        _z, secs, _h = wm._sections(raw)
     except Exception:
         return -1
+    return sum(len(t.strip()) for x in secs.values() for t in re.findall(r"<hp:t(?:\s[^>]*)?>([^<]*)</hp:t>", x))
 
 
-def _wiped(old: bytes, new: bytes) -> bool:
-    """본문이 넉넉하던 문서(300자 넘게)가 한 번 저장으로 5% 아래가 되면 사고로 본다 — 불러오는 도중의 빈 편집기 내용이 파일을 덮은 일(11-10 9명 시험, 본문 2만8천 자 → 0자).
-    사람이 일부러 다 지우는 일은 드물고, 그때는 새 문서로 만들면 된다."""
+def _wiped(old: bytes, new: bytes, quiet: bool = False) -> bool:
+    """본문이 넉넉하던 문서(300자 넘게)를 빈 판으로 덮는 저장은 사고로 본다 — 불러오는 도중의 빈 편집기 내용이 파일을 덮은 일(11-10 9명 시험, 본문 2만8천 자 → 0자).
+    서식만 남기는 조용한 저장은 본문을 크게 바꿀 일이 없어 5% 아래로 줄어도 거절한다. 사람이 누른 저장은 글이 한 자라도 있으면 그대로(양식을 비우고 새로 쓰기)."""
     if not old or not new:
         return False
     a, b = _plain_len(old), _plain_len(new)
-    return a > 300 and 0 <= b < a * 0.05
+    if a <= 300 or b < 0:
+        return False
+    return b < a * 0.05 if quiet else b == 0
 
 
 class _Stale(Exception):

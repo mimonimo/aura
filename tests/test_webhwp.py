@@ -277,7 +277,7 @@ def test_common_templates_are_locked_and_copyable(tmp_path, monkeypatch):
     new = int(r.headers["location"].split("=")[-1])
     p = Path(webhwp.get(db, new)["path"])
     assert p.parent.name == "기획처" and p.name == "사업계획서.hwpx"
-    assert kim.post(f"/hwp/{new}/save", content=_hwpx("내 것")).status_code == 200
+    assert kim.post(f"/hwp/{new}/save", content=_hwpx("<hp:t>내 것</hp:t>")).status_code == 200   # 빈 판 거절(wiped)은 본문 글(hp:t)로 센다
     # 디스크에서 양식이 바뀌면 원본 서식으로 쓰지 않고, 다시 맞추면 정의대로 돌아온다
     tp = Path(webhwp.get(db, tid)["path"])
     tp.write_bytes(_hwpx("몰래 바꿈"))
