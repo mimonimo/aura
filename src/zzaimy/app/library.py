@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 
 from zzaimy.app.doc_family import family_key
@@ -27,8 +28,9 @@ _VERSION_TAIL = re.compile(
 )
 
 
+@functools.lru_cache(maxsize=131072)
 def version_key(filename: str) -> str:
-    """판본 묶음 열쇠 — 확장자와 판 꼬리를 뗀 뒤 family_key 로 정규화. 다 떼어 비면 원래 이름의 열쇠."""
+    """판본 묶음 열쇠(이름만의 순수 함수라 기억해 둔다 — 라이브러리 화면이 요청마다 문서 4만여 건을 다시 계산해 40%를 썼다, 11-11) — 확장자와 판 꼬리를 뗀 뒤 family_key 로 정규화. 다 떼어 비면 원래 이름의 열쇠."""
     base = _EXT.sub("", (filename or "").strip())
     # 이름 뒤의 「 · …」(옛 이름 규칙이 붙인 구분 말·접수번호, 규정의 기준 날짜)는 판을 가르는 꼬리다
     base = base.split(" · ", 1)[0].strip() or base
