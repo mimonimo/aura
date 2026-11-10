@@ -131,3 +131,12 @@ def test_last_section_does_not_claim_sign_table_and_double_markers_collapse():
     assert ww.section_form_heads(hx, "절:2. 추진 내용") == []
     assert ww.drop_double_markers("가. 가. 목적\n나. 기간") == "가. 목적\n나. 기간"
     assert ww.drop_double_markers("가. 나. 그대로") == "가. 나. 그대로"
+
+
+def test_body_table_made_of_existing_field_labels_is_dropped():
+    from zzaimy.app import webhwp_write as ww
+    body = "다. 결재 요청\n1) 결재를 요청함.\n| 기안자 | 검토자 | 결재권자 |\n|---|---|---|\n| [확인 필요] | [확인 필요] | 총장 |\n끝."
+    out = ww.drop_field_tables(body, ["기안자", "검토자", "결재권자", "우편번호"])
+    assert "|" not in out and "끝." in out and "결재를 요청함" in out
+    keep = "| 월 | 내용 |\n|---|---|\n| 3월 | 착수 |"
+    assert ww.drop_field_tables(keep, ["기안자", "검토자"]) == keep

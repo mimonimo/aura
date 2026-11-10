@@ -1278,6 +1278,10 @@ class HwpTools:
         text = ww.drop_heading_echo(ww.drop_double_markers(text), field)            # 절 머리와 같은 첫 줄은 빼고 넣는다(번호만 다른 「1. 제목」 도)
         if field.startswith("절:"):
             text = self._unify_numbering(fid, text)          # 한 문서 안 항목 부호를 하나로(첫 절이 정한 꼴, 11-10)
+            try:                                             # 문서에 이미 있는 사람·라벨 칸(기안자·결재권자 …)을 머리로 쓴 본문 표는 넣지 않는다
+                text = ww.drop_field_tables(text, [x["name"].split(":", 1)[-1] for x in self._fields() if x["kind"] in ("입력", "칸")])
+            except Exception:
+                pass
         from zzaimy.app.delegate import strip_reasoning
         text = strip_reasoning(text).strip()                # 본문에 섞인 영어 생각 줄 — 메인·서브 모든 쓰기가 지나는 이 자리에서(10-28)
         if not text:

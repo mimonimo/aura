@@ -1099,6 +1099,34 @@ def drop_double_markers(text: str) -> str:
     return _DUP_MARK.sub(r"\1\2", text or "")
 
 
+def drop_field_tables(text: str, labels) -> str:
+    """본문의 마크다운 표 가운데 머리줄이 문서에 이미 있는 칸 이름(기안자·검토자·결재권자 같은 사람·라벨 칸)으로 된 표를 뺀다 —
+    결문의 결재 표를 본문에 흉내 내어 다시 쓰던 일(11-10 대화 192). 머리 칸의 6할 이상이 칸 이름이고 둘 이상 맞을 때만."""
+    keys = {re.sub(r"[\s\W_]+", "", str(x)) for x in labels or [] if str(x).strip()}
+    if not keys:
+        return text
+    lines, out, i = (text or "").split("\n"), [], 0
+    while i < len(lines):
+        s = lines[i].strip()
+        if s.startswith("|") and s.endswith("|"):
+            j = i
+            while j < len(lines) and lines[j].strip().startswith("|") and lines[j].strip().endswith("|"):
+                j += 1
+            head = [c.strip() for c in s.strip("|").split("|")]
+            hit = sum(1 for c in head if re.sub(r"[\s\W_]+", "", c) in keys)
+            if hit >= 2 and hit >= 0.6 * len([c for c in head if c]):
+                if out and re.match(r"^\s*<표[^>]*>", out[-1]):
+                    out.pop()                                # 그 표 제목 줄도
+                i = j
+                continue
+            out.extend(lines[i:j])
+            i = j
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
 def drop_heading_echo(text: str, field: str) -> str:
     """본문 첫 줄이 절 제목을 그대로 되풀이하면 뺀다 — 제목은 양식의 절 머리에 이미 있다(「2. 성과지표 총괄표」 가 두 번 보이던 것).
     공백·기호·마크다운 # 를 뺀 글이 같을 때만 — 제목을 바꿔 쓴 줄(○○○○ → 과제 이름)은 그대로 둔다."""
