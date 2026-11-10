@@ -15,7 +15,9 @@
       (function next() {
         if (i >= j.urls.length) { done(j.version); return; }
         var u = j.urls[i++];
-        fetch(u, {credentials: 'same-origin', priority: 'low'}).then(function (r) { return r.arrayBuffer(); })
+        // 엔진 wasm·글꼴 묶음은 브라우저 저장소에(editor-cache.js — 인증서 때문에 HTTP 캐시가 안 듣는 때도 남는다), 나머지는 HTTP 캐시에
+        var C = window.auraEditorCache, k = C && C.ok && C.keyOf(u);
+        (k ? C.warm(k) : fetch(u, {credentials: 'same-origin', priority: 'low'}).then(function (r) { return r.arrayBuffer(); }))
           .catch(function () {}).then(function () { idle(next); });
       })();
     }).catch(function () {});

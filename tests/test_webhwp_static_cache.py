@@ -200,3 +200,15 @@ def test_editor_data_package_is_cached_and_gzipped():
     assert _STATIC_EDITOR.search("wasm/eqeditwa.data") and _GZIP_EDITOR.search("wasm/eqeditwa.data")
     from zzaimy.app import webhwp_static_cache as sc
     assert sc._ITEM_MAX >= 33 * 1024 * 1024
+
+
+def test_editor_pages_load_storage_cache_shim():
+    """자체 서명 인증서에선 크롬이 HTTP 캐시를 안 쓴다 — 편집기 화면은 엔진 wasm·.data 를 브라우저 저장소에서 꺼내는 스크립트를 엔진보다 먼저 싣는다(11-10)."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "src/zzaimy/app"
+    edit = (root / "templates/hwp_edit.html").read_text(encoding="utf-8")
+    assert edit.index("/static/editor-cache.js") < edit.index("/webhwpctrl/js/webhwpctrl.js")
+    base = (root / "templates/base.html").read_text(encoding="utf-8")
+    assert base.index("/static/editor-cache.js") < base.index("/static/editor-prefetch.js")
+    js = (root / "static/editor-cache.js").read_text(encoding="utf-8")
+    assert "/webhwpctrl\\/wasm\\/" in js and "(wasm|data)" in js     # 판 번호 붙은 엔진 파일만
