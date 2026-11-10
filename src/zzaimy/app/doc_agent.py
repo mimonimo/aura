@@ -479,7 +479,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                              "raw": raw[-400:]})                       # 무엇을 냈는지 — 원인(생각 새기·잘림·빈 답)을 기록에서 가린다
             if last:                                                   # 한도 안내로 끝낸다(낱말 규칙 경로로 물러나지 않는다)
                 break
-            ep.stop = "repeat" if wrap else "format"
+            ep.stop = "repeat" if (wrap or banned) else "format"    # 뺀 도구만 고집한 것은 형식 오류가 아니라 되풀이다
             return ep
         if last and step.get("action") == "stop":                      # 모델이 답하지 않기로 했다
             ep.steps.append({"thought": str(step.get("thought") or "")[:500], "action": "stop", "args": {},
