@@ -1077,6 +1077,8 @@ class HwpTools:
             if src.startswith("양식복사:"):
                 self._remember_forms(cur)
             return out
+        if rep.get("blanked") and ":지난문서" not in src:
+            src += ":지난문서"                               # 값을 비운 지난 문서(작년 보고서) — 「올해 자료에 없음」 절 처리는 이런 작업본에서만(delegate.from_past)
         fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder,
                          project=int(self.project["id"]) if self.project and self.project.get("id") else None)
         m = webhwp.meta(self.db, fid)

@@ -37,7 +37,7 @@ def test_delegation_refills_pending_cell_and_marks_absent_section(tmp_path, monk
     assert hw.fill({"values": {cell: "확인 필요"}}).startswith("채웠다")
     fid = hw.fid()
     m = webhwp.meta(db, fid)
-    m["source"] = "doc:999"                                  # 작년 결과보고서를 양식으로 연 작업본
+    m["source"] = "doc:999:지난문서"                          # 작년 결과보고서를 양식으로 연 작업본(값을 비운 지난 문서)
     db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
     hw.project_docs = lambda: [{"id": 999, "filename": "2017 페스티벌 결과보고서.pdf"}]
 

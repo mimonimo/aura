@@ -609,7 +609,7 @@ def _wrap_para(p: str, begin: str, end: str) -> str:
 
 def wrap_rest_xml(xml: str, ids: _Ids, start: int) -> tuple[str, int]:
     """한 섹션 — 감싼 문단 수와 함께. start 는 이어 붙일 「문단:n」 번호."""
-    skip = [(m.start(), m.end()) for m in _NO_WRAP.finditer(xml)]
+    skip = [(m.start(), m.end()) for m in _NO_WRAP.finditer(xml)] + _guide_spans(xml)   # 작성방법 안내 상자는 쓸 칸이 아니다(감싸면 다 쓴 절에서 떼지 못했다, 11-10)
     out, pos, open_, n = [], 0, 0, start
     for m in _LEAF_P.finditer(xml):
         p = m.group(0)

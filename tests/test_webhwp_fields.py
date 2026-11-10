@@ -102,7 +102,7 @@ def test_body_slot_goes_below_guide_box():
 
 def test_heading_followed_by_plain_line_keeps_slot():
     # 기안문 「2. 추진 내용」 뒤 「붙임 … 끝.」 — 작성 지시가 아닌 긴 줄이 와도 쓸 자리다
-    sec = _p("2. 추진 내용", 11) + _p("붙임  1. (붙임 문서 이름) 1부.  끝.", 12) + _p("", 13)
+    sec = _p("2. 추진 내용", 11) + _p("붙임  1. 사업 계획서 1부.  끝.", 12) + _p("", 13)
     assert "절:2. 추진 내용" in _names(wf.fieldize(_hwpx(sec))[0])
 
 

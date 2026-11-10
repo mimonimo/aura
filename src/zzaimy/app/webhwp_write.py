@@ -994,7 +994,9 @@ def _guide_box(frag: str) -> str | None:
     """맨 바깥 문단이 작성방법 안내 상자(한 줄 표, 안내 표시 글, 표 밖 글 없음)면 그 글, 아니면 None."""
     if "<hp:tbl" not in frag or len(re.findall(r"<hp:tbl\b", frag)) > 1 or len(re.findall(r"<hp:tr\b", frag)) != 1:
         return None
-    if _BEGIN.search(frag):                                 # 필드가 든 상자는 쓸 자리다
+    # 필드가 든 상자는 쓸 자리다 — 다만 구조 저장이 안내 글 문단을 「문단:n」 으로 감싼 것은 안내 그대로다(11-10 대화 191)
+    bare = re.sub(r'<hp:ctrl>\s*<hp:fieldBegin\b[^>]*name="문단:\d+".*?</hp:fieldBegin>\s*</hp:ctrl>', "", frag, flags=re.S)
+    if _BEGIN.search(bare):
         return None
     outside = re.sub(r"<hp:tbl\b.*</hp:tbl>", "", frag, flags=re.S)
     if wf._text(outside).strip():

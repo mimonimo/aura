@@ -633,6 +633,10 @@ class Delegator:
             return "서브가 본문을 돌려주지 않았다 — 한 번 더 맡기거나 직접 쓴다." + (f" 확인 필요: {'; '.join(unknown)}" if unknown else "")
         # 쓰기는 메인과 같은 길(같은 관문). 수치 관문의 근거에는 서브가 본 근거 원문(압축 전)을 더한다
         saved = self.hw.evidence
+        if is_absent(body) and not self.from_past():
+            # 새로 쓰는 계획·문서에는 「올해 자료에 없음」 이 맞지 않다 — 결과보고서용 문구가 계획서 일정 절에 들어가던 일(11-10 대화 191)
+            return (f"「{section[2:]}」 을 서브가 「{ABSENT}」 로 돌려줬지만 이 작업본은 지난 문서를 옮긴 보고서가 아니라 새로 쓰는 문서다 — 넣지 않았다. "
+                    "앞으로 할 일(계획·일정·방법)을 근거와 담당자 요청으로 쓰도록 redo_note 를 주어 다시 맡기거나, 값이 없으면 「확인 필요」 로 둔다.")
         if saved is not None:
             raw_ev = job.get("raw_ev", [])
             self.hw.evidence = lambda: list(saved()) + raw_ev
@@ -798,6 +802,15 @@ class Delegator:
             msgs.append("한 번에 맡길 수 있는 " + str(QUEUE_MAX) + "개를 넘은 절은 맡기지 않았다: " + ", ".join(str(x.get("section") or "")[:30] for x in over)
                         + " — 다음 걸음에 다시 맡긴다.")
         return "\n\n".join(msgs)
+
+    def from_past(self) -> bool:
+        """지금 작업본이 값을 비운 지난 문서(작년 보고서)·그 구조 사본에서 왔는가 — 「올해 자료에 없음」 절 처리는 이때만."""
+        try:
+            from zzaimy.app import webhwp
+            src = str((webhwp.meta(self.db, self.hw.fid()) or {}).get("source") or "")
+        except Exception:
+            return True                                          # 모르면 예전처럼(막지 않는다)
+        return ":지난문서" in src or ":구조사본" in src
 
     def _left_sections(self) -> list[str]:
         """작업본에 아직 글이 없는 절 이름(맡길 수 있는 것) — 묶어 맡기기 안내용. 모르면 빈 목록."""

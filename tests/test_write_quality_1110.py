@@ -91,3 +91,32 @@ def test_sample_cells_and_guide_box_beside_table_are_cleaned():
     x = _xml(data)
     assert "작성방법" not in x and "OO학과" not in x and "00명" not in x and "가나다대학교 총장" in x
     assert any("참여학과를 작성" in v for v in guides.values())
+
+
+def test_guide_box_wrapped_as_para_field_is_still_dropped_and_not_wrapped():
+    """구조 저장이 【작성방법】 상자 글을 「문단:n」 칸으로 감싸도 안내로 보고 다 쓴 절에서 뗀다, 그리고 새로 감싸지 않는다(11-10 대화 191)."""
+    from zzaimy.app import webhwp_write as ww
+    box = ('<hp:p><hp:run><hp:tbl><hp:tr><hp:tc><hp:subList><hp:p><hp:run><hp:ctrl><hp:fieldBegin id="9" type="CLICK_HERE" name="문단:3">'
+           '<hp:parameters/></hp:fieldBegin></hp:ctrl><hp:t>【작성방법】 표로 정리한다.</hp:t><hp:ctrl><hp:fieldEnd beginIDRef="9"/></hp:ctrl>'
+           '</hp:run></hp:p></hp:subList></hp:tc></hp:tr></hp:tbl></hp:run></hp:p>')
+    assert ww._guide_box(box) == "【작성방법】 표로 정리한다."
+    other = box.replace('name="문단:3"', 'name="절:1. 개요"')
+    assert ww._guide_box(other) is None                     # 진짜 쓸 칸이 든 상자는 아니다
+
+
+def test_absent_marker_refused_for_new_documents():
+    """「올해 자료에 없음」 은 지난 문서 작업본에서만 — 새 계획서에는 쓰기 전에 거절."""
+    from zzaimy.app import delegate
+    d = delegate.Delegator.__new__(delegate.Delegator)
+    class _Hw:
+        def fid(self): return 1
+    d.hw, d.db = _Hw(), None
+    import zzaimy.app.webhwp as wh
+    orig = wh.meta
+    try:
+        wh.meta = lambda db, fid: {"source": "양식설계"}
+        assert d.from_past() is False
+        wh.meta = lambda db, fid: {"source": "doc:5:지난문서"}
+        assert d.from_past() is True
+    finally:
+        wh.meta = orig
