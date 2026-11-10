@@ -978,6 +978,8 @@ def create_app(
     if password is not None:                       # 운영 — 배포 스크립트가 진행 중인 요청을 보고 재시작을 미룬다(busy_beacon)
         from zzaimy.app import busy_beacon
         busy_beacon.start(app.state.data_dir)
+        from zzaimy.app import profile_sampler as _ps
+        _ps.start_watch(app.state.data_dir)          # 서버 셸에서 느린 곳 재기(.profile_request)
     app.state.save_accounts = _save_accounts
     app.state.set_pw = _set_pw
     app.state.new_account = _new_account

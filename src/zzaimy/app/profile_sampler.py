@@ -70,3 +70,32 @@ def sample(seconds: float = 10.0, interval: float = 0.005, top: int = 40, only: 
         return "\n".join(out) + "\n"
     finally:
         _LOCK.release()
+
+
+def start_watch(data_dir, every: float = 2.0) -> None:
+    """서버 셸에서 재기 — data_dir/.profile_request 파일({"seconds": 10, "only": ""})을 놓으면 재고 .profile_out.txt 에 쓴 뒤 요청 파일을 지운다.
+    관리자 비밀번호 없이 서버에 들어온 사람만 쓸 수 있다(화면 쪽은 /dev/profile)."""
+    import json
+    from pathlib import Path
+    req = Path(data_dir) / ".profile_request"
+    out = Path(data_dir) / ".profile_out.txt"
+
+    def loop():
+        while True:
+            time.sleep(every)
+            try:
+                if not req.exists():
+                    continue
+                try:
+                    opt = json.loads(req.read_text(encoding="utf-8") or "{}")
+                except ValueError:
+                    opt = {}
+                req.unlink(missing_ok=True)
+                text = sample(float(opt.get("seconds") or 10), only=str(opt.get("only") or ""))
+                tmp = out.with_suffix(".tmp")
+                tmp.write_text(text, encoding="utf-8")
+                tmp.replace(out)
+            except Exception:
+                pass
+
+    threading.Thread(target=loop, name="profile-watch", daemon=True).start()

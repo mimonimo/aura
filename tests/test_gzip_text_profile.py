@@ -72,3 +72,16 @@ def test_sampler_reports_busy_thread():
         t.join()
     assert "spin_here" in out
     assert "표본" in out
+
+
+def test_watch_file_trigger(tmp_path):
+    import json
+    import time as _t
+    profile_sampler.start_watch(tmp_path, every=0.1)
+    (tmp_path / ".profile_request").write_text(json.dumps({"seconds": 0.5}), encoding="utf-8")
+    for _ in range(60):
+        if (tmp_path / ".profile_out.txt").exists():
+            break
+        _t.sleep(0.1)
+    assert "표본" in (tmp_path / ".profile_out.txt").read_text(encoding="utf-8")
+    assert not (tmp_path / ".profile_request").exists()
