@@ -647,6 +647,25 @@ def _body_char(sections, header: str) -> str | None:
     return seen.most_common(1)[0][0] if seen else None
 
 
+# 자리표시 칸 — 말줄임(… ... ⋯ ⋮)·줄표·「중략」「이하 생략」. 작년 양식 표의 「… | … | …」 행을 본문 표가 그대로 옮겨 남겼다(11-10 <표 5>)
+_FILLER = re.compile(r"^(?:\.{2,}|…+|⋯+|⋮+|[-–—·ㆍ]+|중략|\(?이하(?:생략|동일|중략)\)?|등)$")
+_ELLIPSIS = re.compile(r"^(?:\.{2,}|…+|⋯+|⋮+|중략|\(?이하(?:생략|동일|중략)\)?)$")
+
+
+def drop_filler_rows(rows: list[list[str]]) -> list[list[str]]:
+    """머리줄 아래에서 모든 칸이 말줄임·줄표·빈칸뿐인 행(번호 칸 하나는 있어도)을 뺀다 — 말줄임이 한 칸이라도 있어야 자리표시 행으로 본다
+    (그냥 빈 행·「-」 만 든 값 행은 둔다)."""
+    out = []
+    for i, r in enumerate(rows):
+        cells = [re.sub(r"\s+", "", str(c)) for c in r]
+        rest = cells[1:] if cells and re.fullmatch(r"\d{1,3}\.?", cells[0] or "") else cells
+        if (i and any(_ELLIPSIS.match(c) for c in cells if c)
+                and all((not c) or _FILLER.match(c) for c in rest)):
+            continue
+        out.append(r)
+    return out
+
+
 def write_section(data: bytes, name: str, items: list[tuple[str, object]], written: dict[str, list[str]] | None = None
                   ) -> tuple[bytes, list[str]]:
     """절 본문 쓰기 — (새 바이트, 넣은 문단 id). 글 줄은 절 필드 안 문단으로, 표·도식은 필드 밖, 표 뒤 글은 이어 쓰기 필드로.
@@ -781,7 +800,7 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                 chunks.append(hf.paragraph_xml(f"⟦도식{len(diagrams) - 1}⟧", pp, cp).replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                 put.append(pid)
             else:
-                rows = [[str(c) for c in r] for r in val]
+                rows = drop_filler_rows([[str(c) for c in r] for r in val])
                 pid = ids.new()
                 chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), None, roles, char_hu=hangs.char_height(cp))
                               .replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
@@ -829,6 +848,102 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     return out, put
 
 
+def _guide_box(frag: str) -> str | None:
+    """맨 바깥 문단이 작성방법 안내 상자(한 줄 표, 안내 표시 글, 표 밖 글 없음)면 그 글, 아니면 None."""
+    if "<hp:tbl" not in frag or len(re.findall(r"<hp:tbl\b", frag)) > 1 or len(re.findall(r"<hp:tr\b", frag)) != 1:
+        return None
+    if _BEGIN.search(frag):                                 # 필드가 든 상자는 쓸 자리다
+        return None
+    outside = re.sub(r"<hp:tbl\b.*</hp:tbl>", "", frag, flags=re.S)
+    if wf._text(outside).strip():
+        return None
+    txt = wf._text(frag).strip()
+    return txt if wf._GUIDE.search(txt) else None
+
+
+def drop_guides(data: bytes, names) -> tuple[bytes, dict[str, str]]:
+    """다 쓴 절의 작성방법 안내 상자를 뗀다 — (새 바이트, {절 필드: 뗀 안내 글}). 절 필드 문단 바로 앞(빈 문단은 건너뛰고, 제목·글이
+    나오면 멈춤)의 안내 상자만. 필드가 표 칸 안에 있으면(배치 표) 건드리지 않는다. 아직 안 쓴 절의 안내는 남는다(사람·에이전트가 본다).
+    뗀 글은 부른 쪽이 작업본 기록(meta guides)에 둔다 — 고쳐 쓰기·맡기기가 계속 읽는다(webhwp_agent.Session.section_ctx)."""
+    names = [n for n in dict.fromkeys(names or []) if n]
+    if not names:
+        return data, {}
+    zin, secs = _open(data)
+    new: dict[str, str] = {}
+    got: dict[str, str] = {}
+    for n, xml in secs.items():
+        changed = False
+        for name in names:
+            if name in got:
+                continue
+            hit = _find(xml, name)
+            if not hit:
+                continue
+            pb = _para_bounds(xml, hit.start())
+            if not pb:
+                continue
+            head = xml[:pb[0]]
+            if len(re.findall(r"<hp:p\b", head)) != head.count("</hp:p>"):
+                continue                                    # 표 칸 안의 필드
+            cut, texts = [], []
+            for a, b in reversed(list(_top_paras(xml, pb[0]))):
+                frag = xml[a:b]
+                g = _guide_box(frag)
+                if g:
+                    cut.append((a, b))
+                    texts.append(g)
+                    continue
+                if "<hp:tbl" in frag or "<hp:pic" in frag or wf._text(frag).strip() or _BEGIN.search(frag):
+                    break
+            if not cut:
+                continue
+            for a, b in cut:                                # 뒤에서부터(reversed 로 모았다)
+                xml = xml[:a] + xml[b:]
+            got[name] = "\n".join(reversed(texts))
+            changed = True
+        # 절 필드에 붙지 않은 안내 — (1) 바로 뒤가 칸·표 필드 묶음(표)이면 그 묶음의 필드가 다 찼을 때, (2) 바로 뒤가 제목인 위 단계 안내
+        # (「2. 주요 프로그램」 처럼 제 필드 없이 아래 절들을 묶는 제목)면 그 상자부터 다음 위 단계 안내까지의 필드(아래 절 전부)가 다 찼을 때 뗀다
+        filled = set(names)
+
+        def _fields_in(frag: str) -> list[str]:
+            return [_unq(m.group(2)) for m in _BEGIN.finditer(frag) if not is_cont(_unq(m.group(2)))]
+        while True:
+            paras = list(_top_paras(xml, len(xml)))
+            boxes = []                                      # (시작, 끝, 안내 글, 「묶음」 이면 그 필드 목록 / 위 단계면 None)
+            for i, (a, b) in enumerate(paras):
+                g = _guide_box(xml[a:b])
+                if not g:
+                    continue
+                nxt = next((xml[c:d] for c, d in paras[i + 1:] if wf._text(xml[c:d]).strip() or "<hp:tbl" in xml[c:d] or _BEGIN.search(xml[c:d])), "")
+                if _guide_box(nxt):
+                    continue
+                inside = _fields_in(nxt)
+                if inside and not inside[0].startswith("절:"):
+                    boxes.append((a, b, g, inside))         # 칸·표 묶음 안내
+                elif not inside:
+                    boxes.append((a, b, g, None))           # 위 단계 안내
+            drop = None
+            tops = [x for x in boxes if x[3] is None]
+            for a, b, g, inside in boxes:
+                if inside is None:
+                    later = [t[0] for t in tops if t[0] > a]
+                    inside = _fields_in(xml[b:later[0] if later else len(xml)])
+                    if not any(x.startswith("절:") for x in inside):
+                        continue
+                if inside and all(x in filled for x in inside):
+                    drop = (a, b, g, inside[0])
+                    break
+            if not drop:
+                break
+            a, b, g, first = drop
+            xml = xml[:a] + xml[b:]
+            got["위:" + first] = (got.get("위:" + first, "") + "\n" + g).strip()
+            changed = True
+        if changed:
+            new[n] = xml
+    return (_pack(zin, new) if new else data), got
+
+
 def drop_heading_echo(text: str, field: str) -> str:
     """본문 첫 줄이 절 제목을 그대로 되풀이하면 뺀다 — 제목은 양식의 절 머리에 이미 있다(「2. 성과지표 총괄표」 가 두 번 보이던 것).
     공백·기호·마크다운 # 를 뺀 글이 같을 때만 — 제목을 바꿔 쓴 줄(○○○○ → 과제 이름)은 그대로 둔다."""
@@ -857,7 +972,7 @@ def drop_emphasis(text: str) -> str:
 def parse_body(text: str) -> list[tuple[str, object]]:
     """에이전트가 쓴 절 본문(글 + 마크다운 표 | a | b | + ```도식 블록) → items. 표 구분 줄(|---|)은 버린다."""
     items: list[tuple[str, object]] = []
-    lines = drop_emphasis(wf.clean_text(text)).split("\n")
+    lines = drop_emphasis(wf.clean_text(text, breaks=False)).split("\n")   # 「<br>」 은 칸·줄로 나눈 뒤 바꾼다(표 줄이 끊기지 않게)
     buf: list[str] = []
     table: list[list[str]] = []
     fence: list[str] | None = None
@@ -894,12 +1009,12 @@ def parse_body(text: str) -> list[tuple[str, object]]:
             flush_text()
             if re.fullmatch(r"\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?", s):
                 continue
-            table.append([c.strip() for c in s.strip("|").split("|")])
+            table.append([wf.HTML_BREAK.sub("\n", c).strip() for c in s.strip("|").split("|")])   # 칸 안 「<br>」 → 칸 안 줄바꿈
             continue
         if table:
             items.append(("table", table))
             table = []
-        buf.append(ln)
+        buf.append(wf.HTML_BREAK.sub("\n", ln))
     if table:
         items.append(("table", table))
     if fence:

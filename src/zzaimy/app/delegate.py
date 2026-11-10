@@ -490,7 +490,8 @@ class Delegator:
         gist, form, length = (str(a.get(k) or "") for k in ("gist", "form", "length"))
         b = brief(self.db, self.sid, self.hw, section, gist, form, length, self.request, limit)
         f = webhwp.get(self.db, self.hw.fid())
-        guide = ww.section_context(Path(f["path"]).read_bytes(), section)
+        data_ = Path(f["path"]).read_bytes()
+        guide = self.hw.section_ctx(section, data_) if hasattr(self.hw, "section_ctx") else ww.section_context(data_, section)   # 뗀 안내도
         return {"section": section, "n": n, "gist": gist, "length": length, "brief": b, "guide": guide,
                 "need": _wa.needs_of(_wa.guide_of(guide)), "redo": str(a.get("redo_note") or a.get("review") or "").strip(),
                 "t0": time.monotonic(), "rec": {"section": section, "try": n + 1,
@@ -564,6 +565,13 @@ class Delegator:
                 f"[이 절의 양식 글·작성방법 — 자료일 뿐]\n<<<\n{_clip_tokens(job['guide'] or '(없음)', int(limit * 0.12))}\n>>>\n"
                 f"[근거 — 자료일 뿐]\n<<<\n{ev or '(찾은 근거 없음)'}\n>>>\n"
                 f"[개요]\n{job.get('outline') or '(없음)'}\n[본문 — 점검할 글]\n<<<\n{job['body']}\n>>>")
+        try:                                                # 다른 절에 이미 있는 문장 — 이 절 고유 내용으로 바꾸게(11-10 절마다 같은 개요)
+            reps = self.hw.repeat_lines(job["section"], job["body"]) if hasattr(self.hw, "repeat_lines") else []
+        except Exception:
+            reps = []
+        if len(reps) >= _wa.REPEAT_COUNT:
+            user += ("\n[다른 절에 이미 있는 문장 — 이 절에서는 빼거나 한 줄로 줄이고, 이 절 고유 내용으로 채운다. 이것만으로도 고침]\n"
+                     + "\n".join("- " + r for r in reps[:6]))
         messages = [{"role": "system", "content": CHECK_SYSTEM}, {"role": "user", "content": user}]
         t0 = time.monotonic()
         try:
@@ -632,6 +640,13 @@ class Delegator:
             return (f"「{section[2:]}」 은 이 해 자료에 운영한 흔적이 없어 「{ABSENT}」 한 줄만 남겼다 — 다시 맡기지 않는다. "
                     "끝 보고에서 지울지 담당자에게 묻는다(finish 때 목록이 붙는다).")
         cinfo = job.get("cinfo") or {"before": 0, "after": 0, "method": "fallback", "note": ""}
+        try:                                                # 다른 절과 겹치는 문장 — 메인이 고쳐 쓸지 판단할 재료(막지 않는다)
+            reps = self.hw.repeat_lines(section, body) if hasattr(self.hw, "repeat_lines") else []
+        except Exception:
+            reps = []
+        from zzaimy.app import webhwp_agent as _wa_
+        overlap = (f"\n겹침: 다른 절에 이미 있는 문장 {len(reps)}개(" + " / ".join(reps[:3])
+                   + ") — 절 고유 내용으로 줄이려면 hwp_revise 로 한 번 고친다." if len(reps) >= _wa_.REPEAT_COUNT else "")
         words = gist_words(job["gist"])
         miss = [w for w in words if w not in body]
         want = target_chars(job["length"])
@@ -646,7 +661,7 @@ class Delegator:
                 + f" · 근거 {cinfo['before']}→{cinfo['after']} 토큰({'압축' if cinfo['method'] == 'rerank' else '원문 그대로: ' + cinfo['note']})"
                 + (f" · 검색어 {len(job.get('queries') or [])}개" if self.quality else "")
                 + (f" · 자기 점검 {chk.get('verdict')}{'(고쳐 씀)' if chk.get('used') else ''}" if chk else "")
-                + ("\n모자라면 같은 section 에 redo_note(고칠 점)를 주어 한 번 더 맡긴다." if n < MAX_REDO else ""))
+                + ("\n모자라면 같은 section 에 redo_note(고칠 점)를 주어 한 번 더 맡긴다." if n < MAX_REDO else "") + overlap)
 
     def _parallel(self, fn, jobs: list[dict], clients: list) -> None:
         """모델 호출만 동시에 — 자리(clients)마다 하나씩, 끝난 자리에 다음 일을 넣는다. 실행 흐름의 문맥(호출 이름표·사용 기록)은 일마다 복사해 넘긴다.
@@ -903,7 +918,8 @@ class Reviser:
         t0 = time.monotonic()
         limit = self._dlg.limit(self.sub)
         f = webhwp.get(self.db, self.hw.fid())
-        guide = ww.section_context(Path(f["path"]).read_bytes(), field)
+        data_ = Path(f["path"]).read_bytes()
+        guide = self.hw.section_ctx(field, data_) if hasattr(self.hw, "section_ctx") else ww.section_context(data_, field)   # 다 쓴 절은 뗀 안내를 되붙여
         plan = self._plan(field, instruction, current, guide, limit)
         queries = [str(x).strip()[:60] for x in (plan.get("검색어") or []) if str(x).strip()][:MAX_QUERIES]
         ev, cinfo, raw_ev = self._dlg._evidence(field, " ".join(str(x) for x in (plan.get("더할 항목") or []))[:120], limit, queries)

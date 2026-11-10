@@ -39,10 +39,17 @@ TEXT_MAX = 1_000_000                    # 한 칸·한 번에 넣는 글의 상�
 DOC_TEXT_MAX = 8_000_000                # 한 문서 칸 글 합계 상한(공동 편집 표) — 넘는 고침은 받지 않고 알린다
 
 
-def clean_text(value, limit: int | None = TEXT_MAX) -> str:
-    """문서에 넣을 글 — XML 이 받지 않는 글자를 빼고 줄바꿈을 \\n 하나로, 너무 길면 자른다. 이모지·특수문자는 그대로(이스케이프는 넣는 쪽이)."""
+# 모델이 칸 안 줄바꿈을 HTML 로 쓴 꼴(「<br>」「<br/>」) — 한글 문서에 글자 그대로 찍혔다(11-10 결과보고서 표 칸). 줄바꿈으로 읽는다
+HTML_BREAK = re.compile(r"<\s*br\s*/?\s*>", re.I)
+
+
+def clean_text(value, limit: int | None = TEXT_MAX, breaks: bool = True) -> str:
+    """문서에 넣을 글 — XML 이 받지 않는 글자를 빼고 줄바꿈을 \\n 하나로, 너무 길면 자른다. 이모지·특수문자는 그대로(이스케이프는 넣는 쪽이).
+    breaks 면 「<br>」 도 줄바꿈으로 — 마크다운 표 줄을 아직 나누기 전(parse_body)에는 끄고, 칸 글로 나눈 뒤 바꾼다(표 줄이 끊기지 않게)."""
     s = "" if value is None else str(value)
     s = _BAD_XML.sub("", s.replace("\r\n", "\n").replace("\r", "\n"))
+    if breaks:
+        s = HTML_BREAK.sub("\n", s)
     return s[:limit] if limit else s
 
 

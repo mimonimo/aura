@@ -1090,6 +1090,28 @@ def _clone_box(seg: str, text: str, ids) -> str:
     return _T_ANY.sub(put, seg)
 
 
+def _guide_box_xml(doc, me: dict, parts: dict, text: str) -> str:
+    """새 절의 작성방법 상자 — 앞 절의 상자를 본뜬다. 다 쓴 절은 상자를 떼므로(webhwp_write.drop_guides, 11-10) 앞 절에 없으면
+    다른 절·문서 안의 상자, 그것도 없으면 문서 표 모양으로 한 칸 상자를 새로 만든다."""
+    from zzaimy.app import webhwp_write as ww
+    ids = doc.ids
+    for p in [me, *parts.values()]:
+        if p.get("guides"):
+            g0 = p["guides"][0]
+            return _clone_box(doc.secs[p["sec"]][g0[0]:g0[1]], text, ids)
+    for xml in doc.secs.values():
+        for a, b, depth in _paras(xml):
+            if depth == 0 and ww._guide_box(xml[a:b]):
+                return _clone_box(xml[a:b], text, ids)
+    xml = doc.secs[me["sec"]]
+    bf, margin = hf._table_template(xml, hf._solid_border_ids(doc.hdr.xml))
+    if bf is None:                                          # 실선 표가 하나도 없는 문서 — 테두리 모양을 header 에 더한다
+        doc.hdr.xml, bf = hf._inject_border_fill(doc.hdr.xml)
+    pp, cp = doc.refs()
+    box = hf.table_xml([[text]], pp, cp, hf._text_width_hu(xml), bf, margin or '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>', int(ids.new()))
+    return box.replace('<hp:p id="0"', f'<hp:p id="{ids.new()}"', 1)
+
+
 def _next_number(heading: str, title: str) -> str:
     """앞 절 번호 다음 번호 — 「4.」 → 「5.」, 「다.」 → 「라.」, 「3)」 → 「4)」, 번호가 없으면 없음."""
     from zzaimy.app.webhwp_form_create import strip_number
@@ -1144,7 +1166,7 @@ def section_insert(data: bytes, a: dict) -> tuple[bytes, str]:
     guide = re.sub(r"\s+", " ", str(a.get("guide") or "")).strip()[:GUIDE_MAX]
     block = (body("<hp:t/>")
              + _fresh_para(xml[me["head"][0]:me["head"][1]], heading, ids)
-             + (_clone_box(xml[me["guides"][0][0]:me["guides"][0][1]], f"【작성방법】 {guide}", ids) if guide and me["guides"] else "")
+             + (_guide_box_xml(doc, me, parts, f"【작성방법】 {guide}") if guide else "")
              + body(wf.field_xml(name, _unq(hint), ids)))
     _n, _s, end = _section_span(doc, after)
     doc.secs[n] = xml[:end] + block + xml[end:]

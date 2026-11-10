@@ -154,6 +154,56 @@ def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
     return None
 
 
+# 절 사이 되풀이 — 절마다 같은 개요(기간·장소·참가 인원·목적)를 다시 쓰던 것(11-10 결과보고서 25개 절). 문장 비교는 출처 괄호·번호 머리·
+# 띄어쓰기·문장 부호를 뗀 글의 세 글자 조각 겹침으로(낱말 순서가 조금 바뀐 같은 문장도)
+_SRC_PAREN = re.compile(r"[(（]\s*(?:출처|자료|근거)[^)）]*[)）]")
+_LINE_HEAD = re.compile(r"^\s*(?:\d+[.)]|[가-하][.)]|\(\d+\)|\([가-하]\)|[-·•●○◦▪■□※>]+)\s*")
+REPEAT_MIN = 15          # 이보다 짧은 문장(정규화 글자 수)은 비교하지 않는다 — 「확인 필요」·짧은 항목 이름은 겹쳐도 된다
+REPEAT_SIM = 0.6         # 세 글자 조각 자카드 — 이 이상이면 같은 문장으로 본다
+REPEAT_SIM_SHORT = 0.8   # 짧은 문장(30자 아래)은 사업 이름 같은 머리 낱말만으로 비슷해 보이니 더 엄격히
+REPEAT_COUNT = 2         # 같은 문장이 이만큼 이상이면 한 번 돌려준다
+
+
+def _sent_key(s: str) -> str:
+    return re.sub(r"[\s\W_]+", "", _LINE_HEAD.sub("", _SRC_PAREN.sub("", s or "")))
+
+
+def _sentences(text: str) -> list[str]:
+    """글 줄(표 줄 빼고)을 문장으로 — 줄마다, 줄 안은 「다./함./임.」 같은 끝 뒤에서 나눈다."""
+    out = []
+    for ln in (text or "").splitlines():
+        if ln.strip().startswith(("|", "<표", "[표", "&lt;표")):     # 표 줄·표 제목은 문장이 아니다
+            continue
+        out += [x.strip() for x in re.split(r"(?<=[다함음임됨요][.。])\s+", ln) if x.strip()]   # 날짜 「2018. 6.」 에서는 나누지 않는다
+    return out
+
+
+def _grams(k: str) -> set[str]:
+    return {k[i:i + 3] for i in range(max(1, len(k) - 2))}
+
+
+def repeated_lines(text: str, others: list[str]) -> list[str]:
+    """text 의 문장 가운데 others(다른 절 글)에 거의 같은 문장이 있는 것 — 앞 60자씩."""
+    pool = []
+    for o in others:
+        for x in _sentences(o):
+            k = _sent_key(x)
+            if len(k) >= REPEAT_MIN:
+                pool.append((k, _grams(k)))
+    if not pool:
+        return []
+    hits = []
+    for x in _sentences(text):
+        k = _sent_key(x)
+        if len(k) < REPEAT_MIN:
+            continue
+        g = _grams(k)
+        if any(len(g & pg) / max(1, len(g | pg)) >= (REPEAT_SIM if min(len(k), len(pk)) >= 30 else REPEAT_SIM_SHORT)
+               or (min(len(k), len(pk)) >= 0.7 * max(len(k), len(pk)) and (k in pk or pk in k)) for pk, pg in pool):
+            hits.append(x.strip()[:60])
+    return hits
+
+
 def length_hint(guide: str) -> str:
     """양식 안내 글의 분량 안내(「2쪽 이내」「500자 내외」) — 없으면 빈 글."""
     m = re.search(r"(\d+(?:\.\d+)?\s*(?:쪽|페이지|매|자|줄))\s*(?:이내|내외|정도|분량|이하)?", guide or "")
@@ -172,6 +222,14 @@ def guide_of(context: str) -> str:
     head = (context or "").split("[이 자리에 쓴다]")[0]
     marks = list(_GUIDE_MARK.finditer(head))
     return head[marks[-1].start():].strip() if marks else ""
+
+
+def _with_guide(ctx: str, guide: str) -> str:
+    """앞뒤 양식 글에 뗀 안내를 쓸 자리 표시 바로 앞에 되붙인다(guide_of 가 읽는 자리 — 위 단계 제목의 안내보다 이 절의 안내가 뒤에 와 먼저 읽힌다)."""
+    if not guide or guide.strip() in ctx:
+        return ctx
+    mark = "[이 자리에 쓴다]"
+    return ctx.replace(mark, guide + "\n" + mark, 1) if mark in ctx else (ctx + "\n" + guide).strip()
 
 
 def needs_of(guide: str) -> list[str]:
@@ -293,6 +351,7 @@ class HwpTools:
         self.client = None                          # 문맥 한도를 읽을 연결(관문의 길이 상한) — None 이면 기본 한도
         self.delegating = False                     # 절 맡기기 도구가 켜졌는가(상태 글·직접 쓰기 관문의 안내)
         self.need_notes: dict[str, int] = {}        # 요구 요소 빠짐을 알린 횟수(필드마다 한 번만 — 고쳐 쓰기 1회)
+        self.repeat_notes: set[str] = set()         # 다른 절과 같은 문장을 되풀이했다고 돌려준 절(이번 요청에 절마다 한 번만)
         self.form_search = None                     # (query) -> [{"title","text"}] — 양식 설계 재료(공고의 작성·평가 항목) 찾기
         self.request = ""                           # 이번 요청 글(양식 설계의 담당자 인용)
         self.doc_visible = None                     # (doc) -> bool — 참고 양식으로 볼 반입 문서의 열람 범위(없으면 반입 문서는 참고하지 않음)
@@ -493,7 +552,68 @@ class HwpTools:
             ctx = ww.section_contexts(Path(f["path"]).read_bytes())
         except Exception:
             return {}
-        return {k: n for k, v in ctx.items() if (n := needs_of(guide_of(v)))}
+        kept = self._kept_guides(f["id"])
+        return {k: n for k, v in ctx.items() if (n := needs_of(guide_of(_with_guide(v, kept.get(k, "")))))}
+
+    def _kept_guides(self, fid: int) -> dict[str, str]:
+        """다 쓴 절에서 뗀 작성방법 안내(webhwp_write.drop_guides) — 고쳐 쓰기·맡기기가 계속 읽는다."""
+        g = webhwp.meta(self.db, fid).get("guides")
+        return g if isinstance(g, dict) else {}
+
+    def _keep_guides(self, fid: int, got: dict[str, str]) -> None:
+        if not got:
+            return
+        m = webhwp.meta(self.db, fid)
+        g = m.get("guides") if isinstance(m.get("guides"), dict) else {}
+        for k, v in got.items():
+            g.setdefault(k, v)
+        m["guides"] = g
+        self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+
+    def section_ctx(self, field: str, data: bytes | None = None) -> str:
+        """절의 앞뒤 양식 글(webhwp_write.section_context) — 안내 상자를 뗀 절이면 기록해 둔 안내를 쓸 자리 앞에 되붙인다."""
+        from zzaimy.app import webhwp_write as ww
+        fid = self.fid()
+        if data is None:
+            f = webhwp.get(self.db, fid or 0)
+            if not f:
+                return ""
+            data = Path(f["path"]).read_bytes()
+        ctx = ww.section_context(data, field)
+        return _with_guide(ctx, self._kept_guides(fid).get(field, "")) if fid else ctx
+
+    def repeat_lines(self, field: str, text: str, data: bytes | None = None) -> list[str]:
+        """text 가운데 이 절 밖(다른 절·칸)에 이미 있는 것과 거의 같은 문장."""
+        from zzaimy.app import webhwp_write as ww
+        if data is None:
+            f = webhwp.get(self.db, self.fid() or 0)
+            if not f:
+                return []
+            data = Path(f["path"]).read_bytes()
+        try:
+            others = [v for k, v in ww.field_values(data).items() if ww.section_of(k) != field and str(v).strip()]
+        except Exception:
+            return []
+        return repeated_lines(text, others)
+
+    def sweep_guides(self) -> int:
+        """다 쓴 절(사람이 쓴 절 포함)의 작성방법 안내 상자를 한 번에 뗀다 — 글만 든 절은 칸 길로 흘려 써 파일을 통째로 저장하지 않으니
+        안내가 남는다. 요청이 끝날 때 한 번 부른다(한 번 저장 · 열린 화면은 새 판을 한 번 받는다). 뗀 상자 수."""
+        from zzaimy.app import webhwp_write as ww
+        fid = self.fid()
+        f = webhwp.get(self.db, fid) if fid else None
+        if not f or webhwp.locked(self.db, fid):
+            return 0
+        try:
+            raw = Path(f["path"]).read_bytes()
+            data, got = ww.drop_guides(raw, [k for k, v in ww.field_values(raw).items() if str(v).strip()])
+        except Exception:
+            return 0
+        if not got:
+            return 0
+        webhwp.save(self.db, self.base, fid, data, user="AURA")
+        self._keep_guides(fid, got)
+        return len(got)
 
     def budget_lines(self, fl: list[dict] | None = None) -> list[str]:
         """절 맡기기 판단 재료 — 남은 문맥 %, 빈 절 수와 절별 분량 안내, 남은 단계 수(판단은 에이전트가 한다)."""
@@ -1024,6 +1144,17 @@ class HwpTools:
         why = self.room_problem(field, text) or self.gate(text, by=by)   # 자리(안내 상자·짧은 값 칸) 먼저, 그다음 본문 관문. by 는 코드가 정한다
         if why:
             return "쓰지 않았다 — " + why
+        if by == "메인" and field.startswith("절:") and field not in self.repeat_notes:
+            # 다른 절과 같은 문장을 여럿 되풀이했으면 한 번 돌려준다(막지는 않는다 — 같은 field 로 다시 쓰면 그대로 넣는다). 서브는 자기 점검·보고에서
+            try:
+                reps = self.repeat_lines(field, text, Path(f["path"]).read_bytes())
+            except OSError:
+                reps = []
+            if len(reps) >= REPEAT_COUNT:
+                self.repeat_notes.add(field)
+                return (f"쓰지 않았다 — 다른 절에 이미 있는 문장과 거의 같은 줄 {len(reps)}개: " + " / ".join(reps[:4])
+                        + " — 이 절에서만 할 말(이 절의 프로그램·실적·표)을 중심으로 고쳐 쓴다. 기간·장소·참가 인원·목적 같은 공통 개요는 "
+                          "앞 절에 있으니 빼거나 한 줄로 줄인다. 꼭 그대로 둬야 하면 같은 field 로 다시 쓰면 이번에는 넣는다.")
         from zzaimy.app import webhwp_coedit as ce
         who = ce.holder(self.db, fid, field)
         if who and who != ce.AGENT:
@@ -1048,10 +1179,13 @@ class HwpTools:
             items, look = webhwp_dress.dress_items(ww.parse_body(text), others)   # 참고 상자(> 줄)·표 제목(<표> 줄)은 꾸밈 스타일로
             data, put = ww.write_section(raw, field, items, written)
             data = webhwp_dress.apply(data, put, look, field)
+            # 다 쓴 절(이번 절과 앞서 흘려 쓴 절)의 작성방법 안내 상자는 같은 저장에서 뗀다 — 결과보고서에 안내 줄이 남던 것(11-10)
+            data, guides = ww.drop_guides(data, [k for k, v in ww.field_values(data).items() if str(v).strip()])
         except KeyError:
             names = [x["name"] for x in self._fields() if x["kind"] == "절"]
             return f"그런 절 필드가 없다. 절 필드: {', '.join(names[:30])}"
         webhwp.save(self.db, self.base, fid, data, user="AURA")
+        self._keep_guides(fid, guides)
         # 절 필드와 이어 쓰기 필드의 글을 칸 글 표에 — 써 넣기(overlay)가 AURA 글을 옛 글로 되돌리지 않고, 다시 불러온 편집 화면의
         # 칸 글이 표와 같게(지문 대조가 서로 덮지 않게). 이번에 없어진 이어 쓰기 필드의 줄은 지운다
         vals = ww.field_values(data)
@@ -1240,7 +1374,7 @@ class HwpTools:
         bodies = m.get("body") if isinstance(m.get("body"), dict) else {}
         bodies[field] = text[:20000]                         # 쓴 본문 그대로(마크다운 표·도식) — 고쳐 쓰기(hwp_revise)의 「지금 글」
         m["body"] = bodies
-        need = needs_of(guide_of(ww.section_context(data, field)))
+        need = needs_of(guide_of(self.section_ctx(field, data)))
         shape = body_shape(text)
         shape.update(need=need, missing=missing_needs(need, shape), by=by)
         shapes = m.get("shape") if isinstance(m.get("shape"), dict) else {}

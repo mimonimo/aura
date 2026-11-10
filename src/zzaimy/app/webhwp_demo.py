@@ -589,11 +589,12 @@ class DemoRun:
                 self.step(f"{field[2:]}, 새 절을 만들고 쓰는 중" if field == added else f"{field[2:]} 쓰는 중 ({i + 1}/{len(todo)})")
                 if i + 1 < len(todo):
                     fut = pool.submit(self.draft, todo[i + 1], done + [(field, text)])
-                res = self.hw.write({"field": field, "text": text})
+                # 시연 흐름은 절마다 계획대로 쓴다 — 절 사이 되풀이 관문(메인 직접 쓰기용)은 건너뛴다(by="시연", 시연 시간이 늘지 않게)
+                res = self.hw.write({"field": field, "text": text}, by="시연")
                 if res.startswith("쓰지 않았다"):
                     self.step(f"{field[2:]} 고쳐 쓰는 중 ({i + 1}/{len(todo)})")
                     text = self.draft(field, done, why=res[:400])
-                    res = self.hw.write({"field": field, "text": text})
+                    res = self.hw.write({"field": field, "text": text}, by="시연")
                 if res.startswith("쓰지 않았다"):
                     failed.append(f"{field[2:]}({res[7:80]})")
                 else:

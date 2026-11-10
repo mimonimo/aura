@@ -3272,6 +3272,7 @@ def create_app(
                                "예) 표: 「| 구분 | 내용 | 일정 |\\n|---|---|---|\\n| 1단계 | 교육과정 개발 | 3~6월 |」, "
                                "도식: 「```도식\\n총장\\n사업단장 → 운영위원회\\n교육팀 → 성과관리팀\\n```」. "
                                "상태의 필드 목록에 「작성방법 요구: 표·도식·출처」 가 붙은 절은 그 요소를 넣는다(근거가 있을 때). "
+                               "다른 절에 이미 쓴 공통 개요(기간·장소·참가 인원·목적)는 되풀이하지 않고 이 절 고유 내용(프로그램·실적·표)을 쓴다. "
                                "담당자가 이번 요청에서 알려 준 사실과 search 로 찾은 근거만 쓰고 지어내지 않는다. 큰 칸(사업 추진계획 같은 요약 표의 본문 칸)도 field 에 칸 이름을 주면 그 칸 안에 쓴다. args {field: 절 또는 칸 필드 이름, text: 본문}", hw.write, writes=True),
                 doc_agent.Tool("hwp_tables", "작업본의 표 목록(번호·크기·첫 행) — 서식을 고칠 표를 짚을 때. args {}", hw.tables),
                 doc_agent.Tool("hwp_style", "표 서식 고치기(담당자가 표 모양을 바꿔 달라고 할 때). 주지 않은 값은 학교 표 기본(머리줄·라벨 칸 회색 #E5E5E5·굵게·가운데, "
@@ -3333,6 +3334,12 @@ def create_app(
                            max_writes=(30 if hw is not None else doc_agent.MAX_WRITES),
                            scope=((lambda: str(hw.fid() or "")) if hw is not None else None),
                            **({"max_steps": hw.step_budget()} if hw is not None else {}))
+        if hw is not None and ep.writes:
+            # 다 쓴 절의 작성방법 안내 상자 — 칸 길로 흘려 쓴 절은 저장 때 떼지 못해 남는다. 요청 끝에 한 번 저장으로 뗀다(11-10 결과보고서)
+            try:
+                hw.sweep_guides()
+            except Exception:
+                logging.getLogger("zzaimy.app.webhwp").exception("작성방법 안내 떼기 실패 (대화 %s)", session_id)
         # 에이전트 걸음의 생각(thought)도 답과 함께 「생각 과정」 으로 — 걸음마다 [N단계: 도구] 생각
         try:
             new_msgs = [m_ for m_ in db.list_chats(session_id, limit=20) if m_.get("role") == "assistant" and int(m_["id"]) > _before_id]

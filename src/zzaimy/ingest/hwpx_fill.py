@@ -517,8 +517,8 @@ def xml_text(text: str) -> str:
 
 
 def split_lines(text: str) -> list[str]:
-    """문단 나누기 — 독스의 문단 안 줄 바꿈(Shift+Enter 는 API 에서 \x0b)과 \r 도 줄로 본다."""
-    return re.split(r"\r\n|[\n\r\x0b\x0c\u2028\u2029]", text)
+    """문단 나누기 — 독스의 문단 안 줄 바꿈(Shift+Enter 는 API 에서 \x0b)과 \r, HTML 「<br>」 도 줄로 본다."""
+    return re.split(r"\r\n|[\n\r\x0b\x0c\u2028\u2029]|<\s*br\s*/?\s*>", text, flags=re.I)   # 모델이 쓴 「<br>」 도 줄로(11-10)
 
 
 def paragraph_xml(text: str, pp: str, cp: str) -> str:

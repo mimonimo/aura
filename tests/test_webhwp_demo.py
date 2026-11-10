@@ -352,7 +352,9 @@ def test_continue_adds_one_section_when_none_empty(tmp_path, monkeypatch):
     assert list(secs) == ["절:1. 추진 배경", "절:2. 사업 목표", "절:3. 성과 지표"] and "1) 필요성" in secs["절:3. 성과 지표"]
     data = Path(webhwp.get(db, fid)["path"]).read_bytes()
     ctx = ww.section_context(data, "절:3. 성과 지표")
-    assert "3. 성과 지표" in ctx and "【작성방법】 성과 지표와 목표값을" in ctx
+    # 쓴 절의 작성방법 상자는 문서에서 떼고 작업본 기록(meta guides)에 남긴다(11-10 결과보고서 — 다 쓴 절에 안내 줄이 남던 것)
+    assert "3. 성과 지표" in ctx and "【작성방법】 성과 지표와 목표값을" not in ctx
+    assert "【작성방법】 성과 지표와 목표값을" in webhwp.meta(db, fid)["guides"]["절:3. 성과 지표"]
     run = demo.run_state(db, fid)
     steps = [x["step"] for x in run["log"]]
     assert steps[0].startswith("새 절 고르는 중") and "3. 성과 지표, 새 절을 만들고 쓰는 중" in steps
