@@ -868,7 +868,9 @@ class AgentResponder:
         # 마지막 점검 — 모델에 건넨 글(질문·첨부·근거)에 없는 수치는 지우지 않고 「(근거 확인 필요)」를 붙인다(절대 규칙 1: 수치는 인출만)
         from zzaimy.verify.numbers import fix_calculations, flag_unsupported
         out, fixed = fix_calculations(out)                  # 틀린 셈 결과는 코드가 다시 셈해 바꾼다(27B 곱셈 실수, 11-06)
-        out, flagged = flag_unsupported(out, [user_content])
+        # 앞선 대화에서 담당자가 알려 준 값(예산·생년 등)도 근거로 — 지난 질문 글에 있는 수치에 표시가 붙지 않게(11-10)
+        told = [str(m_.get("content") or "") for m_ in (messages or []) if isinstance(m_, dict) and m_.get("role") == "user"]
+        out, flagged = flag_unsupported(out, [user_content] + told)
         if fixed:
             out += "\n\n※ 셈이 맞지 않은 값을 다시 계산해 고쳤습니다: " + ", ".join(fixed[:4]) + "."
         self.last_flagged = flagged

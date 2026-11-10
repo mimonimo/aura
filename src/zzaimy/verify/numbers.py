@@ -382,10 +382,24 @@ def fix_calculations(text: str) -> tuple[str, list[str]]:
     return out, [f"{w} → {r}" for w, r in fixes.items()]
 
 
+def supported_calcs(text: str, evidence_texts: list[str]) -> list[str]:
+    """답 안의 셈(「A × B = C」) 가운데 셈에 들어간 수가 모두 근거에 있는 것 — 그 셈 글 자체를 근거로 더해 결과(C)를 근거 있는 값으로 본다.
+    셈이 맞는지는 fix_calculations 가 먼저 바로잡는다. 근거 수치끼리 셈한 값(만 나이·합계)에 「근거 확인 필요」가 붙던 일(11-10)."""
+    joined = re.sub(r"[,\s]", "", "\n".join(evidence_texts or []))
+    out = []
+    for m in _calc_iter(text or ""):
+        nums = [n.replace(",", "") for n in _NUMBER.findall(m.group(1))]
+        if nums and all(n in joined for n in nums):
+            out.append(m.group(0))
+    return out
+
+
 def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
     """근거에 없는 수치 바로 뒤에 「(근거 확인 필요)」를 붙인다 — 대화 답은 수치를 지우지 않고, 어느 수치를 원문에서 확인해야 하는지
-    보이게 한다(문서 초안은 mask_unsupported 로 가린다). 판정은 mask_unsupported 와 같다. 돌려주는 것은 (새 글, 표시한 수치)."""
-    return _rewrite_unsupported(text, evidence_texts, mark=True)
+    보이게 한다(문서 초안은 mask_unsupported 로 가린다). 판정은 mask_unsupported 와 같다. 돌려주는 것은 (새 글, 표시한 수치).
+    근거 수치끼리 셈한 결과(supported_calcs)는 근거가 있는 값으로 본다."""
+    ev = list(evidence_texts or [])
+    return _rewrite_unsupported(text, ev + supported_calcs(text, ev), mark=True)
 
 
 _MD = re.compile(r"(0?[1-9]|1[0-2])\.(0?[1-9]|[12]\d|3[01])")

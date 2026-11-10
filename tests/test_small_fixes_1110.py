@@ -67,3 +67,13 @@ def test_finish_with_all_sections_empty_is_nudged_once_to_delegate():
     assert 'empty_checked["done"] = True' in fin and "delegate_section {{sections: [빈 절 전부]}}" in fin
     assert "doc_agent._STEP.get()" in fin and '== "delegate_section" for t_ in tools' in fin
     assert 'empty_checked = {"done": False}' in src
+
+
+def test_calc_from_supported_numbers_is_not_flagged():
+    """근거 수치끼리 셈한 결과에는 「근거 확인 필요」를 붙이지 않는다 — 근거에 없는 수로 한 셈은 그대로 표시."""
+    from zzaimy.verify.numbers import flag_unsupported
+    ev = ["사업비 월 500만 원, 기간 12개월"]
+    out, flagged = flag_unsupported("총액은 500만 원 × 12개월 = 6,000만 원입니다. 결론적으로 6,000만 원이 필요합니다.", ev)
+    assert not flagged and "확인 필요" not in out
+    out, flagged = flag_unsupported("총액은 700만 원 × 12개월 = 8,400만 원입니다.", ev)
+    assert flagged
