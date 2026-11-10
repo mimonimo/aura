@@ -3255,9 +3255,9 @@ def create_app(
             _docs_only = {"read_section", "create_document", "write_section", "open_project_document", "rewrite_section",
                           "review_section", "edit_document", "remove_guide_boxes", "export_hwp", "new_work_copy"}
             tools = [t_ for t_ in tools if t_.name not in _docs_only] + [
-                doc_agent.Tool("hwp_forms", "쓸 한글 양식 찾기 — 이 프로젝트의 한글 양식(사업이 준 서식)이 먼저, 그다음 공문·국고 사업·학교 양식. args {query: 문서 갈래 낱말}", hw.forms),
+                doc_agent.Tool("hwp_forms", "쓸 한글 양식 찾기 — 이 프로젝트·대화에 올린 양식과 작년 계획서·보고서가 먼저(있으면 그것을 살려 쓴다), 공통 양식·지난 사업 문서는 맞춤 양식이 없을 때 출발점. args {query: 문서 갈래 낱말}", hw.forms),
                 doc_agent.Tool("hwp_start", "고른 양식으로 한글 작업본을 만들어 이 대화에 잇기(담당자가 새 문서를 쓰자고 했을 때 — 이미 있는 작업본을 고치는 요청이면 hwp_switch). "
-                               "args {form: hwp_forms 의 id, title: 문서 제목, new: 같은 이름 작업본이 있는데도 담당자가 새 문서를 원할 때만 true}",
+                               "args {form: hwp_forms 의 id, title: 문서 제목, new: 같은 이름 작업본이 있는데도 담당자가 새 문서를 원할 때만 true, carry: 담당자가 새 양식으로 옮겨 담자고 했을 때 true — 지금 작업본의 같은 이름 절·칸 글을 옮긴다}",
                                hw.start, writes=True),
                 doc_agent.Tool("hwp_switch", "이 대화·프로젝트에 이미 있는 다른 한글 작업본으로 바꿔 잇기 — 요청이 그 문서(이름이나 계획서·기안문 같은 갈래)를 짚을 때. "
                                "상태의 「다른 작업본」 목록에서 고른다. args {doc: 작업본 이름(일부여도 됨) 또는 번호}", hw.switch),

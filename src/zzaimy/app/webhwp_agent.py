@@ -50,6 +50,16 @@ def files_of(db, session_id: int) -> list[int]:
 
 
 # 새 문서를 분명히 청하는 말 — 「기존(작업본|문서|것) 말고」「새로 만들어」「새 작업본」
+# 담당자가 양식을 만들어 진행하라는 뜻 — 「양식부터 잡아」「새로 설계」「알아서」「그냥 써」 (있으면 맞춤 양식이 없어도 묻지 않고 설계한다, 11-10)
+_FORM_MAKE_ASK = re.compile(r"양식\S{0,3}.{0,30}?(잡|만들|설계|짜|생성|구성)|(새로|직접)\s*(설계|만들|짜)|알아서|그냥\s*(써|만들|진행|작성)"
+                            r"|만들어\s*(서\s*)?(진행|줘|써|작성|주)|양식\s*(없이|없어|없다|없음)|공통\s*양식")
+# 양식으로 살려 쓸 수 있는 프로젝트 문서 갈래 — 사업이 준 서식·작년(지난) 계획서·결과보고서·회의 자료. 공고·기본계획·지침은 근거이지 양식이 아니다
+_FORM_HAVE_ASK = re.compile(r"양식\S{0,3}\s*(있|올려|올린|올릴|첨부|보낼|드릴)|(작년|지난해|전년|올린|첨부한)\S{0,4}\s*(양식|서식|보고서|계획서|문서)")
+_FORM_ASK_LINE = "이 문서의 양식(작년 보고서 등)이 있으면 올려 주세요. 없으면 공고·지침 기준으로 양식을 만들어 바로 이어 쓰겠습니다"
+_FORM_LIKE_KINDS = {"form", "plan", "report", "minutes", "evaluation"}
+_FORM_LIKE_TITLE = re.compile(r"양식|서식|보고서|계획서|기안문|회의록|신청서")
+
+
 _NEW_DOC_ASK = re.compile(r"(기존|이전|지금|원래)\s*(작업본|문서|것|파일)?\s*(말고|대신|아니라)|새\s*(작업본|문서|파일)\s*(을|를|으로|로)?\s*(만들|작성|열)|새로\s*(만들|작성|열)")
 
 
@@ -417,12 +427,15 @@ class HwpTools:
             pre = ([f"이 프로젝트의 작업본: " + ", ".join(f"「{d['name']}」" for d in have[:8])
                     + " — 요청이 그중 하나를 고치자는 것이면 hwp_switch {doc} 로 이어서 고친다(새로 만들지 않는다)."] if have else [])
             return pre + ["편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 없음. 담당자가 문서를 쓰자고 하면 hwp_forms 로 양식을 고르고 hwp_start 로 만든다"
-                    "(프로젝트에 사업이 준 한글 양식이 있으면 그것을 쓴다. 후보가 여럿이라 정하기 어렵거나 담당자가 정할 일이면 ask_user 로 묻는다). "
-                    "찾아본 양식 가운데 목적에 맞는 것이 없으면 hwp_form_create 로 양식부터 설계해 만든다."]
+                    "(프로젝트·대화에 사업이 준 한글 양식이나 작년 계획서·보고서가 있으면 그것을 살려 쓴다. 후보가 여럿이라 정하기 어렵거나 담당자가 정할 일이면 ask_user 로 묻는다). "
+                    "맞춤 양식이 없으면 공통 양식으로 바로 가지 말고 담당자에게 한 번 묻는다(양식을 올릴지, 만들어 진행할지) — 담당자가 양식을 만들라고 했으면 묻지 않고 hwp_form_create 로 설계해 만든다."]
         f = webhwp.get(self.db, fid)
         fl = self._fields()
         empty = [x["name"] for x in fl if not x["text"]]
         lines = [f"편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 「{Path(f['name']).stem}」(필드 {len(fl)}개, 빈 필드 {len(empty)}개)"]
+        late = self.late_form_line(fid)
+        if late:
+            lines.append(late)
         others = [d for d in self.work_docs() if d["id"] != fid]
         cur_ = Path(f["name"]).stem
         orig_ = [d for d in others if _title_key(d["name"]) == _title_key(cur_)]
@@ -531,6 +544,116 @@ class HwpTools:
         return hits[0] if len(hits) == 1 else None
 
     # ── 도구 ──
+    def project_form_docs(self) -> list[dict]:
+        """프로젝트·대화에 올린 문서 가운데 양식으로 살려 쓸 수 있는 한글 문서 — 사업이 준 서식, 작년(지난) 계획서·결과보고서 등.
+        고르는 것은 모델이다. 코드는 후보만 추린다(공고·기본계획·지침은 근거라 빼고, 갈래를 모르면 제목에 양식·보고서 같은 말이 있을 때만)."""
+        out = []
+        for d in self.project_docs() or []:
+            if storage.original_ext(d) not in (".hwp", ".hwpx"):
+                continue
+            k = str(d.get("kind") or "")
+            if k in _FORM_LIKE_KINDS or (not k and _FORM_LIKE_TITLE.search(storage.title_of(d.get("filename") or ""))):
+                out.append(d)
+        return out
+
+    def wants_form_made(self) -> bool:
+        """담당자가 양식을 만들어 진행하라고 했는가(이번 요청이나 이 대화의 담당자 글) — 「양식부터 잡아」「새로 설계」「알아서」「그냥 써」.
+        「작년 양식이 있으면」「올린 양식으로」 처럼 있는 양식을 짚는 말은 만들라는 뜻이 아니다."""
+        try:
+            said = [str(c.get("content") or "") for c in self.db.list_chats(self.sid) if c.get("role") == "user"]
+        except Exception:
+            said = []
+        for t in [self.request or ""] + said[-6:]:
+            t = re.sub(r"\s+", " ", t)
+            if not t.strip():
+                continue
+            if re.search(r"알아서|그냥\s*(써|만들|진행|작성)|(새로|직접)\s*(설계|만들|짜)|만들어\s*(서\s*)?진행|양식\s*(없이|없어|없다|없음)|공통\s*양식", t):
+                return True
+            if _FORM_MAKE_ASK.search(t) and not _FORM_HAVE_ASK.search(t):
+                return True
+        return False
+
+    def form_source_gate(self) -> str | None:
+        """맞춤 양식(프로젝트·대화에 올린 양식·지난 문서)이 없는데 공통 양식이나 새 설계로 바로 가려 할 때 — 대화마다 한 번 담당자에게 먼저 묻게 한다.
+        프로젝트가 없는 대화, 이 대화의 첫 문서가 아닌 것, 담당자가 이미 만들어 진행하라고 한 대화, 이미 물은 대화는 그대로 지난다."""
+        if not (self.project and self.project.get("id")) or not (self.request or "").strip():
+            return None                                     # 프로젝트 밖 대화·요청 글 없는 도구 호출(화면 단추 등)은 묻지 않는다
+        if files_of(self.db, self.sid):
+            return None                                     # 이 대화에서 이미 문서를 쓰고 있다 — 기안문처럼 이어 만드는 문서는 공문 서식으로 바로(첫 문서만 묻는다)
+        if self.project_form_docs() or self.wants_form_made():
+            return None
+        key = f"form_source_asked:{self.sid}"
+        if (self.db.get_setting(key, "") or "").strip():
+            return None
+        self.db.set_setting(key, str(int(time.time())))
+        return ("아직 만들지 않았다 — 이 프로젝트·대화에 올린 양식이나 작년 문서가 없다. 공통 양식이나 새 설계로 가기 전에 한 번 묻는다: "
+                f"ask_user {{message: \"{_FORM_ASK_LINE}\", items: [{{name: \"양식\", kind: \"결정\", why: \"작년 보고서나 사업이 준 양식이 있으면 그 짜임대로 쓴다\", "
+                "how: \"「올리기」 또는 「만들어 진행」\"}}]}}. 그동안 쓸 수 있는 칸·근거 찾기는 하지 않고 묻기로 이번 답을 마친다. "
+                "담당자가 만들어 진행하라고 하면(채팅 답도 같다) hwp_form_create 로 설계하고, 파일을 올리면 hwp_forms 로 그 문서를 골라 hwp_start 한다.")
+
+    def _remember_forms(self, fid: int) -> None:
+        """공통 양식·새 설계로 시작한 작업본에 그때 있던 맞춤 양식 후보를 적어 둔다 — 뒤에 올라온 양식을 알아보는 기준(state_lines)."""
+        try:
+            m = webhwp.meta(self.db, fid)
+            m["form_known"] = sorted(int(d["id"]) for d in self.project_form_docs())
+            self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+        except Exception:
+            pass
+
+    def late_form_line(self, fid: int) -> str | None:
+        """공통 양식·새 설계로 쓰던 작업본인데 그 뒤 프로젝트·대화에 양식 파일이 올라왔으면 옮겨 담을지 묻게 하는 안내 — 한 문서에 한 번."""
+        m = webhwp.meta(self.db, fid)
+        known = m.get("form_known")
+        if not isinstance(known, list):
+            return None
+        new = [d for d in self.project_form_docs() if int(d["id"]) not in set(known)]
+        if not new:
+            return None
+        key = f"form_offer:{fid}"
+        ids = ",".join(str(int(d["id"])) for d in new)
+        seen = (self.db.get_setting(key, "") or "").split("|", 1)
+        if seen[0] == ids and len(seen) > 1 and seen[1] != (self.request or "")[:200]:
+            return None                                     # 지난 요청에서 이미 물었다
+        self.db.set_setting(key, ids + "|" + (self.request or "")[:200])
+        names = ", ".join(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:40]}」" for d in new[:3])
+        return (f"이 작업본을 시작한 뒤 양식으로 쓸 만한 문서가 올라왔다: {names} — 담당자에게 그 양식으로 바꿔 지금까지 쓴 내용을 옮겨 담을지 "
+                "ask_user 로 한 번 묻는다(선택지 「옮기기」·「지금 문서로 계속」). 옮기라 하면 hwp_start {form: \"doc:N\", new: true, carry: true} — "
+                "같은 이름의 절·칸으로 글을 옮기고, 이름이 안 맞는 절은 hwp_fields 로 보고 나눠 쓴다.")
+
+    def _carry(self, src_fid: int, data: bytes) -> tuple[bytes, list[str]]:
+        """앞 작업본에서 쓴 글을 새 양식으로 옮겨 담기 — 이름(번호·띄어쓰기·갈래 머리 뺀)이 같은 칸·절끼리만. 이름이 안 맞는 것은 남긴다."""
+        from zzaimy.app import webhwp_write as ww
+        f = webhwp.get(self.db, src_fid)
+        try:
+            old = ww.field_values(Path(f["path"]).read_bytes()) if f else {}
+        except Exception:
+            old = {}
+
+        def key(n: str) -> str:
+            n = re.sub(r"^(절|칸|표|입력)\s*:\s*", "", str(n))
+            n = re.sub(r"^\s*([0-9]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|[IVX]+|[가-하])\s*[.)．]\s*", "", n)
+            return re.sub(r"[\s·ㆍ.,:()\[\]「」]", "", n)
+        old_by = {}
+        for n, v in old.items():
+            if str(v or "").strip() and not n.startswith("입력:"):
+                old_by.setdefault(key(n), (n, v))
+        moved = []
+        for x in ww.fields(data):
+            hit = old_by.get(key(x["name"]))
+            if not hit or x["kind"] == "입력" or not key(x["name"]):
+                continue
+            try:
+                if x["kind"] == "절":
+                    data, _ = ww.write_section(data, x["name"], ww.parse_body(str(hit[1])))
+                else:
+                    data, done = ww.set_fields(data, {x["name"]: str(hit[1])})
+                    if not done:
+                        continue
+                moved.append(x["name"])
+            except Exception:
+                continue
+        return data, moved
+
     def forms(self, a: dict) -> str:
         from zzaimy.app import webhwp_form_create
         q = str(a.get("query") or "").strip()
@@ -541,6 +664,7 @@ class HwpTools:
         except Exception:
             pass
         out = []
+        mine = {int(d["id"]) for d in self.project_form_docs()}
         for d in self.project_docs() or []:
             if storage.original_ext(d) in (".hwp", ".hwpx"):
                 big = ""
@@ -551,7 +675,10 @@ class HwpTools:
                         big = " · 큰 원본(고르면 목차·표 머리를 옮긴 구조 사본으로 연다)"
                 except Exception:
                     pass
-                out.append(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:50]}」(이 프로젝트 문서{' · 양식' if d.get('kind') == 'form' else ''}{big})")
+                kind_ = {"form": " · 양식", "report": " · 보고서", "plan": " · 계획서"}.get(str(d.get("kind") or ""), "")
+                out.append(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:50]}」(이 프로젝트 문서{kind_}{big}"
+                           + ("" if int(d["id"]) in mine else " · 근거 문서라 양식으로는 맞지 않을 수 있음") + ")")
+        n_proj = len(out)
         words = [w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", q)]
         scored = []
         for r in self.db.list_files(kind="webhwp", limit=8000):
@@ -584,14 +711,34 @@ class HwpTools:
             except Exception:
                 pass
             out.append(x[-1] + n)
-        return (("양식 후보(form 에 앞의 id 를 쓴다 — 목적에 맞는 것이 없으면 hwp_form_create 로 새로 설계한다):\n" + "\n".join(out)) if out
-                else "맞는 양식이 없다 — 검색어를 바꿔 한 번 더 찾거나, 목적에 맞는 양식을 hwp_form_create 로 설계해 만든다.")
+        if not out:
+            return "맞는 양식이 없다 — 검색어를 바꿔 한 번 더 찾거나, 목적에 맞는 양식을 hwp_form_create 로 설계해 만든다."
+        head = "양식 후보(form 에 앞의 id 를 쓴다):"
+        parts = []
+        if n_proj:
+            parts.append("【이 프로젝트·대화에 올린 문서 — 사업이 준 양식이나 작년 문서가 있으면 이것을 살려 쓴다(값이 든 것은 옛 값을 비운 사본, 큰 원본은 구조 사본)】\n"
+                         + "\n".join(out[:n_proj]))
+        if len(out) > n_proj:
+            parts.append("【공통 양식·지난 사업 문서 — 맞춤 양식이 없을 때 출발점. 이름이 비슷하다고 고르지 말고, 목적에 맞지 않으면 hwp_form_create 로 새로 설계한다】\n"
+                         + "\n".join(out[n_proj:]))
+        tail = ""
+        if not mine and self.project and self.project.get("id") and not self.wants_form_made():
+            tail = (f"\n맞춤 양식 없음 — 이 프로젝트·대화에 올린 양식·작년 문서가 없다. 담당자가 양식을 만들라고 하지 않았으면 고르기 전에 ask_user 로 한 번 묻는다: "
+                    f"「{_FORM_ASK_LINE}」, 선택지 「올리기」·「만들어 진행」(items 는 양식 하나, kind 결정).")
+        return head + "\n" + "\n".join(parts) + tail
 
     def form_create(self, a: dict) -> str:
         """맞는 양식이 없을 때 양식 설계·만들기(app/webhwp_form_create) — 설계는 같은 모델, 관문·빌드·기록은 코드."""
         from zzaimy.app import webhwp_form_create
-        return webhwp_form_create.FormCreator(self.client, self.db, self.sid, self, self.request, search=self.form_search,
-                                              visible=self.doc_visible).run(a)
+        if (self.db.get_setting(webhwp_form_create.SEEN_KEY.format(sid=self.sid), "") or "") and (g := self.form_source_gate()):
+            return g
+        before = self.fid()
+        out = webhwp_form_create.FormCreator(self.client, self.db, self.sid, self, self.request, search=self.form_search,
+                                             visible=self.doc_visible).run(a)
+        now = self.fid()
+        if now and now != before:
+            self._remember_forms(now)
+        return out
 
     def start(self, a: dict) -> str:
         from zzaimy.app import webhwp_convert
@@ -603,6 +750,9 @@ class HwpTools:
             t = webhwp.get(self.db, int(form[4:]))
             if not t or not webhwp.locked(self.db, t["id"]):
                 return "그런 양식이 없다 — hwp_forms 결과의 id 를 쓴다."
+            g = self.form_source_gate()
+            if g:
+                return g
             rep: dict = {}
             data, fields = webhwp_convert.work_form(Path(t["path"]).read_bytes(), ".hwpx", blank=past_doc_form(self.db, t), report=rep)
             name = title or Path(t["name"]).stem.replace(" 공통 양식", "")
@@ -647,7 +797,7 @@ class HwpTools:
                       if rep.get("blanked") else "")
         cur = self.fid()
         # 담당자가 「기존 작업본 말고」「새로 만들어」처럼 새 문서를 분명히 청했으면 같은 이름이 있어도 새로 만든다(11-10 대화 172)
-        wants_new = bool(a.get("new")) or bool(_NEW_DOC_ASK.search(re.sub(r"\s+", " ", self.request or "")))
+        wants_new = bool(a.get("new")) or bool(a.get("carry")) or bool(_NEW_DOC_ASK.search(re.sub(r"\s+", " ", self.request or "")))
         if not wants_new:
             # 같은 이름의 작업본이 이미 있으면 새로 만들지 않는다 — 그 문서를 고치는 요청이 「(2)」 사본으로 새던 것(11-09)
             dup = next((d for d in self.work_docs() if _title_key(d["name"]) == _title_key(name)
@@ -655,21 +805,33 @@ class HwpTools:
             if dup:
                 return (f"「{dup['name']}」 작업본이 이미 있다(#{dup['id']}) — 그 문서를 고치는 요청이면 hwp_switch {{doc: \"{dup['name']}\"}} 로 바꾼 뒤 "
                         "hwp_fields·hwp_revise 로 고친다. 담당자가 정말 새 문서를 원하면 hwp_start 에 new: true 를 준다.")
-        if cur and self._empty_doc(cur):
-            return self._load_into(cur, data, fields, name, src) + blank_note + skel_note
+        carry_note = ""
+        if a.get("carry") and cur:
+            data, moved = self._carry(cur, data)
+            from zzaimy.app import webhwp_write as ww
+            fields = ww.fields(data)
+            carry_note = (f" 앞 작업본 「{Path(webhwp.get(self.db, cur)['name']).stem}」 에서 이름이 같은 {len(moved)}개 필드의 글을 옮겼다"
+                          + (f"({', '.join(moved[:8])})" if moved else "") + " — 이름이 맞지 않아 옮기지 못한 글은 hwp_fields 로 빈 절을 보고 앞 문서 글을 나눠 쓴다.")
+        if cur and self._empty_doc(cur) and not a.get("carry"):         # 옮겨 담기는 앞 작업본을 남기고 새 작업본으로(덮지 않는다)
+            out = self._load_into(cur, data, fields, name, src) + blank_note + skel_note
+            if src.startswith("양식복사:"):
+                self._remember_forms(cur)
+            return out
         fid = webhwp.add(self.db, self.base, self.dept, f"{name}.hwpx", data, owner=self.owner, source=src, folder=folder,
                          project=int(self.project["id"]) if self.project and self.project.get("id") else None)
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
         attach(self.db, self.sid, fid)
+        if src.startswith("양식복사:"):
+            self._remember_forms(fid)
         self._wd_cache = None
         self.writes += 1
         kinds = {}
         for x in fields:
             kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
         return (f"작업본 「{name}」 을 {self.dept}/{folder} 에 만들고 이 대화에 이었다(필드 {len(fields)}개: "
-                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data) + blank_note + skel_note)
+                + ", ".join(f"{k} {v}" for k, v in kinds.items()) + "). hwp_fields 로 빈 필드를 보고 채운다." + self._lead_note(data) + blank_note + skel_note + carry_note)
 
     EMPTY_CHARS = 200          # 이어진 문서의 칸 글 합이 이만큼 안 되면 「빈 문서」 — 양식을 새 작업본이 아니라 그 문서에 불러온다
 
