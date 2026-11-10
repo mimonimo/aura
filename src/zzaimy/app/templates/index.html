@@ -198,7 +198,7 @@
   .lib-scope-list li:hover, .lib-scope-list li.on { background:#EEF3FA; }
   .lib-scope-list li[aria-selected=true] { background:var(--navy); color:#fff; }
   .lib-scope-list .none { color:var(--muted); cursor:default; }
-  @media (max-width: 900px) { .lib-layout { grid-template-columns:1fr; } .lib-rail { position:static; max-height:280px; } }
+  @media (max-width: 900px) { .lib-layout { grid-template-columns:minmax(0,1fr); } .lib-layout > * { min-width:0; } .lib-rail { position:static; max-height:280px; min-width:0; } }
   .lib-act-s { display:none; }
   .lib-clear { white-space:nowrap; }
   /* 좁은 화면 — 거르기 칸은 같은 폭 두 칸 격자(찾을 말만 한 줄 전체), 쓰임새 칩과 올리기 단추는 한 줄 */

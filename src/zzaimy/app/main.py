@@ -29,7 +29,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -767,6 +767,8 @@ def create_app(
         dependencies = [Depends(open_auth)]
 
     app = FastAPI(title="AURA", dependencies=dependencies)
+    from zzaimy.app.gzip_text import GzipText
+    app.add_middleware(GzipText)                   # 화면 글 압축 — 가장 안쪽(다른 미들웨어보다 먼저 넣어야 한 덩어리 응답을 본다)
     app.state.project_access = _project_access     # 프로젝트 권한(보기·함께 작업) — 대화 라우터가 프로젝트 안 새 대화를 열 때
     app.state.shared_project_ids = _shared_project_ids
     app.state.dept_peers = _dept_peers           # 같은 부서 동료 — 프로젝트 찾기(project_search)가 읽기 전용으로 함께 보인다
@@ -983,6 +985,12 @@ def create_app(
     # 웹 한글 기안기 — 부서 한글 문서함·기안기로 열기·기안기 서버 프록시(/webhwpctrl/)
     from zzaimy.app.webhwp_routes import router as webhwp_router
     app.include_router(webhwp_router)
+
+    @app.get("/dev/profile", response_class=PlainTextResponse)
+    def dev_profile(seconds: float = 10.0, only: str = ""):
+        """느린 곳 찾기(관리자만, /dev 관문) — 그동안 다른 스레드가 어디서 시간을 쓰는지 표본으로 센다(profile_sampler)."""
+        from zzaimy.app import profile_sampler
+        return profile_sampler.sample(seconds, only=only)
     from zzaimy.app.webhwp_demo import router as webhwp_demo_router         # 공동 편집 시연(/dev/coedit-demo, ADR-0071)
     app.include_router(webhwp_demo_router)
     from zzaimy.app.hwp_drive_status import router as hwp_drive_status_router   # 문서함 구글 드라이브 연결 상태(늘 200)
