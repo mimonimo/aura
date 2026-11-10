@@ -687,7 +687,12 @@ class HwpTools:
             return 0
         try:
             raw = Path(f["path"]).read_bytes()
-            data, got = ww.drop_guides(raw, [k for k, v in ww.field_values(raw).items() if str(v).strip()])
+            vals = ww.field_values(raw)
+            names = [k for k, v in vals.items() if str(v).strip()]
+            if not any(k.startswith("절:") and not str(v).strip() for k, v in vals.items()):
+                # 빈 절이 없으면(문서 완성) 남은 안내 상자도 모두 — 비워 둔 칸((경유)·연락처)이 있는 두문 안내가 끝까지 남던 것(11-10 대화 192)
+                names = list(vals)
+            data, got = ww.drop_guides(raw, names)
         except Exception:
             return 0
         if not got:
