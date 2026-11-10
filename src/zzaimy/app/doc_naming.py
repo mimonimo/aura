@@ -212,7 +212,8 @@ def clean_filename(name: str, text: str | None = None) -> str:
 
     text(마스킹된 본문)를 주면 사람 이름 판단에 증거로 쓴다. 아무것도 남지 않으면 빈 문자열.
     """
-    s = _EXT.sub("", (name or "").strip())
+    import unicodedata
+    s = _EXT.sub("", unicodedata.normalize("NFC", name or "").strip())   # 맥에서 올린 자모 풀린 이름(NFD)도 음절로
     # '[4-4]유○○', '60안○○' — 괄호 번호나 숫자에 바로 붙은 세 글자뿐인 이름(순번·학번 + 사람). '00-전단지' 는 아니다
     numbered = bool(re.fullmatch(r"\s*(?:[\[(【]\s*[\d\-]+\s*[\])】]|\d+)\s*[가-힣]{3}\s*", s))
     s = tidy_name(s)

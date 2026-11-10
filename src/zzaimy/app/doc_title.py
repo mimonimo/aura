@@ -98,6 +98,8 @@ def tidy_name(name: str) -> str:
     """이름을 정돈한다 — 첨부 표시·기호·이스케이프를 떼고 공백을 고른다. 파일 확장자는 건드리지 않는다."""
     if not name:
         return ""
+    import unicodedata
+    name = unicodedata.normalize("NFC", name)          # 자모로 풀린 이름(맥 NFD)은 [가-힣] 규칙이 하나도 듣지 않는다
     stem, ext = (name, "")
     m = re.search(r"\.(pdf|hwpx?|docx?|xlsx?|pptx?|png|jpe?g|txt|md)$", name, re.IGNORECASE)
     if m:

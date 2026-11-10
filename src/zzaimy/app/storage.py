@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -29,13 +30,34 @@ _BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 MAX_TITLE = 60
 
 
+# 한글 자모(옛 첫·가운데·끝소리, 호환 자모) — 음절이 아니라 낱자로 남은 글
+_JAMO = re.compile(r"[\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff]+$")
+
+
+def nfc(text: str | None) -> str:
+    """한글을 음절(NFC)로 — 맥에서 올린 파일 이름은 자모로 풀린 꼴(NFD)이라 글자 수로 자르면 「육성사ᄋ」 처럼 음절이 갈렸다(11-10 대화 186·187)."""
+    return unicodedata.normalize("NFC", text or "")
+
+
+def clip(text: str | None, limit: int) -> str:
+    """보이는 이름을 limit 자로 — 음절로 맞춘 뒤 자르고, 끝에 낱자가 남으면 뗀다."""
+    t = nfc(text)
+    return t if len(t) <= limit else _JAMO.sub("", t[:limit])
+
+
+def match_key(text: str | None) -> str:
+    """이름 맞추기 열쇠 — 음절로 맞추고 공백·기호를 떼며, 끝에 남은 낱자(잘린 음절)도 뗀다."""
+    t = re.sub(r"[\s\-_()\[\]{}.,:;·+/「」《》…]+", "", nfc(text)).lower()
+    return _JAMO.sub("", t)
+
+
 def root(base: Path) -> Path:
     return Path(base) / ROOT_NAME
 
 
 def safe_name(name: str, limit: int = MAX_TITLE) -> str:
     """폴더·파일 이름으로 안전한 제목 — 경로 문자를 빼고 공백을 하나로, 길이를 제한한다."""
-    s = _BAD.sub(" ", name or "").strip()
+    s = _BAD.sub(" ", nfc(name)).strip()
     s = re.sub(r"\s+", " ", s).strip(" .")
     return (s[:limit].rstrip(" .") or "문서")
 
@@ -52,7 +74,7 @@ def title_of(filename: str) -> str:
 
     띄어쓰기 없이 '+' 나 '_' 로만 이어진 이름(누리집에서 내려받으면 공백이 그렇게 바뀐다)은 그 글자를
     공백으로 돌린다. 공백이 이미 있는 이름은 건드리지 않는다."""
-    t = _EXT.sub("", (filename or "").strip())
+    t = _EXT.sub("", nfc(filename).strip())
     if t and " " not in t and ("+" in t or "_" in t):
         t = re.sub(r"[+_]+", " ", t).strip()
     return t

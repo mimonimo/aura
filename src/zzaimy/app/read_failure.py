@@ -305,7 +305,7 @@ def replace_file(db, doc: dict, name: str, src, base: Path | None = None) -> Pat
     with tmp.open("wb") as out:
         shutil.copyfileobj(src, out)
     with db._conn() as conn:
-        conn.execute("UPDATE documents SET filename = ?, error = NULL WHERE id = ?", (name, int(doc["id"])))
+        conn.execute("UPDATE documents SET filename = ?, error = NULL WHERE id = ?", (storage.nfc(name), int(doc["id"])))
     if old.is_file() and old.resolve() != tmp.resolve():
         old.unlink(missing_ok=True)
         db.remove_files(path=str(old))

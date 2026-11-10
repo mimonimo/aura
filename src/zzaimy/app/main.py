@@ -2559,6 +2559,9 @@ def create_app(
         return _looks_like_drafting(q) or bool(pend and _asks.parse_pairs(q, [a["name"] for a in pend]))
 
     _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
+    # 담당자가 물었던 값을 알려 줬을 때 — 기억만 하고 끝내지 않고 문서에 넣은 뒤 하던 일을 잇는다(값만 받고 멈추던 일, 11-10)
+    _APPLY_GIVEN = ("받은 값이 들어갈 칸·절이 작업본에 있으면 지금 넣는다(칸은 hwp_fill, 이미 쓴 절은 그 값을 반영해 고쳐 쓰기). "
+                    "담당자 글이 값 답만이면 그 값을 넣은 뒤 앞서 하던 일(작업 메모의 남은 일·남은 빈 절)을 이어 가고, 기억만 하고 끝내지 않는다.")
 
     SEARCH_RUN_MAX = int(os.environ.get("ZZAIMY_AGENT_SEARCH_RUN", "6"))   # 쓰기 없이 이어 찾기 상한(넘으면 쓰기로 돌려보냄)
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
@@ -2696,7 +2699,7 @@ def create_app(
                 lines.append("연결된 문서: 없음. 만들 때 고를 양식 후보:\n" + form_choice.render_candidates(cands))
             if told_now:
                 lines.append("이번 요청에서 담당자가 채팅으로 알려 준 값(이미 기억함 — remember_values 다시 하지 않는다): "
-                             + ", ".join(f"{k_}: {v_[:40]}" for k_, v_ in told_now.items()))
+                             + ", ".join(f"{k_}: {v_[:40]}" for k_, v_ in told_now.items()) + ". " + _APPLY_GIVEN)
             pend = _asks.pending(db, session_id)
             if pend:
                 sug_ = _asks.suggestions(db, db.get_chat_session(session_id))
@@ -2882,9 +2885,8 @@ def create_app(
 
         def pick_found(want: str) -> tuple[int | None, str]:
             """모델이 짚은 문서 — 이번 search 결과의 문서 번호나 《제목》. 결과에 없던 문서는 고를 수 없다."""
-            def norm(t: str) -> str:
-                return re.sub(r"[\s\-_()\[\]{}.,:;·+/「」《》]+", "", t or "").lower()
-            names = ", ".join(f"《{v['title'][:40]}》(문서 {k})" for k, v in list(found_docs.items())[:8])
+            norm = storage.match_key                          # 음절(NFC)로 맞추고 기호·공백, 끝에 갈린 낱자(「육성사ᄋ」)를 뗀다
+            names = ", ".join(f"《{storage.clip(v['title'], 60)}》(문서 {k})" for k, v in list(found_docs.items())[:8])
             m_ = re.fullmatch(r"\s*(?:문서\s*)?(\d+)\s*", want or "")
             if m_:
                 did_ = int(m_.group(1))
@@ -2897,7 +2899,7 @@ def create_app(
             if len(hits_) == 1:
                 return hits_[0], ""
             if hits_:
-                return None, "맞는 문서가 여럿이다 — 문서 번호로 고른다: " + ", ".join(f"《{found_docs[k]['title'][:40]}》(문서 {k})" for k in hits_[:8])
+                return None, "맞는 문서가 여럿이다 — 문서 번호로 고른다: " + ", ".join(f"《{storage.clip(found_docs[k]['title'], 60)}》(문서 {k})" for k in hits_[:8])
             return None, f"「{want}」 은(는) 이번 search 결과에 없던 문서다 — 결과에 나온 문서만 읽는다: {names}"
 
         def t_read_found(a: dict) -> str:
@@ -3046,10 +3048,14 @@ def create_app(
 
         def pick_document(title: str) -> tuple[dict | None, str]:
             """모델이 상태의 「프로젝트 문서」 에서 고른 제목 → 문서. 같은 제목이 먼저, 없으면 한쪽이 다른 쪽을 품는 제목이 하나뿐일 때."""
-            def norm(t: str) -> str:
-                return re.sub(r"[\s\-_()\[\]{}.,:;·+/「」]+", "", t or "").lower()
+            norm = storage.match_key                          # 음절(NFC)로 맞추고 기호·공백, 끝에 갈린 낱자를 뗀다(11-10 대화 186: 「육성사ᄋ」 로 세 번 못 엶)
             want = norm(title)
             docs = _project_doc_candidates(project, session_id)
+            m_ = re.fullmatch(r"\s*(?:doc:|문서\s*)?(\d+)\s*", title or "")
+            if m_:                                            # 문서 번호로 짚으면 그 문서
+                hit_ = [d for d in docs if int(d.get("id") or 0) == int(m_.group(1))]
+                if hit_:
+                    return hit_[0], ""
             if not want:
                 return None, "document 가 비었다 — 상태의 프로젝트 문서 제목 가운데 하나."
             exact = [d for d in docs if norm(storage.title_of(d.get("filename") or "")) == want]
@@ -3057,7 +3063,7 @@ def create_app(
                              or norm(storage.title_of(d.get("filename") or "")) in want]
             if len(hits) == 1:
                 return hits[0], ""
-            names = ", ".join(f"「{storage.title_of(d.get('filename') or '')[:40]}」" for d in (hits or docs)[:8])
+            names = ", ".join(f"「{storage.clip(storage.title_of(d.get('filename') or ''), 60)}」(문서 {d.get('id')})" for d in (hits or docs)[:8])
             return None, (f"「{title}」 에 맞는 문서가 여럿이다: {names} — 정확한 제목으로 고르거나 ask_user 로 묻는다." if hits
                           else f"「{title}」 문서가 없다. 있는 문서: {names or '(없음)'}")
 
@@ -3076,7 +3082,8 @@ def create_app(
         def t_read_doc(a: dict) -> str:
             doc, why = pick_document(str(a.get("document") or ""))
             if doc is None:
-                return why
+                # 문서를 못 고른 것은 요청을 끝내는 답이 아니다(최종 도구라 그대로 돌려주면 답 없이 끝났다 — 11-10 대화 186 세 번) — 다른 걸음을 고르게
+                raise doc_agent.Retry(why)
             # 판독은 읽기만 한다 — 고르는 후보가 담당자가 이 프로젝트에 올린 문서뿐이라 요청 글이 제목을 짚지 않아도 읽는다.
             # 「올린 공고와 기본계획을 근거로」 같은 요청에서 제목을 그대로 적지 않았다고 막으면 근거를 못 읽고 찾기만 되풀이했다(11-09).
             # 작업본을 여는 t_open 은 쓰기로 이어져 그대로 짚은 문서만
@@ -3099,8 +3106,9 @@ def create_app(
             if not given:
                 return ("받은 값이 없다 — 물었던 값(상태의 받지 못한 값)만, 담당자 요청 글에 있는 그대로 기억한다."
                         + (f" (받지 않은 것: {', '.join(dropped[:6])})" if dropped else ""))
-            text = _remember_given(session_id, given)
-            return text + (f"\n받지 않은 값(묻지 않은 이름이거나 요청 글에 없음): {', '.join(dropped[:6])}" if dropped else "")
+            text = _remember_given(session_id, given, post=False)
+            return (text + "\n" + _APPLY_GIVEN
+                    + (f"\n받지 않은 값(묻지 않은 이름이거나 요청 글에 없음): {', '.join(dropped[:6])}" if dropped else ""))
 
         def t_create(a: dict) -> str:
             if link().get("doc"):
@@ -3419,9 +3427,10 @@ def create_app(
         return ("\n\n지울지 확인할 절(올해 자료에 운영 흔적이 없어 한 줄만 남김): " + ", ".join(f"「{g}」" for g in gone[:12])
                 + (" 외" if len(gone) > 12 else "") + ". 운영하지 않았으면 「이 절들 지워 줘」, 운영했으면 자료를 올려 주시면 채웁니다.")
 
-    def _remember_given(session_id: int, given: dict) -> str:
+    def _remember_given(session_id: int, given: dict, post: bool = True) -> str:
         """담당자가 알려 준 값(물었던 값) — 기억해 두고(프로젝트 값·기관 정보) 남은 질문만 다시 띄운다. 지어내지 않고 물어서 받는 길.
-        대화에 남긴 글을 돌려준다."""
+        대화에 남긴 글을 돌려준다. post=False 면(에이전트가 이어 일하는 중) 대화에 따로 글을 남기지 않고 선택지도 바꾸지 않는다 —
+        걸음 중간에 「기억했습니다」 답이 하나 더 붙고 「다음 절 쓰기」 단추가 떠, 담당자 눈에는 값만 받고 멈춘 것처럼 보였다(11-10)."""
         from zzaimy.app import asks as _asks
 
         session_ = db.get_chat_session(session_id) or {}
@@ -3433,9 +3442,12 @@ def create_app(
         text = "기억했습니다: " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 쓰는 절과 기입란에 넣습니다."
         if local_only:
             text += (f"\n{', '.join(local_only)} 은(는) 이 프로젝트(대화)의 값으로만 기억했습니다. 기관 정보 설정은 관리자만 바꿉니다.")
-        opts = []
         if left_asks:
             text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
+        if not post:
+            return text
+        opts = []
+        if left_asks:
             opts.append(_asks.form_option(left_asks, _asks.suggestions(db, session_)))
         last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
         if last:

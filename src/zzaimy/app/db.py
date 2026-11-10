@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from .database_backend import connect, table_names, column_names, lock_session, install_functions
@@ -386,6 +387,7 @@ class Database:
         from zzaimy.app.access_policy import classify
         from zzaimy.app.doc_family import family_key
 
+        filename = unicodedata.normalize("NFC", filename or "")   # 맥에서 올린 이름은 자모로 풀린 꼴(NFD) — 음절로 맞춰 둔다(잘라 보일 때 낱자 갈림)
         dept, access_level = classify(doc_type, owner=owner, dept=dept, access_level=access_level)
         family = family_key(filename) or None
         now = _now()
@@ -472,7 +474,8 @@ class Database:
         if got["source"] == "body" and self._body_name_collides(got["name"], original, doc_id):
             # 본문 제목이 파일 이름이 다른 문서의 이름과 같다 — 서로 다른 문서가 한 이름으로 겹치지 않게 파일 이름으로
             got = choose_name(original, body, meta, ask=ask, prefer_file=True)
-        name = got["name"]
+        name = unicodedata.normalize("NFC", got["name"] or "")
+        original = unicodedata.normalize("NFC", original or "")
         if got["title"] and got["date"]:
             name = f"{got['title']} · {got['date']}"
         if not name or meaningless_filename(name):
@@ -486,6 +489,7 @@ class Database:
                 ident[k] = got[k]
         # 화면 이름은 고유할 필요가 없다 — 같은 제목의 문서는 문서함이 판본으로 묶고 접수번호를 따로 보인다.
         # 고유해야 하는 곳(문서 폴더 '<접수번호> <제목>')은 접수번호로 가른다
+        name = unicodedata.normalize("NFC", name)
         with self._conn() as conn:
             conn.execute("UPDATE documents SET identity = ?, filename = ? WHERE id = ?",
                          (json.dumps(ident, ensure_ascii=False), name, doc_id))
