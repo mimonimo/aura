@@ -178,3 +178,12 @@ def test_continue_fresh_and_missing_reference(tmp_path, monkeypatch):
     out = hw3.start({"form": "doc:9301", "title": "계획서"})
     assert "찾지 못했다" in out and "ask_user" in out and "doc:9301" in out
     assert "만들고 이 대화에 이었다" in hw3.start({"form": "doc:9301", "title": "계획서"})   # 한 번 물은 뒤에는 막지 않는다
+
+
+def test_cover_title_drops_form_suffix():
+    """표지 제목 「…사업계획서 작성 서식」 → 「…사업계획서」 — 끝말만 떼고, 본문 쪽(필드 뒤) 글은 그대로."""
+    from zzaimy.app.webhwp_fields import _cover_title
+    xml = '<hp:t>2026년 육성사업</hp:t><hp:t> 사업계획서 작성 서식</hp:t><hp:t>(단독형)</hp:t><hp:fieldBegin name="x"/><hp:t>사업계획서 작성 서식</hp:t>'
+    out, n = _cover_title(xml)
+    assert n == 1 and "<hp:t> 사업계획서</hp:t>" in out and out.endswith("<hp:t>사업계획서 작성 서식</hp:t>")
+    assert _cover_title("<hp:t>결과보고서 양식</hp:t>")[0] == "<hp:t>결과보고서</hp:t>"

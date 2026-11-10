@@ -775,6 +775,29 @@ def _block_kind(xml: str, a: int, b: int, guides: list[tuple[int, int]]) -> str 
     return None
 
 
+_COVER_FORM = re.compile(r"((?:계획|보고|신청|제안|명세|결과)서)\s*(?:작성\s*)?(?:서식|양식)\s*$")
+
+
+def _cover_title(xml: str) -> tuple[str, int]:
+    """첫 쪽(표지) 제목의 「…계획서 작성 서식」 → 「…계획서」 — 서식 표지 제목 그대로면 제출본 표지가 「작성 서식」 으로 남았다(11-10).
+    첫 구역 앞부분(필드 앞)의 짧은 글 조각만 본다. 안의 글이 아니라 끝말(작성 서식·양식)만 뗀다."""
+    head_end = xml.find("fieldBegin")
+    head_end = head_end if head_end > 0 else len(xml)
+    n_ = 0
+
+    def fix(m):
+        nonlocal n_
+        t = m.group(1)
+        if len(t) > 60 or m.start() > head_end:
+            return m.group(0)
+        u = _COVER_FORM.sub(r"\1", t)
+        if u != t:
+            n_ += 1
+            return f"<hp:t>{u}</hp:t>"
+        return m.group(0)
+    return re.sub(r"<hp:t>([^<]*)</hp:t>", fix, xml), n_
+
+
 def submission_clean(data: bytes) -> tuple[bytes, dict[str, str], list[str]]:
     """필드를 박은 작업본 → (제출본 꼴 작업본, {다음 쓸 자리 이름: 뺀 안내 글}, 뺀 덩어리 목록). 쓸 자리가 없는 쪽 첫머리 안내는 「서식 안내」 로 묶는다."""
     zin = zipfile.ZipFile(io.BytesIO(data))
@@ -786,6 +809,11 @@ def submission_clean(data: bytes) -> tuple[bytes, dict[str, str], list[str]]:
     xmls = {n: zin.read(n).decode("utf-8") for n in order}
     for si, name in enumerate(order):
         xml = xmls[name]
+        if si == 0:
+            xml, n_cover = _cover_title(xml)
+            if n_cover:
+                new[name] = xml
+                removed.append("표지 제목의 「작성 서식」")
         guides = _guide_spans(xml)
         cut = []
         for a, b in _top_level(xml):
