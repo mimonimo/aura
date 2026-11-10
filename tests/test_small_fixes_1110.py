@@ -55,3 +55,15 @@ def test_date_and_short_value_columns_keep_one_line_width():
     one_char = 1000 * 1.05
     assert m[1] >= 7 * one_char           # 「2018. 10. 06(토)」 한 덩이(약 8자 폭)가 한 줄
     assert m[2] >= 7 * one_char           # 짧은 값 열 「협동관 컨벤션홀」
+
+
+def test_finish_with_all_sections_empty_is_nudged_once_to_delegate():
+    """채워 달라는 요청인데 양식만 만들고 빈 절을 다 남긴 채 끝내던 일(11-10 대화 182·185, 절 25개 가운데 0개) —
+    끝내기 전에 한 번만 빈 절을 delegate_section 으로 한 번에 맡기라고 되짚는다(걸음이 남았고 맡기기 도구가 있을 때만, 판단은 에이전트)."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/main.py").read_text(encoding="utf-8")
+    fin = src[src.index("def t_finish(a: dict)"):]
+    fin = fin[:fin.index("\n        def ", 10)]
+    assert 'empty_checked["done"] = True' in fin and "delegate_section {{sections: [빈 절 전부]}}" in fin
+    assert "doc_agent._STEP.get()" in fin and '== "delegate_section" for t_ in tools' in fin
+    assert 'empty_checked = {"done": False}' in src

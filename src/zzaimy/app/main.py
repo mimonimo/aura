@@ -2721,7 +2721,8 @@ def create_app(
         search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         lead_checked = {"done": False}                         # 끝내기 전 앞부분 자리표시 되짚기 — 요청마다 한 번
-        finish_checked = {"done": False}                       # 끝내는 말의 절 수가 문서 기록과 다를 때 되돌리기 — 요청마다 한 번
+        finish_checked = {"done": False}
+        empty_checked = {"done": False}                        # 빈 절을 다 남긴 채 끝내려 할 때 이어 쓰기 되짚기 — 요청마다 한 번                       # 끝내는 말의 절 수가 문서 기록과 다를 때 되돌리기 — 요청마다 한 번
         try:                                                     # 이번 요청에서 문서를 새로 열었거나 고쳤을 때만 되짚는다(지우기만 하다 0곳인 요청까지 막지 않게 — 11-09 대화 165)
             lead_start = {"fid": hw.fid() if hw is not None else None, "writes": int(getattr(hw, "writes", 0) or 0)}
         except Exception:
@@ -3195,6 +3196,15 @@ def create_app(
                     raise doc_agent.Retry(f"끝내는 말의 수가 문서 기록과 다르다 — 지금 문서의 절 {len(secs_)}개 가운데 글이 든 절은 {len(filled_)}개, "
                                           f"빈 절은 {len(empty_)}개다. 실제로 쓴 것만 말하고, 빈 절은 남았다고 알려 finish 한다.",
                                           data="빈 절: " + ", ".join(empty_[:12]))
+                step_ = doc_agent._STEP.get() or (0, 0)
+                if secs_ and empty_ and not empty_checked["done"] and step_[1] - step_[0] >= 2 and any(getattr(t_, "name", "") == "delegate_section" for t_ in tools):
+                    # 빈 절을 다 남긴 채 「계속 써 줘」를 기다리며 끝내려 한다 — 채워 달라는 요청인데 양식만 만들고 멈추던 일(11-10 대화 182·185, 절 25개 가운데 0개).
+                    # 이어 쓸지는 에이전트가 정한다(양식만 청했거나 담당자 답을 기다려야 하면 그대로 끝낸다). 요청마다 한 번
+                    empty_checked["done"] = True
+                    raise doc_agent.Retry(f"끝내기 전에: 작업본의 절 {len(secs_)}개 가운데 빈 절이 {len(empty_)}개다. 담당자 요청이 문서를 채우는(쓰는·작성하는) 일이면 "
+                                          f"지금 delegate_section {{sections: [빈 절 전부]}} 로 한 번에 맡겨 쓴다 — 자료에 없는 내용은 서브가 「확인 필요」로 두므로 "
+                                          "자료가 모자라도 멈출 까닭이 아니다. 요청이 양식·틀만 만드는 일이거나 담당자 답을 기다려야 하면 그대로 finish 한다(이 안내는 한 번만 나온다).",
+                                          data="빈 절: " + ", ".join(empty_[:30]))
                 if secs_ and empty_:
                     msg += (f"\n\n(문서 기록: 절 {len(secs_)}개 가운데 {len(filled_)}개를 썼고 빈 절 {len(empty_)}개가 남았습니다. "
                             f"다음은 「{empty_[0]}」 — 「계속 써 줘」라고 하면 이어 씁니다.)")
