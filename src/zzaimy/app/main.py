@@ -2786,6 +2786,9 @@ def create_app(
                     t_ = str(x.get("text") or "").strip()
                     if len(t_) < 40:
                         continue
+                    # 아직 안 쓴 칸(양식 예시 ○○·자리표시, 「확인 필요」 뿐인 글)은 근거가 아니다 — 빈 작업본 자신이 근거로 섞여 나오던 일(11-10 대화 187)
+                    if _wa._placeholder(t_) or len(re.sub(r"\[?확인\s*필요\]?|[\s\-·:|]", "", t_)) < 20:
+                        continue
                     n_ = sum(1 for w in words if w in t_) + sum(1 for w in words if w in str(x.get("name") or ""))
                     if n_:
                         scored.append((-n_, {"title": f"작업본 {name_} · {str(x.get('name') or '').split(':', 1)[-1]}", "text": t_,
