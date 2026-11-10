@@ -222,21 +222,39 @@ def test_self_check_rewrite_with_invented_number_keeps_first_body(tmp_path, monk
 
 
 def test_parallel_delegation_respects_slots(tmp_path, monkeypatch):
-    """여러 절 동시 맡기기 — 연결별 동시 상한의 합까지만 맡기고, 자리마다 연결을 나눠 쓴다. 쓰기는 차례대로 모두 들어간다."""
+    """여러 절 동시 맡기기 — 한 번에 맡긴 절은 모두 쓰되, 연결별 동시 상한을 넘지 않게 빈 자리가 나는 대로 이어 쓴다(11-10 큐).
+    쓰기(작업본 고치기)는 이 흐름에서 하나씩 모두 들어간다."""
+    import threading
+    import time as _t
     app, db, hw, secs = _work(tmp_path, monkeypatch, sid=98)
     if len(secs) < 4:
         secs = secs + secs[:4 - len(secs)]
-    a, b = FakeClient(["[본문]\n1) 가 내용임\n[확인 필요]\n- 없음"] * 4), FakeClient(["[본문]\n1) 나 내용임\n[확인 필요]\n- 없음"] * 4)
+    a, b = FakeClient(["[본문]\n1) 가 내용임\n[확인 필요]\n- 없음"] * 6), FakeClient(["[본문]\n1) 나 내용임\n[확인 필요]\n- 없음"] * 6)
+    live, peak, lk = {}, {}, threading.Lock()
+    for c in (a, b):
+        inner = c.client.chat.completions.create
+
+        def slow(*args, _c=c, _inner=inner, **kw):
+            with lk:
+                live[id(_c)] = live.get(id(_c), 0) + 1
+                peak[id(_c)] = max(peak.get(id(_c), 0), live[id(_c)])
+            _t.sleep(0.05)
+            try:
+                return _inner(*args, **kw)
+            finally:
+                with lk:
+                    live[id(_c)] -= 1
+        c.client.chat.completions.create = slow
     hw.client, hw.delegating = a, True
     dlg = delegate.Delegator(a, db, hw.sid, hw, "써 줘", pool=[(b, 2), (a, 1)], quality=False)
     assert dlg.slots() == [b, a, b]
-    uniq = list(dict.fromkeys(secs))
-    out = dlg.run({"sections": [{"section": n, "gist": "내용"} for n in uniq[:4]]})
-    wrote = [n for n in uniq[:3] if {x["name"]: x["text"] for x in hw._fields()}[n]]
-    assert len(wrote) == min(3, len(uniq))
-    assert len(b.sent) == 2 and len(a.sent) == 1
-    if len(uniq) >= 4:
-        assert "동시 상한(3개)" in out
+    uniq = list(dict.fromkeys(secs))[:4]
+    out = dlg.run({"sections": [{"section": n, "gist": "내용"} for n in uniq]})
+    wrote = [n for n in uniq if {x["name"]: x["text"] for x in hw._fields()}[n]]
+    assert len(wrote) == len(uniq)                                    # 동시 상한(3)을 넘는 넷째 절도 이어서 쓴다
+    assert len(b.sent) + len(a.sent) == len(uniq)
+    assert peak.get(id(b), 0) <= 2 and peak.get(id(a), 0) <= 1         # 연결별 동시 상한
+    assert "넘은 절은 맡기지 않았다" not in out
     monkeypatch.setenv("ZZAIMY_DELEGATE_PARALLEL", "3")
     assert delegate.conn_cap(a) == 3 and delegate.parallel_on()
     monkeypatch.setenv("ZZAIMY_DELEGATE_PARALLEL", "0")

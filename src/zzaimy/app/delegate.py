@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import contextvars
+import queue
 import json
 import os
 import re
@@ -44,7 +45,8 @@ PAGE_CHARS = 1200                  # 「1쪽」 어림 글자 수(개조식 본�
 
 
 DEFAULT_PARALLEL = 4               # 연결 하나의 동시 서브 호출 — 연결 설정 parallel 이 없을 때(vLLM 이 묶어 처리, 한 절씩이면 절 쓰기 한 턴이 6,700초였다 10-27)
-MAX_PARALLEL = 6                   # 한 번에 맡기는 절 수 상한(모든 연결 합)
+MAX_PARALLEL = 6                   # 동시에 쓰는 절 수 상한(모든 연결 합)
+QUEUE_MAX = 30                     # 한 번에 맡길 수 있는 절 수 — 동시 상한만큼씩 빈 자리가 나는 대로 이어 쓴다(11-10: 5개씩 다섯 번 맡겨 묶음마다 가장 느린 절을 기다려 19분)
 QUERY_SHARE = 0.03                 # 검색어 만들기 출력 몫
 CHECK_SHARE = 0.30                 # 자기 점검(고친 본문 포함) 출력 몫 상한
 MAX_QUERIES = 3
@@ -647,36 +649,54 @@ class Delegator:
                 + ("\n모자라면 같은 section 에 redo_note(고칠 점)를 주어 한 번 더 맡긴다." if n < MAX_REDO else ""))
 
     def _parallel(self, fn, jobs: list[dict], clients: list) -> None:
-        """모델 호출만 동시에 — 자리마다 연결 하나. 실행 흐름의 문맥(호출 이름표·사용 기록)은 자리마다 복사해 넘긴다.
+        """모델 호출만 동시에 — 자리(clients)마다 하나씩, 끝난 자리에 다음 일을 넣는다. 실행 흐름의 문맥(호출 이름표·사용 기록)은 일마다 복사해 넘긴다.
         서브 호출은 생각을 끈다(effort.no_thinking) — 생각은 메인 에이전트의 판단에만 쓴다."""
-        def run(j, c):
-            with effort.no_thinking():
-                return fn(j, c)
-        if len(jobs) <= 1:
-            for j, c in zip(jobs, clients):
-                run(j, c)
-            return
-        with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
-            futs = [ex.submit(contextvars.copy_context().run, run, j, c) for j, c in zip(jobs, clients)]
-            for fu in futs:
-                fu.result()
+        self._parallel_each(fn, jobs, clients, lambda j: None)
 
-    def _parallel_each(self, fn, jobs: list[dict], clients: list, done) -> None:
-        """_parallel 과 같되, 끝나는 자리부터 done(job) 을 이 흐름(호출한 쪽)에서 바로 부른다 — 절 여럿을 맡겨 쓸 때 다 쓴 절부터
-        작업본에 넣어 열린 기안기에 차례로 나타나게(11-09 시연: 절 셋을 다 쓴 뒤 한꺼번에 들어가 그동안 오른쪽 문서가 그대로였다).
-        파일 고치기(done)는 여전히 한 흐름에서 하나씩이다."""
-        def run(j, c):
-            with effort.no_thinking():
-                fn(j, c)
+    def _pool_run(self, ex, free: "queue.Queue", fn, j: dict):
+        def run():
+            c = free.get()                                    # 빈 자리(연결)를 잡고 끝나면 돌려준다 — 연결마다 동시 상한을 넘지 않게
+            try:
+                j["rec"]["lane"] = getattr(c, "connection_id", "") or ("main" if c is self.client else "")
+                with effort.no_thinking():
+                    fn(j, c)
                 return j
-        if len(jobs) <= 1:
-            for j, c in zip(jobs, clients):
-                done(run(j, c))
+            finally:
+                free.put(c)
+        return ex.submit(contextvars.copy_context().run, run)
+
+    def _parallel_each(self, fn, jobs: list[dict], clients: list, done, prepare=None) -> None:
+        """_parallel 과 같되, 끝나는 일부터 done(job) 을 이 흐름(호출한 쪽)에서 바로 부른다 — 절 여럿을 맡겨 쓸 때 다 쓴 절부터
+        작업본에 넣어 열린 기안기에 차례로 나타나게(11-09 시연). 파일 고치기(done)는 여전히 한 흐름에서 하나씩이다.
+        prepare(job) 가 있으면 이 흐름에서 차례로 준비(근거 찾기)한 뒤 넣는다 — 준비하는 사이에도 끝난 일은 바로 done."""
+        if not jobs:
             return
-        with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
-            futs = [ex.submit(contextvars.copy_context().run, run, j, c) for j, c in zip(jobs, clients)]
+        if len(jobs) <= 1 or len(clients) <= 1:
+            c = clients[0] if clients else self.client
+            for j in jobs:
+                if prepare:
+                    prepare(j, c)
+                j["rec"]["lane"] = getattr(c, "connection_id", "") or ("main" if c is self.client else "")
+                with effort.no_thinking():
+                    fn(j, c)
+                done(j)
+            return
+        free: queue.Queue = queue.Queue()
+        for c in clients:
+            free.put(c)
+        with ThreadPoolExecutor(max_workers=len(clients)) as ex:
+            futs = []
+            for j in jobs:
+                if prepare:
+                    prepare(j, clients[0])
+                futs.append(self._pool_run(ex, free, fn, j))
+                for fu in [f for f in futs if f.done() and not getattr(f, "_zz_done", False)]:
+                    fu._zz_done = True
+                    done(fu.result())
             for fu in as_completed(futs):
-                done(fu.result())
+                if not getattr(fu, "_zz_done", False):
+                    fu._zz_done = True
+                    done(fu.result())
 
     def run(self, a: dict) -> str:
         items = a.get("sections") if isinstance(a.get("sections"), list) else None
@@ -696,23 +716,17 @@ class Delegator:
                 uniq.append(it)
         if not uniq:
             return "section(또는 sections) 이 비었다."
-        over = uniq[cap:]
+        over = uniq[QUEUE_MAX:]
         msgs: list[str] = []
         jobs: list[dict] = []
-        for it in uniq[:cap]:
+        for it in uniq[:QUEUE_MAX]:
             j = self._job(it)
             if isinstance(j, str):
                 msgs.append(j)
             else:
                 jobs.append(j)
-        clients = slots[:len(jobs)]
-        for j, c in zip(jobs, clients):
-            j["rec"]["lane"] = getattr(c, "connection_id", "") or ("main" if c is self.client else "")
         if jobs and self.quality and self.search is not None:
-            self._parallel(self._queries, jobs, clients)
-        for j, c in zip(jobs, clients):                       # 찾기는 차례대로(검색·형태소 분석기는 한 흐름에서)
-            ev, cinfo, raw_ev = self._evidence(j["section"], j["gist"], self.limit(c), j.get("queries"))
-            j.update(ev=ev, cinfo=cinfo, raw_ev=raw_ev)
+            self._parallel(self._queries, jobs, slots)
         if jobs and getattr(self.hw, "_mark", None) and self.hw.fid():
             try:                                              # 쓰는 동안 기안기에 AURA 가 어디를 쓰는지 — 첫 절 자리에 커서
                 self.hw._mark(self.hw.fid(), jobs[0]["section"])
@@ -720,9 +734,13 @@ class Delegator:
                 pass
         reports: dict[int, str] = {}
 
+        def prepare(j: dict, c) -> None:                     # 찾기는 이 흐름에서 차례로(검색·형태소 분석기는 한 흐름에서)
+            ev, cinfo, raw_ev = self._evidence(j["section"], j["gist"], self.limit(c), j.get("queries"))
+            j.update(ev=ev, cinfo=cinfo, raw_ev=raw_ev)
+
         def commit(j: dict) -> None:                         # 다 쓴 절부터 바로 작업본에(파일 고치기는 이 흐름에서 하나씩)
             reports[id(j)] = self._commit(j)
-        self._parallel_each(self._write, jobs, clients, commit)
+        self._parallel_each(self._write, jobs, slots, commit, prepare=prepare)
         msgs += [reports[id(j)] for j in jobs]                # 보고는 맡긴 차례대로
         if any(j.get("body") for j in jobs) and hasattr(self.hw, "cross_fill"):
             try:                                              # 절마다 따로 쓴 표 — 같은 행·열 칸이 한쪽만 「확인 필요」면 맞춘다
@@ -744,13 +762,13 @@ class Delegator:
         left = self._left_sections() if jobs else []
         if left and not over:
             # 한 번에 맡길 수 있는 만큼 묶게 — 한 절씩 맡기면 맡김마다 메인 걸음·서브 준비가 되풀이된다(11-10 대화 177, 20분)
-            msgs.append(f"남은 빈 절 {len(left)}개: " + ", ".join(f"「{x}」" for x in left[:cap]) + (" 외" if len(left) > cap else "")
-                        + f" — 다음 걸음에 sections 로 {min(cap, len(left))}개까지 한 번에 맡긴다.")
+            msgs.append(f"남은 빈 절 {len(left)}개: " + ", ".join(f"「{x}」" for x in left[:QUEUE_MAX]) + (" 외" if len(left) > QUEUE_MAX else "")
+                        + f" — 다음 걸음에 sections 로 {min(QUEUE_MAX, len(left))}개까지 한 번에 맡긴다(동시에 {cap}개씩 이어 쓴다).")
         elif jobs and not left and not over:
             msgs.append("빈 절이 더 없다 — 짧은 표 칸은 맡겨 쓴 근거에 없으면 「확인 필요」로 두고 같은 검색을 되풀이하지 않는다. "
                         "더 할 일이 없으면 finish 로 쓴 것·확인 필요 칸을 알린다.")
         if over:
-            msgs.append("동시 상한(" + str(cap) + "개)을 넘은 절은 맡기지 않았다: " + ", ".join(str(x.get("section") or "")[:30] for x in over)
+            msgs.append("한 번에 맡길 수 있는 " + str(QUEUE_MAX) + "개를 넘은 절은 맡기지 않았다: " + ", ".join(str(x.get("section") or "")[:30] for x in over)
                         + " — 다음 걸음에 다시 맡긴다.")
         return "\n\n".join(msgs)
 
@@ -964,7 +982,7 @@ TOOL_DESC = ("절을 같은 모델의 깨끗한 문맥(서브)에 맡겨 쓰기 
              "앞 절 요지, 담당자 원문 인용은 코드가 지시서에 채운다. 서브는 그 절의 양식 글·작성방법·근거만 보고 쓰고 모르는 값은 「확인 필요」 로 돌려준다. "
              "args {section: 절 필드 이름, gist: 이 절에 담을 요지(한두 문장), form: 형식(번호 문단·표·도식), length: 분량(예: 800자, 1쪽), "
              "redo_note: 다시 맡길 때만 — 돌아온 절에서 고칠 점}. 서로 다른 빈 절 여럿은 args {sections: [{section, gist, form, length}, …]} 로 한 번에 "
-             "맡기면 동시에 쓴다(상태 글의 동시 상한까지) — 빈 절이 여럿이면 하나씩 직접 쓰거나 하나씩 맡기는 것보다 묶어 맡기는 편이 몇 배 빠르다.")
+             "맡기면 동시 상한만큼씩 이어서 쓴다(한 번에 30개까지) — 빈 절이 여럿이면 모두 한 번에 맡긴다. 하나씩 직접 쓰거나 하나씩 맡기는 것보다 묶어 맡기는 편이 몇 배 빠르다.")
 
 REVISE_DESC = ("이미 쓴 절 고쳐 쓰기 — 담당자가 쓴 절을 고쳐 달라고 할 때(「더 구체적으로」「표로」「줄여」「문체」「항목 더하기」). 지금 글과 지시, 그 절의 "
                "작성방법·근거를 서브가 깨끗한 문맥으로 보고 고친다. 지시의 뜻은 서브가 점검표로 만들고 코드가 결과를 점검한다. "

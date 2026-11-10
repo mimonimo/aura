@@ -277,6 +277,11 @@ def past_doc_form(db, t: dict) -> bool:
     return src.startswith("양식:doc-")
 
 
+def _dg_queue() -> int:
+    from zzaimy.app.delegate import QUEUE_MAX
+    return QUEUE_MAX
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -517,7 +522,7 @@ class HwpTools:
         if self.delegate_cap > 1:
             low = hr is not None and hr[0] < 0.5
             # 속도도 판단 재료 — 직접 쓰기는 한 걸음에 한 절이 차례로 돈다(10-27 시나리오 절 쓰기 한 턴 6,700초, 서버는 늘 요청 하나만 처리)
-            out.append(f"동시 맡기기: 서로 다른 빈 절을 sections 로 묶어 한 번에 {self.delegate_cap}개까지 맡기면 동시에 쓴다(한 걸음에 여러 절). "
+            out.append(f"동시 맡기기: 서로 다른 빈 절을 sections 로 모두(한 번에 {_dg_queue()}개까지) 묶어 맡기면 {self.delegate_cap}개씩 동시에 이어 쓴다(한 걸음에 여러 절, 나눠 맡기지 않는다). "
                        "직접 쓰기(hwp_write)는 한 걸음에 한 절씩 차례로 쓰여 절마다 1~3분이 더해진다."
                        + (f" 지금 빈 절 {len(empty)}개" + (" · 남은 문맥이 절반 아래" if low else "")
                           + " — 요청이 여러 절이나 문서 전체를 채우는 일이면 묶어 맡기는 것이 몇 배 빠르고, 이번 요청의 단계·문맥 안에 다 쓸 수 있다."
