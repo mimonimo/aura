@@ -973,6 +973,9 @@ def create_app(
     from zzaimy.app.user_admin import router as user_admin_router
     app.state.accounts = accounts
     app.state.data_dir = Path(db_path).parent      # 부서 목록(user_admin.known_depts)이 RAG 공간 설정을 읽는 자리
+    if password is not None:                       # 운영 — 배포 스크립트가 진행 중인 요청을 보고 재시작을 미룬다(busy_beacon)
+        from zzaimy.app import busy_beacon
+        busy_beacon.start(app.state.data_dir)
     app.state.save_accounts = _save_accounts
     app.state.set_pw = _set_pw
     app.state.new_account = _new_account
