@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import functools
+import json as _json
 import os
 
 try:
@@ -145,6 +146,58 @@ def _split_think(resp, thinking_on: bool = False) -> None:
                     pass
     except Exception:
         pass
+
+
+def _normalize_reply(resp) -> None:
+    """다른 계열 모델의 답 꼴을 한 꼴로 — 부르는 쪽(걸음 읽기·답 쓰기·서브 쓰기)은 message.content 만 본다(11-10 gpt-oss 연결).
+    - harmony 표시(「<|channel|>final<|message|>…」)가 본문에 섞이면 final 채널만 본문으로, 생각 채널은 reasoning_content 로
+    - 본문이 비고 생각 칸(reasoning·reasoning_content)에 harmony final 이 있으면 그것을 본문으로
+    - 본문이 비고 도구 호출(tool_calls)로 왔으면 {"action", "args"} JSON 글을 본문으로
+    - 생각 칸 이름이 reasoning 인 서버도 reasoning_content 로 맞춘다. 생각 글을 본문으로 올리지는 않는다(지어낸 답이 되지 않게)."""
+    from zzaimy.generate import model_json
+
+    try:
+        for ch in resp.choices or []:
+            msg = ch.message
+            c = getattr(msg, "content", None) or ""
+            r = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
+            if model_json.is_harmony(c):
+                thought, final, call = model_json.harmony_parts(c)
+                msg.content = final or call
+                r = r or thought
+            elif not c.strip() and model_json.is_harmony(r):
+                _t, final, call = model_json.harmony_parts(r)
+                if final or call:
+                    msg.content = final or call
+            if not (getattr(msg, "content", None) or "").strip():
+                calls = getattr(msg, "tool_calls", None) or []
+                if calls:
+                    fn = getattr(calls[0], "function", None)
+                    name = str(getattr(fn, "name", "") or "")
+                    args = getattr(fn, "arguments", None) or "{}"
+                    if name:
+                        got = args if isinstance(args, dict) else (model_json.loads(str(args)) or {})
+                        msg.content = _json.dumps({"action": name, "args": got}, ensure_ascii=False)
+            if r and not getattr(msg, "reasoning_content", None):
+                try:
+                    msg.reasoning_content = r
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _no_think_retry_args(cli, kw: dict) -> dict | None:
+    """생각만 하다 빈 답을 낸 호출을 생각을 끈 채 한 번 더 보낼 인자 — 연결 설정(no_think)이 있으면 그것, 없으면 OpenAI 규약의
+    reasoning_effort(낮게, 계열 이름을 보지 않는다). 이미 같은 인자를 보냈으면 None(같은 청을 되풀이하지 않게)."""
+    eb = dict(kw.get("extra_body") or {})
+    want = dict(getattr(cli, "_no_think", None) or {}) or {"reasoning_effort": "low"}
+    if _has_args(eb, want):                        # 끄는 인자를 이미 보냈는데도 생각만 했다 — 규약 인자로 한 번 더
+        want = {"reasoning_effort": "low"}
+    if _has_args(eb, want):
+        return None
+    eb.update(want)
+    return dict(kw, extra_body=eb)
 
 
 def _with_effort_thinking(cli, kw: dict) -> dict:
@@ -415,6 +468,7 @@ class VllmClient:
                         raise
                 if not kw.get("stream"):
                     _split_think(resp, _thinking_on(kw))              # 생각을 켠 호출의 「…</think>」 는 답이 아니다
+                    _normalize_reply(resp)                            # harmony·생각 칸·도구 호출 꼴 → 본문(gpt-oss 등)
                     _record(kw, resp)
                     model_config.record_usage(
                         self.connection_id, kw.get("model", self.model), getattr(resp, "usage", None)
@@ -426,11 +480,26 @@ class VllmClient:
                         if wider > asked:
                             resp2 = orig(*a, **dict(kw, max_tokens=wider))
                             _split_think(resp2, _thinking_on(kw))     # 넓혀도 생각만 하다 끊기면 빈 답으로(호출부가 다룬다)
+                            _normalize_reply(resp2)
                             model_config.record_usage(
                                 self.connection_id, kw.get("model", self.model),
                                 getattr(resp2, "usage", None),
                             )
-                            return resp2
+                            resp = resp2
+                    # 넓혀도 생각만 했다 — 생각을 켜 달라고 하지 않은 호출이면 생각을 끈 채 한 번 더(연결 설정의 끄기 인자, 없으면 reasoning_effort 낮게).
+                    # 서버가 그 인자를 거절하면 받은 빈 답 그대로 돌려준다(호출부가 다룬다)
+                    if _answer_is_empty(resp) and not _thinking_on(kw):
+                        kw3 = _no_think_retry_args(self, kw)
+                        if kw3 is not None:
+                            try:
+                                resp3 = orig(*a, **kw3)
+                                _split_think(resp3, False)
+                                _normalize_reply(resp3)
+                                model_config.record_usage(self.connection_id, kw.get("model", self.model), getattr(resp3, "usage", None))
+                                if (getattr(resp3.choices[0].message, "content", None) or "").strip():
+                                    return resp3
+                            except Exception:
+                                pass
                 return resp
 
             self.client.chat.completions.create = _create

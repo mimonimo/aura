@@ -14,11 +14,48 @@ import re
 
 _THINK = re.compile(r"<think>.*?</think>", re.S)
 _FENCE = re.compile(r"```(?:json|JSON)?\s*(.*?)```", re.S)
+# harmony 꼴(gpt-oss 계열을 해석기 없이 띄운 서버) — 「<|channel|>analysis<|message|>생각<|end|><|start|>assistant<|channel|>final<|message|>답<|return|>」.
+# 채널 이름 뒤에 「 to=functions.도구」「 <|constrain|>json」 같은 꼬리가 붙기도 한다
+_H_TOKEN = re.compile(r"<\|(?:start|end|return|call|message|channel|constrain|system|user|assistant|developer)\|>")
+_H_PART = re.compile(r"<\|channel\|>\s*([a-z]+)([^<]*?)(?:<\|constrain\|>[^<]*)?<\|message\|>(.*?)(?=<\|end\|>|<\|return\|>|<\|call\|>|<\|start\|>|<\|channel\|>|$)", re.S)
+
+
+def is_harmony(text: str) -> bool:
+    """harmony 표시가 섞인 글인가."""
+    return bool(text) and ("<|channel|>" in text or "<|message|>" in text)
+
+
+def harmony_parts(text: str) -> tuple[str, str, str]:
+    """harmony 글 → (생각, 답, 도구 호출 JSON 글). 답(final 채널)이 없으면 빈 글. 도구 호출은 「commentary to=functions.이름」 꼴을
+    {"action": 이름, "args": {...}} JSON 글로 — 걸음을 도구 호출로 낸 모델도 같은 꼴로 읽게."""
+    thought, final, call = [], "", ""
+    for ch, tail, body in _H_PART.findall(text or ""):
+        body = body.strip()
+        m = re.search(r"to=(?:functions\.)?([\w.-]+)", tail)
+        if m and ch in ("commentary", "analysis", "final"):
+            args = loads(body)
+            call = json.dumps({"action": m.group(1), "args": args if isinstance(args, dict) else {}}, ensure_ascii=False)
+        elif ch == "final":
+            final = body
+        else:
+            thought.append(body)
+    if not final and not call and not _H_PART.search(text or "") and "<|message|>" in (text or ""):
+        final = (text or "").rsplit("<|message|>", 1)[1]           # 채널 표시 없이 마지막 메시지만 남은 꼴
+    return "\n".join(thought).strip(), _H_TOKEN.sub("", final).strip(), call
+
+
+def strip_harmony(text: str) -> str:
+    """harmony 글에서 답만 — final 채널, 없으면 도구 호출 JSON, 둘 다 없으면 빈 글(생각 글을 답으로 내보내지 않는다). harmony 가 아니면 그대로."""
+    if not is_harmony(text):
+        return text or ""
+    _t, final, call = harmony_parts(text)
+    return final or call
 
 
 def strip_thinking(text: str) -> str:
     """생각 글을 걷는다 — 닫힌 「<think>…</think>」, 여는 표시 없이 남은 「…</think>」 앞부분, 닫히지 않은 「<think>…」(잘린 생각)."""
-    t = _THINK.sub("", text or "")
+    t = strip_harmony(text or "")
+    t = _THINK.sub("", t)
     if "</think>" in t:                       # 서버가 여는 표시를 뗀 꼴 — 마지막 닫는 표시 뒤가 답이다
         t = t.rsplit("</think>", 1)[1]
     if "<think>" in t:                        # 닫히지 않은 생각 — 출력 한도에 잘렸다. 생각 글 안의 괄호를 답으로 읽지 않는다

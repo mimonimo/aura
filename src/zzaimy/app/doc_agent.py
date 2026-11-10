@@ -315,6 +315,22 @@ def step_info() -> tuple[int, int] | None:
     return _STEP.get()
 
 
+EMPTY_FINISH = ("finish 의 message 가 비었다 — 담당자에게 남길 끝맺음 글(이번에 한 일·찾은 근거·「확인 필요」로 둔 것·남은 일)을 "
+                "message 에 써서 다시 finish 한다.")
+EMPTY_ANSWER = ("{name} 가 빈 답을 돌려줬다(모델이 답 글을 내지 못했다) — 같은 도구를 한 번 더 하거나, 찾은 근거를 finish 의 message 에 "
+                "정리해 담당자에게 알린다.")
+
+
+def _fallback_finish(log: list[str]) -> str:
+    """모델이 끝맺음 글을 두 번 비웠을 때 — 걸음 기록(도구 이름·결과 요약)으로 무엇을 했는지만 알린다. 문서 글을 옮기지 않는다."""
+    done = [ln.split(" ", 2)[1] for ln in log if ln and "→" in ln and "거절" not in ln and "하지 않음" not in ln and len(ln.split(" ", 2)) > 1]
+    names = {"search": "자료 찾기", "read_found": "찾은 문서 읽기", "read_document": "문서 읽기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
+             "delegate_section": "절 맡겨 쓰기", "hwp_start": "작업본 열기", "hwp_replace": "글 바꾸기"}
+    did = ", ".join(dict.fromkeys(names.get(n, n) for n in done if n != "finish"))
+    return ("요청을 처리했지만 모델이 끝맺음 글을 내지 못했습니다." + (f" 이번에 한 일: {did}." if did else "")
+            + " 결과는 오른쪽 문서와 위 기록에서 확인해 주세요. 더 할 일이 있으면 이어서 말해 주세요.")
+
+
 KEEP_STEPS = 3                     # 문맥을 줄여도 빼지 않는 최근 걸음 수
 REPEAT_LIMIT = 3                   # 같은 걸음을 잇달아 이만큼 거절하면 멈춘다
 WRAP_UP = ("같은 걸음을 잇달아 되풀이했다 — 이번 요청은 여기서 마친다. finish 만 고른다: 이번에 쓴 것, 근거에 없어 「확인 필요」로 둔 칸, "
@@ -374,6 +390,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     searched = nudged = False
     changed: list[str] = []                                 # 이번 요청에서 실제로 바뀐 것(쓰기 도구가 거절 글이 아닌 결과를 낸 걸음) — 끝맺음 대조용
     claim_checked = False
+    empty_asked = set()                                # 빈 끝맺음·빈 답을 되물은 도구 — 도구마다 한 번(11-10 gpt-oss: 끝냈는데 남길 글이 비었다)
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
     final_retried: set[str] = set()                    # 관문에 한 번 되돌려진 끝내기 걸음 — 같은 인자로 다시 오면 받는다(관문은 한 번만, 끝낼 수 없는 상태가 없게)
     noop_run: dict[str, int] = {}                      # 쓰기 도구마다 잇달아 아무것도 바꾸지 못한 수(찾기 0곳 등)
@@ -511,12 +528,18 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             claim_checked = True                                       # 한 번만 — 결과대로 고쳐 쓰면 받는다
             note = ("끝맺음 글이 문서를 쓰거나 고쳤다고 말하지만, 이번 요청에서 실제로 바뀐 것이 없다(쓰기 도구 결과가 모두 거절·실패). "
                     "한 일 그대로 다시 finish 한다 — 쓰지 못했으면 무엇을 왜 못 썼는지, 다음에 무엇을 할지.")
+        elif name == "finish" and not str(args.get("message") or "").strip() and "finish" not in empty_asked:
+            empty_asked.add("finish")                                  # 한 번만 되묻는다 — 또 비면 아래에서 걸음 기록으로 끝맺음 글을 만든다
+            note = EMPTY_FINISH
         elif tool.writes and ep.writes >= max_writes:
             note = f"이번 요청의 쓰기 한도({max_writes})에 닿았다 — finish 로 지금까지 한 일과 다음 할 일을 알린다."
         else:
             if on_step:
                 on_step(_step_label(name, args))
             _act(on_act, name, args, "start")
+            if name == "finish" and not str(args.get("message") or "").strip():
+                # 되물어도 비었다 — 도구가 실패했으면 실패 안내, 아니면 한 일을 걸음 기록으로 알린다(빈 화면으로 끝내지 않게)
+                args = dict(args, message=failure_message(ep) if ep.failures else _fallback_finish(log))
             try:
                 t_run = time.monotonic()
                 try:
@@ -525,7 +548,13 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     run_s = round(time.monotonic() - t_run, 1)
                 done = True
                 _act(on_act, name, args, "done")
-                first_obs[key] = (len(log) + 1, data)
+                if tool.final and name != "finish" and not data.strip() and name not in empty_asked:
+                    # 답하기 도구가 빈 답을 돌려줬다(모델이 생각만 하고 답 글을 못 냄) — 끝내지 않고 한 번 되묻는다. 같은 인자로 다시 할 수 있게 기록은 남기지 않는다
+                    empty_asked.add(name)
+                    done = False
+                    note = EMPTY_ANSWER.format(name=name)
+                else:
+                    first_obs[key] = (len(log) + 1, data)
                 if tool.writes:
                     ep.writes += 1
                     if not data.lstrip().startswith(_REFUSED):

@@ -475,8 +475,12 @@ class AgentResponder:
         _kw = ((gen or {}).get("extra_body") or {}).get("chat_template_kwargs") or {}
         think_on = bool(_effort.thinking() or _kw.get("enable_thinking"))
 
+        from zzaimy.generate import model_json as _mj
+
         def visible(final: bool = False) -> str:
             t = "".join(parts)
+            if _mj.is_harmony(t):                                 # harmony 꼴(gpt-oss 계열) — final 채널만 답, 생각 채널은 보이지 않는다
+                return _mj.harmony_parts(t)[1]
             if "</think>" in t:
                 return t.split("</think>")[-1].lstrip()
             return t if (final or not think_on) else ""
@@ -768,6 +772,9 @@ class AgentResponder:
             usages.append(getattr(resp, "usage", None))
             text = resp.choices[0].message.content or ""            # 생각 글(reasoning_content)은 답에 넣지 않는다
             finish = getattr(resp.choices[0], "finish_reason", "")
+        if text:
+            from zzaimy.generate import model_json as _mj
+            text = _mj.strip_harmony(text)                          # 감싸개를 거치지 않은 클라이언트의 harmony 꼴도
         messages, user_content = sent["messages"], sent["messages"][-1]["content"]
         if finish == "length" and text:
             if on_progress:

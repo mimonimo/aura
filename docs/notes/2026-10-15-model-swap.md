@@ -242,3 +242,19 @@ SFT 학습본(Writer·리즈닝)이 나오면 같은 195 로 후보 측정한다
 | 근거에 정답 문서 | 0.9 |
 | 답 전체·생성 시간 중앙값 | 16.6초 · 13.1초 |
 | 갈래 판정 50 — 실패·규칙과 같음·빈칸 채움·시간 | 0 · 0.92 · 0.96 · 2.7초 |
+
+## 다른 계열 모델의 답 꼴 (11-10 — gpt-oss 연결 시험)
+
+시험으로 gpt-oss-120b 를 연결하자 에이전트가 「처리를 마쳤지만 남길 답을 만들지 못했습니다」로 끝났다(finish 는 했는데 끝맺음 글이 비었다).
+계열마다 답이 오는 자리가 달라서다. 지금은 클라이언트 감싸개(generate/client.py `_normalize_reply`)가 어느 꼴이든 message.content 하나로 맞춘다.
+
+| 꼴 | 처리 |
+|---|---|
+| harmony 표시가 본문에 섞임(해석기 없이 띄운 서버) | final 채널만 본문, 생각 채널은 reasoning_content(model_json.harmony_parts) |
+| 본문이 비고 생각 칸(reasoning·reasoning_content)에 final 까지 들어감 | final 채널을 본문으로 |
+| 도구 호출(tool_calls · harmony 「commentary to=functions.이름」)로 온 걸음 | {"action", "args"} JSON 글 |
+| 한도를 넓혀도 생각만 하고 빈 답 | 생각을 끈 채 한 번 더 — 연결 설정 no_think, 없으면 OpenAI 규약 reasoning_effort=low(거절하면 빈 답 그대로) |
+| 끝맺음 글이 빔 · 답하기 도구가 빈 답 | doc_agent 가 한 번 되묻고, 또 비면 걸음 기록으로 끝맺음 글을 만든다(빈 화면으로 끝내지 않음) |
+
+생각 글을 본문으로 올리지는 않는다(지어낸 답이 되지 않게). 답 쓰기 조각 응답(responder._stream)도 harmony final 만 화면에 흘린다.
+모델 이름·문맥 길이·생각 인자는 여전히 연결 설정에서 읽는다. 시험: tests/test_model_swap_gptoss.py.
