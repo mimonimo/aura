@@ -629,9 +629,12 @@ class HwpTools:
         pat = self.numbering(fid)
         text, got = ww.unify_markers(text, pat)
         if not pat and len(got) >= 1:
-            m = webhwp.meta(self.db, fid)
-            m["numbering"] = got
-            self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+            try:                                            # 기록을 못 남겨도 쓰기는 한다(다음 절에서 다시 정한다)
+                m = webhwp.meta(self.db, fid)
+                m["numbering"] = got
+                self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+            except Exception:
+                pass
         return text
 
     def form_tables_note(self, field: str, data: bytes) -> str:
