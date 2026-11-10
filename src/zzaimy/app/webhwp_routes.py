@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from urllib.parse import quote as _q
@@ -1294,13 +1295,16 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
     def run():
         # 칸 글은 공동 편집 표가 정답 — 이 판에 표의 칸 글을 덮어 써 저장한다(다른 사람이 동시에 쓴 칸이 사라지지 않게)
         with ce.file_lock(fid):
-            if base_sha and not quiet:
+            cur = Path(webhwp.get(db, fid)["path"])
+            old_bytes = cur.read_bytes() if cur.exists() else b""
+            if base_sha and old_bytes:
                 # 내가 연 판 뒤에 다른 사람이 문서 전체를 새로 저장했다 — 그대로 덮으면 그 사람이 칸 밖에 쓴 글이 사라진다(11-10 9명 동시 실측).
-                # 덮지 않고 알린다: 화면은 세 판 합치기(/rescue)로 내 칸 밖 고침만 지금 판에 옮긴다
-                import hashlib
-                cur = Path(webhwp.get(db, fid)["path"])
-                if cur.exists() and hashlib.sha256(cur.read_bytes()).hexdigest() != base_sha:
+                # 덮지 않고 알린다: 화면은 세 판 합치기(/rescue)로 내 칸 밖 고침만 지금 판에 옮긴다. 서식만 남기는 조용한 저장(quiet)도 같다 —
+                # 다른 사람 판 위에 옛 판 전체를 덮었다(11-10)
+                if hashlib.sha256(old_bytes).hexdigest() != base_sha:
                     raise _Stale()
+            if _wiped(old_bytes, data):
+                raise _Wiped()
             own = ce.own_changes(db, fid, data, user) if not quiet else {}
             new, done, versions = ce.overlay(db, fid, data, keep_author=user if not quiet else "")
             wrapped = 0
@@ -1322,10 +1326,41 @@ async def hwp_save(request: Request, fid: int, quiet: int = 0):
         p, data, merged, wrapped = await run_in_threadpool(run)
     except _Stale:
         raise HTTPException(409, "stale: 연 뒤에 다른 사람이 새 판을 저장했습니다")
+    except _Wiped:
+        raise HTTPException(409, "wiped: 본문 대부분이 빈 판이라 저장하지 않았습니다. 문서를 다시 열어 주세요")
     except ValueError as e:
         raise HTTPException(400, str(e))
     _touch(request, webhwp.dept_of_path(_base(request), f["path"]), webhwp.folder_of(_base(request), f["path"]))
-    return {"ok": True, "name": p.name, "size": len(data), "merged": merged, "wrapped": wrapped}
+    return {"ok": True, "name": p.name, "size": len(data), "merged": merged, "wrapped": wrapped,
+            "sha": hashlib.sha256(Path(p).read_bytes()).hexdigest() if Path(p).exists() else ""}
+
+
+class _Wiped(Exception):
+    """저장하려는 판이 본문을 거의 잃었다 — 불러오는 도중이거나 깨진 편집기 내용."""
+
+
+def _plain_len(raw: bytes) -> int:
+    """HWPX 본문 글자 수(태그 뺀 글) — 읽지 못하면 -1."""
+    import io
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            n = 0
+            for name in z.namelist():
+                if re.match(r"Contents/section\d+\.xml$", name):
+                    n += sum(len(t.strip()) for t in re.findall(r"<hp:t(?:\s[^>]*)?>([^<]*)</hp:t>", z.read(name).decode("utf-8", "replace")))
+            return n
+    except Exception:
+        return -1
+
+
+def _wiped(old: bytes, new: bytes) -> bool:
+    """본문이 넉넉하던 문서(300자 넘게)가 한 번 저장으로 5% 아래가 되면 사고로 본다 — 불러오는 도중의 빈 편집기 내용이 파일을 덮은 일(11-10 9명 시험, 본문 2만8천 자 → 0자).
+    사람이 일부러 다 지우는 일은 드물고, 그때는 새 문서로 만들면 된다."""
+    if not old or not new:
+        return False
+    a, b = _plain_len(old), _plain_len(new)
+    return a > 300 and 0 <= b < a * 0.05
 
 
 class _Stale(Exception):

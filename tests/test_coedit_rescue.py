@@ -183,3 +183,38 @@ def test_rescue_with_bomb_keeps_copy_not_silent(tmp_path, monkeypatch):
     rows = kim.get(f"/hwp/{fid}/conflicts").json()
     rows = rows.get("conflicts", rows) if isinstance(rows, dict) else rows
     assert any("옮기지 못함" in (r.get("text") or "") for r in rows)
+
+
+def test_quiet_save_on_stale_base_is_refused_and_save_returns_new_sha(tmp_path, monkeypatch):
+    """서식만 남기는 조용한 저장도 바탕 판이 바뀌었으면 덮지 않는다(11-10 9명 시험: 옛 판 전체가 남의 새 판을 덮음).
+    저장에 성공하면 새 판 지문을 돌려줘 같은 화면의 다음 저장이 제 판을 남의 판으로 알지 않게 한다."""
+    app, kim, park, fid = _app(tmp_path, monkeypatch, ["제목", "첫째 문단"])
+    sha = hashlib.sha256(_file(app, fid)).hexdigest()
+    r = park.post(f"/hwp/{fid}/save", content=_doc(["제목", "첫째 문단", "박의 새 문단"]), headers={"X-Base-Sha": sha})
+    assert r.status_code == 200 and r.json()["sha"] == hashlib.sha256(_file(app, fid)).hexdigest()
+    r = kim.post(f"/hwp/{fid}/save?quiet=1", content=_doc(["제목", "첫째 문단"]), headers={"X-Base-Sha": sha})
+    assert r.status_code == 409 and "박의 새 문단" in _texts(_file(app, fid))
+    new_sha = park.post(f"/hwp/{fid}/save?quiet=1", content=_doc(["제목", "첫째 문단", "박의 새 문단", "더"]),
+                        headers={"X-Base-Sha": hashlib.sha256(_file(app, fid)).hexdigest()}).json()["sha"]
+    assert park.post(f"/hwp/{fid}/save", content=_doc(["제목", "첫째 문단", "박의 새 문단", "더", "또"]),
+                     headers={"X-Base-Sha": new_sha}).status_code == 200
+
+
+def test_save_that_wipes_almost_all_text_is_refused(tmp_path, monkeypatch):
+    """본문이 넉넉한 문서를 거의 빈 판으로 덮는 저장은 거절한다 — 다시 불러오는 도중의 빈 편집기 내용(11-10, 2만8천 자 → 0자)."""
+    long = [f"{i}번째 문단 — 사업 운영 결과와 성과를 적은 본문입니다." for i in range(30)]
+    app, kim, park, fid = _app(tmp_path, monkeypatch, long)
+    for q in ("", "?quiet=1"):
+        r = kim.post(f"/hwp/{fid}/save{q}", content=_doc([""]))
+        assert r.status_code == 409 and r.json()["detail"].startswith("wiped")
+    assert len(_texts(_file(app, fid))) == 30
+    assert kim.post(f"/hwp/{fid}/save", content=_doc(long[:20])).status_code == 200   # 일부를 지우는 보통 저장은 그대로
+
+
+def test_edit_screen_does_not_save_while_reloading():
+    """다시 여는 동안은 조용한 저장을 하지 않고, 조용한 저장도 바탕 판 지문을 보낸다."""
+    html = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/templates/hwp_edit.html").read_text(encoding="utf-8")
+    q = html[html.index("function quietSave()"):]
+    q = q[:q.index("function touched()")]
+    assert "reloading" in q and "reloadPending" in q and "X-Base-Sha" in q
+    assert "reloading = true" in html and "function rebase(" in html

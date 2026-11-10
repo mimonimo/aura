@@ -484,7 +484,7 @@
     });
   }
   // 다른 사람·AURA 가 문서 전체를 새로 저장했다 — 내 보낼 것을 다 보내고 입력이 멈추면 새 판을 열어 커서 자리로 돌아간다
-  var reloadPending = null;
+  var reloadPending = null, reloading = false;
   // 다시 연 뒤 보던 자리로 — 긴 문서는 쪽을 차례로 그려서 첫 되돌리기가 맨 위에 걸린다(10-26 시연: AURA 가 표 든 절을 쓰자 세 화면이 1쪽으로 튐).
   // 그사이 사람이 치지 않았으면 몇 번 더 되돌리고, AURA 를 따라가던 화면은 AURA 자리로
   // target: 방금 바뀐 칸(AURA 가 쓰는 칸, 없으면 글이 바뀐 첫 칸) — 커서는 그대로 두고 화면만 그 칸으로 굴린다. 공동 편집(칸) 모드에서는
@@ -539,7 +539,8 @@
         var before = byAura0 ? snapFields() : null;   // AURA 가 고친 판이면 어느 칸이 바뀌었는지 견줄 앞 글
         if (eng.suspend) eng.suspend();
         thaw = hwp.freeze ? hwp.freeze() : function () {};   // 다시 여는 동안 흰 화면 대신 보던 화면(11-09)
-        return loadFile().then(function () {
+        reloading = true;                              // 다시 여는 동안은 저장하지 않는다 — 비어 가는 편집기 내용이 파일을 덮었다(11-10 9명 시험, 36KB → 7KB)
+        return loadFile().then(function (x) { reloading = false; return x; }, function (e) { reloading = false; throw e; }).then(function () {
           fitZoom();                                   // 다시 불러와도 보던 배율 그대로(폭 맞춤으로 커지지 않게)
           if (readonly || (mode === 'whole' && !holding)) hwp.setReadOnly(true);
           return eng.reopened();
@@ -640,12 +641,15 @@
     if (mode === 'fields' && !structMine) { return eng.flush().then(function () { if (then) then(); }); }
     if (!ready || saving || readonly || !canSaveWhole()) { if (then && !saving) then(); return Promise.resolve(); }
     saving = true; saveBtn.disabled = true; say('저장 중', 'busy');
+    var sent = null;
     return (eng ? eng.flush() : Promise.resolve()).then(function () { return hwp.hwpx(); }).then(function (bytes) {
+      sent = bytes;
       var hd = {'Content-Type': 'application/octet-stream'}; if (baseSha) hd['X-Base-Sha'] = baseSha;
       return fetch(saveUrl, {method: 'POST', credentials: 'same-origin', headers: hd, body: bytes})
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.detail || ('저장하지 못했습니다(' + r.status + ')')); e.status = r.status; throw e; } return j; }); });
     }).then(function (j) {
       dirty = false;
+      rebase(j, sent);
       if (j && j.wrapped) lastWrapped = j.wrapped;
       say((auto ? '자동 저장됨 · ' : '저장됨 · ') + new Date().toLocaleTimeString('ko-KR', {hour: '2-digit', minute: '2-digit'}), 'ok');
       if (autoStruct && structMine && auto) { autoStruct = false; structOff(); }   // 저절로 잡은 잠금은 저장이 끝나면 놓는다
@@ -665,12 +669,21 @@
       .then(function () { saving = false; saveBtn.disabled = !ready; });
   }
   saveBtn.addEventListener('click', function () { if (isNew) openSaveAs('create'); else save(false); });
+  // 내가 저장한 판이 새 바탕 — 서버가 돌려준 지문으로 바꿔 둔다(안 바꾸면 다음 저장이 내 판을 남의 새 판으로 알고 거절됐다)
+  function rebase(j, bytes) {
+    if (!j || !j.sha) return;
+    baseSha = j.sha;
+    if (bytes) baseBlob = new Blob([bytes]);
+  }
   function quietSave() {
-    if (!ready || saving || readonly || isNew || structMine) return;
+    if (!ready || saving || readonly || isNew || structMine || reloading || reloadPending || outsidePending) return;
     if (hwp.isComposing() || Date.now() - hwp.lastInputAt() < 1000) { clearTimeout(quietSave.t); quietSave.t = setTimeout(quietSave, 1000); return; }
     saving = true;
     (eng ? eng.flush() : Promise.resolve()).then(function () { return hwp.hwpx(); }).then(function (bytes) {
-      return fetch(saveUrl + (saveUrl.indexOf('?') < 0 ? '?' : '&') + 'quiet=1', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/octet-stream'}, body: bytes});
+      // 연 판(바탕) 지문을 함께 — 그 사이 다른 사람이 새 판을 저장했으면 서버가 덮지 않는다(새 판 알림이 다시 열게)
+      var hd = {'Content-Type': 'application/octet-stream'}; if (baseSha) hd['X-Base-Sha'] = baseSha;
+      return fetch(saveUrl + (saveUrl.indexOf('?') < 0 ? '?' : '&') + 'quiet=1', {method: 'POST', credentials: 'same-origin', headers: hd, body: bytes})
+        .then(function (r) { return r.ok ? r.json().then(function (j) { rebase(j, bytes); }) : null; });
     }).catch(function () {}).then(function () { saving = false; });
   }
   function touched() {
