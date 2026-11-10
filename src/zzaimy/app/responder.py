@@ -806,7 +806,9 @@ class AgentResponder:
         self.last_timing["generate_sec"] = round(_time.time() - _t2, 2)
         try:   # 어느 서버가 답을 썼는지(llm_pool 이 쌍둥이 서버에 나눈 결과) — scripts/answer_timing_report.py 가 서버별로 묶는다
             from urllib.parse import urlparse
-            self.last_timing["server"] = urlparse(str(getattr(client, "_base_url", "") or "")).netloc
+            _u = urlparse(str(getattr(client, "_base_url", "") or ""))
+            # 기록에는 호스트·포트만 — netloc 에는 주소에 박힌 계정·비밀값(user:pass@)이 따라올 수 있다(11-10 보안 검토)
+            self.last_timing["server"] = f"{_u.hostname or ''}{':' + str(_u.port) if _u.port else ''}"
         except Exception:
             pass
         toks = [getattr(u, "completion_tokens", None) for u in usages if u is not None]

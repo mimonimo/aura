@@ -150,3 +150,12 @@ def test_answer_timing_report(tmp_path, capsys):
     assert m.main([str(p), "--since", "2026-11-10"]) == 0
     out = capsys.readouterr().out
     assert "생각 켬 1건" in out and "생각 끔 1건" in out and "a:8001 1" in out
+
+
+def test_answer_timing_server_has_no_credentials():
+    """답 기록의 서버 칸은 호스트·포트만 — 주소에 박힌 계정·비밀값이 기록에 남지 않는다(11-10 보안 검토)."""
+    import inspect
+    from zzaimy.app import responder
+    src = inspect.getsource(responder)
+    assert '.netloc' not in src.split('last_timing["server"]')[0][-400:]
+    assert "_u.hostname" in src
