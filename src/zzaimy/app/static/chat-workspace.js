@@ -267,6 +267,90 @@
     return out;
   }
   window.ChatValueForm = {parsePairs};
+  // 값 갈래별 입력 칸(연도·날짜·기간·금액·숫자) — 보낼 값은 늘 숨은 글칸(textarea)에 모은다(저장·세기·붙여 넣기는 그 글칸 하나로)
+  const LEAVE = '확인 필요';
+  const typedOf = row => [...row.querySelectorAll('[data-typed]')];
+  const toKoDate = v => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); return m ? m[1] + '. ' + Number(m[2]) + '. ' + Number(m[3]) + '.' : ''; };
+  const fromKoDate = t => { const m = /(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(t || ''); return m ? m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0') : ''; };
+  const commas = digits => digits.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  function typedValue(row) {
+    const get = kind => row.querySelector('[data-typed="' + kind + '"]');
+    const type = row.querySelector('.chat-form-input')?.dataset.type;
+    if (type === 'year') return get('year').value ? get('year').value + '년' : '';
+    if (type === 'date') return toKoDate(get('date').value);
+    if (type === 'period') {
+      const a = toKoDate(get('period-from').value), b = toKoDate(get('period-to').value);
+      return a || b ? (a || '') + ' ~ ' + (b || '') : '';
+    }
+    if (type === 'amount') { const d = get('amount').value.replace(/[^\d]/g, ''); return d ? commas(d) + '원' : ''; }
+    if (type === 'number') return get('number').value.trim();
+    return null;
+  }
+  function fillTyped(row) {                                                                  // 미리 채운 값(자료 제안)을 고르기 칸에도
+    const area = rowArea(row), v = (area?.value || '').trim(), type = row.querySelector('.chat-form-input')?.dataset.type;
+    const get = kind => row.querySelector('[data-typed="' + kind + '"]');
+    if (type === 'year') {
+      const box = get('year'), now = new Date().getFullYear(), have = (/(\d{4})/.exec(v) || [])[1];
+      for (let y = now + 6; y >= now - 10; y--) box.add(new Option(y + '년', String(y)));
+      if (have && !box.querySelector('option[value="' + have + '"]')) box.add(new Option(have + '년', have));
+      if (have) box.value = have;
+    } else if (type === 'date') get('date').value = fromKoDate(v);
+    else if (type === 'period') {
+      const [a, b] = v.split(/~|부터|-(?=\s*\d{4})/);
+      get('period-from').value = fromKoDate(a); get('period-to').value = fromKoDate(b);
+    } else if (type === 'amount') { const d = v.replace(/[^\d]/g, ''); get('amount').value = d ? commas(d) : ''; }
+    else if (type === 'number') get('number').value = v;
+    if (v === LEAVE) markLeave(row, true);
+  }
+  function markLeave(row, on) {
+    const btn = row.querySelector('[data-leave]'), area = rowArea(row);
+    if (!btn || !area) return;
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.textContent = on ? '비워 둠 · 되돌리기' : '모르면 비워 두기';
+    row.classList.toggle('is-left', on);
+    typedOf(row).forEach(el => { el.disabled = on; });
+    area.readOnly = on;
+    if (on) { if (area.value.trim() !== LEAVE) { area.dataset.before = area.value; area.value = LEAVE; } }
+    else if (area.value.trim() === LEAVE) { area.value = area.dataset.before || ''; }
+  }
+  function initValueForms(scope) {
+    (scope || scroller).querySelectorAll('form.chat-suggestion-form .chat-form-field').forEach(row => {
+      if (row.dataset.typedReady) return;
+      row.dataset.typedReady = '1';
+      fillTyped(row);
+    });
+    if (window.PeoplePicker) PeoplePicker.mountAll(scope || scroller);
+  }
+  scroller.addEventListener('input', event => {
+    const el = event.target.closest('form.chat-suggestion-form [data-typed]');
+    if (!el) return;
+    if (el.dataset.typed === 'amount') {                                                     // 치는 대로 천 단위 쉼표
+      const d = el.value.replace(/[^\d]/g, ''); el.value = d ? commas(d) : '';
+    }
+    const row = el.closest('.chat-form-field'), area = rowArea(row), v = typedValue(row);
+    if (v !== null && area) { area.value = v; area.dispatchEvent(new Event('input', {bubbles: true})); }
+  }, true);
+  scroller.addEventListener('change', event => {
+    const el = event.target.closest('form.chat-suggestion-form [data-typed]');
+    if (!el) return;
+    const row = el.closest('.chat-form-field'), area = rowArea(row), v = typedValue(row);
+    if (v !== null && area) { area.value = v; paintValueForm(el.form); }
+  }, true);
+  scroller.addEventListener('pp:pick', event => {                                            // 교직원에서 찾아 고르면 이름을 글칸에
+    const box = event.target.closest('form.chat-suggestion-form .chat-form-people');
+    if (!box) return;
+    const row = box.closest('.chat-form-field'), area = rowArea(row), p = event.detail || {};
+    if (!area || !p.name) return;
+    area.value = p.name;
+    area.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  scroller.addEventListener('click', event => {
+    const btn = event.target.closest('form.chat-suggestion-form [data-leave]');
+    if (!btn) return;
+    const row = btn.closest('.chat-form-field');
+    markLeave(row, btn.getAttribute('aria-pressed') !== 'true');
+    paintValueForm(btn.form);
+  });
   const valueRows = form_ => [...form_.querySelectorAll('.chat-form-field')];
   const rowArea = row => row.querySelector('textarea');
   const rowLater = row => row.querySelector('input[name=later]');
@@ -288,6 +372,7 @@
     for (const row of valueRows(form_)) {
       const later = Boolean(rowLater(row)?.checked), area = rowArea(row);
       area.disabled = later;
+      if (later) typedOf(row).forEach(el => { el.disabled = true; });
       row.classList.toggle('is-later', later);
       row.classList.toggle('is-filled', !later && Boolean(area.value.trim()));
       row.classList.toggle('is-picked', isPicked(row));
@@ -365,6 +450,13 @@
     if (!event.target.checked) rowArea(event.target.closest('.chat-form-field'))?.focus();
   });
   scroller.addEventListener('keydown', event => {
+    const typed = event.target.closest('form.chat-suggestion-form input[data-typed]');
+    if (typed && event.key === 'Enter' && !event.isComposing) {                             // 고르기 칸의 Enter 는 보내기가 아니라 다음 칸으로
+      event.preventDefault();
+      const all = [...typed.form.querySelectorAll('[data-typed], textarea:not([hidden])')].filter(item => !item.disabled);
+      (all[all.indexOf(typed) + 1] || typed.form.querySelector('[data-form-submit]'))?.focus();
+      return;
+    }
     const area = event.target.closest('form.chat-suggestion-form textarea');
     if (!area) return;
     const form_ = area.form;
@@ -447,7 +539,7 @@
     const accept = event.target.closest('[data-accept-value]'), edit = event.target.closest('[data-edit-value]');
     if (!accept && !edit) return;
     const row = event.target.closest('.chat-form-field'), area = rowArea(row);
-    if (edit) { area.focus(); area.select(); return; }
+    if (edit) { const t = typedOf(row)[0]; if (t) { t.focus(); return; } area.focus(); area.select(); return; }
     row.classList.add('is-accepted');
     const note = row.querySelector('[data-source-state]');
     if (note) note.textContent = note.textContent.replace('확인 전', '확인함');
@@ -461,11 +553,23 @@
     for (const [key, value] of [...payload.entries()]) {                                  // 비운 칸은 보내지 않는다
       if (key.startsWith('field_') && !String(value).trim()) payload.delete(key);
     }
-    const label = filled ? filled + '개 저장, 에이전트가 반영 중' : '이 칸들은 다음 차례로. 다음 값을 불러오는 중';
+    const label = filled ? '받은 값 ' + filled + '개를 넣고 이어서 쓰는 중' : '이 칸들은 다음 차례로. 다음 값을 불러오는 중';
     const sent = document.createElement('div');
     sent.className = 'chat-form-sent'; sent.setAttribute('role', 'status');
     sent.innerHTML = '<span class="chat-progress-dot" aria-hidden="true"></span><span></span>';
     sent.lastChild.textContent = label;
+    const got = valueRows(form_).filter(row => !rowLater(row)?.checked && rowArea(row).value.trim());
+    if (got.length) {                                                                        // 보낸 값 요약 — 칸은 접히고 무엇을 보냈는지 남는다
+      const list = document.createElement('ul');
+      list.className = 'chat-form-sent-list';
+      got.forEach(row => {
+        const li = document.createElement('li'), name = document.createElement('b');
+        name.textContent = row.querySelector('.chat-form-label')?.textContent.trim() || '';
+        li.append(name, document.createTextNode(' ' + rowArea(row).value.trim().slice(0, 80)));
+        list.append(li);
+      });
+      sent.append(list);
+    }
     form_.append(sent); form_.classList.add('is-sent');
     sending = true; paint();
     try {
@@ -521,7 +625,7 @@
     else { scroller.scrollTop = position; latest.hidden = false; }
     status.textContent = waiting ? '요청 처리 중' : '';
     paint();
-    paintValueForms();
+    initValueForms(); paintValueForms();
     clearTimeout(timer);
     if (waiting) timer = setTimeout(poll, 2000);
   }
@@ -767,6 +871,7 @@
     }
   });
   paint();
+  initValueForms();
   paintValueForms();
   // 처음 연 화면도 최신 글에서 — 아이콘·단추가 늦게 그려져도 맨 위로 밀리지 않게
   if (scroller.querySelector('.turn')) bottom();

@@ -18,6 +18,36 @@ VALUE_MAX = 2000                     # 값 하나의 길이 상한 — 여러 �
 _TAIL = re.compile(r"\s*(?:입니다|이다|이고|이며|임|예요|에요)\.?$")
 
 
+# 작업본 필드 이름의 접두사(칸:·절:·표3:·입력:) — 모델이 필드 이름을 그대로 옮겨 물으면 화면에 내부 말이 보였다
+_FIELD_PREFIX = re.compile(r"^\s*(?:칸|절|표\s*\d*|입력)\s*[:：]\s*")
+
+
+def clean_name(name: str) -> str:
+    """묻는 값 이름 — 필드 접두사를 떼고 공백을 고른다(같은 값을 접두사만 달리 두 번 묻지 않게)."""
+    return re.sub(r"\s+", " ", _FIELD_PREFIX.sub("", str(name or ""))).strip()
+
+
+# 값 갈래 — 입력 칸 꼴을 고른다(연도는 연도 고르기, 날짜·기간은 달력, 금액은 쉼표·원, 사람은 이름 찾기, 긴 글은 여러 줄).
+# 행정 서류에 흔한 이름 끝말로만 본다(특정 양식·사업 이름이 아니다). 모르면 한 줄 글
+_TYPE_RULES = (
+    ("period", re.compile(r"기간$")),
+    ("date", re.compile(r"(?:일자|날짜|일시|기한|마감일|시작일|종료일|협약일|개최일)$")),
+    ("year", re.compile(r"(?:연도|년도|학년도)$")),
+    ("amount", re.compile(r"(?:예산|금액|사업비|비용|경비|총액|지원금|단가|대응자금|국고보조금)(?:\s*\(?원\)?)?$")),
+    ("person", re.compile(r"(?:성명|책임자|담당자|사업단장|단장|위원장|총장|학과장|부서장|이름)$")),
+    ("number", re.compile(r"(?:인원|정원|학생\s*수|교원\s*수|명수|건수|개수|비율|율|점수|횟수|\(명\)|\(%\))$")),
+    ("long", re.compile(r"(?:목표|계획|전략|방안|비전|개요|내용|방향|설명|사유|필요성|요약)$")),
+)
+
+
+def value_type(name: str, kind: str = "") -> str:
+    n = clean_name(name)
+    for t, rx in _TYPE_RULES:
+        if rx.search(n):
+            return t
+    return "long" if norm_kind(kind) == DECISION and len(n) >= 6 else "text"
+
+
 def pending(db, session_id: int) -> list[dict]:
     try:
         return [a for a in json.loads(db.get_setting(f"chat_asks:{session_id}", "") or "[]") if a.get("name")]
@@ -57,8 +87,13 @@ def set_pending(db, session_id: int, asks: list[dict]) -> None:
 
 def add_pending(db, session_id: int, asks: list[dict]) -> list[dict]:
     cur = pending(db, session_id)
-    names = {a["name"] for a in cur}
-    new = [a for a in asks if a.get("name") and a["name"] not in names]
+    names = {clean_name(a["name"]) for a in cur}
+    new = []
+    for a in asks:
+        n = clean_name(a.get("name"))
+        if n and n not in names:
+            new.append({**a, "name": n})
+            names.add(n)
     if new:                                   # 새로 물을 값이 생기면 앞서 미룬 값도 다시 차례를 다툰다(맨 뒤 자리는 그대로)
         for a in cur:
             a.pop(LATER, None)
@@ -110,6 +145,13 @@ UNCONFIRMED = "확인 필요"
 def suggestions(db, session_: dict | None) -> dict:
     """자료에서 찾았지만 담당자가 아직 확인하지 않은 값 {이름: {value, title, doc_id, chunk_id, run, at}}."""
     return _load(db, _facts_key(session_) + ":suggested")
+
+
+def told(db, session_: dict | None) -> dict:
+    """담당자가 이미 알려 준 값(「확인 필요로 둬」 포함)과 기관 정보 — 다시 묻지 않을 값. 자료에서 찾고 확인 전인 값은 넣지 않는다."""
+    out = {k: v for k, v in institution.facts(db).items() if v}
+    out.update({k: v for k, v in _load(db, _facts_key(session_)).items() if v})
+    return out
 
 
 def facts(db, session_: dict | None) -> dict:
@@ -184,7 +226,7 @@ def ask_message(items: list[dict], suggested: dict | None = None, lead: str = ""
             how = "정해서 알려 주시거나 「확인 필요」 로 둠"
         else:
             how = "자료에 없음 · 알려 주시거나 「확인 필요」 로 둠"
-        rows.append(f"- {a['name']}: {how}")
+        rows.append(f"- {clean_name(a['name'])}: {how}")
     head = (lead or "").strip() or "이번 요청에 필요한데 자료에서 찾지 못한 값입니다."
     tail = "채팅으로 「이름: 값」 처럼 답해 주세요. 「확인 필요」 로 답한 값은 그 자리를 표시해 두고 이어 씁니다."
     return "\n".join([head, *rows, tail])
@@ -389,8 +431,11 @@ def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
         s = suggested.get(a["name"]) or {}
         found = bool(s.get("value"))
         hint = (f"자료에서 찾음 · 확인 전 · 《{s.get('title', '')}》" if found else a.get("hint") or "")
-        fields.append({"name": a["name"], "label": a["name"], "placeholder": hint, "required": False, "value": s.get("value") or "",
-                       "hint": a.get("hint") or "", "source": str(s.get("title") or "") if found else "", "suggested": found})
+        why = re.sub(r"\s+", " ", str(a.get("hint") or "")).strip()
+        fields.append({"name": a["name"], "label": clean_name(a["name"]), "placeholder": hint, "required": False, "value": s.get("value") or "",
+                       "hint": a.get("hint") or "", "source": str(s.get("title") or "") if found else "", "suggested": found,
+                       "type": value_type(a["name"], a.get("kind") or ""),
+                       "why": (why[:38] + "…") if len(why) > 40 else why})
     return {"kind": "form", "text": "필요한 값 입력", "fields": fields, "more": len(asks) - len(shown),
             "later": sum(1 for a in asks if a.get(LATER) and a not in shown),
             "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in shown),

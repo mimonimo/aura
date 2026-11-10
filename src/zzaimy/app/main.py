@@ -3154,12 +3154,19 @@ def create_app(
             return text[:600]
 
         def t_ask(a: dict) -> str:
-            items = [{"name": str(x.get("name"))[:60], "hint": _ko.clip(str(x.get("why") or x.get("hint") or ""), 120),
+            items = [{"name": _asks.clean_name(x.get("name"))[:60], "hint": _ko.clip(str(x.get("why") or x.get("hint") or ""), 120),
                       "kind": _asks.norm_kind(x.get("kind")), "how": _ko.clip(str(x.get("how") or "").strip(), 100)}
                      for x in (a.get("items") or []) if isinstance(x, dict) and x.get("name")]
             if not items:
                 return "items 가 비었다."
             sess_ = db.get_chat_session(session_id)
+            # 이미 받은 값은 다시 묻지 않는다 — 담당자가 앞서 알려 준 값을 또 물어 같은 답을 두 번 하게 했다(11-10)
+            known_ = _asks.told(db, sess_)
+            again_ = [x["name"] for x in items if x["name"] in known_]
+            items = [x for x in items if x["name"] not in known_]
+            if not items:
+                raise doc_agent.Retry("이미 담당자에게 받은 값이다 — 다시 묻지 않고 그 값으로 이어 쓴다: "
+                                      + ", ".join(f"{n_}: {str(known_[n_])[:40]}" for n_ in again_[:8]))
             sug_ = _asks.suggestions(db, sess_)
             # 사실 값(수·비율·지난 실적·이름 등 자료에 있을 수 있는 값)은 묻기 전에 지난 자료(library)부터 — 한 요청에 한 번 안내한다
             facts_ = [x["name"] for x in items if x["kind"] != _asks.DECISION and x["name"] not in gave_up and x["name"] not in sug_]
@@ -3173,9 +3180,8 @@ def create_app(
             for x in items:
                 if x["how"] and any(re.sub(r"\s+", "", n_) not in seen_ for n_ in re.findall(r"\d[\d,.]*\d|\d", x["how"])):
                     x["how"] = ""
-            pend = _asks.pending(db, session_id)
-            have = {x["name"] for x in pend}
-            _asks.set_pending(db, session_id, pend + [{k_: v_ for k_, v_ in x.items() if k_ != "how"} for x in items if x["name"] not in have])
+            items = [x for x in items if x["name"]]
+            _asks.add_pending(db, session_id, [{k_: v_ for k_, v_ in x.items() if k_ != "how"} for x in items])   # 접두사만 다른 같은 값은 한 번만
             _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), sug_)])
             db.add_chat(session_id, "assistant", _scrub_internal(_asks.ask_message(items, sug_, str(a.get("message") or ""))))
             return "물었다."

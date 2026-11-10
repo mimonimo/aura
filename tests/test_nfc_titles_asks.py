@@ -64,3 +64,52 @@ def test_values_given_mid_run_are_applied_and_work_continues():
     rg = rg[:rg.index("\n    def ", 10)]
     assert rg.index("if not post:") < rg.index("_set_options(") < rg.index("db.add_chat(")
     assert "기억만 하고 끝내지 않는다" in MAIN and "_APPLY_GIVEN)" in MAIN       # 채팅 답(told_now) 줄에도
+
+
+def test_value_types_follow_admin_name_endings():
+    from zzaimy.app import asks
+    got = {n: asks.value_type(n, k) for n, k in [("사업 기간", ""), ("협약일자", ""), ("기준 연도", ""), ("총사업비", "결정"),
+                                                ("사업단장 성명", ""), ("2026학년도 입학정원", ""), ("특성화 추진 목표", "결정"),
+                                                ("칸:특성화학과", ""), ("주관 부서", "")]}
+    assert got == {"사업 기간": "period", "협약일자": "date", "기준 연도": "year", "총사업비": "amount", "사업단장 성명": "person",
+                   "2026학년도 입학정원": "number", "특성화 추진 목표": "long", "칸:특성화학과": "text", "주관 부서": "text"}
+
+
+def test_same_value_with_field_prefix_is_asked_once_and_shown_without_prefix(tmp_path):
+    from zzaimy.app import asks
+    db = Database(tmp_path / "t.db")
+    sid = db.create_chat_session("t", owner="kim")
+    asks.add_pending(db, sid, [{"name": "칸:특성화학과", "hint": "표지에 쓸 학과"}])
+    asks.add_pending(db, sid, [{"name": "특성화학과"}, {"name": "절: 사업 기간"}])
+    names = [a["name"] for a in asks.pending(db, sid)]
+    assert names == ["특성화학과", "사업 기간"]
+    f = asks.form_option(asks.pending(db, sid))["fields"]
+    assert [x["label"] for x in f] == ["특성화학과", "사업 기간"] and f[1]["type"] == "period" and f[0]["why"] == "표지에 쓸 학과"
+
+
+def test_card_renders_typed_inputs_and_leave_choice(tmp_path):
+    from fastapi.testclient import TestClient
+    from tests.test_accounts import _app, _login
+    from zzaimy.app import asks
+    app = _app(tmp_path)
+    app.state.accounts["kim"] = app.state.new_account("kim", "pass-12345678", "staff")
+    app.state.accounts["kim"]["dept"] = "기획처"
+    db = app.state.db
+    sid = db.create_chat_session("계획서", owner="kim")
+    db.add_chat(sid, "user", "사업계획서 써 줘")
+    db.add_chat(sid, "assistant", "필요한 값이 있습니다.")
+    asks.set_pending(db, sid, [{"name": n} for n in ("사업 기간", "총사업비", "기준 연도", "협약일자", "사업단장 성명", "칸:특성화학과")])
+    c = TestClient(app)
+    assert _login(c, "kim", "pass-12345678")
+    html = c.get(f"/chat/{sid}").text
+    for needle in ('data-typed="period-from"', 'data-typed="period-to"', 'data-typed="amount"', 'data-typed="year"', 'data-typed="date"',
+                   "data-people-picker", "data-leave", "모르면 비워 두기", "/static/people-picker.js"):
+        assert needle in html, needle
+    card = html[html.index("chat-suggestion-form"):]
+    assert ">칸:특성화학과<" not in card and ">특성화학과<" in card              # 내부 접두사는 화면에 보이지 않는다
+
+
+def test_already_told_values_are_not_asked_again():
+    t = MAIN[MAIN.index("def t_ask(a: dict)"):]
+    t = t[:t.index("\n        def ", 10)]
+    assert "_asks.told(db, sess_)" in t and "다시 묻지 않고" in t and "_asks.add_pending(" in t
