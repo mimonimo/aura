@@ -32,9 +32,32 @@ PALETTE = {
 DEFAULT_COLOR = "navy"
 
 
+_COLOR_CACHE: dict[int, tuple[float, dict, object]] = {}
+_COLOR_TTL = 5.0
+
+
+def _colors(db) -> dict | None:
+    """모든 프로젝트 색을 한 번에 읽어 몇 초 기억 — 사이드바가 프로젝트마다 설정을 따로 읽어 화면마다 DB 를 십여 번 오갔다(11-11 표본 측정).
+    이 프로세스에서 색을 바꾸면(set_color) 바로 지운다. 한 번에 읽기가 없는 db 면 None(하나씩 읽기)."""
+    import time as _t
+    if not hasattr(db, "settings_with_prefix"):
+        return None
+    now = _t.monotonic()
+    hit = _COLOR_CACHE.get(id(db))
+    if hit and hit[2] is db and now - hit[0] < _COLOR_TTL:   # 같은 db 객체일 때만(시험마다 새 db 가 같은 id 를 받을 수 있다)
+        return hit[1]
+    m = db.settings_with_prefix("project_color:")
+    _COLOR_CACHE.clear()
+    _COLOR_CACHE[id(db)] = (now, m, db)
+    return m
+
+
 def color_key(db, project_id: int) -> str:
     """이 프로젝트 아이콘 색의 팔레트 열쇠 — 정하지 않았으면 기본(navy)."""
-    v = (db.get_setting(f"project_color:{int(project_id)}", "") or "").strip()
+    k = f"project_color:{int(project_id)}"
+    m = _colors(db)
+    v = (m.get(k, "") if m is not None else db.get_setting(k, "")) or ""
+    v = v.strip()
     return v if v in PALETTE else DEFAULT_COLOR
 
 
@@ -47,6 +70,7 @@ def set_color(db, project_id: int, key: str) -> str:
     if key not in PALETTE:
         raise ValueError("없는 색입니다")
     db.set_setting(f"project_color:{int(project_id)}", key)
+    _COLOR_CACHE.pop(id(db), None)
     return key
 
 
