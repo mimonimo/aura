@@ -35,6 +35,8 @@ _SYSTEM = """당신은 〔기관〕 행정 담당자(교직원)를 돕는 AI 에
   계산합니다. 이런 답은 결론보다 셈 줄을 먼저 씁니다 — 날짜·기간·금액을 한 줄에 하나씩 「식 = 결과」 꼴로
   (예: 2014년 3월 + 20년 = 2034년 3월, 2034년 3월 ~ 2035년 8월 = 18개월, 500만 원 × 75% × 18개월 = 6,750만 원)
   적고, 그 셈 결과로 결론을 씁니다. 근거에 식·표가 없으면 계산하지 않고 그 사실을 밝힙니다.
+- 조항을 근거로 쓸 때는 그 조항의 단서·예외·시점·조건(「다만 …」「…하되 …」「…이 속하는 학기의 말일」「…부터 …이내」 같은 대목)을
+  빠뜨리지 않고 원문 그대로 함께 적습니다. 수치 하나만 옮기고 뒷부분을 줄이면 담당자가 잘못 처리합니다. 계산이 있으면 이 조건을 넣어 셈합니다.
 - 근거가 없는 내용은 추측하지 않습니다. 근거가 없으면 정중하게 그 사실을 알리고,
   어떤 규정·기준 문서를 등록하면 도움이 될지 한 문장으로 안내합니다.
 - 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다. 같은 문장을 반복하지 않습니다.
@@ -318,6 +320,31 @@ def _cite(hit: dict) -> str:
     return f"{head}\n{(hit.get('content') or '')[:2000 if hit.get('full') else 600]}"
 
 
+EV_MAX = 16            # 에이전트가 찾은 근거를 답에 건넬 때 — 개수와 글자 합 상한
+EV_BUDGET = 16000
+_EV_CAP, _EV_RULE_CAP = 1200, 2000
+
+
+def _ev_text(e: dict) -> str:
+    """근거 한 덩어리 글 — 규정 조각은 조항째(2,000자까지) 건넨다: 앞부분만 자르면 단서·시점(「…의 말일로 한다」)이 잘린다."""
+    return str(e.get("text") or "")[:_EV_RULE_CAP if e.get("rule") else _EV_CAP]
+
+
+def pick_evidence(evidence: list[dict]) -> list[dict]:
+    """에이전트가 찾은 근거 가운데 답에 건넬 것 — 찾은 차례를 지키되 글자 합 상한까지. 예전에는 앞의 8개만 건네
+    셋째 검색(「교원 정년」)의 조항이 통째로 빠지고 답에서 「학기의 말일」 이 사라졌다(11-10 대화 183)."""
+    out, used = [], 0
+    for e in evidence:
+        t = _ev_text(e)
+        if not t.strip():
+            continue
+        if out and (len(out) >= EV_MAX or used + len(t) > EV_BUDGET):
+            break
+        out.append(e)
+        used += len(t)
+    return out
+
+
 def pack_criteria_context(ordered: list[dict], budget: int = 6000) -> tuple[str, list[dict]]:
     """Only advertise sources whose evidence was actually included in the prompt."""
     header = "[선택된 기준 문서 — 이 기준으로 판단하고 인용하라]\n\n"
@@ -344,6 +371,7 @@ _SYSTEM_STUDENT = """당신은 〔기관〕 학생의 학사 질문에 답하는
 답변 원칙:
 - 근거로 건넨 학칙·학사 규정에 있는 내용으로만 답하고, 어느 규정 몇 조인지 자연스럽게 밝힙니다.
 - 학생이 알아듣게 쉬운 말로 풀어 씁니다. 결론(되는지·언제까지·몇 학점인지)을 먼저, 이어서 조건과 절차를 짧게 씁니다.
+- 조항의 단서·예외·시점(「다만 …」「…이 속하는 학기의 말일」 같은 대목)은 빠뜨리지 않고 함께 알려 줍니다.
 - 기한·학점·횟수 같은 수치는 근거에 있는 그대로 씁니다. 근거에 없으면 추측하지 않고 "규정에서 확인되지 않습니다"라고 밝히고
   학과 사무실이나 학사 담당 부서에 확인하라고 안내합니다.
 - 같은 규정이 여러 판이면 개정일이 가장 늦은 판을 따릅니다.
@@ -513,6 +541,41 @@ class AgentResponder:
                 pass
         return visible(final=True), finish
 
+    def _complete_rules(self, out: str, user_content: str, messages: list[dict], client, limit: int, gen: dict,
+                        usages: list, on_progress=None) -> str:
+        """답이 인용한 조항의 시점·단서(말일·속하는 학기·단서절의 수치)가 빠졌으면 한 번 보충해 다시 쓰게 한다(app/rule_complete).
+        다시 써도 빠졌으면 조문 원문을 답 끝에 붙인다 — 「정년 만 65세」 만 남고 「학기의 말일」 이 빠진 답(11-10 대화 183)."""
+        if os.environ.get("ZZAIMY_RULE_COMPLETE", "1") == "0" or not out.strip():
+            return out
+        from zzaimy.app import rule_complete
+        try:
+            gaps = rule_complete.missing(out, user_content)
+        except Exception:
+            return out
+        if not gaps:
+            return out
+        self.last_timing["rule_supplement"] = [f"{g['title'][:30]} {g['key']}: {'·'.join(g['terms'][:4])}" for g in gaps[:3]]
+        if on_progress:
+            on_progress("인용한 조항의 빠진 대목 보충 중")
+        try:
+            more_msgs = messages + [{"role": "assistant", "content": out},
+                                    {"role": "user", "content": rule_complete.supplement_prompt(gaps)}]
+            with llm_budget.label("답 보충"):
+                resp = llm_budget.create_fitted(client, more_msgs, limit, [llm_budget.Cut(msg=i) for i in range(1, len(messages) - 1)],
+                                                floor=1024, temperature=0.2, **gen)
+            usages.append(getattr(resp, "usage", None))
+            raw = resp.choices[0].message.content or ""
+            _r, ans = split_reasoning(raw)
+            new = strip_emoji(fix_foreign_han((ans if ans is not None else strip_reasoning(raw)).strip(), user_content, client))
+            if new and sum(len(g["terms"]) for g in rule_complete.missing(new, user_content)) < sum(len(g["terms"]) for g in gaps):
+                out = new
+            gaps = rule_complete.missing(out, user_content)
+        except Exception:
+            pass
+        if gaps:
+            out += rule_complete.quote_lines(gaps)
+        return out
+
     def answer(
         self,
         db: Database,
@@ -641,11 +704,11 @@ class AgentResponder:
                 blocks.append(WEAK_EVIDENCE_NOTE)
             context = "\n\n".join(blocks)
 
-        ev = [e for e in (evidence or []) if (e.get("text") or "").strip()][:8]
+        ev = pick_evidence(evidence or [])
         ev_block = ""
         if ev:
             ev_block = ("[이미 찾은 근거 — 먼저 이것으로 답하고 출처는 《 》 안의 문서 제목으로 밝힌다. 수치·날짜는 근거에 있는 것만 쓴다]\n"
-                        + "\n\n".join(f"《{e.get('title') or '문서'}》{(' · ' + e['note']) if e.get('note') else ''}\n{str(e['text'])[:1200]}"
+                        + "\n\n".join(f"《{e.get('title') or '문서'}》{(' · ' + e['note']) if e.get('note') else ''}\n{_ev_text(e)}"
                                         for e in ev))
             # 검색만으로는 근거가 없다고 나왔어도 이미 찾은 근거가 있으면 「근거 없음」 안내를 붙이지 않는다
             if context.strip() == NO_EVIDENCE_NOTE.strip():
@@ -801,6 +864,7 @@ class AgentResponder:
             self.last_model = _mi.stamp(client)              # 답 실행 기록(answer_runs)에 — 어느 모델이 썼나
         except Exception:
             self.last_model = {}
+        out = self._complete_rules(out, user_content, messages, client, limit, gen, usages, on_progress)
         # 마지막 점검 — 모델에 건넨 글(질문·첨부·근거)에 없는 수치는 지우지 않고 「(근거 확인 필요)」를 붙인다(절대 규칙 1: 수치는 인출만)
         from zzaimy.verify.numbers import fix_calculations, flag_unsupported
         out, fixed = fix_calculations(out)                  # 틀린 셈 결과는 코드가 다시 셈해 바꾼다(27B 곱셈 실수, 11-06)

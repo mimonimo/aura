@@ -270,7 +270,7 @@ def test_answer_links_the_documents_it_cites():
     html = "<p>영남이공대학교 산학협력단 운영 규정 제4조에 따르면 짧음 은 그대로다.</p>"
     out = linkify(html, sources)
     assert 'href="/doc/12#q=' in out and "제4조" in out
-    assert out.count("<a ") == 1                     # 짧은 이름은 링크하지 않는다
+    assert out.count("<a ") == 2 and 'href="/doc/12#q=%EC%A0%9C4%EC%A1%B0"' in out   # 이름 뒤 「제4조」 는 조항 링크(11-10), 짧은 이름은 링크하지 않는다
     # 태그 속성 안의 글자는 건드리지 않는다
     safe = linkify('<a title="영남이공대학교 산학협력단 운영 규정">x</a>', sources)
     assert safe.count("<a ") == 1

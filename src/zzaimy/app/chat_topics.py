@@ -57,6 +57,21 @@ class ChatTopics:
                   (s.get("heading") or "")[:200], (s.get("snippet") or "")[:300],
                   s.get("origin") or "", int(bool(s.get("weak"))), now) for s in sources])
 
+    def link_sources(self, session_id: int) -> list[dict]:
+        """이 대화의 모든 답이 쓴 근거(최근 답 먼저, 같은 문서·조항은 한 번) — 답 글 안의 문서 이름 링크용.
+        최근 답의 근거만 쓰면 앞선 답의 《규정》 이름이 링크가 되지 않았다(11-10)."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT doc_id, title, heading FROM chat_sources WHERE session_id = ? AND doc_id IS NOT NULL"
+                " ORDER BY batch DESC, id", (session_id,)).fetchall()
+        seen, out = set(), []
+        for r in rows:
+            k = (r["doc_id"], r["title"], r["heading"])
+            if k not in seen:
+                seen.add(k)
+                out.append(dict(r))
+        return out
+
     def doc_ids(self, session_id: int) -> list[int]:
         """이 대화의 모든 답이 근거로 쓴 문서 번호 — 남이 읽어도 되는 대화인지 가릴 때."""
         with closing(self._connect()) as conn:

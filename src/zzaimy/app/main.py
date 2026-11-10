@@ -1898,7 +1898,13 @@ def create_app(
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
         # 문서 작업 에이전트 — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
+            _chat_sources[session_id] = []                 # 이번 요청의 근거만 모은다
             if _run_doc_agent(session_id, q, owner, project, scope, scope_msg, data_dir, attachment_text, criteria, r):
+                # 에이전트가 답한 근거도 답처럼 남긴다 — 메모리에만 두어 재시작·새로고침 뒤 답의 출처 링크가 사라졌다(11-08 이후 0건)
+                try:
+                    chat_topics.record(session_id, _chat_sources.get(session_id) or [])
+                except Exception:
+                    pass
                 return
         # 아래 낱말 규칙 갈래(판독·문서 지목·초안·연결 문서 명령)는 모델이 돌지 못했을 때(_run_doc_agent 가 False)만 쓰는 대비 경로다.
         # 문서를 만들거나 고치는 갈래는 담당자 글에 그 뜻이 있을 때만 — 질문(「문서는 고치지 말고」)이면 답만 한다
@@ -2806,7 +2812,9 @@ def create_app(
                 raise doc_agent.Retry("이 값(" + ", ".join(f"「{x['name']}」" for x in targets)
                                       + ")은 이번 요청에서 세 번 찾아도 자료에 없었다 — 더 찾지 말고 다른 값으로 넘어가거나 ask_user·finish.")
             if src == "rules":
-                hits = [{"title": h.get("reg_title") or "규정", "text": h.get("content") or ""}
+                # 문서 번호·조항 표제도 함께 — 없으면 답의 출처 링크가 열리지 않고(근거 목록에 doc_id 없음), 답이 어느 조항인지 밝히기 어렵다(11-10)
+                hits = [{"title": h.get("reg_title") or "규정", "text": h.get("content") or "", "doc_id": h.get("doc_id"),
+                         "note": h.get("heading") or "", "rule": True}
                         for h in find_relevant(db, query, top_k=4, **_reg_kwargs(scope))]
             else:
                 fn = {"project": mats().search_project, "criteria": mats().search_criteria, "library": mats().search_library}.get(src)
@@ -2862,7 +2870,7 @@ def create_app(
             _missed()
             notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
             found.extend({"title": h.get("title") or "문서", "text": h.get("text") or "", "doc_id": h.get("doc_id"),
-                          "note": h.get("note") or ""} for h in hits[:4])
+                          "note": h.get("note") or "", "rule": bool(h.get("rule"))} for h in hits[:4])
             if src in ("project", "criteria"):                  # 값 채우기 근거는 이 프로젝트 문서의 결과만 — 문서함 전체는 아니다
                 seen_hits.extend({"title": str(h.get("title") or "문서"), "text": h["text"][:500], "doc_id": h.get("doc_id"),
                                   "chunk_id": h.get("chunk_id")} for h in hits[:4])   # 모델에게 보인 글 그대로

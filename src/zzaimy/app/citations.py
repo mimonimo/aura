@@ -114,25 +114,54 @@ def inline_web_refs(html: str) -> str:
     return ''.join(parts)
 
 
-def _targets(sources: list[dict]) -> list[tuple[str, str]]:
-    """(문서 이름, 링크) — 긴 이름부터. 짧거나 중복된 이름은 링크하지 않는다."""
-    seen: dict[str, str] = {}
+def title_variants(title: str) -> list[str]:
+    """답이 문서를 부르는 여러 꼴 — 원래 이름, 「 · 개정일」 꼬리를 뗀 이름, 끝의 날짜 괄호를 뗀 이름.
+    규정 근거 제목은 「영남이공대학교 교원인사 규정 · 2023년05월25일」 인데 답은 「《영남이공대학교 교원인사 규정》」 이라
+    전체 이름이 답에 없어 링크가 생기지 않았다(11-10)."""
+    t = (title or "").strip()
+    out = [t]
+    base = re.split(r"\s+·\s+", t, maxsplit=1)[0].strip()
+    out.append(base)
+    out.append(re.sub(r"\s*\((?=[^()]*\d{2,4}[.\-년])[^()]*\)\s*$", "", base).strip())   # 끝의 (2026.02.27.) 같은 날짜 괄호
+    return [v for v in dict.fromkeys(out) if len(v) >= 6]
+
+
+def _targets(sources: list[dict]) -> list[tuple[str, str, int]]:
+    """(문서 이름 꼴, 링크, 문서 번호) — 긴 이름부터. 짧거나 이미 다른 문서에 쓴 이름은 링크하지 않는다."""
+    seen: dict[str, tuple[str, int]] = {}
     for s in sources or []:
         doc_id = s.get("doc_id")
         title = (s.get("title") or "").strip()
-        if not doc_id or len(title) < 6 or title in seen:
+        if not doc_id:
             continue
         anchor = (s.get("heading") or "").strip() or title
-        seen[title] = f"/doc/{doc_id}#q={quote(anchor)}"
-    return sorted(seen.items(), key=lambda kv: -len(kv[0]))
+        for v in title_variants(title):
+            if v not in seen:
+                seen[v] = (f"/doc/{doc_id}#q={quote(anchor)}", int(doc_id))
+    return sorted(((k, h, d) for k, (h, d) in seen.items()), key=lambda kv: -len(kv[0]))
+
+
+_ART_AFTER = r"(》?[\s,]*)(제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?)"
 
 
 def linkify(html: str, sources: list[dict]) -> str:
-    """이미 렌더된 HTML 의 글자 부분에서만 문서 이름을 링크로 바꾼다."""
+    """이미 렌더된 HTML 의 글자 부분에서만 문서 이름을 링크로 바꾼다. 이름 바로 뒤 「제N조」 는 그 조항 자리로 여는 링크로."""
     html = inline_web_refs(document_links(web_links(html)))
     targets = _targets(sources)
     if not targets:
         return html
+    by_name = {name: (href, doc_id) for name, href, doc_id in targets}
+    pattern = re.compile("(" + "|".join(re.escape(n) for n, _h, _d in targets) + ")" + "(?:" + _ART_AFTER + ")?")
+
+    def replace(m: re.Match) -> str:
+        name = m[1]
+        href, doc_id = by_name[name]
+        out = f'<a class="cite" href="{href}" title="근거 문서 열기">{name}</a>'
+        if m[3]:
+            art = re.sub(r"\s+", "", m[3])
+            out += (f'{m[2]}<a class="cite" href="/doc/{doc_id}#q={quote(art)}" title="그 조항 열기">{m[3]}</a>')
+        return out
+
     parts = _TAG.split(html)
     in_link = False
     for i, part in enumerate(parts):
@@ -144,10 +173,5 @@ def linkify(html: str, sources: list[dict]) -> str:
             continue                      # 태그 안은 건드리지 않는다
         if in_link:
             continue
-        for title, href in targets:
-            if title in part:
-                part = part.replace(
-                    title,
-                    f'<a class="cite" href="{href}" title="근거 문서 열기">{title}</a>')
-        parts[i] = part
+        parts[i] = pattern.sub(replace, part)
     return "".join(parts)

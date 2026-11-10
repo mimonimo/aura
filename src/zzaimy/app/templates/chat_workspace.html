@@ -193,7 +193,7 @@
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
-      {% if m.role == 'assistant' %}{% set cot = cot_of(m.id) %}{% if cot %}<div class="chat-cot"><button type="button" class="chat-cot-btn" aria-expanded="false" onclick="var b=this.nextElementSibling;b.hidden=!b.hidden;this.setAttribute('aria-expanded',String(!b.hidden));this.querySelector('span').textContent=b.hidden?'펼치기':'접기'">생각 과정 <span>펼치기</span></button><div class="chat-cot-body" hidden>{{ cot }}</div></div>{% endif %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(sources) }}</div>
+      {% if m.role == 'assistant' %}{% set cot = cot_of(m.id) %}{% if cot %}<div class="chat-cot"><button type="button" class="chat-cot-btn" aria-expanded="false" onclick="var b=this.nextElementSibling;b.hidden=!b.hidden;this.setAttribute('aria-expanded',String(!b.hidden));this.querySelector('span').textContent=b.hidden?'펼치기':'접기'">생각 과정 <span>펼치기</span></button><div class="chat-cot-body" hidden>{{ cot }}</div></div>{% endif %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(link_sources or sources) }}</div>
       {% if '필요한 값 입력' in m.content and value_form_open %}<button type="button" class="secondary chat-jump-form" data-jump-form>필요한 값 입력으로 이동</button>{% endif %}
       {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
       {% endif %}
@@ -781,6 +781,12 @@
   // 근거 대목을 본문에서 찾는다 — 띄어쓰기·줄바꿈 차이는 무시하고 앞부분부터, 못 찾으면 더 짧게
   function findHint(text, hint) {
     var bare = (hint || "").replace(/\s+/g, "");
+    var art = /^제(\d+)조(?:의(\d+))?/.exec(bare);   // 조항 링크 — 「제 5 조」 처럼 띄어 쓴 조항 머리도(6글자 아래라 아래 맞추기로는 못 찾는다)
+    if (art) {
+      var am = new RegExp("제\\s*" + art[1] + "\\s*조" + (art[2] ? "\\s*의\\s*" + art[2] : "(?!\\s*의\\s*\\d)") + "\\s*[(（]").exec(text)
+            || new RegExp("제\\s*" + art[1] + "\\s*조(?!\\s*의\\s*\\d)").exec(text);
+      if (am) return { at: am.index, end: Math.min(text.length, am.index + 160) };
+    }
     for (var n of [40, 16]) {
       var head = bare.slice(0, n);
       if (head.length < 6) break;
@@ -842,7 +848,8 @@
     event.preventDefault();
     var id = parseInt(m[1], 10), hint = m[2] ? decodeURIComponent(m[2]) : '';
     var src = document.querySelector('#chatSources [data-peek="' + id + '"]');
-    openPeek(id, (src && src.dataset.hint) || hint);
+    // 조항 링크(제N조)는 그 조항 자리로 — 근거 목록의 대목보다 링크가 짚은 자리가 먼저(11-10)
+    openPeek(id, (/^제\d+조/.test(hint) && hint) || (src && src.dataset.hint) || hint);
   });
 
   /* ---- 작업 패널 여닫기 ---- */

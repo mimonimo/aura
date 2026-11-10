@@ -564,6 +564,7 @@ def chat_session(request: Request, session_id: int):
             "suggestions": [] if waiting else _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
             "proposals": [] if waiting else platform_ops.pending(db, session_id),
             "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
+            "link_sources": (_chat_sources.get(session_id) or []) + chat_topics.link_sources(session_id),
             "recommended_criteria": _recommended_criteria(session_id, messages),
             "chat_session": session, "chat_project": project, "chat_topic": topic,
             "answer_feedback": db.answer_feedback_for(session_id, getattr(request.state, "user", "") or ""),
@@ -998,7 +999,18 @@ def chat_doc_peek(request: Request, doc_id: int, q: str = ""):
     chunks = [{**c, "content": _chunk_text(c)} for c in db.list_doc_chunks(doc_id)]   # 표 조각은 평문으로(검색이 건넨 글과 같게)
     start = 0
     squash = lambda t: re.sub(r"\s+", "", t or "")
-    for probe in (squash(q)[:40], squash(q)[:16]):
+    art = re.match(r"제(\d+)조(?:의(\d+))?", squash(q))
+    if art:
+        # 조항 링크(제N조) — 6글자 아래라 아래 맞추기로는 못 찾는다. 조항 머리(「제 5 조(」)가 든 조각부터(11-10)
+        tail = rf"\s*의\s*{art[2]}" if art[2] else r"(?!\s*의\s*\d)"
+        head = re.compile(rf"제\s*{art[1]}\s*조{tail}\s*[(（]")
+        loose = re.compile(rf"제\s*{art[1]}\s*조{tail}")
+        hit = next((i for i, c in enumerate(chunks) if head.search(c.get("content") or "")), None)
+        if hit is None:
+            hit = next((i for i, c in enumerate(chunks) if loose.search(c.get("content") or "")), None)
+        if hit is not None:
+            start = hit
+    for probe in (() if art and start else (squash(q)[:40], squash(q)[:16])):
         if len(probe) < 6:
             break
         hit = next((i for i, c in enumerate(chunks) if probe in squash(c.get("content"))), None)
