@@ -225,7 +225,17 @@ def brief(db, session_id: int, hw, section: str, gist: str, form: str, length: s
             quotes.append(t)
     quote = _clip_tokens("\n".join(f"「{q}」" for q in quotes), int(limit * QUOTE_SHARE))
     goal = "\n".join(x for x in (memo.get("최종 결과물", ""), memo.get("지금 목표", "")) if x)
+    try:                                                    # 기관 정보로 아는 값(대학명·주소…)은 「확인 필요」로 두지 않게(11-10 대화 190)
+        from zzaimy.app import institution
+        inst = "\n".join(f"- {k}: {v}" for k, v in institution.facts(db).items() if str(v or "").strip())
+    except Exception:
+        inst = ""
+    try:
+        marks = hw.numbering_text() if hasattr(hw, "numbering_text") else ""
+    except Exception:
+        marks = ""
     return {"section": section, "gist": gist.strip(), "form": form.strip(), "length": length.strip(),
+            "institution": inst, "marks": marks,
             "goal": goal or "(작업 메모 없음 — 담당자 인용에서 판단)",
             "confirmed": memo.get("확정된 것", "") or "(없음)",
             "outline": outline, "prev": prev or "(앞 절 없음 또는 아직 비어 있음)", "quotes": quote}
@@ -235,7 +245,9 @@ def render_brief(b: dict, limit: int) -> str:
     text = (f"[맡은 절] {b['section'][2:] if b['section'].startswith('절:') else b['section']}\n"
             f"[요지] {b['gist'] or '(메인이 주지 않음 — 양식 안내를 따른다)'}\n"
             f"[형식] {b['form'] or '개조식 번호 문단(1) → 가) → (1)), 수치·일정은 표'}\n"
-            f"[분량] {b['length'] or '양식 안내를 따른다'}\n"
+            + (f"[이 문서의 번호 기호 — 다른 절과 같게 이 차례로만] {b['marks']}\n" if b.get("marks") else "")
+            + (f"[기관 정보 — 우리 기관의 값. 대학명·주소 같은 칸은 이 값을 쓰고 「확인 필요」로 두지 않는다]\n{b['institution']}\n" if b.get("institution") else "")
+            + f"[분량] {b['length'] or '양식 안내를 따른다'}\n"
             f"[최종 결과물·지금 목표 — 작업 메모]\n{b['goal']}\n"
             f"[확정된 것 — 작업 메모, 담당자가 정했거나 알려 준 값]\n{b['confirmed']}\n"
             f"[문서 개요]\n{b['outline']}\n"

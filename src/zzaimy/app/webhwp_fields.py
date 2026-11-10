@@ -690,6 +690,27 @@ def wrap_rest(data: bytes, limit: int | None = None, dry: bool = False) -> tuple
 _SAMPLE = re.compile(r"^\s*(?:예\s*\)|\(\s*예\s*시?\s*\)|예시\s*[:)\]]|<\s*예시?\s*>)")
 _FORM_NO = re.compile(r"^\s*[\[【〔<(]\s*(?:서식|별지|별첨|양식|붙임)\s*(?:제\s*)?[\dⅠ-Ⅹ][\d\-–.]*\s*(?:호)?\s*[\]】〕>)]")
 _NOTE_LINE = re.compile(r"^\s*[※*]\s*\S")
+_FORM_NOTE = re.compile(r"분량|쪽\s*이내|면\s*이내|제외|삭제\s*후|서식")          # 「※ 본문 분량에서 제외」 처럼 서식 쪽수·제출 규칙을 적은 ※ 줄
+_OUR_FIELD = re.compile(r'<hp:fieldBegin\b[^>]*type="CLICK_HERE"')
+# 표 칸의 견본 값 — 자리표시 글자(OO·○○·ㅇㅇ·ㅁㅁ)·0 으로 채운 수(00명·000·(0000000))·말줄임 하나. 칸 글이 이것뿐이면 비운다
+_PH_RUN = re.compile(r"[OＯ○◯ㅇ](?:\s?[OＯ○◯ㅇ])+|ㅁ{2,}|ㅇ(?=\s*[가-힣(])|(?<![\d,.])0{2,}(?![\d,.])")
+_PH_REST = re.compile(r"[\s()\[\]·.,:~\-/%①-⑳]|학과|학부|전공|단과대학|대학교|대학|과|명|개|원|건|점|년|월|일|호|번")
+_PH_UNI = re.compile(r"[OＯ○◯ㅇ]{2,}\s*(?=대학교|대학(?!원))")
+_PH_SIGN = re.compile(r"[OＯ○◯ㅇ](?:\s*[OＯ○◯ㅇ]){1,}(?=\s*\(\s*인\s*\))")
+_ELLIPSIS = re.compile(r"^\s*(?:…|⋯|\.{3}|·{3})\s*$")
+
+
+def sample_cell(t: str) -> bool:
+    """표 칸 글이 견본 값뿐인가 — 「OO학과(OO전공)」「00명」「000」「(0000000)」「ㅇㅇ학부(과)」「① ㅇㅇㅇㅇㅇ」「…」.
+    자리표시를 떼고 단위·흔한 꼬리말(학과·명·개·대학교 …)까지 떼면 남는 글이 없는 것만(라벨·실제 값은 남는다)."""
+    t = (t or "").strip()
+    if not t or len(t) > 40:
+        return False
+    if _ELLIPSIS.match(t):
+        return True
+    if not _PH_RUN.search(t):
+        return False
+    return not _PH_REST.sub("", _PH_RUN.sub("", t))
 
 
 def _top_level(xml: str) -> list[tuple[int, int]]:
@@ -707,8 +728,23 @@ def _top_level(xml: str) -> list[tuple[int, int]]:
     return out
 
 
-def clear_samples(data: bytes) -> tuple[bytes, int]:
-    """표 칸의 견본 값(「예) 수도권」「(예시) …」)을 비운다 — 비운 칸은 라벨 옆 빈 칸이 되어 쓸 자리로 잡힌다. 안내 상자·서식 설명 쪽 안은 그대로."""
+def _fill_known(t: str, facts: dict | None) -> str:
+    """견본 기관 이름·서명 자리(「○○대학교」「○ ○ ○ (인)」)를 기관 정보로 — 값은 institution.facts 에서만, 모르면 그대로."""
+    if not facts:
+        return t
+    uni = (facts.get("대학명") or "").strip()
+    head = (facts.get("총장") or "").strip()
+    if uni:
+        t = _PH_UNI.sub(lambda m: re.sub(r"(대학교|대학)$", "", uni) if uni.endswith(("대학교", "대학")) else uni, t)
+    if head:
+        t = _PH_SIGN.sub(" ".join(head), t)
+    return t
+
+
+def clear_samples(data: bytes, facts: dict | None = None) -> tuple[bytes, int]:
+    """표 칸의 견본 값을 비운다 — 「예) 수도권」「(예시) …」 와 자리표시뿐인 칸(「OO학과(OO전공)」「00명」「ㅇㅇㅇ」「…」, sample_cell).
+    비운 칸은 라벨 옆 빈 칸이 되어 쓸 자리로 잡힌다. 견본 기관 이름·서명 자리는 기관 정보(facts)로 알면 그 값으로(_fill_known).
+    안내 상자·서식 설명 쪽 안은 그대로."""
     zin = zipfile.ZipFile(io.BytesIO(data))
     check_zip(zin)
     new, n_ = {}, 0
@@ -720,13 +756,20 @@ def clear_samples(data: bytes) -> tuple[bytes, int]:
         cells = [(m.start(), m.end()) for m in _TC.finditer(xml)]
         parts, pos = [], 0
         for m in _LEAF_P.finditer(xml):
-            if "<hp:tbl" in m.group(0) or _inside(m.start(), guides) or not _inside(m.start(), cells):
+            if "<hp:tbl" in m.group(0) or _inside(m.start(), guides):
                 continue
-            t = _text(m.group(0))
-            if not t or not _SAMPLE.match(t) or len(t) > 80:
+            t = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", m.group(0), flags=re.S))
+            if not t or _OUR_FIELD.search(m.group(0)):
                 continue
+            in_cell = _inside(m.start(), cells)
+            if in_cell and ((_SAMPLE.match(t) and len(t) <= 80) or sample_cell(t)):
+                body = re.sub(r"<hp:t>[^<]*</hp:t>", "<hp:t></hp:t>", m.group(0))
+            else:
+                body = re.sub(r"<hp:t>([^<]*)</hp:t>", lambda k: f"<hp:t>{_fill_known(k.group(1), facts)}</hp:t>", m.group(0))
+                if body == m.group(0):
+                    continue
             parts.append(xml[pos:m.start()])
-            parts.append(re.sub(r"<hp:t>[^<]*</hp:t>", "<hp:t></hp:t>", m.group(0)))
+            parts.append(body)
             pos = m.end()
             n_ += 1
         if parts:
@@ -745,9 +788,9 @@ def clear_samples(data: bytes) -> tuple[bytes, int]:
 def _block_kind(xml: str, a: int, b: int, guides: list[tuple[int, int]]) -> str | None:
     """맨 바깥 문단 하나가 뺄 덩어리면 그 갈래, 아니면 None. 필드(쓸 자리)가 든 문단은 늘 남긴다."""
     p = xml[a:b]
-    if "fieldBegin" in p:
-        return None
-    t = _text(p)
+    if _OUR_FIELD.search(p):
+        return None                                       # 쓸 자리(누름틀)가 든 문단 — 하이퍼링크 같은 다른 필드는 세지 않는다(제출 요령 쪽의 누리집 주소, 11-10)
+    t = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", p, flags=re.S))
     if "<hp:tbl" in p:
         if "<hp:pic" in p:
             return None
@@ -768,7 +811,7 @@ def _block_kind(xml: str, a: int, b: int, guides: list[tuple[int, int]]) -> str 
         return None
     if _FORM_NO.match(t) and len(t) <= 60:
         return "서식 번호 머리"
-    if _NOTE_LINE.match(t) and (_INSTRUCT.search(t) or "예시" in t) and len(t) <= 300:
+    if _NOTE_LINE.match(t) and (_INSTRUCT.search(t) or _FORM_NOTE.search(t) or "예시" in t) and len(t) <= 300:
         return "안내 줄"
     if re.match(r"^\s*#\s*\S", t) and len(t) <= 30:
         return "서식 표시 줄"                               # 「# 사업계획서 표지」 처럼 서식 쪽 이름을 적은 줄
@@ -798,6 +841,43 @@ def _cover_title(xml: str) -> tuple[str, int]:
     return re.sub(r"<hp:t>([^<]*)</hp:t>", fix, xml), n_
 
 
+def _is_guide_box(tbl: str) -> bool:
+    """표 하나가 【작성방법】 같은 안내 상자인가 — 첫 줄이 【…】 안내 표시이거나, 한 칸짜리 표에 안내 표시가 든 것. 쓸 자리가 든 표는 아니다."""
+    if _OUR_FIELD.search(tbl):
+        return False
+    own = _own_paras(tbl)
+    first = (own[:1] or [""])[0]
+    if re.match(r"^\s*【", first) and (_GUIDE.search(first) or _INSTRUCT.search(" ".join(own[:3]))):
+        return True
+    m = re.match(r"<hp:tbl\b[^>]*>", tbl)
+    one = bool(m and re.search(r'rowCnt="1"', m.group(0)) and re.search(r'colCnt="1"', m.group(0)))
+    return one and bool(_GUIDE.search(" ".join(own[:2])))
+
+
+def _drop_inner_boxes(xml: str) -> tuple[str, list[tuple[int, str]]]:
+    """다른 표 옆·안에 붙은 안내 상자 표를 뺀다 — 신청서·요약 표 바로 아래 【작성방법】 상자가 같은 문단에 든 꼴(11-10 서식2-1 에서 일곱 곳 남음).
+    돌려주는 것은 (새 글, [(뺀 자리, 뺀 글)]). 가장 바깥 상자만(상자 안의 표는 함께 빠진다)."""
+    boxes = [(a, b) for a, b in _all_tables(xml) if _is_guide_box(xml[a:b])]
+    outer = [(a, b) for a, b in boxes if not any(x < a and b <= y for x, y in boxes)]
+    out = []
+    for a, b in reversed(outer):
+        out.insert(0, (a, _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml[a:b], flags=re.S))))
+        xml = xml[:a] + xml[b:]
+    return xml, out
+
+
+def _keep_guides(boxes, xml, xmls, order, si, guides_out, removed) -> None:
+    """뺀 안내 상자 글을 다음 쓸 자리 이름으로 묶어 둔다(작업본 기록 meta guides — 에이전트가 절마다 읽는다)."""
+    for at, txt in reversed(boxes):
+        nxt = re.search(r'<hp:fieldBegin\b[^>]*name="([^"]*)"', xml[at:])
+        if not nxt:
+            nxt = re.search(r'<hp:fieldBegin\b[^>]*name="([^"]*)"', "".join(xmls[n] for n in order[si + 1:]))
+        key = nxt.group(1) if nxt else "서식 안내"
+        if txt:
+            guides_out[key] = (txt + ("\n" + guides_out[key] if key in guides_out else ""))[:4000]
+        removed.append(f"작성방법 상자: {txt[:60]}")
+
+
 def submission_clean(data: bytes) -> tuple[bytes, dict[str, str], list[str]]:
     """필드를 박은 작업본 → (제출본 꼴 작업본, {다음 쓸 자리 이름: 뺀 안내 글}, 뺀 덩어리 목록). 쓸 자리가 없는 쪽 첫머리 안내는 「서식 안내」 로 묶는다."""
     zin = zipfile.ZipFile(io.BytesIO(data))
@@ -821,6 +901,10 @@ def submission_clean(data: bytes) -> tuple[bytes, dict[str, str], list[str]]:
             if k:
                 cut.append((a, b, k))
         if not cut:
+            xml2, boxes = _drop_inner_boxes(xml)
+            if boxes:
+                _keep_guides(boxes, xml2, xmls, order, si, guides_out, removed)
+                new[name] = xml2
             continue
         # 남는 문단이 하나도 없으면 빈 문단 하나는 둔다(구역 설정·쪽 모양을 품은 첫 문단은 지우지 않는다)
         keep_first = _top_level(xml)[0] if _top_level(xml) else None
@@ -842,6 +926,8 @@ def submission_clean(data: bytes) -> tuple[bytes, dict[str, str], list[str]]:
                 xml = xml[:a] + head + (re.sub(r"<hp:tbl\b.*</hp:tbl>", "", sec.group(0), flags=re.S) if sec else "") + "</hp:p>" + xml[b:]
             else:
                 xml = xml[:a] + xml[b:]
+        xml, boxes = _drop_inner_boxes(xml)
+        _keep_guides(boxes, xml, xmls, order, si, guides_out, removed)
         new[name] = xml
     if not new:
         return data, {}, []

@@ -445,6 +445,80 @@ _LEVELS = (r"\d+\.", r"[가-하]\.", r"\d+\)", r"[가-하]\)", r"\(\d+\)", r"\([
 _LEVEL_RE = [re.compile(r"^\s*" + p + r"\s") for p in _LEVELS]
 
 
+_HANGUL_SEQ = "가나다라마바사아자차카타파하"
+_MARK_TOKEN = re.compile(r"^(\s*)(\(?)(\d{1,2}|[가-하]|[①-⑳])([.)])(\s)")
+
+
+def _marker_value(tok: str) -> int | None:
+    if tok.isdigit():
+        return int(tok)
+    if tok in _HANGUL_SEQ:
+        return _HANGUL_SEQ.index(tok) + 1
+    if "①" <= tok <= "⑳":
+        return ord(tok) - ord("①") + 1
+    return None
+
+
+def _marker_text(level: int, n: int) -> str:
+    """단계 번호(_LEVELS 의 차례)와 순번 → 부호 글(「1.」「가)」「(1)」「①」)."""
+    letter = _HANGUL_SEQ[(n - 1) % len(_HANGUL_SEQ)]
+    return [f"{n}.", f"{letter}.", f"{n})", f"{letter})", f"({n})", f"({letter})", chr(ord("①") + min(n, 20) - 1)][level]
+
+
+def marker_pattern(text: str) -> list[int]:
+    """본문 글에 나온 항목 부호 단계를 깊이 차례로(처음 나온 차례) — 표·도식 줄은 빼고. [2, 3, 4] 는 1) → 가) → (1)."""
+    out: list[int] = []
+    for ln in _plain_lines(text):
+        lv = marker_level(ln)
+        if lv is not None and lv not in out and _small_number(ln):
+            out.append(lv)
+    return out
+
+
+def _plain_lines(text: str):
+    fence = False
+    for ln in (text or "").split("\n"):
+        s = ln.strip()
+        if s.startswith("```"):
+            fence = not fence
+            continue
+        if fence or (s.startswith("|") and s.endswith("|")):
+            continue
+        yield ln
+
+
+def _small_number(ln: str) -> bool:
+    """「2026. 3. ~」 같은 날짜 줄은 항목 부호가 아니다 — 숫자 부호는 두 자리까지만."""
+    m = _MARK_TOKEN.match(ln)
+    return not m or not m.group(3).isdigit() or len(m.group(3)) <= 2
+
+
+def unify_markers(text: str, pattern: list[int] | None) -> tuple[str, list[int]]:
+    """한 문서 안 항목 부호를 하나로 — 이 본문의 부호 단계(처음 나온 차례)를 문서가 쓰는 단계(pattern)로 깊이별로 바꾼다
+    (어떤 절은 1) 가) (1), 어떤 절은 1. 가. (1) 로 섞이던 것, 11-10 대화 190). 순번은 그대로(가 → 1, 2 → 나 처럼 갈래가 바뀌어도 차례 유지).
+    pattern 이 없으면 이 본문의 꼴을 돌려준다(첫 절이 문서의 꼴을 정한다). 표·도식 줄은 손대지 않는다."""
+    mine = marker_pattern(text)
+    if not pattern or not mine or mine == pattern[:len(mine)]:
+        return text, (pattern or mine)
+    remap = {lv: pattern[i] for i, lv in enumerate(mine) if i < len(pattern)}
+    out, fence = [], False
+    for ln in (text or "").split("\n"):
+        s = ln.strip()
+        if s.startswith("```"):
+            fence = not fence
+        if fence or s.startswith("```") or (s.startswith("|") and s.endswith("|")):
+            out.append(ln)
+            continue
+        lv = marker_level(ln)
+        m = _MARK_TOKEN.match(ln)
+        if lv is not None and lv in remap and remap[lv] != lv and m and _small_number(ln):
+            n = _marker_value(m.group(3))
+            if n:
+                ln = m.group(1) + _marker_text(remap[lv], n) + m.group(5) + ln[m.end():]
+        out.append(ln)
+    return "\n".join(out), pattern
+
+
 def marker_level(line: str) -> int | None:
     for i, rx in enumerate(_LEVEL_RE):
         if rx.match(line + " "):
@@ -559,8 +633,57 @@ def _top_paras(xml: str, end: int):
                 return
 
 
+def _cell_texts(row: str) -> list[str]:
+    return [wf._text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", c, flags=re.S))
+            for c in re.findall(r"<hp:tc\b.*?</hp:tc>", row, re.S)]
+
+
+def _head_cells(frag: str) -> list[str]:
+    """표의 머리줄 글(첫 두 줄 — 두 줄 머리 「졸업이수 학점 / 교양·전공·합계」 도) — 빈 칸은 뺀다."""
+    rows = re.findall(r"<hp:tr\b.*?</hp:tr>", frag, re.S)[:2]
+    return [t for r in rows for t in _cell_texts(r) if t]
+
+
+def _hkey(t: str) -> str:
+    return re.sub(r"[\s\W_]+|\d+\)$", "", str(t))
+
+
+def same_head(form_head: list[str], body_head: list[str]) -> bool:
+    """본문 표 머리줄이 서식 표 머리줄과 같은 표인가 — 본문 머리 칸의 6할 이상이 서식 머리 칸과 같거나 서로 품는다."""
+    fk = [k for k in (_hkey(x) for x in form_head) if k]
+    bk = [k for k in (_hkey(x) for x in body_head) if k]
+    if len(bk) < 2 or not fk:
+        return False
+    hit = sum(1 for b in bk if any(b == f or (len(b) >= 2 and len(f) >= 2 and (b in f or f in b)) for f in fk))
+    return hit >= 0.6 * len(bk)
+
+
+def section_form_heads(data: bytes, name: str) -> list[list[str]]:
+    """절(다음 절 필드 앞까지)에 든 서식 표들의 머리줄 — 본문 쓰기 지시서에 「이 표를 채운다(새로 만들지 않는다)」 로 건넨다."""
+    _, secs = _open(data)
+    for xml in secs.values():
+        hit = _find(xml, name)
+        if not hit:
+            continue
+        pb = _para_bounds(xml, hit.start())
+        tail = xml[pb[1] if pb else hit.end():]            # 필드가 든 문단 다음부터(맨 바깥 문단 단위로 센다)
+        nxt = next((m.start() for m in _BEGIN.finditer(tail) if _unq(m.group(2)).startswith("절:")), len(tail))
+        out = []
+        for a, b in _top_paras(tail, nxt):
+            if b > nxt:
+                break
+            frag = tail[a:b]
+            if "<hp:tbl" not in frag or len(re.findall(r"<hp:tr\b", frag)) < 2:
+                continue
+            h = _head_cells(frag)
+            if len(h) >= 2:
+                out.append(h[:16])
+        return out
+    return []
+
+
 def _drop_empty_form_tables(tail: str, form_sid: str | None = None, cols: set[int] | None = None,
-                            keep_sid: str | None = None) -> str:
+                            keep_sid: str | None = None, heads: list[list[str]] | None = None) -> str:
     """본문이 표를 들고 왔을 때, 같은 절(다음 절 필드 앞까지)에 남은 양식의 빈 표를 지운다 — 본문 표 밑에 같은 꼴 빈 표가 겹쳐 남지 않게.
     「빈 틀」은 사용자 글이 있는가로 가른다: 코드로 짠 양식의 표는 양식 글에 「양식 틀」 표시가 있어(webhwp_fields.mark_form_text)
     라벨·2단 머리줄·합계 행 이름이 있어도 사용자 글이 없으면 지운다. 표시가 없는 표(학교 서식)는 머리줄 말고 글자가 한 칸이라도 들면 둔다.
@@ -582,6 +705,13 @@ def _drop_empty_form_tables(tail: str, form_sid: str | None = None, cols: set[in
         if keep_sid is not None and re.search(rf'<hp:p\b[^>]*\bstyleIDRef="{keep_sid}"', frag):
             continue
         judged = wf.user_text_in_table(frag, form_sid)
+        # 본문이 이 서식 표와 같은 머리줄의 표를 들고 왔다 — 서식 표의 칸(견본 라벨·빈 칸)을 본문 표가 채운 것이니 서식 표를 둔 채 같은 표가
+        # 두 번 남지 않게 본문 표로 바꾼다(11-10 대화 190: 새 <표> 아래 견본 표 「OO학과 00명」이 그대로). 사용자가 쓴 표(judged)는 두고
+        matched = bool(heads) and not judged and any(same_head(_head_cells(frag), h) for h in heads)
+        if matched:
+            m = re.search(r'<hp:tbl\b[^>]*\bcolCnt="(\d+)"', frag)
+            cut.append((a, b, -1 if not m else int(m.group(1))))
+            continue
         if judged:
             continue
         first = [wf._text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", c, flags=re.S))
@@ -597,7 +727,8 @@ def _drop_empty_form_tables(tail: str, form_sid: str | None = None, cols: set[in
         m = re.search(r'<hp:tbl\b[^>]*\bcolCnt="(\d+)"', frag)
         cut.append((a, b, int(m.group(1)) if m else 0))
     if cols and any(n in cols for _a, _b, n in cut):
-        cut = [x for x in cut if x[2] in cols]
+        keep_matched = [x for x in cut if heads and any(same_head(_head_cells(tail[x[0]:x[1]]), h) for h in heads)]
+        cut = [x for x in cut if x[2] in cols or x in keep_matched]
     for a, b, _n in reversed(cut):
         tail = tail[:a] + tail[b:]
     return tail
@@ -822,8 +953,9 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         if any(k == "table" for k, _ in items):
             ncols = {max((len(r) for r in v if isinstance(r, (list, tuple))), default=0)
                      for k, v in items if k == "table" and isinstance(v, list) and v}
+            heads = [[str(c) for c in v[0]] for k, v in items if k == "table" and isinstance(v, list) and v]
             tail_ = _drop_empty_form_tables(tail_, wf.form_style_id(header), ncols,
-                                            keep_sid=wf.form_style_id(header, wf.FORM_KEEP_STYLE))
+                                            keep_sid=wf.form_style_id(header, wf.FORM_KEEP_STYLE), heads=heads)
         new[n] = head_ + tail_
         if levels.cache:
             header = levels.header
@@ -959,10 +1091,15 @@ def drop_heading_echo(text: str, field: str) -> str:
     공백·기호·마크다운 # 를 뺀 글이 같을 때만 — 제목을 바꿔 쓴 줄(○○○○ → 과제 이름)은 그대로 둔다."""
     def key(s: str) -> str:
         return re.sub(r"[\s\W_]+", "", s)
-    name = key(field.split(":", 1)[-1])
+
+    def bare(s: str) -> str:                               # 번호(1.1.·1.·가.·1)·(1)·①)와 마크다운 # 를 뗀 제목 — 「1.1. 정원 감축 계획」 아래 「1. 정원 감축 계획」(11-10 대화 190)
+        s = re.sub(r"^\s*#+\s*", "", s)
+        return key(re.sub(r"^\s*(?:(?:\d+\.)+\d*|[가-하]\.|\(?\d+\)|\(?[가-하]\)|[①-⑳]|[IVXⅠ-Ⅹ]+\.)\s*", "", s))
+    raw_name = field.split(":", 1)[-1]
+    name = key(raw_name)
     lines = text.split("\n")
     first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
-    if first is None or not name or key(lines[first]) != name:
+    if first is None or not name or (key(lines[first]) != name and not (len(bare(raw_name)) >= 2 and bare(lines[first]) == bare(raw_name))):
         return text
     rest = lines[first + 1:]
     while rest and not rest[0].strip():

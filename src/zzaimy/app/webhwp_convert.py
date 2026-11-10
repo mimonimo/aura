@@ -78,12 +78,12 @@ def to_hwpx(data: bytes, ext: str, http=None) -> bytes:
 
 
 def work_form(data: bytes, ext: str, http=None, blank: bool = False, report: dict | None = None,
-              clean: bool = False) -> tuple[bytes, list[dict]]:
+              clean: bool = False, facts: dict | None = None) -> tuple[bytes, list[dict]]:
     """한글 파일 → (필드를 박은 hwpx, 필드 목록).
     blank: 값이 채워진 완성본(지난 문서)이면 표 칸의 값을 비운 사본으로(form_blank — 옛 값이 새 문서에 남지 않게).
     clean: 사업이 준 작성 서식을 제출본 꼴로 — 견본 값(「예) …」)을 비우고, 서식 설명 쪽·작성방법 상자·서식 번호 머리·안내 줄을 뺀다
     (webhwp_fields.clear_samples·submission_clean, 11-10). 뺀 안내는 report["guides"]({다음 쓸 자리: 글}), 뺀 덩어리는 report["removed"].
-    report 를 주면 비운 칸 수를 report["blanked"] 에 적는다."""
+    report 를 주면 비운 칸 수를 report["blanked"] 에 적는다. facts(institution.facts)를 주면 견본 기관 이름·서명 자리를 그 값으로."""
     from zzaimy.app import webhwp_fields
     hx = to_hwpx(data, ext, http)
     if blank:
@@ -94,7 +94,7 @@ def work_form(data: bytes, ext: str, http=None, blank: bool = False, report: dic
                 report["blanked"] = n
     if not clean:
         return webhwp_fields.fieldize(hx)
-    hx, samples = webhwp_fields.clear_samples(hx)
+    hx, samples = webhwp_fields.clear_samples(hx, facts)
     hx, fields = webhwp_fields.fieldize(hx)
     if any(f.get("kind") == "기존" for f in fields):
         return hx, fields                                   # 이미 필드를 박은 작업본 — 다시 정리하지 않는다

@@ -609,6 +609,43 @@ class HwpTools:
         m["guides"] = g
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
 
+    def numbering(self, fid: int | None = None) -> list[int]:
+        """이 작업본의 항목 부호 단계(webhwp_write._LEVELS 차례) — 처음 쓴 절이 정한다. 없으면 빈 목록."""
+        fid = fid or self.fid()
+        try:
+            got = webhwp.meta(self.db, fid).get("numbering") if fid else None
+        except Exception:
+            got = None
+        return [int(x) for x in got] if isinstance(got, list) else []
+
+    def numbering_text(self) -> str:
+        """「1) → 가) → (1)」 꼴 — 지시서에 건넨다. 정해지지 않았으면 빈 글."""
+        from zzaimy.app import webhwp_write as ww
+        pat = self.numbering()
+        return " → ".join(ww._marker_text(lv, 1) for lv in pat) if pat else ""
+
+    def _unify_numbering(self, fid: int, text: str) -> str:
+        from zzaimy.app import webhwp_write as ww
+        pat = self.numbering(fid)
+        text, got = ww.unify_markers(text, pat)
+        if not pat and len(got) >= 1:
+            m = webhwp.meta(self.db, fid)
+            m["numbering"] = got
+            self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
+        return text
+
+    def form_tables_note(self, field: str, data: bytes) -> str:
+        """이 절에 든 서식 표의 머리줄 — 「새 표를 만들지 말고 이 표를 채운다」 안내. 없으면 빈 글."""
+        from zzaimy.app import webhwp_write as ww
+        try:
+            heads = ww.section_form_heads(data, field)
+        except Exception:
+            heads = []
+        if not heads:
+            return ""
+        return ("[이 절의 서식 표 — 새 표를 따로 만들지 않는다. 이 머리줄 그대로(같은 열 차례) 마크다운 표 하나로 채우면 서식 표 자리에 들어간다]\n"
+                + "\n".join("| " + " | ".join(h) + " |" for h in heads[:3]))
+
     def section_ctx(self, field: str, data: bytes | None = None) -> str:
         """절의 앞뒤 양식 글(webhwp_write.section_context) — 안내 상자를 뗀 절이면 기록해 둔 안내를 쓸 자리 앞에 되붙인다."""
         from zzaimy.app import webhwp_write as ww
@@ -619,6 +656,8 @@ class HwpTools:
                 return ""
             data = Path(f["path"]).read_bytes()
         ctx = ww.section_context(data, field)
+        tables = self.form_tables_note(field, data)
+        ctx = ctx + ("\n" + tables if tables else "")
         return _with_guide(ctx, self._kept_guides(fid).get(field, "")) if fid else ctx
 
     def repeat_lines(self, field: str, text: str, data: bytes | None = None) -> list[str]:
@@ -974,7 +1013,13 @@ class HwpTools:
             rep = {}
             name = title or (storage.title_of(d.get("filename") or "") + " 작업본")
             try:
-                data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d), blank=True, report=rep, clean=True)
+                from zzaimy.app import institution as _inst
+                try:
+                    known = _inst.facts(self.db)                 # 견본 기관 이름·서명 자리(○○대학교·○ ○ ○ (인))는 아는 값으로
+                except Exception:
+                    known = {}
+                data, fields = webhwp_convert.work_form(_original_bytes(_St, d), storage.original_ext(d), blank=True, report=rep, clean=True,
+                                                        facts=known)
             except webhwp_convert.TooBig as e:
                 # 그림이 많은 큰 원본(지난 결과보고서 등)은 변환 서버가 받지 않는다 — 반입 때 읽어 둔 조각에서 목차·표 머리를 옮긴
                 # 구조 사본으로 연다(사용자가 준 양식의 짜임을 따르는 것이 핵심, 11-10 시나리오 A). 그림·서식은 빠진다
@@ -1225,7 +1270,9 @@ class HwpTools:
             return "text 가 비었다."
         if field.startswith("입력:"):
             return "쓰지 않았다 — 「입력:」 은 사람 칸(날짜·서명·결재)이다. ask_user 로 물어 받은 값을 hwp_fill(from_user: true)로 넣는다."
-        text = ww.drop_heading_echo(text, field)            # 절 머리와 같은 첫 줄은 빼고 넣는다
+        text = ww.drop_heading_echo(text, field)            # 절 머리와 같은 첫 줄은 빼고 넣는다(번호만 다른 「1. 제목」 도)
+        if field.startswith("절:"):
+            text = self._unify_numbering(fid, text)          # 한 문서 안 항목 부호를 하나로(첫 절이 정한 꼴, 11-10)
         from zzaimy.app.delegate import strip_reasoning
         text = strip_reasoning(text).strip()                # 본문에 섞인 영어 생각 줄 — 메인·서브 모든 쓰기가 지나는 이 자리에서(10-28)
         if not text:
