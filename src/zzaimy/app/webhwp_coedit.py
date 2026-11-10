@@ -490,7 +490,7 @@ def rich_field(db, fid: int, field: str, conn=None) -> bool:
     if not p or not p.exists():
         return False
     st_ = p.stat()
-    key = (st_.st_mtime_ns, st_.st_size)
+    key = (str(p), st_.st_mtime_ns, st_.st_size)        # 경로까지 — 다른 자료 폴더(시험마다 tmp)의 같은 번호 문서를 같은 파일로 보지 않게
     hit = _FILE_RICH.get(int(fid))
     if not (hit and hit[0] == key):
         try:
@@ -1039,7 +1039,7 @@ def _file_values(db, fid: int) -> dict:
     if not p or not p.exists():
         return {}
     st = p.stat()
-    key = (st.st_mtime_ns, st.st_size)
+    key = (str(p), st.st_mtime_ns, st.st_size)
     hit = _FILE_VALUES.get(int(fid))
     if hit and hit[0] == key:
         return hit[1]
@@ -1436,7 +1436,7 @@ def normalize_file(db, base: Path, fid: int) -> int:
     if not p.exists() or p.suffix.lower() != ".hwpx" or webhwp.locked(db, fid):
         return 0
     st = p.stat()
-    if _NORMALIZED.get(int(fid)) == (st.st_mtime_ns, st.st_size):
+    if _NORMALIZED.get(int(fid)) == (str(p), st.st_mtime_ns, st.st_size):
         return 0
     n = 0
     with file_lock(fid):
@@ -1450,11 +1450,11 @@ def normalize_file(db, base: Path, fid: int) -> int:
             _keep_version(p)
             p = webhwp.save(db, base, fid, new, user=AGENT, quiet=False)
         st = p.stat()
-        _NORMALIZED[int(fid)] = (st.st_mtime_ns, st.st_size)
+        _NORMALIZED[int(fid)] = (str(p), st.st_mtime_ns, st.st_size)
     return n
 
 
-_TIMERS: dict[int, dict] = {}
+_TIMERS: dict[tuple, dict] = {}
 _TIMERS_GUARD = threading.Lock()
 
 
@@ -1462,8 +1462,9 @@ def schedule_commit(db, base: Path, fid: int, wait: float | None = None) -> None
     """변경 뒤 commit_delay 초 조용하면 써 넣는다. 변경이 이어져도 commit_max 초 안에는 한 번. wait 를 주면 그 뒤에(놓을 때 0)."""
     delay, most = (conf(db, "commit_delay") if wait is None else wait), conf(db, "commit_max")
     now = time.time()
+    tk = (str(base), int(fid))                          # 자료 폴더까지 — 다른 자료 폴더의 같은 번호 문서 예약을 지우지 않게
     with _TIMERS_GUARD:
-        cur = _TIMERS.get(int(fid))
+        cur = _TIMERS.get(tk)
         first = cur["first"] if cur else now
         if cur:
             cur["timer"].cancel()
@@ -1471,15 +1472,15 @@ def schedule_commit(db, base: Path, fid: int, wait: float | None = None) -> None
 
         def run():
             with _TIMERS_GUARD:
-                if _TIMERS.get(int(fid), {}).get("timer") is t:
-                    _TIMERS.pop(int(fid), None)
+                if _TIMERS.get(tk, {}).get("timer") is t:
+                    _TIMERS.pop(tk, None)
             try:
                 commit_now(db, base, fid)
             except Exception:
                 log.exception("칸 글 써 넣기 실패 — 표에 남아 다음에 다시 써 넣는다")
         t = threading.Timer(wait, run)
         t.daemon = True
-        _TIMERS[int(fid)] = {"timer": t, "first": first}
+        _TIMERS[tk] = {"timer": t, "first": first}
         t.start()
 
 

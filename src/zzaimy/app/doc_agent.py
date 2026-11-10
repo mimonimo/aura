@@ -317,6 +317,8 @@ def step_info() -> tuple[int, int] | None:
 
 KEEP_STEPS = 3                     # 문맥을 줄여도 빼지 않는 최근 걸음 수
 REPEAT_LIMIT = 3                   # 같은 걸음을 잇달아 이만큼 거절하면 멈춘다
+WRAP_UP = ("같은 걸음을 잇달아 되풀이했다 — 이번 요청은 여기서 마친다. finish 만 고른다: 이번에 쓴 것, 근거에 없어 「확인 필요」로 둔 칸, "
+           "남은 빈 절(「계속 써 줘」로 이어 씀)을 담당자에게 알린다.")
 NOOP_LIMIT = 3                     # 같은 쓰기 도구가 잇달아 이만큼 아무것도 바꾸지 못하면(찾기 0곳 등) 이번 요청에서는 더 하지 않는다
 
 
@@ -382,11 +384,17 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         if last and not (searched and grace):
             break
         allowed = set(grace) if last else set(reg)
+        # 일을 해 놓고(쓰기 있음) 같은 걸음을 잇달아 되풀이하면 다음 걸음은 finish 만 — 되풀이 멈춤(stop=repeat)으로 끊기지 않고
+        # 한 일·남은 일을 알리며 끝낸다(11-10 대화 177: 절을 다 맡긴 뒤 같은 표 칸 검색을 일곱 번 되풀이하다 멈춤)
+        wrap = (not last and repeats >= REPEAT_LIMIT - 1 and changed and "finish" in reg)
+        if wrap:
+            allowed = {"finish"}
         _STEP.set((_i + 1, max_steps))
         st = state()
         # 상태(문서 제목·절 이름·최근 대화)와 걸음 기록도 문서에서 온 글을 품으므로 울타리 안에 둔다
         current = (fenced("상태", st) + "\n\n" + fenced("지금까지 한 걸음 — 같은 걸음을 되풀이하지 않는다", "\n".join(log) or "(아직 없음)")
                    + ("\n\n[안내] " + LAST_STEP.format(max_steps=max_steps, tools=", ".join(grace)) if last
+                      else "\n\n[안내] " + WRAP_UP if wrap
                       else "\n\n위 [담당자 요청]에 대해 다음 걸음을 JSON 으로."))
         step = None
         extra: list[dict] = []
@@ -435,7 +443,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     out_tokens = out_tokens * 2
             extra = [{"role": "assistant", "content": raw[:800]},
                      {"role": "user", "content": ("마지막 걸음이다 — " + ", ".join(grace) + " 또는 stop 가운데 하나를 고른 JSON 하나만 다시 답하라."
-                                                  if last else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라 — "
+                                                  if last else "finish 를 고른 JSON 하나만 다시 답하라 — " + WRAP_UP if wrap else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라 — "
                                                   '꼴: {"thought": "한두 문장", "action": "도구 이름", "args": {...}} (괄호 수를 맞추고 JSON 밖에 글을 쓰지 않는다).')}]
             step = None
         if step is None:
@@ -443,7 +451,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                              "raw": raw[-400:]})                       # 무엇을 냈는지 — 원인(생각 새기·잘림·빈 답)을 기록에서 가린다
             if last:                                                   # 한도 안내로 끝낸다(낱말 규칙 경로로 물러나지 않는다)
                 break
-            ep.stop = "format"
+            ep.stop = "repeat" if wrap else "format"
             return ep
         if last and step.get("action") == "stop":                      # 모델이 답하지 않기로 했다
             ep.steps.append({"thought": str(step.get("thought") or "")[:500], "action": "stop", "args": {},

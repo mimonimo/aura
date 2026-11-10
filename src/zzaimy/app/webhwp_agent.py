@@ -924,6 +924,53 @@ class HwpTools:
                          + " — 근거에 있으면 hwp_fill·hwp_write 로 채우고, 없으면 끝에 담당자에게 묻는다.")
         return "\n".join(parts)
 
+    def form_source_titles(self) -> list[str]:
+        """이 작업본을 연 양식 문서(지난 결과보고서 등, 출처 「doc:N」)의 제목 — 그 문서의 값은 이 해의 값이 아니다."""
+        fid = self.fid()
+        try:
+            src = str(webhwp.meta(self.db, fid).get("source") or "") if fid else ""
+        except Exception:
+            src = ""
+        m = re.match(r"(?:doc:|양식:doc-)(\d+)", src)
+        if not m:
+            return []
+        try:
+            d = next((x for x in self.project_docs() or [] if int(x["id"]) == int(m.group(1))), None)
+        except Exception:
+            d = None
+        if not d:
+            try:
+                d = self.db.get_document(int(m.group(1)))
+            except Exception:
+                d = None
+        t = storage.title_of(str((d or {}).get("filename") or (d or {}).get("title") or ""))
+        return [t] if t else []
+
+    def refill_known(self, texts: list[str]) -> str:
+        """「확인 필요」 로 남은 칸(요약 칸 행사명·장소 등)을 맡겨 쓰기 근거·본문에서 알게 된 값으로 다시 채운다(label_values).
+        값이 하나뿐인 라벨만, 양식 문서의 값은 빼고, 넣기는 hwp_fill 과 같은 관문으로. 채운 것이 없으면 빈 글."""
+        from zzaimy.app import label_values as lv
+        if not self.fid():
+            return ""
+        try:
+            fields = self._fields()
+        except Exception:
+            return ""
+        if not any(x.get("kind") == "칸" and "확인" in str(x.get("text") or "") for x in fields):
+            return ""
+        keys = [lv._key(lv.norm(t)) for t in self.form_source_titles()]
+
+        def skip(title: str) -> bool:
+            k = lv._key(lv.norm(title))
+            return bool(k) and any(x and (x in k or k in x) for x in keys)
+        vals = lv.refill(fields, texts, skip)
+        if not vals:
+            return ""
+        r = self.fill({"values": vals})
+        if not r.startswith("채웠다") or r.startswith("채웠다: 없음"):
+            return ""
+        return "근거에서 알게 된 값으로 「확인 필요」 칸을 다시 채웠다 — " + r
+
     STREAM_PACE, STREAM_CPS, STREAM_MAX_S = 0.12, 32, 20.0   # 흘려 쓰기 — 0.12초마다, 초당 약 32자(눈으로 따라 읽히게), 긴 절도 20초 안에
 
     def _stream_plain(self, fid: int, field: str, text: str) -> bool:
@@ -942,7 +989,9 @@ class HwpTools:
         if field not in have or any(ww.is_cont(k) and ww.section_of(k) == field for k in have):
             return False
         body = ce.norm("\n".join(str(v) for _, v in items))
-        st = ce.SectionStream(self.db, fid, field, base=self.base)
+        # 놓을 때 써 넣기 예약(base)은 하지 않는다 — 아래에서 바로 써 넣는다. 예약 타이머가 다음 쓰기(표째 저장)와 엇갈려 옛 칸 글을
+        # 파일에 덮던 경합(병렬 시험에서 가끔 실패하던 것, 11-10)
+        st = ce.SectionStream(self.db, fid, field, base=None)
         if not st.ok:
             return False
         try:
@@ -990,7 +1039,9 @@ class HwpTools:
             body = ce.norm(self.preview_text(text))
             if not body:
                 return False
-            st = ce.SectionStream(self.db, fid, field, base=self.base)
+            # 글 판은 파일에 들어가면 안 된다 — 놓을 때 써 넣기 예약(base)을 하지 않는다. 예약 타이머가 바로 뒤 표째 저장과 엇갈리면
+            # 들여쓰기(전각 공백) 든 글 판이 파일의 절 글을 덮었다(11-10, 병렬 시험에서 가끔 실패)
+            st = ce.SectionStream(self.db, fid, field, base=None)
             if not st.ok:
                 return False
             try:

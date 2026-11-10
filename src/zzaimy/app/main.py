@@ -3198,6 +3198,7 @@ def create_app(
                 if secs_ and empty_:
                     msg += (f"\n\n(문서 기록: 절 {len(secs_)}개 가운데 {len(filled_)}개를 썼고 빈 절 {len(empty_)}개가 남았습니다. "
                             f"다음은 「{empty_[0]}」 — 「계속 써 줘」라고 하면 이어 씁니다.)")
+                msg += _absent_note(fl_)
             if msg:
                 db.add_chat(session_id, "assistant", _scrub_internal(msg))
             return msg
@@ -3370,6 +3371,7 @@ def create_app(
             if left_c:
                 msg += (f" 자료에 없어 비워 둔 칸 {len(left_c)}개(" + ", ".join(f"「{c_}」" for c_ in left_c[:6])
                         + (" 등" if len(left_c) > 6 else "") + ")는 값을 알려 주시면 채웁니다.")
+            msg += _absent_note(fl_)
             db.add_chat(session_id, "assistant", _scrub_internal(msg))
         elif not ep.finished and ep.writes:
             # 단계 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
@@ -3387,6 +3389,15 @@ def create_app(
         # 도구 실패·문맥 한도·단계 한도 — 낱말 규칙 경로로 문서를 건드리지 않고, 무엇이 안 됐는지 담당자에게 알린다
         db.add_chat(session_id, "assistant", _scrub_internal(doc_agent.failure_message(ep)))
         return True
+
+    def _absent_note(fields: list[dict]) -> str:
+        """지난 문서(양식)에만 있고 이 해 자료에 흔적이 없어 「올해 자료에 없음」 한 줄만 남긴 절 — 끝 보고에 지울지 묻는 목록으로 묶는다."""
+        from zzaimy.app import delegate as _dg
+        gone = [x["name"][2:] for x in fields or [] if x.get("kind") == "절" and _dg.is_absent(x.get("text"))]
+        if not gone:
+            return ""
+        return ("\n\n지울지 확인할 절(올해 자료에 운영 흔적이 없어 한 줄만 남김): " + ", ".join(f"「{g}」" for g in gone[:12])
+                + (" 외" if len(gone) > 12 else "") + ". 운영하지 않았으면 「이 절들 지워 줘」, 운영했으면 자료를 올려 주시면 채웁니다.")
 
     def _remember_given(session_id: int, given: dict) -> str:
         """담당자가 알려 준 값(물었던 값) — 기억해 두고(프로젝트 값·기관 정보) 남은 질문만 다시 띄운다. 지어내지 않고 물어서 받는 길.
