@@ -305,7 +305,8 @@
       .catch(function () { clearTimeout(t); if (built) return; if (k < 3) setTimeout(function () { probe(k + 1); }, 3000); else loadFail(); });
   })(1);
   // 불러오기 남은 시간: 이 브라우저에서 최근 5번 연 시간의 중앙값으로 「약 N초 남음」, 넘기면 지난 시간만 알린다(「오래 걸림」 만 보이던 것을 바꿈, 11-08).
-  // 느리기만 한 때(기안기 서버가 바쁠 때)는 실패로 보이지 않게, 90초가 지나도 뜨지 않을 때만 실패
+  // 느리기만 한 때(기안기 서버가 바쁘거나 연결이 느릴 때)는 실패로 보이지 않게, 4분이 지나도 뜨지 않을 때만 실패.
+  // 90초였을 때 느린 연결에서 편집기 파일(수식 글꼴 묶음 32MB)을 받는 도중에 다시 열기가 돌아 처음부터 다시 받았다(11-10 논문 문서)
   var loadT0 = Date.now(), loadKey = 'hwpLoadSecs', loadDone = false;
   function pastSecs() {
     try { var a = JSON.parse(localStorage.getItem(loadKey) || '[]'); if (!a.length) return 15; a.sort(function (x, y) { return x - y; }); return a[Math.floor(a.length / 2)]; }
@@ -322,7 +323,7 @@
     var left = Math.round(loadEta - el);
     say(left > 0 ? '불러오는 중 · 약 ' + left + '초 남음' : '불러오는 중 · 평소보다 늦음 · ' + Math.round(el) + '초째', 'busy');
   }, 1000);
-  setTimeout(loadFail, 90000);
+  setTimeout(loadFail, 240000);
   var ctrl = window.auraCtrl = BuildWebHwpCtrl('hwpctrl', location.origin + '/webhwpctrl/', function () {
     built = true; document.querySelector('[data-load-fail]').hidden = true;
     try { sessionStorage.removeItem(retryKey); } catch (e) {}

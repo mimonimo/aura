@@ -21,7 +21,7 @@ from pathlib import Path
 
 _MEM_MAX = int(os.environ.get("ZZAIMY_WEBHWP_STATIC_CACHE_MB", "256")) * 1024 * 1024   # 메모리 상한(넘으면 오래된 것부터 뺌)
 _DISK_MAX = int(os.environ.get("ZZAIMY_WEBHWP_STATIC_DISK_MB", "512")) * 1024 * 1024   # 디스크 상한(넘으면 오래된 것부터 지움)
-_ITEM_MAX = int(os.environ.get("ZZAIMY_WEBHWP_STATIC_ITEM_MB", "32")) * 1024 * 1024    # 항목 하나 상한(편집기 wasm 13MB) — 넘으면 담지 않는다
+_ITEM_MAX = int(os.environ.get("ZZAIMY_WEBHWP_STATIC_ITEM_MB", "64")) * 1024 * 1024    # 항목 하나 상한(편집기 wasm 13MB, 수식 글꼴 묶음 .data 32MB) — 넘으면 담지 않는다
 _KEYS_MAX = 600                                                 # 열쇠 수 상한 — 넘으면 새 열쇠는 담지 않는다(쿼리로 열쇠를 무한히 늘리지 못하게)
 _WAIT_MAX = 64                                                  # 한 열쇠를 기다리는 요청 수 상한 — 넘으면 캐시 없이 평소대로
 _KEEP_HEADERS = ("content-type", "last-modified", "etag")       # 캐시에 담는 응답 머리(쿠키·세션은 담지 않는다)

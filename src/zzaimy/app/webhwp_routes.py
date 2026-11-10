@@ -1395,13 +1395,13 @@ async def hwp_rescue(request: Request, fid: int):
             "skipped_deletes": int(rep.get("skipped_deletes") or 0), "error": rep.get("error", "")}
 
 
-_STATIC_EDITOR = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)   # 기안기 정적 파일(경로 끝 확장자) — 커서 그림(.cur)도: 열 때마다 수백 번 다시 묻던 것(10-27)
-_GZIP_EDITOR = re.compile(r"\.(js|css|wasm|svg)$", re.I)                       # 압축이 듣는 것(그림·woff2 는 이미 압축됨)
+_STATIC_EDITOR = re.compile(r"\.(js|css|wasm|data|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)   # 기안기 정적 파일(경로 끝 확장자) — 커서 그림(.cur)도: 열 때마다 수백 번 다시 묻던 것(10-27)
+_GZIP_EDITOR = re.compile(r"\.(js|css|wasm|data|svg)$", re.I)                  # 압축이 듣는 것(그림·woff2 는 이미 압축됨). 수식 글꼴 묶음 .data 32MB → 17MB(11-10)
 _GZ_CACHE: dict[bytes, bytes] = {}
 # 여럿이 나눠 쓸 수 있는 기안기 정적 자산 — 편집기 배포물 폴더의 정해진 확장자만, 쿼리는 비었거나 판 번호뿐(11-10 보안 검토).
 # 문서 내려받기·변환·API(경로에 확장자가 없거나 배포물 폴더 밖)와 문서·사용자·세션 값이 쿼리에 실린 요청은 절대 담지 않는다
 _SHARED_DIRS = ("js/", "css/", "wasm/", "img/", "image/", "images/", "font/", "fonts/", "lib/", "commonFrame/", "resources/", "res/")
-_SHARED_EXT = re.compile(r"\.(js|css|wasm|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)
+_SHARED_EXT = re.compile(r"\.(js|css|wasm|data|svg|png|jpg|gif|woff2?|ttf|otf|eot|cur|ico|bmp)$", re.I)
 _SHARED_QUERY = re.compile(r"^(?:v=)?[0-9][0-9.]{0,31}$")
 
 

@@ -107,6 +107,7 @@ def test_only_editor_assets_with_version_query_are_shared():
     from zzaimy.app.webhwp_routes import _shared_static
     assert _shared_static("js/hwpctrlapp/hwpCtrlApp.js", "")
     assert _shared_static("wasm/eqeditwa.wasm", "13.82.0.208")
+    assert _shared_static("wasm/eqeditwa.data", "13.82.0.208")      # 수식 글꼴 묶음 32MB — 열 때마다 새로 받아 느린 연결에서 못 열던 것(11-10)
     assert _shared_static("commonFrame/skins/default/css/a.css", "v=13.82")
     for raw, q in [("serverProps", ""), ("hwpctrlmain.html", ""), ("api/doc.js", ""),          # API·문서·배포물 밖
                    ("js/app.js", "id=2397"), ("js/app.js", "user=kim"), ("js/app.js", "sid=abc"),   # 문서·사용자·세션 값이 쿼리에
@@ -191,3 +192,11 @@ def test_caps_item_keys_disk_and_waiters(tmp_path, monkeypatch):
 
     res = _run(go())
     assert sum(1 for r in res if r is None) >= 4                             # 기다리는 수 상한 — 넘친 요청은 캐시 없이 평소대로
+
+
+def test_editor_data_package_is_cached_and_gzipped():
+    """수식 글꼴 묶음(eqeditwa.data)은 기안기 서버가 no-cache 로 보낸다 — 브라우저에 일주일 두고 gzip 으로 보낸다(11-10 논문 문서 안 열림)."""
+    from zzaimy.app.webhwp_routes import _GZIP_EDITOR, _STATIC_EDITOR
+    assert _STATIC_EDITOR.search("wasm/eqeditwa.data") and _GZIP_EDITOR.search("wasm/eqeditwa.data")
+    from zzaimy.app import webhwp_static_cache as sc
+    assert sc._ITEM_MAX >= 33 * 1024 * 1024
