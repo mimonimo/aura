@@ -236,6 +236,7 @@
     var settled = {};   // 지문이 달라 서버 글로 바로잡은 칸의 판 — 같은 판은 한 번만(표·특수 문자로 넣어도 지문이 끝내 안 맞는 칸을 30초마다 다시 넣어 화면이 얼던 것, 10-27 긴 양식)
     var online = true, retryTimer = null, retryMs = 1000, lastId = 0, readonly = !!o.readonly;
     var fieldList = [], fieldSet = {}, curField = '', lastTouch = 0, lastPresence = 0, waiters = [], started = false;
+    var startedAt = 0;                                       // 처음 맞춘 시각 — 그 뒤 사람 입력이 없으면 안전 점검이 보내지 않는다
     var reloading = false;   // 새 판을 다시 여는 동안(suspend → reopened) — 칸 수가 바뀐 것을 칸 밖 고침으로 잘못 알아채지 않게(10-26 양식 불러오기 뒤 저절로 문서 잠금)
     var handlers = {}, aura = {};
     // 문단 단위(10-27) — 글만 든 칸은 커서가 든 문단만 쥔다(남은 같은 칸의 다른 문단을 동시에 고친다). 서버가 칸째로 돌려주는 칸(표·그림·서식째),
@@ -1025,6 +1026,9 @@
         if (n !== fieldList.length) { emit('outside-edit'); return; }
         var f = curField;
         if (!f || !fieldSet[f] || dirty[f] || outbox[f] || inbox[f] || heldByOther(f)) return;   // 받을 글이 기다리는 칸은 건드리지 않는다(남의 새 글을 옛 글로 덮지 않게)
+        // 연 뒤 아무것도 치거나 누르지 않았으면 다름은 기안기 스스로 맞춘 것(표 번호 다시 매기기 등)이다 — 보내지 않는다.
+        // 보내면 열어 보기만 한 사람 이름으로 저장되고 옛 판이 쌓였다(11-11, 문서 2420)
+        if (!(hwp.lastInputAt && hwp.lastInputAt() > startedAt)) return;
         var t = hwp.read(f), k = known[f];
         if (t !== null && k && norm(t) !== k.text) {
           claim(f);
@@ -1032,7 +1036,7 @@
           if (conf.rich) { richDirty[f] = true; scheduleRich(); }
         }
       }, 1500);
-      return resync(true).then(function () { if (fieldsMode()) hwp.setFormMode(formOnly()); started = true; connect(); presence(true); checkCaret(); return replay(); });
+      return resync(true).then(function () { if (fieldsMode()) hwp.setFormMode(formOnly()); started = true; startedAt = Date.now(); connect(); presence(true); checkCaret(); return replay(); });
     }
     // 새 판을 다시 연 뒤 — 필드 목록·편집 가능·서버 칸 글을 다시 맞춘다
     function suspend() { reloading = true; }
