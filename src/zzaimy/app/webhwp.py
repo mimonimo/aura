@@ -92,12 +92,35 @@ def depts_for(role: str, dept: str, also=(), known=()) -> list[str]:
     return res
 
 
-def dept_of_path(base: Path, path: str) -> str:
+_ROOTS: dict[tuple[str, str], tuple[str, str]] = {}
+
+
+def _rel_parts(base: Path, path: str) -> tuple[str, ...] | None:
+    """한글 문서함 뿌리 아래 상대 경로 조각 — 밖이면 None.
+    목록 화면이 파일 수천 개마다 resolve(실제 경로 풀기, 디렉터리마다 lstat)를 하느라 8명이 동시에 열면 5~9초 걸렸다(11-11 표본 측정).
+    저장된 경로는 우리가 쓴 절대 경로라 정규형이면(.. ·// 없음) 뿌리(풀기 전·후 둘 다) 앞머리 비교로 끝내고, 아니면 예전처럼 풀어 본다."""
+    cwd = os.getcwd()
+    key = (str(base), cwd)
+    roots = _ROOTS.get(key)
+    if roots is None:
+        r = root(base)
+        roots = _ROOTS[key] = (str(r.absolute()).rstrip("/") + "/", str(r.resolve()).rstrip("/") + "/")
+    p = str(path or "")
+    if p and not p.startswith("/"):
+        p = cwd.rstrip("/") + "/" + p                 # 상대 경로(최근 파일들)는 resolve 와 같이 지금 폴더 기준
+    if p.startswith("/") and os.path.normpath(p) == p:
+        for pre in roots:
+            if p.startswith(pre):
+                return tuple(x for x in p[len(pre):].split("/") if x)
     try:
-        rel = Path(path).resolve().relative_to(root(base).resolve())
+        return Path(p).resolve().relative_to(Path(roots[1])).parts
     except (ValueError, OSError):
-        return ""
-    return rel.parts[0] if len(rel.parts) >= 2 else ""
+        return None
+
+
+def dept_of_path(base: Path, path: str) -> str:
+    rel = _rel_parts(base, path)
+    return rel[0] if rel and len(rel) >= 2 else ""
 
 
 # 한 요청 안에서 여러 파일의 meta 를 읽을 때(문서함 목록의 권한 거르기) 미리 한 번에 읽어 둔 값 — preloaded_meta 안에서만 쓴다
@@ -195,11 +218,8 @@ def folder_dir(base: Path, dept: str, folder: str = "") -> Path:
 
 def folder_of(base: Path, path: str) -> str:
     """파일이 부서 안 어느 폴더에 있나 — 부서 바로 아래면 빈 문자열."""
-    try:
-        rel = Path(path).resolve().relative_to(root(base).resolve())
-    except (ValueError, OSError):
-        return ""
-    return "/".join(rel.parts[1:-1])
+    rel = _rel_parts(base, path)
+    return "/".join(rel[1:-1]) if rel else ""
 
 
 def make_folder(base: Path, dept: str, parent: str, name: str) -> str:
@@ -393,15 +413,11 @@ def browse(db, base: Path, dept: str, folder: str = "", *, skip: set[int] | froz
     latest: dict[str, datetime] = {}                        # 하위 폴더 이름 → 안(아래 폴더까지)의 가장 최근 수정 시각
     files = []
     with preloaded_meta(db):
-        rr = root(base).resolve()                           # 경로 풀기는 줄마다 한 번(부서·폴더를 따로 풀면 천여 개에서 1초 가까이 걸렸다)
         for r in db.list_files(kind="webhwp", limit=8000):
             if int(r["id"]) in skip:
                 continue
-            try:
-                parts = Path(r["path"]).resolve().relative_to(rr).parts
-            except (ValueError, OSError):
-                continue
-            if len(parts) < 2 or parts[0] != dept:
+            parts = _rel_parts(base, r["path"])               # 정규형 경로는 앞머리 비교만(_rel_parts — 줄마다 resolve 하면 동시 접속에 수 초)
+            if not parts or len(parts) < 2 or parts[0] != dept:
                 continue
             fo = "/".join(parts[1:-1])
             if fo != cur and not (fo.startswith(cur + "/") if cur else bool(fo)):
