@@ -93,3 +93,17 @@ def test_materials_excludes_dynamic_form_sources():
     assert m.form_source_ids == {1}
     box["ids"] = {7, 8}                                   # 요청 도중 작업본이 생기면 그 원본도 뺀다
     assert m.form_source_ids == {1, 7, 8}
+
+
+def test_repeat_tree_tasks_and_programs_in_one_call():
+    xml = _sec()
+    x2, made = wb.repeat_tree(xml, "절:2.1. OOO(과제명)",
+                              [{"name": "가 과제", "children": ["가1", "가2"]}, {"name": "나 과제", "children": ["나1", "나2", "나3"]}],
+                              wf._Ids([xml]), set(_names(xml)))
+    hs = _heads(x2)
+    assert hs == ["2. 집중 육성 계획", "2.1. 가 과제", "2.1.1. 추진배경 및 목표", "1) 가1", "(1) 5개년 추진계획", "2) 가2", "(1) 5개년 추진계획",
+                  "2.2. 나 과제", "2.2.1. 추진배경 및 목표", "1) 나1", "(1) 5개년 추진계획", "2) 나2", "(1) 5개년 추진계획",
+                  "3) 나3", "(1) 5개년 추진계획", "3. 취업 지원 계획"]
+    names = _names(x2)
+    assert len(names) == len(set(names)) and "절:1) 나1" in names and "절:3) 나3" in names
+    assert len(made) == 2 + 5

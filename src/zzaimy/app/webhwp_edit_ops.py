@@ -2291,28 +2291,28 @@ def repeat_block(data: bytes, a: dict) -> tuple[bytes, str]:
     from zzaimy.app import webhwp_blocks as wb
     from zzaimy.app import webhwp_write as ww
     head = str(a.get("field") or "").strip()
-    names = [str(x).strip() for x in (a.get("names") or []) if str(x).strip()]
+    names = [x for x in (a.get("names") or []) if (isinstance(x, dict) and str(x.get("name") or "").strip()) or (not isinstance(x, dict) and str(x).strip())]
     if not head or not names:
-        raise EditError("field(늘릴 블록의 맨 위 절 필드 이름)와 names(블록마다 이름, 원래 블록 것부터)를 준다.")
-    if len(names) > 20:
-        raise EditError("한 번에 20개까지 늘린다.")
+        raise EditError("field(늘릴 블록의 맨 위 절 필드 이름)와 names(블록마다 이름 또는 {name, children}, 원래 블록 것부터)를 준다.")
+    if len(names) > 20 or sum(len(x.get("children") or []) for x in names if isinstance(x, dict)) > 60:
+        raise EditError("한 번에 블록 20개·아래 블록 60개까지 늘린다.")
     doc = _Doc(data)
     taken = {f["name"] for f in ww.fields(data)}
     for n, x in doc.secs.items():
         if f'name="{head}"' in x or (not head.startswith("절:") and head in x):
             try:
-                doc.secs[n], tops = wb.repeat_xml(x, head, names, doc.ids, taken)
+                doc.secs[n], tops = wb.repeat_tree(x, head, names, doc.ids, taken)
             except wb.BlockError as e:
                 raise EditError(str(e))
-            return doc.pack(), ("블록 " + str(len(tops)) + "개: " + " / ".join(tops)
-                                + " — 늘린 블록의 절 필드 이름은 hwp_fields 로 보고 hwp_write·delegate_section 으로 채운다.")
+            return doc.pack(), ("블록을 이렇게 맞췄다(들여 쓴 줄은 아래 블록):\n" + "\n".join(tops)
+                                + "\n절 필드 이름은 「절:」+제목 글이다(같은 제목이 또 있으면 #n). 이어서 다른 장의 견본도 같은 꼴로 늘린다.")
     raise EditError(f"「{head}」 필드를 찾지 못했다 — hwp_fields 의 절 이름을 그대로 준다.")
 
 
 TOOLS: list[dict] = [
     {"name": "hwp_repeat_block", "writes": True, "label": "견본 블록 늘리기",
-     "desc": "견본 하나뿐인 과제·프로그램 블록(「2.1. OOO(과제명)」)을 정한 수만큼 늘리고 이름 넣기(번호·필드 이름은 새로). 본문 쓰기 전에. "
-             "args {field: 블록 맨 위 절 필드 이름, names: [블록마다 이름, 원래 것부터]}",
+     "desc": "견본 하나뿐인 과제·프로그램 블록(「2.1. OOO(과제명)」)을 정한 수만큼 늘리고 이름 넣기(번호·필드 이름은 새로). 본문 쓰기 전에, 장마다 한 번. "
+             "args {field: 장의 첫 과제 견본 절 필드 이름, names: [{name: 과제 이름, children: [그 과제의 프로그램 이름…]}, …] (원래 견본 것부터)}",
      "args": {"field": "str", "names": "list"}},
     {"name": "hwp_page_setup", "writes": True, "label": "페이지 설정",
      "desc": "작업본 페이지 설정(파일을 바로 고침). args {paper: A4|A3|A5|B4|B5|Letter|Legal, orientation: 세로|가로, "

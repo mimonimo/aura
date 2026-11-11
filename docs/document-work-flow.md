@@ -167,7 +167,7 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | hwp_revise | 이미 쓴 절을 담당자 지시대로 고쳐 쓰기(더 구체적으로·표로·줄여·문체·항목 더하기). 지시의 뜻은 서브가 점검표로 만들고, 코드는 바뀜·길이 방향·표·도식 유무·더할 항목 낱말·본문 관문만 세어 어기면 한 번 다시 청함(ZZAIMY_REVISE=0 이면 안 보임) | app/delegate.Reviser — 지금 글(쓴 본문 기록 또는 작업본 글)·지시·그 절의 작성방법·근거를 깨끗한 문맥으로, 쓰기는 hwp_write 와 같은 길 |
 | hwp_tables | 작업본 표 목록(번호·크기·첫 행) | webhwp_style.tables |
 | hwp_style | 표 서식 고치기(음영·선 굵기·이중선·글자 크기·굵게·정렬) | webhwp_style.apply — 학교 서식 표 20,441개에서 캔 기본값 |
-| hwp_repeat_block | 서식 견본 하나뿐인 과제·프로그램 블록(「2.1. OOO(과제명)」)을 정한 수만큼 늘리고 이름 넣기 — 아래 절·표까지 복사, 번호(2.1→2.2, 1)→2))·필드 이름 새로 | webhwp_blocks.repeat_xml — 블록 = 제목부터 같은·윗단계 제목 앞까지, 복사본 본문 칸은 비움·id 새로 |
+| hwp_repeat_block | 서식 견본 하나뿐인 과제·프로그램 블록(「2.1. OOO(과제명)」)을 정한 수만큼 늘리고 이름 넣기(과제와 그 프로그램을 {name, children} 로 한 번에) — 아래 절·표까지 복사, 번호(2.1→2.2, 1)→2))·필드 이름 새로 | webhwp_blocks.repeat_xml — 블록 = 제목부터 같은·윗단계 제목 앞까지, 복사본 본문 칸은 비움·id 새로 |
 | hwp_page_setup | 용지(A4·A3·A5·B4·B5·Letter·Legal)·방향·여백(보통·좁게·넓게 또는 mm)·머리말·꼬리말 여백·제본 | webhwp_edit_ops.page_setup — 구역마다 pagePr·margin(HWPUNIT = mm × 283.465) |
 | hwp_table_insert | 절 필드 앞·끝, 글이 든 문단 뒤, 문서 끝에 행×열 표(값·머리줄·열 폭 비율) | webhwp_edit_ops.table_insert — 서식은 webhwp_style.style_table(HOUSE) 그대로 |
 | hwp_table_view | 표 하나의 칸 글·합친 칸을 행마다 보기(고칠 행·열 번호 정하기) | webhwp_edit_ops.table_view — 표 번호는 hwp_tables 와 같은 차례 |

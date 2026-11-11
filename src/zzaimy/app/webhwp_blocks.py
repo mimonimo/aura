@@ -185,7 +185,7 @@ def name_heading(head: str, name: str) -> str:
     return (head[:m.end()] + " " + name) if m else name
 
 
-def repeat_xml(xml: str, head: str, names: list[str], ids, taken: set[str]) -> tuple[str, list[str]]:
+def repeat_xml(xml: str, head: str, names: list[str], ids, taken: set[str], outside: set[str] | None = None) -> tuple[str, list[str]]:
     """구역 XML 에서 블록을 이름 수만큼으로. (새 XML, 새 블록 맨 위 제목 글들)."""
     found = find_block(xml, head)
     if not found:
@@ -199,7 +199,8 @@ def repeat_xml(xml: str, head: str, names: list[str], ids, taken: set[str]) -> t
         mk = lambda i: ".".join(parts[:-1] + [str(int(parts[-1]) + i)])
     else:
         mk = lambda i: str(int(num) + i)
-    taken = set(taken) - set(m.group(2) for m in _FIELD_BEGIN.finditer(block))     # 이 블록의 옛 이름은 다시 써도 된다
+    # 이 블록의 옛 이름은 다시 써도 된다 — 단 블록 밖(outside: 부분 XML 로 부를 때 그 바깥)에도 있는 이름은 그대로 막는다
+    taken = (set(taken) - set(m.group(2) for m in _FIELD_BEGIN.finditer(block))) | set(outside or ())
     segs, tops = [], []
     for i, name in enumerate(names):
         seg = block if i == 0 else _reid(_clear_fields(block), ids)
@@ -255,3 +256,41 @@ def _rename_fields(xml: str, taken: set[str]) -> str:
     for s, e, want in sorted(renames, reverse=True):
         xml = xml[:s] + _esc(want).replace('"', "&quot;") + xml[e:]
     return xml
+
+
+def _first_child(xml: str, a: int, end: int, lv: tuple) -> str | None:
+    """블록 안 첫 아래 견본 제목(자리 표시가 든 것, 없으면 「1)」 갈래 첫 제목) — 과제 블록 안 프로그램 견본."""
+    sub = xml[a:end]
+    heads = [h for h in _heading_paras(sub) if h[1] > 0 and _rank(h[4]) > _rank(lv)]
+    for h in heads:
+        if PLACEHOLDER.search(h[3]):
+            return h[3]
+    kids = [h for h in heads if h[4][0] == 1]
+    return kids[0][3] if kids else None
+
+
+def repeat_tree(xml: str, head: str, items: list, ids, taken: set[str]) -> tuple[str, list[str]]:
+    """블록 늘리기를 한 번에 — items 는 이름 글 또는 {name, children: [아래 블록 이름…]}.
+    먼저 위 블록(과제)을 늘리고, 블록마다 그 안의 첫 아래 견본(프로그램)을 children 수만큼 늘린다. (새 XML, 만든 제목 글들)."""
+    names = [(it.get("name") if isinstance(it, dict) else it) for it in items]
+    names = [str(n or "").strip() for n in names]
+    if not all(names):
+        raise BlockError("이름이 빈 블록이 있다.")
+    xml, tops = repeat_xml(xml, head, names, ids, taken)
+    made = list(tops)
+    for it, top in zip(items, tops):
+        kids = [str(x).strip() for x in ((it.get("children") or []) if isinstance(it, dict) else []) if str(x).strip()]
+        if not kids:
+            continue
+        found = find_block(xml, top)
+        if not found:
+            continue
+        a, end, _, lv = found
+        child = _first_child(xml, a, end, lv)
+        if not child:
+            raise BlockError(f"「{top}」 블록 안에 늘릴 아래 견본(「1) OOO(프로그램명)」 같은 제목)이 없다.")
+        outside = {m.group(2) for m in _FIELD_BEGIN.finditer(xml[:a] + xml[end:])}
+        sub, kid_tops = repeat_xml(xml[a:end], child, kids, ids, taken, outside)
+        xml = xml[:a] + sub + xml[end:]
+        made += ["  " + t for t in kid_tops]
+    return xml, made
