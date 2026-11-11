@@ -3313,6 +3313,7 @@ def create_app(
                 doc_agent.Tool("hwp_form_create", _wfc.TOOL_DESC, hw.form_create, writes=True),
                 doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태 보기. args {}", hw.fields),
                 doc_agent.Tool("hwp_fill", "칸·표 필드에 짧은 값 넣기(이름·날짜·금액·한 줄 요약 — 근거로 찾았거나 담당자가 알려 준 값만, 양식 예시 글자 ○○·000 은 넣지 않음). "
+                               "필드가 없는 표 칸은 라벨 이름으로 준다(「대학명」「URL」, 같은 라벨이 여럿이면 「총괄책임자 성명」처럼 앞 낱말까지) — 라벨 오른쪽 빈 칸에 들어간다. "
                                "여러 줄 글·표가 들어갈 큰 칸은 hwp_write 로. args {values: {필드 이름: 값}}", hw.fill, writes=True),
                 doc_agent.Tool("hwp_write", "절 필드에 본문 쓰기 — 개조식 번호 문단으로 쓴다: 1) → 가) → (1) 단계, 한 줄에 한 항목, 문장 끝은 「~함」「~임」 "
                                "(서술형 「~하였다」 금지). 수치·일정·내역은 마크다운 표(| 머리 | … |, 머리글 구분 줄 포함)로, 표 바로 윗줄에 「<표> 표 제목」 을 두면 번호 붙은 표 제목이 된다. "

@@ -107,3 +107,41 @@ def test_repeat_tree_tasks_and_programs_in_one_call():
     names = _names(x2)
     assert len(names) == len(set(names)) and "절:1) 나1" in names and "절:3) 나3" in names
     assert len(made) == 2 + 5
+
+
+def _label_doc():
+    import io, zipfile
+    def tc(r, c, text, cs=1, rs=1):
+        return (f'<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="1">'
+                f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">'
+                f'<hp:p id="{r * 10 + c + 100}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>{text}</hp:t></hp:run></hp:p></hp:subList>'
+                f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="{cs}" rowSpan="{rs}"/><hp:cellSz width="1000" height="500"/>'
+                f'<hp:cellMargin left="0" right="0" top="0" bottom="0"/></hp:tc>')
+    rows = [[tc(0, 0, "대 학 명", 2), tc(0, 2, "OO대학교", 2)],
+            [tc(1, 0, "총괄책임자", 1, 2), tc(1, 1, "성 명"), tc(1, 2, ""), tc(1, 3, "")],
+            [tc(2, 1, "소속(직위)"), tc(2, 2, ""), tc(2, 3, "")],
+            [tc(3, 0, "실무담당자"), tc(3, 1, "성 명"), tc(3, 2, ""), tc(3, 3, "")],
+            [tc(4, 0, "URL", 2), tc(4, 2, "http://www.", 2)]]
+    tbl = ('<hp:tbl id="9" zOrder="0" numberingType="TABLE" pageBreak="CELL" repeatHeader="0" rowCnt="5" colCnt="4" cellSpacing="0" borderFillIDRef="1" noAdjust="0">'
+           '<hp:sz width="4000" widthRelTo="ABSOLUTE" height="2500" heightRelTo="ABSOLUTE" protect="0"/>'
+           + "".join("<hp:tr>" + "".join(r) + "</hp:tr>" for r in rows) + "</hp:tbl>")
+    sec = ('<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">'
+           f'<hp:p id="1" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">{tbl}<hp:t/></hp:run></hp:p></hs:sec>')
+    hdr = '<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head"><hh:refList><hh:borderFills itemCnt="1"><hh:borderFill id="1"/></hh:borderFills></hh:refList></hh:head>'
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("Contents/header.xml", hdr)
+        z.writestr("Contents/section0.xml", sec)
+    return buf.getvalue()
+
+
+def test_fill_labels_next_to_label_cells():
+    from zzaimy.app import webhwp_edit_ops as eo
+    new, done, why = eo.fill_labels(_label_doc(), {"대학명": "영남이공대학교", "총괄책임자 성명": "박민규", "실무담당자 성명": "박은호",
+                                                    "URL": "http://www.ync.ac.kr", "성명": "모호함", "없는 칸": "x"})
+    assert set(done) == {"대학명", "총괄책임자 성명", "실무담당자 성명", "URL"}
+    assert "성명" in why and "곳" in why["성명"] and "없는 칸" in why
+    view = eo.table_view(new, {"table": 1})
+    assert "영남이공대학교" in view and "박민규" in view and "박은호" in view and "ync.ac.kr" in view and "OO대학교" not in view
+    assert view.index("박민규") < view.index("박은호")

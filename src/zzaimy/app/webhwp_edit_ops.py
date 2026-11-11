@@ -2286,6 +2286,101 @@ _NATIVE_FIRST = {"hwp_page_setup": _ps_native, "hwp_page_number": _pn_native, "h
 # ── 에이전트 도구 ──
 # 이름·설명·인자 꼴을 한 곳에 — main.py 는 이 목록을 그대로 doc_agent.Tool 로 잇는다(tests/test_agent_docs 가 문서 표와 맞춰 본다)
 _AT = "at: {field: 절 필드 이름, where: start(절 맨 앞)|end(절 끝)} 또는 {after_text: 이 글이 든 문단 뒤} 또는 비우면 문서 끝"
+# ── 라벨 칸 옆에 값 넣기(11-12) ──
+# 신청서·현황표의 값 칸(「대 학 명 | (빈 칸)」「성 명 | 」「URL | http://www.」)에는 누름틀이 없는 서식이 많다 — hwp_fill 이 이름으로 필드를 못 찾아
+# 담당자가 준 학교명·책임자 이름·연락처를 비워 둔 채 「채웠다」 고 했다(특성화 서식 시범, 11-12). 이름의 끝 낱말을 라벨 칸 글과 맞추고
+# 앞 낱말(「예비사업/총괄책임자 성명」 의 예비사업·총괄책임자)은 같은 행 왼쪽 칸(합친 칸 포함)에서 찾아 행을 가린 뒤, 라벨 바로 오른쪽 칸에 넣는다.
+# 오른쪽 칸이 비었거나 서식 예시 글자(「(우편번호)」「http://www.」「○○○」「000」)일 때만 — 다른 라벨·이미 쓴 값은 덮지 않는다.
+_LAB_SP = re.compile(r"[\s‧·∙・:：]")
+_HINT_CELL = re.compile(r"^(?:\(?\s*우편번호\s*\)?|https?://(?:www\.?)?|\(\s*\)|-|[○◯OＯ0\s.,()~∼-]{2,}|\(?\s*인\s*\)?)$", re.I)
+
+
+def _hint_cell(t: str) -> bool:
+    """서식 예시 글자만 든 칸 — 덮어써도 되는 자리(「OO대학교」「예) 수도권」「(우편번호)」「http://www.」「000명」)."""
+    t = (t or "").strip()
+    return bool(_HINT_CELL.match(t) or re.search(r"[○◯OＯ]{2,}|0{3,}", t) or re.match(r"^\s*예\s*\)", t))
+
+
+def _lab(s: str) -> str:
+    return _LAB_SP.sub("", str(s or "")).lower()
+
+
+def _label_tables(doc: _Doc):
+    """모든 표(안에 표가 든 바깥 표 포함) — (구역, 시작, 끝, 안쪽 표를 표시로 가린 XML, 가린 조각들). 차례대로."""
+    out = []
+    for n in doc.sec_names:
+        x = doc.secs[n]
+        spans = wf._all_tables(x)
+        for s0, e0 in spans:
+            inner = [(s1, e1) for s1, e1 in spans if s0 < s1 and e1 <= e0]
+            inner = [(s1, e1) for s1, e1 in inner if not any(s2 < s1 and e1 <= e2 for s2, e2 in inner)]     # 바로 안쪽 것만
+            seg, pieces, pos, parts = x[s0:e0], [], 0, []
+            for s1, e1 in inner:
+                parts.append(seg[pos:s1 - s0])
+                parts.append(f"\x00T{len(pieces)}\x00")
+                pieces.append(seg[s1 - s0:e1 - s0])
+                pos = e1 - s0
+            parts.append(seg[pos:])
+            out.append((n, s0, e0, "".join(parts), pieces))
+    return out
+
+
+def fill_labels(data: bytes, values: dict) -> tuple[bytes, dict, dict]:
+    """{이름: 값} → (새 바이트, {이름: 넣은 자리 설명}, {이름: 못 넣은 까닭}). 표 칸 라벨로 자리를 찾는다(값 하나씩 — 넣을 때마다 다시 본다)."""
+    doc = _Doc(data)
+    done, why = {}, {}
+    for name, val in values.items():
+        toks = [_lab(x) for x in re.split(r"[/>|]|\s{1,}", str(name)) if _lab(x)]
+        if not toks:
+            continue
+        last, ctx_need, whole = toks[-1], toks[:-1], _lab(name)
+        best = []
+        for k, (n, s0, e0, masked, pieces) in enumerate(_label_tables(doc)):
+            try:
+                tb = _Table(masked)
+            except Exception:
+                continue
+            for cell in tb.cells:
+                txt = _lab(_text(cell["xml"]))
+                if not txt or len(txt) > 40:
+                    continue
+                if not (txt in (whole, last) or (txt.endswith(last) and len(txt) - len(last) <= 20)):
+                    continue
+                left = "".join(_lab(_text((tb.covering(cell["r"], c) or {}).get("xml", ""))) for c in range(cell["c"]))
+                up = "".join(_lab(_text((tb.covering(r, cell["c"]) or {}).get("xml", ""))) for r in range(cell["r"]))
+                if not all(t in txt + left or t in up for t in ctx_need):
+                    continue
+                best.append((0 if txt in (whole, last) else len(txt) - len(last), k, cell["r"], cell["c"], cell["cs"]))
+        if not best:
+            why[name] = "표에서 이 라벨 칸을 찾지 못함"
+            continue
+        best.sort(key=lambda x: x[0])
+        top = [b for b in best if b[0] == best[0][0]]
+        if len(top) > 1:
+            why[name] = f"같은 라벨 칸이 {len(top)}곳 — 앞 낱말로 가려 준다(예: 「총괄책임자 성명」)"
+            continue
+        _, k, r, c, cs = top[0]
+        n, s0, e0, masked, pieces = _label_tables(doc)[k]
+        tb = _Table(masked)
+        rc = c + cs
+        tgt = tb.covering(r, rc) if rc < tb.nc else None
+        if not tgt:
+            why[name] = "라벨 칸 오른쪽에 칸이 없음"
+            continue
+        cur = _text(tgt["xml"]).strip()
+        if cur and not _hint_cell(cur) and _lab(cur) != _lab(val):
+            why[name] = f"오른쪽 칸에 이미 글이 있음(「{cur[:20]}」)"
+            continue
+        tb.set_text(tgt["r"], tgt["c"], str(val), doc.ids)
+        out = tb.to_xml()
+        for i, pc in enumerate(pieces):
+            out = out.replace(f"\x00T{i}\x00", pc)
+        x = doc.secs[n]
+        doc.secs[n] = x[:s0] + out + x[e0:]
+        done[name] = f"{_text(tgt['xml'])[:0]}표 {r + 1}행 {tgt['c'] + 1}열"
+    return (doc.pack() if done else data), done, why
+
+
 def repeat_block(data: bytes, a: dict) -> tuple[bytes, str]:
     """서식 견본 블록(과제·프로그램·지표) 늘리기 — webhwp_blocks."""
     from zzaimy.app import webhwp_blocks as wb

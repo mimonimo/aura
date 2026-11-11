@@ -1271,10 +1271,35 @@ class HwpTools:
                     + ("" if long_ or fake or person or misfit or inst_blank else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
-        miss = [k for k in values if k not in have]
+        miss_vals = {k: v for k, v in values.items() if k not in have}
         values = {k: v for k, v in values.items() if k in have}
+        # 필드가 없는 이름은 표의 라벨 칸(「대 학 명」「성 명」「URL」) 옆 빈 칸에 — 누름틀 없는 신청서·현황표가 많다(11-12 특성화 신청서:
+        # 학교명·책임자 이름을 「없는 이름」 으로 건너뛰고 「채웠다」 고 했다). 이름 앞 낱말(「총괄책임자 성명」)로 같은 라벨을 가린다
+        lab_done, lab_why = {}, {}
+        if miss_vals:
+            from zzaimy.app import webhwp_edit_ops as _eo
+            box: dict = {}
+
+            def _fn(d: bytes):
+                new, dn, wy = _eo.fill_labels(d, {re.sub(r"^(칸|입력):", "", k): v for k, v in miss_vals.items()})
+                box["done"], box["why"] = dn, wy
+                return new, "표 라벨 칸에 넣었다"
+            out_ = _eo.apply(self.db, self.base, fid, _fn)
+            lab_done, lab_why = box.get("done") or {}, box.get("why") or {}
+            if lab_done and not out_.startswith(("바꾸지 않았다", "바뀐 것이 없다")):
+                self.writes += 1
+                self._mark(fid, next(iter(lab_done)))
+            elif lab_done:
+                lab_why.update({k: out_ for k in lab_done})
+                lab_done = {}
+        miss = [k for k in miss_vals if re.sub(r"^(칸|입력):", "", k) not in lab_done]
+        lab_txt = (" · 표 라벨 칸에 넣음: " + ", ".join(f"{k}({w})" for k, w in lab_done.items())) if lab_done else ""
+        miss_txt = (" · 넣지 못한 이름: " + ", ".join(f"{k}({lab_why.get(re.sub(r'^(칸|입력):', '', k), '없음')})" for k in miss)
+                    + " — hwp_table_view 로 표를 보고 hwp_table_edit set_cells 로 그 칸에 넣는다") if miss else ""
         if not values:
-            return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓴다."
+            if lab_done:
+                return "채웠다: 없음" + lab_txt + miss_txt
+            return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓰거나, 표 칸이면 라벨 앞 낱말까지(「총괄책임자 성명」) 준다." + miss_txt
         # 사람과 같은 길 — 임대 확인·판 번호·알림(열린 편집 화면의 같은 칸에 바로) 뒤 한글 파일에 써 넣는다(고친 사람 AURA)
         done, held = ce.put(self.db, fid, ce.AGENT, values, base=self.base, client="aura-agent")
         if not done and not held:
@@ -1282,7 +1307,7 @@ class HwpTools:
         if done:                                            # AURA 작성 표시는 실제로 쓴 칸에만(사람이 쥐어 못 쓴 칸에는 띄우지 않는다)
             self._mark(fid, done[-1])
         self.writes += 1 if done else 0
-        return (f"채웠다: {', '.join(done) or '없음'}" + (f" · 없는 이름: {', '.join(miss)}" if miss else "")
+        return (f"채웠다: {', '.join(done) or '없음'}" + lab_txt + miss_txt
                 + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
                 + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else "")
