@@ -168,14 +168,16 @@ class Materials:
     """프로젝트 하나의 재료 창고 — 지난 자료의 절 정렬은 문서마다 한 번만 계산해 둔다."""
 
     def __init__(self, db, project: dict | None, form_source_ids: set[int], find_relevant, extract_nouns, criteria_chunks: list[dict] | None,
-                 scope: dict | None = None, sink: list | None = None, visible=None, criteria_ids=None):
+                 scope: dict | None = None, sink: list | None = None, visible=None, criteria_ids=None, form_sources=None):
         self.visible = visible                 # 문서마다 열람 범위 판정(대화 주인 기준) — 범위 밖 프로젝트 문서는 재료로 쓰지 않는다
         self.scope = scope                     # 문서함 사업 문서 검색(RAG)의 열람 범위 — 없으면 문서함 검색을 하지 않는다
         # 문서함 검색으로 재료에 넣은 문서를 알릴 곳(대화의 근거 목록) — 문서함 패널의 「참고 문서」에 「에이전트가 불러옴」으로 선다
         self.sink = sink
         self.db = db
         self.project = project
-        self.form_source_ids = set(form_source_ids)
+        self._form_base = set(form_source_ids)
+        # 그때그때 더할 양식 원본 — 한글 작업본이 지난 문서(작년 보고서)에서 왔으면 그 원본(요청 도중 작업본을 만들어도 따라간다)
+        self._form_more = form_sources
         self.find_relevant = find_relevant
         self.extract_nouns = extract_nouns
         self.criteria_chunks = criteria_chunks or []
@@ -185,6 +187,17 @@ class Materials:
         self._plans: dict[int, list[dict]] = {}
         self._lib_seen: set = set()
         self._chunks: dict[int, list[dict]] = {}
+
+    @property
+    def form_source_ids(self) -> set[int]:
+        """양식으로 쓴 원본 문서 — 근거로 쓰지 않는다(지난 해 값이 새 문서에 옮겨지지 않게, 11-11 결과보고서에 작년 참가 사업단 표가 그대로 든 것)."""
+        more = set()
+        if self._form_more is not None:
+            try:
+                more = {int(x) for x in (self._form_more() or ())}
+            except Exception:
+                more = set()
+        return self._form_base | more
 
     def past_docs(self) -> list[dict]:
         if not self.project:

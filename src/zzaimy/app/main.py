@@ -2652,7 +2652,8 @@ def create_app(
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
                 mats_box["m"] = drafting.Materials(db, project, sources, find_relevant, extract_nouns,
                                                    db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope, criteria_ids=crit_ids,
-                                                   sink=_chat_sources.setdefault(session_id, []))
+                                                   sink=_chat_sources.setdefault(session_id, []),
+                                                   form_sources=(lambda: _wa.past_template_ids(db, hw.fid())) if hw is not None else None)
             return mats_box["m"]
 
         def sections() -> list[dict]:

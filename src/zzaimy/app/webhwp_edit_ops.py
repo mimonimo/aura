@@ -2286,7 +2286,34 @@ _NATIVE_FIRST = {"hwp_page_setup": _ps_native, "hwp_page_number": _pn_native, "h
 # ── 에이전트 도구 ──
 # 이름·설명·인자 꼴을 한 곳에 — main.py 는 이 목록을 그대로 doc_agent.Tool 로 잇는다(tests/test_agent_docs 가 문서 표와 맞춰 본다)
 _AT = "at: {field: 절 필드 이름, where: start(절 맨 앞)|end(절 끝)} 또는 {after_text: 이 글이 든 문단 뒤} 또는 비우면 문서 끝"
+def repeat_block(data: bytes, a: dict) -> tuple[bytes, str]:
+    """서식 견본 블록(과제·프로그램·지표) 늘리기 — webhwp_blocks."""
+    from zzaimy.app import webhwp_blocks as wb
+    from zzaimy.app import webhwp_write as ww
+    head = str(a.get("field") or "").strip()
+    names = [str(x).strip() for x in (a.get("names") or []) if str(x).strip()]
+    if not head or not names:
+        raise EditError("field(늘릴 블록의 맨 위 절 필드 이름)와 names(블록마다 이름, 원래 블록 것부터)를 준다.")
+    if len(names) > 20:
+        raise EditError("한 번에 20개까지 늘린다.")
+    doc = _Doc(data)
+    taken = {f["name"] for f in ww.fields(data)}
+    for n, x in doc.secs.items():
+        if f'name="{head}"' in x or (not head.startswith("절:") and head in x):
+            try:
+                doc.secs[n], tops = wb.repeat_xml(x, head, names, doc.ids, taken)
+            except wb.BlockError as e:
+                raise EditError(str(e))
+            return doc.pack(), ("블록 " + str(len(tops)) + "개: " + " / ".join(tops)
+                                + " — 늘린 블록의 절 필드 이름은 hwp_fields 로 보고 hwp_write·delegate_section 으로 채운다.")
+    raise EditError(f"「{head}」 필드를 찾지 못했다 — hwp_fields 의 절 이름을 그대로 준다.")
+
+
 TOOLS: list[dict] = [
+    {"name": "hwp_repeat_block", "writes": True, "label": "견본 블록 늘리기",
+     "desc": "견본 하나뿐인 과제·프로그램 블록(「2.1. OOO(과제명)」)을 정한 수만큼 늘리고 이름 넣기(번호·필드 이름은 새로). 본문 쓰기 전에. "
+             "args {field: 블록 맨 위 절 필드 이름, names: [블록마다 이름, 원래 것부터]}",
+     "args": {"field": "str", "names": "list"}},
     {"name": "hwp_page_setup", "writes": True, "label": "페이지 설정",
      "desc": "작업본 페이지 설정(파일을 바로 고침). args {paper: A4|A3|A5|B4|B5|Letter|Legal, orientation: 세로|가로, "
              "margin: 보통|좁게|넓게, margins_mm: {top, bottom, left, right, header, footer, gutter}(주면 프리셋 위에 덮음), gutter_type: 왼쪽|맞쪽|위쪽}",
@@ -2375,7 +2402,7 @@ class EditTools:
         if not fid:
             return "이 대화에 한글 작업본이 없다 — hwp_forms → hwp_start."
         db, base = self.hw.db, self.hw.base
-        ops = {"hwp_page_setup": page_setup, "hwp_table_insert": table_insert, "hwp_table_edit": table_edit,
+        ops = {"hwp_repeat_block": repeat_block, "hwp_page_setup": page_setup, "hwp_table_insert": table_insert, "hwp_table_edit": table_edit,
                "hwp_page_number": page_number, "hwp_header_footer": header_footer, "hwp_page_break": page_break,
                "hwp_text_style": text_style, "hwp_footnote": footnote}
         if name == "hwp_table_view":

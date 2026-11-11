@@ -379,6 +379,28 @@ def _dg_queue() -> int:
     return QUEUE_MAX
 
 
+def past_template_ids(db, fid) -> set[int]:
+    """작업본이 지난 문서(값을 비운 작년 보고서·큰 원본의 구조 사본)에서 왔으면 그 원본과, 같은 내용으로 다시 올려 원본에 이어진 문서 id.
+    근거 찾기에서 뺀다 — 양식으로 쓴 작년 문서의 값(참가 사업단·인원·금액)이 올해 문서에 근거인 척 들어가지 않게(11-11)."""
+    if not fid:
+        return set()
+    try:
+        from zzaimy.app import webhwp
+        src = str((webhwp.meta(db, int(fid)) or {}).get("source") or "")
+    except Exception:
+        return set()
+    m = re.match(r"doc:(\d+)\b", src)
+    if not m or not (":지난문서" in src or ":구조사본" in src):
+        return set()
+    ids = {int(m.group(1))}
+    try:
+        with db._conn() as conn:
+            ids |= {int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE version_of = ?", (int(m.group(1)),)).fetchall()}
+    except Exception:
+        pass
+    return ids
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner

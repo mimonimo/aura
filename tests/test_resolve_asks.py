@@ -266,6 +266,7 @@ class _FollowsState:
 
     def __init__(self):
         self.model, self._extra, self.sent = "fake", {}, []
+        self.other = 0                                   # 「기타 자료 n」 검색 차례 — 프롬프트 길이(도구 수)에 따라 앞 결과가 잘려도 같은 검색어를 되풀이하지 않게
         outer = self
 
         class _C:
@@ -298,7 +299,9 @@ class _FollowsState:
                         break
                 if content is None:
                     nxt = next((n for n in todo if f'"query": "{n}"' not in log), None)
-                    content = _step("search", source="criteria", query=nxt or f"기타 자료 {len(results)}")
+                    if not nxt:
+                        outer.other += 1
+                    content = _step("search", source="criteria", query=nxt or f"기타 자료 {outer.other}")
                 return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
         self.client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
 
