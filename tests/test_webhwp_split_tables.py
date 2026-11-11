@@ -59,3 +59,11 @@ def test_split_tables_bytes_roundtrip():
     assert n == 1 and 'pageBreak="TABLE"' in _sec(new)
     same, k = ww.split_tables(new)
     assert k == 0 and same == new
+
+
+def test_new_table_page_break_by_size():
+    from zzaimy.ingest import hwpx_fill as hf
+    short = hf.table_xml([["구분", "내용"], ["가", "짧은 글"]], "0", "0", 42000, "1", "", 901)
+    long_rows = hf.table_xml([["구분", "내용"]] + [[str(i), "값"] for i in range(15)], "0", "0", 42000, "1", "", 902)
+    long_cell = hf.table_xml([["구분", "내용"], ["가", "글" * 600]], "0", "0", 42000, "1", "", 903)
+    assert 'pageBreak="NONE"' in short and 'pageBreak="CELL"' in long_rows and 'pageBreak="TABLE"' in long_cell

@@ -527,6 +527,7 @@ def paragraph_xml(text: str, pp: str, cp: str) -> str:
 
 
 SHORT_TABLE_ROWS = 10      # 이 행 수 이하의 새 표는 쪽에서 나누지 않는다(통째로 다음 쪽) — 긴 표는 칸 단위로 나누고 머리줄을 되풀이
+LONG_CELL = 500                 # 이 글자 수를 넘는 칸이 든 표는 칸 안에서도 쪽을 나눈다(webhwp_write.LONG_CELL 과 같은 값)
 
 
 def _vis_len(text: str) -> float:
@@ -613,8 +614,12 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
                        f'<hp:cellSz width="{col_ws[c]}" height="{row_h}"/>{margin}</hp:tc>')
         trs.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
     total_w = sum(col_ws)
+    # 쪽 나눔 — 짧은 표는 한 쪽에 모으고(NONE) 긴 표는 행 사이에서(CELL). 다만 한 칸 글이 길면(쪽보다 길 수 있다) 칸 안에서도 나눈다(TABLE) —
+    # 「나누지 않음」·「셀 단위」 에서는 쪽보다 긴 칸의 아래가 잘려 보이지 않았다(11-11, webhwp_write.split_tables 와 같은 기준)
+    long_cell = any(len(str(c or "")) > LONG_CELL for row in rows for c in row)
+    split = "TABLE" if long_cell else ("NONE" if n_rows <= SHORT_TABLE_ROWS else "CELL")
     tbl = (f'<hp:tbl id="{table_id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
-           f'pageBreak="{'NONE' if n_rows <= SHORT_TABLE_ROWS else 'CELL'}" repeatHeader="1" rowCnt="{n_rows}" colCnt="{n_cols}" cellSpacing="0" borderFillIDRef="{bf}" noAdjust="0">'
+           f'pageBreak="{split}" repeatHeader="1" rowCnt="{n_rows}" colCnt="{n_cols}" cellSpacing="0" borderFillIDRef="{bf}" noAdjust="0">'
            f'<hp:sz width="{total_w}" widthRelTo="ABSOLUTE" height="{row_h * n_rows}" heightRelTo="ABSOLUTE" protect="0"/>'
            f'<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" '
            f'vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'

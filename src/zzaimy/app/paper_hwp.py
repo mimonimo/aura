@@ -273,9 +273,13 @@ def headless(outline: list[tuple[int, str, str]], texts: list[str]) -> set[str]:
     nums = [n for lv, n, _ in outline if n]
     out = set()
     for lv, num, title in outline:
-        if lv < 2 or not num:
+        if not num:
             continue
         k = key_of(num, title)
+        if lv == 1:                                 # 번호 장은 원고에 장 머리글(첫 절 앞 글·표)이 있을 때만 쓸 자리를 둔다(11-12: 4장 머리 표가 빠졌다)
+            if not own.get(k):
+                out.add(k)
+            continue
         if k in own and not own[k] and any(n.startswith(num + ".") for n in nums):
             out.add(k)
     return out
@@ -289,6 +293,7 @@ def _marker(name: str) -> str:
 def build(outline: list[tuple[int, str, str]] | None = None, meta: dict | None = None, no_body: set[str] | None = None) -> bytes:
     """차례 → 논문 양식 hwpx 바이트(쓸 자리 누름틀·꾸밈 스타일·머리말·꼬리말·쪽 번호까지).
     no_body(필드 이름)는 제목만 두고 쓸 자리를 두지 않는다 — 아래 절만 있고 제 글이 없는 절(1.4 처럼, headless)."""
+    given_no_body = no_body is not None
     no_body = no_body or set()
     from hwpx import HwpxDocument
 
@@ -339,7 +344,9 @@ def build(outline: list[tuple[int, str, str]] | None = None, meta: dict | None =
         if lv == 1:
             para(text, "chapter", page=True)
             para("")
-            if not num:                         # 번호 없는 장(참고 문헌·초록·팀원 소개)은 장 자체가 쓸 자리
+            # 번호 없는 장(참고 문헌·초록·팀원 소개)은 장 자체가 쓸 자리. 번호 장은 장 머리글이 있을 때만(headless 가 가린다 —
+            # no_body 를 주지 않은 옛 부름은 예전처럼 번호 장에 쓸 자리를 두지 않는다)
+            if not num or (given_no_body and key_of(num, title) not in no_body):
                 para(_marker(key_of(num, title)))
             continue
         para("")
@@ -1284,8 +1291,9 @@ def figure_files(list_md: Path, root: Path) -> dict[str, list[Path]]:
         if not first:
             continue
         paths = [root / first.group(1)]
-        for extra in re.findall(r"\+\s*([\w.-]+\.(?:png|jpe?g|gif|bmp))", src[first.end():], re.I):
-            paths.append(paths[0].parent / extra)
+        # 둘째 그림부터 — 「+ b.jpg」·「· b.png」·「와 b.jpg」, 같은 폴더면 이름만, 다른 폴더면 docs/images/… 전체(11-12: 「·」 로 이은 둘째 그림이 빠졌다)
+        for extra in re.findall(r"(?:\+|·|와)\s*((?:docs/images/)?[\w./-]+?\.(?:png|jpe?g|gif|bmp))", src[first.end():], re.I):
+            paths.append(root / extra if extra.startswith("docs/images/") else paths[0].parent / extra)
         paths = [x for x in paths if x.is_file()]
         if paths:
             out[no] = paths
