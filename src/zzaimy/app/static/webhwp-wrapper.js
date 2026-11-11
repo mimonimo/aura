@@ -202,23 +202,26 @@
     function viewTop() { try { var v = doc().getElementById('hcwoViewScroll'); return v ? v.scrollTop : null; } catch (e) { return null; } }
     // 지킬 자리는 한 곳(holdTop)에 둔다 — 따라가기(scrollBy)가 굴리면 그 자리가 새 목표가 된다. 굴림이 지키기를 거두게 했더니 기안기의
     // 늦은 「커서 쪽으로 끌어올리기」 가 그대로 그려져 두 자리를 오갔다(10-27 세 칸 실측 232회). 일부러 커서를 옮기면(moveTo) 지키기를 놓는다
-    var holdTop = null, holdUntil = 0;
+    var holdTop = null, holdUntil = 0, holdAt = 0;
+    // 내가 치거나(키·조합)·누르거나·굴리면 그 전에 잡아 둔 자리는 버린다 — 지키기(0.4초) 안에 내가 Enter 를 쳐 기안기가 화면을 한 줄 내렸는데,
+    // 이어 들어온 남의 글을 넣을 때 잡아 둔 옛 자리를 「지금 화면」 으로 알고 되돌려 위로 갔다 커서 쪽으로 다시 내려오는 깜빡임이 났다(11-11 실측 2회/4초)
+    function holdLive() { return holdTop != null && Date.now() < holdUntil && lastInput <= holdAt; }
     // 지키는 중이면 그 목표가 「지금 화면 자리」 다 — 묶음이 잇따라 들어와 지키기 도중에 다시 잴 때, 기안기가 잠깐 끌어올린 값을 기준으로 삼아 차가 쌓이지 않게
-    function stableTop() { return holdTop != null && Date.now() < holdUntil ? holdTop : viewTop(); }
+    function stableTop() { return holdLive() ? holdTop : viewTop(); }
     function holdView(top) {
       if (top == null) return;
       var v, W;
       try { v = doc().getElementById('hcwoViewScroll'); W = frame().contentWindow; } catch (e) { return; }
       if (!v || !W) return;
-      holdTop = top; holdUntil = Date.now() + 400;
-      var fix = function () { if (holdTop != null && Date.now() < holdUntil && Math.abs(v.scrollTop - holdTop) > 1) v.scrollTop = holdTop; };
+      holdTop = top; holdUntil = Date.now() + 400; holdAt = Date.now();
+      var fix = function () { if (holdLive() && Math.abs(v.scrollTop - holdTop) > 1) v.scrollTop = holdTop; };
       fix();
       W.requestAnimationFrame(function () { fix(); W.requestAnimationFrame(function () { fix(); W.requestAnimationFrame(fix); }); });
     }
     // 화면만 위아래로 굴리기(커서는 그대로) — 따라가기가 쓴다. 세로 스크롤 값 1 = 화면 1/75px(실측, 위 restoreCursor 와 같은 값). 양수면 아래로
     function scrollBy(dy) {
       if (!dy || Math.abs(dy) < 1) return false;
-      if (holdTop != null && Date.now() < holdUntil) { var vt = viewTop(); if (vt != null) holdTop = Math.max(0, vt + dy); }   // 지키는 중이면 굴린 자리(지금 화면 + 이동량)가 새 목표
+      if (holdLive()) { var vt = viewTop(); if (vt != null) holdTop = Math.max(0, vt + dy); }   // 지키는 중이면 굴린 자리(지금 화면 + 이동량)가 새 목표
       try {
         var s = ctrl.ScrollPosInfo, m = s.m_Set.m_SetItemMap;
         if (typeof m['28675'] === 'number') { m['28675'] = Math.max(0, m['28675'] + dy * 75); ctrl.ScrollPosInfo = s; return true; }
@@ -335,6 +338,7 @@
         }, true);
       });
       d.addEventListener('pointerdown', function (e) { abortProbe(); lastInput = Date.now(); fire('activity', e); }, true);
+      d.addEventListener('wheel', function () { lastInput = Date.now(); }, {capture: true, passive: true});   // 내가 굴리면 화면 지키기를 놓는다
       // 글자 크기 칸 화살표 — 늘 글자마다 지금 크기에서 1pt 씩(기안기 CharShapeHeightIncrease/Decrease). 기안기 화살표는 칸에 보이는 수(크기가 섞이면
       // 비거나 첫 글자 크기)에서 세어 고른 글을 모두 한 크기로 맞췄다 — 섞인 크기가 0 부터·한 크기로 바뀌었다(10-26 녹화). 크기가 하나면 결과는 같다.
       // 수를 쳐 넣는 것은 그대로 「그 크기로 맞추기」
