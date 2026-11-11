@@ -798,7 +798,30 @@ def list_tables(doc: _Doc) -> list[dict]:
             out.append({"no": len(out) + 1, "sec": n, "s": m.start(), "e": m.end(),
                         "rows": max(c["r"] + c["rs"] for c in cells), "cols": max(c["c"] + c["cs"] for c in cells),
                         "head": " | ".join(first)[:80], "fields": [_unq(f.group(2)) for f in _FIELD.finditer(m.group(0))]})
+    # 안에 표가 든 바깥 표(신청서처럼 서명 상자를 품은 표) — 안쪽 표만 세던 목록에 빠져 담당자가 준 값을 넣을 표를 못 찾았다(11-12).
+    # 번호가 흔들리지 않게 안쪽 표들 뒤에 잇는다. 안쪽 표는 표시로 가린 XML(masked)로 다루고 쓸 때 되돌린다(_table_xml·_unmask)
+    for n, s0, e0, masked, pieces in _label_tables(doc):
+        if not pieces:
+            continue
+        cells = ws._cells(masked)
+        if not cells:
+            continue
+        first = [c["text"] for c in sorted(cells, key=lambda c: (c["r"], c["c"])) if c["r"] == 0]
+        out.append({"no": len(out) + 1, "sec": n, "s": s0, "e": e0, "outer": True, "masked": masked, "pieces": pieces,
+                    "rows": max(c["r"] + c["rs"] for c in cells), "cols": max(c["c"] + c["cs"] for c in cells),
+                    "head": " | ".join(first)[:80], "fields": [_unq(f.group(2)) for f in _FIELD.finditer(masked)]})
     return out
+
+
+def _table_xml(doc: _Doc, t: dict) -> str:
+    """표 XML — 바깥 표면 안쪽 표를 가린 것."""
+    return t["masked"] if t.get("outer") else doc.secs[t["sec"]][t["s"]:t["e"]]
+
+
+def _unmask(t: dict, xml: str) -> str:
+    for i, pc in enumerate(t.get("pieces") or []):
+        xml = xml.replace(f"\x00T{i}\x00", pc)
+    return xml
 
 
 def _pick_table(doc: _Doc, table) -> dict:
@@ -1224,7 +1247,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
     if op not in TABLE_OPS:
         raise EditError(f"op 는 {', '.join(TABLE_OPS)} 가운데 하나다.")
     t = _pick_table(doc, a.get("table"))
-    xml = doc.secs[t["sec"]][t["s"]:t["e"]]
+    xml = _table_xml(doc, t)
     tb = _Table(xml)
     count = _int(a.get("count"), "count", 1, 100, default=1)
     msg = ""
@@ -1282,7 +1305,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         new_tbl = _restyle(tb, new_tbl, op, a, doc)
         msg = {"head": f"머리줄을 {a.get('rows', 1)}행으로 했다", "align": "정렬을 바꿨다", "shade": "음영을 바꿨다",
                "valign": "세로 정렬을 바꿨다"}[op]
-    _replace_table(doc, t, new_tbl)
+    _replace_table(doc, t, _unmask(t, new_tbl))
     after = _Table(new_tbl)
     return doc.pack(), f"표{t['no']}: {msg} — 지금 {after.nr}행×{after.nc}열."
 
@@ -1330,7 +1353,7 @@ def table_view(data: bytes, a: dict) -> str:
     """표 하나의 칸 글 — 행마다 「r행: 칸 | 칸」, 합친 칸은 [합침 r×c] 로. 고칠 행·열 번호를 정하는 데 쓴다."""
     doc = _Doc(data)
     t = _pick_table(doc, a.get("table"))
-    tb = _Table(doc.secs[t["sec"]][t["s"]:t["e"]])
+    tb = _Table(_table_xml(doc, t))
     lines = [f"표{t['no']} — {tb.nr}행×{tb.nc}열" + (f", 필드: {', '.join(t['fields'][:8])}" if t["fields"] else "")]
     for r in range(min(tb.nr, 60)):
         parts = []
@@ -2329,11 +2352,15 @@ def fill_labels(data: bytes, values: dict) -> tuple[bytes, dict, dict]:
     """{이름: 값} → (새 바이트, {이름: 넣은 자리 설명}, {이름: 못 넣은 까닭}). 표 칸 라벨로 자리를 찾는다(값 하나씩 — 넣을 때마다 다시 본다)."""
     doc = _Doc(data)
     done, why = {}, {}
+    used: list[int] = []                                     # 이번 요청에서 값을 넣은 표 — 같은 라벨이 여럿이면 그 표를 먼저
     for name, val in values.items():
-        toks = [_lab(x) for x in re.split(r"[/>|]|\s{1,}", str(name)) if _lab(x)]
+        mk = re.search(r"#(\d+)\s*$", str(name))              # 「성 명#2」 = 둘째 「성 명」(필드 이름 꼴)
+        nth = int(mk.group(1)) if mk else None
+        base_name = str(name)[:mk.start()] if mk else str(name)
+        toks = [_lab(x) for x in re.split(r"[/>|]|\s{1,}", base_name) if _lab(x)]
         if not toks:
             continue
-        last, ctx_need, whole = toks[-1], toks[:-1], _lab(name)
+        last, ctx_need, whole = toks[-1], toks[:-1], _lab(base_name)
         best = []
         for k, (n, s0, e0, masked, pieces) in enumerate(_label_tables(doc)):
             try:
@@ -2356,9 +2383,17 @@ def fill_labels(data: bytes, values: dict) -> tuple[bytes, dict, dict]:
             continue
         best.sort(key=lambda x: x[0])
         top = [b for b in best if b[0] == best[0][0]]
+        if len(top) > 1 and used:
+            near = [b for b in top if b[1] in used]
+            top = near or top
         if len(top) > 1:
-            why[name] = f"같은 라벨 칸이 {len(top)}곳 — 앞 낱말로 가려 준다(예: 「총괄책임자 성명」)"
-            continue
+            top.sort(key=lambda b: (b[1], b[2], b[3]))       # 문서 차례
+            if nth is None and top[0][1] in used:
+                nth = 1                                       # 같은 표에서 이름표 없이 처음 부르면 첫째
+            if nth is None or nth > len(top):
+                why[name] = f"같은 라벨 칸이 {len(top)}곳 — 앞 낱말(「총괄책임자 성명」)이나 차례(「성 명#2」)로 가려 준다"
+                continue
+            top = [top[nth - 1]]
         _, k, r, c, cs = top[0]
         n, s0, e0, masked, pieces = _label_tables(doc)[k]
         tb = _Table(masked)
@@ -2377,7 +2412,9 @@ def fill_labels(data: bytes, values: dict) -> tuple[bytes, dict, dict]:
             out = out.replace(f"\x00T{i}\x00", pc)
         x = doc.secs[n]
         doc.secs[n] = x[:s0] + out + x[e0:]
-        done[name] = f"{_text(tgt['xml'])[:0]}표 {r + 1}행 {tgt['c'] + 1}열"
+        done[name] = f"표 {r + 1}행 {tgt['c'] + 1}열"
+        if k not in used:
+            used.append(k)
     return (doc.pack() if done else data), done, why
 
 
@@ -2407,6 +2444,7 @@ def repeat_block(data: bytes, a: dict) -> tuple[bytes, str]:
 TOOLS: list[dict] = [
     {"name": "hwp_repeat_block", "writes": True, "label": "견본 블록 늘리기",
      "desc": "견본 하나뿐인 과제·프로그램 블록(「2.1. OOO(과제명)」)을 정한 수만큼 늘리고 이름 넣기(번호·필드 이름은 새로). 본문 쓰기 전에, 장마다 한 번. "
+             "제목의 OOO 만 이름으로 바꿀 때(「2.2.1. 자율성과지표-1 : OOO」)도 names 에 이름 하나. "
              "args {field: 장의 첫 과제 견본 절 필드 이름, names: [{name: 과제 이름, children: [그 과제의 프로그램 이름…]}, …] (원래 견본 것부터)}",
      "args": {"field": "str", "names": "list"}},
     {"name": "hwp_page_setup", "writes": True, "label": "페이지 설정",

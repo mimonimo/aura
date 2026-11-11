@@ -141,7 +141,15 @@ def test_fill_labels_next_to_label_cells():
     new, done, why = eo.fill_labels(_label_doc(), {"대학명": "영남이공대학교", "총괄책임자 성명": "박민규", "실무담당자 성명": "박은호",
                                                     "URL": "http://www.ync.ac.kr", "성명": "모호함", "없는 칸": "x"})
     assert set(done) == {"대학명", "총괄책임자 성명", "실무담당자 성명", "URL"}
-    assert "성명" in why and "곳" in why["성명"] and "없는 칸" in why
+    assert "성명" in why and "없는 칸" in why                                  # 이미 쓴 칸은 덮지 않는다
     view = eo.table_view(new, {"table": 1})
     assert "영남이공대학교" in view and "박민규" in view and "박은호" in view and "ync.ac.kr" in view and "OO대학교" not in view
+    assert view.index("박민규") < view.index("박은호")
+
+
+def test_fill_labels_nth_and_same_table_first():
+    from zzaimy.app import webhwp_edit_ops as eo
+    new, done, why = eo.fill_labels(_label_doc(), {"대학명": "영남이공대학교", "성 명": "박민규", "성 명#2": "박은호"})
+    assert set(done) == {"대학명", "성 명", "성 명#2"} and not why
+    view = eo.table_view(new, {"table": 1})
     assert view.index("박민규") < view.index("박은호")
