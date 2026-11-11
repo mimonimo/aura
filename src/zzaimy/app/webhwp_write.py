@@ -2,6 +2,7 @@
 
 - fields(data): 필드 목록과 지금 값 — [{"name", "kind"(절·칸·입력·표·기타), "text"}]
 - set_fields(data, {이름: 값}): 칸·표 필드 값 바꾸기(줄바꿈은 진짜 문단 나눔 — 필드가 여러 문단에 걸친다)
+- split_tables(data): 글을 써 넣는 표의 쪽 나눔을 「나눔」 으로 — 칸이 쪽보다 길어지면 넘친 글이 잘려 안 보였다(11-11)
 - normalize_breaks(data): 필드 안 줄 나눔(lineBreak)을 문단 나눔으로 — 기안기 GetFieldText 가 줄 나눔을 돌려주지 않아
   공동 편집 한 번에 줄이 모두 붙고, 한 문단이 된 긴 절은 양식 모드에서 한 글자마다 문단 길이만큼 다시 배치된다(ADR-0070)
 - write_section(data, 이름, items, written): 절 본문을 쓴다. items = [("text", 글) | ("table", 행렬) | ("diagram", 글)].
@@ -270,6 +271,52 @@ def normalize_breaks(data: bytes) -> tuple[bytes, int]:
     new, n = {}, 0
     for name, xml in secs.items():
         x2, k = _normalize_xml(xml, ids)
+        if k:
+            new[name], n = x2, n + k
+    return (_pack(zin, new) if new else data), n
+
+
+_TBL_OPEN = re.compile(r"<hp:tbl\b[^>]*>")
+_FIELD_NAME = re.compile(r'<hp:fieldBegin\b[^>]*type="CLICK_HERE"[^>]*\bname="([^"]*)"')
+LONG_CELL = 500          # 이만큼 넘는 글이 든 칸이 있는 표도 — 사람이 칸에 길게 쓴 문서
+
+
+def _long_cell(tbl: str) -> bool:
+    for c in re.findall(r"<hp:tc\b.*?</hp:tc>", tbl, re.S):
+        if len("".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", c))) > LONG_CELL:
+            return True
+    return False
+
+
+def _split_tables_xml(xml: str) -> tuple[str, int]:
+    """글을 써 넣는 표(문단 칸 말고 절·칸·입력·표 필드가 든 표, 또는 긴 글이 든 칸이 있는 표)의 쪽 나눔을 「나눔」(TABLE)으로.
+    「셀 단위로 나눔」(CELL)·「나누지 않음」(NONE)이면 한 칸이 쪽보다 길어질 때 쪽 아래로 넘친 글이 잘려 보이지 않는다(11-11 사용자 보고)."""
+    hits = []
+    for a, b in wf._all_tables(xml):
+        m = _TBL_OPEN.match(xml, a)
+        if not m:
+            continue
+        tag = m.group(0)
+        pb = re.search(r'\bpageBreak="(\w+)"', tag)
+        if pb and pb.group(1) == "TABLE":
+            continue
+        seg = xml[a:b]
+        writes = any(not wf.is_para(n) for n in _FIELD_NAME.findall(seg))
+        if not (writes or _long_cell(seg)):
+            continue
+        new = re.sub(r'\bpageBreak="\w+"', 'pageBreak="TABLE"', tag, count=1) if pb else tag[:-1].rstrip("/") + ' pageBreak="TABLE"' + (" />" if tag.endswith("/>") else ">")
+        hits.append((a, m.end(), new))
+    for a, e, new in sorted(hits, reverse=True):
+        xml = xml[:a] + new + xml[e:]
+    return xml, len(hits)
+
+
+def split_tables(data: bytes) -> tuple[bytes, int]:
+    """글을 써 넣는 표가 쪽 경계에서 칸 안 글까지 나뉘게 한다. 바꿀 것이 없으면 같은 바이트. (새 바이트, 바꾼 표 수)."""
+    zin, secs = _open(data)
+    new, n = {}, 0
+    for name, xml in secs.items():
+        x2, k = _split_tables_xml(xml)
         if k:
             new[name], n = x2, n + k
     return (_pack(zin, new) if new else data), n

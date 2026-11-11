@@ -1425,7 +1425,7 @@ def _keep_version(p: Path) -> Path:
 
 
 def normalize_file(db, base: Path, fid: int) -> int:
-    """필드 안 줄 나눔(lineBreak)을 문단 나눔으로 한 번 바꾼다 — 기안기 GetFieldText 는 줄 나눔을 돌려주지 않아 칸 공동 편집이
+    """필드 안 줄 나눔(lineBreak)을 문단 나눔으로, 글을 써 넣는 표의 쪽 나눔을 「나눔」 으로 한 번 바꾼다 — 기안기 GetFieldText 는 줄 나눔을 돌려주지 않아 칸 공동 편집이
     한 번 지나가면 그 칸의 줄이 모두 붙었다. 바꾸기 전 판은 .판/ 에 남기고, 열린 편집 화면에는 「문서 저장」 을 알려 새 판을 열게 한다.
     잠긴 공통 양식·hwp 는 손대지 않는다. 같은 파일(수정 시각·크기)은 다시 보지 않는다. 바꾼 줄 나눔 수."""
     from zzaimy.app import webhwp, webhwp_write as ww
@@ -1446,9 +1446,15 @@ def normalize_file(db, base: Path, fid: int) -> int:
         except Exception:
             log.exception("줄 나눔 정리 — 파일을 읽지 못함(그대로 둔다)")
             new, n = data, 0
-        if n:
+        k = 0
+        try:                                            # 글을 써 넣는 표는 쪽 경계에서 칸 안 글까지 나뉘게(넘친 글이 잘려 안 보이던 것, 11-11)
+            new, k = ww.split_tables(new)
+        except Exception:
+            log.exception("표 쪽 나눔 정리 실패(그대로 둔다)")
+        if n or k:
             _keep_version(p)
-            p = webhwp.save(db, base, fid, new, user=AGENT, quiet=False)
+            # 표 쪽 나눔만 바뀌면 열린 화면을 다시 열게 하지 않는다(쪽 배치만 바뀜 — 지금 여는 사람은 바뀐 파일을 받는다)
+            p = webhwp.save(db, base, fid, new, user=AGENT, quiet=not n)
         st = p.stat()
         _NORMALIZED[int(fid)] = (str(p), st.st_mtime_ns, st.st_size)
     return n
