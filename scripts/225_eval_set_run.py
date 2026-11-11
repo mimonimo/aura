@@ -25,17 +25,51 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from zzaimy.eval.eval_set import EvalSet  # noqa: E402
 
-BUSY = re.compile(r"처리 중|대기 중|읽는 중|반입 중")
+BUSY = re.compile(r"처리 중|대기 중|읽는 중|반입 중|올리는 중")
 
 
 def log(*a) -> None:
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
 
+class _Retry:
+    """httpx.Client 감싸개 — 연결이 끊기면(VPN 끊김 등) 기다렸다 다시 한다. 몇 시간짜리 시험이 잠깐 끊김에 멈추지 않게(11-12 시범이 끊김 한 번에 멈춤).
+    올리기(POST /projects/bundle)·요청 보내기(POST /chat/send)는 두 번 들어가면 안 되므로 연결 전 실패(ConnectError)만 다시 한다."""
+
+    def __init__(self, http, tries: int = 40, wait: float = 30.0):
+        self.http, self.tries, self.wait = http, tries, wait
+
+    @property
+    def cookies(self):
+        return self.http.cookies
+
+    def _call(self, meth: str, *a, **k):
+        import httpx
+        safe = meth == "get"
+        for n in range(self.tries):
+            try:
+                return getattr(self.http, meth)(*a, **k)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                err = e
+            except (httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.ReadError) as e:
+                if not safe:
+                    raise
+                err = e
+            log(f"연결 끊김({type(err).__name__}) — {self.wait:.0f}초 뒤 다시({n + 1}/{self.tries})")
+            time.sleep(self.wait)
+        raise err
+
+    def get(self, *a, **k):
+        return self._call("get", *a, **k)
+
+    def post(self, *a, **k):
+        return self._call("post", *a, **k)
+
+
 class Client:
     def __init__(self, base: str, verify: bool, timeout: float = 120.0):
         import httpx
-        self.http = httpx.Client(base_url=base.rstrip("/"), verify=verify, timeout=timeout, follow_redirects=False)
+        self.http = _Retry(httpx.Client(base_url=base.rstrip("/"), verify=verify, timeout=timeout, follow_redirects=False))
 
     def login(self, user: str, pw: str) -> None:
         r = self.http.post("/login", data={"username": user, "pw": pw})
