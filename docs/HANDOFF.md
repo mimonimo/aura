@@ -1,10 +1,10 @@
-# 인수인계 — 운영 구성과 남은 일
+# 인수인계: 운영 구성과 남은 일
 
 대화 맥락 없이 작업을 이어받게 하는 다리다. 순서대로 `CLAUDE.md`(작업 지침) → 이 문서(구성·접속·사람 손이 필요한 일) →
 `PROJECT_BRIEF.md`(판단 기준). 지금 하는 일과 진행 중인 일은 `docs/dev-now.md` 가 정본이고, 구조는 `docs/architecture.md`,
 결정의 근거는 `docs/decisions/`(ADR) 에 있다.
 
-문서 점검: 2026-10-27. 옛 날짜별 기록(9~10월 초 후보 생성·반입 실험·옛 현황표)은 지웠다. 필요하면 깃 이력과
+문서 점검: 2026-11-12. 옛 날짜별 기록(9~10월 초 후보 생성·반입 실험·옛 현황표)은 지웠다. 필요하면 깃 이력과
 `docs/collaboration/` 의 작업 기록에서 찾는다.
 
 ---
@@ -17,7 +17,7 @@
 | 장비 | 맡는 일 | 사양·서비스 |
 |---|---|---|
 | 운영 VM | 플랫폼 화면·API, DB, 검색 색인, 지식그래프·온톨로지, 웹 한글 기안기 서버, 공동 편집 서버 | ESXi VM, CPU 8 · 메모리 64GB, GPU 없음, PostgreSQL(pgvector) |
-| 토르 02 | Writer 27B — 대화, 27B 문서 작업 에이전트 | 젯슨 AGX Thor, 오픈 모델 Qwen3.8-27B NVFP4(vLLM, 포트 8001) |
+| 토르 02 | Writer 27B: 대화, 27B 문서 작업 에이전트 | 젯슨 AGX Thor, 오픈 모델 Qwen3.8-27B NVFP4(vLLM, 포트 8001) |
 | 토르 03 | 검토·판독 27B, 질의 임베딩 Embed v2, 리랭커 Rerank v1 | 같은 27B NVFP4, 임베딩 8016 · 리랭커 8015 |
 | DGX | 원본 보관, 일괄 문서 읽기(MinerU OCR), LoRA 학습 | GB10 · 통합 메모리 121GB · 디스크 3.7TB, 우리 전용 aura 계정 |
 | 원본 보관 PC | 학교 실문서 보관(사업별 폴더) | DGX 로 rclone 복사 |
@@ -76,7 +76,7 @@
 정본은 GitHub mimonimo/aura 하나다.
 
 1. 맥에서 고친다 → 시험 → `git commit` → `git push origin main`. 처음 받으면 `git config core.hooksPath .githooks`.
-2. `bash scripts/99_deploy.sh --restart` — VM 이 origin 의 그 커밋으로 맞추고 재시작한다. `--restart` 가 없으면 서비스는 옛 코드다.
+2. `bash scripts/99_deploy.sh --restart`: VM 이 origin 의 그 커밋으로 맞추고 재시작한다. `--restart` 가 없으면 서비스는 옛 코드다.
    맥이나 VM 에 커밋하지 않은 변경이 있으면 멈춘다.
 3. `data/`·`.env.local` 은 깃에 없다. VM 것이 그대로 남는다.
 
@@ -97,17 +97,17 @@
 |---|---|
 | 개발 | 개발 현황 `/dev`(변경 이력 `/dev/history`), 처리 흐름 `/dev/flow`(반입 점검 `/dev/flow#intake`), 논문·설계 문서 `/dev/docs`, 공동 편집 시연 `/dev/coedit-demo` |
 | 관리 | 원본 관리 `/dev/archive`(장부 값·장부 전체 범위, 문서 하나의 반입 결과 보기 `/dev/archive/doc/{id}`), RAG 공간 `/dev/rag`, 데이터·학습 `/dev/train`(탭: 검수·학습, 수집 자료 `?tab=collect`), 도구·모델 연결 `/dev/tools`, 개인정보·반출 점검 `/dev/pii` |
-| 지표 | 품질·성능 `/dev/quality`(영역별 요약 타일과 짧은 카드, 자세히 — 규정 검색 `/dev/quality/regulation`, 사업 문서 검색 비교·질문 하나로 세 방식 비교 `/dev/quality/grant-search`, 모델 비교 `/dev/models/compare`) |
+| 지표 | 품질·성능 `/dev/quality`(영역별 요약 타일과 짧은 카드. 자세히: 규정 검색 `/dev/quality/regulation`, 사업 문서 검색 비교·질문 하나로 세 방식 비교 `/dev/quality/grant-search`, 모델 비교 `/dev/models/compare`) |
 
 업무 화면에 있는 것은 개발 사이드바에 두지 않는다(10-27): 그래프 탐색 `/graph/explore` 는 라이브러리·문서·채팅에서, 구글 앱 등록·학교 계정 연결 현황은 조직 관리 `/team#google-links`(관리자만)에서 연다.
 
 계정·부서·구성원 관리는 개발 화면이 아니라 업무 화면 사이드바의 조직 관리 `/team` 한 곳이다(ADR-0073). 부서 만들기·지우기·상위 부서는
 조직도(`/org/*`), 구성원 등급·추가 권한은 `POST /api/org/members` 한 길이다.
-옛 주소는 넘기지 않고 지웠다 — 북마크가 깨지는 것은 감수한다(10-27): `/dev/intake`(→ `/dev/flow#intake`), `/dev/collect`(→ `/dev/train?tab=collect`),
+옛 주소는 넘기지 않고 지웠다. 북마크가 깨지는 것은 감수한다(10-27): `/dev/intake`(→ `/dev/flow#intake`), `/dev/collect`(→ `/dev/train?tab=collect`),
 `/archive`, `/criteria`(→ `/?type=all&use=criteria`), `/inbox`(→ `/?type=all`), `/?group=…`, `/project/{id}?tab=…`, `/hwp/{id}/edit`(→ `/webhwpctrl/aura-edit?id=`).
 처리 주소도 화면을 따라 옮기고 옛 것은 지웠다(10-27): `/dev/users/save·bulk` → `/team/accounts/save·bulk`, `/dev/google/revoke` → `/team/google/revoke`,
 `/dev/gdrive/client` → `/team/google/client`(옛 `/dev/gdrive/revoke` 는 같은 일이 둘이라 지움), `/dev/collect/{make,file,peek}` → `/dev/train/collect/…`,
-`/dev/data/grounded-pull` → `/dev/train/grounded-pull`(승인본 내려받기 `/dev/data/{id}.jsonl` 은 10-28 삭제 — 화면 링크 없음), `/dev/intake/missed.csv` → `/dev/flow/intake/missed.csv`
+`/dev/data/grounded-pull` → `/dev/train/grounded-pull`(승인본 내려받기 `/dev/data/{id}.jsonl` 은 10-28 삭제, 화면 링크 없음), `/dev/intake/missed.csv` → `/dev/flow/intake/missed.csv`
 (쓰지 않던 failed.csv 는 지움). `/team/…` 아래 관리자 처리는 /dev 앞부분 막기를 받지 않으므로 처리마다 `user_admin.need_admin` 으로 막는다.
 구글 허용 콜백 `/dev/gdrive/callback` 은 구글 콘솔에 등록한 주소라 그대로 둔다.
 
