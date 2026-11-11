@@ -18,5 +18,6 @@ def _isolate_google(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("ZZAIMY_MINERU_STRUCTURE", "1")   # PDF 구조 추출 경로를 그대로 시험(운영 VM 은 GPU 가 없어 생략 — test_pdf_skip 이 따로)
     monkeypatch.setenv("ZZAIMY_LLM_RETRIES", "0")        # 모델 서버가 없는 시험에서 호출마다 SDK 재시도(백오프 몇 초)를 기다리지 않게 — 바로 실패해 물러난다
     monkeypatch.setenv("ZZAIMY_RULE_QUERIES", "0")       # 규정 검색어 만들기(27B) — 모델 서버가 없다. test_rule_queries 가 따로 켠다
+    monkeypatch.setenv("ZZAIMY_CHAT_TITLES", "0")        # 새 대화 제목 짓기(검토 연결, 뒤 스레드) — 모델 서버가 없다. test_chat_titles 가 직접 부른다
     monkeypatch.setenv("ZZAIMY_DOC_AGENT", "0")          # 문서 작업 에이전트는 모델 서버가 있어야 돈다 — 에이전트 테스트가 따로 켠다(test_doc_agent)
     yield

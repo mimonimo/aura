@@ -67,6 +67,10 @@
   .side-list:not(.is-open)[data-side-limit="8"] > :nth-child(n+9) { display: none; }
   .side-nav.side-list a { font-size: 13.5px; padding: 8px 12px; }
   .side-list .side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 프로젝트·대화 이름은 두 줄까지 — 한 줄 말줄임에 이름 앞부분만 보여 서로 가리기 어려웠다(11-12). 전체 이름은 마우스를 올리면(title) */
+  .side-list .side-name, .side-session-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                                               line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; flex: 1; min-width: 0; overflow: hidden; }
+  .side-session-row .side-item { white-space: normal; }
   .side-list .side-meta { margin-left: auto; flex: none; font-size: 11.5px; color: var(--faint); }
   .side-more-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   .side-more { appearance: none; border: 0; box-shadow: none; background: none; min-height: 0; margin: 2px 0 0; padding: 5px 12px; border-radius: 7px;

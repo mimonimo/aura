@@ -169,6 +169,8 @@ def make_chat_helpers(
         """플랫폼 동작에 넘기는 맥락 — background 가 있으면(실행 때) 새 에이전트 대화를 열고 첫 요청의 답을 뒤에서 만든다."""
         def start_chat(project_id: int | None, question: str) -> int:
             sid_ = db.create_chat_session(title=_chat_title(question)[:60], project_id=project_id, owner=user or "zzaimy")
+            from zzaimy.app import chat_titles as _ct
+            _ct.schedule(db, sid_, question, _chat_title(question)[:60])
             db.add_chat(sid_, "user", question)
             _schedule_answer(background, sid_, question, None, [])
             return sid_
@@ -695,6 +697,8 @@ def chat_send(
             title=title, project_id=project_id,
             owner=getattr(request.state, "user", "zzaimy"),
         )
+        from zzaimy.app import chat_titles as _ct                # 목록에서 잘리지 않게 짧은 제목을 뒤에서 짓는다
+        _ct.schedule(db, session_id, q, title)
         if grade_note:
             db.add_chat(session_id, "assistant", PROJECT_GRADE_NOTE + ". 올린 파일은 이 대화의 첨부로 읽습니다.")
     else:
