@@ -359,7 +359,25 @@ class EvalSet:
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
     def prompts(self) -> list[dict]:
-        """prompts.txt → [{text, effort}] — 빈 줄·「#」 줄은 건너뛰고, 「[꼼꼼]」·「[deep]」 머리는 답변 깊이 꼼꼼하게."""
+        """요청 목록 [{text, effort, name}].
+        - prompts/ 폴더가 있으면 그 안 파일(.txt·.md, 이름 차례) 하나가 요청 하나 — 표·여러 줄이 든 긴 요청(11-11 특성화 86단계).
+          파일 첫 줄이 「[꼼꼼]」 이면 답변 깊이 꼼꼼하게.
+        - 없으면 prompts.txt 한 줄에 한 요청 — 빈 줄·「#」 줄은 건너뛰고, 「[꼼꼼]」·「[deep]」 머리는 답변 깊이 꼼꼼하게."""
+        d = self.root / "prompts"
+        if d.is_dir():
+            out = []
+            for f in sorted(x for x in d.iterdir() if x.suffix in (".txt", ".md") and not x.name.startswith(".")):
+                t = f.read_text(encoding="utf-8").strip()
+                effort = "fast"
+                m = re.match(r"^\[(꼼꼼|deep|빠르게|fast)\]\s*", t)
+                if m:
+                    effort = "deep" if m.group(1) in ("꼼꼼", "deep") else "fast"
+                    t = t[m.end():].strip()
+                if t:
+                    out.append({"text": t, "effort": effort, "name": f.stem})
+            if not out:
+                raise ValueError(f"{d} 에 요청이 없습니다")
+            return out
         p = self.root / "prompts.txt"
         out = []
         for line in p.read_text(encoding="utf-8").splitlines():

@@ -133,6 +133,10 @@ def main(argv=None) -> int:
     ap.add_argument("--episodes-ssh", default="", help="걸음 기록을 받을 운영 VM(예: aura@192.168.16.226)")
     ap.add_argument("--data-dir", default="~/zzaimy-capstone/data/platform", help="VM 의 데이터 폴더")
     ap.add_argument("--compare", action="store_true", help="끝나면 정답과 비교 리포트까지")
+    ap.add_argument("--steps", default="", help="보낼 요청 차례만(예: 1-4, 5-20) — 기본 전부")
+    ap.add_argument("--project-id", type=int, default=0, help="이미 만든 프로젝트에 이어서(올리기·읽기 기다림 건너뜀)")
+    ap.add_argument("--session", type=int, default=0, help="이미 있는 대화에 이어서 보냄(--project-id 와 함께)")
+    ap.add_argument("--snapshots", action="store_true", help="요청마다 작업본 사본(turn_NN.hwpx)을 남긴다 — 과정 기록용")
     ap.add_argument("--init", action="store_true", help="묶음 폴더를 틀(scripts/eval_set_template)로 만들기만 한다")
     a = ap.parse_args(argv)
     if a.init:
@@ -150,6 +154,11 @@ def main(argv=None) -> int:
     if a.user == "aura_demo":
         log("주의: 시연 계정입니다 — 시험은 aura_test1 같은 시험 계정을 권합니다")
     prompts = es.prompts()
+    first = 1
+    if a.steps:
+        lo, _, hi = a.steps.partition("-")
+        first, last_ = int(lo), int(hi or lo)
+        prompts = prompts[first - 1:last_]
     files = [es.blank] + es.evidence
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = a.set_dir / "runs" / stamp
@@ -159,21 +168,32 @@ def main(argv=None) -> int:
     c = Client(a.base, a.verify)
     c.login(a.user, pw)
     log("로그인", a.user)
-    pid = c.create_project(name, es.meta.get("sector", "grant"), files)
-    log(f"프로젝트 {pid} 「{name}」 · 파일 {len(files)}개 올림")
-    intake_s = c.wait_intake(pid, a.intake_wait)
-    log(f"자료 읽기 {intake_s:.0f}초")
+    if a.project_id:
+        pid, intake_s = a.project_id, 0.0
+        log(f"프로젝트 {pid} 에 이어서")
+    else:
+        pid = c.create_project(name, es.meta.get("sector", "grant"), files)
+        log(f"프로젝트 {pid} 「{name}」 · 파일 {len(files)}개 올림")
+        intake_s = c.wait_intake(pid, a.intake_wait)
+        log(f"자료 읽기 {intake_s:.0f}초")
     run = {"set": a.set_dir.name, "base": a.base, "user": a.user, "project_id": pid, "project": name,
            "intake_seconds": round(intake_s), "turns": [], "started": stamp}
-    sid = None
-    for i, p in enumerate(prompts, 1):
-        log(f"요청 {i}/{len(prompts)} 보냄: {p['text'][:60]}")
+    sid = a.session or None
+    for i, p in enumerate(prompts, first):
+        log(f"요청 {i}/{first + len(prompts) - 1} 보냄: {p['text'][:60]}")
         sid = c.send(p["text"], p["effort"], pid, sid)
         sec, prog = c.wait(sid, a.turn_wait)
         msgs = c.messages(sid).get("messages") or []
         last = next((m["content"] for m in reversed(msgs) if m["role"] == "assistant"), "")
-        run["turns"].append({"n": i, "text": p["text"], "effort": p["effort"], "seconds": round(sec),
-                             "timed_out": sec < 0, "answer_head": last[:300], "progress": prog})
+        run["turns"].append({"n": i, "name": p.get("name", ""), "text": p["text"], "effort": p["effort"], "seconds": round(sec),
+                             "timed_out": sec < 0, "answer": last, "answer_head": last[:300], "progress": prog})
+        if a.snapshots:
+            try:
+                cur_ = (c.work_files(sid).get("file") or {}).get("id")
+                if cur_:
+                    (out / f"turn_{i:02d}.hwpx").write_bytes(c.download(int(cur_)))
+            except Exception as e:                                   # 사본을 못 받아도 시험은 이어 간다
+                log(f"요청 {i} 작업본 사본 실패: {e}")
         run["session_id"] = sid
         log(f"요청 {i} 끝 {sec:.0f}초" if sec >= 0 else f"요청 {i} 시간 초과")
         (out / "run.json").write_text(json.dumps(run, ensure_ascii=False, indent=1), encoding="utf-8")

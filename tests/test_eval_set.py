@@ -163,3 +163,14 @@ def test_run_refuses_without_password(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         mod.main([str(d), "--user", "aura_test1"])
     assert mod.main([str(tmp_path / "new"), "--init"]) == 0 and (tmp_path / "new" / "prompts.txt").exists()
+
+
+def test_prompts_folder_multiline(tmp_path):
+    from zzaimy.eval.eval_set import EvalSet
+    d = tmp_path / "set" / "prompts"
+    d.mkdir(parents=True)
+    (d / "002_표.md").write_text("[꼼꼼]\n표를 써 줘\n| 가 | 나 |\n|---|---|\n| 1 | 2 |\n", encoding="utf-8")
+    (d / "001_목차.txt").write_text("목차부터 잡아 줘", encoding="utf-8")
+    ps = EvalSet(tmp_path / "set").prompts()
+    assert [p["name"] for p in ps] == ["001_목차", "002_표"]
+    assert ps[1]["effort"] == "deep" and ps[1]["text"].startswith("표를 써 줘\n| 가 | 나 |") and ps[0]["effort"] == "fast"
