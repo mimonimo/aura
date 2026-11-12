@@ -71,3 +71,20 @@ def test_replace_across_runs():
     assert n == 1
     assert "<hp:t>1.1. 정원감축 체계</hp:t>" in q and "<hp:t> 끝</hp:t>" in q
     assert _replace_across_runs(p, "없는 글", "x") == (p, 0)
+
+
+
+def test_set_cells_grows_rows_and_view_pages():
+    """값 줄이 표 끝을 넘으면 행을 늘려 넣고(43줄에 40행이라 통째로 거절되던 것), 긴 표는 from 부터 본다(11-12 특성화 재현 3차 12단계)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    data = wt.build(wt.GRANT["budget_change"])
+    d, _ = eo.table_insert(data, {"head": ["구분", "내용"], "values": [["가", "1"], ["나", "2"]]})
+    import re as _re
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    nr = int(_re.search(r"— (\d+)행", eo.table_view(d, {"table": t})).group(1))
+    vals = [[f"k{i}", str(i)] for i in range(5)]
+    new, msg = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [nr, 1], "values": vals})
+    assert "늘림" in msg and eo.check_bytes(new) == []
+    view = eo.table_view(new, {"table": t, "from": nr + 2})
+    assert "k4" in view and "1행(머리)" in view

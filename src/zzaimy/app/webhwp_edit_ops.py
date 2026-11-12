@@ -1277,16 +1277,24 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         if not isinstance(start, (list, tuple)) or len(start) != 2:
             raise EditError("start 는 [행, 열](1부터)이다.")
         r0, c0 = _idx(start[0], "start 행"), _idx(start[1], "start 열")
-        n = 0
+        n, grown = 0, 0
+        # 행이 모자라면 표 끝에 마지막 행 꼴로 늘려 넣는다 — 값 줄 수와 늘린 행 수가 어긋나(43줄에 40행) 통째로 거절되고
+        # 빈 행만 남던 일(11-12 특성화 재현 3차 12단계). 열이 모자란 것은 표 꼴이 다르다는 뜻이라 그대로 알린다
+        need = r0 + len(values) - tb.nr
+        if 0 < need <= 300 and r0 <= tb.nr:
+            tb.insert_rows(tb.nr - 1, need, True, doc.ids)
+            grown = need
         for i, row in enumerate(values):
             for j, v in enumerate(row if isinstance(row, list) else [row]):
                 if v is None:
                     continue
                 if r0 + i >= tb.nr or c0 + j >= tb.nc:
-                    raise EditError(f"값이 표({tb.nr}행×{tb.nc}열) 밖으로 나간다 — 먼저 add_rows·add_cols 로 늘린다.")
+                    raise EditError(f"값이 표({tb.nr}행×{tb.nc}열) 밖으로 나간다 — "
+                                    + ("열이 모자란다: 표 꼴(hwp_table_view)을 보고 값 줄을 맞추거나 add_cols 로 늘린다." if c0 + j >= tb.nc
+                                       else "먼저 add_rows 로 늘린다."))
                 tb.set_text(r0 + i, c0 + j, str(v), doc.ids)
                 n += 1
-        msg = f"칸 {n}개에 값을 넣었다"
+        msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "")
     elif op in ("merge", "split"):
         rng = _range(a, tb)
         if not rng:
@@ -1355,7 +1363,18 @@ def table_view(data: bytes, a: dict) -> str:
     t = _pick_table(doc, a.get("table"))
     tb = _Table(_table_xml(doc, t))
     lines = [f"표{t['no']} — {tb.nr}행×{tb.nc}열" + (f", 필드: {', '.join(t['fields'][:8])}" if t["fields"] else "")]
-    for r in range(min(tb.nr, 60)):
+    # 긴 표는 from(1부터 행 번호)부터 60행 — 늘 1행부터 보여 표 끝을 볼 수 없었다(11-12 특성화 재현 3차, 155행 표)
+    try:
+        r_from = max(0, min(int(a.get("from") or a.get("start_row") or 1) - 1, max(tb.nr - 1, 0)))
+    except (TypeError, ValueError):
+        r_from = 0
+    if r_from:
+        lines.append("1행(머리): " + " | ".join((_text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", x["xml"], flags=re.S)) or "(빈 칸)")[:30]
+                                             for x in [tb.covering(0, c) for c in range(tb.nc)] if x is not None))
+    shown = range(r_from, min(tb.nr, r_from + 60))
+    if tb.nr > shown.stop:
+        lines.append(f"(행 {r_from + 1}~{shown.stop} 만 보임 — 다음은 from: {shown.stop + 1})")
+    for r in shown:
         parts = []
         c = 0
         while c < tb.nc:
@@ -2493,11 +2512,12 @@ TOOLS: list[dict] = [
              "widths: [열 폭 비율]} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄",
      "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list"}},
     {"name": "hwp_table_view", "writes": False, "label": "표 보기",
-     "desc": "표 하나의 칸 글과 합친 칸을 행마다 보기 — 고칠 행·열 번호를 정할 때. args {table: hwp_tables 번호 | {head: 머리줄 글} | {field: 필드 이름}}",
-     "args": {"table": "any"}},
+     "desc": "표 하나의 칸 글과 합친 칸을 행마다 보기 — 고칠 행·열 번호를 정할 때. 한 번에 60행, 긴 표의 뒤쪽은 from(행 번호)부터. "
+             "args {table: hwp_tables 번호 | {head: 머리줄 글} | {field: 필드 이름}, from?: 행 번호}",
+     "args": {"table": "any", "from": "int"}},
     {"name": "hwp_table_edit", "writes": True, "label": "표 고치기",
      "desc": "표 고치기(행·열 번호는 1부터). args {table, op, …}: add_rows {row, where: above|below, count} · delete_rows {row, count} · "
-             "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]} · "
+             "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]}(값 줄이 표 끝을 넘으면 행을 늘려 넣음) · "
              "merge {cells: [첫 행, 첫 열, 끝 행, 끝 열]} · split {cells: [행, 열], rows, cols}(둘 다 비우면 합친 칸 풀기) · "
              "widths {widths: [비율…]} · head {rows: 머리줄 행 수, fill} · align {align: 가운데|왼쪽|오른쪽|양쪽, cells|row|col} · "
              "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col}",
