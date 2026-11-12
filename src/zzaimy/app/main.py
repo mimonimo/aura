@@ -4102,8 +4102,17 @@ def create_app(
                     db.set_setting(f"chat_ctx_msg:{int(_last['id'])}", json.dumps({**usage_, "at": time.time()}))
                 from zzaimy.app import chat_memory as _cm2
                 _cm2.compact_later(db, session_id)                   # 답을 보낸 뒤 작업 메모 고치기(배경)
-            _chat_running.discard(session_id)
-            _chat_progress.pop(session_id, None)
+            # 대기열에 다음 요청이 있으면 「쓰는 중」 을 풀지 않고 바로 이어 시작한다 — 풀었다 다시 잡는 사이에 온 요청이 끼어들지 않게
+            from zzaimy.app import chat_queue as _cq, chat_routes as _cr
+            with _cq.LOCK:
+                _next = False
+                try:
+                    _next = _cr.start_queued(app.state.chat, session_id) if _cq.items(db, session_id) else False
+                except Exception:
+                    logging.getLogger("zzaimy.app.chat").exception("대기 요청 잇기 실패 session=%s", session_id)
+                if not _next:
+                    _chat_running.discard(session_id)
+                    _chat_progress.pop(session_id, None)
 
     @app.get("/api/chat/{session_id}/context")
     def chat_context_usage(request: Request, session_id: int):
@@ -4133,6 +4142,16 @@ def create_app(
         _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
         _chat_running.add(session_id)
         background.add_task(_answer_task, session_id, q, stored, criteria, web)
+
+    def _run_now(session_id, q, stored, criteria, web=""):
+        """배경 작업 객체 없이 답 만들기를 바로 시작한다 — 대기열에서 꺼낸 요청(chat_routes.start_queued)."""
+        import threading as _th
+        import time
+
+        _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
+        _chat_running.add(session_id)
+        _th.Thread(target=_answer_task, args=(session_id, q, stored, criteria, web), daemon=True,
+                   name=f"chat-queue-{session_id}").start()
 
     app.state.schedule_answer = _schedule_answer      # 채팅과 같은 답 길(문서 작업 에이전트 포함)을 다른 라우터가 부를 때
     app.state.chat_running = lambda sid: sid in _chat_running
@@ -5526,8 +5545,26 @@ def create_app(
         _auto_route=_auto_route,
         _identify_document=_identify_document,
         _can_edit_doc=_can_edit_doc,
+        _run_now=_run_now,
     )
     app.include_router(chat_routes.router)
+
+    def _resume_queues() -> None:
+        """서버를 다시 켠 뒤 남은 대화 대기열을 이어서 시작한다(답을 쓰는 중이 아니고 마지막 글이 답인 대화만)."""
+        import time as _t
+        from zzaimy.app import chat_queue as _cq
+        _t.sleep(5)
+        try:
+            for sid_ in _cq.waiting_sessions(db):
+                with _cq.LOCK:
+                    last_ = db.list_chats(sid_, limit=1)
+                    if sid_ not in _chat_running and not (last_ and last_[-1]["role"] == "user"):
+                        chat_routes.start_queued(app.state.chat, sid_)
+        except Exception:
+            logging.getLogger("zzaimy.app.chat").exception("대기열 이어 시작 실패")
+    if os.environ.get("ZZAIMY_CHAT_QUEUE_RESUME", "1") != "0":
+        import threading as _th0
+        _th0.Thread(target=_resume_queues, daemon=True, name="chat-queue-resume").start()
     # 프로젝트(/project*·/projects*) — 독립 라우터(app/project_routes). 묶음 반입·지난 사업 참조·문서 세 갈래·부서 공유 같은
     # 함께 쓰는 도우미는 여기(앱마다)에서 만들어 프로젝트 묶음(app.state.project)으로 넘긴다. 다 정의된 뒤라 맨 끝에 둔다
     from zzaimy.app import project_routes

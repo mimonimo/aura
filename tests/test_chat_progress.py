@@ -29,7 +29,7 @@ def test_progress_is_live_scoped_and_cleared(tmp_path):
     # 단계마다 시작 시각 — 화면이 단계별 걸린 초를 보인다. 서버 시각(now)으로 시계 차이를 맞춘다
     assert len(state["progress"]["at"]) == len(state["progress"]["steps"])
     assert state["progress"]["at"] == sorted(state["progress"]["at"]) and state["progress"]["now"] >= state["progress"]["at"][-1]
-    assert client.get("/chat/1/status").json() == {"waiting": False, "progress": None}
+    assert client.get("/chat/1/status").json() == {"waiting": False, "progress": None, "queued": 0, "next": []}
 
 
 def test_progress_cleared_on_responder_failure(tmp_path):
@@ -42,4 +42,4 @@ def test_progress_cleared_on_responder_failure(tmp_path):
                      processor=FakeProcessor(), drafter=FakeDrafter(), responder=Responder())
     client = TestClient(app)
     client.post("/chat/send", data={"question": "참여 목표는?"})
-    assert client.get("/chat/1/status").json() == {"waiting": False, "progress": None}
+    assert client.get("/chat/1/status").json() == {"waiting": False, "progress": None, "queued": 0, "next": []}

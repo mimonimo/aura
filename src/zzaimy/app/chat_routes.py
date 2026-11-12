@@ -69,7 +69,7 @@ def make_chat_helpers(
     _viewer_sees, _extra_depts, _seen_depts, _local_back, _share_sync, _chat_suggestions, _intake_bundle,
     _link_past_materials, _link_past_projects, _remember_given, _schedule_answer, _set_options, _title_from_bundle,
     _link_criteria_kind, _all_depts, _chat_step, _scrub_internal, _session_viewer, _view_as,
-    _auto_route, _identify_document, _can_edit_doc,
+    _auto_route, _identify_document, _can_edit_doc, _run_now=None,
 ) -> SimpleNamespace:
     """앱마다 하나 — main.create_app 이 넘긴 값과 대화 전용 도우미를 한 묶음(app.state.chat)으로."""
     deps = dict(locals())
@@ -574,8 +574,14 @@ def chat_session(request: Request, session_id: int):
             "answer_mode": h._answer_mode(request, session, project, messages),
             "rag_tags": h._rag_tags(messages),
             "effort_tags": h._effort_tags(messages),
+            "chat_queue": _chat_queue_preview(db, session_id),
         }),
     )
+
+
+def _chat_queue_preview(db, session_id: int) -> dict:
+    from zzaimy.app import chat_queue
+    return chat_queue.preview(db, session_id)
 
 
 @router.get("/chat/{session_id}/status")
@@ -586,13 +592,38 @@ def chat_status(request: Request, session_id: int):
     messages = db.list_chats(session_id)
     prog = _chat_progress.get(session_id)
     running = session_id in _chat_running
+    from zzaimy.app import chat_queue
+    if not running and not (messages and messages[-1]["role"] == "user") and chat_queue.items(db, session_id):
+        # 서버를 다시 켜는 사이 남은 대기열 — 지금 답을 쓰는 중이 아니면 이어서 시작한다
+        with chat_queue.LOCK:
+            if session_id not in _chat_running:
+                start_queued(h, session_id)
+        running = session_id in _chat_running
+        messages = db.list_chats(session_id)
     out = {"waiting": running or (bool(messages) and messages[-1]["role"] == "user"),
-           "progress": ({**prog, "now": time.time()} if prog else prog)}
+           "progress": ({**prog, "now": time.time()} if prog else prog), **chat_queue.preview(db, session_id)}
     if running:
         from zzaimy.generate import llm_gate as _gate      # 여럿이 한꺼번에 요청해 모델 호출이 차례를 기다리는 수(11-10)
         out["llm_wait"] = _gate.waiting()
     return out
 
+
+@router.post("/chat/{session_id}/queue/clear")
+def chat_queue_clear(request: Request, session_id: int):
+    """대기 중인 요청을 모두 취소한다 — 지금 쓰는 답은 그대로."""
+    from zzaimy.app import chat_queue
+    h = request.app.state.chat
+    h._owned_chat(request, session_id)
+    return {"ok": True, "dropped": chat_queue.clear(h.db, session_id), **chat_queue.preview(h.db, session_id)}
+
+
+@router.post("/chat/{session_id}/queue/{index}/drop")
+def chat_queue_drop(request: Request, session_id: int, index: int):
+    """대기 중인 요청 하나를 뺀다(0부터 센 차례)."""
+    from zzaimy.app import chat_queue
+    h = request.app.state.chat
+    h._owned_chat(request, session_id)
+    return {"ok": chat_queue.drop(h.db, session_id, index), **chat_queue.preview(h.db, session_id)}
 
 @router.post("/api/chat/answer-mode")
 def chat_answer_mode(request: Request, mode: str = Form(""), rags: list[str] = Form([]), rags_pick: str = Form(""),
@@ -608,6 +639,60 @@ def chat_answer_mode(request: Request, mode: str = Form(""), rags: list[str] = F
     picked = _answer_pref.clean(got["rags"], choices)
     return {"ok": True, "mode": got["mode"], "picked": picked or choices, "label": _answer_pref.label(picked, choices),
             "effort": got["effort"], "effort_label": _effort.label(got["effort"])}
+
+
+def begin_request(h, session_id: int, q: str, *, shown: str, web: str, effort: str, user: str, role: str,
+                  criteria: list[int], stored: Path | None, start) -> int:
+    """요청 하나를 시작한다 — 사용자 글 남기기, 답변 깊이·RAG 고름 기억, 고쳐 묻기 기록, 답 만들기 시작(start).
+    입력줄에서 바로 보낸 요청(chat_send)과 대기열에서 꺼낸 요청(start_queued)이 같은 길을 쓴다. 남긴 글 번호를 돌려준다."""
+    db = h.db
+    h._set_options(session_id, [])
+    mid_ = db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
+    if role != "student":
+        # 답변 깊이 — 입력줄에 보이던 값(없으면 계정에 기억한 값). 기본이 아니면 질문에 남겨 답 만들기·대화 표시가 읽는다
+        _effort.remember(db, int(mid_), _effort.clean(effort) or _answer_pref.load(db, user)["effort"])
+    else:
+        _effort.remember(db, int(mid_), _effort.FAST)          # 학생(학사 질문, 고르는 단추 없음)은 바로 답하는 쪽
+    if not web and role != "student":
+        _answer_pref.remember_pick(db, int(mid_), user)          # 공유 프로젝트 대화도 보낸 사람이 고른 RAG 로 답한다
+        scope_ = h._owner_scope(user)
+        choices_ = _answer_pref.rag_choices(scope_, h._all_depts())
+        tag = _answer_pref.label(_answer_pref.load(db, user)["rags"], choices_)
+        if tag:
+            db.set_setting(f"chat_msg_rag:{int(mid_)}", tag)     # 이 질문이 쓴 RAG(좁혔을 때만) — 대화의 방식 표시
+    h.chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
+    start(session_id, q, stored, criteria, web)
+    return int(mid_)
+
+
+def _queue_request(item: dict):
+    """대기열 항목을 꺼낼 때 권한 확인에 쓰는 가짜 요청 — 넣은 사람의 계정 그대로(POST 로 이어 쓰기 권한까지 본다)."""
+    return SimpleNamespace(method="POST", state=SimpleNamespace(user=item["user"], role=item.get("role", ""),
+                                                                 dept=item.get("dept", ""), view_as=None))
+
+
+def start_queued(h, session_id: int) -> bool:
+    """대기열 맨 앞 요청을 시작한다 — 시작했으면 True. 대화가 없거나 이어 쓸 권한이 없어진 요청은 버리고 다음 것을 본다.
+    부르는 쪽이 chat_queue.LOCK 을 쥐고 「지금 답을 쓰는 중이 아님」 을 확인한 뒤 부른다."""
+    from zzaimy.app import chat_queue
+    db = h.db
+    while True:
+        item = chat_queue.pop(db, session_id)
+        if item is None:
+            return False
+        try:
+            h._owned_chat(_queue_request(item), session_id)
+        except HTTPException:
+            logging.getLogger("zzaimy.app.chat").info("대기 요청 버림(대화 %s): 대화가 없거나 권한이 없어짐", session_id)
+            continue
+        try:
+            begin_request(h, session_id, str(item["q"]), shown=str(item["q"]), web=str(item.get("web") or ""),
+                          effort=str(item.get("effort") or ""), user=str(item["user"]), role=str(item.get("role") or ""),
+                          criteria=[int(x) for x in (item.get("criteria") or []) if str(x).isdigit()], stored=None, start=h._run_now)
+            return True
+        except Exception:
+            logging.getLogger("zzaimy.app.chat").exception("대기 요청 시작 실패(대화 %s) — 다음 것으로", session_id)
+            continue
 
 
 @router.post("/chat/send")
@@ -720,10 +805,23 @@ def chat_send(
                                   {"kind": "read", "text": "그림 쪽 판독", "question": "그림 쪽 판독해 줘"}])
         chat_revisions.remember(db.list_chats(session_id, limit=2)[0]["id"], None, criteria)
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
-    # 응답 대기 중 중복 전송 방지 — 마지막 메시지가 아직 답변 전이면 무시
-    last = db.list_chats(session_id, limit=1)
-    if session_id in _chat_running or (last and last[-1]["role"] == "user"):
-        return RedirectResponse(f"/chat/{session_id}", status_code=303)
+    # 답을 쓰는 중에 온 글 요청은 대기열로 — 지금 답이 끝나면 차례로 시작한다(11-12, 긴 서식을 단계마다 지켜보며 넣던 것).
+    # 첨부가 든 요청은 예전처럼 받지 않는다(파일은 바로 읽어야 해서). 확인과 넣기는 대기열 잠금 안에서 — 끝나는 순간과 겹치지 않게
+    from zzaimy.app import chat_queue
+    with chat_queue.LOCK:
+        last = db.list_chats(session_id, limit=1)
+        if session_id in _chat_running or (last and last[-1]["role"] == "user"):
+            wants_json = "application/json" in (request.headers.get("accept") or "")
+            if files:
+                msg_ = "첨부는 지금 답이 끝난 뒤 보내 주세요"
+                return {"ok": False, "message": msg_} if wants_json else RedirectResponse(f"/chat/{session_id}", status_code=303)
+            try:
+                n_ = chat_queue.add(db, session_id, {"q": q, "web": web, "effort": _effort.clean(effort) or "", "user": user_,
+                                                     "role": getattr(request.state, "role", ""), "dept": getattr(request.state, "dept", "") or "",
+                                                     "criteria": [int(c) for c in criteria]})
+            except ValueError as e:
+                return {"ok": False, "message": str(e)} if wants_json else RedirectResponse(f"/chat/{session_id}", status_code=303)
+            return {"ok": True, "queued": n_} if wants_json else RedirectResponse(f"/chat/{session_id}", status_code=303)
 
     stored: Path | None = None
     shown = q
@@ -753,22 +851,9 @@ def chat_send(
         if web == "model":
             web = ""                                  # 첨부는 RAG 길에서만 읽는다 — 일반 답은 파일을 보지 않는다
 
-    _set_options(session_id, [])
-    mid_ = db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
-    if getattr(request.state, "role", "") != "student":
-        # 답변 깊이 — 입력줄에 보이던 값(없으면 계정에 기억한 값). 기본이 아니면 질문에 남겨 답 만들기·대화 표시가 읽는다
-        _effort.remember(db, int(mid_), _effort.clean(effort) or _answer_pref.load(db, user_)["effort"])
-    else:
-        _effort.remember(db, int(mid_), _effort.FAST)          # 학생(학사 질문, 고르는 단추 없음)은 바로 답하는 쪽
-    if not web and getattr(request.state, "role", "") != "student":
-        _answer_pref.remember_pick(db, int(mid_), user_)          # 공유 프로젝트 대화도 보낸 사람이 고른 RAG 로 답한다
-        scope_ = h._owner_scope(user_)
-        choices_ = _answer_pref.rag_choices(scope_, h._all_depts())
-        tag = _answer_pref.label(_answer_pref.load(db, user_)["rags"], choices_)
-        if tag:
-            db.set_setting(f"chat_msg_rag:{int(mid_)}", tag)     # 이 질문이 쓴 RAG(좁혔을 때만) — 대화의 방식 표시
-    chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
-    _schedule_answer(background, session_id, q, stored, criteria, web)
+    begin_request(h, session_id, q, shown=shown, web=web, effort=effort, user=user_, role=getattr(request.state, "role", ""),
+                  criteria=criteria, stored=stored,
+                  start=lambda sid_, q_, st_, cr_, web_: _schedule_answer(background, sid_, q_, st_, cr_, web_))
     return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
 

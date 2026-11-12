@@ -33,9 +33,11 @@
     input.style.height = Math.min(input.scrollHeight, 190) + 'px';
   }
   function paint() {
-    send.disabled = sending || waiting || !input.value.trim();
-    send.setAttribute('aria-label', sending ? '전송 중' : '보내기');
-    send.title = sending ? '전송 중' : '보내기';
+    // 답을 쓰는 중에도 보낼 수 있다 — 서버가 대기열에 넣고 지금 답이 끝나면 차례로 처리한다(chat_queue). 첨부는 답이 끝난 뒤
+    send.disabled = sending || !input.value.trim();
+    const label = sending ? '전송 중' : (waiting ? '다음 요청으로 넣기' : '보내기');
+    send.setAttribute('aria-label', label);
+    send.title = label;
     send.querySelector('iconify-icon').setAttribute('icon', sending ? 'solar:hourglass-linear' : 'solar:arrow-up-linear');
     form.setAttribute('aria-busy', String(sending));
   }
@@ -629,6 +631,38 @@
     clearTimeout(timer);
     if (waiting) timer = setTimeout(poll, 2000);
   }
+  // 대기 중인 요청 줄 — 건수·펼치기(각 건 첫 줄과 빼기)·모두 취소
+  const queueBox = document.getElementById('chatQueue');
+  function renderQueue(n, next) {
+    if (!queueBox) return;
+    queueBox.hidden = !n;
+    document.getElementById('chatQueueCount').textContent = '다음 요청 ' + n + '건 대기';
+    const list = document.getElementById('chatQueueList');
+    list.replaceChildren(...(next || []).map(x => {
+      const li = document.createElement('li'), t = document.createElement('span'), b = document.createElement('button');
+      t.textContent = x.text; b.type = 'button'; b.className = 'act-btn'; b.dataset.queueDrop = x.i; b.textContent = '빼기';
+      b.setAttribute('aria-label', '이 요청 빼기'); li.append(t, b); return li;
+    }));
+    if (n > (next || []).length) { const li = document.createElement('li'); li.textContent = '그 밖에 ' + (n - next.length) + '건'; list.append(li); }
+  }
+  if (queueBox) {
+    document.getElementById('chatQueueToggle').addEventListener('click', e => {
+      const list = document.getElementById('chatQueueList'), open = list.hidden;
+      list.hidden = !open; e.currentTarget.setAttribute('aria-expanded', String(open));
+    });
+    const queuePost = async url => {
+      try {
+        const r = await fetch(url, {method:'POST', headers:{accept:'application/json'}});
+        if (!r.ok) throw new Error('queue');
+        const st = await r.json(); renderQueue(st.queued, st.next);
+      } catch (_) { notify('대기 중인 요청을 고치지 못했습니다. 잠시 후 다시 해 주세요.'); }
+    };
+    document.getElementById('chatQueueClear').addEventListener('click', () => queuePost('/chat/' + root.dataset.session + '/queue/clear'));
+    queueBox.addEventListener('click', e => {
+      const b = e.target.closest('[data-queue-drop]');
+      if (b) queuePost('/chat/' + root.dataset.session + '/queue/' + b.dataset.queueDrop + '/drop');
+    });
+  }
   async function poll() {
     if (!waiting || sending) return;
     const session = root.dataset.session;
@@ -645,6 +679,7 @@
         return;
       }
       status.textContent = state.llm_wait > 0 ? `모델 대기 중 · 앞에 ${state.llm_wait}건` : '요청 처리 중입니다.';   // 여럿이 한꺼번에 요청해 차례를 기다릴 때
+      if (typeof state.queued === 'number') renderQueue(state.queued, state.next);
       showProgress(state.progress);
       timer = setTimeout(poll, state.progress && state.progress.partial ? 1000 : 3000);   // 답이 흘러나오는 동안은 1초마다
       return;
@@ -656,7 +691,9 @@
   form.addEventListener('submit', event => { event.preventDefault(); sendChat(); });
   // pick: 답 아래 선택지처럼 입력칸을 거치지 않고 보낼 질문·답 길({question, web}) — 입력칸 글은 건드리지 않는다
   async function sendChat(pick = null) {
-    if (sending || waiting) return;
+    if (sending) return;
+    if (waiting && !pick) { await queueChat(); return; }
+    if (waiting) return;
     if (pick) {
       sending = true; hint.hidden = true; paint();
       const payload = new FormData(form);
@@ -706,6 +743,34 @@
       sending = false;
       paint();
       if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+    }
+  }
+  // 답을 쓰는 중에 보낸 요청 — 대기열에 넣고 입력칸을 비운다(첨부는 답이 끝난 뒤 보낸다)
+  async function queueChat() {
+    if (!input.value.trim()) { notify('보낼 내용을 입력하세요.'); input.focus(); return; }
+    if (file.files.length) { notify('첨부는 지금 답이 끝난 뒤 보내 주세요.'); return; }
+    sending = true; paint();
+    const sentText = input.value;
+    try {
+      const response = await fetch(form.action, {method:'POST', body:new FormData(form), headers:{accept:'application/json'}});
+      if (response.ok && !(response.headers.get('content-type') || '').includes('json')) {
+        // 그사이 앞 답이 끝나 바로 시작됐다 — 보통 보내기와 같이 화면을 바꾼다
+        installPage(await response.text(), response.url, true);
+        if (input.value === sentText) input.value = '';
+        resize(); input.focus();
+        return;
+      }
+      const st = response.ok ? await response.json() : null;
+      if (!st || !st.ok) { notify((st && st.message) || '대기열에 넣지 못했습니다. 입력을 유지했으니 잠시 후 다시 보내세요.'); return; }
+      if (input.value === sentText) input.value = '';
+      resize(); input.focus();
+      notify('다음 요청으로 넣었습니다. 지금 답이 끝나면 차례로 처리합니다.');
+      renderQueue(st.queued, null);
+      clearTimeout(timer); timer = setTimeout(poll, 500);
+    } catch (_) {
+      notify('대기열에 넣었는지 확인하지 못했습니다. 잠시 후 대기 줄을 확인해 주세요.');
+    } finally {
+      sending = false; paint();
     }
   }
   // 답변 갱신으로 교체되는 제안에도 같은 비동기 채팅 전송 경로를 사용한다.
