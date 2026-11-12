@@ -2745,6 +2745,7 @@ def create_app(
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         lead_checked = {"done": False}                         # 끝내기 전 앞부분 자리표시 되짚기 — 요청마다 한 번
         finish_checked = {"done": False}
+        held_finish = {"text": ""}                                # 되짚기 전 끝내는 말 — 다시 낸 말이 짧은 덧말이면 앞 말을 살린다
         empty_checked = {"done": False}                        # 빈 절을 다 남긴 채 끝내려 할 때 이어 쓰기 되짚기 — 요청마다 한 번                       # 끝내는 말의 절 수가 문서 기록과 다를 때 되돌리기 — 요청마다 한 번
         try:                                                     # 이번 요청에서 문서를 새로 열었거나 고쳤을 때만 되짚는다(지우기만 하다 0곳인 요청까지 막지 않게 — 11-09 대화 165)
             lead_start = {"fid": hw.fid() if hw is not None else None, "writes": int(getattr(hw, "writes", 0) or 0)}
@@ -3240,10 +3241,16 @@ def create_app(
                     # 빈 절을 다 남긴 채 「계속 써 줘」를 기다리며 끝내려 한다 — 채워 달라는 요청인데 양식만 만들고 멈추던 일(11-10 대화 182·185, 절 25개 가운데 0개).
                     # 이어 쓸지는 에이전트가 정한다(양식만 청했거나 담당자 답을 기다려야 하면 그대로 끝낸다). 요청마다 한 번
                     empty_checked["done"] = True
+                    held_finish["text"] = msg
                     raise doc_agent.Retry(f"끝내기 전에: 작업본의 절 {len(secs_)}개 가운데 빈 절이 {len(empty_)}개다. 담당자 요청이 문서를 채우는(쓰는·작성하는) 일이면 "
                                           f"지금 delegate_section {{sections: [빈 절 전부]}} 로 한 번에 맡겨 쓴다 — 자료에 없는 내용은 서브가 「확인 필요」로 두므로 "
                                           "자료가 모자라도 멈출 까닭이 아니다. 요청이 양식·틀만 만드는 일이거나 담당자 답을 기다려야 하면 그대로 finish 한다(이 안내는 한 번만 나온다).",
                                           data="빈 절: " + ", ".join(empty_[:30]))
+                prev_ = held_finish["text"]
+                if prev_ and prev_ != msg and len(msg) < len(prev_):
+                    # 빈 절 되짚기 뒤 「이번 요청 범위가 아니라 그대로 둔다」 같은 덧말만 다시 내면 앞서 쓴 끝내는 말(넣은 값 목록)이 사라졌다
+                    # (11-12 특성화 재현 3차 2단계) — 앞 말을 살리고 새 말은 뒤에 붙인다
+                    msg = prev_ + "\n\n" + msg
                 if secs_ and empty_:
                     msg += (f"\n\n(문서 기록: 절 {len(secs_)}개 가운데 {len(filled_)}개를 썼고 빈 절 {len(empty_)}개가 남았습니다. "
                             f"다음은 「{empty_[0]}」 — 「계속 써 줘」라고 하면 이어 씁니다.)")

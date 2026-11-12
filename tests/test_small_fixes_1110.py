@@ -69,6 +69,16 @@ def test_finish_with_all_sections_empty_is_nudged_once_to_delegate():
     assert 'empty_checked = {"done": False}' in src
 
 
+
+def test_finish_keeps_first_message_after_empty_nudge():
+    """빈 절 되짚기 뒤 짧은 덧말만 다시 내면 앞서 쓴 끝내는 말(넣은 값 목록)이 사라졌다(11-12 특성화 재현 3차 2단계) — 앞 말을 살린다."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/main.py").read_text(encoding="utf-8")
+    fin = src[src.index("def t_finish(a: dict)"):]
+    fin = fin[:fin.index("\n        def ", 10)]
+    assert 'held_finish["text"] = msg' in fin and 'msg = prev_ + "\\n\\n" + msg' in fin
+    assert 'held_finish = {"text": ""}' in src
+
 def test_calc_from_supported_numbers_is_not_flagged():
     """근거 수치끼리 셈한 결과에는 「근거 확인 필요」를 붙이지 않는다 — 근거에 없는 수로 한 셈은 그대로 표시."""
     from zzaimy.verify.numbers import flag_unsupported
