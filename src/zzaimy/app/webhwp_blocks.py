@@ -294,3 +294,54 @@ def repeat_tree(xml: str, head: str, items: list, ids, taken: set[str]) -> tuple
         xml = xml[:a] + sub + xml[end:]
         made += ["  " + t for t in kid_tops]
     return xml, made
+
+
+_CHAPTER = re.compile(r"^\s*([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ])\s*\.\s*\S")
+_SCAN = re.compile(r"<hp:tbl\b|</hp:tbl>|<hp:t\b[^>]*>([^<]*)</hp:t>|<hp:ctrl><hp:fieldBegin\b[^>]*\bname=\"([^\"]*)\"")
+
+
+def field_paths(data: bytes) -> dict[str, list[str]]:
+    """필드마다 문서 속 자리(위 제목들) — {이름: [장 제목, 위 절, …, 바로 위 절]}.
+
+    반복 블록을 늘리면 「(1) 5개년 추진계획」 같은 같은 꼴 필드가 #2·#14 처럼 여럿 생기고, 번호는 문서 차례가 아니다.
+    이름만 보고는 어느 과제·프로그램 것인지 알 수 없어 에이전트가 다른 과제의 칸에 썼다(11-12 특성화 재현: 3.1 의 내용을 2.3 칸 #14 에).
+    장 제목(「Ⅲ. 성과관리 계획」 — 표 밖 문단)과 절 필드의 번호 단계(level)로 위 제목 사슬을 만든다."""
+    from zzaimy.app import webhwp_write as ww
+    _, secs = ww._open(data)
+    order = sorted(secs, key=lambda n: int(m.group(1)) if (m := re.search(r"(\d+)\.xml$", n)) else 0)
+    out: dict[str, list[str]] = {}
+    chapter, stack = "", []                                  # stack: [(차례, 제목)]
+    for n in order:
+        depth = 0
+        for m in _SCAN.finditer(secs[n]):
+            g = m.group(0)
+            if g.startswith("<hp:tbl"):
+                depth += 1
+                continue
+            if g.startswith("</hp:tbl"):
+                depth = max(0, depth - 1)
+                continue
+            if m.group(2) is not None:
+                name = ww._unq(m.group(2))
+                if name.startswith("문단:") or ww.is_cont(name) or name in out:
+                    continue
+                head = re.sub(r"#\d+$", "", name.split(":", 1)[-1]).strip()
+                lv = level(head) if name.startswith("절:") else None
+                if lv is not None:
+                    r = _rank(lv)
+                    while stack and stack[-1][0] >= r:
+                        stack.pop()
+                out[name] = ([chapter] if chapter else []) + [t for _, t in stack]
+                if lv is not None:
+                    stack.append((_rank(lv), head))
+                continue
+            t = (m.group(1) or "").strip()
+            if depth == 0 and len(t) <= 60 and _CHAPTER.match(t):
+                if t != chapter:
+                    chapter, stack = t, []
+    return out
+
+
+def path_text(path: list[str], width: int = 28) -> str:
+    """자리 사슬을 한 줄로 — 「Ⅱ. 사업추진 계획 › 3.1. YNC-CDMP… › 1) …」(제목은 앞 width 자)."""
+    return " › ".join(p if len(p) <= width else p[:width] + "…" for p in path)

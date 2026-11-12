@@ -2609,7 +2609,7 @@ def create_app(
             _ctx_len_agent = _lb_agent.work_len(client)          # 대화 기억에 쓰는 몫은 이 모델의 문맥 한도 기준
         except Exception:
             _ctx_len_agent = _lb_agent.DEFAULT_CONTEXT
-        before = len(db.list_chats(session_id))
+        before = db.last_chat_id(session_id)
         _before_id = max([int(m_["id"]) for m_ in db.list_chats(session_id, limit=1)] or [0])
         crit_ids = _scoped_criteria(session_id)
         mats_box: dict = {}
@@ -3033,7 +3033,7 @@ def create_app(
             실패하면 문서는 그대로라고 대화에 남긴다."""
             if not link().get("doc"):
                 return "연결된 문서가 없다 — create_document 나 open_project_document 로 먼저 잇는다."
-            n0 = len(db.list_chats(session_id))
+            n0 = db.last_chat_id(session_id)
             try:
                 with_notes(fn, focus)
             except Exception as e:
@@ -3041,7 +3041,7 @@ def create_app(
 
                 logging.getLogger("zzaimy.app.gdocs").exception("에이전트 문서 작업 실패 (대화 %s)", session_id)
                 db.add_chat(session_id, "assistant", describe_llm_error(e) + ". 문서는 바꾸지 않았습니다.")
-            added = [m_["content"] for m_ in db.list_chats(session_id)[n0:] if m_["role"] == "assistant"]
+            added = [m_["content"] for m_ in db.list_chats(session_id, limit=20) if int(m_["id"]) > n0 and m_["role"] == "assistant"]
             return "\n".join(added)[:1500] or "(결과 없음)"
 
         def t_write(a: dict, redo: bool = False) -> str:
@@ -3311,7 +3311,9 @@ def create_app(
                 doc_agent.Tool("hwp_switch", "이 대화·프로젝트에 이미 있는 다른 한글 작업본으로 바꿔 잇기 — 요청이 그 문서(이름이나 계획서·기안문 같은 갈래)를 짚을 때. "
                                "상태의 「다른 작업본」 목록에서 고른다. args {doc: 작업본 이름(일부여도 됨) 또는 번호}", hw.switch),
                 doc_agent.Tool("hwp_form_create", _wfc.TOOL_DESC, hw.form_create, writes=True),
-                doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태 보기. args {}", hw.fields),
+                doc_agent.Tool("hwp_fields", "작업본의 필드(절·칸·표)와 채움 상태를 문서 차례로, 위 제목(장 › 절 › 프로그램)마다 묶어 보기. "
+                               "같은 이름 필드(「(1) 5개년 추진계획#3」 처럼 #n)는 묶음 머리의 위 제목으로 어느 과제·프로그램 것인지 가린다. "
+                               "필드가 많으면 under 로 좁힌다. args {under?: 장·절 번호나 제목(예: 「Ⅲ」 「3.1.」)}", hw.fields),
                 doc_agent.Tool("hwp_fill", "칸·표 필드에 짧은 값 넣기(이름·날짜·금액·한 줄 요약 — 근거로 찾았거나 담당자가 알려 준 값만, 양식 예시 글자 ○○·000 은 넣지 않음). "
                                "필드가 없는 표 칸은 라벨 이름으로 준다(「대학명」「URL」, 같은 라벨이 여럿이면 「총괄책임자 성명」처럼 앞 낱말까지) — 라벨 오른쪽 빈 칸에 들어간다. "
                                "여러 줄 글·표가 들어갈 큰 칸은 hwp_write 로. args {values: {필드 이름: 값}}", hw.fill, writes=True),
@@ -3323,7 +3325,10 @@ def create_app(
                                "도식: 「```도식\\n총장\\n사업단장 → 운영위원회\\n교육팀 → 성과관리팀\\n```」. "
                                "상태의 필드 목록에 「작성방법 요구: 표·도식·출처」 가 붙은 절은 그 요소를 넣는다(근거가 있을 때). "
                                "다른 절에 이미 쓴 공통 개요(기간·장소·참가 인원·목적)는 되풀이하지 않고 이 절 고유 내용(프로그램·실적·표)을 쓴다. "
-                               "담당자가 이번 요청에서 알려 준 사실과 search 로 찾은 근거만 쓰고 지어내지 않는다. 큰 칸(사업 추진계획 같은 요약 표의 본문 칸)도 field 에 칸 이름을 주면 그 칸 안에 쓴다. args {field: 절 또는 칸 필드 이름, text: 본문}", hw.write, writes=True),
+                               "담당자가 이번 요청에서 알려 준 사실과 search 로 찾은 근거만 쓰고 지어내지 않는다. 큰 칸(사업 추진계획 같은 요약 표의 본문 칸)도 field 에 칸 이름을 주면 그 칸 안에 쓴다. "
+                               "같은 이름 필드가 여럿이면 요청한 절 아래 것을 고른다(under 에 위 제목을 주면 그 아래 것으로). "
+                               "절은 통째로 다시 쓰인다 — 앞에 쓴 글 뒤에 덧붙이려면 append: true. 서식에 없는 소제목(작성 예시의 「1.1.」)은 위 절에 append 로 소제목 줄을 달아 쓴다. "
+                               "args {field: 절 또는 칸 필드 이름, text: 본문, under?: 위 제목, append?: true}", hw.write, writes=True),
                 doc_agent.Tool("hwp_tables", "작업본의 표 목록(번호·크기·첫 행) — 서식을 고칠 표를 짚을 때. args {}", hw.tables),
                 doc_agent.Tool("hwp_style", "표 서식 고치기(담당자가 표 모양을 바꿔 달라고 할 때). 주지 않은 값은 학교 표 기본(머리줄·라벨 칸 회색 #E5E5E5·굵게·가운데, "
                                "바깥 0.4mm·안쪽 0.12mm 실선, 10pt). args {tables: [hwp_tables 번호, 비우면 전부], head_fill: 색(#RRGGBB·회색·연파랑·없음), "
@@ -3439,7 +3444,7 @@ def create_app(
             if left:
                 msg += f" 남은 빈 절은 {len(left)}개이고, 다음은 「{left[0]['heading']}」입니다. 「계속 써 줘」라고 하면 이어 씁니다."
             db.add_chat(session_id, "assistant", _scrub_internal(msg))
-        if len(db.list_chats(session_id)) > before:
+        if db.last_chat_id(session_id) > before:
             return True                                          # 무엇이든 남겼다(쓰기 결과·답·물음)
         if ep.may_fall_back:
             return False                                         # 모델에 닿지 못했거나 쓸 수 없는 답 — 대비 경로로

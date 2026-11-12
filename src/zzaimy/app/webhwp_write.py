@@ -124,7 +124,9 @@ def _is_own_hint(begin: str, text: str) -> bool:
     d = re.search(r'<hp:stringParam name="Direction">([^<]*)</hp:stringParam>', begin)
     hint = re.sub(r"\s+", " ", _unq(d.group(1))).strip() if d else ""
     t = re.sub(r"\s+", " ", _unq(text)).strip()
-    return len(hint) >= 10 and (t == hint or (len(hint) >= 60 and t.startswith(hint)))
+    # 짧은 안내(「본문 입력」「합계 입력」)도 글이 안내와 똑같으면 빈 칸이다 — 10자 이상만 보던 때는 기안기가 저장한 빈 절이
+    # 「본문 입력」 을 글로 가져 에이전트가 쓴 절로 봤다(11-12 특성화 재현: 빈 절 수가 줄고 다음 절 안내가 틀림)
+    return len(hint) >= 2 and (t == hint or (len(hint) >= 60 and t.startswith(hint)))
 
 
 def field_values(data: bytes) -> dict[str, str]:

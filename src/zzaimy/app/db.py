@@ -738,6 +738,13 @@ class Database:
         with self._conn() as conn:
             conn.execute("DELETE FROM chat_messages WHERE id = ?", (message_id,))
 
+    def last_chat_id(self, session_id: int) -> int:
+        """이 대화의 마지막 글 번호(없으면 0) — 「이번에 답을 남겼나」 는 이 값이 커졌는지로 본다.
+        글 수(len(list_chats))로 보면 list_chats 의 100개 한도에 걸려 긴 대화에서 늘 「안 남겼다」 로 읽혔다(11-12 특성화 재현, 대화 199)."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT MAX(id) AS m FROM chat_messages WHERE session_id = ?", (session_id,)).fetchone()
+            return int((dict(row).get("m") if row is not None else 0) or 0)
+
     def list_chats(self, session_id: int, limit: int = 100) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(

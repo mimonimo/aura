@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 from zzaimy.app import storage, webhwp
+from zzaimy.app import webhwp_blocks as _wb
 
 
 def bound(db, session_id: int) -> int | None:
@@ -400,6 +401,11 @@ def past_template_ids(db, fid) -> set[int]:
         pass
     return ids
 
+
+
+def _squash(s: str) -> str:
+    """띄어쓰기 없이 — 제목 비교용."""
+    return re.sub(r"\s+", "", s or "")
 
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
@@ -1184,10 +1190,105 @@ class HwpTools:
                 + "모르는 값의 자리표시만 남겨 묻는다.")
 
     def fields(self, a: dict) -> str:
+        """필드 목록 — 문서 차례로, 위 제목 사슬(장 › 절 › …)마다 묶어. under 를 주면 그 제목 아래만.
+        같은 이름 필드(#n)가 어느 과제·프로그램 것인지 보이게 한다(11-12: 이름만 보고 다른 과제 칸에 썼다)."""
         if not self.fid():
             return "이 대화에 한글 작업본이 없다 — hwp_forms → hwp_start."
-        fl = sorted(self._fields(), key=lambda x: bool(x["text"]))
-        return "\n".join(f"{x['name']} — {'(비어 있음)' if not x['text'] else x['text'][:60]}" for x in fl[:120])
+        fl = self._fields()
+        paths = self._paths()
+        at = {k: i for i, k in enumerate(paths)}
+        fl.sort(key=lambda x: at.get(x["name"], len(at)))
+        under = _squash(str(a.get("under") or ""))
+        if under:
+            fl = [x for x in fl if under in _squash(_wb.path_text(paths.get(x["name"], []), 999) + " " + x["name"])]
+            if not fl:
+                return f"「{a.get('under')}」 아래 필드가 없다 — under 를 빼고 전체를 보거나 장·절 번호(예: 「Ⅲ」「3.1.」)로 준다."
+        lines, last, LIMIT = [], None, 160
+        for i, x in enumerate(fl):
+            pth = _wb.path_text(paths.get(x["name"], []))
+            if pth != last:
+                if len(lines) >= LIMIT:
+                    lines.append(f"… 나머지 필드 {len(fl) - i}개 — under 로 좁혀 본다(예: under: 「Ⅲ」 또는 「3.1.」).")
+                    break
+                lines.append(f"[{pth or '머리'}]")
+                last = pth
+            lines.append(f"  {x['name']} — {'(비어 있음)' if not x['text'] else x['text'][:50]}")
+        return "\n".join(lines)
+
+    def _paths(self) -> dict[str, list[str]]:
+        """필드마다 위 제목 사슬(webhwp_blocks.field_paths) — 파일이 바뀌지 않았으면 앞서 구한 것."""
+        f = webhwp.get(self.db, self.fid() or 0)
+        if not f:
+            return {}
+        p = Path(f["path"])
+        try:
+            key = (str(p), p.stat().st_mtime_ns)
+        except OSError:
+            return {}
+        if getattr(self, "_paths_key", None) != key:
+            try:
+                self._paths_val = _wb.field_paths(p.read_bytes())
+            except Exception:
+                self._paths_val = {}
+            self._paths_key = key
+        return self._paths_val
+
+    def _asked_refs(self) -> list[tuple[str, str]]:
+        """이번 요청이 짚은 절 — [(장 「Ⅲ」 또는 빈 글, 번호 「3.1」)]. 요청 머리의 「[Ⅲ]」 와 「「3.1. …」」 의 번호."""
+        req = self.request or ""
+        ch = re.match(r"\s*\[([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ])\]", req)
+        nums = re.findall(r"「\s*(\d+(?:\.\d+)*)\.?\s", req[:400])
+        return [(ch.group(1) if ch else "", n) for n in dict.fromkeys(nums)]
+
+    @staticmethod
+    def _under_ref(path: list[str], ref: tuple[str, str]) -> bool:
+        ch, num = ref
+        if ch and not (path and path[0].startswith(ch)):
+            return False
+        return any(re.match(rf"{re.escape(num)}(?:\.|\s|$)", t) for t in path)
+
+    def place_check(self, field: str, a: dict) -> str:
+        """쓸 필드가 요청한 자리인가 — 바꿀 이름(같은 이름 무리에서 고른 것), 거절 글(「쓰지 않았다 — …」), 또는 빈 글(그대로).
+        - 같은 꼴 이름(#n)이 여럿이면 under(위 제목) 나 요청이 짚은 절 번호로 고른다. 요청한 절 밖의 칸이면 맞는 칸을 알려 주고 쓰지 않는다.
+        - 서식에 없는 절(작성 예시가 나눈 소제목 「1.1.」)이면 같은 장의 위 절을 알려 준다(append 로 소제목을 달아 이어 쓰기)."""
+        try:
+            paths = self._paths()
+        except Exception:                                    # 작업본을 못 읽으면 고르지 않고 그대로 쓴다
+            paths = {}
+        if not paths:
+            return ""
+        base = lambda n: re.sub(r"#\d+$", "", n)
+        sibs = [n for n in paths if base(n) == base(field)]
+        where = lambda n: _wb.path_text(paths[n], 40)
+        under = _squash(str(a.get("under") or ""))
+        if under and sibs:
+            hit = [n for n in sibs if under in _squash(_wb.path_text(paths[n], 999) + " " + n)]
+            if len(hit) == 1:
+                return hit[0]
+            return (f"쓰지 않았다 — under 「{a.get('under')}」 에 맞는 「{base(field)}」 칸이 {len(hit)}개다. 칸들: "
+                    + "; ".join(f"「{n}」({where(n)})" for n in sibs[:8]))
+        refs = self._asked_refs()
+        if not sibs:
+            if not field.startswith("절:") or not refs:
+                return ""
+            m = re.match(r"(\d+(?:\.\d+)+)\.?\s", field[2:].strip())
+            if not m:
+                return ""
+            parent = m.group(1).rsplit(".", 1)[0]
+            ch = refs[0][0]
+            ups = [n for n in paths if n.startswith("절:") and re.match(rf"{re.escape(parent)}(?:\.|\s)", n[2:].strip())
+                   and (not ch or (paths[n] and paths[n][0].startswith(ch)))]
+            if len(ups) == 1:
+                return (f"쓰지 않았다 — 이 서식에는 「{field[2:]}」 절이 없다(작성 예시가 나눈 소제목이다). 위 절 「{ups[0]}」({where(ups[0]) or '맨 위'}) 에 "
+                        f"append: true 로, 첫 줄을 소제목 「{field[2:]}」 으로 달아 이어 쓴다.")
+            return ""
+        if len(sibs) <= 1 or not refs:
+            return ""
+        ok = [n for n in sibs if any(self._under_ref(paths[n], r) for r in refs)]
+        if not ok or field in ok:
+            return ""
+        return (f"쓰지 않았다 — 「{field}」 는 {where(field)} 자리다. 요청한 절 아래 같은 이름 칸: "
+                + ", ".join(f"「{n}」({where(n)})" for n in ok[:3]) + " — field 를 그 이름으로 다시 쓴다(또는 under 로 위 제목을 준다).")
 
     def _guard(self) -> tuple[int, dict] | str:
         fid = self.fid()
@@ -1325,6 +1426,14 @@ class HwpTools:
         field = self.resolve(field) or (field if field.startswith(("절:", "칸:", "표")) else "절:" + field)
         if not text:
             return "text 가 비었다."
+        pick = self.place_check(field, a)                   # 같은 이름 칸(#n) 가운데 요청한 절 아래 것인가, 서식에 없는 소제목인가
+        if pick.startswith("쓰지 않았다"):
+            return pick
+        field = pick or field
+        if a.get("append") and field.startswith("절:"):      # 앞에 쓴 글 뒤에 덧붙이기 — 절은 통째로 다시 쓰므로 지금 글을 앞에 둔다
+            prev = self.current_body(field).strip()
+            if prev and not _wb.PLACEHOLDER.fullmatch(prev) and prev not in ("본문 입력",):
+                text = prev + "\n\n" + text
         if field.startswith("입력:"):
             return "쓰지 않았다 — 「입력:」 은 사람 칸(날짜·서명·결재)이다. ask_user 로 물어 받은 값을 hwp_fill(from_user: true)로 넣는다."
         text = ww.drop_heading_echo(ww.drop_double_markers(text), field)            # 절 머리와 같은 첫 줄은 빼고 넣는다(번호만 다른 「1. 제목」 도)

@@ -245,7 +245,7 @@ def make_chat_helpers(
             owner, role, dept = _session_viewer(session_id)
             sess = db.get_chat_session(session_id) or {}
             project = db.get_project(int(sess["project_id"])) if sess.get("project_id") else None
-            before = len(db.list_chats(session_id))
+            before = db.last_chat_id(session_id)
             env = platform_helper.Env(db=db, data_dir=Path(db_path).parent, session_id=session_id, user=owner, role=_ap.role_class(role), dept=dept,
                                       page=page, ctx=_ops_ctx(owner, role), project=project, controls=controls or [],
                                       say=say, on_step=step,
@@ -260,7 +260,7 @@ def make_chat_helpers(
                 return
             except Exception as e:
                 logging.getLogger("zzaimy.app.helper").warning("도우미 실패 (대화 %s): %s", session_id, type(e).__name__)
-            if not live() or len(db.list_chats(session_id)) > before:
+            if not live() or db.last_chat_id(session_id) > before:
                 return
             if ep is not None and not ep.may_fall_back:
                 db.add_chat(session_id, "assistant", _scrub_internal(doc_agent_failure(ep)))
