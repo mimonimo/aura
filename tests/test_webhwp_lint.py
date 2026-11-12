@@ -5,8 +5,21 @@ from zzaimy.app import webhwp_templates as wt
 
 
 def _doc(rows):
-    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["구분", "학과", "교과목"], "values": rows})
-    return d
+    """「〃」 를 글자로 남긴 표 — 새 표는 「〃」 를 세로로 합치므로(hwpx_fill.ditto_spans) 넣은 뒤 표시 글을 「〃」 로 바꾼다
+    (다른 길로 들어와 글자로 남은 「〃」 를 점검이 찾는지 본다)."""
+    import io
+    import zipfile
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["구분", "학과", "교과목"],
+                                                                 "values": [[("같음표" if c == "〃" else c) for c in r] for r in rows]})
+    z = zipfile.ZipFile(io.BytesIO(d))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as out:
+        for info in z.infolist():
+            body = z.read(info.filename)
+            if info.filename.startswith("Contents/section"):
+                body = body.decode().replace(">같음표<", ">〃<").encode()
+            out.writestr(info, body)
+    return buf.getvalue()
 
 
 def test_lint_finds_ditto_empty_rows_and_marks():

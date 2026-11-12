@@ -639,7 +639,8 @@ class _Table:
         self.col_w = [max(int(self.total_w * float(x) / s), 600) for x in ratios]
 
     # 칸
-    def set_text(self, r: int, c: int, text: str, ids) -> None:
+    def set_text(self, r: int, c: int, text: str, ids, ink=None) -> None:
+        """칸 글 바꾸기. ink(글자 모양 id → id)를 주면 넣는 값의 글자 모양을 그것으로 — 견본 글의 파랑·빨강을 물려받지 않게(char_black)."""
         self._check_rc(r, c)
         cell = self.covering(r, c)
         x = cell["xml"]
@@ -650,6 +651,10 @@ class _Table:
             if end and open_end <= end.start():
                 vx = "<hp:t>" + "<hp:lineBreak/>".join(escape(t) for t in str(text).replace("\r", "").split("\n")) + "</hp:t>"
                 x = x[:open_end] + vx + x[end.start():]
+                if ink and str(text).strip():
+                    ro = x.rfind("<hp:run", 0, fb.start())
+                    if ro >= 0:
+                        x = x[:ro] + re.sub(r'(\bcharPrIDRef=")(\d+)', lambda q: q.group(1) + ink(q.group(2)), x[ro:fb.start()], count=1) + x[fb.start():]
                 cell["xml"] = wf.strip_lineseg_in(x, lambda p: "fieldBegin" in p)
                 return
         sub = re.search(r"(<hp:subList\b[^>]*>)(.*)(</hp:subList>)", x, re.S)
@@ -657,6 +662,8 @@ class _Table:
         pp = re.search(r'paraPrIDRef="(\d+)"', p_open.group(0)).group(1) if p_open else "0"
         cp = re.search(r'charPrIDRef="(\d+)"', sub.group(2))
         cp = cp.group(1) if cp else "0"
+        if ink and str(text).strip():
+            cp = ink(cp)
         body = "".join(hf.paragraph_xml(ln, pp, cp).replace('<hp:p id="0"', f'<hp:p id="{ids.new()}"', 1)
                        for ln in (hf.split_lines(str(text)) or [""]))
         cell["xml"] = x[:sub.start(2)] + body + x[sub.end(2):]
@@ -1240,6 +1247,30 @@ def _range(a: dict, tb: _Table) -> dict | None:
     return None
 
 
+
+def _merge_dittos(tb: "_Table", r0: int, c0: int, values: list) -> int:
+    """set_cells 로 넣은 「〃」(위와 같음) 칸을 위 칸과 세로로 합친다 — 합친 칸 수. 머리줄(1행)·가로로 합친 칸에는 하지 않는다.
+    「〃」 를 글자로 남기면 원본(같은 값을 세로로 합친 칸)과 달리 지저분했다(11-12 특성화 재현, 4-3 교과목 표)."""
+    n = 0
+    for i, row in enumerate(values):
+        for j, v in enumerate(row if isinstance(row, list) else [row]):
+            if v is None or not hf.DITTO.match(str(v)):
+                continue
+            r, c = r0 + i, c0 + j
+            if r < 2 or r >= tb.nr or c >= tb.nc:
+                continue
+            up, me = tb.covering(r - 1, c), tb.covering(r, c)
+            if not up or not me or up is me or up["r"] < 1 or up["cs"] != 1 or me["cs"] != 1 or me["r"] != r:
+                continue
+            try:
+                me["xml"] = re.sub(r"(<hp:t\b[^>]*>)[^<]*(</hp:t>)", r"\1\2", me["xml"])
+                tb.merge(up["r"], c, r, c)
+                n += 1
+            except EditError:
+                continue
+    return n
+
+
 @_guarded
 def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
@@ -1292,9 +1323,10 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                     raise EditError(f"값이 표({tb.nr}행×{tb.nc}열) 밖으로 나간다 — "
                                     + ("열이 모자란다: 표 꼴(hwp_table_view)을 보고 값 줄을 맞추거나 add_cols 로 늘린다." if c0 + j >= tb.nc
                                        else "먼저 add_rows 로 늘린다."))
-                tb.set_text(r0 + i, c0 + j, str(v), doc.ids)
+                tb.set_text(r0 + i, c0 + j, str(v), doc.ids, ink=doc.hdr.char_plain)
                 n += 1
-        msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "")
+        merged = _merge_dittos(tb, r0, c0, values)
+        msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」 칸 {merged}개는 위 칸과 합침" if merged else "")
     elif op in ("merge", "split"):
         rng = _range(a, tb)
         if not rng:
@@ -2462,7 +2494,7 @@ def fill_labels(data: bytes, values: dict) -> tuple[bytes, dict, dict]:
         if cur and not _hint_cell(cur) and _lab(cur) != _lab(val):
             why[name] = f"오른쪽 칸에 이미 글이 있음(「{cur[:20]}」)"
             continue
-        tb.set_text(tgt["r"], tgt["c"], str(val), doc.ids)
+        tb.set_text(tgt["r"], tgt["c"], str(val), doc.ids, ink=doc.hdr.char_plain)
         out = tb.to_xml()
         for i, pc in enumerate(pieces):
             out = out.replace(f"\x00T{i}\x00", pc)
@@ -2508,7 +2540,7 @@ def echo_labels(data: bytes, values: dict) -> tuple[bytes, dict]:
             if not hit:
                 continue
             for r, c in hit:
-                tb.set_text(r, c, v, doc.ids)
+                tb.set_text(r, c, v, doc.ids, ink=doc.hdr.char_plain)
             out = tb.to_xml()
             for i, pc in enumerate(pieces):
                 out = out.replace(f"\x00T{i}\x00", pc)
@@ -2662,7 +2694,10 @@ class EditTools:
             return self.inspect(fid, a)
         if name == "hwp_styles":
             try:
-                return styles_text(Path(webhwp.get(db, fid)["path"]).read_bytes())
+                from zzaimy.app import webhwp_profile as _wp
+                f_ = webhwp.get(db, fid)
+                prof_ = _wp.summary(_wp.ensure(db, fid, f_["path"]))
+                return styles_text(Path(f_["path"]).read_bytes()) + ("\n" + prof_ if prof_ else "")
             except (EditError, OSError) as e:
                 return str(e)
         if name in _NATIVE_FIRST and editor_open(db, fid, 2):     # 기안기가 열려 있으면 파일 대신 기안기 동작으로(화면이 다시 불러오지 않게)

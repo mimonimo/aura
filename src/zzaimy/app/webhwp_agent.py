@@ -407,6 +407,43 @@ def _squash(s: str) -> str:
     """띄어쓰기 없이 — 제목 비교용."""
     return re.sub(r"\s+", "", s or "")
 
+
+def _house_tables(data: bytes, put: list[str]) -> bytes:
+    """방금 쓴 절에 새로 넣은 자료 표(첫 행이 모두 글 = 머리줄)를 학교 표 모양으로 — 머리줄 음영·굵게·가운데, 바깥 굵은 선.
+    서식 표 모양을 못 찾으면 머리줄도 본문 칸과 같은 모양이라 원본(머리줄 음영 표)과 달리 밋밋하고 지저분해 보였다(11-12 특성화 재현).
+    머리줄이 없는 상자·한 칸 표, 방금 쓴 문단 밖의 표(서식 표)는 건드리지 않는다. 실패하면 그대로."""
+    if not put:
+        return data
+    from zzaimy.app import webhwp_style as ws
+    from zzaimy.app import webhwp_profile as wp
+    pids = set(str(p) for p in put)
+    try:
+        head_fill = (wp.profile(data).get("table") or {}).get("head_fill")     # 서식 규격의 머리줄 바탕(양식 표 것, 없으면 학교 기본)
+    except Exception:
+        head_fill = None
+
+    def fn(xml: str, hdr, _n: str) -> str:
+        def sub(m: re.Match) -> str:
+            p_open = xml.rfind("<hp:p ", 0, m.start())
+            pid = re.match(r'<hp:p id="(\d+)"', xml[p_open:p_open + 40]) if p_open >= 0 else None
+            if not pid or pid.group(1) not in pids:
+                return m.group(0)
+            if "<hp:tbl" in m.group(0)[7:]:                  # 안에 표가 든 바깥 표(상자)는 그대로
+                return m.group(0)
+            cells = ws._cells(m.group(0))
+            first = [c for c in cells if c["r"] == 0]
+            if not (len(cells) > len(first) >= 2 and all(c["text"].strip() for c in first)):
+                return m.group(0)
+            ncol = max(c["c"] + c["cs"] for c in cells)
+            # 열이 많은 자료 표(교과목·교원 명단)는 9pt — 10pt 로는 긴 설명 열이 서너 줄로 접혔다(원본 서식의 촘촘한 표도 9pt 안팎)
+            return ws.style_table(m.group(0), hdr, {"label_fill": "none", **({"head_fill": head_fill} if head_fill else {}),
+                                                    **({"font_pt": 9.0} if ncol >= 6 else {})})
+        return ws._TBL.sub(sub, xml)
+    try:
+        return ws._rewrite(data, fn)
+    except Exception:
+        return data
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -577,6 +614,13 @@ class HwpTools:
         fl = self._fields()
         empty = [x["name"] for x in fl if not x["text"]]
         lines = [f"편집기: 웹 한글 기안기 — 이 대화의 한글 작업본: 「{Path(f['name']).stem}」(필드 {len(fl)}개, 빈 필드 {len(empty)}개)"]
+        try:
+            from zzaimy.app import webhwp_profile as _wp
+            prof_ = _wp.summary(_wp.ensure(self.db, fid, f["path"]))
+            if prof_:
+                lines.append(prof_)
+        except Exception:
+            pass
         late = self.late_form_line(fid)
         if late:
             lines.append(late)
@@ -1513,7 +1557,10 @@ class HwpTools:
             others = [v for k, v in have.items() if ww.section_of(k) != field]
             items, look = webhwp_dress.dress_items(ww.parse_body(text), others)   # 참고 상자(> 줄)·표 제목(<표> 줄)은 꾸밈 스타일로
             data, put = ww.write_section(raw, field, items, written)
+            from zzaimy.app import webhwp_profile as _wp2
+            data = _wp2.plain_runs(data, put, [field])              # 서식 규격: 쓴 글은 본문 꼴(검정·기울임 없음) — 견본 글 꼴을 물려받지 않게
             data = webhwp_dress.apply(data, put, look, field)
+            data = _house_tables(data, put)
             # 다 쓴 절(이번 절과 앞서 흘려 쓴 절)의 작성방법 안내 상자는 같은 저장에서 뗀다 — 결과보고서에 안내 줄이 남던 것(11-10)
             data, guides = ww.drop_guides(data, [k for k, v in ww.field_values(data).items() if str(v).strip()])
         except KeyError:

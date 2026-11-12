@@ -42,11 +42,12 @@ def _char_size(xml: str) -> int:
 
 def issues(data: bytes) -> dict[str, list[str]]:
     """{갈래: [어디·무엇]} — 비었으면 깨끗하다."""
-    out: dict[str, list[str]] = {k: [] for k in ("ditto", "empty_rows", "narrow", "placeholder", "picture_mark")}
+    out: dict[str, list[str]] = {k: [] for k in ("ditto", "empty_rows", "narrow", "placeholder", "picture_mark", "off_style")}
     try:
         secs = _secs(data)
     except Exception:
         return out
+    off = _off_chars(data)
     tno = 0
     for xml in secs:
         for tbl in re.finditer(r"<hp:tbl\b.*?</hp:tbl>", xml, flags=re.S):
@@ -83,6 +84,26 @@ def issues(data: bytes) -> dict[str, list[str]]:
                 out["placeholder"].append(t[max(0, m.start() - 10):m.end() + 10].strip())
             for m in _PIC.finditer(t):
                 out["picture_mark"].append(m.group(0))
+        if off:                                              # 서식 규격 밖 글자(검정 아닌 색·기울임) — 견본 글 자리의 값·본문
+            for r in re.finditer(r'<hp:run\b[^>/]*\bcharPrIDRef="(\d+)"[^>/]*>(.*?)</hp:run>', flat, flags=re.S):
+                if r.group(1) in off:
+                    t = "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", r.group(2))).strip()
+                    if t and not _PLACE.search(t):
+                        out["off_style"].append(t[:15])
+    return out
+
+
+def _off_chars(data: bytes) -> set[str]:
+    """검정이 아닌 색이거나 기울인 글자 모양 id."""
+    try:
+        hdr = zipfile.ZipFile(io.BytesIO(data)).read("Contents/header.xml").decode("utf-8", "replace")
+    except Exception:
+        return set()
+    out = set()
+    for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*>(?:(?!</hh:charPr>).)*</hh:charPr>', hdr, flags=re.S):
+        col = re.search(r'\btextColor="#([0-9A-Fa-f]{6})"', m.group(0))
+        if (col and col.group(1).upper() != "000000") or "<hh:italic" in m.group(0):
+            out.add(m.group(1))
     return out
 
 
@@ -92,7 +113,8 @@ def counts(found: dict[str, list[str]]) -> dict[str, int]:
 
 LABEL = {"ditto": "「〃」 이 글자로 남은 표(위 칸과 합칠 자리)", "empty_rows": "늘리고 채우지 않은 빈 행",
          "narrow": "열이 좁아 글자 단위로 접힌 칸(열 폭을 넓히거나 다른 열을 줄인다)", "placeholder": "견본 글(OOO·○○○·본문 입력)",
-         "picture_mark": "그림 자리 표시가 글로 남음(hwp_picture 로 그 그림을 넣는다)"}
+         "picture_mark": "그림 자리 표시가 글로 남음(hwp_picture 로 그 그림을 넣는다)",
+         "off_style": "서식 규격 밖 글자(파랑·빨강·기울임 — 견본 글 꼴을 물려받음, 같은 글로 다시 쓰면 본문 꼴이 된다)"}
 
 
 def new_issues(before: dict[str, list[str]], after: dict[str, list[str]]) -> dict[str, list[str]]:

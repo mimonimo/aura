@@ -468,7 +468,48 @@ def set_fields(data: bytes, values: dict[str, str]) -> tuple[bytes, list[str]]:
         x2 = wf.strip_lineseg_in(x2, lambda q: (re.match(r'<hp:p\b[^>]*\bid="(\d+)"', q) or [None, None])[1] in made
                                  or any(e in q for e in (f'beginIDRef="{b}"' for b in ends)))
         new[n] = _normalize_xml(x2, ids)[0] if "<hp:lineBreak" in x2 else x2     # 같은 절의 다른 필드에 남은 줄 나눔도 함께 문단으로
+    inked = {k for k in done if str(want.get(k) or "").strip()}
+    if new and inked:
+        new = _ink_fields(zin, new, inked)
     return (_pack(zin, new) if new else data), done
+
+
+def _ink_fields(zin: zipfile.ZipFile, new: dict[str, str], names: set[str]) -> dict[str, str]:
+    """값을 넣은 필드 안 글은 검정으로 — 서식 견본 글(파랑·빨강) 모양을 물려받아 완성본 값이 색 글씨로 남던 것(11-12).
+    필드 밖 글·서식이 일부러 색을 준 제목은 건드리지 않는다. header 가 바뀌면 함께 담는다."""
+    from zzaimy.app import webhwp_style as ws
+    try:
+        hdr0 = zin.read("Contents/header.xml").decode("utf-8")
+    except KeyError:
+        return new
+    H = ws._Header(hdr0)
+    out = dict(new)
+    for n, xml in new.items():
+        if n == "Contents/header.xml":
+            continue
+        buf, pos = [], 0
+        for m in _BEGIN.finditer(xml):
+            if _unq(m.group(2)) not in names or m.start() < pos:
+                continue
+            sp = _span(xml, m.group(1), m.end())
+            if not sp:
+                continue
+            frag = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)', lambda q: q.group(1) + H.char_plain(q.group(2)), xml[sp[0]:sp[1]])
+            # 필드를 연 글 조각(fieldBegin 이 든 run)도 — 값 첫 글자가 그 run 에 이어진다
+            run_open = xml.rfind("<hp:run", 0, m.start())
+            if run_open >= pos:
+                head = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)', lambda q: q.group(1) + H.char_plain(q.group(2)), xml[run_open:sp[0]], count=1)
+                buf.append(xml[pos:run_open] + head)
+            else:
+                buf.append(xml[pos:sp[0]])
+            buf.append(frag)
+            pos = sp[1]
+        if buf:
+            buf.append(xml[pos:])
+            out[n] = "".join(buf)
+    if H.xml != hdr0:
+        out["Contents/header.xml"] = H.xml
+    return out
 
 
 def _para_bounds(xml: str, at: int) -> tuple[int, int] | None:
@@ -822,6 +863,15 @@ def _drop_paras(xml: str, pids) -> str:
     return xml
 
 
+def _sample_char(header: str, cp: str) -> bool:
+    """글자 모양이 서식 견본·안내 글 꼴인가 — 검정이 아닌 글자 색이거나 기울임."""
+    m = re.search(rf'<hh:charPr\b[^>]*\bid="{cp}"[^>]*>(?:(?!</hh:charPr>).)*</hh:charPr>', header, re.S)
+    if not m:
+        return False
+    col = re.search(r'\btextColor="#([0-9A-Fa-f]{6})"', m.group(0))
+    return bool((col and col.group(1).upper() != "000000") or "<hh:italic" in m.group(0))
+
+
 def _body_char(sections, header: str) -> str | None:
     """양식 본문 글자 모양 id — 표·상자 밖 최상위 문단 가운데 긴 문장(굵지 않은 것)에 가장 많이 쓴 글자 모양. 없으면 None."""
     from collections import Counter
@@ -915,6 +965,9 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         cp = here.group(1) if here else cp
         # 다만 그 자리가 제목 문단의 큰 글자를 물려받았으면(제목 바로 뒤에 박은 필드) 양식 본문 글자로 — 새 본문만 커 보이던 것(11-09)
         if body_cp and hangs.char_height(cp) > hangs.char_height(body_cp) + 100:
+            cp = body_cp
+        # 그 자리가 서식 견본·작성방법 글(파랑·빨강·기울임)이면 본문 글자로 — 절 본문 전체가 파란 기울임으로 들어갔다(11-12 특성화 재현)
+        if body_cp and _sample_char(header, cp):
             cp = body_cp
         bf, margin = hf._table_template(xml, solid)
         if bf is None:

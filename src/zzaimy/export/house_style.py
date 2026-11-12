@@ -28,7 +28,7 @@ DIAGRAM_WEIGHTS = (4, 1)
 DIAGRAM_BOX_HEIGHT = 1800                                               # HWPUNIT
 DIAGRAM_ARROW_HEIGHT = 900
 DIAGRAM_MARGIN = 283                                                    # HWPUNIT(약 1mm) 사방
-DIAGRAM_MAX_LINES = 12
+DIAGRAM_MAX_LINES = 16
 DIAGRAM_FENCE = re.compile(r"^```\s*(도식|diagram|flow)")
 
 # ── 색 ── 남색·회색 두 계열만(본문 글은 검정). 남색은 장·1단계 제목 글자와 일정표 칸(연남색), 회색은 표 음영·안내 글
@@ -346,14 +346,42 @@ def grid_cells(rows: list[list[str]]) -> list[dict]:
             for ri, r in enumerate(rows) for ci in range(n)]
 
 
+DIAGRAM_ROW_BOXES = 4            # 한 줄 상자 상한 — 넘으면 차례(흐름)가 아니라 나란한 항목으로 보고 여러 줄로 접는다
+
+
+class Siblings(list):
+    """한 줄에 상자가 너무 많아 접은 줄 — 상자 사이·접은 줄 사이에 화살표를 두지 않는다(나란한 항목: 부서·학과 목록).
+    first: 접은 첫 줄인가(그 위 줄과는 ↓ 로 잇고, 뒤 줄들은 이어 붙인다)."""
+    first = True
+
+
 def diagram_lines(text: str) -> list[list[str]]:
-    """```도식 블록 글 → 상자 줄 목록. 줄마다 「상자 → 상자」, 화살표만 있는 줄(↓)은 건너뛴다."""
-    out = []
+    """```도식 블록 글 → 상자 줄 목록. 줄마다 「상자 → 상자」, 화살표만 있는 줄(↓)은 건너뛴다.
+    한 줄 상자가 DIAGRAM_ROW_BOXES 를 넘으면 Siblings 줄로 접는다 — 「총장 → 기획처 → … 15개」 를 한 줄에 그려
+    상자마다 폭이 좁아 세로 막대 여러 개로 깨졌다(11-12 특성화 재현, 대학 기구표)."""
+    out: list[list[str]] = []
     for ln in str(text or "").split("\n"):
         boxes = [b.strip() for b in re.split(r"\s*(?:→|->|⇒|=>)\s*", ln.strip()) if b.strip()]
-        if boxes and not re.fullmatch(r"[↓|]+", ln.strip()):
+        if not boxes or re.fullmatch(r"[↓|]+", ln.strip()):
+            continue
+        if len(boxes) <= DIAGRAM_ROW_BOXES:
             out.append(boxes)
+            continue
+        for k in range(0, len(boxes), DIAGRAM_ROW_BOXES):
+            row = Siblings(boxes[k:k + DIAGRAM_ROW_BOXES])
+            row.first = k == 0
+            out.append(row)
     return out[:DIAGRAM_MAX_LINES]
+
+
+def _joined(boxes) -> bool:
+    """이 줄의 상자 사이를 → 로 잇는가(나란한 항목 줄이 아니면)."""
+    return not isinstance(boxes, Siblings)
+
+
+def _arrow_above(boxes, i: int) -> bool:
+    """이 줄 위에 ↓ 행을 두는가 — 첫 줄이 아니고, 접은 줄의 뒤 줄이 아닐 때."""
+    return bool(i) and not (isinstance(boxes, Siblings) and not boxes.first)
 
 
 def diagram_grid(lines: list[list[str]]) -> dict:
@@ -363,12 +391,12 @@ def diagram_grid(lines: list[list[str]]) -> dict:
     cols = max(2 * n - 1, 1)
     rows: list[dict] = []
     for i, boxes in enumerate(lines):
-        if i:
+        if _arrow_above(boxes, i):
             rows.append({"kind": "arrow", "height": DIAGRAM_ARROW_HEIGHT,
                          "cells": [{"c": 0, "span": cols, "text": "↓", "kind": "arrow", "bold": False}]})
         fill = DIAGRAM_FILLS[0] if i == 0 else DIAGRAM_FILLS[1]
         cells: list[dict] = []
-        if len(boxes) == 1:
+        if len(boxes) == 1 and not isinstance(boxes, Siblings):
             cells.append({"c": 0, "span": cols, "text": boxes[0], "kind": "box", "bold": True, "fill": fill})
         else:
             k = len(boxes)
@@ -381,7 +409,7 @@ def diagram_grid(lines: list[list[str]]) -> dict:
                 cells.append({"c": c, "span": 1, "text": b, "kind": "box", "bold": i == 0, "fill": fill})
                 c += 1
                 if j < k - 1:
-                    cells.append({"c": c, "span": 1, "text": "→", "kind": "arrow", "bold": False})
+                    cells.append({"c": c, "span": 1, "text": "→" if _joined(boxes) else "", "kind": "arrow" if _joined(boxes) else "blank", "bold": False})
                     c += 1
             if c < cols:
                 cells.append({"c": c, "span": cols - c, "text": "", "kind": "blank", "bold": False})

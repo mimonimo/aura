@@ -82,6 +82,47 @@ class _Header:
             self._index[group] = idx
         return self._index[group]
 
+    def char_plain(self, base: str) -> str:
+        """글자 모양 base 를 본문 꼴로 — 검정 글씨·기울임 없음. 이미 그렇다면 그대로, 아니면 그 둘만 바꾼 복제(같은 것이 있으면 그 id).
+        서식의 견본·작성방법 글(파랑·빨강·기울임) 자리에 쓴 값과 본문이 그 꼴을 물려받아 완성본이 파란 기울임으로 남던 것(11-12 특성화 재현)."""
+        key = ("plain", str(base))
+        if key in self.cache:
+            return self.cache[key]
+        m = re.search(rf'<hh:charPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:charPr>', self.xml, re.S)
+        if not m:
+            self.cache[key] = str(base)
+            return str(base)
+        body = m.group(0)
+        col = re.search(r'\btextColor="#([0-9A-Fa-f]{6})"', body)
+        colored = bool(col and col.group(1).upper() != "000000")
+        italic = "<hh:italic" in body
+        if not colored and not italic:
+            self.cache[key] = str(base)
+            return str(base)
+        body = re.sub(r'\btextColor="#[0-9A-Fa-f]{6}"', 'textColor="#000000"', body, count=1)
+        body = re.sub(r"<hh:italic\b[^>]*/>", "", body)
+        body = re.sub(r'\bid="\d+"', f'id="{self._next_id("charPr")}"', body, count=1)
+        new_id = self._append("charProperties", body)
+        self.cache[key] = new_id
+        return new_id
+
+    def char_black(self, base: str) -> str:
+        """글자 모양 base 를 검정 글씨로 — 이미 검정(또는 색 없음)이면 그대로, 아니면 색만 검정인 복제(같은 것이 있으면 그 id).
+        서식의 견본 글(파랑·빨강)이 든 칸·필드에 값을 넣으면 그 색을 물려받아 완성본 값이 파랗게 남던 것(11-12 특성화 재현)."""
+        key = ("black", str(base))
+        if key in self.cache:
+            return self.cache[key]
+        m = re.search(rf'<hh:charPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:charPr>', self.xml, re.S)
+        col = re.search(r'\btextColor="#([0-9A-Fa-f]{6})"', m.group(0)) if m else None
+        if not m or not col or col.group(1) == "000000":
+            self.cache[key] = str(base)
+            return str(base)
+        body = re.sub(r'\btextColor="#[0-9A-Fa-f]{6}"', 'textColor="#000000"', m.group(0), count=1)
+        body = re.sub(r'\bid="\d+"', f'id="{self._next_id("charPr")}"', body, count=1)
+        new_id = self._append("charProperties", body)
+        self.cache[key] = new_id
+        return new_id
+
     def _append(self, group: str, body: str) -> str:
         """모양 하나를 더한다 — 같은 몸통이 있으면 더하지 않고 그 id. 돌려주는 것은 쓸 id."""
         key = self._norm(body)
@@ -518,14 +559,14 @@ def diagram_table(lines: list[list[str]], hdr: _Header, pp: str, cp: str, width:
     dm = hs.DIAGRAM_MARGIN
     heights = 0
     for i, boxes in enumerate(lines):
-        if i:                                                # 줄 사이 아래 화살표
+        if hs._arrow_above(boxes, i):                        # 줄 사이 아래 화살표(접은 나란한 항목 줄 사이에는 없음)
             rows.append("<hp:tr>" + cell("↓", 0, r, cols, none_bf, cp, hs.DIAGRAM_ARROW_HEIGHT) + "</hp:tr>")
             r += 1
             heights += hs.DIAGRAM_ARROW_HEIGHT
         fill = DIAGRAM_FILLS[0] if i == 0 else DIAGRAM_FILLS[1]
         box_bf = hdr.border(*[hs.DIAGRAM_BORDER] * 4, fill)
         tcs = []
-        if len(boxes) == 1:
+        if len(boxes) == 1 and not isinstance(boxes, hs.Siblings):      # 상자 하나뿐인 줄(상위 기관)은 온 폭 — 접은 항목 줄의 끝 하나는 상자 한 칸
             tcs.append(cell(boxes[0], 0, r, cols, box_bf, bold))
         else:
             # 상자 k 개를 n 칸 가운데에 — 남는 칸은 양옆 빈 칸(테두리 없음)으로
@@ -539,7 +580,7 @@ def diagram_table(lines: list[list[str]], hdr: _Header, pp: str, cp: str, width:
                 tcs.append(cell(b, c, r, 1, box_bf, bold if i == 0 else cp))
                 c += 1
                 if j < k - 1:
-                    tcs.append(cell("→", c, r, 1, none_bf, cp))
+                    tcs.append(cell("→" if hs._joined(boxes) else "", c, r, 1, none_bf, cp))
                     c += 1
             if c < cols:
                 tcs.append(cell("", c, r, cols - c, none_bf, cp))
