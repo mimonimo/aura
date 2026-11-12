@@ -575,6 +575,22 @@ def _fit_widths(col_ws: list[int], mins: list[int], width_hu: int) -> list[int]:
     return ws
 
 
+def _char_w(ch: str, size: int) -> float:
+    """글자 하나의 대략 폭(HWPUNIT) — 한글·한자·전각은 글자 크기, 빈칸은 0.3, 나머지(영문·숫자·기호)는 0.55."""
+    if ch == " ":
+        return size * 0.3
+    return size * (0.55 if ord(ch) < 0x2000 else 1.0)
+
+
+def row_height(text: str, col_w: int, size: int = 1000, line: float = 1.6, pad: int = 682) -> int:
+    """칸 글이 col_w 폭에서 몇 줄로 접히는지 어림해 행 높이(HWPUNIT)를 낸다 — 줄 수 × 글자 크기 × 줄 간격 + 안 여백."""
+    room = max(col_w - 482, size)
+    n = 0
+    for ln in split_lines(str(text or "")) or [""]:
+        n += max(1, -(-int(sum(_char_w(c, size) for c in ln)) // room))
+    return int(n * size * line) + pad
+
+
 def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int,
               widths: list[float] | None = None, roles: dict[str, tuple[str, str, str]] | None = None, char_hu: int | None = None) -> str:
     """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 칸 글 길이에 맞춰 나눈다.
@@ -597,10 +613,13 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
         col_ws = [max(int(width_hu * w / sum(weights)), 1000) for w in weights]
     # 짧은 값 열(「목표 80%」)이 긴 글 열에 밀려 「80%」 가 세로로 끊기던 것(11-09 결과보고서) — 끊으면 안 되는 낱말 폭은 지킨다
     col_ws = _fit_widths(col_ws, _min_col_widths(rows, n_cols, int(char_hu or 1000)), width_hu)
-    row_h = 1200
-    trs = []
+    char = int(char_hu or 1000)
+    trs, heights = [], []
     for r, row in enumerate(rows):
         tcs = []
+        # 행 높이는 칸 글이 들어갈 만큼 — 1200 으로 두면 웹 기안기가 여러 줄 칸을 덜 늘려 글 위아래가 잘려 보였다(11-12 논문)
+        row_h = max([1200] + [row_height(str(row[c]) if c < len(row) else "", col_ws[c], char) for c in range(n_cols)])
+        heights.append(row_h)
         for c in range(n_cols):
             cell = row[c] if c < len(row) else ""
             lines = split_lines(str(cell)) or [""]
@@ -614,14 +633,17 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
                        f'<hp:cellSz width="{col_ws[c]}" height="{row_h}"/>{margin}</hp:tc>')
         trs.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
     total_w = sum(col_ws)
+    total_h = sum(heights)
+    # 글자처럼 취급(treatAsChar=1)하는 표는 한글이 쪽에서 나누지 못한다 — 쪽보다 긴 표가 꼬리말을 덮고 쪽 아래로 잘렸다(11-12 논문, 웹 기안기 실측).
+    # 본문과 같이 흐르는 표(treatAsChar=0, 위아래 배치)로 둬야 「셀 단위로 나눔」·「나눔」 이 듣는다
     # 쪽 나눔 — 짧은 표는 한 쪽에 모으고(NONE) 긴 표는 행 사이에서(CELL). 다만 한 칸 글이 길면(쪽보다 길 수 있다) 칸 안에서도 나눈다(TABLE) —
     # 「나누지 않음」·「셀 단위」 에서는 쪽보다 긴 칸의 아래가 잘려 보이지 않았다(11-11, webhwp_write.split_tables 와 같은 기준)
     long_cell = any(len(str(c or "")) > LONG_CELL for row in rows for c in row)
     split = "TABLE" if long_cell else ("NONE" if n_rows <= SHORT_TABLE_ROWS else "CELL")
     tbl = (f'<hp:tbl id="{table_id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
            f'pageBreak="{split}" repeatHeader="1" rowCnt="{n_rows}" colCnt="{n_cols}" cellSpacing="0" borderFillIDRef="{bf}" noAdjust="0">'
-           f'<hp:sz width="{total_w}" widthRelTo="ABSOLUTE" height="{row_h * n_rows}" heightRelTo="ABSOLUTE" protect="0"/>'
-           f'<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" '
+           f'<hp:sz width="{total_w}" widthRelTo="ABSOLUTE" height="{total_h}" heightRelTo="ABSOLUTE" protect="0"/>'
+           f'<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" '
            f'vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'
            f'<hp:outMargin left="0" right="0" top="283" bottom="283"/><hp:inMargin left="141" right="141" top="141" bottom="141"/>'
            + "".join(trs) + "</hp:tbl>")

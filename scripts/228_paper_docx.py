@@ -43,6 +43,7 @@ DEPT = "영남이공대학교 " + _ph.META["dept"]
 YEAR = _ph.META["year"]
 BODY_PT, CH_PT, SEC_PT = 10, 14, 12
 MAX_IMG_CM = 15.0
+LOGO_W_CM, LOGO_H_CM = 4.0, 2.0
 
 CHAPTERS = ["01-서론.md", "02-관련-연구.md", "03-환경-설계.md", "04-구현.md", "05-평가.md", "06-결론.md",
             "99-참고-문헌.md", "97-초록.md", "98-팀원-소개.md"]
@@ -246,6 +247,8 @@ def _image(doc, path: Path, missing: list):
         width = min(MAX_IMG_CM, w / 96 * 2.54)
         if h / max(w, 1) * width > 20:                    # 아주 긴 그림은 높이 20cm 안으로
             width = 20 * w / h
+        if "/logos/" in str(path).replace("\\", "/"):     # 로고는 작게 — 4cm × 2cm 안(한글 쪽 paper_hwp.LOGO_MAX_W·H 와 같은 값)
+            width = min(width, LOGO_W_CM, LOGO_H_CM * w / max(h, 1))
         p.add_run().add_picture(str(path), width=Cm(width))
     except Exception as e:
         missing.append(f"{path} ({type(e).__name__})")
@@ -427,7 +430,7 @@ def _page_setup(section):
     section.page_width, section.page_height = Mm(210), Mm(297)
     section.top_margin = section.bottom_margin = Mm(25.4)
     section.left_margin = section.right_margin = Mm(30)
-    section.header_distance, section.footer_distance = Mm(15), Mm(17.5)
+    section.header_distance, section.footer_distance = Mm(15), Mm(10)   # 꼬리말은 쪽 아래 끝 가까이(11-12, 한글 쪽과 같은 자리)
 
 
 def _restart_numbering(section, start=1):

@@ -215,11 +215,15 @@ def outline_from_markdown(texts: list[str]) -> list[tuple[int, str, str]]:
     return out
 
 
+LIST_FILE = "그림-표-목록.md"     # 그림 파일 장부(figure_files 가 따로 읽는다) — 장 원고가 아니다. 그 안의 「## 부록 사용 설명서」 표가 부록 머리에 들어갔다(11-12)
+
+
 def chapter_files(src: Path) -> list[Path]:
-    """원고 폴더의 장 파일 — README 는 목록이라 뺀다. 이름 차례(01-서론.md …, 부록은 맨 뒤)."""
+    """원고 폴더의 장 파일 — README·그림 목록은 뺀다. 이름 차례(01-서론.md …, 부록은 맨 뒤)."""
     if not src or not src.is_dir():
         return []
-    return sorted((p for p in src.glob("*.md") if p.name.lower() != "readme.md"), key=lambda p: (p.name.startswith(APPX), p.name))
+    return sorted((p for p in src.glob("*.md") if p.name.lower() != "readme.md" and p.name != LIST_FILE),
+                  key=lambda p: (p.name.startswith(APPX), p.name))
 
 
 def outline_for(src: Path | None) -> list[tuple[int, str, str]]:
@@ -423,6 +427,18 @@ def _fieldize(data: bytes, meta: dict | None = None) -> bytes:
     return buf.getvalue()
 
 
+# 쪽 여백(HWPUNIT, 1mm = 283.46). 한글은 「위쪽」 이 종이 끝 → 머리말, 「머리말」 이 머리말 칸 높이라 본문은 위쪽+머리말에서, 아래도 같이
+# 「아래쪽」 이 종이 끝 → 꼬리말이다. 학교 양식(워드: 본문까지 25.4mm, 머리말 15mm·꼬리말 17.5mm)을 옮기되 꼬리말은 쪽 아래 끝 가까이 —
+# 위쪽 20·아래쪽 15 로 두었을 때 꼬리말이 본문 쪽으로 떠 보였다(11-12 사용자, 웹 기안기 실측)
+MARGIN = {"top": 4252, "header": 3402, "bottom": 2835, "footer": 4252}     # 15 + 12 = 본문 27mm, 10 + 15 = 본문 25mm
+
+
+def _margin(tag: str) -> str:
+    for k, v in MARGIN.items():
+        tag = re.sub(rf'\b{k}="\d+"', f'{k}="{v}"', tag, count=1)
+    return tag
+
+
 def _page_frame(data: bytes, meta: dict) -> bytes:
     """A4·머리말(오른쪽 위 줄인 제목, 아래 선)·꼬리말(학교·학과)·쪽 번호(아래 오른쪽). 표지에는 머리말·꼬리말·쪽 번호를 숨긴다."""
     from zzaimy.app import webhwp_edit_ops as eo
@@ -433,6 +449,7 @@ def _page_frame(data: bytes, meta: dict) -> bytes:
     data = eo.page_number(data, {"position": "아래 오른쪽"})[0]
 
     def fn(xml: str, hdr, _n: str) -> str:
+        xml = re.sub(r'<hp:margin\b[^>]*/>', lambda m: _margin(m.group(0)), xml)
         xml = re.sub(r'(<hp:visibility\b[^>]*?)hideFirstHeader="0"', r'\1hideFirstHeader="1"', xml, count=1)
         xml = re.sub(r'(<hp:visibility\b[^>]*?)hideFirstFooter="0"', r'\1hideFirstFooter="1"', xml, count=1)
         xml = re.sub(r'(<hp:visibility\b[^>]*?)hideFirstPageNum="0"', r'\1hideFirstPageNum="1"', xml, count=1)
@@ -1001,7 +1018,8 @@ _UL = re.compile(r"^\s*[-*+]\s+(.*)$")
 
 def _inline(t: str) -> str:
     """줄 안 마크다운 꾸밈을 걷는다 — 굵게·기울임·코드 따옴표, 링크는 「글(주소)」."""
-    t = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1(\2)", t)
+    # 링크만 「글(주소)」 로 — 참고 문헌 번호 뒤 괄호(「[4](2.1.3)」 = 문헌 [4], 절 2.1.3)는 링크가 아니다(번호가 「4」 로 줄던 것, 11-12)
+    t = re.sub(r"\[(?![\d,\s~–-]+\])([^\]]+)\]\(([^)]+)\)", r"\1(\2)", t)
     t = re.sub(r"(\*\*|__)(.+?)\1", r"\2", t)
     t = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)", r"\1", t)
     t = re.sub(r"`([^`]+)`", r"\1", t)
@@ -1026,6 +1044,7 @@ def blocks(body: str) -> list[dict]:
     code(``` 블록)·diagram(```도식)·sub(소제목)."""
     out: list[dict] = []
     body = re.sub(r"<!--.*?-->", "", body, flags=re.S)     # 원고 메모(HTML 주석)는 문서에 넣지 않는다
+    body = re.sub(r"(?m)^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", "", body)   # 마크다운 가름줄(---)은 원고 정리용 — 문서에 「---」 로 찍혔다(11-12)
     lines = body.splitlines()
     i = 0
     para: list[str] = []
@@ -1303,7 +1322,7 @@ def figure_files(list_md: Path, root: Path) -> dict[str, list[Path]]:
 PIC_MAX_H = 52000          # 그림 높이 상한(HWPUNIT, 약 18cm) — 세로로 긴 화면 캡처가 한 쪽을 넘지 않게
 
 
-LOGO_MAX_W, LOGO_MAX_H = 17000, 9000   # 로고 그림 상한(HWPUNIT, 약 6cm × 3.2cm) — 글 폭에 맞추면 정사각 로고가 한 쪽을 다 차지했다
+LOGO_MAX_W, LOGO_MAX_H = 11340, 5670   # 로고 그림 상한(HWPUNIT, 4cm × 2cm) — 글 폭에 맞추면 정사각 로고가 한 쪽을 다 차지했고, 6cm 도 크다(11-12 사용자)
 
 
 def place_pictures(data: bytes, pids: list[str], pictures: dict[str, bytes], small: set[str] | None = None) -> bytes:

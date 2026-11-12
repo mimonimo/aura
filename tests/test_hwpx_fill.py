@@ -480,3 +480,15 @@ def test_rewritten_form_table_matches_by_shape_within_its_section(tmp_path):
     assert rep["tables_updated"] == 1 and rep["tables"] == 0
     rep2 = hwpx_fill.fill(src, [{"heading": "1.1. 대학의 여건 분석", "items": [("table", [["가나다", "라마바"]])]}], tmp_path / "b.hwpx")
     assert rep2["tables"] == 1 and rep2["tables_updated"] == 0              # 1.2 절의 서식 표는 1.1 절 것이 아니다
+
+
+def test_new_table_flows_and_rows_fit_text():
+    """새 표는 글자처럼 취급하지 않는다(쪽에서 나뉘게), 행 높이는 칸 글 줄 수만큼(11-12 논문 표 잘림)."""
+    import re as _re
+    from zzaimy.ingest import hwpx_fill as hf
+    rows = [["용어", "풀이"], ["짧음", "가" * 120]] + [["a", "b"]] * 12
+    x = hf.table_xml(rows, "0", "0", 42520, "1", "", 7)
+    assert 'treatAsChar="0"' in x and 'pageBreak="CELL"' in x
+    hs = [int(h) for h in _re.findall(r'<hp:cellSz width="\d+" height="(\d+)"', x)]
+    assert max(hs) > 3 * 1200                    # 120자 칸은 여러 줄 높이
+    assert hf.row_height("", 20000) == hf.row_height("가", 20000)

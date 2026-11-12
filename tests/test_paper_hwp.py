@@ -603,3 +603,20 @@ def test_docs_page_lists_manuscript_and_opens_chapters(tmp_path, monkeypatch):
     for bad in ("논문/../../HANDOFF.md", "x/01-서론.md", "논문/a/b.md", "논문/README.txt"):
         assert dev.get(f"/dev/paper/{bad}").status_code == 404, bad
     assert dev.get("/dev/docs").text.count('href="/dev/doc/architecture.md"') == 1   # 시스템 설계는 지금 정본 칸에 한 번
+
+
+def test_inline_keeps_citation_before_section_paren():
+    """「[4](2.1.3)」 은 문헌 번호와 절 번호다 — 링크로 읽어 「4(2.1.3)」 로 줄이지 않는다(11-12). 진짜 링크는 그대로 「글(주소)」."""
+    assert ph._inline("공식 배포한다[4](2.1.3).") == "공식 배포한다[4](2.1.3)."
+    assert ph._inline("[01-서론.md](01-서론.md)") == "01-서론.md(01-서론.md)"
+
+
+def test_blocks_drop_horizontal_rule():
+    kinds = [b.get("text") for b in ph.blocks("앞 문단\n\n---\n\n뒤 문단")]
+    assert "---" not in " ".join(k or "" for k in kinds)
+
+
+def test_chapter_files_skip_figure_list(tmp_path):
+    for n in ("01-서론.md", "그림-표-목록.md", "README.md", "부록-사용-설명서.md"):
+        (tmp_path / n).write_text("# x\n", encoding="utf-8")
+    assert [p.name for p in ph.chapter_files(tmp_path)] == ["01-서론.md", "부록-사용-설명서.md"]
