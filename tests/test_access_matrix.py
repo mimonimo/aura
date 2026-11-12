@@ -668,3 +668,17 @@ def test_same_dept_collaborator_gets_writer_on_owner_work_docs(world, monkeypatc
     db.set_setting("google_account:plan7", "plan7@ync.ac.kr")
     _client(app2, "plan").post(f"/project/{pid}/shares", data={"mode": "shared", "to": "user:plan7", "level": "edit"}, follow_redirects=False)
     assert calls[-1] == {"DOCSAME0001": {"plan7@ync.ac.kr": "writer"}}
+
+
+def test_admin_sees_projects_shared_to_them_by_name(world):
+    """관리자도 이름으로 나눈 프로젝트는 사이드바 「공유받은 프로젝트」 에 보인다 — 나누지 않은 남의 프로젝트는 목록에 없다(11-12)."""
+    from zzaimy.app import project_access as pa
+    app, ids, tmp = world
+    db = app.state.db
+    mine = db.create_project("grant", "관리자에게나눈사업", owner="plan")
+    other = db.create_project("grant", "안나눈사업", owner="plan")
+    pa.set_shares(db, mine, "shared", [{"to": "user:zzdev", "level": "edit"}])
+    page = _client(app, "zzdev").get("/").text
+    assert "공유받은 프로젝트" in page and "관리자에게나눈사업" in page
+    side = page[page.index("공유받은 프로젝트"):]
+    assert "안나눈사업" not in side[:3000]

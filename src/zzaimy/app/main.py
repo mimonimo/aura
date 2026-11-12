@@ -552,11 +552,17 @@ def create_app(
     def _shared_project_ids(request: Request) -> list[int]:
         """나에게 공유된 진행 중 프로젝트(내 것 제외) — 사이드바 「공유받은 프로젝트」·프로젝트 찾기."""
         me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
-        if getattr(request.state, "role", "") not in _ap.STAFF_ROLES:
+        role_ = getattr(request.state, "role", "")
+        if role_ not in _ap.STAFF_ROLES and not (role_ == "dev" and me):
             return []
         with db._conn() as conn:
             rows = [dict(r) for r in conn.execute("SELECT * FROM projects WHERE archived = 0 AND owner <> ? ORDER BY id DESC",
                                                   (me,)).fetchall()]
+        if role_ == "dev":
+            # 관리자는 모든 프로젝트를 열 수 있어 목록이 없었다 — 이름으로 콕 집어 나눈 프로젝트만 보인다(11-12: 시험 계정이 zzdev 에 나눈 특성화 재현)
+            from zzaimy.app import project_access as _pa_share
+            return [int(p["id"]) for p in rows
+                    if any(i.get("to") == f"user:{me}" for i in (_pa_share.shares(db, p).get("items") or []))]
         return [int(p["id"]) for p in rows if _project_access(request, p)]
 
     def _covers(viewer: str, other: str) -> bool:
@@ -1295,9 +1301,9 @@ def create_app(
             "drive_new": drive_new,
             "alert_count": len(actionable) + len(failed) + len(drive_new),
             "side_projects": db.list_all_projects(owner=owner),
-            # 공유받은 프로젝트 — 내 것 아래 따로(project_access). 학생·관리자 화면에는 없다
+            # 공유받은 프로젝트 — 내 것 아래 따로(project_access). 학생 화면에는 없고, 관리자는 이름으로 나눈 것만
             "side_shared": [p for p in (db.get_project(i) for i in _shared_project_ids(request)[:20]) if p]
-                           if getattr(request.state, "role", "") in _ap.STAFF_ROLES else [],
+                           if getattr(request.state, "role", "") in (*_ap.STAFF_ROLES, "dev") else [],
             "profile_name": _person_name(getattr(request.state, "user", None), fallback=""),   # 사람 이름 한 곳(app/people)
             "profile_dept": (accounts.get(getattr(request.state, "user", "") or "", {}) or {}).get("dept", ""),
             **extra,
