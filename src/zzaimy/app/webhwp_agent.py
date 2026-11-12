@@ -527,7 +527,20 @@ class HwpTools:
     def _fields(self) -> list[dict]:
         from zzaimy.app import webhwp_write as ww
         f = webhwp.get(self.db, self.fid() or 0)
-        return ww.fields(Path(f["path"]).read_bytes()) if f else []
+        if not f:
+            return []
+        out = ww.fields(Path(f["path"]).read_bytes())
+        # 본문을 표·도식·문단으로 절 뒤에 넣은 절(AURA 쓰기 기록이 있는 절)은 필드 칸이 비어 있어도 쓴 절이다 —
+        # 칸 안 안내 글(「본문 입력」)을 빈 칸으로 보게 된 뒤 「절 119개 가운데 빈 절 119개」 로 셌다(11-12 특성화 재현 3차)
+        try:
+            written = (webhwp.meta(self.db, f["id"]).get("written") or {})
+        except Exception:
+            written = {}
+        if isinstance(written, dict):
+            for x in out:
+                if x.get("kind") == "절" and not x.get("text") and written.get(x["name"]):
+                    x["text"] = "(표·문단으로 씀)"
+        return out
 
     def rooms(self) -> dict[str, dict]:
         """작업본 필드의 자리(field_rooms) — 짧은 값 칸의 글자 예산·안내 상자 표시."""

@@ -240,6 +240,12 @@ def _unreachable(e: BaseException) -> bool:
     return True                   # 상태 코드가 없는 오류 — 연결 끊김·시간 초과·서버 없음
 
 
+
+def _gathers_key(key: str, tools) -> bool:
+    """걸음 열쇠(도구 이름@대상{인자})가 근거 찾기 도구 것인가 — 문서가 바뀌어도 검색 결과는 그대로라 버리지 않는다."""
+    name = re.split(r"[@{]", key, 1)[0]
+    return any(t.name == name and getattr(t, "gathers", False) for t in tools)
+
 def failure_message(ep: Episode) -> str:
     """모델이 요청을 끝내지 못했을 때 담당자에게 남길 글 — 무엇이 실패했고, 문서는 바꾸지 않았다는 것."""
     if ep.failures:
@@ -575,6 +581,12 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     if not data.lstrip().startswith(_REFUSED):
                         changed.append(name)
                         noop_run.clear()                               # 무엇이든 바뀌면 처음부터 센다
+                        # 문서가 바뀌었으니 앞서 본 결과(표 보기·같은 인자 쓰기의 거절)는 낡았다 — 다시 하면 새로 한다.
+                        # 열을 늘린 뒤 같은 값 넣기가 「같은 인자로 이미 썼다」 로 옛 거절(「표 밖으로 나간다」)을 되보여 표를 못 채웠다(11-12 특성화 재현 3차 7단계)
+                        for k_ in [k_ for k_ in first_obs if k_ != key and not _gathers_key(k_, tools)]:
+                            first_obs.pop(k_, None)
+                        for k_ in [k_ for k_ in rejected if not _gathers_key(k_, tools)]:
+                            rejected.pop(k_, None)
                     else:
                         noop_run[name] = noop_run.get(name, 0) + 1
                         noop_args.setdefault(name, []).append(str(args.get("find") or args.get("field") or args.get("section") or "")[:30])

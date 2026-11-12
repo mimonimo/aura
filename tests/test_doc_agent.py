@@ -138,3 +138,24 @@ def test_finish_claiming_writes_is_refused_once_when_nothing_changed():
     tools[0] = doc_agent.Tool("hwp_write", "쓰기", lambda a: "「1. 개요」 을 썼다", writes=True)
     ep = doc_agent.run(_client([_step("hwp_write", field="1. 개요", text="x"), _step("finish", message="1절을 썼습니다")]), "써 줘", lambda: "상태", tools)
     assert ep.final_message == "1절을 썼습니다"
+
+
+def test_same_call_reruns_after_document_changed():
+    """열을 늘린 뒤(문서가 바뀐 뒤) 같은 인자의 값 넣기는 옛 결과를 되보이지 않고 새로 한다(11-12 특성화 재현 3차 7단계)."""
+    cols = {"n": 9}
+    calls = []
+
+    def set_cells(a):
+        calls.append(cols["n"])
+        return "표: 칸 10개에 값을 넣었다" if cols["n"] >= 10 else "바꾸지 않았다 — 값이 표 밖으로 나간다"
+
+    def add_col(a):
+        cols["n"] += 1
+        return "표: 1열을 넣었다"
+    tools = [doc_agent.Tool("set_cells", "넣기", set_cells, writes=True),
+             doc_agent.Tool("add_col", "열", add_col, writes=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    replies = [_step("set_cells", v=1), _step("add_col"), _step("set_cells", v=1), _step("finish", message="넣었습니다")]
+    ep = doc_agent.run(_client(replies), "표에 넣어 줘", lambda: "상태", tools, max_writes=5)
+    assert calls == [9, 10]
+    assert "칸 10개" in ep.steps[2]["observation"]
