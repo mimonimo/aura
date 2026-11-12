@@ -294,8 +294,8 @@ def test_load_into_blank_reports_cover_and_replace_keeps_coedit_state(tmp_path, 
     assert "시연" in now and ce.norm(ce.state(db, fid)[para]["text"]) == ce.norm(now)
 
 
-def test_replace_reports_split_runs():
-    """찾는 글이 글자 모양 경계로 쪼개져 있으면 「찾지 못했다」 에 까닭과 다른 길을 붙인다."""
+def test_replace_across_split_runs():
+    """찾는 글이 글자 모양 경계로 쪼개져 있어도 한 문단 안이면 바꾼다(11-12 — 예전에는 「쪼개져 있다」 며 바꾸지 못했다)."""
     from zzaimy.app import webhwp_edit_ops as eo
     import io as _io
     import zipfile as _zf
@@ -309,11 +309,10 @@ def test_replace_reports_split_runs():
     with _zf.ZipFile(out, "w") as w:
         for info in z.infolist():
             w.writestr(info, split.encode() if info.filename == "Contents/section0.xml" else z.read(info.filename))
-    try:
-        eo.replace_text(out.getvalue(), {"find": t[:4], "replace": "x"})
-        raise AssertionError("바꾸면 안 된다")
-    except eo.EditError as e:
-        assert "쪼개져" in str(e)
+    new, msg = eo.replace_text(out.getvalue(), {"find": t[:4], "replace": "x"})
+    assert "1곳" in msg
+    sec2 = _zf.ZipFile(_io.BytesIO(new)).read("Contents/section0.xml").decode()
+    assert f"<hp:t>x</hp:t>" in sec2 and f"<hp:t>{t[4:]}</hp:t>" in sec2
 
 
 SHORT = {**DESIGN, "sections": DESIGN["sections"][:2]}

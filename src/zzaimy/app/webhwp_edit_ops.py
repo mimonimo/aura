@@ -1641,10 +1641,42 @@ def picture(data: bytes, img: bytes, a: dict) -> tuple[bytes, str]:
     return doc.pack(), f"그림을 넣었다(폭 {mm_of(w)}mm)."
 
 
+def _replace_across_runs(p: str, want: str, rep: str) -> tuple[str, int]:
+    """한 문단 안에서 글자 모양 경계로 쪼개진 글(「1.1. OOO」 + 「(과제명)」 처럼 글 조각 둘에 걸친 것)을 바꾼다 — (새 문단, 바꾼 수).
+    바꾼 글은 맞은 자리가 시작하는 조각에 넣고(그 조각의 글자 모양), 뒤 조각들에서는 맞은 글만 뺀다.
+    조각 하나에 든 글만 바꾸던 때는 서식 제목의 자리 표시가 쪼개져 있어 이름을 바꾸지 못했다(11-12 특성화 재현 2차)."""
+    runs = list(re.finditer(r"(<hp:t>)([^<]*)(</hp:t>)", p))
+    if len(runs) < 2:
+        return p, 0
+    bodies = [m.group(2) for m in runs]
+    joined = "".join(bodies)
+    hits, i = [], joined.find(want)
+    while i >= 0 and want:
+        hits.append(i)
+        i = joined.find(want, i + len(want))
+    if not hits:
+        return p, 0
+    owner = [r for r, b in enumerate(bodies) for _ in b]
+    cut = set()
+    for h in hits:
+        cut.update(range(h, h + len(want)))
+    new = [""] * len(bodies)
+    for pos, ch in enumerate(joined):
+        if pos in hits:
+            new[owner[pos]] += rep
+        if pos not in cut:
+            new[owner[pos]] += ch
+    out, last = [], 0
+    for m, b in zip(runs, new):
+        out.append(p[last:m.start()] + m.group(1) + b + m.group(3))
+        last = m.end()
+    return "".join(out) + p[last:], len(hits)
+
+
 @_guarded
 def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
     """문서 전체(또는 범위)에서 낱말 바꾸기 — 글 조각(<hp:t>) 안의 글만 바꾼다. 필드 이름·안내 글(parameters)은 건드리지 않는다.
-    글이 글자 모양 경계로 쪼개져 있으면(한 낱말에 두 모양) 그 자리는 찾지 못한다 — 찾은 곳 수를 돌려준다."""
+    한 문단 안에서 글자 모양 경계로 쪼개진 글도 바꾼다(_replace_across_runs). 찾은 곳 수를 돌려준다."""
     doc = _Doc(data)
     find = str(a.get("find") or "")
     if not find.strip():
@@ -1671,6 +1703,8 @@ def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
                 k[0] += c
                 return m.group(1) + body.replace(want, escape(rep)) + m.group(3)
             q = re.sub(r"(<hp:t>)([^<]*)(</hp:t>)", sub, p)
+            if not k[0]:
+                q, k[0] = _replace_across_runs(p, want, escape(rep))
             if k[0]:
                 out.append(xml[pos:ps])
                 out.append(wf._LINESEG.sub("", q))

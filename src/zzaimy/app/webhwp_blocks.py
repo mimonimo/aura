@@ -89,6 +89,10 @@ def _heading_paras(xml: str) -> list[tuple[int, int, int, str, tuple]]:
             continue
         t = _text(p)
         lv = level(t) if t and len(t) <= 120 else None
+        if lv is None and t and len(t) <= 60 and _CHAPTER.match(t):
+            # 장 제목(「Ⅲ. 성과관리 계획」 — 글상자에 든 것도)은 맨 위 경계다. 번호 제목만 보던 때는 Ⅱ장 끝 견본 블록이
+            # 다음 장 제목 상자까지 품어, 늘린 블록마다 「Ⅲ.」 제목 상자가 복사돼 Ⅱ장 가운데 박혔다(11-12 특성화 재현 2차)
+            lv = (0, 0)
         if lv:
             out.append((i, a, b, t, lv))
     return out

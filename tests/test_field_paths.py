@@ -61,3 +61,13 @@ def test_missing_subsection_points_to_parent_in_chapter():
     t = _tools("[Ⅲ] 「1.1. 전담조직 구축」 을 써 줘")
     out = t.place_check("절:1.1. 전담조직 구축", {})
     assert out.startswith("쓰지 않았다") and "절:1. 사업추진체계 구축 및 운영 계획" in out and "append" in out
+
+
+def test_replace_across_runs():
+    from zzaimy.app.webhwp_edit_ops import _replace_across_runs
+    p = ('<hp:p id="1"><hp:run charPrIDRef="3"><hp:t>1.1. OOO</hp:t></hp:run>'
+         '<hp:run charPrIDRef="4"><hp:t>(과제명) 끝</hp:t></hp:run></hp:p>')
+    q, n = _replace_across_runs(p, "OOO(과제명)", "정원감축 체계")
+    assert n == 1
+    assert "<hp:t>1.1. 정원감축 체계</hp:t>" in q and "<hp:t> 끝</hp:t>" in q
+    assert _replace_across_runs(p, "없는 글", "x") == (p, 0)

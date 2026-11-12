@@ -153,3 +153,18 @@ def test_fill_labels_nth_and_same_table_first():
     assert set(done) == {"대학명", "성 명", "성 명#2"} and not why
     view = eo.table_view(new, {"table": 1})
     assert view.index("박민규") < view.index("박은호")
+
+
+def test_block_stops_before_next_chapter_title_box():
+    """다음 장 제목 상자(「Ⅲ. 성과관리 계획」, 글상자)는 앞 견본 블록에 들지 않는다 — 늘려도 제목 상자가 복사되지 않는다."""
+    box = ('<hp:p id="20" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:rect id="1"><hp:drawText><hp:subList>'
+           '<hp:p id="21"><hp:run><hp:t>Ⅲ. 성과관리 계획</hp:t></hp:run></hp:p></hp:subList></hp:drawText></hp:rect></hp:run></hp:p>')
+    parts = [_p(1, "3. 취업 지원 계획"), _fp(2, 100, "절:3. 취업 지원 계획"),
+             _p(3, "3.1. OOO(과제명)"), _fp(4, 101, "절:3.1. OOO(과제명)"),
+             box, _p(5, "1. 사업추진체계"), _fp(6, 102, "절:1. 사업추진체계")]
+    xml = '<hs:sec xmlns:hs="s" xmlns:hp="p">' + "".join(parts) + "</hs:sec>"
+    ids = wf._Ids([xml])
+    x2, tops = wb.repeat_xml(xml, "절:3.1. OOO(과제명)", ["진로설계", "채용매칭"], ids, set(_names(xml)))
+    assert tops == ["3.1. 진로설계", "3.2. 채용매칭"]
+    assert x2.count("Ⅲ. 성과관리 계획") == 1
+    assert x2.index("3.2. 채용매칭") < x2.index("Ⅲ. 성과관리 계획")
