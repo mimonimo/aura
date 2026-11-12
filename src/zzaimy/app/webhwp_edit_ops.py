@@ -1656,19 +1656,22 @@ def _replace_across_runs(p: str, want: str, rep: str) -> tuple[str, int]:
         i = joined.find(want, i + len(want))
     if not hits:
         return p, 0
+    if len(joined) > 20000 or len(hits) > 200:          # 아주 긴 문단·너무 많은 자리는 조각째 바꾸지 않는다(한 번에 도는 양 상한)
+        return p, 0
     owner = [r for r, b in enumerate(bodies) for _ in b]
-    cut = set()
+    starts = set(hits)
+    cut = bytearray(len(joined))
     for h in hits:
-        cut.update(range(h, h + len(want)))
-    new = [""] * len(bodies)
+        cut[h:h + len(want)] = b"\x01" * len(want)
+    new: list[list[str]] = [[] for _ in bodies]
     for pos, ch in enumerate(joined):
-        if pos in hits:
-            new[owner[pos]] += rep
-        if pos not in cut:
-            new[owner[pos]] += ch
+        if pos in starts:
+            new[owner[pos]].append(rep)
+        if not cut[pos]:
+            new[owner[pos]].append(ch)
     out, last = [], 0
     for m, b in zip(runs, new):
-        out.append(p[last:m.start()] + m.group(1) + b + m.group(3))
+        out.append(p[last:m.start()] + m.group(1) + "".join(b) + m.group(3))
         last = m.end()
     return "".join(out) + p[last:], len(hits)
 
