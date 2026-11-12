@@ -88,3 +88,14 @@ def test_set_cells_grows_rows_and_view_pages():
     assert "늘림" in msg and eo.check_bytes(new) == []
     view = eo.table_view(new, {"table": t, "from": nr + 2})
     assert "k4" in view and "1행(머리)" in view
+
+
+def test_echo_labels_fills_same_label_cells_elsewhere():
+    """칸 필드에 넣은 값을 다른 표의 같은 라벨 빈 칸(견본 글 칸 포함)에도 — 표지에만 차고 신청서 칸이 비던 것(11-12 특성화 재현 3차)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["항목", "값"], "values": [["권 역", ""], ["주소", "(우편번호)"], ["기타", "있는 글"]]})
+    new, done = eo.echo_labels(d, {"칸:권역": "대구‧경북권", "칸:주소": "대구 남구", "칸:기타": "바꾸면 안 됨"})
+    assert set(done) == {"칸:권역", "칸:주소"} and eo.check_bytes(new) == []
+    txt = eo.table_view(new, {"table": max(x["no"] for x in eo.list_tables(eo._Doc(new)))})
+    assert "대구‧경북권" in txt and "대구 남구" in txt and "있는 글" in txt

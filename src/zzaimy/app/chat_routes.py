@@ -665,10 +665,15 @@ def begin_request(h, session_id: int, q: str, *, shown: str, web: str, effort: s
     return int(mid_)
 
 
-def _queue_request(item: dict):
-    """대기열 항목을 꺼낼 때 권한 확인에 쓰는 가짜 요청 — 넣은 사람의 계정 그대로(POST 로 이어 쓰기 권한까지 본다)."""
-    return SimpleNamespace(method="POST", state=SimpleNamespace(user=item["user"], role=item.get("role", ""),
-                                                                 dept=item.get("dept", ""), view_as=None))
+def _queue_request(item: dict, accounts: dict | None = None):
+    """대기열 항목을 꺼낼 때 권한 확인에 쓰는 가짜 요청 — 넣은 사람의 계정으로(POST 로 이어 쓰기 권한까지 본다).
+    역할·부서는 넣을 때 적어 둔 값이 아니라 지금 계정 장부에서 다시 읽는다 — 그사이 계정이 지워지거나 역할이 바뀌면 그것을 따른다."""
+    acct = accounts.get(item.get("user") or "") if accounts else None
+    if accounts and acct is None:                              # 계정 장부에서 지워진 사람의 요청은 시작하지 않는다
+        return SimpleNamespace(method="POST", state=SimpleNamespace(user="", role="", dept="", view_as=None))
+    role = acct.get("role", item.get("role", "")) if acct is not None else item.get("role", "")
+    dept = acct.get("dept", item.get("dept", "")) if acct is not None else item.get("dept", "")
+    return SimpleNamespace(method="POST", state=SimpleNamespace(user=item["user"], role=role, dept=dept, view_as=None))
 
 
 def start_queued(h, session_id: int) -> bool:
@@ -681,13 +686,14 @@ def start_queued(h, session_id: int) -> bool:
         if item is None:
             return False
         try:
-            h._owned_chat(_queue_request(item), session_id)
+            q_req = _queue_request(item, getattr(h, "accounts", None))
+            h._owned_chat(q_req, session_id)
         except HTTPException:
             logging.getLogger("zzaimy.app.chat").info("대기 요청 버림(대화 %s): 대화가 없거나 권한이 없어짐", session_id)
             continue
         try:
             begin_request(h, session_id, str(item["q"]), shown=str(item["q"]), web=str(item.get("web") or ""),
-                          effort=str(item.get("effort") or ""), user=str(item["user"]), role=str(item.get("role") or ""),
+                          effort=str(item.get("effort") or ""), user=str(item["user"]), role=str(q_req.state.role or ""),
                           criteria=[int(x) for x in (item.get("criteria") or []) if str(x).isdigit()], stored=None, start=h._run_now)
             return True
         except Exception:

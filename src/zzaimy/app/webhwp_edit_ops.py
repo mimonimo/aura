@@ -2474,6 +2474,49 @@ def fill_labels(data: bytes, values: dict) -> tuple[bytes, dict, dict]:
     return (doc.pack() if done else data), done, why
 
 
+
+def echo_labels(data: bytes, values: dict) -> tuple[bytes, dict]:
+    """칸 필드에 넣은 짧은 값을 문서의 다른 표에서 라벨이 똑같은 빈 칸(또는 견본 글 칸)에도 넣는다 — (새 바이트, {이름: [자리]}).
+    표지·신청서·현황표처럼 같은 값(권역·특성화분야·주소)을 여러 표가 따로 묻는 서식에서 필드 쪽 한 곳만 차고 신청서 칸은 비던 것(11-12 특성화 재현 3차).
+    라벨이 정확히 같고(띄어쓰기·가운뎃점 무시) 오른쪽 칸이 비었거나 견본 글뿐이며 그 칸에 필드가 없을 때만 넣는다."""
+    doc = _Doc(data)
+    done: dict = {}
+    for name, val in values.items():
+        base = re.sub(r"#\d+\s*$", "", re.sub(r"^(칸|입력):", "", str(name)))
+        v = str(val or "").strip()
+        key = _lab(base)
+        if not key or not v or len(v) > 80 or "\n" in v:
+            continue
+        for k in range(len(_label_tables(doc))):
+            n, s0, e0, masked, pieces = _label_tables(doc)[k]
+            try:
+                tb = _Table(masked)
+            except Exception:
+                continue
+            hit = []
+            for cell in tb.cells:
+                if _lab(_text(cell["xml"])) != key:
+                    continue
+                rc = cell["c"] + cell["cs"]
+                tgt = tb.covering(cell["r"], rc) if rc < tb.nc else None
+                if not tgt or "fieldBegin" in tgt["xml"] or "\x00T" in tgt["xml"]:
+                    continue
+                cur = _text(tgt["xml"]).strip()
+                if cur and not _hint_cell(cur):
+                    continue
+                hit.append((tgt["r"], tgt["c"]))
+            if not hit:
+                continue
+            for r, c in hit:
+                tb.set_text(r, c, v, doc.ids)
+            out = tb.to_xml()
+            for i, pc in enumerate(pieces):
+                out = out.replace(f"\x00T{i}\x00", pc)
+            x = doc.secs[n]
+            doc.secs[n] = x[:s0] + out + x[e0:]
+            done.setdefault(name, []).extend(f"표 {r + 1}행 {c + 1}열" for r, c in hit)
+    return (doc.pack() if done else data), done
+
 def repeat_block(data: bytes, a: dict) -> tuple[bytes, str]:
     """서식 견본 블록(과제·프로그램·지표) 늘리기 — webhwp_blocks."""
     from zzaimy.app import webhwp_blocks as wb

@@ -1421,7 +1421,23 @@ class HwpTools:
         if done:                                            # AURA 작성 표시는 실제로 쓴 칸에만(사람이 쥐어 못 쓴 칸에는 띄우지 않는다)
             self._mark(fid, done[-1])
         self.writes += 1 if done else 0
-        return (f"채웠다: {', '.join(done) or '없음'}" + lab_txt + miss_txt
+        echo_txt = ""
+        short = {k: values[k] for k in done if k.startswith("칸:")}
+        if short:                                           # 같은 라벨을 따로 묻는 다른 표(신청서·현황표)의 빈 칸에도 같은 값
+            from zzaimy.app import webhwp_edit_ops as _eo2
+            box2: dict = {}
+
+            def _echo(d: bytes):
+                new_, dn_ = _eo2.echo_labels(d, short)
+                box2["done"] = dn_
+                return new_, "같은 라벨 칸에도 넣었다"
+            try:
+                out2 = _eo2.apply(self.db, self.base, fid, _echo)
+                if box2.get("done") and not out2.startswith(("바꾸지 않았다", "바뀐 것이 없다")):
+                    echo_txt = " · 같은 라벨의 다른 표 칸에도 넣음: " + ", ".join(f"{k.split(':', 1)[-1]}({', '.join(w[:2])})" for k, w in box2["done"].items())
+            except Exception:
+                pass
+        return (f"채웠다: {', '.join(done) or '없음'}" + echo_txt + lab_txt + miss_txt
                 + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
                 + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else "")
