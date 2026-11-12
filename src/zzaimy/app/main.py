@@ -2757,6 +2757,16 @@ def create_app(
             lead_start = {"fid": hw.fid() if hw is not None else None, "writes": int(getattr(hw, "writes", 0) or 0)}
         except Exception:
             lead_start = {"fid": None, "writes": 0}
+        lint_checked = {"done": False}                          # 끝내기 전 품질 점검(webhwp_lint) — 요청마다 한 번, 이번에 새로 생긴 것만
+
+        def _lint_now() -> dict:
+            from zzaimy.app import webhwp_lint as _lint
+            try:
+                f_ = _webhwp.get(db, hw.fid()) if hw is not None and hw.fid() else None
+                return _lint.issues(Path(f_["path"]).read_bytes()) if f_ else {}
+            except Exception:
+                return {}
+        lead_start["lint"] = _lint_now() if lead_start.get("fid") else None
 
         def _lead_placeholders() -> list[str]:
             """연결된 한글 작업본 앞부분 줄 가운데 자리표시(○○·000·20○○ 꼴)가 남은 줄."""
@@ -3225,6 +3235,18 @@ def create_app(
                 raise doc_agent.Retry("끝내기 전에: 문서 앞부분(표지·머리)에 자리표시가 남아 있다 — 담당자 요청 글·프로젝트·기관 정보로 알 수 있는 값은 "
                                       "칸이면 hwp_fill, 칸 밖 글이면 hwp_replace 로 바꾼 뒤 finish 한다. 모르는 값의 자리표시만 남기고 답에 무엇이 남았는지 알린다.",
                                       data="\n".join(left_))
+            if touched_ and not lint_checked["done"] and hw is not None and hw.fid() and hw.fid() == lead_start.get("fid") \
+                    and lead_start.get("lint") is not None:
+                # 품질 점검 — 이번 요청에서 새로 생긴 지저분한 곳(「〃」 칸·빈 행·좁은 열·견본 글·그림 자리 표시)을 한 번 되짚는다(11-12 사용자 「항상 원본 수준」).
+                # 고칠지는 에이전트가 정한다. 새 작업본을 만든 요청(양식 틀)은 견본 글이 원래 있으니 보지 않는다
+                from zzaimy.app import webhwp_lint as _lint
+                fresh_ = _lint.new_issues(lead_start["lint"], _lint_now())
+                if fresh_:
+                    lint_checked["done"] = True
+                    raise doc_agent.Retry("끝내기 전에: 이번에 쓴 곳에 지저분한 데가 생겼다 — 고칠 수 있는 것은 고친 뒤 finish 한다"
+                                          "(「〃」 은 위 칸과 합치기 hwp_table_edit merge, 빈 행은 delete_rows 또는 값 채우기, 좁은 열은 widths, "
+                                          "그림 자리 표시는 hwp_picture, 견본 글은 아는 값으로 바꾸거나 지운다). 고칠 수 없으면 무엇이 남았는지 끝내는 말에 적는다.",
+                                          data=_lint.report(fresh_))
             msg = str(a.get("message") or "").strip()
             if msg and touched_:
                 # 끝내는 말을 문서 기록과 맞춘다 — 「작성 완료된 절(10개)」 라고 했는데 실제로 쓴 곳은 5곳이던 일(11-10 시나리오 A).

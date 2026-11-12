@@ -193,7 +193,7 @@ def main(argv=None) -> int:
         lo, _, hi = a.steps.partition("-")
         first, last_ = int(lo), int(hi or lo)
         prompts = prompts[first - 1:last_]
-    files = [es.blank] + es.evidence
+    files = [es.blank] + es.evidence + es.materials
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = a.set_dir / "runs" / stamp
     out.mkdir(parents=True, exist_ok=True)

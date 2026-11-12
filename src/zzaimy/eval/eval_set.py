@@ -3,6 +3,7 @@
 묶음 폴더(저장소 밖 data/eval_sets/<이름>/, git 제외):
   blank.hwpx      빈 양식(정답에서 값을 지운 것)
   evidence/       근거 파일(공고·기본계획 등) — 프로젝트를 만들 때 양식과 함께 올린다
+  materials/      그 밖에 함께 올리는 자료(넣을 그림 파일 등) — 같이 올리되 근거 비교에는 쓰지 않는다
   prompts.txt     한 줄에 한 요청. 차례대로 같은 대화에 보낸다. 빈 줄·「#」 줄은 건너뜀, 앞에 「[꼼꼼]」 이면 답변 깊이 꼼꼼하게
   answer.hwpx | answer.pdf   정답 문서
   meta.json       (선택) {"project": "프로젝트 이름", "sector": "grant"}
@@ -351,6 +352,12 @@ class EvalSet:
     @property
     def evidence(self) -> list[Path]:
         d = self.root / "evidence"
+        return sorted(p for p in d.iterdir() if p.is_file() and not p.name.startswith(".")) if d.is_dir() else []
+
+    @property
+    def materials(self) -> list[Path]:
+        """그 밖에 담당자가 함께 올리는 자료(계획서에 넣을 그림 파일 등) — materials/ 폴더. 근거 비교(score)에는 쓰지 않는다."""
+        d = self.root / "materials"
         return sorted(p for p in d.iterdir() if p.is_file() and not p.name.startswith(".")) if d.is_dir() else []
 
     @property

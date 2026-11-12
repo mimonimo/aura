@@ -2584,7 +2584,7 @@ TOOLS: list[dict] = [
      "desc": "각주 달기 — 근거·출처를 밝힐 때. args {field: 필드(그 값 끝에) | after_text: 이 글 뒤에, text: 각주 글}",
      "args": {"field": "str", "after_text": "str", "text": "str"}},
     {"name": "hwp_picture", "writes": True, "label": "그림 넣기",
-     "desc": "그림 넣기. args {image: doc:<문서 id>(이 대화·프로젝트 문서의 그림 파일) | file:<파일 id>(이 대화에 올린 그림), width_mm, "
+     "desc": "그림 넣기. args {image: doc:<문서 id>(이 대화·프로젝트 문서의 그림 파일) | file:<파일 id>(이 대화에 올린 그림) | 그림 파일 이름(「image_011.png」), width_mm(본문 폭 이하), "
              "align: 가운데|왼쪽|오른쪽, " + _AT + "}",
      "args": {"image": "str", "width_mm": "float", "align": "str", "at": "dict"}},
     {"name": "hwp_replace", "writes": True, "label": "찾아 바꾸기",
@@ -2716,8 +2716,25 @@ class EditTools:
     def _image(self, ref: str) -> bytes:
         db = self.hw.db
         m = re.fullmatch(r"(doc|file):(\d+)", ref.strip())
+        if not m and ref.strip():
+            # 파일 이름으로 짚은 그림(「image_011」「조직도.png」) — 프로젝트 문서·이 대화에 올린 파일에서 이름이 하나로 맞는 것(11-12 특성화 재현:
+            # 담당자는 그림을 이름으로 부른다. 번호를 모르면 그림 자리를 글로 남겼다)
+            want = re.sub(r"\.[A-Za-z0-9]{2,4}$", "", Path(ref.strip()).name).lower()
+            from zzaimy.app import storage as _st
+            docs = [x for x in self.hw.project_docs() or []
+                    if re.sub(r"\.[A-Za-z0-9]{2,4}$", "", Path(str(x.get("filename") or "")).name).lower() == want
+                    or _st.title_of(str(x.get("filename") or "")).lower() == want]
+            if len(docs) == 1:
+                m = re.fullmatch(r"(doc):(\d+)", f"doc:{docs[0]['id']}")
+            else:
+                rows = [r for r in db.list_files(session_id=self.hw.sid, limit=500)
+                        if re.sub(r"\.[A-Za-z0-9]{2,4}$", "", Path(str(r.get("name") or r.get("path") or "")).name).lower() == want]
+                if len(rows) == 1:
+                    m = re.fullmatch(r"(file):(\d+)", f"file:{rows[0]['id']}")
+                elif len(docs) + len(rows) > 1:
+                    raise EditError(f"「{ref}」 이름의 그림이 여럿이다 — doc:<문서 id> 로 짚는다.")
         if not m:
-            raise EditError("image 는 doc:<문서 id> 또는 file:<파일 id> 다.")
+            raise EditError("image 는 doc:<문서 id>, file:<파일 id>, 또는 프로젝트에 올린 그림 파일 이름이다.")
         if m.group(1) == "file":
             row = next((r for r in db.list_files(session_id=self.hw.sid, limit=500) if int(r["id"]) == int(m.group(2))), None)
             if not row or not Path(row["path"]).exists():
