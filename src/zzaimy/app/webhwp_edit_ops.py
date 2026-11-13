@@ -658,19 +658,30 @@ class _Table:
         s = sum(float(x) for x in ratios)
         self.col_w = [max(int(self.total_w * float(x) / s), 600) for x in ratios]
 
-    def autofit_narrow(self, cols: set[int] | None = None, char_hu: int = 950, pad: int = 1300) -> bool:
+    def autofit_narrow(self, cols: set[int] | None = None, char_hu: int = 950, pad: int = 1300, size: dict | None = None) -> bool:
         """값을 넣은 열(cols) 가운데 가장 긴 낱말이 칸 안 폭에 안 들어가 낱말 가운데서 줄이 바뀌는 열만 넓힌다 — 바꿨으면 True.
         서식 표의 열 폭은 견본 글에 맞춰져 있어 실제 값(「기계공학」「(10111476)」)을 넣으면 한두 글자씩 접혀 세로로 늘어졌다(11-13 4차 3-2 교원 표).
         넓히는 몫은 다른 열의 남는 폭(그 열의 가장 긴 낱말이 들어갈 폭을 넘는 만큼)에서만 덜어 온다 — 어느 열도 제 낱말보다 좁아지지 않고, 표 전체 폭과
-        값을 넣지 않은 표는 그대로다."""
-        tok = [0.0] * self.nc                                # 열마다 끊으면 안 되는 가장 긴 낱말(머리줄 포함, 한 칸짜리 칸만)
+        값을 넣지 않은 표는 그대로다.
+        size(글자 모양 id → 글자 높이 HWPUNIT)를 주면 칸마다 실제 글자 크기·칸 안 여백으로 잰다 — 9.5pt 어림으로 재던 때는 11pt 칸의 「참여교수」 가
+        들어간다고 보고 그 열을 낱말 폭까지 줄여 「참여교/수」 로 접히고 표가 쪽을 넘었다(11-14 9차)."""
+        need = [0] * self.nc                                 # 열마다 끊으면 안 되는 가장 긴 낱말이 들어갈 폭(머리줄 포함, 한 칸짜리 칸만)
+        tok = [0.0] * self.nc
         for x in self.cells:
             if x["cs"] == 1 and "<hp:tbl" not in x["xml"]:
                 t = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", x["xml"], flags=re.S))
-                for w_ in re.split(r"\s+", t):
-                    if w_:
-                        tok[x["c"]] = max(tok[x["c"]], min(hf._vis_len(w_), 12.0))
-        need = [int(t * char_hu + pad) if t else 0 for t in tok]
+                longest = max((min(hf._vis_len(w_), 12.0) for w_ in re.split(r"\s+", t) if w_), default=0.0)
+                if not longest:
+                    continue
+                tok[x["c"]] = max(tok[x["c"]], longest)
+                if size:
+                    hs_ = [size.get(cp, 0) for cp in re.findall(r'charPrIDRef="(\d+)"', x["xml"])]
+                    h = max([v for v in hs_ if v] or [1000])
+                    mg = re.search(r'<hp:cellMargin\b[^>]*\bleft="(\d+)"[^>]*\bright="(\d+)"', x["xml"])
+                    side = (int(mg.group(1)) + int(mg.group(2))) if mg else 1020
+                    need[x["c"]] = max(need[x["c"]], int(longest * h + side + 300))
+                else:
+                    need[x["c"]] = max(need[x["c"]], int(longest * char_hu + pad))
         grow = {c: need[c] - w for c, w in enumerate(self.col_w)
                 if (cols is None or c in cols) and tok[c] >= 3 and need[c] > w + 0.3 * char_hu}
         if not grow:
@@ -1380,7 +1391,8 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         merged = _merge_dittos(tb, r0, c0, values)
         msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」 칸 {merged}개는 위 칸과 합침" if merged else "")
         touched = {c0 + j for row in values for j, _v in enumerate(row if isinstance(row, list) else [row])}
-        if tb.autofit_narrow(touched):
+        heights_ = {m.group(1): int(m.group(2)) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\bheight="(\d+)"', doc.hdr.xml)}
+        if tb.autofit_narrow(touched, size=heights_):
             msg += " · 낱말 가운데서 접히던 열을 넓힘(다른 열의 남는 폭에서)"
     elif op in ("merge", "split"):
         rng = _range(a, tb)

@@ -137,6 +137,23 @@ def test_autofit_widens_only_written_narrow_columns():
     assert tb.autofit_narrow({0}) is False
 
 
+def test_autofit_measures_real_font_size():
+    """11pt 칸은 11pt 로 잰다 — 9.5pt 어림이면 「참여교수」 열을 낱말 폭보다 좁게 덜어 「참여교/수」 로 접혔다(11-14 9차 3-2 교원 표)."""
+    import re as _re
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["구분", "전공", "주요경력 및 전문성"], "values": [["참여교수", "가", "있음"]]})
+    doc = eo._Doc(d)
+    t = max(x["no"] for x in eo.list_tables(doc))
+    tb = eo._Table(eo._table_xml(doc, eo._pick_table(doc, t)))
+    big = {cp: 1100 for cp in set(_re.findall(r'charPrIDRef="(\d+)"', "".join(c["xml"] for c in tb.cells)))}
+    tb.col_w = [int(tb.total_w * r) for r in (0.12, 0.08, 0.80)]
+    tb.set_text(1, 1, "모바일통신공학", doc.ids)
+    assert tb.autofit_narrow({1}, size=big) is True
+    side = 1020
+    assert tb.col_w[0] >= 4 * 1100 + side                     # 「참여교수」 가 11pt 로 한 줄에 들어갈 폭은 남긴다
+
+
 
 def test_picture_found_from_own_upload_linked_to_other_project(monkeypatch):
     """같은 그림이 다른 프로젝트에 먼저 들어가 이 프로젝트의 올림이 그쪽에 이어졌어도(목록엔 그쪽 문서), 이 프로젝트에 올린 줄의 이름으로 찾는다(11-13 5차)."""
