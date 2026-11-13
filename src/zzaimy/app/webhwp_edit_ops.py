@@ -2837,8 +2837,11 @@ class EditTools:
             if not docs and getattr(self.hw, "project", None) and (self.hw.project or {}).get("id"):
                 # 같은 그림을 다른 프로젝트에 이미 들인 적이 있으면 이 프로젝트의 올림은 「같은 내용」 으로 그쪽 문서에 이어지고(실패 표시),
                 # 목록에는 그쪽 문서(이름이 그림 속 글로 바뀐 것)만 보인다 — 이 프로젝트에 올린 줄(올릴 때 이름 그대로)에서 찾아 그 파일을 쓴다(11-13 5차)
+                seen_ids = {int(y["id"]) for y in pool}
+                # 열람 범위: 이 대화가 볼 수 있는 목록(pool)에 그 줄이나 그 줄이 이어진 문서가 있을 때만 — 아니면 읽지 않는다(fail closed)
                 own = [x for x in db.list_documents(project_id=int(self.hw.project["id"]))
-                       if want in _names(x) and int(x.get("project_id") or 0) == int(self.hw.project["id"])]
+                       if want in _names(x) and int(x.get("project_id") or 0) == int(self.hw.project["id"])
+                       and (int(x["id"]) in seen_ids or int(x.get("version_of") or 0) in seen_ids)]
                 if len(own) == 1:
                     from zzaimy.app.webhwp_routes import _original_bytes
 

@@ -149,3 +149,20 @@ def test_picture_found_from_own_upload_linked_to_other_project(monkeypatch):
     t.hw = SimpleNamespace(db=db, sid=1, project={"id": 9}, project_docs=lambda: [{"id": 15, "filename": "재정 집행 계획"}])
     monkeypatch.setattr(wr, "_original_bytes", lambda st, d: b"IMG" + str(d["id"]).encode())
     assert t._image("image_002.png") == b"IMG20"
+
+
+def test_picture_own_upload_fallback_requires_visible_link(monkeypatch):
+    """이어진 문서가 이 대화의 열람 목록에 없으면 이 프로젝트 올림이라도 읽지 않는다(보안 검토, fail closed)."""
+    from types import SimpleNamespace
+    from zzaimy.app import webhwp_edit_ops as eo
+    import zzaimy.app.webhwp_routes as wr
+    t = eo.EditTools.__new__(eo.EditTools)
+    own = {"id": 20, "filename": "image_002.png", "status": "failed", "version_of": 15, "project_id": 9}
+    db = SimpleNamespace(list_files=lambda **k: [], list_documents=lambda **k: [own])
+    t.hw = SimpleNamespace(db=db, sid=1, project={"id": 9}, project_docs=lambda: [{"id": 99, "filename": "다른 문서"}])
+    monkeypatch.setattr(wr, "_original_bytes", lambda st, d: b"IMG")
+    try:
+        t._image("image_002.png")
+        raise AssertionError("열람 목록 밖")
+    except eo.EditError:
+        pass
