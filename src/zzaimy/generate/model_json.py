@@ -115,4 +115,43 @@ def loads(raw: str, key: str | None = None) -> dict | None:
                     got = _python_literal(span)
             if isinstance(got, dict) and (key is None or key in got):
                 return got
+    # 끝 괄호를 빠뜨린 답 — 「…"args": {… [ … ]}」 처럼 바깥 「}」 하나가 모자라 형식 오류 세 번으로 요청이 끝났다(11-13 특성화 7차 1단계).
+    # 첫 「{」 부터 따옴표 밖 괄호를 세어 모자란 닫는 괄호만 차례로 채워 한 번 더 읽는다(글 안의 괄호·이스케이프는 세지 않는다)
+    first = text.find("{")
+    if first >= 0:
+        fixed = _close_open(text[first:])
+        if fixed:
+            try:
+                got = json.loads(fixed)
+            except ValueError:
+                got = None
+            if isinstance(got, dict) and (key is None or key in got):
+                return got
     return None
+
+
+def _close_open(body: str) -> str | None:
+    """따옴표 밖에서 열린 채 끝난 괄호를 닫아 준 글 — 닫을 것이 없거나 꼴이 어긋나면 None."""
+    stack, in_str, esc = [], False, False
+    for ch in body:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if not stack or stack[-1] != ch:
+                return None
+            stack.pop()
+            if not stack:
+                return None                     # 이미 닫힌 꼴인데 앞에서 못 읽었다 — 다른 문제
+    if in_str or not stack or len(stack) > 4:
+        return None
+    return body.rstrip() + "".join(reversed(stack))

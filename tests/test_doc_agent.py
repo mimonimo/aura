@@ -169,3 +169,12 @@ def test_same_result_with_different_args_counts_as_repeat():
     replies = [_step("view", n=i) for i in range(1, 8)] + [_step("finish", message="끝")]
     ep = doc_agent.run(_client(replies), "봐 줘", lambda: "상태", tools, max_writes=1)
     assert len(calls) <= 4
+
+
+def test_model_json_repairs_missing_closing_brace():
+    """바깥 「}」 하나를 빠뜨린 걸음도 읽는다 — 형식 오류 세 번으로 양식 만들기가 끊기던 것(11-13 특성화 7차 1단계)."""
+    from zzaimy.generate import model_json as mj
+    raw = '{"thought": "늘린다", "action": "hwp_repeat_block", "args": {"field": "1.1. OOO", "names": [{"name": "가", "children": ["나 \\"다\\" {라}"]}]}'
+    got = mj.loads(raw, key="action")
+    assert got["action"] == "hwp_repeat_block" and got["args"]["names"][0]["children"] == ['나 "다" {라}']
+    assert mj.loads('{"action": "x", "args": {"a": 1}}}', key="action")["action"] == "x"   # 하나 더 닫은 꼴은 그대로
