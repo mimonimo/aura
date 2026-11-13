@@ -1477,3 +1477,35 @@ def section_of_text(data: bytes, text: str) -> str | None:
             if key in re.sub(r"\s+", "", "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", pm.group(0)))):
                 return section_before(data, n, pm.start())
     return None
+
+
+def drop_empty_box(data: bytes, name: str) -> tuple[bytes, bool]:
+    """절 필드 바로 뒤(빈 문단은 건너뜀)의 빈 작성 상자(칸 하나짜리 빈 표)를 뗀다 — (새 바이트, 뗐나).
+    서식이 「4-4. 기타 …」 제목 아래 빈 상자만 두고 그 안에 쓰게 한 자리(11-13 8차). 본문을 절 필드에 쓰면 상자가 빈 채 아래에 남아,
+    처음 쓰기 전에 뗀다. 글·그림·안쪽 표·필드가 든 상자, 칸이 둘 넘는 표는 건드리지 않는다. 필드가 표 칸 안이면 그대로 둔다."""
+    zin, secs = _open(data)
+    for n, xml in secs.items():
+        hit = _find(xml, name)
+        if not hit:
+            continue
+        pb = _para_bounds(xml, hit.start())
+        if not pb:
+            return data, False
+        head = xml[:pb[0]]
+        if len(re.findall(r"<hp:p\b", head)) != head.count("</hp:p>"):
+            return data, False                              # 표 칸 안의 필드
+        tail = xml[pb[1]:]
+        for a, b in _top_paras(tail, len(tail)):
+            frag = tail[a:b]
+            if "<hp:tbl" not in frag:
+                if wf._text(frag).strip() or "<hp:pic" in frag or _BEGIN.search(frag):
+                    return data, False
+                continue                                    # 빈 문단
+            tbl = frag[frag.find("<hp:tbl"):]
+            if (frag.count("<hp:tbl") == 1 and len(re.findall(r"<hp:tc\b", tbl)) == 1 and not wf._text(frag).strip()
+                    and "<hp:pic" not in frag and not _BEGIN.search(frag)):
+                secs[n] = xml[:pb[1] + a] + xml[pb[1] + b:]
+                return _pack(zin, secs), True
+            return data, False
+        return data, False
+    return data, False

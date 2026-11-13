@@ -27,6 +27,7 @@ import json
 import os
 import re
 import time
+import zipfile
 from pathlib import Path
 
 from zzaimy.app import storage, webhwp
@@ -1583,6 +1584,14 @@ class HwpTools:
         written = m.get("written") or {}
         self._mark(fid, field)
         from zzaimy.app import webhwp_dress
+        if not written.get(field) and field.startswith("절:"):
+            try:                                             # 절 제목 아래 빈 작성 상자 — 본문이 그 자리에 들어가므로 처음 쓰기 전에 뗀다(8차 4-4)
+                raw0 = Path(f["path"]).read_bytes()
+                raw1, box_ = ww.drop_empty_box(raw0, field)
+                if box_:
+                    webhwp.save(self.db, self.base, fid, raw1, user="AURA")
+            except (OSError, KeyError, zipfile.BadZipFile):
+                pass
         if not written.get(field) and self._stream_plain(fid, field, text):   # 글만 든 절 — 사람이 칠 때와 같은 칸 길로(앞서 칸 밖에 쓴 표가 없을 때)
             return self._after_write(fid, field, text, written, [], by)
         if not written.get(field):                          # 표·상자 든 절 — 글을 먼저 칸 길로 흘려 보이고, 아래에서 표째 다시 넣는다(11-09)

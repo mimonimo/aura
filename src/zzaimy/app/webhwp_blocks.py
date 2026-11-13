@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 
 _P_OPEN = re.compile(r"<hp:p\b[^>]*>")
-_HEAD_NUM = re.compile(r"^\s*(?:(?P<dots>\d+(?:\.\d+)*)\.?(?=\s)|(?P<paren>\d+)\)|\((?P<pp>\d+)\))")
+_HEAD_NUM = re.compile(r"^\s*(?:(?P<dots>\d{1,2}(?:-\d{1,2}){1,2}(?=[.\s])|\d+(?:\.\d+)*)\.?(?=\s)|(?P<paren>\d+)\)|\((?P<pp>\d+)\))")
 PLACEHOLDER = re.compile(r"[OＯ○◯]{2,}\s*(?:\([^)]*\))?|0{3,}")
 _FIELD_BEGIN = re.compile(r'(<hp:fieldBegin\b[^>]*?\bname=")([^"]*)(")')
 _IDS = re.compile(r'\b(id|instid|beginIDRef|fieldid|zOrder)="(\d+)"')
@@ -36,7 +36,7 @@ def level(head: str) -> tuple | None:
     if not m:
         return None
     if m.group("dots"):
-        return (0, m.group("dots").count(".") + 1)
+        return (0, len(re.split(r"[.-]", m.group("dots"))))         # 「4-4.」 는 「4.4.」 와 같은 깊이
     return (1, 0) if m.group("paren") else (2, 0)
 
 

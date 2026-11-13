@@ -22,6 +22,8 @@ _GLYPHS = {"": "·", "ž": "·", "･": "·", "‧": "·", "à": "→"}
 _BULLET_RE = re.compile(r"^(q|§|Ø|ü|v|w|n|l|u|Ÿ|Ü|¡|Ø)\s+")          # Wingdings 글머리표가 글자로 남은 것
 _BULLET_MAP = {"q": "○", "§": "-", "Ø": "-", "ü": "-", "v": "▪", "w": "▪", "n": "▪", "l": "·", "u": "◆", "Ÿ": "·", "Ü": "-", "¡": "·"}
 _NUM_RE = re.compile(r"^\s*((?:\d+\.)+\d*)\s*")                    # 1. / 1.1. / 2.1.1.
+# 「4-4.」「3-1」 처럼 하이픈으로 이은 번호(서식 소제목) — 「4.4.」 와 같은 단계. 날짜(2026-11-13)는 한두 자리 숫자만 받아 거른다(11-13 8차)
+_DASH_NUM_RE = re.compile(r"^\s*(\d{1,2}(?:-\d{1,2}){1,2})\.?(?=\s)\s*")
 _SUBNUM_RE = re.compile(r"^\s*(\d+\)|\(\d+\)|[가-하]\.|[가-하]\)|\d+\.)\s*")
 _PAGE_NO_RE = re.compile(r"^\s*(-\s*)?\d{1,3}(\s*-)?\s*$")
 _TOC_RE = re.compile(r"[·.…‥]{3,}\s*\d{1,3}\s*$|\s\d{1,3}\s*$")          # 목차 줄: 리더 점 뒤 쪽 번호, 또는 제목 뒤 쪽 번호
@@ -45,6 +47,9 @@ def split_number(heading: str) -> tuple[str, str]:
     m = _NUM_RE.match(heading or "")
     if m:
         return m.group(1).rstrip("."), (heading[m.end():] or "").strip()
+    m = _DASH_NUM_RE.match(heading or "")
+    if m:
+        return m.group(1), (heading[m.end():] or "").strip()
     m = _SUBNUM_RE.match(heading or "")
     if m:
         return m.group(1).rstrip(".)").lstrip("("), (heading[m.end():] or "").strip()

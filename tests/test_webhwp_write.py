@@ -298,3 +298,40 @@ def test_new_body_text_uses_form_body_char_not_heading_char():
     p = _para_of(_xml(data), "새로 쓴 둘째 줄")
     cp = re.findall(r'charPrIDRef="(\d+)"', p)[-1]
     assert heights.get(cp, 0) < heights[big]
+
+
+def test_drop_empty_box_after_section_field():
+    """절 제목 아래 빈 작성 상자(칸 하나 빈 표)는 처음 쓰기 전에 뗀다 — 글이 든 상자·여러 칸 표는 그대로(11-13 8차 4-4)."""
+    from zzaimy.app import webhwp_write as ww
+    import io, zipfile
+    def doc(after):
+        sec = ('<hs:sec xmlns:hs="s" xmlns:hp="p"><hp:p id="1"><hp:run><hp:t>4-4. 기타 여건</hp:t></hp:run></hp:p>'
+               '<hp:p id="2"><hp:run><hp:ctrl><hp:fieldBegin id="9" type="CLICK_HERE" name="절:4-4. 기타 여건"></hp:fieldBegin></hp:ctrl>'
+               '<hp:ctrl><hp:fieldEnd beginIDRef="9"/></hp:ctrl></hp:run></hp:p>'
+               '<hp:p id="3"><hp:run><hp:t></hp:t></hp:run></hp:p>' + after + '</hs:sec>')
+        b = io.BytesIO()
+        with zipfile.ZipFile(b, "w") as z:
+            z.writestr("mimetype", "application/hwp+zip")
+            z.writestr("Contents/section0.xml", sec)
+        return b.getvalue()
+    box = lambda inner: ('<hp:p id="4"><hp:run><hp:tbl rowCnt="1" colCnt="1"><hp:tr><hp:tc><hp:subList><hp:p id="5"><hp:run>'
+                         + inner + '</hp:run></hp:p></hp:subList></hp:tc></hp:tr></hp:tbl></hp:run></hp:p>')
+    sec = lambda d: zipfile.ZipFile(io.BytesIO(d)).read("Contents/section0.xml").decode()
+    d, ok = ww.drop_empty_box(doc(box("<hp:t></hp:t>")), "절:4-4. 기타 여건")
+    assert ok and "<hp:tbl" not in sec(d)
+    d, ok = ww.drop_empty_box(doc(box("<hp:t>이미 쓴 글</hp:t>")), "절:4-4. 기타 여건")
+    assert not ok and "<hp:tbl" in sec(d)
+    two = box("<hp:t></hp:t>").replace("</hp:tc></hp:tr>", "</hp:tc><hp:tc><hp:subList/></hp:tc></hp:tr>")
+    assert not ww.drop_empty_box(doc(two), "절:4-4. 기타 여건")[1]
+    # 사이에 글 문단이 있으면 그 상자는 이 절의 자리가 아니다
+    assert not ww.drop_empty_box(doc('<hp:p id="6"><hp:run><hp:t>다른 글</hp:t></hp:run></hp:p>' + box("<hp:t></hp:t>")), "절:4-4. 기타 여건")[1]
+
+
+def test_dash_numbered_headings_are_sections():
+    """「4-4.」「3-1」 하이픈 번호도 「4.4.」 와 같은 단계의 제목 — 날짜·전화번호는 아니다(11-13 8차: 4-4 에 절 필드가 없어 본문이 4. 맨 앞에 들어감)."""
+    from zzaimy.app import section_context as sc, webhwp_blocks as wb, webhwp_fields as wf
+    assert sc.split_number("4-4. 기타 특성화 분야 교육 여건") == ("4-4", "기타 특성화 분야 교육 여건")
+    assert wb.level("4-4. 기타") == wb.level("4.4. 기타") == (0, 2)
+    assert wf._is_heading("3-3 특성화 참여학과 학생 현황")
+    for t in ("2026-11-13 회의", "053-650-9562 연락"):
+        assert sc.split_number(t)[0] == "" and wb.level(t) is None and not wf._is_heading(t)
