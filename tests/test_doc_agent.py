@@ -178,3 +178,20 @@ def test_model_json_repairs_missing_closing_brace():
     got = mj.loads(raw, key="action")
     assert got["action"] == "hwp_repeat_block" and got["args"]["names"][0]["children"] == ['나 "다" {라}']
     assert mj.loads('{"action": "x", "args": {"a": 1}}}', key="action")["action"] == "x"   # 하나 더 닫은 꼴은 그대로
+
+
+def test_writes_with_same_result_text_are_not_treated_as_circling():
+    """행마다 값을 넣는 쓰기는 결과 글이 같아도 매번 실행한다(11-14 12차: 교원 7번째 행부터 되풀이로 보고 실행하지 않아 빈 행)."""
+    rows = []
+    tools = [doc_agent.Tool("hwp_table_edit", "표", lambda a: rows.append(a["start"][0]) or "표8: 칸 7개에 값을 넣었다 — 지금 19행×7열.", writes=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    replies = [_step("hwp_table_edit", table=8, op="set_cells", start=[r, 1], values=[[str(r)]]) for r in range(2, 10)]
+    ep = doc_agent.run(_client(replies + [_step("finish", message="끝")]), "표 채워 줘", lambda: "s", tools, max_writes=30)
+    assert rows == list(range(2, 10)) and ep.finished
+    # 읽기 도구는 여전히 같은 결과 네 번째부터 맴돌기로 센다
+    seen = []
+    tools2 = [doc_agent.Tool("hwp_table_view", "보기", lambda a: seen.append(a["from"]) or "같은 표"),
+              doc_agent.Tool("finish", "끝", lambda a: "", final=True)]
+    replies2 = [_step("hwp_table_view", table=8, **{"from": f}) for f in range(1, 6)] + [_step("finish", message="끝")]
+    ep2 = doc_agent.run(_client(replies2), "q", lambda: "s", tools2)
+    assert len(seen) == 4 and "하지 않았다" in ep2.steps[4]["observation"]

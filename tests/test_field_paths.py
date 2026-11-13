@@ -247,6 +247,17 @@ def test_set_cells_realigns_row_that_fits_the_row_cells():
     assert "1열부터" not in msg2 and "재학생" in eo.table_view(new2, {"table": t2})
 
 
+def test_merge_marks_glued_to_values_are_dropped():
+    """「〃 학과」「학과 ←」 처럼 합치기 표시가 값에 글로 붙어 오면 표시는 빼고 넣는다(11-14 12차)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["계열명", "참여학과명"], "values": [["", ""], ["", ""]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    new, _ = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 1], "values": [["공학계열", "〃 스마트e-자동차과"], ["공학계열", "ICT반도체전자계열 ←"]]})
+    v = eo.table_view(new, {"table": t})
+    assert "〃" not in v and "←" not in v and "스마트e-자동차과" in v and "ICT반도체전자계열" in v
+
+
 def test_pictures_replace_several_tables_at_once():
     """이 부분의 서식 표가 여럿이면 table: [a, b] 로 한 번에 빼고 첫 표 자리에 그림 — 뒤 표(다음 부분 제목 상자)는 남는다(11-14 11차 요약본)."""
     import base64

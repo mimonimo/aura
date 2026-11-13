@@ -516,9 +516,13 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             final_retried.add(key)                                     # 끝내기 관문(자리표시 되짚기·끝맺음 점검)은 한 번만 — 다시 내면 받는다(11-09 대화 165)
             rejected.pop(key, None)
         duplicate = (key in first_obs and not tool.final) or key in rejected
-        if not duplicate and not tool.final and not getattr(tool, "gathers", False) and same_obs.get(name, (None, 0))[1] >= 3:
-            # 인자만 조금 바꾸고 같은 결과를 잇달아 받는 맴돌기(표 보기 from 만 늘리기, 11-13 6차 37번) — 같은 결과 네 번째부터 되풀이로 센다(찾기 도구는 빼고)
-            duplicate = True
+        circling = False
+        if (not duplicate and not tool.final and not getattr(tool, "gathers", False) and not tool.writes
+                and same_obs.get(name, (None, 0))[1] >= 3):
+            # 인자만 조금 바꾸고 같은 결과를 잇달아 받는 맴돌기(표 보기 from 만 늘리기, 11-13 6차 37번) — 같은 결과 네 번째부터 되풀이로 센다(찾기 도구는 빼고).
+            # 쓰기 도구는 빼다 — 행마다 값을 넣는 set_cells 는 결과 글(「칸 7개에 값을 넣었다」)이 같아도 매번 다른 행을 쓴다. 이것을 되풀이로 보고
+            # 실행하지 않은 채 옛 결과를 보여 교원 7~18번이 빈 행으로 남았다(11-14 12차 4단계). 아무것도 못 바꾸는 쓰기는 아래 noop_run 이 막는다
+            duplicate = circling = True
             first_obs.setdefault(key, (len(log) + 1, same_obs[name][0]))
         blocked = (not duplicate and tool.writes and noop_run.get(name, 0) >= NOOP_LIMIT)
         if duplicate:
@@ -532,7 +536,9 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             else:
                 at, before = first_obs[key]
                 data = before[:700]
-                note = f"같은 도구를 같은 인자로 이미 썼다({at}번째 걸음). 그때 결과를 위 자료로 다시 보인다 — 이것으로 다음 걸음을 고른다."
+                note = (f"{name} 를 인자만 바꿔 같은 결과를 잇달아 받았다 — 이번 걸음은 하지 않았다. 앞 결과를 위 자료로 다시 보인다 — 이것으로 다음 걸음을 고른다."
+                        if circling else
+                        f"같은 도구를 같은 인자로 이미 썼다({at}번째 걸음). 그때 결과를 위 자료로 다시 보인다 — 이것으로 다음 걸음을 고른다.")
             if repeats >= 2:
                 others = [t.name for t in tools if t.name != name]
                 note += ("\n같은 걸음을 잇달아 되풀이했다. 다음은 이 가운데 하나만: 찾은 근거로 쓰기·답하기("

@@ -1359,6 +1359,10 @@ def _cell_plan(tb: "_Table", r0: int, c0: int, values: list) -> dict:
             v = str(v)
             if _LEFT.match(v):
                 continue
+            if v.strip() and not hf.DITTO.match(v) and not _LEFT.match(v):
+                # 두 칸 값을 한 칸에 이어 붙이며 합치기 표시가 글로 섞인 것(「〃 스마트e-자동차과」「ICT반도체전자계열 ←」) — 표시는 글이 아니다(11-14 12차 3-3 표)
+                v2 = re.sub(r"^\s*[〃″]\s+|\s+[←◀]\s*$", "", v)
+                v = v2 if v2.strip() else v
             if v.strip() == "":
                 blanks.setdefault(key, cell)
                 continue
