@@ -2783,6 +2783,11 @@ def create_app(
             except Exception:
                 return {}
         lead_start["lint"] = _lint_now() if lead_start.get("fid") else None
+        try:
+            lead_start["filled"] = hw.filled_sections(hw.fid()) if hw is not None and hw.fid() else set()
+        except Exception:
+            lead_start["filled"] = set()
+        gap_checked = {"done": False}                           # 이번에 채운 표에 남은 빈 칸 필드 되짚기 — 요청마다 한 번
 
         def _lead_placeholders() -> list[str]:
             """연결된 한글 작업본 앞부분 줄 가운데 자리표시(○○·000·20○○ 꼴)가 남은 줄."""
@@ -3263,6 +3268,24 @@ def create_app(
                                           "(「〃」 은 위 칸과 합치기 hwp_table_edit merge, 빈 행은 delete_rows 또는 값 채우기, 좁은 열은 widths, "
                                           "그림 자리 표시는 hwp_picture, 견본 글은 아는 값으로 바꾸거나 지운다). 고칠 수 없으면 무엇이 남았는지 끝내는 말에 적는다.",
                                           data=_lint.report(fresh_))
+            if touched_ and hw is not None and hw.fid() and not gap_checked["done"] and hw.fid() == lead_start.get("fid"):
+                # 이번 요청에서 채운 절의 표에 아직 빈 칸 필드(「합계 입력」 같은 서식 안내만 든 칸)가 남았으면 한 번 되짚는다 — 값이 요청에 있었는데
+                # 빠뜨린 합계 줄이 빨간 안내 글로 남던 것(11-13 6차 3-1). 넣을 값이 없으면 그대로 끝낸다(판단은 에이전트)
+                try:
+                    from zzaimy.app import webhwp_write as _ww_g
+                    new_secs = hw.filled_sections(hw.fid()) - set(lead_start.get("filled") or set())
+                    if new_secs:
+                        raw_g = Path(_webhwp.get(db, hw.fid())["path"]).read_bytes()
+                        left_g = [x["name"] for x in hw._fields() if x.get("kind") != "절" and not x.get("text")][:60]
+                        left_g = [n_ for n_ in left_g if _ww_g.section_of_field(raw_g, n_) in new_secs][:12]
+                        if left_g:
+                            gap_checked["done"] = True
+                            raise doc_agent.Retry("끝내기 전에: 이번에 채운 절의 표에 빈 칸이 남았다 — 요청 글에 그 값(합계·소계·날짜 등)이 있으면 hwp_fill 로 넣고, "
+                                                  "없으면 그대로 두고 끝내는 말에 비운 칸을 적는다.", data="빈 칸: " + ", ".join(left_g))
+                except doc_agent.Retry:
+                    raise
+                except Exception:
+                    pass
             if touched_ and hw is not None and hw.fid():
                 # 다 채운 절의 빨간 「본문 입력」 안내 글을 지운다(필드는 남김) — 이번까지 채운 절만(webhwp_write.quiet_hints)
                 try:

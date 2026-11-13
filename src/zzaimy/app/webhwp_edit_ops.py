@@ -1452,9 +1452,13 @@ def table_view(data: bytes, a: dict) -> str:
     lines = [f"표{t['no']} — {tb.nr}행×{tb.nc}열" + (f", 필드: {', '.join(t['fields'][:8])}" if t["fields"] else "")]
     # 긴 표는 from(1부터 행 번호)부터 60행 — 늘 1행부터 보여 표 끝을 볼 수 없었다(11-12 특성화 재현 3차, 155행 표)
     try:
-        r_from = max(0, min(int(a.get("from") or a.get("start_row") or 1) - 1, max(tb.nr - 1, 0)))
+        want_from = int(a.get("from") or a.get("start_row") or 1)
     except (TypeError, ValueError):
-        r_from = 0
+        want_from = 1
+    if want_from > tb.nr:
+        # 표 끝을 넘어 보면 같은 쪽을 되보이지 않고 끝이라고 알린다 — 「from」 만 늘리며 37번 맴돌던 것(11-13 6차)
+        raise EditError(f"표{t['no']}는 {tb.nr}행까지다 — from 을 {tb.nr} 이하로 준다. 표를 다 봤으면 다음 걸음으로 간다.")
+    r_from = max(0, want_from - 1)
     if r_from:
         lines.append("1행(머리): " + " | ".join((_text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", x["xml"], flags=re.S)) or "(빈 칸)")[:30]
                                              for x in [tb.covering(0, c) for c in range(tb.nc)] if x is not None))
@@ -1739,6 +1743,9 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
     pp, cp = doc.refs()
     al = ALIGNS.get(str(a.get("align") or "가운데"), "CENTER")
     parts, widths = [], []
+    row = str(a.get("layout") or "").strip() in ("나란히", "row", "side", "side_by_side") and len(imgs) > 1
+    gap = hu(4)
+    slot = int((width - gap * (len(imgs) - 1)) / len(imgs)) if row else width   # 나란히면 한 줄에 n장 — 장마다 쓸 폭
     for one in imgs:
         kind = hf.image_kind(one or b"")
         if not kind:
@@ -1761,14 +1768,21 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
             # 짚은 자리가 좁은 표 칸 안이다 — 큰 그림을 칸 폭으로 줄여 넣으면 알아볼 수 없는 작은 그림이 된다(11-13 5차: 요약본 그림 두 장이 표지 「권역」 칸에)
             raise EditError(f"짚은 자리는 폭 {mm_of(width)}mm 표 칸 안이다 — 그림(요청 {mm_of(w)}mm)이 들어갈 자리가 아니다. "
                             "그림은 표 밖 본문 자리에 넣는다: at.table(표 앞·뒤·대신)·at.after_text·at.field(절 필드)로 짚는다.")
-        w = max(min(w, width), hu(10))
+        w = max(min(w, slot), hu(10))
         h = int(w * org_h / org_w)
         pxml = hf.picture_xml(bin_id, int(doc.ids.new()), w, h, org_w, org_h, doc.hdr.para(pp, al), cp)
         parts.append(pxml.replace('<hp:p id="0"', f'<hp:p id="{doc.ids.new()}"', 1))
         widths.append(mm_of(w))
+    if row:
+        # 한 문단에 그림을 이어 둔다(글자처럼 취급하는 그림이라 한 줄에 나란히 선다) — 원본의 사진 두 장 나란히(11-13 6차 4-4)
+        pics = [re.search(r"<hp:pic\b.*?</hp:pic>", x, flags=re.S).group(0) for x in parts]
+        head = re.match(r"<hp:p\b[^>]*><hp:run\b[^>]*>", parts[0]).group(0)
+        parts = [head + f'<hp:t> </hp:t>'.join(pics).replace("<hp:t> </hp:t>", "</hp:run><hp:run charPrIDRef=\"" + cp + "\"><hp:t>  </hp:t></hp:run><hp:run charPrIDRef=\"" + cp + "\">")
+                 + f'</hp:run><hp:run charPrIDRef="{cp}"><hp:t/></hp:run></hp:p>']
     xml = doc.secs[n]
     doc.secs[n] = xml[:pos] + "".join(parts) + xml[pos:]
-    what = f"그림 {len(parts)}장을 넣었다(폭 {', '.join(str(x) for x in widths)}mm)" if len(parts) > 1 else f"그림을 넣었다(폭 {widths[0]}mm)"
+    what = (f"그림 {len(widths)}장을 {'한 줄에 나란히 ' if row else ''}넣었다(폭 {', '.join(str(x) for x in widths)}mm)" if len(widths) > 1
+            else f"그림을 넣었다(폭 {widths[0]}mm)")
     return doc.pack(), f"{what}.{replaced}"
 
 
@@ -1809,6 +1823,31 @@ def _check_table_choice(doc: "_Doc", t: dict, values) -> None:
                         "이 표에 늘려 둔 빈 행이 있으면 delete_rows 로 지운다.")
 
 
+def form_table_for(data: bytes, section: str, rows: list[list[str]]) -> dict | None:
+    """이 절 아래에 머리(라벨)가 새 표와 많이 겹치고 아직 거의 빈 서식 표가 있으면 그 표 — {no, head, fill}. 없으면 None.
+    본문 쓰기(hwp_write)가 표를 새로 붙여 서식 표가 빈 채 남던 것(11-13 6차 3-1·3-3)을 막는 데 쓴다."""
+    from zzaimy.app import webhwp_write as ww
+    labels = _value_labels(rows[:2] + [[r[0]] for r in rows if r]) if rows else set()
+    if len(labels) < 3:
+        return None
+    doc = _Doc(data)
+    best = None
+    for x in list_tables(doc):
+        if ww.section_before(data, x["sec"], x["s"]) != section:
+            continue
+        try:
+            xml = _table_xml(doc, x)
+        except Exception:
+            continue
+        cells = [_text(c) for c in re.findall(r"<hp:tc\b.*?</hp:tc>", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S), flags=re.S)]
+        have = {_lab(c) for c in cells}
+        k = len(labels & have)
+        filled = sum(1 for c in cells if c.strip() and not _hint_cell(c)) / max(len(cells), 1)
+        if k >= 3 and filled < 0.6 and (best is None or k > best["k"]):
+            best = {"no": x["no"], "k": k, "fill": round(filled, 2), "head": " | ".join(c[:8] for c in cells[:4] if c.strip())}
+    return best
+
+
 def form_map(data: bytes, a: dict | None = None) -> str:
     """양식 지도 — 문서의 자리를 차례대로: 절 제목마다 그 아래 표(번호·행×열·첫 글·채움 정도)와 그림 수.
     에이전트가 값·그림·글을 넣을 자리를 용도에 맞게 고르게 한다(11-13 5차: 「권역」 이 든 표가 둘이라 표지 한 줄 표에 신청서를 넣고,
@@ -1844,10 +1883,14 @@ def form_map(data: bytes, a: dict | None = None) -> str:
     under = re.sub(r"\s+", "", str((a or {}).get("under") or ""))
     out = []
     for sec in order:
+        lines_ = rows[sec]
         if under and under not in re.sub(r"\s+", "", _label(sec)):
-            continue
+            # 절 이름에 없으면 표 첫 글에서 찾는다 — 표지·요약본처럼 절 필드가 없는 자리(11-13 6차: 「요약본」 아래 표가 없다)
+            lines_ = [ln for ln in lines_ if under in re.sub(r"\s+", "", ln)]
+            if not lines_:
+                continue
         out.append(f"[{_label(sec)}]")
-        out.extend(rows[sec][:12])
+        out.extend(lines_[:12])
         if len(rows[sec]) > 12:
             out.append(f"  … 표 {len(rows[sec]) - 12}개 더")
     return "\n".join(out[:220]) or "표가 없다."
@@ -2782,7 +2825,7 @@ TOOLS: list[dict] = [
      "desc": "각주 달기 — 근거·출처를 밝힐 때. args {field: 필드(그 값 끝에) | after_text: 이 글 뒤에, text: 각주 글}",
      "args": {"field": "str", "after_text": "str", "text": "str"}},
     {"name": "hwp_picture", "writes": True, "label": "그림 넣기",
-     "desc": "그림 넣기. args {image: doc:<문서 id>(이 대화·프로젝트 문서의 그림 파일) | file:<파일 id>(이 대화에 올린 그림) | 그림 파일 이름(「image_011.png」) — 여럿이면 목록(같은 자리에 차례로), width_mm(본문 폭 이하), "
+     "desc": "그림 넣기. args {image: doc:<문서 id>(이 대화·프로젝트 문서의 그림 파일) | file:<파일 id>(이 대화에 올린 그림) | 그림 파일 이름(「image_011.png」) — 여럿이면 목록(같은 자리에 차례로), layout: 나란히(여럿을 한 줄에), width_mm(본문 폭 이하 — 사진은 원래 쓰임에 맞게 작게도), "
              "align: 가운데|왼쪽|오른쪽, " + _AT + "}",
      "args": {"image": "str", "width_mm": "float", "align": "str", "at": "dict"}},
     {"name": "hwp_replace", "writes": True, "label": "찾아 바꾸기",

@@ -1530,6 +1530,20 @@ class HwpTools:
         if pick.startswith("쓰지 않았다"):
             return pick
         field = pick or field
+        if field.startswith("절:") and not a.get("new_table"):
+            # 이 절에 같은 머리의 빈 서식 표가 있으면 표를 새로 붙이지 않고 그 서식 표에 넣게 한다(11-13 6차: 3-1·3-3 서식 표가 빈 채 새 표가 붙음)
+            try:
+                from zzaimy.app import webhwp_edit_ops as _eo3
+                raw_ = Path(f["path"]).read_bytes()
+                for kind_, val_ in ww.parse_body(text):
+                    if kind_ == "table" and isinstance(val_, list) and val_:
+                        hit_ = _eo3.form_table_for(raw_, field, [[str(c) for c in r] for r in val_])
+                        if hit_:
+                            return (f"쓰지 않았다 — 이 절에 머리가 같은 서식 표 표{hit_['no']}(「{hit_['head']}」, 채움 {int(hit_['fill'] * 100)}%)가 비어 있다. "
+                                    f"표 값은 hwp_table_edit set_cells 로 표{hit_['no']}에 넣고(행이 모자라면 늘어난다), 글만 hwp_write 로 쓴다. "
+                                    "서식 표와 다른 새 표가 꼭 필요하면 new_table: true 로 다시 쓴다.")
+            except Exception:
+                pass
         if a.get("append") and field.startswith("절:"):      # 앞에 쓴 글 뒤에 덧붙이기 — 절은 통째로 다시 쓰므로 지금 글을 앞에 둔다
             prev = self.current_body(field).strip()
             if prev and not _wb.PLACEHOLDER.fullmatch(prev) and prev not in ("본문 입력",):

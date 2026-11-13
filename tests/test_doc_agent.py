@@ -159,3 +159,13 @@ def test_same_call_reruns_after_document_changed():
     ep = doc_agent.run(_client(replies), "표에 넣어 줘", lambda: "상태", tools, max_writes=5)
     assert calls == [9, 10]
     assert "칸 10개" in ep.steps[2]["observation"]
+
+
+def test_same_result_with_different_args_counts_as_repeat():
+    """인자만 바꾸고 같은 결과를 잇달아 받으면(표 보기 from 만 늘리기) 세 번째부터 되풀이로 센다(11-13 6차)."""
+    calls = []
+    tools = [doc_agent.Tool("view", "보기", lambda a: calls.append(a["n"]) or "표18 — 4행"),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    replies = [_step("view", n=i) for i in range(1, 8)] + [_step("finish", message="끝")]
+    ep = doc_agent.run(_client(replies), "봐 줘", lambda: "상태", tools, max_writes=1)
+    assert len(calls) <= 4

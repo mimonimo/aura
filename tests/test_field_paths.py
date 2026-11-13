@@ -195,3 +195,19 @@ def test_pictures_replace_table_in_order():
     new, msg = eo.picture(d, [png, png], {"at": {"table": t, "where": "replace"}, "width_mm": 50})
     assert "그림 2장" in msg and "표는 뺐다" in msg and eo.check_bytes(new) == []
     assert len(eo.list_tables(eo._Doc(new))) == t - 1
+
+
+def test_side_by_side_pictures_share_one_paragraph():
+    """여러 그림을 「나란히」 넣으면 한 문단에 이어 두고 폭을 나눈다(원본 사진 두 장 나란히, 11-13 6차)."""
+    import base64
+    import re as _re
+    import zipfile as _zf
+    import io as _io
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
+    new, msg = eo.picture(wt.build(wt.GRANT["budget_change"]), [png, png], {"layout": "나란히", "width_mm": 160})
+    assert "나란히" in msg and eo.check_bytes(new) == []
+    sec = _zf.ZipFile(_io.BytesIO(new)).read("Contents/section0.xml").decode()
+    para = [p for p in _re.findall(r"<hp:p\b.*?</hp:p>", sec, flags=_re.S) if "<hp:pic" in p]
+    assert len(para) == 1 and para[0].count("<hp:pic ") == 2

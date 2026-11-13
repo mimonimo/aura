@@ -396,6 +396,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     turns: list[tuple[str, str]] = []                  # 지난 걸음 (고른 JSON, 결과 글)
     log: list[str] = []                                # 지금까지 한 걸음 — 한 줄씩
     first_obs: dict[str, tuple[int, str]] = {}         # 실제로 돈 걸음의 결과(같은 걸음을 거절할 때 다시 보여 준다)
+    same_obs: dict[str, tuple[str, int]] = {}            # 도구마다 바로 앞 결과와 같은 결과가 잇달아 몇 번 나왔나(인자만 바꾼 맴돌기)
     rejected: dict[str, tuple[int, str, str]] = {}     # 거절·실패한 걸음 (몇째, 안내, 자료) — 같은 인자로 다시 오면 되풀이로 센다
     fail_count: dict[str, int] = {}
     searched = nudged = False
@@ -515,6 +516,10 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             final_retried.add(key)                                     # 끝내기 관문(자리표시 되짚기·끝맺음 점검)은 한 번만 — 다시 내면 받는다(11-09 대화 165)
             rejected.pop(key, None)
         duplicate = (key in first_obs and not tool.final) or key in rejected
+        if not duplicate and not tool.final and not getattr(tool, "gathers", False) and same_obs.get(name, (None, 0))[1] >= 3:
+            # 인자만 조금 바꾸고 같은 결과를 잇달아 받는 맴돌기(표 보기 from 만 늘리기, 11-13 6차 37번) — 같은 결과 네 번째부터 되풀이로 센다(찾기 도구는 빼고)
+            duplicate = True
+            first_obs.setdefault(key, (len(log) + 1, same_obs[name][0]))
         blocked = (not duplicate and tool.writes and noop_run.get(name, 0) >= NOOP_LIMIT)
         if duplicate:
             repeats += 1
@@ -576,6 +581,9 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     note = EMPTY_ANSWER.format(name=name)
                 else:
                     first_obs[key] = (len(log) + 1, data)
+                    prev_ = same_obs.get(name)
+                    sig_ = data[:400]
+                    same_obs[name] = (sig_, (prev_[1] + 1) if prev_ and prev_[0] == sig_ else 0)
                 if tool.writes:
                     ep.writes += 1
                     if not data.lstrip().startswith(_REFUSED):
