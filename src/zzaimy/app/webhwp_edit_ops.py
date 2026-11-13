@@ -1333,6 +1333,96 @@ def _merge_dittos(tb: "_Table", r0: int, c0: int, values: list) -> int:
     return n
 
 
+_UNIT_ONLY = re.compile(r"^[개원명%점건회년월일시간학점과팀]{1,2}$")
+_LEFT = re.compile(r"^\s*[←◀]\s*$")
+
+
+def _sample_text(t: str) -> bool:
+    """칸의 견본 글(비워도 되는 글) — OOO·○○·0000·「~ 입력」 안내."""
+    return bool(re.search(r"[OＯ○◯]{2,}|0{3,}|입력\s*$", t or ""))
+
+
+def _cell_plan(tb: "_Table", r0: int, c0: int, values: list) -> dict:
+    """set_cells 값 → {(칸 첫 행, 첫 열): 넣을 글}. 합친 칸은 그 칸의 첫 값만 받는다.
+    빈 값(「」)은 글을 지우지 않는다 — 원본 표를 옮긴 값 줄에서 합친 칸의 나머지 자리가 빈 값으로 와 방금 넣은 값을 지웠다(10차: 대구광역시·472명이 사라짐).
+    빈 값은 견본 글(OOO)만 비운다. 「〃」(위와 같음)·「←」(왼쪽과 같음)은 합치기 표시라 글로 넣지 않는다(아래 _merge_* 가 합친다)."""
+    plan: dict = {}
+    blanks: dict = {}
+    for i, row in enumerate(values):
+        for j, v in enumerate(row if isinstance(row, list) else [row]):
+            if v is None:
+                continue
+            cell = tb.covering(r0 + i, c0 + j)
+            if cell is None:
+                continue
+            key = (cell["r"], cell["c"])
+            v = str(v)
+            if _LEFT.match(v):
+                continue
+            if v.strip() == "":
+                blanks.setdefault(key, cell)
+                continue
+            if key in plan and not hf.DITTO.match(plan[key]):
+                continue                                    # 합친 칸에 값이 둘 — 첫 값만(뒤 값이 덮지 않게)
+            plan[key] = v
+    for key, cell in blanks.items():
+        if key not in plan and _sample_text(_text(cell["xml"]).strip()):
+            plan[key] = ""
+    return plan
+
+
+def _check_labels(tb: "_Table", plan: dict) -> None:
+    """서식 라벨 칸을 값으로 덮는가 — 그 칸 바로 오른쪽 칸이 값 자리(비었거나 단위 「개」「원」만)이고 이번에 값을 받지 않으면 그 칸은 라벨이다.
+    열을 한 칸 잘못 짚어 「계열 수」「본교/분교」 라벨을 값으로 덮고, 값 칸에는 단위 「개」 만 남던 것(10차 대학 현황 표)."""
+    bad = []
+    # 값 칸 필드(칸:<라벨>)가 붙은 라벨 — 서식이 값 자리를 정해 둔 라벨이라 어느 경우에도 값으로 덮지 않는다(10차: 「본교/분교」 를 「본교」 로)
+    owned = {re.sub(r"\s+", "", re.sub(r"#\d+$", "", m.group(1)))
+             for c_ in tb.cells for m in re.finditer(r'<hp:fieldBegin\b[^>]*\bname="칸:([^"]+)"', c_["xml"])}
+    for (r, c), v in plan.items():
+        cell = tb.covering(r, c)
+        old = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cell["xml"], flags=re.S)).strip() if cell else ""
+        if not old or old == v.strip() or _sample_text(old) or _UNIT_ONLY.match(old) or hf.DITTO.match(v) or not v.strip():
+            continue
+        if re.sub(r"\s+", "", old) in owned and "fieldBegin" not in cell["xml"]:
+            bad.append(f"{r + 1}행 {c + 1}열 「{old[:12]}」(값 칸 필드 「칸:{old[:12]}」 의 라벨)")
+            continue
+        nc = c + cell["cs"]
+        if nc >= tb.nc:
+            continue
+        right = tb.covering(r, nc)
+        if right is None or (right["r"], right["c"]) in plan:
+            continue
+        rt = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", right["xml"], flags=re.S)).strip()
+        if not rt or _UNIT_ONLY.match(rt) or _sample_text(rt):
+            bad.append(f"{r + 1}행 {c + 1}열 「{old[:12]}」(오른쪽 {r + 1}행 {nc + 1}열이 {'단위 「' + rt + '」 만 든 ' if rt else '빈 '}값 자리)")
+    if bad:
+        raise EditError("넣지 않았다 — 서식 라벨 칸을 값으로 덮으려 했다: " + "; ".join(bad[:4])
+                        + ". 값은 라벨 오른쪽 값 칸에 넣는다(start 열을 맞추거나, 합친 칸은 값 하나로). 라벨을 꼭 바꿔야 하면 overwrite: true.")
+
+
+def _merge_lefts(tb: "_Table", r0: int, c0: int, values: list) -> int:
+    """「←」(왼쪽 칸과 같음 — 원본에서 가로로 합친 칸) 칸을 왼쪽 칸과 합친다 — 합친 수. 원본 표를 옮긴 값 줄에서 가로 합침이 빈 값으로만 와
+    빈 칸이 남던 것(10차 3-1·4-2: ICT반도체전자계열 옆 빈 칸)."""
+    n = 0
+    for i, row in enumerate(values):
+        for j, v in enumerate(row if isinstance(row, list) else [row]):
+            if v is None or not _LEFT.match(str(v)):
+                continue
+            r, c = r0 + i, c0 + j
+            if c < 1 or r >= tb.nr or c >= tb.nc:
+                continue
+            left, me = tb.covering(r, c - 1), tb.covering(r, c)
+            if not left or not me or left is me or left["rs"] != 1 or me["rs"] != 1 or left["r"] != r or me["r"] != r:
+                continue
+            try:
+                me["xml"] = re.sub(r"(<hp:t\b[^>]*>)[^<]*(</hp:t>)", r"\1\2", me["xml"])
+                tb.merge(r, left["c"], r, me["c"] + me["cs"] - 1)
+                n += 1
+            except EditError:
+                continue
+    return n
+
+
 @_guarded
 def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
@@ -1380,16 +1470,19 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
             grown = need
         for i, row in enumerate(values):
             for j, v in enumerate(row if isinstance(row, list) else [row]):
-                if v is None:
-                    continue
-                if r0 + i >= tb.nr or c0 + j >= tb.nc:
+                if v is not None and (r0 + i >= tb.nr or c0 + j >= tb.nc):
                     raise EditError(f"값이 표({tb.nr}행×{tb.nc}열) 밖으로 나간다 — "
                                     + ("열이 모자란다: 표 꼴(hwp_table_view)을 보고 값 줄을 맞추거나 add_cols 로 늘린다." if c0 + j >= tb.nc
                                        else "먼저 add_rows 로 늘린다."))
-                tb.set_text(r0 + i, c0 + j, str(v), doc.ids, ink=doc.hdr.char_plain)
-                n += 1
+        plan = _cell_plan(tb, r0, c0, values)
+        if not a.get("overwrite"):
+            _check_labels(tb, plan)                      # 서식 라벨(오른쪽 칸이 값 자리)을 값으로 덮으려 하면 넣지 않고 알린다
+        for (r, c), v in plan.items():
+            tb.set_text(r, c, v, doc.ids, ink=doc.hdr.char_plain)
+            n += 1
         merged = _merge_dittos(tb, r0, c0, values)
-        msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」 칸 {merged}개는 위 칸과 합침" if merged else "")
+        merged += _merge_lefts(tb, r0, c0, values)
+        msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」·「←」 칸 {merged}개는 위·왼쪽 칸과 합침" if merged else "")
         touched = {c0 + j for row in values for j, _v in enumerate(row if isinstance(row, list) else [row])}
         heights_ = {m.group(1): int(m.group(2)) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\bheight="(\d+)"', doc.hdr.xml)}
         if tb.autofit_narrow(touched, size=heights_):
@@ -2873,7 +2966,7 @@ TOOLS: list[dict] = [
      "args": {"table": "any", "from": "int"}},
     {"name": "hwp_table_edit", "writes": True, "label": "표 고치기",
      "desc": "표 고치기(행·열 번호는 1부터). args {table, op, …}: add_rows {row, where: above|below, count} · delete_rows {row, count} · "
-             "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]}(값 줄이 표 끝을 넘으면 행을 늘려 넣음) · "
+             "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]}(값 줄이 표 끝을 넘으면 행을 늘려 넣음. 「〃」 은 위 칸과, 「←」 은 왼쪽 칸과 합침. 빈 값 「」 은 그 칸을 그대로 둔다. 서식 라벨 칸은 덮지 않는다 — 꼭 바꾸면 overwrite: true) · "
              "merge {cells: [첫 행, 첫 열, 끝 행, 끝 열]} · split {cells: [행, 열], rows, cols}(둘 다 비우면 합친 칸 풀기) · "
              "widths {widths: [비율…]} · head {rows: 머리줄 행 수, fill} · align {align: 가운데|왼쪽|오른쪽|양쪽, cells|row|col} · "
              "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col}",

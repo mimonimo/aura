@@ -279,3 +279,25 @@ def test_picture_into_table_cell():
     assert len(eo.list_tables(doc)) == t
     tx = eo._table_xml(doc, eo._pick_table(doc, t))
     assert "<hp:pic" in tx and "실습실 구축" in tx
+
+
+def test_set_cells_blank_does_not_erase_and_labels_are_kept():
+    """빈 값은 합친 칸에 방금 넣은 값을 지우지 않고, 라벨 칸(오른쪽이 단위만 든 값 칸)은 덮지 않으며, 「←」 는 왼쪽 칸과 합친다(11-14 10차 대학 현황 표)."""
+    import pytest
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["구분", "항목", "값", "비고"],
+                                                                   "values": [["계열·학과 수", "계열 수", "개", ""], ["재학생", "", "", ""]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    # 라벨 「계열 수」 를 값으로 덮으려 함 — 오른쪽은 단위 「개」 만 든 값 칸
+    with pytest.raises(eo.EditError, match="라벨"):
+        eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 2], "values": [["9개"]]})
+    d2, _ = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 3], "values": [["9개"]]})
+    assert "9개" in eo.table_view(d2, {"table": t}) and "계열 수" in eo.table_view(d2, {"table": t})
+    # 가로로 합친 칸: 값 뒤 빈 값이 그 값을 지우지 않는다
+    d3, _ = eo.table_edit(d2, {"table": t, "op": "merge", "cells": [3, 2, 3, 3]})
+    d4, _ = eo.table_edit(d3, {"table": t, "op": "set_cells", "start": [3, 2], "values": [["472명", "", "비고 없음"]]})
+    assert "472명" in eo.table_view(d4, {"table": t})
+    # 「←」 는 왼쪽 칸과 합친다
+    d5, msg = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [3, 2], "values": [["ICT반도체전자계열", "←"]]})
+    assert "합침" in msg and "ICT반도체전자계열[합침 1×2]" in eo.table_view(d5, {"table": t})
