@@ -99,3 +99,20 @@ def test_echo_labels_fills_same_label_cells_elsewhere():
     assert set(done) == {"칸:권역", "칸:주소"} and eo.check_bytes(new) == []
     txt = eo.table_view(new, {"table": max(x["no"] for x in eo.list_tables(eo._Doc(new)))})
     assert "대구‧경북권" in txt and "대구 남구" in txt and "있는 글" in txt
+
+
+def test_picture_found_by_name_despite_title_conversion(monkeypatch):
+    """반입이 파일 이름을 제목 꼴로 바꿔도(「image_003.png」 → 「image 003」) 그림을 이름으로 찾는다(11-13 4차 4단계)."""
+    from types import SimpleNamespace
+    from zzaimy.app import webhwp_edit_ops as eo
+    import zzaimy.app.webhwp_routes as wr
+    t = eo.EditTools.__new__(eo.EditTools)
+    db = SimpleNamespace(list_files=lambda **k: [])
+    t.hw = SimpleNamespace(db=db, sid=1, project_docs=lambda: [{"id": 7, "filename": "image 003"}, {"id": 8, "filename": "image 013"}])
+    monkeypatch.setattr(wr, "_original_bytes", lambda st, d: b"PNG" + str(d["id"]).encode())
+    assert t._image("image_003.png") == b"PNG7"
+    try:
+        t._image("image_999.png")
+        raise AssertionError("없는 이름")
+    except eo.EditError:
+        pass

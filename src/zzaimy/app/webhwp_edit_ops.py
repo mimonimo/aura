@@ -2754,16 +2754,18 @@ class EditTools:
         if not m and ref.strip():
             # 파일 이름으로 짚은 그림(「image_011」「조직도.png」) — 프로젝트 문서·이 대화에 올린 파일에서 이름이 하나로 맞는 것(11-12 특성화 재현:
             # 담당자는 그림을 이름으로 부른다. 번호를 모르면 그림 자리를 글로 남겼다)
-            want = re.sub(r"\.[A-Za-z0-9]{2,4}$", "", Path(ref.strip()).name).lower()
+            # 반입은 파일 이름을 제목 꼴로 바꿔 둔다(「image_003.png」 → 「image 003」) — 확장자·빈칸·밑줄·붙임표를 떼고 견준다(11-13 4차 4단계: 이름으로 못 찾음)
+            def _key(n: str) -> str:
+                return re.sub(r"[\s_\-.·]+", "", re.sub(r"\.(png|jpe?g|gif|bmp|tiff?)$", "", Path(str(n or "")).name.strip(), flags=re.I)).lower()
+            want = _key(ref)
             from zzaimy.app import storage as _st
             docs = [x for x in self.hw.project_docs() or []
-                    if re.sub(r"\.[A-Za-z0-9]{2,4}$", "", Path(str(x.get("filename") or "")).name).lower() == want
-                    or _st.title_of(str(x.get("filename") or "")).lower() == want]
+                    if want and (_key(str(x.get("filename") or "")) == want or _key(_st.title_of(str(x.get("filename") or ""))) == want)]
             if len(docs) == 1:
                 m = re.fullmatch(r"(doc):(\d+)", f"doc:{docs[0]['id']}")
             else:
                 rows = [r for r in db.list_files(session_id=self.hw.sid, limit=500)
-                        if re.sub(r"\.[A-Za-z0-9]{2,4}$", "", Path(str(r.get("name") or r.get("path") or "")).name).lower() == want]
+                        if want and _key(str(r.get("name") or r.get("path") or "")) == want]
                 if len(rows) == 1:
                     m = re.fullmatch(r"(file):(\d+)", f"file:{rows[0]['id']}")
                 elif len(docs) + len(rows) > 1:
