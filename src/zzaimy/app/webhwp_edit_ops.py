@@ -1418,6 +1418,30 @@ def _realign_row(tb: "_Table", r0: int, c0: int, values: list):
     return [grid], 0, f" · 값 {len(cells)}개가 {r0 + 1}행 칸 수와 같아 1열부터 칸마다 넣음(시작 열이 한 칸 밀려 있었다)"
 
 
+def _gap_note(tb: "_Table", r0: int, c0: int, values: list) -> str:
+    """이번에 쓴 행들에서 값을 주지 않은 열이 비었는데 같은 열 다른 행(이번에 쓴 행)에는 글이 있으면 알린다 — 연번·구분 열을 빼고
+    3열부터 넣어 5행부터 연번·구분이 빈 칸으로 남던 것(11-14 13차 교원 표). 판단과 채우기는 에이전트가 한다."""
+    width = max((len(r) if isinstance(r, list) else 1) for r in values) if values else 0
+    rows = [r for r in range(r0, min(r0 + len(values), tb.nr))]
+    if len(rows) < 3:
+        return ""
+    out = []
+    for c in range(tb.nc):
+        if c0 <= c < c0 + width:
+            continue
+        own = [(r, tb.covering(r, c)) for r in rows]
+        own = [(r, cv) for r, cv in own if cv is not None and cv["r"] == r and cv["c"] == c]
+        txt = {r: _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cv["xml"], flags=re.S)).strip() for r, cv in own}
+        empty = [r for r in txt if not txt[r]]
+        if empty and len(empty) < len(txt) and len(empty) >= 2:
+            out.append((c, empty))
+    if not out:
+        return ""
+    head = lambda c: (lambda cv: _text(cv["xml"]).strip()[:10] if cv else "")(tb.covering(0, c))
+    parts = [f"{e[0] + 1}~{e[-1] + 1}행 {c + 1}열(「{head(c)}」)" for c, e in out[:4]]
+    return " · 빈 칸이 남았다: " + ", ".join(parts) + " 이 비었다(같은 열 다른 행에는 값이 있다) — 이 열 값도 넣는다"
+
+
 def _check_labels(tb: "_Table", plan: dict, overwrite: bool = False) -> list:
     """서식 라벨 칸을 값으로 덮는가 — 덮으려는 값을 라벨 오른쪽 값 칸으로 옮긴다(옮긴 것 목록을 돌려준다).
     열을 한 칸 잘못 짚어 「계열 수」「본교/분교」 라벨을 값으로 덮고, 값 칸에는 단위 「개」 만 남던 것(10차 대학 현황 표).
@@ -1522,6 +1546,11 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         if not isinstance(start, (list, tuple)) or len(start) != 2:
             raise EditError("start 는 [행, 열](1부터)이다.")
         r0, c0 = _idx(start[0], "start 행"), _idx(start[1], "start 열")
+        for row in values:
+            for v in (row if isinstance(row, list) else [row]):
+                if isinstance(v, (list, dict)):
+                    raise EditError(f"값 줄 안에 목록 {json.dumps(v, ensure_ascii=False)[:40]} 이 들었다 — values 는 [[행1 칸1, 칸2, …], [행2 …]] 꼴로, 칸 하나에 글 하나다. "
+                                    "다른 행 값이면 그 행 줄로 옮긴다.")
         values, c0, realigned = _realign_row(tb, r0, c0, values)   # 행 칸 수와 꼭 맞는 값 줄을 한 칸 밀려 짚었으면 첫 칸부터
         _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
         n, grown = 0, 0
@@ -1548,6 +1577,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         if moved:
             msg += " · " + "; ".join(moved[:4])
         msg += realigned
+        msg += _gap_note(tb, r0, c0, values)
         touched = {c0 + j for row in values for j, _v in enumerate(row if isinstance(row, list) else [row])}
         heights_ = {m.group(1): int(m.group(2)) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\bheight="(\d+)"', doc.hdr.xml)}
         if tb.autofit_narrow(touched, size=heights_):
@@ -1990,9 +2020,29 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
     else:
         xml = doc.secs[n]
         doc.secs[n] = xml[:pos] + "".join(parts) + xml[pos:]
+        if replaced:
+            replaced += _next_table_note(doc, n, pos + len("".join(parts)))
     what = (f"그림 {len(widths)}장을 {'한 줄에 나란히 ' if row else ''}넣었다(폭 {', '.join(str(x) for x in widths)}mm)" if len(widths) > 1
             else f"그림을 넣었다(폭 {widths[0]}mm)")
     return doc.pack(), f"{what}.{replaced}"
+
+
+def _next_table_note(doc: "_Doc", n: str, at: int) -> str:
+    """표를 그림으로 바꾼 자리 바로 뒤(사이에 글 없이)에 표가 이어 있으면 알린다 — 같은 부분의 서식 표인지는 에이전트가 판단한다.
+    요약본 제목 상자만 그림으로 바꾸고 바로 뒤 요약 표(21×19)를 「다음 부분 제목 상자」로 여겨 남긴 것(11-14 13차 3단계)."""
+    xml = doc.secs[n]
+    m = re.search(r"<hp:tbl\b", xml[at:])
+    if not m:
+        return ""
+    between = re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml[at:at + m.start()], flags=re.S)
+    if _text(between).strip():
+        return ""
+    s0 = at + m.start()
+    for t in list_tables(doc):
+        if t["sec"] == n and t["s"] == s0:
+            return (f" 바로 뒤에 표{t['no']}({t['rows']}행×{t['cols']}열 「{t['head'][:30]}」)가 사이 글 없이 이어 있다 — "
+                    "이 부분의 서식 표면 그 표도 빼야 한다 — hwp_undo 로 되돌린 뒤 hwp_picture at.table 에 두 표 번호를 함께([앞 표, 뒤 표]) 주어 한 번에 바꾼다.")
+    return ""
 
 
 def _picture_cap(doc: "_Doc", n: str) -> int:

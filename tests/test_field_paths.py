@@ -247,6 +247,28 @@ def test_set_cells_realigns_row_that_fits_the_row_cells():
     assert "1열부터" not in msg2 and "재학생" in eo.table_view(new2, {"table": t2})
 
 
+def test_table_edit_guides_nested_values_gaps_and_next_table():
+    """값 줄 안 목록은 거절, 쓴 행들에서 빈 열은 알림, 그림으로 바꾼 표 바로 뒤에 이어진 표는 알림(11-14 13차)."""
+    import base64
+    import pytest
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["연번", "구분", "성명", "직위"],
+                                                                   "values": [["1", "단장", "", ""], ["2", "참여", "", ""], ["", "", "", ""], ["", "", "", ""]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    with pytest.raises(eo.EditError, match="목록"):
+        eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 3], "values": [["가", ["", "나"]]]})
+    _, msg = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 3], "values": [["가", "교수"], ["나", "교수"], ["다", "교수"], ["라", "교수"]]})
+    assert "빈 칸이 남았다" in msg and "1열" in msg and "2열" in msg
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
+    d2 = wt.build(wt.GRANT["budget_change"])
+    for head in (["요약 제목", "-"], ["성과지표", "값"]):
+        d2, _ = eo.table_insert(d2, {"head": head, "values": [["가", "1"]]})
+    n = len(eo.list_tables(eo._Doc(d2)))
+    _, msg2 = eo.picture(d2, png, {"at": {"table": n - 1, "where": "replace"}, "width_mm": 50})
+    assert "바로 뒤에 표" in msg2 and "성과지표" in msg2
+
+
 def test_merge_marks_glued_to_values_are_dropped():
     """「〃 학과」「학과 ←」 처럼 합치기 표시가 값에 글로 붙어 오면 표시는 빼고 넣는다(11-14 12차)."""
     from zzaimy.app import webhwp_edit_ops as eo
