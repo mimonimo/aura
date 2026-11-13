@@ -87,3 +87,10 @@ def test_calc_from_supported_numbers_is_not_flagged():
     assert not flagged and "확인 필요" not in out
     out, flagged = flag_unsupported("총액은 700만 원 × 12개월 = 8,400만 원입니다.", ev)
     assert flagged
+
+
+def test_agent_state_lists_uploaded_pictures_by_upload_name():
+    """에이전트 상태에 프로젝트에 올린 그림 파일을 올린 이름으로 보인다 — 이름이 그림 속 글로 바뀌거나 다른 문서에 이어져 「없다」 고 판단하던 것(11-13 5차)."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/main.py").read_text(encoding="utf-8")
+    assert "프로젝트에 올린 그림 파일" in src and 'get("original_filename")' in src

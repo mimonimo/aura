@@ -2704,6 +2704,20 @@ def create_app(
                         tags.append(f"다른 사업 「{other_[:30]}」 · 참고만, 이 사업의 값으로 쓰지 않음")
                     rows_.append(f"「{storage.title_of(d.get('filename') or '')[:50]}」({', '.join(tags)})")
                 lines.append("프로젝트 문서(괄호 안은 search 의 source): " + (", ".join(rows_) or "(없음)"))
+                if project and hw is not None:
+                    # 그림 파일은 올린 이름으로 — 반입이 이름을 그림 속 글로 바꾸고, 같은 그림을 전에 들였으면 그쪽 문서에 이어져 목록에 안 보였다(11-13 5차:
+                    # 「image_002.png 가 프로젝트에 없다」 고 넣지 않음). hwp_picture image 에 이 이름을 그대로 쓴다
+                    pics_ = []
+                    for d in db.list_documents(project_id=int(project["id"]), light=True):
+                        try:
+                            nm_ = (json.loads(d.get("identity") or "{}") or {}).get("original_filename") or d.get("filename") or ""
+                        except ValueError:
+                            nm_ = d.get("filename") or ""
+                        if re.search(r"\.(png|jpe?g|gif|bmp|tiff?)$", str(nm_), re.I):
+                            pics_.append(str(nm_))
+                    if pics_:
+                        pics_ = sorted(set(pics_))
+                        lines.append(f"프로젝트에 올린 그림 파일 {len(pics_)}개(hwp_picture 의 image 에 이 이름 그대로): " + ", ".join(pics_[:90]))
                 if project and not crit_ids:
                     lines.append("이 프로젝트에 이어진 기준 문서가 없다 — 공고·지침도 프로젝트 문서에 있으면 source=project 로 찾는다.")
             if attachment_text:
