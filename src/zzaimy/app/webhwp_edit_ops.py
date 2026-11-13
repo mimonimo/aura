@@ -1419,16 +1419,15 @@ def _realign_row(tb: "_Table", r0: int, c0: int, values: list):
 
 
 def _gap_note(tb: "_Table", r0: int, c0: int, values: list) -> str:
-    """이번에 쓴 행들에서 값을 주지 않은 열이 비었는데 같은 열 다른 행(이번에 쓴 행)에는 글이 있으면 알린다 — 연번·구분 열을 빼고
-    3열부터 넣어 5행부터 연번·구분이 빈 칸으로 남던 것(11-14 13차 교원 표). 판단과 채우기는 에이전트가 한다."""
+    """이번에 쓴 행들에서 빈 칸이 둘 이상인 열이 있는데 같은 열 다른 행(이번에 쓴 행)에는 글이 있으면 알린다 — 연번·구분 열을 빼고
+    3열부터 넣어 5행부터 연번·구분이 빈 칸으로 남던 것(11-14 13차 교원 표), 원본의 가로 합침 「←」 를 빈 값으로 보내 빈 칸이 남던 것(14차 3-1 표).
+    판단과 채우기는 에이전트가 한다."""
     width = max((len(r) if isinstance(r, list) else 1) for r in values) if values else 0
     rows = [r for r in range(r0, min(r0 + len(values), tb.nr))]
     if len(rows) < 3:
         return ""
     out = []
     for c in range(tb.nc):
-        if c0 <= c < c0 + width:
-            continue
         own = [(r, tb.covering(r, c)) for r in rows]
         own = [(r, cv) for r, cv in own if cv is not None and cv["r"] == r and cv["c"] == c]
         txt = {r: _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cv["xml"], flags=re.S)).strip() for r, cv in own}
@@ -1439,7 +1438,8 @@ def _gap_note(tb: "_Table", r0: int, c0: int, values: list) -> str:
         return ""
     head = lambda c: (lambda cv: _text(cv["xml"]).strip()[:10] if cv else "")(tb.covering(0, c))
     parts = [f"{e[0] + 1}~{e[-1] + 1}행 {c + 1}열(「{head(c)}」)" for c, e in out[:4]]
-    return " · 빈 칸이 남았다: " + ", ".join(parts) + " 이 비었다(같은 열 다른 행에는 값이 있다) — 이 열 값도 넣는다"
+    return (" · 빈 칸이 남았다: " + ", ".join(parts) + " 이 비었다(같은 열 다른 행에는 값이 있다) — 값이 있으면 넣고, "
+            "원본에서 왼쪽·위 칸과 합친 자리면 그 칸 값을 「←」·「〃」 로 다시 준다")
 
 
 def _check_labels(tb: "_Table", plan: dict, overwrite: bool = False) -> list:
