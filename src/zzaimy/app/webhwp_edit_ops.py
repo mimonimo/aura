@@ -1869,7 +1869,8 @@ def form_map(data: bytes, a: dict | None = None) -> str:
             rows[sec] = []
             order.append(sec)
         head = " | ".join(c[:10] for c in cells[:5] if c.strip())[:70]
-        rows[sec].append(f"  표{x['no']} {tb.nr}행×{tb.nc}열{' (안에 표가 든 바깥 표)' if x.get('outer') else ''} 채움 {filled}/{len(cells)} — 「{head}」")
+        rows[sec].append((f"  표{x['no']} {tb.nr}행×{tb.nc}열{' (안에 표가 든 바깥 표)' if x.get('outer') else ''} 채움 {filled}/{len(cells)} — 「{head}」",
+                          re.sub(r"\s+", "", "".join(cells))[:2000]))
     from zzaimy.app import webhwp_blocks as wb
     try:
         paths = wb.field_paths(data)
@@ -1885,12 +1886,14 @@ def form_map(data: bytes, a: dict | None = None) -> str:
     for sec in order:
         lines_ = rows[sec]
         if under and under not in re.sub(r"\s+", "", _label(sec)):
-            # 절 이름에 없으면 표 첫 글에서 찾는다 — 표지·요약본처럼 절 필드가 없는 자리(11-13 6차: 「요약본」 아래 표가 없다)
-            lines_ = [ln for ln in lines_ if under in re.sub(r"\s+", "", ln)]
+            # 절 이름에 없으면 표 안 글 전체에서 찾는다 — 표지·요약본처럼 절 필드가 없는 자리(11-13 6·8차: 「요약본」 아래 표가 없다)
+            hit_ = [k for k, ln in enumerate(lines_) if under in ln[1]]
+            # 찾은 표와 바로 다음 표 — 제목 상자(「… 사업계획 요약본」) 다음이 그 자리의 본 표인 서식이 많다
+            lines_ = [lines_[k] for k in sorted({j for k in hit_ for j in (k, k + 1) if j < len(lines_)})]
             if not lines_:
                 continue
         out.append(f"[{_label(sec)}]")
-        out.extend(lines_[:12])
+        out.extend(ln[0] for ln in lines_[:12])
         if len(rows[sec]) > 12:
             out.append(f"  … 표 {len(rows[sec]) - 12}개 더")
     return "\n".join(out[:220]) or "표가 없다."
