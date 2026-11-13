@@ -1782,6 +1782,11 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
                             "그림은 표 밖 본문 자리에 넣는다: at.table(표 앞·뒤·대신)·at.after_text·at.field(절 필드)로 짚는다.")
         w = max(min(w, slot), hu(10))
         h = int(w * org_h / org_w)
+        cap = _picture_cap(doc, n)
+        if cap and h > cap:
+            # 쪽 본문 높이를 넘는 그림은 쪽 하나에 들어가게 줄인다 — 위에 제목 한 줄·상자가 함께 설 몫(15%)을 남긴다.
+            # 본문 폭에 맞춘 세로 긴 그림이 남은 자리에 안 들어가 다음 쪽으로 밀리고, 제목만 든 빈 쪽이 생겼다(11-14 9차 요약본)
+            w, h = max(int(w * cap / h), hu(10)), cap
         pxml = hf.picture_xml(bin_id, int(doc.ids.new()), w, h, org_w, org_h, doc.hdr.para(pp, al), cp)
         parts.append(pxml.replace('<hp:p id="0"', f'<hp:p id="{doc.ids.new()}"', 1))
         widths.append(mm_of(w))
@@ -1796,6 +1801,20 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
     what = (f"그림 {len(widths)}장을 {'한 줄에 나란히 ' if row else ''}넣었다(폭 {', '.join(str(x) for x in widths)}mm)" if len(widths) > 1
             else f"그림을 넣었다(폭 {widths[0]}mm)")
     return doc.pack(), f"{what}.{replaced}"
+
+
+def _picture_cap(doc: "_Doc", n: str) -> int:
+    """그 구역 쪽의 본문 높이(HWPUNIT)의 85% — 그림이 쪽 하나에 제목과 함께 들어갈 높이. 쪽 설정을 못 읽으면 0(제한 없음)."""
+    xml = doc.secs.get(n) or next(iter(doc.secs.values()), "")
+    m = re.search(r'<hp:pagePr\b[^>]*?\bwidth="(\d+)"[^>]*?\bheight="(\d+)"[^>]*>(.*?)</hp:pagePr>', xml, flags=re.S)
+    if not m:
+        return 0
+    pw, ph = int(m.group(1)), int(m.group(2))
+    if 'landscape="NARROWLY"' in m.group(0):
+        pw, ph = ph, pw
+    mg = {k: int(v) for k, v in re.findall(r'\b(top|bottom|header|footer)="(\d+)"', m.group(3))}
+    body = ph - sum(mg.get(k, 0) for k in ("top", "bottom", "header", "footer"))
+    return int(body * 0.85) if body > hu(50) else 0
 
 
 def _value_labels(values) -> set[str]:

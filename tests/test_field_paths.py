@@ -243,3 +243,23 @@ def test_side_by_side_pictures_share_one_paragraph():
     sec = _zf.ZipFile(_io.BytesIO(new)).read("Contents/section0.xml").decode()
     para = [p for p in _re.findall(r"<hp:p\b.*?</hp:p>", sec, flags=_re.S) if "<hp:pic" in p]
     assert len(para) == 1 and para[0].count("<hp:pic ") == 2
+
+
+def test_tall_picture_fits_one_page():
+    """본문 폭으로 넣으면 쪽 높이를 넘는 세로 긴 그림은 쪽 하나(제목 몫 남김)에 들어가게 줄인다(11-14 9차 요약본 — 제목만 든 빈 쪽)."""
+    import io as _io
+    import re as _re
+    import zlib, struct
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+
+    def png(w, h):
+        raw = b"".join(b"\x00" + b"\xff\xff\xff" * w for _ in range(h))
+        ch = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+        return b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + ch(b"IDAT", zlib.compress(raw)) + ch(b"IEND", b"")
+    d0 = wt.build(wt.GRANT["budget_change"])
+    new, msg = eo.picture(d0, png(100, 300), {"width_mm": 170})
+    doc = eo._Doc(new)
+    cap = eo._picture_cap(doc, doc.sec_names[0])
+    sz = _re.search(r'<hp:pic\b.*?<hp:sz width="(\d+)"[^>]*height="(\d+)"', "".join(doc.secs.values()), flags=_re.S)
+    assert cap and int(sz.group(2)) <= cap and int(sz.group(1)) < eo.hu(170)
