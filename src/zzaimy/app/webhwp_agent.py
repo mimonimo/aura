@@ -570,13 +570,12 @@ class HwpTools:
         # 본문을 표·도식·문단으로 절 뒤에 넣은 절(AURA 쓰기 기록이 있는 절)은 필드 칸이 비어 있어도 쓴 절이다 —
         # 칸 안 안내 글(「본문 입력」)을 빈 칸으로 보게 된 뒤 「절 119개 가운데 빈 절 119개」 로 셌다(11-12 특성화 재현 3차)
         try:
-            written = (webhwp.meta(self.db, f["id"]).get("written") or {})
+            filled = self.filled_sections(f["id"])               # AURA 본문 기록 ∪ 표·그림·칸 값을 넣은 절(note_filled)
         except Exception:
-            written = {}
-        if isinstance(written, dict):
-            for x in out:
-                if x.get("kind") == "절" and not x.get("text") and written.get(x["name"]):
-                    x["text"] = "(표·문단으로 씀)"
+            filled = set()
+        for x in out:
+            if x.get("kind") == "절" and not x.get("text") and x["name"] in filled:
+                x["text"] = "(표·그림·문단으로 채움)"
         return out
 
     def note_filled(self, fid: int, section: str) -> None:

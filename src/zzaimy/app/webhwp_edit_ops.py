@@ -379,6 +379,10 @@ def _find_text(doc: _Doc, text: str) -> tuple[str, int, int]:
         if best and best[3] == 0:
             break
     if not best:
+        if re.search(r"\[그림\b|\[image|\[표\b", want):
+            # 요청 글의 「[그림 …]」 표시는 담당자가 붙인 자리 이름이지 문서에 든 글이 아니다(11-13 5차 3단계)
+            raise EditError(f"「{want[:30]}」 은 요청 글의 그림 자리 표시라 문서에 없다 — 그림이 들어갈 자리를 at.field(절·칸 필드 이름)나 "
+                            "그 자리 바로 앞 본문 글(after_text)로 준다.")
         raise EditError(f"「{want[:30]}」 이 든 문단을 찾지 못했다.")
     return best[0], best[1], best[2]
 
