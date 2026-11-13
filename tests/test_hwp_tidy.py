@@ -125,3 +125,28 @@ def test_last_folded_single_box_is_one_box_wide():
     t = ws.diagram_table(lines, hdr, "0", "0", 40000, 7)
     last = t.split("<hp:tr>")[-1]
     assert 'colSpan="7"' not in last.split(">부서4<")[0][-600:]                 # 「부서4」 칸은 온 폭이 아니다
+
+
+def test_quiet_hints_only_for_filled_sections():
+    """다 채운 절(표·그림·칸 값)의 빨간 안내 글만 지운다 — 아직 안 쓴 절은 서식 견본 표가 있어도 안내를 남긴다(11-13 4차)."""
+    import io
+    import zipfile
+    from zzaimy.app import webhwp_write as ww
+
+    def fld(name, fid):
+        return (f'<hp:p id="{fid}"><hp:run><hp:ctrl><hp:fieldBegin id="{fid}" type="CLICK_HERE" name="{name}" editable="1"><hp:parameters cnt="3" name="">'
+                '<hp:integerParam name="Prop">9</hp:integerParam><hp:stringParam name="Command" xml:space="preserve">Clickhere:set:47:Direction:wstring:5:본문 입력 HelpState:wstring:0:  </hp:stringParam>'
+                f'<hp:stringParam name="Direction">본문 입력</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl><hp:t/><hp:ctrl><hp:fieldEnd beginIDRef="{fid}" fieldid="{fid}"/></hp:ctrl></hp:run></hp:p>')
+    tbl = '<hp:p id="9"><hp:run><hp:tbl id="1"><hp:tr><hp:tc><hp:subList><hp:p id="8"><hp:run><hp:t>{}</hp:t></hp:run></hp:p></hp:subList></hp:tc></hp:tr></hp:tbl></hp:run></hp:p>'
+    xml = '<hs:sec xmlns:hs="s" xmlns:hp="p">' + fld("절:1. 현황", 1) + tbl.format("4,971명") + fld("절:2. 계획", 2) + tbl.format("구분") + "</hs:sec>"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("Contents/section0.xml", xml)
+    new, done = ww.quiet_hints(buf.getvalue(), {"절:1. 현황"})
+    assert done == ["절:1. 현황"]
+    out = zipfile.ZipFile(io.BytesIO(new)).read("Contents/section0.xml").decode()
+    assert out.count('<hp:stringParam name="Direction">본문 입력</hp:stringParam>') == 1        # 안 쓴 절은 그대로
+    rest = "Direction:wstring:0: HelpState:wstring:0:  "
+    assert f"Clickhere:set:{len(rest)}:{rest}" in out
+    assert ww.section_before(buf.getvalue(), "Contents/section0.xml", xml.index("구분")) == "절:2. 계획"

@@ -579,6 +579,26 @@ class HwpTools:
                     x["text"] = "(표·문단으로 씀)"
         return out
 
+    def note_filled(self, fid: int, section: str) -> None:
+        """표·그림·칸 값을 넣은 절을 적어 둔다(webhwp_filled:<fid>) — 끝낼 때 그 절의 빨간 안내 글만 지운다(quiet_hints)."""
+        key = f"webhwp_filled:{int(fid)}"
+        try:
+            got = set(json.loads(self.db.get_setting(key, "[]") or "[]"))
+        except ValueError:
+            got = set()
+        if section and section not in got:
+            got.add(section)
+            self.db.set_setting(key, json.dumps(sorted(got), ensure_ascii=False))
+
+    def filled_sections(self, fid: int) -> set[str]:
+        """채운 절 — 표·그림·칸 값 기록(note_filled) ∪ AURA 가 본문을 쓴 절(meta written)."""
+        try:
+            got = set(json.loads(self.db.get_setting(f"webhwp_filled:{int(fid)}", "[]") or "[]"))
+        except ValueError:
+            got = set()
+        w = webhwp.meta(self.db, fid).get("written") or {}
+        return got | ({k for k, v in w.items() if v} if isinstance(w, dict) else set())
+
     def rooms(self) -> dict[str, dict]:
         """작업본 필드의 자리(field_rooms) — 짧은 값 칸의 글자 예산·안내 상자 표시."""
         f = webhwp.get(self.db, self.fid() or 0)
@@ -1464,6 +1484,14 @@ class HwpTools:
             return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓴다."
         if done:                                            # AURA 작성 표시는 실제로 쓴 칸에만(사람이 쥐어 못 쓴 칸에는 띄우지 않는다)
             self._mark(fid, done[-1])
+            try:
+                raw_ = Path(webhwp.get(self.db, fid)["path"]).read_bytes()
+                for k in done:
+                    sec_ = ww.section_of_field(raw_, k)
+                    if sec_:
+                        self.note_filled(fid, sec_)
+            except Exception:
+                pass
         self.writes += 1 if done else 0
         echo_txt = ""
         short = {k: values[k] for k in done if k.startswith("칸:")}

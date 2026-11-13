@@ -3247,6 +3247,15 @@ def create_app(
                                           "(「〃」 은 위 칸과 합치기 hwp_table_edit merge, 빈 행은 delete_rows 또는 값 채우기, 좁은 열은 widths, "
                                           "그림 자리 표시는 hwp_picture, 견본 글은 아는 값으로 바꾸거나 지운다). 고칠 수 없으면 무엇이 남았는지 끝내는 말에 적는다.",
                                           data=_lint.report(fresh_))
+            if touched_ and hw is not None and hw.fid():
+                # 다 채운 절의 빨간 「본문 입력」 안내 글을 지운다(필드는 남김) — 이번까지 채운 절만(webhwp_write.quiet_hints)
+                try:
+                    from zzaimy.app import webhwp_edit_ops as _eo_q, webhwp_write as _ww_q
+                    only_ = hw.filled_sections(hw.fid())
+                    if only_:
+                        _eo_q.apply(db, Path(db_path).parent, hw.fid(), lambda d_: (_ww_q.quiet_hints(d_, only_)[0], "다 쓴 절의 안내 글을 지웠다"))
+                except Exception:
+                    logging.getLogger("zzaimy.app.webhwp").warning("안내 글 정리 실패(대화 %s)", session_id)
             msg = str(a.get("message") or "").strip()
             if msg and touched_:
                 # 끝내는 말을 문서 기록과 맞춘다 — 「작성 완료된 절(10개)」 라고 했는데 실제로 쓴 곳은 5곳이던 일(11-10 시나리오 A).

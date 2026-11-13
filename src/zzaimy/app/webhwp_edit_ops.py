@@ -638,6 +638,37 @@ class _Table:
         s = sum(float(x) for x in ratios)
         self.col_w = [max(int(self.total_w * float(x) / s), 600) for x in ratios]
 
+    def autofit_narrow(self, cols: set[int] | None = None, char_hu: int = 950, pad: int = 1300) -> bool:
+        """값을 넣은 열(cols) 가운데 가장 긴 낱말이 칸 안 폭에 안 들어가 낱말 가운데서 줄이 바뀌는 열만 넓힌다 — 바꿨으면 True.
+        서식 표의 열 폭은 견본 글에 맞춰져 있어 실제 값(「기계공학」「(10111476)」)을 넣으면 한두 글자씩 접혀 세로로 늘어졌다(11-13 4차 3-2 교원 표).
+        넓히는 몫은 다른 열의 남는 폭(그 열의 가장 긴 낱말이 들어갈 폭을 넘는 만큼)에서만 덜어 온다 — 어느 열도 제 낱말보다 좁아지지 않고, 표 전체 폭과
+        값을 넣지 않은 표는 그대로다."""
+        tok = [0.0] * self.nc                                # 열마다 끊으면 안 되는 가장 긴 낱말(머리줄 포함, 한 칸짜리 칸만)
+        for x in self.cells:
+            if x["cs"] == 1 and "<hp:tbl" not in x["xml"]:
+                t = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", x["xml"], flags=re.S))
+                for w_ in re.split(r"\s+", t):
+                    if w_:
+                        tok[x["c"]] = max(tok[x["c"]], min(hf._vis_len(w_), 12.0))
+        need = [int(t * char_hu + pad) if t else 0 for t in tok]
+        grow = {c: need[c] - w for c, w in enumerate(self.col_w)
+                if (cols is None or c in cols) and tok[c] >= 3 and need[c] > w + 0.3 * char_hu}
+        if not grow:
+            return False
+        spare = {c: w - max(need[c], 1200) for c, w in enumerate(self.col_w) if c not in grow and w > max(need[c], 1200)}
+        have = sum(spare.values())
+        want = sum(grow.values())
+        if have <= 0:
+            return False
+        take = min(have, want)
+        ws = list(self.col_w)
+        for c, g in grow.items():
+            ws[c] += int(take * g / want)
+        for c, sp in spare.items():
+            ws[c] -= int(take * sp / have)
+        self.col_w = ws
+        return True
+
     # 칸
     def set_text(self, r: int, c: int, text: str, ids, ink=None) -> None:
         """칸 글 바꾸기. ink(글자 모양 id → id)를 주면 넣는 값의 글자 모양을 그것으로 — 견본 글의 파랑·빨강을 물려받지 않게(char_black)."""
@@ -1327,6 +1358,9 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                 n += 1
         merged = _merge_dittos(tb, r0, c0, values)
         msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」 칸 {merged}개는 위 칸과 합침" if merged else "")
+        touched = {c0 + j for row in values for j, _v in enumerate(row if isinstance(row, list) else [row])}
+        if tb.autofit_narrow(touched):
+            msg += " · 낱말 가운데서 접히던 열을 넓힘(다른 열의 남는 폭에서)"
     elif op in ("merge", "split"):
         rng = _range(a, tb)
         if not rng:
@@ -2716,7 +2750,12 @@ class EditTools:
         else:
             return "모르는 도구."
         self.hw._mark(fid, LABELS.get(name, name))
+        sec_ = self._target_section(fid, name, a)              # 이 도구가 채우는 절 — 다 쓴 절의 빨간 안내 글을 끝낼 때 지우려고(quiet_hints)
         out = apply(db, base, fid, fn)
+        if sec_ and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
+            note = getattr(self.hw, "note_filled", None)
+            if note:
+                note(fid, sec_)
         if name == "hwp_replace" and out.startswith("바꾸지 않았다") and "찾지 못했다" in out:
             try:                                                    # 이 글이 든 다른 작업본(허용 목록 안)을 알린다 — 없는 글로 되풀이하지 않게(11-09 대화 165)
                 elsewhere = self.hw.docs_with_text(str(a.get("find") or ""))
@@ -2747,6 +2786,27 @@ class EditTools:
         diff = {k: vals[k] for k, v in st.items() if k in vals and ce.norm(vals[k]) != ce.norm(v.get("text", ""))}
         if diff:
             ce.put(db, fid, ce.AGENT, diff, client="aura-agent")
+
+    def _target_section(self, fid: int, name: str, a: dict) -> str | None:
+        """표 고치기·표 넣기·그림 넣기가 손대는 자리를 품은 절 필드 이름(모르면 None)."""
+        from zzaimy.app import webhwp_write as ww
+        try:
+            data = Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes()
+            if name == "hwp_table_edit":
+                t = _pick_table(_Doc(data), a.get("table"))
+                return ww.section_before(data, t["sec"], t["s"])
+            if name in ("hwp_table_insert", "hwp_picture"):
+                at = a.get("at") if isinstance(a.get("at"), dict) else {}
+                if at.get("field"):
+                    fld = str(at["field"])
+                    fld = (self.hw.resolve(fld) if hasattr(self.hw, "resolve") else None) or (fld if fld.startswith(("절:", "칸:")) else "절:" + fld)
+                    return ww.section_of_field(data, fld)
+                txt = at.get("after_text") or at.get("text") or at.get("before_text")
+                if txt:
+                    return ww.section_of_text(data, str(txt))
+        except Exception:
+            return None
+        return None
 
     def _image(self, ref: str) -> bytes:
         db = self.hw.db

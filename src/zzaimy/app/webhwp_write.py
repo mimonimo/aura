@@ -1382,3 +1382,98 @@ def section_body(data: bytes, name: str, pids=()) -> str:
 def section_context(data: bytes, name: str, before: int = 900, after: int = 300) -> str:
     """한 필드의 앞뒤 양식 글(section_contexts 참고). 필드가 없으면 빈 글."""
     return section_contexts(data, before, after).get(name, "")
+
+
+_CMD = re.compile(r'(<hp:stringParam name="Command"[^>]*>)Clickhere:set:\d+:Direction:wstring:\d+:(.*?) HelpState:wstring:(\d+):(.*?)(</hp:stringParam>)', re.S)
+
+
+def quiet_hints(data: bytes, only: set[str] | None = None) -> tuple[bytes, list[str]]:
+    """밑에 이미 내용(표 글·그림·글 문단)이 들어간 빈 절 필드의 안내 글(「본문 입력」)을 지운다 — (새 바이트, 지운 필드 이름).
+    표·그림으로 채운 절도 절 필드 자체는 비어 있어 기안기가 빨간 「본문 입력」 을 띄워, 다 쓴 문서가 「영역 지정만 된」 꼴로 보였다(11-13 4차, 사용자 지적).
+    필드는 그대로 둔다(공동 편집 칸·나중에 쓸 자리) — 안내 글만 비운다.
+    only: 실제로 채운 절(쓰기 기록·표·그림·칸 값을 넣은 절)만 — 서식의 견본 표·작성방법 상자도 글이라, 아직 안 쓴 절의 안내까지 지우면 안 된다."""
+    zin, secs = _open(data)
+    changed: dict[str, str] = {}
+    done: list[str] = []
+    for n, xml in secs.items():
+        begins = [m for m in _BEGIN.finditer(xml) if _unq(m.group(2)).startswith("절:") and not is_cont(_unq(m.group(2)))]
+        if not begins:
+            continue
+        out, last = [], 0
+        for i, m in enumerate(begins):
+            sp = _span(xml, m.group(1), m.end())
+            own = re.sub(r"<[^>]+>", "", _PARAMS.sub("", xml[sp[0]:sp[1]])).strip() if sp else ""
+            hint = re.search(r'<hp:stringParam name="Direction">([^<]*)</hp:stringParam>', m.group(0))
+            if not hint or not hint.group(1).strip() or (own and own != _unq(hint.group(1)).strip()):
+                continue
+            if only is not None and _unq(m.group(2)) not in only:
+                continue
+            end = begins[i + 1].start() if i + 1 < len(begins) else len(xml)
+            region = xml[(sp[1] if sp else m.end()):end]
+            region_txt = re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", region, flags=re.S)
+            has = ("<hp:pic" in region or
+                   any(t.strip() for t in re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", region_txt)))
+            if not has:
+                continue
+            seg = m.group(0)
+            seg2 = seg.replace(hint.group(0), '<hp:stringParam name="Direction"></hp:stringParam>')
+
+            def _cmd(mm):
+                rest = f"Direction:wstring:0: HelpState:wstring:{mm.group(3)}:{mm.group(4)}"
+                return f"{mm.group(1)}Clickhere:set:{len(rest)}:{rest}{mm.group(5)}"
+            seg2 = _CMD.sub(_cmd, seg2)
+            out.append(xml[last:m.start()] + seg2)
+            last = m.end()
+            done.append(_unq(m.group(2)))
+        if out:
+            out.append(xml[last:])
+            changed[n] = "".join(out)
+    if not changed:
+        return data, []
+    return _pack(zin, changed), done
+
+
+def _sec_order(secs: dict[str, str]) -> list[str]:
+    return sorted(secs, key=lambda n: int(m.group(1)) if (m := re.search(r"(\d+)\.xml$", n)) else 0)
+
+
+def section_before(data: bytes, sec: str, offset: int) -> str | None:
+    """문서의 한 자리(구역, 글자 위치) 바로 앞의 절 필드 이름 — 그 자리를 품은 절. 표·그림·칸 값을 넣은 곳이 어느 절인지 적는 데 쓴다."""
+    _, secs = _open(data)
+    last = None
+    for n in _sec_order(secs):
+        for m in _BEGIN.finditer(secs[n]):
+            if n == sec and m.start() >= offset:
+                return last
+            name = _unq(m.group(2))
+            if name.startswith("절:") and not is_cont(name):
+                last = name
+        if n == sec:
+            return last
+    return last
+
+
+def section_of_field(data: bytes, name: str) -> str | None:
+    """필드가 든 절(절 필드면 그 자신)."""
+    if name.startswith("절:"):
+        return name
+    _, secs = _open(data)
+    for n in _sec_order(secs):
+        for m in _BEGIN.finditer(secs[n]):
+            if _unq(m.group(2)) == name:
+                return section_before(data, n, m.start())
+    return None
+
+
+def section_of_text(data: bytes, text: str) -> str | None:
+    """이 글이 처음 나오는 문단이 든 절."""
+    key = re.sub(r"\s+", "", text or "")[:40]
+    if not key:
+        return None
+    _, secs = _open(data)
+    for n in _sec_order(secs):
+        xml = secs[n]
+        for pm in re.finditer(r"<hp:p\b.*?</hp:p>", xml, flags=re.S):
+            if key in re.sub(r"\s+", "", "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", pm.group(0)))):
+                return section_before(data, n, pm.start())
+    return None

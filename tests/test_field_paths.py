@@ -120,3 +120,18 @@ def test_picture_found_by_name_despite_title_conversion(monkeypatch):
         raise AssertionError("없는 이름")
     except eo.EditError:
         pass
+
+
+def test_autofit_widens_only_written_narrow_columns():
+    """값을 넣은 열에서 낱말 가운데 접힘이 생기면 그 열만 넓히고(다른 열의 남는 폭에서), 값을 넣지 않은 열·표 전체 폭은 그대로(11-13 4차)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["연번", "전공", "주요경력 및 전문성"], "values": [["1", "가", "있음"]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    tb = eo._Table(eo._table_xml(eo._Doc(d), eo._pick_table(eo._Doc(d), t)))
+    tb.col_w = [int(tb.total_w * r) for r in (0.1, 0.08, 0.82)]
+    tb.set_text(1, 1, "기계공학전공", eo._Doc(d).ids)
+    before = list(tb.col_w)
+    assert tb.autofit_narrow({1}) is True
+    assert tb.col_w[1] > before[1] and tb.col_w[0] >= 2 * 950 + 1300 and abs(sum(tb.col_w) - sum(before)) < 5   # 다른 열은 제 낱말 폭까지만 줄어든다
+    assert tb.autofit_narrow({0}) is False
