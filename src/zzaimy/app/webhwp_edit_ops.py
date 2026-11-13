@@ -1738,7 +1738,22 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
         raise EditError("매니페스트(content.hpf)가 없는 파일이라 그림을 넣을 수 없다.")
     at_ = a.get("at") if isinstance(a.get("at"), dict) else {}
     replaced = ""
-    if at_.get("table") not in (None, "") and str(at_.get("where") or "") == "replace":
+    in_cell = None
+    if at_.get("table") not in (None, "") and at_.get("cell"):
+        # 표 칸 안에 — 원본의 「사진 | 설명」 행처럼 칸 하나에 그림을 넣는다(11-14, 4번 4-4). 칸 안 폭에 맞춘다
+        cl = at_.get("cell")
+        if not (isinstance(cl, (list, tuple)) and len(cl) == 2):
+            raise EditError("at.cell 은 [행, 열](1부터)이다.")
+        t_ = _pick_table(doc, at_["table"])
+        tb_ = _Table(_table_xml(doc, t_))
+        r_, c_ = _idx(cl[0], "행"), _idx(cl[1], "열")
+        tb_._check_rc(r_, c_)
+        cell_ = tb_.covering(r_, c_)
+        mg = re.search(r'<hp:cellMargin\b[^>]*\bleft="(\d+)"[^>]*\bright="(\d+)"', cell_["xml"])
+        width = sum(tb_.col_w[cell_["c"]:cell_["c"] + cell_["cs"]]) - ((int(mg.group(1)) + int(mg.group(2))) if mg else 1020) - 200
+        n, pos = t_["sec"], 0
+        in_cell = (t_, tb_, cell_)
+    elif at_.get("table") not in (None, "") and str(at_.get("where") or "") == "replace":
         # 표 자리를 그림으로 — 그 표가 든 문단을 빼고 그 자리에 그림(서식 표를 우리 그림으로 대신, 4번 요약본처럼)
         n, ps, pe = _table_para_span(doc, at_["table"])
         para = doc.secs[n][ps:pe]
@@ -1776,7 +1791,7 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
             w = hu(float(a["width_mm"])) if a.get("width_mm") not in (None, "") else min(org_w, width)
         except (TypeError, ValueError):
             raise EditError("width_mm 는 숫자다.")
-        if w > width * 1.5 and width < hu(120):
+        if w > width * 1.5 and width < hu(120) and not in_cell:
             # 짚은 자리가 좁은 표 칸 안이다 — 큰 그림을 칸 폭으로 줄여 넣으면 알아볼 수 없는 작은 그림이 된다(11-13 5차: 요약본 그림 두 장이 표지 「권역」 칸에)
             raise EditError(f"짚은 자리는 폭 {mm_of(width)}mm 표 칸 안이다 — 그림(요청 {mm_of(w)}mm)이 들어갈 자리가 아니다. "
                             "그림은 표 밖 본문 자리에 넣는다: at.table(표 앞·뒤·대신)·at.after_text·at.field(절 필드)로 짚는다.")
@@ -1796,8 +1811,20 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
         head = re.match(r"<hp:p\b[^>]*><hp:run\b[^>]*>", parts[0]).group(0)
         parts = [head + f'<hp:t> </hp:t>'.join(pics).replace("<hp:t> </hp:t>", "</hp:run><hp:run charPrIDRef=\"" + cp + "\"><hp:t>  </hp:t></hp:run><hp:run charPrIDRef=\"" + cp + "\">")
                  + f'</hp:run><hp:run charPrIDRef="{cp}"><hp:t/></hp:run></hp:p>']
-    xml = doc.secs[n]
-    doc.secs[n] = xml[:pos] + "".join(parts) + xml[pos:]
+    if in_cell:
+        t_, tb_, cell_ = in_cell
+        x = cell_["xml"]
+        sub = re.search(r"(<hp:subList\b[^>]*>)(.*)(</hp:subList>)", x, re.S)
+        if not sub:
+            raise EditError("그 칸에 문단 자리가 없다.")
+        body = sub.group(2)
+        empty = not _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", body, flags=re.S)).strip() and "<hp:pic" not in body and "fieldBegin" not in body
+        cell_["xml"] = x[:sub.start(2)] + ("" if empty else body) + "".join(parts) + x[sub.end(2):]
+        _replace_table(doc, t_, _unmask(t_, tb_.to_xml()))
+        replaced = f" 표{t_['no']} {cell_['r'] + 1}행 {cell_['c'] + 1}열 칸 안에 넣었다."
+    else:
+        xml = doc.secs[n]
+        doc.secs[n] = xml[:pos] + "".join(parts) + xml[pos:]
     what = (f"그림 {len(widths)}장을 {'한 줄에 나란히 ' if row else ''}넣었다(폭 {', '.join(str(x) for x in widths)}mm)" if len(widths) > 1
             else f"그림을 넣었다(폭 {widths[0]}mm)")
     return doc.pack(), f"{what}.{replaced}"
@@ -2646,7 +2673,7 @@ _NATIVE_FIRST = {"hwp_page_setup": _ps_native, "hwp_page_number": _pn_native, "h
 # ── 에이전트 도구 ──
 # 이름·설명·인자 꼴을 한 곳에 — main.py 는 이 목록을 그대로 doc_agent.Tool 로 잇는다(tests/test_agent_docs 가 문서 표와 맞춰 본다)
 _AT = ("at: {field: 절 필드 이름, where: start(절 맨 앞)|end(절 끝)} 또는 {after_text: 이 글이 든 문단 뒤} 또는 {table: 표 번호, where: before|after|replace(그림 넣기만 — "
-       "그 표를 빼고 그 자리에)} 또는 비우면 문서 끝")
+       "그 표를 빼고 그 자리에)} 또는 {table: 표 번호, cell: [행, 열]}(그림 넣기만 — 그 칸 안에, 「사진 | 설명」 표처럼) 또는 비우면 문서 끝")
 # ── 라벨 칸 옆에 값 넣기(11-12) ──
 # 신청서·현황표의 값 칸(「대 학 명 | (빈 칸)」「성 명 | 」「URL | http://www.」)에는 누름틀이 없는 서식이 많다 — hwp_fill 이 이름으로 필드를 못 찾아
 # 담당자가 준 학교명·책임자 이름·연락처를 비워 둔 채 「채웠다」 고 했다(특성화 서식 시범, 11-12). 이름의 끝 낱말을 라벨 칸 글과 맞추고

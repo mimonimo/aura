@@ -263,3 +263,19 @@ def test_tall_picture_fits_one_page():
     cap = eo._picture_cap(doc, doc.sec_names[0])
     sz = _re.search(r'<hp:pic\b.*?<hp:sz width="(\d+)"[^>]*height="(\d+)"', "".join(doc.secs.values()), flags=_re.S)
     assert cap and int(sz.group(2)) <= cap and int(sz.group(1)) < eo.hu(170)
+
+
+def test_picture_into_table_cell():
+    """그림을 표 칸 안에 넣는다 — 원본의 「사진 | 설명」 행처럼(11-14). 칸 안 폭에 맞추고 표 수는 그대로."""
+    import base64
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["사진", "설명"], "values": [["", "실습실 구축"]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    new, msg = eo.picture(d, png, {"at": {"table": t, "cell": [2, 1]}, "width_mm": 170})
+    assert "칸 안에 넣었다" in msg and eo.check_bytes(new) == []
+    doc = eo._Doc(new)
+    assert len(eo.list_tables(doc)) == t
+    tx = eo._table_xml(doc, eo._pick_table(doc, t))
+    assert "<hp:pic" in tx and "실습실 구축" in tx
