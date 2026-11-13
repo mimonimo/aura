@@ -289,9 +289,16 @@ def test_set_cells_blank_does_not_erase_and_labels_are_kept():
     d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["구분", "항목", "값", "비고"],
                                                                    "values": [["계열·학과 수", "계열 수", "개", ""], ["재학생", "", "", ""]]})
     t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
-    # 라벨 「계열 수」 를 값으로 덮으려 함 — 오른쪽은 단위 「개」 만 든 값 칸
+    # 라벨 「계열 수」 를 값으로 덮으려 함 — 오른쪽은 단위 「개」 만 든 값 칸: overwrite 여도 라벨은 두고 값 칸으로 옮긴다(11차: 거절하자 overwrite 로 덮음)
+    for ow in (False, True):
+        d1, msg = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 2], "values": [["9"]], "overwrite": ow})
+        v1 = eo.table_view(d1, {"table": t})
+        assert "계열 수" in v1 and "9개" in v1 and "라벨" in msg
+        d1b, _ = eo.table_edit(d1, {"table": t, "op": "set_cells", "start": [2, 2], "values": [["9개"]], "overwrite": True})
+        assert "계열 수" in eo.table_view(d1b, {"table": t})     # 거듭 보내도 라벨은 그대로
+    # 오른쪽이 그냥 빈 칸인 라벨은 overwrite 가 아니면 넣지 않는다
     with pytest.raises(eo.EditError, match="라벨"):
-        eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 2], "values": [["9개"]]})
+        eo.table_edit(d, {"table": t, "op": "set_cells", "start": [3, 1], "values": [["1,660명"]]})
     d2, _ = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 3], "values": [["9개"]]})
     assert "9개" in eo.table_view(d2, {"table": t}) and "계열 수" in eo.table_view(d2, {"table": t})
     # 가로로 합친 칸: 값 뒤 빈 값이 그 값을 지우지 않는다

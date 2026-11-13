@@ -1371,33 +1371,48 @@ def _cell_plan(tb: "_Table", r0: int, c0: int, values: list) -> dict:
     return plan
 
 
-def _check_labels(tb: "_Table", plan: dict) -> None:
-    """서식 라벨 칸을 값으로 덮는가 — 그 칸 바로 오른쪽 칸이 값 자리(비었거나 단위 「개」「원」만)이고 이번에 값을 받지 않으면 그 칸은 라벨이다.
-    열을 한 칸 잘못 짚어 「계열 수」「본교/분교」 라벨을 값으로 덮고, 값 칸에는 단위 「개」 만 남던 것(10차 대학 현황 표)."""
-    bad = []
-    # 값 칸 필드(칸:<라벨>)가 붙은 라벨 — 서식이 값 자리를 정해 둔 라벨이라 어느 경우에도 값으로 덮지 않는다(10차: 「본교/분교」 를 「본교」 로)
-    owned = {re.sub(r"\s+", "", re.sub(r"#\d+$", "", m.group(1)))
-             for c_ in tb.cells for m in re.finditer(r'<hp:fieldBegin\b[^>]*\bname="칸:([^"]+)"', c_["xml"])}
-    for (r, c), v in plan.items():
+def _check_labels(tb: "_Table", plan: dict, overwrite: bool = False) -> list:
+    """서식 라벨 칸을 값으로 덮는가 — 덮으려는 값을 라벨 오른쪽 값 칸으로 옮긴다(옮긴 것 목록을 돌려준다).
+    열을 한 칸 잘못 짚어 「계열 수」「본교/분교」 라벨을 값으로 덮고, 값 칸에는 단위 「개」 만 남던 것(10차 대학 현황 표).
+    11차: 거절만 하자 에이전트가 곧바로 overwrite 로 덮어 같은 결과가 났다 — 값 자리가 분명한 라벨(오른쪽이 단위만 든 칸,
+    또는 오른쪽 칸에 그 라벨 이름의 값 칸 필드 「칸:라벨」)은 overwrite 여도 덮지 않고 값 칸으로 옮겨 넣는다.
+    오른쪽이 그냥 빈 칸인 라벨은 값 자리가 덜 분명해 overwrite 가 아니면 넣지 않고 알린다."""
+    bad, moved = [], []
+    for (r, c), v in list(plan.items()):
         cell = tb.covering(r, c)
         old = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cell["xml"], flags=re.S)).strip() if cell else ""
         if not old or old == v.strip() or _sample_text(old) or _UNIT_ONLY.match(old) or hf.DITTO.match(v) or not v.strip():
             continue
-        if re.sub(r"\s+", "", old) in owned and "fieldBegin" not in cell["xml"]:
-            bad.append(f"{r + 1}행 {c + 1}열 「{old[:12]}」(값 칸 필드 「칸:{old[:12]}」 의 라벨)")
-            continue
+        if "fieldBegin" in cell["xml"]:
+            continue                                        # 값 칸 필드가 든 칸은 값 자리다
         nc = c + cell["cs"]
         if nc >= tb.nc:
             continue
         right = tb.covering(r, nc)
-        if right is None or (right["r"], right["c"]) in plan:
+        if right is None or right is cell or (right["r"], right["c"]) in plan:
             continue
         rt = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", right["xml"], flags=re.S)).strip()
-        if not rt or _UNIT_ONLY.match(rt) or _sample_text(rt):
-            bad.append(f"{r + 1}행 {c + 1}열 「{old[:12]}」(오른쪽 {r + 1}행 {nc + 1}열이 {'단위 「' + rt + '」 만 든 ' if rt else '빈 '}값 자리)")
+        names = {re.sub(r"\s+", "", re.sub(r"#\d+$", "", m.group(1)))
+                 for m in re.finditer(r'<hp:fieldBegin\b[^>]*\bname="칸:([^"]+)"', right["xml"])}
+        owned = re.sub(r"\s+", "", old) in names
+        if rt and re.sub(r"\s+", "", rt) == re.sub(r"\s+", "", v):
+            del plan[(r, c)]                                # 같은 값이 이미 라벨 오른쪽 값 칸에 있다 — 거듭 보낸 값이 라벨을 덮지 않게
+            moved.append(f"{r + 1}행 {c + 1}열 「{old[:12]}」 은 라벨이고 값 「{v.strip()[:16]}」 은 이미 오른쪽 칸에 있음")
+            continue
+        if owned or _UNIT_ONLY.match(rt):
+            w = v.strip()
+            if _UNIT_ONLY.match(rt) and re.search(r"\d$", w):
+                w += rt                                     # 「9」 → 「9개」(단위 칸의 단위를 살린다)
+            del plan[(r, c)]
+            plan[(right["r"], right["c"])] = w
+            moved.append(f"{r + 1}행 {c + 1}열 「{old[:12]}」 은 라벨이라 값 「{w[:16]}」 을 오른쪽 {right['r'] + 1}행 {right['c'] + 1}열에 넣음")
+            continue
+        if not overwrite and (not rt or _sample_text(rt)):
+            bad.append(f"{r + 1}행 {c + 1}열 「{old[:12]}」(오른쪽 {r + 1}행 {nc + 1}열이 빈 값 자리)")
     if bad:
         raise EditError("넣지 않았다 — 서식 라벨 칸을 값으로 덮으려 했다: " + "; ".join(bad[:4])
                         + ". 값은 라벨 오른쪽 값 칸에 넣는다(start 열을 맞추거나, 합친 칸은 값 하나로). 라벨을 꼭 바꿔야 하면 overwrite: true.")
+    return moved
 
 
 def _merge_lefts(tb: "_Table", r0: int, c0: int, values: list) -> int:
@@ -1475,14 +1490,15 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                                     + ("열이 모자란다: 표 꼴(hwp_table_view)을 보고 값 줄을 맞추거나 add_cols 로 늘린다." if c0 + j >= tb.nc
                                        else "먼저 add_rows 로 늘린다."))
         plan = _cell_plan(tb, r0, c0, values)
-        if not a.get("overwrite"):
-            _check_labels(tb, plan)                      # 서식 라벨(오른쪽 칸이 값 자리)을 값으로 덮으려 하면 넣지 않고 알린다
+        moved = _check_labels(tb, plan, bool(a.get("overwrite")))   # 서식 라벨을 덮는 값은 오른쪽 값 칸으로 옮긴다
         for (r, c), v in plan.items():
             tb.set_text(r, c, v, doc.ids, ink=doc.hdr.char_plain)
             n += 1
         merged = _merge_dittos(tb, r0, c0, values)
         merged += _merge_lefts(tb, r0, c0, values)
         msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」·「←」 칸 {merged}개는 위·왼쪽 칸과 합침" if merged else "")
+        if moved:
+            msg += " · " + "; ".join(moved[:4])
         touched = {c0 + j for row in values for j, _v in enumerate(row if isinstance(row, list) else [row])}
         heights_ = {m.group(1): int(m.group(2)) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\bheight="(\d+)"', doc.hdr.xml)}
         if tb.autofit_narrow(touched, size=heights_):
@@ -2966,7 +2982,7 @@ TOOLS: list[dict] = [
      "args": {"table": "any", "from": "int"}},
     {"name": "hwp_table_edit", "writes": True, "label": "표 고치기",
      "desc": "표 고치기(행·열 번호는 1부터). args {table, op, …}: add_rows {row, where: above|below, count} · delete_rows {row, count} · "
-             "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]}(값 줄이 표 끝을 넘으면 행을 늘려 넣음. 「〃」 은 위 칸과, 「←」 은 왼쪽 칸과 합침. 빈 값 「」 은 그 칸을 그대로 둔다. 서식 라벨 칸은 덮지 않는다 — 꼭 바꾸면 overwrite: true) · "
+             "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]}(값 줄이 표 끝을 넘으면 행을 늘려 넣음. 「〃」 은 위 칸과, 「←」 은 왼쪽 칸과 합침. 빈 값 「」 은 그 칸을 그대로 둔다. 서식 라벨 칸에 온 값은 라벨 오른쪽 값 칸으로 옮겨 넣음) · "
              "merge {cells: [첫 행, 첫 열, 끝 행, 끝 열]} · split {cells: [행, 열], rows, cols}(둘 다 비우면 합친 칸 풀기) · "
              "widths {widths: [비율…]} · head {rows: 머리줄 행 수, fill} · align {align: 가운데|왼쪽|오른쪽|양쪽, cells|row|col} · "
              "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col}",
