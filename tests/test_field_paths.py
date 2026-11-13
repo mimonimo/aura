@@ -166,3 +166,19 @@ def test_picture_own_upload_fallback_requires_visible_link(monkeypatch):
         raise AssertionError("열람 목록 밖")
     except eo.EditError:
         pass
+
+
+def test_table_choice_guard_and_picture_fit_and_map():
+    """같은 라벨이 든 작은 표에 신청서 값을 넣으려 하면 라벨이 더 겹치는 표를 알려 주고, 좁은 칸에 큰 그림은 넣지 않으며, 양식 지도는 표를 절별로 보인다(11-13 5차)."""
+    import pytest
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d = wt.build(wt.GRANT["budget_change"])
+    d, _ = eo.table_insert(d, {"head": ["권역", "대구"], "values": [["특성화분야", "반도체"]]})
+    d, _ = eo.table_insert(d, {"head": ["구분", "값"], "values": [["권역", ""], ["대학명", ""], ["주 소", ""], ["URL", ""], ["성 명", ""], ["소속(직위)", ""]]})
+    tabs = sorted(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    small, big = tabs[-2], tabs[-1]
+    vals = [["권역", "대구"], ["대학명", "영남이공대학교"], ["주 소", "대구 남구"], ["URL", "ync"], ["성 명", "박민규"], ["소속(직위)", "단장"]]
+    with pytest.raises(eo.EditError, match=f"표{big}"):
+        eo.table_edit(d, {"table": small, "op": "set_cells", "start": [1, 1], "values": vals})
+    assert "표" in eo.form_map(d)

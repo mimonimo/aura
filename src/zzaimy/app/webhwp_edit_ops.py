@@ -1343,6 +1343,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         if not isinstance(start, (list, tuple)) or len(start) != 2:
             raise EditError("start 는 [행, 열](1부터)이다.")
         r0, c0 = _idx(start[0], "start 행"), _idx(start[1], "start 열")
+        _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
         n, grown = 0, 0
         # 행이 모자라면 표 끝에 마지막 행 꼴로 늘려 넣는다 — 값 줄 수와 늘린 행 수가 어긋나(43줄에 40행) 통째로 거절되고
         # 빈 행만 남던 일(11-12 특성화 재현 3차 12단계). 열이 모자란 것은 표 꼴이 다르다는 뜻이라 그대로 알린다
@@ -1719,6 +1720,10 @@ def picture(data: bytes, img: bytes, a: dict) -> tuple[bytes, str]:
         w = hu(float(a["width_mm"])) if a.get("width_mm") not in (None, "") else min(org_w, width)
     except (TypeError, ValueError):
         raise EditError("width_mm 는 숫자다.")
+    if w > width * 1.5 and width < hu(120):
+        # 짚은 자리가 좁은 표 칸 안이다 — 큰 그림을 칸 폭으로 줄여 넣으면 알아볼 수 없는 작은 그림이 된다(11-13 5차: 요약본 그림 두 장이 표지 「권역」 칸에)
+        raise EditError(f"짚은 자리는 폭 {mm_of(width)}mm 표 칸 안이다 — 그림(요청 {mm_of(w)}mm)이 들어갈 자리가 아니다. "
+                        "그림은 표 밖 본문 자리에 넣는다: at.after_text(그 자리 앞 본문 글)나 at.field(절 필드)로 짚는다.")
     w = max(min(w, width), hu(10))
     h = int(w * org_h / org_w)
     pp, cp = doc.refs()
@@ -1728,6 +1733,87 @@ def picture(data: bytes, img: bytes, a: dict) -> tuple[bytes, str]:
     xml = doc.secs[n]
     doc.secs[n] = xml[:pos] + pxml + xml[pos:]
     return doc.pack(), f"그림을 넣었다(폭 {mm_of(w)}mm)."
+
+
+def _value_labels(values) -> set[str]:
+    """값 줄에서 라벨로 보이는 글(숫자·기호 위주가 아닌 2~12자 짧은 글) — 띄어쓰기·가운뎃점 뗀 꼴."""
+    out = set()
+    for row in values if isinstance(values, list) else []:
+        for v in row if isinstance(row, list) else [row]:
+            t = _lab(str(v or ""))
+            if 2 <= len(t) <= 12 and not re.search(r"\d{2,}|[@/.:]", t) and re.search(r"[가-힣]", t):
+                out.add(t)
+    return out
+
+
+def _check_table_choice(doc: "_Doc", t: dict, values) -> None:
+    """set_cells 를 받은 표가 맞는 표인가 — 값의 라벨(대학명·주소·성명·URL …)이 다른 서식 표와 훨씬 많이 겹치면 넣지 않고 그 표를 알린다.
+    표지의 「권역 | 특성화분야」 한 줄 표에 행을 늘려 신청서를 통째로 넣던 것(11-13 5차 2단계) — 두 표 모두 「권역」 이 있어 헷갈렸다."""
+    labels = _value_labels(values)
+    if len(labels) < 4:
+        return
+    def _cells(x: dict) -> set[str]:
+        try:
+            xml = _table_xml(doc, x)
+        except Exception:
+            return set()
+        return {_lab(_text(c)) for c in re.findall(r"<hp:tc\b.*?</hp:tc>", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S), flags=re.S)}
+    mine = len(labels & _cells(t))
+    best, bno, bhead = mine, None, ""
+    for x in list_tables(doc):
+        if x["no"] == t["no"]:
+            continue
+        c = _cells(x)
+        k = len(labels & c)
+        if k > best:
+            best, bno, bhead = k, x["no"], next((h for h in c if h), "")
+    if bno is not None and best >= mine + 3 and best >= 2 * max(mine, 1):
+        raise EditError(f"넣으려는 값의 라벨이 표{bno}(「{bhead[:16]}」…)과 더 맞다(겹치는 라벨 {best}개, 이 표 {mine}개) — 그 표에 넣는다. "
+                        "이 표에 늘려 둔 빈 행이 있으면 delete_rows 로 지운다.")
+
+
+def form_map(data: bytes, a: dict | None = None) -> str:
+    """양식 지도 — 문서의 자리를 차례대로: 절 제목마다 그 아래 표(번호·행×열·첫 글·채움 정도)와 그림 수.
+    에이전트가 값·그림·글을 넣을 자리를 용도에 맞게 고르게 한다(11-13 5차: 「권역」 이 든 표가 둘이라 표지 한 줄 표에 신청서를 넣고,
+    요약본 그림을 표 칸에 넣었다). under 를 주면 그 제목 아래만."""
+    from zzaimy.app import webhwp_write as ww
+    doc = _Doc(data)
+    rows: dict[str, list[str]] = {}
+    order: list[str] = []
+    for x in list_tables(doc):
+        try:
+            xml = _table_xml(doc, x)
+            tb = _Table(xml)
+        except Exception:
+            continue
+        cells = [_text(c) for c in re.findall(r"<hp:tc\b.*?</hp:tc>", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S), flags=re.S)]
+        filled = sum(1 for c in cells if c.strip())
+        sec = ww.section_before(data, x["sec"], x["s"]) or "(장 밖·표지)"
+        if sec not in rows:
+            rows[sec] = []
+            order.append(sec)
+        head = " | ".join(c[:10] for c in cells[:5] if c.strip())[:70]
+        rows[sec].append(f"  표{x['no']} {tb.nr}행×{tb.nc}열{' (안에 표가 든 바깥 표)' if x.get('outer') else ''} 채움 {filled}/{len(cells)} — 「{head}」")
+    from zzaimy.app import webhwp_blocks as wb
+    try:
+        paths = wb.field_paths(data)
+    except Exception:
+        paths = {}
+
+    def _label(sec: str) -> str:
+        nm = sec[2:] if sec.startswith("절:") else sec
+        ch = (paths.get(sec) or [""])[0] if sec in paths else ""
+        return (ch.split(".")[0] + " › " if ch and ch[0] in "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ" else "") + nm
+    under = re.sub(r"\s+", "", str((a or {}).get("under") or ""))
+    out = []
+    for sec in order:
+        if under and under not in re.sub(r"\s+", "", _label(sec)):
+            continue
+        out.append(f"[{_label(sec)}]")
+        out.extend(rows[sec][:12])
+        if len(rows[sec]) > 12:
+            out.append(f"  … 표 {len(rows[sec]) - 12}개 더")
+    return "\n".join(out[:220]) or "표가 없다."
 
 
 def _replace_across_runs(p: str, want: str, rep: str) -> tuple[str, int]:
@@ -2624,6 +2710,10 @@ TOOLS: list[dict] = [
      "desc": "새 표 넣기(학교 표 기본 모양). args {" + _AT + ", rows, cols, values: [[행1 칸들], …], head: true|false|[머리줄 글], "
              "widths: [열 폭 비율]} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄",
      "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list"}},
+    {"name": "hwp_map", "writes": False, "label": "양식 지도",
+     "desc": "양식 지도 — 절 제목마다 그 아래 서식 표(번호·행×열·첫 글·채움 정도)를 문서 차례로. 값·그림·글을 넣기 전에 용도에 맞는 자리(신청서 표, 요약본 자리, 현황 표)를 "
+             "고를 때 본다 — 같은 라벨(「권역」)이 든 표가 여럿이면 넣을 값과 라벨이 가장 많이 겹치는 표가 자리다. args {under?: 절 제목}",
+     "args": {"under": "str"}},
     {"name": "hwp_table_view", "writes": False, "label": "표 보기",
      "desc": "표 하나의 칸 글과 합친 칸을 행마다 보기 — 고칠 행·열 번호를 정할 때. 한 번에 60행, 긴 표의 뒤쪽은 from(행 번호)부터. "
              "args {table: hwp_tables 번호 | {head: 머리줄 글} | {field: 필드 이름}, from?: 행 번호}",
@@ -2711,6 +2801,11 @@ class EditTools:
         if name == "hwp_table_view":
             try:
                 return table_view(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)
+            except EditError as e:
+                return str(e)
+        if name == "hwp_map":
+            try:
+                return form_map(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)
             except EditError as e:
                 return str(e)
         if name == "hwp_replace" and a.get("replace") is None:

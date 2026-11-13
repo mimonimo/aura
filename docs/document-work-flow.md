@@ -171,6 +171,7 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | hwp_page_setup | 용지(A4·A3·A5·B4·B5·Letter·Legal)·방향·여백(보통·좁게·넓게 또는 mm)·머리말·꼬리말 여백·제본 | webhwp_edit_ops.page_setup — 구역마다 pagePr·margin(HWPUNIT = mm × 283.465) |
 | hwp_table_insert | 절 필드 앞·끝, 글이 든 문단 뒤, 문서 끝에 행×열 표(값·머리줄·열 폭 비율) | webhwp_edit_ops.table_insert — 서식은 webhwp_style.style_table(HOUSE) 그대로 |
 | hwp_table_view | 표 하나의 칸 글·합친 칸을 행마다 보기(고칠 행·열 번호 정하기) | webhwp_edit_ops.table_view — 표 번호는 hwp_tables 와 같은 차례 |
+| hwp_map | 양식 지도 — 절 제목마다 그 아래 서식 표(번호·행×열·첫 글·채움 정도), 값·그림을 넣을 자리 고르기 | webhwp_edit_ops.form_map — 장(Ⅰ~Ⅳ) › 절로 묶음, under 로 좁힘 |
 | hwp_table_edit | 행·열 넣기·지우기, 칸 값, 칸 합치기·나누기, 열 폭, 머리줄, 정렬, 세로 정렬, 음영(표는 번호·머리줄 글·필드 이름으로 짚음) | webhwp_edit_ops._Table — 격자 모델로 고친 뒤 덮개 검사(빈 자리·겹침 없음), 바뀐 표 안 줄 배치만 지움 |
 | hwp_page_number | 쪽 번호 위치·꼴(1·①·I·i·A·a·가)·줄표·시작 번호, 빼기 | 구역 첫 문단의 pageNum 조종 개체(기안기 저장본 꼴) |
 | hwp_header_footer | 머리말·꼬리말 글(정렬), 빈 글이면 뺌 | 구역 첫 문단의 header·footer(양쪽 쪽) |
