@@ -441,11 +441,51 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names, slots: Slots | None = None,
             if close < 0:
                 break
             at = close + len("</hp:p>")
+        box = _empty_box_after(xml, at)
+        if box:
+            # 제목 아래 빈 작성 상자(칸 하나 빈 표) — 원본 작성자는 그 상자 안에 썼다(4번 4-4: 상자 안에 글·표·사진). 필드를 상자 칸에 박아
+            # 본문이 상자 안에 들어가게 한다. 상자 밖에 쓰면 빈 상자가 아래에 남거나(8차) 상자를 떼야 했다(9차)
+            pa, pb = box
+            buf.append(xml[pos:pa])
+            buf.append(_inject_into_para(xml[pa:pb], field_xml(name, "본문 입력", ids)))
+            pos = pb
+            continue
         buf.append(xml[pos:at])
         buf.append(_empty_para_after(p, field_xml(name, "본문 입력", ids), ids, body_cp))
         pos = at
     buf.append(xml[pos:])
     return "".join(buf), out
+
+
+_EMPTY_P = re.compile(r"\s*<hp:p\b[^>]*>(?:(?!<hp:p\b|</hp:p>|<hp:tbl\b|<hp:pic\b|<hp:ctrl\b).)*</hp:p>", re.S)
+
+
+def _empty_box_after(xml: str, at: int) -> tuple[int, int] | None:
+    """at 뒤(빈 문단은 건너뜀) 첫 문단이 칸 하나짜리 빈 표(글·그림·필드·안쪽 표 없음)면 그 칸 첫 문단의 (시작, 끝). 아니면 None."""
+    i = at
+    while True:
+        m = _EMPTY_P.match(xml, i)
+        if not m or _text(m.group(0)):
+            break
+        i = m.end()
+    m = re.match(r"\s*<hp:p\b[^>]*>\s*<hp:run\b[^>]*>\s*<hp:tbl\b", xml[i:i + 2000])
+    if not m:
+        return None
+    t0 = i + m.end() - len("<hp:tbl")
+    depth, j = 0, t0
+    for tm in re.finditer(r"<hp:tbl\b|</hp:tbl>", xml[t0:]):
+        depth += 1 if tm.group(0) != "</hp:tbl>" else -1
+        if depth == 0:
+            j = t0 + tm.end()
+            break
+    else:
+        return None
+    tbl = xml[t0:j]
+    if (tbl.count("<hp:tbl") != 1 or len(re.findall(r"<hp:tc\b", tbl)) != 1 or "<hp:pic" in tbl or "fieldBegin" in tbl
+            or _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", tbl, flags=re.S))):
+        return None
+    pm = _LEAF_P.search(tbl)
+    return (t0 + pm.start(), t0 + pm.end()) if pm else None
 
 
 # ── 양식 틀 표시 ── 코드로 짠 양식의 표에서 양식이 미리 적은 글(머리줄·라벨·행 이름)이 든 문단에 붙이는 문단 스타일.

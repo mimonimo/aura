@@ -374,3 +374,19 @@ def test_tidy_filled_drops_red_notes_and_cell_hints_in_written_sections():
     assert out.count("연구재단 문의") == 1 and out.count("합계 입력") == 1        # 안 쓴 4-3 것만 남음
     assert out.index("연구재단 문의") > out.index("절:4-3. 교과목")
     assert any("연구재단" in x for x in done) and "칸:합계 안내" in done
+
+
+def test_section_field_goes_inside_empty_writing_box():
+    """제목 아래 빈 작성 상자(칸 하나 빈 표)가 있으면 절 필드를 상자 칸에 박는다 — 본문이 원본처럼 상자 안에 들어간다(11-14, 4번 4-4)."""
+    import io, zipfile
+    from zzaimy.app import webhwp_fields as wf
+    box = ('<hp:p id="3"><hp:run charPrIDRef="0"><hp:tbl rowCnt="1" colCnt="1"><hp:tr><hp:tc><hp:subList>'
+           '<hp:p id="4"><hp:run charPrIDRef="0"><hp:t></hp:t></hp:run></hp:p></hp:subList></hp:tc></hp:tr></hp:tbl></hp:run></hp:p>')
+    x = ('<hs:sec xmlns:hs="s" xmlns:hp="p"><hp:p id="1"><hp:run charPrIDRef="0"><hp:t>4-4. 기타 교육 여건</hp:t></hp:run></hp:p>'
+         '<hp:p id="2"><hp:run charPrIDRef="0"><hp:t></hp:t></hp:run></hp:p>' + box
+         + '<hp:p id="5"><hp:run charPrIDRef="0"><hp:t>5. 다음 절</hp:t></hp:run></hp:p></hs:sec>')
+    out, fl = wf.fieldize_xml(x, wf._Ids([x]), wf._Names())
+    i = out.find('name="절:4-4. 기타 교육 여건"')
+    assert i > 0 and out.rfind("<hp:tc", 0, i) > out.rfind("</hp:tc>", 0, i)       # 상자 칸 안
+    j = out.find('name="절:5. 다음 절"')
+    assert out.rfind("<hp:tc", 0, j) < out.rfind("</hp:tc>", 0, j)                  # 상자 없는 절은 제목 뒤 문단
