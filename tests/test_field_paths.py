@@ -135,3 +135,17 @@ def test_autofit_widens_only_written_narrow_columns():
     assert tb.autofit_narrow({1}) is True
     assert tb.col_w[1] > before[1] and tb.col_w[0] >= 2 * 950 + 1300 and abs(sum(tb.col_w) - sum(before)) < 5   # 다른 열은 제 낱말 폭까지만 줄어든다
     assert tb.autofit_narrow({0}) is False
+
+
+
+def test_picture_found_from_own_upload_linked_to_other_project(monkeypatch):
+    """같은 그림이 다른 프로젝트에 먼저 들어가 이 프로젝트의 올림이 그쪽에 이어졌어도(목록엔 그쪽 문서), 이 프로젝트에 올린 줄의 이름으로 찾는다(11-13 5차)."""
+    from types import SimpleNamespace
+    from zzaimy.app import webhwp_edit_ops as eo
+    import zzaimy.app.webhwp_routes as wr
+    t = eo.EditTools.__new__(eo.EditTools)
+    own = {"id": 20, "filename": "image_002.png", "status": "failed", "version_of": 15, "project_id": 9}
+    db = SimpleNamespace(list_files=lambda **k: [], list_documents=lambda **k: [own])
+    t.hw = SimpleNamespace(db=db, sid=1, project={"id": 9}, project_docs=lambda: [{"id": 15, "filename": "재정 집행 계획"}])
+    monkeypatch.setattr(wr, "_original_bytes", lambda st, d: b"IMG" + str(d["id"]).encode())
+    assert t._image("image_002.png") == b"IMG20"

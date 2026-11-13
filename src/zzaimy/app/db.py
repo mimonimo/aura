@@ -1326,7 +1326,8 @@ class Database:
                 old = _json.loads((row[0] if row else None) or "{}")
             except ValueError:
                 old = {}
-            merged = {k: old[k] for k in ("title", "date") if old.get(k)}
+            # 올릴 때 이름(original_filename)·이름 출처도 남긴다 — 지우면 이름이 본문 제목으로 바뀐 문서를 올린 이름으로 찾지 못했다(11-13 그림 이름)
+            merged = {k: old[k] for k in ("title", "date", "original_filename", "name_source") if old.get(k)}
             merged.update(identity)
             conn.execute("UPDATE documents SET identity = ? WHERE id = ?",
                          (_json.dumps(merged, ensure_ascii=False), doc_id))

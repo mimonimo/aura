@@ -2834,6 +2834,21 @@ class EditTools:
                 return {_key(fn), _key(_st.title_of(fn)), _key(str(ident.get("original_filename") or ""))} - {""}
             pool = self.hw.project_docs() or []
             docs = [x for x in pool if want and want in _names(x)]
+            if not docs and getattr(self.hw, "project", None) and (self.hw.project or {}).get("id"):
+                # 같은 그림을 다른 프로젝트에 이미 들인 적이 있으면 이 프로젝트의 올림은 「같은 내용」 으로 그쪽 문서에 이어지고(실패 표시),
+                # 목록에는 그쪽 문서(이름이 그림 속 글로 바뀐 것)만 보인다 — 이 프로젝트에 올린 줄(올릴 때 이름 그대로)에서 찾아 그 파일을 쓴다(11-13 5차)
+                own = [x for x in db.list_documents(project_id=int(self.hw.project["id"]))
+                       if want in _names(x) and int(x.get("project_id") or 0) == int(self.hw.project["id"])]
+                if len(own) == 1:
+                    from zzaimy.app.webhwp_routes import _original_bytes
+
+                    class _St0:
+                        pass
+                    _St0.db = db
+                    try:
+                        return _original_bytes(_St0, own[0])
+                    except Exception:
+                        pass
             docs = [next((y for y in pool if int(y["id"]) == int(x.get("version_of") or 0)), x)   # 같은 그림을 두 번 올린 것은 먼저 들인 것으로
                     if x.get("status") == "failed" and x.get("version_of") else x for x in docs]
             docs = list({int(x["id"]): x for x in docs}.values())

@@ -15,3 +15,15 @@ def test_last_chat_id_grows_past_list_limit(tmp_path):
     db.add_chat(sid, "assistant", "새 답")
     assert len(db.list_chats(sid)) == 100
     assert db.last_chat_id(sid) > before
+
+
+def test_identity_update_keeps_original_filename(tmp_path):
+    """모델 재읽기로 문서 정체를 고쳐도 올릴 때 이름은 남는다(11-13 — 그림 이름으로 찾기)."""
+    import json
+    db = Database(str(tmp_path / "t.db"))
+    did = db.add_document(filename="image_002.png", stored_path="x.png", doc_type="grant")
+    with db._conn() as c:
+        c.execute("UPDATE documents SET identity = ? WHERE id = ?", (json.dumps({"original_filename": "image_002.png", "title": "재정 집행 계획"}), did))
+    db.set_doc_identity(did, {"program": "특성화사업"})
+    got = db.get_doc_identity(did)
+    assert got["original_filename"] == "image_002.png" and got["program"] == "특성화사업" and got["title"] == "재정 집행 계획"
