@@ -3292,7 +3292,20 @@ def create_app(
                     from zzaimy.app import webhwp_edit_ops as _eo_q, webhwp_write as _ww_q
                     only_ = hw.filled_sections(hw.fid())
                     if only_:
-                        _eo_q.apply(db, Path(db_path).parent, hw.fid(), lambda d_: (_ww_q.quiet_hints(d_, only_)[0], "다 쓴 절의 안내 글을 지웠다"))
+                        box_q: dict = {}
+
+                        def _tidy_q(d_):
+                            # 다 채운 절(표·그림·칸 값으로 채운 절 포함)의 빨간 안내 글과 작성방법 안내 상자를 함께 뗀다(11-13: 표로만 채운 절에 상자가 남음)
+                            d2, _ = _ww_q.quiet_hints(d_, only_)
+                            d3, g_ = _ww_q.drop_guides(d2, sorted(only_))
+                            box_q["guides"] = g_
+                            return d3, "다 쓴 절의 안내 글을 지웠다"
+                        _eo_q.apply(db, Path(db_path).parent, hw.fid(), _tidy_q)
+                        if box_q.get("guides"):
+                            try:
+                                hw._keep_guides(hw.fid(), box_q["guides"])   # 뗀 작성방법은 작업본 기록에 남겨 고쳐 쓰기·맡기기가 계속 읽는다
+                            except Exception:
+                                pass
                 except Exception:
                     logging.getLogger("zzaimy.app.webhwp").warning("안내 글 정리 실패(대화 %s)", session_id)
             msg = str(a.get("message") or "").strip()
