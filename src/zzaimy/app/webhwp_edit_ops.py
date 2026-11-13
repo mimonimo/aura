@@ -2083,20 +2083,24 @@ def apply(db, base: Path, fid: int, fn, *, user: str = "AURA") -> str:
         return "작업본 파일이 없다."
     if webhwp.locked(db, fid):
         return "공통 양식은 고칠 수 없다 — 복사해 쓴다."
-    data = Path(f["path"]).read_bytes()
-    try:
-        new, summary = fn(data)
-    except EditError as e:
-        return "바꾸지 않았다 — " + str(e)
-    except (ValueError, TypeError, KeyError, IndexError, AttributeError) as e:     # 도구 밖 연산(쓰기·서식)도 파일은 그대로
-        return f"바꾸지 않았다 — 인자를 읽지 못했다({type(e).__name__}: {str(e)[:80]})"
-    if new == data:
-        return "바뀐 것이 없다."
-    probs = check_bytes(new)
-    if probs:
-        return "바꾸지 않았다 — 고친 파일이 점검을 통과하지 못했다: " + "; ".join(probs[:3])
-    snap = _snapshot(db, base, fid)
-    webhwp.save(db, base, fid, new, user=user)
+    from zzaimy.app import webhwp_coedit as ce
+    # 읽고 고쳐 저장하는 사이 다른 저장(칸 글 써 넣기·칸 밖 글 살리기·문서 틀 저장)이 끼면 이 저장이 그 판을 옛 판으로 덮는다 —
+    # 다른 파일 저장 길과 같은 파일 잠금 안에서 읽기부터 저장까지(11-13 동시 편집 유실 조사에서 찾은 빈틈)
+    with ce.file_lock(fid):
+        data = Path(f["path"]).read_bytes()
+        try:
+            new, summary = fn(data)
+        except EditError as e:
+            return "바꾸지 않았다 — " + str(e)
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError) as e:     # 도구 밖 연산(쓰기·서식)도 파일은 그대로
+            return f"바꾸지 않았다 — 인자를 읽지 못했다({type(e).__name__}: {str(e)[:80]})"
+        if new == data:
+            return "바뀐 것이 없다."
+        probs = check_bytes(new)
+        if probs:
+            return "바꾸지 않았다 — 고친 파일이 점검을 통과하지 못했다: " + "; ".join(probs[:3])
+        snap = _snapshot(db, base, fid)
+        webhwp.save(db, base, fid, new, user=user)
     m = webhwp.meta(db, fid)
     undo = [x for x in (m.get("aura_undo") or []) if Path(x).exists()]
     m["aura_undo"] = (undo + [snap])[-UNDO_KEEP:]

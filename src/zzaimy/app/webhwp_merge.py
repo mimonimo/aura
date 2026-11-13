@@ -48,8 +48,79 @@ def para_text(p: str) -> str:
     return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", p))).strip()
 
 
-def _has_field(p: str) -> bool:
-    return "<hp:fieldBegin" in p or "<hp:fieldEnd" in p
+# ── 칸 든 문단 — 칸 글(공동 편집 칸 길이 맡는다)과 칸 밖 글(여기서 옮긴다)을 가른다(11-13) ──
+# 칸 끝 뒤·칸 앞에 친 글, 표가 든 문단의 표 뒤에 친 글은 칸 밖이다. 문단에 칸 표시가 있다는 까닭만으로 통째 건너뛰면
+# 그 글은 옮기지도 「옮기지 못함」 으로 남기지도 않고 소리 없이 사라졌다(11-13 운영 동시 편집: 세 사람의 첫 문장 유실).
+_FTOK = re.compile(r"<hp:fieldBegin\b[^>]*>|<hp:fieldEnd\b[^>]*>")
+
+
+class _View:
+    """맨 바깥 문단 하나 — kind: plain(칸 없음)·inner(여러 문단 칸의 가운데 문단, 통째 칸 글)·field(칸 표시가 든 문단).
+    spans 는 맨 바깥 칸 조각 [(열쇠, 갈래, 시작, 끝)] — 갈래 full(문단 안에서 열고 닫힘)·open(열고 다음 문단으로)·close(앞 문단에서 와서 닫힘).
+    sig 는 조각 열쇠·갈래 차례(같은 문단 짝 찾기), out 은 칸 글을 뺀 문단 글."""
+    __slots__ = ("kind", "spans", "sig", "out")
+
+    def __init__(self, kind: str, spans: list, out: str):
+        self.kind, self.spans, self.out = kind, spans, out
+        self.sig = tuple((k, g) for k, g, _a, _b in spans)
+
+
+def _attr(tag: str, name: str) -> str:
+    m = re.search(rf'\b{name}="([^"]*)"', tag)
+    return m.group(1) if m else ""
+
+
+def _views(xml: str, spans: list[tuple[int, int]]) -> list[_View]:
+    """구역의 맨 바깥 문단마다 칸 조각을 가른다 — 여러 문단에 걸친 칸은 구역 전체를 따라가며 연 칸 이름을 넘긴다."""
+    id2name = {_attr(m.group(0), "id"): _attr(m.group(0), "name") for m in re.finditer(r"<hp:fieldBegin\b[^>]*>", xml)}
+    stack: list[str] = []
+    out: list[_View] = []
+    for a, b in spans:
+        p = xml[a:b]
+        toks = list(_FTOK.finditer(p))
+        if not toks:
+            out.append(_View("inner" if stack else "plain", [], "" if stack else para_text(p)))
+            continue
+        run = re.search(r"<hp:run\b[^>]*?(?<!/)>", p)
+        c_start = run.end() if run else p.find(">") + 1
+        last = p.rfind("</hp:run>")
+        c_end = last if last >= 0 else p.rfind("</hp:p>")
+        sp: list[tuple[str, str, int, int]] = []
+        start, here = (c_start, False) if stack else (0, False)
+        for t in toks:
+            g = t.group(0)
+            if g.startswith("<hp:fieldBegin"):
+                if not stack:
+                    start, here = t.start(), True
+                    if p[max(0, start - 9):start] == "<hp:ctrl>":
+                        start -= 9
+                stack.append(_attr(g, "name"))
+            elif stack:
+                name = stack[0] if len(stack) == 1 else ""
+                stack.pop()
+                if not stack:
+                    end = t.end()
+                    if p[end:end + 10] == "</hp:ctrl>":
+                        end += 10
+                    sp.append((name or id2name.get(_attr(g, "beginIDRef"), ""), "full" if here else "close", start, end))
+        if stack:
+            sp.append((stack[0], "open" if here else "inner", start, c_end))
+        cut, pos = [], 0
+        for _k, _g, s0, e0 in sp:
+            cut.append(p[pos:s0])
+            pos = e0
+        cut.append(p[pos:])
+        out.append(_View("field", sp, para_text("".join(cut))))
+    return out
+
+
+def _swap_fields(mine_p: str, mv: _View, their_p: str, tv: _View) -> str:
+    """내 문단(칸 밖 글이 내 것)에 칸 조각만 theirs 것으로 — 칸 글·칸 표시는 지금 판이 정답이다(공동 편집 칸 길이 따로 맞춘다)."""
+    theirs = {(k, g): their_p[a:b] for k, g, a, b in tv.spans}
+    out = mine_p
+    for k, g, a, b in sorted(mv.spans, key=lambda s: s[2], reverse=True):
+        out = out[:a] + theirs[(k, g)] + out[b:]
+    return out
 
 
 # 풀기 한도 — 합치기는 칸 밖 문단만 보므로 문서 열기(webhwp_fields.MAX_UNZIPPED 300MB)보다 작게. 세 판 각각에 건다(보안 검토 11-10).
@@ -154,16 +225,34 @@ def merge_outside(base: bytes, mine: bytes, theirs: bytes) -> tuple[bytes | None
         m_sp = _top_paras(mx)
         m_ps = [mx[a:b] for a, b in m_sp]
         m_tx = [para_text(p) for p in m_ps]
+        mv = _views(mx, m_sp)
         if bx is None or tx is None:                       # 내가 새 구역을 만들었다 — 자리를 맞출 수 없다
-            rep["lost"] += [t for p, t in zip(m_ps, m_tx) if t and not _has_field(p)]
+            rep["lost"] += [v.out for v in mv if v.out]
             continue
-        b_ps = [bx[a:b] for a, b in _top_paras(bx)]
+        b_sp = _top_paras(bx)
+        b_ps = [bx[a:b] for a, b in b_sp]
         t_sp = _top_paras(tx)
         t_ps = [tx[a:b] for a, b in t_sp]
         b_tx = [para_text(p) for p in b_ps]
         t_tx = [para_text(p) for p in t_ps]
+        bv, tv = _views(bx, b_sp), _views(tx, t_sp)
+
+        def by_sig(views: list[_View]) -> dict:
+            d: dict = {}
+            for i, v in enumerate(views):
+                if v.kind == "field":
+                    d[v.sig] = None if v.sig in d else i     # 같은 짜임이 둘이면 어느 쪽인지 모른다 — 짝 없음
+            return d
+        b_sig, t_sig = by_sig(bv), by_sig(tv)
+        b_outs = {v.out for v in bv}
+
+        # 문단 맞추기 열쇠 — 칸 든 문단은 칸 짜임(칸 글은 칸 길이 따로 바꾸므로 글로 맞추면 칸 글이 바뀐 문단이 「새 문단」 이 되고,
+        # 빈 칸 문단이 엉뚱한 빈 문단과 짝지어졌다), 칸 없는 문단·여러 문단 칸의 가운데 문단은 글
+        def keys(views: list[_View], texts: list[str]) -> list:
+            return [("F", v.sig) if v.kind == "field" else (v.kind, t) for v, t in zip(views, texts)]
+        b_k, m_k, t_k = keys(bv, b_tx), keys(mv, m_tx), keys(tv, t_tx)
         b2t: dict[int, int] = {}
-        for blk in difflib.SequenceMatcher(None, b_tx, t_tx, autojunk=False).get_matching_blocks():
+        for blk in difflib.SequenceMatcher(None, b_k, t_k, autojunk=False).get_matching_blocks():
             for k in range(blk.size):
                 b2t[blk.a + k] = blk.b + k
         edits: list[tuple[int, str, str, int]] = []      # (theirs 문단 번호, "before"/"replace", 넣을 xml, 차례)
@@ -184,7 +273,30 @@ def merge_outside(base: bytes, mine: bytes, theirs: bytes) -> tuple[bytes | None
             edits.append((anchor_i + 1 if where == "after" else anchor_i, "before", xml, len(edits)))
             rep["moved"] += len(paras)
 
-        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, b_tx, m_tx, autojunk=False).get_opcodes():
+        def field_para(mj: int) -> None:
+            """칸 든 내 문단 — 칸 글은 칸 길이 맡고, 칸 밖에 친 글만 본다. 바탕의 같은 짜임 문단과 견줘 칸 밖 글이 바뀌었으면
+            theirs 의 같은 짜임 문단이 칸 밖 글을 안 고쳤을 때 내 칸 밖 글 + theirs 칸 조각으로 바꿔 쓴다. 못 하면 「옮기지 못함」."""
+            v = mv[mj]
+            if v.kind != "field":
+                return
+            bi = b_sig.get(v.sig)
+            if bi is None:
+                if v.out and v.out not in b_outs:
+                    rep["lost"].append(v.out)
+                return
+            if v.out == bv[bi].out:
+                return
+            ti = t_sig.get(v.sig)
+            if ti is not None and tv[ti].out == bv[bi].out:
+                xml = _swap_fields(m_ps[mj], v, t_ps[ti], tv[ti])
+                edits.append((ti, "replace", _fresh_para(xml, t_ps[ti], header, used_ids), len(edits)))
+                rep["moved"] += 1
+            elif v.out:
+                rep["lost"].append(v.out)
+
+        for mj in range(len(m_ps)):                       # 칸 든 문단은 짜임으로 짝지어 칸 밖 글만 본다(문단 차례 비교와 따로)
+            field_para(mj)
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, b_k, m_k, autojunk=False).get_opcodes():
             if tag == "equal":
                 continue
             if tag == "delete":
@@ -192,16 +304,18 @@ def merge_outside(base: bytes, mine: bytes, theirs: bytes) -> tuple[bytes | None
                 continue
             mine_new = list(range(j1, j2))
             if tag == "insert":
-                paras = [m_ps[j] for j in mine_new if m_tx[j] and not _has_field(m_ps[j])]
+                paras = [m_ps[j] for j in mine_new if m_tx[j] and mv[j].kind == "plain"]
                 if paras:
                     place_insert(i1, paras)
                 continue
-            # replace — 짝지어 본다: 칸 든 문단은 칸 길이 맡는다. 칸 밖 문단을 고쳤으면 theirs 가 그대로일 때만 바꿔 쓴다
-            pairs = list(zip(range(i1, i2), mine_new))
-            extra = mine_new[len(pairs):]
+            # replace — 칸 든 문단은 앞에서 짜임으로 짝지었다. 칸 없는 문단끼리 차례로 짝지어, 고쳤으면 theirs 가 그대로일 때만 바꿔 쓴다
+            b_plain = [i for i in range(i1, i2) if bv[i].kind == "plain"]
+            m_plain = [j for j in mine_new if mv[j].kind == "plain"]
+            pairs = list(zip(b_plain, m_plain))
+            extra = m_plain[len(pairs):]
             for bi, mj in pairs:
-                mp, bp = m_ps[mj], b_ps[bi]
-                if _has_field(mp) or _has_field(bp) or not m_tx[mj]:
+                mp = m_ps[mj]
+                if not m_tx[mj]:
                     continue
                 ti = b2t.get(bi)
                 if ti is not None and t_tx[ti] == b_tx[bi]:
@@ -213,10 +327,10 @@ def merge_outside(base: bytes, mine: bytes, theirs: bytes) -> tuple[bytes | None
                 else:
                     rep["lost"].append(m_tx[mj])
             if extra:
-                paras = [m_ps[j] for j in extra if m_tx[j] and not _has_field(m_ps[j])]
+                paras = [m_ps[j] for j in extra if m_tx[j]]
                 if paras:
                     place_insert(i2, paras)
-            rep["skipped_deletes"] += max(0, (i2 - i1) - len(pairs))
+            rep["skipped_deletes"] += max(0, len(b_plain) - len(pairs))
         if not edits:
             continue
         out = tx

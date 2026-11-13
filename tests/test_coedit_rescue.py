@@ -231,3 +231,103 @@ def test_wipe_check_does_not_unpack_zip_bombs():
         z.writestr("Contents/section0.xml", "<hp:t>" + "가" * (60 * 1024 * 1024) + "</hp:t>")
     assert _plain_len(buf.getvalue()) == -1
     assert _plain_len(_doc(["가나다"])) == 3
+
+
+# ── 칸 든 문단의 칸 밖 글(11-13 운영 동시 편집: SetPos+MoveParaEnd 로 절 칸 문단·표 문단 끝에 친 첫 문장 셋이 소리 없이 사라짐) ──
+def _fb(bid: int, name: str) -> str:
+    return (f'<hp:ctrl><hp:fieldBegin id="{bid}" type="CLICK_HERE" name="{name}" editable="1" dirty="0" zorder="-1" fieldid="{bid + 1}">'
+            '<hp:parameters cnt="1" name=""><hp:integerParam name="Prop">9</hp:integerParam></hp:parameters></hp:fieldBegin></hp:ctrl>')
+
+
+def _fe(bid: int) -> str:
+    return f'<hp:ctrl><hp:fieldEnd beginIDRef="{bid}" fieldid="{bid + 1}"/></hp:ctrl>'
+
+
+def _run_p(pid: int, inner: str) -> str:
+    return f'<hp:p id="{pid}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">{inner}</hp:run></hp:p>'
+
+
+def _cell_doc(cells: list[str], after: str = "") -> str:
+    tcs = "".join(f'<hp:tc><hp:subList>{_run_p(900 + i, _fb(500 + 10 * i, f"문단:{40 + i}") + f"<hp:t>{c}</hp:t>" + _fe(500 + 10 * i))}</hp:subList></hp:tc>'
+                  for i, c in enumerate(cells))
+    tail = f"<hp:t>{after}</hp:t>" if after else ""
+    return _run_p(30, f'<hp:tbl id="77" rowCnt="1" colCnt="{len(cells)}"><hp:tr>{tcs}</hp:tr></hp:tbl>{tail}')
+
+
+def _sec4(lines: list[str]) -> str:
+    """여러 문단에 걸친 절 칸 — 첫 문단에 여는 표시, 끝 문단에 닫는 표시, 가운데 문단은 표시 없음."""
+    if len(lines) == 1:
+        return _run_p(40, _fb(400, "절:4. 운영") + f"<hp:t>{lines[0]}</hp:t>" + _fe(400))
+    out = [_run_p(40, _fb(400, "절:4. 운영") + f"<hp:t>{lines[0]}</hp:t>")]
+    out += [_run_p(41 + i, f"<hp:t>{t}</hp:t>") for i, t in enumerate(lines[1:-1])]
+    out.append(_run_p(49, f"<hp:t>{lines[-1]}</hp:t>" + _fe(400)))
+    return "".join(out)
+
+
+def _coedit_doc(*, sec3_after: str = "", cells=("구분", "인원"), table_after: str = "", sec4=("",), sec9_after: str = "", extra: str = "") -> bytes:
+    sec3 = _run_p(20, _fb(300, "절:3. 참여 현황") + "<hp:t/>" + _fe(300) + (f"<hp:t>{sec3_after}</hp:t>" if sec3_after else ""))
+    sec9 = _run_p(60, _fb(600, "절:9. 개선") + "<hp:t>본문</hp:t>" + _fe(600) + (f"<hp:t>{sec9_after}</hp:t>" if sec9_after else ""))
+    return _hwpx(_p("3. 참여 현황", 10) + sec3 + _cell_doc(list(cells), table_after) + _p("4. 운영 내용", 35) + _sec4(list(sec4))
+                 + _p("9. 개선 사항", 55) + sec9 + extra)
+
+
+def test_text_typed_outside_field_in_field_paragraph_survives_stale_rescue():
+    """칸 끝 뒤·표 뒤에 친 글은 칸 밖 글이다 — 그 사이 AURA 가 다른 절을 여러 문단으로 써 새 판을 저장해도(stale) 옮겨져야 하고,
+    내 화면에 흘러 들어온 AURA 의 절 글(여러 문단 칸의 가운데 문단)은 내 글로 잘못 알아 「옮기지 못함」 에 넣지 않는다."""
+    aura = ("1) 수료 인원", "가) 수료 인원: 84명", "2) 만족도", "가) 만족도: 4.6점")
+    base = _coedit_doc()
+    theirs = _coedit_doc(sec4=aura, cells=("구분", "84명"))                              # AURA 저장 + 칸 하나는 칸 길로 바뀜
+    mine = _coedit_doc(sec3_after=" 참석 대상은 행정직·조교 전원이다.", table_after=" 표 아래 덧붙임.", sec4=aura[:3] + ("가) 만족",),
+                       sec9_after=" 다음 연수는 실습 비중을 늘린다.", extra=_p("불참자는 9월 보충 연수로 이수한다.", 70))
+    merged, rep = wm.merge_outside(base, mine, theirs)
+    assert merged is not None, rep
+    t = _texts(merged)
+    assert rep["lost"] == [], rep["lost"]
+    assert any(x.endswith("참석 대상은 행정직·조교 전원이다.") for x in t)
+    assert any(x.endswith("표 아래 덧붙임.") and "84명" in x for x in t)               # 표 칸 글은 지금 판(theirs) 것
+    assert any(x == "본문 다음 연수는 실습 비중을 늘린다." for x in t)
+    assert t[-1] == "불참자는 9월 보충 연수로 이수한다."
+    assert [x for x in t if x.startswith(("1)", "가)", "2)"))] == list(aura)              # AURA 가 쓴 절 글은 theirs 그대로
+
+
+def test_outside_text_in_field_paragraph_clashing_with_theirs_is_kept_as_lost():
+    """같은 칸 문단의 칸 밖 글을 theirs 도 고쳤으면 덮지 않고 내 글을 「옮기지 못함」 으로 돌려준다 — 소리 없이 버리지 않는다."""
+    base = _coedit_doc()
+    theirs = _coedit_doc(sec3_after=" 남이 먼저 덧붙임.")
+    mine = _coedit_doc(sec3_after=" 내가 덧붙임.")
+    merged, rep = wm.merge_outside(base, mine, theirs)
+    assert rep["lost"] == ["내가 덧붙임."]
+    assert merged is None or any(x.endswith("남이 먼저 덧붙임.") for x in _texts(merged))
+
+
+def _sec_edit(data: bytes, fn) -> bytes:
+    zin, buf = zipfile.ZipFile(io.BytesIO(data)), io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in zin.infolist():
+            body = zin.read(info.filename)
+            if info.filename == "Contents/section0.xml":
+                body = fn(body.decode()).encode()
+            z.writestr(info, body)
+    return buf.getvalue()
+
+
+def test_rescue_route_keeps_text_typed_after_field_end_when_aura_saved_meanwhile(tmp_path, monkeypatch):
+    """운영 재현 꼴(11-13) — 김이 절 칸 문단 끝(칸 끝 뒤)에 글을 치는 동안 AURA 가 새 판을 저장했다. 김의 문서 저장은 stale 로
+    거절되고 살리기(/rescue)로 가는데, 그 글이 지금 파일에 들어가고 충돌 사본도 남지 않아야 한다(전에는 둘 다 없이 사라졌다)."""
+    app = _setup(tmp_path, monkeypatch)
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    fid = _up(kim, app, "기획처", "같이.hwpx", _coedit_doc())
+    base = _file(app, fid)
+    theirs = _sec_edit(base, lambda x: x.replace("<hp:t>본문</hp:t>", "<hp:t>본문(AURA 가 씀)</hp:t>"))
+    webhwp.save(app.state.db, Path(app.state.data_dir), fid, theirs, user="AURA")
+
+    def type_after_sec3(x: str) -> str:
+        k = x.index('name="절:3. 참여 현황"')
+        e = x.index("</hp:ctrl>", x.index("<hp:fieldEnd", k)) + len("</hp:ctrl>")
+        return x[:e] + "<hp:t> 참석 대상은 행정직·조교 전원이다.</hp:t>" + x[e:]
+    mine = _sec_edit(base, type_after_sec3)
+    j = kim.post(f"/hwp/{fid}/rescue", files={"base": ("b", base), "mine": ("m", mine)}).json()
+    assert j["ok"] and j["saved"] and j["moved"] == 1 and j["lost"] == [], j
+    t = _texts(_file(app, fid))
+    assert any(x.endswith("참석 대상은 행정직·조교 전원이다.") for x in t) and "본문(AURA 가 씀)" in t

@@ -146,6 +146,21 @@ def test_apply_saves_version_and_keeps_original_on_failure(tmp_path, monkeypatch
     assert "되돌렸다" in eo.undo(db, base, fid) and p.read_bytes() == before
 
 
+def test_apply_holds_file_lock_from_read_to_save(tmp_path, monkeypatch):
+    """AURA 의 읽고-고쳐-저장 사이에 다른 저장(칸 밖 글 살리기·칸 글 써 넣기)이 끼면 옛 판으로 덮는다 — 같은 파일 잠금 안에서 한다(11-13)."""
+    from zzaimy.app import webhwp_coedit as ce
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    fid = webhwp.add(db, base, "기획처", "편집.hwpx", _doc(), owner="kim")
+    seen = []
+
+    def fn(d):
+        seen.append(ce.file_lock(fid).locked())
+        return eo.page_setup(d, {"orientation": "가로"})
+    assert "가로" in eo.apply(db, base, fid, fn)
+    assert seen == [True] and not ce.file_lock(fid).locked()
+
+
 def test_live_queue_take_report_and_reject(tmp_path, monkeypatch):
     app = _setup(tmp_path, monkeypatch)
     db, base = app.state.db, Path(app.state.data_dir)
