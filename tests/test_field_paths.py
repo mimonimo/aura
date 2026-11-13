@@ -229,6 +229,24 @@ def test_pictures_replace_table_in_order():
     assert len(eo.list_tables(eo._Doc(new))) == t - 1
 
 
+def test_set_cells_realigns_row_that_fits_the_row_cells():
+    """값 줄이 그 행 칸 수와 꼭 맞는데 시작 열을 한 칸 밀려 짚으면 첫 칸부터 칸마다 넣고, 단위만 든 칸의 단위는 살린다(11-14 12차 대학 현황)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["편제정원", "재학생", "전임", "비전임", "직원"],
+                                                                   "values": [["명", "명", "명", "명", "명"]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    d, _ = eo.table_edit(d, {"table": t, "op": "merge", "cells": [2, 3, 2, 4]})
+    new, msg = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [2, 2], "values": [["4,971", "4,463", "472", "131"]]})
+    row = [l for l in eo.table_view(new, {"table": t}).split("\n") if l.startswith("2행")][0]
+    assert "1열부터" in msg and row.startswith("2행: 4,971명 | 4,463명 | 472명") and "131명" in row
+    # 왼쪽 칸이 라벨이면 그대로 둔다(밀린 것이 아니다)
+    d2, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["구분", "값", "값2"], "values": [["재학생", "명", "명"]]})
+    t2 = max(x["no"] for x in eo.list_tables(eo._Doc(d2)))
+    new2, msg2 = eo.table_edit(d2, {"table": t2, "op": "set_cells", "start": [2, 2], "values": [["10", "20"]]})
+    assert "1열부터" not in msg2 and "재학생" in eo.table_view(new2, {"table": t2})
+
+
 def test_pictures_replace_several_tables_at_once():
     """이 부분의 서식 표가 여럿이면 table: [a, b] 로 한 번에 빼고 첫 표 자리에 그림 — 뒤 표(다음 부분 제목 상자)는 남는다(11-14 11차 요약본)."""
     import base64

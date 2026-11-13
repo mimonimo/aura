@@ -1364,11 +1364,54 @@ def _cell_plan(tb: "_Table", r0: int, c0: int, values: list) -> dict:
                 continue
             if key in plan and not hf.DITTO.match(plan[key]):
                 continue                                    # 합친 칸에 값이 둘 — 첫 값만(뒤 값이 덮지 않게)
+            unit = _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cell["xml"], flags=re.S)).strip()
+            if _UNIT_ONLY.match(unit) and re.search(r"\d$", v.strip()):
+                v = v.strip() + unit                        # 단위만 든 값 칸(「명」)에 숫자만 오면 단위를 살린다(12차: 「4,971」 만 남음)
             plan[key] = v
     for key, cell in blanks.items():
         if key not in plan and _sample_text(_text(cell["xml"]).strip()):
             plan[key] = ""
     return plan
+
+
+def _realign_row(tb: "_Table", r0: int, c0: int, values: list):
+    """값 한 줄이 그 행의 칸 수와 꼭 맞는데 시작 열을 한 칸 밀려 짚었으면 행 첫 칸부터 칸마다 하나씩 넣게 바꾼다 → (values, c0, 알림).
+    시작 열 왼쪽 칸이 모두 값 자리(비었거나 단위 「명」 만)이고, 그대로 넣으면 표 밖으로 넘치거나 합친 칸 하나에 값 둘이 겹칠 때만.
+    11-14 12차 대학 현황 「명 | 명 | 명 | 명 | 명(합침) | 명」 행을 2열부터 넣어 값이 한 칸씩 밀리고 「472」 가 사라짐."""
+    if len(values) != 1 or not isinstance(values[0], list) or c0 < 1 or r0 >= tb.nr:
+        return values, c0, ""
+    row = values[0]
+    cells, seen = [], set()
+    for c in range(tb.nc):
+        cv = tb.covering(r0, c)
+        if cv is not None and id(cv) not in seen:
+            seen.add(id(cv))
+            cells.append(cv)
+    if not cells or any(cv["r"] != r0 for cv in cells):
+        return values, c0, ""
+    slot = lambda cv: (lambda t: not t or bool(_UNIT_ONLY.match(t)) or _sample_text(t))(
+        _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cv["xml"], flags=re.S)).strip())
+    left = [cv for cv in cells if cv["c"] < c0]
+    if not left or not all(slot(cv) for cv in left):
+        return values, c0, ""
+    vals = [v for v in row]
+    over = c0 + len(vals) > tb.nc
+    hit: dict = {}
+    for j, v in enumerate(vals):
+        if c0 + j < tb.nc and v is not None and str(v).strip():
+            hit.setdefault(id(tb.covering(r0, c0 + j)), []).append(v)
+    clash = any(len(x) > 1 for x in hit.values())
+    if not (over or clash):
+        return values, c0, ""
+    if len(vals) == tb.nc and over:
+        return [vals], 0, f" · 값 {len(vals)}개가 표 열 수와 같아 {r0 + 1}행 1열부터 넣음"
+    filled = [v for v in vals if v is not None and str(v).strip() != ""] if len(vals) != len(cells) else vals
+    if len(filled) != len(cells):
+        return values, c0, ""
+    grid: list = [None] * tb.nc
+    for cv, v in zip(cells, filled):
+        grid[cv["c"]] = v
+    return [grid], 0, f" · 값 {len(cells)}개가 {r0 + 1}행 칸 수와 같아 1열부터 칸마다 넣음(시작 열이 한 칸 밀려 있었다)"
 
 
 def _check_labels(tb: "_Table", plan: dict, overwrite: bool = False) -> list:
@@ -1475,6 +1518,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         if not isinstance(start, (list, tuple)) or len(start) != 2:
             raise EditError("start 는 [행, 열](1부터)이다.")
         r0, c0 = _idx(start[0], "start 행"), _idx(start[1], "start 열")
+        values, c0, realigned = _realign_row(tb, r0, c0, values)   # 행 칸 수와 꼭 맞는 값 줄을 한 칸 밀려 짚었으면 첫 칸부터
         _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
         n, grown = 0, 0
         # 행이 모자라면 표 끝에 마지막 행 꼴로 늘려 넣는다 — 값 줄 수와 늘린 행 수가 어긋나(43줄에 40행) 통째로 거절되고
@@ -1499,6 +1543,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」·「←」 칸 {merged}개는 위·왼쪽 칸과 합침" if merged else "")
         if moved:
             msg += " · " + "; ".join(moved[:4])
+        msg += realigned
         touched = {c0 + j for row in values for j, _v in enumerate(row if isinstance(row, list) else [row])}
         heights_ = {m.group(1): int(m.group(2)) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\bheight="(\d+)"', doc.hdr.xml)}
         if tb.autofit_narrow(touched, size=heights_):
