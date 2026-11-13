@@ -2709,6 +2709,8 @@ def create_app(
                     # 「image_002.png 가 프로젝트에 없다」 고 넣지 않음). hwp_picture image 에 이 이름을 그대로 쓴다
                     pics_ = []
                     for d in db.list_documents(project_id=int(project["id"]), light=True):
+                        if not _viewer_sees(session_id, d):             # 열람 범위 밖 문서는 이름도 보이지 않는다(문서 목록·검색과 같은 규칙)
+                            continue
                         try:
                             nm_ = (json.loads(d.get("identity") or "{}") or {}).get("original_filename") or d.get("filename") or ""
                         except ValueError:

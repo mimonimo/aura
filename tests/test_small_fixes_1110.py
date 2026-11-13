@@ -94,3 +94,5 @@ def test_agent_state_lists_uploaded_pictures_by_upload_name():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/main.py").read_text(encoding="utf-8")
     assert "프로젝트에 올린 그림 파일" in src and 'get("original_filename")' in src
+    blk = src[src.index("pics_ = []"):src.index("프로젝트에 올린 그림 파일")]
+    assert "_viewer_sees(session_id, d)" in blk                     # 열람 범위 밖 문서 이름은 보이지 않는다
