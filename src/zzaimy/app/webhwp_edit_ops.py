@@ -1803,18 +1803,25 @@ def _check_table_choice(doc: "_Doc", t: dict, values) -> None:
     labels = _value_labels(values)
     if len(labels) < 4:
         return
-    def _cells(x: dict) -> set[str]:
+    def _raw(x: dict) -> list[str]:
         try:
             xml = _table_xml(doc, x)
         except Exception:
-            return set()
-        return {_lab(_text(c)) for c in re.findall(r"<hp:tc\b.*?</hp:tc>", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S), flags=re.S)}
+            return []
+        return [_text(c) for c in re.findall(r"<hp:tc\b.*?</hp:tc>", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S), flags=re.S)]
+
+    def _cells(x: dict) -> set[str]:
+        return {_lab(c) for c in _raw(x)}
     mine = len(labels & _cells(t))
     best, bno, bhead = mine, None, ""
     for x in list_tables(doc):
         if x["no"] == t["no"]:
             continue
-        c = _cells(x)
+        raw_ = _raw(x)
+        if sum(1 for c in raw_ if c.strip() and not _hint_cell(c)) >= 0.6 * max(len(raw_), 1):
+            # 이미 거의 찬 표는 넣을 자리가 아니다 — 같은 학과 이름이 든 3-1 표 때문에 빈 3-3 표에 넣지 못하던 것(11-13 8차)
+            continue
+        c = {_lab(v) for v in raw_}
         k = len(labels & c)
         if k > best:
             best, bno, bhead = k, x["no"], next((h for h in c if h), "")

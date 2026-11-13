@@ -184,6 +184,21 @@ def test_table_choice_guard_and_picture_fit_and_map():
     assert "표" in eo.form_map(d)
 
 
+def test_table_choice_guard_ignores_already_filled_table():
+    """같은 학과 이름이 이미 다 찬 다른 표(3-1)에 들어 있어도 빈 서식 표(3-3)에는 넣는다 — 찬 표는 넣을 자리가 아니다(11-13 8차)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    rows = [["공학계열", "스마트융합기계계열", "448"], ["공학계열", "스마트e-자동차과", "194"], ["공학계열", "소프트웨어융합과", "238"],
+            ["공학계열", "사이버보안과", "120"], ["공학계열", "전기자동화과", "140"]]
+    d = wt.build(wt.GRANT["budget_change"])
+    d, _ = eo.table_insert(d, {"head": ["계열", "학과", "정원"], "values": rows})
+    d, _ = eo.table_insert(d, {"head": ["계열명", "참여학과명", "재학생수"], "values": [["", "", ""] for _ in rows]})
+    target = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    vals = [[r[0], r[1], str(int(r[2]) + 1)] for r in rows]
+    new, msg = eo.table_edit(d, {"table": target, "op": "set_cells", "start": [2, 1], "values": vals})
+    assert "값을 넣었다" in msg
+
+
 def test_pictures_replace_table_in_order():
     """표 자리를 그림 여러 장으로 대신한다(4번 요약본처럼) — 표는 빠지고 그 자리에 그림이 차례로(11-13 6차)."""
     import base64
