@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS webhwp_field_state (fid INTEGER NOT NULL, field TEXT 
   at DOUBLE PRECISION NOT NULL DEFAULT 0, committed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (fid, field));
 CREATE TABLE IF NOT EXISTS webhwp_field_ops (fid INTEGER NOT NULL, client TEXT NOT NULL, seq BIGINT NOT NULL,
   result TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0, PRIMARY KEY (fid, client, seq));
+CREATE TABLE IF NOT EXISTS webhwp_field_mine (fid INTEGER NOT NULL, field TEXT NOT NULL, client TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0, PRIMARY KEY (fid, field, client));
 CREATE TABLE IF NOT EXISTS webhwp_field_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, fid INTEGER NOT NULL, field TEXT NOT NULL,
   version INTEGER NOT NULL, text TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '', at DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS webhwp_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, fid INTEGER NOT NULL, field TEXT NOT NULL,
@@ -269,9 +271,9 @@ def emit(db, fid: int, kind: str, data: dict, conn=None) -> None:
 
 # 공동 편집 표 정리 — 칸 글 표(webhwp_field_state)는 칸마다 한 줄이라 문서가 살아 있는 동안 둔다(파일에 써 넣기 전 정답).
 # 쌓이기만 하는 표는 기간을 두고, 지운 문서(files 장부에서 빠진 번호)의 줄은 모든 표에서 함께 지운다.
-KEEP_SECONDS = {"webhwp_events": 1800, "webhwp_field_ops": 7 * 86400, "webhwp_field_edits": 30 * 86400,
+KEEP_SECONDS = {"webhwp_events": 1800, "webhwp_field_ops": 7 * 86400, "webhwp_field_edits": 30 * 86400, "webhwp_field_mine": 86400,
                 "webhwp_presence": 86400, "webhwp_conflicts": 30 * 86400}
-_PER_DOC = ("webhwp_field_state", "webhwp_field_edits", "webhwp_field_ops", "webhwp_field_locks",
+_PER_DOC = ("webhwp_field_state", "webhwp_field_edits", "webhwp_field_ops", "webhwp_field_locks", "webhwp_field_mine",
             "webhwp_conflicts", "webhwp_events", "webhwp_presence", "webhwp_para_locks")
 
 
@@ -795,6 +797,7 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
             # 문단 단위(10-27): 그 사이 다른 창이 같은 칸을 고쳤어도(판 어긋남) 글만 든 칸이면 보낸 쪽이 본 판을 바탕으로 문단 세 갈래 합치기 —
             # 서로 다른 문단 고침은 모두 남고, 같은 문단을 둘 다 고쳤으면 나중에 온 이 고침을 남기고 앞 글은 충돌 사본으로
             merged = None
+            merged_mine = None
             old_text = cur_text if st is not None else None
             if reason == "version" and not rich and st is not None and para_mode(db, fid, field, conn):
                 bt = _text_at(conn, fid, field, b, st[5])
@@ -806,10 +809,17 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                             mine_t = None
                 elif bt is not None:
                     mine_t = text
+                # 이 창이 바로 앞에 보낸 글이 이미 합쳐져 지금 글에 들어 있으면(화면은 합친 뒤에도 아는 판을 올리지 않아 옛 판 바탕으로 계속 보낸다),
+                # 바탕은 옛 판이 아니라 그 창이 앞서 보낸 글이다 — 옛 판을 바탕으로 두면 새로 친 문단의 입력 중간 상태가 매번 「두 쪽이 같은 자리에 넣은
+                # 새 문단」 으로 보여 「9월」「9월 보충」「9월 보충 연수」… 가 차례로 쌓였다(11-13 시연 녹화, 대화 205 작업본 2746)
+                prev = conn.execute("SELECT version, text FROM webhwp_field_mine WHERE fid = ? AND field = ? AND client = ?",
+                                    (int(fid), field, ck)).fetchone()
+                mbase = prev[1] if (prev and int(prev[0]) > b and mine_t is not None) else bt
                 # 문단이 하나뿐인 칸(이름·날짜 같은 한 줄 칸)은 나눌 문단이 없다 — 예전처럼 판 어긋남 충돌 사본(보낸 쪽 글을 따로 둔다)
                 if mine_t is not None and "\n" in (bt + mine_t + (cur_text or "")):
                     from zzaimy.app import webhwp_paras as wp
-                    text, clash = wp.merge3(bt, mine_t, cur_text or "")
+                    text, clash = wp.merge3(mbase, mine_t, cur_text or "")
+                    merged_mine = mine_t
                     merged = {"clash": clash}
                     reason, is_delta = "", False
                     if len(text) > TEXT_MAX:
@@ -852,6 +862,10 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                 same = {"seq": seq, "field": field, "ok": True, "version": cur_v}
                 if merged is not None:                         # 합쳐 보니 지금 글 그대로(내 고침이 이미 들어 있음)
                     same.update({"merged": True, "text": text, "clash": 0})
+                    if merged_mine is not None:                # 이 창이 보낸 글은 남긴다(다음 옛 판 고침의 바탕)
+                        conn.execute("DELETE FROM webhwp_field_mine WHERE fid = ? AND field = ? AND client = ?", (int(fid), field, ck))
+                        conn.execute("INSERT INTO webhwp_field_mine (fid, field, client, version, text, at) VALUES (?, ?, ?, ?, ?, ?)",
+                                     (int(fid), field, ck, cur_v, merged_mine, now))
                 results.append(_result(conn, fid, ck, seq, same))
             else:
                 v = cur_v + 1
@@ -900,6 +914,10 @@ def apply_ops(db, fid: int, user: str, client: str, ops: list[dict], *, base: Pa
                     data["rich"] = rich
                     data["trusted"] = rich_kind == "hwpx"          # 화면은 hwpx 조각을 서버가 검사한 것만 넣는다
                 emit(db, fid, "field-updated", data, conn=conn)
+                if merged_mine is not None:                    # 이 창이 보낸 글을 판과 함께 남긴다 — 이 창의 다음 옛 판 고침은 이 글을 바탕으로 합친다
+                    conn.execute("DELETE FROM webhwp_field_mine WHERE fid = ? AND field = ? AND client = ?", (int(fid), field, ck))
+                    conn.execute("INSERT INTO webhwp_field_mine (fid, field, client, version, text, at) VALUES (?, ?, ?, ?, ?, ?)",
+                                 (int(fid), field, ck, v, merged_mine, now))
                 res = {"seq": seq, "field": field, "ok": True, "version": v}
                 if merged is not None:                         # 보낸 화면은 합친 글을 받아 아직 안 보낸 제 고침을 그 위에 다시 얹는다
                     res.update({"merged": True, "text": text, "clash": len(merged["clash"])})

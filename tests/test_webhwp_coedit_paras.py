@@ -191,3 +191,29 @@ def test_agent_value_write_skips_field_with_paragraph_holder(tmp_path, monkeypat
     assert park.post(f"/hwp/{fid}/lease", json={"field": F, "client": "p1", "para": 0, "action": "acquire"}).json()["ok"]
     done, held = ce.put(db, fid, ce.AGENT, {F: "AURA 글"})
     assert done == [] and held == {F: "park"} and ce.state(db, fid)[F]["text"] == BASE
+
+
+def test_new_paragraph_typed_on_stale_base_is_not_duplicated(tmp_path, monkeypatch):
+    """남이 같은 칸을 고친 뒤(판 어긋남) 이 창이 새 문단을 만들고 한 글자씩 이어 치면 — 화면은 합친 뒤에도 아는 판을 올리지 않아 옛 판 바탕으로
+    계속 보낸다. 옛 판을 바탕으로 합치면 입력 중간 상태가 매번 「같은 자리 새 문단」 으로 보여 「9월」「9월 보충」… 이 쌓였다(11-13 시연 녹화, 작업본 2746).
+    이 창이 앞서 보낸 글을 바탕으로 합쳐 새 문단은 하나만 남고, 남의 고침도 그대로다."""
+    app, kim, park, fid = _doc(tmp_path, monkeypatch)
+    db = app.state.db
+    _seed(app, fid)
+    # 김가람이 첫째 문단을 고쳐 판 2 — 박다온은 아직 판 1 을 본다
+    r = ce.apply_ops(db, fid, "kim", "k1", [{"seq": 1, "field": F, "base": 1, "text": _edit(BASE, 0, "가) 첫째 항목 고침")}])[0]
+    assert r["ok"] and r["version"] == 2
+    # 박다온: 넷째 문단 뒤에 새 문단을 만들고 한 글자씩(전체 글로, 바탕은 계속 판 1 — 화면이 아는 판을 올리지 않음)
+    seq = 10
+    typed = " 불참자는 9월 보충 연수로 이수한다."
+    for k in range(1, len(typed) + 1, 3):
+        seq += 1
+        mine = BASE + "\n" + typed[:k]
+        r = ce.apply_ops(db, fid, "park", "p1", [{"seq": seq, "field": F, "base": 1, "text": mine}])[0]
+        assert r["ok"]
+    seq += 1
+    r = ce.apply_ops(db, fid, "park", "p1", [{"seq": seq, "field": F, "base": 1, "text": BASE + "\n" + typed}])[0]
+    final = ce.state(db, fid, [F])[F]["text"]
+    paras = final.split("\n")
+    assert sum(1 for p in paras if "불참자" in p) == 1                    # 새 문단은 하나
+    assert paras[-1] == typed and paras[0] == "가) 첫째 항목 고침"           # 다 친 글, 남의 고침도 남는다
