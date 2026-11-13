@@ -108,9 +108,13 @@ def test_picture_found_by_name_despite_title_conversion(monkeypatch):
     import zzaimy.app.webhwp_routes as wr
     t = eo.EditTools.__new__(eo.EditTools)
     db = SimpleNamespace(list_files=lambda **k: [])
-    t.hw = SimpleNamespace(db=db, sid=1, project_docs=lambda: [{"id": 7, "filename": "image 003"}, {"id": 8, "filename": "image 013"}])
+    t.hw = SimpleNamespace(db=db, sid=1, project_docs=lambda: [{"id": 7, "filename": "image 003"}, {"id": 8, "filename": "image 013"},
+                                                              {"id": 9, "filename": "사업목표", "identity": '{"original_filename": "image_002.png"}'},
+                                                              {"id": 10, "filename": "image_022.jpg", "status": "failed", "version_of": 7}])
     monkeypatch.setattr(wr, "_original_bytes", lambda st, d: b"PNG" + str(d["id"]).encode())
     assert t._image("image_003.png") == b"PNG7"
+    assert t._image("image_002.png") == b"PNG9"            # 본문 제목으로 이름이 바뀐 그림 — 올릴 때 이름으로
+    assert t._image("image_022.jpg") == b"PNG7"            # 같은 그림을 두 번 올린 것 — 먼저 들인 것으로
     try:
         t._image("image_999.png")
         raise AssertionError("없는 이름")

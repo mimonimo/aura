@@ -2759,8 +2759,20 @@ class EditTools:
                 return re.sub(r"[\s_\-.·]+", "", re.sub(r"\.(png|jpe?g|gif|bmp|tiff?)$", "", Path(str(n or "")).name.strip(), flags=re.I)).lower()
             want = _key(ref)
             from zzaimy.app import storage as _st
-            docs = [x for x in self.hw.project_docs() or []
-                    if want and (_key(str(x.get("filename") or "")) == want or _key(_st.title_of(str(x.get("filename") or ""))) == want)]
+
+            def _names(x: dict) -> set[str]:
+                # 반입은 문서 이름을 본문 제목으로 바꾼다(그림이면 그림 속 글 「사업목표」) — 올릴 때 이름(identity.original_filename)도 본다(11-13 4차)
+                try:
+                    ident = json.loads(x.get("identity") or "{}") if isinstance(x.get("identity"), str) else (x.get("identity") or {})
+                except ValueError:
+                    ident = {}
+                fn = str(x.get("filename") or "")
+                return {_key(fn), _key(_st.title_of(fn)), _key(str(ident.get("original_filename") or ""))} - {""}
+            pool = self.hw.project_docs() or []
+            docs = [x for x in pool if want and want in _names(x)]
+            docs = [next((y for y in pool if int(y["id"]) == int(x.get("version_of") or 0)), x)   # 같은 그림을 두 번 올린 것은 먼저 들인 것으로
+                    if x.get("status") == "failed" and x.get("version_of") else x for x in docs]
+            docs = list({int(x["id"]): x for x in docs}.values())
             if len(docs) == 1:
                 m = re.fullmatch(r"(doc):(\d+)", f"doc:{docs[0]['id']}")
             else:
