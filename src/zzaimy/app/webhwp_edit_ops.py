@@ -2873,6 +2873,41 @@ class EditTools:
 
     def __init__(self, hw):
         self.hw = hw
+        self._stale: list[str] | None = None        # 표 수가 바뀌기 전 표 머리줄(옛 번호 차례) — 앞서 본 번호가 밀렸는지 가린다(11-13 8차)
+        self._fresh: set[int] = set()               # 바뀐 뒤 다시 본 번호
+
+    def _heads(self, fid: int) -> list[str]:
+        try:
+            return [t["head"] for t in list_tables(_Doc(Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes()))]
+        except Exception:
+            return []
+
+    def _stale_check(self, fid: int, a: dict) -> str:
+        """앞에서 표를 넣거나 빼 번호가 밀렸는데 옛 번호로 부르면 막고 지금 번호를 알려 준다.
+        8차: 요약본 표4 를 그림으로 바꾼 뒤 옛 표5(요약본 서식)를 부른다는 것이 지금 표5(다른 표)를 빼 버림."""
+        if not self._stale:
+            return ""
+        at_ = a.get("at") if isinstance(a.get("at"), dict) else {}
+        ref = a.get("table") if a.get("table") not in (None, "") else at_.get("table")
+        if ref in (None, "") or isinstance(ref, dict):
+            return ""
+        import re as _re
+        m = _re.search(r"\d+", str(ref))
+        if not m:
+            return ""
+        k = int(m.group(0))
+        if k in self._fresh or not 1 <= k <= len(self._stale):
+            return ""
+        cur = self._heads(fid)
+        old = self._stale[k - 1]
+        if k <= len(cur) and cur[k - 1] == old:
+            return ""
+        js = [i + 1 for i, h in enumerate(cur) if h == old]
+        j = min(js, key=lambda i: abs(i - k)) if js else None
+        now = f"지금 표{k}는 「{cur[k - 1][:30]}」" if k <= len(cur) else f"지금 표는 {len(cur)}개뿐"
+        where = f"지금 표{j}다" if j else "지금은 없다"
+        return (f"넣지 않았다 — 앞에서 표를 넣거나 빼 표 번호가 밀렸다. 앞서 본 표{k}(「{old[:30]}」)는 {where}({now}). "
+                "맞는 번호로 다시 부르거나 hwp_map 으로 다시 본다.")
 
     def _fid(self) -> int | None:
         return self.hw.fid()
@@ -2886,6 +2921,13 @@ class EditTools:
         ops = {"hwp_repeat_block": repeat_block, "hwp_page_setup": page_setup, "hwp_table_insert": table_insert, "hwp_table_edit": table_edit,
                "hwp_page_number": page_number, "hwp_header_footer": header_footer, "hwp_page_break": page_break,
                "hwp_text_style": text_style, "hwp_footnote": footnote}
+        if name == "hwp_map":
+            self._stale, self._fresh = None, set()
+        if name == "hwp_table_view" and self._stale is not None:
+            import re as _re
+            m_ = _re.search(r"\d+", str(a.get("table") if not isinstance(a.get("table"), dict) else ""))
+            if m_:
+                self._fresh.add(int(m_.group(0)))
         if name == "hwp_table_view":
             try:
                 return table_view(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)
@@ -2938,9 +2980,18 @@ class EditTools:
             fn = lambda d: ops[name](d, a)
         else:
             return "모르는 도구."
+        stale_ = self._stale_check(fid, a)
+        if stale_:
+            return stale_
+        heads0 = self._heads(fid)
         self.hw._mark(fid, LABELS.get(name, name))
         sec_ = self._target_section(fid, name, a)              # 이 도구가 채우는 절 — 다 쓴 절의 빨간 안내 글을 끝낼 때 지우려고(quiet_hints)
         out = apply(db, base, fid, fn)
+        heads1 = self._heads(fid)
+        if heads0 and heads1 and len(heads0) != len(heads1):
+            self._stale = heads0                           # 옛 번호 차례를 둔다 — 다음 부름이 옛 번호면 _stale_check 가 잡는다
+            self._fresh = {int(x) for x in re.findall(r"표(\d+)", out)}   # 이 결과가 알려 준 번호(새로 만든 표)는 지금 번호다
+            out += f" 표 수가 {len(heads0)}개에서 {len(heads1)}개로 바뀌어 뒤쪽 표 번호가 밀렸다 — 앞서 본 번호를 그대로 쓰지 않는다."
         if sec_ and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
             note = getattr(self.hw, "note_filled", None)
             if note:

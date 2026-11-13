@@ -117,15 +117,21 @@ LABEL = {"ditto": "「〃」 이 글자로 남은 표(위 칸과 합칠 자리)"
          "off_style": "서식 규격 밖 글자(파랑·빨강·기울임 — 견본 글 꼴을 물려받음, 같은 글로 다시 쓰면 본문 꼴이 된다)"}
 
 
+def _key(x: str) -> str:
+    """견줄 열쇠 — 표 번호(「표12」)는 앞에서 표를 넣고 빼면 밀리므로 떼고 내용으로만 견준다(11-13 8차: 표를 그림으로 바꾼 뒤 번호가 밀려
+    원래 있던 목차 표의 빈 행을 「새로 생긴 것」 으로 보고 지움)."""
+    return re.sub(r"^표\d+", "표", x)
+
+
 def new_issues(before: dict[str, list[str]], after: dict[str, list[str]]) -> dict[str, list[str]]:
     """이번 요청에서 새로 생겼거나 늘어난 것만."""
     out = {}
     for k, v in after.items():
-        old = list(before.get(k) or [])
+        old = [_key(x) for x in (before.get(k) or [])]
         fresh = []
         for x in v:
-            if x in old:
-                old.remove(x)
+            if _key(x) in old:
+                old.remove(_key(x))
             else:
                 fresh.append(x)
         if fresh:

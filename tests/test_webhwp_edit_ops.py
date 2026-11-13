@@ -235,3 +235,30 @@ def test_landscape_refits_full_width_tables():
     assert old == 42520 and new == 84186 - 17008
     out, n = eo._refit_tables(land, old, new)
     assert n == 1 and f'<hp:sz width="{new}"' in out and '<hp:sz width="10000"' in out
+
+
+def test_stale_table_number_after_table_count_changes(tmp_path, monkeypatch):
+    """표를 넣거나 빼 번호가 밀린 뒤 옛 번호로 부르면 막고 지금 번호를 알린다(11-13 8차: 표4 를 그림으로 바꾼 뒤 옛 표5 를 부른다는 것이 다른 표를 뺌)."""
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 56, "kim", "기획처", {"id": 1, "name": "시험 사업"}, lambda: [])
+    et = eo.EditTools(hw)
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "번호 밀림 시험"})
+    out = et.run("hwp_table_insert", {"at": {"field": "1. 변경 사유", "where": "end"}, "values": [["가", "나"], ["1", "2"]]})
+    a_no = int(re.search(r"표(\d+)", out).group(1))
+    out = et.run("hwp_table_insert", {"at": {"field": "1. 변경 사유", "where": "end"}, "values": [["마", "바"], ["5", "6"]]})
+    c_no = int(re.search(r"표(\d+)", out).group(1))
+    assert c_no == a_no + 1
+    out = et.run("hwp_table_insert", {"at": {"field": "1. 변경 사유", "where": "start"}, "values": [["다", "라"], ["3", "4"]]})
+    b_no = int(re.search(r"표(\d+)", out).group(1))
+    assert b_no <= a_no and "번호가 밀렸다" in out
+    # 새로 만든 표의 번호는 결과가 알려 준 지금 번호라 그대로 쓴다
+    assert "3행" in et.run("hwp_table_edit", {"table": b_no, "op": "add_rows", "row": 1})
+    # 옛 번호(마|바 표)로 부르면 막고 지금 번호를 알린다
+    out = et.run("hwp_table_edit", {"table": c_no, "op": "add_rows", "row": 1})
+    assert out.startswith("넣지 않았다") and f"지금 표{c_no + 1}" in out
+    # 그 번호를 다시 본 뒤에는 지금 번호로 받아들인다
+    et.run("hwp_table_view", {"table": c_no})
+    assert "넣었다" in et.run("hwp_table_edit", {"table": c_no, "op": "add_rows", "row": 1})

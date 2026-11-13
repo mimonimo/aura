@@ -35,3 +35,10 @@ def test_new_issues_only_counts_what_this_request_added():
     fresh = lint.new_issues(before, after)
     assert "ditto" in fresh and "placeholder" not in fresh
     assert lint.new_issues(after, after) == {}
+
+
+def test_new_issues_ignore_table_renumbering():
+    """앞쪽 표를 빼서 번호가 밀려도 원래 있던 문제는 새것이 아니다(11-13 8차)."""
+    before = {"empty_rows": ["표15(「사업계획서 목차」) 빈 행 2줄 연속"]}
+    after = {"empty_rows": ["표13(「사업계획서 목차」) 빈 행 2줄 연속"]}
+    assert lint.new_issues(before, after) == {}
