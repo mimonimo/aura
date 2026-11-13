@@ -231,7 +231,9 @@ def resolve_linked(db, docs: list[dict]) -> list[dict]:
         if tid is not None:
             t = db.get_document(tid) if db is not None else None
             if t and t.get("status") == "reviewed":
-                d = t
+                # 기존 문서 이름이 올린 파일과 다를 수 있다(처음 반입 때 붙은 이름이 「blank」 처럼 뜻 없는 것) — 이 프로젝트에 올린
+                # 파일 이름을 함께 넘겨 목록이 「03 … 작성 서식」 으로도 보이게 한다(11-14 9차: 서식을 찾지 못해 1단계가 멈춤)
+                d = {**t, "uploaded_as": d.get("filename") or ""}
         if int(d["id"]) in seen:
             continue
         seen.add(int(d["id"]))

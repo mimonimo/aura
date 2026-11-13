@@ -992,6 +992,9 @@ class HwpTools:
                 except Exception:
                     pass
                 kind_ = {"form": " · 양식", "report": " · 보고서", "plan": " · 계획서"}.get(str(d.get("kind") or ""), "")
+                up_ = storage.title_of(str(d.get("uploaded_as") or ""))
+                if up_ and re.sub(r"\W", "", up_) != re.sub(r"\W", "", storage.title_of(d.get("filename") or "")):
+                    kind_ += f" · 올린 파일 「{up_[:60]}」"      # 같은 내용이라 기존 문서로 이은 것 — 담당자가 부르는 이름은 올린 파일 이름
                 out.append(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:50]}」(이 프로젝트 문서{kind_}{big}"
                            + ("" if int(d["id"]) in mine else " · 근거 문서라 양식으로는 맞지 않을 수 있음") + ")")
         n_proj = len(out)

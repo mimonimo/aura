@@ -1509,3 +1509,25 @@ def drop_empty_box(data: bytes, name: str) -> tuple[bytes, bool]:
             return data, False
         return data, False
     return data, False
+
+
+def filled_parents(data: bytes, filled) -> set[str]:
+    """아래 절이 채워진 위 절(제 글 없이 소제목만 묶는 절) — 「4. 특성화 분야 교육 여건」 처럼 4-1~4-4 가 다 쓰였으면 4. 의 빨간 안내 글도
+    뗄 자리다(11-14 9차: 위 절 안내 「본문 입력」 이 남음). 자기 글이 있는 위 절은 이미 채운 절이라 여기서 따지지 않는다."""
+    from zzaimy.app import webhwp_blocks as wb
+    filled = {n for n in (filled or []) if n}
+    if not filled:
+        return set()
+    try:
+        paths = wb.field_paths(data)
+    except Exception:
+        return set()
+    up = {re.sub(r"\s+", "", h) for n in filled for h in (paths.get(n) or [])}
+    out = set()
+    for name in paths:
+        if not name.startswith("절:") or name in filled:
+            continue
+        head = re.sub(r"\s+", "", re.sub(r"#\d+$", "", name.split(":", 1)[-1]))
+        if head and head in up:
+            out.add(name)
+    return out

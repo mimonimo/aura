@@ -335,3 +335,14 @@ def test_dash_numbered_headings_are_sections():
     assert wf._is_heading("3-3 특성화 참여학과 학생 현황")
     for t in ("2026-11-13 회의", "053-650-9562 연락"):
         assert sc.split_number(t)[0] == "" and wb.level(t) is None and not wf._is_heading(t)
+
+
+def test_filled_parents_are_container_sections(monkeypatch):
+    """아래 절(4-1~4-4)이 쓰인 위 절(4.)은 안내 글을 뗄 자리 — 아래가 안 쓰인 위 절·다른 장의 같은 번호 절은 아니다(11-14 9차)."""
+    from zzaimy.app import webhwp_blocks as wb, webhwp_write as ww
+    paths = {"절:4. 특성화 분야 교육 여건": [], "절:4-4. 기타 여건": ["4. 특성화 분야 교육 여건"],
+             "절:3. 특성화분야 현황": [], "절:3-1. 일반 현황": ["3. 특성화분야 현황"],
+             "절:4. 1단계 총 사업비": ["Ⅳ. 재정집행 계획"]}
+    monkeypatch.setattr(wb, "field_paths", lambda d: paths)
+    assert ww.filled_parents(b"", {"절:4-4. 기타 여건"}) == {"절:4. 특성화 분야 교육 여건"}
+    assert ww.filled_parents(b"", set()) == set()

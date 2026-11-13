@@ -318,5 +318,7 @@ def test_same_content_upload_links_to_existing_doc_instead_of_failure(tmp_path):
     assert all(int(d["id"]) != dup for d in db.failed_documents(limit=50))
     got = read_failure.resolve_linked(db, [db.get_document(dup), db.get_document(orig)])
     assert [int(d["id"]) for d in got] == [orig]                         # 기존 문서로 바뀌고 같은 문서는 한 번만
+    # 이 프로젝트에 올린 파일 이름을 함께 넘긴다 — 기존 문서 이름이 달라도 담당자가 부르는 이름으로 찾게(11-14 9차 「blank」)
+    assert read_failure.resolve_linked(db, [db.get_document(dup)])[0]["uploaded_as"] == db.get_document(dup)["filename"]
     db.update_document(orig, status="failed", error="KeyError: x")       # 기존 문서가 아직 못 읽은 상태면 원래 줄을 둔다
     assert [int(d["id"]) for d in read_failure.resolve_linked(db, [db.get_document(dup)])] == [dup]
