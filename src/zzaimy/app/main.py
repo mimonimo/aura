@@ -3298,6 +3298,7 @@ def create_app(
                             # 다 채운 절(표·그림·칸 값으로 채운 절 포함)의 빨간 안내 글과 작성방법 안내 상자를 함께 뗀다(11-13: 표로만 채운 절에 상자가 남음)
                             only2_ = set(only_) | _ww_q.filled_parents(d_, only_)   # 아래 절이 다 쓰인 위 절(소제목만 묶는 절)의 안내도
                             d2, _ = _ww_q.quiet_hints(d_, only2_)
+                            d2, _ = _ww_q.tidy_filled(d2, only2_)        # 쓴 절 안의 빨간 서식 안내 문단·다 찬 표의 빈 칸 안내
                             d3, g_ = _ww_q.drop_guides(d2, sorted(only_))
                             box_q["guides"] = g_
                             return d3, "다 쓴 절의 안내 글을 지웠다"

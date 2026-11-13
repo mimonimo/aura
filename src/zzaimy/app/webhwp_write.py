@@ -1531,3 +1531,83 @@ def filled_parents(data: bytes, filled) -> set[str]:
         if head and head in up:
             out.add(name)
     return out
+
+
+def _red_chars(zin) -> set[str]:
+    """빨간 글자 모양 id — 서식이 작성자에게 남긴 안내(「연구재단 문의」)를 빨강으로 적는다."""
+    try:
+        hdr = zin.read("Contents/header.xml").decode("utf-8", "replace")
+    except KeyError:
+        return set()
+    out = set()
+    for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\btextColor="#([0-9A-Fa-f]{6})"', hdr):
+        r, g, b = (int(m.group(2)[i:i + 2], 16) for i in (0, 2, 4))
+        if r >= 0xC0 and g <= 0x60 and b <= 0x60:
+            out.add(m.group(1))
+    return out
+
+
+def tidy_filled(data: bytes, only) -> tuple[bytes, list[str]]:
+    """다 쓴 절 안의 서식 안내 찌꺼기를 뗀다 — (새 바이트, 뗀 것 설명). 11-14 9차: 4-2 표 아래 빨간 「연구재단 문의」, 합계 행의 빈 칸 안내 「합계 입력」.
+    (1) 절 필드부터 다음 절 필드까지(표 밖) 글이 모두 빨간 글자인 문단 — 서식이 작성자에게 남긴 안내다. 필드·표·그림이 든 문단은 두지 않는다.
+    (2) 그 구간의 표가 6할 넘게 찼으면 아직 빈 칸·표 필드의 안내 글(「합계 입력」)을 비운다(필드는 남김).
+    아직 안 쓴 절은 건드리지 않는다(사람·에이전트가 안내를 본다)."""
+    only = {n for n in (only or []) if n}
+    if not only:
+        return data, []
+    zin, secs = _open(data)
+    red = _red_chars(zin)
+    changed: dict[str, str] = {}
+    done: list[str] = []
+    for n, xml in secs.items():
+        begins = [m for m in _BEGIN.finditer(xml) if _unq(m.group(2)).startswith("절:") and not is_cont(_unq(m.group(2)))]
+        cuts: list[tuple[int, int, str]] = []                # (시작, 끝, 바꿀 글) — 뒤에서부터 적용
+        for i, m in enumerate(begins):
+            if _unq(m.group(2)) not in only:
+                continue
+            pb = _para_bounds(xml, m.start())
+            if not pb:
+                continue
+            head = xml[:pb[0]]
+            if len(re.findall(r"<hp:p\b", head)) != head.count("</hp:p>"):
+                continue                                    # 표 칸 안의 절 필드(배치 표)는 구간을 따지지 않는다
+            end = begins[i + 1].start() if i + 1 < len(begins) else len(xml)
+            region = xml[pb[1]:end]
+            for a, b in _top_paras(region, len(region)):
+                frag = region[a:b]
+                if "<hp:tbl" in frag:
+                    tbl_cells = [re.sub(r"<[^>]+>", "", _PARAMS.sub("", c)).strip() for c in re.findall(r"<hp:tc\b.*?</hp:tc>", frag, flags=re.S)]
+                    if tbl_cells and sum(1 for c in tbl_cells if c) >= 0.6 * len(tbl_cells):
+                        new = frag
+                        for fm in list(_BEGIN.finditer(frag))[::-1]:
+                            nm = _unq(fm.group(2))
+                            if not nm.startswith(("칸:", "표")):
+                                continue
+                            sp = _span(frag, fm.group(1), fm.end())
+                            own = re.sub(r"<[^>]+>", "", _PARAMS.sub("", frag[sp[0]:sp[1]])).strip() if sp else ""
+                            hint = re.search(r'<hp:stringParam name="Direction">([^<]*)</hp:stringParam>', fm.group(0))
+                            if not hint or not hint.group(1).strip() or (own and own != _unq(hint.group(1)).strip()):
+                                continue
+                            seg2 = fm.group(0).replace(hint.group(0), '<hp:stringParam name="Direction"></hp:stringParam>')
+                            seg2 = _CMD.sub(lambda mm: f"{mm.group(1)}Clickhere:set:{len('Direction:wstring:0: HelpState:wstring:' + mm.group(3) + ':' + mm.group(4))}:"
+                                                       f"Direction:wstring:0: HelpState:wstring:{mm.group(3)}:{mm.group(4)}{mm.group(5)}", seg2)
+                            new = new[:fm.start()] + seg2 + new[fm.end():]
+                            done.append(f"{nm} 안내")
+                        if new != frag:
+                            cuts.append((pb[1] + a, pb[1] + b, new))
+                    continue
+                if "<hp:pic" in frag or _BEGIN.search(frag) or not red:
+                    continue
+                runs = re.findall(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"[^>]*>(.*?)</hp:run>', frag, flags=re.S)
+                texts = [(c, "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", body))) for c, body in runs]
+                said = [(c, t) for c, t in texts if t.strip()]
+                if said and all(c in red for c, _ in said) and len("".join(t for _, t in said)) <= 80:
+                    cuts.append((pb[1] + a, pb[1] + b, ""))
+                    done.append("빨간 안내: " + "".join(t for _, t in said).strip()[:30])
+        if cuts:
+            for a, b, rep in sorted(cuts, reverse=True):
+                xml = xml[:a] + rep + xml[b:]
+            changed[n] = xml
+    if not changed:
+        return data, []
+    return _pack(zin, changed), done

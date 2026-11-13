@@ -346,3 +346,31 @@ def test_filled_parents_are_container_sections(monkeypatch):
     monkeypatch.setattr(wb, "field_paths", lambda d: paths)
     assert ww.filled_parents(b"", {"절:4-4. 기타 여건"}) == {"절:4. 특성화 분야 교육 여건"}
     assert ww.filled_parents(b"", set()) == set()
+
+
+def test_tidy_filled_drops_red_notes_and_cell_hints_in_written_sections():
+    """쓴 절 안의 빨간 서식 안내 문단(「연구재단 문의」)은 떼고, 다 찬 표의 빈 칸 안내(「합계 입력」)는 비운다 — 안 쓴 절은 그대로(11-14 9차)."""
+    import io, zipfile
+    from zzaimy.app import webhwp_write as ww
+    def fb(name, hint, fid):
+        return (f'<hp:ctrl><hp:fieldBegin id="{fid}" type="CLICK_HERE" name="{name}"><hp:parameters>'
+                f'<hp:stringParam name="Direction">{hint}</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl>')
+    fe = lambda fid: f'<hp:ctrl><hp:fieldEnd beginIDRef="{fid}"/></hp:ctrl>'
+    cell = lambda t: f'<hp:tc><hp:subList><hp:p id="0"><hp:run charPrIDRef="0">{t}</hp:run></hp:p></hp:subList></hp:tc>'
+    def sec(name, fid):
+        tbl = ('<hp:p id="0"><hp:run charPrIDRef="0"><hp:tbl><hp:tr>' + cell("<hp:t>합계</hp:t>") + cell(fb("칸:합계", "합계 입력", fid + 1) + fe(fid + 1))
+               + cell("<hp:t>576명</hp:t>") + cell("<hp:t>718명</hp:t>") + '</hp:tr></hp:tbl></hp:run></hp:p>')
+        return (f'<hp:p id="0"><hp:run charPrIDRef="0">{fb(name, "본문 입력", fid)}{fe(fid)}</hp:run></hp:p>' + tbl
+                + '<hp:p id="0"><hp:run charPrIDRef="7"><hp:t>연구재단 문의</hp:t></hp:run></hp:p>')
+    xml = '<hs:sec xmlns:hs="s" xmlns:hp="p">' + sec("절:4-2. 취업률", 10) + sec("절:4-3. 교과목", 20) + '</hs:sec>'
+    hdr = '<hh:head><hh:charPr id="0" textColor="#000000"></hh:charPr><hh:charPr id="7" textColor="#FF0000"></hh:charPr></hh:head>'
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w") as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("Contents/header.xml", hdr)
+        z.writestr("Contents/section0.xml", xml)
+    d, done = ww.tidy_filled(b.getvalue(), {"절:4-2. 취업률"})
+    out = zipfile.ZipFile(io.BytesIO(d)).read("Contents/section0.xml").decode()
+    assert out.count("연구재단 문의") == 1 and out.count("합계 입력") == 1        # 안 쓴 4-3 것만 남음
+    assert out.index("연구재단 문의") > out.index("절:4-3. 교과목")
+    assert any("연구재단" in x for x in done) and "칸:합계 안내" in done
