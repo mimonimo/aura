@@ -88,7 +88,9 @@ class Client:
         t0 = time.time()
         while time.time() - t0 < limit:
             r = self.http.get(f"/project/{pid}")
-            if r.status_code == 200 and not BUSY.search(re.sub(r"<[^>]+>", " ", r.text)):
+            # 화면 글만 본다 — 스크립트 안 글(「본문을 읽는 중입니다…」 같은 안내 문자열)까지 보면 늘 바쁜 것으로 보여 한도까지 기다렸다(11-14)
+            shown = re.sub(r"<(script|style)\b.*?</\1>", " ", r.text, flags=re.S | re.I)
+            if r.status_code == 200 and not BUSY.search(re.sub(r"<[^>]+>", " ", shown)):
                 return time.time() - t0
             time.sleep(10)
         log(f"자료 읽기가 {int(limit)}초 안에 끝나지 않았습니다 — 그대로 진행")
