@@ -229,6 +229,22 @@ def test_pictures_replace_table_in_order():
     assert len(eo.list_tables(eo._Doc(new))) == t - 1
 
 
+def test_pictures_replace_several_tables_at_once():
+    """이 부분의 서식 표가 여럿이면 table: [a, b] 로 한 번에 빼고 첫 표 자리에 그림 — 뒤 표(다음 부분 제목 상자)는 남는다(11-14 11차 요약본)."""
+    import base64
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
+    d = wt.build(wt.GRANT["budget_change"])
+    for head in (["요약 제목", "-"], ["성과지표", "값"], ["대학 주요 현황", "-"]):
+        d, _ = eo.table_insert(d, {"head": head, "values": [["가", "1"]]})
+    n = len(eo.list_tables(eo._Doc(d)))
+    new, msg = eo.picture(d, [png, png], {"at": {"table": [n - 2, n - 1], "where": "replace"}, "width_mm": 50})
+    assert "표 2개를 뺐다" in msg and eo.check_bytes(new) == []
+    left = eo.list_tables(eo._Doc(new))
+    assert len(left) == n - 2 and "대학 주요 현황" in eo.table_view(new, {"table": n - 2})
+
+
 def test_side_by_side_pictures_share_one_paragraph():
     """여러 그림을 「나란히」 넣으면 한 문단에 이어 두고 폭을 나눈다(원본 사진 두 장 나란히, 11-13 6차)."""
     import base64

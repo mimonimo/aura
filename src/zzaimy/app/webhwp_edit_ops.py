@@ -1863,16 +1863,23 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
         n, pos = t_["sec"], 0
         in_cell = (t_, tb_, cell_)
     elif at_.get("table") not in (None, "") and str(at_.get("where") or "") == "replace":
-        # 표 자리를 그림으로 — 그 표가 든 문단을 빼고 그 자리에 그림(서식 표를 우리 그림으로 대신, 4번 요약본처럼)
-        n, ps, pe = _table_para_span(doc, at_["table"])
-        para = doc.secs[n][ps:pe]
-        rest = re.sub(r"<hp:tbl\b.*</hp:tbl>", "", para, flags=re.S)
-        if _text(rest).strip():
-            raise EditError("그 표가 든 문단에 다른 글이 있어 표만 바꿀 수 없다 — where: after 로 표 뒤에 넣고 표는 그대로 둔다.")
+        # 표 자리를 그림으로 — 그 표가 든 문단을 빼고 그 자리에 그림(서식 표를 우리 그림으로 대신, 4번 요약본처럼).
+        # table 이 [4, 5] 처럼 여럿이면 한 번에 모두 빼고 첫 표 자리에 그림을 둔다 — 하나씩 바꾸면 뒤 표 번호가 밀려
+        # 엉뚱한 표(다음 부분의 제목 상자)를 뺐다(11-14 11차 요약본: 제목 상자만 그림으로, 요약 표는 남고 「대학 주요 현황」 상자가 빠짐)
+        tl = at_["table"] if isinstance(at_["table"], list) else [at_["table"]]
+        spans = sorted({_table_para_span(doc, x) for x in tl}, key=lambda z: (z[0], z[1]))
+        if len({z[0] for z in spans}) > 1:
+            raise EditError("빼려는 표들이 서로 다른 구역에 있다 — 한 구역 표끼리만 함께 바꾼다.")
+        for n, ps, pe in spans:
+            rest = re.sub(r"<hp:tbl\b.*</hp:tbl>", "", doc.secs[n][ps:pe], flags=re.S)
+            if _text(rest).strip():
+                raise EditError("그 표가 든 문단에 다른 글이 있어 표만 바꿀 수 없다 — where: after 로 표 뒤에 넣고 표는 그대로 둔다.")
+        n, ps, _pe = spans[0]
         width = _width_at(doc.secs[n], max(ps - 1, 0))
-        doc.secs[n] = doc.secs[n][:ps] + doc.secs[n][pe:]
+        for n_, ps_, pe_ in reversed(spans):
+            doc.secs[n_] = doc.secs[n_][:ps_] + doc.secs[n_][pe_:]
         pos = ps
-        replaced = " 표 자리를 그림으로 바꿨다(표는 뺐다)."
+        replaced = f" 표 자리를 그림으로 바꿨다(표 {len(spans)}개를 뺐다)." if len(spans) > 1 else " 표 자리를 그림으로 바꿨다(표는 뺐다)."
     else:
         n, pos, width = _anchor(doc, a.get("at"))
     used = set(hf._MANIFEST_ID.findall(doc.hpf)) | {Path(x).stem for x in doc.zin.namelist() if x.startswith("BinData/")}
@@ -2782,7 +2789,7 @@ _NATIVE_FIRST = {"hwp_page_setup": _ps_native, "hwp_page_number": _pn_native, "h
 # ── 에이전트 도구 ──
 # 이름·설명·인자 꼴을 한 곳에 — main.py 는 이 목록을 그대로 doc_agent.Tool 로 잇는다(tests/test_agent_docs 가 문서 표와 맞춰 본다)
 _AT = ("at: {field: 절 필드 이름, where: start(절 맨 앞)|end(절 끝)} 또는 {after_text: 이 글이 든 문단 뒤} 또는 {table: 표 번호, where: before|after|replace(그림 넣기만 — "
-       "그 표를 빼고 그 자리에)} 또는 {table: 표 번호, cell: [행, 열]}(그림 넣기만 — 그 칸 안에, 「사진 | 설명」 표처럼) 또는 비우면 문서 끝")
+       "그 표를 빼고 그 자리에. 이 부분의 서식 표가 여럿이면 table: [4, 5] 로 한 번에 모두 빼고 첫 표 자리에)} 또는 {table: 표 번호, cell: [행, 열]}(그림 넣기만 — 그 칸 안에, 「사진 | 설명」 표처럼) 또는 비우면 문서 끝")
 # ── 라벨 칸 옆에 값 넣기(11-12) ──
 # 신청서·현황표의 값 칸(「대 학 명 | (빈 칸)」「성 명 | 」「URL | http://www.」)에는 누름틀이 없는 서식이 많다 — hwp_fill 이 이름으로 필드를 못 찾아
 # 담당자가 준 학교명·책임자 이름·연락처를 비워 둔 채 「채웠다」 고 했다(특성화 서식 시범, 11-12). 이름의 끝 낱말을 라벨 칸 글과 맞추고
@@ -3066,16 +3073,18 @@ class EditTools:
         if ref in (None, "") or isinstance(ref, dict):
             return ""
         import re as _re
-        m = _re.search(r"\d+", str(ref))
-        if not m:
-            return ""
-        k = int(m.group(0))
-        if k in self._fresh or not 1 <= k <= len(self._stale):
-            return ""
-        cur = self._heads(fid)
-        old = self._stale[k - 1]
-        if k <= len(cur) and cur[k - 1] == old:
-            return ""
+        cur = None
+        for k in [int(x) for x in _re.findall(r"\d+", str(ref))[:8]]:   # table: [4, 5] 처럼 여럿이면 하나하나
+            if k in self._fresh or not 1 <= k <= len(self._stale):
+                continue
+            cur = cur if cur is not None else self._heads(fid)
+            old = self._stale[k - 1]
+            if k <= len(cur) and cur[k - 1] == old:
+                continue
+            return self._stale_msg(k, old, cur)
+        return ""
+
+    def _stale_msg(self, k: int, old: str, cur: list) -> str:
         js = [i + 1 for i, h in enumerate(cur) if h == old]
         j = min(js, key=lambda i: abs(i - k)) if js else None
         now = f"지금 표{k}는 「{cur[k - 1][:30]}」" if k <= len(cur) else f"지금 표는 {len(cur)}개뿐"
