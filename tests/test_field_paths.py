@@ -182,3 +182,16 @@ def test_table_choice_guard_and_picture_fit_and_map():
     with pytest.raises(eo.EditError, match=f"표{big}"):
         eo.table_edit(d, {"table": small, "op": "set_cells", "start": [1, 1], "values": vals})
     assert "표" in eo.form_map(d)
+
+
+def test_pictures_replace_table_in_order():
+    """표 자리를 그림 여러 장으로 대신한다(4번 요약본처럼) — 표는 빠지고 그 자리에 그림이 차례로(11-13 6차)."""
+    import base64
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
+    d, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"head": ["요약", "값"], "values": [["가", "1"]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    new, msg = eo.picture(d, [png, png], {"at": {"table": t, "where": "replace"}, "width_mm": 50})
+    assert "그림 2장" in msg and "표는 뺐다" in msg and eo.check_bytes(new) == []
+    assert len(eo.list_tables(eo._Doc(new))) == t - 1

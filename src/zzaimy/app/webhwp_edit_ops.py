@@ -409,6 +409,11 @@ def _section_span(doc: _Doc, field: str) -> tuple[str, int, int]:
 def _anchor(doc: _Doc, at: dict | None) -> tuple[str, int, int]:
     """넣을 자리 (구역, 위치, 쓸 폭 HWPUNIT). at = {field, where: start|end} | {after_text} | {} (문서 끝)."""
     at = at if isinstance(at, dict) else {}
+    if at.get("table") not in (None, ""):
+        # 표 하나를 기준으로 — 그 표가 든 문단 앞(before)·뒤(after). 「요약본 표 자리에 그림」 처럼 표를 짚어 넣을 때(11-13 6차)
+        n, ps, pe = _table_para_span(doc, at["table"])
+        pos = ps if str(at.get("where") or "after") in ("before", "replace") else pe
+        return n, pos, _width_at(doc.secs[n], max(ps - 1, 0))
     if at.get("field"):
         if str(at.get("where") or "start") == "end":
             n, _s, e = _section_span(doc, str(at["field"]))
@@ -423,6 +428,17 @@ def _anchor(doc: _Doc, at: dict | None) -> tuple[str, int, int]:
     n = doc.sec_names[-1]
     xml = doc.secs[n]
     return n, xml.rfind("</hs:sec>"), hf._text_width_hu(doc.secs[doc.sec_names[0]])
+
+
+def _table_para_span(doc: _Doc, no) -> tuple[str, int, int]:
+    """표 번호 → (구역, 그 표를 품은 문단 시작, 끝)."""
+    t = _pick_table(doc, no)
+    xml = doc.secs[t["sec"]]
+    ps = xml.rfind("<hp:p ", 0, t["s"])
+    pe = xml.find("</hp:p>", t["e"])
+    if ps < 0 or pe < 0:
+        raise EditError(f"표{t['no']}의 자리를 찾지 못했다.")
+    return t["sec"], ps, pe + len("</hp:p>")
 
 
 def _width_at(xml: str, at: int) -> int:
@@ -1698,41 +1714,62 @@ def footnote(data: bytes, a: dict) -> tuple[bytes, str]:
 
 
 @_guarded
-def picture(data: bytes, img: bytes, a: dict) -> tuple[bytes, str]:
+def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
+    """그림 넣기 — img 는 그림 하나(bytes) 또는 여럿(list[bytes]: 같은 자리에 차례로, 「요약본 그림 두 장」)."""
     doc = _Doc(data)
-    kind = hf.image_kind(img or b"")
-    if not kind:
-        raise EditError("그림 파일(png·jpg·gif·bmp)이 아니다.")
+    imgs = img if isinstance(img, list) else [img]
     if doc.hpf is None:
         raise EditError("매니페스트(content.hpf)가 없는 파일이라 그림을 넣을 수 없다.")
-    ext, media = kind
+    at_ = a.get("at") if isinstance(a.get("at"), dict) else {}
+    replaced = ""
+    if at_.get("table") not in (None, "") and str(at_.get("where") or "") == "replace":
+        # 표 자리를 그림으로 — 그 표가 든 문단을 빼고 그 자리에 그림(서식 표를 우리 그림으로 대신, 4번 요약본처럼)
+        n, ps, pe = _table_para_span(doc, at_["table"])
+        para = doc.secs[n][ps:pe]
+        rest = re.sub(r"<hp:tbl\b.*</hp:tbl>", "", para, flags=re.S)
+        if _text(rest).strip():
+            raise EditError("그 표가 든 문단에 다른 글이 있어 표만 바꿀 수 없다 — where: after 로 표 뒤에 넣고 표는 그대로 둔다.")
+        width = _width_at(doc.secs[n], max(ps - 1, 0))
+        doc.secs[n] = doc.secs[n][:ps] + doc.secs[n][pe:]
+        pos = ps
+        replaced = " 표 자리를 그림으로 바꿨다(표는 뺐다)."
+    else:
+        n, pos, width = _anchor(doc, a.get("at"))
     used = set(hf._MANIFEST_ID.findall(doc.hpf)) | {Path(x).stem for x in doc.zin.namelist() if x.startswith("BinData/")}
-    k = 1
-    while f"image{k}" in used:
-        k += 1
-    bin_id = f"image{k}"
-    doc.added[f"BinData/{bin_id}.{ext}"] = img
-    doc.hpf = doc.hpf.replace("</opf:manifest>", f'<opf:item id="{bin_id}" href="BinData/{bin_id}.{ext}" media-type="{media}" isEmbeded="1"/></opf:manifest>', 1)
-    n, pos, width = _anchor(doc, a.get("at"))
-    px = hf._image_px(img)
-    org_w, org_h = (px[0] * 75, px[1] * 75) if px else (width, width // 2)
-    try:
-        w = hu(float(a["width_mm"])) if a.get("width_mm") not in (None, "") else min(org_w, width)
-    except (TypeError, ValueError):
-        raise EditError("width_mm 는 숫자다.")
-    if w > width * 1.5 and width < hu(120):
-        # 짚은 자리가 좁은 표 칸 안이다 — 큰 그림을 칸 폭으로 줄여 넣으면 알아볼 수 없는 작은 그림이 된다(11-13 5차: 요약본 그림 두 장이 표지 「권역」 칸에)
-        raise EditError(f"짚은 자리는 폭 {mm_of(width)}mm 표 칸 안이다 — 그림(요청 {mm_of(w)}mm)이 들어갈 자리가 아니다. "
-                        "그림은 표 밖 본문 자리에 넣는다: at.after_text(그 자리 앞 본문 글)나 at.field(절 필드)로 짚는다.")
-    w = max(min(w, width), hu(10))
-    h = int(w * org_h / org_w)
     pp, cp = doc.refs()
     al = ALIGNS.get(str(a.get("align") or "가운데"), "CENTER")
-    pxml = hf.picture_xml(bin_id, int(doc.ids.new()), w, h, org_w, org_h, doc.hdr.para(pp, al), cp)
-    pxml = pxml.replace('<hp:p id="0"', f'<hp:p id="{doc.ids.new()}"', 1)
+    parts, widths = [], []
+    for one in imgs:
+        kind = hf.image_kind(one or b"")
+        if not kind:
+            raise EditError("그림 파일(png·jpg·gif·bmp)이 아니다.")
+        ext, media = kind
+        k = 1
+        while f"image{k}" in used:
+            k += 1
+        bin_id = f"image{k}"
+        used.add(bin_id)
+        doc.added[f"BinData/{bin_id}.{ext}"] = one
+        doc.hpf = doc.hpf.replace("</opf:manifest>", f'<opf:item id="{bin_id}" href="BinData/{bin_id}.{ext}" media-type="{media}" isEmbeded="1"/></opf:manifest>', 1)
+        px = hf._image_px(one)
+        org_w, org_h = (px[0] * 75, px[1] * 75) if px else (width, width // 2)
+        try:
+            w = hu(float(a["width_mm"])) if a.get("width_mm") not in (None, "") else min(org_w, width)
+        except (TypeError, ValueError):
+            raise EditError("width_mm 는 숫자다.")
+        if w > width * 1.5 and width < hu(120):
+            # 짚은 자리가 좁은 표 칸 안이다 — 큰 그림을 칸 폭으로 줄여 넣으면 알아볼 수 없는 작은 그림이 된다(11-13 5차: 요약본 그림 두 장이 표지 「권역」 칸에)
+            raise EditError(f"짚은 자리는 폭 {mm_of(width)}mm 표 칸 안이다 — 그림(요청 {mm_of(w)}mm)이 들어갈 자리가 아니다. "
+                            "그림은 표 밖 본문 자리에 넣는다: at.table(표 앞·뒤·대신)·at.after_text·at.field(절 필드)로 짚는다.")
+        w = max(min(w, width), hu(10))
+        h = int(w * org_h / org_w)
+        pxml = hf.picture_xml(bin_id, int(doc.ids.new()), w, h, org_w, org_h, doc.hdr.para(pp, al), cp)
+        parts.append(pxml.replace('<hp:p id="0"', f'<hp:p id="{doc.ids.new()}"', 1))
+        widths.append(mm_of(w))
     xml = doc.secs[n]
-    doc.secs[n] = xml[:pos] + pxml + xml[pos:]
-    return doc.pack(), f"그림을 넣었다(폭 {mm_of(w)}mm)."
+    doc.secs[n] = xml[:pos] + "".join(parts) + xml[pos:]
+    what = f"그림 {len(parts)}장을 넣었다(폭 {', '.join(str(x) for x in widths)}mm)" if len(parts) > 1 else f"그림을 넣었다(폭 {widths[0]}mm)"
+    return doc.pack(), f"{what}.{replaced}"
 
 
 def _value_labels(values) -> set[str]:
@@ -2520,7 +2557,8 @@ _NATIVE_FIRST = {"hwp_page_setup": _ps_native, "hwp_page_number": _pn_native, "h
 
 # ── 에이전트 도구 ──
 # 이름·설명·인자 꼴을 한 곳에 — main.py 는 이 목록을 그대로 doc_agent.Tool 로 잇는다(tests/test_agent_docs 가 문서 표와 맞춰 본다)
-_AT = "at: {field: 절 필드 이름, where: start(절 맨 앞)|end(절 끝)} 또는 {after_text: 이 글이 든 문단 뒤} 또는 비우면 문서 끝"
+_AT = ("at: {field: 절 필드 이름, where: start(절 맨 앞)|end(절 끝)} 또는 {after_text: 이 글이 든 문단 뒤} 또는 {table: 표 번호, where: before|after|replace(그림 넣기만 — "
+       "그 표를 빼고 그 자리에)} 또는 비우면 문서 끝")
 # ── 라벨 칸 옆에 값 넣기(11-12) ──
 # 신청서·현황표의 값 칸(「대 학 명 | (빈 칸)」「성 명 | 」「URL | http://www.」)에는 누름틀이 없는 서식이 많다 — hwp_fill 이 이름으로 필드를 못 찾아
 # 담당자가 준 학교명·책임자 이름·연락처를 비워 둔 채 「채웠다」 고 했다(특성화 서식 시범, 11-12). 이름의 끝 낱말을 라벨 칸 글과 맞추고
@@ -2744,7 +2782,7 @@ TOOLS: list[dict] = [
      "desc": "각주 달기 — 근거·출처를 밝힐 때. args {field: 필드(그 값 끝에) | after_text: 이 글 뒤에, text: 각주 글}",
      "args": {"field": "str", "after_text": "str", "text": "str"}},
     {"name": "hwp_picture", "writes": True, "label": "그림 넣기",
-     "desc": "그림 넣기. args {image: doc:<문서 id>(이 대화·프로젝트 문서의 그림 파일) | file:<파일 id>(이 대화에 올린 그림) | 그림 파일 이름(「image_011.png」), width_mm(본문 폭 이하), "
+     "desc": "그림 넣기. args {image: doc:<문서 id>(이 대화·프로젝트 문서의 그림 파일) | file:<파일 id>(이 대화에 올린 그림) | 그림 파일 이름(「image_011.png」) — 여럿이면 목록(같은 자리에 차례로), width_mm(본문 폭 이하), "
              "align: 가운데|왼쪽|오른쪽, " + _AT + "}",
      "args": {"image": "str", "width_mm": "float", "align": "str", "at": "dict"}},
     {"name": "hwp_replace", "writes": True, "label": "찾아 바꾸기",
@@ -2840,7 +2878,9 @@ class EditTools:
                 pass                                                # 기안기 동작으로 못 옮기는 인자면 파일 도구로
         if name == "hwp_picture":
             try:
-                img = self._image(str(a.get("image") or ""))
+                refs_ = a.get("image") if isinstance(a.get("image"), list) else [a.get("image")]
+                imgs_ = [self._image(str(r or "")) for r in refs_[:12]]
+                img = imgs_ if len(imgs_) > 1 else imgs_[0]
             except EditError as e:
                 return "넣지 않았다 — " + str(e)
             fn = lambda d: picture(d, img, a)
