@@ -256,3 +256,58 @@
   window.omMakeTempPw = make;          // 새 사용자 창을 열면 바로 하나 만든다(omUserEdit)
 })();
 </script>
+
+{# 사용자 일괄 등록(11-15) — 엑셀·CSV 한 장으로. 임시 비밀번호는 응답에만 오고, 화면에서 파일로 받아 전달한다(서버에 남기지 않음) #}
+<div class="modal-back" id="userImport">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">사용자 일괄 등록</h2>
+      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">열: 아이디·이름·부서·역할·등급·상위 부서 · 아이디만 꼭 · <a href="/team/accounts/import-template.csv">양식 받기</a></p>
+    <form id="userImportForm" style="display:flex; flex-direction:column; gap:10px;">
+      <input type="file" name="file" accept=".csv,.xlsx" required>
+      <label style="font-size:12.5px; display:flex; gap:6px; align-items:center;"><input type="checkbox" name="make_depts" value="1">없는 부서도 만들기</label>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="secondary" data-modal-close>닫기</button>
+        <button type="submit">등록</button>
+      </div>
+    </form>
+    <div id="userImportOut" hidden style="margin-top:12px; font-size:12.5px;"></div>
+  </div></div>
+</div>
+<script>
+(function () {
+  var back = document.getElementById('userImport');
+  if (!back) return;
+  window.omUserImport = function () {
+    document.getElementById('userImportOut').hidden = true;
+    document.getElementById('userImportForm').reset();
+    back.classList.add('open');
+  };
+  function csvCell(v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  document.getElementById('userImportForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var out = document.getElementById('userImportOut'), btn = this.querySelector('[type=submit]');
+    btn.disabled = true; out.hidden = false; out.textContent = '등록 중';
+    fetch('/team/accounts/import', {method: 'POST', body: new FormData(this), credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        out.replaceChildren();
+        var p = document.createElement('p'); p.style.margin = '0 0 6px'; p.textContent = j.msg; out.appendChild(p);
+        if (j.done && j.done.length) {
+          var rows = [['아이디', '이름', '임시 비밀번호']].concat(j.done.map(function (d) { return [d.uid, d.name, d.pw]; }));
+          var blob = new Blob(['\ufeff' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\n')], {type: 'text/csv'});
+          var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '임시_비밀번호.csv';
+          a.textContent = '임시 비밀번호 파일 받기 (이 창을 닫으면 다시 받을 수 없음)'; out.appendChild(a);
+        }
+        if (j.failed && j.failed.length) {
+          var ul = document.createElement('ul'); ul.style.margin = '8px 0 0'; ul.style.paddingLeft = '18px';
+          j.failed.slice(0, 50).forEach(function (f) { var li = document.createElement('li'); li.textContent = f.line + '줄 ' + (f.uid || '') + ': ' + f.why; ul.appendChild(li); });
+          out.appendChild(ul);
+        }
+        if (j.done && j.done.length && window.omReloadAccounts) window.omReloadAccounts();
+      })
+      .catch(function () { out.textContent = '등록하지 못했습니다'; })
+      .finally(function () { btn.disabled = false; });
+  });
+})();
+</script>

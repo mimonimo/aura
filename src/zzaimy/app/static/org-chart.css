@@ -117,3 +117,5 @@ mark.oc-hit { background: #fff1b8; color: inherit; border-radius: 3px; padding: 
   .om-main { padding: 14px; }
   .om-table .wide { display: none; }
 }
+
+.om-head-btns { display: flex; gap: 8px; margin-left: auto; }   /* 전체 사용자 머리: 일괄 등록 · 계정 추가 */

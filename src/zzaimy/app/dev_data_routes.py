@@ -16,6 +16,8 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
+import logging as _logging
+log = _logging.getLogger(__name__)
 
 
 def _live_models_cache() -> dict:
@@ -281,3 +283,35 @@ def dev_grounded_pull(request: Request):
     except (LabelStudioError, ValueError, TypeError, KeyError):
         params = {'tab': 'data', 'err': '검수 결과를 가져오지 못했습니다. 연결·원문·검수 형식을 확인하세요. 기존 승인본은 보존됩니다.'}
     return RedirectResponse('/dev/train?' + urlencode(params), status_code=303)
+
+
+# ── 서버 설정(11-15) — 설치한 곳마다 다른 주소·키·경로를 화면에서. 값과 검사는 sysconf, /dev 아래라 개발자 계정만 ──
+@router.post("/dev/sysconf/save")
+def dev_sysconf_save(request: Request, key: str = Form(""), value: str = Form(""), reset: str = Form("")):
+    from urllib.parse import quote, urlencode
+
+    from zzaimy.app import sysconf
+    db = request.app.state.db
+    it = sysconf.BY_KEY.get(key)
+    if it is None:
+        why = "알 수 없는 설정입니다"
+    elif reset:
+        sysconf.reset(db, key)
+        why = ""
+    else:
+        why = sysconf.save(db, key, value)
+    if not why:
+        log.info("서버 설정 %s: %s (%s)", "되돌림" if reset else "저장", key, getattr(request.state, "user", ""))
+    msg = why or (f"{it.label}: 서버 파일 값으로 되돌렸습니다" if reset else f"{it.label}: 저장했습니다")
+    return RedirectResponse("/dev/tools?" + urlencode({"err" if why else "ok": msg}, quote_via=quote) + "#server",
+                            status_code=303)
+
+
+@router.post("/dev/sysconf/check")
+def dev_sysconf_check(key: str = Form("")):
+    from fastapi.responses import JSONResponse
+
+    from zzaimy.app import sysconf
+    if key not in sysconf.BY_KEY:
+        return JSONResponse({"ok": False, "text": "알 수 없는 설정입니다"}, status_code=400)
+    return JSONResponse(sysconf.probe(key))

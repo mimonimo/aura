@@ -788,3 +788,7 @@ def _members_op(request: Request, b: dict):
 from zzaimy.app.org_routes import router as _org_router  # noqa: E402
 
 router.include_router(_org_router)
+# 사용자 일괄 등록(엑셀·CSV) — account_import
+from zzaimy.app.account_import import router as _import_router  # noqa: E402
+
+router.include_router(_import_router)

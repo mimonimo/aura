@@ -635,6 +635,7 @@
 
   // ------------------------------------------------------------ 전체 사용자(관리자)
   var acc = {rows: [], q: '', role: '', dept: '', state: 'on', page: 0, chosen: {}};
+  window.omReloadAccounts = function () { if (sel.kind === 'all') renderAccounts(); };   // 일괄 등록 뒤 목록 다시
   function renderAccounts() {
     main.replaceChildren(h('p', {class: 'om-none', text: '불러오는 중'}));
     getJSON('/api/org/accounts').then(function (j) {
@@ -648,7 +649,9 @@
     var on = acc.rows.filter(function (r) { return r.active; }).length;
     var head = h('header', {class: 'om-head'}, [h('div', {class: 'om-title'}, [h('h2', {text: '전체 사용자'}),
       h('p', {class: 'om-path', text: '계정 ' + acc.rows.length + '개 · 사용 중 ' + on + '명'})]),
-      h('button', {type: 'button', onclick: function () { window.omUserEdit && window.omUserEdit(null); }}, [icon('solar:user-plus-linear'), '계정 추가'])]);
+      h('div', {class: 'om-head-btns'}, [
+        h('button', {type: 'button', class: 'secondary', onclick: function () { window.omUserImport && window.omUserImport(); }}, [icon('solar:upload-linear'), '일괄 등록']),
+        h('button', {type: 'button', onclick: function () { window.omUserEdit && window.omUserEdit(null); }}, [icon('solar:user-plus-linear'), '계정 추가'])])]);
     var find = h('input', {type: 'search', placeholder: '이름·아이디 찾기', 'aria-label': '계정 찾기', autocomplete: 'off', value: acc.q});
     var role = h('select', {'aria-label': '역할로 거르기'}, [h('option', {value: '', text: '모든 역할'})]);
     var seen = {};

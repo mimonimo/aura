@@ -73,7 +73,7 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
     # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
     # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
     from zzaimy.app import main as _main   # 모델 목록 캐시(_live_models_cached)는 main 에 있다 — 시험이 바꿔 끼운다
-    from zzaimy.app import web_search
+    from zzaimy.app import sysconf, web_search
     from zzaimy.dataset import ls_admin
     from zzaimy.generate import llm_connections, model_config
 
@@ -112,6 +112,8 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
         "plan_writer": next((p["base"] for p in serving_plan.PLAN if p["key"] == "answer"), ""),
         # 외부 연결 — 개인정보 화면에서 옮겨 온 칸
         "search_provider": web_search.provider(),
+        # 서버 설정 — 설치한 곳마다 다른 주소·키·경로(sysconf)
+        "sys_rows": sysconf.rows(db), "sys_groups": sysconf.GROUPS,
     }))
 
 

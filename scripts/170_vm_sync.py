@@ -38,6 +38,26 @@ KEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_ro")
 SSH_SAFE = "-o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 REMOTE = hosts.get("ZZAIMY_DGX_SSH") + ":"          # DGX 계정@주소 — .env.local·configs/hosts.env(공개 저장소에 주소를 두지 않는다)
 DGX_PORT = " ".join(hosts.ssh_port_args("ZZAIMY_DGX_SSH_PORT"))
+
+
+def _apply_screen_settings(db) -> None:
+    """개발 화면 「서버 설정」 에서 정한 값(원본 서버 접속 등)을 이 배치에도 — 앱 밖에서 도는 프로세스라 시작할 때 한 번."""
+    global REMOTE, DGX_PORT, RSH, UPRSH
+    from zzaimy.app import sysconf
+    sysconf.apply_all(db)
+    REMOTE = hosts.get("ZZAIMY_DGX_SSH") + ":"
+    DGX_PORT = " ".join(hosts.ssh_port_args("ZZAIMY_DGX_SSH_PORT"))
+    RSH = f"ssh -i {KEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}"
+    UPRSH = f"ssh -i {UPKEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}"
+    src = os.environ.get("ZZAIMY_ARCHIVE_SOURCE", "").strip()
+    if src:
+        # 원본 폴더를 따로 정했으면 그곳 — 서버 안 폴더(NAS 를 붙인 자리 등)이거나 계정@주소:경로(SSH). 설치한 곳마다 다르다(11-15)
+        REMOTE = src.rstrip("/") + "/"
+
+
+def local_source() -> bool:
+    """원본이 이 서버 안 폴더인가 — 그러면 DGX 쪽 일(처리 결과 받기·올린 원본 보내기·파일 사실 장부)은 없다."""
+    return REMOTE.startswith("/")
 RSH = f"ssh -i {KEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}"
 _LINE = re.compile(r"^-\S+\s+([\d,]+)\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.+)$")
 PRI = {"evaluation": 0, "plan": 1, "report": 2, "basic_plan": 3, "announcement": 4, "criteria": 5, "guideline": 6}
@@ -73,6 +93,8 @@ UPRSH = f"ssh -i {UPKEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}"
 
 
 def push_uploads(db, origins: dict[str, int], cards=None) -> None:
+    if local_source():
+        return                                       # 올린 원본을 원본 폴더(NAS 등)에 써 넣지 않는다 — DGX 보관일 때만
     """플랫폼(문서함·에이전트 채팅)에 올라온 원본을 DGX ~/zzaimy_uploads 로 올리고 원본 목록 장부에 「플랫폼 업로드」로 넣는다 —
     들어온 길이 달라도 원본은 한 보관소·한 장부에 둔다. DGX 쪽 키는 그 폴더 쓰기 전용."""
     docs_root = ROOT / "data" / "platform" / "documents"
@@ -142,6 +164,8 @@ PKEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_parsed")
 
 
 def import_parsed() -> None:
+    if local_source():
+        return                                       # 원본이 서버 안 폴더면 DGX 처리 결과가 없다
     """DGX 가 가볍게 처리한 원본(167 → ~/parsed, 읽기 전용 키)을 받아 'DGX 보관 문서'로 들인다(168, 이미 들인 원본은 건너뜀).
 
     5분 주기(--parsed)와 10분 주기 전체 동기화가 둘 다 부른다 — 둘이 같은 결과 파일을 동시에 읽으면 같은 원본을
@@ -239,6 +263,8 @@ def fetch_facts() -> dict[str, dict]:
     VM 은 원본 목록을 이름·크기·시각으로만 보므로 같은 파일 판정(내용)과 확장자 없는 문서의 실제 형식은 이 장부로 한다.
     받기에 실패하면 지난번 받은 장부로(없으면 이름·크기 기준)."""
     FACTS.parent.mkdir(parents=True, exist_ok=True)
+    if local_source():
+        return archive_dups.load_facts(FACTS)        # 서버 안 폴더 — DGX 장부 없음(이름·크기 기준)
     r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}", "-t", REMOTE + archive_dups.FACTS_NAME,
                         str(FACTS)], capture_output=True)
     if r.returncode != 0:
@@ -421,6 +447,7 @@ def main() -> int:
     args = ap.parse_args()
     t0 = time.time()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
+    _apply_screen_settings(db)
     if args.parsed:
         import_parsed()
         return 0

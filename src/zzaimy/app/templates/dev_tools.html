@@ -18,8 +18,76 @@
   {% endfor %}
   <div class="tool-status-row">
     <div class="tool-status-name"><b>웹 검색</b><span class="muted">일반 답의 「인터넷에서 찾아보기」 를 누른 요청만</span></div>
-    <div class="tool-status-detail"><span class="pill type">{{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}</span></div>
+    <div class="tool-status-detail"><span class="pill type">{{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버','off':'쓰지 않음'}.get(search_provider, search_provider) }}</span></div>
     <span></span>
   </div>
 </div></div>
+
+{# 서버 설정(11-15) — 설치한 곳마다 다른 주소·키·경로. 서버 파일(.env.local)을 고치지 않고 여기서 정한다(sysconf).
+   화면 값을 되돌리면 서버 파일 값으로. 비밀 값은 다시 보이지 않는다 #}
+<div class="card reveal" id="server"><div class="card-in">
+  <h2><iconify-icon icon="solar:settings-minimalistic-linear"></iconify-icon>서버 설정</h2>
+  {% for g in sys_groups %}
+  <h4 class="sys-group">{{ g }}</h4>
+  {% for r in sys_rows if r.group == g %}
+  <div class="tool-status-row sys-row">
+    <div class="tool-status-name"><b>{{ r.label }}</b><span class="muted">{{ r.hint }}</span></div>
+    <div class="tool-status-detail">
+      {% if r.shown %}<code class="sys-val">{{ r.shown }}</code>{% else %}<span class="muted">정하지 않음</span>{% endif %}
+      {% if r.source == 'screen' %}<span class="pill use-tag">화면 설정</span>{% elif r.source == 'file' %}<span class="pill">서버 파일</span>{% endif %}
+      <span class="muted sys-check" data-sys-out="{{ r.key }}"></span>
+    </div>
+    <span class="sys-btns">
+      {% if r.kind in ('url', 'path', 'source') or r.group == '웹 검색' %}<button type="button" class="secondary sys-btn" data-sys-check="{{ r.key }}">확인</button>{% endif %}
+      <button type="button" class="secondary sys-btn" data-modal-open="#sys-{{ r.key }}">변경</button>
+    </span>
+  </div>
+  <div class="modal-back" id="sys-{{ r.key }}">
+    <div class="card"><div class="card-in">
+      <div class="modal-head"><h2 style="font-size:15px;">{{ r.label }}</h2>
+        <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+      <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ r.hint }}</p>
+      <form action="/dev/sysconf/save" method="post" style="display:flex; flex-direction:column; gap:10px;">
+        <input type="hidden" name="key" value="{{ r.key }}">
+        {% if r.kind == 'choice' %}
+        <select name="value">{% for v, n in r.choices %}<option value="{{ v }}"{% if v == r.value %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+        {% elif r.secret %}
+        <input type="password" name="value" autocomplete="new-password" placeholder="{{ '새 값 (비우면 그대로)' if r.set else '값' }}">
+        {% else %}
+        <input type="{{ 'number' if r.kind == 'number' else 'text' }}" name="value" value="{{ r.value }}"{% if r.kind == 'number' %} step="any"{% endif %}
+               placeholder="{{ {'url': 'http://주소:포트/…', 'ssh': '계정@주소', 'path': '/경로', 'source': '/mnt/nas/원본 또는 계정@주소:경로'}.get(r.kind, '') }}" spellcheck="false">
+        {% endif %}
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          {% if r.source == 'screen' %}<button type="submit" name="reset" value="1" class="secondary">서버 파일 값으로</button>{% endif %}
+          <button type="button" class="secondary" data-modal-close>취소</button>
+          <button type="submit">저장</button>
+        </div>
+      </form>
+    </div></div>
+  </div>
+  {% endfor %}
+  {% endfor %}
+</div></div>
+<style>
+  .sys-group { margin:16px 0 0; font-size:12px; color:var(--muted); font-weight:700; }
+  .sys-group:first-of-type { margin-top:4px; }
+  .sys-row { grid-template-columns:minmax(150px,1fr) minmax(0,2fr) 9.5rem; }
+  .sys-val { font-size:12px; word-break:break-all; }
+  .sys-btns { display:flex; gap:6px; justify-content:flex-end; }
+  .sys-btn { padding:6px 10px; font-size:12px; }
+  .sys-check.ok { color:var(--green, #2f7d4f); } .sys-check.bad { color:var(--red, #b3402f); }
+</style>
+<script>
+document.querySelectorAll('[data-sys-check]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var key = b.getAttribute('data-sys-check'), out = document.querySelector('[data-sys-out="' + key + '"]');
+    out.className = 'muted sys-check'; out.textContent = '확인 중';
+    var fd = new FormData(); fd.append('key', key);
+    fetch('/dev/sysconf/check', {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (j) { out.className = 'sys-check ' + (j.ok ? 'ok' : 'bad'); out.textContent = j.text; })
+      .catch(function () { out.className = 'sys-check bad'; out.textContent = '확인하지 못했습니다'; });
+  });
+});
+</script>
 {% endblock %}

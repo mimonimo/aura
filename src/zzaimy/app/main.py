@@ -960,6 +960,8 @@ def create_app(
         _lc.activate(_old["id"])
     _paths.ensure_layout(Path(db_path).parent)     # 문서·지식·캐시 폴더 뼈대(ADR-0031)
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
+    from zzaimy.app import sysconf as _sysconf
+    _sysconf.install(db)                           # 화면에서 정한 서버 설정(주소·키·경로)을 프로세스 환경에 — 개발 화면 「서버 설정」
     # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로(독립 라우터)
     from zzaimy.app.chat_documents import router as chat_documents_router
     from zzaimy.app.project_search import router as project_search_router
