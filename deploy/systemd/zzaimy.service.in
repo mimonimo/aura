@@ -1,0 +1,20 @@
+# AURA 웹 서버 — deploy/install.sh 가 ~/.config/systemd/user/zzaimy.service 로 깐다(@ROOT@ = 설치 자리).
+# 상태 systemctl --user status zzaimy · 로그 journalctl --user -u zzaimy · 다시 시작은 deploy/update.sh 가 요청이 끝난 뒤에 한다
+[Unit]
+Description=AURA 운영 서버 (웹·검색·문서 작업)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@ROOT@
+EnvironmentFile=@ROOT@/.env.local
+ExecStartPre=-/usr/bin/pkill -f zzaimy.app.main
+ExecStart=@ROOT@/.venv/bin/python -m zzaimy.app.main
+Restart=on-failure
+RestartSec=5
+# 배치(원본 갱신·그래프)가 메모리를 다 쓰지 않게 — 서버 메모리에 맞게 고친다(64GB 서버 기준)
+MemoryMax=20G
+MemoryHigh=16G
+
+[Install]
+WantedBy=default.target

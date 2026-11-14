@@ -1,0 +1,13 @@
+# 한컴 웹 한글 기안기 WAS — deploy/webhwp/install.sh 가 ~/.config/systemd/user 에 깐다
+[Unit]
+Description=웹한글기안기 WAS (Tomcat, 127.0.0.1:@PORT@)
+
+[Service]
+Type=forking
+ExecStart=@W@/tomcat/bin/startup.sh
+ExecStop=@W@/tomcat/bin/shutdown.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

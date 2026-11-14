@@ -1,0 +1,9 @@
+# >>> AURA 주기 작업 (deploy/install.sh 가 넣고 다시 설치하면 바꾼다 — 이 블록 밖은 건드리지 않는다)
+# 원본 갱신(원본 폴더·원본 서버가 정해졌을 때만 일한다) · 올린 문서의 색인·그래프 · 색인 따라잡기 · 매일 정리 · 매일 백업
+* * * * * @ROOT@/scripts/zz_sync.sh 200
+* * * * * @ROOT@/scripts/zz_quick.sh
+* * * * * @ROOT@/scripts/zz_index.sh
+* * * * * @ROOT@/scripts/zz_parsed.sh
+30 4 * * * @ROOT@/scripts/zz_reconcile.sh
+30 2 * * * @ROOT@/deploy/backup.sh >> /tmp/aura_backup.log 2>&1
+# <<< AURA

@@ -101,17 +101,34 @@ Writer는 지금 베이스 모델로 운영합니다. 실문서로 만든 첫 �
 - 문서 작성: 한글 웹 기안기, 자체 HWPX 서식 채우기, Google Docs·Drive API(작업본, 선택)
 - 모델: vLLM(Writer 27B, NVFP4), TRL·PEFT(LoRA), sentence-transformers, Label Studio(학습 데이터 검수)
 
-## 직접 실행
+## 설치와 운영
+
+새 서버나 다른 기관에 깔 때는 [설치·운영 안내](docs/ops/README.md)를 따른다. 앱 서버는 명령 하나로 깔리고, 모델 서버 연결·
+사용자 등록·원본 폴더 같은 연동은 설치 뒤 관리자 계정으로 화면에서 한다.
+
+```
+bash deploy/install.sh                 # 앱 서버(Ubuntu 22.04·24.04) — PostgreSQL·서비스·주기 작업·백업까지
+bash deploy/bundle.sh                  # 인터넷이 막힌 서버용 설치 묶음(파일 하나)
+bash deploy/model-server/serve.sh writer --model <가중치>   # GPU 서버의 27B(vLLM)·임베딩·리랭커
+bash deploy/check.sh                   # 점검
+bash deploy/update.sh                  # 업데이트(새 판이 뜨지 않으면 앞 판으로)
+```
+
+설치본이 대신할 수 없는 것은 서버·GPU 드라이버, 한컴 웹 기안기 라이선스, 모델 가중치다.
+
+## 개발
 
 ```
 python3.12 -m venv .venv
-.venv/bin/pip install -e ".[app,postgres]"
-cp .env.example .env.local        # 모델 서버·임베딩·리랭커 주소를 채운다
+.venv/bin/pip install -e ".[app,postgres,dev]"
+cp .env.example .env.local            # 비워 두면 127.0.0.1:8800 · SQLite 로 뜬다
 set -a; . ./.env.local; set +a
-.venv/bin/python -m zzaimy.app.main   # http://127.0.0.1:8800
+.venv/bin/python -m zzaimy.app.main
+PYTHONPATH=src .venv/bin/python -m pytest -q -n 6       # 시험
 ```
 
-`ZZAIMY_DATABASE_URL` 을 주지 않으면 `data/platform/platform.db`(SQLite)로 돕니다. 운영 서버는 PostgreSQL 을 쓰고 systemd 로 띄웁니다(`configs/systemd/`). 문서 읽기(OCR·한글 변환)는 `.[parsers]` 를 더 설치한 장비에서 돌립니다. 시험은 `PYTHONPATH=src .venv/bin/python -m pytest -q` 입니다.
+`ZZAIMY_DATABASE_URL` 을 주지 않으면 `data/platform/platform.db`(SQLite)로 돈다. 문서 읽기(OCR·한글 변환)는 `.[parsers]` 를
+더 설치한 장비에서 돌린다. 고친 것은 커밋·푸시한 뒤 `bash scripts/99_deploy.sh --restart` 로 운영 서버에 올린다.
 
 ## 저장소 구조
 
@@ -125,7 +142,8 @@ src/zzaimy/
   generate/     모델 연결 설정
   eval/         검색 평가
   export/       학습 산출물 반출 묶음
-scripts/        반입·색인·측정·학습·서빙·배포 도구(번호 순)
+scripts/        반입·색인·측정·학습·서빙 도구(번호 순)
+deploy/         설치·업데이트·백업·점검·모델 서버(새 서버에 깔 때)
 configs/        서빙·학습 설정
 tests/          회귀 테스트
 docs/           설계 문서, 결정 기록, 측정 보고서, 모델 카드
@@ -134,6 +152,7 @@ research/       착수 단계 기술 조사
 
 ## 문서 안내
 
+- 설치·운영: [설치·운영 안내](docs/ops/README.md), [서버 이전](docs/ops/migration.md), [인수인계](docs/HANDOFF.md)
 - 핵심: [프로젝트 브리프](PROJECT_BRIEF.md), [시스템 설계](docs/architecture.md), [문서 작업 흐름](docs/document-work-flow.md), [모델 개발 계획](docs/model-plan.md)
 - 결정: [결정 기록(ADR)](docs/decisions/README.md)
 - 기록: [현재 작업](docs/dev-now.md), [기록 자료 색인](docs/notes/README.md), [주간 보고](docs/weekly/), [전체 문서 목록](docs/README.md)

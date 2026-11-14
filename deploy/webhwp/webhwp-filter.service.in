@@ -1,0 +1,15 @@
+# 한컴 웹 한글 기안기 필터 서버 — deploy/webhwp/install.sh 가 ~/.config/systemd/user 에 깐다
+[Unit]
+Description=웹한글기안기 필터 서버
+After=webhwp-tomcat.service
+
+[Service]
+Type=forking
+WorkingDirectory=@TARGET@/webhwp-filter-service
+ExecStart=/bin/bash -c '. @W@/env.sh; ./startup.sh'
+ExecStop=/bin/bash -c '. @W@/env.sh; ./shutdown.sh'
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
