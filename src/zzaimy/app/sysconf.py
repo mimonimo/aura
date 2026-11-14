@@ -1,6 +1,7 @@
 """서버 설정을 화면에서 — 설치한 곳마다 다른 주소·키·경로를 서버 파일(.env.local)을 고치지 않고 개발 화면에서 정한다.
 
-왜: 다른 기관에 설치하면 임베딩·리랭커 서버 주소, 웹 검색 키, 한글 읽기 도구 경로, 원본 서버가 모두 다르다.
+왜: 다른 기관에 설치하면 임베딩·리랭커 서버 주소, 웹 검색 키, 원본 폴더가 모두 다르다.
+실행 파일 경로(kordoc 등)는 화면에서 정하지 않는다 — 화면 값이 실행할 프로그램을 바꾸게 되므로 설치 때 서버 파일로만(11-15 보안 검토).
 지금까지는 서버에 접속해 .env.local 을 고치고 재시작해야 했다(11-15 설치본 준비). LLM 연결·단계별 모델은 이미 화면에 있다(llm_connections).
 
 어떻게: 화면에서 정한 값은 설정 표에 「env:<이름>」 으로 두고, 앱이 뜰 때와 저장·지울 때(db.SETTING_HOOKS) 그 값을 프로세스 환경에 넣는다.
@@ -39,7 +40,6 @@ ITEMS: tuple[Item, ...] = (
     Item("ZZAIMY_GOOGLE_CSE_CX", "Google 검색 엔진 ID", "웹 검색", "검색 엔진 cx"),
     Item("ZZAIMY_NAVER_CLIENT_ID", "네이버 Client ID", "웹 검색", "네이버 검색 API"),
     Item("ZZAIMY_NAVER_CLIENT_SECRET", "네이버 Client Secret", "웹 검색", "네이버 검색 API", secret=True),
-    Item("ZZAIMY_KORDOC", "kordoc 실행 파일", "문서 읽기", "한글(.hwp) 읽기 도구 경로 · 비우면 ~/opt/kordoc", "path"),
     Item("ZZAIMY_ARCHIVE_SOURCE", "원본 폴더", "원본 폴더", "서버 안 폴더(/mnt/nas/원본) 또는 계정@주소:경로 · 비우면 원본 서버", "source"),
     Item("ZZAIMY_DGX_SSH", "원본 서버 접속", "원본 폴더", "계정@주소 · 원본을 읽기 전용으로 받는 보관 서버", "ssh"),
     Item("ZZAIMY_DGX_SSH_PORT", "원본 서버 포트", "원본 폴더", "SSH 포트 · 비우면 22", "number"),
@@ -125,8 +125,11 @@ def check_value(item: Item, value: str) -> str:
         return "계정@주소 꼴로 넣으세요"
     if item.kind == "source" and not (v.startswith("/") or re.match(r"^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:", v)):
         return "/로 시작하는 서버 안 폴더 또는 계정@주소:경로 꼴로 넣으세요"
-    if item.kind == "source" and ".." in v.split("/"):
+    if item.kind == "source" and ".." in re.split(r"[/:]", v):
         return "경로에 .. 은 쓸 수 없습니다"
+    if item.kind == "source" and not re.fullmatch(r"[\w@./:~ ()가-힣·-]+", v):
+        # rsync 가 SSH 원본 경로를 원격 셸에 넘긴다 — 셸 기호(; | & $ ` 따옴표 등)는 받지 않는다
+        return "경로에는 글자·숫자·공백과 . / : ~ ( ) - 만 씁니다"
     if re.search(r"[\r\n]", v):
         return "한 줄로 넣으세요"
     return ""
@@ -196,11 +199,4 @@ def probe(key: str) -> dict:
         except OSError as e:
             return {"ok": False, "text": f"읽지 못함 ({type(e).__name__})"}
         return {"ok": True, "text": f"폴더 확인 · 항목 {n}{'개 넘음' if n >= 5000 else '개'}"}
-    if key == "ZZAIMY_KORDOC":
-        from zzaimy.ingest.parsers import kordoc
-        try:
-            exe = kordoc._bin()
-        except Exception as e:
-            return {"ok": False, "text": f"찾지 못함 ({type(e).__name__})"}
-        return {"ok": bool(exe), "text": f"찾음 · {exe}" if exe else "찾지 못함"}
     return {"ok": True, "text": "꼴 확인됨" if v else "정하지 않음"}

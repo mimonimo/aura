@@ -75,7 +75,7 @@ def test_check_reports_search_service(client, monkeypatch):
 
 
 def test_archive_source_accepts_folder_or_ssh_and_checks_folder(client, tmp_path):
-    for bad in ("relative/path", "/a/../b", "host:path"):
+    for bad in ("relative/path", "/a/../b", "host:path", "u@h:/x;rm -rf ~", "/mnt/$(id)"):
         r = client.post("/dev/sysconf/save", data={"key": "ZZAIMY_ARCHIVE_SOURCE", "value": bad}, follow_redirects=False)
         assert "err=" in r.headers["location"], bad
     (tmp_path / "src" / "기획처").mkdir(parents=True)
@@ -85,3 +85,8 @@ def test_archive_source_accepts_folder_or_ssh_and_checks_folder(client, tmp_path
     assert j["ok"] and "폴더 확인" in j["text"]
     client.post("/dev/sysconf/save", data={"key": "ZZAIMY_ARCHIVE_SOURCE", "reset": "1"})
     os.environ.pop("ZZAIMY_ARCHIVE_SOURCE", None)
+
+
+def test_executable_paths_are_not_screen_settings(client):
+    r = client.post("/dev/sysconf/save", data={"key": "ZZAIMY_KORDOC", "value": "/bin/sh"}, follow_redirects=False)
+    assert "err=" in r.headers["location"] and os.environ.get("ZZAIMY_KORDOC") != "/bin/sh"
