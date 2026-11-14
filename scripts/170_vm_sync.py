@@ -58,6 +58,11 @@ def _apply_screen_settings(db) -> None:
 def local_source() -> bool:
     """원본이 이 서버 안 폴더인가 — 그러면 DGX 쪽 일(처리 결과 받기·올린 원본 보내기·파일 사실 장부)은 없다."""
     return REMOTE.startswith("/")
+
+
+def no_source() -> bool:
+    """원본 폴더도 원본 서버도 정하지 않았다(새로 설치한 서버) — 원본 갱신·DGX 일은 건너뛰고, 올린 문서의 색인·그래프만 돈다."""
+    return REMOTE in ("", ":")
 RSH = f"ssh -i {KEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}"
 _LINE = re.compile(r"^-\S+\s+([\d,]+)\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.+)$")
 PRI = {"evaluation": 0, "plan": 1, "report": 2, "basic_plan": 3, "announcement": 4, "criteria": 5, "guideline": 6}
@@ -448,6 +453,9 @@ def main() -> int:
     t0 = time.time()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     _apply_screen_settings(db)
+    if no_source() and not (args.index or args.quick):
+        print("원본 폴더·원본 서버가 정해지지 않아 건너뜁니다 — 개발 화면 「서버 설정」 의 원본 폴더", flush=True)
+        return 0
     if args.parsed:
         import_parsed()
         return 0
@@ -467,7 +475,8 @@ def main() -> int:
                     origins[o["origin"]] = int(o["doc_id"])
                 except (ValueError, KeyError):
                     continue
-        push_uploads(db, origins, None)
+        if not no_source():
+            push_uploads(db, origins, None)
         return post_if_changed(db)
     files = listing()
     for i, f in enumerate(files):

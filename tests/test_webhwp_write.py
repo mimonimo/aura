@@ -390,3 +390,30 @@ def test_section_field_goes_inside_empty_writing_box():
     assert i > 0 and out.rfind("<hp:tc", 0, i) > out.rfind("</hp:tc>", 0, i)       # 상자 칸 안
     j = out.find('name="절:5. 다음 절"')
     assert out.rfind("<hp:tc", 0, j) < out.rfind("</hp:tc>", 0, j)                  # 상자 없는 절은 제목 뒤 문단
+
+
+def test_tall_inline_tables_flow_to_next_page():
+    """행을 늘린 서식 표(글자처럼 취급·나누지 않음)는 본문과 같이 흐르고 행 사이에서 쪽을 나눈다 — 쪽 아래로 넘치던 것(11-15).
+    작은 표·글 사이 표는 그대로, 문단 정렬은 가로 자리로 이어받는다."""
+    import re
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    from zzaimy.app import webhwp_write as ww
+    d = wt.build(wt.GRANT["budget_change"])
+    d, _ = eo.table_insert(d, {"head": ["연번", "성명"], "values": [[str(i), "가"] for i in range(30)]})
+    d, _ = eo.table_insert(d, {"head": ["구분", "값"], "values": [["가", "1"]]})
+    doc = eo._Doc(d)
+    for n in doc.sec_names:                                  # 서식 표처럼 — 글자처럼 취급, 나누지 않음
+        doc.secs[n] = re.sub(r'pageBreak="\w+"', 'pageBreak="NONE"', doc.secs[n])
+        doc.secs[n] = doc.secs[n].replace('treatAsChar="0" affectLSpacing', 'treatAsChar="1" affectLSpacing')
+    d = doc.pack()
+    new, n = ww.split_tables(d)
+    assert eo.check_bytes(new) == []
+    tabs = [t for t in eo.list_tables(eo._Doc(new)) if not t.get("outer")]
+    big = [t for t in tabs if t["rows"] == 31][0]
+    small = [t for t in tabs if t["rows"] == 2][-1]
+    nd = eo._Doc(new)
+    bx, sx = (nd.secs[t["sec"]][t["s"]:t["e"]] for t in (big, small))
+    assert 'pageBreak="CELL"' in bx[:500] and 'treatAsChar="0"' in bx[:3000] and 'horzRelTo="COLUMN"' in bx[:3000]
+    assert 'pageBreak="NONE"' in sx[:500] and 'treatAsChar="1"' in sx[:3000]
+    assert ww.split_tables(new) == (new, 0)                  # 다시 돌려도 같다

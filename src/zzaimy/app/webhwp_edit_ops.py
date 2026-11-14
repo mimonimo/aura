@@ -2376,6 +2376,12 @@ def apply(db, base: Path, fid: int, fn, *, user: str = "AURA") -> str:
             return f"바꾸지 않았다 — 인자를 읽지 못했다({type(e).__name__}: {str(e)[:80]})"
         if new == data:
             return "바뀐 것이 없다."
+        try:
+            # 행을 늘리거나 긴 글을 채운 표가 쪽 아래로 넘치지 않게 — 다음 쪽으로 이어지는 표로(webhwp_write.split_tables, 11-15)
+            from zzaimy.app import webhwp_write as _ww
+            new, _flowed = _ww.split_tables(new)
+        except Exception:
+            pass
         probs = check_bytes(new)
         if probs:
             return "바꾸지 않았다 — 고친 파일이 점검을 통과하지 못했다: " + "; ".join(probs[:3])

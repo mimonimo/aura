@@ -4,7 +4,7 @@
 # 학습(verify_writer_sft_on_dgx.sh)이 같은 잠금을 쥐면 그동안 건너뛴다.
 # 원본 목록을 주기마다 새로 만들어야 새로 생긴 원본이 처리 대상에 오른다.
 # 범위 밖 경로(지출·증빙·정산·영수·집행·스캔, 절대 규칙 11)는 처리하지 않는다. 메모리 안전장치(작업자 상한·가용 하한)는 167 이 지킨다.
-cd ~/zzaimy-capstone || exit 1
+cd "$(dirname "$0")/.." || exit 1   # 설치 자리 어디서나(deploy/install.sh)
 mkdir -p ~/.cache/zzaimy-locks && chmod 700 ~/.cache/zzaimy-locks
 exec 9>~/.cache/zzaimy-locks/dgx_cycle.lock
 flock -n 9 || exit 0

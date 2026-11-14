@@ -290,35 +290,116 @@ def _long_cell(tbl: str) -> bool:
     return False
 
 
-def _split_tables_xml(xml: str) -> tuple[str, int]:
-    """글을 써 넣는 표(문단 칸 말고 절·칸·입력·표 필드가 든 표, 또는 긴 글이 든 칸이 있는 표)의 쪽 나눔을 「나눔」(TABLE)으로.
-    「셀 단위로 나눔」(CELL)·「나누지 않음」(NONE)이면 한 칸이 쪽보다 길어질 때 쪽 아래로 넘친 글이 잘려 보이지 않는다(11-11 사용자 보고)."""
+FLOW_ROWS = 10            # 이 행 수를 넘는 본문 표는 쪽 경계에서 행 사이로 나뉘게(hwpx_fill.SHORT_TABLE_ROWS 와 같은 값)
+
+
+def _body_height(xml: str) -> int:
+    """그 구역 쪽의 본문 높이(HWPUNIT) — 쪽 높이에서 위·아래·머리·꼬리 여백을 뺀 값. 모르면 0."""
+    m = re.search(r'<hp:pagePr\b[^>]*?\bwidth="(\d+)"[^>]*?\bheight="(\d+)"[^>]*>(.*?)</hp:pagePr>', xml, flags=re.S)
+    if not m:
+        return 0
+    pw, ph = int(m.group(1)), int(m.group(2))
+    if 'landscape="NARROWLY"' in m.group(0):
+        pw, ph = ph, pw
+    mg = {k: int(v) for k, v in re.findall(r'\b(top|bottom|header|footer)="(\d+)"', m.group(3))}
+    return ph - sum(mg.get(k, 0) for k in ("top", "bottom", "header", "footer"))
+
+
+def _table_height(seg: str) -> int:
+    """표 높이 어림 — 행마다 그 행 칸 높이(cellSz)의 가장 큰 값을 더한다(겉 표 자신의 행만)."""
+    rows: dict[int, int] = {}
+    for tc in re.finditer(r"<hp:tc\b.*?</hp:tc>", _strip_inner_tables(seg), flags=re.S):
+        r = re.search(r'<hp:cellAddr\b[^>]*rowAddr="(\d+)"', tc.group(0))
+        h = re.search(r'<hp:cellSz\b[^>]*height="(\d+)"', tc.group(0))
+        sp = re.search(r'<hp:cellSpan\b[^>]*rowSpan="(\d+)"', tc.group(0))
+        if r and h and (not sp or sp.group(1) == "1"):
+            rows[int(r.group(1))] = max(rows.get(int(r.group(1)), 0), int(h.group(1)))
+    return sum(rows.values())
+
+
+def _strip_inner_tables(seg: str) -> str:
+    """겉 표 XML 에서 안쪽 표를 뺀 것 — 안쪽 표의 칸이 겉 표의 행 높이 셈에 섞이지 않게."""
+    inner = [(x + 1, y + 1) for x, y in wf._all_tables(seg[1:])]
+    top = [(x, y) for x, y in inner if not any(p < x and y <= q for p, q in inner)]
+    for x, y in sorted(top, reverse=True):
+        seg = seg[:x] + seg[y:]
+    return seg
+
+
+def _alone_in_para(xml: str, a: int, b: int) -> bool:
+    """표가 문단에 혼자인가 — 그 문단에 표 말고 글이 있으면 위치 방식을 바꾸지 않는다(글 사이 표)."""
+    ps = xml.rfind("<hp:p ", 0, a)
+    pe = xml.find("</hp:p>", b)
+    if ps < 0 or pe < 0:
+        return False
+    rest = xml[ps:a] + xml[b:pe]
+    return not re.sub(r"<[^>]+>", "", _PARAMS.sub("", rest)).strip()
+
+
+def _split_tables_xml(xml: str, aligns: dict[str, str] | None = None) -> tuple[str, int]:
+    """본문 표가 쪽 경계에서 다음 쪽으로 이어지게 — 바꾼 표 수.
+    (1) 글을 써 넣는 표(절·칸·입력·표 필드가 든 표, 긴 글 칸이 든 표)는 「나눔」(TABLE) — 칸이 쪽보다 길면 칸 안에서도 나뉜다.
+        「셀 단위로 나눔」·「나누지 않음」 이면 쪽보다 긴 칸 아래가 잘려 보이지 않았다(11-11 사용자 보고).
+    (2) 행이 많거나(FLOW_ROWS 넘음) 높이가 쪽 본문의 절반을 넘는 표는 「나누지 않음」 이면 「셀 단위로 나눔」(CELL)으로.
+    (3) 위 표가 「글자처럼 취급」(treatAsChar=1)이면 본문과 같이 흐르는 표로 바꾼다 — 한글·웹 기안기는 글자처럼 취급한 표를 쪽에서 나누지
+        못해 행을 늘린 서식 표가 쪽 아래로 넘쳤다(11-15 특성화 재현: 교원 38행·교과목 161행 표). 표가 문단에 혼자일 때만(글 사이 표는 그대로).
+    안쪽 표(칸 안의 표)는 겉 표를 따라가므로 건드리지 않는다."""
+    body = _body_height(xml)
     hits = []
-    for a, b in wf._all_tables(xml):
+    spans = wf._all_tables(xml)
+    for a, b in spans:
+        inner = any(x < a and b <= y for x, y in spans)     # 안쪽 표 — 쪽 나눔(글 쓰는 칸)만, 위치 방식·높이 규칙은 겉 표만
         m = _TBL_OPEN.match(xml, a)
         if not m:
             continue
         tag = m.group(0)
-        pb = re.search(r'\bpageBreak="(\w+)"', tag)
-        if pb and pb.group(1) == "TABLE":
-            continue
         seg = xml[a:b]
+        pb = re.search(r'\bpageBreak="(\w+)"', tag)
+        cur = pb.group(1) if pb else "NONE"
+        rc = re.search(r'\browCnt="(\d+)"', tag)
+        rows = int(rc.group(1)) if rc else 0
         writes = any(not wf.is_para(n) for n in _FIELD_NAME.findall(seg))
-        if not (writes or _long_cell(seg)):
-            continue
-        new = re.sub(r'\bpageBreak="\w+"', 'pageBreak="TABLE"', tag, count=1) if pb else tag[:-1].rstrip("/") + ' pageBreak="TABLE"' + (" />" if tag.endswith("/>") else ">")
-        hits.append((a, m.end(), new))
-    for a, e, new in sorted(hits, reverse=True):
-        xml = xml[:a] + new + xml[e:]
+        tall = not inner and (rows > FLOW_ROWS or bool(body and _table_height(seg) > body // 2))
+        want = "TABLE" if (writes or _long_cell(seg)) else ("CELL" if tall and cur == "NONE" else cur)
+        if want == "TABLE" and cur == "TABLE":
+            want = cur
+        new_tag = tag
+        if want != cur:
+            new_tag = re.sub(r'\bpageBreak="\w+"', f'pageBreak="{want}"', tag, count=1) if pb else tag[:-1].rstrip("/") + f' pageBreak="{want}"' + (" />" if tag.endswith("/>") else ">")
+        pos = re.search(r"<hp:pos\b[^>]*/>", xml[m.end():m.end() + 2000])
+        new_pos = None
+        if not inner and want != "NONE" and (tall or _long_cell(seg)) and pos and 'treatAsChar="1"' in pos.group(0) and _alone_in_para(xml, a, b):
+            # 넘칠 수 있는 표만(행이 많거나 쪽 절반보다 높거나 긴 글 칸) — 표지의 작은 칸 표는 글자처럼 그대로 둔다
+            p0 = pos.group(0)
+            p1 = p0.replace('treatAsChar="1"', 'treatAsChar="0"')
+            ps = xml.rfind("<hp:p ", 0, a)
+            pr = re.match(r'<hp:p\b[^>]*\bparaPrIDRef="(\d+)"', xml[ps:ps + 300]) if ps >= 0 else None
+            halign = {"CENTER": "CENTER", "RIGHT": "RIGHT"}.get((aligns or {}).get(pr.group(1) if pr else "", ""), "LEFT")
+            for k, v in (("flowWithText", "1"), ("vertRelTo", "PARA"), ("vertOffset", "0"), ("horzOffset", "0"),
+                         ("horzRelTo", "COLUMN"), ("horzAlign", halign)):
+                p1 = re.sub(rf'\b{k}="[^"]*"', f'{k}="{v}"', p1)   # 글자처럼 둘 때 문단 정렬로 서던 가로 자리를 그대로
+            new_pos = (m.end() + pos.start(), m.end() + pos.end(), p1)
+        if new_tag != tag or new_pos:
+            hits.append((a, m.end(), new_tag, new_pos))
+    for a, e, new_tag, new_pos in sorted(hits, key=lambda h: h[0], reverse=True):
+        if new_pos:
+            xml = xml[:new_pos[0]] + new_pos[2] + xml[new_pos[1]:]
+        xml = xml[:a] + new_tag + xml[e:]
     return xml, len(hits)
 
 
 def split_tables(data: bytes) -> tuple[bytes, int]:
     """글을 써 넣는 표가 쪽 경계에서 칸 안 글까지 나뉘게 한다. 바꿀 것이 없으면 같은 바이트. (새 바이트, 바꾼 표 수)."""
     zin, secs = _open(data)
+    try:
+        hdr = zin.read("Contents/header.xml").decode("utf-8")
+        aligns = {m.group(1): m.group(2) for m in re.finditer(
+            r'<hh:paraPr\b[^>]*\bid="(\d+)".*?<hh:align\b[^>]*\bhorizontal="(\w+)"', hdr, flags=re.S)}
+    except KeyError:
+        aligns = {}
     new, n = {}, 0
     for name, xml in secs.items():
-        x2, k = _split_tables_xml(xml)
+        x2, k = _split_tables_xml(xml, aligns)
         if k:
             new[name], n = x2, n + k
     return (_pack(zin, new) if new else data), n

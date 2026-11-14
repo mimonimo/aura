@@ -1,7 +1,7 @@
 #!/bin/bash
 # 하루 한 번 맞추기 — 연동 점검(175 --find-reimport)이 「DGX 에서 정상 처리됐는데 문서함에 없는 원본」을 찾아 168 --rels 로 다시 들인다.
 # 동시 반입 같은 사고로 빠진 원본이 생겨도 저절로 메워지게 한다.
-cd ~/zzaimy-capstone || exit 1
+cd "$(dirname "$0")/.." || exit 1   # 설치 자리 어디서나(deploy/install.sh)
 set -a; . ./.env.local; set +a
 exec 9>/tmp/zz_parsed.lock
 flock 9
