@@ -962,6 +962,8 @@ def create_app(
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
     from zzaimy.app import sysconf as _sysconf
     _sysconf.install(db)                           # 화면에서 정한 서버 설정(주소·키·경로)을 프로세스 환경에 — 개발 화면 「서버 설정」
+    from zzaimy.app import house_profile as _hp
+    _hp.configure(Path(db_path).parent)            # 기관 서식 프로필(data/platform/house_profile.json) — 양식이 정하지 않은 본문·표 글자 모양
     # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로(독립 라우터)
     from zzaimy.app.chat_documents import router as chat_documents_router
     from zzaimy.app.project_search import router as project_search_router

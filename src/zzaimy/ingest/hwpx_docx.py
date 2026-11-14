@@ -156,9 +156,18 @@ def _hu(value: str | None) -> int:
 
 def load_styles(root: ET.Element) -> Styles:
     st = Styles()
-    for f in root.iter():
-        if _local(f.tag) == "font" and f.get("id") is not None:
-            st.fonts[str(f.get("id"))] = f.get("face") or ""
+    # 글꼴 id 는 언어 목록(fontface lang=…)마다 따로 매겨진다 — 글자 모양의 fontRef hangul 은 HANGUL 목록의 id 다.
+    # 언어를 가리지 않고 모으면 맨 뒤 목록(USER 등)의 같은 id 글꼴이 덮어써 엉뚱한 글꼴 이름이 들어갔다(11-15 서식 대조에서 발견)
+    faces = [ff for ff in root.iter() if _local(ff.tag) == "fontface"]
+    hangul = [ff for ff in faces if (ff.get("lang") or "").upper() == "HANGUL"]
+    for ff in (hangul or faces):
+        for f in ff:
+            if _local(f.tag) == "font" and f.get("id") is not None:
+                st.fonts.setdefault(str(f.get("id")), f.get("face") or "")
+    if not faces:
+        for f in root.iter():
+            if _local(f.tag) == "font" and f.get("id") is not None:
+                st.fonts.setdefault(str(f.get("id")), f.get("face") or "")
     for b in root.iter():
         if _local(b.tag) == "bullet" and b.get("id") is not None:
             st.bullets[str(b.get("id"))] = (b.get("char") or "").strip()

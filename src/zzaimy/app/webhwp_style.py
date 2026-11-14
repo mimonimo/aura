@@ -106,6 +106,56 @@ class _Header:
         self.cache[key] = new_id
         return new_id
 
+    _LANGS = ("HANGUL", "LATIN", "HANJA", "JAPANESE", "OTHER", "SYMBOL", "USER")
+
+    def font_id(self, face: str, lang: str) -> str:
+        """그 언어 글꼴 목록에서 face 의 id — 없으면 목록 끝에 더한다(같은 글꼴은 한 번만)."""
+        blk = re.search(rf'<hh:fontface lang="{lang}"[^>]*>.*?</hh:fontface>', self.xml, re.S)
+        if not blk:
+            return "0"
+        hit = re.search(rf'<hh:font id="(\d+)" face="{re.escape(face)}"', blk.group(0))
+        if hit:
+            return hit.group(1)
+        n = len(re.findall(r"<hh:font\b", blk.group(0)))
+        font = (f'<hh:font id="{n}" face="{face}" type="TTF" isEmbedded="0"><hh:typeInfo familyType="FCAT_GOTHIC" weight="6" '
+                f'proportion="0" contrast="0" strokeVariation="1" armStyle="1" letterform="1" midline="1" xHeight="1"/></hh:font>')
+        body = blk.group(0).replace("</hh:fontface>", font + "</hh:fontface>")
+        body = re.sub(r'\bfontCnt="\d+"', f'fontCnt="{n + 1}"', body, count=1)
+        self.xml = self.xml[:blk.start()] + body + self.xml[blk.end():]
+        return str(n)
+
+    def char_like(self, base: str, font: str | None = None, pt: float | None = None, bold: bool | None = None) -> str:
+        """글자 모양 base 를 글꼴·크기·굵기만 바꾼 복제 — 기관 서식 프로필(house_profile)을 새 문단·표 칸에 입힐 때.
+        색·기울임은 본문 꼴(검정·바로)로. 바꿀 것이 없으면 base 그대로, 같은 몸통이 있으면 그 id."""
+        key = ("like", str(base), font, pt, bold)
+        if key in self.cache:
+            return self.cache[key]
+        m = re.search(rf'<hh:charPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:charPr>', self.xml, re.S)
+        if not m:
+            self.cache[key] = str(base)
+            return str(base)
+        body = m.group(0)
+        if pt:
+            body = re.sub(r'\bheight="\d+"', f'height="{int(round(pt * 100))}"', body, count=1)
+        if font:
+            ids = {lang: self.font_id(font, lang) for lang in self._LANGS}
+            body = re.sub(r"<hh:fontRef\b[^>]*/>", '<hh:fontRef ' + " ".join(f'{k.lower()}="{v}"' for k, v in ids.items()) + "/>", body, count=1)
+        if bold is True and "<hh:bold" not in body:
+            # 요소 차례(offset·italic 다음, underline 앞)를 지킨다 — 한글은 차례가 틀린 글자 모양을 무시할 수 있다
+            body = (re.sub(r"(<hh:underline\b)", r"<hh:bold/>\1", body, count=1) if "<hh:underline" in body
+                    else body.replace("</hh:charPr>", "<hh:bold/></hh:charPr>"))
+        elif bold is False:
+            body = re.sub(r"<hh:bold\b[^>]*/>", "", body)
+        body = re.sub(r'\btextColor="#[0-9A-Fa-f]{6}"', 'textColor="#000000"', body, count=1)
+        body = re.sub(r"<hh:italic\b[^>]*/>", "", body)
+        if body == m.group(0):
+            self.cache[key] = str(base)
+            return str(base)
+        body = re.sub(r'\bid="\d+"', f'id="{self._next_id("charPr")}"', body, count=1)
+        new_id = self._append("charProperties", body)
+        self.cache[key] = new_id
+        return new_id
+
     def char_black(self, base: str) -> str:
         """글자 모양 base 를 검정 글씨로 — 이미 검정(또는 색 없음)이면 그대로, 아니면 색만 검정인 복제(같은 것이 있으면 그 id).
         서식의 견본 글(파랑·빨강)이 든 칸·필드에 값을 넣으면 그 색을 물려받아 완성본 값이 파랗게 남던 것(11-12 특성화 재현)."""

@@ -55,8 +55,16 @@ def dump_xml(src: Path, timeout_s: int = 1800) -> Path:
     if exe is None:
         raise RuntimeError("hwp5proc 이 없습니다(pyhwp)")
     tmp = out.with_suffix(".part")
-    with tmp.open("wb") as fo:
-        subprocess.run([str(exe), "xml", "--embedbin", str(src)], check=True, stdout=fo, stderr=subprocess.DEVNULL, timeout=timeout_s)
+    # 그림까지 넣은 XML(--embedbin)이 어떤 파일에서는 오류 없이 빈 출력으로 끝난다(11-15 특성화 04, 30MB) — 비었으면 그림 없이 다시.
+    # 그림 없는 XML 도 글·표·모양은 같다(그림 자리만 비어 독스 변환에서 그림이 빠진다)
+    for args in (["xml", "--embedbin"], ["xml"]):
+        with tmp.open("wb") as fo:
+            subprocess.run([str(exe), *args, str(src)], check=True, stdout=fo, stderr=subprocess.DEVNULL, timeout=timeout_s)
+        if tmp.stat().st_size > 100:
+            break
+    if tmp.stat().st_size <= 100:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError("hwp5proc 이 구조 XML 을 내지 못했습니다")
     tmp.replace(out)
     return out
 

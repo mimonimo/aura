@@ -1007,6 +1007,8 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
     hangs = hf._HangRegistry(header)
     body_cp = _body_char(sec_objs, header)
     old_ids = set((written or {}).get(name, []))
+    house_text: dict = {"skip": set()}
+    house_pids: set[str] = set()
     ids = wf._Ids([header, *secs.values()])
     new: dict[str, str] = {}
     put: list[str] = []
@@ -1057,6 +1059,12 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         levels = _LevelStyles(header, pp, hangs.char_height(cp))      # 테두리 모양을 넣은 뒤의 header 에서(끝에 levels.header 로 바꿔 담는다)
         width = _cell_width(xml, hit.start()) or hf._text_width_hu(xml)
         form_marks = bool(para_styles.pick("1) 예") or para_styles.pick("가) 예"))
+        # 양식이 본문 모양을 정했는가 — 부호 문단 견본 가운데 검정 글씨(본문 견본)가 있을 때만. 파랑·빨강 작성방법 안내만 있으면
+        # 본문 모양은 정하지 않은 것이라 기관 프로필로(house_profile, 11-15 특성화: 작성방법 「1) …」 만 있는 Ⅰ~Ⅳ장)
+        house_text["skip"] = {mk_ for (mk_, _hl), cnt_ in para_styles.by.items() if any(not _sample_char(header, cp_) for (_pp, cp_) in cnt_)}
+        fp_ = re.match(r'<hp:p\b[^>]*\bid="(\d+)"', xml[pb[0]:])
+        if fp_:
+            house_pids.add(fp_.group(1))                  # 첫 줄이 든 필드 문단도
         all_lines = [ln for k, v in segs if k == "text" for ln in v]
         rel = min((lv for lv in (marker_level(x) for x in all_lines) if lv is not None), default=head_level + 1)
 
@@ -1173,6 +1181,12 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         from zzaimy.app import webhwp_style
         out = webhwp_style.apply(out, only_paras=set(put) - diagram_pids,
                                  opts=None if "head" not in roles else {"keep_borders": True})
+    try:
+        # 기관 서식 프로필 — 양식이 정하지 않은 본문 글자와 새 표 칸 글자를 그 기관이 쓰는 모양으로(11-15)
+        from zzaimy.app import house_profile
+        out = house_profile.apply_to(out, (set(put) - diagram_pids) | house_pids, skip_marks=house_text["skip"])
+    except Exception:
+        pass
     return out, put
 
 
