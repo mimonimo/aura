@@ -3,6 +3,7 @@
 {% block pagetitle %}{{ dev_page_name('/dev') }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/dev-topology.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
+{% if setup_sum and not setup_sum.complete %}<p class="notice"><iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon><span>초기 설정 {{ setup_sum.done }}/{{ setup_sum.total }} · <a href="/dev/tools#setup">이어서 하기</a></span></p>{% endif %}
 <style>
   .dev-scale { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin:4px 0 0; font-size:13px; }
   .dev-scale b { font-variant-numeric:tabular-nums; }

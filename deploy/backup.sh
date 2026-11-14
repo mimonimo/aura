@@ -7,13 +7,14 @@
 # 되살리기: bash deploy/restore.sh <날짜>  (예: 20261115-0230)
 # 거울(data-mirror)은 지운 파일을 따라 지우지 않는다 — 실수로 지운 원본도 남는다. 공간이 모자라면 오래된 덤프부터 지운다.
 set -euo pipefail
+umask 077                                            # 덤프·설정 사본은 소유자만(비밀 값·개인정보가 든다)
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 set -a; . ./.env.local; set +a
 DEST="${AURA_BACKUP_DIR:-$HOME/aura-backups}"
 KEEP="${AURA_BACKUP_KEEP:-7}"
 TS=$(date +%Y%m%d-%H%M)
-mkdir -p "$DEST/db" "$DEST/config" "$DEST/data-mirror"
+mkdir -p "$DEST/db" "$DEST/config" "$DEST/data-mirror" && chmod 700 "$DEST" "$DEST/db" "$DEST/config" "$DEST/data-mirror"
 exec 9>/tmp/aura_backup.lock
 flock -n 9 || { echo "$(date '+%F %T') 다른 백업이 도는 중 — 건너뜀"; exit 0; }
 echo "$(date '+%F %T') 백업 시작 → $DEST"

@@ -1061,7 +1061,18 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         form_marks = bool(para_styles.pick("1) 예") or para_styles.pick("가) 예"))
         # 양식이 본문 모양을 정했는가 — 부호 문단 견본 가운데 검정 글씨(본문 견본)가 있을 때만. 파랑·빨강 작성방법 안내만 있으면
         # 본문 모양은 정하지 않은 것이라 기관 프로필로(house_profile, 11-15 특성화: 작성방법 「1) …」 만 있는 Ⅰ~Ⅳ장)
-        house_text["skip"] = {mk_ for (mk_, _hl), cnt_ in para_styles.by.items() if any(not _sample_char(header, cp_) for (_pp, cp_) in cnt_)}
+        # 다만 그 견본은 이 절의 구역(이 절 필드 뒤 ~ 다음 절 필드) 안의 것만 본다 — 표지·현황 쪽의 검정 「▪」 견본 때문에 Ⅰ장 본문의
+        # 「▪」 줄이 모두 양식 안내 글꼴로 남던 것(11-15 14차 18단계)
+        nxt_ = re.compile(r'<hp:fieldBegin\b[^>]*\bname="절:').search(xml, pb[1])
+        reg_ = xml[pb[1]:nxt_.start() if nxt_ else len(xml)]
+        skip_ = set()
+        for a_, b_ in _top_paras(reg_, len(reg_)):
+            blk_ = reg_[a_:b_]
+            t_ = re.sub(r"<[^>]+>", "", _PARAMS.sub("", blk_)).strip()
+            cp_m = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="(\d+)"', blk_)
+            if "<hp:tbl" not in blk_ and t_ and hf.marker_of(t_) and cp_m and not _sample_char(header, cp_m.group(1)):
+                skip_.add(hf.marker_of(t_))
+        house_text["skip"] = skip_
         fp_ = re.match(r'<hp:p\b[^>]*\bid="(\d+)"', xml[pb[0]:])
         if fp_:
             house_pids.add(fp_.group(1))                  # 첫 줄이 든 필드 문단도

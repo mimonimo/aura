@@ -34,6 +34,8 @@ ITEMS: tuple[Item, ...] = (
     Item("ZZAIMY_EMBED_URL", "임베딩 서버", "검색 서빙", "질의 임베딩 서비스 주소 · 비우면 앱 서버 CPU", "url"),
     Item("ZZAIMY_RERANK_URL", "리랭커 서버", "검색 서빙", "후보 재정렬 서비스 주소 · 비우면 앱 서버 CPU", "url"),
     Item("ZZAIMY_RERANK_MIN", "리랭크 하한", "검색 서빙", "이 점수 밑 후보는 뺌 · 모델을 바꾸면 다시 잼", "number"),
+    Item("ZZAIMY_EMBED_KEY", "임베딩 서버 접근 키", "검색 서빙", "모델 서버를 AURA_MODEL_KEY 로 띄웠을 때", secret=True),
+    Item("ZZAIMY_RERANK_KEY", "리랭커 서버 접근 키", "검색 서빙", "모델 서버를 AURA_MODEL_KEY 로 띄웠을 때", secret=True),
     Item("ZZAIMY_WEB_SEARCH", "웹 검색 제공자", "웹 검색", "자동이면 키가 있는 쪽, 없으면 DuckDuckGo", "choice",
          choices=(("", "자동"), ("google", "Google"), ("naver", "네이버"), ("duckduckgo", "DuckDuckGo"), ("off", "쓰지 않음"))),
     Item("ZZAIMY_GOOGLE_CSE_KEY", "Google 검색 API 키", "웹 검색", "Programmable Search API 키", secret=True),

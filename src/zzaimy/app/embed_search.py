@@ -62,8 +62,9 @@ def remote_vectors(texts: list[str], timeout: float | None = None):
     import urllib.error
     import urllib.request
 
+    key_ = os.environ.get("ZZAIMY_EMBED_KEY", "").strip()                   # 모델 서버가 접근 키를 요구하면(deploy/model-server)
     req = urllib.request.Request(url, data=json.dumps({"texts": [transport_mask(t) for t in texts]}).encode("utf-8"),
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {key_}"} if key_ else {})})
     try:
         timeout = timeout or float(os.environ.get("ZZAIMY_EMBED_TIMEOUT", "8"))   # 질의 기본 8초, 묶음 색인은 부르는 쪽이 길게
         with urllib.request.urlopen(req, timeout=timeout) as r:

@@ -7,6 +7,7 @@
 #
 # 되돌리기 전에 지금 상태를 한 번 더 백업한다(되돌린 것을 다시 되돌릴 수 있게). 서비스는 멈췄다가 다시 띄운다.
 set -euo pipefail
+umask 077                                            # 덤프·설정 사본은 소유자만(비밀 값·개인정보가 든다)
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 set -a; . ./.env.local; set +a

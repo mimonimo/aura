@@ -111,7 +111,8 @@ def _remote_scores_once(url: str, query: str, texts: list[str]) -> list[float] |
     from zzaimy.app.embed_search import transport_mask      # 교내망 보안 장비가 긴 숫자열 요청을 끊는다 — embed_search 참고
     body = json.dumps({"query": transport_mask(query), "texts": [transport_mask(t) for t in texts],
                        "max_length": _remote_conf()[0]}).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    key_ = os.environ.get("ZZAIMY_RERANK_KEY", "").strip()                  # 모델 서버가 접근 키를 요구하면(deploy/model-server)
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {key_}"} if key_ else {})})
     try:
         timeout = float(os.environ.get("ZZAIMY_RERANK_TIMEOUT", "8"))
         with urllib.request.urlopen(req, timeout=timeout) as r:

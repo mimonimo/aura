@@ -10,13 +10,16 @@
 # embed·rerank: 질의 임베딩·후보 재정렬 서비스(embedder.py·reranker.py). 앱 「서버 설정」 의 임베딩·리랭커 서버에
 #   http://<GPU 서버>:<포트>/embed · /score 로 넣는다. 안 띄우면 앱 서버 CPU 로 대신 돈다(느림).
 # 컨테이너는 --restart unless-stopped 라 재부팅 뒤에도 뜬다. 끌 때는 docker stop -t 60 <이름>(강제 종료는 GPU 메모리를 못 돌려받을 수 있다).
-# 포트는 기관 내부망에서만 연다 — 인증 없는 끝점을 공인망에 열지 않는다.
+# 포트는 이 서버의 내부망 주소에만 연다(BIND, 기본 첫 주소). AURA_MODEL_KEY 를 주면 접근 키가 있어야 답한다 —
+#   앱: LLM 연결의 API 키 칸, 「서버 설정」 은 .env.local 의 ZZAIMY_EMBED_KEY·ZZAIMY_RERANK_KEY.
 set -euo pipefail
 KIND="${1:-}"; shift || true
 MODEL=""; PORT=""; IMAGE="${IMAGE:-}"; MAXLEN="${MAXLEN:-32768}"; UTIL="${UTIL:-0.85}"; NAME=""
+BIND="${BIND:-$(hostname -I 2>/dev/null | awk '{print $1}')}"   # 내부망 주소에만 연다(모든 주소 0.0.0.0 이 아니라)
+KEY="${AURA_MODEL_KEY:-}"                                         # 접근 키 — 주면 키 없는 요청은 거절(앱 쪽에도 같은 키)
 while [ $# -gt 0 ]; do
   case "$1" in
-    --model) MODEL="$2"; shift 2;; --port) PORT="$2"; shift 2;; --image) IMAGE="$2"; shift 2;;
+    --model) MODEL="$2"; shift 2;; --port) PORT="$2"; shift 2;; --image) IMAGE="$2"; shift 2;; --bind) BIND="$2"; shift 2;;
     --max-len) MAXLEN="$2"; shift 2;; --util) UTIL="$2"; shift 2;; --name) NAME="$2"; shift 2;;
     *) echo "모르는 옵션: $1" >&2; exit 2;;
   esac
@@ -42,20 +45,20 @@ if [ "$KIND" = writer ]; then
   IMG="${IMAGE:-$DEF_VLLM}"
   EP=$(docker image inspect -f '{{join .Config.Entrypoint " "}}' "$IMG" 2>/dev/null || true)
   case "$EP" in *serve*) CMD=();; *vllm*) CMD=(serve);; *) CMD=(vllm serve);; esac   # 이미지마다 진입점이 다르다
-  docker run -d --name "$NAME" --restart unless-stopped "${GPU[@]}" --ipc host -p "$PORT:8000" -v "$MDIR:/models:ro" \
+  docker run -d --name "$NAME" --restart unless-stopped "${GPU[@]}" --ipc host -p "${BIND:+$BIND:}$PORT:8000" -v "$MDIR:/models:ro" \
     "$IMG" "${CMD[@]}" "/models/$MNAME" --host 0.0.0.0 --port 8000 --served-model-name zzaimy-writer \
-    --max-model-len "$MAXLEN" --gpu-memory-utilization "$UTIL" >/dev/null
-  URL="http://127.0.0.1:$PORT/v1/models"; OK='zzaimy-writer'
+    --max-model-len "$MAXLEN" --gpu-memory-utilization "$UTIL" ${KEY:+--api-key "$KEY"} >/dev/null
+  URL="http://${BIND:-127.0.0.1}:$PORT/v1/models"; OK='zzaimy-writer'
 else
   IMG="${IMAGE:-$DEF_PY}"; APP=$([ "$KIND" = embed ] && echo embedder.py || echo reranker.py)
-  docker run -d --name "$NAME" --restart unless-stopped "${GPU[@]}" --ipc host -p "$PORT:$PORT" \
-    -e MODEL="/models/$MNAME" -e PORT="$PORT" -v "$MDIR:/models:ro" -v "$HERE:/serve:ro" \
+  docker run -d --name "$NAME" --restart unless-stopped "${GPU[@]}" --ipc host -p "${BIND:+$BIND:}$PORT:$PORT" \
+    -e MODEL="/models/$MNAME" -e PORT="$PORT" -e API_KEY="$KEY" -v "$MDIR:/models:ro" -v "$HERE:/serve:ro" \
     --entrypoint python3 "$IMG" "/serve/$APP" >/dev/null
-  URL="http://127.0.0.1:$PORT/health"; OK='"ok":true'
+  URL="http://${BIND:-127.0.0.1}:$PORT/health"; OK='"ok":true'
 fi
 echo "준비 기다리는 중($NAME — 큰 모델은 몇 분)"
 for i in $(seq 1 80); do
-  curl -s -m 3 "$URL" 2>/dev/null | grep -q "$OK" && { echo "준비됨: $URL"; break; }
+  curl -s -m 3 ${KEY:+-H "Authorization: Bearer $KEY"} "$URL" 2>/dev/null | grep -q "$OK" && { echo "준비됨: $URL"; break; }
   [ "$i" = 80 ] && { echo "준비되지 않음 — docker logs --tail 30 $NAME" >&2; exit 1; }
   sleep 15
 done

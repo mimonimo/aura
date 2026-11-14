@@ -90,3 +90,10 @@ def test_archive_source_accepts_folder_or_ssh_and_checks_folder(client, tmp_path
 def test_executable_paths_are_not_screen_settings(client):
     r = client.post("/dev/sysconf/save", data={"key": "ZZAIMY_KORDOC", "value": "/bin/sh"}, follow_redirects=False)
     assert "err=" in r.headers["location"] and os.environ.get("ZZAIMY_KORDOC") != "/bin/sh"
+
+
+def test_setup_checklist_on_tools_page(client):
+    page = client.get("/dev/tools").text
+    assert 'id="setup"' in page and "초기 설정" in page and "LLM 서버 연결" in page and "부서·사용자 등록" in page
+    hub = client.get("/dev").text
+    assert "초기 설정" in hub and "/dev/tools#setup" in hub

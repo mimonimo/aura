@@ -19,7 +19,7 @@ OUT="$ROOT/dist/aura-$VER"
 rm -rf "$OUT" && mkdir -p "$OUT"/{wheels,hf,kordoc}
 echo "── 코드 ($VER)"
 git clone -q --no-local "$ROOT" "$OUT/aura"
-git -C "$OUT/aura" remote set-url origin "$(git remote get-url origin 2>/dev/null || echo "")"
+git -C "$OUT/aura" remote remove origin 2>/dev/null || true   # 원격 주소(계정 정보가 섞일 수 있음)는 묶음에 넣지 않는다 — 업데이트는 새 묶음으로
 
 echo "── 파이썬 패키지(리눅스 x86_64 · 3.12)"
 docker run --rm --platform linux/amd64 -v "$OUT/aura:/src:ro" -v "$OUT/wheels:/w" python:3.12-slim bash -c '

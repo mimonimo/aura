@@ -184,7 +184,7 @@
   .addr-toggle:focus-visible { outline:2px solid #607c9e; outline-offset:2px; }
 </style>
 {# LLM 연결 — 서버를 붙이고 관리하는 자리. 어느 단계에 무엇을 쓸지는 다음 카드에서 고른다 #}
-<div class="card reveal"><div class="card-in">
+<div class="card reveal" id="llm"><div class="card-in">
   <h2><iconify-icon icon="solar:server-square-linear"></iconify-icon>LLM 연결
     {% if llm_probe.ok %}<span class="pill reviewed">연결됨{% if llm.external %} · 외부{% endif %}</span>
     {% elif llm.configured %}<span class="pill processing">{{ llm_probe.error }}</span>

@@ -247,7 +247,13 @@ def dev_dashboard(request: Request):
     st = request.app.state
     from zzaimy.app import model_compare
     h = st.overview
+    try:                                                   # 초기 설정이 남았으면 한 줄 안내(연결 확인은 /dev/tools 와 같은 캐시)
+        from zzaimy.app import main as _m, setup_check
+        setup_sum = setup_check.summary(setup_check.items(st, _m._live_models_cached))
+    except Exception:
+        setup_sum = None
     return st.templates.TemplateResponse(request, "dev.html", st.page_ctx(request, {
+        "setup_sum": setup_sum,
         "overview": h.data_overview(),   # 규모 타일
         "dev_now": h.dev_now_parts()["hub"],
         "system_hosts": __import__("zzaimy.app.process_flow", fromlist=["HOSTS"]).HOSTS,

@@ -3,6 +3,41 @@
 {% block pagetitle %}{{ dev_page_name('/dev/tools') }}{% endblock %}
 {% block content %}
 
+{# 초기 설정(11-15) — 새로 설치한 서버에서 관리자가 할 연동. 필수 항목이 다 되면 접어 둔다 #}
+<div class="card reveal" id="setup"><div class="card-in">
+  <h2 class="setup-sum"><iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>초기 설정
+    <span class="pill {{ 'reviewed' if setup_sum.complete else 'processing' }}">{{ setup_sum.done }}/{{ setup_sum.total }}</span>
+    <span class="muted" style="font-size:12px; font-weight:500;">{{ '필수 항목을 모두 마쳤습니다' if setup_sum.complete else '새로 설치한 서버에서 차례로' }}</span></h2>
+  <button type="button" class="addr-toggle" data-setup-toggle aria-expanded="{{ 'false' if setup_sum.complete else 'true' }}" aria-controls="setupBox">항목 보기</button>
+  <div id="setupBox"{% if setup_sum.complete %} hidden{% endif %}>
+  {% for r in setup_rows %}
+  <div class="setup-row">
+    <span class="setup-mark {{ 'ok' if r.ok else ('opt' if r.optional else 'no') }}">{{ '✓' if r.ok else ('·' if r.optional else '✗') }}</span>
+    <b>{{ r.label }}</b>{% if r.optional %}<span class="muted"> 선택</span>{% endif %}
+    <span class="muted setup-detail">{{ r.detail }}</span>
+    {% if r.href and not r.ok %}<a class="setup-go" href="{{ r.href }}">설정</a>{% endif %}
+  </div>
+  {% endfor %}
+  </div>
+</div></div>
+<script>
+document.querySelectorAll('[data-setup-toggle]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var box = document.getElementById('setupBox'), open = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', open ? 'false' : 'true'); box.hidden = open;
+  });
+});
+</script>
+<style>
+  .setup-sum { display:flex; align-items:center; gap:10px; }
+  .setup-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; flex-wrap:wrap; }
+  .setup-row:last-child { border-bottom:0; }
+  .setup-mark { width:1.4em; text-align:center; font-weight:700; }
+  .setup-mark.ok { color:var(--green, #2f7d4f); } .setup-mark.no { color:var(--red, #b3402f); } .setup-mark.opt { color:var(--muted); }
+  .setup-detail { font-size:12px; flex:1; min-width:10rem; }
+  .setup-go { font-size:12px; }
+</style>
+
 {% include "_tools_settings.html" %}
 
 {# 외부 연결 — 학습 검수 도구(Label Studio)와 일반 답 「인터넷에서 찾아보기」 의 웹 검색 제공자(키가 있으면 구글·네이버, 없으면 DuckDuckGo, ADR-0038).

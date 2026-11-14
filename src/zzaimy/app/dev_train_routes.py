@@ -73,7 +73,7 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
     # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
     # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
     from zzaimy.app import main as _main   # 모델 목록 캐시(_live_models_cached)는 main 에 있다 — 시험이 바꿔 끼운다
-    from zzaimy.app import sysconf, web_search
+    from zzaimy.app import setup_check, sysconf, web_search
     from zzaimy.dataset import ls_admin
     from zzaimy.generate import llm_connections, model_config
 
@@ -87,6 +87,7 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
         live_results = list(probes.map(_main._live_models_cached, [c['id'] for c in public_connections]))
     live_by_id = dict(zip([c['id'] for c in public_connections], live_results))
 
+    setup_rows = setup_check.items(st, lambda cid: live_by_id.get(cid) or {})
     ls = st.ls_status()
     tools = [{**t, "url": db.get_setting(t["setting"], ""), "connected": ls["ok"]} for t in _TRAIN_TOOLS]
     llm = model_config.current()
@@ -114,6 +115,8 @@ def dev_tools(request: Request, err: str = "", ok: str = ""):
         "search_provider": web_search.provider(),
         # 서버 설정 — 설치한 곳마다 다른 주소·키·경로(sysconf)
         "sys_rows": sysconf.rows(db), "sys_groups": sysconf.GROUPS,
+        # 초기 설정 점검 — 새로 설치한 서버에서 할 연동을 차례로(setup_check). 다 끝나면 접힌다
+        "setup_rows": setup_rows, "setup_sum": setup_check.summary(setup_rows),
     }))
 
 

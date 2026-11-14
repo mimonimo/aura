@@ -68,7 +68,11 @@ fi
 ok "Python $("$PY" -V | cut -d' ' -f2)"
 
 step "② 파이썬 환경·패키지"
-[ -x .venv/bin/python ] || "$PY" -m venv .venv
+umask 077                                            # 설정·데이터·백업은 소유자만
+if [ ! -x .venv/bin/python ]; then
+  # 1024 아래 포트(443)는 파이썬에 포트 열기 권한을 준다 — 시스템 공용 파이썬이 아니라 이 설치 전용 사본(--copies)에만
+  if [ "$PORT" -lt 1024 ]; then "$PY" -m venv --copies .venv; else "$PY" -m venv .venv; fi
+fi
 PIP=(.venv/bin/pip install -q)
 if [ -n "$OFFLINE" ]; then
   PIP+=(--no-index --find-links "$OFFLINE/wheels")
@@ -180,8 +184,13 @@ if [ "$SERVICE" = 1 ]; then
   systemctl --user daemon-reload && systemctl --user enable -q zzaimy.service && ok "zzaimy.service(사용자 서비스)"
   if [ "$PORT" -lt 1024 ]; then
     REALPY=$(readlink -f .venv/bin/python)
-    if can_sudo; then $SUDO setcap cap_net_bind_service=ep "$REALPY" && ok "$PORT 포트 열기 허용($REALPY)"
-    else todo "$PORT 포트: sudo setcap cap_net_bind_service=ep $REALPY"; fi
+    case "$REALPY" in
+      "$ROOT"/.venv/*)                                   # 전용 사본일 때만 — 공용 파이썬(/usr/bin)에는 주지 않는다
+        chmod 700 "$ROOT/.venv/bin"
+        if can_sudo; then $SUDO setcap cap_net_bind_service=ep "$REALPY" && ok "$PORT 포트 열기 허용(이 설치 전용 파이썬만)"
+        else todo "$PORT 포트: sudo setcap cap_net_bind_service=ep $REALPY"; fi;;
+      *) todo "$PORT 포트: .venv 를 지우고 다시 설치하면 전용 파이썬 사본에만 권한을 준다(지금은 공용 파이썬 $REALPY) — 또는 앞단 프록시로 443";;
+    esac
   fi
   if loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q yes; then ok "재부팅 뒤 자동 시작(linger)"
   elif can_sudo; then $SUDO loginctl enable-linger "$(id -un)" && ok "재부팅 뒤 자동 시작(linger)"
