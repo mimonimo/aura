@@ -36,7 +36,7 @@ class _Retry:
     """httpx.Client 감싸개 — 연결이 끊기면(VPN 끊김 등) 기다렸다 다시 한다. 몇 시간짜리 시험이 잠깐 끊김에 멈추지 않게(11-12 시범이 끊김 한 번에 멈춤).
     올리기(POST /projects/bundle)·요청 보내기(POST /chat/send)는 두 번 들어가면 안 되므로 연결 전 실패(ConnectError)만 다시 한다."""
 
-    def __init__(self, http, tries: int = 40, wait: float = 30.0):
+    def __init__(self, http, tries: int = 1440, wait: float = 30.0):   # 30초×1440 = 12시간 — 밤사이 VPN 이 끊겨도 실행이 죽지 않게(11-14 14차: 20분 뒤 죽음)
         self.http, self.tries, self.wait = http, tries, wait
 
     @property
