@@ -469,11 +469,12 @@ def frame_layout(data: bytes) -> tuple[bytes, int]:
             f = m.group(0)
             def para(pm):
                 pp = pm.group(1)
-                cur = re.search(rf'<hh:paraPr\b[^>]*?\bid="{pp}"[^>]*>.*?<hh:align horizontal="([A-Z_]+)"', hdr.xml, re.S)
-                if cur and cur.group(1) == align:
+                cur = re.search(rf'<hh:paraPr\b[^>]*?\bid="{pp}"[^>]*>.*?<hh:align horizontal="([A-Z_]+)".*?</hh:paraPr>', hdr.xml, re.S)
+                if cur and cur.group(1) == align and "borderFillIDRef" in cur.group(0) and not re.search(r'borderFillIDRef="[12]"', cur.group(0)):
                     return pm.group(0)
                 count[0] += 1
-                return pm.group(0).replace(f'paraPrIDRef="{pp}"', f'paraPrIDRef="{hdr.para_style(pp, align=align)}"', 1)
+                bf = hdr.border("", "", "0.12 mm", "", "none", color="#7F7F7F")      # 꼬리말 위 가는 선(템플릿 틀, 머리말 아래 선과 짝)
+                return pm.group(0).replace(f'paraPrIDRef="{pp}"', f'paraPrIDRef="{hdr.para_style(pp, align=align, border=bf)}"', 1)
             return re.sub(r'<hp:p\b[^>]*\bparaPrIDRef="(\d+)"[^>]*>', para, f)
         return re.sub(r"<hp:footer\b.*?</hp:footer>", foot, xml, flags=re.S)
     out = webhwp_style._rewrite(data, fn)
@@ -519,7 +520,12 @@ def _page_frame(data: bytes, meta: dict) -> bytes:
             f = m.group(0)
             cp = re.search(r'charPrIDRef="(\d+)"', f).group(1)
             c = hdr.char(cp, pt=9, color="#555555")
-            xml = xml.replace(f, re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")\d+', rf"\g<1>{c}", f), 1)
+            f2 = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")\d+', rf"\g<1>{c}", f)
+            pp = re.search(r'paraPrIDRef="(\d+)"', f2)
+            if pp:                                        # 꼬리말 위 가는 선(머리말 아래 선과 짝, frame_layout 과 같은 모양)
+                bf = hdr.border("", "", "0.12 mm", "", "none", color="#7F7F7F")
+                f2 = f2.replace(pp.group(0), f'paraPrIDRef="{hdr.para_style(pp.group(1), align=eo.ALIGNS[FOOTER_ALIGN], border=bf)}"', 1)
+            xml = xml.replace(f, f2, 1)
         return xml
     return webhwp_style._rewrite(data, fn)
 
@@ -1720,6 +1726,23 @@ def paper_format(data: bytes) -> tuple[bytes, int]:
             heads.setdefault(_norm_head(t), "chapter" if len(ind) < 4 else ("h1" if len(ind) < 8 else "h2"))
         if not heads:
             return xml
+        toc = {(a, b) for a, b, *_ in _toc_lines(xml)}
+        tout, tpos = [], 0
+        for a, b in sorted(toc):                          # 목차 줄은 템플릿처럼 좁게(줄 간격 120 · 10pt), 장 줄은 굵게
+            p = xml[a:b]
+            pm = re.search(r'\bparaPrIDRef="(\d+)"', p[:p.find(">")])
+            if not pm:
+                continue
+            lv1 = not _ptext(p).startswith(" ")
+            q = p[:pm.start(1)] + hdr.para_style(pm.group(1), line=120) + p[pm.end(1):]
+            q = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)', lambda m: m.group(1) + hdr.char(m.group(2), pt=10, bold=lv1), q)
+            if q != p:
+                count[0] += 1
+                tout.append(xml[tpos:a] + q)
+                tpos = b
+        if tout:
+            tout.append(xml[tpos:])
+            xml = "".join(tout)
         out, pos, started = [], 0, False
         for a, b in ww._top_paras(xml, len(xml)):
             p = xml[a:b]

@@ -187,11 +187,23 @@ def _page_field(p):
 
 
 # ── 표·그림 ──
+KEEP_ROWS = 15
+_NUMISH = re.compile(r"(?=.*\d).{1,24}")                    # 숫자가 든 짧은 값(수치·건수·시간)
+
+
 def _table(doc, rows):
     ncol = max(len(r) for r in rows)
     t = doc.add_table(rows=len(rows), cols=ncol)
     t.style = "Table Grid"
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    # 열마다 정렬을 하나로 — 칸마다 글 길이로 정하면 같은 열 안에서 가운데·왼쪽이 섞였다(11-15). 모든 칸이 짧거나 수치면 가운데, 아니면 왼쪽
+    def _plain(v):
+        return re.sub(r"[*`]", "", v or "").strip()
+    col_center = []
+    for j in range(ncol):
+        vals = [_plain(r[j]) for r in rows[1:] if j < len(r) and _plain(r[j])]
+        col_center.append(bool(vals) and all(len(v) <= 12 or _NUMISH.fullmatch(v) for v in vals))
+    keep_all = len(rows) <= KEEP_ROWS                  # 짧은 표는 쪽에서 나누지 않고 통째로(캡션까지) 다음 쪽으로
     for i, r in enumerate(rows):
         for j in range(ncol):
             cell = t.cell(i, j)
@@ -205,9 +217,14 @@ def _table(doc, rows):
                 _shade(cell._tc, "E5E5E5")
                 _inline(p, txt, size=9, bold=True)
             else:
-                short = len(txt) <= 12
-                p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER if short else WD_ALIGN_PARAGRAPH.LEFT
+                p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER if col_center[j] else WD_ALIGN_PARAGRAPH.LEFT
                 _inline(p, txt, size=9)
+            if keep_all or i == 0 or i == len(rows) - 1:   # 머리줄은 첫 행과, 마지막 행은 아래 캡션과 같은 쪽에
+                p.paragraph_format.keep_with_next = True
+        trpr = t.rows[i]._tr.get_or_add_trPr()
+        cs = OxmlElement("w:cantSplit")                  # 행 하나가 두 쪽에 걸쳐 잘리지 않게
+        cs.set(qn("w:val"), "true")
+        trpr.append(cs)
     # 머리줄은 쪽이 넘어가면 다시
     trpr = t.rows[0]._tr.get_or_add_trPr()
     h = OxmlElement("w:tblHeader")
@@ -415,6 +432,33 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
     return first_chapter_break
 
 
+def _style_toc(doc):
+    """목차 줄 간격을 템플릿처럼 좁게(줄 간격 1.0, 문단 뒤 0), 1단계는 굵게."""
+    from docx.enum.style import WD_STYLE_TYPE
+    for lv in (1, 2, 3):
+        name = f"toc {lv}"
+        try:
+            st = doc.styles[name]
+        except KeyError:
+            st = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+        st.paragraph_format.space_after = Pt(0)
+        st.paragraph_format.space_before = Pt(0)
+        st.paragraph_format.line_spacing = 1.0
+        st.paragraph_format.left_indent = Pt(10 * (lv - 1))
+        st.font.size = Pt(10)
+        st.font.bold = lv == 1
+
+
+def _rule(p, side: str):
+    ppr = p._p.get_or_add_pPr()
+    bdr = OxmlElement("w:pBdr")
+    e = OxmlElement(f"w:{side}")
+    for k, v in (("val", "single"), ("sz", "4"), ("space", "4"), ("color", "7F7F7F")):
+        e.set(qn(f"w:{k}"), v)
+    bdr.append(e)
+    ppr.append(bdr)
+
+
 def _hf(section, *, header_text, footer_text, page=True):
     section.header.is_linked_to_previous = False
     section.footer.is_linked_to_previous = False
@@ -422,9 +466,13 @@ def _hf(section, *, header_text, footer_text, page=True):
     hp.text = ""
     hp.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     if header_text:
+        _rule(hp, "bottom")                                # 머리말 아래·꼬리말 위 가는 선(템플릿 틀)
+    if header_text:
         _font(hp.add_run(header_text), 9, color="555555")
     fp = section.footer.paragraphs[0]
     fp.text = ""
+    if footer_text or page:
+        _rule(fp, "top")
     # 쪽 번호는 가운데, 학교·학과는 오른쪽(한글 논문 문서 paper_hwp.PAGE_NUM_POS·FOOTER_ALIGN 과 같은 배치, 11-15)
     width = section.page_width - section.left_margin - section.right_margin
     tabs = fp.paragraph_format.tab_stops
@@ -464,6 +512,7 @@ def build(out: Path, appendix: bool = True) -> dict:
     FIGS = _ph.figure_files(SRC / "그림-표-목록.md", ROOT)
     doc = Document()
     _style_headings(doc)
+    _style_toc(doc)
     sec0 = doc.sections[0]
     _page_setup(sec0)
     _hf(sec0, header_text="", footer_text="", page=False)
