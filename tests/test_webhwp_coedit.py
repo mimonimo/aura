@@ -855,7 +855,7 @@ def test_follow_person_aura_requester_and_short_offline_blip():
     # 따라가기 — 아바타·사람 줄 누르기, 고리·띠, 화면만 굴리기, 내 손이 닿으면 멈춤
     assert "b.onclick = function () { toggleFollow(p.user); };" in ui and "r.onclick = function () { toggleFollow(p.user);" in ui
     assert "classList.add('following')" in ui and ".co-av.following" in css
-    assert "' 님 따라가는 중', [['그만'" in ui
+    assert "' 님 따라가는 중', [['그만'" not in ui and "function showFollow() { if (barKind === 'follow') hide('follow'); drawAvatars(); }" in ui   # 11-15: 띠 없이 아바타 고리로
     assert "hwp.scrollBy(" in ui and "hwp.moveTo(" not in ui                     # 따라가기는 커서를 옮기지 않는다(내 칸 임대가 풀렸다)
     assert "e.type === 'keydown' || e.type === 'pointerdown' || e.type === 'wheel')) stopFollow();" in ui
     assert "function scrollBy(dy)" in w and "scrollBy: scrollBy" in w and "m['28675'] + dy * 75" in w

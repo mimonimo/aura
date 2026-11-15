@@ -270,7 +270,9 @@
     function on(k, fn) { (handlers[k] = handlers[k] || []).push(fn); }
     function emit(k) { var a = [].slice.call(arguments, 1); (handlers[k] || []).forEach(function (fn) { try { fn.apply(null, a); } catch (e) { console.warn(e); } }); }
     function nameOf(u) { return u === 'AURA' ? 'AURA' : (names[u] || u); }
-    function learn(d) { ['by', 'user', 'holder'].forEach(function (k) { if (d[k] && d[k + '_name']) names[d[k]] = d[k + '_name']; }); }
+    // 아는 이름을 아이디 그대로인 값으로 덮지 않는다 — 출처마다 이름 꼴이 다르면 이름표가 번갈아 바뀌며 깜빡였다(11-15)
+    function setName(u, n) { if (u && n && !(n === u && names[u])) names[u] = n; }
+    function learn(d) { ['by', 'user', 'holder'].forEach(function (k) { if (d[k] && d[k + '_name']) setName(d[k], d[k + '_name']); }); }
     function nextSeq() { seqN = Math.max(seqN + 1, now()); return seqN; }
     function post(path, body, extra) {
       return fetch(base + path, Object.assign({method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}, extra || {}))
@@ -637,7 +639,7 @@
           mine[f] = r.until; locks[f] = {user: me, client: client, until: r.until, since: r.since};
           if (curField !== f && !hwp.isComposing()) setTimeout(function () { if (curField !== f) letGo(f, true); }, 0);   // 답을 받기 전에 이미 다른 칸으로 옮겼다
         } else {
-          names[r.by] = r.by_name || names[r.by]; locks[f] = {user: r.by, client: r.client || '', until: r.until};
+          setName(r.by, r.by_name); locks[f] = {user: r.by, client: r.client || '', until: r.until};
           if (!quiet) emit('blocked', f, holderLabel(f));
           if (dirty[f]) flush();
         }
@@ -661,7 +663,7 @@
           Object.keys(mine).forEach(function (g) { delete mine[g]; if (locks[g] && locks[g].user === me && locks[g].client === client) delete locks[g]; });
           myPara = {field: f, para: r.para, until: r.until};
         } else {
-          names[r.by] = r.by_name || names[r.by];
+          setName(r.by, r.by_name);
           if (r.whole) locks[f] = {user: r.by, client: r.client || '', until: r.until};
           else paraLocks[r.by + '\u001f' + (r.client || '')] = {user: r.by, client: r.client || '', field: f, para: p, until: r.until};
           if (!quiet) emit('blocked', r.whole ? f : key, nameOf(r.by));
@@ -719,7 +721,7 @@
         learnWindows(j.windows);
         var seen = {};
         j.people.forEach(function (p) {
-          if (p.name) names[p.user] = p.name;
+          setName(p.user, p.name);
           if (p.client === client && p.user === me) return;
           var k = p.user + '\u001f' + p.client; seen[k] = 1;
           people[k] = {user: p.user, field: p.field, page: p.page || 0, at: now()};
@@ -1116,7 +1118,7 @@
         var editing = !!hf;
         var label = (p.name || p.user) + (p.page ? ' · ' + p.page + '쪽' : '') + (p.field && editing ? ' · 쓰는 중' : ' · 보는 중');
         var on = following === p.user;
-        b.title = label + (on ? ' (눌러서 따라가기 멈춤)' : ' (눌러서 따라가기)');
+        b.title = label + (on ? ' · 따라가는 중(누르면 멈춤)' : ' (눌러서 따라가기)');
         b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', on ? 'true' : 'false');
         if (editing) b.classList.add('editing');
         if (on) b.classList.add('following');
@@ -1324,12 +1326,14 @@
       var p = personOf(following), f = heldBy(following) || (p && p.field) || '';
       return f && eng.hasField(f) ? f : '';
     }
-    function showFollow() { show('follow', followName(following) + ' 님 따라가는 중', [['그만', function () { stopFollow(); }]]); }
+    // 따라가기는 아바타 고리로만 알린다 — 아래쪽 띠(「○○ 님 따라가는 중 · 그만」)가 어색하고 문서를 가렸다(11-15).
+    // 멈추기: 그 아바타를 다시 누르거나, 직접 치거나 누르거나 굴리면 저절로
+    function showFollow() { if (barKind === 'follow') hide('follow'); drawAvatars(); }
     function stopFollow(why) {
       if (!following) return;
       following = ''; autoAura = false;
       if (barKind === 'follow') hide('follow');
-      if (why) show('follow-end', why, null, 3000);
+      void why;                                                   // 멈춘 까닭 띠도 띄우지 않는다(고리가 사라지는 것으로 충분)
       drawAvatars();
     }
     function toggleFollow(u) {

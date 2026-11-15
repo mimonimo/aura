@@ -750,7 +750,8 @@ async def hwp_presence(request: Request, fid: int):
     people = await run_in_threadpool(ce.people, db, fid)
     wins = await run_in_threadpool(ce.windows, db, fid)
     return {"ok": True, "people": [{"user": p["user"], "client": p["client"], "field": p["field"], "page": p.get("page", 0),
-                                    "name": request.app.state.person_name(p["user"])} for p in people],
+                                    # 이름은 칸 임대·알림과 같은 함수로 — 계정이 아닌 AURA(claude)를 여기만 아이디로 보내 이름표가 「Claude」·「claude」 로 번갈아 깜빡였다(11-15)
+                                    "name": webhwp.display_name(db, p["user"], getattr(request.app.state, "accounts", None))} for p in people],
             "windows": [w for w in wins if w["user"] == user]}
 
 
