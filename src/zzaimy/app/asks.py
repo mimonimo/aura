@@ -419,8 +419,9 @@ def candidate_spans(name: str, hits: list[dict], source_title: str, limit: int =
 
 
 def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
-    """선택지 규격 kind=form — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 '이름: 값; …' 문장으로 보낸다.
-    자료에서 찾은 확인 전 값(suggested)은 칸에 미리 채우고 출처를 알린다 — 담당자가 고치거나 그대로 「확인」."""
+    """선택지 규격 kind=form — 화면은 fields 를 값 입력 카드로 그리고, 채운 값을 '이름: 값; …' 문장으로 보낸다.
+    자료에서 찾은 확인 전 값(suggested)은 칸에 미리 넣지 않고 출처와 함께 칩(chip)으로 보인다 — 담당자가 눌러야 칸에 들어가고,
+    보내면 그때 담당자 값이 된다(누르지 않고 보내면 확인 전 제안 그대로 남는다)."""
     suggested = suggested or {}
     fields = []
     # 칸은 여섯 개까지 — 가장 최근에 모은 값부터(방금 답이 물은 값이 칸에 있어야 답과 칸이 맞는다). 앞 절에서 모은 나머지는
@@ -432,15 +433,16 @@ def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
         found = bool(s.get("value"))
         hint = (f"자료에서 찾음 · 확인 전 · 《{s.get('title', '')}》" if found else a.get("hint") or "")
         why = re.sub(r"\s+", " ", str(a.get("hint") or "")).strip()
-        fields.append({"name": a["name"], "label": clean_name(a["name"]), "placeholder": hint, "required": False, "value": s.get("value") or "",
+        fields.append({"name": a["name"], "label": clean_name(a["name"]), "placeholder": "" if found else hint, "required": False, "value": "",
+                       "chip": str(s.get("value") or "") if found else "",
                        "hint": a.get("hint") or "", "source": str(s.get("title") or "") if found else "", "suggested": found,
-                       "type": value_type(a["name"], a.get("kind") or ""),
+                       "kind": norm_kind(a.get("kind")), "type": value_type(a["name"], a.get("kind") or ""),
                        "why": (why[:38] + "…") if len(why) > 40 else why})
     return {"kind": "form", "text": "필요한 값 입력", "fields": fields, "more": len(asks) - len(shown),
             "later": sum(1 for a in asks if a.get(LATER) and a not in shown),
             "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in shown),
             "question": "; ".join(f"{a['name']}: (값)" for a in shown),
-            "submit": "확인" if any(f["value"] for f in fields) else "저장"}
+            "submit": "모두 보내기"}
 
 # 여러 줄 값의 이어지는 줄 — 목록 글머리(-·•·1.·①)나 표 줄(|)로 시작하는 줄
 _ITEM_LINE = re.compile(r"^\s*(?:[-•·∙*○●□■▪]|\d{1,2}[.)]|[①-⑳]|\|)")

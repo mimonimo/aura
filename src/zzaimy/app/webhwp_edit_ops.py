@@ -1102,8 +1102,15 @@ def table_insert(data: bytes, a: dict) -> tuple[bytes, str]:
     m = hs.CELL_MARGIN
     margin = f'<hp:cellMargin left="{m["left"]}" right="{m["right"]}" top="{m["top"]}" bottom="{m["bottom"]}"/>'
     pid = doc.ids.new()
-    if not widths:                                               # 열 폭은 칸 글 길이로(하한·상한 — house_style.fit_widths)
-        widths = [float(w) for w in hs.fit_widths([[r[c] for r in grid] for c in range(nc)], width)]
+    kind = str(a.get("kind") or "auto")
+    if not widths:                                               # 열 폭은 표 갈래의 열 값 꼴별 비율로(하한·상한 — house_style.fit_widths)
+        weights = None
+        if nc >= 2 and kind != "none":
+            from zzaimy.app import table_styles as tsty
+            from zzaimy.export import table_kinds as tk
+            k_, f_ = tk.classify(grid, 0 if head is False else None)
+            weights = tk.column_weights(grid, tsty.design(kind if kind in tk.KINDS else k_), f_)
+        widths = [float(w) for w in hs.fit_widths([[r[c] for r in grid] for c in range(nc)], width, weights)]
     px = hf.table_xml(grid, pp, cp, width, bf, margin, int(doc.ids.new()), widths, None)
     px = px.replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1)
     px = re.sub(r'<hp:p id="0"', lambda _m: f'<hp:p id="{doc.ids.new()}"', px)
@@ -1111,6 +1118,9 @@ def table_insert(data: bytes, a: dict) -> tuple[bytes, str]:
     # 머리줄이 있는 자료 표는 본문 칸에 라벨 음영을 두지 않는다(오른쪽이 빈 값 칸을 라벨로 잘못 보지 않게)
     opts = ({"head_fill": "none", "head_bold": False, "head_align": ""} if head is False
             else {"label_fill": "none"} if all(grid[0]) and nr > 1 else None)
+    if kind != "none":
+        # 표 갈래 디자인(일정·예산·현황·요약…, app/table_styles) — 머리줄 없는 표는 머리줄 0으로 가린다
+        opts = {"kind": kind, **({"head_rows": 0} if head is False else {})}
     tbl = ws._TBL.search(px)
     px = px[:tbl.start()] + ws.style_table(tbl.group(0), doc.hdr, opts) + px[tbl.end():]
     if head is not False and all(grid[0]):
@@ -1804,6 +1814,32 @@ def _in_table(xml: str, pos: int) -> bool:
     return xml.rfind("<hp:tbl", 0, pos) > xml.rfind("</hp:tbl>", 0, pos)
 
 
+# 글 갈래로 고르기(hwp_text_style role) — 「표 제목은 가운데」「본문만 10pt」「주석은 9pt」 같은 요청. 갈래는 글 꼴로만 가린다
+TEXT_ROLES = {"제목": "heading", "heading": "heading", "본문": "body", "body": "body", "표 제목": "caption", "캡션": "caption",
+              "caption": "caption", "주석": "note", "note": "note", "상자": "box", "인용": "box", "box": "box",
+              "표 칸": "cell", "cell": "cell"}
+_CAPTION = re.compile(r"^\s*[<\[〈]\s*(?:표|그림)\s*\d*(?:-\d+)?\s*[>\]〉]")
+_NOTE = re.compile(r"^\s*(?:※|\*|주\s*\)|주\d*\)|출처\s*[:：])")
+_HEAD_NO = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.|\d{1,2}(?:\.\d{1,2}){0,3}\.|[가-하]\.|\(?\d{1,2}\)|\(?[가-하]\))\s*\S")
+
+
+def text_role(xml: str, ps: int, pe: int) -> str:
+    """문단 하나의 글 갈래 — 상자(1×1 표 안)·표 칸·표 제목·주석·제목(번호 머리의 짧은 줄)·본문."""
+    if _in_table(xml, ps):
+        t0 = xml.rfind("<hp:tbl", 0, ps)
+        m = re.match(r'<hp:tbl\b[^>]*\browCnt="(\d+)"[^>]*\bcolCnt="(\d+)"', xml[t0:t0 + 600])
+        return "box" if m and m.group(1) == "1" and m.group(2) == "1" else "cell"
+    t = re.sub(r"<[^>]+>", "", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml[ps:pe], flags=re.S))
+    t = t.replace("&lt;", "<").replace("&gt;", ">").strip()
+    if _CAPTION.match(t):
+        return "caption"
+    if _NOTE.match(t):
+        return "note"
+    if _HEAD_NO.match(t) and len(t) <= 40:
+        return "heading"
+    return "body" if t else ""
+
+
 @_guarded
 def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
     """글꼴·글자 크기·굵게(글자 모양)와 줄 간격·정렬·들여쓰기(문단 모양)를 범위에 한꺼번에."""
@@ -1830,7 +1866,11 @@ def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
         raise EditError("align 은 가운데|왼쪽|오른쪽|양쪽|배분 이다.")
     if not (face or pt or bold is not None or line or al or left is not None or indent is not None):
         raise EditError("바꿀 것(font·pt·bold·line_spacing·align·left_mm·indent_mm)을 하나 이상 준다.")
-    tables = a.get("tables") is True
+    role = a.get("role")
+    if role not in (None, "") and str(role) not in TEXT_ROLES:
+        raise EditError("role 은 제목|본문|표 제목|주석|상자|표 칸 이다.")
+    role = TEXT_ROLES.get(str(role), "") if role not in (None, "") else ""
+    tables = a.get("tables") is True or role in ("box", "cell")
     changed = seen = 0
     for n, s, e in _scope_spans(doc, a):
         xml = doc.secs[n]
@@ -1841,6 +1881,8 @@ def text_style(data: bytes, a: dict) -> tuple[bytes, str]:
             if ps < pos:
                 continue
             if not tables and _in_table(xml, ps):
+                continue
+            if role and text_role(xml, ps, pe) != role:
                 continue
             if "<hp:secPr" in xml[ps:pe] or re.search(r"<hp:(header|footer|footNote)\b", xml[max(0, ps - 2000):ps]) and \
                     xml.rfind("<hp:subList", 0, ps) > xml.rfind("</hp:subList>", 0, ps) and not _in_table(xml, ps):
@@ -3081,9 +3123,9 @@ TOOLS: list[dict] = [
              "margin: 보통|좁게|넓게, margins_mm: {top, bottom, left, right, header, footer, gutter}(주면 프리셋 위에 덮음), gutter_type: 왼쪽|맞쪽|위쪽}",
      "args": {"paper": "str", "orientation": "str", "margin": "str", "margins_mm": "dict", "gutter_type": "str"}},
     {"name": "hwp_table_insert", "writes": True, "label": "표 만들기",
-     "desc": "새 표 넣기(학교 표 기본 모양). args {" + _AT + ", rows, cols, values: [[행1 칸들], …], head: true|false|[머리줄 글], "
-             "widths: [열 폭 비율]} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄",
-     "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list"}},
+     "desc": "새 표 넣기(표 갈래 — 일정표·예산표·현황표·요약표·역할표·비교표·목록 — 를 칸 글로 가려 학교 실문서 모양으로). args {" + _AT + ", rows, cols, values: [[행1 칸들], …], head: true|false|[머리줄 글], "
+             "widths: [열 폭 비율], kind?: summary|schedule|budget|stats|roles|compare|list|general|none(갈래를 정해 주거나 none 이면 기본 모양)} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄",
+     "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list", "kind": "str"}},
     {"name": "hwp_map", "writes": False, "label": "양식 지도",
      "desc": "양식 지도 — 절 제목마다 그 아래 서식 표(번호·행×열·첫 글·채움 정도)를 문서 차례로. 값·그림·글을 넣기 전에 용도에 맞는 자리(신청서 표, 요약본 자리, 현황 표)를 "
              "고를 때 본다 — 같은 라벨(「권역」)이 든 표가 여럿이면 넣을 값과 라벨이 가장 많이 겹치는 표가 자리다. args {under?: 절 제목}",
@@ -3110,9 +3152,10 @@ TOOLS: list[dict] = [
      "args": {"field": "str", "text": "str", "on": "bool"}},
     {"name": "hwp_text_style", "writes": True, "label": "글자·문단 모양",
      "desc": "글꼴·글자 크기·굵게·줄 간격·정렬·들여쓰기를 범위에 한꺼번에. args {scope: all | {field: 절·칸 필드} | {text: 문단 글}, "
+             "role?: 제목|본문|표 제목|주석|상자|표 칸(범위 안에서 그 갈래 글만 — 「표 제목은 가운데」「주석은 9pt」), "
              "font: 글꼴 이름, pt, bold: true|false, line_spacing: %, align: 가운데|왼쪽|오른쪽|양쪽, left_mm, indent_mm(내어쓰기는 음수), "
              "tables: true(표 칸 글도)}",
-     "args": {"scope": "any", "font": "str", "pt": "float", "bold": "bool", "line_spacing": "int", "align": "str",
+     "args": {"scope": "any", "role": "str", "font": "str", "pt": "float", "bold": "bool", "line_spacing": "int", "align": "str",
               "left_mm": "float", "indent_mm": "float", "tables": "bool"}},
     {"name": "hwp_footnote", "writes": True, "label": "각주",
      "desc": "각주 달기 — 근거·출처를 밝힐 때. args {field: 필드(그 값 끝에) | after_text: 이 글 뒤에, text: 각주 글}",

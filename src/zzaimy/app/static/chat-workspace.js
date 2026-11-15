@@ -183,26 +183,11 @@
     const live = panel.querySelector('.chat-step-sec[data-live-from]');
     if (live) live.textContent = ' · ' + Math.max(0, Math.floor(Date.now() / 1000 - Number(live.dataset.clockSkew || 0) - Number(live.dataset.liveFrom))) + '초';
   }, 1000);
-  // 필요한 값 입력은 접어 둔다(입력은 채팅이 먼저) — 「입력 칸 열기」로 펼치고 「입력 칸 접기」로 다시 접는다
-  function foldValueForm(valueForm, open) {
-    valueForm.classList.toggle('is-folded', !open);
-    const button = valueForm.querySelector('[data-form-toggle]');
-    if (button) { button.setAttribute('aria-expanded', String(open)); button.textContent = open ? '입력 칸 접기' : '입력 칸 열기'; }
-  }
-  scroller.addEventListener('click', event => {
-    const button = event.target.closest('[data-form-toggle]');
-    if (!button) return;
-    const valueForm = button.closest('form');
-    const open = valueForm.classList.contains('is-folded');
-    foldValueForm(valueForm, open);
-    if (open) { revealEnd(valueForm, true); ([...valueForm.querySelectorAll('textarea:not(:disabled)')].find(t => !t.value) || valueForm.querySelector('textarea:not(:disabled)'))?.focus({preventScroll:true}); }
-  });
-  // 답이 「필요한 값 입력」을 가리키면 그 칸을 펼쳐 데려간다(칸은 마지막 답 아래, 받지 못한 값이 있는 동안 늘 있다)
+  // 앞 답이 「필요한 값 입력」을 가리키면 그 카드로 데려간다(카드는 마지막 답 아래, 받지 못한 값이 있는 동안 늘 있다)
   scroller.addEventListener('click', event => {
     if (!event.target.closest('[data-jump-form]')) return;
     const valueForm = document.getElementById('chatValueForm');
     if (!valueForm) return;
-    foldValueForm(valueForm, true);
     pin.release();
     valueForm.scrollIntoView({block:'center'});
     ([...valueForm.querySelectorAll('textarea:not(:disabled)')].find(t => !t.value) || valueForm.querySelector('textarea:not(:disabled)'))?.focus({preventScroll:true});   // 빈 칸부터
@@ -293,7 +278,7 @@
     const get = kind => row.querySelector('[data-typed="' + kind + '"]');
     if (type === 'year') {
       const box = get('year'), now = new Date().getFullYear(), have = (/(\d{4})/.exec(v) || [])[1];
-      for (let y = now + 6; y >= now - 10; y--) box.add(new Option(y + '년', String(y)));
+      if (box.options.length <= 1) for (let y = now + 6; y >= now - 10; y--) box.add(new Option(y + '년', String(y)));
       if (have && !box.querySelector('option[value="' + have + '"]')) box.add(new Option(have + '년', have));
       if (have) box.value = have;
     } else if (type === 'date') get('date').value = fromKoDate(v);
@@ -304,16 +289,33 @@
     else if (type === 'number') get('number').value = v;
     if (v === LEAVE) markLeave(row, true);
   }
-  function markLeave(row, on) {
+  function markLeave(row, on) {                                                              // 모름 — 「확인 필요」 로 두고 이어 쓴다
     const btn = row.querySelector('[data-leave]'), area = rowArea(row);
     if (!btn || !area) return;
+    if (on) markLater(row, false);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    btn.textContent = on ? '비워 둠 · 되돌리기' : '모르면 비워 두기';
     row.classList.toggle('is-left', on);
     typedOf(row).forEach(el => { el.disabled = on; });
     area.readOnly = on;
     if (on) { if (area.value.trim() !== LEAVE) { area.dataset.before = area.value; area.value = LEAVE; } }
     else if (area.value.trim() === LEAVE) { area.value = area.dataset.before || ''; }
+  }
+  function markLater(row, on) {                                                              // 나중에 — 이번에는 넘기고 다음 차례에
+    const btn = row.querySelector('[data-later]'), box = row.querySelector('[data-later-input]');
+    if (!btn || !box) return;
+    if (on && row.classList.contains('is-left')) markLeave(row, false);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    box.disabled = !on;
+  }
+  // 글꼴이 이 컴퓨터에 있는가 — 대체 글꼴 둘(monospace·serif)과 너비가 모두 같으면 없는 것(document.fonts.check 는 시스템 글꼴을 가리지 못한다)
+  const fontCanvas = document.createElement('canvas').getContext('2d');
+  function hasFont(name) {
+    if (!fontCanvas) return true;
+    const text = '가나다라 AURA mmwwii 2026', clean = name.replace(/["\\]/g, '');
+    return ['monospace', 'serif'].some(base => {
+      fontCanvas.font = '24px ' + base; const a = fontCanvas.measureText(text).width;
+      fontCanvas.font = '24px "' + clean + '", ' + base; return fontCanvas.measureText(text).width !== a;
+    });
   }
   function initValueForms(scope) {
     (scope || scroller).querySelectorAll('form.chat-suggestion-form .chat-form-field').forEach(row => {
@@ -322,6 +324,12 @@
       fillTyped(row);
     });
     if (window.PeoplePicker) PeoplePicker.mountAll(scope || scroller);
+    (scope || scroller).querySelectorAll('[data-font-check]').forEach(note => {              // 이 컴퓨터에 없는 글꼴은 비슷한 글꼴로 보인다고 알린다
+      const font = note.dataset.fontCheck;
+      if (!font || note.dataset.checked) return;
+      note.dataset.checked = '1';
+      if (!hasFont(font)) note.textContent += ' · 이 컴퓨터에 없어 비슷한 글꼴로 보임';
+    });
   }
   scroller.addEventListener('input', event => {
     const el = event.target.closest('form.chat-suggestion-form [data-typed]');
@@ -346,110 +354,49 @@
     area.value = p.name;
     area.dispatchEvent(new Event('input', {bubbles: true}));
   });
-  scroller.addEventListener('click', event => {
-    const btn = event.target.closest('form.chat-suggestion-form [data-leave]');
-    if (!btn) return;
-    const row = btn.closest('.chat-form-field');
-    markLeave(row, btn.getAttribute('aria-pressed') !== 'true');
-    paintValueForm(btn.form);
-  });
   const valueRows = form_ => [...form_.querySelectorAll('.chat-form-field')];
   const rowArea = row => row.querySelector('textarea');
-  const rowLater = row => row.querySelector('input[name=later]');
-  const rowPick = row => row.querySelector('input[data-pick]');
-  const isPicked = row => Boolean(rowPick(row)?.checked);
+  const isLater = row => { const box = row.querySelector('[data-later-input]'); return Boolean(box && !box.disabled); };
   function valueCounts(form_) {
-    let filled = 0, later = 0, typed = 0;
+    let filled = 0, later = 0;
     for (const row of valueRows(form_)) {
-      if (rowLater(row)?.checked) { later++; continue; }
-      const area = rowArea(row);
-      if (!area.value.trim()) continue;
-      filled++;
-      if (!row.classList.contains('is-suggested') || area.value !== area.defaultValue) typed++;
+      if (isLater(row)) { later++; continue; }
+      if (rowArea(row).value.trim()) filled++;
     }
-    return {filled, later, typed};
+    return {filled, later};
   }
   function paintValueForm(form_) {
     const total = Number(form_.dataset.total) || valueRows(form_).length;
     for (const row of valueRows(form_)) {
-      const later = Boolean(rowLater(row)?.checked), area = rowArea(row);
+      const later = isLater(row), area = rowArea(row);
       area.disabled = later;
-      if (later) typedOf(row).forEach(el => { el.disabled = true; });
+      typedOf(row).forEach(el => { el.disabled = later || row.classList.contains('is-left'); });
       row.classList.toggle('is-later', later);
       row.classList.toggle('is-filled', !later && Boolean(area.value.trim()));
-      row.classList.toggle('is-picked', isPicked(row));
-      if (row.classList.contains('is-suggested') && area.value !== area.defaultValue && !row.classList.contains('is-edited')) {
-        row.classList.add('is-edited'); row.classList.remove('is-accepted');
-        const note = row.querySelector('[data-source-state]');
-        if (note) note.textContent = '자료 값을 고쳐 적음 · ' + note.textContent.replace(/^자료에서 찾음 · 확인 (?:전|함)\s*(?:—|·|,|:)?\s*/, '');
-      }
+      const chip = row.querySelector('[data-chip-value]');
+      if (chip) chip.classList.toggle('is-on', !later && area.value.trim() === chip.dataset.chipValue);
     }
-    const {filled, later, typed} = valueCounts(form_);
+    const {filled, later} = valueCounts(form_);
+    const empty = valueRows(form_).filter(row => !isLater(row) && !rowArea(row).value.trim());
     const count = form_.querySelector('[data-form-count]');
     if (count) count.textContent = total + '개 중 ' + filled + '개 채움' + (later ? ' · 나중에 ' + later + '개' : '');
     form_.style.setProperty('--vf-done', String(total ? Math.min(1, (filled + later) / total) : 0));
-    // 한꺼번에 — 선택한 줄이 있으면 선택한 줄, 없으면 아직 비어 있는(미루지 않은) 줄이 대상
-    const rows = valueRows(form_), picked = rows.filter(isPicked);
-    const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
-    const laterRows = rows.filter(row => rowLater(row)?.checked);
-    const all = form_.querySelector('[data-pick-all]');
-    if (all) { all.checked = rows.length > 0 && picked.length === rows.length; all.indeterminate = picked.length > 0 && picked.length < rows.length; }
-    form_.classList.toggle('is-picking', picked.length > 0);
-    // 자료에서 찾기는 선택한 줄에만 — 먼저 체크로 고르고(빈 칸 선택로 한 번에 체크한 뒤 빼도 된다) 그다음 찾기
-    const toolFind = form_.querySelector('[data-bulk=find]'),
-          toolClear = form_.querySelector('[data-bulk=clear]'), toolPick = form_.querySelector('[data-bulk=pick-empty]');
-    const unpicked = empty.filter(row => !isPicked(row));
-    if (toolPick) {
-      toolPick.hidden = !unpicked.length || picked.length > 0;
-      toolPick.textContent = '빈 칸 ' + unpicked.length + '개 선택';
-    }
-    if (toolFind) {
-      const targets = picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked);
-      toolFind.hidden = !picked.length;
-      toolFind.textContent = '선택한 ' + targets.length + '개 자료에서 찾기';
-      toolFind.disabled = !targets.length;
-    }
-    if (toolClear) { toolClear.hidden = !picked.length; toolClear.textContent = '선택 해제'; }
-    const pickHint = form_.querySelector('[data-pick-hint]');
-    if (pickHint) pickHint.hidden = picked.length > 0 || !unpicked.length;
-    const verb = typed ? '저장' : (form_.dataset.verb || '저장');
+    const find = form_.querySelector('[data-bulk=find]');
+    if (find) { find.hidden = !empty.length; find.textContent = '빈 칸 ' + empty.length + '개 자료에서 찾기'; }
     const submit = form_.querySelector('[data-form-submit]');
-    if (submit) {
-      // 비운 칸은 저장할 때 다음 차례로 — 따로 「나중에」 를 누르지 않는다. 다 비우고 누르면 이 칸들을 통째로 다음에
-      const rest = empty.length + later;
-      submit.textContent = filled ? filled + '개 ' + verb + (rest ? ' · 빈 칸 ' + rest + '개는 다음에' : '') : '모두 다음에 받기';
-      submit.disabled = false;
-      submit.classList.toggle('is-skip', !filled);
-    }
+    if (submit) submit.title = empty.length ? '빈 칸 ' + empty.length + '개는 다음 차례에 다시 묻습니다' : '';
   }
   function paintValueForms() { scroller.querySelectorAll('form.chat-suggestion-form').forEach(paintValueForm); }
   function formStatus(form_, text) {
-    const box = form_.querySelector('[data-form-status]');
+    const box = form_.querySelector('[data-form-status], [data-choice-status]');
     if (!box) return;
     box.textContent = text;
     clearTimeout(box._clear);
     if (text) box._clear = setTimeout(() => { box.textContent = ''; }, 5000);           // 알림은 잠깐만, 남아 있으면 지금 상태로 오해한다
   }
-  let lastPick = null;
   scroller.addEventListener('input', event => {
-    if (event.target.type === 'checkbox') return;                                          // 체크는 change 에서 — input 이 먼저 와서 전체 선택를 덮어쓴다
     const form_ = event.target.closest('form.chat-suggestion-form');
     if (form_) { formStatus(form_, ''); paintValueForm(form_); }
-  });
-  scroller.addEventListener('change', event => {
-    const form_ = event.target.closest('form.chat-suggestion-form');
-    if (!form_) return;
-    if (event.target.matches('[data-pick-all]')) {
-      const on = event.target.checked;
-      valueRows(form_).forEach(row => { const box = rowPick(row); if (box) box.checked = on; });
-      lastPick = null;
-      paintValueForm(form_);
-      return;
-    }
-    if (event.target.matches('[data-pick]')) { paintValueForm(form_); return; }
-    if (event.target.name !== 'later') return;
-    paintValueForm(form_);
-    if (!event.target.checked) rowArea(event.target.closest('.chat-form-field'))?.focus();
   });
   scroller.addEventListener('keydown', event => {
     const typed = event.target.closest('form.chat-suggestion-form input[data-typed]');
@@ -484,8 +431,7 @@
     for (const row of rows) {
       const target = rowArea(row);
       if (!(target.dataset.field in pairs)) continue;
-      const later = rowLater(row);
-      if (later) later.checked = false;
+      markLater(row, false);
       target.value = pairs[target.dataset.field];
     }
     paintValueForm(form_);
@@ -493,61 +439,91 @@
     formStatus(form_, '붙여 넣은 ' + names.length + '개를 칸에 나눠 채움' + (lines > names.length ? ' · 맞는 칸이 없는 ' + (lines - names.length) + '줄은 넣지 않음' : ''));
   });
   scroller.addEventListener('click', event => {
-    // 여러 줄 선택 — 줄 앞 체크, Shift+체크는 앞에 선택한 줄부터 범위, Ctrl(⌘)+이름도 같은 동작
-    const pickBox = event.target.closest('form.chat-suggestion-form input[data-pick]');
-    if (pickBox) {
-      const rows = valueRows(pickBox.form), row = pickBox.closest('.chat-form-field');
-      if (event.shiftKey && lastPick && lastPick !== row && rows.includes(lastPick)) {
-        const [a, b] = [rows.indexOf(lastPick), rows.indexOf(row)].sort((x, y) => x - y);
-        rows.slice(a, b + 1).forEach(item => { rowPick(item).checked = pickBox.checked; });
-      }
-      lastPick = row;
-      paintValueForm(pickBox.form);
+    const leave = event.target.closest('form.chat-suggestion-form [data-leave]');
+    if (leave) { markLeave(leave.closest('.chat-form-field'), leave.getAttribute('aria-pressed') !== 'true'); paintValueForm(leave.form); return; }
+    const later = event.target.closest('form.chat-suggestion-form [data-later]');
+    if (later) { markLater(later.closest('.chat-form-field'), later.getAttribute('aria-pressed') !== 'true'); paintValueForm(later.form); return; }
+    const chip = event.target.closest('form.chat-suggestion-form [data-chip-value]');
+    if (chip) {                                                                              // 자료에서 찾은 값 — 누르면 칸에 들어가고, 보내면 확인한 값이 된다
+      const row = chip.closest('.chat-form-field'), area = rowArea(row);
+      markLeave(row, false); markLater(row, false);
+      area.value = chip.dataset.chipValue;
+      fillTyped(row);
+      const note = row.querySelector('[data-source-state]');
+      if (note) note.textContent = note.textContent.replace('확인 전', '보내면 확인');
+      paintValueForm(chip.form);
+      const areas = [...chip.form.querySelectorAll('textarea')].filter(item => !item.disabled);
+      (areas.slice(areas.indexOf(area) + 1).find(item => !item.value.trim()) || chip.form.querySelector('[data-form-submit]'))?.focus();
       return;
     }
-    const nameHit = event.target.closest('form.chat-suggestion-form .chat-form-label');
-    if (nameHit && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      const row = nameHit.closest('.chat-form-field'), box = rowPick(row);
-      if (box) box.checked = !box.checked;
-      lastPick = row;
-      paintValueForm(row.closest('form'));
-      return;
-    }
-    const tool = event.target.closest('form.chat-suggestion-form [data-bulk]');
-    if (tool) {
-      const form_ = tool.closest('form'), rows = valueRows(form_);
-      const picked = rows.filter(isPicked);
-      const unpick = () => { picked.forEach(row => { rowPick(row).checked = false; }); lastPick = null; };
-      if (tool.dataset.bulk === 'pick-empty') {
-        rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim()).forEach(row => { rowPick(row).checked = true; });
-        lastPick = null;
-      } else if (tool.dataset.bulk === 'clear') {
-        unpick();
-      } else if (tool.dataset.bulk === 'find') {
-        const names = picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked).map(row => rowArea(row).dataset.field);
-        if (names.length && input && form) {
-          input.value = names.map(name => '「' + name + '」').join(', ') + ' 값을 이 프로젝트 자료에서 찾아 채워 줘';
-          input.dispatchEvent(new Event('input', {bubbles: true}));
-          form.requestSubmit();
-        }
-        return;
+    const find = event.target.closest('form.chat-suggestion-form [data-bulk=find]');
+    if (find) {                                                                              // 빈 칸 값을 에이전트가 자료에서 찾아 「확인 전」 제안으로
+      const names = valueRows(find.form).filter(row => !isLater(row) && !rowArea(row).value.trim()).map(row => rowArea(row).dataset.field);
+      if (names.length && input && form) {
+        input.value = names.map(name => '「' + name + '」').join(', ') + ' 값을 이 프로젝트 자료에서 찾아 채워 줘';
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        form.requestSubmit();
       }
-      paintValueForm(form_);
       return;
     }
     const hint = event.target.closest('form.chat-suggestion-form .chat-form-hint');
-    if (hint) { hint.classList.toggle('is-open'); return; }
-    const accept = event.target.closest('[data-accept-value]'), edit = event.target.closest('[data-edit-value]');
-    if (!accept && !edit) return;
-    const row = event.target.closest('.chat-form-field'), area = rowArea(row);
-    if (edit) { const t = typedOf(row)[0]; if (t) { t.focus(); return; } area.focus(); area.select(); return; }
-    row.classList.add('is-accepted');
-    const note = row.querySelector('[data-source-state]');
-    if (note) note.textContent = note.textContent.replace('확인 전', '확인함');
-    const areas = [...area.form.querySelectorAll('textarea')].filter(item => !item.disabled);
-    (areas.slice(areas.indexOf(area) + 1).find(item => !item.value.trim()) || area.form.querySelector('[data-form-submit]'))?.focus();
+    if (hint) hint.classList.toggle('is-open');
   });
+  // 선택 카드 — 고른 선택지를 표시하고 미리 보기를 띄운다. 보내면 「머리: 2번 이름」 이 다음 요청으로 들어간다
+  scroller.addEventListener('change', event => {
+    const pick = event.target.closest('form[data-choice-card] input[name^="pick_"]');
+    if (!pick) return;
+    pick.closest('.cc-q').querySelectorAll('.cc-opt').forEach(opt => opt.classList.toggle('is-on', opt.querySelector('input').checked));
+    formStatus(pick.form, '');
+  });
+  function sentNote(form_, label, items) {                                                    // 보낸 뒤 카드 아래 한 줄 — 무엇을 보냈는지
+    const sent = document.createElement('div');
+    sent.className = 'chat-form-sent'; sent.setAttribute('role', 'status');
+    sent.innerHTML = '<span class="chat-progress-dot" aria-hidden="true"></span><span></span>';
+    sent.lastChild.textContent = label;
+    if (items.length) {
+      const list = document.createElement('ul');
+      list.className = 'chat-form-sent-list';
+      items.forEach(([head, value]) => {
+        const li = document.createElement('li'), name = document.createElement('b');
+        name.textContent = head;
+        li.append(name, document.createTextNode(' ' + value.slice(0, 80)));
+        list.append(li);
+      });
+      sent.append(list);
+    }
+    form_.append(sent); form_.classList.add('is-sent');
+    return sent;
+  }
+  async function postCard(form_, payload, label, sent, failText) {
+    sending = true; paint();
+    try {
+      const response = await fetch(form_.action, {method:'POST', body:payload});
+      if (!response.ok) throw new Error('send failed');
+      installPage(await response.text(), response.url, true);
+      const progress = document.querySelector('#chatProgress [data-progress-label]');
+      if (progress && label) { progress.textContent = label; status.textContent = label; }
+    } catch (_) {
+      sent.remove(); form_.classList.remove('is-sent');
+      formStatus(form_, failText);
+    } finally {
+      sending = false; paint();
+      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+    }
+  }
+  async function sendChoiceCard(form_) {
+    if (sending || waiting) return;
+    const items = [...form_.querySelectorAll('.cc-q')].map(q => {
+      const head = q.querySelector('.cc-q-head')?.textContent.trim() || '';
+      const picked = [...q.querySelectorAll('input[name^="pick_"]:checked')].map(i => i.closest('.cc-opt').querySelector('.cc-opt-label').textContent.trim());
+      const other = q.querySelector('input[name^="other_"]')?.value.trim();
+      if (other) picked.push(other);
+      return [head, picked.join(', ')];
+    }).filter(([, v]) => v);
+    if (!items.length) { formStatus(form_, '하나를 고르거나 직접 입력해 주세요.'); form_.querySelector('input[name^="pick_"]')?.focus(); return; }
+    const sent = sentNote(form_, '고른 것을 반영하는 중', items);
+    await postCard(form_, new FormData(form_), '고른 것을 반영하는 중', sent, '보내지 못했습니다. 고른 것은 그대로 있습니다. 잠시 후 다시 보내 주세요.');
+  }
   async function sendValueForm(form_) {
     if (sending || waiting) return;
     const {filled} = valueCounts(form_);
@@ -556,37 +532,10 @@
       if (key.startsWith('field_') && !String(value).trim()) payload.delete(key);
     }
     const label = filled ? '받은 값 ' + filled + '개를 넣고 이어서 쓰는 중' : '이 칸들은 다음 차례로. 다음 값을 불러오는 중';
-    const sent = document.createElement('div');
-    sent.className = 'chat-form-sent'; sent.setAttribute('role', 'status');
-    sent.innerHTML = '<span class="chat-progress-dot" aria-hidden="true"></span><span></span>';
-    sent.lastChild.textContent = label;
-    const got = valueRows(form_).filter(row => !rowLater(row)?.checked && rowArea(row).value.trim());
-    if (got.length) {                                                                        // 보낸 값 요약 — 칸은 접히고 무엇을 보냈는지 남는다
-      const list = document.createElement('ul');
-      list.className = 'chat-form-sent-list';
-      got.forEach(row => {
-        const li = document.createElement('li'), name = document.createElement('b');
-        name.textContent = row.querySelector('.chat-form-label')?.textContent.trim() || '';
-        li.append(name, document.createTextNode(' ' + rowArea(row).value.trim().slice(0, 80)));
-        list.append(li);
-      });
-      sent.append(list);
-    }
-    form_.append(sent); form_.classList.add('is-sent');
-    sending = true; paint();
-    try {
-      const response = await fetch(form_.action, {method:'POST', body:payload});
-      if (!response.ok) throw new Error('send failed');
-      installPage(await response.text(), response.url, true);
-      const progress = document.querySelector('#chatProgress [data-progress-label]');
-      if (progress && filled) { progress.textContent = label; status.textContent = label; }
-    } catch (_) {
-      sent.remove(); form_.classList.remove('is-sent');
-      formStatus(form_, '저장하지 못했습니다. 적은 값은 그대로 있습니다. 잠시 후 다시 저장하세요.');
-    } finally {
-      sending = false; paint();
-      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
-    }
+    const items = valueRows(form_).filter(row => !isLater(row) && rowArea(row).value.trim())
+      .map(row => [row.querySelector('.chat-form-label')?.textContent.trim() || '', rowArea(row).value.trim()]);
+    const sent = sentNote(form_, label, items);
+    await postCard(form_, payload, filled ? label : '', sent, '보내지 못했습니다. 적은 값은 그대로 있습니다. 잠시 후 다시 보내 주세요.');
   }
   function installPage(html, url, forceScroll = false) {
     const parsed = new DOMParser().parseFromString(html, 'text/html');
@@ -775,6 +724,8 @@
   }
   // 답변 갱신으로 교체되는 제안에도 같은 비동기 채팅 전송 경로를 사용한다.
   scroller.addEventListener('submit', event => {
+    const choice = event.target.closest('form[data-choice-card]');
+    if (choice) { event.preventDefault(); sendChoiceCard(choice); return; }
     const suggestion = event.target.closest('form.chat-suggestion');
     if (!suggestion) return;
     event.preventDefault();

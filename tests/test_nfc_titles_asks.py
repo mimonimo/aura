@@ -103,7 +103,7 @@ def test_card_renders_typed_inputs_and_leave_choice(tmp_path):
     assert _login(c, "kim", "pass-12345678")
     html = c.get(f"/chat/{sid}").text
     for needle in ('data-typed="period-from"', 'data-typed="period-to"', 'data-typed="amount"', 'data-typed="year"', 'data-typed="date"',
-                   "data-people-picker", "data-leave", "모르면 비워 두기", "/static/people-picker.js"):
+                   "data-people-picker", "data-leave", ">모름</button>", "data-later", ">나중에</button>", "/static/people-picker.js"):
         assert needle in html, needle
     card = html[html.index("chat-suggestion-form"):]
     assert ">칸:특성화학과<" not in card and ">특성화학과<" in card              # 내부 접두사는 화면에 보이지 않는다

@@ -44,13 +44,26 @@ def _width(w: str) -> str:
     return min(BORDER_WIDTHS, key=lambda b: abs(float(b.split()[0]) - v))
 
 
-def _color(c: str) -> str:
+# 칸 음영 색 이름 — 글이 읽히는 옅은 색만(진한 바탕에 검정 글은 안 읽힌다)
+NAMED_FILLS = {"회색": "#E5E5E5", "연회색": "#F2F2F2", "진회색": "#D6D6D6", "파랑": "#E0E5FA", "파란색": "#E0E5FA", "파랑색": "#E0E5FA",
+               "연파랑": "#DFEAF5", "하늘색": "#DFEAF5", "노랑": "#FFF2CC", "노란색": "#FFF2CC", "연두": "#E2EFDA", "연두색": "#E2EFDA",
+               "초록": "#E2EFDA", "초록색": "#E2EFDA", "녹색": "#E2EFDA", "주황": "#FCE4D6", "주황색": "#FCE4D6", "분홍": "#FBE5EC",
+               "분홍색": "#FBE5EC", "보라": "#E8E0F0", "보라색": "#E8E0F0", "없음": "none", "흰색": "none", "투명": "none"}
+
+
+def color_value(c) -> str | None:
+    """색 글 → #RRGGBB·none, 모르는 색이면 None(담당자에게 되묻는다)."""
     c = str(c or "").strip()
-    named = {"회색": "#E5E5E5", "연회색": "#F2F2F2", "진회색": "#D6D6D6", "파랑": "#E0E5FA", "연파랑": "#DFEAF5",
-             "노랑": "#FFF2CC", "연두": "#E2EFDA", "없음": "none", "흰색": "none"}
-    if c in named:
-        return named[c]
-    return c.upper() if re.fullmatch(r"#[0-9A-Fa-f]{6}", c) else ("none" if c.lower() in ("none", "") else HOUSE["head_fill"])
+    if c in NAMED_FILLS:
+        return NAMED_FILLS[c]
+    if re.fullmatch(r"#?[0-9A-Fa-f]{6}", c):
+        return "#" + c.lstrip("#").upper()
+    return "none" if c.lower() in ("none", "") else None
+
+
+def _color(c: str) -> str:
+    v = color_value(c)
+    return v if v is not None else HOUSE["head_fill"]
 
 
 class _Header:
@@ -326,20 +339,82 @@ def _head_texts(cells: list[dict], rl: dict) -> dict[int, str]:
     return out
 
 
+def kind_opts(cells: list[dict], rl: dict, kind: str = "auto", head_rows: int | None = None, given: dict | None = None) -> tuple[str, dict]:
+    """표 갈래(export/table_kinds)를 가려 그 갈래 디자인(app/table_styles — 실문서에서 캔 값 → 갈래 기본값)을 style_table 값으로.
+    kind: auto(칸 글로 가림) 또는 갈래 이름. given: 담당자·빌더가 준 값 — 그 키는 갈래 값이 덮지 않는다(쓰는 쪽에서 위에 얹는다)."""
+    from zzaimy.app import table_styles as tsty
+    from zzaimy.export import table_kinds as tk
+    nrows = max(c["r"] + c["rs"] for c in cells)
+    ncols = max(c["c"] + c["cs"] for c in cells)
+    grid = [[""] * ncols for _ in range(nrows)]
+    for c in cells:
+        grid[c["r"]][c["c"]] = c["text"]
+    hr = head_rows if head_rows is not None else max([c["r"] + c["rs"] for c in cells if rl.get((c["r"], c["c"])) == "head"] or [0])
+    if head_rows is None and ncols == 2 and hr and tk.head_rows_of(grid) == 0:
+        hr = 0                                            # 2열 「라벨 | 값」 표의 첫 행은 머리줄이 아니다(요약표)
+    k, f = tk.classify(grid, hr)
+    if kind and kind not in ("auto", "") and kind in tk.KINDS:
+        k = kind
+    d = tsty.design(k)
+    o = {"head_fill": d["head_fill"], "head_bold": d["head_bold"], "head_align": d["head_align"],
+         "label_fill": d["label_fill"], "label_align": d["label_align"], "label_bold": d.get("label_bold"),
+         "total_fill": d["total_fill"], "total_bold": d["total_bold"], "outer": d["outer"], "inner": d["inner"],
+         "head_bottom": d["head_rule"], "min_row_h": d["row_h"], "col_align": d["align"], "labels_only": True, "kind_name": k,
+         "head_rows": hr}
+    for key in ("outer_tb", "outer_lr"):
+        if d.get(key):
+            o[key] = d[key]
+    if d.get("head_pt"):
+        o["head_pt"] = d["head_pt"]
+    if d.get("body_pt"):
+        o["body_pt"] = d["body_pt"]
+    if ncols >= 6 and not any(x in (given or {}) for x in ("font_pt", "body_pt")):
+        # 열이 많은 촘촘한 자료 표는 한 단계 작게(열 폭을 잴 때도 9pt — hwpx_fill.DENSE_COLS)
+        o["body_pt"] = min(float(o.get("body_pt") or HOUSE["font_pt"]), 9.0)
+        o["head_pt"] = min(float(o.get("head_pt") or HOUSE["font_pt"]), 9.0)
+    # 라벨 칸 — 요약·비교표처럼 첫 열이 라벨인 갈래(음영이 있을 때), 4열 요약표는 셋째 열도
+    labels = []
+    if str(d["label_fill"]) != "none" and f["types"] and f["types"][0] in ("label", "text", "empty"):
+        lab_cols = [0, 2] if k == "summary" and ncols == 4 else [0]
+        totals = set(f["total_rows"])
+        labels = [[c["r"], c["c"]] for c in cells if c["c"] in lab_cols and c["r"] >= hr and c["r"] not in totals and c["text"]]
+    o["labels"] = labels
+    return k, o
+
+
 def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
     """표 하나에 서식을 입힌다 — opts 는 HOUSE·TABLE 을 덮는 값.
     HOUSE: head_fill·label_fill·outer·inner·head_bottom(SOLID 굵게|DOUBLE 이중선|THIN 안쪽 선과 같게)·font_pt·head_bold·head_align·body_align.
     TABLE: total_fill·zebra·num_align. 그 밖: keep_borders(양식 선·음영은 두고 글·정렬·여백만), row_height(행 높이를 이 값으로 — 새로 만든 표),
     marks([[행, 열]…] 0부터 — 일정표의 추진 기간 칸 음영), line(칸 글 줄 간격 %), plain(선·음영 없는 줄 표 — 공문 두문·결문).
-    칸 쓰임: 머리줄·라벨(house_style.cell_roles), 합계 줄(첫 칸이 합계·계·소계), 금액 칸(머리가 금액·원 단위이거나 큰 수)."""
-    o = {**HOUSE, **{k: hs.TABLE[k] for k in ("total_fill", "zebra", "zebra_fill", "num_align")}, **(opts or {})}
-    o["outer"], o["inner"] = _width(o["outer"]), _width(o["inner"])
+    칸 쓰임: 머리줄·라벨(house_style.cell_roles), 합계 줄(첫 칸이 합계·계·소계), 금액 칸(머리가 금액·원 단위이거나 큰 수).
+    kind(auto·갈래 이름·none): 표 갈래 디자인(kind_opts)을 깔고 준 값을 그 위에 — 이때 head_pt·body_pt(역할별 글자 크기),
+    label_align·label_bold, total_bold, min_row_h(행 최소 높이), col_align(칸 값 꼴 → 정렬)도 읽는다. num_align 을 주면 수·금액·비율 칸에 앞선다.
+    table_align(LEFT·CENTER·RIGHT): 표의 가로 자리."""
+    o = {**HOUSE, **{k: hs.TABLE[k] for k in ("total_fill", "zebra", "zebra_fill", "num_align", "total_bold")}, **(opts or {})}
     cells = _cells(tbl)
     if not cells:
         return tbl
     nrows = max(c["r"] + c["rs"] for c in cells)
     ncols = max(c["c"] + c["cs"] for c in cells)
     rl = roles(tbl)
+    kind = str((opts or {}).get("kind") or "")
+    if kind and kind != "none" and ncols >= 2:
+        # 표 갈래 디자인 — 학교 공통 모양 위에 갈래 값, 그 위에 준 값(담당자 지정·빌더가 아는 값)
+        given = {k: v for k, v in (opts or {}).items() if v is not None}
+        _k, ko = kind_opts(cells, rl, kind, given.get("head_rows"), given)
+        if "labels" in given:
+            ko.pop("labels", None)
+        o = {**HOUSE, **{k: hs.TABLE[k] for k in ("total_fill", "zebra", "zebra_fill", "num_align", "total_bold")}, **ko, **given}
+    o["outer"], o["inner"] = _width(o["outer"]), _width(o["inner"])
+    # 바깥 선을 위아래·좌우로 따로 — 학교 표에 흔한 「좌우 열린 표」(위아래 선만). none 은 선 없음. 담당자가 outer 를 주면 네 변 모두 그 값
+    edge_tb = edge_lr = o["outer"]
+    if not (opts or {}).get("outer"):
+        for key in ("outer_tb", "outer_lr"):
+            v = o.get(key)
+            if v:
+                v = "" if str(v) == "none" else _width(v)
+                edge_tb, edge_lr = (v, edge_lr) if key == "outer_tb" else (edge_tb, v)
     if o.get("head_rows") is not None:                  # 빌더가 아는 머리줄 수 — 짐작(첫 행이 모두 글)보다 앞선다
         hr = int(o["head_rows"])
         rl = {k: ("head" if k[0] < hr else ("body" if v == "head" else v)) for k, v in rl.items()}
@@ -365,10 +440,10 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
             if o.get("row_height"):
                 x = re.sub(r'(<hp:cellSz width="\d+" height=")(\d+)"', lambda m: f'{m.group(1)}{int(o["row_height"])}"', x, count=1)
         else:
-            left = o["outer"] if c["c"] == 0 else o["inner"]
-            right = o["outer"] if c["c"] + c["cs"] >= ncols else o["inner"]
-            top = o["outer"] if c["r"] == 0 else o["inner"]
-            bottom = o["outer"] if c["r"] + c["rs"] >= nrows else o["inner"]
+            left = edge_lr if c["c"] == 0 else o["inner"]
+            right = edge_lr if c["c"] + c["cs"] >= ncols else o["inner"]
+            top = edge_tb if c["r"] == 0 else o["inner"]
+            bottom = edge_tb if c["r"] + c["rs"] >= nrows else o["inner"]
             fill = o["head_fill"] if role == "head" else o["label_fill"] if role == "label" else "none"
             if total and role != "head":
                 fill = o["total_fill"]
@@ -394,11 +469,20 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
             bf = hdr.border(left, right, top, bottom, _color(fill), "SOLID", bk, top_kind=tk)
             if o.get("plain"):                                # 선 없는 줄 표 — 공문 두문·결문(수신·제목·결재·시행 줄)은 표가 아니라 줄로 보인다
                 bf = hdr.border("", "", "", "", "none")
-            align = o["head_align"] if role in ("head", "label") else o.get("body_align") or ""
+            align = (o["head_align"] if role == "head" else (o.get("label_align") or o["head_align"]) if role == "label"
+                     else o.get("body_align") or "")
             if o.get("plain") and role == "label":
                 align = "LEFT"
             if total and role != "head" and c["c"] == 0:
                 align = "CENTER"
+            if role == "body" and not align and o.get("col_align") and c["text"]:
+                # 갈래 디자인 — 칸 값 꼴(수·금액·비율·날짜·기호·라벨·글)마다 정렬. 담당자가 준 num_align 은 수 갈래 셋에 앞선다
+                from zzaimy.export import table_kinds as tk
+                vt = tk.value_type(c["text"], heads.get(c["c"], ""))
+                if (opts or {}).get("num_align") and vt in ("money", "number", "percent"):
+                    align = str(o["num_align"])
+                else:
+                    align = (o["col_align"] or {}).get(vt) or ""
             if role == "body" and not align:
                 # 금액·큰 수는 오른쪽, 기호·짧은 값은 가운데(학교 표의 거의 모든 값 칸), 긴 글은 문단 기본
                 align = hs.value_align(c["text"], heads.get(c["c"], "")) or ("CENTER" if (c["r"], c["c"]) in marks else "")
@@ -416,14 +500,20 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
                 h_ = sum(tall.get(r, int(o["row_height"])) for r in range(c["r"], c["r"] + c["rs"]))
                 x = re.sub(r'(<hp:cellSz width="\d+" height=")(\d+)"', lambda m: f'{m.group(1)}{h_}"', x, count=1)
             else:
-                x = re.sub(r'(<hp:cellSz width="\d+" height=")(\d+)"', lambda m: f'{m.group(1)}{max(int(m.group(2)), hs.MIN_ROW_HEIGHT)}"', x, count=1)
+                min_h = int(o.get("min_row_h") or hs.MIN_ROW_HEIGHT)
+                x = re.sub(r'(<hp:cellSz width="\d+" height=")(\d+)"', lambda m: f'{m.group(1)}{max(int(m.group(2)), min_h)}"', x, count=1)
             # 기안기는 「제목 칸」(header="1")의 글자 굵기를 무시한다 — 머리줄 굵게가 보이도록 끈다
             x = re.sub(r'(<hp:tc\b[^>]*\bheader=")1', r"\g<1>0", x, count=1)
             x = re.sub(r'(<hp:subList\b[^>]*\bvertAlign=")\w+', r"\g<1>CENTER", x, count=1)
         if not o.get("keep_borders"):                        # 양식 표 모양을 따른 표는 선·음영을 그대로 두고 글·정렬·여백만
             x = re.sub(r'(<hp:tc\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{bf}", x, count=1)
-        bold = bool(o["head_bold"]) if role == "head" else (True if total and hs.TABLE["total_bold"] else None)
+        bold = bool(o["head_bold"]) if role == "head" else (True if total and o.get("total_bold") else
+                                                            (bool(o["label_bold"]) if role == "label" and o.get("label_bold") is not None else None))
         pt = float(o["font_pt"]) if o.get("font_pt") else None
+        if role == "head" and o.get("head_pt") and not (opts or {}).get("font_pt"):
+            pt = float(o["head_pt"])
+        elif role in ("body", "label") and o.get("body_pt") and not (opts or {}).get("font_pt"):
+            pt = float(o["body_pt"])
         color = ""
         if role == "box":
             pt, color = (pt or HOUSE["font_pt"]) + hs.BOX["font_delta"], hs.BOX["color"]
@@ -445,9 +535,11 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
         tall = {int(k): int(v) for k, v in (o.get("tall") or {}).items()}
         rows_h = sum(tall.get(r, int(o["row_height"])) for r in range(nrows))
         t = re.sub(r'(<hp:sz width="\d+" widthRelTo="\w+" height=")\d+', rf"\g<1>{rows_h}", t, count=1)
+    if o.get("table_align") in ("LEFT", "CENTER", "RIGHT"):     # 표 자리(본문 폭 안 가로 위치) — 글자처럼 취급하지 않는 표만 듣는다
+        t = re.sub(r'(<hp:pos\b[^>]*\bhorzAlign=")\w+', rf'\g<1>{o["table_align"]}', t, count=1)
     if o.get("keep_borders"):
         return t
-    outer_bf = hdr.border(o["outer"], o["outer"], o["outer"], o["outer"], "none")
+    outer_bf = hdr.border(edge_lr, edge_lr, edge_tb, edge_tb, "none")
     return re.sub(r'(<hp:tbl\b[^>]*\bborderFillIDRef=")\d+', rf"\g<1>{outer_bf}", t, count=1)
 
 

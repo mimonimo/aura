@@ -2,7 +2,7 @@
 
 - 묻는 글은 값마다 처리할 길(자료 값·출처, 찾은 지난 값, 「확인 필요」)을 한 줄씩 적는다.
 - 사실 값은 묻기 전에 지난 자료(library)부터 찾게 한 번 안내하고, 처리 안의 수치는 이번 검색 결과에 있는 것만 내보인다.
-- 채팅 답(「이름: 값」·「확인 필요로 둬」·「자료 값으로」)은 칸 없이 그대로 기억하고, 「필요한 값 입력」 칸은 접어 둔다.
+- 채팅 답(「이름: 값」·「확인 필요로 둬」·「자료 값으로」)은 칸 없이 그대로 기억하고, 「필요한 값 입력」 은 접지 않은 카드 하나로 보인다.
 - 프로젝트에 올라 있어도 다른 사업의 문서에서는 값을 채우지 않는다(같은 사업은 받고, 다른 연도면 알린다)."""
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def test_decision_ask_is_not_sent_to_search_first(tmp_path, monkeypatch):
     assert obs == ["물었다."] and "- 가상 목표치: 정해서 알려 주시거나" in db.list_chats(sid)[-1]["content"]
 
 
-# ── C. 채팅 답·접힌 입력 칸 ────────────────────────────────────────────────
+# ── C. 채팅 답·값 입력 카드 ────────────────────────────────────────────────
 def test_chat_reply_is_remembered_without_the_form(tmp_path, monkeypatch):
     app, client = _app(tmp_path, monkeypatch, [])
     db = app.state.db
@@ -98,7 +98,7 @@ def test_accept_without_a_suggestion_is_not_remembered(tmp_path):
     assert asks.norm_answers(db, sess, {"가상 값": "자료 값으로", "가상 둘": "그대로", "가상 셋": "31명"}) == {"가상 셋": "31명"}
 
 
-def test_value_form_is_folded_with_an_open_button(tmp_path, monkeypatch):
+def test_value_form_is_one_open_card(tmp_path, monkeypatch):
     app, client = _app(tmp_path, monkeypatch, [])
     db = app.state.db
     sid = db.create_chat_session("가상", owner="zzaimy")
@@ -107,10 +107,9 @@ def test_value_form_is_folded_with_an_open_button(tmp_path, monkeypatch):
     asks.set_pending(db, sid, [{"name": "가상 기준값", "hint": ""}])
     page = client.get(f"/chat/{sid}").text
     head = page.split('id="chatValueForm"', 1)[0].rsplit("<form", 1)[1]
-    assert "is-folded" in head
+    assert "is-folded" not in head and "cc-values" in head                          # 접지 않은 카드 하나(선택 카드와 같은 cc 꼴)
     form = page.split('id="chatValueForm"', 1)[1].split("</form>", 1)[0]
-    assert 'data-form-toggle aria-expanded="false">입력 칸 열기</button>' in form
-    assert 'name="field_가상 기준값"' in form                                        # 접혀 있어도 칸은 그대로 있다(열면 쓴다)
+    assert 'data-form-toggle' not in form and 'name="field_가상 기준값"' in form
 
 
 # ── D. 다른 사업 문서의 값 ─────────────────────────────────────────────────

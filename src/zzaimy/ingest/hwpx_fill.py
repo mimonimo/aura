@@ -619,10 +619,12 @@ def ditto_spans(rows: list[list[str]], head_rows: int = 1) -> tuple[dict[tuple[i
 
 
 def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int,
-              widths: list[float] | None = None, roles: dict[str, tuple[str, str, str]] | None = None, char_hu: int | None = None) -> str:
+              widths: list[float] | None = None, roles: dict[str, tuple[str, str, str]] | None = None, char_hu: int | None = None,
+              head_rows: int | None = None) -> str:
     """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 칸 글 길이에 맞춰 나눈다.
     어느 쪽이든 열마다 끊으면 안 되는 낱말이 들어갈 최소 폭은 지킨다(char_hu: 글자 크기, 1/100pt — 없으면 10pt).
-    roles(서식 표의 역할별 모양, _role_styles)가 있으면 머리 행·라벨 열·본문 칸에 그 테두리·문단·글자 모양을 쓴다."""
+    roles(서식 표의 역할별 모양, _role_styles)가 있으면 머리 행·라벨 열·본문 칸에 그 테두리·문단·글자 모양을 쓴다.
+    head_rows=0 이면 첫 행도 머리 모양을 쓰지 않는다(머리줄 없는 「라벨 | 값」 요약표 — 판정은 export/table_kinds)."""
     roles = roles or {}
     label = "label" in roles and _label_like(rows)
     n_rows = len(rows)
@@ -668,10 +670,11 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
             rs = span.get((r, c), 1)
             cell = row[c] if c < len(row) else ""
             lines = split_lines(str(cell)) or [""]
-            role = "head" if r == 0 and "head" in roles else "label" if c == 0 and label else "body" if "body" in roles else ""
+            role = ("head" if r == 0 and "head" in roles and head_rows != 0 else "label" if c == 0 and label
+                    else "body" if "body" in roles else "")
             cbf, cpp, ccp = roles[role] if role else (bf, pp, cp)
             paras = "".join(paragraph_xml(ln, cpp, ccp) for ln in lines)
-            tcs.append(f'<hp:tc name="" header="{1 if r == 0 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{cbf}">'
+            tcs.append(f'<hp:tc name="" header="{1 if r == 0 and head_rows != 0 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{cbf}">'
                        f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" '
                        f'textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">{paras}</hp:subList>'
                        f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="1" rowSpan="{rs}"/>'

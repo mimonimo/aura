@@ -1148,7 +1148,18 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
             else:
                 rows = drop_filler_rows([[str(c) for c in r] for r in val])
                 pid = ids.new()
-                chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), None, roles, char_hu=hangs.char_height(cp))
+                # 열 폭 — 표 갈래(일정·예산·현황·목록…)의 열 값 꼴별 폭 비율(실문서에서 캔 값, app/table_styles). 머리 낱말·짧은 값 하한은 table_xml 이 지킨다
+                col_w, head_n = None, None
+                try:
+                    from zzaimy.app import table_styles as _tsty
+                    from zzaimy.export import table_kinds as _tk
+                    _kind, _f = _tk.classify(rows)
+                    col_w = _tk.column_weights(rows, _tsty.design(_kind), _f) if _f["cols"] >= 2 else None
+                    head_n = _f["head_rows"] if _f["cols"] >= 2 else None
+                except Exception:
+                    col_w = None
+                chunks.append(hf.table_xml(rows, pp, cp, width, bf, margin, int(ids.new()), col_w, roles, char_hu=hangs.char_height(cp),
+                                           head_rows=head_n)
                               .replace('<hp:p id="0"', f'<hp:p id="{pid}"', 1))
                 put.append(pid)
         # 줄 배치 캐시는 글이 바뀐 필드 문단에서만 지운다(새 문단·표는 처음부터 없다). 문서 전체에서 지우면 상자 밖으로 글이 넘친다
@@ -1187,11 +1198,12 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
         from zzaimy.app import webhwp_style
         out = webhwp_style.place_diagrams(out, diagrams, width)
     if put and set(put) - diagram_pids:
-        # 새 표 — 양식에 음영 있는 표가 없으면 학교 표 기본 모양(webhwp_style.HOUSE) 통째로, 있으면 양식 선·음영은 두고
+        # 새 표 — 양식에 음영 있는 표가 없으면 학교 표 모양(webhwp_style.HOUSE 위에 표 갈래 값) 통째로, 있으면 양식 선·음영은 두고
         # 머리줄 굵게·짧은 값 가운데·칸 여백만(양식을 따른 표도 글이 선에 붙지 않게)
         from zzaimy.app import webhwp_style
+        # 표 갈래 디자인(kind auto) — 일정표·예산표·현황표·요약표마다 실문서에서 캔 머리줄·정렬·합계 행·글자 크기(app/table_styles)
         out = webhwp_style.apply(out, only_paras=set(put) - diagram_pids,
-                                 opts=None if "head" not in roles else {"keep_borders": True})
+                                 opts={"kind": "auto"} if "head" not in roles else {"keep_borders": True, "kind": "auto"})
     try:
         # 기관 서식 프로필 — 양식이 정하지 않은 본문 글자와 새 표 칸 글자를 그 기관이 쓰는 모양으로(11-15)
         from zzaimy.app import house_profile

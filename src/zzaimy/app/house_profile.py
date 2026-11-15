@@ -168,13 +168,39 @@ def apply_to(data: bytes, pids, prof: dict | None = None, text: bool = True, ski
     hdr = ws._Header(z.read("Contents/header.xml").decode("utf-8"))
     run_cp = re.compile(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)')
 
-    def restyle(frag: str, role: str) -> str:
+    def restyle(frag: str, role: str, delta: float = 0.0) -> str:
         st = style(prof, role)
         if not st:
             return frag
         bs = st.get("bold_share")
         bold = True if (bs if bs is not None else (1 if st.get("bold") else 0)) >= 0.6 else False if (bs if bs is not None else 0) <= 0.2 else None
-        return run_cp.sub(lambda m: m.group(1) + hdr.char_like(m.group(2), st["font"], st["pt"], bold), frag)
+        pt = max(7.0, float(st["pt"]) + delta) if st.get("pt") else st.get("pt")
+        return run_cp.sub(lambda m: m.group(1) + hdr.char_like(m.group(2), st["font"], pt, bold), frag)
+
+    def kind_delta(frag: str) -> dict[str, float]:
+        """표 갈래의 글자 크기 차이(전체 표 최빈 크기 대비, app/table_styles) — 기관 크기 위에 갈래 차이만 얹는다(촘촘한 현황표는 작게)."""
+        try:
+            from zzaimy.app import table_styles as tsty
+            from zzaimy.export import house_style as hs_
+            from zzaimy.export import table_kinds as tk
+            tm = ws._TBL.search(frag)
+            cells = ws._cells(tm.group(0)) if tm else []
+            if not cells:
+                return {}
+            rl = hs_.cell_roles(cells)
+            hr = max([c["r"] + c["rs"] for c in cells if rl.get((c["r"], c["c"])) == "head"] or [0])
+            nr = max(c["r"] + c["rs"] for c in cells)
+            nc = max(c["c"] + c["cs"] for c in cells)
+            grid = [[""] * nc for _ in range(nr)]
+            for c in cells:
+                grid[c["r"]][c["c"]] = c["text"]
+            k, _ = tk.classify(grid, hr)
+            out = {"head": tsty.pt_delta(k, "head"), "body": tsty.pt_delta(k, "body")}
+            if nc >= 6:                                   # 촘촘한 표는 한 단계 작게(webhwp_style.kind_opts 와 같은 기준)
+                out = {r: min(v, -1.0) for r, v in out.items()}
+            return out
+        except Exception:
+            return {}
 
     def plain_text(frag: str) -> str:
         return re.sub(r"<[^>]+>", "", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", frag, flags=re.S))
@@ -192,10 +218,13 @@ def apply_to(data: bytes, pids, prof: dict | None = None, text: bool = True, ski
                 rc = re.search(r'<hp:tbl\b[^>]*\browCnt="(\d+)"[^>]*\bcolCnt="(\d+)"', frag)
                 rows, cols = (int(rc.group(1)), int(rc.group(2))) if rc else (0, 0)
 
+                dl = kind_delta(frag) if cols >= 2 else {}
+
                 def cell(m):
                     tc = m.group(0)
                     head = rows > 1 and re.search(r'<hp:cellAddr\b[^>]*rowAddr="0"', tc) is not None
-                    return restyle(tc, "box" if rows == 1 and cols == 1 else "table_head" if head else "table_cell")
+                    return restyle(tc, "box" if rows == 1 and cols == 1 else "table_head" if head else "table_cell",
+                                   dl.get("head" if head else "body", 0.0))
                 frag = re.sub(r"<hp:tc\b.*?</hp:tc>", cell, frag, flags=re.S)
             elif text:
                 t_ = plain_text(frag).strip()

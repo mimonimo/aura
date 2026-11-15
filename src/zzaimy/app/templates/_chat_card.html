@@ -1,0 +1,63 @@
+{# 대화창 카드 공통 꼴(app/chat_preview) — 미리 보기, 선택 카드, 반영 미리 보기. 값 입력 카드도 같은 cc 꼴을 쓴다 #}
+{% macro preview(p) -%}
+{%- if p.type == 'font' -%}
+<div class="pv pv-font"><p class="pv-font-sample" style="font-family: '{{ p.font }}', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;{% if p.pt %} font-size: {{ '%.1f' | format(p.pt * 1.333) }}px;{% endif %}{% if p.bold %} font-weight: 700;{% endif %}{% if p.align == '가운데' %} text-align: center;{% elif p.align == '오른쪽' %} text-align: right;{% endif %}">{{ p.sample }}</p>
+<small class="pv-note" data-font-check="{{ p.font }}">{{ p.font or '기본 글꼴' }}{% if p.pt %} · {{ p.pt | round(1) | string | replace('.0', '') }}pt{% endif %}{% if p.bold %} · 굵게{% endif %}</small></div>
+{%- elif p.type == 'text' -%}
+<div class="pv pv-text">{{ p.text }}</div>
+{%- elif p.type == 'table' -%}
+{%- set st = p.style or {} -%}{%- set lay = p.layout or {} -%}
+<div class="pv pv-table-wrap">{% if p.title %}<p class="pv-table-title">{{ p.title }}</p>{% endif %}
+<table class="pv-table{% if st.head_bottom == '이중선' %} is-double{% endif %}{% if st.head_bold == false %} is-light{% endif %}" style="--pv-head: {{ st.head_fill if st.head_fill and st.head_fill != '없음' else 'transparent' }}; --pv-outer: {{ ((st.outer or 0.4) * 2.2) | round(1) }}px; --pv-inner: {{ ((st.inner or 0.12) * 4) | round(1) }}px;{% if st.font_pt %} --pv-size: {{ '%.1f' | format(st.font_pt * 1.2) }}px;{% endif %}">
+{% if p.head %}<thead>{% for r in p.head %}<tr>{% for c in r %}<th class="al-{{ st.head_align or '가운데' }}">{{ c }}</th>{% endfor %}</tr>{% endfor %}</thead>{% endif %}
+<tbody>{% for r in p.rows %}<tr>{% for c in r %}<td class="al-{{ st.body_align or '왼쪽' }}">{{ c }}</td>{% endfor %}</tr>{% endfor %}
+{% if p.more %}<tr class="pv-more"><td colspan="{{ ((p.head[0] if p.head else p.rows[0]) | length) or 1 }}">외 {{ p.more }}행</td></tr>{% endif %}</tbody></table>
+{% set chips = [] %}{% if lay.orient %}{% set _ = chips.append('항목을 행으로' if lay.orient == '행' else '항목을 열로') %}{% endif %}{% if lay.head_rows == 2 %}{% set _ = chips.append('머리줄 2줄') %}{% endif %}{% if lay.total is defined %}{% set _ = chips.append('합계 행 있음' if lay.total else '합계 행 없음') %}{% endif %}{% if lay.place %}{% set _ = chips.append(lay.place) %}{% endif %}{% if lay.columns %}{% set _ = chips.append('열 차례: ' ~ (lay.columns | join(', '))) %}{% endif %}
+{% if chips %}<p class="pv-layout">{% for c in chips %}<span>{{ c }}</span>{% endfor %}</p>{% endif %}</div>
+{%- elif p.type == 'image' -%}
+<div class="pv pv-image"><img src="{{ p.src }}" alt="{{ p.alt or '미리 보기' }}" loading="lazy"></div>
+{%- elif p.type == 'page' -%}
+<div class="pv pv-page"><span class="pv-sheet{% if p.orientation == '가로' %} is-wide{% endif %}" aria-hidden="true"><i></i></span><small>{{ p.paper or '용지 그대로' }} {{ p.orientation }}{% if p.margin %} · 여백 {{ p.margin }}{% endif %}{% for k, v in (p.margins_mm or {}).items() %} · {{ {'top': '위', 'bottom': '아래', 'left': '왼쪽', 'right': '오른쪽'}[k] }} {{ v | round(1) | string | replace('.0', '') }}mm{% endfor %}</small></div>
+{%- elif p.type == 'change' -%}
+<div class="pv pv-change">{% if p.before %}<p class="pv-before"><span>전</span><del>{{ p.before }}</del></p>{% endif %}<p class="pv-after"><span>후</span>{{ p.after or '(지움)' }}</p></div>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro choice_card(card, mid, session_id, live) -%}
+{%- set answers = card.answers or [] -%}
+{%- if answers -%}
+<div class="cc cc-choice is-answered" aria-label="고른 것">
+  {% for q in card.questions %}{% set a = answers[loop.index0] if loop.index0 < answers | length else none %}{% if a %}
+  <p class="cc-picked"><span class="cc-picked-head">{{ q.header }}</span>{% for n in a.picked %}<span class="cc-chip is-on">{{ n }}번 {{ q.options[n - 1].label }}</span>{% endfor %}{% if a.other %}<span class="cc-chip is-on">직접 입력: {{ a.other }}</span>{% endif %}</p>{% endif %}{% endfor %}
+</div>
+{%- elif live -%}
+<form action="/chat/send" method="post" class="cc cc-choice" data-choice-card>
+  <input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="choice_mid" value="{{ mid }}"><input type="hidden" name="question" value="고른 것">
+  <div class="cc-head"><span class="cc-title">{{ '다른 모양으로 바꾸기' if card.mode == 'change' else '골라 주세요' }}</span><span class="cc-sub">{{ '고르면 그대로 고칩니다' if card.mode == 'change' else '고르면 이어서 반영합니다' }}</span></div>
+  {% for q in card.questions %}{% set qi = loop.index0 %}
+  <fieldset class="cc-q">
+    <legend><span class="cc-q-head">{{ q.header }}</span>{% if q.question != q.header %}<span class="cc-q-text">{{ q.question }}</span>{% endif %}{% if q.multi %}<span class="cc-q-multi">여럿</span>{% endif %}</legend>
+    <div class="cc-opts">{% for o in q.options %}
+      <label class="cc-opt"><input type="{{ 'checkbox' if q.multi else 'radio' }}" name="pick_{{ qi }}" value="{{ loop.index }}">
+        <span class="cc-opt-head"><span class="cc-opt-num">{{ loop.index }}</span><span class="cc-opt-label">{{ o.label }}</span></span>
+        {% if o.description %}<span class="cc-opt-desc">{{ o.description }}</span>{% endif %}
+        {% if o.preview %}<span class="cc-opt-preview">{{ preview(o.preview) }}</span>{% endif %}
+      </label>{% endfor %}
+    </div>
+    {% if q.allow_other %}<label class="cc-other"><span>직접 입력</span><input type="text" name="other_{{ qi }}" maxlength="300" placeholder="{{ '배치나 모양을 말로 적기' if q.kind == '모양' else '다른 답 적기' }}" autocomplete="off"></label>{% endif %}
+  </fieldset>{% endfor %}
+  <div class="cc-foot"><span class="cc-status" role="status" data-choice-status></span><button type="submit" class="primary" data-choice-submit>{{ '이대로 바꾸기' if card.mode == 'change' else '보내기' }}</button></div>
+</form>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro done_list(items) -%}
+{%- if items -%}
+<div class="cc cc-done" aria-label="반영한 것">
+  <div class="cc-head"><span class="cc-title">반영한 것</span></div>
+  <div class="cc-done-list">{% for x in items %}
+    <div class="cc-done-item"><span class="cc-done-what">{{ x.what }}</span>{{ preview(x.preview) }}</div>{% endfor %}
+  </div>
+</div>
+{%- endif -%}
+{%- endmacro %}

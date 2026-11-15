@@ -133,6 +133,7 @@ def compact(db, session_id: int, client, *, force: bool = False) -> bool:
     text = drop_echo(text)
     if goal_lock():
         text = keep_final(s.get("text") or "", text, [str(m.get("content") or "") for m in fresh if m.get("role") == "user"])
+    text = keep_choices(text, db, session_id)
     try:                                                     # 메모 갱신도 화면의 호출 목록에(배경 호출이라 답의 기록에 덧붙인다)
         u = json.loads(db.get_setting(f"chat_ctx:{int(session_id)}", "") or "{}")
         if isinstance(u, dict):
@@ -181,6 +182,23 @@ def keep_final(old_text: str, new_text: str, user_msgs: list[str]) -> str:
     if new and ow and len(ow & _words(new)) >= KEEP_OVERLAP * len(ow):
         return new_text
     return _set_part(new_text, FINAL, old)
+
+
+def keep_choices(text: str, db, session_id: int) -> str:
+    """담당자가 선택 카드로 고른 것(app/chat_preview)은 메모의 「확정된 것」 에 늘 남긴다 — 요약이 빠뜨려도 코드가 되살린다."""
+    from zzaimy.app import chat_preview
+
+    picks = chat_preview.chosen(db, session_id)
+    if not picks:
+        return text
+    fixed = parts(text).get("확정된 것", "")
+    add = []
+    for c in picks:
+        head = str(c.get("header") or "")
+        if head and head not in fixed:
+            got = ", ".join(c.get("picked") or []) or (f"「{c['other']}」" if c.get("other") else "")
+            add.append(f"- {head}: {got} (선택 카드로 고름)")
+    return _set_part(text, "확정된 것", "\n".join(x for x in [fixed, *add] if x)) if add else text
 
 
 def _set_part(text: str, head: str, body: str) -> str:

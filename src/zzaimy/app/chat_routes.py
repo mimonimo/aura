@@ -43,11 +43,28 @@ async def _form_fields(request: Request) -> dict:
         form = await request.form()
     except Exception:
         return {}
-    vals = {k[6:]: str(v).strip() for k, v in form.multi_items() if k.startswith("field_") and not hasattr(v, "filename")}
-    later = [str(v).strip() for k, v in form.multi_items() if k == "later" and not hasattr(v, "filename") and str(v).strip()]
-    if not vals and not later:
-        return {}
-    return {"values": vals, "template": str(form.get("template") or ""), "later": later}
+    items = [(k, str(v)) for k, v in form.multi_items() if not hasattr(v, "filename")]
+    out: dict = {}
+    mid = str(form.get("choice_mid") or "").strip()
+    if mid.isdigit():
+        # 선택 카드(app/chat_preview) — pick_<질문 번호> 에 고른 선택지 번호(여럿 고르기는 여러 개), other_<질문 번호> 에 직접 입력
+        picks: dict[int, list[int]] = {}
+        others: dict[int, str] = {}
+        for k, v in items:
+            m = re.fullmatch(r"(pick|other)_(\d{1,2})", k)
+            if not m:
+                continue
+            i = int(m.group(2))
+            if m.group(1) == "pick" and v.strip().isdigit():
+                picks.setdefault(i, []).append(int(v))
+            elif m.group(1) == "other" and v.strip():
+                others[i] = v.strip()
+        out["choice"] = {"mid": int(mid), "picks": picks, "others": others}
+    vals = {k[6:]: v.strip() for k, v in items if k.startswith("field_")}
+    later = [v.strip() for k, v in items if k == "later" and v.strip()]
+    if vals or later:
+        out.update({"values": vals, "template": str(form.get("template") or ""), "later": later})
+    return out
 
 
 def _strip_attach_prefix(text: str) -> str:
@@ -732,7 +749,19 @@ def chat_send(
         _answer_pref.save(db, user_, rags=rags, choices=_answer_pref.rag_choices(scope_, h._all_depts()))
 
     q = normalize_input(question).strip()          # 전각 영문·숫자(ＡＩＤ)·「。、」를 고쳐야 검색어가 맞는다
-    if form_fields:
+    if form_fields.get("choice") and session_id is not None:
+        # 선택 카드의 답 — 고른 것을 기억하고(카드·대화의 고른 것) 「머리: 2번 이름」 글을 다음 요청으로 보낸다
+        from zzaimy.app import chat_preview as _cp
+
+        _owned_chat(request, session_id)
+        pick_ = form_fields["choice"]
+        own_ = {int(m_["id"]) for m_ in db.list_chats(session_id, limit=400) if m_.get("role") == "assistant"}
+        said = _cp.answer(db, session_id, pick_["mid"], pick_["picks"], pick_["others"]) if pick_["mid"] in own_ else ""
+        if not said:
+            return RedirectResponse(f"/chat/{session_id}", status_code=303)   # 아무것도 고르지 않았다
+        q = said
+        form_fields = {}
+    if form_fields.get("values") is not None or form_fields.get("later"):
         from zzaimy.app import asks as _asks
 
         # 비워 둔 칸(과 「나중에」 로 고른 값)은 이번에 묻지 않고 차례의 뒤로 — 같은 칸에 적은 값이 있으면 값이 먼저다

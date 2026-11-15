@@ -65,7 +65,7 @@ def test_send_defers_blank_fields(tmp_path):
     assert '가상 수량' in later() and '가상 이름' not in {a['name'] for a in asks.pending(db, sid)}
 
 
-def test_value_form_rows_have_pick_hint_and_source(tmp_path):
+def test_value_form_rows_have_chip_hint_and_source(tmp_path):
     client = _client(tmp_path)
     db = client.app.state.db
     sid = db.create_chat_session('합성 대화')
@@ -74,10 +74,11 @@ def test_value_form_rows_have_pick_hint_and_source(tmp_path):
     import json
     db.set_setting(f'chat_facts:{sid}:suggested', json.dumps({'가상 기간': {'value': '2099. 1. 1.', 'title': '가상 공고'}}, ensure_ascii=False))
     form = client.get(f'/chat/{sid}').text.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
-    assert form.count('data-pick ') == 2 and 'data-pick-all' in form and 'name="later"' not in form   # 비우면 저절로 다음 차례
-    assert 'is-filled is-suggested' in form and 'data-accept-value>확인</button>' in form and 'data-edit-value>고치기</button>' in form
+    assert 'data-pick' not in form and 'data-form-toggle' not in form              # 줄 체크·접기 없이 카드 하나에서 끝난다
+    assert form.count('name="later"') == 2 and form.count('disabled data-later-input') == 2   # 「나중에」 를 누를 때만 보낸다
+    assert 'is-suggested' in form and 'data-chip-value="2099. 1. 1."' in form and 'data-accept-value' not in form
     assert '자료에서 찾음 · 확인 전 · 《가상 공고》' in form and 'title="협약 기간"' in form   # 설명은 원래 설명, 출처는 따로
-    assert '2개 중 1개 채움' in form and 'data-form-submit>확인</button>' in form
+    assert '2개 중 0개 채움' in form and 'data-form-submit>모두 보내기</button>' in form and 'data-bulk="find"' in form
 
 
 def test_form_values_are_remembered_directly_without_the_agent(tmp_path, monkeypatch):

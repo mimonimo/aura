@@ -964,6 +964,8 @@ def create_app(
     _sysconf.install(db)                           # 화면에서 정한 서버 설정(주소·키·경로)을 프로세스 환경에 — 개발 화면 「서버 설정」
     from zzaimy.app import house_profile as _hp
     _hp.configure(Path(db_path).parent)            # 기관 서식 프로필(data/platform/house_profile.json) — 양식이 정하지 않은 본문·표 글자 모양
+    from zzaimy.app import table_styles as _tsty
+    _tsty.configure(Path(db_path).parent)          # 표 갈래별 디자인(data/platform/table_styles.json, scripts/230) — 새 표의 머리줄·정렬·합계 행·열 폭
     # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로(독립 라우터)
     from zzaimy.app.chat_documents import router as chat_documents_router
     from zzaimy.app.project_search import router as project_search_router
@@ -1200,6 +1202,9 @@ def create_app(
     app.state.templates = templates
     templates.env.globals["status_labels"] = STATUS_LABELS
     templates.env.globals["cot_of"] = lambda mid: (db.get_setting(f"chat_cot:{int(mid)}", "") or "") if mid else ""   # 답 앞 단계 추론
+    from zzaimy.app import chat_preview as _cp_tpl                 # 답에 단 선택 카드·반영 미리 보기
+    templates.env.globals["choice_of"] = lambda mid: _cp_tpl.card_of(db, int(mid)) if mid else {}
+    templates.env.globals["done_of"] = lambda mid: _cp_tpl.done_of(db, int(mid)) if mid else []
     templates.env.globals["feedback_reasons"] = ("근거 문서가 틀림", "숫자·사실이 틀림", "질문과 다른 답", "너무 길거나 짧음", "느림", "기타")
     # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다
     templates.env.globals["asset_v"] = _asset_version()
@@ -2743,6 +2748,11 @@ def create_app(
             if told_now:
                 lines.append("이번 요청에서 담당자가 채팅으로 알려 준 값(이미 기억함 — remember_values 다시 하지 않는다): "
                              + ", ".join(f"{k_}: {v_[:40]}" for k_, v_ in told_now.items()) + ". " + _APPLY_GIVEN)
+            from zzaimy.app import chat_preview as _cp_s
+            picked_ = _cp_s.chosen(db, session_id)
+            if picked_:
+                lines.append("담당자가 고른 것(확정 — 다시 묻지 않는다. 아직 문서에 반영하지 않았으면 이 값을 도구 인자로 써서 반영한다):\n"
+                             + _cp_s.state_lines(picked_))
             pend = _asks.pending(db, session_id)
             if pend:
                 sug_ = _asks.suggestions(db, db.get_chat_session(session_id))
@@ -3191,6 +3201,8 @@ def create_app(
             return f"「{chosen['label']}」 양식으로 문서를 만들어 연결했다." if made else f"만들지 못함: {why or '구글 연결 확인 필요'}"
 
         answer_timing: dict = {}
+        run_cards: list[tuple[int, dict]] = []                   # 이번 요청에서 낸 선택 카드 (그 카드를 단 답 id, 카드)
+        alt_box: list[dict] = []                                 # finish 의 「바꾸기」 후보 카드(한 개)
 
         def t_answer(a: dict) -> str:
             kw = dict(attachment_text=attachment_text, criteria_ids=criteria, session_id=session_id, project=project)
@@ -3217,10 +3229,43 @@ def create_app(
                 db.set_setting(f"chat_cot:{int(mid_)}", r.last_reasoning[:6000])
             return text[:600]
 
+        from zzaimy.app import chat_preview as _cp_main
+        _CHOICE_SCHEMA = ("[{header: 열두 자 안 머리, question, why: 자료로 정할 수 없는 까닭, options: [{label, description, preview?}] 2~4개, "
+                          "multi?: 여럿 고르기면 true}] 1~4개. preview 는 문서에 들어갈 모양 그대로: "
+                          "{type: font, font, pt, bold} · {type: text, text: 넣을 문단 앞부분} · "
+                          "{type: table, title?, head: [[머리줄]](두 줄이면 둘), rows: [[이번에 넣을 실제 행]], style: {hwp_style 인자}, "
+                          "layout: {orient: 행|열(항목을 행으로·열로), total: 합계 행 true|false, head_rows: 1|2, columns: [열 차례], place: 이 절 안|별도 표|서식 표 채우기}} · "
+                          "{type: page, paper, orientation, margin} · {type: image, src: 문서 쪽 미리 보기 주소}. 수치는 찾은 근거에 있는 것만")
+
+        def _choice_card(raw, mode: str) -> dict | None:
+            """선택 카드(처음 묻기 ask·바꾸기 후보 change) 검사 — 꼴·이미 고른 것·수치 근거·먼저 묻기 관문. 막으면 Retry."""
+            from zzaimy.app import chat_preview as _cp
+            card_, why_ = _cp.norm_card(raw, mode)
+            if card_ is None:
+                raise doc_agent.Retry(("choices" if mode == "ask" else "alternatives") + " 꼴이 맞지 않다 — " + why_)
+            done_ = _cp.already(card_, _cp.chosen(db, session_id))
+            if done_ and mode == "ask":
+                raise doc_agent.Retry("이 대화에서 담당자가 이미 고른 것이다 — 다시 묻지 않고 그 값으로 이어 한다:\n" + _cp.state_lines(done_))
+            if mode == "ask":
+                basis_ = bool(hw is not None and hw.fid()) or bool((_hp.current() or {}).get("roles"))
+                stop_ = _cp.gate_first(card_, has_basis=basis_, wants_choice=doc_agent.consented(_cp.WANTS_CHOICE, q))
+                if stop_:
+                    raise doc_agent.Retry(stop_)
+            seen_c = "\n".join([q, *[str(f_.get("text") or "") for f_ in found],
+                                 *[str(m_.get("content") or "") for m_ in db.list_chats(session_id, limit=200) if m_.get("role") == "user"]])
+            _cp.scrub_numbers(card_, seen_c)
+            return card_
+
         def t_ask(a: dict) -> str:
             items = [{"name": _asks.clean_name(x.get("name"))[:60], "hint": _ko.clip(str(x.get("why") or x.get("hint") or ""), 120),
                       "kind": _asks.norm_kind(x.get("kind")), "how": _ko.clip(str(x.get("how") or "").strip(), 100)}
                      for x in (a.get("items") or []) if isinstance(x, dict) and x.get("name")]
+            card_ = _choice_card(a.get("choices"), "ask") if a.get("choices") else None
+            if card_ is not None and not items:
+                # 고르기만 묻는다 — 값 입력 칸 없이 선택 카드 하나(질문 머리말은 message, 없으면 첫 질문)
+                mid_ = db.add_chat(session_id, "assistant", _scrub_internal(str(a.get("message") or "").strip() or card_["questions"][0]["question"]))
+                run_cards.append((int(mid_), card_))
+                return "물었다(선택)."
             if not items:
                 return "items 가 비었다."
             sess_ = db.get_chat_session(session_id)
@@ -3247,10 +3292,15 @@ def create_app(
             items = [x for x in items if x["name"]]
             _asks.add_pending(db, session_id, [{k_: v_ for k_, v_ in x.items() if k_ != "how"} for x in items])   # 접두사만 다른 같은 값은 한 번만
             _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), sug_)])
-            db.add_chat(session_id, "assistant", _scrub_internal(_asks.ask_message(items, sug_, str(a.get("message") or ""))))
+            mid_ = db.add_chat(session_id, "assistant", _scrub_internal(_asks.ask_message(items, sug_, str(a.get("message") or ""))))
+            if card_ is not None:
+                run_cards.append((int(mid_), card_))
             return "물었다."
 
         def t_finish(a: dict) -> str:
+            if a.get("alternatives") and not alt_box:
+                # 먼저 반영한 뒤 붙이는 「바꾸기」 후보 — 꼴이 틀리면 끝내기 전에 한 번 돌려준다
+                alt_box.append(_choice_card(a.get("alternatives"), "change"))
             touched_ = hw is not None and (hw.fid() != lead_start["fid"] or int(getattr(hw, "writes", 0) or 0) > lead_start["writes"])
             left_ = _lead_placeholders() if touched_ else []
             if left_ and not lead_checked["done"]:
@@ -3397,8 +3447,13 @@ def create_app(
                            final=True, needs_evidence=True),
             doc_agent.Tool("ask_user", "이번 요청에 꼭 필요한데 요청 글·이 사업 문서·지난 자료(library)에서 찾지 못한 값만 묻기(정해진 목록을 묻지 않는다). "
                            "args {items: [{name, why, kind: 사실(자료에 있을 수 있는 값) 또는 결정(담당자가 정할 목표·계획), "
-                           "how: 이 값을 어떻게 할지 한 구절(예: 지난 자료에서 찾은 값과 출처를 쓸지, 「확인 필요」 로 둘지)}], message: 한 문장 머리말}", t_ask, final=True),
-            doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
+                           "how: 이 값을 어떻게 할지 한 구절(예: 지난 자료에서 찾은 값과 출처를 쓸지, 「확인 필요」 로 둘지)}], message: 한 문장 머리말, "
+                           "choices?: 고르게 할 것 — " + _CHOICE_SCHEMA + ". 처음부터 고르게 하는 것은 셋뿐: 기준(작업 문서의 서식·기관 서식·지난 문서)이 전혀 없는 큰 결정(문서 전체 틀 등), "
+                           "담당자가 먼저 고르겠다고 한 것, 자료로 알 수 없는 결정. 모양·배치(글꼴·표 모양·표 배치)는 먼저 반영하고 finish 의 alternatives 로 바꾸기 후보를 붙인다}", t_ask, final=True),
+            doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message, alternatives?: 방금 반영한 모양·배치를 바꿀 다른 후보 — "
+                           + _CHOICE_SCHEMA + ". 반영한 표·글꼴·배치에 그럴듯한 다른 꼴이 있을 때만 2~3개(지금 반영한 것은 빼고). "
+                           "표 후보의 preview 는 이번에 넣은 실제 머리줄·앞 행으로 그리고 배치(layout)와 모양(style)만 바꾼다. 표 모양 후보: " + _cp_main.looks_line() + "}",
+                           t_finish, final=True),
         ]
         if hw is not None:
             # 한글 기안기 — 구글 문서 쓰기 도구를 한글 도구로 바꾼다(찾기·읽기·값 기억·묻기·답하기·마치기는 같다)
@@ -3432,10 +3487,13 @@ def create_app(
                                "절은 통째로 다시 쓰인다 — 앞에 쓴 글 뒤에 덧붙이려면 append: true. 서식에 없는 소제목(작성 예시의 「1.1.」)은 위 절에 append 로 소제목 줄을 달아 쓴다. "
                                "args {field: 절 또는 칸 필드 이름, text: 본문, under?: 위 제목, append?: true}", hw.write, writes=True),
                 doc_agent.Tool("hwp_tables", "작업본의 표 목록(번호·크기·첫 행) — 서식을 고칠 표를 짚을 때. args {}", hw.tables),
-                doc_agent.Tool("hwp_style", "표 서식 고치기(담당자가 표 모양을 바꿔 달라고 할 때). 주지 않은 값은 학교 표 기본(머리줄·라벨 칸 회색 #E5E5E5·굵게·가운데, "
-                               "바깥 0.4mm·안쪽 0.12mm 실선, 10pt). args {tables: [hwp_tables 번호, 비우면 전부], head_fill: 색(#RRGGBB·회색·연파랑·없음), "
-                               "label_fill, outer: 바깥 선 mm, inner: 안쪽 선 mm, head_bottom: 실선|이중선, font_pt, head_bold: true|false, "
-                               "head_align·body_align: 가운데|왼쪽|오른쪽|양쪽}", hw.style, writes=True),
+                doc_agent.Tool("hwp_style", "표 서식 고치기(담당자가 표 모양을 바꿔 달라고 할 때 — 「머리줄 파란색」「금액 오른쪽」「글자 9pt」). 준 값만 바뀌고 "
+                               "주지 않은 값은 그 표 갈래(일정표·예산표·현황표·요약표·역할표·비교표·목록)의 학교 실문서 모양을 따른다. "
+                               "args {tables: [hwp_tables 번호, 비우면 전부], head_fill: 색(#RRGGBB·회색·연회색·연파랑·파랑·노랑·연두·주황·분홍·보라·없음), "
+                               "label_fill, total_fill(합계 행), outer: 바깥 선 mm, inner: 안쪽 선 mm, head_bottom: 실선|이중선, "
+                               "font_pt(표 전체 글자), head_pt, body_pt, head_bold: true|false, head_align·label_align·body_align: 가운데|왼쪽|오른쪽|양쪽, "
+                               "num_align(수·금액·비율 칸만), table_align(표 자리): 가운데|왼쪽|오른쪽, kind: 갈래 이름(summary|schedule|budget|stats|roles|compare|list|general) 또는 none(갈래 무시, 학교 표 공통 기본)}",
+                               hw.style, writes=True),
             ]
             from zzaimy.app import webhwp_edit_ops as _weo           # 기안기 편집 도구(페이지 설정·표 만들기·표 고치기·쪽 번호·…·열린 기안기 명령)
             tools += _weo.doc_tools(hw, doc_agent.Tool)
@@ -3497,6 +3555,20 @@ def create_app(
                 hw.sweep_guides()
             except Exception:
                 logging.getLogger("zzaimy.app.webhwp").exception("작성방법 안내 떼기 실패 (대화 %s)", session_id)
+        # 대화창 미리 보기 — 고를 것 없이 반영한 것은 도구 결과에서 만든 미리 보기를, 낸 선택 카드는 그 답에 단다(app/chat_preview)
+        try:
+            from zzaimy.app import chat_preview as _cp
+            for mid_c, card_c in run_cards:
+                _cp.save_card(db, mid_c, card_c)
+            new_ids = [int(m_["id"]) for m_ in db.list_chats(session_id, limit=20) if m_.get("role") == "assistant" and int(m_["id"]) > _before_id]
+            if new_ids:
+                done_ = _cp.from_steps(ep.steps, doc_agent._REFUSED)
+                if done_:
+                    _cp.save_done(db, new_ids[-1], done_)
+                if alt_box and alt_box[0] and (ep.writes or done_):
+                    _cp.save_card(db, new_ids[-1], alt_box[0])
+        except Exception:
+            logging.getLogger("zzaimy.app").exception("미리 보기 저장 실패 (대화 %s)", session_id)
         # 에이전트 걸음의 생각(thought)도 답과 함께 「생각 과정」 으로 — 걸음마다 [N단계: 도구] 생각
         try:
             new_msgs = [m_ for m_ in db.list_chats(session_id, limit=20) if m_.get("role") == "assistant" and int(m_["id"]) > _before_id]

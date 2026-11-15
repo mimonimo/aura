@@ -1908,16 +1908,39 @@ class HwpTools:
             return g
         fid, f = g
         which = [int(x) for x in (a.get("tables") or []) if str(x).isdigit()]
-        keys = ("head_fill", "label_fill", "outer", "inner", "head_bottom", "font_pt", "head_bold", "head_align", "body_align")
+        keys = ("head_fill", "label_fill", "total_fill", "outer", "inner", "head_bottom", "font_pt", "head_pt", "body_pt", "head_bold",
+                "head_align", "label_align", "body_align", "num_align", "table_align")
         opts = {k: a[k] for k in keys if k in a and a[k] not in (None, "")}
-        for k in ("head_align", "body_align"):
+        for k in ("head_align", "label_align", "body_align", "num_align", "table_align"):
             if k in opts:
                 opts[k] = webhwp_style.ALIGNS.get(str(opts[k]), "")
+                if not opts[k]:
+                    opts.pop(k)
+        for k in ("font_pt", "head_pt", "body_pt"):
+            if k in opts:
+                try:
+                    opts[k] = float(str(opts[k]).lower().replace("pt", "").strip())
+                except ValueError:
+                    return f"{k} 는 글자 크기(pt) 숫자다."
+                if not 5 <= opts[k] <= 40:
+                    return f"{k} 는 5~40pt 다."
+        for k in ("head_fill", "label_fill", "total_fill"):
+            if k in opts:
+                opts[k] = webhwp_style.color_value(opts[k])
+                if opts[k] is None:
+                    return f"{k} 색을 모르겠다 — #RRGGBB 나 색 이름(회색·연회색·연파랑·파랑·노랑·연두·주황·분홍·보라·없음)으로."
+        if "head_bold" in opts and not isinstance(opts["head_bold"], bool):
+            opts["head_bold"] = str(opts["head_bold"]).lower() in ("true", "1", "예", "굵게")
+        # 표 갈래 디자인을 깔고(주지 않은 값은 그 표 갈래의 학교 실문서 모양) 준 값만 덮는다. kind=none 이면 학교 표 공통 기본
+        from zzaimy.export import table_kinds as _tk
+        kind = str(a.get("kind") or "auto")
+        opts["kind"] = kind if kind in (*_tk.KINDS, "auto", "none") else "auto"
         if "head_bottom" in opts:
             opts["head_bottom"] = "DOUBLE" if "이중" in str(opts["head_bottom"]) or str(opts["head_bottom"]).upper() == "DOUBLE" else "SOLID"
         self._mark(fid, f"표 서식 {', '.join(map(str, which)) or '전부'}")
         data = webhwp_style.apply(Path(f["path"]).read_bytes(), which or None, opts)
         webhwp.save(self.db, self.base, fid, data, user="AURA")
         self.writes += 1
+        shown = {k: v for k, v in opts.items() if k != "kind"}
         return f"표 서식을 입혔다({'표 ' + ', '.join(map(str, which)) if which else '모든 표'}; " + \
-            (", ".join(f"{k}={v}" for k, v in opts.items()) or "학교 표 기본 모양") + ")."
+            (", ".join(f"{k}={v}" for k, v in shown.items()) or ("학교 표 기본 모양" if opts["kind"] == "none" else "표 갈래별 학교 모양")) + ")."
