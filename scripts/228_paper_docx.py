@@ -449,14 +449,25 @@ def _style_toc(doc):
         st.font.bold = lv == 1
 
 
+_PPR_AFTER_BDR = ("shd", "tabs", "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct", "topLinePunct", "autoSpaceDE",
+                  "autoSpaceDN", "bidi", "adjustRightInd", "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorIndents",
+                  "suppressOverlap", "jc", "textDirection", "textAlignment", "textboxTightWrap", "outlineLvl", "divId", "cnfStyle",
+                  "rPr", "sectPr", "pPrChange")
+
+
 def _rule(p, side: str):
+    """문단 테두리 한 변(머리말 아래·꼬리말 위 선) — w:pBdr 는 pPr 안 정해진 자리에 둬야 워드가 그린다(맨 끝에 붙이면 무시됐다, 11-15)."""
     ppr = p._p.get_or_add_pPr()
     bdr = OxmlElement("w:pBdr")
     e = OxmlElement(f"w:{side}")
     for k, v in (("val", "single"), ("sz", "4"), ("space", "4"), ("color", "7F7F7F")):
         e.set(qn(f"w:{k}"), v)
     bdr.append(e)
-    ppr.append(bdr)
+    after = next((c for c in ppr if c.tag.split("}")[-1] in _PPR_AFTER_BDR), None)
+    if after is not None:
+        after.addprevious(bdr)
+    else:
+        ppr.append(bdr)
 
 
 def _hf(section, *, header_text, footer_text, page=True):

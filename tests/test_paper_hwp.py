@@ -702,3 +702,19 @@ def test_paper_format_follows_school_template_and_is_idempotent(tmp_path, monkey
     p = re.search(r'<hp:p\b[^>]*paraPrIDRef="(\d+)"[^>]*>(?:(?!<hp:p\b).)*?본 프로젝트의 핵심은 두 축이다', sec, re.S)
     pp = re.search(rf'<hh:paraPr\b[^>]*?\bid="{p.group(1)}"[^>]*>.*?</hh:paraPr>', hdr, re.S).group(0)
     assert 'lineSpacing type="PERCENT" value="115"' in pp and '<hc:intent value="1000"' in pp
+
+
+def test_heading_renames_follow_manuscript_spacing():
+    # 11-15: 원고 제목의 띄어쓰기를 고치면(「LoRA 와」 → 「LoRA와」) 문서의 제목 줄·목차 줄도 맞춘다 — 필드 이름은 그대로
+    data = ph.build()
+    texts = ["# 1. 서론\n\n## 1.2 핵심내용\n\n본문이다.\n"]
+    pairs = ph.heading_renames(data, texts)
+    assert ("1.2 핵심 내용", "1.2 핵심내용") in pairs
+    new = data
+    for o, n in pairs:
+        new, k = ph.stamp_dept(new, [o], n)
+        assert k >= 1
+    sec = zipfile.ZipFile(io.BytesIO(new)).read("Contents/section0.xml").decode()
+    assert not re.search(r"<hp:t>[^<]*1\.2 핵심 내용", sec)            # 목차 줄·본문 제목 줄 모두
+    assert ww.field_values(new) == ww.field_values(data)
+    assert ph.heading_renames(new, texts) == []

@@ -171,6 +171,10 @@ def main() -> int:
             groups[-1].append(w)
         else:
             groups.append([w])
+    if not a.dry_run:                                # 원고 제목을 고쳤으면(띄어쓰기 등) 문서의 제목 줄·목차 줄도 먼저 맞춘다
+        rh = ph.rehead(db, base, fid, texts)
+        if rh.get("ok") and rh.get("changed"):
+            print(f"제목 맞추기: {rh.get('note', '')}")
     try:
         for i, g in enumerate(groups):
             if g[0]["kind"] == "rich":

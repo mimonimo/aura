@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 논문 반영 한 번에(11-15) — 원고 → 웹 기안기 2313(서식째 쓰기·논문 양식·쪽 아래 틀) → 바탕화면 사본 두 개(2313 hwpx · 워드) → 렌더본 검사.
-# 셋이 늘 같은 판이 되게 한다(한 곳만 고쳐 올리던 것). 개발 PC 에서: bash scripts/230_paper_publish.sh [바탕화면 폴더]
+# 셋이 늘 같은 판이 되게 한다(한 곳만 고쳐 올리던 것). 개발 PC 에서: bash scripts/231_paper_publish.sh [바탕화면 폴더]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-$HOME/Desktop/AURA-논문}"

@@ -852,14 +852,17 @@ def stamp_dept(data: bytes, old: list[str], new: str) -> tuple[bytes, int]:
             parts.append(xml[pos:a])
             seg = xml[a:b]
 
-            def sub(m: re.Match) -> str:
-                t = m.group(2)
+            def text_only(t: str) -> str:
                 for o in olds:
                     if o in t:
                         count[0] += t.count(o)
                         t = t.replace(o, escape(new))
-                return m.group(1) + t + m.group(3)
-            parts.append(re.sub(r"(<hp:t>)([^<]*)(</hp:t>)", sub, seg))
+                return t
+
+            def sub(m: re.Match) -> str:                 # 글 조각 안에 탭 같은 요소가 끼어 있어도(목차 줄) 글 부분만 바꾼다
+                body = re.sub(r"(^|>)([^<]+)", lambda k: k.group(1) + text_only(k.group(2)), m.group(2))
+                return m.group(1) + body + m.group(3)
+            parts.append(re.sub(r"(<hp:t>)(.*?)(</hp:t>)", sub, seg, flags=re.S))
             pos = b
         parts.append(xml[pos:])
         return "".join(parts)
@@ -915,6 +918,39 @@ def restamp(db, base: Path, fid: int, dept: str | None = None, *, user: str = WR
         m["paper"] = {**(m.get("paper") if isinstance(m.get("paper"), dict) else {}), "dept": dept}
         db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
     return r
+
+
+def heading_renames(data: bytes, texts: list[str]) -> list[tuple[str, str]]:
+    """원고 제목이 바뀐 곳(띄어쓰기·낱말 손질) — [(문서에 보이는 옛 제목, 새 제목)]. 문서 목차 줄과 원고 차례를 같은 번호끼리 차례대로 맞춘다
+    (본문 1.1 과 부록 1.1 처럼 번호가 겹쳐도 차례로 가른다). 제목이 비슷할 때만 — 다른 절로 바뀐 것은 건드리지 않는다."""
+    xml = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode("utf-8")
+    toc = [t for *_, t in _toc_lines(xml)]
+    out, i = [], 0
+    for text in texts:
+        for sct in split_sections(text):
+            if sct.get("note"):
+                continue
+            new = heading_text(sct["num"], sct["title"], sct["level"])
+            tok = new.split(" ", 1)[0] if sct["num"] else ""
+            j = next((k for k in range(i, len(toc)) if (toc[k].split(" ", 1)[0] == tok if tok else toc[k] == new)), None)
+            if j is None:
+                continue
+            i = j + 1
+            old = toc[j]
+            if old != new and _similar(old[len(tok):].strip(), new[len(tok):].strip()):
+                out.append((old, new))
+    return out
+
+
+def rehead(db, base: Path, fid: int, texts: list[str], *, user: str = WRITER) -> dict:
+    """문서의 제목 줄·목차 줄(필드 밖)을 원고 제목으로 — 쓸 자리 필드 이름은 그대로(match_field 가 비슷한 제목을 알아본다)."""
+    def change(data: bytes):
+        total = 0
+        for old, new in heading_renames(data, texts):
+            data, n = stamp_dept(data, [old], new)
+            total += n
+        return data, f"{total}곳"
+    return _save_outside(db, base, fid, change, user=user)
 
 
 def rename_back(db, base: Path, fid: int, *, user: str = WRITER) -> dict:
