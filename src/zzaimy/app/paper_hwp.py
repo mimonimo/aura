@@ -430,7 +430,7 @@ def _fieldize(data: bytes, meta: dict | None = None) -> bytes:
 # 쪽 여백(HWPUNIT, 1mm = 283.46). 한글은 「위쪽」 이 종이 끝 → 머리말, 「머리말」 이 머리말 칸 높이라 본문은 위쪽+머리말에서, 아래도 같이
 # 「아래쪽」 이 종이 끝 → 꼬리말이다. 학교 양식(워드: 본문까지 25.4mm, 머리말 15mm·꼬리말 17.5mm)을 옮기되 꼬리말은 쪽 아래 끝 가까이 —
 # 위쪽 20·아래쪽 15 로 두었을 때 꼬리말이 본문 쪽으로 떠 보였다(11-12 사용자, 웹 기안기 실측)
-MARGIN = {"top": 4252, "header": 3402, "bottom": 2835, "footer": 4252}     # 15 + 12 = 본문 27mm, 10 + 15 = 본문 25mm
+MARGIN = {"top": 4252, "header": 2948, "bottom": 2835, "footer": 4365}     # 15 + 10.4 = 본문 25.4mm, 10 + 15.4 = 본문 25.4mm(템플릿 본문 위아래 25.4mm, 11-15)
 
 
 def _margin(tag: str) -> str:
@@ -453,6 +453,11 @@ def frame_layout(data: bytes) -> tuple[bytes, int]:
     count = [0]
 
     def fn(xml: str, hdr, _n: str) -> str:
+        mg = re.sub(r'<hp:margin\b[^>]*/>', lambda m: _margin(m.group(0)), xml)
+        if mg != xml:
+            count[0] += 1
+            xml = mg
+
         def pn(m):
             if m.group(1) == pos:
                 return m.group(0)
@@ -1685,7 +1690,7 @@ PAPER_FORM = {
     "font": "맑은 고딕",                                   # 문서 기본 글꼴
     "chapter": {"pt": 14, "bold": True, "line": 150},       # 「1. 서론」 14pt 굵게, 줄 간격 1.5
     "h1": {"pt": 12, "bold": True, "line": 150},            # 「1.1 …」 12pt 굵게, 1.5
-    "h2": {"pt": 12, "bold": True, "line": 150},            # 「2.1.1 …」 12pt 굵게, 1.5
+    "h2": {"pt": 11, "bold": True, "line": 150},            # 「2.1.1 …」 11pt 굵게(템플릿 제목 3), 1.5
     "body": {"pt": 10, "line": 115, "indent": 10, "align": "JUSTIFY"},   # 본문 10pt, 양쪽, 1.15, 첫 줄 10pt
 }
 _MONO = ("D2Coding", "Consolas", "Courier", "굴림체", "바탕체", "돋움체", "궁서체")   # 코드 상자의 고정폭 글꼴은 그대로
