@@ -246,10 +246,11 @@ class _Header:
         return self.para_style(base, align=align)
 
     def para_style(self, base: str, *, align: str = "", line: int | None = None, before: float | None = None,
-                   after: float | None = None, border: str = "", border_offset: int = 0, keep_next: bool | None = None) -> str:
-        """문단 모양 복제 — 정렬, 줄 간격(%), 위·아래 간격(pt), 문단 테두리(border = borderFill id, 아래 선 같은 장식), 다음 문단과 함께.
+                   after: float | None = None, border: str = "", border_offset: int = 0, keep_next: bool | None = None,
+                   indent: float | None = None) -> str:
+        """문단 모양 복제 — 정렬, 줄 간격(%), 위·아래 간격(pt), 첫 줄 들여쓰기(indent, pt), 문단 테두리(border = borderFill id, 아래 선 같은 장식), 다음 문단과 함께.
         간격은 한글 규칙대로 기본(default) 판에 HWPUNIT 두 배 값, 글자 단위(case) 판에 그 반을 쓴다(webhwp_write._LevelStyles 와 같다)."""
-        key = ("pp", base, align, line, before, after, border, border_offset, keep_next)
+        key = ("pp", base, align, line, before, after, border, border_offset, keep_next, indent)
         if key in self.cache:
             return self.cache[key]
         m = re.search(rf'<hh:paraPr\b[^>]*?\bid="{base}"[^>]*>.*?</hh:paraPr>', self.xml, re.S)
@@ -266,6 +267,8 @@ class _Header:
                 block = re.sub(r'(<hc:prev value=")-?\d+', rf"\g<1>{int(round(before * 200)) // div}", block, count=1)
             if after is not None:
                 block = re.sub(r'(<hc:next value=")-?\d+', rf"\g<1>{int(round(after * 200)) // div}", block, count=1)
+            if indent is not None:
+                block = re.sub(r'(<hc:intent value=")-?\d+', rf"\g<1>{int(round(indent * 200)) // div}", block, count=1)
             return block
         case = re.search(r"<hp:case\b.*?</hp:case>", body, re.S)
         if case:

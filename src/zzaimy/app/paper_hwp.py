@@ -364,7 +364,7 @@ def build(outline: list[tuple[int, str, str]] | None = None, meta: dict | None =
     data, _ = add_styles(data)
     data = _fieldize(data, meta)
     data = _page_frame(data, meta)
-    return page_numbers(toc_set(data, {}))[0]
+    return paper_format(page_numbers(toc_set(data, {}))[0])[0]
 
 
 def _dress_cells(data: bytes, kinds: dict[str, str]) -> bytes:
@@ -1678,6 +1678,87 @@ def _gate(db, fid: int, data: bytes, field: str, overwrite: bool) -> dict | None
     if owner and owner != WRITER and not overwrite:
         return {"field": field, "ok": False, "why": "human", "by": owner}
     return None
+
+
+# ── 논문 양식(학교 논문집 템플릿, docs/paper/논문-양식-가이드.md) ── 논문은 논문 양식대로: 교내 서식(house_style·기관 서식 프로필)과 따로 둔다(11-15 사용자)
+PAPER_FORM = {
+    "font": "맑은 고딕",                                   # 문서 기본 글꼴
+    "chapter": {"pt": 14, "bold": True, "line": 150},       # 「1. 서론」 14pt 굵게, 줄 간격 1.5
+    "h1": {"pt": 12, "bold": True, "line": 150},            # 「1.1 …」 12pt 굵게, 1.5
+    "h2": {"pt": 12, "bold": True, "line": 150},            # 「2.1.1 …」 12pt 굵게, 1.5
+    "body": {"pt": 10, "line": 115, "indent": 10, "align": "JUSTIFY"},   # 본문 10pt, 양쪽, 1.15, 첫 줄 10pt
+}
+_MONO = ("D2Coding", "Consolas", "Courier", "굴림체", "바탕체", "돋움체", "궁서체")   # 코드 상자의 고정폭 글꼴은 그대로
+
+
+def paper_format(data: bytes) -> tuple[bytes, int]:
+    """논문 문서를 양식 값으로 — (새 바이트, 고친 곳 수). 글꼴은 문서 전체를 PAPER_FORM font 로(고정폭 제외), 장·절 제목과 본문 문단은
+    PAPER_FORM 의 크기·굵기·줄 간격·들여쓰기로. 제목은 문서 안 목차로 가린다(목차 단계 = 들여쓰기). 표지·목차·그림·표 목차, 표 안,
+    꾸밈 스타일 문단(캡션·목록·팁·코드·참고 문헌), 머리말·꼬리말은 건드리지 않는다. 이미 그 모양이면 그대로(여러 번 돌려도 같다)."""
+    from zzaimy.app import webhwp_style
+    from zzaimy.app import webhwp_write as ww
+    sty = styles_in(data)
+    custom = {v["style"] for v in sty.values()}
+    lists = {v["style"] for k, v in sty.items() if k in ("단계 목록",)}     # 번호·글머리 목록은 본문과 같은 크기·줄 간격(내어쓰기는 그대로)
+    count = [0]
+
+    def fn(xml: str, hdr, _n: str) -> str:
+        def face(m):
+            f = m.group(1)
+            if f == PAPER_FORM["font"] or any(k in f for k in _MONO):
+                return m.group(0)
+            count[0] += 1
+            return m.group(0).replace(f'face="{f}"', f'face="{PAPER_FORM["font"]}"', 1)
+        hdr.xml = re.sub(r'<hh:font\b[^>]*\bface="([^"]+)"[^>]*>', face, hdr.xml)
+        heads = {}
+        for *_, ind, t in [(a, b, c, d) for a, b, c, d in _toc_lines(xml)]:
+            heads.setdefault(_norm_head(t), "chapter" if len(ind) < 4 else ("h1" if len(ind) < 8 else "h2"))
+        if not heads:
+            return xml
+        out, pos, started = [], 0, False
+        for a, b in ww._top_paras(xml, len(xml)):
+            p = xml[a:b]
+            t = _norm_head(_ptext(p))
+            role = heads.get(t)
+            if not started:
+                started = role == "chapter" and 'pageBreak="1"' in p[:p.find(">")]
+                if not started:
+                    continue
+            if "<hp:tbl" in p or "<hp:secPr" in p or "<hp:header" in p or "<hp:footer" in p:
+                continue
+            sm = re.search(r'\bstyleIDRef="(\d+)"', p[:p.find(">")])
+            if sm and sm.group(1) in custom and sm.group(1) not in lists:
+                continue
+            role = role or "body"
+            spec = PAPER_FORM[role]
+            if sm and sm.group(1) in lists:
+                spec = {k: v for k, v in PAPER_FORM["body"].items() if k != "indent"}
+            q = p
+            pm = re.search(r'\bparaPrIDRef="(\d+)"', q[:q.find(">")])
+            if pm:
+                npp = hdr.para_style(pm.group(1), line=spec["line"], align=spec.get("align", ""),
+                                     indent=spec.get("indent", 0 if role != "body" else None) if not (sm and sm.group(1) in lists) else None)
+                q = q[:pm.start(1)] + npp + q[pm.end(1):]
+            hd = role != "body"
+            q = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)',
+                       lambda m: m.group(1) + hdr.char(m.group(2), pt=spec["pt"], bold=True if hd else None,
+                                                       color="#000000" if hd else ""), q)
+            if q != p:
+                count[0] += 1
+                out.append(xml[pos:a] + q)
+                pos = b
+        out.append(xml[pos:])
+        return "".join(out)
+    new = webhwp_style._rewrite(data, fn)
+    return (new, count[0]) if count[0] else (data, 0)
+
+
+def reformat(db, base: Path, fid: int, *, user: str = WRITER) -> dict:
+    """이미 만든 논문 문서에 paper_format 을 — 필드 밖·모양만, 앞 판은 .판/ (restamp 와 같은 저장 길)."""
+    def change(data: bytes):
+        new, n = paper_format(data)
+        return new, f"{n}곳"
+    return _save_outside(db, base, fid, change, user=user)
 
 
 def _norm_head(t: str) -> str:

@@ -679,3 +679,26 @@ def test_rich_rewrite_clears_old_blocks_even_when_ids_were_lost(tmp_path, monkey
     assert again[:3] == first[:3] and again[0] >= 1      # 상자·캡션이 겹치지 않고, 다음 절 제목은 남는다
     assert {k: v for k, v in again[3].items() if not k.startswith("절:1.2")} == {k: v for k, v in first[3].items() if not k.startswith("절:1.2")}
     assert eo.check_bytes(Path(webhwp.get(db, fid)["path"]).read_bytes()) == []
+
+
+def test_paper_format_follows_school_template_and_is_idempotent(tmp_path, monkeypatch):
+    # 11-15: 논문은 논문 양식(맑은 고딕, 본문 10pt·1.15·첫 줄 10pt, 장 14pt·절 12pt 굵게·1.5) — 교내 서식(house_style)과 따로
+    data = ph.build()
+    assert ph.paper_format(data)[1] == 0                 # 새로 만든 문서는 처음부터 양식대로
+    h = zipfile.ZipFile(io.BytesIO(data)).read("Contents/header.xml").decode()
+    faces = set(re.findall(r'<hh:font\b[^>]*\bface="([^"]+)"', h))
+    assert ph.PAPER_FORM["font"] in faces and not (faces - {ph.PAPER_FORM["font"]} - {f for f in faces if any(k in f for k in ph._MONO)})
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    w = next(x for x in _plan(app, fid, rich=True)["writes"] if x["field"] == "절:1.2 핵심내용")
+    assert ph.write(db, base, fid, w, sleep=lambda s: None)["ok"]
+    before = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    r = ph.reformat(db, base, fid)
+    assert r["ok"]
+    new = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    assert ww.field_values(new) == before and eo.check_bytes(new) == [] and ph.paper_format(new)[1] == 0
+    z = zipfile.ZipFile(io.BytesIO(new))
+    sec, hdr = z.read("Contents/section0.xml").decode(), z.read("Contents/header.xml").decode()
+    p = re.search(r'<hp:p\b[^>]*paraPrIDRef="(\d+)"[^>]*>(?:(?!<hp:p\b).)*?본 프로젝트의 핵심은 두 축이다', sec, re.S)
+    pp = re.search(rf'<hh:paraPr\b[^>]*?\bid="{p.group(1)}"[^>]*>.*?</hh:paraPr>', hdr, re.S).group(0)
+    assert 'lineSpacing type="PERCENT" value="115"' in pp and '<hc:intent value="1000"' in pp
