@@ -428,6 +428,8 @@ def _hf(section, *, header_text, footer_text, page=True):
     # 쪽 번호는 가운데, 학교·학과는 오른쪽(한글 논문 문서 paper_hwp.PAGE_NUM_POS·FOOTER_ALIGN 과 같은 배치, 11-15)
     width = section.page_width - section.left_margin - section.right_margin
     tabs = fp.paragraph_format.tab_stops
+    for t in list(fp.style.paragraph_format.tab_stops):  # 「바닥글」 스타일의 기본 탭(가운데 4680·오른쪽 9360)을 지운다 — 남아 있으면 학과가 그 가운데 탭에 걸렸다(11-15)
+        tabs.add_tab_stop(t.position, WD_TAB_ALIGNMENT.CLEAR)
     tabs.add_tab_stop(width // 2, WD_TAB_ALIGNMENT.CENTER)
     tabs.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT)
     if page:

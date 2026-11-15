@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 import subprocess
 import sys
@@ -654,3 +655,27 @@ def test_page_number_center_and_footer_right_and_relayout_old_docs(tmp_path, mon
     assert _foot_align(new) == "RIGHT"
     assert ww.field_values(new) == before and eo.check_bytes(new) == []
     assert ph.relayout(db, base, fid)["changed"] is False
+
+
+def test_rich_rewrite_clears_old_blocks_even_when_ids_were_lost(tmp_path, monkeypatch):
+    # 11-15: 기안기가 다시 저장해 문단 id 가 바뀌면(written 기록이 어긋남) 앞서 넣은 팁 상자·표가 남아 겹쳤다 — 절 구역으로 걷는다
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    w = next(x for x in _plan(app, fid, rich=True)["writes"] if x["field"] == "절:1.2 핵심내용")
+    assert ph.write(db, base, fid, w, sleep=lambda s: None)["ok"]
+
+    def counts():
+        data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+        sec = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
+        st = ph.styles_in(data)
+        return (sec.count(f'styleIDRef="{st["팁 상자"]["style"]}"'), sec.count("[표 1-1] 장비별 역할"),
+                sec.count("1.3 기대효과"), ww.field_values(data))
+    first = counts()
+    m = webhwp.meta(db, fid)
+    m["written"] = {}                                    # id 기록을 잃은 상태
+    db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+    assert ph.write(db, base, fid, w, overwrite=True, sleep=lambda s: None)["ok"]
+    again = counts()
+    assert again[:3] == first[:3] and again[0] >= 1      # 상자·캡션이 겹치지 않고, 다음 절 제목은 남는다
+    assert {k: v for k, v in again[3].items() if not k.startswith("절:1.2")} == {k: v for k, v in first[3].items() if not k.startswith("절:1.2")}
+    assert eo.check_bytes(Path(webhwp.get(db, fid)["path"]).read_bytes()) == []

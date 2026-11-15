@@ -1680,10 +1680,66 @@ def _gate(db, fid: int, data: bytes, field: str, overwrite: bool) -> dict | None
     return None
 
 
+def _norm_head(t: str) -> str:
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", t)
+
+
+def drop_stale(data: bytes, field: str) -> tuple[bytes, int]:
+    """절을 다시 쓰기 전에, 그 절 칸 다음부터 다음 절 칸 앞까지 남은 옛 덩이(앞서 서식째 넣은 표·상자·그림·문단)를 걷는다 — (새 바이트, 걷은 수).
+    앞서 넣은 문단은 id 로 기억해 지웠는데(written), 기안기가 다시 저장하며 id 가 바뀌면 옛 팁 상자 같은 것이 그대로 남았다(11-15, 2313 의 30곳).
+    문서 안의 목차를 제목 목록으로 삼아 남길 것을 가린다: 필드가 든 문단(사람 글·다른 절·이어 쓰기 칸), 쪽을 나누는 장 제목, 목차에 있는 제목,
+    빈 줄. 나머지는 이 절이 쓴 것이라 다시 쓰면 새로 들어간다. 다음 절 칸이 없으면(문서 끝) 건드리지 않는다."""
+    from zzaimy.app import webhwp_style
+    from zzaimy.app import webhwp_write as ww
+    count = [0]
+    heads: set[str] = set()
+    for n in sorted(x for x in zipfile.ZipFile(io.BytesIO(data)).namelist() if re.match(r"Contents/section\d+\.xml$", x)):
+        heads |= {_norm_head(t) for *_, t in _toc_lines(zipfile.ZipFile(io.BytesIO(data)).read(n).decode("utf-8"))}
+    heads.discard("")
+
+    def fn(xml: str, _hdr, _n: str) -> str:
+        ms = list(ww._BEGIN.finditer(xml))
+        begins = [(m.start(), ww._unq(m.group(2))) for m in ms]
+        spans = []                                        # 필드가 여러 문단에 걸치면 그 사이 문단도 필드 안이다
+        for m in ms:
+            sp = ww._span(xml, m.group(1), m.end())
+            if sp:
+                spans.append((m.start(), sp[1]))
+        me = next((at for at, nm in begins if nm == field), None)
+        if me is None or not heads:
+            return xml
+        tops = list(ww._top_paras(xml, len(xml)))
+        mine = next((i for i, (a, b) in enumerate(tops) if a <= me < b), None)
+        nxt = next((at for at, nm in begins if at > me and nm.startswith("절:") and not ww.is_cont(nm)), None)
+        if mine is None or nxt is None:
+            return xml
+        drop = []
+        for a, b in tops[mine + 1:]:
+            if a > nxt or a <= nxt < b:
+                break
+            p = xml[a:b]
+            if "fieldBegin" in p or "fieldEnd" in p or 'pageBreak="1"' in p[:p.find(">")]:
+                continue
+            if any(s0 < b and a < e0 for s0, e0 in spans):
+                continue
+            obj = "<hp:tbl" in p or "<hp:pic" in p
+            t = _norm_head(_ptext(p))
+            if not obj and (not t or t in heads):
+                continue
+            drop.append((a, b))
+        for a, b in reversed(drop):
+            xml = xml[:a] + xml[b:]
+        count[0] += len(drop)
+        return xml
+    out = webhwp_style._rewrite(data, fn)
+    return (out, count[0]) if count[0] else (data, 0)
+
+
 def _rich_section(data: bytes, w: dict, written: dict) -> tuple[bytes, list[str]]:
     """서식째 절 하나를 파일 바이트에 — 문단·표·도식 넣기 → 표 모양 → 꾸밈 스타일 → 그림. (새 바이트, 넣은 문단 id)."""
     from zzaimy.app import webhwp_write as ww
     field = w["field"]
+    data, _ = drop_stale(data, field)
     new, put = ww.write_section(data, field, w["items"], written)
     new = dress_tables(new, put)
     head = _field_para_id(new, field)
