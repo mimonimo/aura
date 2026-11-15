@@ -34,6 +34,23 @@ _COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _NAMED = {"회색": "#E5E5E5", "연회색": "#F2F2F2", "연파랑": "#DCE6F2", "연남색": "#DCE6F2", "없음": ""}
 
 
+# 미리 보기 그림으로 받는 같은 사이트 주소의 앞부분 — 문서·기안기·첨부 그림만(그 밖은 받지 않는다)
+IMAGE_PREFIXES = ("/hwp/", "/doc/", "/static/", "/files/")
+
+
+def _same_site_path(v) -> str:
+    """같은 사이트의 정해진 경로만 — 역슬래시(브라우저가 / 로 읽어 「/\\evil.com」 이 「//evil.com」 이 된다)·제어 문자·
+    공백·따옴표·꺾쇠가 섞였거나, 구문 분석해 scheme·netloc 이 있거나, 경로가 「//」 로 시작하면 빈 글."""
+    from urllib.parse import urlsplit
+    s = str(v or "").strip()
+    if not s or len(s) > 300 or any(c in s for c in "\\\"'<> ") or any(ord(c) < 32 or ord(c) == 127 for c in s):
+        return ""
+    u = urlsplit(s)
+    if u.scheme or u.netloc or not u.path.startswith("/") or u.path.startswith("//"):
+        return ""
+    return s if u.path.startswith(IMAGE_PREFIXES) else ""
+
+
 def _s(v, n: int) -> str:
     t = re.sub(r"[ \t]+", " ", str(v if v is not None else "")).strip()
     return t[:n]
@@ -159,9 +176,9 @@ def norm_preview(p) -> dict | None:
             out["title"] = _s(p.get("title"), 60)
         return out
     if t == "image":
-        src = str(p.get("src") or "").strip()
-        if not src.startswith("/") or src.startswith("//") or any(c in src for c in "\"'<> "):
-            return None                                              # 같은 사이트 안 주소만(바깥 그림·스크립트 주소를 막는다)
+        src = _same_site_path(p.get("src"))
+        if not src:
+            return None                                              # 같은 사이트 안 정해진 미리 보기 주소만(바깥 그림·스크립트 주소를 막는다)
         return {"type": "image", "src": src[:300], "alt": _s(p.get("alt"), 60)}
     if t == "page":
         out = {"type": "page", "paper": _s(p.get("paper"), 10), "orientation": "가로" if str(p.get("orientation")) == "가로" else "세로"}

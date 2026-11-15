@@ -188,3 +188,11 @@ def test_change_card_renders_with_change_wording(tmp_path, monkeypatch):
     other = db.create_chat_session("다른 가상", owner="zzaimy")
     client.post("/chat/send", data={"session_id": str(other), "choice_mid": str(mid), "question": "고른 것", "pick_0": "1"}, follow_redirects=False)
     assert cp.chosen(db, other) == [] and not db.list_chats(other)
+
+
+def test_image_preview_accepts_only_fixed_same_site_paths():
+    from zzaimy.app import chat_preview as cp
+    ok = cp.norm_preview({"type": "image", "src": "/hwp/12/page/3.png"})
+    assert ok and ok["src"] == "/hwp/12/page/3.png"
+    for bad in ("//evil.com/a.png", "/\\evil.com/a.png", "javascript:alert(1)", "/admin/x.png", "/hwp/1\t/x.png", "HTTPS://x/a.png"):
+        assert cp.norm_preview({"type": "image", "src": bad}) is None, bad
