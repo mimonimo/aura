@@ -128,12 +128,12 @@ def _heading(doc, text, level):
     pf.space_before = Pt(12 if level == 1 else 8)
     pf.space_after = Pt(4)
     pf.keep_with_next = True
-    _font(p.add_run(text), CH_PT if level == 1 else SEC_PT if level <= 3 else 11, True, color="000000")
+    _font(p.add_run(text), CH_PT if level == 1 else SEC_PT if level == 2 else 11, True, color="000000")   # 템플릿: 장 14·절 12·소절 11pt
     return p
 
 
 def _style_headings(doc):
-    for lv, size in ((1, CH_PT), (2, SEC_PT), (3, SEC_PT)):
+    for lv, size in ((1, CH_PT), (2, SEC_PT), (3, 11)):
         st = doc.styles[f"Heading {lv}"]
         st.font.name, st.font.size, st.font.bold = FONT, Pt(size), True
         st.font.color.rgb = RGBColor(0, 0, 0)
@@ -575,12 +575,111 @@ def build(out: Path, appendix: bool = True) -> dict:
     return counts
 
 
+# ── 목차 쪽 번호 미리 채우기 ── 워드를 보기 전용으로 여는 사람·제출본을 위해(11-15 사용자: 「워드만 제출」, 보기 전용이라 필드 업데이트를 저장할 수 없음).
+# 쪽은 LibreOffice 로 PDF 를 만들어 제목·캡션이 처음 나오는 쪽을 읽는다(231 이 운영 서버에서 돌림). 필드는 그대로라 워드에서 업데이트하면 정확한 값으로.
+def toc_entries(path: Path) -> dict:
+    """완성본의 목차 항목 — {"toc": [(단계, 글)], "그림": [글], "표": [글]} (문서 차례대로)."""
+    d = Document(str(path))
+    out = {"toc": [], "그림": [], "표": []}
+    for p in d.paragraphs:
+        name = p.style.name if p.style is not None else ""
+        t = p.text.strip()
+        if not t:
+            continue
+        m = re.match(r"Heading (\d)", name)
+        if m and int(m.group(1)) <= 3:
+            out["toc"].append((int(m.group(1)), t))
+        elif name == "그림 캡션":
+            out["그림"].append(t)
+        elif name == "표 캡션":
+            out["표"].append(t)
+    return out
+
+
+def toc_pages(entries: dict, pdf_pages: list[str]) -> dict:
+    """PDF 쪽 글(쪽마다 하나) → {항목 글: 쪽 번호}. 본문 1쪽은 첫 장 제목이 나오는 쪽, 찾기는 문서 차례대로 앞에서부터(목차 쪽에 같은 글이 있어도 그 뒤만)."""
+    norm = lambda x: re.sub(r"[^0-9A-Za-z가-힣]", "", x)
+    pages = [norm(x) for x in pdf_pages]
+    first = entries["toc"][0][1] if entries["toc"] else ""
+    start = next((i for i in range(len(pages)) if i > 0 and norm(first) and norm(first) in pages[i] and i > 2), None)
+    if start is None:
+        return {}
+    found: dict = {}
+    for key in ("toc", "그림", "표"):
+        pos = start
+        for e in entries[key]:
+            t = e[1] if isinstance(e, tuple) else e
+            k = norm(t)[:40]
+            j = next((i for i in range(pos, len(pages)) if k and k in pages[i]), None)
+            if j is not None:
+                found[t] = j - start + 1
+                pos = j
+    return found
+
+
+def fill_toc(path: Path, pages: dict) -> int:
+    """목차·그림 목차·표 목차 필드의 결과 자리에 항목과 쪽 번호를 넣고 「열 때 필드 업데이트」 를 끈다 — 넣은 줄 수."""
+    import copy
+    d = Document(str(path))
+    entries = toc_entries(path)
+    width = d.sections[-1].page_width - d.sections[-1].left_margin - d.sections[-1].right_margin
+    from docx.enum.text import WD_TAB_LEADER
+    n = 0
+    for p in list(d.paragraphs):
+        instr = "".join(x.text or "" for x in p._p.iter(qn("w:instrText")))
+        if "TOC" not in instr:
+            continue
+        kind = "그림" if "그림 캡션" in instr else "표" if "표 캡션" in instr else "toc"
+        items = [(lv, t) for lv, t in entries["toc"]] if kind == "toc" else [(1, t) for t in entries[kind]]
+        if not items:
+            continue
+        # 결과 자리의 안내 글을 지우고, 끝 표시(fldChar end)는 마지막 항목 문단으로 옮긴다
+        end = None
+        for r in p.runs:
+            if r._element.find(qn("w:fldChar")) is not None and r._element.find(qn("w:fldChar")).get(qn("w:fldCharType")) == "end":
+                end = r._element
+            elif r._element.find(qn("w:fldChar")) is None and r._element.find(qn("w:instrText")) is None:
+                r.text = ""
+        anchor = p
+        for i, (lv, t) in enumerate(items):
+            q = copy.deepcopy(p._p) if False else None
+            np_ = d.add_paragraph(style=f"toc {min(lv, 3)}")
+            np_.paragraph_format.tab_stops.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DASHES)
+            _font(np_.add_run(f"{t}\t{pages.get(t, '')}"), 10, True)
+            anchor._p.addnext(np_._p)
+            anchor = np_
+            n += 1
+        if end is not None:
+            end.getparent().remove(end)
+            anchor._p.append(end)
+    st = d.settings.element
+    for e in st.findall(qn("w:updateFields")):
+        st.remove(e)
+    d.save(str(path))
+    return n
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=ROOT / "docs" / "paper" / "AURA-논문.docx")
     ap.add_argument("--no-appendix", action="store_true")
+    ap.add_argument("--toc-pages", type=Path, help="목차 쪽 번호(JSON {항목 글: 쪽}) — 주면 목차를 미리 채우고 열 때 묻지 않게")
+    ap.add_argument("--entries", type=Path, help="이미 만든 완성본의 목차 항목을 JSON 으로 내고 끝낸다(쪽 재기용)")
+    ap.add_argument("--pages-from", nargs=2, type=Path, metavar=("ENTRIES_JSON", "PDF_TXT"), help="항목 JSON 과 pdftotext 글로 쪽 JSON 을 낸다")
     a = ap.parse_args(argv)
+    import json as _json
+    if a.entries:
+        a.entries.write_text(_json.dumps(toc_entries(a.out), ensure_ascii=False), encoding="utf-8")
+        return 0
+    if a.pages_from:
+        ent = _json.loads(a.pages_from[0].read_text(encoding="utf-8"))
+        ent["toc"] = [tuple(x) for x in ent["toc"]]
+        print(_json.dumps(toc_pages(ent, a.pages_from[1].read_text(encoding="utf-8").split("\f")), ensure_ascii=False))
+        return 0
     c = build(a.out, appendix=not a.no_appendix)
+    if a.toc_pages:
+        pages = _json.loads(a.toc_pages.read_text(encoding="utf-8"))
+        print("목차 미리 채움:", fill_toc(a.out, pages), "줄 · 쪽 찾음", len(pages))
     print({k: v for k, v in c.items() if k != "missing_images"})
     if c["missing_images"]:
         print("그림 파일 없음:", c["missing_images"][:20])

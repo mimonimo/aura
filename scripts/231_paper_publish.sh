@@ -17,6 +17,16 @@ from zzaimy.app import paper_hwp as ph
 print((ph.current(Database(Path(\"data/platform/platform.db\"))) or {}).get(\"path\",\"\"))"')
 scp -q "$VM:zzaimy-capstone/$P" "$OUT/AURA-논문.hwpx" 2>/dev/null || scp -q "$VM:$P" "$OUT/AURA-논문.hwpx"
 PYTHONPATH=src "$PY" scripts/228_paper_docx.py --out "$OUT/AURA-논문.docx" | tail -1
+echo "── 워드 목차 쪽 번호 미리 채우기(운영 서버 LibreOffice 로 쪽을 재서 — 보기 전용 워드에서도 쪽 번호가 보이게)"
+T=$(mktemp -d)
+PYTHONPATH=src "$PY" scripts/228_paper_docx.py --out "$OUT/AURA-논문.docx" --entries "$T/e.json"
+ssh "$VM" 'mkdir -p /tmp/aura_toc && rm -f /tmp/aura_toc/*'
+scp -q "$OUT/AURA-논문.docx" "$VM:/tmp/aura_toc/p.docx"
+ssh "$VM" 'cd /tmp/aura_toc && timeout 600 soffice --headless --convert-to pdf p.docx >/dev/null 2>&1 && pdftotext -layout p.pdf p.txt && echo "PDF $(pdfinfo p.pdf 2>/dev/null | grep Pages)"'
+scp -q "$VM:/tmp/aura_toc/p.txt" "$T/p.txt" && ssh "$VM" 'rm -rf /tmp/aura_toc'
+PYTHONPATH=src "$PY" scripts/228_paper_docx.py --out "$OUT/AURA-논문.docx" --pages-from "$T/e.json" "$T/p.txt" > "$T/pages.json"
+PYTHONPATH=src "$PY" scripts/228_paper_docx.py --out "$OUT/AURA-논문.docx" --toc-pages "$T/pages.json" | grep -E "목차|→"
+rm -rf "$T"
 echo "── 렌더본 검사(원고에 없는 글·코드 흔적)"
 "$PY" - "$OUT" <<'PYEOF'
 import glob, html, re, sys, zipfile
