@@ -380,6 +380,59 @@ def blocks(text: str):
     return out
 
 
+# 팀원 사진 — 개인 사진이라 저장소에 넣지 않는다(git 밖 data/paper/team/<차례>.<이름>.jpeg). 없으면 사진 칸을 비운다
+TEAM_PHOTOS = ROOT / "data" / "paper" / "team"
+
+
+def _team_people(text: str) -> list[dict]:
+    """원고의 「이름 : …　　전공 : …　　학번 : …」 줄과 「졸업 프로젝트 역할 : …」 줄 → [{이름, 전공, 학번, 역할}]."""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("이름 :"):
+            parts = dict((k.strip(), v.strip()) for k, v in (x.split(":", 1) for x in re.split(r"\s{2,}|　+", s) if ":" in x))
+            out.append({"이름": parts.get("이름", ""), "전공": parts.get("전공", ""), "학번": parts.get("학번", ""), "역할": ""})
+        elif s.startswith("졸업 프로젝트 역할 :") and out:
+            out[-1]["역할"] = s.split(":", 1)[1].strip()
+    return out
+
+
+def _render_team(doc, text: str, first_chapter_break: bool) -> bool:
+    if first_chapter_break:
+        doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+    _heading(doc, "팀원 소개", 1)
+    photos = sorted(TEAM_PHOTOS.glob("*.jp*g")) + sorted(TEAM_PHOTOS.glob("*.png")) if TEAM_PHOTOS.is_dir() else []
+    for person in _team_people(text):
+        bare = re.sub(r"\s*\(.*?\)", "", person["이름"]).strip()
+        photo = next((p for p in photos if bare and bare in p.stem), None)
+        t = doc.add_table(rows=1, cols=2)
+        t.alignment = WD_TABLE_ALIGNMENT.CENTER
+        t.autofit = False
+        w = [Cm(3.6), Cm(11.4)]
+        for j in range(2):
+            t.cell(0, j).width = w[j]
+        tr = t.rows[0]._tr.get_or_add_trPr()
+        cs = OxmlElement("w:cantSplit"); cs.set(qn("w:val"), "true"); tr.append(cs)
+        left = t.cell(0, 0).paragraphs[0]
+        left.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        if photo:
+            left.add_run().add_picture(str(photo), width=Cm(3.2))
+        right = t.cell(0, 1)
+        right.paragraphs[0].text = ""
+        lines = [("이   름", person["이름"]), ("전   공", person["전공"]), ("학   번", person["학번"]), ("", ""),
+                 ("졸업 프로젝트 역할", person["역할"])]
+        first = True
+        for k, v in lines:
+            p = right.paragraphs[0] if first else right.add_paragraph()
+            first = False
+            p.paragraph_format.space_after = Pt(2)
+            if k:
+                _font(p.add_run(f"{k} : {v}"), 10.5)
+        _para(doc, "", indent_pt=0, after=10)
+    return True
+
+
 def render(doc, text: str, missing: list, counts: dict, first_chapter_break: bool):
     pend_table = None
     for kind, val in blocks(text):
@@ -563,6 +616,9 @@ def build(out: Path, appendix: bool = True) -> dict:
             text = re.sub(r"^# 초록", "# 초록", text, flags=re.M)
         if name == APPENDIX:
             text = re.sub(r"^# (.*)$", r"# 부록. \1", text, count=1, flags=re.M)
+        if name == "98-팀원-소개.md" and _team_people(text):
+            brk = _render_team(doc, text, brk)             # 템플릿 꼴: 사람마다 사진 왼쪽 + 이름·전공·학번·역할 오른쪽
+            continue
         brk = render(doc, text, missing, counts, brk)
     # 열 때 필드(목차·쪽 번호) 업데이트를 묻게
     st = doc.settings.element
