@@ -169,6 +169,16 @@ def main() -> int:
         for i, g in enumerate(groups):
             if g[0]["kind"] == "rich":
                 rs = ph.write_batch(db, base, fid, g, overwrite=a.overwrite)
+                # 열린 편집 화면이 앞 장 저장을 받아 다시 불러오며 잠깐 구조 잠금을 쥔다 — 풀리길 기다려 그 장만 다시(11-15: 부록 38절이 늘 건너뛰어졌다)
+                for _ in range(3):
+                    held = [w for w, r in zip(g, rs) if r.get("why") == "struct"]
+                    if not held:
+                        break
+                    t0 = time.time()
+                    while webhwp.lock_holder(db, fid).get("user") and time.time() - t0 < 60:
+                        time.sleep(2)
+                    again = dict(zip((w["field"] for w in held), ph.write_batch(db, base, fid, held, overwrite=a.overwrite)))
+                    rs = [again.get(w["field"], r) for w, r in zip(g, rs)]
             else:
                 rs = [ph.write(db, base, fid, g[0], overwrite=a.overwrite or bool(g[0].get("set")), pause=a.pause)]
             for w, r in zip(g, rs):
