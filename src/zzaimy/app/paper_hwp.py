@@ -2,7 +2,7 @@
 
 - 양식: 작년 캡스톤 논문집 한 편의 차례(docs/paper/논문-양식-가이드.md)를 따른다. 표지(머리 줄 + PROJECT·제목·팀원·팀명 상자) → 목차
   (1./1.1/1.1.1 세 단계, 점선) → 그림 목차 → 표 목차 → 1~6장 → 참고 문헌 → 초록 → 팀원 소개. A4, 머리말 오른쪽 위 줄인 제목,
-  꼬리말 「영남이공대학교 사이버보안과」 와 쪽 번호. 목차 줄은 오른쪽 탭(점선 채움) 뒤에 쪽 번호 — 쪽은 편집 화면이 재서 넣는다(toc_set). 장·절·소절 제목은 글자 체계(house_style.TYPE)의 chapter·h1·h2 로 서로 다르게.
+  꼬리말 「영남이공대학교 사이버보안과」(오른쪽)와 쪽 번호(가운데). 목차 줄은 오른쪽 탭(점선 채움) 뒤에 쪽 번호 — 쪽은 편집 화면이 재서 넣는다(toc_set). 장·절·소절 제목은 글자 체계(house_style.TYPE)의 chapter·h1·h2 로 서로 다르게.
 - 쓸 자리: 절마다 제목 바로 아래 문단 하나가 누름틀 「절:<번호> <제목>」(참고 문헌처럼 번호 없는 장은 「절:<제목>」). 제목은 필드 밖이라
   공동 편집에서 칸 단위로 나눠 쓴다(ADR-0070). 장 제목(1. 서론)에는 쓸 자리를 두지 않는다 — 장은 절로 시작한다.
 - 차례 정의는 OUTLINE 한 곳. docs/paper/논문/ 에 장 원고(*.md)가 있으면 그 번호 제목에서 차례를 읽는다(outline_for).
@@ -439,14 +439,58 @@ def _margin(tag: str) -> str:
     return tag
 
 
+# 쪽 아래 배치 — 쪽 번호는 가운데, 학교·학과 꼬리말은 오른쪽(11-15 사용자: 논문집 꼴). 이미 만든 문서는 relayout 으로 맞춘다
+PAGE_NUM_POS = "아래 가운데"
+FOOTER_ALIGN = "오른쪽"
+
+
+def frame_layout(data: bytes) -> tuple[bytes, int]:
+    """이미 만든 문서의 쪽 번호 자리와 꼬리말 정렬을 위 값으로 — (새 바이트, 바꾼 곳 수). 쪽 번호 컨트롤이 어느 문단에 있든(서론부터 1 로 옮긴 것도)
+    자리 값만 바꾸고, 꼬리말 문단은 정렬만 바꾼다(글·글자 모양·필드는 그대로)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_style
+    pos, align = eo.PAGE_NUM_POS[PAGE_NUM_POS], eo.ALIGNS[FOOTER_ALIGN]
+    count = [0]
+
+    def fn(xml: str, hdr, _n: str) -> str:
+        def pn(m):
+            if m.group(1) == pos:
+                return m.group(0)
+            count[0] += 1
+            return m.group(0).replace(f'pos="{m.group(1)}"', f'pos="{pos}"', 1)
+        xml = re.sub(r'<hp:pageNum\b[^>]*\bpos="([A-Z_]+)"[^>]*/>', pn, xml)
+
+        def foot(m):
+            f = m.group(0)
+            def para(pm):
+                pp = pm.group(1)
+                cur = re.search(rf'<hh:paraPr\b[^>]*?\bid="{pp}"[^>]*>.*?<hh:align horizontal="([A-Z_]+)"', hdr.xml, re.S)
+                if cur and cur.group(1) == align:
+                    return pm.group(0)
+                count[0] += 1
+                return pm.group(0).replace(f'paraPrIDRef="{pp}"', f'paraPrIDRef="{hdr.para_style(pp, align=align)}"', 1)
+            return re.sub(r'<hp:p\b[^>]*\bparaPrIDRef="(\d+)"[^>]*>', para, f)
+        return re.sub(r"<hp:footer\b.*?</hp:footer>", foot, xml, flags=re.S)
+    out = webhwp_style._rewrite(data, fn)
+    return out, count[0]
+
+
+def relayout(db, base: Path, fid: int, *, user: str = WRITER) -> dict:
+    """이미 만든 논문 문서에 frame_layout 을 — 필드 밖만, 앞 판은 .판/ (restamp 와 같은 저장 길)."""
+    def change(data: bytes):
+        new, n = frame_layout(data)
+        return new, f"{n}곳"
+    return _save_outside(db, base, fid, change, user=user)
+
+
 def _page_frame(data: bytes, meta: dict) -> bytes:
-    """A4·머리말(오른쪽 위 줄인 제목, 아래 선)·꼬리말(학교·학과)·쪽 번호(아래 오른쪽). 표지에는 머리말·꼬리말·쪽 번호를 숨긴다."""
+    """A4·머리말(오른쪽 위 줄인 제목, 아래 선)·꼬리말(학교·학과, 오른쪽)·쪽 번호(아래 가운데). 표지에는 머리말·꼬리말·쪽 번호를 숨긴다."""
     from zzaimy.app import webhwp_edit_ops as eo
     from zzaimy.app import webhwp_style
     data = eo.page_setup(data, {"paper": "A4"})[0] if _paper_not_a4(data) else data
     data = eo.header_footer(data, {"header": meta["short"], "align": "오른쪽"})[0]
-    data = eo.header_footer(data, {"footer": f"영남이공대학교 {meta['dept']}", "align": "왼쪽"})[0]
-    data = eo.page_number(data, {"position": "아래 오른쪽"})[0]
+    data = eo.header_footer(data, {"footer": f"영남이공대학교 {meta['dept']}", "align": FOOTER_ALIGN})[0]
+    data = eo.page_number(data, {"position": PAGE_NUM_POS})[0]
 
     def fn(xml: str, hdr, _n: str) -> str:
         xml = re.sub(r'<hp:margin\b[^>]*/>', lambda m: _margin(m.group(0)), xml)
@@ -618,7 +662,7 @@ def page_numbers(data: bytes) -> tuple[bytes, int]:
         if "<hp:newNum" in target.group(0) and "<hp:pageNum" in target.group(0):
             return xml
         pn = re.search(r"<hp:ctrl><hp:pageNum\b[^>]*/></hp:ctrl>", xml)
-        pn_xml = pn.group(0) if pn else '<hp:ctrl><hp:pageNum pos="BOTTOM_RIGHT" formatType="DIGIT" sideChar=""/></hp:ctrl>'
+        pn_xml = pn.group(0) if pn else '<hp:ctrl><hp:pageNum pos="BOTTOM_CENTER" formatType="DIGIT" sideChar=""/></hp:ctrl>'
         p = target.group(0)
         run = re.search(r'<hp:run\b[^>]*\bcharPrIDRef="\d+"[^>]*>', p)
         if not run:

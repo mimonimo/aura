@@ -6,7 +6,7 @@
 - 장 제목 14pt 굵게(줄 간격 1.5) · 절 제목 12pt 굵게(1.5) · 본문 10pt 양쪽 맞춤 줄 간격 1.15 첫 줄 들여쓰기 10pt.
 - 그림·표 캡션은 그림·표 아래 가운데 「[그림 n-m] 제목」, 표는 선 있는 격자(머리줄 회색).
 - 표지(제목·영문 부제·팀명·팀원) → 목차 → 그림 목차 → 표 목차 → 1~6장 → 참고 문헌 → 초록 → 팀원 소개 → 부록.
-- 머리말 오른쪽 줄인 논문 제목, 꼬리말 쪽 번호와 학과. 표지·목차 쪽에는 쪽 번호를 두지 않고 본문 1쪽부터 센다.
+- 머리말 오른쪽 줄인 논문 제목, 꼬리말 가운데 쪽 번호·오른쪽 학교와 학과. 표지·목차 쪽에는 쪽 번호를 두지 않고 본문 1쪽부터 센다.
 - 목차·그림 목차·표 목차는 워드 필드(TOC)로 넣는다 — 파일을 열면 「필드 업데이트」 를 묻고, 쪽 번호가 채워진다.
 
 원고 꼴(scripts/214_paper_write.py 와 같은 규칙): # 장, ## 절, ### 소절, #### 네 번째 단계, 「[그림 n-m] 캡션 (그림 경로)」 줄은 그림+캡션,
@@ -23,7 +23,7 @@ from pathlib import Path
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt, RGBColor
@@ -418,11 +418,16 @@ def _hf(section, *, header_text, footer_text, page=True):
         _font(hp.add_run(header_text), 9, color="555555")
     fp = section.footer.paragraphs[0]
     fp.text = ""
-    fp.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # 쪽 번호는 가운데, 학교·학과는 오른쪽(한글 논문 문서 paper_hwp.PAGE_NUM_POS·FOOTER_ALIGN 과 같은 배치, 11-15)
+    width = section.page_width - section.left_margin - section.right_margin
+    tabs = fp.paragraph_format.tab_stops
+    tabs.add_tab_stop(width // 2, WD_TAB_ALIGNMENT.CENTER)
+    tabs.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT)
     if page:
+        fp.add_run("\t")
         _page_field(fp)
-        _font(fp.add_run("        " + footer_text), 9, color="555555")
-    elif footer_text:
+    if footer_text:
+        _font(fp.add_run("\t" if page else "\t\t"), 9)
         _font(fp.add_run(footer_text), 9, color="555555")
 
 

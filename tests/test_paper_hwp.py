@@ -620,3 +620,37 @@ def test_chapter_files_skip_figure_list(tmp_path):
     for n in ("01-서론.md", "그림-표-목록.md", "README.md", "부록-사용-설명서.md"):
         (tmp_path / n).write_text("# x\n", encoding="utf-8")
     assert [p.name for p in ph.chapter_files(tmp_path)] == ["01-서론.md", "부록-사용-설명서.md"]
+
+
+def _foot_align(data: bytes) -> str:
+    z = zipfile.ZipFile(io.BytesIO(data))
+    sec, hdr = z.read("Contents/section0.xml").decode(), z.read("Contents/header.xml").decode()
+    pp = re.search(r'paraPrIDRef="(\d+)"', re.search(r"<hp:footer\b.*?</hp:footer>", sec, re.S).group(0)).group(1)
+    return re.search(rf'<hh:paraPr\b[^>]*?\bid="{pp}"[^>]*>.*?<hh:align horizontal="([A-Z_]+)"', hdr, re.S).group(1)
+
+
+def test_page_number_center_and_footer_right_and_relayout_old_docs(tmp_path, monkeypatch):
+    data = ph.build()
+    sec = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
+    assert re.findall(r'<hp:pageNum\b[^>]*\bpos="([A-Z_]+)"', sec) == ["BOTTOM_CENTER"]
+    assert _foot_align(data) == "RIGHT"
+    assert ph.frame_layout(data)[1] == 0                                   # 새로 만든 문서는 고칠 것이 없다
+    # 예전 꼴(쪽 번호 아래 오른쪽·꼬리말 왼쪽)로 만든 문서 → 칸 글은 그대로, 배치만
+    monkeypatch.setattr(ph, "PAGE_NUM_POS", "아래 오른쪽")
+    monkeypatch.setattr(ph, "FOOTER_ALIGN", "왼쪽")
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    old = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    assert _foot_align(old) == "LEFT"
+    ce.put(db, fid, "kim", {"절:6.1 연구 요약 및 기여점": "학생이 쓴 글"}, base=base, client="k1")
+    before = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    monkeypatch.setattr(ph, "PAGE_NUM_POS", "아래 가운데")
+    monkeypatch.setattr(ph, "FOOTER_ALIGN", "오른쪽")
+    r = ph.relayout(db, base, fid)
+    assert r["ok"] and r["changed"]
+    new = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    sec = zipfile.ZipFile(io.BytesIO(new)).read("Contents/section0.xml").decode()
+    assert set(re.findall(r'<hp:pageNum\b[^>]*\bpos="([A-Z_]+)"', sec)) == {"BOTTOM_CENTER"}
+    assert _foot_align(new) == "RIGHT"
+    assert ww.field_values(new) == before and eo.check_bytes(new) == []
+    assert ph.relayout(db, base, fid)["changed"] is False

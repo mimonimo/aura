@@ -57,6 +57,8 @@ def main() -> int:
     ap.add_argument("--dept", default="", help=f"--restamp 의 학과 이름(기본 {ph.META['dept']})")
     ap.add_argument("--page-numbers", action="store_true",
                     help="본문 쪽 번호를 「1. 서론」 에서 1 로, 표지·목차·그림 목차·표 목차에는 쪽 번호 없음(앞 판은 .판/) — 원고는 쓰지 않는다")
+    ap.add_argument("--relayout", action="store_true",
+                    help="쪽 번호를 아래 가운데로, 학교·학과 꼬리말을 오른쪽으로(앞 판은 .판/) — 원고는 쓰지 않는다")
     ap.add_argument("--drop-empty", action="store_true",
                     help="아래 절만 있고 원고에 제 글이 없는 절의 빈 쓸 자리(붉은 「본문 입력」)를 지운다(앞 판은 .판/) — 원고는 쓰지 않는다")
     a = ap.parse_args()
@@ -94,6 +96,14 @@ def main() -> int:
             r = ph.renumber(db, base, fid)
             print(f"문서 {fid}: 쪽 번호 " + (f"고침 {r.get('note', '')}" if r["ok"] and r.get("changed") else "고칠 것 없음")
                   if r["ok"] else f"문서 {fid}: 쪽 번호 고치지 않음 — {WHY.get(r['why'], r['why'])}")
+    if a.relayout:
+        if a.dry_run:
+            _, n = ph.frame_layout(Path(f["path"]).read_bytes())
+            print(f"문서 {fid}: 쪽 번호·꼬리말 배치 고칠 곳 {n}곳(미리 보기)")
+        else:
+            r = ph.relayout(db, base, fid)
+            print(f"문서 {fid}: 쪽 번호·꼬리말 배치 " + (f"고침 {r.get('note', '')}" if r["ok"] and r.get("changed") else "고칠 것 없음")
+                  if r["ok"] else f"문서 {fid}: 배치 고치지 않음 — {WHY.get(r['why'], r['why'])}")
     if a.restamp:
         dept = a.dept or ph.META["dept"]
         if a.dry_run:
@@ -109,7 +119,7 @@ def main() -> int:
         r = ph.rename_back(db, base, fid)
         print(f"문서 {fid}: 뒤 장 이름 — " + (("바꿈 " + r.get("note", "")) if r.get("changed") else "바꿀 것 없음")
               if r["ok"] else f"문서 {fid}: 바꾸지 않음 — {WHY.get(r['why'], r['why'])}")
-    upkeep = a.restamp or a.drop_empty or a.page_numbers or a.rename_back           # 문서 손질만 — 원고는 쓰지 않는다(--set 은 함께 쓴다)
+    upkeep = a.restamp or a.drop_empty or a.page_numbers or a.rename_back or a.relayout           # 문서 손질만 — 원고는 쓰지 않는다(--set 은 함께 쓴다)
     if upkeep and not a.set:
         return 0
     src = Path(a.src)
