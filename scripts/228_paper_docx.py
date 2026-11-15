@@ -285,6 +285,13 @@ def blocks(text: str):
             i += 1
             continue
         m = re.match(r"^(#{1,4})\s+(.*)$", s)
+        if m and m.group(2).strip().startswith("이 장의 그림"):   # 원고 메모 절(그림·표 자리 목록·수치 출처) — 한글 문서와 같이 넣지 않는다
+            flush()
+            lv = len(m.group(1))
+            i += 1
+            while i < len(lines) and not (re.match(r"^(#{1,4})\s", lines[i].strip()) and len(re.match(r"^(#+)", lines[i].strip()).group(1)) <= lv):
+                i += 1
+            continue
         if m:
             flush()
             out.append(("h", (len(m.group(1)), m.group(2).strip())))
