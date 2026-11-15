@@ -170,6 +170,16 @@ def _tidy_weekly_md(body: str) -> str:
 _CLAIM = re.compile(r"(?:절|항목|섹션|부분)[^\d\n]{0,6}\(?\s*(\d{1,3})\s*개|(\d{1,3})\s*개\s*(?:의\s*)?(?:절|섹션)")
 
 
+def finish_overlaps(new: str, old: str, share: float = 0.5) -> bool:
+    """새 끝내는 말이 앞 말과 거의 같은 내용인가 — 줄(목록 기호를 뗀 것)의 절반 넘게 앞 말 안에 있거나 아주 짧은 조각이면 겹친다고 본다."""
+    lines = [re.sub(r"^\s*[-*•·]\s*", "", x).strip() for x in str(new or "").splitlines()]
+    lines = [x for x in lines if x]
+    if not lines:
+        return True
+    hit = sum(1 for x in lines if len(x) <= 4 or x in old or (len(x) > 12 and x[:12] in old))
+    return hit / len(lines) >= share
+
+
 def finish_claims(msg: str) -> list[int]:
     """끝내는 말이 「다 썼다」 고 내세우는 절 수 — 「작성 완료된 절(10개)」「10개 절을 모두 작성」 꼴. 완료·작성 낱말이 함께 있을 때만 센다
     (「남은 빈 절 3개」 처럼 남은 것을 말한 수는 빼려고 「남은·빈·남아」 가 앞에 붙은 수는 건너뛴다)."""
@@ -3397,7 +3407,8 @@ def create_app(
                 if prev_ and prev_ != msg and len(msg) < len(prev_):
                     # 빈 절 되짚기 뒤 「이번 요청 범위가 아니라 그대로 둔다」 같은 덧말만 다시 내면 앞서 쓴 끝내는 말(넣은 값 목록)이 사라졌다
                     # (11-12 특성화 재현 3차 2단계) — 앞 말을 살리고 새 말은 뒤에 붙인다
-                    msg = prev_ + "\n\n" + msg
+                    # 다만 새 말이 앞 말을 줄이거나 조각낸 것(줄 대부분이 앞 말에 이미 있음)이면 앞 말만 둔다 — 같은 목록이 두 번, 「3.」 같은 조각 줄이 붙었다(11-16 시연 녹화)
+                    msg = prev_ if finish_overlaps(msg, prev_) else prev_ + "\n\n" + msg
                 if secs_ and empty_:
                     msg += (f"\n\n(문서 기록: 절 {len(secs_)}개 가운데 {len(filled_)}개를 썼고 빈 절 {len(empty_)}개가 남았습니다. "
                             f"다음은 「{empty_[0]}」 — 「계속 써 줘」라고 하면 이어 씁니다.)")

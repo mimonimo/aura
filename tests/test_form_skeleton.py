@@ -114,3 +114,13 @@ def test_finish_claims_counts_only_completion_claims():
     assert finish_claims("10개 절을 모두 작성했습니다.") == [10]
     assert finish_claims("남은 빈 절은 3개이고, 다음은 「2. 추진 경과」") == []
     assert finish_claims("표 2개를 채웠습니다") == []
+
+
+def test_finish_overlaps_keeps_first_message_only_when_new_one_is_a_fragment():
+    from zzaimy.app.main import finish_overlaps
+    old = ("양식을 새로 만들고 1·2절을 썼습니다.\n\n- 요약표: 3월 12일 14시, 본관 2층 소회의실\n- 1. 회의 개요: 일시·장소·참석 요약\n\n"
+           "다음에 할 일:\n- 3. 결정 사항 표 작성\n- 2. 논의 안건의 세부 내용을 알려 주시면 채워 드리겠습니다.")
+    frag = ("회의 개요, 2.\n\n- 1. 회의 개요: 일시·장소·참석 요약\n\n다음에 할 일:\n- 3.\n"
+            "- 2. 논의 안건의 세부 내용을 알려 주시면 채워 드리겠습니다.")
+    assert finish_overlaps(frag, old)
+    assert not finish_overlaps("3절은 이번 요청 범위가 아니라 그대로 두었습니다.", old)
