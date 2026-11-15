@@ -206,7 +206,15 @@
       data.sessions.slice(0,12).forEach(session => {
         const link = document.createElement('a'); link.className = 'side-item'; link.href = '/chat/'+session.id; link.title = session.title;
         const icon = document.createElement('iconify-icon'); icon.setAttribute('icon','solar:chat-line-linear'); icon.setAttribute('aria-hidden','true');
-        const title = document.createElement('span'); title.className = 'side-session-title'; title.textContent = session.title;
+        const title = document.createElement('span'); title.className = 'side-session-title';
+        if (session.side_tail) {   // 긴 앞부분이 다른 제목과 겹치면 앞부분만 줄이고 다른 뒷부분을 남긴다(서버 side_labels 와 같은 나눔)
+          const head = document.createElement('span'), tail = document.createElement('span');
+          head.className = 'side-head'; head.textContent = session.side_head.trimEnd();
+          tail.className = 'side-tail';
+          if (/\s$/.test(session.side_head)) { const sp = document.createElement('span'); sp.className = 'side-sp'; sp.textContent = ' '; tail.append(sp); }
+          tail.append(session.side_tail);
+          title.classList.add('side-split'); title.append(head, tail);
+        } else title.textContent = session.title;
         link.append(icon, title);
         link.classList.toggle('active', location.pathname===link.getAttribute('href')); fragment.appendChild(link);
       });

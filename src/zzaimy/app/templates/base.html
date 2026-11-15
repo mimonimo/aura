@@ -59,7 +59,14 @@
                 color: var(--faint); letter-spacing: 0.08em; }
   /* 사이드바 가운데(프로젝트·공유·최근 대화)는 한 칸으로 굴러간다 — 위(로고·검색·메뉴)와 아래(AI 상태·사용자)는 그대로.
      묶음마다 앞 몇 줄만(내·공유 프로젝트 5, 최근 대화 8) 보이고 「n개 더 보기」 로 펼친다. 안쪽 스크롤은 두지 않는다(10-27) */
-  .side-top { flex: none; }
+  .side-top { flex: none; padding-bottom: 4px; border-bottom: 1px solid transparent; transition: border-color .2s; }
+  /* 가운데 칸을 굴리면 위 메뉴와 경계를 긋고 잘린 줄을 흐리게(11-15) — 잘린 글자가 「조직 관리」 바로 밑에 겹쳐 보였다 */
+  .sidebar:has(.side-scroll.is-scrolled) .side-top { border-bottom-color: var(--line); }
+  .side-scroll { --fade-top: 0px; --fade-bottom: 0px;
+                 -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent 100%);
+                 mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent 100%); }
+  .side-scroll.is-scrolled { --fade-top: 18px; }
+  .side-scroll.has-more-below { --fade-bottom: 18px; }
   .side-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -14px; padding: 0 14px 8px; }
   .side-scroll > .side-label:first-child { margin-top: 18px; }
   .side-section { padding: 0 4px; }
@@ -72,6 +79,21 @@
                                                line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; flex: 1; min-width: 0; overflow: hidden; }
   .side-session-row .side-item { white-space: normal; }
   .side-list .side-meta { margin-left: auto; flex: none; font-size: 11.5px; color: var(--faint); }
+  /* 가운데 줄임(11-15) — 앞부분(side-head)이 먼저 줄고, 서로 다른 뒷부분(side-tail)은 자리가 모자랄 때만 끝에서 준다 */
+  .sidebar .side-list .side-split.side-split, #chatSessionList .side-split.side-split { display: flex; white-space: nowrap; -webkit-line-clamp: unset; overflow: hidden; }
+  .side-split .side-head { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; overflow-wrap: normal; }
+  .side-split .side-tail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }   /* pre — 앞 빈칸(낱말 경계)을 살린다 */
+  /* 앞부분이 네 글자 폭도 못 남기면(좁은 칸) 앞부분을 감추고 「…뒷부분」 — 글은 DOM 에 남아 복사하면 원래 이름(sideFit) */
+  .side-split.head-hidden .side-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .side-split.head-hidden .side-sp { display: none; }
+  .side-split.head-hidden .side-tail::before { content: "…"; }
+  /* 공유받은 프로젝트 — 이름 한 줄 + 공유한 사람 작은 줄. 줄마다 높이가 같다 */
+  .side-shared .side-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .sidebar .side-shared .side-name { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; -webkit-line-clamp: unset; line-height: 1.35; }
+  .side-shared .side-owner { font-size: 11.5px; line-height: 1.3; font-weight: 400; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-shared .side-owner.is-repeat { opacity: .6; }
+  .side-shared a { align-items: flex-start; }
+  .side-shared a iconify-icon { margin-top: 1px; }
   .side-more-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   .side-more { appearance: none; border: 0; box-shadow: none; background: none; min-height: 0; margin: 2px 0 0; padding: 5px 12px; border-radius: 7px;
                font: inherit; font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; text-align: left; }
@@ -619,6 +641,8 @@ document.addEventListener('submit', function(event) {
 </head>
 <body class="{{ 'developer-space' if request.url.path.startswith('/dev') else '' }}">
 <a class="skip-content" href="#workspaceContent">본문으로 이동</a>
+{# 목록 이름 — 긴 앞부분이 다른 이름과 겹치면(side_split) 앞부분만 줄이고 서로 다른 뒷부분은 남긴다(11-15) #}
+{% macro side_title(name, part, cls='side-name') %}{% if part and part[1] %}<span class="{{ cls }} side-split"><span class="side-head">{{ part[0] | trim }}</span><span class="side-tail">{% if part[0][-1:] == ' ' %}<span class="side-sp"> </span>{% endif %}{{ part[1] }}</span></span>{% else %}<span class="{{ cls }}">{{ name }}</span>{% endif %}{% endmacro %}
 <aside class="sidebar" id="workspaceSidebar" aria-label="업무 탐색">
   <div class="sidebar-header">
   <button type="button" id="navClose" class="icon-btn sidebar-close" aria-label="메뉴 접기" title="메뉴 접기"><iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
@@ -666,11 +690,12 @@ document.addEventListener('submit', function(event) {
   {% endif %}
   {% if side_projects %}
   <nav class="side-nav side-list" id="sideProjects" data-side-limit="5" aria-label="내 프로젝트">
+    {% set _parts = side_split(side_projects | map(attribute='name') | list) if side_split is defined else [] %}
     {% for pj in side_projects %}
     <a href="/project/{{ pj.id }}"
        class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }}">
       <iconify-icon icon="solar:folder-2-linear"{% if project_color is defined %} style="color:{{ project_color(pj.id) }}"{% endif %}></iconify-icon>
-      <span class="side-name">{{ pj.name }}</span>
+      {{ side_title(pj.name, _parts[loop.index0] if _parts else none) }}
       <span class="side-meta" title="프로젝트에 등록된 문서 {{ pj.n_docs }}건"><span class="sr-only">프로젝트에 등록된 문서 </span>{{ pj.n_docs }}<span class="sr-only">건</span></span></a>
     {% endfor %}
   </nav>
@@ -678,13 +703,14 @@ document.addEventListener('submit', function(event) {
   {% endif %}
   {% if side_shared %}
   <div class="side-label">공유받은 프로젝트</div>
-  <nav class="side-nav side-list" id="sideShared" data-side-limit="5" aria-label="공유받은 프로젝트">
-    {% for pj in side_shared %}
+  {# 이름은 한 줄(겹치는 앞부분은 줄이고 다른 뒷부분을 남김), 공유한 사람은 그 아래 작은 글자 — 바로 위 줄과 같은 사람이면 더 옅게(11-15) #}
+  <nav class="side-nav side-list side-shared" id="sideShared" data-side-limit="5" aria-label="공유받은 프로젝트">
+    {% set _parts = side_split(side_shared | map(attribute='name') | list) if side_split is defined else [] %}
+    {% for pj in side_shared %}{% set _owner = person_name(pj.owner) %}
     <a href="/project/{{ pj.id }}"
-       class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }} ({{ person_name(pj.owner) }} 님이 공유)">
+       class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }} ({{ _owner }} 님이 공유)">
       <iconify-icon icon="solar:users-group-rounded-linear"{% if project_color is defined %} style="color:{{ project_color(pj.id) }}"{% endif %}></iconify-icon>
-      <span class="side-name">{{ pj.name }}</span>
-      <span class="side-meta">{{ person_name(pj.owner) }}</span></a>
+      <span class="side-text">{{ side_title(pj.name, _parts[loop.index0] if _parts else none) }}<span class="side-owner{{ ' is-repeat' if loop.previtem is defined and loop.previtem.owner == pj.owner else '' }}"><span class="sr-only">공유한 사람 </span>{{ _owner }}</span></span></a>
     {% endfor %}
   </nav>
   <button type="button" class="side-more" data-side-more="sideShared" aria-controls="sideShared" aria-expanded="false"{% if side_shared|length <= 5 %} hidden{% endif %}>{{ side_shared|length - 5 }}개 더 보기</button>
@@ -692,11 +718,12 @@ document.addEventListener('submit', function(event) {
   {% endif %}
   <div class="side-label side-history-heading"><span>최근 대화</span></div>
   <div class="side-section side-list" id="chatSessionList" data-side-limit="8">
+    {% set _parts = side_split(chat_sessions | map(attribute='title') | list) if side_split is defined else [] %}
     {% for cs in chat_sessions %}
       <div class="side-session-row">
       <a class="side-item {{ 'active' if request.url.path == '/chat/' ~ cs.id else '' }}"
          href="/chat/{{ cs.id }}" title="{{ cs.title }}">
-        <iconify-icon icon="solar:chat-line-linear" aria-hidden="true"></iconify-icon><span class="side-session-title">{{ cs.title }}</span></a>
+        <iconify-icon icon="solar:chat-line-linear" aria-hidden="true"></iconify-icon>{{ side_title(cs.title, _parts[loop.index0] if _parts else none, 'side-session-title') }}</a>
       <button type="button" class="side-session-menu" aria-label="{{ cs.title }} 대화 메뉴" aria-haspopup="dialog" disabled>⋯</button>
       </div>
     {% else %}
@@ -830,6 +857,63 @@ document.addEventListener('submit', function(event) {
     new MutationObserver(sync).observe(list, {childList: true});
     sync();
   });
+})();
+/* 가운데 칸 위·아래 경계 — 굴린 만큼 is-scrolled, 아래가 남으면 has-more-below(펼치기·목록 바뀜에도 다시 잰다) */
+(function () {
+  var s = document.querySelector('[data-side-scroll]');
+  if (!s) return;
+  function edge() {
+    s.classList.toggle('is-scrolled', s.scrollTop > 1);
+    s.classList.toggle('has-more-below', s.scrollTop + s.clientHeight < s.scrollHeight - 1);
+  }
+  s.addEventListener('scroll', edge, {passive: true});
+  if (window.ResizeObserver) new ResizeObserver(edge).observe(s);
+  new MutationObserver(edge).observe(s, {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden']});
+  edge();
+})();
+/* 가운데 줄임 맞추기(sideFit) — 줄 폭이 바뀔 때마다(ResizeObserver, 그리기 전에 돈다) 두 가지를 정한다.
+   (1) 뒷부분을 두고 앞부분에 네 글자 폭이 안 남으면 앞부분을 감춘다(head-hidden). (2) 앞부분이 잘리면 말줄임표까지만 폭을 줘
+   말줄임표 뒤 빈틈을 없앤다(글자 단위로 잘려 남는 자투리). 폭만 재고 글은 바꾸지 않아 복사하면 원래 이름이다 */
+(function () {
+  var MIN_CH = 4, ellCache = {};
+  function ellW(el) {
+    var cs = getComputedStyle(el), key = cs.font;
+    if (!(key in ellCache)) {
+      var m = document.createElement('span'); m.textContent = '…';
+      m.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:' + cs.font;
+      document.body.appendChild(m); ellCache[key] = m.getBoundingClientRect().width; m.remove();
+    }
+    return ellCache[key];
+  }
+  function fit(sp) {
+    var head = sp.querySelector('.side-head'), tail = sp.querySelector('.side-tail');
+    if (!head || !tail) return;
+    sp.classList.remove('head-hidden'); head.style.flex = '';
+    var avail = sp.clientWidth;
+    if (!avail) return;                                 // 접혀 안 보이는 줄 — 보일 때 다시 잰다
+    var em = parseFloat(getComputedStyle(sp).fontSize) || 13;
+    if (avail - tail.scrollWidth < em * MIN_CH) { sp.classList.add('head-hidden'); return; }
+    if (head.scrollWidth <= head.clientWidth) return;  // 앞부분이 다 들어간다
+    var node = head.firstChild;
+    if (!node || node.nodeType !== 3) return;
+    var r = document.createRange(), left = head.getBoundingClientRect().left, limit = head.clientWidth - ellW(head);
+    var lo = 0, hi = node.length;
+    while (lo < hi) {                                   // 말줄임표와 함께 들어가는 가장 긴 앞 글자 수
+      var mid = (lo + hi + 1) >> 1;
+      r.setStart(node, 0); r.setEnd(node, mid);
+      if (r.getBoundingClientRect().right - left <= limit) lo = mid; else hi = mid - 1;
+    }
+    while (lo > 0 && /\s/.test(node.data.charAt(lo - 1))) lo--;   // 낱말 사이에서 잘리면 「대학 …」 이 아니라 「대학…」
+    r.setStart(node, 0); r.setEnd(node, lo);
+    head.style.flex = '0 0 ' + Math.ceil(r.getBoundingClientRect().right - left + ellW(head)) + 'px';
+  }
+  if (!window.ResizeObserver) return;
+  var ro = new ResizeObserver(function (es) { es.forEach(function (e) { fit(e.target); }); }), seen = new WeakSet();
+  function scan() { document.querySelectorAll('.sidebar .side-split').forEach(function (sp) { if (!seen.has(sp)) { seen.add(sp); ro.observe(sp); } }); }
+  scan();
+  var box = document.querySelector('.sidebar');
+  if (box) new MutationObserver(scan).observe(box, {childList: true, subtree: true});   // 대화 목록 새로 고침
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { ellCache = {}; document.querySelectorAll('.sidebar .side-split').forEach(fit); });
 })();
 /* 사용자 메뉴 키보드 — 열면 첫 항목으로, 위·아래 화살표로 옮기고, 항목을 누르거나 밖으로 나가면 닫는다(Esc·바깥 누르기는 공용 펼침 창 처리) */
 (function () {

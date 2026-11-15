@@ -3,6 +3,7 @@ from contextlib import closing
 import re
 import sqlite3
 from .database_backend import connect, table_names, lock_session
+from .side_labels import split_names
 
 from fastapi import Form, HTTPException, Request
 
@@ -143,6 +144,9 @@ def install_routes(app, history):
             names = topics.topics([r['id'] for r in rows])
             for r in rows:
                 r['topic'] = names.get(r['id'])
+        # 사이드바(앞 12개)는 긴 앞부분이 겹치는 제목을 앞·뒤로 나눠 받는다 — 서버 화면과 같은 규칙(side_labels, 11-15)
+        for r, (head, tail) in zip(rows[:12], split_names([r.get('title') or '' for r in rows[:12]])):
+            r['side_head'], r['side_tail'] = head, tail
         return {'sessions': rows[:30], 'has_more': len(rows)>30}
 
     @app.post('/api/chat/sessions/{session_id}')
