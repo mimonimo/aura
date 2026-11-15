@@ -102,7 +102,19 @@ class Client:
             data["session_id"] = str(sid)
         else:
             data["project_id"] = str(pid)
-        r = self.http.post("/chat/send", data=data)
+        import httpx
+        try:
+            r = self.http.post("/chat/send", data=data)
+        except (httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.ReadError):
+            if not sid:
+                raise
+            # 보내는 중 끊김(11-15 14차 35단계: VPN 끊김에 실행기가 죽음) — 닿았는지 모르니 다시 닿은 뒤 대화 기록을 보고 판단한다
+            msgs = self.messages(sid).get("messages") or []            # get 은 연결이 돌아올 때까지 기다린다
+            if any(m.get("role") == "user" and (m.get("content") or "").strip() == text.strip() for m in msgs[-2:]):
+                log("끊기기 전에 요청이 들어가 있었음 — 다시 보내지 않고 기다린다")
+                return sid
+            log("요청이 들어가지 않았음 — 다시 보낸다")
+            r = self.http.post("/chat/send", data=data)
         m = re.search(r"/chat/(\d+)", r.headers.get("location", ""))
         if not m:
             raise SystemExit(f"요청을 보내지 못했습니다({r.status_code}): {r.text[:200]}")
