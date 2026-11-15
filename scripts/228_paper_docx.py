@@ -6,7 +6,7 @@
 - 장 제목 14pt 굵게(줄 간격 1.5) · 절 제목 12pt 굵게(1.5) · 본문 10pt 양쪽 맞춤 줄 간격 1.15 첫 줄 들여쓰기 10pt.
 - 그림·표 캡션은 그림·표 아래 가운데 「[그림 n-m] 제목」, 표는 선 있는 격자(머리줄 회색).
 - 표지(제목·영문 부제·팀명·팀원) → 목차 → 그림 목차 → 표 목차 → 1~6장 → 참고 문헌 → 초록 → 팀원 소개 → 부록.
-- 머리말 오른쪽 줄인 논문 제목, 꼬리말 가운데 쪽 번호·오른쪽 학교와 학과. 표지·목차 쪽에는 쪽 번호를 두지 않고 본문 1쪽부터 센다.
+- 머리말 오른쪽 줄인 논문 제목, 꼬리말 가운데 쪽 번호·오른쪽 학교와 학과. 표지 쪽은 머리말·꼬리말이 없고, 목차 쪽은 머리말·꼬리말(학과)만 있으며 쪽 번호는 본문 1쪽부터 센다.
 - 목차·그림 목차·표 목차는 워드 필드(TOC)로 넣는다 — 파일을 열면 「필드 업데이트」 를 묻고, 쪽 번호가 채워진다.
 
 원고 꼴(scripts/214_paper_write.py 와 같은 규칙): # 장, ## 절, ### 소절, #### 네 번째 단계, 「[그림 n-m] 캡션 (그림 경로)」 줄은 그림+캡션,
@@ -579,14 +579,17 @@ def build(out: Path, appendix: bool = True) -> dict:
     _style_toc(doc)
     sec0 = doc.sections[0]
     _page_setup(sec0)
-    _hf(sec0, header_text="", footer_text="", page=False)
+    # 템플릿처럼 표지 쪽만 비우고(첫 쪽 다름) 목차 쪽에도 머리말(제목·아래 줄)·꼬리말(학과·위 줄)을 둔다 — 쪽 번호는 본문부터(11-16)
+    sec0.different_first_page_header_footer = True
+    _hf(sec0, header_text=SHORT, footer_text=DEPT, page=False)
     # 표지
-    # 템플릿 표지(11-15): 국문 제목 26pt 굵게, 영문 부제(괄호) 25pt 굵게, 팀명 20pt 굵게 가운데, 팀원 18pt 가운데 — 머리 줄·학과 줄 없음
-    for _ in range(6):
+    # 템플릿 표지(11-15): 국문 제목 25pt 굵게, 영문 부제(괄호) 굵게(길어서 20pt), 팀명 20pt 굵게 가운데, 팀원 18pt 가운데 — 머리 줄·학과 줄 없음
+    # 제목이 여러 줄이라 양쪽 정렬이면 낱말 사이가 벌어지고, 빈 줄이 많으면 팀명·팀원이 둘째 쪽으로 밀렸다(11-16) — 왼쪽 정렬, 빈 줄을 줄여 한 쪽에
+    for _ in range(3):
         _para(doc, "", indent_pt=0)
-    _para(doc, TITLE, size=26, bold=True, align=WD_ALIGN_PARAGRAPH.JUSTIFY, indent_pt=0, after=6, spacing=1.2)
-    _para(doc, TITLE_EN, size=25, bold=True, align=WD_ALIGN_PARAGRAPH.JUSTIFY, indent_pt=0, after=6, spacing=1.2)
-    for _ in range(8):
+    _para(doc, TITLE, size=25, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, indent_pt=0, after=6, spacing=1.15)
+    _para(doc, TITLE_EN, size=20, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, indent_pt=0, after=6, spacing=1.15)
+    for _ in range(10):
         _para(doc, "", indent_pt=0)
     _para(doc, TEAM, size=20, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=6)
     _para(doc, MEMBERS, size=18, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
