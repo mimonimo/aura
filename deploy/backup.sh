@@ -39,7 +39,8 @@ install -m 600 .env.local "$DEST/config/env.local-$TS"
 [ -f data/platform/accounts.json ] && install -m 600 data/platform/accounts.json "$DEST/config/accounts-$TS.json"
 
 # 3) 데이터 거울 — 원본·생성 문서·장부. 다시 만들 수 있는 캐시·임시는 뺀다
-rsync -a --exclude 'tmp/' --exclude 'cache/' --exclude '*.part' --exclude '.busy.json' data/ "$DEST/data-mirror/"
+rc=0; rsync -a --exclude 'tmp/' --exclude 'cache/' --exclude '*.part' --exclude '.busy.json' data/ "$DEST/data-mirror/" || rc=$?
+[ "$rc" = 0 ] || [ "$rc" = 24 ] || { echo "   데이터 거울 실패(rsync $rc)" >&2; exit "$rc"; }   # 24 = 도는 중에 지워진 파일(판 정리 등) — 백업 실패가 아니다
 echo "   데이터 거울: $(du -sh "$DEST/data-mirror" | cut -f1)"
 
 # 4) 오래된 것 지우기 — 덤프는 최근 KEEP 개, 설정은 회차마다 셋까지라 최근 KEEP×3 개
