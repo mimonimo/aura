@@ -91,7 +91,7 @@ def _para(doc, text="", *, size=BODY_PT, bold=False, align=WD_ALIGN_PARAGRAPH.JU
     return p
 
 
-_INLINE = re.compile(r"`([^`]+)`|\*\*([^*]+)\*\*")
+_INLINE = re.compile(r"`([^`]+)`|\*\*([^*]+)\*\*|\[\^([^\]]+)\]")
 
 
 def _inline(p, text, *, size=BODY_PT, bold=False, mono=False):
@@ -100,7 +100,9 @@ def _inline(p, text, *, size=BODY_PT, bold=False, mono=False):
     for m in _INLINE.finditer(text):
         if m.start() > pos:
             _font(p.add_run(text[pos:m.start()]), size, bold, mono=mono)
-        if m.group(1) is not None:
+        if m.group(3) is not None:
+            _footnote(p.part.document if hasattr(p.part, "document") else None, p, m.group(3).strip())
+        elif m.group(1) is not None:
             _font(p.add_run(m.group(1)), size - 0.5, bold, mono=True)
         else:
             _font(p.add_run(m.group(2)), size, True, mono=mono)
@@ -117,6 +119,107 @@ def _shade(p_or_cell, fill="F2F2F2"):
     shd.set(qn("w:color"), "auto")
     shd.set(qn("w:fill"), fill)
     pr.append(shd)
+
+
+HEAD_FILL = "FFFFCC"                                     # 템플릿 표·코드 표 머리줄 칠(연노랑, 11-16)
+
+
+def _borders(tbl, inside_h=True):
+    tblPr = tbl._tbl.tblPr
+    b = OxmlElement("w:tblBorders")
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        e = OxmlElement(f"w:{side}")
+        e.set(qn("w:val"), "nil" if (side == "insideH" and not inside_h) else "single")
+        e.set(qn("w:sz"), "4"); e.set(qn("w:space"), "0"); e.set(qn("w:color"), "000000")
+        b.append(e)
+    tblPr.append(b)
+
+
+def _code_table(doc, title, lines):
+    """템플릿 꼴 코드 표 — 맨 위 제목 줄(연노랑), 왼쪽 줄 번호 칸, 오른쪽 코드 칸. 가로 안쪽 선은 없앤다."""
+    lines = lines or [""]
+    t = doc.add_table(rows=len(lines) + 1, cols=2)
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    t.autofit = False
+    _borders(t, inside_h=False)
+    t.columns[0].width, t.columns[1].width = Mm(9), Mm(141)   # 표 격자 너비도(LibreOffice·워드 모두 칸 너비를 따르게)
+    head = t.cell(0, 0).merge(t.cell(0, 1))
+    head.text = ""
+    hp = head.paragraphs[0]
+    hp.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hp.paragraph_format.space_after = Pt(0)
+    _font(hp.add_run(title or "코드"), 9)
+    _shade(head._tc, HEAD_FILL)
+    # 제목 줄 아래 선만 긋는다
+    tcPr = head._tc.get_or_add_tcPr(); tb = OxmlElement("w:tcBorders"); bt = OxmlElement("w:bottom")
+    for k, v in (("val", "single"), ("sz", "4"), ("space", "0"), ("color", "000000")):
+        bt.set(qn(f"w:{k}"), v)
+    tb.append(bt); tcPr.append(tb)
+    for i, ln in enumerate(lines, 1):
+        for j, txt in ((0, str(i)), (1, ln if ln.strip() else " ")):
+            c = t.cell(i, j)
+            c.width = Mm(9) if j == 0 else Mm(141)
+            c.text = ""
+            p = c.paragraphs[0]
+            pf = p.paragraph_format
+            pf.space_after = Pt(0); pf.line_spacing = 1.0
+            pf.alignment = WD_ALIGN_PARAGRAPH.RIGHT if j == 0 else WD_ALIGN_PARAGRAPH.LEFT
+            _font(p.add_run(txt.replace("\t", "    ")), 8, mono=(j == 1), color="555555" if j == 0 else None)
+        tr = t.rows[i]._tr.get_or_add_trPr(); cs = OxmlElement("w:cantSplit"); cs.set(qn("w:val"), "true"); tr.append(cs)
+    _para(doc, "", indent_pt=0, after=2)
+    return t
+
+
+# ── 각주 — 원고 「[^키]」 를 워드 각주로(쪽 아래 작은 글씨), 정의는 「[^키]: 설명」 줄 ──
+FOOT = {"part": None, "n": 0, "defs": {}}
+_FOOT_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+
+
+def _foot_root(doc):
+    if FOOT["part"] is None:
+        from docx.opc.part import XmlPart
+        from docx.opc.packuri import PackURI
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+        from docx.oxml import parse_xml
+        xml = ('<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+               '<w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>'
+               '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>'
+               '</w:footnotes>')
+        part = XmlPart(PackURI("/word/footnotes.xml"), _FOOT_CT, parse_xml(xml), doc.part.package)
+        doc.part.relate_to(part, RT.FOOTNOTES)
+        FOOT["part"] = part
+    return FOOT["part"].element
+
+
+def _footnote(doc, p, key):
+    text = FOOT["defs"].get(key)
+    if not text:
+        return
+    root = _foot_root(doc)
+    FOOT["n"] += 1
+    n = FOOT["n"]
+    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    from docx.oxml import parse_xml
+    from xml.sax.saxutils import escape
+    font = '<w:rFonts w:ascii="맑은 고딕" w:eastAsia="맑은 고딕" w:hAnsi="맑은 고딕"/>'
+    root.append(parse_xml(
+        f'<w:footnote xmlns:w="{W}" w:id="{n}"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>'
+        f'<w:r><w:rPr>{font}<w:vertAlign w:val="superscript"/><w:sz w:val="16"/></w:rPr><w:footnoteRef/></w:r>'
+        f'<w:r><w:rPr>{font}<w:sz w:val="16"/></w:rPr><w:t xml:space="preserve"> {escape(text)}</w:t></w:r></w:p></w:footnote>'))
+    r = p.add_run()
+    rPr = r._r.get_or_add_rPr()
+    va = OxmlElement("w:vertAlign"); va.set(qn("w:val"), "superscript"); rPr.append(va)
+    ref = OxmlElement("w:footnoteReference"); ref.set(qn("w:id"), str(n)); r._r.append(ref)
+
+
+_FOOT_DEF = re.compile(r"^\[\^([^\]]+)\]:\s*(.+)$", re.M)
+
+
+def take_footnotes(text: str) -> str:
+    """원고에서 각주 정의 줄을 떼어 FOOT["defs"] 에 담고, 정의를 뺀 글을 돌려준다."""
+    for m in _FOOT_DEF.finditer(text):
+        FOOT["defs"][m.group(1).strip()] = m.group(2).strip()
+    return _FOOT_DEF.sub("", text)
 
 
 def _heading(doc, text, level):
@@ -218,6 +321,7 @@ def _table(doc, rows):
     widths = [need[j] + free * weight[j] / sum(weight) for j in range(ncol)]
     t.autofit = False
     for j in range(ncol):
+        t.columns[j].width = Mm(widths[j])
         for i in range(len(rows)):
             t.cell(i, j).width = Mm(widths[j])
     keep_all = len(rows) <= KEEP_ROWS                  # 짧은 표는 쪽에서 나누지 않고 통째로(캡션까지) 다음 쪽으로
@@ -232,7 +336,7 @@ def _table(doc, rows):
             txt = r[j] if j < len(r) else ""
             if i == 0:
                 p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                _shade(cell._tc, "E5E5E5")
+                _shade(cell._tc, HEAD_FILL)
                 _inline(p, txt, size=9, bold=True)
             else:
                 p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER if col_center[j] else WD_ALIGN_PARAGRAPH.LEFT
@@ -309,10 +413,12 @@ def blocks(text: str):
             flush()
             j = i + 1
             code = []
+            info = s[3:].strip().split(None, 1)              # 「```python 에이전트 단계 관문」 — 둘째 낱말부터가 코드 표 제목
+            title_ = info[1] if len(info) > 1 else ""
             while j < len(lines) and not lines[j].strip().startswith("```"):
                 code.append(lines[j])
                 j += 1
-            out.append(("code", code))
+            out.append(("code", (title_, code)))
             i = j + 1
             continue
         if not s or s == "---":
@@ -474,10 +580,7 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
             p = _para(doc, val, size=9.5, indent_pt=0, left_cm=0.4)
             _shade(p, "F2F2F2")
         elif kind == "code":
-            for ln in val or [""]:
-                p = _para(doc, ln if ln else " ", size=8, indent_pt=0, left_cm=0.4, after=0, spacing=1.0, mono=True,
-                          align=WD_ALIGN_PARAGRAPH.LEFT)
-                _shade(p, "F5F5F5")
+            _code_table(doc, *val)
         elif kind == "table":
             pend_table = _table(doc, val)
             counts["table"] += 1
@@ -633,6 +736,7 @@ def build(out: Path, appendix: bool = True) -> dict:
     files = CHAPTERS + ([APPENDIX] if appendix else [])
     for name in files:
         text = (SRC / name).read_text(encoding="utf-8")
+        text = take_footnotes(text)
         if name == "97-초록.md":
             text = re.sub(r"^# 초록", "# 초록", text, flags=re.M)
         if name == APPENDIX:

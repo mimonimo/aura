@@ -1159,6 +1159,9 @@ def blocks(body: str) -> list[dict]:
     out: list[dict] = []
     body = re.sub(r"<!--.*?-->", "", body, flags=re.S)     # 원고 메모(HTML 주석)는 문서에 넣지 않는다
     body = re.sub(r"(?m)^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", "", body)   # 마크다운 가름줄(---)은 원고 정리용 — 문서에 「---」 로 찍혔다(11-12)
+    # 각주(11-16) — 워드는 쪽 아래 각주로 넣고, 한글 논문 문서에서는 표시를 떼고 그 문단 뒤에 「주) 설명」 문단으로 둔다
+    foot = {m.group(1).strip(): m.group(2).strip() for m in re.finditer(r"(?m)^\[\^([^\]]+)\]:\s*(.+)$", body)}
+    body = re.sub(r"(?m)^\[\^([^\]]+)\]:\s*(.+)$", "", body)
     lines = body.splitlines()
     i = 0
     para: list[str] = []
@@ -1168,7 +1171,12 @@ def blocks(body: str) -> list[dict]:
         if para:
             text = " ".join(_inline(x) for x in para if x.strip())
             tip = re.match(r"^(참고|팁)\s*[:：]\s*", text)              # 「참고: …」 문단은 팁 상자
+            keys = re.findall(r"\[\^([^\]]+)\]", text)
+            text = re.sub(r"\[\^([^\]]+)\]", "", text)
             out.append({"kind": "tip", "text": text[tip.end():]} if tip else {"kind": "p", "text": text})
+            for k in keys:
+                if foot.get(k.strip()):
+                    out.append({"kind": "p", "text": "주) " + foot[k.strip()]})
             para.clear()
 
     def next_line(j: int) -> str:
