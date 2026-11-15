@@ -22,7 +22,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.section import WD_SECTION
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -203,11 +203,29 @@ def _table(doc, rows):
     for j in range(ncol):
         vals = [_plain(r[j]) for r in rows[1:] if j < len(r) and _plain(r[j])]
         col_center.append(bool(vals) and all(len(v) <= 12 or _NUMISH.fullmatch(v) for v in vals))
+    # 열 너비를 글 양에 맞춘다 — 같은 너비면 긴 글 열에서 한두 글자만 다음 줄로 넘어가 보기 싫었다(11-16).
+    # 열마다 무게 = 칸 글 길이의 평균(긴 칸 쪽으로 조금 더), 바닥은 머리말·가장 긴 낱말이 한 줄에 들어갈 너비
+    CH_MM = 3.3                                          # 9pt 한글 한 글자 폭(여백 포함 어림)
+    text_mm = 150.0
+    need, weight = [], []
+    for j in range(ncol):
+        cells_ = [_plain(r[j]) for r in rows if j < len(r)]
+        lens = [len(v) for v in cells_ if v] or [1]
+        word = max([len(w) for v in cells_ for w in v.split()] or [1])
+        need.append(min(max(len(_plain(rows[0][j])) if j < len(rows[0]) else 1, word, 2) * CH_MM + 4, text_mm * 0.45))
+        weight.append(sum(lens) / len(lens) * 0.6 + max(lens) * 0.4)
+    free = max(text_mm - sum(need), 0)
+    widths = [need[j] + free * weight[j] / sum(weight) for j in range(ncol)]
+    t.autofit = False
+    for j in range(ncol):
+        for i in range(len(rows)):
+            t.cell(i, j).width = Mm(widths[j])
     keep_all = len(rows) <= KEEP_ROWS                  # 짧은 표는 쪽에서 나누지 않고 통째로(캡션까지) 다음 쪽으로
     for i, r in enumerate(rows):
         for j in range(ncol):
             cell = t.cell(i, j)
             cell.text = ""
+            cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER   # 한 행 안에서 짧은 칸이 위에 붙어 들쭉날쭉하던 것(11-16)
             p = cell.paragraphs[0]
             p.paragraph_format.line_spacing = 1.1
             p.paragraph_format.space_after = Pt(0)
@@ -513,7 +531,7 @@ def _rule(p, side: str):
     ppr = p._p.get_or_add_pPr()
     bdr = OxmlElement("w:pBdr")
     e = OxmlElement(f"w:{side}")
-    for k, v in (("val", "single"), ("sz", "4"), ("space", "4"), ("color", "7F7F7F")):
+    for k, v in (("val", "single"), ("sz", "24"), ("space", "4"), ("color", "000000")):   # 템플릿 선: 검정 3pt(11-16)
         e.set(qn(f"w:{k}"), v)
     bdr.append(e)
     after = next((c for c in ppr if c.tag.split("}")[-1] in _PPR_AFTER_BDR), None)
@@ -532,7 +550,7 @@ def _hf(section, *, header_text, footer_text, page=True):
     if header_text:
         _rule(hp, "bottom")                                # 머리말 아래·꼬리말 위 가는 선(템플릿 틀)
     if header_text:
-        _font(hp.add_run(header_text), 9, color="555555")
+        _font(hp.add_run(header_text), 9, color="262626")
     fp = section.footer.paragraphs[0]
     fp.text = ""
     if footer_text or page:
