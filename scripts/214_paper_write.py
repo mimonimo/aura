@@ -57,6 +57,8 @@ def main() -> int:
     ap.add_argument("--dept", default="", help=f"--restamp 의 학과 이름(기본 {ph.META['dept']})")
     ap.add_argument("--page-numbers", action="store_true",
                     help="본문 쪽 번호를 「1. 서론」 에서 1 로, 표지·목차·그림 목차·표 목차에는 쪽 번호 없음(앞 판은 .판/) — 원고는 쓰지 않는다")
+    ap.add_argument("--remake", action="store_true",
+                    help="논문 문서를 지금 원고 차례·논문 양식으로 새로 만든 뒤(같은 문서 번호, 앞 판은 .판/) 모든 절을 다시 쓴다 — 사람이 쓴 칸이 없을 때만")
     ap.add_argument("--format", action="store_true",
                     help="논문 양식(맑은 고딕·본문 10pt·줄 간격 1.15·첫 줄 10pt·장 14pt·절 12pt)으로 맞춘다(앞 판은 .판/) — 원고는 쓰지 않는다")
     ap.add_argument("--relayout", action="store_true",
@@ -134,6 +136,14 @@ def main() -> int:
         print(f"원고가 없다: {src}")
         return 2
     texts = [p.read_text(encoding="utf-8") for p in files]
+    if a.remake and not a.dry_run:
+        r = ph.remake(db, base, fid, src if src.is_dir() else src.parent)
+        if not r["ok"]:
+            print(f"새로 만들지 않음 — {WHY.get(r['why'], r['why'])}{' · ' + str(r.get('by')) if r.get('by') else ''}")
+            return 2
+        print(f"문서 {fid}: 새로 만듦(앞 판은 .판/)")
+        a.rich, a.overwrite = True, True
+        f = webhwp.get(db, fid)
     figures = ph.figure_files((src.parent if src.is_file() else src) / "그림-표-목록.md", ROOT) if a.rich else {}
     p = ph.plan(Path(f["path"]).read_bytes(), texts, rich=a.rich, figures=figures)
     writes = p["writes"]
@@ -167,7 +177,8 @@ def main() -> int:
     # 서식째 절은 장마다 묶어 한 번에 쓴다(저장 한 번 — 열린 화면이 장마다 한 번만 새 판을 부른다). 글 절은 하나씩 흘려 쓴다
     groups: list[list[dict]] = []
     for w in todo:
-        if w["kind"] == "rich" and groups and groups[-1][0]["kind"] == "rich" and groups[-1][0].get("chapter") == w.get("chapter"):
+        # 서식째 쓰기는 전부 한 묶음으로 — 장마다 저장하면 열린 편집 화면이 저장마다 새 판을 다시 불러와 깜빡였다(11-15)
+        if w["kind"] == "rich" and groups and groups[-1][0]["kind"] == "rich":
             groups[-1].append(w)
         else:
             groups.append([w])

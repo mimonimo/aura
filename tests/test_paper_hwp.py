@@ -84,7 +84,7 @@ def test_form_has_field_per_section_styles_and_page_frame():
     names = _names(data)
     want = [ph.key_of(n, t) for lv, n, t in ph.OUTLINE if not (lv == 1 and n)]
     assert [n for n in names if n.startswith("절:") and n not in ("절:그림 목차", "절:표 목차")] == want
-    assert {"칸:학과", "칸:프로젝트 번호", "칸:논문 제목", "칸:팀원", "칸:팀명", "절:그림 목차", "절:표 목차"} <= set(names)
+    assert {"칸:논문 제목", "칸:팀원", "칸:팀명", "절:그림 목차", "절:표 목차"} <= set(names)      # 표지는 템플릿 틀(11-15)
     assert "절:1. 서론" not in names                                 # 장 제목에는 쓸 자리가 없다
     assert eo.check_bytes(data) == []
     assert set(ph.styles_in(data)) == set(ph.STYLES)
@@ -93,7 +93,7 @@ def test_form_has_field_per_section_styles_and_page_frame():
     assert re.search(r'<hp:pagePr\b[^>]*width="59528"[^>]*height="84186"', sec)       # A4
     assert ph.META["short"] in re.search(r"<hp:header\b.*?</hp:header>", sec, re.S).group(0)
     assert "영남이공대학교 사이버보안과" in re.search(r"<hp:footer\b.*?</hp:footer>", sec, re.S).group(0)
-    assert ww.field_values(data)["칸:학과"] == "사이버보안과"                # 표지 머리 줄 학과 칸의 기본값
+    assert ww.field_values(data)["칸:팀명"] == ph.META["team"]               # 표지 팀명 칸의 기본값(템플릿 표지)
     assert "<hp:pageNum" in sec and 'hideFirstHeader="1"' in sec
     # 제목은 필드 밖, 쓸 자리는 제목 바로 다음 문단
     ctx = ww.section_context(data, "절:1.1 프로젝트 배경 및 목적")
@@ -284,7 +284,7 @@ def test_restamp_changes_dept_outside_fields_only_and_keeps_version(tmp_path, mo
     before = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
     seen = len(_events(db, fid, "doc-saved"))
     r = ph.restamp(db, base, fid)
-    assert r["ok"] and r["changed"] and r["note"] == "2곳"                  # 표지 아래 줄·꼬리말
+    assert r["ok"] and r["changed"] and r["note"] == "1곳"                  # 꼬리말(템플릿 표지에는 학과 줄이 없다)
     p = Path(webhwp.get(db, fid)["path"])
     data = p.read_bytes()
     sec = zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
@@ -297,7 +297,7 @@ def test_restamp_changes_dept_outside_fields_only_and_keeps_version(tmp_path, mo
     assert webhwp.meta(db, fid)["paper"]["dept"] == "사이버보안과"
     assert ph.restamp(db, base, fid)["changed"] is False                  # 다시 하면 바꿀 것이 없다
     # 다른 학과로 다시 바꾸면 앞서 넣은 이름을 바꾼다, 구조 잠금을 쥔 사람이 있으면 하지 않는다
-    assert ph.restamp(db, base, fid, "정보보안과")["note"] == "2곳"
+    assert ph.restamp(db, base, fid, "정보보안과")["note"] == "1곳"
     assert webhwp.take_lock(db, fid, "kim")["ok"]
     assert ph.restamp(db, base, fid, "사이버보안과")["why"] == "struct"
 
@@ -307,14 +307,14 @@ def test_writer_script_restamp_and_set_dept(tmp_path, monkeypatch):
     app, fid = _paper(tmp_path, monkeypatch)
     env = {"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"}
     cmd = [sys.executable, str(ROOT / "scripts" / "214_paper_write.py"), "--db", str(Path(app.state.data_dir) / "t.db"), "--restamp",
-           "--set", "칸:학과=사이버보안과", "--delay", "0", "--pause", "0"]
+           "--set", "칸:팀명=AURA", "--delay", "0", "--pause", "0"]
     r = subprocess.run(cmd + ["--dry-run"], capture_output=True, text=True, env=env, timeout=120)
     assert r.returncode == 0, r.stderr
-    assert "2곳" in r.stdout and "칸:학과" in r.stdout
+    assert "1곳" in r.stdout and "칸:팀명" in r.stdout
     r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
     assert r.returncode == 0, r.stderr
     data = Path(webhwp.get(app.state.db, fid)["path"]).read_bytes()
-    assert ww.field_values(data)["칸:학과"] == "사이버보안과"
+    assert ww.field_values(data)["칸:팀명"] == "AURA"
     assert "영남이공대학교 사이버보안과" in zipfile.ZipFile(io.BytesIO(data)).read("Contents/section0.xml").decode()
 
 
@@ -718,3 +718,18 @@ def test_heading_renames_follow_manuscript_spacing():
     assert not re.search(r"<hp:t>[^<]*1\.2 핵심 내용", sec)            # 목차 줄·본문 제목 줄 모두
     assert ww.field_values(new) == ww.field_values(data)
     assert ph.heading_renames(new, texts) == []
+
+
+def test_remake_rebuilds_same_doc_and_refuses_human_text(tmp_path, monkeypatch):
+    app, fid = _paper(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    w = next(x for x in _plan(app, fid, rich=True)["writes"] if x["field"] == "절:1.2 핵심내용")
+    assert ph.write(db, base, fid, w, sleep=lambda s: None)["ok"]
+    src = tmp_path / "논문"                             # _paper 가 만든 원고 폴더
+    r = ph.remake(db, base, fid, src)
+    assert r["ok"]
+    data = Path(webhwp.get(db, fid)["path"]).read_bytes()
+    assert eo.check_bytes(data) == [] and webhwp.meta(db, fid)["written"] == {}
+    assert ww.field_values(data).get("칸:팀명") == ph.META["team"] and not ce.state(db, fid)
+    ce.put(db, fid, "kim", {"절:6.1 연구 요약 및 기여점": "사람 글"}, base=base, client="k1")
+    assert ph.remake(db, base, fid, src)["why"] == "human"

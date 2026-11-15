@@ -446,7 +446,7 @@ def _style_toc(doc):
         st.paragraph_format.line_spacing = 1.0
         st.paragraph_format.left_indent = Pt(10 * (lv - 1))
         st.font.size = Pt(10)
-        st.font.bold = lv == 1
+        st.font.bold = True                                # 템플릿 목차 줄은 모두 굵게
 
 
 _PPR_AFTER_BDR = ("shd", "tabs", "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct", "topLinePunct", "autoSpaceDE",
@@ -528,19 +528,20 @@ def build(out: Path, appendix: bool = True) -> dict:
     _page_setup(sec0)
     _hf(sec0, header_text="", footer_text="", page=False)
     # 표지
+    # 템플릿 표지(11-15): 국문 제목 26pt 굵게, 영문 부제(괄호) 25pt 굵게, 팀명 20pt 굵게 가운데, 팀원 18pt 가운데 — 머리 줄·학과 줄 없음
     for _ in range(6):
         _para(doc, "", indent_pt=0)
-    _para(doc, f"{YEAR} {_ph.META['dept']} 캡스톤디자인 졸업프로젝트 논문", size=12, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=24)
-    _para(doc, TITLE, size=24, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=8, spacing=1.2)
-    _para(doc, TITLE_EN, size=13, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=60)
-    _para(doc, f"[{TEAM}]", size=14, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=6)
-    _para(doc, MEMBERS, size=13, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=6)
-    _para(doc, DEPT, size=12, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
+    _para(doc, TITLE, size=26, bold=True, align=WD_ALIGN_PARAGRAPH.JUSTIFY, indent_pt=0, after=6, spacing=1.2)
+    _para(doc, TITLE_EN, size=25, bold=True, align=WD_ALIGN_PARAGRAPH.JUSTIFY, indent_pt=0, after=6, spacing=1.2)
+    for _ in range(8):
+        _para(doc, "", indent_pt=0)
+    _para(doc, TEAM, size=20, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=6)
+    _para(doc, MEMBERS, size=18, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
     # 목차·그림 목차·표 목차
     for title, instr in (("목차", 'TOC \\o "1-3" \\h \\z \\u'), ("그림 목차", 'TOC \\h \\z \\t "그림 캡션,1"'),
                          ("표 목차", 'TOC \\h \\z \\t "표 캡션,1"')):
         doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-        _para(doc, title, size=CH_PT, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=10)
+        _para(doc, title, size=18, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, indent_pt=0, after=10)   # 템플릿: 「목차」 18pt 굵게 왼쪽
         _field(_para(doc, "", indent_pt=0), instr)
     # 본문 구역 — 머리말·꼬리말, 쪽 번호 1부터
     sec1 = doc.add_section(WD_SECTION.NEW_PAGE)

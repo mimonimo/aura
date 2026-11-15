@@ -7,7 +7,7 @@ OUT="${1:-$HOME/Desktop/AURA-논문}"
 VM="${AURA_VM:-aura@192.168.16.226}"
 PY="${AURA_PY:-$(pwd)/.venv/bin/python}"; [ -x "$PY" ] || PY=/Users/jun/aigen/aura/zzaimy-capstone/.venv/bin/python
 echo "── 웹 기안기 문서에 쓰기"
-ssh "$VM" 'cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && env PYTHONPATH=src .venv/bin/python scripts/214_paper_write.py --rich --overwrite 2>&1 | grep -E "건너뜀|끝|양식" ; env PYTHONPATH=src .venv/bin/python scripts/214_paper_write.py --relayout 2>&1 | tail -1'
+ssh "$VM" 'cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && env PYTHONPATH=src .venv/bin/python scripts/214_paper_write.py '"${REMAKE:+--remake}"' --rich --overwrite 2>&1 | grep -E "건너뜀|끝|양식|새로" ; env PYTHONPATH=src .venv/bin/python scripts/214_paper_write.py --relayout 2>&1 | tail -1'
 echo "── 바탕화면 사본"
 mkdir -p "$OUT"
 P=$(ssh "$VM" 'cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && env PYTHONPATH=src .venv/bin/python -c "

@@ -35,6 +35,9 @@ META = {
     "dept": "사이버보안과",
     "title": "AURA: 교내 행정 업무 자동화를 위한 sLLM 모델 개발 및 행정 자동화 에이전트",
     "short": "AURA 교내 행정 업무 자동화 sLLM·에이전트",
+    "title_en": "AURA: Developing an sLLM and an Agent for Automating University Administrative Work",
+    "team": "AURA",
+    "members": "서원준 형예진 은수인 짜투바카테베",
     "file": "AURA 캡스톤 논문",
 }
 
@@ -318,23 +321,18 @@ def build(outline: list[tuple[int, str, str]] | None = None, meta: dict | None =
             plan.append((text, kind))
         return p
 
-    # 표지 — 머리 줄, 상자(PROJECT _ n · 제목 · 팀원 [팀명]), 아래쪽 학교·학과
-    for _ in range(6):
+    # 표지 — 학교 논문 템플릿(논문_템플릿.docx) 틀: 국문 제목 26pt 굵게, 영문 부제(괄호) 25pt 굵게, 팀명 20pt 굵게 가운데, 팀원 18pt 가운데(11-15)
+    for _ in range(8):
         para("")
-    para(f"{meta['year']} {_marker('칸:학과')} 캡스톤디자인 졸업프로젝트 논문", "cover_sub")
-    para("")
-    para("")
-    box = doc.add_table(3, 1, width=42520)
-    rows = [f"PROJECT _ {_marker('칸:프로젝트 번호')}", _marker("칸:논문 제목"), f"{_marker('칸:팀원')} [{_marker('칸:팀명')}]"]
-    for i, t in enumerate(rows):
-        box.set_cell_text(i, 0, t)
-    cell_kinds.update({rows[0]: "cover_sub", rows[1]: "cover_title", rows[2]: "cover_date"})
-    for _ in range(14):
+    para(_marker("칸:논문 제목"), "paper_title")
+    para(f"({meta['title_en']})", "paper_title_en")
+    for _ in range(12):
         para("")
-    para(f"영남이공대학교 {meta['dept']}", "cover_org")
+    para(_marker("칸:팀명"), "paper_team")
+    para(_marker("칸:팀원"), "paper_members")
 
     # 목차 — 세 단계, 단계마다 한 글자 들여쓰기, 줄 끝 점선(쪽 번호는 기안기에서 쪽이 정해진 뒤)
-    para("목 차", "toc_title", page=True)
+    para(TOC_TITLE, "toc_title", page=True)
     para("")
     for lv, num, title in outline:
         line = ("    " * (lv - 1)) + heading_text(num, title, lv) + TOC_LEADER
@@ -404,7 +402,7 @@ def _fieldize(data: bytes, meta: dict | None = None) -> bytes:
     """⟦이름⟧ 표식을 누름틀로 — 표식만 든 문단은 그 문단이 쓸 자리, 글 사이 표식은 그 자리에 칸. 논문 제목·학과는 기본 글을 넣어 둔다."""
     from zzaimy.app import webhwp_fields as wf
     meta = {**META, **(meta or {})}
-    defaults = {"칸:논문 제목": meta["title"], "칸:학과": meta["dept"]}
+    defaults = {"칸:논문 제목": meta["title"], "칸:학과": meta["dept"], "칸:팀명": meta.get("team", ""), "칸:팀원": meta.get("members", "")}
     zin = zipfile.ZipFile(io.BytesIO(data))
     secs = {n: zin.read(n).decode("utf-8") for n in zin.namelist() if re.match(r"Contents/section\d+\.xml$", n)}
     ids = wf._Ids(list(secs.values()))
@@ -538,7 +536,7 @@ def _paper_not_a4(data: bytes) -> bool:
 
 # ── 목차 쪽 번호 ── 쪽 나눔은 기안기만 안다(서버는 글자 배치를 하지 않는다). 편집 화면이 칸마다 쪽을 재서 보내면(static/paper-toc.js)
 # 목차 줄을 「제목 <오른쪽 탭, 점선 채움> 쪽」 으로 다시 쓴다. 목차 줄은 필드 밖이고, 장 줄(1. 서론)은 그 장 첫 절의 쪽을 쓴다.
-TOC_TITLE = "목 차"
+TOC_TITLE = "목차"                                    # 템플릿 꼴(예전 문서의 「목 차」 도 알아본다)
 _TOC_TAB = '<hp:tab width="0" leader="3" type="2"/>'      # 한글 차례 실물 꼴 — 오른쪽 탭, 채움은 header 의 tabItem(leader="DASH")
 
 
@@ -557,7 +555,7 @@ def _toc_lines(xml: str) -> list[tuple[int, int, str, str]]:
         p = m.group(0)
         t = _ptext(p)
         if not started:
-            started = t.strip() == TOC_TITLE
+            started = t.strip() in (TOC_TITLE, "목 차")
             continue
         if 'pageBreak="1"' in p[:p.find(">")]:
             break
@@ -803,6 +801,31 @@ def current(db) -> dict | None:
         fid = 0
     f = webhwp.get(db, fid) if fid else None
     return f if f and Path(f["path"]).exists() else None
+
+
+def remake(db, base: Path, fid: int, src: Path, *, user: str = WRITER) -> dict:
+    """이미 만든 논문 문서를 지금 원고 차례와 논문 양식으로 새로 만든다(같은 문서 번호) — 여러 번 고치며 불어난 서식 표·옛 덩이를 걷는다.
+    사람이 쓴 칸(칸 글 표의 작성자가 WRITER 가 아닌 글)이 있거나 구조 잠금을 쥔 사람이 있으면 하지 않는다. 앞 판은 .판/ 에 남긴다."""
+    from zzaimy.app import webhwp, webhwp_coedit as ce
+    from zzaimy.app import webhwp_edit_ops as eo
+    who = webhwp.lock_holder(db, fid).get("user", "")
+    if who:
+        return {"ok": False, "why": "struct", "by": who}
+    st = ce.state(db, fid)
+    human = [k for k, v in st.items() if (v.get("text") or "").strip() and v.get("by") not in (WRITER, "", None)]
+    if human:
+        return {"ok": False, "why": "human", "by": ", ".join(human[:3])}
+    outline = outline_for(src)
+    data = build(outline, no_body=headless(outline, [p.read_text(encoding="utf-8") for p in chapter_files(src)]))
+    with ce.file_lock(fid):
+        eo._snapshot(db, base, fid)
+        webhwp.save(db, base, fid, data, user=user)
+    ce.forget(db, fid, list(st))                       # 옛 칸 글이 새 문서에 덮이지 않게
+    m = webhwp.meta(db, fid)
+    m["written"] = {}
+    m["paper"] = {**(m.get("paper") if isinstance(m.get("paper"), dict) else {}), "build": BUILD, "sections": len(outline)}
+    db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+    return {"ok": True}
 
 
 def create(db, base: Path, owner: str, src: Path | None = None) -> tuple[int, bool]:
@@ -1734,6 +1757,12 @@ PAPER_FORM = {
     "h1": {"pt": 12, "bold": True, "line": 150},            # 「1.1 …」 12pt 굵게, 1.5
     "h2": {"pt": 11, "bold": True, "line": 150},            # 「2.1.1 …」 11pt 굵게(템플릿 제목 3), 1.5
     "body": {"pt": 10, "line": 115, "indent": 10, "align": "JUSTIFY"},   # 본문 10pt, 양쪽, 1.15, 첫 줄 10pt
+    # 표지(템플릿): 국문 제목 26pt 굵게, 영문 부제 25pt 굵게, 팀명 20pt 굵게 가운데, 팀원 18pt 가운데 / 목차 제목 18pt 굵게 왼쪽, 목차 줄 굵게
+    "cover_title": {"pt": 26, "bold": True, "line": 130, "align": "JUSTIFY"},
+    "cover_title_en": {"pt": 25, "bold": True, "line": 130, "align": "JUSTIFY"},
+    "cover_team": {"pt": 20, "bold": True, "line": 130, "align": "CENTER"},
+    "cover_members": {"pt": 18, "bold": False, "line": 130, "align": "CENTER"},
+    "toc_title": {"pt": 18, "bold": True, "line": 130, "align": "LEFT"},
 }
 _MONO = ("D2Coding", "Consolas", "Courier", "굴림체", "바탕체", "돋움체", "궁서체")   # 코드 상자의 고정폭 글꼴은 그대로
 
@@ -1762,6 +1791,34 @@ def paper_format(data: bytes) -> tuple[bytes, int]:
             heads.setdefault(_norm_head(t), "chapter" if len(ind) < 4 else ("h1" if len(ind) < 8 else "h2"))
         if not heads:
             return xml
+        # 표지와 목차 제목 — 목차 앞까지의 문단을 필드 이름·글로 가려 템플릿 모양을 입힌다
+        cover_done = False
+        cout, cpos = [], 0
+        for a, b in ww._top_paras(xml, len(xml)):
+            p = xml[a:b]
+            t = _ptext(p).strip()
+            role = ("cover_title" if "칸:논문 제목" in p else "cover_team" if "칸:팀명" in p else "cover_members" if "칸:팀원" in p
+                    else "cover_title_en" if not cover_done and t.startswith("(") and t.endswith(")") and len(t) > 10
+                    else "toc_title" if t in (TOC_TITLE, "목 차", *LISTS) else "")
+            if t in (TOC_TITLE, "목 차"):
+                cover_done = True
+            if not role:
+                if cover_done and t not in LISTS and _norm_head(t) in heads:
+                    break
+                continue
+            spec = PAPER_FORM[role]
+            q = p
+            pm = re.search(r'\bparaPrIDRef="(\d+)"', q[:q.find(">")])
+            if pm:
+                q = q[:pm.start(1)] + hdr.para_style(pm.group(1), line=spec["line"], align=spec["align"], indent=0) + q[pm.end(1):]
+            q = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)', lambda m: m.group(1) + hdr.char(m.group(2), pt=spec["pt"], bold=spec["bold"], color="#000000"), q)
+            if q != p:
+                count[0] += 1
+                cout.append(xml[cpos:a] + q)
+                cpos = b
+        if cout:
+            cout.append(xml[cpos:])
+            xml = "".join(cout)
         toc = {(a, b) for a, b, *_ in _toc_lines(xml)}
         tout, tpos = [], 0
         for a, b in sorted(toc):                          # 목차 줄은 템플릿처럼 좁게(줄 간격 120 · 10pt), 장 줄은 굵게
@@ -1769,9 +1826,8 @@ def paper_format(data: bytes) -> tuple[bytes, int]:
             pm = re.search(r'\bparaPrIDRef="(\d+)"', p[:p.find(">")])
             if not pm:
                 continue
-            lv1 = not _ptext(p).startswith(" ")
             q = p[:pm.start(1)] + hdr.para_style(pm.group(1), line=120) + p[pm.end(1):]
-            q = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)', lambda m: m.group(1) + hdr.char(m.group(2), pt=10, bold=lv1), q)
+            q = re.sub(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)', lambda m: m.group(1) + hdr.char(m.group(2), pt=10, bold=True), q)   # 템플릿 목차 줄은 모두 굵게
             if q != p:
                 count[0] += 1
                 tout.append(xml[tpos:a] + q)
