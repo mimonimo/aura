@@ -659,12 +659,16 @@
         // 연 뒤에 다른 사람이 새 판을 저장했다 — 문서 전체로 덮지 않고 내 칸 밖 고침만 세 판 합치기로 옮긴 뒤 새 판을 연다(11-10)
         outsidePending = true; dirty = false;
         say('다른 사람이 새 판을 저장해 내 고침만 옮겨 넣는 중', 'busy');
-        var unlockAfter = structMine;
-        return rescueOutside().then(function () {
-          if (unlockAfter) { structMine = false; holding = false; clearInterval(beat); autoStruct = false; return post(unlockUrl).catch(function () {}); }
-        }).then(function () { drawStruct(); if (!reloadPending) reloadWhenSafe({by: ''}); });
+        // 잠금은 옮기기를 기다리지 않고 바로 놓는다 — 옮기기가 끝나지 않으면 45초 연장 타이머가 계속 돌아 남의 문서 틀 저장을 몇 분씩 막았다(11-15)
+        var unlocked = structMine ? (structMine = false, holding = false, clearInterval(beat), autoStruct = false, post(unlockUrl).catch(function () {})) : Promise.resolve();
+        return unlocked.then(rescueOutside).catch(function () {})
+          .then(function () { drawStruct(); if (!reloadPending) reloadWhenSafe({by: ''}); });
       }
-      say(e.message, 'bad'); if (e.status === 409) { ready = false; holding = false; clearTimeout(idleTimer); }
+      say(e.message, 'bad');
+      if (e.status === 409) {
+        ready = false; holding = false; clearTimeout(idleTimer);
+        if (structMine) { structMine = false; autoStruct = false; clearInterval(beat); post(unlockUrl).catch(function () {}); drawStruct(); }
+      }
     })
       .then(function () { saving = false; saveBtn.disabled = !ready; });
   }
