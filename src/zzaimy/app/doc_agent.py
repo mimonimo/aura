@@ -573,6 +573,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             if on_step:
                 on_step(_step_label(name, args))
             _act(on_act, name, args, "start")
+            if name == "finish" and args.get("message"):
+                # 굵은 글씨(**…**)·제목 기호는 걷는다 — 「**채운 내용:**」 처럼 답이 AI 투로 보였다(11-15 실사용). 글은 그대로
+                msg_ = re.sub(r"\*\*(.+?)\*\*", r"\1", str(args["message"]), flags=re.S)
+                msg_ = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", msg_)
+                args = dict(args, message=msg_)
             if name == "finish" and not str(args.get("message") or "").strip():
                 # 되물어도 비었다 — 도구가 실패했으면 실패 안내, 아니면 한 일을 걸음 기록으로 알린다(빈 화면으로 끝내지 않게)
                 args = dict(args, message=failure_message(ep) if ep.failures else _fallback_finish(log))

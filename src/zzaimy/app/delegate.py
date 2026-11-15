@@ -418,6 +418,7 @@ class Delegator:
         self.quality = quality_on() if quality is None else bool(quality)
         self.count: dict[str, int] = {}
         self.records: list[dict] = []
+        self.written: dict[str, str] = {}      # 이번 요청에 맡겨 쓴 절 본문(절 이름 → 글) — 대화창 「반영한 것」 미리 보기 재료(chat_preview.from_written)
         self._pages: dict[int, dict[int, int]] = {}
         self.seen: list[str] = []                      # 이번 요청에서 맡겨 쓰며 본 근거·본문 — 「확인 필요」 칸 다시 채우기 재료
 
@@ -669,6 +670,7 @@ class Delegator:
         chk = rec.get("check") or {}
         short = (f" — 요청의 {round(100 * len(body) / want)}%: 근거가 없어 짧은 것이 아니면 redo_note 로 더 쓰게 맡긴다"
                  if want and len(body) < want * 0.5 else "")
+        self.written[section[2:]] = body
         return (f"「{section[2:]}」 을 맡겨 썼다({len(body)}자, 요청 분량 약 {want}자{short}).\n"
                 f"쓴 값: {', '.join(facts_in(body)) or '(수치 없음)'}\n"
                 f"비운 칸·확인 필요: {'; '.join(unknown) or '없음'}\n"

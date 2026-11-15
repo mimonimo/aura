@@ -1221,6 +1221,8 @@ def create_app(
         return _people.display_name(uid, accounts, db, fallback=fallback)
     app.state.person_name = _person_name
     templates.env.globals["person_name"] = _person_name
+    from zzaimy.app.side_labels import split_names as _side_split
+    templates.env.globals["side_split"] = _side_split           # 사이드바 이름 가운데 줄임(11-15)
     templates.env.globals["decision_labels"] = DECISION_LABELS
     templates.env.globals["sector_labels"] = SECTOR_LABELS
     from zzaimy.app.access_guard import ROLES as _ROLES
@@ -3563,6 +3565,9 @@ def create_app(
             new_ids = [int(m_["id"]) for m_ in db.list_chats(session_id, limit=20) if m_.get("role") == "assistant" and int(m_["id"]) > _before_id]
             if new_ids:
                 done_ = _cp.from_steps(ep.steps, doc_agent._REFUSED)
+                _w = getattr(locals().get("_dlg"), "written", None)       # 서브가 맡아 쓴 절(일정표·참석자 표 등)도 — 걸음 인자에는 본문이 없다
+                if _w:
+                    done_ = (done_ + _cp.from_written(_w))[-_cp.DONE_MAX:]
                 if done_:
                     _cp.save_done(db, new_ids[-1], done_)
                 if alt_box and alt_box[0] and (ep.writes or done_):

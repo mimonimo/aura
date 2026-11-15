@@ -24,7 +24,7 @@ ROWS_SHOWN = 4                      # 표 미리 보기에 그리는 자료 행 
 COLS_MAX = 8
 CELL_MAX = 40
 TEXT_MAX = 400
-DONE_MAX = 4                        # 답 하나에 붙이는 반영 미리 보기 수
+DONE_MAX = 6                        # 답 하나에 붙이는 반영 미리 보기 수(칸·맡긴 절 글·표·표 칸이 함께 보이게)
 
 SHAPE_TYPES = ("font", "table", "text", "page", "change")   # 모양·배치를 보이는 갈래 — 먼저 묻기 관문(gate_first)이 본다
 STYLE_KEYS = ("head_fill", "label_fill", "outer", "inner", "head_bottom", "font_pt", "head_bold", "head_align", "body_align")
@@ -481,6 +481,14 @@ def from_step(action: str, args: dict, observation: str, refused: tuple[str, ...
         tb = md_table(text)
         if tb:
             out.append({"what": f"「{where}」 표" if where else "넣은 표", "preview": tb})
+    elif action == "hwp_table_edit" and str(a.get("op") or "") == "set_cells":
+        vals = [[_s(v, CELL_MAX) for v in (r if isinstance(r, (list, tuple)) else [r])] for r in (a.get("values") or [])]
+        vals = [r for r in vals if any(x.strip() for x in r)]
+        if vals:
+            no = a.get("table")
+            pv = norm_preview({"type": "table", "rows": vals})
+            if pv:
+                out.append({"what": f"표{no} 칸" if isinstance(no, (int, str)) and str(no).strip() else "채운 표 칸", "preview": pv})
     elif action == "hwp_fill":
         vals = a.get("values") if isinstance(a.get("values"), dict) else {}
         rows = [[_s(k, CELL_MAX), _s(v, CELL_MAX)] for k, v in vals.items() if str(v or "").strip()]
@@ -520,6 +528,21 @@ def from_step(action: str, args: dict, observation: str, refused: tuple[str, ...
         if pv:
             out.append({"what": "바꾼 글", "preview": pv})
     return [x for x in out if x.get("preview")]
+
+
+def from_written(written: dict) -> list[dict]:
+    """서브 에이전트가 맡아 쓴 절(delegate_section) → 반영 미리 보기 — 글 앞부분과 그 안의 표. 걸음 인자에는 본문이 없어 Delegator.written 에서."""
+    out: list[dict] = []
+    for sec, text in (written or {}).items():
+        body = _plain(str(text or ""))
+        if body:
+            pv = norm_preview({"type": "text", "text": body})
+            if pv:
+                out.append({"what": f"「{_s(sec, 40)}」 글", "preview": pv})
+        tb = md_table(str(text or ""))
+        if tb:
+            out.append({"what": f"「{_s(sec, 40)}」 표", "preview": tb})
+    return out
 
 
 def from_steps(steps: list[dict], refused: tuple[str, ...] = ()) -> list[dict]:

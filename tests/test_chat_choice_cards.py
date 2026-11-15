@@ -90,7 +90,7 @@ def test_done_previews_come_from_tool_results_only():
     got = cp.from_steps(steps, doc_agent._REFUSED)
     whats = [x["what"] for x in got]
     assert "채운 칸" not in whats                                                    # 거절된 걸음은 보이지 않는다
-    assert len(got) == cp.DONE_MAX and whats[-1] == "바꾼 글"
+    assert len(got) == min(5, cp.DONE_MAX) and whats[-1] == "바꾼 글"
     full = {x["what"]: x["preview"] for x in cp.from_steps(steps[:2], doc_agent._REFUSED)}
     assert full["「가상 절」 글"]["text"] == "1) 가상 첫 줄"
     assert full["「가상 절」 표"]["head"] == [["구분", "일정"]] and full["「가상 절」 표"]["title"] == "가상 일정"
@@ -196,3 +196,23 @@ def test_image_preview_accepts_only_fixed_same_site_paths():
     assert ok and ok["src"] == "/hwp/12/page/3.png"
     for bad in ("//evil.com/a.png", "/\\evil.com/a.png", "javascript:alert(1)", "/admin/x.png", "/hwp/1\t/x.png", "HTTPS://x/a.png"):
         assert cp.norm_preview({"type": "image", "src": bad}) is None, bad
+
+
+def test_applied_preview_includes_delegated_sections_and_table_cells():
+    # 11-15 실사용: 서브가 맡아 쓴 일정표·참석자 표와 표 칸 넣기가 「반영한 것」 에 빠졌다
+    from zzaimy.app import chat_preview as cp
+    got = cp.from_written({"1. 주요 내용": "출장 일정은 아래와 같다.\n\n| 일자 | 내용 |\n|---|---|\n| 11. 20.(목) | 협약 회의 |\n"})
+    kinds = [g["preview"]["type"] for g in got]
+    assert "text" in kinds and "table" in kinds and got[-1]["preview"]["rows"][0][0] == "11. 20.(목)"
+    st = cp.from_step("hwp_table_edit", {"table": 5, "op": "set_cells", "values": [["교통비", "확인 필요", ""]]}, "표5: 칸 2개에 값을 넣었다")
+    assert st and st[0]["what"] == "표5 칸" and st[0]["preview"]["rows"][0][:2] == ["교통비", "확인 필요"]
+    assert cp.from_step("hwp_table_edit", {"table": 5, "op": "add_rows"}, "늘렸다") == []
+
+
+def test_finish_message_drops_bold_and_heading_marks():
+    import re as _re
+    msg = "출장 결과 보고서 초안을 작성했습니다.\n\n**채운 내용:**\n- 기간\n### 확인 필요\n- 경비"
+    out = _re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", _re.sub(r"\*\*(.+?)\*\*", r"\1", msg, flags=_re.S))
+    assert "**" not in out and "###" not in out and "채운 내용:" in out
+    src = (__import__("pathlib").Path(__file__).resolve().parents[1] / "src/zzaimy/app/doc_agent.py").read_text(encoding="utf-8")
+    assert 'if name == "finish" and args.get("message"):' in src and r're.sub(r"\*\*(.+?)\*\*", r"\1"' in src
