@@ -60,7 +60,11 @@ def value_type(text: str, head: str = "") -> str:
         return "symbol"
     if _PERCENT.fullmatch(t):
         return "percent"
-    if _DATE.fullmatch(t) and not hs.is_amount(t.replace(" ", "")) or re.fullmatch(r"(?:19|20)\d{2}(?:년|학년도|년도)?", t):
+    # 일정표에 흔한 꼴 — 날짜 뒤 요일 「(목)」·시각 「10:00~12:00」 은 떼고 본다(「11. 20.(목)」 을 짧은 글로 보던 것, 11-15 실사용 확인)
+    d = re.sub(r"\s*\((?:월|화|수|목|금|토|일)\)|\s*\d{1,2}:\d{2}(?:\s*[~∼-]\s*\d{1,2}:\d{2})?", "", t).strip()
+    if d and (_DATE.fullmatch(d) and not hs.is_amount(d.replace(" ", "")) or re.fullmatch(r"(?:19|20)\d{2}(?:년|학년도|년도)?", d)):
+        return "date"
+    if head and _SCHED_HEAD.search(head) and re.fullmatch(r"\d{1,2}\s*일\s*차|\d{1,2}\s*차시|오전|오후|종일|\d{1,2}\s*주\s*차", t):
         return "date"
     if hs.is_amount(t) or (hs.money_head(head) and re.fullmatch(r"[-+△▲▽]?[\d,.]+", t)):
         return "money"

@@ -171,3 +171,10 @@ def test_pt_delta_against_all_tables():
     prof = _prof("stats", body_pt=9.0)
     prof["all"]["values"]["body_pt"] = {"mode": 10.0, "share": 0.4, "n": 100}
     assert ts.pt_delta("stats", "body", prof) == -1.0 and ts.pt_delta("roles", "body", prof) == 0.0
+
+
+def test_schedule_dates_with_weekday_and_time():
+    from zzaimy.export import table_kinds as tk
+    assert tk.value_type("11. 20.(목)") == "date" and tk.value_type("11. 20. 10:00~12:00") == "date"
+    assert tk.value_type("1일차", "일정") == "date" and tk.value_type("오전", "내용") != "date"
+    assert tk.classify([["일자", "내용", "비고"], ["11. 20.(목)", "협약 회의", "본관"], ["11. 21.(금)", "현장 방문", ""]])[0] == "schedule"

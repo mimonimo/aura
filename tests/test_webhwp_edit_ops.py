@@ -262,3 +262,22 @@ def test_stale_table_number_after_table_count_changes(tmp_path, monkeypatch):
     # 그 번호를 다시 본 뒤에는 지금 번호로 받아들인다
     et.run("hwp_table_view", {"table": c_no})
     assert "넣었다" in et.run("hwp_table_edit", {"table": c_no, "op": "add_rows", "row": 1})
+
+
+def test_set_cells_keeps_header_row_when_start_left_at_top():
+    # 11-15 실사용: 출장 보고 경비 표 「항목 | 금액(원) | 비고」 머리줄에 첫 값 행이 덮였다(시작 칸 [1, 1])
+    d, msg = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"}, "values": [["항목", "금액(원)", "비고"], ["", "", ""], ["", "", ""]]})
+    tb = {"head": "항목"}
+    d, msg = eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [1, 1], "values": [["교통비", "확인 필요", ""], ["숙박비", "확인 필요", ""]]})
+    _ok(d)
+    assert "머리줄" in msg
+    t = eo.list_tables(eo._Doc(d))[int(re.search(r"표(\d+)", msg).group(1)) - 1] if re.search(r"표(\d+)", msg) else None
+    x = _sec(d)
+    assert x.find(">항목<") < x.find(">교통비<") < x.find(">숙박비<") and ">금액(원)<" in x
+    # 머리줄을 다시 적어 보낸 값 줄은 버린다
+    d2, msg2 = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"}, "values": [["항목", "금액"], ["", ""]]})
+    d2, msg2 = eo.table_edit(_ok(d2), {"table": {"head": "항목"}, "op": "set_cells", "start": [1, 1], "values": [["항목", "금액"], ["교통비", "1"]]})
+    assert "머리줄과 같아" in msg2 and _sec(d2).count(">항목<") == 1
+    # overwrite 면 그대로(머리줄을 일부러 고치는 경우)
+    d3, _ = eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [1, 1], "values": [["구분", "금액", "비고"]], "overwrite": True})
+    assert ">구분<" in _sec(d3)

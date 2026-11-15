@@ -1388,6 +1388,37 @@ def _cell_plan(tb: "_Table", r0: int, c0: int, values: list) -> dict:
     return plan
 
 
+def _skip_head(tb: "_Table", r0: int, values: list, overwrite: bool = False):
+    """표의 머리줄(라벨만 든 행) 위에 값을 넣으려 하면 그 아래 값 행부터 넣는다 → (r0, values, 알림).
+    머리줄로 보는 행: 칸마다 짧은 라벨 글이 있고 필드가 없으며, 바로 아래 행이 비었거나 값 칸 필드·견본 글만 든 행.
+    값 첫 줄이 머리줄 글과 같으면(머리줄을 다시 적어 보낸 것) 그 줄은 버린다. 11-15 실사용: 출장 보고 경비 표의
+    「항목 | 금액(원) | 비고」 머리줄에 첫 값 행 「교통비 | 확인 필요」 가 덮였다(시작 칸을 [1, 1] 로 둔 채 보냄). overwrite 면 그대로."""
+    if overwrite or r0 + 1 >= tb.nr or not values:
+        return r0, values, ""
+    plain = lambda cv: _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cv["xml"], flags=re.S)).strip()
+
+    def row_cells(r):
+        out, seen = [], set()
+        for c in range(tb.nc):
+            cv = tb.covering(r, c)
+            if cv is not None and id(cv) not in seen and cv["r"] == r:
+                seen.add(id(cv))
+                out.append(cv)
+        return out
+    head = row_cells(r0)
+    texts = [plain(cv) for cv in head]
+    if not head or any("fieldBegin" in cv["xml"] for cv in head) or not all(t and len(t) <= 14 and not re.fullmatch(r"[\d,.\s%]+", t) for t in texts):
+        return r0, values, ""
+    below = row_cells(r0 + 1)
+    if not below or not all(("fieldBegin" in cv["xml"]) or not plain(cv) or _sample_text(plain(cv)) for cv in below):
+        return r0, values, ""
+    first = values[0] if isinstance(values[0], list) else [values[0]]
+    norm = lambda t: re.sub(r"\s+", "", str(t or ""))
+    if [norm(x) for x in first] == [norm(t) for t in texts[:len(first)]]:
+        return r0 + 1, values[1:] or values, " · 값 첫 줄이 머리줄과 같아 빼고 그 아래부터 넣음"
+    return r0 + 1, values, " · 머리줄(" + " | ".join(texts[:4]) + ")은 두고 그 아래 행부터 넣음"
+
+
 def _realign_row(tb: "_Table", r0: int, c0: int, values: list):
     """값 한 줄이 그 행의 칸 수와 꼭 맞는데 시작 열을 한 칸 밀려 짚었으면 행 첫 칸부터 칸마다 하나씩 넣게 바꾼다 → (values, c0, 알림).
     시작 열 왼쪽 칸이 모두 값 자리(비었거나 단위 「명」 만)이고, 그대로 넣으면 표 밖으로 넘치거나 합친 칸 하나에 값 둘이 겹칠 때만.
@@ -1561,7 +1592,9 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                 if isinstance(v, (list, dict)):
                     raise EditError(f"값 줄 안에 목록 {json.dumps(v, ensure_ascii=False)[:40]} 이 들었다 — values 는 [[행1 칸1, 칸2, …], [행2 …]] 꼴로, 칸 하나에 글 하나다. "
                                     "다른 행 값이면 그 행 줄로 옮긴다.")
+        r0, values, headnote = _skip_head(tb, r0, values, bool(a.get("overwrite")))   # 머리줄 위에 값을 넣으려 했으면 그 아래부터
         values, c0, realigned = _realign_row(tb, r0, c0, values)   # 행 칸 수와 꼭 맞는 값 줄을 한 칸 밀려 짚었으면 첫 칸부터
+        realigned = headnote + realigned
         _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
         n, grown = 0, 0
         # 행이 모자라면 표 끝에 마지막 행 꼴로 늘려 넣는다 — 값 줄 수와 늘린 행 수가 어긋나(43줄에 40행) 통째로 거절되고
