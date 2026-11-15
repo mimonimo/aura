@@ -140,6 +140,11 @@ body .modal-back input:is([type=text],[type=password],[type=url],[type=search]):
 .control-bar > :is(input[type=text], input[type=search]) { flex:1 1 200px; min-width:0; }
 .control-bar > select { flex:0 1 auto; min-width:0; max-width:100%; }
 .control-bar > :is(button, .btn, .btn-ghost) { flex:none; white-space:nowrap; }
+/* 좁은 폭 — 찾을 말은 한 줄 전체, 고르기는 같은 폭 두 칸(제 글자 폭대로 한 줄에 하나씩 늘어서지 않게) */
+@media (max-width:600px) {
+  .control-bar > :is(input[type=text], input[type=search]) { flex-basis:100%; }
+  .control-bar > select { flex:1 1 calc(50% - 4px); }
+}
 /* 쪽 넘기기 — 「이전 · n / m · 다음」을 한 줄 가운데 높이에 */
 .pager { display:flex; align-items:center; gap:10px; margin:16px 0 0; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .pager > span { min-width:3.5em; text-align:center; }

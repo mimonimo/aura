@@ -13,8 +13,8 @@
   {% for r in setup_rows %}
   <div class="setup-row">
     <span class="setup-mark {{ 'ok' if r.ok else ('opt' if r.optional else 'no') }}">{{ '✓' if r.ok else ('·' if r.optional else '✗') }}</span>
-    <b>{{ r.label }}</b>{% if r.optional %}<span class="muted"> 선택</span>{% endif %}
-    <span class="muted setup-detail">{{ r.detail }}</span>
+    <span class="setup-txt"><b>{{ r.label }}</b>{% if r.optional %}<span class="muted">선택</span>{% endif %}
+      <span class="muted setup-detail">{{ r.detail }}</span></span>
     {% if r.href and not r.ok %}<a class="setup-go" href="{{ r.href }}">설정</a>{% endif %}
   </div>
   {% endfor %}
@@ -30,12 +30,13 @@ document.querySelectorAll('[data-setup-toggle]').forEach(function (b) {
 </script>
 <style>
   .setup-sum { display:flex; align-items:center; gap:10px; }
-  .setup-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; flex-wrap:wrap; }
+  .setup-row { display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .setup-txt { flex:1; min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; }
   .setup-row:last-child { border-bottom:0; }
   .setup-mark { width:1.4em; text-align:center; font-weight:700; }
   .setup-mark.ok { color:var(--green, #2f7d4f); } .setup-mark.no { color:var(--red, #b3402f); } .setup-mark.opt { color:var(--muted); }
-  .setup-detail { font-size:12px; flex:1; min-width:10rem; }
-  .setup-go { font-size:12px; }
+  .setup-detail { font-size:12px; overflow-wrap:anywhere; }
+  .setup-go { flex:none; font-size:12px; }
 </style>
 
 {% include "_tools_settings.html" %}

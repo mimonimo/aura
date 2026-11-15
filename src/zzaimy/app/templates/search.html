@@ -46,7 +46,7 @@
 
 <div class="card sr-group" id="srDocuments"><div class="card-in">
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>문서 {{ docs|length }}{% if docs_more %}+{% endif %}</h2>
-  <p class="sr-what">제목이나 본문에 검색어가 있는 등록 문서. 같은 문서의 판본은 한 줄로 묶었습니다.</p>
+  <p class="sr-what">제목·본문에 검색어가 든 문서 · 판본은 한 줄로</p>
   {% for d in docs %}
   <div class="sr-row"><div class="sr-main">
     <a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
@@ -63,7 +63,7 @@
 
 <div class="card sr-group" id="srEvidence"><div class="card-in">
   <h2><iconify-icon icon="solar:bookmark-square-minimalistic-linear"></iconify-icon>본문 대목 {{ chunks|length }}</h2>
-  <p class="sr-what">볼 수 있는 문서의 본문에서 검색어가 나온 대목. 누르면 문서의 그 자리로 갑니다.</p>
+  <p class="sr-what">검색어가 나온 본문 대목 · 누르면 그 자리로</p>
   {% for h in chunks %}
   <div class="sr-row"><div class="sr-main">
     <a href="/doc/{{ h.doc_id }}#q={{ q|urlencode }}">{{ doc_title({"filename": h.title}) }}{% if h.heading %} · {{ h.heading }}{% endif %}</a>

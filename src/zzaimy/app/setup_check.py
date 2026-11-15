@@ -62,7 +62,7 @@ def items(st, live=None) -> list[dict]:
         {"key": "webhwp", "label": "한글 웹 기안기", "ok": _webhwp_ok(), "optional": False,
          "detail": "bash deploy/webhwp/install.sh", "href": "/hwp"},
         {"key": "backup", "label": "백업", "ok": age is not None and age < 30, "optional": False,
-         "detail": (f"{age:.0f}시간 전" if age is not None else "아직 없음 — cron 매일 02:30 · bash deploy/backup.sh"), "href": ""},
+         "detail": (f"{age:.0f}시간 전" if age is not None else "아직 없음 · cron 매일 02:30 · bash deploy/backup.sh"), "href": ""},
     ]
 
 

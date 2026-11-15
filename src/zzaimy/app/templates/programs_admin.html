@@ -514,7 +514,7 @@
 {% set tw = 320 + 150 + 130 + 140 + 96 + 110 + 150 + 110 + (44 if any_action else 0) %}
 <table class="pa-table" data-pa-table data-tid="a" style="min-width:{{ tw }}px;">
   <thead><tr><th class="stk" data-sort="name" data-w="320">사업</th><th data-col="cat" data-w="150" style="width:150px;">분류</th><th data-col="dept" data-w="130" style="width:130px;">주관 부서</th>
-    <th data-col="per" data-sort="period" data-w="140" style="width:140px;">기간</th><th data-col="bud" class="n" data-sort="budget" data-w="96" style="width:96px;">예산</th><th data-col="man" data-w="110" style="width:110px;">책임자 이름</th>
+    <th data-col="per" class="n" data-sort="period" data-w="140" style="width:140px;">기간</th><th data-col="bud" class="n" data-sort="budget" data-w="96" style="width:96px;">예산</th><th data-col="man" data-w="110" style="width:110px;">책임자 이름</th>
     <th data-col="who" data-w="150" style="width:150px;" title="총괄 책임자 · 사업 책임자 · 행정 담당자(계정)">지정</th><th data-col="proj" data-w="110" style="width:110px;">프로젝트</th>{% if any_action %}<th data-w="44" style="width:44px;"><span class="sr-only">메뉴</span></th>{% endif %}</tr></thead>
   <tbody>
   {% for r in rows %}

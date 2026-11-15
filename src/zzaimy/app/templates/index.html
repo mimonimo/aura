@@ -81,7 +81,9 @@
   .lib-scope { flex:none; font-style:normal; font-size:11px; padding:1px 7px; border-radius:999px; background:#EEF1F5; color:#53647B; }
   .lib-scope.dept { background:#FFF4E0; color:#8A5A00; }
   .lib-more { display:flex; flex-wrap:wrap; gap:8px; width:100%; }
-  .lib-more select { flex:1 1 130px; min-width:0; max-width:220px; }
+  .lib-more select { flex:1 1 7rem; min-width:0; max-width:220px; }
+  .lib-filters > select { flex:0 1 auto; min-width:0; }
+  .intake-toolbar.lib-filters > input[type=search] { flex:1 1 9rem; min-width:6rem; }
   .lib-body { display:inline-flex !important; flex:none !important; width:auto !important; align-items:center; gap:5px; font-size:12.5px; color:var(--muted); white-space:nowrap; cursor:pointer; }
   .intake-toolbar .lib-body input[type=checkbox] { flex:0 0 16px; width:16px; min-width:0; height:16px; min-height:0; padding:0; margin:0; border:0; accent-color:#1B3B75; }
   .lib-folder-pick { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; font-size:15px; }
@@ -140,7 +142,7 @@
   /* 사업 찾기 — 목록 맨 위. 치는 대로 사업 이름·별칭이 맞는 사업을 아래에 띄운다(왼쪽 사업 목록에서 찾는다) */
   .lib-find { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin:0 0 14px; }
   .lib-find-l { font-weight:700; font-size:14px; color:var(--navy); }
-  .lib-find-box { position:relative; flex:1 1 18rem; min-width:0; }
+  .lib-find-box { position:relative; flex:1 1 12rem; min-width:0; }
   .lib-find-box input { width:100%; box-sizing:border-box; min-height:40px; font-size:14px; }
   .lib-find-hits { position:absolute; z-index:30; left:0; right:0; top:calc(100% + 4px); list-style:none; margin:0; padding:4px; background:#fff;
                    border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(15,23,42,.12); max-height:min(22rem, 60vh); overflow:auto; }
@@ -201,15 +203,17 @@
   @media (max-width: 900px) { .lib-layout { grid-template-columns:minmax(0,1fr); } .lib-layout > * { min-width:0; } .lib-rail { position:static; max-height:280px; min-width:0; } }
   .lib-act-s { display:none; }
   .lib-clear { white-space:nowrap; }
-  /* 좁은 화면 — 거르기 칸은 같은 폭 두 칸 격자(찾을 말만 한 줄 전체), 쓰임새 칩과 올리기 단추는 한 줄 */
-  @media (max-width: 600px) {
+  /* 좁은 칸 — 거르기 칸은 같은 폭 두 칸 격자(찾을 말만 한 줄 전체), 쓰임새 칩과 올리기 단추는 한 줄.
+     창 폭이 아니라 문서 칸 폭으로 고른다(노트북 폭·도우미 패널을 열어 칸이 좁아져도 칸이 낱낱이 꺾이지 않게) */
+  .lib-main > .card-in { container:libmain / inline-size; }
+  @container libmain (max-width: 600px) {
     .lib-uses { flex-wrap:nowrap; gap:6px; }
     .lib-uses a { padding:0 10px; min-height:32px; font-size:12.5px; }
     .lib-uses .lib-uses-act, .lib-uses-acts > button { flex:none; min-height:32px; padding:0 10px; }
     .lib-uses-acts { flex:none; gap:6px; }
     .lib-act-l { display:none; } .lib-act-s { display:inline; }
     .intake-toolbar.lib-filters { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
-    .intake-toolbar.lib-filters > *, .lib-more > * { width:100%; min-width:0; max-width:none; box-sizing:border-box; margin:0; }
+    .intake-toolbar.lib-filters > *, .lib-filters .lib-more > * { width:100%; min-width:0; max-width:none; box-sizing:border-box; margin:0; }
     .intake-toolbar.lib-filters input[type=search] { grid-column:1 / -1; }
     .lib-filters .lib-more { display:contents; }
     .lib-filters .lib-body { width:auto !important; justify-content:center; min-height:36px; border:1px solid var(--line); border-radius:8px; }

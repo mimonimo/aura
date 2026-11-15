@@ -17,7 +17,7 @@
 .qs-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:#1f2a3a;text-decoration:none;font-size:13.5px}
 .qs-row iconify-icon{font-size:16px;color:#6a86ab}
 .qs-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.qs-meta{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:#8d98a7}
+.qs-meta{max-width:min(220px,32vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:#8d98a7}
 .qs-row.on{background:#eef2f8}
 .qs-row.on .qs-name{color:#163266}
 .qs-empty{margin:56px 22px;text-align:center;color:#8d98a7;font-size:13px}
