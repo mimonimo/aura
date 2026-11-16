@@ -172,6 +172,47 @@ def scenario_text(today=None) -> str:
     return "\n".join(f"- {k}: {v}" for k, v in scenario(today).items())
 
 
+def report_scenario(today=None) -> dict[str, str]:
+    """사업이 아닌 시연 문서 — 교내 일반 업무의 결과 보고서(가상). 숫자는 여기 준 것만 근거가 되고, 꾸민 수치에는 「예시」."""
+    from datetime import date
+    d = today or date.today()
+    y = d.year
+    return {
+        "제목": f"{y}년 신규 교직원 직무 연수 결과 보고서(시연용 가상 문서)",
+        "주관 부서": "총무팀",
+        "작성자": SLOTS["a"][1],
+        "참여 인력": f"{SLOTS['b'][1]}(연수 운영), {SLOTS['c'][1]}(설문 분석)",
+        "작성일": d.strftime("%Y. %m. %d."),
+        "연수 기간": f"{y}. 3. 3. ~ {y}. 3. 5.(3일)",
+        "장소": "본관 2층 대회의실",
+        "대상": "신규 교직원 24명(예시)",
+        "목적": "신규 교직원의 학교 규정·행정 정보 시스템 이해와 빠른 업무 적응 지원",
+        "주요 내용": "학교 규정과 복무 안내, 행정 정보 시스템 실습, 부서별 업무 소개, 선배 교직원 멘토링",
+        "결과(예시)": "수료 24명, 만족도 4.5점(5점 만점), 개선 요청 6건(실습 시간 부족 4건, 자료 사전 배포 2건)",
+        "향후 계획(예시)": f"{y}. 9. 하반기 연수에서 실습 시간 확대, 자료 사흘 전 배포, {y}. 12. 멘토링 결과 점검",
+    }
+
+
+# 시연 주제 — (문서 종류, 이름 칸, 가상임을 밝히는 말, 설정). 고르기는 설정 coedit_demo_theme(기본 plan)
+THEMES = {"plan": ("사업계획서", "사업명", "가상 사업", scenario), "report": ("결과 보고서", "제목", "가상 문서", report_scenario)}
+
+
+def theme_of(db=None) -> str:
+    try:
+        v = (db.get_setting("coedit_demo_theme", "plan") if db is not None else "plan") or "plan"
+    except Exception:
+        v = "plan"
+    return v if v in THEMES else "plan"
+
+
+def setting(theme: str = "plan", today=None) -> dict[str, str]:
+    return THEMES[theme][3](today)
+
+
+def setting_text(theme: str = "plan", today=None) -> str:
+    return "\n".join(f"- {k}: {v}" for k, v in setting(theme, today).items())
+
+
 def demo_values(fields: list[dict]) -> dict[str, str]:
     """만들기 길(make_doc — 화면 단추 없는 장문 시연 문서)의 머리 칸 값 — 칸 이름 낱말로만 고른다. 본문(절)은 시연 때 쓰도록 비워 둔다.
     화면 시연(빈 문서 → 양식 만들기)은 이 규칙을 쓰지 않고 27B 가 시나리오(scenario)를 보고 칸을 고른다(DemoRun.fill_summary)."""
@@ -378,32 +419,34 @@ def coedit_demo_reset(request: Request, id: int = Form(...)):
     return RedirectResponse(f"/dev/coedit-demo?id={new}", status_code=303)
 
 
-def form_request(today=None) -> str:
-    """「AURA 양식 만들기」 요청 — 27B 가 이 가상 사업의 짧은 사업계획서 양식을 설계한다(설계 길은 webhwp_form_create 와 같다).
+def form_request(today=None, theme: str = "plan") -> str:
+    """「AURA 양식 만들기」 요청 — 27B 가 시연 주제(THEMES)의 짧은 양식을 설계한다(설계 길은 webhwp_form_create 와 같다).
     시연 중 기다림을 줄이려고 짧게(1단계 절 몇 개, 표·도식 자리 없이) 청한다 — 절 이름·차례·작성방법은 27B 가 정한다."""
-    sc = scenario(today)
-    return (f"시연용 가상 사업 「{sc['사업명']}」 의 사업계획서 양식을 만들어 줘. 두세 쪽 분량으로 짧게 — 1단계 절 5~6개(아래 절 없이), "
-            "절마다 무엇을 쓸지 작성방법 한두 문장, 표지 없이 문서 머리에 요약 표(사업명·기간 같은 짧은 칸 4~6개). 절 안 표·도식 자리는 두지 않는다.\n"
-            "가상 사업 설정:\n" + scenario_text(today))
+    doc, key, kind, _ = THEMES[theme]
+    sc = setting(theme, today)
+    return (f"시연용 {kind} 「{sc[key]}」 의 {doc} 양식을 만들어 줘. 두세 쪽 분량으로 짧게 — 1단계 절 5~6개(아래 절 없이), "
+            f"절마다 무엇을 쓸지 작성방법 한두 문장, 표지 없이 문서 머리에 요약 표({key}·기간 같은 짧은 칸 4~6개). 절 안 표·도식 자리는 두지 않는다.\n"
+            f"{kind} 설정:\n" + setting_text(theme, today))
 
 
-def write_request(today=None) -> str:
+def write_request(today=None, theme: str = "plan") -> str:
     """「AURA 이어 쓰기」 요청(대화 기록) — 빈 본문 절을 1절부터 차례로 세 개."""
-    return f"「{scenario(today)['사업명']}」 사업계획서의 빈 절을 1절부터 차례로 세 개 써 줘."
+    doc, key, _, _ = THEMES[theme]
+    return f"「{setting(theme, today)[key]}」 {doc}의 빈 절을 1절부터 차례로 세 개 써 줘."
 
 
-SECTION_SYSTEM = """당신은 대학 사업계획서의 한 절을 쓰는 AURA 다. 주어진 가상 사업 설정과 그 절의 작성방법을 보고 실제 사업계획서 품질의 본문만 쓴다.
+SECTION_SYSTEM = """당신은 대학 {doc}의 한 절을 쓰는 AURA 다. 주어진 {kind} 설정과 그 절의 작성방법을 보고 실제 {doc} 품질의 본문만 쓴다.
 - 개조식 번호 문단: 「1)」 소제목 두세 개, 그 아래 「가)」「나)」 항목. 항목마다 무엇을·왜·어떻게 하는지 한 문장. 문장 끝은 「~함」「~임」.
-- 가상 사업의 실제 계획 내용(목표·전략·추진 체계·일정·기대 효과 등 그 절이 묻는 것)을 쓴다. 작성방법 안내를 풀어 옮기지 않는다.
+- {kind}의 실제 내용(목적·추진 내용·일정·결과·향후 계획 등 그 절이 묻는 것)을 쓴다. 작성방법 안내를 풀어 옮기지 않는다.
 - 400~700자. 표·도식·마크다운 기호(#, **, |) 없이 글로만.
 - 숫자·날짜·기관·사람 이름은 설정에 있는 것만 그대로. 설정에 「예시」 가 붙은 수치는 「(예시)」 를 붙인다. 설정에 없는 숫자는 쓰지 않는다.
 - 절 제목은 다시 쓰지 않는다. 본문만 답한다."""
 
-FILL_SYSTEM = """문서 머리 요약 표의 칸에 넣을 값을 가상 사업 설정에서 고른다. JSON 하나만 답한다: {"칸 이름 그대로": "값", ...}.
+FILL_SYSTEM = """문서 머리 요약 표의 칸에 넣을 값을 문서 설정에서 고른다. JSON 하나만 답한다: {"칸 이름 그대로": "값", ...}.
 설정에 맞는 값이 없는 칸은 넣지 않는다. 값은 짧게(설정 글 그대로나 그 일부)."""
 
-NEXT_SYSTEM = """사업계획서의 빈 절을 모두 썼다. 이 문서에 아직 없지만 이 사업을 평가하는 사람이 찾을 절 하나를 고른다.
-문서 차례·앞 절 요지·가상 사업 설정을 보고 고른다. 이미 있는 절과 겹치지 않게. 새 절은 문서 끝(마지막 절 다음)에 붙는다.
+NEXT_SYSTEM = """{doc}의 빈 절을 모두 썼다. 이 문서에 아직 없지만 이 문서를 읽는 사람이 찾을 절 하나를 고른다.
+문서 차례·앞 절 요지·{kind} 설정을 보고 고른다. 이미 있는 절과 겹치지 않게. 새 절은 문서 끝(마지막 절 다음)에 붙는다.
 JSON 하나만 답한다: {"title": 절 제목(번호 없이 명사구, 34자 안쪽), "guide": 작성방법 한두 문장(무엇을 어떤 차례로 쓸지), "why": 고른 까닭 한 문장}"""
 
 RUN_KEY = "coedit_demo_run:{fid}"
@@ -435,7 +478,9 @@ class DemoRun:
         self.client = (make_client or _default_client)()
         hw = webhwp_agent.HwpTools(self.db, self.base, self.sid, SLOTS["a"][0], ROOT, None, lambda: [])
         hw.client = self.client
-        hw.evidence = lambda: [scenario_text(), *[str(m.get("content") or "") for m in self.db.list_chats(self.sid, limit=200) if m.get("role") == "user"]]
+        self.theme = theme_of(self.db)
+        self.doc, self.key, self.kind, _ = THEMES[self.theme]
+        hw.evidence = lambda: [setting_text(self.theme), *[str(m.get("content") or "") for m in self.db.list_chats(self.sid, limit=200) if m.get("role") == "user"]]
         webhwp_agent.attach(self.db, self.sid, self.fid)
         self.hw = hw
         self.log: list[dict] = []
@@ -453,6 +498,9 @@ class DemoRun:
         self.db.set_setting(RUN_KEY.format(fid=self.fid), _json.dumps({"busy": busy, "step": label, "at": now, "log": self.log,
                                                                        "total": round(now - self.t0, 1)}, ensure_ascii=False))
 
+    def _sys(self, text: str) -> str:
+        return text.replace("{doc}", self.doc).replace("{kind}", self.kind)
+
     def ask(self, system: str, user: str, out_tokens: int = 1400, temperature: float = 0.4) -> str:
         from zzaimy.app import llm_budget
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -466,13 +514,13 @@ class DemoRun:
         import time as _time
         from zzaimy.app import webhwp, webhwp_form_create as fc
         from zzaimy.app import webhwp_write as ww
-        sc = scenario()
-        req = form_request()
+        sc = setting(self.theme)
+        req = form_request(theme=self.theme)
         self.db.add_chat(self.sid, "user", req)
         self.step("양식 설계 중(절 차례·작성방법)")
         creator = fc.FormCreator(self.client, self.db, self.sid, self.hw, req, refs=False, review=False)   # 시연은 빠르게 — 참고 양식·자기 검토 없이 한 번
-        clean, probs, _tries = creator.design({"purpose": f"시연용 가상 사업 「{sc['사업명']}」 의 짧은 사업계획서", "kind": "사업계획서",
-                                               "title": sc["사업명"], "cover": False})
+        clean, probs, _tries = creator.design({"purpose": f"시연용 {self.kind} 「{sc[self.key]}」 의 짧은 {self.doc}", "kind": self.doc,
+                                               "title": sc[self.key], "cover": False})
         if clean is None:
             return "양식을 만들지 못했습니다. 설계가 관문을 지나지 못했습니다: " + "; ".join(probs[:3])
         heads = [x["heading"] for x in clean["sections"]]
@@ -485,7 +533,7 @@ class DemoRun:
         self.db.set_setting(f"webhwp_meta:{self.fid}", _json.dumps(m, ensure_ascii=False))
         filled = self.fill_summary(fields)
         return (f"양식 「{clean['title']}」 을 만들어 이 문서에 넣었습니다. 절 {len(heads)}개: " + " / ".join(heads)
-                + (f". 요약 칸 {len(filled)}개를 가상 사업 값으로 채웠습니다({', '.join(f[2:] for f in filled)})." if filled else ". 요약 칸은 비워 두었습니다."))
+                + (f". 요약 칸 {len(filled)}개를 {self.kind} 값으로 채웠습니다({', '.join(f[2:] for f in filled)})." if filled else ". 요약 칸은 비워 두었습니다."))
 
     def fill_summary(self, fields: list[dict]) -> list[str]:
         """요약 표 칸 — 어느 칸에 무엇을 넣을지는 27B 가 설정에서 고르고, 넣기는 칸 공동 편집 길(hwp_fill)로."""
@@ -499,7 +547,7 @@ class DemoRun:
         shown = {c.split(":", 1)[-1].strip(): c for c in cells}
         key = lambda t: re.sub(r"\s+", "", str(t or "")).split(":", 1)[-1]
         by_key = {key(c): c for c in cells}
-        raw = self.ask(FILL_SYSTEM, "칸: " + ", ".join(shown) + "\n가상 사업 설정:\n" + scenario_text(), out_tokens=600, temperature=0.1)
+        raw = self.ask(FILL_SYSTEM, "칸: " + ", ".join(shown) + f"\n{self.kind} 설정:\n" + setting_text(self.theme), out_tokens=600, temperature=0.1)
         got = fc.parse_design(raw) or {}
         vals = {by_key[key(k)]: str(v) for k, v in got.items() if key(k) in by_key and str(v or "").strip()}
         if not vals:
@@ -525,9 +573,9 @@ class DemoRun:
         guide = wa.guide_of(ww.section_context(data, field)) or "(작성방법 없음 — 절 제목에 맞게)"
         order = " / ".join(x["name"][2:] for x in self.hw._fields() if x["kind"] == "절")
         prev = "\n".join("- " + f[2:] + ": " + " ".join(t.split())[:160] for f, t in done[-3:]) or "(없음)"
-        user = (f"[가상 사업 설정]\n{scenario_text()}\n\n[문서 차례] {order}\n\n[앞 절 요지]\n{prev}\n\n"
+        user = (f"[{self.kind} 설정]\n{setting_text(self.theme)}\n\n[문서 차례] {order}\n\n[앞 절 요지]\n{prev}\n\n"
                 f"[쓸 절] {field[2:]}\n[작성방법] {guide[:600]}" + (f"\n\n[앞서 쓴 글이 거절된 까닭 — 고쳐 쓴다] {why}" if why else ""))
-        return self.ask(SECTION_SYSTEM, user)
+        return self.ask(self._sys(SECTION_SYSTEM), user)
 
     def add_section(self) -> str:
         """빈 절이 없을 때 — 27B 가 문서 차례·설정을 보고 덧붙일 절(제목·작성방법)을 하나 고르고, 코드는 그 절을 문서 끝에 같은 짜임
@@ -545,10 +593,10 @@ class DemoRun:
         secs = [x["name"] for x in self.hw._fields() if x["kind"] == "절"]
         gist = webhwp.meta(self.db, self.fid).get("gist") or {}
         prev = "\n".join(f"- {f[2:]}: {str(gist.get(f) or '')[:120]}" for f in secs) or "(없음)"
-        user = f"[가상 사업 설정]\n{scenario_text()}\n\n[문서 차례와 절 요지]\n{prev}"
+        user = f"[{self.kind} 설정]\n{setting_text(self.theme)}\n\n[문서 차례와 절 요지]\n{prev}"
         why = ""
         for _ in range(2):                                       # 거절되면 까닭을 붙여 한 번 더
-            got = fc.parse_design(self.ask(NEXT_SYSTEM, user + (f"\n\n[앞 제안이 거절된 까닭] {why}" if why else ""),
+            got = fc.parse_design(self.ask(self._sys(NEXT_SYSTEM), user + (f"\n\n[앞 제안이 거절된 까닭] {why}" if why else ""),
                                            out_tokens=500, temperature=0.3)) or {}
             title, guide = str(got.get("title") or "").strip(), str(got.get("guide") or "").strip()
             if not title:
@@ -571,7 +619,7 @@ class DemoRun:
     def write_sections(self, n: int = 3) -> str:
         from concurrent.futures import ThreadPoolExecutor
         from zzaimy.app.korean_text import josa
-        self.db.add_chat(self.sid, "user", write_request())
+        self.db.add_chat(self.sid, "user", write_request(theme=self.theme))
         todo = self.targets(n)
         added = ""
         if not todo:                                             # 빈 절이 없으면 문서에 맞는 절을 하나 더 만들어 쓴다(한 번 누름에 한 절)

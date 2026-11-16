@@ -407,3 +407,19 @@ def test_section_insert_keeps_shape_and_toc():
             raise AssertionError(bad)
         except eo.EditError:
             pass
+
+
+def test_report_theme_is_not_business():
+    """사업이 아닌 시연 주제(report) — 요청 글에 설정이 그대로, 사업 낱말 없이. 설정값이 없거나 모르는 값이면 기본(plan)."""
+    from datetime import date
+    d = date(2031, 5, 4)
+    fr = demo.form_request(d, theme="report")
+    for k, v in demo.setting("report", d).items():
+        assert f"- {k}: {v}" in fr
+    assert "사업" not in fr and "결과 보고서" in fr and "가상 문서" in fr
+    assert "결과 보고서" in demo.write_request(d, theme="report")
+
+    class DB:
+        def __init__(self, v): self.v = v
+        def get_setting(self, k, default=None): return self.v
+    assert demo.theme_of(DB("report")) == "report" and demo.theme_of(DB("이상한 값")) == "plan" and demo.theme_of(None) == "plan"
