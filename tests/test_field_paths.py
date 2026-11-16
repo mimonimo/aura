@@ -451,3 +451,20 @@ def test_row_template_field_rejects_joined_values():
     assert wa._many_items("교무처\n정보전산원")
     assert not wa._many_items("3월 20일까지") and not wa._many_items("본관 2층, 소회의실")
 
+
+
+def test_new_table_merges_left_marks_horizontally():
+    """마크다운 표의 「←」 칸은 왼쪽 칸과 가로로 합친다(글자로 남지 않음), 「〃」 는 세로로 — 격자는 어긋나지 않는다(11-16 14차)."""
+    import re as _re
+    from zzaimy.ingest import hwpx_fill as hf
+    rows = [["구분", "내용", "←", "비고"], ["추진배경", "가나다라", "←", "x"], ["추진목표", "마바사", "아자", "〃"]]
+    xml = hf.table_xml(rows, "0", "0", 40000, "1", '<hp:cellMargin left="510" right="510" top="141" bottom="141"/>', 9)
+    assert "←" not in xml and "〃" not in xml
+    spans = _re.findall(r'<hp:cellAddr colAddr="(\d+)" rowAddr="(\d+)"/><hp:cellSpan colSpan="(\d+)" rowSpan="(\d+)"/>', xml)
+    cover = {}
+    for c, r, cs, rs in spans:
+        for i in range(int(r), int(r) + int(rs)):
+            for j in range(int(c), int(c) + int(cs)):
+                cover[(i, j)] = cover.get((i, j), 0) + 1
+    assert all(cover.get((i, j)) == 1 for i in range(3) for j in range(4))
+    assert ("1", "0", "2", "1") in spans and ("3", "1", "1", "2") in spans

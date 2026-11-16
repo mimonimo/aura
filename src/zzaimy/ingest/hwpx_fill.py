@@ -596,7 +596,28 @@ DENSE_COLS = 6                  # 이 열 수부터 촘촘한 자료 표(교과�
 DENSE_CHAR_HU = 900
 
 
-def ditto_spans(rows: list[list[str]], head_rows: int = 1) -> tuple[dict[tuple[int, int], int], set[tuple[int, int]]]:
+LEFT_MARK = re.compile(r"^\s*[←◀]\s*$")
+
+
+def left_spans(rows: list[list[str]]) -> tuple[dict[tuple[int, int], int], set[tuple[int, int]]]:
+    """「←」(왼쪽과 같음) 칸을 왼쪽 칸과 가로로 합칠 자리 — ({(행, 열): 합칠 열 수}, {덮이는 칸}). 머리줄도 합친다.
+    원본 표를 옮긴 마크다운 표가 가로로 합친 칸을 「←」 로 적는데, 새 표를 쓰는 길(hwp_write)은 「〃」 만 합치고 「←」 는 글자로 넣어
+    잘게 쪼갠 열에 글이 세로로 늘어졌다(11-16 14차 작업본, set_cells 길은 이미 합쳤다)."""
+    span: dict[tuple[int, int], int] = {}
+    covered: set[tuple[int, int]] = set()
+    for r, row in enumerate(rows):
+        anchor = None
+        for c in range(len(row)):
+            if LEFT_MARK.match(str(row[c])) and anchor is not None:
+                span[anchor] = span.get(anchor, 1) + 1
+                covered.add((r, c))
+            else:
+                anchor = (r, c)
+    return {k: v for k, v in span.items() if v > 1}, covered
+
+
+def ditto_spans(rows: list[list[str]], head_rows: int = 1, skip: set | None = None,
+                wide: set | None = None) -> tuple[dict[tuple[int, int], int], set[tuple[int, int]]]:
     """「〃」(위와 같음) 칸을 위 칸과 세로로 합칠 자리 — ({(행, 열): 합칠 행 수}, {덮이는 칸}).
     마크다운 표·원문이 합친 칸을 「〃」 로 적는다(4-3 교과목 표의 「기초 공통」 처럼). 칸마다 글자로 찍히면 원본과 달리 지저분했다(11-12).
     머리줄(head_rows)은 합치지 않고, 위에 글이 든 칸이 없으면(첫 자료 행의 〃) 그대로 둔다."""
@@ -607,7 +628,10 @@ def ditto_spans(rows: list[list[str]], head_rows: int = 1) -> tuple[dict[tuple[i
         anchor = None
         for r in range(len(rows)):
             v = str(rows[r][c]) if c < len(rows[r]) else ""
-            if r < head_rows:
+            if r < head_rows or (skip and (r, c) in skip):
+                anchor = None
+                continue
+            if wide and (r, c) in wide:                       # 가로로 합친 칸 아래 「〃」 는 세로로 잇지 않는다(격자가 어긋난다)
                 anchor = None
                 continue
             if DITTO.match(v) and anchor is not None:
@@ -631,7 +655,9 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
     n_cols = max((len(r) for r in rows), default=0)
     if not n_rows or not n_cols:
         return ""
-    span, covered = ditto_spans(rows) if n_rows > 2 else ({}, set())
+    hspan, hcov = left_spans(rows)
+    span, covered = ditto_spans(rows, skip=hcov, wide=set(hspan)) if n_rows > 2 else ({}, set())
+    covered = covered | hcov
     if n_cols >= DENSE_COLS:                                # 열이 많은 표는 9pt 로 잰다(학교 표 모양이 그 표를 9pt 로 입힌다)
         char_hu = min(int(char_hu or 1000), DENSE_CHAR_HU)
     if widths and len(widths) == n_cols and sum(widths) > 0:
@@ -641,7 +667,7 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
         # (「〃」 칸은 길이에서 뺀다 — 합쳐질 칸이라 폭을 차지하지 않는다. 상한 30 은 긴 설명 열(교육 내용)을 좁혀 서너 줄로 접히게 했다)
         weights = []
         for c in range(n_cols):
-            lens = [len(ln) for r_, row in enumerate(rows) if r_ and (r_, c) not in covered and (r_, c) not in span
+            lens = [len(ln) for r_, row in enumerate(rows) if r_ and (r_, c) not in covered and (r_, c) not in span and (r_, c) not in hspan
                     for ln in (split_lines(str(row[c])) if c < len(row) else [""]) or [""]]
             longest = max(lens + [len(str(rows[0][c])) if c < len(rows[0]) else 0], default=0)
             avg = sum(lens) / len(lens) if lens else longest
@@ -651,14 +677,15 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
     # 짧은 값 열(「목표 80%」)이 긴 글 열에 밀려 「80%」 가 세로로 끊기던 것(11-09 결과보고서) — 끊으면 안 되는 낱말 폭은 지킨다
     # 세로로 합친 칸(「〃」 로 이어진 「기초 / 공통」)은 키가 커서 줄을 바꿔도 되니 「한 줄에 두는 짧은 값」 셈에서 뺀다 — 넣으면 그 열이 넓어져
     # 긴 설명 열(교육 내용)이 좁아졌다(11-12)
-    min_rows = [[("" if r and ((r, c) in span or (r, c) in covered) else (row[c] if c < len(row) else "")) for c in range(n_cols)]
-                for r, row in enumerate(rows)] if span else rows
+    min_rows = [[("" if ((r and (r, c) in span) or (r, c) in covered or (r, c) in hspan) else (row[c] if c < len(row) else "")) for c in range(n_cols)]
+                for r, row in enumerate(rows)] if (span or hspan) else rows
     col_ws = _fit_widths(col_ws, _min_col_widths(min_rows, n_cols, int(char_hu or 1000)), width_hu)
     char = int(char_hu or 1000)
     trs, heights = [], []
     for r, row in enumerate(rows):
         # 행 높이는 칸 글이 들어갈 만큼 — 1200 으로 두면 웹 기안기가 여러 줄 칸을 덜 늘려 글 위아래가 잘려 보였다(11-12 논문)
-        row_h = max([1200] + [row_height(str(row[c]) if c < len(row) and (r, c) not in covered and (r, c) not in span else "", col_ws[c], char)
+        row_h = max([1200] + [row_height(str(row[c]) if c < len(row) and (r, c) not in covered and (r, c) not in span else "",
+                                         sum(col_ws[c:c + hspan.get((r, c), 1)]), char)
                               for c in range(n_cols)])
         heights.append(row_h)
     for r, row in enumerate(rows):
@@ -668,6 +695,7 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
             if (r, c) in covered:                            # 위 칸과 합쳐진 「〃」 칸 — 칸을 내지 않는다(합친 칸이 덮는다)
                 continue
             rs = span.get((r, c), 1)
+            cs = hspan.get((r, c), 1)
             cell = row[c] if c < len(row) else ""
             lines = split_lines(str(cell)) or [""]
             role = ("head" if r == 0 and "head" in roles and head_rows != 0 else "label" if c == 0 and label
@@ -677,8 +705,8 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
             tcs.append(f'<hp:tc name="" header="{1 if r == 0 and head_rows != 0 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{cbf}">'
                        f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" '
                        f'textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">{paras}</hp:subList>'
-                       f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="1" rowSpan="{rs}"/>'
-                       f'<hp:cellSz width="{col_ws[c]}" height="{sum(heights[r:r + rs])}"/>{margin}</hp:tc>')
+                       f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="{cs}" rowSpan="{rs}"/>'
+                       f'<hp:cellSz width="{sum(col_ws[c:c + cs])}" height="{sum(heights[r:r + rs])}"/>{margin}</hp:tc>')
         trs.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
     total_w = sum(col_ws)
     total_h = sum(heights)
