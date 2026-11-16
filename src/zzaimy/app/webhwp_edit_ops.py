@@ -824,7 +824,29 @@ class _Table:
         c1, c2 = rng.get("cols") or (0, self.nc - 1)
         return [x for x in self.cells if r1 <= x["r"] <= r2 and c1 <= x["c"] <= c2]
 
+    def drop_empty_rows(self) -> int:
+        """칸이 하나도 시작하지 않는 행(위 칸의 행 합침이 행 전체를 덮은 행)을 없앤다 — 빈 <hp:tr> 을 쓰면 한컴 필터 서버가
+        통째로 죽어(SIGSEGV) 문서가 열리지 않았다(11-16 14차 작업본 31MB, 「불러오는 중」 에서 멈춤). 덮던 칸의 행 합침을 하나 줄이고
+        아래 칸을 한 행 올리며, 없앤 행의 높이는 바로 위 행에 더해 표 전체 높이를 지킨다."""
+        n = 0
+        r = 0
+        while r < self.nr:
+            if r > 0 and not any(x["r"] == r for x in self.cells):
+                for x in self.cells:
+                    if x["r"] < r < x["r"] + x["rs"]:
+                        x["rs"] -= 1
+                    elif x["r"] > r:
+                        x["r"] -= 1
+                self.row_h[r - 1] += self.row_h[r]
+                del self.row_h[r]
+                self.nr -= 1
+                n += 1
+                continue
+            r += 1
+        return n
+
     def to_xml(self) -> str:
+        self.drop_empty_rows()
         self.cells.sort(key=lambda x: (x["r"], x["c"]))
         # 덮개 검사 — 모든 자리를 꼭 한 칸이 덮어야 한다(한글이 깨진 표를 열지 못한다)
         cover = [[0] * self.nc for _ in range(self.nr)]
@@ -2402,6 +2424,9 @@ def structure_problems(data: bytes) -> list[str]:
             probs.append(f"{n}: 누름틀 id 가 겹친다")
         if sorted(begins) != sorted(ends):
             probs.append(f"{n}: 누름틀 여닫이가 맞지 않는다(여는 것 {len(begins)}, 닫는 것 {len(ends)})")
+        empty_tr = len(re.findall(r"<hp:tr>\s*</hp:tr>|<hp:tr\s*/>", x))
+        if empty_tr:                                     # 칸 없는 행 — 한컴 필터 서버가 죽어 문서가 안 열린다(11-16)
+            probs.append(f"{n}: 칸이 하나도 없는 표 행이 {empty_tr}개 있다(행 합침이 행 전체를 덮음)")
         try:
             root = ET.fromstring(x.encode("utf-8"))
         except ET.ParseError as e:

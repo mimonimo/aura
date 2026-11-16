@@ -375,3 +375,20 @@ def test_set_cells_blank_does_not_erase_and_labels_are_kept():
     # 「←」 는 왼쪽 칸과 합친다
     d5, msg = eo.table_edit(d, {"table": t, "op": "set_cells", "start": [3, 2], "values": [["ICT반도체전자계열", "←"]]})
     assert "합침" in msg and "ICT반도체전자계열[합침 1×2]" in eo.table_view(d5, {"table": t})
+
+
+def test_merge_whole_rows_leaves_no_empty_tr():
+    """머리 두 행을 가로 전체로 합치면 둘째 행에 칸이 하나도 없다 — 빈 <hp:tr> 을 쓰면 한컴 필터 서버가 죽어 문서가 안 열렸다(11-16 14차).
+    합친 행은 하나로 줄이고, 표 높이·나머지 칸은 그대로."""
+    import re as _re
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    data = wt.build(wt.GRANT["budget_change"])
+    d, _ = eo.table_insert(data, {"head": ["가", "나", "다"], "values": [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]})
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    new, msg = eo.table_edit(d, {"table": t, "op": "merge", "cells": [1, 1, 2, 3]})
+    tbl = list(_re.finditer(r"<hp:tbl\b.*?</hp:tbl>", new.decode("utf-8", "ignore") if isinstance(new, bytes) else new, _re.S))
+    import zipfile, io
+    xml = "".join(zipfile.ZipFile(io.BytesIO(new)).read(n).decode() for n in zipfile.ZipFile(io.BytesIO(new)).namelist() if n.startswith("Contents/section"))
+    assert "<hp:tr></hp:tr>" not in xml and "<hp:tr/>" not in xml
+    assert eo.check_bytes(new) == []
