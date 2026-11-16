@@ -259,7 +259,10 @@ def create_app(
             return None
         if not isinstance(fresh, dict) or not fresh:
             return None
-        if not all(isinstance(k, str) and isinstance(v, dict) and (v.get("pw_hash") or v.get("pw")) for k, v in fresh.items()):
+        # 비밀번호 없는 줄은 로그인할 수 없는 비활성 계정(시연 계정 demo_*)만 받는다 — 그 셋 때문에 파일 전체가 거부되어
+        # 밖에서 고친 계정이 조용히 반영되지 않았다(11-16)
+        if not all(isinstance(k, str) and isinstance(v, dict) and (v.get("pw_hash") or v.get("pw") or v.get("active") is False)
+                   for k, v in fresh.items()):
             return None                                       # 한 줄이라도 꼴이 틀리면 통째로 받지 않는다
         return fresh
 

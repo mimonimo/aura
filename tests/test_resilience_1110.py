@@ -212,3 +212,25 @@ def test_merge_accounts_keeps_password_hash_and_salt_together():
     from zzaimy.app import main as m
     src = inspect.getsource(m)
     assert '_cred = ("pw_hash", "salt", "pw")' in src
+
+
+def test_outside_edit_applies_even_with_passwordless_demo_accounts(tmp_path):
+    """시연 계정(비밀번호 없는 비활성 줄)이 있어도 밖에서 고친 계정이 반영된다 — 그 줄 때문에 파일 전체가 거부되던 일(11-16).
+    비밀번호 없는 줄이 활성이면 여전히 파일 전체를 받지 않는다(fail-closed)."""
+    app = _app(tmp_path)
+    client = TestClient(app)
+    path = tmp_path / "accounts.json"
+    acc = json.loads(path.read_text())
+    acc["demo_a"] = {"role": "staff", "name": "김가람", "active": False, "demo": True}
+    path.write_text(json.dumps(acc, ensure_ascii=False))
+    _add_account_on_disk(path, "tf_member2", "pw-for-tf-2")
+    r = client.post("/login", data={"username": "tf_member2", "pw": "pw-for-tf-2"}, follow_redirects=False)
+    assert r.status_code == 303 and "tf_member2" in app.state.accounts
+    r = client.post("/login", data={"username": "demo_a", "pw": ""}, follow_redirects=False)
+    assert r.status_code != 303 or r.headers.get("location") != "/"
+    acc = json.loads(path.read_text())
+    acc["bad"] = {"role": "dev", "active": True}
+    path.write_text(json.dumps(acc, ensure_ascii=False))
+    _add_account_on_disk(path, "tf_member3", "pw-for-tf-3")
+    assert client.post("/login", data={"username": "tf_member3", "pw": "pw-for-tf-3"}, follow_redirects=False).headers.get("location") != "/"
+    assert "bad" not in app.state.accounts
