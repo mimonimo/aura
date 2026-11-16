@@ -1085,6 +1085,10 @@ def write_section(data: bytes, name: str, items: list[tuple[str, object]], writt
                 out = []
                 for line in lines:
                     lp, lc = para_styles.pick(line) or (pp, cp)
+                    # 글자 크기는 이 절 자리의 본문 글자 하나로 — 견본(앞서 AURA 가 쓴 절도 견본으로 잡힌다)의 글자를 그대로 쓰니
+                    # 같은 「1)」·「가)」 줄이 17.6pt·13pt 로 섞였다(11-16 시연·연수 계획서). 들여쓰기(문단 모양)는 견본대로
+                    if hangs.char_height(lc) != hangs.char_height(cp):
+                        lc = cp
                     if hf.marker_of(line) and len(line) > hf._ParaStyles.SHORT:
                         lp, tab_hu = hangs.hanging(lp, lc, line[:hf._MARK.match(line).end()].strip())
                         out.append(hf.marker_paragraph_xml(line, lp, lc, tab_hu))
