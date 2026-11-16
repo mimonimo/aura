@@ -1538,6 +1538,20 @@ async def webhwp_proxy(request: Request, path: str):
             out = {k: v for k, v in out.items() if k.lower() != "content-length"}
             out["Content-Encoding"] = "gzip"
             out["Vary"] = "Accept-Encoding"
+    # 기안기 안쪽 창(hwpctrlmain.html)에도 큰 파일 저장소(editor-cache.js)를 — 수식 엔진 wasm(6.9MB)은 이 안쪽 창이 받는데
+    # 바깥 화면에만 걸려 있어, 한 번 연 브라우저도 열 때마다 다시 받아 12초가 걸렸다(11-16 「항상 문서 여는 게 느려」)
+    if (request.method == "GET" and r.status_code == 200 and raw.endswith("hwpctrlmain.html")
+            and "html" in r.headers.get("content-type", "") and b"editor-cache.js" not in content):
+        from pathlib import Path as _P
+        try:
+            v = int((_P(__file__).parent / "static" / "editor-cache.js").stat().st_mtime)
+        except OSError:
+            v = 0
+        tag = f'<script src="/static/editor-cache.js?v={v}"></script>'.encode()
+        m_ = re.search(rb"<head[^>]*>", content, re.I)
+        if m_:
+            content = content[:m_.end()] + tag + content[m_.end():]
+            out = {k: v_ for k, v_ in out.items() if k.lower() not in ("content-length", "content-encoding")}
     resp = Response(content, status_code=r.status_code, headers=out)
     for c in r.headers.get_list("set-cookie"):          # 기안기 세션 쿠키는 경로를 /webhwpctrl 로 두고 그대로 넘긴다
         resp.headers.append("set-cookie", c)

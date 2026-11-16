@@ -128,9 +128,9 @@
       {% set hwp = w.kind == 'hwp' %}
       <div class="pw-row" data-kind="{{ w.kind }}">
         <iconify-icon icon="solar:{{ 'document-text' if hwp else 'document-add' }}-linear" aria-hidden="true"></iconify-icon>
-        <span class="pw-main"><span class="pw-name">{% if w.chat_id %}<a href="/chat/{{ w.chat_id }}" title="{{ w.name }} (대화의 문서 패널에서 고침)">{{ w.name }}</a>{% else %}<a href="{{ w.url }}" target="_blank" rel="noopener" title="{{ w.name }}">{{ w.name }}</a>{% endif %}</span>
+        <span class="pw-main"><span class="pw-name"><a href="{{ w.url }}" target="_blank" rel="noopener" title="{{ w.name }} 열기 (새 창)">{{ w.name }}</a></span>
           <span class="pw-meta">{{ '한글' if hwp else '구글' }}{% if w.where %} · {{ w.where }}{% endif %}{% if w.created_at %} · {{ w.created_at[:10] }}{% endif %}</span></span>
-        <span class="pw-open">{% if hwp %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 한글 문서로 열기 (새 창)">한글 문서 <span aria-hidden="true">↗</span></a>{% if w.drive_url %}<a class="pw-btn" href="{{ w.drive_url }}" target="_blank" rel="noopener" title="드라이브에 올린 최종본" aria-label="{{ w.name }} 구글 드라이브로 열기 (새 창)">드라이브 <span aria-hidden="true">↗</span></a>{% endif %}{% else %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 구글 문서로 열기 (새 창)">구글 문서 <span aria-hidden="true">↗</span></a>{% endif %}</span>
+        <span class="pw-open">{% if w.chat_id %}<a class="pw-btn" href="/chat/{{ w.chat_id }}" title="이 문서를 쓴 대화(문서 패널에서 이어 고침)">대화</a>{% endif %}{% if hwp %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 한글 문서로 열기 (새 창)">한글 문서 <span aria-hidden="true">↗</span></a>{% if w.drive_url %}<a class="pw-btn" href="{{ w.drive_url }}" target="_blank" rel="noopener" title="드라이브에 올린 최종본" aria-label="{{ w.name }} 구글 드라이브로 열기 (새 창)">드라이브 <span aria-hidden="true">↗</span></a>{% endif %}{% else %}<a class="pw-btn" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 구글 문서로 열기 (새 창)">구글 문서 <span aria-hidden="true">↗</span></a>{% endif %}</span>
       </div>
       {% endfor %}
     </div>
@@ -618,12 +618,14 @@
         var line = document.createElement("div"); line.className = "pw-row"; line.dataset.kind = "gdoc";
         var ic = document.createElement("iconify-icon"); ic.setAttribute("icon", "solar:document-add-linear"); ic.setAttribute("aria-hidden", "true");
         var name = document.createElement("span"); name.className = "pw-name";
-        var a = document.createElement("a"); a.href = "/chat/" + row.sid; a.title = nm + " (대화의 문서 패널에서 고침)"; a.textContent = nm; name.appendChild(a);
+        var a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.title = nm + " 열기 (새 창)"; a.textContent = nm; name.appendChild(a);
         var meta = document.createElement("span"); meta.className = "pw-meta"; meta.textContent = "구글";
         var openBox = document.createElement("span"); openBox.className = "pw-open";
         var open = document.createElement("a"); open.className = "pw-btn"; open.href = url; open.target = "_blank"; open.rel = "noopener";
         open.setAttribute("aria-label", nm + " " + label + "로 열기 (새 창)");
-        open.textContent = label + " ↗"; openBox.appendChild(open);
+        open.textContent = label + " ↗";
+        if (row.sid) { var chat = document.createElement("a"); chat.className = "pw-btn"; chat.href = "/chat/" + row.sid; chat.title = "이 문서를 쓴 대화(문서 패널에서 이어 고침)"; chat.textContent = "대화"; openBox.appendChild(chat); }
+        openBox.appendChild(open);
         var main = document.createElement("span"); main.className = "pw-main"; main.append(name, meta);
         line.append(ic, main, openBox);
         work.insertBefore(line, firstHwp);
