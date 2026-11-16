@@ -5172,10 +5172,43 @@ def create_app(
                 heads.append(Markup('<a class="chat-attach" href="/doc/%s">첨부 · %s</a>') % (did, name) if did
                              else Markup('<span class="chat-attach">첨부 · %s</span>') % name)
             rest = rest[m.end():]
+        body = _user_body(rest) if rest else Markup("")
         if not heads:
-            return escape(text or "")
+            return body
         head = Markup(" ").join(heads)
-        return head + Markup("<br>") + escape(rest) if rest else head
+        return head + Markup("<br>") + body if rest else head
+
+    _MSG_FOLD_CHARS, _MSG_FOLD_LINES = 700, 12
+    _fold_seq = {"n": 0}
+
+    def _user_body(text: str):
+        """사용자 말풍선 본문 — 마크다운 표 줄(「| … |」)은 표로, 나머지는 이스케이프한 글(줄바꿈 살림). 길면 앞부분만 보이고
+        「펼치기」 로 연다(CSS 만, 세모 없이). 긴 자료를 붙여 넣은 요청이 「| ← | 〃 |」 기호 덩어리로 늘어져 보였다(11-16)."""
+        from markupsafe import Markup, escape
+        lines = (text or "").split("\n")
+        parts, i = [], 0
+        while i < len(lines):
+            if lines[i].lstrip().startswith("|") and lines[i].rstrip().endswith("|"):
+                j = i
+                while j < len(lines) and lines[j].lstrip().startswith("|"):
+                    j += 1
+                rows = [[c.strip() for c in ln.strip().strip("|").split("|")] for ln in lines[i:j]]
+                rows = [r for r in rows if not all(re.fullmatch(r":?-{2,}:?", c or "-") for c in r)]
+                if len(rows) >= 2:
+                    html = "".join("<tr>" + "".join((Markup("<th>%s</th>") if k == 0 else Markup("<td>%s</td>")) % c for c in r) + "</tr>"
+                                   for k, r in enumerate(rows))
+                    parts.append(Markup('<div class="msg-table-wrap"><table class="msg-table">') + Markup(html) + Markup("</table></div>"))
+                    i = j
+                    continue
+            parts.append(escape(lines[i]) + Markup("\n"))
+            i += 1
+        body = Markup("").join(parts)
+        if len(text or "") <= _MSG_FOLD_CHARS and len(lines) <= _MSG_FOLD_LINES:
+            return body
+        _fold_seq["n"] += 1
+        fid = f"msgfold{_fold_seq['n']}"
+        return (Markup('<div class="msg-fold"><input type="checkbox" id="%s" class="msg-fold-tg"><div class="msg-fold-body">') % fid
+                + body + Markup('</div><label for="%s" class="msg-fold-btn"></label></div>') % fid)
 
     templates.env.filters["attach_view"] = _attach_view
     templates.env.filters["tidy_reply"] = _ko.tidy_reply          # 예외 이름 빼기·되풀이 문장 한 번만(저장 때도 같은 함수, db.add_chat)

@@ -234,3 +234,17 @@ def test_outside_edit_applies_even_with_passwordless_demo_accounts(tmp_path):
     _add_account_on_disk(path, "tf_member3", "pw-for-tf-3")
     assert client.post("/login", data={"username": "tf_member3", "pw": "pw-for-tf-3"}, follow_redirects=False).headers.get("location") != "/"
     assert "bad" not in app.state.accounts
+
+
+def test_user_bubble_renders_pasted_table_and_folds_long_text(tmp_path):
+    """사용자 말풍선 — 붙여 넣은 마크다운 표는 표로(이스케이프), 긴 요청은 접기(펼치기 단추) — 「| ← | 〃 |」 덩어리로 늘어지던 것(11-16)."""
+    app = _app(tmp_path)
+    f = app.state.templates.env.filters["attach_view"]
+    out = str(f("요청\n| 영역 | As-Is |\n| --- | --- |\n| 산학 | <b>협력</b> |\n끝"))
+    assert '<table class="msg-table">' in out and "<th>영역</th>" in out and "&lt;b&gt;협력&lt;/b&gt;" in out and "---" not in out
+    long = "\n".join(f"줄 {i}" for i in range(40))
+    out2 = str(f(long))
+    assert 'class="msg-fold-tg"' in out2 and 'class="msg-fold-btn"' in out2
+    assert "msg-fold" not in str(f("짧은 요청"))
+    out3 = str(f("[첨부#12] 계획서.hwpx\n본문"))
+    assert 'href="/doc/12"' in out3 and "본문" in out3

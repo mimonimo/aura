@@ -424,3 +424,15 @@ body #chatForm .chat-dock-footer.is-flash > :not(.chat-dock-flash) { visibility:
 #chatScroll .cc-foot button[type=submit]:hover:not(:disabled) { background:#16305F; border-color:#16305F; }
 #chatScroll .cc-foot button[type=submit]:disabled { opacity:.55; cursor:default; }
 #chatScroll .pv-table th { color:#23354D; }
+
+/* 사용자 말풍선 — 붙여 넣은 표, 긴 요청 접기(11-16) */
+.msg.user .msg-table-wrap { overflow-x:auto; margin:6px 0; }
+.msg.user .msg-table { border-collapse:collapse; font-size:12.5px; white-space:normal; background:rgba(255,255,255,.08); }
+.msg.user .msg-table th, .msg.user .msg-table td { border:1px solid rgba(255,255,255,.35); padding:3px 7px; vertical-align:top; text-align:left; }
+.msg.user .msg-table th { font-weight:600; background:rgba(255,255,255,.12); }
+.msg-fold-tg { display:none; }
+.msg-fold-body { max-height:15.5em; overflow:hidden; position:relative; }
+.msg-fold-tg:checked + .msg-fold-body { max-height:none; }
+.msg-fold-btn { display:inline-block; margin-top:6px; padding:2px 10px; border:1px solid rgba(255,255,255,.5); border-radius:999px; font-size:12px; cursor:pointer; user-select:none; }
+.msg-fold-btn::after { content:"펼치기"; }
+.msg-fold-tg:checked ~ .msg-fold-btn::after { content:"접기"; }
