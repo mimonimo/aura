@@ -19,6 +19,8 @@ import zipfile
 _SEC = re.compile(r"Contents/section(\d+)\.xml$")
 _PLACE = re.compile(r"OOO|○○○|본문 입력")
 _PIC = re.compile(r"\[그림 [^\]]{1,80}\]")
+_INPUT_HINT = re.compile(r"[가-힣A-Za-z·()]{1,12}(?: [가-힣A-Za-z·()]{1,12}){0,3} 입력")
+_HEADING = re.compile(r"(?:[0-9]{1,2}|[Ⅰ-Ⅻ]|[가-하])[.)]\s*\S.{0,24}")
 
 
 def _secs(data: bytes) -> list[str]:
@@ -89,13 +91,15 @@ def issues(data: bytes) -> dict[str, list[str]]:
         for t in texts:
             for m in _PLACE.finditer(t):
                 out["placeholder"].append(t[max(0, m.start() - 10):m.end() + 10].strip())
+            if not _PLACE.search(t) and _INPUT_HINT.fullmatch(t.strip()):     # 「반영 방안 입력」 처럼 칸 글 전체가 입력 안내(만든 양식의 빈 칸)
+                out["placeholder"].append(t.strip())
             for m in _PIC.finditer(t):
                 out["picture_mark"].append(m.group(0))
         if off:                                              # 서식 규격 밖 글자(검정 아닌 색·기울임) — 견본 글 자리의 값·본문
             for r in re.finditer(r'<hp:run\b[^>/]*\bcharPrIDRef="(\d+)"[^>/]*>(.*?)</hp:run>', flat, flags=re.S):
                 if r.group(1) in off:
                     t = "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", r.group(2))).strip()
-                    if t and not _PLACE.search(t):
+                    if t and not _PLACE.search(t) and not _HEADING.fullmatch(t):   # 짧은 번호 제목(「1. 요약」)은 양식 제목 색일 뿐
                         out["off_style"].append(t[:15])
     return out
 

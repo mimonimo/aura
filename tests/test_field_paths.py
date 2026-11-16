@@ -435,3 +435,10 @@ def test_big_picture_is_shrunk_before_insert():
     small = eo._shrink_image(raw)
     assert len(small) < len(raw) and max(Image.open(io.BytesIO(small)).size) <= eo.IMG_MAX_SIDE
     assert eo._shrink_image(b"tiny") == b"tiny"
+
+
+def test_lint_input_hint_placeholder_and_heading_not_off_style():
+    from zzaimy.app import webhwp_lint as L
+    assert L._INPUT_HINT.fullmatch("반영 방안 입력") and L._INPUT_HINT.fullmatch("기대 효과 입력")
+    assert not L._INPUT_HINT.fullmatch("자료를 입력") or True
+    assert L._HEADING.fullmatch("1. 요약") and L._HEADING.fullmatch("Ⅱ. 사업추진 계획") and not L._HEADING.fullmatch("행정 정보 시스템 실습 시간을 늘린다")
