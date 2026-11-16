@@ -712,6 +712,30 @@ def _restart_numbering(section, start=1):
 FIGS: dict = {}
 
 
+def _split_title(t: str) -> list[str]:
+    """표지 제목을 뜻 단위 두 줄로 — 「위한」·「for」 뒤(앞)에서. 못 찾으면 한 줄."""
+    m = re.search(r"(위한)\s+", t)
+    if m:
+        return [t[:m.end(1)], t[m.end():]]
+    m = re.search(r"\s+(for\b)", t)
+    if m:
+        return [t[:m.start()], t[m.start(1):]]
+    return [t]
+
+
+def _cover_lines(doc, lines: list[str], size: float) -> None:
+    p = doc.add_paragraph()
+    pf = p.paragraph_format
+    pf.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pf.line_spacing = 1.2
+    pf.space_after = Pt(8)
+    for i, ln in enumerate(lines):
+        r = p.add_run(ln)
+        _font(r, size, bold=True)
+        if i < len(lines) - 1:
+            r.add_break()
+
+
 def _no_autospace(doc) -> None:
     """한글·영문·숫자 사이 자동 간격을 끈다 — 원고 「AURA를」·「2~4장」 이 워드에서 「AURA 를」·「2~4 장」 처럼 벌어져 보였다(11-16).
     문서 기본 문단 속성(docDefaults/pPrDefault)에 autoSpaceDE·autoSpaceDN=0."""
@@ -749,8 +773,9 @@ def build(out: Path, appendix: bool = True) -> dict:
     # 제목이 여러 줄이라 양쪽 정렬이면 낱말 사이가 벌어지고, 빈 줄이 많으면 팀명·팀원이 둘째 쪽으로 밀렸다(11-16) — 왼쪽 정렬, 빈 줄을 줄여 한 쪽에
     for _ in range(3):
         _para(doc, "", indent_pt=0)
-    _para(doc, TITLE, size=25, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, indent_pt=0, after=6, spacing=1.15)
-    _para(doc, TITLE_EN, size=20, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, indent_pt=0, after=6, spacing=1.15)
+    # 가운데 정렬, 뜻 단위로 줄을 나눈다(11-16 사용자: 왼쪽 정렬이 어색) — 「…을 위한 / …」, 「… Agent / for …」
+    _cover_lines(doc, _split_title(TITLE), 25)
+    _cover_lines(doc, _split_title(TITLE_EN), 20)
     for _ in range(10):
         _para(doc, "", indent_pt=0)
     _para(doc, TEAM, size=20, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=6)
