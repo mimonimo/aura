@@ -4591,6 +4591,18 @@ def create_app(
             "q": term, "docs": docs, "docs_more": docs_more, "chats": chats, "chunks": chunks, "projects": projects,
         }))
 
+    @app.get("/regulations", response_class=HTMLResponse)
+    def regulations_page(request: Request, q: str = ""):
+        """규정 목록 — 규정마다 현행 판과 구판(regulation_registry). 열람 조건은 라이브러리와 같다(access_policy.doc_sql)."""
+        from zzaimy.app import regulation_registry as _rr
+        acc, acc_args = _doc_access_sql(request)
+        regs = _rr.registry(db, acc, acc_args)
+        n_old = sum(len(g["versions"]) - 1 for g in regs)
+        undated = sum(1 for g in regs if not g["current"]["latest"])
+        return templates.TemplateResponse(request, "regulations.html", ctx(request, {
+            "regs": regs, "q": (q or "").strip()[:100], "n_old": n_old, "undated": undated,
+        }))
+
     @app.get("/api/quick-search")
     def quick_search(request: Request, q: str = ""):
         """빠른 찾기 창(Ctrl+K) — 이름·제목만 바로(본문 색인·모델은 쓰지 않는다). 권한은 /search 와 같은 조건.

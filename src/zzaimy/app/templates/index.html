@@ -438,6 +438,7 @@
       {% for key, label in uses %}<a data-aura="lib-use" href="/?{{ use_qs }}{% if key != 'all' %}&amp;use={{ key }}{% endif %}" {% if use == key %}aria-current="true"{% endif %}
          title="{{ metric_tip(use_metrics[key]) }}">{{ label }} <span>{{ "{:,}".format(use_counts.get(key, 0)) }}</span></a>{% endfor %}
       {% if use == 'criteria' %}<span class="lib-uses-acts">
+        <a class="secondary btn-link" href="/regulations" aria-label="규정 목록(현행·구판)">규정 목록</a>
         {% if crit_admin %}<button type="button" class="secondary" data-modal-open="#critCandModal" data-crit="cand-open" aria-label="새 판·미등록 규정">새 판·미등록 <span id="critCandN"></span></button>{% endif %}
         <button type="button" class="secondary" data-modal-open="#criteriaUploadModal" aria-label="기준 등록">
         <iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon><span class="lib-act-l">기준 등록</span><span class="lib-act-s" aria-hidden="true">등록</span></button></span>

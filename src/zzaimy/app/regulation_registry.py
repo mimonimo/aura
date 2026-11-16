@@ -1,0 +1,127 @@
+"""규정 장부 — 같은 규정의 판을 묶고 현행·구판을 가린다(11-16 사용자: 규정 신규·구판 관리가 돼야 규정 설명이 정확하다).
+
+규정 문서(doc_type=regulation)마다 본문 첫머리의 「학과장회 통과일자 : 2016년 3월 17일」, 조문의 「<개정 2012.2.23>」,
+부칙의 「(2020. 3. 1.)」 같은 날짜를 읽어 가장 늦은 날짜를 그 판의 최종 개정일로 둔다. 규정 이름은 파일 이름·본문 첫 줄에서
+규정 번호(「5-24-1」)·학교 이름·뒤에 붙은 날짜를 뗀 것이고, 같은 이름(공백 무시)이면 같은 규정의 판이다.
+판 가운데 최종 개정일이 가장 늦은 것(같으면 나중에 들어온 것)이 현행, 나머지는 구판이다. 판정은 기계적으로 읽은 값뿐이라
+본문에 날짜가 없으면 들어온 차례로만 가린다(「날짜 없음」 표시).
+"""
+from __future__ import annotations
+
+import re
+import threading
+
+_CODE = re.compile(r"^\s*(\d{1,2}(?:-\d{1,3}){1,3})\s+")
+_PASSED = re.compile(r"통과\s*일자\s*(?:년월일)?\s*[:：]?\s*(\d{4})\s*[년.\s]\s*(\d{1,2})\s*[월.\s]\s*(\d{1,2})")
+_REV = re.compile(r"(?:개정|제정|일부개정|전부개정|시행)\s*[:：]?\s*(\d{4})\s*[.\-년]\s*(\d{1,2})\s*[.\-월]\s*(\d{1,2})")
+_ANNEX = re.compile(r"부\s*칙\s*[<(（]?\s*(\d{4})\s*[.\-년]\s*(\d{1,2})\s*[.\-월]\s*(\d{1,2})")
+_TAIL = re.compile(r"\s*(?:·\s*\d{4}년.*|\(\d{4}[-.]\d{1,2}[-.]\d{1,2}\)|\(\d{8}\))\s*$")
+
+
+def _date(y, m, d) -> str:
+    try:
+        y, m, d = int(y), int(m), int(d)
+    except ValueError:
+        return ""
+    return f"{y:04d}-{m:02d}-{d:02d}" if 1980 <= y <= 2100 and 1 <= m <= 12 and 1 <= d <= 31 else ""
+
+
+def name_and_code(filename: str, text: str = "") -> tuple[str, str]:
+    """(규정 이름, 규정 번호) — 파일 이름에서, 번호가 없으면 본문 첫 줄에서."""
+    base = re.sub(r"\.(hwpx?|pdf|docx?)$", "", filename or "", flags=re.I).strip()
+    base = _TAIL.sub("", base)
+    code = ""
+    m = _CODE.match(base)
+    if m:
+        code, base = m.group(1), base[m.end():]
+    if not code:
+        m = _CODE.match((text or "")[:200])
+        code = m.group(1) if m else ""
+    name = re.sub(r"^\s*영남이공대학교\s*", "", base).strip()
+    return name or base, code
+
+
+def key_of(name: str) -> str:
+    return re.sub(r"[\s·()\[\]「」]", "", name or "").lower()
+
+
+def dates_of(text: str) -> dict:
+    """{passed, revisions[], latest} — 본문에서 읽은 날짜(YYYY-MM-DD)."""
+    t = text or ""
+    head = t[:600]
+    p = _PASSED.search(head)
+    passed = _date(*p.groups()) if p else ""
+    revs = sorted({d for d in (_date(*m.groups()) for m in _REV.finditer(t)) if d} | {d for d in (_date(*m.groups()) for m in _ANNEX.finditer(t)) if d})
+    latest = max([x for x in [passed, *revs] if x], default="")
+    return {"passed": passed, "revisions": revs, "latest": latest}
+
+
+_RULE_NAME = re.compile(r"(규정|학칙|세칙|규칙|지침|요령|내규|정관|기준)$")
+
+
+def is_rule(name: str, code: str, d: dict) -> bool:
+    """학교 규정인가 — 규정 번호가 있거나, 학과장회 통과일자가 있거나, 이름이 「…규정·학칙·세칙·지침」 으로 끝난다.
+    기준 문서(doc_type=regulation)에는 공고·기본계획처럼 판을 따질 수 없는 문서도 들어 있어 장부에서는 뺀다(따로 센다)."""
+    return bool(code or d.get("passed") or _RULE_NAME.search(re.sub(r"[\s)）\]]+$", "", name or "")))
+
+
+def build(rows: list[dict], others: list | None = None) -> list[dict]:
+    """rows: [{id, filename, created_at, text}] → 규정마다 {name, code, current(판), versions(판 목록, 새것 먼저)}.
+    판: {id, filename, latest, passed, n_rev, status(현행|구판), created_at}."""
+    groups: dict[str, dict] = {}
+    for r in rows:
+        name, code = name_and_code(r.get("filename") or "", r.get("text") or "")
+        d = dates_of(r.get("text") or "")
+        if not is_rule(name, code, d):
+            if others is not None:
+                others.append({"id": int(r["id"]), "filename": r.get("filename") or ""})
+            continue
+        k = key_of(name)
+        g = groups.setdefault(k, {"name": name, "code": code, "versions": []})
+        if code and not g["code"]:
+            g["code"] = code
+        g["versions"].append({"id": int(r["id"]), "filename": r.get("filename") or "", "latest": d["latest"], "passed": d["passed"],
+                              "n_rev": len(d["revisions"]), "created_at": str(r.get("created_at") or "")[:10]})
+    out = []
+    for g in groups.values():
+        vs = sorted(g["versions"], key=lambda v: (v["latest"] or "", v["id"]), reverse=True)
+        for i, v in enumerate(vs):
+            v["status"] = "현행" if i == 0 else "구판"
+        g["versions"] = vs
+        g["current"] = vs[0]
+        out.append(g)
+    out.sort(key=lambda g: (g["code"] == "", [int(x) for x in g["code"].split("-")] if g["code"] else [], g["name"]))
+    return out
+
+
+_CACHE: dict = {}                                   # (규정 수·최근 id, 열람 조건) → 장부. 조건마다 따로 둔다
+_LOCK = threading.Lock()
+
+
+def registry(db, where: str = "", args: list | None = None) -> list[dict]:
+    """열람 조건(where — access_policy.doc_sql 의 ' AND …', 별칭 d.) 안의 규정 장부. 규정 수·최근 id 가 같으면 지난 계산을 쓴다."""
+    args = list(args or [])
+    with db._conn() as conn:
+        sig = conn.execute(f"SELECT COUNT(*), MAX(d.id) FROM documents d WHERE d.doc_type = 'regulation'{where}", args).fetchone()
+        key = (tuple(sig), where, tuple(args))
+        with _LOCK:
+            if key in _CACHE:
+                return _CACHE[key]
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT d.id, d.filename, d.created_at, SUBSTR(COALESCE(d.masked_text, ''), 1, 200000) AS text FROM documents d "
+            f"WHERE d.doc_type = 'regulation'{where}", args)]
+    val = build(rows)
+    with _LOCK:
+        if len(_CACHE) > 32:
+            _CACHE.clear()
+        _CACHE[key] = val
+    return val
+
+
+def superseded(db, doc_id: int) -> dict | None:
+    """이 규정 문서가 구판이면 현행 판 {id, filename, latest} — 답의 출처에 「구판」 을 밝히는 데 쓴다. 현행이거나 규정이 아니면 None."""
+    for g in registry(db):
+        for v in g["versions"]:
+            if v["id"] == int(doc_id):
+                return None if v["status"] == "현행" else g["current"]
+    return None

@@ -345,6 +345,29 @@ def pick_evidence(evidence: list[dict]) -> list[dict]:
     return out
 
 
+def prefer_current(db, hits: list[dict]) -> list[dict]:
+    """규정 근거는 현행 판을 먼저 — 같은 규정의 현행 판 조각이 함께 잡혔으면 구판 조각은 빼고, 구판만 잡혔으면 그 조각 제목에
+    「구판」 과 현행 판(최종 개정일)을 밝혀 답이 옛 규정을 지금 규정처럼 말하지 않게 한다(regulation_registry, 11-16)."""
+    try:
+        from zzaimy.app import regulation_registry as _rr
+    except Exception:
+        return hits
+    ids = {int(h["doc_id"]) for h in hits if h.get("doc_id") is not None}
+    out = []
+    for h in hits:
+        did = h.get("doc_id")
+        try:
+            cur = _rr.superseded(db, int(did)) if did is not None else None
+        except Exception:
+            cur = None
+        if cur and cur["id"] in ids:
+            continue                                         # 현행 판이 함께 있다 — 구판 조각은 건네지 않는다
+        if cur:
+            h = dict(h, reg_title=f"{h.get('reg_title') or '규정'} (구판 — 현행 판은 최종 개정 {cur['latest'] or '날짜 미상'})")
+        out.append(h)
+    return out
+
+
 def pack_criteria_context(ordered: list[dict], budget: int = 6000) -> tuple[str, list[dict]]:
     """Only advertise sources whose evidence was actually included in the prompt."""
     header = "[선택된 기준 문서 — 이 기준으로 판단하고 인용하라]\n\n"
@@ -631,7 +654,7 @@ class AgentResponder:
                 self.last_timing["rule_queries"] = qs
                 more = [find_relevant(db, x, **kw_) for x in qs]
                 merged = merge_rule_hits(first, more)
-                return merged + follow_refs(db, merged), _time.time()
+                return prefer_current(db, merged + follow_refs(db, merged)), _time.time()
             _reg_future = _pool.submit(_find_rules)
             _t1 = _time.time()
             blocks = []
