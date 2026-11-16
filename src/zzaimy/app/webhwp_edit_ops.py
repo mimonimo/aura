@@ -1776,7 +1776,9 @@ _TOC_LINE = re.compile(r'(<hp:t>)([^<]{2,120}?)(<hp:tab\b[^>]*\bleader="[1-9]\d*
 
 
 def _norm_toc(t: str) -> str:
-    return re.sub(r"[\s·ㆍ.\-‧∙]", "", t or "")
+    """견줄 글 — XML 기호(&lt;)를 풀고 글자·숫자·로마 숫자만 남긴다(따옴표 ’·물결 ~·괄호 모양이 쪽 글과 달라 못 찾았다, 11-16)."""
+    import html
+    return re.sub(r"[^0-9A-Za-z가-힣Ⅰ-Ⅻ]", "", html.unescape(t or ""))
 
 
 def toc_pages(data: bytes, a: dict, pdf_text=None) -> tuple[bytes, str]:
