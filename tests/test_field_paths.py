@@ -442,3 +442,12 @@ def test_lint_input_hint_placeholder_and_heading_not_off_style():
     assert L._INPUT_HINT.fullmatch("반영 방안 입력") and L._INPUT_HINT.fullmatch("기대 효과 입력")
     assert not L._INPUT_HINT.fullmatch("자료를 입력") or True
     assert L._HEADING.fullmatch("1. 요약") and L._HEADING.fullmatch("Ⅱ. 사업추진 계획") and not L._HEADING.fullmatch("행정 정보 시스템 실습 시간을 늘린다")
+
+
+def test_row_template_field_rejects_joined_values():
+    from zzaimy.app import webhwp_agent as wa
+    assert wa._ROW_FIELD.match("표5:결정 사항") and not wa._ROW_FIELD.match("칸:참석")
+    assert wa._many_items("학사일정 조정안 확정, 사용자 교육 실시, 안전 점검 실시")
+    assert wa._many_items("교무처\n정보전산원")
+    assert not wa._many_items("3월 20일까지") and not wa._many_items("본관 2층, 소회의실")
+

@@ -135,6 +135,17 @@ def activity(db, fid: int) -> dict:
     return a if a and time.time() - float(a.get("at") or 0) < ce.conf(db, "aura_ttl") else {}
 
 
+_ROW_FIELD = re.compile(r"^표\d+:")
+
+
+def _many_items(v: str) -> bool:
+    """값 하나에 항목 여럿이 이어져 있는가 — 쉼표·「/」·「;」 로 셋 이상, 또는 줄이 둘 이상(반복 행 표의 행마다 넣을 값)."""
+    t = str(v or "").strip()
+    if "\n" in t.strip("\n"):
+        return True
+    return len([x for x in re.split(r"\s*[,;/]\s*", t) if x]) >= 3
+
+
 def _too_long(v: str) -> bool:
     v = v.strip()
     return v.count("\n") >= 2 or bool(re.search(r"^\s*\|.*\|\s*$", v, re.M)) or len(v) > 150
@@ -1430,7 +1441,12 @@ class HwpTools:
                         inst_blank.append(k)
         long_, fake, misfit = {}, [], []
         rooms = self.rooms()
+        rowed: list[str] = []
         for k, v in list(values.items()):
+            if _ROW_FIELD.match(k) and _many_items(v):         # 반복 행 표의 견본 행 칸에 여러 값을 이어 넣지 않는다(11-16 문서 3402:
+                rowed.append(k)                                 # 「결정 사항」 칸에 세 값이 쉼표로 붙고, 행을 또 더해 첫 행이 겹침)
+                values.pop(k)
+                continue
             why_ = self.room_problem(k, v, rooms)
             if why_:                                        # 안내 상자·짧은 값 칸에 긴 글 — 넣지 않고 까닭을 알린다
                 misfit.append(why_)
@@ -1443,13 +1459,16 @@ class HwpTools:
         ask = (f" 사람 칸이라 넣지 않았다 — ask_user 로 담당자에게 물어 받은 값만 from_user: true 와 함께 넣는다: {', '.join(person)}."
                if person else "")
         bad = (" 넣지 않은 자리: " + " ".join(misfit[:4])) if misfit else ""
+        if rowed:
+            bad += (f" 반복 행 표의 한 칸에 여러 값을 이어 넣지 않았다({', '.join(rowed)}) — 행마다 하나씩 hwp_table_edit "
+                    "{op: set_cells, start: [첫 자료 행, 1], values: [[…], […]]} 로 넣는다(행이 모자라면 늘어난다).")
         if inst_blank:
             bad += (f" 결문 연락처는 기관 정보에 값이 없어 비워 둠(다른 기관 문서의 값은 넣지 않는다 — 담당자가 알려 주면 from_user: true): "
                     f"{', '.join(inst_blank)}.")
         if not values:
             return ("넣은 것 없음." + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
-                    + ("" if long_ or fake or person or misfit or inst_blank else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
+                    + ("" if long_ or fake or person or misfit or inst_blank or rowed else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
         miss_vals = {k: v for k, v in values.items() if k not in have}
