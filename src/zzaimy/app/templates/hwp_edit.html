@@ -538,6 +538,7 @@
         var au0 = eng && eng.aura ? eng.aura() : {}, byAura0 = who.by === 'AURA' || (au0.field && au0.by && au0.by === who.by);
         var before = byAura0 ? snapFields() : null;   // AURA 가 고친 판이면 어느 칸이 바뀌었는지 견줄 앞 글
         if (eng.suspend) eng.suspend();
+        thawNow();                                     // 앞 다시 열기의 덮개부터 걷는다 — 새 판 알림이 잇달아 오면 덮개가 겹쳐 앞 것이 영영 남았다(11-16 시연: 두 화면이 옛 판 그림에 멈춤)
         thaw = hwp.freeze ? hwp.freeze() : function () {};   // 다시 여는 동안 흰 화면 대신 보던 화면(11-09)
         reloading = true;                              // 다시 여는 동안은 저장하지 않는다 — 비어 가는 편집기 내용이 파일을 덮었다(11-10 9명 시험, 36KB → 7KB)
         return loadFile().then(function (x) { reloading = false; return x; }, function (e) { reloading = false; throw e; }).then(function () {

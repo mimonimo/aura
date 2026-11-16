@@ -498,6 +498,7 @@
         });
         if (!n) return function () {};
         out.toDataURL('image/png').length;                 // 그릴 수 없는 캔버스면 여기서 예외 — 덮지 않는다
+        Array.prototype.forEach.call(document.querySelectorAll('.hwp-freeze'), function (x) { x.remove(); });   // 남은 덮개는 하나도 두지 않는다
         var cover = document.createElement('div');
         cover.className = 'hwp-freeze';
         cover.setAttribute('aria-hidden', 'true');
@@ -507,6 +508,7 @@
         cover.appendChild(out);
         document.body.appendChild(cover);
         var gone = false;
+        setTimeout(function () { if (!gone) { gone = true; cover.remove(); } }, 20000);   // 다시 열기가 끝내 알리지 않아도 20초 뒤엔 걷는다
         return function () {
           if (gone) return; gone = true;
           cover.style.opacity = '0';
