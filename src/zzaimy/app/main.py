@@ -4593,10 +4593,11 @@ def create_app(
 
     @app.get("/regulations", response_class=HTMLResponse)
     def regulations_page(request: Request, q: str = ""):
-        """규정 목록 — 규정마다 현행 판과 구판(regulation_registry). 열람 조건은 라이브러리와 같다(access_policy.doc_sql)."""
+        """규정 목록 — 규정마다 현행 판과 구판(regulation_registry). 열람 조건은 라이브러리와 같고(access_policy.doc_sql), 관리자가 올린 공통 규정만 싣는다."""
         from zzaimy.app import regulation_registry as _rr
         acc, acc_args = _doc_access_sql(request)
-        regs = _rr.registry(db, acc, acc_args)
+        sw, sw_args = _rr.shared_where(db)              # 관리자가 올린 공통 규정만 — 답변이 현행 판을 고르는 장부와 같게
+        regs = _rr.registry(db, acc + sw, acc_args + sw_args)
         n_old = sum(len(g["versions"]) - 1 for g in regs)
         undated = sum(1 for g in regs if not g["current"]["latest"])
         return templates.TemplateResponse(request, "regulations.html", ctx(request, {

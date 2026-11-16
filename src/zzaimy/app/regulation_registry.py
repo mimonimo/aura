@@ -19,11 +19,13 @@ _TAIL = re.compile(r"\s*(?:·\s*\d{4}년.*|\(\d{4}[-.]\d{1,2}[-.]\d{1,2}\)|\(\d{
 
 
 def _date(y, m, d) -> str:
+    """YYYY-MM-DD — 오늘보다 늦은 날짜는 버린다(본문에 먼 미래 날짜를 적어 현행 판을 차지하지 못하게)."""
+    import datetime as _dt
     try:
-        y, m, d = int(y), int(m), int(d)
+        v = _dt.date(int(y), int(m), int(d))
     except ValueError:
         return ""
-    return f"{y:04d}-{m:02d}-{d:02d}" if 1980 <= y <= 2100 and 1 <= m <= 12 and 1 <= d <= 31 else ""
+    return v.isoformat() if _dt.date(1980, 1, 1) <= v <= _dt.date.today() else ""
 
 
 def name_and_code(filename: str, text: str = "") -> tuple[str, str]:
@@ -118,9 +120,27 @@ def registry(db, where: str = "", args: list | None = None) -> list[dict]:
     return val
 
 
+# 판 정하기에 드는 문서 — 관리자 계정이 올린 공통 공개 규정만. 담당자가 프로젝트에 올린 파일이 이름·날짜만으로 「현행」 을
+# 차지하거나, 부서 한정 판의 날짜가 그 판을 못 보는 사람의 답에 드러나지 않게 한다(11-17 보안 점검).
+def shared_where(db) -> tuple[str, list]:
+    import json
+    from pathlib import Path
+    try:
+        acc = json.loads((Path(db.path).parent / "accounts.json").read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, AttributeError, TypeError):
+        acc = {}
+    admins = sorted(u for u, v in acc.items() if isinstance(v, dict) and v.get("role") == "dev")
+    if not admins:
+        return " AND 1=0", []
+    return (" AND COALESCE(d.access_level, 'public') = 'public' AND COALESCE(d.dept, '공통') = '공통'"
+            f" AND d.owner IN ({','.join('?' * len(admins))})"), admins
+
+
 def superseded(db, doc_id: int) -> dict | None:
-    """이 규정 문서가 구판이면 현행 판 {id, filename, latest} — 답의 출처에 「구판」 을 밝히는 데 쓴다. 현행이거나 규정이 아니면 None."""
-    for g in registry(db):
+    """이 규정 문서가 구판이면 현행 판 {id, filename, latest} — 답의 출처에 「구판」 을 밝히는 데 쓴다. 현행이거나 규정이 아니면 None.
+    관리자가 올린 공통 규정 장부(shared_where) 안에서만 따진다."""
+    where, args = shared_where(db)
+    for g in registry(db, where, args):
         for v in g["versions"]:
             if v["id"] == int(doc_id):
                 return None if v["status"] == "현행" else g["current"]

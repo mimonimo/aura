@@ -38,3 +38,19 @@ def test_prefer_current_drops_or_labels_old_versions(monkeypatch):
     assert [h["doc_id"] for h in both] == [2]
     only_old = responder.prefer_current(None, [{"doc_id": 1, "reg_title": "근로장학"}])
     assert "구판" in only_old[0]["reg_title"] and "2020-03-01" in only_old[0]["reg_title"]
+
+
+def test_future_dates_ignored():
+    assert rr.dates_of("학과장회 통과일자 : 2099년 1월 1일 <개정 2020.3.1>")["latest"] == "2020-03-01"
+
+
+def test_only_admin_shared_rules_decide_versions(tmp_path):
+    import json
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "p.db")
+    (tmp_path / "accounts.json").write_text(json.dumps({"boss": {"role": "dev"}, "kim": {"role": "staff"}}))
+    with db._conn() as c:
+        for i, (own, txt) in enumerate([("boss", "통과일자 : 2016년 3월 17일"), ("kim", "통과일자 : 2025년 1월 1일")], 1):
+            c.execute("INSERT INTO documents (id, filename, stored_path, created_at, owner, doc_type, masked_text, status) VALUES (?, ?, 'x', '2026-01-01', ?, 'regulation', ?, 'done')",
+                      (i, "근로장학 규정.hwp", own, txt))
+    assert rr.superseded(db, 1) is None          # 담당자가 올린 늦은 날짜 판은 현행을 차지하지 못한다
