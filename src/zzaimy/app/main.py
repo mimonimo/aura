@@ -4693,9 +4693,19 @@ def create_app(
         from zzaimy.app.doc_routing import guess_kind
 
         kind, _why = guess_kind(filename, "")
-        if kind in _CRITERIA_KINDS or (kind == "plan" and _BASE_PLAN.search(filename or "")):
-            return "criteria"
-        return "intake"
+        if not (kind in _CRITERIA_KINDS or (kind == "plan" and _BASE_PLAN.search(filename or ""))):
+            return "intake"
+        # 기준 낱말이 제목의 머리 낱말(맨 뒤)일 때만 기준 — 「메모 … 학생 모집·충원 및 학습지속 지원체계」 처럼 낱말이
+        # 제목 가운데 끼어 있으면 그 서류가 아니다(우리말 제목은 뒤가 서류 이름). 뒤에 붙은 괄호·판·날짜·번호는 떼고 본다.
+        title = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", filename or "")
+        prev = None
+        while prev != title:
+            prev = title
+            title = re.sub(r"(?:\s*[(\[（][^()\[\]（）]*[)\]）]|[\s_\-]*(?:v(?:er)?\.?\s*[\d.]+|ver\d+|\d{4}[\d.\-]*|최종|수정|안|\d+))\s*$", "", title, flags=re.I).strip()
+        from zzaimy.app.doc_routing import _KIND_CUES
+        cues = "|".join(_KIND_CUES[k] for k in ("announcement", "basic_plan", "guideline", "criteria", "regulation") if k in _KIND_CUES)
+        head = re.search(rf"(?:{cues}|계획)\S{{0,3}}$", title)
+        return "criteria" if head else "intake"
 
     def _intake_bundle(request: Request, background: BackgroundTasks, project: dict, files) -> dict:
         """여러 파일을 한 프로젝트에 들인다 — 공고·기본계획·지침은 기준 문서로 등록해 프로젝트에 잇고, 계획서·양식은 접수 문서로."""

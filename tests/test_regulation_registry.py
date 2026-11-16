@@ -54,3 +54,18 @@ def test_only_admin_shared_rules_decide_versions(tmp_path):
             c.execute("INSERT INTO documents (id, filename, stored_path, created_at, owner, doc_type, masked_text, status) VALUES (?, ?, 'x', '2026-01-01', ?, 'regulation', ?, 'done')",
                       (i, "근로장학 규정.hwp", own, txt))
     assert rr.superseded(db, 1) is None          # 담당자가 올린 늦은 날짜 판은 현행을 차지하지 못한다
+
+
+def test_bundle_role_needs_head_word():
+    import re, textwrap
+    src = open("src/zzaimy/app/main.py", encoding="utf-8").read()
+    i, j = src.index("    def _bundle_role("), src.index("    def _intake_bundle(")
+    from zzaimy.app.project_documents import CRITERIA_KINDS
+    ns = {"re": re, "_CRITERIA_KINDS": CRITERIA_KINDS, "_BASE_PLAN": re.compile(r"기본\s*계획|추진\s*계획|시행\s*계획|운영\s*계획")}
+    exec(textwrap.dedent(src[i:j]), ns)
+    role = ns["_bundle_role"]
+    assert role("메모_학생 모집·충원 및 학습지속 지원체계.docx") == "intake"
+    assert role("자료_사업추진 계획 총괄표.xlsx") == "intake"
+    assert role("2026 지원사업 공고문.pdf") == "criteria"
+    assert role("부트캠프 사업 공고(교육부 공고 제2025-247호).hwpx") == "criteria"
+    assert role("지표정의서 및 평가편람(ver5).hwpx") == "criteria"
