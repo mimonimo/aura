@@ -2084,6 +2084,7 @@ def footnote(data: bytes, a: dict) -> tuple[bytes, str]:
 
 IMG_MAX_SIDE = 2000          # 넣는 그림의 긴 변 상한(px) — 인쇄 폭(약 17cm)에 300dpi 남짓
 IMG_KEEP_BYTES = 600 * 1024  # 이보다 작으면 그대로
+IMG_MAX_PIXELS = 40_000_000  # 이보다 큰 그림은 풀지 않고 그대로(보안: 압축 폭탄)
 
 
 def _shrink_image(one: bytes) -> bytes:
@@ -2094,6 +2095,11 @@ def _shrink_image(one: bytes) -> bytes:
     try:
         from PIL import Image
         im = Image.open(io.BytesIO(one))
+        w, h = im.size                                   # 머리 정보만 읽은 크기 — 풀기 전에 본다(압축 폭탄 그림으로 메모리를 다 쓰지 않게)
+        if w * h > IMG_MAX_PIXELS:
+            return one
+        if im.format == "JPEG":
+            im.draft("RGB", (IMG_MAX_SIDE, IMG_MAX_SIDE))  # JPEG 는 줄인 크기로 바로 풀기
         im.load()
         w, h = im.size
         k = min(1.0, IMG_MAX_SIDE / max(w, h))
