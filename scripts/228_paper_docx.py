@@ -775,7 +775,7 @@ def build(out: Path, appendix: bool = True) -> dict:
         _para(doc, "", indent_pt=0)
     # 가운데 정렬, 뜻 단위로 줄을 나눈다(11-16 사용자: 왼쪽 정렬이 어색) — 「…을 위한 / …」, 「… Agent / for …」
     _cover_lines(doc, _split_title(TITLE), 25)
-    _cover_lines(doc, _split_title(TITLE_EN), 20)
+    _cover_lines(doc, _split_title(TITLE_EN), 17)        # 영문은 길어 20pt 면 세 줄로 접혔다 — 두 줄에 들게
     for _ in range(10):
         _para(doc, "", indent_pt=0)
     _para(doc, TEAM, size=20, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=6)
