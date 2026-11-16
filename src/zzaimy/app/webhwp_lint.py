@@ -44,7 +44,8 @@ def _char_size(xml: str) -> int:
 
 def issues(data: bytes) -> dict[str, list[str]]:
     """{갈래: [어디·무엇]} — 비었으면 깨끗하다."""
-    out: dict[str, list[str]] = {k: [] for k in ("ditto", "empty_rows", "narrow", "placeholder", "picture_mark", "off_style", "toc_zero", "dup_table")}
+    out: dict[str, list[str]] = {k: [] for k in ("ditto", "empty_rows", "narrow", "placeholder", "picture_mark", "off_style", "toc_zero", "dup_table",
+                                                     "wide", "tall_row", "unsplit")}
     try:
         secs = _secs(data)
     except Exception:
@@ -53,9 +54,21 @@ def issues(data: bytes) -> dict[str, list[str]]:
     tno = 0
     prev_tbl = ""
     for xml in secs:
+        bw, bh = _body_box(xml)
         for tbl in re.finditer(r"<hp:tbl\b.*?</hp:tbl>", xml, flags=re.S):
             tno += 1
             body = tbl.group(0)
+            _head_t = _txt((re.findall(r"<hp:tr>(.*?)</hp:tr>", body, flags=re.S) or [""])[0])[:20]
+            sz = re.search(r'<hp:sz width="(\d+)"[^>]*height="(\d+)"', body)
+            if sz and bw and int(sz.group(1)) > bw * 1.03 and xml.rfind("<hp:tc", 0, tbl.start()) <= xml.rfind("</hp:tc>", 0, tbl.start()):
+                out["wide"].append(f"표{tno}(「{_head_t}」) 폭 {int(sz.group(1)) * 100 // bw}%")      # 본문 폭을 넘어 오른쪽으로 나감
+            if bh:
+                hs = [int(h) for rs, h in re.findall(r'<hp:cellSpan colSpan="\d+" rowSpan="(\d+)"/><hp:cellSz width="\d+" height="(\d+)"', body)
+                      if rs == "1"]                       # 세로로 합친 칸은 원래 키가 크다 — 한 행짜리 칸만
+                if hs and max(hs) > bh * 0.92:
+                    out["tall_row"].append(f"표{tno}(「{_head_t}」) 칸 높이가 쪽의 {max(hs) * 100 // bh}%")   # 쪽에서 못 나눠 아래가 잘림
+                if sz and 'pageBreak="NONE"' in body[:400] and int(sz.group(2)) > bh:
+                    out["unsplit"].append(f"표{tno}(「{_head_t}」) 쪽보다 큰데 나누지 않게 됨")
             rows = re.findall(r"<hp:tr>(.*?)</hp:tr>", body, flags=re.S)
             whole = re.sub(r"\s+", "", _txt(body))
             if len(whole) > 30 and whole == prev_tbl and "<hp:tbl" not in body[6:]:   # 바로 앞 표와 글이 통째로 같다 — 같은 표를 두 번 넣음(11-16 14차)
@@ -104,6 +117,57 @@ def issues(data: bytes) -> dict[str, list[str]]:
     return out
 
 
+def table_problems(body: str, sec_xml: str, char_hu: int | None = None) -> list[str]:
+    """표 하나(<hp:tbl>…</hp:tbl>)의 보기 문제 — 표를 쓰거나 고친 도구가 바로 그 표를 검사해 돌려준다(11-16 사용자: 표를 채운 자리에서 보기 좋은지 검사).
+    폭 넘침·쪽보다 높은 칸·쪽 나눔 막힌 큰 표·좁은 열의 긴 글(세로로 접힘)·빈 행·글자로 남은 「〃」「←」."""
+    out: list[str] = []
+    bw, bh = _body_box(sec_xml)
+    sz = re.search(r'<hp:sz width="(\d+)"[^>]*height="(\d+)"', body)
+    if sz and bw and int(sz.group(1)) > bw * 1.03:
+        out.append(f"폭이 본문의 {int(sz.group(1)) * 100 // bw}%라 오른쪽으로 넘친다 — widths 로 줄인다")
+    if bh:
+        hs = [int(h) for rs, h in re.findall(r'<hp:cellSpan colSpan="\d+" rowSpan="(\d+)"/><hp:cellSz width="\d+" height="(\d+)"', body) if rs == "1"]
+        if hs and max(hs) > bh * 0.92:
+            out.append(f"한 칸 높이가 쪽의 {max(hs) * 100 // bh}%라 쪽에서 잘린다 — 긴 글은 행을 나눠 넣거나 표 밖 글로 뺀다")
+        if sz and 'pageBreak="NONE"' in body[:400] and int(sz.group(2)) > bh:
+            out.append("쪽보다 큰데 쪽 나눔이 막혀 통째로 넘어간다")
+    rows = re.findall(r"<hp:tr>(.*?)</hp:tr>", body, flags=re.S)
+    ch = char_hu or _char_size(sec_xml)
+    narrow, marks, run, worst = [], 0, 0, 0
+    for i, tr in enumerate(rows):
+        cells = re.findall(r"<hp:tc\b.*?</hp:tc>", tr, flags=re.S)
+        texts = [_txt(c) for c in cells]
+        marks += sum(1 for t in texts if t.strip() in ("〃", "″", "←", "◀"))
+        if i > 0 and cells and not any(texts):
+            run += 1; worst = max(worst, run)
+        else:
+            run = 0
+        for c, t in zip(cells, texts):
+            w = _cell_width(c)
+            if len(t) > 4 and 0 < w < 2 * ch + 600 and "<hp:tbl" not in c:
+                narrow.append(t[:8])
+    if narrow:
+        out.append(f"좁은 열에 긴 글 {len(narrow)}칸(「{narrow[0]}」…)이 세로로 접힌다 — widths 로 그 열을 넓히거나 열을 합친다")
+    if worst >= 2:
+        out.append(f"빈 행 {worst}줄이 이어진다 — 채우거나 delete_rows")
+    if marks:
+        out.append(f"「〃」「←」 {marks}칸이 글자로 남았다 — 합치기 표시라 set_cells 로 다시 넣으면 합쳐진다")
+    return out
+
+
+def _body_box(xml: str) -> tuple[int, int]:
+    """구역의 본문 폭·높이(HWPUNIT) — 용지에서 여백·머리말·꼬리말을 뺀 값. 못 읽으면 (0, 0)."""
+    pg = re.search(r'<hp:pagePr\b[^>]*\bwidth="(\d+)"[^>]*\bheight="(\d+)"', xml)
+    mg = re.search(r'<hp:margin\b([^>]*)/>', xml)
+    if not pg or not mg:
+        return 0, 0
+    g = {k: int(v) for k, v in re.findall(r'(\w+)="(\d+)"', mg.group(1))}
+    w = int(pg.group(1)) - g.get("left", 0) - g.get("right", 0)
+    h = int(pg.group(2)) - g.get("top", 0) - g.get("bottom", 0) - g.get("header", 0) - g.get("footer", 0)
+    land = 'landscape="NARROWLY"' in xml[:pg.end() + 200] or 'landscape="1"' in xml[:pg.end() + 200]
+    return (h, w) if land and h > w else (max(w, 0), max(h, 0))
+
+
 def _off_chars(data: bytes) -> set[str]:
     """검정이 아닌 색이거나 기울인 글자 모양 id."""
     try:
@@ -127,6 +191,9 @@ LABEL = {"ditto": "「〃」 이 글자로 남은 표(위 칸과 합칠 자리)"
          "picture_mark": "그림 자리 표시가 글로 남음(hwp_picture 로 그 그림을 넣는다)",
          "toc_zero": "목차 쪽 번호가 0 그대로(본문을 다 쓴 뒤 hwp_toc_pages 로 실제 쪽에 맞춘다)",
          "dup_table": "바로 앞 표와 글이 똑같은 표(같은 표를 두 번 넣음 — 하나를 지운다)",
+         "wide": "본문 폭보다 넓은 표(오른쪽으로 넘침 — hwp_table_edit widths 로 줄이거나 열을 나눈다)",
+         "tall_row": "쪽 높이에 가까운 칸(쪽에서 못 나눠 아래가 잘림 — 긴 글은 행을 나눠 넣거나 글로 뺀다)",
+         "unsplit": "쪽보다 큰데 쪽 나눔을 막은 표(통째로 넘어가거나 잘림 — 행 단위로 나뉘게 한다)",
          "off_style": "서식 규격 밖 글자(파랑·빨강·기울임 — 견본 글 꼴을 물려받음, 같은 글로 다시 쓰면 본문 꼴이 된다)"}
 
 

@@ -468,3 +468,17 @@ def test_new_table_merges_left_marks_horizontally():
                 cover[(i, j)] = cover.get((i, j), 0) + 1
     assert all(cover.get((i, j)) == 1 for i in range(3) for j in range(4))
     assert ("1", "0", "2", "1") in spans and ("3", "1", "1", "2") in spans
+
+
+def test_table_clone_copies_shape_without_fields():
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    data = wt.build(wt.GRANT["budget_change"])
+    d, _ = eo.table_insert(data, {"head": ["구분", "내용"], "values": [["가", "1"], ["나", "2"]]})
+    n0 = len(eo.list_tables(eo._Doc(d)))
+    t = max(x["no"] for x in eo.list_tables(eo._Doc(d)))
+    new, msg = eo.table_clone(d, {"table": t, "keep_text": False})
+    assert len(eo.list_tables(eo._Doc(new))) == n0 + 1 and "복제" in msg
+    assert eo.check_bytes(new) == []
+    v = eo.table_view(new, {"table": t + 1})
+    assert "가" not in v

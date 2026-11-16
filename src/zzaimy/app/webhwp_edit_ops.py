@@ -1826,6 +1826,40 @@ def toc_pages(data: bytes, a: dict, pdf_text=None) -> tuple[bytes, str]:
     return doc.pack(), msg + "."
 
 
+def table_check_text(data: bytes, no) -> str:
+    """표 하나를 검사한 결과 한 줄 — 문제가 없으면 빈 글(webhwp_lint.table_problems)."""
+    from zzaimy.app import webhwp_lint as _lint
+    try:
+        doc = _Doc(data)
+        t = _pick_table(doc, no)
+        probs = _lint.table_problems(_table_xml(doc, t), doc.secs[t["sec"]])
+    except Exception:
+        return ""
+    return (f" [표{t['no']} 보기 검사] " + " / ".join(probs)) if probs else f" [표{t['no']} 보기 검사] 문제 없음."
+
+
+@_guarded
+def table_clone(data: bytes, a: dict) -> tuple[bytes, str]:
+    """표 복제 — 표 N(서식의 예시 표 등)을 모양 그대로(테두리·음영·합친 칸·열 비율·글자) 바로 아래에 하나 더 둔다. 칸 안 누름틀은 떼어
+    이름이 겹치지 않게 하고, 칸 글은 count 를 주면 비운다(keep_text: false). 복제한 표는 표 고치기(행·열 늘리기·줄이기, set_cells)로
+    내용에 맞춘다. 예시 표를 쓸지 새 표를 만들지는 에이전트가 정한다(11-16 사용자: 양식의 예시 표가 맞으면 복제해 쓰고, 아니면 새 표)."""
+    doc = _Doc(data)
+    t = _pick_table(doc, a.get("table"))
+    n, ps, pe = _table_para_span(doc, t["no"])
+    para = doc.secs[n][ps:pe]
+    para = re.sub(r"<hp:ctrl><hp:fieldBegin\b.*?</hp:fieldBegin></hp:ctrl>|<hp:ctrl><hp:fieldBegin\b[^>]*/></hp:ctrl>", "", para, flags=re.S)
+    para = re.sub(r"<hp:ctrl><hp:fieldEnd\b[^>]*/></hp:ctrl>", "", para)
+    if a.get("keep_text") in (False, "false", 0, "0"):
+        para = re.sub(r"(<hp:t\b[^>]*>)[^<]*(</hp:t>)", r"\1\2", para)
+    para = re.sub(r'(<hp:tbl\b[^>]*\bid=")\d+', lambda m: m.group(1) + str(int(doc.ids.new())), para, count=1)
+    para = re.sub(r'(<hp:p\b[^>]*\bid=")\d+', lambda m: m.group(1) + "0", para)
+    para = wf._LINESEG.sub("", para)
+    doc.secs[n] = doc.secs[n][:pe] + para + doc.secs[n][pe:]
+    new_no = t["no"] + 1
+    return doc.pack(), (f"표{t['no']}를 모양 그대로 복제해 바로 아래에 표{new_no}로 두었다(뒤 표 번호는 하나씩 밀림). "
+                        f"hwp_table_edit 로 표{new_no}의 행·열을 내용에 맞추고 set_cells 로 채운다.")
+
+
 @_guarded
 def page_number(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
@@ -3302,6 +3336,10 @@ TOOLS: list[dict] = [
              "widths {widths: [비율…]} · head {rows: 머리줄 행 수, fill} · align {align: 가운데|왼쪽|오른쪽|양쪽, cells|row|col} · "
              "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col}",
      "args": {"table": "any", "op": "str"}},
+    {"name": "hwp_table_clone", "writes": True, "label": "표 복제",
+     "desc": "표 복제 — 서식의 예시 표처럼 모양(테두리·음영·합친 칸·열 비율)을 그대로 살릴 표를 바로 아래에 하나 더 둔다. 그다음 hwp_table_edit 로 "
+             "행·열을 내용에 맞추고 채운다. 예시 표와 구성이 다르면 쓰지 말고 hwp_write 의 새 표로. args {table, keep_text: false(칸 글 비우기)}",
+     "args": {"table": "any", "keep_text": "bool"}},
     {"name": "hwp_toc_pages", "writes": True, "label": "목차 쪽 번호",
      "desc": "목차 줄(제목 ······ 쪽 번호)의 숫자를 실제로 쪽을 나눠 본 결과에 맞춘다 — 서식 목차가 0·빈 번호이거나 본문을 다 쓴 뒤. args {}",
      "args": {}},
@@ -3415,7 +3453,8 @@ class EditTools:
         db, base = self.hw.db, self.hw.base
         ops = {"hwp_repeat_block": repeat_block, "hwp_page_setup": page_setup, "hwp_table_insert": table_insert, "hwp_table_edit": table_edit,
                "hwp_page_number": page_number, "hwp_header_footer": header_footer, "hwp_page_break": page_break,
-               "hwp_text_style": text_style, "hwp_footnote": footnote, "hwp_toc_pages": toc_pages}
+               "hwp_text_style": text_style, "hwp_footnote": footnote, "hwp_toc_pages": toc_pages,
+               "hwp_table_clone": table_clone}
         if name == "hwp_map":
             self._stale, self._fresh = None, set()
         if name == "hwp_table_view" and self._stale is not None:
@@ -3482,6 +3521,14 @@ class EditTools:
         self.hw._mark(fid, LABELS.get(name, name))
         sec_ = self._target_section(fid, name, a)              # 이 도구가 채우는 절 — 다 쓴 절의 빨간 안내 글을 끝낼 때 지우려고(quiet_hints)
         out = apply(db, base, fid, fn)
+        if name in ("hwp_table_edit", "hwp_table_clone", "hwp_table_insert") and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
+            # 표를 쓰거나 고친 자리에서 바로 그 표가 보기 좋은지 검사해 붙인다 — 에이전트가 이어서 고친다(11-16 사용자)
+            try:
+                nos_ = [int(x) for x in re.findall(r"표(\d+)", out)] or ([int(a["table"])] if str(a.get("table") or "").isdigit() else [])
+                if nos_:
+                    out += table_check_text(Path(webhwp.get(db, fid)["path"]).read_bytes(), nos_[-1] if name != "hwp_table_edit" else nos_[0])
+            except Exception:
+                pass
         heads1 = self._heads(fid)
         if heads0 and heads1 and len(heads0) != len(heads1):
             self._stale = heads0                           # 옛 번호 차례를 둔다 — 다음 부름이 옛 번호면 _stale_check 가 잡는다

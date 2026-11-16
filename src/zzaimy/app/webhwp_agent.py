@@ -762,7 +762,8 @@ class HwpTools:
             heads = []
         if not heads:
             return ""
-        return ("[이 절의 서식 표 — 새 표를 따로 만들지 않는다. 이 머리줄 그대로(같은 열 차례) 마크다운 표 하나로 채우면 서식 표 자리에 들어간다]\n"
+        return ("[이 절의 서식 표(예시 표) — 내용 구성이 이 표와 맞으면 이 머리줄 그대로(같은 열 차례) 마크다운 표로 채우면 서식 표 자리에 들어가고, "
+                "같은 모양의 표가 더 필요하면 hwp_table_clone 으로 복제해 고쳐 쓴다. 구성이 다르면 새 표로 쓴다(새 표도 서식 표의 머리·테두리 모양을 따른다)]\n"
                 + "\n".join("| " + " | ".join(h) + " |" for h in heads[:3]))
 
     def section_ctx(self, field: str, data: bytes | None = None) -> str:
@@ -1841,6 +1842,17 @@ class HwpTools:
             self.need_notes[field] = self.need_notes.get(field, 0) + 1
             msg += (f" 다만 작성방법이 요구한 {'·'.join(shape['missing'])} 이(가) 본문에 없다 — 근거가 있으면 같은 field 로 한 번 고쳐 쓴다"
                     "(표는 마크다운 표, 도식은 ```도식 블록, 출처는 근거 문서 이름). 근거가 없어 못 넣으면 그대로 두고 다음으로.")
+        if "|" in text:                                      # 표를 넣은 절 — 이 절의 표마다 보기 검사를 붙인다(11-16 사용자: 채운 자리에서 검사)
+            try:
+                from zzaimy.app import webhwp_edit_ops as _eo4
+                doc_ = _eo4._Doc(data)
+                for x in _eo4.list_tables(doc_):
+                    if ww.section_before(data, x["sec"], x["s"]) == field:
+                        r_ = _eo4.table_check_text(data, x["no"])
+                        if r_ and "문제 없음" not in r_:
+                            msg += r_
+            except Exception:
+                pass
         return msg
 
     def resolve_number(self, name: str) -> str | None:
