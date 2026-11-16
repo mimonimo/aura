@@ -70,7 +70,21 @@ def _guarded(fn):
 MAX_ROWS = 300            # 표 하나의 행
 MAX_COLS = 30             # 표 하나의 열
 MAX_CELLS = 3000          # 표 하나의 칸
-MAX_FILE = 30 * 1024 * 1024   # 고친 뒤 hwpx 크기
+def _max_file() -> int:
+    """고친 뒤 hwpx 크기 상한 — 설정(ZZAIMY_HWP_MAX_FILE_MB), 기본은 기안기 변환 서버가 받는 크기(webhwp_convert.upload_max).
+    30MB 로 박아 두니 그림 많은 사업계획서(14차 31.5MB)가 넘자 그림 넣기·표 정리 같은 파일 도구가 모두 막혔다(11-16)."""
+    import os as _os
+    try:
+        v = float(_os.environ.get("ZZAIMY_HWP_MAX_FILE_MB") or 0)
+    except ValueError:
+        v = 0
+    if v > 0:
+        return int(v * 1024 * 1024)
+    from zzaimy.app import webhwp_convert
+    return webhwp_convert.upload_max()
+
+
+MAX_FILE = _max_file()        # 고친 뒤 hwpx 크기
 MAX_UNZIPPED = 120 * 1024 * 1024  # 열 때 풀린 전체 크기
 
 
@@ -1758,6 +1772,58 @@ def _first_run_insert(xml: str, ctrl: str, drop: str) -> str:
     return xml[:m.end()] + ctrl + xml[m.end():]
 
 
+_TOC_LINE = re.compile(r'(<hp:t>)([^<]{2,120}?)(<hp:tab\b[^>]*\bleader="[1-9]\d*"[^>]*/>)(\s*)(\d{1,4}|0)(</hp:t>)')
+
+
+def _norm_toc(t: str) -> str:
+    return re.sub(r"[\s·ㆍ.\-‧∙]", "", t or "")
+
+
+def toc_pages(data: bytes, a: dict, pdf_text=None) -> tuple[bytes, str]:
+    """목차 쪽 번호 채우기 — 목차 줄(「제목 ······ 0」: 글, 점선 탭, 숫자)마다 그 제목이 본문에 처음 나오는 쪽을 실제로 쪽을 나눠 그려 본 결과
+    (기안기 필터 서버 → PDF → 쪽마다 글)에서 찾아 숫자를 바꾼다. 쪽에 찍힌 번호(「- 21 -」)가 있으면 그 번호를, 없으면 몇째 쪽인지.
+    서식이 목차 쪽 번호를 「0」 으로 비워 두고 AURA 가 손대지 않아 끝까지 0 으로 남았다(11-16 14차). pdf_text 는 시험용(쪽 글 목록)."""
+    doc = _Doc(data)
+    hits = [(n, m) for n in doc.sec_names for m in _TOC_LINE.finditer(doc.secs[n])]
+    if not hits:
+        raise EditError("목차 줄(제목 ······ 쪽 번호)을 찾지 못했다.")
+    if pdf_text is None:
+        import shutil, subprocess
+        from zzaimy.app import webhwp_convert
+        pdf = webhwp_convert.convert(data, "HWPX", "PDF", "toc.pdf")
+        exe = shutil.which("pdftotext")
+        if not exe:
+            raise EditError("쪽을 잴 도구(pdftotext)가 이 서버에 없다.")
+        out = subprocess.run([exe, "-layout", "-", "-"], input=pdf, capture_output=True, timeout=180)
+        pdf_text = out.stdout.decode("utf-8", "ignore").split("\f")
+    pages = [_norm_toc(p) for p in pdf_text]
+    titles = [_norm_toc(m.group(2)) for _n, m in hits]
+    toc_pg = {i for i, p in enumerate(pages) if sum(1 for t in titles if t and t in p) >= 3}
+
+    def printed(i: int) -> int:
+        for ln in reversed([x for x in pdf_text[i].splitlines() if x.strip()][-3:]):
+            m = re.fullmatch(r"\s*-?\s*(\d{1,4})\s*-?\s*", ln)
+            if m:
+                return int(m.group(1))
+        return i + 1
+    done, miss = 0, []
+    for n in doc.sec_names:
+        def rep(m):
+            nonlocal done
+            t = _norm_toc(m.group(2))
+            i = next((k for k, p in enumerate(pages) if k not in toc_pg and t and t in p), None)
+            if i is None:
+                miss.append(m.group(2).strip())
+                return m.group(0)
+            done += 1
+            return m.group(1) + m.group(2) + m.group(3) + m.group(4) + str(printed(i)) + m.group(6)
+        doc.secs[n] = _TOC_LINE.sub(rep, doc.secs[n])
+    msg = f"목차 {done}줄의 쪽 번호를 실제 쪽에 맞췄다"
+    if miss:
+        msg += f" · 본문에서 못 찾은 제목 {len(miss)}줄({', '.join(miss[:5])}) — 제목이 바뀌었으면 목차 글도 맞춘다"
+    return doc.pack(), msg + "."
+
+
 @_guarded
 def page_number(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
@@ -2014,6 +2080,34 @@ def footnote(data: bytes, a: dict) -> tuple[bytes, str]:
     return doc.pack(), f"「{label}」 뒤에 각주 {num}) 을 달았다."
 
 
+IMG_MAX_SIDE = 2000          # 넣는 그림의 긴 변 상한(px) — 인쇄 폭(약 17cm)에 300dpi 남짓
+IMG_KEEP_BYTES = 600 * 1024  # 이보다 작으면 그대로
+
+
+def _shrink_image(one: bytes) -> bytes:
+    """넣을 그림이 크면 긴 변을 줄여 다시 압축한다 — 3MB 사진이 그대로 들어가 문서가 31MB 가 되고 여는 데 80초가 걸렸다(11-16 14차).
+    투명이 있는 그림은 PNG 로, 아니면 JPEG(품질 88). 못 읽거나 줄여도 커지면 원래 그대로."""
+    if not one or len(one) <= IMG_KEEP_BYTES:
+        return one
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(one))
+        im.load()
+        w, h = im.size
+        k = min(1.0, IMG_MAX_SIDE / max(w, h))
+        if k < 1.0:
+            im = im.resize((max(1, int(w * k)), max(1, int(h * k))), Image.LANCZOS)
+        out = io.BytesIO()
+        if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+            im.save(out, "PNG", optimize=True)
+        else:
+            im.convert("RGB").save(out, "JPEG", quality=88, optimize=True)
+        b = out.getvalue()
+        return b if len(b) < len(one) else one
+    except Exception:
+        return one
+
+
 @_guarded
 def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
     """그림 넣기 — img 는 그림 하나(bytes) 또는 여럿(list[bytes]: 같은 자리에 차례로, 「요약본 그림 두 장」)."""
@@ -2065,6 +2159,7 @@ def picture(data: bytes, img, a: dict) -> tuple[bytes, str]:
     row = str(a.get("layout") or "").strip() in ("나란히", "row", "side", "side_by_side") and len(imgs) > 1
     gap = hu(4)
     slot = int((width - gap * (len(imgs) - 1)) / len(imgs)) if row else width   # 나란히면 한 줄에 n장 — 장마다 쓸 폭
+    imgs = [_shrink_image(x) for x in imgs]
     for one in imgs:
         kind = hf.image_kind(one or b"")
         if not kind:
@@ -3199,6 +3294,9 @@ TOOLS: list[dict] = [
              "widths {widths: [비율…]} · head {rows: 머리줄 행 수, fill} · align {align: 가운데|왼쪽|오른쪽|양쪽, cells|row|col} · "
              "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col}",
      "args": {"table": "any", "op": "str"}},
+    {"name": "hwp_toc_pages", "writes": True, "label": "목차 쪽 번호",
+     "desc": "목차 줄(제목 ······ 쪽 번호)의 숫자를 실제로 쪽을 나눠 본 결과에 맞춘다 — 서식 목차가 0·빈 번호이거나 본문을 다 쓴 뒤. args {}",
+     "args": {}},
     {"name": "hwp_page_number", "writes": True, "label": "쪽 번호",
      "desc": "쪽 번호 넣기·빼기. args {position: 아래 가운데|아래 오른쪽|위 오른쪽|바깥 아래|…|없음, format: 1|①|I|i|A|a|가, dash: true(- 1 -), start: 시작 번호}",
      "args": {"position": "str", "format": "str", "dash": "bool", "start": "int"}},
@@ -3309,7 +3407,7 @@ class EditTools:
         db, base = self.hw.db, self.hw.base
         ops = {"hwp_repeat_block": repeat_block, "hwp_page_setup": page_setup, "hwp_table_insert": table_insert, "hwp_table_edit": table_edit,
                "hwp_page_number": page_number, "hwp_header_footer": header_footer, "hwp_page_break": page_break,
-               "hwp_text_style": text_style, "hwp_footnote": footnote}
+               "hwp_text_style": text_style, "hwp_footnote": footnote, "hwp_toc_pages": toc_pages}
         if name == "hwp_map":
             self._stale, self._fresh = None, set()
         if name == "hwp_table_view" and self._stale is not None:

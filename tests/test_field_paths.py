@@ -392,3 +392,46 @@ def test_merge_whole_rows_leaves_no_empty_tr():
     xml = "".join(zipfile.ZipFile(io.BytesIO(new)).read(n).decode() for n in zipfile.ZipFile(io.BytesIO(new)).namelist() if n.startswith("Contents/section"))
     assert "<hp:tr></hp:tr>" not in xml and "<hp:tr/>" not in xml
     assert eo.check_bytes(new) == []
+
+
+def test_toc_pages_fills_zero_page_numbers_from_rendered_pages():
+    """목차 줄(제목 ······ 0)의 숫자를 실제 쪽 글에서 그 제목이 처음 나오는 쪽(찍힌 번호)으로 — 목차 쪽 자체는 건너뛴다(11-16 14차)."""
+    import io, zipfile
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.app import webhwp_templates as wt
+    from zzaimy.app import webhwp_lint as lint
+    data = wt.build(wt.GRANT["budget_change"])
+    z = zipfile.ZipFile(io.BytesIO(data))
+    sec = next(n for n in z.namelist() if n.startswith("Contents/section"))
+    toc = "".join(f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>{t}<hp:tab width="20000" leader="3" type="2"/>0</hp:t></hp:run></hp:p>'
+                  for t in ("Ⅰ. 사업추진 목표", "1. 대내·외 여건 분석", "2. 특성화 계획"))
+    xml = z.read(sec).decode().replace("</hs:sec>", toc + "</hs:sec>")
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as w:
+        for n in z.namelist():
+            w.writestr(n, xml if n == sec else z.read(n))
+    d = out.getvalue()
+    assert len(lint.issues(d)["toc_zero"]) == 3
+    pages = ["표지", "목차 Ⅰ. 사업추진 목표 … 0 1. 대내·외 여건 분석 … 0 2. 특성화 계획 … 0\n- 2 -", "Ⅰ. 사업추진 목표\n- 3 -",
+             "1. 대내 외 여건 분석 본문\n- 4 -", "본문\n- 5 -", "2. 특성화 계획 본문\n- 6 -"]
+    new, msg = eo.toc_pages(d, {}, pdf_text=pages)
+    x = zipfile.ZipFile(io.BytesIO(new)).read(sec).decode()
+    assert "사업추진 목표<hp:tab" in x and 'type="2"/>3</hp:t>' in x and 'type="2"/>4</hp:t>' in x and 'type="2"/>6</hp:t>' in x
+    assert "3줄" in msg and lint.issues(new)["toc_zero"] == []
+
+
+def test_big_picture_is_shrunk_before_insert():
+    import io
+    from PIL import Image
+    from zzaimy.app import webhwp_edit_ops as eo
+    import random
+    im = Image.new("RGB", (4000, 3000))
+    px = im.load()
+    rnd = random.Random(1)
+    for y in range(0, 3000, 3):
+        for x in range(0, 4000, 3):
+            px[x, y] = (rnd.randrange(256), rnd.randrange(256), rnd.randrange(256))
+    b = io.BytesIO(); im.save(b, "PNG"); raw = b.getvalue()
+    small = eo._shrink_image(raw)
+    assert len(small) < len(raw) and max(Image.open(io.BytesIO(small)).size) <= eo.IMG_MAX_SIDE
+    assert eo._shrink_image(b"tiny") == b"tiny"

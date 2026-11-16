@@ -42,18 +42,23 @@ def _char_size(xml: str) -> int:
 
 def issues(data: bytes) -> dict[str, list[str]]:
     """{갈래: [어디·무엇]} — 비었으면 깨끗하다."""
-    out: dict[str, list[str]] = {k: [] for k in ("ditto", "empty_rows", "narrow", "placeholder", "picture_mark", "off_style")}
+    out: dict[str, list[str]] = {k: [] for k in ("ditto", "empty_rows", "narrow", "placeholder", "picture_mark", "off_style", "toc_zero", "dup_table")}
     try:
         secs = _secs(data)
     except Exception:
         return out
     off = _off_chars(data)
     tno = 0
+    prev_tbl = ""
     for xml in secs:
         for tbl in re.finditer(r"<hp:tbl\b.*?</hp:tbl>", xml, flags=re.S):
             tno += 1
             body = tbl.group(0)
             rows = re.findall(r"<hp:tr>(.*?)</hp:tr>", body, flags=re.S)
+            whole = re.sub(r"\s+", "", _txt(body))
+            if len(whole) > 30 and whole == prev_tbl and "<hp:tbl" not in body[6:]:   # 바로 앞 표와 글이 통째로 같다 — 같은 표를 두 번 넣음(11-16 14차)
+                out["dup_table"].append(f"표{tno}(「{_txt(rows[0])[:20] if rows else ''}」)")
+            prev_tbl = whole
             head = _txt(rows[0])[:20] if rows else ""
             where = f"표{tno}(「{head}」)"
             ditto = run = worst = 0
@@ -79,6 +84,8 @@ def issues(data: bytes) -> dict[str, list[str]]:
                 out["narrow"].append(f"{where} 좁은 열에 긴 글 {len(narrow)}칸(「{narrow[0]}」…)")
         flat = re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S)
         texts = re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", flat)
+        for m in re.finditer(r'<hp:t>([^<]{2,120}?)<hp:tab\b[^>]*\bleader="[1-9]\d*"[^>]*/>\s*0</hp:t>', flat):
+            out["toc_zero"].append(m.group(1).strip()[:20])          # 목차 쪽 번호가 서식의 「0」 그대로
         for t in texts:
             for m in _PLACE.finditer(t):
                 out["placeholder"].append(t[max(0, m.start() - 10):m.end() + 10].strip())
@@ -114,6 +121,8 @@ def counts(found: dict[str, list[str]]) -> dict[str, int]:
 LABEL = {"ditto": "「〃」 이 글자로 남은 표(위 칸과 합칠 자리)", "empty_rows": "늘리고 채우지 않은 빈 행",
          "narrow": "열이 좁아 글자 단위로 접힌 칸(열 폭을 넓히거나 다른 열을 줄인다)", "placeholder": "견본 글(OOO·○○○·본문 입력)",
          "picture_mark": "그림 자리 표시가 글로 남음(hwp_picture 로 그 그림을 넣는다)",
+         "toc_zero": "목차 쪽 번호가 0 그대로(본문을 다 쓴 뒤 hwp_toc_pages 로 실제 쪽에 맞춘다)",
+         "dup_table": "바로 앞 표와 글이 똑같은 표(같은 표를 두 번 넣음 — 하나를 지운다)",
          "off_style": "서식 규격 밖 글자(파랑·빨강·기울임 — 견본 글 꼴을 물려받음, 같은 글로 다시 쓰면 본문 꼴이 된다)"}
 
 
