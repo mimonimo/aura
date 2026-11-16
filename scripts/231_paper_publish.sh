@@ -3,7 +3,8 @@
 # 셋이 늘 같은 판이 되게 한다(한 곳만 고쳐 올리던 것). 개발 PC 에서: bash scripts/231_paper_publish.sh [바탕화면 폴더]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-OUT="${1:-$HOME/Desktop/AURA-논문}"
+DEF="$HOME/Desktop/AURA-논문"; [ -d "$HOME/Desktop/AURA/02_논문" ] && DEF="$HOME/Desktop/AURA/02_논문/AURA-논문"   # 바탕화면 AURA 정리(11-17) 뒤 자리
+OUT="${1:-$DEF}"
 VM="${AURA_VM:-aura@192.168.16.226}"
 PY="${AURA_PY:-$(pwd)/.venv/bin/python}"; [ -x "$PY" ] || PY=/Users/jun/aigen/aura/zzaimy-capstone/.venv/bin/python
 echo "── 웹 기안기 문서에 쓰기"
