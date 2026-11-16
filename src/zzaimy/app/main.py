@@ -4697,9 +4697,11 @@ def create_app(
             return "intake"
         # 기준 낱말이 제목의 머리 낱말(맨 뒤)일 때만 기준 — 「메모 … 학생 모집·충원 및 학습지속 지원체계」 처럼 낱말이
         # 제목 가운데 끼어 있으면 그 서류가 아니다(우리말 제목은 뒤가 서류 이름). 뒤에 붙은 괄호·판·날짜·번호는 떼고 본다.
-        title = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", filename or "")
+        title = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", (filename or "")[-200:])     # 머리 낱말은 뒤에 있다 — 긴 이름은 뒤 200자만
         prev = None
-        while prev != title:
+        for _ in range(8):                                                     # 꼬리 떼기는 여덟 번까지
+            if prev == title:
+                break
             prev = title
             title = re.sub(r"(?:\s*[(\[（][^()\[\]（）]*[)\]）]|[\s_\-]*(?:v(?:er)?\.?\s*[\d.]+|ver\d+|\d{4}[\d.\-]*|최종|수정|안|\d+))\s*$", "", title, flags=re.I).strip()
         from zzaimy.app.doc_routing import _KIND_CUES
