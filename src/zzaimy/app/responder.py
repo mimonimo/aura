@@ -217,6 +217,15 @@ def _think_extra(client, extra: dict) -> dict | None:
     return think or None
 
 
+def strip_think(text: str) -> str:
+    """추론 모드 글을 답에서 뗀다 — 서빙에 추론 글 분리 설정(reasoning parser)이 없으면 추론 글이 답 칸에 「…</think>」 꼴로 섞여 온다
+    (11-17 확인: 지금 토르 vLLM). <think>…</think> 묶음과, 여는 표시 없이 닫는 표시만 온 앞부분을 모두 뗀다."""
+    t = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
+    if "</think>" in t:
+        t = t.rsplit("</think>", 1)[1]
+    return t.lstrip()
+
+
 def answer_gen_options(client, question: str | None = None) -> tuple[int, dict]:
     """답 생성 호출의 (출력 한도, 추가 인자). 생각을 끈 기본은 지금까지와 같다 — 3,072 토큰, client._extra 그대로."""
     extra = getattr(client, "_extra", {})
@@ -862,6 +871,7 @@ class AgentResponder:
         if text:
             from zzaimy.generate import model_json as _mj
             text = _mj.strip_harmony(text)                          # 감싸개를 거치지 않은 클라이언트의 harmony 꼴도
+            text = strip_think(text)
         messages, user_content = sent["messages"], sent["messages"][-1]["content"]
         if finish == "length" and text:
             if on_progress:
