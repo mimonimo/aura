@@ -633,7 +633,12 @@ def doc_agent():
     lx = M + cw + 40
     s.arrow([(M + lw / 2 + 60, y4 + h4), (M + lw / 2 + 60, y4 + h4 + 14), (lx, y4 + h4 + 14), (lx, y + h1 / 2), (M + cw, y + h1 / 2)])
     s.para(lx + 8, y + h1 + 10, W - M - lx - 8, "다음 단계", weight=700, color=MUTED)
-    s.fit(y4 + h4 + 16)
+    y5 = y4 + h4 + 40
+    h5 = s.box(M, y5, cw, None, "마무리 전 다시 읽기", ["문서를 쓴 요청은 끝내기 전에 작업 문서를 다시 읽는다",
+                                                "빈 표, 빈칸, 다른 절에 들어간 표 같은 문제를 모델이 찾아 고친 뒤 끝낸다"],
+               tag="마무리 직전 한 번", strong=True)
+    s.arrow([(M + lw / 2 - 60, y4 + h4), (M + lw / 2 - 60, y5)])
+    s.fit(y5 + h5 + 16)
     s.save("c4-21-doc-agent", "문서 작업 에이전트의 단계 구조와 관문")
 
 
