@@ -642,6 +642,39 @@ def doc_agent():
     s.save("c4-21-doc-agent", "문서 작업 에이전트의 단계 구조와 관문")
 
 
+def coedit_simple():
+    """[그림 4-11] 영역 단위 공동 편집 흐름 — 사람이 입력할 때와 AURA 가 절을 쓸 때를 두 줄의 단계 상자로(11-18 사용자: 사각 디자인으로 단순하게)."""
+    s = Svg()
+    y = s.title("영역 단위 공동 편집 흐름")
+    g = 24
+    cw = (W - 2 * M - g) / 2
+    lanes = [("사람이 입력할 때", [("입력", "내 화면에는 바로 표시된다"),
+                                   ("편집 잠금", "그 편집 영역을 먼저 잡은 사람만 고친다"),
+                                   ("서버 저장", "바뀐 글자만 0.3초마다 보낸다"),
+                                   ("다른 화면 표시", "같은 문서를 연 화면에 약 0.2초 뒤 나타난다"),
+                                   ("한글 파일 저장", "입력이 3초 멈추면 그 영역만 파일에 쓴다")]),
+             ("AURA가 절을 쓸 때", [("작성 요청", "담당자가 채팅에서 절 작성을 요청한다"),
+                                    ("27B 초안", "절마다 근거를 찾아 초안을 쓴다(수 초)"),
+                                    ("나누어 전송", "사람과 같은 편집 영역 경로로 조금씩 보낸다"),
+                                    ("다른 화면 표시", "열린 화면에 차례로 나타나고 그 위치로 이동한다"),
+                                    ("파일 기록", "작성을 마치면 파일에 쓰고 잠금을 푼다")])]
+    bottom = y
+    for li, (name, steps) in enumerate(lanes):
+        x = M + li * (cw + g)
+        s.para(x, y + 4, cw, name, size=HEAD, color=NAVY, weight=700)
+        yy = y + 34
+        for si, (t, d) in enumerate(steps):
+            h = box_h(cw, t, [d])
+            s.box(x, yy, cw, h, t, [d], strong=(si == len(steps) - 1))
+            if si < len(steps) - 1:
+                s.arrow([(x + cw / 2, yy + h), (x + cw / 2, yy + h + GAP)])
+            yy += h + GAP
+        bottom = max(bottom, yy)
+    s.para(M, bottom + 2, W - 2 * M, "편집 영역 하나는 한 사람씩 고치고, 서로 다른 영역은 여러 사람이 동시에 고칠 수 있다. 같은 영역에서 겹친 글은 충돌 사본으로 보관한다.")
+    s.fit(bottom + 50)
+    s.save("c4-27-coedit-simple", "영역 단위 공동 편집 흐름")
+
+
 def hwpx_fill():
     """[그림 4-26] 원본 서식 보존 채우기."""
     s = Svg()
@@ -750,6 +783,6 @@ def sft_pipeline():
 
 if __name__ == "__main__":
     for f in (layers, build_flow, query_flow, folders, access, model_swap,
-              doc_process, search_flow, ontology_rel, graph_rag, doc_agent, hwpx_fill, sft_pipeline):
+              doc_process, search_flow, ontology_rel, graph_rag, doc_agent, hwpx_fill, sft_pipeline, coedit_simple):
         f()
     print("ok")

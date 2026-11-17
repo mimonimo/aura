@@ -85,7 +85,7 @@ def _para(doc, text="", *, size=BODY_PT, bold=False, align=WD_ALIGN_PARAGRAPH.JU
     if left_cm:
         pf.left_indent = Cm(left_cm)
     if keep_next:
-        pf.keep_with_next = True                        # 코드 제목 줄처럼 다음 것과 떨어지면 안 되는 문단
+        pf.keep_with_next = False                       # ■ 편집 기호 없이 — 떨어짐은 쪽 나눔 정하기(BREAKS)로
     if text:
         _inline(p, text, size=size, bold=bold, mono=mono)
     return p
@@ -234,9 +234,13 @@ def _heading(doc, text, level, page_before: bool = False):
     pf.line_spacing = 1.5
     pf.space_before = Pt(12 if level == 1 else 8)
     pf.space_after = Pt(4)
-    # 제목은 다음 문단과 함께(쪽 끝에 제목만 남지 않게, 11-18). 「앞에서 쪽 나눔」 은 쓰지 않는다 — 장 앞 쪽 나눔은 구역 나눔으로
-    pf.keep_with_next = True
-    pf.page_break_before = False
+    # 「다음 문단과 함께」·「앞에서 쪽 나눔」 은 워드 편집 기호 ■ 가 찍혀(11-17·11-18 사용자) 쓰지 않는다. 쪽 끝에 제목만 남는 곳은
+    # 발행 때 쪽을 그려 보고 그 제목 앞에만 쪽 나눔 글자를 넣는다(BREAKS, 233_paper_breaks)
+    pf.keep_with_next = None                            # 「꺼짐」 을 적어 두면 리브레가 쪽 나눔 글자를 무시했다 — 속성을 아예 두지 않는다
+    pf.page_break_before = None
+    if text.strip() in BREAKS["h"]:
+        _page_break_run(p)
+    pf.page_break_before = None
     _font(p.add_run(text), CH_PT if level == 1 else SEC_PT if level == 2 else 11, True, color="000000")   # 템플릿: 장 14·절 12·소절 11pt
     return p
 
@@ -260,14 +264,12 @@ def _new_page_section(doc):
 def _style_headings(doc):
     for lv, size in ((1, CH_PT), (2, SEC_PT), (3, 11)):
         st = doc.styles[f"Heading {lv}"]
-        st.paragraph_format.keep_with_next = True       # 제목은 다음 문단과 함께 — 쪽 끝에 제목만 남고 내용이 다음 쪽으로 가던 것(11-18 1.1.2)
+        st.paragraph_format.keep_with_next = False      # ■ 편집 기호 없이(11-18 사용자) — 떨어짐은 BREAKS 로
         st.font.name, st.font.size, st.font.bold = FONT, Pt(size), True
         st.font.color.rgb = RGBColor(0, 0, 0)
         st.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
     for other in doc.styles:                            # 기본 스타일(캡션 등)에 걸린 것은 끈다 — 제목만 다음 문단과 함께
         try:
-            if other.name.startswith("Heading"):
-                continue
             if other.paragraph_format.keep_with_next:
                 other.paragraph_format.keep_with_next = False
         except (AttributeError, ValueError):
@@ -326,6 +328,25 @@ KEEP_ROWS = 4                                           # 이보다 짧은 표�
 _NUMISH = re.compile(r"(?=.*\d).{1,24}")                    # 숫자가 든 짧은 값(수치·건수·시간)
 
 
+BREAKS: dict = {"h": set(), "f": set(), "t": set()}     # 쪽 나눔을 넣을 제목 글·그림 캡션·표 머리줄(233_paper_breaks 가 렌더본에서 정한다)
+_BREAK_NEXT_IMAGE = False
+
+
+def _row_key(row) -> str:
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", "".join(re.sub(r"[*`]", "", str(c or "")) for c in row))[:60]
+
+
+def _page_break_run(p) -> None:
+    """문단 맨 앞에 쪽 나눔 글자 — 「앞에서 쪽 나눔」 속성과 달리 ■ 편집 기호가 생기지 않는다."""
+    from docx.enum.text import WD_BREAK as _WB
+    r = p.add_run()
+    r.add_break(_WB.PAGE)
+    el = r._r
+    el.getparent().remove(el)
+    ppr = p._p.pPr
+    (ppr.addnext(el) if ppr is not None else p._p.insert(0, el))
+
+
 def _keep_lead_in(doc, limit: int = 160) -> None:
     """표·그림 바로 앞의 짧은 소개 문단(「…는 [표 A-16]과 같다」)을 표·그림과 같은 쪽에 — 소개 글만 쪽 끝에 남지 않게(11-18).
     긴 문단은 묶지 않는다(쪽 하나를 통째로 밀어 큰 빈자리가 생기므로)."""
@@ -340,7 +361,8 @@ def _keep_lead_in(doc, limit: int = 160) -> None:
 
 
 def _table(doc, rows):
-    _keep_lead_in(doc)
+    if _row_key(rows[0]) in BREAKS["t"]:
+        _page_break_run(doc.add_paragraph())               # 표 머리줄만 쪽 끝에 남던 표 — 표를 다음 쪽에서 시작
     ncol = max(len(r) for r in rows)
     t = doc.add_table(rows=len(rows), cols=ncol)
     t.style = "Table Grid"
@@ -403,9 +425,6 @@ def _table(doc, rows):
             else:
                 p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER if col_center[j] else WD_ALIGN_PARAGRAPH.LEFT
                 _inline(p, txt, size=9)
-            if i == 0 and len(rows) > 1:
-                # 머리줄 칸만 「다음 문단과 함께」 — 머리줄만 쪽 끝에 홀로 남던 것(11-17 사용자, 표 2-1·3-3·3-6). ■ 는 편집 기호로만 보이고 인쇄되지 않는다
-                p.paragraph_format.keep_with_next = True
             # 그 밖의 표 칸에는 「다음 문단과 함께」 를 걸지 않는다 — 워드 편집 기호에서 표 둘레마다 점이 찍혀 어지러웠다(11-16 사용자).
             # 행이 두 쪽에 잘리지 않게(cantSplit)와 쪽이 넘어가면 머리줄 다시(tblHeader)만 둔다
         trpr = t.rows[i]._tr.get_or_add_trPr()
@@ -441,10 +460,13 @@ def _image(doc, path: Path, missing: list):
         else:
             missing.append(str(path))
             return _para(doc, f"(SVG 그림: {path.name})", align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
-    _keep_lead_in(doc)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.keep_with_next = True       # 그림은 아래 캡션과 같은 쪽에(그림만 남고 캡션이 다음 쪽으로 가지 않게)
+    p.paragraph_format.keep_with_next = None       # ■ 없이 — 그림·캡션 갈라짐은 BREAKS 로
+    global _BREAK_NEXT_IMAGE
+    if _BREAK_NEXT_IMAGE:
+        _page_break_run(p)
+        _BREAK_NEXT_IMAGE = False
     try:
         from PIL import Image
         with Image.open(path) as im:
@@ -683,6 +705,8 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
                 if listed_imgs:
                     img = [str(p_.relative_to(ROOT)) for p_ in listed_imgs]
                 if img:
+                    global _BREAK_NEXT_IMAGE
+                    _BREAK_NEXT_IMAGE = _row_key([f"[{k} {num}] {body}"]) in BREAKS["f"]
                     for one in img:
                         _image(doc, ROOT / one, missing)
                         counts["img"] += 1
@@ -976,6 +1000,64 @@ def fill_toc(path: Path, pages: dict) -> int:
     return n
 
 
+def find_breaks(docx_path: Path, pages: list[str], prev: dict, img_above: list | None = None) -> dict:
+    """렌더본(쪽마다 글) → 쪽 나눔을 더할 곳. 쪽 끝 두 줄 안에 제목이 있으면 그 제목, 쪽 맨 위가 그림 캡션이면 그 그림,
+    쪽 맨 위가 표 캡션이거나 쪽 끝 두 줄이 표 머리줄이면 그 표. 앞서 정한 것(prev)에 더해 돌려준다."""
+    from docx import Document as _D
+    from docx.table import Table as _T
+    from docx.text.paragraph import Paragraph as _P
+    norm = lambda x: re.sub(r"[^0-9A-Za-z가-힣]", "", x)
+    d = _D(str(docx_path))
+    heads, figs, tcaps, theads = [], [], {}, []
+    last_tbl = None
+    for el in d.element.body.iterchildren():
+        if el.tag == qn("w:tbl"):
+            t = _T(el, d._body)
+            try:
+                row = [c.text for c in t.rows[0].cells]
+            except Exception:
+                continue
+            last_tbl = _row_key(row)
+            if len(t.rows) > 1:
+                theads.append((norm("".join(row)), last_tbl))
+        elif el.tag == qn("w:p"):
+            p = _P(el, d._body)
+            name = p.style.name if p.style is not None else ""
+            t = p.text.strip()
+            if not t:
+                continue
+            if name.startswith("Heading"):
+                heads.append(t)
+            elif name == "그림 캡션":
+                figs.append(t)
+            elif name == "표 캡션" and last_tbl:
+                tcaps[norm(t)] = last_tbl
+                last_tbl = None
+    out = {k: set(prev.get(k) or []) for k in ("h", "f", "t")}
+    hn = {norm(h): h for h in heads if len(norm(h)) >= 2}
+    fn = {norm(f): f for f in figs}
+    junk = re.compile(r"^(AURA: 교내|영남이공대학교|\d+$)")
+    for i, pg in enumerate(pages):
+        lines = [l.strip() for l in pg.splitlines() if l.strip() and not junk.match(l.strip()) and "사이버보안과" not in l]
+        if not lines:
+            continue
+        tail = [norm(x) for x in lines[-2:]]
+        for x in [norm(y) for y in lines[-3:]]:            # 제목 아래 본문 두 줄까지만 남은 것도 다음 쪽으로(11-18 사용자: 「구현: 공동 편집」)
+            if x in hn and i + 1 < len(pages):
+                out["h"].add(hn[x])
+        top = norm(lines[0])
+        # 그림은 글이 없어 쪽 맨 위 글이 캡션이어도 그 위에 그림이 같은 쪽에 있을 수 있다 — 렌더본에서 캡션 위에 그림이 있는 쪽(img_above)은 빼고
+        if top in fn and not (img_above and i < len(img_above) and img_above[i]):
+            out["f"].add(_row_key([fn[top]]))
+        if top in tcaps:
+            out["t"].add(tcaps[top])
+        tl = "".join(tail)
+        for hn_, key in theads:
+            if hn_ and len(hn_) >= 4 and tl.endswith(hn_):
+                out["t"].add(key)
+    return {k: sorted(v) for k, v in out.items()}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=ROOT / "docs" / "paper" / "AURA-논문.docx")
@@ -983,8 +1065,23 @@ def main(argv=None) -> int:
     ap.add_argument("--toc-pages", type=Path, help="목차 쪽 번호(JSON {항목 글: 쪽}) — 주면 목차를 미리 채우고 열 때 묻지 않게")
     ap.add_argument("--entries", type=Path, help="이미 만든 완성본의 목차 항목을 JSON 으로 내고 끝낸다(쪽 재기용)")
     ap.add_argument("--pages-from", nargs=2, type=Path, metavar=("ENTRIES_JSON", "PDF_TXT"), help="항목 JSON 과 pdftotext 글로 쪽 JSON 을 낸다")
+    ap.add_argument("--breaks", type=Path, help="쪽 나눔 JSON {h: 제목, f: 그림 캡션 열쇠, t: 표 머리줄 열쇠} — 233_paper_breaks 가 만든다")
+    ap.add_argument("--find-breaks", nargs=2, type=Path, metavar=("PDF_TXT", "BREAKS_JSON"), help="렌더본 글로 쪽 나눔 JSON 을 늘리고 더한 수를 낸다")
     a = ap.parse_args(argv)
     import json as _json
+    if a.breaks and a.breaks.exists():
+        got = _json.loads(a.breaks.read_text(encoding="utf-8"))
+        for k in BREAKS:
+            BREAKS[k] = set(got.get(k) or [])
+    if a.find_breaks:
+        bp = a.find_breaks[1]
+        prev = _json.loads(bp.read_text(encoding="utf-8")) if bp.exists() else {"h": [], "f": [], "t": []}
+        ia = a.find_breaks[0].with_suffix(".img.json")
+        new = find_breaks(a.out, a.find_breaks[0].read_text(encoding="utf-8").split("\f"), prev,
+                          _json.loads(ia.read_text(encoding="utf-8")) if ia.exists() else None)
+        bp.write_text(_json.dumps(new, ensure_ascii=False), encoding="utf-8")
+        print("쪽 나눔 더함", sum(len(new[k]) for k in new) - sum(len(prev.get(k) or []) for k in new))
+        return 0
     if a.entries:
         a.entries.write_text(_json.dumps(toc_entries(a.out), ensure_ascii=False), encoding="utf-8")
         return 0
