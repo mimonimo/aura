@@ -427,11 +427,35 @@ def _sec_key(head: str) -> str:
     return strip_number(head)[:24]
 
 
+# 반입한 공개 문서의 갈래(documents.kind) → 갈래 낱말. 양식만이 아니라 실제로 쓴 계획서·보고서의 절·표 머리도 센다 —
+# 양식 400건 가운데 계획서·보고서 갈래는 몇 건뿐이라 사전이 신청서·동의서 쪽으로 쏠렸다(11-18 사용자: 다양한 문서 양식을 익히게)
+DOC_KIND_NOUN = {"plan": "계획서", "report": "보고서", "basic_plan": "기본계획", "minutes": "회의록", "evaluation": "평가표",
+                 "announcement": "공고문", "guideline": "지침", "agreement": "협약서"}
+DOC_KIND_SAMPLE = int(os.environ.get("ZZAIMY_KIND_DICT_PER_KIND", "120"))   # 갈래마다 읽는 문서 수(최근 것부터, 한글 원본 먼저)
+
+
+def doc_kind_sources(db, per_kind: int = DOC_KIND_SAMPLE) -> list[dict]:
+    """갈래 사전에 더하는 공개 문서 — 갈래마다 최근 것 per_kind 건(한글 원본이 있으면 표 머리까지 읽히므로 먼저). 이름은 담지 않고 센다."""
+    from zzaimy.app import storage
+    rows = [d for d in db.list_documents(light=True)
+            if (d.get("access_level") or "") == "public" and d.get("kind") in DOC_KIND_NOUN]
+    rows.sort(key=lambda d: (not str(d.get("stored_path") or "").lower().endswith(".hwpx"), -int(d["id"])))
+    out, seen = [], {}
+    for d in rows:
+        k = d["kind"]
+        if seen.get(k, 0) >= per_kind:
+            continue
+        seen[k] = seen.get(k, 0) + 1
+        out.append({"key": f"doc:{d['id']}", "name": storage.title_of(d.get("filename") or "")[:60], "doc": d,
+                    "kind_ko": DOC_KIND_NOUN[k], "fp": str(d.get("content_sha256") or d.get("id"))})
+    return out
+
+
 def build_kind_dict(db, srcs: list[dict]) -> dict:
     from collections import Counter
     kinds: dict[str, dict] = {}
     for src in srcs:
-        k = kind_noun(src["name"])
+        k = kind_noun(src["name"]) or src.get("kind_ko", "")
         if not k:
             continue
         o = outline_of(db, src)
@@ -454,6 +478,10 @@ def kind_dict(db, base) -> dict:
     문서 이름은 담지 않고 절·표 머리와 센 수만 담는다(모든 실물 양식에서 센 공용 사전)."""
     import hashlib
     srcs = form_sources(db, base)
+    try:
+        srcs += doc_kind_sources(db)
+    except Exception:
+        pass
     fp = hashlib.sha256(json.dumps(sorted((s["key"], s["fp"]) for s in srcs), ensure_ascii=False).encode()).hexdigest()[:16]
     try:
         cur = json.loads(db.get_setting(DICT_KEY, "{}") or "{}")
@@ -461,9 +489,31 @@ def kind_dict(db, base) -> dict:
         cur = {}
     if cur.get("fp") == fp and isinstance(cur.get("kinds"), dict):
         return cur
-    v = {"fp": fp, "built": time.time(), "inputs": len(srcs), "kinds": build_kind_dict(db, srcs)}
-    db.set_setting(DICT_KEY, json.dumps(v, ensure_ascii=False))
-    return v
+
+    def rebuild() -> dict:
+        v = {"fp": fp, "built": time.time(), "inputs": len(srcs), "kinds": build_kind_dict(db, srcs)}
+        db.set_setting(DICT_KEY, json.dumps(v, ensure_ascii=False))
+        return v
+    if isinstance(cur.get("kinds"), dict) and cur["kinds"]:
+        # 입력이 바뀌었으면 뒤에서 다시 만들고 이번 요청은 저장된 사전으로 — 문서 수백 건을 읽는 동안 양식 만들기가 멈추지 않게
+        import threading
+        with _REBUILD_LOCK:
+            if fp not in _REBUILDING:
+                _REBUILDING.add(fp)
+                def bg() -> None:
+                    try:
+                        rebuild()
+                    except Exception:
+                        pass
+                    finally:
+                        _REBUILDING.discard(fp)
+                threading.Thread(target=bg, daemon=True).start()
+        return cur
+    return rebuild()
+
+
+_REBUILD_LOCK = __import__("threading").Lock()
+_REBUILDING: set[str] = set()
 
 
 def render_kind(entry: dict | None, kind: str) -> str:

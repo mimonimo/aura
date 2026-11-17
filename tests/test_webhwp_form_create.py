@@ -218,6 +218,14 @@ def test_references_are_structure_only_and_kind_dict_follows_inputs(tmp_path, mo
     fid = next(r["id"] for r in db.list_files(kind="webhwp", limit=500) if "회의록" in r["name"])
     clean, _ = fc.validate(DESIGN)
     webhwp.save(db, hw.base, fid, fc.build(clean), user="zzaimy")                  # 입력 하나가 바뀌면 지문이 달라져 다시 만든다
+    stale = fc.kind_dict(db, hw.base)                                               # 바뀐 입력은 뒤에서 다시 만들고 이번엔 저장된 사전
+    assert stale["fp"] == d1["fp"]
+    import json as _j
+    import time as _t
+    for _ in range(100):                                                            # 뒤에서 다시 만든 사전이 저장된다
+        if _j.loads(db.get_setting(fc.DICT_KEY, "{}"))["fp"] != d1["fp"]:
+            break
+        _t.sleep(0.1)
     d2 = fc.kind_dict(db, hw.base)
     assert d2["fp"] != d1["fp"]
 
