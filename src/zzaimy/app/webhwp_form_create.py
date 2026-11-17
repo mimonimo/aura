@@ -169,7 +169,7 @@ def guide_text(s: dict) -> str:
     return ". ".join(parts) + ("." if parts else "")
 
 
-def to_spec(clean: dict) -> dict:
+def to_spec(clean: dict, table_slots: bool = False) -> dict:
     """정리한 설계 → 공통 양식 정의 꼴(webhwp_templates.build 가 읽는 cover·blocks)."""
     blocks: list[dict] = []
     if clean.get("summary"):
@@ -179,8 +179,9 @@ def to_spec(clean: dict) -> dict:
         g = guide_text(s)
         if g:
             blocks.append({"guide": g})
-        if s.get("table"):
-            # 표 갈래(요약·일정·예산·일반)는 표 정의에 함께 둔다 — 디자인 빌더가 갈래별 모양을 고를 때 읽는다(모르는 열쇠는 빌더가 넘긴다)
+        # 절 안 표는 빈 틀로 미리 두지 않는다 — 작성방법 안내에 「… 열의 표로 정리한다」 만 적고, 표는 내용을 쓸 때 만든다.
+        # 빈 틀을 두면 27B 가 새 표를 만들 때마다 머리줄만 남은 틀이 절마다 남았다(11-18 포스터 예시 1·4·5·6·7절)
+        if table_slots and s.get("table"):                   # 시험·옛 동작용(빈 틀을 두는 양식)
             blocks.append({"table": {"columns": list(s["table"]), "rows": [[""] * len(s["table"]) for _ in range(3)],
                                      "widths": [1] * len(s["table"]), "kind": s.get("table_kind") or "일반"}})
     from datetime import date as _date
@@ -223,12 +224,12 @@ def _drop_fields(data: bytes, names: list[str]) -> bytes:
     return buf.getvalue()
 
 
-def build(clean: dict, facts: dict | None = None) -> bytes:
+def build(clean: dict, facts: dict | None = None, table_slots: bool = False) -> bytes:
     """검증을 지난 설계 → hwpx(공통 양식과 같은 빌더). 위 절 필드를 뺀다. 표지는 한 쪽 표지라 요약 표·첫 절이 다음 쪽에서 시작한다.
     facts: 기관 정보(institution.facts) — 표지·머리의 기관명. 없으면 「(행정기관명)」 안내 글. 자가 점검을 지나야 돌려준다."""
     from zzaimy.app import webhwp_edit_ops as eo
     from zzaimy.app import webhwp_templates as wt
-    data = wt.build(wt.localize(to_spec(clean), facts))
+    data = wt.build(wt.localize(to_spec(clean, table_slots), facts))
     data = _drop_fields(data, [("절:" + re.sub(r"\s+", " ", s["heading"]).strip())[:40] for s in clean["sections"] if s["parent"]])
     probs = eo.check_bytes(data)
     if probs:

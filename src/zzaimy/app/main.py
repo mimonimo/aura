@@ -3566,6 +3566,13 @@ def create_app(
                     hw.revising = True
                     _rev = _dg.Reviser(client, db, session_id, hw, q, search=_dg_search, notes=lambda: notes[-8:], pool=_pool)
                     tools.append(doc_agent.Tool("hwp_revise", _dg.REVISE_DESC, _rev.run, writes=True))
+        if hw is not None:
+            # 다시 읽기 도구 — 「전체 점검해 줘」 처럼 쓰지 않고 살피는 요청도 27B 가 작업본을 처음부터 읽고 고칠지 정한다(app/doc_review).
+            # 쓰기 요청은 마치기 전에 자동으로 한 번 읽는다(doc_agent.run review)
+            tools.append(doc_agent.Tool(
+                "hwp_review", "작업본 다시 읽기 — 작업 문서 전체(또는 요청이 짚은 절)의 글·표와 문제 후보(빈 표·빈칸·「확인 필요」·남은 안내 글·"
+                "머리줄 없는 표 등)를 본다. 문서를 점검·검토해 달라는 요청이면 먼저 이것으로 읽고, 고칠 것은 도구로 고친 뒤 finish. args {}",
+                lambda a_: _doc_review_text(hw, q) or "작업본이 없다."))
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])

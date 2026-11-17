@@ -11,7 +11,7 @@ import re
 
 from zzaimy.app import webhwp_write as ww
 
-_PH = re.compile(r"확인\s*필요|○○|\(\s*\)|XX")
+_PH = re.compile(r"확인\s*필요|○○|\(\s*\)|XX|본문\s*입력")
 _HAN = re.compile(r"[一-鿿]+")
 _TBL = re.compile(r"<hp:tbl\b.*?</hp:tbl>", re.S)
 _TR = re.compile(r"<hp:tr\b.*?</hp:tr>", re.S)

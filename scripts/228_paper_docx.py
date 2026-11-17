@@ -249,6 +249,7 @@ def _new_page_section(doc):
     sec.page_width, sec.page_height = prev.page_width, prev.page_height
     sec.left_margin, sec.right_margin, sec.top_margin, sec.bottom_margin = prev.left_margin, prev.right_margin, prev.top_margin, prev.bottom_margin
     sec.header_distance, sec.footer_distance = prev.header_distance, prev.footer_distance
+    sec.different_first_page_header_footer = False      # 표지 구역의 「첫 쪽 다름」 이 복사되면 장 첫 쪽마다 머리말·쪽 번호·학과가 빈다(11-18)
     sec.header.is_linked_to_previous = True
     sec.footer.is_linked_to_previous = True
     pg = sec._sectPr.find(qn("w:pgNumType"))
@@ -259,12 +260,14 @@ def _new_page_section(doc):
 def _style_headings(doc):
     for lv, size in ((1, CH_PT), (2, SEC_PT), (3, 11)):
         st = doc.styles[f"Heading {lv}"]
-        st.paragraph_format.keep_with_next = False      # 스타일 쪽 「다음 문단과 함께」 도 끈다(■ 편집 기호)
+        st.paragraph_format.keep_with_next = True       # 제목은 다음 문단과 함께 — 쪽 끝에 제목만 남고 내용이 다음 쪽으로 가던 것(11-18 1.1.2)
         st.font.name, st.font.size, st.font.bold = FONT, Pt(size), True
         st.font.color.rgb = RGBColor(0, 0, 0)
         st.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
-    for other in doc.styles:                            # 기본 스타일(제목 4·캡션 등)에 걸린 것도
+    for other in doc.styles:                            # 기본 스타일(캡션 등)에 걸린 것은 끈다 — 제목만 다음 문단과 함께
         try:
+            if other.name.startswith("Heading"):
+                continue
             if other.paragraph_format.keep_with_next:
                 other.paragraph_format.keep_with_next = False
         except (AttributeError, ValueError):
@@ -338,17 +341,25 @@ def _table(doc, rows):
     # 열 너비를 글 양에 맞춘다 — 같은 너비면 긴 글 열에서 한두 글자만 다음 줄로 넘어가 보기 싫었다(11-16).
     # 열마다 무게 = 칸 글 길이의 평균(긴 칸 쪽으로 조금 더), 바닥은 머리말·가장 긴 낱말이 한 줄에 들어갈 너비
     CH_MM = 3.3                                          # 9pt 한글 한 글자 폭(여백 포함 어림)
+    PAD = 4.0
     text_mm = 150.0
-    need, weight = [], []
+    # 웹 표의 자동 배치와 같은 방법(11-18 사용자: 표가 최적화 안 된 느낌) — 열마다 한 줄로 쓸 때의 너비(가장 긴 칸)와 줄여도 되는
+    # 바닥(가장 긴 낱말, 4자 이상)을 잰다. 모두 한 줄로 들어가면 그 비율대로 본문 폭을 채우고, 넘치면 바닥을 먼저 주고 남은 폭은
+    # 「한 줄 너비 − 바닥」 이 큰 열(긴 글 열)에 나눠 준다. 짧은 수치 열이 넓고 긴 글 열이 네 줄로 접히던 것을 막는다
+    nat, low = [], []
     for j in range(ncol):
         cells_ = [_plain(r[j]) for r in rows if j < len(r)]
-        lens = [len(v) for v in cells_ if v] or [1]
+        longest = max([len(v) for v in cells_ if v] or [1])
         word = max([len(w) for v in cells_ for w in v.split()] or [1])
-        need.append(min(max(len(_plain(rows[0][j])) if j < len(rows[0]) else 1, word, 2) * CH_MM + 4, text_mm * 0.45))
-        weight.append(sum(lens) / len(lens) * 0.6 + max(lens) * 0.4)
-    free = max(text_mm - sum(need), 0)
-    widths = [need[j] + free * weight[j] / sum(weight) for j in range(ncol)]
-    if sum(widths) > text_mm:                            # 열 바닥 너비의 합이 본문 폭을 넘으면 비율대로 줄인다(11-17 표 3-7 이 오른쪽 여백 밖으로)
+        nat.append(longest * CH_MM + PAD)
+        low.append(min(max(word, 4) * CH_MM + PAD, text_mm * 0.4))
+    if sum(nat) <= text_mm:
+        widths = [w * text_mm / sum(nat) for w in nat]
+    else:
+        free = max(text_mm - sum(low), 0)
+        extra = [max(nat[j] - low[j], 0) for j in range(ncol)]
+        widths = [low[j] + (free * extra[j] / sum(extra) if sum(extra) else free / ncol) for j in range(ncol)]
+    if sum(widths) > text_mm:                            # 바닥의 합이 본문 폭을 넘으면 비율대로 줄인다(11-17 표 3-7 이 오른쪽 여백 밖으로)
         widths = [w * text_mm / sum(widths) for w in widths]
     t.autofit = False
     tpr = t._tbl.tblPr
@@ -418,7 +429,7 @@ def _image(doc, path: Path, missing: list):
             return _para(doc, f"(SVG 그림: {path.name})", align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.keep_with_next = False      # 편집 기호 ■ 없이(11-17) — 그림·캡션 떨어짐은 렌더 점검으로 본다
+    p.paragraph_format.keep_with_next = True       # 그림은 아래 캡션과 같은 쪽에(그림만 남고 캡션이 다음 쪽으로 가지 않게)
     try:
         from PIL import Image
         with Image.open(path) as im:
@@ -820,6 +831,7 @@ def build(out: Path, appendix: bool = True) -> dict:
         _field(_para(doc, "", indent_pt=0), instr)
     # 본문 구역 — 머리말·꼬리말, 쪽 번호 1부터
     sec1 = doc.add_section(WD_SECTION.NEW_PAGE)
+    sec1.different_first_page_header_footer = False      # 본문은 첫 쪽부터 쪽 번호·학과
     _page_setup(sec1)
     _hf(sec1, header_text=SHORT, footer_text=DEPT)
     _restart_numbering(sec1, 1)

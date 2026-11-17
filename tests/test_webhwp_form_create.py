@@ -72,7 +72,7 @@ def test_numbering_follows_school_form_and_strips_model_numbers():
 
 def test_build_makes_fields_guides_tables_and_cover_break():
     clean, _ = fc.validate(DESIGN)
-    data = fc.build(clean)
+    data = fc.build(clean, table_slots=True)
     assert eo.check_bytes(data) == []
     f = _fields(data)
     assert f["칸"] == ["칸:사업명", "칸:사업 기간", "칸:총 사업비", "칸:대상"]
@@ -174,7 +174,7 @@ def _e202():
 def test_scenario_scoring_reads_design_from_xml():
     e = _e202()
     clean, _ = fc.validate(DESIGN)
-    data = fc.build(clean)
+    data = fc.build(clean, table_slots=True)
     v0 = e.design_values(data)
     assert e.design_score(v0) == {"가로": False, "여백 좁게": False, "머리줄 연파랑": False, "쪽 번호": False}
     data, _ = eo.page_setup(data, {"orientation": "가로", "margin": "좁게"})
@@ -301,7 +301,7 @@ def test_form_sources_scope(tmp_path):
 def test_body_table_replaces_empty_form_table_only():
     """본문이 표를 들고 오면 같은 절의 빈 양식 표(머리줄만 있는 표)는 지운다 — 표 없는 본문이면 양식 표를 둔다. 작성방법 조사도 받침에 맞게."""
     clean, _ = fc.validate(DESIGN)
-    data = fc.build(clean)
+    data = fc.build(clean, table_slots=True)
     assert "사업단 조직은 도식" in "".join(ww.section_contexts(data).values())
     table_names = lambda d: [n for n in _fields(d)["표"] if n.endswith((":추진 과제", ":일정", ":담당"))]
     assert len(table_names(data)) == 3
