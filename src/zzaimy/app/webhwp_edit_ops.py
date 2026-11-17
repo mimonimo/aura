@@ -2622,6 +2622,11 @@ def apply(db, base: Path, fid: int, fn, *, user: str = "AURA") -> str:
             # 행을 늘리거나 긴 글을 채운 표가 쪽 아래로 넘치지 않게 — 다음 쪽으로 이어지는 표로(webhwp_write.split_tables, 11-15)
             from zzaimy.app import webhwp_write as _ww
             new, _flowed = _ww.split_tables(new)
+            try:                                      # 항목 단계 글자(절 제목 > 1) > 가) > (1)) — AURA 양식만(app/level_ladder)
+                from zzaimy.app import level_ladder as _ll
+                new = _ll.apply(new)
+            except Exception:
+                pass
         except Exception:
             pass
         probs = check_bytes(new)

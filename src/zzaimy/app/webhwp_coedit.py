@@ -1467,6 +1467,13 @@ def normalize_file(db, base: Path, fid: int) -> int:
         k = 0
         try:                                            # 글을 써 넣는 표는 쪽 경계에서 칸 안 글까지 나뉘게(넘친 글이 잘려 안 보이던 것, 11-11)
             new, k = ww.split_tables(new)
+            try:                                      # 항목 단계 글자(절 제목 > 1) > 가) > (1)) — AURA 양식만(app/level_ladder)
+                from zzaimy.app import level_ladder as _ll
+                _lad = _ll.apply(new)
+                if _lad != new:
+                    new, k = _lad, k + 1                # 글자 단계만 바뀌어도 저장(쪽 배치처럼 화면은 다시 열지 않음)
+            except Exception:
+                pass
         except Exception:
             log.exception("표 쪽 나눔 정리 실패(그대로 둔다)")
         if n or k:
