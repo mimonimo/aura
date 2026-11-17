@@ -157,6 +157,45 @@ def _shorten(block: str, over_chars: int, marker: str) -> str:
     return (head + marker) if head else marker.strip()
 
 
+COMPRESS_PIECE = 60000             # 한 번에 줄이는 글 조각(자) — 줄이는 호출도 문맥 한도 안에 들게
+_COMPRESSED = "\n(앞 글을 문맥 한도에 맞춰 줄였다)"
+_COMPRESSING = contextvars.ContextVar("llm_budget_compressing", default=False)
+
+
+def _compress(client, block: str, over_chars: int, marker: str) -> str:
+    """넘친 글을 잘라 버리지 않고 27B 로 줄여 이어 간다(11-17 사용자: 토큰이 넘치면 압축해서 이어 나가야). 수치·날짜·이름·출처는
+    그대로 두고 군더더기만 뺀다. 줄이기가 실패하거나 줄인 글이 여전히 길면 예전처럼 뒤를 자른다. ZZAIMY_COMPRESS=0 이면 자르기만."""
+    target = len(block) - over_chars - len(marker)
+    if os.environ.get("ZZAIMY_COMPRESS", "1") == "0" or target < 400 or _COMPRESSING.get():
+        return _shorten(block, over_chars, marker)
+    tok = _COMPRESSING.set(True)
+    try:
+        pieces = [block[i:i + COMPRESS_PIECE] for i in range(0, len(block), COMPRESS_PIECE)]
+        share = target / max(len(block), 1)
+        out = []
+        for pc in pieces:
+            want = max(200, int(len(pc) * share))
+            resp = client.client.chat.completions.create(
+                model=client.model, temperature=0.0,
+                messages=[{"role": "user", "content":
+                           f"아래 글을 {want}자 안으로 줄여 다시 써라. 이어서 일하는 데 꼭 필요한 맥락은 빠짐없이 남긴다:\n"
+                           "- 담당자의 요청·지시와 정한 조건(하지 말라고 한 것 포함)\n"
+                           "- 이미 정한 것·끝낸 일과 아직 남은 일\n"
+                           "- 수치·날짜·금액·사람·기관·사업 이름·문서 제목·쪽·출처 표시(글자 그대로)\n"
+                           "- 근거 문단의 핵심 주장과 그 출처\n"
+                           "되풀이·인사말·군더더기만 뺀다. 표는 필요한 행·열만 남긴 표로. 없는 내용을 더하지 않는다. 줄인 글만 출력한다.\n\n" + pc}],
+                extra_body=getattr(client, "_extra", {}) or {})
+            out.append(str(resp.choices[0].message.content or "").strip())
+        short = "\n".join(x for x in out if x)
+        if short and len(short) <= target + len(marker):
+            return short + _COMPRESSED
+    except Exception:
+        pass
+    finally:
+        _COMPRESSING.reset(tok)
+    return _shorten(block, over_chars, marker)
+
+
 def fit_messages(client, messages: list[dict], max_tokens: int, cuts: list[Cut] | None = None, *,
                  floor: int = 512) -> tuple[list[dict], int]:
     """messages + max_tokens 가 한도 안에 들게 cuts 차례대로 줄인다. 줄인 사본과 출력 상한을 돌려준다.
@@ -195,7 +234,15 @@ def fit_messages(client, messages: list[dict], max_tokens: int, cuts: list[Cut] 
         if m is None:
             continue
         block = texts.get(ci)
-        if block is None:                                   # 메시지 통째로 뺀다(오래된 대화)
+        if block is None:                                   # 오래된 대화 — 버리기 전에 줄여 이어 간다, 그래도 넘치면 뺀다
+            body = str(m.get("content") or "")
+            if body and not _COMPRESSING.get():
+                ratio = max(len(body), 1) / max(estimate_tokens(body), 1)
+                short = _compress(client, body, int(over() * ratio / _CORRECTION.get(base, 1.0)) + 64, "")
+                if short.endswith(_COMPRESSED) and len(short) < len(body):      # 줄이기가 된 때만(자르기로 물러났으면 예전처럼 뺀다)
+                    m["content"] = short
+                    if over() <= 0:
+                        continue
             msgs[cut.msg] = None
             continue
         content = str(m.get("content") or "")
@@ -203,7 +250,7 @@ def fit_messages(client, messages: list[dict], max_tokens: int, cuts: list[Cut] 
             continue
         ratio = max(len(block), 1) / max(estimate_tokens(block), 1)      # 이 조각의 글자/토큰
         over_chars = int(over() * ratio / _CORRECTION.get(base, 1.0)) + 64
-        shorter = _shorten(block, over_chars, cut.marker)
+        shorter = _compress(client, block, over_chars, cut.marker)
         if len(shorter) < len(block):
             m["content"] = content.replace(block, shorter, 1)
     if over() > 0:

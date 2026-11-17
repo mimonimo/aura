@@ -106,7 +106,7 @@ def decide(client, request: str, cands: list[dict]) -> dict:
     if client is not None:
         try:
             resp = client.client.chat.completions.create(
-                model=client.model, temperature=0.0, max_tokens=200, extra_body=getattr(client, "_extra", {}),
+                model=client.model, temperature=0.0, extra_body=getattr(client, "_extra", {}),
                 messages=[{"role": "user", "content": PROMPT.format(request=request[:1500], candidates=render_candidates(cands))}])
             raw = resp.choices[0].message.content or ""
             m = re.search(r"\{.*\}", raw, re.S)

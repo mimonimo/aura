@@ -373,7 +373,7 @@ def _kind_complete(messages: list[dict]) -> str:
     """갈래 판정에 쓰는 27B — 반입 검토와 같은 연결(review). 짧은 답이라 출력 상한을 작게 둔다."""
     from zzaimy.generate.client import VllmClient
     client = VllmClient(role="review")
-    resp = client.client.chat.completions.create(model=client.model, messages=messages, max_tokens=200, temperature=0,
+    resp = client.client.chat.completions.create(model=client.model, messages=messages, temperature=0,
                                                  extra_body=getattr(client, "_extra", {}), timeout=60)
     return resp.choices[0].message.content or ""
 
@@ -804,7 +804,7 @@ class DocumentProcessor:
             resp = client.client.chat.completions.create(
                 model=getattr(client, "vision_model", client.model),
                 temperature=0.0,
-                max_tokens=2500,
+                
                 messages=[{
                     "role": "user",
                     "content": [
@@ -1066,7 +1066,7 @@ class DocumentProcessor:
                 resp = client.client.chat.completions.create(
                     model=client.model,
                     temperature=0.0,
-                    max_tokens=4000,
+                    
                     messages=[{
                         "role": "user",
                         "content": self._CORRECT_PROMPT.format(text=joined),
@@ -1255,7 +1255,7 @@ class DocumentProcessor:
                      "text": "이미지 속 글자를 보이는 그대로 한 줄로만 출력하라."
                              " 설명·따옴표·교정 금지. 읽을 수 없으면 빈 출력."},
                 ]}],
-                temperature=0.0, max_tokens=120,
+                temperature=0.0,
                 extra_body=getattr(client, "_extra", {}),
             )
             out = (resp.choices[0].message.content or "").strip()
@@ -1297,7 +1297,7 @@ class DocumentProcessor:
                     {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
                     {"type": "text", "text": self._FIGURE_PROMPT},
                 ]}],
-                temperature=0.0, max_tokens=600,
+                temperature=0.0,
                 extra_body=getattr(client, "_extra", {}),
             )
             out = (resp.choices[0].message.content or "").strip()
@@ -2454,7 +2454,7 @@ class DocumentProcessor:
         resp = client.client.chat.completions.create(
             model=client.model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.0, max_tokens=120, extra_body=getattr(client, "_extra", {}),
+            temperature=0.0, extra_body=getattr(client, "_extra", {}),
         )
         return (resp.choices[0].message.content or "").strip()
 
@@ -2992,7 +2992,7 @@ class DocumentProcessor:
             resp = client.client.chat.completions.create(
                 model=client.model,
                 temperature=0.2,
-                max_tokens=2200,
+                
                 messages=[{
                     "role": "user",
                     "content": prompt.format(text=text),

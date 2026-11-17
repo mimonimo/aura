@@ -122,7 +122,7 @@ def read(client, question: str, programs: list[dict], timeout: float | None = No
     try:
         api = client.client.with_options(timeout=timeout or float(os.environ.get("ZZAIMY_GRAPH_READ_TIMEOUT", "20")), max_retries=0)
         resp = api.chat.completions.create(
-            model=client.model, messages=[{"role": "user", "content": prompt}], temperature=0.0, max_tokens=120,
+            model=client.model, messages=[{"role": "user", "content": prompt}], temperature=0.0,
             response_format={"type": "json_schema", "json_schema": {"name": "GraphQuery", "schema": SCHEMA}},
             extra_body=getattr(client, "_extra", None) or None)
         raw = (resp.choices[0].message.content or "").strip()

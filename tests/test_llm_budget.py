@@ -454,3 +454,10 @@ def test_usage_tracking_records_peak_and_trimming():
     u = contextvars.copy_context().run(run)
     assert u["calls"] == 2 and u["limit"] == 6000 and u["trimmed"] and 0 < u["peak"] <= 6000 and u["prompt"] > 0
     llm_budget.create_fitted(fake, [{"role": "user", "content": "추적 밖"}], 256)          # 추적을 켜지 않은 흐름은 아무것도 남기지 않는다
+
+
+@pytest.fixture(autouse=True)
+def _legacy_budget(monkeypatch):
+    """이 파일의 시험은 호출부 한도·자르기 동작을 본다 — 유연한 출력 한도와 압축은 test_flex_output.py 에서 따로 본다."""
+    monkeypatch.setenv("ZZAIMY_FLEX_OUTPUT", "0")
+    monkeypatch.setenv("ZZAIMY_COMPRESS", "0")

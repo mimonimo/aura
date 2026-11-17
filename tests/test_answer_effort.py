@@ -166,3 +166,10 @@ def test_no_thinking_block_keeps_level_but_turns_off_thinking():
         with effort.no_thinking():
             assert not effort.thinking() and effort.self_check()     # 깊이(자기 점검)는 그대로, 생각만 끔
         assert effort.thinking()
+
+
+@pytest.fixture(autouse=True)
+def _legacy_budget(monkeypatch):
+    """이 파일의 시험은 호출부 한도·자르기 동작을 본다 — 유연한 출력 한도와 압축은 test_flex_output.py 에서 따로 본다."""
+    monkeypatch.setenv("ZZAIMY_FLEX_OUTPUT", "0")
+    monkeypatch.setenv("ZZAIMY_COMPRESS", "0")

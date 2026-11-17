@@ -62,7 +62,7 @@ def plan(client, *, doc_title: str, heading: str, guide: str, intent: str, proje
                            project_docs=project_docs, criteria_docs=criteria_docs, max_needs=MAX_NEEDS)
     try:
         resp = client.client.chat.completions.create(
-            model=client.model, temperature=0.0, max_tokens=900, extra_body=getattr(client, "_extra", {}),
+            model=client.model, temperature=0.0, extra_body=getattr(client, "_extra", {}),
             messages=[{"role": "user", "content": prompt}])
         raw = resp.choices[0].message.content or ""
         m = re.search(r"\{.*\}", raw, re.S)

@@ -440,7 +440,7 @@ def make_docs_helpers(_DOCS_DIR: Path, db_path, *, _dev_read, _md_view, _data_ov
                     plans=plans[:2000] or "(없음)",
                     changelog=changelog or "(없음)",
                 )}],
-                temperature=0.3, max_tokens=1600,
+                temperature=0.3,
                 extra_body=getattr(client, "_extra", {}),
                 timeout=float(os.environ.get("ZZAIMY_REVIEW_TIMEOUT", "600")),   # 1,600 토큰은 3분을 넘긴다
             )

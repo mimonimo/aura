@@ -231,6 +231,32 @@ def _with_effort_thinking(cli, kw: dict) -> dict:
     return out
 
 
+def _flex_output(cli, kw: dict) -> dict:
+    """출력 한도를 고정하지 않는다 — 호출부가 준 max_tokens 는 「적어도 이만큼」 으로 보고, 실제로 보내는 한도는
+    이 연결의 문맥 한도에서 입력 어림을 뺀 남은 몫 전부로 넓힌다(11-17 사용자: 에이전트마다 고정한 한도가 문제, 최대한 유연하게).
+    한도에 막혀 답이 잘리거나(추론을 끈 긴 답) 생각이 한도를 다 먹어 답이 비던 것(추론 켬 2/24)을 없앤다. 끝없이 쓰는 일은
+    한도가 아니라 시간 제한(연결 timeout — 끊으면 vLLM 이 생성을 멈춘다)으로 막는다. vLLM 은 출력 몫을 미리 잡지 않고 실제로
+    쓴 만큼만 메모리를 쓰므로 한도를 크게 줘도 동시 호출(서브 에이전트 여럿)에 부담이 없다. ZZAIMY_FLEX_OUTPUT=0 이면 예전처럼."""
+    if os.environ.get("ZZAIMY_FLEX_OUTPUT", "1") == "0" or not kw.get("max_tokens"):
+        return kw
+    try:
+        from zzaimy.app import llm_budget as lb
+
+        need = lb.estimate_messages(kw.get("messages") or []) * lb._CORRECTION.get(lb._base(cli), 1.0)
+        room = lb.context_len(cli) - int(need) - lb.SAFETY_TOKENS
+    except Exception:
+        return kw
+    asked = int(kw["max_tokens"])
+    if room <= asked:
+        return kw
+    return dict(kw, max_tokens=room, _asked_tokens=asked)
+
+
+def _is_overflow(exc: Exception) -> bool:
+    t = str(exc).lower()
+    return "maximum context length" in t or "max_model_len" in t or "context length" in t
+
+
 def _rejects_schema(exc: Exception) -> bool:
     status = getattr(exc, "status_code", None)
     if status not in (400, 422):
@@ -443,6 +469,8 @@ class VllmClient:
                     kw = _with_effort_thinking(self, kw)
                 if _no_schema and kw.get("response_format"):
                     kw = schema_as_prompt(kw)
+                kw = _flex_output(self, kw)                           # 출력 한도는 남은 문맥 몫 전부(고정하지 않음)
+                _asked = kw.pop("_asked_tokens", None)
                 try:
                     from zzaimy.generate import llm_gate as _gate     # 동시 호출 수 문 — 몰리면 차례를 기다린다(11-10)
                     from zzaimy.generate import llm_pool as _pool     # 서버별 처리 중 수 — 쌍둥이 서버 고르기(llm_pool.pick)
@@ -451,8 +479,12 @@ class VllmClient:
                 except TypeError:
                     raise
                 except Exception as e:
+                    # 넓힌 한도가 서버 실측 입력과 합쳐 문맥을 넘으면(입력 어림이 작았을 때) 호출부가 준 한도로 한 번 다시 보낸다
+                    if _asked and _is_overflow(e):
+                        kw = dict(kw, max_tokens=_asked)
+                        resp = orig(*a, **kw)
                     # 서버가 구조화 출력을 거절하면 JSON 지시로 옮겨 다시 보낸다(설정이 json_schema 면 물러나지 않는다)
-                    if kw.get("response_format") and self.structured == "auto" and _rejects_schema(e):
+                    elif kw.get("response_format") and self.structured == "auto" and _rejects_schema(e):
                         _no_schema.append(True)
                         import logging
                         logging.getLogger(__name__).warning("구조화 출력을 서버가 거절해 JSON 지시로 물러납니다: %s", self.model)
@@ -555,7 +587,7 @@ class VllmClient:
                 {"role": "user", "content": _SCHEMA_PROMPT.format(announcement=announcement_text)}
             ],
             temperature=0.0,
-            max_tokens=2048,
+
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -595,7 +627,7 @@ class VllmClient:
                 }
             ],
             temperature=0.3,
-            max_tokens=1024,
+
             extra_body=self._extra,
         )
         return (resp.choices[0].message.content or "").strip()

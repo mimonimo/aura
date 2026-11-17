@@ -4461,7 +4461,7 @@ def create_app(
 
         c = VllmClient(role="review")
         r = c.client.chat.completions.create(
-            model=c.model, temperature=0.0, max_tokens=1200,
+            model=c.model, temperature=0.0,
             messages=[{"role": "user", "content": prompt}],
         )
         return r.choices[0].message.content or ""
