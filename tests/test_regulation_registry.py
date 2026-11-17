@@ -69,3 +69,15 @@ def test_bundle_role_needs_head_word():
     assert role("2026 지원사업 공고문.pdf") == "criteria"
     assert role("부트캠프 사업 공고(교육부 공고 제2025-247호).hwpx") == "criteria"
     assert role("지표정의서 및 평가편람(ver5).hwpx") == "criteria"
+
+
+def test_library_registered_rules_count_as_shared(tmp_path):
+    import json
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "p.db")
+    (tmp_path / "accounts.json").write_text(json.dumps({"kim": {"role": "staff"}}))
+    with db._conn() as c:
+        for i, (own, txt) in enumerate([("zzaimy", "통과일자 : 2016년 3월 17일"), ("zzaimy", "통과일자 : 2025년 1월 1일")], 1):
+            c.execute("INSERT INTO documents (id, filename, stored_path, created_at, owner, doc_type, masked_text, status) VALUES (?, ?, 'x', '2026-01-01', ?, 'regulation', ?, 'done')",
+                      (i, "근로장학 규정.hwp", own, txt))
+    assert rr.superseded(db, 1)["id"] == 2          # 라이브러리 기준 등록(시스템 소유자) 판끼리는 판을 가린다

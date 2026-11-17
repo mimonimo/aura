@@ -130,8 +130,12 @@ def shared_where(db) -> tuple[str, list]:
     except (OSError, ValueError, AttributeError, TypeError):
         acc = {}
     admins = sorted(u for u, v in acc.items() if isinstance(v, dict) and v.get("role") == "dev")
-    if not admins:
-        return " AND 1=0", []
+    # 라이브러리 「기준 등록」(/criteria/upload)으로 들어온 규정은 소유자가 시스템 계정(db.add_document 기본값)이다 — 공식 등록 경로라
+    # 판 정하기에 넣는다. 프로젝트·대화에 올린 파일은 올린 사람이 소유자라 빠진다(11-17: 새 판이 시스템 계정 소유여서 구판 0개로 보였다)
+    import inspect
+    from zzaimy.app.db import Database
+    system_owner = inspect.signature(Database.add_document).parameters["owner"].default
+    admins = sorted(set(admins) | {system_owner})
     return (" AND COALESCE(d.access_level, 'public') = 'public' AND COALESCE(d.dept, '공통') = '공통'"
             f" AND d.owner IN ({','.join('?' * len(admins))})"), admins
 
