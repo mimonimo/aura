@@ -62,7 +62,7 @@ print("hi")
 """
 CH2 = "# 2. 관련 연구\n\n## 2.1 생성 모델\n\n### 2.1.1 vLLM\n\nvLLM 은 서빙 엔진이다.\n"
 CH6 = "# 6. 결론\n\n## 6.1 연구 요약 및 기여점\n\n요약이다.\n"
-BACK = "# 참고 문헌\n\n[1] 출처. 제목. URL\n\n# Abstract\n\nWe built AURA.\n"
+BACK = "# 참고 문헌\n\n[1] 출처. 제목. URL\n\n# 초록\n\nAURA 를 만들었다.\n\n# Abstract\n\nWe built AURA.\n"
 APPX = "# 부록. AURA 사용 설명서\n\n## 부록 1. 한눈에 보기\n\n### 1.2 화면 구성\n\n화면은 셋이다.\n"
 
 
@@ -109,7 +109,7 @@ def test_outline_from_manuscripts_fills_missing_chapters_back_matter_and_appendi
     ol = ph.outline_for(_src(tmp_path))
     chapters = [ph.heading_text(n, t, lv) for lv, n, t in ol if lv == 1]
     assert chapters[:6] == ["1. 서론", "2. 관련 연구", "3. 환경 구축 및 시스템 설계", "4. 구현", "5. 평가 및 결과", "6. 결론"]
-    assert chapters[6:] == ["참고 문헌", "Abstract", "팀원 소개", "부록. AURA 사용 설명서"]
+    assert chapters[6:] == ["참고 문헌", "초록", "Abstract", "팀원 소개", "부록. AURA 사용 설명서"]
     keys = [ph.key_of(n, t) for _, n, t in ol]
     assert "절:1.2 핵심내용" in keys and "절:4.3 검증기 세 종" in keys       # 1장은 원고, 4장은 기본 차례
     assert "절:부록 1.2 화면 구성" in keys and "절:1.2 화면 구성" not in keys  # 부록 번호는 본문 장과 겹치지 않는다
@@ -579,13 +579,9 @@ def test_drop_empty_on_editor_saved_rich_written_doc(tmp_path, monkeypatch):
     assert "1.4 프로젝트 구성" in zipfile.ZipFile(p).read("Contents/section0.xml").decode()       # 제목은 남는다
 
 
-def test_old_abstract_field_still_matches_and_renames(tmp_path):
-    """11-17 전에 만든 문서(쓸 자리 「절:초록」)도 원고 「# Abstract」 가 그 자리에 들어가고, 보이는 이름은 rename_back 이 「Abstract」 로 바꾼다."""
-    assert ph.match_field(["절:참고 문헌", "절:초록"], "", "Abstract") == "절:초록"
-    data = ph.build([(1, "", "참고 문헌"), (1, "", "초록")])
-    new, n = ph.stamp_dept(data, ["초록"], "Abstract")
-    from zzaimy.app import webhwp_write as ww
-    assert n >= 1 and "절:초록" in ww.field_values(new)          # 보이는 제목만 바뀌고 쓸 자리 이름은 그대로
+def test_back_has_korean_and_english_abstract():
+    """뒤 장에 국문 초록과 영문 Abstract 가 둘 다(11-17 검토)."""
+    assert ph.BACK == ("참고 문헌", "초록", "Abstract", "팀원 소개")
 
 
 def test_docs_page_lists_manuscript_and_opens_chapters(tmp_path, monkeypatch):

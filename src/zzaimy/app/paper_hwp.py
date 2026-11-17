@@ -97,11 +97,12 @@ OUTLINE: list[tuple[int, str, str]] = [
     (2, "6.2", "결과 평가 및 한계점"),
     (2, "6.3", "향후 연구 방향"),
     (1, "", "참고 문헌"),
+    (1, "", "초록"),
     (1, "", "Abstract"),
     (1, "", "팀원 소개"),
 ]
-BACK = ("참고 문헌", "Abstract", "팀원 소개")
-BACK_OLD = {"Abstract": ("초록",)}          # 예전 이름 — 11-17 영문 Abstract 로 바꾸기 전(국문 「초록」)에 만든 논문 문서의 쓸 자리 이름
+BACK = ("참고 문헌", "초록", "Abstract", "팀원 소개")      # 국문 초록 + 영문 Abstract 둘 다(11-17 검토)
+BACK_OLD: dict[str, tuple[str, ...]] = {}
 TOC_DEPTH = 2                     # 목차에 싣는 제목 단계(장·절)
 LISTS = ("그림 목차", "표 목차")       # 쓸 자리가 있는 차례 장 — 원고의 캡션에서 쓰는 쪽(scripts/214)이 채운다
 TOC_LEADER = " " + "·" * 20
@@ -1130,7 +1131,7 @@ def split_sections(text: str) -> list[dict]:
 
 
 _IMG = re.compile(r"^!\[([^\]]*)\]\(([^)]*)\)\s*$")
-_CAP = re.compile(r"^\s*\[(그림|표)\s*(\d+-\d+|부록-\d+)?\]\s*(.*)$")
+_CAP = re.compile(r"^\s*\[(그림|표)\s*(\d+-\d+|부록-\d+|A-\d+)?\]\s*(.*)$")
 _OL = re.compile(r"^\s*(\d+)[.)]\s+(.*)$")
 _UL = re.compile(r"^\s*[-*+]\s+(.*)$")
 

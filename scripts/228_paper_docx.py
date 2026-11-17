@@ -48,7 +48,7 @@ LOGO_W_CM, LOGO_H_CM = 4.0, 2.0
 CHAPTERS = ["01-서론.md", "02-관련-연구.md", "03-환경-설계.md", "04-구현.md", "05-평가.md", "06-결론.md",
             "99-참고-문헌.md", "97-초록.md", "98-팀원-소개.md"]
 APPENDIX = "부록-사용-설명서.md"
-_CAP = re.compile(r"^\s*(?:-\s*)?\[(그림|표)\s*(\d+|부록)-(\d+)\]\s*(.*)$")
+_CAP = re.compile(r"^\s*(?:-\s*)?\[(그림|표)\s*(\d+|부록|A)-(\d+)\]\s*(.*)$")
 _IMG_PATH = re.compile(r"docs/images/[^\s,()]+?\.(?:png|jpe?g|gif|svg)", re.I)
 _IMG_PAREN = re.compile(r"\s*\([^()]*docs/images/[^()]*\)\s*$")
 _PENDING = re.compile(r"\s*\((?:캡처 필요|작성 필요)[^)]*\)\s*$")
@@ -148,7 +148,8 @@ def _code_table(doc, title, lines):
     hp = head.paragraphs[0]
     hp.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
     hp.paragraph_format.space_after = Pt(0)
-    hp.paragraph_format.keep_with_next = True            # 제목 줄만 앞 쪽 끝에 남지 않게(11-16)
+    # 제목 줄은 머리줄로 반복(tblHeader) — 표 칸 「다음 문단과 함께」 는 워드 편집 기호 ■ 가 찍혀 뺐다(11-17)
+    _th = t.rows[0]._tr.get_or_add_trPr(); _h = OxmlElement("w:tblHeader"); _h.set(qn("w:val"), "true"); _th.append(_h)
     _font(hp.add_run(title or "코드"), 9)
     _shade(head._tc, HEAD_FILL)
     # 제목 줄 아래 선만 긋는다
@@ -166,8 +167,6 @@ def _code_table(doc, title, lines):
             pf.space_after = Pt(0); pf.line_spacing = 1.0
             pf.alignment = WD_ALIGN_PARAGRAPH.RIGHT if j == 0 else WD_ALIGN_PARAGRAPH.LEFT
             _font(p.add_run(txt.replace("\t", "    ")), 8, mono=(j == 1), color="555555" if j == 0 else None)
-            if j == 0 and i <= 2 and len(lines) > 3:      # 처음 두 줄도 다음 줄과 — 제목과 한두 줄만 남는 일 막기
-                pf.keep_with_next = True
         tr = t.rows[i]._tr.get_or_add_trPr(); cs = OxmlElement("w:cantSplit"); cs.set(qn("w:val"), "true"); tr.append(cs)
     _para(doc, "", indent_pt=0, after=2)
     return t
@@ -225,7 +224,7 @@ def take_footnotes(text: str) -> str:
     return _FOOT_DEF.sub("", text)
 
 
-def _heading(doc, text, level):
+def _heading(doc, text, level, page_before: bool = False):
     """제목 — 워드 「제목 n」 스타일을 양식 모양(14·12pt 굵게, 줄 간격 1.5)으로 바꿔 쓴다(목차 필드가 이 스타일을 모은다)."""
     p = doc.add_paragraph(style=f"Heading {min(level, 3)}")
     pf = p.paragraph_format
@@ -234,6 +233,7 @@ def _heading(doc, text, level):
     pf.space_before = Pt(12 if level == 1 else 8)
     pf.space_after = Pt(4)
     pf.keep_with_next = True
+    pf.page_break_before = page_before
     _font(p.add_run(text), CH_PT if level == 1 else SEC_PT if level == 2 else 11, True, color="000000")   # 템플릿: 장 14·절 12·소절 11pt
     return p
 
@@ -345,8 +345,6 @@ def _table(doc, rows):
             else:
                 p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER if col_center[j] else WD_ALIGN_PARAGRAPH.LEFT
                 _inline(p, txt, size=9)
-            if j == 0 and i <= 1 and len(rows) > 2:        # 머리줄과 첫 행만 다음 행과 — 머리만 앞 쪽 끝에 남지 않게(점은 첫 칸에만)
-                p.paragraph_format.keep_with_next = True
             # 그 밖의 표 칸에는 「다음 문단과 함께」 를 걸지 않는다 — 워드 편집 기호에서 표 둘레마다 점이 찍혀 어지러웠다(11-16 사용자).
             # 행이 두 쪽에 잘리지 않게(cantSplit)와 쪽이 넘어가면 머리줄 다시(tblHeader)만 둔다
         trpr = t.rows[i]._tr.get_or_add_trPr()
@@ -529,9 +527,7 @@ def _team_people(text: str) -> list[dict]:
 
 
 def _render_team(doc, text: str, first_chapter_break: bool) -> bool:
-    if first_chapter_break:
-        doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-    _heading(doc, "팀원 소개", 1)
+    _heading(doc, "팀원 소개", 1, page_before=bool(first_chapter_break))
     photos = sorted(TEAM_PHOTOS.glob("*.jp*g")) + sorted(TEAM_PHOTOS.glob("*.png")) if TEAM_PHOTOS.is_dir() else []
     for person in _team_people(text):
         bare = re.sub(r"\s*\(.*?\)", "", person["이름"]).strip()
@@ -539,7 +535,7 @@ def _render_team(doc, text: str, first_chapter_break: bool) -> bool:
         t = doc.add_table(rows=1, cols=2)
         t.alignment = WD_TABLE_ALIGNMENT.CENTER
         t.autofit = False
-        w = [Cm(3.6), Cm(11.4)]
+        w = [Cm(3.8), Cm(11.2)]
         for j in range(2):
             t.cell(0, j).width = w[j]
         tr = t.rows[0]._tr.get_or_add_trPr()
@@ -547,7 +543,7 @@ def _render_team(doc, text: str, first_chapter_break: bool) -> bool:
         left = t.cell(0, 0).paragraphs[0]
         left.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if photo:
-            left.add_run().add_picture(str(photo), width=Cm(3.2))
+            left.add_run().add_picture(str(photo), width=Cm(2.8))     # 칸 3.8cm − 좌우 칸 여백 — 3.2cm 는 워드에서 칸 밖으로 밀렸다(11-17)
         right = t.cell(0, 1)
         right.paragraphs[0].text = ""
         # 사람마다 테두리 상자, 역할은 머리말 없이 내용만(11-16 사용자: 「졸업 프로젝트 역할:」 은 군더더기)
@@ -577,11 +573,11 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
     for kind, val in blocks(text):
         if kind == "h":
             level, t = val
+            brk = False
             if level == 1:
-                if first_chapter_break:
-                    doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+                brk = bool(first_chapter_break)        # 장 제목 앞 쪽 나눔은 제목 문단에(빈 문단 쪽 나눔은 쪽 끝에서 빈 쪽을 만든다)
                 first_chapter_break = True
-            _heading(doc, t, level)
+            _heading(doc, t, level, page_before=brk)
             counts["h"] += 1
         elif kind == "p":
             if REF_MODE and re.match(r"^\[\d+\]", val):     # 참고 문헌 — 작은 글씨, 번호 뒤로 내어쓰기, 촘촘하게(11-16 「너무 주루룩」)
@@ -803,8 +799,6 @@ def build(out: Path, appendix: bool = True) -> dict:
     for name in files:
         text = (SRC / name).read_text(encoding="utf-8")
         text = take_footnotes(text)
-        if name == "97-초록.md":
-            text = re.sub(r"^# 초록", "# Abstract", text, flags=re.M)
         global REF_MODE
         REF_MODE = name.startswith("99-")
         if name == APPENDIX:
