@@ -804,7 +804,7 @@ def build(out: Path, appendix: bool = True) -> dict:
         text = (SRC / name).read_text(encoding="utf-8")
         text = take_footnotes(text)
         if name == "97-초록.md":
-            text = re.sub(r"^# 초록", "# 초록", text, flags=re.M)
+            text = re.sub(r"^# 초록", "# Abstract", text, flags=re.M)
         global REF_MODE
         REF_MODE = name.startswith("99-")
         if name == APPENDIX:
