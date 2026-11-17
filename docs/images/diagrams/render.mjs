@@ -1,4 +1,4 @@
-// SVG 구성도를 PNG(2배)로 — 헤드리스 크롬(따로 쓰는 user-data-dir)으로 그린다. 사용: node docs/images/diagrams/render.mjs
+// SVG 구성도를 PNG(3배, 인쇄 폭 15cm 에서 약 370dpi)로 — 헤드리스 크롬(따로 쓰는 user-data-dir)으로 그린다. 사용: node docs/images/diagrams/render.mjs
 import {spawn} from 'node:child_process';
 import {readdir, readFile, writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
@@ -19,8 +19,8 @@ try {
   for (const f of (await readdir(here)).filter(f => f.endsWith('.svg')).sort()) {
     const svg = await readFile(path.join(here, f), 'utf8');
     const [, w, h] = svg.match(/width="(\d+)" height="(\d+)"/);
-    await send('Emulation.setDeviceMetricsOverride', {width: +w, height: +h, deviceScaleFactor: 2, mobile: false});
-    await send('Page.navigate', {url: 'file://' + path.join(here, f)});
+    await send('Emulation.setDeviceMetricsOverride', {width: +w, height: +h, deviceScaleFactor: 3, mobile: false});
+    await send('Page.navigate', {url: 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64')});  // file:// 은 숨김 폴더 아래에서 막히는 일이 있어 내용을 직접 넘긴다
     await new Promise(r => setTimeout(r, 700));
     const shot = await send('Page.captureScreenshot', {format: 'png', clip: {x: 0, y: 0, width: +w, height: +h, scale: 1}});
     await writeFile(path.join(here, f.replace(/\.svg$/, '.png')), Buffer.from(shot.data, 'base64'));
