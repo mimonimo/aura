@@ -110,6 +110,34 @@ def _decl_at(text: str, pos: int) -> int | None:
     return best if best and best > 1 else None
 
 
+def _col_unit(text: str, pos: int) -> int | None:
+    """표 칸 숫자의 열 머리 단위 — 같은 표(이어진 「|」 줄)의 첫 줄에서 같은 열 머리 칸이 「금액(천원)」 처럼 금액 단위를 품으면 그 배수.
+    선언과 달리 그 열 하나에만 걸린다(다른 열·다른 표의 숫자에 번지지 않게)."""
+    ls = text.rfind("\n", 0, pos) + 1
+    le = text.find("\n", pos)
+    line = text[ls:len(text) if le < 0 else le]
+    if not line.lstrip().startswith("|"):
+        return None
+    col = text[ls:pos].count("|") - 1
+    head = ls
+    while head > 0:                                       # 표의 첫 줄(머리줄)까지 거슬러
+        prev = text.rfind("\n", 0, head - 1) + 1
+        if not text[prev:head - 1].lstrip().startswith("|"):
+            break
+        head = prev
+    if head == ls:
+        return None                                       # 이 줄이 머리줄이면 단위를 매기지 않는다
+    he = text.find("\n", head)
+    cells = text[head:len(text) if he < 0 else he].strip().strip("|").split("|")
+    if col < 0 or col >= len(cells):
+        return None
+    m = re.search(r"[(（]\s*(?:단위\s*[:：]?\s*)?(" + _UNIT_ALT + r")\s*[)）]|단위\s*[:：]?\s*(" + _UNIT_ALT + r")", cells[col])
+    if not m:
+        return None
+    v = _MONEY_UNIT[re.sub(r"\s", "", m.group(1) or m.group(2))]
+    return v if v > 1 else None
+
+
 _WON_AFTER = re.compile(r"\s*원")
 _COUNTER_AFTER = re.compile(r"\s*(명|건|개|회|곳|%|퍼센트|년|월|일|시간|학점|과목|팀|기관|대|점|차|기|위|배|쪽|㎡|m)")
 
@@ -126,6 +154,10 @@ def _money_value(text: str, m: re.Match, draft: bool = False) -> str | None:
     # 선언 하나로 금액이 되어 근거의 금액과 맞춰지지 않게(보안)
     if not m.group(2) and not _COUNTER_AFTER.match(text, m.end()):
         line_start = text.rfind("\n", 0, m.start()) + 1
+        if text[line_start:m.start()].lstrip().startswith("|"):
+            cu = _col_unit(text, m.start())                     # 열 머리 「금액(천원)」 — 11-17 예산 표 10배 오기를 놓치던 것
+            if cu:
+                return _fmt(num * cu)
         if not draft or text[line_start:m.start()].lstrip().startswith("|"):   # 근거 쪽은 믿는 글이라 문단 선언도
             d = _decl_at(text, m.start())
             if d:
@@ -141,6 +173,11 @@ def scaled_values(text: str) -> set[str]:
         v = _money_value(cleaned, m)
         if v:
             out.add(v)
+    # 이어 적은 금액(「1억 2천만 원」「3억 3,750만 원」)은 덩이를 합한 값도 — 끝 덩이만 「원」 을 달고 있어 앞 덩이(1억)를 잃었다(11-17)
+    for m in re.finditer(r"(?:" + _BIG + r"\s?)+(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)?\s?원", cleaned):
+        v = _amount_value(m.group(0).replace("원", ""))
+        if v is not None and v == int(v):
+            out.add(_fmt(Decimal(int(v))))
     return out
 
 

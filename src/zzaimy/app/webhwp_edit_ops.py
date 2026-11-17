@@ -3407,6 +3407,43 @@ class EditTools:
         self._stale: list[str] | None = None        # 표 수가 바뀌기 전 표 머리줄(옛 번호 차례) — 앞서 본 번호가 밀렸는지 가린다(11-13 8차)
         self._fresh: set[int] = set()               # 바뀐 뒤 다시 본 번호
 
+    def _numbers_check(self, fid: int, name: str, a: dict) -> str | None:
+        """표 만들기·표 고치기(set_cells)로 넣는 값을 본문과 같은 수치 관문에 대 본다 — 열 머리 단위(「금액(천원)」)도 함께 보도록
+        머리줄을 붙인 마크다운 표로 만들어 넘긴다. 관문이 없는 호출부(hw.numbers_gate 없음)는 그대로 둔다."""
+        gate = getattr(self.hw, "numbers_gate", None)
+        if gate is None or name not in ("hwp_table_insert", "hwp_table_edit"):
+            return None
+        vals = a.get("values") if isinstance(a.get("values"), list) else []
+        rows = [[str(x if x is not None else "") for x in (r if isinstance(r, list) else [r])] for r in vals]
+        if not rows:
+            return None
+        if name == "hwp_table_edit":
+            if str(a.get("op") or "") != "set_cells":
+                return None
+            start = a.get("start") if isinstance(a.get("start"), list) else [1, 1]
+            try:
+                r0, c0 = int(start[0]), int(start[1])
+            except (TypeError, ValueError, IndexError):
+                r0, c0 = 1, 1
+            head: list[str] = []
+            try:
+                tabs = list_tables(_Doc(Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes()))
+                key = str(a.get("table") or "")
+                t = next((x for x in tabs if str(x.get("no")) == key.lstrip("표")), None)
+                head = (t or {}).get("head", "").split(" | ") if t else []
+            except Exception:
+                head = []
+            if r0 <= 1:
+                head, rows = [""] * (c0 - 1) + rows[0], rows[1:]
+            else:
+                rows = [[""] * (c0 - 1) + r for r in rows]
+        else:
+            head, rows = rows[0], rows[1:]
+        if not rows:
+            return None
+        md = "\n".join("| " + " | ".join(c.replace("|", "/") for c in r) + " |" for r in [head, ["---"] * len(head)] + rows)
+        return gate(md)
+
     def _heads(self, fid: int) -> list[str]:
         try:
             return [t["head"] for t in list_tables(_Doc(Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes()))]
@@ -3517,6 +3554,9 @@ class EditTools:
         stale_ = self._stale_check(fid, a)
         if stale_:
             return stale_
+        why_ = self._numbers_check(fid, name, a)
+        if why_:
+            return "넣지 않았다 — " + why_
         heads0 = self._heads(fid)
         self.hw._mark(fid, LABELS.get(name, name))
         sec_ = self._target_section(fid, name, a)              # 이 도구가 채우는 절 — 다 쓴 절의 빨간 안내 글을 끝낼 때 지우려고(quiet_hints)
@@ -3534,6 +3574,9 @@ class EditTools:
             self._stale = heads0                           # 옛 번호 차례를 둔다 — 다음 부름이 옛 번호면 _stale_check 가 잡는다
             self._fresh = {int(x) for x in re.findall(r"표(\d+)", out)}   # 이 결과가 알려 준 번호(새로 만든 표)는 지금 번호다
             out += f" 표 수가 {len(heads0)}개에서 {len(heads1)}개로 바뀌어 뒤쪽 표 번호가 밀렸다 — 앞서 본 번호를 그대로 쓰지 않는다."
+        if sec_ and name in ("hwp_table_edit", "hwp_table_insert") and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
+            # 표가 어느 절에 있는지 알린다 — 3절 지표를 4절 표에 넣고도 모르던 것(11-17). 맞는 절인지는 에이전트가 판단한다
+            out += f" 이 표는 「{sec_.split(':', 1)[-1]}」 절 안에 있다 — 요청한 절이 아니면 되돌리고 그 절의 표에 넣는다."
         if sec_ and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
             note = getattr(self.hw, "note_filled", None)
             if note:

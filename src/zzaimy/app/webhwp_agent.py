@@ -1885,6 +1885,23 @@ class HwpTools:
         pids = ((m.get("written") or {}).get(field) or []) if isinstance(m.get("written"), dict) else []
         return ww.section_body(data, field, pids) or first        # 필드 안 글·넣은 표·이어 쓰기 필드를 문서 차례대로
 
+    def numbers_gate(self, text: str) -> str | None:
+        """표 도구(표 만들기·표 고치기)로 넣는 값의 수치 관문 — 본문(check_body)과 같은 근거로 대조한다. 통과면 None.
+        11-17: 예산 표를 표 도구로 넣을 때는 관문이 없어 「1억 2천만 원」 이 「12,000(천원)」 으로 10배 틀려 들어갔다."""
+        from zzaimy.verify.numbers import mask_unsupported
+        if self.evidence is None:
+            return None
+        try:
+            ev = list(self.evidence()) + [self.form_text()]
+        except Exception:
+            return None
+        _, bad = mask_unsupported(text, [e for e in ev if e])
+        if not bad:
+            return None
+        return ("근거에 없는 수치: " + ", ".join(dict.fromkeys(bad[:8]))
+                + " — 담당자가 알려 준 값·찾은 근거와 단위까지 맞춰 넣는다(예: 머리줄이 「금액(천원)」 이면 1억 2천만 원은 120,000). "
+                  "모르는 값은 「확인 필요」 로 둔다.")
+
     def gate(self, text: str, by: str = "메인") -> str | None:
         """절 본문 관문 — check_body(메인·서브 같음) + 메인만: 남은 문맥이 모자란데 긴 본문을 직접 쓰면 거절하고 맡기기 안내."""
         from zzaimy.app import llm_budget
