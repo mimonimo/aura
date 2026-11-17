@@ -35,7 +35,7 @@ import sys  # noqa: E402
 sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.app import paper_hwp as _ph  # noqa: E402  — 한글 논문 문서와 같은 제목·학과(두 파일이 같게)
 TITLE = _ph.META["title"]
-TITLE_EN = "(AURA: Developing an sLLM and an Agent for Automating University Administrative Work)"
+TITLE_EN = "(AURA: Development of an sLLM and an Agent for University Administrative Automation)"
 SHORT = _ph.META["short"]
 TEAM = "AURA"
 MEMBERS = "서원준  형예진  은수인  짜투바카테베"

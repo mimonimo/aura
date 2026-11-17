@@ -33,9 +33,9 @@ PLACEHOLDER_DEPT = "○○과"
 META = {
     "year": "2026",
     "dept": "사이버보안과",
-    "title": "AURA: 교내 행정 업무 자동화를 위한 sLLM 모델 개발 및 행정 자동화 에이전트",
+    "title": "AURA: 교내 행정 업무 자동화를 위한 sLLM 모델 및 에이전트 개발",
     "short": "AURA 교내 행정 업무 자동화 sLLM·에이전트",
-    "title_en": "AURA: Developing an sLLM and an Agent for Automating University Administrative Work",
+    "title_en": "AURA: Development of an sLLM and an Agent for University Administrative Automation",
     "team": "AURA",
     "members": "서원준 형예진 은수인 짜투바카테베",
     "file": "AURA 캡스톤 논문",
