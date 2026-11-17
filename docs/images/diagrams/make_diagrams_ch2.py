@@ -400,8 +400,8 @@ def sse():
     s.arrow([(M + aw, y + 40), (sx, y + 40)])
     s.text(M + aw + gap / 2, y + 32, "POST", color=MUTED, anchor="middle", halo=True)
     s.para(M + aw + 8, y + 48, gap - 16, "편집 영역 변경", color=MUTED, anchor="start")
-    s.arrow([(sx, y + 120), (M + aw, y + 120)], dashed=True)
-    s.para(M + aw + 8, y + 128, gap - 16, "새 버전 번호", color=MUTED)
+    s.arrow([(sx, y + 92), (M + aw, y + 92)], dashed=True)
+    s.para(M + aw + 8, y + 100, gap - 16, "새 버전 번호", color=MUTED)
     y2 = y + shh + 34
     bw = 300
     chips = ["이벤트 41: 편집 영역 변경", "이벤트 42: 편집 잠금", "이벤트 43: 편집 영역 변경"]
