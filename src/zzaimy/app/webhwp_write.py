@@ -363,6 +363,11 @@ def _split_tables_xml(xml: str, aligns: dict[str, str] | None = None) -> tuple[s
         want = "TABLE" if (writes or _long_cell(seg)) else ("CELL" if tall and cur == "NONE" else cur)
         if want == "TABLE" and cur == "TABLE":
             want = cur
+        pos0 = re.search(r"<hp:pos\b[^>]*/>", xml[m.end():m.end() + 2000])
+        if not inner and want == "NONE" and pos0 and 'treatAsChar="0"' in pos0.group(0) and _alone_in_para(xml, a, b):
+            # 글자처럼 두지 않은 표가 쪽 나눔 「나누지 않음」이면 쪽 끝에서 통째로 다음 쪽으로 밀리고 뒤 글이 먼저 흐른다 —
+            # 예산 표가 다음 절 글 사이로 내려갔다(11-17 포스터 예시). 쪽 경계에서 나뉘게 한다(다른 저장 길이 쪽 나눔만 되돌린 표)
+            want = "CELL"
         new_tag = tag
         if want != cur:
             new_tag = re.sub(r'\bpageBreak="\w+"', f'pageBreak="{want}"', tag, count=1) if pb else tag[:-1].rstrip("/") + f' pageBreak="{want}"' + (" />" if tag.endswith("/>") else ">")

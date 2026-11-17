@@ -204,6 +204,18 @@ def _asset_version() -> str:
         return "0"
 
 
+
+def _doc_review_text(hw, request: str) -> str:
+    """지금 작업본의 다시 읽기 자료(app/doc_review)."""
+    from zzaimy.app import doc_review as _dr
+    from zzaimy.app import webhwp as _wh
+    fid = hw.fid()
+    f = _wh.get(hw.db, fid) if fid else None
+    if not f or not Path(f["path"]).exists():
+        return ""
+    return _dr.review(Path(f["path"]).read_bytes(), request)
+
+
 def create_app(
     db_path: Path,
     inbox_dir: Path,
@@ -3564,6 +3576,8 @@ def create_app(
                            # 서식이 길면(절 수십 개) 근거 읽기·칸·절 쓰기에 걸음이 많다 — 한글 작업본이 있을 때 한도를 절 수에 맞춰 늘린다
                            max_writes=(30 if hw is not None else doc_agent.MAX_WRITES),
                            scope=((lambda: str(hw.fid() or "")) if hw is not None else None),
+                           # 문서를 쓴 요청은 마치기 전에 작업본을 다시 읽는다(요청한 절, 짚지 않았으면 전체) — 27B 가 읽고 고친다(doc_review)
+                           review=((lambda: _doc_review_text(hw, q)) if hw is not None else None),
                            **({"max_steps": hw.step_budget()} if hw is not None else {}))
         if hw is not None and ep.writes:
             # 다 쓴 절의 작성방법 안내 상자 — 칸 길로 흘려 쓴 절은 저장 때 떼지 못해 남는다. 요청 끝에 한 번 저장으로 뗀다(11-10 결과보고서)

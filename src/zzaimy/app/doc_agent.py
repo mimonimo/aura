@@ -380,10 +380,18 @@ def step_tokens(client=None) -> int:
         room = 700
     return max(700, min(cap, room))
 
+def _review_text(review: Callable[[], str]) -> str:
+    """다시 읽기 자료 — 실패하면 빈 글(그대로 마친다)."""
+    try:
+        return str(review() or "")
+    except Exception:
+        return ""
+
+
 def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on_step: Callable[[str], None] | None = None,
         max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None,
         system: str | None = None, on_act: Callable[[str, dict, str], None] | None = None,
-        scope: Callable[[], str] | None = None) -> Episode:
+        scope: Callable[[], str] | None = None, review: Callable[[], str] | None = None) -> Episode:
     """에이전트 루프. state() 는 매 걸음 새로 읽는 상태 글(연결 문서·절 목록은 쓰기 뒤 달라진다).
 
     매 걸음 모델에 보내는 글: 시스템 + 지난 걸음(고른 JSON·결과) + 이번 상태·「지금까지 한 걸음」 기록·요청.
@@ -406,6 +414,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     searched = nudged = False
     changed: list[str] = []                                 # 이번 요청에서 실제로 바뀐 것(쓰기 도구가 거절 글이 아닌 결과를 낸 걸음) — 끝맺음 대조용
     claim_checked = False
+    reviewed = False                                     # 마치기 전 다시 읽기는 요청마다 한 번(review)
     empty_asked = set()                                # 빈 끝맺음·빈 답을 되물은 도구 — 도구마다 한 번(11-10 gpt-oss: 끝냈는데 남길 글이 비었다)
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
     dup_tool = ""                                      # 마지막으로 되풀이한 도구
@@ -564,6 +573,9 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             claim_checked = True                                       # 한 번만 — 결과대로 고쳐 쓰면 받는다
             note = ("끝맺음 글이 문서를 쓰거나 고쳤다고 말하지만, 이번 요청에서 실제로 바뀐 것이 없다(쓰기 도구 결과가 모두 거절·실패). "
                     "한 일 그대로 다시 finish 한다 — 쓰지 못했으면 무엇을 왜 못 썼는지, 다음에 무엇을 할지.")
+        elif name == "finish" and review is not None and changed and not reviewed and (_rv := _review_text(review)):
+            reviewed = True                                            # 쓴 요청을 마치기 전 한 번 — 작업본을 다시 읽고 27B 가 판단해 고친다(doc_review)
+            note = _rv
         elif name == "finish" and not str(args.get("message") or "").strip() and "finish" not in empty_asked:
             empty_asked.add("finish")                                  # 한 번만 되묻는다 — 또 비면 아래에서 걸음 기록으로 끝맺음 글을 만든다
             note = EMPTY_FINISH
