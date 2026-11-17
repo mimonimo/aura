@@ -85,7 +85,7 @@ def _para(doc, text="", *, size=BODY_PT, bold=False, align=WD_ALIGN_PARAGRAPH.JU
     if left_cm:
         pf.left_indent = Cm(left_cm)
     if keep_next:
-        pf.keep_with_next = False                       # ■ 편집 기호 없이 — 떨어짐은 쪽 나눔 정하기(BREAKS)로
+        pf.keep_with_next = True
     if text:
         _inline(p, text, size=size, bold=bold, mono=mono)
     return p
@@ -234,13 +234,10 @@ def _heading(doc, text, level, page_before: bool = False):
     pf.line_spacing = 1.5
     pf.space_before = Pt(12 if level == 1 else 8)
     pf.space_after = Pt(4)
-    # 「다음 문단과 함께」·「앞에서 쪽 나눔」 은 워드 편집 기호 ■ 가 찍혀(11-17·11-18 사용자) 쓰지 않는다. 쪽 끝에 제목만 남는 곳은
-    # 발행 때 쪽을 그려 보고 그 제목 앞에만 쪽 나눔 글자를 넣는다(BREAKS, 233_paper_breaks)
-    pf.keep_with_next = None                            # 「꺼짐」 을 적어 두면 리브레가 쪽 나눔 글자를 무시했다 — 속성을 아예 두지 않는다
-    pf.page_break_before = None
-    if text.strip() in BREAKS["h"]:
-        _page_break_run(p)
-    pf.page_break_before = None
+    # 제목은 워드 「다음 문단과 함께」 로 본문 첫 줄과 같은 쪽에(11-18 사용자 선택). 쪽 배치를 서버 LibreOffice 로 재어 쪽 나눔을 넣던
+    # 방식은 맑은 고딕이 없는 서버 렌더(173쪽)와 워드(212쪽)가 달라 워드에서 맞지 않았다. ■ 는 편집 기호 표시 때만 보이고 인쇄되지 않는다
+    pf.keep_with_next = True
+    pf.keep_together = True
     _font(p.add_run(text), CH_PT if level == 1 else SEC_PT if level == 2 else 11, True, color="000000")   # 템플릿: 장 14·절 12·소절 11pt
     return p
 
@@ -264,7 +261,7 @@ def _new_page_section(doc):
 def _style_headings(doc):
     for lv, size in ((1, CH_PT), (2, SEC_PT), (3, 11)):
         st = doc.styles[f"Heading {lv}"]
-        st.paragraph_format.keep_with_next = False      # ■ 편집 기호 없이(11-18 사용자) — 떨어짐은 BREAKS 로
+        st.paragraph_format.keep_with_next = True
         st.font.name, st.font.size, st.font.bold = FONT, Pt(size), True
         st.font.color.rgb = RGBColor(0, 0, 0)
         st.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
@@ -431,7 +428,11 @@ def _table(doc, rows):
         cs = OxmlElement("w:cantSplit")                  # 행 하나가 두 쪽에 걸쳐 잘리지 않게
         cs.set(qn("w:val"), "true")
         trpr.append(cs)
-    # 머리줄은 쪽이 넘어가면 다시
+    # 머리줄은 쪽이 넘어가면 다시, 머리줄만 쪽 끝에 남지 않게 다음 행과 함께
+    if len(t.rows) > 1:
+        for cell in t.rows[0].cells:
+            for cp in cell.paragraphs:
+                cp.paragraph_format.keep_with_next = True
     trpr = t.rows[0]._tr.get_or_add_trPr()
     h = OxmlElement("w:tblHeader")
     h.set(qn("w:val"), "true")
@@ -462,11 +463,7 @@ def _image(doc, path: Path, missing: list):
             return _para(doc, f"(SVG 그림: {path.name})", align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.keep_with_next = None       # ■ 없이 — 그림·캡션 갈라짐은 BREAKS 로
-    global _BREAK_NEXT_IMAGE
-    if _BREAK_NEXT_IMAGE:
-        _page_break_run(p)
-        _BREAK_NEXT_IMAGE = False
+    p.paragraph_format.keep_with_next = True       # 그림과 그 아래 캡션을 같은 쪽에(그림이 여럿이면 줄줄이)
     try:
         from PIL import Image
         with Image.open(path) as im:
@@ -693,6 +690,7 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
         elif kind == "code":
             _code_table(doc, *val)
         elif kind == "table":
+            _keep_lead_in(doc)
             pend_table = _table(doc, val)
             counts["table"] += 1
         elif kind == "cap":
@@ -705,14 +703,17 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
                 if listed_imgs:
                     img = [str(p_.relative_to(ROOT)) for p_ in listed_imgs]
                 if img:
-                    global _BREAK_NEXT_IMAGE
-                    _BREAK_NEXT_IMAGE = _row_key([f"[{k} {num}] {body}"]) in BREAKS["f"]
+                    _keep_lead_in(doc)
                     for one in img:
                         _image(doc, ROOT / one, missing)
                         counts["img"] += 1
                 else:
                     _para(doc, "(그림 자리)", align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, size=9)
                     counts["img_pending"] += 1
+            if k == "표" and pend_table is not None:           # 표 마지막 행과 그 아래 캡션을 같은 쪽에
+                for cell in pend_table.rows[-1].cells:
+                    for cp in cell.paragraphs:
+                        cp.paragraph_format.keep_with_next = True
             _caption(doc, k, f"[{k} {num}] {body}")
             counts["cap_" + k] += 1
             pend_table = None
