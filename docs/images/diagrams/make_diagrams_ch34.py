@@ -59,18 +59,18 @@ def layers():
     spec = [
         ("화면층", "업무 화면과 개발자 화면", [("채팅", 0), ("라이브러리", 0), ("프로젝트", 0), ("한글 문서함(기안기)", 0),
                                   ("조직·구성원", 0), ("사업 관리", 0), ("업무 도우미 창", 0), ("|", 0), ("개발자 화면(/dev · 원본 관리)", 1)]),
-        ("앱층", "라우터 · 대화 · 에이전트", [("영역별 라우터(문서 · 프로젝트 · 채팅 · 기안기 · 조직 · 개발 …)", 0),
+        ("앱층", "라우터·대화·에이전트", [("영역별 라우터(문서 · 프로젝트 · 채팅 · 기안기 · 조직 · 개발 …)", 0),
                                    ("답변기(responder)", 1), ("문서 작업 에이전트(doc_agent)", 1), ("업무 도우미", 1),
-                                   ("권한 판정(access_policy · grades · rag_spaces)", 0), ("문맥 맞추기(llm_budget)", 0)]),
+                                   ("권한 판정(access_policy · grades · rag_spaces)", 0), ("컨텍스트 길이 조정(llm_budget)", 0)]),
         ("도메인층", "처리 단계별 패키지", [("ingest(읽기 · 개인정보 · 분류)", 0), ("→", 0), ("index(청크 · 색인)", 0), ("→", 0),
                                  ("retrieve(하이브리드)", 0), ("graph(온톨로지 · 지식 그래프)", 0), ("generate(모델 연결 · 생성)", 0),
                                  ("verify(검증기)", 0), ("dataset(학습 후보 · 검수 · 반출)", 0), ("export(산출 문서)", 0)]),
         ("저장층", "DB 와 문서 폴더", [("PostgreSQL(문서 · 청크 · 대장 · 그래프 · 권한 · 기록)", 1), ("+ pgvector(사업 문서 벡터)", 0),
                                 ("문서 폴더(수집 · 첨부 · 생성 · 기안기)", 0), ("설정 · 감사 파일", 0)]),
-        ("모델층", "모두 교내 장비", [("Writer 27B × 2(토르 02 · 03)", 1), ("Embed v2", 0), ("Rerank v1(토르 03)", 0)]),
+        ("모델층", "교내 장비 서빙", [("Writer 27B × 2(토르 02 · 03)", 1), ("Embed v2", 0), ("Rerank v1(토르 03)", 0)]),
     ]
     s = Svg()
-    y = s.title("AURA 계층 구조: 화면 · 앱 · 도메인 · 저장 · 모델")
+    y = s.title("AURA 계층 구조")
     lx = M + 104
     right = W - M - 8
     ph, pg = 30, 5
@@ -124,195 +124,198 @@ def layers():
             assert x - 8 <= right + 1, (name, x)
             ry += ph + pg
         y += h + 6
-    yb = s.note(y + 4, "구축 파이프라인(배치)과 질의 파이프라인(대화형)은 저장층에서만 만난다.")
+    yb = s.note(y + 4, "구축 파이프라인(배치)과 질의 파이프라인(대화형)은 저장층에서만 연결된다.")
     s.fit(yb)
     s.save("c3-01-layers", "AURA 계층 구조")
 
 
 def build_flow():
-    """[그림 3-2] 구축 흐름."""
+    """[그림 3-2] 문서 구축 흐름: 들어오는 경로 → 하나의 처리기(여섯 단계) → 색인 둘과 지식 그래프."""
     s = Svg()
-    y = s.title("구축 흐름: 수집에서 색인 · 그래프까지")
-    gap = 26
-    bw = (W - 2 * M - 2 * gap) / 3
-    top = [("학교 원본", ["학습 장비 · 읽기 전용 연결"], SOFT, False),
-           ("원본 대장", ["archive_files · 원본 하나가 한 줄", "· 10분 주기 목록 비교: 새로 · 바뀜 · 옮김 · 없어짐"], None, False),
-           ("업로드 · 채팅 첨부", ["구글 드라이브 가져오기"], SOFT, False)]
-    tws = [200, W - 2 * M - 2 * gap - 200 - 166, 166]
-    th = max(box_h(w, t, ln) for w, (t, ln, _, _) in zip(tws, top))
-    tx = [M, M + tws[0] + gap, M + tws[0] + tws[1] + 2 * gap]
-    for x, w, (t, ln, f, st) in zip(tx, tws, top):
-        s.box(x, y, w, th, t, ln, fill=f, strong=st)
-    s.arrow([(tx[0] + tws[0], y + th / 2), (tx[1], y + th / 2)])
-    y2 = y + th + 22
-    steps = [("① 형식별 읽기", "디지털 PDF 텍스트 레이어 · MinerU · 27B 이미지 판독 · kordoc · hwpx 파서 · 오피스"),
-             ("② 표 정리", "셀 격자 [행, 열, 병합, 머리 셀, 글] → 화면용 HTML 표 / 검색용 평문"),
-             ("③ 개인정보", "Presidio + 한국형 인식기 8종, 「내부 마스킹 설정」은 항목별(기본 꺼짐)"),
-             ("④ 청크 나누기", "블록 단위(최대 2,000자), 규정은 조문 단위, 쪽 번호 · 절 제목 경로"),
-             ("⑤ 판정", "서류 종류(27B, 토르 03) · 사업 분류(대장 + 27B) · 문서 이름(본문 제목)"),
-             ("⑥ 버전 묶기", "제목 열쇠 + 8자 단위 문자열 겹침(0.95 이상 같은 내용, 그 아래 버전)")]
-    iw, nw = W - 2 * M - 2 * PADX, 136
-    rhs = [row_h(iw, b, nw) for _, b in steps]
-    bh = 34 + sum(rhs) + 5 * 6 + 10
+    y = s.title("문서 구축 흐름")
+    # 1. 문서가 들어오는 경로
+    s.text(M, y + 15, "문서가 들어오는 경로", weight=700, color=MUTED)
+    y += 24
+    srcs = ["학교 원본 폴더 동기화", "문서함 업로드", "채팅 첨부", "구글 드라이브 가져오기"]
+    g = 10
+    pw = (W - 2 * M - 3 * g) / 4
+    for i, t in enumerate(srcs):
+        pill(s, M + i * (pw + g), y, t, w=pw, h=34)
+    yp = y + 34
+    # 2. 하나의 처리기
+    y2 = yp + 26
+    for i in range(4):
+        cx = M + i * (pw + g) + pw / 2
+        s.line([(cx, yp), (cx, yp + 13)])
+    s.line([(M + pw / 2, yp + 13), (W - M - pw / 2, yp + 13)])
+    s.arrow([(W / 2, yp + 13), (W / 2, y2)])
+    steps = [("① 읽기", "파일 형식에 맞는 방법으로 글과 표를 읽어 낸다(스캔 문서는 OCR)."),
+             ("② 표 정리", "병합된 셀을 풀어 화면용 표와 검색용 평문을 만든다."),
+             ("③ 개인정보 마스킹", "이름·연락처 같은 개인정보를 찾아 설정에 따라 마스킹한다."),
+             ("④ 청크 나누기", "검색 단위로 나누고 쪽 번호와 절 제목을 함께 기록한다."),
+             ("⑤ 분류", "서류 종류와 사업을 판정하고 본문 제목을 문서 이름으로 정한다."),
+             ("⑥ 버전 묶기", "내용이 같은 문서와 고쳐 쓴 문서를 한 버전 그룹으로 묶는다.")]
+    iw, nw = W - 2 * M - 2 * PADX, 176
+    rhs = [max(row_h(iw, b, nw), 32) for _, b in steps]
+    bh = 38 + sum(rhs) + 5 * 6 + 12
     s.rect(M, y2, W - 2 * M, bh, fill=ACCENT, stroke=NAVY, sw=SWS, rx=10)
-    s.text(M + PADX, y2 + 24, "하나의 처리기", size=HEAD, weight=700, color=NAVY)
-    s.text(M + PADX + tw("하나의 처리기", HEAD) + 12, y2 + 24, "DocumentProcessor: 모든 길이 거침", color=MUTED)
-    for x, w in zip(tx[1:], tws[1:]):
-        s.arrow([(x + w / 2, y + th), (x + w / 2, y2)])
-    ry = y2 + 34
+    s.text(M + PADX, y2 + 25, "하나의 처리기", size=HEAD, weight=700, color=NAVY)
+    s.text(M + PADX + tw("하나의 처리기", HEAD) + 12, y2 + 25, "모든 경로의 문서가 같은 순서로 처리된다", color=MUTED)
+    ry = y2 + 38
     for (a, b), rh in zip(steps, rhs):
         step_row(s, M + PADX, ry, iw, a, b, name_w=nw, h=rh)
         ry += rh + 6
+    # 3. 결과물
+    gap = 18
+    bw = (W - 2 * M - 2 * gap) / 3
     xs = [M + i * (bw + gap) for i in range(3)]
-    y3 = y2 + bh + 24
-    outs = [("어휘 색인", ["Kiwi 명사 · IDF", "규정 / 사업 문서(GIN) 따로"]),
-            ("의미 색인", ["Embed v2 → pgvector HNSW", "1분 주기"]),
-            ("지식 그래프", ["사업 > 연차 > 문서 > 절", "계획↔실적 · 앞뒤 단계 · SHACL 검사", "· 15분 안 다시 지음"])]
+    y3 = y2 + bh + 30
+    outs = [("어휘 색인", ["낱말이 겹치는 글을 찾는 색인"]),
+            ("의미 색인", ["뜻이 비슷한 글을 찾는 색인"]),
+            ("지식 그래프", ["사업·연차·문서·절의 관계"])]
     oh = max(box_h(bw, t, ln) for t, ln in outs)
+    s.line([(W / 2, y2 + bh), (W / 2, y3 - 14)])
+    s.line([(xs[0] + bw / 2, y3 - 14), (xs[2] + bw / 2, y3 - 14)])
     for i, (x, (t, ln)) in enumerate(zip(xs, outs)):
         s.box(x, y3, bw, oh, t, ln, strong=(i == 2))
-        s.arrow([(W / 2, y2 + bh), (W / 2, y3 - 12), (x + bw / 2, y3 - 12), (x + bw / 2, y3)])
-    s.fit(y3 + oh)
-    s.save("c3-02-build-flow", "구축 흐름")
+        s.arrow([(x + bw / 2, y3 - 14), (x + bw / 2, y3)])
+    yb = s.note(y3 + oh + 10, "원본 폴더에서 문서가 추가되거나 바뀌면 그 문서만 다시 처리하고, 색인과 그래프도 함께 갱신한다.")
+    s.fit(yb)
+    s.save("c3-02-build-flow", "문서 구축 흐름")
 
 
 def query_flow():
-    """[그림 3-3] 질의 흐름."""
+    """[그림 3-3] 질의응답 흐름: 위에서 아래 한 줄, 문서 작성은 곁가지 하나."""
     s = Svg()
-    y = s.title("질의 흐름: 검색 → 생성 → 검증")
-    g = 14
-    w1, w2 = 120, 120
-    w3 = W - 2 * M - w1 - w2 - 2 * 26
-    a = [("질문 · 요청", []), ("입력 정리", []), ("권한 점검", ["개인정보 요청 차단 · RAG 공간 결정 · 감사 기록"])]
-    ha = max(box_h(w, t, ln) for w, (t, ln) in zip((w1, w2, w3), a))
-    x = M
-    for w, (t, ln) in zip((w1, w2, w3), a):
-        s.box(x, y, w, ha, t, ln, valign=True)
-        if x > M:
-            s.arrow([(x - 26, y + ha / 2), (x, y + ha / 2)])
-        x += w + 26
-    cw = (W - 2 * M - 2 * g) / 3
-    cx = [M + i * (cw + g) for i in range(3)]
-    cm = [c + cw / 2 for c in cx]
-    yb = y + ha + 18
-    hb = s.box(M, yb, W - 2 * M, None, "문서 작업 에이전트", [], tag="Writer 27B 가 단계마다 도구를 고름", strong=True)
-    s.arrow([(W - M - w3 / 2, y + ha), (W - M - w3 / 2, yb)])
-    yc = yb + hb + 22
-    heads = [("질문 읽기(27B)", ["사업 · 연도 · 종류 · 관계"]), ("근거 찾기 · 이어 읽기", []), ("양식 고르기 · 설계", ["절 쓰기"])]
-    hc = max(box_h(cw, t, ln) for t, ln in heads)
-    for c, (t, ln) in zip(cx, heads):
-        s.box(c, yc, cw, hc, t, ln, valign=True)
-    for m in cm:
-        s.arrow([(m, yb + hb), (m, yc)])
-    yd = yc + hc + 13
-    lane = cx[2] + cw - 22
-    sw2 = lane - 18 - cx[1]
-    hd = max(box_h(cw, "그래프 범위 정하기", []), box_h(sw2, "규정 검색 ∥ 사업 문서 검색", ["어휘 + 의미 RRF, 규정은 리랭커까지"]))
-    s.box(cx[0], yd, cw, hd, "그래프 범위 정하기", [], valign=True)
-    s.box(cx[1], yd, sw2, hd, "규정 검색 ∥ 사업 문서 검색", ["어휘 + 의미 RRF, 규정은 리랭커까지"])
-    s.arrow([(cm[0], yc + hc), (cm[0], yd)])
-    s.arrow([(cm[1], yc + hc), (cm[1], yd)])
-    s.arrow([(cx[0] + cw, yd + hd / 2), (cx[1], yd + hd / 2)])
-    ye = yd + hd + 13
-    he = box_h(2 * cw + g, "근거 묶기 · 문맥 한도 맞추기", [])
-    s.box(cx[0], ye, 2 * cw + g, he, "근거 묶기 · 문맥 한도 맞추기", [])
-    s.box(cx[2], ye, cw, he, "Writer 27B 생성", [], strong=True)
-    s.arrow([(cm[1], yd + hd), (cm[1], ye)])
-    s.arrow([(cx[1] + cw, ye + he / 2), (cx[2], ye + he / 2)])
-    s.arrow([(lane, yc + hc), (lane, ye)])
-    yf = ye + he + 13
-    s.band(M, yf, W - 2 * M, 32 + 30 + 10, "검증")
-    px = M + PADX
-    for t in ["수치 검증: 근거 밖 숫자 표시 · 「○○」 마스킹", "양식 검증 단계", "자가 점검"]:
-        px += pill(s, px, yf + 32, t) + 10
-    s.arrow([(cm[2], ye + he), (cm[2], yf)])
-    yg = yf + 72 + 16
-    hw = (W - 2 * M - g) / 2
-    hg = max(box_h(hw, "출처 달린 답", ["채팅 화면"]), box_h(hw, "한글 작업본(기안기) · 독스 작업본", ["→ 원본 서식 완성본"]))
-    s.box(M, yg, hw, hg, "출처 달린 답", ["채팅 화면"], strong=True)
-    s.box(M + hw + g, yg, hw, hg, "한글 작업본(기안기) · 독스 작업본", ["→ 원본 서식 완성본"], strong=True)
-    s.arrow([(M + hw / 2, yf + 72), (M + hw / 2, yg)])
-    s.arrow([(M + hw + g + hw / 2, yf + 72), (M + hw + g + hw / 2, yg)])
-    yb2 = s.note(yg + hg + 8, "권한은 답을 만든 뒤가 아니라 검색 단계의 SQL 조건으로 건다. 화면 출처는 모델에 실제로 건넨 근거 목록에서만 만든다.")
-    s.fit(yb2)
-    s.save("c3-03-query-flow", "질의 흐름")
+    y = s.title("질의응답 흐름")
+    steps = [("① 질문", "대화 화면에 입력한 질문"),
+             ("② 권한 확인", "볼 수 있는 문서 범위 결정"),
+             ("③ 질문 해석(27B)", "사업·연도·서류 종류 파악"),
+             ("④ 범위 정하기", "지식 그래프로 관련 사업·문서 선택"),
+             ("⑤ 문서 검색", "규정과 사업 문서를 함께 검색"),
+             ("⑥ 근거 구성", "찾은 청크를 입력 길이에 맞춰 정리"),
+             ("⑦ 답변 생성(27B)", "근거만으로 답변 작성"),
+             ("⑧ 수치 검증", "근거에 없는 수치를 찾아 표시"),
+             ("⑨ 출처가 달린 답변", "답변과 근거 문서 목록 표시")]
+    cw, nw, g = 488, 186, 14
+    ys = []
+    yy = y
+    for i, (a, b) in enumerate(steps):
+        h = max(row_h(cw, b, nw), 32)
+        step_row(s, M, yy, cw, a, b, name_w=nw, strong=(i == len(steps) - 1))
+        if ys:
+            s.arrow([(M + nw / 2, ys[-1][0] + ys[-1][1]), (M + nw / 2, yy)])
+        ys.append((yy, h))
+        yy += h + g
+    # 곁가지: 문서 작성 요청
+    bx = M + cw + 34
+    bw = W - M - bx
+    side = ("문서 작성 요청", ["같은 검색을 거쳐 문서 작업 에이전트가 처리한다(4.6절)."])
+    sh = box_h(bw, *side)
+    sy5, sh5 = ys[4]
+    by = sy5 + sh5 / 2 - 18
+    s.box(bx, by, bw, sh, *side, dashed=True, tcolor=INK)
+    s.arrow([(M + cw, sy5 + sh5 / 2), (bx, sy5 + sh5 / 2)], dashed=True)
+    yb = s.note(yy - g + 10, "권한은 검색 단계에서 적용하므로 볼 수 없는 문서는 처음부터 근거에 들어가지 않는다. "
+                            "화면의 출처는 모델에 실제로 전달한 근거 목록에서만 만든다.")
+    s.fit(yb)
+    s.save("c3-03-query-flow", "질의응답 흐름")
 
 
 def folders():
-    """[그림 3-4] 1 층 문서 폴더 배치."""
-    rows = [(1, "반입/<연도>/<유형>/<접수번호> <제목>/원본.<확장자>", "수집 원본과 추출 부산물"),
-            (1, "첨부/<연도>/대화-<번호>/<시각> <파일명>", "채팅 첨부"),
-            (1, "생성/<연도>/<접수번호>/<시각> <종류>.<확장자>", "초안 · 판독 · 복원 · 완성본 사본"),
-            (1, "보고/주간/<월요일>.md", "주간 보고"),
-            (1, "기안기/<부서>/<폴더>/<제목>.hwpx", "한글 문서함(부서 디렉터리)"),
-            (2, ".판/ · .휴지통/", "부서마다 저장 전 버전과 지운 문서"),
-            (2, "공통/공통 양식/<목적>/", "어디서나 쓰는 빈 양식"),
-            (2, "공통/지난 사업 문서/<사업>/<목적>/", "사업 전용 양식"),
-            (2, "~<아이디>/", "내 폴더(처음 열 때 생김)")]
+    """[그림 3-4] 문서 폴더 배치. 굵은 글은 실제 폴더 이름, 흐린 글은 문서마다 달라지는 부분."""
+    V = None  # 표시: 문자열 앞에 「*」 를 붙이면 문서마다 달라지는 부분
+    rows = [(1, "반입", ["*연도", "*서류 유형", "*접수번호와 제목", "*원본 파일"], "수집한 원본과 추출 결과"),
+            (1, "첨부", ["*연도", "*대화 번호", "*시각과 파일 이름"], "채팅에 첨부한 파일"),
+            (1, "생성", ["*연도", "*접수번호", "*시각과 결과 종류"], "초안·판독 결과·완성본 사본"),
+            (1, "보고", ["주간", "*그 주 월요일.md"], "주간 보고서"),
+            (1, "기안기", ["*부서", "*폴더", "*제목.hwpx"], "부서별 한글 문서함"),
+            (2, ".판", [], "이전 버전"),
+            (2, ".휴지통", [], "삭제한 문서"),
+            (2, "공통", ["공통 양식", "*용도"], "함께 쓰는 빈 양식"),
+            (2, "공통", ["지난 사업 문서", "*사업", "*용도"], "사업 전용 양식"),
+            (2, "~아이디", [], "개인 폴더")]
+    del V
     s = Svg()
-    y = s.title("1 층 문서 폴더 배치: 문서마다 접수번호와 제목으로 된 폴더")
+    y = s.title("문서 폴더 배치")
     s.rect(M, y, 130, 32, fill=ACCENT, stroke=NAVY, sw=SWS, rx=6)
     mono(s, M + 12, y + 22, "documents/", weight=700, color=NAVY)
-    s.text(W - M - 8, y + 22, "하는 일", weight=700, color=MUTED, anchor="end")
+    s.text(W - M - 10, y + 22, "담는 것", weight=700, color=MUTED, anchor="end")
+    s.text(M + 150, y + 22, "굵은 글: 폴더 이름, 흐린 글: 문서마다 달라지는 부분", color=MUTED)
     y0 = y + 32
     ry = y0 + 10
     mids = []
-    for lv, path, desc in rows:
+    rh = 34
+    for lv, name, tail, desc in rows:
         x0 = M + 18 if lv == 1 else M + 58
         bx = x0 + 22
         bw = W - M - bx
-        one = tw(path, mono=True) + tw(desc) + 40 <= bw
-        rh = 34 if one else 34 + LH - 4
         s.rect(bx, ry, bw, rh, fill=FILL if lv == 1 else SOFT, stroke=BORDER, rx=6)
-        mono(s, bx + 10, ry + 23, path, weight=700 if lv == 1 else 400)
-        s.text(W - M - 10, ry + 23 + (0 if one else LH - 4), desc, color=MUTED, anchor="end")
-        s.line([(x0, ry + 17), (bx, ry + 17)], sw=1.6)
-        mids.append((lv, ry + 17))
+        tx = bx + 10
+        segs = [(name, True)] + [(t[1:], False) if t.startswith("*") else (t, True) for t in tail]
+        for i, (t, lit) in enumerate(segs):
+            if i:
+                s.text(tx, ry + 23, "/", color=LINE)
+                tx += 14
+            s.text(tx, ry + 23, t, weight=700 if lit else 400, color=INK if lit else MUTED)
+            tx += tw(t) * (0.97 if lit else 0.95) + 6
+        s.text(W - M - 10, ry + 23, desc, color=INK, anchor="end")
+        s.line([(x0, ry + rh / 2), (bx, ry + rh / 2)], sw=1.6)
+        mids.append((lv, ry + rh / 2))
         ry += rh + 6
     last1 = max(m for lv, m in mids if lv == 1)
     last2 = max(m for lv, m in mids if lv == 2)
     s.line([(M + 18, y0), (M + 18, last1)], sw=1.6)
-    s.line([(M + 58, last1 + 17), (M + 58, last2)], sw=1.6)
-    yb = s.note(ry + 4, "파일의 실제 자리는 DB 의 파일 대장이 가리킨다. 폴더를 통째로 옮길 때는 경로 앞부분만 바꾸면 된다. "
-                        "경로 규칙은 app/paths.py 한 곳에서만 나오고, 새 수집 지점은 원본 채택 함수(storage.adopt_original)를 거친다.")
+    s.line([(M + 58, last1 + rh / 2), (M + 58, last2)], sw=1.6)
+    yb = s.note(ry + 4, "파일의 실제 위치는 DB 의 파일 대장에 기록되어 있으므로, 폴더 전체를 옮길 때는 대장에 적힌 경로의 앞부분만 "
+                        "바꾸면 된다. 기안기 아래의 다섯 폴더는 부서마다 하나씩 있으며, 개인 폴더는 사용자가 처음 열 때 만들어진다.")
     s.fit(yb)
-    s.save("c3-04-folders", "1 층 문서 폴더 배치")
+    s.save("c3-04-folders", "문서 폴더 배치")
 
 
 def access():
-    """[그림 3-5] 검색 단계의 권한 적용."""
+    """[그림 3-6] 검색 단계의 권한 적용."""
     s = Svg()
-    y = s.title("검색 단계의 권한 적용: 답을 만들기 전에 SQL 조건으로")
-    h0 = s.box(M, y, W - 2 * M, None, "로그인 계정", ["역할(교직원 · 학생 · 관리자) · 소속 부서 · 추가 권한 부서 · 등급"])
-    lw = 236
-    rx = M + lw + 30
+    y = s.title("검색 단계의 권한 적용")
+    lw = 280
+    rx = M + lw + 34
     rw = W - M - rx
-    ry = y + h0 + 26
-    h1 = s.box(rx, ry, rw, None, "rag_spaces.resolve: 검색 공간", ["student / dept:<부서> / staff / dev"])
-    s.arrow([(rx + rw / 2, y + h0), (rx + rw / 2, ry)])
-    ry2 = ry + h1 + GAP
-    h2 = s.box(rx, ry2, rw, None, "access_policy.doc_sql: 검색 SQL 의 WHERE", ["열람 등급 · 부서 · 종류 제외"])
-    s.arrow([(rx + rw / 2, ry + h1), (rx + rw / 2, ry2)])
-    ry3 = ry2 + h2 + 26
+    g = 22
+    h0 = s.box(rx, y, rw, None, "로그인한 사용자", ["역할, 소속 부서, 등급"])
+    y1 = y + h0 + g
+    h1 = s.box(rx, y1, rw, None, "볼 수 있는 문서 범위 결정", ["역할과 부서로 검색할 문서 묶음을 정한다."])
+    s.arrow([(rx + rw / 2, y + h0), (rx + rw / 2, y1)])
+    y2 = y1 + h1 + g
+    h2 = s.box(rx, y2, rw, None, "검색 조건에 열람 제한 추가", ["범위 밖 문서를 빼는 조건을 검색에 넣는다."])
+    s.arrow([(rx + rw / 2, y1 + h1), (rx + rw / 2, y2)])
+    y3 = y2 + h2 + 30
     hw = (rw - 14) / 2
-    a = ("규정 검색", ["열람 등급"])
-    b = ("사업 문서 검색", ["그래프 범위 · 절 축 청크", "· 공간 부서 · 증빙 종류 제외 · 다시 거름"])
+    a = ("규정 검색", ["같은 열람 제한 적용"])
+    b = ("사업 문서 검색", ["같은 열람 제한 적용"])
     h3 = max(box_h(hw, *a), box_h(hw, *b))
-    s.box(rx, ry3, hw, h3, *a)
-    s.box(rx + hw + 14, ry3, hw, h3, *b)
+    s.box(rx, y3, hw, h3, *a)
+    s.box(rx + hw + 14, y3, hw, h3, *b)
+    s.line([(rx + rw / 2, y2 + h2), (rx + rw / 2, y2 + h2 + 15)])
+    s.line([(rx + hw / 2, y2 + h2 + 15), (rx + hw + 14 + hw / 2, y2 + h2 + 15)])
     for cx in (rx + hw / 2, rx + hw + 14 + hw / 2):
-        s.arrow([(rx + rw / 2, ry2 + h2), (rx + rw / 2, ry2 + h2 + 13), (cx, ry2 + h2 + 13), (cx, ry3)])
-    ry4 = ry3 + h3 + 26
-    h4 = s.box(rx, ry4, rw, None, "모델에 건넨 근거 = 화면 출처", ["같은 목록에서 만든다"], strong=True)
-    for cx in (rx + hw / 2, rx + hw + 14 + hw / 2):
-        s.arrow([(cx, ry3 + h3), (cx, ry4)])
-    # 범위 밖 부서
-    hx = box_h(lw, "질문이 범위 밖 부서를 가리킴", [])
-    s.box(M, ry2 + h2 / 2 - hx / 2, lw, hx, "질문이 범위 밖 부서를 가리킴", [], dashed=True, tcolor=INK)
-    s.arrow([(M + lw / 2, y + h0), (M + lw / 2, ry2 + h2 / 2 - hx / 2)])
-    s.box(M, ry3, lw, None, "「열람 권한 없음」 안내", ["+ 감사 기록", "· 부서 이름만 싣고 제목 · 건수는 말하지 않음"])
-    s.arrow([(M + lw / 2, ry2 + h2 / 2 + hx / 2), (M + lw / 2, ry3)])
-    yb = s.note(ry4 + h4 + 10, "모르는 역할은 가장 좁은 학생 범위로 본다. 같은 규칙을 화면 판정 함수와 SQL 조건 두 꼴로 내고, 모든 화면과 검색이 이것을 쓴다.")
+        s.arrow([(cx, y2 + h2 + 15), (cx, y3)])
+    y4 = y3 + h3 + 30
+    h4 = s.box(rx, y4, rw, None, "모델에 전달한 근거 = 화면 출처", ["출처는 전달한 근거 목록에서만 만든다."], strong=True)
+    s.line([(rx + hw / 2, y3 + h3), (rx + hw / 2, y3 + h3 + 15)])
+    s.line([(rx + hw + 14 + hw / 2, y3 + h3), (rx + hw + 14 + hw / 2, y3 + h3 + 15)])
+    s.line([(rx + hw / 2, y3 + h3 + 15), (rx + hw + 14 + hw / 2, y3 + h3 + 15)])
+    s.arrow([(rx + rw / 2, y3 + h3 + 15), (rx + rw / 2, y4)])
+    # 곁가지: 범위 밖 부서를 묻는 질문
+    q = ("다른 부서 문서를 묻는 질문", [])
+    hq = box_h(lw, *q)
+    qy = y1 + h1 / 2 - hq / 2
+    s.box(M, qy, lw, hq, *q, dashed=True, tcolor=INK)
+    s.arrow([(rx, y1 + h1 / 2), (M + lw, y1 + h1 / 2)], dashed=True)
+    n = ("열람 권한 없음 안내", ["권한이 없다는 것만 알린다.", "문서 제목과 건수는 밝히지 않는다.", "질문은 감사 기록에 남긴다."])
+    s.box(M, y2 + 6, lw, None, *n)
+    s.arrow([(M + lw / 2, qy + hq), (M + lw / 2, y2 + 6)])
+    yb = s.note(y4 + h4 + 10, "역할을 알 수 없는 계정에는 가장 좁은 범위인 학생 범위를 적용한다. 같은 규칙을 화면 표시와 검색 조건에 "
+                              "함께 사용하므로, 화면에서 볼 수 없는 문서는 검색 결과에도 나오지 않는다.")
     s.fit(yb)
     s.save("c3-05-access", "검색 단계의 권한 적용")
 
@@ -320,41 +323,51 @@ def access():
 def model_swap():
     """[그림 3-7] 용도별 연결과 모델 교체 구조."""
     s = Svg()
-    y = s.title("용도별 연결과 모델 교체 구조: 모델 이름이 아니라 용도로 부른다")
+    y = s.title("용도별 연결과 모델 교체 구조")
     lw = 268
-    h1 = s.box(M, y, lw, None, "호출하는 쪽", ["답변기 · 에이전트 · 판정 · 도우미", "· 용도 이름만 넘김", "· answer / review / vision / helper"])
-    y2 = y + h1 + 26
-    h2 = s.box(M, y2, lw, None, "연결 설정", ["llm_connections", "서버 · 모델 · 추론 모드 끄기 인자", "구조화 출력 방식 · 동시 상한",
-                                          "· 「도구 · 모델 연결」(/dev/tools)"], strong=True)
+    g = 24
+    h1 = s.box(M, y, lw, None, "기능", ["답변 작성, 수집 검토, 이미지 판독, 업무 도우미", "· 용도 이름으로 모델을 요청한다."])
+    y2 = y + h1 + g
+    h2 = s.box(M, y2, lw, None, "연결 설정", ["용도마다 서버와 모델을 지정한다.", "· 운영 관리 화면에서 변경한다."], strong=True)
     s.arrow([(M + lw / 2, y + h1), (M + lw / 2, y2)])
-    rules = [("문맥 한도", "서버가 알려 주는 max_model_len 먼저, 없으면 설정값"),
-             ("구조화 출력", "JSON 스키마 강제, 서버가 거절하면 JSON 지시 + 파싱으로 물러남"),
-             ("장애", "같은 모델을 내는 다른 교내 연결로 넘김(외부로는 넘기지 않음)"),
-             ("기록", "결과마다 서버가 알려 준 실제 모델 정보(주소 · 가중치 경로는 빼고)")]
+    y3 = y2 + h2 + g
+    h3 = s.box(M, y3, lw, None, "실제 모델 호출", ["지정한 교내 서버의 모델이 응답한다."])
+    s.arrow([(M + lw / 2, y2 + h2), (M + lw / 2, y3)])
+    rules = [("컨텍스트 길이", "서버가 알려 주는 길이를 읽어 와 사용한다."),
+             ("구조화 출력", "지원하지 않는 서버에는 지시문 방식으로 대체한다."),
+             ("장애 대응", "같은 모델을 올린 다른 교내 서버로 전환한다."),
+             ("기록", "결과마다 실제로 사용한 모델을 기록한다.")]
     rx = M + lw + 36
     rw = W - M - rx
-    ry = y
+    s.text(rx, y + 15, "연결 설정이 함께 처리하는 일", weight=700, color=MUTED)
+    ry = y + 26
     ys = []
     for a, b in rules:
-        h = step_row(s, rx, ry, rw, a, b, name_w=104)
+        h = step_row(s, rx, ry, rw, a, b, name_w=128)
         ys.append(ry + h / 2)
-        ry += h + 10
+        ry += h + 8
     jx = M + lw + 18
     s.line([(M + lw, y2 + h2 / 2), (jx, y2 + h2 / 2)])
-    s.line([(jx, ys[0]), (jx, max(ys[-1], y2 + h2 / 2))])
+    s.line([(jx, min(ys[0], y2 + h2 / 2)), (jx, max(ys[-1], y2 + h2 / 2))])
     for yy in ys:
         s.arrow([(jx, yy), (rx, yy)])
-    y3 = max(y2 + h2, ry - 10) + 26
-    w3 = 440
-    t3 = ("교체 점검 (scripts/195)", ["후보 모델을 운영 설정을 바꾸지 않고 같은 데이터로 나란히 측정", "· 검색 · 답 · 종류 판정"])
-    t4 = ("채택 결정", ["비교표로 정한 뒤 용도별 서버만 바꿔 저장"])
-    h3 = max(box_h(w3, *t3), box_h(W - 2 * M - w3 - 30, *t4))
-    s.box(M, y3, w3, h3, *t3)
-    s.box(M + w3 + 30, y3, W - 2 * M - w3 - 30, h3, *t4, strong=True)
-    s.arrow([(M + lw / 2, y2 + h2), (M + lw / 2, y3)])
-    s.arrow([(M + w3, y3 + h3 / 2), (M + w3 + 30, y3 + h3 / 2)])
-    yb = s.note(y3 + h3 + 10, "모델 이름 · 문맥 길이 · 추론 모드 끄기 인자를 코드에 박지 않는다. 용도별 서버를 바꾸고 저장하면 코드 수정 없이 모델이 바뀐다. "
-                              "문맥은 비율로 나눈다(작업 메모 6 %, 최근 대화 30 %). 문맥이 긴 모델로 바꾸면 저절로 맞는다.")
+    # 교체 절차
+    yb0 = max(y3 + h3, ry - 8) + 22
+    steps = [("① 나란히 측정", ["후보 모델을 같은 평가 데이터셋으로 측정"]),
+             ("② 채택 결정", ["비교 결과로 교체 여부 결정"]),
+             ("③ 설정 저장", ["연결 설정만 바꿔 저장"])]
+    cg = 26
+    inner = W - 2 * M - 2 * PADX
+    cw = (inner - 2 * cg) / 3
+    ch = max(box_h(cw, *t) for t in steps)
+    s.band(M, yb0, W - 2 * M, 32 + ch + 12, "교체 절차")
+    for i, t in enumerate(steps):
+        cx = M + PADX + i * (cw + cg)
+        s.box(cx, yb0 + 32, cw, ch, *t, strong=(i == 2))
+        if i:
+            s.arrow([(cx - cg, yb0 + 32 + ch / 2), (cx, yb0 + 32 + ch / 2)])
+    yb = s.note(yb0 + 32 + ch + 12 + 10, "모델 이름과 컨텍스트 길이를 코드에 고정하지 않으므로, 연결 설정만 바꾸어 저장하면 코드를 고치지 않고 "
+                                         "모델을 교체할 수 있다. 컨텍스트는 길이에 비례해 나누어 쓰므로 더 긴 모델로 바꾸면 배분도 함께 늘어난다.")
     s.fit(yb)
     s.save("c3-07-model-swap", "용도별 연결과 모델 교체 구조")
 
@@ -364,17 +377,19 @@ def model_swap():
 
 def doc_process():
     """[그림 4-4] 문서 한 건의 처리 순서."""
-    rows = [("디지털 PDF", "표본 6쪽 글자 충분 · 깨진 글자 비율 < 0.15",
-             "pdfium 글자 좌표 텍스트 레이어 추출 + MinerU 구조(표 · 2단 · 읽기 순서) 위에 원본 글자 덮어쓰기"),
-            ("스캔 PDF", "쪽당 200자 미만 또는 깨진 글자 ≥ 0.15", "기본 MinerU, 짧으면 27B 이미지 판독(최대 30쪽)"),
-            ("사진", "", "27B 이미지 판독 → MinerU OCR → tesseract"),
-            ("hwp", "", "kordoc(버전 고정) → 실패 시 pyhwp"),
-            ("hwpx", "", "자체 OWPML 파서(표 · 글상자 · 머리말)"),
-            ("docx · xlsx · pptx", "쪽당 60자 미만이면 MinerU 로 다시", "kordoc → python-docx · openpyxl · python-pptx"),
-            ("옛 형식", "xls · doc · ppt · hwp3", "LibreOffice 로 새 형식 변환 뒤 위의 길")]
+    rows = [("디지털 PDF", "앞 6쪽에 글자가 충분하고 깨진 글자가 15% 미만일 때",
+             "텍스트 레이어에서 글자를 그대로 꺼내고, MinerU 가 찾은 표와 읽기 순서에 그 글자를 채운다"),
+            ("스캔 PDF", "쪽당 글자가 200자 미만이거나 깨진 글자가 15% 이상일 때",
+             "MinerU 로 OCR 하고, 30쪽 이하의 짧은 문서는 27B 가 이미지를 읽는다"),
+            ("사진", "", "27B 가 이미지를 읽고, 실패하면 OCR 도구로 넘긴다"),
+            ("한글(hwp)", "", "한글 문서 변환기로 읽고, 실패하면 예비 변환기를 쓴다"),
+            ("한글(hwpx)", "", "자체 변환기로 표와 글상자, 머리말까지 읽는다"),
+            ("오피스 문서", "워드·엑셀·파워포인트",
+             "문서 변환기로 읽고, 쪽당 60자 미만이면 MinerU 로 다시 읽는다"),
+            ("옛 형식", "xls·doc·ppt 와 옛 한글 파일", "LibreOffice 로 새 형식으로 바꾼 뒤 위 경로로 처리한다")]
     s = Svg()
-    y = s.title("문서 한 건의 처리 순서: 형식별 읽기 뒤에는 모두 같은 길")
-    h0 = s.box(M, y, W - 2 * M, None, "원본 파일", ["실제 형식 확인(확장자가 없거나 틀리면 파일 머리로)"], fill=SOFT)
+    y = s.title("문서 한 건의 처리 순서")
+    h0 = s.box(M, y, W - 2 * M, None, "원본 파일", ["확장자가 없거나 틀려도 파일 첫머리를 읽어 실제 형식을 판별한다"], fill=SOFT)
     lx = M + 18
     bx = lx + 20
     bw = W - M - bx
@@ -401,12 +416,12 @@ def doc_process():
         ry += rh + 5
     s.line([(lx, y + h0), (lx, mids[-1])])
     y2 = ry + 18
-    steps = [["표 정리", "개인정보(4.2)", "청크 나누기", "서류 종류(27B)"],
-             ["사업 분류", "버전 묶기", "문서 이름", "색인(4.3) · 그래프(4.4)"]]
+    steps = [["표 정리", "개인정보 마스킹", "청크 분할", "서류 종류 판정"],
+             ["사업 분류", "버전 그룹화", "문서 이름 결정", "색인과 그래프 등록"]]
     g = 22
     cw = (W - 2 * M - 2 * PADX - 3 * g) / 4
     bh = 32 + 2 * 32 + 22 + 10
-    s.band(M, y2, W - 2 * M, bh, "형식별 읽기 다음")
+    s.band(M, y2, W - 2 * M, bh, "형식별 읽기 이후 단계")
     s.arrow([(W / 2, ry - 5), (W / 2, y2)])
     py = y2 + 32
     for r, row in enumerate(steps):
@@ -427,9 +442,9 @@ def doc_process():
 def search_flow():
     """[그림 4-8] 검색의 흐름."""
     s = Svg()
-    y = s.title("검색의 흐름: 규정 검색과 사업 문서 검색")
+    y = s.title("규정 검색과 사업 문서 검색 흐름")
     g = 26
-    a = [(110, "질문", []), (200, "입력 정리", ["전각 → 반각"]), (None, "RAG 공간 · 열람 조건", ["검색 SQL 의 WHERE"])]
+    a = [(110, "질문", []), (200, "입력 정리", ["전각을 반각으로 통일"]), (None, "검색 범위와 열람 조건", ["RAG 공간과 열람 권한을 조건으로"])]
     a[2] = (W - 2 * M - 110 - 200 - 2 * g, a[2][1], a[2][2])
     ha = max(box_h(w, t, ln) for w, t, ln in a)
     x = M
@@ -447,14 +462,14 @@ def search_flow():
     iw = bw - 2 * PADX
     half = (iw - 10) / 2
     lv = [
-        [[("어휘", ["Kiwi 명사 + 영문 약칭, IDF"]), ("의미", ["Embed v2(토르 03)"])],
-         [("RRF 순위 융합", ["k=60 · 어휘 0.4 · 의미 1.0"])],
-         [("리랭커", ["후보 20 → Rerank v1(토르 03)"])],
-         [("꼬리 버림", ["1위 점수의 0.25배 아래"])]],
-        [[("그래프 절 축 먼저", ["묶어 적은 절 제목"])],
-         [("어휘", ["grant_lex(GIN)"]), ("의미", ["grant_vec(HNSW)"])],
-         [("RRF 순위 융합", ["같은 가중, 어휘 1위 청크 지킴"])],
-         [("고르기", ["버전 최종본만 · 문서당 2청크 · 상위 5"])]]]
+        [[("어휘", ["단어 색인 검색"]), ("의미", ["벡터 색인 검색"])],
+         [("RRF 순위 융합", ["어휘 0.4, 의미 1.0 으로 합친다"])],
+         [("리랭커", ["상위 20개를 Rerank v1 로 재정렬"])],
+         [("하위 결과 제외", ["1위 점수의 4분의 1 미만은 뺀다"])]],
+        [[("그래프 절 우선", ["질문이 가리키는 절부터 찾는다"])],
+         [("어휘", ["단어 색인 검색"]), ("의미", ["벡터 색인 검색"])],
+         [("RRF 순위 융합", ["어휘 1위 청크는 남기며 합친다"])],
+         [("최종 선택", ["문서당 2개씩 상위 5개를 고른다"])]]]
     hs = []
     for k in range(4):
         hs.append(max(box_h(half if len(col[k]) == 2 else iw, t, ln) for col in lv for t, ln in col[k]))
@@ -485,13 +500,13 @@ def search_flow():
             yy += hs[k] + lg
     y3 = y2 + bh + 28
     w1 = 440
-    h3 = max(box_h(w1, "근거 묶기", tag="규정 묶음 / 사업 문서 묶음"), box_h(W - 2 * M - w1 - g, "생성 (4.5)", tag="Writer 27B"))
-    s.box(M, y3, w1, h3, "근거 묶기", tag="규정 묶음 / 사업 문서 묶음")
+    h3 = max(box_h(w1, "근거 구성", tag="규정 근거 / 사업 문서 근거"), box_h(W - 2 * M - w1 - g, "생성 (4.5)", tag="Writer 27B"))
+    s.box(M, y3, w1, h3, "근거 구성", tag="규정 근거 / 사업 문서 근거")
     s.box(M + w1 + g, y3, W - 2 * M - w1 - g, h3, "생성 (4.5)", tag="Writer 27B", strong=True)
     s.arrow([(L + bw / 2, y2 + bh), (L + bw / 2, y3)])
     s.arrow([(R + bw / 2, y2 + bh), (R + bw / 2, y3 - 15), (M + w1 - 60, y3 - 15), (M + w1 - 60, y3)])
     s.arrow([(M + w1, y3 + h3 / 2), (M + w1 + g, y3 + h3 / 2)])
-    yb = s.note(y3 + h3 + 8, "어휘 축은 색인과 질의가 같은 낱말 함수(lex_terms)를 쓴다. 리랭커는 규정 검색에만 쓴다.")
+    yb = s.note(y3 + h3 + 8, "색인할 때와 질문을 처리할 때 같은 방식으로 단어를 뽑으며, 리랭커는 규정 검색에만 적용한다.")
     s.fit(yb)
     s.save("c4-08-search-flow", "검색의 흐름")
 
@@ -505,42 +520,42 @@ def ontology_rel():
     keys = ("묶음", "사업", "연차", "문서", "절")
     xs = {k: M + i * (nw + gap) for i, k in enumerate(keys)}
     hh = max(box_h(nw, t, [sub] if sub else []) for t, sub in
-             (("사업군", ""), ("문서", "서류 종류가 하위 분류"), ("사업", "앞 · 뒤 단계 사업"), ("문서", "계획서 ↔ 실적보고서"),
+             (("사업군", ""), ("문서", "서류 종류로 하위 분류"), ("사업", "앞·뒤 단계 사업"), ("문서", "계획서 ↔ 실적보고서"),
               ("문서(평가)", "평가 문서"), ("기관", "부처 · 전담기관"), ("성과지표", "기준 · 목표 · 실적 · 달성률")))
     lab = 3 * LH + 14
     yt, ym, yb_ = y, y + hh + lab, y + 2 * (hh + lab)
     node(s, xs["묶음"], ym, nw, hh, "사업군")
     node(s, xs["사업"], ym, nw, hh, "사업", strong=True)
     node(s, xs["연차"], ym, nw, hh, "연차")
-    node(s, xs["문서"], ym, nw, hh, "문서", "서류 종류가 하위 분류")
+    node(s, xs["문서"], ym, nw, hh, "문서", "서류 종류로 하위 분류")
     node(s, xs["절"], ym, nw, hh, "절")
     for a, b in (("묶음", "사업"), ("사업", "연차"), ("연차", "문서"), ("문서", "절")):
         s.arrow([(xs[a] + nw, ym + hh / 2), (xs[b], ym + hh / 2)])
     # 위
-    node(s, xs["사업"], yt, nw, hh, "사업", "앞 · 뒤 단계 사업", dashed=True)
+    node(s, xs["사업"], yt, nw, hh, "사업", "앞·뒤 단계 사업", dashed=True)
     s.arrow([(xs["사업"] + nw / 2, ym), (xs["사업"] + nw / 2, yt + hh)])
-    s.para(xs["사업"] + nw / 2 - 8, yt + hh + 6, nw / 2 + gap + nw - 10, "succeeded_by · integrated_into (외부 확인 대장)", color=MUTED, anchor="end")
+    s.para(xs["사업"] + nw / 2 - 8, yt + hh + 6, nw / 2 + gap + nw - 10, "후속 사업, 편입된 사업(외부 확인 대장)", color=MUTED, anchor="end")
     node(s, xs["연차"], yt, nw, hh, "문서", "계획서 ↔ 실적보고서", dashed=True)
     xa = xs["문서"] + 22
     s.arrow([(xa, ym), (xa, yt + hh + lab / 2), (xs["연차"] + nw / 2, yt + hh + lab / 2), (xs["연차"] + nw / 2, yt + hh)], both=True)
-    s.para(xs["연차"] + nw / 2 + 8, yt + hh + 4, nw / 2 + gap + 14, "plans_reports", color=MUTED)
-    s.para(xs["연차"] + nw / 2 + 8, yt + hh + lab / 2 + 4, nw / 2 + gap + 14, "(계획↔실적)", color=MUTED)
+    s.para(xs["연차"] + nw / 2 + 8, yt + hh + 4, nw / 2 + gap + 14, "계획과 실적", color=MUTED)
+    s.para(xs["연차"] + nw / 2 + 8, yt + hh + lab / 2 + 4, nw / 2 + gap + 14, "대응 관계", color=MUTED)
     node(s, xs["문서"], yt, nw, hh, "문서(평가)", "평가 문서", dashed=True)
     xe = xs["문서"] + nw - 22
     s.arrow([(xe, yt + hh), (xe, ym)])
-    s.para(xe + 8, yt + hh + 6, 120, "evaluates", color=MUTED)
+    s.para(xe + 8, yt + hh + 6, 120, "평가 대상", color=MUTED)
     # 아래
     node(s, xs["사업"], yb_, nw, hh, "기관", "부처 · 전담기관")
     s.arrow([(xs["사업"] + nw / 2, ym + hh), (xs["사업"] + nw / 2, yb_)])
-    s.para(xs["사업"] + nw / 2 - 8, ym + hh + 6, nw / 2 + gap + nw - 10, "supervised_by · managed_by", color=MUTED, anchor="end")
+    s.para(xs["사업"] + nw / 2 - 8, ym + hh + 6, nw / 2 + gap + nw - 10, "주관 부처와 전담기관", color=MUTED, anchor="end")
     node(s, xs["문서"], yb_, nw, hh, "성과지표", "기준 · 목표 · 실적 · 달성률")
     s.arrow([(xs["문서"] + nw / 2, ym + hh), (xs["문서"] + nw / 2, yb_)])
-    s.para(xs["문서"] + nw / 2 - 8, ym + hh + 6, nw / 2 + gap + nw - 10, "측정(표 셀에서 읽은 값)", color=MUTED, anchor="end")
+    s.para(xs["문서"] + nw / 2 - 8, ym + hh + 6, nw / 2 + gap + nw - 10, "표에서 읽은 지표 값", color=MUTED, anchor="end")
     node(s, xs["절"], yb_, nw, hh, "단위과제")
     s.arrow([(xs["절"] + nw / 2, ym + hh), (xs["절"] + nw / 2, yb_)])
-    s.para(xs["절"] + nw / 2 - 8, ym + hh + 6, nw / 2 + gap - 8, "같은 사업에서 되풀이", color=MUTED, anchor="end")
-    yb = s.note(yb_ + hh + 10, "가로 화살표는 contains. 관계마다 기준(구조 · 분류 · 식별자 일치 · 추출 · 유사도 가운데 하나)과 근거(문서 · 절 위치 또는 외부 출처 URL)를 단다. "
-                               "점선 상자는 같은 종류의 다른 노드다. 그래프를 다시 지을 때마다 SHACL 규칙(graph/shapes.ttl)으로 검사한다.")
+    s.para(xs["절"] + nw / 2 - 8, ym + hh + 6, nw / 2 + gap - 8, "반복되는 단위과제", color=MUTED, anchor="end")
+    yb = s.note(yb_ + hh + 10, "가로 화살표는 포함 관계이고, 점선 상자는 같은 종류의 다른 노드다. 관계마다 어떤 기준으로 이었는지와 그 근거가 되는 문서 위치나 외부 출처를 기록한다. "
+                               "그래프를 다시 구축할 때마다 SHACL 규칙으로 구조를 검사한다.")
     s.fit(yb)
     s.save("c4-12-ontology", "온톨로지의 노드와 관계")
 
@@ -548,17 +563,17 @@ def ontology_rel():
 def graph_rag():
     """[그림 4-13] 27B 질문 읽기와 그래프 범위 검색."""
     s = Svg()
-    y = s.title("27B 질문 읽기와 그래프 범위 검색: 뜻은 모델이 읽고 탐색은 코드가")
+    y = s.title("질문 해석과 그래프 범위 검색")
     g = 40
     cw = (W - 2 * M - g) / 2
     L, R = M, M + cw + g
-    left = [("질문 + 사업 후보 목록 + 관계 7종", ["사업 후보는 질문과 겹치는 사업, 번호를 붙여 건넴"], "입력", False),
-            ("Writer 27B 질문 읽기", ["온도 0 · 출력 120토큰 · JSON 스키마 강제 · 같은 질문 10분 기억"], "모델", True),
-            ("{사업 번호, 연도, 차수, 종류, 따라갈 관계}", ["종류는 계획 · 실적 · 평가, 사업은 목록 번호로만 받음"], "모델이 낸 값", False)]
-    right = [("범위 정하기", ["이름 맞추기 + 모델 읽기 보탬 → 관계 따라 넓히기(짝 · 평가 · 앞뒤 단계 · 편입)",
-                          "· 연도를 물으면 연도 모르는 문서 제외", "· 「」로 묶은 이름이 문서 · 절 이름이면 그것으로 좁힘"], "코드(결정적)", False),
-             ("범위 안 하이브리드 검색 (4.3)", ["관계 질문은 양쪽 문서에서 한 청크씩", "· 절 축 청크도 권한을 다시 거름"], "코드", False),
-             ("근거 → 답", [], "", True)]
+    left = [("질문과 사업 후보 목록", ["질문과 이름이 겹치는 사업을 후보로 골라 번호를 붙여 함께 전달한다"], "입력", False),
+            ("Writer 27B 질문 해석", ["정해진 형식(JSON)으로만 답하게 하고, 같은 질문은 10분 동안 결과를 재사용한다"], "모델", True),
+            ("해석 결과", ["사업 번호, 연도, 차수, 문서 종류, 따라갈 관계", "사업은 후보 목록의 번호로만 고른다"], "모델 출력", False)]
+    right = [("범위 결정", ["이름 일치와 모델 해석으로 사업을 정하고, 대응·평가·앞뒤 단계·편입 관계를 따라 범위를 넓힌다",
+                          "연도를 물으면 연도를 알 수 없는 문서는 뺀다", "질문이 문서나 절 이름을 가리키면 그 범위로 좁힌다"], "코드", False),
+             ("범위 안 하이브리드 검색 (4.3)", ["관계를 묻는 질문은 양쪽 문서에서 한 청크씩 고른다", "절 단위로 찾은 청크도 열람 권한을 다시 확인한다"], "코드", False),
+             ("근거를 붙인 답변 생성", [], "", True)]
     pos = {}
     for x, col in ((L, left), (R, right)):
         yy = y
@@ -570,14 +585,15 @@ def graph_rag():
                 s.arrow([(x + cw / 2, prev), (x + cw / 2, yy)])
             prev = yy + h
             yy += h + 26
-    _, y1, h1 = pos["Writer 27B 질문 읽기"]
-    _, y3, h3 = pos["{사업 번호, 연도, 차수, 종류, 따라갈 관계}"]
-    _, yr, hr = pos["범위 정하기"]
-    s.arrow([(L + cw, y3 + h3 / 2), (L + cw + g / 3, y3 + h3 / 2), (L + cw + g / 3, yr + hr - 26), (R, yr + hr - 26)])
+    _, y1, h1 = pos["Writer 27B 질문 해석"]
+    _, y3, h3 = pos["해석 결과"]
+    _, yr, hr = pos["범위 결정"]
+    # 실선(해석 결과)은 바깥쪽 세로선, 점선(해석 실패)은 안쪽 세로선으로 그려 서로 엇갈리지 않게 한다
+    s.arrow([(L + cw, y3 + h3 / 2), (L + cw + 2 * g / 3, y3 + h3 / 2), (L + cw + 2 * g / 3, yr + hr - 26), (R, yr + hr - 26)])
     yd = y1 + 26
-    s.arrow([(L + cw, yd), (L + cw + 2 * g / 3, yd), (L + cw + 2 * g / 3, yr + hr / 2 - 10), (R, yr + hr / 2 - 10)], dashed=True)
-    bottom = max(y3 + h3, pos["근거 → 답"][1] + pos["근거 → 답"][2])
-    yb = s.note(bottom + 10, "점선: 모델 읽기가 실패하면 이름 맞추기로 물러남")
+    s.arrow([(L + cw, yd), (L + cw + g / 3, yd), (L + cw + g / 3, yr + 40), (R, yr + 40)], dashed=True)
+    bottom = max(y3 + h3, pos["근거를 붙인 답변 생성"][1] + pos["근거를 붙인 답변 생성"][2])
+    yb = s.note(bottom + 10, "점선은 모델 해석이 실패했을 때 이름 일치만으로 범위를 정하는 경로다.")
     s.fit(yb)
     s.save("c4-13-graph-rag", "27B 질문 읽기와 그래프 범위 검색")
 
@@ -585,28 +601,29 @@ def graph_rag():
 def doc_agent():
     """[그림 4-21] 문서 작업 에이전트의 단계 구조와 관문."""
     s = Svg()
-    y = s.title("문서 작업 에이전트: 모델이 고르고 코드 검증 단계가 지킨다")
+    y = s.title("문서 작업 에이전트 구조")
     cw = 576
-    h1 = s.box(M, y, cw, None, "상태", ["요청 · 작업 메모 · 최근 대화 · 프로젝트 문서 목록",
-                                      "작업본 절 목록과 빈 절 · 받지 못한 값 · 지금까지 한 단계"], tag="자료 구분 기호 <<< >>> 안에만 넣음")
+    h1 = s.box(M, y, cw, None, "상태", ["요청, 작업 메모, 최근 대화, 프로젝트 문서 목록",
+                                      "작업 문서의 절 목록, 빈 절, 받지 못한 값, 지금까지 수행한 단계"], tag="자료는 구분 기호 안에만 넣는다")
     y2 = y + h1 + GAP
     lw = 330
     nx = M + lw + 20
     nw = M + cw - nx
-    note = "한도에 닿았는데 찾은 근거가 있으면 「답하기만 고를 수 있는 마지막 단계」"
-    h2 = max(box_h(lw, "Writer 27B", ["{생각, 도구, 인자} 를 JSON 으로"]), box_h(nw, "", [note]))
-    s.box(M, y2, lw, h2, "Writer 27B", ["{생각, 도구, 인자} 를 JSON 으로"], strong=True, valign=True)
+    note = "단계 한도에 이르렀을 때 찾은 근거가 있으면, 답변만 할 수 있는 마지막 단계를 한 번 더 실행한다"
+    wl = ["생각과 쓸 도구, 그 인자를 정해진 형식(JSON)으로 출력한다"]
+    h2 = max(box_h(lw, "Writer 27B", wl), box_h(nw, "", [note]))
+    s.box(M, y2, lw, h2, "Writer 27B", wl, strong=True, valign=True)
     s.box(nx, y2, nw, h2, "", [note], dashed=True, valign=True)
     s.line([(M + lw, y2 + h2 / 2), (nx, y2 + h2 / 2)], dashed=True)
     s.arrow([(M + lw / 2, y + h1), (M + lw / 2, y2)])
     y3 = y2 + h2 + GAP
-    h3 = s.box(M, y3, cw, None, "코드 검증 단계", ["단계 14번 · 문서 쓰기 4번까지 · 같은 단계 세 번 잇달으면 멈춤",
-                                              "되돌리기 어려운 도구는 담당자 요청 글에 그 뜻이 부정 없이 있을 때만",
-                                              "찾기 전 사실 답 금지(먼저 찾기) · 열람 범위 · 수치 근거 대조 · 양식 모양"])
+    h3 = s.box(M, y3, cw, None, "코드 검증 단계", ["최대 14단계, 문서 쓰기는 4회까지 허용하고 같은 단계가 세 번 이어지면 멈춘다",
+                                              "되돌리기 어려운 도구는 담당자 요청에 그 의도가 분명히 드러날 때만 허용한다",
+                                              "검색하기 전에는 사실을 답하지 못하게 하고, 열람 범위와 수치 근거, 양식 형태를 확인한다"])
     s.arrow([(M + lw / 2, y2 + h2), (M + lw / 2, y3)])
     y4 = y3 + h3 + GAP
-    t4 = ("도구 실행", ["찾기 · 읽기 · 양식 · 쓰기 · 고치기 · 묻기 · 내보내기 …", "· 결과는 자료로만 돌려줌(자료 속 구분 기호 · 머리말은 전각으로)"])
-    t5 = ("모든 단계 기록 (doc_agent_episodes)", ["리즈닝 학습 재료"])
+    t4 = ("도구 실행", ["검색, 읽기, 양식 선택, 작성, 수정, 질문, 내보내기 등", "결과는 자료로만 돌려주며, 자료 안의 구분 기호는 다른 글자로 바꾼다"])
+    t5 = ("모든 단계 기록", ["단계마다 판단과 결과를 남겨 추론 학습 데이터로 활용한다"])
     tw4 = lw + 20
     h4 = max(box_h(tw4, *t4), box_h(cw - tw4 - 30, *t5))
     s.box(M, y4, tw4, h4, *t4)
@@ -623,11 +640,11 @@ def doc_agent():
 def hwpx_fill():
     """[그림 4-26] 원본 서식 보존 채우기."""
     s = Svg()
-    y = s.title("원본 서식 보존 채우기: 작업본의 절 본문을 원본 hwpx 에 옮긴다")
+    y = s.title("원본 서식 보존 채우기")
     g = 24
     bw = (W - 2 * M - g) / 2
-    a = ("원본 hwpx (ZIP)", ["구역 XML 을 다시 직렬화하지 않음"])
-    b = ("작업본 절 본문", ["독스 또는 기안기 · 글 · 표 · 그림(안내 상자 제외)"])
+    a = ("원본 한글 파일(hwpx)", ["원본의 내용과 서식을 그대로 두고 그 위에 채운다"])
+    b = ("작업 문서의 절 본문", ["독스나 기안기에서 쓴 글과 표, 그림(안내 상자는 제외)"])
     h0 = max(box_h(bw, *a), box_h(bw, *b))
     s.box(M, y, bw, h0, *a, fill=SOFT)
     s.box(M + bw + g, y, bw, h0, *b, fill=SOFT)
@@ -635,11 +652,11 @@ def hwpx_fill():
     for x in (M + bw / 2, M + bw + g + bw / 2):
         s.arrow([(x, y + h0), (x, y2)])
     nw = 196
-    hf = step_row(s, M, y2, W - 2 * M, "절 제목 문단 찾기", "번호 · 제목 글자로 맞춤(또는 그 뒤 【작성방법】 상자)", name_w=nw, strong=True)
-    cases = [("서식에 이미 있는 문단 · 표", "다시 넣지 않고 그 자리를 지나 이어 씀"),
-             ("서식 표를 채웠을 때", "작업본 열 너비로 값 셀 x 위치를 재어 원래 셀에 써 넣음"),
-             ("새 표", "id 는 문서 최댓값 다음부터, 테두리는 그 구역 본문 표의 가장 흔한 실선을 이어받음"),
-             ("끼워 넣기", "글자열 위치에 문단 · 표 · 그림 XML (손대지 않은 문단은 한 글자도 안 바뀜)")]
+    hf = step_row(s, M, y2, W - 2 * M, "절 위치 찾기", "원본에서 절 번호와 제목이 같은 문단(또는 그 뒤의 작성 방법 상자)을 찾는다", name_w=nw, strong=True)
+    cases = [("이미 있는 문단과 표", "다시 넣지 않고 그 다음 위치부터 이어서 쓴다"),
+             ("양식의 표", "작업 문서 표의 열 위치를 원본 표의 셀에 맞추어 값을 채운다"),
+             ("새로 넣는 표", "원본 본문 표에서 가장 많이 쓰인 테두리를 그대로 따른다"),
+             ("새 내용 넣기", "찾은 위치에 문단과 표, 그림을 넣고, 손대지 않은 문단은 원본 그대로 둔다")]
     lx = M + 18
     cx = lx + 22
     ry = y2 + hf + 8
@@ -652,17 +669,17 @@ def hwpx_fill():
     s.line([(lx, y2 + hf), (lx, mids[-1])])
     y3 = ry + 18
     s.arrow([(W / 2, ry - 6), (W / 2, y3)])
-    hr = step_row(s, M, y3, W - 2 * M, "다시 쓰기", "바뀐 구역만 줄 배치 캐시 지움 · ZIP 항목 순서와 압축 방식 유지 · 바뀐 항목만 다시 씀", name_w=nw)
+    hr = step_row(s, M, y3, W - 2 * M, "파일 다시 쓰기", "파일 안의 항목 순서와 압축 방식을 유지한 채 바뀐 항목만 다시 쓴다", name_w=nw)
     y4 = y3 + hr + 24
     s.arrow([(W / 2, y3 + hr), (W / 2, y4)])
     w5 = 450
-    c = ("자가 점검", ["ZIP 규약 · XML 형식 · 참조 id · 항목 수 · 표 격자"])
-    d = ("저장", ["문제 목록이 비었을 때만"])
+    c = ("자가 점검", ["파일 구조와 문서 형식, 항목 수, 표의 셀 배치가 올바른지 검사한다"])
+    d = ("저장", ["점검을 통과한 파일만 저장한다"])
     h5 = max(box_h(w5, *c), box_h(W - 2 * M - w5 - 50, *d))
     s.box(M, y4, w5, h5, *c)
     s.box(M + w5 + 50, y4, W - 2 * M - w5 - 50, h5, *d, strong=True)
     s.arrow([(M + w5, y4 + h5 / 2), (M + w5 + 50, y4 + h5 / 2)], "통과", ly=y4 + h5 / 2 - 8)
-    yb = s.note(y4 + h5 + 8, "이 층은 내용을 만들지 않는다. 원본이 옛 .hwp 면 채우지 않고 hwpx 로 저장한 서식의 수집을 안내한다.")
+    yb = s.note(y4 + h5 + 8, "이 단계는 내용을 생성하지 않는다. 원본이 이전 형식인 .hwp 이면 채우지 않고, hwpx 로 저장한 서식을 수집하도록 안내한다.")
     s.fit(yb)
     s.save("c4-26-hwpx-fill", "원본 서식 보존 채우기")
 
@@ -670,11 +687,11 @@ def hwpx_fill():
 def sft_pipeline():
     """[그림 4-14] SFT 파이프라인."""
     s = Svg()
-    y = s.title("SFT 파이프라인: 학습 데이터에서 운영 교체 결정까지")
-    cands = [("실문서 절 작성쌍 (scripts/152)", "양식 × 완성본 · 서빙 프롬프트 형식 → 편집 계획 JSON"),
-             ("문서 구조 단계 문답 (scripts/153)", "[N단계] 사업명 → 개요 → 목차 → 요구 항목 → 뼈대"),
-             ("근거 기반 연결 대화", "사업 · 연차 · 문서 · 절 경로와 근거 위치, 2~6턴"),
-             ("운영 기록: 마스킹한 사본", "에이전트 단계 · 질문 읽기 · 양식 고르기 · 못 채운 이유")]
+    y = s.title("SFT 파이프라인")
+    cands = [("실문서 절 작성 쌍", "양식과 완성본으로 운영 입력 형식의 쌍을 만든다"),
+             ("문서 구조 단계 문답", "사업명부터 뼈대까지 단계별로 답한다"),
+             ("근거 기반 연결 대화", "사업에서 절까지의 근거를 담은 대화"),
+             ("운영 기록의 마스킹 사본", "에이전트 단계와 질문 해석 기록")]
     g = 12
     cw = (W - 2 * M - 2 * PADX - g) / 2
     ch = max(box_h(cw, t, [d]) for t, d in cands)
@@ -682,13 +699,13 @@ def sft_pipeline():
     s.band(M, y, W - 2 * M, bh, "학습 후보")
     for i, (t, d) in enumerate(cands):
         s.box(M + PADX + (i % 2) * (cw + g), y + 32 + (i // 2) * (ch + g), cw, ch, t, [d])
-    left = [("자동 검사", "경로·근거 기록, 근거가 그 턴에 그대로, 숫자 대조"),
-            ("사람 검수", "Label Studio: 근거·구조·맥락·개인정보"),
-            ("개인정보", "전체 탐지, 다시 마스킹해도 같은 파일만 반출"),
-            ("묶음 검사", "사업 단위 학습·검증·시험 분리, 중복 제거")]
-    right = [("학습", "TRL·PEFT bf16 LoRA SFT, 문맥 16,384"),
-             ("병합·재양자화", "병합 → NVFP4 → 후보 이름으로 서빙"),
-             ("비교", "정답 로그확률 → 같은 시험으로 기반 모델과")]
+    left = [("자동 검사", "근거와 수치가 맞는지 확인한다"),
+            ("사람 검수", "근거와 구조, 개인정보를 확인한다"),
+            ("개인정보", "재마스킹 결과가 같은 파일만 쓴다"),
+            ("분할 검사", "사업 단위로 나누고 중복을 없앤다")]
+    right = [("학습", "LoRA 로 지도 미세조정(SFT)한다"),
+             ("병합", "4비트로 양자화해 후보로 서빙한다"),
+             ("비교", "같은 시험으로 기반 모델과 비교한다")]
     g2 = 36
     colw = (W - 2 * M - g2) / 2
     x1, x2 = M, M + colw + g2
@@ -713,15 +730,15 @@ def sft_pipeline():
     y5 = ly2 + lh2 + 18
     hw1 = 190
     hw2 = colw - hw1 - 10
-    t1 = ("채택 기준을 넘으면", ["용도를 후보 모델로"])
-    t2 = ("넘지 못하면", ["학습셋 보강 뒤 다시"])
+    t1 = ("채택 기준 충족", ["해당 용도의 모델을 후보 모델로 바꾼다"])
+    t2 = ("기준 미달", ["데이터를 보강해 다시 학습한다"])
     h5 = max(box_h(hw1, *t1), box_h(hw2, *t2))
     s.box(x2, y5, hw1, h5, *t1, strong=True)
     s.box(x2 + hw1 + 10, y5, hw2, h5, *t2, dashed=True)
     s.arrow([(x2 + nw / 2, ly2 + lh2), (x2 + nw / 2, y5)])
     s.arrow([(x2 + hw1 + 10 + hw2 / 2, ly2 + lh2), (x2 + hw1 + 10 + hw2 / 2, y5)])
-    yb = s.note(max(ends[x1][-1][0] + ends[x1][-1][1], 0) + 18, "비교에서는 모델 하나만 바꾸고 질문 · 플랫폼 코드 · 생성 설정 · 채점 모델은 그대로 둔다. "
-                                                            "학습셋 원문은 학습 장비 밖으로 나가지 않는다.", w=colw)
+    yb = s.note(max(ends[x1][-1][0] + ends[x1][-1][1], 0) + 18, "비교할 때는 모델만 바꾸고 질문과 플랫폼 코드, 생성 설정, 채점 모델은 그대로 둔다. "
+                                                            "학습 데이터셋 원문은 학습 장비 밖으로 반출하지 않는다.", w=colw)
     s.fit(max(yb, y5 + h5))
     s.save("c4-38-sft-pipeline", "SFT 파이프라인")
 

@@ -229,7 +229,33 @@ def system():
     assert set(hosts) <= known, f"새 장비 {set(hosts) - known} — 논문 구성도 자리를 정할 것"
     s = Svg()
 
+    # 앱 목록의 짧은 글 가운데 논문에서 다듬어 쓰는 것(장비 이름·부품 목록은 그대로)
+    paper_role = {"원본 보관 PC": "사업별 폴더로 학교 실문서 보관"}
+    paper_spec = {"구글 드라이브·독스": "계정을 연결한 사용자 전용"}
+    paper_link = {("교직원 브라우저", "운영 VM"): "화면 요청, 기안기 문서 열기·저장, 편집 영역 글 송수신",
+                  ("운영 VM", "토르 02"): "질의응답·문서 작성 요청, 27B 의 도구 선택과 답변 작성",
+                  ("운영 VM", "토르 03"): "새 문서 검토와 서류 종류 판정, 검색 임베딩과 리랭킹",
+                  ("DGX", "운영 VM"): "판독 결과와 원본 목록",
+                  ("DGX", "토르 02·03"): "학습된 모델",
+                  ("운영 VM", "구글 드라이브·독스"): "보조 경로: 계정을 연결한 사용자의 가져오기·독스 편집"}
+    for n, t in paper_role.items():
+        hosts[n] = {**hosts[n], "role": t}
+    for n, t in paper_spec.items():
+        hosts[n] = {**hosts[n], "spec": t}
+
+    # 논문 인쇄본은 부품 이름 나열 대신 하는 일을 문장으로 적는다
+    paper_lines = {"교직원 브라우저": ["AURA 화면과 웹 한글 기안기를 쓰며, 학교망(VPN)으로 접속한다"],
+                   "구글 드라이브·독스": ["계정을 연결한 사용자만 쓰는 보조 경로"],
+                   "운영 VM": ["플랫폼 화면과 API, 웹 한글 기안기 서버, 공동 편집 서버(SSE)를 실행한다",
+                              "PostgreSQL(pgvector)에 문서와 검색 색인, 지식그래프를 저장한다", "CPU 8코어, 메모리 64GB"],
+                   "토르 02": ["vLLM 으로 Writer 27B(Qwen3.8-27B)를 서빙한다", "4비트(NVFP4) 양자화"],
+                   "토르 03": ["검토·판독용 27B 와 Embed v2, Rerank v1 을 서빙한다"],
+                   "DGX": ["원본을 보관하고 MinerU 판독과 LoRA 학습을 한다", "통합 메모리 121GB, 디스크 3.7TB"],
+                   "원본 보관 PC": ["사업별 폴더로 학교 실문서를 보관하고 DGX 로 복사한다"]}
+
     def lines_of(n):
+        if n in paper_lines:
+            return paper_lines[n]
         h = hosts[n]
         parts = h.get("parts")
         body = [" · ".join(parts)] if parts else [h.get("role", "")]
@@ -239,7 +265,7 @@ def system():
         bg, fg = sd._color(n)
         return s.box(x, y, w, hh, n, lines_of(n), fill=bg, stroke=fg, tcolor=fg, dashed=n in sd.DASHED)
 
-    label = {(a, b): terms(sd._short(w)) for a, b, w in LINKS}
+    label = {(a, b): paper_link.get((a, b)) or terms(sd._short(w)) for a, b, w in LINKS}
     # 1줄: 브라우저 · 구글
     y1 = M
     bw1 = 340
@@ -293,7 +319,7 @@ def system():
     s.text(xs[3] + cw / 2 - 10, yb + 22, label[("원본 보관 PC", "DGX")], color=INK, anchor="middle")
     # 범례
     ly = yb + 40
-    lead = "화살표 색은 보내는 장비 색"
+    lead = "화살표 색: 송신 장비의 색"
     s.text(M, ly + 13, lead, weight=700, color=MUTED)
     x = M + tw(lead) + 20
     for k, name in sd.LEGEND:
@@ -326,9 +352,61 @@ def coedit():
         for name, fn in (("c4-27-coedit-field", cd.field_flow), ("c4-27b-coedit-aura", cd.aura_flow)):
             got.clear()
             fn(DEFAULTS)
-            _seq_paper(name, cd.COLOR, *got["args"])
+            _seq_paper(name, cd.COLOR, *_paper_seq(name, DEFAULTS, *got["args"]))
     finally:
         cd._seq = orig
+
+
+def _when(t: str) -> str:
+    """걸리는 시간 글을 논문 말로(바로 → 즉시, 멈추면 → 정지 시)."""
+    for a, b in (("바로", "즉시"), (" 안", " 이내"), (" 뒤", " 후"), (" 멈추면", " 정지 시"), ("끝", "종료")):
+        t = t.replace(a, b)
+    return t
+
+
+def _paper_seq(name, conf, title, lead, lanes, steps, bands, note):
+    """앱 단계 그림의 글을 논문 문어체로 바꾼다. 단계 수·칸·시간 값은 앱 목록 그대로 두고, 수치는 같은 설정에서 다시 읽는다."""
+    from zzaimy.app.coedit_diagram import _sec
+    from zzaimy.app.webhwp_agent import HwpTools
+    send, pause = _sec(int(conf.get("throttle_ms", 300))), _sec(int(conf.get("pause_ms", 300)))
+    most = int(conf.get("commit_max", 20))
+    cps = HwpTools.STREAM_CPS
+    if name == "c4-27-coedit-field":
+        p_lead = "다른 사용자 화면까지 약 0.2초, 한글 파일까지 몇 초 소요"
+        p_lanes = {"A": "글을 작성하는 사용자", "S": "편집 영역 글을 즉시 저장", "B": "같은 문서를 연 사용자", "F": "hwpx"}
+        p_steps = ["「요약」 편집 영역에 글자 입력(내 화면에는 즉시 표시)",
+                   "이 편집 영역의 편집 잠금 획득(다른 사용자는 대기)",
+                   f"작성 중 변경된 글자만 {send}마다 전송",
+                   "받은 글을 저장하고 편집 영역 버전 번호 증가",
+                   "「요약」 편집 영역의 변경 알림",
+                   f"입력이 {pause} 멈추면 편집 영역에 반영하고 「김가람」 이름표 표시",
+                   "글자 크기·색 등 서식은 편집 영역 단위로 별도 전송",
+                   "서식을 포함해 해당 편집 영역 교체",
+                   f"해당 편집 영역만 한글 파일에 저장(계속 입력하면 {most}초마다)"]
+        p_bands = ["작성 중", "다른 화면에 표시", "서식 변경", "파일 저장"]
+        p_note = ("제목·소제목·표 셀까지 문서 전체가 편집 영역으로 구성된다. 한 편집 영역은 한 사람씩 수정하고, "
+                  "서로 다른 편집 영역은 여러 사람이 동시에 수정할 수 있다. 충돌한 글은 충돌 사본으로 보관한다.")
+    else:
+        p_lead = "사람과 같은 편집 영역 경로로 나누어 전송하여 열린 화면에 즉시 표시"
+        p_lanes = {"A": "AURA 에 요청한 사용자", "S": "27B 문서 작업", "B": "같은 문서를 연 사용자들", "F": "hwpx"}
+        p_steps = ["「AURA 양식 만들기」 요청과 가상 사업 설정 전달",
+                   "27B 의 짧은 사업계획서 양식 설계(절 순서·작성방법)",
+                   "빈 문서를 해당 양식으로 변환해 저장",
+                   "새 버전 알림, 모든 화면에 양식 반영과 요약 편집 영역 채우기",
+                   "「AURA 이어 쓰기」 요청(1절부터 차례로 세 개 절)",
+                   "27B 의 절 초안 작성(설정 밖 수치·좁은 셀·안내 상자는 검증 단계에서 차단)과 다음 절 미리 준비",
+                   f"편집 영역 경로로 초당 약 {cps:g}자씩 전송, 머리줄에 「2. … 쓰는 중 (2/3)」",
+                   "열린 화면에 순차 표시, 대기 중인 화면은 해당 위치로 자동 이동",
+                   "작성 완료 후 해당 편집 영역만 파일에 기록하고 편집 잠금 해제",
+                   "「n개 절을 썼습니다」 응답(실제로 작성한 절 수)"]
+        p_bands = ["양식 생성", "절 작성", "마무리"]
+        p_note = "문서를 다시 여는 것은 양식을 넣을 때 한 번뿐이다. AURA 가 작성한 글도 편집 영역 안에 들어가므로 사용자가 바로 수정할 수 있다."
+    assert len(p_steps) == len(steps) and len(p_bands) == len(bands) and {k for k, _, _ in lanes} == set(p_lanes), \
+        f"{name}: 앱 단계 목록이 바뀜 — 논문 글(_paper_seq)도 맞출 것"
+    lanes = [(k, nm, p_lanes[k]) for k, nm, _ in lanes]
+    steps = [(a, b, t, _when(w)) for (a, b, _, w), t in zip(steps, p_steps)]
+    bands = [(a, b, t) for (a, b, _), t in zip(bands, p_bands)]
+    return title, p_lead, lanes, steps, bands, p_note
 
 
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"
@@ -405,13 +483,13 @@ def _seq_paper(name, color, title, lead, lanes, steps, bands, note):
 
 def flow():
     s = Svg()
-    y = s.title("문서가 답과 초안이 되기까지")
+    y = s.title("AURA 전체 처리 흐름")
     steps = [("원본", ["PDF · HWP/HWPX", "오피스 · 이미지"]),
-             ("읽기", ["텍스트 레이어 추출", "OCR · 한글 변환"]),
-             ("등록·분류", ["서류 갈래 · 사업", "부서 · 열람 권한"]),
-             ("색인·그래프", ["어휘 + 의미 검색", "사업·문서·절 관계"]),
-             ("에이전트", ["Writer 27B", "찾기 · 쓰기 · 검토"]),
-             ("결과", ["출처 단 답", "한글 작업본 · HWPX"])]
+             ("읽기", ["텍스트 레이어 추출", "OCR과 한글 문서 변환"]),
+             ("등록·분류", ["서류 종류와 사업 분류", "부서와 열람 권한 지정"]),
+             ("색인·그래프", ["어휘·의미 검색 색인", "사업·문서·절 관계 그래프"]),
+             ("에이전트", ["Writer 27B", "근거 검색, 초안 작성, 검토"]),
+             ("결과", ["출처를 단 답변", "한글 작업 문서와 HWPX"])]
     gap = 34
     bw = (W - 2 * M - 2 * gap) / 3
     bh = max(box_h(bw, t, ln) for t, ln in steps)
@@ -425,28 +503,28 @@ def flow():
     xl = M + 2 * (bw + gap) + bw / 2
     s.arrow([(xl, y + bh), (xl, y + bh + 17), (M + bw / 2, y + bh + 17), (M + bw / 2, y + bh + 34)])
     y += 2 * bh + 34 + 20
-    gates = [("열람 범위", "검색 단계에서 권한 밖 문서를 뺀다"), ("수치 근거 대조", "근거에 없는 숫자는 「○○」로 마스킹한다"),
-             ("양식 모양", "원본 서식은 두고 내용만 채운다"), ("사람 확인", "모르는 값은 담당자에게 묻는다")]
+    gates = [("열람 범위", "검색 단계에서 열람 권한 밖 문서를 제외한다"), ("수치 근거 대조", "근거에 없는 수치는 「○○」로 마스킹한다"),
+             ("양식 모양", "원본 서식은 유지하고 내용만 채운다"), ("사람 확인", "확인되지 않은 값은 담당자에게 확인을 요청한다")]
     gw = (W - 2 * M - 2 * PADX - 16) / 2
     gh = max(LH * (1 + len(wrap(b, gw))) for _, b in gates) + 8
     bh2 = 34 + 2 * gh
-    s.band(M, y, W - 2 * M, bh2, "코드가 지키는 검증 단계")
+    s.band(M, y, W - 2 * M, bh2, "코드로 수행하는 검증 단계")
     for i, (a, b) in enumerate(gates):
         r, c = divmod(i, 2)
         gx, gy = M + PADX + c * (gw + 16), y + 32 + r * gh
         s.text(gx, gy + 16, a, weight=700)
         s.para(gx, gy + LH, gw, b)
     s.fit(y + bh2)
-    s.save("02-doc-flow", "문서가 답과 초안이 되기까지")
+    s.save("02-doc-flow", "AURA 전체 처리 흐름")
 
 
 def hwp():
     s = Svg()
-    y = s.title("웹 한글 기안기 — 편집 영역 단위 공동 편집") - 4
+    y = s.title("웹 한글 기안기의 영역 단위 공동 편집") - 4
     cw = (W - 2 * M - 2 * 12) / 3
-    users = [("사용자 A", ["「요약」 편집 영역을 쥐고 쓰는 중", "· 300ms 마다 바뀐 부분만"], "편집", False),
-             ("사용자 B", ["다른 편집 영역을 동시에 씀", "· A 가 쥔 편집 영역은 이름표만 흔들림"], "편집", False),
-             ("AURA 에이전트", ["대화 요청으로 절을 씀(27B)", "· 흘려 씀, 쥔 편집 영역은 건너뜀"], "참여자", True)]
+    users = [("사용자 A", ["「요약」 영역을 잠그고 쓰며 0.3초마다 변경을 보낸다"], "편집", False),
+             ("사용자 B", ["다른 영역을 동시에 쓰며 A 의 이름표를 본다"], "편집", False),
+             ("AURA 에이전트", ["요청받은 절을 27B 가 쓰고 잠긴 영역은 건너뛴다"], "참여자", True)]
     uh = max(box_h(cw, t, ln, tag=g) for t, ln, g, _ in users)
     for i, (t, ln, g, st) in enumerate(users):
         s.box(M + i * (cw + 12), y, cw, uh, t, ln, tag=g, strong=st)
@@ -454,39 +532,37 @@ def hwp():
     lw, gap = 310, 70
     sx = M + lw + gap
     sw_ = W - M - sx
-    ed = ["어댑터: 기안기 API 를 부르는 유일한 곳(편집 영역 읽기·쓰기·잠그기)",
-          "공동 편집 층: 편집 잠금·버전 번호, 보낼 줄·충돌 사본, 이름 깃발",
-          "· 보낼 줄은 IndexedDB 에도 둠", "· 한글 조합 중에는 읽지 않음"]
+    ed = ["연결 모듈 하나가 편집 영역을 읽고 쓰고 잠근다", "편집 잠금과 버전 번호, 보낼 변경, 이름표를 관리한다",
+          "보낼 변경은 브라우저에도 보관한다", "한글을 조합하는 동안에는 읽지 않는다"]
     eh = s.box(M, y2, lw, None, "편집 화면", ed, tag="브라우저마다")
-    sv = ["편집 잠금: 먼저 잡은 사람만 씀", "· 입력·커서로 늘고, 옮기면 풀림", "· 기본 300초, 기다리면 120초",
-          "버전 번호: 같은 변경은 한 번만", "· 버전이 어긋나면 충돌 사본으로 둠",
-          "서식: 편집 영역째 JSON 블록, 검사 뒤 전달", "구조 고침(표·그림): 저절로 잠금",
-          "알림 줄 → SSE 로 다른 화면에", "AURA 절도 같은 편집 영역 길로 조금씩", "· 열린 화면에 바로 써 내려감"]
-    shh = s.box(sx, y2, sw_, None, "AURA 서버 (운영 서버)", sv, tag="정답을 쥔 곳", strong=True)
+    sv = ["편집 잠금은 먼저 요청한 사용자에게 주고 입력하는 동안 연장한다",
+          "버전 번호가 맞지 않는 변경은 충돌 사본으로 보관한다",
+          "표나 그림을 바꾸면 문서 전체를 잠근다",
+          "변경은 SSE 알림으로 다른 화면에 전달한다", "AURA 가 쓴 절도 같은 경로로 나누어 보낸다"]
+    shh = s.box(sx, y2, sw_, None, "AURA 서버 (운영 서버)", sv, tag="기준 데이터 보관", strong=True)
     ca = M + cw / 2
     cb = M + cw + 12 + cw / 2
     s.arrow([(ca, y + uh), (ca, y2)], both=True)
     s.arrow([(cb, y + uh), (cb, y + uh + 15), (M + lw - 40, y + uh + 15), (M + lw - 40, y2)], both=True)
     ax = M + 2 * (cw + 12) + cw / 2
-    s.arrow([(ax, y + uh), (ax, y2)], "절 쓰기 요청", lx=ax - 8, ly=y + uh + 23, anchor="end")
+    s.arrow([(ax, y + uh), (ax, y2)], "절 작성 요청", lx=ax - 8, ly=y + uh + 23, anchor="end")
     s.arrow([(M + lw, y2 + 40), (sx, y2 + 40)])
-    s.para(M + lw + 3, y2 + 46, gap - 4, "편집 잠금 ·변경", color=MUTED)
+    s.para(M + lw + 3, y2 + 46, gap - 4, "잠금·변경", color=MUTED)
     s.arrow([(sx, y2 + 150), (M + lw, y2 + 150)], dashed=True)
     s.para(M + lw + 4, y2 + 156, gap - 4, "SSE 알림", color=MUTED)
     y4 = y2 + eh + 16
-    fh = s.box(M, y4, lw, None, "한글 파일 (hwpx)", ["편집 영역 글: 3초 뒤(이어지면 20초마다) 바뀐 글자만",
-                                                   "AURA 절: 다 쓴 뒤 그 편집 영역만", "· 앞 버전은 .판/ 에 남김", "· 부서 문서함에 저장"], tag="파일")
+    fh = s.box(M, y4, lw, None, "한글 파일 (hwpx)", ["입력이 3초 멈추면 바뀐 부분만 반영한다", "AURA 가 쓴 절은 다 쓴 뒤에 반영한다", "이전 버전은 따로 보관한다"], tag="파일")
     y3 = y2 + shh + 24
-    gh = s.box(sx, y3, sw_, None, "기안기 서버 (웹 한글 편집 엔진)", ["내부: 운영 서버 안에서만 열림", "· 밖에서 직접 접속 불가"])
-    s.arrow([(sx + 40, y2 + shh), (sx + 40, y3)], "프록시", lx=sx + 52, ly=y2 + shh + 18, anchor="start")
+    gh = s.box(sx, y3, sw_, None, "기안기 서버 (웹 한글 편집 엔진)", ["운영 서버 안에서만 접근할 수 있다"])
+    s.arrow([(sx + 40, y2 + shh), (sx + 40, y3)], "중계", lx=sx + 52, ly=y2 + shh + 18, anchor="start")
     ya = min(y4 + 40, y2 + shh - 20)
     s.arrow([(sx, ya), (M + lw, ya)])
-    s.para(M + lw + 4, ya + 6, gap - 4, "써 넣기", color=MUTED)
+    s.para(M + lw + 4, ya + 6, gap - 4, "파일 기록", color=MUTED)
     y4 = max(y4 + fh, y3 + gh) - fh
     yb = max(y4 + fh, y3 + gh) + 6
-    yb = s.note(yb, "문서를 열 때 편집 영역 밖 문단을 편집 영역(「문단:n」)으로 감싸 제목·표 셀까지 편집 영역으로 고친다. "
-                    "한 편집 영역은 먼저 잡은 사람만, 표·그림·용지 고침만 한 사람씩 문서 전체로. "
-                    "글이 겹치면 버리지 않고 충돌 사본으로 둔다. 시간 값(편집 잠금·보내기 간격·써 넣기)은 모두 설정으로 바꾼다(ADR-0070).")
+    yb = s.note(yb, "문서를 열 때 편집 영역이 없는 문단도 편집 영역으로 감싸, 제목과 표 셀까지 모두 편집 영역이 되게 한다. "
+                    "한 편집 영역은 편집 잠금을 얻은 사용자만 수정하며, 표·그림·용지 변경은 문서 전체를 한 사람씩 수정한다. "
+                    "충돌한 글은 충돌 사본으로 보관하고, 시간 값은 모두 설정으로 바꿀 수 있다.")
     s.fit(yb)
     s.save("03-hwp-coedit", "웹 한글 기안기 편집 영역 단위 공동 편집")
 
@@ -494,11 +570,11 @@ def hwp():
 def model():
     s = Svg()
     y = s.title("모델 학습과 비교")
-    top = [("학습 후보", ["실문서 양식 × 완성본", "서빙 프롬프트 꼴 문답"]),
-           ("사람 검수", ["근거 일치 · 개인정보", "승인본만 학습"]),
-           ("LoRA SFT", ["DGX · bf16", "writer-v1 4,434쌍"]),
-           ("병합 · NVFP4", ["어댑터 병합 뒤", "4비트 양자화"]),
-           ("토르 02 후보 서빙", ["운영 모델과 같은 장비", "같은 질문으로 나란히"])]
+    top = [("학습 후보", ["실문서 양식과 완성본으로 만든 문답 쌍"]),
+           ("사람 검수", ["근거와 개인정보를 확인해 승인된 데이터만 쓴다"]),
+           ("LoRA SFT", ["DGX 에서 4,434쌍으로 학습한다"]),
+           ("병합과 양자화", ["어댑터를 병합한 뒤 4비트로 줄인다"]),
+           ("토르 02 후보 서빙", ["운영 모델과 같은 장비에서 같은 질문으로 비교한다"])]
     gap = 26
     bw = (W - 2 * M - 2 * gap) / 3
     bh = max(box_h(bw, t, ln) for t, ln in top)
@@ -513,13 +589,14 @@ def model():
     yr2 = y + bh + 30 + bh / 2
     s.arrow([(M + 2 * (bw + gap), yr2), (M + bw + gap + bw, yr2)])
     y2 = y + 2 * bh + 30 + 34
-    ev = ["시험 220문항 chrF 27.9 → 36.6, 질문에 없는 숫자 4.1% → 0%", "문서 작성 시나리오 작업본 2/2 → 0/2",
-          "· 학습셋 틀이 에이전트 출력에 새어 동작이 멈춤", "· 운영은 오픈 27B(NVFP4)를 그대로 쓴다"]
-    pl = ["플랫폼이 실제로 보내는 꼴로 만든다", "에이전트 단계 JSON · 작업 메모 · 채팅 답 · 절 쓰기",
-          "· 넘기기 전 점검: 틀 0/45, 작업본 2/2, chrF v1 이상", "· 사실·수치는 검색으로, 모델에는 맥락 구성 능력만"]
+    ev = ["시험 220문항에서 chrF 는 27.9에서 36.6으로 오르고, 질문에 없는 수치는 4.1%에서 0%로 줄었다",
+          "그러나 문서 작성 시나리오에서는 작업 문서 생성이 2건 중 2건에서 0건으로 떨어졌다",
+          "학습 데이터 형식이 에이전트 출력에 섞여 동작이 멈췄기 때문이며, 운영에는 공개 27B 모델을 그대로 쓴다"]
+    pl = ["플랫폼이 실제로 보내는 입력 형식으로 에이전트 단계, 작업 메모, 채팅 답변, 절 작성을 담는다",
+          "사실과 수치는 검색으로 얻고, 모델은 맥락을 구성하는 능력만 학습한다"]
     gp = 46
     hw = (W - 2 * M - gp) / 2
-    ta, tb = "비교 평가 (10-24, 채택하지 않음)", "Writer v2 학습 데이터 (계획)"
+    ta, tb = "비교 평가와 미채택", "Writer v2 학습 데이터셋 (계획)"
     hh = max(box_h(hw, ta, ev), box_h(hw, tb, pl))
     s.box(M + hw + gp, y2, hw, hh, ta, ev, strong=True)
     s.box(M, y2, hw, hh, tb, pl, dashed=True)
@@ -528,8 +605,8 @@ def model():
     s.arrow([(M + hw + gp, y2 + hh / 2), (M + hw, y2 + hh / 2)])
     s.para(M + hw + 4, y2 + hh / 2 + 6, gp - 6, "다시 학습", color=MUTED)
     s.arrow([(M + bw / 2, y2), (M + bw / 2, y + bh)], dashed=True)
-    yb = s.note(y2 + hh + 12, "비교는 모델 하나만 바꾸고 질문·플랫폼 코드·설정·채점 모델은 그대로 둔다. "
-                              "먼저 정답 로그확률로 학습이 서빙에 들어갔는지 본다(ADR-0069).")
+    yb = s.note(y2 + hh + 12, "비교 평가에서는 모델만 바꾸고 질문, 플랫폼 코드, 설정, 채점 모델은 그대로 둔다. "
+                              "먼저 정답 로그확률로 학습 결과가 서빙 모델에 반영되었는지 확인한다.")
     s.fit(yb)
     s.save("04-model-pipeline", "모델 학습과 비교")
 

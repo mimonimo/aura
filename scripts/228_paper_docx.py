@@ -260,15 +260,15 @@ def _style_headings(doc):
     for lv, size in ((1, CH_PT), (2, SEC_PT), (3, 11)):
         st = doc.styles[f"Heading {lv}"]
         st.paragraph_format.keep_with_next = False      # 스타일 쪽 「다음 문단과 함께」 도 끈다(■ 편집 기호)
-    for st in doc.styles:                               # 기본 스타일(제목 4·캡션 등)에 걸린 것도
-        try:
-            if st.paragraph_format.keep_with_next:
-                st.paragraph_format.keep_with_next = False
-        except (AttributeError, ValueError):
-            pass
         st.font.name, st.font.size, st.font.bold = FONT, Pt(size), True
         st.font.color.rgb = RGBColor(0, 0, 0)
         st.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
+    for other in doc.styles:                            # 기본 스타일(제목 4·캡션 등)에 걸린 것도
+        try:
+            if other.paragraph_format.keep_with_next:
+                other.paragraph_format.keep_with_next = False
+        except (AttributeError, ValueError):
+            pass
     for name in ("Caption",):
         st = doc.styles[name]
         st.font.name, st.font.size, st.font.bold, st.font.italic = FONT, Pt(9), True, False
@@ -318,7 +318,7 @@ def _page_field(p):
 
 
 # ── 표·그림 ──
-IMG_MAX_H_CM = 12.5                                     # 그림 높이 상한(cm) — 반쪽 남짓 남은 자리에도 들어가게
+IMG_MAX_H_CM = 12.5                                     # 그림 높이 상한(cm) — 도식 글자 9pt 를 지키는 값(11-17: 줄이면 글자가 작아진다)
 KEEP_ROWS = 4                                           # 이보다 짧은 표만 통째로 다음 쪽으로 — 15행까지 묶으니 앞 쪽에 큰 빈칸이 생겼다(11-16)
 _NUMISH = re.compile(r"(?=.*\d).{1,24}")                    # 숫자가 든 짧은 값(수치·건수·시간)
 
@@ -348,7 +348,15 @@ def _table(doc, rows):
         weight.append(sum(lens) / len(lens) * 0.6 + max(lens) * 0.4)
     free = max(text_mm - sum(need), 0)
     widths = [need[j] + free * weight[j] / sum(weight) for j in range(ncol)]
+    if sum(widths) > text_mm:                            # 열 바닥 너비의 합이 본문 폭을 넘으면 비율대로 줄인다(11-17 표 3-7 이 오른쪽 여백 밖으로)
+        widths = [w * text_mm / sum(widths) for w in widths]
     t.autofit = False
+    tpr = t._tbl.tblPr
+    lay = OxmlElement("w:tblLayout"); lay.set(qn("w:type"), "fixed"); tpr.append(lay)   # 워드가 글 길이로 다시 넓히지 않게
+    tw = OxmlElement("w:tblW"); tw.set(qn("w:w"), str(int(sum(widths) * 56.7))); tw.set(qn("w:type"), "dxa")
+    for old in tpr.findall(qn("w:tblW")):
+        tpr.remove(old)
+    tpr.append(tw)
     for j in range(ncol):
         t.columns[j].width = Mm(widths[j])
         for i in range(len(rows)):
@@ -370,6 +378,9 @@ def _table(doc, rows):
             else:
                 p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER if col_center[j] else WD_ALIGN_PARAGRAPH.LEFT
                 _inline(p, txt, size=9)
+            if i == 0 and len(rows) > 1:
+                # 머리줄 칸만 「다음 문단과 함께」 — 머리줄만 쪽 끝에 홀로 남던 것(11-17 사용자, 표 2-1·3-3·3-6). ■ 는 편집 기호로만 보이고 인쇄되지 않는다
+                p.paragraph_format.keep_with_next = True
             # 그 밖의 표 칸에는 「다음 문단과 함께」 를 걸지 않는다 — 워드 편집 기호에서 표 둘레마다 점이 찍혀 어지러웠다(11-16 사용자).
             # 행이 두 쪽에 잘리지 않게(cantSplit)와 쪽이 넘어가면 머리줄 다시(tblHeader)만 둔다
         trpr = t.rows[i]._tr.get_or_add_trPr()

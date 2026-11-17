@@ -34,7 +34,7 @@ def mono(s: Svg, x, y, t, *, size=BODY, color=INK, weight=400, anchor="start"):
 
 def speculative():
     s = Svg()
-    y = s.title("추측 디코딩: 예측 층이 제안하고 본 모델이 검증한다")
+    y = s.title("MTP 추측 디코딩 과정")
     gap = 40
     bw = (W - 2 * M - gap) / 2
     xl, xr = M, M + bw + gap
@@ -51,20 +51,20 @@ def speculative():
     h2 = box_h(bw, "본 모델", ["제안된 두 자리를 한 번의 계산으로 확인"], tag="② 검증") + 64
     s.box(xr, y2, bw, h2, "본 모델", ["제안된 두 자리를 한 번의 계산으로 확인"], tag="② 검증", strong=True)
     cy = y2 + h2 - 42
-    for x, w, t, k, lab in ((xr + PADX, 72, "목표", "ok", "맞음"), (xr + PADX + 84, 60, "는", "no", "틀림"),
-                            (xr + PADX + 156, 60, "와", "ok", "본 모델 토큰")):
+    for x, w, t, k, lab in ((xr + PADX, 72, "목표", "ok", "일치"), (xr + PADX + 84, 60, "는", "no", "불일치"),
+                            (xr + PADX + 156, 60, "와", "ok", "본 모델 토큰으로 대체")):
         chip(s, x, cy, w, t, kind=k)
-        s.text(x if k == "ok" and lab != "맞음" else x + w / 2, cy - 7, lab, color=MUTED, anchor="start" if lab == "본 모델 토큰" else "middle")
+        s.text(x if k == "ok" and lab != "일치" else x + w / 2, cy - 7, lab, color=MUTED, anchor="start" if lab == "본 모델 토큰으로 대체" else "middle")
     s.arrow([(xr + bw / 2, y + h1), (xr + bw / 2, y2)], "후보 전달", lx=xr + bw / 2 + 10, ly=y + h1 + 25, anchor="start")
-    s.box(xl, y2, bw, h2, "받아들인 결과", ["한 번에 두 토큰"], tag="③ 수락")
+    s.box(xl, y2, bw, h2, "수락된 결과", ["한 번의 계산으로 두 토큰 확정"], tag="③ 수락")
     chip(s, xl + PADX, cy, 72, "목표", kind="ok")
     chip(s, xl + PADX + 80, cy, 60, "와", kind="ok")
     s.arrow([(xr, y2 + 40), (xl + bw, y2 + 40)])
-    s.arrow([(xl + bw / 2, y2), (xl + bw / 2, y + h1)], "문맥에 덧붙이고 다시 제안", lx=xl + bw / 2 + 10, ly=y + h1 + 25, anchor="start")
+    s.arrow([(xl + bw / 2, y2), (xl + bw / 2, y + h1)], "문맥에 추가한 뒤 다음 제안", lx=xl + bw / 2 + 10, ly=y + h1 + 25, anchor="start")
     y3 = y2 + h2 + 18
-    notes = [("맞은 자리는 수락", "제안이 본 모델과 같으면 그대로 받는다"),
-             ("틀린 자리부터는 버림", "그 자리는 본 모델 토큰으로 채운다"),
-             ("출력 분포는 그대로", "검증을 본 모델이 하므로 맞힌 만큼만 빨라진다")]
+    notes = [("일치한 토큰 수락", "제안이 본 모델의 예측과 같으면 그대로 채택"),
+             ("불일치 이후 폐기", "불일치 위치는 본 모델 토큰으로 대체"),
+             ("출력 분포 유지", "본 모델 검증으로 출력은 동일, 일치한 만큼 속도 향상")]
     bh = 34 + len(notes) * LH + 8
     s.band(M, y3, W - 2 * M, bh, "규칙")
     for i, (a, b) in enumerate(notes):
@@ -77,10 +77,10 @@ def speculative():
 
 def lora():
     s = Svg()
-    y = s.title("LoRA: 고정 가중치 옆에 저랭크 행렬 두 개")
+    y = s.title("LoRA 구조")
     # 고정 가중치
     wx, ww = 150, 270
-    wh = s.box(wx, y, ww, None, "사전학습 가중치 W", ["d × d 크기, 값을 바꾸지 않음", "· 학습하지 않음"], tag="고정", fill=SOFT)
+    wh = s.box(wx, y, ww, None, "사전학습 가중치 W", ["d × d 크기의 원래 가중치로, 학습하는 동안 값을 바꾸지 않는다"], tag="고정", fill=SOFT)
     yw = y + wh / 2
     # 저랭크 A, B
     ty = y + wh + 34
@@ -94,8 +94,8 @@ def lora():
     s.text(bx1 - 42, ym + 7, "B", size=20, weight=700, color=NAVY, anchor="middle")
     s.arrow([(ax1, ym), (bx0, ym)])
     s.text((ax1 + bx0) / 2, ym - 10, "r", size=18, weight=700, color=NAVY, anchor="middle")
-    s.text(ax0 + 52, ty + th + 24, "A : r × d, 학습함", anchor="middle")
-    s.text(bx1 - 52, ty + th + 24, "B : d × r, 학습함", anchor="middle")
+    s.text(ax0 + 52, ty + th + 24, "A : r × d, 학습 대상", anchor="middle")
+    s.text(bx1 - 52, ty + th + 24, "B : d × r, 학습 대상", anchor="middle")
     yl = s.para(wx, ty + th + 34, ww + 40, "r 은 d 보다 훨씬 작다 (저랭크)", color=MUTED)
     # 입력 · 갈래
     ih = node(s, M, (yw + ym) / 2 - 30, 92, 60, "입력 x")
@@ -113,27 +113,27 @@ def lora():
     oh = box_h(W - M - ox, "출력 h", ["h = Wx + BAx"], tag="결과")
     s.box(ox, iy - oh / 2, W - M - ox, oh, "출력 h", ["h = Wx + BAx"], tag="결과", strong=True)
     s.arrow([(cx + 20, iy), (ox, iy)])
-    yb = s.note(yl + 16, "학습 결과는 A·B 만 담은 작은 어댑터 파일로 남는다. 운영에 넣을 때는 W + BA 로 합쳐 한 모델로 쓴다.")
+    yb = s.note(yl + 16, "학습 결과는 A와 B만 담은 작은 어댑터 파일로 저장된다. 운영에 적용할 때는 W + BA 로 병합하여 하나의 모델로 사용한다.")
     s.fit(yb)
     s.save("c2-05-lora", "LoRA 구조 개념도")
 
 
 def hwpx():
     s = Svg()
-    y = s.title("HWPX 파일 구조와 서식 보존 채우기가 손대는 곳")
+    y = s.title("HWPX 파일 구조")
     lw = 334
-    rows = [("mimetype", "첫 항목, 압축 없이 형식 표시", ""),
+    rows = [("mimetype", "압축하지 않은 첫 항목, 파일 형식 표시", ""),
             ("version.xml · settings.xml", "버전 정보와 설정", ""),
-            ("META-INF/", "묶음 목록(container·manifest)", ""),
-            ("Contents/content.hpf", "항목 목록", "그림 넣을 때 등록"),
-            ("Contents/header.xml", "글꼴·문단·테두리 모양(스타일)", "필요한 모양만 더함"),
-            ("Contents/section0.xml …", "본문 구역: 문단·표·누름틀", "내용을 채움"),
-            ("BinData/", "그림 바이트", "넣은 그림 추가"),
-            ("Preview/", "미리보기 글·그림", "")]
+            ("META-INF/", "패키지 구성 목록(container·manifest)", ""),
+            ("Contents/content.hpf", "항목 목록", "그림 추가 시 등록"),
+            ("Contents/header.xml", "글꼴·문단·테두리 모양(스타일)", "필요한 스타일만 추가"),
+            ("Contents/section0.xml …", "본문 구역: 문단·표·누름틀", "내용 채우기"),
+            ("BinData/", "그림 데이터", "삽입한 그림 추가"),
+            ("Preview/", "미리보기 텍스트와 이미지", "")]
     rg = 4
 
     def place(name, desc, touch):
-        tt = touch or "그대로"
+        tt = touch or "변경 없음"
         if tw(name, mono=True) + tw(tt) + 24 <= lw - 36:
             return 1
         if tw(desc) + tw(tt) + 24 <= lw - 36:
@@ -141,7 +141,7 @@ def hwpx():
         return 3
     hs = [(3 if place(*r) == 3 else 2) * LH + 6 for r in rows]
     bh = 34 + sum(h + rg for h in hs) + 4
-    s.band(M, y, lw, bh, "HWPX 파일 = ZIP 묶음 (OWPML)")
+    s.band(M, y, lw, bh, "HWPX 파일: ZIP 패키지 (OWPML)")
     ry = y + 34
     sec_y = sec_h = 0
     for (name, desc, touch), rh in zip(rows, hs):
@@ -152,7 +152,7 @@ def hwpx():
                sw=SWS if strong else SW)
         mono(s, M + 18, ry + 19, name, weight=700 if strong else 400, color=NAVY if strong else INK)
         s.text(M + 18, ry + 19 + LH, desc, color=MUTED)
-        tt = touch or "그대로"
+        tt = touch or "변경 없음"
         k = place(name, desc, touch)
         s.text(M + lw - 18 if k < 3 else M + 18, ry + 19 + LH * (k - 1), tt, weight=700 if touch else 400,
                color=NAVY if touch else LINE, anchor="end" if k < 3 else "start")
@@ -167,25 +167,25 @@ def hwpx():
     s.rect(ix, cy, iw, 34, stroke=BORDER, rx=6)
     mono(s, ix + 10, cy + 23, "<hp:p>", color=MUTED)
     s.text(ix + 72, cy + 23, "절 제목 문단", color=INK)
-    s.text(ix + iw - 10, cy + 23, "그대로", color=LINE, anchor="end")
+    s.text(ix + iw - 10, cy + 23, "변경 없음", color=LINE, anchor="end")
     cy += 42
-    t2 = "새 문단·표·그림 XML 을 원본 바이트 사이에 넣는다"
+    t2 = "새 문단·표·그림 XML 을 원본 바이트 사이에 삽입"
     h2 = 2 * 8 + LH + LH * len(wrap(t2, iw - 20))
     s.rect(ix, cy, iw, h2, stroke=NAVY, sw=SWS, dashed=True, rx=6)
-    s.text(ix + 10, cy + 8 + 16, "① 절 제목 뒤에 끼워 넣기", weight=700, color=NAVY)
+    s.text(ix + 10, cy + 8 + 16, "① 절 제목 뒤 삽입", weight=700, color=NAVY)
     s.para(ix + 10, cy + 8 + LH, iw - 20, t2)
     cy += h2 + 8
-    t3 = "② 누름틀 안 글만 바꾼다 (누름틀 표시와 모양은 그대로)"
+    t3 = "② 누름틀 안의 글만 교체 (누름틀 표시와 서식은 유지)"
     h3 = 8 + LH + 38 + LH * len(wrap(t3, iw - 20)) + 8
     s.rect(ix, cy, iw, h3, stroke=BORDER, rx=6)
     mono(s, ix + 10, cy + 8 + 16, "<hp:p>", color=MUTED)
-    s.text(ix + 72, cy + 8 + 16, "누름틀이 든 문단")
+    s.text(ix + 72, cy + 8 + 16, "누름틀을 포함한 문단")
     fy = cy + 8 + LH + 4
     mono(s, ix + 10, fy + 21, "fieldBegin", size=BODY, color=MUTED)
     fx0 = ix + 10 + tw("fieldBegin", mono=True) + 6
     fx1 = ix + iw - 10 - tw("fieldEnd", mono=True) - 6
     s.rect(fx0, fy, fx1 - fx0, 30, fill=ACCENT, stroke=NAVY, sw=SWS, rx=5)
-    s.text((fx0 + fx1) / 2, fy + 21, "사업명 자리", weight=700, color=NAVY, anchor="middle")
+    s.text((fx0 + fx1) / 2, fy + 21, "사업명 입력란", weight=700, color=NAVY, anchor="middle")
     mono(s, ix + iw - 10, fy + 21, "fieldEnd", color=MUTED, anchor="end")
     s.para(ix + 10, fy + 38, iw - 20, t3)
     cy += h3 + 8
@@ -204,22 +204,22 @@ def hwpx():
             s.text(gx + c * cw + cw / 2, gy + r * ch + 21, labels[r][c] or "셀 안 글", weight=700 if hit else 400,
                    color=NAVY if hit else INK, anchor="middle")
     ty = gy + 2 * ch + 6
-    s.text(ix + 10, ty + 16, "③ 표 셀 안 글만 채운다", weight=700, color=NAVY)
-    s.para(ix + 10, ty + LH, iw - 20, "테두리·셀 폭·글꼴 같은 표 속성은 원본 그대로")
-    yb = s.note(y + bh + 10, "구역 XML 을 다시 직렬화하지 않고 원본 바이트를 그대로 둔다. ZIP 항목 순서와 압축 방식을 지키고, 바뀐 항목만 다시 쓴다. "
-                             "변환기로 새로 만든 한글 파일은 표 테두리·셀 폭·글꼴이 달라져 제출용으로 쓸 수 없어서 이 방식을 쓴다.")
+    s.text(ix + 10, ty + 16, "③ 표 셀 안의 글만 채우기", weight=700, color=NAVY)
+    s.para(ix + 10, ty + LH, iw - 20, "테두리·셀 폭·글꼴 등 표 속성은 원본 유지")
+    yb = s.note(y + bh + 10, "구역 XML 을 다시 직렬화하지 않고 원본 바이트를 그대로 유지한다. ZIP 항목 순서와 압축 방식을 보존하고 바뀐 항목만 다시 기록한다. "
+                             "변환기로 새로 생성한 한글 파일은 표 테두리·셀 폭·글꼴이 달라져 제출용으로 사용할 수 없으므로 이 방식을 택하였다.")
     s.fit(yb)
     s.save("c2-11-hwpx", "HWPX 파일 구조와 서식 보존 채우기 위치")
 
 
 def rag():
     s = Svg()
-    y = s.title("검색 증강 생성(RAG): 찾고, 묶고, 쓴다")
-    steps = [("질문", ["교직원의 질문", "· 질문한 사람의 권한"], ""),
-             ("검색", ["질문과 가까운 문서 청크를 찾음"], "①"),
-             ("근거 묶기", ["청크와 출처를 모델 입력에 넣음"], "②"),
-             ("생성 모델", ["근거 안에서 답을 씀"], "③"),
-             ("근거 붙은 답", ["답 + 출처 (문서·쪽·절)"], "")]
+    y = s.title("검색 증강 생성(RAG) 과정")
+    steps = [("질문", ["교직원의 질문과 질문자의 열람 권한"], ""),
+             ("검색", ["질문과 관련된 문서 청크 검색"], "①"),
+             ("근거 구성", ["청크와 출처를 모델 입력에 포함"], "②"),
+             ("생성 모델", ["근거 범위 안에서 답변 생성"], "③"),
+             ("근거를 단 답변", ["문서와 쪽, 절 위치를 출처로 단 답변"], "")]
     gap = 18
     bw = (W - 2 * M - 4 * gap) / 5
     bh = max(box_h(bw, t, ln, tag=g) for t, ln, g in steps)
@@ -230,29 +230,29 @@ def rag():
             s.arrow([(x + bw, y + bh / 2), (x + bw + gap, y + bh / 2)])
     y2 = y + bh + 40
     iw = 200
-    ih = max(box_h(iw, "규정 색인", ["교내 규정·지침, 조문 단위"]), box_h(iw, "사업 문서 색인", ["사업 문서 청크"]))
+    ih = max(box_h(iw, "규정 색인", ["조문 단위로 나눈 교내 규정·지침"]), box_h(iw, "사업 문서 색인", ["사업 문서 청크"]))
     x1, x2 = M, M + iw + 16
-    s.box(x1, y2, iw, ih, "규정 색인", ["교내 규정·지침, 조문 단위"], fill=SOFT)
+    s.box(x1, y2, iw, ih, "규정 색인", ["조문 단위로 나눈 교내 규정·지침"], fill=SOFT)
     s.box(x2, y2, iw, ih, "사업 문서 색인", ["사업 문서 청크"], fill=SOFT)
     sx = M + bw + gap + bw / 2
     s.line([(x1 + iw / 2, y2), (x1 + iw / 2, y2 - 18), (x2 + iw / 2, y2 - 18), (x2 + iw / 2, y2)])
     s.arrow([(sx, y2 - 18), (sx, y + bh)])
-    s.para(x2 + iw + 20, y2 + 6, W - M - x2 - iw - 20, "두 색인은 합치지 않는다. 규정 질문에 사업 청크가 섞이지 않게", color=MUTED)
-    yb = s.note(y2 + ih + 16, "열람 권한은 검색 조건(SQL)에 넣는다. 답을 만든 뒤에 거르면 모델이 이미 권한 밖 자료를 읽은 뒤이기 때문이다. "
-                              "모델이 학습하지 않은 최신·기관 내부 정보로 답할 수 있고, 답의 근거를 출처로 보일 수 있다.")
+    s.para(x2 + iw + 20, y2 + 6, W - M - x2 - iw - 20, "규정 질문에 사업 문서 청크가 섞이지 않도록 두 색인을 분리한다.", color=MUTED)
+    yb = s.note(y2 + ih + 16, "열람 권한은 검색 조건(SQL)에 포함한다. 답변을 생성한 뒤에 거르면 모델이 이미 권한 밖 자료를 읽은 상태가 된다. "
+                              "RAG 를 사용하면 모델이 학습하지 않은 최신 정보와 기관 내부 정보로 답할 수 있고, 답변의 근거를 출처로 제시할 수 있다.")
     s.fit(yb)
     s.save("c2-13-rag", "RAG 개념도")
 
 
 def hybrid():
     s = Svg()
-    y = s.title("RRF 하이브리드 검색: 두 축의 순위를 섞고 다시 줄 세운다")
+    y = s.title("RRF 하이브리드 검색 과정")
     qw = 160
     bx = M + qw + 34
     bw_ = W - M - bx
     iw = (bw_ - 2 * PADX - 30 - 14) / 2
-    lex = [("낱말 뽑기", ["형태소 분석(Kiwi)", "명사·영문 약칭"]), ("전문 색인 검색", ["GIN 색인", "드문 낱말에 무게(IDF)"])]
-    sem = [("임베딩", ["문장 → 1,024차원 벡터(KURE 기반)"]), ("벡터 색인 검색", ["pgvector HNSW", "가까운 이웃 찾기"])]
+    lex = [("단어 추출", ["형태소 분석기(Kiwi)로 명사와 영문 약칭을 뽑는다"]), ("단어 색인 검색", ["같은 단어가 든 청크를 찾고, 드문 단어일수록 높은 점수를 준다"])]
+    sem = [("임베딩", ["질문을 1,024차원 벡터로 바꾼다(KURE 기반)"]), ("벡터 색인 검색", ["pgvector 색인에서 의미가 가장 가까운 청크를 찾는다"])]
     ih = max(box_h(iw, t, ln) for t, ln in lex + sem)
     bh = 32 + ih + 10
     ys = [y, y + bh + 12]
@@ -264,16 +264,16 @@ def hybrid():
         my = by + 32 + ih / 2
         s.arrow([(bx + PADX + iw, my), (bx + PADX + iw + 30, my)])
         mids.append(my)
-    qh = box_h(qw, "질문", ["사업 약칭·규정 이름", "+ 뜻으로 찾을 말"])
+    qh = box_h(qw, "질문", ["사업 약칭이나 규정 이름과 의미로 찾을 표현이 섞인 질문"])
     qy = (ys[0] + ys[1] + bh) / 2 - qh / 2
-    s.box(M, qy, qw, qh, "질문", ["사업 약칭·규정 이름", "+ 뜻으로 찾을 말"])
+    s.box(M, qy, qw, qh, "질문", ["사업 약칭이나 규정 이름과 의미로 찾을 표현이 섞인 질문"])
     for my in mids:
         s.arrow([(M + qw, qy + qh / 2), (M + qw + 16, qy + qh / 2), (M + qw + 16, my), (bx + PADX, my)])
     y2 = ys[1] + bh + 34
     rw = [250, 220, W - 2 * M - 250 - 220 - 2 * 30]
-    items = [("순위 융합 (RRF)", ["어휘 순위 + 의미 순위", "Σ 가중 / (k + 순위)", "k=60 · 어휘 0.4 · 의미 1.0"], True),
-             ("리랭커", ["질문과 청크를 함께 읽어 다시 줄 세움(교차 인코더)"], False),
-             ("상위 근거", ["답의 재료"], False)]
+    items = [("순위 융합 (RRF)", ["두 검색의 순위를 점수로 바꾸어 가중 합산한다(어휘 0.4, 의미 1.0)"], True),
+             ("리랭커", ["질문과 청크를 함께 읽어 순위를 다시 매긴다"], False),
+             ("상위 근거", ["답변 생성에 사용할 상위 청크"], False)]
     rh = max(box_h(w, t, ln) for w, (t, ln, _) in zip(rw, items))
     x = M
     xs = []
@@ -287,26 +287,26 @@ def hybrid():
     s.line([(bx + PADX + iw + 30 + iw, mids[0]), (ex, mids[0]), (ex, mids[1])])
     s.line([(bx + PADX + iw + 30 + iw, mids[1]), (ex, mids[1])])
     s.arrow([(ex, mids[1]), (ex, y2 - 16), (M + rw[0] / 2, y2 - 16), (M + rw[0] / 2, y2)])
-    s.text(xs[1] + rw[1] / 2, y2 + rh + 22, "규정 검색에서 씀", color=MUTED, anchor="middle")
-    yb = s.note(y2 + rh + 34, "두 검색의 점수는 척도가 달라 그대로 더하지 않고 순위로 섞는다. 사업 문서 쪽은 어휘 1위 청크가 섞은 순위에서 밀리지 않게 지킨다.")
+    s.text(xs[1] + rw[1] / 2, y2 + rh + 22, "규정 검색에만 적용", color=MUTED, anchor="middle")
+    yb = s.note(y2 + rh + 34, "두 검색의 점수는 척도가 달라 그대로 더하지 않고 순위로 융합한다. 사업 문서 검색에서는 어휘 검색 1위 청크가 융합 순위에서 밀려나지 않도록 보장한다.")
     s.fit(yb)
     s.save("c2-17-hybrid", "RRF 하이브리드 검색 흐름")
 
 
 def ontology():
     s = Svg()
-    y = s.title("AURA 온톨로지: 노드 여덟 종류와 주요 관계")
+    y = s.title("AURA 온톨로지 구조")
     gap = 36
     nw = (W - 2 * M - 4 * gap) / 5
     keys = ("묶음", "사업", "연차", "문서", "절")
     xs = {k: M + i * (nw + gap) for i, k in enumerate(keys)}
-    mid = [("묶음", "사업군", "사업 체계의 큰 갈래", False, False), ("사업", "사업", "재정지원 사업 하나", True, False),
+    mid = [("묶음", "사업군", "사업 체계의 상위 분류", False, False), ("사업", "사업", "재정지원 사업 하나", True, False),
            ("연차", "연차", "N차년도·연도", False, False), ("문서", "문서", "계획서·실적보고서·평가 …", False, False),
            ("절", "절", "문서의 목차 항목", False, False)]
     top = [("사업", "기관", "부처·지자체·전담기관", False, False), ("문서", "문서", "같은 사업·연차의 다른 문서", False, True),
-           ("절", "절", "짝 문서·다음 연차의 절", False, True)]
-    bot = [("묶음", "사업", "앞·뒤 단계, 다른 사업", False, True), ("연차", "성과지표", "기준·목표·실적·달성률", False, False),
-           ("절", "단위과제", "여러 문서에 되풀이되는 과제", False, False)]
+           ("절", "절", "대응 문서나 다음 연차의 절", False, True)]
+    bot = [("묶음", "사업", "앞·뒤 단계 사업, 연관 사업", False, True), ("연차", "성과지표", "기준·목표·실적·달성률", False, False),
+           ("절", "단위과제", "여러 문서에 반복되는 과제", False, False)]
     hh = max(box_h(nw, t, [sub]) for _, t, sub, _, _ in mid + top + bot)
     y_top = y
     y_mid = y_top + hh + 3 * LH + 12
@@ -324,39 +324,39 @@ def ontology():
         x = xs[k] + dx
         if up:
             s.arrow([(x, gy1), (x, gy0)])
-            s.para(x + 8, gy0 + 6, lw, text, color=MUTED)
+            s.para(x + 8, gy0 + 6, min(lw, W - M - x - 12), text, color=MUTED)
         else:
             s.arrow([(x, y_mid + hh), (x, y_bot)])
             s.para(x + 8, y_mid + hh + 6, lw, text, color=MUTED)
-    vlab("사업", "주관 부처 · 전담기관")
-    vlab("문서", "계획 → 실적 · 평가")
-    vlab("절", "계획↔실적 짝, 연차 이어짐")
+    vlab("사업", "주관 부처와 전담기관")
+    vlab("문서", "계획서와 실적·평가 문서 대응")
+    vlab("절", "계획·실적 대응, 다음 연차 연결")
     # 아래
     s.arrow([(xs["사업"] + 14, y_mid + hh), (xs["사업"] + 14, y_bot + hh / 2), (xs["묶음"] + nw, y_bot + hh / 2)])
-    s.para(xs["사업"] + 22, y_mid + hh + 6, nw - 44, "후속 · 편입 · 연관", color=MUTED)
+    s.para(xs["사업"] + 22, y_mid + hh + 6, nw - 44, "후속·편입·연관 사업", color=MUTED)
     s.arrow([(xs["사업"] + nw - 10, y_mid + hh), (xs["사업"] + nw - 10, y_bot + 22), (xs["연차"], y_bot + 22)])
-    s.text(xs["연차"] + 8, y_mid + hh + 22, "성과지표 둠", color=MUTED)
+    s.text(xs["연차"] + 8, y_mid + hh + 22, "연차별 성과지표", color=MUTED)
     s.arrow([(xs["문서"] + 14, y_mid + hh), (xs["문서"] + 14, y_bot + hh / 2), (xs["연차"] + nw, y_bot + hh / 2)])
-    s.para(xs["문서"] + 22, y_mid + hh + 6, lw, "지표 값(측정)", color=MUTED)
+    s.para(xs["문서"] + 22, y_mid + hh + 6, lw, "문서에서 측정한 지표 값", color=MUTED)
     s.arrow([(xs["절"] + nw / 2, y_mid + hh), (xs["절"] + nw / 2, y_bot)])
-    s.para(xs["절"] + nw / 2 - 8, y_mid + hh + 6, nw / 2 + gap - 16, "같은 단위과제", color=MUTED, anchor="end")
-    yb = s.note(y_bot + hh + 12, "점선 상자는 같은 종류의 다른 노드다. 관계마다 기준(구조·분류·식별자 일치·추출·유사도)과 근거(문서·절 위치 또는 외부 출처 URL)를 달고, "
-                                 "근거를 댈 수 없는 관계는 만들지 않는다. 후속·편입·주관 부처·전담기관은 외부 확인 대장에서, 연관은 문서 근거에서 온다.")
+    s.para(xs["절"] + nw / 2 - 8, y_mid + hh + 6, nw / 2 + gap - 16, "다루는 단위과제", color=MUTED, anchor="end")
+    yb = s.note(y_bot + hh + 12, "점선 상자는 같은 종류의 다른 노드다. 관계마다 기준(구조·분류·식별자 일치·추출·유사도)과 근거(문서·절 위치 또는 외부 출처 URL)를 기록하며, "
+                                 "근거를 제시할 수 없는 관계는 생성하지 않는다. 후속·편입·주관 부처·전담기관 관계는 외부 확인 대장에서, 연관 관계는 문서 근거에서 도출한다.")
     s.fit(yb)
     s.save("c2-19-ontology", "AURA 온톨로지")
 
 
 def agent():
     s = Svg()
-    y = s.title("에이전트 실행 흐름: 모델이 고르고 코드가 지킨다")
+    y = s.title("에이전트 실행 흐름")
     lw = 440
     gap = 56
     rx = M + lw + gap
     rw = W - M - 26 - rx
-    spec = [("상태", ["요청 · 작업 메모 · 최근 대화 · 프로젝트 문서 목록", "작업본의 절 목록과 빈 절 · 받지 못한 값", "· 지금까지 한 단계"], "① 매 단계 다시 봄", False),
-            ("모델이 다음 행동 고르기", ["{생각, 도구, 인자} 를 JSON 으로 (구조화 출력)"], "② 판단", True),
-            ("코드 검증 단계", ["단계 수 상한 · 되돌리기 어려운 도구는 요청 글에 뜻이 있을 때만", "자료 울타리 · 열람 범위 · 수치 근거 대조"], "③ 검사", False),
-            ("도구 실행", ["근거 찾기 · 문서 읽기 · 절 쓰기 · 검토 · 내보내기 · 묻기 …"], "④ 실행", False)]
+    spec = [("상태", ["요청, 작업 메모, 최근 대화, 프로젝트 문서 목록", "작업 문서의 절 목록, 빈 절, 아직 받지 못한 값", "지금까지 수행한 단계"], "①", False),
+            ("모델의 다음 행동 선택", ["{생각, 도구, 인자} 를 구조화 출력(JSON)으로 생성"], "②", True),
+            ("코드 검증 단계", ["단계 수에 상한을 두고, 되돌리기 어려운 도구는 요청에 그 의도가 있을 때만 허용한다", "열람 범위를 확인하고 답변의 수치를 근거와 대조한다"], "③", False),
+            ("도구 실행", ["근거 검색, 문서 읽기, 절 작성, 검토, 내보내기, 사용자에게 묻기 등"], "④", False)]
     ys, hs = [], []
     cy = y
     for t, ln, g, st in spec:
@@ -368,20 +368,20 @@ def agent():
     for i in range(3):
         s.arrow([(cx, ys[i] + hs[i]), (cx, ys[i + 1])], "통과" if i == 2 else "", lx=cx + 10, ly=ys[i + 1] - 6, anchor="start")
     # 오른쪽
-    fh = box_h(rw, "마무리", ["답 · 작업본 · 한글 파일"], tag="끝")
+    fh = box_h(rw, "마무리", ["답변이나 작업 문서, 한글 파일을 출력한다"], tag="종료")
     fy = ys[1] + hs[1] / 2 - fh / 2
-    s.box(rx, fy, rw, fh, "마무리", ["답 · 작업본 · 한글 파일"], tag="끝", strong=True)
+    s.box(rx, fy, rw, fh, "마무리", ["답변이나 작업 문서, 한글 파일을 출력한다"], tag="종료", strong=True)
     s.arrow([(M + lw, ys[1] + hs[1] / 2), (rx, ys[1] + hs[1] / 2)])
-    rh = box_h(rw, "결과 기록", ["결과는 자료로 돌려주고 남김"], tag="⑤ 기록")
+    rh = box_h(rw, "결과 기록", ["도구 결과를 자료로 돌려주고 기록한다"], tag="⑤")
     ry = ys[3] + hs[3] / 2 - rh / 2
-    s.box(rx, ry, rw, rh, "결과 기록", ["결과는 자료로 돌려주고 남김"], tag="⑤ 기록")
+    s.box(rx, ry, rw, rh, "결과 기록", ["도구 결과를 자료로 돌려주고 기록한다"], tag="⑤")
     s.arrow([(M + lw, ys[3] + hs[3] / 2), (rx, ys[3] + hs[3] / 2)])
     s.arrow([(M + lw, ys[2] + hs[2] / 2), (rx + rw / 2, ys[2] + hs[2] / 2), (rx + rw / 2, ry)], dashed=True)
-    s.para(rx + rw / 2 + 8, ys[2] + hs[2] / 2 + 6, rw / 2 + 10, "막으면 까닭을 남김", color=MUTED)
+    s.para(rx + rw / 2 + 8, ys[2] + hs[2] / 2 + 6, rw / 2 + 10, "차단하면 그 사유를 기록", color=MUTED)
     lx = W - M - 8
     s.arrow([(rx + rw, ry + rh / 2), (lx, ry + rh / 2), (lx, ys[0] + 30), (M + lw, ys[0] + 30)])
-    s.para(M + lw + 8, ys[0] + 38, lx - M - lw - 16, "다음 단계 (되풀이)", color=MUTED)
-    s.text(rx + rw / 2, fy - 8, "마무리 고름", color=MUTED, anchor="middle")
+    s.para(M + lw + 8, ys[0] + 38, lx - M - lw - 16, "다음 단계로 반복", color=MUTED)
+    s.text(rx + rw / 2, fy - 8, "끝낼 때", color=MUTED, anchor="middle")
     yb = s.note(ys[3] + hs[3] + 12, "무엇을 할지는 모델이 판단하고, 코드는 그 판단을 안전하게 실행한다. 출력 형식은 구조화 출력으로 강제한다.")
     s.fit(yb)
     s.save("c2-23-agent", "에이전트 실행 흐름")
@@ -389,14 +389,14 @@ def agent():
 
 def sse():
     s = Svg()
-    y = s.title("SSE 알림 흐름: 변경은 POST 로, 알림은 밀어 주기로")
+    y = s.title("SSE 알림 흐름")
     aw, gap = 220, 120
     sx = M + aw + gap
     sw_ = W - M - sx
-    srv = ["① 편집 잠금 확인", "· 이 편집 영역을 쥔 사람인가", "② 버전 번호 확인", "· 어긋나면 충돌 사본으로 둠",
-           "③ 기록", "· 새 버전 번호로 저장 (정답)", "④ 알림 줄에 사건 추가"]
-    shh = s.box(sx, y, sw_, None, "AURA 서버", srv, tag="정답을 쥔 곳", strong=True)
-    ah = s.box(M, y, aw, None, "브라우저 A", ["편집 영역 하나를 고침", "편집 영역 글 전체 + 버전 번호"], tag="고치는 사람")
+    srv = ["① 요청자가 편집 잠금을 가졌는지 확인한다", "② 버전 번호가 다르면 충돌 사본으로 보관한다",
+           "③ 새 버전 번호로 저장한다", "④ 알림 스트림에 이벤트를 추가한다"]
+    shh = s.box(sx, y, sw_, None, "AURA 서버", srv, tag="기준 데이터 보관", strong=True)
+    ah = s.box(M, y, aw, None, "브라우저 A", ["편집 영역 하나를 고친 뒤 그 글 전체와 버전 번호를 보낸다"], tag="편집자")
     s.arrow([(M + aw, y + 40), (sx, y + 40)])
     s.text(M + aw + gap / 2, y + 32, "POST", color=MUTED, anchor="middle", halo=True)
     s.para(M + aw + 8, y + 48, gap - 16, "편집 영역 변경", color=MUTED, anchor="start")
@@ -404,24 +404,26 @@ def sse():
     s.para(M + aw + 8, y + 128, gap - 16, "새 버전 번호", color=MUTED)
     y2 = y + shh + 34
     bw = 300
-    chips = ["사건 41 · 편집 영역 변경", "사건 42 · 편집 잠금", "사건 43 · 편집 영역 변경"]
-    notes = "HTTP 연결 하나로 서버 → 브라우저 한 방향으로 계속"
+    chips = ["이벤트 41: 편집 영역 변경", "이벤트 42: 편집 잠금", "이벤트 43: 편집 영역 변경"]
+    notes = "하나의 HTTP 연결을 열어 두고 서버가 브라우저로 이벤트를 계속 보내는 단방향 스트림이다."
     nh = LH * len(wrap(notes, bw - 2 * PADX))
     bh = 32 + len(chips) * 38 + nh + 12
-    s.band(M, y2, bw, bh, "알림 줄 (SSE)")
+    s.band(M, y2, bw, bh, "알림 스트림 (SSE)")
     for i, t in enumerate(chips):
         chip(s, M + PADX, y2 + 34 + i * 38, bw - 2 * PADX, t, kind="ok" if i == 0 else "plain")
     s.para(M + PADX, y2 + 34 + len(chips) * 38 + 2, bw - 2 * PADX, notes, color=MUTED)
     s.arrow([(sx + 40, y + shh), (sx + 40, y2 - 14), (M + bw / 2, y2 - 14), (M + bw / 2, y2)])
     cx = M + bw + 60
     cw = W - M - cx
-    hb = box_h(cw, "브라우저 B", ["EventSource 로 받음", "그 편집 영역 글을 바꿔 그림"], tag="보는 사람")
-    hc = box_h(cw, "브라우저 C", ["같은 사건을 받음", "끊기면 Last-Event-ID 로 이어 받기"], tag="보는 사람")
-    s.box(cx, y2, cw, hb, "브라우저 B", ["EventSource 로 받음", "그 편집 영역 글을 바꿔 그림"], tag="보는 사람")
-    s.box(cx, y2 + hb + 14, cw, hc, "브라우저 C", ["같은 사건을 받음", "끊기면 Last-Event-ID 로 이어 받기"], tag="보는 사람")
+    B_ = ["이벤트를 받아 해당 편집 영역의 글을 새로 표시한다"]
+    C_ = ["같은 이벤트를 받고, 연결이 끊기면 마지막으로 받은 이벤트 다음부터 이어 받는다"]
+    hb = box_h(cw, "브라우저 B", B_, tag="열람자")
+    hc = box_h(cw, "브라우저 C", C_, tag="열람자")
+    s.box(cx, y2, cw, hb, "브라우저 B", B_, tag="열람자")
+    s.box(cx, y2 + hb + 14, cw, hc, "브라우저 C", C_, tag="열람자")
     s.arrow([(M + bw, y2 + hb / 2), (cx, y2 + hb / 2)])
     s.arrow([(M + bw, y2 + hb + 14 + hc / 2), (cx, y2 + hb + 14 + hc / 2)])
-    yb = s.note(max(y2 + bh, y2 + hb + 14 + hc) + 12, "변경 보내기는 일반 HTTP POST, 밀어 주기는 SSE 다. 별도 양방향 라이브러리나 빌드 단계 없이 FastAPI 서버 그대로 쓴다.")
+    yb = s.note(max(y2 + bh, y2 + hb + 14 + hc) + 12, "변경 전송은 일반 HTTP POST 로, 알림 전송은 SSE 로 처리한다. 별도의 양방향 통신 라이브러리나 빌드 단계 없이 FastAPI 서버만으로 구현한다.")
     s.fit(yb)
     s.save("c2-27-sse", "SSE 알림 흐름")
 
