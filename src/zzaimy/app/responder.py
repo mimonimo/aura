@@ -363,7 +363,8 @@ def prefer_current(db, hits: list[dict]) -> list[dict]:
         if cur and cur["id"] in ids:
             continue                                         # 현행 판이 함께 있다 — 구판 조각은 건네지 않는다
         if cur:
-            h = dict(h, reg_title=f"{h.get('reg_title') or '규정'} (구판 — 현행 판은 최종 개정 {cur['latest'] or '날짜 미상'})")
+            tag = "개정 이력 확인 필요" if cur.get("why") == "확인 필요" else "구판"
+            h = dict(h, reg_title=f"{h.get('reg_title') or '규정'} ({tag} — 현행 판은 최종 개정 {cur['latest'] or '날짜 미상'})")
         out.append(h)
     return out
 

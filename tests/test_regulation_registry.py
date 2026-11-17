@@ -3,8 +3,8 @@ from zzaimy.app import regulation_registry as rr
 
 def test_groups_versions_and_picks_latest_revision_as_current():
     rows = [
-        {"id": 1, "filename": "영남이공대학교 근로장학제도 운영 규정 · 2012년 2월 23일.hwp", "text": "근로장학제도 운영 규정 학과장회 통과일자 : 2012년 2월 23일 제1조"},
-        {"id": 2, "filename": "4-01 영남이공대학교 근로장학제도 운영 규정.hwp", "text": "학과장회 통과일자 : 2016년 3월 17일 제1조(목적) <개정 2020.3.1>"},
+        {"id": 1, "filename": "영남이공대학교 근로장학제도 운영 규정 · 2012년 2월 23일.hwp", "text": "근로장학제도 운영 규정 학과장회 통과일자 : 2012년 2월 23일 제1조", "trusted": 1},
+        {"id": 2, "filename": "4-01 영남이공대학교 근로장학제도 운영 규정.hwp", "text": "학과장회 통과일자 : 2016년 3월 17일 제1조(목적) <개정 2020.3.1>", "trusted": 1},
         {"id": 3, "filename": "취업책임교원제 운영 규정(2013-11-28).hwp", "text": "통과일자 : 2013년 11월 28일"},
     ]
     regs = rr.build(rows)
@@ -69,3 +69,16 @@ def test_bundle_role_needs_head_word():
     assert role("2026 지원사업 공고문.pdf") == "criteria"
     assert role("부트캠프 사업 공고(교육부 공고 제2025-247호).hwpx") == "criteria"
     assert role("지표정의서 및 평가편람(ver5).hwpx") == "criteria"
+
+
+def test_untrusted_newer_version_needs_continuity():
+    old_txt = "학과장회 통과일자 : 2016년 3월 17일 제1조(목적) 이 규정은 근로장학 운영에 필요한 사항을 정한다 <개정 2020.3.1> " * 5
+    rows = [
+        {"id": 1, "filename": "근로장학 규정.hwp", "text": old_txt, "trusted": 1},
+        {"id": 2, "filename": "근로장학 규정 · 2025년 2월 28일.hwp", "text": old_txt + " <개정 2025.2.28>", "trusted": 0},   # 이력을 이은 새 판
+    ]
+    g = rr.build(rows)[0]
+    assert g["current"]["id"] == 2
+    fake = [rows[0], {"id": 3, "filename": "근로장학 규정.hwp", "text": "통과일자 : 2026년 1월 1일 전혀 다른 내용", "trusted": 0}]
+    g = rr.build(fake)[0]
+    assert g["current"]["id"] == 1 and next(v for v in g["versions"] if v["id"] == 3)["status"] == "확인 필요"

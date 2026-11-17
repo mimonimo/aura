@@ -22,7 +22,7 @@
   <input id="rgFind" type="search" placeholder="규정 이름·번호로 찾기" value="{{ q }}" aria-label="규정 찾기">
   <span class="rg-sum">규정 {{ regs|length }}개 · 구판 {{ n_old }}개{% if undated %} · 날짜를 못 읽은 규정 {{ undated }}개{% endif %}</span>
 </div>
-<p class="rg-sum">현행 판은 본문의 학과장회 통과일자와 개정 기록 가운데 가장 늦은 날짜로 정합니다. 질문에 답할 때도 현행 판을 먼저 씁니다.</p>
+<p class="rg-sum">현행 판은 본문의 통과일자·개정 기록 가운데 가장 늦은 날짜로 정합니다. 학교 원본 폴더 밖에서 올라온 새 판은 이전 판의 개정 이력을 이어받았을 때만 현행이 되고, 아니면 「확인 필요」로 둡니다. 답할 때도 현행 판을 먼저 씁니다.</p>
 <table class="rg-table" id="rgTable">
   <thead><tr><th>번호</th><th>규정</th><th>최종 개정</th><th>통과일</th><th>판</th></tr></thead>
   <tbody>
@@ -36,7 +36,7 @@
     </tr>
     {% for v in g.versions[1:] %}
     <tr class="rg-old" hidden>
-      <td></td><td><a href="/doc/{{ v.id }}">{{ v.filename }}</a> <span class="rg-badge old">구판</span></td>
+      <td></td><td><a href="/doc/{{ v.id }}">{{ v.filename }}</a> <span class="rg-badge old">{{ v.status }}</span></td>
       <td class="rg-date">{{ v.latest or "" }}</td><td class="rg-date">{{ v.passed or "" }}</td><td></td>
     </tr>
     {% endfor %}

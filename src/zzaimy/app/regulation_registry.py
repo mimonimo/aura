@@ -67,6 +67,39 @@ def is_rule(name: str, code: str, d: dict) -> bool:
     return bool(code or d.get("passed") or _RULE_NAME.search(re.sub(r"[\s)）\]]+$", "", name or "")))
 
 
+OVERLAP_MIN = 0.3          # 새 판·이전 판 본문의 8글자 조각 겹침 하한 — 운영 실측: 같은 규정 개정판 0.37~0.72, 다른 규정 짝 p95 0.17(최대 0.46). 이름·개정 이력 상속이 주 판정이고 겹침은 보조
+
+
+def _grams(text: str) -> set[str]:
+    t = re.sub(r"\s+", "", text or "")[:30000]
+    return {t[i:i + 8] for i in range(max(0, len(t) - 7))}
+
+
+def _overlap(a: set, b: set) -> float:
+    return len(a & b) / max(1, min(len(a), len(b)))
+
+
+def _follows(new: dict, old: dict) -> bool:
+    """새 판이 이전 판을 이은 것인가 — 개정 이력(「<개정 …>」·부칙 날짜)은 쌓이므로 이전 판의 개정 날짜를 모두 품고, 더 늦으며, 본문이
+    크게 겹친다. 학과장회 통과일자는 판마다 새로 적혀 비교에서 뺀다."""
+    return ((new["latest"] or "") > (old["latest"] or "") and old["_dates"] <= new["_dates"]
+            and _overlap(new["_grams"], old["_grams"]) >= OVERLAP_MIN)
+
+
+def _pick_current(vs: list[dict]) -> int:
+    """늦은 판부터 보며 현행을 고른다(11-17 사용자: 사람 승인 없이 자동으로). 학교 원본(DGX)·관리자가 올린 판은 출처로 믿고,
+    그 밖에 올라온 판(기준 등록·프로젝트 묶음)은 바로 아래 이전 판을 이은 것(_follows)일 때만 현행이 된다.
+    이전 판이 없는 하나뿐인 판은 그대로 현행. 잇지 못한 더 늦은 판은 「확인 필요」 로 남아 현행을 차지하지 못한다."""
+    for i, v in enumerate(vs):
+        older = vs[i + 1:]
+        if v["trusted"] or not older:
+            return i
+        anchor = next((o for o in older if o["trusted"]), older[0])
+        if _follows(v, anchor):
+            return i
+    return len(vs) - 1
+
+
 def build(rows: list[dict], others: list | None = None) -> list[dict]:
     """rows: [{id, filename, created_at, text}] → 규정마다 {name, code, current(판), versions(판 목록, 새것 먼저)}.
     판: {id, filename, latest, passed, n_rev, status(현행|구판), created_at}."""
@@ -83,14 +116,20 @@ def build(rows: list[dict], others: list | None = None) -> list[dict]:
         if code and not g["code"]:
             g["code"] = code
         g["versions"].append({"id": int(r["id"]), "filename": r.get("filename") or "", "latest": d["latest"], "passed": d["passed"],
-                              "n_rev": len(d["revisions"]), "created_at": str(r.get("created_at") or "")[:10]})
+                              "n_rev": len(d["revisions"]), "created_at": str(r.get("created_at") or "")[:10],
+                              "trusted": bool(r.get("trusted")), "_dates": set(d["revisions"]),
+                              "_grams": _grams(r.get("text") or "")})
     out = []
     for g in groups.values():
         vs = sorted(g["versions"], key=lambda v: (v["latest"] or "", v["id"]), reverse=True)
+        cur = _pick_current(vs)
         for i, v in enumerate(vs):
-            v["status"] = "현행" if i == 0 else "구판"
-        g["versions"] = vs
-        g["current"] = vs[0]
+            v["status"] = "현행" if i == cur else ("확인 필요" if i < cur else "구판")
+        for v in vs:
+            v.pop("_dates", None)
+            v.pop("_grams", None)
+        g["versions"] = [vs[cur]] + [v for i, v in enumerate(vs) if i != cur]
+        g["current"] = vs[cur]
         out.append(g)
     out.sort(key=lambda g: (g["code"] == "", [int(x) for x in g["code"].split("-")] if g["code"] else [], g["name"]))
     return out
@@ -109,9 +148,11 @@ def registry(db, where: str = "", args: list | None = None) -> list[dict]:
         with _LOCK:
             if key in _CACHE:
                 return _CACHE[key]
+        tsql, targs = trusted_sql(db)
         rows = [dict(r) for r in conn.execute(
-            f"SELECT d.id, d.filename, d.created_at, SUBSTR(COALESCE(d.masked_text, ''), 1, 200000) AS text FROM documents d "
-            f"WHERE d.doc_type = 'regulation'{where}", args)]
+            f"SELECT d.id, d.filename, d.created_at, SUBSTR(COALESCE(d.masked_text, ''), 1, 200000) AS text, "
+            f"CASE WHEN {tsql} THEN 1 ELSE 0 END AS trusted FROM documents d "
+            f"WHERE d.doc_type = 'regulation'{where}", targs + args)]
     val = build(rows)
     with _LOCK:
         if len(_CACHE) > 32:
@@ -129,11 +170,21 @@ def shared_where(db) -> tuple[str, list]:
         acc = json.loads((Path(db.path).parent / "accounts.json").read_text(encoding="utf-8")) or {}
     except (OSError, ValueError, AttributeError, TypeError):
         acc = {}
-    admins = sorted(u for u, v in acc.items() if isinstance(v, dict) and v.get("role") == "dev")
-    if not admins:
-        return " AND 1=0", []
+    admins = sorted(u for u, v in acc.items() if isinstance(v, dict) and v.get("role") == "dev") or ["\x00"]
     return (" AND COALESCE(d.access_level, 'public') = 'public' AND COALESCE(d.dept, '공통') = '공통'"
-            f" AND d.owner IN ({','.join('?' * len(admins))})"), admins
+            f" AND (d.owner IN ({','.join('?' * len(admins))}) OR d.stored_path LIKE 'dgx://%' OR d.stored_path LIKE '%/기준/%')"), admins
+
+
+def trusted_sql(db) -> tuple[str, list]:
+    """출처로 믿는 판 — 학교 원본 폴더(dgx://)에서 동기화된 것이나 관리자 계정이 올린 것. 사람이 꾸밀 수 없는 표시다."""
+    import json
+    from pathlib import Path
+    try:
+        acc = json.loads((Path(db.path).parent / "accounts.json").read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, AttributeError, TypeError):
+        acc = {}
+    admins = sorted(u for u, v in acc.items() if isinstance(v, dict) and v.get("role") == "dev") or ["\x00"]
+    return f"(d.stored_path LIKE 'dgx://%' OR d.owner IN ({','.join('?' * len(admins))}))", admins
 
 
 def superseded(db, doc_id: int) -> dict | None:
@@ -143,5 +194,5 @@ def superseded(db, doc_id: int) -> dict | None:
     for g in registry(db, where, args):
         for v in g["versions"]:
             if v["id"] == int(doc_id):
-                return None if v["status"] == "현행" else g["current"]
+                return None if v["status"] == "현행" else {**g["current"], "why": v["status"]}
     return None
