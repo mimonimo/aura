@@ -41,6 +41,11 @@ def mm_of(v: int) -> float:
     return round(int(v) / MM, 1)
 
 
+def _nfc_text(t: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFC", t)
+
+
 class EditError(ValueError):
     """에이전트에게 돌려줄 까닭 — 파일은 바꾸지 않는다."""
 
@@ -3560,6 +3565,20 @@ class EditTools:
         heads0 = self._heads(fid)
         self.hw._mark(fid, LABELS.get(name, name))
         sec_ = self._target_section(fid, name, a)              # 이 도구가 채우는 절 — 다 쓴 절의 빨간 안내 글을 끝낼 때 지우려고(quiet_hints)
+        wrong_ = self._wrong_section(fid, sec_) if name in ("hwp_table_insert", "hwp_table_edit") else ""
+        if wrong_:
+            return "넣지 않았다 — " + wrong_
+        if sec_ and name in ("hwp_table_insert", "hwp_table_edit"):
+            fn0 = fn
+
+            def fn(d, _f=fn0, _s=sec_):                    # 표를 채운 절에 남은 양식의 빈 표도 함께 지운다(webhwp_write.drop_spare_form_tables)
+                new_, summ_ = _f(d)
+                try:
+                    from zzaimy.app import webhwp_write as _w
+                    new_ = _w.drop_spare_form_tables(new_, _s)
+                except Exception:
+                    pass
+                return new_, summ_
         out = apply(db, base, fid, fn)
         if name in ("hwp_table_edit", "hwp_table_clone", "hwp_table_insert") and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
             # 표를 쓰거나 고친 자리에서 바로 그 표가 보기 좋은지 검사해 붙인다 — 에이전트가 이어서 고친다(11-16 사용자)
@@ -3611,6 +3630,27 @@ class EditTools:
         diff = {k: vals[k] for k, v in st.items() if k in vals and ce.norm(vals[k]) != ce.norm(v.get("text", ""))}
         if diff:
             ce.put(db, fid, ce.AGENT, diff, client="aura-agent")
+
+    _SEC_ASK = re.compile(r"(?:^|[\s「(])(\d{1,2})\.\s*[가-힣]|(\d{1,2})\s*절")
+
+    def _wrong_section(self, fid: int, sec: str | None) -> str:
+        """요청이 짚은 절(「3. 목표…」·「3절」)과 표 도구가 손대는 표의 절이 다르면 까닭 글 — 3절 지표를 4절 서식 표에 채우고
+        3절 서식 표는 빈 채 남긴 것(11-17 포스터 예시). 요청이 절을 짚지 않았거나(문서 전체 점검) 그 절을 함께 짚었으면 빈 글."""
+        if not sec:
+            return ""
+        want = {int(x or y) for x, y in self._SEC_ASK.findall(_nfc_text(getattr(self.hw, "request", "") or ""))}
+        m = re.match(r"절:(\d{1,2})\.", sec)
+        if not want or not m or int(m.group(1)) in want:
+            return ""
+        from zzaimy.app import webhwp_write as ww
+        try:
+            data = Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes()
+            mine = [t["no"] for t in list_tables(_Doc(data))
+                    if (ww.section_before(data, t["sec"], t["s"]) or "").split(".")[0] in {f"절:{n}" for n in want}]
+        except Exception:
+            mine = []
+        tail = (f" 그 절의 표는 {', '.join(f'표{n}' for n in mine)} 이다." if mine else " 그 절에는 표가 없으니 그 절 필드에 새 표를 넣는다.")
+        return (f"요청은 {'·'.join(f'{n}.' for n in sorted(want))} 절인데 이 표는 「{sec.split(':', 1)[-1]}」 절에 있다." + tail)
 
     def _target_section(self, fid: int, name: str, a: dict) -> str | None:
         """표 고치기·표 넣기·그림 넣기가 손대는 자리를 품은 절 필드 이름(모르면 None)."""

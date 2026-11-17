@@ -908,6 +908,42 @@ def _drop_empty_form_tables(tail: str, form_sid: str | None = None, cols: set[in
     return tail
 
 
+def drop_spare_form_tables(data: bytes, section: str) -> bytes:
+    """표 도구(표 만들기·표 고치기)로 한 절을 채운 뒤, 그 절에 남은 양식의 빈 표를 지운다 — 절 쓰기(본문에 표를 들고 온 쓰기)만
+    빈 틀을 지우고 표 도구로 넣은 표는 지우지 않아, 양식의 빈 예시 표가 채운 표 옆에 그대로 남았다(11-17 포스터 예시 3절·5절).
+    그 절에 사용자 글이 든 표가 하나라도 있을 때만 — 아직 안 쓴 절의 양식 표는 둔다. 지우는 기준은 _drop_empty_form_tables 와 같다."""
+    zin, secs = _open(data)
+    header = zin.read("Contents/header.xml").decode("utf-8")
+    sid, keep = wf.form_style_id(header), wf.form_style_id(header, wf.FORM_KEEP_STYLE)
+    new = {}
+    for n in _sec_order(secs):
+        xml = secs[n]
+        m = _find(xml, section)
+        if not m:
+            continue
+        pb = _para_bounds(xml, m.start())
+        if not pb:
+            continue
+        tail = xml[pb[1]:]
+        nxt = next((x.start() for x in _BEGIN.finditer(tail) if _unq(x.group(2)).startswith("절:")), len(tail))
+        filled = False
+        for tb in re.findall(r"<hp:tbl\b.*?</hp:tbl>", tail[:nxt], re.S):
+            j = wf.user_text_in_table(tb, sid)
+            if j is None:
+                rows = re.findall(r"<hp:tr\b.*?</hp:tr>", tb, re.S)
+                j = bool(re.sub(r"\s+", "", "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", "".join(rows[1:])))))
+            if j:
+                filled = True
+                break
+        if not filled:
+            return data
+        tail2 = _drop_empty_form_tables(tail, sid, None, keep_sid=keep)
+        if tail2 != tail:
+            new[n] = xml[:pb[1]] + tail2
+        break
+    return _pack(zin, new) if new else data
+
+
 _PX = re.compile(r"(<hp:p\b[^>]*>)(<hp:run\b[^>]*>)<hp:t>(.*)</hp:t></hp:run></hp:p>$", re.S)
 
 
