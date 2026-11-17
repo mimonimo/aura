@@ -735,6 +735,26 @@ def _style_toc(doc):
         st.paragraph_format.left_indent = Pt(10 * (lv - 1))
         st.font.size = Pt(10)
         st.font.bold = True                                # 템플릿 목차 줄은 모두 굵게
+        # 워드 내장 「toc n」(스타일 ID TOCn) 으로 — 사용자 스타일(toc1)로 두면 워드가 열 때 목차를 다시 만들며 제 내장 스타일
+        # (문단 뒤 10pt·줄 간격 1.15)을 써서 목차 행간이 벌어졌다(11-18 사용자)
+        el = st.element
+        old_id = el.get(qn("w:styleId"))
+        el.set(qn("w:styleId"), f"TOC{lv}")
+        if el.get(qn("w:customStyle")) is not None:
+            del el.attrib[qn("w:customStyle")]
+        for ps in doc.element.body.iter(qn("w:pStyle")):
+            if ps.get(qn("w:val")) == old_id:
+                ps.set(qn("w:val"), f"TOC{lv}")
+        if el.find(qn("w:basedOn")) is None:
+            bo = OxmlElement("w:basedOn"); bo.set(qn("w:val"), "Normal")
+            el.find(qn("w:name")).addnext(bo)
+        tabs = OxmlElement("w:tabs"); tab = OxmlElement("w:tab")      # 오른쪽 끝 쪽 번호 + 점선
+        tab.set(qn("w:val"), "right"); tab.set(qn("w:leader"), "dot"); sec = doc.sections[0]; tab.set(qn("w:pos"), str(int((sec.page_width - sec.left_margin - sec.right_margin) / 635)))
+        tabs.append(tab)
+        ppr = el.get_or_add_pPr()
+        for t in ppr.findall(qn("w:tabs")):
+            ppr.remove(t)
+        ppr.insert(0, tabs)
 
 
 _PPR_AFTER_BDR = ("shd", "tabs", "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct", "topLinePunct", "autoSpaceDE",

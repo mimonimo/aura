@@ -7,6 +7,7 @@ DEF="$HOME/Desktop/AURA-논문"; [ -d "$HOME/Desktop/AURA/02_논문" ] && DEF="$
 OUT="${1:-$DEF}"
 VM="${AURA_VM:-aura@192.168.16.226}"
 PY="${AURA_PY:-$(pwd)/.venv/bin/python}"; [ -x "$PY" ] || PY=/Users/jun/aigen/aura/zzaimy-capstone/.venv/bin/python
+if [ -z "${WORD_ONLY:-}" ]; then                     # WORD_ONLY=1: 워드본만 다시(빌더만 고쳤을 때)
 echo "── 웹 기안기 문서에 쓰기"
 ssh "$VM" 'cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && env PYTHONPATH=src .venv/bin/python scripts/214_paper_write.py '"${REMAKE:+--remake}"' --rich --overwrite 2>&1 | grep -E "건너뜀|끝|양식|새로" ; env PYTHONPATH=src .venv/bin/python scripts/214_paper_write.py --relayout 2>&1 | tail -1'
 echo "── 바탕화면 사본"
@@ -17,6 +18,8 @@ from zzaimy.app.db import Database
 from zzaimy.app import paper_hwp as ph
 print((ph.current(Database(Path(\"data/platform/platform.db\"))) or {}).get(\"path\",\"\"))"')
 scp -q "$VM:zzaimy-capstone/$P" "$OUT/AURA-논문.hwpx" 2>/dev/null || scp -q "$VM:$P" "$OUT/AURA-논문.hwpx"
+fi
+mkdir -p "$OUT"
 T=$(mktemp -d)
 echo "── 워드 목차 쪽 번호 미리 채우기(운영 서버 LibreOffice 로 쪽을 재서 — 보기 전용 워드에서도 쪽 번호가 보이게)"
 PYTHONPATH=src "$PY" scripts/228_paper_docx.py --out "$OUT/AURA-논문.docx" --entries "$T/e.json"
