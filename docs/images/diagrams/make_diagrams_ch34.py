@@ -505,11 +505,11 @@ def ontology_rel():
     keys = ("묶음", "사업", "연차", "문서", "절")
     xs = {k: M + i * (nw + gap) for i, k in enumerate(keys)}
     hh = max(box_h(nw, t, [sub] if sub else []) for t, sub in
-             (("사업 묶음", ""), ("문서", "서류 종류가 하위 분류"), ("사업", "앞 · 뒤 단계 사업"), ("문서", "계획서 ↔ 실적보고서"),
+             (("사업군", ""), ("문서", "서류 종류가 하위 분류"), ("사업", "앞 · 뒤 단계 사업"), ("문서", "계획서 ↔ 실적보고서"),
               ("문서(평가)", "평가 문서"), ("기관", "부처 · 전담기관"), ("성과지표", "기준 · 목표 · 실적 · 달성률")))
     lab = 3 * LH + 14
     yt, ym, yb_ = y, y + hh + lab, y + 2 * (hh + lab)
-    node(s, xs["묶음"], ym, nw, hh, "사업 묶음")
+    node(s, xs["묶음"], ym, nw, hh, "사업군")
     node(s, xs["사업"], ym, nw, hh, "사업", strong=True)
     node(s, xs["연차"], ym, nw, hh, "연차")
     node(s, xs["문서"], ym, nw, hh, "문서", "서류 종류가 하위 분류")

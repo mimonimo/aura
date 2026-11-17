@@ -300,7 +300,7 @@ def ontology():
     nw = (W - 2 * M - 4 * gap) / 5
     keys = ("묶음", "사업", "연차", "문서", "절")
     xs = {k: M + i * (nw + gap) for i, k in enumerate(keys)}
-    mid = [("묶음", "사업 묶음", "사업 체계의 큰 갈래", False, False), ("사업", "사업", "재정지원 사업 하나", True, False),
+    mid = [("묶음", "사업군", "사업 체계의 큰 갈래", False, False), ("사업", "사업", "재정지원 사업 하나", True, False),
            ("연차", "연차", "N차년도·연도", False, False), ("문서", "문서", "계획서·실적보고서·평가 …", False, False),
            ("절", "절", "문서의 목차 항목", False, False)]
     top = [("사업", "기관", "부처·지자체·전담기관", False, False), ("문서", "문서", "같은 사업·연차의 다른 문서", False, True),
