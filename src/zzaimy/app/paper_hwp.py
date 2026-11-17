@@ -102,6 +102,7 @@ OUTLINE: list[tuple[int, str, str]] = [
 ]
 BACK = ("참고 문헌", "초록", "팀원 소개")
 BACK_OLD = {"초록": ("Abstract",)}          # 예전 이름 — 10-25 국문만으로 바꾸기 전에 만든 논문 문서의 쓸 자리 이름
+TOC_DEPTH = 2                     # 목차에 싣는 제목 단계(장·절)
 LISTS = ("그림 목차", "표 목차")       # 쓸 자리가 있는 차례 장 — 원고의 캡션에서 쓰는 쪽(scripts/214)이 채운다
 TOC_LEADER = " " + "·" * 20
 
@@ -331,10 +332,13 @@ def build(outline: list[tuple[int, str, str]] | None = None, meta: dict | None =
     para(_marker("칸:팀명"), "paper_team")
     para(_marker("칸:팀원"), "paper_members")
 
-    # 목차 — 세 단계, 단계마다 한 글자 들여쓰기, 줄 끝 점선(쪽 번호는 기안기에서 쪽이 정해진 뒤)
+    # 목차 — 장·절 두 단계(TOC_DEPTH), 단계마다 한 글자 들여쓰기, 줄 끝 점선(쪽 번호는 기안기에서 쪽이 정해진 뒤).
+    # 소절(1.1.1)은 본문에만 — 목차가 길어 한눈에 안 들어온다는 검토(11-17)
     para(TOC_TITLE, "toc_title", page=True)
     para("")
     for lv, num, title in outline:
+        if lv > TOC_DEPTH:
+            continue
         line = ("    " * (lv - 1)) + heading_text(num, title, lv) + TOC_LEADER
         para(line, "toc")
     for name in LISTS:                          # 그림 목차·표 목차 — 쪽마다 제목 + 쓸 자리(원고 캡션에서 채운다)
@@ -598,11 +602,12 @@ def toc_entries(data: bytes) -> list[dict]:
                     and heads[j][1][2:].startswith("부록") == appx), None)
         if hit is not None:
             k = hit + 1
-        out.append({"text": text, "field": heads[hit][1] if hit is not None else ""})
-    for i in range(len(out) - 1, -1, -1):
-        if not out[i]["field"] and i + 1 < len(out):
-            out[i]["field"] = out[i + 1]["field"]
-            out[i]["from_next"] = True
+            out.append({"text": text, "field": heads[hit][1]})
+            continue
+        # 칸이 없는 줄(장 줄, 소절만 있는 절)은 문서 차례로 바로 다음 칸 — 목차에 싣지 않는 소절(TOC_DEPTH)의 칸일 수 있다.
+        # 다음 「목차 줄」 의 칸으로 재면 소절을 뺀 목차에서 다음 장의 쪽을 받는다(11-17)
+        nxt = next((j for j in range(k, len(heads)) if heads[j][1][2:].startswith("부록") == appx), None)
+        out.append({"text": text, "field": heads[nxt][1] if nxt is not None else "", "from_next": True})
     return out
 
 

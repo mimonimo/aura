@@ -326,7 +326,7 @@ def test_toc_pages_from_editor_are_written_outside_fields(tmp_path, monkeypatch)
     by = {e["text"]: e for e in ents}
     assert by["1. 서론"]["field"] == "절:1.1 프로젝트 배경 및 목적" and by["1. 서론"]["from_next"]      # 장 줄은 첫 절의 쪽
     assert by["참고 문헌"]["field"] == "절:참고 문헌"
-    assert by["1.2 화면 구성"]["field"] == "절:부록 1.2 화면 구성"                                        # 부록 소절도 차례대로 짝
+    assert "1.2 화면 구성" not in by                                                                 # 소절은 목차에 싣지 않는다(TOC_DEPTH 2, 11-17)
     # 본문 장 줄(칸 없음)이 이름이 같은 부록 절과 짝지어져 뒤 본문 줄이 모두 부록 쪽을 받던 것(10-26) — 「부록.」 줄 앞은 본문 칸만
     body = [e for e in ents[:next(i for i, e in enumerate(ents) if e["text"].startswith("부록"))]]
     assert body and not any(e["field"].startswith("절:부록") for e in body)

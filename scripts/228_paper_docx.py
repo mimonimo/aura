@@ -781,7 +781,7 @@ def build(out: Path, appendix: bool = True) -> dict:
     _para(doc, TEAM, size=20, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0, after=6)
     _para(doc, MEMBERS, size=18, align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
     # 목차·그림 목차·표 목차
-    for title, instr in (("목차", 'TOC \\o "1-3" \\h \\z \\u'), ("그림 목차", 'TOC \\h \\z \\t "그림 캡션,1"'),
+    for title, instr in (("목차", 'TOC \\o "1-2" \\h \\z \\u'), ("그림 목차", 'TOC \\h \\z \\t "그림 캡션,1"'),
                          ("표 목차", 'TOC \\h \\z \\t "표 캡션,1"')):
         doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
         _para(doc, title, size=18, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, indent_pt=0, after=10)   # 템플릿: 「목차」 18pt 굵게 왼쪽
@@ -836,7 +836,7 @@ def toc_entries(path: Path) -> dict:
         if not t:
             continue
         m = re.match(r"Heading (\d)", name)
-        if m and int(m.group(1)) <= 3:
+        if m and int(m.group(1)) <= 2:
             out["toc"].append((int(m.group(1)), t))
         elif name == "그림 캡션":
             out["그림"].append(t)
