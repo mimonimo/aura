@@ -503,7 +503,7 @@ def _squash_el(t: str) -> str:
 
 # 자료를 지우거나 밖으로 보내지 않는 단추 — 시킨 일의 흐름 안에서 바로 누른다(11-18 사용자: 업무 도우미가 확인·선택 단추를 안 눌러 줌).
 # 「확인」 은 지우기·보내기 확인 창이 떠 있으면(같은 화면에 그런 단추가 있으면) 누르지 않는다 — 그때는 담당자가 시킨 말이 있어야 한다
-_NEUTRAL = re.compile(r"^(선택|고르기|고름|다음|이전|열기|열어 보기|찾기|검색|보기|미리 ?보기|닫기|취소|확인|적용|펼치기|접기|더 ?보기|이동)$")
+_NEUTRAL = re.compile(r"^(선택|고르기|고름|다음|이전|열기|열어 보기|찾기|검색|보기|미리 ?보기|닫기|취소|확인|펼치기|접기|더 ?보기|이동)$")
 _DANGER = re.compile(r"삭제|지우|휴지통|비우|보내|내보내|제출|공유|권한|탈퇴|초기화|덮어")
 
 
@@ -689,11 +689,18 @@ def propose(ctx: Ctx, session_id: int, key: str, args: dict) -> dict:
 _ASK_DO = re.compile(r"(줘|주세요|줄래|주라|해라|하자|해요|부탁|바란다|바랍니다)\s*[.!~ㅎ]*\s*$")
 
 
-def asked_to_do(said: str) -> bool:
-    """담당자가 이번 요청에서 일을 시켰는가(「…해 줘」 꼴로 끝나고 묻는 꼴이 아님) — 시켰으면 도우미가 제안 대신 바로 한다(11-18 사용자:
-    제안이 무슨 의미가 있냐). 서버가 담당자가 직접 친 글로만 본다(ctx.said)."""
+# 바로 해도 되는 동작과 그 동작을 시키는 말 — 보이는 범위·공유를 바꾸는 동작(regs.audience, dept_rag.lend)은 늘 [실행] 단추로만(보안 점검 11-18)
+AUTO_RUN = {"project.start": ("만들", "시작", "열어"), "chat.handoff": ("넘겨", "이어", "맡겨", "에이전트"),
+            "regs.register": ("등록",), "dept_rag.create": ("만들", "생성")}
+
+
+def asked_to_do(said: str, op_key: str = "") -> bool:
+    """담당자가 이번 요청에서 이 동작을 시켰는가 — 바로 해도 되는 동작(AUTO_RUN)이고, 글이 「…해 줘」 꼴로 끝나며 묻는 꼴·막는 말이 없고,
+    그 동작을 시키는 말이 글에 있을 때만(11-18 사용자: 제안이 무슨 의미가 있냐). 서버가 담당자가 직접 친 글로만 본다(ctx.said)."""
     text = " ".join(str(said or "").split())
-    return bool(text) and not _ASKING.search(text) and bool(_ASK_DO.search(text))
+    verbs = AUTO_RUN.get(op_key)
+    return (bool(text) and bool(verbs) and not _ASKING.search(text) and not _NOT.search(text)
+            and bool(_ASK_DO.search(text)) and any(v in text for v in verbs))
 
 
 def record(data_dir: Path, rec: dict) -> None:

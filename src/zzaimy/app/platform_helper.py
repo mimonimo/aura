@@ -108,7 +108,7 @@ def tools(env: Env) -> list[doc_agent.Tool]:
             item = platform_ops.propose(env.ctx, env.session_id, str(a.get("op") or ""), a.get("args") if isinstance(a.get("args"), dict) else {})
         except platform_ops.OpRefused as e:
             raise doc_agent.Retry(str(e), e.data)
-        if platform_ops.asked_to_do(env.ctx.said):
+        if platform_ops.asked_to_do(env.ctx.said, item.get("op", "")):
             # 담당자가 시킨 일이면 제안으로 두지 않고 바로 한다 — 권한·대상은 실행 때 다시 확인한다(run_proposal)
             try:
                 done = platform_ops.run_proposal(env.ctx, env.session_id, item["id"])
