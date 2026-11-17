@@ -910,7 +910,8 @@ def build(out: Path, appendix: bool = True) -> dict:
     st = doc.settings.element
     uf = OxmlElement("w:updateFields")
     uf.set(qn("w:val"), "true")
-    st.append(uf)
+    z = st.find(qn("w:zoom"))
+    (z.addprevious(uf) if z is not None else st.insert(0, uf))
     out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(out))
     counts["missing_images"] = missing
@@ -994,9 +995,15 @@ def fill_toc(path: Path, pages: dict) -> int:
         if end is not None:
             end.getparent().remove(end)
             anchor._p.append(end)
+    # 미리 채운 쪽 번호는 서버 LibreOffice 기준이라 워드와 다를 수 있다(맑은 고딕 없음). 워드가 열 때 목차·그림·표 목차를
+    # 다시 계산하게 「열 때 필드 업데이트」 를 둔다 — 보기 전용 워드에서도 다시 계산됨을 확인(11-18). 미리 채운 값은 한글·뷰어용
     st = d.settings.element
     for e in st.findall(qn("w:updateFields")):
         st.remove(e)
+    uf = OxmlElement("w:updateFields")
+    uf.set(qn("w:val"), "true")
+    z = st.find(qn("w:zoom"))
+    (z.addprevious(uf) if z is not None else st.insert(0, uf))
     d.save(str(path))
     return n
 
