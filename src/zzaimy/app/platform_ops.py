@@ -501,6 +501,21 @@ def _squash_el(t: str) -> str:
     return re.sub(r"[\s·「」()\[\]'\"]+", "", str(t or "")).lower()
 
 
+# 자료를 지우거나 밖으로 보내지 않는 단추 — 시킨 일의 흐름 안에서 바로 누른다(11-18 사용자: 업무 도우미가 확인·선택 단추를 안 눌러 줌).
+# 「확인」 은 지우기·보내기 확인 창이 떠 있으면(같은 화면에 그런 단추가 있으면) 누르지 않는다 — 그때는 담당자가 시킨 말이 있어야 한다
+_NEUTRAL = re.compile(r"^(선택|고르기|고름|다음|이전|열기|열어 보기|찾기|검색|보기|미리 ?보기|닫기|취소|확인|적용|펼치기|접기|더 ?보기|이동)$")
+_DANGER = re.compile(r"삭제|지우|휴지통|비우|보내|내보내|제출|공유|권한|탈퇴|초기화|덮어")
+
+
+def _neutral_button(ctl: dict, ctx) -> bool:
+    label = " ".join(str(ctl.get("label") or "").split())
+    if ctl.get("kind") != "button" or not _NEUTRAL.match(label):
+        return False
+    if label == "확인" and any(_DANGER.search(str(c.get("label") or "")) for c in (ctx.controls or [])):
+        return False
+    return True
+
+
 def _verbs_of(label: str) -> tuple[str, ...]:
     """단추 이름에서 시키는 말 — 「저장」 → 저장해·저장하고·저장까지·저장 눌러 …"""
     s = re.sub(r"(하기|하세요)$", "", " ".join(label.split())).strip()
@@ -568,8 +583,8 @@ def propose_open(ctx: Ctx, session_id: int, page: str, why: str, selector: str =
         sel, task, ctl = got
         if task is not None:
             auto, final, what, verbs = task.auto, task.final, task.what, task.verbs
-        else:                                            # 지금 화면의 칸·단추 — 단추는 늘 마지막 단추
-            auto = ctl["kind"] in CONTROL_AUTO
+        else:                                            # 지금 화면의 칸·단추 — 자료를 바꾸는 단추만 마지막 단추
+            auto = ctl["kind"] in CONTROL_AUTO or _neutral_button(ctl, ctx)
             final = not auto
             what = (ctl["label"] + (" 칸 채우기" if ctl["kind"] == "field" else " 고르기" if ctl["kind"] in ("select", "check") else ""))[:40]
             verbs = _verbs_of(ctl["label"]) if final else ()
@@ -669,6 +684,16 @@ def propose(ctx: Ctx, session_id: int, key: str, args: dict) -> dict:
             "target": op.target, "status": "pending", "by": ctx.user, "at": time.strftime("%Y-%m-%d %H:%M:%S")}
     _save(ctx.db, session_id, items + [item])
     return item
+
+
+_ASK_DO = re.compile(r"(줘|주세요|줄래|주라|해라|하자|해요|부탁|바란다|바랍니다)\s*[.!~ㅎ]*\s*$")
+
+
+def asked_to_do(said: str) -> bool:
+    """담당자가 이번 요청에서 일을 시켰는가(「…해 줘」 꼴로 끝나고 묻는 꼴이 아님) — 시켰으면 도우미가 제안 대신 바로 한다(11-18 사용자:
+    제안이 무슨 의미가 있냐). 서버가 담당자가 직접 친 글로만 본다(ctx.said)."""
+    text = " ".join(str(said or "").split())
+    return bool(text) and not _ASKING.search(text) and bool(_ASK_DO.search(text))
 
 
 def record(data_dir: Path, rec: dict) -> None:

@@ -85,7 +85,7 @@ def _para(doc, text="", *, size=BODY_PT, bold=False, align=WD_ALIGN_PARAGRAPH.JU
     if left_cm:
         pf.left_indent = Cm(left_cm)
     if keep_next:
-        pf.keep_with_next = False                       # 편집 기호 ■ 없이(11-17)
+        pf.keep_with_next = True                        # 코드 제목 줄처럼 다음 것과 떨어지면 안 되는 문단
     if text:
         _inline(p, text, size=size, bold=bold, mono=mono)
     return p
@@ -234,8 +234,8 @@ def _heading(doc, text, level, page_before: bool = False):
     pf.line_spacing = 1.5
     pf.space_before = Pt(12 if level == 1 else 8)
     pf.space_after = Pt(4)
-    # 「다음 문단과 함께」·「앞에서 쪽 나눔」 은 워드 편집 기호 ■ 가 제목마다 찍혀(11-17 사용자) 쓰지 않는다 — 장 앞 쪽 나눔은 구역 나눔으로
-    pf.keep_with_next = False
+    # 제목은 다음 문단과 함께(쪽 끝에 제목만 남지 않게, 11-18). 「앞에서 쪽 나눔」 은 쓰지 않는다 — 장 앞 쪽 나눔은 구역 나눔으로
+    pf.keep_with_next = True
     pf.page_break_before = False
     _font(p.add_run(text), CH_PT if level == 1 else SEC_PT if level == 2 else 11, True, color="000000")   # 템플릿: 장 14·절 12·소절 11pt
     return p
@@ -326,7 +326,21 @@ KEEP_ROWS = 4                                           # 이보다 짧은 표�
 _NUMISH = re.compile(r"(?=.*\d).{1,24}")                    # 숫자가 든 짧은 값(수치·건수·시간)
 
 
+def _keep_lead_in(doc, limit: int = 160) -> None:
+    """표·그림 바로 앞의 짧은 소개 문단(「…는 [표 A-16]과 같다」)을 표·그림과 같은 쪽에 — 소개 글만 쪽 끝에 남지 않게(11-18).
+    긴 문단은 묶지 않는다(쪽 하나를 통째로 밀어 큰 빈자리가 생기므로)."""
+    body = doc.element.body
+    last = body[-2] if len(body) >= 2 and body[-1].tag == qn("w:sectPr") else body[-1]
+    if last.tag != qn("w:p"):
+        return
+    text = "".join(t.text or "" for t in last.iter(qn("w:t")))
+    if 0 < len(text.strip()) <= limit:
+        from docx.text.paragraph import Paragraph
+        Paragraph(last, doc._body).paragraph_format.keep_with_next = True
+
+
 def _table(doc, rows):
+    _keep_lead_in(doc)
     ncol = max(len(r) for r in rows)
     t = doc.add_table(rows=len(rows), cols=ncol)
     t.style = "Table Grid"
@@ -427,6 +441,7 @@ def _image(doc, path: Path, missing: list):
         else:
             missing.append(str(path))
             return _para(doc, f"(SVG 그림: {path.name})", align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
+    _keep_lead_in(doc)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.keep_with_next = True       # 그림은 아래 캡션과 같은 쪽에(그림만 남고 캡션이 다음 쪽으로 가지 않게)
@@ -585,12 +600,23 @@ def _render_team(doc, text: str, first_chapter_break: bool) -> bool:
         w = [Cm(3.8), Cm(11.2)]
         for j in range(2):
             t.cell(0, j).width = w[j]
+            t.columns[j].width = w[j]                           # 표 격자 너비도 — 칸 너비만 주면 리브레·한글이 반반으로 나눴다
+        lay = OxmlElement("w:tblLayout"); lay.set(qn("w:type"), "fixed"); t._tbl.tblPr.append(lay)
         tr = t.rows[0]._tr.get_or_add_trPr()
         cs = OxmlElement("w:cantSplit"); cs.set(qn("w:val"), "true"); tr.append(cs)
+        # 사진은 칸을 꽉 채운다(11-18 사용자: 사진을 칸 배경처럼) — 사진 칸의 안쪽 여백을 없애고 사진 너비 = 칸 너비, 칸 높이 = 사진 높이
+        tcpr = t.cell(0, 0)._tc.get_or_add_tcPr()
+        mar = OxmlElement("w:tcMar")
+        for side in ("top", "left", "bottom", "right"):
+            e = OxmlElement(f"w:{side}"); e.set(qn("w:w"), "0"); e.set(qn("w:type"), "dxa"); mar.append(e)
+        tcpr.append(mar)
         left = t.cell(0, 0).paragraphs[0]
         left.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        left.paragraph_format.line_spacing = 1.0                     # 본문 줄 간격(고정값)이면 그림이 줄 높이에 잘린다
+        left.paragraph_format.space_before = left.paragraph_format.space_after = Pt(0)
+        left.paragraph_format.first_line_indent = Pt(0)
         if photo:
-            left.add_run().add_picture(str(photo), width=Cm(2.8))     # 칸 3.8cm − 좌우 칸 여백 — 3.2cm 는 워드에서 칸 밖으로 밀렸다(11-17)
+            left.add_run().add_picture(str(photo), width=w[0])
         right = t.cell(0, 1)
         right.paragraphs[0].text = ""
         # 사람마다 테두리 상자, 역할은 머리말 없이 내용만(11-16 사용자: 「졸업 프로젝트 역할:」 은 군더더기)
