@@ -85,7 +85,7 @@ def _para(doc, text="", *, size=BODY_PT, bold=False, align=WD_ALIGN_PARAGRAPH.JU
     if left_cm:
         pf.left_indent = Cm(left_cm)
     if keep_next:
-        pf.keep_with_next = True
+        pf.keep_with_next = False                       # 편집 기호 ■ 없이(11-17)
     if text:
         _inline(p, text, size=size, bold=bold, mono=mono)
     return p
@@ -225,6 +225,8 @@ def take_footnotes(text: str) -> str:
 
 
 def _heading(doc, text, level, page_before: bool = False):
+    if page_before:
+        _new_page_section(doc)
     """제목 — 워드 「제목 n」 스타일을 양식 모양(14·12pt 굵게, 줄 간격 1.5)으로 바꿔 쓴다(목차 필드가 이 스타일을 모은다)."""
     p = doc.add_paragraph(style=f"Heading {min(level, 3)}")
     pf = p.paragraph_format
@@ -232,15 +234,38 @@ def _heading(doc, text, level, page_before: bool = False):
     pf.line_spacing = 1.5
     pf.space_before = Pt(12 if level == 1 else 8)
     pf.space_after = Pt(4)
-    pf.keep_with_next = True
-    pf.page_break_before = page_before
+    # 「다음 문단과 함께」·「앞에서 쪽 나눔」 은 워드 편집 기호 ■ 가 제목마다 찍혀(11-17 사용자) 쓰지 않는다 — 장 앞 쪽 나눔은 구역 나눔으로
+    pf.keep_with_next = False
+    pf.page_break_before = False
     _font(p.add_run(text), CH_PT if level == 1 else SEC_PT if level == 2 else 11, True, color="000000")   # 템플릿: 장 14·절 12·소절 11pt
     return p
+
+
+def _new_page_section(doc):
+    """새 쪽에서 시작하는 구역 — 머리말·꼬리말·쪽 번호는 앞 구역을 그대로 잇는다(편집 기호 ■ 없이 장을 새 쪽에서)."""
+    from docx.enum.section import WD_SECTION
+    sec = doc.add_section(WD_SECTION.NEW_PAGE)
+    prev = doc.sections[-2]
+    sec.page_width, sec.page_height = prev.page_width, prev.page_height
+    sec.left_margin, sec.right_margin, sec.top_margin, sec.bottom_margin = prev.left_margin, prev.right_margin, prev.top_margin, prev.bottom_margin
+    sec.header_distance, sec.footer_distance = prev.header_distance, prev.footer_distance
+    sec.header.is_linked_to_previous = True
+    sec.footer.is_linked_to_previous = True
+    pg = sec._sectPr.find(qn("w:pgNumType"))
+    if pg is not None:
+        sec._sectPr.remove(pg)                          # 쪽 번호를 1로 다시 세지 않게 — 앞 구역에서 이어 센다
 
 
 def _style_headings(doc):
     for lv, size in ((1, CH_PT), (2, SEC_PT), (3, 11)):
         st = doc.styles[f"Heading {lv}"]
+        st.paragraph_format.keep_with_next = False      # 스타일 쪽 「다음 문단과 함께」 도 끈다(■ 편집 기호)
+    for st in doc.styles:                               # 기본 스타일(제목 4·캡션 등)에 걸린 것도
+        try:
+            if st.paragraph_format.keep_with_next:
+                st.paragraph_format.keep_with_next = False
+        except (AttributeError, ValueError):
+            pass
         st.font.name, st.font.size, st.font.bold = FONT, Pt(size), True
         st.font.color.rgb = RGBColor(0, 0, 0)
         st.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
@@ -382,7 +407,7 @@ def _image(doc, path: Path, missing: list):
             return _para(doc, f"(SVG 그림: {path.name})", align=WD_ALIGN_PARAGRAPH.CENTER, indent_pt=0)
     p = doc.add_paragraph()
     p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.keep_with_next = True
+    p.paragraph_format.keep_with_next = False      # 편집 기호 ■ 없이(11-17) — 그림·캡션 떨어짐은 렌더 점검으로 본다
     try:
         from PIL import Image
         with Image.open(path) as im:

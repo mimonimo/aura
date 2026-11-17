@@ -34,35 +34,35 @@ def mono(s: Svg, x, y, t, *, size=BODY, color=INK, weight=400, anchor="start"):
 
 def speculative():
     s = Svg()
-    y = s.title("추측 디코딩: 예측 층이 짐작하고 본 모델이 검증한다")
+    y = s.title("추측 디코딩: 예측 층이 제안하고 본 모델이 검증한다")
     gap = 40
     bw = (W - 2 * M - gap) / 2
     xl, xr = M, M + bw + gap
     h1 = box_h(bw, "지금까지의 문맥", ["이미 확정된 토큰"], tag="입력") + 40
-    h1 = max(h1, box_h(bw, "예측 층 (MTP)", ["작은 층이 다음 토큰 두 개를 미리 짐작"], tag="① 짐작") + 40)
+    h1 = max(h1, box_h(bw, "예측 층 (MTP)", ["작은 층이 다음 토큰 두 개를 미리 제안"], tag="① 제안") + 40)
     s.box(xl, y, bw, h1, "지금까지의 문맥", ["이미 확정된 토큰"], tag="입력")
     chip(s, xl + PADX, y + h1 - 42, 64, "사업")
     chip(s, xl + PADX + 72, y + h1 - 42, 96, "계획서의")
-    s.box(xr, y, bw, h1, "예측 층 (MTP)", ["작은 층이 다음 토큰 두 개를 미리 짐작"], tag="① 짐작")
+    s.box(xr, y, bw, h1, "예측 층 (MTP)", ["작은 층이 다음 토큰 두 개를 미리 제안"], tag="① 제안")
     chip(s, xr + PADX, y + h1 - 42, 72, "목표", kind="guess")
     chip(s, xr + PADX + 80, y + h1 - 42, 60, "는", kind="guess")
     s.arrow([(xl + bw, y + 40), (xr, y + 40)])
     y2 = y + h1 + 40
-    h2 = box_h(bw, "본 모델", ["짐작한 두 자리를 한 번의 계산으로 확인"], tag="② 검증") + 64
-    s.box(xr, y2, bw, h2, "본 모델", ["짐작한 두 자리를 한 번의 계산으로 확인"], tag="② 검증", strong=True)
+    h2 = box_h(bw, "본 모델", ["제안된 두 자리를 한 번의 계산으로 확인"], tag="② 검증") + 64
+    s.box(xr, y2, bw, h2, "본 모델", ["제안된 두 자리를 한 번의 계산으로 확인"], tag="② 검증", strong=True)
     cy = y2 + h2 - 42
     for x, w, t, k, lab in ((xr + PADX, 72, "목표", "ok", "맞음"), (xr + PADX + 84, 60, "는", "no", "틀림"),
                             (xr + PADX + 156, 60, "와", "ok", "본 모델 토큰")):
         chip(s, x, cy, w, t, kind=k)
         s.text(x if k == "ok" and lab != "맞음" else x + w / 2, cy - 7, lab, color=MUTED, anchor="start" if lab == "본 모델 토큰" else "middle")
-    s.arrow([(xr + bw / 2, y + h1), (xr + bw / 2, y2)], "짐작 전달", lx=xr + bw / 2 + 10, ly=y + h1 + 25, anchor="start")
+    s.arrow([(xr + bw / 2, y + h1), (xr + bw / 2, y2)], "후보 전달", lx=xr + bw / 2 + 10, ly=y + h1 + 25, anchor="start")
     s.box(xl, y2, bw, h2, "받아들인 결과", ["한 번에 두 토큰"], tag="③ 수락")
     chip(s, xl + PADX, cy, 72, "목표", kind="ok")
     chip(s, xl + PADX + 80, cy, 60, "와", kind="ok")
     s.arrow([(xr, y2 + 40), (xl + bw, y2 + 40)])
-    s.arrow([(xl + bw / 2, y2), (xl + bw / 2, y + h1)], "문맥에 덧붙이고 다시 짐작", lx=xl + bw / 2 + 10, ly=y + h1 + 25, anchor="start")
+    s.arrow([(xl + bw / 2, y2), (xl + bw / 2, y + h1)], "문맥에 덧붙이고 다시 제안", lx=xl + bw / 2 + 10, ly=y + h1 + 25, anchor="start")
     y3 = y2 + h2 + 18
-    notes = [("맞은 자리는 수락", "짐작이 본 모델과 같으면 그대로 받는다"),
+    notes = [("맞은 자리는 수락", "제안이 본 모델과 같으면 그대로 받는다"),
              ("틀린 자리부터는 버림", "그 자리는 본 모델 토큰으로 채운다"),
              ("출력 분포는 그대로", "검증을 본 모델이 하므로 맞힌 만큼만 빨라진다")]
     bh = 34 + len(notes) * LH + 8
