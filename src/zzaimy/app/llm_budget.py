@@ -158,6 +158,9 @@ def _shorten(block: str, over_chars: int, marker: str) -> str:
 
 
 COMPRESS_PIECE = 60000             # 한 번에 줄이는 글 조각(자) — 줄이는 호출도 문맥 한도 안에 들게
+COMPRESS_MAX_PIECES = int(os.environ.get("ZZAIMY_COMPRESS_MAX_PIECES", "6"))   # 한 번 줄이기의 호출 수 상한 — 넘는 글은 자르기로
+COMPRESS_TIMEOUT = float(os.environ.get("ZZAIMY_COMPRESS_TIMEOUT", "180"))
+_COMPRESS_CACHE: dict[tuple[str, int], str] = {}                              # (글 지문, 목표 길이) → 줄인 글(같은 글을 되풀이해 줄이지 않게)
 _COMPRESSED = "\n(앞 글을 문맥 한도에 맞춰 줄였다)"
 _COMPRESSING = contextvars.ContextVar("llm_budget_compressing", default=False)
 
@@ -168,9 +171,16 @@ def _compress(client, block: str, over_chars: int, marker: str) -> str:
     target = len(block) - over_chars - len(marker)
     if os.environ.get("ZZAIMY_COMPRESS", "1") == "0" or target < 400 or _COMPRESSING.get():
         return _shorten(block, over_chars, marker)
+    import hashlib
+
+    key = (hashlib.sha1(block.encode("utf-8", "ignore")).hexdigest(), target)
+    if key in _COMPRESS_CACHE:
+        return _COMPRESS_CACHE[key]
+    pieces = [block[i:i + COMPRESS_PIECE] for i in range(0, len(block), COMPRESS_PIECE)]
+    if len(pieces) > COMPRESS_MAX_PIECES:
+        return _shorten(block, over_chars, marker)
     tok = _COMPRESSING.set(True)
     try:
-        pieces = [block[i:i + COMPRESS_PIECE] for i in range(0, len(block), COMPRESS_PIECE)]
         share = target / max(len(block), 1)
         out = []
         for pc in pieces:
@@ -184,10 +194,13 @@ def _compress(client, block: str, over_chars: int, marker: str) -> str:
                            "- 수치·날짜·금액·사람·기관·사업 이름·문서 제목·쪽·출처 표시(글자 그대로)\n"
                            "- 근거 문단의 핵심 주장과 그 출처\n"
                            "되풀이·인사말·군더더기만 뺀다. 표는 필요한 행·열만 남긴 표로. 없는 내용을 더하지 않는다. 줄인 글만 출력한다.\n\n" + pc}],
-                extra_body=getattr(client, "_extra", {}) or {})
+                extra_body=getattr(client, "_extra", {}) or {}, timeout=COMPRESS_TIMEOUT)
             out.append(str(resp.choices[0].message.content or "").strip())
         short = "\n".join(x for x in out if x)
         if short and len(short) <= target + len(marker):
+            if len(_COMPRESS_CACHE) > 64:
+                _COMPRESS_CACHE.clear()
+            _COMPRESS_CACHE[key] = short + _COMPRESSED
             return short + _COMPRESSED
     except Exception:
         pass
@@ -389,3 +402,4 @@ def reset_cache() -> None:
     _LEN_CACHE.clear()
     _TOKENIZE_OK.clear()
     _CORRECTION.clear()
+    _COMPRESS_CACHE.clear()
