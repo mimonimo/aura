@@ -129,6 +129,40 @@ def put_edges(conn, edges: list[tuple]) -> None:
             rows[i:i + 2000])
 
 
+def merge_duplicate_programs(db) -> list[tuple[str, str]]:
+    """이름(label)이 같은 사업 노드를 하나로 — 간선이 가장 많은 노드에 나머지의 간선·이름을 옮기고 지운다.
+
+    사업 카드 묶기(programs.py)에서 장부 번호(fixed_id)와 약칭에서 만든 번호가 갈라져 같은 사업이 두 노드가 되면, 질문의 사업 이름이
+    작은 쪽에 맞아 그 사업 문서 대부분이 검색 범위에서 빠졌다(11-18 GraphRAG 재측정: 「지역성장 인재양성체계(앵커, 구 RISE)」
+    문서 3,030건 노드와 24건 노드). 돌려주는 값: (지운 노드, 남긴 노드) 목록."""
+    merged: list[tuple[str, str]] = []
+    with db._conn() as conn:
+        dups = conn.execute("SELECT label FROM kg_nodes WHERE type = 'program' GROUP BY label HAVING COUNT(*) > 1").fetchall()
+        for (label,) in dups:
+            ids = [r[0] for r in conn.execute("SELECT id FROM kg_nodes WHERE type = 'program' AND label = ?", (label,)).fetchall()]
+            deg = {i: conn.execute("SELECT COUNT(*) FROM kg_edges WHERE src = ? OR dst = ?", (i, i)).fetchone()[0] for i in ids}
+            keep = max(ids, key=lambda i: (deg[i], i == ids[0]))
+            kp = json.loads(conn.execute("SELECT props FROM kg_nodes WHERE id = ?", (keep,)).fetchone()[0] or "{}")
+            for other in ids:
+                if other == keep:
+                    continue
+                op = json.loads(conn.execute("SELECT props FROM kg_nodes WHERE id = ?", (other,)).fetchone()[0] or "{}")
+                for k in ("names", "acronyms"):
+                    if op.get(k):
+                        kp[k] = sorted(set(kp.get(k) or []) | set(op[k]))
+                for src, dst, kind, basis, ev, w in conn.execute(
+                        "SELECT src, dst, kind, basis, evidence, weight FROM kg_edges WHERE src = ? OR dst = ?", (other, other)).fetchall():
+                    ns, nd = (keep if src == other else src), (keep if dst == other else dst)
+                    if ns != nd:
+                        conn.execute("INSERT INTO kg_edges (src, dst, kind, basis, evidence, weight) VALUES (?, ?, ?, ?, ?, ?)"
+                                     " ON CONFLICT(src, dst, kind) DO NOTHING", (ns, nd, kind, basis, ev, w))
+                conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (other, other))
+                conn.execute("DELETE FROM kg_nodes WHERE id = ?", (other,))
+                merged.append((other, keep))
+            conn.execute("UPDATE kg_nodes SET props = ? WHERE id = ?", (json.dumps(kp, ensure_ascii=False), keep))
+    return merged
+
+
 def clear_doc(conn, doc_node: str) -> None:
     """한 문서의 절 노드와 그 관계를 지운다(다시 만들 때)."""
     like = doc_node + ":%"
