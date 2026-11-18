@@ -27,7 +27,7 @@ class BlockError(ValueError):
 
 
 def _text(p: str) -> str:
-    return "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", p)).strip()
+    return re.sub(r"<[^>]+>", " ", "".join(re.findall(r"<hp:t\b[^>]*>((?:[^<]|<hp:(?:tab|lineBreak|fwSpace|nbSpace|hyphen)\b[^>]*/>)*)</hp:t>", p))).strip()
 
 
 def level(head: str) -> tuple | None:

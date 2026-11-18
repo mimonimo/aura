@@ -30,7 +30,7 @@ def _secs(data: bytes) -> list[str]:
 
 
 def _txt(x: str) -> str:
-    return "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", x)).strip()
+    return re.sub(r"<[^>]+>", " ", "".join(re.findall(r"<hp:t\b[^>]*>((?:[^<]|<hp:(?:tab|lineBreak|fwSpace|nbSpace|hyphen)\b[^>]*/>)*)</hp:t>", x))).strip()
 
 
 def _cell_width(tc: str) -> int:

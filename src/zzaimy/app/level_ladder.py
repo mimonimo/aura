@@ -20,7 +20,7 @@ LONG = 40                      # 바탕 크기를 셀 때 쓰는 「긴 문단�
 STEP = 100                     # 한 단계 차이(HWPUNIT, 1pt)
 FLOOR = 1000                   # 10pt 아래로는 내리지 않는다
 _TITLE = re.compile(r"^\s*(\d{1,2}|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ])\.\s*\S")
-_T = re.compile(r"<hp:t\b[^>]*>([^<]*)</hp:t>")
+_T = re.compile(r"<hp:t\b[^>]*>((?:[^<]|<hp:(?:tab|lineBreak|fwSpace|nbSpace|hyphen)\b[^>]*/>)*)</hp:t>")   # 「가)⇥본문」 처럼 탭이 낀 글도
 _CPREF = re.compile(r'(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")')
 
 
@@ -82,7 +82,7 @@ def _paras(xml: str):
         p = xml[a:b]
         if "<hp:tbl" in p or "<hp:pic" in p or "<hp:rect" in p or "<hp:container" in p:
             continue
-        t = "".join(_T.findall(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", p, flags=re.S))).strip()
+        t = re.sub(r"<[^>]+>", " ", "".join(_T.findall(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", p, flags=re.S)))).strip()
         if t:
             yield a, b, t, p
 

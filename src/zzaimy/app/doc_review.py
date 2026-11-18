@@ -16,14 +16,15 @@ _HAN = re.compile(r"[一-鿿]+")
 _TBL = re.compile(r"<hp:tbl\b.*?</hp:tbl>", re.S)
 _TR = re.compile(r"<hp:tr\b.*?</hp:tr>", re.S)
 _TC = re.compile(r"<hp:tc\b.*?</hp:tc>", re.S)
-_T = re.compile(r"<hp:t\b[^>]*>([^<]*)</hp:t>")
+_T = re.compile(r"<hp:t\b[^>]*>((?:[^<]|<hp:(?:tab|lineBreak|fwSpace|nbSpace|hyphen)\b[^>]*/>)*)</hp:t>")   # 「가)⇥본문」 처럼 탭·줄바꿈이 낀 글도(11-18 — 8절 항목을 빈 문단으로 읽었다)
+_INL = re.compile(r"<[^>]+>")
 _PARA = re.compile(r"<hp:p\b.*?</hp:p>", re.S)
 _ITEM = re.compile(r"^\s*(\d{1,2})\)\s")
 MAX_ISSUES = 12
 
 
 def _txt(xml: str) -> str:
-    return re.sub(r"\s+", " ", "".join(_T.findall(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S)))).strip()
+    return re.sub(r"\s+", " ", _INL.sub(" ", "".join(_T.findall(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S))))).strip()
 
 
 def _rows(tbl: str) -> list[list[str]]:

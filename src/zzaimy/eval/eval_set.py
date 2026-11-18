@@ -37,7 +37,7 @@ class Block:
 
 
 def _t(xml: str) -> str:
-    return "".join(re.findall(r"<hp:t(?:\s[^>]*)?>([^<]*)</hp:t>", xml)).replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    return re.sub(r"<[^>]+>", " ", "".join(re.findall(r"<hp:t(?:\s[^>]*)?>((?:[^<]|<hp:(?:tab|lineBreak|fwSpace|nbSpace|hyphen)\b[^>]*/>)*)</hp:t>", xml))).replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
 
 def _top_tags(xml: str, tag: str) -> list[tuple[int, int]]:
