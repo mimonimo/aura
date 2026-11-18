@@ -610,13 +610,14 @@ def _team_people(text: str) -> list[dict]:
 def _render_team(doc, text: str, first_chapter_break: bool) -> bool:
     _heading(doc, "팀원 소개", 1, page_before=bool(first_chapter_break))
     photos = sorted(TEAM_PHOTOS.glob("*.jp*g")) + sorted(TEAM_PHOTOS.glob("*.png")) if TEAM_PHOTOS.is_dir() else []
-    for person in _team_people(text):
+    people = _team_people(text)
+    for person in people:
         bare = re.sub(r"\s*\(.*?\)", "", person["이름"]).strip()
         photo = next((p for p in photos if bare and bare in p.stem), None)
         t = doc.add_table(rows=1, cols=2)
         t.alignment = WD_TABLE_ALIGNMENT.CENTER
         t.autofit = False
-        w = [Cm(3.8), Cm(11.2)]
+        w = [Cm(3.2), Cm(11.8)]                                 # 사진 3.2cm(높이 약 4.2cm) — 3.8cm 면 네 사람이 워드 한 쪽에 안 들어갔다(11-18)
         for j in range(2):
             t.cell(0, j).width = w[j]
             t.columns[j].width = w[j]                           # 표 격자 너비도 — 칸 너비만 주면 리브레·한글이 반반으로 나눴다
@@ -653,7 +654,8 @@ def _render_team(doc, text: str, first_chapter_break: bool) -> bool:
             elif v:
                 p.paragraph_format.space_before = Pt(6)
                 _font(p.add_run(v), 10.5)
-        _para(doc, "", indent_pt=0, after=10)
+        if person is not people[-1]:
+            _para(doc, "", indent_pt=0, after=4)                # 마지막 사람 뒤 빈 문단은 다음 쪽을 빈 쪽으로 밀었다
     return True
 
 
