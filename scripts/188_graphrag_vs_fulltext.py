@@ -533,6 +533,7 @@ def main() -> int:
     ap.add_argument("--only", default="", help="이 갈래의 질문만 — section · relation · plan_report · lineage · evaluates(쉼표로 여럿)."
                     " 27B 읽기(C) 측정을 필요한 질문으로만 줄일 때")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--remap-gold", action="store_true", help="정답 문서가 다른 번호로 다시 등록된 절 질문은 정답 절 글로 찾아 번호를 잇는다(질문은 그대로)")
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     ap.add_argument("--sec-set", default=str(ROOT / "data/eval/rag_probe_set.json"))
     ap.add_argument("--named", action="store_true", help="절 질문은 문서 이름을 넣은 질문(q_named, scripts/173 이 집합에 적어 둔 것)으로")
@@ -570,6 +571,34 @@ def main() -> int:
     # 정답 문서가 지금 문서함에 없는 질문은 뺀다(반입 정리로 빠진 문서) — 뺀 수는 결과에 남긴다
     with db._conn() as conn:
         live = {int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'").fetchall()}
+    # 문서함 정리(중복·판본 묶기)로 정답 문서가 다른 번호로 다시 등록된 경우 — 절 질문은 정답 절 글로 지금 문서를 찾아 번호만 잇는다.
+    # 질문·정답 글은 그대로(같은 시험지). 하나로 정해지지 않으면 잇지 않고 뺀다. 이은 것은 결과의 remapped 에 남긴다(11-18)
+    remapped = {}
+    if args.remap_gold:
+        with db._conn() as conn:
+            for x in items:
+                if x["set"] != "section" or x["doc_id"] in live:
+                    continue
+                g = re.sub(r"\s+", "", x.get("gold_text") or "")
+                hits = set()
+                for off in (len(g) // 3, len(g) // 2):
+                    snip = g[off:off + 40]
+                    if len(snip) < 30:
+                        continue
+                    rows = conn.execute("SELECT id FROM documents WHERE doc_type = 'grant' AND status = 'reviewed' "
+                                        "AND replace(replace(replace(masked_text, ' ', ''), chr(10), ''), chr(9), '') LIKE ?",
+                                        (f"%{snip}%",)).fetchall()
+                    hits |= {int(r[0]) for r in rows}
+                    if hits:
+                        break
+                if len(hits) == 1:
+                    new = hits.pop()
+                    remapped[x["id"]] = [x["doc_id"], new]
+                    x["twins"] = set(x["twins"]) | {new}
+                    x["prog_docs"] = set(x["prog_docs"]) | {new}
+                    x["doc_id"] = new
+        if remapped:
+            print(f"정답 문서 번호를 지금 문서에 이은 질문 {len(remapped)}문: {remapped}", flush=True)
     dropped = [x["id"] for x in items if (x["doc_id"] not in live if x["set"] == "section"
                                           else not (set(x["gold"]) & live if x["any"] else set(x["gold"]) <= live))]
     items = [x for x in items if x["id"] not in set(dropped)]
@@ -653,7 +682,7 @@ def main() -> int:
                                "k": {"section": args.k_sec, "relation": args.k_rel},
                                "rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
                                "sets": {"section": Path(args.sec_set).name, "relation": Path(args.rel_set).name},
-                               "elapsed_min": round((time.time() - started) / 60, 1), "dropped": dropped,
+                               "elapsed_min": round((time.time() - started) / 60, 1), "dropped": dropped, "remapped": remapped,
                                "summary": summary, "think": think, "rows": rows, "judged": len(judged)},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     bl = ROOT / "data" / "eval" / f"graphrag_blind_{args.tag}.json"
