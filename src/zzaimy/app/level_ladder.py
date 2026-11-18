@@ -5,7 +5,7 @@
 
 - AURA 가 만든 양식(「양식 틀」 스타일이 있는 문서)에만 — 학교 원본 서식은 서식 작성자의 뜻이라 손대지 않는다.
 - 바탕 크기 B 는 긴 본문 문단에서 가장 흔한 크기. 1단계 항목(첫 부호) B+1pt 굵게, 2단계 B, 3단계 아래 B-1pt(10pt 아래로는 내리지 않음).
-  부호 없는 문단은 바로 앞 항목 단계의 크기(항목 앞 문단은 B). 절 제목(「1. 사업 개요」)은 1단계보다 1pt 이상 크게.
+  부호 없는 문단(표 아래 설명 등)은 본문 — 바탕 크기 B, 굵게 하지 않음(3단계 아래에서는 그 크기). 절 제목(「1. 사업 개요」)은 1단계보다 1pt 이상 크게.
 - 글꼴·색·기울임은 그대로 두고 크기·굵기만 바꾼 글자 모양을 header 에 한 번씩 등록한다. 표·그림 문단, 양식 틀 글은 건드리지 않는다.
 """
 from __future__ import annotations
@@ -109,11 +109,14 @@ def apply(data: bytes) -> bytes:
                 stack, depth = [], 0
                 continue
             lv = ww.marker_level(t)
+            marked = False
             if lv is not None and lv > 0 and ww._small_number(t):
-                depth = ww._push_depth(stack, lv)
+                depth = ww._push_depth(stack, lv); marked = True
             elif lv == 0 and ww._small_number(t) and len(t) > 30:
-                depth = ww._push_depth(stack, lv)
-            plan.append((n, a, b, p, depth))
+                depth = ww._push_depth(stack, lv); marked = True
+            # 부호 없는 문단(표 아래 설명 등)은 본문 — 굵게 하지 않고 바탕 크기(3단계 아래면 그 크기). 앞 항목 「1) …」 의
+            # 굵은 큰 글씨를 물려받아 설명 문단이 통째로 굵게 보였다(11-18 포스터 예시 4절)
+            plan.append((n, a, b, p, depth if marked or depth >= 3 else 0))
             if len(t) >= LONG:
                 c = _CPREF.search(p)
                 if c:
