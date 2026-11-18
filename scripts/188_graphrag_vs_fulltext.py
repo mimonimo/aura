@@ -533,6 +533,7 @@ def main() -> int:
     ap.add_argument("--only", default="", help="이 갈래의 질문만 — section · relation · plan_report · lineage · evaluates(쉼표로 여럿)."
                     " 27B 읽기(C) 측정을 필요한 질문으로만 줄일 때")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--drop", default="", help="이 질문 번호도 뺀다(쉼표) — 앞선 측정과 시험지를 맞출 때")
     ap.add_argument("--remap-gold", action="store_true", help="정답 문서가 다른 번호로 다시 등록된 절 질문은 정답 절 글로 찾아 번호를 잇는다(질문은 그대로)")
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     ap.add_argument("--sec-set", default=str(ROOT / "data/eval/rag_probe_set.json"))
@@ -601,6 +602,8 @@ def main() -> int:
             print(f"정답 문서 번호를 지금 문서에 이은 질문 {len(remapped)}문: {remapped}", flush=True)
     dropped = [x["id"] for x in items if (x["doc_id"] not in live if x["set"] == "section"
                                           else not (set(x["gold"]) & live if x["any"] else set(x["gold"]) <= live))]
+    if args.drop:                                        # 앞선 측정에서 뺀 질문을 같이 빼 시험지를 맞춘다(번호를 이어 되살아난 것 포함)
+        dropped += [i for i in args.drop.split(",") if i and i not in dropped]
     items = [x for x in items if x["id"] not in set(dropped)]
     if args.only:
         only = set(args.only.split(","))
