@@ -49,11 +49,49 @@ def export(path: Path, fmt: str, http=None) -> tuple[bytes, str, str]:
     src = "HWPX" if data[:2] == b"PK" else "HWP"
     if src.lower() == fmt:
         out = data
+    elif fmt in ("pdf", "docx") and _has_pictures(data):
+        # 기안기 필터 서버는 문서를 구조(JSON)로만 열고 저장해 그림 파일이 빠진다(11-19: 그림 87장 논문을 PDF 로 받자 그림 자리가 빈칸,
+        # 같은 서버로 hwpx→hwpx 왕복해도 BinData 0개). 그림이 든 문서의 PDF·Word 는 열람본과 같은 우리 변환기(hwpx→docx→LibreOffice)로 만든다
+        out = _own_convert(path, data, fmt)
     else:
+        if fmt == "hwp" and _has_pictures(data):
+            raise RuntimeError("그림이 든 문서는 옛 한글(hwp)로 받으면 그림이 빠집니다 — 한글(hwpx)로 받아 주세요")
         out = webhwp_convert.convert(data, src, flt, "x" + ext, http)
         if not _looks_like(fmt, out):
             raise RuntimeError(f"{FORMATS[fmt][3]} 로 바꾸지 못했습니다")
     return out, path.stem + ext, mime
+
+
+def _has_pictures(data: bytes) -> bool:
+    """hwpx(ZIP)에 그림(BinData)이 들었나. 옛 hwp 는 알 수 없어 False."""
+    if data[:2] != b"PK":
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            return any(n.startswith("BinData/") for n in z.namelist())
+    except zipfile.BadZipFile:
+        return False
+
+
+def _own_convert(path: Path, data: bytes, fmt: str) -> bytes:
+    """그림을 지키는 변환 — Word 는 hwpx_docx, PDF 는 그 docx 를 LibreOffice 로(office_pdf, 문서 열람본과 같은 길)."""
+    import tempfile
+    from zzaimy.app import office_pdf
+    work = Path(tempfile.mkdtemp(prefix="zz-export-"))
+    try:
+        src = work / "문서.hwpx"
+        src.write_bytes(data)
+        if fmt == "docx":
+            conv = office_pdf.docx_for(src)
+            if conv is None:
+                raise RuntimeError("Word(docx) 로 바꾸지 못했습니다")
+            return conv[0]
+        out = office_pdf.convert_file(src, work / "문서.pdf")
+        if out is None:
+            raise RuntimeError("PDF 로 바꾸지 못했습니다")
+        return out.read_bytes()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def clean_title(name: str) -> str:

@@ -168,3 +168,25 @@ def test_editor_page_offers_save_dialog_and_folder_path(tmp_path, monkeypatch):
     assert "/hwp?dept=%EA%B8%B0%ED%9A%8D%EC%B2%98&amp;folder=%EC%9E%91%EC%97%85" in page or "folder=%EC%9E%91%EC%97%85" in page
     for k in webhwp_export.FORMATS:
         assert f"/hwp/{j['id']}/export?fmt={k}" in page
+
+
+def test_pictures_skip_filter_server(monkeypatch, tmp_path):
+    """그림이 든 hwpx 의 PDF 는 필터 서버(그림이 빠짐) 대신 우리 변환기로 만든다(11-19)."""
+    import io
+    import zipfile
+    from zzaimy.app import webhwp_export as we
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("BinData/image1.png", b"x")
+    f = tmp_path / "a.hwpx"
+    f.write_bytes(buf.getvalue())
+    called = {}
+    monkeypatch.setattr(we, "_own_convert", lambda p, d, fmt: called.setdefault("own", b"%PDF-1.7 x"))
+    import zzaimy.app.webhwp_convert as wc
+    monkeypatch.setattr(wc, "convert", lambda *a, **k: (_ for _ in ()).throw(AssertionError("필터 서버를 부르면 안 됨")))
+    out, name, mime = we.export(f, "pdf")
+    assert out.startswith(b"%PDF") and called
+    import pytest
+    with pytest.raises(RuntimeError):
+        we.export(f, "hwp")
