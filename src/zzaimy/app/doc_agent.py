@@ -49,6 +49,7 @@ SYSTEM = """당신은 대학 행정 문서 작성 에이전트다. 담당자의 
   맥락일 뿐 근거가 아니다 — 앞 대화에서 본 사실을 쓰려면 다시 search 로 확인한다. 생각(thought)에도 이번 결과에 없는 사실을 확인됐다고 쓰지 않는다.
 - 검색 결과에 묻는 사실이 없으면(결과 머리의 「검색어 일치」 를 본다) 다른 표현·낱말로 다시 찾는다. 다시 찾아도 없으면 없다고 답한다.
 - 맞는 문서를 찾았는데 결과가 잘려 필요한 부분(표의 나머지 등)이 없으면 검색어를 바꾸기보다 그 문서를 read_found 로 이어 읽는다.
+- 여러 문서의 실적을 모아 정리하는 글(결과보고서의 월별·분야별 실적·집행 표 등)은 collect_facts 로 근거 문서 전부에서 기록을 모은 뒤 aggregate_facts 로 묶어 더한 값을 쓴다 — 합계·건수를 머리로 더하지 않는다. 모은 기록과 집계도 이번 요청의 근거다.
 - 수치·고유명사는 찾은 근거에 있는 것만 쓴다. 자료로 찾을 수 없고 담당자만 아는 값은 ask_user 로 묻는다(먼저 찾아보고 묻는다).
 - 묻는 값은 이번 요청에 따라 그때그때 정한다 — 정해 둔 질문 목록을 습관처럼 묻지 않는다. 요청 글·프로젝트 이름·
   프로젝트 문서로 알 수 있는 것은 묻지 않는다. 요청이 막연하면 상태로 알 수 있는 데까지 먼저 하고, 그래도 갈림길이면 그 하나만 묻는다.
@@ -338,7 +339,8 @@ def _fallback_finish(log: list[str]) -> str:
     """모델이 끝맺음 글을 두 번 비웠을 때 — 걸음 기록(도구 이름·결과 요약)으로 무엇을 했는지만 알린다. 문서 글을 옮기지 않는다."""
     done = [ln.split(" ", 2)[1] for ln in log if ln and "→" in ln and "거절" not in ln and "하지 않음" not in ln and len(ln.split(" ", 2)) > 1]
     names = {"search": "자료 찾기", "read_found": "찾은 문서 읽기", "read_document": "문서 읽기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
-             "delegate_section": "절 맡겨 쓰기", "hwp_start": "작업본 열기", "hwp_replace": "글 바꾸기"}
+             "delegate_section": "절 맡겨 쓰기", "hwp_start": "작업본 열기", "hwp_replace": "글 바꾸기",
+             "collect_facts": "실적 모으기", "aggregate_facts": "실적 집계"}
     did = ", ".join(dict.fromkeys(names.get(n, n) for n in done if n != "finish"))
     return ("요청을 처리했지만 모델이 끝맺음 글을 내지 못했습니다." + (f" 이번에 한 일: {did}." if did else "")
             + " 결과는 오른쪽 문서와 위 기록에서 확인해 주세요. 더 할 일이 있으면 이어서 말해 주세요.")
@@ -691,6 +693,8 @@ def _step_label(name: str, args: dict) -> str:
     """화면 진행 표시 — 에이전트가 지금 무엇을 하는지."""
     labels = {"search": lambda a: f"「{a.get('query', '')[:30]}」 찾는 중",
               "read_found": lambda a: f"「{str(a.get('document', ''))[:30]}」 이어 읽는 중",
+              "collect_facts": lambda a: "문서마다 실적 모으는 중",
+              "aggregate_facts": lambda a: f"실적 집계 중({(a.get('group_by') if isinstance(a.get('group_by'), str) else '·'.join(map(str, a.get('group_by') or [])))[:30]})",
               "read_section": lambda a: f"「{a.get('section', '')[:30]}」 절 읽는 중",
               "write_section": lambda a: f"「{a.get('section', '')[:30]}」 절 쓰는 중",
               "delegate_section": lambda a: (f"절 {len(a['sections'])}개 맡겨 쓰는 중(동시에)" if isinstance(a.get("sections"), list)

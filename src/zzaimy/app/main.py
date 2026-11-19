@@ -2652,7 +2652,8 @@ def create_app(
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
                     "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_switch": "작업 문서 바꾸기", "hwp_form_create": "양식 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
                     "ask_user": "묻기", "finish": "마무리", "create_document": "문서 만들기", "hwp_style": "표 서식", "hwp_tables": "표 보기",
-                    "delegate_section": "절 맡기기", "hwp_revise": "고쳐 쓰기"}
+                    "delegate_section": "절 맡기기", "hwp_revise": "고쳐 쓰기",
+                    "collect_facts": "실적 모으기", "aggregate_facts": "실적 집계"}
 
     def _tool_label(name: str) -> str:
         return _TOOL_LABELS.get(name, name or "생각")
@@ -2766,7 +2767,12 @@ def create_app(
                     if other_:
                         tags.append(f"다른 사업 「{other_[:30]}」 · 참고만, 이 사업의 값으로 쓰지 않음")
                     rows_.append(f"「{storage.title_of(d.get('filename') or '')[:50]}」({', '.join(tags)})")
-                lines.append("프로젝트 문서(괄호 안은 search 의 source): " + (", ".join(rows_) or "(없음)"))
+                lines.append("프로젝트 문서(괄호 안은 search 의 source): " + (", ".join(rows_) or "(없음)")
+                             + (f" … 외 {len(docs) - 16}개(모두 {len(docs)}개 — 여기 안 보인 문서도 search·collect_facts 가 다 다룬다)" if len(docs) > 16 else ""))
+                from zzaimy.app import fact_ledger as _fl_st
+                _fst = _fl_st.status_line(db, session_id)
+                if _fst:
+                    lines.append(_fst)
                 if project and hw is not None:
                     # 그림 파일은 올린 이름으로 — 반입이 이름을 그림 속 글로 바꾸고, 같은 그림을 전에 들였으면 그쪽 문서에 이어져 목록에 안 보였다(11-13 5차:
                     # 「image_002.png 가 프로젝트에 없다」 고 넣지 않음). hwp_picture image 에 이 이름을 그대로 쓴다
@@ -3087,6 +3093,37 @@ def create_app(
             if fd["src"] in ("project", "criteria"):
                 seen_hits.append({"title": fd["title"], "text": text, "doc_id": did, "chunk_id": ids[start]})
             return note_ + head + "\n" + text + "\n" + tail
+
+        def _fact_docs(titles) -> list[dict]:
+            """실적 모으기 대상 — 이 프로젝트의 근거 문서 전부(양식·작업본 빼고, 열람 범위 안). titles 를 주면 그 제목이 든 문서만."""
+            docs_ = mats().past_docs()
+            want = [str(t_).strip().strip("《》「」") for t_ in (titles or []) if str(t_).strip()]
+            if want:
+                docs_ = [d_ for d_ in docs_ if any(w_ in storage.title_of(d_.get("filename") or "") for w_ in want)]
+            return docs_
+
+        def t_collect(a: dict) -> str:
+            from zzaimy.app import fact_ledger as _fl
+            items_ = a.get("items") or []
+            if isinstance(items_, str):
+                items_ = [x_ for x_ in re.split(r"[,·/]\s*", items_) if x_.strip()]
+            docs_ = _fact_docs(a.get("documents"))
+            if not docs_:
+                raise doc_agent.Retry("모을 문서가 없다 — 이 프로젝트에 다 읽은 근거 문서가 없거나 documents 의 제목이 맞지 않는다.")
+            return _fl.collect(db, session_id, docs_, list(items_), client, title_of=lambda d_: storage.title_of(d_.get("filename") or ""))
+
+        def t_aggregate(a: dict) -> str:
+            from zzaimy.app import fact_ledger as _fl
+
+            def _list(v_):
+                return [x_ for x_ in re.split(r"[,/]\s*", v_) if x_.strip()] if isinstance(v_, str) else list(v_ or [])
+            obs_, ev_ = _fl.aggregate(db, session_id, _list(a.get("group_by")), _list(a.get("sum")), count=a.get("count") is not False,
+                                      filt=a.get("filter") if isinstance(a.get("filter"), dict) else None)
+            if ev_:
+                body_ = "\n".join(ev_)
+                notes.append(f"◇ {a.get('for') or '실적 집계'} — 모은 기록 집계(코드가 더한 값)\n{body_}")
+                found.append({"title": "실적 집계", "text": body_[:4000], "doc_id": None, "note": "", "read": True})
+            return obs_
 
         seen_hits: list[dict] = []                             # 이번 요청의 프로젝트·기준 문서 search 결과 — 자료로 값 채우기의 근거
         resolved_now: list[str] = []                           # 이번 요청에서 자료 제안으로 남긴 값
@@ -3468,6 +3505,14 @@ def create_app(
             doc_agent.Tool("read_found", "이번 search 결과에 나온 문서를 이어 읽기(맞는 문서를 찾았는데 결과가 잘려 표·목록의 나머지가 필요할 때). "
                            "args {document: 결과의 《제목》 또는 (문서 번호), around: 이어 볼 낱말이나 표 머리(선택), "
                            "from·line: 앞 결과가 알려 준 다음 위치(선택)}", t_read_found, gathers=True),
+            doc_agent.Tool("collect_facts", "프로젝트 근거 문서 전부를 끝까지 읽어 실적 기록(한 활동·한 집행 줄마다)을 모으기 — 결과보고서처럼 여러 문서의 실적을 "
+                           "월별·분야별로 정리해야 할 때 search 대신 먼저 쓴다(search 는 조각 몇 개만 봐 빠지는 문서가 생긴다). 값은 문서 글 그대로 모인다. "
+                           "args {items: 기록마다 뽑을 항목 이름 목록(예: [날짜, 분야, 활동, 참여 인원, 금액, 비목]), documents?: 일부 문서만이면 제목 목록}",
+                           t_collect, gathers=True),
+            doc_agent.Tool("aggregate_facts", "collect_facts 로 모은 기록을 묶어 세고 더하기 — 표의 월별·분야별 합계·건수는 이 결과를 쓴다(직접 더하지 않는다). "
+                           "날짜 항목은 「날짜:월」(또는 「날짜:연」)로 달·해 단위로 묶는다. 결과는 근거로 남아 표·본문에 그대로 쓸 수 있다. "
+                           "args {group_by: [묶을 항목], sum: [더할 수 항목], count?: 건수도 셀지(기본 true), filter?: {항목: 들어 있어야 할 글}}",
+                           t_aggregate, gathers=True),
             doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
             doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",
                            t_create, writes=True),
@@ -3558,7 +3603,9 @@ def create_app(
             hw.client, hw.request = client, q
             hw.doc_visible = lambda d_: _viewer_sees(session_id, d_)
             hw.form_search = lambda query_: list(mats().search_project(query_) or [])[:3] + (list(mats().search_criteria(query_) or [])[:3] if crit_ids else [])
-            hw.evidence = lambda: [q, *notes, *[str(m_.get("content") or "") for m_ in db.list_chats(session_id, limit=400) if m_.get("role") == "user"]]
+            from zzaimy.app import fact_ledger as _fl_ev
+            hw.evidence = lambda: [q, *notes, _fl_ev.evidence_text(db, session_id),
+                                   *[str(m_.get("content") or "") for m_ in db.list_chats(session_id, limit=400) if m_.get("role") == "user"]]
             from zzaimy.app import delegate as _dg
             if _dg.enabled():
                 # 절 맡기기(ADR-0065 4번) — 맡길지는 에이전트가 상태 글(남은 문맥·빈 절·남은 단계)을 보고 정한다
