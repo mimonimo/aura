@@ -2389,6 +2389,33 @@ def create_app(
         done = set(db.vision_pages(int(doc["id"])))
         return [p for p in pages if p not in done]
 
+    def _clear_filled_asks(session_id: int, hw) -> None:
+        """작업본에 빈 자리(「확인 필요」·「○○」)가 없으면 남은 사실 값 질문과 그 입력 카드를 거둔다. 결정 값(담당자가 정할 것)은 둔다."""
+        from zzaimy.app import asks as _asks
+        from zzaimy.app import doc_review as _dr
+        from zzaimy.app import webhwp as _wh
+        pend = _asks.pending(db, session_id)
+        if not pend:
+            return
+        fid = hw.fid()
+        f = _wh.get(hw.db, fid) if fid else None
+        if not f or not Path(f["path"]).exists():
+            return
+        if _dr._PH.search(_dr.full_text(Path(f["path"]).read_bytes())):
+            return
+        left = [a_ for a_ in pend if a_.get("kind") == _asks.DECISION]
+        if len(left) == len(pend):
+            return
+        _asks.set_pending(db, session_id, left)
+        try:
+            opts = _aj.loads(db.get_setting(f"chat_options:{session_id}", "") or "[]")
+        except ValueError:
+            opts = []
+        opts = [o for o in opts if not (isinstance(o, dict) and o.get("kind") == "form" and o.get("text") == "필요한 값 입력")]
+        if left:
+            opts.insert(0, _asks.form_option(left, _asks.suggestions(db, db.get_chat_session(session_id) or {})))
+        _set_options(session_id, opts)
+
     def _set_options(session_id: int, options: list[dict]) -> None:
         """이 답변에 딸린 선택지 — 담당자의 선택이 필요할 때 답 아래에 띄운다. 다음 질문이 오면 지운다."""
         db.set_setting(f"chat_options:{session_id}", _aj.dumps(options[:4], ensure_ascii=False) if options else "")
@@ -3592,6 +3619,12 @@ def create_app(
                 hw.sweep_guides()
             except Exception:
                 logging.getLogger("zzaimy.app.webhwp").exception("작성방법 안내 떼기 실패 (대화 %s)", session_id)
+            # 받지 못한 값(사실)은 문서에 「확인 필요」·「○○」 자리로 남는다 — 담당자가 채팅 글로 값을 주어 에이전트가 채웠으면 그 자리가 없어진다.
+            # 작업본에 그런 자리가 하나도 없으면 사실 값 질문은 끝난 것이다(「필요한 값 입력」 카드가 채운 뒤에도 남던 것, 11-18 포스터 예시)
+            try:
+                _clear_filled_asks(session_id, hw)
+            except Exception:
+                logging.getLogger("zzaimy.app").exception("받은 값 정리 실패 (대화 %s)", session_id)
         # 대화창 미리 보기 — 고를 것 없이 반영한 것은 도구 결과에서 만든 미리 보기를, 낸 선택 카드는 그 답에 단다(app/chat_preview)
         try:
             from zzaimy.app import chat_preview as _cp
