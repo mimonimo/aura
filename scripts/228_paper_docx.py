@@ -344,9 +344,10 @@ def _page_break_run(p) -> None:
     (ppr.addnext(el) if ppr is not None else p._p.insert(0, el))
 
 
-def _keep_lead_in(doc, limit: int = 160) -> None:
+def _keep_lead_in(doc, limit: int = 90) -> None:
     """표·그림 바로 앞의 짧은 소개 문단(「…는 [표 A-16]과 같다」)을 표·그림과 같은 쪽에 — 소개 글만 쪽 끝에 남지 않게(11-18).
-    긴 문단은 묶지 않는다(쪽 하나를 통째로 밀어 큰 빈자리가 생기므로)."""
+    긴 문단은 묶지 않는다(쪽 하나를 통째로 밀어 큰 빈자리가 생기므로). 한 줄 반(90자) 까지만 — 160자(세 줄)까지 묶으니
+    제목+세 줄 문단+큰 그림이 한 덩어리로 다음 쪽에 가 앞 쪽이 반 넘게 비었다(11-19 워드 142쪽)."""
     body = doc.element.body
     last = body[-2] if len(body) >= 2 and body[-1].tag == qn("w:sectPr") else body[-1]
     if last.tag != qn("w:p"):
