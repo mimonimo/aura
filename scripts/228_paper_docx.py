@@ -321,7 +321,7 @@ def _page_field(p):
 
 # ── 표·그림 ──
 IMG_MAX_H_CM = 12.5                                     # 그림 높이 상한(cm) — 도식 글자 9pt 를 지키는 값(11-17: 줄이면 글자가 작아진다)
-KEEP_ROWS = 4                                           # 이보다 짧은 표만 통째로 다음 쪽으로 — 15행까지 묶으니 앞 쪽에 큰 빈칸이 생겼다(11-16)
+KEEP_ROWS = 8                                           # 이 행 수 이하의 표는 통째로 다음 쪽으로 — 15행까지 묶으니 앞 쪽에 큰 빈칸이 생겼고(11-16), 4행이면 5행 표가 머리줄+한 행만 남기고 갈렸다(11-19)
 _NUMISH = re.compile(r"(?=.*\d).{1,24}")                    # 숫자가 든 짧은 값(수치·건수·시간)
 
 
@@ -405,7 +405,6 @@ def _table(doc, rows):
         t.columns[j].width = Mm(widths[j])
         for i in range(len(rows)):
             t.cell(i, j).width = Mm(widths[j])
-    keep_all = len(rows) <= KEEP_ROWS                  # 짧은 표는 쪽에서 나누지 않고 통째로(캡션까지) 다음 쪽으로
     for i, r in enumerate(rows):
         for j in range(ncol):
             cell = t.cell(i, j)
@@ -428,11 +427,14 @@ def _table(doc, rows):
         cs = OxmlElement("w:cantSplit")                  # 행 하나가 두 쪽에 걸쳐 잘리지 않게
         cs.set(qn("w:val"), "true")
         trpr.append(cs)
-    # 머리줄은 쪽이 넘어가면 다시, 머리줄만 쪽 끝에 남지 않게 다음 행과 함께
-    if len(t.rows) > 1:
-        for cell in t.rows[0].cells:
-            for cp in cell.paragraphs:
-                cp.paragraph_format.keep_with_next = True
+    # 긴 표는 쪽에서 나뉘어도 양쪽에 본문 행이 두 행 이상 — 머리줄과 한 행만 쪽 끝에 남았다(11-19 워드 46쪽 [표 3-6])
+    n_ = len(t.rows)
+    keep_ = range(n_ - 1) if n_ <= KEEP_ROWS else [0, 1, n_ - 3, n_ - 2]
+    for i_ in keep_:
+        if 0 <= i_ < n_ - 1:
+            for cell in t.rows[i_].cells:
+                for cp in cell.paragraphs:
+                    cp.paragraph_format.keep_with_next = True
     trpr = t.rows[0]._tr.get_or_add_trPr()
     h = OxmlElement("w:tblHeader")
     h.set(qn("w:val"), "true")
@@ -927,6 +929,10 @@ def build(out: Path, appendix: bool = True) -> dict:
             # 스키마 차례(CT_PPrBase)를 지킨다 — 뒤에 오는 첫 요소 앞에 끼운다(끝에 붙이면 워드가 문단 모양을 무시하거나 파일을 고치자고 한다)
             after_ = next((c_ for c_ in ppr_ if c_.tag.split("}")[-1] in _WORDWRAP_AFTER), None)
             (after_.addprevious(ww_) if after_ is not None else ppr_.append(ww_))
+    # 글의 동아시아 언어를 한국어로 — 기본 템플릿은 eastAsia="en-US" 라 워드가 한글에 낱말 단위 줄바꿈을 적용하지 않고
+    # 「이루어진 / 다.」처럼 글자에서 끊었다(11-19 워드 75쪽). wordWrap=0 만으로는 부족했다
+    for lang_ in doc.styles.element.iter(qn("w:lang")):
+        lang_.set(qn("w:eastAsia"), "ko-KR")
     _style_toc(doc)
     sec0 = doc.sections[0]
     _page_setup(sec0)
