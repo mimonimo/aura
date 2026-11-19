@@ -40,7 +40,7 @@ ssh -o BatchMode=yes "$HOST" "cd ~/zzaimy-capstone && \
 
 if [ "${1:-}" = "--restart" ]; then
   # 담당자 요청(모델 호출)이 돌고 있으면 끝날 때까지 기다린다 — 재시작이 문서 작성 도중의 요청을 끊어 「서버가 죽은」 것처럼 보였다(11-10).
-  # 앱이 3초마다 남기는 data/platform/.busy.json 을 읽는다. 마지막 호출 뒤 90초 조용하면 진행. 최대 DEPLOY_WAIT_MAX 초(기본 1800), FORCE=1 이면 기다리지 않는다
+  # 앱이 3초마다 남기는 data/platform/.busy.json 을 읽는다. 마지막 호출 뒤 90초 조용하면 진행. 최대 DEPLOY_WAIT_MAX 초(기본 1800) — 넘으면 재시작하지 않고 멈춘다. FORCE=1 이면 기다리지 않는다
   ssh -o BatchMode=yes "$HOST" "
     f=~/zzaimy-capstone/data/platform/.busy.json; max=${DEPLOY_WAIT_MAX:-1800}; t=0
     while [ \"${FORCE:-0}\" != 1 ] && [ -f \$f ] && [ \$t -lt \$max ]; do
@@ -48,7 +48,14 @@ if [ "${1:-}" = "--restart" ]; then
       set -- \$st; [ \"\$1\" = idle ] && break
       echo \"진행 중인 요청이 있어 재시작을 기다립니다(모델 호출 \$2건, 마지막 호출 \$3초 전, \${t}초째)\"
       sleep 15; t=\$((t+15))
-    done"
+    done
+    [ \$t -ge \$max ] && [ \"${FORCE:-0}\" != 1 ] && exit 3
+    exit 0" || {
+    # 기다리는 한도가 지나도 요청이 이어지면 재시작하지 않는다 — 한도가 지나면 그대로 재시작해 문서 작성 중인 요청을 끊었다(11-19 특성화 70번).
+    # 코드는 이미 올라가 있으니 빈틈이 생길 때 다시 --restart 하거나, 끊어도 되면 FORCE=1 로
+    echo "요청이 ${DEPLOY_WAIT_MAX:-1800}초 넘게 이어져 재시작하지 않았습니다. 코드는 VM 에 올라가 있습니다 — 빈틈에 다시 --restart 하세요."
+    exit 1
+  }
   ssh -o BatchMode=yes "$HOST" '
     systemctl --user restart zzaimy.service
     # 시작이 길어질 때가 있다 — 배포 직후 첫 컴파일이 반입·그래프 재구축과 겹치면 90초 넘음(10/4 실측). 평소 8초. 120초까지 기다린다
