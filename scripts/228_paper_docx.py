@@ -728,6 +728,34 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
     return first_chapter_break
 
 
+_REF_HYPHEN = re.compile(r"(?:그림|표) [0-9A-Z]+(-)\d+")
+
+
+def _nobreak_ref_hyphens(doc) -> int:
+    """그림·표 번호의 하이픈(「그림 3-5」)에서 줄이 갈리지 않게 — 워드의 끊기지 않는 하이픈(w:noBreakHyphen)으로 바꾼다.
+    낱말 단위 줄바꿈을 켜도 하이픈은 줄을 나눌 수 있는 자리라 「[그림 3- / 5]」 처럼 갈렸다(11-19 워드 PDF 2곳).
+    맑은 고딕에는 U+2011 글자가 없어 문자 대신 워드 요소를 쓴다."""
+    n = 0
+    for t in list(doc.element.body.iter(qn("w:t"))):
+        txt = t.text or ""
+        cuts = [m.start(1) for m in _REF_HYPHEN.finditer(txt)]
+        if not cuts:
+            continue
+        pieces, at = [], 0
+        for c in cuts:
+            pieces.append(txt[at:c]); at = c + 1
+        pieces.append(txt[at:])
+        t.text = pieces[0]
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        prev = t
+        for piece in pieces[1:]:
+            h = OxmlElement("w:noBreakHyphen"); prev.addnext(h); prev = h; n += 1
+            e = OxmlElement("w:t"); e.text = piece
+            e.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            prev.addnext(e); prev = e
+    return n
+
+
 def _style_toc(doc):
     """목차 줄 간격을 템플릿처럼 좁게(줄 간격 1.0, 문단 뒤 0), 1단계는 굵게."""
     from docx.enum.style import WD_STYLE_TYPE
@@ -949,6 +977,7 @@ def build(out: Path, appendix: bool = True) -> dict:
             brk = _render_team(doc, text, brk)             # 템플릿 꼴: 사람마다 사진 왼쪽 + 이름·전공·학번·역할 오른쪽
             continue
         brk = render(doc, text, missing, counts, brk)
+    _nobreak_ref_hyphens(doc)
     # 열 때 필드(목차·쪽 번호) 업데이트를 묻게
     st = doc.settings.element
     uf = OxmlElement("w:updateFields")
