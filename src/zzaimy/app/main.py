@@ -3126,7 +3126,8 @@ def create_app(
             def _list(v_):
                 return [x_ for x_ in re.split(r"[,/]\s*", v_) if x_.strip()] if isinstance(v_, str) else list(v_ or [])
             obs_, ev_ = _fl.aggregate(db, session_id, _list(a.get("group_by")), _list(a.get("sum")), count=a.get("count") is not False,
-                                      filt=a.get("filter") if isinstance(a.get("filter"), dict) else None)
+                                      filt=a.get("filter") if isinstance(a.get("filter"), dict) else None,
+                                      distinct=str(a.get("distinct") or ""), share=a.get("share") is True, base=a.get("base"))
             if ev_:
                 body_ = "\n".join(ev_)
                 notes.append(f"◇ {a.get('for') or '실적 집계'} — 모은 기록 집계(코드가 더한 값)\n{body_}")
@@ -3519,7 +3520,10 @@ def create_app(
                            t_collect, gathers=True),
             doc_agent.Tool("aggregate_facts", "collect_facts 로 모은 기록을 묶어 세고 더하기 — 표의 월별·분야별 합계·건수는 이 결과를 쓴다(직접 더하지 않는다). "
                            "날짜 항목은 「날짜:월」(또는 「날짜:연」)로 달·해 단위로 묶는다. 결과는 근거로 남아 표·본문에 그대로 쓸 수 있다. "
-                           "args {group_by: [묶을 항목], sum: [더할 수 항목], count?: 건수도 셀지(기본 true), filter?: {항목: 들어 있어야 할 글}}",
+                           "같은 활동이 여러 문서·여러 줄(결과 보고와 집행 내역)에 나오면 건수 대신 distinct 로 활동 수를 센다. 비율은 share·base 로 코드가 낸다. "
+                           "args {group_by: [묶을 항목], sum: [더할 수 항목], count?: 기록 건수도 셀지(기본 true), distinct?: 서로 다른 값 수를 셀 항목(예: 활동), "
+                           "share?: 묶음별 합계 비율(%)도 낼지, base?: 합계를 견줄 기준값(예: 총 사업비 300000000 → 집행률), "
+                           "filter?: {항목: 들어 있어야 할 글, 또는 \"*\"(그 항목 값이 있는 기록만)}}",
                            t_aggregate, gathers=True),
             doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
             doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",

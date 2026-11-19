@@ -123,3 +123,30 @@ def test_aggregate_rejects_unknown_items():
     fl.collect(db, 7, DOCS, ITEMS, FakeClient(ANS), title_of=_title, parallel=1)
     obs, ev = fl.aggregate(db, 7, ["부서"], ["금액"])
     assert "모은 항목에 없는 이름" in obs and not ev
+
+
+def test_validate_keeps_record_when_one_value_is_paraphrased():
+    # 11-20 시험: 활동 「AI 경진대회 운영」(문서는 「AI 경진대회을(를) 운영하였다」) 한 값 때문에 참여 인원·실적까지 버렸다
+    doc = "분야 | 학생 역량강화\n일시 | 2026. 10. 29.\n2026. 10. 29. AI 경진대회을(를) 운영하였다.\n참여 인원은 학생 33명이며, 만족도는 4.6점이었다."
+    recs = [{"날짜": "2026. 10. 29.", "분야": "학생 역량강화", "활동": "AI 경진대회 운영", "참여 인원": "학생 33명",
+             "quote": "2026. 10. 29. AI 경진대회을(를) 운영하였다. 참여 인원은 학생 33명이며"}]
+    kept, dropped = fl.validate(recs, ["날짜", "분야", "활동", "참여 인원"], doc)
+    assert dropped == 0 and kept[0]["참여 인원"] == "학생 33명" and kept[0]["활동"] == "" and kept[0]["unverified"] == ["활동"]
+    # 인용에 든 값이 하나도 없으면 버린다
+    kept2, dropped2 = fl.validate([{"활동": "없는 활동", "quote": "참여 인원은 학생 33명이며"}], ["활동"], doc)
+    assert kept2 == [] and dropped2 == 1
+
+
+def test_aggregate_distinct_share_base_and_nonempty_filter():
+    db = FakeDB([])
+    data = {"items": ["분야", "활동", "참여 인원", "금액"], "live": ["k1"], "docs": {"k1": {"doc_id": 1, "title": "운영 결과", "items": ["분야", "활동", "참여 인원", "금액"], "records": [
+        {"분야": "산학협력", "활동": "세미나", "참여 인원": "61명", "금액": "", "quote": "q"},
+        {"분야": "산학협력", "활동": "세미나", "참여 인원": "", "금액": "3,000,000", "quote": "q"},
+        {"분야": "산학협력", "활동": "협약", "참여 인원": "", "금액": "1,000,000", "quote": "q"},
+        {"분야": "학생 역량강화", "활동": "캠프", "참여 인원": "42명", "금액": "4,000,000", "quote": "q"}]}}}
+    fl.save(db, 7, data)
+    obs, ev = fl.aggregate(db, 7, ["분야"], ["금액"], distinct="활동", share=True, base="10000000")
+    assert "활동 2개" in obs and "50.0%" in obs and "80.0%" in obs        # 산학협력 4,000,000/8,000,000, 합계/기준 8,000,000/10,000,000
+    assert any("서로 다른 활동: 2개" in x for x in ev) and any("=80.0%" in x for x in ev)
+    obs2, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"], filt={"참여 인원": "*"})
+    assert "기록 2건" in obs2 and "참여 인원: 103" in obs2

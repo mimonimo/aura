@@ -63,7 +63,12 @@ def score(set_dir: Path, result: Path) -> dict:
     res["비목별 집행액"] = f"{ok}/{len(t['비목별 집행액'])}"
     res["총 집행액"] = str(t["총 집행액"]) in _nums(full)
     res["집행률"] = str(t["집행률(%)"]) in _nums(full)
-    left = [v for v in t["작년 값"] if v in full]
+    # 올해 정답과 우연히 같은 수(취업 연계 31명·달성률 83.3%)는 잔여로 세지 않는다
+    legit = {str(x) for x in [t["총 집행액"], t["집행률(%)"]] + [v for d in t["월별"].values() for v in d.values()]
+             + [v for d in t["분야별"].values() for v in d.values()] + [v["실적"] for v in t["성과지표"].values()]
+             + list(t["비목별 집행액"].values())}
+    legit |= {f"{round(v['실적'] / v['목표'] * 100, 1)}" for v in t["성과지표"].values()}
+    left = [v for v in t["작년 값"] if v in full and v.replace(",", "") not in legit]
     res["작년 값 남음"] = len(left)
     res["작년 값 예"] = left[:8]
     return res

@@ -66,3 +66,32 @@ def test_past_doc_form_detects_past_folder(tmp_path):
             return default
     assert past_doc_form(_Db(), {"id": 1, "path": "/x/기안기/공통/지난 사업 문서/LINC/결과보고서/a.hwpx"})
     assert not past_doc_form(_Db(), {"id": 2, "path": "/x/기안기/공통/공통 양식/사업계획서 공통 양식.hwpx"})
+
+
+def _cell2(row: int, col: int, text: str) -> str:
+    return (f'<hp:tc><hp:cellAddr colAddr="{col}" rowAddr="{row}"/><hp:subList><hp:p id="1"><hp:run charPrIDRef="0">'
+            f'<hp:t>{text}</hp:t></hp:run></hp:p></hp:subList></hp:tc>')
+
+
+def test_last_years_record_text_and_narrative_are_blanked_keep_skeleton():
+    # 11-20 결과보고서 시험: 작년 완료본을 서식으로 줄 때 「뼈대만 남기고」 — 행 이름·제목·안내는 두고 지난해 기록 글과 서술은 비운다
+    rows = [["분야", "활동 수", "참여 인원", "대표 성과"]] + [[f"분야{i}", str(3 + i), f"{40 + i}명", f"교과목 {i}개 개발"] for i in range(25)]
+    body = "".join("<hp:tr>" + "".join(_cell2(r, c, t) for c, t in enumerate(row)) + "</hp:tr>" for r, row in enumerate(rows))
+    sec = ('<hs:sec><hp:p id="0"><hp:run><hp:t>2.2 분야별 추진 실적</hp:t></hp:run></hp:p>'
+           '<hp:p id="1"><hp:run><hp:t>※ 분야별 활동 수와 대표 성과를 적는다.</hp:t></hp:run></hp:p>'
+           f'<hp:p id="2"><hp:run><hp:tbl>{body}</hp:tbl></hp:run><hp:run><hp:t>취업 연계 지표는 목표에 못 미쳤으나 교육 이수 인원은 목표의 81.5%를 달성하였다.</hp:t></hp:run></hp:p>'
+           '<hp:p id="3"><hp:run><hp:t>산학 협약 기업과 현장실습을 연계한 점이 주요 성과이며, 2학기 참여율이 낮아 홍보 방식을 개선할 필요가 있다.</hp:t></hp:run></hp:p></hs:sec>')
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("Contents/header.xml", "<hh:head/>")
+        z.writestr("Contents/section0.xml", sec)
+    data = out.getvalue()
+    assert fb.looks_filled(data)
+    res, n = fb.blank_values(data)
+    texts = [t for t in _texts(res) if t]
+    assert "2.2 분야별 추진 실적" in texts and "※ 분야별 활동 수와 대표 성과를 적는다." in texts and "분야3" in texts and "대표 성과" in texts
+    assert not any("교과목" in t or "81.5" in t or "홍보" in t for t in texts) and "5" not in texts
+    # 서술만 비우지 않으려면 narrative=False(예전 동작)
+    res2, _ = fb.blank_values(data, narrative=False)
+    assert any("81.5" in t for t in _texts(res2))

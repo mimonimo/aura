@@ -92,11 +92,15 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
         if not q or q not in body or not any(vals.values()):
             dropped += 1
             continue
-        # 값마다 문서 안에 그대로 있어야 하고(표 머리의 날짜·분야처럼 인용 밖 값도 있다), 인용에는 값이 하나 이상 들어 있어야 한다
-        if any(v and _norm(v) not in body for v in vals.values()) or not any(v and _norm(v) in q for v in vals.values()):
-            dropped += 1
+        # 값마다 문서 안에 그대로 있어야 한다(표 머리의 날짜·분야처럼 인용 밖 값도 있다). 문서에 없는 값만 비우고 기록은 살린다 —
+        # 모델이 활동 이름을 「AI 경진대회 운영」 처럼 한 낱말 덧붙여 적자 그 기록 전체(참여 인원·실적까지)를 버려 결과 보고 8건이 0건이 됐다(11-20 시험)
+        off = [k for k, v in vals.items() if v and _norm(v) not in body]
+        for k in off:
+            vals[k] = ""
+        if not any(v and _norm(v) in q for v in vals.values()):
+            dropped += 1                                          # 인용에 든 값이 하나도 없으면 기록이 아니다
             continue
-        kept.append({**vals, "quote": quote[:300]})
+        kept.append({**vals, "quote": quote[:300], **({"unverified": off} if off else {})})
     return kept, dropped
 
 
@@ -252,8 +256,11 @@ def _fmt(d: Decimal) -> str:
     return f"{d.normalize():f}"
 
 
-def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: bool = True, filt: dict | None = None) -> tuple[str, list[str]]:
-    """(관찰 글, 근거 글 줄). 근거 글은 「묶음 · 항목: a+b+…=합」 꼴이라 수치 관문이 셈을 확인한다."""
+def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: bool = True, filt: dict | None = None,
+              distinct: str = "", share: bool = False, base=None) -> tuple[str, list[str]]:
+    """(관찰 글, 근거 글 줄). 근거 글은 「묶음 · 항목: a+b+…=합」 꼴이라 수치 관문이 셈을 확인한다.
+    distinct: 이 항목의 서로 다른 값 수를 센다(같은 활동이 결과 보고·집행 내역 여러 줄에 나와 건수가 부풀던 것 — 11-20 시험 「활동 17건」).
+    share: 묶음마다 합계 대비 비율(%). base: 합계를 이 값(예: 총 사업비)에 견준 비율(%) — 비율도 근거 줄로 남긴다."""
     recs = records(db, session_id)
     if not recs:
         return "모은 기록이 없다 — 먼저 collect_facts 로 문서에서 기록을 모은다.", []
@@ -264,7 +271,14 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     if bad:
         return f"모은 항목에 없는 이름: {', '.join(bad)} — 모은 항목은 {', '.join(items)}.", []
     for k, v in (filt or {}).items():
-        recs = [r for r in recs if str(v) in str(r.get(k) or "")]
+        if str(v).strip() in ("*", "있음"):                    # 그 항목 값이 있는 기록만(예: 참여 인원이 적힌 결과 보고만)
+            recs = [r for r in recs if str(r.get(k) or "").strip()]
+        else:
+            recs = [r for r in recs if str(v) in str(r.get(k) or "")]
+    distinct = str(distinct or "").strip()
+    if distinct and distinct not in items:
+        return f"모은 항목에 없는 이름: {distinct} — 모은 항목은 {', '.join(items)}.", []
+    base_n = number(base) if base not in (None, "") else None
     groups: "OrderedDict[tuple, list[dict]]" = OrderedDict()
     for r in sorted(recs, key=lambda r: tuple(_key(r, g) for g in group_by)):
         groups.setdefault(tuple(_key(r, g) for g in group_by), []).append(r)
@@ -278,6 +292,10 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         cells = []
         if count:
             cells.append(f"{len(rs)}건")
+        if distinct:
+            kinds = sorted({_norm(r.get(distinct)) for r in rs if str(r.get(distinct) or "").strip()})
+            cells.append(f"{distinct} {len(kinds)}개")
+            ev.append(f"◇ 집계 {label} · 서로 다른 {distinct}: {len(kinds)}개 (" + ", ".join(k[:20] for k in kinds[:12]) + ")")
         for s in sums:
             vals = [(number(r.get(s)), r) for r in rs]
             nums = [v for v, _ in vals if v is not None]
@@ -300,6 +318,17 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             expr = "+".join(_fmt(x) for x in sub) + f"={_fmt(t)}" if len(sub) > 1 else _fmt(t)
             obs.append(f"  합계 · {s}: {_fmt(t)}")
             ev.append(f"◇ 집계 합계 · {s}: {expr}")
+            if share and t:
+                for key, rs in groups.items():
+                    g = sum((v for v in (number(r.get(s)) for r in rs) if v is not None), Decimal(0))
+                    pct = (g / t * 100).quantize(Decimal("0.1"))
+                    lab = " / ".join(key) if key else "전체"
+                    obs.append(f"  비율 · {lab} · {s}: {pct}%")
+                    ev.append(f"◇ 집계 비율 {lab} · {s}: {_fmt(g)}/{_fmt(t)}×100={pct}%")
+            if base_n:
+                pct = (t / base_n * 100).quantize(Decimal("0.1"))
+                obs.append(f"  {s} 합계 대비 {_fmt(base_n)}: {pct}%")
+                ev.append(f"◇ 집계 {s} 합계 대비 기준값: {_fmt(t)}/{_fmt(base_n)}×100={pct}%")
         if skipped[s]:
             obs.append(f"  (「{s}」 값을 수로 읽지 못한 기록 {skipped[s]}건은 더하지 않았다)")
     if count:
