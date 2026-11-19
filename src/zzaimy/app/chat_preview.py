@@ -523,10 +523,15 @@ def from_step(action: str, args: dict, observation: str, refused: tuple[str, ...
         if pv:
             out.append({"what": "쪽 설정", "preview": pv})
     elif action == "hwp_replace":
-        pv = norm_preview({"type": "change", "before": a.get("find"), "after": a.get("replace") if a.get("replace") is not None else a.get("to"),
-                           "what": "바꾼 글"})
-        if pv:
-            out.append({"what": "바꾼 글", "preview": pv})
+        # 여러 곳을 한 번에(items) 바꾼 걸음은 곳마다 하나씩 보인다(빠진 replace 는 지우기)
+        its = ([{"find": x, "replace": a.get("replace") or ""} if isinstance(x, str)
+                else {**x, "replace": x.get("replace") if x.get("replace") is not None else (a.get("replace") or "")}
+                for x in a["items"] if isinstance(x, (dict, str))][:12] if isinstance(a.get("items"), list)
+               else [{"find": a.get("find"), "replace": a.get("replace") if a.get("replace") is not None else a.get("to")}])
+        for it in its:
+            pv = norm_preview({"type": "change", "before": it.get("find"), "after": it.get("replace"), "what": "바꾼 글"})
+            if pv:
+                out.append({"what": "바꾼 글", "preview": pv})
     return [x for x in out if x.get("preview")]
 
 

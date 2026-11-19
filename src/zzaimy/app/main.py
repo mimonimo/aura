@@ -205,6 +205,14 @@ def _asset_version() -> str:
 
 
 
+def _review_scope(a: dict, request: str) -> str:
+    """hwp_review 의 section 인자 → 다시 읽을 절을 짚는 글(「4절」·「4. 세부 프로그램」). 없으면 담당자 요청 그대로."""
+    sec = str((a or {}).get("section") or "").strip() if isinstance(a, dict) else ""
+    if not sec:
+        return request
+    return f"{sec}절" if sec.isdigit() else (sec if re.match(r"\d{1,2}\.", sec) else f"「{sec}」")
+
+
 def _doc_review_text(hw, request: str) -> str:
     """지금 작업본의 다시 읽기 자료(app/doc_review)."""
     from zzaimy.app import doc_review as _dr
@@ -3646,8 +3654,10 @@ def create_app(
             # 쓰기 요청은 마치기 전에 자동으로 한 번 읽는다(doc_agent.run review)
             tools.append(doc_agent.Tool(
                 "hwp_review", "작업본 다시 읽기 — 작업 문서 전체(또는 요청이 짚은 절)의 글·표와 문제 후보(빈 표·빈칸·「확인 필요」·남은 안내 글·"
-                "머리줄 없는 표 등)를 본다. 문서를 점검·검토해 달라는 요청이면 먼저 이것으로 읽고, 고칠 것은 도구로 고친 뒤 finish. args {}",
-                lambda a_: _doc_review_text(hw, q) or "작업본이 없다."))
+                "머리줄 없는 표 등)를 본다. 문서를 점검·검토해 달라는 요청이면 먼저 이것으로 읽고, 고칠 것은 도구로 고친 뒤 finish. "
+                "args {} 또는 {section: 절 번호·이름(그 절만 글까지 — 긴 문서에서 뒤쪽 절을 읽을 때)}",
+                # section — 인자 없는 다시 읽기는 결과 한도(1,800자)에 앞 절만 보여, 같은 인자로 되풀이하다 막히던 일(11-18 운영 713)
+                lambda a_: _doc_review_text(hw, _review_scope(a_, q)) or "작업본이 없다."))
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])

@@ -539,7 +539,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             # 실행하지 않은 채 옛 결과를 보여 교원 7~18번이 빈 행으로 남았다(11-14 12차 4단계). 아무것도 못 바꾸는 쓰기는 아래 noop_run 이 막는다
             duplicate = circling = True
             first_obs.setdefault(key, (len(log) + 1, same_obs[name][0]))
-        blocked = (not duplicate and tool.writes and noop_run.get(name, 0) >= NOOP_LIMIT)
+        # 잇달아 못 바꾼 쓰기는 막되, 담당자 요청이 짚은 다른 곳(앞서 못 찾은 글과 겹치지 않고 요청 글에 그대로 있는 글)은 해 본다 —
+        # 여러 곳 지우기에서 한 곳을 조각내 세 번 못 찾은 뒤 다른 곳 지우기까지 막혀 끝나던 일(11-18 운영 714).
+        # 요청에 없는 글을 바꿔 가며 찾는 맴돌기(11-09 대화 165)는 예전대로 막는다
+        blocked = (not duplicate and tool.writes and noop_run.get(name, 0) >= NOOP_LIMIT
+                   and not _fresh_target(_noop_target(args), noop_args.get(name, []), request or ""))
         if duplicate:
             repeats += 1
             dup_tool = name
@@ -555,12 +559,17 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                         if circling else
                         f"같은 도구를 같은 인자로 이미 썼다({at}번째 걸음). 그때 결과를 위 자료로 다시 보인다 — 이것으로 다음 걸음을 고른다.")
             if repeats >= 2:
+                # 쓰기 도구를 앞에 — 읽기만 되풀이하던 걸음(11-18 운영 713: 6곳 지우기에서 읽기 도구만 열네 번)이 읽은 것으로 바로 고치게
                 others = [t.name for t in tools if t.name != name]
-                note += ("\n같은 걸음을 잇달아 되풀이했다. 다음은 이 가운데 하나만: 찾은 근거로 쓰기·답하기("
-                        + ", ".join(others) + f"), 다른 인자의 {name}, 또는 finish.")
+                writers = [t.name for t in tools if t.name != name and t.writes]
+                note += ("\n같은 걸음을 잇달아 되풀이했다. "
+                         + (("읽을 만큼 읽었다 — 고칠 곳을 알면 읽은 것으로 바로 쓰기 도구(" + ", ".join(writers)
+                             + ")로 고친다(못 찾은 곳은 도구 결과가 알려 준다). ") if writers and not changed else "")
+                         + "다음은 이 가운데 하나만: 찾은 근거로 쓰기·답하기("
+                         + ", ".join(others) + f"), 다른 인자의 {name}, 또는 finish.")
         elif blocked:
             repeats += 1                                               # 막힌 걸음도 되풀이로 센다 — 계속 고집하면 걸음 한도 전에 멈춘다
-            tried = ", ".join(f"「{x}」" for x in dict.fromkeys(noop_args.get(name, [])) if x)[:200]
+            tried = ", ".join(f"「{x[:30]}」" for x in dict.fromkeys(noop_args.get(name, [])) if x)[:200]
             note = (f"{name} 가 잇달아 {noop_run[name]}번 아무것도 바꾸지 못했다{(' (' + tried + ')') if tried else ''} — 이번 요청에서는 더 하지 않는다. "
                     "찾던 글이 이 작업본에 없으면 다른 작업본에 있는지 결과 안내를 보고 hwp_switch 하거나, finish 로 무엇을 찾지 못했는지 담당자에게 알린다.")
         elif tool.needs_evidence and not searched and not nudged:     # 관문은 모델 인자(facts 등)로 건너뛸 수 없다
@@ -626,7 +635,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                             rejected.pop(k_, None)
                     else:
                         noop_run[name] = noop_run.get(name, 0) + 1
-                        noop_args.setdefault(name, []).append(str(args.get("find") or args.get("field") or args.get("section") or "")[:30])
+                        noop_args.setdefault(name, []).append(_noop_target(args))
                 if tool.gathers:
                     searched = True
             except Retry as e:                                         # 코드가 쓴 안내(+ 함께 보일 자료)
@@ -668,6 +677,25 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             return ep
     ep.stop = "steps"
     return ep
+
+
+def _noop_target(args: dict) -> str:
+    """못 바꾼 쓰기의 대상 — 찾던 글(여럿이면 이어서)·칸·절. 잇달아 못 바꾼 쓰기 막기가 같은 대상인지 견줄 때 쓴다."""
+    items = args.get("items") if isinstance(args.get("items"), list) else []
+    finds = [str(x.get("find") if isinstance(x, dict) else x or "") for x in items if isinstance(x, (dict, str))]
+    return (" / ".join(f for f in finds if f) or str(args.get("find") or args.get("field") or args.get("section") or ""))[:200]
+
+
+def _fresh_target(new: str, tried: list[str], request: str) -> bool:
+    """새 대상 가운데 담당자 요청이 짚은 다른 곳이 있는가 — 요청 글에 그대로 있고, 앞서 못 바꾼 글과 겹치지 않는(같은 글을 줄이거나
+    늘린 것이 아닌, 「단계적으로 추진함.」→「단계적」 은 겹침) 글. 여러 곳(items)이면 그런 곳이 하나라도 있으면 참."""
+    norm = lambda t: re.sub(r"\s+", "", t or "")
+    old = [norm(p) for t in tried for p in t.split(" / ")]
+    req = norm(request)
+    for k in (norm(p) for p in new.split(" / ")):
+        if k and k in req and not any(o and (k in o or o in k) for o in old):
+            return True
+    return False
 
 
 # 쓰기 도구가 아무것도 바꾸지 않았을 때 돌려주는 글의 머리(도구들이 쓰는 거절·실패 글) — 이 글로 시작하면 바뀐 것으로 세지 않는다

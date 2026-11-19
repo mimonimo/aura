@@ -2460,10 +2460,87 @@ def _replace_across_runs(p: str, want: str, rep: str) -> tuple[str, int]:
     return "".join(out) + p[last:], len(hits)
 
 
+# 글 조각(<hp:t>) — 안에 탭·줄바꿈 같은 빈 표시(<hp:tab/>)가 낀 조각(「가)⇥본문」)도 글 조각으로 본다(11-20: 그런 문단의 글을 못 바꿨다)
+_RUN_T = re.compile(r"(<hp:t>)((?:[^<]|<hp:[A-Za-z]+\b[^>]*/>)*)(</hp:t>)")
+
+
+def _replace_flat(p: str, want: str, rep: str) -> tuple[str, int]:
+    """안에 문단이 없는 문단(또는 안쪽 문단을 가린 바깥 문단) 하나에서 바꾸기 — (새 문단, 바꾼 수). 바뀌면 줄 배치 정보를 지운다."""
+    k = [0]
+
+    def sub(m: re.Match) -> str:
+        body = m.group(2)
+        if want not in body:
+            return m.group(0)
+        bits = re.split(r"(<[^>]+/>)", body)                 # 빈 표시 사이의 글에서만 바꾼다(표시는 그대로)
+        for i in range(0, len(bits), 2):
+            c = bits[i].count(want)
+            if c:
+                k[0] += c
+                bits[i] = bits[i].replace(want, rep)
+        return m.group(1) + "".join(bits) + m.group(3)
+    q = _RUN_T.sub(sub, p)
+    if not k[0]:
+        q, k[0] = _replace_across_runs(p, want, rep)
+    return (wf._LINESEG.sub("", q), k[0]) if k[0] else (p, 0)
+
+
+def _replace_in_para(p: str, want: str, rep: str) -> tuple[str, int]:
+    """문단 하나에서 바꾸기 — 각주·표·글상자처럼 안에 문단이 든 문단도. 안쪽 문단은 저마다 바꾸고, 바깥 문단은 안쪽을 가린 채
+    제 글 조각만 바꾼다. 예전엔 안에 문단이 든 문단을 통째로 건너뛰어 출처 각주가 달린 문장을 지우지 못했다(11-18 운영 714)."""
+    inner, end_ = [], 0
+    for s_, e_, _d in _paras(p):
+        if s_ > 0 and s_ >= end_:
+            inner.append((s_, e_))
+            end_ = e_
+    if not inner:
+        return _replace_flat(p, want, rep)
+    parts, kept, pos, total = [], [], 0, 0
+    for i, (s_, e_) in enumerate(inner):
+        q_, c_ = _replace_in_para(p[s_:e_], want, rep)
+        total += c_
+        kept.append(q_)
+        parts += [p[pos:s_], f"<zz:keep{i}/>"]
+        pos = e_
+    parts.append(p[pos:])
+    outer, c_ = _replace_flat("".join(parts), want, rep)
+    total += c_
+    outer = re.sub(r"<zz:keep(\d+)/>", lambda m: kept[int(m.group(1))], outer)
+    return outer, total
+
+
+def _replace_items(data: bytes, a: dict) -> tuple[bytes, str]:
+    """여러 곳을 한 번에 — items 의 항목마다 차례로 바꾸고 곳마다 결과를 알린다. 하나라도 바뀌면 바뀐 문서를 돌려준다.
+    담당자가 「」로 짚은 여러 곳을 읽어 확인하느라 걸음을 다 쓰던 일(11-18 운영 713: 6곳 지우기)."""
+    items = [x for x in a["items"] if isinstance(x, (str, dict))][:40]
+    if not items:
+        raise EditError("items 는 [{find, replace}] 또는 찾을 글 목록이다.")
+    lines, done = [], 0
+    for x in items:
+        it = {"find": x} if isinstance(x, str) else dict(x)
+        sub_a = {k: v for k, v in a.items() if k != "items"}
+        sub_a["find"] = str(it.get("find") or "")
+        sub_a["replace"] = it.get("replace") if it.get("replace") is not None else (a.get("replace") or "")
+        if it.get("scope"):
+            sub_a["scope"] = it["scope"]
+        try:
+            data, msg = replace_text(data, sub_a)
+            done += 1
+            lines.append("- 바꿈: " + msg)
+        except EditError as e:
+            lines.append("- 못 바꿈: " + str(e))
+    if not done:
+        raise EditError("하나도 바꾸지 못했다.\n" + "\n".join(lines))
+    return data, f"{len(items)}곳 가운데 {done}곳을 바꿨다.\n" + "\n".join(lines)
+
+
 @_guarded
 def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
     """문서 전체(또는 범위)에서 낱말 바꾸기 — 글 조각(<hp:t>) 안의 글만 바꾼다. 필드 이름·안내 글(parameters)은 건드리지 않는다.
-    한 문단 안에서 글자 모양 경계로 쪼개진 글도 바꾼다(_replace_across_runs). 찾은 곳 수를 돌려준다."""
+    한 문단 안에서 글자 모양 경계로 쪼개진 글도 바꾼다(_replace_across_runs). 찾은 곳 수를 돌려준다.
+    items([{find, replace, scope}] 또는 찾을 글 목록)를 주면 여러 곳을 한 번에 바꾼다(_replace_items)."""
+    if isinstance(a.get("items"), list):
+        return _replace_items(data, a)
     doc = _Doc(data)
     find = str(a.get("find") or "")
     if not find.strip():
@@ -2475,28 +2552,17 @@ def replace_text(data: bytes, a: dict) -> tuple[bytes, str]:
     total = 0
     for n, s, e in _scope_spans(doc, a):
         xml = doc.secs[n]
-        out, pos = [], 0
+        out, pos, covered = [], 0, 0
         for ps, pe, _d in _paras(xml):
-            if ps < s or pe > e or ps < pos or re.search(r"<hp:p\b", xml[ps + 1:pe]):
+            if ps < s or pe > e or ps < covered:             # 바깥 문단이 범위 안이면 안쪽 문단은 그 문단과 함께 다뤘다
                 continue
-            p = xml[ps:pe]
-            k = [0]
-
-            def sub(m: re.Match) -> str:
-                body = m.group(2)
-                c = body.count(want)
-                if not c:
-                    return m.group(0)
-                k[0] += c
-                return m.group(1) + body.replace(want, escape(rep)) + m.group(3)
-            q = re.sub(r"(<hp:t>)([^<]*)(</hp:t>)", sub, p)
-            if not k[0]:
-                q, k[0] = _replace_across_runs(p, want, escape(rep))
-            if k[0]:
+            covered = pe
+            q, c = _replace_in_para(xml[ps:pe], want, escape(rep))
+            if c:
                 out.append(xml[pos:ps])
-                out.append(wf._LINESEG.sub("", q))
+                out.append(q)
                 pos = pe
-                total += k[0]
+                total += c
         out.append(xml[pos:])
         doc.secs[n] = "".join(out)
     if not total and not a.get("_variant"):
@@ -3384,9 +3450,11 @@ TOOLS: list[dict] = [
              "align: 가운데|왼쪽|오른쪽, " + _AT + "}",
      "args": {"image": "str", "width_mm": "float", "align": "str", "at": "dict"}},
     {"name": "hwp_replace", "writes": True, "label": "찾아 바꾸기",
-     "desc": "문서에서 낱말을 찾아 바꾸기(몇 곳 바뀌었는지 돌려줌, 바꾸기 전 판을 남김). replace 를 빼면 찾은 곳 수만 센다. "
-             "args {find, replace, scope: all | {field: 절·칸 필드} | {text: 문단 글}}",
-     "args": {"find": "str", "replace": "str", "scope": "any"}},
+     "desc": "문서에서 글을 찾아 바꾸거나 지우기(replace: \"\" 이면 지움, 몇 곳 바뀌었는지 돌려줌, 바꾸기 전 판을 남김). replace 를 빼면 찾은 곳 수만 센다. "
+             "여러 곳이면 items 로 한 번에 — 곳마다 바꿈·못 찾음을 알려 주므로, 담당자가 바꿀 글을 「」로 짚었으면 먼저 읽어 확인하지 않고 바로 부른다"
+             "(못 찾은 곳만 그 절을 읽어 다시). args {find, replace, scope: all | {field: 절·칸 필드} | {text: 문단 글}} "
+             "또는 {items: [{find, replace(빼면 지움), scope}, …]}",
+     "args": {"find": "str", "replace": "str", "scope": "any", "items": "list"}},
     {"name": "hwp_undo", "writes": True, "label": "되돌리기",
      "desc": "AURA 가 마지막으로 고치기 전 판으로 작업본을 되돌리기(담당자가 되돌려 달라고 할 때). args {}", "args": {}},
     {"name": "hwp_live", "writes": True, "label": "기안기 명령",
@@ -3526,7 +3594,7 @@ class EditTools:
                 return form_map(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)
             except EditError as e:
                 return str(e)
-        if name == "hwp_replace" and a.get("replace") is None:
+        if name == "hwp_replace" and a.get("replace") is None and not isinstance(a.get("items"), list):
             try:
                 k = count_text(Path(webhwp.get(db, fid)["path"]).read_bytes(), str(a.get("find") or ""))
             except EditError as e:
@@ -3614,7 +3682,9 @@ class EditTools:
                 note(fid, sec_)
         if name == "hwp_replace" and out.startswith("바꾸지 않았다") and "찾지 못했다" in out:
             try:                                                    # 이 글이 든 다른 작업본(허용 목록 안)을 알린다 — 없는 글로 되풀이하지 않게(11-09 대화 165)
-                elsewhere = self.hw.docs_with_text(str(a.get("find") or ""))
+                miss_ = str(a.get("find") or "") or next((str(x.get("find") if isinstance(x, dict) else x) for x in a.get("items") or []
+                                                         if (x.get("find") if isinstance(x, dict) else x)), "")
+                elsewhere = self.hw.docs_with_text(miss_) if miss_ else []
             except Exception:
                 elsewhere = []
             if elsewhere:
