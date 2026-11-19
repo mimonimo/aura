@@ -4,7 +4,7 @@
 search 는 절마다 조각 몇 개만 보므로 문서가 20개를 넘으면 몇 달이 빠져도 모르고, 여러 문서를 더한 합계는 어느 한 문서에도 없어
 수치 관문이 막았다. 판단(무엇을 뽑을지·어떻게 묶을지)은 에이전트(27B)가 인자로 정하고, 코드는 도구로 —
 - collect: 문서마다 본문 전체를 읽어(문맥 한도에 맞춰 나눠) 모델에게 기록을 뽑게 하고, 값이 인용(quote) 안에, 인용이 문서 안에
-  그대로 있는 기록만 남긴다. 문서 번호+본문 지문+뽑을 항목으로 저장해 같은 요청은 다시 부르지 않는다(대화별 설정 chat_facts:<대화>).
+  그대로 있는 기록만 남긴다. 문서 번호+본문 지문+뽑을 항목으로 저장해 같은 요청은 다시 부르지 않는다(대화별 설정 chat_fact_ledger:<대화>).
 - aggregate: 기록을 묶음 항목(「날짜:월」 처럼 날짜를 달로)별로 더하고 세며, 합계는 「a+b+…=합」 식으로 근거 글(evidence_lines)에 남겨
   수치 관문(verify/numbers)이 셈을 확인할 수 있게 한다. 집계 결과는 같은 대화의 다음 요청에서도 근거로 쓰인다.
 특정 사업·항목 이름을 두지 않는다 — 항목 이름은 모델이 정한 것을 그대로 쓴다.
@@ -19,7 +19,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 
-KEY = "chat_facts:{sid}"
+KEY = "chat_fact_ledger:{sid}"            # asks.py 의 chat_facts:<대화>(담당자가 알려 준 값)와 겹치지 않게
 MAX_RECORDS_SHOWN = 6
 EXTRACT_SYSTEM = (
     "너는 행정 문서에서 실적 기록을 뽑는 도구다. 문서 글에서 [항목]에 해당하는 기록을 모두 뽑는다. 한 기록은 한 활동·한 집행 줄·한 회의처럼 "
