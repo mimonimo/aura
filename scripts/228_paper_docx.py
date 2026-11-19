@@ -321,7 +321,7 @@ def _page_field(p):
 
 # ── 표·그림 ──
 IMG_MAX_H_CM = 12.5                                     # 그림 높이 상한(cm) — 도식 글자 9pt 를 지키는 값(11-17: 줄이면 글자가 작아진다)
-KEEP_ROWS = 12                                          # 이 행 수 이하의 표는 통째로 다음 쪽으로 — 15행까지 묶으니 앞 쪽에 큰 빈칸이 생겼고(11-16), 4·8행이면 5행 표 3-6·9행 표 A-1 이 쪽에서 갈렸다(11-19)
+KEEP_ROWS = 6                                           # 이 행 수 이하의 표만 통째로 다음 쪽으로 — 9행 표 A-1 을 통째로 넘기니 앞 쪽이 반 넘게 비었다(11-19). 긴 표는 머리줄을 되풀이하며 나누되 양쪽에 세 행 이상
 _NUMISH = re.compile(r"(?=.*\d).{1,24}")                    # 숫자가 든 짧은 값(수치·건수·시간)
 
 
@@ -427,9 +427,9 @@ def _table(doc, rows):
         cs = OxmlElement("w:cantSplit")                  # 행 하나가 두 쪽에 걸쳐 잘리지 않게
         cs.set(qn("w:val"), "true")
         trpr.append(cs)
-    # 긴 표는 쪽에서 나뉘어도 양쪽에 본문 행이 두 행 이상 — 머리줄과 한 행만 쪽 끝에 남았다(11-19 워드 46쪽 [표 3-6])
+    # 긴 표는 쪽에서 나뉘어도 양쪽에 본문 행이 세 행 이상 — 머리줄과 한 행만 쪽 끝에 남았다(11-19 워드 46쪽 [표 3-6])
     n_ = len(t.rows)
-    keep_ = range(n_ - 1) if n_ <= KEEP_ROWS else [0, 1, n_ - 3, n_ - 2]
+    keep_ = range(n_ - 1) if n_ <= KEEP_ROWS else [0, 1, 2, n_ - 4, n_ - 3, n_ - 2]
     for i_ in keep_:
         if 0 <= i_ < n_ - 1:
             for cell in t.rows[i_].cells:
