@@ -716,6 +716,12 @@ def render(doc, text: str, missing: list, counts: dict, first_chapter_break: boo
                 for cell in pend_table.rows[-1].cells:
                     for cp in cell.paragraphs:
                         cp.paragraph_format.keep_with_next = True
+                # 표와 캡션 사이의 주석 줄(「*: …」)도 캡션에 붙인다 — 주석까지만 앞 쪽에 남고 캡션만 다음 쪽으로 갔다(11-19 워드 95쪽 [표 4-11])
+                from docx.text.paragraph import Paragraph
+                nxt = pend_table._tbl.getnext()
+                while nxt is not None and nxt.tag == qn("w:p"):
+                    Paragraph(nxt, doc._body).paragraph_format.keep_with_next = True
+                    nxt = nxt.getnext()
             _caption(doc, k, f"[{k} {num}] {body}")
             counts["cap_" + k] += 1
             pend_table = None
