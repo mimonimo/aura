@@ -11,6 +11,7 @@ LLM 판단을 쓰지 않는다. 이 모듈은 Writer 학습 데이터 정제기�
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -248,10 +249,161 @@ def verify_numbers(draft: str, evidence_texts: list[str]) -> NumberAudit:
 _YEAR_LIKE = re.compile(r"^(?:19|20)\d{2}(?:\.(?:0?[1-9]|1[0-2]))?$")   # 연도와 「연도.월」(2023.3·2024.12) — 날짜 표기는 수치가 아니다
 
 
-def mask_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
+def mask_unsupported(text: str, evidence_texts: list[str], context: bool = False) -> tuple[str, list[str]]:
     """근거에 없는 수치를 「○○」로 가린다(단위는 남긴다: 300명 → ○○명) — 절대 규칙 1(수치는 인출만).
-    연도(2026)·목록 번호·10 이하의 구조 숫자(「2개년」「3대 전략」, % 가 붙으면 수치)는 그대로. 돌려주는 것은 (새 글, 가린 원래 수치)."""
-    return _rewrite_unsupported(text, evidence_texts, mark=False)
+    연도(2026)·목록 번호·10 이하의 구조 숫자(「2개년」「3대 전략」, % 가 붙으면 수치)는 그대로. 돌려주는 것은 (새 글, 가린 원래 수치).
+    context=True 면 수치 맥락 대조(아래 「수치 맥락」)를 더한다 — 같은 숫자가 근거 어딘가에 있는 것만으로는 통과하지 않는다."""
+    return _rewrite_unsupported(text, evidence_texts, mark=False, context=context)
+
+
+# ---------------------------------------------------------------- 수치 맥락
+# 근거 글 어딘가에 같은 숫자만 있으면 통과하던 것 — 「2026. 2. 1.」 의 2 로 「대상 2학년」, 「총 4회」 를 지어 넣어도 막지 못했다(11-19).
+# 맥락 대조: 숫자 바로 뒤 셈 단위(명·회·주·학년…, 글에서 그대로 떼어 낸다)가 근거의 같은 숫자와 맞아야 하고, 10 이하의 셈 숫자는
+# 근거 쪽 둘레 낱말(앞뒤 몇 글자의 내용 낱말)도 하나 이상 겹쳐야 한다. 담당자가 직접 준 글(Given — 요청·대화)과 코드가 더한 집계 줄
+# (「◇ 집계」)은 숫자+단위만 맞으면 근거로 본다. 금액(원·억·만…, 단위 환산)·%·날짜·셈 결과는 예전 판정 그대로.
+
+
+class Given(str):
+    """담당자가 직접 준 글(이번 요청·대화에 쓴 글) — 수치 맥락 대조에서 숫자+단위만 맞으면 근거로 본다."""
+
+
+def given(text) -> "Given":
+    return Given(str(text or ""))
+
+
+def context_check_on() -> bool:
+    """수치 맥락 대조 설정 — ZZAIMY_NUMBER_CONTEXT=0 이면 예전처럼 숫자만 대조한다."""
+    return (os.environ.get("ZZAIMY_NUMBER_CONTEXT", "1") or "1").strip().lower() not in ("0", "off", "false", "no")
+
+
+# 단위 뒤에 붙는 조사·어미(문법 낱말) — 「4명이」「2학년을」「4회의」 의 단위는 명·학년·회
+_PARTICLES = ("으로", "에서", "에게", "부터", "까지", "이며", "이고", "이다", "이나", "마다",
+              "이", "가", "을", "를", "은", "는", "의", "에", "와", "과", "로", "도", "만", "씩", "째")
+# 10 이하일 때 사실 값이 아니라 글의 짜임·날짜를 세는 단위 — 예전처럼 대조하지 않는다(「3대 전략」「2단계」「2개 분야」「3월」)
+_STRUCTURAL = {"대", "단계", "차", "차년도", "년차", "개년", "개년도", "가지", "번째", "장", "절", "항", "호", "개", "위", "순위",
+               "등", "부", "편", "권", "쪽", "면", "단", "층", "월", "일", "시", "분", "초", "년도", "개소"}
+_SAME_COUNTER = {"인": "명", "번": "회", "차례": "회"}          # 같은 것을 세는 다른 이름
+# 둘레 낱말로 치지 않는 말 — 어림·범위·모음 말과 한 글자 기능어(「총 4회」의 총은 대상을 말하지 않는다)
+_GENERIC_WORDS = {"이상", "이하", "미만", "초과", "내외", "정도", "이내", "가량", "대비", "기준", "모두", "전체", "합계", "구분",
+                  "총", "각", "약", "및", "등", "연", "월", "일", "주", "년", "중", "내", "외", "전", "후", "간", "수", "것", "더", "또", "매", "회", "명"}
+_HANGUL_RUN = re.compile(r"[가-힣]{1,6}")
+_WORD = re.compile(r"[가-힣]+")
+
+
+def _strip_particle(w: str) -> str:
+    changed = True
+    while changed and len(w) > 1:
+        changed = False
+        for p in _PARTICLES:
+            if w.endswith(p) and len(w) > len(p):
+                w, changed = w[:-len(p)], True
+                break
+    return w
+
+
+def _counter_at(text: str, end: int) -> str:
+    """숫자 바로 뒤에 붙은 셈 단위 — 띄어 쓰지 않은 한글 덩이에서 조사를 뗀 것(「학년을」→학년). 없으면 표 열 머리의 「(명)」 단위."""
+    m = _HANGUL_RUN.match(text, end)
+    if m:
+        t = _strip_particle(m.group(0))
+        return _SAME_COUNTER.get(t, t)
+    ls = text.rfind("\n", 0, end) + 1
+    if text[ls:end].lstrip().startswith("|") and not re.match(r"[%．.\d]", text[end:end + 1]):
+        head = _table_head_cell(text, end)
+        u = re.search(r"[(（]\s*([가-힣]{1,3})\s*[)）]", head or "")
+        if u and not u.group(1).endswith("원"):
+            return _SAME_COUNTER.get(u.group(1), u.group(1))
+    return ""
+
+
+def _table_head_cell(text: str, pos: int) -> str:
+    """표 칸 숫자의 같은 열 머리 칸 글(첫 「|」 줄)."""
+    ls = text.rfind("\n", 0, pos) + 1
+    col = text[ls:pos].count("|") - 1
+    head = ls
+    while head > 0:
+        prev = text.rfind("\n", 0, head - 1) + 1
+        if not text[prev:head - 1].lstrip().startswith("|"):
+            break
+        head = prev
+    if head == ls:
+        return ""
+    he = text.find("\n", head)
+    cells = text[head:len(text) if he < 0 else he].strip().strip("|").split("|")
+    return cells[col] if 0 <= col < len(cells) else ""
+
+
+def _same_counter(a: str, b: str) -> bool:
+    return a == b or a + "간" == b or b + "간" == a              # 「2주」 = 「2주간」
+
+
+def _near_words(text: str, start: int, end: int, unit: str, before: int = 14, after: int = 10) -> set[str]:
+    """숫자 둘레(같은 줄 앞 before 글자·단위 뒤 after 글자)의 내용 낱말 — 낱말 앞 두 글자(어간)로 견준다(「참여자」≈「참여」).
+    표 칸이면 그 행 첫 칸과 열 머리 칸도 둘레로 본다."""
+    ls = text.rfind("\n", 0, start) + 1
+    le = text.find("\n", end)
+    le = len(text) if le < 0 else le
+    seg = text[max(ls, start - before):start] + " " + text[end + len(unit):min(le, end + len(unit) + after)]
+    line = text[ls:le]
+    if line.lstrip().startswith("|"):
+        cells = line.strip().strip("|").split("|")
+        seg += " " + (cells[0] if cells else "") + " " + _table_head_cell(text, start)
+    out = set()
+    for w in _WORD.findall(seg):
+        w = _strip_particle(w)
+        if w and w not in _GENERIC_WORDS and w != unit:            # 한 글자 낱말(팀·반·조)도 내용 낱말로
+            out.add(w[:2])
+    return out
+
+
+@dataclass(frozen=True)
+class _Occ:
+    value: str
+    unit: str
+    words: frozenset
+    given: bool
+    cell: bool
+
+
+def _occurrences(evidence_texts: list[str]) -> dict[str, list[_Occ]]:
+    """근거 글의 맨숫자(억·만 같은 큰 단위가 붙지 않은 것) 자리마다 (값, 셈 단위, 둘레 낱말, 담당자 글인가)."""
+    idx: dict[str, list[_Occ]] = {}
+    for ev in evidence_texts:
+        is_given = isinstance(ev, Given)
+        src = _LIST_MARKER.sub("\n", str(ev or ""))
+        for m in _NUM_UNIT.finditer(src):
+            if m.group(2):
+                continue
+            ls = src.rfind("\n", 0, m.start()) + 1
+            unit = _counter_at(src, m.end())
+            occ = _Occ(m.group(1).replace(",", ""), unit, frozenset(_near_words(src, m.start(), m.end(), unit)),
+                       is_given or src[ls:].lstrip().startswith("◇ 집계"),
+                       src[ls:m.start()].lstrip().startswith("|"))
+            idx.setdefault(occ.value, []).append(occ)
+    return idx
+
+
+def _context_fail(src: str, m: re.Match, occ: dict[str, list[_Occ]], small: bool) -> str | None:
+    """맥락이 맞지 않으면 그 수치의 글(「2학년」), 맞으면 None. 금액·%·큰 단위가 붙은 수는 보지 않는다(예전 판정)."""
+    if m.group(2):
+        return None
+    surface = m.group(1).replace(",", "")
+    unit = _counter_at(src, m.end())
+    if not unit or unit.startswith("원") or src[m.end():m.end() + 1] == "%" or _money_value(src, m, draft=True):
+        return None
+    label = m.group(1) + unit
+    found = occ.get(surface, [])
+    if small:
+        words = _near_words(src, m.start(), m.end(), unit)
+        for o in found:
+            if o.unit and _same_counter(o.unit, unit) and (o.given or (words & o.words)):
+                return None
+            if not o.unit and o.cell and (words & o.words):          # 단위 없는 표 칸은 행·열 이름이 겹칠 때만
+                return None
+        return label
+    if not found or any(not o.unit or _same_counter(o.unit, unit) for o in found):
+        return None                                                  # 단위 환산으로 맞은 값(근거 쪽 맨숫자 없음)·단위 없는 근거 값은 예전처럼
+    return label
 
 
 FLAG = "(근거 확인 필요)"
@@ -259,7 +411,7 @@ FLAG = "(근거 확인 필요)"
 # ---------------------------------------------------------------- 셈으로 나온 값
 # 담당자가 준 값(월급·생년월)을 규정의 식에 넣어 셈한 결과는 근거 글에 없다. 셈을 「식 = 결과」 로 보이면 여기서 다시 셈해
 # 맞을 때만 결과를 근거 있는 값으로 본다 — 틀린 셈의 결과와, 식의 근거 없는 항(지어낸 월급 등)은 그대로 표시된다(11-06 명예퇴직금 계산).
-_OPERAND = r"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:조|억|천만|백만|십만|만|천)?\s*(?:원|%|퍼센트|개월|월|년|명|일|배)?"
+_OPERAND = r"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:조|억|천만|백만|십만|만|천)?\s*(?:원|%|퍼센트|개월|월|년|명|일|배|회|주|시간|건|개|곳|팀|학점)?"
 # 이어진 금액(「1억 800만」)은 앞 덩이가 큰 단위로 끝날 때만 잇는다 — 숫자를 여러 갈래로 나눠 보는 되짚기 폭주(ReDoS)를 막는다
 _BIG = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s?(?:조|억|천만|백만|십만|만|천)"
 _AMOUNT = r"(?:" + _BIG + r"\s?)*" + _OPERAND
@@ -463,8 +615,9 @@ def b_end(spans, pos):
     return next(b for a, b in spans if a <= pos < b)
 
 
-def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tuple[str, list[str]]:
+def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, context: bool = False) -> tuple[str, list[str]]:
     allowed_surface, allowed_canonical, allowed_money = _allowed(evidence_texts)
+    occ = _occurrences(evidence_texts) if context else {}
     out, masked, last = [], [], 0
     src = text or ""
     spans, derived = derived_spans(src)                  # 맞게 셈한 결과는 근거 있는 값(같은 값을 뒤에 다시 써도)
@@ -508,10 +661,17 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
             small = Decimal(surface) <= 10 and not unit and tail != "%"
         except Exception:
             small = False
+        ctx_label = None
         if small:
-            continue
-        if _supported(src, m, allowed_surface, allowed_canonical, allowed_money):
-            continue
+            if not context or Decimal(surface) <= 1 or _counter_at(src, m.end()) in _STRUCTURAL:
+                continue                                      # 구조 숫자·날짜 단위·「1」 은 예전처럼 보지 않는다
+            ctx_label = _context_fail(src, m, occ, small=True)
+            if ctx_label is None:
+                continue
+        elif _supported(src, m, allowed_surface, allowed_canonical, allowed_money):
+            ctx_label = _context_fail(src, m, occ, small=False) if context else None
+            if ctx_label is None:
+                continue
         if mark:
             end = m.end()
             while end < len(src) and src[end] in "%개명원건회배년월일점":
@@ -521,6 +681,6 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tu
         else:
             out.append(src[last:m.start(1)] + "○○")
             last = m.end(1)
-        masked.append(m.group(0).strip())
+        masked.append(ctx_label or m.group(0).strip())
     out.append(src[last:])
     return "".join(out), masked

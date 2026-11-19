@@ -480,7 +480,8 @@ class DemoRun:
         hw.client = self.client
         self.theme = theme_of(self.db)
         self.doc, self.key, self.kind, _ = THEMES[self.theme]
-        hw.evidence = lambda: [setting_text(self.theme), *[str(m.get("content") or "") for m in self.db.list_chats(self.sid, limit=200) if m.get("role") == "user"]]
+        from zzaimy.verify.numbers import given
+        hw.evidence = lambda: [given(setting_text(self.theme)), *[given(m.get("content")) for m in self.db.list_chats(self.sid, limit=200) if m.get("role") == "user"]]
         webhwp_agent.attach(self.db, self.sid, self.fid)
         self.hw = hw
         self.log: list[dict] = []
