@@ -487,8 +487,25 @@ def relayout(db, base: Path, fid: int, *, user: str = WRITER) -> dict:
     """이미 만든 논문 문서에 frame_layout 을 — 필드 밖만, 앞 판은 .판/ (restamp 와 같은 저장 길)."""
     def change(data: bytes):
         new, n = frame_layout(data)
-        return new, f"{n}곳"
+        new, k = keep_korean_words(new)
+        return new, f"{n}곳, 한글 낱말 단위 줄바꿈 {k}개 문단 모양"
     return _save_outside(db, base, fid, change, user=user)
+
+
+def keep_korean_words(data: bytes) -> tuple[bytes, int]:
+    """한글 낱말을 줄 끝에서 자르지 않게 — 문단 모양마다 breakNonLatinWord="KEEP_WORD"(한글 「한글 단위 줄 나눔: 어절」).
+    글자 단위로 끊으면 「동시 편집 기 / 능을」처럼 낱말 한두 글자만 다음 줄로 넘어갔다(11-19 사용자)."""
+    zin = zipfile.ZipFile(io.BytesIO(data))
+    header = zin.read("Contents/header.xml").decode("utf-8")
+    new, k = re.subn(r'breakNonLatinWord="BREAK_WORD"', 'breakNonLatinWord="KEEP_WORD"', header)
+    if not k:
+        return data, 0
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for info in zin.infolist():
+            body = new.encode("utf-8") if info.filename == "Contents/header.xml" else zin.read(info.filename)
+            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+    return buf.getvalue(), k
 
 
 def _page_frame(data: bytes, meta: dict) -> bytes:

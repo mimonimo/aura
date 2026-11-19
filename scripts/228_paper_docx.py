@@ -765,6 +765,9 @@ def _style_toc(doc):
         ppr.insert(0, tabs)
 
 
+_WORDWRAP_AFTER = ("overflowPunct", "topLinePunct", "autoSpaceDE", "autoSpaceDN", "bidi", "adjustRightInd", "snapToGrid", "spacing", "ind",
+                   "contextualSpacing", "mirrorIndents", "suppressOverlap", "jc", "textDirection", "textAlignment", "textboxTightWrap",
+                   "outlineLvl", "divId", "cnfStyle", "rPr", "sectPr", "pPrChange")
 _PPR_AFTER_BDR = ("shd", "tabs", "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct", "topLinePunct", "autoSpaceDE",
                   "autoSpaceDN", "bidi", "adjustRightInd", "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorIndents",
                   "suppressOverlap", "jc", "textDirection", "textAlignment", "textboxTightWrap", "outlineLvl", "divId", "cnfStyle",
@@ -884,6 +887,18 @@ def build(out: Path, appendix: bool = True) -> dict:
     doc = Document()
     _no_autospace(doc)
     _style_headings(doc)
+    # 한글 낱말을 줄 끝에서 자르지 않게 — 모든 문단 스타일에 「한글 단어 잘림 허용」 끔(w:wordWrap=0). 글자 단위로 끊으면
+    # 「동시 편집 기 / 능을」처럼 한두 글자만 다음 줄로 넘어갔다(11-19 사용자)
+    from docx.enum.style import WD_STYLE_TYPE
+    for st_ in doc.styles:
+        if st_.type == WD_STYLE_TYPE.PARAGRAPH:
+            ppr_ = st_.element.get_or_add_pPr()
+            for old_ in ppr_.findall(qn("w:wordWrap")):
+                ppr_.remove(old_)
+            ww_ = OxmlElement("w:wordWrap"); ww_.set(qn("w:val"), "0")
+            # 스키마 차례(CT_PPrBase)를 지킨다 — 뒤에 오는 첫 요소 앞에 끼운다(끝에 붙이면 워드가 문단 모양을 무시하거나 파일을 고치자고 한다)
+            after_ = next((c_ for c_ in ppr_ if c_.tag.split("}")[-1] in _WORDWRAP_AFTER), None)
+            (after_.addprevious(ww_) if after_ is not None else ppr_.append(ww_))
     _style_toc(doc)
     sec0 = doc.sections[0]
     _page_setup(sec0)
