@@ -353,6 +353,9 @@ def _keep_lead_in(doc, limit: int = 90) -> None:
     if last.tag != qn("w:p"):
         return
     text = "".join(t.text or "" for t in last.iter(qn("w:t")))
+    # 앞 그림·표의 캡션은 소개 문단이 아니다 — 캡션까지 다음 그림에 묶여 그림 두 장이 한 덩어리로 넘어가 앞 쪽이 반 넘게 비었다(11-19 워드 155쪽 [그림 A-18]·[그림 A-19])
+    if re.match(r"\s*\[(그림|표) [0-9A-Z]+-\d+\]", text):
+        return
     if 0 < len(text.strip()) <= limit:
         from docx.text.paragraph import Paragraph
         Paragraph(last, doc._body).paragraph_format.keep_with_next = True
