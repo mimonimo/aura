@@ -1524,6 +1524,11 @@ def _gap_note(tb: "_Table", r0: int, c0: int, values: list) -> str:
             "원본에서 왼쪽·위 칸과 합친 자리면 그 칸 값을 「←」·「〃」 로 다시 준다")
 
 
+# 서식 표의 번호 칸(「①」「2.」「1)」「(1)」「가.」「□」) — 사업비 표처럼 번호만 박힌 칸에 「① 규정 및 …」 처럼 그 번호로 시작하는 이름을
+# 넣는 것은 라벨 덮기가 아니다. 이것까지 막아 4.2 사업비 표 채우기가 통째로 거절되고 에이전트가 같은 호출을 되풀이했다(11-19 특성화 v2 81·82번)
+_MARKER = re.compile(r"^(?:[\u2460-\u2473\u3251-\u325f]|\(?\d{1,2}[.)]|[가-하][.)]|\([가-하\d]{1,2}\)|[□○◦▪•■◇◆※-])$")
+
+
 def _check_labels(tb: "_Table", plan: dict, overwrite: bool = False) -> list:
     """서식 라벨 칸을 값으로 덮는가 — 덮으려는 값을 라벨 오른쪽 값 칸으로 옮긴다(옮긴 것 목록을 돌려준다).
     열을 한 칸 잘못 짚어 「계열 수」「본교/분교」 라벨을 값으로 덮고, 값 칸에는 단위 「개」 만 남던 것(10차 대학 현황 표).
@@ -1538,6 +1543,8 @@ def _check_labels(tb: "_Table", plan: dict, overwrite: bool = False) -> list:
             continue
         if "fieldBegin" in cell["xml"]:
             continue                                        # 값 칸 필드가 든 칸은 값 자리다
+        if _MARKER.match(old) and re.sub(r"\s+", "", v).startswith(re.sub(r"\s+", "", old)):
+            continue                                        # 번호 칸(「①」「2.」)을 그 번호로 시작하는 항목 이름으로 채움 — 덮기가 아니라 잇기
         nc = c + cell["cs"]
         if nc >= tb.nc:
             continue

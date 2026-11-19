@@ -281,3 +281,19 @@ def test_set_cells_keeps_header_row_when_start_left_at_top():
     # overwrite 면 그대로(머리줄을 일부러 고치는 경우)
     d3, _ = eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [1, 1], "values": [["구분", "금액", "비고"]], "overwrite": True})
     assert ">구분<" in _sec(d3)
+
+
+def test_set_cells_marker_cell_filled_with_item_name():
+    # 11-19 특성화 4.2 사업비 표: 번호만 박힌 칸 「①」「2.」 에 「① 규정 및 …」 을 넣는 것을 라벨 덮기로 보고 통째로 거절했다
+    d, _ = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"},
+                                    "values": [["사업 과제명", "예산", "프로그램", "예산"], ["1.", "", "①", ""], ["2.", "", "②", ""]]})
+    tb = {"head": "사업 과제명"}
+    d, msg = eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [2, 1],
+                                    "values": [["1. 정원감축 체계 구축", "20", "① 규정 정비", "4"], ["2. 산학협력 체계", "276", "② 현장직무 교육", "220"]]})
+    _ok(d)
+    x = _sec(d)
+    assert ">1. 정원감축 체계 구축<" in x and ">② 현장직무 교육<" in x and ">276<" in x
+    # 번호로 시작하지 않는 값은 여전히 막는다(라벨 「계열 수」 를 값으로 덮던 것)
+    d2, _ = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"}, "values": [["대학 현황 구분", "값"], ["계열 수", ""]]})
+    with pytest.raises(eo.EditError):
+        eo.table_edit(_ok(d2), {"table": {"head": "대학 현황 구분"}, "op": "set_cells", "start": [2, 1], "values": [["9", ""]]})
