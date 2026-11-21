@@ -268,3 +268,17 @@ def test_unnamed_report_not_counted_when_its_activity_is_named_elsewhere():
     fl.collect(db, 12, docs, ["분야", "활동", "참여 인원", "금액"], FakeClient(ans), title_of=_title, parallel=1)
     obs, ev = fl.aggregate(db, 12, ["분야"], [], distinct=["활동"])
     assert "활동 2개" in obs and any("2개(=2건)" in e for e in ev)
+
+
+def test_same_value_dedup_when_document_has_no_line_breaks():
+    # 11-22 7차: 줄 없이 이어진 본문이라 인용이 여러 문장 — 기록마다 인용이 달라 7월 38→76 이 그대로였다
+    t = ("2026. 7. 8. 하계 부트캠프을(를) 운영하였다. 참여 인원은 학생 38명이며, 만족도 4.7점이었다. "
+         "이번 활동으로 성과지표 「교육 이수 인원」 실적 38명을(를) 거두었다. 이번 활동으로 성과지표 「취업 연계」 실적 6명을(를) 거두었다.")
+    docs = [{"id": 1, "filename": "부트캠프.docx", "masked_text": t}]
+    ans = {"부트캠프": [{"날짜": "2026. 7. 8.", "참여 인원": "학생 38명", "실적": "38명",
+                     "quote": "2026. 7. 8. 하계 부트캠프을(를) 운영하였다. 참여 인원은 학생 38명이며, 만족도 4.7점이었다. 이번 활동으로 성과지표 「교육 이수 인원」 실적 38명을(를) 거두었다."},
+                    {"참여 인원": "학생 38명", "실적": "6명", "quote": "이번 활동으로 성과지표 「취업 연계」 실적 6명을(를) 거두었다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 13, docs, ["날짜", "참여 인원", "실적"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 13, [], ["참여 인원"])
+    assert "참여 인원 38명" in obs
