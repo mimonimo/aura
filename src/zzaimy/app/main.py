@@ -3118,7 +3118,16 @@ def create_app(
             docs_ = _fact_docs(a.get("documents"))
             if not docs_:
                 raise doc_agent.Retry("모을 문서가 없다 — 이 프로젝트에 다 읽은 근거 문서가 없거나 documents 의 제목이 맞지 않는다.")
-            return _fl.collect(db, session_id, docs_, list(items_), client, title_of=lambda d_: storage.title_of(d_.get("filename") or ""))
+            obs_ = _fl.collect(db, session_id, docs_, list(items_), client, title_of=lambda d_: storage.title_of(d_.get("filename") or ""))
+            all_ = _fact_docs(None)
+            if len(docs_) < len(all_):
+                # 고른 문서만 읽었다 — 「전부 훑어」 요청에 14/25 개만 넘기고 나머지 달이 빈 채로 끝났다(11-20 2차 시험). 빠진 문서를 보여 판단은 모델이
+                ids_ = {d_["id"] for d_ in docs_}
+                left_ = [storage.title_of(d_.get("filename") or "") for d_ in all_ if d_["id"] not in ids_]
+                obs_ += (f"\n이 프로젝트 근거 문서 {len(all_)}개 가운데 고른 {len(docs_)}개만 읽었다. 안 읽은 문서: "
+                         + ", ".join(f"《{t_[:30]}》" for t_ in left_[:12]) + (" …" if len(left_) > 12 else "")
+                         + " — 전부 모아야 하는 일이면 documents 없이 다시 부른다(읽은 문서는 다시 읽지 않는다).")
+            return obs_
 
         def t_aggregate(a: dict) -> str:
             from zzaimy.app import fact_ledger as _fl
@@ -3127,7 +3136,7 @@ def create_app(
                 return [x_ for x_ in re.split(r"[,/]\s*", v_) if x_.strip()] if isinstance(v_, str) else list(v_ or [])
             obs_, ev_ = _fl.aggregate(db, session_id, _list(a.get("group_by")), _list(a.get("sum")), count=a.get("count") is not False,
                                       filt=a.get("filter") if isinstance(a.get("filter"), dict) else None,
-                                      distinct=str(a.get("distinct") or ""), share=a.get("share") is True, base=a.get("base"))
+                                      distinct=a.get("distinct") or "", share=a.get("share") in (True, "true", "True", 1, "1"), base=a.get("base"))
             if ev_:
                 body_ = "\n".join(ev_)
                 notes.append(f"◇ {a.get('for') or '실적 집계'} — 모은 기록 집계(코드가 더한 값)\n{body_}")

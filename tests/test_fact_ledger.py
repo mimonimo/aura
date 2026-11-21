@@ -150,3 +150,20 @@ def test_aggregate_distinct_share_base_and_nonempty_filter():
     assert any("서로 다른 활동: 2개" in x for x in ev) and any("=80.0%" in x for x in ev)
     obs2, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"], filt={"참여 인원": "*"})
     assert "기록 2건" in obs2 and "참여 인원: 103" in obs2
+    obs3, _ = fl.aggregate(db, 7, ["분야"], ["금액"], distinct=["활동"])          # 모델이 목록으로 줘도
+    assert "활동 2개" in obs3 and "없는 이름" not in obs3
+
+
+def test_quote_with_small_copy_error_or_ellipsis_kept():
+    from zzaimy.app import fact_ledger as fl
+    doc = ("사업명 | 가상 사업\n분야 | 학생 역량강화\n일시 | 2026. 9. 10.\n\n2026. 9. 10. 파이썬 캠프(2기)을(를) 운영하였다.\n\n"
+           "참여 인원은 학생 47명이며, 만족도는 4.4점이었다.\n\n기간 | 2026. 10. 7. (1일)\n출장자 | 담당 교원 2명\n\n박람회 참관 목적으로 출장하였다.")
+    items = ["날짜", "활동", "참여 인원"]
+    recs = [{"날짜": "2026. 9. 10.", "활동": "파이썬 캠프(2기)", "참여 인원": "학생 47명",
+             "quote": "2026. 9. 10. 파이썬 캠프(2기)를(를) 운영하였다. 참여 인원은 학생 47명이며, 만족도는 4.4점이었다."},
+            {"날짜": "2026. 10. 7.", "활동": "박람회 참관", "참여 인원": "담당 교원 2명",
+             "quote": "기간 | 2026. 10. 7. (1일) ... 출장자 | 담당 교원 2명 ... 박람회 참관 목적으로 출장하였다."},
+            {"날짜": "2026. 9. 10.", "활동": "없는 활동", "참여 인원": "학생 47명",
+             "quote": "전혀 다른 글이 여기에 길게 적혀 있다고 해 보자 학생 47명"}]
+    kept, dropped = fl.validate(recs, items, doc)
+    assert [k["참여 인원"] for k in kept] == ["학생 47명", "담당 교원 2명"] and dropped == 1

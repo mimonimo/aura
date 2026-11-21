@@ -578,6 +578,86 @@ def check_zip(zin: zipfile.ZipFile) -> None:
         raise ValueError("한글 파일이 너무 큽니다(풀었을 때 300MB 초과)")
 
 
+_RUN_OPEN = re.compile(r"<hp:run\b[^>]*>")
+
+
+def _split_lead_table_para(p: str) -> list[str] | None:
+    """문단 맨 앞에 표가 앉고 그 뒤에 글이 이어지면 [표만 든 문단, 글 문단] 으로 나눈다. 못 나누면 None.
+    표는 위·아래로 글을 비키는(TOP_AND_BOTTOM) 문단 기준 위치 0 표만 — 그래야 나눠도 보이는 차례(표 → 글)가 같다."""
+    m0 = re.match(r"(<hp:p\b[^>]*>)(.*)(</hp:p>)$", p, re.S)
+    if not m0:
+        return None
+    open_, body, close = m0.groups()
+    body = re.sub(r"<hp:linesegarray>(?:(?!<hp:linesegarray>).)*?</hp:linesegarray>\s*$", "", body, flags=re.S)   # 이 문단 것만(표 칸 안 배치는 그대로)
+    rm = _RUN_OPEN.match(body.lstrip())
+    if not rm:
+        return None
+    lead = len(body) - len(body.lstrip())
+    run_open = rm.group(0)
+    i = lead + rm.end()
+    # 첫 run 안: 표 앞에 글이 있으면 제목 뒤에 붙은 표가 아니다
+    tb = body.find("<hp:tbl", i)
+    if tb < 0 or _text(body[i:tb]):
+        return None
+    depth, j = 0, tb
+    for m in re.finditer(r"<hp:tbl\b|</hp:tbl>", body[tb:]):
+        depth += 1 if m.group(0) != "</hp:tbl>" else -1
+        if depth == 0:
+            j = tb + m.end()
+            break
+    else:
+        return None
+    tbl = body[tb:j]
+    pos = re.search(r"<hp:pos\b[^>]*/>", tbl)
+    if not pos or 'treatAsChar="0"' not in pos.group(0) or 'vertRelTo="PARA"' not in pos.group(0) \
+            or not re.search(r'vertOffset="0"', pos.group(0)) or 'textWrap="TOP_AND_BOTTOM"' not in tbl[:400]:
+        return None
+    end_run = body.find("</hp:run>", j)
+    if end_run < 0:
+        return None
+    rest_in_run = body[j:end_run]
+    after = body[end_run + len("</hp:run>"):]
+    if not _text(rest_in_run + after):
+        return None
+    table_para = open_ + body[:j] + "</hp:run>" + close
+    text_body = (run_open + rest_in_run + "</hp:run>" if rest_in_run.strip() else "") + after
+    return [table_para, open_ + text_body + close]
+
+
+def split_lead_tables(data: bytes) -> tuple[bytes, int]:
+    """다른 형식(워드)을 한글로 바꾸면 앞 표가 다음 제목 문단 안에 붙어 들어간다(「[표]2.2 분야별 추진 실적」).
+    그러면 제목이 표 든 문단이라 절로 잡히지 않아, 그 절에 쓸 자리가 없고 앞 절의 표가 덮어써졌다(11-20 결과보고서 2차 시험).
+    맨 바깥 문단만 보고, 표만 든 문단과 글 문단으로 나눈다. 바꾼 문단 수를 함께 돌려준다."""
+    try:
+        zin = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return data, 0
+    check_zip(zin)
+    new, total = {}, 0
+    for n in zin.namelist():
+        if not _SEC.search(n):
+            continue
+        xml = zin.read(n).decode("utf-8")
+        out, pos, k = [], 0, 0
+        for a, b in _top_level(xml):
+            parts = _split_lead_table_para(xml[a:b]) if "<hp:tbl" in xml[a:b] else None
+            if parts:
+                out += [xml[pos:a], "".join(parts)]
+                pos, k = b, k + 1
+        if k:
+            out.append(xml[pos:])
+            new[n], total = "".join(out), total + k
+    if not total:
+        return data, 0
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zout:
+        for info in zin.infolist():
+            body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
+            ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
+            zout.writestr(info, body, compress_type=ct)
+    return buf.getvalue(), total
+
+
 def fieldize(data: bytes, slots=None, people: dict | None = None, heads: dict | None = None) -> tuple[bytes, list[dict]]:
     """hwpx 바이트 → 필드를 박은 hwpx 바이트와 필드 목록. 이미 필드가 있으면 손대지 않는다(그 목록만).
     slots — 만든 쪽이 아는 제목 차례 [(제목 글, 잎 절인가)…](코드로 짠 공통 양식). 주면 그 잎 절에만 절 필드를 박고,

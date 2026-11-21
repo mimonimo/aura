@@ -68,7 +68,15 @@ def score(set_dir: Path, result: Path) -> dict:
              + [v for d in t["분야별"].values() for v in d.values()] + [v["실적"] for v in t["성과지표"].values()]
              + list(t["비목별 집행액"].values())}
     legit |= {f"{round(v['실적'] / v['목표'] * 100, 1)}" for v in t["성과지표"].values()}
-    left = [v for v in t["작년 값"] if v in full and v.replace(",", "") not in legit]
+    toks = _nums(re.sub(r"\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.?", " ", full))     # 날짜(2026. 5. 21.)의 낱수는 잔여가 아니다
+
+    def present(v: str) -> bool:
+        # 수만 든 값은 수 낱개로 대조한다 — 「200」 이 「28,200,000」 안에, 「21」 이 「21.3」 에 걸려 잔여로 세던 것(11-20 2차)
+        if re.fullmatch(r"[\d,.]+", v):
+            return v.replace(",", "") in toks
+        return v in full
+
+    left = [v for v in t["작년 값"] if present(v) and v.replace(",", "") not in legit]
     res["작년 값 남음"] = len(left)
     res["작년 값 예"] = left[:8]
     return res

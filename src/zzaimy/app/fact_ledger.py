@@ -81,6 +81,45 @@ def _parse(raw: str) -> list[dict]:
     return [r for r in recs if isinstance(r, dict)] if isinstance(recs, list) else []
 
 
+def _quote_in(q: str, body: str, vals: list[str]) -> str | None:
+    """인용(q, 띄어쓰기 뺀 꼴)이 문서(body)의 어느 구간인지 — 그 구간 글을, 못 찾으면 None.
+    그대로 있으면 그것. 모델이 여러 줄을 「…」로 이어 적었으면 조각이 모두 가까이 있을 때 그 사이 구간.
+    한두 글자를 옮겨 적다 바꾼 꼴(「캠프(2기)을(를)」→「…를(를)」)이면 문서에 그대로 있는 값 둘레에서 9할 이상 같은 구간.
+    값은 따로 문서에 그대로 있어야 하므로(validate), 인용은 어디서 왔는지만 맞으면 된다 — 11-20 2차 시험에서
+    한 글자 바뀐 인용 탓에 참여 47명이 든 기록이 통째로 버려졌다."""
+    if not q:
+        return None
+    if q in body:
+        return q
+    segs = [x for x in re.split(r"\.{3,}|…+", q) if len(x) >= 4]
+    if len(segs) > 1:
+        at, ok, start = 0, True, None
+        for x in segs:
+            i = body.find(x, at)
+            if i < 0:
+                ok = False
+                break
+            start = i if start is None else start
+            at = i + len(x)
+        if ok and start is not None and at - start <= 3 * len(q) + 200:
+            return body[start:at]
+    if len(q) < 10:
+        return None
+    from difflib import SequenceMatcher
+    for v in sorted({v for v in vals if v and v in q and v in body}, key=len, reverse=True)[:3]:
+        i, n = body.find(v), 0
+        while i >= 0 and n < 5:
+            lo = max(0, i - len(q))
+            win = body[lo:i + len(v) + len(q)]
+            blocks = [b for b in SequenceMatcher(None, win, q, autojunk=False).get_matching_blocks() if b.size]
+            if blocks and sum(b.size for b in blocks) >= 0.9 * len(q):
+                a0, a1 = blocks[0].a, blocks[-1].a + blocks[-1].size
+                if a1 - a0 <= 1.2 * len(q):
+                    return win[a0:a1]
+            i, n = body.find(v, i + 1), n + 1
+    return None
+
+
 def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list[dict], int]:
     """인용이 문서에 그대로 있고, 비지 않은 값이 모두 문서에 있으며 인용에 값이 하나 이상 든 기록만. (남긴 기록, 버린 수)"""
     body = _norm(doc_text)
@@ -89,7 +128,8 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
         quote = str(r.get("quote") or "")
         q = _norm(quote)
         vals = {k: str(r.get(k) or "").strip() for k in items}
-        if not q or q not in body or not any(vals.values()):
+        span = _quote_in(q, body, [_norm(v) for v in vals.values() if v])
+        if span is None or not any(vals.values()):
             dropped += 1
             continue
         # 값마다 문서 안에 그대로 있어야 한다(표 머리의 날짜·분야처럼 인용 밖 값도 있다). 문서에 없는 값만 비우고 기록은 살린다 —
@@ -97,7 +137,7 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
         off = [k for k, v in vals.items() if v and _norm(v) not in body]
         for k in off:
             vals[k] = ""
-        if not any(v and _norm(v) in q for v in vals.values()):
+        if not any(v and _norm(v) in span for v in vals.values()):
             dropped += 1                                          # 인용에 든 값이 하나도 없으면 기록이 아니다
             continue
         kept.append({**vals, "quote": quote[:300], **({"unverified": off} if off else {})})
@@ -257,7 +297,7 @@ def _fmt(d: Decimal) -> str:
 
 
 def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: bool = True, filt: dict | None = None,
-              distinct: str = "", share: bool = False, base=None) -> tuple[str, list[str]]:
+              distinct="", share: bool = False, base=None) -> tuple[str, list[str]]:
     """(관찰 글, 근거 글 줄). 근거 글은 「묶음 · 항목: a+b+…=합」 꼴이라 수치 관문이 셈을 확인한다.
     distinct: 이 항목의 서로 다른 값 수를 센다(같은 활동이 결과 보고·집행 내역 여러 줄에 나와 건수가 부풀던 것 — 11-20 시험 「활동 17건」).
     share: 묶음마다 합계 대비 비율(%). base: 합계를 이 값(예: 총 사업비)에 견준 비율(%) — 비율도 근거 줄로 남긴다."""
@@ -275,9 +315,13 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             recs = [r for r in recs if str(r.get(k) or "").strip()]
         else:
             recs = [r for r in recs if str(v) in str(r.get(k) or "")]
-    distinct = str(distinct or "").strip()
-    if distinct and distinct not in items:
-        return f"모은 항목에 없는 이름: {distinct} — 모은 항목은 {', '.join(items)}.", []
+    # distinct 는 이름 하나나 목록 — 모델이 ["활동"] 으로 주자 「['활동']」 을 이름으로 읽어 막았고, 모델이 집계를 버리고
+    # search 로 돌아가 월별·분야별 합계가 빈 채로 남았다(11-20 2차 시험)
+    dl = distinct if isinstance(distinct, (list, tuple)) else re.split(r"[,/]\s*", str(distinct or ""))
+    distincts = [str(x).strip() for x in dl if str(x).strip()]
+    bad = [x for x in distincts if x not in items]
+    if bad:
+        return f"모은 항목에 없는 이름: {', '.join(bad)} — 모은 항목은 {', '.join(items)}.", []
     base_n = number(base) if base not in (None, "") else None
     groups: "OrderedDict[tuple, list[dict]]" = OrderedDict()
     for r in sorted(recs, key=lambda r: tuple(_key(r, g) for g in group_by)):
@@ -292,10 +336,14 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         cells = []
         if count:
             cells.append(f"{len(rs)}건")
-        if distinct:
-            kinds = sorted({_norm(r.get(distinct)) for r in rs if str(r.get(distinct) or "").strip()})
-            cells.append(f"{distinct} {len(kinds)}개")
-            ev.append(f"◇ 집계 {label} · 서로 다른 {distinct}: {len(kinds)}개 (" + ", ".join(k[:20] for k in kinds[:12]) + ")")
+        for dk in distincts:
+            seen_: dict[str, str] = {}
+            for r in rs:                                          # 같은지는 띄어쓰기 빼고, 보이는 이름은 문서 글 그대로
+                if str(r.get(dk) or "").strip():
+                    seen_.setdefault(_norm(r.get(dk)), str(r.get(dk)).strip())
+            kinds = [seen_[k] for k in sorted(seen_)]
+            cells.append(f"{dk} {len(kinds)}개")
+            ev.append(f"◇ 집계 {label} · 서로 다른 {dk}: {len(kinds)}개 (" + ", ".join(k[:20] for k in kinds[:12]) + ")")
         for s in sums:
             vals = [(number(r.get(s)), r) for r in rs]
             nums = [v for v, _ in vals if v is not None]

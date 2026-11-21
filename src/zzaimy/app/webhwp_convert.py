@@ -86,6 +86,9 @@ def work_form(data: bytes, ext: str, http=None, blank: bool = False, report: dic
     report 를 주면 비운 칸 수를 report["blanked"] 에 적는다. facts(institution.facts)를 주면 견본 기관 이름·서명 자리를 그 값으로."""
     from zzaimy.app import webhwp_fields
     hx = to_hwpx(data, ext, http)
+    hx, split = webhwp_fields.split_lead_tables(hx)      # 워드에서 바꾼 양식 — 제목 문단에 붙은 앞 표를 떼어 제목이 절로 잡히게
+    if report is not None and split:
+        report["split_tables"] = split
     if blank:
         from zzaimy.app import form_blank
         if form_blank.looks_filled(hx):
