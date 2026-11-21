@@ -340,7 +340,28 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     obs = [f"묶음 {len(groups)}개 · 기록 {len(recs)}건 ({head})"]
     ev: list[str] = []
     totals = {s: [] for s in sums}
-    units = {s: _unit([r.get(s) for r in recs if number(r.get(s)) is not None]) for s in sums}
+    # 더할 항목의 주된 셈 단위 — 단위가 다른 값(참여 인원 칸에 뽑힌 「외 2개사」 의 2개사)은 더하지 않고 알린다(11-21 3차: 7월·11월 합계가 2·1 부풀음)
+    from collections import Counter as _Counter
+    dom = {}
+    for s_ in sums:
+        cnt = _Counter(_unit([r.get(s_)]) for r in recs if number(r.get(s_)) is not None)
+        cnt.pop("", None)
+        top = cnt.most_common(1)
+        dom[s_] = top[0][0] if top and top[0][1] >= 0.6 * sum(cnt.values()) else ""
+    off_unit = {s_: [] for s_ in sums}
+
+    def nv(r, s_):
+        v_ = number(r.get(s_))
+        if v_ is None or not dom[s_]:
+            return v_
+        u_ = _unit([r.get(s_)])
+        if u_ and u_ != dom[s_]:
+            if r not in off_unit[s_]:
+                off_unit[s_].append(r)
+            return None
+        return v_
+
+    units = {s_: dom[s_] or _unit([r.get(s_) for r in recs if number(r.get(s_)) is not None]) for s_ in sums}
     skipped = {s: 0 for s in sums}
     for key, rs in groups.items():
         label = " / ".join(key) if key else "전체"
@@ -356,9 +377,9 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             cells.append(f"{dk} {len(kinds)}개")
             ev.append(f"◇ 집계 {label} · 서로 다른 {dk}: {len(kinds)}개 (" + ", ".join(k[:20] for k in kinds[:12]) + ")")
         for s in sums:
-            vals = [(number(r.get(s)), r) for r in rs]
+            vals = [(nv(r, s), r) for r in rs]
             nums = [v for v, _ in vals if v is not None]
-            skipped[s] += sum(1 for v, r in vals if v is None and str(r.get(s) or "").strip())
+            skipped[s] += sum(1 for v, r in vals if v is None and str(r.get(s) or "").strip() and r not in off_unit[s])
             tot = sum(nums, Decimal(0))
             totals[s] += nums
             u = units[s]
@@ -373,7 +394,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     for s in sums:
         if totals[s]:
             t = sum(totals[s], Decimal(0))
-            sub = [sum((v for v in (number(r.get(s)) for r in rs) if v is not None), Decimal(0)) for rs in groups.values()]
+            sub = [sum((v for v in (nv(r, s) for r in rs) if v is not None), Decimal(0)) for rs in groups.values()]
             sub = [x for x in sub if x]
             u = units[s]
             expr = "+".join(_fmt(x) for x in sub) + f"={_fmt(t)}{u}" if len(sub) > 1 else f"{_fmt(t)}{u}"
@@ -381,7 +402,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             ev.append(f"◇ 집계 합계 · {s}: {expr}")
             if share and t:
                 for key, rs in groups.items():
-                    g = sum((v for v in (number(r.get(s)) for r in rs) if v is not None), Decimal(0))
+                    g = sum((v for v in (nv(r, s) for r in rs) if v is not None), Decimal(0))
                     pct = (g / t * 100).quantize(Decimal("0.1"))
                     lab = " / ".join(key) if key else "전체"
                     obs.append(f"  비율 · {lab} · {s}: {pct}%")
@@ -390,6 +411,9 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                 pct = (t / base_n * 100).quantize(Decimal("0.1"))
                 obs.append(f"  {s} 합계 대비 {_fmt(base_n)}: {pct}%")
                 ev.append(f"◇ 집계 {s} 합계 대비 기준값: {_fmt(t)}/{_fmt(base_n)}×100={pct}%")
+        if off_unit[s]:
+            ex_ = ", ".join(f"「{str(r.get(s))[:12]}」《{r['_doc'][:20]}》" for r in off_unit[s][:4])
+            obs.append(f"  (「{s}」 단위가 「{dom[s]}」 가 아닌 값 {len(off_unit[s])}건은 더하지 않았다: {ex_} — 다른 것을 센 값이면 맞다, 같은 것이면 기록을 확인한다)")
         if skipped[s]:
             obs.append(f"  (「{s}」 값을 수로 읽지 못한 기록 {skipped[s]}건은 더하지 않았다)")
     if count:

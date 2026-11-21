@@ -167,3 +167,13 @@ def test_quote_with_small_copy_error_or_ellipsis_kept():
              "quote": "전혀 다른 글이 여기에 길게 적혀 있다고 해 보자 학생 47명"}]
     kept, dropped = fl.validate(recs, items, doc)
     assert [k["참여 인원"] for k in kept] == ["학생 47명", "담당 교원 2명"] and dropped == 1
+
+
+def test_aggregate_skips_values_with_other_unit():
+    db = FakeDB([])
+    recs = [{"날짜": "2026. 7. 8.", "참여 인원": "학생 38명", "quote": "q"},
+            {"날짜": "2026. 7. 22.", "참여 인원": "2개사", "quote": "q"},
+            {"날짜": "2026. 7. 9.", "참여 인원": "41명", "quote": "q"}]
+    fl.save(db, 8, {"items": ["날짜", "참여 인원"], "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": ["날짜", "참여 인원"], "records": recs}}})
+    obs, ev = fl.aggregate(db, 8, ["날짜:월"], ["참여 인원"])
+    assert "참여 인원 79명" in obs and "2개사" in obs and any("38+41=79명" in x for x in ev)

@@ -44,7 +44,8 @@ def score(set_dir: Path, result: Path) -> dict:
     ok = 0
     for m, v in t["월별"].items():
         r = row_for(lambda c, m=m: re.fullmatch(rf"0?{m}\s*월", c.strip()) is not None)
-        ok += bool(r and str(v["참여 인원"]) in _nums(" ".join(r[1:])))
+        got = _nums(" ".join(r[1:])) if r else set()
+        ok += bool(r and (str(v["참여 인원"]) in got or str(v.get("참여 인원(회의·출장 포함)", "")) in got))
     res["월별 참여 인원"] = f"{ok}/{len(t['월별'])}"
     ok = 0
     for f, v in t["분야별"].items():

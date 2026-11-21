@@ -97,18 +97,21 @@ def build(out: Path) -> dict:
         truth["분야별"][field]["행사"] += 1
         truth["분야별"][field]["참여 인원"] += people
         truth["문서"].append(fn.name)
+    extra = defaultdict(int)
     for (m, dday, name) in MEETINGS:
         n += 1
         fn = ev / f"{name} 회의록.docx"
         _doc(fn, f"{name} 회의록", [("사업명", PROGRAM), ("일시", f"2026. {m}. {dday}."), ("참석", "위원 7명")],
              ["안건 1: 분기 추진 실적 점검", "안건 2: 다음 분기 프로그램 일정 확정", "결정: 원안대로 추진하고 예산 집행률을 다음 회의에서 다시 점검한다."])
         truth["문서"].append(fn.name)
+        extra[m] += 7                                     # 회의 참석 위원 — 「참여 인원」 에 넣을지는 지침에 없어 둘 다 정답으로 본다
     for (m, dday, place, name) in TRIPS:
         n += 1
         fn = ev / f"출장 결과 보고({name}).docx"
         _doc(fn, f"출장 결과 보고({name})", [("사업명", PROGRAM), ("기간", f"2026. {m}. {dday}. (1일)"), ("출장지", place), ("출장자", "담당 교원 2명")],
              [f"{name} 목적으로 출장하였다.", "현장실습 수요와 교육과정 개선 의견을 수렴하였다."])
         truth["문서"].append(fn.name)
+        extra[m] += 2                                     # 출장 교원
     # 집행 내역(엑셀) — 분야·비목·월별
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -173,6 +176,8 @@ def build(out: Path) -> dict:
         "근거는 올린 2026년 진행 문서(운영 결과 보고, 회의록, 출장 보고, 집행 내역 엑셀)뿐이며 작년 값은 쓰지 않는다.\n"
         "월별·분야별 표는 문서마다 확인한 값을 모아 합계를 낸다. 문서에 없는 값은 만들지 말고 「확인 필요」로 남긴다.\n"
         "표의 각 행에는 근거 문서 이름을 적는다. 총 사업비는 3억 원이다.\n", encoding="utf-8")
+    for m_, v_ in truth["월별"].items():
+        v_["참여 인원(회의·출장 포함)"] = v_["참여 인원"] + extra.get(m_, 0)
     truth["월별"] = {str(k): v for k, v in sorted(truth["월별"].items())}
     truth["분야별"] = dict(truth["분야별"])
     truth["비목별 집행액"] = dict(truth["비목별 집행액"])
