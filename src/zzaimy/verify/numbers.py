@@ -530,24 +530,24 @@ def _row_ratios(src: str) -> tuple[list[tuple[int, int]], set[str]]:
         for part in line.split("|"):
             cells.append((at, part))
             at += len(part) + 1
+        # 비율 칸 = 「%」 가 붙었거나 열 머리가 률·율·% 인 칸. 단위 없는 「300」「264」 도 수 모양은 같아 피연산자에서 빠지던 것(11-22 6차: 달성률 88.0% 막힘)
+        pct = []
+        for off, c in cells:
+            m = _PCT_CELL.match(c)
+            if m and (m.group(2) or re.search(r"%|률|율|비율", _table_head_cell(src, off + 1) or "")):
+                pct.append((off, m))
+        pct_offs = {off for off, _ in pct}
         nums = []
         for off, c in cells:
             m = _CELL_NUM.search(c)
-            if m and not _PCT_CELL.match(c):
+            if m and off not in pct_offs:
                 try:
                     nums.append(Decimal(m.group(0).replace(",", "")))
                 except Exception:
                     pass
         if len(nums) < 2:
             continue
-        for off, c in cells:
-            m = _PCT_CELL.match(c)
-            if not m:
-                continue
-            if not m.group(2):
-                head = _table_head_cell(src, off + 1)
-                if not re.search(r"%|률|율|비율", head or ""):
-                    continue
+        for off, m in pct:
             p = Decimal(m.group(1))
             q = Decimal(1).scaleb(-len(m.group(1).partition(".")[2]))
             ok = any(b and abs((a / b * 100).quantize(q) - p) <= q / 2 + Decimal("0.0001")

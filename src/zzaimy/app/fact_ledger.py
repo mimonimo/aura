@@ -174,7 +174,11 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
         extra = [ln for k, v in vals.items() if v and re.search(r"\d", v) and _norm(v) not in span
                  for ln in [_line_with(v, doc_text)] if ln and _norm(ln) not in q]
         quote = " … ".join([quote[:300], *dict.fromkeys(extra)])
-        kept.append({**vals, "quote": quote, **({"unverified": off} if off else {})})
+        # 수 값마다 문서의 어느 줄에서 확인했는지 — 한 문서가 지표마다 기록을 따로 내며 같은 「참여 인원 38명」 을 되풀이하면
+        # 집계가 두 번 더했다(11-22 6차: 7월 76·12월 168, 정답 38·119). 같은 문서·같은 줄·같은 값은 한 번만 더한다(aggregate)
+        src = {k: (span if _norm(v) in span else _norm(_line_with(v, doc_text)))[:160]
+               for k, v in vals.items() if v and re.search(r"\d", v)}
+        kept.append({**vals, "quote": quote, "_src": src, **({"unverified": off} if off else {})})
     return kept, dropped
 
 
@@ -364,11 +368,17 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     bad = [g.partition(":")[0] for g in group_by + sums if g.partition(":")[0] not in items]
     if bad:
         return f"모은 항목에 없는 이름: {', '.join(bad)} — 모은 항목은 {', '.join(items)}.", []
+    all_recs = recs
     for k, v in (filt or {}).items():
         if str(v).strip() in ("*", "있음"):                    # 그 항목 값이 있는 기록만(예: 참여 인원이 적힌 결과 보고만)
             recs = [r for r in recs if str(r.get(k) or "").strip()]
         else:
             recs = [r for r in recs if str(v) in str(r.get(k) or "")]
+    # 걸러 낸 기록에 더할 값이 들어 있었으면 알린다 — 11-22 6차: filter {활동: *} 로 활동 이름을 못 뽑은 캠프 기록(42명)이 빠져 4월이 0명
+    out_ = [r for r in all_recs if r not in recs and any(str(r.get(s_) or "").strip() for s_ in sums)] if filt else []
+    filt_note = (f"  (filter 로 뺀 기록 가운데 {', '.join(sums)} 값이 든 것 {len(out_)}건: "
+                 + ", ".join(f"《{r['_doc'][:20]}》 {'·'.join(str(r.get(s_)) for s_ in sums if r.get(s_))}" for r in out_[:4])
+                 + " — 거르는 항목 값을 못 뽑았을 뿐 같은 묶음이면 filter 없이 다시 부른다)") if out_ else ""
     # distinct 는 이름 하나나 목록 — 모델이 ["활동"] 으로 주자 「['활동']」 을 이름으로 읽어 막았고, 모델이 집계를 버리고
     # search 로 돌아가 월별·분야별 합계가 빈 채로 남았다(11-20 2차 시험)
     dl = distinct if isinstance(distinct, (list, tuple)) else re.split(r"[,/]\s*", str(distinct or ""))
@@ -386,20 +396,37 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     totals = {s: [] for s in sums}
     # 더할 항목의 주된 셈 단위 — 단위가 다른 값(참여 인원 칸에 뽑힌 「외 2개사」 의 2개사)은 더하지 않고 알린다(11-21 3차: 7월·11월 합계가 2·1 부풀음)
     from collections import Counter as _Counter
-    dom = {}
-    for s_ in sums:
-        cnt = _Counter(_unit([r.get(s_)]) for r in recs if number(r.get(s_)) is not None)
+    # 주된 단위는 묶음마다 — 성과지표로 묶으면 지표마다 단위가 다르다(명·건·개). 전체에서 고르자 「명」 만 남아 산업체 협약 4건이 0으로 셈(11-22 6차)
+    def _dom(rs_, s_):
+        cnt = _Counter(_unit([r.get(s_)]) for r in rs_ if number(r.get(s_)) is not None)
         cnt.pop("", None)
         top = cnt.most_common(1)
-        dom[s_] = top[0][0] if top and top[0][1] >= 0.6 * sum(cnt.values()) else ""
+        return top[0][0] if top and top[0][1] >= 0.6 * sum(cnt.values()) else ""
+    gdom = {(k_, s_): _dom(rs_, s_) for k_, rs_ in groups.items() for s_ in sums}
+    rkey = {id(r): k_ for k_, rs_ in groups.items() for r in rs_}
+    dom = {s_: _dom(recs, s_) for s_ in sums}
     off_unit = {s_: [] for s_ in sums}
+    dup = {s_: set() for s_ in sums}
+    for s_ in sums:
+        seen_src = set()
+        for r in recs:
+            src_ = (r.get("_src") or {}).get(s_) if isinstance(r.get("_src"), dict) else None
+            if not src_ or not str(r.get(s_) or "").strip():
+                continue
+            k_ = (r.get("_doc"), _norm(r.get(s_)), src_)
+            if k_ in seen_src:
+                dup[s_].add(id(r))
+            seen_src.add(k_)
 
     def nv(r, s_):
+        if id(r) in dup[s_]:
+            return None
         v_ = number(r.get(s_))
-        if v_ is None or not dom[s_]:
+        d_ = gdom.get((rkey.get(id(r)), s_), dom[s_])
+        if v_ is None or not d_:
             return v_
         u_ = _unit([r.get(s_)])
-        if u_ and u_ != dom[s_]:
+        if u_ and u_ != d_:
             if r not in off_unit[s_]:
                 off_unit[s_].append(r)
             return None
@@ -417,19 +444,23 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             for r in rs:                                          # 같은지는 띄어쓰기 빼고, 보이는 이름은 문서 글 그대로
                 if str(r.get(dk) or "").strip():
                     seen_.setdefault(_norm(r.get(dk)), str(r.get(dk)).strip())
-                elif r.get("_doc") and not any(str(x.get(dk) or "").strip() for x in rs if x.get("_doc") == r["_doc"]):
-                    # 값이 빈 기록은 그 문서를 하나로 센다 — 활동 이름을 못 뽑은 결과 보고 4건이 빠져 학생 역량강화 활동이 6→2 로 세어지던 것(11-22 4차)
+            for r in rs:
+                if (not str(r.get(dk) or "").strip() and r.get("_doc")
+                        and not any(str(x.get(dk) or "").strip() for x in rs if x.get("_doc") == r["_doc"])
+                        and not any(n_ and n_ in _norm(r["_doc"]) for n_ in list(seen_) if not n_.startswith("《"))):
+                    # 값이 빈 기록은 그 문서를 하나로 센다 — 활동 이름을 못 뽑은 결과 보고 4건이 빠져 학생 역량강화 활동이 6→2 로 세어지던 것(11-22 4차).
+                    # 문서 제목에 이미 센 이름(집행 내역 줄의 「파이썬 기초 집중 캠프(1기)」)이 들어 있으면 같은 활동이다 — 6차: 산학협력 6→8, 역량강화 6→9
                     seen_.setdefault("《" + _norm(r["_doc"]), f"《{r['_doc'][:30]}》")
             kinds = [seen_[k] for k in sorted(seen_)]
             cells.append(f"{dk} {len(kinds)}개")
-            ev.append(f"◇ 집계 {label} · 서로 다른 {dk}: {len(kinds)}개 (" + ", ".join(k[:20] for k in kinds[:12]) + ")")
+            ev.append(f"◇ 집계 {label} · 서로 다른 {dk}: {len(kinds)}개(={len(kinds)}건) (" + ", ".join(k[:20] for k in kinds[:12]) + ")")
         for s in sums:
             vals = [(nv(r, s), r) for r in rs]
             nums = [v for v, _ in vals if v is not None]
-            skipped[s] += sum(1 for v, r in vals if v is None and str(r.get(s) or "").strip() and r not in off_unit[s])
+            skipped[s] += sum(1 for v, r in vals if v is None and str(r.get(s) or "").strip() and r not in off_unit[s] and id(r) not in dup[s])
             tot = sum(nums, Decimal(0))
             totals[s] += nums
-            u = units[s]
+            u = gdom.get((key, s)) or units[s]
             cells.append(f"{s} {_fmt(tot)}{u}")
             docs = sorted({r["_doc"] for v, r in vals if v is not None})
             if nums:
@@ -439,7 +470,10 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             ev.append(f"◇ 집계 {label} · 기록 수: {len(rs)}건 (근거: " + ", ".join(f"《{d[:40]}》" for d in sorted({r['_doc'] for r in rs})[:8]) + ")")
         obs.append(f"  {label}: " + ", ".join(cells) + f" 《문서 {len({r['_doc'] for r in rs})}개》")
     for s in sums:
-        if totals[s]:
+        mixed = len({gdom[(k_, s)] for k_ in groups if gdom[(k_, s)]}) > 1
+        if totals[s] and mixed:
+            obs.append(f"  (「{s}」 단위가 묶음마다 달라 전체 합계는 내지 않았다)")
+        if totals[s] and not mixed:
             t = sum(totals[s], Decimal(0))
             sub = [sum((v for v in (nv(r, s) for r in rs) if v is not None), Decimal(0)) for rs in groups.values()]
             sub = [x for x in sub if x]
@@ -460,11 +494,15 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                 ev.append(f"◇ 집계 {s} 합계 대비 기준값: {_fmt(t)}/{_fmt(base_n)}×100={pct}%")
         if off_unit[s]:
             ex_ = ", ".join(f"「{str(r.get(s))[:12]}」《{r['_doc'][:20]}》" for r in off_unit[s][:4])
-            obs.append(f"  (「{s}」 단위가 「{dom[s]}」 가 아닌 값 {len(off_unit[s])}건은 더하지 않았다: {ex_} — 다른 것을 센 값이면 맞다, 같은 것이면 기록을 확인한다)")
+            obs.append(f"  (「{s}」 단위가 묶음의 주된 단위(「{dom[s] or "묶음마다"}」)와 다른 값 {len(off_unit[s])}건은 더하지 않았다: {ex_} — 다른 것을 센 값이면 맞다, 같은 것이면 기록을 확인한다)")
         if skipped[s]:
             obs.append(f"  (「{s}」 값을 수로 읽지 못한 기록 {skipped[s]}건은 더하지 않았다)")
+        if dup[s]:
+            obs.append(f"  (같은 문서의 같은 줄에서 온 「{s}」 값 {len(dup[s])}건은 한 번만 더했다 — 한 활동이 지표마다 기록으로 나뉜 것)")
     if count:
         ev.append(f"◇ 집계 합계 · 기록 수: {len(recs)}건")
+    if filt_note:
+        obs.append(filt_note)
     obs.append("이 값들은 근거로 남았다 — 표·본문에 그대로 쓸 수 있다(근거 문서는 위 《》).")
     data = load(db, session_id)
     keep = [x for x in (data.get("aggregates") or []) if x not in ev]

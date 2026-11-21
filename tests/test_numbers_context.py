@@ -84,3 +84,11 @@ def test_kpi_row_from_aggregate_and_given_target_passes():
     assert masked == [] and out == table
     bad = "| 성과지표 | 목표 | 실적 | 달성률(%) |\n|---|---|---|---|\n| 산업체 협약(건) | 10건 | 9건 | 95.0% |"
     assert N.mask_unsupported(bad, ev, context=True)[1]                     # 틀린 달성률은 그대로 막는다
+
+
+def test_row_ratio_with_plain_small_numbers():
+    # 11-22 6차: 단위 없는 「300」「264」 가 비율 칸으로 잘못 읽혀 달성률 88.0% 가 막혔다
+    from zzaimy.verify.numbers import mask_unsupported
+    md = "| 성과지표 | 목표 | 실적 | 달성률(%) |\n| --- | --- | --- | --- |\n| 교육 이수 인원 | 300 | 264 | 88.0% |\n| 취업 연계 | 40 | 31 | 80.0% |"
+    _, bad = mask_unsupported(md, ["목표 교육 이수 인원 300명, 취업 연계 40명. 실적 264명, 31명"], context=True)
+    assert "88.0" not in bad and "80.0" in bad

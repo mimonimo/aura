@@ -227,3 +227,44 @@ def test_later_partial_collect_keeps_earlier_items_and_documents():
     assert "분야" in items and "비목" in items
     obs2, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"])
     assert "산학협력: 1건, 참여 인원 61" in obs2
+
+
+def test_same_value_from_same_line_summed_once_and_filter_drop_noted():
+    # 11-22 6차: 지표마다 나뉜 기록이 같은 참여 인원을 되풀이해 7월 38→76. filter {활동: *} 로 캠프 42명이 빠짐
+    docs = [{"id": 1, "filename": "부트캠프.docx", "masked_text": "하계 부트캠프 결과 보고\n일시 2026. 7. 8.\n참여 인원은 학생 38명이며 만족도 4.7점이었다.\n성과지표 「교육 이수 인원」 실적 38명.\n성과지표 「취업 연계」 실적 6명."},
+            {"id": 2, "filename": "캠프.docx", "masked_text": "일시 2026. 7. 20.\n참여 인원은 학생 42명이다."}]
+    ans = {"부트캠프": [{"날짜": "2026. 7. 8.", "활동": "부트캠프", "참여 인원": "학생 38명", "실적": "38명", "quote": "성과지표 「교육 이수 인원」 실적 38명."},
+                    {"날짜": "2026. 7. 8.", "활동": "부트캠프", "참여 인원": "학생 38명", "실적": "6명", "quote": "성과지표 「취업 연계」 실적 6명."}],
+           "캠프": [{"날짜": "2026. 7. 20.", "참여 인원": "학생 42명", "quote": "참여 인원은 학생 42명이다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 9, docs, ["날짜", "활동", "참여 인원", "실적"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 9, ["날짜:월"], ["참여 인원"])
+    assert "참여 인원 80명" in obs and "한 번만 더했다" in obs
+    obs2, _ = fl.aggregate(db, 9, ["날짜:월"], ["참여 인원"], filt={"활동": "*"})
+    assert "참여 인원 38명" in obs2 and "filter 로 뺀 기록" in obs2 and "42명" in obs2
+
+
+def test_dominant_unit_is_per_group():
+    # 11-22 6차: 성과지표로 묶으면 지표마다 단위가 다른데 전체 주된 단위(명)로 걸러 협약 4건·교과목 2개가 0
+    docs = [{"id": i, "filename": f"d{i}.docx", "masked_text": t} for i, t in enumerate(
+        ["교육 이수 인원 실적 42명", "교육 이수 인원 실적 47명", "교육 이수 인원 실적 38명", "산업체 협약 실적 4건", "교과목 개발 실적 2개"], 1)]
+    ans = {f"d{i}": [{"성과지표": k, "실적": v, "quote": f"{k} 실적 {v}"}] for i, (k, v) in enumerate(
+        [("교육 이수 인원", "42명"), ("교육 이수 인원", "47명"), ("교육 이수 인원", "38명"), ("산업체 협약", "4건"), ("교과목 개발", "2개")], 1)}
+    db = FakeDB(docs)
+    fl.collect(db, 11, docs, ["성과지표", "실적"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 11, ["성과지표"], ["실적"])
+    assert "산업체 협약: 1건, 실적 4건" in obs and "교과목 개발: 1건, 실적 2개" in obs and "실적 127명" in obs
+    assert "전체 합계는 내지 않았다" in obs
+
+
+def test_unnamed_report_not_counted_when_its_activity_is_named_elsewhere():
+    # 11-22 6차: 결과 보고(활동 이름 못 뽑음)와 집행 내역 줄(같은 활동 이름)이 둘로 세어져 산학협력 6→8
+    docs = [{"id": 1, "filename": "세미나 결과 보고.docx", "masked_text": "일시 2026. 6. 3.\n분야 산학협력\n참여 인원은 학생 61명이다."},
+            {"id": 2, "filename": "집행 내역.xlsx", "masked_text": "2026-06-03 | 산학협력 | 세미나 | 3000000\n2026-07-01 | 산학협력 | 매칭 데이 | 2000000"}]
+    ans = {"세미나 결과 보고": [{"분야": "산학협력", "참여 인원": "학생 61명", "quote": "참여 인원은 학생 61명이다."}],
+           "집행 내역": [{"분야": "산학협력", "활동": "세미나", "금액": "3000000", "quote": "2026-06-03 | 산학협력 | 세미나 | 3000000"},
+                      {"분야": "산학협력", "활동": "매칭 데이", "금액": "2000000", "quote": "2026-07-01 | 산학협력 | 매칭 데이 | 2000000"}]}
+    db = FakeDB(docs)
+    fl.collect(db, 12, docs, ["분야", "활동", "참여 인원", "금액"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, ev = fl.aggregate(db, 12, ["분야"], [], distinct=["활동"])
+    assert "활동 2개" in obs and any("2개(=2건)" in e for e in ev)

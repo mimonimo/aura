@@ -1473,6 +1473,22 @@ class HwpTools:
             elif _placeholder(v):                           # 양식의 예시 글자(○○·000)를 그대로 넣지 않는다 — 모르면 비워 두고 묻는다
                 fake.append(k)
                 values.pop(k)
+        # 여러 열 표의 행 라벨 칸(「교육과정 개발」 옆 칸)에 여러 열 값을 한 글로 몰아넣지 않는다 — 11-22 6차: 분야 표에
+        # 「활동 5건, 참여 인원 24명」 이 활동 수 칸 하나에 들어가고 참여 인원 칸은 빈 채로 남았다. 열마다는 set_cells 로
+        multi: list[str] = []
+        cand = {k: v for k, v in values.items() if k.startswith("칸:") and len(re.findall(r"\d[\d,.]*", v)) >= 2
+                and re.search(r"[,·/]", v)}
+        if cand:
+            try:
+                from zzaimy.app import webhwp_edit_ops as _eo_m
+                tabs_m = _eo_m.list_tables(_eo_m._Doc(Path(f["path"]).read_bytes()))
+            except Exception:
+                tabs_m = []
+            for k in cand:
+                t_m = next((t for t in tabs_m if k in t.get("fields", []) and len(t.get("head", "").split(" | ")) >= 3), None)
+                if t_m:
+                    multi.append(f"{k}(표{t_m['no']}: {t_m['head'][:50]})")
+                    values.pop(k)
         # 칸 값도 절·표와 같은 수치 관문 — 11-22 5차: 표 넣기에서 막힌 손셈 금액(25,600,000)을 hwp_fill 로 칸에 넣어 그대로 남았다
         unsup: list[str] = []
         for k, v in list(values.items()):
@@ -1484,6 +1500,9 @@ class HwpTools:
         ask = (f" 사람 칸이라 넣지 않았다 — ask_user 로 담당자에게 물어 받은 값만 from_user: true 와 함께 넣는다: {', '.join(person)}."
                if person else "")
         bad = (" 넣지 않은 자리: " + " ".join(misfit[:4])) if misfit else ""
+        if multi:
+            bad += (" 여러 열 표의 한 칸에 여러 열 값을 이어 넣지 않았다: " + ", ".join(multi[:4])
+                    + " — 행마다 열에 맞춰 hwp_table_edit {op: set_cells, start: [행, 2], values: [[열2 값, 열3 값, …]]} 로 넣는다.")
         if unsup:
             bad += (" 근거에 없는 수치라 넣지 않았다: " + ", ".join(unsup[:6])
                     + " — 합계·비율은 aggregate_facts 결과 값을 쓰고, 모르면 「확인 필요」.")
@@ -1496,7 +1515,7 @@ class HwpTools:
         if not values:
             return ("넣은 것 없음." + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
-                    + ("" if long_ or fake or person or misfit or inst_blank or rowed or unsup else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
+                    + ("" if long_ or fake or person or misfit or inst_blank or rowed or unsup or multi else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
         miss_vals = {k: v for k, v in values.items() if k not in have}
