@@ -149,8 +149,8 @@ class Client:
 
 def fetch_episodes(host: str, sid: int, data_dir: str) -> list[dict]:
     """운영 VM 의 에이전트 걸음 기록(doc_agent_episodes.jsonl)에서 이 대화 것만 — ssh 로 읽기만 한다."""
-    code = ("import sys,json\n"
-            f"for l in open({json.dumps(data_dir + '/doc_agent_episodes.jsonl')},'rb'):\n"
+    code = ("import sys,json,os\n"              # 기본 폴더가 「~/…」 라 펼쳐야 한다 — 안 펼쳐 기록이 늘 비던 것(11-21)
+            f"for l in open(os.path.expanduser({json.dumps(data_dir + '/doc_agent_episodes.jsonl')}),'rb'):\n"
             "    try: e=json.loads(l.decode('utf-8','replace'))\n"
             "    except Exception: continue\n"
             f"    if str(e.get('session'))=={json.dumps(str(sid))}: print(json.dumps(e,ensure_ascii=False))\n")
