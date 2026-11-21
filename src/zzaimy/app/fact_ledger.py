@@ -505,10 +505,25 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             return None
         return v_
 
+    # 달 묶음은 보고서 표의 꼴(「4월」)로 보인다 — 해가 여럿이면 「2026년 4월」. 차례는 속 키(2026-04)대로.
+    # 11-22 7차: 집계가 「2026-03」 으로 보이자 모델이 월 칸에도 그대로 옮겨 적었다
+    mi = [i for i, g in enumerate(group_by) if g.partition(":")[2] in ("월", "month")]
+    yrs = {k[i][:4] for k in groups for i in mi if re.fullmatch(r"20\d\d-\d\d", k[i])}
+
+    def show(key) -> str:
+        if not key:
+            return "전체"
+        parts = list(key)
+        for i in mi:
+            m_ = re.fullmatch(r"(20\d\d)-(\d\d)", parts[i])
+            if m_:
+                parts[i] = f"{int(m_.group(2))}월" if len(yrs) <= 1 else f"{m_.group(1)}년 {int(m_.group(2))}월"
+        return " / ".join(parts)
+
     units = {s_: dom[s_] or _unit([r.get(s_) for r in recs if number(r.get(s_)) is not None]) for s_ in sums}
     skipped = {s: 0 for s in sums}
     for key, rs in groups.items():
-        label = " / ".join(key) if key else "전체"
+        label = show(key)
         cells = []
         if count:
             cells.append(f"{len(rs)}건")
@@ -558,7 +573,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                 for key, rs in groups.items():
                     g = sum((v for v in (nv(r, s) for r in rs) if v is not None), Decimal(0))
                     pct = (g / t * 100).quantize(Decimal("0.1"))
-                    lab = " / ".join(key) if key else "전체"
+                    lab = show(key)
                     obs.append(f"  비율 · {lab} · {s}: {pct}%")
                     ev.append(f"◇ 집계 비율 {lab} · {s}: {_fmt(g)}/{_fmt(t)}×100={pct}%")
             if base_n:

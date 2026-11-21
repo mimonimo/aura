@@ -88,8 +88,8 @@ def test_aggregate_by_month_and_field_with_derivations():
     db = FakeDB(DOCS)
     fl.collect(db, 7, DOCS, ITEMS, FakeClient(ANS), title_of=_title, parallel=1)
     obs, ev = fl.aggregate(db, 7, ["날짜:월", "분야"], ["참여 인원"])
-    assert "2026-04 / 학생 역량강화: 2건, 참여 인원 97" in obs
-    assert "2026-05 / 산학협력: 1건, 참여 인원 61" in obs
+    assert "4월 / 학생 역량강화: 2건, 참여 인원 97" in obs
+    assert "5월 / 산학협력: 1건, 참여 인원 61" in obs
     assert "합계 · 참여 인원: 158" in obs
     assert any("42+55=97" in e for e in ev) and any("97+61=158" in e for e in ev)
     obs2, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"], filt={"분야": "산학"})
@@ -344,3 +344,14 @@ def test_truncated_json_splits():
     finally:
         fl.MIN_SPLIT = old
     assert sorted(r["활동"] for r in out) == sorted(f"행{i}" for i in range(30))
+
+
+def test_month_label_shows_year_only_when_mixed():
+    docs = [{"id": 1, "filename": "a.docx", "masked_text": "일시 2025. 12. 3.\n참여 인원은 학생 10명이다."},
+            {"id": 2, "filename": "b.docx", "masked_text": "일시 2026. 1. 9.\n참여 인원은 학생 20명이다."}]
+    ans = {"a": [{"날짜": "2025. 12. 3.", "참여 인원": "10명", "quote": "참여 인원은 학생 10명이다."}],
+           "b": [{"날짜": "2026. 1. 9.", "참여 인원": "20명", "quote": "참여 인원은 학생 20명이다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 7, docs, ["날짜", "참여 인원"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 7, ["날짜:월"], ["참여 인원"])
+    assert "2025년 12월:" in obs and "2026년 1월:" in obs and obs.index("2025년 12월") < obs.index("2026년 1월")
