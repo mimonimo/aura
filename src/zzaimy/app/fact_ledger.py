@@ -140,6 +140,15 @@ def _label_near(item: str, value: str, body: str, window: int = 50) -> bool:
     return False
 
 
+def _line_with(value: str, doc_text: str) -> str:
+    """값(띄어쓰기 무시)이 든 문서 줄·문장 하나(200자 안) — 없으면 빈 글."""
+    v = _norm(value)
+    for ln in re.split(r"\n+|(?<=[.다])\s+(?=\S)", doc_text or ""):
+        if v and v in _norm(ln):
+            return ln.strip()[:200]
+    return ""
+
+
 def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list[dict], int]:
     """인용이 문서에 그대로 있고, 비지 않은 값이 모두 문서에 있으며 인용에 값이 하나 이상 든 기록만. (남긴 기록, 버린 수)"""
     body = _norm(doc_text)
@@ -160,7 +169,12 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
         if not any(v and _norm(v) in span for v in vals.values()):
             dropped += 1                                          # 인용에 든 값이 하나도 없으면 기록이 아니다
             continue
-        kept.append({**vals, "quote": quote[:300], **({"unverified": off} if off else {})})
+        # 인용 밖에서 확인한 수 값은 그 값이 든 문서 줄을 인용에 잇는다 — 인용은 다음 요청 수치 관문의 근거다(evidence_text).
+        # 11-22 5차: 「학생 42명」 은 본문에서 확인돼 남았는데 인용이 「…운영하였다」 한 줄뿐이라 표에 넣을 때 근거 없음으로 막혔다
+        extra = [ln for k, v in vals.items() if v and re.search(r"\d", v) and _norm(v) not in span
+                 for ln in [_line_with(v, doc_text)] if ln and _norm(ln) not in q]
+        quote = " … ".join([quote[:300], *dict.fromkeys(extra)])
+        kept.append({**vals, "quote": quote, **({"unverified": off} if off else {})})
     return kept, dropped
 
 
@@ -189,34 +203,42 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
     title_of = title_of or (lambda d: str(d.get("filename") or f"문서 {d.get('id')}"))
     data = load(db, session_id)
     store = data.setdefault("docs", {})
-    ikey = "|".join(items)
     try:
         piece = max(3000, int(llm_budget.work_len(client) * 0.3))
     except Exception:
         piece = 12000
+    # 앞서 모은 결과를 지우지 않고 잇는다 — 11-22 5차: 2번 요청이 「분야」 까지 모았는데 뒤 요청이 일부 문서·적은 항목으로 다시 모으자
+    # 장부의 항목·대상이 통째로 바뀌어 분야별 집계가 「모은 항목에 없는 이름: 분야」 로 막혔다.
+    # 문서마다: 같은 본문을 요청 항목을 모두 담아 이미 읽었으면 그것을 쓰고, 아니면 앞서 모은 항목까지 합쳐 다시 읽는다
+    old_live = [k for k in (data.get("live") or []) if k in store]
+    prev_items = {str(store[k]["doc_id"]): list(store[k].get("items") or []) for k in old_live}
     jobs, cached, keys = [], 0, []
     for d in docs:
         text = str(d.get("masked_text") or "")
         if not text.strip() and hasattr(db, "get_document"):
             text = str((db.get_document(int(d["id"])) or {}).get("masked_text") or "")
-        k = f"{d['id']}:{_fp(text)}:{ikey}"
-        keys.append(k)
-        if k in store:
+        head = f"{d['id']}:{_fp(text)}:"
+        hit = next((k for k, v in store.items() if k.startswith(head) and set(items) <= set(v.get("items") or [])), None)
+        if hit:
+            keys.append(hit)
             cached += 1
             continue
-        jobs.append((d, text, k))
+        want = list(dict.fromkeys(items + prev_items.get(str(d["id"]), [])))[:12]
+        k = head + "|".join(want)
+        keys.append(k)
+        jobs.append((d, text, k, want))
 
     def run(job):
-        d, text, k = job
+        d, text, k, want = job
         title = title_of(d)
         if not text.strip():
-            return k, {"doc_id": d["id"], "title": title, "items": items, "records": [], "dropped": 0, "empty": True}
+            return k, {"doc_id": d["id"], "title": title, "items": want, "records": [], "dropped": 0, "empty": True}
         try:
-            raw = _extract(client, title, text, items, piece)
+            raw = _extract(client, title, text, want, piece)
         except Exception as e:                                   # 한 문서가 실패해도 나머지는 모은다
-            return k, {"doc_id": d["id"], "title": title, "items": items, "records": [], "dropped": 0, "error": type(e).__name__}
-        kept, dropped = validate(raw, items, text)
-        return k, {"doc_id": d["id"], "title": title, "items": items, "records": kept, "dropped": dropped}
+            return k, {"doc_id": d["id"], "title": title, "items": want, "records": [], "dropped": 0, "error": type(e).__name__}
+        kept, dropped = validate(raw, want, text)
+        return k, {"doc_id": d["id"], "title": title, "items": want, "records": kept, "dropped": dropped}
 
     n_par = parallel or int(os.environ.get("ZZAIMY_FACTS_PARALLEL", "4") or 4)
     new = 0
@@ -226,9 +248,11 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
                 continue                                         # 실패는 저장하지 않는다 — 다시 부르면 다시 한다
             store[k] = v
             new += 1
-    # 같은 문서의 옛 지문(본문이 바뀐 판)과 지금 묶음에 없는 문서는 지금 집계에서 뺀다(저장은 남겨 다시 부를 때 쓴다)
-    data["items"] = items
-    data["live"] = keys
+    # 이번에 읽은 문서는 새 결과로 갈아 끼우고(옛 지문·옛 항목 판은 집계에서 뺀다), 이번 묶음에 없는 문서는 앞서 모은 대로 둔다
+    ids = {str(d["id"]) for d in docs}
+    live = [k for k in old_live if str(store[k]["doc_id"]) not in ids] + [k for k in keys if k in store]
+    data["live"] = live
+    data["items"] = list(dict.fromkeys(x for k in live for x in (store[k].get("items") or [])))
     save(db, session_id, data)
     mine = [store[k] for k in keys if k in store]
     recs = [dict(r, _doc=v["title"]) for v in mine for r in v["records"]]
@@ -247,7 +271,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
 
 
 def records(db, session_id: int) -> list[dict]:
-    """마지막 collect_facts 의 문서·항목으로 모은 기록 전부(문서 제목 _doc 포함)."""
+    """지금 장부에 든 문서마다 마지막으로 모은 기록 전부(문서 제목 _doc 포함)."""
     data = load(db, session_id)
     store = data.get("docs") or {}
     out = []

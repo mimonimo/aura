@@ -195,3 +195,23 @@ def test_writes_with_same_result_text_are_not_treated_as_circling():
     replies2 = [_step("hwp_table_view", table=8, **{"from": f}) for f in range(1, 6)] + [_step("finish", message="끝")]
     ep2 = doc_agent.run(_client(replies2), "q", lambda: "s", tools2)
     assert len(seen) == 4 and "하지 않았다" in ep2.steps[4]["observation"]
+
+
+def test_aggregate_reruns_after_collect_changed_items():
+    """실적을 다시 모은 뒤 같은 인자의 집계는 옛 거절을 되보이지 않고 새로 한다(11-22 5차 7번 요청)."""
+    items = {"v": ["날짜"]}
+    calls = []
+
+    def agg(a):
+        calls.append(list(items["v"]))
+        return "묶음 5개" if "비목" in items["v"] else "모은 항목에 없는 이름: 비목"
+
+    def collect(a):
+        items["v"] = ["비목", "금액"]
+        return "기록 36건"
+    tools = [doc_agent.Tool("agg", "집계", agg, gathers=True),
+             doc_agent.Tool("collect", "모으기", collect, gathers=True, refreshes=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    replies = [_step("agg", g="비목"), _step("collect"), _step("agg", g="비목"), _step("finish", message="집계했습니다")]
+    ep = doc_agent.run(_client(replies), "집계해 줘", lambda: "상태", tools, max_writes=5)
+    assert len(calls) == 2 and "묶음 5개" in ep.steps[2]["observation"]

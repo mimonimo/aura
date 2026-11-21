@@ -198,3 +198,32 @@ def test_distinct_counts_unnamed_records_by_document():
     fl.save(db, 9, data)
     obs, _ = fl.aggregate(db, 9, ["분야"], [], distinct="활동")
     assert "활동 2개" in obs                       # 캠프(이름) + 특강 결과(이름 없는 문서) — 캠프 문서의 빈 기록은 다시 세지 않는다
+
+
+def test_value_outside_quote_joins_its_line_to_quote_for_number_gate():
+    # 11-22 5차: 값은 본문에서 확인됐지만 인용이 다른 문장이라 표에 넣을 때 근거 없음으로 막히던 것
+    doc = ("파이썬 기초 집중 캠프(1기) 결과 보고\n2026. 4. 9. 파이썬 기초 집중 캠프(1기)을(를) 운영하였다.\n"
+           "참여 인원은 학생 42명이며, 만족도 조사 결과 5점 만점에 4.5점이었다.\n")
+    recs = [{"날짜": "2026. 4. 9.", "참여 인원": "학생 42명", "quote": "2026. 4. 9. 파이썬 기초 집중 캠프(1기)을(를) 운영하였다."}]
+    kept, dropped = fl.validate(recs, ["날짜", "참여 인원"], doc)
+    assert dropped == 0 and "42명" in kept[0]["quote"]
+    md = "| 월 | 주요 활동 | 참여 인원(명) |\n| --- | --- | --- |\n| 4월 | 파이썬 기초 집중 캠프(1기) | 학생 42명 |"
+    _, bad = mask_unsupported(md, ["《캠프》 " + kept[0]["quote"]], context=True)
+    assert "42명" not in bad and "42" not in bad
+
+
+def test_later_partial_collect_keeps_earlier_items_and_documents():
+    # 11-22 5차: 뒤 요청이 일부 문서·적은 항목으로 다시 모으자 「분야」 와 다른 문서 기록이 집계에서 사라졌다
+    db, cli = FakeDB(DOCS), FakeClient(ANS)
+    fl.collect(db, 7, DOCS, ITEMS, cli, title_of=_title, parallel=1)
+    cli.calls.clear()
+    fl.collect(db, 7, DOCS[:2], ["날짜", "참여 인원"], cli, title_of=_title, parallel=1)
+    assert cli.calls == []                                      # 요청 항목을 모두 담아 읽은 결과가 있으면 다시 읽지 않는다
+    obs, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"])
+    assert "산학협력: 1건, 참여 인원 61" in obs and "학생 역량강화: 2건, 참여 인원 97" in obs
+    fl.collect(db, 7, DOCS[2:3], ["날짜", "비목"], cli, title_of=_title, parallel=1)
+    assert cli.calls == ["5월 세미나"]                           # 새 항목이면 그 문서만, 앞서 모은 항목까지 합쳐 다시
+    items = fl.load(db, 7)["items"]
+    assert "분야" in items and "비목" in items
+    obs2, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"])
+    assert "산학협력: 1건, 참여 인원 61" in obs2

@@ -3122,9 +3122,11 @@ def create_app(
             all_ = _fact_docs(None)
             if len(docs_) < len(all_):
                 # 고른 문서만 읽었다 — 「전부 훑어」 요청에 14/25 개만 넘기고 나머지 달이 빈 채로 끝났다(11-20 2차 시험). 빠진 문서를 보여 판단은 모델이
-                ids_ = {d_["id"] for d_ in docs_}
-                left_ = [storage.title_of(d_.get("filename") or "") for d_ in all_ if d_["id"] not in ids_]
-                obs_ += (f"\n이 프로젝트 근거 문서 {len(all_)}개 가운데 고른 {len(docs_)}개만 읽었다. 안 읽은 문서: "
+                led_ = _fl.load(db, session_id)                  # 앞선 요청에서 모아 장부에 남은 문서는 읽은 것이다
+                ids_ = {str(d_["id"]) for d_ in docs_} | {str((led_.get("docs") or {}).get(k_, {}).get("doc_id")) for k_ in led_.get("live") or []}
+                left_ = [storage.title_of(d_.get("filename") or "") for d_ in all_ if str(d_["id"]) not in ids_]
+            if len(docs_) < len(all_) and left_:
+                obs_ += (f"\n이 프로젝트 근거 문서 {len(all_)}개 가운데 {len(all_) - len(left_)}개를 모아 두었다. 안 읽은 문서: "
                          + ", ".join(f"《{t_[:30]}》" for t_ in left_[:12]) + (" …" if len(left_) > 12 else "")
                          + " — 전부 모아야 하는 일이면 documents 없이 다시 부른다(읽은 문서는 다시 읽지 않는다).")
             return obs_
@@ -3526,7 +3528,7 @@ def create_app(
             doc_agent.Tool("collect_facts", "프로젝트 근거 문서 전부를 끝까지 읽어 실적 기록(한 활동·한 집행 줄마다)을 모으기 — 결과보고서처럼 여러 문서의 실적을 "
                            "월별·분야별로 정리해야 할 때 search 대신 먼저 쓴다(search 는 조각 몇 개만 봐 빠지는 문서가 생긴다). 값은 문서 글 그대로 모인다. "
                            "args {items: 기록마다 뽑을 항목 이름 목록(예: [날짜, 분야, 활동, 참여 인원, 금액, 비목]), documents?: 일부 문서만이면 제목 목록}",
-                           t_collect, gathers=True),
+                           t_collect, gathers=True, refreshes=True),
             doc_agent.Tool("aggregate_facts", "collect_facts 로 모은 기록을 묶어 세고 더하기 — 표의 월별·분야별 합계·건수는 이 결과를 쓴다(직접 더하지 않는다). "
                            "날짜 항목은 「날짜:월」(또는 「날짜:연」)로 달·해 단위로 묶는다. 결과는 근거로 남아 표·본문에 그대로 쓸 수 있다. "
                            "같은 활동이 여러 문서·여러 줄(결과 보고와 집행 내역)에 나오면 건수 대신 distinct 로 활동 수를 센다. 비율은 share·base 로 코드가 낸다. "

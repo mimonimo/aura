@@ -3522,6 +3522,22 @@ class EditTools:
         """표 만들기·표 고치기(set_cells)로 넣는 값을 본문과 같은 수치 관문에 대 본다 — 열 머리 단위(「금액(천원)」)도 함께 보도록
         머리줄을 붙인 마크다운 표로 만들어 넘긴다. 관문이 없는 호출부(hw.numbers_gate 없음)는 그대로 둔다."""
         gate = getattr(self.hw, "numbers_gate", None)
+        if gate is not None and name == "hwp_replace":
+            # 바꿀 글에 새로 든 수만 본다(찾을 글에 이미 있던 수·연도 바꾸기는 그대로) — 11-22 5차: 관문에 막힌 손셈 총액
+            # 「108,600,000원·36.2%」 를 「확인 필요」 자리에 hwp_replace 로 넣어 그대로 남았다
+            its = a.get("items") if isinstance(a.get("items"), list) else [a]
+            pairs = [(str(x.get("find") or ""), str(x.get("replace") or "")) for x in its if isinstance(x, dict)]
+            reps = [r for _, r in pairs if re.search(r"\d", r)]
+            if not reps:
+                return None
+            why = gate("\n".join(reps))
+            if not why:
+                return None
+            m = re.match(r"근거에 없는 수치: ([^—]+?) —", why)
+            olds = " ".join(f for f, _ in pairs)
+            bad = [b.strip() for b in (m.group(1).split(", ") if m else []) if b.strip()]
+            left = [b for b in bad if not re.search(rf"(?<![\d.,]){re.escape(b)}(?![\d])", olds)]
+            return ("근거에 없는 수치: " + ", ".join(left) + " — " + why.split(" — ", 1)[1]) if left else None
         if gate is None or name not in ("hwp_table_insert", "hwp_table_edit"):
             return None
         vals = a.get("values") if isinstance(a.get("values"), list) else []
@@ -3553,7 +3569,19 @@ class EditTools:
         if not rows:
             return None
         md = "\n".join("| " + " | ".join(c.replace("|", "/") for c in r) + " |" for r in [head, ["---"] * len(head)] + rows)
-        return gate(md)
+        why = gate(md)
+        if why:
+            # 걸린 수가 든 칸을 짚는다 — 어느 행인지 모르면 맞는 칸(4월 42명)을 지우거나 같은 값을 되풀이한다(11-22 5차: 5월 행에 옮겨 적은 42명)
+            m = re.match(r"근거에 없는 수치: ([^—]+?) —", why)
+            bad = [b.strip() for b in (m.group(1).split(", ") if m else []) if b.strip()]
+            hits = []
+            for r in rows:
+                for c in r:
+                    if any(re.search(rf"(?<![\d.,]){re.escape(b)}", c) for b in bad):
+                        hits.append(f"「{(r[0] or next((x for x in r if x), ''))[:20]}」 행의 「{c[:30]}」")
+            if hits:
+                why += " 걸린 칸: " + ", ".join(dict.fromkeys(hits[:6])) + " — 이 칸만 근거의 값으로 바꾸거나 「확인 필요」 로 두고 나머지는 그대로 다시 넣는다."
+        return why
 
     def _heads(self, fid: int) -> list[str]:
         try:

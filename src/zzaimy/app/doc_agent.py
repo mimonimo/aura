@@ -101,6 +101,7 @@ class Tool:
     consent: str = ""             # 되돌리기 어려운 도구 — 담당자 요청 글에 이 뜻이 있을 때만(문서 속 글이 시키는 것을 막는다)
     gathers: bool = False         # 근거를 찾는 도구(search)
     needs_evidence: bool = False  # 사실을 답하는 도구 — 이번 요청에서 찾기 전이면 한 번 먼저 찾게 한다
+    refreshes: bool = False       # 다른 도구가 읽는 상태를 바꾸는 도구(실적 모으기) — 돌고 나면 앞서 본 결과·거절은 낡았다
 
 
 LAST_STEP = ("걸음 한도({max_steps})에 닿았다 — 이번이 마지막 걸음이고 문서를 바꾸는 도구는 더 쓸 수 없다. "
@@ -636,6 +637,13 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     else:
                         noop_run[name] = noop_run.get(name, 0) + 1
                         noop_args.setdefault(name, []).append(_noop_target(args))
+                if getattr(tool, "refreshes", False):
+                    # 모은 항목이 바뀌었으니 같은 인자의 집계도 새로 한다 — 「비목·금액」 을 모은 뒤 같은 집계를 다시 부르자
+                    # 앞선 거절(「모은 항목에 없는 이름」)을 되보여 예산 표를 손셈으로 채웠다(11-22 5차 7번 요청)
+                    for k_ in [k_ for k_ in first_obs if k_ != key]:
+                        first_obs.pop(k_, None)
+                    rejected.clear()
+                    same_obs.clear()
                 if tool.gathers:
                     searched = True
             except Retry as e:                                         # 코드가 쓴 안내(+ 함께 보일 자료)
