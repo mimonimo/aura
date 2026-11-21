@@ -297,3 +297,14 @@ def test_set_cells_marker_cell_filled_with_item_name():
     d2, _ = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"}, "values": [["대학 현황 구분", "값"], ["계열 수", ""]]})
     with pytest.raises(eo.EditError):
         eo.table_edit(_ok(d2), {"table": {"head": "대학 현황 구분"}, "op": "set_cells", "start": [2, 1], "values": [["9", ""]]})
+
+
+def test_set_cells_one_column_count_must_match_filled_rows():
+    """채워진 행에 한 열만 넣는데 값 수가 다르면 막는다 — 한 칸씩 밀린 월별 표(11-21 결과보고서 3차)."""
+    rows = [["월", "활동", "인원"]] + [[f"{m}월", f"활동{m}", ""] for m in range(3, 8)]
+    d, msg = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"}, "values": rows})
+    tb = {"head": "월"}
+    with pytest.raises(eo.EditError, match="어긋난다"):
+        eo.table_edit(d, {"table": tb, "op": "set_cells", "start": [2, 3], "values": [["1"], ["2"], ["3"], ["4"], ["5"], ["6"]]})
+    d2, _ = eo.table_edit(d, {"table": tb, "op": "set_cells", "start": [2, 3], "values": [["1"], ["2"], ["3"], ["4"], ["5"]]})
+    assert "6행: 7월 | 활동7 | 5" in eo.table_view(d2, {"table": tb})

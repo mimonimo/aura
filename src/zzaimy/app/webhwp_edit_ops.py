@@ -1500,6 +1500,30 @@ def _realign_row(tb: "_Table", r0: int, c0: int, values: list):
     return [grid], 0, f" · 값 {len(cells)}개가 {r0 + 1}행 칸 수와 같아 1열부터 칸마다 넣음(시작 열이 한 칸 밀려 있었다)"
 
 
+def _cell_text(tb: "_Table", r: int, c: int) -> str:
+    cv = tb.covering(r, c)
+    if cv is None or cv["r"] != r or cv["c"] != c:
+        return ""
+    return _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cv["xml"], flags=re.S)).strip()
+
+
+def _check_column_count(tb: "_Table", r0: int, c0: int, values: list) -> None:
+    """한 열만(값 줄마다 칸 하나) 넣는데 그 아래 행들의 다른 열이 이미 채워져 있고, 채워진 행 수와 값 수가 다르면 막는다.
+    월별 표에서 활동·근거 열을 따로따로 넣다 값 22개를 21행에 넣어 인원·근거 문서가 한 칸씩 밀린 채 끝났다(11-21 결과보고서 3차).
+    판단은 에이전트가 — 행마다 칸을 다 담아 다시 주거나 개수를 맞춘다."""
+    if len(values) < 3 or any(isinstance(r, list) and len(r) != 1 for r in values):
+        return
+    filled = 0
+    for r in range(r0, tb.nr):
+        if not any(_cell_text(tb, r, c) for c in range(tb.nc) if c != c0):
+            break
+        filled += 1
+    if filled >= 3 and filled != len(values):
+        raise EditError(f"{c0 + 1}열 하나에 값 {len(values)}개를 넣으려는데, 다른 열이 채워진 행은 {r0 + 1}행부터 {filled}개다 — "
+                        "이대로 넣으면 행과 값이 어긋난다(한 칸씩 밀림). 행마다 칸을 다 담은 줄([[칸1, 칸2, …], …])로 다시 주거나, "
+                        "값 수를 채워진 행에 맞춘다. 행을 늘리거나 줄여야 하면 add_rows·delete_rows 를 먼저 한다(일부러 다르게 넣으려면 overwrite: true).")
+
+
 def _gap_note(tb: "_Table", r0: int, c0: int, values: list) -> str:
     """이번에 쓴 행들에서 빈 칸이 둘 이상인 열이 있는데 같은 열 다른 행(이번에 쓴 행)에는 글이 있으면 알린다 — 연번·구분 열을 빼고
     3열부터 넣어 5행부터 연번·구분이 빈 칸으로 남던 것(11-14 13차 교원 표), 원본의 가로 합침 「←」 를 빈 값으로 보내 빈 칸이 남던 것(14차 3-1 표).
@@ -1644,6 +1668,8 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         values, c0, realigned = _realign_row(tb, r0, c0, values)   # 행 칸 수와 꼭 맞는 값 줄을 한 칸 밀려 짚었으면 첫 칸부터
         realigned = headnote + realigned
         _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
+        if not a.get("overwrite"):
+            _check_column_count(tb, r0, c0, values)         # 채워진 행에 한 열만 넣는데 값 수가 행 수와 다르면 — 한 칸씩 밀린다
         n, grown = 0, 0
         # 행이 모자라면 표 끝에 마지막 행 꼴로 늘려 넣는다 — 값 줄 수와 늘린 행 수가 어긋나(43줄에 40행) 통째로 거절되고
         # 빈 행만 남던 일(11-12 특성화 재현 3차 12단계). 열이 모자란 것은 표 꼴이 다르다는 뜻이라 그대로 알린다

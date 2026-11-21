@@ -398,7 +398,7 @@ def _context_fail(src: str, m: re.Match, occ: dict[str, list[_Occ]], small: bool
         for o in found:
             if o.unit and _same_counter(o.unit, unit) and (o.given or (words & o.words)):
                 return None
-            if not o.unit and o.cell and (words & o.words):          # 단위 없는 표 칸은 행·열 이름이 겹칠 때만
+            if not o.unit and (o.cell or o.given) and (words & o.words):   # 단위 없는 표 칸·집계 줄은 행·열·항목 이름이 겹칠 때만
                 return None
         return label
     if not found or any(not o.unit or _same_counter(o.unit, unit) for o in found):
@@ -511,6 +511,53 @@ class _Shift:
         return self._m.end(i) + self._o
 
 
+_PCT_CELL = re.compile(r"^\s*(\d{1,3}(?:\.\d+)?)\s*(%)?\s*$")
+_CELL_NUM = re.compile(r"(?<![\d.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+
+
+def _row_ratios(src: str) -> tuple[list[tuple[int, int]], set[str]]:
+    """표 한 행에서 비율 칸(「90.0%」, 또는 열 머리가 「달성률(%)」·「비율」 인 칸의 수)이 같은 행의 다른 두 수의 a/b×100 과
+    보인 자릿수까지 맞으면 셈한 값으로 본다 — 실적 9건·목표 10건의 달성률 90.0% 를 근거 없는 수로 막던 것(11-21 결과보고서 3차).
+    두 수 자체는 따로 대조된다."""
+    spans: list[tuple[int, int]] = []
+    vals: set[str] = set()
+    pos = 0
+    for line in src.split("\n"):
+        ls, pos = pos, pos + len(line) + 1
+        if not line.lstrip().startswith("|") or line.count("|") < 3:
+            continue
+        cells, at = [], ls
+        for part in line.split("|"):
+            cells.append((at, part))
+            at += len(part) + 1
+        nums = []
+        for off, c in cells:
+            m = _CELL_NUM.search(c)
+            if m and not _PCT_CELL.match(c):
+                try:
+                    nums.append(Decimal(m.group(0).replace(",", "")))
+                except Exception:
+                    pass
+        if len(nums) < 2:
+            continue
+        for off, c in cells:
+            m = _PCT_CELL.match(c)
+            if not m:
+                continue
+            if not m.group(2):
+                head = _table_head_cell(src, off + 1)
+                if not re.search(r"%|률|율|비율", head or ""):
+                    continue
+            p = Decimal(m.group(1))
+            q = Decimal(1).scaleb(-len(m.group(1).partition(".")[2]))
+            ok = any(b and abs((a / b * 100).quantize(q) - p) <= q / 2 + Decimal("0.0001")
+                     for a in nums for b in nums if a is not b)
+            if ok:
+                spans.append((off + m.start(1), off + m.end(1)))
+                vals.add(_fmt(p))
+    return spans, vals
+
+
 def derived_spans(text: str) -> tuple[list[tuple[int, int]], set[str]]:
     """맞게 셈한 결과의 자리와 값 — (결과 글의 (시작, 끝) 목록, 결과 정준값). 반올림(「약」)은 0.5% 까지 같은 값으로 본다."""
     spans: list[tuple[int, int]] = []
@@ -523,6 +570,9 @@ def derived_spans(text: str) -> tuple[list[tuple[int, int]], set[str]]:
         if abs(want - got) <= max(abs(got) / 200, 0.5):
             spans.append((m.start(2), m.end(2)))
             vals.add(_fmt(Decimal(want.numerator) / Decimal(want.denominator)))   # 결과 전체 값만(「1억 800만」 의 800 따로는 아니다)
+    sp_, va_ = _row_ratios(src)
+    spans += sp_
+    vals |= va_
     for m in _SPAN.finditer(src):
         y1, m1, y2, m2, n = (int(m.group(i)) for i in range(1, 6))
         diff = (y2 - y1) * 12 + (m2 - m1)

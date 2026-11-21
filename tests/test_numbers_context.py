@@ -71,3 +71,16 @@ def test_check_body_routes_to_confirm_needed():
     why = check_body("가) 대상: 2학년\n나) 방학 중 총 4회 운영", [given("여름·겨울 각 2주, 2026. 2. 1. 시작")], 262144)
     assert why and "2학년" in why and "4회" in why and "확인 필요" in why
     assert check_body("가) 여름·겨울 각 2주 운영", [given("여름·겨울 각 2주")], 262144) is None
+
+
+def test_kpi_row_from_aggregate_and_given_target_passes():
+    """집계 줄(「…=9건」)과 담당자가 준 목표(10건)로 채운 성과지표 행 — 실적·달성률이 막히지 않는다(11-21 결과보고서 3차)."""
+    from zzaimy.verify import numbers as N
+    ev = ["◇ 집계 합계 · 산업체 협약: 4+3+2=9건", "◇ 집계 합계 · 취업 연계: 6+11+14=31명",
+          N.given("목표는 산업체 협약 10건, 취업 연계 40명")]
+    table = ("| 성과지표 | 목표 | 실적 | 달성률(%) |\n|---|---|---|---|\n"
+             "| 산업체 협약(건) | 10건 | 9건 | 90.0% |\n| 취업 연계(명) | 40명 | 31명 | 77.5 |")
+    out, masked = N.mask_unsupported(table, ev, context=True)
+    assert masked == [] and out == table
+    bad = "| 성과지표 | 목표 | 실적 | 달성률(%) |\n|---|---|---|---|\n| 산업체 협약(건) | 10건 | 9건 | 95.0% |"
+    assert N.mask_unsupported(bad, ev, context=True)[1]                     # 틀린 달성률은 그대로 막는다

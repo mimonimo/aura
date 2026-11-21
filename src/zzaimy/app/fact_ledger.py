@@ -296,6 +296,16 @@ def _fmt(d: Decimal) -> str:
     return f"{d.normalize():f}"
 
 
+def _unit(raws: list[str]) -> str:
+    """값 글들(「학생 38명」「4건」)의 숫자 뒤 셈 단위가 모두 같으면 그 단위 — 집계 줄에 붙여 수치 관문이 단위까지 대조하게 한다
+    (「4+3+2=9」 만 남아 「9건」 이 근거 없음으로 막히던 것, 11-21 3차). 섞였거나 없으면 빈 글."""
+    us = set()
+    for r in raws:
+        m = re.search(r"\d[\d,]*(?:\.\d+)?\s*([가-힣]{1,2})", str(r or ""))
+        us.add(m.group(1) if m else "")
+    return us.pop() if len(us) == 1 else ""
+
+
 def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: bool = True, filt: dict | None = None,
               distinct="", share: bool = False, base=None) -> tuple[str, list[str]]:
     """(관찰 글, 근거 글 줄). 근거 글은 「묶음 · 항목: a+b+…=합」 꼴이라 수치 관문이 셈을 확인한다.
@@ -330,6 +340,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     obs = [f"묶음 {len(groups)}개 · 기록 {len(recs)}건 ({head})"]
     ev: list[str] = []
     totals = {s: [] for s in sums}
+    units = {s: _unit([r.get(s) for r in recs if number(r.get(s)) is not None]) for s in sums}
     skipped = {s: 0 for s in sums}
     for key, rs in groups.items():
         label = " / ".join(key) if key else "전체"
@@ -350,10 +361,11 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             skipped[s] += sum(1 for v, r in vals if v is None and str(r.get(s) or "").strip())
             tot = sum(nums, Decimal(0))
             totals[s] += nums
-            cells.append(f"{s} {_fmt(tot)}")
+            u = units[s]
+            cells.append(f"{s} {_fmt(tot)}{u}")
             docs = sorted({r["_doc"] for v, r in vals if v is not None})
             if nums:
-                expr = "+".join(_fmt(v) for v in nums) + f"={_fmt(tot)}" if len(nums) > 1 else _fmt(tot)
+                expr = "+".join(_fmt(v) for v in nums) + f"={_fmt(tot)}{u}" if len(nums) > 1 else f"{_fmt(tot)}{u}"
                 ev.append(f"◇ 집계 {label} · {s}: {expr} (근거: " + ", ".join(f"《{d[:40]}》" for d in docs[:8]) + (" 외" if len(docs) > 8 else "") + ")")
         if count:
             ev.append(f"◇ 집계 {label} · 기록 수: {len(rs)}건 (근거: " + ", ".join(f"《{d[:40]}》" for d in sorted({r['_doc'] for r in rs})[:8]) + ")")
@@ -363,8 +375,9 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             t = sum(totals[s], Decimal(0))
             sub = [sum((v for v in (number(r.get(s)) for r in rs) if v is not None), Decimal(0)) for rs in groups.values()]
             sub = [x for x in sub if x]
-            expr = "+".join(_fmt(x) for x in sub) + f"={_fmt(t)}" if len(sub) > 1 else _fmt(t)
-            obs.append(f"  합계 · {s}: {_fmt(t)}")
+            u = units[s]
+            expr = "+".join(_fmt(x) for x in sub) + f"={_fmt(t)}{u}" if len(sub) > 1 else f"{_fmt(t)}{u}"
+            obs.append(f"  합계 · {s}: {_fmt(t)}{u}")
             ev.append(f"◇ 집계 합계 · {s}: {expr}")
             if share and t:
                 for key, rs in groups.items():
