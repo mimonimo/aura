@@ -575,7 +575,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         label = show(key)
         cells = []
         if count:
-            cells.append(f"{len(rs)}건")
+            cells.append(f"기록 {len(rs)}개")      # 「3건」 이면 단위가 건인 실적(협약 3건)으로 읽혔다(11-22 11차: 협약 실적 9 → 3)
         for dk in distincts:
             seen_: dict[str, str] = {}
             for r in rs:                                          # 같은지는 띄어쓰기 빼고, 보이는 이름은 문서 글 그대로
@@ -640,6 +640,11 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         ev.append(f"◇ 집계 합계 · 기록 수: {len(recs)}건")
     if filt_note:
         obs.append(filt_note)
+    # 묶음 이름이 모은 항목 이름이고 그 항목을 더하지 않았으면 — 11-22 11차: 「산업체 협약」 묶음의 기록 수(3)를 협약 실적으로 씀(정답 4+3+2=9)
+    unsummed = sorted({x for k in groups for x in k if x in items and x not in sums and x not in [g.partition(":")[0] for g in group_by]})
+    if unsummed:
+        obs.append(f"  (묶음 이름 {', '.join('「' + x + '」' for x in unsummed[:6])} 은(는) 모은 항목이기도 하다 — 그 실적 값을 더하려면 sum 에 그 항목을 넣는다. "
+                   "기록 수는 문서·줄 수일 뿐 실적이 아니다)")
     if group_by and len(groups) > 1 and all(any(re.fullmatch(r"[\d,.]+\s*[가-힣%]{0,2}", x.strip()) for x in k) for k in groups):
         # 묶음 이름이 모두 수(「42명」「3건」) — 이름과 값을 한 항목(「성과지표 실적」)으로 모았다. 11-22 9차: 지표마다 묶지 못하고 실적이 「확인 필요」
         obs.append("  (묶음 이름이 모두 수다 — 이름 항목과 값 항목이 한 항목으로 모였다. 이름(예: 성과지표)과 값(예: 실적)을 따로 collect_facts 로 모은 뒤 "

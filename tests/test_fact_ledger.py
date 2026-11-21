@@ -88,12 +88,12 @@ def test_aggregate_by_month_and_field_with_derivations():
     db = FakeDB(DOCS)
     fl.collect(db, 7, DOCS, ITEMS, FakeClient(ANS), title_of=_title, parallel=1)
     obs, ev = fl.aggregate(db, 7, ["날짜:월", "분야"], ["참여 인원"])
-    assert "4월 / 학생 역량강화: 2건, 참여 인원 97" in obs
-    assert "5월 / 산학협력: 1건, 참여 인원 61" in obs
+    assert "4월 / 학생 역량강화: 기록 2개, 참여 인원 97" in obs
+    assert "5월 / 산학협력: 기록 1개, 참여 인원 61" in obs
     assert "합계 · 참여 인원: 158" in obs
     assert any("42+55=97" in e for e in ev) and any("97+61=158" in e for e in ev)
     obs2, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"], filt={"분야": "산학"})
-    assert "산학협력: 1건, 참여 인원 61" in obs2 and "학생 역량강화" not in obs2
+    assert "산학협력: 기록 1개, 참여 인원 61" in obs2 and "학생 역량강화" not in obs2
 
 
 def test_aggregated_totals_pass_the_number_gate():
@@ -220,13 +220,13 @@ def test_later_partial_collect_keeps_earlier_items_and_documents():
     fl.collect(db, 7, DOCS[:2], ["날짜", "참여 인원"], cli, title_of=_title, parallel=1)
     assert cli.calls == []                                      # 요청 항목을 모두 담아 읽은 결과가 있으면 다시 읽지 않는다
     obs, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"])
-    assert "산학협력: 1건, 참여 인원 61" in obs and "학생 역량강화: 2건, 참여 인원 97" in obs
+    assert "산학협력: 기록 1개, 참여 인원 61" in obs and "학생 역량강화: 기록 2개, 참여 인원 97" in obs
     fl.collect(db, 7, DOCS[2:3], ["날짜", "비목"], cli, title_of=_title, parallel=1)
     assert cli.calls == ["5월 세미나"]                           # 새 항목이면 그 문서만, 앞서 모은 항목까지 합쳐 다시
     items = fl.load(db, 7)["items"]
     assert "분야" in items and "비목" in items
     obs2, _ = fl.aggregate(db, 7, ["분야"], ["참여 인원"])
-    assert "산학협력: 1건, 참여 인원 61" in obs2
+    assert "산학협력: 기록 1개, 참여 인원 61" in obs2
 
 
 def test_same_value_from_same_line_summed_once_and_filter_drop_noted():
@@ -253,7 +253,7 @@ def test_dominant_unit_is_per_group():
     db = FakeDB(docs)
     fl.collect(db, 11, docs, ["성과지표", "실적"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 11, ["성과지표"], ["실적"])
-    assert "산업체 협약: 1건, 실적 4건" in obs and "교과목 개발: 1건, 실적 2개" in obs and "실적 127명" in obs
+    assert "산업체 협약: 기록 1개, 실적 4건" in obs and "교과목 개발: 기록 1개, 실적 2개" in obs and "실적 127명" in obs
     assert "전체 합계는 내지 않았다" in obs
 
 
@@ -368,9 +368,9 @@ def test_inherit_single_doc_value_for_filter_and_group():
     db = FakeDB(docs)
     fl.collect(db, 7, docs, ["활동", "참여 인원", "금액"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 7, ["활동"], ["참여 인원"], filt={"활동": "파이썬 캠프"})
-    assert "파이썬 캠프: 2건, 참여 인원 42명" in obs
+    assert "파이썬 캠프: 기록 2개, 참여 인원 42명" in obs
     obs2, _ = fl.aggregate(db, 7, ["활동"], ["금액"])
-    assert "행사A: 1건, 금액 100" in obs2 and "행사B: 1건, 금액 200" in obs2
+    assert "행사A: 기록 1개, 금액 100" in obs2 and "행사B: 기록 1개, 금액 200" in obs2
 
 
 def test_numeric_group_names_hint():
@@ -410,3 +410,15 @@ def test_empty_answer_on_table_doc_retries_with_hint():
     db = FakeDB(docs)
     obs = fl.collect(db, 7, docs, ["비목", "금액", "참여 인원"], c, title_of=_title, parallel=1)
     assert calls == [False, True] and "기록 1건" in obs
+
+
+def test_group_name_that_is_an_unsummed_item_gets_hint():
+    """11-22 11차: 「산업체 협약」 묶음의 기록 수(3)를 협약 실적으로 씀 — 묶음 이름이 더하지 않은 항목이면 sum 에 넣으라고 알린다."""
+    docs = [{"id": 1, "filename": "a.docx", "masked_text": "성과지표 「산업체 협약」 실적 4건을 거두었다."}]
+    ans = {"a": [{"성과지표": "산업체 협약", "산업체 협약": "4건", "quote": "성과지표 「산업체 협약」 실적 4건을 거두었다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 7, docs, ["성과지표", "산업체 협약"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 7, ["성과지표"], [])
+    assert "「산업체 협약」 은(는) 모은 항목이기도 하다" in obs
+    obs2, _ = fl.aggregate(db, 7, ["성과지표"], ["산업체 협약"])
+    assert "모은 항목이기도" not in obs2 and "산업체 협약 4건" in obs2

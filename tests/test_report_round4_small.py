@@ -36,3 +36,26 @@ def test_replace_is_number_gated_only_for_new_numbers():
     why = t._numbers_check(1, "hwp_replace", {"find": "총 집행액은 확인 필요이다.", "replace": "총 집행액은 108,600,000원이다."})
     assert why and "108,600,000" in why
     assert t._numbers_check(1, "hwp_replace", {"items": [{"find": "2025 가상 사업 7명", "replace": "가상 사업 7명"}]}) is None
+
+
+def test_rate_column_alone_sees_row_operands_in_table(monkeypatch):
+    """11-22 11차: 달성률 열만 넣자(start [2, 4]) 같은 행의 목표·실적이 관문에 안 보여 9/10=90.0 이 막혔다 — 넣은 뒤 행 모습으로 본다."""
+    from types import SimpleNamespace
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.verify.numbers import mask_unsupported
+
+    cur = [["성과지표", "목표", "실적", "달성률(%)"], ["산업체 협약(건)", "10", "9", ""], ["교과목 개발(개)", "6", "5", ""]]
+    cells = [{"r": r, "c": c, "text": v} for r, row in enumerate(cur) for c, v in enumerate(row)]
+    monkeypatch.setattr(eo.webhwp, "get", lambda db, fid: {"path": __file__})
+    monkeypatch.setattr(eo, "_Doc", lambda data: None)
+    monkeypatch.setattr(eo, "list_tables", lambda d: [{"no": 4, "head": " | ".join(cur[0])}])
+    monkeypatch.setattr(eo, "_table_xml", lambda d, t: "")
+    monkeypatch.setattr(eo.ws, "_cells", lambda x: cells)
+
+    def gate(md):
+        _, bad = mask_unsupported(md, ["산업체 협약 실적 9건", "교과목 개발 실적 5개", "목표 10건 6개"], context=True)
+        return ("근거에 없는 수치: " + ", ".join(bad) + " — 모르는 값은 확인 필요") if bad else None
+    t = eo.EditTools(SimpleNamespace(numbers_gate=gate, db=None))
+    assert t._numbers_check(1, "hwp_table_edit", {"op": "set_cells", "table": 4, "start": [2, 4], "values": [["90.0"], ["83.3"]]}) is None
+    why = t._numbers_check(1, "hwp_table_edit", {"op": "set_cells", "table": 4, "start": [2, 4], "values": [["91.0"], ["83.3"]]})
+    assert why and "91.0" in why and "83.3" not in why.split(" —")[0]

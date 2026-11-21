@@ -3553,19 +3553,41 @@ class EditTools:
             except (TypeError, ValueError, IndexError):
                 r0, c0 = 1, 1
             head: list[str] = []
+            grid: dict[tuple[int, int], str] = {}
             try:
-                tabs = list_tables(_Doc(Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes()))
+                doc_ = _Doc(Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes())
+                tabs = list_tables(doc_)
                 key = str(a.get("table") or "")
                 t = next((x for x in tabs if str(x.get("no")) == key.lstrip("표")), None)
                 head = (t or {}).get("head", "").split(" | ") if t else []
+                if t:
+                    grid = {(c["r"], c["c"]): str(c.get("text") or "") for c in ws._cells(_table_xml(doc_, t))}
             except Exception:
-                head = []
-            if r0 <= 1:
+                head, grid = [], {}
+            new_vals = [c for r in rows for c in r]
+            # 넣은 뒤의 행 모습으로 본다 — 지금 칸 값(목표·실적)에 새 값을 겹친다. 11-22 11차: 달성률 열만 넣자(start [2, 4])
+            # 같은 행의 목표·실적이 관문에 보이지 않아 실적÷목표 비율이 「근거에 없는 수치」 로 막혔다
+            if grid:
+                ncol = max(c for _, c in grid) + 1
+                full = []
+                for i, r in enumerate(rows):
+                    rr = r0 - 1 + i
+                    cur = [grid.get((rr, j), "") for j in range(max(ncol, c0 - 1 + len(r)))]
+                    for j, v in enumerate(r):
+                        cur[c0 - 1 + j] = v
+                    full.append(cur)
+                if r0 <= 1:
+                    head, rows = full[0], full[1:]
+                else:
+                    head = [grid.get((0, j), "") for j in range(len(full[0]))] or head
+                    rows = full
+            elif r0 <= 1:
                 head, rows = [""] * (c0 - 1) + rows[0], rows[1:]
             else:
                 rows = [[""] * (c0 - 1) + r for r in rows]
         else:
             head, rows = rows[0], rows[1:]
+            new_vals = [c for r in rows for c in r]
         if not rows:
             return None
         md = "\n".join("| " + " | ".join(c.replace("|", "/") for c in r) + " |" for r in [head, ["---"] * len(head)] + rows)
@@ -3574,6 +3596,13 @@ class EditTools:
             # 걸린 수가 든 칸을 짚는다 — 어느 행인지 모르면 맞는 칸(4월 42명)을 지우거나 같은 값을 되풀이한다(11-22 5차: 5월 행에 옮겨 적은 42명)
             m = re.match(r"근거에 없는 수치: ([^—]+?) —", why)
             bad = [b.strip() for b in (m.group(1).split(", ") if m else []) if b.strip()]
+            # 이번에 넣는 칸에 든 수만 탓한다(이미 있던 칸 값은 이 쓰기의 몫이 아니다)
+            mine = [b for b in bad if any(re.search(rf"(?<![\d.,]){re.escape(b)}(?![\d])", v) for v in new_vals)]
+            if m and not mine:
+                return None
+            if m and len(mine) < len(bad):
+                why = "근거에 없는 수치: " + ", ".join(mine) + " —" + why.split(" —", 1)[1]
+                bad = mine
             hits = []
             for r in rows:
                 for c in r:
