@@ -282,3 +282,65 @@ def test_same_value_dedup_when_document_has_no_line_breaks():
     fl.collect(db, 13, docs, ["날짜", "참여 인원", "실적"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 13, [], ["참여 인원"])
     assert "참여 인원 38명" in obs
+
+
+def test_long_table_times_out_then_splits_with_header():
+    """11-22 8차: 36행 집행 내역을 여러 항목으로 뽑다 시간 초과 → 문서 전체 「읽지 못함」. 긴 조각은 반으로 나눠(머리줄 함께) 다시 뽑는다."""
+    rows = [f"2026-{3 + i // 4:02d}-1{i % 4} | 비목{i % 3} | 행사{i} | {1000000 + i * 10000}" for i in range(40)]
+    text = "집행일 | 비목 | 적요 | 금액(원)\n" + "\n".join(rows)
+    seen = []
+
+    class APITimeoutError(Exception):
+        pass
+
+    class _C:
+        def create(self, model, messages, max_tokens, **kw):
+            part = messages[-1]["content"].split("<<<\n", 1)[1].rsplit("\n>>>", 1)[0]
+            seen.append(part)
+            if len(part) > 900:
+                raise APITimeoutError("Request timed out.")
+            recs = [{"집행일": ln.split(" | ")[0], "비목": ln.split(" | ")[1], "금액": ln.split(" | ")[3], "quote": ln}
+                    for ln in part.splitlines()[1:]]
+            return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop",
+                                                            message=SimpleNamespace(content=json.dumps({"records": recs}, ensure_ascii=False)))])
+
+    class _M:
+        def list(self):
+            raise RuntimeError("서버 없음")
+
+    c = SimpleNamespace(model="fake", _extra={}, client=SimpleNamespace(chat=SimpleNamespace(completions=_C()), models=_M(), base_url="",
+                                                                        with_options=lambda **k: None))
+    c.client.with_options = lambda **k: c.client
+    old = fl.MIN_SPLIT
+    fl.MIN_SPLIT = 300
+    try:
+        out = fl._extract(c, "예산 집행 내역", text, ["집행일", "비목", "금액"], 100000)
+    finally:
+        fl.MIN_SPLIT = old
+    assert len(out) == 40
+    assert all(p.startswith("집행일 | 비목") for p in seen)          # 나눈 조각마다 머리줄
+    assert len({r["금액"] for r in out}) == 40
+
+
+def test_truncated_json_splits():
+    """출력이 길이 한도로 잘린 답(finish_reason=length)도 나눠 다시 뽑는다."""
+    text = "\n".join(f"행{i} | {i}명" for i in range(30))
+
+    class _C:
+        def create(self, model, messages, max_tokens, **kw):
+            part = messages[-1]["content"].split("<<<\n", 1)[1].rsplit("\n>>>", 1)[0]
+            lines = part.splitlines()
+            if len(lines) > 10:
+                return SimpleNamespace(choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content='{"records": [{"활동": "행0"'))])
+            recs = [{"활동": ln.split(" | ")[0], "quote": ln} for ln in lines]
+            return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps({"records": recs}, ensure_ascii=False)))])
+
+    c = SimpleNamespace(model="fake", _extra={}, client=SimpleNamespace(chat=SimpleNamespace(completions=_C()), models=SimpleNamespace(list=lambda: (_ for _ in ()).throw(RuntimeError())), base_url=""))
+    c.client.with_options = lambda **k: c.client
+    old = fl.MIN_SPLIT
+    fl.MIN_SPLIT = 10
+    try:
+        out = fl._extract(c, "목록", text, ["활동"], 100000)
+    finally:
+        fl.MIN_SPLIT = old
+    assert sorted(r["활동"] for r in out) == sorted(f"행{i}" for i in range(30))

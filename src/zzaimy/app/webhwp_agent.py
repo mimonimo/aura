@@ -33,6 +33,10 @@ from pathlib import Path
 from zzaimy.app import storage, webhwp
 from zzaimy.app import webhwp_blocks as _wb
 
+# 합계·비율이 막혔을 때 갈 길 — 11-22 8차: 예산 표 비목 합계를 손으로 더해 열 번 넣다 막히고 「확인 필요」 로 끝났다(집계 도구는 쓰지 않음)
+SUM_HINT = ("합계·건수·비율은 aggregate_facts 결과로 나온 값이 근거다 — 손으로 더하거나 나눈 값은 근거가 아니다"
+            "(묶을 항목을 아직 모으지 않았으면 collect_facts 로 그 항목을 모은 뒤 aggregate_facts).")
+
 
 def bound(db, session_id: int) -> int | None:
     v = (db.get_setting(f"chat_hwp:{int(session_id)}", "") or "").strip()
@@ -209,7 +213,8 @@ def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
                     + (" (든 줄: " + " / ".join(lines) + ")" if lines else "")
                     + " — 찾은 근거·담당자가 알려 준 값에 있는 수치만 쓴다(같은 숫자라도 근거에서 단위·대상이 다르면 근거가 아니다 — "
                       "날짜나 다른 항목의 숫자로 인원·횟수·대상 값을 만들지 않는다). 그 줄만 고쳐 다시 쓴다: 모르는 값은 「확인 필요」 로 바꾸고, "
-                      "일정은 담당자가 준 시작·끝만 날짜로 쓰고 그 사이는 단계 이름(준비·운영·평가 등)으로 나눈다. 같은 본문을 그대로 다시 내지 않는다.")
+                      "일정은 담당자가 준 시작·끝만 날짜로 쓰고 그 사이는 단계 이름(준비·운영·평가 등)으로 나눈다. 같은 본문을 그대로 다시 내지 않는다. "
+                    + SUM_HINT)
     return None
 
 
@@ -1946,7 +1951,7 @@ class HwpTools:
             return None
         return ("근거에 없는 수치: " + ", ".join(dict.fromkeys(bad[:8]))
                 + " — 담당자가 알려 준 값·찾은 근거와 단위까지 맞춰 넣는다(예: 머리줄이 「금액(천원)」 이면 1억 2천만 원은 120,000). "
-                  "모르는 값은 「확인 필요」 로 둔다.")
+                  "모르는 값은 「확인 필요」 로 둔다. " + SUM_HINT)
 
     def gate(self, text: str, by: str = "메인") -> str | None:
         """절 본문 관문 — check_body(메인·서브 같음) + 메인만: 남은 문맥이 모자란데 긴 본문을 직접 쓰면 거절하고 맡기기 안내."""
