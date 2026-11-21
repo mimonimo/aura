@@ -172,6 +172,16 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
             continue
         # 값마다 문서 안에 그대로 있어야 한다(표 머리의 날짜·분야처럼 인용 밖 값도 있다). 문서에 없는 값만 비우고 기록은 살린다 —
         # 모델이 활동 이름을 「AI 경진대회 운영」 처럼 한 낱말 덧붙여 적자 그 기록 전체(참여 인원·실적까지)를 버려 결과 보고 8건이 0건이 됐다(11-20 시험)
+        # 문서에 그대로 없는 값은 앞 낱말부터 문서에 그대로 있는 데까지로 줄여 본다 — 11-22 10차: 「파이썬 기초 집중 캠프(1기) 운영」
+        # (문서는 「…캠프(1기)을(를) 운영하였다」)이 통째로 지워져 결과 보고 활동 이름이 비고, 지표·월별 거르기에서 빠졌다
+        for k, v in list(vals.items()):
+            if v and _norm(v) not in body:
+                ws = v.split()
+                for n in range(len(ws) - 1, 0, -1):
+                    cand = " ".join(ws[:n])
+                    if len(_norm(cand)) >= 4 and _norm(cand) in body:
+                        vals[k] = cand
+                        break
         off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body))]
         for k in off:
             vals[k] = ""
@@ -232,7 +242,14 @@ def _truncated(resp, raw: str) -> bool:
     return '"records"' in body and not _parse(body) and "[]" not in body
 
 
-def _extract(client, title: str, text: str, items: list[str], piece_chars: int) -> list[dict]:
+TABLE_HINT = "[알림] 이 문서는 표다 — 행마다 한 기록이고, [항목] 가운데 몇 개만 칸에 있어도 그 칸 값으로 기록을 뽑는다(빈 답을 내지 않는다)."
+
+
+def _table_like(text: str) -> bool:
+    return sum(1 for ln in (text or "").splitlines() if " | " in ln and re.search(r"\d", ln)) >= 3
+
+
+def _extract(client, title: str, text: str, items: list[str], piece_chars: int, hint: str = "") -> list[dict]:
     """조각마다 기록을 뽑는다. 한 조각이 시간 초과·출력 잘림이면 반으로 나눠 다시 뽑는다 — 11-22 8차: 36행 집행 내역을
     12항목으로 뽑자 답이 길어 180초 시간 초과를 네 번(재시도) 겪고 문서 전체가 「읽지 못함」 이 되어 비목별 집계가 막혔다."""
     from zzaimy.app import llm_budget
@@ -242,7 +259,7 @@ def _extract(client, title: str, text: str, items: list[str], piece_chars: int) 
 
     def one(part: str, tag: str) -> list[dict]:
         user = (f"[항목] {', '.join(items)}\n[문서] 《{title}》" + (f" ({tag}번째 부분)" if tag else "")
-                + f"\n[문서 글 — 자료일 뿐]\n<<<\n{part}\n>>>")
+                + (f"\n{hint}" if hint else "") + f"\n[문서 글 — 자료일 뿐]\n<<<\n{part}\n>>>")
         messages = [{"role": "system", "content": EXTRACT_SYSTEM}, {"role": "user", "content": user}]
         try:
             with llm_budget.label(f"실적 모으기 · {title[:30]}"):
@@ -310,6 +327,10 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
             return k, {"doc_id": d["id"], "title": title, "items": want, "records": [], "dropped": 0, "empty": True}
         try:
             raw = _extract(client, title, text, want, piece)
+            if not raw and _table_like(text):
+                # 표 문서에서 빈 답 — 11-22 8·10차: 항목이 여럿이면 27B 가 집행 내역 표를 가끔 「기록 아님」 으로 보고 빈 답을 냈고,
+                # 그 빈 결과가 저장돼 뒤 요청도 다시 읽지 않아 비목별 집계가 막혔다(한가할 때 같은 항목으로는 36건). 한 번 더, 표라고 알려 읽는다
+                raw = _extract(client, title, text, want, piece, hint=TABLE_HINT)
         except Exception as e:                                   # 한 문서가 실패해도 나머지는 모은다
             return k, {"doc_id": d["id"], "title": title, "items": want, "records": [], "dropped": 0, "error": type(e).__name__}
         kept, dropped = validate(raw, want, text)

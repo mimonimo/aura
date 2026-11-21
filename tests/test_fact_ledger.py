@@ -131,7 +131,7 @@ def test_validate_keeps_record_when_one_value_is_paraphrased():
     recs = [{"날짜": "2026. 10. 29.", "분야": "학생 역량강화", "활동": "AI 경진대회 운영", "참여 인원": "학생 33명",
              "quote": "2026. 10. 29. AI 경진대회을(를) 운영하였다. 참여 인원은 학생 33명이며"}]
     kept, dropped = fl.validate(recs, ["날짜", "분야", "활동", "참여 인원"], doc)
-    assert dropped == 0 and kept[0]["참여 인원"] == "학생 33명" and kept[0]["활동"] == "" and kept[0]["unverified"] == ["활동"]
+    assert dropped == 0 and kept[0]["참여 인원"] == "학생 33명" and kept[0]["활동"] == "AI 경진대회" and "unverified" not in kept[0]   # 10차: 앞부분으로 줄여 살린다
     # 인용에 든 값이 하나도 없으면 버린다
     kept2, dropped2 = fl.validate([{"활동": "없는 활동", "quote": "참여 인원은 학생 33명이며"}], ["활동"], doc)
     assert kept2 == [] and dropped2 == 1
@@ -381,3 +381,32 @@ def test_numeric_group_names_hint():
     fl.collect(db, 7, docs, ["성과지표 실적"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 7, ["성과지표 실적"], [])
     assert "묶음 이름이 모두 수다" in obs
+
+
+def test_value_with_extra_trailing_word_is_trimmed():
+    """11-22 10차: 「캠프(1기) 운영」 처럼 문서에 없는 낱말을 덧붙인 활동 이름은 문서에 그대로 있는 앞부분으로 줄여 살린다."""
+    text = "2026. 4. 9. 파이썬 기초 집중 캠프(1기)을(를) 운영하였다. 참여 인원은 학생 42명이다."
+    kept, _ = fl.validate([{"활동": "파이썬 기초 집중 캠프(1기) 운영", "참여 인원": "학생 42명", "quote": text}], ["활동", "참여 인원"], text)
+    assert kept[0]["활동"] == "파이썬 기초 집중 캠프(1기)" and "unverified" not in kept[0]
+    kept, _ = fl.validate([{"활동": "전혀 다른 행사", "참여 인원": "학생 42명", "quote": text}], ["활동", "참여 인원"], text)
+    assert kept[0]["활동"] == ""
+
+
+def test_empty_answer_on_table_doc_retries_with_hint():
+    """11-22 10차: 집행 내역 표에서 빈 답 → 저장돼 다시 읽지 않음. 표 꼴 문서의 빈 답은 표라고 알려 한 번 더 읽는다."""
+    text = "집행일 | 비목 | 금액\n2026-03-18 | 인건비 | 4000000\n2026-04-09 | 장학금 | 4700000\n2026-05-14 | 인건비 | 5600000"
+    calls = []
+
+    class _C:
+        def create(self, model, messages, max_tokens, **kw):
+            u = messages[-1]["content"]
+            calls.append("[알림]" in u)
+            recs = [] if "[알림]" not in u else [{"비목": "인건비", "금액": "4000000", "quote": "2026-03-18 | 인건비 | 4000000"}]
+            return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps({"records": recs}, ensure_ascii=False)))])
+
+    c = SimpleNamespace(model="fake", _extra={}, client=SimpleNamespace(chat=SimpleNamespace(completions=_C()), models=SimpleNamespace(list=lambda: (_ for _ in ()).throw(RuntimeError())), base_url=""))
+    c.client.with_options = lambda **k: c.client
+    docs = [{"id": 9, "filename": "집행.xlsx", "masked_text": text}]
+    db = FakeDB(docs)
+    obs = fl.collect(db, 7, docs, ["비목", "금액", "참여 인원"], c, title_of=_title, parallel=1)
+    assert calls == [False, True] and "기록 1건" in obs

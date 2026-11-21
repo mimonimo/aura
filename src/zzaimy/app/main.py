@@ -3535,7 +3535,7 @@ def create_app(
                            "args {group_by: [묶을 항목], sum: [더할 수 항목], count?: 기록 건수도 셀지(기본 true), distinct?: 서로 다른 값 수를 셀 항목(예: 활동), "
                            "share?: 묶음별 합계 비율(%)도 낼지, base?: 합계를 견줄 기준값(예: 총 사업비 300000000 → 집행률), "
                            "filter?: {항목: 들어 있어야 할 글, 또는 \"*\"(그 항목 값이 있는 기록만)}}",
-                           t_aggregate, gathers=True),
+                           t_aggregate, gathers=True, refreshes=True),   # 집계는 새 근거 줄을 남긴다 — 앞서 막힌 같은 쓰기는 다시 해 본다(11-22 10차)
             doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
             doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",
                            t_create, writes=True),
