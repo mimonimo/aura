@@ -1436,7 +1436,8 @@ def parse_body(text: str) -> list[tuple[str, object]]:
             items.append(("text", "\n".join(x for x in buf if x.strip())))
         buf.clear()
 
-    for ln in lines:
+    _sep = re.compile(r"\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?")
+    for li, ln in enumerate(lines):
         s = ln.strip()
         if fence is not None:                               # ```도식 … ``` 블록
             if s.startswith("```"):
@@ -1458,9 +1459,12 @@ def parse_body(text: str) -> list[tuple[str, object]]:
                 table = []
             fence = []
             continue
-        if s.startswith("|") and s.endswith("|") and s.count("|") >= 2:
+        nxt = lines[li + 1].strip() if li + 1 < len(lines) else ""
+        # 끝 「|」 가 빠진 표 줄(「| 성과지표 | 목표 | 실적 | 달성률(%)」)도 표 안이거나 바로 아래가 구분 줄이면 표 줄로 — 머리줄이 글 문단으로 빠져
+        # 표가 머리 없이 들어가고 달성률 열 머리를 잃던 것(11-22 한 번에 시험)
+        if s.startswith("|") and s.count("|") >= 2 and (s.endswith("|") or table or _sep.fullmatch(nxt)):
             flush_text()
-            if re.fullmatch(r"\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?", s):
+            if _sep.fullmatch(s):
                 continue
             table.append([wf.HTML_BREAK.sub("\n", c).strip() for c in s.strip("|").split("|")])   # 칸 안 「<br>」 → 칸 안 줄바꿈
             continue

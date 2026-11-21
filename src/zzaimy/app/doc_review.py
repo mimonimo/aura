@@ -123,6 +123,9 @@ def review(data: bytes, request: str = "") -> str:
                     else:
                         continue
                     break
+            raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
+            if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
+                issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")
             for r in data_rows:
                 for c in r:
                     if _PH.search(c):

@@ -80,6 +80,9 @@ def _doc_key(s: str) -> str:
     return re.sub(r"[\s\[\]【】()（）「」『』<>〈〉\"'·,._\-]+", "", _nfc(s)).lower()
 
 
+_FORM_WORDS = {"서식", "양식", "작성", "파일", "문서", "작성서식", "별지", "붙임", "첨부"}
+
+
 def designated_docs(request: str, docs: list[dict]) -> list[dict]:
     """담당자 글이 짚은 문서 — 따옴표로 든 이름이 제목에 들어 있거나, 다른 후보에 없는 제목 낱말이 둘 이상 담당자 글에 있는 문서.
     하나로 맞으면 그 문서, 비기면 비긴 문서들, 없으면 빈 목록(고르는 것은 에이전트, 코드는 지정이 있는데 다른 것으로 시작하는 것만 막는다)."""
@@ -93,9 +96,11 @@ def designated_docs(request: str, docs: list[dict]) -> list[dict]:
         hit = [d for d in docs if k and k in _doc_key(titles[int(d["id"])])]
         if hit:
             return hit
-    words = {int(d["id"]): {w for w in re.findall(r"[가-힣A-Za-z]{2,}|\d+(?:-\d+)+", titles[int(d["id"])])} for d in docs}
+    # 「서식」「양식」「작성」 같은 서류 꼴 낱말은 짚은 문서를 가르지 못한다 — 「…서식으로 …작성해 줘」 가 사업계획서 작성 서식을 짚은 것으로 읽혔다(11-22)
+    words = {int(d["id"]): {w for w in re.findall(r"[가-힣A-Za-z]{2,}|\d+(?:-\d+)+", titles[int(d["id"])]) if w not in _FORM_WORDS} for d in docs}
     common = set.intersection(*words.values()) if len(words) > 1 else set()
-    score = {i: sum(1 for w in ws - common if _doc_key(w) in R) for i, ws in words.items()}
+    # 서식 번호(「2-1」)는 그 하나로 문서를 가른다 — 두 낱말 몫
+    score = {i: sum(2 if re.fullmatch(r"\d+(?:-\d+)+", w) else 1 for w in ws - common if _doc_key(w) in R) for i, ws in words.items()}
     best = max(score.values())
     if best < 2:
         return []
@@ -1101,6 +1106,15 @@ class HwpTools:
             return ("담당자 글에 맞는 문서가 여럿이다 — " + ", ".join(f"doc:{d['id']} 「{storage.title_of(d.get('filename') or '')[:40]}」" for d in named)
                     + ". 어느 것인지 ask_user 로 한 번 묻는다(대충 하나를 고르지 않는다).")
         m = _REF_ASK.search(req)
+        if m and not named and form.startswith("doc:") and form[4:].isdigit():
+            # 올린 문서 가운데 하나를 골랐고 그 제목이 짚은 말(「작년 결과보고서(2025)」)과 낱말이 겹치면 그대로 연다 —
+            # 제목 낱말이 둘 이상 겹쳐야만 지정으로 보던 탓에 하나뿐인 작년 결과보고서를 두 번 거절했고, 에이전트가 새 양식을 설계해 작년 서식이 사라졌다(11-22 한 번에 시험)
+            pick = next((d for d in cands if int(d["id"]) == int(form[4:])), None)
+            if pick is not None:
+                ref_words = {_doc_key(w) for w in re.findall(r"[가-힣A-Za-z]{2,}|\d{4}", m.group(2))}
+                tw = {_doc_key(w) for w in re.findall(r"[가-힣A-Za-z]{2,}|\d{4}", _nfc(storage.title_of(pick.get("filename") or "")))}
+                if any(r and any(r in t or t in r for t in tw if len(t) >= 2) for r in ref_words if r not in ("작년", "지난", "올해")):
+                    return None
         if m and not named and m.group(2).strip() not in _REF_GENERIC and form.startswith(("tpl:", "doc:")):
             key = f"form_ref_asked:{self.sid}"
             if not (self.db.get_setting(key, "") or "").strip():

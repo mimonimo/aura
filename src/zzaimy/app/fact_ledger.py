@@ -120,6 +120,26 @@ def _quote_in(q: str, body: str, vals: list[str]) -> str | None:
     return None
 
 
+_GENERIC_ITEM = {"인원", "수", "건수", "금액", "명", "실적", "값", "개수", "합계", "총", "전체"}
+
+
+def _label_near(item: str, value: str, body: str, window: int = 50) -> bool:
+    """여러 낱말로 된 항목(「교육 이수 인원」)의 수 값은 문서에서 그 값 바로 앞(window 글자)에 항목의 고유 낱말(교육·이수)이 모두 있어야 한다.
+    모델이 다른 활동의 참여 인원(세미나 61명)을 「교육 이수 인원」 으로 뽑아 지표 실적이 264→354 로 부풀던 것(11-22 4차).
+    낱말 하나짜리 항목(금액·날짜)·수가 아닌 값은 보지 않는다."""
+    words = [w for w in re.findall(r"[가-힣A-Za-z]{2,}", item) if w not in _GENERIC_ITEM]
+    if len(words) < 2 or not re.search(r"\d", value or ""):
+        return True
+    v = _norm(value)
+    i, n = body.find(v), 0
+    while i >= 0 and n < 20:
+        before = body[max(0, i - window):i]
+        if all(w in before for w in words):
+            return True
+        i, n = body.find(v, i + 1), n + 1
+    return False
+
+
 def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list[dict], int]:
     """인용이 문서에 그대로 있고, 비지 않은 값이 모두 문서에 있으며 인용에 값이 하나 이상 든 기록만. (남긴 기록, 버린 수)"""
     body = _norm(doc_text)
@@ -134,7 +154,7 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
             continue
         # 값마다 문서 안에 그대로 있어야 한다(표 머리의 날짜·분야처럼 인용 밖 값도 있다). 문서에 없는 값만 비우고 기록은 살린다 —
         # 모델이 활동 이름을 「AI 경진대회 운영」 처럼 한 낱말 덧붙여 적자 그 기록 전체(참여 인원·실적까지)를 버려 결과 보고 8건이 0건이 됐다(11-20 시험)
-        off = [k for k, v in vals.items() if v and _norm(v) not in body]
+        off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body))]
         for k in off:
             vals[k] = ""
         if not any(v and _norm(v) in span for v in vals.values()):
@@ -373,6 +393,9 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             for r in rs:                                          # 같은지는 띄어쓰기 빼고, 보이는 이름은 문서 글 그대로
                 if str(r.get(dk) or "").strip():
                     seen_.setdefault(_norm(r.get(dk)), str(r.get(dk)).strip())
+                elif r.get("_doc") and not any(str(x.get(dk) or "").strip() for x in rs if x.get("_doc") == r["_doc"]):
+                    # 값이 빈 기록은 그 문서를 하나로 센다 — 활동 이름을 못 뽑은 결과 보고 4건이 빠져 학생 역량강화 활동이 6→2 로 세어지던 것(11-22 4차)
+                    seen_.setdefault("《" + _norm(r["_doc"]), f"《{r['_doc'][:30]}》")
             kinds = [seen_[k] for k in sorted(seen_)]
             cells.append(f"{dk} {len(kinds)}개")
             ev.append(f"◇ 집계 {label} · 서로 다른 {dk}: {len(kinds)}개 (" + ", ".join(k[:20] for k in kinds[:12]) + ")")

@@ -177,3 +177,24 @@ def test_aggregate_skips_values_with_other_unit():
     fl.save(db, 8, {"items": ["날짜", "참여 인원"], "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": ["날짜", "참여 인원"], "records": recs}}})
     obs, ev = fl.aggregate(db, 8, ["날짜:월"], ["참여 인원"])
     assert "참여 인원 79명" in obs and "2개사" in obs and any("38+41=79명" in x for x in ev)
+
+
+def test_multiword_item_value_needs_its_label_nearby():
+    doc = ("참여 인원은 학생 61명이며, 만족도 조사 결과 4.4점이었다.\n이번 활동으로 성과지표 「산업체 협약」 실적 2건을(를) 거두었다.\n"
+           "다른 활동: 성과지표 「교육 이수 인원」 실적 38명을 거두었다.")
+    recs = [{"교육 이수 인원": "61명", "참여 인원": "학생 61명", "quote": "참여 인원은 학생 61명이며"},
+            {"교육 이수 인원": "38명", "참여 인원": "", "quote": "성과지표 「교육 이수 인원」 실적 38명을 거두었다."}]
+    kept, _ = fl.validate(recs, ["교육 이수 인원", "참여 인원"], doc)
+    assert kept[0]["교육 이수 인원"] == "" and kept[0]["참여 인원"] == "학생 61명" and kept[0]["unverified"] == ["교육 이수 인원"]
+    assert kept[1]["교육 이수 인원"] == "38명"
+
+
+def test_distinct_counts_unnamed_records_by_document():
+    db = FakeDB([])
+    recs = [{"분야": "학생", "활동": "캠프", "quote": "q"}, {"분야": "학생", "활동": "", "quote": "q"}]
+    data = {"items": ["분야", "활동"], "live": ["a", "b"], "docs": {
+        "a": {"doc_id": 1, "title": "캠프 결과", "items": ["분야", "활동"], "records": recs},
+        "b": {"doc_id": 2, "title": "특강 결과", "items": ["분야", "활동"], "records": [{"분야": "학생", "활동": "", "quote": "q"}]}}}
+    fl.save(db, 9, data)
+    obs, _ = fl.aggregate(db, 9, ["분야"], [], distinct="활동")
+    assert "활동 2개" in obs                       # 캠프(이름) + 특강 결과(이름 없는 문서) — 캠프 문서의 빈 기록은 다시 세지 않는다
