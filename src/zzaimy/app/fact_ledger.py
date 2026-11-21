@@ -425,6 +425,28 @@ def _unit(raws: list[str]) -> str:
     return us.pop() if len(us) == 1 else ""
 
 
+def _inherit(recs: list[dict], names: list[str]) -> list[dict]:
+    """같은 문서(_doc)의 기록들에서 names 항목 값이 (띄어쓰기 빼고) 하나뿐이면 그 항목이 빈 기록에 채운다. 새 dict 목록을 돌려준다."""
+    names = [n for n in dict.fromkeys(names) if n]
+    if not names:
+        return recs
+    fill: dict[tuple[str, str], str] = {}
+    by_doc: dict[str, list[dict]] = {}
+    for r in recs:
+        by_doc.setdefault(str(r.get("_doc")), []).append(r)
+    for d, rs in by_doc.items():
+        for n in names:
+            vs = {_norm(r.get(n)): str(r.get(n)).strip() for r in rs if str(r.get(n) or "").strip()}
+            if len(vs) == 1:
+                fill[(d, n)] = next(iter(vs.values()))
+    out = []
+    for r in recs:
+        add = {n: fill[(str(r.get("_doc")), n)] for n in names
+               if not str(r.get(n) or "").strip() and (str(r.get("_doc")), n) in fill}
+        out.append({**r, **add} if add else r)
+    return out
+
+
 def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: bool = True, filt: dict | None = None,
               distinct="", share: bool = False, base=None) -> tuple[str, list[str]]:
     """(관찰 글, 근거 글 줄). 근거 글은 「묶음 · 항목: a+b+…=합」 꼴이라 수치 관문이 셈을 확인한다.
@@ -440,6 +462,12 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     if bad:
         return (f"모은 항목에 없는 이름: {', '.join(bad)} — 모은 항목은 {', '.join(items)}. "
                 f"collect_facts {{items: [{', '.join(bad)}, …]}} 로 그 항목을 모으면(앞서 모은 항목은 남는다) 다시 묶을 수 있다."), []
+    # 한 문서 안에서 묶는·거르는 항목 값이 하나뿐이면 그 값이 빈 같은 문서 기록에 물려준다 — 11-22 9차: 캠프 결과 보고가
+    # 「활동」 든 기록과 「참여 인원」 든 기록으로 나뉘어 filter {활동: 캠프} 의 참여 인원이 0, 8차: filter {활동: *} 로 7월 38명이 빠졌다.
+    # 값이 여럿인 문서(집행 내역 표)는 어느 값인지 모르므로 그대로 둔다.
+    _dl = distinct if isinstance(distinct, (list, tuple)) else re.split(r"[,/]\s*", str(distinct or ""))
+    recs = _inherit(recs, [g.partition(":")[0] for g in group_by] + [str(k) for k in (filt or {})]
+                    + [str(x).strip() for x in _dl if str(x).strip()])
     all_recs = recs
     for k, v in (filt or {}).items():
         if str(v).strip() in ("*", "있음"):                    # 그 항목 값이 있는 기록만(예: 참여 인원이 적힌 결과 보고만)
@@ -591,6 +619,10 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         ev.append(f"◇ 집계 합계 · 기록 수: {len(recs)}건")
     if filt_note:
         obs.append(filt_note)
+    if group_by and len(groups) > 1 and all(any(re.fullmatch(r"[\d,.]+\s*[가-힣%]{0,2}", x.strip()) for x in k) for k in groups):
+        # 묶음 이름이 모두 수(「42명」「3건」) — 이름과 값을 한 항목(「성과지표 실적」)으로 모았다. 11-22 9차: 지표마다 묶지 못하고 실적이 「확인 필요」
+        obs.append("  (묶음 이름이 모두 수다 — 이름 항목과 값 항목이 한 항목으로 모였다. 이름(예: 성과지표)과 값(예: 실적)을 따로 collect_facts 로 모은 뒤 "
+                   "group_by [이름], sum [값] 으로 묶는다)")
     obs.append("이 값들은 근거로 남았다 — 표·본문에 그대로 쓸 수 있다(근거 문서는 위 《》).")
     data = load(db, session_id)
     keep = [x for x in (data.get("aggregates") or []) if x not in ev]

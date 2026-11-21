@@ -355,3 +355,29 @@ def test_month_label_shows_year_only_when_mixed():
     fl.collect(db, 7, docs, ["날짜", "참여 인원"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 7, ["날짜:월"], ["참여 인원"])
     assert "2025년 12월:" in obs and "2026년 1월:" in obs and obs.index("2025년 12월") < obs.index("2026년 1월")
+
+
+def test_inherit_single_doc_value_for_filter_and_group():
+    """11-22 9차: 한 결과 보고가 활동 든 기록·인원 든 기록으로 나뉘면 filter {활동} 의 인원이 0 — 문서 안 값이 하나면 물려준다."""
+    docs = [{"id": 1, "filename": "캠프.docx", "masked_text": "파이썬 캠프를 운영하였다.\n참여 인원은 학생 42명이다."},
+            {"id": 2, "filename": "집행.xlsx", "masked_text": "a | 행사A | 100\nb | 행사B | 200"}]
+    ans = {"캠프": [{"활동": "파이썬 캠프", "quote": "파이썬 캠프를 운영하였다."},
+                  {"참여 인원": "42명", "quote": "참여 인원은 학생 42명이다."}],
+           "집행": [{"활동": "행사A", "금액": "100", "quote": "a | 행사A | 100"},
+                  {"활동": "행사B", "금액": "200", "quote": "b | 행사B | 200"}]}
+    db = FakeDB(docs)
+    fl.collect(db, 7, docs, ["활동", "참여 인원", "금액"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 7, ["활동"], ["참여 인원"], filt={"활동": "파이썬 캠프"})
+    assert "파이썬 캠프: 2건, 참여 인원 42명" in obs
+    obs2, _ = fl.aggregate(db, 7, ["활동"], ["금액"])
+    assert "행사A: 1건, 금액 100" in obs2 and "행사B: 1건, 금액 200" in obs2
+
+
+def test_numeric_group_names_hint():
+    docs = [{"id": 1, "filename": "a.docx", "masked_text": "실적 42명을 거두었다."},
+            {"id": 2, "filename": "b.docx", "masked_text": "실적 3건을 거두었다."}]
+    ans = {"a": [{"성과지표 실적": "42명", "quote": "실적 42명을 거두었다."}], "b": [{"성과지표 실적": "3건", "quote": "실적 3건을 거두었다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 7, docs, ["성과지표 실적"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 7, ["성과지표 실적"], [])
+    assert "묶음 이름이 모두 수다" in obs
