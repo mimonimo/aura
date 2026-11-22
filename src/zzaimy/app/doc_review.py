@@ -84,6 +84,32 @@ def asked_sections(request: str) -> set[int]:
     return {int(x or y) for x, y in _SEC_ASK.findall(request or "")}
 
 
+def gap_cols(rows: list[list[str]]) -> list[int]:
+    """빈·「확인 필요」 칸이 남은 수 열(첫 열 빼고) — 글 열(주요 활동·대표 성과)은 장부 합계로 채울 열이 아니라 뺀다."""
+    data_rows = rows[1:]
+    if not data_rows or not rows[0] or len(rows[0]) < 2:
+        return []
+
+    def _wordy(j):
+        xs = [r[j] for r in data_rows if len(r) > j and r[j] and "확인 필요" not in r[j]]
+        return bool(xs) and sum(1 for x in xs if re.search(r"\d", x)) * 2 < len(xs)
+    return [j for j in range(1, len(rows[0])) if not _wordy(j)
+            and any(len(r) > j and (not r[j] or "확인 필요" in r[j]) for r in data_rows)]
+
+
+def gap_tables(data: bytes) -> list[tuple[int, list[str], list[str], str]]:
+    """작업본에서 빈 수 칸이 남은 표 — (표 번호, 행 이름들, 빈 열 머리들, 첫 열 머리)."""
+    out, tno = [], 0
+    for _, xml in _sections(data):
+        for tb in _TBL.findall(xml):
+            tno += 1
+            rows = _rows(tb)
+            gap = gap_cols(rows) if rows else []
+            if gap:
+                out.append((tno, [r[0] for r in rows[1:] if r], [rows[0][j] for j in gap], rows[0][0]))
+    return out
+
+
 def review(data: bytes, request: str = "", ledger=None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
@@ -134,11 +160,7 @@ def review(data: bytes, request: str = "", ledger=None) -> str:
             # 빈·「확인 필요」 칸이 남은 열 — 장부로 묶어 채울 수 있는지 보인다(11-23 17차: 성과지표 실적 칸을 빈 채로 두고
             # finish, 다음 요청에서는 「문서에 없다」 며 물었다 — 결과 보고마다 지표 실적이 적혀 있었다)
             if ledger and data_rows and len(rows[0]) >= 2:
-                def _wordy(j):                               # 글 열(주요 활동·대표 성과)은 장부 합계로 채울 열이 아니다
-                    xs = [r[j] for r in data_rows if len(r) > j and r[j] and "확인 필요" not in r[j]]
-                    return bool(xs) and sum(1 for x in xs if re.search(r"\d", x)) * 2 < len(xs)
-                gap = [j for j in range(1, len(rows[0])) if not _wordy(j)
-                       and any(len(r) > j and (not r[j] or "확인 필요" in r[j]) for r in data_rows)]
+                gap = gap_cols(rows)
                 if gap:
                     try:
                         more = ledger([r[0] for r in data_rows if r], [rows[0][j] for j in gap], rows[0][0])

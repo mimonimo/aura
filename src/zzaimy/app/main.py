@@ -3134,7 +3134,28 @@ def create_app(
                 obs_ += (f"\n이 프로젝트 근거 문서 {len(all_)}개 가운데 {len(all_) - len(left_)}개를 모아 두었다. 안 읽은 문서: "
                          + ", ".join(f"《{t_[:30]}》" for t_ in left_[:12]) + (" …" if len(left_) > 12 else "")
                          + " — 전부 모아야 하는 일이면 documents 없이 다시 부른다(읽은 문서는 다시 읽지 않는다).")
+            obs_ += _unmatched_tables()
             return obs_
+
+        def _unmatched_tables() -> str:
+            """작업본의 빈 수 칸이 남은 표 가운데 행 이름이 모은 항목 값에 없는 것 — 무엇을 더 모을지 알린다(모을지는 27B).
+            11-23 17차: 날짜·분야·활동·참여 인원·금액만 모아 성과지표 표(교육 이수 인원·취업 연계…)의 실적을 채울 길이 없었다 — 결과 보고마다 지표 실적이 적혀 있었다."""
+            try:
+                from zzaimy.app import doc_review as _dr
+                from zzaimy.app import fact_ledger as _fl
+                from zzaimy.app import webhwp as _wh
+                fid_ = hw.fid() if hw is not None else None
+                f_ = _wh.get(db, fid_) if fid_ else None
+                if not f_ or not Path(f_["path"]).exists():
+                    return ""
+                out_ = []
+                for tno_, labels_, heads_, lh_ in _dr.gap_tables(Path(f_["path"]).read_bytes())[:4]:
+                    miss_ = _fl.for_table(db, session_id, labels_, heads_, lh_, dry=True)
+                    if miss_:
+                        out_.append(f"\n작업본 표{tno_}({lh_} | {' | '.join(heads_[:3])}):" + miss_)
+                return "".join(out_)
+            except Exception:
+                return ""
 
         def t_aggregate(a: dict) -> str:
             from zzaimy.app import fact_ledger as _fl

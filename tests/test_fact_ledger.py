@@ -451,3 +451,13 @@ def test_for_table_month_rows_group_by_date_month():
     fl.save(db, 12, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
     out = fl.for_table(db, 12, ["4월", "5월"], ["참여 인원(명)"], "월")
     assert "group_by: [날짜:월]" in out and "44명" in out and "55명" in out
+
+
+def test_for_table_dry_only_reports_unmatched_rows():
+    db = FakeDB([])
+    its = ["분야", "참여 인원"]
+    recs = [{"분야": "산학협력", "참여 인원": "61명", "quote": "q"}, {"분야": "학생 역량강화", "참여 인원": "42명", "quote": "q"}]
+    fl.save(db, 13, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    assert fl.for_table(db, 13, ["산학협력", "학생 역량강화"], ["참여 인원"], "분야", dry=True) == ""
+    assert "aggregates" not in fl.load(db, 13)
+    assert "collect_facts {items: [성과지표, 실적]}" in fl.for_table(db, 13, ["교육 이수 인원(명)", "취업 연계(명)"], ["실적"], "성과지표", dry=True)

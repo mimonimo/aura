@@ -666,7 +666,7 @@ def _mnum(s) -> int | None:
     return int(m[-2:].rstrip("월")) if m else None
 
 
-def for_table(db, session_id: int, labels: list[str], heads: list[str], label_head: str = "") -> str:
+def for_table(db, session_id: int, labels: list[str], heads: list[str], label_head: str = "", dry: bool = False) -> str:
     """표의 행 이름(첫 열)과 열 머리로 장부를 묶어 본다 — 행 이름이 어느 모은 항목의 값인지(분야·성과지표…)와
     머리가 어느 수 항목인지(참여 인원·실적·「활동 수」 는 서로 다른 활동 수) 맞춰 aggregate 를 부르고, 그 결과(근거로 남음)를 돌려준다.
     맞는 항목이 없으면 무엇을 모으면 되는지만 알린다. 11-23 17차: 분야별·성과지표 합계를 손으로 더해 관문에 막히자
@@ -698,6 +698,8 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
         want = [re.sub(r"\s*\([^)]*\)\s*$", "", h).strip() for h in [label_head, *heads] if _hk(h)]
         return (f" 행 이름({', '.join(labs[:3])}…)이 실적 장부의 어느 항목 값과도 맞지 않는다 — 문서에 그 이름별 값이 적혀 있으면 "
                 f"collect_facts {{items: [{', '.join(dict.fromkeys(want[:4]))}]}} 로 행 이름 항목과 값 항목을 모은 뒤 aggregate_facts 로 묶는다.") if want else ""
+    if dry:
+        return ""                                            # 행 이름이 장부 항목 값과 맞는다 — 묶을 수 있음(묶지는 않음)
     sums, dist = [], []
     for it in items:
         if it == best:

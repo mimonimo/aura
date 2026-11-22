@@ -109,3 +109,10 @@ def test_review_attaches_ledger_grouping_for_blank_columns():
     out = doc_review.review(doc, "", ledger=lambda labels, heads, lh: seen.append((labels, heads, lh)) or " 묶어 보았다: 209명")
     assert seen == [(["교육 이수 인원(명)", "취업 연계(명)"], ["실적"], "성과지표")]
     assert "「실적」 열에 빈·「확인 필요」 칸" in out and "209명" in out
+
+
+def test_gap_tables_lists_number_columns_left_blank():
+    from zzaimy.app import doc_review
+    doc = _hwpx(_p("3. 성과지표 달성 실적", 2) + _table(
+        [["성과지표", "목표", "실적", "비고"], ["교육 이수 인원(명)", "300", "", "캠프 운영"], ["취업 연계(명)", "40", "확인 필요", "특강"]], 100))
+    assert doc_review.gap_tables(doc) == [(1, ["교육 이수 인원(명)", "취업 연계(명)"], ["실적"], "성과지표")]
