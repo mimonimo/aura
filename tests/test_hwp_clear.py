@@ -89,3 +89,12 @@ def test_fit_form_table_transposes_horizontal_summary_into_label_column():
 def test_clear_result_points_to_next_step():
     _, msg = eo.clear_items(_hwpx(DOC), {"ids": ["표1:1,2"]})
     assert "비우기는 끝났다" in msg and "남은 글" in msg
+
+
+def test_review_points_out_repeated_row_names():
+    """첫 열 이름이 여러 행에 되풀이된 표를 끝 점검 후보로 알린다 — 합칠지는 27B 가 요청을 보고 판단(11-23 16차)."""
+    from zzaimy.app import doc_review
+    doc = _hwpx(_p("2.1 월별 추진 실적", 2) + _table(
+        [["월", "주요 활동", "참여 인원(명)"], ["4월", "협약", "-"], ["4월", "캠프", "42"], ["5월", "특강", "55"], ["5월", "방문", "2"]], 100))
+    out = doc_review.review(doc, "월마다 한 행으로 합계")
+    assert "같은 이름이 여러 행" in out and "4월 2행" in out

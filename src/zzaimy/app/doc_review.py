@@ -123,6 +123,13 @@ def review(data: bytes, request: str = "") -> str:
                     else:
                         continue
                     break
+            # 첫 열 이름이 여러 행에 되풀이 — 담당자가 이름마다 한 행(월별 합계 등)을 바랐는지는 27B 가 요청을 보고 판단한다(11-23 16차:
+            # 앞 요청에서 활동 행으로 채운 표를 「월마다 한 행으로 합계」 요청에서 요약 글만 붙이고 그대로 두었다)
+            firsts = [r[0].strip() for r in data_rows if r and r[0].strip()]
+            dup = {k: firsts.count(k) for k in dict.fromkeys(firsts) if firsts.count(k) >= 2}
+            if len(dup) >= 2:
+                issues.append(f"「{label}」 표{tno} 첫 열에 같은 이름이 여러 행이다(" + ", ".join(f"{k} {n}행" for k, n in list(dup.items())[:5])
+                              + ") — 담당자 요청이 이름마다 한 행(합계)이면 aggregate_facts 묶음대로 한 행씩 합쳐 고치고, 활동마다 한 행이 맞으면 그대로 둔다.")
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")
@@ -152,6 +159,6 @@ def review(data: bytes, request: str = "") -> str:
             + "\n\n절별 모습:\n" + "\n".join(outline)
             + ("\n\n코드가 본 문제 후보(참고 — 실제 문제인지는 직접 읽고 판단한다):\n" + "\n".join(f"{i}. {x}" for i, x in enumerate(issues, 1))
                if issues else "")
-            + "\n\n담당자가 이 문서를 받았을 때 문제가 될 것을 찾는다 — 요청한 값이 빠지거나 다르게 들어간 곳, 다른 절에 들어간 글·표, "
+            + "\n\n담당자가 이 문서를 받았을 때 문제가 될 것을 찾는다 — 요청한 값이 빠지거나 다르게 들어간 곳, 요청한 꼴(한 행에 무엇을 적을지)과 다른 표, 다른 절에 들어간 글·표, "
               "남은 빈 표·빈칸·「확인 필요」, 어색하거나 틀린 글, 앞뒤가 맞지 않는 수치, 머리줄 없는 표. 고칠 것은 도구로 고친 뒤 finish 하고, "
               "담당자에게 값을 받아야 하는 것만 finish 글에 적는다. 문제가 없으면 그대로 finish 한다.")

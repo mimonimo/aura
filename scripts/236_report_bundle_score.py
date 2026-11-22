@@ -47,6 +47,22 @@ def score(set_dir: Path, result: Path) -> dict:
         got = _nums(" ".join(r[1:])) if r else set()
         ok += bool(r and (str(v["참여 인원"]) in got or str(v.get("참여 인원(회의·출장 포함)", "")) in got))
     res["월별 참여 인원"] = f"{ok}/{len(t['월별'])}"
+    # 보조 지표 — 작년 표처럼 활동마다 한 행으로 쓴 판: 같은 달 행의 참여 인원 열을 더해 본다(꼴과 값을 따로 보려고, 본 점수는 위)
+    hi = next((i for i, r in enumerate(rows) if r and r[0].strip() == "월" and any("참여" in c for c in r)), None)
+    if hi is not None:
+        col = next(j for j, c in enumerate(rows[hi]) if "참여" in c)
+        sums: dict[str, int] = {}
+        for r in rows[hi + 1:]:
+            m_ = re.fullmatch(r"0?(\d{1,2})\s*월", (r[0] if r else "").strip())
+            if not m_:
+                if r and r[0].strip() in ("월", "분야", "성과지표", "비목"):
+                    break
+                continue
+            n_ = re.search(r"\d[\d,]*", r[col] if col < len(r) else "")
+            sums[m_.group(1)] = sums.get(m_.group(1), 0) + (int(n_.group(0).replace(",", "")) if n_ else 0)
+        ok2 = sum(1 for m, v in t["월별"].items()
+                  if str(sums.get(str(int(re.sub(r"\D", "", str(m)) or 0)), -1)) in (str(v["참여 인원"]), str(v.get("참여 인원(회의·출장 포함)", ""))))
+        res["월별(같은 달 행 합산)"] = f"{ok2}/{len(t['월별'])}"
     ok = 0
     for f, v in t["분야별"].items():
         r = row_for(lambda c, f=f: c.strip() == f)
