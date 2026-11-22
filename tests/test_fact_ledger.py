@@ -422,3 +422,32 @@ def test_group_name_that_is_an_unsummed_item_gets_hint():
     assert "「산업체 협약」 은(는) 모은 항목이기도 하다" in obs
     obs2, _ = fl.aggregate(db, 7, ["성과지표"], ["산업체 협약"])
     assert "모은 항목이기도" not in obs2 and "산업체 협약 4건" in obs2
+
+
+def test_for_table_groups_by_item_matching_row_labels():
+    # 11-23 17차: 분야별 표 합계를 손으로 더해 막히자 「확인 필요」 로 채웠다 — 행 이름이 어느 항목 값인지 맞춰 묶어 보인다
+    db = FakeDB([])
+    its = ["분야", "활동", "참여 인원"]
+    recs = [{"분야": "산학협력", "활동": "세미나", "참여 인원": "61명", "quote": "q1"},
+            {"분야": "산학협력", "활동": "매칭 데이", "참여 인원": "52명", "quote": "q2"},
+            {"분야": "학생 역량강화", "활동": "캠프", "참여 인원": "42명", "quote": "q3"},
+            {"분야": "학생 역량강화", "활동": "특강", "참여 인원": "55명", "quote": "q4"}]
+    fl.save(db, 11, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    out = fl.for_table(db, 11, ["산학협력", "학생 역량강화", "합계"], ["활동 수", "참여 인원(명)"])
+    assert "group_by: [분야]" in out and "sum: [참여 인원]" in out and "distinct: [활동]" in out
+    assert "113명" in out and "97명" in out
+    assert any("61+52=113명" in x for x in fl.load(db, 11)["aggregates"])
+    # 행 이름이 어느 항목 값도 아니면 무엇을 모을지 알린다
+    miss = fl.for_table(db, 11, ["교육 이수 인원(명)", "취업 연계(명)"], ["성과지표", "실적"])
+    assert "collect_facts" in miss and "실적" in miss
+
+
+def test_for_table_month_rows_group_by_date_month():
+    db = FakeDB([])
+    its = ["날짜", "참여 인원"]
+    recs = [{"날짜": "2026. 4. 9.", "참여 인원": "42명", "quote": "q1"},
+            {"날짜": "2026. 4. 23.", "참여 인원": "2명", "quote": "q2"},
+            {"날짜": "2026. 5. 7.", "참여 인원": "55명", "quote": "q3"}]
+    fl.save(db, 12, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    out = fl.for_table(db, 12, ["4월", "5월"], ["참여 인원(명)"], "월")
+    assert "group_by: [날짜:월]" in out and "44명" in out and "55명" in out

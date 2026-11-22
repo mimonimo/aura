@@ -221,7 +221,12 @@ def _doc_review_text(hw, request: str) -> str:
     f = _wh.get(hw.db, fid) if fid else None
     if not f or not Path(f["path"]).exists():
         return ""
-    return _dr.review(Path(f["path"]).read_bytes(), request)
+    sid = getattr(hw, "sid", None)
+    led = None
+    if sid is not None:
+        from zzaimy.app import fact_ledger as _fl
+        led = lambda labels, heads, lh="": _fl.for_table(hw.db, int(sid), labels, heads, lh)   # noqa: E731
+    return _dr.review(Path(f["path"]).read_bytes(), request, ledger=led)
 
 
 def create_app(

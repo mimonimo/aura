@@ -98,3 +98,14 @@ def test_review_points_out_repeated_row_names():
         [["월", "주요 활동", "참여 인원(명)"], ["4월", "협약", "-"], ["4월", "캠프", "42"], ["5월", "특강", "55"], ["5월", "방문", "2"]], 100))
     out = doc_review.review(doc, "월마다 한 행으로 합계")
     assert "같은 이름이 여러 행" in out and "4월 2행" in out
+
+
+def test_review_attaches_ledger_grouping_for_blank_columns():
+    """빈·「확인 필요」 칸이 남은 열은 장부로 묶어 본 결과를 후보에 붙인다(11-23 17차: 성과지표 실적 칸을 빈 채로 finish)."""
+    from zzaimy.app import doc_review
+    doc = _hwpx(_p("3. 성과지표 달성 실적", 2) + _table(
+        [["성과지표", "목표", "실적"], ["교육 이수 인원(명)", "300", ""], ["취업 연계(명)", "40", "확인 필요"]], 100))
+    seen = []
+    out = doc_review.review(doc, "", ledger=lambda labels, heads, lh: seen.append((labels, heads, lh)) or " 묶어 보았다: 209명")
+    assert seen == [(["교육 이수 인원(명)", "취업 연계(명)"], ["실적"], "성과지표")]
+    assert "「실적」 열에 빈·「확인 필요」 칸" in out and "209명" in out

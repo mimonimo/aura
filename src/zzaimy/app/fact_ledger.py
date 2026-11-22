@@ -657,6 +657,68 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     return "\n".join(obs), ev
 
 
+def _hk(s: str) -> str:
+    return _norm(re.sub(r"\s*\([^)]*\)\s*$", "", str(s or "")))
+
+
+def _mnum(s) -> int | None:
+    m = month_of(s)
+    return int(m[-2:].rstrip("월")) if m else None
+
+
+def for_table(db, session_id: int, labels: list[str], heads: list[str], label_head: str = "") -> str:
+    """표의 행 이름(첫 열)과 열 머리로 장부를 묶어 본다 — 행 이름이 어느 모은 항목의 값인지(분야·성과지표…)와
+    머리가 어느 수 항목인지(참여 인원·실적·「활동 수」 는 서로 다른 활동 수) 맞춰 aggregate 를 부르고, 그 결과(근거로 남음)를 돌려준다.
+    맞는 항목이 없으면 무엇을 모으면 되는지만 알린다. 11-23 17차: 분야별·성과지표 합계를 손으로 더해 관문에 막히자
+    집계를 부르지 않고 「확인 필요」 로 채웠다 — 고칠지·무엇을 쓸지는 27B 가 판단하고, 코드는 묶어 보여 주기만 한다."""
+    labs = [x for x in (str(v or "").strip() for v in labels) if x and not re.fullmatch(r"합\s*계|계|소\s*계|총\s*계", x)]
+    recs = records(db, session_id)
+    if len(labs) < 2 or not recs:
+        return ""
+    items = load(db, session_id).get("items") or []
+    keys = [_hk(x) for x in labs]
+
+    def cover(it):
+        vs = {_hk(r.get(it)) for r in recs if str(r.get(it) or "").strip()}
+        return sum(1 for k in keys if k and any(v and (v == k or v.startswith(k) or k.startswith(v)) for v in vs))
+    best = max(items, key=cover, default="")
+    got = cover(best) if best else 0
+    group = best
+    lm = [_mnum(x) for x in labs]
+    if sum(1 for m in lm if m) >= max(2, (len(labs) + 1) // 2):
+        # 행 이름이 달(「3월」) — 날짜 항목을 달로 묶는다
+        def mcover(it):
+            ms = {_mnum(r.get(it)) for r in recs if month_of(r.get(it))}
+            return sum(1 for m in lm if m and m in ms)
+        dt = max(items, key=mcover, default="")
+        if dt and mcover(dt) >= got:
+            best, got, group = dt, mcover(dt), f"{dt}:월"
+    hk = [_hk(h) for h in heads if _hk(h)]
+    if not best or got < max(2, (len(keys) + 1) // 2):
+        want = [re.sub(r"\s*\([^)]*\)\s*$", "", h).strip() for h in [label_head, *heads] if _hk(h)]
+        return (f" 행 이름({', '.join(labs[:3])}…)이 실적 장부의 어느 항목 값과도 맞지 않는다 — 문서에 그 이름별 값이 적혀 있으면 "
+                f"collect_facts {{items: [{', '.join(dict.fromkeys(want[:4]))}]}} 로 행 이름 항목과 값 항목을 모은 뒤 aggregate_facts 로 묶는다.") if want else ""
+    sums, dist = [], []
+    for it in items:
+        if it == best:
+            continue
+        ik = _hk(it)
+        for h in hk:
+            if h == ik or (h.startswith(ik) and len(h) - len(ik) <= 3) or (ik.startswith(h) and len(ik) - len(h) <= 3):
+                if sum(1 for r in recs if number(r.get(it)) is not None) >= 2 and not re.fullmatch(re.escape(ik) + r"(수|건수|개수)", h):
+                    sums.append(it)
+                elif re.fullmatch(re.escape(ik) + r"(수|건수|개수)", h):
+                    dist.append(it)
+                break
+    if not sums and not dist:
+        return ""
+    obs, _ = aggregate(db, session_id, [group], list(dict.fromkeys(sums)), count=False, distinct=list(dict.fromkeys(dist)))
+    lines = [ln for ln in obs.splitlines() if ln.strip() and not ln.startswith("이 값들은")]
+    call = f"aggregate_facts {{group_by: [{group}]" + (f", sum: [{', '.join(dict.fromkeys(sums))}]" if sums else "") + (f", distinct: [{', '.join(dict.fromkeys(dist))}]" if dist else "") + "}"
+    return (f" 이 표의 행 이름은 장부의 「{best}」 값이라 묶어 보았다({call} — 근거로 남음): " + " / ".join(x.strip() for x in lines[:14])
+            + " — 맞는 값이면 이 값으로 칸을 채운다(손셈 값은 근거가 아니다).")
+
+
 def evidence_text(db, session_id: int) -> str:
     """같은 대화에서 앞서 낸 집계와 모은 기록의 인용 — 다음 요청의 수치 관문 근거."""
     data = load(db, session_id)

@@ -84,9 +84,10 @@ def asked_sections(request: str) -> set[int]:
     return {int(x or y) for x, y in _SEC_ASK.findall(request or "")}
 
 
-def review(data: bytes, request: str = "") -> str:
+def review(data: bytes, request: str = "", ledger=None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
-    절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로."""
+    절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
+    ledger(행 이름들, 열 머리들, 첫 열 머리) → 글: 빈·「확인 필요」 칸이 남은 표를 실적 장부로 묶어 본 결과(fact_ledger.for_table) — 후보에 붙인다."""
     only = asked_sections(request)
     outline, issues = [], []
     tno = 0
@@ -130,6 +131,21 @@ def review(data: bytes, request: str = "") -> str:
             if len(dup) >= 2:
                 issues.append(f"「{label}」 표{tno} 첫 열에 같은 이름이 여러 행이다(" + ", ".join(f"{k} {n}행" for k, n in list(dup.items())[:5])
                               + ") — 담당자 요청이 이름마다 한 행(합계)이면 aggregate_facts 묶음대로 한 행씩 합쳐 고치고, 활동마다 한 행이 맞으면 그대로 둔다.")
+            # 빈·「확인 필요」 칸이 남은 열 — 장부로 묶어 채울 수 있는지 보인다(11-23 17차: 성과지표 실적 칸을 빈 채로 두고
+            # finish, 다음 요청에서는 「문서에 없다」 며 물었다 — 결과 보고마다 지표 실적이 적혀 있었다)
+            if ledger and data_rows and len(rows[0]) >= 2:
+                def _wordy(j):                               # 글 열(주요 활동·대표 성과)은 장부 합계로 채울 열이 아니다
+                    xs = [r[j] for r in data_rows if len(r) > j and r[j] and "확인 필요" not in r[j]]
+                    return bool(xs) and sum(1 for x in xs if re.search(r"\d", x)) * 2 < len(xs)
+                gap = [j for j in range(1, len(rows[0])) if not _wordy(j)
+                       and any(len(r) > j and (not r[j] or "확인 필요" in r[j]) for r in data_rows)]
+                if gap:
+                    try:
+                        more = ledger([r[0] for r in data_rows if r], [rows[0][j] for j in gap], rows[0][0])
+                    except Exception:
+                        more = ""
+                    if more:
+                        issues.append(f"「{label}」 표{tno} 의 {', '.join('「' + rows[0][j] + '」' for j in gap[:3])} 열에 빈·「확인 필요」 칸이 있다 —" + more)
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")

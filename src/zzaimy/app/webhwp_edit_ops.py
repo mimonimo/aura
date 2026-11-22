@@ -3788,6 +3788,8 @@ class EditTools:
                         hits.append(f"「{(r[0] or next((x for x in r if x), ''))[:20]}」 행의 「{c[:30]}」")
             if hits:
                 why += " 걸린 칸: " + ", ".join(dict.fromkeys(hits[:6])) + " — 이 칸만 근거의 값으로 바꾸거나 「확인 필요」 로 두고 나머지는 그대로 다시 넣는다."
+                bad_cols = sorted({j for r in rows for j, c in enumerate(r) if any(re.search(rf"(?<![\d.,]){re.escape(b)}", c) for b in bad)})
+                why += self._ledger_table([r[0] for r in rows if r], [head[j] for j in bad_cols if j < len(head)], head[0] if head else "")
             if name == "hwp_table_edit" and head and any(head):
                 # 넣은 뒤 행을 열 머리와 함께 보인다 — 11-22 12차: 목표·달성률 두 값을 [2, 2] 부터 넣어 달성률이 실적 열에 들어가는 줄
                 # 모르고 같은 쓰기를 되풀이해 걸음 한도에 닿았다(실적 9·31 은 집계에 나와 있었다)
@@ -3823,11 +3825,26 @@ class EditTools:
             if not t:
                 return ""
             head = {c["c"] + 1: re.sub(r"\s*\(.*?\)\s*$", "", c["text"]).strip() for c in ws._cells(_table_xml(doc_, t)) if c["r"] == 0}
+            labels = [c["text"] for c in ws._cells(_table_xml(doc_, t)) if c["c"] == 0 and c["r"] > 0]
+            agg = self._ledger_table(labels, [h for c, h in head.items() if c in cols], head.get(1, ""))
             hit = [it for it in items if any(h and (h == it or h.startswith(it) or it.startswith(h)) for c, h in head.items() if c in cols)]
+            if "묶어 보았다" in agg:
+                return agg                                   # 행 이름대로 묶은 값(근거로 남음)
             if not hit:
                 return ""
             return (f" 「확인 필요」 를 넣은 열의 {', '.join('「' + h + '」' for h in hit[:3])} 은(는) 실적 장부에 수 값으로 모여 있다 — "
                     f"aggregate_facts {{group_by: [이 표의 행 기준], sum: [{hit[0]}]}} 결과로 채울 수 있다.")
+        except Exception:
+            return ""
+
+    def _ledger_table(self, labels: list[str], heads: list[str], label_head: str = "") -> str:
+        """행 이름·열 머리로 실적 장부를 묶어 본 결과(fact_ledger.for_table) — 관문에 막힌 손셈·「확인 필요」 칸 자리에서 보인다."""
+        try:
+            sid = getattr(self.hw, "sid", None)
+            if sid is None or not heads:
+                return ""
+            from zzaimy.app import fact_ledger as _fl
+            return _fl.for_table(self.hw.db, int(sid), labels, heads, label_head)
         except Exception:
             return ""
 
