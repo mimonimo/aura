@@ -1601,6 +1601,38 @@ class HwpTools:
                 + (f" ·{bad}" if bad else "")
                 + (f" ·{ask}" if ask else ""))
 
+    def _place_in_form_table(self, fid: int, hit_: dict, rows: list, text: str, a: dict, by: str) -> str | None:
+        """본문에 쓴 표를 같은 머리의 빈 서식 표 칸에 넣고(수치 관문은 set_cells 그대로), 표 밖 글만 이어 쓴다. 자리를 못 맞추면 None.
+        11-23 14차: 서브가 계산한 표가 「서식 표가 비어 있다」 로 통째로 버려져 메인이 「확인 필요」 로 다시 채웠다."""
+        from zzaimy.app import webhwp_edit_ops as _eo
+        from zzaimy.app import webhwp_write as ww
+        try:
+            fit = _eo.fit_form_table(Path(webhwp.get(self.db, fid)["path"]).read_bytes(), hit_["no"], [[str(c) for c in r] for r in rows])
+        except Exception:
+            fit = None
+        if not fit:
+            return None
+        res = _eo.EditTools(self).run("hwp_table_edit", {"table": hit_["no"], "op": "set_cells", **fit})
+        if res.startswith(("바꾸지 않았다", "쓰지 않았다", "이 대화에")) or "근거에 없는 수치" in res[:200]:
+            return f"쓰지 않았다 — 이 절의 서식 표 표{hit_['no']}에 표 값을 넣으려 했으나 막혔다: {res}"
+        rest: list[str] = []
+        done_one = False
+        for kind_, val_ in ww.parse_body(text):
+            if kind_ == "table" and not done_one and isinstance(val_, list) and [[str(c) for c in r] for r in val_] == [[str(c) for c in r] for r in rows]:
+                done_one = True
+                continue
+            if kind_ == "table" and isinstance(val_, list):
+                rest.append("\n".join("| " + " | ".join(str(c) for c in r) + " |" for r in val_[:1] + [["---"] * len(val_[0])] + val_[1:]))
+            elif kind_ == "diagram":
+                rest.append("```도식\n" + str(val_) + "\n```")
+            else:
+                rest.append(str(val_))
+        msg = f"표 값은 이 절의 서식 표 표{hit_['no']}에 넣었다(머리·행 이름에 맞춰): {res}"
+        left = "\n\n".join(x for x in rest if x.strip())
+        if left.strip():
+            msg += " / 표 밖 글: " + self.write({**a, "text": left}, by=by)
+        return msg
+
     def write(self, a: dict, by: str = "메인") -> str:
         from zzaimy.app import webhwp_write as ww
         g = self._guard()
@@ -1625,6 +1657,9 @@ class HwpTools:
                     if kind_ == "table" and isinstance(val_, list) and val_:
                         hit_ = _eo3.form_table_for(raw_, field, [[str(c) for c in r] for r in val_])
                         if hit_:
+                            placed = self._place_in_form_table(fid, hit_, val_, text, a, by)
+                            if placed:
+                                return placed
                             return (f"쓰지 않았다 — 이 절에 머리가 같은 서식 표 표{hit_['no']}(「{hit_['head']}」, 채움 {int(hit_['fill'] * 100)}%)가 비어 있다. "
                                     f"표 값은 hwp_table_edit set_cells 로 표{hit_['no']}에 넣고(행이 모자라면 늘어난다), 글만 hwp_write 로 쓴다. "
                                     "서식 표와 다른 새 표가 꼭 필요하면 new_table: true 로 다시 쓴다.")

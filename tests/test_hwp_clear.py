@@ -59,3 +59,33 @@ def test_clear_items_blanks_only_chosen_and_keeps_structure():
     assert "3곳을 비웠다" in msg and "표9:1,1" in msg
     lt = eo.leftovers_text(out)
     assert "표1:1,2" not in lt and "표1:2,2 「가상 산학협력단」" in lt
+
+
+# ── 본문 표를 같은 머리의 빈 서식 표 칸 자리에 맞추기(fit_form_table, 11-23 14차) ──
+
+def test_fit_form_table_maps_columns_by_head_and_rows_by_label():
+    doc = _hwpx(_p("2.2 분야별 추진 실적", 2) + _table(
+        [["분야", "활동 수", "참여 인원(명)"], ["교육과정 개발", "", ""], ["산학협력", "", ""]], 100))
+    fit = eo.fit_form_table(doc, 1, [["분야", "참여 인원", "활동 수"], ["산학협력", "183", "6"], ["교육과정 개발", "24", "4"], ["합계", "207", "10"]])
+    assert fit["start"] == [2, 1]
+    assert fit["values"] == [["교육과정 개발", "4", "24"], ["산학협력", "6", "183"], ["합계", "10", "207"]]
+
+
+def test_fit_form_table_fills_empty_rows_in_order_without_labels():
+    doc = _hwpx(_p("2.1 월별", 2) + _table([["월", "참여 인원(명)"], ["", ""], ["", ""]], 100))
+    fit = eo.fit_form_table(doc, 1, [["월", "참여 인원(명)"], ["3월", "24"], ["4월", "42"], ["5월", "55"]])
+    assert fit == {"start": [2, 1], "values": [["3월", "24"], ["4월", "42"], ["5월", "55"]]}
+
+
+def test_fit_form_table_transposes_horizontal_summary_into_label_column():
+    doc = _hwpx(_p("1. 사업 개요", 2) + _table([["사업명", ""], ["사업 기간", ""], ["주관 부서", ""]], 100))
+    fit = eo.fit_form_table(doc, 1, [["사업명", "사업 기간"], ["2026 가상 사업", "2026. 3. ~ 12."]])
+    assert fit["start"] == [1, 1]
+    assert fit["values"][:2] == [["사업명", "2026 가상 사업"], ["사업 기간", "2026. 3. ~ 12."]]
+    fit2 = eo.fit_form_table(doc, 1, [["구분", "내용"], ["주관 부서", "산학협력단"], ["사업명", "2026 가상 사업"]])
+    assert fit2["start"] == [1, 1] and fit2["values"][0] == ["사업명", "2026 가상 사업"] and fit2["values"][2] == ["주관 부서", "산학협력단"]
+
+
+def test_clear_result_points_to_next_step():
+    _, msg = eo.clear_items(_hwpx(DOC), {"ids": ["표1:1,2"]})
+    assert "비우기는 끝났다" in msg and "남은 글" in msg

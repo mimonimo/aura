@@ -2380,8 +2380,9 @@ def form_table_for(data: bytes, section: str, rows: list[list[str]]) -> dict | N
     본문 쓰기(hwp_write)가 표를 새로 붙여 서식 표가 빈 채 남던 것(11-13 6차 3-1·3-3)을 막는 데 쓴다."""
     from zzaimy.app import webhwp_write as ww
     labels = _value_labels(rows[:2] + [[r[0]] for r in rows if r]) if rows else set()
-    if len(labels) < 3:
+    if len(labels) < 2:
         return None
+    need = 3 if len(labels) >= 3 else 2                      # 두 칸짜리 개요 표(「사업명 | 사업 기간」)도 — 11-23 14차: 새 표가 서식 표 앞에 붙어 번호가 밀렸다
     doc = _Doc(data)
     best = None
     for x in list_tables(doc):
@@ -2395,9 +2396,80 @@ def form_table_for(data: bytes, section: str, rows: list[list[str]]) -> dict | N
         have = {_lab(c) for c in cells}
         k = len(labels & have)
         filled = sum(1 for c in cells if c.strip() and not _hint_cell(c)) / max(len(cells), 1)
-        if k >= 3 and filled < 0.6 and (best is None or k > best["k"]):
+        if k >= need and filled < 0.6 and (best is None or k > best["k"]):
             best = {"no": x["no"], "k": k, "fill": round(filled, 2), "head": " | ".join(c[:8] for c in cells[:4] if c.strip())}
     return best
+
+
+def _head_key(s: str) -> str:
+    """열 머리 비교 꼴 — 끝 괄호 단위(「참여 인원(명)」)와 띄어쓰기를 뗀다."""
+    return _lab(re.sub(r"\s*[(（][^()（）]*[)）]\s*$", "", str(s or "")))
+
+
+def fit_form_table(data: bytes, no, rows: list[list[str]]) -> dict | None:
+    """새로 쓴 마크다운 표(rows)를 같은 머리의 서식 표 표no 칸 자리에 맞춘 set_cells 인자 {start, values} — 맞출 수 없으면 None.
+    열은 머리 이름으로(같은 열 수면 차례로), 행은 서식 표 첫 열에 이미 든 행 이름(분야·지표·사업명)으로, 이름이 없는 행은 빈 행부터 차례로.
+    11-23 14차: 서브가 표를 본문 표로 써서 「같은 머리의 서식 표가 비어 있다」 관문에 막히고, 계산해 둔 값이 버려져 표가 「확인 필요」 로 남았다."""
+    rows = [[str(c or "").strip() for c in r] for r in rows if isinstance(r, list) and any(str(c or "").strip() for c in r)]
+    if len(rows) < 2:
+        return None
+    doc = _Doc(data)
+    t = next((x for x in list_tables(doc) if str(x.get("no")) == str(no).lstrip("표")), None)
+    if not t:
+        return None
+    cells = ws._cells(_table_xml(doc, t))
+    if not cells or any(c["cs"] > 1 or c["rs"] > 1 for c in cells if c["r"] > 0):
+        return None                                          # 몸통에 합친 칸이 있으면 자리를 코드로 맞추지 않는다(27B 가 set_cells 로)
+    grid = {(c["r"], c["c"]): c["text"].strip() for c in cells}
+    ncol, nrow = max(c for _, c in grid) + 1, max(r for r, _ in grid) + 1
+    head = [_head_key(grid.get((0, j), "")) for j in range(ncol)]
+    lab_col0 = {_lab(grid.get((r, 0), "")) for r in range(nrow)} - {""}
+    if ncol == 2 and len(rows) == 2 and sum(_lab(h) in lab_col0 for h in rows[0]) >= 2:
+        rows = [["", ""]] + [[h, v] for h, v in zip(rows[0], rows[1])]   # 가로로 쓴 개요(머리=라벨)를 세로 라벨 서식 표에
+    src = [_head_key(x) for x in rows[0]]
+    cmap: dict[int, int] = {}
+    for i, h in enumerate(src):
+        j = next((j for j, g in enumerate(head) if h and g and (h == g or (min(len(h), len(g)) >= 2 and (h in g or g in h)))
+                  and j not in cmap.values()), None)
+        if j is not None:
+            cmap[i] = j
+    by_head = 0 in cmap and len(cmap) * 2 >= len(src)
+    if by_head:
+        body, top = rows[1:], 1
+    elif len(rows[0]) == ncol:
+        cmap = {i: i for i in range(ncol)}
+        lab0 = {_lab(grid.get((r, 0), "")) for r in range(nrow)}
+        body = rows if _lab(rows[0][0]) in lab0 else rows[1:]
+        top = 0 if any(_lab(r[0]) in lab0 for r in body) and _lab(grid.get((0, 0), "")) in {_lab(r[0]) for r in body} else 1
+    else:
+        return None
+    names = {}
+    for r in range(top, nrow):
+        k = _lab(grid.get((r, 0), ""))
+        if k and not _hint_cell(grid.get((r, 0), "")):
+            names.setdefault(k, r)
+    target: dict[int, list[str]] = {}
+    used: set[int] = set()
+    free = [r for r in range(top, nrow) if not any(grid.get((r, j), "").strip() and not _hint_cell(grid.get((r, j), "")) for j in range(ncol))]
+    extra = nrow
+    for row in body:
+        k = _lab(row[0]) if row else ""
+        r = names.get(k) if k else None
+        if r is None or r in used:
+            if free:
+                r = free.pop(0)
+            else:
+                r, extra = extra, extra + 1
+        used.add(r)
+        cur = target.setdefault(r, [grid.get((r, j), "") for j in range(ncol)])
+        for i, v in enumerate(row):
+            if i in cmap and v:
+                cur[cmap[i]] = v
+    if not target:
+        return None
+    r0, r1 = min(target), max(target)
+    vals = [target.get(r) or [grid.get((r, j), "") for j in range(ncol)] for r in range(r0, r1 + 1)]
+    return {"start": [r0 + 1, 1], "values": vals}
 
 
 def form_map(data: bytes, a: dict | None = None) -> str:
@@ -3504,7 +3576,16 @@ def clear_items(data: bytes, a: dict) -> tuple[bytes, str]:
             new = fb._LINESEG.sub("", new)
         doc.secs[u["sec"]] = xml[:u["s"]] + new + xml[u["e"]:]
     msg = f"글 {len(hit)}곳을 비웠다(칸·문단 자리는 둠)" + (f" · 없는 번호 {len(miss)}개: {', '.join(miss[:6])}" if miss else "") + "."
-    return doc.pack(), msg
+    out = doc.pack()
+    # 비운 뒤 다음 걸음을 알린다 — 11-23 14차: 같은 ids 로 hwp_clear 를 여섯 번 되풀이하고 채우기로 넘어가지 못했다
+    try:
+        n_left = len([x for x in leftovers_text(out, limit=10 ** 6).split("\n") if x.strip()])
+    except Exception:
+        n_left = -1
+    if n_left >= 0:
+        msg += (f" 남은 글 {n_left}곳은 그대로 둔 것이다(더 비울 것이 있으면 그 번호만 한 번 더)." if n_left else " 남은 글이 없다.")
+    msg += " 비우기는 끝났다 — 이제 담당자 요청대로 근거를 모아(collect_facts·aggregate_facts) 칸·절을 채운다."
+    return out, msg
 
 
 TOOLS: list[dict] = [
@@ -3519,8 +3600,9 @@ TOOLS: list[dict] = [
      "args": {"paper": "str", "orientation": "str", "margin": "str", "margins_mm": "dict", "gutter_type": "str"}},
     {"name": "hwp_table_insert", "writes": True, "label": "표 만들기",
      "desc": "새 표 넣기(표 갈래 — 일정표·예산표·현황표·요약표·역할표·비교표·목록 — 를 칸 글로 가려 학교 실문서 모양으로). args {" + _AT + ", rows, cols, values: [[행1 칸들], …], head: true|false|[머리줄 글], "
-             "widths: [열 폭 비율], kind?: summary|schedule|budget|stats|roles|compare|list|general|none(갈래를 정해 주거나 none 이면 기본 모양)} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄",
-     "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list", "kind": "str"}},
+             "widths: [열 폭 비율], kind?: summary|schedule|budget|stats|roles|compare|list|general|none(갈래를 정해 주거나 none 이면 기본 모양), new_table?: true} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄. "
+             "같은 절에 머리가 같은 빈 서식 표가 있으면 새 표 대신 그 표 칸에 넣는다(서식과 다른 표가 꼭 필요할 때만 new_table: true)",
+     "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list", "kind": "str", "new_table": "bool"}},
     {"name": "hwp_clear", "writes": True, "label": "글 비우기",
      "desc": "작업본의 표 칸·문단 글을 번호로 골라 비운다(자리·모양은 둠). 지난 문서(작년 완성본 등)로 시작한 작업본에서 담당자 요청에 비추어 "
              "남길 것(목차·절 제목·소제목·표 머리·항목 이름 같은 짜임)과 비울 것(지난 수치·값·이름·날짜·서술)을 판단해 한 번에 비운다. "
@@ -3859,6 +3941,25 @@ class EditTools:
             fn = lambda d: ops[name](d, a)
         else:
             return "모르는 도구."
+        if name == "hwp_table_insert" and not a.get("new_table"):
+            # 같은 절에 머리가 같은 빈 서식 표가 있으면 새 표를 붙이지 않고 그 표 칸에 넣는다(값 관문은 set_cells 그대로)
+            # 11-23 14차: 서식 표가 빈 채 개요 표가 하나 더 붙고, 뒤 표 번호가 밀려 다음 set_cells 가 엉뚱한 표에 들어갔다
+            sec0 = self._target_section(fid, name, a)
+            vals0 = a.get("values") if isinstance(a.get("values"), list) else []
+            rows0 = [[str(c if c is not None else "") for c in (r if isinstance(r, list) else [r])] for r in vals0]
+            if isinstance(a.get("head"), list) and a.get("head"):
+                rows0 = [[str(x) for x in a["head"]]] + rows0
+            if sec0 and len(rows0) >= 2:
+                try:
+                    raw0 = Path(webhwp.get(db, fid)["path"]).read_bytes()
+                    hit0 = form_table_for(raw0, sec0, rows0)
+                    fit0 = fit_form_table(raw0, hit0["no"], rows0) if hit0 else None
+                except Exception:
+                    hit0 = fit0 = None
+                if hit0 and fit0:
+                    res0 = self.run("hwp_table_edit", {"table": hit0["no"], "op": "set_cells", **fit0})
+                    return (f"새 표를 만들지 않았다 — 이 절에 머리가 같은 빈 서식 표 표{hit0['no']}가 있어 그 칸에 넣었다(서식과 다른 새 표가 꼭 필요하면 new_table: true): "
+                            + res0)
         stale_ = self._stale_check(fid, a)
         if stale_:
             return stale_
