@@ -3610,7 +3610,48 @@ class EditTools:
                         hits.append(f"「{(r[0] or next((x for x in r if x), ''))[:20]}」 행의 「{c[:30]}」")
             if hits:
                 why += " 걸린 칸: " + ", ".join(dict.fromkeys(hits[:6])) + " — 이 칸만 근거의 값으로 바꾸거나 「확인 필요」 로 두고 나머지는 그대로 다시 넣는다."
+            if name == "hwp_table_edit" and head and any(head):
+                # 넣은 뒤 행을 열 머리와 함께 보인다 — 11-22 12차: 목표·달성률 두 값을 [2, 2] 부터 넣어 달성률이 실적 열에 들어가는 줄
+                # 모르고 같은 쓰기를 되풀이해 걸음 한도에 닿았다(실적 9·31 은 집계에 나와 있었다)
+                bad_rows = [r for r in rows if any(re.search(rf"(?<![\d.,]){re.escape(b)}", c) for b in bad for c in r)][:2]
+                if bad_rows:
+                    why += " 넣은 뒤 행: " + " / ".join(
+                        "「" + " | ".join(f"{(head[j] if j < len(head) else '')[:10]}={c[:16]}" for j, c in enumerate(r)) + "」" for r in bad_rows
+                    ) + " — 값이 맞는 열에 들어가는지 본다(빈 열을 건너뛰려면 그 열의 지금 값을 함께 넣는다)."
         return why
+
+    def _ledger_hint(self, fid: int, a: dict) -> str:
+        """「확인 필요」 를 넣은 열의 머리가 실적 장부에 수 값으로 모인 항목이면 집계로 채울 수 있다고 알린다.
+        11-22 12차: 참여 인원을 모아 두고도 금액만 집계한 뒤 월별·분야별 참여 인원 칸을 모두 「확인 필요」 로 채웠다."""
+        try:
+            if str(a.get("op") or "") != "set_cells":
+                return ""
+            vals = a.get("values") if isinstance(a.get("values"), list) else []
+            r0, c0 = [int(x) for x in (a.get("start") or [1, 1])[:2]]
+            cols = {c0 + j for r in vals for j, v in enumerate(r if isinstance(r, list) else [r]) if "확인 필요" in str(v or "")}
+            if not cols:
+                return ""
+            sid = getattr(self.hw, "sid", None)
+            if sid is None:
+                return ""
+            from zzaimy.app import fact_ledger as _fl
+            recs = _fl.records(self.hw.db, int(sid))
+            if not recs:
+                return ""
+            items = [k for k in (_fl.load(self.hw.db, int(sid)).get("items") or [])
+                     if sum(1 for r in recs if _fl.number(r.get(k)) is not None) >= 2]
+            doc_ = _Doc(Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes())
+            t = next((x for x in list_tables(doc_) if str(x.get("no")) == str(a.get("table") or "").lstrip("표")), None)
+            if not t:
+                return ""
+            head = {c["c"] + 1: re.sub(r"\s*\(.*?\)\s*$", "", c["text"]).strip() for c in ws._cells(_table_xml(doc_, t)) if c["r"] == 0}
+            hit = [it for it in items if any(h and (h == it or h.startswith(it) or it.startswith(h)) for c, h in head.items() if c in cols)]
+            if not hit:
+                return ""
+            return (f" 「확인 필요」 를 넣은 열의 {', '.join('「' + h + '」' for h in hit[:3])} 은(는) 실적 장부에 수 값으로 모여 있다 — "
+                    f"aggregate_facts {{group_by: [이 표의 행 기준], sum: [{hit[0]}]}} 결과로 채울 수 있다.")
+        except Exception:
+            return ""
 
     def _heads(self, fid: int) -> list[str]:
         try:
@@ -3751,6 +3792,8 @@ class EditTools:
                     out += table_check_text(Path(webhwp.get(db, fid)["path"]).read_bytes(), nos_[-1] if name != "hwp_table_edit" else nos_[0])
             except Exception:
                 pass
+        if name == "hwp_table_edit" and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
+            out += self._ledger_hint(fid, a)
         heads1 = self._heads(fid)
         if heads0 and heads1 and len(heads0) != len(heads1):
             self._stale = heads0                           # 옛 번호 차례를 둔다 — 다음 부름이 옛 번호면 _stale_check 가 잡는다
