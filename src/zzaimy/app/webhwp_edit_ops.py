@@ -3416,6 +3416,97 @@ def repeat_block(data: bytes, a: dict) -> tuple[bytes, str]:
     raise EditError(f"「{head}」 필드를 찾지 못했다 — hwp_fields 의 절 이름을 그대로 준다.")
 
 
+def _units(doc: _Doc) -> list[dict]:
+    """작업본의 글 덩어리 차례 — 표 칸(「표N:행,열」)과 표 밖 맨 바깥 문단(「글k」). 남은 글 보기와 지우기가 같은 번호를 쓴다."""
+    from zzaimy.app import form_blank as fb
+    from zzaimy.app.webhwp_write import _top_paras
+    out: list[dict] = []
+    for t in list_tables(doc):
+        if t.get("outer"):
+            continue
+        for c in sorted(ws._cells(_table_xml(doc, t)), key=lambda c: (c["r"], c["c"])):
+            if "<hp:tbl" in c["xml"][5:]:
+                continue
+            txt = re.sub(r"\s+", " ", c["text"] or "").strip()
+            if txt:
+                out.append({"id": f"표{t['no']}:{c['r'] + 1},{c['c'] + 1}", "text": txt, "sec": t["sec"],
+                            "s": t["s"] + c["s"], "e": t["s"] + c["e"], "cell": True})
+    k = 0
+    for n in doc.sec_names:
+        xml = doc.secs[n]
+        for a_, b_ in list(_top_paras(xml, len(xml))):
+            p = xml[a_:b_]
+            if "<hp:pic" in p:
+                continue
+            # 첫 문단(구역 설정 secPr 이 든)도 본다 — 표지 제목(「2025 … 결과보고서」)이 거기 있다. 비우기는 글자(<hp:t>)만 건드린다
+            holes = (fb._outer_spans(p, "<hp:tbl", "</hp:tbl>") + fb._outer_spans(p, "<hp:ctrl", "</hp:ctrl>")
+                     + fb._outer_spans(p, "<hp:secPr", "</hp:secPr>"))
+            txt = re.sub(r"\s+", " ", _text("".join(p[x:y] for x, y in fb._gaps(holes, len(p))))).strip()
+            if txt:
+                k += 1
+                out.append({"id": f"글{k}", "text": txt, "sec": n, "s": a_, "e": b_, "cell": False, "holes": holes})
+    return out
+
+
+def leftovers_text(data: bytes, limit: int = 140) -> str:
+    """작업본에 남은 글 목록(번호·글) — 지난 문서로 시작한 작업본에서 무엇을 남기고 무엇을 지울지 에이전트가 판단하게 보인다."""
+    try:
+        us = _units(_Doc(data))
+    except EditError:
+        return ""
+    lines = [f"  {u['id']} 「{u['text'][:60]}」" for u in us[:limit]]
+    return "\n".join(lines) + (f"\n  … 외 {len(us) - limit}개" if len(us) > limit else "")
+
+
+def clear_items(data: bytes, a: dict) -> tuple[bytes, str]:
+    """고른 번호(표 칸·문단)의 글을 비운다 — 칸·문단 자리와 모양, 필드는 둔다. 무엇을 비울지는 에이전트가 정한다."""
+    from zzaimy.app import form_blank as fb
+    ids = a.get("ids") if isinstance(a.get("ids"), list) else re.split(r"[,\s]+", str(a.get("ids") or ""))
+    ids = [str(x).strip().replace(" ", "") for x in ids if str(x).strip()]
+    if not ids:
+        raise ArgError("ids 에 비울 번호(예: 「표2:3,2」「글5」)를 준다 — 번호는 hwp_start 결과나 hwp_clear {list: true} 의 남은 글 목록에 있다.")
+    doc = _Doc(data)
+    us = {u["id"]: u for u in _units(doc)}
+    miss = [i for i in ids if i not in us]
+    hit = [us[i] for i in ids if i in us]
+    if not hit:
+        raise EditError("그런 번호가 없다: " + ", ".join(miss[:8]) + " — hwp_clear {list: true} 로 지금 번호를 본다(표를 고치면 번호가 바뀐다).")
+
+    def blank_seg(seg: str) -> str:
+        first = [True]
+
+        def keep_first(m):
+            if first[0]:
+                first[0] = False
+                return "<hp:t></hp:t>"
+            return ""
+        return fb._T.sub(keep_first, re.sub(r"<hp:lineBreak\s*/>", "", seg))
+
+    # 칸 먼저(뒤에서부터), 그다음 번호를 다시 읽어 문단 — 표가 든 문단은 칸을 고치면 끝 자리가 밀린다
+    cells_ = [u for u in hit if u["cell"]]
+    for u in sorted(cells_, key=lambda u: (u["sec"], -u["s"])):
+        xml = doc.secs[u["sec"]]
+        doc.secs[u["sec"]] = xml[:u["s"]] + fb._blank_cell(xml[u["s"]:u["e"]]) + xml[u["e"]:]
+    want_p = {u["id"] for u in hit if not u["cell"]}
+    paras_ = [u for u in _units(doc) if not u["cell"] and u["id"] in want_p] if want_p else []
+    for u in sorted(paras_, key=lambda u: (u["sec"], -u["s"])):
+        xml = doc.secs[u["sec"]]
+        piece = xml[u["s"]:u["e"]]
+        holes = u["holes"]
+        parts, at = [], 0
+        for x, y in fb._gaps(holes, len(piece)):
+            parts.append(piece[at:x])
+            parts.append(blank_seg(piece[x:y]))
+            at = y
+        parts.append(piece[at:])
+        new = "".join(parts)
+        if not holes:
+            new = fb._LINESEG.sub("", new)
+        doc.secs[u["sec"]] = xml[:u["s"]] + new + xml[u["e"]:]
+    msg = f"글 {len(hit)}곳을 비웠다(칸·문단 자리는 둠)" + (f" · 없는 번호 {len(miss)}개: {', '.join(miss[:6])}" if miss else "") + "."
+    return doc.pack(), msg
+
+
 TOOLS: list[dict] = [
     {"name": "hwp_repeat_block", "writes": True, "label": "견본 블록 늘리기",
      "desc": "견본 하나뿐인 과제·프로그램 블록(「2.1. OOO(과제명)」)을 정한 수만큼 늘리고 이름 넣기(번호·필드 이름은 새로). 본문 쓰기 전에, 장마다 한 번. "
@@ -3430,6 +3521,11 @@ TOOLS: list[dict] = [
      "desc": "새 표 넣기(표 갈래 — 일정표·예산표·현황표·요약표·역할표·비교표·목록 — 를 칸 글로 가려 학교 실문서 모양으로). args {" + _AT + ", rows, cols, values: [[행1 칸들], …], head: true|false|[머리줄 글], "
              "widths: [열 폭 비율], kind?: summary|schedule|budget|stats|roles|compare|list|general|none(갈래를 정해 주거나 none 이면 기본 모양)} — values 가 있으면 rows·cols 는 생략 가능, 첫 행이 모두 글이면 머리줄",
      "args": {"at": "dict", "rows": "int", "cols": "int", "values": "list", "head": "any", "widths": "list", "kind": "str"}},
+    {"name": "hwp_clear", "writes": True, "label": "글 비우기",
+     "desc": "작업본의 표 칸·문단 글을 번호로 골라 비운다(자리·모양은 둠). 지난 문서(작년 완성본 등)로 시작한 작업본에서 담당자 요청에 비추어 "
+             "남길 것(목차·절 제목·소제목·표 머리·항목 이름 같은 짜임)과 비울 것(지난 수치·값·이름·날짜·서술)을 판단해 한 번에 비운다. "
+             "args {ids: [「표2:3,2」, 「글5」, …]} · {list: true} 면 지금 남은 글 목록(번호)만 보인다",
+     "args": {"ids": "list", "list": "bool"}},
     {"name": "hwp_map", "writes": False, "label": "양식 지도",
      "desc": "양식 지도 — 절 제목마다 그 아래 서식 표(번호·행×열·첫 글·채움 정도)를 문서 차례로. 값·그림·글을 넣기 전에 용도에 맞는 자리(신청서 표, 요약본 자리, 현황 표)를 "
              "고를 때 본다 — 같은 라벨(「권역」)이 든 표가 여럿이면 넣을 값과 라벨이 가장 많이 겹치는 표가 자리다. args {under?: 절 제목}",
@@ -3700,7 +3796,7 @@ class EditTools:
         ops = {"hwp_repeat_block": repeat_block, "hwp_page_setup": page_setup, "hwp_table_insert": table_insert, "hwp_table_edit": table_edit,
                "hwp_page_number": page_number, "hwp_header_footer": header_footer, "hwp_page_break": page_break,
                "hwp_text_style": text_style, "hwp_footnote": footnote, "hwp_toc_pages": toc_pages,
-               "hwp_table_clone": table_clone}
+               "hwp_table_clone": table_clone, "hwp_clear": clear_items}
         if name == "hwp_map":
             self._stale, self._fresh = None, set()
         if name == "hwp_table_view" and self._stale is not None:
@@ -3713,6 +3809,9 @@ class EditTools:
                 return table_view(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)
             except EditError as e:
                 return str(e)
+        if name == "hwp_clear" and (a.get("list") or not a.get("ids")):
+            lt = leftovers_text(Path(webhwp.get(db, fid)["path"]).read_bytes())
+            return ("남은 글(번호 「글」·「표N:행,열」):\n" + lt) if lt else "남은 글이 없다."
         if name == "hwp_map":
             try:
                 return form_map(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)

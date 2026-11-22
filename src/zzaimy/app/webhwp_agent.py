@@ -1195,6 +1195,17 @@ class HwpTools:
         blank_note = (f" 고른 양식은 값이 채워진 지난 문서라 표 칸의 옛 값 {rep['blanked']}칸을 비운 사본으로 시작했다 — 옛 수치는 이 해의 값이 아니다. "
                       "필요하면 search 로 그 문서를 근거로 찾아 출처와 함께 쓰고, 연도·차년도 글자를 바꾸기로 옛 값을 새 해 값처럼 만들지 않는다."
                       if rep.get("blanked") else "")
+        if src.startswith("doc:") or rep.get("blanked"):
+            # 올린 문서·지난 완성본에서 시작한 작업본 — 남은 글을 번호와 함께 보여, 남길 짜임과 비울 내용을 27B 가 판단해 hwp_clear 로 비운다.
+            # 코드 규칙(form_blank)은 숫자 칸·긴 서술만 비워 「사업명 | 2025 …」·표지 제목 같은 글 값이 남았다(11-22 결과보고서 시험).
+            # 요청 낱말(「틀」「뼈대」 등)로 나누지 않는다 — 요청이 무엇이든 이 문서를 출발점으로 쓰면 같은 판단을 한다(11-23 사용자)
+            from zzaimy.app import webhwp_edit_ops as _eo_l
+            lt_ = _eo_l.leftovers_text(data)
+            if lt_:
+                skel_note += ("\n작업본에 남은 글(원래 문서에서 온 것):\n" + lt_ + "\n"
+                              "담당자 요청에 비추어 새 문서에 그대로 둘 짜임(목차·절 제목·소제목·표 머리·항목 이름)과 원래 문서의 내용(그 해의 수치·값·이름·날짜·서술 — "
+                              "새 문서의 값이 아니다)을 가려, 내용은 채우기 전에 hwp_clear {ids: [...]} 로 한 번에 비운다(새 값으로 바로 바꿀 글은 hwp_replace). "
+                              "다 비운 뒤 새 문서의 값은 근거 자료에서 채운다.")
         cur = self.fid()
         # 담당자가 「기존 작업본 말고」「새로 만들어」처럼 새 문서를 분명히 청했으면 같은 이름이 있어도 새로 만든다(11-10 대화 172)
         wants_new = bool(a.get("new")) or bool(a.get("carry")) or bool(_NEW_DOC_ASK.search(re.sub(r"\s+", " ", self.request or "")))
