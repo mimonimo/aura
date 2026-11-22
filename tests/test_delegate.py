@@ -401,6 +401,10 @@ def test_project_search_includes_this_chats_work_copy(tmp_path, monkeypatch):
     from tests.test_webhwp import _login
     monkeypatch.delenv("ZZAIMY_RERANK_URL", raising=False)
     monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    # 문맥 한도가 기본값(작음)이면 에이전트 프롬프트가 넘쳐 줄이기 호출이 가짜 모델의 첫 걸음(search)을 가져간다 — 실제 서빙 한도로 둔다
+    from zzaimy.app import llm_budget as _lb
+    monkeypatch.setenv("ZZAIMY_WRITER_CONTEXT", "262144")
+    monkeypatch.setattr(_lb, "_LEN_CACHE", {})
     from tests.test_webhwp import _setup as _s
     app0 = _s(tmp_path, monkeypatch)
     db = app0.state.db

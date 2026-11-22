@@ -76,7 +76,8 @@ def test_finish_keeps_first_message_after_empty_nudge():
     src = (Path(__file__).resolve().parents[1] / "src/zzaimy/app/main.py").read_text(encoding="utf-8")
     fin = src[src.index("def t_finish(a: dict)"):]
     fin = fin[:fin.index("\n        def ", 10)]
-    assert 'held_finish["text"] = msg' in fin and 'msg = prev_ + "\\n\\n" + msg' in fin
+    # 겹치는 말이면 앞 말만 남긴다(finish_overlaps) — 아니면 앞 말 뒤에 덧말을 잇는다
+    assert 'held_finish["text"] = msg' in fin and 'else prev_ + "\\n\\n" + msg' in fin and "finish_overlaps(msg, prev_)" in fin
     assert 'held_finish = {"text": ""}' in src
 
 def test_calc_from_supported_numbers_is_not_flagged():

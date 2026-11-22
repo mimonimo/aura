@@ -89,6 +89,7 @@ def test_reply_shapes_become_plain_content(monkeypatch, tmp_path):
 
 def test_thinking_only_reply_is_retried_with_thinking_off(monkeypatch, tmp_path):
     """한도를 넓혀도 생각만 했다 — 생각을 끈 채(연결 설정이 없으면 reasoning_effort 낮게) 한 번 더 받는다."""
+    monkeypatch.setenv("ZZAIMY_FLEX_OUTPUT", "0")    # 한도 고정 풀기(3cda6487)를 켜면 첫 청이 이미 남은 문맥 전부라 넓히기가 없다 — 넓히기 길만 본다
     def server(kw, n):
         if (kw.get("extra_body") or {}).get("reasoning_effort") == "low":
             return _r("정년은 65세가 되는 학기 말일입니다.")
@@ -101,6 +102,7 @@ def test_thinking_only_reply_is_retried_with_thinking_off(monkeypatch, tmp_path)
 
 
 def test_thinking_off_retry_rejected_returns_empty_not_error(monkeypatch, tmp_path):
+    monkeypatch.setenv("ZZAIMY_FLEX_OUTPUT", "0")    # 한도 고정 풀기(3cda6487)를 켜면 첫 청이 이미 남은 문맥 전부라 넓히기가 없다 — 넓히기 길만 본다
     class _Rej(Exception):
         status_code = 400
 
@@ -114,6 +116,7 @@ def test_thinking_off_retry_rejected_returns_empty_not_error(monkeypatch, tmp_pa
 
 
 def test_explicit_thinking_call_is_not_turned_off(monkeypatch, tmp_path):
+    monkeypatch.setenv("ZZAIMY_FLEX_OUTPUT", "0")    # 한도 고정 풀기(3cda6487)를 켜면 첫 청이 이미 남은 문맥 전부라 넓히기가 없다 — 넓히기 길만 본다
     c, seen = _client(monkeypatch, tmp_path, lambda kw, n: _r("", reasoning="t", finish="length"))
     _ask(c, max_tokens=200, extra_body={"chat_template_kwargs": {"enable_thinking": True}})
     assert len(seen) == 2                                                          # 넓히기만, 생각 끄기 재청은 없다
@@ -186,3 +189,16 @@ def test_stream_shows_only_harmony_final(monkeypatch):
         text, _ = AgentResponder._stream(object(), [], 1000, [], None, shown.append, gen={"extra_body": {}})
     assert text == "정년은 65세입니다."
     assert all("Think" not in s and "<|" not in s for s in shown)
+
+
+def test_flex_output_skips_widen_and_turns_thinking_off(monkeypatch, tmp_path):
+    """한도 고정 풀기(기본) — 첫 청이 이미 남은 문맥 전부라 넓히기 없이 생각을 끈 채 한 번 더 받는다."""
+    monkeypatch.setenv("ZZAIMY_FLEX_OUTPUT", "1")
+
+    def server(kw, n):
+        if (kw.get("extra_body") or {}).get("reasoning_effort") == "low":
+            return _r("정년은 65세가 되는 학기 말일입니다.")
+        return _r("", reasoning="Let me think a lot...", finish="length")
+    c, seen = _client(monkeypatch, tmp_path, server, conn_opts={"no_think": {}})
+    m = _ask(c, max_tokens=200)
+    assert m.content.startswith("정년은") and len(seen) == 2 and seen[0]["max_tokens"] > 200

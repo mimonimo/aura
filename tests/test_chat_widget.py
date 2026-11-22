@@ -162,6 +162,7 @@ class _FakeClient:
 
 def test_widens_budget_when_model_only_thinks(monkeypatch):
     from zzaimy.generate import client as cl
+    monkeypatch.setenv("ZZAIMY_FLEX_OUTPUT", "0")    # 한도 고정 풀기(3cda6487)를 켜면 첫 청이 이미 남은 문맥 전부라 넓히기가 없다 — 넓히기 길만 본다
 
     fake = _FakeClient()
     monkeypatch.setattr(cl, "OpenAI", lambda **kw: fake)
