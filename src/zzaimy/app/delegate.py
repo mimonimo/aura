@@ -480,8 +480,32 @@ class Delegator:
             except Exception:
                 pass
         raw_texts = list(pieces)
-        text, info = compress(" ".join([q, *(queries or [])])[:300], pieces, max_chars=int(limit * EVIDENCE_SHARE * 0.9))
+        ledger = self._ledger(limit)
+        room = int(limit * EVIDENCE_SHARE * 0.9) - (len(ledger) if ledger else 0)
+        text, info = compress(" ".join([q, *(queries or [])])[:300], pieces, max_chars=max(room, int(limit * EVIDENCE_SHARE * 0.4)))
+        if ledger:
+            text = ledger + "\n\n" + text
+            raw_texts.append(ledger)
+            info = {**info, "ledger_chars": len(ledger)}
         return text, info, raw_texts
+
+    def _ledger(self, limit: int) -> str:
+        """메인이 이 대화에서 모은 실적 장부(collect_facts 의 문서별 기록 인용 + aggregate_facts 묶음 결과) — 서브 근거 앞에 그대로.
+        11-23 15차: 장부에 「파이썬 기초 집중 캠프(1기) 학생 42명」 이 있는데 서브는 검색 조각만 받아 「인원 미기재」 로 「-」 를 적었다."""
+        try:
+            from zzaimy.app import fact_ledger as _fl
+            data = _fl.load(self.db, self.sid)
+        except Exception:
+            return ""
+        recs = []
+        for v in (data.get("docs") or {}).values():
+            recs += [f"《{str(v.get('title') or '')[:40]}》 {r.get('quote', '')}" for r in v.get("records") or [] if r.get("quote")]
+        aggs = list(data.get("aggregates") or [])[-80:]
+        if not recs and not aggs:
+            return ""
+        body = ("[모은 실적 장부 — 메인이 문서마다 확인한 기록(인용)과 묶음 결과. 행·칸 값은 여기서 찾고, 합계·건수·비율은 묶음 결과의 값만 쓴다]\n"
+                + "\n".join(recs) + ("\n[묶음 결과]\n" + "\n".join(aggs) if aggs else ""))
+        return _clip_tokens(body, int(limit * EVIDENCE_SHARE * 0.5))
 
     # ── 한 절 준비 → 모델 호출 → 쓰기 ──
     def _job(self, a: dict) -> dict | str:

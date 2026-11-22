@@ -422,3 +422,16 @@ def test_project_search_includes_this_chats_work_copy(tmp_path, monkeypatch):
     assert eps, "에이전트 기록이 없다"
     obs = _json.loads(eps[-1].read_text(encoding="utf-8").splitlines()[-1])["steps"][0]["observation"]
     assert "작업본" in obs and "기초 코딩" in obs
+
+
+def test_sub_evidence_carries_fact_ledger(tmp_path, monkeypatch):
+    """서브 근거 앞에 메인이 모은 실적 장부(문서별 인용 + 묶음 결과)가 그대로 붙는다(11-23 15차: 장부에 있는 인원을 서브가 「미기재」 로 적음)."""
+    from zzaimy.app import fact_ledger as fl
+    app, db, hw, secs = _work(tmp_path, monkeypatch, sid=95)
+    fl.save(db, 95, {"items": ["활동", "참여 인원"], "docs": {"1:x": {"title": "파이썬 기초 집중 캠프(1기) 결과 보고",
+                                                                     "records": [{"활동": "캠프", "참여 인원": "학생 42명", "quote": "참여 인원 | 학생 42명"}]}},
+                     "aggregates": ["4월: 참여 인원 42"]})
+    d = delegate.Delegator(FakeClient([]), db, 95, hw, "써 줘", search=lambda q: [])
+    text, info, raw = d._evidence(secs[0], "월별 실적", 20000)
+    assert text.startswith("[모은 실적 장부") and "학생 42명" in text and "4월: 참여 인원 42" in text
+    assert info.get("ledger_chars") and any("학생 42명" in r for r in raw)
