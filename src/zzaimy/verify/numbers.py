@@ -857,3 +857,25 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, conte
         masked.append(ctx_label or m.group(0).strip())
     out.append(src[last:])
     return "".join(out), masked
+
+
+def scale_slips(bad: list[str], evidence_texts: list[str]) -> list[str]:
+    """막힌 수치 가운데 근거의 금액과 자릿수만 다른 것(10·100·1000·10000배) — 「1억 2천만 원」 을 12,000,000 으로 옮겨
+    관문에 다섯 번 막히고도 같은 값을 되풀이했다(11-24 26차 B 한번에). 맞는 값은 모델이 고른다 — 후보만 보인다."""
+    money: set[str] = set()
+    for ev in evidence_texts:
+        money |= scaled_values(ev or "")
+    out: list[str] = []
+    for b in bad:
+        try:
+            d = Decimal(str(b).replace(",", ""))
+        except Exception:
+            continue
+        if d < 1000:
+            continue
+        for k in (10, 100, 1000, 10000):
+            hit = next((c for c in (d * k, d / k) if c == int(c) and _fmt(c) in money), None)
+            if hit is not None:
+                out.append(f"{b} → 근거 금액 {int(hit):,}원과 자릿수만 다르다")
+                break
+    return out

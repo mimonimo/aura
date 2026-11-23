@@ -701,3 +701,31 @@ def test_aggregate_says_record_count_is_not_activity_count():
     assert "기록 3개·문서 2개" in obs and 'distinct: ["활동"]' in obs
     obs2, _ = fl.aggregate(db, 31, ["과제"], [], count=True, distinct=["활동"])
     assert "뽑은 줄 수" not in obs2
+
+
+class _ShyClient(FakeClient):
+    """알림 없이 부르면 빈 답 — 26차 B 한마당 결과서처럼 수가 분명한 문서를 27B 가 빈 답으로 낸 꼴."""
+
+    def __init__(self, by_title):
+        super().__init__(by_title)
+        outer = self
+
+        class _C:
+            def create(self, model, messages, max_tokens, **kw):
+                user = messages[-1]["content"]
+                title = user.split("《", 1)[1].split("》", 1)[0]
+                outer.calls.append(title)
+                recs = outer.by_title.get(title, []) if "[알림]" in user else []
+                return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps({"records": recs}, ensure_ascii=False)))])
+
+        self.client.chat = SimpleNamespace(completions=_C())
+
+
+def test_collect_rereads_numeric_doc_that_came_back_empty():
+    docs = [{"id": 41, "filename": "한마당.docx", "masked_text": "2026년 12월 1일에 한마당을 진행하였다.\n참석자는 64명이었다."},
+            {"id": 42, "filename": "안내.docx", "masked_text": "작성 안내: 표를 채운다."}]
+    ans = {"한마당": [{"날짜": "2026년 12월 1일", "참석자": "64명", "quote": "참석자는 64명이었다."}]}
+    db, c = FakeDB(docs), _ShyClient(ans)
+    obs = fl.collect(db, 40, docs, ["날짜", "참석자"], c, title_of=_title, parallel=1)
+    assert "참석자=64명" in obs
+    assert c.calls.count("한마당") == 2 and c.calls.count("안내") == 1     # 수가 없는 문서는 다시 읽지 않는다

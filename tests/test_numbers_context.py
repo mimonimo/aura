@@ -155,3 +155,17 @@ def test_won_amount_written_into_thousand_won_column_is_caught():
     # 원 단위 열에 원 금액은 그대로 받는다
     _, v_won = mask_unsupported("| 세목 | 집행액(원) |\n|---|---|\n| 홍보비 | 9,800,000 |", ev)
     assert not v_won
+
+
+def test_scale_slips_points_at_evidence_amount_off_by_powers_of_ten():
+    # 26차 B 한번에: 「1억 2천만 원」 을 12,000,000원 으로 옮겨 관문에 다섯 번 막힘 — 자릿수만 다른 근거 금액을 보인다
+    from zzaimy.verify.numbers import scale_slips
+    ev = ["총 사업비는 1억 2천만 원이다."]
+    assert scale_slips(["12000000"], ev) == ["12000000 → 근거 금액 120,000,000원과 자릿수만 다르다"]
+    assert scale_slips(["777", "33"], ev) == []
+
+
+def test_check_body_shows_scale_slip():
+    from zzaimy.app.webhwp_agent import check_body
+    why = check_body("총 사업비는 12,000,000원이다.", ["총 사업비는 1억 2천만 원이다."], 100000)
+    assert why and "단위 셈 확인" in why and "120,000,000원" in why

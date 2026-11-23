@@ -244,6 +244,8 @@ def _truncated(resp, raw: str) -> bool:
     return '"records"' in body and not _parse(body) and "[]" not in body
 
 
+NUM_HINT = ("[알림] 이 문서 글에 셈 단위가 붙은 수(명·건·곳·회·원…)가 있다 — [항목] 가운데 몇 개만 적혀 있어도 그 값으로 기록 하나를 뽑는다"
+            "(빈 답은 [항목] 값이 문서에 하나도 없을 때만).")
 TABLE_HINT = "[알림] 이 문서는 표다 — 행마다 한 기록이고, [항목] 가운데 몇 개만 칸에 있어도 그 칸 값으로 기록을 뽑는다(빈 답을 내지 않는다)."
 
 
@@ -346,6 +348,15 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
         except Exception as e:                                   # 한 문서가 실패해도 나머지는 모은다
             return k, {"doc_id": d["id"], "title": title, "items": want, "records": [], "dropped": 0, "error": type(e).__name__}
         kept, dropped = validate(raw, want, text)
+        if not kept and re.search(r"\d\s*(?:명|건|곳|회|개|원|%)", text):
+            # 수가 분명히 적힌 결과서에서 빈 기록 — 11-24 26차 B: 「참석자는 64명」「1곳으로 반영」 이 든 한마당 결과서·운영위원회 결과 셋이
+            # 빈 답으로 저장돼 네트워크 참석자 83→19, 4분기 132→68. 빈 결과는 저장되면 다시 읽지 않으므로 알림을 붙여 한 번 더 읽는다
+            try:
+                k2, d2 = validate(_extract(client, title, text, want, piece, hint=NUM_HINT), want, text)
+                if k2:
+                    kept, dropped = k2, d2
+            except Exception:
+                pass
         return k, {"doc_id": d["id"], "title": title, "items": want, "records": kept, "dropped": dropped}
 
     n_par = parallel or int(os.environ.get("ZZAIMY_FACTS_PARALLEL", "4") or 4)

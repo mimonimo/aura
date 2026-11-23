@@ -224,8 +224,11 @@ def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
         if bad:
             # 막힌 수치가 든 줄을 함께 보여 준다 — 같은 본문을 되풀이하지 않고 그 줄만 고치게(일정이면 기간 안의 날짜를 지어내지 않고 단계 이름으로)
             lines = [ln.strip()[:70] for ln in (text or "").splitlines() if any(b in ln for b in bad[:8])][:3]
+            from zzaimy.verify.numbers import scale_slips
+            slips = scale_slips(list(dict.fromkeys(bad[:8])), [e for e in evidence if e])
             return ("근거에 없는 수치: " + ", ".join(dict.fromkeys(bad[:8]))
                     + (" (든 줄: " + " / ".join(lines) + ")" if lines else "")
+                    + (" [단위 셈 확인: " + "; ".join(slips[:3]) + "]" if slips else "")
                     + " — 찾은 근거·담당자가 알려 준 값에 있는 수치만 쓴다(같은 숫자라도 근거에서 단위·대상이 다르면 근거가 아니다 — "
                       "날짜나 다른 항목의 숫자로 인원·횟수·대상 값을 만들지 않는다). 그 줄만 고쳐 다시 쓴다: 모르는 값은 「확인 필요」 로 바꾸고, "
                       "일정은 담당자가 준 시작·끝만 날짜로 쓰고 그 사이는 단계 이름(준비·운영·평가 등)으로 나눈다. 같은 본문을 그대로 다시 내지 않는다. "
@@ -2079,7 +2082,10 @@ class HwpTools:
         _, bad = mask_unsupported(text, [e for e in ev if e], context=context_check_on())
         if not bad:
             return None
+        from zzaimy.verify.numbers import scale_slips
+        slips = scale_slips(list(dict.fromkeys(bad[:8])), [e for e in ev if e])
         return ("근거에 없는 수치: " + ", ".join(dict.fromkeys(bad[:8]))
+                + (" [단위 셈 확인: " + "; ".join(slips[:3]) + "]" if slips else "")
                 + " — 담당자가 알려 준 값·찾은 근거와 단위까지 맞춰 넣는다(예: 머리줄이 「금액(천원)」 이면 1억 2천만 원은 120,000). "
                   "모르는 값은 「확인 필요」 로 둔다. " + SUM_HINT)
 
