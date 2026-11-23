@@ -429,6 +429,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     searched = nudged = False
     changed: list[str] = []                                 # 이번 요청에서 실제로 바뀐 것(쓰기 도구가 거절 글이 아닌 결과를 낸 걸음) — 끝맺음 대조용
     claim_checked = False
+    after_write_told = False                             # 고친 뒤 답하기 도구로 끝맺으려 할 때 한 번 알림
     reviewed = False                                     # 마치기 전 다시 읽기는 요청마다 한 번(review)
     empty_asked = set()                                # 빈 끝맺음·빈 답을 되물은 도구 — 도구마다 한 번(11-10 gpt-oss: 끝냈는데 남길 글이 비었다)
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
@@ -585,6 +586,13 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             tried = ", ".join(f"「{x[:30]}」" for x in dict.fromkeys(noop_args.get(name, [])) if x)[:200]
             note = (f"{name} 가 잇달아 {noop_run[name]}번 아무것도 바꾸지 못했다{(' (' + tried + ')') if tried else ''} — 이번 요청에서는 더 하지 않는다. "
                     "찾던 글이 이 작업본에 없으면 다른 작업본에 있는지 결과 안내를 보고 hwp_switch 하거나, finish 로 무엇을 찾지 못했는지 담당자에게 알린다.")
+        elif (tool.final and not tool.writes and name != "finish" and changed and "finish" in reg
+              and not after_write_told and not last):
+            # 고친 뒤 끝맺음을 답하기 도구로 하면 그 도구는 이번에 한 일을 모른다 — 11-23 녹화(끝 점검): 하지 않은 수정
+            # (8월·11월 0→54·87)을 「교정한 곳」 으로 적고 수치마다 근거 확인 필요가 붙었다. 한 번 알리고 다시 고르면 따른다
+            after_write_told = True
+            note = (f"이번 요청에서 작업본을 고쳤다 — {name} 은(는) 이번에 한 일을 모르고 새로 답을 지어 낸다. "
+                    "끝맺음은 finish 의 message 에 위 걸음 결과대로(실제로 바뀐 칸·글, 찾은 문제, 「확인 필요」로 둔 것) 쓴다.")
         elif tool.needs_evidence and not searched and not nudged:     # 관문은 모델 인자(facts 등)로 건너뛸 수 없다
             nudged = True                                              # 한 번만 — 같은 자리를 맴돌지 않게
             note = SEARCH_FIRST

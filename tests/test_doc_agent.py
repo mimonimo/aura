@@ -215,3 +215,17 @@ def test_aggregate_reruns_after_collect_changed_items():
     replies = [_step("agg", g="비목"), _step("collect"), _step("agg", g="비목"), _step("finish", message="집계했습니다")]
     ep = doc_agent.run(_client(replies), "집계해 줘", lambda: "상태", tools, max_writes=5)
     assert len(calls) == 2 and "묶음 5개" in ep.steps[2]["observation"]
+
+
+def test_after_editing_the_answer_tool_is_redirected_to_finish_once():
+    # 고친 뒤 끝맺음을 답하기 도구로 하면 한 일을 모르는 답이 나온다(11-23 녹화: 하지 않은 수정을 「교정한 곳」 으로 적음)
+    asked = []
+    tools = [doc_agent.Tool("search", "찾기", lambda a: "《결과 보고》 참여 24명"),
+             doc_agent.Tool("hwp_table_edit", "표 고치기", lambda a: "표3: 칸 1개에 값을 넣었다", writes=True),
+             doc_agent.Tool("answer_question", "답하기", lambda a: asked.append(1) or "지어 낸 답", final=True, needs_evidence=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    replies = [_step("search", source="project", query="참여"), _step("hwp_table_edit", table=3),
+               _step("answer_question", question="점검 결과는?"), _step("finish", message="표3 합계 행을 넣었습니다")]
+    ep = doc_agent.run(_client(replies), "작업본 점검해 줘", lambda: "상태", tools)
+    assert not asked and ep.finished and ep.final_message == "표3 합계 행을 넣었습니다"
+    assert "finish 의 message" in ep.steps[2]["observation"]
