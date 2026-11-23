@@ -670,8 +670,14 @@ class Delegator:
         finally:
             self.hw.evidence = saved
         wrote = res.startswith("「")
-        rec.update(written=wrote, result=res[:200])
+        placed = res.startswith("표 값은")                    # 표는 머리가 같은 서식 표에 들어갔다(글은 뒤에 따로)
+        rec.update(written=wrote or placed, result=res[:200])
         self._note(rec)
+        if placed:
+            # 표가 들어간 것을 「막혔다」 로 알려 메인이 같은 절을 다시 맡기던 일(11-23 22차) — 남은 글만 막혔으면 그 글만 고치게
+            text_bad = " / 표 밖 글: 쓰지 않았다" in res
+            return (f"서브가 쓴 「{section[2:]}」 — {res}"
+                    + (". 표는 들어갔다 — 막힌 표 밖 글만 그 줄을 고쳐 hwp_write 로 쓰거나 append 로 덧붙인다(다시 맡기지 않아도 된다)." if text_bad else ""))
         if not wrote:
             return (f"서브가 쓴 「{section[2:]}」 이 관문에서 막혔다 — {res}. "
                     + ("redo_note 에 고칠 점을 적어 한 번 더 맡기거나 " if n < MAX_REDO else "")

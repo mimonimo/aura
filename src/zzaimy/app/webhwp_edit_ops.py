@@ -246,6 +246,7 @@ class _Doc:
     def __init__(self, data: bytes):
         try:
             self.zin = zipfile.ZipFile(io.BytesIO(data))
+            self.raw = data
         except zipfile.BadZipFile:
             raise EditError("hwpx 파일이 아니다(옛 hwp 는 기안기에서 한 번 저장하면 hwpx 가 된다).")
         if len(data) > MAX_FILE or sum(i.file_size for i in self.zin.infolist()) > MAX_UNZIPPED:
@@ -944,6 +945,15 @@ def _pick_table(doc: _Doc, table) -> dict:
         elif table.get("field"):
             name = _resolve_field(doc, str(table["field"]))
             hit = [t for t in tl if name in t["fields"]]
+            if not hit and name.startswith("절:"):
+                # 절 필드로 짚으면 그 절 안의 표 — 「필드가 든 표가 없다」 만 세 번 되받던 일(11-23 22차)
+                from zzaimy.app import webhwp_write as ww
+                try:
+                    hit = [t for t in tl if not t.get("inner") and ww.section_before(doc.raw, t["sec"], t["s"]) == name]
+                except Exception:
+                    hit = []
+                if len(hit) > 1:
+                    raise EditError(f"「{name[2:]}」 절 안에 표가 {len(hit)}개다(" + ", ".join(f"표{t['no']}: {t['head'][:30]}" for t in hit[:6]) + ") — 번호(no)로 고른다.")
             if not hit:
                 raise EditError(f"필드 「{name}」 이 든 표가 없다.")
             return hit[0]

@@ -560,3 +560,14 @@ def test_distinct_does_not_count_multi_group_table_doc_as_activity():
     fl.save(db, 20, {"items": its, "live": list(docs), "docs": docs})
     obs, _ = fl.aggregate(db, 20, ["과제"], [], count=False, distinct=["활동"])
     assert "강좌: 활동 2개" in obs and "상담: 활동 1개" in obs        # 이름 빈 결과서 C 는 하나로, 지출 내역은 세지 않음
+
+
+def test_aggregate_points_at_numbers_after_group_names_in_quotes():
+    docs = [{"id": 11, "filename": "협약 1.docx", "masked_text": "가상테크 외 3개사와 협약하였다. 이번 활동으로 성과지표 「산업체 협약」 실적 4건을 거두었다."},
+            {"id": 12, "filename": "협약 2.docx", "masked_text": "가상로보틱스 외 2개사와 협약하였다. 이번 활동으로 성과지표 「산업체 협약」 실적 3건을 거두었다."}]
+    ans = {"협약 1": [{"성과": "산업체 협약", "quote": "이번 활동으로 성과지표 「산업체 협약」 실적 4건을 거두었다."}],
+           "협약 2": [{"성과": "산업체 협약", "quote": "이번 활동으로 성과지표 「산업체 협약」 실적 3건을 거두었다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 8, docs, ["성과"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 8, ["성과"], [])
+    assert "묶음 이름 바로 뒤의 수" in obs and "4건" in obs and '"성과 실적"' in obs

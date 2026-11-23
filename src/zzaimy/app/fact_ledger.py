@@ -689,6 +689,24 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         # 묶음 이름이 모두 수(「42명」「3건」) — 이름과 값을 한 항목(「성과지표 실적」)으로 모았다. 11-22 9차: 지표마다 묶지 못하고 실적이 「확인 필요」
         obs.append("  (묶음 이름이 모두 수다 — 이름 항목과 값 항목이 한 항목으로 모였다. 이름(예: 성과지표)과 값(예: 실적)을 따로 collect_facts 로 모은 뒤 "
                    "group_by [이름], sum [값] 으로 묶는다)")
+    # 묶음 이름 바로 뒤에 수가 적힌 인용(「성과지표 「산업체 협약」 실적 4건」) — 그 수를 모은 항목이 없으면 기록 수·다른 항목 합만
+    # 보고 실적을 문서 수(3)로 썼다(11-23 22차: 산업체 협약 3, 정답 4+3+2=9). 무엇을 모을지는 모델이 정한다 — 인자만 보인다
+    nums_after: list[str] = []
+    gi = [i for i, g in enumerate(group_by) if not g.partition(":")[2]]
+    if gi and not any(s_ in items for s_ in sums if s_ not in auto_sum):
+        for key, rs in groups.items():
+            for i in gi:
+                nm = key[i]
+                if not nm or nm in ("(빈 값)",) or number(nm) is not None:
+                    continue
+                for r in rs:
+                    m_ = re.search(re.escape(nm) + r"[^\d\n]{0,12}?(\d[\d,]*\s*(?:명|건|개|곳|회|과목|개사|점|%))", str(r.get("quote") or ""))
+                    if m_:
+                        nums_after.append(f"「{nm}」 {m_.group(1)}《{str(r.get('_doc'))[:16]}》")
+        if len(nums_after) >= 2:
+            gname = group_by[gi[0]]
+            obs.append(f"  (문서 인용에 묶음 이름 바로 뒤의 수가 있다: {', '.join(nums_after[:4])} — 그 수가 이 묶음의 실적이면 "
+                       f"collect_facts {{items: [\"{gname}\", \"{gname} 실적\"]}} 로 수까지 모은 뒤 sum: [\"{gname} 실적\"] 으로 묶는다. 기록 수·문서 수는 실적이 아니다)")
     if auto_sum:
         obs.append(f"  (sum 을 주지 않아 수 값 항목 {', '.join('「' + x + '」' for x in auto_sum)} 을(를) 더해 보였다 — 다른 항목을 더하려면 sum 에 적는다)")
     obs.append("이 값들은 근거로 남았다 — 표·본문에 그대로 쓸 수 있다(근거 문서는 위 《》).")
