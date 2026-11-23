@@ -4443,6 +4443,14 @@ class EditTools:
     def live(self, fid: int, a: dict) -> str:
         db = self.hw.db
         p_ = a.get("params") if isinstance(a.get("params"), dict) else {}
+        # 화면에 바로 넣는 글도 파일 도구와 같은 수치 관문을 거친다 — 11-23 24차: 관문에 막힌 「총 사업비 12,000천원」(근거는 1억 2천만 원)을
+        # hwp_live insert_text 로 넣어 그대로 남았다(관문을 돌아가는 길이었다)
+        gate = getattr(self.hw, "numbers_gate", None)
+        txt_ = " ".join(str(v) for k, v in p_.items() if k in ("text", "replace", "value", "values") and v is not None)
+        if gate is not None and re.search(r"\d", txt_):
+            why = gate(txt_)
+            if why:
+                return f"넣지 않았다 — {why}"
         if a.get("action") == "insert_text" and p_.get("field") and p_.get("text"):
             from zzaimy.app import webhwp_coedit as ce_
             cur = (ce_.state(db, fid, [str(p_["field"])]).get(str(p_["field"])) or {}).get("text", "")
@@ -4515,6 +4523,13 @@ class EditTools:
         name = str(a.get("action") or "")
         params = a.get("params") if isinstance(a.get("params"), dict) else ({} if a.get("params") in (None, "") else a.get("params"))
         at = a.get("at")
+        gate = getattr(self.hw, "numbers_gate", None)
+        if gate is not None and isinstance(params, dict):          # 글 넣기·바꾸기(InsertText·AllReplace)의 글도 수치 관문으로(hwp_live 와 같이)
+            txt_ = " ".join(str(v) for k, v in params.items() if str(k).lower() in ("text", "replacestring", "replace") and v is not None)
+            if re.search(r"\d", txt_):
+                why = gate(txt_)
+                if why:
+                    return f"넣지 않았다 — {why}"
         try:
             if name == "InsertPicture":
                 if not isinstance(params, dict):

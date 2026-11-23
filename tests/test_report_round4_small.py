@@ -82,3 +82,19 @@ def test_check_needed_in_ledger_column_gets_aggregate_hint(monkeypatch):
     hint = t._ledger_hint(1, {"op": "set_cells", "table": 2, "start": [2, 1], "values": [["3월", "워크숍", "확인 필요"]]})
     assert "「참여 인원」" in hint and "aggregate_facts" in hint
     assert t._ledger_hint(1, {"op": "set_cells", "table": 2, "start": [2, 1], "values": [["3월", "확인 필요", "31"]]}) == ""
+
+
+def test_live_and_native_text_inserts_go_through_the_number_gate():
+    # 11-23 24차: 관문에 막힌 「12,000천원」(근거 1억 2천만 원)을 hwp_live insert_text 로 넣어 관문을 돌아갔다
+    from types import SimpleNamespace
+    from zzaimy.app import webhwp_edit_ops as eo
+    from zzaimy.verify.numbers import mask_unsupported
+
+    def gate(md):
+        _, bad = mask_unsupported(md, ["총 사업비는 1억 2천만 원이다."], context=True)
+        return ("근거에 없는 수치: " + ", ".join(bad) + " — 모르는 값은 확인 필요") if bad else None
+    t = eo.EditTools(SimpleNamespace(numbers_gate=gate, db=None))
+    out = t.live(1, {"action": "insert_text", "params": {"field": "총 사업비", "text": "12,000천원"}})
+    assert out.startswith("넣지 않았다") and "12,000" in out
+    out2 = t.action(1, {"action": "InsertText", "params": {"Text": "총 사업비 12,000천원"}})
+    assert out2.startswith("넣지 않았다")

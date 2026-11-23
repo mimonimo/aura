@@ -647,3 +647,15 @@ def test_for_table_says_plainly_when_row_names_appear_in_quotes():
     fl.collect(db, 12, docs, ["활동"], FakeClient(ans), title_of=_title, parallel=1)
     out = fl.for_table(db, 12, ["강좌 수료자(명)", "학습 상담(건)"], ["목표치", "달성치"], "핵심지표", dry=True)
     assert "인용에" in out and "「강좌 수료자」 1개 문서" in out and "collect_facts {items: [핵심지표, 목표치, 달성치]}" in out
+
+
+def test_base_ratio_matches_units_when_item_declares_thousand_won():
+    # 11-23 24차: 「집행액(천원)」 에 원 단위 금액이 모이고 base 120000(천원)을 주자 집행률 43000% — 단위를 맞춘 43.0% 를 보인다
+    docs = [{"id": 1, "filename": "지출.xlsx", "masked_text": "지출일자 | 세목 | 지출액(원)\n2026.04.07 | 홍보비 | 31500000\n2026.04.21 | 강사료 | 20100000"}]
+    ans = {"지출": [{"세목": "홍보비", "집행액(천원)": "31500000", "quote": "2026.04.07 | 홍보비 | 31500000"},
+                   {"세목": "강사료", "집행액(천원)": "20100000", "quote": "2026.04.21 | 강사료 | 20100000"}]}
+    db = FakeDB(docs)
+    fl.collect(db, 13, docs, ["세목", "집행액(천원)"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, ev = fl.aggregate(db, 13, ["세목"], ["집행액(천원)"], base=120000)
+    assert "43.0%" in obs and "51,600" in obs and "43000" not in obs
+    assert any("단위 맞춤" in x for x in ev)

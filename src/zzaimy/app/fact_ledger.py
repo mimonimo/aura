@@ -709,8 +709,20 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                     ev.append(f"◇ 집계 비율 {lab} · {s}: {_fmt(g)}/{_fmt(t)}×100={pct}%")
             if base_n:
                 pct = (t / base_n * 100).quantize(Decimal("0.1"))
-                obs.append(f"  {s} 합계 대비 {_fmt(base_n)}: {pct}%")
-                ev.append(f"◇ 집계 {s} 합계 대비 기준값: {_fmt(t)}/{_fmt(base_n)}×100={pct}%")
+                # 항목 이름이 금액 단위(「집행액(천원)」)를 밝혔는데 기록 값은 원 단위(엑셀 「지출액(원)」)이고 기준값은 천원(120000)으로
+                # 주면 비율이 천 배(43000%)로 나온다 — 11-23 24차: 집행률 문장을 쓰지 못함. 단위를 맞춘 비율과 천원 합계도 보인다
+                mu = re.search(r"[(（]\s*(천원|만원|백만원)\s*[)）]", s)
+                scale = {"천원": 1000, "만원": 10000, "백만원": 1000000}.get(mu.group(1)) if mu else None
+                if scale and pct > 100 and t / (base_n * scale) * 100 <= 100:
+                    pct2 = (t / (base_n * scale) * 100).quantize(Decimal("0.1"))
+                    t_u = (t / scale).quantize(Decimal("1")) if (t / scale) == (t / scale).to_integral_value() else (t / scale).quantize(Decimal("0.1"))
+                    obs.append(f"  {s} 합계 {_fmt(t)} 은(는) 원 단위 값이다(기록이 원 단위) — {mu.group(1)}로 {_fmt(t_u)}, "
+                               f"기준값 {_fmt(base_n)}{mu.group(1)} 대비 {pct2}%")
+                    ev.append(f"◇ 집계 {s} 합계 대비 기준값(단위 맞춤): {_fmt(t)}/{_fmt(base_n * scale)}×100={pct2}%")
+                    ev.append(f"◇ 집계 {s} 합계({mu.group(1)}): {_fmt(t)}÷{scale}={_fmt(t_u)}")
+                else:
+                    obs.append(f"  {s} 합계 대비 {_fmt(base_n)}: {pct}%")
+                    ev.append(f"◇ 집계 {s} 합계 대비 기준값: {_fmt(t)}/{_fmt(base_n)}×100={pct}%")
         if off_unit[s]:
             ex_ = ", ".join(f"「{str(r.get(s))[:12]}」《{r['_doc'][:20]}》" for r in off_unit[s][:4])
             obs.append(f"  (「{s}」 단위가 묶음의 주된 단위(「{dom[s] or "묶음마다"}」)와 다른 값 {len(off_unit[s])}건은 더하지 않았다: {ex_} — 다른 것을 센 값이면 맞다, 같은 것이면 기록을 확인한다)")
