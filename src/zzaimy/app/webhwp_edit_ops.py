@@ -1390,7 +1390,8 @@ _LEFT = re.compile(r"^\s*[←◀]\s*$")
 
 def _sample_text(t: str) -> bool:
     """칸의 견본 글(비워도 되는 글) — OOO·○○·0000·「~ 입력」 안내."""
-    return bool(re.search(r"[OＯ○◯]{2,}|0{3,}|입력\s*$", t or ""))
+    # 「0000」「000명」 같은 견본만 — 「28,200,000원」 안의 000 을 견본으로 보아 빈 값 「」 이 실제 금액을 지웠다(11-23)
+    return bool(re.search(r"[OＯ○◯]{2,}|(?<![\d,.])0{3,}(?![\d,.])|입력\s*$", t or ""))
 
 
 def _cell_plan(tb: "_Table", r0: int, c0: int, values: list) -> dict:
@@ -1705,8 +1706,15 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                                     "다른 행 값이면 그 행 줄로 옮긴다.")
         r0, values, headnote = _skip_head(tb, r0, values, bool(a.get("overwrite")))   # 머리줄 위에 값을 넣으려 했으면 그 아래부터
         values, c0, realigned = _realign_row(tb, r0, c0, values)   # 행 칸 수와 꼭 맞는 값 줄을 한 칸 밀려 짚었으면 첫 칸부터
-        values, c0, ragged = _right_align_ragged(tb, r0, c0, values)
-        realigned = headnote + realigned + ragged
+        aligned_, c0_, ragged = _right_align_ragged(tb, r0, c0, values)
+        if ragged:
+            # 코드가 자리를 옮겨 넣지 않는다 — 긴 줄을 오른쪽 끝에 맞춘 인자를 보여 주고 27B 가 정한다(11-23 사용자 「상황에 맞춰서 판별」)
+            rows_ = [r if isinstance(r, list) else [r] for r in aligned_]
+            fixed = rows_                                          # 건드리지 않을 자리는 null(빈 글 「」 은 그 칸을 지울 수 있다)
+            raise EditError(f"값 줄 길이가 행마다 달라 긴 줄{ragged.split('긴 값 줄', 1)[-1].split(')')[0]}) 이 표({tb.nr}행×{tb.nc}열) 밖으로 나간다. "
+                            f"긴 줄이 왼쪽 빈 칸부터 채울 값이면 start: [{r0 + 1}, {c0_ + 1}], values: {json.dumps(fixed, ensure_ascii=False)[:900]} 로 다시 부른다"
+                            "(null 자리는 그 칸을 그대로 둔다). 아니면 줄마다 넣을 열을 맞춘다.")
+        realigned = headnote + realigned
         _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
         if not a.get("overwrite"):
             _check_column_count(tb, r0, c0, values)         # 채워진 행에 한 열만 넣는데 값 수가 행 수와 다르면 — 한 칸씩 밀린다
@@ -3840,7 +3848,7 @@ class EditTools:
                         "「" + " | ".join(f"{(head[j] if j < len(head) else '')[:10]}={c[:16]}" for j, c in enumerate(r)) + "」" for r in bad_rows
                     ) + " — 값이 맞는 열에 들어가는지 본다(빈 열을 건너뛰려면 그 열의 지금 값을 함께 넣는다)."
         if not why:
-            why = self._misplaced(rows, new_vals)
+            self._placed = (rows, new_vals)                 # 넣은 뒤 「다른 묶음 값」 경고를 붙이려고(막지 않는다 — 판단은 27B)
         return why
 
     def _misplaced(self, rows: list[list[str]], new_vals: list[str]) -> str | None:
@@ -3859,9 +3867,8 @@ class EditTools:
             hits = _fl.misplaced(self.hw.db, int(sid), [[r[0]] + [c if c in nv else "" for c in r[1:]] for r in rows if r], said)
             if not hits:
                 return None
-            return ("다른 묶음의 집계 값을 이 행에 넣었다: " + "; ".join(dict.fromkeys(hits[:5]))
-                    + " — 이 행(첫 칸 이름)의 값은 그 이름으로 묶은 집계나 문서에 적힌 값이다. 맞는 묶음으로 aggregate_facts 를 다시 부르거나(예: 행이 달이면 「날짜:월」), "
-                    "모르는 칸은 「확인 필요」 로 두고 나머지는 그대로 다시 넣는다.")
+            return (" [확인] 넣은 값 가운데 다른 묶음의 집계 값과 같은 수가 있다: " + "; ".join(dict.fromkeys(hits[:5]))
+                    + " — 우연히 같은 수일 수도 있다. 이 행(첫 칸 이름)의 값이 맞는지 근거와 대 보고, 틀렸으면 맞는 묶음으로 aggregate_facts 를 불러 고친다.")
         except Exception:
             return None
 
@@ -4039,9 +4046,11 @@ class EditTools:
                 except Exception:
                     hit0 = fit0 = None
                 if hit0 and fit0:
-                    res0 = self.run("hwp_table_edit", {"table": hit0["no"], "op": "set_cells", **fit0})
-                    return (f"새 표를 만들지 않았다 — 이 절에 머리가 같은 빈 서식 표 표{hit0['no']}가 있어 그 칸에 넣었다(서식과 다른 새 표가 꼭 필요하면 new_table: true): "
-                            + res0)
+                    # 코드가 대신 넣지 않는다 — 어느 쪽이 맞는지는 27B 가 상황을 보고 정한다(11-23 사용자 「상황에 맞춰서 판별해가면서」)
+                    call0 = json.dumps({"table": hit0["no"], "op": "set_cells", **fit0}, ensure_ascii=False)
+                    return (f"아직 만들지 않았다 — 이 절에 머리가 같은 빈 서식 표 표{hit0['no']}가 있다. 서식 표를 채우는 것이 맞으면 "
+                            f"hwp_table_edit {call0[:1500]} 를 부른다(행·열은 서식 표의 머리·행 이름에 맞춘 자리). "
+                            "서식과 다른 새 표가 맞으면 같은 인자에 new_table: true 를 더해 다시 부른다.")
         stale_ = self._stale_check(fid, a)
         if stale_:
             return stale_
@@ -4076,6 +4085,9 @@ class EditTools:
                 pass
         if name == "hwp_table_edit" and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
             out += self._ledger_hint(fid, a)
+        placed_, self._placed = getattr(self, "_placed", None), None
+        if placed_ and name in ("hwp_table_edit", "hwp_table_insert") and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
+            out += self._misplaced(*placed_) or ""
         heads1 = self._heads(fid)
         if heads0 and heads1 and len(heads0) != len(heads1):
             self._stale = heads0                           # 옛 번호 차례를 둔다 — 다음 부름이 옛 번호면 _stale_check 가 잡는다

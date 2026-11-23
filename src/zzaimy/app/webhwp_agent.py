@@ -1530,15 +1530,16 @@ class HwpTools:
                         multi.append(f"{k}(표{t_m['no']}: {t_m['head'][:50]})")
                     values.pop(k)
             for no_m, (head_m, rows_m) in split_rows.items():
+                # 코드가 대신 나눠 넣지 않는다 — 그 행 열에 맞춘 인자를 만들어 보여 주고, 넣을지는 27B 가 정한다(11-23 사용자)
                 try:
                     fit_m = _eo_m.fit_form_table(Path(f["path"]).read_bytes(), no_m, [head_m] + rows_m)
-                    res_m = _eo_m.EditTools(self).run("hwp_table_edit", {"table": no_m, "op": "set_cells", **fit_m}) if fit_m else ""
-                except Exception as e:
-                    res_m = f"넣지 않았다 — {e}"
-                if res_m and not res_m.startswith(("넣지 않았다", "바꾸지 않았다")):
-                    split_note.append(f"한 칸에 「/」 로 이은 값을 표{no_m} 의 그 행 열에 나눠 넣었다: {res_m[:300]}")
+                except Exception:
+                    fit_m = None
+                if fit_m:
+                    call_m = json.dumps({"table": no_m, "op": "set_cells", **fit_m}, ensure_ascii=False)
+                    split_note.append(f"한 칸에 「/」 로 이은 값은 표{no_m} 의 그 행 열 값이다 — 열마다 넣으려면 hwp_table_edit {call_m[:1200]} 를 부른다.")
                 else:
-                    multi += [f"칸:{r[0]}(표{no_m}: {' | '.join(head_m)[:50]}){(' — ' + res_m[:300]) if res_m else ''}" for r in rows_m]
+                    multi += [f"칸:{r[0]}(표{no_m}: {' | '.join(head_m)[:50]})" for r in rows_m]
         # 칸 값도 절·표와 같은 수치 관문 — 11-22 5차: 표 넣기에서 막힌 손셈 금액(25,600,000)을 hwp_fill 로 칸에 넣어 그대로 남았다
         unsup: list[str] = []
         for k, v in list(values.items()):
@@ -1565,7 +1566,7 @@ class HwpTools:
             bad += (f" 결문 연락처는 기관 정보에 값이 없어 비워 둠(다른 기관 문서의 값은 넣지 않는다 — 담당자가 알려 주면 from_user: true): "
                     f"{', '.join(inst_blank)}.")
         if not values:
-            return (("" if split_note else "넣은 것 없음.") + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
+            return ("넣은 것 없음." + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
                     + ("" if long_ or fake or person or misfit or inst_blank or rowed or unsup or multi or split_note else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
@@ -1638,8 +1639,9 @@ class HwpTools:
                 + (f" ·{ask}" if ask else ""))
 
     def _place_in_form_table(self, fid: int, hit_: dict, rows: list, text: str, a: dict, by: str) -> str | None:
-        """본문에 쓴 표를 같은 머리의 빈 서식 표 칸에 넣고(수치 관문은 set_cells 그대로), 표 밖 글만 이어 쓴다. 자리를 못 맞추면 None.
-        11-23 14차: 서브가 계산한 표가 「서식 표가 비어 있다」 로 통째로 버려져 메인이 「확인 필요」 로 다시 채웠다."""
+        """본문에 쓴 표를 같은 머리의 빈 서식 표에 넣을 인자를 만들어 제안한다(코드가 대신 넣지 않는다 — 어느 쪽이 맞는지는 27B 가 판단).
+        11-23 14차: 서브가 계산한 표가 「서식 표가 비어 있다」 로 통째로 버려져 메인이 「확인 필요」 로 다시 채웠다 — 값을 잃지 않게
+        서식 표 자리에 맞춘 set_cells 인자와 표를 뺀 글을 그대로 돌려줘, 받는 쪽이 한 걸음에 이어 부를 수 있게 한다. 자리를 못 맞추면 None."""
         from zzaimy.app import webhwp_edit_ops as _eo
         from zzaimy.app import webhwp_write as ww
         try:
@@ -1648,9 +1650,6 @@ class HwpTools:
             fit = None
         if not fit:
             return None
-        res = _eo.EditTools(self).run("hwp_table_edit", {"table": hit_["no"], "op": "set_cells", **fit})
-        if res.startswith(("바꾸지 않았다", "쓰지 않았다", "이 대화에")) or "근거에 없는 수치" in res[:200]:
-            return f"쓰지 않았다 — 이 절의 서식 표 표{hit_['no']}에 표 값을 넣으려 했으나 막혔다: {res}"
         rest: list[str] = []
         done_one = False
         for kind_, val_ in ww.parse_body(text):
@@ -1663,11 +1662,12 @@ class HwpTools:
                 rest.append("```도식\n" + str(val_) + "\n```")
             else:
                 rest.append(str(val_))
-        msg = f"표 값은 이 절의 서식 표 표{hit_['no']}에 넣었다(머리·행 이름에 맞춰): {res}"
         left = "\n\n".join(x for x in rest if x.strip())
-        if left.strip():
-            msg += " / 표 밖 글: " + self.write({**a, "text": left}, by=by)
-        return msg
+        call = json.dumps({"table": hit_["no"], "op": "set_cells", **fit}, ensure_ascii=False)
+        return (f"쓰지 않았다 — 이 절에 머리가 같은 빈 서식 표 표{hit_['no']}(「{hit_['head'][:40]}」)가 있다. 서식 표를 채우는 것이 맞으면 "
+                f"① hwp_table_edit {call[:1800]} (서식 표의 머리·행 이름에 맞춘 자리, 수치 관문은 그대로) "
+                + (f"② 표를 뺀 글은 hwp_write {{field: {a.get('field')!r}, text: …}} 로 — 글: 「{left[:600]}」 " if left.strip() else "")
+                + "서식과 다른 새 표가 맞으면 new_table: true 로 다시 쓴다.")
 
     def write(self, a: dict, by: str = "메인") -> str:
         from zzaimy.app import webhwp_write as ww

@@ -163,18 +163,31 @@ def test_delete_table_removes_stray_table_but_not_form_table():
     assert len(left) == 1 and left[0].startswith("분야")
 
 
-def test_ragged_longer_row_is_right_aligned_into_empty_cell():
-    """비율만 넣는 줄 사이 한 줄만 [집행액, 비율] — 그 행 집행액 칸이 비었으면 오른쪽 끝에 맞춰 넣는다(11-23 19차)."""
+def test_ragged_longer_row_gets_a_ready_call_not_silent_move():
+    """비율만 넣는 줄 사이 한 줄만 [집행액, 비율] — 코드가 자리를 옮겨 넣지 않고, 그 행 빈 칸부터 채우는 인자를 보여 준다(11-23 사용자:
+    상황에 맞춰 판별). 그 인자로 다시 부르면 맞게 들어간다."""
+    import json as _j
     doc = _hwpx(_p("4. 예산", 2) + _table([["비목", "집행액(원)", "비율(%)"], ["인건비", "28,200,000원", ""],
                                           ["운영비", "", ""], ["기자재", "39,200,000원", ""]], 100))
-    out, msg = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [2, 3], "values": [["21.3"], ["27,400,000원", "20.6"], ["29.5"]]})
-    from zzaimy.app import doc_review
-    rows = doc_review._rows(re.search(r"<hp:tbl\b.*?</hp:tbl>", eo._Doc(out).secs[next(iter(eo._Doc(out).secs))], re.S).group(0))
-    assert rows[1] == ["인건비", "28,200,000원", "21.3"] and rows[2] == ["운영비", "27,400,000원", "20.6"] and rows[3][2] == "29.5"
-    assert "오른쪽 끝 열에 맞춰" in msg
-    # 당겨질 칸에 글이 있으면 그대로 거절한다
     try:
-        out2, _ = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [2, 3], "values": [["9", "21.3"], ["20.6"], ["29.5"]]})
-        assert False, "덮으면 안 된다"
-    except eo.EditError:
-        pass
+        eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [2, 3], "values": [["21.3"], ["27,400,000원", "20.6"], ["29.5"]]})
+        assert False, "제안 없이 넣으면 안 된다"
+    except eo.EditError as e:
+        m = re.search(r"start: (\[\d+, \d+\]), values: (\[\[.*?\]\]) 로 다시", str(e))
+        assert m
+    out, _ = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": _j.loads(m.group(1)), "values": _j.loads(m.group(2))})
+    from zzaimy.app import doc_review
+    d = eo._Doc(out)
+    rows = doc_review._rows(re.search(r"<hp:tbl\b.*?</hp:tbl>", d.secs[next(iter(d.secs))], re.S).group(0))
+    assert rows[1] == ["인건비", "28,200,000원", "21.3"] and rows[2] == ["운영비", "27,400,000원", "20.6"] and rows[3][2] == "29.5"
+
+
+
+def test_blank_value_keeps_real_amount_but_clears_sample():
+    """빈 값 「」 은 견본 글(0000·OOO)만 비우고 실제 금액(28,200,000원)은 둔다(11-23: 000 을 견본으로 보아 지웠다)."""
+    from zzaimy.app import doc_review
+    doc = _hwpx(_p("4", 2) + _table([["비목", "집행액", "비율"], ["인건비", "28,200,000원", ""], ["운영비", "0000", ""]], 100))
+    out, _ = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [2, 2], "values": [["", "21.3"], ["", "9.0"]]})
+    d = eo._Doc(out)
+    rows = doc_review._rows(re.search(r"<hp:tbl\b.*?</hp:tbl>", d.secs[next(iter(d.secs))], re.S).group(0))
+    assert rows[1] == ["인건비", "28,200,000원", "21.3"] and rows[2] == ["운영비", "", "9.0"]
