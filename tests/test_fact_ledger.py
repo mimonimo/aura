@@ -500,3 +500,16 @@ def test_misplaced_flags_other_group_totals_only():
     # 그 묶음의 행이거나 문서에 적힌 값이면 묻지 않는다
     assert fl.misplaced(db, 16, [["산학협력", "113"], ["4월", "103"], ["4월", "61"], ["합계", "155"]]) == []
     assert fl.misplaced(db, 16, [["총 참여 인원", "155"]]) == []
+
+
+def test_quarter_grouping_and_for_table_quarter_rows():
+    # 분기별 보고 표(묶음 B) — 날짜를 분기로 묶는다
+    db = FakeDB([])
+    its = ["운영일", "참석자"]
+    recs = [{"운영일": "2026년 4월 7일", "참석자": "36명", "quote": "a"}, {"운영일": "2026년 5월 26일", "참석자": "28명", "quote": "b"},
+            {"운영일": "2026년 7월 14일", "참석자": "52명", "quote": "c"}]
+    fl.save(db, 17, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    obs, ev = fl.aggregate(db, 17, ["운영일:분기"], ["참석자"], count=False)
+    assert "2분기: 참석자 64명" in obs and "3분기: 참석자 52명" in obs
+    out = fl.for_table(db, 17, ["2분기", "3분기", "4분기"], ["참석자(명)"], "분기")
+    assert "group_by: [운영일:분기]" in out and "64명" in out

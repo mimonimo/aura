@@ -362,7 +362,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
     for r in recs[:MAX_RECORDS_SHOWN]:
         lines.append("  · " + " | ".join(f"{k}={r.get(k)}" for k in items if r.get(k)) + f" 《{r['_doc'][:30]}》")
     if len(recs) > MAX_RECORDS_SHOWN:
-        lines.append(f"  … 외 {len(recs) - MAX_RECORDS_SHOWN}건 — aggregate_facts 로 묶어 본다(group_by 의 날짜 항목은 「날짜:월」 처럼 달로 묶을 수 있다).")
+        lines.append(f"  … 외 {len(recs) - MAX_RECORDS_SHOWN}건 — aggregate_facts 로 묶어 본다(group_by 의 날짜 항목은 「날짜:월」·「날짜:분기」 처럼 달·분기로 묶을 수 있다).")
     return "\n".join(lines)
 
 
@@ -415,6 +415,16 @@ def month_of(s: str) -> str | None:
     return None
 
 
+def quarter_of(s: str) -> str | None:
+    """「2026. 5. 12.」「2026년 5월」 → 「2026-Q2」(해가 없으면 「2분기」). 분기별 보고 표를 묶는 날짜 단위."""
+    m = month_of(s)
+    if not m:
+        return None
+    mm = int(m[-2:].rstrip("월")) if "-" in m else int(m.rstrip("월"))
+    q = (mm - 1) // 3 + 1
+    return f"{m[:4]}-Q{q}" if "-" in m else f"{q}분기"
+
+
 def year_of(s: str) -> str | None:
     m = re.search(r"(20\d\d)", str(s or ""))
     return m.group(1) if m else None
@@ -425,6 +435,8 @@ def _key(r: dict, g: str) -> str:
     v = str(r.get(name) or "").strip()
     if how in ("월", "month"):
         return month_of(v) or "(날짜 모름)"
+    if how in ("분기", "quarter"):
+        return quarter_of(v) or "(날짜 모름)"
     if how in ("연", "년", "year"):
         return year_of(v) or "(연도 모름)"
     return v or "(빈 값)"
@@ -569,10 +581,17 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     mi = [i for i, g in enumerate(group_by) if g.partition(":")[2] in ("월", "month")]
     yrs = {k[i][:4] for k in groups for i in mi if re.fullmatch(r"20\d\d-\d\d", k[i])}
 
+    qi = [i for i, g in enumerate(group_by) if g.partition(":")[2] in ("분기", "quarter")]
+    qyrs = {k[i][:4] for k in groups for i in qi if re.fullmatch(r"20\d\d-Q\d", k[i])}
+
     def show(key) -> str:
         if not key:
             return "전체"
         parts = list(key)
+        for i in qi:
+            q_ = re.fullmatch(r"(20\d\d)-Q(\d)", parts[i])
+            if q_:
+                parts[i] = f"{q_.group(2)}분기" if len(qyrs) <= 1 else f"{q_.group(1)}년 {q_.group(2)}분기"
         for i in mi:
             m_ = re.fullmatch(r"(20\d\d)-(\d\d)", parts[i])
             if m_:
@@ -696,7 +715,16 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
     best = max(items, key=cover, default="")
     got = cover(best) if best else 0
     group = best
-    lm = [_mnum(x) for x in labs]
+    lq = [int(m.group(1)) if (m := re.fullmatch(r"\s*([1-4])\s*분기\s*", x)) else None for x in labs]
+    if sum(1 for q in lq if q) >= max(2, (len(labs) + 1) // 2):
+        # 행 이름이 분기(「2분기」) — 날짜 항목을 분기로 묶는다
+        def qcover(it):
+            qs = {int(quarter_of(r.get(it))[-1]) for r in recs if quarter_of(r.get(it))}
+            return sum(1 for q in lq if q and q in qs)
+        dq = max(items, key=qcover, default="")
+        if dq and qcover(dq) >= max(got, 2):
+            best, got, group = dq, qcover(dq), f"{dq}:분기"
+    lm = [_mnum(x) for x in labs] if not group.endswith(":분기") else []
     if sum(1 for m in lm if m) >= max(2, (len(labs) + 1) // 2):
         # 행 이름이 달(「3월」) — 날짜 항목을 달로 묶는다
         def mcover(it):
@@ -734,6 +762,9 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
         g_ = _hk(t_.split(":", 1)[0])
         if group.endswith(":월"):
             return _mnum(t_.split(":", 1)[0]) in set(lm)
+        if group.endswith(":분기"):
+            q_ = re.match(r"\s*(?:20\d\d년\s*)?([1-4])분기", t_)
+            return bool(q_) and int(q_.group(1)) in set(lq)
         return bool(g_) and any(k and (g_ == k or g_.startswith(k) or k.startswith(g_)) for k in keys)
     lines = [ln for ln in obs.splitlines() if ln.strip() and not ln.startswith("이 값들은") and _keep(ln)]
     call = f"aggregate_facts {{group_by: [{group}]" + (f", sum: [{', '.join(dict.fromkeys(sums))}]" if sums else "") + (f", distinct: [{', '.join(dict.fromkeys(dist))}]" if dist else "") + "}"
