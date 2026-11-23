@@ -87,8 +87,8 @@ def asked_sections(request: str) -> set[int]:
 def gap_cols(rows: list[list[str]]) -> list[int]:
     """빈·「확인 필요」 칸이 남은 수 열(첫 열 빼고) — 글 열(주요 활동·대표 성과)은 장부 합계로 채울 열이 아니라 뺀다."""
     data_rows = rows[1:]
-    if not data_rows or not rows[0] or len(rows[0]) < 2:
-        return []
+    if not data_rows or not rows[0] or len(rows[0]) < 2 or not all(c.strip() for c in rows[0]):
+        return []                                            # 머리줄에 빈 칸이 있으면 라벨 표(사업명 | 값) — 묶어 채울 표가 아니다
 
     def _wordy(j):
         xs = [r[j] for r in data_rows if len(r) > j and r[j] and "확인 필요" not in r[j]]

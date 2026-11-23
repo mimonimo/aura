@@ -546,3 +546,17 @@ def test_date_grouping_uses_date_under_other_item_name():
     fl.save(db, 19, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
     obs, _ = fl.aggregate(db, 19, ["날짜:분기"], ["참석자"], count=False)
     assert "2분기: 참석자 64명" in obs and "날짜 모름" not in obs
+
+
+def test_distinct_does_not_count_multi_group_table_doc_as_activity():
+    # 11-23 묶음 B: 지출 내역 엑셀의 이름 빈 기록이 과제마다 활동 하나로 세어졌다
+    db = FakeDB([])
+    its = ["과제", "활동", "금액"]
+    docs = {"a": {"doc_id": 1, "title": "강좌 A 결과서", "items": its, "records": [{"과제": "강좌", "활동": "강좌 A", "quote": "a"}]},
+            "b": {"doc_id": 2, "title": "상담 B 결과서", "items": its, "records": [{"과제": "상담", "활동": "상담 B", "quote": "b"}]},
+            "c": {"doc_id": 3, "title": "강좌 C 결과서", "items": its, "records": [{"과제": "강좌", "quote": "c"}]},
+            "x": {"doc_id": 4, "title": "지출 내역", "items": its, "records": [{"과제": "강좌", "금액": "100", "quote": "x1"},
+                                                                         {"과제": "상담", "금액": "200", "quote": "x2"}]}}
+    fl.save(db, 20, {"items": its, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 20, ["과제"], [], count=False, distinct=["활동"])
+    assert "강좌: 활동 2개" in obs and "상담: 활동 1개" in obs        # 이름 빈 결과서 C 는 하나로, 지출 내역은 세지 않음

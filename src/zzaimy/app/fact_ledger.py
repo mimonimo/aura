@@ -605,6 +605,12 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
 
     units = {s_: dom[s_] or _unit([r.get(s_) for r in recs if number(r.get(s_)) is not None]) for s_ in sums}
     skipped = {s: 0 for s in sums}
+    # 여러 묶음에 걸친 문서(집행 내역 표처럼 행마다 기록인 문서)는 활동 하나가 아니다 — 이름 빈 기록을 문서 하나로 세면 묶음마다
+    # 그 문서가 활동 하나로 더해졌다(11-23 묶음 B: 과제별 운영 횟수가 모두 1씩 많음 6·4·5, 정답 5·3·4)
+    doc_groups: dict = {}
+    for k_, rs_ in groups.items():
+        for r_ in rs_:
+            doc_groups.setdefault(r_.get("_doc"), set()).add(k_)
     for key, rs in groups.items():
         label = show(key)
         cells = []
@@ -616,7 +622,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                 if str(r.get(dk) or "").strip():
                     seen_.setdefault(_norm(r.get(dk)), str(r.get(dk)).strip())
             for r in rs:
-                if (not str(r.get(dk) or "").strip() and r.get("_doc")
+                if (not str(r.get(dk) or "").strip() and r.get("_doc") and len(doc_groups.get(r["_doc"], ())) <= 1
                         and not any(str(x.get(dk) or "").strip() for x in rs if x.get("_doc") == r["_doc"])
                         and not any(n_ and n_ in _norm(r["_doc"]) for n_ in list(seen_) if not n_.startswith("《"))):
                     # 값이 빈 기록은 그 문서를 하나로 센다 — 활동 이름을 못 뽑은 결과 보고 4건이 빠져 학생 역량강화 활동이 6→2 로 세어지던 것(11-22 4차).
