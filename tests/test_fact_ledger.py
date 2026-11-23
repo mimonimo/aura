@@ -659,3 +659,15 @@ def test_base_ratio_matches_units_when_item_declares_thousand_won():
     obs, ev = fl.aggregate(db, 13, ["세목"], ["집행액(천원)"], base=120000)
     assert "43.0%" in obs and "51,600" in obs and "43000" not in obs
     assert any("단위 맞춤" in x for x in ev)
+
+
+def test_group_name_number_hint_when_summed_value_differs_from_quoted_result():
+    # 24차 A 짧게: 성과지표로 묶고 참여 인원을 더해 취업 연계 52 로 씀 — 인용의 「취업 연계」 실적 6명과 다르면 가리킨다
+    docs = [{"id": 1, "filename": "부트캠프.docx", "masked_text": "참여 인원은 학생 38명. 이번 활동으로 성과지표 「취업 연계」 실적 6명을 거두었다."},
+            {"id": 2, "filename": "특강.docx", "masked_text": "참여 인원은 학생 49명. 이번 활동으로 성과지표 「취업 연계」 실적 15명을 거두었다."}]
+    ans = {"부트캠프": [{"성과": "취업 연계", "참여 인원": "학생 38명", "quote": "참여 인원은 학생 38명. 이번 활동으로 성과지표 「취업 연계」 실적 6명을 거두었다."}],
+           "특강": [{"성과": "취업 연계", "참여 인원": "학생 49명", "quote": "참여 인원은 학생 49명. 이번 활동으로 성과지표 「취업 연계」 실적 15명을 거두었다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 14, docs, ["성과", "참여 인원"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 14, ["성과"], ["참여 인원"])
+    assert "묶음 이름 바로 뒤의 수" in obs and "6명" in obs and "15명" in obs

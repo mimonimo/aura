@@ -750,18 +750,19 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     explicit = [s_ for s_ in sums if s_ in items and s_ not in auto_sum]
     if gi:
         for key, rs in groups.items():
-            # 더한 항목이 있으면 그 합이 0 인 묶음만 본다 — 11-23 녹화: sum 「참여 인원」 으로 묶자 협약·교과목 묶음은 인원 0,
-            # 실적은 기록 수(3)로 씀(정답 9·5). 합이 있는 묶음은 그 값이 실적일 수 있어 보지 않는다
-            if explicit and any((nv(r, s_) or 0) for r in rs for s_ in explicit):
-                continue
             for i in gi:
                 nm = key[i]
                 if not nm or nm in ("(빈 값)",) or number(nm) is not None:
                     continue
                 for r in rs:
                     m_ = re.search(re.escape(nm) + r"[^\d\n]{0,12}?(\d[\d,]*\s*(?:명|건|개|곳|회|과목|개사|점|%))", str(r.get("quote") or ""))
-                    if m_:
-                        nums_after.append(f"「{nm}」 {m_.group(1)}《{str(r.get('_doc'))[:16]}》")
+                    if not m_:
+                        continue
+                    # 더한 항목이 있으면 그 기록에서 더한 값과 인용 속 실적 수가 다를 때만 — 11-23 녹화: 협약 묶음은 인원 0 인데 실적 4건,
+                    # 24차 A 짧게: 취업 연계 묶음에 참여 인원 52 를 더해 실적으로 씀(인용은 「취업 연계」 실적 6명 등, 정답 31)
+                    if explicit and all(nv(r, s_) is not None and nv(r, s_) == number(m_.group(1)) for s_ in explicit):
+                        continue
+                    nums_after.append(f"「{nm}」 {m_.group(1)}《{str(r.get('_doc'))[:16]}》")
         if len(nums_after) >= 2:
             gname = group_by[gi[0]]
             obs.append(f"  (문서 인용에 묶음 이름 바로 뒤의 수가 있다: {', '.join(nums_after[:4])} — 그 수가 이 묶음의 실적이면 "
