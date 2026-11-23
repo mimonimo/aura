@@ -729,3 +729,23 @@ def test_collect_rereads_numeric_doc_that_came_back_empty():
     obs = fl.collect(db, 40, docs, ["날짜", "참석자"], c, title_of=_title, parallel=1)
     assert "참석자=64명" in obs
     assert c.calls.count("한마당") == 2 and c.calls.count("안내") == 1     # 수가 없는 문서는 다시 읽지 않는다
+
+
+def test_fill_labeled_takes_empty_item_from_two_cell_label_row():
+    # 26차 A: 개요 표의 「분야 | 산학협력」 을 27B 가 비워 뽑아 성과 공유회 70명이 (빈 값) 으로 빠짐
+    text = "2026. 12. 17. 성과 공유회를 운영하였다.\n참여 인원은 학생 70명이다.\n사업명 | 2026 가상 사업\n분야 | 산학협력\n일시 | 2026. 12. 17."
+    kept = [{"활동": "성과 공유회", "참여 인원": "학생 70명", "quote": "참여 인원은 학생 70명이다."}]
+    out = fl.fill_labeled(kept, ["날짜", "분야", "활동", "참여 인원"], text)
+    assert out[0]["분야"] == "산학협력" and out[0]["활동"] == "성과 공유회"
+    # 표 머리줄(값이 다른 항목 이름)·두 번 나온 이름은 쓰지 않는다
+    out2 = fl.fill_labeled([{"금액": "100"}], ["비목", "금액", "분야"], "비목 | 금액\n분야 | 가\n분야 | 나")
+    assert "비목" not in out2[0] and "분야" not in out2[0]
+
+
+def test_collect_fills_item_from_label_row():
+    docs = [{"id": 51, "filename": "공유회.docx", "masked_text": "참여 인원은 학생 70명이다.\n분야 | 산학협력"}]
+    ans = {"공유회": [{"참여 인원": "학생 70명", "quote": "참여 인원은 학생 70명이다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 50, docs, ["분야", "참여 인원"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 50, ["분야"], ["참여 인원"])
+    assert "산학협력: 기록 1개, 참여 인원 70명" in obs

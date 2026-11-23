@@ -203,6 +203,43 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
     return kept, dropped
 
 
+def _labeled(text: str) -> dict[str, str]:
+    """문서의 「이름 | 값」 두 칸 줄(결과 보고 끝의 개요 표: 「분야 | 산학협력」) — 이름은 띄어쓰기·괄호 단위를 뗀 꼴로. 같은 이름이 두 번 이상이면 뺀다."""
+    out: dict[str, str] = {}
+    seen: set[str] = set()
+    for ln in (text or "").splitlines():
+        cells = [c.strip() for c in ln.split(" | ")]
+        if len(cells) != 2 or not cells[0] or not cells[1] or len(cells[0]) > 20:
+            continue
+        k = _norm(re.sub(r"\([^)]*\)", "", cells[0]))
+        if k in seen:
+            out.pop(k, None)
+            continue
+        seen.add(k)
+        out[k] = cells[1]
+    return out
+
+
+def fill_labeled(kept: list[dict], items: list[str], text: str) -> list[dict]:
+    """기록에 빈 항목이 문서의 「항목 | 값」 줄로 적혀 있으면 그 값을 채운다(문서 글 그대로라 지어낸 값이 아니다).
+    11-24 26차 A: 성과 공유회 결과 보고의 개요 표에 「분야 | 산학협력」 이 있는데 27B 가 분야를 비워 뽑아 참여 인원 70명이
+    (빈 값) 묶음으로 빠졌다 — 산학협력 113(정답 183)."""
+    lab = _labeled(text)
+    heads = {_norm(re.sub(r"\([^)]*\)", "", x)) for x in items}
+    lab = {k: v for k, v in lab.items() if _norm(re.sub(r"\([^)]*\)", "", v)) not in heads}   # 「비목 | 금액」 같은 표 머리줄은 값이 아니다
+    if not lab:
+        return kept
+    for r in kept:
+        for it in items:
+            if str(r.get(it) or "").strip():
+                continue
+            v = lab.get(_norm(re.sub(r"\([^)]*\)", "", it)))
+            if v:
+                r[it] = v
+                r.setdefault("_from_label", []).append(it)
+    return kept
+
+
 MIN_SPLIT = 1200        # 이보다 짧은 조각은 더 나누지 않는다
 
 
@@ -357,6 +394,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
                     kept, dropped = k2, d2
             except Exception:
                 pass
+        kept = fill_labeled(kept, want, text)
         return k, {"doc_id": d["id"], "title": title, "items": want, "records": kept, "dropped": dropped}
 
     n_par = parallel or int(os.environ.get("ZZAIMY_FACTS_PARALLEL", "4") or 4)
