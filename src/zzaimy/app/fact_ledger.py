@@ -203,6 +203,32 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
     return kept, dropped
 
 
+def unpicked_mentions(items: list[str], picked: list[dict], all_docs: list[dict], title_of=None) -> str:
+    """documents 로 일부만 골라 모았을 때, 고르지 않은 문서 글에도 항목 이름(끝의 건수·인원 같은 꼬리를 뗀 꼴) 바로 뒤에 셈 단위 수가
+    있으면 알린다 — 그 문서도 같은 실적이면 넣어 다시 모을지는 모델이 정한다. 11-24 28차 B 한번에: 제목에 「상담」 이 든 문서 둘만 골라
+    학습 상담 82건을 씀(진로 탐색 워크숍 결과서의 「학습 상담 27건」 이 빠짐, 정답 109)."""
+    ids = {str(d.get("id")) for d in picked}
+    rest = [d for d in all_docs if str(d.get("id")) not in ids]
+    if not rest:
+        return ""
+    hits: list[str] = []
+    for it in items:
+        core = re.sub(r"\s*\([^)]*\)\s*$", "", str(it or "")).strip()
+        core = re.sub(r"\s*(?:건수|인원|횟수|실적|달성치|수)$", "", core).strip()
+        if len(core) < 2 or number(core) is not None:
+            continue
+        pat = re.compile(re.escape(core) + r"[^\d\n]{0,10}?(\d[\d,]*\s*(?:명|건|곳|회|개|개사|과목|점|%))")
+        for d in rest:
+            m = pat.search(str(d.get("masked_text") or ""))
+            if m:
+                t = title_of(d) if title_of else str(d.get("filename") or "")
+                hits.append(f"《{t[:24]}》 「{core}」 {m.group(1)}")
+    if not hits:
+        return ""
+    return ("\n고르지 않은 문서에도 항목 이름 뒤에 수가 있다: " + ", ".join(hits[:5]) + (" …" if len(hits) > 5 else "")
+            + " — 같은 실적이면 그 문서도 documents 에 넣거나 documents 없이 다시 모은다.")
+
+
 def _labeled(text: str) -> dict[str, str]:
     """문서의 「이름 | 값」 두 칸 줄(결과 보고 끝의 개요 표: 「분야 | 산학협력」) — 이름은 띄어쓰기·괄호 단위를 뗀 꼴로. 같은 이름이 두 번 이상이면 뺀다."""
     out: dict[str, str] = {}
@@ -807,6 +833,21 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             lab, n_, d_ = many[0]
             top.append(f"  (「기록 N개」 는 문서에서 뽑은 줄 수다 — 한 문서가 여러 기록으로 나뉜 묶음이 있다(「{lab}」 기록 {n_}개·문서 {d_}개). "
                        "운영 횟수·활동 수는 " + (f"distinct: [\"{pick}\"] 로 센 「{pick} N개」" if pick else "distinct 로 센 서로 다른 이름 수") + " 를 쓴다)")
+    # 묶음 기준 항목이 빈 기록에도 더할 값이 많다 — 이름 붙은 묶음 값은 일부일 뿐이다. 11-24 28차 B: group_by [핵심지표 반영] 에서
+    # (빈 값) 수료자 103명을 두고 「강좌 수료자」 묶음 68명을 달성치로 씀(합계 줄 171 이 정답)
+    if group_by and sums:
+        part = []
+        for s_ in sums:
+            ev_ = sum((nv(r, s_) or 0) for k_, rs_ in groups.items() if "(빈 값)" in k_ for r in rs_)
+            named = [(show(k_), sum((nv(r, s_) or 0) for r in rs_)) for k_, rs_ in groups.items() if "(빈 값)" not in k_]
+            named = [(n_, v_) for n_, v_ in named if v_]
+            if ev_ and named:
+                part.append(f"「{s_}」 {_fmt(ev_)}(이름 붙은 묶음 「{named[0][0]}」 은 {_fmt(named[0][1])})")
+        if part:
+            gl = ", ".join(f"「{g}」" for g in gnames_)
+            top.append(f"  (주의: 묶음 기준 {gl} 이 빈 기록에도 {', '.join(part[:3])} 이(가) 있다 — 이름 붙은 묶음 값은 일부일 뿐이다. "
+                       "더한 항목 하나가 곧 행 하나(예: 수료자 → 강좌 수료자 행)이면 묶음 줄 말고 「합계 · 그 항목」 을 쓰고, "
+                       "아니면 빈 기록의 기준 항목을 다시 모은다)")
     obs[1:1] = top
     if filt_note:
         obs.append(filt_note)

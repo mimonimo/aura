@@ -3167,6 +3167,8 @@ def create_app(
                 obs_ += (f"\n이 프로젝트 근거 문서 {len(all_)}개 가운데 {len(all_) - len(left_)}개를 모아 두었다. 안 읽은 문서: "
                          + ", ".join(f"《{t_[:30]}》" for t_ in left_[:12]) + (" …" if len(left_) > 12 else "")
                          + " — 전부 모아야 하는 일이면 documents 없이 다시 부른다(읽은 문서는 다시 읽지 않는다).")
+            if len(docs_) < len(all_):
+                obs_ += _fl.unpicked_mentions(list(items_), docs_, all_, title_of=lambda d_: storage.title_of(d_.get("filename") or ""))
             obs_ += _unmatched_tables()
             return obs_
 

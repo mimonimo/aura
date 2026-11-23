@@ -749,3 +749,27 @@ def test_collect_fills_item_from_label_row():
     fl.collect(db, 50, docs, ["분야", "참여 인원"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 50, ["분야"], ["참여 인원"])
     assert "산학협력: 기록 1개, 참여 인원 70명" in obs
+
+
+def test_aggregate_warns_when_empty_group_holds_values():
+    # 28차 B: group_by [핵심지표 반영] 에서 (빈 값) 수료자 103명을 두고 「강좌 수료자」 묶음 68명을 달성치로 씀 — 합계 줄을 쓰라고 알린다
+    db = FakeDB([])
+    its = ["활동", "수료자", "핵심지표 반영"]
+    docs = {"a": {"doc_id": 1, "title": "강좌 A", "items": its, "records": [{"활동": "강좌 A", "수료자": "38명", "핵심지표 반영": "강좌 수료자", "quote": "a"}]},
+            "b": {"doc_id": 2, "title": "강좌 B", "items": its, "records": [{"활동": "강좌 B", "수료자": "47명", "quote": "b"}]}}
+    fl.save(db, 32, {"items": its, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 32, ["핵심지표 반영"], ["수료자"])
+    lines = obs.split("\n")
+    assert "빈 기록에도 「수료자」 47" in lines[1] and "「강좌 수료자」 은 38" in lines[1] and "합계 · 수료자: 85명" in obs
+    obs2, _ = fl.aggregate(db, 32, ["활동"], ["수료자"])
+    assert "빈 기록에도" not in obs2
+
+
+def test_unpicked_mentions_lists_other_docs_with_item_numbers():
+    # 28차 B 한번에: 제목에 「상담」 이 든 문서만 골라 학습 상담 82건 — 고르지 않은 결과서의 「학습 상담 27건」 을 알린다
+    docs = [{"id": 1, "filename": "상담 주간.docx", "masked_text": "학습 상담 44건을 진행하였다."},
+            {"id": 2, "filename": "워크숍.docx", "masked_text": "기간 중 학습 상담 27건을 진행하였다."},
+            {"id": 3, "filename": "강좌.docx", "masked_text": "수강생 30명이 수료하였다."}]
+    out = fl.unpicked_mentions(["활동명", "학습 상담 건수"], docs[:1], docs)
+    assert "《워크숍.docx》 「학습 상담」 27건" in out and "강좌" not in out
+    assert fl.unpicked_mentions(["학습 상담 건수"], docs, docs) == ""
