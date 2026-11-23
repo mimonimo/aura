@@ -247,3 +247,12 @@ def test_numbers_left_from_last_year_are_found_by_row_and_column_even_if_tables_
     new = _hwpx(_p("2. 추가 표", 1) + _table([["구분", "내용"], ["가", "나"]], 50) + _p("3. 성과지표", 2) + _table(kpi_new, 100))
     hits = eo.numbers_from_start(new, eo.number_cells(old))
     assert hits == ["표2:2,3 「21」"]
+
+
+def test_clear_items_tells_when_row_name_cells_were_blanked():
+    # 27차 B 짧게: 세목 이름 칸(표 첫 열)까지 비우고 값만 채워 이름 없는 행으로 끝남 — 비운 행 이름 칸을 알린다
+    doc = _table([["세목", "집행액(천원)"], ["강사료", "9,000"], ["운영비", "20,000"]], 300)
+    _, msg = eo.clear_items(_hwpx(doc), {"ids": ["표1:2,1", "표1:2,2", "표1:3,2"]})
+    assert "행 이름 칸 1곳" in msg and "강사료" in msg
+    _, msg2 = eo.clear_items(_hwpx(doc), {"ids": ["표1:2,2", "표1:3,2"]})
+    assert "행 이름 칸" not in msg2

@@ -3790,6 +3790,13 @@ def clear_items(data: bytes, a: dict) -> tuple[bytes, str]:
             new = fb._LINESEG.sub("", new)
         doc.secs[u["sec"]] = xml[:u["s"]] + new + xml[u["e"]:]
     msg = f"글 {len(hit)}곳을 비웠다(칸·문단 자리는 둠)" + (f" · 없는 번호 {len(miss)}개: {', '.join(miss[:6])}" if miss else "") + "."
+    # 행 이름 칸(표 첫 열, 머리줄 아래)의 글 이름까지 비웠으면 알린다 — 27차 B 짧게: 세목·과제·지표 이름 칸을 비운 뒤 값만 채워
+    # 세목별 표가 이름 없는 행으로 끝났다. 올해도 같은 행이면 다시 넣어야 한다(무엇을 남길지는 에이전트가 정한다)
+    names_ = [u for u in cells_ if re.fullmatch(r"표\d+:([2-9]|\d{2,}),1", u["id"]) and (u.get("text") or "").strip()
+              and not re.search(r"\d", u["text"])]
+    if names_:
+        msg += (f" 그 가운데 행 이름 칸 {len(names_)}곳(" + ", ".join(f"{u['id']} 「{u['text'].strip()[:12]}」" for u in names_[:5])
+                + ")도 비웠다 — 올해도 같은 행(세목·과제·지표 이름)이면 값을 채울 때 첫 칸에 이름을 다시 넣는다(set_cells start: [행, 1]).")
     out = doc.pack()
     # 비운 뒤 다음 걸음을 알린다 — 11-23 14차: 같은 ids 로 hwp_clear 를 여섯 번 되풀이하고 채우기로 넘어가지 못했다
     try:

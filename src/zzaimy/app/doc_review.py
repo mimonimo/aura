@@ -148,6 +148,18 @@ def mixed_unit_cells(rows: list[list[str]]) -> tuple[str, list[str]] | None:
     return None
 
 
+def nameless_rows(rows: list[list[str]]) -> list[str]:
+    """첫 칸(행 이름)이 비었는데 다른 칸에 값이 든 행 — 27차 B 짧게: 작년 작업본을 비울 때 행 이름 칸(「강사료」「운영비」)까지 비우고
+    값만 채워 세목별 표가 「|  | 11,400 | 22.1 |」 로 끝났다. 표 머리가 둘 이상 열이고 다른 행에는 이름이 있을 때만."""
+    if len(rows) < 3 or len(rows[0]) < 2:
+        return []
+    body = rows[1:]
+    named = [r for r in body if r and r[0].strip()]
+    bad = [" | ".join(c.strip() for c in r[1:] if c.strip())[:30] for r in body
+           if r and not r[0].strip() and any(c.strip() and c.strip() != "확인 필요" for c in r[1:])]
+    return bad if bad and (named or len(bad) >= 2) else []
+
+
 def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
@@ -229,6 +241,10 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
                 h_, cells_ = mixed_
                 issues.append(f"「{label}」 표{tno} 의 「{h_[:16]}」 열은 수만 적는 열인데 글이 섞인 칸이 있다(「{cells_[0]}」 등 {len(cells_)}칸) — "
                               "수만 남기고, 「학생」「교원」 같은 구분이 필요하면 내용 열이나 본문에 적는다.")
+            nl_ = nameless_rows(rows)
+            if nl_:
+                issues.append(f"「{label}」 표{tno} 에 행 이름(첫 칸)이 빈 행이 {len(nl_)}개다(「{nl_[0]}」 등) — 무엇의 값인지 알 수 없다. "
+                              "근거의 이름(세목·과제·지표 이름)을 첫 칸에 넣는다(hwp_table_edit set_cells start: [행, 1]).")
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")

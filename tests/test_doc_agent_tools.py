@@ -677,3 +677,13 @@ def test_review_flags_words_mixed_into_unit_column():
     h, cells = mixed_unit_cells(rows)
     assert h == "참여 인원(명)" and cells == ["학생 24", "담당 교원 2"]
     assert mixed_unit_cells([["월", "참여 인원(명)"], ["3월", "24"], ["4월", "42명"]]) is None
+
+
+def test_nameless_rows_flags_value_rows_without_row_name():
+    # 27차 B 짧게: 행 이름 칸을 비운 뒤 값만 채워 세목별 표가 「|  | 11,400 | 22.1 |」 로 끝남
+    from zzaimy.app.doc_review import nameless_rows
+    rows = [["세목", "집행액(천원)", "구성비(%)"], ["", "11,400", "22.1"], ["", "22,700", "44.0"], ["", "", ""]]
+    assert nameless_rows(rows) == ["11,400 | 22.1", "22,700 | 44.0"]
+    ok = [["세목", "집행액(천원)"], ["강사료", "11,400"], ["운영비", "22,700"], ["", ""]]
+    assert nameless_rows(ok) == []
+    assert nameless_rows([["분기", "참석자"], ["", "확인 필요"], ["", "확인 필요"]]) == []
