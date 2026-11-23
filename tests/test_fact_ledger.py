@@ -785,3 +785,32 @@ def test_count_hint_picks_activity_even_with_digits_in_names():
     fl.save(db, 33, {"items": its, "live": list(docs), "docs": docs})
     obs, _ = fl.aggregate(db, 33, ["과제"], ["운영 횟수", "참석자"], count=True)
     assert 'distinct: ["활동"]' in obs and "「운영 횟수」 값이 든 기록이 하나도 없다" in obs and 'distinct: ["운영 횟수"]' not in obs
+
+
+def test_aggregate_warns_target_values_in_sum():
+    # 30차 B 짧게: 작성 안내의 목표치 250명이 기록으로 뽑혀 수료자 합 421 — 그 문서를 빼는 인자를 보인다
+    db = FakeDB([])
+    its = ["지표", "수료자"]
+    docs = {"g": {"doc_id": 1, "title": "결과보고서 작성 안내", "items": its,
+                  "records": [{"지표": "강좌 수료자", "수료자": "250명", "quote": "2026년 핵심지표 목표치: 강좌 수료자 250명"}]},
+            "a": {"doc_id": 2, "title": "강좌 A 결과서", "items": its,
+                  "records": [{"지표": "강좌 수료자", "수료자": "38명", "quote": "핵심지표 「강좌 수료자」 달성치에 38명으로 반영한다."}]}}
+    fl.save(db, 34, {"items": its, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 34, ["지표"], ["수료자"])
+    assert "목표치는 실적이 아니다" in obs and 'documents: ["!결과보고서 작성 안내"]' in obs
+    obs2, _ = fl.aggregate(db, 34, ["지표"], ["수료자"], documents=["!결과보고서 작성 안내"])
+    assert "목표치는" not in obs2 and "수료자 38명" in obs2
+
+
+def test_quoted_number_hint_skips_records_already_summed():
+    # 30차 B 한번에: 수료자는 모였는데 다른 sum 항목이 비었다고 강좌 수료자 인용만 보이고 「지역 기관 연계」 인용이 잘림
+    db = FakeDB([])
+    its = ["지표", "수료자", "연계 기관"]
+    recs = {"a": ("강좌 A", {"지표": "강좌 수료자", "수료자": "38명", "quote": "핵심지표 「강좌 수료자」 달성치에 38명으로 반영"}),
+            "b": ("강좌 B", {"지표": "강좌 수료자", "수료자": "47명", "quote": "핵심지표 「강좌 수료자」 달성치에 47명으로 반영"}),
+            "c": ("협약 1", {"지표": "지역 기관 연계", "quote": "핵심지표 「지역 기관 연계」 달성치에 3곳으로 반영"}),
+            "d": ("협약 2", {"지표": "지역 기관 연계", "quote": "핵심지표 「지역 기관 연계」 달성치에 2곳으로 반영"})}
+    docs = {k: {"doc_id": i, "title": t, "items": its, "records": [r]} for i, (k, (t, r)) in enumerate(recs.items(), 1)}
+    fl.save(db, 35, {"items": its, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 35, ["지표"], ["수료자", "연계 기관"])
+    assert "「지역 기관 연계」 3곳" in obs and "「강좌 수료자」 38명" not in obs

@@ -846,6 +846,15 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             top.append(f"  (주의: 묶음 기준 {gl} 이 빈 기록에도 {', '.join(part[:3])} 이(가) 있다 — 이름 붙은 묶음 값은 일부일 뿐이다. "
                        "더한 항목 하나가 곧 행 하나(예: 수료자 → 강좌 수료자 행)이면 묶음 줄 말고 「합계 · 그 항목」 을 쓰고, "
                        "아니면 빈 기록의 기준 항목을 다시 모은다)")
+    # 목표로 적힌 값이 실적 합에 섞였다 — 30차 B 짧게: 작성 안내의 「핵심지표 목표치: 강좌 수료자 250명」 이 기록으로 뽑혀
+    # 수료자 421(=171+250)·상담 229(=109+120)를 달성치로 씀. 뺄지는 모델이 정한다 — 문서를 빼는 인자를 보인다
+    tgt = [(r, s_) for r in recs for s_ in sums if nv(r, s_) and re.search(r"목표|계획\s*치|목표치", str(r.get("quote") or ""))
+           and not re.search(r"목표\s*(?:대비|를|을)?\s*(?:달성|초과)", str(r.get("quote") or ""))]
+    if tgt:
+        tdocs = list(dict.fromkeys(str(r.get("_doc") or "") for r, _ in tgt))
+        ex_ = ", ".join(f"「{s_}」 {_fmt(nv(r, s_))}《{str(r.get('_doc'))[:20]}》" for r, s_ in tgt[:4])
+        top.append(f"  (주의: 인용에 「목표」 가 든 기록의 값이 더해졌다: {ex_} — 목표치는 실적이 아니다. 실적만 더하려면 "
+                   f"documents: [{', '.join(json.dumps('!' + t[:30], ensure_ascii=False) for t in tdocs[:3])}] 로 그 문서를 빼고 다시 부른다)")
     # 더할 항목 값이 든 기록이 하나도 없다 — 29차 B: sum [운영 횟수] 가 모두 0 이자 운영 횟수를 「확인 필요」 로 둠(활동 수 5·4·3 이 정답)
     empty_s = [s_ for s_ in sums if recs and not any(str(r.get(s_) or "").strip() for r in recs)]
     if empty_s:
@@ -882,7 +891,10 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                         continue
                     # 더한 항목이 있으면 그 기록에서 더한 값과 인용 속 실적 수가 다를 때만 — 11-23 녹화: 협약 묶음은 인원 0 인데 실적 4건,
                     # 24차 A 짧게: 취업 연계 묶음에 참여 인원 52 를 더해 실적으로 씀(인용은 「취업 연계」 실적 6명 등, 정답 31)
-                    if explicit and all(nv(r, s_) is not None and nv(r, s_) == number(m_.group(1)) for s_ in explicit):
+                    # 값이 든 더한 항목 가운데 하나라도 인용 수와 같으면 이미 모은 것이다 — 30차 B 한번에: 수료자는 맞게 모였는데 상담 건수·연계 기관이
+                    # 빈 칸이라 모두 같지 않다고 보아 강좌 수료자 인용만 넷 보이고, 정작 연계 기관이 빠진 「지역 기관 연계」 인용은 잘렸다
+                    got_ = [nv(r, s_) for s_ in explicit if nv(r, s_) is not None]
+                    if explicit and got_ and number(m_.group(1)) in got_:
                         continue
                     nums_after.append(f"「{nm}」 {m_.group(1)}《{str(r.get('_doc'))[:16]}》")
         if len(nums_after) >= 2:
