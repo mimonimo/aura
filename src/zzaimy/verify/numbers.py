@@ -679,8 +679,12 @@ def b_end(spans, pos):
     return next(b for a, b in spans if a <= pos < b)
 
 
+_SEC_HEAD = re.compile(r"(?m)^(\s*)(\d{1,2}(?:\.\d{1,2})+)(\.?\s+[가-힣A-Za-z])")
+
+
 def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, context: bool = False) -> tuple[str, list[str]]:
-    allowed_surface, allowed_canonical, allowed_money = _allowed(evidence_texts)
+    # 줄 머리 절 번호(「2.2 분야별 추진 실적」)는 값의 근거가 아니다 — 「달성률 2.2%」 가 절 번호 2.2 로 통과했다(11-23)
+    allowed_surface, allowed_canonical, allowed_money = _allowed([_SEC_HEAD.sub(r"\1§\3", e or "") for e in evidence_texts])
     occ = _occurrences(evidence_texts) if context else {}
     out, masked, last = [], [], 0
     src = text or ""
@@ -693,6 +697,9 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, conte
             if v is not None and _fmt(Decimal(v.numerator) / Decimal(v.denominator)) in derived:
                 spans.append((am.start(), am.end()))
     bad_dates = wrong_dates(src) if mark else []         # 틀린 날짜 셈 — 연도라도 표시(대화 답만)
+    # 근거(작업본 글 포함)에서 줄 머리 절 번호(「2.2 분야별 추진 실적」) — 본문의 「2.2표」「2.1및」 은 절을 가리키는 말이다(11-23: 관문이
+    # 맥락 대조로 막아 「2. 추진 실적」 절이 두 번 거절당했다)
+    sec_nos = {m_.group(2) for ev in evidence_texts for m_ in _SEC_HEAD.finditer(ev or "")}
     for m in _NUM_UNIT.finditer(src):
         if any(a <= m.start() < b for a, b in spans):
             continue
@@ -712,6 +719,9 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, conte
             continue
         if _YEAR_LIKE.match(surface):
             continue
+        if "." in surface and surface in sec_nos and not unit and src[m.end():m.end() + 1] != "%" \
+                and _counter_at(src, m.end()) not in ("명", "원", "건", "회", "개", "곳", "점", "배", "시간"):
+            continue                                          # 절 번호를 가리키는 말(「2.2표」「2.1 및」)
         if _month_day(src, m):
             continue                                          # 월.일 날짜(「11.30.~12.1.」「6.25(월)」) — 날짜는 수치 점검 대상이 아니다
         if re.fullmatch(r"\d{2}(?:\.(?:0?[1-9]|1[0-2]))?", surface) and src[max(0, m.start() - 1):m.start()] in ("’", "'", "‘"):

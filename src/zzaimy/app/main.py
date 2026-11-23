@@ -221,6 +221,18 @@ def _doc_review_text(hw, request: str) -> str:
     f = _wh.get(hw.db, fid) if fid else None
     if not f or not Path(f["path"]).exists():
         return ""
+    # 문서가 앞서 다시 읽은 뒤로 그대로면 전체를 다시 보이지 않는다 — 11-22·23 점검 요청에서 hwp_review 를 5~9번 되풀이하며
+    # 고치는 걸음 없이 걸음 한도에 닿았다(50번 가운데 10번이 한도·되풀이로 멈춤)
+    import hashlib as _hl
+    raw_ = Path(f["path"]).read_bytes()
+    key_ = (fid, _hl.sha1(raw_).hexdigest(), request)
+    seen_ = getattr(hw, "_review_seen", None)
+    if seen_ and seen_[0] == key_:
+        n_ = seen_[1] + 1
+        hw._review_seen = (key_, n_)
+        return (f"작업본이 앞서 다시 읽은 뒤로 바뀌지 않았다({n_}번째 다시 읽기) — 위에 보인 글과 문제 후보로 판단한다. "
+                "고칠 곳이 있으면 그 도구(hwp_table_edit·hwp_write·hwp_replace 등)로 바로 고치고, 고칠 것이 없거나 담당자 값이 필요하면 finish 한다.")
+    hw._review_seen = (key_, 1)
     sid = getattr(hw, "sid", None)
     led = None
     if sid is not None:
@@ -236,7 +248,7 @@ def _doc_review_text(hw, request: str) -> str:
                          and v.strip() and _fl.number(v) is None}
         except Exception:
             known = None
-    return _dr.review(Path(f["path"]).read_bytes(), request, ledger=led, known=known)
+    return _dr.review(raw_, request, ledger=led, known=known)
 
 
 def create_app(

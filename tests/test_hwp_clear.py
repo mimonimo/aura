@@ -135,3 +135,46 @@ def test_review_flags_same_number_in_two_columns_of_a_row():
         [["성과지표", "목표", "실적", "달성률(%)"], ["교육 이수 인원(명)", "300", "264", "88.0"], ["산업체 협약(건)", "10", "10", "100.0"]], 100))
     out = doc_review.review(doc, "")
     assert "다른 열에 같은 수" in out and "산업체 협약" in out
+
+
+def test_repeated_review_on_unchanged_doc_is_short(tmp_path, monkeypatch):
+    """문서가 그대로인데 다시 읽기를 또 부르면 전체를 다시 보이지 않고 고치거나 끝내라고 한다(11-23: 5~9번 되풀이로 걸음 한도)."""
+    from types import SimpleNamespace
+    from zzaimy.app import main, webhwp
+    p = tmp_path / "w.hwpx"
+    p.write_bytes(_hwpx(_p("1. 개요", 2) + _table([["항목", "값"], ["사업명", "가"]], 100)))
+    monkeypatch.setattr(webhwp, "get", lambda db, fid: {"path": str(p)})
+    hw = SimpleNamespace(fid=lambda: 1, db=None, sid=None)
+    first = main._doc_review_text(hw, "")
+    assert "다시 읽는다" in first
+    again = main._doc_review_text(hw, "")
+    assert "바뀌지 않았다" in again and len(again) < 300
+    p.write_bytes(_hwpx(_p("1. 개요", 2) + _table([["항목", "값"], ["사업명", "나"]], 100)))
+    assert "다시 읽는다" in main._doc_review_text(hw, "")
+
+
+def test_delete_table_removes_stray_table_but_not_form_table():
+    """잘못 만든 표(문장 하나가 든 1칸 표)를 통째로 지운다 — 「모든 행을 지울 수 없다」 를 되풀이하던 것(11-23)."""
+    doc = _hwpx(_p("2.2 분야별", 2) + _table([["교육 인프라 분야 참여 인원은 결과 보고에 명시된 수치가 없다"]], 100)
+                + _table([["분야", "인원"], ["산학협력", "183"]], 200))
+    out, msg = eo.table_edit(doc, {"table": 1, "op": "delete_table"})
+    assert "통째로 지웠다" in msg
+    left = [t["head"] for t in eo.list_tables(eo._Doc(out))]
+    assert len(left) == 1 and left[0].startswith("분야")
+
+
+def test_ragged_longer_row_is_right_aligned_into_empty_cell():
+    """비율만 넣는 줄 사이 한 줄만 [집행액, 비율] — 그 행 집행액 칸이 비었으면 오른쪽 끝에 맞춰 넣는다(11-23 19차)."""
+    doc = _hwpx(_p("4. 예산", 2) + _table([["비목", "집행액(원)", "비율(%)"], ["인건비", "28,200,000원", ""],
+                                          ["운영비", "", ""], ["기자재", "39,200,000원", ""]], 100))
+    out, msg = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [2, 3], "values": [["21.3"], ["27,400,000원", "20.6"], ["29.5"]]})
+    from zzaimy.app import doc_review
+    rows = doc_review._rows(re.search(r"<hp:tbl\b.*?</hp:tbl>", eo._Doc(out).secs[next(iter(eo._Doc(out).secs))], re.S).group(0))
+    assert rows[1] == ["인건비", "28,200,000원", "21.3"] and rows[2] == ["운영비", "27,400,000원", "20.6"] and rows[3][2] == "29.5"
+    assert "오른쪽 끝 열에 맞춰" in msg
+    # 당겨질 칸에 글이 있으면 그대로 거절한다
+    try:
+        out2, _ = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [2, 3], "values": [["9", "21.3"], ["20.6"], ["29.5"]]})
+        assert False, "덮으면 안 된다"
+    except eo.EditError:
+        pass

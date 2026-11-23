@@ -590,7 +590,7 @@ class _Table:
         self._check_rc(r)
         count = min(count, self.nr - r)
         if count >= self.nr:
-            raise EditError("표의 모든 행을 지울 수는 없다 — 표를 지우려면 기안기에서 지운다.")
+            raise EditError("표의 모든 행을 지울 수는 없다 — 표를 통째로 지우려면 op: delete_table 을 쓴다(서식 표는 지우지 않는다).")
         for _ in range(count):
             keep = []
             for x in self.cells:
@@ -1339,7 +1339,7 @@ def section_insert(data: bytes, a: dict) -> tuple[bytes, str]:
 
 
 TABLE_OPS = ("add_rows", "delete_rows", "add_cols", "delete_cols", "set_cells", "merge", "split", "widths", "head",
-             "align", "shade", "valign")
+             "align", "shade", "valign", "delete_table")
 
 
 def _range(a: dict, tb: _Table) -> dict | None:
@@ -1622,6 +1622,30 @@ def _merge_lefts(tb: "_Table", r0: int, c0: int, values: list) -> int:
     return n
 
 
+def _right_align_ragged(tb: "_Table", r0: int, c0: int, values: list) -> tuple[list, int, str]:
+    """값 줄 길이가 행마다 다르고 긴 줄만 표 오른쪽 끝을 넘으면, 긴 줄을 오른쪽 끝에 맞추고(왼쪽 빈 칸부터) 나머지 줄은 그대로 둔다.
+    11-23 19차: 비율 열만 넣는 줄들 사이에 한 줄만 [집행액, 비율] 둘을 넣어(그 행 집행액 칸이 비어 있었다) 「표 밖으로 나간다」 로
+    통째로 거절됐다. 당겨질 왼쪽 칸이 모두 비어 있을 때만 — 라벨·값이 든 칸은 덮지 않는다."""
+    rows = [r if isinstance(r, list) else [r] for r in values]
+    over = [(i, len(r)) for i, r in enumerate(rows) if c0 + len(r) > tb.nc]
+    if not over or len({len(r) for r in rows}) < 2:
+        return values, c0, ""
+    k = max(c0 + n - tb.nc for _, n in over)
+    if k <= 0 or c0 - k < 1:
+        return values, c0, ""
+    for i, n in over:
+        shift = c0 + n - tb.nc
+        for c in range(c0 - shift, c0):
+            cell = tb.covering(r0 + i, c)
+            if cell is None or re.sub(r"\s+", "", "".join(re.findall(r"<hp:t\b[^>]*>([^<]*)</hp:t>", cell.get("xml") or ""))):
+                return values, c0, ""
+    out = []
+    for i, r in enumerate(rows):
+        shift = max(0, c0 + len(r) - tb.nc)
+        out.append([None] * (k - shift) + list(r))
+    return out, c0 - k, f" · 다른 줄보다 긴 값 줄({', '.join(str(r0 + i + 1) + '행' for i, _ in over[:4])})은 오른쪽 끝 열에 맞춰 넣음"
+
+
 @_guarded
 def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
     doc = _Doc(data)
@@ -1629,6 +1653,21 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
     if op not in TABLE_OPS:
         raise EditError(f"op 는 {', '.join(TABLE_OPS)} 가운데 하나다.")
     t = _pick_table(doc, a.get("table"))
+    if op == "delete_table":
+        # 표 통째로 지우기 — 서브가 문장 하나를 1칸 표로 넣은 것 같은 잘못 만든 표를 27B 가 지울 길이 없어 「모든 행을 지울 수 없다」 를
+        # 되풀이했다(11-23, 25판에 4번). 서식 표(칸 필드가 든 표)는 지우지 않는다 — 비우려면 set_cells. 되돌리기는 hwp_undo
+        if t.get("fields"):
+            raise EditError(f"표{t['no']} 은 서식 표다(필드 {len(t['fields'])}개) — 지우지 않는다. 칸을 비우려면 set_cells 로 빈 값·「확인 필요」 를 넣는다.")
+        if t.get("outer"):
+            raise EditError(f"표{t['no']} 안에 다른 표가 들었다 — 통째로 지우지 않는다.")
+        sx = doc.secs[t["sec"]]
+        sx = sx[:t["s"]] + sx[t["e"]:]
+        ps = [p for p in _paras(sx) if p[0] <= t["s"] < p[1]]
+        if ps:
+            p = max(ps, key=lambda p: p[2])
+            sx = sx[:p[0]] + _strip_ls(sx[p[0]:p[1]]) + sx[p[1]:]
+        doc.secs[t["sec"]] = sx
+        return doc.pack(), f"표{t['no']} 을 통째로 지웠다(뒤 표 번호가 하나씩 당겨진다 — 다음 표 도구 전에 hwp_tables 로 번호를 다시 본다)."
     xml = _table_xml(doc, t)
     tb = _Table(xml)
     count = _int(a.get("count"), "count", 1, 100, default=1)
@@ -1666,7 +1705,8 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                                     "다른 행 값이면 그 행 줄로 옮긴다.")
         r0, values, headnote = _skip_head(tb, r0, values, bool(a.get("overwrite")))   # 머리줄 위에 값을 넣으려 했으면 그 아래부터
         values, c0, realigned = _realign_row(tb, r0, c0, values)   # 행 칸 수와 꼭 맞는 값 줄을 한 칸 밀려 짚었으면 첫 칸부터
-        realigned = headnote + realigned
+        values, c0, ragged = _right_align_ragged(tb, r0, c0, values)
+        realigned = headnote + realigned + ragged
         _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
         if not a.get("overwrite"):
             _check_column_count(tb, r0, c0, values)         # 채워진 행에 한 열만 넣는데 값 수가 행 수와 다르면 — 한 칸씩 밀린다
@@ -3621,7 +3661,8 @@ TOOLS: list[dict] = [
              "add_cols {col, where: left|right, count} · delete_cols {col, count} · set_cells {start: [행, 열], values: [[…]]}(값 줄이 표 끝을 넘으면 행을 늘려 넣음. 「〃」 은 위 칸과, 「←」 은 왼쪽 칸과 합침. 빈 값 「」 은 그 칸을 그대로 둔다. 서식 라벨 칸에 온 값은 라벨 오른쪽 값 칸으로 옮겨 넣음) · "
              "merge {cells: [첫 행, 첫 열, 끝 행, 끝 열]} · split {cells: [행, 열], rows, cols}(둘 다 비우면 합친 칸 풀기) · "
              "widths {widths: [비율…]} · head {rows: 머리줄 행 수, fill} · align {align: 가운데|왼쪽|오른쪽|양쪽, cells|row|col} · "
-             "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col}",
+             "valign {valign: 위|가운데|아래, cells|row|col} · shade {fill: 색(#RRGGBB·회색·연파랑·노랑·없음), cells|row|col} · "
+             "delete_table {}(잘못 만든 표를 통째로 지움 — 칸 필드가 든 서식 표는 지우지 않음)",
      "args": {"table": "any", "op": "str"}},
     {"name": "hwp_table_clone", "writes": True, "label": "표 복제",
      "desc": "표 복제 — 서식의 예시 표처럼 모양(테두리·음영·합친 칸·열 비율)을 그대로 살릴 표를 바로 아래에 하나 더 둔다. 그다음 hwp_table_edit 로 "

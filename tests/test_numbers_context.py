@@ -105,3 +105,13 @@ def test_thousand_won_table_matches_aggregate_and_won_column():
     assert bad == ["52"]
     _, bad = n.mask_unsupported("| 과제 | 참석자(명) |\n| --- | --- |\n| 강좌 | 9,800 |", [agg])
     assert bad == ["9,800"]                                  # 금액 열이 아니면 단위 바꿈으로 맞추지 않는다
+
+
+def test_section_number_references_pass_but_are_not_value_evidence():
+    # 11-23: 본문의 「2.2표」「2.1및」 이 맥락 대조에 막혔다 — 절을 가리키는 말이다. 거꾸로 절 번호는 「2.2%」 의 근거가 아니다
+    from zzaimy.verify import numbers as n
+    ev = ["2. 추진 실적\n2.1 월별 추진 실적\n2.2 분야별 추진 실적\n만족도 4.2점"]
+    assert n.mask_unsupported("월별은 2.1, 분야별은 2.2표에 정리함", ev, context=True)[1] == []
+    assert n.mask_unsupported("2.1및 2.2에 정리함", ev, context=True)[1] == []
+    assert n.mask_unsupported("달성률 2.2%", ev, context=True)[1] == ["2.2"]
+    assert n.mask_unsupported("만족도 4.2점", ev, context=True)[1] == []
