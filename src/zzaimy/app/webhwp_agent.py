@@ -1681,6 +1681,20 @@ class HwpTools:
                 rest.append(str(val_))
         left = "\n\n".join(x for x in rest if x.strip())
         call = json.dumps({"table": hit_["no"], "op": "set_cells", **fit}, ensure_ascii=False)
+        # 쓴 표의 머리줄이 서식 표 머리와 그대로 같으면 쓴 쪽이 이미 서식 표 꼴을 고른 것이다 — 그 뜻대로 서식 표에 넣고 글을 잇는다.
+        # 머리가 일부만 맞을 때만 제안으로 돌린다(11-23 21차: 절마다 제안→다시 부르기로 두세 걸음씩 들어 걸음 한도에서 끝 절을 못 씀).
+        _n = lambda c: re.sub(r"\s+", "", str(c))
+        head_cells = [c for c in str(hit_.get("head") or "").split(" | ")]
+        if rows and [_n(c) for c in rows[0]] == [_n(c) for c in head_cells[:len(rows[0])]]:
+            from zzaimy.app import webhwp_edit_ops as _eo2
+            res = _eo2.EditTools(self).run("hwp_table_edit", {"table": hit_["no"], "op": "set_cells", **fit})
+            if not (res.startswith(("바꾸지 않았다", "쓰지 않았다", "넣지 않았다", "이 대화에")) or "근거에 없는 수치" in res[:200]):
+                msg = (f"표 값은 머리가 같은 이 절의 서식 표 표{hit_['no']}에 넣었다: {res[:400]} "
+                       "(서식과 다른 새 표가 맞았으면 hwp_undo 뒤 new_table: true 로 다시 쓴다)")
+                if left.strip():
+                    msg += " / 표 밖 글: " + self.write({**a, "text": left}, by=by)
+                return msg
+            return f"쓰지 않았다 — 머리가 같은 서식 표 표{hit_['no']}에 넣으려 했으나 막혔다: {res[:900]}"
         return (f"쓰지 않았다 — 이 절에 머리가 같은 빈 서식 표 표{hit_['no']}(「{hit_['head'][:40]}」)가 있다. 서식 표를 채우는 것이 맞으면 "
                 f"① hwp_table_edit {call[:1800]} (서식 표의 머리·행 이름에 맞춘 자리, 수치 관문은 그대로) "
                 + (f"② 표를 뺀 글은 hwp_write {{field: {a.get('field')!r}, text: …}} 로 — 글: 「{left[:600]}」 " if left.strip() else "")

@@ -124,3 +124,19 @@ def test_table_total_row_passes_when_it_is_the_column_sum():
     d = "| 프로그램 | 참여 인원(명) |\n| --- | --- |\n| 캠프 | 42 |\n| 특강 | 55 |\n| 세미나 | 60 |\n| 합계 | 157 |"
     assert n.mask_unsupported(d, ev, context=True)[1] == []
     assert n.mask_unsupported(d.replace("157", "158"), ev, context=True)[1] == ["158"]
+
+
+def test_short_dates_from_evidence_pass_but_invented_dates_do_not():
+    ev = ["지역 역사 탐방 강좌 운영일 | 2026년 11월 10일", "디지털 강좌 2026.4.7 참석자 30명"]
+    _, bad = mask_unsupported("역사 탐방 강좌(11.10.), 디지털 강좌(4.7.) 운영", ev, context=True)
+    assert bad == []
+    _, bad = mask_unsupported("역사 탐방 강좌(12.15.) 운영", ev, context=True)
+    assert bad == ["12.15"]
+
+
+def test_aggregate_count_with_ge_matches_hoe_in_same_row():
+    ev = ["  지역 연계 강좌: 기록 14개, 활동 5개, 참석자(명) 190명\n  성인 학습자 지원: 기록 9개, 활동 3개, 참석자(명) 27명"]
+    table = "| 추진 과제 | 운영 횟수 | 참석자(명) |\n| 지역 연계 강좌 | 5회 | 190 |\n| 성인 학습자 지원 | 3회 | 27 |"
+    assert mask_unsupported(table, ev, context=True)[1] == []
+    # 사람 수는 「개」 와 같은 갈래가 아니다
+    assert mask_unsupported("| 추진 과제 | 참여 |\n| 지역 연계 강좌 | 5명 |", ev, context=True)[1] == ["5명"]

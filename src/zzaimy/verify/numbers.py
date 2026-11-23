@@ -347,7 +347,14 @@ def _table_head_cell(text: str, pos: int) -> str:
     return cells[col] if 0 <= col < len(cells) else ""
 
 
+# 「개」 는 무엇이든 세는 말이다 — 모으기 결과(「활동 5개」)도 늘 「개」 로 센다. 그 값을 표에 「5회」「5건」 으로 쓴 것을
+# 다른 단위로 막아 「확인 필요」 로 바뀌던 일(11-23 21차 B). 사람(명)·금액·기간 같은 다른 갈래와는 여전히 다르다.
+_THING_COUNTERS = {"개", "회", "건", "번", "차례", "곳", "종", "가지"}
+
+
 def _same_counter(a: str, b: str) -> bool:
+    if "개" in (a, b) and a in _THING_COUNTERS and b in _THING_COUNTERS:
+        return True
     return a == b or a + "간" == b or b + "간" == a              # 「2주」 = 「2주간」
 
 
@@ -362,6 +369,11 @@ def _near_words(text: str, start: int, end: int, unit: str, before: int = 14, af
     if line.lstrip().startswith("|"):
         cells = line.strip().strip("|").split("|")
         seg += " " + (cells[0] if cells else "") + " " + _table_head_cell(text, start)
+    else:
+        # 「이름: 값, 값」 줄(모으기 결과 「지역 연계 강좌: 기록 14개, 활동 5개」)은 줄 머리 이름이 그 값들의 대상이다
+        colon = line.find(":")
+        if 0 < colon <= 30 and ls + colon < start and not re.search(r"\d", line[:colon]):
+            seg += " " + line[:colon]
     out = set()
     for w in _WORD.findall(seg):
         w = _strip_particle(w)
@@ -737,6 +749,24 @@ def _month_day(src: str, m: re.Match) -> bool:
     return False
 
 
+_EV_DATE = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])\s*월\s*(0?[1-9]|[12]\d|3[01])\s*일|(?:19|20)\d{2}\s*[.\-/]\s*(0?[1-9]|1[0-2])\s*[.\-/]\s*(0?[1-9]|[12]\d|3[01])(?!\d)")
+
+
+def evidence_dates(evidence_texts: list[str]) -> set[str]:
+    """근거 글의 월·일(「11월 10일」「2026.11.10」) — 「11.10.」 으로 줄여 쓴 날짜를 수치로 보지 않게."""
+    out = set()
+    for ev in evidence_texts:
+        for m in _EV_DATE.finditer(ev or ""):
+            mo, d = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+            out.add(f"{int(mo)}.{int(d)}")
+    return out
+
+
+def _norm_md(surface: str) -> str:
+    mo, d = surface.split(".")
+    return f"{int(mo)}.{int(d)}"
+
+
 def b_end(spans, pos):
     return next(b for a, b in spans if a <= pos < b)
 
@@ -761,6 +791,7 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, conte
     bad_dates = wrong_dates(src) if mark else []         # 틀린 날짜 셈 — 연도라도 표시(대화 답만)
     # 근거(작업본 글 포함)에서 줄 머리 절 번호(「2.2 분야별 추진 실적」) — 본문의 「2.2표」「2.1및」 은 절을 가리키는 말이다(11-23: 관문이
     # 맥락 대조로 막아 「2. 추진 실적」 절이 두 번 거절당했다)
+    ev_dates = evidence_dates(evidence_texts)            # 근거에 있는 날짜를 「11.10.」 처럼 줄여 쓴 것은 날짜다(11-23 21차 B)
     sec_nos = {m_.group(2) for ev in evidence_texts for m_ in _SEC_HEAD.finditer(ev or "")}
     for m in _NUM_UNIT.finditer(src):
         if any(a <= m.start() < b for a, b in spans):
@@ -784,7 +815,8 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, conte
         if "." in surface and surface in sec_nos and not unit and src[m.end():m.end() + 1] != "%" \
                 and _counter_at(src, m.end()) not in ("명", "원", "건", "회", "개", "곳", "점", "배", "시간"):
             continue                                          # 절 번호를 가리키는 말(「2.2표」「2.1 및」)
-        if _month_day(src, m):
+        if _month_day(src, m) or (not unit and _MD.fullmatch(surface) and _norm_md(surface) in ev_dates
+                                  and re.match(r"\.?\s*[),·]|\.\s|\.$", src[m.end(1):m.end(1) + 2] or ".")):
             continue                                          # 월.일 날짜(「11.30.~12.1.」「6.25(월)」) — 날짜는 수치 점검 대상이 아니다
         if re.fullmatch(r"\d{2}(?:\.(?:0?[1-9]|1[0-2]))?", surface) and src[max(0, m.start() - 1):m.start()] in ("’", "'", "‘"):
             continue                                          # 줄인 연도 「’26」「’26.9월」 — 날짜다
