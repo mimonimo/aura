@@ -1229,8 +1229,17 @@ class HwpTools:
             dup = next((d for d in self.work_docs() if _title_key(d["name"]) == _title_key(name)
                         and not (d["id"] == cur and self._empty_doc(cur))), None)
             if dup:
-                return (f"「{dup['name']}」 작업본이 이미 있다(#{dup['id']}) — 그 문서를 고치는 요청이면 hwp_switch {{doc: \"{dup['name']}\"}} 로 바꾼 뒤 "
-                        "hwp_fields·hwp_revise 로 고친다. 담당자가 정말 새 문서를 원하면 hwp_start 에 new: true 를 준다.")
+                state_ = ""
+                try:                                        # 그 문서가 이미 채워진 문서인지 — 「짜임만 남긴 새 작업본」 요청이 채운 문서를 비우던 것(11-23 시연)
+                    from zzaimy.app import webhwp_edit_ops as _eo_d
+                    n_new = _eo_d.new_text_count(Path(webhwp.get(self.db, dup["id"])["path"]).read_bytes(),
+                                                 (webhwp.meta(self.db, dup["id"]) or {}).get("start_texts"))
+                    if n_new:
+                        state_ = f" 그 작업본에는 만든 뒤 새로 쓴 글이 {n_new}곳 있다(누군가 이미 채운 문서다 — 비우면 그 내용이 사라진다)."
+                except Exception:
+                    state_ = ""
+                return (f"「{dup['name']}」 작업본이 이미 있다(#{dup['id']}).{state_} 그 문서를 고치는 요청이면 hwp_switch {{doc: \"{dup['name']}\"}} 로 바꾼 뒤 "
+                        "hwp_fields·hwp_revise 로 고친다. 담당자가 새 문서(다른 판·짜임만 남긴 사본 등)를 바라면 hwp_start 에 new: true 를 준다(제목이 같아도 된다).")
         carry_note = ""
         if a.get("carry") and cur:
             data, moved = self._carry(cur, data)
@@ -1243,8 +1252,15 @@ class HwpTools:
                       + (f" 서식 전체 안내(분량·단위·작성 원칙 — 문서에는 넣지 않는다): {(rep.get('guides') or {}).get('서식 안내', '')[:600]}"
                          if (rep.get("guides") or {}).get("서식 안내") else "")
                       if rep.get("removed") else "")
+        from zzaimy.app import webhwp_edit_ops as _eo_st
         if cur and self._empty_doc(cur) and not a.get("carry"):         # 옮겨 담기는 앞 작업본을 남기고 새 작업본으로(덮지 않는다)
             out = self._load_into(cur, data, fields, name, src) + blank_note + skel_note + clean_note
+            try:
+                m0 = webhwp.meta(self.db, cur)
+                m0["start_texts"] = _eo_st.unit_texts(data)[:1500]
+                self.db.set_setting(f"webhwp_meta:{cur}", json.dumps(m0, ensure_ascii=False))
+            except Exception:
+                pass
             self._keep_guides(cur, rep.get("guides") or {})
             if src.startswith("양식복사:"):
                 self._remember_forms(cur)
@@ -1255,6 +1271,7 @@ class HwpTools:
                          project=int(self.project["id"]) if self.project and self.project.get("id") else None)
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
+        m["start_texts"] = _eo_st.unit_texts(data)[:1500]       # 만들 때 글 — 뒤에 새로 쓴 글과 원래 문서 글을 가린다(leftovers_text)
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
         self._keep_guides(fid, rep.get("guides") or {})
         attach(self.db, self.sid, fid)

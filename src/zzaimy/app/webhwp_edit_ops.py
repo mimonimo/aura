@@ -1623,6 +1623,38 @@ def _merge_lefts(tb: "_Table", r0: int, c0: int, values: list) -> int:
     return n
 
 
+def _check_label_rows(tb: "_Table", r0: int, c0: int, values: list) -> None:
+    """첫 열부터 넣는 값 줄의 첫 값이 그 행의 라벨과 다르고 다른 행의 라벨과 같으면 넣지 않는다 — 맞는 행 자리를 알려 준다.
+    11-23 20차: 개요 표에 [사업명, …], [주관 부서, …] 두 줄을 1행부터 넣어 「사업 기간」 라벨 칸이 「주관 부서」 로 덮이고, 겹친 행을 지우다
+    사업 기간 행이 없어졌다. 판단(어느 행에 넣을지)은 27B — 코드는 라벨이 어긋난 것과 맞는 자리만 보인다."""
+    if c0 != 0:
+        return
+    norm_ = lambda t: re.sub(r"\s+", "", t or "")
+    labels = {}
+    for r in range(tb.nr):
+        cell = tb.covering(r, 0)
+        if cell is not None and cell["r"] == r:
+            labels[r] = norm_(_text(cell["xml"]))
+    by_label = {}
+    for r, t in labels.items():
+        if t:
+            by_label.setdefault(t, r)
+    if len(by_label) < sum(1 for t in labels.values() if t):
+        return                                              # 같은 라벨이 여럿인 목록 표(활동마다 「4월」)는 행을 다시 짜는 중일 수 있다 — 보지 않는다
+    wrong = []
+    for i, row in enumerate(values):
+        row = row if isinstance(row, list) else [row]
+        if not row or row[0] is None:
+            continue
+        want, here = norm_(str(row[0])), labels.get(r0 + i, "")
+        if want and here and want != here and want in by_label and by_label[want] != r0 + i:
+            wrong.append((str(row[0]), r0 + i, by_label[want], row))
+    if wrong:
+        tips = "; ".join(f"「{w}」 은 {k + 1}행 라벨이다(넣으려던 {r + 1}행은 「{labels.get(r, '')[:12]}」) — start: [{k + 1}, 1], values: "
+                         f"{json.dumps([row], ensure_ascii=False)[:200]}" for w, r, k, row in wrong[:4])
+        raise EditError("넣지 않았다 — 첫 열 값이 그 행의 라벨과 다르다(라벨 칸을 덮게 된다): " + tips + ". 행마다 맞는 자리로 다시 넣는다.")
+
+
 def _right_align_ragged(tb: "_Table", r0: int, c0: int, values: list) -> tuple[list, int, str]:
     """값 줄 길이가 행마다 다르고 긴 줄만 표 오른쪽 끝을 넘으면, 긴 줄을 오른쪽 끝에 맞추고(왼쪽 빈 칸부터) 나머지 줄은 그대로 둔다.
     11-23 19차: 비율 열만 넣는 줄들 사이에 한 줄만 [집행액, 비율] 둘을 넣어(그 행 집행액 칸이 비어 있었다) 「표 밖으로 나간다」 로
@@ -1706,6 +1738,8 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                                     "다른 행 값이면 그 행 줄로 옮긴다.")
         r0, values, headnote = _skip_head(tb, r0, values, bool(a.get("overwrite")))   # 머리줄 위에 값을 넣으려 했으면 그 아래부터
         values, c0, realigned = _realign_row(tb, r0, c0, values)   # 행 칸 수와 꼭 맞는 값 줄을 한 칸 밀려 짚었으면 첫 칸부터
+        if not a.get("overwrite"):
+            _check_label_rows(tb, r0, c0, values)          # 첫 열 라벨이 다른 행 라벨이면 넣지 않고 맞는 행을 알린다(overwrite 면 그대로)
         aligned_, c0_, ragged = _right_align_ragged(tb, r0, c0, values)
         if ragged:
             # 코드가 자리를 옮겨 넣지 않는다 — 긴 줄을 오른쪽 끝에 맞춘 인자를 보여 주고 27B 가 정한다(11-23 사용자 「상황에 맞춰서 판별」)
@@ -3568,13 +3602,40 @@ def _units(doc: _Doc) -> list[dict]:
     return out
 
 
-def leftovers_text(data: bytes, limit: int = 140) -> str:
-    """작업본에 남은 글 목록(번호·글) — 지난 문서로 시작한 작업본에서 무엇을 남기고 무엇을 지울지 에이전트가 판단하게 보인다."""
+def _ukey(t: str) -> str:
+    return re.sub(r"\s+", "", t or "")[:80]
+
+
+def unit_texts(data: bytes) -> list[str]:
+    """작업본 글 덩이(표 칸·문단)의 글 열쇠 — 작업본을 만들 때 적어 두면, 뒤에 무엇이 원래 문서에서 왔고 무엇을 새로 썼는지 가린다."""
+    try:
+        return sorted({_ukey(u["text"]) for u in _units(_Doc(data)) if _ukey(u["text"])})
+    except EditError:
+        return []
+
+
+def new_text_count(data: bytes, start: list[str] | None) -> int:
+    """만들 때 글(start)에 없던 글 덩이 수 — 이 작업본에 새로 쓴 글(올해 값 등)."""
+    if not start:
+        return 0
+    st = set(start)
+    try:
+        return sum(1 for u in _units(_Doc(data)) if _ukey(u["text"]) and _ukey(u["text"]) not in st)
+    except EditError:
+        return 0
+
+
+def leftovers_text(data: bytes, limit: int = 140, start: list[str] | None = None) -> str:
+    """작업본에 남은 글 목록(번호·글) — 지난 문서로 시작한 작업본에서 무엇을 남기고 무엇을 지울지 에이전트가 판단하게 보인다.
+    start(작업본을 만들 때의 글 열쇠)를 주면 그 뒤 새로 쓴 글에 표시를 단다 — 11-23 시연: 다 채운 올해 결과보고서를 「짜임만 남긴
+    작업본」 요청이 작년 글로 알고 39곳 비웠다(무엇이 원래 문서 글인지 목록이 보여 주지 않았다)."""
     try:
         us = _units(_Doc(data))
     except EditError:
         return ""
-    lines = [f"  {u['id']} 「{u['text'][:60]}」" for u in us[:limit]]
+    st = set(start or [])
+    lines = [f"  {u['id']} 「{u['text'][:60]}」" + ("  ← 이 작업본에 새로 쓴 글(원래 문서에 없음)" if st and _ukey(u["text"]) not in st else "")
+             for u in us[:limit]]
     return "\n".join(lines) + (f"\n  … 외 {len(us) - limit}개" if len(us) > limit else "")
 
 
@@ -3981,8 +4042,11 @@ class EditTools:
             except EditError as e:
                 return str(e)
         if name == "hwp_clear" and (a.get("list") or not a.get("ids")):
-            lt = leftovers_text(Path(webhwp.get(db, fid)["path"]).read_bytes())
-            return ("남은 글(번호 「글」·「표N:행,열」):\n" + lt) if lt else "남은 글이 없다."
+            st_ = (webhwp.meta(db, fid) or {}).get("start_texts")
+            lt = leftovers_text(Path(webhwp.get(db, fid)["path"]).read_bytes(), start=st_)
+            return (("남은 글(번호 「글」·「표N:행,열」):\n" + lt
+                     + ("\n「새로 쓴 글」 표시는 이 작업본을 만든 뒤 사람·AURA 가 쓴 글이다 — 원래 문서의 지난 내용이 아니니 담당자 요청이 그 글을 비우라는 것인지 먼저 본다."
+                        if "새로 쓴 글" in lt else "")) if lt else "남은 글이 없다.")
         if name == "hwp_map":
             try:
                 return form_map(Path(webhwp.get(db, fid)["path"]).read_bytes(), a)
@@ -4074,7 +4138,20 @@ class EditTools:
                 except Exception:
                     pass
                 return new_, summ_
+        fresh_clear = []
+        if name == "hwp_clear" and a.get("ids"):
+            try:                                            # 비우는 번호 가운데 이 작업본을 만든 뒤 새로 쓴 글 — 결과에 알린다(판단은 27B)
+                st_ = set((webhwp.meta(db, fid) or {}).get("start_texts") or [])
+                if st_:
+                    want_ = {str(x).strip().replace(" ", "") for x in (a["ids"] if isinstance(a["ids"], list) else re.split(r"[,\s]+", str(a["ids"])))}
+                    fresh_clear = [u["id"] for u in _units(_Doc(Path(webhwp.get(db, fid)["path"]).read_bytes()))
+                                   if u["id"] in want_ and _ukey(u["text"]) and _ukey(u["text"]) not in st_]
+            except Exception:
+                fresh_clear = []
         out = apply(db, base, fid, fn)
+        if fresh_clear and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
+            out += (f" [확인] 비운 곳 가운데 {len(fresh_clear)}곳({', '.join(fresh_clear[:6])})은 원래 문서에 없던, 이 작업본에 새로 쓴 글이었다 — "
+                    "담당자가 비우라고 한 글이 아니면 hwp_undo 로 되돌린다.")
         if name in ("hwp_table_edit", "hwp_table_clone", "hwp_table_insert") and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
             # 표를 쓰거나 고친 자리에서 바로 그 표가 보기 좋은지 검사해 붙인다 — 에이전트가 이어서 고친다(11-16 사용자)
             try:

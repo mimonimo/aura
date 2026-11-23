@@ -42,8 +42,16 @@ def norm(s: str) -> str:
     return _KEEP_RE.sub("", s)
 
 
+# 로마 숫자 절 번호(「Ⅱ. 과제별 추진 실적」「IV. 예산」) — 11-23 묶음 B: 작년 보고서가 Ⅰ~Ⅵ 짜임이라 절 필드가 하나도 생기지 않아
+# 본문 절을 쓰지 못하고 걸음 한도에 닿았다(「1. 사업 개요」 꼴만 절로 알아봤다)
+_ROMAN_RE = re.compile(r"^\s*(?:([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ])\s*[.)]?\s*|((?:X?(?:IX|IV|V?I{1,3}|V)))\s*[.)]\s+)(?=[가-힣A-Za-z(「])")
+
+
 def split_number(heading: str) -> tuple[str, str]:
-    """'2.1. 사업 추진목표' → ('2.1', '사업 추진목표'). 번호가 없으면 ('', 제목)."""
+    """'2.1. 사업 추진목표' → ('2.1', '사업 추진목표'). 'Ⅱ. 과제별 추진 실적' → ('Ⅱ', '과제별 추진 실적'). 번호가 없으면 ('', 제목)."""
+    m = _ROMAN_RE.match(heading or "")
+    if m:
+        return m.group(1) or m.group(2), (heading[m.end():] or "").strip()
     m = _NUM_RE.match(heading or "")
     if m:
         return m.group(1).rstrip("."), (heading[m.end():] or "").strip()

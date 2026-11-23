@@ -175,3 +175,30 @@ def linkify(html: str, sources: list[dict]) -> str:
             continue
         parts[i] = pattern.sub(replace, part)
     return "".join(parts)
+
+
+_ART = re.compile(r"제\s*(\d+)\s*조(?:\s*의\s*(\d+))?")
+
+
+def order_by_answer(sources: list[dict], answer: str) -> list[dict]:
+    """연관 자료를 답이 실제로 쓴 근거부터 — 답 글에 든 조항(「제18조」)이 조각 첫머리·제목에 있는 근거를 앞으로, 같은 문서·같은 조각은 한 번.
+    11-23 시연: 답은 『공무원 여비 규정』 제18조를 들었는데 목록 첫 항목이 찾은 차례대로 제6조 조각이라, 원문을 열면 제6조에 형광 표시가 갔다.
+    순서만 바꾸고 근거는 빼지 않는다."""
+    if not sources:
+        return sources or []
+    cited = {(m.group(1), m.group(2) or "") for m in _ART.finditer(re.sub(r"<[^>]+>", " ", answer or ""))}
+    seen, uniq = set(), []
+    for s in sources:
+        k = (s.get("doc_id"), (s.get("heading") or "").strip(), re.sub(r"\s+", "", (s.get("snippet") or ""))[:80])
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(s)
+    if not cited:
+        return uniq
+
+    def hit(s) -> bool:
+        head = ((s.get("heading") or "") + " " + (s.get("snippet") or "")[:40])
+        m = _ART.search(head)
+        return bool(m) and (m.group(1), m.group(2) or "") in cited
+    return [s for s in uniq if hit(s)] + [s for s in uniq if not hit(s)]

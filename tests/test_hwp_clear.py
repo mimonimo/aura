@@ -191,3 +191,25 @@ def test_blank_value_keeps_real_amount_but_clears_sample():
     d = eo._Doc(out)
     rows = doc_review._rows(re.search(r"<hp:tbl\b.*?</hp:tbl>", d.secs[next(iter(d.secs))], re.S).group(0))
     assert rows[1] == ["인건비", "28,200,000원", "21.3"] and rows[2] == ["운영비", "", "9.0"]
+
+
+def test_leftovers_mark_text_written_after_start():
+    """작업본을 만든 뒤 새로 쓴 글은 비울 글 목록에 표시한다 — 다 채운 올해 보고서를 작년 글로 알고 비운 일(11-23 시연)."""
+    start_doc = _hwpx(_p("1. 개요", 2) + _table([["사업명", "2025 가상 사업"], ["총 사업비", "250,000,000원"]], 100))
+    st = eo.unit_texts(start_doc)
+    now = _hwpx(_p("1. 개요", 2) + _table([["사업명", "2025 가상 사업"], ["총 사업비", "120,000,000원"]], 100))
+    lt = eo.leftovers_text(now, start=st)
+    assert "120,000,000원」  ← 이 작업본에 새로 쓴 글" in lt and "2025 가상 사업」\n" in lt + "\n"
+    assert eo.new_text_count(now, st) == 1 and eo.new_text_count(start_doc, st) == 0
+
+
+def test_label_column_mismatch_is_not_written_and_points_to_row():
+    """첫 열 값이 다른 행 라벨이면 라벨 칸을 덮지 않고 맞는 행을 알린다(11-23 20차: 「사업 기간」 이 「주관 부서」 로 덮임)."""
+    doc = _hwpx(_p("Ⅰ. 개요", 2) + _table([["사업명", ""], ["사업 기간", ""], ["총 사업비", ""], ["주관 부서", ""]], 100))
+    try:
+        eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [1, 1], "values": [["사업명", "가"], ["주관 부서", "나"]]})
+        assert False
+    except eo.EditError as e:
+        assert "「주관 부서」 은 4행 라벨" in str(e) and "start: [4, 1]" in str(e)
+    out, _ = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [1, 1], "values": [["사업명", "가"], ["사업 기간", "2026"]]})
+    assert out

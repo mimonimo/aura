@@ -535,3 +535,14 @@ def test_split_row_value_only_on_spaced_slash_matching_columns():
     assert split_row_value("300 / 209", 4) is None                  # 열 수가 다르면 나누지 않는다
     assert split_row_value("2026/04/07 행사", 3) is None
     assert split_row_value("목표 300 / 실적 209 / 달성률 69.7%", ["성과지표", "목표", "실적", "달성률(%)"]) == ["300", "209", "69.7%"]
+
+
+def test_date_grouping_uses_date_under_other_item_name():
+    # 11-23 묶음 B: 날짜가 기록마다 「날짜」·「분기」 항목으로 갈렸다 — 분기로 묶을 때 같은 기록의 날짜 값을 쓴다
+    db = FakeDB([])
+    its = ["날짜", "분기", "참석자"]
+    recs = [{"날짜": "2026년 4월 7일", "참석자": "36명", "quote": "a"}, {"분기": "2026년 5월 26일", "참석자": "28명", "quote": "b"},
+            {"날짜": "2026년 7월 14일", "참석자": "52명", "quote": "c"}]
+    fl.save(db, 19, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    obs, _ = fl.aggregate(db, 19, ["날짜:분기"], ["참석자"], count=False)
+    assert "2분기: 참석자 64명" in obs and "날짜 모름" not in obs

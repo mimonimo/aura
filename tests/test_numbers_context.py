@@ -115,3 +115,12 @@ def test_section_number_references_pass_but_are_not_value_evidence():
     assert n.mask_unsupported("2.1및 2.2에 정리함", ev, context=True)[1] == []
     assert n.mask_unsupported("달성률 2.2%", ev, context=True)[1] == ["2.2"]
     assert n.mask_unsupported("만족도 4.2점", ev, context=True)[1] == []
+
+
+def test_table_total_row_passes_when_it_is_the_column_sum():
+    # 11-23 시연 04: 프로그램별 인원은 넣고 합계만 「확인 필요」 — 열의 합과 맞는 합계는 셈한 값이다(틀린 합계는 막힌다)
+    from zzaimy.verify import numbers as n
+    ev = ["참여 인원 42명, 55명, 60명"]
+    d = "| 프로그램 | 참여 인원(명) |\n| --- | --- |\n| 캠프 | 42 |\n| 특강 | 55 |\n| 세미나 | 60 |\n| 합계 | 157 |"
+    assert n.mask_unsupported(d, ev, context=True)[1] == []
+    assert n.mask_unsupported(d.replace("157", "158"), ev, context=True)[1] == ["158"]

@@ -433,6 +433,11 @@ def year_of(s: str) -> str | None:
 def _key(r: dict, g: str) -> str:
     name, _, how = g.partition(":")
     v = str(r.get(name) or "").strip()
+    if how and not month_of(v):
+        # 날짜를 다른 이름 항목에 담은 기록(「분기=2026년 5월 12일」·「날짜」 빈 칸) — 같은 기록의 날짜 값을 쓴다
+        # (11-23 묶음 B: 기록마다 날짜가 「날짜」·「분기」 로 갈려 분기 합계가 빠졌고, 맞는 132 가 막힌 뒤 우연히 근거에 있던 수가 들어갔다)
+        v = next((str(x).strip() for k, x in r.items() if not str(k).startswith("_") and k != "quote" and month_of(str(x or ""))
+                  and re.search(r"20\d\d", str(x or ""))), v)
     if how in ("월", "month"):
         return month_of(v) or "(날짜 모름)"
     if how in ("분기", "quarter"):

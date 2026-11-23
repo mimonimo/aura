@@ -190,3 +190,21 @@ def test_cover_title_drops_form_suffix():
     out, n = _cover_title(xml)
     assert n == 1 and "<hp:t> 사업계획서</hp:t>" in out and out.endswith("<hp:t>사업계획서 작성 서식</hp:t>")
     assert _cover_title("<hp:t>결과보고서 양식</hp:t>")[0] == "<hp:t>결과보고서</hp:t>"
+
+
+def test_roman_chapter_headings_become_sections_even_after_table_in_same_para():
+    """「Ⅱ. 과제별 추진 실적」 처럼 로마 숫자 장 제목도 절이다 — 앞 표와 같은 문단에 붙어 있어도(docx 를 바꾼 문서, 11-23 묶음 B)."""
+    import re as _re
+    sec = _p("Ⅰ. 사업 개요", 31) + _tbl([["사업명", "가"]], 400, 2)
+    data = _hwpx(sec)
+    # 표가 든 문단 끝에 다음 장 제목을 붙인다(변환기가 만든 꼴)
+    import io, zipfile
+    z = zipfile.ZipFile(io.BytesIO(data))
+    xml = z.read("Contents/section0.xml").decode()
+    xml = xml.replace("</hp:tbl></hp:run></hp:p>", "</hp:tbl></hp:run><hp:run charPrIDRef=\"0\"><hp:t>Ⅱ. 과제별 추진 실적</hp:t></hp:run></hp:p>", 1)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zo:
+        for i in z.infolist():
+            zo.writestr(i, xml.encode() if i.filename == "Contents/section0.xml" else z.read(i.filename))
+    out, _ = wf.fieldize(buf.getvalue())
+    assert _secs(out) == ["절:Ⅰ. 사업 개요", "절:Ⅱ. 과제별 추진 실적"]

@@ -479,6 +479,16 @@ _ATTACH_ID = re.compile(r"\[첨부#(\d+)\]")
 HIDDEN_SOURCE = "볼 수 없는 자료"
 
 
+def _ordered_sources(sources: list[dict], messages: list[dict]) -> list[dict]:
+    """연관 자료를 마지막 답이 쓴 조항의 근거부터(citations.order_by_answer)."""
+    from zzaimy.app import citations as _ct
+    last = next((m.get("content") or "" for m in reversed(messages or []) if m.get("role") == "assistant"), "")
+    try:
+        return _ct.order_by_answer(list(sources or []), last)
+    except Exception:
+        return sources
+
+
 def reader_evidence(request: Request, sources: list[dict], messages: list[dict]) -> tuple[list[dict], set[int]]:
     """읽기 화면의 근거 — (근거 목록, 열어도 되는 첨부 문서 id). 질문·답 글은 그대로 두고, 출처 문서 링크·원문 조각·첨부는 읽는 사람이
     볼 수 있는 문서(access_policy, 문서 화면과 같은 검사)만 연다. 범위 밖 근거는 이름을 「볼 수 없는 자료」 로 가리고 링크·조각을 뺀다.
@@ -515,7 +525,7 @@ def chat_read(request: Request, session_id: int):
     project = db.get_project(int(session["project_id"])) if session.get("project_id") else None
     mine = session.get("owner") == getattr(request.state, "user", "")
     messages = db.list_chats(session_id)
-    evidence, attach_ok = reader_evidence(request, chat_topics.latest(session_id), messages)
+    evidence, attach_ok = reader_evidence(request, _ordered_sources(chat_topics.latest(session_id), messages), messages)
     return templates.TemplateResponse(request, "chat_read.html", ctx(request, {
         "chat_session": session, "chat_project": project, "messages": messages,
         "sources": [s for s in evidence if not s["hidden"]], "evidence": evidence, "attach_ok": attach_ok, "mine": mine,
@@ -582,7 +592,7 @@ def chat_session(request: Request, session_id: int):
             "waiting": waiting, "session_id": session_id,
             "suggestions": [] if waiting else _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
             "proposals": [] if waiting else platform_ops.pending(db, session_id),
-            "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
+            "sources": _ordered_sources(_chat_sources.get(session_id) or chat_topics.latest(session_id), messages),
             "link_sources": (_chat_sources.get(session_id) or []) + chat_topics.link_sources(session_id),
             "recommended_criteria": _recommended_criteria(session_id, messages),
             "chat_session": session, "chat_project": project, "chat_topic": topic,

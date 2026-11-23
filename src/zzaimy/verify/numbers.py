@@ -572,6 +572,65 @@ def _row_ratios(src: str) -> tuple[list[tuple[int, int]], set[str]]:
     return spans, vals
 
 
+_TOTAL_ROW = re.compile(r"^\s*(?:합\s*계|총\s*계|소\s*계|계|전\s*체|총\s*합)\s*$")
+
+
+def _column_totals(src: str) -> tuple[list[tuple[int, int]], set[str]]:
+    """표의 합계 행(첫 칸 「합계·계·소계」 이거나 마지막 행) 값이 같은 열 다른 자료 행들의 합과 맞으면 셈한 값으로 본다 —
+    11-23 시연 04: 프로그램별 참여 인원은 넣고 합계 칸만 「확인 필요」 로 남았다(관문이 손셈으로 막을 것을 피함). 더하는 값들은 따로 대조된다.
+    정수는 꼭 같아야, 소수(비율 합 100.0)는 보인 자릿수 반올림까지."""
+    spans: list[tuple[int, int]] = []
+    vals: set[str] = set()
+    lines, pos = [], 0
+    for line in src.split("\n"):
+        lines.append((pos, line))
+        pos += len(line) + 1
+    blocks, cur = [], []
+    for ls, line in lines:
+        if line.lstrip().startswith("|") and line.count("|") >= 3:
+            cur.append((ls, line))
+        else:
+            if cur:
+                blocks.append(cur)
+            cur = []
+    if cur:
+        blocks.append(cur)
+    for blk in blocks:
+        rows = []
+        for ls, line in blk:
+            if re.fullmatch(r"\s*\|[\s\-:|]+\|?\s*", line):
+                continue
+            cells, at = [], ls
+            for part in line.split("|")[1:]:
+                at += 1
+                cells.append((at, part))
+                at += len(part)
+            rows.append(cells)
+        if len(rows) < 4:                                    # 머리 + 자료 둘 이상 + 합계
+            continue
+        data = rows[1:]
+        tot_idx = [i for i, r in enumerate(data) if r and _TOTAL_ROW.match(r[0][1])] or [len(data) - 1]
+        for ti in tot_idx:
+            for j in range(1, len(data[ti])):
+                off, c = data[ti][j]
+                m = _CELL_NUM.search(c)
+                if not m:
+                    continue
+                try:
+                    v = Decimal(m.group(0).replace(",", ""))
+                    adds = [Decimal(mm.group(0).replace(",", "")) for i, r in enumerate(data) if i not in tot_idx and j < len(r)
+                            for mm in [_CELL_NUM.search(r[j][1])] if mm]
+                except Exception:
+                    continue
+                if len(adds) < 2:
+                    continue
+                q = Decimal(1).scaleb(-len(m.group(0).partition(".")[2])) if "." in m.group(0) else Decimal(0)
+                if abs(sum(adds, Decimal(0)) - v) <= q / 2 + (Decimal("0.0001") if q else 0):
+                    spans.append((off + m.start(), off + m.end()))
+                    vals.add(_fmt(v))
+    return spans, vals
+
+
 def derived_spans(text: str) -> tuple[list[tuple[int, int]], set[str]]:
     """맞게 셈한 결과의 자리와 값 — (결과 글의 (시작, 끝) 목록, 결과 정준값). 반올림(「약」)은 0.5% 까지 같은 값으로 본다."""
     spans: list[tuple[int, int]] = []
@@ -585,6 +644,9 @@ def derived_spans(text: str) -> tuple[list[tuple[int, int]], set[str]]:
             spans.append((m.start(2), m.end(2)))
             vals.add(_fmt(Decimal(want.numerator) / Decimal(want.denominator)))   # 결과 전체 값만(「1억 800만」 의 800 따로는 아니다)
     sp_, va_ = _row_ratios(src)
+    spans += sp_
+    vals |= va_
+    sp_, va_ = _column_totals(src)
     spans += sp_
     vals |= va_
     for m in _SPAN.finditer(src):

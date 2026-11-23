@@ -117,6 +117,20 @@ _TOC_HEAD = re.compile(r"^\s*(?:\S+\s+){0,3}(?:목\s*차|차\s*례)\s*$")
 _TOC = re.compile(r"(\s\d{1,3}$|·{3,}|…{2,}|\.{4,}|-{4,})")
 
 
+def _num_rank(t: str) -> int | None:
+    """제목 번호의 층 — 로마 숫자 0, 「1.」 1, 「1.1」 2, 「가.」 3, 「1)」「(1)」 4. 번호가 없으면 None."""
+    num, _ = sc.split_number(t or "")
+    if not num:
+        return None
+    if re.fullmatch(r"[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫIVX]+", num):
+        return 0
+    if re.fullmatch(r"\d+", num):
+        return 4 if re.match(r"^\s*\(?\d+\)", t) else 1
+    if re.fullmatch(r"\d+(?:[.\-]\d+)+", num):
+        return 2
+    return 3
+
+
 def _is_heading(t: str) -> bool:
     num, title = sc.split_number(t)
     return (bool(num) and 2 <= len(title) <= 40 and not re.search(r"\d{4}\.\s*\d", t)
@@ -409,11 +423,13 @@ def fieldize_xml(xml: str, ids: _Ids, names: _Names, slots: Slots | None = None,
               for m in _LEAF_P.finditer(xml)]             # 이미 필드를 박은 칸은 빈 자리로 본다
 
     def slot_follows(i: int) -> bool:
-        """제목 뒤가 쓸 자리인가 — 빈 문단·작성방법 상자·빈 표·다음 제목이 먼저 오면 쓸 자리, 긴 설명 글이 먼저 오면 안내문."""
+        """제목 뒤가 쓸 자리인가 — 빈 문단·작성방법 상자·빈 표·다음 제목이 먼저 오면 쓸 자리, 긴 설명 글이 먼저 오면 안내문.
+        바로 다음 제목이 이 제목의 하위(「Ⅰ.」 아래 「1.」)면 상위 제목은 쓸 자리가 아니다 — 글은 하위 절에 쓴다."""
+        me = _num_rank(leaves[i][2])
         for a, b, t, _ in leaves[i + 1:i + 6]:
-            if _inside(a, guides) or not t:
-                return True
             if _is_heading(t):
+                return not (me == 0 and (_num_rank(t) or 0) > me)   # 로마 숫자 장 제목 바로 아래 하위 절만(「2.」 아래 「2.1」 은 예전처럼 쓸 자리)
+            if _inside(a, guides) or not t:
                 return True
             if len(t) >= 20 and _INSTRUCT.search(t):            # 작성·제출 지시 글이 먼저 오면 서식 안내의 번호 줄이다
                 return False
@@ -658,6 +674,41 @@ def split_lead_tables(data: bytes) -> tuple[bytes, int]:
     return buf.getvalue(), total
 
 
+_P_TAG = re.compile(r"<hp:p\b[^>]*>|</hp:p>")
+
+
+def split_text_after_tables(xml: str, ids: "_Ids") -> str:
+    """표가 든 바깥 문단에서 표 뒤에 이어 붙은 글(「</hp:tbl></hp:run><hp:run><hp:t>Ⅱ. 과제별 추진 실적</hp:t>」)을 새 문단으로 뗀다.
+    11-23 묶음 B: docx 를 한글로 바꾼 작년 보고서에서 다음 절 제목이 앞 표와 같은 문단 안에 붙어, 절 찾기(잎 문단만 본다)가 Ⅱ~Ⅴ 를
+    놓쳐 절 필드가 둘만 생겼다. 보이는 차례는 같다(표 다음 줄에 제목) — 문단 모양은 원래 문단 것을 그대로 쓴다."""
+    out, pos, depth, start = [], 0, 0, None
+    spans = []
+    for m in _P_TAG.finditer(xml):
+        if m.group(0).startswith("</"):
+            depth -= 1
+            if depth == 0 and start is not None:
+                spans.append((start[0], start[1], m.end()))
+                start = None
+        else:
+            if depth == 0:
+                start = (m.start(), m.group(0))
+            depth += 1
+    for a, open_tag, b in spans:
+        seg = xml[a:b]
+        k = seg.rfind("</hp:tbl></hp:run>")
+        if k < 0:
+            continue
+        tail = seg[k + len("</hp:tbl></hp:run>"):-len("</hp:p>")]
+        if "<hp:tbl" in tail or "<hp:p" in tail or not re.search(r"<hp:t>[^<]*\S[^<]*</hp:t>", tail):
+            continue
+        new_open = re.sub(r'\bid="\d+"', f'id="{ids.new()}"', open_tag, count=1)
+        out.append(xml[pos:a])
+        out.append(seg[:k + len("</hp:tbl></hp:run>")] + "</hp:p>" + new_open + tail + "</hp:p>")
+        pos = b
+    out.append(xml[pos:])
+    return "".join(out)
+
+
 def fieldize(data: bytes, slots=None, people: dict | None = None, heads: dict | None = None) -> tuple[bytes, list[dict]]:
     """hwpx 바이트 → 필드를 박은 hwpx 바이트와 필드 목록. 이미 필드가 있으면 손대지 않는다(그 목록만).
     slots — 만든 쪽이 아는 제목 차례 [(제목 글, 잎 절인가)…](코드로 짠 공통 양식). 주면 그 잎 절에만 절 필드를 박고,
@@ -681,7 +732,7 @@ def fieldize(data: bytes, slots=None, people: dict | None = None, heads: dict | 
     fields: list[dict] = []
     new = {}
     for n in sorted(secs, key=lambda s: int(re.search(r"(\d+)", s.rsplit("/", 1)[-1]).group(1))):
-        x, f = fieldize_xml(xmls[n], ids, names, order, people, heads)
+        x, f = fieldize_xml(split_text_after_tables(xmls[n], ids), ids, names, order, people, heads)
         new[n] = strip_lineseg_in(x, lambda p: "fieldBegin" in p)    # 줄 배치 정보는 필드를 박은 문단만 지운다
         fields += f
     buf = io.BytesIO()
