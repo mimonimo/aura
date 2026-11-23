@@ -140,3 +140,18 @@ def test_aggregate_count_with_ge_matches_hoe_in_same_row():
     assert mask_unsupported(table, ev, context=True)[1] == []
     # 사람 수는 「개」 와 같은 갈래가 아니다
     assert mask_unsupported("| 추진 과제 | 참여 |\n| 지역 연계 강좌 | 5명 |", ev, context=True)[1] == ["5명"]
+
+
+def test_won_amount_written_into_thousand_won_column_is_caught():
+    # 11-23 3차 녹화 01: 세목별 집행액(천원) 표에 근거의 원 금액 9,800,000 을 그대로 넣음 — 천 배
+    from zzaimy.verify.numbers import mask_unsupported
+    ev = ["2026.04.07 | 지역 연계 강좌 | 홍보비 | 생활 속 디지털 기초 강좌 | 3150000",
+          "◇ 집계 홍보비 · 집행액(천원): 3,150,000+6,650,000=9,800,000"]
+    bad = "| 세목 | 집행액(천원) |\n|---|---|\n| 홍보비 | 9,800,000 |"
+    good = "| 세목 | 집행액(천원) |\n|---|---|\n| 홍보비 | 9,800 |"
+    _, v_bad = mask_unsupported(bad, ev)
+    _, v_good = mask_unsupported(good, ev)
+    assert v_bad and not v_good
+    # 원 단위 열에 원 금액은 그대로 받는다
+    _, v_won = mask_unsupported("| 세목 | 집행액(원) |\n|---|---|\n| 홍보비 | 9,800,000 |", ev)
+    assert not v_won

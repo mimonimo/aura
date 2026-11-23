@@ -212,9 +212,14 @@ def _supported(src: str, m: re.Match, surface_ok: set[str], canon_ok: set[str], 
     초안 쪽도 금액으로 읽힐 때만, 근거의 금액 값과만 견준다(사람 수·건수 같은 값과 단위 바꿈으로 맞추지 않게)."""
     s = m.group(1).replace(",", "")
     unit = m.group(2)
+    v = _money_value(src, m, draft=True)
+    # 열 머리가 「집행액(천원)」 인 칸에 근거의 원 단위 금액(9,800,000)을 그대로 넣으면 천 배다 — 표면 글자는 근거에 있어도 받지 않는다.
+    # 11-23 3차 녹화 01: 세목별 집행액(천원) 표에 9,800,000·22,700,000 이 들어감. 근거가 이 수를 원 금액으로 가질 때만 본다(좁게)
+    if (not unit and v and v not in money_ok and _fmt(Decimal(s)) in money_ok and Decimal(v) > Decimal(s)
+            and src[src.rfind("\n", 0, m.start()) + 1:m.start()].lstrip().startswith("|")):
+        return False
     if s in surface_ok or s in canon_ok or _fmt(Decimal(s) * _UNIT_VALUE.get(unit or "", 1)) in canon_ok:
         return True
-    v = _money_value(src, m, draft=True)
     return bool(v) and v in money_ok
 
 
