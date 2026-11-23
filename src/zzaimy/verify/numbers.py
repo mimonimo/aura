@@ -111,32 +111,38 @@ def _decl_at(text: str, pos: int) -> int | None:
     return best if best and best > 1 else None
 
 
-def _col_unit(text: str, pos: int) -> int | None:
+def _col_unit(text: str, pos: int, bare: bool = False) -> int | None:
     """표 칸 숫자의 열 머리 단위 — 같은 표(이어진 「|」 줄)의 첫 줄에서 같은 열 머리 칸이 「금액(천원)」 처럼 금액 단위를 품으면 그 배수.
     선언과 달리 그 열 하나에만 걸린다(다른 열·다른 표의 숫자에 번지지 않게)."""
     ls = text.rfind("\n", 0, pos) + 1
     le = text.find("\n", pos)
     line = text[ls:len(text) if le < 0 else le]
-    if not line.lstrip().startswith("|"):
+    lead = line.lstrip().startswith("|")
+    # 앞 「|」 없이 칸을 「 | 」 로 이은 줄(엑셀·한글 표를 읽은 근거 글 「2026.04.07 | 홍보비 | 450000」)도 표 줄이다 — bare 는 근거 쪽만
+    if not lead and not (bare and line.count(" | ") >= 2):
         return None
-    col = text[ls:pos].count("|") - 1
+
+    def _row(t: str) -> bool:
+        return t.lstrip().startswith("|") if lead else t.count(" | ") >= 2
+    col = text[ls:pos].count("|") - (1 if lead else 0)
     head = ls
     while head > 0:                                       # 표의 첫 줄(머리줄)까지 거슬러
         prev = text.rfind("\n", 0, head - 1) + 1
-        if not text[prev:head - 1].lstrip().startswith("|"):
+        if not _row(text[prev:head - 1]):
             break
         head = prev
     if head == ls:
         return None                                       # 이 줄이 머리줄이면 단위를 매기지 않는다
     he = text.find("\n", head)
-    cells = text[head:len(text) if he < 0 else he].strip().strip("|").split("|")
+    hl = text[head:len(text) if he < 0 else he].strip()
+    cells = (hl.strip("|") if lead else hl).split("|")
     if col < 0 or col >= len(cells):
         return None
     m = re.search(r"[(（]\s*(?:단위\s*[:：]?\s*)?(" + _UNIT_ALT + r")\s*[)）]|단위\s*[:：]?\s*(" + _UNIT_ALT + r")", cells[col])
     if not m:
         return None
-    v = _MONEY_UNIT[re.sub(r"\s", "", m.group(1) or m.group(2))]
-    return v if v > 1 else None
+    # 「금액(원)」 열도 금액이다(배수 1) — 집행 내역 엑셀의 「지출액(원)」 열 값이 금액으로 읽히지 않아 천원 표의 값과 맞추지 못했다(11-23 묶음 B)
+    return _MONEY_UNIT[re.sub(r"\s", "", m.group(1) or m.group(2))]
 
 
 _WON_AFTER = re.compile(r"\s*원")
@@ -155,8 +161,8 @@ def _money_value(text: str, m: re.Match, draft: bool = False) -> str | None:
     # 선언 하나로 금액이 되어 근거의 금액과 맞춰지지 않게(보안)
     if not m.group(2) and not _COUNTER_AFTER.match(text, m.end()):
         line_start = text.rfind("\n", 0, m.start()) + 1
-        if text[line_start:m.start()].lstrip().startswith("|"):
-            cu = _col_unit(text, m.start())                     # 열 머리 「금액(천원)」 — 11-17 예산 표 10배 오기를 놓치던 것
+        if text[line_start:m.start()].lstrip().startswith("|") or not draft:
+            cu = _col_unit(text, m.start(), bare=not draft)     # 열 머리 「금액(천원)」 — 11-17 예산 표 10배 오기를 놓치던 것
             if cu:
                 return _fmt(num * cu)
         if not draft or text[line_start:m.start()].lstrip().startswith("|"):   # 근거 쪽은 믿는 글이라 문단 선언도
@@ -174,6 +180,14 @@ def scaled_values(text: str) -> set[str]:
         v = _money_value(cleaned, m)
         if v:
             out.add(v)
+    # 코드가 더한 집계 줄(「◇ 집계 홍보비 · 지출액: a+b=9,800,000」)의 큰 합계는 금액으로도 본다 — 기록 값에 「원」 이 없으면(엑셀 열 값)
+    # 합계도 「원」 없이 남아, 천원 단위 표의 「9,800」 을 근거와 맞추지 못했다(11-23 묶음 B). 만 이상만(사람 수·건수와 섞이지 않게)
+    for ln in cleaned.splitlines():
+        if ln.startswith("◇ 집계"):
+            for m in re.finditer(r"[=:]\s*(\d{1,3}(?:,\d{3})+|\d{5,})(?![\d.,/])", ln):
+                v = Decimal(m.group(1).replace(",", ""))
+                if v >= 10000:
+                    out.add(_fmt(v))
     # 이어 적은 금액(「1억 2천만 원」「3억 3,750만 원」)은 덩이를 합한 값도 — 끝 덩이만 「원」 을 달고 있어 앞 덩이(1억)를 잃었다(11-17)
     for m in re.finditer(r"(?:" + _BIG + r"\s?)+(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)?\s?원", cleaned):
         v = _amount_value(m.group(0).replace("원", ""))

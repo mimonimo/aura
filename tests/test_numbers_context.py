@@ -92,3 +92,16 @@ def test_row_ratio_with_plain_small_numbers():
     md = "| 성과지표 | 목표 | 실적 | 달성률(%) |\n| --- | --- | --- | --- |\n| 교육 이수 인원 | 300 | 264 | 88.0% |\n| 취업 연계 | 40 | 31 | 80.0% |"
     _, bad = mask_unsupported(md, ["목표 교육 이수 인원 300명, 취업 연계 40명. 실적 264명, 31명"], context=True)
     assert "88.0" not in bad and "80.0" in bad
+
+
+def test_thousand_won_table_matches_aggregate_and_won_column():
+    # 11-23 묶음 B: 사업비 표가 천원 단위인데 근거(집계 줄·엑셀 「지출액(원)」 열)의 값이 「원」 없이 적혀 금액으로 읽히지 않았다
+    from zzaimy.verify import numbers as n
+    agg = "◇ 집계 홍보비 · 지출액: 450,000+9,350,000=9,800,000 (근거: 《지출 내역》)\n◇ 집계 합계 · 지출액: 51,600,000"
+    _, bad = n.mask_unsupported("| 세목 | 집행액(천원) |\n| --- | --- |\n| 홍보비 | 9,800 |\n| 합계 | 51,600 |", [agg])
+    assert bad == []
+    xls = "지출일자 | 추진 과제 | 세목 | 내용 | 지출액(원)\n2026.04.07 | 지역 연계 강좌 | 홍보비 | 강좌 | 450000"
+    _, bad = n.mask_unsupported("| 세목 | 집행액(천원) |\n| --- | --- |\n| 홍보비 | 450 |\n| 운영비 | 52 |", [xls])
+    assert bad == ["52"]
+    _, bad = n.mask_unsupported("| 과제 | 참석자(명) |\n| --- | --- |\n| 강좌 | 9,800 |", [agg])
+    assert bad == ["9,800"]                                  # 금액 열이 아니면 단위 바꿈으로 맞추지 않는다

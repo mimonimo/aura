@@ -226,7 +226,17 @@ def _doc_review_text(hw, request: str) -> str:
     if sid is not None:
         from zzaimy.app import fact_ledger as _fl
         led = lambda labels, heads, lh="": _fl.for_table(hw.db, int(sid), labels, heads, lh)   # noqa: E731
-    return _dr.review(Path(f["path"]).read_bytes(), request, ledger=led)
+    known = None
+    if sid is not None:
+        try:
+            from zzaimy.app import fact_ledger as _fl
+            recs = _fl.records(hw.db, int(sid))
+            if recs:                                          # 모은 기록의 글 값(활동·분야 이름)과 근거 문서 제목
+                known = {str(v) for r in recs for k, v in r.items() if k not in ("quote",) and isinstance(v, str)
+                         and v.strip() and _fl.number(v) is None}
+        except Exception:
+            known = None
+    return _dr.review(Path(f["path"]).read_bytes(), request, ledger=led, known=known)
 
 
 def create_app(

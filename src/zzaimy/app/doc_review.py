@@ -97,6 +97,31 @@ def gap_cols(rows: list[list[str]]) -> list[int]:
             and any(len(r) > j and (not r[j] or "확인 필요" in r[j]) for r in data_rows)]
 
 
+def _nk(s: str) -> str:
+    return re.sub(r"[\s《》「」()（）·,]", "", s or "")
+
+
+def unknown_names(rows: list[list[str]], known: set[str]) -> list[str]:
+    """이름 열(칸 절반 넘게가 모은 기록 이름·문서 제목과 맞는 글 열)에서 홀로 모르는 이름 — 지어낸 행 후보.
+    11-23 18차 단계별: 빈 달을 채우려 「교과목 개발 중간 점검」「AI 실무 역량 진단」 같은 없는 활동을 넣고 근거 문서는 「확인 필요」."""
+    ks = {_nk(k) for k in known if len(_nk(k)) >= 4}
+    if not ks or len(rows) < 3:
+        return []
+
+    def hit(c: str) -> bool:
+        n = _nk(c)
+        return any(k in n or n in k for k in ks) if len(n) >= 4 else True
+    out = []
+    for j in range(len(rows[0])):
+        cells = [r[j] for r in rows[1:] if len(r) > j and r[j] and "확인 필요" not in r[j] and not re.fullmatch(r"[\d,.\s%명건개곳원-]+", r[j])]
+        if len(cells) < 3:
+            continue
+        good = [c for c in cells if hit(c)]
+        if len(good) * 2 > len(cells):
+            out += [c for c in cells if not hit(c)]
+    return list(dict.fromkeys(out))
+
+
 def gap_tables(data: bytes) -> list[tuple[int, list[str], list[str], str]]:
     """작업본에서 빈 수 칸이 남은 표 — (표 번호, 행 이름들, 빈 열 머리들, 첫 열 머리)."""
     out, tno = [], 0
@@ -110,9 +135,10 @@ def gap_tables(data: bytes) -> list[tuple[int, list[str], list[str], str]]:
     return out
 
 
-def review(data: bytes, request: str = "", ledger=None) -> str:
+def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
+    known: 모은 기록의 이름 값·근거 문서 제목(띄어쓰기 뺀 글) — 대부분 칸이 그 이름인 열에서 홀로 모르는 이름(지어낸 활동)을 짚는다.
     ledger(행 이름들, 열 머리들, 첫 열 머리) → 글: 빈·「확인 필요」 칸이 남은 표를 실적 장부로 묶어 본 결과(fact_ledger.for_table) — 후보에 붙인다."""
     only = asked_sections(request)
     outline, issues = [], []
@@ -168,6 +194,22 @@ def review(data: bytes, request: str = "", ledger=None) -> str:
                         more = ""
                     if more:
                         issues.append(f"「{label}」 표{tno} 의 {', '.join('「' + rows[0][j] + '」' for j in gap[:3])} 열에 빈·「확인 필요」 칸이 있다 —" + more)
+            # 한 행의 서로 다른 수 열에 같은 수(목표 10 · 실적 10) — 한쪽 값을 다른 열에 옮겨 적었을 수 있다(11-23 18차 단계별: 협약 목표 10건을
+            # 실적에도 적어 달성률 100%, 문서의 실적은 9건). 우연히 같을 수도 있어 후보로만
+            same = []
+            for r in data_rows:
+                nums_ = [(j, c.strip()) for j, c in enumerate(r) if j > 0 and re.fullmatch(r"[\d,]+(?:\.\d+)?\s*[가-힣]{0,2}", c.strip() or "x")]
+                for a_ in range(len(nums_)):
+                    for b_ in range(a_ + 1, len(nums_)):
+                        if re.sub(r"\D", "", nums_[a_][1]) == re.sub(r"\D", "", nums_[b_][1]) and rows[0][nums_[a_][0]:nums_[a_][0] + 1] != rows[0][nums_[b_][0]:nums_[b_][0] + 1]:
+                            same.append(f"{r[0][:14]}: {rows[0][nums_[a_][0]] if nums_[a_][0] < len(rows[0]) else ''}={nums_[a_][1]}·{rows[0][nums_[b_][0]] if nums_[b_][0] < len(rows[0]) else ''}={nums_[b_][1]}")
+            if same and len(same) < len(data_rows):
+                issues.append(f"「{label}」 표{tno} 한 행의 다른 열에 같은 수가 있다({'; '.join(same[:3])}) — 한쪽 값(목표 등)을 다른 열에 옮겨 적었는지 근거와 대 본다.")
+            if known and data_rows:
+                odd = unknown_names(rows, known)
+                if odd:
+                    issues.append(f"「{label}」 표{tno} 에 모은 기록·근거 문서에 없는 이름이 있다: " + ", ".join(f"「{x[:24]}」" for x in odd[:5])
+                                  + " — 문서에 있는 활동이면 그 이름으로 고치고, 지어낸 행이면 지운다(빈 달을 채우려 만든 행은 두지 않는다).")
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")

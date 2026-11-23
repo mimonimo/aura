@@ -116,3 +116,22 @@ def test_gap_tables_lists_number_columns_left_blank():
     doc = _hwpx(_p("3. 성과지표 달성 실적", 2) + _table(
         [["성과지표", "목표", "실적", "비고"], ["교육 이수 인원(명)", "300", "", "캠프 운영"], ["취업 연계(명)", "40", "확인 필요", "특강"]], 100))
     assert doc_review.gap_tables(doc) == [(1, ["교육 이수 인원(명)", "취업 연계(명)"], ["실적"], "성과지표")]
+
+
+def test_review_flags_names_not_in_ledger():
+    """대부분 행이 모은 활동 이름인 열에서 홀로 없는 이름(지어낸 활동)을 짚는다(11-23 18차)."""
+    from zzaimy.app import doc_review
+    rows = [["월", "주요 활동", "참여 인원(명)"], ["4월", "파이썬 기초 집중 캠프(1기)", "42"], ["5월", "AI 자격증 대비 특강", "55"],
+            ["7월", "하계 AI 프로젝트 부트캠프", "38"], ["8월", "교과목 개발 중간 점검", "확인 필요"]]
+    known = {"파이썬 기초 집중 캠프(1기)", "AI 자격증 대비 특강", "하계 AI 프로젝트 부트캠프", "《AI 경진대회 결과 보고》"}
+    assert doc_review.unknown_names(rows, known) == ["교과목 개발 중간 점검"]
+    doc = _hwpx(_p("2.1 월별 추진 실적", 2) + _table(rows, 100))
+    assert "교과목 개발 중간 점검" in doc_review.review(doc, "", known=known)
+
+
+def test_review_flags_same_number_in_two_columns_of_a_row():
+    from zzaimy.app import doc_review
+    doc = _hwpx(_p("3. 성과지표 달성 실적", 2) + _table(
+        [["성과지표", "목표", "실적", "달성률(%)"], ["교육 이수 인원(명)", "300", "264", "88.0"], ["산업체 협약(건)", "10", "10", "100.0"]], 100))
+    out = doc_review.review(doc, "")
+    assert "다른 열에 같은 수" in out and "산업체 협약" in out
