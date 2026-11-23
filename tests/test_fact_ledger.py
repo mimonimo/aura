@@ -773,3 +773,15 @@ def test_unpicked_mentions_lists_other_docs_with_item_numbers():
     out = fl.unpicked_mentions(["활동명", "학습 상담 건수"], docs[:1], docs)
     assert "《워크숍.docx》 「학습 상담」 27건" in out and "강좌" not in out
     assert fl.unpicked_mentions(["학습 상담 건수"], docs, docs) == ""
+
+
+def test_count_hint_picks_activity_even_with_digits_in_names():
+    # 29차 B: 「사업 운영위원회 1차 회의」 의 1 때문에 활동이 빠지고 값 없는 「운영 횟수」 를 distinct 로 권함 — 활동을 권하고, 빈 sum 을 알린다
+    db = FakeDB([])
+    its = ["과제", "활동", "운영 횟수", "참석자"]
+    docs = {"a": {"doc_id": 1, "title": "운영위 1차", "items": its, "records": [{"과제": "네트워크", "활동": "사업 운영위원회 1차 회의", "참석자": "5명", "quote": "a"}]},
+            "b": {"doc_id": 2, "title": "협의회", "items": its, "records": [{"과제": "네트워크", "활동": "협의회 정례 모임", "참석자": "19명", "quote": "b1"},
+                                                                          {"과제": "네트워크", "활동": "협의회 정례 모임", "참석자": "", "quote": "b2"}]}}
+    fl.save(db, 33, {"items": its, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 33, ["과제"], ["운영 횟수", "참석자"], count=True)
+    assert 'distinct: ["활동"]' in obs and "「운영 횟수」 값이 든 기록이 하나도 없다" in obs and 'distinct: ["운영 횟수"]' not in obs

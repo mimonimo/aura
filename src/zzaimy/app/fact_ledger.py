@@ -827,9 +827,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         many = [(show(k_), len(rs_), len({r['_doc'] for r in rs_})) for k_, rs_ in groups.items()
                 if len(rs_) > len({r['_doc'] for r in rs_}) and "(빈 값)" not in k_]
         if many:
-            nm_items = [it for it in items if it not in gnames_ and it not in sums and it != "날짜"
-                        and not any(number(r.get(it)) is not None for r in recs[:40] if str(r.get(it) or "").strip())]
-            pick = next((it for it in nm_items if re.search(r"활동|행사|프로그램|강좌|과정|사업명|과제명", it)), nm_items[0] if nm_items else "")
+            pick = _name_item(items, recs, set(gnames_) | set(sums))
             lab, n_, d_ = many[0]
             top.append(f"  (「기록 N개」 는 문서에서 뽑은 줄 수다 — 한 문서가 여러 기록으로 나뉜 묶음이 있다(「{lab}」 기록 {n_}개·문서 {d_}개). "
                        "운영 횟수·활동 수는 " + (f"distinct: [\"{pick}\"] 로 센 「{pick} N개」" if pick else "distinct 로 센 서로 다른 이름 수") + " 를 쓴다)")
@@ -848,6 +846,13 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             top.append(f"  (주의: 묶음 기준 {gl} 이 빈 기록에도 {', '.join(part[:3])} 이(가) 있다 — 이름 붙은 묶음 값은 일부일 뿐이다. "
                        "더한 항목 하나가 곧 행 하나(예: 수료자 → 강좌 수료자 행)이면 묶음 줄 말고 「합계 · 그 항목」 을 쓰고, "
                        "아니면 빈 기록의 기준 항목을 다시 모은다)")
+    # 더할 항목 값이 든 기록이 하나도 없다 — 29차 B: sum [운영 횟수] 가 모두 0 이자 운영 횟수를 「확인 필요」 로 둠(활동 수 5·4·3 이 정답)
+    empty_s = [s_ for s_ in sums if recs and not any(str(r.get(s_) or "").strip() for r in recs)]
+    if empty_s:
+        cnt_ = [s_ for s_ in empty_s if re.search(r"횟수|건수|개수|활동\s*수|회수", s_)]
+        pk_ = _name_item(items, recs, set(gnames_) | set(sums)) if cnt_ else ""
+        top.append(f"  (주의: {', '.join('「' + s_ + '」' for s_ in empty_s)} 값이 든 기록이 하나도 없다 — 문서에 그 이름의 수가 따로 적혀 있지 않다"
+                   + (f". 문서 하나가 한 번 운영한 활동이면 distinct: [\"{pk_}\"] 로 센 「{pk_} N개」 가 그 횟수다" if pk_ else "") + ")")
     obs[1:1] = top
     if filt_note:
         obs.append(filt_note)
@@ -898,6 +903,22 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     data["aggregates"] = (keep + ev)[-400:]
     save(db, session_id, data)
     return "\n".join(obs), ev
+
+
+def _name_item(items: list[str], recs: list[dict], skip: set) -> str:
+    """서로 다른 이름 수(활동 수)를 셀 항목 — 값이 든 기록이 절반 넘고 그 값이 수 꼴(「42명」)이 아닌 항목 가운데 활동·행사 같은 이름을 먼저.
+    「사업 운영위원회 1차 회의」 처럼 이름 속 수는 수 꼴이 아니다 — 29차 B: number() 로 걸러 활동이 빠지고 값 없는 「운영 횟수」·「핵심지표」 를 권함."""
+    def _numlike(v) -> bool:
+        return bool(re.fullmatch(r"[\d,.]+\s*[가-힣%]{0,3}", str(v).strip()))
+    ok = []
+    for it in items:
+        if it in skip or it == "날짜":
+            continue
+        has = [r for r in recs if str(r.get(it) or "").strip()]
+        vs = [r.get(it) for r in has]
+        if len({r.get("_doc") for r in has}) * 2 > len({r.get("_doc") for r in recs}) and not any(_numlike(v) for v in vs):
+            ok.append(it)
+    return next((it for it in ok if re.search(r"활동|행사|프로그램|강좌|과정|사업명|과제명", it)), ok[0] if ok else "")
 
 
 def _hk(s: str) -> str:
