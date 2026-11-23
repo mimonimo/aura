@@ -487,8 +487,31 @@ def _inherit(recs: list[dict], names: list[str]) -> list[dict]:
     return out
 
 
+def _filt_one(val: str, cond: str) -> bool:
+    c = cond.strip()
+    if c in ("*", "있음"):                                      # 그 항목 값이 있는 기록만(예: 참여 인원이 적힌 결과 보고만)
+        return bool(val.strip())
+    if c.startswith("!"):                                       # 「!운영위원회」 — 그 글이 든 기록은 뺀다(값이 빈 기록은 남긴다)
+        return not (c[1:].strip() and _filt_one(val, c[1:]))
+    c = c.strip("*")                                            # 「*운영위원회*」 — 별표는 앞뒤 아무 글(11-23 녹화: 글자 그대로 찾아 0건)
+    return bool(c) and (c in val or _norm(c) in _norm(val))
+
+
+def _filt_ok(val: str, cond) -> bool:
+    """거르기 조건 — 글 하나 또는 목록. 목록은 「!」 없는 조건 가운데 하나라도 맞고(없으면 통과) 「!」 조건은 모두 맞아야 한다."""
+    conds = [str(x) for x in cond] if isinstance(cond, (list, tuple)) else [str(cond)]
+    pos = [c for c in conds if not c.strip().startswith("!")]
+    neg = [c for c in conds if c.strip().startswith("!")]
+    return (not pos or any(_filt_one(val, c) for c in pos)) and all(_filt_one(val, c) for c in neg)
+
+
+def _excl_only(filt: dict) -> bool:
+    vals = [x for v in filt.values() for x in (v if isinstance(v, (list, tuple)) else [v])]
+    return bool(vals) and all(str(x).strip().startswith("!") for x in vals)
+
+
 def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: bool = True, filt: dict | None = None,
-              distinct="", share: bool = False, base=None) -> tuple[str, list[str]]:
+              distinct="", share: bool = False, base=None, documents=None) -> tuple[str, list[str]]:
     """(관찰 글, 근거 글 줄). 근거 글은 「묶음 · 항목: a+b+…=합」 꼴이라 수치 관문이 셈을 확인한다.
     distinct: 이 항목의 서로 다른 값 수를 센다(같은 활동이 결과 보고·집행 내역 여러 줄에 나와 건수가 부풀던 것 — 11-20 시험 「활동 17건」).
     share: 묶음마다 합계 대비 비율(%). base: 합계를 이 값(예: 총 사업비)에 견준 비율(%) — 비율도 근거 줄로 남긴다."""
@@ -510,15 +533,21 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                     + [str(x).strip() for x in _dl if str(x).strip()])
     all_recs = recs
     for k, v in (filt or {}).items():
-        if str(v).strip() in ("*", "있음"):                    # 그 항목 값이 있는 기록만(예: 참여 인원이 적힌 결과 보고만)
-            recs = [r for r in recs if str(r.get(k) or "").strip()]
-        else:
-            recs = [r for r in recs if str(v) in str(r.get(k) or "")]
+        recs = [r for r in recs if _filt_ok(str(r.get(k) or ""), v)]
+    if documents:
+        recs = [r for r in recs if _filt_ok(str(r.get("_doc") or ""), documents)]
     # 걸러 낸 기록에 더할 값이 들어 있었으면 알린다 — 11-22 6차: filter {활동: *} 로 활동 이름을 못 뽑은 캠프 기록(42명)이 빠져 4월이 0명
-    out_ = [r for r in all_recs if r not in recs and any(str(r.get(s_) or "").strip() for s_ in sums)] if filt else []
+    # 거르는 항목 값이 빈 기록만 — 값이 있어 조건에 안 맞은 기록(회의를 빼라 한 것)은 제대로 뺀 것이다
+    out_ = [r for r in all_recs if r not in recs and any(str(r.get(s_) or "").strip() for s_ in sums)
+            and not any(str(r.get(k) or "").strip() for k in filt)] if filt and not _excl_only(filt) else []
     filt_note = (f"  (filter 로 뺀 기록 가운데 {', '.join(sums)} 값이 든 것 {len(out_)}건: "
                  + ", ".join(f"《{r['_doc'][:20]}》 {'·'.join(str(r.get(s_)) for s_ in sums if r.get(s_))}" for r in out_[:4])
                  + " — 거르는 항목 값을 못 뽑았을 뿐 같은 묶음이면 filter 없이 다시 부른다)") if out_ else ""
+    gone = [r for r in all_recs if r not in recs] if (filt and _excl_only(filt)) or documents else []
+    if gone:                                                   # 뺀 기록을 보인다 — 무엇을 빼고 셌는지가 답의 근거다
+        filt_note = (f"  (조건으로 뺀 기록 {len(gone)}건: "
+                     + ", ".join(f"《{str(r.get('_doc'))[:20]}》" + (f" {'·'.join(str(r.get(s_)) for s_ in sums if r.get(s_))}" if sums else "")
+                                 for r in gone[:6]) + ")")
     # distinct 는 이름 하나나 목록 — 모델이 ["활동"] 으로 주자 「['활동']」 을 이름으로 읽어 막았고, 모델이 집계를 버리고
     # search 로 돌아가 월별·분야별 합계가 빈 채로 남았다(11-20 2차 시험)
     dl = distinct if isinstance(distinct, (list, tuple)) else re.split(r"[,/]\s*", str(distinct or ""))

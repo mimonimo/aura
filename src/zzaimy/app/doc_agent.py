@@ -336,12 +336,24 @@ EMPTY_ANSWER = ("{name} 가 빈 답을 돌려줬다(모델이 답 글을 내지 
                 "정리해 담당자에게 알린다.")
 
 
+TOOL_WORDS = {"search": "자료 찾기", "read_found": "찾은 문서 읽기", "read_document": "문서 읽기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
+              "delegate_section": "절 맡겨 쓰기", "hwp_start": "작업본 열기", "hwp_replace": "글 바꾸기", "hwp_table_edit": "표 고치기",
+              "hwp_table_view": "표 보기", "collect_facts": "실적 모으기", "aggregate_facts": "실적 집계"}
+
+
+def plain_tool_names(msg: str, names) -> str:
+    """끝맺음 글에 든 도구 이름(aggregate_facts)을 쉬운 말(실적 집계)로 — 11-23 녹화: 담당자 답에 「aggregate_facts 도구가…」 가 그대로 나왔다.
+    말로 바꿀 이름이 없는 도구는 「도구」 로. 영문 낱말 경계로만 바꾼다(문서 글 속 영어는 건드리지 않는다)."""
+    for n in sorted(names, key=len, reverse=True):
+        if "_" in n and n in msg:
+            msg = re.sub(rf"(?<![A-Za-z_]){re.escape(n)}(?![A-Za-z_])", TOOL_WORDS.get(n, "도구"), msg)
+    return re.sub(r"도구 도구", "도구", msg)
+
+
 def _fallback_finish(log: list[str]) -> str:
     """모델이 끝맺음 글을 두 번 비웠을 때 — 걸음 기록(도구 이름·결과 요약)으로 무엇을 했는지만 알린다. 문서 글을 옮기지 않는다."""
     done = [ln.split(" ", 2)[1] for ln in log if ln and "→" in ln and "거절" not in ln and "하지 않음" not in ln and len(ln.split(" ", 2)) > 1]
-    names = {"search": "자료 찾기", "read_found": "찾은 문서 읽기", "read_document": "문서 읽기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
-             "delegate_section": "절 맡겨 쓰기", "hwp_start": "작업본 열기", "hwp_replace": "글 바꾸기",
-             "collect_facts": "실적 모으기", "aggregate_facts": "실적 집계"}
+    names = TOOL_WORDS
     did = ", ".join(dict.fromkeys(names.get(n, n) for n in done if n != "finish"))
     return ("요청을 처리했지만 모델이 끝맺음 글을 내지 못했습니다." + (f" 이번에 한 일: {did}." if did else "")
             + " 결과는 오른쪽 문서와 위 기록에서 확인해 주세요. 더 할 일이 있으면 이어서 말해 주세요.")
@@ -601,7 +613,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 # 굵은 글씨(**…**)·제목 기호는 걷는다 — 「**채운 내용:**」 처럼 답이 AI 투로 보였다(11-15 실사용). 글은 그대로
                 msg_ = re.sub(r"\*\*(.+?)\*\*", r"\1", str(args["message"]), flags=re.S)
                 msg_ = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", msg_)
-                args = dict(args, message=msg_)
+                args = dict(args, message=plain_tool_names(msg_, reg))
             if name == "finish" and not str(args.get("message") or "").strip():
                 # 되물어도 비었다 — 도구가 실패했으면 실패 안내, 아니면 한 일을 걸음 기록으로 알린다(빈 화면으로 끝내지 않게)
                 args = dict(args, message=failure_message(ep) if ep.failures else _fallback_finish(log))

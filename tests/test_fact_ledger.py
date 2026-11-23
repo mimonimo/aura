@@ -597,3 +597,26 @@ def test_bracketed_unit_in_item_is_not_a_label_word():
     doc2 = "세미나 참여 61명. 교육 이수 인원 24명."
     kept2, _ = fl.validate([{"교육 이수 인원(명)": "61명", "quote": "세미나 참여 61명."}], ["교육 이수 인원(명)"], doc2)
     assert not kept2 or kept2[0]["교육 이수 인원(명)"] == ""
+
+
+def test_aggregate_filter_can_exclude_and_match_globs_and_documents():
+    # 「운영위원회 회의 참석자는 빼고 다시 계산해 줘」 — 빼는 조건이 없어 되풀이하다 못 고치던 것(11-23 녹화)
+    docs = [{"id": 1, "filename": "강좌.docx", "masked_text": "2026년 4월 7일 생활 속 디지털 기초 강좌. 참석자 36명."},
+            {"id": 2, "filename": "회의.docx", "masked_text": "2026년 4월 2일 사업 운영위원회 1차 회의. 참석 운영위원 5명."}]
+    ans = {"강좌": [{"날짜": "2026년 4월 7일", "활동": "생활 속 디지털 기초 강좌", "참석자": "36명", "quote": "참석자 36명."}],
+           "회의": [{"날짜": "2026년 4월 2일", "활동": "사업 운영위원회 1차 회의", "참석자": "5명", "quote": "참석 운영위원 5명."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 9, docs, ["날짜", "활동", "참석자"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, ev = fl.aggregate(db, 9, ["날짜:분기"], ["참석자"], filt={"활동": "!운영위원회"})
+    assert "36명" in obs and "41명" not in obs and "뺀 기록 1건" in obs
+    obs2, _ = fl.aggregate(db, 9, ["날짜:분기"], ["참석자"], filt={"활동": "*운영위원회*"})
+    assert "5명" in obs2 and "36명" not in obs2
+    obs3, _ = fl.aggregate(db, 9, ["날짜:분기"], ["참석자"], documents=["!회의"])
+    assert "36명" in obs3 and "41명" not in obs3
+
+
+def test_final_answer_shows_plain_words_not_tool_names():
+    from zzaimy.app.doc_agent import plain_tool_names
+    out = plain_tool_names("aggregate_facts 도구가 회의를 빼지 못했다. aggregate_facts 결과로 인정되지 않았다. hwp_undo 로 되돌림. my_var 은 그대로",
+                           ["aggregate_facts", "hwp_undo"])
+    assert "aggregate_facts" not in out and "hwp_undo" not in out and "실적 집계 도구가" in out and "my_var" in out

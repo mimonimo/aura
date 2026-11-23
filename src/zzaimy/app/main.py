@@ -3186,7 +3186,8 @@ def create_app(
                 return [x_ for x_ in re.split(r"[,/]\s*", v_) if x_.strip()] if isinstance(v_, str) else list(v_ or [])
             obs_, ev_ = _fl.aggregate(db, session_id, _list(a.get("group_by")), _list(a.get("sum")), count=a.get("count") is not False,
                                       filt=a.get("filter") if isinstance(a.get("filter"), dict) else None,
-                                      distinct=a.get("distinct") or "", share=a.get("share") in (True, "true", "True", 1, "1"), base=a.get("base"))
+                                      distinct=a.get("distinct") or "", share=a.get("share") in (True, "true", "True", 1, "1"), base=a.get("base"),
+                                      documents=a.get("documents") or None)
             if ev_:
                 body_ = "\n".join(ev_)
                 notes.append(f"◇ {a.get('for') or '실적 집계'} — 모은 기록 집계(코드가 더한 값)\n{body_}")
@@ -3582,7 +3583,8 @@ def create_app(
                            "같은 활동이 여러 문서·여러 줄(결과 보고와 집행 내역)에 나오면 건수 대신 distinct 로 활동 수를 센다. 비율은 share·base 로 코드가 낸다. "
                            "args {group_by: [묶을 항목], sum: [더할 수 항목], count?: 기록 건수도 셀지(기본 true), distinct?: 서로 다른 값 수를 셀 항목(예: 활동), "
                            "share?: 묶음별 합계 비율(%)도 낼지, base?: 합계를 견줄 기준값(예: 총 사업비 300000000 → 집행률), "
-                           "filter?: {항목: 들어 있어야 할 글, 또는 \"*\"(그 항목 값이 있는 기록만)}}",
+                           "filter?: {항목: 들어 있어야 할 글, \"*\"(그 항목 값이 있는 기록만), \"!글\"(그 글이 든 기록은 뺀다), 또는 그 목록}, "
+                           "documents?: [이 문서 이름이 든 기록만 — \"!이름\" 은 그 문서를 뺀다]}",
                            t_aggregate, gathers=True, refreshes=True),   # 집계는 새 근거 줄을 남긴다 — 앞서 막힌 같은 쓰기는 다시 해 본다(11-22 10차)
             doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
             doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",
