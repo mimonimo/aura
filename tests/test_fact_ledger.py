@@ -571,3 +571,29 @@ def test_aggregate_points_at_numbers_after_group_names_in_quotes():
     fl.collect(db, 8, docs, ["성과"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 8, ["성과"], [])
     assert "묶음 이름 바로 뒤의 수" in obs and "4건" in obs and '"성과 실적"' in obs
+
+
+def test_group_name_number_hint_also_when_summed_item_is_zero_for_that_group():
+    # sum 에 인원을 주었어도 협약 묶음의 인원이 0 이면 인용 속 「산업체 협약」 실적 수를 가리킨다(11-23 녹화: 협약 실적을 기록 수 3 으로 씀)
+    docs = [{"id": 11, "filename": "협약 1.docx", "masked_text": "가상테크 외 3개사와 협약하였다. 이번 활동으로 성과지표 「산업체 협약」 실적 4건을 거두었다."},
+            {"id": 12, "filename": "협약 2.docx", "masked_text": "가상로보틱스 외 2개사와 협약하였다. 이번 활동으로 성과지표 「산업체 협약」 실적 3건을 거두었다."},
+            {"id": 13, "filename": "캠프.docx", "masked_text": "캠프에 학생 42명이 참여하였다. 성과지표 「교육 이수 인원」 에 반영한다."}]
+    ans = {"협약 1": [{"성과": "산업체 협약", "quote": "이번 활동으로 성과지표 「산업체 협약」 실적 4건을 거두었다."}],
+           "협약 2": [{"성과": "산업체 협약", "quote": "이번 활동으로 성과지표 「산업체 협약」 실적 3건을 거두었다."}],
+           "캠프": [{"성과": "교육 이수 인원", "참여 인원": "학생 42명", "quote": "캠프에 학생 42명이 참여하였다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 8, docs, ["성과", "참여 인원"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 8, ["성과"], ["참여 인원"])
+    assert "묶음 이름 바로 뒤의 수" in obs and "4건" in obs
+
+
+def test_bracketed_unit_in_item_is_not_a_label_word():
+    # 「집행액(천원)」 으로 지출 내역 표(머리 「지출액(원)」)를 읽으면 행에는 「천원」 이 없다 — 금액이 지워지면 안 된다(11-23 녹화)
+    doc = "지출일자 | 세목 | 지출액(원)\n2026.04.07 | 홍보비 | 3150000\n2026.04.21 | 강사료 | 2600000"
+    recs = [{"세목": "홍보비", "집행액(천원)": "3150000", "quote": "2026.04.07 | 홍보비 | 3150000"}]
+    kept, dropped = fl.validate(recs, ["세목", "집행액(천원)"], doc)
+    assert dropped == 0 and kept[0]["집행액(천원)"] == "3150000"
+    # 괄호 밖 낱말은 그대로 본다 — 다른 활동 인원을 「교육 이수 인원(명)」 으로 뽑은 값은 지운다
+    doc2 = "세미나 참여 61명. 교육 이수 인원 24명."
+    kept2, _ = fl.validate([{"교육 이수 인원(명)": "61명", "quote": "세미나 참여 61명."}], ["교육 이수 인원(명)"], doc2)
+    assert not kept2 or kept2[0]["교육 이수 인원(명)"] == ""

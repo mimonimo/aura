@@ -126,8 +126,10 @@ _GENERIC_ITEM = {"인원", "수", "건수", "금액", "명", "실적", "값", "�
 def _label_near(item: str, value: str, body: str, window: int = 50) -> bool:
     """여러 낱말로 된 항목(「교육 이수 인원」)의 수 값은 문서에서 그 값 바로 앞(window 글자)에 항목의 고유 낱말(교육·이수)이 모두 있어야 한다.
     모델이 다른 활동의 참여 인원(세미나 61명)을 「교육 이수 인원」 으로 뽑아 지표 실적이 264→354 로 부풀던 것(11-22 4차).
-    낱말 하나짜리 항목(금액·날짜)·수가 아닌 값은 보지 않는다."""
-    words = [w for w in re.findall(r"[가-힣A-Za-z]{2,}", item) if w not in _GENERIC_ITEM]
+    낱말 하나짜리 항목(금액·날짜)·수가 아닌 값은 보지 않는다.
+    괄호 안 단위(「집행액(천원)」 의 천원)는 항목 낱말이 아니다 — 표 행에는 단위가 머리에만 있어(「지출액(원)」) 값 앞에 「천원」 이 없다.
+    11-23 녹화: 지출 내역 24행의 금액이 모두 지워져 세목별 집행액이 「확인 필요」 로 남았다."""
+    words = [w for w in re.findall(r"[가-힣A-Za-z]{2,}", re.sub(r"\([^)]*\)", " ", item)) if w not in _GENERIC_ITEM]
     if len(words) < 2 or not re.search(r"\d", value or ""):
         return True
     v = _norm(value)
@@ -693,8 +695,13 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     # 보고 실적을 문서 수(3)로 썼다(11-23 22차: 산업체 협약 3, 정답 4+3+2=9). 무엇을 모을지는 모델이 정한다 — 인자만 보인다
     nums_after: list[str] = []
     gi = [i for i, g in enumerate(group_by) if not g.partition(":")[2]]
-    if gi and not any(s_ in items for s_ in sums if s_ not in auto_sum):
+    explicit = [s_ for s_ in sums if s_ in items and s_ not in auto_sum]
+    if gi:
         for key, rs in groups.items():
+            # 더한 항목이 있으면 그 합이 0 인 묶음만 본다 — 11-23 녹화: sum 「참여 인원」 으로 묶자 협약·교과목 묶음은 인원 0,
+            # 실적은 기록 수(3)로 씀(정답 9·5). 합이 있는 묶음은 그 값이 실적일 수 있어 보지 않는다
+            if explicit and any((nv(r, s_) or 0) for r in rs for s_ in explicit):
+                continue
             for i in gi:
                 nm = key[i]
                 if not nm or nm in ("(빈 값)",) or number(nm) is not None:
