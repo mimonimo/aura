@@ -687,3 +687,12 @@ def test_nameless_rows_flags_value_rows_without_row_name():
     ok = [["세목", "집행액(천원)"], ["강사료", "11,400"], ["운영비", "22,700"], ["", ""]]
     assert nameless_rows(ok) == []
     assert nameless_rows([["분기", "참석자"], ["", "확인 필요"], ["", "확인 필요"]]) == []
+
+
+def test_twin_columns_flags_value_copied_to_two_columns():
+    # 28차 A 짧게: 「목표」 열에 실적이 남아 「264 | 264 | 확인 필요」
+    from zzaimy.app.doc_review import twin_columns
+    rows = [["지표", "목표", "실적", "달성률"], ["교육 이수", "264", "264", "확인 필요"], ["협약", "9", "9", "확인 필요"], ["취업", "31", "31", ""]]
+    assert twin_columns(rows) == ("목표", "실적", 3)
+    rows2 = [["지표", "목표", "실적", "달성률"], ["교육 이수", "300", "264", "88.0"], ["협약", "9", "9", "100.0"]]
+    assert twin_columns(rows2) is None

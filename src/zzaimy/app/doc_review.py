@@ -160,6 +160,21 @@ def nameless_rows(rows: list[list[str]]) -> list[str]:
     return bad if bad and (named or len(bad) >= 2) else []
 
 
+def twin_columns(rows: list[list[str]]) -> tuple[str, str, int] | None:
+    """두 수 열에 같은 수가 나란히 든 행이 여럿 — 한 값을 두 열에 넣은 꼴. 28차 A 짧게: 실적을 hwp_fill 로 넣자 「목표」 열에 들어가고,
+    set_cells 로 실적 열을 채운 뒤에도 목표 칸에 실적이 남아 「264 | 264 | 확인 필요」 로 끝났다. 목표=실적인 행이 하나뿐이면 짚지 않는다."""
+    if len(rows) < 3 or len(rows[0]) < 3:
+        return None
+    head = rows[0]
+    best = None
+    for i in range(1, len(head) - 1):
+        for j in range(i + 1, len(head)):
+            n = sum(1 for r in rows[1:] if len(r) > j and re.fullmatch(r"[\d,.]+", r[i].strip() or "x") and r[i].strip() == r[j].strip())
+            if n >= 2 and (not best or n > best[2]):
+                best = (head[i].strip(), head[j].strip(), n)
+    return best
+
+
 def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
@@ -245,6 +260,10 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
             if nl_:
                 issues.append(f"「{label}」 표{tno} 에 행 이름(첫 칸)이 빈 행이 {len(nl_)}개다(「{nl_[0]}」 등) — 무엇의 값인지 알 수 없다. "
                               "근거의 이름(세목·과제·지표 이름)을 첫 칸에 넣는다(hwp_table_edit set_cells start: [행, 1]).")
+            tw_ = twin_columns(rows)
+            if tw_:
+                issues.append(f"「{label}」 표{tno} 의 「{tw_[0][:12]}」 열과 「{tw_[1][:12]}」 열에 같은 수가 든 행이 {tw_[2]}개다 — "
+                              "한 값을 두 열에 넣었는지 본다. 그 열 값이 근거에 없으면 「확인 필요」 로 바꾼다(hwp_table_edit set_cells).")
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")
