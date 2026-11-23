@@ -635,3 +635,15 @@ def test_period_item_is_collected_as_date_and_missing_dates_are_warned():
     assert "2분기" in agg or "2026-Q2" in agg
     assert "날짜를 읽지 못한 기록" in agg and "19" in agg
     assert fl.quarter_of("3분기") == "3분기" and fl.quarter_of("2026. 5. 12.") == "2026-Q2"
+
+
+def test_for_table_says_plainly_when_row_names_appear_in_quotes():
+    # 11-23 4차 녹화 01: 핵심지표 행 이름이 결과서 인용에 나오는데 「적혀 있으면」 조건만 보고 담당자에게 물었다
+    docs = [{"id": 1, "filename": "강좌.docx", "masked_text": "수강생 25명이 수료하였다. 이 결과는 핵심지표 「강좌 수료자」 달성치에 25명으로 반영한다."},
+            {"id": 2, "filename": "상담.docx", "masked_text": "상담 44건. 이 결과는 핵심지표 「학습 상담」 달성치에 44건으로 반영한다."}]
+    ans = {"강좌": [{"활동": "강좌", "quote": "이 결과는 핵심지표 「강좌 수료자」 달성치에 25명으로 반영한다."}],
+           "상담": [{"활동": "상담", "quote": "이 결과는 핵심지표 「학습 상담」 달성치에 44건으로 반영한다."}]}
+    db = FakeDB(docs)
+    fl.collect(db, 12, docs, ["활동"], FakeClient(ans), title_of=_title, parallel=1)
+    out = fl.for_table(db, 12, ["강좌 수료자(명)", "학습 상담(건)"], ["목표치", "달성치"], "핵심지표", dry=True)
+    assert "인용에" in out and "「강좌 수료자」 1개 문서" in out and "collect_facts {items: [핵심지표, 목표치, 달성치]}" in out

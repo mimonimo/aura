@@ -229,3 +229,14 @@ def test_after_editing_the_answer_tool_is_redirected_to_finish_once():
     ep = doc_agent.run(_client(replies), "작업본 점검해 줘", lambda: "상태", tools)
     assert not asked and ep.finished and ep.final_message == "표3 합계 행을 넣었습니다"
     assert "finish 의 message" in ep.steps[2]["observation"]
+
+
+def test_ask_user_after_editing_is_not_redirected():
+    # 고친 뒤에도 담당자에게 묻기(ask_user)는 그대로 — 끝맺음 돌림은 답을 지어 내는 답하기 도구에만(11-23 4차 녹화 01: 묻기가 막힘)
+    asked = []
+    tools = [doc_agent.Tool("hwp_table_edit", "표 고치기", lambda a: "표3: 칸 1개에 값을 넣었다", writes=True),
+             doc_agent.Tool("ask_user", "묻기", lambda a: asked.append(1) or "물었다", final=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    replies = [_step("hwp_table_edit", table=3), _step("ask_user", items=[{"name": "달성치"}])]
+    ep = doc_agent.run(_client(replies), "보고서 써 줘", lambda: "상태", tools)
+    assert asked and ep.finished

@@ -818,8 +818,20 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
     hk = [_hk(h) for h in heads if _hk(h)]
     if not best or got < max(2, (len(keys) + 1) // 2):
         want = [re.sub(r"\s*\([^)]*\)\s*$", "", h).strip() for h in [label_head, *heads] if _hk(h)]
+        if not want:
+            return ""
+        call_ = f"collect_facts {{items: [{', '.join(dict.fromkeys(want[:4]))}]}}"
+        # 모은 기록의 인용에 행 이름이 나오면 문서에 그 이름별 값이 있다는 뜻 — 조건 없이 그 부르기를 권한다.
+        # 11-23 4차 녹화 01: 「적혀 있으면」 조건만 보고 핵심지표 달성치를 담당자에게 물어 「확인 필요」 로 남김(결과서마다 「강좌 수료자」 달성치가 적혀 있다)
+        names_ = [re.sub(r"\s*\([^)]*\)\s*$", "", x).strip() for x in labs]
+        seen_ = {n_: len({r.get("_doc") for r in recs if n_ and _norm(n_) in _norm(str(r.get("quote") or ""))}) for n_ in names_}
+        hit_ = {n_: c_ for n_, c_ in seen_.items() if c_}
+        if hit_:
+            return (f" 행 이름({', '.join(labs[:3])}…)이 실적 장부의 항목 값과 맞지 않지만, 모은 기록의 인용에 "
+                    + ", ".join(f"「{n_}」 {c_}개 문서" for n_, c_ in list(hit_.items())[:4])
+                    + f" 가 나온다 — 문서에 이 이름별 값이 있다. 담당자에게 묻기 전에 {call_} 로 모은 뒤 aggregate_facts 로 묶는다.")
         return (f" 행 이름({', '.join(labs[:3])}…)이 실적 장부의 어느 항목 값과도 맞지 않는다 — 문서에 그 이름별 값이 적혀 있으면 "
-                f"collect_facts {{items: [{', '.join(dict.fromkeys(want[:4]))}]}} 로 행 이름 항목과 값 항목을 모은 뒤 aggregate_facts 로 묶는다.") if want else ""
+                f"{call_} 로 행 이름 항목과 값 항목을 모은 뒤 aggregate_facts 로 묶는다.")
     if dry:
         return ""                                            # 행 이름이 장부 항목 값과 맞는다 — 묶을 수 있음(묶지는 않음)
     sums, dist = [], []

@@ -586,7 +586,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             tried = ", ".join(f"「{x[:30]}」" for x in dict.fromkeys(noop_args.get(name, [])) if x)[:200]
             note = (f"{name} 가 잇달아 {noop_run[name]}번 아무것도 바꾸지 못했다{(' (' + tried + ')') if tried else ''} — 이번 요청에서는 더 하지 않는다. "
                     "찾던 글이 이 작업본에 없으면 다른 작업본에 있는지 결과 안내를 보고 hwp_switch 하거나, finish 로 무엇을 찾지 못했는지 담당자에게 알린다.")
-        elif (tool.final and not tool.writes and name != "finish" and changed and "finish" in reg
+        elif (tool.final and tool.needs_evidence and not tool.writes and name != "finish" and changed and "finish" in reg
               and not after_write_told and not last):
             # 고친 뒤 끝맺음을 답하기 도구로 하면 그 도구는 이번에 한 일을 모른다 — 11-23 녹화(끝 점검): 하지 않은 수정
             # (8월·11월 0→54·87)을 「교정한 곳」 으로 적고 수치마다 근거 확인 필요가 붙었다. 한 번 알리고 다시 고르면 따른다
