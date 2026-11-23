@@ -917,6 +917,30 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     return "\n".join(obs), ev
 
 
+def base_unfounded(base, texts: list[str]) -> str:
+    """aggregate 의 base(총 사업비 등 큰 금액)가 근거 문서·담당자 글에 없는 값이면 알림 글 — 30차 B 한번에: 「1억 2천만 원」 을 12,000,000 으로
+    옮겨 base 로 주자 그 값이 집계 근거 줄에 남아, 관문에 막히던 「12,000」(천원)이 표에 들어갔다. 쓰는 쪽은 비율 근거 줄을 남기지 않는다."""
+    from zzaimy.verify import numbers as _vn
+    bn = number(str(base)) if base not in (None, "") else None
+    if bn is None or bn < 10000:
+        return ""
+    b = int(bn)
+    money: set[int] = set()
+    for t in texts:
+        for x in _vn.scaled_values(t or ""):
+            try:
+                money.add(int(Decimal(str(x).replace(",", ""))))
+            except (InvalidOperation, ValueError):
+                pass
+    plain = {int(re.sub(r"\D", "", m.group(0))) for t in texts for m in re.finditer(r"\d[\d,]{3,}", t or "") if re.sub(r"\D", "", m.group(0))}
+    if b in money or b in plain:
+        return ""
+    near = sorted({m for m in money if any(m == b * k or m * k == b for k in (10, 100, 1000, 10000))})
+    return (f"  (주의: 기준값(base) {b:,} 이 근거 문서·담당자 글에 없다"
+            + (f" — 근거 금액 {', '.join(f'{x:,}원' for x in near[:2])} 과 자릿수만 다르다" if near else "")
+            + ". 문서에 적힌 금액을 원 단위 그대로(예: 1억 2천만 원 → 120000000) base 로 준다. 이 비율은 근거로 남기지 않았다)")
+
+
 def _name_item(items: list[str], recs: list[dict], skip: set) -> str:
     """서로 다른 이름 수(활동 수)를 셀 항목 — 값이 든 기록이 절반 넘고 그 값이 수 꼴(「42명」)이 아닌 항목 가운데 활동·행사 같은 이름을 먼저.
     「사업 운영위원회 1차 회의」 처럼 이름 속 수는 수 꼴이 아니다 — 29차 B: number() 로 걸러 활동이 빠지고 값 없는 「운영 횟수」·「핵심지표」 를 권함."""

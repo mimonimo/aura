@@ -814,3 +814,12 @@ def test_quoted_number_hint_skips_records_already_summed():
     fl.save(db, 35, {"items": its, "live": list(docs), "docs": docs})
     obs, _ = fl.aggregate(db, 35, ["지표"], ["수료자", "연계 기관"])
     assert "「지역 기관 연계」 3곳" in obs and "「강좌 수료자」 38명" not in obs
+
+
+def test_base_unfounded_flags_scaled_base():
+    # 30차 B 한번에: 1억 2천만 원을 12,000,000 으로 옮겨 base 로 줌
+    texts = ["총 사업비는 1억 2천만 원이다.", "지출액 3150000"]
+    out = fl.base_unfounded(12000000, texts)
+    assert "12,000,000 이 근거" in out and "120,000,000원" in out
+    assert fl.base_unfounded(120000000, texts) == "" and fl.base_unfounded(250, texts) == ""
+    assert fl.base_unfounded("3,150,000", texts) == ""

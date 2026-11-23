@@ -3198,6 +3198,16 @@ def create_app(
             except Exception:
                 return ""
 
+        def _base_unfounded(base) -> str:
+            """aggregate 의 base 가 근거 문서·담당자 글에 없는 값이면 알림(fact_ledger.base_unfounded)."""
+            from zzaimy.app import fact_ledger as _fl
+            try:
+                texts_ = [str(d_.get("masked_text") or "") for d_ in _fact_docs(None)] + [q]
+                texts_ += [str(c_.get("content") or "") for c_ in db.list_chats(session_id) if c_.get("role") == "user"]
+            except Exception:
+                return ""
+            return _fl.base_unfounded(base, texts_)
+
         def t_aggregate(a: dict) -> str:
             from zzaimy.app import fact_ledger as _fl
 
@@ -3207,6 +3217,10 @@ def create_app(
                                       filt=a.get("filter") if isinstance(a.get("filter"), dict) else None,
                                       distinct=a.get("distinct") or "", share=a.get("share") in (True, "true", "True", 1, "1"), base=a.get("base"),
                                       documents=a.get("documents") or None)
+            base_note_ = _base_unfounded(a.get("base"))
+            if base_note_:                                   # 근거에 없는 기준값으로 낸 비율 줄은 근거로 남기지 않는다(그 값이 근거가 돼 버린다)
+                ev_ = [x_ for x_ in ev_ if "기준값" not in x_]
+                obs_ = base_note_ + "\n" + obs_
             if ev_:
                 body_ = "\n".join(ev_)
                 notes.append(f"◇ {a.get('for') or '실적 집계'} — 모은 기록 집계(코드가 더한 값)\n{body_}")
