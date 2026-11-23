@@ -1272,6 +1272,7 @@ class HwpTools:
         m = webhwp.meta(self.db, fid)
         m["session"] = self.sid
         m["start_texts"] = _eo_st.unit_texts(data)[:1500]       # 만들 때 글 — 뒤에 새로 쓴 글과 원래 문서 글을 가린다(leftovers_text)
+        m["start_cells"] = _eo_st.number_cells(data)            # 만들 때 수 칸(자리 → 글) — 끝 다시 읽기에서 그대로 남은 작년 값을 자리로 찾는다
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
         self._keep_guides(fid, rep.get("guides") or {})
         attach(self.db, self.sid, fid)

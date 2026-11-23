@@ -3682,6 +3682,54 @@ def new_text_count(data: bytes, start: list[str] | None) -> int:
         return 0
 
 
+_NUM_CELL = re.compile(r"[\d,]*\d[\d,]*(?:\.\d+)?\s*(?:명|건|개|곳|회|과목|개사|%|원|천원|만원)?")
+
+
+def number_cells(data: bytes) -> dict[str, str]:
+    """표 칸 가운데 수 하나만 든 칸의 자리와 글 — {「표4:4,3」: 「21」}. 작업본을 만들 때 적어 두고 끝 다시 읽기에서 견준다."""
+    try:
+        us = _units(_Doc(data))
+    except EditError:
+        return {}
+    # 열쇠는 「행 이름|열 머리」 — 표를 더하거나 지우면 표 번호가 밀려(11-23 4차 녹화: 표4→표5) 번호로는 같은 칸을 못 찾는다
+    txt = {u["id"]: (u.get("text") or "").strip() for u in us if u.get("cell")}
+    out: dict[str, str] = {}
+    for k, t in txt.items():
+        m = re.fullmatch(r"(표\d+):(\d+),(\d+)", k)
+        if not m or not _NUM_CELL.fullmatch(t) or len(re.sub(r"\D", "", t)) < 2:
+            continue
+        row = txt.get(f"{m.group(1)}:{m.group(2)},1", "")
+        head = txt.get(f"{m.group(1)}:1,{m.group(3)}", "")
+        if row and head and row != t:
+            out[f"{_ukey(row)}|{_ukey(head)}"] = t + "\x00" + k
+    return out
+
+
+def numbers_from_start(data: bytes, start) -> list[str]:
+    """표 칸 가운데 글이 작업본을 만들 때(지난 문서)와 그대로 같은 수 칸 — 「표4:4,3 「21」」. 지난해 값이 남았을 수 있는 자리.
+    11-23 4차 녹화 09b·11: 성과지표 표의 취업 연계 실적 칸에 작년 값 21 이 남았는데 끝 점검이 「작년 값 없음」 이라 했다.
+    같은 값이 올해도 맞을 수 있어 막지 않고 보이기만 한다(한 자리 수는 번호·차례일 수 있어 뺀다)."""
+    if isinstance(start, dict):                               # 자리로 견준다(같은 자리에 같은 글) — 다른 자리에 우연히 같은 수는 잡지 않는다
+        now = number_cells(data)
+        return [f"{v.split(chr(0))[1]} 「{v.split(chr(0))[0]}」" for k, v in now.items()
+                if k in start and start[k].split("\x00")[0] == v.split("\x00")[0]]
+    st = set(start or [])
+    if not st:
+        return []
+    try:
+        us = _units(_Doc(data))
+    except EditError:
+        return []
+    out = []
+    for u in us:
+        t = (u.get("text") or "").strip()
+        if not u.get("cell") or _ukey(t) not in st:
+            continue
+        if re.fullmatch(r"[\d,]*\d[\d,]*(?:\.\d+)?\s*(?:명|건|개|곳|회|과목|개사|%|원|천원|만원)?", t) and len(re.sub(r"\D", "", t)) >= 2:
+            out.append(f"{u['id']} 「{t}」")
+    return out
+
+
 def leftovers_text(data: bytes, limit: int = 140, start: list[str] | None = None) -> str:
     """작업본에 남은 글 목록(번호·글) — 지난 문서로 시작한 작업본에서 무엇을 남기고 무엇을 지울지 에이전트가 판단하게 보인다.
     start(작업본을 만들 때의 글 열쇠)를 주면 그 뒤 새로 쓴 글에 표시를 단다 — 11-23 시연: 다 채운 올해 결과보고서를 「짜임만 남긴

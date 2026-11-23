@@ -237,3 +237,13 @@ def test_field_cell_where_names_the_column_of_a_filled_cell():
     doc = _hwpx(_p("3. 성과지표", 2) + xml)
     w = eo.field_cell_where(doc, "칸:교육 이수 인원(명)")
     assert w.startswith("표1 2행") and "「목표」 열" in w and "300 | 264" in w
+
+
+def test_numbers_left_from_last_year_are_found_by_row_and_column_even_if_tables_shift():
+    # 11-23 4차 녹화: 성과지표 표의 취업 연계 실적 칸에 작년 값 21 이 남았는데 끝 점검이 못 찾음 — 표 번호가 밀려도 행·열로 찾는다
+    kpi_old = [["성과지표", "목표", "실적"], ["취업 연계(명)", "30", "21"], ["교과목 개발(개)", "4", "13"]]
+    kpi_new = [["성과지표", "목표", "실적"], ["취업 연계(명)", "40", "21"], ["교과목 개발(개)", "6", "15"]]
+    old = _hwpx(_p("3. 성과지표", 2) + _table(kpi_old, 100))
+    new = _hwpx(_p("2. 추가 표", 1) + _table([["구분", "내용"], ["가", "나"]], 50) + _p("3. 성과지표", 2) + _table(kpi_new, 100))
+    hits = eo.numbers_from_start(new, eo.number_cells(old))
+    assert hits == ["표2:2,3 「21」"]

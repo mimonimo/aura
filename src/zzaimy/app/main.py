@@ -248,7 +248,18 @@ def _doc_review_text(hw, request: str) -> str:
                          and v.strip() and _fl.number(v) is None}
         except Exception:
             known = None
-    return _dr.review(raw_, request, ledger=led, known=known)
+    out_ = _dr.review(raw_, request, ledger=led, known=known)
+    try:                                                     # 지난 문서에서 시작한 작업본 — 글자가 그대로인 수 칸(작년 값이 남았을 수 있음)
+        from zzaimy.app import webhwp_edit_ops as _eo_r
+        meta_ = _wh.meta(hw.db, fid) or {}
+        same_ = _eo_r.numbers_from_start(raw_, meta_.get("start_cells") or meta_.get("start_texts"))
+        if same_:
+            out_ += ("\n\n작업본을 만들 때(지난 문서)와 글자가 그대로인 수 칸 " + str(len(same_)) + "곳: " + ", ".join(same_[:12])
+                     + (" …" if len(same_) > 12 else "") + " — 작년 값이 남은 것인지 올해 근거와 대 본다(올해도 같은 값이면 그대로 둔다). "
+                     "번호는 hwp_clear {ids} 와 같은 「표N:행,열」 이다.")
+    except Exception:
+        pass
+    return out_
 
 
 def create_app(
