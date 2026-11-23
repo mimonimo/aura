@@ -620,3 +620,18 @@ def test_final_answer_shows_plain_words_not_tool_names():
     out = plain_tool_names("aggregate_facts 도구가 회의를 빼지 못했다. aggregate_facts 결과로 인정되지 않았다. hwp_undo 로 되돌림. my_var 은 그대로",
                            ["aggregate_facts", "hwp_undo"])
     assert "aggregate_facts" not in out and "hwp_undo" not in out and "실적 집계 도구가" in out and "my_var" in out
+
+
+def test_period_item_is_collected_as_date_and_missing_dates_are_warned():
+    # items 「분기」 로 모으면 문서의 날짜를 못 뽑아 분기 합계가 줄었다(11-23 재녹화 10) — 날짜로 모으고, 날짜 모름 값은 알린다
+    docs = [{"id": 1, "filename": "강좌.docx", "masked_text": "2026년 4월 7일 디지털 강좌. 참석자 36명."},
+            {"id": 2, "filename": "모임.docx", "masked_text": "협의회 모임. 참석자 19명."}]
+    ans = {"강좌": [{"날짜": "2026년 4월 7일", "참석자": "36명", "quote": "참석자 36명."}],
+           "모임": [{"참석자": "19명", "quote": "참석자 19명."}]}
+    db = FakeDB(docs)
+    obs = fl.collect(db, 11, docs, ["분기", "참석자"], FakeClient(ans), title_of=_title, parallel=1)
+    assert "「날짜」 로 모았다" in obs and "날짜:분기" in obs
+    agg, _ = fl.aggregate(db, 11, ["날짜:분기"], ["참석자"])
+    assert "2분기" in agg or "2026-Q2" in agg
+    assert "날짜를 읽지 못한 기록" in agg and "19" in agg
+    assert fl.quarter_of("3분기") == "3분기" and fl.quarter_of("2026. 5. 12.") == "2026-Q2"

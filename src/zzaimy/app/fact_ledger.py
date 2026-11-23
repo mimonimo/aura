@@ -294,6 +294,16 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
     items = [str(x).strip() for x in (items or []) if str(x).strip()][:12]
     if not items:
         return "뽑을 항목(items)이 없다 — 예: [\"날짜\", \"분야\", \"활동\", \"참여 인원\"]."
+    # 「분기」「월」 같은 기간 항목은 문서에 그 낱말로 적혀 있지 않다(문서는 날짜를 적는다) — 날짜로 모으고 묶을 때 「날짜:분기」 로 나눈다.
+    # 11-23 재녹화 10: items 「분기」 로 모으자 날짜를 못 뽑은 기록이 많아 분기 참석자가 83→38 로 줄었다
+    _period = {"분기": "분기", "월": "월", "달": "월", "연도": "연", "해": "연", "반기": "분기"}
+    _pk = lambda x: re.sub(r"\s|별$", "", x)
+    swapped = [x for x in items if _pk(x) in _period]
+    period_note = ""
+    if swapped:
+        items = list(dict.fromkeys(["날짜" if x in swapped else x for x in items]))
+        period_note = (f"「{'」「'.join(swapped)}」 은(는) 문서에 날짜로 적혀 있어 「날짜」 로 모았다 — 묶을 때 "
+                       f"group_by [\"날짜:{_period[_pk(swapped[0])]}\"] 로 나눈다. ")
     title_of = title_of or (lambda d: str(d.get("filename") or f"문서 {d.get('id')}"))
     data = load(db, session_id)
     store = data.setdefault("docs", {})
@@ -356,7 +366,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
     recs = [dict(r, _doc=v["title"]) for v in mine for r in v["records"]]
     zero = [v["title"] for v in mine if not v["records"]]
     failed = len(docs) - len(mine)
-    lines = [f"문서 {len(mine)}/{len(docs)}개를 끝까지 읽었다(새로 {new}개, 앞서 읽은 결과 {cached}개). 기록 {len(recs)}건."]
+    lines = [f"{period_note}문서 {len(mine)}/{len(docs)}개를 끝까지 읽었다(새로 {new}개, 앞서 읽은 결과 {cached}개). 기록 {len(recs)}건."]
     if failed:
         lines.append(f"읽지 못한 문서 {failed}개 — 다시 collect_facts 를 부르면 그 문서만 다시 읽는다.")
     if zero:
@@ -421,7 +431,8 @@ def quarter_of(s: str) -> str | None:
     """「2026. 5. 12.」「2026년 5월」 → 「2026-Q2」(해가 없으면 「2분기」). 분기별 보고 표를 묶는 날짜 단위."""
     m = month_of(s)
     if not m:
-        return None
+        q_ = re.search(r"(?<!\d)([1-4])\s*/?\s*4?\s*분기", str(s or ""))       # 문서가 분기로 적은 값(「2분기」) — 날짜로 모은 칸에 그대로 든다
+        return f"{q_.group(1)}분기" if q_ else None
     mm = int(m[-2:].rstrip("월")) if "-" in m else int(m.rstrip("월"))
     q = (mm - 1) // 3 + 1
     return f"{m[:4]}-Q{q}" if "-" in m else f"{q}분기"
@@ -743,6 +754,12 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             gname = group_by[gi[0]]
             obs.append(f"  (문서 인용에 묶음 이름 바로 뒤의 수가 있다: {', '.join(nums_after[:4])} — 그 수가 이 묶음의 실적이면 "
                        f"collect_facts {{items: [\"{gname}\", \"{gname} 실적\"]}} 로 수까지 모은 뒤 sum: [\"{gname} 실적\"] 으로 묶는다. 기록 수·문서 수는 실적이 아니다)")
+    # 날짜를 못 읽은 기록에 더할 값이 있으면 달·분기 합계가 모자란다 — 11-23 재녹화 10: (날짜 모름) 171명을 두고 분기 38·90·41 을 표에 씀
+    lost = {s_: sum((nv(r, s_) or 0) for k, rs in groups.items() if any(x in ("(날짜 모름)", "(연도 모름)") for x in k) for r in rs) for s_ in sums}
+    lost = {s_: v_ for s_, v_ in lost.items() if v_}
+    if lost:
+        obs.append(f"  (주의: 날짜를 읽지 못한 기록에 {', '.join(f'「{s_}」 {_fmt(v_)}' for s_, v_ in lost.items())} 이(가) 있어 달·분기 합계가 모자랄 수 있다 — "
+                   "이 값을 표에 넣기 전에 날짜 항목을 확인한다: collect_facts {items: [\"날짜\", …]} 로 날짜를 모은 뒤 group_by [\"날짜:분기\"] 로 다시 묶는다)")
     if auto_sum:
         obs.append(f"  (sum 을 주지 않아 수 값 항목 {', '.join('「' + x + '」' for x in auto_sum)} 을(를) 더해 보였다 — 다른 항목을 더하려면 sum 에 적는다)")
     obs.append("이 값들은 근거로 남았다 — 표·본문에 그대로 쓸 수 있다(근거 문서는 위 《》).")
