@@ -671,3 +671,33 @@ def test_group_name_number_hint_when_summed_value_differs_from_quoted_result():
     fl.collect(db, 14, docs, ["성과", "참여 인원"], FakeClient(ans), title_of=_title, parallel=1)
     obs, _ = fl.aggregate(db, 14, ["성과"], ["참여 인원"])
     assert "묶음 이름 바로 뒤의 수" in obs and "6명" in obs and "15명" in obs
+
+
+def test_aggregate_warns_number_item_as_group_key_and_too_many_groups():
+    # 25차 B: 참석 인원·달성치를 묶음 기준으로 줌 / 25차 A: 기준 셋을 한꺼번에 줘 58묶음 — 맨 앞 줄에 알린다
+    db = FakeDB([])
+    its = ["분기", "활동", "참석 인원"]
+    docs = {f"d{i}": {"doc_id": i, "title": f"행사 {i} 결과서", "items": its,
+                      "records": [{"분기": f"{i % 4 + 1}분기", "활동": f"행사 {i}", "참석 인원": f"{10 + i}명", "quote": f"q{i}"}]}
+            for i in range(20)}
+    fl.save(db, 30, {"items": its, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 30, ["분기", "활동", "참석 인원"], [])
+    lines = obs.split("\n")
+    assert "「참석 인원」 은(는) 수 값 항목" in lines[1] and "「분기」" not in lines[1]
+    assert "잘게 나뉘었다" in lines[2]
+    obs2, _ = fl.aggregate(db, 30, ["분기"], ["참석 인원"])
+    assert "주의" not in obs2
+
+
+def test_aggregate_says_record_count_is_not_activity_count():
+    # 25차 B 짧게: 「평생교육 네트워크: 기록 12개 《문서 5개》」 를 운영 12회로 씀 — distinct 로 센 활동 수를 쓰라고 알린다
+    db = FakeDB([])
+    its = ["과제", "활동", "금액"]
+    docs = {"a": {"doc_id": 1, "title": "강좌 A 결과서", "items": its,
+                  "records": [{"과제": "강좌", "활동": "강좌 A", "금액": "100", "quote": "a1"}, {"과제": "강좌", "활동": "강좌 A", "금액": "200", "quote": "a2"}]},
+            "b": {"doc_id": 2, "title": "강좌 B 결과서", "items": its, "records": [{"과제": "강좌", "활동": "강좌 B", "quote": "b"}]}}
+    fl.save(db, 31, {"items": its, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 31, ["과제"], [], count=True)
+    assert "기록 3개·문서 2개" in obs and 'distinct: ["활동"]' in obs
+    obs2, _ = fl.aggregate(db, 31, ["과제"], [], count=True, distinct=["활동"])
+    assert "뽑은 줄 수" not in obs2

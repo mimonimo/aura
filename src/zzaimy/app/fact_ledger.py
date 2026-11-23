@@ -732,6 +732,33 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             obs.append(f"  (같은 문서의 같은 줄에서 온 「{s}」 값 {len(dup[s])}건은 한 번만 더했다 — 한 활동이 지표마다 기록으로 나뉜 것)")
     if count:
         ev.append(f"◇ 집계 합계 · 기록 수: {len(recs)}건")
+    # 묶음 쓰는 법이 표와 어긋난 꼴 — 보이는 줄 맨 앞에 둔다(긴 결과는 뒤가 잘려 읽힌다). 고칠지는 모델이 정한다
+    top: list[str] = []
+    gnames_ = [g.partition(":")[0] for g in group_by]
+    # 수 값 항목을 묶음 기준으로 줌 — 11-24 25차 B: group_by [날짜:분기, 활동, 참석 인원, 핵심지표, 달성치] 로 묶음이 기록마다 갈렸다
+    numkey = [g for g in gnames_ if g != "날짜"
+              and (lambda vs: len(vs) >= 2 and sum(1 for v in vs if number(v) is not None) * 2 > len(vs))(
+                  [r.get(g) for r in recs if str(r.get(g) or "").strip() and not re.search(r"분기|월|년|반기", str(r.get(g)))])]
+    if numkey:
+        top.append(f"  (주의: {', '.join('「' + g + '」' for g in numkey)} 은(는) 수 값 항목이다 — 묶음 기준(group_by)이 아니라 더할 항목(sum)에 넣어야 "
+                   "묶음마다 합이 나온다)")
+    # 기준 여럿을 한꺼번에 — 11-24 25차 A: [날짜:월, 분야, 비목] 58묶음에서 분야별 활동 수를 손으로 세어 모두 1씩 많게 씀
+    if len(group_by) >= 2 and len(groups) > 15:
+        top.append(f"  (주의: 기준 {len(group_by)}개를 한꺼번에 줘 묶음이 {len(groups)}개로 잘게 나뉘었다 — 표가 기준 하나(예: {group_by[0]}별 표, "
+                   f"{group_by[1]}별 표)이면 그 기준 하나로 따로 부른다. 잘게 나뉜 줄을 손으로 더하거나 센 값은 근거가 아니다)")
+    # 기록 수를 횟수로 씀 — 한 문서가 여러 기록(집행 줄·지표 줄)으로 나뉘면 기록 수는 활동 수가 아니다. 11-24 25차 B 짧게:
+    # 「평생교육 네트워크: 기록 12개 《문서 5개》」 를 운영 12회로 씀(정답 4)
+    if count and not distincts and group_by:
+        many = [(show(k_), len(rs_), len({r['_doc'] for r in rs_})) for k_, rs_ in groups.items()
+                if len(rs_) > len({r['_doc'] for r in rs_}) and "(빈 값)" not in k_]
+        if many:
+            nm_items = [it for it in items if it not in gnames_ and it not in sums and it != "날짜"
+                        and not any(number(r.get(it)) is not None for r in recs[:40] if str(r.get(it) or "").strip())]
+            pick = next((it for it in nm_items if re.search(r"활동|행사|프로그램|강좌|과정|사업명|과제명", it)), nm_items[0] if nm_items else "")
+            lab, n_, d_ = many[0]
+            top.append(f"  (「기록 N개」 는 문서에서 뽑은 줄 수다 — 한 문서가 여러 기록으로 나뉜 묶음이 있다(「{lab}」 기록 {n_}개·문서 {d_}개). "
+                       "운영 횟수·활동 수는 " + (f"distinct: [\"{pick}\"] 로 센 「{pick} N개」" if pick else "distinct 로 센 서로 다른 이름 수") + " 를 쓴다)")
+    obs[1:1] = top
     if filt_note:
         obs.append(filt_note)
     # 묶음 이름이 모은 항목 이름이고 그 항목을 더하지 않았으면 — 11-22 11차: 「산업체 협약」 묶음의 기록 수(3)를 협약 실적으로 씀(정답 4+3+2=9)
