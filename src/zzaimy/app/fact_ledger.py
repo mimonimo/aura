@@ -509,6 +509,16 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         return (f"모은 항목에 없는 이름: {', '.join(bad)} — 모은 항목은 {', '.join(items)}. "
                 f"collect_facts {{items: [{', '.join(bad)}, …]}} 로 그 항목을 모으면(앞서 모은 항목은 남는다) 다시 묶을 수 있다."), []
     base_n = number(base) if base not in (None, "") else None
+    auto_sum = []
+    if not sums and group_by:
+        # 더할 항목을 주지 않았다 — 묶은 기록에 수 값으로 든 항목을 더해 보인다(11-23 18차: group_by [성과] 만으로 두 번 불러
+        # 지표마다 빈 줄만 받고 손셈으로 갔다 — 실적 값이 기록에 있었다). 무엇을 쓸지는 모델이 고른다
+        gnames = {g.partition(":")[0] for g in group_by}
+        for it in items:
+            vals_ = [r.get(it) for r in recs if str(r.get(it) or "").strip()]
+            if it not in gnames and len(vals_) >= 2 and sum(1 for v in vals_ if number(v) is not None) * 2 >= len(vals_) and not any(month_of(v) for v in vals_[:5]):
+                auto_sum.append(it)
+        sums = auto_sum
     groups: "OrderedDict[tuple, list[dict]]" = OrderedDict()
     for r in sorted(recs, key=lambda r: tuple(_key(r, g) for g in group_by)):
         groups.setdefault(tuple(_key(r, g) for g in group_by), []).append(r)
@@ -649,6 +659,8 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
         # 묶음 이름이 모두 수(「42명」「3건」) — 이름과 값을 한 항목(「성과지표 실적」)으로 모았다. 11-22 9차: 지표마다 묶지 못하고 실적이 「확인 필요」
         obs.append("  (묶음 이름이 모두 수다 — 이름 항목과 값 항목이 한 항목으로 모였다. 이름(예: 성과지표)과 값(예: 실적)을 따로 collect_facts 로 모은 뒤 "
                    "group_by [이름], sum [값] 으로 묶는다)")
+    if auto_sum:
+        obs.append(f"  (sum 을 주지 않아 수 값 항목 {', '.join('「' + x + '」' for x in auto_sum)} 을(를) 더해 보였다 — 다른 항목을 더하려면 sum 에 적는다)")
     obs.append("이 값들은 근거로 남았다 — 표·본문에 그대로 쓸 수 있다(근거 문서는 위 《》).")
     data = load(db, session_id)
     keep = [x for x in (data.get("aggregates") or []) if x not in ev]
@@ -715,10 +727,62 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
     if not sums and not dist:
         return ""
     obs, _ = aggregate(db, session_id, [group], list(dict.fromkeys(sums)), count=False, distinct=list(dict.fromkeys(dist)))
-    lines = [ln for ln in obs.splitlines() if ln.strip() and not ln.startswith("이 값들은")]
+    def _keep(ln):                                           # 행 이름에 맞는 묶음과 합계·알림만(「(빈 값)」·사업명 같은 딴 묶음은 뺀다)
+        t_ = ln.strip()
+        if not t_.endswith("》") or ":" not in t_:
+            return True
+        g_ = _hk(t_.split(":", 1)[0])
+        if group.endswith(":월"):
+            return _mnum(t_.split(":", 1)[0]) in set(lm)
+        return bool(g_) and any(k and (g_ == k or g_.startswith(k) or k.startswith(g_)) for k in keys)
+    lines = [ln for ln in obs.splitlines() if ln.strip() and not ln.startswith("이 값들은") and _keep(ln)]
     call = f"aggregate_facts {{group_by: [{group}]" + (f", sum: [{', '.join(dict.fromkeys(sums))}]" if sums else "") + (f", distinct: [{', '.join(dict.fromkeys(dist))}]" if dist else "") + "}"
     return (f" 이 표의 행 이름은 장부의 「{best}」 값이라 묶어 보았다({call} — 근거로 남음): " + " / ".join(x.strip() for x in lines[:14])
             + " — 맞는 값이면 이 값으로 칸을 채운다(손셈 값은 근거가 아니다).")
+
+
+_AGG = re.compile(r"^◇ 집계 (?:비율 )?(.+?) · [^:]+: (?:.*=)?([\d,]+(?:\.\d+)?)\s*[가-힣]{0,2}(?:\s|$|\()")
+
+
+def misplaced(db, session_id: int, rows: list[list[str]]) -> list[str]:
+    """표 행에 든 수가 장부 집계의 「다른 묶음」 합계일 뿐이면 짚는다 — 값이 근거에 있어도 그 행의 값이 아니다.
+    문서에 그대로 적힌 값(기록 값)이면 묻지 않는다. 행 이름(첫 칸)이 그 값을 낸 어느 묶음 이름과도 맞지 않을 때만.
+    11-23 18차 단계별: 분야 합계 183(산학협력)을 월별 표 「4월」 행에, 전체 합계 482 를 「교육 이수 인원」 실적에 적었다."""
+    data = load(db, session_id)
+    aggs = data.get("aggregates") or []
+    if not aggs or not rows:
+        return []
+    by_val: dict = {}
+    for ln in aggs:
+        m = _AGG.match(ln)
+        if not m:
+            continue
+        v = number(m.group(2))
+        if v is not None:
+            by_val.setdefault(v, []).append([_hk(x) for x in m.group(1).split(" / ") if x.strip()])
+    raw = {number(r.get(k)) for r in records(db, session_id) for k in r if not k.startswith("_") and k != "quote"}
+    out = []
+    for row in rows:
+        if not row or not str(row[0] or "").strip():
+            continue
+        key = _hk(row[0])
+        mk = _mnum(row[0])
+        for c in row[1:]:
+            c = str(c or "").strip()
+            if not c or "%" in c or not re.fullmatch(r"[\d,]+(?:\.\d+)?\s*[가-힣]{0,2}", c):
+                continue
+            v = number(c)
+            if v is None or v in raw or v not in by_val:
+                continue
+
+            def ok(parts):
+                if parts == ["합계"] and re.search(r"합|총|계|전체|누계", row[0]):   # 「총 집행액」 행의 전체 합계
+                    return True
+                return any(p and (p == key or p.startswith(key) or key.startswith(p) or (mk and _mnum(p) == mk)) for p in parts)
+            if not any(ok(ps) for ps in by_val[v]):
+                src = " / ".join(by_val[v][0]) or "합계"
+                out.append(f"「{row[0][:20]}」 행의 「{c}」 는 집계의 「{src}」 묶음 값이다")
+    return out
 
 
 def evidence_text(db, session_id: int) -> str:

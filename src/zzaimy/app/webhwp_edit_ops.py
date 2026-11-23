@@ -3798,7 +3798,26 @@ class EditTools:
                     why += " 넣은 뒤 행: " + " / ".join(
                         "「" + " | ".join(f"{(head[j] if j < len(head) else '')[:10]}={c[:16]}" for j, c in enumerate(r)) + "」" for r in bad_rows
                     ) + " — 값이 맞는 열에 들어가는지 본다(빈 열을 건너뛰려면 그 열의 지금 값을 함께 넣는다)."
+        if not why:
+            why = self._misplaced(rows, new_vals)
         return why
+
+    def _misplaced(self, rows: list[list[str]], new_vals: list[str]) -> str | None:
+        """이번에 넣는 수가 다른 묶음의 집계 값이면(분야 합계를 월 행에) 막는다 — fact_ledger.misplaced. 어느 값을 쓸지는 27B."""
+        try:
+            sid = getattr(self.hw, "sid", None)
+            if sid is None:
+                return None
+            from zzaimy.app import fact_ledger as _fl
+            nv = set(new_vals)
+            hits = _fl.misplaced(self.hw.db, int(sid), [[r[0]] + [c if c in nv else "" for c in r[1:]] for r in rows if r])
+            if not hits:
+                return None
+            return ("다른 묶음의 집계 값을 이 행에 넣었다: " + "; ".join(dict.fromkeys(hits[:5]))
+                    + " — 이 행(첫 칸 이름)의 값은 그 이름으로 묶은 집계나 문서에 적힌 값이다. 맞는 묶음으로 aggregate_facts 를 다시 부르거나(예: 행이 달이면 「날짜:월」), "
+                    "모르는 칸은 「확인 필요」 로 두고 나머지는 그대로 다시 넣는다.")
+        except Exception:
+            return None
 
     def _ledger_hint(self, fid: int, a: dict) -> str:
         """「확인 필요」 를 넣은 열의 머리가 실적 장부에 수 값으로 모인 항목이면 집계로 채울 수 있다고 알린다.

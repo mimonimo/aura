@@ -461,3 +461,42 @@ def test_for_table_dry_only_reports_unmatched_rows():
     assert fl.for_table(db, 13, ["산학협력", "학생 역량강화"], ["참여 인원"], "분야", dry=True) == ""
     assert "aggregates" not in fl.load(db, 13)
     assert "collect_facts {items: [성과지표, 실적]}" in fl.for_table(db, 13, ["교육 이수 인원(명)", "취업 연계(명)"], ["실적"], "성과지표", dry=True)
+
+
+def test_aggregate_without_sum_adds_number_items():
+    # 11-23 18차: group_by [성과] 만으로 불러 지표마다 빈 줄만 받았다 — 수 값 항목(실적)을 더해 보인다
+    db = FakeDB([])
+    its = ["활동", "성과", "실적"]
+    recs = [{"활동": "캠프", "성과": "교육 이수 인원", "실적": "42명", "quote": "a"},
+            {"활동": "특강", "성과": "교육 이수 인원", "실적": "49명", "quote": "b"},
+            {"활동": "특강", "성과": "취업 연계", "실적": "11명", "quote": "c"}]
+    fl.save(db, 14, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    obs, ev = fl.aggregate(db, 14, ["성과"], [], count=False)
+    assert "실적 91명" in obs and "sum 을 주지 않아" in obs and any("42+49=91명" in x for x in ev)
+
+
+def test_for_table_hides_groups_not_in_rows():
+    db = FakeDB([])
+    its = ["분야", "참여 인원"]
+    recs = [{"분야": "산학협력", "참여 인원": "61명", "quote": "q"}, {"분야": "산학협력", "참여 인원": "52명", "quote": "q"},
+            {"분야": "학생 역량강화", "참여 인원": "42명", "quote": "q"}, {"참여 인원": "7명", "quote": "q"}]
+    fl.save(db, 15, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    out = fl.for_table(db, 15, ["산학협력", "학생 역량강화"], ["참여 인원"], "분야")
+    assert "113명" in out and "(빈 값)" not in out
+
+
+def test_misplaced_flags_other_group_totals_only():
+    # 11-23 18차: 분야 합계 183 을 월별 표 4월 행에, 전체 합계 482 를 교육 이수 인원 실적에 적었다
+    db = FakeDB([])
+    its = ["날짜", "분야", "참여 인원"]
+    recs = [{"날짜": "2026. 4. 9.", "분야": "산학협력", "참여 인원": "61명", "quote": "a"},
+            {"날짜": "2026. 5. 7.", "분야": "산학협력", "참여 인원": "52명", "quote": "b"},
+            {"날짜": "2026. 4. 20.", "분야": "학생 역량강화", "참여 인원": "42명", "quote": "c"}]
+    fl.save(db, 16, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    fl.aggregate(db, 16, ["분야"], ["참여 인원"], count=False)
+    fl.aggregate(db, 16, ["날짜:월"], ["참여 인원"], count=False)
+    bad = fl.misplaced(db, 16, [["4월", "산학협력", "113"], ["교육 이수 인원(명)", "300", "155"]])
+    assert len(bad) == 2 and "산학협력" in bad[0] and "합계" in bad[1]
+    # 그 묶음의 행이거나 문서에 적힌 값이면 묻지 않는다
+    assert fl.misplaced(db, 16, [["산학협력", "113"], ["4월", "103"], ["4월", "61"], ["합계", "155"]]) == []
+    assert fl.misplaced(db, 16, [["총 참여 인원", "155"]]) == []
