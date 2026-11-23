@@ -213,7 +213,7 @@ def _review_scope(a: dict, request: str) -> str:
     return f"{sec}절" if sec.isdigit() else (sec if re.match(r"\d{1,2}\.", sec) else f"「{sec}」")
 
 
-def _doc_review_text(hw, request: str) -> str:
+def _doc_review_text(hw, request: str, docs=None) -> str:
     """지금 작업본의 다시 읽기 자료(app/doc_review)."""
     from zzaimy.app import doc_review as _dr
     from zzaimy.app import webhwp as _wh
@@ -248,7 +248,13 @@ def _doc_review_text(hw, request: str) -> str:
                          and v.strip() and _fl.number(v) is None}
         except Exception:
             known = None
-    out_ = _dr.review(raw_, request, ledger=led, known=known)
+    texts = None
+    try:                                                     # 근거 문서 글 — 행 이름 뒤 수가 여러 문서에 흩어졌는지(scattered_counts)
+        if docs is not None:
+            texts = [(storage.title_of(d_.get("filename") or ""), str(d_.get("masked_text") or "")) for d_ in (docs() or [])]
+    except Exception:
+        texts = None
+    out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts)
     try:                                                     # 지난 문서에서 시작한 작업본 — 글자가 그대로인 수 칸(작년 값이 남았을 수 있음)
         from zzaimy.app import webhwp_edit_ops as _eo_r
         meta_ = _wh.meta(hw.db, fid) or {}
@@ -3735,7 +3741,7 @@ def create_app(
                 "머리줄 없는 표 등)를 본다. 문서를 점검·검토해 달라는 요청이면 먼저 이것으로 읽고, 고칠 것은 도구로 고친 뒤 finish. "
                 "args {} 또는 {section: 절 번호·이름(그 절만 글까지 — 긴 문서에서 뒤쪽 절을 읽을 때)}",
                 # section — 인자 없는 다시 읽기는 결과 한도(1,800자)에 앞 절만 보여, 같은 인자로 되풀이하다 막히던 일(11-18 운영 713)
-                lambda a_: _doc_review_text(hw, _review_scope(a_, q)) or "작업본이 없다."))
+                lambda a_: _doc_review_text(hw, _review_scope(a_, q), docs=lambda: _fact_docs(None)) or "작업본이 없다."))
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
@@ -3747,7 +3753,7 @@ def create_app(
                            max_writes=(30 if hw is not None else doc_agent.MAX_WRITES),
                            scope=((lambda: str(hw.fid() or "")) if hw is not None else None),
                            # 문서를 쓴 요청은 마치기 전에 작업본을 다시 읽는다(요청한 절, 짚지 않았으면 전체) — 27B 가 읽고 고친다(doc_review)
-                           review=((lambda: _doc_review_text(hw, q)) if hw is not None else None),
+                           review=((lambda: _doc_review_text(hw, q, docs=lambda: _fact_docs(None))) if hw is not None else None),
                            **({"max_steps": hw.step_budget()} if hw is not None else {}))
         if hw is not None and ep.writes:
             # 다 쓴 절의 작성방법 안내 상자 — 칸 길로 흘려 쓴 절은 저장 때 떼지 못해 남는다. 요청 끝에 한 번 저장으로 뗀다(11-10 결과보고서)

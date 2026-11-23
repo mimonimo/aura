@@ -175,7 +175,39 @@ def twin_columns(rows: list[list[str]]) -> tuple[str, str, int] | None:
     return best
 
 
-def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None) -> str:
+def scattered_counts(rows: list[list[str]], texts: list[tuple[str, str]]) -> list[str]:
+    """행 이름(지표 이름) 바로 뒤에 셈 단위 수가 적힌 근거 문서가 둘 이상인데, 행에 든 수가 그 가운데 문서 하나의 수와 같고 합과는 다르면 짚는다.
+    29차 A 짧게: 성과지표를 모아 묶지 않고 서브가 문서 하나의 수(취업 연계 17명·협약 6건)를 실적으로 씀(정답 31·9 는 문서 여러 개의 합).
+    texts: (문서 제목, 글). 합인지 한 문서 값인지는 27B 가 판단한다."""
+    out = []
+    for r in rows[1:]:
+        if not r or not r[0].strip():
+            continue
+        core = re.sub(r"\s*[(（][^)）]*[)）]\s*$", "", r[0]).strip()
+        if len(core) < 2:
+            continue
+        pat = re.compile(re.escape(core) + r"[^\d\n]{0,12}?(\d[\d,]*)\s*(명|건|곳|회|개|개사|과목|점)")
+        per = []
+        for t, x in texts:
+            m = pat.search(x or "")
+            if m:
+                per.append((t, int(m.group(1).replace(",", "")), m.group(2)))
+        if len(per) < 2:
+            continue
+        total = sum(v for _, v, _ in per)
+        for c in r[1:]:
+            c = c.strip()
+            if not re.fullmatch(r"[\d,]+\s*[가-힣]{0,2}", c):
+                continue
+            v = int(re.sub(r"\D", "", c) or 0)
+            if v != total and any(v == pv for _, pv, _ in per):
+                ex = ", ".join(f"《{t[:16]}》 {pv}{u}" for t, pv, u in per[:4])
+                out.append(f"「{r[0][:16]}」 행의 {c} — 이 이름 뒤에 수가 적힌 문서가 {len(per)}개다({ex}{' …' if len(per) > 4 else ''}, 모두 더하면 {total})")
+                break
+    return out
+
+
+def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None, texts: list[tuple[str, str]] | None = None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
     known: 모은 기록의 이름 값·근거 문서 제목(띄어쓰기 뺀 글) — 대부분 칸이 그 이름인 열에서 홀로 모르는 이름(지어낸 활동)을 짚는다.
@@ -264,6 +296,10 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
             if tw_:
                 issues.append(f"「{label}」 표{tno} 의 「{tw_[0][:12]}」 열과 「{tw_[1][:12]}」 열에 같은 수가 든 행이 {tw_[2]}개다 — "
                               "한 값을 두 열에 넣었는지 본다. 그 열 값이 근거에 없으면 「확인 필요」 로 바꾼다(hwp_table_edit set_cells).")
+            sc_ = scattered_counts(rows, texts) if texts else []
+            if sc_:
+                issues.append(f"「{label}」 표{tno}: " + "; ".join(sc_[:3]) + " — 문서 하나의 수만 옮긴 것인지 본다. 여러 문서의 합이면 "
+                              "collect_facts {items: [지표 이름 항목, 실적 항목]} 로 모은 뒤 aggregate_facts 로 더한 값을 쓴다.")
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")

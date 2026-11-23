@@ -696,3 +696,15 @@ def test_twin_columns_flags_value_copied_to_two_columns():
     assert twin_columns(rows) == ("목표", "실적", 3)
     rows2 = [["지표", "목표", "실적", "달성률"], ["교육 이수", "300", "264", "88.0"], ["협약", "9", "9", "100.0"]]
     assert twin_columns(rows2) is None
+
+
+def test_scattered_counts_flags_single_doc_value():
+    # 29차 A 짧게: 취업 연계 실적에 문서 하나의 수(17)만 씀 — 문서 둘에 수가 있으면 짚는다
+    from zzaimy.app.doc_review import scattered_counts
+    rows = [["성과지표", "목표", "실적"], ["취업 연계(명)", "확인 필요", "17"], ["교과목 개발(개)", "확인 필요", "5"]]
+    texts = [("부트캠프", "성과지표 「취업 연계」 실적 6명"), ("특강", "「취업 연계」 실적 17명"), ("공유회", "「취업 연계」 8명"),
+             ("교과목", "「교과목 개발」 5개를 개발")]
+    out = scattered_counts(rows, texts)
+    assert len(out) == 1 and "모두 더하면 31" in out[0] and "취업 연계" in out[0]
+    rows[1][2] = "31"
+    assert scattered_counts(rows, texts) == []
