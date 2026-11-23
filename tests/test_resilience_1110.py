@@ -248,3 +248,14 @@ def test_user_bubble_renders_pasted_table_and_folds_long_text(tmp_path):
     assert "msg-fold" not in str(f("짧은 요청"))
     out3 = str(f("[첨부#12] 계획서.hwpx\n본문"))
     assert 'href="/doc/12"' in out3 and "본문" in out3
+
+
+def test_user_bubble_shows_photo_attachment_as_thumbnail(tmp_path):
+    """사진 첨부는 이름 대신 미리보기(원본 주소), 볼 수 없는 첨부는 가린다 — 읽기 화면에서 사진이 이름만 보이던 것(11-23)."""
+    app = _app(tmp_path)
+    f = app.state.templates.env.filters["attach_view"]
+    out = str(f("[첨부#31] 현장 사진.jpg\n이 사진 설명해 줘"))
+    assert '<img src="/doc/31/original"' in out and 'href="/doc/31"' in out and "이 사진 설명해 줘" in out
+    hidden = str(f("[첨부#31] 현장 사진.jpg\n질문", {5}))
+    assert "/doc/31" not in hidden and "볼 수 없는 자료" in hidden
+    assert "<img" not in str(f("[첨부#12] 계획서.hwpx\n본문"))

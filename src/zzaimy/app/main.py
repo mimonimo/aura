@@ -5368,6 +5368,10 @@ def create_app(
             did, name = m.group(1), m.group(2)
             if did and allowed is not None and int(did) not in allowed:
                 heads.append(Markup('<span class="chat-attach is-hidden">첨부 · 볼 수 없는 자료</span>'))
+            elif did and re.search(r"\.(png|jpe?g|gif|webp|bmp)$", name.strip(), re.I):
+                # 사진은 이름 대신 작은 미리보기 — 대화·읽기 화면에서 올린 사진이 이름 링크로만 보였다(11-23)
+                heads.append(Markup('<a class="chat-attach chat-attach-img" href="/doc/%s" title="%s">'
+                                    '<img src="/doc/%s/original" alt="%s" loading="lazy"></a>') % (did, name, did, name))
             else:
                 heads.append(Markup('<a class="chat-attach" href="/doc/%s">첨부 · %s</a>') % (did, name) if did
                              else Markup('<span class="chat-attach">첨부 · %s</span>') % name)

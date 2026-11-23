@@ -526,6 +526,9 @@ def chat_read(request: Request, session_id: int):
     mine = session.get("owner") == getattr(request.state, "user", "")
     messages = db.list_chats(session_id)
     evidence, attach_ok = reader_evidence(request, _ordered_sources(chat_topics.latest(session_id), messages), messages)
+    # 근거 칩은 문서마다 한 번 — 같은 규정의 조각 여럿이 같은 이름 칩 네 개로 늘어서던 것(11-23)
+    _seen: set = set()
+    evidence = [s for s in evidence if not ((k := (s.get("doc_id"), s.get("title"))) in _seen or _seen.add(k))]
     return templates.TemplateResponse(request, "chat_read.html", ctx(request, {
         "chat_session": session, "chat_project": project, "messages": messages,
         "sources": [s for s in evidence if not s["hidden"]], "evidence": evidence, "attach_ok": attach_ok, "mine": mine,
