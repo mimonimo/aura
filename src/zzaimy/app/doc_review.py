@@ -135,6 +135,19 @@ def gap_tables(data: bytes) -> list[tuple[int, list[str], list[str], str]]:
     return out
 
 
+def mixed_unit_cells(rows: list[list[str]]) -> tuple[str, list[str]] | None:
+    """열 머리가 셈 단위를 밝힌 열(「참여 인원(명)」)에 「학생 33」 처럼 글이 섞인 칸 — (머리, 칸들). 24차 A 짧게에서 15칸."""
+    if len(rows) < 2:
+        return None
+    for j, h in enumerate(rows[0]):
+        if j == 0 or not re.search(r"[(（]\s*(명|건|개|곳|회|원|천원|%)\s*[)）]", h):
+            continue
+        mixed = [r[j] for r in rows[1:] if j < len(r) and re.fullmatch(r"\s*[가-힣]{1,8}(?:\s[가-힣]{1,6})?\s+[\d,]+(?:\.\d+)?\s*[가-힣%]{0,2}\s*", r[j])]
+        if mixed:
+            return h, mixed
+    return None
+
+
 def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
@@ -210,6 +223,12 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
                 if odd:
                     issues.append(f"「{label}」 표{tno} 에 모은 기록·근거 문서에 없는 이름이 있다: " + ", ".join(f"「{x[:24]}」" for x in odd[:5])
                                   + " — 문서에 있는 활동이면 그 이름으로 고치고, 지어낸 행이면 지운다(빈 달을 채우려 만든 행은 두지 않는다).")
+            # 열 머리가 셈 단위를 밝힌 열(「참여 인원(명)」)인데 칸에 사람 갈래 글이 섞였다 — 24차 A 짧게: 「학생 33」「담당 교원 2」
+            mixed_ = mixed_unit_cells(rows)
+            if mixed_:
+                h_, cells_ = mixed_
+                issues.append(f"「{label}」 표{tno} 의 「{h_[:16]}」 열은 수만 적는 열인데 글이 섞인 칸이 있다(「{cells_[0]}」 등 {len(cells_)}칸) — "
+                              "수만 남기고, 「학생」「교원」 같은 구분이 필요하면 내용 열이나 본문에 적는다.")
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")

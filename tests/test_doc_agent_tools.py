@@ -669,3 +669,11 @@ def test_read_document_without_image_pages_continues_not_final(agent_app, tmp_pa
     assert "글이 이미 읽혀" in obs0 and "행사개요" in obs0 and f"doc:{did}" in obs0
     msgs = [m["content"] for m in db.list_chats(sid) if m["role"] == "assistant"]
     assert not any("판독 모델이 꺼져" in m or "판독할 그림 쪽이 없" in m for m in msgs)
+
+
+def test_review_flags_words_mixed_into_unit_column():
+    from zzaimy.app.doc_review import mixed_unit_cells
+    rows = [["월", "주요 활동", "참여 인원(명)"], ["3월", "워크숍", "학생 24"], ["5월", "출장", "담당 교원 2"], ["6월", "세미나", "61"]]
+    h, cells = mixed_unit_cells(rows)
+    assert h == "참여 인원(명)" and cells == ["학생 24", "담당 교원 2"]
+    assert mixed_unit_cells([["월", "참여 인원(명)"], ["3월", "24"], ["4월", "42명"]]) is None
