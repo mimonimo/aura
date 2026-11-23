@@ -513,3 +513,25 @@ def test_quarter_grouping_and_for_table_quarter_rows():
     assert "2분기: 참석자 64명" in obs and "3분기: 참석자 52명" in obs
     out = fl.for_table(db, 17, ["2분기", "3분기", "4분기"], ["참석자(명)"], "분기")
     assert "group_by: [운영일:분기]" in out and "64명" in out
+
+
+def test_misplaced_ignores_counts_small_numbers_and_user_values():
+    # 11-23 19차: 목표 10(담당자 값)·실적 9(기록 수와 같은 수)가 막혀 성과지표 표가 비었다
+    db = FakeDB([])
+    its = ["비목", "금액", "분야", "참여 인원"]
+    recs = [{"비목": "인건비", "금액": "4000000", "quote": "a"}, {"비목": "인건비", "금액": "3000000", "quote": "b"},
+            {"분야": "산학협력", "참여 인원": "61명", "quote": "c"}, {"분야": "산학협력", "참여 인원": "52명", "quote": "d"}]
+    fl.save(db, 18, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    fl.aggregate(db, 18, ["비목"], ["금액"], count=True)
+    fl.aggregate(db, 18, ["분야"], ["참여 인원"], count=True)
+    assert fl.misplaced(db, 18, [["산업체 협약(건)", "10", "2"]]) == []          # 기록 수(2)·작은 수
+    assert fl.misplaced(db, 18, [["교육 이수 인원(명)", "300", "113"]], said="목표는 교육 이수 인원 300명") != []
+    assert fl.misplaced(db, 18, [["교육 이수 인원(명)", "113"]], said="교육 이수 인원 113명으로 적어") == []
+
+
+def test_split_row_value_only_on_spaced_slash_matching_columns():
+    from zzaimy.app.webhwp_agent import split_row_value
+    assert split_row_value("300 / 209 / 69.7", 4) == ["300", "209", "69.7"]
+    assert split_row_value("300 / 209", 4) is None                  # 열 수가 다르면 나누지 않는다
+    assert split_row_value("2026/04/07 행사", 3) is None
+    assert split_row_value("목표 300 / 실적 209 / 달성률 69.7%", ["성과지표", "목표", "실적", "달성률(%)"]) == ["300", "209", "69.7%"]

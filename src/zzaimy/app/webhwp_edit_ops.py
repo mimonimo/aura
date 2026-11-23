@@ -3810,7 +3810,12 @@ class EditTools:
                 return None
             from zzaimy.app import fact_ledger as _fl
             nv = set(new_vals)
-            hits = _fl.misplaced(self.hw.db, int(sid), [[r[0]] + [c if c in nv else "" for c in r[1:]] for r in rows if r])
+            said = str(getattr(self.hw, "request", "") or "")
+            try:
+                said += " " + " ".join(str(c.get("content") or "") for c in self.hw.db.list_chats(int(sid)) if c.get("role") == "user")
+            except Exception:
+                pass
+            hits = _fl.misplaced(self.hw.db, int(sid), [[r[0]] + [c if c in nv else "" for c in r[1:]] for r in rows if r], said)
             if not hits:
                 return None
             return ("다른 묶음의 집계 값을 이 행에 넣었다: " + "; ".join(dict.fromkeys(hits[:5]))

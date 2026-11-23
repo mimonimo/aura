@@ -775,7 +775,7 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
 _AGG = re.compile(r"^◇ 집계 (?:비율 )?(.+?) · [^:]+: (?:.*=)?([\d,]+(?:\.\d+)?)\s*[가-힣]{0,2}(?:\s|$|\()")
 
 
-def misplaced(db, session_id: int, rows: list[list[str]]) -> list[str]:
+def misplaced(db, session_id: int, rows: list[list[str]], said: str = "") -> list[str]:
     """표 행에 든 수가 장부 집계의 「다른 묶음」 합계일 뿐이면 짚는다 — 값이 근거에 있어도 그 행의 값이 아니다.
     문서에 그대로 적힌 값(기록 값)이면 묻지 않는다. 행 이름(첫 칸)이 그 값을 낸 어느 묶음 이름과도 맞지 않을 때만.
     11-23 18차 단계별: 분야 합계 183(산학협력)을 월별 표 「4월」 행에, 전체 합계 482 를 「교육 이수 인원」 실적에 적었다."""
@@ -785,6 +785,10 @@ def misplaced(db, session_id: int, rows: list[list[str]]) -> list[str]:
         return []
     by_val: dict = {}
     for ln in aggs:
+        # 더한 값만 본다 — 기록 수·서로 다른 수(「인건비 · 기록 수: 9건」)와 비율 줄은 빼고(11-23 19차: 협약 실적 9·교과목 5 가 기록 수와
+        # 우연히 같아 막혔다), 작은 수(10 미만)는 우연히 같기 쉬워 묻지 않는다
+        if " · 기록 수:" in ln or " · 서로 다른 " in ln or ln.startswith("◇ 집계 비율"):
+            continue
         m = _AGG.match(ln)
         if not m:
             continue
@@ -792,6 +796,7 @@ def misplaced(db, session_id: int, rows: list[list[str]]) -> list[str]:
         if v is not None:
             by_val.setdefault(v, []).append([_hk(x) for x in m.group(1).split(" / ") if x.strip()])
     raw = {number(r.get(k)) for r in records(db, session_id) for k in r if not k.startswith("_") and k != "quote"}
+    raw |= {number(x) for x in re.findall(r"\d[\d,]*(?:\.\d+)?", said or "")}   # 담당자가 준 값(목표 10건)은 그 사람의 값이다
     out = []
     for row in rows:
         if not row or not str(row[0] or "").strip():
@@ -803,7 +808,7 @@ def misplaced(db, session_id: int, rows: list[list[str]]) -> list[str]:
             if not c or "%" in c or not re.fullmatch(r"[\d,]+(?:\.\d+)?\s*[가-힣]{0,2}", c):
                 continue
             v = number(c)
-            if v is None or v in raw or v not in by_val:
+            if v is None or v < 10 or v in raw or v not in by_val:
                 continue
 
             def ok(parts):

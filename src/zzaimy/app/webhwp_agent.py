@@ -38,6 +38,21 @@ SUM_HINT = ("합계·건수·비율은 aggregate_facts 결과로 나온 값이 �
             "(묶을 항목을 아직 모으지 않았으면 collect_facts 로 그 항목을 모은 뒤 aggregate_facts).")
 
 
+def split_row_value(v: str, heads) -> list[str] | None:
+    """행 라벨 칸에 「/」 로 이은 값(「300 / 209 / 69.7」)이 그 행의 나머지 열 수와 맞으면 열마다 나눈 값, 아니면 None.
+    「1/2」 같은 분수·날짜(2026/04/07)는 나누지 않는다 — 앞뒤에 띄어쓰기가 있는 「 / 」 만 가른다.
+    값 앞에 그 열 머리(「목표 300」 — 머리 「목표」)를 붙였으면 뗀다. heads: 열 머리 목록(첫 열 포함) 또는 열 수."""
+    hs = list(heads) if not isinstance(heads, int) else [""] * heads
+    parts = [x.strip() for x in re.split(r"\s+/\s+", str(v or ""))]
+    if len(hs) < 3 or len(parts) != len(hs) - 1 or not all(parts):
+        return None
+    out = []
+    for p_, h_ in zip(parts, hs[1:]):
+        hk = re.sub(r"\s*\(.*?\)\s*$", "", h_ or "").strip()
+        out.append(re.sub(rf"^{re.escape(hk)}\s*[:：]?\s*", "", p_) if hk and p_.startswith(hk) else p_)
+    return out
+
+
 def bound(db, session_id: int) -> int | None:
     v = (db.get_setting(f"chat_hwp:{int(session_id)}", "") or "").strip()
     return int(v) if v.isdigit() else None
@@ -1492,6 +1507,7 @@ class HwpTools:
         # 여러 열 표의 행 라벨 칸(「교육과정 개발」 옆 칸)에 여러 열 값을 한 글로 몰아넣지 않는다 — 11-22 6차: 분야 표에
         # 「활동 5건, 참여 인원 24명」 이 활동 수 칸 하나에 들어가고 참여 인원 칸은 빈 채로 남았다. 열마다는 set_cells 로
         multi: list[str] = []
+        split_note: list[str] = []
         cand = {k: v for k, v in values.items() if k.startswith("칸:") and len(re.findall(r"\d[\d,.]*", v)) >= 2
                 and re.search(r"[,·/]", v)}
         if cand:
@@ -1500,11 +1516,29 @@ class HwpTools:
                 tabs_m = _eo_m.list_tables(_eo_m._Doc(Path(f["path"]).read_bytes()))
             except Exception:
                 tabs_m = []
+            split_rows: dict = {}
             for k in cand:
                 t_m = next((t for t in tabs_m if k in t.get("fields", []) and len(t.get("head", "").split(" | ")) >= 3), None)
                 if t_m:
-                    multi.append(f"{k}(표{t_m['no']}: {t_m['head'][:50]})")
+                    head_m = t_m["head"].split(" | ")
+                    parts = split_row_value(values[k], head_m)
+                    if parts:
+                        # 「300 / 209 / 69.7」 처럼 행의 나머지 열 수만큼 「/」 로 나눈 값 — 뜻이 분명하니 그 행 열에 나눠 넣는다(11-23 19차:
+                        # 같은 꼴로 세 번 거절당하고 걸음 한도에 닿았다). 나눌 수 없으면 전처럼 거절하고 set_cells 를 알린다
+                        split_rows.setdefault(t_m["no"], (head_m, []))[1].append([k.split(":", 1)[-1], *parts])
+                    else:
+                        multi.append(f"{k}(표{t_m['no']}: {t_m['head'][:50]})")
                     values.pop(k)
+            for no_m, (head_m, rows_m) in split_rows.items():
+                try:
+                    fit_m = _eo_m.fit_form_table(Path(f["path"]).read_bytes(), no_m, [head_m] + rows_m)
+                    res_m = _eo_m.EditTools(self).run("hwp_table_edit", {"table": no_m, "op": "set_cells", **fit_m}) if fit_m else ""
+                except Exception as e:
+                    res_m = f"넣지 않았다 — {e}"
+                if res_m and not res_m.startswith(("넣지 않았다", "바꾸지 않았다")):
+                    split_note.append(f"한 칸에 「/」 로 이은 값을 표{no_m} 의 그 행 열에 나눠 넣었다: {res_m[:300]}")
+                else:
+                    multi += [f"칸:{r[0]}(표{no_m}: {' | '.join(head_m)[:50]}){(' — ' + res_m[:300]) if res_m else ''}" for r in rows_m]
         # 칸 값도 절·표와 같은 수치 관문 — 11-22 5차: 표 넣기에서 막힌 손셈 금액(25,600,000)을 hwp_fill 로 칸에 넣어 그대로 남았다
         unsup: list[str] = []
         for k, v in list(values.items()):
@@ -1516,6 +1550,8 @@ class HwpTools:
         ask = (f" 사람 칸이라 넣지 않았다 — ask_user 로 담당자에게 물어 받은 값만 from_user: true 와 함께 넣는다: {', '.join(person)}."
                if person else "")
         bad = (" 넣지 않은 자리: " + " ".join(misfit[:4])) if misfit else ""
+        if split_note:
+            bad += " " + " ".join(split_note)
         if multi:
             bad += (" 여러 열 표의 한 칸에 여러 열 값을 이어 넣지 않았다: " + ", ".join(multi[:4])
                     + " — 행마다 열에 맞춰 hwp_table_edit {op: set_cells, start: [행, 2], values: [[열2 값, 열3 값, …]]} 로 넣는다.")
@@ -1529,9 +1565,9 @@ class HwpTools:
             bad += (f" 결문 연락처는 기관 정보에 값이 없어 비워 둠(다른 기관 문서의 값은 넣지 않는다 — 담당자가 알려 주면 from_user: true): "
                     f"{', '.join(inst_blank)}.")
         if not values:
-            return ("넣은 것 없음." + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
+            return (("" if split_note else "넣은 것 없음.") + bad + (f" 긴 글·표는 hwp_write(field=칸 이름)로 쓴다: {', '.join(long_)}." if long_ else "")
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
-                    + ("" if long_ or fake or person or misfit or inst_blank or rowed or unsup or multi else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
+                    + ("" if long_ or fake or person or misfit or inst_blank or rowed or unsup or multi or split_note else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
         have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
         miss_vals = {k: v for k, v in values.items() if k not in have}
