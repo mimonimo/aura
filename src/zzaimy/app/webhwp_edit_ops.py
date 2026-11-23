@@ -924,6 +924,29 @@ def list_tables(doc: _Doc) -> list[dict]:
     return out
 
 
+def field_cell_where(data: bytes, name: str) -> str:
+    """표 칸 필드가 표의 어느 행·열에 있는지와 그 행의 지금 값 — 「표4 2행 「목표」 열 · 지금 행: 교육 이수 인원 | 264 | 264 | 88.0」.
+    11-23 3차 녹화 11: 칸 「교육 이수 인원(명)」 이 목표 열에 있었는데 실적 값을 넣어 목표·실적이 같아졌다 — 채운 칸이 어느 열인지
+    결과에 보여 모델이 열을 보고 판단하게 한다. 표 밖 칸이면 빈 글."""
+    try:
+        doc = _Doc(data)
+        n, pos = _find_field(doc, name)
+        for t in list_tables(doc):
+            if t.get("outer") or t["sec"] != n or not (t["s"] <= pos < t["e"]):
+                continue
+            tb = _Table(_table_xml(doc, t))
+            want = _resolve_field(doc, name)
+            for c in tb.cells:
+                if any(_unq(f.group(2)) == want for f in _FIELD.finditer(c["xml"])):
+                    head = _cell_text(tb, 0, c["c"]) if c["r"] > 0 and tb.nc >= 3 else ""    # 두 칸 라벨 표는 첫 행이 머리가 아니다
+                    row = [_cell_text(tb, c["r"], j) for j in range(tb.nc)]
+                    return (f"표{t['no']} {c['r'] + 1}행" + (f" 「{head}」 열" if head else "")
+                            + " · 지금 행: " + " | ".join(x[:20] for x in row))
+    except Exception:
+        return ""
+    return ""
+
+
 def _table_xml(doc: _Doc, t: dict) -> str:
     """표 XML — 바깥 표면 안쪽 표를 가린 것."""
     return t["masked"] if t.get("outer") else doc.secs[t["sec"]][t["s"]:t["e"]]

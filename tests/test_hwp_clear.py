@@ -225,3 +225,15 @@ def test_same_filled_table_in_another_section_is_found(monkeypatch):
     hit = eo.same_table_elsewhere(doc, sec5, kpi)
     assert hit and hit["no"] == 1 and "3. 성과지표" in hit["section"]
     assert eo.same_table_elsewhere(doc, sec5, [["구분", "내용"], ["개선", "저녁 강좌"]]) is None
+
+
+def test_field_cell_where_names_the_column_of_a_filled_cell():
+    # 11-23 3차 녹화 11: 칸 「교육 이수 인원(명)」 이 목표 열인데 실적을 넣었다 — 채운 자리의 열 머리를 보인다
+    import re as _re
+    xml = _table([["성과지표", "목표", "실적"], ["교육 이수 인원(명)", "300", "264"]], 100)
+    i = xml.index("<hp:t>300</hp:t>")
+    fld = ('<hp:ctrl><hp:fieldBegin id="9" type="CLICK_HERE" name="칸:교육 이수 인원(명)" editable="1" dirty="0" zorder="-1" fieldid="9"/></hp:ctrl>')
+    xml = xml[:i] + fld + xml[i:]
+    doc = _hwpx(_p("3. 성과지표", 2) + xml)
+    w = eo.field_cell_where(doc, "칸:교육 이수 인원(명)")
+    assert w.startswith("표1 2행") and "「목표」 열" in w and "300 | 264" in w

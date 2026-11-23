@@ -3798,6 +3798,15 @@ def create_app(
             left_s = [x["name"][2:] for x in fl_ if x["kind"] == "절" and not x["text"]]
             left_c = [re.sub(r"^(칸|표\d+):", "", x["name"]) for x in fl_ if x["kind"] != "절" and not x["text"]]
             msg = f"이번 요청에서 절·칸 {len(ok_)}곳을 썼습니다."
+            # 끝맺음 글을 쓴 뒤 마치기 전 다시 읽기로 더 고치다 끊긴 경우 — 그 글을 살린다(11-23 녹화 11: 좋은 점검 보고를 버리고 「2곳을 썼습니다」 만 남음)
+            fins_ = [i_ for i_, s_ in enumerate(ep.steps) if s_.get("action") == "finish" and str((s_.get("args") or {}).get("message") or "").strip()]
+            if fins_:
+                last_ = fins_[-1]
+                more_ = sum(1 for s_ in ep.steps[last_ + 1:] if s_.get("action") in ("hwp_write", "hwp_fill", "hwp_table_edit", "hwp_replace", "hwp_revise")
+                            and not str(s_.get("observation", "")).startswith(("넣지 않았다", "바꾸지 않았다", "바뀐 것이 없다", "쓰지 않았다")))
+                msg = (re.sub(r"\*\*(.+?)\*\*", r"\1", str(ep.steps[last_]["args"]["message"])).strip()
+                       + (f"\n\n마무리 점검 중에 {more_}곳을 더 고쳤습니다 — 오른쪽 작업본에서 확인해 주세요." if more_ else ""))
+                left_s = left_c = []
             if left_s:
                 msg += f" 남은 빈 절은 {len(left_s)}개이고, 다음은 「{left_s[0]}」입니다. 「계속 써 줘」라고 하면 이어 씁니다."
             if left_c:

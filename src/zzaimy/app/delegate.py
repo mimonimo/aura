@@ -503,7 +503,8 @@ class Delegator:
         aggs = list(data.get("aggregates") or [])[-80:]
         if not recs and not aggs:
             return ""
-        body = ("[모은 실적 장부 — 메인이 문서마다 확인한 기록(인용)과 묶음 결과. 행·칸 값은 여기서 찾고, 합계·건수·비율은 묶음 결과의 값만 쓴다]\n"
+        body = ("[모은 실적 장부 — 메인이 문서마다 확인한 기록(인용)과 묶음 결과. 행·칸 값은 여기서 찾고, 합계·건수·비율은 묶음 결과의 값만 쓴다. "
+                "「실적 장부」「묶음 결과」 는 문서 이름이 아니다 — 본문에 출처로 적지 않는다(출처는 《》 안 문서 이름)]\n"
                 + "\n".join(recs) + ("\n[묶음 결과]\n" + "\n".join(aggs) if aggs else ""))
         return _clip_tokens(body, int(limit * EVIDENCE_SHARE * 0.5))
 

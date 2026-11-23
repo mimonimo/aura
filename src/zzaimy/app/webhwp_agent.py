@@ -1648,7 +1648,16 @@ class HwpTools:
                     echo_txt = " · 같은 라벨의 다른 표 칸에도 넣음: " + ", ".join(f"{k.split(':', 1)[-1]}({', '.join(w[:2])})" for k, w in box2["done"].items())
             except Exception:
                 pass
-        return (f"채웠다: {', '.join(done) or '없음'}" + echo_txt + lab_txt + miss_txt
+        where_txt = ""
+        try:                                                # 표 안 칸은 어느 열에 들어갔는지 — 목표 열에 실적을 넣고도 몰랐다(11-23 녹화 11)
+            from zzaimy.app import webhwp_edit_ops as _eo4
+            raw_w = Path(webhwp.get(self.db, fid)["path"]).read_bytes()
+            ws_ = [f"{k.split(':', 1)[-1]} → {w}" for k in done[:6] if k.startswith("칸:") for w in [_eo4.field_cell_where(raw_w, k)] if w]
+            if ws_:
+                where_txt = " · 넣은 자리: " + " / ".join(ws_) + " — 열이 맞는지 본다(다른 열이면 hwp_table_edit set_cells 로 그 열에 넣는다)"
+        except Exception:
+            pass
+        return (f"채웠다: {', '.join(done) or '없음'}" + where_txt + echo_txt + lab_txt + miss_txt
                 + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
                 + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else "")
@@ -1743,6 +1752,8 @@ class HwpTools:
                 text = prev + "\n\n" + text
         if field.startswith("입력:"):
             return "쓰지 않았다 — 「입력:」 은 사람 칸(날짜·서명·결재)이다. ask_user 로 물어 받은 값을 hwp_fill(from_user: true)로 넣는다."
+        # 근거 묶음의 머리 이름(묶음 결과·실적 장부·실적 집계)을 출처로 적은 괄호는 뺀다 — 문서 이름이 아니다(11-23 녹화 09: 「(출처: 묶음 결과)」)
+        text = re.sub(r"\s*[(（]\s*(?:출처|근거)\s*[:：]\s*(?:모은\s*)?(?:묶음\s*결과|실적\s*장부|실적\s*집계|집계\s*결과)\s*[)）]", "", text)
         text = ww.drop_heading_echo(ww.drop_double_markers(text), field)            # 절 머리와 같은 첫 줄은 빼고 넣는다(번호만 다른 「1. 제목」 도)
         if field.startswith("절:"):
             text = self._unify_numbering(fid, text)          # 한 문서 안 항목 부호를 하나로(첫 절이 정한 꼴, 11-10)
