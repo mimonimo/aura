@@ -1723,6 +1723,11 @@ class HwpTools:
                 for kind_, val_ in ww.parse_body(text):
                     if kind_ == "table" and isinstance(val_, list) and val_:
                         hit_ = _eo3.form_table_for(raw_, field, [[str(c) for c in r] for r in val_])
+                        dup_ = None if hit_ else _eo3.same_table_elsewhere(raw_, field, [[str(c) for c in r] for r in val_])
+                        if dup_:
+                            return (f"쓰지 않았다 — 머리·행 이름이 같은 표가 이미 표{dup_['no']}(「{str(dup_['section']).removeprefix('절:')}」)에 채워져 있다. "
+                                    "이 절에는 같은 표를 되풀이하지 않고 글로 그 표를 가리키거나 이 절에 맞는 내용만 쓴다"
+                                    "(같은 표가 꼭 이 절에도 있어야 하면 new_table: true 로 다시 쓴다).")
                         if hit_:
                             placed = self._place_in_form_table(fid, hit_, val_, text, a, by)
                             if placed:

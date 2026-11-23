@@ -2493,6 +2493,30 @@ def form_table_for(data: bytes, section: str, rows: list[list[str]]) -> dict | N
     return best
 
 
+def same_table_elsewhere(data: bytes, section: str, rows: list[list[str]]) -> dict | None:
+    """다른 절에 머리·행 이름이 새 표와 거의 같고 이미 채운 표가 있으면 그 표 — {no, section}. 없으면 None.
+    11-23 재녹화 09: 「5. 성과 및 개선 사항」 에 「3. 성과지표 달성 실적」 과 같은 성과지표 표를 다시 붙였다."""
+    from zzaimy.app import webhwp_write as ww
+    labels = _value_labels(rows[:2] + [[r[0]] for r in rows if r]) if rows else set()
+    if len(labels) < 4:
+        return None
+    doc = _Doc(data)
+    for x in list_tables(doc):
+        sec = ww.section_before(data, x["sec"], x["s"])
+        if sec == section:
+            continue
+        try:
+            xml = _table_xml(doc, x)
+        except Exception:
+            continue
+        cells = [_text(c) for c in re.findall(r"<hp:tc\b.*?</hp:tc>", re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", xml, flags=re.S), flags=re.S)]
+        have = {_lab(c) for c in cells}
+        filled = sum(1 for c in cells if c.strip() and not _hint_cell(c)) / max(len(cells), 1)
+        if len(labels & have) >= max(4, int(len(labels) * 0.8)) and filled >= 0.6:
+            return {"no": x["no"], "section": sec}
+    return None
+
+
 def _head_key(s: str) -> str:
     """열 머리 비교 꼴 — 끝 괄호 단위(「참여 인원(명)」)와 띄어쓰기를 뗀다."""
     return _lab(re.sub(r"\s*[(（][^()（）]*[)）]\s*$", "", str(s or "")))

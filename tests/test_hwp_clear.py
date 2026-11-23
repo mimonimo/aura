@@ -213,3 +213,15 @@ def test_label_column_mismatch_is_not_written_and_points_to_row():
         assert "「주관 부서」 은 4행 라벨" in str(e) and "start: [4, 1]" in str(e)
     out, _ = eo.table_edit(doc, {"table": 1, "op": "set_cells", "start": [1, 1], "values": [["사업명", "가"], ["사업 기간", "2026"]]})
     assert out
+
+
+def test_same_filled_table_in_another_section_is_found(monkeypatch):
+    # 11-23 재녹화 09: 5절에 3절과 같은 성과지표 표를 다시 붙였다
+    kpi = [["성과지표", "목표", "실적", "달성률(%)"], ["교육 이수 인원(명)", "300", "264", "88.0"], ["산업체 협약(건)", "10", "9", "90.0"]]
+    doc = _hwpx(_p("3. 성과지표 달성 실적", 2) + _table(kpi, 100) + _p("5. 성과 및 개선 사항", 3) + _p("본문", 4))
+    from zzaimy.app import webhwp_write as ww
+    monkeypatch.setattr(ww, "section_before", lambda data, sec, off: "절:3. 성과지표 달성 실적")   # 절 필드 없는 시험 문서
+    sec5 = "절:5. 성과 및 개선 사항"
+    hit = eo.same_table_elsewhere(doc, sec5, kpi)
+    assert hit and hit["no"] == 1 and "3. 성과지표" in hit["section"]
+    assert eo.same_table_elsewhere(doc, sec5, [["구분", "내용"], ["개선", "저녁 강좌"]]) is None
