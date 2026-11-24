@@ -180,6 +180,9 @@ def scattered_counts(rows: list[list[str]], texts: list[tuple[str, str]]) -> lis
     29차 A 짧게: 성과지표를 모아 묶지 않고 서브가 문서 하나의 수(취업 연계 17명·협약 6건)를 실적으로 씀(정답 31·9 는 문서 여러 개의 합).
     texts: (문서 제목, 글). 합인지 한 문서 값인지는 27B 가 판단한다."""
     out = []
+    head = rows[0] if rows else []
+    # 목표·계획·비율 열은 문서의 실적 합과 견주지 않는다(목표 300 은 실적 합이 아니다)
+    skip_cols = {j for j, h in enumerate(head) if re.search(r"목표|계획|기준|비율|률|%", str(h))}
     for r in rows[1:]:
         if not r or not r[0].strip():
             continue
@@ -189,20 +192,26 @@ def scattered_counts(rows: list[list[str]], texts: list[tuple[str, str]]) -> lis
         pat = re.compile(re.escape(core) + r"[^\d\n]{0,12}?(\d[\d,]*)\s*(명|건|곳|회|개|개사|과목|점)")
         per = []
         for t, x in texts:
-            m = pat.search(x or "")
-            if m:
+            x = x or ""
+            for m in pat.finditer(x):
+                ln = x[x.rfind("\n", 0, m.start()) + 1: (x.find("\n", m.end()) + 1 or len(x) + 1) - 1]
+                if re.search(r"목표|계획\s*치", ln):         # 작성 안내의 「목표치: 기관 연계 8곳」 은 실적이 아니다
+                    continue
                 per.append((t, int(m.group(1).replace(",", "")), m.group(2)))
+                break
         if len(per) < 2:
             continue
         total = sum(v for _, v, _ in per)
-        for c in r[1:]:
+        for j, c in enumerate(r[1:], 1):
             c = c.strip()
-            if not re.fullmatch(r"[\d,]+\s*[가-힣]{0,2}", c):
+            if j in skip_cols or not re.fullmatch(r"[\d,]+\s*[가-힣]{0,2}", c):
                 continue
             v = int(re.sub(r"\D", "", c) or 0)
-            if v != total and any(v == pv for _, pv, _ in per):
+            # 한 문서의 수만 옮겼거나(29차 A 짧게: 취업 연계 17), 어느 문서와도 합과도 맞지 않는 수(31차 A 한번에: 참여 인원을 더한 52)
+            if v != total:
                 ex = ", ".join(f"《{t[:16]}》 {pv}{u}" for t, pv, u in per[:4])
-                out.append(f"「{r[0][:16]}」 행의 {c} — 이 이름 뒤에 수가 적힌 문서가 {len(per)}개다({ex}{' …' if len(per) > 4 else ''}, 모두 더하면 {total})")
+                one = " — 그 가운데 문서 하나의 수다" if any(v == pv for _, pv, _ in per) else " — 어느 문서의 수와도, 합과도 다르다"
+                out.append(f"「{r[0][:16]}」 행의 {c}{one}. 이 이름 뒤에 수가 적힌 문서가 {len(per)}개다({ex}{' …' if len(per) > 4 else ''}, 모두 더하면 {total})")
                 break
     return out
 

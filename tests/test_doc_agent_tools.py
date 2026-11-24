@@ -708,3 +708,14 @@ def test_scattered_counts_flags_single_doc_value():
     assert len(out) == 1 and "모두 더하면 31" in out[0] and "취업 연계" in out[0]
     rows[1][2] = "31"
     assert scattered_counts(rows, texts) == []
+
+
+def test_scattered_counts_flags_value_matching_no_doc_and_skips_target_column():
+    # 31차 A 한번에: 참여 인원을 더한 52 를 취업 연계 실적으로 씀(문서 6·14·11, 합 31) — 목표 열(40)은 견주지 않는다
+    from zzaimy.app.doc_review import scattered_counts
+    rows = [["성과지표", "목표", "실적", "달성률(%)"], ["취업 연계(명)", "40", "52", "130.0"]]
+    texts = [("부트캠프", "「취업 연계」 실적 6명"), ("매칭 데이", "「취업 연계」 실적 14명"), ("특강", "「취업 연계」 실적 11명")]
+    out = scattered_counts(rows, texts)
+    assert len(out) == 1 and "52 — 어느 문서의 수와도, 합과도 다르다" in out[0] and "모두 더하면 31" in out[0]
+    rows[1][2] = "31"
+    assert scattered_counts(rows, texts) == []
