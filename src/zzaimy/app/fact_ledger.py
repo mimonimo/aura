@@ -212,6 +212,7 @@ def unpicked_mentions(items: list[str], picked: list[dict], all_docs: list[dict]
     if not rest:
         return ""
     hits: list[str] = []
+    tgt: set[str] = set()
     for it in items:
         core = re.sub(r"\s*\([^)]*\)\s*$", "", str(it or "")).strip()
         core = re.sub(r"\s*(?:건수|인원|횟수|실적|달성치|수)$", "", core).strip()
@@ -219,13 +220,21 @@ def unpicked_mentions(items: list[str], picked: list[dict], all_docs: list[dict]
             continue
         pat = re.compile(re.escape(core) + r"[^\d\n]{0,10}?(\d[\d,]*\s*(?:명|건|곳|회|개|개사|과목|점|%))")
         for d in rest:
-            m = pat.search(str(d.get("masked_text") or ""))
-            if m:
+            x = str(d.get("masked_text") or "")
+            for m in pat.finditer(x):
                 t = title_of(d) if title_of else str(d.get("filename") or "")
+                # 목표로 적힌 줄(작성 안내의 「목표치: 기관 연계 8곳」)은 실적이 아니다 — 31차 B 짧게: 목표치 셋과 협약 결과서의 실적 3곳이
+                # 한 목록에 섞여 보이자 모델이 목록째 넘겨 연계 3(정답 6)을 씀. 따로 센다
+                ln = x[x.rfind("\n", 0, m.start()) + 1: (x.find("\n", m.end()) + 1 or len(x) + 1) - 1]
+                if re.search(r"목표|계획\s*치", ln):
+                    tgt.add(t[:24])
+                    continue
                 hits.append(f"《{t[:24]}》 「{core}」 {m.group(1)}")
+                break
     if not hits:
         return ""
-    return ("\n고르지 않은 문서에도 항목 이름 뒤에 수가 있다: " + ", ".join(hits[:5]) + (" …" if len(hits) > 5 else "")
+    return ("\n고르지 않은 문서에도 항목 이름 뒤에 실적 수가 있다: " + ", ".join(hits[:5]) + (" …" if len(hits) > 5 else "")
+            + (f"(목표로 적힌 수는 뺐다: {', '.join('《' + t + '》' for t in sorted(tgt)[:2])})" if tgt else "")
             + " — 같은 실적이면 그 문서도 documents 에 넣거나 documents 없이 다시 모은다.")
 
 
@@ -938,7 +947,7 @@ def base_unfounded(base, texts: list[str]) -> str:
     near = sorted({m for m in money if any(m == b * k or m * k == b for k in (10, 100, 1000, 10000))})
     return (f"  (주의: 기준값(base) {b:,} 이 근거 문서·담당자 글에 없다"
             + (f" — 근거 금액 {', '.join(f'{x:,}원' for x in near[:2])} 과 자릿수만 다르다" if near else "")
-            + ". 문서에 적힌 금액을 원 단위 그대로(예: 1억 2천만 원 → 120000000) base 로 준다. 이 비율은 근거로 남기지 않았다)")
+            + ". 문서에 적힌 금액을 원 단위 그대로(예: 1억 2천만 원 → 120000000) base 로 준다. 이 기준값으로는 비율을 내지 않았다)")
 
 
 def _name_item(items: list[str], recs: list[dict], skip: set) -> str:

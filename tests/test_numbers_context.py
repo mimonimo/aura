@@ -169,3 +169,11 @@ def test_check_body_shows_scale_slip():
     from zzaimy.app.webhwp_agent import check_body
     why = check_body("총 사업비는 12,000,000원이다.", ["총 사업비는 1억 2천만 원이다."], 100000)
     assert why and "단위 셈 확인" in why and "120,000,000원" in why
+
+
+def test_scale_slips_reads_thousand_unit():
+    # 31차 B 한번에: 1억 2천만 원을 「12,000천원」 으로 옮겨 막히는데 단위 셈 알림이 없었다
+    from zzaimy.verify.numbers import scale_slips
+    out = scale_slips(["12,000천"], ["총 사업비는 1억 2천만 원이다."])
+    assert out and "120,000,000원(=120,000천원)" in out[0]
+    assert scale_slips(["120,000천"], ["총 사업비는 1억 2천만 원이다."]) == []

@@ -867,15 +867,22 @@ def scale_slips(bad: list[str], evidence_texts: list[str]) -> list[str]:
         money |= scaled_values(ev or "")
     out: list[str] = []
     for b in bad:
+        # 「12,000천」(천원 단위로 적은 값)은 원으로 바꿔 견준다 — 31차 B 한번에: 1억 2천만 원을 12,000천원으로 옮겨 막히는데 단위 셈 알림이 없었다
+        mu = re.fullmatch(r"\s*([\d,]+(?:\.\d+)?)\s*(천|만|백만|억)?\s*원?\s*", str(b))
+        if not mu:
+            continue
         try:
-            d = Decimal(str(b).replace(",", ""))
+            d = Decimal(mu.group(1).replace(",", ""))
         except Exception:
             continue
+        unit = {"천": 1000, "만": 10000, "백만": 1000000, "억": 100000000}.get(mu.group(2) or "", 1)
+        d *= unit
         if d < 1000:
             continue
         for k in (10, 100, 1000, 10000):
             hit = next((c for c in (d * k, d / k) if c == int(c) and _fmt(c) in money), None)
             if hit is not None:
-                out.append(f"{b} → 근거 금액 {int(hit):,}원과 자릿수만 다르다")
+                tail = f"(={int(hit) // unit:,}{mu.group(2)}원)" if unit > 1 and int(hit) % unit == 0 else ""
+                out.append(f"{b} → 근거 금액 {int(hit):,}원{tail}과 자릿수만 다르다")
                 break
     return out

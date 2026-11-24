@@ -3213,13 +3213,14 @@ def create_app(
 
             def _list(v_):
                 return [x_ for x_ in re.split(r"[,/]\s*", v_) if x_.strip()] if isinstance(v_, str) else list(v_ or [])
+            # 근거에 없는 기준값이면 비율을 내지 않는다 — 비율 줄은 실적 장부에도 남아 다음 요청의 근거가 된다(31차 B 한번에: 장부에 남은
+            # 기준값 12,000,000 때문에 「12,000천원」 이 hwp_write 로 총 사업비 칸에 들어감)
+            base_note_ = _base_unfounded(a.get("base"))
             obs_, ev_ = _fl.aggregate(db, session_id, _list(a.get("group_by")), _list(a.get("sum")), count=a.get("count") is not False,
                                       filt=a.get("filter") if isinstance(a.get("filter"), dict) else None,
-                                      distinct=a.get("distinct") or "", share=a.get("share") in (True, "true", "True", 1, "1"), base=a.get("base"),
-                                      documents=a.get("documents") or None)
-            base_note_ = _base_unfounded(a.get("base"))
-            if base_note_:                                   # 근거에 없는 기준값으로 낸 비율 줄은 근거로 남기지 않는다(그 값이 근거가 돼 버린다)
-                ev_ = [x_ for x_ in ev_ if "기준값" not in x_]
+                                      distinct=a.get("distinct") or "", share=a.get("share") in (True, "true", "True", 1, "1"),
+                                      base=None if base_note_ else a.get("base"), documents=a.get("documents") or None)
+            if base_note_:
                 obs_ = base_note_ + "\n" + obs_
             if ev_:
                 body_ = "\n".join(ev_)

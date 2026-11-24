@@ -823,3 +823,12 @@ def test_base_unfounded_flags_scaled_base():
     assert "12,000,000 이 근거" in out and "120,000,000원" in out
     assert fl.base_unfounded(120000000, texts) == "" and fl.base_unfounded(250, texts) == ""
     assert fl.base_unfounded("3,150,000", texts) == ""
+
+
+def test_unpicked_mentions_separates_target_lines():
+    # 31차 B 짧게: 작성 안내의 목표치와 협약 결과서의 실적 3곳이 한 목록에 섞여 모델이 목록째 넘김 — 목표 줄은 뺀다
+    docs = [{"id": 1, "filename": "한마당.docx", "masked_text": "기관 연계 1곳"},
+            {"id": 2, "filename": "작성 안내.txt", "masked_text": "2026년 핵심지표 목표치: 기관 연계 8곳."},
+            {"id": 3, "filename": "협약.docx", "masked_text": "지역 기관 3곳과 협약.\\n핵심지표 「지역 기관 연계」 달성치에 3곳으로 반영한다."}]
+    out = fl.unpicked_mentions(["기관 연계"], docs[:1], docs)
+    assert "《협약.docx》 「기관 연계」 3곳" in out and "8곳" not in out and "목표로 적힌 수는 뺐다: 《작성 안내.txt》" in out
