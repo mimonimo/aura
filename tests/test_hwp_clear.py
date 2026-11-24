@@ -256,3 +256,17 @@ def test_clear_items_tells_when_row_name_cells_were_blanked():
     assert "행 이름 칸 1곳" in msg and "강사료" in msg
     _, msg2 = eo.clear_items(_hwpx(doc), {"ids": ["표1:2,2", "표1:3,2"]})
     assert "행 이름 칸" not in msg2
+
+
+def test_empty_form_table_with_same_first_head_elsewhere_is_found(monkeypatch):
+    # 32차 A 짧게: 「2. 추진 실적」 에 머리가 다른 월별 표를 새로 붙여 하위 절 2.1 의 빈 서식 표(월 | … | 참여 인원)가 남음
+    form = [["월", "주요 활동", "참여 인원(명)", "근거 문서"], ["", "", "", ""], ["", "", "", ""]]
+    doc = _hwpx(_p("2.1 월별 추진 실적", 2) + _table(form, 100))
+    from zzaimy.app import webhwp_write as ww
+    monkeypatch.setattr(ww, "section_before", lambda data, sec, off: "절:2.1 월별 추진 실적")
+    new = [["월", "주요 활동", "활동 건수", "집행 금액(원)"], ["3월", "워크숍", "2", "8,000,000"]]
+    hit = eo.empty_form_elsewhere(doc, "절:2. 추진 실적", new)
+    assert hit and hit["no"] == 1 and "2.1 월별" in hit["section"] and "참여 인원" in hit["head"]
+    assert eo.empty_form_elsewhere(doc, "절:2. 추진 실적", [["구분", "내용"], ["가", "나"]]) is None
+    filled = _hwpx(_p("2.1 월별 추진 실적", 2) + _table([form[0], ["3월", "워크숍", "24", "보고"], ["4월", "캠프", "42", "보고"]], 100))
+    assert eo.empty_form_elsewhere(filled, "절:2. 추진 실적", new) is None

@@ -1740,6 +1740,11 @@ class HwpTools:
                     if kind_ == "table" and isinstance(val_, list) and val_:
                         hit_ = _eo3.form_table_for(raw_, field, [[str(c) for c in r] for r in val_])
                         dup_ = None if hit_ else _eo3.same_table_elsewhere(raw_, field, [[str(c) for c in r] for r in val_])
+                        emp_ = None if hit_ or dup_ else _eo3.empty_form_elsewhere(raw_, field, [[str(c) for c in r] for r in val_])
+                        if emp_:
+                            return (f"쓰지 않았다 — 하위 절 「{str(emp_['section']).removeprefix('절:')}」 에 첫 열이 같은 빈 서식 표 표{emp_['no']}"
+                                    f"({emp_['head']})가 있다 — 작년 짜임의 그 표가 이 값의 자리다. 값은 hwp_table_edit set_cells 로 표{emp_['no']}의 열 머리에 "
+                                    "맞춰 넣고, 이 절에는 글만 쓴다(그 표와 다른 새 표가 꼭 필요하면 new_table: true 로 다시 쓴다).")
                         if dup_:
                             return (f"쓰지 않았다 — 머리·행 이름이 같은 표가 이미 표{dup_['no']}(「{str(dup_['section']).removeprefix('절:')}」)에 채워져 있다. "
                                     "이 절에는 같은 표를 되풀이하지 않고 글로 그 표를 가리키거나 이 절에 맞는 내용만 쓴다"

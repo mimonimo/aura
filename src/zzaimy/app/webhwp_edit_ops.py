@@ -2540,6 +2540,43 @@ def same_table_elsewhere(data: bytes, section: str, rows: list[list[str]]) -> di
     return None
 
 
+def empty_form_elsewhere(data: bytes, section: str, rows: list[list[str]]) -> dict | None:
+    """하위 절에 첫 머리 칸(「월」「분야」)이 새 표와 같고 아직 빈 서식 표가 있으면 그 표 — {no, section, head}. 없으면 None.
+    32차 A 짧게: 「2. 추진 실적」 을 맡은 서브가 「월 | 주요 활동 | 활동 건수 | 집행 금액」 표를 새로 붙이고, 하위 절 「2.1 월별 추진 실적」 의
+    작년 서식 표(월 | 주요 활동 | 참여 인원 | 근거 문서)는 빈 채 남았다(월별 0/10). 머리가 같은 표만 보던 form_table_for 가 놓친 꼴."""
+    from zzaimy.app import webhwp_write as ww
+    if not rows or not rows[0] or not str(rows[0][0]).strip():
+        return None
+    k0 = _head_key(rows[0][0])
+    # 「구분」「항목」 처럼 어느 표에나 오는 첫 머리는 같은 자리라는 표시가 아니다
+    if not k0 or k0 in {"구분", "항목", "내용", "번호", "순번", "no", "연번", "비고", "분류"}:
+        return None
+    def _num(name: str) -> str:
+        m = re.match(r"(?:절:)?\s*(\d+(?:\.\d+)*)", str(name or ""))
+        return m.group(1) if m else ""
+    cur = _num(section)
+    if not cur:
+        return None
+    doc = _Doc(data)
+    for x in list_tables(doc):
+        sec = ww.section_before(data, x["sec"], x["s"])
+        # 이 절의 하위 절(2. → 2.1)에 있는 서식 표만 — 다른 갈래 절의 표는 그 절의 일이다(「1. 변경 사유」 의 작은 표는 「2. 변경 내역」 표 자리가 아니다)
+        if sec == section or not _num(sec).startswith(cur + "."):
+            continue
+        try:
+            cells = ws._cells(_table_xml(doc, x))
+        except Exception:
+            continue
+        head = [str(c.get("text") or "") for c in sorted((c for c in cells if c["r"] == 0), key=lambda c: c["c"])]
+        body = [str(c.get("text") or "") for c in cells if c["r"] > 0]
+        if len(head) < 2 or _head_key(head[0]) != k0 or not body:
+            continue
+        filled = sum(1 for t in body if t.strip() and not _hint_cell(t)) / len(body)
+        if filled < 0.3:
+            return {"no": x["no"], "section": sec, "head": " | ".join(h[:10] for h in head[:5])}
+    return None
+
+
 def _head_key(s: str) -> str:
     """열 머리 비교 꼴 — 끝 괄호 단위(「참여 인원(명)」)와 띄어쓰기를 뗀다."""
     return _lab(re.sub(r"\s*[(（][^()（）]*[)）]\s*$", "", str(s or "")))
