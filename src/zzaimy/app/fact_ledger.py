@@ -275,6 +275,44 @@ def fill_labeled(kept: list[dict], items: list[str], text: str) -> list[dict]:
     return kept
 
 
+def fill_aliases(pairs: list[tuple[dict, str]], items: list[str]) -> list[str]:
+    """문서마다 다른 이름으로 적힌 같은 칸을 문서들 사이에서 배워 빈 항목을 채운다 — 어떤 문서에서 뽑은 「분야」 값이 그 문서의
+    「추진 과제 | 지역 연계 강좌」 줄 값과 같으면(문서 둘 이상에서 같은 칸) 「분야」 는 문서의 「추진 과제」 칸이다. 그 칸이 있는데
+    「분야」 를 비워 뽑은 문서의 기록을 그 값으로 채운다(문서 글 그대로). 33차 B 짧게: 과제를 「분야」 로 모아 대부분 비어 과제별
+    참석자 110·64(정답 190·83). pairs: (장부의 문서 결과, 문서 글). 돌려주는 것: 관찰 글 줄."""
+    from collections import Counter
+    labs = [_labeled(t) for _, t in pairs]
+    notes: list[str] = []
+    for it in items:
+        key_it = _norm(re.sub(r"\([^)]*\)", "", it))
+        cnt: Counter = Counter()
+        for (v, _), lab in zip(pairs, labs):
+            vals = {_norm(str(r.get(it) or "")) for r in v.get("records") or [] if str(r.get(it) or "").strip()}
+            vals = {x for x in vals if len(x) >= 2 and number(x) is None}
+            for L in {L for L, lv in lab.items() if L != key_it and _norm(lv) in vals}:
+                cnt[L] += 1
+        if not cnt:
+            continue
+        L, n = cnt.most_common(1)[0]
+        if n < 2:
+            continue
+        filled = 0
+        for (v, _), lab in zip(pairs, labs):
+            lv = lab.get(L)
+            if not lv:
+                continue
+            for r in v.get("records") or []:
+                if not str(r.get(it) or "").strip():
+                    r[it] = lv
+                    r.setdefault("_from_label", []).append(it)
+                    filled += 1
+        if filled:
+            shown = next((c.split(" | ")[0].strip() for _, t in pairs for c in (t or "").splitlines()
+                          if " | " in c and _norm(re.sub(r"\([^)]*\)", "", c.split(" | ")[0])) == L), L)
+            notes.append(f"「{it}」 이 빈 기록 {filled}건을 문서의 「{shown}」 칸 값으로 채웠다(다른 문서 {n}개에서 「{it}」 값이 그 칸 값과 같았다)")
+    return notes
+
+
 MIN_SPLIT = 1200        # 이보다 짧은 조각은 더 나누지 않는다
 
 
@@ -391,6 +429,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
     old_live = [k for k in (data.get("live") or []) if k in store]
     prev_items = {str(store[k]["doc_id"]): list(store[k].get("items") or []) for k in old_live}
     jobs, cached, keys = [], 0, []
+    texts: dict[str, str] = {}
     for d in docs:
         text = str(d.get("masked_text") or "")
         if not text.strip() and hasattr(db, "get_document"):
@@ -398,11 +437,13 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
         head = f"{d['id']}:{_fp(text)}:"
         hit = next((k for k, v in store.items() if k.startswith(head) and set(items) <= set(v.get("items") or [])), None)
         if hit:
+            texts[hit] = text
             keys.append(hit)
             cached += 1
             continue
         want = list(dict.fromkeys(items + prev_items.get(str(d["id"]), [])))[:12]
         k = head + "|".join(want)
+        texts[k] = text
         keys.append(k)
         jobs.append((d, text, k, want))
 
@@ -440,6 +481,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
                 continue                                         # 실패는 저장하지 않는다 — 다시 부르면 다시 한다
             store[k] = v
             new += 1
+    alias_notes = fill_aliases([(store[k], texts.get(k, "")) for k in keys if k in store], items)
     # 이번에 읽은 문서는 새 결과로 갈아 끼우고(옛 지문·옛 항목 판은 집계에서 뺀다), 이번 묶음에 없는 문서는 앞서 모은 대로 둔다
     ids = {str(d["id"]) for d in docs}
     live = [k for k in old_live if str(store[k]["doc_id"]) not in ids] + [k for k in keys if k in store]
@@ -451,6 +493,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
     zero = [v["title"] for v in mine if not v["records"]]
     failed = len(docs) - len(mine)
     lines = [f"{period_note}문서 {len(mine)}/{len(docs)}개를 끝까지 읽었다(새로 {new}개, 앞서 읽은 결과 {cached}개). 기록 {len(recs)}건."]
+    lines += alias_notes
     if failed:
         lines.append(f"읽지 못한 문서 {failed}개 — 다시 collect_facts 를 부르면 그 문서만 다시 읽는다.")
     if zero:

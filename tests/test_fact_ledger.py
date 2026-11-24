@@ -832,3 +832,14 @@ def test_unpicked_mentions_separates_target_lines():
             {"id": 3, "filename": "협약.docx", "masked_text": "지역 기관 3곳과 협약.\\n핵심지표 「지역 기관 연계」 달성치에 3곳으로 반영한다."}]
     out = fl.unpicked_mentions(["기관 연계"], docs[:1], docs)
     assert "《협약.docx》 「기관 연계」 3곳" in out and "8곳" not in out and "목표로 적힌 수는 뺐다: 《작성 안내.txt》" in out
+
+
+def test_fill_aliases_learns_label_name_across_docs():
+    # 33차 B 짧게: 과제를 「분야」 로 모았는데 문서는 「추진 과제 | 지역 연계 강좌」 — 두 문서에서 분야 값이 그 칸 값과 같으면 빈 문서도 채운다
+    a = ({"records": [{"분야": "지역 연계 강좌", "참석 인원": "41명"}]}, "추진 과제 | 지역 연계 강좌\n장소 | 도서관")
+    b = ({"records": [{"분야": "평생교육 네트워크", "참석 인원": "64명"}]}, "추진 과제 | 평생교육 네트워크")
+    c = ({"records": [{"참석 인원": "52명"}]}, "추진 과제 | 지역 연계 강좌\n장소 | 복지관")
+    notes = fl.fill_aliases([a, b, c], ["분야", "참석 인원"])
+    assert c[0]["records"][0]["분야"] == "지역 연계 강좌" and notes and "「추진 과제」" in notes[0]
+    d = ({"records": [{"참석 인원": "10명"}]}, "장소 | 강당")
+    assert fl.fill_aliases([a, d], ["분야"]) == [] and "분야" not in d[0]["records"][0]
