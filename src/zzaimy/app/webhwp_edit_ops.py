@@ -3526,6 +3526,12 @@ def fill_labels(data: bytes, values: dict) -> tuple[bytes, dict, dict]:
             continue
         best.sort(key=lambda x: x[0])
         top = [b for b in best if b[0] == best[0][0]]
+        if nth is not None and nth > len(top):
+            # 「인건비#2」 인데 그 라벨이 한 곳뿐 — 첫째 칸에 넣으면 앞서 넣은 값을 덮는다(30차 A 짧게: 비율을 「인건비#2」 로 넣어
+            # 집행액 칸이 21.3 으로 바뀜). 차례가 없으면 넣지 않는다
+            why[name] = (f"「{base_name.strip()}」 라벨 칸은 {len(top)}곳뿐이라 {nth}번째가 없다 — 같은 행의 다른 열이면 "
+                         "hwp_table_edit set_cells 로 그 열에 넣는다")
+            continue
         if len(top) > 1 and used:
             near = [b for b in top if b[1] in used]
             top = near or top

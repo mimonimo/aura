@@ -155,6 +155,13 @@ def test_fill_labels_nth_and_same_table_first():
     assert view.index("박민규") < view.index("박은호")
 
 
+def test_fill_labels_refuses_missing_nth():
+    # 30차 A 짧게: 한 곳뿐인 라벨을 「#2」 로 불러 첫째 칸(앞서 넣은 집행액)을 비율로 덮음 — 차례가 없으면 넣지 않는다
+    from zzaimy.app import webhwp_edit_ops as eo
+    new, done, why = eo.fill_labels(_label_doc(), {"대학명#2": "다른 대학"})
+    assert not done and "1곳뿐" in why["대학명#2"]
+
+
 def test_block_stops_before_next_chapter_title_box():
     """다음 장 제목 상자(「Ⅲ. 성과관리 계획」, 글상자)는 앞 견본 블록에 들지 않는다 — 늘려도 제목 상자가 복사되지 않는다."""
     box = ('<hp:p id="20" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:rect id="1"><hp:drawText><hp:subList>'
