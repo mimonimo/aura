@@ -191,3 +191,14 @@ def test_numbers_gate_fails_closed_when_work_doc_unreadable():
     assert hw.numbers_gate("| 총 사업비 | 120,000천원 |") is None
     hw.evidence = lambda: (_ for _ in ()).throw(RuntimeError())
     assert hw.numbers_gate("| 총 사업비 | 120,000천원 |") == wa.GATE_UNREAD
+
+
+def test_gate_bad_keeps_numbers_apart_from_scale_note():
+    """11-24 34차: 단위 셈 꼬리까지 한 수로 읽으면 표 고치기가 걸린 수를 이번 칸 값이 아닌 것으로 보고 통과시켰다."""
+    from zzaimy.app.webhwp_edit_ops import gate_bad
+    why = "근거에 없는 수치: 12,000,000, 51,600 [단위 셈 확인: 12,000,000 → 근거 금액 120,000,000원과 자릿수만 다르다] — 담당자가…"
+    bad, rest = gate_bad(why)
+    assert bad == ["12,000,000", "51,600"]
+    assert rest.startswith(" [단위 셈 확인")
+    assert gate_bad("근거에 없는 수치: 7 (든 줄: 7명) — x")[0] == ["7"]
+    assert gate_bad("다른 글") is None

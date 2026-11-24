@@ -719,3 +719,14 @@ def test_scattered_counts_flags_value_matching_no_doc_and_skips_target_column():
     assert len(out) == 1 and "52 — 어느 문서의 수와도, 합과도 다르다" in out[0] and "모두 더하면 31" in out[0]
     rows[1][2] = "31"
     assert scattered_counts(rows, texts) == []
+
+
+def test_scattered_counts_gives_cell_for_direct_fix():
+    # 34차 B 한번에: 목표 8 을 달성치에 두고 마쳤다(문서 1·2·3, 합 6) — 짚은 칸 자리(행 3·열 3)와 합을 넘겨 set_cells 인자를 만든다
+    from zzaimy.app.doc_review import scattered_counts
+    rows = [["핵심지표", "목표치", "달성치", "달성도(%)"], ["학습 상담(건)", "120", "109", "90.8%"], ["지역 기관 연계(곳)", "8", "8", "100%"]]
+    texts = [("나눔 한마당", "지역 기관 연계 1곳"), ("업무협약", "지역 기관 연계 2곳"), ("주민자치센터", "지역 기관 연계 3곳"), ("안내", "목표치: 지역 기관 연계 8곳")]
+    at = []
+    out = scattered_counts(rows, texts, at)
+    assert len(out) == 1 and "모두 더하면 6" in out[0]
+    assert at == [(3, 3, 6)]

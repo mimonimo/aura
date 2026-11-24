@@ -33,6 +33,16 @@ from zzaimy.ingest import hwpx_fill as hf
 MM = 283.465                                      # HWPUNIT / mm
 
 
+def gate_bad(why: str) -> tuple[list[str], str] | None:
+    """수치 관문 문구(「근거에 없는 수치: a, b [단위 셈 확인: …] — …」)에서 걸린 수 목록과 그 뒤 글을 가른다.
+    목록은 첫 「 (」·「 [」·「 —」 앞까지다. 11-24 34차: 단위 셈 확인 꼬리까지 한 수로 읽어 이번 쓰기 칸에 없는 수로 보고
+    표 고치기가 「12,000,000원」(1억 2천만 원의 10분의 1)을 그대로 넣었다."""
+    m = re.match(r"근거에 없는 수치: (.+?)(?=( \(| \[| —))", why or "", re.S)
+    if not m:
+        return None
+    return [b.strip() for b in m.group(1).split(", ") if b.strip()], why[m.end():]
+
+
 def hu(mm: float) -> int:
     return int(round(float(mm) * MM))
 
@@ -3976,11 +3986,12 @@ class EditTools:
             why = gate("\n".join(reps))
             if not why:
                 return None
-            m = re.match(r"근거에 없는 수치: ([^—]+?) —", why)
+            got = gate_bad(why)
+            if not got:
+                return why
             olds = " ".join(f for f, _ in pairs)
-            bad = [b.strip() for b in (m.group(1).split(", ") if m else []) if b.strip()]
-            left = [b for b in bad if not re.search(rf"(?<![\d.,]){re.escape(b)}(?![\d])", olds)]
-            return ("근거에 없는 수치: " + ", ".join(left) + " — " + why.split(" — ", 1)[1]) if left else None
+            left = [b for b in got[0] if not re.search(rf"(?<![\d.,]){re.escape(b)}(?![\d])", olds)]
+            return ("근거에 없는 수치: " + ", ".join(left) + got[1]) if left else None
         if gate is None or name not in ("hwp_table_insert", "hwp_table_edit"):
             return None
         vals = a.get("values") if isinstance(a.get("values"), list) else []
@@ -4037,14 +4048,15 @@ class EditTools:
         why = gate(md)
         if why:
             # 걸린 수가 든 칸을 짚는다 — 어느 행인지 모르면 맞는 칸(4월 42명)을 지우거나 같은 값을 되풀이한다(11-22 5차: 5월 행에 옮겨 적은 42명)
-            m = re.match(r"근거에 없는 수치: ([^—]+?) —", why)
-            bad = [b.strip() for b in (m.group(1).split(", ") if m else []) if b.strip()]
+            got = gate_bad(why)
+            m = got is not None
+            bad = got[0] if got else []
             # 이번에 넣는 칸에 든 수만 탓한다(이미 있던 칸 값은 이 쓰기의 몫이 아니다)
             mine = [b for b in bad if any(re.search(rf"(?<![\d.,]){re.escape(b)}(?![\d])", v) for v in new_vals)]
             if m and not mine:
                 return None
             if m and len(mine) < len(bad):
-                why = "근거에 없는 수치: " + ", ".join(mine) + " —" + why.split(" —", 1)[1]
+                why = "근거에 없는 수치: " + ", ".join(mine) + got[1]
                 bad = mine
             hits = []
             for r in rows:

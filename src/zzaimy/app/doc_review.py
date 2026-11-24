@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 
 from zzaimy.app import webhwp_write as ww
@@ -175,15 +176,16 @@ def twin_columns(rows: list[list[str]]) -> tuple[str, str, int] | None:
     return best
 
 
-def scattered_counts(rows: list[list[str]], texts: list[tuple[str, str]]) -> list[str]:
+def scattered_counts(rows: list[list[str]], texts: list[tuple[str, str]], where: list | None = None) -> list[str]:
     """행 이름(지표 이름) 바로 뒤에 셈 단위 수가 적힌 근거 문서가 둘 이상인데, 행에 든 수가 그 가운데 문서 하나의 수와 같고 합과는 다르면 짚는다.
     29차 A 짧게: 성과지표를 모아 묶지 않고 서브가 문서 하나의 수(취업 연계 17명·협약 6건)를 실적으로 씀(정답 31·9 는 문서 여러 개의 합).
-    texts: (문서 제목, 글). 합인지 한 문서 값인지는 27B 가 판단한다."""
+    texts: (문서 제목, 글). 합인지 한 문서 값인지는 27B 가 판단한다.
+    where: 주면 짚은 칸마다 (행 번호, 열 번호, 문서 합) 을 1부터 센 표 자리로 붙인다 — 바로 부를 set_cells 인자를 만들 때 쓴다."""
     out = []
     head = rows[0] if rows else []
     # 목표·계획·비율 열은 문서의 실적 합과 견주지 않는다(목표 300 은 실적 합이 아니다)
     skip_cols = {j for j, h in enumerate(head) if re.search(r"목표|계획|기준|비율|률|%", str(h))}
-    for r in rows[1:]:
+    for ri, r in enumerate(rows[1:], 2):
         if not r or not r[0].strip():
             continue
         core = re.sub(r"\s*[(（][^)）]*[)）]\s*$", "", r[0]).strip()
@@ -212,6 +214,8 @@ def scattered_counts(rows: list[list[str]], texts: list[tuple[str, str]]) -> lis
                 ex = ", ".join(f"《{t[:16]}》 {pv}{u}" for t, pv, u in per[:4])
                 one = " — 그 가운데 문서 하나의 수다" if any(v == pv for _, pv, _ in per) else " — 어느 문서의 수와도, 합과도 다르다"
                 out.append(f"「{r[0][:16]}」 행의 {c}{one}. 이 이름 뒤에 수가 적힌 문서가 {len(per)}개다({ex}{' …' if len(per) > 4 else ''}, 모두 더하면 {total})")
+                if where is not None:
+                    where.append((ri, j + 1, total))
                 break
     return out
 
@@ -305,10 +309,16 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
             if tw_:
                 issues.append(f"「{label}」 표{tno} 의 「{tw_[0][:12]}」 열과 「{tw_[1][:12]}」 열에 같은 수가 든 행이 {tw_[2]}개다 — "
                               "한 값을 두 열에 넣었는지 본다. 그 열 값이 근거에 없으면 「확인 필요」 로 바꾼다(hwp_table_edit set_cells).")
-            sc_ = scattered_counts(rows, texts) if texts else []
+            at_: list = []
+            sc_ = scattered_counts(rows, texts, at_) if texts else []
             if sc_:
-                issues.append(f"「{label}」 표{tno}: " + "; ".join(sc_[:3]) + " — 문서 하나의 수만 옮긴 것인지 본다. 여러 문서의 합이면 "
-                              "collect_facts {items: [지표 이름 항목, 실적 항목]} 로 모은 뒤 aggregate_facts 로 더한 값을 쓴다.")
+                # 문서 합으로 바꿀 바로 부를 인자를 붙인다 — 34차 B 한번에: 후보를 두 번 보고도 목표 8 을 달성치에 둔 채 마쳤다(문서 합 6)
+                fix_ = "; ".join(json.dumps({"table": tno, "op": "set_cells", "start": [r_, c_], "values": [[str(t_)]]}, ensure_ascii=False)
+                                 for r_, c_, t_ in at_[:3])
+                issues.append(f"「{label}」 표{tno}: " + "; ".join(sc_[:3]) + " — 문서 하나의 수만 옮긴 것인지, 목표 같은 다른 값을 옮긴 것인지 본다. "
+                              "여러 문서의 합이 실적이면 그 칸을 문서 합으로 바꾼다: hwp_table_edit " + fix_
+                              + " (비율 열이 있으면 함께 다시 셈). 합이 아니라고 보면 collect_facts {items: [지표 이름 항목, 실적 항목]} 로 모은 뒤 "
+                              "aggregate_facts 로 확인한다.")
             raw_ = [c for r in data_rows for c in r[1:] if re.fullmatch(r"\d{5,}", c.strip())]
             if raw_ and not any(re.search(r"\d{1,3}(?:,\d{3})+", c) for r in rows for c in r):
                 issues.append(f"「{label}」 표{tno} 에 쉼표 없는 큰 수가 있다(「{raw_[0]}」 등 {len(raw_)}칸) — 금액·인원 같은 값이면 「1,234,000」 처럼 자리 쉼표를 넣는다.")

@@ -98,3 +98,20 @@ def test_live_and_native_text_inserts_go_through_the_number_gate():
     assert out.startswith("넣지 않았다") and "12,000" in out
     out2 = t.action(1, {"action": "InsertText", "params": {"Text": "총 사업비 12,000천원"}})
     assert out2.startswith("넣지 않았다")
+
+
+def test_table_gate_holds_when_message_has_scale_note():
+    # 11-24 34차: 단위 셈 꼬리가 붙은 거절 문구를 잘못 갈라 set_cells 가 「12,000,000원」(1억 2천만 원의 1/10)을 넣었다
+    from types import SimpleNamespace
+    from zzaimy.app import webhwp_edit_ops as eo
+
+    def gate(md):
+        if "12,000,000" in md:
+            return ("근거에 없는 수치: 12,000,000 [단위 셈 확인: 12,000,000 → 근거 금액 120,000,000원과 자릿수만 다르다]"
+                    " — 모르는 값은 확인 필요")
+        return None
+    t = eo.EditTools(SimpleNamespace(numbers_gate=gate, db=None))
+    why = t._numbers_check(1, "hwp_table_edit", {"op": "set_cells", "table": 1, "start": [3, 2], "values": [["12,000,000원"]]})
+    assert why and "단위 셈 확인" in why and "12,000,000" in why
+    why_r = t._numbers_check(1, "hwp_replace", {"find": "확인 필요", "replace": "12,000,000원"})
+    assert why_r and "단위 셈 확인" in why_r
