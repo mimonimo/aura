@@ -177,3 +177,17 @@ def test_scale_slips_reads_thousand_unit():
     out = scale_slips(["12,000천"], ["총 사업비는 1억 2천만 원이다."])
     assert out and "120,000,000원(=120,000천원)" in out[0]
     assert scale_slips(["120,000천"], ["총 사업비는 1억 2천만 원이다."]) == []
+
+
+def test_numbers_gate_fails_closed_when_work_doc_unreadable():
+    # 32차 B 한번에: 근거를 읽다 난 오류에 관문이 통과로 돌아가 「12,000천원」 이 들어간 것으로 봄 — 작업본을 못 읽으면 그 글만 빼고 대 본다
+    from zzaimy.app import webhwp_agent as wa
+    hw = wa.HwpTools.__new__(wa.HwpTools)
+    hw.evidence = lambda: ["총 사업비는 1억 2천만 원이다."]
+    def _boom():
+        raise OSError("saving")
+    hw.form_text = _boom
+    assert "12,000천" in (hw.numbers_gate("| 총 사업비 | 12,000천원 |") or "")
+    assert hw.numbers_gate("| 총 사업비 | 120,000천원 |") is None
+    hw.evidence = lambda: (_ for _ in ()).throw(RuntimeError())
+    assert hw.numbers_gate("| 총 사업비 | 120,000천원 |") == wa.GATE_UNREAD

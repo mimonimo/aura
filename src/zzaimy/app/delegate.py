@@ -52,6 +52,22 @@ CHECK_SHARE = 0.30                 # 자기 점검(고친 본문 포함) 출력 
 MAX_QUERIES = 3
 
 
+
+def _gate_ev(hw) -> list[str]:
+    """수치 관문 근거 — 못 읽으면 빈 목록(관문을 건너뛰지 않고 더 엄격하게). webhwp_agent.HwpTools._gate_evidence 와 같다."""
+    f = getattr(hw, "_gate_evidence", None)
+    if f is not None:
+        return f() or []
+    try:
+        ev = list(hw.evidence())
+    except Exception:
+        return []
+    try:
+        ev.append(hw.form_text())
+    except Exception:
+        pass
+    return ev
+
 def _flag(name: str, default: str = "1") -> bool:
     return (os.environ.get(name, default) or default).strip().lower() not in ("0", "off", "false", "no")
 
@@ -631,10 +647,7 @@ class Delegator:
             body2, unknown2 = parse_sub(raw[raw.find("[본문]"):])
             ev_all = None
             if self.hw.evidence is not None:
-                try:
-                    ev_all = list(self.hw.evidence()) + [self.hw.form_text()] + job.get("raw_ev", [])
-                except Exception:
-                    ev_all = None
+                ev_all = _gate_ev(self.hw) + job.get("raw_ev", [])
             why = _wa.check_body(body2, ev_all, limit) if body2 else "빈 본문"
             if body2 and not why and _plain_chars(body2) >= 0.5 * _plain_chars(job["body"]):
                 job["body"], job["unknown"] = body2, list(dict.fromkeys(job["unknown"] + unknown2))[:12]
@@ -992,10 +1005,7 @@ class Reviser:
         messages = [{"role": "system", "content": REVISE_SYSTEM}, {"role": "user", "content": user}]
         ev_all = None
         if self.hw.evidence is not None:
-            try:
-                ev_all = list(self.hw.evidence()) + [self.hw.form_text(), current] + raw_ev
-            except Exception:
-                ev_all = None
+            ev_all = _gate_ev(self.hw) + [current] + raw_ev
         rec = {"kind": "revise", "field": field, "instruction": instruction[:200], "plan": plan, "queries": queries, "compress": cinfo,
                "before_chars": _plain_chars(current), "tries": []}
         body, unknown, probs = "", [], []

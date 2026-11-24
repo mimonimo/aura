@@ -202,6 +202,9 @@ def critique_lines(text: str) -> list[str]:
     return hits if (len(hits) >= 2 or heads) else []
 
 
+GATE_UNREAD = "근거를 읽지 못해 수치를 대 보지 못했다 — 넣지 않았다. 같은 값을 한 번 더 넣는다(근거에 있는 값이면 들어간다)."
+
+
 def check_body(text: str, evidence: list[str] | None, limit: int) -> str | None:
     """절 본문 품질 관문 — 메인 직접 쓰기와 서브(절 맡기기)가 같은 것을 지난다. 통과면 None, 아니면 거절 까닭.
     - 양식 예시 글자(○○·OO·000·□□)가 남은 줄
@@ -2069,16 +2072,29 @@ class HwpTools:
         pids = ((m.get("written") or {}).get(field) or []) if isinstance(m.get("written"), dict) else []
         return ww.section_body(data, field, pids) or first        # 필드 안 글·넣은 표·이어 쓰기 필드를 문서 차례대로
 
+    def _gate_evidence(self) -> list[str] | None:
+        """수치 관문의 근거 — 찾은 근거·담당자 글 + 작업본 글. 작업본을 못 읽으면(막 쓴 직후 저장 중) 작업본 글만 빼고(관문이 더 엄격해질 뿐),
+        근거 자체를 못 읽으면 None — 관문을 건너뛰지 않는다. 32차 B 한번에: 사업명을 쓴 바로 다음 걸음에 「12,000천원」 이 표에 들어감
+        (다른 경로에서는 모두 막힌 값 — 근거를 읽다 난 오류에 관문이 통과로 돌아간 것으로 본다)."""
+        try:
+            ev = list(self.evidence())
+        except Exception:
+            return None
+        try:
+            ev.append(self.form_text())
+        except Exception:
+            pass
+        return ev
+
     def numbers_gate(self, text: str) -> str | None:
         """표 도구(표 만들기·표 고치기)로 넣는 값의 수치 관문 — 본문(check_body)과 같은 근거로 대조한다. 통과면 None.
         11-17: 예산 표를 표 도구로 넣을 때는 관문이 없어 「1억 2천만 원」 이 「12,000(천원)」 으로 10배 틀려 들어갔다."""
         from zzaimy.verify.numbers import context_check_on, mask_unsupported
         if self.evidence is None:
             return None
-        try:
-            ev = list(self.evidence()) + [self.form_text()]
-        except Exception:
-            return None
+        ev = self._gate_evidence()
+        if ev is None:
+            return GATE_UNREAD
         _, bad = mask_unsupported(text, [e for e in ev if e], context=context_check_on())
         if not bad:
             return None
@@ -2095,10 +2111,9 @@ class HwpTools:
         limit = self.limit()
         ev = None
         if self.evidence is not None:
-            try:
-                ev = list(self.evidence()) + [self.form_text()]
-            except Exception:
-                ev = None
+            ev = self._gate_evidence()
+            if ev is None:
+                return GATE_UNREAD
         why = check_body(text, ev, limit)
         if why:
             return why
