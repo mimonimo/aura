@@ -534,6 +534,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         run_s = 0.0
         name, args = step["action"], step.get("args") if isinstance(step.get("args"), dict) else {}
         tool = reg[name]
+        if (tool.final and tool.needs_evidence and not tool.writes and not searched and "finish" in reg
+                and plain_reply(str(args.get("answer") or ""))):
+            # 근거 없이 바로 한 답(인사·할 수 있는 일·일반 안내)을 걸음 인자에 써 왔다 — 사실 수치가 없으면 그 글을 그대로 끝맺음으로.
+            # 11-25 운영 잼: 「안녕, 뭘 도와줄 수 있어?」 가 찾기 먼저 안내에 막혀 같은 글을 finish 로 다시 써 34초(17초 + 16초)
+            name, tool, args = "finish", reg["finish"], {"message": str(args["answer"])}
         # 같은 걸음 판정 열쇠에 지금 작업 대상(scope, 한글 작업본 번호 등)을 넣는다 — 작업본을 바꾼 뒤 같은 인자는 새 시도다(11-10 대화 165)
         try:
             _scope = str(scope() or "") if scope else ""
@@ -742,6 +747,15 @@ _CLAIM = re.compile(r"(썼|채웠|작성했|작성하였|넣었|고쳤|수정했
 _NUM_U = r"\d+(?:[.,]\d+)*(?:\s?(?:명|곳|건|회|개|%|천원|원))?"
 _FIXED_TO = re.compile(rf"((?:{_NUM_U}\s?[·/]\s?){{0,4}}{_NUM_U})\s*(?:으로|로)\s*"
                        r"(?:바로잡|고쳤|고침|고치|바꿨|바꿈|수정했|수정함|정정)")
+
+
+_FACT_NUM = re.compile(r"\d[\d,.]*\s*(?:명|원|만\s?원|천\s?원|억|%|퍼센트|일|개월|년|월|건|곳|회|시간|학점|점|호|조|항)")
+
+
+def plain_reply(text: str) -> bool:
+    """근거 없이 내도 되는 답인가 — 글이 있고 짧으며(1,500자 이하) 사실 수치(금액·인원·날짜·조항 번호 등)가 없다. 목록 번호(1) 2.)는 괜찮다."""
+    t = (text or "").strip()
+    return bool(t) and len(t) <= 1500 and not _FACT_NUM.search(t)
 
 
 def unbacked_fixes(message: str, review_txt: str) -> list[str]:

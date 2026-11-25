@@ -739,3 +739,11 @@ def test_unbacked_fixes_flags_values_not_in_document():
     msg = "강좌 수료자를 171명·68.4%로 바로잡았습니다. 지역 기관 연계도 6곳·75.0%로 바로잡았습니다."
     assert unbacked_fixes(msg, rv) == ["6곳·75.0%"]
     assert unbacked_fixes("강좌 수료자를 171명으로 고쳤습니다.", rv) == []
+
+
+def test_plain_reply_accepts_greeting_but_not_facts():
+    # 11-25: 인사 답이 찾기 먼저 안내에 막혀 같은 글을 두 번 써 34초 — 사실 수치가 없는 바로 답은 그대로 끝맺음으로
+    from zzaimy.app.doc_agent import plain_reply
+    assert plain_reply("안녕하세요! 이런 일을 돕습니다.\n1) 문서 만들기\n2) 절 쓰기")
+    assert not plain_reply("출장 숙박비 상한은 7만 원입니다.") and not plain_reply("정산은 14일 안에 합니다.")
+    assert not plain_reply("") and not plain_reply("가" * 1600)
