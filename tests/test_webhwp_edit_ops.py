@@ -308,3 +308,17 @@ def test_set_cells_one_column_count_must_match_filled_rows():
         eo.table_edit(d, {"table": tb, "op": "set_cells", "start": [2, 3], "values": [["1"], ["2"], ["3"], ["4"], ["5"], ["6"]]})
     d2, _ = eo.table_edit(d, {"table": tb, "op": "set_cells", "start": [2, 3], "values": [["1"], ["2"], ["3"], ["4"], ["5"]]})
     assert "6행: 7월 | 활동7 | 5" in eo.table_view(d2, {"table": tb})
+
+
+def test_set_cells_refuses_unit_mismatch_and_does_not_shift_onto_filled_row():
+    # 34차 A 한번에(11-24): 월별 집행액을 「참여 인원(명)」 열에 넣었고, 머리줄을 「집행액(원)」 으로 바꾸려던 쓰기가 아래로 밀려 3월 값을 덮었다
+    d, _ = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"}, "values": [["월", "참여 인원(명)", "집행액(원)"], ["", "", ""], ["", "", ""]]})
+    tb = {"head": "월"}
+    with pytest.raises(eo.EditError, match="사람·건 수 열"):
+        eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [2, 1], "values": [["3월", "8,000,000원 (6.0%)", ""]]})
+    with pytest.raises(eo.EditError, match="금액 열"):
+        eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [2, 3], "values": [["24명"]]})
+    d, _ = eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [2, 1], "values": [["3월", "24", "8,000,000"], ["4월", "42명", "19,500,000원"]]})
+    d, msg = eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [1, 2], "values": [["참여자(명)"]]})
+    x = _sec(d)
+    assert "아래 행부터" not in msg and ">참여자(명)<" in x and ">24<" in x

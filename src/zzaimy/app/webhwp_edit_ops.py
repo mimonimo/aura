@@ -1473,6 +1473,49 @@ def _cell_plan(tb: "_Table", r0: int, c0: int, values: list) -> dict:
     return plan
 
 
+_COUNT_U = r"명|건|개|곳|회|과목|개사|팀|기"
+_MONEY_U = r"원|천원|백만원|만원|억원"
+
+
+def _unit_kind(text: str, head: bool) -> str:
+    """「참여 인원(명)」→count, 「집행액(천원)」→money (머리는 괄호 단위만), 값 「8,000,000원 (6.0%)」→money, 「31명」→count, 그 밖 ""."""
+    t = str(text or "")
+    if head:
+        m = re.search(r"[(（]\s*([^)）]{1,4}?)\s*[)）]\s*$", t)
+        u = m.group(1) if m else ""
+        return "count" if re.fullmatch(_COUNT_U, u) else "money" if re.fullmatch(_MONEY_U, u) else ""
+    if re.search(rf"\d[\d,.]*\s*(?:{_MONEY_U})(?![가-힣])", t):
+        return "money"
+    if re.search(rf"\d[\d,.]*\s*(?:{_COUNT_U})(?![가-힣])", t):
+        return "count"
+    return ""
+
+
+def _check_unit_columns(tb: "_Table", r0: int, c0: int, values: list) -> None:
+    """열 머리가 밝힌 단위(사람·건 수 / 금액)와 값의 단위가 어긋나면 넣지 않는다. 34차 A 한번에(11-24): 참여 인원을 모으지 않고
+    월별 집행액 「8,000,000원 (6.0%)」 을 「참여 인원(명)」 열에 넣었고, 점검에서 서식 머리줄을 「집행액(원)」 으로 바꿨다."""
+    if r0 == 0:
+        return
+    plain = lambda cv: _text(re.sub(r"<hp:parameters\b.*?</hp:parameters>", "", cv["xml"], flags=re.S)).strip()
+    bad = []
+    for row in values:
+        for j, v in enumerate(row if isinstance(row, list) else [row]):
+            c = c0 + j
+            if v is None or c >= tb.nc:
+                continue
+            hc = tb.covering(0, c)
+            h = plain(hc) if hc is not None else ""
+            hk, vk = _unit_kind(h, True), _unit_kind(str(v), False)
+            if hk and vk and hk != vk:
+                bad.append((h, str(v)))
+    if bad:
+        h, v = bad[0]
+        what = "사람·건 수" if _unit_kind(h, True) == "count" else "금액"
+        raise EditError(f"넣지 않았다 — 「{h}」 열은 {what} 열인데 「{v[:30]}」 처럼 단위가 다른 값이 {len(bad)}칸이다. "
+                        "서식의 열 머리는 바꾸지 않는다. 그 열 항목의 값을 모아 넣는다(예: aggregate_facts 의 sum 에 그 열 항목을 넣어 다시 묶는다). "
+                        "근거에 없으면 「확인 필요」.")
+
+
 def _skip_head(tb: "_Table", r0: int, values: list, overwrite: bool = False):
     """표의 머리줄(라벨만 든 행) 위에 값을 넣으려 하면 그 아래 값 행부터 넣는다 → (r0, values, 알림).
     머리줄로 보는 행: 칸마다 짧은 라벨 글이 있고 필드가 없으며, 바로 아래 행이 비었거나 값 칸 필드·견본 글만 든 행.
@@ -1495,7 +1538,9 @@ def _skip_head(tb: "_Table", r0: int, values: list, overwrite: bool = False):
     if not head or any("fieldBegin" in cv["xml"] for cv in head) or not all(t and len(t) <= 14 and not re.fullmatch(r"[\d,.\s%]+", t) for t in texts):
         return r0, values, ""
     below = row_cells(r0 + 1)
-    if not below or not all(("fieldBegin" in cv["xml"]) or not plain(cv) or _sample_text(plain(cv)) for cv in below):
+    # 아래 행이 이미 값으로 찬 행이면 밀어 넣지 않는다 — 34차 A 한번에(11-24): 머리줄 글을 바꾸려던 「집행액(원)」 이
+    # 아래로 밀려 3월 값 칸을 덮었다. 필드 칸이라도 글이 든 칸은 값이다
+    if not below or not all(not plain(cv) or _sample_text(plain(cv)) for cv in below):
         return r0, values, ""
     first = values[0] if isinstance(values[0], list) else [values[0]]
     norm = lambda t: re.sub(r"\s+", "", str(t or ""))
@@ -1795,6 +1840,7 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
         _check_table_choice(doc, t, values)                 # 값의 라벨이 다른 서식 표와 훨씬 잘 맞으면 그 표를 알려 주고 넣지 않는다
         if not a.get("overwrite"):
             _check_column_count(tb, r0, c0, values)         # 채워진 행에 한 열만 넣는데 값 수가 행 수와 다르면 — 한 칸씩 밀린다
+            _check_unit_columns(tb, r0, c0, values)         # 머리가 「(명)」 인 열에 금액처럼 단위가 어긋난 값이면 넣지 않는다
         n, grown = 0, 0
         # 행이 모자라면 표 끝에 마지막 행 꼴로 늘려 넣는다 — 값 줄 수와 늘린 행 수가 어긋나(43줄에 40행) 통째로 거절되고
         # 빈 행만 남던 일(11-12 특성화 재현 3차 12단계). 열이 모자란 것은 표 꼴이 다르다는 뜻이라 그대로 알린다
