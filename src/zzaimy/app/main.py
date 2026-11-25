@@ -2700,6 +2700,7 @@ def create_app(
     _APPLY_GIVEN = ("받은 값이 들어갈 칸·절이 작업본에 있으면 지금 넣는다(칸은 hwp_fill, 이미 쓴 절은 그 값을 반영해 고쳐 쓰기). "
                     "담당자 글이 값 답만이면 그 값을 넣은 뒤 앞서 하던 일(작업 메모의 남은 일·남은 빈 절)을 이어 가고, 기억만 하고 끝내지 않는다.")
 
+    QA_LOOK_MAX = int(os.environ.get("ZZAIMY_AGENT_QA_LOOK", "4"))       # 작업본 없는 질문의 찾기·이어 읽기 몫(넘으면 답하라고 돌려보냄)
     SEARCH_RUN_MAX = int(os.environ.get("ZZAIMY_AGENT_SEARCH_RUN", "6"))   # 쓰기 없이 이어 찾기 상한(넘으면 쓰기로 돌려보냄)
     _TOOL_LABELS = {"search": "근거 찾기", "read_found": "문서 읽기", "write_section": "절 쓰기", "hwp_write": "절 쓰기", "hwp_fill": "칸 채우기",
                     "hwp_forms": "양식 찾기", "hwp_start": "작업본 만들기", "hwp_switch": "작업 문서 바꾸기", "hwp_form_create": "양식 만들기", "hwp_fields": "빈 자리 보기", "answer_question": "답하기",
@@ -2926,6 +2927,7 @@ def create_app(
                 return []
             return [x for x in lines_ if _PLACEHOLDER.search(x)][:8]
 
+        qa_look = {"n": 0}                                     # 작업본 없는 질문에서 찾기·이어 읽기 수 — 답이 늦게 시작하지 않게(11-25)
         search_run = {"n": 0}                                  # 쓰기 없이 이어진 찾기 수 — 찾기만 되풀이하다 걸음 한도를 다 쓰지 않게(11-08 시연: 18분 찾기만, 절 0)
         found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
         found_docs: dict[int, dict] = {}                        # 이번 요청의 search 결과에 나온 문서 — read_found 가 읽을 수 있는 것만
@@ -2970,10 +2972,22 @@ def create_app(
                                              "note": "이 대화의 한글 작업본"}))
             return [h for _n, h in sorted(scored, key=lambda z: z[0])][:k]
 
+        def qa_budget() -> None:
+            """작업본이 없고 쓰기 요청도 아닌 질문 — 찾기·이어 읽기가 QA_LOOK_MAX 를 넘으면 찾은 근거로 답하라고 한 번(더 넘으면 한 번 더) 돌려보낸다.
+            11-25 운영 잼: 「출장비 정산 절차」 질문에서 찾기·읽기 11번(85초) 뒤에야 답을 쓰기 시작했다. 찾은 근거가 없으면 막지 않는다."""
+            if (hw is not None and hw.fid()) or _looks_like_drafting(q) or not found:
+                return
+            qa_look["n"] += 1
+            if qa_look["n"] in (QA_LOOK_MAX + 1, QA_LOOK_MAX + 4):
+                raise doc_agent.Retry(f"질문에 답하는 요청인데 찾기·읽기를 {qa_look['n'] - 1}번 했다 — 담당자가 답을 기다린다. "
+                                      "지금까지 찾은 근거로 answer_question 을 부른다(근거에 없는 대목은 답에서 「확인되지 않는다」 고 밝힌다). "
+                                      "꼭 필요한 문서가 하나 더 있을 때만 한 번 더 찾는다.")
+
         def t_search(a: dict) -> str:
             src, query = str(a.get("source") or "library"), str(a.get("query") or "").strip()
             if not query:
                 return "query 가 비었다."
+            qa_budget()
             search_run["n"] += 1
             if search_run["n"] > SEARCH_RUN_MAX:
                 search_run["n"] = 0
@@ -3092,6 +3106,7 @@ def create_app(
             # 읽지 못한 경우는 Retry — 근거를 찾은 걸음으로 세지 않는다(먼저 찾기 관문을 건너뛰지 못하게)
             if not found_docs:
                 raise doc_agent.Retry("이번 요청에서 search 로 찾은 문서가 없다 — 먼저 search 로 찾은 뒤 그 결과의 문서를 읽는다.")
+            qa_budget()
             did, why = pick_found(str(a.get("document") or ""))
             if did is None:                                     # 문서 제목은 문서에서 온 글 — 안내가 아니라 자료로
                 raise doc_agent.Retry("이번 search 결과에 나온 문서 하나를 골라야 읽는다 — 위 자료를 보고 《제목》이나 문서 번호로 다시 고른다.",
