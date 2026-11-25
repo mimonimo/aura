@@ -54,15 +54,31 @@ def _doc_words(db, doc: dict) -> set[str]:
     return words | _terms(" ".join(body)[:BODY_CHARS])
 
 
+_LEARNED: dict = {}                     # {db 식별: (문서·영역 지문, 무게)} — 같은 문서 모음이면 다시 배우지 않는다
+
+
 def learn_sectors(db) -> dict[str, dict[str, float]]:
     """이미 분류된 문서에서 낱말별 영역 치우침을 배운다.
 
     한 영역에만 나오는 말일수록 크게 친다. 모든 영역에 나오는 말은 신호가 아니다.
+    분류된 문서(번호·영역)가 그대로면 앞서 배운 무게를 쓴다 — 11-25 운영 측정: 묶음 반입 27건마다 모든 문서 본문을
+    다시 읽어 배우느라 반입 동안 서버 전체가 느려졌다(편집기 명령 확인 중앙값 1.8초).
     """
+    docs = list(db.list_documents())
+    finger = hash(tuple(sorted((int(d.get("id") or 0), d.get("sector") or "", d.get("filename") or "") for d in docs if d.get("sector"))))
+    hit = _LEARNED.get(id(db))
+    if hit and hit[0] == finger:
+        return hit[1]
+    weights = _learn(db, docs)
+    _LEARNED[id(db)] = (finger, weights)
+    return weights
+
+
+def _learn(db, docs: list) -> dict[str, dict[str, float]]:
     by_sector: dict[str, Counter] = defaultdict(Counter)
     doc_freq: Counter = Counter()
     n_docs = 0
-    for d in db.list_documents():
+    for d in docs:
         sector = d.get("sector") or ""
         if not sector:
             continue
