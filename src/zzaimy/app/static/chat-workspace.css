@@ -442,3 +442,9 @@ body #chatForm .chat-dock-footer.is-flash > :not(.chat-dock-flash) { visibility:
 .msg .chat-attach.is-hidden { color:var(--muted); border-style:dashed; }
 .msg .chat-attach-img { padding:0; border-radius:10px; background:#fff; overflow:hidden; }
 .msg .chat-attach-img img { display:block; max-width:min(320px, 100%); max-height:240px; object-fit:contain; }
+
+/* 쓰는 중인 단계 추론(생각 과정) — 답 전에도 글이 흘러나오게, 답이 시작되면 낮게 접는다(11-25) */
+.chat-live-cot { margin-top: 8px; padding: 6px 10px; border-left: 2px solid #e3e8ef; }
+.chat-live-cot-head { font-size: 11px; color: #5b6b80; margin-bottom: 2px; }
+.chat-live-cot-body { max-height: 9.5em; overflow-y: auto; color: #6b7686; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-live-cot.is-done .chat-live-cot-body { max-height: 1.7em; overflow: hidden; }

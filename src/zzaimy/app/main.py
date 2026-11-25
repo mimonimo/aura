@@ -994,6 +994,17 @@ def create_app(
             except Exception:                                   # 가림이 실패하면 쓰는 중인 답을 보이지 않는다(최종 답만)
                 progress.pop("partial", None)
 
+    def _chat_reasoning(session_id: int, text: str) -> None:
+        """쓰는 중인 단계 추론 — 진행 상태에 실어 화면 「생각 과정」 칸이 보인다. 가림은 쓰는 중인 답과 같게."""
+        progress = _chat_progress.get(session_id)
+        if progress is not None:
+            try:
+                masked = _scrub_internal(text)
+                cut = max(masked.rfind(" "), masked.rfind("\n"))
+                progress["reasoning"] = masked[:cut][-4000:] if cut > 0 else ""
+            except Exception:
+                progress.pop("reasoning", None)
+
     def _chat_step(session_id: int, label: str):
         progress = _chat_progress.get(session_id)
         if progress is not None:
@@ -2116,6 +2127,8 @@ def create_app(
                 kw["on_progress"] = lambda label: _chat_step(session_id, label)
             if "on_partial" in _insp.signature(r.answer).parameters:
                 kw["on_partial"] = lambda text: _chat_partial(session_id, text)
+            if "on_reasoning" in _insp.signature(r.answer).parameters:
+                kw["on_reasoning"] = lambda text: _chat_reasoning(session_id, text)
             _chat_step(session_id, "답변 준비 중")
             answer = r.answer(db, q, **kw)
         except Exception as e:
@@ -3423,6 +3436,10 @@ def create_app(
                 kw["scope"] = scope
             if "on_partial" in params:
                 kw["on_partial"] = lambda text: _chat_partial(session_id, text)
+            if "on_reasoning" in params:
+                kw["on_reasoning"] = lambda text: _chat_reasoning(session_id, text)
+            if "think" in params and isinstance(a.get("think"), bool):
+                kw["think"] = a["think"]                       # 에이전트가 정한 답 깊이(따져야 하면 true)
             if "on_progress" in params:
                 # 답 쓰기 안의 단계(근거 찾기·생각·[N단계])를 진행 줄에 — 없으면 걸음 이름 「답변 작성 중」 하나만 몇 분씩 떠 있었다(11-25)
                 kw["on_progress"] = lambda label: _chat_step(session_id, label)
@@ -3671,7 +3688,8 @@ def create_app(
                            lambda a: run_doc(lambda: _new_work_copy(session_id, owner, data_dir, request=q)),
                            final=True, consent=_COPY_CONSENT),
             doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(이번 요청에서 search 로 찾은 근거로). "
-                           "args {question}", t_answer,
+                           "args {question, think: 답을 쓰기 전에 깊이 따질지 — 여러 규정·조건을 엮거나 자격·예외를 가려야 하면 true, "
+                           "근거에서 한 가지를 짚어 안내하면 되는 질문·인사·일반 지식이면 false(날짜·기간 셈은 코드가 따로 한다)}", t_answer,
                            final=True, needs_evidence=True),
             doc_agent.Tool("ask_user", "이번 요청에 꼭 필요한데 요청 글·이 사업 문서·지난 자료(library)에서 찾지 못한 값만 묻기(정해진 목록을 묻지 않는다). "
                            "args {items: [{name, why, kind: 사실(자료에 있을 수 있는 값) 또는 결정(담당자가 정할 목표·계획), "

@@ -139,6 +139,21 @@
       return item;
     }));
     status.textContent = steps[steps.length - 1];
+    // 쓰는 중인 단계 추론 — 답이 나오기 전에도 글이 흘러나오게(11-25). 답이 시작되면 접어서 한 줄만
+    let cot = panel.querySelector('.chat-live-cot');
+    if (typeof progress.reasoning === 'string' && progress.reasoning.trim()) {
+      if (!cot) {
+        cot = document.createElement('div');
+        cot.className = 'chat-live-cot';
+        cot.setAttribute('aria-live', 'off');
+        cot.innerHTML = '<div class="chat-live-cot-head">생각 과정</div><div class="chat-live-cot-body"></div>';
+        panel.querySelector('.chat-progress-head').after(cot);
+      }
+      const body = cot.querySelector('.chat-live-cot-body');
+      body.textContent = progress.reasoning;
+      body.scrollTop = body.scrollHeight;
+      cot.classList.toggle('is-done', typeof progress.partial === 'string' && !!progress.partial.trim());
+    } else if (cot) cot.remove();
     // 쓰는 중인 답 — 다 쓰면 최종 답(가림·출처 처리 후)으로 바뀐다
     let draft = panel.querySelector('.chat-partial');
     if (typeof progress.partial === 'string' && progress.partial.trim()) {

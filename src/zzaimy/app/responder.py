@@ -152,6 +152,7 @@ COT_RULE = """답하기 전에 짧게 단계별로 생각한다. 꼴(제목 줄 
 [1단계: 질문 파악] 담당자가 지금 원하는 것과 작업 메모의 목표에 비춰 이 요청이 어디에 해당하는지(1~2줄)
 [2단계: 근거 확인] 아래 근거에서 쓸 것과 근거에 없는 것(1~3줄, 문서 이름·수치만 짚기)
 [3단계: 답 구성] 답의 순서·형식(표·목록 여부)과 담당자에게 물어야 할 것(1~2줄)
+쉬운 질문(인사·한 가지 사실·짧은 안내)은 단계마다 한 줄로 끝낸다.
 [답]
 여기부터 담당자에게 보일 답만 쓴다. 단계 글은 답에 되풀이하지 않는다."""
 
@@ -191,7 +192,7 @@ def needs_reasoning(question: str | None) -> bool:
     return bool(_REASONING_CUE.search(q)) or len(re.findall(r"\d+", q)) >= 2 or len(q) > 160
 
 
-def answer_think(question: str | None = None) -> bool:
+def answer_think(question: str | None = None, want: bool | None = None) -> bool:
     """답 쓰기에 생각을 켜는가 — 운영 설정(ZZAIMY_ANSWER_THINK=1)·걸음 생각(effort.thinking)이면 늘, 답변 깊이 「꼼꼼하게」(기본)면
     셈·기간·자격·비교처럼 생각이 값을 하는 질문일 때만(question 을 주면). question 을 안 주면 예전처럼 꼼꼼하게면 켠다."""
     from zzaimy.app import effort
@@ -202,6 +203,9 @@ def answer_think(question: str | None = None) -> bool:
         return True
     if effort.current() != effort.DEEP:
         return False
+    if want is not None:
+        # 질문과 찾은 근거를 읽은 에이전트(27B)가 정한 깊이 — 낱말 맞추기보다 먼저(11-25 사용자 「상황에 맞춰서 자동으로, 상용 서비스처럼」)
+        return bool(want)
     return True if question is None else needs_reasoning(question)
 
 
@@ -239,11 +243,11 @@ def think_cap_sec() -> float:
         return 60.0
 
 
-def answer_gen_options(client, question: str | None = None) -> tuple[int, dict]:
+def answer_gen_options(client, question: str | None = None, want: bool | None = None) -> tuple[int, dict]:
     """답 생성 호출의 (출력 한도, 추가 인자). 생각을 끈 기본은 지금까지와 같다 — 3,072 토큰, client._extra 그대로."""
     extra = getattr(client, "_extra", {})
     limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
-    think = _think_extra(client, extra) if answer_think(question) else None
+    think = _think_extra(client, extra) if answer_think(question, want) else None
     if not think:
         return limit, {"extra_body": extra}
     eb = dict(extra or {})
@@ -660,6 +664,8 @@ class AgentResponder:
         on_progress=None,
         evidence: list[dict] | None = None,
         on_partial=None,
+        on_reasoning=None,
+        think: bool | None = None,
     ) -> str:
         """evidence: 부른 쪽(문서 작업 에이전트)이 이미 찾아 둔 근거 [{title, text, doc_id?, note?}]. 열람 범위 안에서 찾은 것이며,
         답의 첫 근거로 건네고 출처 목록에도 넣는다. 수치는 이 근거와 아래 검색 근거에 있는 것만 쓴다."""
@@ -874,8 +880,10 @@ class AgentResponder:
             on_progress("답변 작성 중")
         # 목차·개요처럼 긴 답은 짧은 상한(1,024 토큰)에서 중간에 끊긴다. 상한을 넉넉히 두고, 그래도 끊기면 한 번 잇는다
         # 생각 모드는 기본 끔 — ZZAIMY_ANSWER_THINK=1 일 때만 켜고 한도·시간 제한을 넓힌다(answer_gen_options)
-        limit, gen = answer_gen_options(client, question)
-        self.last_timing["think"] = answer_think(question) and bool(_think_extra(client, getattr(client, "_extra", {}) or {}))
+        limit, gen = answer_gen_options(client, question, think)
+        self.last_timing["think"] = answer_think(question, think) and bool(_think_extra(client, getattr(client, "_extra", {}) or {}))
+        if think is not None:
+            self.last_timing["think_by"] = "agent"
         from zzaimy.app import effort as _eff
         if _df and self.last_timing["think"] and not _eff.thinking():
             # 날짜 셈은 코드가 했다 — 생각을 켜도 60초 상한까지 생각하다 끊겼다(11-25 운영 잼). 단계 추론은 그대로
@@ -901,6 +909,11 @@ class AgentResponder:
 
             def on_partial(t, _p=_raw_partial):          # 단계 추론 동안은 진행 줄에 단계만, [답] 부터 화면에
                 reasoning, ans = split_reasoning(t)
+                if on_reasoning is not None and reasoning:
+                    try:                                   # 단계 추론도 쓰는 대로 화면의 「생각 과정」 칸에(11-25 「추론 단계를 개선」)
+                        on_reasoning(reasoning)
+                    except Exception:
+                        pass
                 if ans is None:
                     if on_progress and reasoning:
                         step = re.findall(r"\[(\d+)단계[^\]]*\]", reasoning)
