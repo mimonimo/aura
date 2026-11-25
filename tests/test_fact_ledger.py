@@ -852,3 +852,11 @@ def test_two_key_grouping_also_gives_subtotals_per_key():
     obs, ev = fl.aggregate(db, 7, ["날짜:월", "분야"], ["참여 인원"])
     assert "소계 · 4월 · 참여 인원: 97" in obs and "소계 · 5월 · 참여 인원: 61" in obs
     assert "소계 · 학생 역량강화 · 참여 인원: 97" in obs and any("소계 학생 역량강화 · 참여 인원: 42+55=97" in e for e in ev)
+
+
+def test_thin_items_names_written_but_missing_items():
+    # 36차 A 한번에(11-25): 날짜·참여 인원이 분명히 적힌 결과 보고에서 활동만 뽑혔다
+    text = "AI 자격증 대비 특강 결과 보고\n2026. 5. 28. 특강을 운영하였다.\n참여 인원은 학생 55명이며 만족도는 4.1점이었다."
+    recs = [{"활동": "AI 자격증 대비 특강"}]
+    assert fl.thin_items(recs, ["날짜", "활동", "참여 인원", "금액"], text) == ["날짜", "참여 인원"]
+    assert fl.thin_items([{"날짜": "2026. 5. 28.", "참여 인원": "학생 55명"}], ["날짜", "참여 인원"], text) == []

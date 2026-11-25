@@ -399,6 +399,28 @@ def _extract(client, title: str, text: str, items: list[str], piece_chars: int, 
     return out
 
 
+_DATE_ITEM = re.compile(r"날짜|일자|일시|기간")
+_DATE_TXT = re.compile(r"20\d\d\s*[.년\-/]\s*\d{1,2}\s*[.월\-/]\s*\d{1,2}")
+
+
+def thin_items(records: list[dict], items: list[str], text: str) -> list[str]:
+    """기록 어디에도 값이 없는데 문서 글에는 분명히 있는 항목 — 날짜 항목은 글에 날짜 꼴이, 수 항목은 항목 이름(괄호 뺌) 뒤 가까이에
+    셈 단위 수가 있을 때만. 이름·내용 같은 글 항목은 보지 않는다(있는지 가리기 어렵다)."""
+    out = []
+    flat = re.sub(r"\s+", " ", text or "")
+    for it in items:
+        if any(str(r.get(it) or "").strip() for r in records):
+            continue
+        if _DATE_ITEM.search(it):
+            if _DATE_TXT.search(flat):
+                out.append(it)
+            continue
+        core = re.sub(r"\s*[(（][^)）]*[)）]\s*$", "", it).strip()
+        if len(core) >= 2 and re.search(re.escape(core) + r"[^\d]{0,14}?\d[\d,]*\s*(?:명|건|곳|회|개|원|%)", flat):
+            out.append(it)
+    return out
+
+
 def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, title_of=None, parallel: int | None = None) -> str:
     """docs(문서 행: id·filename·masked_text) 전부에서 items 기록을 뽑아 저장하고 관찰 글을 돌려준다."""
     from zzaimy.app import llm_budget
@@ -467,6 +489,18 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
             try:
                 k2, d2 = validate(_extract(client, title, text, want, piece, hint=NUM_HINT), want, text)
                 if k2:
+                    kept, dropped = k2, d2
+            except Exception:
+                pass
+        miss = thin_items(kept, want, text)
+        if kept and miss:
+            # 기록은 나왔는데 문서에 분명히 적힌 항목이 빠졌다 — 36차 A 한번에(11-25): 「2026. 5. 28.」「참여 인원은 학생 55명」 이 든
+            # 결과 보고 다섯에서 활동만 뽑혀 날짜 모름·인원 0 으로 남아 5월 2명(정답 55)·12월 70명(119). 그 항목을 짚어 한 번 더 읽는다
+            try:
+                k2, d2 = validate(_extract(client, title, text, want, piece,
+                                           hint="이 문서에 " + ", ".join(f"「{x}」" for x in miss) + " 값이 적혀 있다 — 빠뜨리지 말고 함께 뽑는다."),
+                                  want, text)
+                if k2 and len(thin_items(k2, want, text)) < len(miss):
                     kept, dropped = k2, d2
             except Exception:
                 pass
