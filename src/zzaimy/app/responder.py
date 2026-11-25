@@ -226,6 +226,19 @@ def strip_think(text: str) -> str:
     return t.lstrip()
 
 
+class ThinkTooLong(Exception):
+    """생각이 상한 시간을 넘도록 답 글이 한 자도 나오지 않았다 — 생각을 끄고 다시 쓴다."""
+
+
+def think_cap_sec() -> float:
+    """답 쓰기 생각의 상한(초) — 넘으면 생각을 끄고 바로 다시 쓴다(단계 추론 [N단계] 은 그대로). 0 이면 끝까지 기다린다.
+    11-25 운영 잼: 「11월 28일에 끝난 출장의 정산 기한」 한 줄 답에 생각 10,072토큰·421초."""
+    try:
+        return float(os.environ.get("ZZAIMY_ANSWER_THINK_CAP_SEC", "60"))
+    except ValueError:
+        return 60.0
+
+
 def answer_gen_options(client, question: str | None = None) -> tuple[int, dict]:
     """답 생성 호출의 (출력 한도, 추가 인자). 생각을 끈 기본은 지금까지와 같다 — 3,072 토큰, client._extra 그대로."""
     extra = getattr(client, "_extra", {})
@@ -515,7 +528,8 @@ def compose_system(profile: dict, audience: str = "staff") -> str:
 class AgentResponder:
     @staticmethod
     def _stream(client, messages, limit, cuts, on_fitted, on_partial, gen: dict | None = None,
-                usage_out: list | None = None, timing: dict | None = None, on_progress=None) -> tuple[str, str]:
+                usage_out: list | None = None, timing: dict | None = None, on_progress=None,
+                think_cap: float = 0.0) -> tuple[str, str]:
         """조각 응답으로 답 생성 — (글, 끝난 까닭). 0.4초마다 지금까지 쓴 글을 on_partial 로 넘긴다.
         gen: 생성 추가 인자(answer_gen_options) — 없으면 client._extra. 생각 글(delta.reasoning_content)은 답에 넣지 않는다.
         usage_out: 주면 마지막 사용량(usage)을 덧붙인다(측정용). timing: 주면 첫 글자까지 걸린 초(first_token_sec)를 적는다."""
@@ -546,10 +560,19 @@ class AgentResponder:
                 return t.split("</think>")[-1].lstrip()
             return t if (final or not think_on) else ""
         think_tick = 0.0
+        thought = False                                           # 생각 글(reasoning_content)이 온 적 있나
         for chunk in stream:
+            if think_cap and (thought or think_on) and _time.monotonic() - t_start > think_cap and not visible():
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+                raise ThinkTooLong()
             if getattr(chunk, "usage", None):
                 usage = chunk.usage
             for ch in getattr(chunk, "choices", None) or []:
+                if getattr(getattr(ch, "delta", None), "reasoning_content", None):
+                    thought = True
                 if on_progress is not None and getattr(getattr(ch, "delta", None), "reasoning_content", None):
                     # 생각 글은 화면에 내지 않지만 생각하는 중임은 보인다 — 11-25 운영: 생각 5,128토큰(227초) 동안 「답변 작성 중」 만 떠 있었다
                     now_ = _time.monotonic()
@@ -874,8 +897,19 @@ class AgentResponder:
         if on_partial is not None:
             # 쓰는 대로 화면에 — 답 생성(초당 10토큰 안팎)이 끝날 때까지 기다리지 않게. 조각 응답을 못 하는 서버면 아래 한 번에 받기로
             try:
-                text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages,
-                                            timing=self.last_timing, on_progress=on_progress)
+                cap_ = think_cap_sec() if self.last_timing.get("think") else 0.0
+                try:
+                    text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages,
+                                                timing=self.last_timing, on_progress=on_progress, think_cap=cap_)
+                except ThinkTooLong:
+                    # 생각이 상한을 넘었다 — 생각을 끈 기본 인자로 바로 다시 쓴다(단계 추론은 그대로)
+                    self.last_timing["think_capped_sec"] = cap_
+                    if on_progress:
+                        on_progress("생각이 길어져 바로 답을 쓰는 중")
+                    limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
+                    gen = {"extra_body": getattr(client, "_extra", {}) or {}}
+                    text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages,
+                                                timing=self.last_timing, on_progress=on_progress)
             except Exception as e:
                 # 흘려 쓰기가 실패하면 한 번에 받기로 넘어가 화면에 답이 끝에 한꺼번에 온다 — 까닭을 남긴다(11-25 RAG 답이 흘러나오지 않음)
                 import logging as _lg

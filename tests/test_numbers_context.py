@@ -202,3 +202,26 @@ def test_gate_bad_keeps_numbers_apart_from_scale_note():
     assert rest.startswith(" [단위 셈 확인")
     assert gate_bad("근거에 없는 수치: 7 (든 줄: 7명) — x")[0] == ["7"]
     assert gate_bad("다른 글") is None
+
+
+def test_stream_stops_long_thinking():
+    """11-25: 한 줄 답에 생각 10,072토큰·421초 — 상한을 넘도록 답 글이 없으면 ThinkTooLong 으로 끊는다."""
+    import time as _t
+    from types import SimpleNamespace as NS
+    from unittest import mock
+    from zzaimy.app import responder as R
+
+    def chunks():
+        for _ in range(50):
+            yield NS(usage=None, choices=[NS(delta=NS(content=None, reasoning_content="생각"), finish_reason=None)])
+    clock = iter(range(0, 10000, 5))
+    seen = []
+    with mock.patch.object(R.llm_budget, "create_fitted", lambda *a, **k: chunks()), \
+         mock.patch.object(_t, "monotonic", lambda: float(next(clock))):
+        try:
+            R.AgentResponder._stream(NS(model="m", connection_id=None), [], 100, [], None, lambda t: None,
+                                     gen={"extra_body": {}}, on_progress=seen.append, think_cap=60)
+            raised = False
+        except R.ThinkTooLong:
+            raised = True
+    assert raised and any(x.startswith("생각하는 중") for x in seen)
