@@ -738,7 +738,9 @@ _REFUSED = ("쓰지 않았다", "넣은 것 없음", "바꾸지 않았다", "바
 _CLAIM = re.compile(r"(썼|채웠|작성했|작성하였|넣었|고쳤|수정했|반영했|만들었|불러왔|바꿨|완료했|마쳤)")
 
 
-_FIXED_TO = re.compile(r"((?:\d[\d,.]*\s*(?:명|곳|건|회|개|%|천원|원)?\s*[·/,]\s*)*\d[\d,.]*\s*(?:명|곳|건|회|개|%|천원|원)?)\s*(?:으로|로)\s*"
+# 수 토막은 쉼표·점이 숫자 사이에만 오게(\d+(?:[.,]\d+)*) — 구분자 [·/] 와 겹치지 않아 되짚기가 폭주하지 않는다(보안 검토 11-25)
+_NUM_U = r"\d+(?:[.,]\d+)*(?:\s?(?:명|곳|건|회|개|%|천원|원))?"
+_FIXED_TO = re.compile(rf"((?:{_NUM_U}\s?[·/]\s?){{0,4}}{_NUM_U})\s*(?:으로|로)\s*"
                        r"(?:바로잡|고쳤|고침|고치|바꿨|바꿈|수정했|수정함|정정)")
 
 
@@ -751,7 +753,7 @@ def unbacked_fixes(message: str, review_txt: str) -> list[str]:
         return []
     have = {re.sub(r"[,\s]", "", x) for x in re.findall(r"\d[\d,.]*", doc)}
     out = []
-    for m in _FIXED_TO.finditer(message or ""):
+    for m in _FIXED_TO.finditer((message or "")[:3000]):
         for v in re.findall(r"\d[\d,.]*", m.group(1)):
             key = re.sub(r"[,\s]", "", v).rstrip(".")
             if key and key not in have:
