@@ -421,6 +421,27 @@ def thin_items(records: list[dict], items: list[str], text: str) -> list[str]:
     return out
 
 
+def kept_lost(new: list[dict], old: list[dict], items: list[str]) -> list[str]:
+    """앞서 이 문서에서 값을 읽었던 항목인데 다시 읽은 기록에는 값이 하나도 없는 것 — 38차 B 한번에(11-25): 항목을 더해(11개) 다시 읽자
+    「분야」 값이 빠졌고, 점검 요청이 그 기록으로 맞는 값(6곳·88명)을 틀린 값(3곳·60명)으로 「고쳤다」."""
+    return [it for it in items if any(str(r.get(it) or "").strip() for r in old) and not any(str(r.get(it) or "").strip() for r in new)]
+
+
+def keep_doc_values(new: list[dict], old: list[dict], lost: list[str]) -> list[dict]:
+    """다시 읽어도 빠진 항목은, 앞선 기록에서 그 문서의 값이 하나뿐이면(분야·과제처럼 문서 전체에 걸린 값) 새 기록에 그대로 둔다."""
+    if not new or not lost:
+        return new
+    out = [dict(r) for r in new]
+    for it in lost:
+        vals = {str(r.get(it)).strip() for r in old if str(r.get(it) or "").strip()}
+        if len(vals) == 1:
+            v = vals.pop()
+            for r in out:
+                if not str(r.get(it) or "").strip():
+                    r[it] = v
+    return out
+
+
 def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, title_of=None, parallel: int | None = None) -> str:
     """docs(문서 행: id·filename·masked_text) 전부에서 items 기록을 뽑아 저장하고 관찰 글을 돌려준다."""
     from zzaimy.app import llm_budget
@@ -450,6 +471,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
     # 문서마다: 같은 본문을 요청 항목을 모두 담아 이미 읽었으면 그것을 쓰고, 아니면 앞서 모은 항목까지 합쳐 다시 읽는다
     old_live = [k for k in (data.get("live") or []) if k in store]
     prev_items = {str(store[k]["doc_id"]): list(store[k].get("items") or []) for k in old_live}
+    prev_recs = {str(store[k]["doc_id"]): list(store[k].get("records") or []) for k in old_live}
     jobs, cached, keys = [], 0, []
     texts: dict[str, str] = {}
     for d in docs:
@@ -492,7 +514,9 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
                     kept, dropped = k2, d2
             except Exception:
                 pass
-        miss = thin_items(kept, want, text)
+        old_ = prev_recs.get(str(d["id"])) or []
+        lost = kept_lost(kept, old_, want)
+        miss = list(dict.fromkeys(thin_items(kept, want, text) + lost))
         if kept and miss:
             # 기록은 나왔는데 문서에 분명히 적힌 항목이 빠졌다 — 36차 A 한번에(11-25): 「2026. 5. 28.」「참여 인원은 학생 55명」 이 든
             # 결과 보고 다섯에서 활동만 뽑혀 날짜 모름·인원 0 으로 남아 5월 2명(정답 55)·12월 70명(119). 그 항목을 짚어 한 번 더 읽는다
@@ -504,6 +528,7 @@ def collect(db, session_id: int, docs: list[dict], items: list[str], client, *, 
                     kept, dropped = k2, d2
             except Exception:
                 pass
+        kept = keep_doc_values(kept, old_, kept_lost(kept, old_, want))
         kept = fill_labeled(kept, want, text)
         return k, {"doc_id": d["id"], "title": title, "items": want, "records": kept, "dropped": dropped}
 

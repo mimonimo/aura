@@ -874,3 +874,14 @@ def test_distinct_on_quantity_item_warns_and_does_not_count_documents():
     obs, _ = fl.aggregate(db, 9, [], [], distinct=["연계 기관"])
     assert "값은 수(" in obs and 'sum: ["연계 기관"]' in obs
     assert "연계 기관 2개" in obs                               # 값 없는 「강좌」 문서를 하나로 세지 않는다
+
+
+def test_reread_keeps_doc_level_value_that_went_missing():
+    # 38차 B 한번에(11-25): 항목을 더해 다시 읽자 「분야」 가 빠진 기록으로 점검이 맞는 값을 틀리게 고쳤다
+    old = [{"분야": "지역 연계 강좌", "활동": "여름 인문학 특강", "참석 인원": "52명"}]
+    new = [{"활동": "여름 인문학 특강", "참석 인원": "52명", "수료자": "47명"}]
+    lost = fl.kept_lost(new, old, ["분야", "활동", "참석 인원", "수료자"])
+    assert lost == ["분야"]
+    assert fl.keep_doc_values(new, old, lost)[0]["분야"] == "지역 연계 강좌"
+    two = [{"분야": "가"}, {"분야": "나"}]                       # 문서 안에 값이 여럿이면 채우지 않는다
+    assert "분야" not in fl.keep_doc_values(new, two, ["분야"])[0]
