@@ -827,6 +827,23 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             expr = "+".join(_fmt(x) for x in sub) + f"={_fmt(t)}{u}" if len(sub) > 1 else f"{_fmt(t)}{u}"
             obs.append(f"  합계 · {s}: {_fmt(t)}{u}")
             ev.append(f"◇ 집계 합계 · {s}: {expr}")
+            # 둘 이상으로 묶었으면 기준마다 소계도 — 36차 B 한번에(11-25): [분기, 과제] 로만 묶어 과제별 190·분기별 127 이 결과에 없어
+            # 손으로 더한 값이 관문에 막히자 칸 하나의 값(2분기 지역 연계 64)을 과제 참석자로 넣었다
+            klen = max((len(k_) for k_ in groups if k_), default=0)
+            if klen >= 2:
+                for i_ in range(klen):
+                    marg: dict[str, list] = {}
+                    for k_, rs_ in groups.items():
+                        if len(k_) != klen:
+                            continue
+                        lab_ = show(k_).split(" / ")[i_]
+                        marg.setdefault(lab_, []).extend(v for v in (nv(r, s) for r in rs_) if v is not None)
+                    if 1 < len(marg) <= 15:
+                        for lab_, vs_ in marg.items():
+                            st_ = sum(vs_, Decimal(0))
+                            obs.append(f"  소계 · {lab_} · {s}: {_fmt(st_)}{u}")
+                            ev.append(f"◇ 집계 소계 {lab_} · {s}: " + ("+".join(_fmt(v) for v in vs_) + "=" if len(vs_) > 1 else "")
+                                      + f"{_fmt(st_)}{u}")
             if share and t:
                 for key, rs in groups.items():
                     g = sum((v for v in (nv(r, s) for r in rs) if v is not None), Decimal(0))

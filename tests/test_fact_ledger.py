@@ -843,3 +843,12 @@ def test_fill_aliases_learns_label_name_across_docs():
     assert c[0]["records"][0]["분야"] == "지역 연계 강좌" and notes and "「추진 과제」" in notes[0]
     d = ({"records": [{"참석 인원": "10명"}]}, "장소 | 강당")
     assert fl.fill_aliases([a, d], ["분야"]) == [] and "분야" not in d[0]["records"][0]
+
+
+def test_two_key_grouping_also_gives_subtotals_per_key():
+    # 36차 B 한번에(11-25): [분기, 과제] 로만 묶어 과제별·분기별 합이 결과에 없었다 — 기준마다 소계를 근거로
+    db = FakeDB(DOCS)
+    fl.collect(db, 7, DOCS, ITEMS, FakeClient(ANS), title_of=_title, parallel=1)
+    obs, ev = fl.aggregate(db, 7, ["날짜:월", "분야"], ["참여 인원"])
+    assert "소계 · 4월 · 참여 인원: 97" in obs and "소계 · 5월 · 참여 인원: 61" in obs
+    assert "소계 · 학생 역량강화 · 참여 인원: 97" in obs and any("소계 학생 역량강화 · 참여 인원: 42+55=97" in e for e in ev)
