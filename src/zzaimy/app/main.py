@@ -3802,6 +3802,7 @@ def create_app(
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
 
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json,
+                           on_draft=lambda t: _chat_partial(session_id, t),     # 끝맺음·바로 답 걸음은 쓰는 대로 화면에(11-25)
                            on_act=lambda n, a, ph: _chat_act(session_id, n, a, ph),
                            # 한글 기안기는 칸 채우기가 가볍고 여러 번이다 — 한 요청에서 작업본 만들기·칸·절을 끝까지 쓰게 한도를 넉넉히
                            # 서식이 길면(절 수십 개) 근거 읽기·칸·절 쓰기에 걸음이 많다 — 한글 작업본이 있을 때 한도를 절 수에 맞춰 늘린다

@@ -403,10 +403,70 @@ def _review_text(review: Callable[[], str]) -> str:
         return ""
 
 
+_DRAFT_ACT = re.compile(r'"action"\s*:\s*"(finish|answer_question)"')
+_DRAFT_TXT = re.compile(r'"(message|answer)"\s*:\s*"((?:[^"\\]|\\.)*)')
+
+
+def draft_text(raw: str) -> str:
+    """쓰는 중인 걸음 JSON 에서 끝맺음·바로 답 글(message·answer)을 꺼낸다 — 아직 그 걸음이 아니면 빈 글."""
+    if not _DRAFT_ACT.search(raw or ""):
+        return ""
+    m = _DRAFT_TXT.search(raw)
+    if not m:
+        return ""
+    t = m.group(2)
+    t = re.sub(r"\\u([0-9a-fA-F]{4})", lambda x: chr(int(x.group(1), 16)), t)
+    return t.replace("\\n", "\n").replace("\\t", " ").replace('\\"', '"').replace("\\\\", "\\").rstrip("\\")
+
+
+def _stream_step(client, messages, out_tokens, cuts, temperature, on_draft):
+    """걸음을 조각 응답으로 받으며, 끝맺음·바로 답 걸음이면 그 글을 쓰는 대로 on_draft 로 넘긴다. 돌려주는 것은 한 번에 받은 응답과 같은 꼴.
+    11-25 운영 잼: 「안녕, 뭘 도와줄 수 있어?」 의 답을 걸음 JSON 에 쓰는 20초 동안 화면이 비었다. 조각 응답이 실패하면 한 번에 받기로."""
+    from types import SimpleNamespace as _NS
+    from zzaimy.app import llm_budget
+    try:
+        stream = llm_budget.create_fitted(client, messages, out_tokens, cuts, floor=300, temperature=temperature,
+                                          extra_body=getattr(client, "_extra", {}), stream=True)
+        if getattr(stream, "choices", None) is not None:         # 조각 응답을 모르는 클라이언트는 한 번에 준다 — 그대로 쓴다
+            return stream
+        parts: list[str] = []
+        finish, last = "", 0.0
+        try:
+            on_draft("")
+        except Exception:
+            pass
+        for chunk in stream:
+            for ch in getattr(chunk, "choices", None) or []:
+                piece = getattr(getattr(ch, "delta", None), "content", None)
+                if piece:
+                    parts.append(piece)
+                if getattr(ch, "finish_reason", None):
+                    finish = ch.finish_reason
+            now = time.monotonic()
+            if parts and now - last >= 0.4:
+                last = now
+                d = draft_text("".join(parts))
+                if d:
+                    try:
+                        on_draft(d)
+                    except Exception:
+                        pass
+        raw = "".join(parts)
+        if raw:
+            return _NS(choices=[_NS(message=_NS(content=raw, tool_calls=None), finish_reason=finish)])
+    except llm_budget.ContextOverflow:
+        raise
+    except Exception:
+        pass
+    return llm_budget.create_fitted(client, messages, out_tokens, cuts, floor=300, temperature=temperature,
+                                    extra_body=getattr(client, "_extra", {}))
+
+
 def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on_step: Callable[[str], None] | None = None,
         max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None,
         system: str | None = None, on_act: Callable[[str, dict, str], None] | None = None,
-        scope: Callable[[], str] | None = None, review: Callable[[], str] | None = None) -> Episode:
+        scope: Callable[[], str] | None = None, review: Callable[[], str] | None = None,
+        on_draft: Callable[[str], None] | None = None) -> Episode:
     """에이전트 루프. state() 는 매 걸음 새로 읽는 상태 글(연결 문서·절 목록은 쓰기 뒤 달라진다).
 
     매 걸음 모델에 보내는 글: 시스템 + 지난 걸음(고른 JSON·결과) + 이번 상태·「지금까지 한 걸음」 기록·요청.
@@ -482,9 +542,12 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             cuts += [llm_budget.OUTPUT]
             try:
                 with llm_budget.label(f"에이전트 · {_i + 1}단계"):
-                    resp = llm_budget.create_fitted(client, messages, out_tokens, cuts, floor=300,
-                                                    temperature=0.6 if repeats else 0.2,     # 되풀이를 거절당한 뒤엔 조금 넓게
-                                                    extra_body=getattr(client, "_extra", {}))
+                    if on_draft is not None:
+                        resp = _stream_step(client, messages, out_tokens, cuts, 0.6 if repeats else 0.2, on_draft)
+                    else:
+                        resp = llm_budget.create_fitted(client, messages, out_tokens, cuts, floor=300,
+                                                        temperature=0.6 if repeats else 0.2,     # 되풀이를 거절당한 뒤엔 조금 넓게
+                                                        extra_body=getattr(client, "_extra", {}))
                 msg_ = resp.choices[0].message
                 cut_ = getattr(resp.choices[0], "finish_reason", "") == "length"
                 raw = msg_.content or ""

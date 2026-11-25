@@ -747,3 +747,11 @@ def test_plain_reply_accepts_greeting_but_not_facts():
     assert plain_reply("안녕하세요! 이런 일을 돕습니다.\n1) 문서 만들기\n2) 절 쓰기")
     assert not plain_reply("출장 숙박비 상한은 7만 원입니다.") and not plain_reply("정산은 14일 안에 합니다.")
     assert not plain_reply("") and not plain_reply("가" * 1600)
+
+
+def test_draft_text_reads_message_being_written():
+    # 11-25: 인사 답을 걸음 JSON 에 쓰는 20초 동안 화면이 비었다 — 쓰는 중인 message 를 꺼내 보인다
+    from zzaimy.app.doc_agent import draft_text
+    raw = '{"thought": "인사다", "action": "finish", "args": {"message": "안녕하세요!\\n1) 문서 만들기\\n2) 절 \\"쓰기'
+    assert draft_text(raw) == '안녕하세요!\n1) 문서 만들기\n2) 절 "쓰기'
+    assert draft_text('{"thought": "찾는다", "action": "search", "args": {"query": "출장"}}') == ""

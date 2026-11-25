@@ -906,6 +906,7 @@ class AgentResponder:
         text, finish = "", ""
         if on_partial is not None and answer_cot():
             _raw_partial = on_partial
+            answering = {"on": False}
 
             def on_partial(t, _p=_raw_partial):          # 단계 추론 동안은 진행 줄에 단계만, [답] 부터 화면에
                 reasoning, ans = split_reasoning(t)
@@ -919,6 +920,9 @@ class AgentResponder:
                         step = re.findall(r"\[(\d+)단계[^\]]*\]", reasoning)
                         on_progress(f"생각하는 중 · {step[-1]}단계" if step else "생각하는 중")
                     return
+                if on_progress and not answering["on"]:
+                    answering["on"] = True                 # 답이 흐르기 시작하면 진행 줄도 — 「생각하는 중 · 3단계」 가 답 쓰는 내내 남았다(11-25)
+                    on_progress("답변 쓰는 중")
                 _p(ans)
         if on_partial is not None:
             # 쓰는 대로 화면에 — 답 생성(초당 10토큰 안팎)이 끝날 때까지 기다리지 않게. 조각 응답을 못 하는 서버면 아래 한 번에 받기로
