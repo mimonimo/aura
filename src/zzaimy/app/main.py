@@ -3253,6 +3253,21 @@ def create_app(
                                       base=None if base_note_ else a.get("base"), documents=a.get("documents") or None)
             if base_note_:
                 obs_ = base_note_ + "\n" + obs_
+            try:
+                # 묶음 이름(「지역 기관 연계」) 뒤에 수가 적힌 문서를 모으지 않았으면 알린다 — 38차 B(11-25): documents 로 문서를 고르며
+                # 주민자치센터 협약 결과서(「지역 기관 연계 3곳」)를 빠뜨려 달성치 3(정답 6). 「안 읽은 문서」 안내만으로는 넘어갔다
+                gb_ = [g_ for g_ in _list(a.get("group_by")) if not g_.startswith("날짜")]
+                led_ = _fl.load(db, session_id)
+                live_ = [(led_.get("docs") or {}).get(k_) or {} for k_ in led_.get("live") or []]
+                labels_ = list(dict.fromkeys(str(r_.get(g_) or "").strip() for e_ in live_ for r_ in e_.get("records") or []
+                                             for g_ in gb_ if str(r_.get(g_) or "").strip()))[:12]
+                if labels_:
+                    all_ = _fact_docs(None)
+                    read_ = {str(e_.get("doc_id")) for e_ in live_}
+                    obs_ += _fl.unpicked_mentions(labels_, [d_ for d_ in all_ if str(d_["id"]) in read_], all_,
+                                                  title_of=lambda d_: storage.title_of(d_.get("filename") or ""))
+            except Exception:
+                pass
             if ev_:
                 body_ = "\n".join(ev_)
                 notes.append(f"◇ {a.get('for') or '실적 집계'} — 모은 기록 집계(코드가 더한 값)\n{body_}")
