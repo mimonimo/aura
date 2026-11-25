@@ -858,6 +858,13 @@ class AgentResponder:
             messages.append({"role": "user", "content": "[앞선 대화는 여기까지 — 맥락일 뿐 근거가 아니다. 수치·날짜는 아래 근거 자료에서만]"})
         att_block = f"\n\n[첨부 문서 본문 — 개인정보 마스킹됨]\n{attachment_text[:8000]}" if attachment_text else ""
         user_content = question + att_block + (f"\n\n{context}" if context else "")
+        try:                                                 # 질문의 날짜 요일·기간 끝은 코드가 셈해 근거로(11-25 요일 틀림·생각 434초)
+            from zzaimy.app.date_facts import date_facts
+            _df = date_facts(question)
+            if _df:
+                user_content += "\n\n" + _df
+        except Exception:
+            pass
         messages.append({"role": "user", "content": user_content})
 
         client = VllmClient(role="answer")
