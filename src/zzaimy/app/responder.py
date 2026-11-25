@@ -864,7 +864,7 @@ class AgentResponder:
             if _df:
                 user_content += "\n\n" + _df
         except Exception:
-            pass
+            _df = ""
         messages.append({"role": "user", "content": user_content})
 
         client = VllmClient(role="answer")
@@ -876,6 +876,12 @@ class AgentResponder:
         # 생각 모드는 기본 끔 — ZZAIMY_ANSWER_THINK=1 일 때만 켜고 한도·시간 제한을 넓힌다(answer_gen_options)
         limit, gen = answer_gen_options(client, question)
         self.last_timing["think"] = answer_think(question) and bool(_think_extra(client, getattr(client, "_extra", {}) or {}))
+        from zzaimy.app import effort as _eff
+        if _df and self.last_timing["think"] and not _eff.thinking():
+            # 날짜 셈은 코드가 했다 — 생각을 켜도 60초 상한까지 생각하다 끊겼다(11-25 운영 잼). 단계 추론은 그대로
+            limit, gen = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072")), {"extra_body": getattr(client, "_extra", {}) or {}}
+            self.last_timing["think"] = False
+            self.last_timing["think_skipped"] = "date_facts"
         usages: list = []
         # 문맥 한도 — 요청과 에이전트가 찾은 근거는 끝까지 남기고, 첨부·연결 문서 → 오래된 대화 → 출력 상한(바닥까지)
         # → 검색 근거 → 에이전트 근거 차례로 줄인다(llm_budget). 다 줄여도 넘으면 보내지 않는다(ContextOverflow)
