@@ -429,6 +429,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     searched = nudged = False
     changed: list[str] = []                                 # 이번 요청에서 실제로 바뀐 것(쓰기 도구가 거절 글이 아닌 결과를 낸 걸음) — 끝맺음 대조용
     claim_checked = False
+    fix_checked = False
     after_write_told = False                             # 고친 뒤 답하기 도구로 끝맺으려 할 때 한 번 알림
     reviewed = False                                     # 마치기 전 다시 읽기는 요청마다 한 번(review)
     empty_asked = set()                                # 빈 끝맺음·빈 답을 되물은 도구 — 도구마다 한 번(11-10 gpt-oss: 끝냈는데 남길 글이 비었다)
@@ -605,6 +606,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             claim_checked = True                                       # 한 번만 — 결과대로 고쳐 쓰면 받는다
             note = ("끝맺음 글이 문서를 쓰거나 고쳤다고 말하지만, 이번 요청에서 실제로 바뀐 것이 없다(쓰기 도구 결과가 모두 거절·실패). "
                     "한 일 그대로 다시 finish 한다 — 쓰지 못했으면 무엇을 왜 못 썼는지, 다음에 무엇을 할지.")
+        elif (name == "finish" and review is not None and changed and not fix_checked
+              and (_miss := unbacked_fixes(str(args.get("message") or ""), _review_text(review)))):
+            fix_checked = True                                         # 한 번만 — 실제로 고치거나 끝맺음을 고쳐 쓰면 받는다
+            note = ("끝맺음에 고쳤다고 적은 값 " + ", ".join(f"「{x[:30]}」" for x in _miss[:4]) + " 이(가) 지금 작업본에 없다 — "
+                    "그 칸을 실제로 고친 뒤(hwp_table_edit set_cells 등) 마치거나, 고치지 않았으면 끝맺음에서 그 말을 뺀다.")
         elif name == "finish" and review is not None and changed and not reviewed and (_rv := _review_text(review)):
             reviewed = True                                            # 쓴 요청을 마치기 전 한 번 — 작업본을 다시 읽고 27B 가 판단해 고친다(doc_review)
             note = _rv
@@ -730,6 +736,28 @@ def _fresh_target(new: str, tried: list[str], request: str) -> bool:
 _REFUSED = ("쓰지 않았다", "넣은 것 없음", "바꾸지 않았다", "바뀐 것이 없다", "하지 않았다", "보내지 않았다", "양식을 만들지",
             "그런 ", "이 대화에 한글 작업본이 없다", "text 가 비었다", "넣지 않았다", "못 ")
 _CLAIM = re.compile(r"(썼|채웠|작성했|작성하였|넣었|고쳤|수정했|반영했|만들었|불러왔|바꿨|완료했|마쳤)")
+
+
+_FIXED_TO = re.compile(r"((?:\d[\d,.]*\s*(?:명|곳|건|회|개|%|천원|원)?\s*[·/,]\s*)*\d[\d,.]*\s*(?:명|곳|건|회|개|%|천원|원)?)\s*(?:으로|로)\s*"
+                       r"(?:바로잡|고쳤|고침|고치|바꿨|바꿈|수정했|수정함|정정)")
+
+
+def unbacked_fixes(message: str, review_txt: str) -> list[str]:
+    """끝맺음이 「…6곳·75.0%로 바로잡았습니다」 처럼 고쳤다고 적은 값 가운데 지금 작업본 글에 없는 것.
+    review_txt: 다시 읽기 자료(「문서 전체다:」 뒤 ~ 「절별 모습:」 앞이 작업본 글). 11-25 36차 B: 점검 요청에서 다른 칸은 고치고
+    「지역 기관 연계 6곳·75.0%로 바로잡았다」 고 적었지만 그 칸은 쓰지 않아 3 이 남았다(바뀐 것이 있어 기존 점검을 지났다)."""
+    doc = review_txt.split("문서 전체다:", 1)[-1].split("절별 모습:", 1)[0]
+    if not doc.strip():
+        return []
+    have = {re.sub(r"[,\s]", "", x) for x in re.findall(r"\d[\d,.]*", doc)}
+    out = []
+    for m in _FIXED_TO.finditer(message or ""):
+        for v in re.findall(r"\d[\d,.]*", m.group(1)):
+            key = re.sub(r"[,\s]", "", v).rstrip(".")
+            if key and key not in have:
+                out.append(m.group(1).strip())
+                break
+    return list(dict.fromkeys(out))
 
 
 def _claims_change(message: str) -> bool:

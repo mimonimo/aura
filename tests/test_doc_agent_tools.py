@@ -730,3 +730,12 @@ def test_scattered_counts_gives_cell_for_direct_fix():
     out = scattered_counts(rows, texts, at)
     assert len(out) == 1 and "모두 더하면 6" in out[0]
     assert at == [(3, 3, 6)]
+
+
+def test_unbacked_fixes_flags_values_not_in_document():
+    # 36차 B(11-25): 「6곳·75.0%로 바로잡았습니다」 라 적고 칸은 3 그대로였다
+    from zzaimy.app.doc_agent import unbacked_fixes
+    rv = "마치기 전에 다시 읽는다. 아래가 지금 문서 전체다:\n| 지역 기관 연계(곳) | 8 | 3 | 37.5% |\n| 강좌 수료자(명) | 250 | 171 | 68.4% |\n절별 모습:\n- 모두 더하면 6"
+    msg = "강좌 수료자를 171명·68.4%로 바로잡았습니다. 지역 기관 연계도 6곳·75.0%로 바로잡았습니다."
+    assert unbacked_fixes(msg, rv) == ["6곳·75.0%"]
+    assert unbacked_fixes("강좌 수료자를 171명으로 고쳤습니다.", rv) == []
