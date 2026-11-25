@@ -1903,12 +1903,12 @@ def create_app(
                 return {}
         # 모델 지식 모드: 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 끝에 붙인다
         if web == "model":
-            _chat_step(session_id, "모델 지식으로 답변 작성 중")
+            _chat_step(session_id, "답변 작성 중")
             from zzaimy.app import web_search
 
             try:
                 _t_m = time.time()
-                res_m = web_search.answer_from_model(q, history=_general_history())
+                res_m = web_search.answer_from_model(q, history=_general_history(), on_partial=lambda t: _chat_partial(session_id, t))
                 _mid = db.add_chat(session_id, "assistant", web_search.render_model(res_m))
                 _record_run(session_id, _mid, "model", extra={"total_sec": round(time.time() - _t_m, 2)})
                 if res_m.get("offer_web"):
@@ -1924,7 +1924,7 @@ def create_app(
             from zzaimy.app import web_search
 
             try:
-                res = web_search.answer_with_web(q, history=_general_history())
+                res = web_search.answer_with_web(q, history=_general_history(), on_partial=lambda t: _chat_partial(session_id, t))
                 _mid = db.add_chat(session_id, "assistant", web_search.render(res))
                 _record_run(session_id, _mid, "web")
             except web_search.Blocked as e:
@@ -3655,7 +3655,8 @@ def create_app(
             doc_agent.Tool("ask_user", "이번 요청에 꼭 필요한데 요청 글·이 사업 문서·지난 자료(library)에서 찾지 못한 값만 묻기(정해진 목록을 묻지 않는다). "
                            "args {items: [{name, why, kind: 사실(자료에 있을 수 있는 값) 또는 결정(담당자가 정할 목표·계획), "
                            "how: 이 값을 어떻게 할지 한 구절(예: 지난 자료에서 찾은 값과 출처를 쓸지, 「확인 필요」 로 둘지)}], message: 한 문장 머리말, "
-                           "choices?: 고르게 할 것 — " + _CHOICE_SCHEMA + ". 처음부터 고르게 하는 것은 셋뿐: 기준(작업 문서의 서식·기관 서식·지난 문서)이 전혀 없는 큰 결정(문서 전체 틀 등), "
+                           "choices?: 고르게 할 것 — " + _CHOICE_SCHEMA + ". 코드·설명·계산 같은 일반 지식 요청은 묻지 않는다 — 흔한 기본값(예: 언어를 말하지 않은 코드는 Python)으로 "
+                           "answer_question 으로 바로 답하고 바꿀 수 있다고 한 줄 덧붙인다. 처음부터 고르게 하는 것은 셋뿐: 기준(작업 문서의 서식·기관 서식·지난 문서)이 전혀 없는 큰 결정(문서 전체 틀 등), "
                            "담당자가 먼저 고르겠다고 한 것, 자료로 알 수 없는 결정. 모양·배치(글꼴·표 모양·표 배치)는 먼저 반영하고 finish 의 alternatives 로 바꾸기 후보를 붙인다}", t_ask, final=True),
             doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message, alternatives?: 방금 반영한 모양·배치를 바꿀 다른 후보 — "
                            + _CHOICE_SCHEMA + ". 반영한 표·글꼴·배치에 그럴듯한 다른 꼴이 있을 때만 2~3개(지금 반영한 것은 빼고). "

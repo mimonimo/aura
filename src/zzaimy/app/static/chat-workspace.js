@@ -508,7 +508,7 @@
       formStatus(form_, failText);
     } finally {
       sending = false; paint();
-      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 600); }
     }
   }
   async function sendChoiceCard(form_) {
@@ -578,7 +578,7 @@
     paint();
     initValueForms(); paintValueForms();
     clearTimeout(timer);
-    if (waiting) timer = setTimeout(poll, 2000);
+    if (waiting) timer = setTimeout(poll, 600);
   }
   // 대기 중인 요청 줄 — 건수·펼치기(각 건 첫 줄과 빼기)·모두 취소
   const queueBox = document.getElementById('chatQueue');
@@ -630,7 +630,7 @@
       status.textContent = state.llm_wait > 0 ? `모델 대기 중 · 앞에 ${state.llm_wait}건` : '요청 처리 중입니다.';   // 여럿이 한꺼번에 요청해 차례를 기다릴 때
       if (typeof state.queued === 'number') renderQueue(state.queued, state.next);
       showProgress(state.progress);
-      timer = setTimeout(poll, state.progress && state.progress.partial ? 1000 : 3000);   // 답이 흘러나오는 동안은 1초마다
+      timer = setTimeout(poll, state.progress && state.progress.partial ? 700 : 1000);   // 기다리는 동안 1초, 답이 흘러나오는 동안은 0.7초마다(11-25 3초 → 1초)
       return;
     } catch (_) {
       status.textContent = '연결을 다시 확인하고 있습니다. 작성 중인 내용은 유지됩니다.';
@@ -656,7 +656,7 @@
         notify('전송 결과를 확인하지 못했습니다. 대화 기록에서 전송 여부를 확인해 주세요.');
       } finally {
         sending = false; paint();
-        if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+        if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 600); }
       }
       return;
     }
@@ -672,9 +672,14 @@
     const sentText = input.value;
     const sentFile = file.files[0];
     const payload = new FormData(form);
+    // 보내자마자 질문과 진행 줄을 화면에 — 서버가 새 화면을 그려 줄 때까지(1~3초) 아무 변화가 없던 것(11-25 사용자 「지연이 문제」)
+    const pending = showPending(sentText, sentFile);
+    input.value = ''; resize();
+    const restore = () => { pending.forEach(n => n.remove()); if (!input.value) { input.value = sentText; resize(); } };
     try {
       const response = await fetch(form.action, {method:'POST', body:payload});
       if (!response.ok) {
+        restore();
         notify(response.status === 400 ? '파일 형식과 입력 내용을 확인한 뒤 다시 보내세요.' : '전송하지 못했습니다. 입력을 유지했으니 잠시 후 다시 보내세요.');
         return;
       }
@@ -687,12 +692,33 @@
       resize();
       input.focus();
     } catch (_) {
+      restore();
       notify('전송 결과를 확인하지 못했습니다. 입력은 유지됩니다. 대화 기록에서 전송 여부를 확인한 뒤 다시 보내세요.');
     } finally {
       sending = false;
       paint();
-      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 600); }
     }
+  }
+  // 보낸 질문·진행 줄을 서버 화면이 오기 전에 먼저 붙인다 — 새 화면(installPage)이 오면 통째로 바뀐다
+  function showPending(text, attached) {
+    const anchor = scroller.querySelector('.turn') || scroller.querySelector('.chat-empty-state');
+    const host = anchor ? anchor.parentElement : scroller;
+    scroller.querySelector('.chat-empty-state')?.setAttribute('hidden', '');
+    const turn = document.createElement('div');
+    turn.className = 'turn user is-pending';
+    const who = document.createElement('div'); who.className = 'chat-speaker'; who.textContent = '나';
+    const msg = document.createElement('div'); msg.className = 'msg user';
+    msg.textContent = text + (attached ? `\n\n(첨부: ${attached.name})` : '');
+    msg.style.whiteSpace = 'pre-wrap';
+    turn.append(who, msg);
+    const prog = document.createElement('div');
+    prog.className = 'turn assistant chat-progress is-pending';
+    prog.innerHTML = '<div class="chat-progress-head"><span class="chat-progress-dot" aria-hidden="true"></span><span role="status"></span></div>';
+    prog.querySelector('[role=status]').textContent = '요청 보내는 중';
+    host.append(turn, prog);
+    scroller.scrollTop = scroller.scrollHeight;
+    return [turn, prog];
   }
   // 답을 쓰는 중에 보낸 요청 — 대기열에 넣고 입력칸을 비운다(첨부는 답이 끝난 뒤 보낸다)
   async function queueChat() {
@@ -802,7 +828,7 @@
       } finally {
         sending = false; paint();
         box.querySelectorAll('button').forEach(item => item.disabled = false);
-        if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+        if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 600); }
       }
     });
   }
@@ -867,7 +893,7 @@
       status.textContent = '재생성 상태를 확인해 주세요.';
     } finally {
       sending = false; button.disabled = false; paint();
-      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 600); }
     }
   });
   document.getElementById('chatEditCancel').addEventListener('click', () => {
@@ -891,5 +917,5 @@
   paintValueForms();
   // 처음 연 화면도 최신 글에서 — 아이콘·단추가 늦게 그려져도 맨 위로 밀리지 않게
   if (scroller.querySelector('.turn')) bottom();
-  if (waiting) timer = setTimeout(poll, 2000);
+  if (waiting) timer = setTimeout(poll, 600);
 })();

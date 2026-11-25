@@ -275,8 +275,43 @@ def search_query(question: str, client, history: dict | None = None, org: str = 
     return q[:200]
 
 
+def _complete(client, messages: list[dict], temperature: float, max_tokens: int, on_partial=None) -> str:
+    """답 글 한 번 받기. on_partial 을 주면 조각 응답으로 받아 0.4초마다 지금까지 쓴 글을 넘긴다 — 일반·인터넷 모드도
+    쓰는 대로 화면에(11-25 사용자: 일반 모드 답이 17초 동안 아무것도 없다가 한꺼번에 옴). 끝 표시 줄([인터넷 확인: …])은 넘기지 않는다.
+    조각 응답이 실패하면 한 번에 받기로."""
+    extra = getattr(client, "_extra", None) or {}
+    if on_partial is not None:
+        import time as _t
+        try:
+            stream = client.client.chat.completions.create(model=client.model, messages=messages, temperature=temperature,
+                                                           max_tokens=max_tokens, extra_body=extra, stream=True)
+            parts: list[str] = []
+            last = 0.0
+            for chunk in stream:
+                for ch in getattr(chunk, "choices", None) or []:
+                    piece = getattr(getattr(ch, "delta", None), "content", None)
+                    if piece:
+                        parts.append(piece)
+                now = _t.monotonic()
+                if parts and now - last >= 0.4:
+                    last = now
+                    t = "".join(parts)
+                    cut = t.rfind("[인터넷")
+                    try:
+                        on_partial(t[:cut] if cut >= 0 else t)
+                    except Exception:
+                        pass
+            if parts:
+                return "".join(parts)
+        except Exception:
+            pass
+    resp = client.client.chat.completions.create(model=client.model, messages=messages, temperature=temperature,
+                                                 max_tokens=max_tokens, extra_body=extra)
+    return resp.choices[0].message.content or ""
+
+
 def answer_with_web(question: str, client=None, k: int = 4, http=None, max_tokens: int = 1500,
-                    history: dict | None = None, org: str = "") -> dict:
+                    history: dict | None = None, org: str = "", on_partial=None) -> dict:
     """웹 검색 → 상위 쪽 글 → 27B 답. 돌려주는 것: {answer, sources:[{n,title,url}], searched: n}.
     질문에 개인정보가 있으면 Blocked — 보내지 않는다. 질문 글은 기록에 남기지 않는다."""
     if provider() == "off":
@@ -300,10 +335,7 @@ def answer_with_web(question: str, client=None, k: int = 4, http=None, max_token
         return {"answer": "", "sources": [], "searched": len(results), "query": query if query != question else ""}
     packed = "\n\n".join(f"[{s['n']}] {s['title']} ({s['url']})\n{s['text'][:3500]}" for s in sources)
     prompt = _PROMPT.format(question=question.strip(), sources=packed)
-    resp = client.client.chat.completions.create(
-        model=client.model, messages=_context_messages(history) + [{"role": "user", "content": prompt}], temperature=0.2,
-        max_tokens=max_tokens, extra_body=getattr(client, "_extra", None) or {})
-    answer = (resp.choices[0].message.content or "").strip()
+    answer = _complete(client, _context_messages(history) + [{"role": "user", "content": prompt}], 0.2, max_tokens, on_partial).strip()
     return {"answer": answer, "sources": [{"n": s["n"], "title": s["title"], "url": s["url"]} for s in sources],
             "searched": len(results), "query": query if query != question else ""}   # 질문과 다르게 찾았을 때만 화면에 검색어
 
@@ -345,17 +377,16 @@ def _split_offer(text: str) -> tuple[str, bool]:
     return text[:m.start()].strip(), m.group(1) == "필요"
 
 
-def answer_from_model(question: str, client=None, max_tokens: int = 1200, history: dict | None = None) -> dict:
+def answer_from_model(question: str, client=None, max_tokens: int = 1200, history: dict | None = None, on_partial=None) -> dict:
     """검색 없이 27B 의 학습 지식만으로 답한다. 밖으로 나가는 것이 없다. 출처가 없으므로 화면이 그 사실을 붙인다.
     history 를 주면 작업 메모·최근 대화를 함께 넣어 이어진 질문을 앞 내용과 이어 답한다."""
     if client is None:
         from zzaimy.generate.client import VllmClient
 
         client = VllmClient()
-    resp = client.client.chat.completions.create(
-        model=client.model, messages=_context_messages(history) + [{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
-        temperature=0.3, max_tokens=max_tokens, extra_body=getattr(client, "_extra", None) or {})
-    answer, offer = _split_offer(resp.choices[0].message.content or "")
+    raw = _complete(client, _context_messages(history) + [{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
+                    0.3, max_tokens, on_partial)
+    answer, offer = _split_offer(raw)
     return {"answer": answer, "sources": [], "mode": "model", "offer_web": offer}
 
 

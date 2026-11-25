@@ -126,3 +126,25 @@ def test_search_query_only_uses_user_words():
     assert ws.search_query("교원은?", fake("직원인사 규정 제35조 61세"), hist) == "교원은?"
     # 담당자가 쓴 낱말만이면 그 검색어
     assert ws.search_query("교원은?", fake("우리대학 교원 정년퇴임 연령"), hist) == "우리대학 교원 정년퇴임 연령"
+
+
+def test_model_answer_streams_partial_without_offer_line(monkeypatch):
+    """11-25: 일반 모드 답이 17초 동안 아무것도 없다가 한꺼번에 왔다 — 조각 응답으로 받아 쓰는 대로 넘기고, 끝 표시 줄은 넘기지 않는다."""
+    import time as _t
+    from types import SimpleNamespace as NS
+    pieces = ["구구단은 ", "for 문 두 개로 ", "씁니다.\n", "[인터넷 확인: 불", "필요]"]
+
+    class Comp:
+        def create(self, **kw):
+            assert kw.get("stream") is True
+            def gen():
+                for p in pieces:
+                    yield NS(choices=[NS(delta=NS(content=p))])
+            return gen()
+    fc = NS(model="m", _extra={}, client=NS(chat=NS(completions=Comp())))
+    ticks = iter(range(0, 1000))
+    monkeypatch.setattr(_t, "monotonic", lambda: next(ticks) * 1.0)
+    seen = []
+    res = web_search.answer_from_model("구구단 코드", client=fc, on_partial=seen.append)
+    assert res["answer"] == "구구단은 for 문 두 개로 씁니다." and res["offer_web"] is False
+    assert len(seen) >= 2 and seen[0].startswith("구구단은") and not any("인터넷" in s for s in seen)

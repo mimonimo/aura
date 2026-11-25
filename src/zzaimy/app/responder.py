@@ -860,7 +860,11 @@ class AgentResponder:
             try:
                 text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages,
                                             timing=self.last_timing)
-            except Exception:
+            except Exception as e:
+                # 흘려 쓰기가 실패하면 한 번에 받기로 넘어가 화면에 답이 끝에 한꺼번에 온다 — 까닭을 남긴다(11-25 RAG 답이 흘러나오지 않음)
+                import logging as _lg
+                _lg.getLogger("zzaimy.app.answer").warning("답 흘려 쓰기 실패, 한 번에 받기로: %s: %s", type(e).__name__, str(e)[:200])
+                self.last_timing["stream_error"] = type(e).__name__
                 text, finish = "", ""
         if not text:
             with llm_budget.label("답 쓰기"):

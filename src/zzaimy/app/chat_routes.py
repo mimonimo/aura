@@ -155,16 +155,22 @@ def make_chat_helpers(
         words = {w for w in _re.findall(r"[0-9A-Za-z가-힣]{2,}", said)}
         if not words:
             return []
-        scored: list[tuple[int, int]] = []
+        # 겹치는 낱말부터 세고 볼 수 있는지는 그 후보에만 — 문서마다 계정 파일·DB 를 읽던 열람 확인이 대화 화면 시간의 70%였다(11-25 측정 0.72초)
+        scored: list[tuple[int, int, dict]] = []
         for d in _criteria_docs():
-            if session_id is not None and not _viewer_sees(session_id, d):
-                continue
             hay = set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", d.get("filename") or ""))
             n = len(words & hay)
             if n:
-                scored.append((n, d["id"]))
-        scored.sort(reverse=True)
-        return [i for _, i in scored[:6]]
+                scored.append((n, d["id"], d))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        out: list[int] = []
+        for _, i, d in scored:
+            if session_id is not None and not _viewer_sees(session_id, d):
+                continue
+            out.append(i)
+            if len(out) >= 6:
+                break
+        return out
 
     def _process_attachment(doc_id: int, stored: Path) -> None:
         """대화 첨부 — 판독·색인까지만 기다리고 검토 의견(27B ~3분)은 뒤로 미룬다. 답변은 판독이 끝나는 대로 이어서 시작된다."""
