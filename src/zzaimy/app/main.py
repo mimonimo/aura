@@ -998,6 +998,9 @@ def create_app(
         progress = _chat_progress.get(session_id)
         if progress is not None:
             steps = progress["steps"]
+            if steps and " · " in label and steps[-1].split(" · ")[0] == label.split(" · ")[0]:
+                steps[-1] = label                               # 같은 단계의 진행(「생각하는 중 · 12초」)은 그 줄만 고친다 — 작업 내역이 초마다 늘지 않게
+                return
             if not steps or steps[-1] != label:
                 # 단계마다 시작 시각을 함께 — 화면이 단계별 걸린 초를 보인다(어디서 오래 머무는지)
                 at = progress.get("at") or [progress.get("started_at", time.time())] * len(steps)
@@ -3420,6 +3423,9 @@ def create_app(
                 kw["scope"] = scope
             if "on_partial" in params:
                 kw["on_partial"] = lambda text: _chat_partial(session_id, text)
+            if "on_progress" in params:
+                # 답 쓰기 안의 단계(근거 찾기·생각·[N단계])를 진행 줄에 — 없으면 걸음 이름 「답변 작성 중」 하나만 몇 분씩 떠 있었다(11-25)
+                kw["on_progress"] = lambda label: _chat_step(session_id, label)
             if "evidence" in params and found:
                 # 찾은 근거를 버리지 않고 답의 근거로 — 이어 읽은 글(잘린 결과의 나머지)을 앞에, 검색 조각은 뒤에
                 ordered = [e for e in found if e.get("read")] + [e for e in found if not e.get("read")]

@@ -515,7 +515,7 @@ def compose_system(profile: dict, audience: str = "staff") -> str:
 class AgentResponder:
     @staticmethod
     def _stream(client, messages, limit, cuts, on_fitted, on_partial, gen: dict | None = None,
-                usage_out: list | None = None, timing: dict | None = None) -> tuple[str, str]:
+                usage_out: list | None = None, timing: dict | None = None, on_progress=None) -> tuple[str, str]:
         """조각 응답으로 답 생성 — (글, 끝난 까닭). 0.4초마다 지금까지 쓴 글을 on_partial 로 넘긴다.
         gen: 생성 추가 인자(answer_gen_options) — 없으면 client._extra. 생각 글(delta.reasoning_content)은 답에 넣지 않는다.
         usage_out: 주면 마지막 사용량(usage)을 덧붙인다(측정용). timing: 주면 첫 글자까지 걸린 초(first_token_sec)를 적는다."""
@@ -545,10 +545,20 @@ class AgentResponder:
             if "</think>" in t:
                 return t.split("</think>")[-1].lstrip()
             return t if (final or not think_on) else ""
+        think_tick = 0.0
         for chunk in stream:
             if getattr(chunk, "usage", None):
                 usage = chunk.usage
             for ch in getattr(chunk, "choices", None) or []:
+                if on_progress is not None and getattr(getattr(ch, "delta", None), "reasoning_content", None):
+                    # 생각 글은 화면에 내지 않지만 생각하는 중임은 보인다 — 11-25 운영: 생각 5,128토큰(227초) 동안 「답변 작성 중」 만 떠 있었다
+                    now_ = _time.monotonic()
+                    if now_ - think_tick >= 2.0:
+                        think_tick = now_
+                        try:
+                            on_progress(f"생각하는 중 · {int(now_ - t_start)}초")
+                        except Exception:
+                            pass
                 piece = getattr(getattr(ch, "delta", None), "content", None)
                 if piece:
                     if not parts and timing is not None:
@@ -563,6 +573,12 @@ class AgentResponder:
                 if shown:
                     try:
                         on_partial(shown)
+                    except Exception:
+                        pass
+                elif on_progress is not None and now - think_tick >= 2.0:     # 본문에 붙어 오는 생각(…</think>)이 끝나기 전
+                    think_tick = now
+                    try:
+                        on_progress(f"생각하는 중 · {int(now - t_start)}초")
                     except Exception:
                         pass
         if usage is not None and usage_out is not None:
@@ -859,7 +875,7 @@ class AgentResponder:
             # 쓰는 대로 화면에 — 답 생성(초당 10토큰 안팎)이 끝날 때까지 기다리지 않게. 조각 응답을 못 하는 서버면 아래 한 번에 받기로
             try:
                 text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages,
-                                            timing=self.last_timing)
+                                            timing=self.last_timing, on_progress=on_progress)
             except Exception as e:
                 # 흘려 쓰기가 실패하면 한 번에 받기로 넘어가 화면에 답이 끝에 한꺼번에 온다 — 까닭을 남긴다(11-25 RAG 답이 흘러나오지 않음)
                 import logging as _lg
