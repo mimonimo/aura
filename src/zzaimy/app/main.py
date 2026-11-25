@@ -3106,7 +3106,6 @@ def create_app(
             # 읽지 못한 경우는 Retry — 근거를 찾은 걸음으로 세지 않는다(먼저 찾기 관문을 건너뛰지 못하게)
             if not found_docs:
                 raise doc_agent.Retry("이번 요청에서 search 로 찾은 문서가 없다 — 먼저 search 로 찾은 뒤 그 결과의 문서를 읽는다.")
-            qa_budget()
             did, why = pick_found(str(a.get("document") or ""))
             if did is None:                                     # 문서 제목은 문서에서 온 글 — 안내가 아니라 자료로
                 raise doc_agent.Retry("이번 search 결과에 나온 문서 하나를 골라야 읽는다 — 위 자료를 보고 《제목》이나 문서 번호로 다시 고른다.",
@@ -3121,6 +3120,7 @@ def create_app(
                 raise doc_agent.Retry(f"이 문서는 이번 요청에서 이미 {doc_agent.READ_PER_DOC}번 읽었다 — 찾는 내용이 여기 없으면 다른 걸음을 고른다"
                                       + ("(근거는 이만하면 됐다 — 이제 hwp_write 로 절을 쓴다)." if hw is not None else
                                          "(절을 쓰는 일이면 write_section 이 그 절의 작성방법·평가 기준·지난 자료를 모아 쓴다)."))
+            qa_budget()                                         # 문서별 몫을 먼저 본 뒤 질문 전체 몫
             texts, ids = found_texts(did)
             if not texts:
                 raise doc_agent.Retry("고른 문서에 읽을 글이 없다 — 다른 걸음을 고른다.")
