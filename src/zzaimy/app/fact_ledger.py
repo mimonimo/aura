@@ -814,6 +814,16 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
     for k_, rs_ in groups.items():
         for r_ in rs_:
             doc_groups.setdefault(r_.get("_doc"), set()).add(k_)
+    # 값이 셈 단위 수(「1곳」「3곳」)인 항목을 distinct 로 셌다 — 서로 다른 값 수는 실적이 아니고, 빈 기록을 문서 하나로 세는 규칙까지 붙어
+    # 엉뚱한 수가 됐다(37차 B 한번에 11-25: 연계 기관 3·3·5·3개를 더해 지역 기관 연계 11, 정답 6 = 1+2+3). 문서 세기를 끄고 sum 으로 안내한다
+    qty_distinct = set()
+    for dk in distincts:
+        vs_ = [str(r.get(dk) or "").strip() for r in recs if str(r.get(dk) or "").strip()]
+        if vs_ and sum(1 for v in vs_ if re.fullmatch(r"[\d,.]+\s*(?:명|건|곳|회|개|개사|원|%)", v)) * 2 > len(vs_):
+            qty_distinct.add(dk)
+    for dk in sorted(qty_distinct):
+        obs.insert(1, f"  (주의: 「{dk}」 값은 수({', '.join(dict.fromkeys(str(r.get(dk)).strip() for r in recs if str(r.get(dk) or '').strip()))[:40]})다 — "
+                      f"distinct 로 서로 다른 값 수를 세면 실적이 아니다. 더한 값이 필요하면 sum: [\"{dk}\"] 로 다시 묶는다)")
     for key, rs in groups.items():
         label = show(key)
         cells = []
@@ -825,7 +835,7 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
                 if str(r.get(dk) or "").strip():
                     seen_.setdefault(_norm(r.get(dk)), str(r.get(dk)).strip())
             for r in rs:
-                if (not str(r.get(dk) or "").strip() and r.get("_doc") and len(doc_groups.get(r["_doc"], ())) <= 1
+                if (dk not in qty_distinct and not str(r.get(dk) or "").strip() and r.get("_doc") and len(doc_groups.get(r["_doc"], ())) <= 1
                         and not any(str(x.get(dk) or "").strip() for x in rs if x.get("_doc") == r["_doc"])
                         and not any(n_ and n_ in _norm(r["_doc"]) for n_ in list(seen_) if not n_.startswith("《"))):
                     # 값이 빈 기록은 그 문서를 하나로 센다 — 활동 이름을 못 뽑은 결과 보고 4건이 빠져 학생 역량강화 활동이 6→2 로 세어지던 것(11-22 4차).

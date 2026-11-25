@@ -860,3 +860,17 @@ def test_thin_items_names_written_but_missing_items():
     recs = [{"활동": "AI 자격증 대비 특강"}]
     assert fl.thin_items(recs, ["날짜", "활동", "참여 인원", "금액"], text) == ["날짜", "참여 인원"]
     assert fl.thin_items([{"날짜": "2026. 5. 28.", "참여 인원": "학생 55명"}], ["날짜", "참여 인원"], text) == []
+
+
+def test_distinct_on_quantity_item_warns_and_does_not_count_documents():
+    # 37차 B 한번에(11-25): 연계 기관(「1곳」「3곳」)을 distinct 로 세 3·3·5·3개를 더해 11(정답 6)
+    docs = [{"id": i, "filename": f"{n}.docx", "masked_text": t} for i, (n, t) in enumerate([
+        ("협약A", "업무협약으로 연계 기관 2곳을 늘렸다."), ("협약B", "연계 기관 3곳과 협약했다."), ("강좌", "강좌 참석 41명.")], 1)]
+    ans = {"협약A": [{"활동": "협약A", "연계 기관": "2곳", "quote": "연계 기관 2곳"}],
+           "협약B": [{"활동": "협약B", "연계 기관": "3곳", "quote": "연계 기관 3곳"}],
+           "강좌": [{"활동": "강좌", "quote": "강좌 참석 41명"}]}
+    db = FakeDB(docs)
+    fl.collect(db, 9, docs, ["활동", "연계 기관"], FakeClient(ans), title_of=_title, parallel=1)
+    obs, _ = fl.aggregate(db, 9, [], [], distinct=["연계 기관"])
+    assert "값은 수(" in obs and 'sum: ["연계 기관"]' in obs
+    assert "연계 기관 2개" in obs                               # 값 없는 「강좌」 문서를 하나로 세지 않는다
