@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 from xml.sax.saxutils import escape
 
 _TBL = re.compile(r"<hp:tbl\b.*?</hp:tbl>", re.S)
@@ -117,5 +118,5 @@ def cross_fill(data: bytes) -> tuple[bytes, list[str], list[str]]:
     with zipfile.ZipFile(buf, "w") as zout:
         for info in zin.infolist():
             body = secs[info.filename].encode("utf-8") if info.filename in secs else zin.read(info.filename)
-            zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            zout.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue(), filled, left

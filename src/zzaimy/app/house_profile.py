@@ -9,6 +9,7 @@
 값은 분포의 최빈값만 담는다(문서 글은 옮기지 않는다).
 """
 from __future__ import annotations
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 
 import json
 import re
@@ -242,5 +243,5 @@ def apply_to(data: bytes, pids, prof: dict | None = None, text: bool = True, ski
         for info in z.infolist():
             body = (new[info.filename].encode("utf-8") if info.filename in new
                     else hdr.xml.encode("utf-8") if info.filename == "Contents/header.xml" else z.read(info.filename))
-            zo.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            zo.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue()

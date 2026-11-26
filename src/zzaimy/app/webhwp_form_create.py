@@ -12,6 +12,7 @@
 모델 이름·문맥 길이는 쓰지 않는다 — 출력·근거 몫은 연결의 문맥 한도(llm_budget.context_len)에서 계산한다.
 """
 from __future__ import annotations
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 
 import json
 import os
@@ -220,7 +221,7 @@ def _drop_fields(data: bytes, names: list[str]) -> bytes:
     with zipfile.ZipFile(buf, "w") as z:
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
-            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            z.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue()
 
 

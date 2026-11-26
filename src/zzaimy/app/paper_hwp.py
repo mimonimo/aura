@@ -16,6 +16,7 @@ import io
 import json
 import re
 import zipfile
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -425,7 +426,7 @@ def _fieldize(data: bytes, meta: dict | None = None) -> bytes:
     with zipfile.ZipFile(buf, "w") as z:
         for info in zin.infolist():
             body = out[info.filename].encode("utf-8") if info.filename in out else zin.read(info.filename)
-            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            z.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue()
 
 
@@ -504,7 +505,7 @@ def keep_korean_words(data: bytes) -> tuple[bytes, int]:
     with zipfile.ZipFile(buf, "w") as z:
         for info in zin.infolist():
             body = new.encode("utf-8") if info.filename == "Contents/header.xml" else zin.read(info.filename)
-            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            z.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue(), k
 
 
@@ -797,7 +798,7 @@ def add_styles(data: bytes) -> tuple[bytes, dict[str, dict]]:
     with zipfile.ZipFile(buf, "w") as z:
         for info in zin.infolist():
             body = header.encode("utf-8") if info.filename == "Contents/header.xml" else zin.read(info.filename)
-            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            z.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue(), out
 
 
@@ -1553,7 +1554,7 @@ def place_pictures(data: bytes, pids: list[str], pictures: dict[str, bytes], sma
                 body = hdr.xml.encode("utf-8")
             else:
                 body = zin.read(info.filename)
-            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            z.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
         for name, b in added.items():
             z.writestr(name, b, compress_type=zipfile.ZIP_STORED)
     return buf.getvalue()

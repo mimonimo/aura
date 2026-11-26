@@ -18,6 +18,7 @@ import io
 import random
 import re
 import zipfile
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 from xml.sax.saxutils import escape
 
 from zzaimy.app import section_context as sc
@@ -559,7 +560,7 @@ def mark_form_text(data: bytes, keep: set[int] | None = None) -> bytes:
     with zipfile.ZipFile(buf, "w") as zout:
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
-            zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            zout.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue()
 
 
@@ -670,7 +671,7 @@ def split_lead_tables(data: bytes) -> tuple[bytes, int]:
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
             ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
-            zout.writestr(info, body, compress_type=ct)
+            zout.writestr(_zcopy(info), body, compress_type=ct)
     return buf.getvalue(), total
 
 
@@ -740,7 +741,7 @@ def fieldize(data: bytes, slots=None, people: dict | None = None, heads: dict | 
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
             ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
-            zout.writestr(info, body, compress_type=ct)
+            zout.writestr(_zcopy(info), body, compress_type=ct)
     return buf.getvalue(), fields
 
 
@@ -850,7 +851,7 @@ def wrap_rest(data: bytes, limit: int | None = None, dry: bool = False) -> tuple
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
             ct = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
-            zout.writestr(info, body, compress_type=ct)
+            zout.writestr(_zcopy(info), body, compress_type=ct)
     return buf.getvalue(), total
 
 
@@ -952,7 +953,7 @@ def clear_samples(data: bytes, facts: dict | None = None) -> tuple[bytes, int]:
     with zipfile.ZipFile(buf, "w") as zout:
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
-            zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            zout.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue(), n_
 
 
@@ -1106,5 +1107,5 @@ def submission_clean(data: bytes) -> tuple[bytes, dict[str, str], list[str]]:
     with zipfile.ZipFile(buf, "w") as zout:
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
-            zout.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            zout.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue(), guides_out, removed

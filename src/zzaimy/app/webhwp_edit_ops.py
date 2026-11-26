@@ -19,6 +19,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -292,7 +293,7 @@ class _Doc:
         with zipfile.ZipFile(buf, "w") as z:
             for info in self.zin.infolist():
                 body = repl.get(info.filename)
-                z.writestr(info, body if body is not None else self.zin.read(info.filename),
+                z.writestr(_zcopy(info), body if body is not None else self.zin.read(info.filename),
                            compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
             for name, body in self.added.items():
                 z.writestr(name, body, compress_type=zipfile.ZIP_STORED)
@@ -4577,7 +4578,7 @@ class EditTools:
             st = status(db, fid, c["id"])
             if st.get("status") in ("done", "error"):
                 self.hw.writes += 1
-                return (f"기안기에서 「{c['label']}」 을 했다" if st["status"] == "done" else f"기안기에서 「{c['label']}」 이 안 됐다") + \
+                return (f"기안기에서 「{c['label']}」 을 했다" if st["status"] == "done" else f"바꾸지 않았다 — 기안기에서 「{c['label']}」 이 안 됐다") + \
                     (f" — {st.get('result')}" if st.get("result") else "") + "."
             time.sleep(0.5)
         return f"기안기에 「{c['label']}」 명령을 보냈다 — 아직 결과가 오지 않았다(화면이 바쁘면 곧 실행된다)."
@@ -4624,7 +4625,7 @@ class EditTools:
         if not st:
             return f"기안기에 「{label}」 명령을 보냈다 — 아직 결과가 오지 않았다(화면이 바쁘면 곧 실행된다)."
         self.hw.writes += 1
-        return (f"기안기에서 「{label}」 을 했다" if st["status"] == "done" else f"기안기에서 「{label}」 이 안 됐다") + \
+        return (f"기안기에서 「{label}」 을 했다" if st["status"] == "done" else f"바꾸지 않았다 — 기안기에서 「{label}」 이 안 됐다") + \
             (f" — {st.get('result')}" if st.get("result") else "") + "."
 
     def action(self, fid: int, a: dict) -> str:

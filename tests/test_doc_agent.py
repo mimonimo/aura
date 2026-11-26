@@ -138,6 +138,11 @@ def test_finish_claiming_writes_is_refused_once_when_nothing_changed():
     tools[0] = doc_agent.Tool("hwp_write", "쓰기", lambda a: "「1. 개요」 을 썼다", writes=True)
     ep = doc_agent.run(_client([_step("hwp_write", field="1. 개요", text="x"), _step("finish", message="1절을 썼습니다")]), "써 줘", lambda: "상태", tools)
     assert ep.final_message == "1절을 썼습니다"
+    # 기안기 직접 조작이 안 됐고(쓰기 실패) 「추가했습니다」 로 끝맺으면 돌려보낸다(11-27 시연 ③: 쓰기 셋 모두 실패했는데 추가했다고 답함)
+    tools[0] = doc_agent.Tool("hwp_live", "기안기", lambda a: "바꾸지 않았다 — 기안기에서 「글 넣기」 이 안 됐다", writes=True)
+    ep = doc_agent.run(_client([_step("hwp_live", params={"text": "x"}), _step("finish", message="맨 끝에 항목을 추가했습니다"),
+                                _step("finish", message="항목을 넣지 못했습니다")]), "넣어 줘", lambda: "상태", tools)
+    assert "실제로 바뀐 것이 없다" in ep.steps[1]["observation"] and ep.final_message == "항목을 넣지 못했습니다"
 
 
 def test_same_call_reruns_after_document_changed():

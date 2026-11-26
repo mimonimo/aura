@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 from xml.sax.saxutils import escape
 
 from zzaimy.export import house_style as hs
@@ -560,7 +561,7 @@ def _rewrite(data: bytes, fn) -> bytes:
     with zipfile.ZipFile(buf, "w") as z:
         for info in zin.infolist():
             body = new[info.filename].encode("utf-8") if info.filename in new else zin.read(info.filename)
-            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            z.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue()
 
 
@@ -673,7 +674,7 @@ def body_base(data: bytes) -> bytes:
     with zipfile.ZipFile(buf, "w") as z:
         for info in zin.infolist():
             body = h2.encode("utf-8") if info.filename == "Contents/header.xml" else zin.read(info.filename)
-            z.writestr(info, body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
+            z.writestr(_zcopy(info), body, compress_type=zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED)
     return buf.getvalue()
 
 

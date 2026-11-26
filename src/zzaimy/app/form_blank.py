@@ -14,6 +14,7 @@ import io
 import re
 import zipfile
 
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 _SEC = re.compile(r"Contents/section\d+\.xml$")
 _T = re.compile(r"<hp:t>(?:(?!</hp:t>).)*?</hp:t>|<hp:t/>", re.S)
 _LINESEG = re.compile(r"<hp:linesegarray>.*?</hp:linesegarray>", re.S)
@@ -257,5 +258,5 @@ def blank_values(data: bytes, narrative: bool = True) -> tuple[bytes, int]:
             zi = zipfile.ZipInfo(info.filename, date_time=info.date_time)
             zi.compress_type = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
             zi.external_attr = info.external_attr
-            zout.writestr(zi, raw)
+            zout.writestr(_zcopy(zi), raw)
     return (out.getvalue(), n_blank) if n_blank else (data, 0)

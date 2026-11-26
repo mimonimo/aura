@@ -13,6 +13,7 @@
 POST /dev/coedit-demo/new(kind=long 이면 사업계획서)는 화면 단추 없이 남긴 만들기 길. 창을 열면 칸마다 자기 차례의 쓸 자리로 커서가 간다(hwp_edit.html).
 """
 from __future__ import annotations
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 
 import re
 from datetime import datetime
@@ -284,7 +285,7 @@ def _bigger_text(data: bytes, k: float) -> bytes:
             body = src.read(info.filename)
             if info.filename == "Contents/header.xml":
                 body = re.sub(rb'(<hh:charPr\b[^>]*?\bheight=")(\d+)(")', lambda m: m.group(1) + str(round(int(m.group(2)) * k)).encode() + m.group(3), body)
-            z.writestr(info, body)
+            z.writestr(_zcopy(info), body)
     return out.getvalue()
 
 

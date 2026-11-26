@@ -12,6 +12,7 @@ DGX 실문서 서식 23개(LINC 3.0·LINC+·LINC·혁신지원·특성화·앵�
 수치 규칙: 성과지표 값·예산 금액은 근거 문서에서 그대로 옮긴다(절대 규칙 1·5) — 지침에 적어 둔다.
 """
 from __future__ import annotations
+from copy import copy as _zcopy   # 읽는 zip 의 ZipInfo 를 writestr 에 그대로 주면 위치 값이 새 zip 것으로 바뀌어 읽던 zip 을 다시 못 읽는다(11-27)
 
 import json
 import re
@@ -1421,7 +1422,7 @@ def slim_docx(data: bytes, font_from: str = FONT, font_to: str = WORD_FONT) -> b
                 if font_from and name.startswith("word/"):
                     t = t.replace(f'"{font_from}"', f'"{font_to}"')
                 body = t.encode("utf-8")
-            z.writestr(item, body)
+            z.writestr(_zcopy(item), body)
     return out.getvalue()
 
 
