@@ -181,6 +181,9 @@ def test_continue_fresh_and_missing_reference(tmp_path, monkeypatch):
     hw4, _ = _hw(tmp_path / "d", monkeypatch, 616, docs + [_up(tmp_path, 9302, "2025 가상 AI 실무인재 양성사업 결과보고서.hwpx")])
     hw4.request = "올린 작년 결과보고서(2025)를 서식으로 2026년 결과보고서를 작성해 줘"   # 짚은 말과 제목 낱말이 겹치는 올린 문서는 바로 연다
     assert "만들고 이 대화에 이었다" in hw4.start({"form": "doc:9302", "title": "2026 결과보고서"})
+    hw5, _ = _hw(tmp_path / "e", monkeypatch, 617, [_up(tmp_path, 9303, "blank.hwpx")])
+    hw5.request = "올린 사업계획서 작성 서식으로 한글 작업본을 만들어 줘"            # 이름이 내용을 말해 주지 않는 하나뿐인 후보는 고른 대로 연다
+    assert "만들고 이 대화에 이었다" in hw5.start({"form": "doc:9303", "title": "계획서"})
 
 
 def test_cover_title_drops_form_suffix():

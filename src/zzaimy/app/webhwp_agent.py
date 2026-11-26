@@ -1141,6 +1141,10 @@ class HwpTools:
                 tw = {_doc_key(w) for w in re.findall(r"[가-힣A-Za-z]{2,}|\d{4}", _nfc(storage.title_of(pick.get("filename") or "")))}
                 if any(r and any(r in t or t in r for t in tw if len(t) >= 2) for r in ref_words if r not in ("작년", "지난", "올해")):
                     return None
+                # 올린 양식 후보가 이것 하나뿐이고 파일 이름이 내용을 말해 주지 않으면(「blank」「form1」 처럼 한글 낱말이 없음) 짚은 말과
+                # 어긋날 근거도 없다 — 에이전트가 고른 대로 연다. 이름만 보고 막던 탓에 올린 공식 서식을 두고 새 양식을 설계했다(11-26 시연 ②)
+                if len(cands) == 1 and not re.search(r"[가-힣]{2,}", _nfc(storage.title_of(pick.get("filename") or ""))):
+                    return None
         if m and not named and m.group(2).strip() not in _REF_GENERIC and form.startswith(("tpl:", "doc:")):
             key = f"form_ref_asked:{self.sid}"
             if not (self.db.get_setting(key, "") or "").strip():
