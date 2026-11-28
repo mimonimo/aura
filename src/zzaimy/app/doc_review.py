@@ -279,18 +279,51 @@ def diff_groups(recs: list[dict] | None, head: str, diff: int) -> list[str]:
     return out
 
 
+def scope_call(recs: list[dict], head: str, diff: int, rows_a: list[list[str]], rows_b: list[list[str]], big: int = 0) -> str:
+    """한 표의 행 이름(과제별 표의 과제들)에 든 기록만 세면 두 표의 합 차이가 사라지는지 — 사라지면 그 범위로 다시 묶을 인자를 보인다.
+    42차 B(11-28): 운영위원회 기록이 과제 「2026 가상 … 사업」 2건과 빈 칸 1건으로 갈려 한 묶음 합이 차이(15)와 같지 않아 못 짚었고,
+    모델은 손셈(73·85·142)을 넣다 막혔다. 행 이름 밖 기록 합이 차이와 꼭 같을 때만."""
+    hk = re.sub(r"\s+|\(.*?\)|합계|총", "", head)
+    col = next((k for r in recs for k in r if isinstance(k, str) and not k.startswith("_") and re.sub(r"\s+|\(.*?\)", "", k) == hk), None)
+    if not col and big:
+        # 기록 항목 이름이 표 머리와 다르다(「참석 인원」 ↔ 「참석자(명)」) — 기록 전체 합이 큰 쪽 표 합과 같은 수 항목을 쓴다
+        keys = {k for r in recs for k in r if isinstance(k, str) and not k.startswith("_") and k != "quote"}
+        col = next((k for k in sorted(keys) if sum(_num(r.get(k)) or 0 for r in recs) == big), None)
+    if not col or diff <= 0:
+        return ""
+    for rows, other in ((rows_a, rows_b), (rows_b, rows_a)):
+        labels = [str(r[0]).strip() for r in rows[1:] if r and str(r[0]).strip() and not _TOTAL_ROW.search(str(r[0]))]
+        if len(labels) < 2:
+            continue
+        for k in {k for r in recs for k in r if isinstance(k, str) and not k.startswith("_") and k not in (col, "quote")}:
+            vals = {str(r.get(k) or "").strip() for r in recs}
+            if not all(lb in vals for lb in labels):
+                continue
+            out_ = [r for r in recs if _num(r.get(col)) is not None and str(r.get(k) or "").strip() not in labels]
+            if out_ and sum(_num(r.get(col)) or 0 for r in out_) == diff:
+                docs = list(dict.fromkeys(str(r.get("_doc") or "")[:24] for r in out_))
+                g = next((c for c in (other[0] if other else []) if c), "")
+                arg = json.dumps({"sum": [col], "filt": {k: labels}}, ensure_ascii=False)
+                return (f"「{k}」 가 「{'·'.join(labels)[:60]}」 밖인 기록 {len(out_)}건(" + ", ".join(f"《{d}》" for d in docs[:3])
+                        + f")의 합이 꼭 {diff:,} — 같은 범위로 세려면 aggregate_facts 에 group_by 는 「{g}」 표 기준으로 두고 {arg}")
+    return ""
+
+
 def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[dict] | None = None) -> list[str]:
     """머리 이름이 같은 수 열의 합이 표마다 다르면 후보 — 같은 대상을 다른 묶음(과제별·분기별 등)으로 나눈 표면 합이 같아야 한다.
     40차 B: 과제별 참석자 합 300, 분기별 합 315(운영위원회 기록 3건이 분기 묶음에만 섞였다)를 세 번 다 못 봤다. 판단은 27B."""
     seen: dict[str, tuple[str, int, str, int]] = {}
+    rows_of = {tno: rows for _, tno, rows in tables}
     out = []
     for label, tno, rows in tables:
         for key, (head, tot) in column_totals(rows).items():
             if key in seen and seen[key][3] != tot:
                 l0, t0, h0, v0 = seen[key]
                 why_ = diff_groups(recs, head, abs(tot - v0))
+                call = scope_call(recs, head, abs(tot - v0), rows_of.get(t0) or [], rows, max(tot, v0)) if recs else ""
                 out.append(f"표{t0}(「{l0}」)의 「{h0}」 합 {v0:,} 과 표{tno}(「{label}」)의 「{head}」 합 {tot:,} 이 다르다"
-                           + (f"(차이 {abs(tot - v0):,} — 모은 기록 가운데 " + "; ".join(why_) + ": 이 기록이 한쪽 표에만 들었을 수 있다)" if why_ else "") + " — "
+                           + (f"(차이 {abs(tot - v0):,} — 모은 기록 가운데 " + "; ".join(why_) + ": 이 기록이 한쪽 표에만 들었을 수 있다)" if why_ else "")
+                           + (f" [{call}]" if call else "") + " — "
                            "같은 대상을 다른 묶음으로 나눈 표라면 합이 같아야 한다. 한쪽 묶음에 다른 갈래의 기록이 섞였거나 빠졌는지 "
                            "aggregate_facts 를 같은 거르기(filt)로 다시 묶어 대 보고, 섞인 것이 맞으면 그 표를 고친다(본문 합계도 함께). 다른 대상을 센 표면 그대로 둔다.")
             seen.setdefault(key, (label, tno, head, tot))

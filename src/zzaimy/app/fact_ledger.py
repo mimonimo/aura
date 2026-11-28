@@ -1131,8 +1131,7 @@ def base_unfounded(base, texts: list[str]) -> str:
 
 
 def _scope_breakdown(items, recs, sums, nv, skip) -> list[str]:
-    """기간 묶음의 합을 갈래 항목(값 2~8가지·더한 기록 대부분에 든 글 항목)으로 나눠 본 줄. 갈래가 빈 기록이나 문서 하나뿐인 갈래가
-    있을 때만 — 다른 표(과제별)와 범위가 다를 수 있는 때다."""
+    """기간 묶음의 합을 갈래 항목(값 2~8가지·더한 기록 대부분에 든 글 항목)으로 나눠 본 줄 — 다른 표(과제별)와 범위를 대 보는 재료."""
     out = []
     for s_ in sums:
         rs = [r for r in recs if nv(r, s_) is not None]
@@ -1149,21 +1148,16 @@ def _scope_breakdown(items, recs, sums, nv, skip) -> list[str]:
             if (not 2 <= len(kinds) <= 8 or len(named) * 10 < len(rs) * 6
                     or any(re.fullmatch(r"[\d,.]+\s*[가-힣%]{0,3}", v) for v in kinds)):
                 continue
-            docs = {k: {r.get("_doc") for r, v in zip(rs, vals) if v == k} for k in kinds}
-            odd = [k for k in kinds if len(docs[k]) <= 1] if max(len(d) for d in docs.values()) >= 2 else []
             blank = [r for r, v in zip(rs, vals) if not v]
-            if not odd and not blank:
-                continue
+            # 어느 갈래를 뺄지는 코드가 짐작하지 않는다 — 42차(11-28): 「문서 하나뿐인 갈래」 로 고른 것이 정상 과제(성인 학습자 지원)였다.
+            # 나눈 합만 보이고, 다른 표의 행 이름으로 범위를 맞추는 인자 꼴을 보인다(차이를 만든 기록은 다시 읽기 후보가 짚는다)
             u = _unit([r.get(s_) for r in rs])
             parts = [f"{k} {_fmt(sum((nv(r, s_) for r, v in zip(rs, vals) if v == k), Decimal(0)))}" for k in kinds]
             if blank:
                 parts.append(f"(빈 값) {_fmt(sum((nv(r, s_) for r in blank), Decimal(0)))}《"
                              + "》《".join(dict.fromkeys(str(r.get('_doc'))[:20] for r in blank[:3])) + "》")
-            oddd = "".join(f"《{str(d)[:20]}》" for k in odd for d in sorted(docs[k], key=str)[:1])
-            arg = json.dumps({it: ["*"] * bool(blank) + [f"!{k}" for k in odd]}, ensure_ascii=False)
-            out.append(f"  (이 합에 든 기록을 「{it}」 로 나누면 {s_}: " + " · ".join(parts) + (f" ({u})" if u else "") + " — "
-                       + (f"문서 하나뿐인 갈래 {oddd} " if odd else "") + ("갈래가 빈 기록 " if blank else "")
-                       + f"이(가) 들어 있다. 다른 표(「{it}」별 표 등)와 같은 범위로 세려면 filt {arg} 로 다시 부른다)")
+            out.append(f"  (이 합에 든 기록을 「{it}」 로 나누면 {s_}: " + " · ".join(parts) + (f" ({u})" if u else "")
+                       + f" — 다른 표(「{it}」별 표 등)와 같은 범위로 세야 하면 그 표의 행 이름만 남기는 filt {{\"{it}\": [행 이름, …]}} 로 다시 부른다)")
             break
     return out
 

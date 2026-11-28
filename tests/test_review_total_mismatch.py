@@ -81,7 +81,7 @@ def test_period_sum_shows_scope_by_category_and_filter_args():
     db = FakeDB([])
     fl.save(db, 5, {"items": items, "live": list(docs), "docs": docs})
     obs, _ = fl.aggregate(db, 5, ["날짜:분기"], ["참석 인원"])
-    assert "「분야」 로 나누면" in obs and "(빈 값) 5" in obs and '"!2026 가상 사업"' in obs and '"*"' in obs
+    assert "「분야」 로 나누면" in obs and "(빈 값) 5" in obs and "2026 가상 사업 5" in obs and "!" not in obs.split("로 나누면")[1][:200]
     obs2, _ = fl.aggregate(db, 5, ["분야"], ["참석 인원"])
     assert "로 나누면" not in obs2                                  # 갈래로 묶었으면 이미 보인다
 
@@ -128,3 +128,17 @@ def test_fill_into_thousand_won_column_offers_fix(tmp_path, monkeypatch):
     monkeypatch.setattr(eo, "field_cell_where", lambda raw, k: "표5 2행 「집행액(천원)」 열 · 지금 행: 강사료 | 11,400,000")
     out = hw.fill({"values": {"칸:사업명": "11,400,000"}})
     assert "[단위 셈 확인]" in out and '"11,400"' in out
+
+
+def test_scope_call_uses_row_labels_of_the_other_table():
+    """42차 B 한번에: 운영위원회 기록이 과제 「사업 이름」 2건 + 빈 칸 1건으로 갈려 한 묶음 합이 차이와 같지 않았다 —
+    과제별 표의 행 이름 밖 기록 합이 차이와 같으면 그 행 이름만 남기는 인자를 보인다."""
+    recs = [{"분야": "지역 연계 강좌", "참석 인원": "190명", "_doc": "a"}, {"분야": "성인 학습자 지원", "참석 인원": "27명", "_doc": "b"},
+            {"분야": "평생교육 네트워크", "참석 인원": "83명", "_doc": "c"},
+            {"분야": "2026 가상 사업", "참석 인원": "5명", "_doc": "운영위원회 1차"}, {"분야": "2026 가상 사업", "참석 인원": "5명", "_doc": "운영위원회 2차"},
+            {"분야": "", "참석 인원": "5명", "_doc": "운영위원회 3차"}]
+    a = [["추진 과제", "참석자(명)"], ["지역 연계 강좌", "190"], ["성인 학습자 지원", "27"], ["평생교육 네트워크", "83"]]
+    b = [["분기", "참석자(명)"], ["2분기", "88"], ["3분기", "90"], ["4분기", "137"]]
+    out = d.total_mismatches([("과제별", 2, a), ("분기별", 3, b)], recs)
+    assert "밖인 기록 3건" in out[0] and '"filt": {"분야": ["지역 연계 강좌", "성인 학습자 지원", "평생교육 네트워크"]}' in out[0]
+    assert "「분기」 표 기준" in out[0]
