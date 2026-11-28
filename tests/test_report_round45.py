@@ -91,3 +91,12 @@ def test_repeated_review_issue_is_marked(tmp_path, monkeypatch):
     second = m._mark_repeated_issues(hw.db, 5, t2)
     assert "315 이 다르다 [앞 다시 읽기에도" in second and "다른 후보 [" not in second
     assert second.rstrip().endswith("1. 사업 개요")
+
+
+def test_common_skeleton_for_draft_request():
+    """11-28 양식 시나리오: 기안문 설계에 관련·붙임이 빠졌다 — 설계 재료에 공통 기안문 뼈대(관련 → 추진 내용 → 붙임·끝)를 참고로 준다."""
+    from zzaimy.app.webhwp_form_create import common_skeleton
+    name, txt = common_skeleton("장비 구입 건으로 내부결재 기안문 양식부터 만들어 줘")
+    assert "기안문" in name and "1. 관련" in txt and "붙임" in txt and "끝." in txt
+    assert common_skeleton("2026 결과보고서 양식 만들어 줘") == ("", "")
+    assert "출장" in common_skeleton("출장 다녀온 결과 보고 양식")[0]

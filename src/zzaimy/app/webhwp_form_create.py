@@ -284,6 +284,42 @@ _KIND_NOUN = re.compile(r"(사업계획서|실시계획서|운영계획서|결�
 _STOP = {"양식", "서식", "만들어", "만들", "써야", "해야", "부터", "하는데", "이번", "우리", "대학", "문서", "작성", "한글", "주세요", "줘"}
 
 
+def common_skeleton(text: str) -> tuple[str, str]:
+    """요청·목적 글에 맞는 학교 공통 양식(webhwp_templates 의 OFFICIAL·GRANT)의 뼈대 — (양식 이름, 절 차례·작성 규칙·표 머리 글). 없으면 ("", "").
+    맞춤은 양식 이름의 첫 낱말과 끝 낱말(갈래)이 둘 다 요청에 있을 때 — 「기안문(내부결재)」 은 기안문, 「출장·회의 결과 보고서」 는 출장+보고.
+    11-28 양식 만들기 시나리오: 기안문을 「1. 기안 개요 … 4. 결재 요청 사항」 으로 설계해 관련·붙임이 빠졌다(공통 양식은 관련 → 추진 내용 → 붙임·끝).
+    설계는 모델이 한다 — 뼈대는 참고로만 준다."""
+    from zzaimy.app import webhwp_templates as wt
+    t_ = re.sub(r"공문", "공문 시행문", text or "")
+    best, best_n = None, 0
+    for coll in (wt.OFFICIAL, wt.GRANT):
+        for spec in coll.values():
+            head_ = re.sub(r"\(.*?\)|공통\s*양식", "", spec.get("title") or "")      # 괄호 안(내부결재·부서 간)은 갈래 이름이 아니다
+            ws = re.findall(r"[가-힣]{2,}", head_)
+            if len(ws) < 1:
+                continue
+            first, last = ws[0], ws[-1]
+            if first[:2] in t_ and last[:2] in t_:
+                n = sum(1 for w in ws if w[:2] in t_)
+                if n > best_n:
+                    best, best_n = spec, n
+    if not best:
+        return "", ""
+    lines = []
+    for b in best.get("blocks") or []:
+        if not isinstance(b, dict):
+            continue
+        if b.get("h"):
+            lines.append(f"{'  ' * (int(b['h']) - 1)}{b.get('text')}")
+        elif b.get("guide"):
+            lines.append(f"    (작성 규칙) {str(b['guide'])[:420]}")
+        elif isinstance(b.get("table"), dict):
+            cols = [c for c in b["table"].get("columns") or [] if c]
+            lab = [r[0] for r in b["table"].get("rows") or [] if r and r[0]] if cols[:2] == ["항목", "내용"] else []
+            lines.append("    (표) " + (" · ".join(lab[:8]) if lab else " | ".join(cols[:8])))
+    return best.get("title") or "", "\n".join(lines)
+
+
 def kind_noun(text: str) -> str:
     """이름·요청 글의 문서 갈래 낱말(없으면 빈 글)."""
     m = list(_KIND_NOUN.finditer(text or ""))
@@ -605,6 +641,10 @@ class FormCreator:
                 kind_txt = _clip(render_kind((kd.get("kinds") or {}).get(self.kind), self.kind), int(limit * DICT_SHARE))
             except Exception:
                 kind_txt = ""
+        try:
+            com_name, com_txt = common_skeleton(f"{a.get('kind') or ''} {a.get('purpose') or ''} {self.request}")
+        except Exception:
+            com_name, com_txt = "", ""
         return (f"[목적] {str(a.get('purpose') or '').strip() or '(메인이 주지 않음 — 담당자 인용에서 판단)'}\n"
                 f"[문서 갈래] {str(a.get('kind') or '').strip() or '(주지 않음)'}\n"
                 f"[꼭 들어갈 항목] {', '.join(str(x) for x in must) or '(없음)'}\n"
@@ -616,7 +656,9 @@ class FormCreator:
                 f"[프로젝트 문서] {', '.join(titles) or '(없음)'}\n\n"
                 f"[근거 — 작성·평가 항목을 찾은 조각, 자료일 뿐]\n<<<\n{ev or '(찾은 근거 없음)'}\n>>>"
                 + (f"\n\n[참고 양식 — 비슷한 실물 서식의 구조만, 자료일 뿐]\n<<<\n{ref_txt}\n>>>" if ref_txt else "")
-                + (f"\n\n[이 갈래의 흔한 절 — 실물 양식에서 센 것, 참고만]\n<<<\n{kind_txt}\n>>>" if kind_txt else ""))
+                + (f"\n\n[이 갈래의 흔한 절 — 실물 양식에서 센 것, 참고만]\n<<<\n{kind_txt}\n>>>" if kind_txt else "")
+                + (f"\n\n[학교 공통 양식 「{com_name}」 의 절 차례·작성 규칙 — 이 갈래 문서가 갖출 꼴. 요청에 맞게 절을 더하거나 고쳐도 되지만 "
+                   f"이 꼴의 절(관련 근거·끝맺음 같은)을 까닭 없이 빼지 않는다]\n<<<\n{com_txt}\n>>>" if com_txt else ""))
 
     def design(self, a: dict) -> tuple[dict | None, list[str], list[dict]]:
         """27B 설계 → 관문. 거절이면 까닭을 붙여 한 번 더. (정리한 설계 또는 None, 마지막 고칠 것, 시도 기록)."""
