@@ -480,10 +480,16 @@ def style_table(tbl: str, hdr: _Header, opts: dict | None = None) -> str:
                 # 갈래 디자인 — 칸 값 꼴(수·금액·비율·날짜·기호·라벨·글)마다 정렬. 담당자가 준 num_align 은 수 갈래 셋에 앞선다
                 from zzaimy.export import table_kinds as tk
                 vt = tk.value_type(c["text"], heads.get(c["c"], ""))
-                if (opts or {}).get("num_align") and vt in ("money", "number", "percent"):
+                if vt == "code":
+                    align = "LEFT"                                 # 코드 칸은 왼쪽 — 가운데면 들여쓰기가 안 보이고 줄이 흩어진다(11-28 구구단 표)
+                elif (opts or {}).get("num_align") and vt in ("money", "number", "percent"):
                     align = str(o["num_align"])
                 else:
                     align = (o["col_align"] or {}).get(vt) or ""
+            if role == "body" and not align and c["text"]:
+                from zzaimy.export import table_kinds as tk_
+                if tk_.is_code(c["text"]):
+                    align = "LEFT"
             if role == "body" and not align:
                 # 금액·큰 수는 오른쪽, 기호·짧은 값은 가운데(학교 표의 거의 모든 값 칸), 긴 글은 문단 기본
                 align = hs.value_align(c["text"], heads.get(c["c"], "")) or ("CENTER" if (c["r"], c["c"]) in marks else "")

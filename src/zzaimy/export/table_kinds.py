@@ -51,11 +51,22 @@ def _clean(t) -> str:
     return " ".join(str(t or "").split())
 
 
+def is_code(text: str) -> bool:
+    """프로그램 코드 칸인가 — 영문·기호가 대부분이고 코드 꼴(예약어 줄·함수 부르기·대입·중괄호)이 있다. 「print()」 「for i in range(1, 101):」"""
+    t = (text or "").strip()
+    if len(t) < 3 or re.search(r"[가-힣]", t.split("#", 1)[0]):
+        return False
+    from zzaimy.verify.numbers import _CALL, _CODE_LINE
+    return bool(_CODE_LINE.fullmatch(t) or _CALL.search(t) or re.search(r"\w\(\)|[{};]|\w\s*[+\-*/]?=\s*\S|=>|->", t))
+
+
 def value_type(text: str, head: str = "") -> str:
     """칸 값 하나의 꼴."""
     t = _clean(text)
     if not t:
         return "empty"
+    if is_code(text):
+        return "code"
     if _SYMBOL.fullmatch(t):
         return "symbol"
     if _PERCENT.fullmatch(t):

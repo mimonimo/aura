@@ -36,3 +36,22 @@ def test_ladder_is_a_fixed_point_when_every_long_paragraph_is_a_first_level_item
     for _ in range(4):
         again = ll.apply(again)
     assert _heights(again, ("1) 항목", "2) 항목")) == sizes
+
+
+def test_code_cells_are_left_aligned():
+    """코드를 넣은 표 칸은 왼쪽 정렬 — 짧은 라벨처럼 가운데에 두어 들여쓰기가 안 보였다(11-28 구구단 표)."""
+    from zzaimy.app import webhwp_edit_ops as eo
+    clean, _ = fc.validate(DESIGN)
+    data = fc.build(clean)
+    name = next(f["name"] for f in ww.fields(data) if f["name"].startswith("절:"))
+    data, _ = eo.table_insert(data, {"at": {"field": name, "where": "end"}, "head": ["번호", "코드"],
+                                     "values": [["1", "for i in range(1, 101):"], ["2", "    print(i)"], ["3", "print()"]]})
+    z = zipfile.ZipFile(io.BytesIO(data))
+    h = z.read("Contents/header.xml").decode()
+    x = "".join(z.read(n).decode() for n in z.namelist() if re.match(r"Contents/section\d+\.xml$", n))
+    def align_of(txt):
+        tc = next(t for t in re.findall(r"<hp:tc\b.*?</hp:tc>", x, re.S) if f"<hp:t>{txt}</hp:t>" in t)
+        pp = re.search(r'paraPrIDRef="(\d+)"', tc).group(1)
+        return re.search(rf'<hh:paraPr\b[^>]*\bid="{pp}".*?<hh:align horizontal="([A-Z]+)"', h, re.S).group(1)
+    assert align_of("print()") == "LEFT" and align_of("for i in range(1, 101):") == "LEFT"
+    assert align_of("1") == "CENTER"                       # 번호 칸은 그대로 가운데
