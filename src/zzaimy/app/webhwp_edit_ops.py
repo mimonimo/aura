@@ -3331,6 +3331,30 @@ def _sweep_assets(base: Path) -> None:
 
 
 @_queued
+def _resolve_step_fields(db, fid: int, steps: list) -> list:
+    """편집 화면 단계의 필드 이름을 작업본의 실제 이름으로 — 「2. 코드 설명」 처럼 접두사(절:)를 빼고 쓴 이름은 파일 도구는 받는데
+    편집 화면은 「필드를 찾지 못했습니다」 로 실패해 같은 글을 네 번 다시 보냈다(11-28). 하나로 맞지 않으면 그대로 둔다(화면이 알린다)."""
+    if not any(isinstance(st, (list, tuple)) and st and st[0] == "field" for st in steps or []):
+        return steps
+    try:
+        from zzaimy.app import webhwp
+        f = webhwp.get(db, fid)
+        doc = _Doc(Path(f["path"]).read_bytes()) if f else None
+    except Exception:
+        return steps
+    if doc is None:
+        return steps
+    out = []
+    for st in steps:
+        if isinstance(st, (list, tuple)) and st and st[0] == "field" and len(st) > 1:
+            try:
+                st = [st[0], _resolve_field(doc, str(st[1])), *st[2:]]
+            except EditError:
+                pass
+        out.append(st)
+    return out
+
+
 def push(db, fid: int, action: str, params: dict, by: str = "AURA", *, steps: list | None = None, label: str = "",
          runner: int = 1, owner: str = "", asset: bytes | None = None, base: Path | None = None) -> dict:
     """명령 줄에 넣는다 — {id, action, params, steps, by, at, status:new}. 허용 목록 밖이면 EditError.
@@ -3341,6 +3365,7 @@ def push(db, fid: int, action: str, params: dict, by: str = "AURA", *, steps: li
         label = label or LIVE_ACTIONS[action]["desc"]
     if not steps_allowed(steps, runner):
         raise EditError("허용 목록 밖의 단계가 있다.")
+    steps = _resolve_step_fields(db, fid, steps)
     v = _cmds(db, fid)
     v["seq"] += 1
     c = {"id": v["seq"], "action": action, "label": label or action, "params": params or {}, "steps": steps,
@@ -4560,6 +4585,11 @@ class EditTools:
             why = gate(txt_)
             if why:
                 return f"넣지 않았다 — {why}"
+        if p_.get("field"):                                 # 접두사 없이 쓴 이름(「2. 코드 설명」)도 실제 필드 이름으로(11-28)
+            fixed = _resolve_step_fields(db, fid, [["field", str(p_["field"])]])[0][1]
+            if fixed != p_["field"]:
+                p_ = dict(p_, field=fixed)
+                a = dict(a, params=p_)
         if a.get("action") == "insert_text" and p_.get("field") and p_.get("text"):
             from zzaimy.app import webhwp_coedit as ce_
             cur = (ce_.state(db, fid, [str(p_["field"])]).get(str(p_["field"])) or {}).get("text", "")

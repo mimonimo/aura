@@ -781,14 +781,22 @@ _SEC_HEAD = re.compile(r"(?m)^(\s*)(\d{1,2}(?:\.\d{1,2})+)(\.?\s+[가-힣A-Za-z]
 
 _FENCE = re.compile(r"(?ms)^[ \t]*```.*?(?:^[ \t]*```[^\n]*$|\Z)")
 _INLINE_CODE = re.compile(r"`[^`\n]+`")
+# 백틱 없이 쓴 코드 — 함수 부르기(영문 이름 바로 뒤 괄호: range(1, 101)·print(i * j)·arr[0:10])와, 코드 꼴 줄(영문 예약어로 시작하고
+# 콜론·괄호·등호로 끝나는 줄: 「for i in range(1, 101):」). 문서 표 칸에 넣은 코드가 수치 관문에 막혀 같은 표를 다섯 번 다시 썼다(11-28)
+_CALL = re.compile(r"\b[A-Za-z_][\w.]*[(\[](?=[^()\[\]\n]*[,*+/=:'\"{])[^()\[\]\n가-힣%]*[)\]]")   # 괄호 안이 코드 꼴(쉼표·연산자·따옴표)일 때만 — 「KPI(80%)」「LINC(3.0)」 는 아니다
+_CODE_LINE = re.compile(r"(?m)(?:^|(?<=\|))[ \t]*(?:for|while|if|elif|else|def|class|return|import|from|print|let|const|var|int|float|"
+                        r"System\.out|console\.log|printf|cout)\b[^\n|가-힣]*(?=\||$)")
 
 
 def code_spans(text: str) -> list[tuple[int, int]]:
-    """코드 자리(울타리 ``` 블록 — 닫히지 않았으면 끝까지 — 과 줄 안 `코드`) — 수치 점검·가림에서 뺀다."""
-    out = [(m.start(), m.end()) for m in _FENCE.finditer(text or "")]
-    for m in _INLINE_CODE.finditer(text or ""):
-        if not any(a <= m.start() < b for a, b in out):
-            out.append((m.start(), m.end()))
+    """코드 자리(울타리 ``` 블록 — 닫히지 않았으면 끝까지 — 줄 안 `코드`, 함수 부르기 꼴, 코드 꼴 줄·표 칸) — 수치 점검·가림에서 뺀다.
+    한글이 든 괄호(「(1단부터 9단까지)」)는 코드로 보지 않는다 — 글 속 수치는 그대로 점검한다."""
+    src = text or ""
+    out = [(m.start(), m.end()) for m in _FENCE.finditer(src)]
+    for pat in (_INLINE_CODE, _CALL, _CODE_LINE):
+        for m in pat.finditer(src):
+            if m.end() > m.start() and not any(a <= m.start() < b for a, b in out):
+                out.append((m.start(), m.end()))
     return out
 
 

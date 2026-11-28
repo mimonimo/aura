@@ -322,3 +322,20 @@ def test_set_cells_refuses_unit_mismatch_and_does_not_shift_onto_filled_row():
     d, msg = eo.table_edit(_ok(d), {"table": tb, "op": "set_cells", "start": [1, 2], "values": [["참여자(명)"]]})
     x = _sec(d)
     assert "아래 행부터" not in msg and ">참여자(명)<" in x and ">24<" in x
+
+
+def test_live_steps_accept_section_names_without_prefix(tmp_path, monkeypatch):
+    """「2. 코드 설명」 처럼 접두사(절:) 없이 쓴 이름도 편집 화면 단계에서는 실제 필드 이름으로 — 화면이 「필드를 찾지 못했습니다」 로
+    실패해 같은 글을 여러 번 다시 보냈다(11-28 구구단 문서)."""
+    from tests.test_webhwp import _up
+    from tests.test_webhwp_form_create import DESIGN
+    from zzaimy.app import webhwp_form_create as fc
+    app = _setup(tmp_path, monkeypatch)
+    db = app.state.db
+    kim = TestClient(app)
+    assert _login(kim, "kim", "pass-12345678")
+    clean, _ = fc.validate(DESIGN)
+    fid = _up(kim, app, "기획처", "양식.hwpx", fc.build(clean))
+    full = next(n for n in eo.field_names(eo._Doc(Path(webhwp.get(db, fid)["path"]).read_bytes())) if n.startswith("절:"))
+    c = eo.push(db, fid, "insert_text", {"field": full[2:], "text": "가) 글"})
+    assert ["field", full, False] in c["steps"] or any(st[:2] == ["field", full] for st in c["steps"])

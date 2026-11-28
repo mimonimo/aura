@@ -116,11 +116,15 @@ def apply(data: bytes) -> bytes:
                 depth = ww._push_depth(stack, lv); marked = True
             # 부호 없는 문단(표 아래 설명 등)은 본문 — 굵게 하지 않고 바탕 크기(3단계 아래면 그 크기). 앞 항목 「1) …」 의
             # 굵은 큰 글씨를 물려받아 설명 문단이 통째로 굵게 보였다(11-18 포스터 예시 4절)
-            plan.append((n, a, b, p, depth if marked or depth >= 3 else 0))
+            d_ = depth if marked or depth >= 3 else 0
+            plan.append((n, a, b, p, d_))
             if len(t) >= LONG:
                 c = _CPREF.search(p)
                 if c:
-                    sizes[ch.height(c.group(2))] += 1
+                    # 바탕 크기는 단계 차이를 빼고 센다 — 긴 문단이 모두 1단계 항목(「1) …」, B+1pt)인 문서에서 그 크기를 B 로 잡아
+                    # 저장할 때마다 1pt 씩 커졌다(11-28 구구단 문서: 11pt → 20pt). 이렇게 세면 몇 번을 돌려도 같은 크기(고정점)
+                    h_ = ch.height(c.group(2))
+                    sizes[h_ - (STEP if d_ == 1 else -STEP if d_ >= 3 and h_ > FLOOR else 0)] += 1
     if not sizes:
         return data
     base = sizes.most_common(1)[0][0]
