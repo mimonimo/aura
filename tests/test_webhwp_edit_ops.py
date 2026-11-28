@@ -360,3 +360,11 @@ def test_landscape_refit_table_is_not_reported_as_too_wide():
     assert bw > bh                                   # 가로 쪽은 폭이 높이보다 넓다
     wide = re.sub(r'(<hp:sz width=")(\d+)', lambda m: f"{m.group(1)}{int(int(m.group(2)) * 1.2)}", tbl, count=1)
     assert [p for p in wl.table_problems(wide, sec) if p.startswith("폭이")]
+
+
+def test_set_cells_reports_row_label_of_changed_cell():
+    """45차 B 기본: 운영위원회 행을 고치려다 한 행 위(평생교육 네트워크)를 4회→3회로 바꾸고 몰랐다 — 바꾼 칸의 행 이름·옛 값을 보인다."""
+    rows = [["추진 과제", "운영 횟수", "참석자(명)"], ["평생교육 네트워크", "4회", "83명"], ["사업 운영위원회", "1회", "15명"]]
+    d, _ = eo.table_insert(_doc(), {"at": {"field": "1. 변경 사유"}, "values": rows})
+    d2, msg = eo.table_edit(d, {"table": {"head": "추진 과제"}, "op": "set_cells", "start": [2, 2], "values": [["3회"]]})
+    assert "바꾼 칸: 2행 「평생교육 네트워크」·「운영 횟수」: 「4회」→「3회」" in msg, msg

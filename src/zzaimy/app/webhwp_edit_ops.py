@@ -1877,12 +1877,25 @@ def table_edit(data: bytes, a: dict) -> tuple[bytes, str]:
                                        else "먼저 add_rows 로 늘린다."))
         plan = _cell_plan(tb, r0, c0, values)
         moved = _check_labels(tb, plan, bool(a.get("overwrite")))   # 서식 라벨을 덮는 값은 오른쪽 값 칸으로 옮긴다
+        before = {rc: _cell_text(tb, rc[0], rc[1]) for rc in plan} if len(plan) <= 4 else {}
         for (r, c), v in plan.items():
             tb.set_text(r, c, v, doc.ids, ink=doc.hdr.char_plain)
             n += 1
+        # 몇 칸만 고쳤으면 어느 행(첫 칸 이름)·열의 무엇을 무엇으로 바꿨는지 — 45차 B 기본(11-29): 운영위원회 행을 고치려다 start 를 한 행 위로
+        # 짚어 평생교육 네트워크 4회를 3회로 바꾸고 「운영위원회 행을 고쳤다」 고 보고했다(결과는 「칸 1개에 값을 넣었다」 뿐)
+        changed_ = []
+        for (r, c), old_ in before.items():
+            new_ = _cell_text(tb, r, c)
+            if c == 0 or old_ == new_:
+                continue
+            lab_, head_ = _cell_text(tb, r, 0), (_cell_text(tb, 0, c) if r > 0 else "")
+            changed_.append(f"{r + 1}행 「{lab_[:20]}」" + (f"·「{head_[:14]}」" if head_ else f" {c + 1}열")
+                            + f": 「{old_[:20]}」→「{new_[:20]}」")
         merged = _merge_dittos(tb, r0, c0, values)
         merged += _merge_lefts(tb, r0, c0, values)
         msg = f"칸 {n}개에 값을 넣었다" + (f"(모자란 {grown}행을 표 끝에 늘림)" if grown else "") + (f", 「〃」·「←」 칸 {merged}개는 위·왼쪽 칸과 합침" if merged else "")
+        if changed_:
+            msg += " · 바꾼 칸: " + "; ".join(changed_) + " — 고치려던 행이 맞는지 본다"
         if moved:
             msg += " · " + "; ".join(moved[:4])
         msg += realigned

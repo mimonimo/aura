@@ -46,6 +46,7 @@ report.md 는 정답 절마다 결과 절을 제목 열쇠(번호·기호 뗀 �
 | 두 표 합이 다른데 둘 다 맞다고 둠 | 41~45 | 분기별 표에 운영위원회 15명이 섞임. 에이전트가 「다른 대상」 으로 판단 | 차이를 만드는 기록 묶음·거르기 인자, 지난 문서에서 두 표 합이 같았다는 알림(비우기 전 수 칸 past_cells) | test_review_total_mismatch |
 | 채운 칸을 덮어씀 | 45 | 행 이름 칸 필드는 그 행 첫 값 칸이라 달성치·구성비가 목표치·집행액을 덮음 | 값이 든 칸은 hwp_fill 로 덮지 않고 같은 행 빈 열의 set_cells 인자를 보임, 덮은 값은 관찰에 적음 | test_report_round45 |
 | 되돌리기가 관문에 막힘 | 45 | 앞 요청에서 넣은 값이 이번 요청 근거에 없음 | 요청 시작 때 작업본 글을 수치 관문 근거에 넣음(같은 작업본일 때만) | test_report_round45 |
+| 다른 행을 고치고 몰랐음 | 45 | set_cells start 를 한 행 잘못 짚음, 결과는 「칸 1개에 값을 넣었다」 뿐 | 4칸 이하 고침은 행 이름·열 머리·옛 값→새 값을 결과에 | test_webhwp_edit_ops: set_cells_reports_row_label_of_changed_cell |
 | 후보를 보고도 넘어감 | 45 | 다시 읽기 후보 여럿 가운데 다른 것만 고치고 마침 | 앞 다시 읽기와 같은 후보에 표시 — 고치거나 finish 글에 그대로 둔 까닭을 적게 함 | test_report_round45: repeated_review_issue_is_marked |
 | 지난해 표 밖 줄이 빠짐 | 41~45 | 절을 맡겨 막힌 뒤 표만 남기고 마쳐 「총 집행액은 …원으로 집행률은 …%이다」 가 없음 | 지난 문서 수 든 줄(past_lines)을 적어 두고 그 제목 아래 글이 비었고 수 앞 이름이 문서에 없으면 후보로 보임 | test_report_round45: missing_past_line_is_named |
 | 단위 열에 원 금액 | 41 | 집행액(천원) 열에 11,400,000 | 넣은 자리 알림에 그 열 단위로 고친 인자 | test_review_total_mismatch: fill_into_thousand_won_column_offers_fix |
