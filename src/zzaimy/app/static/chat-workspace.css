@@ -156,7 +156,7 @@ body #chatForm { max-width:1040px; }
 #chatScroll > :last-child { margin-bottom:24px; }
 /* 줄 선택 — 줄 앞 네모 체크(선택), 채움·미룸은 오른쪽 상태 칸. 둘을 다른 자리·다른 꼴로 둬서 헷갈리지 않게 */
 .chat-step-sec { color: var(--faint, #8a96a8); font-variant-numeric: tabular-nums; font-size: 12px; }
-.chat-partial { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); color: var(--ink, #1f2a37); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-partial { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* 작성 카드 — 에이전트가 문서에 쓰는 동안(지금 쓰는 절·이번 요청에서 쓴 절) */
 .chat-writing { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px; padding: 10px 12px; border: 1px solid #d5e1ef; border-radius: 10px; background: #f6f9fd; color: var(--navy); }
@@ -263,7 +263,10 @@ body #chatScroll .chat-cot-btn { cursor:pointer; }
 body #chatScroll .chat-cot-btn span { color:#285f95; }
 body #chatScroll .chat-cot-btn:hover { background:#e8ecf1; }
 body #chatScroll .chat-cot-btn:focus-visible { outline:2px solid #497bfb; outline-offset:1px; }
-body #chatScroll .chat-cot-body { margin-top:6px; padding:8px 12px; border-left:2px solid #e3e8ef; color:#6b7686; font-size:12.5px; line-height:1.7; white-space:pre-wrap; }
+body #chatScroll .chat-cot-body { margin-top:6px; padding:8px 12px; border-left:2px solid #e3e8ef; color:#6b7686; font-size:12.5px; line-height:1.7; }
+body #chatScroll .chat-cot-text { white-space:pre-wrap; }
+body #chatScroll .chat-cot-steps { margin:0 0 6px; padding-left:18px; }
+body #chatScroll .chat-cot-label { margin-top:6px; font-weight:600; color:#5b6b80; }
 
 /* ---- 입력창 다듬기(10-29 「입력창 개선」): 두 줄 높이·큰 글자·둥근 상자·선명한 보내기 단추 ---- */
 body #chatForm .dock-row { gap:6px; padding:12px 12px 10px 14px; border-color:#d6dbe3; border-radius:24px; box-shadow:0 4px 20px #15243c10; }

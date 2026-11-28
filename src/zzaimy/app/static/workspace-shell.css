@@ -219,3 +219,10 @@ table:has(.pick-cell input:checked) .pick-cell input { opacity:1; }
 .fold-btn:hover { color:var(--ink); border-color:#c3cedc; background:#fff; }
 /* 사라질 줄 — 처리 중은 흐리게, 끝나면 바로 뺀다 */
 tr.is-busy td, .is-busy { opacity:.45; pointer-events:none; }
+
+/* 스크롤 막대 — 굵은 회색 막대가 대화·사이드바 옆에 늘 떠 있어 눈에 띄었다(11-28).
+   얇게, 평소엔 거의 안 보이게 두고 그 칸 위에 마우스가 오면 옅은 회색으로 드러난다. 굴리기·끌기는 그대로 */
+* { scrollbar-width:thin; scrollbar-color:transparent transparent; }
+*:hover, *:focus-within { scrollbar-color:rgba(100,116,139,.32) transparent; }
+html { scrollbar-color:rgba(100,116,139,.32) transparent; }
+@media (hover:none) { * { scrollbar-color:rgba(100,116,139,.32) transparent; } }

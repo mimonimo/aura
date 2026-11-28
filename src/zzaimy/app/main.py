@@ -1017,6 +1017,36 @@ def create_app(
                 at = progress.get("at") or [progress.get("started_at", time.time())] * len(steps)
                 progress["steps"] = (steps + [label])[-12:]
                 progress["at"] = (at + [time.time()])[-12:]
+    def _save_steps(session_id: int) -> None:
+        """끝난 답에 그 답을 만든 진행 단계(이름·걸린 초)를 남긴다 — 답이 끝나도 「작업 내역」 을 펼쳐 본다(11-28).
+        답을 쓰는 동안 보이던 단계가 답이 오면 사라져, 생각 과정을 남기지 않는 빠른 답에는 볼 것이 없었다."""
+        try:
+            progress = _chat_progress.get(session_id) or {}
+            steps = [str(x) for x in progress.get("steps") or []]
+            if not steps:
+                return
+            last = next((m for m in reversed(db.list_chats(session_id, limit=4)) if m.get("role") == "assistant"), None)
+            if not last or db.get_setting(f"chat_steps:{int(last['id'])}", ""):
+                return
+            at = progress.get("at") or []
+            end = time.time()
+            rows = []
+            for i, label in enumerate(steps):
+                sec = None
+                if len(at) == len(steps):
+                    sec = round(max(0.0, (at[i + 1] if i + 1 < len(at) else end) - at[i]), 1)
+                rows.append([label, sec])
+            total = round(end - float(progress.get("started_at") or end), 1)
+            db.set_setting(f"chat_steps:{int(last['id'])}", json.dumps({"steps": rows, "total": total}, ensure_ascii=False))
+        except Exception:
+            logging.getLogger("zzaimy.app.chat").exception("작업 내역 저장 실패 session=%s", session_id)
+
+    def _steps_of(mid) -> dict:
+        try:
+            return json.loads(db.get_setting(f"chat_steps:{int(mid)}", "") or "{}") if mid else {}
+        except Exception:
+            return {}
+
     # 문서에 쓰는 도구 — 진행 상태에 「작성 카드」(지금 쓰는 절·이번 요청에서 쓴 절)를 싣는다
     _WRITE_ACTS = {"write_section", "rewrite_section", "edit_document", "create_document"}
 
@@ -1292,6 +1322,7 @@ def create_app(
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.state.templates = templates
     templates.env.globals["status_labels"] = STATUS_LABELS
+    templates.env.globals["steps_of"] = _steps_of                   # 끝난 답의 작업 내역(단계·걸린 초)
     templates.env.globals["cot_of"] = lambda mid: (db.get_setting(f"chat_cot:{int(mid)}", "") or "") if mid else ""   # 답 앞 단계 추론
     from zzaimy.app import chat_preview as _cp_tpl                 # 답에 단 선택 카드·반영 미리 보기
     templates.env.globals["choice_of"] = lambda mid: _cp_tpl.card_of(db, int(mid)) if mid else {}
@@ -1922,16 +1953,41 @@ def create_app(
 
             try:
                 _t_m = time.time()
-                res_m = web_search.answer_from_model(q, history=_general_history(), on_partial=lambda t: _chat_partial(session_id, t))
-                _mid = db.add_chat(session_id, "assistant", web_search.render_model(res_m))
-                _record_run(session_id, _mid, "model", extra={"total_sec": round(time.time() - _t_m, 2)})
-                if res_m.get("offer_web"):
-                    # 모델이 「이 답은 인터넷에서 확인해야 한다」고 표시했다 — 같은 질문을 웹 검색 길로 다시 묻는 선택지 하나
+                _hist = _general_history()
+                res_m = web_search.answer_from_model(q, history=_hist, on_partial=lambda t: _chat_partial(session_id, t))
+                if res_m.get("route") == "rag" and not is_student:
+                    # 모델이 「교내 문서에서 찾아야 한다」(「RAG 에서 찾아 줘」·교내 규정·학과·사업 문서)고 표시했다 — 「RAG 를 쓸 수 없다」고
+                    # 사과하고 끝내지 않고 아래 문서 검색 길로 그대로 이어 간다(11-28)
+                    _prog = _chat_progress.get(session_id)
+                    if _prog is not None:
+                        _prog.pop("partial", None)
+                    _chat_step(session_id, "교내 문서에서 찾는 중")
+                    web = ""
+                elif res_m.get("offer_web"):
+                    # 모델이 「학습한 지식으로는 확실하지 않다(최신·수치·모르는 사실)」고 표시했다 — 되묻지 않고 바로 인터넷에서 찾아 답한다(11-28).
+                    # 「모른다 + 인터넷에서 찾아볼까요?」 로 끝나 사용자가 단추를 한 번 더 눌러야 했다. 검색을 못 쓰면 모델 답과 선택지로 돌아간다
+                    _prog = _chat_progress.get(session_id)
+                    if _prog is not None:
+                        _prog.pop("partial", None)
+                    _chat_step(session_id, "확실하지 않아 인터넷에서 확인하는 중")
+                    try:
+                        res_w = web_search.answer_with_web(q, history=_hist, on_partial=lambda t: _chat_partial(session_id, t))
+                        if res_w.get("answer"):
+                            _mid = db.add_chat(session_id, "assistant", web_search.render(res_w))
+                            _record_run(session_id, _mid, "web", extra={"total_sec": round(time.time() - _t_m, 2), "from": "model_unsure"})
+                            return
+                    except Exception as e:                        # 막힌 질문(개인정보 등)·검색 실패 — 모델 답을 그대로 두고 선택지를 단다
+                        logging.getLogger("zzaimy.app.web").info("자동 인터넷 확인 못 함 (대화 %s): %s", session_id, type(e).__name__)
+                if web == "model":
+                    _mid = db.add_chat(session_id, "assistant", web_search.render_model(res_m))
+                    _record_run(session_id, _mid, "model", extra={"total_sec": round(time.time() - _t_m, 2)})
+                if web == "model" and res_m.get("offer_web"):
                     _set_options(session_id, [{"kind": "web", "text": "인터넷에서 찾아보기", "question": q, "web": "1"}])
             except Exception as e:
                 logging.getLogger("zzaimy.app.web").warning("모델 지식 답변 실패 (대화 %s): %s", session_id, type(e).__name__)
                 db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({_ko.reason(e)}). 잠시 뒤 다시 해 주세요.")
-            return
+            if web == "model":
+                return
         # 인터넷 검색(일반 답의 「인터넷에서 찾아보기」): 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
         if web:
             _chat_step(session_id, "웹 검색과 답변 작성 중")
@@ -4550,6 +4606,7 @@ def create_app(
                 pass
         finally:
             _chat_usage_live.pop(session_id, None)
+            _save_steps(session_id)
             if usage_["calls"]:
                 db.set_setting(f"chat_ctx:{int(session_id)}", json.dumps({**usage_, "at": time.time()}))
                 # 답마다 남긴다(chat_ctx 는 마지막 답만) — 프로젝트 「진행 현황」의 문맥·토큰 집계(app/project_activity)

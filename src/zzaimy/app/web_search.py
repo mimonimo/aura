@@ -352,13 +352,15 @@ def render(result: dict) -> str:
 _MODEL_PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 지금은 문서·검색 없이 당신이 학습한 지식만으로 답하는 모드다.
 - 아는 범위에서 담백하게 답하고, 확실하지 않은 수치·날짜·최신 정보는 "확실하지 않다"고 밝힌다. 지어내지 않는다.
 - 법령·공문서 작성 규칙·학사·인사 기준처럼 정해진 기준 문서가 있는 질문은, 그 기준을 정확히 아는 것만 단정하고 기억이 흐린 표기법·조항·
-  수치는 단정하지 않는다(「~가 정석」 처럼 쓰지 않는다). 교내 기준이면 「RAG」 로, 바깥 기준이면 인터넷으로 확인하도록 끝 표시를 「필요」 로 둔다.
-- 한국어로, 서술형으로. 규정·공고 같은 교내 문서 근거가 필요한 질문이면 그렇다고 말한다(「RAG」 로 물으면 교내 문서에서 찾는다).
+  수치는 단정하지 않는다(「~가 정석」 처럼 쓰지 않는다). 교내 기준이면 끝 표시를 「교내 문서」 로, 바깥 기준이면 「필요」 로 둔다.
+- 한국어로, 서술형으로. 끝 표시가 「필요」·「교내 문서」 이면 이어서 그 길로 바로 찾아 답하므로, 「검색할 수 없다」「RAG 를 쓸 수 없다」 같은
+  사과나 「직접 확인하라」 는 안내를 늘어놓지 말고 아는 것만 짧게 쓴다.
 - 앞 대화가 있으면 이어진 질문으로 읽는다(「그럼」「그거」 가 가리키는 것은 앞 대화에서 찾는다). 짧은 이어진 질문이 단위·환산을 물으면
   앞 답에 나온 수치를 그 쓰임새의 단위로 바꿔 답한다(예: 「K 로는?」 → 131,072 토큰이면 128K, 천 단위로 쓰는 곳이면 약 131K).
 - [이 플랫폼] 줄이 있으면 이 플랫폼·모델에 관한 사실은 그 줄을 따른다.
 - 답을 다 쓴 뒤 맨 끝 줄에 아래 둘 가운데 하나만 그대로 쓴다. 이 줄은 화면에 보이지 않고 다음 단계를 정하는 데 쓰인다.
   [인터넷 확인: 필요] — 답의 핵심이 최신 정보·바뀌었을 수 있는 사실·당신이 모르거나 확실하지 않은 내용이라 인터넷 검색으로 확인해야 할 때
+  [인터넷 확인: 교내 문서] — 사용자가 교내 문서·RAG·자료에서 찾아 달라고 했거나, 답의 근거가 이 학교의 규정·공고·학과·사업 문서에 있을 때
   [인터넷 확인: 불필요] — 학습한 지식만으로 믿을 만하게 답했을 때
 
 [질문]
@@ -366,15 +368,22 @@ _MODEL_PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 
 """
 
 # 모델이 답 끝에 단 표시 — 인터넷에서 찾아볼지는 모델이 정한다(코드는 표시만 읽는다)
-_OFFER_MARK = re.compile(r"[\s*`_]*\[\s*인터넷\s*확인\s*[:：]\s*(필요|불필요)\s*\][\s*`_.]*$")
+_OFFER_MARK = re.compile(r"[\s*`_]*\[\s*인터넷\s*확인\s*[:：]\s*(필요|불필요|교내\s*문서)\s*\][\s*`_.]*$")
+
+
+def _split_route(text: str) -> tuple[str, str]:
+    """답 끝의 표시를 떼고 (답, 다음 길) — 다음 길은 web(인터넷 확인)·rag(교내 문서 검색)·빈 값."""
+    m = _OFFER_MARK.search(text or "")
+    if not m:
+        return (text or "").strip(), ""
+    mark = m.group(1)
+    return text[:m.start()].strip(), "web" if mark == "필요" else "rag" if mark.startswith("교내") else ""
 
 
 def _split_offer(text: str) -> tuple[str, bool]:
     """답 끝의 표시를 떼고 (답, 인터넷에서 찾아볼까 물을지)."""
-    m = _OFFER_MARK.search(text or "")
-    if not m:
-        return (text or "").strip(), False
-    return text[:m.start()].strip(), m.group(1) == "필요"
+    answer, route = _split_route(text)
+    return answer, route == "web"
 
 
 def answer_from_model(question: str, client=None, max_tokens: int = 1200, history: dict | None = None, on_partial=None) -> dict:
@@ -386,8 +395,8 @@ def answer_from_model(question: str, client=None, max_tokens: int = 1200, histor
         client = VllmClient()
     raw = _complete(client, _context_messages(history) + [{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
                     0.3, max_tokens, on_partial)
-    answer, offer = _split_offer(raw)
-    return {"answer": answer, "sources": [], "mode": "model", "offer_web": offer}
+    answer, route = _split_route(raw)
+    return {"answer": answer, "sources": [], "mode": "model", "offer_web": route == "web", "route": route}
 
 
 def render_model(result: dict) -> str:

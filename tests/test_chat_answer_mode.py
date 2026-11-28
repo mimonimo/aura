@@ -71,7 +71,8 @@ def test_mode_choice_is_remembered_per_account_on_server(staff):
     assert 'id="answerMode" data-mode="rag"' in kim.get(f"/chat?project={pid}").text
 
 
-def test_general_mode_skips_retrieval_and_offer_chip_runs_web_search(staff, monkeypatch):
+def test_unsure_general_answer_goes_to_web_search_without_asking(staff, monkeypatch):
+    """모델이 「확실하지 않다(인터넷 확인 필요)」 고 표시하면 되묻지 않고 바로 인터넷에서 찾아 답한다(11-28)."""
     app, r, login = staff
     calls = []
     monkeypatch.setattr(web_search, "answer_from_model",
@@ -83,16 +84,50 @@ def test_general_mode_skips_retrieval_and_offer_chip_runs_web_search(staff, monk
     sid = int(res.headers["location"].rsplit("/", 1)[1])
     db = app.state.db
     assert _wait(lambda: db.list_chats(sid)[-1]["role"] == "assistant")
-    assert r.seen == [] and calls == [("model", "올해 최저임금은?")]        # 문서 검색을 돌지 않는다
+    assert r.seen == [] and calls == [("model", "올해 최저임금은?"), ("web", "올해 최저임금은?")]   # 문서 검색은 돌지 않는다
+    last = db.list_chats(sid)[-1]["content"]
+    assert last.startswith("웹 답 [1]") and "https://example.com/" in last and "찾아볼까요" not in last
+    assert "인터넷에서 찾아보기" not in kim.get(f"/chat/{sid}").text
+
+
+def test_unsure_general_answer_keeps_offer_chip_when_web_fails(staff, monkeypatch):
+    app, r, login = staff
+    calls = []
+    monkeypatch.setattr(web_search, "answer_from_model",
+                        lambda q, **kw: calls.append(("model", q)) or {"answer": "아는 만큼의 답", "offer_web": True})
+
+    def blocked(q, **kw):
+        calls.append(("web", q))
+        raise web_search.Blocked("막힌 질문")
+    monkeypatch.setattr(web_search, "answer_with_web", blocked)
+    kim = login("kim", "kim-pass")
+    res = kim.post("/chat/send", data={"question": "올해 최저임금은?", "web": "model"}, follow_redirects=False)
+    sid = int(res.headers["location"].rsplit("/", 1)[1])
+    db = app.state.db
+    assert _wait(lambda: db.list_chats(sid)[-1]["role"] == "assistant")
     assert db.list_chats(sid)[-1]["content"].endswith("인터넷에서 찾아볼까요?")
     page = kim.get(f"/chat/{sid}").text
     chip = page.split('aria-label="다음 작업 제안"', 1)[1].split("</form>", 1)[0]
     assert 'name="web" value="1"' in chip and "인터넷에서 찾아보기" in chip and 'value="올해 최저임금은?"' in chip
     kim.post("/chat/send", data={"session_id": sid, "question": "올해 최저임금은?", "web": "1"})
-    assert _wait(lambda: len(calls) == 2)
+    assert _wait(lambda: len(calls) == 3)
     assert calls[-1] == ("web", "올해 최저임금은?") and r.seen == []
-    assert db.list_chats(sid)[-2]["mode"] == "web"
     assert ">일반</span>" in kim.get(f"/chat/{sid}").text and ">인터넷 검색</span>" in kim.get(f"/chat/{sid}").text
+
+
+def test_finished_answer_keeps_its_work_steps(staff, monkeypatch):
+    """답이 끝나도 그 답을 만든 단계(걸린 초)를 「작업 내역」 으로 펼쳐 본다(11-28)."""
+    app, r, login = staff
+    monkeypatch.setattr(web_search, "answer_from_model", lambda q, **kw: {"answer": "구구단은 for 문 두 개", "offer_web": False})
+    kim = login("kim", "kim-pass")
+    sid = int(kim.post("/chat/send", data={"question": "구구단 짜 줘", "web": "model"}, follow_redirects=False)
+              .headers["location"].rsplit("/", 1)[1])
+    db = app.state.db
+    assert _wait(lambda: db.list_chats(sid)[-1]["role"] == "assistant")
+    mid = db.list_chats(sid)[-1]["id"]
+    assert _wait(lambda: bool(db.get_setting(f"chat_steps:{mid}", "")))
+    page = kim.get(f"/chat/{sid}").text
+    assert "작업 내역" in page.split(f'data-message-id="{mid}"', 1)[1] and "답변 작성 중" in page
 
 
 def test_general_answer_without_offer_has_no_chip(staff, monkeypatch):
@@ -200,3 +235,23 @@ def test_shared_pick_is_within_both_owner_and_sender_scope():
     assert answer_pref.narrow_shared(dev, sender, [], ["기획처", "산학협력단"])["grant_depts"] == ["공통", "산학협력단"]
     assert answer_pref.narrow_shared(owner, owner, []) is owner              # 같은 사람·기본 = 그대로
     assert answer_pref.narrow_shared(owner, None, [])["grant"] is False      # 보낸 사람 범위를 모르면 닫는다
+
+
+def test_general_mode_hands_over_to_school_documents_when_model_marks_it(staff, monkeypatch):
+    """「일반」 에서 「RAG 에서 찾아 줘」·교내 문서 근거 질문이면 모델 표시대로 문서 검색 길로 이어 간다 — 「RAG 를 쓸 수 없다」 사과로 끝내지 않는다(11-28)."""
+    app, r, login = staff
+    monkeypatch.setattr(web_search, "answer_from_model",
+                        lambda q, **kw: {"answer": "RAG 를 쓸 수 없습니다", "offer_web": False, "route": "rag"})
+    kim = login("kim", "kim-pass")
+    sid = int(kim.post("/chat/send", data={"question": "학과 RAG에서 찾아줘봐", "web": "model"}, follow_redirects=False)
+              .headers["location"].rsplit("/", 1)[1])
+    db = app.state.db
+    assert _wait(lambda: db.list_chats(sid)[-1]["role"] == "assistant")
+    assert r.seen                                                      # 문서 검색을 돌았다
+    assert "RAG 를 쓸 수 없습니다" not in db.list_chats(sid)[-1]["content"]
+
+
+def test_route_mark_reads_school_documents():
+    assert web_search._split_route("답.\n[인터넷 확인: 교내 문서]") == ("답.", "rag")
+    assert web_search._split_route("답.\n[인터넷 확인: 필요]") == ("답.", "web")
+    assert web_search._split_route("답.") == ("답.", "")

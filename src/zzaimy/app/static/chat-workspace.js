@@ -62,7 +62,18 @@
     release() {}, active() { return false; }, nearBottom() { return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100; },
   };
   if (window.ChatScroll) window.ChatScroll.releaseOnUserScroll(scroller, pin);
-  function bottom() { pin.toBottom(); latest.hidden = true; }
+  // 따라 내려가기 — 위로 올려 읽기 시작하면 멈추고, 스스로 맨 아래까지 내려오면 다시 따라간다.
+  // 「맨 아래에서 80px 안」으로만 재면 조금 올린 사람도 0.7초마다 다시 끌려 내려갔다(11-28)
+  let follow = true, lastTop = scroller.scrollTop;
+  scroller.addEventListener('wheel', e => { if (e.deltaY < 0) follow = false; }, {passive:true});
+  scroller.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') follow = false; });
+  scroller.addEventListener('scroll', () => {
+    const top = scroller.scrollTop;
+    if (top < lastTop - 2 && !pin.active()) follow = false;
+    else if (top > lastTop && scroller.scrollHeight - top - scroller.clientHeight < 24) follow = true;
+    lastTop = top;
+  }, {passive:true});
+  function bottom() { follow = true; pin.toBottom(); latest.hidden = true; }
   function nearBottom() { return pin.nearBottom(); }
   function newestAnswer() {
     const answers = scroller.querySelectorAll('.turn.assistant:not(.chat-progress)');
@@ -112,7 +123,6 @@
     if (!panel || !progress || !Array.isArray(progress.steps) || !progress.steps.length) return;
     const steps = progress.steps.filter(step => typeof step === 'string');
     if (!steps.length) return;
-    const wasNear = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;   // 단계·쓰는 글이 늘어도 맨 아래에 있던 사람은 따라 내려간다
     panel.querySelector('[data-progress-label]').textContent = steps[steps.length - 1];
     if (Number.isFinite(progress.started_at)) {
       const now0 = Number.isFinite(progress.now) ? progress.now : Date.now() / 1000;
@@ -155,15 +165,17 @@
       cot.classList.toggle('is-done', typeof progress.partial === 'string' && !!progress.partial.trim());
     } else if (cot) cot.remove();
     // 쓰는 중인 답 — 다 쓰면 최종 답(가림·출처 처리 후)으로 바뀐다
-    let draft = panel.querySelector('.chat-partial');
+    // 진행 카드(생각·작업 내역) 안이 아니라 그 아래 보통 답 자리에 — 생각 칸 안에 답이 써지는 것처럼 보였다(11-28)
+    let draft = document.getElementById('chatPartial');
     if (typeof progress.partial === 'string' && progress.partial.trim()) {
       if (!draft) {
         draft = document.createElement('div');
-        draft.className = 'chat-partial';
-        draft.setAttribute('aria-live', 'off');
-        panel.append(draft);
+        draft.id = 'chatPartial';
+        draft.className = 'turn assistant chat-partial-turn';
+        draft.innerHTML = '<div class="chat-speaker">AURA</div><div class="msg assistant chat-partial" aria-live="off"></div>';
       }
-      draft.innerHTML = lightMarkdown(progress.partial);
+      if (draft.previousElementSibling !== panel) panel.after(draft);
+      draft.querySelector('.chat-partial').innerHTML = lightMarkdown(progress.partial);
     } else if (draft) draft.remove();
     // 작성 카드 — 에이전트가 문서에 쓰는 동안 지금 쓰는 절과 이번 요청에서 쓴 절
     const writing = progress.writing && typeof progress.writing === 'object' ? progress.writing : null;
@@ -184,7 +196,7 @@
       const done = (writing.done || []).filter(x => typeof x === 'string');
       card.querySelector('small').textContent = done.length ? '이번 요청에서 쓴 절 ' + done.length + '개 · ' + done.join(', ') : '';
     } else if (card) card.remove();
-    if (wasNear) scroller.scrollTop = scroller.scrollHeight;
+    if (follow && !pin.active()) scroller.scrollTop = scroller.scrollHeight;   // 맨 아래를 보던 사람만 따라 내려간다
     // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
     root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps, writing}}));
   }
@@ -560,7 +572,7 @@
     if (!next || !nextScroll || target.origin !== location.origin || !/^\/chat\/\d+$/.test(target.pathname)) {
       throw new Error('invalid chat response');
     }
-    const shouldScroll = forceScroll || nearBottom() || pin.active();
+    const shouldScroll = forceScroll || pin.active() || (follow && nearBottom());
     const position = scroller.scrollTop;
     scroller.innerHTML = nextScroll.innerHTML;
     const heading = next.querySelector('.chat-heading');
