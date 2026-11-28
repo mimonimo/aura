@@ -275,3 +275,27 @@ def test_switch_never_reaches_docs_outside_allowed_list(tmp_path, monkeypatch):
     assert wa.bound(db, 93) != theirs and "바꿨다" not in other.switch({"doc": f"#{theirs}"})
     # 잠긴 공통 양식은 목록에 없다
     assert all(not wa.webhwp.locked(db, d["id"]) for d in other.work_docs())
+
+
+def test_current_body_sees_human_edits_after_the_first_line(tmp_path, monkeypatch):
+    """사람이 절 뒤쪽(항목 끝)에 덧붙인 글을 고쳐 쓰기·덧붙이기가 본다 — 첫 줄만 같다고 옛 기록을 쓰지 않는다(11-28 시연 ③)."""
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 81, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "예산 변경 신청서"})
+    fid = wa.bound(db, 81)
+    name = "절:1. 변경 사유"
+    assert "썼다" in hw.write({"field": name, "text": "가) 단가 상승에 따라 변경함.\n나) 연수를 연 2회 실시함."})
+    assert "연수를 연 2회" in hw.current_body(name)
+    # 사람이 기안기에서 「나)」 끝에 문장을 덧붙여 저장했다(기록은 그대로)
+    f = webhwp.get(db, fid)
+    data = Path(f["path"]).read_bytes()
+    edited, _ = ww.set_fields(data, {name: "가) 단가 상승에 따라 변경함.\n나) 연수를 연 2회 실시함. 연수 뒤에는 개선 계획을 받음."})
+    Path(f["path"]).write_bytes(edited)
+    assert "연수 뒤에는 개선 계획을 받음" in hw.current_body(name)
+    # 덧붙이기도 사람 문장을 지우지 않는다
+    assert "썼다" in hw.write({"field": name, "text": "다) 분기마다 알림.", "append": True})
+    vals = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
+    assert "연수 뒤에는 개선 계획을 받음" in vals[name] and "다) 분기마다 알림." in vals[name]

@@ -489,6 +489,13 @@ def _house_tables(data: bytes, put: list[str]) -> bytes:
     except Exception:
         return data
 
+def _flat_text(text: str) -> str:
+    """글 맞대기용 — 표 줄·마크다운 부호·항목 부호·빈칸을 빼고 글자만. AURA 가 쓴 기록(마크다운)과 작업본 글이 같은 내용인지 본다."""
+    lines = [ln for ln in (text or "").splitlines() if not ln.lstrip().startswith("|")]
+    body = "\n".join(re.sub(r"^\s*(?:\d+[.)]|[가-하]\)|\(\d+\)|[-*•·]|#+)\s*", "", ln) for ln in lines)
+    return re.sub(r"[\s*_`>#|]+", "", body)
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -2074,12 +2081,14 @@ class HwpTools:
         from zzaimy.app import webhwp_write as ww
         first = next((x["text"] for x in ww.fields(data) if x["name"] == field), "")
         rec = (m.get("body") or {}).get(field) if isinstance(m.get("body"), dict) else None
-        if rec:
-            head = re.sub(r"\s+", "", re.sub(r"^\s*(?:\d+\)|[가-하]\)|\(\d+\))\s*", "", rec.strip().splitlines()[0]))[:20]
-            if not first or head[:12] in re.sub(r"\s+", "", first):
-                return rec
         pids = ((m.get("written") or {}).get(field) or []) if isinstance(m.get("written"), dict) else []
-        return ww.section_body(data, field, pids) or first        # 필드 안 글·넣은 표·이어 쓰기 필드를 문서 차례대로
+        doc = ww.section_body(data, field, pids) or first        # 필드 안 글·넣은 표·이어 쓰기 필드를 문서 차례대로
+        if rec and (not doc.strip() or _flat_text(rec) == _flat_text(doc)):
+            return rec
+        # 기록과 문서 글이 다르면 사람이 고친 것 — 문서 글이 지금 글이다. 첫 줄만 맞춰 보면 뒤쪽 고침(사람이 항목 끝에 덧붙인 문장)을
+        # 모른 채 옛 기록으로 고쳐 써서, 새 항목이 사람 문장 사이에 끼어들었다(11-28 시연 ③: 「자) …실시함.」 뒤에 「차)」 가 들어가고
+        # 사람이 덧붙인 두 문장이 「차)」 뒤로 밀림)
+        return doc
 
     def _gate_evidence(self) -> list[str] | None:
         """수치 관문의 근거 — 찾은 근거·담당자 글 + 작업본 글. 작업본을 못 읽으면(막 쓴 직후 저장 중) 작업본 글만 빼고(관문이 더 엄격해질 뿐),
