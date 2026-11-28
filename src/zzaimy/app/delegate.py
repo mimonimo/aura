@@ -483,7 +483,8 @@ class Delegator:
                     continue
                 seen.add(key)
                 page = self._page(h.get("doc_id"), h.get("chunk_id")) if self.quality else None
-                head = (f"[근거 {len(pieces) + 1}] " if self.quality else "") + f"《{h.get('title') or '문서'}》" + (f" {page}쪽" if page else "")
+                head = ((f"[근거 {len(pieces) + 1}] " if self.quality else "") + f"《{h.get('title') or '문서'}》" + (f" {page}쪽" if page else "")
+                        + (f" ({h['note']})" if h.get("note") else ""))      # 문서함·다른 기관 표시 — 서브가 이 사업 사실로 옮기지 않게
                 pieces.append(f"{head}\n{str(h.get('text') or '')[:1500]}")
         return pieces
 

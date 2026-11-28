@@ -905,6 +905,8 @@ def scale_slips(bad: list[str], evidence_texts: list[str]) -> list[str]:
             hit = next((c for c in (d * k, d / k) if c == int(c) and _fmt(c) in money), None)
             if hit is not None:
                 tail = f"(={int(hit) // unit:,}{mu.group(2)}원)" if unit > 1 and int(hit) % unit == 0 else ""
-                out.append(f"{b} → 근거 금액 {int(hit):,}원{tail}과 자릿수만 다르다")
+                # 같은 단위로 고친 값을 함께 — 26·31·40차 B 한번에: 「자릿수만 다르다」 만 보고 같은 값을 세 번 냈다
+                fix = f"{int(hit) // unit:,}{mu.group(2)}원" if unit > 1 and int(hit) % unit == 0 else f"{int(hit):,}원"
+                out.append(f"{b} → 근거 금액 {int(hit):,}원{tail}과 자릿수만 다르다, 근거대로면 「{fix}」")
                 break
     return out

@@ -1594,6 +1594,10 @@ class HwpTools:
         if unsup:
             bad += (" 근거에 없는 수치라 넣지 않았다: " + ", ".join(unsup[:6])
                     + " — 합계·비율은 aggregate_facts 결과 값을 쓰고, 모르면 「확인 필요」.")
+            # 자릿수만 다른 금액은 근거대로 고친 값으로 바로 부를 인자를 보인다(넣을지는 27B) — 같은 틀린 값을 되풀이하지 않게
+            fixes = {u.split("=", 1)[0]: m_.group(1) for u in unsup for m_ in [re.search(r"근거대로면 「([^」]+)」", u)] if m_}
+            if fixes:
+                bad += " 자릿수를 근거대로 고쳐 넣으려면: hwp_fill " + json.dumps({"values": {k.split(":", 1)[-1]: v for k, v in fixes.items()}}, ensure_ascii=False)
         if rowed:
             bad += (f" 반복 행 표의 한 칸에 여러 값을 이어 넣지 않았다({', '.join(rowed)}) — 행마다 하나씩 hwp_table_edit "
                     "{op: set_cells, start: [첫 자료 행, 1], values: [[…], […]]} 로 넣는다(행이 모자라면 늘어난다).")

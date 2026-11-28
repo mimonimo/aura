@@ -294,6 +294,10 @@ class Materials:
             hit = self._hit(h)
             if self._other_institution(f"{hit['title']} {hit['text'][:300]}"):
                 hit["note"] = "다른 기관 자료: 짜임새만 참고, 수치·기관명 옮기지 않기"
+            elif self.project:
+                # 40차 B 한번에: 「향후 계획」 근거가 모자라 다른 사업(반려동물·팻테크)의 교내 계획서 문장과 출처 조각이 그대로 옮겨졌다.
+                # 같은 사업의 지난 문서일 수도 있어 막지 않는다 — 문서 이름으로 27B 가 가린다
+                hit["note"] = "문서함 자료(이 프로젝트에 올린 문서 아님): 문서 이름이 이 사업과 다르면 짜임새만 참고, 내용·수치·기관명 옮기지 않기"
             out.append(hit)
             if len(out) >= k:
                 break

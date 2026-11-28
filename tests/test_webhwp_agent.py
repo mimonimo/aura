@@ -299,3 +299,17 @@ def test_current_body_sees_human_edits_after_the_first_line(tmp_path, monkeypatc
     assert "썼다" in hw.write({"field": name, "text": "다) 분기마다 알림.", "append": True})
     vals = ww.field_values(Path(webhwp.get(db, fid)["path"]).read_bytes())
     assert "연수 뒤에는 개선 계획을 받음" in vals[name] and "다) 분기마다 알림." in vals[name]
+
+
+def test_fill_scale_slip_offers_corrected_call(tmp_path, monkeypatch):
+    """40차 B 한번에: 1억 2천만 원을 12,000,000원으로 세 번 넣으려다 막혀 「확인 필요」 로 둠 — 근거대로 고친 값으로 바로 부를 인자를 보인다."""
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 79, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "예산 변경 신청서"})
+    monkeypatch.setattr(hw, "numbers_gate", lambda md: ("근거에 없는 수치: 12,000,000 [단위 셈 확인: 12,000,000 → 근거 금액 120,000,000원과 "
+                                                         "자릿수만 다르다, 근거대로면 「120,000,000원」] — 모르는 값은 확인 필요") if "12,000,000" in md else None)
+    out = hw.fill({"values": {"칸:사업명": "12,000,000원"}})
+    assert "근거에 없는 수치라 넣지 않았다" in out and 'hwp_fill {"values": {"사업명": "120,000,000원"}}' in out

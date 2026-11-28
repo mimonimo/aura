@@ -3112,7 +3112,8 @@ def create_app(
             if src == "library" and project:
                 # 프로젝트 대화에서 문서함을 찾으면 프로젝트 밖 자료다 — 이름이 같은 다른 행사·다른 해 자료를 이 프로젝트의 사실로 쓰지 않게(11-10 대화 176)
                 for h in hits[:4]:
-                    h["note"] = ((h.get("note") or "") + " · " if h.get("note") else "") + "프로젝트 밖 자료"
+                    if "프로젝트에 올린 문서 아님" not in (h.get("note") or ""):   # search_library 가 이미 단 표시와 겹치지 않게
+                        h["note"] = ((h.get("note") or "") + " · " if h.get("note") else "") + "프로젝트 밖 자료"
                 outside_note = ("이 결과는 이 프로젝트에 올린 자료가 아니라 문서함 자료다 — 질문이 짚은 대상(행사·사업·연도)이 이 프로젝트의 것과 같은지"
                                 " 먼저 따지고, 다르면 쓰지 않거나 답에 「이 프로젝트 자료에는 없다」를 먼저 밝힌 뒤 다른 행사·연도 자료라고 구분한다.")
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])

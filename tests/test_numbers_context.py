@@ -161,7 +161,9 @@ def test_scale_slips_points_at_evidence_amount_off_by_powers_of_ten():
     # 26차 B 한번에: 「1억 2천만 원」 을 12,000,000원 으로 옮겨 관문에 다섯 번 막힘 — 자릿수만 다른 근거 금액을 보인다
     from zzaimy.verify.numbers import scale_slips
     ev = ["총 사업비는 1억 2천만 원이다."]
-    assert scale_slips(["12000000"], ev) == ["12000000 → 근거 금액 120,000,000원과 자릿수만 다르다"]
+    assert scale_slips(["12000000"], ev) == ["12000000 → 근거 금액 120,000,000원과 자릿수만 다르다, 근거대로면 「120,000,000원」"]
+    # 천원 단위로 적은 값은 같은 단위로 고친 값을 보인다(40차 B 한번에)
+    assert scale_slips(["12,000천"], ev)[0].endswith("근거대로면 「120,000천원」")
     assert scale_slips(["777", "33"], ev) == []
 
 
