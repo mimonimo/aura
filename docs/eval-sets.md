@@ -50,8 +50,10 @@ report.md 는 정답 절마다 결과 절을 제목 열쇠(번호·기호 뗀 �
 | 후보를 보고도 넘어감 | 45 | 다시 읽기 후보 여럿 가운데 다른 것만 고치고 마침 | 앞 다시 읽기와 같은 후보에 표시 — 고치거나 finish 글에 그대로 둔 까닭을 적게 함 | test_report_round45: repeated_review_issue_is_marked |
 | 지난해 표 밖 줄이 빠짐 | 41~45 | 절을 맡겨 막힌 뒤 표만 남기고 마쳐 「총 집행액은 …원으로 집행률은 …%이다」 가 없음 | 지난 문서 수 든 줄(past_lines)을 적어 두고 그 제목 아래 글이 비었고 수 앞 이름이 문서에 없으면 후보로 보임 | test_report_round45: missing_past_line_is_named |
 | 단위 열에 원 금액 | 41 | 집행액(천원) 열에 11,400,000 | 넣은 자리 알림에 그 열 단위로 고친 인자 | test_review_total_mismatch: fill_into_thousand_won_column_offers_fix |
+| 양식 설계가 갈래 표준 꼴을 빠뜨림 | 양식 시나리오 1128f | 기안문을 자유롭게 설계해 관련·붙임·끝 빠짐(기준 절 2~3/5) | 같은 갈래 학교 공통 양식(OFFICIAL·GRANT)의 절 차례·작성 규칙을 설계 재료에 참고로 | test_report_round45: common_skeleton_for_draft_request |
 
 아직 막지 못한 것:
+- 공동 편집 중 새 문단이 칸으로 감싸지며 커서가 튀는 문제(11-26 시연 ②) — 편집기 화면 시험(tests/coedit_view_browser.mjs)으로 재현부터.
 - 알림을 받고도 분기별 표를 고치지 않고 끝내는 판단(45차 B 한번에·짧게) — 되풀이 표시를 넣었다. 47차에서 효과를 본다.
 
 시험을 돌리는 쪽의 규칙:
