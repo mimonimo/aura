@@ -309,11 +309,33 @@ def scope_call(recs: list[dict], head: str, diff: int, rows_a: list[list[str]], 
     return ""
 
 
-def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[dict] | None = None) -> list[str]:
+def start_totals(start) -> dict[str, list[int]]:
+    """작업본을 만든 지난 문서(작년 보고서)의 수 칸(webhwp_edit_ops.number_cells — 「행|머리」 → 「값\\x00표N:r,c」)으로 본 열 합 — {머리 열쇠: [표마다 합]}.
+    두 자리 이상 수 칸만 적혀 있어 합이 모자랄 수 있다 — 표끼리 합이 「같았다」 는 근거로만 쓴다."""
+    if not isinstance(start, dict):
+        return {}
+    by: dict[tuple[str, str], int] = {}
+    for k, v in start.items():
+        row, _, head = str(k).partition("|")
+        val, _, pos = str(v).partition("\x00")
+        m = _CELL_NUM.match(val)
+        if not m or not pos or _TOTAL_ROW.match(row) or _RATIO_HEAD.search(head):
+            continue
+        hk = re.sub(r"\s+|합계|총", "", head)
+        t = pos.split(":", 1)[0]
+        by[(hk, t)] = by.get((hk, t), 0) + int(m.group(1).replace(",", ""))
+    out: dict[str, list[int]] = {}
+    for (hk, _), tot in by.items():
+        out.setdefault(hk, []).append(tot)
+    return out
+
+
+def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[dict] | None = None, start=None) -> list[str]:
     """머리 이름이 같은 수 열의 합이 표마다 다르면 후보 — 같은 대상을 다른 묶음(과제별·분기별 등)으로 나눈 표면 합이 같아야 한다.
     40차 B: 과제별 참석자 합 300, 분기별 합 315(운영위원회 기록 3건이 분기 묶음에만 섞였다)를 세 번 다 못 봤다. 판단은 27B."""
     seen: dict[str, tuple[str, int, str, int]] = {}
     rows_of = {tno: rows for _, tno, rows in tables}
+    past = start_totals(start)
     out = []
     for label, tno, rows in tables:
         for key, (head, tot) in column_totals(rows).items():
@@ -323,7 +345,12 @@ def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[
                 call = scope_call(recs, head, abs(tot - v0), rows_of.get(t0) or [], rows, max(tot, v0)) if recs else ""
                 out.append(f"표{t0}(「{l0}」)의 「{h0}」 합 {v0:,} 과 표{tno}(「{label}」)의 「{head}」 합 {tot:,} 이 다르다"
                            + (f"(차이 {abs(tot - v0):,} — 모은 기록 가운데 " + "; ".join(why_) + ": 이 기록이 한쪽 표에만 들었을 수 있다)" if why_ else "")
-                           + (f" [{call}]" if call else "") + " — "
+                           + (f" [{call}]" if call else "")
+                           # 지난 문서(작년 보고서)에서 같은 머리의 두 표 합이 같았으면 같은 대상을 나눈 표라는 근거(11-28 43차 B 짧게:
+                           # 차이 15 를 「다른 대상이라 둘 다 맞다」 로 두고 분기 표에 운영위원회 포함 문장만 덧붙임 — 작년 표는 201=201)
+                           + next((f" (작업본을 만든 지난 문서에서는 이 머리의 두 표 합이 {d_:,} 로 같았다 — 같은 대상을 나눈 표다)"
+                                   for d_ in sorted(set(past.get(key) or [])) if (past.get(key) or []).count(d_) >= 2), "")
+                           + " — "
                            "같은 대상을 다른 묶음으로 나눈 표라면 합이 같아야 한다. 한쪽 묶음에 다른 갈래의 기록이 섞였거나 빠졌는지 "
                            "aggregate_facts 를 같은 거르기(filt)로 다시 묶어 대 보고, 섞인 것이 맞으면 그 표를 고친다(본문 합계도 함께). 다른 대상을 센 표면 그대로 둔다.")
             seen.setdefault(key, (label, tno, head, tot))
@@ -331,7 +358,7 @@ def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[
 
 
 def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None, texts: list[tuple[str, str]] | None = None,
-           recs: list[dict] | None = None) -> str:
+           recs: list[dict] | None = None, start=None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
     known: 모은 기록의 이름 값·근거 문서 제목(띄어쓰기 뺀 글) — 대부분 칸이 그 이름인 열에서 홀로 모르는 이름(지어낸 활동)을 짚는다.
@@ -456,7 +483,7 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
             outline.append(f"- {label}: 문단 {len(paras)}개" + (", " + ", ".join(heads) if heads else ", 표 없음"))
         elif heads:
             outline.append("- (표지·요약): " + ", ".join(heads))
-    issues = total_mismatches(all_tables, recs) + issues      # 표끼리 어긋난 합은 앞에 — 뒤로 밀려 MAX_ISSUES 에 잘리지 않게
+    issues = total_mismatches(all_tables, recs, start) + issues      # 표끼리 어긋난 합은 앞에 — 뒤로 밀려 MAX_ISSUES 에 잘리지 않게
     issues = list(dict.fromkeys(issues))[:MAX_ISSUES]
     # 후보·안내를 문서 글보다 앞에 — 도구 결과 한도에 긴 문서 글이 먼저 차 후보가 잘리던 일(40차 A 한번에: 「취업 연계 52 → 문서 합 31」 후보를 못 봄)
     head = ("마치기 전에 이번에 쓴 절을 다시 읽는다(나머지 절은 제목만)." if only else "마치기 전에 작업본을 처음부터 다시 읽는다.")

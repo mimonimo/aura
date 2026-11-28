@@ -254,10 +254,13 @@ def _doc_review_text(hw, request: str, docs=None) -> str:
             texts = [(storage.title_of(d_.get("filename") or ""), str(d_.get("masked_text") or "")) for d_ in (docs() or [])]
     except Exception:
         texts = None
-    out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts, recs=recs)
+    try:
+        meta_ = _wh.meta(hw.db, fid) or {}
+    except Exception:
+        meta_ = {}
+    out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts, recs=recs, start=meta_.get("start_cells"))
     try:                                                     # 지난 문서에서 시작한 작업본 — 글자가 그대로인 수 칸(작년 값이 남았을 수 있음)
         from zzaimy.app import webhwp_edit_ops as _eo_r
-        meta_ = _wh.meta(hw.db, fid) or {}
         same_ = _eo_r.numbers_from_start(raw_, meta_.get("start_cells") or meta_.get("start_texts"))
         if same_:
             out_ += ("\n\n작업본을 만들 때(지난 문서)와 글자가 그대로인 수 칸 " + str(len(same_)) + "곳: " + ", ".join(same_[:12])

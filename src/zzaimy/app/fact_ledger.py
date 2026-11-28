@@ -211,6 +211,21 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
                     if len(_norm(cand)) >= 4 and _norm(cand) in body:
                         vals[k] = cand
                         break
+        # 「집행액(천원)」 처럼 단위를 단 항목에 모델이 원 단위 근거를 그 단위로 바꿔 적은 값(2,100,000원 → 「2100」) — 인용 줄에
+        # 원 금액이 그대로 있으면 근거 글자 그대로 둔다(같은 문서의 다른 기록과 같은 꼴). 11-28 43차 B 한번에: 바꿔 적은 3건이 근거 없음으로
+        # 비워져 운영비 22,700→20,600·홍보비 9,800→5,650 으로 모자랐다
+        for k, v in list(vals.items()):
+            um = re.search(r"(백만\s*원|천\s*원|만\s*원)", k)
+            if not (um and v and _norm(v) not in body):
+                continue
+            d = number(v)
+            if d is None or d <= 0:
+                continue
+            won = int(round(d if re.search(r"[천만억]", v) else d * {"백만": 1_000_000, "천": 1000, "만": 10000}[re.sub(r"\s|원", "", um.group(1))]))
+            for cand in (str(won), f"{won:,}"):
+                if _norm(cand) in span:
+                    vals[k] = cand
+                    break
         off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body) or _label_clash(k, v, body, items))]
         for k in off:
             vals[k] = ""
