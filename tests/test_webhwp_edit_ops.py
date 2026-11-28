@@ -339,3 +339,9 @@ def test_live_steps_accept_section_names_without_prefix(tmp_path, monkeypatch):
     full = next(n for n in eo.field_names(eo._Doc(Path(webhwp.get(db, fid)["path"]).read_bytes())) if n.startswith("절:"))
     c = eo.push(db, fid, "insert_text", {"field": full[2:], "text": "가) 글"})
     assert ["field", full, False] in c["steps"] or any(st[:2] == ["field", full] for st in c["steps"])
+
+
+def test_command_queue_writers_hold_the_queue_lock():
+    """명령 줄을 고치는 함수는 문서마다 잠금을 잡는다 — 함수를 끼워 넣다 push 의 @_queued 가 다른 함수로 옮겨 간 일(11-28 보안 검토)."""
+    assert hasattr(eo.push, "__wrapped__")
+    assert not hasattr(eo._resolve_step_fields, "__wrapped__")

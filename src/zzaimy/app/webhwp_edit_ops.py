@@ -3330,7 +3330,6 @@ def _sweep_assets(base: Path) -> None:
             pass
 
 
-@_queued
 def _resolve_step_fields(db, fid: int, steps: list) -> list:
     """편집 화면 단계의 필드 이름을 작업본의 실제 이름으로 — 「2. 코드 설명」 처럼 접두사(절:)를 빼고 쓴 이름은 파일 도구는 받는데
     편집 화면은 「필드를 찾지 못했습니다」 로 실패해 같은 글을 네 번 다시 보냈다(11-28). 하나로 맞지 않으면 그대로 둔다(화면이 알린다)."""
@@ -3355,6 +3354,7 @@ def _resolve_step_fields(db, fid: int, steps: list) -> list:
     return out
 
 
+@_queued
 def push(db, fid: int, action: str, params: dict, by: str = "AURA", *, steps: list | None = None, label: str = "",
          runner: int = 1, owner: str = "", asset: bytes | None = None, base: Path | None = None) -> dict:
     """명령 줄에 넣는다 — {id, action, params, steps, by, at, status:new}. 허용 목록 밖이면 EditError.
