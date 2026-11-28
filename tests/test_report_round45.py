@@ -55,3 +55,26 @@ def test_fill_keeps_filled_cell_and_offers_empty_column(tmp_path, monkeypatch):
     out = hw.fill({"values": {"칸:사업명": "44.0"}})
     assert out.startswith("채웠다: 없음") and "덮지 않음" in out
     assert '"start": [3, 3]' in out and "구성비(%)" in out
+
+
+def test_missing_past_line_is_named():
+    """A 짧게: 지난 문서 예산 절의 「총 집행액은 …원으로 집행률은 …%이다」 줄이 올해 문서에서 빠졌다."""
+    from zzaimy.app import doc_review as d
+    past = [["4. 예산 집행 실적", "총 집행액은 210,200,000원으로 집행률은 84.1%이다."]]
+    out = d.missing_past_lines({"4. 예산 집행 실적": []}, past)
+    assert out and "총 집행액은 ○원으로 집행률은 ○%이다" in out[0], out
+    assert d.missing_past_lines({"4. 예산 집행 실적": ["총 집행액은 132,700,000원으로 집행률은 44.2%이다."]}, past) == []
+    # 다른 절·표에 같은 값이 있으면(달리 썼어도) 알리지 않는다
+    assert d.missing_past_lines({"다른 절": ["집행률 44.2%"]}, past, "합계 | 132,700,000 집행액(원) 132,700,000 집행률 44.2%") == []
+
+
+def test_past_lines_from_real_shape():
+    from zzaimy.app import doc_review as d
+    xml = ('<hs:sec><hp:p><hp:run><hp:t>4. 예산 집행 실적</hp:t></hp:run></hp:p>'
+           '<hp:p><hp:run><hp:t>총 집행액은 210,200,000원으로 집행률은 84.1%이다.</hp:t></hp:run></hp:p></hs:sec>')
+    import io, zipfile
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w") as z:
+        z.writestr("Contents/section0.xml", xml)
+    got = d.past_lines(b.getvalue())
+    assert any("집행률" in x[1] for x in got)

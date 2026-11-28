@@ -309,6 +309,86 @@ def scope_call(recs: list[dict], head: str, diff: int, rows_a: list[list[str]], 
     return ""
 
 
+_HEAD_LINE = re.compile(r"^\s*(?:\d{1,2}(?:\.\d{1,2})*\.?|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.)\s*\S")
+
+
+def _is_head(t: str) -> bool:
+    return bool(_HEAD_LINE.match(t)) and len(t) <= 40 and not re.search(r"[다음함됨]\.?\s*$", t)
+
+
+def _hk(t: str) -> str:
+    return re.sub(r"[\s.·]", "", re.sub(r"^\s*(?:\d{1,2}(?:\.\d{1,2})*\.?|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.)", "", t))
+
+
+def past_lines(data: bytes) -> list[list[str]]:
+    """지난 문서(옛 값을 비우기 전)의 표 밖 줄 가운데 수가 든 문장 — [[바로 위 제목 줄, 줄]]. 작업본을 만들 때 적어 두고 끝 다시 읽기에서
+    올해 문서에 같은 줄이 있는지 견준다(missing_past_lines). 지난 문서에는 절 필드가 없을 수 있어 제목 줄로 자리를 적는다."""
+    out: list[list[str]] = []
+    try:
+        head = ""
+        for _name, xml in _sections(data):
+            for t in (_txt(p) for p in _PARA.findall(_TBL.sub("", xml))):
+                if not t:
+                    continue
+                if _is_head(t):
+                    head = t
+                    continue
+                if re.search(r"\d", t) and 10 <= len(t) <= 160:
+                    out.append([head, t])
+    except Exception:
+        return []
+    return out[:60]
+
+
+_JOSA = re.compile(r"(?:으로|에서|이다|이며|으며|에는|은|는|이|가|을|를|로|의|에|과|와|도)$")
+
+
+def _num_labels(t: str) -> list[str]:
+    """줄에서 수 바로 앞 이름(「집행률은 84.1%」 → 집행률, 「총 집행액은 210,200,000원」 → 집행액). 줄 첫머리 수(연도)는 뺀다."""
+    out = []
+    for m in re.finditer(r"([가-힣]{2,})\s*(?=\d)", t):
+        w = _JOSA.sub("", m.group(1))
+        if len(w) >= 2 and w not in out:
+            out.append(w)
+    return out
+
+
+def missing_past_lines(sec_paras: dict[str, list[str]], past, doc_text: str = "") -> list[str]:
+    """지난 문서의 수 든 줄(「총 집행액은 210,200,000원으로 집행률은 84.1%이다」)에서 수 앞 이름(집행액·집행률)이 올해 문서 어디에도
+    수와 함께 나오지 않으면 그 줄을 보인다 — 45차 A 짧게(11-29): 예산 절을 두 번 맡겨 막힌 뒤 표만 남기고 마쳐 총 집행액·집행률이 빠졌다.
+    낱말이 같은지는 보지 않는다(올해 글은 달리 써도 된다) — 그 값이 문서에서 사라졌는지만. 쓸지는 모델이 정한다."""
+    now = re.sub(r"\s", "", doc_text or " ".join(p for ps in sec_paras.values() for p in ps))
+    # 올해 문서를 제목 → 그 아래 표 밖 글로 나눈다(절 필드 이름도 제목). 그 제목 아래 글이 남아 있으면 달리 쓴 것으로 보고 알리지 않는다 —
+    # 「총 집행액 51,600 43.0%」 처럼 표에 적거나 「…원을 집행하여 집행률 44.2%」 처럼 다른 절에 쓴 판이 많다
+    blocks: dict[str, list[str]] = {}
+    for label, paras in sec_paras.items():
+        cur = _hk(label) if _is_head(label) else ""
+        if cur:
+            blocks.setdefault(cur, [])
+        for t in paras:
+            if _is_head(t):
+                cur = _hk(t)
+                blocks.setdefault(cur, [])
+            elif cur:
+                blocks[cur].append(t)
+    out = []
+    for item in past or []:
+        try:
+            head, line = str(item[0]), str(item[1])
+        except (TypeError, IndexError):
+            continue
+        hk = _hk(head) if head else ""
+        if not hk or hk not in blocks or blocks[hk]:
+            continue
+        labs = _num_labels(line)
+        gone = [w for w in labs if not re.search(re.escape(w) + r"[^\d]{0,12}\d", now)]
+        if labs and gone:
+            out.append(f"「{head or '머리'}」 아래 지난 문서에 있던 줄의 {'·'.join('「' + w + '」' for w in gone[:3])} 값이 올해 문서에 없다: "
+                       f"「{re.sub(r'[0-9][0-9,.]*', '○', line)[:80]}」 — 올해도 필요한 값이면 올해 값(aggregate_facts 결과·담당자 값)으로 "
+                       "그 절 끝에 쓴다(hwp_write append: true). 필요 없는 줄이면 그대로 둔다.")
+    return out[:3]
+
+
 def start_totals(start) -> dict[str, list[int]]:
     """작업본을 만든 지난 문서(작년 보고서)의 수 칸(webhwp_edit_ops.number_cells — 「행|머리」 → 「값\\x00표N:r,c」)으로 본 열 합 — {머리 열쇠: [표마다 합]}.
     두 자리 이상 수 칸만 적혀 있어 합이 모자랄 수 있다 — 표끼리 합이 「같았다」 는 근거로만 쓴다."""
@@ -358,7 +438,7 @@ def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[
 
 
 def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None, texts: list[tuple[str, str]] | None = None,
-           recs: list[dict] | None = None, start=None) -> str:
+           recs: list[dict] | None = None, start=None, past=None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
     known: 모은 기록의 이름 값·근거 문서 제목(띄어쓰기 뺀 글) — 대부분 칸이 그 이름인 열에서 홀로 모르는 이름(지어낸 활동)을 짚는다.
@@ -367,11 +447,13 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
     outline, issues = [], []
     tno = 0
     all_tables: list[tuple[str, int, list[list[str]]]] = []
+    sec_paras: dict[str, list[str]] = {}
     for name, xml in _sections(data):
         label = name.split(":", 1)[-1]
         tables = _TBL.findall(xml)
         body = _TBL.sub("", xml)
         paras = [t for t in (_txt(p) for p in _PARA.findall(body)) if t]
+        sec_paras[label] = paras
         heads = []
         for tb in tables:
             tno += 1
@@ -483,6 +565,11 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
             outline.append(f"- {label}: 문단 {len(paras)}개" + (", " + ", ".join(heads) if heads else ", 표 없음"))
         elif heads:
             outline.append("- (표지·요약): " + ", ".join(heads))
+    gone_ = missing_past_lines(sec_paras, past, " ".join([*(p for ps in sec_paras.values() for p in ps),
+                                                         *(" | ".join(r) for _l, _n, rows_ in all_tables for r in rows_)]))
+    if only:
+        gone_ = [x for x in gone_ if (m_ := re.match(r"「(\d{1,2})\.", x)) and int(m_.group(1)) in only]
+    issues = issues + gone_
     issues = total_mismatches(all_tables, recs, start) + issues      # 표끼리 어긋난 합은 앞에 — 뒤로 밀려 MAX_ISSUES 에 잘리지 않게
     issues = list(dict.fromkeys(issues))[:MAX_ISSUES]
     # 후보·안내를 문서 글보다 앞에 — 도구 결과 한도에 긴 문서 글이 먼저 차 후보가 잘리던 일(40차 A 한번에: 「취업 연계 52 → 문서 합 31」 후보를 못 봄)

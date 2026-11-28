@@ -258,7 +258,8 @@ def _doc_review_text(hw, request: str, docs=None) -> str:
         meta_ = _wh.meta(hw.db, fid) or {}
     except Exception:
         meta_ = {}
-    out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts, recs=recs, start=meta_.get("past_cells") or meta_.get("start_cells"))
+    out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts, recs=recs, start=meta_.get("past_cells") or meta_.get("start_cells"),
+                       past=meta_.get("past_lines"))
     try:                                                     # 지난 문서에서 시작한 작업본 — 글자가 그대로인 수 칸(작년 값이 남았을 수 있음)
         from zzaimy.app import webhwp_edit_ops as _eo_r
         same_ = _eo_r.numbers_from_start(raw_, meta_.get("start_cells") or meta_.get("start_texts"))

@@ -96,6 +96,8 @@ def work_form(data: bytes, ext: str, http=None, blank: bool = False, report: dic
                 try:
                     from zzaimy.app.webhwp_edit_ops import number_cells
                     report["past_cells"] = number_cells(hx)
+                    from zzaimy.app.doc_review import past_lines
+                    report["past_lines"] = past_lines(hx)       # 표 밖 수 든 줄 — 올해 문서에서 빠졌는지(doc_review.missing_past_lines)
                 except Exception:
                     pass
             hx, n = form_blank.blank_values(hx)
