@@ -451,3 +451,12 @@ body #chatForm .chat-dock-footer.is-flash > :not(.chat-dock-flash) { visibility:
 .chat-live-cot-head { font-size: 11px; color: #5b6b80; margin-bottom: 2px; }
 .chat-live-cot-body { max-height: 9.5em; overflow-y: auto; color: #6b7686; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-live-cot.is-done .chat-live-cot-body { max-height: 1.7em; overflow: hidden; }
+
+/* 답 속 코드 — 고정폭 글꼴·들여쓰기 그대로·언어 이름과 복사 단추(11-28: 코드가 본문 글꼴로 나와 들여쓰기가 흐트러져 보였다) */
+.md-codeblock { margin:8px 0 12px; border:1px solid #e3e8ef; border-radius:10px; background:#f7f9fc; overflow:hidden; white-space:normal; }
+.md-codehead { display:flex; align-items:center; justify-content:space-between; padding:4px 8px 4px 12px; border-bottom:1px solid #e3e8ef; background:#eef2f7; color:#5b6b80; font-size:11.5px; }
+body .md-codeblock .md-copy { min-height:0; padding:3px 8px; border:0; border-radius:6px; background:transparent; color:#5b6b80; font:inherit; font-size:11.5px; cursor:pointer; box-shadow:none; }
+body .md-codeblock .md-copy:hover { background:#e3e9f1; color:var(--navy); }
+.md-codeblock pre { margin:0; padding:12px 14px; overflow-x:auto; white-space:pre; tab-size:4; }
+.md-codeblock code, .md-code, .msg :not(pre) > code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "D2Coding", monospace; font-size:12.5px; line-height:1.5; color:#1f2a37; }
+.md-code, .msg :not(pre) > code { padding:1px 5px; border-radius:5px; background:#eef2f7; font-size:.92em; }

@@ -143,6 +143,12 @@ def test_finish_claiming_writes_is_refused_once_when_nothing_changed():
     ep = doc_agent.run(_client([_step("hwp_live", params={"text": "x"}), _step("finish", message="맨 끝에 항목을 추가했습니다"),
                                 _step("finish", message="항목을 넣지 못했습니다")]), "넣어 줘", lambda: "상태", tools)
     assert "실제로 바뀐 것이 없다" in ep.steps[1]["observation"] and ep.final_message == "항목을 넣지 못했습니다"
+    # 쓰기 없이 앞 대화의 「추가했습니다」 를 되풀이하면 두 번 돌려보내고, 세 번째도 같으면 사실대로 바꾼다(11-28 시연 ③)
+    same = "Ⅵ 맨 끝에 항목을 추가했습니다."
+    ep = doc_agent.run(_client([_step("finish", message=same), _step("finish", message=same), _step("finish", message=same)]),
+                       "넣어 줘", lambda: "상태", tools)
+    assert "앞 대화의 답을 되풀이하지 않는다" in ep.steps[0]["observation"] and "실제로 바뀐 것이 없다" in ep.steps[1]["observation"]
+    assert ep.final_message.startswith("요청하신 내용을 이번에는 문서에 반영하지 못했습니다")
 
 
 def test_same_call_reruns_after_document_changed():

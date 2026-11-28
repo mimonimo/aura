@@ -159,8 +159,11 @@ def tidy_reply(text: str) -> str:
     t = _EXC_PREFIX.sub("", _EXC_PAREN.sub("", text))
     seen: set[str] = set()
     lines = []
+    in_code = False
     for line in t.split("\n"):
-        if line.lstrip().startswith(("|", "```")):      # 표 줄·코드는 같은 칸이 되풀이될 수 있어 건드리지 않는다
+        if line.lstrip().startswith("```"):
+            in_code = not in_code
+        if in_code or line.lstrip().startswith(("|", "```")):   # 표 줄·코드 블록 안쪽은 같은 줄이 되풀이될 수 있어 건드리지 않는다(11-28: 울타리 줄만 건너뛰었다)
             lines.append(line)
             continue
         pieces = re.split(r"(?<=[.!?。])(\s+)", line)

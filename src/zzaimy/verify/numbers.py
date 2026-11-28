@@ -779,6 +779,19 @@ def b_end(spans, pos):
 _SEC_HEAD = re.compile(r"(?m)^(\s*)(\d{1,2}(?:\.\d{1,2})+)(\.?\s+[가-힣A-Za-z])")
 
 
+_FENCE = re.compile(r"(?ms)^[ \t]*```.*?(?:^[ \t]*```[^\n]*$|\Z)")
+_INLINE_CODE = re.compile(r"`[^`\n]+`")
+
+
+def code_spans(text: str) -> list[tuple[int, int]]:
+    """코드 자리(울타리 ``` 블록 — 닫히지 않았으면 끝까지 — 과 줄 안 `코드`) — 수치 점검·가림에서 뺀다."""
+    out = [(m.start(), m.end()) for m in _FENCE.finditer(text or "")]
+    for m in _INLINE_CODE.finditer(text or ""):
+        if not any(a <= m.start() < b for a, b in out):
+            out.append((m.start(), m.end()))
+    return out
+
+
 def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, context: bool = False) -> tuple[str, list[str]]:
     # 줄 머리 절 번호(「2.2 분야별 추진 실적」)는 값의 근거가 아니다 — 「달성률 2.2%」 가 절 번호 2.2 로 통과했다(11-23)
     allowed_surface, allowed_canonical, allowed_money = _allowed([_SEC_HEAD.sub(r"\1§\3", e or "") for e in evidence_texts])
@@ -786,6 +799,7 @@ def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool, conte
     out, masked, last = [], [], 0
     src = text or ""
     spans, derived = derived_spans(src)                  # 맞게 셈한 결과는 근거 있는 값(같은 값을 뒤에 다시 써도)
+    spans = spans + code_spans(src)                      # 코드(``` 블록·`글`)의 숫자는 수치가 아니다 — 「range(1, 101(근거 확인 필요))」(11-28)
     allowed_canonical = allowed_canonical | derived
     if derived:
         # 셈한 값을 다음 식에 다시 쓴 이어진 금액(「2억 2,500만 원 + …」)은 합친 값으로 본다 — 「2억」「2,500만」 을 따로 보면 근거 없음이 된다

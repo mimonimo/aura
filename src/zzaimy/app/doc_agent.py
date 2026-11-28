@@ -488,7 +488,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     fail_count: dict[str, int] = {}
     searched = nudged = False
     changed: list[str] = []                                 # 이번 요청에서 실제로 바뀐 것(쓰기 도구가 거절 글이 아닌 결과를 낸 걸음) — 끝맺음 대조용
-    claim_checked = False
+    claim_checked = 0
     fix_checked = False
     after_write_told = False                             # 고친 뒤 답하기 도구로 끝맺으려 할 때 한 번 알림
     reviewed = False                                     # 마치기 전 다시 읽기는 요청마다 한 번(review)
@@ -669,11 +669,14 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             note = (f"담당자 요청에 이 작업({name}) 지시가 없어 하지 않았다 — 되돌리기 어려운 작업은 담당자가 직접 말할 때만 한다. "
                    "필요하면 finish 로 제안만 한다.")
             rejected[key] = (len(log) + 1, note, "")
-        elif (name == "finish" and not claim_checked and any(t.writes for t in tools)
+        elif (name == "finish" and claim_checked < 2 and any(t.writes for t in tools)
               and _claims_change(str(args.get("message") or "")) and not changed):
-            claim_checked = True                                       # 한 번만 — 결과대로 고쳐 쓰면 받는다
-            note = ("끝맺음 글이 문서를 쓰거나 고쳤다고 말하지만, 이번 요청에서 실제로 바뀐 것이 없다(쓰기 도구 결과가 모두 거절·실패). "
-                    "한 일 그대로 다시 finish 한다 — 쓰지 못했으면 무엇을 왜 못 썼는지, 다음에 무엇을 할지.")
+            # 두 번까지 돌려보낸다 — 11-28 시연 ③: 앞 대화에 같은 요청·「추가했습니다」 답이 있자 쓰기 없이 그 답을 되풀이했고,
+            # 한 번 돌려보내도 같은 글로 다시 마쳐 「추가했습니다」 가 그대로 나갔다. 세 번째도 같으면 아래에서 코드가 사실대로 바꾼다
+            claim_checked += 1
+            note = ("끝맺음 글이 문서를 쓰거나 고쳤다고 말하지만, 이번 요청에서 실제로 바뀐 것이 없다(쓰기 도구를 부르지 않았거나 결과가 모두 거절·실패). "
+                    "앞 대화의 답을 되풀이하지 않는다 — 지금 작업본에 요청한 내용이 아직 없으면 쓰기 도구(hwp_revise·hwp_write 등)로 지금 하고, "
+                    "이미 있거나 할 수 없으면 그 사실(무엇을 왜 못 했는지)대로 finish 한다.")
         elif (name == "finish" and review is not None and changed and not fix_checked
               and (_miss := unbacked_fixes(str(args.get("message") or ""), _review_text(review)))):
             fix_checked = True                                         # 한 번만 — 실제로 고치거나 끝맺음을 고쳐 쓰면 받는다
@@ -691,6 +694,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             if on_step:
                 on_step(_step_label(name, args))
             _act(on_act, name, args, "start")
+            if (name == "finish" and claim_checked >= 2 and not changed and any(t.writes for t in tools)
+                    and _claims_change(str(args.get("message") or ""))):
+                # 세 번째도 바뀐 것 없이 했다고 말한다 — 거짓 완료를 내보내지 않고 사실대로(11-28)
+                args = dict(args, message="요청하신 내용을 이번에는 문서에 반영하지 못했습니다(쓰기 도구를 부르지 않았거나 쓰기가 모두 실패). "
+                                          "문서를 확인하신 뒤 다시 요청해 주세요.")
             if name == "finish" and args.get("message"):
                 # 굵은 글씨(**…**)·제목 기호는 걷는다 — 「**채운 내용:**」 처럼 답이 AI 투로 보였다(11-15 실사용). 글은 그대로
                 msg_ = re.sub(r"\*\*(.+?)\*\*", r"\1", str(args["message"]), flags=re.S)

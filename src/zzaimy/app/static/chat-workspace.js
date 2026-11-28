@@ -80,15 +80,34 @@
     return answers[answers.length - 1] || null;
   }
   // 쓰는 중인 답의 가벼운 그리기 — 글은 먼저 이스케이프하고 굵게·목록·제목 기호만 바꾼다(최종 답은 서버가 그린다)
+  // 쓰는 중인 답 — 최종 답(서버 md_view)과 같은 꼴로: 코드 블록은 고정폭·들여쓰기 그대로(닫히지 않은 블록도), 줄 안 `코드`(11-28)
   function lightMarkdown(text) {
     const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return esc.split('\n').map(line => {
-      let l = line.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    const out = []; let code = null, lang = '';
+    for (const line of esc.split('\n')) {
+      if (/^\s*```/.test(line)) {
+        if (code === null) { code = []; lang = line.trim().slice(3).trim().split(' ')[0] || '코드'; }
+        else { out.push('<div class="md-codeblock"><div class="md-codehead"><span>' + lang + '</span></div><pre><code>' + code.join('\n') + '</code></pre></div>'); code = null; }
+        continue;
+      }
+      if (code !== null) { code.push(line); continue; }
+      let l = line.replace(/`([^`]+)`/g, '<code class="md-code">$1</code>').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
       if (/^\s*[*-]\s+/.test(l)) l = l.replace(/^(\s*)[*-]\s+/, '$1• ');
       if (/^#{1,4}\s+/.test(l)) l = '<b>' + l.replace(/^#{1,4}\s+/, '') + '</b>';
-      return l;
-    }).join('\n');
+      out.push(l);
+    }
+    if (code !== null) out.push('<div class="md-codeblock"><div class="md-codehead"><span>' + lang + '</span></div><pre><code>' + code.join('\n') + '</code></pre></div>');
+    return out.join('\n');
   }
+  // 코드 블록 복사 단추
+  root.addEventListener('click', async event => {
+    const btn = event.target.closest('[data-code-copy]');
+    if (!btn) return;
+    const code = btn.closest('.md-codeblock')?.querySelector('code');
+    if (!code) return;
+    try { await navigator.clipboard.writeText(code.textContent); btn.textContent = '복사됨'; setTimeout(() => { btn.textContent = '복사'; }, 1500); }
+    catch (_) { btn.textContent = '복사 못 함'; }
+  });
   // 답 평가(베타 수집) — 도움됨은 바로, 아쉬움은 까닭·한 줄 의견을 받아 보낸다. 같은 단추를 다시 누르면 평가를 거둔다
   root.addEventListener('click', async event => {
     const btn = event.target.closest('[data-feedback]');

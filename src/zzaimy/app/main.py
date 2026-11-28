@@ -5387,6 +5387,14 @@ def create_app(
         import re as _mre
 
         def rich(t: str) -> str:
+            # 줄 안 코드(`range(1, 101)`)는 먼저 떼어 그대로 두고 나머지만 꾸민다 — 백틱이 글자 그대로 보였다(11-28)
+            parts = _mre.split(r"(`[^`\n]+`)", t)
+            if len(parts) > 1:
+                return "".join(f'<code>{_esc(x[1:-1])}</code>' if x.startswith("`") and x.endswith("`") and len(x) > 1
+                               else rich0(x) for x in parts)
+            return rich0(t)
+
+        def rich0(t: str) -> str:
             # 이스케이프한 뒤 굵게(**)와 줄바꿈(<br>)만 되살린다 — 생성 문서의 다른 태그는 글자 그대로
             s2 = _mre.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(_esc(t)))
             # 기울임 「*AI물류:*」 — 별표가 그대로 보이지 않게. 곱셈·각주 별표(「* 표시」)는 양끝이 붙은 것만
@@ -5404,7 +5412,8 @@ def create_app(
         while i < len(lines):
             ln = lines[i]
             if ln.lstrip().startswith("```"):
-                # 코드·도표 블록 — 펜스는 감추고 안쪽은 원문 그대로 보존
+                # 코드·도표 블록 — 펜스는 감추고 안쪽은 원문 그대로(들여쓰기 그대로·고정폭 글꼴), 머리에 언어 이름과 복사 단추(11-28)
+                lang = ln.strip()[3:].strip().split(" ")[0][:20]
                 i += 1
                 body = []
                 while i < len(lines) and not lines[i].lstrip().startswith("```"):
@@ -5412,9 +5421,9 @@ def create_app(
                     i += 1
                 i += 1  # 닫는 펜스 소비
                 out.append(
-                    '<pre class="doc-text" style="white-space:pre; overflow-x:auto;'
-                    ' font-size:12px; line-height:1.5;">'
-                    + str(_esc("\n".join(body))) + "</pre>"
+                    '<div class="md-codeblock"><div class="md-codehead"><span>' + str(_esc(lang or "코드")) + "</span>"
+                    '<button type="button" class="md-copy" data-code-copy>복사</button></div>'
+                    '<pre><code>' + str(_esc("\n".join(body))) + "</code></pre></div>"
                 )
                 continue
             if ln.startswith("|") and ln.rstrip().endswith("|"):
