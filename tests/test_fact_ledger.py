@@ -463,6 +463,22 @@ def test_for_table_dry_only_reports_unmatched_rows():
     assert "collect_facts {items: [성과지표, 실적]}" in fl.for_table(db, 13, ["교육 이수 인원(명)", "취업 연계(명)"], ["실적"], "성과지표", dry=True)
 
 
+def test_for_table_rows_match_but_value_item_missing_suggests_collect():
+    # 11-29 46차 A 짧게: 「성과」(지표 이름)만 모아 「실적」 열을 채울 항목이 없자 검색에 걸린 두 문서 값을 손으로 더했다
+    db = FakeDB([])
+    its = ["활동", "참여 인원", "성과"]
+    recs = [{"활동": "캠프", "참여 인원": "38명", "성과": "교육 이수 인원", "quote": "a"},
+            {"활동": "캠프", "참여 인원": "38명", "성과": "취업 연계", "quote": "a"},
+            {"활동": "특강", "참여 인원": "49명", "성과": "교육 이수 인원", "quote": "b"}]
+    fl.save(db, 16, {"items": its, "live": ["k"], "docs": {"k": {"doc_id": 1, "title": "t", "items": its, "records": recs}}})
+    for dry in (False, True):
+        out = fl.for_table(db, 16, ["교육 이수 인원(명)", "취업 연계(명)"], ["목표", "실적", "달성률(%)"], "성과지표", dry=dry)
+        assert "collect_facts {items: [성과지표, 목표, 실적]}" in out and "group_by: [성과지표], sum: [목표, 실적]" in out, out
+        assert "달성률" not in out.split("collect_facts")[1]
+    # 글 열뿐이면 말하지 않는다
+    assert fl.for_table(db, 16, ["교육 이수 인원(명)", "취업 연계(명)"], ["근거 문서"], "성과지표", dry=True) == ""
+
+
 def test_aggregate_without_sum_adds_number_items():
     # 11-23 18차: group_by [성과] 만으로 불러 지표마다 빈 줄만 받았다 — 수 값 항목(실적)을 더해 보인다
     db = FakeDB([])

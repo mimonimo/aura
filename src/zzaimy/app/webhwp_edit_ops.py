@@ -4264,8 +4264,8 @@ class EditTools:
             labels = [c["text"] for c in ws._cells(_table_xml(doc_, t)) if c["c"] == 0 and c["r"] > 0]
             agg = self._ledger_table(labels, [h for c, h in head.items() if c in cols], head.get(1, ""))
             hit = [it for it in items if any(h and (h == it or h.startswith(it) or it.startswith(h)) for c, h in head.items() if c in cols)]
-            if "묶어 보았다" in agg:
-                return agg                                   # 행 이름대로 묶은 값(근거로 남음)
+            if "묶어 보았다" in agg or "수 항목이 장부에 없다" in agg:
+                return agg                                   # 행 이름대로 묶은 값(근거로 남음) 또는 더 모을 값 항목
             if not hit:
                 return ""
             return (f" 「확인 필요」 를 넣은 열의 {', '.join('「' + h + '」' for h in hit[:3])} 은(는) 실적 장부에 수 값으로 모여 있다 — "

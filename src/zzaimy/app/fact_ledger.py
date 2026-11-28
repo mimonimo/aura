@@ -1282,8 +1282,6 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
                     + f" 가 나온다 — 문서에 이 이름별 값이 있다. 담당자에게 묻기 전에 {call_} 로 모은 뒤 aggregate_facts 로 묶는다.")
         return (f" 행 이름({', '.join(labs[:3])}…)이 실적 장부의 어느 항목 값과도 맞지 않는다 — 문서에 그 이름별 값이 적혀 있으면 "
                 f"{call_} 로 행 이름 항목과 값 항목을 모은 뒤 aggregate_facts 로 묶는다.")
-    if dry:
-        return ""                                            # 행 이름이 장부 항목 값과 맞는다 — 묶을 수 있음(묶지는 않음)
     sums, dist = [], []
     for it in items:
         if it == best:
@@ -1297,7 +1295,19 @@ def for_table(db, session_id: int, labels: list[str], heads: list[str], label_he
                     dist.append(it)
                 break
     if not sums and not dist:
-        return ""
+        # 행 이름은 장부 항목 값과 맞는데 열 머리에 맞는 수 항목이 장부에 없다 — 그 값 항목을 더 모으라고만 알린다.
+        # 11-29 46차 A 짧게: 「성과」(지표 이름)만 모아 성과지표 표의 「실적」 열을 채울 수 항목이 없자, 검색에 걸린 두 문서 값만 손으로 더해 넣었다
+        num_heads = [re.sub(r"\s*\([^)]*\)\s*$", "", h).strip() for h in heads
+                     if _hk(h) and not re.search(r"률|율|비율|%|비고|근거|문서|내용|주요|대표|설명|방법|계획", h)]
+        if not num_heads:
+            return ""
+        lh_ = re.sub(r"\s*\([^)]*\)\s*$", "", label_head).strip() or best.split(":")[0]
+        want_ = list(dict.fromkeys([lh_, *num_heads[:3]]))
+        return (f" 이 표의 행 이름은 장부의 「{best}」 값이지만, 열 머리 {', '.join('「' + h + '」' for h in num_heads[:3])} 에 맞는 수 항목이 장부에 없다"
+                f" — 행마다 문서에 그 값이 적혀 있으면 collect_facts {{items: [{', '.join(want_)}]}} 로 모은 뒤"
+                f" aggregate_facts {{group_by: [{lh_}], sum: [{', '.join(num_heads[:3])}]}} 로 묶는다(검색에 걸린 몇 문서 값을 더한 것은 근거가 아니다).")
+    if dry:
+        return ""                                            # 행 이름이 장부 항목 값과 맞고 수 항목도 있다 — 묶을 수 있음(묶지는 않음)
     obs, _ = aggregate(db, session_id, [group], list(dict.fromkeys(sums)), count=False, distinct=list(dict.fromkeys(dist)))
     def _keep(ln):                                           # 행 이름에 맞는 묶음과 합계·알림만(「(빈 값)」·사업명 같은 딴 묶음은 뺀다)
         t_ = ln.strip()
