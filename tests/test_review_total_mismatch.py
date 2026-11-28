@@ -64,3 +64,67 @@ def test_unbacked_fixes_reads_only_document_part():
     from zzaimy.app.doc_agent import unbacked_fixes
     fake = "후보\n1. 「취업 연계」 문서 합 31\n\n지금 문서 전체:\n\n| 취업 연계 | 52 |"
     assert unbacked_fixes("취업 연계를 31명으로 바로잡았습니다", fake) == ["31명"]
+
+
+def test_period_sum_shows_scope_by_category_and_filter_args():
+    """41차 B 한번에: 운영위원회 기록(5명 ×3)이 분기 합에 섞였다 — 같은 합을 과제로 나눠 보이고 범위 맞추는 거르기 인자를 보인다."""
+    from zzaimy.app import fact_ledger as fl
+    from tests.test_fact_ledger import FakeDB
+    items = ["날짜", "분야", "활동", "참석 인원"]
+    docs, i = {}, 0
+    for d, f, a, n in [("2026. 5. 1.", "지역 연계 강좌", "강좌1", "40명"), ("2026. 8. 1.", "지역 연계 강좌", "강좌2", "50명"),
+                       ("2026. 6. 1.", "평생교육 네트워크", "모임", "19명"), ("2026. 11. 1.", "평생교육 네트워크", "한마당", "64명"),
+                       ("2026. 6. 2.", "", "운영위원회 1차", "5명"), ("2026. 8. 6.", "2026 가상 사업", "운영위원회 2차", "5명")]:
+        i += 1
+        docs[f"k{i}"] = {"doc_id": i, "title": f"{a} 결과", "items": items,
+                         "records": [{"날짜": d, "분야": f, "활동": a, "참석 인원": n, "quote": "q"}]}
+    db = FakeDB([])
+    fl.save(db, 5, {"items": items, "live": list(docs), "docs": docs})
+    obs, _ = fl.aggregate(db, 5, ["날짜:분기"], ["참석 인원"])
+    assert "「분야」 로 나누면" in obs and "(빈 값) 5" in obs and '"!2026 가상 사업"' in obs and '"*"' in obs
+    obs2, _ = fl.aggregate(db, 5, ["분야"], ["참석 인원"])
+    assert "로 나누면" not in obs2                                  # 갈래로 묶었으면 이미 보인다
+
+
+def test_alias_fixes_category_that_disagrees_with_document_cell():
+    """41차 B 한번에: 「추진 과제 | 지역 연계 강좌」 문서의 분야를 활동 이름으로 뽑아 과제별 합이 33 모자랐다."""
+    from zzaimy.app import fact_ledger as fl
+    pairs = []
+    for t, f in [("지역 연계 강좌", "지역 연계 강좌"), ("평생교육 네트워크", "평생교육 네트워크"),
+                 ("성인 학습자 지원", "성인 학습자 지원"), ("지역 연계 강좌", "가을 공예 체험 강좌")]:
+        pairs.append(({"records": [{"분야": f, "참석 인원": "33명"}]}, f"사업 | 가상 사업\n추진 과제 | {t}\n운영일 | 2026년 9월 1일"))
+    notes = fl.fill_aliases(pairs, ["분야", "참석 인원"])
+    assert pairs[3][0]["records"][0]["분야"] == "지역 연계 강좌" and "바로잡았다" in " ".join(notes)
+    many = ({"records": [{"분야": "강사료"}, {"분야": "운영비"}]}, "추진 과제 | 지역 연계 강좌")
+    fl.fill_aliases(pairs[:3] + [many], ["분야"])
+    assert [r["분야"] for r in many[0]["records"]] == ["강사료", "운영비"]   # 값이 여럿인 문서는 그대로
+
+
+def test_unit_column_fix_names_thousand_won_value():
+    """41차 B 짧게: 집행액(천원) 열 합계 행에 51,600,000 을 다섯 번 넣다 막힘 — 그 열 단위로 고친 값을 보인다."""
+    from types import SimpleNamespace
+    from zzaimy.app import webhwp_edit_ops as eo
+    cls = next(c for c in vars(eo).values() if isinstance(c, type) and hasattr(c, "_unit_column_fix"))
+    o = cls.__new__(cls)
+    o.hw = SimpleNamespace(_gate_evidence=lambda: ["◇ 집계 합계 · 지출액: 11,400,000+40,200,000=51,600,000"])
+    out = o._unit_column_fix(["세목", "집행액(천원)", "구성비(%)"], [["합계", "51,600,000", "100.0%"]], ["51,600,000"])
+    assert "「51,600」" in out and "천원" in out
+    assert o._unit_column_fix(["세목", "집행액(원)"], [["합계", "51,600,000"]], ["51,600,000"]) == ""
+
+
+def test_fill_into_thousand_won_column_offers_fix(tmp_path, monkeypatch):
+    """41차 B 짧게: hwp_fill 칸:강사료 11,400,000 이 집행액(천원) 열에 들어가고 알림이 없었다."""
+    from pathlib import Path
+    from tests.test_webhwp_agent import _setup, wa, wt
+    from zzaimy.app import webhwp_edit_ops as eo
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 77, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "예산 변경 신청서"})
+    monkeypatch.setattr(hw, "numbers_gate", lambda md: None)
+    monkeypatch.setattr(hw, "_gate_evidence", lambda: ["◇ 집계 강사료 · 지출액: 11,400,000"])
+    monkeypatch.setattr(eo, "field_cell_where", lambda raw, k: "표5 2행 「집행액(천원)」 열 · 지금 행: 강사료 | 11,400,000")
+    out = hw.fill({"values": {"칸:사업명": "11,400,000"}})
+    assert "[단위 셈 확인]" in out and '"11,400"' in out

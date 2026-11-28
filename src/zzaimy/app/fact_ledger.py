@@ -324,15 +324,34 @@ def fill_aliases(pairs: list[tuple[dict, str]], items: list[str]) -> list[str]:
         if n < 2:
             continue
         filled = 0
+        # 칸이 있는 문서 가운데 그 칸 값과 「{it}」 값이 맞은 비율 — 거의 늘 맞으면, 기록이 한 갈래뿐인 문서에서 다르게 뽑힌 값은
+        # 칸 값으로 바로잡는다(41차 B 한번에 11-28: 「추진 과제 | 지역 연계 강좌」 문서의 분야를 활동 이름 「가을 공예 체험 강좌」 로 뽑아
+        # 과제별 참석자 157, 정답 190). 값이 여럿인 문서(집행 내역 표)는 어느 줄인지 모르므로 그대로 둔다
+        with_l = sum(1 for (v, _), lab in zip(pairs, labs) if lab.get(L)
+                     and any(str(r.get(it) or "").strip() for r in v.get("records") or []))
+        fixed: list[str] = []
         for (v, _), lab in zip(pairs, labs):
             lv = lab.get(L)
             if not lv:
                 continue
-            for r in v.get("records") or []:
+            rs_ = v.get("records") or []
+            got = {_norm(str(r.get(it) or "")) for r in rs_ if str(r.get(it) or "").strip()}
+            if with_l >= 3 and n * 4 >= with_l * 3 and len(got) == 1 and _norm(lv) not in got:
+                for r in rs_:
+                    if str(r.get(it) or "").strip():
+                        fixed.append(f"「{str(r.get(it)).strip()[:20]}」→「{lv}」")
+                        r[it] = lv
+                        r.setdefault("_from_label", []).append(it)
+            for r in rs_:
                 if not str(r.get(it) or "").strip():
                     r[it] = lv
                     r.setdefault("_from_label", []).append(it)
                     filled += 1
+        if fixed:
+            shown_ = next((c.split(" | ")[0].strip() for _, t in pairs for c in (t or "").splitlines()
+                           if " | " in c and _norm(re.sub(r"\([^)]*\)", "", c.split(" | ")[0])) == L), L)
+            notes.append(f"「{it}」 값이 문서의 「{shown_}」 칸과 다른 기록 {len(fixed)}건을 칸 값으로 바로잡았다({', '.join(dict.fromkeys(fixed))[:120]}"
+                         f" — 다른 문서 {n}/{with_l}개에서 「{it}」 값이 그 칸 값과 같았다)")
         if filled:
             shown = next((c.split(" | ")[0].strip() for _, t in pairs for c in (t or "").splitlines()
                           if " | " in c and _norm(re.sub(r"\([^)]*\)", "", c.split(" | ")[0])) == L), L)
@@ -1011,6 +1030,11 @@ def aggregate(db, session_id: int, group_by: list[str], sums: list[str], count: 
             top.append(f"  (주의: 묶음 기준 {gl} 이 빈 기록에도 {', '.join(part[:3])} 이(가) 있다 — 이름 붙은 묶음 값은 일부일 뿐이다. "
                        "더한 항목 하나가 곧 행 하나(예: 수료자 → 강좌 수료자 행)이면 묶음 줄 말고 「합계 · 그 항목」 을 쓰고, "
                        "아니면 빈 기록의 기준 항목을 다시 모은다)")
+    # 기간(분기·월)으로만 묶으면 어떤 갈래의 기록이 합에 들었는지 보이지 않는다 — 41차 B 한번에(11-28): 운영위원회 회의 기록(운영위원
+    # 5명 ×3)이 분기 합에 섞여 88·90·137(정답 83·85·132). 같은 기록을 갈래 항목(과제·분야)으로 나눠 보이고, 갈래가 빈 기록·문서 하나뿐인
+    # 갈래가 있으면 다른 표와 같은 범위로 세는 거르기 인자를 보인다. 뺄지는 모델이 정한다
+    if group_by and sums and all(g.partition(":")[2] in ("분기", "월", "quarter", "month", "연") for g in group_by):
+        top += _scope_breakdown(items, recs, sums, nv, set(gnames_) | set(distincts))
     # 목표로 적힌 값이 실적 합에 섞였다 — 30차 B 짧게: 작성 안내의 「핵심지표 목표치: 강좌 수료자 250명」 이 기록으로 뽑혀
     # 수료자 421(=171+250)·상담 229(=109+120)를 달성치로 씀. 뺄지는 모델이 정한다 — 문서를 빼는 인자를 보인다
     tgt = [(r, s_) for r in recs for s_ in sums if nv(r, s_) and re.search(r"목표|계획\s*치|목표치", str(r.get("quote") or ""))
@@ -1104,6 +1128,44 @@ def base_unfounded(base, texts: list[str]) -> str:
     return (f"  (주의: 기준값(base) {b:,} 이 근거 문서·담당자 글에 없다"
             + (f" — 근거 금액 {', '.join(f'{x:,}원' for x in near[:2])} 과 자릿수만 다르다" if near else "")
             + ". 문서에 적힌 금액을 원 단위 그대로(예: 1억 2천만 원 → 120000000) base 로 준다. 이 기준값으로는 비율을 내지 않았다)")
+
+
+def _scope_breakdown(items, recs, sums, nv, skip) -> list[str]:
+    """기간 묶음의 합을 갈래 항목(값 2~8가지·더한 기록 대부분에 든 글 항목)으로 나눠 본 줄. 갈래가 빈 기록이나 문서 하나뿐인 갈래가
+    있을 때만 — 다른 표(과제별)와 범위가 다를 수 있는 때다."""
+    out = []
+    for s_ in sums:
+        rs = [r for r in recs if nv(r, s_) is not None]
+        if len(rs) < 4:
+            continue
+        for it in items:
+            if it in skip or it in sums or it == "날짜":
+                continue
+            vals = [str(r.get(it) or "").strip() for r in rs]
+            if any(month_of(v) or quarter_of(v) for v in vals if v):
+                continue
+            named = [v for v in vals if v]
+            kinds = list(dict.fromkeys(named))
+            if (not 2 <= len(kinds) <= 8 or len(named) * 10 < len(rs) * 6
+                    or any(re.fullmatch(r"[\d,.]+\s*[가-힣%]{0,3}", v) for v in kinds)):
+                continue
+            docs = {k: {r.get("_doc") for r, v in zip(rs, vals) if v == k} for k in kinds}
+            odd = [k for k in kinds if len(docs[k]) <= 1] if max(len(d) for d in docs.values()) >= 2 else []
+            blank = [r for r, v in zip(rs, vals) if not v]
+            if not odd and not blank:
+                continue
+            u = _unit([r.get(s_) for r in rs])
+            parts = [f"{k} {_fmt(sum((nv(r, s_) for r, v in zip(rs, vals) if v == k), Decimal(0)))}" for k in kinds]
+            if blank:
+                parts.append(f"(빈 값) {_fmt(sum((nv(r, s_) for r in blank), Decimal(0)))}《"
+                             + "》《".join(dict.fromkeys(str(r.get('_doc'))[:20] for r in blank[:3])) + "》")
+            oddd = "".join(f"《{str(d)[:20]}》" for k in odd for d in sorted(docs[k], key=str)[:1])
+            arg = json.dumps({it: ["*"] * bool(blank) + [f"!{k}" for k in odd]}, ensure_ascii=False)
+            out.append(f"  (이 합에 든 기록을 「{it}」 로 나누면 {s_}: " + " · ".join(parts) + (f" ({u})" if u else "") + " — "
+                       + (f"문서 하나뿐인 갈래 {oddd} " if odd else "") + ("갈래가 빈 기록 " if blank else "")
+                       + f"이(가) 들어 있다. 다른 표(「{it}」별 표 등)와 같은 범위로 세려면 filt {arg} 로 다시 부른다)")
+            break
+    return out
 
 
 def _name_item(items: list[str], recs: list[dict], skip: set) -> str:

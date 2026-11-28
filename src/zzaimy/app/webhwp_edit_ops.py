@@ -4043,6 +4043,36 @@ class EditTools:
         self._stale: list[str] | None = None        # 표 수가 바뀌기 전 표 머리줄(옛 번호 차례) — 앞서 본 번호가 밀렸는지 가린다(11-13 8차)
         self._fresh: set[int] = set()               # 바뀐 뒤 다시 본 번호
 
+    def _unit_column_fix(self, head: list[str], rows: list[list[str]], bad: list[str]) -> str:
+        """머리줄이 「(천원)」「(만원)」「(백만원)」 인 열에 근거의 원 단위 금액을 그대로 넣어 막힌 칸 — 고칠 값을 보인다.
+        41차 B 짧게(11-28): 집행액(천원) 열 합계 행에 집계 합계 51,600,000 을 다섯 번 넣다 막혀 합계 행이 빈 채로 끝났다(맞는 값 51,600)."""
+        from decimal import Decimal
+        from zzaimy.verify.numbers import scaled_values, _fmt
+        get_ev = getattr(self.hw, "_gate_evidence", None)
+        if not get_ev or not head:
+            return ""
+        try:
+            money = set().union(*(scaled_values(e) for e in (get_ev() or []) if e))
+        except Exception:
+            return ""
+        out = []
+        for r in rows:
+            for j, c in enumerate(r):
+                m = re.search(r"[(（]\s*(천원|만원|백만원)\s*[)）]", head[j] if j < len(head) else "")
+                if not m:
+                    continue
+                k = {"천원": 1000, "만원": 10000, "백만원": 1000000}[m.group(1)]
+                for b in bad:
+                    if not re.search(rf"(?<![\d.,]){re.escape(b)}(?![\d])", c):
+                        continue
+                    try:
+                        d = Decimal(b.replace(",", ""))
+                    except Exception:
+                        continue
+                    if d >= k and d % k == 0 and _fmt(d) in money:
+                        out.append(f"「{(r[0] or '')[:16]}」 행 「{head[j][:16]}」 의 {b} 는 근거의 원 단위 금액 그대로다 — 이 열은 {m.group(1)} 단위라 「{int(d // k):,}」 로 넣는다")
+        return (" [단위 셈 확인: " + "; ".join(dict.fromkeys(out[:4])) + "]") if out else ""
+
     def _numbers_check(self, fid: int, name: str, a: dict) -> str | None:
         """표 만들기·표 고치기(set_cells)로 넣는 값을 본문과 같은 수치 관문에 대 본다 — 열 머리 단위(「금액(천원)」)도 함께 보도록
         머리줄을 붙인 마크다운 표로 만들어 넘긴다. 관문이 없는 호출부(hw.numbers_gate 없음)는 그대로 둔다."""
@@ -4139,6 +4169,7 @@ class EditTools:
                 why += " 걸린 칸: " + ", ".join(dict.fromkeys(hits[:6])) + " — 이 칸만 근거의 값으로 바꾸거나 「확인 필요」 로 두고 나머지는 그대로 다시 넣는다."
                 bad_cols = sorted({j for r in rows for j, c in enumerate(r) if any(re.search(rf"(?<![\d.,]){re.escape(b)}", c) for b in bad)})
                 why += self._ledger_table([r[0] for r in rows if r], [head[j] for j in bad_cols if j < len(head)], head[0] if head else "")
+                why += self._unit_column_fix(head, rows, bad)
             if name == "hwp_table_edit" and head and any(head):
                 # 넣은 뒤 행을 열 머리와 함께 보인다 — 11-22 12차: 목표·달성률 두 값을 [2, 2] 부터 넣어 달성률이 실적 열에 들어가는 줄
                 # 모르고 같은 쓰기를 되풀이해 걸음 한도에 닿았다(실적 9·31 은 집계에 나와 있었다)

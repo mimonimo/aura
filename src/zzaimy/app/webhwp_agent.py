@@ -1559,6 +1559,7 @@ class HwpTools:
         values = a.get("values") if isinstance(a.get("values"), dict) else {}
         values = {(self.resolve(str(k)) or str(k)): str(v)[:2000] for k, v in values.items()}
         values = {k: v for k, v in values.items() if not k.startswith("절:")}
+        vals_in = dict(values)
         # 사람 칸(「입력:」 — 날짜·서명·결재·달성률)은 담당자에게 물어 받은 값만. from_user 없이 온 값은 넣지 않고 묻게 한다
         person = [k for k in values if k.startswith("입력:")] if not a.get("from_user") else []
         for k in person:
@@ -1742,6 +1743,26 @@ class HwpTools:
             ws_ = [f"{k.split(':', 1)[-1]} → {w}" for k in done[:6] if k.startswith("칸:") for w in [_eo4.field_cell_where(raw_w, k)] if w]
             if ws_:
                 where_txt = " · 넣은 자리: " + " / ".join(ws_) + " — 열이 맞는지 본다(다른 열이면 hwp_table_edit set_cells 로 그 열에 넣는다)"
+            # 천원·만원 단위 열에 원 단위 금액이 그대로 들어갔다 — 41차 B 짧게(11-28): 칸:강사료 에 11,400,000 이 집행액(천원) 열로 들어가고
+            # 알림이 없어 세목별 집행액이 모두 천 배로 남았다(맞는 값 11,400). 고칠지는 모델이 정한다 — 바로 부를 인자를 보인다
+            from decimal import Decimal as _D
+            from zzaimy.verify.numbers import _fmt as _f, scaled_values as _sv
+            ev_ = self._gate_evidence() or []
+            money_ = set().union(*(_sv(e) for e in ev_ if e)) if ev_ else set()
+            slips_ = {}
+            for k in done[:12]:
+                w_ = _eo4.field_cell_where(raw_w, k) if k.startswith("칸:") else ""
+                mu_ = re.search(r"「[^」]*[(（]\s*(천원|만원|백만원)\s*[)）]」\s*열", w_ or "")
+                v_ = re.fullmatch(r"\s*(\d{1,3}(?:,\d{3})+|\d{4,})\s*원?\s*", str(vals_in.get(k, "")))
+                if mu_ and v_:
+                    sc_ = {"천원": 1000, "만원": 10000, "백만원": 1000000}[mu_.group(1)]
+                    d_ = _D(v_.group(1).replace(",", ""))
+                    if d_ % sc_ == 0 and _f(d_) in money_:
+                        slips_[k] = f"{int(d_ // sc_):,}"
+            if slips_:
+                where_txt += (" · [단위 셈 확인] " + ", ".join(f"{k.split(':', 1)[-1]} {vals_in[k]}" for k in slips_)
+                              + f" 은(는) 근거의 원 단위 금액 그대로인데 열 머리가 {mu_.group(1) if mu_ else '천원'} 단위다 — 고치려면: hwp_fill "
+                              + json.dumps({"values": {k.split(':', 1)[-1]: v for k, v in slips_.items()}}, ensure_ascii=False))
         except Exception:
             pass
         return (f"채웠다: {', '.join(done) or '없음'}" + where_txt + echo_txt + lab_txt + miss_txt
