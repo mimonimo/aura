@@ -148,3 +148,43 @@ def test_model_answer_streams_partial_without_offer_line(monkeypatch):
     res = web_search.answer_from_model("구구단 코드", client=fc, on_partial=seen.append)
     assert res["answer"] == "구구단은 for 문 두 개로 씁니다." and res["offer_web"] is False
     assert len(seen) >= 2 and seen[0].startswith("구구단은") and not any("인터넷" in s for s in seen)
+
+
+def test_table_values_and_snippets_reach_the_model_and_second_query_runs(monkeypatch):
+    """표 칸의 수치(짧은 줄)는 남기고, 검색 요약도 함께 넣고, 못 찾았다고 하면 결과에 보인 낱말로 한 번 더 찾는다(11-28)."""
+    monkeypatch.setattr(web_search, "_safe_url", lambda url: True)
+    monkeypatch.setattr(web_search, "screen_question", lambda q: False)
+    monkeypatch.setattr(web_search, "provider", lambda: "naver")
+    menu = "".join(f"<p>메뉴 항목 {i} 안내 소개 페이지 바로가기 링크</p>" for i in range(300))
+    pages = {
+        "https://a.example/1": f"<html><body>{menu}<table><tr><td>구분</td><td>재학생</td></tr><tr><td>2025</td><td>8,123명</td></tr></table></body></html>",
+        "https://b.example/2": "<html><body><p>이 대학은 대구에 있으며 여러 학과를 두고 있다. 학생 수는 이 글에 없다.</p></body></html>",
+        "https://c.example/3": "<html><body><p>대학알리미 공시: 재학생 수 8,123명(2025년 4월 1일 기준) 입니다.</p></body></html>",
+    }
+    queries = []
+
+    def fake_search(q, k=6, http=None):
+        queries.append(q)
+        if len(queries) == 1:
+            return [{"title": "학교 소개", "url": "https://b.example/2", "snippet": "대학알리미 에서 학생 수 확인"}]
+        return [{"title": "대학알리미 공시", "url": "https://c.example/3", "snippet": ""}]
+    monkeypatch.setattr(web_search, "search", fake_search)
+    http = httpx.Client(transport=httpx.MockTransport(
+        lambda req: httpx.Response(200, text=pages.get(str(req.url), ""), headers={"content-type": "text/html"})))
+    text = web_search.fetch_text("https://a.example/1", max_chars=1500, http=http, focus="재학생 수")
+    assert "8,123명" in text and len(text) <= 1500
+
+    answers = iter(["자료에서 확인하지 못했다.", "대학알리미 재학생 수", "재학생은 8,123명이다[2]."])
+    prompts = []
+
+    class _Comp:
+        def create(self, **kw):
+            prompts.append(kw["messages"][-1]["content"]); return _Resp(next(answers))
+
+    class C:
+        model = "writer"; _extra = {}
+        client = type("K", (), {"chat": type("Ch", (), {"completions": _Comp()})()})()
+    res = web_search.answer_with_web("학교 재학생 수", client=C(), http=http)
+    assert queries == ["학교 재학생 수", "대학알리미 재학생 수"]
+    assert res["answer"].startswith("재학생은 8,123명") and [s["n"] for s in res["sources"]] == [1, 2]
+    assert "[검색 요약] 대학알리미 에서 학생 수 확인" in prompts[0]

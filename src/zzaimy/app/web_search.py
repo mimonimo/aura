@@ -166,7 +166,7 @@ def search(query: str, k: int = 5, http=None) -> list[dict]:
     return out
 
 
-def fetch_text(url: str, max_chars: int = 4000, http=None) -> str:
+def fetch_text(url: str, max_chars: int = 4000, http=None, focus: str = "") -> str:
     """쪽의 글만(스크립트·스타일·태그 제거). 못 받거나 막힌 주소면 빈 글. 리다이렉트는 목적지를 다시 검사하며 따라간다."""
     import httpx
 
@@ -189,12 +189,67 @@ def fetch_text(url: str, max_chars: int = 4000, http=None) -> str:
         return ""
     if len(r.content) > MAX_PAGE_BYTES:
         return ""
-    body = re.sub(r"(?is)<(script|style|nav|footer|header|noscript)[^>]*>.*?</\1>", " ", r.text)
-    body = re.sub(r"(?is)<br\s*/?>|</p>|</div>|</li>|</h\d>", "\n", body)
+    raw = r.text
+    if len(_TAG.sub(" ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", raw)).split()) < 80:
+        # 본문이 틀(iframe) 안에 있는 쪽(블로그 등) — 같은 누리집의 틀 주소를 한 번 따라가 본문을 읽는다
+        m = re.search(r'(?is)<iframe[^>]+src="([^"]+)"', raw)
+        if m:
+            inner = httpx.URL(url).join(html.unescape(m.group(1))).__str__()
+            if httpx.URL(inner).host == httpx.URL(url).host and _safe_url(inner):
+                try:
+                    r2 = http.get(inner, headers=_UA, follow_redirects=False)
+                    if r2.status_code == 200 and len(r2.content) <= MAX_PAGE_BYTES:
+                        raw = r2.text
+                except Exception:
+                    pass
+    body = re.sub(r"(?is)<(script|style|nav|footer|header|noscript)[^>]*>.*?</\1>", " ", raw)
+    # 표는 줄마다 칸을 「 | 」 로 이어 한 줄로 — 칸 하나하나가 짧은 줄로 갈려 버려지면 표의 수치(재학생 수 같은)가 다 빠졌다(11-28)
+    def _row(m: re.Match) -> str:                         # 칸 안의 <div>·<p> 로 줄이 갈리지 않게 표 줄 하나를 한 줄 글로
+        cells = [" ".join(_TAG.sub(" ", c).split()) for c in re.findall(r"(?is)<t[dh][^>]*>(.*?)</t[dh]\s*>", m.group(0))]
+        return "\n" + " | ".join(c for c in cells if c) + "\n"
+    body = re.sub(r"(?is)<tr[^>]*>.*?</tr\s*>", _row, body)
+    body = re.sub(r"(?is)<br\s*/?>|</p>|</div>|</li>|</h\d>|</dt>|</dd>", "\n", body)
     text = html.unescape(_TAG.sub(" ", body))
-    lines = [" ".join(ln.split()) for ln in text.split("\n")]
-    text = "\n".join(ln for ln in lines if len(ln) > 20)
-    return text[:max_chars]
+    lines = [" ".join(ln.split()).strip(" |") for ln in text.split("\n")]
+    # 짧은 줄은 메뉴 꼴이라 버리되, 수치가 든 줄(「재학생 8,123명」)·표 줄은 남긴다
+    lines = [ln for ln in lines if len(ln) > 20 or (len(ln) >= 4 and (re.search(r"\d", ln) or " | " in ln))]
+    if focus:
+        return _focus(lines, focus, max_chars)
+    return "\n".join(lines)[:max_chars]
+
+
+def _focus(lines: list[str], focus: str, max_chars: int) -> str:
+    """긴 쪽에서 질문 낱말이 많이 든 줄과 그 앞뒤를 골라 몫 안에 — 앞부분만 자르면 메뉴·소개만 남고 찾는 수치가 빠졌다(11-28).
+    쪽 순서는 지킨다."""
+    words = {w for w in _WORD.findall(focus) if len(w) >= 2}
+    def score(ln: str) -> int:
+        return sum(1 for w in words if w in ln or (len(w) >= 3 and w[:-1] in ln)) + (1 if re.search(r"\d", ln) else 0)
+    full = "\n".join(lines)
+    if len(full) <= max_chars or not words:
+        return full[:max_chars]
+    ranked = sorted(range(len(lines)), key=lambda i: -score(lines[i]))
+    keep: set[int] = set()
+    size = 0
+    for i in ranked:
+        if score(lines[i]) == 0:
+            break
+        for j in (i - 1, i, i + 1):
+            if 0 <= j < len(lines) and j not in keep:
+                if size + len(lines[j]) + 1 > max_chars:
+                    break
+                keep.add(j)
+                size += len(lines[j]) + 1
+        if size >= max_chars:
+            break
+    if not keep:
+        return full[:max_chars]
+    out, prev = [], -2
+    for i in sorted(keep):
+        if i != prev + 1 and out:
+            out.append("…")
+        out.append(lines[i])
+        prev = i
+    return "\n".join(out)
 
 
 _PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 아래 [웹 자료]만 근거로 질문에 답한다.
@@ -310,7 +365,35 @@ def _complete(client, messages: list[dict], temperature: float, max_tokens: int,
     return resp.choices[0].message.content or ""
 
 
-def answer_with_web(question: str, client=None, k: int = 4, http=None, max_tokens: int = 1500,
+_RETRY_PROMPT = """아래 검색어로 찾은 결과로는 질문의 답을 찾지 못했다. 다른 검색어 한 줄을 쓴다.
+- 담당자가 쓴 말과 [검색 결과 제목·요약]에 나온 낱말만 쓴다(공식 통계 누리집 이름처럼 결과에 보인 낱말은 써도 된다).
+- 앞 검색어와 달라야 한다. 검색어만 한 줄로. 따옴표·설명 없이.
+
+[질문]
+{question}
+
+[앞 검색어]
+{query}
+
+[검색 결과 제목·요약]
+{seen}"""
+
+_NOT_FOUND = re.compile(r"확인하지\s*못|찾지\s*못|나와\s*있지\s*않|포함되어\s*있지\s*않|자료에\s*없")
+
+
+def _gather(results: list[dict], start: int, question: str, http) -> list[dict]:
+    """검색 결과마다 쪽 글(질문 낱말 둘레)과 검색 요약을 함께 — 요약에만 수치가 있는 때가 있다(11-28)."""
+    out = []
+    for i, s in enumerate(results, start):
+        body = fetch_text(s["url"], max_chars=3500, http=http, focus=question)
+        snip = (s.get("snippet") or "").strip()
+        text = (("[검색 요약] " + snip + "\n") if snip else "") + body
+        if text.strip():
+            out.append({"n": i, "title": s["title"], "url": s["url"], "text": text})
+    return out
+
+
+def answer_with_web(question: str, client=None, k: int = 6, http=None, max_tokens: int = 1500,
                     history: dict | None = None, org: str = "", on_partial=None) -> dict:
     """웹 검색 → 상위 쪽 글 → 27B 답. 돌려주는 것: {answer, sources:[{n,title,url}], searched: n}.
     질문에 개인정보가 있으면 Blocked — 보내지 않는다. 질문 글은 기록에 남기지 않는다."""
@@ -326,18 +409,46 @@ def answer_with_web(question: str, client=None, k: int = 4, http=None, max_token
     if query != question and screen_question(query):
         query = question
     results = search(query, k=k, http=http)
-    sources = []
-    for i, s in enumerate(results, 1):
-        body = fetch_text(s["url"], http=http) or s.get("snippet", "")
-        if body:
-            sources.append({"n": i, "title": s["title"], "url": s["url"], "text": body})
+    sources = _gather(results, 1, question, http)
     if not sources:
         return {"answer": "", "sources": [], "searched": len(results), "query": query if query != question else ""}
-    packed = "\n\n".join(f"[{s['n']}] {s['title']} ({s['url']})\n{s['text'][:3500]}" for s in sources)
-    prompt = _PROMPT.format(question=question.strip(), sources=packed)
-    answer = _complete(client, _context_messages(history) + [{"role": "user", "content": prompt}], 0.2, max_tokens, on_partial).strip()
+
+    def _ask(srcs: list[dict]) -> str:
+        packed = "\n\n".join(f"[{s['n']}] {s['title']} ({s['url']})\n{s['text'][:3800]}" for s in srcs)
+        prompt = _PROMPT.format(question=question.strip(), sources=packed)
+        return _complete(client, _context_messages(history) + [{"role": "user", "content": prompt}], 0.2, max_tokens, on_partial).strip()
+
+    answer = _ask(sources)
+    searched = len(results)
+    if _NOT_FOUND.search(answer[:400]):
+        # 첫 검색으로 못 찾았다 — 27B 가 결과 제목·요약을 보고 다른 검색어로 한 번 더 찾는다(사람이 검색어를 바꿔 보듯, 11-28).
+        # 검색어 낱말은 담당자가 쓴 말·이미 밖에서 받은 검색 결과에 있는 것만(교내 글이 밖으로 나가지 않게)
+        user_text = "\n".join(str(m.get("content") or "") for m in (history or {}).get("recent") or [] if m.get("role") == "user")
+        user_text = (user_text + "\n" + question).strip()
+        seen = "\n".join(f"- {r_['title']}: {(r_.get('snippet') or '')[:160]}" for r_ in results)
+        try:
+            msgs = [{"role": "user", "content": _RETRY_PROMPT.format(question=question.strip(), query=query, seen=seen)}]
+            resp = client.client.chat.completions.create(model=client.model, messages=msgs, temperature=0.0, max_tokens=60,
+                                                         extra_body=getattr(client, "_extra", None) or {})
+            q2 = (resp.choices[0].message.content or "").strip().splitlines()[0].strip().strip('"「」')[:200]
+        except Exception:
+            q2 = ""
+        if q2 and q2 != query and _only_user_words(q2, user_text + "\n" + seen) and not screen_question(q2):
+            have = {s["url"] for s in sources}
+            more = [r_ for r_ in search(q2, k=k, http=http) if r_["url"] not in have]
+            searched += len(more)
+            extra = _gather(more, len(sources) + 1, question, http)
+            if extra:
+                if on_partial is not None:
+                    try:
+                        on_partial("")
+                    except Exception:
+                        pass
+                sources = sources + extra
+                answer = _ask(sources)
+                query = query + " → " + q2
     return {"answer": answer, "sources": [{"n": s["n"], "title": s["title"], "url": s["url"]} for s in sources],
-            "searched": len(results), "query": query if query != question else ""}   # 질문과 다르게 찾았을 때만 화면에 검색어
+            "searched": searched, "query": query if query != question else ""}   # 질문과 다르게 찾았을 때만 화면에 검색어
 
 
 def render(result: dict) -> str:
