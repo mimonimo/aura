@@ -78,6 +78,21 @@
     function setFormMode(on) { try { ctrl.EditMode = on ? 2 : 1; } catch (e) {} }
     function formMode() { try { return ctrl.EditMode === 2; } catch (e) { return false; } }
     function setReadOnly(on) { try { ctrl.ReadOnlyMode = !!on; } catch (e) {} try { if (on) ctrl.EditMode = 0; } catch (e) {} }
+    // 보기 전용 화면에 남의 고침을 넣을 때만 잠깐 쓰기를 풀고 원래대로 되돌린다(11-28: 보기 권한 화면은 남이 칸에 쓴 글이 끝까지 안 보였다)
+    function writerBegin() {                       // 비동기로 넣을 때 — 풀고, 되돌리는 함수를 돌려준다
+      var ro = false, em = 1;
+      try { ro = !!ctrl.ReadOnlyMode; em = ctrl.EditMode; } catch (e) {}
+      if (!ro && em !== 0) return function () {};
+      try { ctrl.ReadOnlyMode = false; ctrl.EditMode = 1; } catch (e) {}
+      return function () { try { ctrl.EditMode = em; ctrl.ReadOnlyMode = ro; } catch (e) {} };
+    }
+    function asWriter(fn) {
+      var ro = false, em = 1;
+      try { ro = !!ctrl.ReadOnlyMode; em = ctrl.EditMode; } catch (e) {}
+      if (!ro && em !== 0) return fn();
+      try { ctrl.ReadOnlyMode = false; ctrl.EditMode = 1; } catch (e) {}
+      try { return fn(); } finally { try { ctrl.EditMode = em; ctrl.ReadOnlyMode = ro; } catch (e) {} }
+    }
     function currentField() { if (probing) return probing.field0; try { return ctrl.GetCurFieldName(0) || ''; } catch (e) { return ''; } }
     function scrollItems() { try { var m = ctrl.ScrollPosInfo.m_Set.m_SetItemMap, o = {}; Object.keys(m).forEach(function (k) { o[k] = m[k]; }); return o; } catch (e) { return null; } }
     // 커서 저장·되돌리기 — 문단 번호(GetPos)는 문서 처음부터 세므로, 위쪽 칸의 문단 수가 바뀌면(남이 줄을 넣거나 AURA 가 절을 씀) 엉뚱한 칸으로 갔다
@@ -585,7 +600,7 @@
     function on(kind, cb) { listeners[kind].push(cb); }
     return {
       ctrl: ctrl, fields: fields, read: read, readMany: readMany, write: write, applyDelta: applyDelta, setEditable: setEditable,
-      setToolbarGuard: function (fn) { toolbarGuard = fn; }, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, caretPara: caretPara, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
+      setToolbarGuard: function (fn) { toolbarGuard = fn; }, asWriter: asWriter, writerBegin: writerBegin, setFormMode: setFormMode, formMode: formMode, snapIntoField: snapIntoField, caretInField: caretInField, caretPara: caretPara, selectionFields: selectionFields, setReadOnly: setReadOnly, currentField: currentField,
       getCursor: getCursor, restoreCursor: restoreCursor, viewTop: viewTop, lastHold: function () { return lastHold; }, holdView: holdView, lockUndo: lockUndo, caretPage: caretPage, undoLocked: function () { return undoLocked; }, moveTo: moveTo, caretRect: caretRect, scrollBy: scrollBy,
       fieldGeom: fieldGeom, toScreen: toScreen, bodyLeft: bodyLeft, bodyTop: bodyTop, unitPx: unitPx, geomReady: geomReady,
       onLocalEdit: function (cb) { on('edit', cb); }, onCaret: function (cb) { on('caret', cb); }, onActivity: function (cb) { on('activity', cb); }, onCommit: function (cb) { on('commit', cb); },

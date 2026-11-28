@@ -556,6 +556,11 @@
       return after !== null && norm(after) === T;
     }
     function applyInbox() {
+      // 보기 전용 화면 — 남의 고침을 넣는 동안만 쓰기를 풀었다 되돌린다(편집기가 읽기 전용이면 칸 글 넣기가 듣지 않는다)
+      if (readonly && hwp.asWriter && !applyInbox.inner) {
+        applyInbox.inner = true;
+        try { return hwp.asWriter(applyInbox); } finally { applyInbox.inner = false; }
+      }
       applyTimer = null;
       var keys = Object.keys(inbox);
       if (!keys.length) return;
@@ -619,11 +624,13 @@
         if (!d) return;
         applying = true;
         if (!hwp.isHwpxRich(d.rich)) lastRich[d.field] = richSig(d.rich);
+        var relock = readonly && hwp.writerBegin ? hwp.writerBegin() : null;   // 보기 전용 화면도 서식째 받은 절을 넣는다(11-28)
         hwp.importField(d.field, d.rich).then(function (ok) {
           var hx2 = hwp.isHwpxRich && hwp.isHwpxRich(d.rich);
           if (!ok || (!hx2 && norm(hwp.read(d.field)) !== d.text)) { hwp.write(d.field, d.text); delete richField[d.field]; }
+          if (relock) relock();
           applying = false; emit('applied', d.field, d); next();
-        });
+        }, function () { if (relock) relock(); applying = false; next(); });
       })();
     }
 
@@ -923,7 +930,7 @@
 
     function start() {
       hwp.attach();
-      fieldList = readonly ? [] : hwp.fields();
+      fieldList = hwp.fields();   // 보기 전용도 칸을 안다 — 남의 고침을 받아 보인다(보내기는 fieldsMode 가 막는다, 11-28)
       fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
       hwp.onLocalEdit(function (ev) {
         if (applying || !fieldsMode()) return;
@@ -1045,7 +1052,7 @@
     function reopened() {
       reloading = false;
       hwp.attach(); hwp.resetEditable();
-      fieldList = readonly ? [] : hwp.fields();
+      fieldList = hwp.fields();   // 보기 전용도 칸을 안다 — 남의 고침을 받아 보인다(보내기는 fieldsMode 가 막는다, 11-28)
       fieldSet = {}; fieldIdx = {}; fieldList.forEach(function (f, i) { fieldSet[f] = true; fieldIdx[f] = i; });
       known = {}; settled = {};
       if (fieldsMode()) hwp.setFormMode(formOnly() && (!o.structureMode || !o.structureMode()));

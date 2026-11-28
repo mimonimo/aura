@@ -152,3 +152,38 @@ test('AURA 명령 뒤 꾸민 입력 사건(synthetic)은 내 고침으로 보내
   assert.strictEqual(srv.st.text, '가) 첫째\n나) 둘째!');
   assert.strictEqual(copies.length, 0);
 });
+
+test('보기 전용 화면도 남이 칸에 쓴 글을 실시간으로 받는다 — 넣는 동안만 쓰기를 풀고, 보기 화면의 고침은 보내지 않는다(11-28 시연 ③)', async () => {
+  const base = '가) 첫째\n나) 둘째';
+  const srv = server(base);
+  const K = await (async () => {
+    const ctx = context({fetch: srv.fetchFor('kim'), EventSource: srv.ES});
+    const ed = editor(srv.F, base);
+    const eng = ctx.AuraCollab.engine({fid: 1, me: 'kim', hwp: ed.hwp});
+    await eng.start();
+    return {eng, s: ed.s};
+  })();
+  // 보기 전용 — 서버가 readonly 를 알리고, 편집기는 읽기 전용이면 칸 글 넣기가 듣지 않는다
+  const f0 = srv.fetchFor('lee');
+  const viewFetch = (url, o) => f0(url, o).then((r) => url.includes('/coedit') ? {ok: true, status: 200, json: () => r.json().then((j) => Object.assign(j, {readonly: true}))} : r);
+  const ctxV = context({fetch: viewFetch, EventSource: srv.ES});
+  const edV = editor(srv.F, base);
+  let ro = true, unlocked = 0;
+  const w0 = edV.hwp.write, d0 = edV.hwp.applyDelta;
+  edV.hwp.write = (...a) => (ro ? false : w0(...a));
+  edV.hwp.applyDelta = (...a) => (ro ? false : d0(...a));
+  edV.hwp.setReadOnly = (on) => { ro = !!on; };
+  edV.hwp.asWriter = (fn) => { const was = ro; ro = false; unlocked++; try { return fn(); } finally { ro = was; } };
+  edV.hwp.writerBegin = () => { const was = ro; ro = false; return () => { ro = was; }; };
+  const V = ctxV.AuraCollab.engine({fid: 1, me: 'lee', hwp: edV.hwp, readonly: true});
+  await V.start();
+  K.s.put(1, 5); K.s.type('!!');
+  const want = '가) 첫째\n나) 둘째!!';
+  for (let i = 0; i < 150 && edV.s.text !== want; i++) await wait(20);
+  assert.strictEqual(edV.s.text, want, '보기 화면에 남의 글이 들어왔다');
+  assert.ok(unlocked > 0 && ro === true, '넣는 동안만 풀고 다시 읽기 전용');
+  const v = srv.st.v;
+  edV.s.put(0, 2); edV.s.type('X');                     // 보기 화면에서 바뀐 것(있을 수 없지만) — 서버로 보내지 않는다
+  await wait(200);
+  assert.strictEqual(srv.st.v, v);
+});
