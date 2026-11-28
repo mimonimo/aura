@@ -139,3 +139,14 @@ def link_drive(db, fid: int, up: dict, parent: str, email: str) -> None:
     m["drive"] = {"id": up["id"], "name": up.get("name", ""), "parent": parent, "account": email}
     m["drive_out"] = {"id": up["id"], "url": up.get("url", ""), "account": email}
     db.set_setting(f"webhwp_meta:{int(fid)}", json.dumps(m, ensure_ascii=False))
+
+
+def download_options(fid: int, fmt: str = "hwpx") -> tuple[str, list[dict]]:
+    """채팅 답 아래 내려받기 단추 — 고른 형식이 먼저, 나머지 형식이 뒤(/hwp/{fid}/export). 모르는 형식은 hwpx. → (고른 형식, 단추들)"""
+    f_ = str(fmt or "hwpx").lower().strip().lstrip(".")
+    f_ = {"한글": "hwpx", "word": "docx", "워드": "docx"}.get(f_, f_)
+    if f_ not in FORMATS:
+        f_ = "hwpx"
+    order = [f_] + [k for k in FORMATS if k != f_]
+    return f_, [{"kind": "link", "text": f"{FORMATS[k][3]} 내려받기", "href": f"/hwp/{int(fid)}/export?fmt={k}"} for k in order]
+

@@ -2752,6 +2752,21 @@ def create_app(
 
     _EDIT_CONSENT = r"고쳐|수정|바꿔|정리|지워|삭제|맞춰|넣어|빼|추가|편집"   # 문서를 바꾸는 도구 — 담당자 요청 글에 이 뜻이 있을 때만
     _EXPORT_CONSENT = r"내보내|한글\s*파일|hwp|제출본|완성본"
+    _DOWNLOAD_CONSENT = r"내보내|내려\s*받|다운|받을\s*수|파일로|한글\s*파일|hwpx?|pdf|워드|word|docx|제출본|완성본"
+
+    def _hwp_export_links(session_id: int, hw, a: dict) -> str:
+        """기안기 작업본 내려받기 단추(hwpx·hwp·pdf·docx) — 고른 형식이 먼저. 받는 순간 공동 편집 칸 글까지 담는다(/hwp/{fid}/export)."""
+        from zzaimy.app import webhwp as _whx
+        from zzaimy.app import webhwp_export as _wex
+        fid = hw.fid()
+        f = _whx.get(db, fid) if fid else None
+        if not f:
+            return "이 대화에 이어진 한글 작업본이 없다 — 먼저 hwp_forms → hwp_start 로 작업본을 만든다."
+        fmt, opts_ = _wex.download_options(int(fid), str(a.get("format") or "hwpx"))
+        _set_options(session_id, opts_)
+        title = storage.title_of(f.get("name") or "") or "작업본"
+        return (f"「{title}」 을 {_wex.FORMATS[fmt][3]} 파일로 받을 수 있게 했습니다. 아래 단추를 누르면 지금 저장된 내용(함께 편집한 칸 글 포함)으로 내려받습니다. "
+                "다른 형식이 필요하면 옆 단추를 누르세요.")
     _COPY_CONSENT = r"작업본"
     _REWRITE_CONSENT = r"다시|새로|고쳐|수정|바꿔|보완|보강"
 
@@ -3872,6 +3887,12 @@ def create_app(
                 "args {} 또는 {section: 절 번호·이름(그 절만 글까지 — 긴 문서에서 뒤쪽 절을 읽을 때)}",
                 # section — 인자 없는 다시 읽기는 결과 한도(1,800자)에 앞 절만 보여, 같은 인자로 되풀이하다 막히던 일(11-18 운영 713)
                 lambda a_: _doc_review_text(hw, _review_scope(a_, q), docs=lambda: _fact_docs(None)) or "작업본이 없다."))
+            # 내려받기 — 기안기 작업본은 이미 한글 파일이라 변환 없이 주소만 준다. 구글 문서용 export_hwp 는 이 모드에서 빠져
+            # 「한글 파일로 내보내 줘」 에 안내 글만 돌아가던 일(11-28 남은 일)
+            tools.append(doc_agent.Tool(
+                "hwp_export", "작업본 내려받기(담당자가 내보내기·내려받기·파일로 달라고 했을 때만) — 답 아래에 내려받기 단추를 단다. "
+                "args {format: hwpx(기본)·hwp·pdf·docx 가운데 담당자가 말한 것}",
+                lambda a_: _hwp_export_links(session_id, hw, a_), final=True, consent=_DOWNLOAD_CONSENT))
         def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])

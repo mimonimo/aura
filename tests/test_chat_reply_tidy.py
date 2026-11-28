@@ -86,3 +86,25 @@ def test_value_form_is_reshown_from_pending_asks_with_jump(tmp_path):
     asks.set_pending(db, sid, [])
     page = client.get(f'/chat/{sid}').text
     assert 'id="chatValueForm"' not in page and 'data-jump-form' not in page
+
+
+def test_link_option_renders_download_anchor_only_for_local_paths(tmp_path):
+    """기안기 작업본 내려받기 단추(hwp_export) — 주소는 코드가 만든 사이트 안 경로만 그린다."""
+    client = _client(tmp_path)
+    db = client.app.state.db
+    sid = db.create_chat_session('합성 대화')
+    db.add_chat(sid, 'user', '한글 파일로 내보내 줘')
+    db.add_chat(sid, 'assistant', '받을 수 있게 했습니다.')
+    db.set_setting(f'chat_options:{sid}', json.dumps([
+        {'kind': 'link', 'text': '한글(hwpx) 내려받기', 'href': '/hwp/7/export?fmt=hwpx'},
+        {'kind': 'link', 'text': '바깥', 'href': 'https://evil.example/x'}], ensure_ascii=False))
+    page = client.get(f'/chat/{sid}').text
+    assert 'href="/hwp/7/export?fmt=hwpx" download>한글(hwpx) 내려받기</a>' in page
+    assert 'evil.example' not in page
+
+
+def test_download_options_put_asked_format_first():
+    from zzaimy.app.webhwp_export import download_options
+    fmt, opts = download_options(12, "PDF")
+    assert fmt == "pdf" and opts[0]["href"] == "/hwp/12/export?fmt=pdf" and len(opts) == 4
+    assert download_options(12, "워드")[0] == "docx" and download_options(12, "zip")[0] == "hwpx"

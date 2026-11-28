@@ -178,7 +178,8 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | hwp_table_clone | 서식의 예시 표처럼 모양(테두리·음영·합친 칸·열 비율)을 살릴 표를 바로 아래에 하나 더 둔다(칸 글 비우기 선택) | webhwp_edit_ops.table_clone — 표 XML 을 복제해 새 표 번호로 |
 | hwp_clear | 작업본의 표 칸·문단 글을 번호(「표2:3,2」「글5」)로 골라 비운다(자리·모양·필드는 둠). 올린 문서·작년 완성본에서 시작하면 hwp_start 가 남은 글 목록을 보이고, 담당자 요청에 비추어 남길 짜임(목차·절 제목·표 머리·항목 이름)과 비울 지난 내용(수치·값·이름·날짜·서술)을 27B 가 판단한다 — 요청 낱말로 나누지 않는다 | webhwp_edit_ops.clear_items·leftovers_text(_units: 표 칸과 표 밖 문단에 같은 번호) |
 | hwp_toc_pages | 목차 줄(제목 ······ 쪽 번호)의 숫자를 실제 쪽 나눔 결과에 맞춘다 | webhwp_edit_ops.toc_pages — 쪽을 나눠 본 결과로 목차 숫자만 바꾼다 |
-| hwp_review | 작업본 다시 읽기 — 전체(또는 짚은 절)의 글·표와 문제 후보(빈 표·빈칸·「확인 필요」·남은 안내 글·머리줄 없는 표·쉼표 없는 큰 수 등) | app/doc_review.review — 후보는 코드가 붙이고 고칠지는 27B 가 판단 |
+| hwp_review | 작업본 다시 읽기 — 전체(또는 짚은 절)의 글·표와 문제 후보(빈 표·빈칸·「확인 필요」·남은 안내 글·머리줄 없는 표·쉼표 없는 큰 수·같은 머리 열의 표끼리 다른 합 등) | app/doc_review.review — 후보는 코드가 붙이고 고칠지는 27B 가 판단 |
+| hwp_export | 작업본 내려받기 — 답 아래에 한글(hwpx)·한글(hwp)·PDF·Word 내려받기 단추(고른 형식이 먼저), 내보내기·내려받기 요청일 때만 | webhwp_export.download_options → /hwp/{fid}/export (공동 편집 칸 글을 먼저 파일에) |
 | hwp_page_number | 쪽 번호 위치·꼴(1·①·I·i·A·a·가)·줄표·시작 번호, 빼기 | 구역 첫 문단의 pageNum 조종 개체(기안기 저장본 꼴) |
 | hwp_header_footer | 머리말·꼬리말 글(정렬), 빈 글이면 뺌 | 구역 첫 문단의 header·footer(양쪽 쪽) |
 | hwp_page_break | 그 문단 앞에서 쪽 나누기(절 필드면 제목 앞) | 문단 pageBreak |
