@@ -910,3 +910,14 @@ def test_validate_keeps_same_number_written_differently():
         assert kept[0]["지출액(원)"] == "2100000", v
     kept, _ = fl.validate([{"세목": "운영비", "지출액(원)": "2,200,000원", "quote": q}], ["세목", "지출액(원)"], doc)
     assert kept[0]["지출액(원)"] == ""
+
+
+def test_validate_blanks_value_with_other_unit_kind():
+    """45차 B 짧게: 결과서의 「지역 기관 1곳」 이 집행액(천원) 에 들어가 세목 합계가 51,600,001 이 됐다."""
+    doc = "지역 기관 1곳과 업무협약을 맺었다. 참석자는 64명이었다."
+    items = ["집행액(천원)", "참석자(명)"]
+    kept, _ = fl.validate([{"집행액(천원)": "1곳", "참석자(명)": "64명", "quote": doc}], items, doc)
+    assert kept[0]["집행액(천원)"] == "" and kept[0]["참석자(명)"] == "64명"
+    assert fl._unit_clash("집행액(천원)", "2,100,000원") is False
+    assert fl._unit_clash("참석자(명)", "64") is False
+    assert fl._unit_clash("참석자(명)", "3건") is True

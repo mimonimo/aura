@@ -536,6 +536,7 @@ class HwpTools:
         self.project = project
         self.project_docs = project_docs            # () -> 프로젝트·대화 문서 목록(dict)
         self.writes = 0
+        self.start_text: tuple[int, str] | None = None   # (작업본 id, 요청 시작 때 글) — remember_start
         self.evidence = None                        # () -> [근거 글] — 수치 관문에 쓰는 근거(요청·찾은 근거·담당자 글). None 이면 수치 관문 끔
         self.client = None                          # 문맥 한도를 읽을 연결(관문의 길이 상한) — None 이면 기본 한도
         self.delegating = False                     # 절 맡기기 도구가 켜졌는가(상태 글·직접 쓰기 관문의 안내)
@@ -1680,7 +1681,9 @@ class HwpTools:
                     + (f" 예시 글자 그대로라 넣지 않았다(모르면 비워 두고 ask_user): {', '.join(fake)}." if fake else "") + ask
                     + ("" if long_ or fake or person or misfit or inst_blank or rowed or unsup or multi or split_note else " values 가 비었다(절 필드는 hwp_write 로 쓴다)."))
         from zzaimy.app import webhwp_coedit as ce
-        have = {x["name"] for x in ww.fields(Path(f["path"]).read_bytes())}
+        _flds = ww.fields(Path(f["path"]).read_bytes())
+        have = {x["name"] for x in _flds}
+        prev_txt = {x["name"]: str(x.get("text") or "").strip() for x in _flds}      # 덮어쓴 값을 알리려고 — 넣기 전 칸 글
         miss_vals = {k: v for k, v in values.items() if k not in have}
         values = {k: v for k, v in values.items() if k in have}
         # 필드가 없는 이름은 표의 라벨 칸(「대 학 명」「성 명」「URL」) 옆 빈 칸에 — 누름틀 없는 신청서·현황표가 많다(11-12 특성화 신청서:
@@ -1710,6 +1713,35 @@ class HwpTools:
             if lab_done:
                 return "채웠다: 없음" + lab_txt + miss_txt
             return "그런 필드가 없다 — hwp_fields 의 이름을 그대로 쓰거나, 표 칸이면 라벨 앞 낱말까지(「총괄책임자 성명」) 준다." + miss_txt
+        # 값이 든 칸을 덮지 않는다 — 행 이름 칸 필드는 그 행의 첫 값 칸이라, 같은 행의 빈 칸(달성치·구성비)에 넣으려던 값이 이미 채운
+        # 칸(목표치·집행액)을 덮었다(45차 B 짧게: 목표 250 → 171, B 한번에: 운영비 22,700 → 44.0). 덮을지는 모델이 정한다 — 빈 칸에 넣을
+        # 바로 부를 인자를 보이고, 그 칸을 고치는 것이 맞으면 hwp_table_edit 로 그 칸을 짚어 고친다
+        kept = []
+        try:
+            from zzaimy.app import webhwp_edit_ops as _eo5
+            raw_k = Path(f["path"]).read_bytes()
+            for k in [k for k in values if k.startswith("칸:")]:
+                old_ = prev_txt.get(k, "")
+                new_ = str(values[k]).strip()
+                if not re.search(r"\d", old_) or "확인 필요" in old_ or _placeholder(old_) or re.sub(r"\s", "", old_) == re.sub(r"\s", "", new_):
+                    continue
+                pos_ = _eo5.field_cell_pos(raw_k, k)
+                if not pos_ or not pos_["heads"]:
+                    continue
+                empt = [j for j in range(pos_["c"] + 1, len(pos_["row"]))
+                        if not pos_["row"][j].strip() or "확인 필요" in pos_["row"][j]]
+                if not empt:
+                    continue
+                j = empt[0]
+                args_ = json.dumps({"table": pos_["no"], "op": "set_cells", "start": [pos_["r"] + 1, j + 1], "values": [[new_]]}, ensure_ascii=False)
+                kept.append(f"{k.split(':', 1)[-1]}=「{new_[:20]}」(그 칸은 표{pos_['no']} {pos_['r'] + 1}행 「{pos_['head'] or '?'}」 열 — 이미 「{old_[:20]}」. "
+                            f"같은 행의 빈 「{pos_['heads'][j] or '?'}」 열이면 hwp_table_edit {args_})")
+                values.pop(k)
+        except Exception:
+            kept = []
+        kept_txt = (" · 값이 든 칸이라 덮지 않음: " + " / ".join(kept[:6]) + " — 그 칸을 고치는 것이 맞으면 hwp_table_edit set_cells 로 그 칸을 짚는다") if kept else ""
+        if not values:
+            return "채웠다: 없음" + kept_txt + lab_txt + miss_txt
         # 사람과 같은 길 — 임대 확인·판 번호·알림(열린 편집 화면의 같은 칸에 바로) 뒤 한글 파일에 써 넣는다(고친 사람 AURA)
         done, held = ce.put(self.db, fid, ce.AGENT, values, base=self.base, client="aura-agent")
         if not done and not held:
@@ -1745,7 +1777,14 @@ class HwpTools:
         try:                                                # 표 안 칸은 어느 열에 들어갔는지 — 목표 열에 실적을 넣고도 몰랐다(11-23 녹화 11)
             from zzaimy.app import webhwp_edit_ops as _eo4
             raw_w = Path(webhwp.get(self.db, fid)["path"]).read_bytes()
-            ws_ = [f"{k.split(':', 1)[-1]} → {w}" for k in done[:6] if k.startswith("칸:") for w in [_eo4.field_cell_where(raw_w, k)] if w]
+            def _over(k: str) -> str:
+                # 이미 값이 있던 칸을 다른 값으로 덮었으면 옛 값을 함께 보인다 — 45차 B 짧게(11-29): 달성치를 넣은 칸이 목표치 열이라
+                # 목표 250 을 덮고, 되돌릴 값이 무엇이었는지 관찰에 없었다
+                o_ = prev_txt.get(k, "")
+                if not o_ or o_ == str(values.get(k, "")).strip() or "확인 필요" in o_ or _placeholder(o_):
+                    return ""
+                return f"(전에 있던 「{o_[:30]}」 을 덮었다)"
+            ws_ = [f"{k.split(':', 1)[-1]} → {w}{_over(k)}" for k in done[:6] if k.startswith("칸:") for w in [_eo4.field_cell_where(raw_w, k)] if w]
             if ws_:
                 where_txt = " · 넣은 자리: " + " / ".join(ws_) + " — 열이 맞는지 본다(다른 열이면 hwp_table_edit set_cells 로 그 열에 넣는다)"
             # 천원·만원 단위 열에 원 단위 금액이 그대로 들어갔다 — 41차 B 짧게(11-28): 칸:강사료 에 11,400,000 이 집행액(천원) 열로 들어가고
@@ -1770,7 +1809,7 @@ class HwpTools:
                               + json.dumps({"values": {k.split(':', 1)[-1]: v for k, v in slips_.items()}}, ensure_ascii=False))
         except Exception:
             pass
-        return (f"채웠다: {', '.join(done) or '없음'}" + where_txt + echo_txt + lab_txt + miss_txt
+        return (f"채웠다: {', '.join(done) or '없음'}" + where_txt + echo_txt + kept_txt + lab_txt + miss_txt
                 + (f" · 담당자가 지금 쓰는 칸이라 넣지 않음(끝나면 다시): {', '.join(held)}" if held else "")
                 + (f" · 긴 글·표라 넣지 않음 — hwp_write(field=칸 이름)로: {', '.join(long_)}" if long_ else "")
                 + (f" · 예시 글자라 넣지 않음(모르면 ask_user): {', '.join(fake)}" if fake else "")
@@ -2197,7 +2236,20 @@ class HwpTools:
             ev.append(self.form_text())
         except Exception:
             pass
+        st = getattr(self, "start_text", None)
+        if st and st[0] == self.fid() and st[1]:
+            # 이번 요청을 시작할 때 작업본에 있던 글 — 앞 요청에서 관문을 지나 들어간 값이다. 이번 요청에서 잘못 덮은 칸을 되돌리는 값이
+            # 지금 작업본에도 이번 요청 근거에도 없어 막혔다(45차 B 짧게, 11-29: 앞 요청에서 찾아 넣은 목표치 250·120)
+            ev.append(st[1])
         return ev
+
+    def remember_start(self) -> None:
+        """요청 시작 때 작업본 글을 적어 둔다(수치 관문 근거) — 작업본이 없으면 비운다."""
+        try:
+            fid = self.fid()
+            self.start_text = (fid, self.form_text()) if fid else None
+        except Exception:
+            self.start_text = None
 
     def numbers_gate(self, text: str) -> str | None:
         """표 도구(표 만들기·표 고치기)로 넣는 값의 수치 관문 — 본문(check_body)과 같은 근거로 대조한다. 통과면 None.

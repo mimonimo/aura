@@ -935,6 +935,26 @@ def list_tables(doc: _Doc) -> list[dict]:
     return out
 
 
+def field_cell_pos(data: bytes, name: str) -> dict | None:
+    """표 칸 필드의 자리 — {no, r, c(0부터), head: 그 열 머리, heads: 첫 행, row: 그 행 칸 글}. 표 밖 칸이면 None."""
+    try:
+        doc = _Doc(data)
+        n, pos = _find_field(doc, name)
+        for t in list_tables(doc):
+            if t.get("outer") or t["sec"] != n or not (t["s"] <= pos < t["e"]):
+                continue
+            tb = _Table(_table_xml(doc, t))
+            want = _resolve_field(doc, name)
+            for c in tb.cells:
+                if any(_unq(f.group(2)) == want for f in _FIELD.finditer(c["xml"])):
+                    heads = [_cell_text(tb, 0, j) for j in range(tb.nc)] if c["r"] > 0 and tb.nc >= 3 else []
+                    return {"no": t["no"], "r": c["r"], "c": c["c"], "head": heads[c["c"]] if heads else "",
+                            "heads": heads, "row": [_cell_text(tb, c["r"], j) for j in range(tb.nc)]}
+    except Exception:
+        return None
+    return None
+
+
 def field_cell_where(data: bytes, name: str) -> str:
     """표 칸 필드가 표의 어느 행·열에 있는지와 그 행의 지금 값 — 「표4 2행 「목표」 열 · 지금 행: 교육 이수 인원 | 264 | 264 | 88.0」.
     11-23 3차 녹화 11: 칸 「교육 이수 인원(명)」 이 목표 열에 있었는데 실적 값을 넣어 목표·실적이 같아졌다 — 채운 칸이 어느 열인지

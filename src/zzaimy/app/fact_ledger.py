@@ -187,6 +187,28 @@ def _sentence(v: str, text: str) -> str:
     return text or ""
 
 
+_COUNT_UNITS = ("명", "건", "곳", "회", "개", "개소", "차시", "시간", "%")
+
+
+def _unit_kind(u: str) -> str:
+    u = re.sub(r"\s", "", u or "")
+    if not u:
+        return ""
+    if u.endswith("원") or u in ("천", "만", "억", "백만"):
+        return "돈"
+    return u if u in _COUNT_UNITS else ""
+
+
+def _unit_clash(item: str, v: str) -> bool:
+    """항목 이름 끝 괄호의 단위(「집행액(천원)」「참석자(명)」)와 값 끝 단위의 갈래가 다른가 — 돈 항목에 「1곳」, 인원 항목에 「3건」.
+    45차 B 짧게(11-29): 결과서의 「지역 기관 1곳」 이 집행액(천원) 으로 모여 세목 합계가 51,600,001 이 됐다. 값에 단위가 없으면 보지 않는다."""
+    m = re.search(r"\(([^()]*)\)\s*$", str(item or ""))
+    a = _unit_kind(m.group(1)) if m else ""
+    vm = re.search(r"\d\s*([가-힣%]+)\s*$", str(v or ""))
+    b = _unit_kind(vm.group(1)) if vm else ""
+    return bool(a and b and a != b)
+
+
 def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list[dict], int]:
     """인용이 문서에 그대로 있고, 비지 않은 값이 모두 문서에 있으며 인용에 값이 하나 이상 든 기록만. (남긴 기록, 버린 수)"""
     body = _norm(doc_text)
@@ -230,7 +252,8 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
             hit = next((nums_[w] for w in wons if w in nums_), None)
             if hit:
                 vals[k] = hit
-        off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body) or _label_clash(k, v, body, items))]
+        off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body) or _label_clash(k, v, body, items)
+                                                    or _unit_clash(k, v))]
         for k in off:
             vals[k] = ""
         if not any(v and _norm(v) in span for v in vals.values()):

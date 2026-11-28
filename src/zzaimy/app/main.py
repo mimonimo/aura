@@ -3847,6 +3847,7 @@ def create_app(
             from zzaimy.verify.numbers import given as _given     # 담당자가 쓴 글은 숫자+단위만 맞으면 근거(수치 맥락 대조)
             hw.evidence = lambda: [_given(q), *notes, _fl_ev.evidence_text(db, session_id),
                                    *[_given(m_.get("content")) for m_ in db.list_chats(session_id, limit=400) if m_.get("role") == "user"]]
+            hw.remember_start()
             from zzaimy.app import delegate as _dg
             if _dg.enabled():
                 # 절 맡기기(ADR-0065 4번) — 맡길지는 에이전트가 상태 글(남은 문맥·빈 절·남은 단계)을 보고 정한다
