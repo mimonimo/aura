@@ -680,9 +680,10 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     "앞 대화의 답을 되풀이하지 않는다 — 지금 작업본에 요청한 내용이 아직 없으면 쓰기 도구(hwp_revise·hwp_write 등)로 지금 하고, "
                     "이미 있거나 할 수 없으면 그 사실(무엇을 왜 못 했는지)대로 finish 한다.")
         elif (name == "finish" and review is not None and changed and not fix_checked
-              and (_miss := unbacked_fixes(str(args.get("message") or ""), _review_text(review)))):
+              and (_miss := (unbacked_fixes(str(args.get("message") or ""), _review_text(review))
+                             or unbacked_figures(str(args.get("message") or ""), _review_text(review))))):
             fix_checked = True                                         # 한 번만 — 실제로 고치거나 끝맺음을 고쳐 쓰면 받는다
-            note = ("끝맺음에 고쳤다고 적은 값 " + ", ".join(f"「{x[:30]}」" for x in _miss[:4]) + " 이(가) 지금 작업본에 없다 — "
+            note = ("끝맺음에 고쳤다·채웠다고 적은 값 " + ", ".join(f"「{x[:30]}」" for x in _miss[:4]) + " 이(가) 지금 작업본에 없다 — "
                     "그 칸을 실제로 고친 뒤(hwp_table_edit set_cells 등) 마치거나, 고치지 않았으면 끝맺음에서 그 말을 뺀다.")
         elif name == "finish" and review is not None and changed and not reviewed and (_rv := _review_text(review)):
             reviewed = True                                            # 쓴 요청을 마치기 전 한 번 — 작업본을 다시 읽고 27B 가 판단해 고친다(doc_review)
@@ -850,6 +851,32 @@ def unbacked_fixes(message: str, review_txt: str) -> list[str]:
                 out.append(m.group(1).strip())
                 break
     return list(dict.fromkeys(out))
+
+
+def _doc_part(review_txt: str) -> str:
+    if "\n지금 문서 전체:" in review_txt or "\n이번에 쓴 절의 글:" in review_txt:
+        return re.split(r"\n(?:지금 문서 전체|이번에 쓴 절의 글):", review_txt, maxsplit=1)[-1]
+    return review_txt.split("문서 전체다:", 1)[-1].split("절별 모습:", 1)[0]
+
+
+def unbacked_figures(message: str, review_txt: str) -> list[str]:
+    """끝맺음이 채웠다고 적은 금액·비율(자리 쉼표나 소수점이 든 수) 가운데 지금 작업본 글에 없는 것 — 그 수가 든 구절.
+    11-29 46차 B 짧게: 「사업비 집행 현황(…합계 51,600천원)을 채웠고」 라고 마쳤지만 작업본엔 합계 행도 총 집행액 문장도 없었다.
+    묻는 값·확인 필요를 적은 구절은 뺀다(문서에 없는 것이 맞다)."""
+    doc = _doc_part(review_txt)
+    if not doc.strip() or not _CLAIM.search(message or ""):
+        return []
+    have = {re.sub(r"[,\s]", "", x).rstrip(".") for x in re.findall(r"\d[\d,.]*", doc)}
+    out = []
+    for seg in re.split(r"[\n·(]|,\s|\s-\s|(?<=[다요])\.\s", (message or "")[:3000]):
+        if re.search(r"확인 필요|알려|물|모르|없어|없다|못", seg):
+            continue
+        for v in re.findall(r"(?<![\d.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}\.\d+)(?![\d.,])", seg):
+            k_ = re.sub(r"[,\s]", "", v)
+            if k_ not in have and k_ + "000" not in have and k_ + "0000" not in have:   # 천원·만원으로 고쳐 적은 것은 같은 값
+                out.append(seg.strip()[:40])
+                break
+    return list(dict.fromkeys(out))[:4]
 
 
 def _claims_change(message: str) -> bool:
