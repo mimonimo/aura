@@ -652,6 +652,36 @@ class AgentResponder:
             out += rule_complete.quote_lines(gaps)
         return out
 
+    def _outside_answer(self, question: str, on_progress=None, on_partial=None) -> str:
+        """교내 문서에 근거가 없을 때 — 모델 지식으로 답하고, 모델이 확실하지 않다고 표시하면 인터넷으로. 교내 문서가 필요하다고 하면 빈 글."""
+        from zzaimy.app import web_search
+        try:
+            if on_progress:
+                on_progress("교내 문서에 근거가 없어 모델 지식으로 답하는 중")
+            res = web_search.answer_from_model(question, on_partial=on_partial)
+        except Exception:
+            return ""
+        route = res.get("route") or ""
+        if route == "rag" or not res.get("answer") or not res.get("marked"):
+            return ""                                    # 교내 문서가 필요하다고 했거나 표시가 없으면 넘어가지 않는다(보수적으로)
+        if on_partial:
+            try:
+                on_partial("")
+            except Exception:
+                pass
+        if route == "web":
+            try:
+                if on_progress:
+                    on_progress("교내 문서에 근거가 없어 인터넷에서 찾는 중")
+                res_w = web_search.answer_with_web(question, on_partial=on_partial)
+                if res_w.get("answer"):
+                    self.last_timing["route"] = "rag→web"
+                    return "교내 문서에서 관련 근거를 찾지 못해 인터넷에서 찾아 답했습니다.\n\n" + web_search.render(res_w)
+            except Exception:
+                pass
+        self.last_timing["route"] = "rag→model"
+        return "교내 문서에서 관련 근거를 찾지 못해 모델이 아는 내용으로 답했습니다.\n\n" + web_search.render_model(res)
+
     def answer(
         self,
         db: Database,
@@ -807,6 +837,14 @@ class AgentResponder:
             except Exception:
                 pass
         context = "\n\n".join(x for x in (ev_block, search_ctx) if x)
+        if (search_ctx.strip() == NO_EVIDENCE_NOTE.strip() and not ev and not attachment_text
+                and scope.get("role") != "student" and tuple(scope.get("levels") or ()) != ("student",)):
+            # 「RAG」 로 물었는데 교내 문서에 근거가 하나도 없다 — 코드·일반 상식·바깥 최신 사실이면 모델 지식·인터넷으로 이어 답한다
+            # (「일반」 → RAG·인터넷 전환의 반대 방향, 11-28). 모델이 「교내 문서가 필요한 질문」 이라고 표시하면 넘어가지 않고
+            # 「관련 근거를 찾지 못했습니다」 로 답한다 — 규정을 지어내지 않게
+            out_ = self._outside_answer(question, on_progress, on_partial)
+            if out_:
+                return out_
         # 실제 검색된 등록 문서의 근거. LLM 성공/실패와 무관하게 저장.
         def _mk(h: dict, origin: str, linkable: bool) -> dict:
             return {

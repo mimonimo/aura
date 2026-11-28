@@ -81,8 +81,8 @@ def test_registered_search_keeps_sources_and_missing_evidence_notice(monkeypatch
     assert agent.answer(SimpleNamespace(all_settings=lambda: {}), "참여 목표는?",
                         scope={"user": "staff", "dept": "학생처"}) == "검사 답변"
     assert [s["doc_id"] for s in agent.last_sources] == ([42] if found else [])
-    assert (responder.NO_EVIDENCE_NOTE in received[0]) == (not found)
-    assert (responder.WEAK_EVIDENCE_NOTE in received[0]) == weak
+    assert (responder.NO_EVIDENCE_NOTE in received[-1]) == (not found)     # 근거가 없으면 모델 지식 확인이 먼저 간다(표시가 없어 넘어가지 않음)
+    assert (responder.WEAK_EVIDENCE_NOTE in received[-1]) == weak
 
 
 @pytest.mark.parametrize("weak", [True, False])
@@ -106,3 +106,32 @@ def test_weak_regulations_dropped_when_grant_documents_answer(monkeypatch, weak)
     assert "2017년 연수 개요 본문" in received[0]
     assert ("AID 계획" in received[0]) == (not weak)
     assert responder.WEAK_EVIDENCE_NOTE not in received[0]
+
+
+@pytest.mark.parametrize("mark,expect", [("[인터넷 확인: 불필요]", "model"), ("[인터넷 확인: 필요]", "web"),
+                                         ("[인터넷 확인: 교내 문서]", "rag"), ("", "rag")])
+def test_rag_without_evidence_hands_over_to_model_or_web(monkeypatch, mark, expect):
+    """「RAG」 로 물었는데 교내 문서에 근거가 없으면 — 모델이 표시한 대로 모델 지식·인터넷으로 이어 답하고, 교내 문서가 필요하다거나
+    표시가 없으면 넘어가지 않는다(11-28 「일반/RAG 도 자동 전환」)."""
+    from zzaimy.app import regulations, responder, web_search
+    from zzaimy.generate import client
+
+    def create(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="for 문 두 개로 씁니다.\n" + mark))])
+    monkeypatch.setattr(regulations, "find_relevant", lambda db, q, **scope: [])
+    fake = SimpleNamespace(model="fake", _extra={}, client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    monkeypatch.setattr(client, "VllmClient", lambda **kwargs: fake)
+    monkeypatch.setattr(web_search, "answer_with_web", lambda q, **kw: {"answer": "웹 답 [1]", "sources": [{"n": 1, "title": "t", "url": "https://e.x/"}]})
+    agent = responder.AgentResponder()
+    out = agent.answer(SimpleNamespace(all_settings=lambda: {}), "구구단 짜 줘", scope={"user": "staff", "dept": "학생처"})
+    if expect == "model":
+        assert out.startswith("교내 문서에서 관련 근거를 찾지 못해 모델이") and "for 문 두 개" in out
+    elif expect == "web":
+        assert out.startswith("교내 문서에서 관련 근거를 찾지 못해 인터넷") and "웹 답 [1]" in out
+    else:
+        assert not out.startswith("교내 문서에서 관련 근거를 찾지 못해")
+    # 학생은 넘어가지 않는다
+    if expect != "rag":
+        out_s = responder.AgentResponder().answer(SimpleNamespace(all_settings=lambda: {}), "구구단 짜 줘",
+                                                  scope={"user": "s", "role": "student", "levels": ("student",)})
+        assert not out_s.startswith("교내 문서에서 관련 근거를 찾지 못해")

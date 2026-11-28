@@ -508,7 +508,8 @@ def answer_from_model(question: str, client=None, max_tokens: int = 1200, histor
     raw = _complete(client, _context_messages(history) + [{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
                     0.3, max_tokens, on_partial)
     answer, route = _split_route(raw)
-    return {"answer": answer, "sources": [], "mode": "model", "offer_web": route == "web", "route": route}
+    return {"answer": answer, "sources": [], "mode": "model", "offer_web": route == "web", "route": route,
+            "marked": bool(_OFFER_MARK.search(raw or ""))}
 
 
 def render_model(result: dict) -> str:
