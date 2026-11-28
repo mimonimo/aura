@@ -102,6 +102,7 @@ class Tool:
     gathers: bool = False         # 근거를 찾는 도구(search)
     needs_evidence: bool = False  # 사실을 답하는 도구 — 이번 요청에서 찾기 전이면 한 번 먼저 찾게 한다
     refreshes: bool = False       # 다른 도구가 읽는 상태를 바꾸는 도구(실적 모으기) — 돌고 나면 앞서 본 결과·거절은 낡았다
+    obs_chars: int = 0            # 결과 한도(0 이면 OBS_CHARS) — 다시 읽기처럼 문서 전체를 보이는 도구는 넉넉히
 
 
 LAST_STEP = ("걸음 한도({max_steps})에 닿았다 — 이번이 마지막 걸음이고 문서를 바꾸는 도구는 더 쓸 수 없다. "
@@ -776,7 +777,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                    else "실패" if name in [f_["action"] for f_ in ep.failures[-1:]] and data else "하지 않음")
         log.append(_log_line(len(log) + 1, name, args, outcome))
         turns.append((json.dumps({"thought": step.get("thought"), "action": name, "args": args}, ensure_ascii=False),
-                      fenced(f"결과: {name}", data[:OBS_CHARS]) + (f"\n[안내] {note}" if note else "")))
+                      fenced(f"결과: {name}", data[:tool.obs_chars or OBS_CHARS]) + (f"\n[안내] {note}" if note else "")))
         if tool.final and done:
             ep.finished = True
             ep.stop = "finished"
@@ -833,7 +834,10 @@ def unbacked_fixes(message: str, review_txt: str) -> list[str]:
     """끝맺음이 「…6곳·75.0%로 바로잡았습니다」 처럼 고쳤다고 적은 값 가운데 지금 작업본 글에 없는 것.
     review_txt: 다시 읽기 자료(「문서 전체다:」 뒤 ~ 「절별 모습:」 앞이 작업본 글). 11-25 36차 B: 점검 요청에서 다른 칸은 고치고
     「지역 기관 연계 6곳·75.0%로 바로잡았다」 고 적었지만 그 칸은 쓰지 않아 3 이 남았다(바뀐 것이 있어 기존 점검을 지났다)."""
-    doc = review_txt.split("문서 전체다:", 1)[-1].split("절별 모습:", 1)[0]
+    if "\n지금 문서 전체:" in review_txt or "\n이번에 쓴 절의 글:" in review_txt:   # 지금 꼴 — 문서 글은 맨 뒤(후보의 수를 문서 값으로 읽지 않게)
+        doc = re.split(r"\n(?:지금 문서 전체|이번에 쓴 절의 글):", review_txt, maxsplit=1)[-1]
+    else:
+        doc = review_txt.split("문서 전체다:", 1)[-1].split("절별 모습:", 1)[0]
     if not doc.strip():
         return []
     have = {re.sub(r"[,\s]", "", x) for x in re.findall(r"\d[\d,.]*", doc)}

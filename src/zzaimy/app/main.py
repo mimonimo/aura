@@ -3886,7 +3886,8 @@ def create_app(
                 "머리줄 없는 표 등)를 본다. 문서를 점검·검토해 달라는 요청이면 먼저 이것으로 읽고, 고칠 것은 도구로 고친 뒤 finish. "
                 "args {} 또는 {section: 절 번호·이름(그 절만 글까지 — 긴 문서에서 뒤쪽 절을 읽을 때)}",
                 # section — 인자 없는 다시 읽기는 결과 한도(1,800자)에 앞 절만 보여, 같은 인자로 되풀이하다 막히던 일(11-18 운영 713)
-                lambda a_: _doc_review_text(hw, _review_scope(a_, q), docs=lambda: _fact_docs(None)) or "작업본이 없다."))
+                lambda a_: _doc_review_text(hw, _review_scope(a_, q), docs=lambda: _fact_docs(None)) or "작업본이 없다.",
+                obs_chars=6000))                                     # 후보·절별 모습·문서 글 — 1,800자 한도면 긴 문서에서 글이 끊긴다
             # 내려받기 — 기안기 작업본은 이미 한글 파일이라 변환 없이 주소만 준다. 구글 문서용 export_hwp 는 이 모드에서 빠져
             # 「한글 파일로 내보내 줘」 에 안내 글만 돌아가던 일(11-28 남은 일)
             tools.append(doc_agent.Tool(

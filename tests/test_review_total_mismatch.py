@@ -57,3 +57,10 @@ def test_ledger_label_rules_from_round40():
     doc2 = "지역 기관 2곳과 업무협약을 맺었다. 이 결과는 핵심지표 「지역 기관 연계」 달성치에 2곳으로 반영한다."
     kept2, _ = fl.validate([{"연계 기관": "지역 기관 2곳", "quote": "지역 기관 2곳과 업무협약을 맺었다."}], items, doc2)
     assert kept2[0]["연계 기관"] == "지역 기관 2곳"
+
+
+
+def test_unbacked_fixes_reads_only_document_part():
+    from zzaimy.app.doc_agent import unbacked_fixes
+    fake = "후보\n1. 「취업 연계」 문서 합 31\n\n지금 문서 전체:\n\n| 취업 연계 | 52 |"
+    assert unbacked_fixes("취업 연계를 31명으로 바로잡았습니다", fake) == ["31명"]

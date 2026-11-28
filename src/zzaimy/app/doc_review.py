@@ -425,10 +425,14 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
             outline.append("- (표지·요약): " + ", ".join(heads))
     issues = total_mismatches(all_tables, recs) + issues      # 표끼리 어긋난 합은 앞에 — 뒤로 밀려 MAX_ISSUES 에 잘리지 않게
     issues = list(dict.fromkeys(issues))[:MAX_ISSUES]
-    return (("마치기 전에 이번에 쓴 절을 다시 읽는다(나머지 절은 제목만):\n\n" if only else "마치기 전에 작업본을 처음부터 다시 읽는다. 아래가 지금 문서 전체다:\n\n") + full_text(data, only)
-            + "\n\n절별 모습:\n" + "\n".join(outline)
+    # 후보·안내를 문서 글보다 앞에 — 도구 결과 한도에 긴 문서 글이 먼저 차 후보가 잘리던 일(40차 A 한번에: 「취업 연계 52 → 문서 합 31」 후보를 못 봄)
+    head = ("마치기 전에 이번에 쓴 절을 다시 읽는다(나머지 절은 제목만)." if only else "마치기 전에 작업본을 처음부터 다시 읽는다.")
+    return (head
             + ("\n\n코드가 본 문제 후보(참고 — 실제 문제인지는 직접 읽고 판단한다):\n" + "\n".join(f"{i}. {x}" for i, x in enumerate(issues, 1))
-               if issues else "")
+               if issues else "\n\n코드가 본 문제 후보: 없음")
             + "\n\n담당자가 이 문서를 받았을 때 문제가 될 것을 찾는다 — 요청한 값이 빠지거나 다르게 들어간 곳, 요청한 꼴(한 행에 무엇을 적을지)과 다른 표, 다른 절에 들어간 글·표, "
               "남은 빈 표·빈칸·「확인 필요」, 어색하거나 틀린 글, 앞뒤가 맞지 않는 수치, 머리줄 없는 표. 고칠 것은 도구로 고친 뒤 finish 하고, "
-              "담당자에게 값을 받아야 하는 것만 finish 글에 적는다. 문제가 없으면 그대로 finish 한다.")
+              "담당자에게 값을 받아야 하는 것만 finish 글에 적는다. 문제가 없으면 그대로 finish 한다. "
+              "아래 문서 글이 중간에 끊겼으면 hwp_review {section: 절 이름} 으로 그 절을 읽는다."
+            + "\n\n절별 모습:\n" + "\n".join(outline)
+            + ("\n\n이번에 쓴 절의 글:\n\n" if only else "\n\n지금 문서 전체:\n\n") + full_text(data, only))

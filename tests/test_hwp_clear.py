@@ -270,3 +270,12 @@ def test_empty_form_table_with_same_first_head_elsewhere_is_found(monkeypatch):
     assert eo.empty_form_elsewhere(doc, "절:2. 추진 실적", [["구분", "내용"], ["가", "나"]]) is None
     filled = _hwpx(_p("2.1 월별 추진 실적", 2) + _table([form[0], ["3월", "워크숍", "24", "보고"], ["4월", "캠프", "42", "보고"]], 100))
     assert eo.empty_form_elsewhere(filled, "절:2. 추진 실적", new) is None
+
+
+def test_review_candidates_come_before_document_text():
+    """40차 A 한번에: 문서 글 → 후보 차례라 도구 결과 한도(1,800자)에 후보가 잘렸다 — 후보·안내가 앞, 문서 글은 맨 뒤."""
+    from zzaimy.app import doc_review
+    doc = _hwpx(_p("2.1 월별 추진 실적", 2) + _table(
+        [["월", "주요 활동", "참여 인원(명)"], ["4월", "협약", "-"], ["4월", "캠프", "42"], ["5월", "특강", "55"], ["5월", "방문", "2"]], 100))
+    out = doc_review.review(doc, "월마다 한 행으로 합계")
+    assert out.index("같은 이름이 여러 행") < out.index("절별 모습:") < out.index("지금 문서 전체:") < out.index("캠프")
