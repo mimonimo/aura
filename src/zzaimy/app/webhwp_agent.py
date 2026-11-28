@@ -496,6 +496,21 @@ def _flat_text(text: str) -> str:
     return re.sub(r"[\s*_`>#|]+", "", body)
 
 
+_ASK_SEC = re.compile(r"(?<![\d.])(\d{1,2}\.\d{1,2})\.?\s*(?:[~∼\-]\s*(\d{1,2}\.\d{1,2})\.?\s*)?절")
+_ASK_CH = re.compile(r"([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]{1,3})\s*장")
+
+
+def missing_numbers(request: str, names: list[str]) -> list[str]:
+    """요청이 짚은 장·절 번호(「1.1~1.3절」「Ⅰ장」) 가운데 작업본 필드 이름·위 제목에 없는 것.
+    11-26 대화 418: 작업본 절은 「가. 나. 다.」 인데 요청의 「1.1~1.3절」 을 찾아 검색만 일곱 번 되풀이하다 멈췄다."""
+    have = re.sub(r"\s+", "", " ".join(names))
+    want: list[str] = []
+    for m in _ASK_SEC.finditer(request or ""):
+        want += [g for g in m.groups() if g]
+    want += [m.group(1) for m in _ASK_CH.finditer(request or "")]
+    return [w for w in dict.fromkeys(want) if w not in have]
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -695,6 +710,9 @@ class HwpTools:
         late = self.late_form_line(fid)
         if late:
             lines.append(late)
+        mis_ = self.number_mismatch_line()
+        if mis_:
+            lines.append(mis_)
         others = [d for d in self.work_docs() if d["id"] != fid]
         cur_ = Path(f["name"]).stem
         orig_ = [d for d in others if _title_key(d["name"]) == _title_key(cur_)]
@@ -1376,7 +1394,8 @@ class HwpTools:
         if under:
             fl = [x for x in fl if under in _squash(_wb.path_text(paths.get(x["name"], []), 999) + " " + x["name"])]
             if not fl:
-                return f"「{a.get('under')}」 아래 필드가 없다 — under 를 빼고 전체를 보거나 장·절 번호(예: 「Ⅲ」「3.1.」)로 준다."
+                return (f"「{a.get('under')}」 아래 필드가 없다 — 이 작업본의 절 차례: {self.section_order()}. "
+                        "요청의 번호가 이 문서의 번호 체계와 다르면 차례로 맞춘다(첫째 번호 → (1) 절). 장·절 이름 일부로 under 를 줘도 된다.")
         lines, last, LIMIT = [], None, 160
         for i, x in enumerate(fl):
             pth = _wb.path_text(paths.get(x["name"], []))
@@ -1388,6 +1407,28 @@ class HwpTools:
                 last = pth
             lines.append(f"  {x['name']} — {'(비어 있음)' if not x['text'] else x['text'][:50]}")
         return "\n".join(lines)
+
+    def section_order(self) -> str:
+        """절 필드를 문서 차례로 ①②… — 요청 번호와 문서 번호 체계가 다를 때 차례로 맞추게 보인다."""
+        paths = self._paths()
+        at = {k: i for i, k in enumerate(paths)}
+        secs = sorted((x for x in self._fields() if x["kind"] == "절"), key=lambda x: at.get(x["name"], len(at)))
+        return ", ".join(f"({i}) {x['name'][2:][:30]}" for i, x in enumerate(secs[:12], 1))
+
+    def number_mismatch_line(self) -> str:
+        try:
+            chats = self.db.list_chats(self.sid)
+            req = next((str(c.get("content") or "") for c in reversed(chats) if c.get("role") == "user"), "")
+        except Exception:
+            return ""
+        paths = self._paths()
+        names = [x["name"] + " " + _wb.path_text(paths.get(x["name"], []), 999) for x in self._fields()]
+        miss = missing_numbers(req, names)
+        if not miss:
+            return ""
+        return (f"요청이 짚은 번호 {'·'.join('「' + m + '」' for m in miss)} 는 이 작업본 제목에 없다 — 작업본의 번호 체계가 다르다. "
+                f"절 차례: {self.section_order()}. 요청의 번호를 이 차례로 맞춰(예: 첫째 번호 → (1) 절) 그 절에 쓰고 맞춘 것을 답에 알린다. "
+                "같은 번호로 다시 찾지 않는다 — 짝이 분명하지 않을 때만 ask_user.")
 
     def _paths(self) -> dict[str, list[str]]:
         """필드마다 위 제목 사슬(webhwp_blocks.field_paths) — 파일이 바뀌지 않았으면 앞서 구한 것."""

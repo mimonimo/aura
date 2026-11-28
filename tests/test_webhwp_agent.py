@@ -313,3 +313,24 @@ def test_fill_scale_slip_offers_corrected_call(tmp_path, monkeypatch):
                                                          "자릿수만 다르다, 근거대로면 「120,000,000원」] — 모르는 값은 확인 필요") if "12,000,000" in md else None)
     out = hw.fill({"values": {"칸:사업명": "12,000,000원"}})
     assert "근거에 없는 수치라 넣지 않았다" in out and 'hwp_fill {"values": {"사업명": "120,000,000원"}}' in out
+
+
+def test_missing_numbers_from_request():
+    """11-26 대화 418: 작업본 절이 「가. 나. 다.」 인데 요청의 「1.1~1.3절」 로 검색만 되풀이 — 없는 번호를 알아챈다."""
+    names = ["절:가. 대내외 여건 분석 및 특성화 분야 선정", "절:나. 특성화 계획 및 추진 전략", "칸:대학명"]
+    assert wa.missing_numbers("Ⅰ장 1.1~1.3절을 써 줘", names) == ["1.1", "1.3", "Ⅰ"]
+    assert wa.missing_numbers("집행률 43.5% 로 써 줘", names) == []
+    assert wa.missing_numbers("1.1절 써 줘", ["절:1.1. 사업 개요"]) == []
+
+
+def test_state_lines_show_section_order_when_numbers_differ(tmp_path, monkeypatch):
+    app = _setup(tmp_path, monkeypatch)
+    db, base = app.state.db, Path(app.state.data_dir)
+    wt.ensure_all(db, base)
+    hw = wa.HwpTools(db, base, 80, "kim", "기획처", {"id": 1, "name": "AI 사업"}, lambda: [])
+    tid = next(line.split()[0] for line in hw.forms({"query": "예산 변경"}).splitlines() if "예산 변경" in line)
+    hw.start({"form": tid, "title": "예산 변경 신청서"})
+    db.add_chat(80, "user", "Ⅸ장 9.7~9.8절을 써 줘")
+    line = next((x for x in hw.state_lines() if x.startswith("요청이 짚은 번호")), "")
+    assert "「9.7」" in line and "「Ⅸ」" in line and "절 차례:" in line
+    assert "절 차례:" in hw.fields({"under": "9.7"})
