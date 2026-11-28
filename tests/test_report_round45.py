@@ -78,3 +78,16 @@ def test_past_lines_from_real_shape():
         z.writestr("Contents/section0.xml", xml)
     got = d.past_lines(b.getvalue())
     assert any("집행률" in x[1] for x in got)
+
+
+def test_repeated_review_issue_is_marked(tmp_path, monkeypatch):
+    """B 짧게: 두 표 합 후보를 두 요청 내내 보고도 그대로 마쳤다 — 앞 다시 읽기와 같은 후보에 표시."""
+    from zzaimy.app import main as m
+    hw = _hw(tmp_path, monkeypatch)
+    t = ("마치기 전에.\n\n코드가 본 문제 후보(참고):\n1. 표2 합 300 과 표4 합 315 이 다르다\n2. 빈 칸이 있다\n\n담당자가…\n\n지금 문서 전체:\n\n1. 사업 개요")
+    first = m._mark_repeated_issues(hw.db, 5, t)
+    assert "앞 다시 읽기에도" not in first
+    t2 = t.replace("2. 빈 칸이 있다", "2. 다른 후보")
+    second = m._mark_repeated_issues(hw.db, 5, t2)
+    assert "315 이 다르다 [앞 다시 읽기에도" in second and "다른 후보 [" not in second
+    assert second.rstrip().endswith("1. 사업 개요")

@@ -213,6 +213,40 @@ def _review_scope(a: dict, request: str) -> str:
     return f"{sec}절" if sec.isdigit() else (sec if re.match(r"\d{1,2}\.", sec) else f"「{sec}」")
 
 
+def _mark_repeated_issues(db, fid: int, text: str) -> str:
+    """문제 후보 가운데 앞 다시 읽기(앞 요청 포함)에도 같은 글로 나온 것에 표시를 붙인다 — 고치지도 까닭을 적지도 않고 넘어간 후보다.
+    45차 B 한번에·짧게(11-29): 「두 표 참석자 합 300·315」 후보를 두 요청 내내 보고도 다른 후보만 고치고 마쳤다. 고칠지·둘 다 맞다고
+    볼지는 모델이 정한다 — 둘 다 맞다고 보면 담당자가 알 수 있게 finish 글에 그 까닭을 적게 한다."""
+    import json as _json
+    key = f"review_issues:{int(fid)}"
+    try:
+        prev = set(_json.loads(db.get_setting(key, "[]") or "[]"))
+    except Exception:
+        prev = set()
+    lines, now = text.split("\n"), []
+    inside = False
+    for i, ln in enumerate(lines):
+        if ln.startswith("코드가 본 문제 후보("):
+            inside = True
+            continue
+        if not inside:
+            continue
+        m = re.match(r"^(\d{1,2})\. (.+)$", ln)
+        if not m:
+            break                                              # 후보 목록 끝 — 뒤의 문서 글(「1. 사업 개요」)은 후보가 아니다
+        body = m.group(2)
+        k_ = re.sub(r"\s+", " ", body)[:200]
+        now.append(k_)
+        if k_ in prev:
+            lines[i] = (ln + " [앞 다시 읽기에도 같은 후보였고 그대로다 — 고치거나, 그대로가 맞다고 보면 finish 글에 이 후보와 그대로 둔 까닭을 "
+                        "담당자에게 적는다]")
+    try:
+        db.set_setting(key, _json.dumps(now[:40], ensure_ascii=False))
+    except Exception:
+        pass
+    return "\n".join(lines)
+
+
 def _doc_review_text(hw, request: str, docs=None) -> str:
     """지금 작업본의 다시 읽기 자료(app/doc_review)."""
     from zzaimy.app import doc_review as _dr
@@ -260,6 +294,7 @@ def _doc_review_text(hw, request: str, docs=None) -> str:
         meta_ = {}
     out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts, recs=recs, start=meta_.get("past_cells") or meta_.get("start_cells"),
                        past=meta_.get("past_lines"))
+    out_ = _mark_repeated_issues(hw.db, fid, out_)
     try:                                                     # 지난 문서에서 시작한 작업본 — 글자가 그대로인 수 칸(작년 값이 남았을 수 있음)
         from zzaimy.app import webhwp_edit_ops as _eo_r
         same_ = _eo_r.numbers_from_start(raw_, meta_.get("start_cells") or meta_.get("start_texts"))
