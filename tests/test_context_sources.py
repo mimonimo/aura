@@ -121,13 +121,14 @@ def test_rag_without_evidence_hands_over_to_model_or_web(monkeypatch, mark, expe
     monkeypatch.setattr(regulations, "find_relevant", lambda db, q, **scope: [])
     fake = SimpleNamespace(model="fake", _extra={}, client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
     monkeypatch.setattr(client, "VllmClient", lambda **kwargs: fake)
-    monkeypatch.setattr(web_search, "answer_with_web", lambda q, **kw: {"answer": "웹 답 [1]", "sources": [{"n": 1, "title": "t", "url": "https://e.x/"}]})
+    monkeypatch.setattr(web_search, "answer_with_web", lambda q, **kw: (_ for _ in ()).throw(AssertionError("RAG 길에서 인터넷으로 보냈다")))
     agent = responder.AgentResponder()
     out = agent.answer(SimpleNamespace(all_settings=lambda: {}), "구구단 짜 줘", scope={"user": "staff", "dept": "학생처"})
     if expect == "model":
         assert out.startswith("교내 문서에서 관련 근거를 찾지 못해 모델이") and "for 문 두 개" in out
     elif expect == "web":
-        assert out.startswith("교내 문서에서 관련 근거를 찾지 못해 인터넷") and "웹 답 [1]" in out
+        # 밖으로는 바로 보내지 않는다 — 모델 지식으로 답하고 인터넷 찾기를 권한다(부르는 쪽이 사용자 질문으로 단추를 단다, 11-28 보안 검토)
+        assert out.startswith("교내 문서에서 관련 근거를 찾지 못해 모델이") and "웹 답" not in out and agent.last_offer_web
     else:
         assert not out.startswith("교내 문서에서 관련 근거를 찾지 못해")
     # 학생은 넘어가지 않는다

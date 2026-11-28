@@ -255,3 +255,16 @@ def test_route_mark_reads_school_documents():
     assert web_search._split_route("답.\n[인터넷 확인: 교내 문서]") == ("답.", "rag")
     assert web_search._split_route("답.\n[인터넷 확인: 필요]") == ("답.", "web")
     assert web_search._split_route("답.") == ("답.", "")
+
+
+def test_rag_without_evidence_offers_web_with_users_own_question(staff):
+    """RAG 에 근거가 없어 모델 지식으로 답했고 확인이 필요하다고 표시되면 — 바로 밖으로 보내지 않고, 사용자가 쓴 질문 그대로
+    「인터넷에서 찾아보기」 를 권한다(11-28 보안 검토)."""
+    app, r, login = staff
+    r.last_offer_web = True
+    kim = login("kim", "kim-pass")
+    sid = int(kim.post("/chat/send", data={"question": "올해 전문대학 수는?"}, follow_redirects=False).headers["location"].rsplit("/", 1)[1])
+    assert _wait(lambda: app.state.db.list_chats(sid)[-1]["role"] == "assistant")
+    page = kim.get(f"/chat/{sid}").text
+    chip = page.split('aria-label="다음 작업 제안"', 1)[1].split("</form>", 1)[0]
+    assert 'name="web" value="1"' in chip and 'value="올해 전문대학 수는?"' in chip

@@ -653,7 +653,7 @@ class AgentResponder:
         return out
 
     def _outside_answer(self, question: str, on_progress=None, on_partial=None) -> str:
-        """교내 문서에 근거가 없을 때 — 모델 지식으로 답하고, 모델이 확실하지 않다고 표시하면 인터넷으로. 교내 문서가 필요하다고 하면 빈 글."""
+        """교내 문서에 근거가 없을 때 — 모델 지식으로 답한다(밖으로 나가지 않음). 확실하지 않다고 표시하면 last_offer_web 을 켠다. 교내 문서가 필요하다고 하면 빈 글."""
         from zzaimy.app import web_search
         try:
             if on_progress:
@@ -664,21 +664,9 @@ class AgentResponder:
         route = res.get("route") or ""
         if route == "rag" or not res.get("answer") or not res.get("marked"):
             return ""                                    # 교내 문서가 필요하다고 했거나 표시가 없으면 넘어가지 않는다(보수적으로)
-        if on_partial:
-            try:
-                on_partial("")
-            except Exception:
-                pass
-        if route == "web":
-            try:
-                if on_progress:
-                    on_progress("교내 문서에 근거가 없어 인터넷에서 찾는 중")
-                res_w = web_search.answer_with_web(question, on_partial=on_partial)
-                if res_w.get("answer"):
-                    self.last_timing["route"] = "rag→web"
-                    return "교내 문서에서 관련 근거를 찾지 못해 인터넷에서 찾아 답했습니다.\n\n" + web_search.render(res_w)
-            except Exception:
-                pass
+        # 인터넷은 여기서 바로 찾지 않는다 — 이 길의 질문에는 에이전트가 고쳐 쓴 글(교내 문서 내용이 섞일 수 있다)이 들어오므로
+        # 밖으로 보내지 않고, 확인이 필요하다고 표시되면 부르는 쪽이 사용자가 쓴 질문으로 「인터넷에서 찾아보기」 를 권한다(11-28 보안 검토)
+        self.last_offer_web = route == "web"
         self.last_timing["route"] = "rag→model"
         return "교내 문서에서 관련 근거를 찾지 못해 모델이 아는 내용으로 답했습니다.\n\n" + web_search.render_model(res)
 
@@ -707,6 +695,7 @@ class AgentResponder:
         question = normalize_input(question)
 
         self.last_sources = []
+        self.last_offer_web = False
         self.last_flagged: list[str] = []
         self.last_model: dict = {}
         self.last_steps: list[str] = []

@@ -2201,6 +2201,9 @@ def create_app(
         except Exception:
             pass                    # 근거 기록이 실패해도 답변은 남긴다
         mid = db.add_chat(session_id, "assistant", answer)
+        if getattr(r, "last_offer_web", False) and not is_student:
+            # 교내 문서에 근거가 없어 모델 지식으로 답했고 확인이 필요하다고 표시됐다 — 사용자가 쓴 질문 그대로 인터넷 찾기를 권한다(누르면 보냄)
+            _set_options(session_id, [{"kind": "web", "text": "인터넷에서 찾아보기", "question": q, "web": "1"}])
         if getattr(r, "last_reasoning", ""):                    # 답 앞의 단계 추론 — 화면의 「생각 과정」 에서 펼쳐 본다
             db.set_setting(f"chat_cot:{int(mid)}", r.last_reasoning[:6000])
         _record_run(session_id, mid, "rag", r)
