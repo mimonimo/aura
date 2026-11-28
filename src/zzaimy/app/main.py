@@ -238,7 +238,7 @@ def _doc_review_text(hw, request: str, docs=None) -> str:
     if sid is not None:
         from zzaimy.app import fact_ledger as _fl
         led = lambda labels, heads, lh="": _fl.for_table(hw.db, int(sid), labels, heads, lh)   # noqa: E731
-    known = None
+    known, recs = None, None
     if sid is not None:
         try:
             from zzaimy.app import fact_ledger as _fl
@@ -254,7 +254,7 @@ def _doc_review_text(hw, request: str, docs=None) -> str:
             texts = [(storage.title_of(d_.get("filename") or ""), str(d_.get("masked_text") or "")) for d_ in (docs() or [])]
     except Exception:
         texts = None
-    out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts)
+    out_ = _dr.review(raw_, request, ledger=led, known=known, texts=texts, recs=recs)
     try:                                                     # 지난 문서에서 시작한 작업본 — 글자가 그대로인 수 칸(작년 값이 남았을 수 있음)
         from zzaimy.app import webhwp_edit_ops as _eo_r
         meta_ = _wh.meta(hw.db, fid) or {}

@@ -33,3 +33,14 @@ def test_sub_evidence_shows_library_note():
     d.search, d.quality = (lambda q: hits), False
     out = d._gather(["향후 계획"])
     assert "(문서함 자료(이 프로젝트에 올린 문서 아님)" in out[0] and "(" not in out[1].split("\n")[0]
+
+
+def test_mismatch_names_record_group_that_makes_the_difference():
+    recs = [{"과제": "지역 연계 강좌", "활동": "디지털 기초", "참석자(명)": "190명", "_doc": "디지털 기초 결과서"},
+            {"과제": "평생교육 네트워크", "활동": "정례 모임", "참석자(명)": "110명", "_doc": "정례 모임 결과서"}]
+    recs += [{"과제": "2026 가상 사업", "활동": f"운영위원회 {i}차", "참석자(명)": "운영위원 5명", "_doc": f"운영위원회 {i}차 회의 결과"}
+             for i in (1, 2, 3)]
+    a = [["추진 과제", "참석자(명)"], ["지역 연계 강좌", "190"], ["평생교육 네트워크", "110"]]
+    b = [["분기", "참석자(명)"], ["2분기", "200"], ["3분기", "115"]]
+    out = d.total_mismatches([("과제별", 2, a), ("분기별", 3, b)], recs)
+    assert "차이 15" in out[0] and "「과제」 가 「2026 가상 사업」 인 기록 3건" in out[0] and "《운영위원회 1차 회의 결과》" in out[0]

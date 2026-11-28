@@ -243,7 +243,43 @@ def column_totals(rows: list[list[str]]) -> dict[str, tuple[str, int]]:
     return out
 
 
-def total_mismatches(tables: list[tuple[str, int, list[list[str]]]]) -> list[str]:
+def _num(v) -> int | None:
+    """장부와 같은 수 읽기(「운영위원 5명」「1억 2천만 원」) — 정수만."""
+    from zzaimy.app.fact_ledger import number
+    d = number(str(v or "")) if v not in (None, "") else None
+    return int(d) if d is not None and d == int(d) else None
+
+
+def diff_groups(recs: list[dict] | None, head: str, diff: int) -> list[str]:
+    """차이와 합이 꼭 같은 기록 묶음 — 어느 갈래 기록이 한쪽 표에만 들었는지 보이는 재료(판단은 27B).
+    head 와 이름이 같은 기록 항목의 수를, 다른 글 항목(과제·분야 등)의 값마다 더해 diff 와 같은 묶음을 찾는다."""
+    if not recs or diff <= 0:
+        return []
+    hk = re.sub(r"\s+|\(.*?\)|합계|총", "", head)
+    cols = {k for r in recs for k in r if isinstance(k, str) and not k.startswith("_") and re.sub(r"\s+|\(.*?\)", "", k) == hk}
+    if not cols:
+        return []
+    col = sorted(cols)[0]
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for r in recs:
+        if _num(r.get(col)) is None:
+            continue
+        for k, v in r.items():
+            if (k in (col, "quote") or str(k).startswith("_") or not isinstance(v, str)
+                    or re.fullmatch(r"\s*[\d,.]+\s*[가-힣a-zA-Z%]{0,4}\s*", v) or re.match(r"\s*\d{4}\s*[.년\-/]\s*\d", v)):
+                continue                                     # 수만 든 값·날짜는 갈래가 아니다(「2026 가상 사업」 같은 이름은 갈래)
+            groups.setdefault((k, v.strip() or "(빈 칸)"), []).append(r)
+    out = []
+    for (k, v), rs in groups.items():
+        if len(rs) < len(recs) and sum(_num(r.get(col)) or 0 for r in rs) == diff:
+            docs = list(dict.fromkeys(str(r.get("_doc") or "") for r in rs if r.get("_doc")))
+            out.append(f"「{k}」 가 「{v[:30]}」 인 기록 {len(rs)}건(" + ", ".join(f"《{d[:24]}》" for d in docs[:3]) + (" 등" if len(docs) > 3 else "") + f")의 합이 꼭 {diff:,}")
+        if len(out) >= 2:
+            break
+    return out
+
+
+def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[dict] | None = None) -> list[str]:
     """머리 이름이 같은 수 열의 합이 표마다 다르면 후보 — 같은 대상을 다른 묶음(과제별·분기별 등)으로 나눈 표면 합이 같아야 한다.
     40차 B: 과제별 참석자 합 300, 분기별 합 315(운영위원회 기록 3건이 분기 묶음에만 섞였다)를 세 번 다 못 봤다. 판단은 27B."""
     seen: dict[str, tuple[str, int, str, int]] = {}
@@ -252,14 +288,17 @@ def total_mismatches(tables: list[tuple[str, int, list[list[str]]]]) -> list[str
         for key, (head, tot) in column_totals(rows).items():
             if key in seen and seen[key][3] != tot:
                 l0, t0, h0, v0 = seen[key]
-                out.append(f"표{t0}(「{l0}」)의 「{h0}」 합 {v0:,} 과 표{tno}(「{label}」)의 「{head}」 합 {tot:,} 이 다르다 — "
+                why_ = diff_groups(recs, head, abs(tot - v0))
+                out.append(f"표{t0}(「{l0}」)의 「{h0}」 합 {v0:,} 과 표{tno}(「{label}」)의 「{head}」 합 {tot:,} 이 다르다"
+                           + (f"(차이 {abs(tot - v0):,} — 모은 기록 가운데 " + "; ".join(why_) + ": 이 기록이 한쪽 표에만 들었을 수 있다)" if why_ else "") + " — "
                            "같은 대상을 다른 묶음으로 나눈 표라면 합이 같아야 한다. 한쪽 묶음에 다른 갈래의 기록이 섞였거나 빠졌는지 "
                            "aggregate_facts 를 같은 거르기(filt)로 다시 묶어 대 보고, 섞인 것이 맞으면 그 표를 고친다(본문 합계도 함께). 다른 대상을 센 표면 그대로 둔다.")
             seen.setdefault(key, (label, tno, head, tot))
     return out
 
 
-def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None, texts: list[tuple[str, str]] | None = None) -> str:
+def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None, texts: list[tuple[str, str]] | None = None,
+           recs: list[dict] | None = None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
     절 하나를 쓰는 요청에서 문서 전체를 읽히면 걸음이 길어진다 — 그 절만 글까지, 나머지는 절별 모습(표 머리줄)으로.
     known: 모은 기록의 이름 값·근거 문서 제목(띄어쓰기 뺀 글) — 대부분 칸이 그 이름인 열에서 홀로 모르는 이름(지어낸 활동)을 짚는다.
@@ -384,7 +423,7 @@ def review(data: bytes, request: str = "", ledger=None, known: set[str] | None =
             outline.append(f"- {label}: 문단 {len(paras)}개" + (", " + ", ".join(heads) if heads else ", 표 없음"))
         elif heads:
             outline.append("- (표지·요약): " + ", ".join(heads))
-    issues = total_mismatches(all_tables) + issues      # 표끼리 어긋난 합은 앞에 — 뒤로 밀려 MAX_ISSUES 에 잘리지 않게
+    issues = total_mismatches(all_tables, recs) + issues      # 표끼리 어긋난 합은 앞에 — 뒤로 밀려 MAX_ISSUES 에 잘리지 않게
     issues = list(dict.fromkeys(issues))[:MAX_ISSUES]
     return (("마치기 전에 이번에 쓴 절을 다시 읽는다(나머지 절은 제목만):\n\n" if only else "마치기 전에 작업본을 처음부터 다시 읽는다. 아래가 지금 문서 전체다:\n\n") + full_text(data, only)
             + "\n\n절별 모습:\n" + "\n".join(outline)
