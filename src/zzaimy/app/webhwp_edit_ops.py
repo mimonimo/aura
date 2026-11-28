@@ -4273,6 +4273,22 @@ class EditTools:
         except Exception:
             return ""
 
+    def _cross_total(self, fid: int, a: dict) -> str:
+        """set_cells 로 쓴 표의 수 열 합이 머리가 같은 다른 표 합과 다르면 쓴 자리에서 알린다(doc_review.table_total_issues). 고칠지는 27B."""
+        try:
+            if str(a.get("op") or "") != "set_cells" or not str(a.get("table") or "").lstrip("표").isdigit():
+                return ""
+            from zzaimy.app import doc_review as _dr
+            from zzaimy.app import fact_ledger as _fl
+            sid = getattr(self.hw, "sid", None)
+            recs = _fl.records(self.hw.db, int(sid)) if sid is not None else None
+            meta_ = webhwp.meta(self.hw.db, fid) or {}
+            got = _dr.table_total_issues(Path(webhwp.get(self.hw.db, fid)["path"]).read_bytes(), int(str(a["table"]).lstrip("표")),
+                                         recs, meta_.get("past_cells") or meta_.get("start_cells"))
+            return (" [표끼리 합] " + got[0]) if got else ""
+        except Exception:
+            return ""
+
     def _ledger_table(self, labels: list[str], heads: list[str], label_head: str = "") -> str:
         """행 이름·열 머리로 실적 장부를 묶어 본 결과(fact_ledger.for_table) — 관문에 막힌 손셈·「확인 필요」 칸 자리에서 보인다."""
         try:
@@ -4465,6 +4481,7 @@ class EditTools:
                 pass
         if name == "hwp_table_edit" and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
             out += self._ledger_hint(fid, a)
+            out += self._cross_total(fid, a)
         placed_, self._placed = getattr(self, "_placed", None), None
         if placed_ and name in ("hwp_table_edit", "hwp_table_insert") and not out.startswith(("바꾸지 않았다", "바뀐 것이 없다", "넣지 않았다")):
             out += self._misplaced(*placed_) or ""

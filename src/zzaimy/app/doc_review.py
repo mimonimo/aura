@@ -437,6 +437,23 @@ def total_mismatches(tables: list[tuple[str, int, list[list[str]]]], recs: list[
     return out
 
 
+def table_total_issues(data: bytes, tno: int, recs: list[dict] | None = None, start=None) -> list[str]:
+    """방금 쓴 표 tno 의 수 열 합이 머리 이름이 같은 다른 표 합과 다르면 그 후보(total_mismatches)만 — 쓴 자리에서 바로 보인다.
+    11-29 46차 B 기본·짧게: 끝 다시 읽기의 「과제별 300 · 분기별 315」 후보를 받고도 다른 일로 넘어갔다 — 분기 표를 쓰는 걸음에는 몰랐다."""
+    tables, n = [], 0
+    for name, xml in _sections(data):
+        for tb in _TBL.findall(xml):
+            n += 1
+            rows = _rows(tb)
+            if rows:
+                tables.append((name.split(":", 1)[-1], n, rows))
+    if not any(t_ == tno for _l, t_, _r in tables):
+        return []
+    # 쓴 표를 뒤로 — 후보 글이 「표A … 표{tno} …」 꼴로 나와 쓴 표가 늘 둘째 자리에 온다
+    tables = [t for t in tables if t[1] != tno] + [t for t in tables if t[1] == tno]
+    return [x for x in total_mismatches(tables, recs, start) if f"표{tno}(" in x]
+
+
 def review(data: bytes, request: str = "", ledger=None, known: set[str] | None = None, texts: list[tuple[str, str]] | None = None,
            recs: list[dict] | None = None, start=None, past=None) -> str:
     """다시 읽기 자료 — 요청한 절(짚지 않았으면 전체)의 글 + 절별 모습 + 코드가 본 문제 후보. 27B 가 읽고 판단한다.
