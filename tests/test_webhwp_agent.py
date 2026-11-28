@@ -334,3 +334,11 @@ def test_state_lines_show_section_order_when_numbers_differ(tmp_path, monkeypatc
     line = next((x for x in hw.state_lines() if x.startswith("요청이 짚은 번호")), "")
     assert "「9.7」" in line and "「Ⅸ」" in line and "절 차례:" in line
     assert "절 차례:" in hw.fields({"under": "9.7"})
+
+
+def test_amount_lines_convert_korean_units():
+    """40차 B 한번에: 「1억 2천만 원」 을 12,000,000원으로 읽음 — 코드가 셈한 원·천원 값을 상태에 보인다."""
+    out = wa.amount_lines("총 사업비는 1억 2천만 원이야. 예산은 3억 원, 홍보비 5천만 원, 인원 300명")
+    assert out[0] == "「1억 2천만 원」 = 120,000,000원 = 120,000천원 = 120백만원"
+    assert any(x.startswith("「3억 원」 = 300,000,000원") for x in out) and any("「5천만 원」 = 50,000,000원" in x for x in out)
+    assert wa.amount_lines("집행률 43.0%, 12명") == []

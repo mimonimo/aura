@@ -511,6 +511,24 @@ def missing_numbers(request: str, names: list[str]) -> list[str]:
     return [w for w in dict.fromkeys(want) if w not in have]
 
 
+_KO_AMOUNT = re.compile(r"\d[\d,]*(?:\.\d+)?\s*억(?:\s*\d[\d,]*\s*(?:천만|백만|천|백|만))*\s*(?:만\s*)?원"
+                        r"|\d[\d,]*(?:\.\d+)?\s*(?:천만|백만|만)\s*원")
+
+
+def amount_lines(text: str) -> list[str]:
+    """담당자 글의 한국어 단위 금액(「1억 2천만 원」)을 원·천원으로 셈한 줄 — 26·31·40차 B: 1억 2천만 원을 12,000,000원으로 읽고
+    관문에 걸려도 끝까지 그 값을 믿었다. 셈은 코드가(fact_ledger.number) 하고 보이기만 한다."""
+    from zzaimy.app.fact_ledger import number
+    out = []
+    for m in dict.fromkeys(x.group(0).strip() for x in _KO_AMOUNT.finditer(text or "")):
+        d = number(m)
+        if d is None or d < 10000 or d != int(d):
+            continue
+        n = int(d)
+        out.append(f"「{m}」 = {n:,}원" + (f" = {n // 1000:,}천원" if n % 1000 == 0 else "") + (f" = {n // 1000000:,}백만원" if n % 1000000 == 0 else ""))
+    return out[:6]
+
+
 class HwpTools:
     def __init__(self, db, base: Path, session_id: int, owner: str, dept: str, project: dict | None, project_docs):
         self.db, self.base, self.sid, self.owner = db, Path(base), int(session_id), owner
@@ -713,6 +731,12 @@ class HwpTools:
         mis_ = self.number_mismatch_line()
         if mis_:
             lines.append(mis_)
+        try:
+            amt_ = amount_lines(" ".join(str(c.get("content") or "") for c in self.db.list_chats(self.sid) if c.get("role") == "user"))
+        except Exception:
+            amt_ = []
+        if amt_:
+            lines.append("담당자 글의 금액(코드가 셈함 — 칸·표의 단위에 맞춰 이 값을 쓴다): " + "; ".join(amt_))
         others = [d for d in self.work_docs() if d["id"] != fid]
         cur_ = Path(f["name"]).stem
         orig_ = [d for d in others if _title_key(d["name"]) == _title_key(cur_)]

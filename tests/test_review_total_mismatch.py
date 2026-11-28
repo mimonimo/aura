@@ -44,3 +44,16 @@ def test_mismatch_names_record_group_that_makes_the_difference():
     b = [["분기", "참석자(명)"], ["2분기", "200"], ["3분기", "115"]]
     out = d.total_mismatches([("과제별", 2, a), ("분기별", 3, b)], recs)
     assert "차이 15" in out[0] and "「과제」 가 「2026 가상 사업」 인 기록 3건" in out[0] and "《운영위원회 1차 회의 결과》" in out[0]
+
+
+def test_ledger_label_rules_from_round40():
+    from zzaimy.app import fact_ledger as fl
+    items = ["날짜", "과제", "활동", "수료자", "상담 건수", "연계 기관", "참석자"]
+    doc = ("참석자는 27명이었고, 사후 설문에서 다수가 계속 참여 의사를 밝혔다. 기간 중 학습 상담 27건을 진행하였다. "
+           "이 결과는 핵심지표 「학습 상담」 달성치에 27건으로 반영한다.")
+    kept, _ = fl.validate([{"활동": "진로 탐색 워크숍", "수료자": "27명", "참석자": "27명", "상담 건수": "27건",
+                            "quote": "참석자는 27명이었고"}], items, doc)
+    assert kept[0]["수료자"] == "" and kept[0]["참석자"] == "27명" and kept[0]["상담 건수"] == "27건"
+    doc2 = "지역 기관 2곳과 업무협약을 맺었다. 이 결과는 핵심지표 「지역 기관 연계」 달성치에 2곳으로 반영한다."
+    kept2, _ = fl.validate([{"연계 기관": "지역 기관 2곳", "quote": "지역 기관 2곳과 업무협약을 맺었다."}], items, doc2)
+    assert kept2[0]["연계 기관"] == "지역 기관 2곳"

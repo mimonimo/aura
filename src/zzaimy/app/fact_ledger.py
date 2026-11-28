@@ -133,14 +133,41 @@ def _label_near(item: str, value: str, body: str, window: int = 50) -> bool:
     if len(words) < 2 or not re.search(r"\d", value or ""):
         return True
     v = _norm(value)
-    i, n = body.find(v), 0
-    while i >= 0 and n < 20:
-        before = body[max(0, i - window):i]
-        if all(w in before for w in words):
-            return True
-        i, n = body.find(v, i + 1), n + 1
+    # 「지역 기관 2곳」 처럼 낱말이 붙은 값은 수 부분(2곳)이 나온 자리도 보고, 값 안 낱말도 이름으로 친다 —
+    # 같은 문서의 「「지역 기관 연계」 달성치에 2곳」 자리를 보지 않아 연계 실적이 6→3 으로 빠질 수 있었다(40차 B 한번에)
+    m_ = re.search(r"\d[\d,.]*[가-힣%]{0,2}", v)
+    keys = list(dict.fromkeys([v] + ([m_.group(0)] if m_ and m_.group(0) != v else [])))
+    for key in keys:
+        i, n = body.find(key), 0
+        while i >= 0 and n < 20:
+            before = body[max(0, i - window):i] + (v if key != v else "")
+            if all(w in before for w in words):
+                return True
+            i, n = body.find(key, i + 1), n + 1
     return False
 
+
+def _item_words(item: str) -> list[str]:
+    return [w for w in re.findall(r"[가-힣A-Za-z]{2,}", re.sub(r"\([^)]*\)", " ", item)) if w not in _GENERIC_ITEM]
+
+
+def _label_clash(item: str, value: str, body: str, items: list[str], window: int = 12) -> bool:
+    """값 바로 앞(window 글자)에 요청한 다른 항목의 이름이 있고 이 항목의 이름은 없는가 — 문서가 그 값을 다른 항목으로 적었다.
+    40차 B 한번에: 「참석자는 27명」 을 「수료자=27명」 으로 뽑아 수료자 실적이 171→198 로 부풀었다(한 낱말 항목은 _label_near 가 보지 않는다).
+    값이 나온 자리 하나라도 이 항목 이름이 있거나 다른 항목 이름이 없으면 맞부딪침이 아니다."""
+    own = [w[:2] for w in _item_words(item)]
+    others = {w[:2] for it in items if it != item for w in _item_words(it)} - set(own)
+    v = _norm(value)
+    if not own or not others or not re.search(r"\d", v or ""):
+        return False
+    i, n, seen = body.find(v), 0, False
+    while i >= 0 and n < 20:
+        before = body[max(0, i - window):i]
+        if any(w in before for w in own) or not any(w in before for w in others):
+            return False
+        seen = True
+        i, n = body.find(v, i + 1), n + 1
+    return seen
 
 def _line_with(value: str, doc_text: str) -> str:
     """값(띄어쓰기 무시)이 든 문서 줄·문장 하나(200자 안) — 없으면 빈 글."""
@@ -184,7 +211,7 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
                     if len(_norm(cand)) >= 4 and _norm(cand) in body:
                         vals[k] = cand
                         break
-        off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body))]
+        off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body) or _label_clash(k, v, body, items))]
         for k in off:
             vals[k] = ""
         if not any(v and _norm(v) in span for v in vals.values()):
