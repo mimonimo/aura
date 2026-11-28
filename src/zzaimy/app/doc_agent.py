@@ -610,6 +610,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             _scope = ""
         key = name + ("@" + _scope if _scope else "") + json.dumps(args, ensure_ascii=False, sort_keys=True)
         done = False                                                   # 최종 도구가 실제로 일을 마쳤는가
+        n_changed = len(changed)                                       # 이 걸음이 작업본을 바꿨는가(끊긴 요청의 마무리 보고가 바꾼 것을 적는다)
         data, note = "", ""                                            # data: 도구·문서에서 온 글(울타리 안), note: 코드가 쓴 안내
         if tool.final and key in rejected and key not in final_retried:
             final_retried.add(key)                                     # 끝내기 관문(자리표시 되짚기·끝맺음 점검)은 한 번만 — 다시 내면 받는다(11-09 대화 165)
@@ -772,7 +773,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             repeats = 0
         obs = "\n".join(x for x in (note, data) if x)                # 기록용(episodes) — 모델에는 아래처럼 나눠 건넨다
         ep.steps.append({"thought": str(step.get("thought") or "")[:500], "action": name, "args": args, "observation": obs[:OBS_CHARS],
-                         "decide_s": decide_s, "run_s": run_s})
+                         "decide_s": decide_s, "run_s": run_s, **({"changed": True} if len(changed) > n_changed else {})})
         outcome = ("같은 걸음 — 거절" if duplicate else "막음 — 잇달아 바꾼 것 없음" if blocked else _summary(data) if done
                    else "실패" if name in [f_["action"] for f_ in ep.failures[-1:]] and data else "하지 않음")
         log.append(_log_line(len(log) + 1, name, args, outcome))

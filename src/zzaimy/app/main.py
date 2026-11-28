@@ -3970,6 +3970,18 @@ def create_app(
             left_s = [x["name"][2:] for x in fl_ if x["kind"] == "절" and not x["text"]]
             left_c = [re.sub(r"^(칸|표\d+):", "", x["name"]) for x in fl_ if x["kind"] != "절" and not x["text"]]
             msg = f"이번 요청에서 절·칸 {len(ok_)}곳을 썼습니다."
+            # 쓰기 말고 서식·쪽 설정·표 고치기만 하고 끊긴 요청 — 「0곳을 썼습니다」 대신 바꾼 것을 적는다
+            # (11-28 시나리오 202: 머리줄 색을 입힌 뒤 선택지 답이 형식 오류 세 번 → 「절·칸 0곳을 썼습니다」 와 빈 칸 안내만 남음)
+            other_ = [s_ for s_ in ep.steps if s_.get("changed") and s_ not in ok_]
+            if not ok_ and other_:
+                lines_ = []
+                for s_ in other_:
+                    t_ = re.sub(r"\b[a-z_]+=", "", str(s_.get("observation") or "").split("\n")[0]).strip()
+                    t_ = re.split(r"(?<=다)\.\s|(?<=다)\s—\s", t_)[0].rstrip(".")
+                    if t_ and t_ not in lines_:
+                        lines_.append(t_)
+                msg = "이번 요청에서 작업본을 고쳤습니다. 오른쪽 작업본에서 확인해 주세요.\n" + "\n".join(f"- {l_}" for l_ in lines_[:6])
+                left_s = left_c = []
             # 끝맺음 글을 쓴 뒤 마치기 전 다시 읽기로 더 고치다 끊긴 경우 — 그 글을 살린다(11-23 녹화 11: 좋은 점검 보고를 버리고 「2곳을 썼습니다」 만 남음)
             fins_ = [i_ for i_, s_ in enumerate(ep.steps) if s_.get("action") == "finish" and str((s_.get("args") or {}).get("message") or "").strip()]
             if fins_:

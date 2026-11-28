@@ -162,10 +162,13 @@ def _body_box(xml: str) -> tuple[int, int]:
     if not pg or not mg:
         return 0, 0
     g = {k: int(v) for k, v in re.findall(r'(\w+)="(\d+)"', mg.group(1))}
-    w = int(pg.group(1)) - g.get("left", 0) - g.get("right", 0)
-    h = int(pg.group(2)) - g.get("top", 0) - g.get("bottom", 0) - g.get("header", 0) - g.get("footer", 0)
+    pw, ph = int(pg.group(1)), int(pg.group(2))
     land = 'landscape="NARROWLY"' in xml[:pg.end() + 200] or 'landscape="1"' in xml[:pg.end() + 200]
-    return (h, w) if land and h > w else (max(w, 0), max(h, 0))
+    if land:              # 한글은 용지 너비·높이를 세로 기준으로 두고 방향만 바꾼다 — 가로면 긴 변이 폭(여백은 돌리지 않는다)
+        pw, ph = max(pw, ph), min(pw, ph)
+    w = pw - g.get("left", 0) - g.get("right", 0) - g.get("gutter", 0)
+    h = ph - g.get("top", 0) - g.get("bottom", 0) - g.get("header", 0) - g.get("footer", 0)
+    return max(w, 0), max(h, 0)
 
 
 def _off_chars(data: bytes) -> set[str]:

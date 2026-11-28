@@ -345,3 +345,18 @@ def test_command_queue_writers_hold_the_queue_lock():
     """명령 줄을 고치는 함수는 문서마다 잠금을 잡는다 — 함수를 끼워 넣다 push 의 @_queued 가 다른 함수로 옮겨 간 일(11-28 보안 검토)."""
     assert hasattr(eo.push, "__wrapped__")
     assert not hasattr(eo._resolve_step_fields, "__wrapped__")
+
+
+def test_landscape_refit_table_is_not_reported_as_too_wide():
+    # 11-28 시나리오 202: 가로로 바꾸며 본문 폭에 맞춘 표를 보기 검사가 「본문의 110%라 넘친다」 로 잘못 알려 표를 여섯 번 고쳤다
+    from zzaimy.app import webhwp_lint as wl
+    d, _ = eo.table_insert(_doc(), {"values": [["구분", "내용"], ["가", "나"]]})
+    d, msg = eo.page_setup(d, {"orientation": "가로"})
+    assert "새 폭으로" in msg
+    sec = _sec(d)
+    tbl = re.search(r"<hp:tbl\b.*?</hp:tbl>", sec, re.S).group(0)
+    assert not [p for p in wl.table_problems(tbl, sec) if p.startswith("폭이")]
+    bw, bh = wl._body_box(sec)
+    assert bw > bh                                   # 가로 쪽은 폭이 높이보다 넓다
+    wide = re.sub(r'(<hp:sz width=")(\d+)', lambda m: f"{m.group(1)}{int(int(m.group(2)) * 1.2)}", tbl, count=1)
+    assert [p for p in wl.table_problems(wide, sec) if p.startswith("폭이")]
