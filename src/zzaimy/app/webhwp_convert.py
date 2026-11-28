@@ -92,6 +92,12 @@ def work_form(data: bytes, ext: str, http=None, blank: bool = False, report: dic
     if blank:
         from zzaimy.app import form_blank
         if form_blank.looks_filled(hx):
+            if report is not None:                          # 비우기 전 수 칸 — 끝 다시 읽기가 「지난 문서에서는 두 표 합이 같았다」 를 보인다(doc_review.start_totals)
+                try:
+                    from zzaimy.app.webhwp_edit_ops import number_cells
+                    report["past_cells"] = number_cells(hx)
+                except Exception:
+                    pass
             hx, n = form_blank.blank_values(hx)
             if report is not None:
                 report["blanked"] = n

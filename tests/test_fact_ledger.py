@@ -899,3 +899,14 @@ def test_validate_keeps_value_converted_to_item_unit():
     assert kept[0]["집행액(천원)"] == "2100000" and "unverified" not in kept[0]
     assert kept[1]["집행액(천원)"] == "3150000"
     assert kept[2]["집행액(천원)"] == "" and kept[2]["unverified"] == ["집행액(천원)"]
+
+
+def test_validate_keeps_same_number_written_differently():
+    """44차: 「지출액(원)」 2100000 을 「2,100,000원」 처럼 글꼴만 달리 적은 값이 비워졌다."""
+    doc = "2026.05.12 | 성인 학습자 지원 | 운영비 | 학습 설계 상담 주간 | 2100000\n"
+    q = doc.strip()
+    for v in ("2,100,000원", "210만 원", "2100000"):
+        kept, _ = fl.validate([{"세목": "운영비", "지출액(원)": v, "quote": q}], ["세목", "지출액(원)"], doc)
+        assert kept[0]["지출액(원)"] == "2100000", v
+    kept, _ = fl.validate([{"세목": "운영비", "지출액(원)": "2,200,000원", "quote": q}], ["세목", "지출액(원)"], doc)
+    assert kept[0]["지출액(원)"] == ""

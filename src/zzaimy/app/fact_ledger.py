@@ -215,17 +215,21 @@ def validate(records: list[dict], items: list[str], doc_text: str) -> tuple[list
         # 원 금액이 그대로 있으면 근거 글자 그대로 둔다(같은 문서의 다른 기록과 같은 꼴). 11-28 43차 B 한번에: 바꿔 적은 3건이 근거 없음으로
         # 비워져 운영비 22,700→20,600·홍보비 9,800→5,650 으로 모자랐다
         for k, v in list(vals.items()):
-            um = re.search(r"(백만\s*원|천\s*원|만\s*원)", k)
-            if not (um and v and _norm(v) not in body):
+            # 44차: 같은 세 행이 다시 비었다 — 항목이 「지출액(원)」 이라 단위 탓이 아니고 글꼴만 다른 같은 수(「2,100,000원」·「210만」)였다.
+            # 수로 읽어 인용 줄에 같은 수가 글자로 있으면 그 글자로 둔다(단위를 단 항목은 단위만큼 곱한 수도 본다)
+            if not v or _norm(v) in body or not re.search(r"\d", v):
                 continue
             d = number(v)
             if d is None or d <= 0:
                 continue
-            won = int(round(d if re.search(r"[천만억]", v) else d * {"백만": 1_000_000, "천": 1000, "만": 10000}[re.sub(r"\s|원", "", um.group(1))]))
-            for cand in (str(won), f"{won:,}"):
-                if _norm(cand) in span:
-                    vals[k] = cand
-                    break
+            um = re.search(r"(백만\s*원|천\s*원|만\s*원)", k)
+            wons = [d]
+            if um and not re.search(r"[천만억]", v):
+                wons.append(d * {"백만": 1_000_000, "천": 1000, "만": 10000}[re.sub(r"\s|원", "", um.group(1))])
+            nums_ = {number(x.replace(",", "")): x for x in re.findall(r"\d{1,3}(?:,\d{3})+|\d+", span)}
+            hit = next((nums_[w] for w in wons if w in nums_), None)
+            if hit:
+                vals[k] = hit
         off = [k for k, v in vals.items() if v and (_norm(v) not in body or not _label_near(k, v, body) or _label_clash(k, v, body, items))]
         for k in off:
             vals[k] = ""

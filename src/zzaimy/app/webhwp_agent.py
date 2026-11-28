@@ -1317,6 +1317,9 @@ class HwpTools:
             try:
                 m0 = webhwp.meta(self.db, cur)
                 m0["start_texts"] = _eo_st.unit_texts(data)[:1500]
+                m0["start_cells"] = _eo_st.number_cells(data)       # 빈 작업본에 불러 담아도 새 작업본과 같이 — 남은 작년 값·지난해 표 합 견주기
+                if rep.get("past_cells"):
+                    m0["past_cells"] = rep["past_cells"]
                 self.db.set_setting(f"webhwp_meta:{cur}", json.dumps(m0, ensure_ascii=False))
             except Exception:
                 pass
@@ -1332,6 +1335,8 @@ class HwpTools:
         m["session"] = self.sid
         m["start_texts"] = _eo_st.unit_texts(data)[:1500]       # 만들 때 글 — 뒤에 새로 쓴 글과 원래 문서 글을 가린다(leftovers_text)
         m["start_cells"] = _eo_st.number_cells(data)            # 만들 때 수 칸(자리 → 글) — 끝 다시 읽기에서 그대로 남은 작년 값을 자리로 찾는다
+        if rep.get("past_cells"):
+            m["past_cells"] = rep["past_cells"]                 # 옛 값을 비우기 전 지난 문서의 수 칸 — 표끼리 합이 지난해에 같았는지(doc_review.total_mismatches)
         self.db.set_setting(f"webhwp_meta:{fid}", json.dumps(m, ensure_ascii=False))
         self._keep_guides(fid, rep.get("guides") or {})
         attach(self.db, self.sid, fid)

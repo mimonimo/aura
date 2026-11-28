@@ -155,3 +155,17 @@ def test_mismatch_notes_equal_totals_in_past_document():
     assert "지난 문서에서는 이 머리의 두 표 합이 201 로 같았다" in out[0]
     start["4분기|참석자(명)"] = "40\x00표3:4,3"
     assert "지난 문서" not in d.total_mismatches([("과제별", 2, a), ("분기별", 3, b)], None, start)[0]
+
+
+def test_work_form_blank_keeps_past_number_cells(monkeypatch):
+    """44차: 작년 보고서는 사본을 만들 때 수 칸을 비워 start_cells 에 작년 수가 없었다 — 비우기 전 수 칸을 report 에 남긴다."""
+    from zzaimy.app import webhwp_convert as wc, form_blank
+    from zzaimy.app import webhwp_templates as wt
+    from zzaimy.app import webhwp_edit_ops as eo
+    d0, _ = eo.table_insert(wt.build(wt.GRANT["budget_change"]), {"values": [["과제", "참석자(명)"], ["가 과제", "137"], ["나 과제", "64"]]})
+    monkeypatch.setattr(form_blank, "looks_filled", lambda hx: True)
+    monkeypatch.setattr(form_blank, "blank_values", lambda hx: (hx.replace(b"137", b"   ") if isinstance(hx, bytes) else hx, 1))
+    rep: dict = {}
+    wc.work_form(d0, "hwpx", blank=True, report=rep)
+    assert rep.get("blanked") == 1
+    assert any(v.startswith("137") for v in rep.get("past_cells", {}).values())
